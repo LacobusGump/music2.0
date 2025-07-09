@@ -17,7 +17,7 @@
 <body>
   <div id="ui" class="text-center p-4 max-w-md">
     <h1 class="text-3xl font-bold mb-4">Music 2.0: Your Soundtrack</h1>
-    <p class="mb-4">Walk to build your beat, tilt to shape the vibe. Allow motion permissions!</p>
+    <p class="mb-4">Walk to drive the beat, tilt to shape the vibe, shake for drama. Allow motion!</p>
     <button id="startBtn" class="bg-purple-600 hover:bg-purple-700 text-white font-semibold py-2 px-4 rounded-lg transition">Start Music</button>
     <button id="testSoundBtn" class="bg-green-600 hover:bg-green-700 text-white font-semibold py-2 px-4 rounded-lg transition mt-2 retry-btn">Test Sound</button>
     <button id="retryBtn" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-lg transition mt-2 retry-btn">Retry Permissions</button>
@@ -41,7 +41,7 @@
       lastShake: 0,
       lastMotionTime: 0,
       section: 'intro', // intro, build, climax
-      sectionStart: 0,
+      lastSectionUpdate: 0,
       location: null,
       weather: { temp: 20, wind: 10, clouds: 0, condition: 0 },
       weatherTime: 0,
@@ -74,8 +74,7 @@
     function initAudio() {
       synth = new Tone.PolySynth(Tone.Synth, { 
         oscillator: { type: 'sine' }, 
-        envelope: { attack: 0.5, decay: 1, sustain: 0.7, release: 2 },
-        filter: { frequency: 500, type: 'lowpass' }
+        envelope: { attack: 0.5, decay: 1, sustain: 0.7, release: 2 }
       });
       arp = new Tone.PolySynth(Tone.Synth, { 
         oscillator: { type: 'triangle' }, 
@@ -84,8 +83,7 @@
       drums = new Tone.MembraneSynth({ pitchDecay: 0.05, octaves: 10 });
       strings = new Tone.PolySynth(Tone.Synth, { 
         oscillator: { type: 'sine' }, 
-        envelope: { attack: 1, decay: 2, sustain: 0.8, release: 2 },
-        filter: { frequency: 1000, type: 'highpass' }
+        envelope: { attack: 1, decay: 2, sustain: 0.8, release: 2 }
       });
       cymbal = new Tone.MetalSynth({ frequency: 200, envelope: { attack: 0.001, decay: 1, release: 2 } });
       gain = new Tone.Gain(1).toDestination();
@@ -100,16 +98,56 @@
       gain.connect(reverb).connect(meter).connect(analyser).toDestination();
 
       // Initial volumes
-      synth.volume.rampTo(-10, 0.5);
-      arp.volume.rampTo(-15, 0.5);
-      drums.volume.rampTo(-5, 0.5);
-      strings.volume.rampTo(-12, 0.5);
-      cymbal.volume.rampTo(-20, 0.5);
+      synth.volume.value = -10;
+      arp.volume.value = -15;
+      drums.volume.value = -2;
+      strings.volume.value = -12;
+      cymbal.volume.value = -20;
 
       console.log('Audio initialized, context state:', Tone.context.state);
 
-      // Persistent parts
-      updateParts();
+      // Define parts
+      padPart = new Tone.Part((time, chord) => {
+        synth.triggerAttackRelease(chord, '2m', time);
+        console.log('Pad triggered:', chord, 'Level:', meter.getValue(), 'Transport:', Tone.Transport.position);
+      }, [[0, state.shiftedChords[state.chordIndex]]]);
+      padPart.loop = true;
+      padPart.loopEnd = '2m';
+
+      arpPart = new Tone.Part((time, note) => {
+        arp.triggerAttackRelease(note, state.section === 'climax' ? '16n' : '8n', time, 0.5);
+        arp.set({ pan: Math.random() * 0.4 - 0.2 });
+        console.log('Arp note:', note, 'Level:', meter.getValue());
+      }, [
+        ['0:0:0', state.shiftedChords[state.chordIndex][0]],
+        ['0:0:1', state.shiftedChords[state.chordIndex][1]],
+        ['0:0:2', state.shiftedChords[state.chordIndex][2]],
+        ['0:0:3', state.shiftedChords[state.chordIndex][0]]
+      ]);
+      arpPart.loop = true;
+      arpPart.loopEnd = '1n';
+
+      drumPart = new Tone.Part((time, value) => {
+        if (value.kick) drums.triggerAttackRelease(value.kick, '8n', time, 1);
+        if (value.snare) drums.triggerAttackRelease(value.snare, '8n', time, 0.8);
+        if (value.hiHat) drums.triggerAttackRelease(value.hiHat, '16n', time, 0.6);
+        console.log('Drum hit:', value, 'Level:', meter.getValue(), 'Transport:', Tone.Transport.position);
+      }, [
+        ['0:0:0', { kick: 'C2', snare: null, hiHat: null }],
+        ['0:0:2', { kick: null, snare: 'C3', hiHat: null }],
+        ['0:1:0', { kick: 'C2', snare: null, hiHat: null }],
+        ['0:1:2', { kick: null, snare: 'C3', hiHat: null }]
+      ]);
+      drumPart.loop = true;
+      drumPart.loopEnd = '1m';
+
+      stringPart = new Tone.Part((time, notes) => {
+        strings.triggerAttackRelease(notes, '1m', time);
+        strings.set({ pan: Math.random() * 0.4 - 0.2 });
+        console.log('String notes:', notes, 'Level:', meter.getValue());
+      }, [[0, [state.shiftedChords[state.chordIndex][0].replace(/\d/, n => +n + 1)]]]);
+      stringPart.loop = true;
+      stringPart.loopEnd = '1m';
     }
 
     // Test sound
@@ -185,7 +223,7 @@
     // Fetch weather
     async function getWeather(lat, lon) {
       if (state.weatherTime > Date.now() - 60000) return state.weather;
-      const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}¤t=temperature_2m,wind_speed_10m,cloud_cover,weather_code`;
+      const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,wind_speed_10m,cloud_cover,weather_code`;
       try {
         const response = await fetch(url);
         if (!response.ok) throw new Error('Weather fetch failed');
@@ -249,10 +287,14 @@
       cymbal.volume.rampTo(-Infinity, 2);
       setTimeout(() => {
         Tone.Transport.stop();
-        Tone.Transport.cancel();
+        padPart.stop();
+        arpPart.stop();
+        drumPart.stop();
+        stringPart.stop();
         state.isPlaying = false;
         state.section = 'intro';
         state.stepCount = 0;
+        state.chordIndex = 0;
         particles = [];
         statusDiv.textContent = 'No motion detected. Music stopped. Tap Start Music to begin again.';
         sectionStatus.textContent = 'Section: None';
@@ -263,29 +305,28 @@
       }, 2000);
     }
 
-    // Update musical section
+    // Update section
     function updateSection() {
-      const beatsElapsed = Tone.Transport.getTicksAtTime(Tone.now()) / 192; // 192 ticks per beat
-      if (beatsElapsed - state.sectionStart >= 8) {
-        if (state.section === 'intro') {
-          state.section = 'build';
-          state.sectionStart = beatsElapsed;
-          console.log('Section changed to build');
-        } else if (state.section === 'build') {
-          state.section = 'climax';
-          state.sectionStart = beatsElapsed;
-          console.log('Section changed to climax');
-        }
-        sectionStatus.textContent = `Section: ${state.section}`;
-        updateParts();
+      const now = Date.now();
+      if (now - state.lastSectionUpdate < 8000 && state.stepCount < 4) return;
+      if (state.section === 'intro') {
+        state.section = 'build';
+        console.log('Section changed to build');
+      } else if (state.section === 'build') {
+        state.section = 'climax';
+        console.log('Section changed to climax');
       }
+      state.lastSectionUpdate = now;
+      sectionStatus.textContent = `Section: ${state.section}`;
+      updateParts();
     }
 
     // Handle device motion
     function handleMotion(event) {
       if (!state.isPlaying) return;
-      if (Date.now() - state.lastMotionTime < 100) return;
-      state.lastMotionTime = Date.now();
+      const now = Date.now();
+      if (now - state.lastMotionTime < 100) return;
+      state.lastMotionTime = now;
       const gyro = event.rotationRate || {};
       const beta = Math.abs((gyro.beta || 0) / 180 * Math.PI);
       const gamma = Math.abs((gyro.gamma || 0) / 180 * Math.PI);
@@ -295,30 +336,28 @@
       const sensitivity = 1;
       const { vibe } = getTimeParams();
 
-      console.log('Motion detected:', { beta, gamma, totalAccel, permission: typeof DeviceMotionEvent.requestPermission === 'function' ? 'prompt' : 'granted' });
+      console.log('Motion detected:', { beta, gamma, totalAccel, x, permission: typeof DeviceMotionEvent.requestPermission === 'function' ? 'prompt' : 'granted' });
 
       // Tilt controls
-      const filterFreq = (x / 10) * (5000 - 200) + 200;
+      const drumVolume = (x / 10) * (0 - (-10)) - 10;
       const reverbWet = (x / 10) * (0.8 - 0.2) + 0.2;
-      synth.set({ filter: { frequency: filterFreq } });
+      drums.volume.rampTo(drumVolume, 0.5);
       reverb.wet.rampTo(reverbWet, 0.5);
-      synth.volume.rampTo(-10, 0.5);
-      arp.volume.rampTo(state.section === 'intro' ? -Infinity : -15, 0.5);
-      drums.volume.rampTo(state.section === 'intro' ? -Infinity : -5, 0.5);
-      strings.volume.rampTo(state.section !== 'climax' ? -Infinity : -12, 0.5);
-      cymbal.volume.rampTo(-20, 0.5);
+      synth.volume.value = -10;
+      arp.volume.value = state.section === 'intro' ? -Infinity : -15;
+      strings.volume.value = state.section !== 'climax' ? -Infinity : -12;
+      cymbal.volume.value = -20;
 
       // Detect step
-      if ((beta > 0.1 * sensitivity || gamma > 0.1 * sensitivity || totalAccel > 6 * sensitivity) && Date.now() - state.lastStepTime > 300) {
-        const now = Date.now();
+      if ((beta > 0.1 * sensitivity || gamma > 0.1 * sensitivity || totalAccel > 6 * sensitivity) && now - state.lastStepTime > 300) {
         state.recentSteps.push(now);
-        state.recentSteps = state.recentSteps.slice(-5); // Keep last 5 steps
+        state.recentSteps = state.recentSteps.slice(-5);
         if (state.recentSteps.length > 1) {
           const intervals = state.recentSteps.slice(1).map((t, i) => (t - state.recentSteps[i]) / 1000);
           const avgInterval = intervals.reduce((a, b) => a + b, 0) / intervals.length;
           const newBpm = Math.round(60 / avgInterval);
           state.stepBpm = Math.max(80, Math.min(160, newBpm));
-          Tone.Transport.bpm.rampTo(state.stepBpm, 0.2);
+          Tone.Transport.bpm.rampTo(state.stepBpm, 0.5);
           tempoStatus.textContent = `Tempo: ${state.stepBpm} BPM`;
           console.log(`Step detected, BPM: ${state.stepBpm}, Step Count: ${state.stepCount + 1}`);
         }
@@ -330,15 +369,32 @@
       }
 
       // Detect shake
-      if (totalAccel > 6 * sensitivity && Date.now() - state.lastShake > 1000) {
-        state.lastShake = Date.now();
+      if (totalAccel > 6 * sensitivity && now - state.lastShake > 1000) {
+        state.lastShake = now;
         state.chordIndex = (state.chordIndex + 1) % 4;
         addParticle(canvas.width / window.devicePixelRatio * Math.random(), canvas.height / window.devicePixelRatio, vibe);
         cymbal.triggerAttackRelease('C6', '4n', Tone.now());
-        strings.triggerAttackRelease('C5', '16n', Tone.now());
         console.log('Shake detected, chord changed to index:', state.chordIndex);
         updateParts();
       }
+    }
+
+    // Motion fallback
+    function startMotionFallback() {
+      setInterval(() => {
+        if (!state.isPlaying || Date.now() - state.lastMotionTime < 5000) return;
+        state.stepCount++;
+        state.lastStepTime = Date.now();
+        state.recentSteps.push(Date.now());
+        state.recentSteps = state.recentSteps.slice(-5);
+        state.stepBpm = 120; // Default BPM
+        Tone.Transport.bpm.rampTo(state.stepBpm, 0.5);
+        tempoStatus.textContent = `Tempo: ${state.stepBpm} BPM (Fallback)`;
+        console.log(`Fallback step, Step Count: ${state.stepCount}`);
+        addParticle(canvas.width / window.devicePixelRatio / 2, canvas.height / window.devicePixelRatio, state.vibe);
+        drums.triggerAttackRelease('C2', '8n', Tone.now(), 1);
+        updateSection();
+      }, 1000);
     }
 
     // Check for no motion
@@ -351,63 +407,36 @@
 
     // Update parts
     function updateParts() {
-      Tone.Transport.cancel();
       const { vibe } = getTimeParams();
       const chord = state.shiftedChords[state.chordIndex] || ['G4', 'B4', 'D5'];
       const arpSpeed = state.section === 'climax' ? '16n' : '8n';
-      const kickPattern = vibe === 'upbeat' ? ['C2', null, 'C2', null] : ['C2', null, null, null];
-      const snarePattern = vibe === 'upbeat' ? [null, 'C3', null, 'C3'] : [null, null, 'C3', null];
+      const kickPattern = state.section === 'climax' ? ['C2', 'C2', 'C2', 'C2'] : vibe === 'upbeat' ? ['C2', null, 'C2', null] : ['C2', null, null, null];
+      const snarePattern = state.section === 'climax' ? ['C3', null, 'C3', null] : vibe === 'upbeat' ? [null, 'C3', null, 'C3'] : [null, null, 'C3', null];
       const hiHatPattern = state.weather.condition >= 45 ? ['C5', 'C5', 'C5', 'C5'] : [null, 'C5', null, 'C5'];
 
-      padPart = new Tone.Part((time, chord) => {
-        synth.triggerAttackRelease(chord, '2m', time);
-        console.log('Pad triggered:', chord, 'Level:', meter.getValue(), 'Transport:', Tone.Transport.position);
-      }, [[0, chord]]).start(0);
-      padPart.loop = true;
-      padPart.loopEnd = '2m';
-
-      arpPart = new Tone.Part((time, note) => {
-        if (state.section !== 'intro') {
-          arp.triggerAttackRelease(note, arpSpeed, time, 0.5);
-          arp.set({ pan: Math.random() * 0.4 - 0.2 });
-          console.log('Arp note:', note, 'Level:', meter.getValue());
-        }
-      }, [
+      padPart.events = [[0, chord]];
+      arpPart.events = [
         ['0:0:0', chord[0] || 'G4'],
         ['0:0:1', chord[1] || 'B4'],
         ['0:0:2', chord[2] || 'D5'],
         ['0:0:3', chord[0] || 'G4']
-      ]).start(0);
-      arpPart.loop = true;
-      arpPart.loopEnd = '1n';
-
-      drumPart = new Tone.Part((time, value) => {
-        if (state.section !== 'intro') {
-          if (value.kick) drums.triggerAttackRelease(value.kick, '8n', time, 1);
-          if (value.snare) drums.triggerAttackRelease(value.snare, '8n', time, 0.8);
-          if (value.hiHat) drums.triggerAttackRelease(value.hiHat, '16n', time, 0.6);
-          console.log('Drum hit:', value, 'Level:', meter.getValue(), 'Transport:', Tone.Transport.position);
-        }
-      }, [
+      ];
+      drumPart.events = [
         ['0:0:0', { kick: kickPattern[0], snare: snarePattern[0], hiHat: hiHatPattern[0] }],
         ['0:0:2', { kick: kickPattern[1], snare: snarePattern[1], hiHat: hiHatPattern[1] }],
         ['0:1:0', { kick: kickPattern[2], snare: snarePattern[2], hiHat: hiHatPattern[2] }],
         ['0:1:2', { kick: kickPattern[3], snare: snarePattern[3], hiHat: hiHatPattern[3] }]
-      ]).start(0);
-      drumPart.loop = true;
-      drumPart.loopEnd = '1m';
+      ];
+      stringPart.events = state.section === 'climax' ? [[0, chord]] : [[0, [chord[0] || 'G4']]];
+      
+      // Auto-cycle chords
+      if (Tone.Transport.getTicksAtTime(Tone.now()) / 192 - state.lastSectionUpdate / 1000 * state.stepBpm / 60 >= 16) {
+        state.chordIndex = (state.chordIndex + 1) % 4;
+        state.lastSectionUpdate = Date.now();
+        console.log('Auto chord change to index:', state.chordIndex);
+      }
 
-      stringPart = new Tone.Part((time, note) => {
-        if (state.section === 'climax') {
-          strings.triggerAttackRelease(note, '1m', time);
-          strings.set({ pan: Math.random() * 0.4 - 0.2 });
-          console.log('String note:', note, 'Level:', meter.getValue());
-        }
-      }, [[0, (chord[0] || 'G4').replace(/\d/, n => +n + 1)]]).start(0);
-      stringPart.loop = true;
-      stringPart.loopEnd = '1m';
-
-      Tone.Transport.start();
+      console.log('Parts updated, chord:', chord, 'section:', state.section);
     }
 
     // Main music loop
@@ -424,14 +453,14 @@
           chord.map(note => Tone.Frequency(note).transpose(Math.round((weather.temp + 20) / 5)).toNote())
         );
         chordStatus.textContent = `Chord: ${state.shiftedChords[state.chordIndex].join(', ')}`;
-        Tone.Transport.bpm.rampTo(state.stepBpm + weather.wind / 5, 0.2);
-        reverb.wet.rampTo(isRainy ? 0.8 : weather.clouds / 200, 0.5);
+        Tone.Transport.bpm.rampTo(state.stepBpm + weather.wind / 5, 0.5);
+        reverb.wet.value = isRainy ? 0.8 : weather.clouds / 200;
         updateParts();
         statusDiv.textContent = `Temp: ${weather.temp}°C, Wind: ${weather.wind} km/h, Clouds: ${weather.clouds}%, Vibe: ${vibe}`;
       } catch (err) {
         console.error('Error:', err);
         statusDiv.textContent = `Error: ${err.message}. Using fallback data.`;
-        Tone.Transport.bpm.rampTo(state.stepBpm, 0.2);
+        Tone.Transport.bpm.rampTo(state.stepBpm, 0.5);
         updateParts();
       }
 
@@ -448,6 +477,10 @@
         await Tone.start();
         console.log('Tone.js started');
         initAudio();
+        padPart.start(0);
+        arpPart.start(0);
+        drumPart.start(0);
+        stringPart.start(0);
         Tone.Transport.start();
         ui.classList.add('fade-to-black');
         startBtn.textContent = 'Playing...';
@@ -458,10 +491,11 @@
         drawVisualizer();
         state.stepCount = 0;
         state.section = 'intro';
-        state.sectionStart = Tone.Transport.getTicksAtTime(Tone.now()) / 192;
+        state.lastSectionUpdate = Date.now();
         state.lastMotionTime = Date.now();
         sectionStatus.textContent = `Section: ${state.section}`;
         checkNoMotion();
+        startMotionFallback();
 
         if (typeof DeviceMotionEvent.requestPermission === 'function') {
           try {
@@ -470,12 +504,12 @@
               window.addEventListener('devicemotion', handleMotion);
               console.log('Motion permission granted');
             } else {
-              statusDiv.textContent += ' Motion denied. Use Faster/Slower buttons.';
+              statusDiv.textContent += ' Motion denied. Use Faster/Slower buttons or retry.';
               retryBtn.style.display = 'block';
               console.error('Motion permission denied');
             }
           } catch (err) {
-            statusDiv.textContent += ' Motion permission error. Use Faster/Slower buttons.';
+            statusDiv.textContent += ' Motion permission error. Use Faster/Slower buttons or retry.';
             retryBtn.style.display = 'block';
             console.error('Motion permission error:', err);
           }
@@ -529,19 +563,21 @@
 
     fasterBtn.addEventListener('click', () => {
       state.stepBpm = Math.min(160, state.stepBpm + 10);
-      Tone.Transport.bpm.rampTo(state.stepBpm, 0.2);
+      Tone.Transport.bpm.rampTo(state.stepBpm, 0.5);
       tempoStatus.textContent = `Tempo: ${state.stepBpm} BPM`;
       state.lastMotionTime = Date.now();
       console.log('Tempo increased:', state.stepBpm);
+      state.stepCount++;
       updateSection();
     });
 
     slowerBtn.addEventListener('click', () => {
       state.stepBpm = Math.max(80, state.stepBpm - 10);
-      Tone.Transport.bpm.rampTo(state.stepBpm, 0.2);
+      Tone.Transport.bpm.rampTo(state.stepBpm, 0.5);
       tempoStatus.textContent = `Tempo: ${state.stepBpm} BPM`;
       state.lastMotionTime = Date.now();
       console.log('Tempo decreased:', state.stepBpm);
+      state.stepCount++;
       updateSection();
     });
   </script>
