@@ -93,7 +93,7 @@
       // Persistent parts with default events
       padPart = new Tone.Part((time, chord) => {
         synth.triggerAttackRelease(chord, '2m', time);
-        console.log('Pad triggered:', chord, 'Level:', meter.getValue());
+        console.log('Pad triggered:', chord, 'Level:', meter.getValue(), 'Transport:', Tone.Transport.position);
       }, [[0, state.shiftedChords[state.chordIndex]]]).start(0);
       padPart.loop = true;
       padPart.loopEnd = '2m';
@@ -109,17 +109,15 @@
       arpPart.loopEnd = '1n';
 
       drumPart = new Tone.Part((time, value) => {
-        if (value.kick) {
-          drums.triggerAttackRelease(value.kick, '8n', time);
-          console.log('Drum hit:', value, 'Level:', meter.getValue());
-        }
+        if (value.kick) drums.triggerAttackRelease(value.kick, '8n', time);
         if (value.snare) drums.triggerAttackRelease(value.snare, '8n', time);
         if (value.hiHat) strings.triggerAttackRelease(value.hiHat, '16n', time);
+        console.log('Drum hit:', value, 'Level:', meter.getValue(), 'Transport:', Tone.Transport.position);
       }, [
-        [0, { kick: 'C2', snare: null, hiHat: null }],
-        ['4n', { kick: null, snare: 'C3', hiHat: null }],
-        ['2n', { kick: 'C2', snare: null, hiHat: null }],
-        ['2n + 4n', { kick: null, snare: 'C3', hiHat: null }]
+        ['0:0:0', { kick: 'C2', snare: null, hiHat: null }],
+        ['0:0:2', { kick: null, snare: 'C3', hiHat: null }],
+        ['0:1:0', { kick: 'C2', snare: null, hiHat: null }],
+        ['0:1:2', { kick: null, snare: 'C3', hiHat: null }]
       ]).start(0);
       drumPart.loop = true;
       drumPart.loopEnd = '1m';
@@ -133,16 +131,12 @@
       }, [[0, state.shiftedChords[state.chordIndex][0].replace(/\d/, n => +n + 1)]]).start(0);
       stringPart.loop = true;
       stringPart.loopEnd = '1m';
-
-      // Test drum hit
-      drums.triggerAttackRelease('C2', '8n');
-      console.log('Test drum hit: C2');
     }
 
     // Test sound
     function playTestSound() {
       const testSynth = new Tone.Synth().toDestination();
-      testSynth.triggerAttackRelease('C4', '8n');
+      testSynth.triggerAttackRelease('C4', '8n', Tone.now());
       console.log('Test sound triggered, context state:', Tone.context.state);
       statusDiv.textContent = 'Test sound played. If no sound, check device volume or retry.';
     }
@@ -212,7 +206,7 @@
     // Fetch weather
     async function getWeather(lat, lon) {
       if (state.weatherTime > Date.now() - 60000) return state.weather;
-      const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,wind_speed_10m,cloud_cover,weather_code`;
+      const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}¤t=temperature_2m,wind_speed_10m,cloud_cover,weather_code`;
       try {
         const response = await fetch(url);
         if (!response.ok) throw new Error('Weather fetch failed');
@@ -277,16 +271,16 @@
       const accel = event.accelerationIncludingGravity || {};
       const x = Math.abs(accel.x || 0);
       const totalAccel = Math.sqrt((accel.x || 0) ** 2 + (accel.y || 0) ** 2 + (accel.z || 0) ** 2);
-      const sensitivity = 1; // Fixed for reliability
+      const sensitivity = 1;
       const { vibe } = getTimeParams();
 
-      console.log('Motion detected:', { beta, gamma, totalAccel });
+      console.log('Motion detected:', { beta, gamma, totalAccel, permission: typeof DeviceMotionEvent.requestPermission === 'function' ? 'prompt' : 'granted' });
 
       // Tilt controls
-      const filterScale = new Tone.Scale(200, 5000).map(x / 10);
-      const volumeScale = new Tone.Scale(-15, 0).map(x / 10);
-      synth.set({ filter: { frequency: filterScale } });
-      synth.volume.value = volumeScale;
+      const filterFreq = (x / 10) * (5000 - 200) + 200;
+      const volume = (x / 10) * (0 - (-15)) - 15;
+      synth.set({ filter: { frequency: filterFreq } });
+      synth.volume.value = volume;
       arp.volume.value = state.stepCount >= 4 ? -10 : -Infinity;
       drums.volume.value = -10;
       strings.volume.value = state.stepCount >= 8 ? -8 : -Infinity;
@@ -299,7 +293,7 @@
       }
 
       // Detect step
-      if ((beta > 0.2 * sensitivity || gamma > 0.2 * sensitivity || totalAccel > 8 * sensitivity) && Date.now() - state.lastStepTime > 300) {
+      if ((beta > 0.1 * sensitivity || gamma > 0.1 * sensitivity || totalAccel > 6 * sensitivity) && Date.now() - state.lastStepTime > 300) {
         const now = Date.now();
         if (state.lastStepTime > 0) {
           const stepInterval = (now - state.lastStepTime) / 1000;
@@ -312,16 +306,16 @@
         state.lastStepTime = now;
         state.stepCount++;
         addParticle(canvas.width / window.devicePixelRatio / 2, canvas.height / window.devicePixelRatio, vibe);
-        drums.triggerAttackRelease('C2', '8n');
+        drums.triggerAttackRelease('C2', '8n', Tone.now());
       }
 
       // Detect shake
-      if (totalAccel > 8 * sensitivity && Date.now() - state.lastShake > 1000 && state.stepCount > 8) {
+      if (totalAccel > 6 * sensitivity && Date.now() - state.lastShake > 1000 && state.stepCount > 8) {
         state.lastShake = Date.now();
         state.chordIndex = (state.chordIndex + 1) % 4;
         addParticle(canvas.width / window.devicePixelRatio * Math.random(), canvas.height / window.devicePixelRatio, vibe);
-        drums.triggerAttackRelease('C3', '8n');
-        strings.triggerAttackRelease('C5', '16n');
+        drums.triggerAttackRelease('C3', '8n', Tone.now());
+        strings.triggerAttackRelease('C5', '16n', Tone.now());
         console.log('Shake detected, chord changed to index:', state.chordIndex);
       }
     }
@@ -336,10 +330,10 @@
       const snarePattern = vibe === 'upbeat' ? [null, 'C3', null, 'C3'] : [null, null, 'C3', null];
       const hiHatPattern = state.weather.condition >= 45 ? ['C5', 'C5', 'C5', 'C5'] : [null, 'C5', null, 'C5'];
       drumPart.events = [
-        [0, { kick: kickPattern[0], snare: snarePattern[0], hiHat: hiHatPattern[0] }],
-        ['4n', { kick: kickPattern[1], snare: snarePattern[1], hiHat: hiHatPattern[1] }],
-        ['2n', { kick: kickPattern[2], snare: snarePattern[2], hiHat: hiHatPattern[2] }],
-        ['2n + 4n', { kick: kickPattern[3], snare: snarePattern[3], hiHat: hiHatPattern[3] }]
+        ['0:0:0', { kick: kickPattern[0], snare: snarePattern[0], hiHat: hiHatPattern[0] }],
+        ['0:0:2', { kick: kickPattern[1], snare: snarePattern[1], hiHat: hiHatPattern[1] }],
+        ['0:1:0', { kick: kickPattern[2], snare: snarePattern[2], hiHat: hiHatPattern[2] }],
+        ['0:1:2', { kick: kickPattern[3], snare: snarePattern[3], hiHat: hiHatPattern[3] }]
       ];
       stringPart.events = [[0, state.shiftedChords[state.chordIndex][0].replace(/\d/, n => +n + 1)]];
       console.log('Parts updated, chord:', state.shiftedChords[state.chordIndex]);
@@ -411,12 +405,12 @@
               window.addEventListener('devicemotion', handleMotion);
               console.log('Motion permission granted');
             } else {
-              statusDiv.textContent += ' Motion denied. Walk/tilt won’t affect sound.';
+              statusDiv.textContent += ' Motion denied. Walk/tilt won’t affect sound, but music plays.';
               retryBtn.style.display = 'block';
               console.error('Motion permission denied');
             }
           } catch (err) {
-            statusDiv.textContent += ' Motion permission error.';
+            statusDiv.textContent += ' Motion permission error. Music plays without motion.';
             retryBtn.style.display = 'block';
             console.error('Motion permission error:', err);
           }
@@ -457,7 +451,7 @@
             window.addEventListener('devicemotion', handleMotion);
             console.log('Motion permission granted on retry');
           } else {
-            statusDiv.textContent += ' Motion denied. Walk/tilt won’t affect sound.';
+            statusDiv.textContent += ' Motion denied. Walk/tilt won’t affect sound, but music plays.';
             retryBtn.style.display = 'block';
           }
         } catch (err) {
