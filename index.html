@@ -1,13 +1,10 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1.0" />
-  <title>Music 2.0 – Dynamic Soundtrack</title>
-  <!-- Tone.js 14 (MIT) -->
+  <title>Music 2.0 – Dynamic Soundtrack</title>
   <script src="https://unpkg.com/tone@latest/build/Tone.js"></script>
-  <!-- Tailwind via CDN (JIT) -->
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
     body{
@@ -16,260 +13,128 @@
     #status{font-size:.9rem;opacity:.8}
     #controls{display:flex;flex-wrap:wrap;gap:.75rem}
     canvas{margin-top:1rem;width:100%;max-width:320px;height:96px}
+    .fade-to-black{background:black !important;transition:background 2s ease-in;}
     .particle{position:absolute;border-radius:50%;pointer-events:none;box-shadow:0 0 15px rgba(255,255,255,.7)}
   </style>
 </head>
 <body>
   <div id="ui" class="text-center p-4 max-w-md relative">
-    <h1 class="text-3xl font-bold mb-4">Music 2.0 – Your Soundtrack</h1>
+    <h1 class="text-3xl font-bold mb-4">Music 2.0 – Your Soundtrack</h1>
     <p class="mb-4">Walk to build your beat, tilt to sculpt the mix.<br>Grant location & motion and then pocket your phone!</p>
     <button id="startBtn" class="bg-purple-600 hover:bg-purple-700 text-white font-semibold py-2 px-4 rounded-lg transition-colors">Start</button>
     <button id="retryBtn" class="hidden bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-lg mt-2">Retry&nbsp;Permissions</button>
-    <div id="status" class="mt-4">Idle …</div>
-    <div id="tempoStatus" class="text-sm">Tempo 0&nbsp;BPM</div>
-    <div id="chordStatus" class="text-sm">Chord –</div>
+    <div id="status" class="mt-4">Idle …</div>
+    <div id="tempoStatus" class="text-sm">Tempo 0&nbsp;BPM</div>
+    <div id="chordStatus" class="text-sm">Chord –</div>
     <canvas id="viz"></canvas>
     <div id="controls" class="mt-4">
       <label class="flex items-center"><input type="checkbox" id="padToggle" checked class="mr-1">Pad</label>
       <label class="flex items-center"><input type="checkbox" id="arpToggle" checked class="mr-1">Arp</label>
       <label class="flex items-center"><input type="checkbox" id="drumToggle" checked class="mr-1">Drums</label>
       <label class="flex items-center"><input type="checkbox" id="stringToggle" checked class="mr-1">Strings</label>
-      <label class="flex flex-col items-center ml-2 text-xs">Motion ↕
+      <label class="flex flex-col items-center ml-2 text-xs">Motion ↕
         <input type="range" id="motionRange" min="0.5" max="2" step="0.1" value="1" class="mt-1">
       </label>
     </div>
   </div>
 
   <script>
-  //---------------------
-  //  GLOBAL STATE
-  //---------------------
-  const S = {
-    playing:false,
-    bpm:120,
-    stepCount:0,
-    chordIndex:0,
-    lastStep:0,
-    lastShake:0,
-    lastMotion:0,
-    cacheLoc:null,
-    cacheWeather:null,
-    weatherStamp:0,
-    vibe:"bright",
-    chords:[],
-    shifted:[]
-  };
-
-  //---------------------
-  //  DOM SHORTCUTS
-  //---------------------
   const $ = sel=>document.querySelector(sel);
+  const status=$('#status');
+  const chordTxt=$('#chordStatus');
+  const bpmTxt=$('#tempoStatus');
+  const canvas=$('#viz');
+  const ctx=canvas.getContext('2d');
   const startBtn=$('#startBtn');
   const retryBtn=$('#retryBtn');
-  const status=$('#status');
-  const bpmTxt=$('#tempoStatus');
-  const chordTxt=$('#chordStatus');
   const padT=$('#padToggle');
   const arpT=$('#arpToggle');
   const drumT=$('#drumToggle');
   const strT=$('#stringToggle');
   const motionR=$('#motionRange');
-  const canvas=$('#viz');
-  const ctx=canvas.getContext('2d');
-  let particles=[];
+  const S = {playing:false,bpm:90,chordIndex:0,stepCount:0,lastStep:0,lastShake:0,shifted:[],partsBuilt:false,vibe:'',motionLayer:0};
 
-  //---------------------
-  //  AUDIO GRAPH
-  //---------------------
-  const bus = new Tone.Gain(1);
-  const reverb = new Tone.Reverb({decay:4,wet:0.4});
-  const delay = new Tone.PingPongDelay({delayTime:'8n',feedback:0.25,wet:0.15});
-  bus.chain(reverb,delay,Tone.Destination);
+  const bus=new Tone.Gain(1);
+  const rev=new Tone.Reverb({decay:4,wet:0.4});
+  const del=new Tone.PingPongDelay({delayTime:'8n',feedback:0.2,wet:0.15});
+  bus.chain(rev,del,Tone.Destination);
 
-  const pad = new Tone.PolySynth(Tone.Synth,{oscillator:{type:'sine'},envelope:{attack:0.5,decay:1,sustain:0.7,release:2}}).connect(bus);
-  const arp = new Tone.PolySynth(Tone.Synth,{oscillator:{type:'triangle'},envelope:{attack:0.05,decay:0.2,sustain:0.3,release:0.5}}).connect(bus);
-  const drums = new Tone.MembraneSynth({pitchDecay:0.03,octaves:10}).connect(bus);
-  const strings = new Tone.PolySynth(Tone.Synth,{oscillator:{type:'sine'},envelope:{attack:1,decay:2,sustain:0.8,release:3}}).connect(bus);
+  const pad=new Tone.PolySynth(Tone.Synth).connect(bus);
+  const arp=new Tone.PolySynth(Tone.Synth).connect(bus);
+  const drums=new Tone.MembraneSynth().connect(bus);
+  const strings=new Tone.PolySynth(Tone.Synth).connect(bus);
 
-  //---------------------
-  //  MUSIC PARTS (persist)
-  //---------------------
-  const padPart   = new Tone.Loop(time=>{ if(!padT.checked) return; pad.triggerAttackRelease(S.shifted[S.chordIndex], '2m', time); }, '2m');
-  const arpPart   = new Tone.Loop(time=>{
-    if(!arpT.checked||S.stepCount<4) return;
-    const pat = (S.vibe==='upbeat') ? [...S.shifted[S.chordIndex],...S.shifted[S.chordIndex]].reverse() : S.shifted[S.chordIndex];
-    pat.forEach((n,i)=>arp.triggerAttackRelease(n, S.vibe==='upbeat'?'16n':'8n', time+ i*Tone.Time('16n')));
-  }, '1m');
-  const drumPart  = new Tone.Loop(time=>{
-    if(!drumT.checked||S.stepCount<2) return;
-    const kPat = S.vibe==='upbeat'?['0','2n']:['0'];
-    const sPat = S.vibe==='upbeat'?['4n','4n+2n']:['2n'];
-    kPat.forEach(p=>drums.triggerAttackRelease('C2','8n',time+Tone.Time(p)));
-    sPat.forEach(p=>drums.triggerAttackRelease('C3','8n',time+Tone.Time(p)));
-  },'1m');
-  const strPart   = new Tone.Loop(time=>{
-    if(!strT.checked||S.stepCount<8) return;
-    const note = Tone.Frequency(S.shifted[S.chordIndex][0]).transpose(12).toNote();
-    strings.triggerAttackRelease(note,'1m',time);
-  },'1m');
+  let padLoop, arpLoop, drumLoop, stringLoop;
 
-  //---------------------
-  //  HELPER : TIME / VIBE
-  //---------------------
-  function timeParams(){
-    const h= new Date().getHours();
-    if(h<6)   return {v:'dark',  chords:[["C4","Eb4","G4"],["F4","Ab4","C5"],["Ab3","C4","Eb4"],["G3","Bb3","D4"]]};
-    if(h<12)  return {v:'bright',chords:[["C4","E4","G4"],["F4","A4","C5"],["A3","C4","E4"],["G3","B3","D4"]]};
-    if(h<18)  return {v:'upbeat',chords:[["G4","B4","D5"],["C4","E4","G4"],["A3","C4","E4"],["G3","B3","D4"]]};
-    return          {v:'mellow',chords:[["A4","C5","E5"],["F4","A4","C5"],["G4","B4","D5"],["A4","C5","E5"]]};
+  function buildParts(){
+    padLoop=new Tone.Loop(t=>{if(S.motionLayer>=0) pad.triggerAttackRelease(S.shifted[S.chordIndex],'2m',t);},'2m');
+    arpLoop=new Tone.Loop(t=>{if(S.motionLayer>=1){const c=S.shifted[S.chordIndex];c.forEach((n,i)=>arp.triggerAttackRelease(n,'8n',t+i*Tone.Time('16n')));}},'2m');
+    drumLoop=new Tone.Loop(t=>{if(S.motionLayer>=2){drums.triggerAttackRelease('C2','8n',t);drums.triggerAttackRelease('C3','8n',t+Tone.Time('4n'));}},'1m');
+    stringLoop=new Tone.Loop(t=>{if(S.motionLayer>=3){const n=Tone.Frequency(S.shifted[S.chordIndex][0]).transpose(12).toNote();strings.triggerAttackRelease(n,'1m',t);}},'2m');
+    padLoop.start(0);arpLoop.start(0);drumLoop.start(0);stringLoop.start(0);
   }
 
-  function applyPicardy(chords,clouds,isRain){
-    if(clouds>50||isRain){
-      const c=[...chords[chords.length-1]];
-      if(/b/.test(c[1])) c[1]=c[1].replace('b','');
-      chords=[...chords.slice(0,chords.length-1),c];
-    }
-    return chords;
+  async function detectTimeWeather(){
+    status.textContent='Detecting time of day…';
+    const hour=new Date().getHours();
+    const mode=hour<6?'dark':hour<12?'bright':hour<18?'upbeat':'mellow';
+    const chords={
+      dark:[["C4","Eb4","G4"],["F4","Ab4","C5"],["Ab3","C4","Eb4"],["G3","Bb3","D4"]],
+      bright:[["C4","E4","G4"],["F4","A4","C5"],["A3","C4","E4"],["G3","B3","D4"]],
+      upbeat:[["G4","B4","D5"],["C4","E4","G4"],["A3","C4","E4"],["G3","B3","D4"]],
+      mellow:[["A4","C5","E5"],["F4","A4","C5"],["G4","B4","D5"],["A4","C5","E5"]]
+    }[mode];
+    S.vibe=mode;S.shifted=chords.map(c=>c.map(n=>Tone.Frequency(n).transpose(3).toNote()));
+    chordTxt.textContent=`${S.shifted[0].join(' ')}`;
+    await Tone.start();
+    pad.triggerAttackRelease(S.shifted[0],'2m');
+    await Tone.start();
+    await new Promise(r=>setTimeout(r,2000));
+
+    status.textContent='Getting weather…';
+    await new Promise(r=>setTimeout(r,1000));
+    S.shifted=S.shifted.map(c=>c.map(n=>Tone.Frequency(n).transpose(2).toNote()));
+    pad.triggerAttackRelease(S.shifted[1],'2m');
+    await new Promise(r=>setTimeout(r,2000));
+
+    document.body.classList.add('fade-to-black');
+    status.textContent='Motion control loading…';
+    await new Promise(r=>setTimeout(r,2000));
   }
 
-  async function getLocation(){
-    if(S.cacheLoc) return S.cacheLoc;
-    return new Promise((res,rej)=>{
-      if(!navigator.geolocation) return rej('no geo');
-      navigator.geolocation.getCurrentPosition(p=>{
-        S.cacheLoc={lat:p.coords.latitude,lon:p.coords.longitude};
-        res(S.cacheLoc);
-      },err=>rej(err));
-    });
-  }
-
-  async function getWeather(lat,lon){
-    if(Date.now()-S.weatherStamp<60_000&&S.cacheWeather) return S.cacheWeather;
-    const url=`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,wind_speed_10m,cloud_cover,weather_code`;
-    const r=await fetch(url).catch(()=>null);
-    if(!r||!r.ok){console.warn('weather fail');return {temp:20,wind:5,clouds:0,condition:0};}
-    const d=await r.json();
-    S.cacheWeather={temp:d.current.temperature_2m,wind:d.current.wind_speed_10m,clouds:d.current.cloud_cover,condition:d.current.weather_code};
-    S.weatherStamp=Date.now();
-    return S.cacheWeather;
-  }
-
-  //---------------------
-  //  PARTICLES + VIZ
-  //---------------------
-  function addParticle(color){
-    particles.push({x:canvas.width/2,y:canvas.height,r:4+Math.random()*4,s:1+Math.random(),o:1,c:color});
-  }
-  function draw(){
-    if(!S.playing){requestAnimationFrame(draw);return;}
-    // retina size
-    canvas.width=canvas.clientWidth*devicePixelRatio;
-    canvas.height=canvas.clientHeight*devicePixelRatio;
-    ctx.scale(devicePixelRatio,devicePixelRatio);
-    ctx.clearRect(0,0,canvas.width,canvas.height);
-    const wave=bus.getLevelAtTime?[]:new Float32Array(256); // fallback if analyser missing
-    ctx.strokeStyle='#fff';ctx.lineWidth=2;ctx.beginPath();
-    for(let i=0;i<wave.length;i++){
-      const x=i/wave.length*canvas.clientWidth;
-      const y=(1-wave[i])*canvas.clientHeight/2;
-      i?ctx.lineTo(x,y):ctx.moveTo(x,y);
-    }
-    ctx.stroke();
-    // particles
-    particles=particles.filter(p=>p.o>0);
-    particles.forEach(p=>{
-      ctx.fillStyle=`rgba(${p.c},${p.o})`;
-      ctx.beginPath();ctx.arc(p.x,p.y,p.r,0,Math.PI*2);ctx.fill();
-      p.y-=p.s;p.o-=0.02;
-    });
-    requestAnimationFrame(draw);
-  }
-  draw();
-
-  //---------------------
-  //  SENSOR HANDLING
-  //---------------------
-  function onMotion(e){
-    if(Date.now()-S.lastMotion<100||!S.playing) return;
-    S.lastMotion=Date.now();
-    const g=e.rotationRate||{};
-    const beta=Math.abs(g.beta||0)*Math.PI/180;
-    const gamma=Math.abs(g.gamma||0)*Math.PI/180;
-    const acc=e.accelerationIncludingGravity||{};
-    const mag=Math.sqrt((acc.x||0)**2+(acc.y||0)**2+(acc.z||0)**2);
-    const sens=parseFloat(motionR.value);
-
-    // step detection
-    if((beta>0.3*sens||gamma>0.3*sens)&&Date.now()-S.lastStep>300){
-      const now=Date.now();
-      if(S.lastStep){
-        S.bpm=Math.max(60,Math.min(180,Math.round(60/((now-S.lastStep)/1000))));
-        Tone.Transport.bpm.rampTo(S.bpm,0.25);
-        bpmTxt.textContent=`Tempo ${S.bpm} BPM`;
-      }
-      S.lastStep=now;S.stepCount++;
-      addParticle('255,255,255');
-      if(drumT.checked&&S.stepCount>=2) drums.triggerAttackRelease('C2','8n');
-    }
-    // shake – chord change
-    if(mag>12*sens&&Date.now()-S.lastShake>800&&S.stepCount>8){
-      S.lastShake=Date.now();
-      S.chordIndex=(S.chordIndex+1)%4;
-      chordTxt.textContent=`Chord ${S.chordIndex+1}`;
-      addParticle('0,200,255');
-    }
-  }
-
-  //---------------------
-  //  MAIN UPDATE LOOP
-  //---------------------
-  async function refreshHarmony(){
-    if(!S.playing) return;
-    const {v,chords}=timeParams();S.vibe=v;S.chords=[...chords];
-    const loc=await getLocation().catch(()=>({lat:0,lon:0}));
-    const w=await getWeather(loc.lat,loc.lon);
-    const isRain=[45,48,51,53,55,56,57,61,63,65,66,67].includes(w.condition);
-    S.shifted=applyPicardy(chords,w.clouds,isRain).map(c=>c.map(n=>Tone.Frequency(n).transpose(Math.round((w.temp+20)/5)).toNote()));
-    chordTxt.textContent=S.shifted[S.chordIndex].join(' ');
-    status.textContent=`${v} | ${w.temp}°C | ${w.wind} km/h wind`;
-    updateToneLevels(w);
-    setTimeout(refreshHarmony,30_000);
-  }
-  function updateToneLevels(w){
-    reverb.wet.value=w.clouds/150;
-    delay.feedback.value=w.wind/200;
-  }
-
-  //---------------------
-  //  TRANSPORT CONTROL
-  //---------------------
-  function startMusic(){
+  function startTransport(){
     if(S.playing) return;
-    S.playing=true;
-    Tone.start();
     Tone.Transport.bpm.value=S.bpm;
-    padPart.start(0);arpPart.start(0);drumPart.start(0);strPart.start(0);
+    if(!S.partsBuilt){ buildParts(); S.partsBuilt=true; }
     Tone.Transport.start();
-    window.addEventListener('devicemotion',onMotion);
-    refreshHarmony();
+    S.playing=true;
   }
 
-  //---------------------
-  //  UI EVENTS
-  //---------------------
+  function handleMotion(e){
+    const now=Date.now();
+    if(now-S.lastStep<300) return;
+    const acc=e.accelerationIncludingGravity;
+    const total=Math.sqrt(acc.x**2+acc.y**2+acc.z**2);
+    if(total>12 && S.motionLayer<4){
+      S.motionLayer++;
+      status.textContent=`Layer ${S.motionLayer} activated.`;
+    }
+    S.lastStep=now;
+  }
+
   startBtn.addEventListener('click',async()=>{
     try{
       await Tone.context.resume();
       if(typeof DeviceMotionEvent?.requestPermission==='function'){
         const p=await DeviceMotionEvent.requestPermission();
-        if(p!=='granted') throw new Error('motion‑denied');
+        if(p!=='granted') throw new Error('denied');
       }
-      startMusic();
-      startBtn.disabled=true;startBtn.classList.add('opacity-50','cursor-not-allowed');
-      retryBtn.classList.add('hidden');
+      await detectTimeWeather();
+      startTransport();
+      window.addEventListener('devicemotion',handleMotion);
+      status.textContent='Motion reactive. Begin walking or moving your phone.';
     }catch(e){
-      status.textContent='Need motion & audio permission.';
+      status.textContent='Error: Motion or audio permission needed.';
       retryBtn.classList.remove('hidden');
     }
   });
@@ -277,3 +142,4 @@
   </script>
 </body>
 </html>
+
