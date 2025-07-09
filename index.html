@@ -1,467 +1,279 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Music 2.0: Cinematic Soundtrack</title>
-  <script src="https://unpkg.com/tone@14.7.77/build/Tone.js"></script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+  <title>Music 2.0 – Dynamic Soundtrack</title>
+  <!-- Tone.js 14 (MIT) -->
+  <script src="https://unpkg.com/tone@latest/build/Tone.js"></script>
+  <!-- Tailwind via CDN (JIT) -->
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
-    body { margin: 0; min-height: 100vh; display: flex; flex-direction: column; justify-content: center; align-items: center; background: linear-gradient(to bottom, #1e3a8a, #7c3aed); color: white; transition: background 1s; }
-    #status { font-size: 0.9rem; opacity: 0.8; }
-    #controls { display: flex; flex-wrap: wrap; gap: 1rem; }
-    canvas { margin-top: 1rem; width: 100%; max-width: 300px; height: 100px; }
-    .fade-to-black { background: black !important; }
-    .particle { position: absolute; border-radius: 50%; pointer-events: none; box-shadow: 0 0 15px rgba(255, 255, 255, 0.7); }
-    .retry-btn { display: none; }
+    body{
+      @apply m-0 min-h-screen flex flex-col justify-center items-center text-white bg-gradient-to-b from-blue-900 to-purple-600 transition-colors duration-1000;
+    }
+    #status{font-size:.9rem;opacity:.8}
+    #controls{display:flex;flex-wrap:wrap;gap:.75rem}
+    canvas{margin-top:1rem;width:100%;max-width:320px;height:96px}
+    .particle{position:absolute;border-radius:50%;pointer-events:none;box-shadow:0 0 15px rgba(255,255,255,.7)}
   </style>
 </head>
 <body>
-  <div id="ui" class="text-center p-4 max-w-md">
-    <h1 class="text-3xl font-bold mb-4">Music 2.0: Your Soundtrack</h1>
-    <p class="mb-4">Walk to build your beat, tilt to shape the vibe. Allow location and motion. Pocket your phone!</p>
-    <button id="startBtn" class="bg-purple-600 hover:bg-purple-700 text-white font-semibold py-2 px-4 rounded-lg transition">Start Music</button>
-    <button id="retryBtn" class="retry-btn bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-lg transition mt-2">Retry Permissions</button>
-    <div id="status" class="mt-4">Waiting to start...</div>
-    <div id="tempoStatus" class="mt-2 text-sm">Walking Tempo: 0 BPM</div>
-    <div id="chordStatus" class="mt-2 text-sm">Chord: None</div>
-    <canvas id="visualizer"></canvas>
+  <div id="ui" class="text-center p-4 max-w-md relative">
+    <h1 class="text-3xl font-bold mb-4">Music 2.0 – Your Soundtrack</h1>
+    <p class="mb-4">Walk to build your beat, tilt to sculpt the mix.<br>Grant location & motion and then pocket your phone!</p>
+    <button id="startBtn" class="bg-purple-600 hover:bg-purple-700 text-white font-semibold py-2 px-4 rounded-lg transition-colors">Start</button>
+    <button id="retryBtn" class="hidden bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-lg mt-2">Retry&nbsp;Permissions</button>
+    <div id="status" class="mt-4">Idle …</div>
+    <div id="tempoStatus" class="text-sm">Tempo 0&nbsp;BPM</div>
+    <div id="chordStatus" class="text-sm">Chord –</div>
+    <canvas id="viz"></canvas>
     <div id="controls" class="mt-4">
-      <label class="flex items-center"><input type="checkbox" id="padToggle" checked class="mr-2"> Ambient Pad</label>
-      <label class="flex items-center"><input type="checkbox" id="arpToggle" checked class="mr-2"> Arpeggio</label>
-      <label class="flex items-center"><input type="checkbox" id="drumToggle" checked class="mr-2"> Drums</label>
-      <label class="flex items-center"><input type="checkbox" id="stringToggle" checked class="mr-2"> Strings</label>
-      <label class="flex items-center flex-col">
-        Motion Sensitivity
-        <input type="range" id="motionSensitivity" min="0.5" max="2" step="0.1" value="1" class="mt-2">
+      <label class="flex items-center"><input type="checkbox" id="padToggle" checked class="mr-1">Pad</label>
+      <label class="flex items-center"><input type="checkbox" id="arpToggle" checked class="mr-1">Arp</label>
+      <label class="flex items-center"><input type="checkbox" id="drumToggle" checked class="mr-1">Drums</label>
+      <label class="flex items-center"><input type="checkbox" id="stringToggle" checked class="mr-1">Strings</label>
+      <label class="flex flex-col items-center ml-2 text-xs">Motion ↕
+        <input type="range" id="motionRange" min="0.5" max="2" step="0.1" value="1" class="mt-1">
       </label>
     </div>
   </div>
 
   <script>
-    // State management
-    const state = {
-      isPlaying: false,
-      stepBpm: 120,
-      stepCount: 0,
-      chordIndex: 0,
-      lastStepTime: 0,
-      lastShake: 0,
-      lastMotion: 0,
-      location: null,
-      weather: { temp: 20, wind: 10, clouds: 0, condition: 0 },
-      weatherTime: 0,
-      vibe: 'bright',
-      chords: [['C4', 'E4', 'G4'], ['F4', 'A4', 'C5'], ['A3', 'C4', 'E4'], ['G3', 'B3', 'D4']],
-      shiftedChords: [['C4', 'E4', 'G4'], ['F4', 'A4', 'C5'], ['A3', 'C4', 'E4'], ['G3', 'B3', 'D4']]
-    };
+  //---------------------
+  //  GLOBAL STATE
+  //---------------------
+  const S = {
+    playing:false,
+    bpm:120,
+    stepCount:0,
+    chordIndex:0,
+    lastStep:0,
+    lastShake:0,
+    lastMotion:0,
+    cacheLoc:null,
+    cacheWeather:null,
+    weatherStamp:0,
+    vibe:"bright",
+    chords:[],
+    shifted:[]
+  };
 
-    // DOM elements
-    const startBtn = document.getElementById('startBtn');
-    const retryBtn = document.getElementById('retryBtn');
-    const statusDiv = document.getElementById('status');
-    const tempoStatus = document.getElementById('tempoStatus');
-    const chordStatus = document.getElementById('chordStatus');
-    const ui = document.getElementById('ui');
-    const padToggle = document.getElementById('padToggle');
-    const arpToggle = document.getElementById('arpToggle');
-    const drumToggle = document.getElementById('drumToggle');
-    const stringToggle = document.getElementById('stringToggle');
-    const motionSensitivity = document.getElementById('motionSensitivity');
-    const canvas = document.getElementById('visualizer');
-    const ctx = canvas.getContext('2d');
+  //---------------------
+  //  DOM SHORTCUTS
+  //---------------------
+  const $ = sel=>document.querySelector(sel);
+  const startBtn=$('#startBtn');
+  const retryBtn=$('#retryBtn');
+  const status=$('#status');
+  const bpmTxt=$('#tempoStatus');
+  const chordTxt=$('#chordStatus');
+  const padT=$('#padToggle');
+  const arpT=$('#arpToggle');
+  const drumT=$('#drumToggle');
+  const strT=$('#stringToggle');
+  const motionR=$('#motionRange');
+  const canvas=$('#viz');
+  const ctx=canvas.getContext('2d');
+  let particles=[];
 
-    // Audio components
-    let synth, arp, drums, strings, gain, reverb, delay, sidechain, analyser, meter;
-    let padPart, arpPart, drumPart, stringPart;
+  //---------------------
+  //  AUDIO GRAPH
+  //---------------------
+  const bus = new Tone.Gain(1);
+  const reverb = new Tone.Reverb({decay:4,wet:0.4});
+  const delay = new Tone.PingPongDelay({delayTime:'8n',feedback:0.25,wet:0.15});
+  bus.chain(reverb,delay,Tone.Destination);
 
-    // Initialize audio
-    function initAudio() {
-      synth = new Tone.PolySynth(Tone.Synth, { 
-        oscillator: { type: 'sine' }, 
-        envelope: { attack: 0.5, decay: 1, sustain: 0.7, release: 2 },
-        filter: { frequency: 500, type: 'lowpass' }
-      });
-      arp = new Tone.PolySynth(Tone.Synth, { 
-        oscillator: { type: 'triangle' }, 
-        envelope: { attack: 0.1, decay: 0.2, sustain: 0.3, release: 0.5 }
-      });
-      drums = new Tone.MembraneSynth({ pitchDecay: 0.05, octaves: 10 });
-      strings = new Tone.PolySynth(Tone.Synth, { 
-        oscillator: { type: 'sine' }, 
-        envelope: { attack: 1, decay: 2, sustain: 0.8, release: 3 },
-        filter: { frequency: 1000, type: 'highpass' }
-      });
-      gain = new Tone.Gain(1).toDestination();
-      reverb = new Tone.Reverb({ decay: 4, wet: 0.5 }).toDestination();
-      delay = new Tone.PingPongDelay({ delayTime: '8n', feedback: 0.3, wet: 0.2 });
-      sidechain = new Tone.Envelope({ attack: 0.01, decay: 0.1, sustain: 0, release: 0.1 });
-      analyser = new Tone.Analyser('waveform', 128);
-      meter = new Tone.Meter();
-      synth.connect(gain);
-      arp.connect(gain);
-      drums.connect(gain);
-      strings.connect(gain);
-      gain.connect(sidechain).connect(reverb).connect(delay).connect(meter).connect(analyser).toDestination();
-      console.log('Audio initialized');
+  const pad = new Tone.PolySynth(Tone.Synth,{oscillator:{type:'sine'},envelope:{attack:0.5,decay:1,sustain:0.7,release:2}}).connect(bus);
+  const arp = new Tone.PolySynth(Tone.Synth,{oscillator:{type:'triangle'},envelope:{attack:0.05,decay:0.2,sustain:0.3,release:0.5}}).connect(bus);
+  const drums = new Tone.MembraneSynth({pitchDecay:0.03,octaves:10}).connect(bus);
+  const strings = new Tone.PolySynth(Tone.Synth,{oscillator:{type:'sine'},envelope:{attack:1,decay:2,sustain:0.8,release:3}}).connect(bus);
 
-      // Create persistent parts
-      padPart = new Tone.Part((time, chord) => {
-        if (padToggle.checked) {
-          synth.triggerAttackRelease(chord, '2m', time);
-          console.log('Pad triggered:', chord);
-        }
-      }, [[0, state.shiftedChords[state.chordIndex]]]);
-      padPart.loop = true;
-      padPart.loopEnd = '2m';
+  //---------------------
+  //  MUSIC PARTS (persist)
+  //---------------------
+  const padPart   = new Tone.Loop(time=>{ if(!padT.checked) return; pad.triggerAttackRelease(S.shifted[S.chordIndex], '2m', time); }, '2m');
+  const arpPart   = new Tone.Loop(time=>{
+    if(!arpT.checked||S.stepCount<4) return;
+    const pat = (S.vibe==='upbeat') ? [...S.shifted[S.chordIndex],...S.shifted[S.chordIndex]].reverse() : S.shifted[S.chordIndex];
+    pat.forEach((n,i)=>arp.triggerAttackRelease(n, S.vibe==='upbeat'?'16n':'8n', time+ i*Tone.Time('16n')));
+  }, '1m');
+  const drumPart  = new Tone.Loop(time=>{
+    if(!drumT.checked||S.stepCount<2) return;
+    const kPat = S.vibe==='upbeat'?['0','2n']:['0'];
+    const sPat = S.vibe==='upbeat'?['4n','4n+2n']:['2n'];
+    kPat.forEach(p=>drums.triggerAttackRelease('C2','8n',time+Tone.Time(p)));
+    sPat.forEach(p=>drums.triggerAttackRelease('C3','8n',time+Tone.Time(p)));
+  },'1m');
+  const strPart   = new Tone.Loop(time=>{
+    if(!strT.checked||S.stepCount<8) return;
+    const note = Tone.Frequency(S.shifted[S.chordIndex][0]).transpose(12).toNote();
+    strings.triggerAttackRelease(note,'1m',time);
+  },'1m');
 
-      arpPart = new Tone.Part((time, note) => {
-        if (arpToggle.checked && state.stepCount >= 4) {
-          arp.triggerAttackRelease(note, state.vibe === 'upbeat' ? '16n' : '8n', time, 0.5);
-          arp.set({ pan: Math.random() * 0.4 - 0.2 });
-          console.log('Arp note:', note);
-        }
-      }, []);
-      arpPart.loop = true;
-      arpPart.loopEnd = '1n';
+  //---------------------
+  //  HELPER : TIME / VIBE
+  //---------------------
+  function timeParams(){
+    const h= new Date().getHours();
+    if(h<6)   return {v:'dark',  chords:[["C4","Eb4","G4"],["F4","Ab4","C5"],["Ab3","C4","Eb4"],["G3","Bb3","D4"]]};
+    if(h<12)  return {v:'bright',chords:[["C4","E4","G4"],["F4","A4","C5"],["A3","C4","E4"],["G3","B3","D4"]]};
+    if(h<18)  return {v:'upbeat',chords:[["G4","B4","D5"],["C4","E4","G4"],["A3","C4","E4"],["G3","B3","D4"]]};
+    return          {v:'mellow',chords:[["A4","C5","E5"],["F4","A4","C5"],["G4","B4","D5"],["A4","C5","E5"]]};
+  }
 
-      drumPart = new Tone.Part((time, value) => {
-        if (drumToggle.checked && state.stepCount >= 2) {
-          if (value.kick) {
-            drums.triggerAttackRelease(value.kick, '8n', time);
-            sidechain.triggerAttackRelease(0.5, time);
-          }
-          if (value.snare) drums.triggerAttackRelease(value.snare, '8n', time);
-          if (value.hiHat) strings.triggerAttackRelease(value.hiHat, '16n', time);
-          console.log('Drum hit:', value);
-        }
-      }, []);
-      drumPart.loop = true;
-      drumPart.loopEnd = '1m';
-
-      stringPart = new Tone.Part((time, note) => {
-        if (stringToggle.checked && state.stepCount >= 8) {
-          strings.triggerAttackRelease(note, '1m', time);
-          console.log('String note:', note);
-        }
-      }, []);
-      stringPart.loop = true;
-      stringPart.loopEnd = '1m';
+  function applyPicardy(chords,clouds,isRain){
+    if(clouds>50||isRain){
+      const c=[...chords[chords.length-1]];
+      if(/b/.test(c[1])) c[1]=c[1].replace('b','');
+      chords=[...chords.slice(0,chords.length-1),c];
     }
+    return chords;
+  }
 
-    // Visualizer and particles
-    function drawVisualizer() {
-      if (!state.isPlaying) return;
-      canvas.width = canvas.clientWidth * window.devicePixelRatio;
-      canvas.height = canvas.clientHeight * window.devicePixelRatio;
-      ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
-      const values = analyser.getValue();
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.beginPath();
-      ctx.strokeStyle = `hsl(${state.vibe === 'dark' ? 240 : state.vibe === 'bright' ? 60 : state.vibe === 'upbeat' ? 0 : 120}, 70%, 70%)`;
-      ctx.lineWidth = 2;
-      for (let i = 0; i < values.length; i++) {
-        const x = (i / values.length) * canvas.width / window.devicePixelRatio;
-        const y = (1 - values[i]) * canvas.height / window.devicePixelRatio / 2;
-        if (i === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
+  async function getLocation(){
+    if(S.cacheLoc) return S.cacheLoc;
+    return new Promise((res,rej)=>{
+      if(!navigator.geolocation) return rej('no geo');
+      navigator.geolocation.getCurrentPosition(p=>{
+        S.cacheLoc={lat:p.coords.latitude,lon:p.coords.longitude};
+        res(S.cacheLoc);
+      },err=>rej(err));
+    });
+  }
+
+  async function getWeather(lat,lon){
+    if(Date.now()-S.weatherStamp<60_000&&S.cacheWeather) return S.cacheWeather;
+    const url=`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,wind_speed_10m,cloud_cover,weather_code`;
+    const r=await fetch(url).catch(()=>null);
+    if(!r||!r.ok){console.warn('weather fail');return {temp:20,wind:5,clouds:0,condition:0};}
+    const d=await r.json();
+    S.cacheWeather={temp:d.current.temperature_2m,wind:d.current.wind_speed_10m,clouds:d.current.cloud_cover,condition:d.current.weather_code};
+    S.weatherStamp=Date.now();
+    return S.cacheWeather;
+  }
+
+  //---------------------
+  //  PARTICLES + VIZ
+  //---------------------
+  function addParticle(color){
+    particles.push({x:canvas.width/2,y:canvas.height,r:4+Math.random()*4,s:1+Math.random(),o:1,c:color});
+  }
+  function draw(){
+    if(!S.playing){requestAnimationFrame(draw);return;}
+    // retina size
+    canvas.width=canvas.clientWidth*devicePixelRatio;
+    canvas.height=canvas.clientHeight*devicePixelRatio;
+    ctx.scale(devicePixelRatio,devicePixelRatio);
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    const wave=bus.getLevelAtTime?[]:new Float32Array(256); // fallback if analyser missing
+    ctx.strokeStyle='#fff';ctx.lineWidth=2;ctx.beginPath();
+    for(let i=0;i<wave.length;i++){
+      const x=i/wave.length*canvas.clientWidth;
+      const y=(1-wave[i])*canvas.clientHeight/2;
+      i?ctx.lineTo(x,y):ctx.moveTo(x,y);
+    }
+    ctx.stroke();
+    // particles
+    particles=particles.filter(p=>p.o>0);
+    particles.forEach(p=>{
+      ctx.fillStyle=`rgba(${p.c},${p.o})`;
+      ctx.beginPath();ctx.arc(p.x,p.y,p.r,0,Math.PI*2);ctx.fill();
+      p.y-=p.s;p.o-=0.02;
+    });
+    requestAnimationFrame(draw);
+  }
+  draw();
+
+  //---------------------
+  //  SENSOR HANDLING
+  //---------------------
+  function onMotion(e){
+    if(Date.now()-S.lastMotion<100||!S.playing) return;
+    S.lastMotion=Date.now();
+    const g=e.rotationRate||{};
+    const beta=Math.abs(g.beta||0)*Math.PI/180;
+    const gamma=Math.abs(g.gamma||0)*Math.PI/180;
+    const acc=e.accelerationIncludingGravity||{};
+    const mag=Math.sqrt((acc.x||0)**2+(acc.y||0)**2+(acc.z||0)**2);
+    const sens=parseFloat(motionR.value);
+
+    // step detection
+    if((beta>0.3*sens||gamma>0.3*sens)&&Date.now()-S.lastStep>300){
+      const now=Date.now();
+      if(S.lastStep){
+        S.bpm=Math.max(60,Math.min(180,Math.round(60/((now-S.lastStep)/1000))));
+        Tone.Transport.bpm.rampTo(S.bpm,0.25);
+        bpmTxt.textContent=`Tempo ${S.bpm} BPM`;
       }
-      ctx.stroke();
-
-      particles = particles.filter(p => p.opacity > 0);
-      particles.forEach(p => {
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(${p.color}, ${p.opacity})`;
-        ctx.fill();
-        p.y -= p.speed;
-        p.opacity -= 0.02;
-      });
-      requestAnimationFrame(drawVisualizer);
+      S.lastStep=now;S.stepCount++;
+      addParticle('255,255,255');
+      if(drumT.checked&&S.stepCount>=2) drums.triggerAttackRelease('C2','8n');
     }
-
-    function addParticle(x, y, vibe) {
-      const colors = { dark: '0, 100, 255', bright: '255, 255, 100', upbeat: '255, 100, 100', mellow: '100, 255, 100' };
-      particles.push({
-        x, y, radius: 5 + Math.random() * 5,
-        speed: 1 + Math.random(),
-        opacity: 1,
-        color: colors[vibe] || '255, 255, 255'
-      });
+    // shake – chord change
+    if(mag>12*sens&&Date.now()-S.lastShake>800&&S.stepCount>8){
+      S.lastShake=Date.now();
+      S.chordIndex=(S.chordIndex+1)%4;
+      chordTxt.textContent=`Chord ${S.chordIndex+1}`;
+      addParticle('0,200,255');
     }
+  }
 
-    // Get user location
-    async function getLocation() {
-      if (state.location) return state.location;
-      try {
-        const pos = await new Promise((resolve, reject) => {
-          if (!navigator.geolocation) reject('Geolocation not supported');
-          navigator.geolocation.getCurrentPosition(resolve, reject);
-        });
-        state.location = { lat: pos.coords.latitude, lon: pos.coords.longitude };
-        retryBtn.style.display = 'none';
-        return state.location;
-      } catch (err) {
-        console.error('Location error:', err);
-        statusDiv.textContent = `Location error: ${err.message}. Using fallback data.`;
-        retryBtn.style.display = 'block';
-        throw err;
-      }
-    }
+  //---------------------
+  //  MAIN UPDATE LOOP
+  //---------------------
+  async function refreshHarmony(){
+    if(!S.playing) return;
+    const {v,chords}=timeParams();S.vibe=v;S.chords=[...chords];
+    const loc=await getLocation().catch(()=>({lat:0,lon:0}));
+    const w=await getWeather(loc.lat,loc.lon);
+    const isRain=[45,48,51,53,55,56,57,61,63,65,66,67].includes(w.condition);
+    S.shifted=applyPicardy(chords,w.clouds,isRain).map(c=>c.map(n=>Tone.Frequency(n).transpose(Math.round((w.temp+20)/5)).toNote()));
+    chordTxt.textContent=S.shifted[S.chordIndex].join(' ');
+    status.textContent=`${v} | ${w.temp}°C | ${w.wind} km/h wind`;
+    updateToneLevels(w);
+    setTimeout(refreshHarmony,30_000);
+  }
+  function updateToneLevels(w){
+    reverb.wet.value=w.clouds/150;
+    delay.feedback.value=w.wind/200;
+  }
 
-    // Fetch weather
-    async function getWeather(lat, lon) {
-      if (state.weatherTime > Date.now() - 60000) return state.weather;
-      const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}¤t=temperature_2m,wind_speed_10m,cloud_cover,weather_code`;
-      try {
-        const response = await fetch(url);
-        if (!response.ok) throw new Error('Weather fetch failed');
-        const data = await response.json();
-        state.weather = {
-          temp: data.current.temperature_2m,
-          wind: data.current.wind_speed_10m,
-          clouds: data.current.cloud_cover,
-          condition: data.current.weather_code
-        };
-        state.weatherTime = Date.now();
-        retryBtn.style.display = 'none';
-        return state.weather;
-      } catch (err) {
-        console.error('Weather fetch failed:', err);
-        statusDiv.textContent = `Weather error: ${err.message}. Using fallback data.`;
-        retryBtn.style.display = 'block';
-        return state.weather;
-      }
-    }
+  //---------------------
+  //  TRANSPORT CONTROL
+  //---------------------
+  function startMusic(){
+    if(S.playing) return;
+    S.playing=true;
+    Tone.start();
+    Tone.Transport.bpm.value=S.bpm;
+    padPart.start(0);arpPart.start(0);drumPart.start(0);strPart.start(0);
+    Tone.Transport.start();
+    window.addEventListener('devicemotion',onMotion);
+    refreshHarmony();
+  }
 
-    // Get time-based scale and vibe
-    function getTimeParams() {
-      const hour = new Date().getHours();
-      if (hour < 6) return { 
-        scale: ['C4', 'Eb4', 'G4', 'Bb4'], 
-        vibe: 'dark', 
-        chords: [['C4', 'Eb4', 'G4'], ['F4', 'Ab4', 'C5'], ['Ab3', 'C4', 'Eb4'], ['G3', 'Bb3', 'D4']] // i-iv-bVI-v
-      };
-      if (hour < 12) return { 
-        scale: ['C4', 'E4', 'G4', 'B4'], 
-        vibe: 'bright', 
-        chords: [['C4', 'E4', 'G4'], ['F4', 'A4', 'C5'], ['A3', 'C4', 'E4'], ['G3', 'B3', 'D4']] // I-IV-vi-V
-      };
-      if (hour < 18) return { 
-        scale: ['G4', 'A4', 'B4', 'D5'], 
-        vibe: 'upbeat', 
-        chords: [['G4', 'B4', 'D5'], ['C4', 'E4', 'G4'], ['A3', 'C4', 'E4'], ['G3', 'B3', 'D4']] // I-IV-vi-V
-      };
-      return { 
-        scale: ['A4', 'C5', 'E5', 'G5'], 
-        vibe: 'mellow', 
-        chords: [['A4', 'C5', 'E5'], ['F4', 'A4', 'C5'], ['G4', 'B4', 'D5'], ['A4', 'C5', 'E5']] // i-bVI-bVII-i
-      };
-    }
-
-    // Apply Picardy third
-    function applyPicardyThird(chords, clouds, isRainy) {
-      if (clouds > 50 || isRainy) {
-        const lastChord = chords[chords.length - 1];
-        if (lastChord[1].includes('b')) {
-          lastChord[1] = lastChord[1].replace('b', '');
-          console.log('Applied Picardy third');
-        }
-      }
-      return chords;
-    }
-
-    // Handle device motion
-    function handleMotion(event) {
-      if (!state.isPlaying || Date.now() - state.lastMotion < 100) return;
-      state.lastMotion = Date.now();
-      const gyro = event.rotationRate || {};
-      const beta = Math.abs((gyro.beta || 0) / 180 * Math.PI);
-      const gamma = Math.abs((gyro.gamma || 0) / 180 * Math.PI);
-      const accel = event.accelerationIncludingGravity || {};
-      const x = Math.abs(accel.x || 0);
-      const totalAccel = Math.sqrt((accel.x || 0) ** 2 + (accel.y || 0) ** 2 + (accel.z || 0) ** 2);
-      const sensitivity = parseFloat(motionSensitivity.value);
-      const { vibe } = getTimeParams();
-
-      // Tilt controls
-      const filterScale = new Tone.Scale(200, 5000).map(x / 10);
-      const volumeScale = new Tone.Scale(-15, 0).map(x / 10);
-      synth.set({ filter: { frequency: filterScale } });
-      synth.volume.value = padToggle.checked ? volumeScale : -Infinity;
-      arp.volume.value = arpToggle.checked && state.stepCount >= 4 ? -10 : -Infinity;
-      drums.volume.value = drumToggle.checked && state.stepCount >= 2 ? -10 : -Infinity;
-      strings.volume.value = stringToggle.checked && state.stepCount >= 8 ? -8 : -Infinity;
-
-      // Balance mix
-      const level = meter.getValue();
-      if (level > -3) {
-        gain.gain.value = Math.max(0.5, gain.gain.value - 0.1);
-        console.log('Mix balanced, gain:', gain.gain.value);
-      }
-
-      // Detect step
-      if ((beta > 0.3 * sensitivity || gamma > 0.3 * sensitivity) && Date.now() - state.lastStepTime > 300) {
-        const now = Date.now();
-        if (state.lastStepTime > 0) {
-          const stepInterval = (now - state.lastStepTime) / 1000;
-          const newBpm = Math.round(60 / stepInterval);
-          state.stepBpm = Math.max(60, Math.min(180, newBpm));
-          Tone.Transport.bpm.rampTo(state.stepBpm, 0.2);
-          tempoStatus.textContent = `Walking Tempo: ${state.stepBpm} BPM`;
-          console.log(`Step detected, BPM: ${state.stepBpm}, Step Count: ${state.stepCount + 1}`);
-        }
-        state.lastStepTime = now;
-        state.stepCount++;
-        addParticle(canvas.width / window.devicePixelRatio / 2, canvas.height / window.devicePixelRatio, vibe);
-        if (drumToggle.checked && state.stepCount >= 2) {
-          drums.triggerAttackRelease('C2', '8n');
-        }
-      }
-
-      // Detect shake
-      if (totalAccel > 12 * sensitivity && Date.now() - state.lastShake > 1000 && state.stepCount > 8) {
-        state.lastShake = Date.now();
-        state.chordIndex = (state.chordIndex + 1) % 4;
-        addParticle(canvas.width / window.devicePixelRatio * Math.random(), canvas.height / window.devicePixelRatio, vibe);
-        if (drumToggle.checked && state.stepCount >= 2) {
-          drums.triggerAttackRelease('C3', '8n');
-          strings.triggerAttackRelease('C5', '16n');
-        }
-        console.log('Shake detected, chord changed to index:', state.chordIndex);
-      }
-    }
-
-    // Update parts
-    function updateParts() {
-      const { vibe } = getTimeParams();
-      padPart.events = [[0, state.shiftedChords[state.chordIndex]]];
-      
-      const chord = state.shiftedChords[state.chordIndex];
-      const pattern = vibe === 'upbeat' ? chord.concat(chord.slice().reverse()) : chord;
-      arpPart.events = pattern.map((note, i) => [(i * (vibe === 'upbeat' ? 0.125 : 0.25)), note]);
-      
-      const kickPattern = vibe === 'upbeat' ? ['C2', null, 'C2', null] : ['C2', null, null, null];
-      const snarePattern = vibe === 'upbeat' ? [null, 'C3', null, 'C3'] : [null, null, 'C3', null];
-      const hiHatPattern = state.weather.condition >= 45 ? ['C5', 'C5', 'C5', 'C5'] : [null, 'C5', null, 'C5'];
-      drumPart.events = [
-        [0, { kick: kickPattern[0], snare: snarePattern[0], hiHat: hiHatPattern[0] }],
-        ['4n', { kick: kickPattern[1], snare: snarePattern[1], hiHat: hiHatPattern[1] }],
-        ['2n', { kick: kickPattern[2], snare: snarePattern[2], hiHat: hiHatPattern[2] }],
-        ['2n + 4n', { kick: kickPattern[3], snare: snarePattern[3], hiHat: hiHatPattern[3] }]
-      ];
-      
-      const melodyNote = state.shiftedChords[state.chordIndex][0].replace(/\d/, n => +n + 1);
-      stringPart.events = [[0, melodyNote]];
-      console.log('Parts updated, chord:', state.shiftedChords[state.chordIndex]);
-    }
-
-    // Main music loop
-    async function generateMusic() {
-      if (!state.isPlaying) return;
-      try {
-        const { lat, lon } = await getLocation();
-        const weather = await getWeather(lat, lon);
-        const { scale, vibe, chords } = getTimeParams();
-        state.vibe = vibe;
-        state.chords = chords;
-        const isRainy = [45, 48, 51, 53, 55, 56, 57, 61, 63, 65, 66, 67].includes(weather.condition);
-        state.shiftedChords = applyPicardyThird(chords, weather.clouds, isRainy).map(chord => 
-          chord.map(note => Tone.Frequency(note).transpose(Math.round((weather.temp + 20) / 5)).toNote())
-        );
-        chordStatus.textContent = `Chord: ${state.shiftedChords[state.chordIndex].join(', ')}`;
-        Tone.Transport.bpm.rampTo(state.stepBpm + weather.wind / 5, 0.2);
-        reverb.wet.value = isRainy ? 0.8 : weather.clouds / 200;
-        delay.feedback.value = weather.wind / 100;
-        updateParts();
-        statusDiv.textContent = `Temp: ${weather.temp}°C, Wind: ${weather.wind} km/h, Clouds: ${weather.clouds}%, Vibe: ${vibe}`;
-      } catch (err) {
-        console.error('Error:', err);
-        statusDiv.textContent = `Error: ${err.message}. Using fallback data.`;
-        Tone.Transport.bpm.rampTo(state.stepBpm, 0.2);
-      }
-
-      setTimeout(generateMusic, 4000);
-    }
-
-    // Stop music
-    function stopMusic() {
-      state.isPlaying = false;
-      Tone.Transport.stop();
-      Tone.Transport.cancel();
-      window.removeEventListener('devicemotion', handleMotion);
-      particles = [];
-      statusDiv.textContent = 'Stopped. Tap Start Music to begin again.';
-      startBtn.textContent = 'Start Music';
-      startBtn.classList.remove('opacity-50', 'cursor-not-allowed');
-      ui.classList.remove('fade-to-black');
-      console.log('Music stopped');
-    }
-
-    // Start music
-    startBtn.addEventListener('click', async () => {
-      if (state.isPlaying) return;
-      state.isPlaying = true;
+  //---------------------
+  //  UI EVENTS
+  //---------------------
+  startBtn.addEventListener('click',async()=>{
+    try{
       await Tone.context.resume();
-      console.log('Audio context resumed');
-      ui.classList.add('fade-to-black');
-      startBtn.textContent = 'Playing...';
-      startBtn.classList.add('opacity-50', 'cursor-not-allowed');
-      await Tone.start();
-      console.log('Tone.js started');
-      initAudio();
-      Tone.Transport.start();
-      drawVisualizer();
-      state.stepCount = 0;
-
-      if (typeof DeviceMotionEvent.requestPermission === 'function') {
-        try {
-          const permission = await DeviceMotionEvent.requestPermission();
-          if (permission === 'granted') {
-            window.addEventListener('devicemotion', handleMotion);
-            console.log('Motion permission granted');
-          } else {
-            statusDiv.textContent += ' Motion denied. Walk/tilt won’t affect sound.';
-            retryBtn.style.display = 'block';
-            console.error('Motion permission denied');
-          }
-        } catch (err) {
-          statusDiv.textContent += ' Motion permission error.';
-          retryBtn.style.display = 'block';
-          console.error('Motion permission error:', err);
-        }
-      } else {
-        window.addEventListener('devicemotion', handleMotion);
-        console.log('Motion listener added');
+      if(typeof DeviceMotionEvent?.requestPermission==='function'){
+        const p=await DeviceMotionEvent.requestPermission();
+        if(p!=='granted') throw new Error('motion‑denied');
       }
-
-      generateMusic();
-    });
-
-    retryBtn.addEventListener('click', async () => {
-      state.location = null;
-      state.weatherTime = 0;
-      retryBtn.style.display = 'none';
-      await generateMusic();
-      if (typeof DeviceMotionEvent.requestPermission === 'function') {
-        try {
-          const permission = await DeviceMotionEvent.requestPermission();
-          if (permission === 'granted') {
-            window.addEventListener('devicemotion', handleMotion);
-            console.log('Motion permission granted on retry');
-          } else {
-            statusDiv.textContent += ' Motion denied. Walk/tilt won’t affect sound.';
-            retryBtn.style.display = 'block';
-          }
-        } catch (err) {
-          statusDiv.textContent += ' Motion permission error.';
-          retryBtn.style.display = 'block';
-          console.error('Motion permission error on retry:', err);
-        }
-      }
-    });
+      startMusic();
+      startBtn.disabled=true;startBtn.classList.add('opacity-50','cursor-not-allowed');
+      retryBtn.classList.add('hidden');
+    }catch(e){
+      status.textContent='Need motion & audio permission.';
+      retryBtn.classList.remove('hidden');
+    }
+  });
+  retryBtn.addEventListener('click',()=>startBtn.click());
   </script>
 </body>
 </html>
