@@ -22,125 +22,155 @@
   <div id="dot"></div>
 
 <script>
-/* ---------- CONFIG ---------- */
 const SAMPLES = {
-  kick : 'https://tonejs.github.io/audio/drum-samples/breakbeat/kick.wav',
+  kick: 'https://tonejs.github.io/audio/drum-samples/breakbeat/kick.wav',
   snare: 'https://tonejs.github.io/audio/drum-samples/breakbeat/snare.wav'
 };
 
-/* ---------- STATE ---------- */
 let bpm = 90;
-let layer = 0;          // 0=drums first
+let layer = 0;
 let lastMotion = 0;
 let transportLive = false;
 const ambientPlayers = [];
 
-/* ---------- AUDIO GRAPH ---------- */
 const master = new Tone.Gain(0.9).toDestination();
-const kick  = new Tone.Player({url:SAMPLES.kick}).connect(master);
-const snare = new Tone.Player({url:SAMPLES.snare}).connect(master);
+const kick = new Tone.Player({ url: SAMPLES.kick }).connect(master);
+const snare = new Tone.Player({ url: SAMPLES.snare }).connect(master);
 const recorder = new Tone.Recorder();
 const mic = new Tone.UserMedia();
 mic.connect(recorder);
 
-/* ---------- UI & VIS ---------- */
-const $ = s=>document.querySelector(s);
-const startBtn=$('#startBtn');
-const resetBtn=$('#resetBtn');
-const status=$('#status');
-const dot=$('#dot');
-const canvas=$('#viz');
-const ctx=canvas.getContext('2d');
-const analyser=new Tone.Analyser('waveform',128);
+const $ = s => document.querySelector(s);
+const startBtn = $('#startBtn');
+const resetBtn = $('#resetBtn');
+const status = $('#status');
+const dot = $('#dot');
+const canvas = $('#viz');
+const ctx = canvas.getContext('2d');
+const analyser = new Tone.Analyser('waveform', 128);
 master.connect(analyser);
 
-function flashDot(){
-  dot.style.transform=`translate(${Math.random()*innerWidth}px,${Math.random()*innerHeight}px)`;
-  dot.style.opacity=1;setTimeout(()=>dot.style.opacity=0,200);
+function flashDot() {
+  dot.style.transform = `translate(${Math.random() * innerWidth}px,${Math.random() * innerHeight}px)`;
+  dot.style.opacity = 1;
+  setTimeout(() => dot.style.opacity = 0, 200);
 }
-function draw(){
-  canvas.width=canvas.clientWidth*devicePixelRatio;
-  canvas.height=canvas.clientHeight*devicePixelRatio;
-  ctx.scale(devicePixelRatio,devicePixelRatio);
-  ctx.clearRect(0,0,canvas.width,canvas.height);
-  const d=analyser.getValue();
-  ctx.beginPath();ctx.strokeStyle='#0af';
-  d.forEach((v,i)=>{const x=i/d.length*canvas.clientWidth;const y=(1-v)*canvas.clientHeight/2;i?ctx.lineTo(x,y):ctx.moveTo(x,y)});
-  ctx.stroke();requestAnimationFrame(draw);
+
+function draw() {
+  canvas.width = canvas.clientWidth * devicePixelRatio;
+  canvas.height = canvas.clientHeight * devicePixelRatio;
+  ctx.scale(devicePixelRatio, devicePixelRatio);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  const d = analyser.getValue();
+  ctx.beginPath();
+  ctx.strokeStyle = '#0af';
+  d.forEach((v, i) => {
+    const x = i / d.length * canvas.clientWidth;
+    const y = (1 - v) * canvas.clientHeight / 2;
+    i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+  });
+  ctx.stroke();
+  requestAnimationFrame(draw);
 }
 requestAnimationFrame(draw);
 
-/* ---------- MUSICAL FUNCTIONS ---------- */
-function buildDrums(){
+function buildDrums() {
   Tone.Transport.cancel();
-  const part=new Tone.Part(time=>{
+  const part = new Tone.Part(time => {
     kick.start(time);
-    snare.start(time+Tone.Time('4n'));
-    kick.start(time+Tone.Time('2n'));
-    kick.start(time+Tone.Time('2n+8n'));
-    snare.start(time+Tone.Time('3n'));
-  },[[0]]);
-  part.loop=true;part.loopEnd='1m';
-  Tone.Transport.bpm.value=bpm;
+    snare.start(time + Tone.Time('4n'));
+    kick.start(time + Tone.Time('2n'));
+    kick.start(time + Tone.Time('2n+8n'));
+    snare.start(time + Tone.Time('3n'));
+  }, [[0]]);
+  part.loop = true;
+  part.loopEnd = '1m';
+  Tone.Transport.bpm.value = bpm;
   part.start(0);
-  if(!transportLive){Tone.Transport.start();transportLive=true;}
-  status.textContent=`🥁 Drums @ ${bpm} BPM — move for more layers`;
+  if (!transportLive) {
+    Tone.Transport.start();
+    transportLive = true;
+  }
+  status.textContent = `🥁 Drums @ ${bpm} BPM — move for more layers`;
 }
 
-async function addAmbientLayer(){
-  status.textContent='🎤 Recording ambient…';
-  await mic.open();
-  recorder.start();
-  await Tone.sleep(2);
-  const rec=await recorder.stop();
-  const url=URL.createObjectURL(rec.blob);
-  const pl=new Tone.Player({url,loop:true,fadeIn:1,fadeOut:1,playbackRate:1+(Math.random()*0.5-0.25)}).connect(master);
-  await pl.load();pl.start();ambientPlayers.push(pl);
-  status.textContent=`✅ Ambient layer ${ambientPlayers.length}`;
-}
-
-function motionHandler(e){
-  const a=e.accelerationIncludingGravity||{};
-  const mag=Math.hypot(a.x||0,a.y||0,a.z||0);
-  if(mag<12) return;
-  const now=Date.now();
-  if(now-lastMotion<300) return;lastMotion=now;flashDot();
-  if(layer===0){
-    bpm=Math.min(160,Math.max(60,Math.round(60/((Date.now()-lastMotion)/1000||1))));
-    buildDrums();layer=1;
-  }else if(layer<4){
-    addAmbientLayer();layer++;
+async function addAmbientLayer() {
+  try {
+    status.textContent = '🎤 Recording ambient…';
+    await mic.open();
+    recorder.start();
+    await Tone.sleep(2);
+    const rec = await recorder.stop();
+    const url = URL.createObjectURL(rec.blob);
+    const pl = new Tone.Player({
+      url,
+      loop: true,
+      fadeIn: 1,
+      fadeOut: 1,
+      playbackRate: 1 + (Math.random() * 0.5 - 0.25)
+    }).connect(master);
+    await pl.load();
+    pl.start();
+    ambientPlayers.push(pl);
+    status.textContent = `✅ Ambient layer ${ambientPlayers.length}`;
+  } catch (e) {
+    console.error(e);
+    status.textContent = '❌ Ambient recording failed';
   }
 }
 
-/* ---------- CONTROL FLOW ---------- */
-async function armAudioAndMotion(){
-  // 1️⃣ Motion permission (must be directly in click handler)
-  if(typeof DeviceMotionEvent?.requestPermission==='function'){
-    const p=await DeviceMotionEvent.requestPermission();
-    if(p!=='granted') throw new Error('Motion denied');
+function motionHandler(e) {
+  const a = e.accelerationIncludingGravity || {};
+  const mag = Math.hypot(a.x || 0, a.y || 0, a.z || 0);
+  if (mag < 12) return;
+  const now = Date.now();
+  if (now - lastMotion < 300) return;
+  lastMotion = now;
+  flashDot();
+  if (layer === 0) {
+    bpm = Math.min(160, Math.max(60, Math.round(60 / ((Date.now() - lastMotion) / 1000 || 1))));
+    buildDrums();
+    layer = 1;
+  } else if (layer < 4) {
+    addAmbientLayer();
+    layer++;
   }
-  // 2️⃣ Resume Tone
-  await Tone.start();
-  // 3️⃣ Load core drum samples
-  status.textContent='🔊 Loading samples…';
-  await Tone.loaded();
-  status.textContent='Move phone to start beat';
-  window.addEventListener('devicemotion',motionHandler);  
-  resetBtn.classList.remove('hidden');
 }
 
-function resetAll(){
-  Tone.Transport.stop();Tone.Transport.cancel();transportLive=false;layer=0;bpm=90;
-  ambientPlayers.forEach(p=>p.stop());ambientPlayers.length=0;
-  status.textContent='🔄 Reset — move to start again';
+async function armAudioAndMotion() {
+  try {
+    if (typeof DeviceMotionEvent?.requestPermission === 'function') {
+      const p = await DeviceMotionEvent.requestPermission();
+      if (p !== 'granted') throw new Error('Motion denied');
+    }
+    await Tone.start();
+    status.textContent = '🔊 Loading samples…';
+    await kick.load();
+    await snare.load();
+    status.textContent = '✅ Ready — move to start';
+    window.addEventListener('devicemotion', motionHandler);
+    resetBtn.classList.remove('hidden');
+  } catch (e) {
+    console.error(e);
+    status.textContent = '❌ ' + e.message;
+  }
 }
 
-/* ---------- BUTTON EVENTS ---------- */
-startBtn.onclick=async()=>{
-  try{await armAudioAndMotion();}catch(e){console.error(e);status.textContent='❌ '+e.message;}
+function resetAll() {
+  Tone.Transport.stop();
+  Tone.Transport.cancel();
+  transportLive = false;
+  layer = 0;
+  bpm = 90;
+  ambientPlayers.forEach(p => p.stop());
+  ambientPlayers.length = 0;
+  status.textContent = '🔄 Reset — move to start again';
+}
+
+startBtn.onclick = () => {
+  armAudioAndMotion();
 };
-resetBtn.onclick=resetAll;
+resetBtn.onclick = resetAll;
 </script>
 </body>
 </html>
