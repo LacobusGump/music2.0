@@ -10,7 +10,7 @@
     body { margin: 0; min-height: 100vh; display: flex; flex-direction: column; justify-content: center; align-items: center; background: black; color: white; }
     #status { font-size: 0.9rem; opacity: 0.8; }
     canvas { margin-top: 1rem; width: 100%; max-width: 300px; height: 100px; }
-    .retry-btn { display: none; }
+    .retry-btn, .tempo-btn { display: none; }
     .particle { position: absolute; border-radius: 50%; pointer-events: none; box-shadow: 0 0 15px rgba(255, 255, 255, 0.7); }
   </style>
 </head>
@@ -21,6 +21,8 @@
     <button id="startBtn" class="bg-purple-600 hover:bg-purple-700 text-white font-semibold py-2 px-4 rounded-lg transition">Start Music</button>
     <button id="testSoundBtn" class="bg-green-600 hover:bg-green-700 text-white font-semibold py-2 px-4 rounded-lg transition mt-2 retry-btn">Test Sound</button>
     <button id="retryBtn" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-lg transition mt-2 retry-btn">Retry Permissions</button>
+    <button id="fasterBtn" class="bg-yellow-600 hover:bg-yellow-700 text-white font-semibold py-2 px-4 rounded-lg transition mt-2 tempo-btn">Faster</button>
+    <button id="slowerBtn" class="bg-red-600 hover:bg-red-700 text-white font-semibold py-2 px-4 rounded-lg transition mt-2 tempo-btn">Slower</button>
     <div id="status" class="mt-4">Waiting to start...</div>
     <div id="tempoStatus" class="mt-2 text-sm">Walking Tempo: 0 BPM</div>
     <div id="chordStatus" class="mt-2 text-sm">Chord: None</div>
@@ -37,6 +39,7 @@
       lastStepTime: 0,
       lastShake: 0,
       lastMotion: 0,
+      lastMotionTime: 0,
       location: null,
       weather: { temp: 20, wind: 10, clouds: 0, condition: 0 },
       weatherTime: 0,
@@ -49,6 +52,8 @@
     const startBtn = document.getElementById('startBtn');
     const testSoundBtn = document.getElementById('testSoundBtn');
     const retryBtn = document.getElementById('retryBtn');
+    const fasterBtn = document.getElementById('fasterBtn');
+    const slowerBtn = document.getElementById('slowerBtn');
     const statusDiv = document.getElementById('status');
     const tempoStatus = document.getElementById('tempoStatus');
     const chordStatus = document.getElementById('chordStatus');
@@ -75,7 +80,7 @@
       drums = new Tone.MembraneSynth({ pitchDecay: 0.05, octaves: 10 });
       strings = new Tone.PolySynth(Tone.Synth, { 
         oscillator: { type: 'sine' }, 
-        envelope: { attack: 1, decay: 2, sustain: 0.8, release: 3 },
+        envelope: { attack: 1, decay: 2, sustain: 0.8, release: 2 },
         filter: { frequency: 1000, type: 'highpass' }
       });
       gain = new Tone.Gain(1).toDestination();
@@ -87,6 +92,13 @@
       drums.connect(gain);
       strings.connect(gain);
       gain.connect(reverb).connect(meter).connect(analyser).toDestination();
+
+      // Volume ramps for layer build
+      synth.volume.rampTo(-10, 0.5);
+      arp.volume.rampTo(-15, 1);
+      drums.volume.rampTo(-5, 1.5);
+      strings.volume.rampTo(-12, 2);
+
       console.log('Audio initialized, context state:', Tone.context.state);
 
       // Persistent parts
@@ -206,7 +218,7 @@
     // Fetch weather
     async function getWeather(lat, lon) {
       if (state.weatherTime > Date.now() - 60000) return state.weather;
-      const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,wind_speed_10m,cloud_cover,weather_code`;
+      const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}¤t=temperature_2m,wind_speed_10m,cloud_cover,weather_code`;
       try {
         const response = await fetch(url);
         if (!response.ok) throw new Error('Weather fetch failed');
@@ -261,26 +273,31 @@
       return chords;
     }
 
-    // Motion fallback
-    function startMotionFallback() {
-      setInterval(() => {
-        if (state.isPlaying && state.stepCount < 8) {
-          state.stepCount++;
-          state.lastStepTime = Date.now();
-          const newBpm = 120; // Default BPM
-          state.stepBpm = Math.max(60, Math.min(180, newBpm));
-          tempoStatus.textContent = `Walking Tempo: ${state.stepBpm} BPM (Fallback)`;
-          console.log(`Fallback step, Step Count: ${state.stepCount}`);
-          addParticle(canvas.width / window.devicePixelRatio / 2, canvas.height / window.devicePixelRatio, state.vibe);
-          drums.triggerAttackRelease('C2', '8n', Tone.now());
-        }
-      }, 1000);
+    // Fade out audio
+    function fadeOutAudio() {
+      synth.volume.rampTo(-Infinity, 2);
+      arp.volume.rampTo(-Infinity, 2);
+      drums.volume.rampTo(-Infinity, 2);
+      strings.volume.rampTo(-Infinity, 2);
+      setTimeout(() => {
+        Tone.Transport.stop();
+        Tone.Transport.cancel();
+        state.isPlaying = false;
+        particles = [];
+        statusDiv.textContent = 'No motion detected. Music stopped. Tap Start Music to begin again.';
+        startBtn.textContent = 'Start Music';
+        startBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+        ui.classList.remove('fade-to-black');
+        console.log('Music faded out');
+      }, 2000);
     }
 
     // Handle device motion
     function handleMotion(event) {
-      if (!state.isPlaying || Date.now() - state.lastMotion < 100) return;
+      if (!state.isPlaying) return;
+      if (Date.now() - state.lastMotion < 100) return;
       state.lastMotion = Date.now();
+      state.lastMotionTime = Date.now();
       const gyro = event.rotationRate || {};
       const beta = Math.abs((gyro.beta || 0) / 180 * Math.PI);
       const gamma = Math.abs((gyro.gamma || 0) / 180 * Math.PI);
@@ -296,10 +313,10 @@
       const filterFreq = (x / 10) * (5000 - 200) + 200;
       const volume = (x / 10) * (0 - (-15)) - 15;
       synth.set({ filter: { frequency: filterFreq } });
-      synth.volume.value = volume;
-      arp.volume.value = -10;
-      drums.volume.value = -10;
-      strings.volume.value = -8;
+      synth.volume.rampTo(volume, 0.5);
+      arp.volume.rampTo(-15, 0.5);
+      drums.volume.rampTo(-5, 0.5);
+      strings.volume.rampTo(-12, 0.5);
 
       // Detect step
       if ((beta > 0.05 * sensitivity || gamma > 0.05 * sensitivity || totalAccel > 5 * sensitivity) && Date.now() - state.lastStepTime > 300) {
@@ -326,19 +343,29 @@
         drums.triggerAttackRelease('C3', '8n', Tone.now());
         strings.triggerAttackRelease('C5', '16n', Tone.now());
         console.log('Shake detected, chord changed to index:', state.chordIndex);
+        updateParts();
       }
+    }
+
+    // Check for no motion
+    function checkNoMotion() {
+      if (state.isPlaying && Date.now() - state.lastMotionTime > 5000) {
+        fadeOutAudio();
+      }
+      setTimeout(checkNoMotion, 1000);
     }
 
     // Update parts
     function updateParts() {
+      Tone.Transport.cancel(); // Clear previous events
       const { vibe } = getTimeParams();
-      padPart.events = [[0, state.shiftedChords[state.chordIndex]]];
       const chord = state.shiftedChords[state.chordIndex] || ['G4', 'B4', 'D5'];
+      padPart.events = [[0, chord]];
       arpPart.events = [
-        ['0:0:0', chord[0]],
-        ['0:0:1', chord[1]],
-        ['0:0:2', chord[2]],
-        ['0:0:3', chord[0]]
+        ['0:0:0', chord[0] || 'G4'],
+        ['0:0:1', chord[1] || 'B4'],
+        ['0:0:2', chord[2] || 'D5'],
+        ['0:0:3', chord[0] || 'G4']
       ];
       const kickPattern = vibe === 'upbeat' ? ['C2', null, 'C2', null] : ['C2', null, null, null];
       const snarePattern = vibe === 'upbeat' ? [null, 'C3', null, 'C3'] : [null, null, 'C3', null];
@@ -349,8 +376,9 @@
         ['0:1:0', { kick: kickPattern[2], snare: snarePattern[2], hiHat: hiHatPattern[2] }],
         ['0:1:2', { kick: kickPattern[3], snare: snarePattern[3], hiHat: hiHatPattern[3] }]
       ];
-      stringPart.events = [[0, chord[0].replace(/\d/, n => +n + 1)]];
+      stringPart.events = [[0, (chord[0] || 'G4').replace(/\d/, n => +n + 1)]];
       console.log('Parts updated, chord:', chord);
+      Tone.Transport.start();
     }
 
     // Main music loop
@@ -375,23 +403,10 @@
         console.error('Error:', err);
         statusDiv.textContent = `Error: ${err.message}. Using fallback data.`;
         Tone.Transport.bpm.rampTo(state.stepBpm, 0.2);
+        updateParts();
       }
 
       setTimeout(generateMusic, 4000);
-    }
-
-    // Stop music
-    function stopMusic() {
-      state.isPlaying = false;
-      Tone.Transport.stop();
-      Tone.Transport.cancel();
-      window.removeEventListener('devicemotion', handleMotion);
-      particles = [];
-      statusDiv.textContent = 'Stopped. Tap Start Music to begin again.';
-      startBtn.textContent = 'Start Music';
-      startBtn.classList.remove('opacity-50', 'cursor-not-allowed');
-      ui.classList.remove('fade-to-black');
-      console.log('Music stopped');
     }
 
     // Start music
@@ -409,9 +424,12 @@
         startBtn.textContent = 'Playing...';
         startBtn.classList.add('opacity-50', 'cursor-not-allowed');
         testSoundBtn.style.display = 'block';
+        fasterBtn.style.display = 'block';
+        slowerBtn.style.display = 'block';
         drawVisualizer();
         state.stepCount = 0;
-        startMotionFallback();
+        state.lastMotionTime = Date.now();
+        checkNoMotion();
 
         if (typeof DeviceMotionEvent.requestPermission === 'function') {
           try {
@@ -420,18 +438,18 @@
               window.addEventListener('devicemotion', handleMotion);
               console.log('Motion permission granted');
             } else {
-              statusDiv.textContent += ' Motion denied. Music plays with fallback steps.';
+              statusDiv.textContent += ' Motion denied. Use Faster/Slower buttons.';
               retryBtn.style.display = 'block';
               console.error('Motion permission denied');
             }
           } catch (err) {
-            statusDiv.textContent += ' Motion permission error. Music plays with fallback steps.';
+            statusDiv.textContent += ' Motion permission error. Use Faster/Slower buttons.';
             retryBtn.style.display = 'block';
             console.error('Motion permission error:', err);
           }
         } else {
           window.addEventListener('devicemotion', handleMotion);
-          console.log('Motion listener added');
+          console.log('Motion listener added, sensor support:', !!window.DeviceMotionEvent);
         }
 
         generateMusic();
@@ -466,7 +484,7 @@
             window.addEventListener('devicemotion', handleMotion);
             console.log('Motion permission granted on retry');
           } else {
-            statusDiv.textContent += ' Motion denied. Music plays with fallback steps.';
+            statusDiv.textContent += ' Motion denied. Use Faster/Slower buttons.';
             retryBtn.style.display = 'block';
           }
         } catch (err) {
@@ -475,6 +493,22 @@
           console.error('Motion permission error on retry:', err);
         }
       }
+    });
+
+    fasterBtn.addEventListener('click', () => {
+      state.stepBpm = Math.min(180, state.stepBpm + 10);
+      Tone.Transport.bpm.rampTo(state.stepBpm, 0.2);
+      tempoStatus.textContent = `Walking Tempo: ${state.stepBpm} BPM`;
+      state.lastMotionTime = Date.now();
+      console.log('Tempo increased:', state.stepBpm);
+    });
+
+    slowerBtn.addEventListener('click', () => {
+      state.stepBpm = Math.max(60, state.stepBpm - 10);
+      Tone.Transport.bpm.rampTo(state.stepBpm, 0.2);
+      tempoStatus.textContent = `Walking Tempo: ${state.stepBpm} BPM`;
+      state.lastMotionTime = Date.now();
+      console.log('Tempo decreased:', state.stepBpm);
     });
   </script>
 </body>
