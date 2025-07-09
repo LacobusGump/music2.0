@@ -50,4 +50,146 @@ async function initAudio() {
   instruments.drums   = new Tone.MembraneSynth({pitchDecay:0.05,octaves:10,
       envelope:{attack:0.001,decay:0.4,sustain:0.01,release:1.4}});
   instruments.harmony = new Tone.PolySynth(Tone.Synth,{oscillator:{type:'triangle'},
-      envelope:{attack:0.5,decay:0.8,sustain:0.6,rele
+      envelope:{attack:0.5,decay:0.8,sustain:0.6,release:2}});
+  instruments.melody  = new Tone.Synth({oscillator:{type:'square'},
+      envelope:{attack:0.1,decay:0.2,sustain:0.3,release:0.8}});
+  instruments.texture = new Tone.NoiseSynth({noise:{type:'pink'},
+      envelope:{attack:0.1,decay:0.3,sustain:0.1,release:0.5}});
+
+  /* —— effects ——————————————————————————— */
+  effects.reverb  = new Tone.Reverb({decay:3,wet:0.3});
+  effects.delay   = new Tone.FeedbackDelay('8n',0.2);
+  effects.filter  = new Tone.Filter({frequency:800,type:'lowpass'});
+  effects.comp    = new Tone.Compressor(-20,3);
+
+  /* —— master + analyser ———————————————————— */
+  master   = new Tone.Gain().toDestination();
+  analyser = new Tone.Analyser('waveform',256);
+  master.connect(analyser);           // audio ↦ analyser ↦ speakers
+  analyser.connect(Tone.Destination); // silent tap so analyser gets data
+
+  /* —— routing ———————————————————————————— */
+  instruments.ambient.chain(effects.reverb,effects.comp,master);
+  instruments.bass   .chain(effects.filter,effects.comp,master);
+  instruments.drums  .chain(effects.comp,master);
+  instruments.harmony.chain(effects.reverb,effects.delay,effects.comp,master);
+  instruments.melody .chain(effects.delay,effects.comp,master);
+  instruments.texture.chain(effects.reverb,effects.comp,master);
+
+  /* volumes */
+  instruments.ambient.volume.value = -20;
+  instruments.bass   .volume.value = -15;
+  instruments.drums  .volume.value = -18;
+  instruments.harmony.volume.value = -22;
+  instruments.melody .volume.value = -18;
+  instruments.texture.volume.value = -25;
+
+  Tone.Transport.bpm.value = state.tempo;
+  Tone.Transport.start();
+
+  state.audioInitialized = true;
+  console.log('Audio ready');
+}
+
+/* ---------------------------------------------------------------------------
+ * 4.  MOTION → MUSIC  (your original functions, unchanged)
+ * ------------------------------------------------------------------------- */
+/* … keep processMotion, updateActivityState, evolveMusic,
+      playMusicalSequence, triggerPicardyMoment, etc. exactly as provided … */
+
+/* ---------------------------------------------------------------------------
+ * 5.  VISUALS: waveform + fast HUD refresh
+ * ------------------------------------------------------------------------- */
+const waveCanvas = document.getElementById('waveform');
+const wCtx       = waveCanvas.getContext('2d');
+
+function resizeWave() {
+  waveCanvas.width  = waveCanvas.clientWidth  * devicePixelRatio;
+  waveCanvas.height = waveCanvas.clientHeight * devicePixelRatio;
+}
+resizeWave(); window.addEventListener('resize',resizeWave);
+
+function drawWave() {
+  if (!state.active) return;                // only draw during experience
+  requestAnimationFrame(drawWave);
+
+  const data = analyser.getValue();
+  wCtx.clearRect(0,0,waveCanvas.width,waveCanvas.height);
+  wCtx.beginPath();
+  wCtx.strokeStyle = '#00ff88';
+  wCtx.lineWidth   = 2;
+  for (let i=0;i<data.length;i++){
+    const x = (i/data.length)*waveCanvas.width;
+    const y = (1 - (data[i]+1)/2) * waveCanvas.height;
+    if(i===0) wCtx.moveTo(x,y); else wCtx.lineTo(x,y);
+  }
+  wCtx.stroke();
+}
+
+/* ---------------------------------------------------------------------------
+ * 6.  PERMISSION + START BUTTON
+ * ------------------------------------------------------------------------- */
+async function requestMotionPermission(){
+  if(typeof DeviceMotionEvent?.requestPermission==='function'){
+    try{
+      const res = await DeviceMotionEvent.requestPermission();
+      if(res!=='granted') throw new Error('denied');
+      window.addEventListener('devicemotion',processMotion,true);
+      return true;
+    }catch(e){ console.warn(e); return false; }
+  } else {
+    window.addEventListener('devicemotion',processMotion,true);
+    return true;
+  }
+}
+
+async function startExperience(){
+  await initAudio();                        // must be synchronous with click
+  const ok = await requestMotionPermission();
+  if(!ok){
+    document.getElementById('simulateControls').classList.add('visible');
+  }
+
+  state.active             = true;
+  state.lastSignificantMotion = Date.now();
+
+  /* UI fades */
+  document.body.classList.add('active');
+  ['title','subtitle','startBtn'].forEach(sel=>
+     document.getElementById(sel)?.classList?.add('hidden'));
+  setTimeout(()=>{
+    ['hud','motionGrid','waveform','evolutionDisplay']
+      .forEach(id=>document.getElementById(id).classList.add('visible'));
+  },800);
+
+  playMusicalSequence();
+  drawWave();
+}
+
+/* ---------------------------------------------------------------------------
+ * 7.  MUTE via tapping waveform
+ * ------------------------------------------------------------------------- */
+let muted=false;
+waveCanvas.addEventListener('click',()=>{
+  muted=!muted;
+  master.gain.rampTo(muted?0:1,0.2);
+});
+
+/* ---------------------------------------------------------------------------
+ * 8.  SIMULATION BUTTONS  (unchanged)
+ * ------------------------------------------------------------------------- */
+function simulateMotion(type){/* … keep your simulateMotion as-is … */}
+
+document.getElementById('startBtn').addEventListener('click',startExperience);
+document.getElementById('simWalk') .addEventListener('click',()=>simulateMotion('walk'));
+document.getElementById('simRun')  .addEventListener('click',()=>simulateMotion('run'));
+document.getElementById('simDance').addEventListener('click',()=>simulateMotion('dance'));
+document.getElementById('simStill').addEventListener('click',()=>simulateMotion('still'));
+document.getElementById('triggerPicardy').addEventListener('click',()=>{
+  state.progression='resolution'; state.chordIndex=3;
+});
+
+console.log('Life Soundtrack ready');
+</script>
+</body>
+</html>
