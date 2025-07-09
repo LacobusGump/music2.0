@@ -3,11 +3,10 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1.0" />
-  <title>Music 2.0 — Cinematic Walkman</title>
+  <title>Music 2.0 — Cinematic Walkman</title>
   <script src="https://unpkg.com/tone@14.7.77/build/Tone.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
-    /*  ---------- layout ---------- */
     body{@apply m-0 min-h-screen flex items-center justify-center bg-gradient-to-b from-blue-900 to-purple-600 text-white transition-colors duration-1000 overflow-hidden;}
     #screen.fade   {background:black!important;transition:background 2s ease-in;}
     #viz{position:absolute;inset:0;height:100%;width:100%;pointer-events:none;}
@@ -17,59 +16,34 @@
 <body>
 
   <div id="screen" class="relative flex flex-col items-center text-center p-4 max-w-sm">
-    <h1 id="title" class="text-3xl font-bold mb-4">Music 2.0 — Your Soundtrack</h1>
+    <h1 id="title" class="text-3xl font-bold mb-4">Music 2.0 — Your Soundtrack</h1>
     <p id="msg" class="mb-4">Walk to build your beat, tilt to sculpt the mix. <br>Grant location & motion, then pocket your phone.</p>
     <button id="startBtn" class="bg-purple-600 hover:bg-purple-700 text-white font-semibold py-2 px-4 rounded-lg transition">Start</button>
-    <button id="retryBtn" class="hidden bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-lg mt-2">Retry Permissions</button>
+    <button id="retryBtn" class="hidden bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-lg mt-2">Retry Permissions</button>
   </div>
 
-  <!-- visual layer -->
   <canvas id="viz"></canvas>
   <div id="dot"></div>
 
   <script>
-  /* -------------------- CONFIG -------------------- */
   const LOOP_URL = {
-    pad:{
-      bright:'https://cdn.jsdelivr.net/gh/janKir/lofi-loops@main/bright_pad.mp3',
-      dark  :'https://cdn.jsdelivr.net/gh/janKir/lofi-loops@main/dark_pad.mp3',
-      upbeat:'https://cdn.jsdelivr.net/gh/janKir/lofi-loops@main/upbeat_pad.mp3',
-      mellow:'https://cdn.jsdelivr.net/gh/janKir/lofi-loops@main/mellow_pad.mp3'
-    },
-    weather:{
-      clear :'https://cdn.jsdelivr.net/gh/janKir/lofi-loops@main/clear_texture.mp3',
-      rain  :'https://cdn.jsdelivr.net/gh/janKir/lofi-loops@main/rain_texture.mp3'
-    },
-    motion:[
-      'https://cdn.jsdelivr.net/gh/janKir/lofi-loops@main/arp.mp3',   // layer 1
-      'https://cdn.jsdelivr.net/gh/janKir/lofi-loops@main/drums.mp3', // layer 2
-      'https://cdn.jsdelivr.net/gh/janKir/lofi-loops@main/strings.mp3'// layer 3
-    ]
+    pad:{ bright:'https://cdn.jsdelivr.net/gh/janKir/lofi-loops@main/bright_pad.mp3', dark:'https://cdn.jsdelivr.net/gh/janKir/lofi-loops@main/dark_pad.mp3', upbeat:'https://cdn.jsdelivr.net/gh/janKir/lofi-loops@main/upbeat_pad.mp3', mellow:'https://cdn.jsdelivr.net/gh/janKir/lofi-loops@main/mellow_pad.mp3' },
+    weather:{ clear:'https://cdn.jsdelivr.net/gh/janKir/lofi-loops@main/clear_texture.mp3', rain:'https://cdn.jsdelivr.net/gh/janKir/lofi-loops@main/rain_texture.mp3' },
+    motion:[ 'https://cdn.jsdelivr.net/gh/janKir/lofi-loops@main/arp.mp3', 'https://cdn.jsdelivr.net/gh/janKir/lofi-loops@main/drums.mp3', 'https://cdn.jsdelivr.net/gh/janKir/lofi-loops@main/strings.mp3' ]
   }
-  /* Replace the ↑ URLs with your own WAV/MP3 loops if desired */
 
-  /* -------------------- STATE -------------------- */
-  const S = {
-    vibe:'',
-    weather:'clear',
-    layer:0,
-    playing:false,
-    lastMotion:0,
-    inactivityTimer:null
-  };
+  const S = { vibe:'', weather:'clear', layer:0, playing:false, lastMotion:0, inactivityTimer:null, motionDetected: false };
 
-  /* -------------------- TONE GRAPH -------------------- */
   const master = new Tone.Gain(1).toDestination();
-  master.gain.value = 0; // start silent
+  master.gain.value = 0;
 
-  const padPlayer     = new Tone.Player({loop:true,fadeIn:4,fadeOut:4}).connect(master);
+  const padPlayer = new Tone.Player({loop:true,fadeIn:4,fadeOut:4}).connect(master);
   const weatherPlayer = new Tone.Player({loop:true,fadeIn:4,fadeOut:4}).connect(master);
   const motionPlayers = LOOP_URL.motion.map(u=>new Tone.Player({url:u,loop:true,fadeIn:2,fadeOut:2}).connect(master));
 
   const analyser = new Tone.Analyser('waveform',128);
   master.connect(analyser);
 
-  /* -------------------- DOM -------------------- */
   const $ = q=>document.querySelector(q);
   const title=$('#title');
   const msg=$('#msg');
@@ -80,101 +54,89 @@
   const canvas=$('#viz');
   const ctx=canvas.getContext('2d');
 
-  /* -------------------- HELPERS -------------------- */
-  function timeVibe(){
-    const h=new Date().getHours();
-    return h<6?'dark':h<12?'bright':h<18?'upbeat':'mellow';
-  }
-  async function getWeatherCode(){
-    try{
-      const pos = await new Promise((res,rej)=>navigator.geolocation.getCurrentPosition(res,rej));
-      const {latitude,longitude}=pos.coords;
-      const url=`https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=weather_code`;
-      const j=await fetch(url).then(r=>r.json());
-      const code=j.current.weather_code;
-      return [45,48,51,53,55,56,57,61,63,65,66,67].includes(code)?'rain':'clear';
-    }catch(e){return'clear';}
-  }
-  function fadeMaster(target,time=2){master.gain.cancelAndRampTo(target,time);} // db linear fade
-  function activityPulse(){
-    clearTimeout(S.inactivityTimer);
-    fadeMaster(1,1);
-    S.inactivityTimer=setTimeout(()=>fadeMaster(0,4),8_000); // 8 s inactivity → fade
-  }
+  function timeVibe(){ const h=new Date().getHours(); return h<6?'dark':h<12?'bright':h<18?'upbeat':'mellow'; }
 
-  /* -------------------- VISUALS -------------------- */
-  function draw(){
-    canvas.width=innerWidth*devicePixelRatio;
-    canvas.height=innerHeight*devicePixelRatio;
-    ctx.scale(devicePixelRatio,devicePixelRatio);
-    ctx.clearRect(0,0,innerWidth,innerHeight);
-    const data=analyser.getValue();
-    ctx.beginPath();ctx.strokeStyle='rgba(255,255,255,.3)';ctx.lineWidth=2;
-    data.forEach((v,i)=>{const x=i/data.length*innerWidth;const y=(1-v)*innerHeight/2;i?ctx.lineTo(x,y):ctx.moveTo(x,y);});
-    ctx.stroke();
-    requestAnimationFrame(draw);
-  }requestAnimationFrame(draw);
+  async function getWeatherCode(){ try{ const pos=await new Promise((res,rej)=>navigator.geolocation.getCurrentPosition(res,rej)); const {latitude,longitude}=pos.coords; const url=`https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=weather_code`; const j=await fetch(url).then(r=>r.json()); const code=j.current.weather_code; return [45,48,51,53,55,56,57,61,63,65,66,67].includes(code)?'rain':'clear'; }catch(e){return 'clear'} }
 
-  function flashDot(){
-    const x=Math.random()*innerWidth,y=Math.random()*innerHeight;
-    dot.style.transform=`translate(${x}px,${y}px)`;
-    dot.style.opacity=1;
-    setTimeout(()=>dot.style.opacity=0,300);
-  }
+  function fadeMaster(target,time=2){ master.gain.cancelAndRampTo(target,time); }
 
-  /* -------------------- MOTION -------------------- */
+  function activityPulse(){ clearTimeout(S.inactivityTimer); fadeMaster(1,1); S.inactivityTimer=setTimeout(()=>fadeMaster(0,4),8000); }
+
+  function draw(){ canvas.width=innerWidth*devicePixelRatio; canvas.height=innerHeight*devicePixelRatio; ctx.scale(devicePixelRatio,devicePixelRatio); ctx.clearRect(0,0,innerWidth,innerHeight); const data=analyser.getValue(); ctx.beginPath(); ctx.strokeStyle='rgba(255,255,255,.3)'; ctx.lineWidth=2; data.forEach((v,i)=>{const x=i/data.length*innerWidth; const y=(1-v)*innerHeight/2; i?ctx.lineTo(x,y):ctx.moveTo(x,y);}); ctx.stroke(); requestAnimationFrame(draw); }
+  requestAnimationFrame(draw);
+
+  function flashDot(){ const x=Math.random()*innerWidth, y=Math.random()*innerHeight; dot.style.transform=`translate(${x}px,${y}px)`; dot.style.opacity=1; setTimeout(()=>dot.style.opacity=0,300); }
+
   function onMotion(e){
-    const acc=e.accelerationIncludingGravity;const mag=Math.hypot(acc.x,acc.y,acc.z);
-    if(mag<14) return; // threshold
-    const now=Date.now();if(now-S.lastMotion<600) return; // debounce
-    S.lastMotion=now;flashDot();activityPulse();
-    if(S.layer<3){ // add next musical layer
+    const acc = e.accelerationIncludingGravity;
+    if (!acc) return;
+    const mag = Math.hypot(acc.x, acc.y, acc.z);
+    if (mag < 14) return;
+    const now = Date.now();
+    if (now - S.lastMotion < 600) return;
+    S.lastMotion = now;
+    S.motionDetected = true;
+    flashDot();
+    activityPulse();
+    if (S.layer < 3) {
       motionPlayers[S.layer].start();
       S.layer++;
-      msg.textContent=`Layer ${S.layer} engaged`; }
+      msg.textContent = `Layer ${S.layer} engaged`;
+    }
   }
 
-  /* -------------------- MAIN FLOW -------------------- */
   async function startExperience(){
     await Tone.start();
-    title.textContent='Calibrating…';msg.textContent='Detecting time of day';
+    title.textContent='Calibrating…';
+    msg.textContent='Detecting time of day';
 
-    // 1️⃣ time-vibe layer
-    S.vibe=timeVibe();padPlayer.url=LOOP_URL.pad[S.vibe];await padPlayer.load();padPlayer.start();
+    S.vibe=timeVibe();
+    padPlayer.url=LOOP_URL.pad[S.vibe];
+    await padPlayer.load();
+    padPlayer.start();
     fadeMaster(1,2);
     await Tone.sleep(4);
 
-    // 2️⃣ weather layer
     msg.textContent='Checking weather';
-    S.weather=await getWeatherCode();weatherPlayer.url=LOOP_URL.weather[S.weather];await weatherPlayer.load();weatherPlayer.start();
-    if(S.weather==='rain'&&S.vibe!=='bright'){ // picardy feel → transpose up third
-      padPlayer.playbackRate=1.03;
-    }
+    S.weather=await getWeatherCode();
+    weatherPlayer.url=LOOP_URL.weather[S.weather];
+    await weatherPlayer.load();
+    weatherPlayer.start();
+    if(S.weather==='rain' && S.vibe!=='bright'){ padPlayer.playbackRate=1.03; }
     await Tone.sleep(4);
 
-    // 3️⃣ fade to motion mode
-    screen.classList.add('fade');title.style.opacity=0;msg.style.opacity=0;startBtn.style.opacity=0;
-    msg.textContent='Move to build';
+    screen.classList.add('fade');
+    title.style.opacity=0;
+    msg.style.opacity=0;
+    startBtn.style.opacity=0;
     setTimeout(()=>screen.style.display='none',2000);
     activityPulse();
-
-    // motion events
     window.addEventListener('devicemotion',onMotion);
     S.playing=true;
+
+    // sanity check for motion
+    setTimeout(()=>{
+      if (!S.motionDetected) {
+        msg.textContent = 'Motion permission granted, but no motion data received. Try moving your phone.';
+        retryBtn.classList.remove('hidden');
+      }
+    }, 5000);
   }
 
-  /* -------------------- UI EVENTS -------------------- */
   startBtn.addEventListener('click',async()=>{
     try{
       await Tone.context.resume();
-      if(typeof DeviceMotionEvent?.requestPermission==='function'){
-        const p=await DeviceMotionEvent.requestPermission();
-        if(p!=='granted') throw new Error('motion-denied');
+      if (typeof DeviceMotionEvent?.requestPermission === 'function') {
+        const permission = await DeviceMotionEvent.requestPermission();
+        if (permission !== 'granted') throw new Error('motion-denied');
       }
       await startExperience();
-    }catch(e){msg.textContent='Need motion & audio permission';retryBtn.classList.remove('hidden');}
+    } catch (e) {
+      msg.textContent = 'Need motion & audio permission';
+      retryBtn.classList.remove('hidden');
+    }
   });
-  retryBtn.onclick=()=>startBtn.click();
+  retryBtn.onclick = () => startBtn.click();
   </script>
 </body>
 </html>
