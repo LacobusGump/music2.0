@@ -36,10 +36,6 @@
 
   const master = new Tone.Gain(1).toDestination();
   master.gain.value = 0;
-
-  const padPlayer = new Tone.Player({loop:true,fadeIn:4,fadeOut:4}).connect(master);
-  const weatherPlayer = new Tone.Player({loop:true,fadeIn:4,fadeOut:4}).connect(master);
-  const motionPlayers = LOOP_URL.motion.map(u=>new Tone.Player({url:u,loop:true,fadeIn:2,fadeOut:2}).connect(master));
   const analyser = new Tone.Analyser('waveform',128);
   master.connect(analyser);
 
@@ -101,6 +97,8 @@
     }
   }
 
+  let padPlayer, weatherPlayer, motionPlayers = [];
+
   async function startExperience(){
     try {
       msg.textContent = 'Starting Tone…';
@@ -128,21 +126,34 @@
     }
 
     window.addEventListener('devicemotion', onMotion);
+    setTimeout(() => {
+      if (!S.motionDetected) console.warn('⚠️ No motion detected yet. Check sensor permissions or try tilting your phone.');
+    }, 5000);
 
     msg.textContent = 'Calibrating vibe…';
     S.vibe = timeVibe();
-    padPlayer.url = LOOP_URL.pad[S.vibe];
-    await padPlayer.load();
-    padPlayer.start();
-    fadeMaster(1, 2);
+    padPlayer = new Tone.Player({ url: LOOP_URL.pad[S.vibe], loop: true, fadeIn: 4, fadeOut: 4 }).connect(master);
+    try {
+      await padPlayer.load();
+      padPlayer.start();
+      fadeMaster(1, 2);
+    } catch (e) {
+      msg.textContent = '❌ Failed to load vibe audio';
+      console.error(e);
+      return;
+    }
     await Tone.sleep(3);
 
     msg.textContent = 'Checking weather…';
     S.weather = await getWeatherCode();
-    weatherPlayer.url = LOOP_URL.weather[S.weather];
-    await weatherPlayer.load();
-    weatherPlayer.start();
-    if (S.weather === 'rain' && S.vibe !== 'bright') padPlayer.playbackRate = 1.03;
+    weatherPlayer = new Tone.Player({ url: LOOP_URL.weather[S.weather], loop: true, fadeIn: 4, fadeOut: 4 }).connect(master);
+    try {
+      await weatherPlayer.load();
+      weatherPlayer.start();
+      if (S.weather === 'rain' && S.vibe !== 'bright') padPlayer.playbackRate = 1.03;
+    } catch (e) {
+      console.warn('Weather loop failed to load', e);
+    }
     await Tone.sleep(2);
 
     msg.textContent = 'Waiting for motion…';
@@ -153,6 +164,9 @@
     setTimeout(() => screen.style.display = 'none', 2000);
     activityPulse();
     S.playing = true;
+
+    motionPlayers = LOOP_URL.motion.map(u => new Tone.Player({ url: u, loop: true, fadeIn: 2, fadeOut: 2 }).connect(master));
+    motionPlayers.forEach(mp => mp.load());
   }
 
   startBtn.addEventListener('click', () => startExperience());
