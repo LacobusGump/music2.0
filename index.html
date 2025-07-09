@@ -3,46 +3,84 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Music 2.0: Environmental Soundscape</title>
+  <title>Music 2.0: Rebel Soundscape</title>
   <script src="https://unpkg.com/tone@14.7.77/build/Tone.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
     body { margin: 0; min-height: 100vh; display: flex; flex-direction: column; justify-content: center; align-items: center; background: linear-gradient(to bottom, #1e3a8a, #7c3aed); color: white; }
     #status { font-size: 0.9rem; opacity: 0.8; }
     #controls { display: flex; flex-wrap: wrap; gap: 1rem; }
+    canvas { margin-top: 1rem; width: 100%; max-width: 300px; height: 100px; }
   </style>
 </head>
 <body>
   <div class="text-center p-4 max-w-md">
-    <h1 class="text-3xl font-bold mb-4">Music 2.0</h1>
-    <p class="mb-4">Immersive soundscape based on your environment. Allow location and motion permissions.</p>
+    <h1 class="text-3xl font-bold mb-4">Music 2.0: Rebel Soundscape</h1>
+    <p class="mb-4">Your world, your rhythm. Allow location and motion permissions. Shake to switch up the beat!</p>
     <button id="startBtn" class="bg-purple-600 hover:bg-purple-700 text-white font-semibold py-2 px-4 rounded-lg transition">Start Music</button>
     <div id="status" class="mt-4">Waiting to start...</div>
+    <div id="shakeStatus" class="mt-2 text-sm">Shake Intensity: 0</div>
+    <canvas id="visualizer"></canvas>
     <div id="controls" class="mt-4">
       <label class="flex items-center"><input type="checkbox" id="padToggle" checked class="mr-2"> Ambient Pad</label>
       <label class="flex items-center"><input type="checkbox" id="arpToggle" checked class="mr-2"> Arpeggio</label>
-      <label class="flex items-center"><input type="checkbox" id="percToggle" checked class="mr-2"> Percussion</label>
+      <label class="flex items-center"><input type="checkbox" id="drumToggle" checked class="mr-2"> Drums</label>
+      <label class="flex items-center flex-col">
+        Motion Sensitivity
+        <input type="range" id="motionSensitivity" min="0.5" max="2" step="0.1" value="1" class="mt-2">
+      </label>
     </div>
   </div>
 
   <script>
     const startBtn = document.getElementById('startBtn');
     const statusDiv = document.getElementById('status');
+    const shakeStatus = document.getElementById('shakeStatus');
     const padToggle = document.getElementById('padToggle');
     const arpToggle = document.getElementById('arpToggle');
-    const percToggle = document.getElementById('percToggle');
-    let synth, arp, perc, reverb, delay, isPlaying = false;
+    const drumToggle = document.getElementById('drumToggle');
+    const motionSensitivity = document.getElementById('motionSensitivity');
+    const canvas = document.getElementById('visualizer');
+    const ctx = canvas.getContext('2d');
+    let synth, arp, drums, reverb, delay, analyser, isPlaying = false, lastShake = 0;
 
     // Initialize audio components
     function initAudio() {
-      synth = new Tone.PolySynth(Tone.Synth, { oscillator: { type: 'triangle' }, envelope: { attack: 0.5, decay: 1, sustain: 0.7, release: 2 } }).toDestination();
-      arp = new Tone.PolySynth(Tone.Synth, { oscillator: { type: 'square' }, envelope: { attack: 0.1, decay: 0.2, sustain: 0.3, release: 0.5 } }).toDestination();
-      perc = new Tone.MembraneSynth({ pitchDecay: 0.05, octaves: 10 }).toDestination();
+      synth = new Tone.PolySynth(Tone.Synth, { 
+        oscillator: { type: 'fatsawtooth' }, 
+        envelope: { attack: 0.5, decay: 1, sustain: 0.7, release: 2 } 
+      }).toDestination();
+      arp = new Tone.PolySynth(Tone.Synth, { 
+        oscillator: { type: 'square' }, 
+        envelope: { attack: 0.1, decay: 0.2, sustain: 0.3, release: 0.5 } 
+      }).toDestination();
+      drums = new Tone.MembraneSynth({ pitchDecay: 0.05, octaves: 10 }).toDestination();
       reverb = new Tone.Reverb({ decay: 5, wet: 0.5 }).toDestination();
       delay = new Tone.PingPongDelay({ delayTime: '8n', feedback: 0.3, wet: 0.2 }).toDestination();
-      synth.connect(reverb);
-      arp.connect(delay);
-      perc.connect(reverb);
+      analyser = new Tone.Analyser('waveform', 128).toDestination();
+      synth.connect(reverb).connect(analyser);
+      arp.connect(delay).connect(analyser);
+      drums.connect(reverb).connect(analyser);
+    }
+
+    // Visualizer
+    function drawVisualizer() {
+      if (!isPlaying) return;
+      const values = analyser.getValue();
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.beginPath();
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 2;
+      for (let i = 0; i < values.length; i++) {
+        const x = (i / values.length) * canvas.width;
+        const y = (1 - values[i]) * canvas.height / 2;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+      requestAnimationFrame(drawVisualizer);
     }
 
     // Get user location
@@ -56,9 +94,9 @@
       });
     }
 
-    // Fetch weather from Open-Meteo (free, no API key)
+    // Fetch weather from Open-Meteo
     async function getWeather(lat, lon) {
-      const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,wind_speed_10m,cloud_cover,weather_code`;
+      const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}¤t=temperature_2m,wind_speed_10m,cloud_cover,weather_code`;
       try {
         const response = await fetch(url);
         if (!response.ok) throw new Error('Weather fetch failed');
@@ -67,21 +105,21 @@
           temp: data.current.temperature_2m,
           wind: data.current.wind_speed_10m,
           clouds: data.current.cloud_cover,
-          condition: data.current.weather_code // WMO code
+          condition: data.current.weather_code
         };
       } catch (err) {
         console.error('Weather fetch failed:', err);
-        return { temp: 20, wind: 10, clouds: 0, condition: 0 }; // Fallback
+        return { temp: 20, wind: 10, clouds: 0, condition: 0 };
       }
     }
 
     // Get time-based scale and tempo
     function getTimeParams() {
       const hour = new Date().getHours();
-      if (hour < 6) return { scale: ['C4', 'Eb4', 'G4', 'Bb4'], tempo: 60 }; // Night: minor, slow
-      if (hour < 12) return { scale: ['C4', 'F4', 'A4', 'C5'], tempo: 80 }; // Morning: bright, medium
-      if (hour < 18) return { scale: ['G4', 'B4', 'D5', 'F5'], tempo: 100 }; // Afternoon: upbeat, fast
-      return { scale: ['A4', 'C5', 'E5', 'G5'], tempo: 70 }; // Evening: calm, medium
+      if (hour < 6) return { scale: ['C4', 'Eb4', 'G4', 'Bb4'], tempo: 60, vibe: 'dark' }; // Night
+      if (hour < 12) return { scale: ['C4', 'E4', 'G4', 'B4'], tempo: 80, vibe: 'bright' }; // Morning
+      if (hour < 18) return { scale: ['G4', 'A4', 'B4', 'D5'], tempo: 100, vibe: 'upbeat' }; // Afternoon
+      return { scale: ['A4', 'C5', 'E5', 'G5'], tempo: 70, vibe: 'mellow' }; // Evening
     }
 
     // Handle device motion
@@ -89,12 +127,25 @@
       if (!isPlaying) return;
       const accel = event.accelerationIncludingGravity;
       const x = Math.abs(accel.x || 0);
-      const volume = Math.min(0, -20 + x * 3); // Tilt to volume
-      const filterFreq = Math.min(5000, 200 + x * 500); // Tilt to filter
+      const totalAccel = Math.sqrt((accel.x || 0) ** 2 + (accel.y || 0) ** 2 + (accel.z || 0) ** 2);
+      const sensitivity = parseFloat(motionSensitivity.value);
+      const volume = Math.min(0, -20 + x * 3 * sensitivity);
+      const filterFreq = Math.min(5000, 200 + x * 500 * sensitivity);
       synth.volume.value = volume;
       arp.volume.value = volume;
-      perc.volume.value = volume;
+      drums.volume.value = volume;
       if (synth.filter) synth.filter.frequency = filterFreq;
+
+      // Detect shake for rhythm change
+      if (totalAccel > 15 * sensitivity && Date.now() - lastShake > 500) {
+        lastShake = Date.now();
+        shakeStatus.textContent = `Shake Intensity: ${Math.round(totalAccel)}`;
+        if (drumToggle.checked) {
+          drums.triggerAttackRelease('C3', '8n'); // Snare hit on shake
+        }
+      } else {
+        shakeStatus.textContent = `Shake Intensity: ${Math.round(totalAccel)}`;
+      }
     }
 
     // Generate music
@@ -103,41 +154,52 @@
       try {
         const { lat, lon } = await getLocation();
         const weather = await getWeather(lat, lon);
-        const { scale, tempo } = getTimeParams();
+        const { scale, tempo, vibe } = getTimeParams();
 
         // Map weather to music
-        const temp = weather.temp; // -20 to 40°C
-        const wind = weather.wind; // 0 to 100 km/h
-        const clouds = weather.clouds; // 0 to 100%
+        const temp = weather.temp;
+        const wind = weather.wind;
+        const clouds = weather.clouds;
         const isRainy = [45, 48, 51, 53, 55, 56, 57, 61, 63, 65, 66, 67].includes(weather.condition);
-        const baseFreq = 200 + (temp + 20) * 5; // Temp to pitch
-        reverb.wet.value = isRainy ? 0.9 : clouds / 200; // Rain or clouds to reverb
-        delay.wet.value = wind / 100; // Wind to delay
-        Tone.Transport.bpm.value = Math.max(60, Math.min(120, tempo + wind / 5)); // Wind to tempo
+        const baseFreq = 200 + (temp + 20) * 5;
+        reverb.wet.value = isRainy ? 0.9 : clouds / 200;
+        delay.wet.value = wind / 100;
+        Tone.Transport.bpm.value = Math.max(60, Math.min(120, tempo + wind / 5));
 
         // Ambient pad
         if (padToggle.checked) {
           const note = scale[Math.floor(Math.random() * scale.length)];
           synth.triggerAttackRelease(note, '2m');
+          if (vibe === 'dark') {
+            synth.triggerAttackRelease(note.replace(/\d/, n => +n - 1), '2m'); // Lower octave for dark vibe
+          }
         }
 
-        // Arpeggio
+        // Dynamic arpeggio
         if (arpToggle.checked) {
-          const pattern = scale.concat(scale.map(n => n.replace(/\d/, n => +n + 1))); // Octave up
-          let i = 0;
-          const arpLoop = new Tone.Loop(time => {
-            arp.triggerAttackRelease(pattern[i % pattern.length], '8n', time);
-            i++;
-          }, '8n').start(0);
+          const pattern = scale.concat(scale.map(n => n.replace(/\d/, n => +n + 1)));
+          const density = Math.max(0.2, clouds / 100);
+          Tone.Transport.scheduleRepeat(time => {
+            if (Math.random() < density) {
+              arp.triggerAttackRelease(pattern[Math.floor(Math.random() * pattern.length)], vibe === 'upbeat' ? '16n' : '8n', time);
+            }
+          }, vibe === 'upbeat' ? '8n' : '4n');
         }
 
-        // Percussion
-        if (percToggle.checked && Math.random() < clouds / 200) {
-          perc.triggerAttackRelease('C2', '8n');
+        // Drum groove
+        if (drumToggle.checked) {
+          const kickPattern = vibe === 'upbeat' ? ['C2', null, 'C2', null] : ['C2', null, null, null];
+          const snarePattern = vibe === 'upbeat' ? [null, 'C3', null, 'C3'] : [null, null, 'C3', null];
+          Tone.Transport.scheduleRepeat(time => {
+            const beat = Math.floor(Tone.Transport.position.split(':')[1]) % 4;
+            if (kickPattern[beat]) drums.triggerAttackRelease(kickPattern[beat], '8n', time);
+            if (snarePattern[beat]) drums.triggerAttackRelease(snarePattern[beat], '8n', time);
+          }, '4n');
         }
 
-        statusDiv.textContent = `Temp: ${temp}°C, Wind: ${wind} km/h, Clouds: ${clouds}%, Time: ${new Date().toLocaleTimeString()}`;
+        statusDiv.textContent = `Temp: ${temp}°C, Wind: ${wind} km/h, Clouds: ${clouds}%, Vibe: ${vibe}`;
       } catch (err) {
+        console.error('Error:', err);
         statusDiv.textContent = `Error: ${err}. Using fallback data.`;
       }
 
@@ -153,6 +215,7 @@
       await Tone.start();
       initAudio();
       Tone.Transport.start();
+      drawVisualizer();
 
       // Request motion permission
       if (typeof DeviceMotionEvent.requestPermission === 'function') {
@@ -161,7 +224,7 @@
           if (permission === 'granted') {
             window.addEventListener('devicemotion', handleMotion);
           } else {
-            statusDiv.textContent += ' Motion denied. Tilt won’t affect sound.';
+            statusDiv.textContent += ' Motion denied. Tilt/shake won’t affect sound.';
           }
         } catch (err) {
           statusDiv.textContent += ' Motion permission error.';
