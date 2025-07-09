@@ -7,35 +7,24 @@
   <script src="https://unpkg.com/tone@14.7.77/build/Tone.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
-    body { margin: 0; min-height: 100vh; display: flex; flex-direction: column; justify-content: center; align-items: center; background: linear-gradient(to bottom, #1e3a8a, #7c3aed); color: white; transition: background 1s; }
+    body { margin: 0; min-height: 100vh; display: flex; flex-direction: column; justify-content: center; align-items: center; background: black; color: white; }
     #status { font-size: 0.9rem; opacity: 0.8; }
-    #controls { display: flex; flex-wrap: wrap; gap: 1rem; }
     canvas { margin-top: 1rem; width: 100%; max-width: 300px; height: 100px; }
-    .fade-to-black { background: black !important; }
-    .particle { position: absolute; border-radius: 50%; pointer-events: none; box-shadow: 0 0 15px rgba(255, 255, 255, 0.7); }
     .retry-btn { display: none; }
+    .particle { position: absolute; border-radius: 50%; pointer-events: none; box-shadow: 0 0 15px rgba(255, 255, 255, 0.7); }
   </style>
 </head>
 <body>
   <div id="ui" class="text-center p-4 max-w-md">
     <h1 class="text-3xl font-bold mb-4">Music 2.0: Your Soundtrack</h1>
-    <p class="mb-4">Walk to build your beat, tilt to shape the vibe. Allow location and motion. Pocket your phone!</p>
+    <p class="mb-4">Walk to build your beat. Allow location and motion. Pocket your phone!</p>
     <button id="startBtn" class="bg-purple-600 hover:bg-purple-700 text-white font-semibold py-2 px-4 rounded-lg transition">Start Music</button>
-    <button id="retryBtn" class="retry-btn bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-lg transition mt-2">Retry Permissions</button>
+    <button id="testSoundBtn" class="bg-green-600 hover:bg-green-700 text-white font-semibold py-2 px-4 rounded-lg transition mt-2 retry-btn">Test Sound</button>
+    <button id="retryBtn" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-lg transition mt-2 retry-btn">Retry Permissions</button>
     <div id="status" class="mt-4">Waiting to start...</div>
     <div id="tempoStatus" class="mt-2 text-sm">Walking Tempo: 0 BPM</div>
     <div id="chordStatus" class="mt-2 text-sm">Chord: None</div>
     <canvas id="visualizer"></canvas>
-    <div id="controls" class="mt-4">
-      <label class="flex items-center"><input type="checkbox" id="padToggle" checked class="mr-2"> Ambient Pad</label>
-      <label class="flex items-center"><input type="checkbox" id="arpToggle" checked class="mr-2"> Arpeggio</label>
-      <label class="flex items-center"><input type="checkbox" id="drumToggle" checked class="mr-2"> Drums</label>
-      <label class="flex items-center"><input type="checkbox" id="stringToggle" checked class="mr-2"> Strings</label>
-      <label class="flex items-center flex-col">
-        Motion Sensitivity
-        <input type="range" id="motionSensitivity" min="0.5" max="2" step="0.1" value="1" class="mt-2">
-      </label>
-    </div>
   </div>
 
   <script>
@@ -58,23 +47,19 @@
 
     // DOM elements
     const startBtn = document.getElementById('startBtn');
+    const testSoundBtn = document.getElementById('testSoundBtn');
     const retryBtn = document.getElementById('retryBtn');
     const statusDiv = document.getElementById('status');
     const tempoStatus = document.getElementById('tempoStatus');
     const chordStatus = document.getElementById('chordStatus');
     const ui = document.getElementById('ui');
-    const padToggle = document.getElementById('padToggle');
-    const arpToggle = document.getElementById('arpToggle');
-    const drumToggle = document.getElementById('drumToggle');
-    const stringToggle = document.getElementById('stringToggle');
-    const motionSensitivity = document.getElementById('motionSensitivity');
     const canvas = document.getElementById('visualizer');
     const ctx = canvas.getContext('2d');
     let particles = [];
 
     // Audio components
-    let synth, arp, drums, strings, gain, reverb, delay, sidechain, analyser, meter;
-    let padPart, arpPart, drumPart, stringPart;
+    let synth, drums, gain, reverb, analyser, meter;
+    let padPart, drumPart;
 
     // Initialize audio
     function initAudio() {
@@ -83,71 +68,46 @@
         envelope: { attack: 0.5, decay: 1, sustain: 0.7, release: 2 },
         filter: { frequency: 500, type: 'lowpass' }
       });
-      arp = new Tone.PolySynth(Tone.Synth, { 
-        oscillator: { type: 'triangle' }, 
-        envelope: { attack: 0.1, decay: 0.2, sustain: 0.3, release: 0.5 }
-      });
       drums = new Tone.MembraneSynth({ pitchDecay: 0.05, octaves: 10 });
-      strings = new Tone.PolySynth(Tone.Synth, { 
-        oscillator: { type: 'sine' }, 
-        envelope: { attack: 1, decay: 2, sustain: 0.8, release: 3 },
-        filter: { frequency: 1000, type: 'highpass' }
-      });
       gain = new Tone.Gain(1).toDestination();
-      reverb = new Tone.Reverb({ decay: 4, wet: 0.5 });
-      delay = new Tone.PingPongDelay({ delayTime: '8n', feedback: 0.3, wet: 0.2 });
-      sidechain = new Tone.Envelope({ attack: 0.01, decay: 0.1, sustain: 0, release: 0.1 });
+      reverb = new Tone.Reverb({ decay: 4, wet: 0.3 });
       analyser = new Tone.Analyser('waveform', 128);
       meter = new Tone.Meter();
       synth.connect(gain);
-      arp.connect(gain);
       drums.connect(gain);
-      strings.connect(gain);
-      gain.connect(sidechain).connect(reverb).connect(delay).connect(meter).connect(analyser).toDestination();
-      console.log('Audio initialized');
+      gain.connect(reverb).connect(meter).connect(analyser).toDestination();
+      console.log('Audio initialized, context state:', Tone.context.state);
 
-      // Create persistent parts
+      // Persistent parts with default events
       padPart = new Tone.Part((time, chord) => {
-        if (padToggle.checked) {
-          synth.triggerAttackRelease(chord, '2m', time);
-          console.log('Pad triggered:', chord);
-        }
+        synth.triggerAttackRelease(chord, '2m', time);
+        console.log('Pad triggered:', chord, 'Level:', meter.getValue());
       }, [[0, state.shiftedChords[state.chordIndex]]]).start(0);
       padPart.loop = true;
       padPart.loopEnd = '2m';
 
-      arpPart = new Tone.Part((time, note) => {
-        if (arpToggle.checked && state.stepCount >= 4) {
-          arp.triggerAttackRelease(note, state.vibe === 'upbeat' ? '16n' : '8n', time, 0.5);
-          arp.set({ pan: Math.random() * 0.4 - 0.2 });
-          console.log('Arp note:', note);
-        }
-      }, []).start(0);
-      arpPart.loop = true;
-      arpPart.loopEnd = '1n';
-
       drumPart = new Tone.Part((time, value) => {
-        if (drumToggle.checked && state.stepCount >= 2) {
-          if (value.kick) {
-            drums.triggerAttackRelease(value.kick, '8n', time);
-            sidechain.triggerAttackRelease(0.5, time);
-          }
+        if (state.stepCount >= 2) {
+          if (value.kick) drums.triggerAttackRelease(value.kick, '8n', time);
           if (value.snare) drums.triggerAttackRelease(value.snare, '8n', time);
-          if (value.hiHat) strings.triggerAttackRelease(value.hiHat, '16n', time);
-          console.log('Drum hit:', value);
+          console.log('Drum hit:', value, 'Level:', meter.getValue());
         }
-      }, []).start(0);
+      }, [
+        [0, { kick: 'C2', snare: null }],
+        ['4n', { kick: null, snare: 'C3' }],
+        ['2n', { kick: 'C2', snare: null }],
+        ['2n + 4n', { kick: null, snare: 'C3' }]
+      ]).start(0);
       drumPart.loop = true;
       drumPart.loopEnd = '1m';
+    }
 
-      stringPart = new Tone.Part((time, note) => {
-        if (stringToggle.checked && state.stepCount >= 8) {
-          strings.triggerAttackRelease(note, '1m', time);
-          console.log('String note:', note);
-        }
-      }, []).start(0);
-      stringPart.loop = true;
-      stringPart.loopEnd = '1m';
+    // Test sound
+    function playTestSound() {
+      const testSynth = new Tone.Synth().toDestination();
+      testSynth.triggerAttackRelease('C4', '8n');
+      console.log('Test sound triggered, context state:', Tone.context.state);
+      statusDiv.textContent = 'Test sound played. If no sound, check device volume or retry.';
     }
 
     // Visualizer and particles
@@ -161,7 +121,7 @@
       ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.beginPath();
-      ctx.strokeStyle = `hsl(${state.vibe === 'dark' ? 240 : state.vibe === 'bright' ? 60 : state.vibe === 'upbeat' ? 0 : 120}, 70%, 70%)`;
+      ctx.strokeStyle = `hsl(${state.vibe === 'upbeat' ? 0 : 240}, 70%, 70%)`;
       ctx.lineWidth = 2;
       for (let i = 0; i < values.length; i++) {
         const x = (i / values.length) * canvas.width / window.devicePixelRatio;
@@ -237,26 +197,22 @@
       }
     }
 
-    // Get time-based scale and vibe
+    // Get time-based vibe
     function getTimeParams() {
       const hour = new Date().getHours();
       if (hour < 6) return { 
-        scale: ['C4', 'Eb4', 'G4', 'Bb4'], 
         vibe: 'dark', 
         chords: [['C4', 'Eb4', 'G4'], ['F4', 'Ab4', 'C5'], ['Ab3', 'C4', 'Eb4'], ['G3', 'Bb3', 'D4']] // i-iv-bVI-v
       };
       if (hour < 12) return { 
-        scale: ['C4', 'E4', 'G4', 'B4'], 
         vibe: 'bright', 
         chords: [['C4', 'E4', 'G4'], ['F4', 'A4', 'C5'], ['A3', 'C4', 'E4'], ['G3', 'B3', 'D4']] // I-IV-vi-V
       };
       if (hour < 18) return { 
-        scale: ['G4', 'A4', 'B4', 'D5'], 
         vibe: 'upbeat', 
         chords: [['G4', 'B4', 'D5'], ['C4', 'E4', 'G4'], ['A3', 'C4', 'E4'], ['G3', 'B3', 'D4']] // I-IV-vi-V
       };
       return { 
-        scale: ['A4', 'C5', 'E5', 'G5'], 
         vibe: 'mellow', 
         chords: [['A4', 'C5', 'E5'], ['F4', 'A4', 'C5'], ['G4', 'B4', 'D5'], ['A4', 'C5', 'E5']] // i-bVI-bVII-i
       };
@@ -284,17 +240,13 @@
       const accel = event.accelerationIncludingGravity || {};
       const x = Math.abs(accel.x || 0);
       const totalAccel = Math.sqrt((accel.x || 0) ** 2 + (accel.y || 0) ** 2 + (accel.z || 0) ** 2);
-      const sensitivity = parseFloat(motionSensitivity.value);
+      const sensitivity = 1; // Fixed for simplicity
       const { vibe } = getTimeParams();
 
       // Tilt controls
       const filterScale = new Tone.Scale(200, 5000).map(x / 10);
-      const volumeScale = new Tone.Scale(-15, 0).map(x / 10);
       synth.set({ filter: { frequency: filterScale } });
-      synth.volume.value = padToggle.checked ? volumeScale : -Infinity;
-      arp.volume.value = arpToggle.checked && state.stepCount >= 4 ? -10 : -Infinity;
-      drums.volume.value = drumToggle.checked && state.stepCount >= 2 ? -10 : -Infinity;
-      strings.volume.value = stringToggle.checked && state.stepCount >= 8 ? -8 : -Infinity;
+      synth.volume.value = new Tone.Scale(-15, 0).map(x / 10);
 
       // Balance mix
       const level = meter.getValue();
@@ -317,7 +269,7 @@
         state.lastStepTime = now;
         state.stepCount++;
         addParticle(canvas.width / window.devicePixelRatio / 2, canvas.height / window.devicePixelRatio, vibe);
-        if (drumToggle.checked && state.stepCount >= 2) {
+        if (state.stepCount >= 2) {
           drums.triggerAttackRelease('C2', '8n');
         }
       }
@@ -327,10 +279,7 @@
         state.lastShake = Date.now();
         state.chordIndex = (state.chordIndex + 1) % 4;
         addParticle(canvas.width / window.devicePixelRatio * Math.random(), canvas.height / window.devicePixelRatio, vibe);
-        if (drumToggle.checked && state.stepCount >= 2) {
-          drums.triggerAttackRelease('C3', '8n');
-          strings.triggerAttackRelease('C5', '16n');
-        }
+        drums.triggerAttackRelease('C3', '8n');
         console.log('Shake detected, chord changed to index:', state.chordIndex);
       }
     }
@@ -339,23 +288,14 @@
     function updateParts() {
       const { vibe } = getTimeParams();
       padPart.events = [[0, state.shiftedChords[state.chordIndex]]];
-      
-      const chord = state.shiftedChords[state.chordIndex];
-      const pattern = vibe === 'upbeat' ? chord.concat(chord.slice().reverse()) : chord;
-      arpPart.events = pattern.map((note, i) => [(i * (vibe === 'upbeat' ? 0.125 : 0.25)), note]);
-      
       const kickPattern = vibe === 'upbeat' ? ['C2', null, 'C2', null] : ['C2', null, null, null];
       const snarePattern = vibe === 'upbeat' ? [null, 'C3', null, 'C3'] : [null, null, 'C3', null];
-      const hiHatPattern = state.weather.condition >= 45 ? ['C5', 'C5', 'C5', 'C5'] : [null, 'C5', null, 'C5'];
       drumPart.events = [
-        [0, { kick: kickPattern[0], snare: snarePattern[0], hiHat: hiHatPattern[0] }],
-        ['4n', { kick: kickPattern[1], snare: snarePattern[1], hiHat: hiHatPattern[1] }],
-        ['2n', { kick: kickPattern[2], snare: snarePattern[2], hiHat: hiHatPattern[2] }],
-        ['2n + 4n', { kick: kickPattern[3], snare: snarePattern[3], hiHat: hiHatPattern[3] }]
+        [0, { kick: kickPattern[0], snare: snarePattern[0] }],
+        ['4n', { kick: kickPattern[1], snare: snarePattern[1] }],
+        ['2n', { kick: kickPattern[2], snare: snarePattern[2] }],
+        ['2n + 4n', { kick: kickPattern[3], snare: snarePattern[3] }]
       ];
-      
-      const melodyNote = state.shiftedChords[state.chordIndex][0].replace(/\d/, n => +n + 1);
-      stringPart.events = [[0, melodyNote]];
       console.log('Parts updated, chord:', state.shiftedChords[state.chordIndex]);
     }
 
@@ -365,7 +305,7 @@
       try {
         const { lat, lon } = await getLocation();
         const weather = await getWeather(lat, lon);
-        const { scale, vibe, chords } = getTimeParams();
+        const { vibe, chords } = getTimeParams();
         state.vibe = vibe;
         state.chords = chords;
         const isRainy = [45, 48, 51, 53, 55, 56, 57, 61, 63, 65, 66, 67].includes(weather.condition);
@@ -375,7 +315,6 @@
         chordStatus.textContent = `Chord: ${state.shiftedChords[state.chordIndex].join(', ')}`;
         Tone.Transport.bpm.rampTo(state.stepBpm + weather.wind / 5, 0.2);
         reverb.wet.value = isRainy ? 0.8 : weather.clouds / 200;
-        delay.feedback.value = weather.wind / 100;
         updateParts();
         statusDiv.textContent = `Temp: ${weather.temp}°C, Wind: ${weather.wind} km/h, Clouds: ${weather.clouds}%, Vibe: ${vibe}`;
       } catch (err) {
@@ -387,58 +326,63 @@
       setTimeout(generateMusic, 4000);
     }
 
-    // Stop music
-    function stopMusic() {
-      state.isPlaying = false;
-      Tone.Transport.stop();
-      Tone.Transport.cancel();
-      window.removeEventListener('devicemotion', handleMotion);
-      particles = [];
-      statusDiv.textContent = 'Stopped. Tap Start Music to begin again.';
-      startBtn.textContent = 'Start Music';
-      startBtn.classList.remove('opacity-50', 'cursor-not-allowed');
-      ui.classList.remove('fade-to-black');
-      console.log('Music stopped');
-    }
-
     // Start music
     startBtn.addEventListener('click', async () => {
       if (state.isPlaying) return;
       state.isPlaying = true;
-      await Tone.context.resume();
-      console.log('Audio context resumed');
-      await Tone.start();
-      console.log('Tone.js started');
-      ui.classList.add('fade-to-black');
-      startBtn.textContent = 'Playing...';
-      startBtn.classList.add('opacity-50', 'cursor-not-allowed');
-      initAudio();
-      Tone.Transport.start();
-      drawVisualizer();
-      state.stepCount = 0;
+      try {
+        await Tone.context.resume();
+        console.log('Audio context resumed, state:', Tone.context.state);
+        await Tone.start();
+        console.log('Tone.js started');
+        initAudio();
+        Tone.Transport.start();
+        ui.classList.add('fade-to-black');
+        startBtn.textContent = 'Playing...';
+        startBtn.classList.add('opacity-50', 'cursor-not-allowed');
+        testSoundBtn.style.display = 'block';
+        drawVisualizer();
+        state.stepCount = 0;
 
-      if (typeof DeviceMotionEvent.requestPermission === 'function') {
-        try {
-          const permission = await DeviceMotionEvent.requestPermission();
-          if (permission === 'granted') {
-            window.addEventListener('devicemotion', handleMotion);
-            console.log('Motion permission granted');
-          } else {
-            statusDiv.textContent += ' Motion denied. Walk/tilt won’t affect sound.';
+        if (typeof DeviceMotionEvent.requestPermission === 'function') {
+          try {
+            const permission = await DeviceMotionEvent.requestPermission();
+            if (permission === 'granted') {
+              window.addEventListener('devicemotion', handleMotion);
+              console.log('Motion permission granted');
+            } else {
+              statusDiv.textContent += ' Motion denied. Walk/tilt won’t affect sound.';
+              retryBtn.style.display = 'block';
+              console.error('Motion permission denied');
+            }
+          } catch (err) {
+            statusDiv.textContent += ' Motion permission error.';
             retryBtn.style.display = 'block';
-            console.error('Motion permission denied');
+            console.error('Motion permission error:', err);
           }
-        } catch (err) {
-          statusDiv.textContent += ' Motion permission error.';
-          retryBtn.style.display = 'block';
-          console.error('Motion permission error:', err);
+        } else {
+          window.addEventListener('devicemotion', handleMotion);
+          console.log('Motion listener added');
         }
-      } else {
-        window.addEventListener('devicemotion', handleMotion);
-        console.log('Motion listener added');
-      }
 
-      generateMusic();
+        generateMusic();
+      } catch (err) {
+        console.error('Audio startup error:', err);
+        statusDiv.textContent = `Audio error: ${err.message}. Try Test Sound or Retry Permissions.`;
+        testSoundBtn.style.display = 'block';
+        retryBtn.style.display = 'block';
+      }
+    });
+
+    testSoundBtn.addEventListener('click', async () => {
+      try {
+        await Tone.context.resume();
+        console.log('Test sound: Audio context resumed, state:', Tone.context.state);
+        playTestSound();
+      } catch (err) {
+        console.error('Test sound error:', err);
+        statusDiv.textContent = `Test sound failed: ${err.message}. Check device volume or retry.`;
+      }
     });
 
     retryBtn.addEventListener('click', async () => {
