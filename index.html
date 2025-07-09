@@ -10,17 +10,18 @@
     body { margin: 0; min-height: 100vh; display: flex; flex-direction: column; justify-content: center; align-items: center; background: black; color: white; }
     #status { font-size: 0.9rem; opacity: 0.8; }
     canvas { margin-top: 1rem; width: 100%; max-width: 300px; height: 100px; }
-    .retry-btn, .tempo-btn { display: none; }
+    .retry-btn, .tempo-btn, .reset-btn { display: none; }
     .particle { position: absolute; border-radius: 50%; pointer-events: none; box-shadow: 0 0 15px rgba(255, 255, 255, 0.7); }
   </style>
 </head>
 <body>
   <div id="ui" class="text-center p-4 max-w-md">
     <h1 class="text-3xl font-bold mb-4">Music 2.0: Your Soundtrack</h1>
-    <p class="mb-4">Walk to drive the beat, tilt to shape the vibe, shake for drama. Allow motion!</p>
+    <p class="mb-4">Walk to drive the beat, tilt for hi-hats, shake for drama. Allow motion!</p>
     <button id="startBtn" class="bg-purple-600 hover:bg-purple-700 text-white font-semibold py-2 px-4 rounded-lg transition">Start Music</button>
     <button id="testSoundBtn" class="bg-green-600 hover:bg-green-700 text-white font-semibold py-2 px-4 rounded-lg transition mt-2 retry-btn">Test Sound</button>
     <button id="retryBtn" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-lg transition mt-2 retry-btn">Retry Permissions</button>
+    <button id="resetBtn" class="bg-gray-600 hover:bg-gray-700 text-white font-semibold py-2 px-4 rounded-lg transition mt-2 reset-btn">Reset</button>
     <button id="fasterBtn" class="bg-yellow-600 hover:bg-yellow-700 text-white font-semibold py-2 px-4 rounded-lg transition mt-2 tempo-btn">Faster</button>
     <button id="slowerBtn" class="bg-red-600 hover:bg-red-700 text-white font-semibold py-2 px-4 rounded-lg transition mt-2 tempo-btn">Slower</button>
     <div id="status" class="mt-4">Waiting to start...</div>
@@ -48,13 +49,15 @@
       vibe: 'upbeat',
       chords: [['G4', 'B4', 'D5'], ['C4', 'E4', 'G4'], ['A3', 'C4', 'E4'], ['G3', 'B3', 'D4']],
       shiftedChords: [['G4', 'B4', 'D5'], ['C4', 'E4', 'G4'], ['A3', 'C4', 'E4'], ['G3', 'B3', 'D4']],
-      recentSteps: [] // For smoothing BPM
+      recentSteps: [],
+      motionFailed: false
     };
 
     // DOM elements
     const startBtn = document.getElementById('startBtn');
     const testSoundBtn = document.getElementById('testSoundBtn');
     const retryBtn = document.getElementById('retryBtn');
+    const resetBtn = document.getElementById('resetBtn');
     const fasterBtn = document.getElementById('fasterBtn');
     const slowerBtn = document.getElementById('slowerBtn');
     const statusDiv = document.getElementById('status');
@@ -72,21 +75,24 @@
 
     // Initialize audio
     function initAudio() {
-      synth = new Tone.PolySynth(Tone.Synth, { 
-        oscillator: { type: 'sine' }, 
+      synth = new Tone.PolySynth(Tone.FMSynth, { 
+        harmonicity: 3, 
+        modulationIndex: 10, 
         envelope: { attack: 0.5, decay: 1, sustain: 0.7, release: 2 }
       });
-      arp = new Tone.PolySynth(Tone.Synth, { 
-        oscillator: { type: 'triangle' }, 
+      arp = new Tone.PolySynth(Tone.FMSynth, { 
+        harmonicity: 2, 
+        modulationIndex: 5, 
         envelope: { attack: 0.1, decay: 0.2, sustain: 0.3, release: 0.5 }
       });
-      drums = new Tone.MembraneSynth({ pitchDecay: 0.05, octaves: 10 });
-      strings = new Tone.PolySynth(Tone.Synth, { 
-        oscillator: { type: 'sine' }, 
+      drums = new Tone.MembraneSynth({ pitchDecay: 0.05, octaves: 10 }); // Changed to MembraneSynth for punchier drums
+      strings = new Tone.PolySynth(Tone.FMSynth, { 
+        harmonicity: 4, 
+        modulationIndex: 8, 
         envelope: { attack: 1, decay: 2, sustain: 0.8, release: 2 }
       });
       cymbal = new Tone.MetalSynth({ frequency: 200, envelope: { attack: 0.001, decay: 1, release: 2 } });
-      gain = new Tone.Gain(1).toDestination();
+      gain = new Tone.Gain(0.8).toDestination();
       reverb = new Tone.Reverb({ decay: 4, wet: 0.3 });
       analyser = new Tone.Analyser('waveform', 128);
       meter = new Tone.Meter();
@@ -98,11 +104,11 @@
       gain.connect(reverb).connect(meter).connect(analyser).toDestination();
 
       // Initial volumes
-      synth.volume.value = -10;
-      arp.volume.value = -15;
-      drums.volume.value = -2;
-      strings.volume.value = -12;
-      cymbal.volume.value = -20;
+      synth.volume.value = -8;
+      arp.volume.value = -Infinity;
+      drums.volume.value = -Infinity;
+      strings.volume.value = -Infinity;
+      cymbal.volume.value = -Infinity;
 
       console.log('Audio initialized, context state:', Tone.context.state);
 
@@ -223,7 +229,7 @@
     // Fetch weather
     async function getWeather(lat, lon) {
       if (state.weatherTime > Date.now() - 60000) return state.weather;
-      const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,wind_speed_10m,cloud_cover,weather_code`;
+      const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}¤t=temperature_2m,wind_speed_10m,cloud_cover,weather_code`;
       try {
         const response = await fetch(url);
         if (!response.ok) throw new Error('Weather fetch failed');
@@ -308,12 +314,17 @@
     // Update section
     function updateSection() {
       const now = Date.now();
-      if (now - state.lastSectionUpdate < 8000 && state.stepCount < 4) return;
+      const stepsNeeded = state.section === 'intro' ? 4 : 8;
+      const timeNeeded = state.section === 'intro' ? 8000 : 16000;
+      if (now - state.lastSectionUpdate < timeNeeded || state.stepCount < stepsNeeded) return;
       if (state.section === 'intro') {
         state.section = 'build';
+        drums.volume.rampTo(-4, 1);
+        arp.volume.rampTo(-12, 1);
         console.log('Section changed to build');
       } else if (state.section === 'build') {
         state.section = 'climax';
+        strings.volume.rampTo(-10, 1);
         console.log('Section changed to climax');
       }
       state.lastSectionUpdate = now;
@@ -322,11 +333,12 @@
     }
 
     // Handle device motion
-    function handleMotion(event) {
+    async function handleMotion(event) {
       if (!state.isPlaying) return;
       const now = Date.now();
       if (now - state.lastMotionTime < 100) return;
       state.lastMotionTime = now;
+      state.motionFailed = false;
       const gyro = event.rotationRate || {};
       const beta = Math.abs((gyro.beta || 0) / 180 * Math.PI);
       const gamma = Math.abs((gyro.gamma || 0) / 180 * Math.PI);
@@ -339,17 +351,17 @@
       console.log('Motion detected:', { beta, gamma, totalAccel, x, permission: typeof DeviceMotionEvent.requestPermission === 'function' ? 'prompt' : 'granted' });
 
       // Tilt controls
-      const drumVolume = (x / 10) * (0 - (-10)) - 10;
+      const hiHatCount = Math.floor((x / 10) * 8); // 0-8 hi-hats per measure
       const reverbWet = (x / 10) * (0.8 - 0.2) + 0.2;
-      drums.volume.rampTo(drumVolume, 0.5);
       reverb.wet.rampTo(reverbWet, 0.5);
-      synth.volume.value = -10;
-      arp.volume.value = state.section === 'intro' ? -Infinity : -15;
-      strings.volume.value = state.section !== 'climax' ? -Infinity : -12;
-      cymbal.volume.value = -20;
+      synth.volume.value = -8;
+      arp.volume.value = state.section === 'intro' ? -Infinity : -12;
+      drums.volume.value = state.section === 'intro' ? -Infinity : -4;
+      strings.volume.value = state.section !== 'climax' ? -Infinity : -10;
+      cymbal.volume.value = -Infinity;
 
       // Detect step
-      if ((beta > 0.1 * sensitivity || gamma > 0.1 * sensitivity || totalAccel > 6 * sensitivity) && now - state.lastStepTime > 300) {
+      if ((beta > 0.2 * sensitivity || gamma > 0.2 * sensitivity || totalAccel > 8 * sensitivity) && now - state.lastStepTime > 300) {
         state.recentSteps.push(now);
         state.recentSteps = state.recentSteps.slice(-5);
         if (state.recentSteps.length > 1) {
@@ -369,7 +381,7 @@
       }
 
       // Detect shake
-      if (totalAccel > 6 * sensitivity && now - state.lastShake > 1000) {
+      if (totalAccel > 8 * sensitivity && now - state.lastShake > 1000) {
         state.lastShake = now;
         state.chordIndex = (state.chordIndex + 1) % 4;
         addParticle(canvas.width / window.devicePixelRatio * Math.random(), canvas.height / window.devicePixelRatio, vibe);
@@ -379,15 +391,15 @@
       }
     }
 
-    // Motion fallback
+    // Motion fallback and permission retry
     function startMotionFallback() {
-      setInterval(() => {
-        if (!state.isPlaying || Date.now() - state.lastMotionTime < 5000) return;
+      setInterval(async () => {
+        if (!state.isPlaying || Date.now() - state.lastMotionTime < 10000 || !state.motionFailed) return;
         state.stepCount++;
         state.lastStepTime = Date.now();
         state.recentSteps.push(Date.now());
         state.recentSteps = state.recentSteps.slice(-5);
-        state.stepBpm = 120; // Default BPM
+        state.stepBpm = 120;
         Tone.Transport.bpm.rampTo(state.stepBpm, 0.5);
         tempoStatus.textContent = `Tempo: ${state.stepBpm} BPM (Fallback)`;
         console.log(`Fallback step, Step Count: ${state.stepCount}`);
@@ -395,6 +407,26 @@
         drums.triggerAttackRelease('C2', '8n', Tone.now(), 1);
         updateSection();
       }, 1000);
+
+      // Retry permissions
+      setInterval(async () => {
+        if (state.isPlaying && state.motionFailed && typeof DeviceMotionEvent.requestPermission === 'function') {
+          try {
+            const permission = await DeviceMotionEvent.requestPermission();
+            if (permission === 'granted') {
+              window.addEventListener('devicemotion', handleMotion);
+              state.motionFailed = false;
+              console.log('Motion permission granted on retry');
+            } else {
+              state.motionFailed = true;
+              console.error('Motion permission denied on retry');
+            }
+          } catch (err) {
+            state.motionFailed = true;
+            console.error('Motion permission error on retry:', err);
+          }
+        }
+      }, 10000);
     }
 
     // Check for no motion
@@ -412,7 +444,7 @@
       const arpSpeed = state.section === 'climax' ? '16n' : '8n';
       const kickPattern = state.section === 'climax' ? ['C2', 'C2', 'C2', 'C2'] : vibe === 'upbeat' ? ['C2', null, 'C2', null] : ['C2', null, null, null];
       const snarePattern = state.section === 'climax' ? ['C3', null, 'C3', null] : vibe === 'upbeat' ? [null, 'C3', null, 'C3'] : [null, null, 'C3', null];
-      const hiHatPattern = state.weather.condition >= 45 ? ['C5', 'C5', 'C5', 'C5'] : [null, 'C5', null, 'C5'];
+      const hiHatPattern = state.weather.condition >= 45 ? ['C5', 'C5', 'C5', 'C5'] : ['C5', null, 'C5', null];
 
       padPart.events = [[0, chord]];
       arpPart.events = [
@@ -429,11 +461,18 @@
       ];
       stringPart.events = state.section === 'climax' ? [[0, chord]] : [[0, [chord[0] || 'G4']]];
       
-      // Auto-cycle chords
-      if (Tone.Transport.getTicksAtTime(Tone.now()) / 192 - state.lastSectionUpdate / 1000 * state.stepBpm / 60 >= 16) {
+      if (Tone.Transport.getTicksAtTime(Tone.now()) / 192 - state.lastSectionUpdate / 1000 * state.stepBpm / 60 >= 8) {
         state.chordIndex = (state.chordIndex + 1) % 4;
         state.lastSectionUpdate = Date.now();
         console.log('Auto chord change to index:', state.chordIndex);
+        padPart.events = [[0, state.shiftedChords[state.chordIndex]]];
+        arpPart.events = [
+          ['0:0:0', state.shiftedChords[state.chordIndex][0] || 'G4'],
+          ['0:0:1', state.shiftedChords[state.chordIndex][1] || 'B4'],
+          ['0:0:2', state.shiftedChords[state.chordIndex][2] || 'D5'],
+          ['0:0:3', state.shiftedChords[state.chordIndex][0] || 'G4']
+        ];
+        stringPart.events = state.section === 'climax' ? [[0, state.shiftedChords[state.chordIndex]]] : [[0, [state.shiftedChords[state.chordIndex][0] || 'G4']]];
       }
 
       console.log('Parts updated, chord:', chord, 'section:', state.section);
@@ -454,7 +493,6 @@
         );
         chordStatus.textContent = `Chord: ${state.shiftedChords[state.chordIndex].join(', ')}`;
         Tone.Transport.bpm.rampTo(state.stepBpm + weather.wind / 5, 0.5);
-        reverb.wet.value = isRainy ? 0.8 : weather.clouds / 200;
         updateParts();
         statusDiv.textContent = `Temp: ${weather.temp}°C, Wind: ${weather.wind} km/h, Clouds: ${weather.clouds}%, Vibe: ${vibe}`;
       } catch (err) {
@@ -486,6 +524,7 @@
         startBtn.textContent = 'Playing...';
         startBtn.classList.add('opacity-50', 'cursor-not-allowed');
         testSoundBtn.style.display = 'block';
+        resetBtn.style.display = 'block';
         fasterBtn.style.display = 'block';
         slowerBtn.style.display = 'block';
         drawVisualizer();
@@ -502,13 +541,16 @@
             const permission = await DeviceMotionEvent.requestPermission();
             if (permission === 'granted') {
               window.addEventListener('devicemotion', handleMotion);
+              state.motionFailed = false;
               console.log('Motion permission granted');
             } else {
+              state.motionFailed = true;
               statusDiv.textContent += ' Motion denied. Use Faster/Slower buttons or retry.';
               retryBtn.style.display = 'block';
               console.error('Motion permission denied');
             }
           } catch (err) {
+            state.motionFailed = true;
             statusDiv.textContent += ' Motion permission error. Use Faster/Slower buttons or retry.';
             retryBtn.style.display = 'block';
             console.error('Motion permission error:', err);
@@ -524,6 +566,7 @@
         statusDiv.textContent = `Audio error: ${err.message}. Try Test Sound or Retry Permissions.`;
         testSoundBtn.style.display = 'block';
         retryBtn.style.display = 'block';
+        resetBtn.style.display = 'block';
       }
     });
 
@@ -548,16 +591,28 @@
           const permission = await DeviceMotionEvent.requestPermission();
           if (permission === 'granted') {
             window.addEventListener('devicemotion', handleMotion);
+            state.motionFailed = false;
             console.log('Motion permission granted on retry');
           } else {
+            state.motionFailed = true;
             statusDiv.textContent += ' Motion denied. Use Faster/Slower buttons.';
             retryBtn.style.display = 'block';
           }
         } catch (err) {
+          state.motionFailed = true;
           statusDiv.textContent += ' Motion permission error.';
           retryBtn.style.display = 'block';
           console.error('Motion permission error on retry:', err);
         }
+      }
+    });
+
+    resetBtn.addEventListener('click', () => {
+      if (state.isPlaying) {
+        fadeOutAudio();
+        setTimeout(() => {
+          startBtn.click();
+        }, 2500);
       }
     });
 
@@ -566,8 +621,8 @@
       Tone.Transport.bpm.rampTo(state.stepBpm, 0.5);
       tempoStatus.textContent = `Tempo: ${state.stepBpm} BPM`;
       state.lastMotionTime = Date.now();
-      console.log('Tempo increased:', state.stepBpm);
       state.stepCount++;
+      console.log('Tempo increased:', state.stepBpm, 'Step Count:', state.stepCount);
       updateSection();
     });
 
@@ -576,8 +631,8 @@
       Tone.Transport.bpm.rampTo(state.stepBpm, 0.5);
       tempoStatus.textContent = `Tempo: ${state.stepBpm} BPM`;
       state.lastMotionTime = Date.now();
-      console.log('Tempo decreased:', state.stepBpm);
       state.stepCount++;
+      console.log('Tempo decreased:', state.stepBpm, 'Step Count:', state.stepCount);
       updateSection();
     });
   </script>
