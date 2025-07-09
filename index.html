@@ -12,7 +12,7 @@
     #controls { display: flex; flex-wrap: wrap; gap: 1rem; }
     canvas { margin-top: 1rem; width: 100%; max-width: 300px; height: 100px; }
     .fade-to-black { background: black !important; }
-    .particle { position: absolute; border-radius: 50%; pointer-events: none; }
+    .particle { position: absolute; border-radius: 50%; pointer-events: none; box-shadow: 0 0 15px rgba(255, 255, 255, 0.7); }
   </style>
 </head>
 <body>
@@ -49,14 +49,14 @@
     const motionSensitivity = document.getElementById('motionSensitivity');
     const canvas = document.getElementById('visualizer');
     const ctx = canvas.getContext('2d');
-    let synth, arp, drums, strings, reverb, delay, sidechain, analyser, meter, isPlaying = false;
-    let lastStepTime = 0, stepBpm = 120, lastShake = 0, chordIndex = 0, stepCount = 0;
+    let synth, arp, drums, strings, reverb, delay, sidechain, analyser, meter;
+    let isPlaying = false, lastStepTime = 0, stepBpm = 120, lastShake = 0, chordIndex = 0, stepCount = 0;
     let particles = [];
 
     // Initialize audio components
     function initAudio() {
       synth = new Tone.PolySynth(Tone.Synth, { 
-        oscillator: { type: 'fatsawtooth' }, 
+        oscillator: { type: 'sine' }, 
         envelope: { attack: 0.5, decay: 1, sustain: 0.7, release: 2 } 
       }).toDestination();
       arp = new Tone.PolySynth(Tone.Synth, { 
@@ -68,7 +68,7 @@
         oscillator: { type: 'sine' }, 
         envelope: { attack: 1, decay: 2, sustain: 0.8, release: 3 } 
       }).toDestination();
-      reverb = new Tone.Reverb({ decay: 5, wet: 0.5 }).toDestination();
+      reverb = new Tone.Reverb({ decay: 4, wet: 0.5 }).toDestination();
       delay = new Tone.PingPongDelay({ delayTime: '8n', feedback: 0.3, wet: 0.2 }).toDestination();
       sidechain = new Tone.Compressor({ threshold: -30, ratio: 6, attack: 0.01, release: 0.1 }).toDestination();
       analyser = new Tone.Analyser('waveform', 128).toDestination();
@@ -77,6 +77,7 @@
       arp.connect(delay).connect(meter).connect(analyser);
       drums.connect(reverb).connect(meter).connect(analyser);
       strings.connect(reverb).connect(meter).connect(analyser);
+      console.log('Audio initialized');
     }
 
     // Visualizer and particles
@@ -84,7 +85,7 @@
       if (!isPlaying) return;
       const values = analyser.getValue();
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.beginPath();
       ctx.strokeStyle = '#ffffff';
@@ -97,7 +98,6 @@
       }
       ctx.stroke();
 
-      // Draw particles
       particles = particles.filter(p => p.opacity > 0);
       particles.forEach(p => {
         ctx.beginPath();
@@ -105,20 +105,15 @@
         ctx.fillStyle = `rgba(${p.color}, ${p.opacity})`;
         ctx.fill();
         p.y -= p.speed;
-        p.opacity -= 0.01;
+        p.opacity -= 0.02;
       });
       requestAnimationFrame(drawVisualizer);
     }
 
     function addParticle(x, y, vibe) {
-      const colors = {
-        dark: '0, 100, 255',
-        bright: '255, 255, 100',
-        upbeat: '255, 100, 100',
-        mellow: '100, 255, 100'
-      };
+      const colors = { dark: '0, 100, 255', bright: '255, 255, 100', upbeat: '255, 100, 100', mellow: '100, 255, 100' };
       particles.push({
-        x, y, radius: 5 + Math.random() * 10,
+        x, y, radius: 5 + Math.random() * 5,
         speed: 1 + Math.random(),
         opacity: 1,
         color: colors[vibe] || '255, 255, 255'
@@ -138,7 +133,7 @@
 
     // Fetch weather from Open-Meteo
     async function getWeather(lat, lon) {
-      const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}¤t=temperature_2m,wind_speed_10m,cloud_cover,weather_code`;
+      const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,wind_speed_10m,cloud_cover,weather_code`;
       try {
         const response = await fetch(url);
         if (!response.ok) throw new Error('Weather fetch failed');
@@ -161,22 +156,22 @@
       if (hour < 6) return { 
         scale: ['C4', 'Eb4', 'G4', 'Bb4'], 
         vibe: 'dark', 
-        chords: [['C4', 'Eb4', 'G4'], ['G3', 'Bb3', 'D4'], ['Ab3', 'C4', 'Eb4'], ['F3', 'Ab3', 'C4']] // i-iv-bVI-v
+        chords: [['C4', 'Eb4', 'G4'], ['F4', 'Ab4', 'C5'], ['Ab3', 'C4', 'Eb4'], ['G3', 'Bb3', 'D4']] // i-iv-bVI-v
       };
       if (hour < 12) return { 
         scale: ['C4', 'E4', 'G4', 'B4'], 
         vibe: 'bright', 
-        chords: [['D4', 'F#4', 'A4'], ['G3', 'B3', 'D4'], ['A3', 'C#4', 'E4'], ['D4', 'F#4', 'A4']] // ii-V-I-ii
+        chords: [['C4', 'E4', 'G4'], ['F4', 'A4', 'C5'], ['A3', 'C4', 'E4'], ['G3', 'B3', 'D4']] // I-IV-vi-V
       };
       if (hour < 18) return { 
         scale: ['G4', 'A4', 'B4', 'D5'], 
         vibe: 'upbeat', 
-        chords: [['G4', 'B4', 'D5'], ['C4', 'E4', 'G4'], ['D4', 'F#4', 'A4'], ['G4', 'B4', 'D5']] // I-IV-V-I
+        chords: [['G4', 'B4', 'D5'], ['C4', 'E4', 'G4'], ['A3', 'C4', 'E4'], ['G3', 'B3', 'D4']] // I-IV-vi-V
       };
       return { 
         scale: ['A4', 'C5', 'E5', 'G5'], 
         vibe: 'mellow', 
-        chords: [['A4', 'C5', 'E5'], ['G4', 'B4', 'D5'], ['F4', 'A4', 'C5'], ['A4', 'C5', 'E5']] // i-bVII-IV-i
+        chords: [['A4', 'C5', 'E5'], ['F4', 'A4', 'C5'], ['G4', 'B4', 'D5'], ['A4', 'C5', 'E5']] // i-bVI-bVII-i
       };
     }
 
@@ -195,7 +190,8 @@
     function handleMotion(event) {
       if (!isPlaying) return;
       const gyro = event.rotationRate || {};
-      const beta = (gyro.beta || 0) / 180 * Math.PI;
+      const beta = Math.abs((gyro.beta || 0) / 180 * Math.PI);
+      const gamma = Math.abs((gyro.gamma || 0) / 180 * Math.PI);
       const accel = event.accelerationIncludingGravity || {};
       const x = Math.abs(accel.x || 0);
       const totalAccel = Math.sqrt((accel.x || 0) ** 2 + (accel.y || 0) ** 2 + (accel.z || 0) ** 2);
@@ -214,63 +210,69 @@
       // Balance mix
       const level = meter.getValue();
       if (level > -3) {
-        synth.volume.value -= 1;
-        arp.volume.value -= 1;
-        drums.volume.value -= 1;
-        strings.volume.value -= 1;
+        synth.volume.value -= 2;
+        arp.volume.value -= 2;
+        drums.volume.value -= 2;
+        strings.volume.value -= 2;
       }
 
-      // Detect step (Y-axis gyro)
-      if (beta > 0.8 * sensitivity && Date.now() - lastStepTime > 300) {
+      // Detect step
+      if ((beta > 0.3 * sensitivity || gamma > 0.3 * sensitivity) && Date.now() - lastStepTime > 300) {
         const now = Date.now();
         if (lastStepTime > 0) {
           const stepInterval = (now - lastStepTime) / 1000;
           stepBpm = Math.round(60 / stepInterval);
           stepBpm = Math.max(60, Math.min(180, stepBpm));
           tempoStatus.textContent = `Walking Tempo: ${stepBpm} BPM`;
+          console.log(`Step detected, BPM: ${stepBpm}, Step Count: ${stepCount + 1}`);
         }
         lastStepTime = now;
         stepCount++;
         addParticle(canvas.width / 2, canvas.height, vibe);
-        if (drumToggle.checked) {
+        if (drumToggle.checked && stepCount >= 2) {
           drums.triggerAttackRelease('C2', '8n');
         }
       }
 
-      // Detect shake for fills/chord change
-      if (totalAccel > 15 * sensitivity && Date.now() - lastShake > 500) {
+      // Detect shake
+      if (totalAccel > 12 * sensitivity && Date.now() - lastShake > 500) {
         lastShake = Date.now();
         chordIndex = (chordIndex + 1) % 4;
         addParticle(canvas.width * Math.random(), canvas.height, vibe);
-        if (drumToggle.checked) {
+        if (drumToggle.checked && stepCount >= 2) {
           drums.triggerAttackRelease('C3', '8n');
-          strings.triggerAttackRelease(shiftedChords[chordIndex][0].replace(/\d/, n => +n + 1), '4n');
+          strings.triggerAttackRelease('C5', '16n');
         }
+        console.log('Shake detected, chord changed');
       }
     }
 
-    // Generate music
-    async function generateMusic() {
+    // Main music loop
+    function generateMusic() {
       if (!isPlaying) return;
-      try {
-        const { lat, lon } = await getLocation();
-        const weather = await getWeather(lat, lon);
+      getLocation().then(({ lat, lon }) => getWeather(lat, lon)).then(weather => {
         const { scale, vibe, chords } = getTimeParams();
         const isRainy = [45, 48, 51, 53, 55, 56, 57, 61, 63, 65, 66, 67].includes(weather.condition);
         const shiftedChords = applyPicardyThird(chords, weather.clouds, isRainy).map(chord => 
           chord.map(note => Tone.Frequency(note).transpose(Math.round((weather.temp + 20) / 5)).toNote())
         );
         chordStatus.textContent = `Chord: ${shiftedChords[chordIndex].join(', ')}`;
-
-        // Map weather
-        reverb.wet.value = isRainy ? 0.9 : weather.clouds / 200;
-        delay.feedback.value = weather.wind / 100;
         Tone.Transport.bpm.value = stepBpm + weather.wind / 5;
+        reverb.wet.value = isRainy ? 0.8 : weather.clouds / 200;
+        delay.feedback.value = weather.wind / 100;
 
-        // Ambient pad
+        // Clear existing parts
+        Tone.Transport.cancel();
+
+        // Pad
         if (padToggle.checked) {
-          synth.triggerAttackRelease(shiftedChords[chordIndex], '2m');
-          sidechain.set({ threshold: drumToggle.checked ? -30 : -Infinity });
+          const part = new Tone.Part((time, chord) => {
+            synth.triggerAttackRelease(chord, '2m', time);
+            sidechain.set({ threshold: drumToggle.checked && stepCount >= 2 ? -30 : -Infinity });
+            console.log('Pad triggered:', chord);
+          }, [[0, shiftedChords[chordIndex]]]).start(0);
+          part.loop = true;
+          part.loopEnd = '2m';
         }
 
         // Arpeggio
@@ -278,37 +280,54 @@
           const chord = shiftedChords[chordIndex];
           const pattern = vibe === 'upbeat' ? chord.concat(chord.slice().reverse()) : chord;
           const density = Math.max(0.2, weather.clouds / 100);
-          const arpSequence = new Tone.Sequence((time, note) => {
+          const part = new Tone.Part((time, note) => {
             if (Math.random() < density) {
-              arp.triggerAttackRelease(note, vibe === 'upbeat' ? '16n' : '8n', time, 0.5 + Math.random() * 0.5);
+              arp.triggerAttackRelease(note, vibe === 'upbeat' ? '16n' : '8n', time, 0.5);
               arp.set({ pan: Math.random() * 0.4 - 0.2 });
+              console.log('Arp note:', note);
             }
-          }, pattern).start(0);
+          }, pattern.map((note, i) => [(i * (vibe === 'upbeat' ? 0.125 : 0.25)), note])).start(0);
+          part.loop = true;
+          part.loopEnd = vibe === 'upbeat' ? '2n' : '1n';
         }
 
         // Drums
         if (drumToggle.checked && stepCount >= 2) {
           const kickPattern = vibe === 'upbeat' ? ['C2', null, 'C2', null] : ['C2', null, null, null];
           const snarePattern = vibe === 'upbeat' ? [null, 'C3', null, 'C3'] : [null, null, 'C3', null];
-          const hiHatPattern = isRainy ? ['C4', 'C4', 'C4', 'C4'] : [null, 'C4', null, 'C4'];
-          const drumSequence = new Tone.Sequence((time, beat) => {
-            if (kickPattern[beat]) drums.triggerAttackRelease(kickPattern[beat], '8n', time);
-            if (snarePattern[beat]) drums.triggerAttackRelease(snarePattern[beat], '8n', time);
-            if (hiHatPattern[beat]) strings.triggerAttackRelease('C5', '16n', time); // Strings for hi-hat
-          }, [0, 1, 2, 3]).start(0);
+          const hiHatPattern = isRainy ? ['C5', 'C5', 'C5', 'C5'] : [null, 'C5', null, 'C5'];
+          const part = new Tone.Part((time, value) => {
+            if (value.kick) drums.triggerAttackRelease(value.kick, '8n', time);
+            if (value.snare) drums.triggerAttackRelease(value.snare, '8n', time);
+            if (value.hiHat) strings.triggerAttackRelease(value.hiHat, '16n', time);
+            console.log('Drum hit:', value);
+          }, [
+            [0, { kick: kickPattern[0], snare: snarePattern[0], hiHat: hiHatPattern[0] }],
+            ['4n', { kick: kickPattern[1], snare: snarePattern[1], hiHat: hiHatPattern[1] }],
+            ['2n', { kick: kickPattern[2], snare: snarePattern[2], hiHat: hiHatPattern[2] }],
+            ['2n + 4n', { kick: kickPattern[3], snare: snarePattern[3], hiHat: hiHatPattern[3] }]
+          ]).start(0);
+          part.loop = true;
+          part.loopEnd = '1m';
         }
 
         // Strings
         if (stringToggle.checked && stepCount >= 8) {
           const melodyNote = shiftedChords[chordIndex][0].replace(/\d/, n => +n + 1);
-          strings.triggerAttackRelease(melodyNote, '1m');
+          const part = new Tone.Part((time, note) => {
+            strings.triggerAttackRelease(note, '1m', time);
+            console.log('String note:', note);
+          }, [[0, melodyNote]]).start(0);
+          part.loop = true;
+          part.loopEnd = '1m';
         }
 
         statusDiv.textContent = `Temp: ${weather.temp}°C, Wind: ${weather.wind} km/h, Clouds: ${weather.clouds}%, Vibe: ${vibe}`;
-      } catch (err) {
+      }).catch(err => {
         console.error('Error:', err);
         statusDiv.textContent = `Error: ${err}. Using fallback data.`;
-      }
+        Tone.Transport.bpm.value = stepBpm;
+      });
 
       setTimeout(generateMusic, 4000);
     }
@@ -321,25 +340,28 @@
       startBtn.textContent = 'Playing...';
       startBtn.classList.add('opacity-50', 'cursor-not-allowed');
       await Tone.start();
+      console.log('Tone.js started');
       initAudio();
       Tone.Transport.start();
       drawVisualizer();
       stepCount = 0;
 
-      // Request motion permission
       if (typeof DeviceMotionEvent.requestPermission === 'function') {
         try {
           const permission = await DeviceMotionEvent.requestPermission();
           if (permission === 'granted') {
             window.addEventListener('devicemotion', handleMotion);
+            console.log('Motion permission granted');
           } else {
             statusDiv.textContent += ' Motion denied. Walk/tilt won’t affect sound.';
           }
         } catch (err) {
           statusDiv.textContent += ' Motion permission error.';
+          console.error('Motion permission error:', err);
         }
       } else {
         window.addEventListener('devicemotion', handleMotion);
+        console.log('Motion listener added');
       }
 
       generateMusic();
