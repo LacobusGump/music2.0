@@ -158,6 +158,36 @@
     .picardy-flash.active {
       opacity: 1;
     }
+
+    .controls {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      opacity: 0;
+      transition: opacity 1s ease;
+    }
+
+    .controls.visible {
+      opacity: 1;
+    }
+
+    .control-btn {
+      background: rgba(255,255,255,0.1);
+      color: white;
+      border: 1px solid rgba(255,255,255,0.3);
+      padding: 10px 15px;
+      margin: 5px;
+      border-radius: 25px;
+      cursor: pointer;
+      backdrop-filter: blur(5px);
+      font-size: 0.9rem;
+      transition: all 0.3s ease;
+    }
+
+    .control-btn:hover {
+      background: rgba(255,255,255,0.2);
+      border-color: rgba(255,255,255,0.5);
+    }
     
     @keyframes pulse {
       0%, 100% { transform: scale(1); opacity: 0.8; }
@@ -215,6 +245,11 @@
   
   <div class="evolution-indicator" id="evolutionIndicator">
     Dream Layer: Foundation
+  </div>
+
+  <div class="controls" id="controls">
+    <button class="control-btn" id="resetBtn">Reset Dream</button>
+    <button class="control-btn" id="muteBtn">Mute Audio</button>
   </div>
   
   <div class="picardy-flash" id="picardyFlash"></div>
@@ -316,7 +351,9 @@
       layerStartTime: 0,
       autoEvolveTimer: null,
       melodyNotes: [],
-      harmonicLayers: 0
+      harmonicLayers: 0,
+      isMuted: false,
+      musicTimer: null
     };
     
     // Audio components
@@ -534,7 +571,7 @@
     
     // Play evolving music
     function playEvolvingMusic() {
-      if (!state.isActive || !state.audioInitialized) return;
+      if (!state.isActive || !state.audioInitialized || state.isMuted) return;
       
       const progression = CHORD_PROGRESSIONS[state.currentLayer];
       const chord = progression.chords[state.chordIndex];
@@ -587,7 +624,7 @@
       
       // Schedule next chord based on tempo
       const interval = (60 / progression.tempo) * 2000;
-      setTimeout(playEvolvingMusic, interval);
+      state.musicTimer = setTimeout(playEvolvingMusic, interval);
     }
     
     // Handle device motion with enhanced sensitivity
@@ -689,12 +726,14 @@
         resolution: { pad: -8, lead: -8, bass: -8, arp: -8, ambient: -12 }
       };
       
-      const volumes = layerVolumes[state.currentLayer];
-      pad.volume.rampTo(volumes.pad, 3);
-      lead.volume.rampTo(volumes.lead, 3);
-      bass.volume.rampTo(volumes.bass, 3);
-      arp.volume.rampTo(volumes.arp, 3);
-      ambient.volume.rampTo(volumes.ambient, 3);
+      if (state.audioInitialized) {
+        const volumes = layerVolumes[state.currentLayer];
+        pad.volume.rampTo(volumes.pad, 3);
+        lead.volume.rampTo(volumes.lead, 3);
+        bass.volume.rampTo(volumes.bass, 3);
+        arp.volume.rampTo(volumes.arp, 3);
+        ambient.volume.rampTo(volumes.ambient, 3);
+      }
       
       setTimeout(() => {
         indicator.classList.remove('pulse');
@@ -750,44 +789,4 @@
     
     // Request device motion permission
     async function requestMotionPermission() {
-      if (typeof DeviceMotionEvent.requestPermission === 'function') {
-        try {
-          const permission = await DeviceMotionEvent.requestPermission();
-          if (permission === 'granted') {
-            window.addEventListener('devicemotion', handleMotion);
-            return true;
-          }
-        } catch (error) {
-          console.error('Motion permission error:', error);
-        }
-      } else {
-        window.addEventListener('devicemotion', handleMotion);
-        return true;
-      }
-      return false;
-    }
-    
-    // Start the dream experience
-    async function startDreamExperience() {
-      try {
-        // Initialize audio
-        await initAudio();
-        
-        // Request motion permission
-        await requestMotionPermission();
-        
-        // Activate the experience
-        state.isActive = true;
-        state.lastMotionTime = Date.now();
-        state.layerStartTime = Date.now();
-        
-        // UI transitions
-        document.body.classList.add('active');
-        document.querySelector('.title').classList.add('hidden');
-        document.querySelector('.subtitle').classList.add('hidden');
-        document.querySelector('.start-btn').classList.add('hidden');
-        
-        setTimeout(() => {
-          document.getElementById('infoPanel').classList.add('visible');
-          document.getElementById('evolutionIndicator').classList.add('visible');
-        }, 2000
+      if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.request
