@@ -98,6 +98,23 @@
       box-shadow: 0 0 10px #0f0;
     }
     
+    .evolution-bar {
+      width: 100%;
+      height: 20px;
+      background: rgba(0,255,0,0.1);
+      border: 1px solid rgba(0,255,0,0.3);
+      border-radius: 10px;
+      overflow: hidden;
+      margin: 10px 0;
+    }
+    
+    .evolution-progress {
+      height: 100%;
+      background: linear-gradient(90deg, #0f0, #0a0);
+      transition: width 0.5s ease;
+      box-shadow: 0 0 10px rgba(0,255,0,0.5);
+    }
+    
     .hidden {
       display: none;
     }
@@ -110,7 +127,6 @@
     
     <div class="controls hidden" id="controls">
       <button class="control-btn" id="btnMotionPermission">Enable Motion Detection</button>
-      <button class="control-btn" id="btnPicardy">Picardy</button>
       <div style="margin-top: 10px; font-size: 0.8rem; color: #0a0;">
         <div id="motionStatus">Motion detection inactive</div>
         <div id="motionDebug">Move your phone to see changes</div>
@@ -131,12 +147,16 @@
         <div>Layers: <span id="layerCount">1</span></div>
       </div>
       <div class="status-item">
-        <div>Emotion: <span id="emotionState">Neutral</span></div>
+        <div>Evolution: <span id="evolutionLevel">0</span></div>
         <div>Complexity: <span id="complexity">Basic</span></div>
       </div>
     </div>
     
     <div class="layers hidden" id="layers">
+      <div>Evolution Progress:</div>
+      <div class="evolution-bar">
+        <div class="evolution-progress" id="evolutionProgress"></div>
+      </div>
       <div>Active Layers:</div>
       <div style="margin-top: 10px;">
         <span class="layer-dot active" id="layerAmbient" title="Ambient"></span>
@@ -161,18 +181,18 @@
           iv: ['D4', 'F4', 'A4'],
           v: ['E4', 'G4', 'B4'],
           VI: ['F4', 'A4', 'C5'],
-          VII: ['G4', 'B4', 'D5'],
-          picardy: ['A3', 'C#4', 'E4']
+          VII: ['G4', 'B4', 'D5']
         }
       }
     };
     
     const PROGRESSIONS = {
       dormant: ['i'],
-      contemplative: ['i', 'VI'],
+      awakening: ['i', 'VI'],
       building: ['i', 'VI', 'III', 'VII'],
       active: ['i', 'iv', 'VI', 'v'],
-      dynamic: ['i', 'VII', 'VI', 'III']
+      dynamic: ['i', 'VII', 'VI', 'III'],
+      evolved: ['i', 'ii', 'VI', 'iv', 'v', 'VII']
     };
     
     // State
@@ -183,65 +203,167 @@
       activityState: 'still',
       tempo: 72,
       evolutionStage: 'dormant',
+      evolutionLevel: 0, // 0-100, persists and builds over time
       activeLayers: new Set(['ambient']),
       complexity: 0,
       chordIndex: 0,
-      emotionalState: 'neutral',
       beatCount: 0,
-      picardyActive: false,
       motionHistory: [],
       lastMotionTime: 0,
-      motionPermissionGranted: false
+      motionPermissionGranted: false,
+      totalMotionTime: 0, // Accumulates motion time for evolution
+      lastUpdateTime: Date.now()
     };
     
     // Audio
     let instruments = {};
+    let effects = {};
     let audioInitialized = false;
     
-    // Initialize audio
+    // Initialize audio with more complex sounds
     async function initAudio() {
       if (audioInitialized) return;
       
       await Tone.start();
       
-      // Create instruments
-      instruments.ambient = new Tone.PolySynth(Tone.Synth, {
-        oscillator: { type: 'sine' },
-        envelope: { attack: 2, decay: 1, sustain: 0.8, release: 3 }
-      }).toDestination();
+      // Create effects
+      effects.reverb = new Tone.Reverb(3);
+      effects.delay = new Tone.PingPongDelay("8n", 0.2);
+      effects.chorus = new Tone.Chorus(4, 2.5, 0.5);
+      effects.distortion = new Tone.Distortion(0.4);
+      effects.filter = new Tone.Filter(800, "lowpass");
+      
+      await effects.reverb.generate();
+      
+      // Create more complex instruments
+      instruments.ambient = new Tone.PolySynth(Tone.AMSynth, {
+        harmonicity: 2,
+        detune: 0,
+        oscillator: {
+          type: "sine"
+        },
+        envelope: {
+          attack: 3,
+          decay: 2,
+          sustain: 0.8,
+          release: 4
+        },
+        modulation: {
+          type: "triangle"
+        },
+        modulationEnvelope: {
+          attack: 0.5,
+          decay: 0.5,
+          sustain: 1,
+          release: 0.5
+        }
+      }).chain(effects.reverb, effects.chorus, Tone.Destination);
       
       instruments.bass = new Tone.MonoSynth({
-        oscillator: { type: 'sawtooth' },
-        envelope: { attack: 0.1, decay: 0.3, sustain: 0.4, release: 0.8 }
-      }).toDestination();
+        oscillator: {
+          type: "fatsawtooth"
+        },
+        envelope: {
+          attack: 0.1,
+          decay: 0.3,
+          sustain: 0.6,
+          release: 0.8
+        },
+        filter: {
+          Q: 2,
+          type: "lowpass",
+          rolloff: -24
+        },
+        filterEnvelope: {
+          attack: 0.05,
+          decay: 0.2,
+          sustain: 0.4,
+          release: 0.3,
+          baseFrequency: 80,
+          octaves: 4
+        }
+      }).chain(effects.distortion, Tone.Destination);
       
       instruments.drums = new Tone.MembraneSynth({
-        pitchDecay: 0.05,
-        envelope: { attack: 0.001, decay: 0.4, sustain: 0.01, release: 1.4 }
-      }).toDestination();
+        pitchDecay: 0.08,
+        octaves: 2,
+        envelope: {
+          attack: 0.001,
+          decay: 0.3,
+          sustain: 0.01,
+          release: 1.2
+        }
+      }).chain(effects.reverb, Tone.Destination);
       
-      instruments.harmony = new Tone.PolySynth(Tone.Synth, {
-        oscillator: { type: 'triangle' },
-        envelope: { attack: 0.5, decay: 0.8, sustain: 0.6, release: 2 }
-      }).toDestination();
+      instruments.harmony = new Tone.PolySynth(Tone.FMSynth, {
+        harmonicity: 1.5,
+        modulationIndex: 10,
+        oscillator: {
+          type: "triangle"
+        },
+        envelope: {
+          attack: 0.8,
+          decay: 1.2,
+          sustain: 0.7,
+          release: 2.5
+        },
+        modulation: {
+          type: "sine"
+        },
+        modulationEnvelope: {
+          attack: 0.2,
+          decay: 0.5,
+          sustain: 0.8,
+          release: 1.5
+        }
+      }).chain(effects.filter, effects.delay, Tone.Destination);
       
-      instruments.melody = new Tone.Synth({
-        oscillator: { type: 'square' },
-        envelope: { attack: 0.1, decay: 0.2, sustain: 0.3, release: 0.8 }
-      }).toDestination();
+      instruments.melody = new Tone.DuoSynth({
+        vibratoAmount: 0.2,
+        vibratoRate: 5,
+        voice0: {
+          oscillator: {
+            type: "square"
+          },
+          envelope: {
+            attack: 0.02,
+            decay: 0.1,
+            sustain: 0.4,
+            release: 0.6
+          }
+        },
+        voice1: {
+          oscillator: {
+            type: "triangle"
+          },
+          envelope: {
+            attack: 0.01,
+            decay: 0.05,
+            sustain: 0.3,
+            release: 0.4
+          }
+        }
+      }).chain(effects.delay, Tone.Destination);
       
       instruments.texture = new Tone.NoiseSynth({
-        noise: { type: 'pink' },
-        envelope: { attack: 0.1, decay: 0.3, sustain: 0.1, release: 0.5 }
-      }).toDestination();
+        noise: {
+          type: "pink"
+        },
+        envelope: {
+          attack: 0.2,
+          decay: 0.5,
+          sustain: 0.2,
+          release: 1.0
+        }
+      }).chain(effects.filter, effects.reverb, Tone.Destination);
       
       // Set volumes
-      instruments.ambient.volume.value = -20;
-      instruments.bass.volume.value = -15;
-      instruments.drums.volume.value = -18;
-      instruments.harmony.volume.value = -22;
-      instruments.melody.volume.value = -18;
-      instruments.texture.volume.value = -25;
+      instruments.ambient.volume.value = -18;
+      instruments.bass.volume.value = -12;
+      instruments.drums.volume.value = -15;
+      instruments.harmony.volume.value = -20;
+      instruments.melody.volume.value = -16;
+      instruments.texture.volume.value = -22;
       
       Tone.Transport.bpm.value = state.tempo;
       Tone.Transport.start();
@@ -271,8 +393,18 @@
         }
         
         // Play harmony
-        if (state.activeLayers.has('harmony') && state.beatCount % 8 === 0) {
+        if (state.activeLayers.has('harmony') && state.beatCount % 6 === 0) {
           playHarmony(time);
+        }
+        
+        // Play melody
+        if (state.activeLayers.has('melody') && state.beatCount % 8 === 0) {
+          playMelody(time);
+        }
+        
+        // Play texture
+        if (state.activeLayers.has('texture') && Math.random() < 0.3) {
+          playTexture(time);
         }
         
         // Evolve music
@@ -282,37 +414,56 @@
       }, '4n');
     }
     
-    // Play chord
+    // Play chord with evolution-based complexity
     function playChord(time) {
       const progression = PROGRESSIONS[state.evolutionStage];
       const chordName = progression[state.chordIndex % progression.length];
       let chord = state.currentKey.chords[chordName];
       
-      // Use Picardy third if active
-      if (state.picardyActive && chordName === 'i') {
-        chord = state.currentKey.chords.picardy;
-      }
-      
       if (chord && state.activeLayers.has('ambient')) {
+        // Add complexity based on evolution level
+        if (state.evolutionLevel > 30) {
+          // Add seventh
+          const seventh = chord.map(note => {
+            const noteNum = parseInt(note.slice(-1));
+            const noteName = note.slice(0, -1);
+            return noteName + (noteNum + 1);
+          });
+          chord = [...chord, seventh[0]];
+        }
+        
+        if (state.evolutionLevel > 60) {
+          // Add extended harmony
+          const ninth = chord[0].replace(/\d/, '6');
+          chord = [...chord, ninth];
+        }
+        
         instruments.ambient.triggerAttackRelease(chord, '2n', time);
       }
       
       state.chordIndex++;
     }
     
-    // Play bass
+    // Play bass with evolution-based patterns
     function playBass(time) {
       const progression = PROGRESSIONS[state.evolutionStage];
       const chordName = progression[state.chordIndex % progression.length];
       const chord = state.currentKey.chords[chordName];
       
       if (chord) {
-        const bassNote = chord[0].replace('3', '2');
+        let bassNote = chord[0].replace('3', '2');
+        
+        // Add walking bass patterns at higher evolution levels
+        if (state.evolutionLevel > 40 && state.beatCount % 4 === 2) {
+          const walkingNotes = ['A2', 'B2', 'C3', 'D3', 'E3', 'F3', 'G3'];
+          bassNote = walkingNotes[Math.floor(Math.random() * walkingNotes.length)];
+        }
+        
         instruments.bass.triggerAttackRelease(bassNote, '8n', time);
       }
     }
     
-    // Play drums
+    // Play drums with evolution-based complexity
     function playDrums(time) {
       const patterns = {
         still: [1, 0, 0, 0],
@@ -321,11 +472,19 @@
         dancing: [1, 1, 1, 1]
       };
       
-      const pattern = patterns[state.activityState];
+      let pattern = patterns[state.activityState];
+      
+      // Add complexity based on evolution
+      if (state.evolutionLevel > 50) {
+        pattern = pattern.map(beat => beat || (Math.random() < 0.3 ? 1 : 0));
+      }
+      
       const beat = state.beatCount % 4;
       
       if (pattern[beat]) {
-        instruments.drums.triggerAttackRelease('C2', '16n', time);
+        const pitch = state.evolutionLevel > 70 ? 
+          ['C2', 'D2', 'E2'][Math.floor(Math.random() * 3)] : 'C2';
+        instruments.drums.triggerAttackRelease(pitch, '16n', time);
       }
     }
     
@@ -341,41 +500,96 @@
       }
     }
     
-    // Evolve music
-    function evolveMusic() {
-      // Determine layers based on intensity
-      if (state.motionIntensity < 0.5) {
-        state.evolutionStage = 'dormant';
-        state.activeLayers = new Set(['ambient']);
-      } else if (state.motionIntensity < 1.5) {
-        state.evolutionStage = 'contemplative';
-        state.activeLayers = new Set(['ambient', 'harmony']);
-      } else if (state.motionIntensity < 2.5) {
-        state.evolutionStage = 'building';
-        state.activeLayers = new Set(['ambient', 'harmony', 'bass']);
-      } else if (state.motionIntensity < 3.5) {
-        state.evolutionStage = 'active';
-        state.activeLayers = new Set(['ambient', 'harmony', 'bass', 'drums']);
+    // Play melody
+    function playMelody(time) {
+      const melodyNotes = ['A4', 'C5', 'E5', 'G5', 'F5', 'D5', 'B4'];
+      const note = melodyNotes[Math.floor(Math.random() * melodyNotes.length)];
+      
+      if (state.evolutionLevel > 60) {
+        // Play more complex melodies
+        const duration = Math.random() < 0.5 ? '8n' : '4n';
+        instruments.melody.triggerAttackRelease(note, duration, time);
       } else {
-        state.evolutionStage = 'dynamic';
-        state.activeLayers = new Set(['ambient', 'harmony', 'bass', 'drums', 'melody']);
+        instruments.melody.triggerAttackRelease(note, '4n', time);
+      }
+    }
+    
+    // Play texture
+    function playTexture(time) {
+      const duration = '32n';
+      instruments.texture.triggerAttackRelease(duration, time);
+    }
+    
+    // Evolve music with perpetual motion tracking
+    function evolveMusic() {
+      const now = Date.now();
+      const timeDelta = now - state.lastUpdateTime;
+      
+      // If motion is active, increase evolution level
+      if (state.motionIntensity > 0.5) {
+        state.totalMotionTime += timeDelta;
+        const evolutionRate = state.motionIntensity * 0.01; // Faster evolution with more motion
+        state.evolutionLevel = Math.min(100, state.evolutionLevel + evolutionRate);
+      } else {
+        // Slow decay when still, but preserve most progress
+        state.evolutionLevel = Math.max(0, state.evolutionLevel - 0.05);
       }
       
-      // Update tempo
-      const targetTempo = 60 + (state.motionIntensity * 20);
+      // Determine evolution stage based on level
+      if (state.evolutionLevel < 10) {
+        state.evolutionStage = 'dormant';
+        state.activeLayers = new Set(['ambient']);
+      } else if (state.evolutionLevel < 25) {
+        state.evolutionStage = 'awakening';
+        state.activeLayers = new Set(['ambient', 'harmony']);
+      } else if (state.evolutionLevel < 45) {
+        state.evolutionStage = 'building';
+        state.activeLayers = new Set(['ambient', 'harmony', 'bass']);
+      } else if (state.evolutionLevel < 65) {
+        state.evolutionStage = 'active';
+        state.activeLayers = new Set(['ambient', 'harmony', 'bass', 'drums']);
+      } else if (state.evolutionLevel < 85) {
+        state.evolutionStage = 'dynamic';
+        state.activeLayers = new Set(['ambient', 'harmony', 'bass', 'drums', 'melody']);
+      } else {
+        state.evolutionStage = 'evolved';
+        state.activeLayers = new Set(['ambient', 'harmony', 'bass', 'drums', 'melody', 'texture']);
+      }
+      
+      // Update tempo based on both motion and evolution
+      const baseTempo = 60 + (state.motionIntensity * 15);
+      const evolutionBonus = (state.evolutionLevel / 100) * 20;
+      const targetTempo = baseTempo + evolutionBonus;
+      
       Tone.Transport.bpm.rampTo(targetTempo, 2);
       state.tempo = Math.round(targetTempo);
       
       // Update complexity
-      state.complexity = Math.min(5, Math.floor(state.motionIntensity * 1.5));
+      state.complexity = Math.min(5, Math.floor((state.evolutionLevel / 100) * 5));
       
-      // Update emotional state
-      if (state.motionIntensity < 0.5) {
-        state.emotionalState = 'calm';
-      } else if (state.motionIntensity > 3) {
-        state.emotionalState = 'energetic';
-      } else {
-        state.emotionalState = 'neutral';
+      // Update effects based on evolution
+      updateEffects();
+      
+      state.lastUpdateTime = now;
+    }
+    
+    // Update effects based on evolution level
+    function updateEffects() {
+      const evolutionRatio = state.evolutionLevel / 100;
+      
+      // Adjust reverb
+      if (effects.reverb) {
+        effects.reverb.wet.value = 0.2 + (evolutionRatio * 0.3);
+      }
+      
+      // Adjust delay
+      if (effects.delay) {
+        effects.delay.wet.value = evolutionRatio * 0.4;
+      }
+      
+      // Adjust filter
+      if (effects.filter) {
+        effects.filter.frequency.value = 400 + (evolutionRatio * 2000);
       }
     }
     
@@ -386,9 +600,12 @@
       document.getElementById('currentTempo').textContent = state.tempo;
       document.getElementById('currentKey').textContent = state.currentKey.name;
       document.getElementById('evolutionStage').textContent = state.evolutionStage;
+      document.getElementById('evolutionLevel').textContent = Math.round(state.evolutionLevel);
       document.getElementById('layerCount').textContent = state.activeLayers.size;
-      document.getElementById('emotionState').textContent = state.emotionalState;
       document.getElementById('complexity').textContent = ['None', 'Basic', 'Simple', 'Moderate', 'Complex', 'Rich'][state.complexity];
+      
+      // Update evolution progress bar
+      document.getElementById('evolutionProgress').style.width = `${state.evolutionLevel}%`;
       
       // Update layer indicators
       const layers = ['ambient', 'bass', 'drums', 'harmony', 'melody', 'texture'];
@@ -400,10 +617,9 @@
       });
     }
     
-    // Motion detection
+    // Motion detection (same as before)
     function requestMotionPermission() {
       if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
-        // iOS 13+ permission request
         DeviceMotionEvent.requestPermission()
           .then(response => {
             if (response === 'granted') {
@@ -417,7 +633,6 @@
             console.error('Motion permission error:', error);
           });
       } else {
-        // Android and older iOS
         startMotionDetection();
       }
     }
@@ -444,45 +659,36 @@
       
       const now = Date.now();
       
-      // Calculate motion intensity from acceleration
       const accelMagnitude = Math.sqrt(
         (acceleration.x || 0) ** 2 + 
         (acceleration.y || 0) ** 2 + 
         (acceleration.z || 0) ** 2
       );
       
-      // Calculate rotation intensity
       const rotationMagnitude = rotation ? Math.sqrt(
         (rotation.alpha || 0) ** 2 + 
         (rotation.beta || 0) ** 2 + 
         (rotation.gamma || 0) ** 2
       ) : 0;
       
-      // Combine acceleration and rotation for total motion
       const totalMotion = (accelMagnitude / 10) + (rotationMagnitude / 100);
       
-      // Add to motion history
       state.motionHistory.push({
         intensity: totalMotion,
         timestamp: now
       });
       
-      // Keep only last 2 seconds of data
       state.motionHistory = state.motionHistory.filter(m => now - m.timestamp < 2000);
       
-      // Calculate smoothed motion intensity
       const recentMotion = state.motionHistory.slice(-10);
       const avgMotion = recentMotion.reduce((sum, m) => sum + m.intensity, 0) / recentMotion.length;
       
-      // Apply smoothing and scaling
       state.motionIntensity = Math.min(5, Math.max(0, avgMotion * 2));
       
-      // Determine activity state based on motion patterns
       determineActivityState();
       
-      // Update debug info
       document.getElementById('motionDebug').textContent = 
-        `Accel: ${accelMagnitude.toFixed(1)} | Rot: ${rotationMagnitude.toFixed(1)} | Total: ${totalMotion.toFixed(2)}`;
+        `Accel: ${accelMagnitude.toFixed(1)} | Rot: ${rotationMagnitude.toFixed(1)} | Evolution: ${state.evolutionLevel.toFixed(1)}`;
       
       state.lastMotionTime = now;
     }
@@ -491,7 +697,6 @@
       const intensity = state.motionIntensity;
       const recentMotion = state.motionHistory.slice(-5);
       
-      // Calculate motion variance to detect type of movement
       const motionValues = recentMotion.map(m => m.intensity);
       const variance = calculateVariance(motionValues);
       
@@ -501,20 +706,12 @@
         state.activityState = 'walking';
       } else if (intensity < 2.5) {
         if (variance > 0.5) {
-          state.activityState = 'dancing'; // High variance = erratic movement
+          state.activityState = 'dancing';
         } else {
-          state.activityState = 'running'; // Low variance = steady movement
+          state.activityState = 'running';
         }
       } else {
-        state.activityState = 'dancing'; // Very high intensity
-      }
-      
-      // Trigger Picardy effect on sudden motion changes
-      if (recentMotion.length > 1) {
-        const motionChange = Math.abs(recentMotion[recentMotion.length - 1].intensity - recentMotion[0].intensity);
-        if (motionChange > 1.5) {
-          triggerPicardyMoment();
-        }
+        state.activityState = 'dancing';
       }
     }
     
@@ -523,17 +720,6 @@
       const mean = values.reduce((sum, val) => sum + val, 0) / values.length;
       const squareDiffs = values.map(val => (val - mean) ** 2);
       return squareDiffs.reduce((sum, diff) => sum + diff, 0) / values.length;
-    }
-    
-    function triggerPicardyMoment() {
-      state.picardyActive = true;
-      document.getElementById('btnPicardy').classList.add('active');
-      
-      // Auto-disable after 4 beats
-      setTimeout(() => {
-        state.picardyActive = false;
-        document.getElementById('btnPicardy').classList.remove('active');
-      }, (60 / state.tempo) * 4 * 1000);
     }
     
     // Event listeners
@@ -551,17 +737,11 @@
     
     document.getElementById('btnMotionPermission').addEventListener('click', requestMotionPermission);
     
-    document.getElementById('btnPicardy').addEventListener('click', () => {
-      state.picardyActive = !state.picardyActive;
-      document.getElementById('btnPicardy').classList.toggle('active', state.picardyActive);
-    });
-    
-    // Check for motion inactivity and reset
+    // Check for motion inactivity
     setInterval(() => {
       if (state.active && state.motionPermissionGranted) {
         const now = Date.now();
         if (now - state.lastMotionTime > 3000) {
-          // No motion for 3 seconds, gradually reduce intensity
           state.motionIntensity = Math.max(0, state.motionIntensity - 0.1);
           if (state.motionIntensity < 0.3) {
             state.activityState = 'still';
