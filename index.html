@@ -202,7 +202,10 @@
       motionEnabled: false,
       chaos: false,
       pocket: false,
-      forced: false
+      forced: false,
+      recording: true,
+      baseLoop: [],
+      barCount: 0
     };
     
     let synths = {};
@@ -278,70 +281,108 @@
     function startSequence() {
       Tone.Transport.scheduleRepeat((time) => {
         const step = state.step % 16;
+        const bar = Math.floor(state.step / 16);
         const groove = state.pocket ? Math.random() * 0.02 - 0.01 : 0;
         
-        // Kick
-        if (state.activeLayers.has(0) && (step === 0 || step === 4 || step === 8 || step === 12)) {
-          synths.kick.triggerAttackRelease('C1', '8n', time + groove);
+        // Record first 4 bars as base loop
+        if (state.recording && bar < 4) {
+          recordBasePattern(step, time, groove);
         }
         
-        // Piano chords
-        if (state.activeLayers.has(1) && step % 8 === 0) {
-          const chords = CHORDS[state.stage];
-          const chord = chords[state.chordIndex % chords.length];
-          synths.piano.triggerAttackRelease(chord, '2n', time + groove);
-          state.chordIndex++;
-        }
-        
-        // Hi-hat
-        if (state.activeLayers.has(2) && step % 2 === 0) {
-          synths.hihat.triggerAttackRelease('16n', time + groove);
-        }
-        
-        // Bass
-        if (state.activeLayers.has(3) && step % 4 === 0) {
-          const chords = CHORDS[state.stage];
-          const chord = chords[state.chordIndex % chords.length];
-          const bassNote = chord[0].replace(/\d/, '1');
-          synths.bass.triggerAttackRelease(bassNote, '4n', time + groove);
-        }
-        
-        // Pad
-        if (state.activeLayers.has(4) && step % 16 === 0) {
-          const chords = CHORDS[state.stage];
-          const chord = chords[Math.floor(Math.random() * chords.length)];
-          synths.pad.triggerAttackRelease(chord, '1n', time + groove);
-        }
-        
-        // Lead
-        if (state.activeLayers.has(5) && step % 6 === 0) {
-          const notes = ['A4', 'C5', 'E5', 'G5'];
-          const note = notes[Math.floor(Math.random() * notes.length)];
-          synths.lead.triggerAttackRelease(note, '8n', time + groove);
-        }
-        
-        // Vocal
-        if (state.activeLayers.has(6) && step % 12 === 0) {
-          const notes = ['C4', 'E4', 'G4'];
-          const note = notes[Math.floor(Math.random() * notes.length)];
-          synths.vocal.triggerAttackRelease(note, '4n', time + groove);
-        }
-        
-        // Orchestra
-        if (state.activeLayers.has(7) && step % 16 === 0) {
-          const chords = CHORDS[state.stage];
-          const chord = chords[Math.floor(Math.random() * chords.length)];
-          synths.orch.triggerAttackRelease(chord, '1n', time + groove);
-        }
-        
-        if (step % 4 === 0) {
-          evolve();
+        // Switch to loop mode after 4 bars
+        if (state.recording && bar >= 4) {
+          state.recording = false;
+          state.barCount = 0;
           updateUI();
+        }
+        
+        // Play base loop
+        if (!state.recording) {
+          playBaseLoop(step, time, groove);
+        }
+        
+        // Add motion/sound augmentations
+        if (!state.recording && state.motion > 10) {
+          addMotionLayers(step, time, groove);
+        }
+        
+        if (step === 0) {
+          state.barCount++;
+          if (!state.recording) {
+            evolve();
+            updateUI();
+          }
         }
         
         updateRhythm(step);
         state.step++;
       }, '16n');
+    }
+    
+    function recordBasePattern(step, time, groove) {
+      const events = [];
+      
+      // Record kick pattern
+      if (step === 0 || step === 4 || step === 8 || step === 12) {
+        events.push({ synth: 'kick', note: 'C1', duration: '8n', step });
+        synths.kick.triggerAttackRelease('C1', '8n', time + groove);
+      }
+      
+      // Record chord progression
+      if (step % 8 === 0) {
+        const chord = CHORDS.dormant[0]; // Start simple
+        events.push({ synth: 'piano', note: chord, duration: '2n', step });
+        synths.piano.triggerAttackRelease(chord, '2n', time + groove);
+      }
+      
+      // Store events for this step
+      if (events.length > 0) {
+        state.baseLoop[step] = events;
+      }
+    }
+    
+    function playBaseLoop(step, time, groove) {
+      const events = state.baseLoop[step];
+      if (events) {
+        events.forEach(event => {
+          synths[event.synth].triggerAttackRelease(event.note, event.duration, time + groove);
+        });
+      }
+    }
+    
+    function addMotionLayers(step, time, groove) {
+      const intensity = state.motion / 100;
+      
+      // Hi-hat responds to motion
+      if (step % 2 === 0 && intensity > 0.3) {
+        synths.hihat.triggerAttackRelease('16n', time + groove, intensity);
+      }
+      
+      // Bass line emerges with motion
+      if (step % 4 === 0 && intensity > 0.4) {
+        const bassNote = CHORDS[state.stage][0][0].replace(/\d/, '1');
+        synths.bass.triggerAttackRelease(bassNote, '4n', time + groove, intensity);
+      }
+      
+      // Pad swells with higher motion
+      if (step % 16 === 0 && intensity > 0.6) {
+        const chord = CHORDS[state.stage][Math.floor(Math.random() * CHORDS[state.stage].length)];
+        synths.pad.triggerAttackRelease(chord, '1n', time + groove, intensity * 0.7);
+      }
+      
+      // Lead melodies at peak motion
+      if (step % 6 === 0 && intensity > 0.8) {
+        const notes = ['A4', 'C5', 'E5', 'G5'];
+        const note = notes[Math.floor(Math.random() * notes.length)];
+        synths.lead.triggerAttackRelease(note, '8n', time + groove, intensity * 0.6);
+      }
+      
+      // Chaos mode adds random elements
+      if (state.chaos && Math.random() < intensity * 0.3) {
+        const notes = ['C4', 'E4', 'G4', 'A4'];
+        const note = notes[Math.floor(Math.random() * notes.length)];
+        synths.vocal.triggerAttackRelease(note, '16n', time + groove, intensity * 0.5);
+      }
     }
     
     function evolve() {
@@ -384,13 +425,14 @@
     
     function updateUI() {
       document.getElementById('motionLevel').textContent = Math.round(state.motion);
-      document.getElementById('currentState').textContent = state.stage;
+      document.getElementById('currentState').textContent = state.recording ? 'Recording' : state.stage;
       document.getElementById('bpm').textContent = Math.round(state.tempo);
       document.getElementById('layerCount').textContent = state.activeLayers.size;
-      document.getElementById('stage').textContent = state.stage;
+      document.getElementById('stage').textContent = state.recording ? 'Learning...' : state.stage;
       document.getElementById('groove').textContent = state.pocket ? 'Deep' : 'Minimal';
       
-      document.getElementById('progress').style.width = state.evolution + '%';
+      document.getElementById('progress').style.width = state.recording ? 
+        (state.barCount / 4 * 100) + '%' : state.evolution + '%';
       
       // Update layers
       const grid = document.getElementById('layerGrid');
