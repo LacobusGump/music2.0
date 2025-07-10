@@ -109,11 +109,12 @@
     <button class="start-btn" id="startBtn">Start Music</button>
     
     <div class="controls hidden" id="controls">
-      <button class="control-btn active" id="btnStill">Still</button>
-      <button class="control-btn" id="btnWalk">Walk</button>
-      <button class="control-btn" id="btnRun">Run</button>
-      <button class="control-btn" id="btnDance">Dance</button>
+      <button class="control-btn" id="btnMotionPermission">Enable Motion Detection</button>
       <button class="control-btn" id="btnPicardy">Picardy</button>
+      <div style="margin-top: 10px; font-size: 0.8rem; color: #0a0;">
+        <div id="motionStatus">Motion detection inactive</div>
+        <div id="motionDebug">Move your phone to see changes</div>
+      </div>
     </div>
     
     <div class="status hidden" id="status">
@@ -187,7 +188,10 @@
       chordIndex: 0,
       emotionalState: 'neutral',
       beatCount: 0,
-      picardyActive: false
+      picardyActive: false,
+      motionHistory: [],
+      lastMotionTime: 0,
+      motionPermissionGranted: false
     };
     
     // Audio
@@ -396,21 +400,140 @@
       });
     }
     
-    // Set activity state
-    function setActivityState(newState, intensity) {
-      state.activityState = newState;
-      state.motionIntensity = intensity;
-      
-      // Update button states
-      document.querySelectorAll('.control-btn').forEach(btn => {
-        btn.classList.remove('active');
-      });
-      document.getElementById(`btn${newState.charAt(0).toUpperCase() + newState.slice(1)}`).classList.add('active');
-      
-      // Reset Picardy if not specifically activated
-      if (newState !== 'picardy') {
-        state.picardyActive = false;
+    // Motion detection
+    function requestMotionPermission() {
+      if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
+        // iOS 13+ permission request
+        DeviceMotionEvent.requestPermission()
+          .then(response => {
+            if (response === 'granted') {
+              startMotionDetection();
+            } else {
+              document.getElementById('motionStatus').textContent = 'Motion permission denied';
+            }
+          })
+          .catch(error => {
+            document.getElementById('motionStatus').textContent = 'Motion permission error';
+            console.error('Motion permission error:', error);
+          });
+      } else {
+        // Android and older iOS
+        startMotionDetection();
       }
+    }
+    
+    function startMotionDetection() {
+      state.motionPermissionGranted = true;
+      document.getElementById('motionStatus').textContent = 'Motion detection active';
+      document.getElementById('btnMotionPermission').classList.add('active');
+      
+      if (window.DeviceMotionEvent) {
+        window.addEventListener('devicemotion', handleMotion);
+      } else {
+        document.getElementById('motionStatus').textContent = 'Device motion not supported';
+      }
+    }
+    
+    function handleMotion(event) {
+      if (!state.active || !state.motionPermissionGranted) return;
+      
+      const acceleration = event.accelerationIncludingGravity;
+      const rotation = event.rotationRate;
+      
+      if (!acceleration) return;
+      
+      const now = Date.now();
+      
+      // Calculate motion intensity from acceleration
+      const accelMagnitude = Math.sqrt(
+        (acceleration.x || 0) ** 2 + 
+        (acceleration.y || 0) ** 2 + 
+        (acceleration.z || 0) ** 2
+      );
+      
+      // Calculate rotation intensity
+      const rotationMagnitude = rotation ? Math.sqrt(
+        (rotation.alpha || 0) ** 2 + 
+        (rotation.beta || 0) ** 2 + 
+        (rotation.gamma || 0) ** 2
+      ) : 0;
+      
+      // Combine acceleration and rotation for total motion
+      const totalMotion = (accelMagnitude / 10) + (rotationMagnitude / 100);
+      
+      // Add to motion history
+      state.motionHistory.push({
+        intensity: totalMotion,
+        timestamp: now
+      });
+      
+      // Keep only last 2 seconds of data
+      state.motionHistory = state.motionHistory.filter(m => now - m.timestamp < 2000);
+      
+      // Calculate smoothed motion intensity
+      const recentMotion = state.motionHistory.slice(-10);
+      const avgMotion = recentMotion.reduce((sum, m) => sum + m.intensity, 0) / recentMotion.length;
+      
+      // Apply smoothing and scaling
+      state.motionIntensity = Math.min(5, Math.max(0, avgMotion * 2));
+      
+      // Determine activity state based on motion patterns
+      determineActivityState();
+      
+      // Update debug info
+      document.getElementById('motionDebug').textContent = 
+        `Accel: ${accelMagnitude.toFixed(1)} | Rot: ${rotationMagnitude.toFixed(1)} | Total: ${totalMotion.toFixed(2)}`;
+      
+      state.lastMotionTime = now;
+    }
+    
+    function determineActivityState() {
+      const intensity = state.motionIntensity;
+      const recentMotion = state.motionHistory.slice(-5);
+      
+      // Calculate motion variance to detect type of movement
+      const motionValues = recentMotion.map(m => m.intensity);
+      const variance = calculateVariance(motionValues);
+      
+      if (intensity < 0.3) {
+        state.activityState = 'still';
+      } else if (intensity < 1.0) {
+        state.activityState = 'walking';
+      } else if (intensity < 2.5) {
+        if (variance > 0.5) {
+          state.activityState = 'dancing'; // High variance = erratic movement
+        } else {
+          state.activityState = 'running'; // Low variance = steady movement
+        }
+      } else {
+        state.activityState = 'dancing'; // Very high intensity
+      }
+      
+      // Trigger Picardy effect on sudden motion changes
+      if (recentMotion.length > 1) {
+        const motionChange = Math.abs(recentMotion[recentMotion.length - 1].intensity - recentMotion[0].intensity);
+        if (motionChange > 1.5) {
+          triggerPicardyMoment();
+        }
+      }
+    }
+    
+    function calculateVariance(values) {
+      if (values.length < 2) return 0;
+      const mean = values.reduce((sum, val) => sum + val, 0) / values.length;
+      const squareDiffs = values.map(val => (val - mean) ** 2);
+      return squareDiffs.reduce((sum, diff) => sum + diff, 0) / values.length;
+    }
+    
+    function triggerPicardyMoment() {
+      state.picardyActive = true;
+      document.getElementById('btnPicardy').classList.add('active');
+      
+      // Auto-disable after 4 beats
+      setTimeout(() => {
+        state.picardyActive = false;
+        document.getElementById('btnPicardy').classList.remove('active');
+      }, (60 / state.tempo) * 4 * 1000);
     }
     
     // Event listeners
@@ -426,14 +549,26 @@
       updateUI();
     });
     
-    document.getElementById('btnStill').addEventListener('click', () => setActivityState('still', 0));
-    document.getElementById('btnWalk').addEventListener('click', () => setActivityState('walking', 1.5));
-    document.getElementById('btnRun').addEventListener('click', () => setActivityState('running', 3));
-    document.getElementById('btnDance').addEventListener('click', () => setActivityState('dancing', 4));
+    document.getElementById('btnMotionPermission').addEventListener('click', requestMotionPermission);
+    
     document.getElementById('btnPicardy').addEventListener('click', () => {
       state.picardyActive = !state.picardyActive;
       document.getElementById('btnPicardy').classList.toggle('active', state.picardyActive);
     });
+    
+    // Check for motion inactivity and reset
+    setInterval(() => {
+      if (state.active && state.motionPermissionGranted) {
+        const now = Date.now();
+        if (now - state.lastMotionTime > 3000) {
+          // No motion for 3 seconds, gradually reduce intensity
+          state.motionIntensity = Math.max(0, state.motionIntensity - 0.1);
+          if (state.motionIntensity < 0.3) {
+            state.activityState = 'still';
+          }
+        }
+      }
+    }, 500);
   </script>
 </body>
 </html>
