@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Motion Soundtrack</title>
+  <title>Life Soundtrack: Modern Production</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.7.77/Tone.js"></script>
   <style>
     body {
@@ -37,6 +37,7 @@
       cursor: pointer;
       font-size: 1.1rem;
       margin: 10px;
+      text-transform: uppercase;
       font-weight: bold;
       box-shadow: 0 0 20px rgba(0,255,170,0.3);
       transition: all 0.3s;
@@ -47,16 +48,29 @@
       box-shadow: 0 0 30px rgba(0,255,170,0.5);
     }
     
+    .btn.active {
+      background: linear-gradient(45deg, #ff6b6b, #ff8e8e);
+      color: #fff;
+    }
+    
     .status {
-      background: rgba(0,255,170,0.1);
-      padding: 20px;
-      border-radius: 10px;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 15px;
+      margin: 20px 0;
+      max-width: 800px;
       margin: 20px auto;
-      max-width: 400px;
+    }
+    
+    .status-item {
+      background: rgba(0,255,170,0.1);
+      padding: 15px;
+      border-radius: 8px;
+      border: 1px solid rgba(0,255,170,0.3);
       backdrop-filter: blur(10px);
     }
     
-    .motion-bar {
+    .evolution-bar {
       width: 100%;
       height: 20px;
       background: rgba(0,255,170,0.1);
@@ -65,11 +79,35 @@
       margin: 10px 0;
     }
     
-    .motion-progress {
+    .evolution-progress {
       height: 100%;
       background: linear-gradient(90deg, #00ffaa, #00aa88);
-      transition: width 0.3s ease;
+      transition: width 0.5s ease;
       box-shadow: 0 0 15px rgba(0,255,170,0.5);
+    }
+    
+    .layers {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+      gap: 10px;
+      margin: 20px auto;
+      max-width: 800px;
+    }
+    
+    .layer {
+      background: rgba(0,255,170,0.1);
+      border: 2px solid rgba(0,255,170,0.3);
+      border-radius: 8px;
+      padding: 10px;
+      font-size: 0.8rem;
+      transition: all 0.3s;
+    }
+    
+    .layer.active {
+      background: rgba(0,255,170,0.3);
+      border-color: #00ffaa;
+      box-shadow: 0 0 15px rgba(0,255,170,0.5);
+      transform: scale(1.05);
     }
     
     .rhythm-viz {
@@ -97,169 +135,342 @@
   </style>
 </head>
 <body>
-  <h1 class="title">MOTION SOUNDTRACK</h1>
-  <button class="btn" id="startBtn">START LISTENING</button>
+  <h1 class="title">LIFE SOUNDTRACK</h1>
+  <button class="btn" id="startBtn">START</button>
+  
+  <div class="hidden" id="controls">
+    <button class="btn" id="motionBtn">MOTION</button>
+    <button class="btn" id="evolveBtn">EVOLVE</button>
+    <button class="btn" id="chaosBtn">CHAOS</button>
+    <button class="btn" id="pocketBtn">POCKET</button>
+  </div>
   
   <div class="status hidden" id="status">
-    <div>Motion: <span id="motionLevel">0</span>%</div>
-    <div>State: <span id="currentState">Still</span></div>
-    <div>Layers: <span id="layerCount">0</span>/4</div>
-    <div class="motion-bar">
-      <div class="motion-progress" id="progress"></div>
+    <div class="status-item">
+      <div>Motion: <span id="motionLevel">0</span></div>
+      <div>State: <span id="currentState">Still</span></div>
+    </div>
+    <div class="status-item">
+      <div>BPM: <span id="bpm">85</span></div>
+      <div>Layers: <span id="layerCount">1</span>/8</div>
+    </div>
+    <div class="status-item">
+      <div>Stage: <span id="stage">Dormant</span></div>
+      <div>Groove: <span id="groove">Minimal</span></div>
+    </div>
+  </div>
+  
+  <div class="hidden" id="evolution">
+    <div class="evolution-bar">
+      <div class="evolution-progress" id="progress"></div>
     </div>
     <div class="rhythm-viz" id="rhythm"></div>
+    <div class="layers" id="layerGrid"></div>
   </div>
 
   <script>
-    let motion = 0;
-    let motionHistory = [];
-    let step = 0;
-    let synths = {};
-    let lastMouseX = 0, lastMouseY = 0;
+    const CHORDS = {
+      dormant: [['A2', 'C3', 'E3']],
+      awakening: [['A2', 'C3', 'E3'], ['F2', 'A2', 'C3']],
+      building: [['A2', 'C3', 'E3'], ['F2', 'A2', 'C3'], ['C3', 'E3', 'G3']],
+      active: [['A2', 'C3', 'E3'], ['D3', 'F3', 'A3'], ['F2', 'A2', 'C3'], ['G2', 'B2', 'D3']],
+      evolved: [['A2', 'C3', 'E3', 'G3'], ['D3', 'F3', 'A3', 'C4'], ['F2', 'A2', 'C3', 'E3'], ['G2', 'B2', 'D3', 'F3']],
+      transcendent: [['A2', 'C3', 'E3', 'G3', 'B3'], ['D3', 'F3', 'A3', 'C4', 'E4'], ['F2', 'A2', 'C3', 'E3', 'G3']],
+      ethereal: [['A2', 'C3', 'E3', 'G3', 'B3', 'D4'], ['F2', 'A2', 'C3', 'E3', 'G3', 'B3']]
+    };
     
+    const LAYERS = [
+      { name: 'Kick', threshold: 0 },
+      { name: 'Piano', threshold: 10 },
+      { name: 'Hi-Hat', threshold: 20 },
+      { name: 'Bass', threshold: 30 },
+      { name: 'Pad', threshold: 40 },
+      { name: 'Lead', threshold: 50 },
+      { name: 'Vocal', threshold: 60 },
+      { name: 'Orch', threshold: 70 }
+    ];
+    
+    let state = {
+      active: false,
+      motion: 0,
+      evolution: 0,
+      stage: 'dormant',
+      tempo: 85,
+      activeLayers: new Set([0]),
+      step: 0,
+      chordIndex: 0,
+      motionEnabled: false,
+      chaos: false,
+      pocket: false,
+      forced: false,
+      recording: true,
+      baseLoop: [],
+      barCount: 0
+    };
+    
+    let synths = {};
+    let fx = {};
+    
+    // Initialize
     document.getElementById('startBtn').onclick = async () => {
       await Tone.start();
-      initAudio();
-      startMotionTracking();
+      initSynths();
+      startSequence();
       
       document.getElementById('startBtn').classList.add('hidden');
+      document.getElementById('controls').classList.remove('hidden');
       document.getElementById('status').classList.remove('hidden');
+      document.getElementById('evolution').classList.remove('hidden');
       
+      state.active = true;
       updateUI();
     };
     
-    function initAudio() {
-      // Create synths
-      synths.kick = new Tone.MembraneSynth().toDestination();
-      synths.hihat = new Tone.NoiseSynth({ envelope: { decay: 0.05 } }).toDestination();
-      synths.bass = new Tone.MonoSynth().toDestination();
-      synths.pad = new Tone.PolySynth().toDestination();
+    document.getElementById('motionBtn').onclick = () => {
+      state.motionEnabled = !state.motionEnabled;
+      document.getElementById('motionBtn').classList.toggle('active');
+      if (state.motionEnabled) requestMotionPermission();
+    };
+    
+    document.getElementById('evolveBtn').onclick = () => {
+      state.forced = !state.forced;
+      document.getElementById('evolveBtn').classList.toggle('active');
+    };
+    
+    document.getElementById('chaosBtn').onclick = () => {
+      state.chaos = !state.chaos;
+      document.getElementById('chaosBtn').classList.toggle('active');
+    };
+    
+    document.getElementById('pocketBtn').onclick = () => {
+      state.pocket = !state.pocket;
+      document.getElementById('pocketBtn').classList.toggle('active');
+    };
+    
+    function initSynths() {
+      // Effects
+      fx.reverb = new Tone.Reverb(4);
+      fx.delay = new Tone.PingPongDelay('8n', 0.2);
+      fx.comp = new Tone.Compressor(-20, 4);
+      fx.limiter = new Tone.Limiter(-1);
       
-      // Set volumes
+      // Synths
+      synths.kick = new Tone.MembraneSynth().chain(fx.comp, fx.limiter, Tone.Destination);
+      synths.piano = new Tone.PolySynth().chain(fx.reverb, Tone.Destination);
+      synths.hihat = new Tone.NoiseSynth({ envelope: { decay: 0.05 } });
+      synths.bass = new Tone.MonoSynth({ oscillator: { type: 'sine' } });
+      synths.pad = new Tone.PolySynth().chain(fx.reverb, Tone.Destination);
+      synths.lead = new Tone.MonoSynth().chain(fx.delay, Tone.Destination);
+      synths.vocal = new Tone.Synth({ oscillator: { type: 'sine' } });
+      synths.orch = new Tone.PolySynth().chain(fx.reverb, Tone.Destination);
+      
+      // Volumes
       synths.kick.volume.value = -10;
+      synths.piano.volume.value = -15;
       synths.hihat.volume.value = -20;
       synths.bass.volume.value = -12;
-      synths.pad.volume.value = -18;
+      synths.pad.volume.value = -20;
+      synths.lead.volume.value = -15;
+      synths.vocal.volume.value = -18;
+      synths.orch.volume.value = -15;
       
-      Tone.Transport.bpm.value = 85;
+      Tone.Transport.bpm.value = state.tempo;
       Tone.Transport.start();
-      
-      // Main sequencer - simple and direct
+    }
+    
+    function startSequence() {
       Tone.Transport.scheduleRepeat((time) => {
-        const currentStep = step % 16;
-        const intensity = motion / 100;
+        const step = state.step % 16;
+        const bar = Math.floor(state.step / 16);
+        const groove = state.pocket ? Math.random() * 0.02 - 0.01 : 0;
         
-        // Only play if there's motion
-        if (intensity > 0.1) {
-          playMotionMusic(currentStep, time, intensity);
+        // Record first 4 bars as base loop
+        if (state.recording && bar < 4) {
+          recordBasePattern(step, time, groove);
         }
         
-        updateRhythm(currentStep);
-        step++;
+        // Switch to loop mode after 4 bars
+        if (state.recording && bar >= 4) {
+          state.recording = false;
+          state.barCount = 0;
+          updateUI();
+        }
+        
+        // Play base loop
+        if (!state.recording) {
+          playBaseLoop(step, time, groove);
+        }
+        
+        // Add motion/sound augmentations
+        if (!state.recording && state.motion > 10) {
+          addMotionLayers(step, time, groove);
+        }
+        
+        if (step === 0) {
+          state.barCount++;
+          if (!state.recording) {
+            evolve();
+            updateUI();
+          }
+        }
+        
+        updateRhythm(step);
+        state.step++;
       }, '16n');
     }
     
-    function playMotionMusic(currentStep, time, intensity) {
-      // Kick - motion creates rhythm
-      if (intensity > 0.2 && (currentStep % 4 === 0 || (intensity > 0.6 && currentStep % 2 === 0))) {
-        synths.kick.triggerAttackRelease('C1', '8n', time, intensity);
+    function recordBasePattern(step, time, groove) {
+      const events = [];
+      
+      // Record kick pattern
+      if (step === 0 || step === 4 || step === 8 || step === 12) {
+        events.push({ synth: 'kick', note: 'C1', duration: '8n', step });
+        synths.kick.triggerAttackRelease('C1', '8n', time + groove);
       }
       
-      // Hi-hat - active motion creates texture
-      if (intensity > 0.3 && currentStep % 2 === 1) {
-        synths.hihat.triggerAttackRelease('16n', time, intensity * 0.8);
+      // Record chord progression
+      if (step % 8 === 0) {
+        const chord = CHORDS.dormant[0]; // Start simple
+        events.push({ synth: 'piano', note: chord, duration: '2n', step });
+        synths.piano.triggerAttackRelease(chord, '2n', time + groove);
       }
       
-      // Bass - sustained motion
-      if (intensity > 0.4 && currentStep % 8 === 0) {
-        const note = intensity > 0.7 ? 'A1' : 'E1';
-        synths.bass.triggerAttackRelease(note, '4n', time, intensity);
-      }
-      
-      // Pad - high energy moments
-      if (intensity > 0.6 && currentStep % 16 === 0) {
-        const chord = intensity > 0.8 ? ['A2', 'C3', 'E3', 'G3'] : ['A2', 'C3', 'E3'];
-        synths.pad.triggerAttackRelease(chord, '1n', time, intensity * 0.6);
+      // Store events for this step
+      if (events.length > 0) {
+        state.baseLoop[step] = events;
       }
     }
     
-    function startMotionTracking() {
-      // Try device motion first
-      if (typeof DeviceMotionEvent !== 'undefined') {
-        if (typeof DeviceMotionEvent.requestPermission === 'function') {
-          DeviceMotionEvent.requestPermission().then(response => {
-            if (response === 'granted') {
-              window.addEventListener('devicemotion', handleMotion);
-            } else {
-              fallbackToMouse();
-            }
-          }).catch(() => fallbackToMouse());
-        } else {
-          window.addEventListener('devicemotion', handleMotion);
+    function playBaseLoop(step, time, groove) {
+      const events = state.baseLoop[step];
+      if (events) {
+        events.forEach(event => {
+          synths[event.synth].triggerAttackRelease(event.note, event.duration, time + groove);
+        });
+      }
+    }
+    
+    function addMotionLayers(step, time, groove) {
+      const intensity = state.motion / 100;
+      
+      // Hi-hat responds to motion
+      if (step % 2 === 0 && intensity > 0.3) {
+        synths.hihat.triggerAttackRelease('16n', time + groove, intensity);
+      }
+      
+      // Bass line emerges with motion
+      if (step % 4 === 0 && intensity > 0.4) {
+        const bassNote = CHORDS[state.stage][0][0].replace(/\d/, '1');
+        synths.bass.triggerAttackRelease(bassNote, '4n', time + groove, intensity);
+      }
+      
+      // Pad swells with higher motion
+      if (step % 16 === 0 && intensity > 0.6) {
+        const chord = CHORDS[state.stage][Math.floor(Math.random() * CHORDS[state.stage].length)];
+        synths.pad.triggerAttackRelease(chord, '1n', time + groove, intensity * 0.7);
+      }
+      
+      // Lead melodies at peak motion
+      if (step % 6 === 0 && intensity > 0.8) {
+        const notes = ['A4', 'C5', 'E5', 'G5'];
+        const note = notes[Math.floor(Math.random() * notes.length)];
+        synths.lead.triggerAttackRelease(note, '8n', time + groove, intensity * 0.6);
+      }
+      
+      // Chaos mode adds random elements
+      if (state.chaos && Math.random() < intensity * 0.3) {
+        const notes = ['C4', 'E4', 'G4', 'A4'];
+        const note = notes[Math.floor(Math.random() * notes.length)];
+        synths.vocal.triggerAttackRelease(note, '16n', time + groove, intensity * 0.5);
+      }
+    }
+    
+    function evolve() {
+      // Motion simulation or forced evolution
+      if (state.motionEnabled) {
+        state.motion = Math.random() * 100;
+      } else if (state.forced) {
+        state.motion = Math.min(state.motion + 2, 100);
+      }
+      
+      // Chaos mode
+      if (state.chaos) {
+        state.motion += Math.random() * 20 - 10;
+      }
+      
+      state.motion = Math.max(0, Math.min(100, state.motion));
+      state.evolution = state.motion;
+      
+      // Update stage
+      if (state.evolution < 10) state.stage = 'dormant';
+      else if (state.evolution < 20) state.stage = 'awakening';
+      else if (state.evolution < 35) state.stage = 'building';
+      else if (state.evolution < 50) state.stage = 'active';
+      else if (state.evolution < 65) state.stage = 'evolved';
+      else if (state.evolution < 80) state.stage = 'transcendent';
+      else state.stage = 'ethereal';
+      
+      // Update tempo
+      state.tempo = 85 + (state.evolution * 0.5);
+      Tone.Transport.bpm.value = state.tempo;
+      
+      // Update layers
+      state.activeLayers.clear();
+      LAYERS.forEach((layer, i) => {
+        if (state.evolution >= layer.threshold) {
+          state.activeLayers.add(i);
         }
-      } else {
-        fallbackToMouse();
-      }
-    }
-    
-    function fallbackToMouse() {
-      // Desktop fallback - mouse movement
-      document.addEventListener('mousemove', handleMouseMotion);
-    }
-    
-    function handleMotion(event) {
-      const acc = event.accelerationIncludingGravity;
-      if (acc && acc.x !== null && acc.y !== null && acc.z !== null) {
-        const total = Math.sqrt(acc.x * acc.x + acc.y * acc.y + acc.z * acc.z);
-        motion = Math.min(100, Math.max(0, (total - 9) * 10)); // Subtract gravity, scale
-        smoothMotion();
-      }
-    }
-    
-    function handleMouseMotion(event) {
-      const speed = Math.sqrt(
-        Math.pow(event.clientX - lastMouseX, 2) + 
-        Math.pow(event.clientY - lastMouseY, 2)
-      );
-      motion = Math.min(100, speed * 3);
-      lastMouseX = event.clientX;
-      lastMouseY = event.clientY;
-      smoothMotion();
-    }
-    
-    function smoothMotion() {
-      motionHistory.push(motion);
-      if (motionHistory.length > 5) {
-        motionHistory.shift();
-      }
-      motion = motionHistory.reduce((a, b) => a + b) / motionHistory.length;
+      });
     }
     
     function updateUI() {
-      document.getElementById('motionLevel').textContent = Math.round(motion);
+      document.getElementById('motionLevel').textContent = Math.round(state.motion);
+      document.getElementById('currentState').textContent = state.recording ? 'Recording' : state.stage;
+      document.getElementById('bpm').textContent = Math.round(state.tempo);
+      document.getElementById('layerCount').textContent = state.activeLayers.size;
+      document.getElementById('stage').textContent = state.recording ? 'Learning...' : state.stage;
+      document.getElementById('groove').textContent = state.pocket ? 'Deep' : 'Minimal';
       
-      const state = 
-        motion < 5 ? 'Still' :
-        motion < 20 ? 'Gentle' :
-        motion < 50 ? 'Active' :
-        motion < 80 ? 'Energetic' : 'Intense';
-      document.getElementById('currentState').textContent = state;
+      document.getElementById('progress').style.width = state.recording ? 
+        (state.barCount / 4 * 100) + '%' : state.evolution + '%';
       
-      const layers = Math.min(4, Math.floor(motion / 15));
-      document.getElementById('layerCount').textContent = layers;
-      document.getElementById('progress').style.width = motion + '%';
-      
-      requestAnimationFrame(updateUI);
+      // Update layers
+      const grid = document.getElementById('layerGrid');
+      grid.innerHTML = '';
+      LAYERS.forEach((layer, i) => {
+        const div = document.createElement('div');
+        div.className = 'layer' + (state.activeLayers.has(i) ? ' active' : '');
+        div.textContent = layer.name;
+        grid.appendChild(div);
+      });
     }
     
-    function updateRhythm(currentStep) {
+    function updateRhythm(step) {
       const rhythm = document.getElementById('rhythm');
       rhythm.innerHTML = '';
       for (let i = 0; i < 16; i++) {
         const beat = document.createElement('div');
-        beat.className = 'beat' + (i === currentStep ? ' active' : '');
+        beat.className = 'beat' + (i === step ? ' active' : '');
         rhythm.appendChild(beat);
       }
+    }
+    
+    function requestMotionPermission() {
+      if (typeof DeviceMotionEvent.requestPermission === 'function') {
+        DeviceMotionEvent.requestPermission().then(response => {
+          if (response === 'granted') {
+            window.addEventListener('devicemotion', handleMotion);
+          }
+        });
+      } else {
+        window.addEventListener('devicemotion', handleMotion);
+      }
+    }
+    
+    function handleMotion(event) {
+      const acc = event.accelerationIncludingGravity;
+      const total = Math.sqrt(acc.x * acc.x + acc.y * acc.y + acc.z * acc.z);
+      state.motion = Math.min(100, total * 5);
     }
   </script>
 </body>
