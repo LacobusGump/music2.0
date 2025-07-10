@@ -111,18 +111,11 @@
   </div>
 
   <script>
-    let state = {
-      motion: 0,
-      motionHistory: [],
-      step: 0,
-      barCount: 0,
-      basePattern: null,
-      isRecording: false,
-      activeLayers: 0
-    };
-    
+    let motion = 0;
+    let motionHistory = [];
+    let step = 0;
     let synths = {};
-    let motionSamples = [];
+    let lastMouseX = 0, lastMouseY = 0;
     
     document.getElementById('startBtn').onclick = async () => {
       await Tone.start();
@@ -136,7 +129,7 @@
     };
     
     function initAudio() {
-      // Simple synths
+      // Create synths
       synths.kick = new Tone.MembraneSynth().toDestination();
       synths.hihat = new Tone.NoiseSynth({ envelope: { decay: 0.05 } }).toDestination();
       synths.bass = new Tone.MonoSynth().toDestination();
@@ -151,177 +144,120 @@
       Tone.Transport.bpm.value = 85;
       Tone.Transport.start();
       
-      // Main sequencer
+      // Main sequencer - simple and direct
       Tone.Transport.scheduleRepeat((time) => {
-        const step = state.step % 16;
-        const bar = Math.floor(state.step / 16);
+        const currentStep = step % 16;
+        const intensity = motion / 100;
         
-        // Record motion pattern for 4 bars when movement detected
-        if (state.motion > 20 && !state.basePattern) {
-          recordMotionPattern(step, time);
+        // Only play if there's motion
+        if (intensity > 0.1) {
+          playMotionMusic(currentStep, time, intensity);
         }
         
-        // Play based on current motion
-        if (state.basePattern) {
-          playMotionMusic(step, time);
-        }
-        
-        if (step === 0) {
-          state.barCount++;
-          updateMotionLayers();
-        }
-        
-        updateRhythm(step);
-        state.step++;
+        updateRhythm(currentStep);
+        step++;
       }, '16n');
     }
     
-    function recordMotionPattern(step, time) {
-      if (!state.isRecording) {
-        state.isRecording = true;
-        state.basePattern = [];
-        motionSamples = [];
+    function playMotionMusic(currentStep, time, intensity) {
+      // Kick - motion creates rhythm
+      if (intensity > 0.2 && (currentStep % 4 === 0 || (intensity > 0.6 && currentStep % 2 === 0))) {
+        synths.kick.triggerAttackRelease('C1', '8n', time, intensity);
       }
       
-      // Sample motion every step
-      motionSamples.push(state.motion);
-      
-      // Create pattern from motion intensity
-      const intensity = state.motion / 100;
-      const events = [];
-      
-      // Motion creates kick pattern
-      if (intensity > 0.3 && (step % 4 === 0 || (intensity > 0.7 && step % 2 === 0))) {
-        events.push({ synth: 'kick', note: 'C1', duration: '8n' });
-        synths.kick.triggerAttackRelease('C1', '8n', time);
+      // Hi-hat - active motion creates texture
+      if (intensity > 0.3 && currentStep % 2 === 1) {
+        synths.hihat.triggerAttackRelease('16n', time, intensity * 0.8);
       }
       
-      // Motion creates hi-hat rhythm
-      if (intensity > 0.5 && step % 2 === 1) {
-        events.push({ synth: 'hihat', duration: '16n' });
-        synths.hihat.triggerAttackRelease('16n', time);
+      // Bass - sustained motion
+      if (intensity > 0.4 && currentStep % 8 === 0) {
+        const note = intensity > 0.7 ? 'A1' : 'E1';
+        synths.bass.triggerAttackRelease(note, '4n', time, intensity);
       }
       
-      state.basePattern[step] = { events, motion: intensity };
-      
-      // Stop recording after 4 bars (64 steps)
-      if (state.step >= 64) {
-        state.isRecording = false;
-        normalizePattern();
+      // Pad - high energy moments
+      if (intensity > 0.6 && currentStep % 16 === 0) {
+        const chord = intensity > 0.8 ? ['A2', 'C3', 'E3', 'G3'] : ['A2', 'C3', 'E3'];
+        synths.pad.triggerAttackRelease(chord, '1n', time, intensity * 0.6);
       }
-    }
-    
-    function normalizePattern() {
-      // Normalize recorded pattern based on motion samples
-      const maxMotion = Math.max(...motionSamples);
-      state.basePattern.forEach(stepData => {
-        if (stepData) {
-          stepData.normalizedMotion = stepData.motion / maxMotion;
-        }
-      });
-    }
-    
-    function playMotionMusic(step, time) {
-      const stepData = state.basePattern[step];
-      if (!stepData) return;
-      
-      const currentMotion = state.motion / 100;
-      const patternMotion = stepData.normalizedMotion;
-      
-      // Only play if current motion matches or exceeds recorded motion
-      if (currentMotion >= patternMotion * 0.7) {
-        stepData.events.forEach(event => {
-          const volume = Math.min(currentMotion, 1);
-          if (event.synth === 'hihat') {
-            synths[event.synth].triggerAttackRelease(event.duration, time, volume);
-          } else {
-            synths[event.synth].triggerAttackRelease(event.note, event.duration, time, volume);
-          }
-        });
-        
-        // Add layers based on motion intensity
-        addMotionLayers(step, time, currentMotion);
-      }
-    }
-    
-    function addMotionLayers(step, time, intensity) {
-      // Bass layer
-      if (intensity > 0.4 && step % 8 === 0) {
-        synths.bass.triggerAttackRelease('A1', '4n', time, intensity);
-      }
-      
-      // Pad layer
-      if (intensity > 0.6 && step % 16 === 0) {
-        synths.pad.triggerAttackRelease(['A2', 'C3', 'E3'], '1n', time, intensity * 0.7);
-      }
-    }
-    
-    function updateMotionLayers() {
-      const intensity = state.motion / 100;
-      state.activeLayers = 0;
-      
-      if (intensity > 0.2) state.activeLayers++;
-      if (intensity > 0.4) state.activeLayers++;
-      if (intensity > 0.6) state.activeLayers++;
-      if (intensity > 0.8) state.activeLayers++;
     }
     
     function startMotionTracking() {
-      if (typeof DeviceMotionEvent.requestPermission === 'function') {
-        DeviceMotionEvent.requestPermission().then(response => {
-          if (response === 'granted') {
-            window.addEventListener('devicemotion', handleMotion);
-          }
-        });
+      // Try device motion first
+      if (typeof DeviceMotionEvent !== 'undefined') {
+        if (typeof DeviceMotionEvent.requestPermission === 'function') {
+          DeviceMotionEvent.requestPermission().then(response => {
+            if (response === 'granted') {
+              window.addEventListener('devicemotion', handleMotion);
+            } else {
+              fallbackToMouse();
+            }
+          }).catch(() => fallbackToMouse());
+        } else {
+          window.addEventListener('devicemotion', handleMotion);
+        }
       } else {
-        window.addEventListener('devicemotion', handleMotion);
+        fallbackToMouse();
       }
-      
-      // Fallback: mouse movement for desktop
-      window.addEventListener('mousemove', handleMouseMotion);
+    }
+    
+    function fallbackToMouse() {
+      // Desktop fallback - mouse movement
+      document.addEventListener('mousemove', handleMouseMotion);
     }
     
     function handleMotion(event) {
       const acc = event.accelerationIncludingGravity;
-      const total = Math.sqrt(acc.x * acc.x + acc.y * acc.y + acc.z * acc.z);
-      state.motion = Math.min(100, total * 8);
-      
-      // Add to history for smoothing
-      state.motionHistory.push(state.motion);
-      if (state.motionHistory.length > 10) {
-        state.motionHistory.shift();
+      if (acc && acc.x !== null && acc.y !== null && acc.z !== null) {
+        const total = Math.sqrt(acc.x * acc.x + acc.y * acc.y + acc.z * acc.z);
+        motion = Math.min(100, Math.max(0, (total - 9) * 10)); // Subtract gravity, scale
+        smoothMotion();
       }
-      
-      // Use smoothed motion
-      state.motion = state.motionHistory.reduce((a, b) => a + b) / state.motionHistory.length;
     }
     
     function handleMouseMotion(event) {
-      // Simulate motion with mouse for desktop testing
-      const speed = Math.sqrt(event.movementX * event.movementX + event.movementY * event.movementY);
-      state.motion = Math.min(100, speed * 2);
+      const speed = Math.sqrt(
+        Math.pow(event.clientX - lastMouseX, 2) + 
+        Math.pow(event.clientY - lastMouseY, 2)
+      );
+      motion = Math.min(100, speed * 3);
+      lastMouseX = event.clientX;
+      lastMouseY = event.clientY;
+      smoothMotion();
+    }
+    
+    function smoothMotion() {
+      motionHistory.push(motion);
+      if (motionHistory.length > 5) {
+        motionHistory.shift();
+      }
+      motion = motionHistory.reduce((a, b) => a + b) / motionHistory.length;
     }
     
     function updateUI() {
-      document.getElementById('motionLevel').textContent = Math.round(state.motion);
-      document.getElementById('currentState').textContent = 
-        state.motion < 5 ? 'Still' :
-        state.motion < 20 ? 'Gentle' :
-        state.motion < 50 ? 'Active' :
-        state.motion < 80 ? 'Energetic' : 'Intense';
+      document.getElementById('motionLevel').textContent = Math.round(motion);
       
-      document.getElementById('layerCount').textContent = state.activeLayers;
-      document.getElementById('progress').style.width = state.motion + '%';
+      const state = 
+        motion < 5 ? 'Still' :
+        motion < 20 ? 'Gentle' :
+        motion < 50 ? 'Active' :
+        motion < 80 ? 'Energetic' : 'Intense';
+      document.getElementById('currentState').textContent = state;
+      
+      const layers = Math.min(4, Math.floor(motion / 15));
+      document.getElementById('layerCount').textContent = layers;
+      document.getElementById('progress').style.width = motion + '%';
       
       requestAnimationFrame(updateUI);
     }
     
-    function updateRhythm(step) {
+    function updateRhythm(currentStep) {
       const rhythm = document.getElementById('rhythm');
       rhythm.innerHTML = '';
       for (let i = 0; i < 16; i++) {
         const beat = document.createElement('div');
-        beat.className = 'beat' + (i === step ? ' active' : '');
+        beat.className = 'beat' + (i === currentStep ? ' active' : '');
         rhythm.appendChild(beat);
       }
     }
