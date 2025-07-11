@@ -6,7 +6,6 @@
   <title>GUMP: Grand Unified Music Platform</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.7.77/Tone.js"></script>
   <style>
-    /* -- Base Styles -- */
     body{margin:0;padding:0;overflow:hidden;background:#000814;color:#00d4ff;font-family:'Courier New',monospace;height:100vh;cursor:none}
     .universe{position:fixed;inset:0;z-index:-1}
     .particle{position:absolute;width:2px;height:2px;background:#00d4ff;border-radius:50%;animation:float linear infinite}
@@ -36,75 +35,102 @@
   <div id="permissionModal" class="permission-modal">
     <div class="permission-content">
       <h3>🎵 Motion Access</h3>
-      <p>Allow motion sensors to trigger rich, evolving grooves.</p>
+      <p>Allow motion sensors to trigger 90s-style grooves.</p>
       <button id="allowBtn" class="awakening-btn">Allow Motion Access</button>
     </div>
   </div>
   <div id="frequencyViz"></div>
 
   <script>
-    class GumpSymphony {
-      constructor(){
-        this.history=[]; this.smooth=0; this.playing=false;
-        this.threshold=2; this.setup();
+    document.addEventListener('DOMContentLoaded', () => {
+      // Motion and smoothing
+      const history = [];
+      let smoothMotion = 0;
+      const threshold = 2;
+
+      // Spawn starfield
+      const universe = document.getElementById('universe');
+      for (let i = 0; i < 100; i++) {
+        const p = document.createElement('div'); p.className = 'particle';
+        p.style.left = `${Math.random()*100}vw`;
+        p.style.animationDuration = `${15+Math.random()*10}s`;
+        p.style.animationDelay = `${Math.random()*20}s`;
+        universe.appendChild(p);
       }
-      setup(){
-        this.spawnStars(); this.bindUI(); this.prepareAudio(); this.buildViz(); requestAnimationFrame(()=>this.loop());
-      }
-      spawnStars(){
-        const u=document.getElementById('universe');
-        for(let i=0;i<100;i++){ const p=document.createElement('div'); p.className='particle';
-          p.style.left=Math.random()*100+'vw'; p.style.animationDuration=15+Math.random()*10+'s';
-          p.style.animationDelay=Math.random()*20+'s'; u.appendChild(p);
-        }
-      }
-      bindUI(){
-        document.getElementById('awakenBtn').onclick=()=>this.awaken();
-        document.getElementById('allowBtn').onclick=()=>this.enableMotion();
-      }
-      async awaken(){
-        await Tone.start(); Tone.context.state!=='running'&&await Tone.context.resume();
+
+      // Buttons
+      const awaken = document.getElementById('awakenBtn');
+      const allow = document.getElementById('allowBtn');
+      const modal = document.getElementById('permissionModal');
+      const viz = document.getElementById('frequencyViz');
+
+      awaken.onclick = async () => {
+        await Tone.start();
+        if (Tone.context.state !== 'running') await Tone.context.resume();
         document.querySelector('.consciousness').remove();
-        document.getElementById('permissionModal').classList.add('visible');
-        Tone.Transport.bpm.value=100;
-      }
-      enableMotion(){
-        document.getElementById('permissionModal').remove();
-        window.addEventListener('devicemotion',e=>this.track(Math.max(0,Math.hypot(...['x','y','z'].map(k=>e.accelerationIncludingGravity?.[k]||0))-9.8)));
-        Tone.Transport.start(); document.getElementById('frequencyViz').classList.add('active');
-        this.loopDrums();
-      }
-      track(v){ this.history.unshift(v); this.history.length>8&&this.history.pop();
-        const avg=this.history.reduce((a,b)=>a+b,0)/this.history.length; this.smooth=this.smooth*0.6+avg*0.4;
-      }
-      prepareAudio(){
-        // 90s Drum Kit
-        this.kick=new Tone.MembraneSynth().toDestination();
-        this.snare=new Tone.NoiseSynth().toDestination();
-        this.hihat=new Tone.MetalSynth({envelope:{attack:0.001,decay:0.1}}).toDestination();
-        this.kick.volume.value=-8; this.snare.volume.value=-12; this.hihat.volume.value=-18;
-        // Lush Pad
-        this.pad=new Tone.PolySynth(Tone.Synth,{oscillator:{type:'sawtooth'},envelope:{attack:2,decay:1,sustain:0.7,release:4}}).toDestination();
-        this.filter=new Tone.Filter(200,'lowpass').toDestination(); this.pad.connect(this.filter);
-        // Drum Loop scheduler
-        this.loop = new Tone.Loop(time=>{
-          if(this.smooth>this.threshold){ this.kick.triggerAttackRelease('C1','8n',time);
-            this.snare.triggerAttackRelease('16n',time+'8n'); this.hihat.triggerAttackRelease('16n',time,0.3);
-            this.filter.frequency.rampTo(200+this.smooth*20,0.1);
-            this.pad.triggerAttackRelease(['C3','E3','G3'][Math.floor(Math.random()*3)],'2n',time,this.smooth/50);
-          }
-        },'4n').start(0);
-      }
-      loopDrums(){ Tone.Transport.start(); }
-      buildViz(){ const viz=document.getElementById('frequencyViz'); for(let i=0;i<32;i++){const b=document.createElement('div');b.className='freq-bar';viz.appendChild(b);} }
-      loop(){
-        document.querySelectorAll('.freq-bar').forEach((b,i)=>{
-          const h=5+Math.sin(Date.now()*0.002+i)*0.5*this.smooth; b.style.height=`${h}px`;
+        modal.classList.add('visible');
+      };
+
+      allow.onclick = () => {
+        modal.remove();
+        window.addEventListener('devicemotion', e => {
+          const a = e.accelerationIncludingGravity || {};
+          const val = Math.max(0, Math.hypot(a.x||0,a.y||0,a.z||0) - 9.8);
+          history.unshift(val);
+          if (history.length > 8) history.pop();
+          const avg = history.reduce((s,v) => s+v, 0) / history.length;
+          smoothMotion = smoothMotion*0.6 + avg*0.4;
         });
-        requestAnimationFrame(()=>this.loop());
+        Tone.Transport.start();
+        viz.classList.add('active');
+      };
+
+      // Prepare audio
+      const kick  = new Tone.MembraneSynth({envelope:{attack:0.001,decay:0.3,release:0.2}}).toDestination();
+      const snare = new Tone.NoiseSynth({envelope:{attack:0.001,decay:0.2}}).toDestination();
+      const hihat = new Tone.MetalSynth({envelope:{attack:0.001,decay:0.1},harmonicity:5,modulationIndex:32}).toDestination();
+      kick.volume.value = -8; snare.volume.value = -12; hihat.volume.value = -18;
+
+      const padFilter = new Tone.Filter(200, 'lowpass').toDestination();
+      const pad = new Tone.PolySynth(Tone.Synth, {
+        oscillator:{type:'sawtooth'}, envelope:{attack:2,decay:1,sustain:0.7,release:4}
+      }).connect(padFilter);
+
+      Tone.Transport.bpm.value = 100;
+
+      // Drum & pad loop
+      Tone.Transport.scheduleRepeat(time => {
+        if (smoothMotion > threshold) {
+          kick.triggerAttackRelease('C1', '8n', time);
+          snare.triggerAttackRelease('8n', time + Tone.Time('2n'));
+          hihat.triggerAttackRelease('16n', time, 0.3);
+
+          const freq = 200 + smoothMotion*20;
+          padFilter.frequency.rampTo(freq, 0.1);
+
+          const notes = ['C3','E3','G3'];
+          pad.triggerAttackRelease(notes[Math.floor(Math.random()*notes.length)], '2n', time, smoothMotion/50);
+        }
+      }, '4n').start(0);
+
+      // Visualizer
+      const bars = [];
+      for (let i = 0; i < 32; i++) {
+        const bar = document.createElement('div');
+        bar.className = 'freq-bar';
+        viz.appendChild(bar);
+        bars.push(bar);
       }
-    }
-    window.addEventListener('DOMContentLoaded',()=>new GumpSymphony());
+
+      // Animation loop
+      (function animate() {
+        bars.forEach((b, i) => {
+          const h = 5 + (Math.sin(Date.now()*0.002 + i) * 0.5 + 0.5) * smoothMotion;
+          b.style.height = `${h}px`;
+        });
+        requestAnimationFrame(animate);
+      })();
+    });
   </script>
 </body>
 </html>
