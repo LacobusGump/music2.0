@@ -103,6 +103,22 @@
       box-shadow: 0 0 15px #4ecdc4;
     }
     
+    .beat.playing {
+      animation: beatPulse 0.2s ease-out;
+    }
+    
+    @keyframes beatPulse {
+      0% { transform: scale(1); }
+      50% { transform: scale(1.8); }
+      100% { transform: scale(1); }
+    }
+    
+    .debug {
+      font-size: 0.8rem;
+      opacity: 0.7;
+      margin-top: 10px;
+    }
+    
     .hidden { display: none; }
   </style>
 </head>
@@ -113,19 +129,32 @@
   <div class="status hidden" id="status">
     <div>Motion: <span id="motionLevel">0</span>%</div>
     <div>State: <span id="currentState">Still</span></div>
-    <div>Layers: <span id="layerCount">0</span>/4</div>
+    <div>Tempo: <span id="tempoDisplay">0</span> BPM</div>
     <div class="motion-bar">
       <div class="motion-progress" id="progress"></div>
     </div>
     <div class="rhythm-viz" id="rhythm"></div>
+    <div class="debug">
+      Playing: <span id="playingState">No</span> | 
+      Input: <span id="inputMode">-</span> |
+      Steps: <span id="stepCount">0</span>
+    </div>
   </div>
 
   <script>
     let motion = 0;
     let motionHistory = [];
+    let isPlaying = false;
     let step = 0;
     let synths = {};
     let lastMouseX = 0, lastMouseY = 0;
+    let inputMode = 'none';
+    let motionThreshold = 5; // Lower threshold for starting music
+    let stopThreshold = 2;   // Even lower for stopping
+    let lastMotionTime = 0;
+    let musicFadeTimeout = null;
+    let baseTempo = 88;
+    let currentTempo = baseTempo;
     
     const patterns = {
       kick: [1,0,0,0,0,0,1,0,1,0,0,0,0,0,1,0],
@@ -144,11 +173,13 @@
         try {
           const response = await DeviceMotionEvent.requestPermission();
           permissionGranted = response === 'granted';
+          inputMode = 'device';
         } catch (e) {
           console.log('Permission request failed:', e);
         }
       } else if (typeof DeviceMotionEvent !== 'undefined') {
         permissionGranted = true;
+        inputMode = 'device';
       }
       
       initAudio();
@@ -156,6 +187,7 @@
       if (permissionGranted) {
         window.addEventListener('devicemotion', handleMotion, { passive: true });
       } else {
+        inputMode = 'mouse/touch';
         document.addEventListener('mousemove', handleMouseMotion, { passive: true });
         document.addEventListener('touchmove', handleTouchMotion, { passive: true });
       }
@@ -163,6 +195,8 @@
       document.getElementById('startBtn').classList.add('hidden');
       document.getElementById('status').classList.remove('hidden');
       
+      // Start the main update loop
+      setInterval(updateMusicState, 100);
       updateUI();
     };
     
@@ -202,6 +236,7 @@
         filter: { Q: 1, type: 'lowpass', rolloff: -12 }
       }).toDestination();
       
+      // Volume adjustments
       synths.kick.volume.value = -8;
       synths.snare.volume.value = -12;
       synths.hihat.volume.value = -18;
@@ -209,36 +244,96 @@
       synths.bass.volume.value = -10;
       synths.pad.volume.value = -20;
       
-      Tone.Transport.bpm.value = 88;
-      Tone.Transport.start();
-      
-      Tone.Transport.scheduleRepeat((time) => {
-        const pos = step % 16;
-        const intensity = motion / 100;
+      // Don't start transport yet - we'll control it based on motion
+    }
+    
+    function startMusic() {
+      if (!isPlaying) {
+        isPlaying = true;
         
-        if (intensity > 0.2) {
-          dropTheBeat(pos, time, intensity);
+        // Set tempo based on motion
+        currentTempo = Math.max(60, Math.min(140, baseTempo + (motion * 0.8)));
+        Tone.Transport.bpm.value = currentTempo;
+        
+        // Clear any pending stop timeout
+        if (musicFadeTimeout) {
+          clearTimeout(musicFadeTimeout);
+          musicFadeTimeout = null;
         }
         
-        updateRhythm(pos);
-        step++;
-      }, '16n');
+        // Start or resume transport
+        if (Tone.Transport.state === 'stopped') {
+          Tone.Transport.start();
+        }
+        
+        // Schedule the beat pattern
+        Tone.Transport.scheduleRepeat((time) => {
+          if (isPlaying) {
+            const pos = step % 16;
+            const intensity = Math.max(0.1, motion / 100);
+            
+            dropTheBeat(pos, time, intensity);
+            updateRhythm(pos);
+            step++;
+          }
+        }, '16n');
+      }
+    }
+    
+    function stopMusic() {
+      if (isPlaying) {
+        isPlaying = false;
+        
+        // Fade out gracefully after a short delay
+        musicFadeTimeout = setTimeout(() => {
+          if (!isPlaying) {
+            Tone.Transport.stop();
+            Tone.Transport.cancel(); // Clear scheduled events
+            clearRhythm();
+          }
+        }, 500); // Give 500ms grace period
+      }
+    }
+    
+    function updateMusicState() {
+      // Smooth motion decay
+      if (motion > 0) {
+        motion *= 0.92; // Gradual decay
+        if (motion < 0.5) motion = 0;
+      }
+      
+      // Check if we should start or stop music
+      if (motion > motionThreshold && !isPlaying) {
+        startMusic();
+      } else if (motion < stopThreshold && isPlaying) {
+        stopMusic();
+      }
+      
+      // Update tempo in real-time if playing
+      if (isPlaying && motion > 0) {
+        const targetTempo = Math.max(60, Math.min(140, baseTempo + (motion * 0.8)));
+        currentTempo = currentTempo * 0.9 + targetTempo * 0.1; // Smooth tempo changes
+        Tone.Transport.bpm.value = currentTempo;
+      }
     }
     
     function dropTheBeat(pos, time, intensity) {
-      if (patterns.kick[pos] && intensity > 0.25) {
+      const elements = document.querySelectorAll('.beat');
+      
+      if (patterns.kick[pos]) {
         synths.kick.triggerAttackRelease('C1', '8n', time, Math.min(1, intensity * 1.2));
+        if (elements[pos]) elements[pos].classList.add('playing');
       }
       
       if (patterns.snare[pos] && intensity > 0.3) {
         synths.snare.triggerAttackRelease('8n', time, Math.min(1, intensity * 0.9));
       }
       
-      if (patterns.hihat[pos] && intensity > 0.35) {
+      if (patterns.hihat[pos] && intensity > 0.2) {
         synths.hihat.triggerAttackRelease('32n', time, intensity * 0.7);
       }
       
-      if (patterns.openhat[pos] && intensity > 0.5) {
+      if (patterns.openhat[pos] && intensity > 0.6) {
         synths.openhat.triggerAttackRelease('16n', time, intensity * 0.8);
       }
       
@@ -258,13 +353,24 @@
         const chord = chords[Math.floor(step / 16) % 4];
         synths.pad.triggerAttackRelease(chord, '2n', time, intensity * 0.4);
       }
+      
+      // Clear playing animation after a delay
+      setTimeout(() => {
+        if (elements[pos]) elements[pos].classList.remove('playing');
+      }, 200);
     }
     
     function handleMotion(event) {
       const acc = event.accelerationIncludingGravity;
       if (acc && acc.x !== null && acc.y !== null && acc.z !== null) {
+        // Calculate motion magnitude
         const total = Math.sqrt(acc.x * acc.x + acc.y * acc.y + acc.z * acc.z);
-        motion = Math.min(100, Math.max(0, (total - 9.8) * 8));
+        const motionDelta = Math.abs(total - 9.8); // Remove gravity baseline
+        
+        // Boost the motion signal and make it more responsive
+        motion = Math.min(100, motionDelta * 15);
+        lastMotionTime = Date.now();
+        
         smoothMotion();
       }
     }
@@ -274,9 +380,12 @@
         Math.pow(event.clientX - lastMouseX, 2) + 
         Math.pow(event.clientY - lastMouseY, 2)
       );
-      motion = Math.min(100, speed * 3);
+      
+      motion = Math.min(100, speed * 2);
       lastMouseX = event.clientX;
       lastMouseY = event.clientY;
+      lastMotionTime = Date.now();
+      
       smoothMotion();
     }
     
@@ -287,21 +396,28 @@
           Math.pow(touch.clientX - lastMouseX, 2) + 
           Math.pow(touch.clientY - lastMouseY, 2)
         );
-        motion = Math.min(100, speed * 2);
+        
+        motion = Math.min(100, speed * 1.5);
         lastMouseX = touch.clientX;
         lastMouseY = touch.clientY;
+        lastMotionTime = Date.now();
+        
         smoothMotion();
       }
     }
     
     function smoothMotion() {
       motionHistory.push(motion);
-      if (motionHistory.length > 5) motionHistory.shift();
+      if (motionHistory.length > 3) motionHistory.shift();
       motion = motionHistory.reduce((a, b) => a + b) / motionHistory.length;
     }
     
     function updateUI() {
       document.getElementById('motionLevel').textContent = Math.round(motion);
+      document.getElementById('tempoDisplay').textContent = Math.round(currentTempo);
+      document.getElementById('playingState').textContent = isPlaying ? 'Yes' : 'No';
+      document.getElementById('inputMode').textContent = inputMode;
+      document.getElementById('stepCount').textContent = step;
       
       const state = 
         motion < 5 ? 'Still' :
@@ -310,8 +426,6 @@
         motion < 80 ? 'Energetic' : 'Intense';
       document.getElementById('currentState').textContent = state;
       
-      const layers = Math.min(4, Math.floor(motion / 15));
-      document.getElementById('layerCount').textContent = layers;
       document.getElementById('progress').style.width = motion + '%';
       
       requestAnimationFrame(updateUI);
@@ -327,6 +441,16 @@
         if (patterns.kick[i]) className += ' kick';
         if (patterns.snare[i]) className += ' snare';
         beat.className = className;
+        rhythm.appendChild(beat);
+      }
+    }
+    
+    function clearRhythm() {
+      const rhythm = document.getElementById('rhythm');
+      rhythm.innerHTML = '';
+      for (let i = 0; i < 16; i++) {
+        const beat = document.createElement('div');
+        beat.className = 'beat';
         rhythm.appendChild(beat);
       }
     }
