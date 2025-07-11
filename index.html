@@ -85,6 +85,18 @@
       box-shadow: 0 25px 50px rgba(0,255,170,0.6);
     }
     
+    .error-message {
+      display: none;
+      background: rgba(255, 107, 107, 0.1);
+      border: 2px solid rgba(255, 107, 107, 0.3);
+      border-radius: 15px;
+      padding: 20px;
+      margin-top: 20px;
+      color: #ff6b6b;
+      text-align: center;
+      font-size: clamp(1rem, 4vw, 1.2rem);
+    }
+    
     .interface {
       display: none;
       width: 100%;
@@ -206,6 +218,10 @@
     <div class="subtitle">Pure Motion AI • Move Your Phone</div>
     <button class="start-btn" id="startBtn">ACTIVATE MOTION AI</button>
     
+    <div class="error-message" id="errorMessage">
+      This app requires a mobile device with motion sensors. Please use your phone and allow motion permissions.
+    </div>
+    
     <div class="interface" id="interface">
       <div class="motion-display">
         <div class="motion-orb" id="motionOrb"></div>
@@ -252,6 +268,7 @@
         this.aiMemory = [];
         this.genre = 'Ambient';
         this.lastBeat = 0;
+        this.hasMotionSensors = false;
         
         this.patterns = this.generateAIPatterns();
         this.init();
@@ -260,12 +277,48 @@
       init() {
         document.getElementById('startBtn').onclick = () => this.activate();
         this.createWaveform();
+        this.checkMotionSupport();
+      }
+      
+      checkMotionSupport() {
+        // Check if device has motion sensors
+        if (typeof DeviceMotionEvent === 'undefined' && typeof DeviceOrientationEvent === 'undefined') {
+          this.showError();
+          return;
+        }
+        
+        // For iOS devices that require permission
+        if (typeof DeviceMotionEvent.requestPermission === 'function') {
+          this.hasMotionSensors = true;
+        } else if (typeof DeviceMotionEvent !== 'undefined') {
+          this.hasMotionSensors = true;
+        }
+        
+        if (!this.hasMotionSensors) {
+          this.showError();
+        }
+      }
+      
+      showError() {
+        document.getElementById('startBtn').style.display = 'none';
+        document.getElementById('errorMessage').style.display = 'block';
       }
       
       async activate() {
+        if (!this.hasMotionSensors) {
+          this.showError();
+          return;
+        }
+        
         try {
           this.ctx = new (window.AudioContext || window.webkitAudioContext)();
           await this.ctx.resume();
+          
+          const motionPermission = await this.requestMotionPermission();
+          if (!motionPermission) {
+            this.showError();
+            return;
+          }
           
           document.getElementById('startBtn').classList.add('hidden');
           document.getElementById('interface').style.display = 'block';
@@ -276,33 +329,51 @@
           this.updateVisuals();
           
         } catch (error) {
-          console.error('Audio failed:', error);
-          this.fallbackToMouseMotion();
+          console.error('Activation failed:', error);
+          this.showError();
         }
       }
       
-      startMotionDetection() {
-        // Try DeviceMotion first
-        if (typeof DeviceMotionEvent !== 'undefined') {
-          if (typeof DeviceMotionEvent.requestPermission === 'function') {
-            DeviceMotionEvent.requestPermission().then(response => {
-              if (response === 'granted') {
-                window.addEventListener('devicemotion', (e) => this.handleDeviceMotion(e));
-              } else {
-                this.fallbackToMouseMotion();
-              }
-            }).catch(() => this.fallbackToMouseMotion());
-          } else {
-            window.addEventListener('devicemotion', (e) => this.handleDeviceMotion(e));
+      async requestMotionPermission() {
+        // Request permission for iOS devices
+        if (typeof DeviceMotionEvent.requestPermission === 'function') {
+          try {
+            const permission = await DeviceMotionEvent.requestPermission();
+            return permission === 'granted';
+          } catch (error) {
+            console.error('Motion permission denied:', error);
+            return false;
           }
-        } else {
-          this.fallbackToMouseMotion();
         }
         
-        // Also try DeviceOrientation for rotation
-        if (typeof DeviceOrientationEvent !== 'undefined') {
-          window.addEventListener('deviceorientation', (e) => this.handleOrientation(e));
+        // For Android and other devices, assume permission is granted
+        return true;
+      }
+      
+      startMotionDetection() {
+        let motionDetected = false;
+        
+        // Primary motion detection
+        if (typeof DeviceMotionEvent !== 'undefined') {
+          window.addEventListener('devicemotion', (e) => {
+            motionDetected = true;
+            this.handleDeviceMotion(e);
+          });
         }
+        
+        // Secondary orientation detection
+        if (typeof DeviceOrientationEvent !== 'undefined') {
+          window.addEventListener('deviceorientation', (e) => {
+            this.handleOrientation(e);
+          });
+        }
+        
+        // Check if motion is actually working after 3 seconds
+        setTimeout(() => {
+          if (!motionDetected) {
+            this.showError();
+          }
+        }, 3000);
       }
       
       handleDeviceMotion(event) {
@@ -324,23 +395,8 @@
       
       handleOrientation(event) {
         // Add subtle rotation-based effects
-        const rotation = Math.abs(event.gamma) + Math.abs(event.beta);
+        const rotation = Math.abs(event.gamma || 0) + Math.abs(event.beta || 0);
         this.motion = Math.max(this.motion, rotation * 2);
-      }
-      
-      fallbackToMouseMotion() {
-        let lastX = 0, lastY = 0;
-        
-        document.addEventListener('mousemove', (e) => {
-          const speed = Math.sqrt(
-            Math.pow(e.clientX - lastX, 2) + 
-            Math.pow(e.clientY - lastY, 2)
-          );
-          this.motion = Math.min(100, speed * 3);
-          lastX = e.clientX;
-          lastY = e.clientY;
-          this.processMotion();
-        });
       }
       
       learnFromMotion(acc) {
