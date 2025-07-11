@@ -201,7 +201,7 @@
     
     <div class="waveform hidden" id="waveform"></div>
     
-    <div class="status hidden" id="status">🧠 AI learning your movement...</div>
+    <div class="status hidden" id="status">🧠 AI composing your soundtrack...</div>
     
     <div class="error hidden" id="error">
       Motion sensors unavailable. Please use a mobile device.
@@ -219,9 +219,19 @@
         this.last = { x: 0, y: 0, z: 0 };
         this.beats = [];
         this.waves = [];
-        this.trails = [];
         this.active = false;
-        this.scale = ['C4', 'D4', 'E4', 'F4', 'G4', 'A4', 'B4', 'C5'];
+        this.step = 0;
+        this.bassLine = 0;
+        this.chordProg = 0;
+        
+        // Musical scales and progressions
+        this.scale = [65.41, 73.42, 82.41, 87.31, 98.00, 110.00, 123.47]; // C2-B2
+        this.chords = [
+          [261.63, 329.63, 392.00], // C major
+          [293.66, 369.99, 440.00], // D minor
+          [329.63, 415.30, 493.88], // E minor
+          [349.23, 440.00, 523.25]  // F major
+        ];
         
         this.init();
       }
@@ -229,22 +239,18 @@
       init() {
         document.getElementById('start').onclick = () => this.start();
         this.setupWaveform();
-        this.setupBeats();
       }
       
       async start() {
         try {
-          // Request permissions
           if (typeof DeviceMotionEvent?.requestPermission === 'function') {
             const permission = await DeviceMotionEvent.requestPermission();
             if (permission !== 'granted') throw new Error('Permission denied');
           }
           
-          // Initialize audio
           this.ctx = new (window.AudioContext || window.webkitAudioContext)();
           await this.ctx.resume();
           
-          // Show interface
           document.getElementById('start').classList.add('hidden');
           ['viz', 'stats', 'waveform', 'status'].forEach(id => 
             document.getElementById(id).classList.remove('hidden')
@@ -256,7 +262,6 @@
           this.animate();
           
         } catch (error) {
-          console.error('Start failed:', error);
           this.showError('Motion sensors unavailable. Please use a mobile device.');
         }
       }
@@ -268,114 +273,211 @@
           const acc = e.accelerationIncludingGravity;
           if (!acc || acc.x === null) return;
           
-          // Calculate motion intensity
           const dx = Math.abs(acc.x - this.last.x);
           const dy = Math.abs(acc.y - this.last.y);
           const dz = Math.abs(acc.z - this.last.z);
           
-          this.motion = Math.min(100, Math.sqrt(dx*dx + dy*dy + dz*dz) * 20);
+          this.motion = Math.min(100, Math.sqrt(dx*dx + dy*dy + dz*dz) * 25);
           this.last = { x: acc.x, y: acc.y, z: acc.z };
           
-          // Update position for visualization
-          this.pos.x = Math.max(0, Math.min(100, 50 + acc.x * 2));
-          this.pos.y = Math.max(0, Math.min(100, 50 + acc.y * 2));
+          this.pos.x = Math.max(0, Math.min(100, 50 + acc.x * 3));
+          this.pos.y = Math.max(0, Math.min(100, 50 + acc.y * 3));
           
-          // Adaptive BPM and layers
-          this.bpm = 80 + this.motion * 1.2;
-          this.layers = Math.floor(this.motion / 15);
+          this.bpm = 100 + this.motion * 0.8;
+          this.layers = Math.min(4, Math.floor(this.motion / 20));
           
-          // Create trail
           this.addTrail();
           
         }, { passive: true });
       }
       
       startSequencer() {
-        const interval = () => 60000 / this.bpm / 4; // 16th notes
-        
         const tick = () => {
           if (!this.active) return;
           
-          this.playBeat();
-          this.updateWaveform();
-          setTimeout(tick, interval());
+          this.playStep();
+          this.step = (this.step + 1) % 16;
+          
+          if (this.step % 4 === 0) this.bassLine = (this.bassLine + 1) % 8;
+          if (this.step === 0) this.chordProg = (this.chordProg + 1) % 4;
+          
+          setTimeout(tick, 60000 / this.bpm / 4);
         };
         
         tick();
       }
       
-      playBeat() {
-        if (this.motion < 10) return;
+      playStep() {
+        if (this.motion < 5) return;
         
-        // Kick on 1 and 3
-        if (this.beats.length % 8 === 0 || this.beats.length % 8 === 4) {
-          this.tone(60, 0.5, 'sine', 0.1);
+        // 404 style kick pattern
+        if ([0, 6, 12].includes(this.step)) {
+          this.kick();
         }
         
-        // Snare on 2 and 4
-        if (this.beats.length % 8 === 2 || this.beats.length % 8 === 6) {
-          this.noise(0.3, 0.1);
+        // Snare on 4 and 12
+        if ([4, 12].includes(this.step)) {
+          this.snare();
         }
         
-        // Hi-hat
-        if (this.layers > 1 && Math.random() < 0.6) {
-          this.noise(0.1, 0.05);
+        // Hi-hats
+        if (this.layers > 0 && this.step % 2 === 1) {
+          this.hihat();
         }
         
-        // Melodic elements based on motion
-        if (this.layers > 2 && Math.random() < this.motion / 100) {
-          const note = this.scale[Math.floor(Math.random() * this.scale.length)];
-          this.tone(this.noteFreq(note), 0.3, 'sine', 0.3);
+        // 404 style bassline
+        if (this.layers > 1 && [0, 2, 5, 7, 9, 11, 14].includes(this.step)) {
+          this.bass();
         }
         
-        this.beats.push(Date.now());
-        if (this.beats.length > 32) this.beats.shift();
+        // Weird melodic elements based on motion
+        if (this.layers > 2 && Math.random() < this.motion / 150) {
+          this.weirdMelody();
+        }
+        
+        // Ambient pads
+        if (this.layers > 3 && this.step % 8 === 0) {
+          this.pad();
+        }
+        
+        this.updateWaveform();
       }
       
-      tone(freq, vol, type = 'sine', dur = 0.2) {
-        if (!this.ctx) return;
-        
+      kick() {
         const osc = this.ctx.createOscillator();
         const gain = this.ctx.createGain();
         
-        osc.type = type;
-        osc.frequency.value = freq;
+        osc.frequency.setValueAtTime(60, this.ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(30, this.ctx.currentTime + 0.1);
         
-        gain.gain.setValueAtTime(0, this.ctx.currentTime);
-        gain.gain.linearRampToValueAtTime(vol, this.ctx.currentTime + 0.01);
-        gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + dur);
+        gain.gain.setValueAtTime(0.8, this.ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.3);
         
         osc.connect(gain).connect(this.ctx.destination);
         osc.start();
-        osc.stop(this.ctx.currentTime + dur);
+        osc.stop(this.ctx.currentTime + 0.3);
       }
       
-      noise(vol, dur) {
-        if (!this.ctx) return;
-        
-        const buffer = this.ctx.createBuffer(1, this.ctx.sampleRate * dur, this.ctx.sampleRate);
+      snare() {
+        // White noise burst
+        const buffer = this.ctx.createBuffer(1, this.ctx.sampleRate * 0.2, this.ctx.sampleRate);
         const data = buffer.getChannelData(0);
         
         for (let i = 0; i < data.length; i++) {
-          data[i] = Math.random() * 2 - 1;
+          data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (data.length * 0.1));
         }
         
         const source = this.ctx.createBufferSource();
         const gain = this.ctx.createGain();
+        const filter = this.ctx.createBiquadFilter();
         
         source.buffer = buffer;
-        gain.gain.setValueAtTime(vol, this.ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + dur);
+        filter.type = 'highpass';
+        filter.frequency.value = 1000;
         
-        source.connect(gain).connect(this.ctx.destination);
+        gain.gain.setValueAtTime(0.4, this.ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.2);
+        
+        source.connect(filter).connect(gain).connect(this.ctx.destination);
         source.start();
       }
       
-      noteFreq(note) {
-        const notes = { C: 261.63, D: 293.66, E: 329.63, F: 349.23, G: 392.00, A: 440.00, B: 493.88 };
-        const octave = parseInt(note.slice(-1));
-        const freq = notes[note[0]] * Math.pow(2, octave - 4);
-        return freq;
+      hihat() {
+        const buffer = this.ctx.createBuffer(1, this.ctx.sampleRate * 0.05, this.ctx.sampleRate);
+        const data = buffer.getChannelData(0);
+        
+        for (let i = 0; i < data.length; i++) {
+          data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (data.length * 0.02));
+        }
+        
+        const source = this.ctx.createBufferSource();
+        const gain = this.ctx.createGain();
+        const filter = this.ctx.createBiquadFilter();
+        
+        source.buffer = buffer;
+        filter.type = 'highpass';
+        filter.frequency.value = 8000;
+        
+        gain.gain.setValueAtTime(0.1, this.ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.05);
+        
+        source.connect(filter).connect(gain).connect(this.ctx.destination);
+        source.start();
+      }
+      
+      bass() {
+        const freq = this.scale[this.bassLine % this.scale.length];
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        const filter = this.ctx.createBiquadFilter();
+        
+        osc.type = 'square';
+        osc.frequency.value = freq;
+        
+        filter.type = 'lowpass';
+        filter.frequency.value = 400 + this.motion * 5;
+        filter.Q.value = 5;
+        
+        gain.gain.setValueAtTime(0.3, this.ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.15);
+        
+        osc.connect(filter).connect(gain).connect(this.ctx.destination);
+        osc.start();
+        osc.stop(this.ctx.currentTime + 0.15);
+      }
+      
+      weirdMelody() {
+        const chord = this.chords[this.chordProg];
+        const freq = chord[Math.floor(Math.random() * chord.length)] * (Math.random() > 0.5 ? 2 : 1);
+        
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        const delay = this.ctx.createDelay();
+        const feedback = this.ctx.createGain();
+        
+        osc.type = Math.random() > 0.5 ? 'sawtooth' : 'square';
+        osc.frequency.value = freq;
+        
+        delay.delayTime.value = 0.125;
+        feedback.gain.value = 0.3;
+        
+        gain.gain.setValueAtTime(0.15, this.ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.5);
+        
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        gain.connect(delay);
+        delay.connect(feedback);
+        feedback.connect(delay);
+        delay.connect(this.ctx.destination);
+        
+        osc.start();
+        osc.stop(this.ctx.currentTime + 0.5);
+      }
+      
+      pad() {
+        const chord = this.chords[this.chordProg];
+        
+        chord.forEach((freq, i) => {
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          const filter = this.ctx.createBiquadFilter();
+          
+          osc.type = 'sine';
+          osc.frequency.value = freq * 0.5;
+          
+          filter.type = 'lowpass';
+          filter.frequency.value = 800;
+          
+          gain.gain.setValueAtTime(0, this.ctx.currentTime);
+          gain.gain.linearRampToValueAtTime(0.05, this.ctx.currentTime + 0.5);
+          gain.gain.linearRampToValueAtTime(0.03, this.ctx.currentTime + 2);
+          gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 4);
+          
+          osc.connect(filter).connect(gain).connect(this.ctx.destination);
+          osc.start();
+          osc.stop(this.ctx.currentTime + 4);
+        });
       }
       
       addTrail() {
@@ -403,30 +505,19 @@
       
       updateWaveform() {
         this.waves.forEach((wave, i) => {
-          const height = Math.random() * this.motion * 0.6;
-          wave.style.height = `${height}px`;
+          const height = Math.random() * this.motion * 0.8 + Math.sin(Date.now() * 0.01 + i * 0.2) * 5;
+          wave.style.height = `${Math.max(0, height)}px`;
         });
-      }
-      
-      setupBeats() {
-        // Generate evolving beat patterns
-        this.beatPatterns = [
-          [1,0,0,0,1,0,0,0], // Basic kick
-          [0,0,1,0,0,0,1,0], // Snare
-          [1,1,0,1,1,0,1,0], // Complex
-        ];
       }
       
       animate() {
         if (!this.active) return;
         
-        // Update orb position
         const orb = document.getElementById('orb');
         orb.style.left = `${this.pos.x}%`;
         orb.style.top = `${this.pos.y}%`;
-        orb.style.transform = `translate(-50%, -50%) scale(${1 + this.motion * 0.01})`;
+        orb.style.transform = `translate(-50%, -50%) scale(${1 + this.motion * 0.02})`;
         
-        // Update stats
         document.getElementById('motion').textContent = Math.round(this.motion);
         document.getElementById('bpm').textContent = Math.round(this.bpm);
         document.getElementById('layers').textContent = this.layers;
@@ -442,7 +533,6 @@
       }
     }
     
-    // Initialize when page loads
     new SpatialAI();
   </script>
 </body>
