@@ -3,21 +3,21 @@
 <head>
   <meta charset="UTF-8">
   <title>GUMP: Grand Unified Music Project</title>
-  <meta name="viewport" content="width=device-width,initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
     html,body {height:100%;margin:0;background:#090c11;}
     body {overflow:hidden;}
     .intro,.error,.app {position:fixed;top:0;left:0;width:100vw;height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;}
-    .intro {z-index:10;background:#090c11;animation:fadein 1.4s;}
+    .intro {z-index:10;background:#090c11;animation:fadein 1.2s;}
     @keyframes fadein {from{opacity:0}to{opacity:1}}
     .intro-title {font-size:2.1rem;font-weight:800;color:#d8fdff;letter-spacing:1.6px;margin-bottom:2.1rem;text-shadow:0 0 22px #7fdaff;}
     .intro-author {font-size:1.1rem;color:#acecff;opacity:.76;margin-bottom:2.3rem;letter-spacing:.7px;}
     .intro-btn {background:linear-gradient(80deg,#2eeaff,#a9c6ff 80%);color:#161b22;font-weight:700;font-size:1.25rem;padding:19px 60px;border-radius:40px;border:none;cursor:pointer;box-shadow:0 0 32px #00ffaa22;}
-    .app {z-index:1;opacity:0;transition:opacity 1.5s;}
-    .viz {width:320px;height:320px;border-radius:38px;background:rgba(20,20,32,0.13);border:3px solid #333558;box-shadow:0 0 60px #39428022;position:relative;transition:border 1s,box-shadow 1.5s;}
-    .viz.void {border-color:#cfd0fd;box-shadow:0 0 140px #9fc3ff44,0 0 180px #dce1facc;}
+    .app {z-index:1;opacity:0;transition:opacity 1.3s;}
+    .viz {width:320px;height:320px;border-radius:38px;background:rgba(20,20,32,0.13);border:3px solid #333558;box-shadow:0 0 60px #39428022;position:relative;}
+    .viz.void {border-color:#cfd0fd;box-shadow:0 0 140px #9fc3ff44;}
     .orb {position:absolute;width:110px;height:110px;border-radius:50%;background:radial-gradient(circle,#141d2f 0%,#5d8afe22 90%,transparent 100%);top:50%;left:50%;transform:translate(-50%,-50%);}
-    .orb.void {background:radial-gradient(circle,#fff9e5 0%,#e5aaff 45%,transparent 100%);box-shadow:0 0 160px #fff9e544;}
+    .orb.void {background:radial-gradient(circle,#fff9e5 0%,#e5aaff 45%,transparent 100%);}
     .pulse {animation:pulse 1.14s cubic-bezier(.85,0,.32,1) alternate infinite;}
     @keyframes pulse {from{transform:translate(-50%,-50%) scale(1);}to{transform:translate(-50%,-50%) scale(1.10);}}
     .start-btn {position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:1.2rem;padding:18px 45px;border-radius:30px;background:linear-gradient(45deg,#1e304b,#a3ffd7);color:#000;border:none;font-weight:700;cursor:pointer;z-index:10;box-shadow:0 4px 22px #00ffaa22;}
@@ -50,9 +50,8 @@
         this.ctx = null; this.reverb = null;
         this.motion = 0; this.motionWindow = [];
         this.last = {x:0,y:0,z:0}; this.lastMotionTime = Date.now();
-        this.hasMoved = false; this.movedAt = null;
-        this.introStep = 0; // 0=idle, 1=drums, 2=vibes, 3=full
-        this.hasStartedVibe = false; this.zone = 0;
+        this.hasMoved = false; this.introStep = 0;
+        this.zone = 0;
         this.scale = [130.8,155.6,174.6,196,220,261.6,293.66,329.63,392];
         this.progression = [
           [[0,3,4],[1,4,5],[0,2,5],[1,2,4]],
@@ -63,9 +62,7 @@
         ];
         this.chordStep = 0; this.tick = 0;
         this.basePos = null; this.gpsOK = false; this.pos={x:50,y:50};
-        // Easier test: 4 GPS "corners" 15m N/S/E/W from start
         this.easterEggs = [];
-        this.zoneCueTime = 0;
         this.state = 'void';
         this.init();
       }
@@ -108,7 +105,7 @@
           this.motion = this.motionWindow.reduce((a,b)=>a+b,0)/this.motionWindow.length;
           if (this.motion > 0.7) {
             this.lastMotionTime = Date.now();
-            if (!this.hasMoved) { this.hasMoved = true; this.movedAt = Date.now(); this.introStep = 1; }
+            if (!this.hasMoved) { this.hasMoved = true; this.introStep = 1; }
           }
           this.pos = {x:Math.max(10,Math.min(90,50+acc.x*9)),y:Math.max(10,Math.min(90,50+acc.y*9))};
         });
@@ -128,9 +125,7 @@
         setInterval(() => {
           if (!this.active) return;
           this.updateState();
-          // ---- No music until you move! ----
           if (!this.hasMoved) return;
-          // ---- Music Build Logic ----
           if (this.state==='dark') {
             if (this.introStep===1) { // bar 1: Kick only, fade up gain
               this.drumsEngine({kick:true,snare:false,hat:false,amt:Math.min(1,(this.tick/16))});
@@ -139,13 +134,12 @@
             else if (this.introStep===2) { // bar 2: Snare/hat fade in
               let f = Math.min(1,((this.tick+1)/16));
               this.drumsEngine({kick:true,snare:f>0.7,hat:true,amt:1});
-              if (this.tick===15) { this.introStep=3; this.hasStartedVibe=true; }
+              if (this.tick===15) { this.introStep=3; }
             }
             else { // bar 3+: Add chords/pads/bass
               this.drumsEngine({kick:true,snare:true,hat:true,amt:1});
               let egg = this.getEasterEggIntensity();
-              let fade = 1;
-              this.mainVibe({fade,egg});
+              this.mainVibe({fade:1,egg});
             }
           } else { // VOID
             this.voidEngine();
@@ -158,13 +152,11 @@
         const now = Date.now();
         this.state = ((now-this.lastMotionTime)<1400)?'dark':'void';
       }
-      // --- GPS Zones & Easter Eggs ---
       startGPS() {
         if (!navigator.geolocation) return;
         navigator.geolocation.getCurrentPosition(pos=>{
           this.basePos = {lat:pos.coords.latitude,lon:pos.coords.longitude};
           this.gpsOK = true; this.zone = 0;
-          // Place 4 corners 15m away N/S/E/W for easier demo
           let dLat = 0.00013, dLon = 0.00019; // ~15m
           this.easterEggs = [
             {lat:this.basePos.lat+dLat,lon:this.basePos.lon,active:false,dist:14},
@@ -185,14 +177,12 @@
             console.log("GPS: ",lat,lon);
             let dx=this.haversine(lat,lon,this.basePos.lat,this.basePos.lon,'E');
             let dy=this.haversine(lat,lon,this.basePos.lat,this.basePos.lon,'N');
-            // ZONE LOGIC
             let thresh=0.009; let z=0;
             if (Math.abs(dx)>thresh||Math.abs(dy)>thresh) {
               if (Math.abs(dx)>Math.abs(dy)) z=dx>0?3:4;
               else z=dy>0?1:2;
             }
             if (z!==this.zone) { this.zone=z; this.chordStep=0; this.zoneCue(); }
-            // Update easter egg distance
             this.easterEggs.forEach(egg=>{
               egg.lastDist = this.geoDist(lat,lon,egg.lat,egg.lon);
               egg.active = (egg.lastDist<egg.dist);
@@ -221,17 +211,15 @@
         setTimeout(()=>{orb.style.boxShadow='0 0 60px #2a4fa855';},600);
       }
       getEasterEggIntensity() {
-        let min=1;
+        let min=0;
         this.easterEggs.forEach(egg=>{
           if (egg.lastDist&&egg.lastDist<egg.dist)
-            min=Math.min(min,1-egg.lastDist/egg.dist);
+            min=Math.max(min,1-egg.lastDist/egg.dist);
         });
-        return Math.max(0,min);
+        return min;
       }
-      // --- MODERN DRUMS/ENGINE ---
       drumsEngine({kick=true,snare=true,hat=true,amt=1}) {
         let posInBar=this.tick%16;
-        let soft=(a,t)=>a*Math.pow(t,1.2);
         if (kick&&(posInBar===0||posInBar===8)) this.softKick(amt);
         if (snare&&posInBar===4) this.softSnare(amt);
         if (hat&&posInBar%2===1) this.softHat(amt*0.78);
