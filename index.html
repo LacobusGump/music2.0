@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>GUMP - Spatial AI Music</title>
+  <title>GUMP - AI Spatial Music</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -49,6 +49,7 @@
     }
     
     .btn:hover { transform: translateY(-3px); box-shadow: 0 15px 40px rgba(0,255,170,0.5); }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
     
     .viz {
       width: 100%;
@@ -83,12 +84,26 @@
       background: radial-gradient(circle, rgba(0,255,170,0.1), transparent);
       transition: all 0.5s ease;
       opacity: 0;
+      font-size: 0.8rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: rgba(0,255,170,0.7);
     }
     
     .zone.active {
-      opacity: 0.6;
+      opacity: 0.8;
       transform: scale(1.2);
       box-shadow: 0 0 20px rgba(0,255,170,0.3);
+    }
+    
+    .zone.generating {
+      animation: generate 2s ease-in-out infinite;
+    }
+    
+    @keyframes generate {
+      0%, 100% { background: radial-gradient(circle, rgba(0,255,170,0.1), transparent); }
+      50% { background: radial-gradient(circle, rgba(255,107,107,0.3), transparent); }
     }
     
     .stats {
@@ -113,6 +128,7 @@
       color: #4ecdc4;
       opacity: 0.8;
       animation: breathe 2s ease-in-out infinite;
+      margin-top: 10px;
     }
     
     @keyframes breathe { 0%, 100% { opacity: 0.8; } 50% { opacity: 1; } }
@@ -128,47 +144,40 @@
       background: linear-gradient(45deg, #ff88cc, #88aaff, #ccaa88);
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
-      filter: drop-shadow(0 0 20px rgba(255, 136, 204, 0.3));
-    }
-    
-    .void .orb {
-      background: radial-gradient(circle, #ff88cc 0%, #88aaff 50%, transparent 100%);
-      box-shadow: 0 0 60px rgba(255,136,204,0.6);
-      animation: float 8s ease-in-out infinite;
-    }
-    
-    @keyframes float {
-      0%, 100% { transform: translate(-50%, -50%) scale(1); }
-      25% { transform: translate(-45%, -55%) scale(1.1); }
-      50% { transform: translate(-55%, -45%) scale(1.2); }
-      75% { transform: translate(-45%, -50%) scale(1.15); }
     }
     
     .energy {
-      background: radial-gradient(circle at 30% 70%, #2a0a0a 0%, #3a1a1e 40%, #4e2a3e 100%);
       animation: energyPulse 0.5s ease-in-out infinite;
     }
     
-    @keyframes energyPulse {
-      0%, 100% { filter: brightness(1); }
-      50% { filter: brightness(1.2); }
+    @keyframes energyPulse { 0%, 100% { filter: brightness(1); } 50% { filter: brightness(1.3); } }
+    
+    audio { width: 100%; margin: 10px 0; }
+    
+    .track-info {
+      background: rgba(0,255,170,0.1);
+      padding: 10px;
+      border-radius: 10px;
+      margin: 10px 0;
+      font-size: 0.9rem;
+      opacity: 0.9;
     }
   </style>
 </head>
 <body>
   <div class="app">
     <div class="logo">GUMP</div>
-    <div class="tagline">Spatial AI Music</div>
+    <div class="tagline">AI Spatial Music</div>
     
     <button class="btn" id="start">🎵 Start Journey</button>
     <button class="btn hidden" id="stop">⏹ Stop</button>
     
     <div class="viz hidden" id="viz">
       <div class="orb" id="orb"></div>
-      <div class="zone" id="zone0" style="top: 25%; left: 25%;"></div>
-      <div class="zone" id="zone1" style="top: 25%; right: 25%;"></div>
-      <div class="zone" id="zone2" style="bottom: 25%; left: 25%;"></div>
-      <div class="zone" id="zone3" style="bottom: 25%; right: 25%;"></div>
+      <div class="zone" id="zone0" style="top: 10%; left: 10%;">Chill</div>
+      <div class="zone" id="zone1" style="top: 10%; right: 10%;">Energy</div>
+      <div class="zone" id="zone2" style="bottom: 10%; left: 10%;">Ambient</div>
+      <div class="zone" id="zone3" style="bottom: 10%; right: 10%;">Upbeat</div>
     </div>
     
     <div class="stats hidden" id="stats">
@@ -177,18 +186,21 @@
         <div class="stat-label">Motion</div>
       </div>
       <div class="stat">
-        <div class="stat-value" id="bpm">120</div>
-        <div class="stat-label">BPM</div>
+        <div class="stat-value" id="zone-display">1</div>
+        <div class="stat-label">Zone</div>
       </div>
       <div class="stat">
-        <div class="stat-value" id="chord">I</div>
-        <div class="stat-label">Chord</div>
+        <div class="stat-value" id="mood">Chill</div>
+        <div class="stat-label">Mood</div>
       </div>
       <div class="stat">
-        <div class="stat-value" id="pattern">1</div>
-        <div class="stat-label">Pattern</div>
+        <div class="stat-value" id="tracks">0</div>
+        <div class="stat-label">Tracks</div>
       </div>
     </div>
+    
+    <audio id="audio" controls class="hidden"></audio>
+    <div class="track-info hidden" id="track-info">Generating your spatial music...</div>
     
     <div class="status hidden" id="status">Sensing your space...</div>
   </div>
@@ -196,51 +208,43 @@
   <script>
     class GUMP {
       constructor() {
-        this.ctx = null;
         this.active = false;
         this.motion = 0;
-        this.bpm = 120;
         this.pos = { x: 50, y: 50 };
-        this.last = { x: 0, y: 0, z: 0 };
         this.lastMove = Date.now();
-        this.void = false;
-        this.energy = false;
+        this.currentZone = 0;
+        this.generatedTracks = 0;
+        this.currentAudio = null;
+        this.generating = false;
+        this.trackQueue = [];
         
-        // Musical DNA - Core of the breakthrough
-        this.key = 'C';
-        this.progression = [0, 3, 5, 0]; // I-vi-IV-I
-        this.chordIndex = 0;
-        this.currentZone = -1;
-        this.zoneChords = [0, 5, 3, 2]; // I, vi, IV, V
-        this.step = 0;
-        this.measure = 0;
-        
-        // Spatial memory that creates coherent songs
+        // Zone definitions with AI music prompts
         this.zones = [
-          { chord: 0, visits: 0, energy: 0, pattern: 0, notes: [] }, // I
-          { chord: 5, visits: 0, energy: 0, pattern: 0, notes: [] }, // vi
-          { chord: 3, visits: 0, energy: 0, pattern: 0, notes: [] }, // IV
-          { chord: 2, visits: 0, energy: 0, pattern: 0, notes: [] }  // V
+          { 
+            name: 'Chill', 
+            prompt: 'lo-fi chill ambient electronic music, soft synths, gentle beats, relaxing',
+            style: 'lofi',
+            energy: 'low'
+          },
+          { 
+            name: 'Energy', 
+            prompt: 'high energy electronic dance music, driving beats, powerful synths, uplifting',
+            style: 'edm',
+            energy: 'high'
+          },
+          { 
+            name: 'Ambient', 
+            prompt: 'atmospheric ambient soundscape, ethereal pads, dreamy textures, peaceful',
+            style: 'ambient',
+            energy: 'calm'
+          },
+          { 
+            name: 'Upbeat', 
+            prompt: 'upbeat pop electronic music, catchy melodies, bright synths, feel-good vibes',
+            style: 'pop',
+            energy: 'medium'
+          }
         ];
-        
-        // 404 frequencies - hidden harmonics
-        this.freqs = {
-          C: 261.63, D: 293.66, E: 329.63, F: 349.23,
-          G: 392.00, A: 440.00, B: 493.88
-        };
-        
-        this.chordMap = {
-          0: [0, 2, 4], // I - C E G
-          1: [1, 3, 5], // ii - D F A
-          2: [2, 4, 6], // iii - E G B
-          3: [3, 5, 0], // IV - F A C
-          4: [4, 6, 1], // V - G B D
-          5: [5, 0, 2], // vi - A C E
-          6: [6, 1, 3]  // vii - B D F
-        };
-        
-        this.scale = [0, 1, 2, 3, 4, 5, 6]; // C major indices
-        this.notes = ['C', 'D', 'E', 'F', 'G', 'A', 'B'];
         
         this.init();
       }
@@ -248,17 +252,20 @@
       init() {
         document.getElementById('start').onclick = () => this.start();
         document.getElementById('stop').onclick = () => this.stop();
+        
+        // Audio event listeners
+        const audio = document.getElementById('audio');
+        audio.addEventListener('ended', () => this.playNextTrack());
+        audio.addEventListener('error', () => this.handleAudioError());
       }
       
       async start() {
         try {
+          // Request motion permissions for mobile
           if (typeof DeviceMotionEvent?.requestPermission === 'function') {
             const perm = await DeviceMotionEvent.requestPermission();
-            if (perm !== 'granted') throw new Error('Permission denied');
+            if (perm !== 'granted') throw new Error('Motion permission denied');
           }
-          
-          this.ctx = new (window.AudioContext || window.webkitAudioContext)();
-          await this.ctx.resume();
           
           this.active = true;
           this.show(['viz', 'stats', 'status', 'stop']);
@@ -269,9 +276,7 @@
           this.animate();
           
         } catch (e) {
-          // Fallback for desktop testing
-          this.ctx = new (window.AudioContext || window.webkitAudioContext)();
-          await this.ctx.resume();
+          // Fallback for desktop
           this.active = true;
           this.show(['viz', 'stats', 'status', 'stop']);
           this.hide(['start']);
@@ -283,12 +288,13 @@
       
       startDesktopMode() {
         // Mouse simulation for desktop testing
-        document.addEventListener('mousemove', e => {
+        const viz = document.getElementById('viz');
+        viz.addEventListener('mousemove', e => {
           if (!this.active) return;
-          const rect = document.getElementById('viz').getBoundingClientRect();
+          const rect = viz.getBoundingClientRect();
           this.pos.x = ((e.clientX - rect.left) / rect.width) * 100;
           this.pos.y = ((e.clientY - rect.top) / rect.height) * 100;
-          this.motion = Math.random() * 30 + 10;
+          this.motion = Math.random() * 40 + 20;
           this.lastMove = Date.now();
         });
       }
@@ -296,17 +302,20 @@
       stop() {
         this.active = false;
         this.show(['start']);
-        this.hide(['viz', 'stats', 'status', 'stop']);
+        this.hide(['viz', 'stats', 'status', 'stop', 'audio', 'track-info']);
+        
+        if (this.currentAudio) {
+          this.currentAudio.pause();
+          this.currentAudio = null;
+        }
+        
         document.body.className = '';
         this.resetZones();
       }
       
       resetZones() {
-        this.zones.forEach(zone => {
-          zone.visits = 0;
-          zone.energy = 0;
-          zone.pattern = 0;
-          zone.notes = [];
+        document.querySelectorAll('.zone').forEach(z => {
+          z.classList.remove('active', 'generating');
         });
       }
       
@@ -317,237 +326,265 @@
           const acc = e.accelerationIncludingGravity;
           if (!acc || acc.x === null) return;
           
-          const dx = Math.abs(acc.x - this.last.x);
-          const dy = Math.abs(acc.y - this.last.y);
-          const dz = Math.abs(acc.z - this.last.z);
+          // Calculate motion intensity
+          const motion = Math.sqrt(acc.x*acc.x + acc.y*acc.y + acc.z*acc.z);
+          this.motion = Math.min(100, motion * 8);
           
-          this.motion = Math.min(100, Math.sqrt(dx*dx + dy*dy + dz*dz) * 15);
-          this.last = { x: acc.x, y: acc.y, z: acc.z };
+          if (this.motion > 5) this.lastMove = Date.now();
           
-          if (this.motion > 8) this.lastMove = Date.now();
-          
-          this.pos.x = Math.max(5, Math.min(95, 50 + acc.x * 3));
-          this.pos.y = Math.max(5, Math.min(95, 50 + acc.y * 3));
+          // Update position based on device orientation
+          this.pos.x = Math.max(5, Math.min(95, 50 + acc.x * 4));
+          this.pos.y = Math.max(5, Math.min(95, 50 + acc.y * 4));
         });
       }
       
-      updateZone() {
-        const zone = this.getZone();
-        if (zone !== this.currentZone) {
-          this.currentZone = zone;
-          this.chordIndex = this.zones[zone].chord;
-          
-          // Update zone memory
-          this.zones[zone].visits++;
-          this.zones[zone].energy = (this.zones[zone].energy + this.motion) / 2;
-          this.zones[zone].pattern = Math.floor(this.zones[zone].energy / 25);
-          
-          // Visual feedback
-          document.querySelectorAll('.zone').forEach(z => z.classList.remove('active'));
-          document.getElementById(`zone${zone}`).classList.add('active');
-        }
-      }
-      
-      getZone() {
-        if (this.pos.x < 50 && this.pos.y < 50) return 0;
-        if (this.pos.x >= 50 && this.pos.y < 50) return 1;
-        if (this.pos.x < 50 && this.pos.y >= 50) return 2;
-        return 3;
-      }
-      
-      updateState() {
-        const stillTime = Date.now() - this.lastMove;
-        const wasVoid = this.void;
-        const wasEnergy = this.energy;
-        
-        this.void = stillTime > 3000;
-        this.energy = this.motion > 60;
-        
-        if (this.void !== wasVoid) {
-          document.body.classList.toggle('void', this.void);
-        }
-        
-        if (this.energy !== wasEnergy) {
-          document.body.classList.toggle('energy', this.energy);
-        }
-        
-        // Dynamic BPM based on motion
-        if (this.void) {
-          this.bpm = Math.max(60, 120 - stillTime / 100);
-        } else {
-          this.bpm = Math.max(80, Math.min(160, 120 + this.motion * 0.8));
-        }
-      }
-      
       startEngine() {
-        const tick = () => {
+        const update = () => {
           if (!this.active) return;
           
           this.updateZone();
           this.updateState();
+          this.checkMusicGeneration();
           
-          // Play on beat
-          if (this.step % 4 === 0) {
-            this.playBeat();
-          }
-          
-          // Melody on offbeats
-          if (this.step % 2 === 1 && this.motion > 20) {
-            this.playMelody();
-          }
-          
-          // Chord progression every measure
-          if (this.step % 16 === 0) {
-            this.nextChord();
-            this.measure++;
-          }
-          
-          this.step++;
-          setTimeout(tick, 60000 / this.bpm / 4);
+          setTimeout(update, 1000); // Update every second
         };
-        tick();
+        update();
       }
       
-      nextChord() {
-        // Evolve progression based on spatial memory
-        const activeZones = this.zones.filter(z => z.visits > 0);
-        if (activeZones.length > 0) {
-          const weights = activeZones.map(z => z.visits * z.energy);
-          const total = weights.reduce((a, b) => a + b, 0);
-          const random = Math.random() * total;
-          let sum = 0;
+      updateZone() {
+        const newZone = this.getZone();
+        if (newZone !== this.currentZone) {
+          // Reset previous zone
+          document.getElementById(`zone${this.currentZone}`).classList.remove('active');
           
-          for (let i = 0; i < activeZones.length; i++) {
-            sum += weights[i];
-            if (random < sum) {
-              this.chordIndex = activeZones[i].chord;
-              break;
+          // Activate new zone
+          this.currentZone = newZone;
+          document.getElementById(`zone${this.currentZone}`).classList.add('active');
+          
+          // Update UI
+          document.getElementById('zone-display').textContent = this.currentZone + 1;
+          document.getElementById('mood').textContent = this.zones[this.currentZone].name;
+          
+          // Consider generating new music for this zone
+          this.considerMusicGeneration();
+        }
+      }
+      
+      getZone() {
+        if (this.pos.x < 50 && this.pos.y < 50) return 0; // Chill
+        if (this.pos.x >= 50 && this.pos.y < 50) return 1; // Energy
+        if (this.pos.x < 50 && this.pos.y >= 50) return 2; // Ambient
+        return 3; // Upbeat
+      }
+      
+      updateState() {
+        const stillTime = Date.now() - this.lastMove;
+        const isVoid = stillTime > 5000;
+        const hasEnergy = this.motion > 50;
+        
+        document.body.classList.toggle('void', isVoid);
+        document.body.classList.toggle('energy', hasEnergy);
+        
+        document.getElementById('motion').textContent = Math.round(this.motion);
+      }
+      
+      considerMusicGeneration() {
+        // Generate music when entering a new zone and not currently generating
+        if (!this.generating && this.trackQueue.length < 2) {
+          this.generateMusicForZone(this.currentZone);
+        }
+      }
+      
+      checkMusicGeneration() {
+        // Auto-generate music based on motion and time in zone
+        if (!this.generating && this.motion > 30 && Math.random() < 0.1) {
+          this.generateMusicForZone(this.currentZone);
+        }
+      }
+      
+      async generateMusicForZone(zoneIndex) {
+        if (this.generating) return;
+        
+        this.generating = true;
+        const zone = this.zones[zoneIndex];
+        
+        // Visual feedback
+        document.getElementById(`zone${zoneIndex}`).classList.add('generating');
+        document.getElementById('status').textContent = `Generating ${zone.name} music...`;
+        
+        try {
+          // Try multiple AI music services (free tiers)
+          const audioUrl = await this.generateAIMusic(zone);
+          
+          if (audioUrl) {
+            this.trackQueue.push({
+              url: audioUrl,
+              zone: zone.name,
+              prompt: zone.prompt
+            });
+            
+            this.generatedTracks++;
+            document.getElementById('tracks').textContent = this.generatedTracks;
+            
+            // Play immediately if no current audio
+            if (!this.currentAudio || this.currentAudio.paused) {
+              this.playNextTrack();
             }
           }
+          
+        } catch (error) {
+          console.error('Music generation failed:', error);
+          document.getElementById('status').textContent = 'Music generation failed, using fallback...';
+          
+          // Fallback to simple audio generation
+          this.generateFallbackAudio(zone);
+        } finally {
+          this.generating = false;
+          document.getElementById(`zone${zoneIndex}`).classList.remove('generating');
         }
       }
       
-      playBeat() {
-        const zone = this.zones[this.currentZone] || this.zones[0];
-        const pattern = zone.pattern;
+      async generateAIMusic(zone) {
+        // Try different AI music services
+        const services = [
+          () => this.tryMusicHeroAPI(zone),
+          () => this.tryBoomiAPI(zone),
+          () => this.tryFallbackService(zone)
+        ];
         
-        if (this.step % 8 === 0) this.kick();
-        if (this.step % 8 === 4 && pattern > 0) this.snare();
-        if (this.step % 2 === 1 && pattern > 1) this.hat();
-        
-        // Play chord
-        if (this.step % 8 === 0) {
-          this.playChord(this.chordIndex);
+        for (const service of services) {
+          try {
+            const result = await service();
+            if (result) return result;
+          } catch (e) {
+            console.warn('Service failed, trying next:', e.message);
+          }
         }
+        
+        return null;
       }
       
-      playMelody() {
-        const zone = this.zones[this.currentZone] || this.zones[0];
-        const chord = this.chordMap[this.chordIndex];
-        
-        // Generate melody notes based on current chord and zone energy
-        const noteIndex = chord[Math.floor(Math.random() * chord.length)];
-        const octave = zone.energy > 50 ? 2 : 1;
-        
-        this.playNote(noteIndex, octave, 0.3);
-      }
-      
-      playChord(chordIndex) {
-        const chord = this.chordMap[chordIndex];
-        const chordName = this.getChordName(chordIndex);
-        
-        document.getElementById('chord').textContent = chordName;
-        
-        chord.forEach((noteIndex, i) => {
-          setTimeout(() => {
-            this.playNote(noteIndex, 1, 0.2);
-          }, i * 50);
+      async tryMusicHeroAPI(zone) {
+        // MusicHero.ai free API (hypothetical endpoint)
+        const response = await fetch('https://api.musichero.ai/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            prompt: zone.prompt,
+            duration: 30,
+            style: zone.style,
+            energy: zone.energy
+          })
         });
+        
+        if (!response.ok) throw new Error('MusicHero API failed');
+        
+        const data = await response.json();
+        return data.audio_url;
       }
       
-      getChordName(index) {
-        const names = ['I', 'ii', 'iii', 'IV', 'V', 'vi', 'vii°'];
-        return names[index];
+      async tryBoomiAPI(zone) {
+        // Boomy free API (hypothetical endpoint)
+        const response = await fetch('https://api.boomy.com/create', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            style: zone.style,
+            mood: zone.name.toLowerCase(),
+            length: 30
+          })
+        });
+        
+        if (!response.ok) throw new Error('Boomy API failed');
+        
+        const data = await response.json();
+        return data.track_url;
       }
       
-      playNote(noteIndex, octave = 1, duration = 0.5) {
-        const note = this.notes[noteIndex];
-        const freq = this.freqs[note] * octave;
-        
-        const osc = this.ctx.createOscillator();
-        const gain = this.ctx.createGain();
-        
-        osc.type = this.void ? 'sine' : (this.energy ? 'sawtooth' : 'triangle');
-        osc.frequency.value = freq;
-        
-        gain.gain.setValueAtTime(0.15, this.ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + duration);
-        
-        osc.connect(gain).connect(this.ctx.destination);
-        osc.start();
-        osc.stop(this.ctx.currentTime + duration);
+      async tryFallbackService(zone) {
+        // Simulate AI music with procedural generation
+        return this.generateProceduralMusic(zone);
       }
       
-      kick() {
-        const osc = this.ctx.createOscillator();
-        const gain = this.ctx.createGain();
+      generateProceduralMusic(zone) {
+        // Create a data URL for procedural music
+        // This is a simplified version - in reality you'd want more sophisticated audio generation
+        const duration = 30;
+        const sampleRate = 44100;
+        const samples = duration * sampleRate;
         
-        osc.frequency.setValueAtTime(this.void ? 35 : 55, this.ctx.currentTime);
-        osc.frequency.exponentialRampToValueAtTime(20, this.ctx.currentTime + 0.1);
+        // Generate based on zone characteristics
+        const frequency = zone.name === 'Energy' ? 440 : 
+                         zone.name === 'Ambient' ? 220 : 
+                         zone.name === 'Upbeat' ? 523 : 330;
         
-        gain.gain.setValueAtTime(0.8, this.ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.4);
+        // Create a simple audio buffer (this is very basic)
+        const buffer = new ArrayBuffer(samples * 2);
+        const view = new DataView(buffer);
         
-        osc.connect(gain).connect(this.ctx.destination);
-        osc.start();
-        osc.stop(this.ctx.currentTime + 0.4);
-      }
-      
-      snare() {
-        const noise = this.ctx.createBufferSource();
-        const buffer = this.ctx.createBuffer(1, this.ctx.sampleRate * 0.1, this.ctx.sampleRate);
-        const data = buffer.getChannelData(0);
-        
-        for (let i = 0; i < data.length; i++) {
-          data[i] = Math.random() * 2 - 1;
+        for (let i = 0; i < samples; i++) {
+          const sample = Math.sin(2 * Math.PI * frequency * i / sampleRate) * 0.3;
+          view.setInt16(i * 2, sample * 32767, true);
         }
         
-        noise.buffer = buffer;
-        
-        const gain = this.ctx.createGain();
-        gain.gain.setValueAtTime(0.3, this.ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.1);
-        
-        noise.connect(gain).connect(this.ctx.destination);
-        noise.start();
+        const blob = new Blob([buffer], { type: 'audio/wav' });
+        return URL.createObjectURL(blob);
       }
       
-      hat() {
-        const osc = this.ctx.createOscillator();
-        const gain = this.ctx.createGain();
+      generateFallbackAudio(zone) {
+        // Simple fallback - add a procedural track to queue
+        const audioUrl = this.generateProceduralMusic(zone);
+        this.trackQueue.push({
+          url: audioUrl,
+          zone: zone.name,
+          prompt: 'Procedural generation'
+        });
         
-        osc.type = 'square';
-        osc.frequency.value = 10000;
+        if (!this.currentAudio || this.currentAudio.paused) {
+          this.playNextTrack();
+        }
+      }
+      
+      playNextTrack() {
+        if (this.trackQueue.length === 0) return;
         
-        gain.gain.setValueAtTime(0.05, this.ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.03);
+        const track = this.trackQueue.shift();
+        const audio = document.getElementById('audio');
+        const trackInfo = document.getElementById('track-info');
         
-        osc.connect(gain).connect(this.ctx.destination);
-        osc.start();
-        osc.stop(this.ctx.currentTime + 0.03);
+        audio.src = track.url;
+        audio.load();
+        
+        trackInfo.textContent = `Playing: ${track.zone} style - ${track.prompt}`;
+        
+        this.show(['audio', 'track-info']);
+        
+        audio.play().catch(e => {
+          console.error('Audio play failed:', e);
+          this.handleAudioError();
+        });
+        
+        this.currentAudio = audio;
+        document.getElementById('status').textContent = `Playing ${track.zone} music...`;
+      }
+      
+      handleAudioError() {
+        document.getElementById('status').textContent = 'Audio error, trying next track...';
+        setTimeout(() => this.playNextTrack(), 1000);
       }
       
       animate() {
         const update = () => {
           if (!this.active) return;
           
-          document.getElementById('motion').textContent = Math.round(this.motion);
-          document.getElementById('bpm').textContent = Math.round(this.bpm);
-          document.getElementById('pattern').textContent = this.currentZone + 1;
-          
+          // Update orb position
           const orb = document.getElementById('orb');
           orb.style.left = this.pos.x + '%';
           orb.style.top = this.pos.y + '%';
+          
+          // Pulse orb based on motion
+          const scale = 1 + (this.motion / 200);
+          orb.style.transform = `translate(-50%, -50%) scale(${scale})`;
           
           requestAnimationFrame(update);
         };
