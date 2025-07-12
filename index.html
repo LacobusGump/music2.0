@@ -7,8 +7,8 @@
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
-      font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, sans-serif;
-      background: radial-gradient(circle at 50% 50%, #0a0a0a 0%, #1a1a2e 50%, #16213e 100%);
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+      background: radial-gradient(circle, #0a0a0a 0%, #1a1a2e 50%, #16213e 100%);
       color: #00ffaa;
       overflow: hidden;
       touch-action: none;
@@ -89,68 +89,35 @@
       box-shadow: 0 0 30px rgba(0,255,170,0.5);
     }
     
-    .trail {
-      position: absolute;
-      width: 4px;
-      height: 4px;
-      border-radius: 50%;
-      background: rgba(0,255,170,0.6);
-      pointer-events: none;
-      animation: fade 1s ease-out forwards;
-    }
-    
-    @keyframes fade {
-      from { opacity: 1; transform: scale(1); }
-      to { opacity: 0; transform: scale(0.1); }
-    }
-    
     .stats {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
-      gap: 15px;
+      gap: 12px;
       margin-bottom: 2rem;
     }
     
     .stat {
       background: rgba(0,255,170,0.1);
-      padding: 15px;
-      border-radius: 15px;
+      padding: 12px;
+      border-radius: 12px;
       border: 1px solid rgba(0,255,170,0.2);
       backdrop-filter: blur(10px);
     }
     
     .stat-value {
-      font-size: 1.5rem;
+      font-size: 1.3rem;
       font-weight: 700;
       color: #00ffaa;
     }
     
     .stat-label {
-      font-size: 0.8rem;
+      font-size: 0.7rem;
       opacity: 0.7;
-      margin-top: 5px;
-    }
-    
-    .waveform {
-      height: 60px;
-      background: rgba(0,0,0,0.3);
-      border-radius: 10px;
-      position: relative;
-      overflow: hidden;
-      margin-bottom: 1rem;
-    }
-    
-    .wave {
-      position: absolute;
-      bottom: 0;
-      width: 3px;
-      background: linear-gradient(to top, #00ffaa, #4ecdc4);
-      border-radius: 1px;
-      transition: height 0.2s ease;
+      margin-top: 3px;
     }
     
     .status {
-      font-size: 1rem;
+      font-size: 0.9rem;
       color: #4ecdc4;
       opacity: 0.8;
       animation: breathe 2s ease-in-out infinite;
@@ -190,18 +157,16 @@
         <div class="stat-label">Motion</div>
       </div>
       <div class="stat">
-        <div class="stat-value" id="bpm">120</div>
+        <div class="stat-value" id="bpm">95</div>
         <div class="stat-label">BPM</div>
       </div>
       <div class="stat">
-        <div class="stat-value" id="layers">0</div>
-        <div class="stat-label">Layers</div>
+        <div class="stat-value" id="groove">CHILL</div>
+        <div class="stat-label">Groove</div>
       </div>
     </div>
     
-    <div class="waveform hidden" id="waveform"></div>
-    
-    <div class="status hidden" id="status">🧠 AI composing your soundtrack...</div>
+    <div class="status hidden" id="status">🎵 Flowing with your vibe...</div>
     
     <div class="error hidden" id="error">
       Motion sensors unavailable. Please use a mobile device.
@@ -213,32 +178,33 @@
       constructor() {
         this.ctx = null;
         this.motion = 0;
-        this.bpm = 120;
-        this.layers = 0;
-        this.pos = { x: 0, y: 0 };
+        this.bpm = 95;
+        this.pos = { x: 50, y: 50 };
         this.last = { x: 0, y: 0, z: 0 };
-        this.beats = [];
-        this.waves = [];
         this.active = false;
         this.step = 0;
-        this.bassLine = 0;
-        this.chordProg = 0;
+        this.groove = 'CHILL';
         
-        // Musical scales and progressions for modern sound
-        this.scale = [65.41, 73.42, 82.41, 87.31, 98.00, 110.00, 123.47]; // C2-B2 pentatonic
-        this.chords = [
-          [261.63, 329.63, 415.30, 523.25], // C major 7
-          [293.66, 369.99, 466.16, 587.33], // D minor 7
-          [329.63, 415.30, 523.25, 659.25], // E minor 7
-          [349.23, 440.00, 554.37, 698.46]  // F major 7
-        ];
+        // J Dilla inspired swing timing
+        this.swing = [0, 0.1, 0, 0.15, 0, 0.08, 0, 0.12];
+        
+        // Pocket groove patterns
+        this.patterns = {
+          kick: [1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0],
+          snare: [0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0],
+          hat: [0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1]
+        };
+        
+        // Musical elements
+        this.bassNotes = [55, 73.4, 82.4, 110]; // Deep bass frequencies
+        this.bassIndex = 0;
+        this.chordIndex = 0;
         
         this.init();
       }
       
       init() {
         document.getElementById('start').onclick = () => this.start();
-        this.setupWaveform();
       }
       
       async start() {
@@ -252,13 +218,13 @@
           await this.ctx.resume();
           
           document.getElementById('start').classList.add('hidden');
-          ['viz', 'stats', 'waveform', 'status'].forEach(id => 
+          ['viz', 'stats', 'status'].forEach(id => 
             document.getElementById(id).classList.remove('hidden')
           );
           
           this.active = true;
           this.startSensors();
-          this.startSequencer();
+          this.startGroove();
           this.animate();
           
         } catch (error) {
@@ -277,318 +243,215 @@
           const dy = Math.abs(acc.y - this.last.y);
           const dz = Math.abs(acc.z - this.last.z);
           
-          this.motion = Math.min(100, Math.sqrt(dx*dx + dy*dy + dz*dz) * 25);
+          this.motion = Math.min(100, Math.sqrt(dx*dx + dy*dy + dz*dz) * 20);
           this.last = { x: acc.x, y: acc.y, z: acc.z };
           
-          this.pos.x = Math.max(0, Math.min(100, 50 + acc.x * 3));
-          this.pos.y = Math.max(0, Math.min(100, 50 + acc.y * 3));
+          this.pos.x = Math.max(10, Math.min(90, 50 + acc.x * 4));
+          this.pos.y = Math.max(10, Math.min(90, 50 + acc.y * 4));
           
-          this.bpm = 85 + this.motion * 1.2;
-          this.layers = Math.min(4, Math.floor(this.motion / 20));
-          
-          this.addTrail();
+          // Update groove based on motion
+          this.updateGroove();
           
         }, { passive: true });
       }
       
-      startSequencer() {
+      updateGroove() {
+        if (this.motion < 20) {
+          this.groove = 'CHILL';
+          this.bpm = 85 + this.motion * 0.3;
+        } else if (this.motion < 50) {
+          this.groove = 'POCKET';
+          this.bpm = 95 + this.motion * 0.2;
+        } else {
+          this.groove = 'BOUNCE';
+          this.bpm = 105 + this.motion * 0.15;
+        }
+      }
+      
+      startGroove() {
         const tick = () => {
           if (!this.active) return;
           
-          this.playStep();
+          this.playGroove();
+          
           this.step = (this.step + 1) % 16;
+          if (this.step === 0) {
+            this.bassIndex = (this.bassIndex + 1) % this.bassNotes.length;
+            this.chordIndex = (this.chordIndex + 1) % 4;
+          }
           
-          if (this.step % 4 === 0) this.bassLine = (this.bassLine + 1) % 8;
-          if (this.step === 0) this.chordProg = (this.chordProg + 1) % 4;
-          
-          setTimeout(tick, 60000 / this.bpm / 4);
+          const swingDelay = this.swing[this.step % 8] * 50;
+          setTimeout(tick, (60000 / this.bpm / 4) + swingDelay);
         };
         
         tick();
       }
       
-      playStep() {
-        if (this.motion < 5) return;
+      playGroove() {
+        const intensity = this.motion / 100;
         
-        // Modern trap-style kick pattern
-        if ([0, 6, 10, 14].includes(this.step)) {
+        // Kick drum with spatial positioning
+        if (this.patterns.kick[this.step]) {
           this.kick();
         }
         
-        // Snare with reverb tail
-        if ([4, 12].includes(this.step)) {
+        // Snare with subtle variations
+        if (this.patterns.snare[this.step] && intensity > 0.1) {
           this.snare();
         }
         
-        // Modern hi-hats with rolls
-        if (this.layers > 0) {
-          if (this.step % 2 === 1 || (this.motion > 50 && Math.random() < 0.3)) {
-            this.hihat();
-          }
+        // Hi-hat with motion influence
+        if (this.patterns.hat[this.step] && Math.random() < 0.3 + intensity * 0.5) {
+          this.hat();
         }
         
-        // Deep sub bass
-        if (this.layers > 1 && [0, 3, 6, 9, 12, 15].includes(this.step)) {
-          this.subbass();
+        // Bass on 1 and 3, sometimes on off-beats
+        if (this.step % 8 === 0 || (this.step % 8 === 6 && intensity > 0.4)) {
+          this.bass();
         }
         
-        // Ethereal arpeggios
-        if (this.layers > 2 && Math.random() < this.motion / 120) {
-          this.arpeggio();
+        // Ambient chord stabs
+        if (this.step % 4 === 2 && intensity > 0.3 && Math.random() < 0.4) {
+          this.chord();
         }
         
-        // Atmospheric textures
-        if (this.layers > 3 && this.step % 4 === 0) {
-          this.atmosphere();
+        // Spatial effects based on position
+        if (intensity > 0.6 && Math.random() < 0.1) {
+          this.spatialHit();
         }
-        
-        // Spatial effects
-        if (this.motion > 40 && Math.random() < 0.1) {
-          this.spatialGlitch();
-        }
-        
-        this.updateWaveform();
       }
       
       kick() {
-        // Modern trap-style kick with sub layer
-        const osc1 = this.ctx.createOscillator();
-        const osc2 = this.ctx.createOscillator();
+        const osc = this.ctx.createOscillator();
         const gain = this.ctx.createGain();
-        const compressor = this.ctx.createDynamicsCompressor();
         
-        osc1.frequency.setValueAtTime(45, this.ctx.currentTime);
-        osc1.frequency.exponentialRampToValueAtTime(25, this.ctx.currentTime + 0.15);
-        osc2.frequency.setValueAtTime(80, this.ctx.currentTime);
-        osc2.frequency.exponentialRampToValueAtTime(35, this.ctx.currentTime + 0.08);
+        osc.frequency.setValueAtTime(60, this.ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(30, this.ctx.currentTime + 0.1);
         
-        gain.gain.setValueAtTime(0.9, this.ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.4);
+        gain.gain.setValueAtTime(0.8, this.ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.3);
         
-        compressor.threshold.value = -20;
-        compressor.ratio.value = 8;
+        osc.connect(gain).connect(this.ctx.destination);
         
-        osc1.connect(gain);
-        osc2.connect(gain);
-        gain.connect(compressor).connect(this.ctx.destination);
-        
-        osc1.start();
-        osc2.start();
-        osc1.stop(this.ctx.currentTime + 0.4);
-        osc2.stop(this.ctx.currentTime + 0.4);
+        osc.start();
+        osc.stop(this.ctx.currentTime + 0.3);
       }
       
       snare() {
-        // Snare with reverb tail
-        const buffer = this.ctx.createBuffer(1, this.ctx.sampleRate * 0.3, this.ctx.sampleRate);
+        const buffer = this.ctx.createBuffer(1, this.ctx.sampleRate * 0.2, this.ctx.sampleRate);
         const data = buffer.getChannelData(0);
         
         for (let i = 0; i < data.length; i++) {
-          data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (data.length * 0.15));
+          data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (data.length * 0.1));
         }
         
         const source = this.ctx.createBufferSource();
         const gain = this.ctx.createGain();
         const filter = this.ctx.createBiquadFilter();
-        const reverb = this.ctx.createConvolver();
         
         source.buffer = buffer;
         filter.type = 'bandpass';
-        filter.frequency.value = 2000;
-        filter.Q.value = 2;
+        filter.frequency.value = 1200;
+        filter.Q.value = 1;
         
-        gain.gain.setValueAtTime(0.5, this.ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.3);
+        gain.gain.setValueAtTime(0.3, this.ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.2);
         
         source.connect(filter).connect(gain).connect(this.ctx.destination);
         source.start();
       }
       
-      hihat() {
-        const buffer = this.ctx.createBuffer(1, this.ctx.sampleRate * 0.08, this.ctx.sampleRate);
+      hat() {
+        const buffer = this.ctx.createBuffer(1, this.ctx.sampleRate * 0.05, this.ctx.sampleRate);
         const data = buffer.getChannelData(0);
         
         for (let i = 0; i < data.length; i++) {
-          data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (data.length * 0.03));
+          data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (data.length * 0.02));
         }
         
         const source = this.ctx.createBufferSource();
         const gain = this.ctx.createGain();
         const filter = this.ctx.createBiquadFilter();
+        const panner = this.ctx.createStereoPanner();
         
         source.buffer = buffer;
         filter.type = 'highpass';
-        filter.frequency.value = 12000 + this.motion * 50;
+        filter.frequency.value = 8000;
         
-        gain.gain.setValueAtTime(0.15, this.ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.08);
+        panner.pan.value = (this.pos.x - 50) / 100;
         
-        source.connect(filter).connect(gain).connect(this.ctx.destination);
-        source.start();
-      }
-      
-      subbass() {
-        const freq = this.scale[this.bassLine % this.scale.length] * 0.5;
-        const osc = this.ctx.createOscillator();
-        const gain = this.ctx.createGain();
-        const filter = this.ctx.createBiquadFilter();
-        const lfo = this.ctx.createOscillator();
-        const lfoGain = this.ctx.createGain();
-        
-        osc.type = 'sine';
-        osc.frequency.value = freq;
-        
-        lfo.frequency.value = 0.3;
-        lfoGain.gain.value = 20;
-        
-        filter.type = 'lowpass';
-        filter.frequency.value = 120 + this.motion * 2;
-        filter.Q.value = 8;
-        
-        gain.gain.setValueAtTime(0.6, this.ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.25);
-        
-        lfo.connect(lfoGain).connect(filter.frequency);
-        osc.connect(filter).connect(gain).connect(this.ctx.destination);
-        
-        lfo.start();
-        osc.start();
-        lfo.stop(this.ctx.currentTime + 0.25);
-        osc.stop(this.ctx.currentTime + 0.25);
-      }
-      
-      arpeggio() {
-        const chord = this.chords[this.chordProg];
-        const freq = chord[Math.floor(Math.random() * chord.length)] * (2 + Math.random());
-        
-        const osc = this.ctx.createOscillator();
-        const gain = this.ctx.createGain();
-        const delay = this.ctx.createDelay();
-        const feedback = this.ctx.createGain();
-        const filter = this.ctx.createBiquadFilter();
-        const panner = this.ctx.createStereoPanner();
-        
-        osc.type = 'sine';
-        osc.frequency.value = freq;
-        
-        delay.delayTime.value = 0.125 + Math.random() * 0.125;
-        feedback.gain.value = 0.4;
-        
-        filter.type = 'lowpass';
-        filter.frequency.value = 3000 + Math.random() * 2000;
-        filter.Q.value = 3;
-        
-        panner.pan.value = (this.pos.x - 50) / 50;
-        
-        gain.gain.setValueAtTime(0.2, this.ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.8);
-        
-        osc.connect(filter).connect(gain).connect(panner);
-        panner.connect(this.ctx.destination);
-        panner.connect(delay);
-        delay.connect(feedback);
-        feedback.connect(delay);
-        delay.connect(this.ctx.destination);
-        
-        osc.start();
-        osc.stop(this.ctx.currentTime + 0.8);
-      }
-      
-      atmosphere() {
-        const chord = this.chords[this.chordProg];
-        
-        chord.forEach((freq, i) => {
-          const osc = this.ctx.createOscillator();
-          const gain = this.ctx.createGain();
-          const filter = this.ctx.createBiquadFilter();
-          const lfo = this.ctx.createOscillator();
-          const lfoGain = this.ctx.createGain();
-          const panner = this.ctx.createStereoPanner();
-          
-          osc.type = 'sawtooth';
-          osc.frequency.value = freq * 0.25;
-          
-          lfo.frequency.value = 0.1 + Math.random() * 0.2;
-          lfoGain.gain.value = 200;
-          
-          filter.type = 'lowpass';
-          filter.frequency.value = 800 + i * 200;
-          filter.Q.value = 0.5;
-          
-          panner.pan.value = (i - 1) * 0.5;
-          
-          gain.gain.setValueAtTime(0, this.ctx.currentTime);
-          gain.gain.linearRampToValueAtTime(0.08, this.ctx.currentTime + 1);
-          gain.gain.linearRampToValueAtTime(0.05, this.ctx.currentTime + 4);
-          gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 8);
-          
-          lfo.connect(lfoGain).connect(filter.frequency);
-          osc.connect(filter).connect(gain).connect(panner).connect(this.ctx.destination);
-          
-          lfo.start();
-          osc.start();
-          lfo.stop(this.ctx.currentTime + 8);
-          osc.stop(this.ctx.currentTime + 8);
-        });
-      }
-      
-      spatialGlitch() {
-        const buffer = this.ctx.createBuffer(1, this.ctx.sampleRate * 0.1, this.ctx.sampleRate);
-        const data = buffer.getChannelData(0);
-        
-        for (let i = 0; i < data.length; i++) {
-          data[i] = Math.sin(i * 0.01) * Math.random() * 0.3;
-        }
-        
-        const source = this.ctx.createBufferSource();
-        const gain = this.ctx.createGain();
-        const filter = this.ctx.createBiquadFilter();
-        const panner = this.ctx.createStereoPanner();
-        
-        source.buffer = buffer;
-        source.playbackRate.value = 0.5 + Math.random() * 2;
-        
-        filter.type = 'bandpass';
-        filter.frequency.value = 1000 + Math.random() * 4000;
-        filter.Q.value = 10;
-        
-        panner.pan.value = Math.random() * 2 - 1;
-        
-        gain.gain.setValueAtTime(0.3, this.ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.1);
+        gain.gain.setValueAtTime(0.1, this.ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.05);
         
         source.connect(filter).connect(gain).connect(panner).connect(this.ctx.destination);
         source.start();
       }
       
-      addTrail() {
-        const viz = document.getElementById('viz');
-        const trail = document.createElement('div');
-        trail.className = 'trail';
-        trail.style.left = `${this.pos.x}%`;
-        trail.style.top = `${this.pos.y}%`;
-        viz.appendChild(trail);
+      bass() {
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        const filter = this.ctx.createBiquadFilter();
         
-        setTimeout(() => trail.remove(), 1000);
+        osc.type = 'sine';
+        osc.frequency.value = this.bassNotes[this.bassIndex];
+        
+        filter.type = 'lowpass';
+        filter.frequency.value = 200;
+        filter.Q.value = 2;
+        
+        gain.gain.setValueAtTime(0.5, this.ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.4);
+        
+        osc.connect(filter).connect(gain).connect(this.ctx.destination);
+        osc.start();
+        osc.stop(this.ctx.currentTime + 0.4);
       }
       
-      setupWaveform() {
-        const waveform = document.getElementById('waveform');
-        for (let i = 0; i < 50; i++) {
-          const wave = document.createElement('div');
-          wave.className = 'wave';
-          wave.style.left = `${i * 2}%`;
-          wave.style.height = '0px';
-          waveform.appendChild(wave);
-          this.waves.push(wave);
-        }
-      }
-      
-      updateWaveform() {
-        this.waves.forEach((wave, i) => {
-          const height = Math.random() * this.motion * 0.8 + Math.sin(Date.now() * 0.01 + i * 0.2) * 5;
-          wave.style.height = `${Math.max(0, height)}px`;
+      chord() {
+        const chords = [
+          [261.63, 329.63, 392.00], // C major
+          [293.66, 369.99, 440.00], // D minor
+          [329.63, 415.30, 493.88], // E minor
+          [349.23, 440.00, 523.25]  // F major
+        ];
+        
+        const chord = chords[this.chordIndex];
+        const panner = this.ctx.createStereoPanner();
+        panner.pan.value = (this.pos.x - 50) / 100;
+        
+        chord.forEach((freq, i) => {
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          
+          osc.type = 'sine';
+          osc.frequency.value = freq * 0.5;
+          
+          gain.gain.setValueAtTime(0, this.ctx.currentTime);
+          gain.gain.linearRampToValueAtTime(0.05, this.ctx.currentTime + 0.1);
+          gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 1.5);
+          
+          osc.connect(gain).connect(panner).connect(this.ctx.destination);
+          osc.start();
+          osc.stop(this.ctx.currentTime + 1.5);
         });
+      }
+      
+      spatialHit() {
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        const panner = this.ctx.createStereoPanner();
+        
+        osc.type = 'triangle';
+        osc.frequency.value = 440 + Math.random() * 880;
+        
+        panner.pan.value = (this.pos.x - 50) / 50;
+        
+        gain.gain.setValueAtTime(0.1, this.ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.3);
+        
+        osc.connect(gain).connect(panner).connect(this.ctx.destination);
+        osc.start();
+        osc.stop(this.ctx.currentTime + 0.3);
       }
       
       animate() {
@@ -597,11 +460,11 @@
         const orb = document.getElementById('orb');
         orb.style.left = `${this.pos.x}%`;
         orb.style.top = `${this.pos.y}%`;
-        orb.style.transform = `translate(-50%, -50%) scale(${1 + this.motion * 0.02})`;
+        orb.style.transform = `translate(-50%, -50%) scale(${1 + this.motion * 0.01})`;
         
         document.getElementById('motion').textContent = Math.round(this.motion);
         document.getElementById('bpm').textContent = Math.round(this.bpm);
-        document.getElementById('layers').textContent = this.layers;
+        document.getElementById('groove').textContent = this.groove;
         
         requestAnimationFrame(() => this.animate());
       }
