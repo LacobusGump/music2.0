@@ -139,7 +139,7 @@
           if (!this.active) return;
           document.getElementById('motion').textContent = Math.round(this.motion*10);
           document.getElementById('bpm').textContent = 120;
-          document.getElementById('groove').textContent = this.heaven ? 'HEAVEN' : (
+          document.getElementById('groove').textContent = this.heaven ? 'WEEKND HALFTIME' : (
             this.subdiv===4 ? 'POLY/FAST' : this.subdiv===3 ? 'TRIPLET' : this.subdiv===2 ? 'GROOVE' : 'CHILL');
           // orb follows motion
           let orb = document.getElementById('orb');
@@ -162,28 +162,24 @@
       }
 
       godGridLoop() {
-        // Underlying 120bpm 8th note grid—engine tick never changes.
-        // All musical structure, drums, everything locks to this.
         setInterval(() => {
           if (!this.active) return;
-          // Determine motion subdivision each 8th note
-          // (e.g. more motion means denser events, but all on the grid)
+          // Subdivisions by motion
           let m = Math.min(this.motion*12,20);
           this.subdiv = m > 16 ? 4 : m > 8 ? 3 : m > 3.5 ? 2 : 1;
-          // Heaven world if no movement >1.3s
+          // Heaven/weeknd world if no movement >1.3s
           if (Date.now() - this.lastMotionTime > 1300) {
-            if (!this.heaven) { this.heaven = true; this.playHeavenPad(); }
-            this.heavenEngine();
+            if (!this.heaven) { this.heaven = true; this.voidDropCount = 0; }
+            this.weekndHalftimeEngine();
           } else {
             if (this.heaven) this.heaven = false;
             this.grooveEngine();
           }
-          this.tickCount = (this.tickCount+1) % (8*16); // song structure cycles every 8 bars
-          // Chord progression advances every 8 bars
+          this.tickCount = (this.tickCount+1) % (8*16);
           if (this.tickCount % (16*8) === 0) {
             this.currentChord = (this.currentChord+1)%this.progression.length;
           }
-        }, 250); // 120bpm, 8th note = 500ms, so 250ms is 16th, but we treat it as 8th grid
+        }, 250);
       }
 
       grooveEngine() {
@@ -191,22 +187,28 @@
         let sub = this.subdiv;
         let posInBar = this.tickCount % 16;
         let chord = this.progression[this.currentChord];
-        // KICK always on 1, 5, 9, 13. Snare on 5, 13
         if (this.kickPat[posInBar%8] && this.tickCount % Math.max(1, 8/sub) === 0) this.kick();
         if (this.snarePat[posInBar%8] && this.tickCount % Math.max(2, 16/sub) === 0) this.snare();
         if (this.hatPat[posInBar%8] && this.tickCount % Math.max(1, 4/sub) === 0) this.hat();
-        // Poly: movement triggers metric mod synth
         if (sub>1 && this.tickCount%sub===0) this.polySynth(sub,chord);
-        // Bass on 1, 9
         if (posInBar===0||posInBar===8) this.bass(chord[0]);
-        // Chord pad on bar downbeat
         if (posInBar===0 && this.tickCount%16===0) this.pad(chord);
       }
 
-      heavenEngine() {
-        // Dreamscape: slow pad, occasional bells, always locked to grid.
-        if (this.tickCount%8===0) this.playHeavenPad();
-        if (this.tickCount%20===0 && Math.random()>.45) this.playHeavenBell();
+      // ---- WEEKND HALFTIME VOID ----
+      weekndHalftimeEngine() {
+        // Halftime drums—huge, slow, deep
+        let posInBar = this.tickCount % 16;
+        let chord = this.progression[this.currentChord];
+        // Every other bar
+        if (posInBar===0) this.halftimeKick();
+        if (posInBar===8) this.halftimeKick(0.45);
+        if (posInBar===7 || posInBar===15) this.voidSnare();
+        // Sub bass on downbeat, big lush pads, occasional top synth
+        if (posInBar===0||posInBar===8) this.voidBass(chord[0]);
+        if (posInBar===0 || posInBar===8) this.voidPad(chord);
+        if ((posInBar===5 || posInBar===13) && Math.random()<0.55) this.weekndSynth(chord);
+        // Heavy reverb, always grid-locked
       }
 
       // --------- INSTRUMENTS ---------
@@ -256,7 +258,6 @@
         });
       }
       polySynth(sub,chord) {
-        // Metric mod synth—poly against the base grid
         let root=this.scale[chord[1]], freq=root*([1,1.25,1.33,1.5][sub-1]);
         let o = this.ctx.createOscillator(), g=this.ctx.createGain();
         o.type='sawtooth'; o.frequency.value=freq;
@@ -265,30 +266,65 @@
         o.connect(g).connect(this.reverb);
         o.start(); o.stop(this.ctx.currentTime+0.24+0.12*sub);
       }
-      playHeavenPad() {
-        let now = this.ctx.currentTime, c=this.progression[this.currentChord];
-        c.forEach((deg,i)=>{
-          let freq=this.scale[deg];
+
+      // ---- VOID (WEEKND) HALFTIME INSTRUMENTS ----
+      halftimeKick(offset=0) {
+        let now = this.ctx.currentTime + offset;
+        let o = this.ctx.createOscillator(), g=this.ctx.createGain();
+        o.type='sine'; o.frequency.setValueAtTime(42,now);
+        o.frequency.exponentialRampToValueAtTime(26,now+0.23);
+        g.gain.setValueAtTime(1.2,now);
+        g.gain.exponentialRampToValueAtTime(0.001,now+0.37);
+        o.connect(g).connect(this.reverb); o.start(now); o.stop(now+0.38);
+      }
+      voidSnare() {
+        let now = this.ctx.currentTime;
+        let b = this.ctx.createBuffer(1,this.ctx.sampleRate*0.22,this.ctx.sampleRate);
+        let d = b.getChannelData(0); for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1;
+        let n = this.ctx.createBufferSource(); n.buffer = b;
+        let f = this.ctx.createBiquadFilter(); f.type='bandpass'; f.frequency.value=1080;
+        let g = this.ctx.createGain(); g.gain.setValueAtTime(0.31,now);
+        g.gain.exponentialRampToValueAtTime(0.001,now+0.21);
+        n.connect(f).connect(g).connect(this.reverb); n.start(now); n.stop(now+0.23);
+        // Snap layer for void snare
+        let o = this.ctx.createOscillator(), g2=this.ctx.createGain();
+        o.type='triangle'; o.frequency.setValueAtTime(266,now);
+        g2.gain.setValueAtTime(0.16,now); g2.gain.exponentialRampToValueAtTime(0.001,now+0.18);
+        o.connect(g2).connect(this.reverb);
+        o.start(now); o.stop(now+0.2);
+      }
+      voidBass(degree) {
+        let now = this.ctx.currentTime;
+        let o = this.ctx.createOscillator(), g=this.ctx.createGain();
+        o.type='sine'; o.frequency.value = this.scale[degree]*0.25;
+        g.gain.setValueAtTime(0.31,now);
+        g.gain.exponentialRampToValueAtTime(0.001,now+0.62);
+        o.connect(g).connect(this.reverb); o.start(now); o.stop(now+0.7);
+      }
+      voidPad(chord) {
+        let now = this.ctx.currentTime;
+        chord.forEach((deg,i)=>{
+          let freq=this.scale[deg]*0.5;
           let o = this.ctx.createOscillator(), g=this.ctx.createGain();
           o.type='triangle'; o.frequency.value=freq;
-          g.gain.setValueAtTime(0.09, now);
-          g.gain.linearRampToValueAtTime(0.07, now+0.6+0.15*i);
-          g.gain.linearRampToValueAtTime(0.001, now+2.2+0.1*i);
+          g.gain.setValueAtTime(0.13, now);
+          g.gain.linearRampToValueAtTime(0.11, now+0.9+0.28*i);
+          g.gain.linearRampToValueAtTime(0.001, now+2.4+0.25*i);
           o.connect(g).connect(this.reverb);
-          o.start(now+0.03*i); o.stop(now+2.2+0.2*i);
+          o.start(now+0.08*i); o.stop(now+2.6+0.28*i);
         });
       }
-      playHeavenBell() {
-        let now = this.ctx.currentTime, d = Math.floor(Math.random()*this.scale.length);
-        let freq = this.scale[d]*([1,2][Math.floor(Math.random()*2)]);
-        let o = this.ctx.createOscillator(), g=this.ctx.createGain();
-        o.type = 'sine';
-        o.frequency.value = freq;
-        g.gain.setValueAtTime(0.11, now);
-        g.gain.exponentialRampToValueAtTime(0.001, now+2.3);
+      weekndSynth(chord) {
+        let now = this.ctx.currentTime;
+        let root = this.scale[chord[2]];
+        let o = this.ctx.createOscillator(), g = this.ctx.createGain();
+        o.type = 'triangle'; o.frequency.value = root*2;
+        g.gain.setValueAtTime(0.10, now);
+        g.gain.linearRampToValueAtTime(0.001, now+1.11);
         o.connect(g).connect(this.reverb);
-        o.start(now+0.12); o.stop(now+2.3);
+        o.start(now); o.stop(now+1.12);
       }
+
       showError(msg) {
         let e = document.getElementById('error');
         e.textContent = msg;
