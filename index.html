@@ -77,21 +77,28 @@
     // --- GUMP ENGINE ---
     class GUMP {
       constructor() {
+        // Music timing & state
         this.ctx = null; this.reverb = null;
         this.motion = 0; this.motionWindow = [];
         this.last = { x:0, y:0, z:0 };
         this.lastMotionTime = Date.now();
         this.pos = { x:50, y:50 };
         this.active = false;
-        // Music engine state
-        this.state = 'void'; // or 'dark'
-        this.tick = 0; this.chordStep = 0; this.envLevel = 0; this.movementScore = 0;
-        this.progression = [[0,3,4],[1,4,5],[0,2,5],[1,2,4]]; // minor
-        this.scale = [130.8, 155.6, 174.6, 196, 220, 261.6];
-        this.layersAdded = 0; // how many have been triggered
-        this.layers = [false,false,false,false]; // track what layers are in
-        this.episodeId = 0;
-        // --- Render ---
+        this.state = 'void';
+        this.tick = 0; this.chordStep = 0;
+        this.progression = [
+          [[0,3,4],[1,4,5],[0,2,5],[1,2,4]], // Center/East/West/North/South: Use index 0-4
+          [[2,4,5],[1,4,3],[3,4,5],[0,3,5]],
+          [[0,1,5],[3,4,0],[2,4,3],[1,3,5]],
+          [[0,2,4],[1,3,5],[2,4,0],[3,5,1]],
+          [[0,4,5],[2,5,3],[1,3,4],[0,2,5]],
+        ];
+        this.zone = 0; // 0=center,1=north,2=south,3=east,4=west
+        this.scale = [130.8, 155.6, 174.6, 196, 220, 261.6, 293.66, 329.63, 392];
+        // GPS
+        this.basePos = null; this.gpsOK = false;
+        // Visual cue timer
+        this.cueTimeout = null;
         this.init();
       }
       init() {
@@ -119,10 +126,9 @@
           document.getElementById('start').classList.add('hidden');
           this.active = true;
           this.startSensors();
+          this.startGPS();
           this.masterClock();
           this.animate();
-          // -- Optionally enable GPS location episodes
-          // this.enableEpisodes();
         } catch (e) {
           this.showError('Motion sensors unavailable. Please use a mobile device.');
         }
@@ -137,10 +143,7 @@
           this.last = { x: acc.x, y: acc.y, z: acc.z };
           this.motionWindow.push(power); if (this.motionWindow.length > 8) this.motionWindow.shift();
           this.motion = this.motionWindow.reduce((a,b)=>a+b,0)/this.motionWindow.length;
-          if (this.motion > 0.7) {
-            this.lastMotionTime = Date.now();
-            this.movementScore += this.motion; // Track motion for layer unlocks
-          }
+          if (this.motion > 0.7) this.lastMotionTime = Date.now();
           this.pos.x = Math.max(10, Math.min(90, 50 + acc.x*9));
           this.pos.y = Math.max(10, Math.min(90, 50 + acc.y*9));
         });
@@ -160,7 +163,6 @@
         update();
       }
       masterClock() {
-        // 120bpm, 8th note = 250ms, one global grid
         setInterval(() => {
           if (!this.active) return;
           this.updateState();
@@ -168,35 +170,69 @@
           else this.voidEngine();
           this.tick = (this.tick+1) % 16;
           if (this.tick === 0) {
-            this.chordStep = (this.chordStep+1)%this.progression.length;
-            // Add layers as user moves (every 8 bars or X movement points)
-            this.checkLayerProgress();
+            this.chordStep = (this.chordStep+1)%this.progression[this.zone].length;
           }
-        }, 250);
+        }, 250); // 120bpm 8th
       }
       updateState() {
         const now = Date.now();
         if ((now-this.lastMotionTime)<1400) this.state = 'dark';
         else this.state = 'void';
       }
-      // --- MUSIC LAYERING: Unlock more with motion/episodes ---
-      checkLayerProgress() {
-        // Add a new layer every ~120 movement points, up to 4 layers
-        if (this.state!=='dark') return;
-        let unlocks = [120, 250, 410, 700];
-        for (let i=0;i<unlocks.length;i++) {
-          if (!this.layers[i] && this.movementScore>unlocks[i]) {
-            this.layers[i] = true;
-            // Optional: add quick visual cue here if wanted
-            // e.g. flash orb, quick color swirl, etc.
-          }
-        }
+      // --- GPS: "Street Zones" ---
+      startGPS() {
+        if (!navigator.geolocation) return;
+        navigator.geolocation.getCurrentPosition(pos=>{
+          this.basePos = {lat: pos.coords.latitude, lon: pos.coords.longitude};
+          this.gpsOK = true;
+          this.zone = 0;
+          this.monitorGPS();
+        }, ()=>{}, { enableHighAccuracy:true, maximumAge:10000, timeout:15000 });
       }
-      // --- MAIN DARK ENGINE (layered) ---
+      monitorGPS() {
+        if (!navigator.geolocation) return;
+        setInterval(()=>{
+          navigator.geolocation.getCurrentPosition(pos=>{
+            if (!this.basePos) return;
+            let lat = pos.coords.latitude, lon = pos.coords.longitude;
+            let dx = this.haversine(lat,lon,this.basePos.lat,this.basePos.lon,'E');
+            let dy = this.haversine(lat,lon,this.basePos.lat,this.basePos.lon,'N');
+            let thresh = 0.018; // ~20m
+            let z = 0;
+            if (Math.abs(dx)>thresh || Math.abs(dy)>thresh) {
+              if (Math.abs(dx)>Math.abs(dy)) z = dx>0?3:4; // east/west
+              else z = dy>0?1:2; // north/south
+            }
+            if (z!==this.zone) {
+              this.zone = z;
+              this.chordStep = 0;
+              this.zoneCue();
+            }
+          },()=>{}, {enableHighAccuracy:true,maximumAge:8000,timeout:8000});
+        },6000);
+      }
+      haversine(lat1,lon1,lat2,lon2,axis) {
+        if (axis==='E') return (lon1-lon2)*Math.cos((lat1+lat2)/2*Math.PI/180)*111;
+        else return (lat1-lat2)*111;
+      }
+      zoneCue() {
+        // Play a quick cue, flash the orb
+        let o = this.ctx.createOscillator(), g = this.ctx.createGain();
+        o.type='sine'; o.frequency.setValueAtTime(220, this.ctx.currentTime);
+        o.frequency.linearRampToValueAtTime(660, this.ctx.currentTime+0.34);
+        g.gain.setValueAtTime(0.11,this.ctx.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.001,this.ctx.currentTime+0.7);
+        o.connect(g).connect(this.reverb);
+        o.start(); o.stop(this.ctx.currentTime+0.7);
+        let orb = document.getElementById('orb');
+        orb.style.boxShadow = '0 0 120px #ffdcee,0 0 220px #c5d1ff';
+        clearTimeout(this.cueTimeout);
+        this.cueTimeout = setTimeout(()=>{ orb.style.boxShadow='0 0 60px #2a4fa855'; },600);
+      }
+      // --- MAIN DARK ENGINE (layered per zone) ---
       darkEngine() {
-        let chord = this.progression[this.chordStep];
+        let chord = this.progression[this.zone][this.chordStep];
         let posInBar = this.tick % 16;
-        // Core groove (layer 0, always present)
         if (posInBar===0) this.darkKick();
         if (posInBar===8) this.darkKick(0.1);
         if (posInBar===4||posInBar===12) this.darkSnare();
@@ -204,14 +240,6 @@
         if (posInBar===1||posInBar===9) this.darkBass(chord[0]);
         if (posInBar===2||posInBar===10) this.darkBass(chord[1]);
         if (posInBar===0 || posInBar===8) this.darkPad(chord);
-        // Layer 1: Perc ghost rhythm
-        if (this.layers[0] && (posInBar===6||posInBar===14)) this.ghostPerc();
-        // Layer 2: Clubby syncopated hat
-        if (this.layers[1] && (posInBar===3||posInBar===7||posInBar===11||posInBar===15)) this.clubHat();
-        // Layer 3: Melody FX
-        if (this.layers[2] && posInBar===5) this.darkMelody(chord);
-        // Layer 4: Counterpad shimmer
-        if (this.layers[3] && posInBar===13) this.shimmerPad(chord);
       }
       darkKick(offset=0) {
         let now = this.ctx.currentTime + offset;
@@ -263,50 +291,9 @@
           o.start(now+0.06*i); o.stop(now+2.2+0.13*i);
         });
       }
-      // LAYERS!
-      ghostPerc() {
-        let now = this.ctx.currentTime;
-        let b = this.ctx.createBuffer(1,this.ctx.sampleRate*0.03,this.ctx.sampleRate);
-        let d = b.getChannelData(0); for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1;
-        let n = this.ctx.createBufferSource(); n.buffer = b;
-        let f = this.ctx.createBiquadFilter(); f.type='bandpass'; f.frequency.value=4000;
-        let g = this.ctx.createGain(); g.gain.setValueAtTime(0.035,now);
-        g.gain.exponentialRampToValueAtTime(0.001,now+0.13);
-        n.connect(f).connect(g).connect(this.reverb); n.start(now); n.stop(now+0.12);
-      }
-      clubHat() {
-        let b = this.ctx.createBuffer(1,this.ctx.sampleRate*0.019,this.ctx.sampleRate);
-        let d = b.getChannelData(0); for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1;
-        let n = this.ctx.createBufferSource(); n.buffer = b;
-        let f = this.ctx.createBiquadFilter(); f.type='highpass'; f.frequency.value=7000;
-        let g = this.ctx.createGain(); g.gain.setValueAtTime(0.025,this.ctx.currentTime);
-        g.gain.exponentialRampToValueAtTime(0.001,this.ctx.currentTime+0.037);
-        n.connect(f).connect(g).connect(this.reverb); n.start(); n.stop(this.ctx.currentTime+0.04);
-      }
-      darkMelody(chord) {
-        let degree = chord[Math.floor(Math.random()*chord.length)];
-        let freq = this.scale[degree]*[1.12,0.79,1.44][Math.floor(Math.random()*3)];
-        let o = this.ctx.createOscillator(), g = this.ctx.createGain();
-        o.type = 'triangle'; o.frequency.value = freq;
-        o.detune.value = (Math.random()-0.5)*36;
-        g.gain.setValueAtTime(0.1, this.ctx.currentTime);
-        g.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime+0.44);
-        o.connect(g).connect(this.reverb);
-        o.start(); o.stop(this.ctx.currentTime+0.42);
-      }
-      shimmerPad(chord) {
-        let deg = chord[2];
-        let freq = this.scale[deg]*2.7;
-        let o = this.ctx.createOscillator(), g = this.ctx.createGain();
-        o.type = 'sine'; o.frequency.value = freq;
-        g.gain.setValueAtTime(0.08, this.ctx.currentTime);
-        g.gain.linearRampToValueAtTime(0.001, this.ctx.currentTime+1.8);
-        o.connect(g).connect(this.reverb);
-        o.start(); o.stop(this.ctx.currentTime+1.8);
-      }
-      // --- VOID ENGINE: float, melt, bell, acid heaven ---
+      // --- VOID ENGINE: as before ---
       voidEngine() {
-        let chord = this.progression[this.chordStep];
+        let chord = this.progression[this.zone][this.chordStep];
         let posInBar = this.tick % 16;
         if (posInBar===0 || posInBar===8) this.floatPad(chord);
         if (posInBar===7 && Math.random()<0.47) this.voidBell();
@@ -342,26 +329,6 @@
         o.connect(g).connect(this.reverb);
         o.start(); o.stop(this.ctx.currentTime+2.8);
       }
-      // ---- Optional: GPS location based "episodes" ----
-      // enableEpisodes() {
-      //   if (!navigator.geolocation) return;
-      //   let lastPos = null;
-      //   setInterval(()=>{
-      //     navigator.geolocation.getCurrentPosition(pos=>{
-      //       if (!lastPos) { lastPos = pos.coords; return; }
-      //       let dist = Math.sqrt(
-      //         Math.pow(pos.coords.latitude-lastPos.latitude,2)+
-      //         Math.pow(pos.coords.longitude-lastPos.longitude,2)
-      //       );
-      //       if (dist>0.0009) { // ~100m
-      //         this.episodeId++;
-      //         // Trigger new music section, maybe a one-time visual cue here
-      //         lastPos = pos.coords;
-      //         this.movementScore += 90; // level up song
-      //       }
-      //     });
-      //   },8000);
-      // }
       showError(msg) {
         let e = document.getElementById('error');
         e.textContent = msg; e.classList.remove('hidden');
