@@ -5,13 +5,13 @@
   <title>GUMP: Grand Unified Music Project</title>
   <meta name="viewport" content="width=device-width,initial-scale=1.0">
   <style>
-    html,body {height:100%;margin:0;padding:0;overflow:hidden;background:#0b0f18;}
+    html,body {height:100%;margin:0;padding:0;overflow:hidden;background:#090d15;}
     body {font-family:-apple-system,BlinkMacSystemFont,sans-serif;}
     .intro {
       position:fixed;top:0;left:0;width:100vw;height:100vh;
       background:radial-gradient(ellipse at 60% 50%,#181e2f 0%,#090b12 80%);
       display:flex;flex-direction:column;align-items:center;justify-content:center;
-      z-index:20;transition:opacity 1.3s;
+      z-index:20;transition:opacity 1.1s;
     }
     .intro-title {
       font-size:2.5rem;font-weight:900;letter-spacing:2px;
@@ -34,7 +34,6 @@
       from { text-shadow:0 0 16px #b2fff7; }
       to { text-shadow:0 0 68px #fff9,0 4px 20px #b4d7ff88;}
     }
-
     .app {position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:1;opacity:0;transition:opacity 1.3s;}
     .hidden {display:none!important;}
     .viz {
@@ -76,7 +75,6 @@
       opacity:.98;filter:blur(8px);
     }
     @keyframes orbPulse {from{opacity:.82;}to{opacity:.97;}}
-    /* Vibe dial */
     .dial-wrap {position:fixed;right:8vw;bottom:8vh;width:160px;height:160px;z-index:40;}
     @media (max-width:650px){.dial-wrap{right:2vw;bottom:2vh;width:31vw;height:31vw;min-width:100px;min-height:100px;}}
     .dial-bg {width:100%;height:100%;border-radius:50%;background:radial-gradient(ellipse at 55% 45%,#232b47 20%,#1a102a 100%);border:3px solid #75b0ff77;}
@@ -94,7 +92,6 @@
     .label-bl {bottom:16px;left:18px;}
     .label-br {bottom:16px;right:23px;}
     .label-mid {top:50%;left:50%;transform:translate(-50%,-50%);font-size:1.09em;color:#fff8;text-shadow:0 0 20px #b4f7;}
-    /* Error */
     .error {background:#221a;border-radius:15px;padding:18px 32px;color:#ff6b6b;z-index:100;}
   </style>
 </head>
@@ -105,13 +102,11 @@
     <div class="intro-author">By: James McCandless</div>
     <button class="intro-btn" id="introBtn">Begin</button>
   </div>
-  <!-- Main app -->
   <div class="app" id="app">
     <div class="viz" id="viz">
       <div class="orb-glow" id="orbGlow"></div>
       <div class="music-orb" id="musicOrb"></div>
     </div>
-    <!-- Vibe dial -->
     <div class="dial-wrap" id="dialWrap">
       <div class="dial-bg"></div>
       <div class="dial-dot" id="dialDot"></div>
@@ -124,16 +119,15 @@
     <div class="error hidden" id="error"></div>
   </div>
   <script>
-    // Fade intro -> main app
+    // Fade intro -> app
     const intro = document.getElementById('intro'), app = document.getElementById('app');
     document.getElementById('introBtn').onclick = function() {
       intro.style.opacity = 0;
-      setTimeout(()=>{ intro.style.display = 'none'; app.style.opacity = 1; }, 1100);
+      setTimeout(()=>{ intro.style.display = 'none'; app.style.opacity = 1; }, 900);
     };
-
-    // --- VIBE SPHERE DIAL ---
+    // DIAL
     const dialWrap = document.getElementById('dialWrap'), dialDot = document.getElementById('dialDot');
-    let dialState = { x: 0.5, y: 0.5 }; // normalized XY
+    let dialState = { x: 0.5, y: 0.5 };
     let dragging = false;
     function updateDot() {
       dialDot.style.left = (dialState.x * 100) + '%';
@@ -159,23 +153,20 @@
     }
     updateDot();
 
-    // --- GUMP MUSIC ENGINE ---
+    // --- "Glitchless" GUMP Engine ---
     class GUMP {
       constructor() {
         this.ctx = null; this.reverb = null;
-        this.motion = 0; this.motionWindow = [];
-        this.last = {x:0,y:0,z:0}; this.lastMotionTime = Date.now();
-        this.hasMoved = false; this.introStep = 0;
-        this.chordStep = 0; this.tick = 0;
-        this.state = 'void';
-        this.vibe = { x:0.5, y:0.5 }; // "tuning"
-        this.dropTimer = 0; this.section = 'build'; // song structure state
-        this.cool = {hip:0,classical:0,latin:0,country:0};
+        this.lastMotion = Date.now(); this.motion = 0; this.motionBuf = [];
+        this.last = {x:0,y:0,z:0}; this.active = false;
+        this.tick = 0; this.chordStep = 0; this.section = 'build'; this.dropTick = 0;
+        this.state = 'void'; this.hasMoved = false; this.voidVoices = []; this.songVoices = [];
+        this.fadeLevel = 0; // For song build up
+        setInterval(()=>{ this.vibe = {...dialState}; },60);
         this.init();
       }
       init() {
-        setInterval(()=>{ this.vibe.x=dialState.x; this.vibe.y=dialState.y; },50);
-        document.getElementById('musicOrb').onclick = ()=>{ /*easteregg*/ };
+        document.getElementById('musicOrb').onclick = ()=>{};
         this.startBtn = this.createStartBtn();
       }
       createStartBtn() {
@@ -219,11 +210,11 @@
           const dx = acc.x - this.last.x, dy = acc.y - this.last.y, dz = acc.z - this.last.z;
           let power = Math.sqrt(dx*dx + dy*dy + dz*dz);
           this.last = {x: acc.x, y: acc.y, z: acc.z};
-          this.motionWindow.push(power); if (this.motionWindow.length>8) this.motionWindow.shift();
-          this.motion = this.motionWindow.reduce((a,b)=>a+b,0)/this.motionWindow.length;
+          this.motionBuf.push(power); if (this.motionBuf.length>6) this.motionBuf.shift();
+          this.motion = this.motionBuf.reduce((a,b)=>a+b,0)/this.motionBuf.length;
           if (this.motion > 0.7) {
-            this.lastMotionTime = Date.now();
-            if (!this.hasMoved) { this.hasMoved = true; this.introStep = 1; this.section = 'build'; this.dropTimer=0;}
+            this.lastMotion = Date.now();
+            if (!this.hasMoved) { this.hasMoved = true; this.section = 'build'; this.dropTick=0; this.fadeLevel=0;}
           }
         });
       }
@@ -238,108 +229,93 @@
         }; update();
       }
       masterClock() {
+        // All music in one global clock, never overlapping
         setInterval(() => {
           if (!this.active) return;
           this.updateState();
           if (!this.hasMoved) return;
-          // --- Section logic ---
+          this.killOldVoices();
           if (this.state==='void') {
+            this.section='build'; this.dropTick=0; this.fadeLevel=0;
             this.voidEngine();
-            this.dropTimer=0; this.section='build';
           } else {
             if (this.section==='build') {
-              if (this.dropTimer<16*6) { // 6 bars build
-                this.drumsEngine(this.drumPreset('kick'));
-                if (this.tick===15) this.dropTimer++;
-                if (this.dropTimer>16*2) this.mainVibe(this.vibeBlend(),true); // bring in pad/bass
-                if (this.dropTimer>=16*6) { this.section='drop'; this.dropTick=0; }
-              }
+              if (this.fadeLevel<1) this.fadeLevel+=0.09;
+              this.drumsEngine(this.tick<16*3?{kick:1}:{kick:1,snare:1,hat:1,perc:1});
+              if (this.tick>16*1) this.mainVibe(this.vibeBlend(),this.fadeLevel);
+              if (this.tick===15 && this.tick>16*2) this.dropTick++;
+              if (this.dropTick>7) { this.section='drop'; this.dropTick=0;}
             } else if (this.section==='drop') {
-              this.drumsEngine(this.drumPreset('full'));
-              this.mainVibe(this.vibeBlend(),false,true); // big
-              if (this.tick===15) { this.dropTick=(this.dropTick||0)+1; }
-              if (this.dropTick>12) { this.section='build'; this.dropTimer=0; }
+              this.drumsEngine({kick:1,snare:1,hat:1,perc:1},1);
+              this.mainVibe(this.vibeBlend(),1,1);
+              if (this.tick===15) { this.dropTick++; }
+              if (this.dropTick>14) { this.section='build'; this.dropTick=0; this.fadeLevel=0;}
             }
           }
           this.tick = (this.tick+1)%16;
           if (this.tick===0) { this.chordStep=(this.chordStep+1)%4; }
-        }, 250); // 120bpm 8th
+        }, 250);
       }
       updateState() {
-        const now = Date.now();
-        this.state = ((now-this.lastMotionTime)<1600)?'dark':'void';
+        this.state = ((Date.now()-this.lastMotion)<1600)?'song':'void';
       }
-      // ---- ARTISTIC MUSIC ENGINE ----
-      // 4 corners: HipHop, Classical, Latin, Country
-      // genreCrossfade returns 4 blend values
-      genreCrossfade(x,y) {
-        // Smooth corners
-        let tl=(1-x)*(1-y), tr=x*(1-y), bl=(1-x)*y, br=x*y;
-        let norm = tl+tr+bl+br; if (norm===0) norm=1;
-        return {
-          hip:tl/norm, classical:tr/norm, latin:bl/norm, country:br/norm
-        };
+      killOldVoices() {
+        // Always clear old notes: stops polyphony stackup and leaks
+        for(let v of this.songVoices) try{v.gain.gain.cancelScheduledValues(this.ctx.currentTime);v.gain.gain.setValueAtTime(0.0001,this.ctx.currentTime+0.07);v.osc.stop(this.ctx.currentTime+0.09);}catch{}
+        this.songVoices=[];
+        for(let v of this.voidVoices) try{v.gain.gain.cancelScheduledValues(this.ctx.currentTime);v.gain.gain.setValueAtTime(0.0001,this.ctx.currentTime+0.07);v.osc.stop(this.ctx.currentTime+0.12);}catch{}
+        this.voidVoices=[];
       }
       vibeBlend() {
-        let {x,y}=this.vibe;
-        let g = this.genreCrossfade(x,y);
-        // "Round" the mix for more distinct feel
-        let max = Math.max(g.hip,g.classical,g.latin,g.country);
-        let boost = v=>v===max?0.92:0.31;
-        // Let edges be more defined, mid more mixed
-        let edgeFade = 0.7+0.22*(1-Math.abs(x-0.5))*0.7*(1-Math.abs(y-0.5));
-        return {
-          hip: Math.pow(g.hip,edgeFade)*boost(g.hip),
-          classical: Math.pow(g.classical,edgeFade)*boost(g.classical),
-          latin: Math.pow(g.latin,edgeFade)*boost(g.latin),
-          country: Math.pow(g.country,edgeFade)*boost(g.country)
-        };
+        let x=this.vibe.x, y=this.vibe.y;
+        let hip = (1-x)*(1-y), classical=x*(1-y), latin=(1-x)*y, country=x*y;
+        // Sharpen so corners sound distinct, blend in middle
+        let power = v=>Math.pow(v,1.7)+0.08;
+        return { hip:power(hip), classical:power(classical), latin:power(latin), country:power(country)};
       }
-      drumPreset(mode='kick') {
-        if (mode==='kick') return {kick:1,snare:0,hat:0,perc:0};
-        if (mode==='full') return {kick:1,snare:1,hat:1,perc:1};
-      }
-      drumsEngine({kick=1,snare=1,hat=1,perc=1}) {
-        let v=this.vibeBlend();
-        let dark=0.4+0.9*v.hip-0.16*v.latin+0.08*v.country-0.1*v.classical;
-        let now=this.ctx.currentTime;
-        // - Kick (HipHop dark or acoustic), with sidechain to pads
-        if (kick&&this.tick%4===0) {
+      drumsEngine({kick=1,snare=1,hat=1,perc=1},vol=1) {
+        let v=this.vibeBlend(), now=this.ctx.currentTime;
+        // --- Kick (hiphop vs. acoustic vs. latin/country) ---
+        if (kick && this.tick%4===0) {
           let o=this.ctx.createOscillator(),g=this.ctx.createGain();
-          o.type = v.hip>0.53?'sine':'triangle';
-          o.frequency.setValueAtTime(43,now);
-          o.frequency.exponentialRampToValueAtTime(15+dark*20,now+0.16+v.latin*0.06);
-          g.gain.setValueAtTime(0.35+0.22*dark,now);
-          g.gain.exponentialRampToValueAtTime(0.001,now+0.3);
-          o.connect(g).connect(this.reverb); o.start(now); o.stop(now+0.32+dark*0.09);
+          o.type = v.hip>0.6?'sine':v.country>0.5?'triangle':v.latin>0.5?'square':'sine';
+          o.frequency.setValueAtTime(45+v.latin*18,now);
+          o.frequency.exponentialRampToValueAtTime(23+v.hip*20,now+0.14);
+          g.gain.setValueAtTime(0.26*vol+v.hip*0.16,now);
+          g.gain.exponentialRampToValueAtTime(0.001,now+0.28+v.latin*0.05);
+          o.connect(g).connect(this.reverb); o.start(now); o.stop(now+0.29+v.latin*0.04);
+          this.songVoices.push({osc:o,gain:g});
         }
-        // - Snare
-        if (snare&&this.tick%8===4) {
-          let b=this.ctx.createBuffer(1,this.ctx.sampleRate*0.13,this.ctx.sampleRate),d=b.getChannelData(0);
+        // --- Snare ---
+        if (snare && this.tick%8===4) {
+          let b=this.ctx.createBuffer(1,this.ctx.sampleRate*0.11,this.ctx.sampleRate),d=b.getChannelData(0);
           for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1;
           let n=this.ctx.createBufferSource(); n.buffer=b;
-          let f=this.ctx.createBiquadFilter(); f.type='highpass'; f.frequency.value=1100+v.classical*700;
-          let g=this.ctx.createGain(); g.gain.setValueAtTime(0.19+0.08*v.hip,now);
-          g.gain.exponentialRampToValueAtTime(0.001,now+0.12+v.latin*0.06);
-          n.connect(f).connect(g).connect(this.reverb); n.start(now); n.stop(now+0.14+v.classical*0.07);
+          let f=this.ctx.createBiquadFilter(); f.type='highpass'; f.frequency.value=1200+v.classical*700;
+          let g=this.ctx.createGain(); g.gain.setValueAtTime(0.16+0.09*v.hip,now);
+          g.gain.exponentialRampToValueAtTime(0.001,now+0.09+v.latin*0.03);
+          n.connect(f).connect(g).connect(this.reverb); n.start(now); n.stop(now+0.13+v.classical*0.04);
+          this.songVoices.push({osc:n,gain:g});
         }
-        // - Hat
-        if (hat&&this.tick%2===0) {
-          let b=this.ctx.createBuffer(1,this.ctx.sampleRate*0.048,this.ctx.sampleRate),d=b.getChannelData(0);
+        // --- Hat ---
+        if (hat && this.tick%2===0) {
+          let b=this.ctx.createBuffer(1,this.ctx.sampleRate*0.035,this.ctx.sampleRate),d=b.getChannelData(0);
           for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1;
           let n=this.ctx.createBufferSource(); n.buffer=b;
-          let f=this.ctx.createBiquadFilter(); f.type='highpass'; f.frequency.value=4800+v.latin*1300;
-          let g=this.ctx.createGain(); g.gain.setValueAtTime(0.023+v.classical*0.03,now);
-          g.gain.exponentialRampToValueAtTime(0.001,now+0.07);
-          n.connect(f).connect(g).connect(this.reverb); n.start(now); n.stop(now+0.06+v.latin*0.04);
+          let f=this.ctx.createBiquadFilter(); f.type='highpass'; f.frequency.value=4800+v.latin*1200;
+          let g=this.ctx.createGain(); g.gain.setValueAtTime(0.017+v.classical*0.025,now);
+          g.gain.exponentialRampToValueAtTime(0.001,now+0.06);
+          n.connect(f).connect(g).connect(this.reverb); n.start(now); n.stop(now+0.06+v.latin*0.02);
+          this.songVoices.push({osc:n,gain:g});
         }
-        // - Perc/clave, syncopation for latin/country
-        if (perc&&this.tick%8===2&&v.latin>0.13) {
+        // --- Perc/clave ---
+        if (perc && this.tick%8===2 && v.latin>0.1) {
           let o=this.ctx.createOscillator(),g=this.ctx.createGain();
           o.type='square';o.frequency.value=590+v.country*70;
-          g.gain.setValueAtTime(0.09+0.07*v.latin,now);
-          g.gain.exponentialRampToValueAtTime(0.001,now+0.04+v.country*0.04);
-          o.connect(g).connect(this.reverb); o.start(now); o.stop(now+0.05+v.latin*0.06);
+          g.gain.setValueAtTime(0.07+0.06*v.latin,now);
+          g.gain.exponentialRampToValueAtTime(0.001,now+0.04+v.country*0.03);
+          o.connect(g).connect(this.reverb); o.start(now); o.stop(now+0.04+v.latin*0.04);
+          this.songVoices.push({osc:o,gain:g});
         }
       }
       mainVibe({hip,classical,latin,country},fade=1,drop=0) {
@@ -351,74 +327,77 @@
           [0,4,7],   // A major (country/folk)
         ];
         let chord = chords[this.chordStep];
-        // --- PAD ---
         if (this.tick%8===0||drop) this.pad(chord,fade,hip,classical,latin,country);
-        // --- BASS ---
         if (this.tick%4===2||drop) this.bass(chord[0],fade,hip,classical,latin,country);
       }
       pad(chord,amt=1,hip=0.4,classical=0.2,latin=0.2,country=0.3) {
         let now=this.ctx.currentTime;
         chord.forEach((deg,i)=>{
           let base=[130.8,155.6,196,220,261.6,293.66,329.63,392][deg%8];
-          let freq = base*(1+(i-1)*0.09+hip*0.18+classical*0.06+latin*0.09-country*0.04);
+          let freq = base*(1+(i-1)*0.09+hip*0.17+classical*0.06+latin*0.09-country*0.04);
           let o=this.ctx.createOscillator(),g=this.ctx.createGain();
-          o.type=classical>0.33?'triangle':hip>0.37?'sawtooth':latin>0.37?'square':country>0.37?'sine':'triangle';
+          o.type=classical>0.31?'triangle':hip>0.37?'sawtooth':latin>0.37?'square':country>0.37?'sine':'triangle';
           o.frequency.value=freq;
-          o.detune.value=(Math.random()-0.5)*8+classical*9-hip*8+latin*11-country*8;
-          g.gain.setValueAtTime(0.027*amt,now);
-          g.gain.linearRampToValueAtTime(0.15*amt,now+1.0+0.13*i);
-          g.gain.linearRampToValueAtTime(0.001,now+2.7+0.13*i);
+          o.detune.value=(Math.random()-0.5)*7+classical*9-hip*8+latin*11-country*7;
+          g.gain.setValueAtTime(0.022*amt,now);
+          g.gain.linearRampToValueAtTime(0.11*amt,now+0.6+0.14*i);
+          g.gain.linearRampToValueAtTime(0.001,now+2.2+0.11*i);
           o.connect(g).connect(this.reverb);
-          o.start(now+0.06*i); o.stop(now+2.8+0.13*i);
+          o.start(now+0.04*i); o.stop(now+2.5+0.12*i);
+          this.songVoices.push({osc:o,gain:g});
         });
       }
       bass(degree,amt=1,hip=0.4,classical=0.2,latin=0.2,country=0.3) {
         let now=this.ctx.currentTime;
-        let freq=[45,52,65,72][this.chordStep%4]*(1+0.35*classical+0.15*latin);
+        let freq=[45,52,65,72][this.chordStep%4]*(1+0.29*classical+0.13*latin);
         let o=this.ctx.createOscillator(),g=this.ctx.createGain();
         o.type = latin>0.4?'triangle':country>0.4?'square':hip>0.5?'sine':'triangle';
-        o.frequency.value=freq; o.detune.value=hip*21-classical*9+latin*8-country*7;
-        g.gain.setValueAtTime(0.13*amt,now);
-        g.gain.exponentialRampToValueAtTime(0.001,now+0.44+classical*0.13+country*0.1);
-        o.connect(g).connect(this.reverb); o.start(now); o.stop(now+0.48+classical*0.18);
+        o.frequency.value=freq; o.detune.value=hip*19-classical*8+latin*8-country*7;
+        g.gain.setValueAtTime(0.11*amt,now);
+        g.gain.exponentialRampToValueAtTime(0.001,now+0.37+classical*0.09+country*0.08);
+        o.connect(g).connect(this.reverb); o.start(now); o.stop(now+0.38+classical*0.11);
+        this.songVoices.push({osc:o,gain:g});
       }
-      // ---- VOID/HEAVEN ENGINE ----
+      // ---- VOID ENGINE ----
       voidEngine() {
-        let chord=[0,4,7]; // major, peaceful
+        let chord=[0,4,7];
         let posInBar=this.tick%16;
         if (posInBar===0||posInBar===8) this.floatPad(chord);
-        if (posInBar===7&&Math.random()<0.53) this.voidBell();
-        if (posInBar===13&&Math.random()<0.22) this.angelic();
+        if (posInBar===7&&Math.random()<0.56) this.voidBell();
+        if (posInBar===13&&Math.random()<0.21) this.angelic();
       }
       floatPad(chord) {
         let now=this.ctx.currentTime;
         chord.forEach((deg,i)=>{
           let base=[130.8,155.6,196,220,261.6,293.66,329.63,392][deg%8];
-          let freq = base*0.72;
+          let freq = base*0.68;
           let o=this.ctx.createOscillator(),g=this.ctx.createGain();
           o.type='sine'; o.frequency.value=freq;
           g.gain.setValueAtTime(0.12,now);
-          g.gain.linearRampToValueAtTime(0.17,now+1.7+0.17*i);
-          g.gain.linearRampToValueAtTime(0.001,now+3.2+0.18*i);
+          g.gain.linearRampToValueAtTime(0.17,now+1.2+0.17*i);
+          g.gain.linearRampToValueAtTime(0.001,now+2.7+0.18*i);
           o.connect(g).connect(this.reverb);
-          o.start(now+0.09*i); o.stop(now+3.45+0.12*i);
+          o.start(now+0.07*i); o.stop(now+2.95+0.14*i);
+          this.voidVoices.push({osc:o,gain:g});
         });
       }
       voidBell() {
         let o=this.ctx.createOscillator(),g=this.ctx.createGain();
-        o.type='triangle'; o.frequency.value=311+Math.random()*41;
+        o.type='triangle'; o.frequency.value=331+Math.random()*33;
         g.gain.setValueAtTime(0.09,this.ctx.currentTime);
-        g.gain.exponentialRampToValueAtTime(0.001,this.ctx.currentTime+3.1+Math.random());
+        g.gain.exponentialRampToValueAtTime(0.001,this.ctx.currentTime+2.5+Math.random());
         o.connect(g).connect(this.reverb);
-        o.start(); o.stop(this.ctx.currentTime+3.1+Math.random());
+        o.start(); o.stop(this.ctx.currentTime+2.7+Math.random());
+        this.voidVoices.push({osc:o,gain:g});
       }
       angelic() {
         let o=this.ctx.createOscillator(),g=this.ctx.createGain();
-        o.type='sine'; o.frequency.value=812+Math.random()*92;
-        g.gain.setValueAtTime(0.06,this.ctx.currentTime);
-        g.gain.linearRampToValueAtTime(0.001,this.ctx.currentTime+2.1);
+        o.type='sine'; o.frequency.value=712+Math.random()*102;
+        g.gain.setValueAtTime(0.07,this.ctx.currentTime);
+        g.gain.linearRampToValueAtTime(0.001,this.ctx.currentTime+1.1);
         o.connect(g).connect(this.reverb);
-        o.start(); o.stop(this.ctx.currentTime+1.7);
+        o.start(); o.stop(this.ctx.currentTime+1.5);
+        this.voidVoices.push({osc:o,gain:g});
       }
       showError(msg) {
         let e=document.getElementById('error');
