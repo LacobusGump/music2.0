@@ -5,49 +5,92 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>GUMP: Grand Unified Music Project</title>
   <style>
-    html,body { height:100%; margin:0; padding:0;}
-    body { background:radial-gradient(circle at 40% 60%, #121217 0%, #0a0a0a 80%); min-height:100vh; width:100vw;
-      display:flex; align-items:center; justify-content:center; transition:background 2s;}
-    body.void { background:radial-gradient(circle at 55% 45%, #cfd0fd 0%, #161650 60%, #000 100%);}
-    .app { width:100vw; height:100vh; display:flex; align-items:center; justify-content:center;}
-    .viz { width:340px; height:340px; border-radius:40px; background:rgba(20,20,32,0.12); margin:0; position:relative;
-      border:3px solid #333558; box-shadow:0 0 60px #39428022; transition:border .9s,box-shadow 2s;}
+    html,body { height:100%; margin:0; padding:0; background:#090c11;}
+    body { overflow:hidden;}
+    .app { width:100vw; height:100vh; display:flex; align-items:center; justify-content:center; opacity:0; transition:opacity 1.5s;}
+    .viz { width:340px; height:340px; border-radius:40px; background:rgba(20,20,32,0.13); margin:0; position:relative;
+      border:3px solid #333558; box-shadow:0 0 60px #39428022; transition:border 1s,box-shadow 1.5s;}
     .viz.void { border-color:#cfd0fd; box-shadow:0 0 140px #9fc3ff44,0 0 180px #dce1facc;}
     .orb { position:absolute; width:120px; height:120px; border-radius:50%; background:radial-gradient(circle,#111f33 0%,#6077ee22 90%,transparent 100%);
       top:50%; left:50%; transform:translate(-50%,-50%); box-shadow:0 0 60px #2a4fa855; transition:all .26s;}
     .orb.void { background:radial-gradient(circle,#d9f2ff 0%,#e5aaff 45%,transparent 100%);
       box-shadow:0 0 120px #d9f2ff88,0 0 200px #f8f8f855;}
     .pulse { animation:pulse 1.2s cubic-bezier(.8,0,.3,1) alternate infinite;}
-    @keyframes pulse {from{transform:translate(-50%,-50%) scale(1);} to{transform:translate(-50%,-50%) scale(1.17);} }
+    @keyframes pulse {from{transform:translate(-50%,-50%) scale(1);} to{transform:translate(-50%,-50%) scale(1.15);} }
     .start-btn { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); font-size:1.2rem; padding:18px 45px; border-radius:30px;
       background:linear-gradient(45deg,#1e304b,#a3ffd7); color:#000; border:none; font-weight:700; cursor:pointer; z-index:10; box-shadow:0 4px 22px #00ffaa22;}
     .hidden { display:none!important;}
     .error { position:absolute; top: 24%; left:50%; transform:translateX(-50%); background: #221a 1px solid #c33; border-radius: 15px; padding:18px; color:#ff6b6b;}
+    /* --- INTRO ANIMATION --- */
+    .intro {
+      position:fixed; z-index:100; width:100vw; height:100vh;
+      background:#090c11;
+      display:flex; flex-direction:column; justify-content:center; align-items:center;
+      animation: fadein 1.7s;
+      transition: opacity 1.5s;
+    }
+    .intro-title {
+      font-size:2.1rem; font-weight:800; color:#d8fdff;
+      letter-spacing:1.6px; margin-bottom:2.1rem;
+      text-shadow:0 0 22px #7fdaff;
+      opacity:1; transition: opacity 1s;
+    }
+    .intro-author {
+      font-size:1.1rem; color:#acecff; opacity:.76; margin-bottom:2.3rem;
+      letter-spacing:.7px;
+    }
+    .intro-btn {
+      background:linear-gradient(80deg,#2eeaff,#a9c6ff 80%);
+      color:#161b22; font-weight:700; font-size:1.25rem;
+      padding:19px 60px; border-radius:40px; border:none; cursor:pointer;
+      box-shadow:0 0 32px #00ffaa22;
+      transition: background .5s;
+    }
+    .intro-btn:hover { background:linear-gradient(80deg,#a9c6ff,#2eeaff 80%);}
+    @keyframes fadein {from{opacity:0;}to{opacity:1;}}
+    .wisp { opacity:0!important; transition: opacity 1.5s;}
   </style>
 </head>
 <body>
+  <!-- INTRO SCREEN -->
+  <div class="intro" id="intro">
+    <div class="intro-title">GUMP: Grand Unified Music Project</div>
+    <div class="intro-author">By: James McCandless</div>
+    <button class="intro-btn" id="introBtn">Begin</button>
+  </div>
+  <!-- ORB & VIZ -->
   <div class="app">
     <div class="viz" id="viz"><div class="orb" id="orb"></div></div>
     <button class="start-btn" id="start">Start</button>
     <div class="error hidden" id="error"></div>
   </div>
   <script>
+    // -- INTRO FADE LOGIC --
+    document.querySelector('.app').style.opacity = 0;
+    document.getElementById('introBtn').onclick = function() {
+      let intro = document.getElementById('intro');
+      intro.classList.add('wisp');
+      setTimeout(()=>{ intro.style.display = 'none'; }, 1600);
+      setTimeout(()=>{ document.querySelector('.app').style.opacity = 1; }, 900);
+    };
+
+    // --- GUMP ENGINE ---
     class GUMP {
       constructor() {
-        // --- Synth core ---
         this.ctx = null; this.reverb = null;
-        // --- User movement ---
         this.motion = 0; this.motionWindow = [];
         this.last = { x:0, y:0, z:0 };
         this.lastMotionTime = Date.now();
         this.pos = { x:50, y:50 };
         this.active = false;
-        // --- Music state ---
+        // Music engine state
         this.state = 'void'; // or 'dark'
-        this.tick = 0;
-        this.chordStep = 0;
-        this.progression = [[0,3,4],[1,4,5],[0,2,5],[1,2,4]]; // always minor
-        this.scale = [130.8, 155.6, 174.6, 196, 220, 261.6]; // C minor lower octave
+        this.tick = 0; this.chordStep = 0; this.envLevel = 0; this.movementScore = 0;
+        this.progression = [[0,3,4],[1,4,5],[0,2,5],[1,2,4]]; // minor
+        this.scale = [130.8, 155.6, 174.6, 196, 220, 261.6];
+        this.layersAdded = 0; // how many have been triggered
+        this.layers = [false,false,false,false]; // track what layers are in
+        this.episodeId = 0;
         // --- Render ---
         this.init();
       }
@@ -78,6 +121,8 @@
           this.startSensors();
           this.masterClock();
           this.animate();
+          // -- Optionally enable GPS location episodes
+          // this.enableEpisodes();
         } catch (e) {
           this.showError('Motion sensors unavailable. Please use a mobile device.');
         }
@@ -92,7 +137,10 @@
           this.last = { x: acc.x, y: acc.y, z: acc.z };
           this.motionWindow.push(power); if (this.motionWindow.length > 8) this.motionWindow.shift();
           this.motion = this.motionWindow.reduce((a,b)=>a+b,0)/this.motionWindow.length;
-          if (this.motion > 0.7) this.lastMotionTime = Date.now();
+          if (this.motion > 0.7) {
+            this.lastMotionTime = Date.now();
+            this.movementScore += this.motion; // Track motion for layer unlocks
+          }
           this.pos.x = Math.max(10, Math.min(90, 50 + acc.x*9));
           this.pos.y = Math.max(10, Math.min(90, 50 + acc.y*9));
         });
@@ -112,27 +160,43 @@
         update();
       }
       masterClock() {
-        // ONE global music grid at 120bpm, 8th note = 250ms
+        // 120bpm, 8th note = 250ms, one global grid
         setInterval(() => {
           if (!this.active) return;
           this.updateState();
           if (this.state === 'dark') this.darkEngine();
           else this.voidEngine();
           this.tick = (this.tick+1) % 16;
-          if (this.tick === 0) this.chordStep = (this.chordStep+1)%this.progression.length;
+          if (this.tick === 0) {
+            this.chordStep = (this.chordStep+1)%this.progression.length;
+            // Add layers as user moves (every 8 bars or X movement points)
+            this.checkLayerProgress();
+          }
         }, 250);
       }
       updateState() {
-        // You leave void when you move enough for 2 seconds, return if still 1.7s+
         const now = Date.now();
         if ((now-this.lastMotionTime)<1400) this.state = 'dark';
         else this.state = 'void';
       }
-      // --- DARK ENGINE: GROOVE, LATE NIGHT, MINIMAL, DEEP ---
+      // --- MUSIC LAYERING: Unlock more with motion/episodes ---
+      checkLayerProgress() {
+        // Add a new layer every ~120 movement points, up to 4 layers
+        if (this.state!=='dark') return;
+        let unlocks = [120, 250, 410, 700];
+        for (let i=0;i<unlocks.length;i++) {
+          if (!this.layers[i] && this.movementScore>unlocks[i]) {
+            this.layers[i] = true;
+            // Optional: add quick visual cue here if wanted
+            // e.g. flash orb, quick color swirl, etc.
+          }
+        }
+      }
+      // --- MAIN DARK ENGINE (layered) ---
       darkEngine() {
-        // Always minor, deep sub, groove, filtered hats, organic
         let chord = this.progression[this.chordStep];
         let posInBar = this.tick % 16;
+        // Core groove (layer 0, always present)
         if (posInBar===0) this.darkKick();
         if (posInBar===8) this.darkKick(0.1);
         if (posInBar===4||posInBar===12) this.darkSnare();
@@ -140,6 +204,14 @@
         if (posInBar===1||posInBar===9) this.darkBass(chord[0]);
         if (posInBar===2||posInBar===10) this.darkBass(chord[1]);
         if (posInBar===0 || posInBar===8) this.darkPad(chord);
+        // Layer 1: Perc ghost rhythm
+        if (this.layers[0] && (posInBar===6||posInBar===14)) this.ghostPerc();
+        // Layer 2: Clubby syncopated hat
+        if (this.layers[1] && (posInBar===3||posInBar===7||posInBar===11||posInBar===15)) this.clubHat();
+        // Layer 3: Melody FX
+        if (this.layers[2] && posInBar===5) this.darkMelody(chord);
+        // Layer 4: Counterpad shimmer
+        if (this.layers[3] && posInBar===13) this.shimmerPad(chord);
       }
       darkKick(offset=0) {
         let now = this.ctx.currentTime + offset;
@@ -191,14 +263,54 @@
           o.start(now+0.06*i); o.stop(now+2.2+0.13*i);
         });
       }
-      // --- VOID ENGINE: FLOAT, MELT, ACID DREAM, ALL PAD, STEREO LFO ---
+      // LAYERS!
+      ghostPerc() {
+        let now = this.ctx.currentTime;
+        let b = this.ctx.createBuffer(1,this.ctx.sampleRate*0.03,this.ctx.sampleRate);
+        let d = b.getChannelData(0); for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1;
+        let n = this.ctx.createBufferSource(); n.buffer = b;
+        let f = this.ctx.createBiquadFilter(); f.type='bandpass'; f.frequency.value=4000;
+        let g = this.ctx.createGain(); g.gain.setValueAtTime(0.035,now);
+        g.gain.exponentialRampToValueAtTime(0.001,now+0.13);
+        n.connect(f).connect(g).connect(this.reverb); n.start(now); n.stop(now+0.12);
+      }
+      clubHat() {
+        let b = this.ctx.createBuffer(1,this.ctx.sampleRate*0.019,this.ctx.sampleRate);
+        let d = b.getChannelData(0); for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1;
+        let n = this.ctx.createBufferSource(); n.buffer = b;
+        let f = this.ctx.createBiquadFilter(); f.type='highpass'; f.frequency.value=7000;
+        let g = this.ctx.createGain(); g.gain.setValueAtTime(0.025,this.ctx.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.001,this.ctx.currentTime+0.037);
+        n.connect(f).connect(g).connect(this.reverb); n.start(); n.stop(this.ctx.currentTime+0.04);
+      }
+      darkMelody(chord) {
+        let degree = chord[Math.floor(Math.random()*chord.length)];
+        let freq = this.scale[degree]*[1.12,0.79,1.44][Math.floor(Math.random()*3)];
+        let o = this.ctx.createOscillator(), g = this.ctx.createGain();
+        o.type = 'triangle'; o.frequency.value = freq;
+        o.detune.value = (Math.random()-0.5)*36;
+        g.gain.setValueAtTime(0.1, this.ctx.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime+0.44);
+        o.connect(g).connect(this.reverb);
+        o.start(); o.stop(this.ctx.currentTime+0.42);
+      }
+      shimmerPad(chord) {
+        let deg = chord[2];
+        let freq = this.scale[deg]*2.7;
+        let o = this.ctx.createOscillator(), g = this.ctx.createGain();
+        o.type = 'sine'; o.frequency.value = freq;
+        g.gain.setValueAtTime(0.08, this.ctx.currentTime);
+        g.gain.linearRampToValueAtTime(0.001, this.ctx.currentTime+1.8);
+        o.connect(g).connect(this.reverb);
+        o.start(); o.stop(this.ctx.currentTime+1.8);
+      }
+      // --- VOID ENGINE: float, melt, bell, acid heaven ---
       voidEngine() {
-        // Only pads, bells, shimmer, random stereo, slow LFO
         let chord = this.progression[this.chordStep];
         let posInBar = this.tick % 16;
         if (posInBar===0 || posInBar===8) this.floatPad(chord);
-        if (posInBar===7 && Math.random()<0.43) this.voidBell();
-        if (posInBar===13 && Math.random()<0.23) this.angelic();
+        if (posInBar===7 && Math.random()<0.47) this.voidBell();
+        if (posInBar===13 && Math.random()<0.25) this.angelic();
       }
       floatPad(chord) {
         let now = this.ctx.currentTime;
@@ -230,6 +342,26 @@
         o.connect(g).connect(this.reverb);
         o.start(); o.stop(this.ctx.currentTime+2.8);
       }
+      // ---- Optional: GPS location based "episodes" ----
+      // enableEpisodes() {
+      //   if (!navigator.geolocation) return;
+      //   let lastPos = null;
+      //   setInterval(()=>{
+      //     navigator.geolocation.getCurrentPosition(pos=>{
+      //       if (!lastPos) { lastPos = pos.coords; return; }
+      //       let dist = Math.sqrt(
+      //         Math.pow(pos.coords.latitude-lastPos.latitude,2)+
+      //         Math.pow(pos.coords.longitude-lastPos.longitude,2)
+      //       );
+      //       if (dist>0.0009) { // ~100m
+      //         this.episodeId++;
+      //         // Trigger new music section, maybe a one-time visual cue here
+      //         lastPos = pos.coords;
+      //         this.movementScore += 90; // level up song
+      //       }
+      //     });
+      //   },8000);
+      // }
       showError(msg) {
         let e = document.getElementById('error');
         e.textContent = msg; e.classList.remove('hidden');
