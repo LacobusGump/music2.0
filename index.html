@@ -74,6 +74,12 @@
       overflow: hidden;
       background: rgba(0,255,170,0.03);
       margin-bottom: 2rem;
+      transition: all 0.8s ease;
+    }
+    
+    .spatial-viz.void {
+      background: rgba(138,43,226,0.05);
+      border-color: rgba(138,43,226,0.3);
     }
     
     .orb {
@@ -85,8 +91,19 @@
       top: 50%;
       left: 50%;
       transform: translate(-50%, -50%);
-      transition: all 0.1s ease;
+      transition: all 0.3s ease;
       box-shadow: 0 0 30px rgba(0,255,170,0.5);
+    }
+    
+    .orb.void {
+      background: radial-gradient(circle, #8a2be2, transparent);
+      box-shadow: 0 0 40px rgba(138,43,226,0.7);
+      animation: voidFloat 4s ease-in-out infinite;
+    }
+    
+    @keyframes voidFloat {
+      0%, 100% { transform: translate(-50%, -50%) scale(1); }
+      50% { transform: translate(-50%, -60%) scale(1.1); }
     }
     
     .stats {
@@ -102,12 +119,23 @@
       border-radius: 12px;
       border: 1px solid rgba(0,255,170,0.2);
       backdrop-filter: blur(10px);
+      transition: all 0.8s ease;
+    }
+    
+    .stat.void {
+      background: rgba(138,43,226,0.1);
+      border-color: rgba(138,43,226,0.3);
     }
     
     .stat-value {
       font-size: 1.3rem;
       font-weight: 700;
       color: #00ffaa;
+      transition: color 0.8s ease;
+    }
+    
+    .stat-value.void {
+      color: #8a2be2;
     }
     
     .stat-label {
@@ -121,11 +149,22 @@
       color: #4ecdc4;
       opacity: 0.8;
       animation: breathe 2s ease-in-out infinite;
+      transition: all 0.8s ease;
+    }
+    
+    .status.void {
+      color: #8a2be2;
+      animation: voidBreathe 3s ease-in-out infinite;
     }
     
     @keyframes breathe {
       0%, 100% { opacity: 0.8; }
       50% { opacity: 1; }
+    }
+    
+    @keyframes voidBreathe {
+      0%, 100% { opacity: 0.6; }
+      50% { opacity: 0.9; }
     }
     
     .hidden { display: none !important; }
@@ -185,6 +224,14 @@
         this.step = 0;
         this.groove = 'CHILL';
         
+        // Void state management
+        this.voidMode = false;
+        this.motionHistory = [];
+        this.voidTimer = null;
+        this.voidStartTime = null;
+        this.ambientGain = null;
+        this.voidOscillators = [];
+        
         // J Dilla inspired swing timing
         this.swing = [0, 0.1, 0, 0.15, 0, 0.08, 0, 0.12];
         
@@ -217,6 +264,11 @@
           this.ctx = new (window.AudioContext || window.webkitAudioContext)();
           await this.ctx.resume();
           
+          // Create ambient gain node for void mode
+          this.ambientGain = this.ctx.createGain();
+          this.ambientGain.gain.value = 0;
+          this.ambientGain.connect(this.ctx.destination);
+          
           document.getElementById('start').classList.add('hidden');
           ['viz', 'stats', 'status'].forEach(id => 
             document.getElementById(id).classList.remove('hidden')
@@ -246,8 +298,17 @@
           this.motion = Math.min(100, Math.sqrt(dx*dx + dy*dy + dz*dz) * 20);
           this.last = { x: acc.x, y: acc.y, z: acc.z };
           
+          // Track motion history for void detection
+          this.motionHistory.push(this.motion);
+          if (this.motionHistory.length > 30) { // Keep 30 readings (~3 seconds)
+            this.motionHistory.shift();
+          }
+          
           this.pos.x = Math.max(10, Math.min(90, 50 + acc.x * 4));
           this.pos.y = Math.max(10, Math.min(90, 50 + acc.y * 4));
+          
+          // Check for void state
+          this.checkVoidState();
           
           // Update groove based on motion
           this.updateGroove();
@@ -255,7 +316,114 @@
         }, { passive: true });
       }
       
+      checkVoidState() {
+        const avgMotion = this.motionHistory.reduce((a, b) => a + b, 0) / this.motionHistory.length;
+        
+        if (avgMotion < 5 && this.motionHistory.length >= 20) {
+          // Entering void mode
+          if (!this.voidMode) {
+            this.enterVoidMode();
+          }
+        } else if (avgMotion > 15 && this.voidMode) {
+          // Exiting void mode
+          this.exitVoidMode();
+        }
+      }
+      
+      enterVoidMode() {
+        this.voidMode = true;
+        this.voidStartTime = this.ctx.currentTime;
+        this.groove = 'VOID';
+        
+        // Update UI
+        document.getElementById('status').textContent = '✨ Floating in the void...';
+        ['viz', 'orb', 'status'].forEach(id => 
+          document.getElementById(id).classList.add('void')
+        );
+        document.querySelectorAll('.stat').forEach(stat => stat.classList.add('void'));
+        document.querySelectorAll('.stat-value').forEach(val => val.classList.add('void'));
+        
+        // Start ambient void soundscape
+        this.startVoidAmbient();
+      }
+      
+      exitVoidMode() {
+        this.voidMode = false;
+        this.voidStartTime = null;
+        
+        // Update UI
+        document.getElementById('status').textContent = '🎵 Flowing with your vibe...';
+        ['viz', 'orb', 'status'].forEach(id => 
+          document.getElementById(id).classList.remove('void')
+        );
+        document.querySelectorAll('.stat').forEach(stat => stat.classList.remove('void'));
+        document.querySelectorAll('.stat-value').forEach(val => val.classList.remove('void'));
+        
+        // Stop ambient void soundscape
+        this.stopVoidAmbient();
+      }
+      
+      startVoidAmbient() {
+        // Create ethereal pad sounds
+        const frequencies = [220, 277, 330, 415]; // Ambient chord tones
+        
+        frequencies.forEach((freq, i) => {
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          const filter = this.ctx.createBiquadFilter();
+          
+          osc.type = 'sine';
+          osc.frequency.value = freq;
+          
+          filter.type = 'lowpass';
+          filter.frequency.value = 800;
+          filter.Q.value = 0.5;
+          
+          gain.gain.setValueAtTime(0, this.ctx.currentTime);
+          gain.gain.linearRampToValueAtTime(0.03, this.ctx.currentTime + 2);
+          
+          // Subtle frequency modulation for floating effect
+          const lfo = this.ctx.createOscillator();
+          const lfoGain = this.ctx.createGain();
+          lfo.frequency.value = 0.1 + i * 0.05;
+          lfoGain.gain.value = 2;
+          
+          lfo.connect(lfoGain);
+          lfoGain.connect(osc.frequency);
+          
+          osc.connect(filter).connect(gain).connect(this.ambientGain);
+          
+          osc.start();
+          lfo.start();
+          
+          this.voidOscillators.push({ osc, lfo, gain });
+        });
+        
+        // Slowly fade in ambient
+        this.ambientGain.gain.linearRampToValueAtTime(0.4, this.ctx.currentTime + 3);
+      }
+      
+      stopVoidAmbient() {
+        // Fade out ambient
+        this.ambientGain.gain.linearRampToValueAtTime(0, this.ctx.currentTime + 2);
+        
+        // Stop all void oscillators
+        setTimeout(() => {
+          this.voidOscillators.forEach(({ osc, lfo, gain }) => {
+            try {
+              osc.stop();
+              lfo.stop();
+            } catch (e) {
+              // Oscillator might already be stopped
+            }
+          });
+          this.voidOscillators = [];
+        }, 2000);
+      }
+      
       updateGroove() {
+        if (this.voidMode) return;
+        
         if (this.motion < 20) {
           this.groove = 'CHILL';
           this.bpm = 85 + this.motion * 0.3;
@@ -272,7 +440,11 @@
         const tick = () => {
           if (!this.active) return;
           
-          this.playGroove();
+          if (!this.voidMode) {
+            this.playGroove();
+          } else {
+            this.playVoidElements();
+          }
           
           this.step = (this.step + 1) % 16;
           if (this.step === 0) {
@@ -281,10 +453,67 @@
           }
           
           const swingDelay = this.swing[this.step % 8] * 50;
-          setTimeout(tick, (60000 / this.bpm / 4) + swingDelay);
+          const currentBpm = this.voidMode ? 60 : this.bpm;
+          setTimeout(tick, (60000 / currentBpm / 4) + swingDelay);
         };
         
         tick();
+      }
+      
+      playVoidElements() {
+        // Occasional ethereal bells or chimes
+        if (Math.random() < 0.02) {
+          this.voidBell();
+        }
+        
+        // Subtle rhythmic pulses every 4 beats
+        if (this.step % 16 === 0) {
+          this.voidPulse();
+        }
+      }
+      
+      voidBell() {
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        const filter = this.ctx.createBiquadFilter();
+        
+        osc.type = 'sine';
+        osc.frequency.value = 880 + Math.random() * 1760;
+        
+        filter.type = 'lowpass';
+        filter.frequency.value = 2000;
+        filter.Q.value = 2;
+        
+        gain.gain.setValueAtTime(0, this.ctx.currentTime);
+        gain.gain.linearRampToValueAtTime(0.05, this.ctx.currentTime + 0.1);
+        gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 3);
+        
+        osc.connect(filter).connect(gain).connect(this.ctx.destination);
+        
+        osc.start();
+        osc.stop(this.ctx.currentTime + 3);
+      }
+      
+      voidPulse() {
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        const filter = this.ctx.createBiquadFilter();
+        
+        osc.type = 'sine';
+        osc.frequency.value = 55;
+        
+        filter.type = 'lowpass';
+        filter.frequency.value = 120;
+        filter.Q.value = 1;
+        
+        gain.gain.setValueAtTime(0, this.ctx.currentTime);
+        gain.gain.linearRampToValueAtTime(0.1, this.ctx.currentTime + 0.2);
+        gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 2);
+        
+        osc.connect(filter).connect(gain).connect(this.ctx.destination);
+        
+        osc.start();
+        osc.stop(this.ctx.currentTime + 2);
       }
       
       playGroove() {
@@ -460,10 +689,13 @@
         const orb = document.getElementById('orb');
         orb.style.left = `${this.pos.x}%`;
         orb.style.top = `${this.pos.y}%`;
-        orb.style.transform = `translate(-50%, -50%) scale(${1 + this.motion * 0.01})`;
+        
+        if (!this.voidMode) {
+          orb.style.transform = `translate(-50%, -50%) scale(${1 + this.motion * 0.01})`;
+        }
         
         document.getElementById('motion').textContent = Math.round(this.motion);
-        document.getElementById('bpm').textContent = Math.round(this.bpm);
+        document.getElementById('bpm').textContent = this.voidMode ? 60 : Math.round(this.bpm);
         document.getElementById('groove').textContent = this.groove;
         
         requestAnimationFrame(() => this.animate());
