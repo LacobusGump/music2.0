@@ -664,23 +664,73 @@
           osc.stop(this.ctx.currentTime + 1.5);
         });
       }
-      
       spatialHit() {
+        // Create a warm, echoy spatial effect instead of harsh triangle waves
+        this.createEchoLayer();
+        this.createSineLayer();
+      }
+      
+      createEchoLayer() {
         const osc = this.ctx.createOscillator();
         const gain = this.ctx.createGain();
+        const filter = this.ctx.createBiquadFilter();
+        const delay = this.ctx.createDelay(0.3);
+        const feedback = this.ctx.createGain();
         const panner = this.ctx.createStereoPanner();
         
-        osc.type = 'triangle';
-        osc.frequency.value = 440 + Math.random() * 880;
+        osc.type = 'sine';
+        osc.frequency.value = 220 + Math.random() * 110; // Much lower, warmer frequencies
         
-        panner.pan.value = (this.pos.x - 50) / 50;
+        filter.type = 'lowpass';
+        filter.frequency.value = 800;
+        filter.Q.value = 0.5;
         
-        gain.gain.setValueAtTime(0.1, this.ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.3);
+        delay.delayTime.value = 0.15 + Math.random() * 0.1;
+        feedback.gain.value = 0.3;
         
-        osc.connect(gain).connect(panner).connect(this.ctx.destination);
+        panner.pan.value = (this.pos.x - 50) / 100;
+        
+        gain.gain.setValueAtTime(0.04, this.ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 1.2);
+        
+        // Create echo feedback loop
+        osc.connect(filter).connect(gain).connect(panner).connect(this.ctx.destination);
+        gain.connect(delay).connect(feedback).connect(gain);
+        
         osc.start();
-        osc.stop(this.ctx.currentTime + 0.3);
+        osc.stop(this.ctx.currentTime + 1.2);
+      }
+      
+      createSineLayer() {
+        // Add subtle sine wave harmonics for depth
+        const fundamentalFreq = 110 + (this.motion * 2);
+        const harmonics = [1, 1.5, 2, 2.5]; // Perfect 5th, octave, major 3rd above octave
+        
+        harmonics.forEach((harmonic, i) => {
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          const filter = this.ctx.createBiquadFilter();
+          const panner = this.ctx.createStereoPanner();
+          
+          osc.type = 'sine';
+          osc.frequency.value = fundamentalFreq * harmonic;
+          
+          filter.type = 'lowpass';
+          filter.frequency.value = 400 + (i * 200);
+          filter.Q.value = 0.8;
+          
+          const panOffset = (i % 2 === 0 ? -0.3 : 0.3) + (this.pos.x - 50) / 200;
+          panner.pan.value = Math.max(-1, Math.min(1, panOffset));
+          
+          const baseGain = 0.02 / (i + 1); // Each harmonic gets quieter
+          gain.gain.setValueAtTime(0, this.ctx.currentTime);
+          gain.gain.linearRampToValueAtTime(baseGain, this.ctx.currentTime + 0.2);
+          gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.8);
+          
+          osc.connect(filter).connect(gain).connect(panner).connect(this.ctx.destination);
+          osc.start();
+          osc.stop(this.ctx.currentTime + 0.8);
+        });
       }
       
       animate() {
