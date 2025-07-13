@@ -41,6 +41,12 @@
       box-shadow:0 0 90px 12px #334f9655,0 0 130px #02122e88 inset;
       border:2.5px solid #3e579c60;
       display:flex; align-items:center; justify-content:center;
+      transition:all 2.5s cubic-bezier(0.4,0,0.2,1);
+    }
+    .orb-viz.void {
+      background:radial-gradient(circle at 44% 50%,#4a3244 12%,#1a0f16 90%);
+      box-shadow:0 0 140px 20px #9f5f8855,0 0 180px #2e1222aa inset;
+      border:2.5px solid #8c5f9c80;
     }
     .music-orb {
       position:absolute; width:108px; height:108px; left:50%; top:50%;
@@ -48,33 +54,47 @@
       background:radial-gradient(circle at 58% 41%,#17234a 0%,#b4cfff35 69%,#171d27 100%);
       border-radius:50%;
       box-shadow:0 0 100px #a8c8fa48,0 0 32px #b9fff888;
-      z-index:2; transition:background .7s,box-shadow 1.2s;
+      z-index:2; 
+      transition:all 2.8s cubic-bezier(0.25,0.8,0.25,1);
       animation:orbPulse 4.8s cubic-bezier(.65,0,.35,1) infinite alternate;
     }
     .music-orb.void {
       background:radial-gradient(circle at 52% 46%,#fff2ee 4%,#ecc4e7 30%,#c1c4fd 90%);
-      box-shadow:0 0 160px #edbcff44,0 0 90px #fff8;
-      animation:none;
+      box-shadow:0 0 200px #edbcff88,0 0 120px #fff8,0 0 300px #ff9fdd33;
+      animation:voidPulse 6.2s cubic-bezier(.4,0,.6,1) infinite alternate;
+      transform:translate(-50%,-50%) scale(1.08);
     }
     .orb-glow {
       position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
       width:320px; height:320px; border-radius:50%; z-index:1;
       background:radial-gradient(circle at 52% 48%,#6eacf933 1%,#bdf2ffa0 30%,#0b0f1800 98%);
       pointer-events:none; mix-blend-mode:lighten; opacity:.81;
-      filter:blur(6px); animation:orbPulse 4.8s cubic-bezier(.65,0,.35,1) infinite alternate;
+      filter:blur(6px); 
+      transition:all 2.5s cubic-bezier(0.4,0,0.2,1);
+      animation:orbPulse 4.8s cubic-bezier(.65,0,.35,1) infinite alternate;
+    }
+    .orb-glow.void {
+      background:radial-gradient(circle at 52% 48%,#f99aff55 1%,#ecc4e7aa 30%,#1a0f1600 98%);
+      width:420px; height:420px; filter:blur(12px);
+      animation:voidGlow 7.1s cubic-bezier(.3,0,.7,1) infinite alternate;
     }
     @keyframes orbPulse {from{opacity:.79;}to{opacity:.96;}}
+    @keyframes voidPulse {from{opacity:.85;transform:translate(-50%,-50%) scale(1.08);}to{opacity:1;transform:translate(-50%,-50%) scale(1.12);}}
+    @keyframes voidGlow {from{opacity:.6;}to{opacity:.95;}}
     .world-label {
       position:absolute; left:50%; top:93%; transform:translate(-50%,-50%);
       background:rgba(17,24,31,0.85); color:#e5f8ff; padding:12px 30px;
       border-radius:30px; font-size:1.18rem; letter-spacing:.6px;
       font-weight:600; opacity:0; pointer-events:none;
       box-shadow:0 8px 30px #0b0f1b36;
-      transition:opacity 0.8s;
-      z-index:10;
-      text-align:center;
+      transition:all 0.8s cubic-bezier(0.4,0,0.2,1);
+      z-index:10; text-align:center;
     }
-    .world-label.show { opacity:1;}
+    .world-label.show { opacity:1; transform:translate(-50%,-50%) scale(1.02);}
+    .world-label.void {
+      background:rgba(42,24,41,0.9); color:#f9e5ff;
+      box-shadow:0 8px 40px #3d1b3b66;
+    }
     @media (max-width:500px) {
       .intro-title{font-size:1.4rem;}
       .world-label{font-size:1rem;}
@@ -89,17 +109,14 @@
     <button class="intro-btn" id="begin">Begin</button>
   </div>
   <div class="app" id="app">
-    <div class="orb-viz">
-      <div class="orb-glow"></div>
+    <div class="orb-viz" id="orbViz">
+      <div class="orb-glow" id="orbGlow"></div>
       <div class="music-orb" id="orb"></div>
       <div class="world-label" id="worldLabel"></div>
     </div>
   </div>
   <script>
   // ---- GUMP Engine by ChatGPT x James McCandless, 2025 ----
-  // For best results: use on modern mobile with sensors + location allowed.
-
-  // ==== UTILITIES ====
   function lerp(a, b, t) { return a + (b - a) * t; }
   function clamp(x,a,b){return Math.max(a,Math.min(b,x));}
   function rand(a,b){return a+Math.random()*(b-a);}
@@ -110,72 +127,65 @@
   function roundTemp(t){return Math.round(t*10)/10;}
   function mod(n, m) { return ((n % m) + m) % m; }
 
-  // ==== STATE ====
+  // STATE
   let context = null, started = false, allowMotion = false, allowGeo = false;
   let weather = {desc:"", temp:0, main:"Clear", day:true};
   let city = "Nowhere", region = "", country = "";
   let timeInfo = {hour:12, min:0, weekday:"Monday", month:"January", season:"Winter"};
   let motion = {moving:false, level:0, heading:0, lastStep:0, steps:0};
   let geo = {lat:40.7, lon:-74, accuracy:300, street:"", lastCornerTime:0};
-  let worldLabel = "";
-  let worldLabelEl = null, orbEl = null;
-  let voidMode = false, lastVoidSwitch = 0, musicState = "idle";
+  let worldLabel = "", worldLabelEl, orbEl, orbVizEl, orbGlowEl;
+  let voidMode = false, voidTransition = 0, lastVoidSwitch = 0, musicState = "idle";
   let lastMovementTime = 0, buildStage = 0, sectionStep = 0, beat = 0;
-  let gumpDNA = {};
+  let gumpDNA = {}, voidPads = [], mainGain, voidGain, crossfader = 0;
 
-  // ==== MAIN FLOW ====
+  // MAIN FLOW
   window.onload = ()=>{
     orbEl = document.getElementById('orb');
+    orbVizEl = document.getElementById('orbViz');
+    orbGlowEl = document.getElementById('orbGlow');
     worldLabelEl = document.getElementById('worldLabel');
     document.getElementById('begin').onclick = startGUMP;
   };
 
-  // --- Intro Screen Handler ---
   function startGUMP(){
     fadeOut(document.getElementById('intro'),900);
     setTimeout(()=>{
-      document.getElementById('intro').classList.add('hidden');
+      document.getElementById('intro').style.display='none';
       document.getElementById('app').style.opacity=1;
       setupWorld();
     },900);
   }
 
-  // ==== WORLD SETUP ====
+  // WORLD SETUP
   async function setupWorld(){
-    // --- Time/Season ---
     const dt = new Date();
     timeInfo.hour = dt.getHours(); timeInfo.min = dt.getMinutes();
     timeInfo.weekday = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"][dt.getDay()];
     timeInfo.month = ["January","February","March","April","May","June","July","August","September","October","November","December"][dt.getMonth()];
     const m = dt.getMonth(); timeInfo.season = (m<2||m===11)?"Winter":(m<5)?"Spring":(m<8)?"Summer":"Fall";
-    // --- Get location & weather ---
+    
     getLocationAndWeather();
-    // --- Get motion permission on iOS ---
     if(window.DeviceMotionEvent && typeof DeviceMotionEvent.requestPermission==="function"){
       DeviceMotionEvent.requestPermission().then(r=>{
         if(r==="granted") allowMotion=true;
       }).catch(()=>{});
     } else { allowMotion=true; }
-    // --- Setup motion listeners ---
     setupMotion();
-    // --- Begin music engine ---
     setTimeout(()=>initMusicEngine(),900);
   }
 
-  // ==== LOCATION, WEATHER ====
   function getLocationAndWeather(){
     if(!navigator.geolocation) { useDefaultLocation(); return; }
     navigator.geolocation.getCurrentPosition(async pos=>{
       allowGeo=true;
       geo.lat = pos.coords.latitude; geo.lon = pos.coords.longitude; geo.accuracy = pos.coords.accuracy;
-      // Reverse geocode city/region (Open-Meteo or Nominatim; here Nominatim, no API key)
       fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${geo.lat}&lon=${geo.lon}&zoom=10`)
         .then(r=>r.json()).then(data=>{
           city = data.address.city||data.address.town||data.address.village||data.address.hamlet||"";
           region = data.address.state||data.address.county||"";
           country = data.address.country||"";
-        });
-      // Get weather (Open-Meteo, no key)
+        }).catch(()=>{});
       fetch(`https://api.open-meteo.com/v1/forecast?latitude=${geo.lat}&longitude=${geo.lon}&current_weather=true`)
         .then(r=>r.json()).then(data=>{
           if(data.current_weather){
@@ -184,32 +194,26 @@
             weather.desc = `${capitalize(weather.main)}`;
             weather.day = (data.current_weather.is_day===1);
           }
-        });
-      // Street name (for corners, low priority)
-      fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${geo.lat}&lon=${geo.lon}&zoom=18`)
-        .then(r=>r.json()).then(data=>{
-          geo.street = (data.address.road||"").replace(/^\d+\s*/,"");
-        });
+        }).catch(()=>{});
     }, useDefaultLocation, {enableHighAccuracy:true,timeout:6000});
   }
+
   function useDefaultLocation(){
     city="Jersey"; region="NJ"; country="USA";
     weather.temp=27; weather.main="Clear"; weather.day=true; weather.desc="Clear";
-    geo.street = "";
   }
+
   function decodeWeather(code){
-    // See Open-Meteo weather codes
     if(code<3) return "Clear";
     if(code<5) return "Cloudy";
     if(code<7) return "Fog";
     if(code<20) return "Drizzle";
     if(code<30) return "Rain";
     if(code<40) return "Snow";
-    if(code<50) return "Thunder";
     return "Clear";
   }
 
-  // ==== MOTION ====
+  // MOTION
   function setupMotion(){
     window.addEventListener('devicemotion',e=>{
       if(!allowMotion) return;
@@ -217,160 +221,246 @@
       if(!acc) return;
       let lv = Math.sqrt(acc.x*acc.x+acc.y*acc.y+acc.z*acc.z);
       let t = now();
-      // Step detection: strong movement + not too recent
       if(lv>13 && t-motion.lastStep>250){
         motion.steps++; motion.lastStep=t; lastMovementTime=t; motion.moving=true;
       }
-      // Level for intensity
       motion.level = lerp(motion.level, clamp(lv-9,0,30), 0.08);
-      // If no movement in 1.5s, set moving to false
       if(t-lastMovementTime>1800){ motion.moving=false; motion.level=lerp(motion.level,0,0.05);}
     });
-    // Optional: orientation (for melody/space)
     window.addEventListener('deviceorientation',e=>{
-      if(typeof e.alpha === "number"){
-        motion.heading = e.alpha;
-      }
+      if(typeof e.alpha === "number") motion.heading = e.alpha;
     });
   }
 
-  // ==== MUSIC ENGINE ====
-  let audio=null, bpm=120, baseInterval=250, tickId=null, padOscs=[], layers=[], heavenMode=false, heavenTime=0, dropMode=false, dropTimer=0;
+  // MUSIC ENGINE
+  let audio=null, bpm=120, baseInterval=250, tickId=null, padOscs=[], layers=[];
+  
   function initMusicEngine(){
     if(context) return;
     context = audio = new (window.AudioContext||window.webkitAudioContext)();
     bpm = 120; baseInterval = 60000/bpm/2;
+    
+    // Create main buses with smooth crossfading
+    mainGain = audio.createGain();
+    voidGain = audio.createGain();
+    mainGain.connect(audio.destination);
+    voidGain.connect(audio.destination);
+    mainGain.gain.value = 1;
+    voidGain.gain.value = 0;
+    
     gumpDNA = worldToMusicDNA();
     setTimeout(mainTick, 800);
-    fadeIn(orbEl,600);
   }
-  // Map world to music DNA (rules)
+
   function worldToMusicDNA(){
     let dna = {};
-    // Harmony root: time/season
-    let roots = [220, 247, 262, 294, 330, 349, 392, 440]; // A, B, C, D, E, F, G, A
+    let roots = [220, 247, 262, 294, 330, 349, 392, 440];
     let hr = timeInfo.hour;
     let seasonMap = {Winter:0,Spring:2,Summer:4,Fall:5};
     let rootI = mod(hr+seasonMap[timeInfo.season],roots.length);
     dna.root = roots[rootI];
-    // Mode/scale: day/night, weather
     dna.scale = weather.day ? [0,2,4,5,7,9,11,12] : [0,2,3,5,7,8,10,12];
-    // Chord prog: weekday/weekend, temp
-    let progs = [
-      [0,4,5,3], [0,3,4,5], [0,5,3,4], [0,2,5,4]
-    ];
+    let progs = [[0,4,5,3], [0,3,4,5], [0,5,3,4], [0,2,5,4]];
     dna.chordProg = progs[mod(timeInfo.hour+dtHash(timeInfo.weekday),progs.length)];
-    // Groove: weather/main, temp, weekend
     dna.groove = (weather.main==="Rain"||weather.main==="Snow") ? "sparse" : 
                  (weather.main==="Cloudy"||weather.main==="Fog") ? "floaty" :
-                 (weather.temp>28) ? "hot" :
-                 (weather.temp<8) ? "chill" :
+                 (weather.temp>28) ? "hot" : (weather.temp<8) ? "chill" :
                  (["Saturday","Sunday"].includes(timeInfo.weekday)) ? "party" : "steady";
-    // Bells: night or heaven
-    dna.hasBells = (!weather.day||voidMode||heavenMode);
-    // Pad detune: heat, humidity
+    dna.hasBells = (!weather.day||voidMode);
     dna.padDetune = weather.temp>30? 0.03 : weather.temp<10? 0.012 : 0.017;
-    // Sub energy: late night, city
-    dna.subBoost = (!weather.day && hr>21)||(city.length>2 && city[0].toUpperCase()==="N")?1.5:1.0;
-    // Label
+    dna.subBoost = (!weather.day && hr>21)||(city.length>2)?1.5:1.0;
     dna.label = [
       weather.day? (hr<12?"Morning":"Afternoon") : (hr<21?"Evening":"Night"),
-      capitalize(weather.main),
-      `${roundTemp(weather.temp)}°`,
-      (city?city:"")
+      capitalize(weather.main), `${roundTemp(weather.temp)}°`, (city?city:"")
     ].filter(Boolean).join(" · ");
     return dna;
   }
+  
   function dtHash(s){let h=0;for(let i=0;i<s.length;i++)h+=s.charCodeAt(i);return h;}
-  // --- Ticking ---
-  function mainTick(){
-    if(!audio) return;
+
+  // SMOOTH VOID TRANSITIONS
+  function updateVoidTransition(){
     let t = now();
     let movement = motion.moving||motion.level>3;
-    let curVoid = !movement;
-    // Switch heaven/void
-    if(curVoid !== voidMode && t-lastVoidSwitch>500){
-      voidMode = curVoid; lastVoidSwitch = t;
-      heavenTime = t;
-      showWorldLabel(voidMode?gumpDNA.label.replace(/Morning|Afternoon|Evening|Night/i,"Heaven") : gumpDNA.label);
-      orbEl.classList.toggle('void',voidMode);
+    let targetVoid = !movement;
+    
+    if(targetVoid !== voidMode && t-lastVoidSwitch>800){
+      voidMode = targetVoid;
+      lastVoidSwitch = t;
+      voidTransition = 0;
+      
+      // Smooth visual transition
+      orbVizEl.classList.toggle('void', voidMode);
+      orbEl.classList.toggle('void', voidMode);
+      orbGlowEl.classList.toggle('void', voidMode);
+      worldLabelEl.classList.toggle('void', voidMode);
+      
+      let label = voidMode ? 
+        gumpDNA.label.replace(/Morning|Afternoon|Evening|Night/i,"Heaven") : 
+        gumpDNA.label;
+      showWorldLabel(label);
     }
-    // MUSIC: Build up section based on buildStage (drums, then pad, then melody etc)
+    
+    // Smooth crossfade between world/void audio
+    let targetCrossfade = voidMode ? 1 : 0;
+    crossfader = lerp(crossfader, targetCrossfade, 0.015);
+    
+    if(mainGain && voidGain){
+      mainGain.gain.value = (1-crossfader) * 0.8;
+      voidGain.gain.value = crossfader * 0.6;
+    }
+  }
+
+  function mainTick(){
+    if(!audio) return;
+    updateVoidTransition();
+    
     if(!voidMode){
-      if(movement){ buildStage = clamp(buildStage+1,0,8);}
-      else{ buildStage = clamp(buildStage-1,0,8);}
-    } else {
-      buildStage = clamp(buildStage-1,0,8);
-    }
-    // Main groove
-    sectionStep++;
-    beat++;
-    // --- Voids (Heaven) ---
-    if(voidMode){
-      heavenMusic();
-      fadeIn(orbEl,1100);
-    } else {
-      // --- Normal World ---
+      let movement = motion.moving||motion.level>3;
+      buildStage = clamp(buildStage + (movement?1:-1), 0, 8);
       worldMusic(buildStage);
-      fadeIn(orbEl,800);
     }
-    // "Corner" (every 24 steps or new street, trigger drop)
-    if(motion.steps>0 && motion.steps%24===0 && (t-geo.lastCornerTime>16000)){
-      geo.lastCornerTime = t;
-      triggerDrop("Corner Drop");
+    
+    if(voidMode || crossfader > 0.1){
+      voidMusic();
     }
+    
+    sectionStep++; beat++;
+    
+    if(motion.steps>0 && motion.steps%24===0 && (now()-geo.lastCornerTime>16000)){
+      geo.lastCornerTime = now();
+      triggerDrop("Corner");
+    }
+    
     tickId = setTimeout(mainTick, baseInterval);
   }
-  // --- WORLD MUSIC SECTION ---
+
+  // WORLD MUSIC
   function worldMusic(stage){
-    // Stop all heaven/void sounds
-    stopPads();
-    // Build up: 0=drums only, 2=pad, 4=sub, 6=lead, 8=percs/FX
-    // -- Drums --
     if(stage>0) drumLoop();
-    // -- Pads --
     if(stage>2) padLoop();
-    // -- Sub/Bass --
     if(stage>4) subLoop();
-    // -- Melody/Lead --
     if(stage>6) leadLoop();
-    // -- Bells on top, only if night or very late
     if(stage>7 && gumpDNA.hasBells) bellLoop();
   }
-  // --- HEAVEN/VOID SECTION ---
-  function heavenMusic(){
-    if(now()-heavenTime<900){
-      fadeIn(orbEl,1200);
-      orbEl.classList.add('void');
+
+  // IMPROVED VOID MUSIC
+  function voidMusic(){
+    cleanupVoidPads();
+    
+    // Ethereal pad layers with smooth modulation
+    if(beat%4===0){
+      let baseFreq = gumpDNA.root * 0.5;
+      for(let i=0; i<4; i++){
+        let osc = audio.createOscillator();
+        let gain = audio.createGain();
+        let filter = audio.createBiquadFilter();
+        
+        osc.type = 'sawtooth';
+        osc.frequency.value = baseFreq * (1 + i * 0.007);
+        
+        filter.type = 'lowpass';
+        filter.frequency.value = 800 + Math.sin(now()*0.001) * 200;
+        filter.Q.value = 8;
+        
+        gain.gain.setValueAtTime(0, audio.currentTime);
+        gain.gain.linearRampToValueAtTime(0.12, audio.currentTime + 0.8);
+        gain.gain.linearRampToValueAtTime(0.08, audio.currentTime + 2.4);
+        gain.gain.exponentialRampToValueAtTime(0.001, audio.currentTime + 4.2);
+        
+        osc.connect(filter).connect(gain).connect(voidGain);
+        osc.start();
+        osc.stop(audio.currentTime + 4.2);
+        
+        voidPads.push({osc, gain, filter});
+      }
     }
-    heavenPads();
-    heavenBells();
+    
+    // Celestial bells with longer decay
+    if(beat%11===0){
+      let osc = audio.createOscillator();
+      let gain = audio.createGain();
+      let delay = audio.createDelay(0.3);
+      let delayGain = audio.createGain();
+      
+      osc.type = 'sine';
+      osc.frequency.value = gumpDNA.root * 3.14 + rand(-12, 12);
+      
+      delay.delayTime.value = 0.2;
+      delayGain.gain.value = 0.3;
+      
+      gain.gain.setValueAtTime(0.15, audio.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, audio.currentTime + 3.5);
+      
+      osc.connect(gain);
+      gain.connect(voidGain);
+      gain.connect(delay);
+      delay.connect(delayGain);
+      delayGain.connect(voidGain);
+      
+      osc.start();
+      osc.stop(audio.currentTime + 3.5);
+      
+      voidPads.push({osc, gain, delay, delayGain});
+    }
+    
+    // Ambient texture sweeps
+    if(beat%16===0){
+      let osc = audio.createOscillator();
+      let gain = audio.createGain();
+      let filter = audio.createBiquadFilter();
+      
+      osc.type = 'triangle';
+      osc.frequency.value = gumpDNA.root * 0.25;
+      
+      filter.type = 'bandpass';
+      filter.frequency.setValueAtTime(200, audio.currentTime);
+      filter.frequency.exponentialRampToValueAtTime(1200, audio.currentTime + 6);
+      filter.Q.value = 12;
+      
+      gain.gain.setValueAtTime(0.06, audio.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, audio.currentTime + 6);
+      
+      osc.connect(filter).connect(gain).connect(voidGain);
+      osc.start();
+      osc.stop(audio.currentTime + 6);
+      
+      voidPads.push({osc, gain, filter});
+    }
   }
-  // ---- DRUMS ----
+
+  function cleanupVoidPads(){
+    voidPads = voidPads.filter(pad => {
+      try {
+        if(pad.osc.playbackState === 'finished' || pad.osc.playbackState === 3) {
+          return false;
+        }
+        return true;
+      } catch(e) {
+        return false;
+      }
+    });
+  }
+
+  // STANDARD DRUM/PAD FUNCTIONS (simplified)
   function drumLoop(){
-    // Groove tied to gumpDNA.groove
     let kickT = beat%4===0, snareT = beat%8===4, hatT = beat%2===1;
-    if(gumpDNA.groove==="party") { kickT=beat%4===0; snareT=beat%8===4; hatT=true;}
-    if(gumpDNA.groove==="hot")   { kickT=beat%2===0; snareT=beat%4===2; hatT=true;}
-    if(gumpDNA.groove==="sparse"){ kickT=beat%8===0; snareT=beat%16===8; hatT=beat%2===1;}
-    if(gumpDNA.groove==="chill") { kickT=beat%8===0; snareT=beat%8===4; hatT=beat%4===2;}
-    if(gumpDNA.groove==="floaty"){ kickT=beat%12===0; snareT=beat%16===8; hatT=beat%3===1;}
-    // Simple analog drum synths
     if(kickT) drumKick();
     if(snareT) drumSnare();
     if(hatT) drumHat();
   }
+
   function drumKick(){
     let o = audio.createOscillator(), g = audio.createGain();
     o.type='sine'; o.frequency.setValueAtTime(52, audio.currentTime);
     o.frequency.exponentialRampToValueAtTime(29, audio.currentTime+.12);
     g.gain.setValueAtTime(.42, audio.currentTime);
     g.gain.exponentialRampToValueAtTime(.001, audio.currentTime+.22);
-    o.connect(g).connect(audio.destination);
+    o.connect(g).connect(mainGain);
     o.start(); o.stop(audio.currentTime+.22);
   }
+
   function drumSnare(){
-    // Analog snare: noise+quick sine
     let buf = audio.createBuffer(1, audio.sampleRate*.13, audio.sampleRate);
     let out = buf.getChannelData(0);
     for(let i=0;i<buf.length;i++) out[i]=Math.random()*2-1;
@@ -378,18 +468,11 @@
     let nGain = audio.createGain();
     nGain.gain.setValueAtTime(.21, audio.currentTime);
     nGain.gain.exponentialRampToValueAtTime(.001, audio.currentTime+.09);
-    noise.connect(nGain).connect(audio.destination);
+    noise.connect(nGain).connect(mainGain);
     noise.start(); noise.stop(audio.currentTime+.11);
-    // Snap
-    let osc = audio.createOscillator(), g = audio.createGain();
-    osc.type='triangle'; osc.frequency.setValueAtTime(215, audio.currentTime);
-    g.gain.setValueAtTime(.04, audio.currentTime);
-    g.gain.exponentialRampToValueAtTime(.001, audio.currentTime+.06);
-    osc.connect(g).connect(audio.destination);
-    osc.start(); osc.stop(audio.currentTime+.08);
   }
+
   function drumHat(){
-    // Highpass noise burst
     let buf = audio.createBuffer(1, audio.sampleRate*.06, audio.sampleRate);
     let data = buf.getChannelData(0);
     for(let i=0;i<buf.length;i++) data[i]=Math.random()*2-1;
@@ -398,93 +481,58 @@
     let g = audio.createGain();
     g.gain.setValueAtTime(.1, audio.currentTime);
     g.gain.exponentialRampToValueAtTime(.001, audio.currentTime+.03);
-    noise.connect(hp).connect(g).connect(audio.destination);
+    noise.connect(hp).connect(g).connect(mainGain);
     noise.start(); noise.stop(audio.currentTime+.05);
   }
-  // ---- PADS ----
+
   function padLoop(){
-    stopPads();
     let root = gumpDNA.root, scale = gumpDNA.scale, prog = gumpDNA.chordProg;
-    let step = beat%prog.length;
-    let chord = prog[step];
-    let freqs = [root*Math.pow(2,scale[chord]/12), root*Math.pow(2,scale[(chord+2)%scale.length]/12), root*Math.pow(2,scale[(chord+4)%scale.length]/12)];
-    let det = gumpDNA.padDetune;
+    let step = beat%prog.length, chord = prog[step];
+    let freqs = [root*Math.pow(2,scale[chord]/12), root*Math.pow(2,scale[(chord+2)%scale.length]/12)];
     for(let i=0;i<freqs.length;i++){
       let o = audio.createOscillator(), g = audio.createGain();
-      o.type='sawtooth'; o.frequency.value=freqs[i]*(1+det*(i-1));
-      g.gain.value=0.055; o.connect(g).connect(audio.destination);
+      o.type='sawtooth'; o.frequency.value=freqs[i];
+      g.gain.value=0.055; o.connect(g).connect(mainGain);
       o.start(); o.stop(audio.currentTime+baseInterval/1000*1.6);
-      padOscs.push(o); layers.push(g);
     }
   }
-  function stopPads(){
-    while(padOscs.length){try{padOscs.pop().stop();}catch(e){}}
-    while(layers.length){try{layers.pop().disconnect();}catch(e){}}
-  }
-  // --- SUB BASS ---
+
   function subLoop(){
     let o = audio.createOscillator(), g = audio.createGain();
     o.type='triangle'; o.frequency.value=gumpDNA.root*0.5;
-    g.gain.value=0.15*gumpDNA.subBoost; o.connect(g).connect(audio.destination);
+    g.gain.value=0.15*gumpDNA.subBoost; o.connect(g).connect(mainGain);
     o.start(); o.stop(audio.currentTime+baseInterval/1000*1.5);
-    padOscs.push(o); layers.push(g);
   }
-  // --- LEAD ---
+
   function leadLoop(){
     let o = audio.createOscillator(), g = audio.createGain();
     o.type='triangle';
     let freq = gumpDNA.root*Math.pow(2,gumpDNA.scale[mod(sectionStep, gumpDNA.scale.length)]/12);
     o.frequency.value = freq + rand(-3,3);
-    g.gain.value=0.10; o.connect(g).connect(audio.destination);
+    g.gain.value=0.10; o.connect(g).connect(mainGain);
     o.start(); o.stop(audio.currentTime+baseInterval/1000*1.1);
-    padOscs.push(o); layers.push(g);
   }
-  // --- BELLS ---
+
   function bellLoop(){
     let o = audio.createOscillator(), g = audio.createGain();
     o.type='sine'; o.frequency.value=gumpDNA.root*2.67;
-    g.gain.value=0.18; o.connect(g).connect(audio.destination);
+    g.gain.value=0.18; o.connect(g).connect(mainGain);
     o.start(); o.frequency.linearRampToValueAtTime(o.frequency.value*1.19,audio.currentTime+0.4);
     g.gain.exponentialRampToValueAtTime(.001, audio.currentTime+1.05);
-    o.stop(audio.currentTime+1.05); padOscs.push(o); layers.push(g);
+    o.stop(audio.currentTime+1.05);
   }
-  // --- HEAVEN / VOID ---
-  function heavenPads(){
-    stopPads();
-    // Huge detune, unison, big reverb (WebAudio reverb here is minimal, so we fake)
-    let baseF = gumpDNA.root*rand(0.95,1.05);
-    for(let i=-2;i<=2;i++){
-      let o = audio.createOscillator(), g = audio.createGain();
-      o.type='sawtooth'; o.frequency.value=baseF*(1+i*0.012);
-      g.gain.value=0.08; o.connect(g).connect(audio.destination);
-      o.start(); o.stop(audio.currentTime+1.45);
-      padOscs.push(o); layers.push(g);
-    }
-  }
-  function heavenBells(){
-    if(beat%7!==0) return;
-    let o = audio.createOscillator(), g = audio.createGain();
-    o.type='triangle'; o.frequency.value=gumpDNA.root*2.5+rand(-7,11);
-    g.gain.value=0.17; o.connect(g).connect(audio.destination);
-    o.start(); o.frequency.linearRampToValueAtTime(o.frequency.value*1.14,audio.currentTime+0.4);
-    g.gain.exponentialRampToValueAtTime(.001, audio.currentTime+1.14);
-    o.stop(audio.currentTime+1.14); padOscs.push(o); layers.push(g);
-  }
-  // --- DROP/CORNER/EASTER EGG ---
+
   function triggerDrop(label){
-    // Fade orb color, play a short riff or impact
-    fadeIn(orbEl,500); orbEl.classList.add('void');
-    setTimeout(()=>{ orbEl.classList.remove('void'); },1300);
     let o = audio.createOscillator(), g = audio.createGain();
     o.type='sawtooth'; o.frequency.setValueAtTime(gumpDNA.root*4, audio.currentTime);
     o.frequency.linearRampToValueAtTime(gumpDNA.root*2, audio.currentTime+0.14);
     g.gain.setValueAtTime(.28, audio.currentTime);
     g.gain.exponentialRampToValueAtTime(.001, audio.currentTime+0.39);
-    o.connect(g).connect(audio.destination);
+    o.connect(g).connect(mainGain);
     o.start(); o.stop(audio.currentTime+0.39);
     showWorldLabel(label+" · "+gumpDNA.label,2200);
   }
-  // --- WORLD LABEL (cue) ---
+
   function showWorldLabel(str,dur=2200){
     if(worldLabel===str) return;
     worldLabel = str; worldLabelEl.textContent = str;
@@ -494,4 +542,3 @@
   </script>
 </body>
 </html>
-
