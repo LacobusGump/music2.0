@@ -188,12 +188,13 @@
         this.lastStepTime = 0;
         this.bpm = 120;
         this.last = { x: 0, y: 0, z: 0 };
-        this.stepHistory = [0];
+        this.stepHistory = [];
         this.void = false;
         this.weather = 'clear';
         this.weatherSources = [];
         this.voidOscs = [];
         this.step = 0;
+        this.stepTimestamps = [];
 
         // Musical state
         this.freqs = { C: 261.63, D: 293.66, E: 329.63, F: 349.23, G: 392.00, A: 440.00, B: 493.88 };
@@ -292,6 +293,13 @@
         if (this.active) return;
 
         try {
+          if (typeof DeviceMotionEvent?.requestPermission === 'function') {
+            const permission = await DeviceMotionEvent.requestPermission();
+            if (permission !== 'granted') throw new Error('Motion permission denied');
+          } else if (!window.DeviceMotionEvent) {
+            throw new Error('Device motion not supported');
+          }
+
           this.ctx = new (window.AudioContext || window.webkitAudioContext)();
           this.masterGain = this.ctx.createGain();
           this.masterGain.gain.setValueAtTime(0.7, 0);
@@ -309,27 +317,15 @@
           this.show(['stats', 'status', 'stop']);
           this.hide(['start']);
 
-          this.startSensors();
+          window.addEventListener('devicemotion', e => this.handleMotion(e), true);
           this.startEngine();
           this.startWeatherAudio();
         } catch (e) {
-          this.showError('Audio failed: ' + e.message);
-          this.startDesktopMode();
+          this.showError('Failed to start: ' + e.message);
+          this.active = false;
+          this.show(['start']);
+          this.hide(['stats', 'status', 'stop']);
         }
-      }
-
-      startDesktopMode() {
-        this.showError('No motion detected. Simulating steps.');
-        setInterval(() => {
-          if (!this.active) return;
-          if (Math.random() < 0.4) {
-            this.steps++;
-            this.lastStepTime = Date.now();
-            this.showFootstepIndicator();
-            this.playStepSound();
-            this.updateBPM();
-          }
-        }, 400);
       }
 
       stop() {
@@ -340,36 +336,14 @@
         this.voidOscs = [];
         this.steps = 0;
         this.step = 0;
-        this.stepHistory = [0];
+        this.stepHistory = [];
+        this.stepTimestamps = [];
         this.show(['start']);
         this.hide(['stats', 'status', 'stop']);
         document.body.className = '';
         if (this.ctx) {
           this.ctx.close().catch(() => {});
           this.ctx = null;
-        }
-      }
-
-      startSensors() {
-        if (typeof DeviceMotionEvent?.requestPermission === 'function') {
-          DeviceMotionEvent.requestPermission()
-            .then(permission => {
-              if (permission === 'granted') {
-                window.addEventListener('devicemotion', e => this.handleMotion(e), true);
-              } else {
-                this.showError('Motion permission denied');
-                this.startDesktopMode();
-              }
-            })
-            .catch(() => {
-              this.showError('Motion access failed');
-              this.startDesktopMode();
-            });
-        } else if (window.DeviceMotionEvent) {
-          window.addEventListener('devicemotion', e => this.handleMotion(e), true);
-        } else {
-          this.showError('Device motion not supported');
-          this.startDesktopMode();
         }
       }
 
@@ -384,15 +358,17 @@
 
         const dz = Math.abs(acc.z - this.last.z);
         this.stepHistory.push(dz);
-        if (this.stepHistory.length > 10) this.stepHistory.shift();
+        if (this.stepHistory.length > 20) this.stepHistory.shift();
 
-        const avg = this.stepHistory.reduce((a, b) => a + b, 0) / this.stepHistory.length;
-        const threshold = Math.max(1.5, avg * 1.4); // Adjusted for sensitivity
+        const avg = this.stepHistory.length > 0 ? this.stepHistory.reduce((a, b) => a + b, 0) / this.stepHistory.length : 0;
+        const threshold = Math.max(1.2, avg * 1.3); // Tuned for footsteps
         const now = Date.now();
 
-        if (dz > threshold && now - this.lastStepTime > 300) {
+        if (dz > threshold && now - this.lastStepTime > 250) {
           this.steps++;
           this.lastStepTime = now;
+          this.stepTimestamps.push(now);
+          if (this.stepTimestamps.length > 10) this.stepTimestamps.shift();
           this.showFootstepIndicator();
           this.playStepSound();
           this.updateBPM();
@@ -410,26 +386,21 @@
       }
 
       updateBPM() {
-        const stepTimes = this.stepHistory
-          .map((val, i) => ({ val, i }))
-          .filter(({ val }) => val > this.stepHistory.reduce((a, b) => a + b, 0) / this.stepHistory.length * 1.4)
-          .map(({ i }) => i);
+        if (this.stepTimestamps.length < 2) return;
 
-        if (stepTimes.length > 1) {
-          const intervals = [];
-          for (let i = 1; i < stepTimes.length; i++) {
-            intervals.push((stepTimes[i] - stepTimes[i - 1]) * 50);
-          }
-          const avgInterval = intervals.reduce((a, b) => a + b, 0) / intervals.length;
-          this.bpm = Math.min(160, Math.max(80, 60000 / avgInterval));
+        const intervals = [];
+        for (let i = 1; i < this.stepTimestamps.length; i++) {
+          intervals.push(this.stepTimestamps[i] - this.stepTimestamps[i - 1]);
         }
+        const avgInterval = intervals.reduce((a, b) => a + b, 0) / intervals.length;
+        this.bpm = Math.min(160, Math.max(80, 60000 / avgInterval));
       }
 
       updateState() {
         const stillTime = Date.now() - this.lastStepTime;
         const wasVoid = this.void;
 
-        this.void = stillTime > 2500;
+        this.void = stillTime > 2000;
         if (this.void !== wasVoid) {
           document.body.classList.toggle('void', this.void);
           if (this.void) {
