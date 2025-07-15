@@ -197,8 +197,6 @@
         this.step = 0;
 
         // Musical state
-        this.freqs = { C: 261.63, D: 293.66, E: 329.63, F: 349.23, G: 392.00, A: 440.00, B: 493.88 };
-        this.notes = ['C', 'D', 'E', 'F', 'G', 'A', 'B'];
         this.patterns = {
           kick: [
             { hit: 1, vel: 0.8 }, { hit: 0, vel: 0 }, { hit: 0, vel: 0 }, { hit: 0, vel: 0 },
@@ -307,10 +305,10 @@
           console.log('AudioContext created, state:', this.ctx.state);
 
           this.masterGain = this.ctx.createGain();
-          this.masterGain.gain.setValueAtTime(0.7, 0);
+          this.masterGain.gain.setValueAtTime(0.8, this.ctx.currentTime);
           this.masterGain.connect(this.ctx.destination);
           this.weatherGain = this.ctx.createGain();
-          this.weatherGain.gain.setValueAtTime(0.5, 0);
+          this.weatherGain.gain.setValueAtTime(0.4, this.ctx.currentTime);
           this.weatherGain.connect(this.masterGain);
 
           if (this.ctx.state === 'suspended') {
@@ -320,7 +318,7 @@
           }
           console.log('AudioContext resumed, state:', this.ctx.state);
 
-          // Test audio immediately
+          // Play loud test sound
           this.playTestSound();
 
           this.active = true;
@@ -328,7 +326,7 @@
           this.hide(['start']);
 
           console.log('Registering motion event listener...');
-          window.addEventListener('devicemotion', e => this.handleMotion(e), true);
+          window.addEventListener('devicemotion', e => this.handleMotion(e), { passive: true });
           this.startEngine();
           this.startWeatherAudio();
         } catch (e) {
@@ -341,22 +339,28 @@
       }
 
       playTestSound() {
-        console.log('Playing test sound...');
+        console.log('Playing test sound (440Hz, 1s)...');
         const osc = this.ctx.createOscillator();
         const gain = this.ctx.createGain();
         osc.type = 'sine';
         osc.frequency.setValueAtTime(440, this.ctx.currentTime);
-        gain.gain.setValueAtTime(0.2, this.ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.5);
+        gain.gain.setValueAtTime(0.5, this.ctx.currentTime); // Louder for testing
+        gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 1);
         osc.connect(gain).connect(this.masterGain);
-        osc.start();
-        osc.stop(this.ctx.currentTime + 0.5);
+        osc.start(this.ctx.currentTime);
+        osc.stop(this.ctx.currentTime + 1);
       }
 
       stop() {
         this.active = false;
-        this.weatherSources.forEach(source => source.stop());
-        this.voidOscs.forEach(osc => osc.stop());
+        this.weatherSources.forEach(source => {
+          console.log('Stopping weather source');
+          source.stop();
+        });
+        this.voidOscs.forEach(osc => {
+          console.log('Stopping void oscillator');
+          osc.stop();
+        });
         this.weatherSources = [];
         this.voidOscs = [];
         this.steps = 0;
@@ -388,7 +392,7 @@
         if (this.stepHistory.length > 20) this.stepHistory.shift();
 
         const avg = this.stepHistory.length > 0 ? this.stepHistory.reduce((a, b) => a + b, 0) / this.stepHistory.length : 0;
-        const threshold = Math.max(1.0, avg * 1.2); // Tuned for sensitivity
+        const threshold = Math.max(0.8, avg * 1.1); // Very sensitive
         const now = Date.now();
 
         console.log(`Motion: dz=${dz.toFixed(2)}, avg=${avg.toFixed(2)}, threshold=${threshold.toFixed(2)}, timeSinceLast=${now - this.lastStepTime}`);
@@ -460,11 +464,11 @@
           const osc = this.ctx.createOscillator();
           const gain = this.ctx.createGain();
           osc.type = 'sine';
-          osc.frequency.setValueAtTime(freq, 0);
-          gain.gain.setValueAtTime(0, 0);
-          gain.gain.linearRampToValueAtTime(0.08, this.ctx.currentTime + 1 + i * 0.5);
+          osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
+          gain.gain.setValueAtTime(0, this.ctx.currentTime);
+          gain.gain.linearRampToValueAtTime(0.1, this.ctx.currentTime + 1 + i * 0.5);
           osc.connect(gain).connect(this.masterGain);
-          osc.start();
+          osc.start(this.ctx.currentTime);
           this.voidOscs.push(osc);
         });
       }
@@ -514,6 +518,7 @@
       }
 
       kick(velocity) {
+        console.log('Kick triggered, velocity:', velocity);
         const osc = this.ctx.createOscillator();
         const gain = this.ctx.createGain();
         const panner = this.ctx.createStereoPanner();
@@ -524,14 +529,15 @@
 
         gain.gain.setValueAtTime(velocity, this.ctx.currentTime);
         gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.4);
-        panner.pan.setValueAtTime(Math.random() * 0.4 - 0.2, 0);
+        panner.pan.setValueAtTime(Math.random() * 0.4 - 0.2, this.ctx.currentTime);
 
         osc.connect(gain).connect(panner).connect(this.masterGain);
-        osc.start();
+        osc.start(this.ctx.currentTime);
         osc.stop(this.ctx.currentTime + 0.4);
       }
 
       snare(velocity) {
+        console.log('Snare triggered, velocity:', velocity);
         const noise = this.ctx.createBufferSource();
         const buffer = this.ctx.createBuffer(1, this.ctx.sampleRate * 0.1, this.ctx.sampleRate);
         const data = buffer.getChannelData(0);
@@ -545,32 +551,36 @@
 
         gain.gain.setValueAtTime(velocity, this.ctx.currentTime);
         gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.1);
-        panner.pan.setValueAtTime(Math.random() * 0.4 - 0.2, 0);
+        panner.pan.setValueAtTime(Math.random() * 0.4 - 0.2, this.ctx.currentTime);
 
         noise.connect(gain).connect(panner).connect(this.masterGain);
-        noise.start();
+        noise.start(this.ctx.currentTime);
       }
 
       hat(velocity) {
+        console.log('Hat triggered, velocity:', velocity);
         const osc = this.ctx.createOscillator();
         const gain = this.ctx.createGain();
         const panner = this.ctx.createStereoPanner();
 
         osc.type = 'square';
-        osc.frequency.setValueAtTime(10000, 0);
+        osc.frequency.setValueAtTime(10000, this.ctx.currentTime);
 
         gain.gain.setValueAtTime(velocity * 0.1, this.ctx.currentTime);
         gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.03);
-        panner.pan.setValueAtTime(Math.random() * 0.4 - 0.2, 0);
+        panner.pan.setValueAtTime(Math.random() * 0.4 - 0.2, this.ctx.currentTime);
 
         osc.connect(gain).connect(panner).connect(this.masterGain);
-        osc.start();
+        osc.start(this.ctx.currentTime);
         osc.stop(this.ctx.currentTime + 0.03);
       }
 
       startWeatherAudio() {
         console.log('Starting weather audio:', this.weather);
-        this.weatherSources.forEach(source => source.stop());
+        this.weatherSources.forEach(source => {
+          console.log('Stopping weather source');
+          source.stop();
+        });
         this.weatherSources = [];
 
         switch (this.weather) {
@@ -601,9 +611,9 @@
         source.buffer = buffer;
         source.loop = true;
         const gain = this.ctx.createGain();
-        gain.gain.setValueAtTime(0.3, 0);
+        gain.gain.setValueAtTime(0.3, this.ctx.currentTime);
         source.connect(gain).connect(this.weatherGain);
-        source.start();
+        source.start(this.ctx.currentTime);
         this.weatherSources.push(source);
       }
 
@@ -620,9 +630,9 @@
         source.buffer = buffer;
         source.loop = true;
         const gain = this.ctx.createGain();
-        gain.gain.setValueAtTime(0.4, 0);
+        gain.gain.setValueAtTime(0.4, this.ctx.currentTime);
         source.connect(gain).connect(this.weatherGain);
-        source.start();
+        source.start(this.ctx.currentTime);
         this.weatherSources.push(source);
 
         setInterval(() => {
@@ -647,6 +657,7 @@
         gain.gain.exponentialRampToValueAtTime(0.001, time + 4);
         source.connect(gain).connect(this.weatherGain);
         source.start(time);
+        this.weatherSources.push(source);
       }
 
       playSnowSound() {
@@ -662,9 +673,9 @@
         source.buffer = buffer;
         source.loop = true;
         const gain = this.ctx.createGain();
-        gain.gain.setValueAtTime(0.2, 0);
+        gain.gain.setValueAtTime(0.2, this.ctx.currentTime);
         source.connect(gain).connect(this.weatherGain);
-        source.start();
+        source.start(this.ctx.currentTime);
         this.weatherSources.push(source);
       }
 
