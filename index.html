@@ -87,31 +87,23 @@
       transform: translateY(0);
     }
 
-    .spatial-viz {
+    .footstep-indicator {
       position: fixed;
-      top: 0;
-      left: 0;
-      width: 100vw;
-      height: 100vh;
-      pointer-events: none;
-      z-index: 1;
-    }
-
-    .orb {
-      position: absolute;
-      width: 60px;
-      height: 60px;
-      background: radial-gradient(circle at 30% 30%, #00ffff 0%, #0088aa 50%, #004455 100%);
+      top: 50%;
+      left: 50%;
+      width: 100px;
+      height: 100px;
+      background: radial-gradient(circle at 30% 30%, #00ffff 0%, #0088aa 50%, transparent 100%);
       border-radius: 50%;
-      box-shadow: 0 0 40px #00ffff, 0 0 80px rgba(0, 255, 255, 0.3);
-      transform: translate(-50%, -50%);
-      transition: all 0.3s ease;
-      animation: pulse-orb 2s infinite alternate;
+      transform: translate(-50%, -50%) scale(0);
+      transition: transform 0.3s ease, opacity 0.5s ease;
+      opacity: 0;
+      z-index: 5;
     }
 
-    @keyframes pulse-orb {
-      0% { transform: translate(-50%, -50%) scale(1); }
-      100% { transform: translate(-50%, -50%) scale(1.1); }
+    .footstep-indicator.active {
+      transform: translate(-50%, -50%) scale(1);
+      opacity: 0.8;
     }
 
     .stats {
@@ -230,14 +222,12 @@
     <div class="error hidden" id="error"></div>
   </div>
 
-  <div class="spatial-viz hidden" id="viz">
-    <div class="orb" id="orb"></div>
-  </div>
+  <div class="footstep-indicator" id="footstep"></div>
 
   <div class="stats hidden" id="stats">
     <div class="stat">
-      <div class="stat-value" id="motion">0</div>
-      <div class="stat-label">Motion</div>
+      <div class="stat-value" id="steps">0</div>
+      <div class="stat-label">Steps</div>
     </div>
     <div class="stat">
       <div class="stat-value" id="bpm">95</div>
@@ -259,12 +249,11 @@
 class Gump {
   constructor() {
     this.ctx = null;
-    this.motion = 0;
+    this.steps = 0;
+    this.lastStepTime = 0;
     this.bpm = 95;
     this.last = { x: 0, y: 0, z: 0 };
-    this.pos = { x: 50, y: 50 };
-    this.step = 0;
-    this.motionHistory = [];
+    this.stepHistory = [];
     this.voidMode = false;
     this.weather = 'clear';
     this.active = false;
@@ -281,6 +270,7 @@ class Gump {
     this.chordIndex = 0;
     this.bassIndex = 0;
     this.groove = 'CHILL';
+    this.stepInterval = 0;
 
     // Timing
     this.stepTime = 0;
@@ -414,7 +404,6 @@ class Gump {
       if (this.ctx.state === 'suspended') await this.ctx.resume();
 
       document.getElementById('start').classList.add('hidden');
-      document.getElementById('viz').classList.remove('hidden');
       document.getElementById('stats').classList.remove('hidden');
       document.getElementById('status').classList.remove('hidden');
 
@@ -425,7 +414,7 @@ class Gump {
       this.startGroove();
       this.startWeatherAudio();
       
-      document.getElementById('status').textContent = '🎵 Flowing with your vibe...';
+      document.getElementById('status').textContent = '🎵 Flowing with your steps...';
       
     } catch (error) {
       this.showError('Failed to start audio: ' + error.message);
@@ -458,56 +447,76 @@ class Gump {
     const dy = acc.y - this.last.y;
     const dz = acc.z - this.last.z;
     
-    const motionDelta = Math.abs(dx) + Math.abs(dy) + Math.abs(dz);
-    if (motionDelta > 20) this.playShakeEffect();
+    const motionDelta = Math.abs(dz); // Focus on z-axis for footstep detection
+    this.stepHistory.push(motionDelta);
+    if (this.stepHistory.length > 20) this.stepHistory.shift();
     
-    this.motion = Math.min(100, Math.sqrt(dx * dx + dy * dy + dz * dz) * 8);
+    // Detect footsteps based on z-axis peaks
+    const avg = this.stepHistory.reduce((a, b) => a + b, 0) / this.stepHistory.length;
+    const threshold = avg * 1.5; // Dynamic threshold for step detection
+    const now = Date.now();
     
-    this.motionHistory.push(this.motion);
-    if (this.motionHistory.length > 50) this.motionHistory.shift();
+    if (motionDelta > threshold && now - this.lastStepTime > 300) {
+      this.steps++;
+      this.lastStepTime = now;
+      this.playStepSound();
+      this.showFootstepIndicator();
+      this.updateBPM();
+    }
     
     this.last = { x: acc.x, y: acc.y, z: acc.z };
-
-    this.pos.x = Math.max(10, Math.min(90, 50 + acc.x * 3));
-    this.pos.y = Math.max(10, Math.min(90, 50 + acc.y * 3));
-
     this.checkVoidMode();
     this.updateGroove();
     this.updateVisuals();
   }
 
   setupMouseFallback() {
-    let lastMouseX = 0, lastMouseY = 0;
-    document.addEventListener('mousemove', (e) => {
-      const dx = e.clientX - lastMouseX;
-      const dy = e.clientY - lastMouseY;
-      const motionDelta = Math.sqrt(dx * dx + dy * dy);
-      if (motionDelta > 20) this.playShakeEffect();
-      
-      this.motion = Math.min(100, motionDelta * 2);
-      this.motionHistory.push(this.motion);
-      if (this.motionHistory.length > 50) this.motionHistory.shift();
-      
-      this.pos.x = (e.clientX / window.innerWidth) * 100;
-      this.pos.y = (e.clientY / window.innerHeight) * 100;
-      
-      lastMouseX = e.clientX;
-      lastMouseY = e.clientY;
-      
-      this.checkVoidMode();
-      this.updateGroove();
-      this.updateVisuals();
-    });
+    this.showError('Device motion not supported. Using simulated steps.');
+    setInterval(() => {
+      if (Math.random() < 0.2) {
+        this.steps++;
+        this.lastStepTime = Date.now();
+        this.playStepSound();
+        this.showFootstepIndicator();
+        this.updateBPM();
+      }
+    }, 500);
+  }
+
+  showFootstepIndicator() {
+    const indicator = document.getElementById('footstep');
+    indicator.classList.add('active');
+    setTimeout(() => indicator.classList.remove('active'), 300);
+  }
+
+  updateBPM() {
+    if (this.stepHistory.length < 10) return;
+    
+    const recentSteps = this.stepHistory.slice(-10);
+    const stepIntervals = [];
+    let lastPeak = 0;
+    
+    for (let i = 1; i < recentSteps.length; i++) {
+      if (recentSteps[i] > recentSteps[i - 1] && recentSteps[i] > recentSteps[i + 1]) {
+        if (lastPeak) stepIntervals.push(i - lastPeak);
+        lastPeak = i;
+      }
+    }
+    
+    if (stepIntervals.length > 0) {
+      const avgInterval = stepIntervals.reduce((a, b) => a + b, 0) / stepIntervals.length;
+      this.bpm = Math.min(160, Math.max(60, 60000 / (avgInterval * 50))); // Convert to BPM
+    }
   }
 
   checkVoidMode() {
-    if (this.motionHistory.length < 30) return;
+    if (this.stepHistory.length < 30) return;
     
-    const avg = this.motionHistory.reduce((a, b) => a + b, 0) / this.motionHistory.length;
+    const avg = this.stepHistory.reduce((a, b) => a + b, 0) / this.stepHistory.length;
     
     if (avg < 3 && !this.voidMode) {
       this.enterVoidMode();
-    } else if (avg > 15 && this.voidMode) {
+    } else if (avg > 10 && this.voidMode) {
       this.exitVoidMode();
     }
   }
@@ -524,7 +533,7 @@ class Gump {
     this.voidMode = false;
     this.applyWeatherTheme();
     this.stopVoidAmbient();
-    document.getElementById('status').textContent = '🎵 Flowing with your vibe...';
+    document.getElementById('status').textContent = '🎵 Flowing with your steps...';
   }
 
   startVoidAmbient() {
@@ -552,32 +561,24 @@ class Gump {
   updateGroove() {
     if (this.voidMode) return;
     
-    const motionLevel = this.motion;
-    if (motionLevel < 15) {
+    if (this.bpm < 90) {
       this.groove = 'CHILL';
-      this.bpm = 85;
-    } else if (motionLevel < 50) {
+    } else if (this.bpm < 110) {
       this.groove = 'POCKET';
-      this.bpm = 100;
     } else {
       this.groove = 'BOUNCE';
-      this.bpm = 120;
     }
   }
 
   updateVisuals() {
-    const orb = document.getElementById('orb');
-    orb.style.left = `${this.pos.x}%`;
-    orb.style.top = `${this.pos.y}%`;
-    
-    document.getElementById('motion').textContent = Math.round(this.motion);
+    document.getElementById('steps').textContent = this.steps;
     document.getElementById('bpm').textContent = Math.round(this.bpm);
     document.getElementById('groove').textContent = this.groove;
   }
 
   startGroove() {
     this.stepTime = this.ctx.currentTime;
-    this.nextStepTime = this.stepTime;
+    this.nextStepTime = this.ctx.currentTime;
     this.scheduleNextStep();
   }
 
@@ -608,8 +609,13 @@ class Gump {
     
     if (step % 4 === 0) this.playChord(time);
     if (step % 8 === 0) this.playBass(time);
-    
-    if (this.motion > 60 && Math.random() < 0.2) this.playSpatialEffect(time);
+  }
+
+  playStepSound() {
+    const time = this.ctx.currentTime;
+    this.playKick(time, 0.9);
+    if (Math.random() < 0.3) this.playSnare(time, 0.6);
+    this.playChord(time);
   }
 
   playKick(time, velocity) {
@@ -621,7 +627,7 @@ class Gump {
     osc.frequency.setValueAtTime(60, time);
     osc.frequency.exponentialRampToValueAtTime(30, time + 0.3);
     
-    panner.pan.value = (this.pos.x - 50) / 100;
+    panner.pan.value = Math.random() * 0.4 - 0.2; // Slight random panning
     gain.gain.setValueAtTime(velocity, time);
     gain.gain.exponentialRampToValueAtTime(0.001, time + 0.4);
     
@@ -643,7 +649,7 @@ class Gump {
     const panner = this.ctx.createStereoPanner();
     
     source.buffer = buffer;
-    panner.pan.value = (this.pos.x - 50) / 100;
+    panner.pan.value = Math.random() * 0.4 - 0.2;
     gain.gain.setValueAtTime(velocity * 0.6, time);
     gain.gain.exponentialRampToValueAtTime(0.001, time + 0.2);
     
@@ -664,7 +670,7 @@ class Gump {
     const panner = this.ctx.createStereoPanner();
     
     source.buffer = buffer;
-    panner.pan.value = (this.pos.x - 50) / 100;
+    panner.pan.value = Math.random() * 0.4 - 0.2;
     gain.gain.setValueAtTime(velocity * 0.3, time);
     gain.gain.exponentialRampToValueAtTime(0.001, time + 0.1);
     
@@ -675,7 +681,7 @@ class Gump {
   playChord(time) {
     const chord = this.chords[this.chordIndex];
     const panner = this.ctx.createStereoPanner();
-    panner.pan.value = (this.pos.x - 50) / 100;
+    panner.pan.value = Math.random() * 0.4 - 0.2;
     
     chord.forEach((freq) => {
       const osc = this.ctx.createOscillator();
@@ -697,40 +703,13 @@ class Gump {
     
     osc.type = 'sine';
     osc.frequency.value = this.bassNotes[this.bassIndex];
-    panner.pan.value = (this.pos.x - 50) / 100;
+    panner.pan.value = Math.random() * 0.4 - 0.2;
     gain.gain.setValueAtTime(0.2, time);
     gain.gain.exponentialRampToValueAtTime(0.001, time + 0.5);
     
     osc.connect(gain).connect(panner).connect(this.masterGain);
     osc.start(time);
     osc.stop(time + 0.5);
-  }
-
-  playSpatialEffect(time) {
-    const osc = this.ctx.createOscillator();
-    const gain = this.ctx.createGain();
-    osc.type = 'triangle';
-    osc.frequency.setValueAtTime(880, time);
-    osc.frequency.exponentialRampToValueAtTime(440, time + 0.3);
-    gain.gain.setValueAtTime(0.2, time);
-    gain.gain.exponentialRampToValueAtTime(0.001, time + 0.3);
-    osc.connect(gain).connect(this.masterGain);
-    osc.start(time);
-    osc.stop(time + 0.3);
-  }
-
-  playShakeEffect() {
-    const time = this.ctx.currentTime;
-    const osc = this.ctx.createOscillator();
-    const gain = this.ctx.createGain();
-    osc.type = 'triangle';
-    osc.frequency.setValueAtTime(440, time);
-    osc.frequency.exponentialRampToValueAtTime(220, time + 0.2);
-    gain.gain.setValueAtTime(0.3, time);
-    gain.gain.exponentialRampToValueAtTime(0.001, time + 0.2);
-    osc.connect(gain).connect(this.masterGain);
-    osc.start(time);
-    osc.stop(time + 0.2);
   }
 
   startWeatherAudio() {
