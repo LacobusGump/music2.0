@@ -129,7 +129,7 @@
     
     .spatial-viz.transcendent {
       border-color: rgba(255,136,204,0.4);
-      background: rgba(255,136,204,0.08);
+      background: rgba(10,10,10,0.95);
       box-shadow: inset 0 0 30px rgba(255,136,204,0.2);
     }
     
@@ -138,7 +138,7 @@
       width: 60px;
       height: 60px;
       border-radius: 50%;
-      background: radial-gradient(circle, #00ffaa 0%, rgba(0,255,170,0.3) 50%, transparent 100%);
+      background: radial-gradient(circle, #00ffaa 0%, rgba(10,10,10,0.3) 50%, transparent 100%);
       top: 50%;
       left: 50%;
       transform: translate(-50%, -50%);
@@ -340,20 +340,27 @@
       
       async start() {
         try {
-          // Create audio context first
+          // Create audio context AFTER user interaction
           this.ctx = new (window.AudioContext || window.webkitAudioContext)();
           
-          // Request permissions properly
+          // Log audio context state for debugging
+          console.log('Audio context state:', this.ctx.state);
+          
+          // FORCE resume audio context - this is crucial for Chrome mobile
+          if (this.ctx.state === 'suspended') {
+            await this.ctx.resume();
+            console.log('Audio context resumed, new state:', this.ctx.state);
+          }
+          
+          // Play a test sound to verify audio is working
+          await this.playTestSound();
+          
+          // Request motion permissions
           if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
             const permission = await DeviceMotionEvent.requestPermission();
             if (permission !== 'granted') {
               throw new Error('Motion permission denied. Please allow motion access.');
             }
-          }
-          
-          // Resume audio context after user interaction
-          if (this.ctx.state === 'suspended') {
-            await this.ctx.resume();
           }
           
           this.createAudioEffects();
@@ -365,8 +372,24 @@
           
         } catch (error) {
           console.error('Initialization error:', error);
-          this.showError('Failed to initialize: ' + error.message + '. Try refreshing and ensure you\'re on HTTPS.');
+          this.showError('Failed to initialize: ' + error.message + '. Check console for details.');
         }
+      }
+      
+      async playTestSound() {
+        // Test sound to verify audio is working
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        
+        osc.frequency.value = 440;
+        gain.gain.setValueAtTime(0.1, this.ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.2);
+        
+        osc.connect(gain).connect(this.ctx.destination);
+        osc.start();
+        osc.stop(this.ctx.currentTime + 0.2);
+        
+        console.log('Test sound played - if you hear a beep, audio is working!');
       }
       
       createAudioEffects() {
