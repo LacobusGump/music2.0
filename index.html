@@ -160,12 +160,13 @@
         this.chords = [[0, 2, 4, 6], [5, 0, 2, 4], [3, 5, 0, 2], [4, 6, 1, 3]];
         this.currentChord = 0;
         this.patterns = { kick: [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0] };
+        this.tools = []; // Store built "tools" (custom patterns/filters)
         
         this.elements = {};
         this.rolloutBuffer = []; // Motion history for reflection
         this.lessons = []; // Learned adjustments
         this.lastReflectionTime = 0;
-        this.reflectionInterval = 30000; // Reduced to 30 seconds
+        this.reflectionInterval = 30000; // 30 seconds
         
         this.init();
       }
@@ -207,7 +208,7 @@
           this.startGroove();
           this.animate();
           this.monitorTranscendence();
-          console.log('GUMP started at 02:28 PM EDT, Wednesday, July 16, 2025');
+          console.log('GUMP started at 02:30 PM EDT, Wednesday, July 16, 2025');
         } catch (e) {
           this.showError('Failed to start: ' + e.message);
         }
@@ -234,14 +235,14 @@
           this.motion = Math.min(100, Math.sqrt(dx * dx + dy * dy + dz * dz) * 8);
           this.last = { x: acc.x, y: acc.y, z: acc.z };
           this.rolloutBuffer.push(this.motion);
-          if (this.rolloutBuffer.length > 600) this.rolloutBuffer.shift(); // Keep last 30 secs at 50ms
+          if (this.rolloutBuffer.length > 600) this.rolloutBuffer.shift(); // Keep last 30 secs
 
-          // Dynamic pattern adjustment based on motion stability
+          // Dynamic pattern adjustment based on motion exploration
           if (this.motion > 5 && now - this.lastStrideTime > this.strideInterval) {
             this.lastStrideTime = now;
-            const stability = this.rolloutBuffer.slice(-20).reduce((a, b) => a + b, 0) / 20;
-            if (stability > 10) this.patterns.kick = [1, 0, 1, 0, 1, 0, 0, 1, 1, 0, 1, 0, 1, 0, 0, 1];
-            else this.patterns.kick = [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0];
+            const variance = this.rolloutBuffer.slice(-20).reduce((v, x, i, arr) => v + (x - arr.reduce((a, b) => a + b, 0) / arr.length) ** 2 / 20, 0);
+            if (variance > 50) this.patterns.kick = [1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0]; // Complex for varied motion
+            else this.patterns.kick = [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0]; // Simple for steady
             this.updateSongProgress();
             this.updateEnvDensity();
           }
@@ -714,142 +715,54 @@
 
       reflect() {
         const avgMotion = this.rolloutBuffer.reduce((a, b) => a + b, 0) / this.rolloutBuffer.length;
+        const variance = this.rolloutBuffer.slice(-20).reduce((v, x, i, arr) => v + (x - arr.reduce((a, b) => a + b, 0) / arr.length) ** 2 / 20, 0);
         const highMotionCount = this.rolloutBuffer.filter(m => m > 20).length;
         const lowMotionCount = this.rolloutBuffer.filter(m => m < 5).length;
         let lesson = "";
-        let triggerAdjust = 0; // Adjusts trigger probabilities
+        let tool = null;
 
-        if (avgMotion < 10 && this.layerProgress < 1 && lowMotionCount > 300) {
-          lesson = "Increase layer progression and hi-hat probability in low-motion areas";
-          this.layerProgress += 0.1;
-          triggerAdjust = 0.1; // Boost hi-hat chance
-        } else if (highMotionCount > 150 && this.bpm < 120) {
-          lesson = "Boost tempo and snare probability in high-motion areas";
-          this.bpm = Math.min(140, this.bpm + 10);
-          triggerAdjust = 0.15; // Boost snare chance
-        } else if (this.envDensity > 0.7 && this.patterns.kick.length < 16) {
-          lesson = "Add complexity to kick pattern and vocal probability in dense environments";
-          this.patterns.kick = [1, 0, 1, 0, 1, 0, 0, 1, 1, 0, 1, 0, 1, 0, 0, 1];
-          triggerAdjust = 0.2; // Boost vocal chance
+        // Unsupervised world-modeling: build tools and strategies
+        if (variance > 50 && !this.tools.some(t => t.type === 'complexKick')) {
+          lesson = "Build complex kick pattern for varied motion";
+          tool = { type: 'complexKick', pattern: [1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0] };
+          this.patterns.kick = tool.pattern;
+        } else if (lowMotionCount > 300 && !this.tools.some(t => t.type === 'softFilter')) {
+          lesson = "Add soft filter for low-motion ambiance";
+          tool = { type: 'softFilter', freq: 150, q: 1 };
+          this.reverb.disconnect();
+          this.reverb = this.ctx.createConvolver();
+          const buffer = this.ctx.createBuffer(2, this.ctx.sampleRate * 3, this.ctx.sampleRate);
+          for (let c = 0; c < 2; c++) {
+            const data = buffer.getChannelData(c);
+            for (let i = 0; i < data.length; i++) {
+              data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / data.length, 3); // Softer decay
+            }
+          }
+          this.reverb.buffer = buffer;
+          this.reverb.connect(this.ctx.destination);
+        } else if (highMotionCount > 150 && !this.tools.some(t => t.type === 'highEnergy')) {
+          lesson = "Strategize high-energy layer boost";
+          tool = { type: 'highEnergy', boost: 0.2 };
+          this.layerProgress = Math.min(3, this.layerProgress + tool.boost);
         }
 
-        if (lesson) {
+        if (lesson && tool) {
           this.lessons.push(lesson);
-          console.log("New lesson at 02:28 PM EDT, July 16, 2025:", lesson);
-          // Tune action distribution
-          this.adjustTriggers(triggerAdjust);
+          this.tools.push(tool);
+          console.log("New lesson at 02:30 PM EDT, July 16, 2025:", lesson, "Tool:", tool);
           if (this.lessons.length > 5) this.distillLessons();
         }
       }
 
-      adjustTriggers(adjustment) {
-        // Adjusts probabilities for next actions
-        this.hihatMetallic = (function(original) {
-          return function() {
-            if (Math.random() < 0.4 + this.envDensity * 0.2 + adjustment) {
-              const waves = 3;
-              for (let i = 0; i < waves; i++) {
-                const osc = this.ctx.createOscillator();
-                const gain = this.ctx.createGain();
-                const filter = this.ctx.createBiquadFilter();
-
-                osc.type = 'square';
-                osc.frequency.value = 3000 * Math.pow(1.5, i) * (1 + this.envDensity * 0.1);
-                filter.type = 'highpass';
-                filter.frequency.value = 2500 + this.motion * 4;
-                filter.Q.value = 0.5;
-
-                gain.gain.setValueAtTime(0.08 / (i + 1), this.ctx.currentTime);
-                gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.1);
-
-                osc.connect(filter).connect(gain).connect(this.reverb);
-                osc.start();
-                osc.stop(this.ctx.currentTime + 0.1);
-
-                this.oscillators.add(osc);
-                setTimeout(() => this.oscillators.delete(osc), 100);
-              }
-            }
-          };
-        })(this.hihatMetallic.bind(this));
-
-        this.snareLayered = (function(original) {
-          return function() {
-            if (Math.random() < (this.layerProgress >= 1 ? 1 : 0) + adjustment) {
-              const noise = this.createNoiseBuffer();
-              const noiseSource = this.ctx.createBufferSource();
-              const toneOsc = this.ctx.createOscillator();
-              const noiseGain = this.ctx.createGain();
-              const toneGain = this.ctx.createGain();
-              const filter = this.ctx.createBiquadFilter();
-
-              noiseSource.buffer = noise;
-              filter.type = 'bandpass';
-              filter.frequency.value = 300 + this.motion * 2 * (1 + this.envDensity * 0.2);
-              filter.Q.value = 3;
-
-              noiseGain.gain.setValueAtTime(0.6, this.ctx.currentTime);
-              noiseGain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.2);
-
-              toneOsc.type = 'triangle';
-              toneOsc.frequency.value = 180 * (1 + this.envDensity * 0.3);
-              toneGain.gain.setValueAtTime(0.4, this.ctx.currentTime);
-              toneGain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.15);
-
-              noiseSource.connect(noiseGain).connect(filter);
-              toneOsc.connect(toneGain).connect(filter);
-              filter.connect(this.reverb);
-
-              noiseSource.start();
-              noiseSource.stop(this.ctx.currentTime + 0.2);
-              toneOsc.start();
-              toneOsc.stop(this.ctx.currentTime + 0.2);
-
-              this.oscillators.add(noiseSource);
-              this.oscillators.add(toneOsc);
-              setTimeout(() => {
-                this.oscillators.delete(noiseSource);
-                this.oscillators.delete(toneOsc);
-              }, 200);
-            }
-          };
-        })(this.snareLayered.bind(this));
-
-        this.vocalLayer = (function(original) {
-          return function() {
-            if (Math.random() < 0.2 + this.envDensity * 0.3 + adjustment) {
-              const osc = this.ctx.createOscillator();
-              const gain = this.ctx.createGain();
-              const filter = this.ctx.createBiquadFilter();
-              
-              osc.type = 'sine';
-              osc.frequency.value = this.scale[this.chords[this.currentChord][Math.floor(Math.random() * 3) + 1]] * 1.2 * (1 + this.envDensity * 0.2);
-              filter.type = 'bandpass';
-              filter.frequency.value = 400 + this.motion * 2 * (1 + this.envDensity * 0.2);
-              filter.Q.value = 3;
-              
-              gain.gain.setValueAtTime(0, this.ctx.currentTime);
-              gain.gain.linearRampToValueAtTime(0.12, this.ctx.currentTime + 1.5);
-              gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 4);
-              
-              osc.connect(filter).connect(gain).connect(this.reverb);
-              osc.start();
-              osc.stop(this.ctx.currentTime + 4);
-              
-              this.oscillators.add(osc);
-              setTimeout(() => this.oscillators.delete(osc), 4000);
-            }
-          };
-        })(this.vocalLayer.bind(this));
-      }
-
       distillLessons() {
-        const freqBoost = this.lessons.filter(l => l.includes("Boost tempo")).length / this.lessons.length;
-        const layerSpeed = this.lessons.filter(l => l.includes("Increase layer")).length / this.lessons.length;
-        if (freqBoost > 0.5) this.bpm = Math.min(130, this.bpm + 5);
-        if (layerSpeed > 0.5) this.layerProgress += 0.05;
+        const varianceFocus = this.lessons.filter(l => l.includes("varied motion")).length / this.lessons.length;
+        const lowMotionFocus = this.lessons.filter(l => l.includes("low-motion")).length / this.lessons.length;
+        const highMotionFocus = this.lessons.filter(l => l.includes("high-energy")).length / this.lessons.length;
+        if (varianceFocus > 0.5) this.patterns.kick = [1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0];
+        if (lowMotionFocus > 0.5) this.reverb.disconnect(); this.reverb = this.ctx.createConvolver(); // Reapply soft filter
+        if (highMotionFocus > 0.5) this.layerProgress += 0.1;
         this.lessons = [];
-        console.log("Lessons distilled at 02:28 PM EDT, July 16, 2025, bpm:", this.bpm, "layerProgress:", this.layerProgress);
+        console.log("Lessons distilled at 02:30 PM EDT, July 16, 2025, patterns:", this.patterns.kick, "layerProgress:", this.layerProgress);
       }
     }
 
