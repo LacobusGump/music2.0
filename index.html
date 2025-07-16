@@ -68,7 +68,7 @@
     
     .spatial-viz {
       width: 100%;
-      height: 220px;
+      height: 250px; /* Increased height */
       border: 3px solid rgba(0, 255, 170, 0.3);
       border-radius: 25px;
       position: relative;
@@ -76,9 +76,23 @@
       background: radial-gradient(circle, rgba(0, 255, 170, 0.05) 0%, rgba(0, 20, 40, 0.05) 100%);
       margin-bottom: 2.5rem;
       transition: all 1s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
     }
     
     .spatial-viz.transcendent { border-color: rgba(255, 136, 204, 0.5); background: rgba(255, 136, 204, 0.08); }
+    
+    .waveform {
+      position: absolute;
+      width: 90%;
+      height: 60%;
+      background: rgba(0, 255, 170, 0.2);
+      border-radius: 10px;
+      overflow: hidden;
+    }
+    
+    .waveform.transcendent { background: rgba(255, 136, 204, 0.3); }
     
     .orb {
       position: absolute;
@@ -101,6 +115,41 @@
     .stat-value { font-size: 1.4rem; font-weight: 800; color: #00ffaa; }
     .stat-label { font-size: 0.8rem; opacity: 0.75; margin-top: 4px; }
     
+    .autonomy-slider {
+      width: 80%;
+      margin: 0 auto 2.5rem;
+      -webkit-appearance: none;
+      appearance: none;
+      height: 10px;
+      background: rgba(0, 255, 170, 0.3);
+      outline: none;
+      border-radius: 5px;
+      opacity: 0.7;
+      transition: opacity 0.2s;
+    }
+    
+    .autonomy-slider:hover { opacity: 1; }
+    
+    .autonomy-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 20px;
+      height: 20px;
+      background: #00ffaa;
+      border-radius: 50%;
+      cursor: pointer;
+      box-shadow: 0 0 10px rgba(0, 255, 170, 0.6);
+    }
+    
+    .autonomy-slider::-moz-range-thumb {
+      width: 20px;
+      height: 20px;
+      background: #00ffaa;
+      border-radius: 50%;
+      cursor: pointer;
+      box-shadow: 0 0 10px rgba(0, 255, 170, 0.6);
+    }
+    
     .status { font-size: 1rem; color: #4ecdc4; opacity: 0.85; animation: statusBreathe 2.5s ease-in-out infinite; }
     @keyframes statusBreathe { 0%, 100% { opacity: 0.85; } 50% { opacity: 1.1; } }
     
@@ -121,6 +170,7 @@
     <div class="tagline" id="tagline">Grand Unified Music Project</div>
     <button class="start-btn" id="start">🎵 Start Spatial Audio</button>
     <div class="spatial-viz hidden" id="viz">
+      <div class="waveform" id="waveform"></div>
       <div class="orb" id="orb"></div>
     </div>
     <div class="stats hidden" id="stats">
@@ -128,6 +178,7 @@
       <div class="stat"><div class="stat-value" id="bpm">95</div><div class="stat-label">BPM</div></div>
       <div class="stat"><div class="stat-value" id="groove">CHILL</div><div class="stat-label">State</div></div>
     </div>
+    <input type="range" min="0" max="100" value="50" class="autonomy-slider" id="autonomy">
     <div class="status hidden" id="status">🎵 Flowing with your vibe...</div>
     <div class="error hidden" id="error"></div>
   </div>
@@ -151,11 +202,12 @@
         this.songSection = 'A1';
         this.layerProgress = 0;
         this.lastStrideTime = 0;
-        this.strideInterval = 400; // Reduced to 400ms for faster stride detection
+        this.strideInterval = 400;
         this.envDensity = 0;
         this.oscillators = new Set();
         this.lastUpdateTime = 0;
         this.frameCount = 0;
+        this.autonomyLevel = 50; // Initial autonomy level
         
         this.scale = [261.63, 293.66, 329.63, 349.23, 392.00, 440.00, 493.88, 523.25];
         this.chords = [[0, 2, 4, 6], [5, 0, 2, 4], [3, 5, 0, 2], [4, 6, 1, 3]];
@@ -167,15 +219,16 @@
         this.rolloutBuffer = [];
         this.lessons = [];
         this.lastReflectionTime = 0;
-        this.reflectionInterval = 5000; // Reduced to 5 seconds for ultra-fast adaptations
+        this.reflectionInterval = 5000;
         
         this.init();
       }
 
       init() {
-        const ids = ['start', 'viz', 'stats', 'status', 'logo', 'tagline', 'orb', 'motion', 'bpm', 'groove', 'error', 'particles'];
+        const ids = ['start', 'viz', 'stats', 'status', 'logo', 'tagline', 'orb', 'motion', 'bpm', 'groove', 'error', 'particles', 'waveform', 'autonomy'];
         ids.forEach(id => this.elements[id] = document.getElementById(id));
         this.elements.start.onclick = () => this.start();
+        this.elements.autonomy.oninput = (e) => { this.autonomyLevel = parseInt(e.target.value); console.log(`Autonomy set to ${this.autonomyLevel}% at 03:10 PM EDT, July 16, 2025`); };
         if (navigator.geolocation) {
           navigator.geolocation.watchPosition(pos => this.updateLocation(pos), null, { enableHighAccuracy: true, timeout: 5000, maximumAge: 5000 });
         }
@@ -195,9 +248,10 @@
           this.active = true;
           this.startSensors();
           this.startGroove();
-          this.animate();
+          this.animateWaveform();
+          this.animateOrb();
           this.monitorTranscendence();
-          console.log('GUMP started at 03:02 PM EDT, Wednesday, July 16, 2025');
+          console.log('GUMP started at 03:10 PM EDT, Wednesday, July 16, 2025');
         } catch (e) {
           this.showError('Failed to start: ' + e.message);
         }
@@ -215,10 +269,10 @@
           const dx = Math.abs(acc.x - this.last.x);
           const dy = Math.abs(acc.y - this.last.y);
           const dz = Math.abs(acc.z - this.last.z);
-          this.motion = Math.min(100, Math.sqrt(dx * dx + dy * dy + dz * dz) * 10); // Increased sensitivity to 10
+          this.motion = Math.min(100, Math.sqrt(dx * dx + dy * dy + dz * dz) * 10);
           this.last = { x: acc.x, y: acc.y, z: acc.z };
           this.rolloutBuffer.push(this.motion);
-          if (this.rolloutBuffer.length > 100) this.rolloutBuffer.shift(); // Adjusted to 5s buffer
+          if (this.rolloutBuffer.length > 100) this.rolloutBuffer.shift();
           if (this.motion > 5 && now - this.lastStrideTime > this.strideInterval) {
             this.lastStrideTime = now;
             const variance = this.rolloutBuffer.slice(-20).reduce((v, x, i, arr) => v + (x - arr.reduce((a, b) => a + b, 0) / arr.length) ** 2 / 20, 0);
@@ -260,7 +314,7 @@
 
       enterTranscendence() {
         this.transcendent = true; this.state = 'VOID';
-        ['logo', 'tagline', 'viz', 'orb'].forEach(id => this.elements[id]?.classList.add('transcendent'));
+        ['logo', 'tagline', 'viz', 'orb', 'waveform'].forEach(id => this.elements[id]?.classList.add('transcendent'));
         document.body.classList.add('transcendent');
         this.createParticles();
         this.startHeavenLayers();
@@ -268,7 +322,7 @@
 
       exitTranscendence() {
         this.transcendent = false; this.state = 'CHILL';
-        ['logo', 'tagline', 'viz', 'orb'].forEach(id => this.elements[id]?.classList.remove('transcendent'));
+        ['logo', 'tagline', 'viz', 'orb', 'waveform'].forEach(id => this.elements[id]?.classList.remove('transcendent'));
         document.body.classList.remove('transcendent');
         this.clearParticles();
         this.stopHeavenLayers();
@@ -343,7 +397,7 @@
         gain.gain.linearRampToValueAtTime(0.1, this.ctx.currentTime + 0.5);
         gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 10);
         osc.connect(gain).connect(this.reverb);
-        osc.start(); osc.stop(this.ctx.currentTime + 10);
+        osc.start(); osc.stop(ctx.currentTime + 10);
         this.oscillators.add(osc);
         setTimeout(() => this.oscillators.delete(osc), 10000);
       }
@@ -382,12 +436,12 @@
 
       updateEnvDensity() {
         const motionFactor = this.motion * 0.01;
-        this.envDensity = Math.min(1, Math.max(0, this.envDensity + motionFactor * 0.2 + (Math.random() * 0.05))); // Increased factor to 0.2
+        this.envDensity = Math.min(1, Math.max(0, this.envDensity + motionFactor * 0.2 + (Math.random() * 0.05)));
       }
 
       updateSongProgress() {
         if (this.motion > 5) {
-          this.layerProgress = Math.min(3, this.layerProgress + 0.2 * (1 + this.envDensity)); // Increased to 0.2
+          this.layerProgress = Math.min(3, this.layerProgress + 0.2 * (1 + this.envDensity));
           if (this.songSection === 'A1' && this.layerProgress >= 3) this.songSection = 'A2';
           else if (this.songSection === 'A2' && this.step === 0) this.songSection = 'B';
           else if (this.songSection === 'B' && this.step === 0) this.songSection = 'A3';
@@ -397,10 +451,10 @@
       updateState() {
         if (this.transcendent) {
           this.state = ['VOID', 'DARKNESS', 'ETHEREAL', 'INFINITE'][Math.floor(this.transcendentIntensity * 4)];
-          this.bpm = Math.round(45 + (this.transcendentIntensity * 35) + (this.motion * 0.2)); // Increased to 0.2
+          this.bpm = Math.round(45 + (this.transcendentIntensity * 35) + (this.motion * 0.2));
           return;
         }
-        const targetBPM = 80 + this.motion * 2.5 + this.envDensity * 20; // Increased to 2.5
+        const targetBPM = 80 + this.motion * 2.5 + this.envDensity * 20;
         this.bpm = Math.round(this.bpm * 0.9 + targetBPM * 0.1);
         if (this.motion < 5) this.state = 'CHILL';
         else if (this.motion < 15) this.state = 'FLOW';
@@ -430,22 +484,31 @@
         tick();
       }
 
-      animate() {
-        const update = () => {
+      animateWaveform() {
+        const waveform = this.elements.waveform;
+        const animate = () => {
           if (!this.active) return;
-          const now = Date.now();
-          if (now - this.lastUpdateTime < 33) { requestAnimationFrame(update); return; }
-          this.lastUpdateTime = now;
-          if (this.frameCount % 10 === 0) {
-            this.elements.motion.textContent = Math.round(this.motion);
-            this.elements.bpm.textContent = this.bpm;
-            this.elements.groove.textContent = this.state;
+          const bars = 30;
+          waveform.innerHTML = '';
+          for (let i = 0; i < bars; i++) {
+            const bar = document.createElement('div');
+            const height = Math.sin(i * 0.5 + Date.now() * 0.001 + this.motion * 0.02) * 50 * (this.autonomyLevel / 100) + 50;
+            bar.style.cssText = `position: absolute; bottom: 0; left: ${i * (100 / bars)}%; width: ${100 / bars}%; height: ${height}%; background: ${this.transcendent ? '#ff88cc' : '#00ffaa'}; transition: height 0.1s ease;`;
+            waveform.appendChild(bar);
           }
-          this.elements.orb.style.transform = `translate(${this.pos.x - 50}%, ${this.pos.y - 50}%)`;
-          this.frameCount++;
-          requestAnimationFrame(update);
+          requestAnimationFrame(animate);
         };
-        requestAnimationFrame(update);
+        requestAnimationFrame(animate);
+      }
+
+      animateOrb() {
+        const orb = this.elements.orb;
+        const animate = () => {
+          if (!this.active) return;
+          orb.style.transform = `translate(${this.pos.x - 50}%, ${this.pos.y - 50}%) scale(${1 + this.motion * 0.01})`;
+          requestAnimationFrame(animate);
+        };
+        requestAnimationFrame(animate);
       }
 
       showError(msg) {
@@ -469,11 +532,10 @@
         let lesson = "";
         let tool = null;
 
-        // Ultra-fast, agentic adaptations
-        if (variance > 15) { // Lowered to 15 for instant response
+        if (variance > 15) {
           lesson = "Adapt complex kick for dynamic motion";
           tool = { type: 'complexKick', pattern: [1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0] };
-        } else if (lowMotionCount > 50) { // Lowered to 50
+        } else if (lowMotionCount > 50) {
           lesson = "Soften ambiance for stillness";
           tool = { type: 'softFilter', apply: (ctx) => {
             const reverb = ctx.createConvolver();
@@ -485,12 +547,12 @@
             reverb.buffer = buffer;
             return reverb;
           }};
-        } else if (highMotionCount > 30) { // Lowered to 30
+        } else if (highMotionCount > 30) {
           lesson = "Boost energy layer for intensity";
-          tool = { type: 'highEnergy', boost: 0.4 }; // Increased to 0.4
-        } else if (variance > 10) { // Lowered to 10
+          tool = { type: 'highEnergy', boost: 0.4 };
+        } else if (variance > 10) {
           lesson = "Add rapid echo for texture";
-          tool = { type: 'motionEcho', apply: (ctx, delay = 0.1) => { // Reduced to 0.1s
+          tool = { type: 'motionEcho', apply: (ctx, delay = 0.1) => {
             return (originalKick) => {
               return function() {
                 originalKick.call(this);
@@ -498,8 +560,8 @@
                 const echoGain = ctx.createGain();
                 echoOsc.type = 'sine';
                 echoOsc.frequency.setValueAtTime(60, ctx.currentTime + delay);
-                echoOsc.frequency.exponentialRampToValueAtTime(20, ctx.currentTime + delay + 0.3); // Reduced to 0.3s
-                echoGain.gain.setValueAtTime(0.2, ctx.currentTime + delay); // Reduced to 0.2
+                echoOsc.frequency.exponentialRampToValueAtTime(20, ctx.currentTime + delay + 0.3);
+                echoGain.gain.setValueAtTime(0.2, ctx.currentTime + delay);
                 echoGain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + delay + 0.3);
                 echoOsc.connect(echoGain).connect(this.reverb);
                 echoOsc.start();
@@ -511,14 +573,14 @@
           }};
         }
 
-        if (lesson && tool) {
+        if (lesson && tool && this.autonomyLevel > 30) { // Autonomy threshold
           this.lessons.push(lesson);
           if (tool.type === 'complexKick') this.patterns.kick = tool.pattern;
           else if (tool.type === 'softFilter') this.reverb = tool.apply(this.ctx);
           else if (tool.type === 'highEnergy') this.layerProgress = Math.min(3, this.layerProgress + tool.boost);
           else if (tool.type === 'motionEcho') this.kick808 = tool.apply(this.ctx, 0.1)(this.kick808.bind(this));
           this.tools.push(tool);
-          console.log("New lesson at 03:02 PM EDT, July 16, 2025:", lesson, "Tool:", tool);
+          console.log("New lesson at 03:10 PM EDT, July 16, 2025:", lesson, "Tool:", tool);
           if (this.lessons.length > 5) this.distillLessons();
         }
       }
@@ -529,9 +591,9 @@
         const highMotionFocus = this.lessons.filter(l => l.includes("intensity")).length / this.lessons.length;
         if (varianceFocus > 0.5) this.patterns.kick = [1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0];
         if (lowMotionFocus > 0.5) this.reverb = this.getTool('softFilter')?.apply(this.ctx);
-        if (highMotionFocus > 0.5) this.layerProgress += 0.2; // Increased to 0.2
+        if (highMotionFocus > 0.5) this.layerProgress += 0.2;
         this.lessons = [];
-        console.log("Lessons distilled at 03:02 PM EDT, July 16, 2025, patterns:", this.patterns.kick, "layerProgress:", this.layerProgress);
+        console.log("Lessons distilled at 03:10 PM EDT, July 16, 2025, patterns:", this.patterns.kick, "layerProgress:", this.layerProgress);
       }
 
       getTool(type) {
@@ -539,7 +601,6 @@
       }
     }
 
-    // Bacterial Modules: Self-Contained, Yoinkable Functions
     const kick808 = (ctx, reverb) => {
       const subOsc = ctx.createOscillator();
       const clickOsc = ctx.createOscillator();
@@ -671,7 +732,6 @@
       return [osc];
     };
 
-    // Instantiate with Bacterial Modules
     const gump = new SpatialAI();
     gump.kick808 = function() { const oscs = kick808(this.ctx, this.reverb); oscs.forEach(osc => this.oscillators.add(osc)); setTimeout(() => oscs.forEach(osc => this.oscillators.delete(osc)), 500); };
     gump.snareLayered = function() { const oscs = snareLayered(this.ctx, this.reverb); oscs.forEach(osc => this.oscillators.add(osc)); setTimeout(() => oscs.forEach(osc => this.oscillators.delete(osc)), 200); };
