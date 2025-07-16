@@ -139,33 +139,34 @@
         this.reverb = reverb;
         this.id = id; // 0=kick, 1=snare, 2=hihat, 3=vocal
         this.baseFreq = baseFreq;
-        this.traits = { pitchShift: 0, rhythmFactor: 1, volume: id === 0 ? 0.8 : 0.4 };
+        this.traits = { pitchShift: 0, rhythmFactor: 1, volume: [0.8, 0.6, 0.4, 0.3][id] };
         this.active = false;
         this.gain = ctx.createGain();
         this.gain.connect(reverb);
+        this.oscillators = new Set();
       }
 
       evolve(motion, env) {
         if (motion > 10 && Math.random() < 0.2) {
-          this.traits.pitchShift = Math.min(1, this.traits.pitchShift + 0.1);
+          this.traits.pitchShift = Math.min(1, this.traits.pitchShift + 0.1 * (1 + env));
         } else if (motion < 5 && Math.random() < 0.15) {
           this.traits.pitchShift = Math.max(-0.5, this.traits.pitchShift - 0.1);
         }
-        this.traits.volume = Math.min(0.8, this.traits.volume + env * 0.05);
+        this.traits.volume = Math.min(0.9, this.traits.volume + env * 0.05);
         this.play(this.id === 0 ? 0.5 : 0.2);
       }
 
       conjugate(partner) {
-        if (partner && partner !== this) {
-          this.traits.rhythmFactor = partner.traits.rhythmFactor * (1 + (Math.random() - 0.5) * 0.2);
-          partner.traits.pitchShift += (this.traits.pitchShift - partner.traits.pitchShift) * 0.3;
+        if (partner && partner !== this && Math.random() < 0.3) {
+          this.traits.rhythmFactor = partner.traits.rhythmFactor * (1 + (Math.random() - 0.5) * 0.3);
+          partner.traits.pitchShift += (this.traits.pitchShift - partner.traits.pitchShift) * 0.2;
         }
       }
 
       play(duration) {
         if (!this.active || !this.ctx) return;
         const osc = this.ctx.createOscillator();
-        osc.type = this.id === 3 ? 'sine' : 'sawtooth';
+        osc.type = this.id === 3 ? 'sine' : ['sawtooth', 'triangle', 'square', 'sine'][this.id];
         osc.frequency.value = this.baseFreq * (1 + this.traits.pitchShift * (this.id === 0 ? 0.5 : 0.3));
         const gain = this.ctx.createGain();
         gain.gain.setValueAtTime(this.traits.volume, this.ctx.currentTime);
@@ -177,7 +178,13 @@
         setTimeout(() => this.oscillators.delete(osc), duration * 1000 + 50);
       }
 
-      activate() { this.active = true; this.oscillators = new Set(); }
+      deactivate() {
+        this.oscillators.forEach(osc => {
+          try { osc.stop(this.ctx.currentTime + 0.1); } catch (e) {}
+        });
+        this.oscillators.clear();
+        this.active = false;
+      }
     }
 
     class SpatialAI {
@@ -288,9 +295,12 @@
             this.lastStrideTime = now;
             this.updateSongProgress();
             this.updateEnvDensity();
-            if (Math.random() < 0.2) this.agents.forEach((agent, i) => {
-              if (i > 0) agent.conjugate(this.agents[Math.floor(Math.random() * this.agents.length)]);
-            });
+            if (Math.random() < 0.2) {
+              const partnerIdx = Math.floor(Math.random() * this.agents.length);
+              this.agents.forEach((agent, i) => {
+                if (i !== partnerIdx) agent.conjugate(this.agents[partnerIdx]);
+              });
+            }
           }
 
           if (this.motion > 5) this.lastMotionTime = now;
@@ -358,6 +368,7 @@
         
         this.clearParticles();
         this.stopHeavenLayers();
+        this.agents.forEach(agent => agent.deactivate());
       }
 
       createParticles() {
