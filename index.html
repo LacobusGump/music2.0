@@ -259,7 +259,43 @@
         } catch(e) { this.showError('Motion sensors unavailable. Please use a mobile device.'); }
       }
       createReverb() { if(!this.ctx)return; this.reverb=this.ctx.createConvolver(); const buf=this.ctx.createBuffer(2,this.ctx.sampleRate*2,this.ctx.sampleRate); for(let c=0;c<2;c++){const d=buf.getChannelData(c);for(let i=0;i<d.length;i++)d[i]=(Math.random()*2-1)*Math.pow(1-i/d.length,2);} this.reverb.buffer=buf; this.reverb.connect(this.ctx.destination); }
-      startSensors() { window.addEventListener('devicemotion',e=>{ if(!this.active)return; const a=e.accelerationIncludingGravity; if(!a||a.x===null)return; const dx=Math.abs(a.x-this.last.x),dy=Math.abs(a.y-this.last.y),dz=Math.abs(a.z-this.last.z); this.motion=Math.min(100,Math.sqrt(dx*dx+dy*dy+dz*dz)*15); this.last={x:a.x,y:a.y,z:a.z}; if(this.motion>8)this.lastMotionTime=Date.now(); this.pos.x=Math.max(5,Math.min(95,50+a.x*3)); this.pos.y=Math.max(5,Math.min(95,50+a.y*3)); this.updateState(); }); }
+      startSensors() {
+        // Request permission on iOS devices
+        if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
+          DeviceMotionEvent.requestPermission()
+            .then(response => {
+              if (response === 'granted') {
+                window.addEventListener('devicemotion', this.handleMotion.bind(this), true);
+              } else {
+                this.showError('Motion access denied');
+              }
+            })
+            .catch(err => {
+              this.showError('Motion permission error');
+              console.error(err);
+            });
+        } else if ('DeviceMotionEvent' in window) {
+          // Other browsers
+          window.addEventListener('devicemotion', this.handleMotion.bind(this), true);
+        } else {
+          this.showError('DeviceMotionEvent not supported');
+        }
+      }
+
+      handleMotion(event) {
+        if (!this.active) return;
+        const a = event.accelerationIncludingGravity;
+        if (!a || a.x === null) return;
+        const dx = Math.abs(a.x - this.last.x);
+        const dy = Math.abs(a.y - this.last.y);
+        const dz = Math.abs(a.z - this.last.z);
+        this.motion = Math.min(100, Math.sqrt(dx*dx + dy*dy + dz*dz) * 15);
+        this.last = { x: a.x, y: a.y, z: a.z };
+        if (this.motion > 8) this.lastMotionTime = Date.now();
+        this.pos.x = Math.max(5, Math.min(95, 50 + a.x * 3));
+        this.pos.y = Math.max(5, Math.min(95, 50 + a.y * 3));
+        this.updateState();
+      }
       monitorTranscendence(){const chk=()=>{if(!this.active)return; const st=Date.now()-this.lastMotionTime,go=st>1500; if(go&&!this.transcendent)this.enterTranscendence(); else if(!go&&this.transcendent)this.exitTranscendence(); if(this.transcendent){this.transcendentIntensity=Math.min(1,(st-1500)/4000); this.deepenVoid();} setTimeout(chk,100);} ; chk(); }
       enterTranscendence(){this.transcendent=true;this.state='HEAVEN'; ['logo','tagline','spatialViz','orb','motionValue','bpmValue','grooveValue','status'].forEach(id=>document.getElementById(id).classList.add('transcendent')); document.body.classList.add('transcendent'); this.createParticles(); this.startHeavenLayers();}
       exitTranscendence(){this.transcendent=false;this.state='CHILL'; ['logo','tagline','spatialViz','orb','motionValue','bpmValue','grooveValue','status'].forEach(id=>document.getElementById(id).classList.remove('transcendent')); document.body.classList.remove('transcendent'); this.clearParticles(); this.stopHeavenLayers(); }
