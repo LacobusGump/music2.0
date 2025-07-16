@@ -38,7 +38,7 @@
     .start-btn:hover { transform: translateY(-3px); box-shadow: 0 15px 40px rgba(0, 255, 170, 0.5); }
     .spatial-viz { width: 100%; height: 200px; border: 2px solid rgba(0, 255, 170, 0.2); border-radius: 20px; position: relative; overflow: hidden; background: rgba(0, 20, 40, 0.05); margin-bottom: 2rem; transition: all 0.8s ease; }
     .spatial-viz.transcendent { border-color: rgba(255, 136, 204, 0.4); background: rgba(255, 136, 204, 0.06); }
-    .waveform { position: absolute; width: 90%; height: 60%; background: rgba(0, 255, 170, 0.15); border-radius: 8px; overflow: hidden; }
+    .waveform { position: absolute; width: 90%; height: 60%; background: rgba(0, 255, 170, 0.15); border-radius: 8px; }
     .waveform.transcendent { background: rgba(255, 136, 204, 0.2); }
     .orb { position: absolute; width: 60px; height: 60px; border-radius: 50%; background: radial-gradient(circle, #00ffaa, transparent); top: 50%; left: 50%; transform: translate(-50%, -50%); transition: all 0.2s; box-shadow: 0 0 30px rgba(0, 255, 170, 0.4); }
     .orb.transcendent { background: radial-gradient(circle, #ff88cc, transparent); box-shadow: 0 0 60px rgba(255, 136, 204, 0.6); }
@@ -48,6 +48,7 @@
     .stat-label { font-size: 0.7rem; opacity: 0.7; }
     .autonomy-slider { width: 80%; margin: 0 auto 1.5rem; height: 8px; background: rgba(0, 255, 170, 0.2); border-radius: 4px; -webkit-appearance: none; appearance: none; }
     .autonomy-slider::-webkit-slider-thumb { width: 16px; height: 16px; background: #00ffaa; border-radius: 50%; cursor: pointer; box-shadow: 0 0 8px rgba(0, 255, 170, 0.4); }
+    .autonomy-slider::-moz-range-thumb { width: 16px; height: 16px; background: #00ffaa; border-radius: 50%; cursor: pointer; box-shadow: 0 0 8px rgba(0, 255, 170, 0.4); }
     .status { font-size: 0.9rem; color: #4ecdc4; opacity: 0.85; animation: statusBreathe 2s infinite; margin-bottom: 1rem; }
     @keyframes statusBreathe { 0%, 100% { opacity: 0.85; } 50% { opacity: 1; } }
     .particles { position: fixed; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: -1; opacity: 0; transition: opacity 0.5s; }
@@ -77,19 +78,19 @@
 
   <script>
     class AudioPool {
-      constructor(ctx, reverb, maxSize = 10) {
+      constructor(ctx, reverb, maxSize = 15) {
         this.ctx = ctx;
         this.reverb = reverb;
         this.pool = new Map();
         this.maxSize = maxSize;
       }
       getOscillator() {
-        for (let [osc, { used }] of this.pool) if (!used) return osc;
+        for (let [osc, { used }] of this.pool) if (!used) { this.pool.get(osc).used = true; return osc; }
         if (this.pool.size < this.maxSize) {
           const osc = this.ctx.createOscillator();
           osc.connect(this.reverb);
           this.pool.set(osc, { used: false, stopTime: 0 });
-          return osc;
+          return this.getOscillator(); // Retry after adding
         }
         return null;
       }
@@ -111,10 +112,10 @@
       constructor(ctx, reverb, id, baseFreq, pool) {
         this.ctx = ctx;
         this.reverb = reverb;
-        this.id = id;
+        this.id = id; // 0=kick, 1=snare, 2=hihat, 3=vocal
         this.baseFreq = baseFreq;
         this.pool = pool;
-        this.traits = { pitchShift: 0, rhythm: 1, volume: 0.3 };
+        this.traits = { pitchShift: 0, rhythmFactor: 1, volume: id === 0 ? 0.5 : 0.3 };
         this.active = false;
         this.gain = ctx.createGain();
         this.gain.connect(reverb);
@@ -122,36 +123,37 @@
       evolve(motion, env, colony) {
         if (motion > 10 && Math.random() < 0.2) {
           this.traits.pitchShift = Math.min(1, this.traits.pitchShift + 0.1);
-          if (Math.random() < 0.1) this.conjugate(colony);
+          if (Math.random() < 0.1 && colony.length > 1) this.conjugate(colony);
         } else if (motion < 5 && Math.random() < 0.15) {
-          this.traits.pitchShift = Math.max(-1, this.traits.pitchShift - 0.1);
+          this.traits.pitchShift = Math.max(-0.5, this.traits.pitchShift - 0.1);
         }
         this.traits.volume = Math.min(0.8, this.traits.volume + env * 0.05);
-        this.play();
+        this.play(this.id === 0 ? 0.4 : 0.3);
       }
       conjugate(colony) {
         const partner = colony[Math.floor(Math.random() * colony.length)];
-        if (partner !== this) {
-          this.traits.rhythm = partner.traits.rhythm;
-          partner.traits.pitchShift = this.traits.pitchShift;
+        if (partner !== this && partner.active) {
+          this.traits.rhythmFactor = partner.traits.rhythmFactor * (1 + (Math.random() - 0.5) * 0.2);
+          partner.traits.pitchShift += (this.traits.pitchShift - partner.traits.pitchShift) * 0.3;
         }
       }
-      play(duration = 0.3) {
+      play(duration) {
         if (!this.active) return;
         const osc = this.pool.getOscillator();
         if (!osc) return;
         osc.type = this.id === 3 ? 'sine' : 'sawtooth';
         osc.frequency.value = this.baseFreq * (1 + this.traits.pitchShift * (this.id === 0 ? 0.5 : 0.3));
         const gain = this.ctx.createGain();
-        gain.gain.setValueAtTime(this.traits.volume * (this.id === 0 ? 1.5 : 1), this.ctx.currentTime);
+        gain.gain.setValueAtTime(this.traits.volume, this.ctx.currentTime);
         gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + duration);
         osc.connect(gain).connect(this.gain);
         osc.start(); osc.stop(this.ctx.currentTime + duration);
         this.pool.pool.get(osc).used = true;
         this.pool.pool.get(osc).stopTime = this.ctx.currentTime + duration;
-        setTimeout(() => this.pool.releaseOscillator(osc), duration * 1000);
+        setTimeout(() => this.pool.releaseOscillator(osc), duration * 1000 + 50);
       }
       activate() { this.active = true; }
+      deactivate() { this.active = false; }
     }
 
     class QuantumGUMP {
@@ -244,7 +246,7 @@
         window.addEventListener('devicemotion', e => {
           if (!this.active) return;
           const now = performance.now();
-          if (now - lastTime < 40) return;
+          if (now - lastTime < 50) return; // Increased throttle to 50ms
           lastTime = now;
           const acc = e.accelerationIncludingGravity;
           if (!acc || acc.x === null) return;
@@ -263,8 +265,8 @@
             this.updateEnvDensity();
           }
           if (this.motion > 5) this.lastMotionTime = now;
-          this.pos.x = Math.max(5, Math.min(95, this.pos.x + dx * 0.2));
-          this.pos.y = Math.max(5, Math.min(95, this.pos.y + dy * 0.2));
+          this.pos.x = Math.max(5, Math.min(95, this.pos.x + dx * 0.15));
+          this.pos.y = Math.max(5, Math.min(95, this.pos.y + dy * 0.15));
           this.updateState();
           this.elements.motion.textContent = this.motion.toFixed(0);
         }, { passive: true });
@@ -279,7 +281,7 @@
         if (variance > 15) this.patterns.kick = new Uint8Array([1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0]);
         else this.patterns.kick = new Uint8Array([1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0]);
         if (Math.random() < 0.1) this.agents.forEach((agent, i) => {
-          if (i > 0) agent.conjugate(this.agents);
+          if (i > 0 && Math.random() < 0.3) agent.conjugate(this.agents);
         });
       }
 
@@ -307,6 +309,7 @@
         }
         this.elements.bpm.textContent = this.bpm;
         this.elements.state.textContent = this.state;
+        this.elements.status.textContent = `🎵 ${this.state.toLowerCase()} mode active...`;
       }
 
       startGroove() {
@@ -331,7 +334,6 @@
           if (this.step === 0) {
             this.currentChord = (this.currentChord + 1) % this.chords.length;
             if (this.songSection === 'B') this.bpm += Math.round(5 * this.envDensity);
-            this.generation = Math.max(1, this.generation + (Math.random() < 0.05 ? 1 : 0));
           }
           setTimeout(tick, Math.max(50, 60000 / this.bpm / 4));
         };
@@ -340,21 +342,24 @@
 
       animate() {
         let lastFrame = 0;
+        const bars = 20;
+        const waveformBars = new Array(bars).fill().map(() => document.createElement('div'));
+        waveformBars.forEach(bar => {
+          bar.style.cssText = `position: absolute; bottom: 0; width: ${100 / bars}%; background: #00ffaa; transition: height 0.1s ease;`;
+          this.elements.waveform.appendChild(bar);
+        });
         const animate = (timestamp) => {
           if (!this.active || timestamp - lastFrame < 30) {
             requestAnimationFrame(animate);
             return;
           }
           lastFrame = timestamp;
-          const bars = 20;
-          const waveform = this.elements.waveform;
-          waveform.innerHTML = '';
-          for (let i = 0; i < bars; i++) {
-            const bar = document.createElement('div');
+          waveformBars.forEach((bar, i) => {
             const height = Math.sin(i * 0.6 + timestamp * 0.002 + this.motion * 0.01) * 40 + 40;
-            bar.style.cssText = `position: absolute; bottom: 0; left: ${i * (100 / bars)}%; width: ${100 / bars}%; height: ${height}px; background: ${this.transcendent ? '#ff88cc' : '#00ffaa'};`;
-            waveform.appendChild(bar);
-          }
+            bar.style.height = `${height}px`;
+            bar.style.background = this.transcendent ? '#ff88cc' : '#00ffaa';
+            bar.style.left = `${i * (100 / bars)}%`;
+          });
           this.elements.orb.style.transform = `translate(${this.pos.x - 50}%, ${this.pos.y - 50}%) scale(${1 + this.motion * 0.008})`;
           requestAnimationFrame(animate);
         };
@@ -454,14 +459,14 @@
           const osc = this.pool.getOscillator();
           if (!osc) return;
           osc.type = 'sine';
-          osc.frequency.value = this.scale[note] * 0.3;
+          osc.frequency.value = this.scale[note] * 0.3 * (1 + this.transcendentIntensity * 0.2);
           const gain = this.ctx.createGain();
           const filter = this.ctx.createBiquadFilter();
           filter.type = 'lowpass';
           filter.frequency.value = 250 + this.motion * 1.5;
           filter.Q.value = 1.8;
           gain.gain.setValueAtTime(0, this.ctx.currentTime);
-          gain.gain.linearRampToValueAtTime(0.15, this.ctx.currentTime + 5);
+          gain.gain.linearRampToValueAtTime(0.15 * this.transcendentIntensity, this.ctx.currentTime + 5);
           osc.connect(filter).connect(gain).connect(this.reverb);
           osc.start();
           this.pool.pool.get(osc).used = true;
