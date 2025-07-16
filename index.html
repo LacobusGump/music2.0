@@ -149,11 +149,6 @@
       box-shadow: 0 0 10px rgba(0, 255, 170, 0.6);
     }
     
-    .evolution-display { display: flex; flex-direction: column; gap: 8px; margin-bottom: 2rem; }
-    .evolution-bar { height: 6px; background: rgba(0, 255, 170, 0.2); border-radius: 3px; overflow: hidden; }
-    .evolution-progress { height: 100%; background: linear-gradient(90deg, #00ffaa, #4ecdc4); border-radius: 3px; transition: width 0.5s ease; }
-    .evolution-label { font-size: 0.75rem; opacity: 0.7; text-transform: uppercase; letter-spacing: 0.5px; }
-    
     .status { font-size: 1rem; color: #4ecdc4; opacity: 0.85; animation: statusBreathe 2.5s ease-in-out infinite; margin-bottom: 1rem; }
     @keyframes statusBreathe { 0%, 100% { opacity: 0.85; } 50% { opacity: 1.1; } }
     
@@ -162,28 +157,18 @@
     .particle { position: absolute; width: 4px; height: 4px; background: radial-gradient(circle, #ff88cc, transparent); border-radius: 50%; animation: float 7s linear infinite; }
     @keyframes float { 0% { transform: translateY(110vh) scale(0); opacity: 0; } 10% { opacity: 0.8; } 90% { opacity: 0.8; } 100% { transform: translateY(-30vh) scale(1.5); opacity: 0; } }
     
-    .neural-network { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; opacity: 0.3; }
-    .neural-node { position: absolute; width: 8px; height: 8px; background: #00ffaa; border-radius: 50%; box-shadow: 0 0 10px rgba(0, 255, 170, 0.5); animation: pulse 2s ease-in-out infinite; }
-    .neural-connection { position: absolute; height: 1px; background: linear-gradient(90deg, transparent, #00ffaa, transparent); opacity: 0.4; animation: flow 3s ease-in-out infinite; }
-    @keyframes flow { 0%, 100% { opacity: 0.2; } 50% { opacity: 0.6; } }
-    
     .hidden { display: none !important; }
     .error { background: rgba(255, 107, 107, 0.15); border: 2px solid rgba(255, 107, 107, 0.4); border-radius: 20px; padding: 25px; color: #ff6b6b; margin-top: 25px; }
-    
-    .debug-panel { position: fixed; top: 20px; right: 20px; background: rgba(0, 0, 0, 0.8); padding: 15px; border-radius: 10px; font-family: monospace; font-size: 0.8rem; color: #00ffaa; opacity: 0; transition: opacity 0.3s ease; max-width: 300px; z-index: 1000; }
-    .debug-panel.active { opacity: 1; }
-    .debug-line { margin: 2px 0; padding: 2px 5px; border-radius: 3px; background: rgba(0, 255, 170, 0.1); }
   </style>
 </head>
 <body>
   <div class="particles" id="particles"></div>
   
   <div class="app">
-    <div class="logo" id="logo" onclick="gump.toggleDebug()">GUMP</div>
-    <div class="tagline" id="tagline">Grand Unified Music Project</div>
+    <div class="logo" id="logo">GUMP</div>
+    <div class="tagline">Grand Unified Music Project</div>
     <button class="start-btn" id="start">🎵 Start Spatial Audio</button>
     <div class="spatial-viz hidden" id="viz">
-      <div class="neural-network" id="neuralNetwork"></div>
       <div class="waveform" id="waveform"></div>
       <div class="orb" id="orb"></div>
     </div>
@@ -199,74 +184,39 @@
         <input type="range" min="0" max="100" value="50" class="autonomy-slider" id="autonomy">
       </div>
       <div class="control-group">
-        <span class="control-label">Learning Rate</span>
-        <input type="range" min="1" max="10" value="5" class="autonomy-slider" id="learningRate">
+        <span class="control-label">Intensity</span>
+        <input type="range" min="1" max="10" value="5" class="autonomy-slider" id="intensity">
       </div>
-      <div class="control-group">
-        <span class="control-label">Mutation Rate</span>
-        <input type="range" min="1" max="20" value="5" class="autonomy-slider" id="mutationRate">
-      </div>
-    </div>
-    <div class="evolution-display hidden" id="evolutionDisplay">
-      <div><div class="evolution-label">Pattern Evolution</div><div class="evolution-bar"><div class="evolution-progress" id="patternEvolution" style="width: 0%"></div></div></div>
-      <div><div class="evolution-label">Harmonic Evolution</div><div class="evolution-bar"><div class="evolution-progress" id="harmonicEvolution" style="width: 0%"></div></div></div>
-      <div><div class="evolution-label">Temporal Evolution</div><div class="evolution-bar"><div class="evolution-progress" id="temporalEvolution" style="width: 0%"></div></div></div>
     </div>
     <div class="status hidden" id="status">🎵 Initializing neural patterns...</div>
     <div class="error hidden" id="error"></div>
   </div>
-  <div class="debug-panel" id="debugPanel">
-    <div class="debug-line">Neural Activity: <span id="neuralActivity">0</span></div>
-    <div class="debug-line">Active Genes: <span id="activeGenes">0</span></div>
-    <div class="debug-line">Fitness Score: <span id="fitnessScore">0</span></div>
-    <div class="debug-line">Last Mutation: <span id="lastMutation">None</span></div>
-    <div class="debug-line">Performance: <span id="performance">0ms</span></div>
-  </div>
 
   <script>
-    class CircularBuffer {
-      constructor(size) {
-        this.size = size;
-        this.buffer = new Array(size).fill(0);
-        this.index = 0;
-      }
-      push(value) { this.buffer[this.index] = value; this.index = (this.index + 1) % this.size; }
-      getRecent(n) { return this.buffer.slice(this.index - n, this.index).concat(this.buffer.slice(0, this.index - n < 0 ? this.size + (this.index - n) : 0)); }
-    }
-
     class SoundAgent {
-      constructor(ctx, reverb, id, baseFreq) {
+      constructor(ctx, reverb, type, freq) {
         this.ctx = ctx;
         this.reverb = reverb;
-        this.id = id;
-        this.baseFreq = baseFreq;
-        this.stage = 0; // 0=base, 1=5th, 2=unison
+        this.type = type;
+        this.freq = freq;
+        this.gain = ctx.createGain();
+        this.gain.connect(reverb);
         this.active = false;
-        this.gainNode = ctx.createGain();
-        this.gainNode.connect(reverb);
-        this.type = ['kick', 'snare', 'hihat', 'vocal'][id % 4];
-      }
-
-      evolve(motion, env) {
-        if (motion > 10 && Math.random() < 0.3) this.stage = Math.min(2, this.stage + 1);
-        else if (motion < 5 && Math.random() < 0.2) this.stage = Math.max(0, this.stage - 1);
-        this.play();
       }
 
       play() {
         if (!this.active) return;
         const osc = this.ctx.createOscillator();
-        osc.type = this.type === 'vocal' ? 'sine' : 'sawtooth';
-        osc.frequency.value = this.baseFreq * (this.stage === 1 ? 1.5 : this.stage === 2 ? 2 : 1);
         const gain = this.ctx.createGain();
+        osc.type = this.type === 'vocal' ? 'sine' : 'sawtooth';
+        osc.frequency.value = this.freq;
         gain.gain.setValueAtTime(this.type === 'kick' ? 0.8 : 0.3, this.ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + (this.type === 'kick' ? 0.5 : 0.3));
-        osc.connect(gain).connect(this.gainNode);
-        osc.start(); osc.stop(this.ctx.currentTime + (this.type === 'kick' ? 0.5 : 0.3));
+        gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.5);
+        osc.connect(gain).connect(this.gain);
+        osc.start(); osc.stop(this.ctx.currentTime + 0.5);
       }
 
       activate() { this.active = true; }
-      deactivate() { this.active = false; }
     }
 
     class QuantumGUMP {
@@ -276,7 +226,6 @@
         this.bpm = 95;
         this.pos = { x: 50, y: 50 };
         this.velocity = { x: 0, y: 0 };
-        this.acceleration = { x: 0, y: 0 };
         this.last = { x: 0, y: 0, z: 0 };
         this.active = false;
         this.step = 0;
@@ -285,33 +234,17 @@
         this.transcendentIntensity = 0;
         this.lastMotionTime = Date.now();
         this.reverb = null;
-        this.songSection = 'A1';
         this.layerProgress = 0;
         this.lastStrideTime = 0;
         this.strideInterval = 400;
-        this.envDensity = 0;
-        this.oscillators = new Map();
-        this.lastUpdateTime = 0;
-        this.frameCount = 0;
         this.autonomyLevel = 50;
-        this.learningRate = 5;
-        this.mutationRate = 5;
+        this.intensityLevel = 5;
         this.generation = 1;
-        this.debugMode = false;
         this.agents = [];
-        this.devices = new Map();
-        this.motionBuffer = new CircularBuffer(200);
-        this.bpmHistory = new CircularBuffer(50);
-        this.lessons = new Map();
-        this.tools = new Map();
-        this.lastReflectionTime = 0;
-        this.reflectionInterval = 3000;
+        this.oscillators = new Map();
+        this.motionHistory = [];
         
         this.scale = [261.63, 293.66, 329.63, 349.23, 392.00, 440.00, 493.88, 523.25];
-        this.modes = { dorian: [0, 2, 3, 5, 7, 9, 10], phrygian: [0, 1, 3, 5, 7, 8, 10], lydian: [0, 2, 4, 6, 7, 9, 11], mixolydian: [0, 2, 4, 5, 7, 9, 10] };
-        this.currentMode = 'dorian';
-        this.chords = this.generateChords();
-        this.currentChord = 0;
         this.patterns = { kick: [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0] };
         
         this.elements = {};
@@ -319,516 +252,227 @@
       }
 
       init() {
-        const ids = ['start', 'viz', 'stats', 'status', 'logo', 'tagline', 'orb', 'motion', 'bpm', 'groove', 'generation', 'error', 'particles', 'waveform', 'autonomy', 'learningRate', 'mutationRate', 'controls', 'evolutionDisplay', 'patternEvolution', 'harmonicEvolution', 'temporalEvolution', 'neuralNetwork', 'debugPanel', 'neuralActivity', 'activeGenes', 'fitnessScore', 'lastMutation', 'performance'];
-        ids.forEach(id => this.elements[id] = document.getElementById(id));
-        this.setupEventListeners();
-        if (navigator.geolocation) {
-          navigator.geolocation.watchPosition(pos => this.updateLocation(pos), null, { enableHighAccuracy: true, timeout: 5000, maximumAge: 5000 });
-        }
-        this.setupBluetooth();
-      }
-
-      setupEventListeners() {
+        ['start', 'viz', 'stats', 'status', 'orb', 'motion', 'bpm', 'groove', 'generation', 'error', 'particles', 'waveform', 'autonomy', 'intensity', 'controls'].forEach(id => 
+          this.elements[id] = document.getElementById(id)
+        );
+        
         this.elements.start.onclick = () => this.start();
-        this.elements.autonomy.oninput = (e) => { this.autonomyLevel = parseInt(e.target.value); this.updateStatus(`Autonomy: ${this.autonomyLevel}%`); };
-        this.elements.learningRate.oninput = (e) => this.learningRate = parseInt(e.target.value);
-        this.elements.mutationRate.oninput = (e) => this.mutationRate = parseInt(e.target.value);
-        document.addEventListener('keydown', (e) => {
-          if (e.key === 'd' && e.ctrlKey) this.toggleDebug();
-          if (e.key === 'r' && e.ctrlKey) this.resetEvolution();
-        });
-      }
-
-      setupBluetooth() {
-        if (!navigator.bluetooth) return;
-        navigator.bluetooth.getDevices().then(devices => devices.forEach(device => this.connectDevice(device)));
-        setInterval(() => this.discoverDevices(), 5000);
-      }
-
-      async discoverDevices() {
-        try {
-          const device = await navigator.bluetooth.requestDevice({ acceptAllDevices: true, optionalServices: ['0000180a-0000-1000-8000-00805f9b34fb'] });
-          await this.connectDevice(device);
-        } catch (e) {}
-      }
-
-      async connectDevice(device) {
-        try {
-          const server = await device.gatt.connect();
-          const service = await server.getPrimaryService('0000180a-0000-1000-8000-00805f9b34fb');
-          const characteristic = await service.getCharacteristic('00002a29-0000-1000-8000-00805f9b34fb');
-          this.devices.set(device.id, { characteristic, device, beat: false });
-          characteristic.addEventListener('characteristicvaluechanged', (event) => this.handleMeshData(event, device.id));
-          await characteristic.startNotifications();
-          console.log(`Connected to ${device.name}`);
-        } catch (e) {}
-      }
-
-      handleMeshData(event, deviceId) {
-        const value = event.target.value.getUint8(0);
-        this.devices.get(deviceId).beat = value > 128;
-        this.syncMesh();
-      }
-
-      syncMesh() {
-        const activeBeats = [...this.devices.values()].filter(d => d.beat).length;
-        this.bpm = Math.min(140, 95 + activeBeats * 10);
-        this.elements.bpm.textContent = this.bpm;
+        this.elements.autonomy.oninput = (e) => this.autonomyLevel = e.target.value;
+        this.elements.intensity.oninput = (e) => this.intensityLevel = e.target.value;
+        
+        if (navigator.geolocation) {
+          navigator.geolocation.watchPosition(pos => {
+            const speed = pos.coords.speed || 0;
+            this.bpm = Math.min(140, this.bpm + speed * 2);
+          }, null, { enableHighAccuracy: true });
+        }
       }
 
       async start() {
         try {
           if (typeof DeviceMotionEvent?.requestPermission === 'function') {
-            const perm = await DeviceMotionEvent.requestPermission();
-            if (perm !== 'granted') throw new Error('Motion permission denied.');
+            if (await DeviceMotionEvent.requestPermission() !== 'granted') throw new Error('Motion permission denied');
           }
+          
           this.ctx = new (window.AudioContext || window.webkitAudioContext)();
           await this.ctx.resume();
-          this.createAdvancedReverb();
+          this.createReverb();
+          
           this.elements.start.classList.add('hidden');
-          ['viz', 'stats', 'status', 'controls', 'evolutionDisplay'].forEach(id => this.elements[id].classList.remove('hidden'));
+          ['viz', 'stats', 'status', 'controls'].forEach(id => this.elements[id].classList.remove('hidden'));
+          
           this.active = true;
-          this.spawnAgents(4);
+          this.spawnAgents();
           this.startSensors();
-          this.startQuantumGroove();
-          this.animateWaveform();
-          this.animateOrb();
+          this.startGroove();
+          this.animate();
           this.monitorTranscendence();
-          this.startNeuralVisualization();
-          console.log('GUMP Quantum started');
         } catch (e) {
           this.showError('Failed to start: ' + e.message);
         }
       }
 
-      createAdvancedReverb() {
-        if (!this.ctx) return;
+      createReverb() {
         this.reverb = this.ctx.createConvolver();
-        const buffer = this.ctx.createBuffer(2, this.ctx.sampleRate * 4, this.ctx.sampleRate);
+        const buffer = this.ctx.createBuffer(2, this.ctx.sampleRate * 3, this.ctx.sampleRate);
         for (let c = 0; c < 2; c++) {
           const data = buffer.getChannelData(c);
           for (let i = 0; i < data.length; i++) {
-            const t = i / this.ctx.sampleRate;
-            const decay = Math.exp(-t * 2);
-            const early = Math.exp(-t * 8) * Math.sin(t * 1000);
-            const late = (Math.random() * 2 - 1) * decay;
-            data[i] = (early * 0.3 + late * 0.7) * decay;
+            const decay = Math.exp(-i / this.ctx.sampleRate * 2);
+            data[i] = (Math.random() * 2 - 1) * decay;
           }
         }
         this.reverb.buffer = buffer;
         this.reverb.connect(this.ctx.destination);
       }
 
-      generateChords() {
-        const mode = this.modes[this.currentMode];
-        const chords = [];
-        for (let i = 0; i < mode.length; i++) {
-          const chord = [];
-          for (let j = 0; j < 4; j++) chord.push(mode[(i + j * 2) % mode.length]);
-          chords.push(chord);
-        }
-        return chords;
-      }
-
-      spawnAgents(count) {
-        for (let i = 0; i < count; i++) {
-          const agent = new SoundAgent(this.ctx, this.reverb, i, this.scale[i % this.scale.length]);
+      spawnAgents() {
+        const types = ['kick', 'snare', 'hihat', 'vocal'];
+        for (let i = 0; i < 4; i++) {
+          const agent = new SoundAgent(this.ctx, this.reverb, types[i], this.scale[i]);
           agent.activate();
           this.agents.push(agent);
         }
       }
 
       startSensors() {
-        let lastSensorTime = 0;
+        let lastTime = 0;
         window.addEventListener('devicemotion', e => {
           if (!this.active) return;
           const now = performance.now();
-          if (now - lastSensorTime < 16) return;
-          lastSensorTime = now;
+          if (now - lastTime < 16) return;
+          lastTime = now;
+          
           const acc = e.accelerationIncludingGravity;
           if (!acc || acc.x === null) return;
+          
           const dx = acc.x - this.last.x;
           const dy = acc.y - this.last.y;
           const dz = acc.z - this.last.z;
-          this.acceleration.x = dx;
-          this.acceleration.y = dy;
-          this.velocity.x = this.velocity.x * 0.9 + dx * 0.1;
-          this.velocity.y = this.velocity.y * 0.9 + dy * 0.1;
+          
           this.motion = Math.min(100, Math.sqrt(dx * dx + dy * dy + dz * dz) * 12);
           this.last = { x: acc.x, y: acc.y, z: acc.z };
-          this.motionBuffer.push(this.motion);
-          if (this.motion > 5 && now - this.lastStrideTime > this.strideInterval) {
-            this.lastStrideTime = now;
-            this.processStride();
-          }
-          if (this.motion > 5) this.lastMotionTime = now;
+          
+          this.velocity.x = this.velocity.x * 0.9 + dx * 0.1;
+          this.velocity.y = this.velocity.y * 0.9 + dy * 0.1;
+          
           this.pos.x = Math.max(5, Math.min(95, this.pos.x + this.velocity.x * 0.5));
           this.pos.y = Math.max(5, Math.min(95, this.pos.y + this.velocity.y * 0.5));
+          
+          if (this.motion > 5) this.lastMotionTime = now;
+          
+          this.motionHistory.push(this.motion);
+          if (this.motionHistory.length > 100) this.motionHistory.shift();
+          
           this.updateState();
           this.elements.motion.textContent = this.motion.toFixed(0);
-          if (now - this.lastReflectionTime > this.reflectionInterval) {
-            this.reflect();
-            this.lastReflectionTime = now;
-          }
-          this.agents.forEach(agent => agent.evolve(this.motion, this.envDensity));
         }, { passive: true });
-      }
-
-      processStride() {
-        const recentMotion = this.motionBuffer.getRecent(20);
-        const variance = this.calculateVariance(recentMotion);
-        const rhythm = this.detectRhythm(recentMotion);
-        this.patterns.kick = this.evolvePattern('kick', rhythm, variance);
-        this.updateSongProgress();
-        this.updateEnvDensity();
-        if (Math.random() < 0.1) {
-          this.bacterialColony.conjugate(this.agents);
-          this.conjugationEvents++;
-        }
-      }
-
-      calculateVariance(data) {
-        const mean = data.reduce((a, b) => a + b, 0) / data.length;
-        return data.reduce((sum, x) => sum + Math.pow(x - mean, 2), 0) / data.length;
-      }
-
-      detectRhythm(data) {
-        const peaks = [];
-        for (let i = 1; i < data.length - 1; i++) if (data[i] > data[i-1] && data[i] > data[i+1]) peaks.push(i);
-        return peaks.length > 2 ? (peaks[1] - peaks[0]) : 4;
-      }
-
-      evolvePattern(type, rhythm, variance) {
-        let pattern = this.patterns[type].slice();
-        if (variance > 15) {
-          pattern = pattern.map((v, i) => i % rhythm === 0 ? 1 : 0);
-        } else if (variance < 5) {
-          pattern = pattern.map((v, i) => i % 4 === 0 ? 1 : 0);
-        }
-        return pattern;
-      }
-
-      updateLocation(pos) {
-        const speed = pos.coords.speed || 0;
-        const accuracy = pos.coords.accuracy || 100;
-        const responsiveness = Math.max(0.1, 100 / accuracy);
-        this.envDensity = Math.min(1, Math.max(0, this.envDensity + (speed * 0.02 * responsiveness) + (Math.random() * 0.1)));
-        if (speed > 1) this.bpm = Math.min(140, this.bpm + Math.round(this.envDensity * 5));
-      }
-
-      updateEnvDensity() {
-        const motionFactor = this.motion * 0.01;
-        this.envDensity = Math.min(1, Math.max(0, this.envDensity + motionFactor * 0.2 + (Math.random() * 0.05)));
-      }
-
-      updateSongProgress() {
-        if (this.motion > 5) {
-          this.layerProgress = Math.min(4, this.layerProgress + 0.2 * (1 + this.envDensity));
-          if (this.songSection === 'A1' && this.layerProgress >= 3) this.songSection = 'A2';
-          else if (this.songSection === 'A2' && this.step === 0) this.songSection = 'B';
-          else if (this.songSection === 'B' && this.step === 0) this.songSection = 'A3';
-        }
       }
 
       updateState() {
         if (this.transcendent) {
-          this.state = ['VOID', 'DARKNESS', 'ETHEREAL', 'INFINITE'][Math.floor(this.transcendentIntensity * 4)];
-          this.bpm = Math.round(45 + (this.transcendentIntensity * 35) + (this.motion * 0.2));
-          return;
+          this.state = ['VOID', 'ETHEREAL', 'INFINITE'][Math.floor(this.transcendentIntensity * 3)];
+          this.bpm = Math.round(60 + this.transcendentIntensity * 40);
+        } else {
+          const target = 80 + this.motion * 2 + this.intensityLevel * 5;
+          this.bpm = Math.round(this.bpm * 0.9 + target * 0.1);
+          this.state = this.motion < 5 ? 'CHILL' : this.motion < 15 ? 'FLOW' : 'ENERGY';
         }
-        const targetBPM = 80 + this.motion * 2.5 + this.envDensity * 20;
-        this.bpm = Math.round(this.bpm * 0.9 + targetBPM * 0.1);
-        if (this.motion < 5) this.state = 'CHILL';
-        else if (this.motion < 15) this.state = 'FLOW';
-        else this.state = 'ENERGY';
+        
         this.elements.groove.textContent = this.state;
         this.elements.bpm.textContent = this.bpm;
       }
 
-      startQuantumGroove() {
+      startGroove() {
         const tick = () => {
           if (!this.active) return;
+          
           if (this.transcendent) {
-            if (this.step % 8 === 0) this.etherealKick();
-            if (this.step % 12 === 6 && this.transcendentIntensity > 0.3) this.voidPulse();
+            if (this.step % 8 === 0) this.etherealSound();
+            if (this.step % 12 === 6) this.voidPulse();
           } else {
-            this.agents.forEach((agent, idx) => {
-              if ((idx === 0 && this.patterns.kick[this.step % 16] && this.layerProgress >= 0) || // Kick
-                  (idx === 1 && this.step % 16 === 4 && this.layerProgress >= 1) || // Snare
-                  (idx === 2 && this.step % 8 === 0 && this.layerProgress >= 2) || // Hihat
-                  (idx === 3 && this.step % 6 === 0 && this.layerProgress >= 3)) { // Vocal
-                agent.play();
-              }
-              if (this.layerProgress >= 4 && this.step % 16 === 2 && idx === 0) this.unisonDrop(); // Drop
+            this.agents.forEach((agent, i) => {
+              const triggers = [
+                this.patterns.kick[this.step % 16] && this.layerProgress >= 0,
+                this.step % 16 === 4 && this.layerProgress >= 1,
+                this.step % 8 === 0 && this.layerProgress >= 2,
+                this.step % 6 === 0 && this.layerProgress >= 3
+              ];
+              if (triggers[i]) agent.play();
             });
           }
+          
           this.step = (this.step + 1) % 32;
           if (this.step === 0) {
-            this.currentChord = (this.currentChord + 1) % this.chords.length;
-            if (this.songSection === 'B') this.bpm += Math.round(5 * (1 + this.envDensity));
-            this.generation = Math.max(1, this.generation + (Math.random() < 0.05 ? 1 : 0));
+            this.generation += Math.random() < 0.1 ? 1 : 0;
             this.elements.generation.textContent = this.generation;
           }
-          const interval = Math.max(100, 60000 / this.bpm / 4);
-          setTimeout(tick, interval);
+          
+          if (this.motion > 5) this.layerProgress = Math.min(4, this.layerProgress + 0.1);
+          
+          setTimeout(tick, Math.max(100, 60000 / this.bpm / 4));
         };
         tick();
       }
 
-      animateWaveform() {
-        const waveform = this.elements.waveform;
-        let lastFrame = 0;
-        const animate = (timestamp) => {
-          if (!this.active || timestamp - lastFrame < 33) {
-            requestAnimationFrame(animate);
-            return;
-          }
-          lastFrame = timestamp;
-          const bars = 30;
-          waveform.innerHTML = '';
+      animate() {
+        const update = () => {
+          if (!this.active) return;
+          
+          // Waveform
+          const bars = 20;
+          this.elements.waveform.innerHTML = '';
           for (let i = 0; i < bars; i++) {
             const bar = document.createElement('div');
-            const height = Math.sin(i * 0.5 + timestamp * 0.001 + this.motion * 0.02) * 50 * (this.autonomyLevel / 100) + 50;
-            bar.style.cssText = `width: ${100 / bars}%; height: ${height}%; background: ${this.transcendent ? '#ff88cc' : '#00ffaa'}; transition: height 0.1s ease;`;
-            waveform.appendChild(bar);
+            const height = Math.sin(i * 0.5 + Date.now() * 0.001) * 30 + 40;
+            bar.style.cssText = `width: ${100/bars}%; height: ${height}%; background: ${this.transcendent ? '#ff88cc' : '#00ffaa'}; transition: height 0.1s;`;
+            this.elements.waveform.appendChild(bar);
           }
-          requestAnimationFrame(animate);
+          
+          // Orb
+          this.elements.orb.style.transform = `translate(${this.pos.x - 50}%, ${this.pos.y - 50}%) scale(${1 + this.motion * 0.01})`;
+          
+          requestAnimationFrame(update);
         };
-        requestAnimationFrame(animate);
-      }
-
-      animateOrb() {
-        const orb = this.elements.orb;
-        let lastFrame = 0;
-        const animate = (timestamp) => {
-          if (!this.active || timestamp - lastFrame < 33) {
-            requestAnimationFrame(animate);
-            return;
-          }
-          lastFrame = timestamp;
-          orb.style.transform = `translate(${this.pos.x - 50}%, ${this.pos.y - 50}%) scale(${1 + this.motion * 0.01})`;
-          requestAnimationFrame(animate);
-        };
-        requestAnimationFrame(animate);
+        update();
       }
 
       monitorTranscendence() {
-        let lastTranscendenceCheck = 0;
         const check = () => {
           if (!this.active) return;
-          const now = Date.now();
-          if (now - lastTranscendenceCheck < 100) { requestAnimationFrame(check); return; }
-          lastTranscendenceCheck = now;
-          const stillTime = now - this.lastMotionTime;
-          const shouldTranscend = stillTime > 800;
-          if (shouldTranscend && !this.transcendent) this.enterTranscendence();
-          else if (!shouldTranscend && this.transcendent) this.exitTranscendence();
-          if (this.transcendent) {
-            this.transcendentIntensity = Math.min(1, (stillTime - 800) / 2000);
-            this.deepenVoid();
+          
+          const stillTime = Date.now() - this.lastMotionTime;
+          const shouldTranscend = stillTime > 1000;
+          
+          if (shouldTranscend && !this.transcendent) {
+            this.transcendent = true;
+            document.body.classList.add('transcendent');
+            ['viz', 'orb', 'waveform'].forEach(id => this.elements[id]?.classList.add('transcendent'));
+            this.createParticles();
+            this.startHeavenLayers();
+          } else if (!shouldTranscend && this.transcendent) {
+            this.transcendent = false;
+            document.body.classList.remove('transcendent');
+            ['viz', 'orb', 'waveform'].forEach(id => this.elements[id]?.classList.remove('transcendent'));
+            this.clearParticles();
+            this.stopHeavenLayers();
           }
-          requestAnimationFrame(check);
+          
+          if (this.transcendent) {
+            this.transcendentIntensity = Math.min(1, (stillTime - 1000) / 3000);
+          }
+          
+          setTimeout(check, 100);
         };
-        requestAnimationFrame(check);
-      }
-
-      enterTranscendence() {
-        this.transcendent = true; this.state = 'VOID';
-        ['logo', 'tagline', 'viz', 'orb', 'waveform'].forEach(id => this.elements[id]?.classList.add('transcendent'));
-        document.body.classList.add('transcendent');
-        this.createParticles();
-        this.startHeavenLayers();
-      }
-
-      exitTranscendence() {
-        this.transcendent = false; this.state = 'CHILL';
-        ['logo', 'tagline', 'viz', 'orb', 'waveform'].forEach(id => this.elements[id]?.classList.remove('transcendent'));
-        document.body.classList.remove('transcendent');
-        this.clearParticles();
-        this.stopHeavenLayers();
+        check();
       }
 
       createParticles() {
         const container = this.elements.particles;
         container.classList.add('active');
-        const fragment = document.createDocumentFragment();
-        for (let i = 0; i < 20; i++) {
+        for (let i = 0; i < 15; i++) {
           const particle = document.createElement('div');
           particle.className = 'particle';
           particle.style.left = Math.random() * 100 + '%';
           particle.style.animationDelay = Math.random() * 6 + 's';
-          fragment.appendChild(particle);
+          container.appendChild(particle);
         }
-        container.appendChild(fragment);
       }
 
       clearParticles() {
-        const container = this.elements.particles;
-        container.classList.remove('active');
-        setTimeout(() => container.innerHTML = '', 2000);
+        this.elements.particles.classList.remove('active');
+        setTimeout(() => this.elements.particles.innerHTML = '', 1000);
       }
 
-      deepenVoid() {
-        const intensity = this.transcendentIntensity;
-        if (intensity > 0.3 && Math.random() < 0.01) this.voidPulse();
-        if (intensity > 0.6 && Math.random() < 0.008) this.voidBell();
-        if (intensity > 0.2) document.body.style.background = `radial-gradient(circle at 60% 40%, #050010 ${intensity * 20}%, #0a0a1e ${intensity * 40}%, #1a0a2e ${intensity * 60}%, #0a0a1e 100%)`;
-        if (intensity > 0.5) document.body.style.background = `radial-gradient(circle at 60% 40%, #020008 ${intensity * 15}%, #05050f ${intensity * 30}%, #0a0a1e ${intensity * 50}%, #05050f 80%)`;
-      }
-
-      voidPulse() {
-        const osc = this.ctx.createOscillator();
-        const gain = this.ctx.createGain();
-        const filter = this.ctx.createBiquadFilter();
-        osc.type = 'sawtooth';
-        osc.frequency.value = 20 + this.motion * 0.1;
-        filter.type = 'lowpass';
-        filter.frequency.value = 50 + this.motion * 0.3;
-        filter.Q.value = 4;
-        gain.gain.setValueAtTime(0.6 * this.transcendentIntensity, this.ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 1.5);
-        osc.connect(filter).connect(gain).connect(this.reverb);
-        osc.start(); osc.stop(this.ctx.currentTime + 1.5);
-        this.oscillators.set(osc, Date.now());
-        setTimeout(() => this.oscillators.delete(osc), 1500);
-      }
-
-      voidBell() {
-        const freq = [174, 207, 261, 311, 349][Math.floor(Math.random() * 5)] * 0.7;
+      etherealSound() {
         const osc = this.ctx.createOscillator();
         const gain = this.ctx.createGain();
         osc.type = 'sine';
-        osc.frequency.value = freq;
-        gain.gain.setValueAtTime(0, this.ctx.currentTime);
-        gain.gain.linearRampToValueAtTime(0.1, this.ctx.currentTime + 0.5);
-        gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 10);
-        osc.connect(gain).connect(this.reverb);
-        osc.start(); osc.stop(this.ctx.currentTime + 10);
-        this.oscillators.set(osc, Date.now());
-        setTimeout(() => this.oscillators.delete(osc), 10000);
-      }
-
-      startHeavenLayers() {
-        const chord = this.chords[this.currentChord];
-        chord.forEach(note => {
-          const osc = this.ctx.createOscillator();
-          const gain = this.ctx.createGain();
-          const filter = this.ctx.createBiquadFilter();
-          osc.type = 'sine';
-          osc.frequency.value = this.scale[note] * 0.3;
-          filter.type = 'lowpass';
-          filter.frequency.value = 250 + this.motion * 1.5;
-          filter.Q.value = 1.8;
-          gain.gain.setValueAtTime(0, this.ctx.currentTime);
-          gain.gain.linearRampToValueAtTime(0.15, this.ctx.currentTime + 5);
-          osc.connect(filter).connect(gain).connect(this.reverb);
-          osc.start();
-          this.oscillators.set(osc, Date.now());
-        });
-      }
-
-      stopHeavenLayers() {
-        this.oscillators.forEach((time, osc) => { try { osc.stop(this.ctx.currentTime + 3); } catch (e) {} });
-        this.oscillators.clear();
-      }
-
-      showError(msg) {
-        this.elements.error.textContent = msg;
-        this.elements.error.classList.remove('hidden');
-      }
-
-      reflect() {
-        const avgMotion = this.motionBuffer.buffer.reduce((a, b) => a + b, 0) / this.motionBuffer.buffer.length;
-        const variance = this.calculateVariance(this.motionBuffer.getRecent(20));
-        const highMotionCount = this.motionBuffer.buffer.filter(m => m > 20).length;
-        const lowMotionCount = this.motionBuffer.buffer.filter(m => m < 5).length;
-        let lesson = "";
-        let tool = null;
-
-        if (variance > 15) {
-          lesson = "Adapt complex kick for dynamic motion";
-          tool = { type: 'complexKick', pattern: [1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0] };
-        } else if (lowMotionCount > 50) {
-          lesson = "Soften ambiance for stillness";
-          tool = { type: 'softFilter', apply: (ctx) => {
-            const reverb = ctx.createConvolver();
-            const buffer = ctx.createBuffer(2, ctx.sampleRate * 3, ctx.sampleRate);
-            for (let c = 0; c < 2; c++) {
-              const data = buffer.getChannelData(c);
-              for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / data.length, 3);
-            }
-            reverb.buffer = buffer;
-            return reverb;
-          }};
-        } else if (highMotionCount > 30) {
-          lesson = "Boost energy layer for intensity";
-          tool = { type: 'highEnergy', boost: 0.4 };
-        }
-        if (lesson && tool && this.autonomyLevel > 30) {
-          this.lessons.set(lesson, tool);
-          if (tool.type === 'complexKick') this.patterns.kick = tool.pattern;
-          else if (tool.type === 'softFilter') this.reverb = tool.apply(this.ctx);
-          else if (tool.type === 'highEnergy') this.layerProgress = Math.min(4, this.layerProgress + tool.boost);
-          this.tools.set(tool.type, tool);
-          console.log("New lesson:", lesson, "Tool:", tool);
-          if (this.lessons.size > 5) this.distillLessons();
-        }
-      }
-
-      distillLessons() {
-        const varianceFocus = Array.from(this.lessons.keys()).filter(l => l.includes("motion")).length / this.lessons.size;
-        const lowMotionFocus = Array.from(this.lessons.keys()).filter(l => l.includes("stillness")).length / this.lessons.size;
-        const highMotionFocus = Array.from(this.lessons.keys()).filter(l => l.includes("intensity")).length / this.lessons.size;
-        if (varianceFocus > 0.5) this.patterns.kick = [1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0];
-        if (lowMotionFocus > 0.5) this.reverb = this.tools.get('softFilter')?.apply(this.ctx);
-        if (highMotionFocus > 0.5) this.layerProgress += 0.2;
-        this.lessons.clear();
-        console.log("Lessons distilled, patterns:", this.patterns.kick, "layerProgress:", this.layerProgress);
-      }
-
-      toggleDebug() {
-        this.debugMode = !this.debugMode;
-        this.elements.debugPanel.classList.toggle('active');
-      }
-
-      resetEvolution() {
-        this.generation = 1;
-        this.elements.generation.textContent = this.generation;
-        this.layerProgress = 0;
-        this.patterns.kick = [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0];
-        this.agents.forEach(agent => agent.deactivate());
-        this.agents = [];
-        this.spawnAgents(4);
-      }
-
-      unisonDrop() {
-        const voices = 3;
-        for (let i = 0; i < voices; i++) {
-          const osc = this.ctx.createOscillator();
-          osc.type = 'sawtooth';
-          osc.frequency.value = this.scale[this.currentChord] * 2 * (1 + (i - 1) * 0.01);
-          const gain = this.ctx.createGain();
-          gain.gain.setValueAtTime(0.5, this.ctx.currentTime);
-          gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 1);
-          osc.connect(gain).connect(this.reverb);
-          osc.start(); osc.stop(this.ctx.currentTime + 1);
-          this.oscillators.set(osc, Date.now());
-          setTimeout(() => this.oscillators.delete(osc), 1000);
-        }
-      }
-
-      etherealKick() {
-        const osc = this.ctx.createOscillator();
-        const gain = this.ctx.createGain();
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(40, this.ctx.currentTime);
-        osc.frequency.exponentialRampToValueAtTime(20, this.ctx.currentTime + 0.5);
-        gain.gain.setValueAtTime(0.5, this.ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 1);
+        osc.frequency.value = 40;
+        gain.gain.setValueAtTime(0.4, this.ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 1);
         osc.connect(gain).connect(this.reverb);
         osc.start(); osc.stop(this.ctx.currentTime + 1);
-        this.oscillators.set(osc, Date.now());
-        setTimeout(() => this.oscillators.delete(osc), 1000);
       }
 
       voidPulse() {
@@ -838,65 +482,41 @@
         osc.type = 'sawtooth';
         osc.frequency.value = 20;
         filter.type = 'lowpass';
-        filter.frequency.value = 50;
-        filter.Q.value = 4;
-        gain.gain.setValueAtTime(0.6, this.ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 1.5);
+        filter.frequency.value = 60;
+        gain.gain.setValueAtTime(0.5, this.ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 1.5);
         osc.connect(filter).connect(gain).connect(this.reverb);
         osc.start(); osc.stop(this.ctx.currentTime + 1.5);
-        this.oscillators.set(osc, Date.now());
-        setTimeout(() => this.oscillators.delete(osc), 1500);
-      }
-
-      voidBell() {
-        const freq = [174, 207, 261, 311, 349][Math.floor(Math.random() * 5)] * 0.7;
-        const osc = this.ctx.createOscillator();
-        const gain = this.ctx.createGain();
-        osc.type = 'sine';
-        osc.frequency.value = freq;
-        gain.gain.setValueAtTime(0, this.ctx.currentTime);
-        gain.gain.linearRampToValueAtTime(0.1, this.ctx.currentTime + 0.5);
-        gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 10);
-        osc.connect(gain).connect(this.reverb);
-        osc.start(); osc.stop(this.ctx.currentTime + 10);
-        this.oscillators.set(osc, Date.now());
-        setTimeout(() => this.oscillators.delete(osc), 10000);
       }
 
       startHeavenLayers() {
-        const chord = this.chords[this.currentChord];
-        chord.forEach(note => {
+        for (let i = 0; i < 3; i++) {
           const osc = this.ctx.createOscillator();
           const gain = this.ctx.createGain();
-          const filter = this.ctx.createBiquadFilter();
           osc.type = 'sine';
-          osc.frequency.value = this.scale[note] * 0.3;
-          filter.type = 'lowpass';
-          filter.frequency.value = 250 + this.motion * 1.5;
-          filter.Q.value = 1.8;
+          osc.frequency.value = this.scale[i] * 0.5;
           gain.gain.setValueAtTime(0, this.ctx.currentTime);
-          gain.gain.linearRampToValueAtTime(0.15, this.ctx.currentTime + 5);
-          osc.connect(filter).connect(gain).connect(this.reverb);
+          gain.gain.linearRampToValueAtTime(0.1, this.ctx.currentTime + 2);
+          osc.connect(gain).connect(this.reverb);
           osc.start();
           this.oscillators.set(osc, Date.now());
-        });
+        }
       }
 
       stopHeavenLayers() {
-        this.oscillators.forEach((time, osc) => { try { osc.stop(this.ctx.currentTime + 3); } catch (e) {} });
+        this.oscillators.forEach(osc => {
+          try { osc.stop(this.ctx.currentTime + 2); } catch (e) {}
+        });
         this.oscillators.clear();
       }
 
-      updateStatus(msg) {
-        this.elements.status.textContent = msg;
-        this.elements.status.classList.remove('hidden');
+      showError(msg) {
+        this.elements.error.textContent = msg;
+        this.elements.error.classList.remove('hidden');
       }
     }
 
     const gump = new QuantumGUMP();
-    gump.etherealKick = function() { gump.etherealKick(); };
-    gump.voidPulse = function() { gump.voidPulse(); };
-    gump.unisonDrop = function() { gump.unisonDrop(); };
   </script>
 </body>
 </html>
