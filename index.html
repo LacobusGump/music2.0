@@ -153,7 +153,7 @@
         this.transcendentIntensity = 0;
         this.lastMotionTime = Date.now();
         this.reverb = null;
-        this.songSection = 'A1';
+        this.songSection = 'INTRO';
         this.layerProgress = 0;
         this.lastStrideTime = 0;
         this.strideInterval = 600;
@@ -164,14 +164,20 @@
         this.oscillators = new Set();
         this.lastUpdateTime = 0;
         this.frameCount = 0;
-        
-        this.scale = [261.63, 293.66, 329.63, 349.23, 392.00, 440.00, 493.88, 523.25];
-        this.chords = [[0, 2, 4, 6], [5, 0, 2, 4], [3, 5, 0, 2], [4, 6, 1, 3]];
+        this.moodFactor = 0;
+        this.weather = 'CLEAR';
+        this.weatherData = null;
+        this.seed = 0;
         this.currentChord = 0;
-        this.patterns = { 
-          kick: [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0],
-          snare: [0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0]
+        
+        this.scales = {
+          major: [261.63, 293.66, 329.63, 349.23, 392.00, 440.00, 493.88, 523.25],
+          minor: [261.63, 293.66, 311.13, 349.23, 392.00, 415.30, 466.16, 523.25],
+          pentatonic: [261.63, 311.13, 349.23, 415.30, 466.16]
         };
+        this.scale = this.scales.major;
+        this.chords = [];
+        this.patterns = { kick: [], snare: [], hihat: [], bass: [] };
         
         this.elements = {};
         this.rolloutBuffer = [];
@@ -188,12 +194,118 @@
         this.elements.start.onclick = () => this.start();
         
         if (navigator.geolocation) {
+          navigator.geolocation.getCurrentPosition(
+            pos => {
+              this.location = {
+                lat: pos.coords.latitude,
+                lon: pos.coords.longitude,
+                accuracy: pos.coords.accuracy
+              };
+              this.fetchWeather();
+            },
+            err => this.showError('Geolocation error: ' + err.message),
+            { enableHighAccuracy: true, timeout: 5000, maximumAge: 5000 }
+          );
           navigator.geolocation.watchPosition(
             pos => this.updateLocation(pos),
             err => this.showError('Geolocation error: ' + err.message),
             { enableHighAccuracy: true, timeout: 5000, maximumAge: 5000 }
           );
         }
+      }
+
+      async fetchWeather() {
+        if (!this.location.lat || !this.location.lon) return;
+        try {
+          const apiKey = '789e7d7e2ab3c81f42ca93d449c715c6';
+          const url = `https://api.openweathermap.org/data/2.5/weather?lat=${this.location.lat}&lon=${this.location.lon}&appid=${apiKey}`;
+          const response = await fetch(url);
+          if (!response.ok) throw new Error('Failed to fetch weather data');
+          this.weatherData = await response.json();
+          this.weather = this.weatherData.weather[0].main.toUpperCase();
+          this.envDensity = this.calculateEnvDensityFromWeather();
+        } catch (e) {
+          this.weather = 'CLEAR'; // Fallback
+          this.envDensity = 0.5;
+          this.showError('Weather API error: Using default weather settings');
+          console.error(e);
+        }
+      }
+
+      calculateEnvDensityFromWeather() {
+        if (!this.weatherData) return 0.5;
+        const condition = this.weather.toUpperCase();
+        const temp = (this.weatherData.main.temp - 273.15) / 40; // Normalize temperature
+        let density = 0.5;
+        
+        if (condition.includes('RAIN') || condition.includes('STORM')) density = 0.8 + temp * 0.2;
+        else if (condition.includes('CLOUD')) density = 0.5 + temp * 0.2;
+        else if (condition.includes('CLEAR')) density = 0.3 + temp * 0.2;
+        else if (condition.includes('SNOW')) density = 0.7 + temp * 0.2;
+        
+        return Math.min(1, Math.max(0, density));
+      }
+
+      generateSongSeed() {
+        const now = new Date();
+        const hours = now.getHours();
+        const lat = this.location.lat || 0;
+        const lon = this.location.lon || 0;
+        this.seed = (hours * 3600 + now.getMinutes() * 60 + now.getSeconds()) + Math.abs(lat * lon);
+        
+        // Time-based mood factor (0 to 1)
+        this.moodFactor = hours < 6 || hours > 20 ? 0.3 : hours < 12 ? 0.7 : 1.0;
+        if (this.weather.includes('RAIN') || this.weather.includes('STORM')) this.moodFactor *= 0.8;
+        else if (this.weather.includes('CLEAR')) this.moodFactor *= 1.2;
+        else if (this.weather.includes('CLOUD')) this.moodFactor *= 0.9;
+        
+        // Select scale based on mood and seed
+        const scaleChoice = Math.floor(this.seed + this.moodFactor * 10) % 3;
+        this.scale = scaleChoice === 0 ? this.scales.major : scaleChoice === 1 ? this.scales.minor : this.scales.pentatonic;
+        
+        // Generate chords
+        this.chords = this.generateChords();
+        
+        // Generate patterns
+        this.patterns = this.generatePatterns();
+        
+        // Adjust initial BPM
+        this.bpm = 80 + (this.moodFactor * 40) + (this.seed % 20);
+      }
+
+      generateChords() {
+        const chords = [];
+        const chordCount = 4 + Math.floor((this.seed + this.moodFactor * 10) % 4);
+        for (let i = 0; i < chordCount; i++) {
+          const root = Math.floor((this.seed + i * 17 + this.moodFactor * 5) % this.scale.length);
+          const chord = [root, (root + 2) % this.scale.length, (root + 4) % this.scale.length, (root + 6) % this.scale.length];
+          chords.push(chord);
+        }
+        return chords;
+      }
+
+      generatePatterns() {
+        const length = 16;
+        const patterns = { kick: [], snare: [], hihat: [], bass: [] };
+        
+        const kickDensity = this.moodFactor * 0.5 + this.envDensity * 0.3;
+        const snareDensity = this.moodFactor * 0.4 + this.envDensity * 0.2;
+        const hihatDensity = this.moodFactor * 0.6 + this.envDensity * 0.4;
+        const bassDensity = this.moodFactor * 0.5 + this.envDensity * 0.3;
+        
+        for (let i = 0; i < length; i++) {
+          patterns.kick.push(Math.random() < kickDensity ? 1 : 0);
+          patterns.snare.push(Math.random() < snareDensity ? 1 : 0);
+          patterns.hihat.push(Math.random() < hihatDensity ? 1 : 0);
+          patterns.bass.push(Math.random() < bassDensity ? 1 : 0);
+          
+          // Ensure some structure
+          if (i % 4 === 0) patterns.kick[i] = 1;
+          if (i % 8 === 4) patterns.snare[i] = 1;
+          if (i % 2 === 0) patterns.hihat[i] = Math.random() < hihatDensity * 1.2 ? 1 : 0;
+        }
+        
+        return patterns;
       }
 
       async start() {
@@ -206,6 +318,8 @@
             }
           }
 
+          await this.fetchWeather();
+          this.generateSongSeed();
           this.ctx = new (window.AudioContext || window.webkitAudioContext)();
           await this.ctx.resume();
           this.createReverb();
@@ -219,7 +333,7 @@
           this.startGroove();
           this.animate();
           this.monitorTranscendence();
-          console.log('GUMP started at 09:40 PM EDT, Wednesday, July 16, 2025');
+          console.log(`GUMP started at 12:26 AM EDT, Thursday, July 17, 2025. Weather: ${this.weather}, Mood: ${this.moodFactor.toFixed(2)}`);
         } catch (e) {
           this.showError('Failed to start: ' + e.message);
           console.error(e);
@@ -333,7 +447,7 @@
         
         this.clearParticles();
         this.stopHeavenLayers();
-        this.oscillators.clear(); // Ensure clean exit
+        this.oscillators.clear();
       }
 
       createParticles() {
@@ -360,7 +474,7 @@
       createReverb() {
         if (!this.ctx) return;
         this.reverb = this.ctx.createConvolver();
-        const buffer = this.ctx.createBuffer(2, this.ctx.sampleRate * 3, this.ctx.sampleRate);
+        const buffer = this.ctx.createBuffer(2, this.ctx.sampleRate * (this.weather.includes('RAIN') || this.weather.includes('STORM') ? 4 : 3), this.ctx.sampleRate);
         
         for (let c = 0; c < 2; c++) {
           const data = buffer.getChannelData(c);
@@ -397,7 +511,7 @@
         filter.Q.value = 5;
         
         gain.gain.setValueAtTime(0, this.ctx.currentTime);
-        gain.gain.linearRampToValueAtTime(0.02 * this.transcendentIntensity, this.ctx.currentTime + 2);
+        gain.gain.linearRampToValueAtTime(0.02 * this.transcendentIntensity * (this.weather.includes('RAIN') ? 1.5 : 1), this.ctx.currentTime + 2);
         gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 8);
         
         osc.connect(filter).connect(gain).connect(this.reverb);
@@ -415,9 +529,9 @@
         const gain = this.ctx.createGain();
         
         osc.type = 'sine';
-        osc.frequency.value = freq;
+        osc.frequency.value = freq * (this.weather.includes('CLEAR') ? 1.2 : 1);
         gain.gain.setValueAtTime(0, this.ctx.currentTime);
-        gain.gain.linearRampToValueAtTime(0.1 * this.transcendentIntensity, this.ctx.currentTime + 0.5);
+        gain.gain.linearRampToValueAtTime(0.1 * this.transcendentIntensity * (this.weather.includes('RAIN') ? 1.3 : 1), this.ctx.currentTime + 0.5);
         gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 10);
         
         osc.connect(gain).connect(this.reverb);
@@ -438,11 +552,11 @@
         osc.type = 'sine';
         osc.frequency.value = this.scale[noteIndex] * 0.6 * (1 + this.envDensity * 0.2);
         filter.type = 'lowpass';
-        filter.frequency.value = 250 + this.transcendentIntensity * 100;
+        filter.frequency.value = 250 + this.transcendentIntensity * 100 * (this.weather.includes('CLEAR') ? 1.5 : 1);
         filter.Q.value = 2.5;
         
         gain.gain.setValueAtTime(0, this.ctx.currentTime);
-        gain.gain.linearRampToValueAtTime(0.15 * this.transcendentIntensity, this.ctx.currentTime + 2);
+        gain.gain.linearRampToValueAtTime(0.15 * this.transcendentIntensity * (this.weather.includes('RAIN') ? 1.5 : 1), this.ctx.currentTime + 2);
         gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 8);
         
         osc.connect(filter).connect(gain).connect(this.reverb);
@@ -463,11 +577,11 @@
         osc.type = 'sawtooth';
         osc.frequency.value = this.scale[noteIndex] * 0.4 * (1 + this.envDensity * 0.1);
         filter.type = 'lowpass';
-        filter.frequency.value = 150 + this.transcendentIntensity * 80;
+        filter.frequency.value = 150 + this.transcendentIntensity * 80 * (this.weather.includes('CLOUD') ? 0.8 : 1);
         filter.Q.value = 2;
         
         gain.gain.setValueAtTime(0, this.ctx.currentTime);
-        gain.gain.linearRampToValueAtTime(0.2 * this.transcendentIntensity, this.ctx.currentTime + 2);
+        gain.gain.linearRampToValueAtTime(0.2 * this.transcendentIntensity * (this.weather.includes('STORM') ? 1.3 : 1), this.ctx.currentTime + 2);
         gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 8);
         
         osc.connect(filter).connect(gain).connect(this.reverb);
@@ -494,7 +608,7 @@
           filter.Q.value = 1.8;
           
           gain.gain.setValueAtTime(0, this.ctx.currentTime);
-          gain.gain.linearRampToValueAtTime(0.15 * this.transcendentIntensity, this.ctx.currentTime + 5);
+          gain.gain.linearRampToValueAtTime(0.15 * this.transcendentIntensity * (this.weather.includes('CLEAR') ? 1.5 : 1), this.ctx.currentTime + 5);
           
           osc.connect(filter).connect(gain).connect(this.reverb);
           osc.start();
@@ -548,18 +662,17 @@
       updateEnvDensity() {
         const motionFactor = this.motion * 0.01;
         this.envDensity = Math.min(1, Math.max(0, this.envDensity + motionFactor * 0.1 + (Math.random() * 0.05)));
+        if (this.weather.includes('RAIN') || this.weather.includes('STORM')) this.envDensity = Math.min(1, this.envDensity + 0.1);
       }
 
       updateSongProgress() {
         if (this.motion > 5 || this.distanceTraveled > 10) {
-          this.layerProgress = Math.min(8, this.layerProgress + 0.1 * (1 + this.envDensity));
-          if (this.songSection === 'A1' && this.layerProgress >= 1) this.songSection = 'A2';
-          else if (this.songSection === 'A2' && this.layerProgress >= 2) this.songSection = 'B';
-          else if (this.songSection === 'B' && this.layerProgress >= 3) this.songSection = 'C';
-          else if (this.songSection === 'C' && this.layerProgress >= 4) this.songSection = 'D';
-          else if (this.songSection === 'D' && this.layerProgress >= 5) this.songSection = 'E';
-          else if (this.songSection === 'E' && this.layerProgress >= 6) this.songSection = 'F';
-          else if (this.songSection === 'F' && this.layerProgress >= 7) this.songSection = 'G';
+          const progressIncrement = 0.1 * (1 + this.envDensity) * (this.weather.includes('STORM') ? 1.5 : 1);
+          this.layerProgress = Math.min(10, this.layerProgress + progressIncrement);
+          if (this.songSection === 'INTRO' && this.layerProgress >= 2) this.songSection = 'BUILD';
+          else if (this.songSection === 'BUILD' && this.layerProgress >= 4) this.songSection = 'CLIMAX';
+          else if (this.songSection === 'CLIMAX' && this.layerProgress >= 7) this.songSection = 'RESOLUTION';
+          else if (this.songSection === 'RESOLUTION' && this.layerProgress >= 9) this.songSection = 'OUTRO';
         }
       }
 
@@ -573,13 +686,11 @@
         const targetBPM = 80 + this.motion * 2 + this.envDensity * 20 + (this.distanceTraveled / 100);
         this.bpm = Math.round(this.bpm * 0.95 + targetBPM * 0.05);
         
-        if (this.motion < 5 && this.distanceTraveled < 50) this.state = 'CHILL';
-        else if (this.motion < 15 && this.distanceTraveled < 100) this.state = 'FLOW';
-        else if (this.motion < 30 && this.distanceTraveled < 200) this.state = 'ENERGY';
-        else if (this.motion < 50 && this.distanceTraveled < 400) this.state = 'CLIMAX';
-        else if (this.motion < 70 && this.distanceTraveled < 600) this.state = 'ASCENSION';
-        else if (this.motion < 90 && this.distanceTraveled < 800) this.state = 'EUPHORIA';
-        else this.state = 'PEAK';
+        if (this.songSection === 'INTRO') this.state = 'CHILL';
+        else if (this.songSection === 'BUILD') this.state = 'FLOW';
+        else if (this.songSection === 'CLIMAX') this.state = 'ENERGY';
+        else if (this.songSection === 'RESOLUTION') this.state = 'ASCENSION';
+        else if (this.songSection === 'OUTRO') this.state = 'EUPHORIA';
       }
 
       startGroove() {
@@ -591,25 +702,25 @@
             if (this.step % 12 === 6 && this.transcendentIntensity > 0.3) this.voidPulse();
             if (this.step % 16 === 0) this.startHeavenLayers();
           } else {
-            if (this.patterns.kick[this.step % 16] && this.layerProgress >= 0) this.kick808();
-            if (this.patterns.snare[this.step % 16] && this.layerProgress >= 1) this.snareLayered();
-            if (this.step % 8 === 0 && this.layerProgress >= 2) this.hihatMetallic();
-            if (this.step % 6 === 0 && this.layerProgress >= 3) this.vocalLayer();
-            if (this.layerProgress >= 4) this.bassLayer();
-            if (this.layerProgress >= 5) this.peakLayer();
-            if (this.layerProgress >= 6) this.crescendoLayer();
-            if (this.layerProgress >= 7) this.finalCrescendo();
-            if (this.layerProgress >= 8) this.ultimateCrescendo();
-            this.ambientPad();
-            this.secondaryAmbient();
-            this.tertiaryAmbient();
-            this.quaternaryAmbient();
+            if (this.patterns.kick[this.step % 16] && this.layerProgress >= 2) this.kick808();
+            if (this.patterns.snare[this.step % 16] && this.layerProgress >= 2) this.snareLayered();
+            if (this.patterns.hihat[this.step % 16] && this.layerProgress >= 3) this.hihatMetallic();
+            if (this.patterns.bass[this.step % 16] && this.layerProgress >= 4) this.bassLayer();
+            if (this.step % 8 === 0 && this.layerProgress >= 5) this.vocalLayer();
+            if (this.layerProgress >= 6) this.peakLayer();
+            if (this.layerProgress >= 7) this.crescendoLayer();
+            if (this.layerProgress >= 8) this.finalCrescendo();
+            if (this.layerProgress >= 9) this.ultimateCrescendo();
+            if (this.layerProgress >= 2) this.ambientPad();
+            if (this.layerProgress >= 3) this.secondaryAmbient();
+            if (this.layerProgress >= 4) this.tertiaryAmbient();
+            if (this.layerProgress >= 5) this.quaternaryAmbient();
           }
 
           this.step = (this.step + 1) % 32;
           if (this.step === 0) {
             this.currentChord = (this.currentChord + 1) % this.chords.length;
-            if (this.songSection === 'G') this.bpm += Math.round(15 * (1 + this.envDensity));
+            if (this.songSection === 'CLIMAX' || this.songSection === 'RESOLUTION') this.bpm += Math.round(10 * (1 + this.envDensity));
           }
 
           const interval = Math.max(100, 60000 / this.bpm / 4);
@@ -628,7 +739,7 @@
         const highPass = this.ctx.createBiquadFilter();
 
         subOsc.type = 'sine';
-        subOsc.frequency.setValueAtTime(60 * (1 + this.envDensity * 0.3), this.ctx.currentTime);
+        subOsc.frequency.setValueAtTime(60 * (1 + this.envDensity * 0.3) * (this.weather.includes('CLEAR') ? 1.2 : 1), this.ctx.currentTime);
         subOsc.frequency.exponentialRampToValueAtTime(20, this.ctx.currentTime + 0.5);
 
         clickOsc.type = 'sine';
@@ -636,17 +747,17 @@
         clickOsc.frequency.exponentialRampToValueAtTime(100, this.ctx.currentTime + 0.05);
 
         filter.type = 'lowpass';
-        filter.frequency.value = 200 + this.motion * 0.5;
+        filter.frequency.value = 200 + this.motion * 0.5 * (this.weather.includes('RAIN') ? 0.8 : 1);
         filter.Q.value = 2;
 
         highPass.type = 'highpass';
         highPass.frequency.value = 30;
         highPass.Q.value = 0.5;
 
-        gainSub.gain.setValueAtTime(0.8 * (1 + this.layerProgress * 0.2), this.ctx.currentTime);
+        gainSub.gain.setValueAtTime(0.8 * (1 + this.layerProgress * 0.2) * (this.moodFactor * 0.5 + 0.5), this.ctx.currentTime);
         gainSub.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.5);
 
-        gainClick.gain.setValueAtTime(0.5 * (1 + this.layerProgress * 0.2), this.ctx.currentTime);
+        gainClick.gain.setValueAtTime(0.5 * (1 + this.layerProgress * 0.2) * (this.moodFactor * 0.5 + 0.5), this.ctx.currentTime);
         gainClick.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.1);
 
         subOsc.connect(gainSub).connect(highPass).connect(filter);
@@ -677,15 +788,15 @@
 
         noiseSource.buffer = noise;
         filter.type = 'bandpass';
-        filter.frequency.value = 300 + this.motion * 2 * (1 + this.envDensity * 0.2);
+        filter.frequency.value = 300 + this.motion * 2 * (1 + this.envDensity * 0.2) * (this.weather.includes('CLOUD') ? 0.9 : 1);
         filter.Q.value = 3;
 
-        noiseGain.gain.setValueAtTime(0.6 * (1 + this.layerProgress * 0.3), this.ctx.currentTime);
+        noiseGain.gain.setValueAtTime(0.6 * (1 + this.layerProgress * 0.3) * (this.moodFactor * 0.5 + 0.5), this.ctx.currentTime);
         noiseGain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.2);
 
         toneOsc.type = 'triangle';
-        toneOsc.frequency.value = 180 * (1 + this.envDensity * 0.3);
-        toneGain.gain.setValueAtTime(0.4 * (1 + this.layerProgress * 0.3), this.ctx.currentTime);
+        toneOsc.frequency.value = 180 * (1 + this.envDensity * 0.3) * (this.weather.includes('CLEAR') ? 1.2 : 1);
+        toneGain.gain.setValueAtTime(0.4 * (1 + this.layerProgress * 0.3) * (this.moodFactor * 0.5 + 0.5), this.ctx.currentTime);
         toneGain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.15);
 
         noiseSource.connect(noiseGain).connect(filter);
@@ -715,12 +826,12 @@
             const filter = this.ctx.createBiquadFilter();
 
             osc.type = 'square';
-            osc.frequency.value = 3000 * Math.pow(1.5, i) * (1 + this.envDensity * 0.1);
+            osc.frequency.value = 3000 * Math.pow(1.5, i) * (1 + this.envDensity * 0.1) * (this.weather.includes('CLEAR') ? 1.3 : 1);
             filter.type = 'highpass';
             filter.frequency.value = 2500 + this.motion * 4;
             filter.Q.value = 0.5;
 
-            gain.gain.setValueAtTime(0.08 / (i + 1) * (1 + this.layerProgress * 0.2), this.ctx.currentTime);
+            gain.gain.setValueAtTime(0.08 / (i + 1) * (1 + this.layerProgress * 0.2) * (this.moodFactor * 0.5 + 0.5), this.ctx.currentTime);
             gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.1);
 
             osc.connect(filter).connect(gain).connect(this.reverb);
@@ -742,13 +853,13 @@
           
           const noteIndex = this.chords[this.currentChord][Math.floor(Math.random() * 3) + 1];
           osc.type = 'sine';
-          osc.frequency.value = this.scale[noteIndex] * 1.2 * (1 + this.envDensity * 0.2);
+          osc.frequency.value = this.scale[noteIndex] * 1.2 * (1 + this.envDensity * 0.2) * (this.weather.includes('CLEAR') ? 1.2 : 1);
           filter.type = 'bandpass';
           filter.frequency.value = 400 + this.motion * 2 * (1 + this.envDensity * 0.2);
           filter.Q.value = 3;
           
           gain.gain.setValueAtTime(0, this.ctx.currentTime);
-          gain.gain.linearRampToValueAtTime(0.12 * (1 + this.layerProgress * 0.3), this.ctx.currentTime + 1.5);
+          gain.gain.linearRampToValueAtTime(0.12 * (1 + this.layerProgress * 0.3) * (this.moodFactor * 0.5 + 0.5), this.ctx.currentTime + 1.5);
           gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 4);
           
           osc.connect(filter).connect(gain).connect(this.reverb);
@@ -762,144 +873,134 @@
 
       bassLayer() {
         if (this.oscillators.size >= 20) return;
-        if (this.layerProgress >= 4) {
-          const osc = this.ctx.createOscillator();
-          const gain = this.ctx.createGain();
-          const filter = this.ctx.createBiquadFilter();
-          
-          const noteIndex = this.chords[this.currentChord][0];
-          osc.type = 'sawtooth';
-          osc.frequency.value = this.scale[noteIndex] * 0.5 * (1 + this.envDensity * 0.3);
-          filter.type = 'lowpass';
-          filter.frequency.value = 150 + this.motion * 1.5;
-          filter.Q.value = 3;
-          
-          gain.gain.setValueAtTime(0, this.ctx.currentTime);
-          gain.gain.linearRampToValueAtTime(0.3 * (1 + this.layerProgress * 0.2), this.ctx.currentTime + 0.5);
-          gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 1);
-          
-          osc.connect(filter).connect(gain).connect(this.reverb);
-          osc.start();
-          osc.stop(this.ctx.currentTime + 1);
-          
-          this.oscillators.add(osc);
-          setTimeout(() => this.oscillators.delete(osc), 1000);
-        }
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        const filter = this.ctx.createBiquadFilter();
+        
+        const noteIndex = this.chords[this.currentChord][0];
+        osc.type = 'sawtooth';
+        osc.frequency.value = this.scale[noteIndex] * 0.5 * (1 + this.envDensity * 0.3) * (this.weather.includes('STORM') ? 1.2 : 1);
+        filter.type = 'lowpass';
+        filter.frequency.value = 150 + this.motion * 1.5;
+        filter.Q.value = 3;
+        
+        gain.gain.setValueAtTime(0, this.ctx.currentTime);
+        gain.gain.linearRampToValueAtTime(0.3 * (1 + this.layerProgress * 0.2) * (this.moodFactor * 0.5 + 0.5), this.ctx.currentTime + 0.5);
+        gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 1);
+        
+        osc.connect(filter).connect(gain).connect(this.reverb);
+        osc.start();
+        osc.stop(this.ctx.currentTime + 1);
+        
+        this.oscillators.add(osc);
+        setTimeout(() => this.oscillators.delete(osc), 1000);
       }
 
       peakLayer() {
         if (this.oscillators.size >= 20) return;
-        if (this.layerProgress >= 5) {
-          const chord = this.chords[this.currentChord];
-          for (let i = 0; i < Math.min(5, 20 - this.oscillators.size); i++) {
-            const osc = this.ctx.createOscillator();
-            const gain = this.ctx.createGain();
-            const filter = this.ctx.createBiquadFilter();
-            
-            osc.type = 'sine';
-            osc.frequency.value = this.scale[chord[i % chord.length]] * (1 + this.envDensity * 0.2);
-            filter.type = 'bandpass';
-            filter.frequency.value = 200 + this.motion * 2;
-            filter.Q.value = 5;
-            
-            gain.gain.setValueAtTime(0, this.ctx.currentTime + i * 0.1);
-            gain.gain.linearRampToValueAtTime(0.4 * (this.layerProgress - 4), this.ctx.currentTime + i * 0.1 + 0.5);
-            gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + i * 0.1 + 2);
-            
-            osc.connect(filter).connect(gain).connect(this.reverb);
-            osc.start();
-            osc.stop(this.ctx.currentTime + i * 0.1 + 2);
-            
-            this.oscillators.add(osc);
-            setTimeout(() => this.oscillators.delete(osc), 2000);
-          }
+        const chord = this.chords[this.currentChord];
+        for (let i = 0; i < Math.min(5, 20 - this.oscillators.size); i++) {
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          const filter = this.ctx.createBiquadFilter();
+          
+          osc.type = 'sine';
+          osc.frequency.value = this.scale[chord[i % chord.length]] * (1 + this.envDensity * 0.2);
+          filter.type = 'bandpass';
+          filter.frequency.value = 200 + this.motion * 2;
+          filter.Q.value = 5;
+          
+          gain.gain.setValueAtTime(0, this.ctx.currentTime + i * 0.1);
+          gain.gain.linearRampToValueAtTime(0.4 * (this.layerProgress - 4) * (this.moodFactor * 0.5 + 0.5), this.ctx.currentTime + i * 0.1 + 0.5);
+          gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + i * 0.1 + 2);
+          
+          osc.connect(filter).connect(gain).connect(this.reverb);
+          osc.start();
+          osc.stop(this.ctx.currentTime + i * 0.1 + 2);
+          
+          this.oscillators.add(osc);
+          setTimeout(() => this.oscillators.delete(osc), 2000);
         }
       }
 
       crescendoLayer() {
         if (this.oscillators.size >= 20) return;
-        if (this.layerProgress >= 6) {
-          const chord = this.chords[this.currentChord].map(i => (i + [0, 4, 7][Math.floor(Math.random() * 3)]) % this.scale.length);
-          for (let i = 0; i < Math.min(6, 20 - this.oscillators.size); i++) {
-            const osc = this.ctx.createOscillator();
-            const gain = this.ctx.createGain();
-            const filter = this.ctx.createBiquadFilter();
-            
-            osc.type = 'sine';
-            osc.frequency.value = this.scale[chord[i % chord.length]] * (1.5 + this.envDensity * 0.3);
-            filter.type = 'bandpass';
-            filter.frequency.value = 300 + this.motion * 3;
-            filter.Q.value = 6;
-            
-            gain.gain.setValueAtTime(0, this.ctx.currentTime + i * 0.15);
-            gain.gain.linearRampToValueAtTime(0.5 * (this.layerProgress - 5), this.ctx.currentTime + i * 0.15 + 0.7);
-            gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + i * 0.15 + 3);
-            
-            osc.connect(filter).connect(gain).connect(this.reverb);
-            osc.start();
-            osc.stop(this.ctx.currentTime + i * 0.15 + 3);
-            
-            this.oscillators.add(osc);
-            setTimeout(() => this.oscillators.delete(osc), 3000);
-          }
+        const chord = this.chords[this.currentChord].map(i => (i + [0, 4, 7][Math.floor(Math.random() * 3)]) % this.scale.length);
+        for (let i = 0; i < Math.min(6, 20 - this.oscillators.size); i++) {
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          const filter = this.ctx.createBiquadFilter();
+          
+          osc.type = 'sine';
+          osc.frequency.value = this.scale[chord[i % chord.length]] * (1.5 + this.envDensity * 0.3);
+          filter.type = 'bandpass';
+          filter.frequency.value = 300 + this.motion * 3;
+          filter.Q.value = 6;
+          
+          gain.gain.setValueAtTime(0, this.ctx.currentTime + i * 0.15);
+          gain.gain.linearRampToValueAtTime(0.5 * (this.layerProgress - 5) * (this.moodFactor * 0.5 + 0.5), this.ctx.currentTime + i * 0.15 + 0.7);
+          gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + i * 0.15 + 3);
+          
+          osc.connect(filter).connect(gain).connect(this.reverb);
+          osc.start();
+          osc.stop(this.ctx.currentTime + i * 0.15 + 3);
+          
+          this.oscillators.add(osc);
+          setTimeout(() => this.oscillators.delete(osc), 3000);
         }
       }
 
       finalCrescendo() {
         if (this.oscillators.size >= 20) return;
-        if (this.layerProgress >= 7) {
-          const chord = this.chords[this.currentChord].map(i => (i + [0, 4, 7, 10][Math.floor(Math.random() * 4)]) % this.scale.length);
-          for (let i = 0; i < Math.min(8, 20 - this.oscillators.size); i++) {
-            const osc = this.ctx.createOscillator();
-            const gain = this.ctx.createGain();
-            const filter = this.ctx.createBiquadFilter();
-            
-            osc.type = 'sine';
-            osc.frequency.value = this.scale[chord[i % chord.length]] * (2 + this.envDensity * 0.4);
-            filter.type = 'bandpass';
-            filter.frequency.value = 400 + this.motion * 4;
-            filter.Q.value = 7;
-            
-            gain.gain.setValueAtTime(0, this.ctx.currentTime + i * 0.2);
-            gain.gain.linearRampToValueAtTime(0.6 * (this.layerProgress - 6), this.ctx.currentTime + i * 0.2 + 1);
-            gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + i * 0.2 + 4);
-            
-            osc.connect(filter).connect(gain).connect(this.reverb);
-            osc.start();
-            osc.stop(this.ctx.currentTime + i * 0.2 + 4);
-            
-            this.oscillators.add(osc);
-            setTimeout(() => this.oscillators.delete(osc), 4000);
-          }
+        const chord = this.chords[this.currentChord].map(i => (i + [0, 4, 7, 10][Math.floor(Math.random() * 4)]) % this.scale.length);
+        for (let i = 0; i < Math.min(8, 20 - this.oscillators.size); i++) {
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          const filter = this.ctx.createBiquadFilter();
+          
+          osc.type = 'sine';
+          osc.frequency.value = this.scale[chord[i % chord.length]] * (2 + this.envDensity * 0.4);
+          filter.type = 'bandpass';
+          filter.frequency.value = 400 + this.motion * 4;
+          filter.Q.value = 7;
+          
+          gain.gain.setValueAtTime(0, this.ctx.currentTime + i * 0.2);
+          gain.gain.linearRampToValueAtTime(0.6 * (this.layerProgress - 6) * (this.moodFactor * 0.5 + 0.5), this.ctx.currentTime + i * 0.2 + 1);
+          gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + i * 0.2 + 4);
+          
+          osc.connect(filter).connect(gain).connect(this.reverb);
+          osc.start();
+          osc.stop(this.ctx.currentTime + i * 0.2 + 4);
+          
+          this.oscillators.add(osc);
+          setTimeout(() => this.oscillators.delete(osc), 4000);
         }
       }
 
       ultimateCrescendo() {
         if (this.oscillators.size >= 20) return;
-        if (this.layerProgress >= 8) {
-          const chord = this.chords[this.currentChord].map(i => (i + [0, 4, 7, 10, 14][Math.floor(Math.random() * 5)]) % this.scale.length);
-          for (let i = 0; i < Math.min(10, 20 - this.oscillators.size); i++) {
-            const osc = this.ctx.createOscillator();
-            const gain = this.ctx.createGain();
-            const filter = this.ctx.createBiquadFilter();
-            
-            osc.type = 'sine';
-            osc.frequency.value = this.scale[chord[i % chord.length]] * (2.5 + this.envDensity * 0.5);
-            filter.type = 'bandpass';
-            filter.frequency.value = 500 + this.motion * 5;
-            filter.Q.value = 8;
-            
-            gain.gain.setValueAtTime(0, this.ctx.currentTime + i * 0.25);
-            gain.gain.linearRampToValueAtTime(0.7 * (this.layerProgress - 7), this.ctx.currentTime + i * 0.25 + 1.2);
-            gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + i * 0.25 + 5);
-            
-            osc.connect(filter).connect(gain).connect(this.reverb);
-            osc.start();
-            osc.stop(this.ctx.currentTime + i * 0.25 + 5);
-            
-            this.oscillators.add(osc);
-            setTimeout(() => this.oscillators.delete(osc), 5000);
-          }
+        const chord = this.chords[this.currentChord].map(i => (i + [0, 4, 7, 10, 14][Math.floor(Math.random() * 5)]) % this.scale.length);
+        for (let i = 0; i < Math.min(10, 20 - this.oscillators.size); i++) {
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          const filter = this.ctx.createBiquadFilter();
+          
+          osc.type = 'sine';
+          osc.frequency.value = this.scale[chord[i % chord.length]] * (2.5 + this.envDensity * 0.5);
+          filter.type = 'bandpass';
+          filter.frequency.value = 500 + this.motion * 5;
+          filter.Q.value = 8;
+          
+          gain.gain.setValueAtTime(0, this.ctx.currentTime + i * 0.25);
+          gain.gain.linearRampToValueAtTime(0.7 * (this.layerProgress - 7) * (this.moodFactor * 0.5 + 0.5), this.ctx.currentTime + i * 0.25 + 1.2);
+          gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + i * 0.25 + 5);
+          
+          osc.connect(filter).connect(gain).connect(this.reverb);
+          osc.start();
+          osc.stop(this.ctx.currentTime + i * 0.25 + 5);
+          
+          this.oscillators.add(osc);
+          setTimeout(() => this.oscillators.delete(osc), 5000);
         }
       }
 
@@ -912,13 +1013,13 @@
           
           const noteIndex = this.chords[this.currentChord][Math.floor(Math.random() * 3)];
           osc.type = 'sawtooth';
-          osc.frequency.value = this.scale[noteIndex] * 0.8;
+          osc.frequency.value = this.scale[noteIndex] * 0.8 * (this.weather.includes('CLEAR') ? 1.2 : 1);
           filter.type = 'lowpass';
-          filter.frequency.value = 400 + this.motion * 1;
+          filter.frequency.value = 400 + this.motion * 1 * (this.weather.includes('RAIN') ? 0.8 : 1);
           filter.Q.value = 2;
           
-          gain.gain.setValueAtTime(0.05 * (1 + this.layerProgress * 0.1), this.ctx.currentTime);
-          gain.gain.linearRampToValueAtTime(0.08 * (1 + this.layerProgress * 0.1), this.ctx.currentTime + 10);
+          gain.gain.setValueAtTime(0.05 * (1 + this.layerProgress * 0.1) * (this.moodFactor * 0.5 + 0.5), this.ctx.currentTime);
+          gain.gain.linearRampToValueAtTime(0.08 * (1 + this.layerProgress * 0.1) * (this.moodFactor * 0.5 + 0.5), this.ctx.currentTime + 10);
           gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 20);
           
           osc.connect(filter).connect(gain).connect(this.reverb);
@@ -938,13 +1039,13 @@
           
           const noteIndex = this.chords[(this.currentChord + 1) % this.chords.length][Math.floor(Math.random() * 3)];
           osc.type = 'triangle';
-          osc.frequency.value = this.scale[noteIndex] * 0.7;
+          osc.frequency.value = this.scale[noteIndex] * 0.7 * (this.weather.includes('CLEAR') ? 1.2 : 1);
           filter.type = 'lowpass';
-          filter.frequency.value = 350 + this.motion * 0.8;
+          filter.frequency.value = 350 + this.motion * 0.8 * (this.weather.includes('RAIN') ? 0.8 : 1);
           filter.Q.value = 1.5;
           
-          gain.gain.setValueAtTime(0.04 * (1 + this.layerProgress * 0.1), this.ctx.currentTime);
-          gain.gain.linearRampToValueAtTime(0.06 * (1 + this.layerProgress * 0.1), this.ctx.currentTime + 12);
+          gain.gain.setValueAtTime(0.04 * (1 + this.layerProgress * 0.1) * (this.moodFactor * 0.5 + 0.5), this.ctx.currentTime);
+          gain.gain.linearRampToValueAtTime(0.06 * (1 + this.layerProgress * 0.1) * (this.moodFactor * 0.5 + 0.5), this.ctx.currentTime + 12);
           gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 22);
           
           osc.connect(filter).connect(gain).connect(this.reverb);
@@ -964,13 +1065,13 @@
           
           const noteIndex = this.chords[(this.currentChord + 2) % this.chords.length][Math.floor(Math.random() * 3)];
           osc.type = 'sine';
-          osc.frequency.value = this.scale[noteIndex] * 0.6;
+          osc.frequency.value = this.scale[noteIndex] * 0.6 * (this.weather.includes('CLEAR') ? 1.2 : 1);
           filter.type = 'lowpass';
-          filter.frequency.value = 300 + this.motion * 0.6;
+          filter.frequency.value = 300 + this.motion * 0.6 * (this.weather.includes('RAIN') ? 0.8 : 1);
           filter.Q.value = 1.2;
           
-          gain.gain.setValueAtTime(0.03 * (1 + this.layerProgress * 0.1), this.ctx.currentTime);
-          gain.gain.linearRampToValueAtTime(0.05 * (1 + this.layerProgress * 0.1), this.ctx.currentTime + 15);
+          gain.gain.setValueAtTime(0.03 * (1 + this.layerProgress * 0.1) * (this.moodFactor * 0.5 + 0.5), this.ctx.currentTime);
+          gain.gain.linearRampToValueAtTime(0.05 * (1 + this.layerProgress * 0.1) * (this.moodFactor * 0.5 + 0.5), this.ctx.currentTime + 15);
           gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 25);
           
           osc.connect(filter).connect(gain).connect(this.reverb);
@@ -990,13 +1091,13 @@
           
           const noteIndex = this.chords[(this.currentChord + 3) % this.chords.length][Math.floor(Math.random() * 3)];
           osc.type = 'sawtooth';
-          osc.frequency.value = this.scale[noteIndex] * 0.5;
+          osc.frequency.value = this.scale[noteIndex] * 0.5 * (this.weather.includes('CLEAR') ? 1.2 : 1);
           filter.type = 'lowpass';
-          filter.frequency.value = 250 + this.motion * 0.4;
+          filter.frequency.value = 250 + this.motion * 0.4 * (this.weather.includes('RAIN') ? 0.8 : 1);
           filter.Q.value = 1.0;
           
-          gain.gain.setValueAtTime(0.02 * (1 + this.layerProgress * 0.1), this.ctx.currentTime);
-          gain.gain.linearRampToValueAtTime(0.04 * (1 + this.layerProgress * 0.1), this.ctx.currentTime + 18);
+          gain.gain.setValueAtTime(0.02 * (1 + this.layerProgress * 0.1) * (this.moodFactor * 0.5 + 0.5), this.ctx.currentTime);
+          gain.gain.linearRampToValueAtTime(0.04 * (1 + this.layerProgress * 0.1) * (this.moodFactor * 0.5 + 0.5), this.ctx.currentTime + 18);
           gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 28);
           
           osc.connect(filter).connect(gain).connect(this.reverb);
@@ -1013,9 +1114,9 @@
         const gain = this.ctx.createGain();
         
         osc.type = 'sine';
-        osc.frequency.setValueAtTime(40 * (1 + this.envDensity * 0.3), this.ctx.currentTime);
+        osc.frequency.setValueAtTime(40 * (1 + this.envDensity * 0.3) * (this.weather.includes('STORM') ? 1.3 : 1), this.ctx.currentTime);
         osc.frequency.exponentialRampToValueAtTime(20, this.ctx.currentTime + 0.5);
-        gain.gain.setValueAtTime(0.5 * this.transcendentIntensity, this.ctx.currentTime);
+        gain.gain.setValueAtTime(0.5 * this.transcendentIntensity * (this.moodFactor * 0.5 + 0.5), this.ctx.currentTime);
         gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 1);
         
         osc.connect(gain).connect(this.reverb);
@@ -1038,7 +1139,7 @@
         filter.frequency.value = 50 + this.motion * 0.3 * (1 + this.envDensity * 0.4);
         filter.Q.value = 4;
         
-        gain.gain.setValueAtTime(0.6 * this.transcendentIntensity, this.ctx.currentTime);
+        gain.gain.setValueAtTime(0.6 * this.transcendentIntensity * (this.moodFactor * 0.5 + 0.5), this.ctx.currentTime);
         gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 1.5);
         
         osc.connect(filter).connect(gain).connect(this.reverb);
@@ -1066,11 +1167,11 @@
 
       reflect() {
         const avgMotion = this.rolloutBuffer.reduce((a, b) => a + b, 0) / this.rolloutBuffer.length;
-        if (avgMotion < 10 && this.layerProgress < 1) this.layerProgress += 0.1;
+        if (avgMotion < 10 && this.layerProgress < 2) this.layerProgress += 0.1;
         else if (avgMotion > 20 && this.bpm < 120) this.bpm += 5;
         else if (this.distanceTraveled > 300 && this.layerProgress < 4) this.layerProgress += 0.2;
-        else if (this.distanceTraveled > 500 && this.layerProgress < 6) this.layerProgress += 0.3;
-        else if (this.distanceTraveled > 700 && this.layerProgress < 8) this.layerProgress += 0.4;
+        else if (this.distanceTraveled > 500 && this.layerProgress < 7) this.layerProgress += 0.3;
+        else if (this.distanceTraveled > 700 && this.layerProgress < 9) this.layerProgress += 0.4;
       }
 
       animate() {
@@ -1090,7 +1191,7 @@
             this.elements.motion.textContent = Math.round(this.motion);
             this.elements.bpm.textContent = this.bpm;
             this.elements.groove.textContent = this.state;
-            this.elements.status.textContent = `🎵 ${this.state.toLowerCase()} - ${this.songSection.toLowerCase()}...`;
+            this.elements.status.textContent = `🎵 ${this.state.toLowerCase()} - ${this.songSection.toLowerCase()} - ${this.weather.toLowerCase()}...`;
           }
 
           this.frameCount++;
