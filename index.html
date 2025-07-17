@@ -147,6 +147,7 @@
         this.transcendent = false;
         this.transcendentIntensity = 0;
         this.lastMotionTime = Date.now();
+        this.startTime = 0; // Added for startup grace period
         this.reverb = null;
         this.songSection = 'A1';
         this.layerProgress = 0;
@@ -214,6 +215,8 @@
           ['viz', 'stats', 'status'].forEach(id => this.elements[id].classList.remove('hidden'));
           
           this.active = true;
+          this.startTime = Date.now(); // Set startup time
+          this.lastMotionTime = Date.now(); // Reset motion time
           this.startSensors();
           this.startGroove();
           this.animate();
@@ -253,13 +256,15 @@
           this.rolloutBuffer.push(this.motion);
           if (this.rolloutBuffer.length > 600) this.rolloutBuffer.shift();
 
+          if (this.motion > 10) { // Raised threshold to ensure motion detection
+            this.lastMotionTime = now;
+          }
+
           if (this.motion > 5 && now - this.lastStrideTime > this.strideInterval) {
             this.lastStrideTime = now;
             this.updateSongProgress();
             this.updateEnvDensity();
           }
-
-          if (this.motion > 5) this.lastMotionTime = now;
 
           this.pos.x = Math.max(5, Math.min(95, this.pos.x * 0.9 + (50 + acc.x * 2) * 0.1));
           this.pos.y = Math.max(5, Math.min(95, this.pos.y * 0.9 + (50 + acc.y * 2) * 0.1));
@@ -286,8 +291,9 @@
           lastTranscendenceCheck = now;
 
           const stillTime = now - this.lastMotionTime;
-          const shouldTranscend = stillTime > 800;
-          const motionResumed = this.motion > 5 && stillTime > 1000;
+          const startupGracePeriod = now - this.startTime < 5000; // 5s grace period
+          const shouldTranscend = stillTime > 2000 && !startupGracePeriod; // Raised to 2000ms
+          const motionResumed = this.motion > 10 && stillTime > 1000;
 
           if (shouldTranscend && !this.transcendent) {
             this.transcendent = true;
@@ -298,7 +304,7 @@
           }
 
           if (this.transcendent) {
-            this.transcendentIntensity = Math.min(1, (stillTime - 800) / 6000);
+            this.transcendentIntensity = Math.min(1, (stillTime - 2000) / 6000);
             this.deepenVoid();
           }
 
