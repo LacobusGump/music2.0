@@ -162,7 +162,10 @@
         this.scale = [261.63, 293.66, 329.63, 349.23, 392.00, 440.00, 493.88, 523.25]; // C Major
         this.circleOfFifth = [0, 7, 2, 9, 4, 11, 6, 1, 8, 3, 10, 5]; // Circle of Fifths indices
         this.currentChordIndex = 0;
-        this.patterns = { kick: [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0] };
+        this.patterns = { 
+          kick: [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0],
+          snare: [0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0]
+        };
         
         this.elements = {};
         this.rolloutBuffer = [];
@@ -271,10 +274,11 @@
 
           const stillTime = now - this.lastMotionTime;
           const shouldTranscend = stillTime > 800;
+          const motionResumed = this.motion > 5 && stillTime > 1000; // Grace period to exit
 
           if (shouldTranscend && !this.transcendent) {
             this.enterTranscendence();
-          } else if (!shouldTranscend && this.transcendent) {
+          } else if (motionResumed && this.transcendent) {
             this.exitTranscendence();
           }
 
@@ -401,14 +405,14 @@
       }
 
       startHeavenLayers() {
-        const chord = this.chords[this.currentChordIndex % this.chords.length];
-        chord.forEach(note => {
+        const chord = this.getChordWithInversion();
+        for (let i = 0; i < 4; i++) {
           const osc = this.ctx.createOscillator();
           const gain = this.ctx.createGain();
           const filter = this.ctx.createBiquadFilter();
           
           osc.type = 'sine';
-          osc.frequency.value = this.scale[note] * 0.3 * (1 + this.envDensity * 0.5);
+          osc.frequency.value = this.scale[chord[i % chord.length]] * 0.3 * (1 + this.envDensity * 0.5);
           filter.type = 'lowpass';
           filter.frequency.value = 250 + this.motion * 1.5 * (1 + this.envDensity * 0.2);
           filter.Q.value = 1.8;
@@ -420,7 +424,7 @@
           osc.start();
           
           this.oscillators.add(osc);
-        });
+        }
       }
 
       stopHeavenLayers() {
@@ -430,6 +434,12 @@
           } catch (e) {}
         });
         this.oscillators.clear();
+      }
+
+      getChordWithInversion() {
+        const baseChord = this.circleOfFifth.slice(this.currentChordIndex, this.currentChordIndex + 4) % this.circleOfFifth.length;
+        const inversion = Math.floor(Math.random() * 3); // 0, 1, or 2
+        return [...baseChord.slice(inversion), ...baseChord.slice(0, inversion)];
       }
 
       updateLocation(pos) {
@@ -448,7 +458,7 @@
         const responsiveness = Math.max(0.1, 100 / accuracy);
         this.envDensity = Math.min(1, Math.max(0, this.envDensity + (speed * 0.02 * responsiveness) + (Math.random() * 0.1)));
         
-        if (speed > 1) this.bpm = Math.min(140, this.bpm + Math.round(this.envDensity * 5));
+        if (speed > 1) this.bpm = Math.min(150, this.bpm + Math.round(this.envDensity * 5));
       }
 
       haversineDistance(lat1, lon1, lat2, lon2) {
@@ -472,18 +482,20 @@
 
       updateSongProgress() {
         if (this.motion > 5 || this.distanceTraveled > 10) {
-          this.layerProgress = Math.min(6, this.layerProgress + 0.1 * (1 + this.envDensity)); // Extended to 6 for peak
+          this.layerProgress = Math.min(8, this.layerProgress + 0.1 * (1 + this.envDensity)); // Extended to 8
           if (this.songSection === 'A1' && this.layerProgress >= 1) this.songSection = 'A2';
           else if (this.songSection === 'A2' && this.layerProgress >= 2) this.songSection = 'B';
           else if (this.songSection === 'B' && this.layerProgress >= 3) this.songSection = 'C';
           else if (this.songSection === 'C' && this.layerProgress >= 4) this.songSection = 'D';
-          else if (this.songSection === 'D' && this.layerProgress >= 5) this.songSection = 'E'; // Ultimate peak
+          else if (this.songSection === 'D' && this.layerProgress >= 5) this.songSection = 'E';
+          else if (this.songSection === 'E' && this.layerProgress >= 6) this.songSection = 'F';
+          else if (this.songSection === 'F' && this.layerProgress >= 7) this.songSection = 'G'; // Ultimate peak
         }
       }
 
       updateState() {
         if (this.transcendent) {
-          this.state = ['VOID', 'DARKNESS', 'ETHEREAL', 'INFINITE'][Math.floor(this.transcendentIntensity * 4)];
+          this.state = ['VOID', 'DARKNESS', 'ETHEREAL', 'INFINITE', 'COSMIC', 'TRANSCENDENCE'][Math.floor(this.transcendentIntensity * 6)];
           this.bpm = Math.round(45 + (this.transcendentIntensity * 35) + (this.motion * 0.15));
           return;
         }
@@ -495,6 +507,8 @@
         else if (this.motion < 15 && this.distanceTraveled < 100) this.state = 'FLOW';
         else if (this.motion < 30 && this.distanceTraveled < 200) this.state = 'ENERGY';
         else if (this.motion < 50 && this.distanceTraveled < 400) this.state = 'CLIMAX';
+        else if (this.motion < 70 && this.distanceTraveled < 600) this.state = 'ASCENSION';
+        else if (this.motion < 90 && this.distanceTraveled < 800) this.state = 'EUPHORIA';
         else this.state = 'PEAK';
       }
 
@@ -504,23 +518,30 @@
 
           if (!this.transcendent) {
             if (this.patterns.kick[this.step % 16] && this.layerProgress >= 0) this.kick808();
-            if (this.step % 16 === 4 && this.layerProgress >= 1) this.snareLayered();
+            if (this.patterns.snare[this.step % 16] && this.layerProgress >= 1) this.snareLayered();
             if (this.step % 8 === 0 && this.layerProgress >= 2) this.hihatMetallic();
             if (this.step % 6 === 0 && this.layerProgress >= 3) this.vocalLayer();
             if (this.layerProgress >= 4) this.bassLayer();
             if (this.layerProgress >= 5) this.peakLayer();
-            if (this.layerProgress >= 6) this.crescendoLayer(); // Ultimate peak layer
-            this.ambientPad(); // Continuous ambient layer
+            if (this.layerProgress >= 6) this.crescendoLayer();
+            if (this.layerProgress >= 7) this.finalCrescendo();
+            if (this.layerProgress >= 8) this.ultimateCrescendo();
+            this.ambientPad();
+            this.secondaryAmbient();
+            this.tertiaryAmbient();
+            this.quaternaryAmbient();
           } else {
             if (this.step % 8 === 0) this.etherealKick();
             if (this.step % 12 === 6 && this.transcendentIntensity > 0.3) this.voidPulse();
             this.transcendentPad();
+            this.cosmicDrone();
+            this.etherealHarmony();
           }
 
           this.step = (this.step + 1) % 32;
           if (this.step === 0) {
             this.currentChordIndex = (this.currentChordIndex + 1) % this.circleOfFifth.length;
-            if (this.songSection === 'E') this.bpm += Math.round(10 * (1 + this.envDensity));
+            if (this.songSection === 'G') this.bpm += Math.round(15 * (1 + this.envDensity));
           }
 
           const interval = Math.max(100, 60000 / this.bpm / 4);
@@ -536,7 +557,7 @@
           const gainSub = this.ctx.createGain();
           const gainClick = this.ctx.createGain();
           const filter = this.ctx.createBiquadFilter();
-          const highPass = this.ctx.createBiquadFilter(); // Add high-pass to avoid clash
+          const highPass = this.ctx.createBiquadFilter(); // Prevent sub-clash
 
           subOsc.type = 'sine';
           subOsc.frequency.setValueAtTime(60 * (1 + this.envDensity * 0.3), this.ctx.currentTime);
@@ -699,8 +720,8 @@
 
       peakLayer() {
         if (this.layerProgress >= 5) {
-          const chord = this.chords[this.currentChordIndex % this.chords.length];
-          for (let i = 0; i < 4; i++) {
+          const chord = this.getChordWithInversion();
+          for (let i = 0; i < 5; i++) {
             const osc = this.ctx.createOscillator();
             const gain = this.ctx.createGain();
             const filter = this.ctx.createBiquadFilter();
@@ -727,7 +748,7 @@
 
       crescendoLayer() {
         if (this.layerProgress >= 6) {
-          const chord = this.chords[this.currentChordIndex % this.chords.length].map(i => this.circleOfFifth[i % this.circleOfFifth.length]);
+          const chord = this.getChordWithInversion().map(i => (i + [0, 4, 7][Math.floor(Math.random() * 3)]) % this.scale.length); // 7th extensions
           for (let i = 0; i < 6; i++) {
             const osc = this.ctx.createOscillator();
             const gain = this.ctx.createGain();
@@ -749,6 +770,62 @@
             
             this.oscillators.add(osc);
             setTimeout(() => this.oscillators.delete(osc), 3000);
+          }
+        }
+      }
+
+      finalCrescendo() {
+        if (this.layerProgress >= 7) {
+          const chord = this.getChordWithInversion().map(i => (i + [0, 4, 7, 10][Math.floor(Math.random() * 4)]) % this.scale.length); // 9th chords
+          for (let i = 0; i < 8; i++) {
+            const osc = this.ctx.createOscillator();
+            const gain = this.ctx.createGain();
+            const filter = this.ctx.createBiquadFilter();
+            
+            osc.type = 'sine';
+            osc.frequency.value = this.scale[chord[i % chord.length]] * (2 + this.envDensity * 0.4);
+            filter.type = 'bandpass';
+            filter.frequency.value = 400 + this.motion * 4;
+            filter.Q.value = 7;
+            
+            gain.gain.setValueAtTime(0, this.ctx.currentTime + i * 0.2);
+            gain.gain.linearRampToValueAtTime(0.6 * (this.layerProgress - 6), this.ctx.currentTime + i * 0.2 + 1);
+            gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + i * 0.2 + 4);
+            
+            osc.connect(filter).connect(gain).connect(this.reverb);
+            osc.start();
+            osc.stop(this.ctx.currentTime + i * 0.2 + 4);
+            
+            this.oscillators.add(osc);
+            setTimeout(() => this.oscillators.delete(osc), 4000);
+          }
+        }
+      }
+
+      ultimateCrescendo() {
+        if (this.layerProgress >= 8) {
+          const chord = this.getChordWithInversion().map(i => (i + [0, 4, 7, 10, 14][Math.floor(Math.random() * 5)]) % this.scale.length); // 9th/11th extensions
+          for (let i = 0; i < 10; i++) {
+            const osc = this.ctx.createOscillator();
+            const gain = this.ctx.createGain();
+            const filter = this.ctx.createBiquadFilter();
+            
+            osc.type = 'sine';
+            osc.frequency.value = this.scale[chord[i % chord.length]] * (2.5 + this.envDensity * 0.5);
+            filter.type = 'bandpass';
+            filter.frequency.value = 500 + this.motion * 5;
+            filter.Q.value = 8;
+            
+            gain.gain.setValueAtTime(0, this.ctx.currentTime + i * 0.25);
+            gain.gain.linearRampToValueAtTime(0.7 * (this.layerProgress - 7), this.ctx.currentTime + i * 0.25 + 1.2);
+            gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + i * 0.25 + 5);
+            
+            osc.connect(filter).connect(gain).connect(this.reverb);
+            osc.start();
+            osc.stop(this.ctx.currentTime + i * 0.25 + 5);
+            
+            this.oscillators.add(osc);
+            setTimeout(() => this.oscillators.delete(osc), 5000);
           }
         }
       }
@@ -778,6 +855,81 @@
         }
       }
 
+      secondaryAmbient() {
+        if (Math.random() < 0.25 + this.envDensity * 0.15) {
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          const filter = this.ctx.createBiquadFilter();
+          
+          const noteIndex = this.circleOfFifth[(this.currentChordIndex + 2) % this.circleOfFifth.length] + [0, 3, 5][Math.floor(Math.random() * 3)];
+          osc.type = 'triangle';
+          osc.frequency.value = this.scale[noteIndex % this.scale.length] * 0.7;
+          filter.type = 'lowpass';
+          filter.frequency.value = 350 + this.motion * 0.8;
+          filter.Q.value = 1.5;
+          
+          gain.gain.setValueAtTime(0.04 * (1 + this.layerProgress * 0.1), this.ctx.currentTime);
+          gain.gain.linearRampToValueAtTime(0.06 * (1 + this.layerProgress * 0.1), this.ctx.currentTime + 12);
+          gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 22);
+          
+          osc.connect(filter).connect(gain).connect(this.reverb);
+          osc.start();
+          
+          this.oscillators.add(osc);
+          setTimeout(() => this.oscillators.delete(osc), 22000);
+        }
+      }
+
+      tertiaryAmbient() {
+        if (Math.random() < 0.2 + this.envDensity * 0.1) {
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          const filter = this.ctx.createBiquadFilter();
+          
+          const noteIndex = this.circleOfFifth[(this.currentChordIndex + 4) % this.circleOfFifth.length] + [0, 1, 6][Math.floor(Math.random() * 3)];
+          osc.type = 'sine';
+          osc.frequency.value = this.scale[noteIndex % this.scale.length] * 0.6;
+          filter.type = 'lowpass';
+          filter.frequency.value = 300 + this.motion * 0.6;
+          filter.Q.value = 1.2;
+          
+          gain.gain.setValueAtTime(0.03 * (1 + this.layerProgress * 0.1), this.ctx.currentTime);
+          gain.gain.linearRampToValueAtTime(0.05 * (1 + this.layerProgress * 0.1), this.ctx.currentTime + 15);
+          gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 25);
+          
+          osc.connect(filter).connect(gain).connect(this.reverb);
+          osc.start();
+          
+          this.oscillators.add(osc);
+          setTimeout(() => this.oscillators.delete(osc), 25000);
+        }
+      }
+
+      quaternaryAmbient() {
+        if (Math.random() < 0.15 + this.envDensity * 0.05) {
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          const filter = this.ctx.createBiquadFilter();
+          
+          const noteIndex = this.circleOfFifth[(this.currentChordIndex + 6) % this.circleOfFifth.length] + [0, 2, 7][Math.floor(Math.random() * 3)];
+          osc.type = 'sawtooth';
+          osc.frequency.value = this.scale[noteIndex % this.scale.length] * 0.5;
+          filter.type = 'lowpass';
+          filter.frequency.value = 250 + this.motion * 0.4;
+          filter.Q.value = 1.0;
+          
+          gain.gain.setValueAtTime(0.02 * (1 + this.layerProgress * 0.1), this.ctx.currentTime);
+          gain.gain.linearRampToValueAtTime(0.04 * (1 + this.layerProgress * 0.1), this.ctx.currentTime + 18);
+          gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 28);
+          
+          osc.connect(filter).connect(gain).connect(this.reverb);
+          osc.start();
+          
+          this.oscillators.add(osc);
+          setTimeout(() => this.oscillators.delete(osc), 28000);
+        }
+      }
+
       transcendentPad() {
         if (Math.random() < 0.4 + this.transcendentIntensity * 0.2) {
           const osc = this.ctx.createOscillator();
@@ -800,6 +952,58 @@
           
           this.oscillators.add(osc);
           setTimeout(() => this.oscillators.delete(osc), 15000);
+        }
+      }
+
+      cosmicDrone() {
+        if (Math.random() < 0.35 + this.transcendentIntensity * 0.15) {
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          const filter = this.ctx.createBiquadFilter();
+          
+          const noteIndex = this.circleOfFifth[(this.currentChordIndex + 3) % this.circleOfFifth.length] + [0, 5, 9][Math.floor(Math.random() * 3)];
+          osc.type = 'sawtooth';
+          osc.frequency.value = this.scale[noteIndex % this.scale.length] * 0.5 * (1 + this.envDensity * 0.1);
+          filter.type = 'lowpass';
+          filter.frequency.value = 200 + this.motion * 1.2;
+          filter.Q.value = 2.5;
+          
+          gain.gain.setValueAtTime(0, this.ctx.currentTime);
+          gain.gain.linearRampToValueAtTime(0.12 * this.transcendentIntensity, this.ctx.currentTime + 7);
+          gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 20);
+          
+          osc.connect(filter).connect(gain).connect(this.reverb);
+          osc.start();
+          
+          this.oscillators.add(osc);
+          setTimeout(() => this.oscillators.delete(osc), 20000);
+        }
+      }
+
+      etherealHarmony() {
+        if (Math.random() < 0.3 + this.transcendentIntensity * 0.1) {
+          const chord = this.getChordWithInversion();
+          for (let i = 0; i < 3; i++) {
+            const osc = this.ctx.createOscillator();
+            const gain = this.ctx.createGain();
+            const filter = this.ctx.createBiquadFilter();
+            
+            osc.type = 'sine';
+            osc.frequency.value = this.scale[chord[i % chord.length]] * 0.4 * (1 + this.envDensity * 0.2);
+            filter.type = 'lowpass';
+            filter.frequency.value = 250 + this.motion * 1.0;
+            filter.Q.value = 2.0;
+            
+            gain.gain.setValueAtTime(0, this.ctx.currentTime);
+            gain.gain.linearRampToValueAtTime(0.1 * this.transcendentIntensity, this.ctx.currentTime + 6);
+            gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 18);
+            
+            osc.connect(filter).connect(gain).connect(this.reverb);
+            osc.start();
+            
+            this.oscillators.add(osc);
+            setTimeout(() => this.oscillators.delete(osc), 18000);
+          }
         }
       }
 
@@ -863,6 +1067,8 @@
         if (avgMotion < 10 && this.layerProgress < 1) this.layerProgress += 0.1;
         else if (avgMotion > 20 && this.bpm < 120) this.bpm += 5;
         else if (this.distanceTraveled > 300 && this.layerProgress < 4) this.layerProgress += 0.2;
+        else if (this.distanceTraveled > 500 && this.layerProgress < 6) this.layerProgress += 0.3;
+        else if (this.distanceTraveled > 700 && this.layerProgress < 8) this.layerProgress += 0.4;
       }
 
       animate() {
