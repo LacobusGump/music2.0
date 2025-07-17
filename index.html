@@ -25,6 +25,10 @@
       filter: blur(0.5px) brightness(1.2);
     }
     
+    body.void-mode {
+      background: #000000;
+    }
+    
     .app {
       width: 100%;
       max-width: 450px;
@@ -33,6 +37,7 @@
       backdrop-filter: blur(5px) saturate(180%);
       border-radius: 20px;
       background: rgba(10, 10, 20, 0.1);
+      transition: opacity 1s ease;
     }
     
     .logo {
@@ -116,6 +121,13 @@
       will-change: transform;
     }
     
+    .orb.void-dot {
+      width: 20px;
+      height: 20px;
+      background: radial-gradient(circle, #ffffffaa, transparent);
+      box-shadow: 0 0 20px rgba(255, 255, 255, 0.6);
+    }
+    
     .orb.transcendent {
       background: radial-gradient(circle, #ff88cc, transparent);
       box-shadow: 0 0 80px rgba(255, 136, 204, 0.8);
@@ -146,6 +158,19 @@
     
     .status { font-size: 1rem; color: #4ecdc4; opacity: 0.85; animation: statusBreathe 2.5s ease-in-out infinite; }
     @keyframes statusBreathe { 0%, 100% { opacity: 0.85; } 50% { opacity: 1.1; } }
+    
+    .instruction {
+      font-size: 1.2rem;
+      color: #ffffff;
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      text-align: center;
+      transition: opacity 1s ease;
+      z-index: 10;
+      width: 80%;
+    }
     
     .particles { position: fixed; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: -1; opacity: 0; transition: opacity 0.5s ease; }
     .particles.active { opacity: 0.7; }
@@ -181,6 +206,7 @@
       <div class="stat"><div class="stat-value" id="groove">CHILL</div><div class="stat-label">State</div></div>
     </div>
     <div class="status hidden" id="status">🎵 Flowing with your vibe...</div>
+    <div class="instruction hidden" id="instruction">Put your phone in your pocket and go for a walk.</div>
     <div class="error hidden" id="error"></div>
   </div>
 
@@ -189,6 +215,7 @@
       constructor() {
         this.ctx = null;
         this.motion = 0;
+        this.lastMotion = 0;
         this.bpm = 95;
         this.pos = { x: 50, y: 50 };
         this.last = { x: 0, y: 0, z: 0 };
@@ -216,7 +243,6 @@
         this.weatherData = null;
         this.seed = 0;
         this.currentChord = 0;
-        this.analyser = null;
         
         this.scales = {
           major: [261.63, 293.66, 329.63, 349.23, 392.00, 440.00, 493.88, 523.25],
@@ -236,7 +262,7 @@
       }
 
       init() {
-        const ids = ['start', 'viz', 'stats', 'status', 'logo', 'tagline', 'orb', 'motion', 'bpm', 'groove', 'error', 'particles', 'controls', 'pause', 'bpm-slider', 'scale-select'];
+        const ids = ['start', 'viz', 'stats', 'status', 'logo', 'tagline', 'orb', 'motion', 'bpm', 'groove', 'error', 'particles', 'controls', 'pause', 'bpm-slider', 'scale-select', 'instruction'];
         ids.forEach(id => this.elements[id] = document.getElementById(id));
         
         this.elements.start.onclick = () => this.start();
@@ -322,10 +348,18 @@
           await this.ctx.resume();
           this.createReverb();
           this.initOscillatorPool();
-          this.startMicInput();
 
           this.elements.start.classList.add('hidden');
-          ['viz', 'stats', 'status', 'controls'].forEach(id => this.elements[id].classList.remove('hidden'));
+          ['viz', 'instruction'].forEach(id => this.elements[id].classList.remove('hidden'));
+          ['logo', 'tagline', 'controls', 'stats', 'status'].forEach(id => this.elements[id].classList.add('hidden'));
+          document.body.classList.add('void-mode');
+          this.elements.orb.classList.add('void-dot');
+
+          // Fade out instruction after 10 seconds
+          setTimeout(() => {
+            this.elements.instruction.style.opacity = 0;
+            setTimeout(() => this.elements.instruction.classList.add('hidden'), 1000);
+          }, 10000);
           
           this.active = true;
           this.lastMotionTime = Date.now();
@@ -337,31 +371,6 @@
         } catch (e) {
           this.showError('Failed to start: ' + e.message);
           console.error(e);
-        }
-      }
-
-      async startMicInput() {
-        try {
-          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-          const source = this.ctx.createMediaStreamSource(stream);
-          this.analyser = this.ctx.createAnalyser();
-          this.analyser.fftSize = 512;
-          source.connect(this.analyser);
-          
-          const buffer = new Float32Array(this.analyser.frequencyBinCount);
-          const checkMic = () => {
-            if (!this.active) return;
-            this.analyser.getFloatTimeDomainData(buffer);
-            const peak = Math.max(...buffer);
-            if (peak > 0.1) {
-              this.triggerInstantSound('kick808');
-              this.createRipple();
-            }
-            requestAnimationFrame(checkMic);
-          };
-          checkMic();
-        } catch (e) {
-          this.showError('Microphone access denied: ' + e.message);
         }
       }
 
@@ -830,8 +839,11 @@
           return;
         }
 
-        const targetBPM = 80 + this.motion * 2 + this.envDensity * 20 + (this.distanceTraveled / 100);
+        const motionTrend = this.motion - this.lastMotion;
+        const anticipationFactor = motionTrend > 0 ? 1.2 : 0.8;
+        const targetBPM = 80 + this.motion * 2 * anticipationFactor + this.envDensity * 20 + (this.distanceTraveled / 100);
         this.bpm = Math.round(this.bpm * 0.95 + targetBPM * 0.05);
+        this.lastMotion = this.motion;
         
         if (this.songSection === 'INTRO') this.state = 'CHILL';
         else if (this.songSection === 'BUILD') this.state = 'FLOW';
@@ -1385,12 +1397,7 @@
           });
 
           if (this.frameCount % 10 === 0) {
-            Object.assign(this.elements, {
-              motion: { textContent: Math.round(this.motion) },
-              bpm: { textContent: this.bpm },
-              groove: { textContent: this.state },
-              status: { textContent: `🎵 ${this.state.toLowerCase()} - ${this.songSection.toLowerCase()} - ${this.weather.toLowerCase()}...` }
-            });
+            // No stats update since hidden
           }
 
           this.frameCount++;
