@@ -355,12 +355,16 @@ AWAKEN
         this.masterGain = null;
         this.limiter = null;
         this.layerGains = {};
+        this.layerPanners = {};
+        this.listener = null;
         this.convolver = null;
         this.delay = null;
         this.compressor = null;
-        this.panner = null;
         this.shepardGain = null;
         this.ostinatoGain = null;
+        
+        // Spatial Orientation
+        this.orientation = { alpha: 0, beta: 0, gamma: 0 };
         
         // Zimmer Techniques
         this.shepardTones = []; // For infinite rising tension
@@ -419,6 +423,7 @@ AWAKEN
         
         this.elements.startBtn.onclick = () => this.start();
         this.setupMotionDetection();
+        this.setupOrientationDetection();
         this.setupSpectrumVisualizer();
       }
 
@@ -433,12 +438,57 @@ AWAKEN
         }
       }
 
+      setupOrientationDetection() {
+        window.addEventListener('deviceorientation', e => {
+          if (!this.active) return;
+          if (e.alpha !== null) {
+            this.orientation.alpha = e.alpha;
+            this.orientation.beta = e.beta;
+            this.orientation.gamma = e.gamma;
+            this.updateListenerOrientation();
+          }
+        });
+      }
+
+      updateListenerOrientation() {
+        if (!this.listener) return;
+
+        const alphaRad = this.orientation.alpha * Math.PI / 180;
+        const betaRad = this.orientation.beta * Math.PI / 180;
+        const gammaRad = this.orientation.gamma * Math.PI / 180;
+
+        // Compute forward vector (direction listener is facing)
+        const forwardX = Math.cos(alphaRad) * Math.cos(betaRad);
+        const forwardY = Math.sin(alphaRad) * Math.cos(betaRad);
+        const forwardZ = Math.sin(betaRad);
+
+        // Compute up vector
+        const upX = -Math.cos(alphaRad) * Math.sin(betaRad) * Math.sin(gammaRad) - Math.sin(alphaRad) * Math.cos(gammaRad);
+        const upY = -Math.sin(alphaRad) * Math.sin(betaRad) * Math.sin(gammaRad) + Math.cos(alphaRad) * Math.cos(gammaRad);
+        const upZ = Math.cos(betaRad) * Math.sin(gammaRad);
+
+        this.listener.forwardX.value = forwardX;
+        this.listener.forwardY.value = forwardY;
+        this.listener.forwardZ.value = forwardZ;
+        this.listener.upX.value = upX;
+        this.listener.upY.value = upY;
+        this.listener.upZ.value = upZ;
+      }
+
       async start() {
         try {
           if (typeof DeviceMotionEvent?.requestPermission === 'function') {
-            const permission = await DeviceMotionEvent.requestPermission();
-            if (permission !== 'granted') {
+            const motionPermission = await DeviceMotionEvent.requestPermission();
+            if (motionPermission !== 'granted') {
               alert('Motion permission required for your cinematic soundtrack');
+              return;
+            }
+          }
+
+          if (typeof DeviceOrientationEvent?.requestPermission === 'function') {
+            const orientationPermission = await DeviceOrientationEvent.requestPermission();
+            if (orientationPermission !== 'granted') {
+              alert('Orientation permission required for spatial audio');
               return;
             }
           }
@@ -446,6 +496,7 @@ AWAKEN
           this.ctx = new (window.AudioContext || window.webkitAudioContext)();
           await this.ctx.resume();
           this.setupZimmerAudioChain();
+          this.setLayerPositions();
 
           this.elements.startScreen.classList.add('hidden');
           this.elements.evolutionSpace.classList.add('active');
@@ -491,8 +542,17 @@ AWAKEN
         this.compressor.attack.value = 0.005;
         this.compressor.release.value = 0.15;
         
-        // SPATIAL PANNER
-        this.panner = this.ctx.createStereoPanner();
+        // LISTENER FOR SPATIAL AUDIO
+        this.listener = this.ctx.listener;
+        this.listener.positionX.value = 0;
+        this.listener.positionY.value = 0;
+        this.listener.positionZ.value = 0;
+        this.listener.forwardX.value = 0;
+        this.listener.forwardY.value = 0;
+        this.listener.forwardZ.value = -1;
+        this.listener.upX.value = 0;
+        this.listener.upY.value = 1;
+        this.listener.upZ.value = 0;
         
         // HALL REVERB (Epic Zimmer space)
         this.convolver = this.ctx.createConvolver();
@@ -519,13 +579,37 @@ AWAKEN
         delayFeedback.connect(this.delay);
         this.delay.connect(delayMix);
         
-        // LAYER GAINS (Zimmer mix levels)
+        // LAYER GAINS AND PANNERS (Zimmer mix levels with spatialization)
         const layerNames = ['kick', 'bass', 'hihat', 'snare', 'ostinato', 'harmony', 'pad', 'atmosphere', 'strings', 'brass', 'choir', 'shepard'];
         const layerLevels = [0.5, 0.4, 0.15, 0.3, 0.25, 0.2, 0.15, 0.1, 0.3, 0.25, 0.2, 0.15];
         
         layerNames.forEach((name, i) => {
           this.layerGains[name] = this.ctx.createGain();
           this.layerGains[name].gain.value = layerLevels[i];
+
+          this.layerPanners[name] = this.ctx.createPanner();
+          this.layerPanners[name].panningModel = 'HRTF';
+          this.layerPanners[name].distanceModel = 'inverse';
+          this.layerPanners[name].refDistance = 1;
+          this.layerPanners[name].maxDistance = 10000;
+          this.layerPanners[name].rolloffFactor = 1;
+          this.layerPanners[name].coneInnerAngle = 360;
+          this.layerPanners[name].coneOuterAngle = 0;
+          this.layerPanners[name].coneOuterGain = 0;
+
+          // Connect gain -> panner -> compressor
+          this.layerGains[name].connect(this.layerPanners[name]);
+          this.layerPanners[name].connect(this.compressor);
+
+          // Epic reverb sends (direct from gain for non-spatial wet signal)
+          if (['strings', 'brass', 'choir', 'harmony', 'pad'].includes(name)) {
+            this.layerGains[name].connect(this.convolver);
+          }
+          
+          // Delay sends
+          if (['ostinato', 'strings', 'snare'].includes(name)) {
+            this.layerGains[name].connect(this.delay);
+          }
         });
         
         // SPECIAL GAINS
@@ -534,29 +618,30 @@ AWAKEN
         this.ostinatoGain = this.ctx.createGain();
         this.ostinatoGain.gain.value = 0.25;
         
-        // ROUTING (Zimmer style)
-        layerNames.forEach(name => {
-          this.layerGains[name].connect(this.compressor);
-          
-          // Epic reverb sends
-          if (['strings', 'brass', 'choir', 'harmony', 'pad'].includes(name)) {
-            this.layerGains[name].connect(this.convolver);
-          }
-          
-          // Delay sends
-          if (['ostinato', 'strings', 'snare'].includes(name)) {
-            this.layerGains[name].connect(delayMix);
-          }
-        });
-        
-        // Final chain
-        this.convolver.connect(this.panner);
-        delayMix.connect(this.panner);
-        this.compressor.connect(this.panner);
-        this.panner.connect(this.limiter);
+        // Final chain (no stereo panner, spatial is handled per layer)
+        this.compressor.connect(this.limiter);
+        this.convolver.connect(this.limiter);
+        delayMix.connect(this.limiter);
         this.limiter.connect(this.analyser);
         this.analyser.connect(this.masterGain);
         this.masterGain.connect(this.ctx.destination);
+      }
+
+      setLayerPositions() {
+        // Assign 3D positions to layers for panoramic/depth effect
+        // Coordinate system: X (right/left), Y (up/down), Z (front/back, negative Z in front)
+        this.layerPanners['kick'].setPosition(0, 0, -2); // Front center
+        this.layerPanners['bass'].setPosition(0, -1, -3); // Low front center
+        this.layerPanners['hihat'].setPosition(0, 1, -4); // Above front
+        this.layerPanners['snare'].setPosition(0, 0, -1); // Close front
+        this.layerPanners['ostinato'].setPosition(-2, 0, -5); // Left mid
+        this.layerPanners['harmony'].setPosition(2, 0, -5); // Right mid
+        this.layerPanners['pad'].setPosition(0, 2, 5); // Above behind
+        this.layerPanners['atmosphere'].setPosition(0, 3, 10); // Far above behind
+        this.layerPanners['strings'].setPosition(-5, 0, -6); // Left front depth
+        this.layerPanners['brass'].setPosition(5, 0, -6); // Right front depth
+        this.layerPanners['choir'].setPosition(0, 2, 8); // Behind elevated
+        this.layerPanners['shepard'].setPosition(0, 4, -10); // Far front above for tension
       }
 
       setupMotionDetection() {
@@ -607,6 +692,12 @@ AWAKEN
           this.pos.x = newX;
           this.pos.y = newY;
           this.direction = Math.atan2(velocityY, velocityX) * (180 / Math.PI);
+          
+          // Simulate orientation with mouse for desktop (map x to alpha/yaw, y to beta/pitch)
+          this.orientation.alpha = (newX / 100) * 360;
+          this.orientation.beta = (newY - 50) * 1.8; // -90 to 90
+          this.orientation.gamma = 0; // No roll for mouse
+          this.updateListenerOrientation();
           
           lastMouse = { x: newX, y: newY, time: now };
         });
@@ -810,9 +901,8 @@ AWAKEN
           setTimeout(() => this.elements.orb.classList.remove('pulse'), 150);
         }
         
-        this.panner.pan.value = Math.sin(this.direction * Math.PI / 180) * 0.4;
+        // Spatial panning is now handled by orientation and fixed positions
         
-        // Zimmer Signature Patterns
         if (this.layers.kick && this.step % 8 === 0) this.playZimmerKick();
         if (this.layers.bass && this.step % 4 === 0) this.playZimmerBass();
         if (this.layers.hihat && this.step % 2 === 1 && Math.random() < 0.7) this.playZimmerHihat();
@@ -922,7 +1012,7 @@ AWAKEN
         gain.gain.value = 0.6;
         
         osc1.connect(env).connect(gain).connect(this.layerGains.snare);
-        osc2.connect(env).connect(gain);
+        osc2.connect(env).connect(gain).connect(this.layerGains.snare);
         osc1.start();
         osc2.start();
         osc1.stop(this.ctx.currentTime + 0.3);
@@ -1182,7 +1272,7 @@ AWAKEN
       }
 
       // VOICE MANAGEMENT
-      allocateVoice(layer) {
+      allocateVoice(layer, osc, gainNode, duration) {
         const pool = this.voicePool[layer];
         if (!pool) return false;
         
@@ -1196,22 +1286,15 @@ AWAKEN
           }
         }
         
-        return true;
-      }
-
-      createVoice(layer, osc, gain, duration = 1) {
-        if (!this.allocateVoice(layer)) return null;
-        
-        const voice = { osc, gain, startTime: this.ctx.currentTime };
-        this.voicePool[layer].active.push(voice);
+        const voice = { osc, gain: gainNode, startTime: this.ctx.currentTime };
+        pool.active.push(voice);
         
         setTimeout(() => {
-          const pool = this.voicePool[layer];
           const index = pool.active.indexOf(voice);
           if (index !== -1) pool.active.splice(index, 1);
         }, duration * 1000 + 100);
         
-        return voice;
+        return true;
       }
 
       updateHarmony() {
