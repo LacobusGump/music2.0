@@ -262,15 +262,16 @@
         this.ctx = null;
         this.active = false;
         
-        // Musical Structure - Enhanced for cinematic progression
+        // Musical Structure - Enhanced for Zimmer-like dynamics: longer builds, tension/release, motif development
         this.bpm = 60; // Start slower for dramatic build
         this.step = 0;
         this.phrase = 'A';
         this.phraseCount = 0;
-        this.phraseStructure = ['A', 'A', 'B', 'A', 'C']; // Extended AABA + C for climax
-        this.sectionLength = 32; // Longer phrases for epic feel
+        this.phraseStructure = ['A', 'A', 'B', 'A', 'C', 'D']; // Extended AABA + C + D for build to climax and resolution
+        this.sectionLength = 64; // Even longer phrases for epic cinematic arcs
+        this.motif = [0, 2, 4, 7, 9]; // Simple motif that can be varied/developed
         
-        // Motion & Position - More sophisticated detection
+        // Motion & Position - More sophisticated detection with acceleration patterns for dynamics
         this.motion = 0;
         this.intensity = 0;
         this.direction = 0; // 0-360 degrees
@@ -280,25 +281,27 @@
         this.motionHistory = [];
         this.stepCounter = 0; // Detect walking rhythm
         this.lastStepTime = 0;
+        this.accelPatterns = []; // Track patterns for builds/tension
         
-        // Evolution System - Smoother, more stages
+        // Evolution System - Smoother, more stages with Zimmer-inspired narrative acts
         this.stage = 'SILENCE';
-        this.subStage = 0; // 0-3 within each stage for gradual evolution
+        this.subStage = 0; // 0-4 within each stage for finer gradual evolution
         this.evolutionProgress = 0;
         this.totalMotion = 0;
         this.firstMovement = false;
         
-        // Cinematic Themes
+        // Cinematic Themes - Expanded for more narrative depth
         this.currentTheme = 'awakening';
         this.themes = {
-          awakening: { mood: 'introspective', colors: ['#f8f8f8', '#e0e0e0'], text: 'The Journey Begins' },
-          adventure: { mood: 'energetic', colors: ['#ff4757', '#f8f8f8'], text: 'Into the Unknown' },
-          tension: { mood: 'suspenseful', colors: ['#3742fa', '#f8f8f8'], text: 'Rising Challenges' },
-          triumph: { mood: 'victorious', colors: ['#8e44ad', '#e74c3c'], text: 'Epic Triumph' },
-          reflection: { mood: 'serene', colors: ['#f39c12', '#f8f8f8'], text: 'Moments of Reflection' }
+          awakening: { mood: 'introspective', colors: ['#f8f8f8', '#e0e0e0'], text: 'The Journey Begins', scaleType: 'major' },
+          adventure: { mood: 'energetic', colors: ['#ff4757', '#f8f8f8'], text: 'Into the Unknown', scaleType: 'major' },
+          tension: { mood: 'suspenseful', colors: ['#3742fa', '#f8f8f8'], text: 'Rising Challenges', scaleType: 'minor' },
+          triumph: { mood: 'victorious', colors: ['#8e44ad', '#e74c3c'], text: 'Epic Triumph', scaleType: 'major' },
+          reflection: { mood: 'serene', colors: ['#f39c12', '#f8f8f8'], text: 'Moments of Reflection', scaleType: 'minor' },
+          climax: { mood: 'intense', colors: ['#e74c3c', '#2c3e50'], text: 'The Final Stand', scaleType: 'phrygian' } // New for peak moments
         };
         
-        // Audio Chain - Enhanced effects for cinema
+        // Audio Chain - Enhanced for professional engineering: EQ, distortion, wider stereo
         this.masterGain = null;
         this.kickGain = null;
         this.bassGain = null;
@@ -306,10 +309,13 @@
         this.padGain = null;
         this.reverb = null;
         this.delay = null;
-        this.compressor = null; // New for dynamic range
-        this.panner = null; // For spatial audio based on direction
+        this.compressor = null;
+        this.panner = null;
+        this.lowEQ = null; // For bass rumble
+        this.highEQ = null; // For air/sparkle
+        this.distortion = null; // For grit in intense moments
         
-        // Layer Management - More layers for richness
+        // Layer Management - More layers for orchestral richness, Zimmer-style hybrids
         this.layers = {
           kick: false,
           bass: false,
@@ -319,17 +325,21 @@
           harmony: false,
           pad: false,
           atmosphere: false,
-          strings: false, // New cinematic layer
-          brass: false,   // New for triumphs
-          choir: false    // New for transcendent moments
+          strings: false,
+          brass: false,
+          choir: false,
+          percussionEnsemble: false, // New: taikos, toms for epic percussion
+          hybridPulse: false,         // New: electronic/orchestral hybrid pulses
+          ostinato: false             // New: repeating motifs for tension
         };
         
-        // Musical Elements - More adaptive
+        // Musical Elements - More adaptive, with motif variations and key modulations
         this.key = 'C';
-        this.scale = [0, 2, 4, 5, 7, 9, 11]; // Major scale
-        this.chordProgression = [[0,4,7], [5,9,0], [7,11,2], [0,4,7]]; // I-V-vi-IV popular cinematic prog
+        this.scale = [0, 2, 4, 5, 7, 9, 11]; // Major by default
+        this.chordProgression = [[0,4,7], [5,9,0], [7,11,2], [0,4,7]]; // Base I-V-vi-IV
         this.currentChordIndex = 0;
         this.bassNote = 0;
+        this.motifVariation = 0; // 0: base, 1: inverted, 2: augmented
         
         this.oscillators = new Set();
         this.elements = {};
@@ -338,7 +348,7 @@
       }
 
       init() {
-        // Get DOM elements - Add new ones
+        // Get DOM elements
         ['startScreen', 'startBtn', 'evolutionSpace', 'orb', 'instruction',
          'stageName', 'motionBar', 'cinematicOverlay', 'themeText']
         .forEach(id => this.elements[id] = document.getElementById(id));
@@ -389,39 +399,60 @@
         
         // Compressor for cinematic dynamic range
         this.compressor = this.ctx.createDynamicsCompressor();
-        this.compressor.threshold.value = -24;
-        this.compressor.knee.value = 30;
-        this.compressor.ratio.value = 12;
-        this.compressor.attack.value = 0.003;
-        this.compressor.release.value = 0.25;
+        this.compressor.threshold.value = -30; // More aggressive for punch
+        this.compressor.knee.value = 25;
+        this.compressor.ratio.value = 16;
+        this.compressor.attack.value = 0.002;
+        this.compressor.release.value = 0.3;
         
-        // Panner for spatial effects
+        // Panner for spatial audio
         this.panner = this.ctx.createStereoPanner();
         
-        // Reverb - Longer for epic feel
+        // Reverb - Longer and richer
         this.reverb = this.ctx.createConvolver();
-        const reverbTime = 4; // Longer reverb
+        const reverbTime = 6; // Even longer for vast spaces
         const buffer = this.ctx.createBuffer(2, this.ctx.sampleRate * reverbTime, this.ctx.sampleRate);
         for (let c = 0; c < 2; c++) {
           const data = buffer.getChannelData(c);
           for (let i = 0; i < data.length; i++) {
-            const decay = Math.pow(1 - i / data.length, 2); // Smoother decay
-            data[i] = (Math.random() * 2 - 1) * decay * 0.4;
+            const decay = Math.pow(1 - i / data.length, 3); // Slower decay for tail
+            data[i] = (Math.random() * 2 - 1) * decay * 0.3;
           }
         }
         this.reverb.buffer = buffer;
         
-        // Delay - More feedback for echoes
-        this.delay = this.ctx.createDelay(0.5);
-        this.delay.delayTime.value = 0.375;
+        // Delay - With modulation for movement
+        this.delay = this.ctx.createDelay(0.6);
+        this.delay.delayTime.value = 0.45;
         const delayFeedback = this.ctx.createGain();
-        delayFeedback.gain.value = 0.4;
+        delayFeedback.gain.value = 0.5;
         const delayMix = this.ctx.createGain();
-        delayMix.gain.value = 0.3;
+        delayMix.gain.value = 0.35;
         
         this.delay.connect(delayFeedback);
         delayFeedback.connect(this.delay);
         this.delay.connect(delayMix);
+        
+        // New: Distortion for grit
+        this.distortion = this.ctx.createWaveShaper();
+        const curve = new Float32Array(1024);
+        for (let i = 0; i < 1024; i++) {
+          const x = i / 1024 * 2 - 1;
+          curve[i] = (3 + 10) * x * 20 * (Math.PI + 10) / (Math.PI + 10 * Math.abs(x) + 3);
+        }
+        this.distortion.curve = curve;
+        this.distortion.oversample = '4x';
+        
+        // New: EQ for polish
+        this.lowEQ = this.ctx.createBiquadFilter();
+        this.lowEQ.type = 'lowshelf';
+        this.lowEQ.frequency.value = 120;
+        this.lowEQ.gain.value = 0; // Dynamic
+        
+        this.highEQ = this.ctx.createBiquadFilter();
+        this.highEQ.type = 'highshelf';
+        this.highEQ.frequency.value = 8000;
+        this.highEQ.gain.value = 0; // Dynamic
         
         // Layer gains
         this.kickGain = this.ctx.createGain();
@@ -429,21 +460,24 @@
         this.leadGain = this.ctx.createGain();
         this.padGain = this.ctx.createGain();
         
-        // Connect with new nodes
-        this.kickGain.connect(this.panner);
-        this.bassGain.connect(this.panner);
+        // Connect with enhanced chain
+        this.kickGain.connect(this.lowEQ);
+        this.bassGain.connect(this.lowEQ);
         this.leadGain.connect(this.reverb);
         this.padGain.connect(this.reverb);
         
-        this.reverb.connect(this.panner);
+        this.reverb.connect(this.distortion);
+        this.distortion.connect(this.panner);
         delayMix.connect(this.panner);
+        this.lowEQ.connect(this.highEQ);
+        this.highEQ.connect(this.panner);
         this.panner.connect(this.compressor);
         this.compressor.connect(this.masterGain);
         this.masterGain.connect(this.ctx.destination);
       }
 
       setupMotionDetection() {
-        // Device motion - Enhanced for direction and steps
+        // Device motion - Enhanced with pattern recognition
         window.addEventListener('devicemotion', e => {
           if (!this.active) return;
           
@@ -461,20 +495,24 @@
           this.velocity.y += acc.y * 0.01;
           this.updatePosition();
           
-          // Detect direction
+          // Direction
           this.direction = Math.atan2(this.velocity.y, this.velocity.x) * (180 / Math.PI);
           
-          // Step detection for walking sync
+          // Step detection
           if (newMotion > 3 && Date.now() - this.lastStepTime > 300) {
             this.stepCounter++;
             this.lastStepTime = Date.now();
             this.syncBPMToSteps();
           }
           
+          // Pattern detection for dynamics (e.g., sudden stops for tension)
+          this.accelPatterns.push(newMotion);
+          if (this.accelPatterns.length > 60) this.accelPatterns.shift();
+          
           this.lastAccel = { x: acc.x, y: acc.y, z: acc.z };
         });
 
-        // Mouse fallback - Enhanced
+        // Mouse fallback
         let lastMouse = { x: 0, y: 0, time: 0 };
         window.addEventListener('mousemove', e => {
           if (!this.active) return;
@@ -494,7 +532,6 @@
           this.pos.x = newX;
           this.pos.y = newY;
           
-          // Simulate direction
           this.direction = Math.atan2(velocityY, velocityX) * (180 / Math.PI);
           
           lastMouse = { x: newX, y: newY, time: now };
@@ -502,9 +539,9 @@
       }
 
       updateMotion(newMotion) {
-        this.motion = this.motion * 0.85 + newMotion * 0.15; // Smoother
+        this.motion = this.motion * 0.8 + newMotion * 0.2; // Slightly smoother
         this.motionHistory.push(this.motion);
-        if (this.motionHistory.length > 120) this.motionHistory.shift(); // Longer history
+        if (this.motionHistory.length > 180) this.motionHistory.shift(); // Longer history for patterns
         
         this.totalMotion += this.motion;
         
@@ -513,9 +550,15 @@
           this.evolveToTribal();
         }
         
-        // Calculate intensity (variance in motion)
+        // Intensity with pattern analysis
         const avgMotion = this.motionHistory.reduce((a, b) => a + b, 0) / this.motionHistory.length;
         this.intensity = this.motionHistory.reduce((sum, m) => sum + Math.abs(m - avgMotion), 0) / this.motionHistory.length;
+        
+        // Detect sudden changes for dynamics
+        if (this.accelPatterns.length > 10) {
+          const recentAvg = this.accelPatterns.slice(-10).reduce((a,b)=>a+b,0)/10;
+          if (recentAvg < avgMotion * 0.5) this.intensity *= 1.5; // Sudden stop: tension build
+        }
         
         this.updateEvolution();
       }
@@ -524,105 +567,127 @@
         this.pos.x += this.velocity.x;
         this.pos.y += this.velocity.y;
         
-        // Boundaries with bounce
-        if (this.pos.x < 5 || this.pos.x > 95) this.velocity.x *= -0.8;
-        if (this.pos.y < 5 || this.pos.y > 95) this.velocity.y *= -0.8;
+        if (this.pos.x < 5 || this.pos.x > 95) this.velocity.x *= -0.85;
+        if (this.pos.y < 5 || this.pos.y > 95) this.velocity.y *= -0.85;
         
         this.pos.x = Math.max(5, Math.min(95, this.pos.x));
         this.pos.y = Math.max(5, Math.min(95, this.pos.y));
         
-        this.velocity.x *= 0.92; // More friction for realism
-        this.velocity.y *= 0.92;
+        this.velocity.x *= 0.9;
+        this.velocity.y *= 0.9;
       }
 
       syncBPMToSteps() {
-        if (this.stepCounter < 5) return; // Need some steps to estimate
+        if (this.stepCounter < 5) return;
         
         const stepInterval = (Date.now() - this.lastStepTime * (this.stepCounter - 1)) / (this.stepCounter - 1);
-        const targetBPM = 60 / (stepInterval / 1000) * 2; // Assume two steps per beat
+        const targetBPM = 60 / (stepInterval / 1000) * 2;
         
-        this.bpm = this.bpm * 0.7 + targetBPM * 0.3; // Gradual sync
+        this.bpm = this.bpm * 0.6 + targetBPM * 0.4; // Smoother sync
       }
 
       updateEvolution() {
         const avgMotion = this.motionHistory.reduce((a, b) => a + b, 0) / this.motionHistory.length;
         
-        // Adaptive layers - More granular
-        this.layers.kick = avgMotion > 0.5;
-        this.layers.bass = avgMotion > 1;
-        this.layers.hihat = avgMotion > 1.5 || this.intensity > 1;
-        this.layers.snare = avgMotion > 2 && this.intensity > 1.5;
-        this.layers.lead = avgMotion > 2.5;
-        this.layers.harmony = avgMotion > 3 || this.intensity > 2;
-        this.layers.pad = avgMotion < 1 && this.totalMotion > 50; // For reflective moments
-        this.layers.atmosphere = this.intensity < 0.5 && avgMotion < 1;
-        this.layers.strings = this.stage !== 'SILENCE' && avgMotion > 2;
-        this.layers.brass = this.stage === 'TRANSCENDENT' && this.intensity > 2;
-        this.layers.choir = this.stage === 'TRANSCENDENT' && avgMotion < 1.5;
+        // Adaptive layers - Finer control
+        this.layers.kick = avgMotion > 0.4;
+        this.layers.bass = avgMotion > 0.8;
+        this.layers.hihat = avgMotion > 1.2 || this.intensity > 0.8;
+        this.layers.snare = avgMotion > 1.8 && this.intensity > 1.2;
+        this.layers.lead = avgMotion > 2.2;
+        this.layers.harmony = avgMotion > 2.8 || this.intensity > 1.8;
+        this.layers.pad = avgMotion < 0.8 && this.totalMotion > 100;
+        this.layers.atmosphere = this.intensity < 0.4 && avgMotion < 0.8;
+        this.layers.strings = this.stage !== 'SILENCE' && avgMotion > 1.5;
+        this.layers.brass = this.stage === 'TRANSCENDENT' && this.intensity > 1.8;
+        this.layers.choir = this.stage === 'TRANSCENDENT' && avgMotion < 1.2;
+        this.layers.percussionEnsemble = avgMotion > 3 || this.intensity > 2.5;
+        this.layers.hybridPulse = this.stage !== 'SILENCE' && this.intensity > 1;
+        this.layers.ostinato = this.currentTheme === 'tension' || this.currentTheme === 'climax';
         
         // Evolution with sub-stages
-        this.evolutionProgress = Math.min(this.totalMotion / 1000, 3); // Normalize
+        this.evolutionProgress = Math.min(this.totalMotion / 800, 4); // Slower progression
         this.subStage = Math.floor(this.evolutionProgress);
         
-        if (this.stage === 'TRIBAL' && this.totalMotion > 200) {
+        if (this.stage === 'TRIBAL' && this.totalMotion > 300) {
           this.evolveToOrchestral();
-        } else if (this.stage === 'ORCHESTRAL' && this.totalMotion > 500) {
+        } else if (this.stage === 'ORCHESTRAL' && this.totalMotion > 600) {
           this.evolveToTranscendent();
         }
         
-        // Update BPM dynamically
-        let baseBPM = 60 + (avgMotion * 5) + (this.intensity * 3);
-        baseBPM += (this.subStage * 10); // Build with progression
-        if (this.stage === 'TRIBAL') baseBPM += 20;
-        else if (this.stage === 'ORCHESTRAL') baseBPM += 40;
-        else if (this.stage === 'TRANSCENDENT') baseBPM += 60;
+        // Dynamic BPM with theme influence
+        let baseBPM = 50 + (avgMotion * 6) + (this.intensity * 4);
+        baseBPM += (this.subStage * 12);
+        if (this.stage === 'TRIBAL') baseBPM += 25;
+        else if (this.stage === 'ORCHESTRAL') baseBPM += 45;
+        else if (this.stage === 'TRANSCENDENT') baseBPM += 70;
         
-        this.bpm = this.bpm * 0.9 + baseBPM * 0.1;
+        if (this.currentTheme === 'reflection') baseBPM *= 0.8; // Slow for serenity
+        else if (this.currentTheme === 'climax') baseBPM *= 1.2; // Rush for peak
         
-        // Update theme based on motion patterns
+        this.bpm = this.bpm * 0.85 + baseBPM * 0.15;
+        
+        // Update theme
         this.updateCinematicTheme(avgMotion, this.intensity);
+        
+        // Dynamic EQ and distortion
+        this.lowEQ.gain.value = 2 + this.intensity * 3; // Boost low end with intensity
+        this.highEQ.gain.value = -2 + this.motion * 2; // Add air with motion
+        this.distortion.connect(this.panner); // Always in chain, but control amount implicitly via sends
       }
 
       updateCinematicTheme(avgMotion, intensity) {
         let newTheme = 'awakening';
-        if (avgMotion > 3 && intensity > 2) newTheme = 'triumph';
+        if (avgMotion > 4 && intensity > 2.5) newTheme = 'climax';
+        else if (avgMotion > 3 && intensity > 2) newTheme = 'triumph';
         else if (avgMotion > 2 && intensity > 1.5) newTheme = 'tension';
         else if (avgMotion > 1) newTheme = 'adventure';
-        else if (avgMotion < 1 && this.totalMotion > 100) newTheme = 'reflection';
+        else if (avgMotion < 1 && this.totalMotion > 150) newTheme = 'reflection';
         
         if (newTheme !== this.currentTheme) {
           this.currentTheme = newTheme;
           this.elements.themeText.textContent = this.themes[newTheme].text;
           this.elements.themeText.classList.add('visible');
-          setTimeout(() => this.elements.themeText.classList.remove('visible'), 3000);
+          setTimeout(() => this.elements.themeText.classList.remove('visible'), 4000);
           
-          // Adjust scale for mood
-          if (newTheme === 'tension' || newTheme === 'reflection') {
-            this.scale = [0, 2, 3, 5, 7, 8, 10]; // Minor
+          // Update scale based on theme
+          const scaleType = this.themes[newTheme].scaleType;
+          if (scaleType === 'minor') {
+            this.scale = [0, 2, 3, 5, 7, 8, 10];
+          } else if (scaleType === 'phrygian') {
+            this.scale = [0, 1, 3, 5, 7, 8, 10]; // Dark, tense mode for climax
           } else {
-            this.scale = [0, 2, 4, 5, 7, 9, 11]; // Major
+            this.scale = [0, 2, 4, 5, 7, 9, 11];
           }
+          
+          // Occasional key modulation for drama
+          if (Math.random() < 0.2 && newTheme !== 'awakening') {
+            this.key = ['C', 'D', 'E', 'F', 'G', 'A', 'B'][Math.floor(Math.random() * 7)];
+          }
+          
+          // Vary motif
+          this.motifVariation = Math.floor(Math.random() * 3);
         }
       }
 
       evolveToTribal() {
         this.stage = 'TRIBAL';
         this.elements.orb.className = 'orb tribal';
-        this.createParticles(30, '#ff4757');
+        this.createParticles(40, '#ff4757');
         console.log('🔥 TRIBAL EVOLUTION: The Adventure Awakens');
       }
 
       evolveToOrchestral() {
         this.stage = 'ORCHESTRAL';
         this.elements.orb.className = 'orb orchestral';
-        this.createParticles(50, '#3742fa');
+        this.createParticles(60, '#3742fa');
         console.log('🎼 ORCHESTRAL EVOLUTION: Symphony of Challenges');
       }
 
       evolveToTranscendent() {
         this.stage = 'TRANSCENDENT';
         this.elements.orb.className = 'orb transcendent';
-        this.createParticles(70, '#8e44ad');
+        this.createParticles(80, '#8e44ad');
         console.log('✨ TRANSCENDENT EVOLUTION: Legendary Climax');
       }
 
@@ -640,7 +705,7 @@
           particle.style.left = Math.random() * 100 + '%';
           particle.style.background = color;
           particle.style.animationDelay = Math.random() * 8 + 's';
-          particle.style.animationDuration = (4 + Math.random() * 6) + 's'; // Faster for energy
+          particle.style.animationDuration = (3 + Math.random() * 5) + 's'; // Varied speeds
           container.appendChild(particle);
         }
       }
@@ -652,42 +717,62 @@
           this.playStep();
           this.step = (this.step + 1) % this.sectionLength;
           
-          // Handle phrase changes
+          // Phrase changes with motif development
           if (this.step === 0) {
             this.phraseCount++;
             this.phrase = this.phraseStructure[this.phraseCount % this.phraseStructure.length];
             this.currentChordIndex = (this.currentChordIndex + 1) % this.chordProgression.length;
             this.updateHarmony();
+            
+            // Develop motif every few phrases
+            if (this.phraseCount % 4 === 0) {
+              this.developMotif();
+            }
           }
           
-          const interval = (60 / this.bpm) * 125; // Finer resolution (32nd notes)
+          const interval = (60 / this.bpm) * 62.5; // 64th notes for finer control
           setTimeout(tick, interval);
         };
         tick();
       }
 
+      developMotif() {
+        // Vary motif for composition depth
+        if (this.motifVariation === 1) { // Inverted
+          this.motif = this.motif.map(n => 12 - n).reverse();
+        } else if (this.motifVariation === 2) { // Augmented (stretched)
+          this.motif = this.motif.map(n => n * 1.5).map(Math.floor);
+        } else { // Base with transposition
+          const transpose = Math.floor(Math.random() * 5) - 2;
+          this.motif = this.motif.map(n => (n + transpose + 12) % 12);
+        }
+      }
+
       playStep() {
-        // Pulse on beats, stronger on downbeats
+        // Pulse
         if (this.step % 4 === 0) {
           this.elements.orb.classList.add('pulse');
           setTimeout(() => this.elements.orb.classList.remove('pulse'), 100);
         }
         
-        // Adaptive panning based on direction
-        this.panner.pan.value = Math.sin(this.direction * Math.PI / 180) * 0.5;
+        // Panning with more width
+        this.panner.pan.value = Math.sin(this.direction * Math.PI / 180) * 0.7;
         
-        // Play layers with variations
-        if (this.layers.kick && this.step % 8 === 0) this.playKick(); // Sparser for drama
+        // Play layers with Zimmer-like variations: builds, swells, hybrids
+        if (this.layers.kick && this.step % 8 === 0) this.playKick();
         if (this.layers.bass && this.step % 4 === 0) this.playBass();
-        if (this.layers.hihat && this.step % 2 === 1) this.playHihat();
-        if (this.layers.snare && (this.step % 8 === 4 || (this.intensity > 2 && this.step % 8 === 6))) this.playSnare(); // Add off-beats for tension
+        if (this.layers.hihat && (this.step % 2 === 1 || (this.intensity > 2 && this.step % 1 === 0))) this.playHihat(); // Denser in intensity
+        if (this.layers.snare && (this.step % 8 === 4 || (this.intensity > 2 && this.step % 8 === 6))) this.playSnare();
         if (this.layers.lead && this.step % 4 === 2) this.playLead();
         if (this.layers.harmony && this.step % 16 === 0) this.playHarmony();
         if (this.layers.pad && this.step % 32 === 0) this.playPad();
-        if (this.layers.atmosphere && Math.random() < 0.05 * (1 - this.motion / 5)) this.playAtmosphere();
+        if (this.layers.atmosphere && Math.random() < 0.04 * (1 - this.motion / 6)) this.playAtmosphere();
         if (this.layers.strings && this.step % 8 === 0) this.playStrings();
         if (this.layers.brass && this.step % 16 === 0 && this.intensity > 1.5) this.playBrass();
         if (this.layers.choir && this.step % 32 === 0 && this.motion < 2) this.playChoir();
+        if (this.layers.percussionEnsemble && (this.step % 4 === 0 || this.step % 8 === 2)) this.playPercussionEnsemble();
+        if (this.layers.hybridPulse && this.step % 2 === 0) this.playHybridPulse();
+        if (this.layers.ostinato && this.step % 1 === 0) this.playOstinato();
       }
 
       playKick() {
@@ -695,43 +780,52 @@
         const gain = this.ctx.createGain();
         
         osc.type = 'sine';
-        osc.frequency.setValueAtTime(80 + this.intensity * 10, this.ctx.currentTime); // Deeper with intensity
-        osc.frequency.exponentialRampToValueAtTime(30, this.ctx.currentTime + 0.3);
+        osc.frequency.setValueAtTime(70 + this.intensity * 15, this.ctx.currentTime); // Deeper, more rumble
+        osc.frequency.exponentialRampToValueAtTime(25, this.ctx.currentTime + 0.4);
         
-        gain.gain.setValueAtTime(0.9, this.ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.4);
+        gain.gain.setValueAtTime(1.0, this.ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.5);
         
         osc.connect(gain).connect(this.kickGain);
         osc.start();
-        osc.stop(this.ctx.currentTime + 0.4);
+        osc.stop(this.ctx.currentTime + 0.5);
       }
 
       playBass() {
-        if (this.oscillators.size > 20) return;
+        if (this.oscillators.size > 25) return;
         
         const noteIndex = this.bassNote % this.scale.length;
-        const freq = this.noteToFreq(this.scale[noteIndex], 1 + Math.floor(this.subStage / 2)); // Lower octaves early
+        const freq = this.noteToFreq(this.scale[noteIndex], 0 + Math.floor(this.subStage / 2)); // Ultra low for Zimmer bass
         
-        const osc = this.ctx.createOscillator();
+        // Multi-osc for thickness
+        const osc1 = this.ctx.createOscillator();
+        const osc2 = this.ctx.createOscillator();
         const gain = this.ctx.createGain();
         const filter = this.ctx.createBiquadFilter();
         
-        osc.type = 'sawtooth';
-        osc.frequency.value = freq;
+        osc1.type = 'sawtooth';
+        osc1.frequency.value = freq;
+        osc2.type = 'sine';
+        osc2.frequency.value = freq * 2.01; // Slight detune
         
         filter.type = 'lowpass';
-        filter.frequency.value = 150 + this.motion * 30 + this.intensity * 20;
-        filter.Q.value = 3 + this.intensity;
+        filter.frequency.value = 100 + this.motion * 40 + this.intensity * 30;
+        filter.Q.value = 4 + this.intensity * 2;
         
-        gain.gain.setValueAtTime(0.5, this.ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.6);
+        gain.gain.setValueAtTime(0.6, this.ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.8);
         
-        osc.connect(filter).connect(gain).connect(this.bassGain);
-        osc.start();
-        osc.stop(this.ctx.currentTime + 0.6);
+        osc1.connect(filter);
+        osc2.connect(filter);
+        filter.connect(gain).connect(this.bassGain);
+        osc1.start();
+        osc2.start();
+        osc1.stop(this.ctx.currentTime + 0.8);
+        osc2.stop(this.ctx.currentTime + 0.8);
         
-        this.oscillators.add(osc);
-        setTimeout(() => this.oscillators.delete(osc), 600);
+        this.oscillators.add(osc1);
+        this.oscillators.add(osc2);
+        setTimeout(() => { this.oscillators.delete(osc1); this.oscillators.delete(osc2); }, 800);
       }
 
       playHihat() {
@@ -740,18 +834,18 @@
         const filter = this.ctx.createBiquadFilter();
         
         osc.type = 'square';
-        osc.frequency.value = 7000 + Math.random() * 3000 + this.intensity * 1000;
+        osc.frequency.value = 6000 + Math.random() * 4000 + this.intensity * 1500;
         
         filter.type = 'highpass';
-        filter.frequency.value = 5000 + this.motion * 500;
-        filter.Q.value = 1 + this.intensity;
+        filter.frequency.value = 4000 + this.motion * 600;
+        filter.Q.value = 2 + this.intensity;
         
-        gain.gain.setValueAtTime(0.15, this.ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.15 - this.intensity * 0.05);
+        gain.gain.setValueAtTime(0.12, this.ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.12 - this.intensity * 0.04);
         
         osc.connect(filter).connect(gain).connect(this.masterGain);
         osc.start();
-        osc.stop(this.ctx.currentTime + 0.15);
+        osc.stop(this.ctx.currentTime + 0.12);
       }
 
       playSnare() {
@@ -760,55 +854,57 @@
         const gain = this.ctx.createGain();
         
         osc1.type = 'triangle';
-        osc1.frequency.value = 180 + this.intensity * 20;
+        osc1.frequency.value = 160 + this.intensity * 30;
         osc2.type = 'square';
-        osc2.frequency.value = 7000 + this.motion * 500;
+        osc2.frequency.value = 6000 + this.motion * 600;
         
-        gain.gain.setValueAtTime(0.35, this.ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.25);
+        gain.gain.setValueAtTime(0.4, this.ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.3);
         
         osc1.connect(gain).connect(this.masterGain);
         osc2.connect(gain);
         osc1.start();
         osc2.start();
-        osc1.stop(this.ctx.currentTime + 0.25);
-        osc2.stop(this.ctx.currentTime + 0.08);
+        osc1.stop(this.ctx.currentTime + 0.3);
+        osc2.stop(this.ctx.currentTime + 0.1);
       }
 
       playLead() {
-        if (this.oscillators.size > 15) return;
+        if (this.oscillators.size > 20) return;
         
-        const noteIndex = Math.floor((this.step + this.motion * 3 + this.direction / 90) % this.scale.length); // Direction affects melody
-        const freq = this.noteToFreq(this.scale[noteIndex], 5 + Math.floor(this.subStage / 3));
+        // Use motif for lead
+        const motifIndex = this.step % this.motif.length;
+        const noteIndex = (this.motif[motifIndex] + this.scale.length) % this.scale.length;
+        const freq = this.noteToFreq(this.scale[noteIndex], 4 + Math.floor(this.subStage / 2));
         
         const osc = this.ctx.createOscillator();
         const gain = this.ctx.createGain();
         const filter = this.ctx.createBiquadFilter();
         
-        osc.type = this.currentTheme === 'triumph' ? 'sawtooth' : 'square';
+        osc.type = this.currentTheme === 'triumph' || this.currentTheme === 'climax' ? 'sawtooth' : 'square';
         osc.frequency.value = freq;
         
         filter.type = 'lowpass';
-        filter.frequency.value = 800 + this.motion * 150 + this.intensity * 100;
-        filter.Q.value = 4 + this.intensity;
+        filter.frequency.value = 700 + this.motion * 200 + this.intensity * 150;
+        filter.Q.value = 5 + this.intensity * 2;
         
-        gain.gain.setValueAtTime(0.25, this.ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.5);
+        gain.gain.setValueAtTime(0.3, this.ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.6);
         
         osc.connect(filter).connect(gain).connect(this.leadGain);
         osc.start();
-        osc.stop(this.ctx.currentTime + 0.5);
+        osc.stop(this.ctx.currentTime + 0.6);
         
         this.oscillators.add(osc);
-        setTimeout(() => this.oscillators.delete(osc), 500);
+        setTimeout(() => this.oscillators.delete(osc), 600);
       }
 
       playHarmony() {
-        if (this.oscillators.size > 25) return;
+        if (this.oscillators.size > 30) return;
         
         const chord = this.chordProgression[this.currentChordIndex];
         chord.forEach((interval, i) => {
-          const freq = this.noteToFreq(interval, 4);
+          const freq = this.noteToFreq(interval, 3 + i);
           
           const osc = this.ctx.createOscillator();
           const gain = this.ctx.createGain();
@@ -816,52 +912,52 @@
           osc.type = 'sine';
           osc.frequency.value = freq;
           
-          gain.gain.setValueAtTime(0.12, this.ctx.currentTime);
-          gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 3); // Longer sustain
+          gain.gain.setValueAtTime(0.15, this.ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 4); // Longer for sustains
           
           osc.connect(gain).connect(this.leadGain);
           osc.start();
-          osc.stop(this.ctx.currentTime + 3);
+          osc.stop(this.ctx.currentTime + 4);
           
           this.oscillators.add(osc);
-          setTimeout(() => this.oscillators.delete(osc), 3000);
+          setTimeout(() => this.oscillators.delete(osc), 4000);
         });
       }
 
       playPad() {
-        if (this.oscillators.size > 30) return;
+        if (this.oscillators.size > 35) return;
         
         this.scale.forEach((note, i) => {
-          const freq = this.noteToFreq(note, 2 + i % 2);
+          const freq = this.noteToFreq(note, 1 + i % 3);
           
           const osc = this.ctx.createOscillator();
           const gain = this.ctx.createGain();
           const filter = this.ctx.createBiquadFilter();
           
           osc.type = 'sawtooth';
-          osc.frequency.value = freq * (1 + i * 0.002); // Slight detune for thickness
+          osc.frequency.value = freq * (1 + i * 0.003); // Thicker detune
           
           filter.type = 'lowpass';
-          filter.frequency.value = 400 + this.motion * 60 + this.intensity * 40;
-          filter.Q.value = 0.5;
+          filter.frequency.value = 300 + this.motion * 80 + this.intensity * 60;
+          filter.Q.value = 0.6;
           
           gain.gain.setValueAtTime(0, this.ctx.currentTime);
-          gain.gain.linearRampToValueAtTime(0.06, this.ctx.currentTime + 2);
-          gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 10); // Longer swells
+          gain.gain.linearRampToValueAtTime(0.08, this.ctx.currentTime + 3);
+          gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 12); // Epic swells
           
           osc.connect(filter).connect(gain).connect(this.padGain);
           osc.start();
-          osc.stop(this.ctx.currentTime + 10);
+          osc.stop(this.ctx.currentTime + 12);
           
           this.oscillators.add(osc);
-          setTimeout(() => this.oscillators.delete(osc), 10000);
+          setTimeout(() => this.oscillators.delete(osc), 12000);
         });
       }
 
       playAtmosphere() {
-        if (this.oscillators.size > 35) return;
+        if (this.oscillators.size > 40) return;
         
-        const freq = this.noteToFreq(this.scale[Math.floor(Math.random() * this.scale.length)], 6 + Math.random() * 2);
+        const freq = this.noteToFreq(this.scale[Math.floor(Math.random() * this.scale.length)], 5 + Math.random() * 3);
         
         const osc = this.ctx.createOscillator();
         const gain = this.ctx.createGain();
@@ -871,115 +967,222 @@
         osc.frequency.value = freq;
         
         filter.type = 'lowpass';
-        filter.frequency.value = 200 + Math.random() * 200;
-        filter.Q.value = 10 + this.intensity * 2;
+        filter.frequency.value = 150 + Math.random() * 300;
+        filter.Q.value = 12 + this.intensity * 3;
         
         gain.gain.setValueAtTime(0, this.ctx.currentTime);
-        gain.gain.linearRampToValueAtTime(0.03, this.ctx.currentTime + 3);
-        gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 15);
+        gain.gain.linearRampToValueAtTime(0.04, this.ctx.currentTime + 4);
+        gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 18);
         
         osc.connect(filter).connect(gain).connect(this.padGain);
         osc.start();
-        osc.stop(this.ctx.currentTime + 15);
+        osc.stop(this.ctx.currentTime + 18);
         
         this.oscillators.add(osc);
-        setTimeout(() => this.oscillators.delete(osc), 15000);
+        setTimeout(() => this.oscillators.delete(osc), 18000);
       }
 
-      // New cinematic layers
-
       playStrings() {
-        if (this.oscillators.size > 40) return;
+        if (this.oscillators.size > 45) return;
         
         const chord = this.chordProgression[this.currentChordIndex];
         chord.forEach((interval, i) => {
-          const freq = this.noteToFreq(interval, 3 + i);
+          const freq = this.noteToFreq(interval, 2 + i);
           
-          const osc = this.ctx.createOscillator();
+          // Multi-osc for string section feel
+          const osc1 = this.ctx.createOscillator();
+          const osc2 = this.ctx.createOscillator();
           const gain = this.ctx.createGain();
           
-          osc.type = 'sawtooth';
-          osc.frequency.value = freq * (1 + Math.random() * 0.01); // Vibrato-like detune
+          osc1.type = 'sawtooth';
+          osc1.frequency.value = freq * 1.005;
+          osc2.type = 'sawtooth';
+          osc2.frequency.value = freq * 0.995;
           
-          gain.gain.setValueAtTime(0.08, this.ctx.currentTime);
-          gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 4);
+          gain.gain.setValueAtTime(0.1, this.ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 5);
           
-          osc.connect(gain).connect(this.reverb);
-          osc.start();
-          osc.stop(this.ctx.currentTime + 4);
+          osc1.connect(gain).connect(this.reverb);
+          osc2.connect(gain);
+          osc1.start();
+          osc2.start();
+          osc1.stop(this.ctx.currentTime + 5);
+          osc2.stop(this.ctx.currentTime + 5);
           
-          this.oscillators.add(osc);
-          setTimeout(() => this.oscillators.delete(osc), 4000);
+          this.oscillators.add(osc1);
+          this.oscillators.add(osc2);
+          setTimeout(() => { this.oscillators.delete(osc1); this.oscillators.delete(osc2); }, 5000);
         });
       }
 
       playBrass() {
-        if (this.oscillators.size > 45) return;
+        if (this.oscillators.size > 50) return;
         
-        const note = this.scale[Math.floor(this.scale.length / 2)]; // Mid note for fanfare
-        const freq = this.noteToFreq(note, 4);
+        const note = this.scale[Math.floor(this.scale.length / 2 + this.intensity)];
+        const freq = this.noteToFreq(note, 3);
+        
+        // Layered for fanfare
+        const osc1 = this.ctx.createOscillator();
+        const osc2 = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        const filter = this.ctx.createBiquadFilter();
+        
+        osc1.type = 'sawtooth';
+        osc1.frequency.value = freq;
+        osc2.type = 'square';
+        osc2.frequency.value = freq * 1.01;
+        
+        filter.type = 'lowpass';
+        filter.frequency.value = 500 + this.intensity * 300;
+        filter.Q.value = 6;
+        
+        gain.gain.setValueAtTime(0.35, this.ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 2);
+        
+        osc1.connect(filter);
+        osc2.connect(filter);
+        filter.connect(gain).connect(this.leadGain);
+        osc1.start();
+        osc2.start();
+        osc1.stop(this.ctx.currentTime + 2);
+        osc2.stop(this.ctx.currentTime + 2);
+        
+        this.oscillators.add(osc1);
+        this.oscillators.add(osc2);
+        setTimeout(() => { this.oscillators.delete(osc1); this.oscillators.delete(osc2); }, 2000);
+      }
+
+      playChoir() {
+        if (this.oscillators.size > 55) return;
+        
+        this.chordProgression[this.currentChordIndex].forEach((interval, i) => {
+          const freq = this.noteToFreq(interval, 4 + i % 3);
+          
+          // Multi-osc for vocal formants
+          const osc1 = this.ctx.createOscillator();
+          const osc2 = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          
+          osc1.type = 'triangle';
+          osc1.frequency.value = freq * 1.002;
+          osc2.type = 'sine';
+          osc2.frequency.value = freq * 2.005;
+          
+          gain.gain.setValueAtTime(0, this.ctx.currentTime);
+          gain.gain.linearRampToValueAtTime(0.12, this.ctx.currentTime + 5);
+          gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 15);
+          
+          osc1.connect(gain).connect(this.reverb);
+          osc2.connect(gain);
+          osc1.start();
+          osc2.start();
+          osc1.stop(this.ctx.currentTime + 15);
+          osc2.stop(this.ctx.currentTime + 15);
+          
+          this.oscillators.add(osc1);
+          this.oscillators.add(osc2);
+          setTimeout(() => { this.oscillators.delete(osc1); this.oscillators.delete(osc2); }, 15000);
+        });
+      }
+
+      // New layers for Zimmer touch
+
+      playPercussionEnsemble() {
+        // Taiko-like deep drums + toms
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(100 + this.intensity * 20, this.ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(40, this.ctx.currentTime + 0.6);
+        
+        gain.gain.setValueAtTime(0.8, this.ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.7);
+        
+        osc.connect(gain).connect(this.kickGain);
+        osc.start();
+        osc.stop(this.ctx.currentTime + 0.7);
+      }
+
+      playHybridPulse() {
+        // Electronic pulse with orchestral bite
+        const freq = this.noteToFreq(this.scale[0], 2); // Root note
+        
+        const osc1 = this.ctx.createOscillator();
+        const osc2 = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        const filter = this.ctx.createBiquadFilter();
+        
+        osc1.type = 'pulse'; // Note: 'square' as proxy for pulse
+        osc1.frequency.value = freq / 2;
+        osc2.type = 'sawtooth';
+        osc2.frequency.value = freq;
+        
+        filter.type = 'bandpass';
+        filter.frequency.value = 200 + this.motion * 50;
+        filter.Q.value = 10 + this.intensity;
+        
+        gain.gain.setValueAtTime(0.2, this.ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.2);
+        
+        osc1.connect(filter);
+        osc2.connect(filter);
+        filter.connect(gain).connect(this.bassGain);
+        osc1.start();
+        osc2.start();
+        osc1.stop(this.ctx.currentTime + 0.2);
+        osc2.stop(this.ctx.currentTime + 0.2);
+        
+        this.oscillators.add(osc1);
+        this.oscillators.add(osc2);
+        setTimeout(() => { this.oscillators.delete(osc1); this.oscillators.delete(osc2); }, 200);
+      }
+
+      playOstinato() {
+        // Repeating motif fragment for tension
+        if (this.oscillators.size > 60 || this.step % 2 !== 0) return;
+        
+        const motifFrag = this.motif.slice(0, 3); // Short repeat
+        const noteIndex = motifFrag[this.step % 3];
+        const freq = this.noteToFreq(noteIndex, 3);
         
         const osc = this.ctx.createOscillator();
         const gain = this.ctx.createGain();
-        const filter = this.ctx.createBiquadFilter();
         
         osc.type = 'sawtooth';
         osc.frequency.value = freq;
         
-        filter.type = 'lowpass';
-        filter.frequency.value = 600 + this.intensity * 200;
-        filter.Q.value = 5;
+        gain.gain.setValueAtTime(0.15, this.ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.3);
         
-        gain.gain.setValueAtTime(0.3, this.ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 1.5);
-        
-        osc.connect(filter).connect(gain).connect(this.leadGain);
+        osc.connect(gain).connect(this.delay);
         osc.start();
-        osc.stop(this.ctx.currentTime + 1.5);
+        osc.stop(this.ctx.currentTime + 0.3);
         
         this.oscillators.add(osc);
-        setTimeout(() => this.oscillators.delete(osc), 1500);
-      }
-
-      playChoir() {
-        if (this.oscillators.size > 50) return;
-        
-        this.chordProgression[this.currentChordIndex].forEach((interval, i) => {
-          const freq = this.noteToFreq(interval, 5 + i % 2);
-          
-          const osc = this.ctx.createOscillator();
-          const gain = this.ctx.createGain();
-          
-          osc.type = 'triangle'; // Soft, vocal-like
-          osc.frequency.value = freq * (1 + Math.random() * 0.005);
-          
-          gain.gain.setValueAtTime(0, this.ctx.currentTime);
-          gain.gain.linearRampToValueAtTime(0.1, this.ctx.currentTime + 4);
-          gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 12);
-          
-          osc.connect(gain).connect(this.reverb);
-          osc.start();
-          osc.stop(this.ctx.currentTime + 12);
-          
-          this.oscillators.add(osc);
-          setTimeout(() => this.oscillators.delete(osc), 12000);
-        });
+        setTimeout(() => this.oscillators.delete(osc), 300);
       }
 
       updateHarmony() {
-        // Update bass to follow progression
         this.bassNote = this.chordProgression[this.currentChordIndex][0];
+        
+        // Occasional progression variation for dynamics
+        if (this.phrase === 'C' || this.phrase === 'D') {
+          this.chordProgression = [[0,3,7], [4,7,11], [5,8,0], [0,3,7]]; // Shift to minor for tension
+        } else {
+          this.chordProgression = [[0,4,7], [5,9,0], [7,11,2], [0,4,7]];
+        }
       }
 
       noteToFreq(note, octave = 4) {
-        return 440 * Math.pow(2, (note - 9) / 12 + (octave - 4));
+        // Adjust for key
+        const base = { 'C': 0, 'D': 2, 'E': 4, 'F': 5, 'G': 7, 'A': 9, 'B': 11 }[this.key];
+        return 440 * Math.pow(2, (base + note) / 12 + (octave - 4));
       }
 
       updateUI() {
         this.elements.stageName.textContent = `${this.stage} - ${this.subStage + 1}`;
-        
-        // Motion bar - Now shows intensity
-        const motionPercent = Math.min((this.motion + this.intensity) * 8, 100);
+        const motionPercent = Math.min((this.motion + this.intensity * 1.5) * 7, 100);
         this.elements.motionBar.style.width = motionPercent + '%';
       }
 
@@ -987,30 +1190,26 @@
         const loop = () => {
           if (!this.active) return;
           
-          // Update orb
           this.elements.orb.style.left = this.pos.x + '%';
           this.elements.orb.style.top = this.pos.y + '%';
           
-          // UI update
           if (this.step % 4 === 0) {
             this.updateUI();
           }
           
-          // Cinematic background - More dynamic
           const theme = this.themes[this.currentTheme];
-          const intensityNorm = Math.min(this.intensity / 3, 1);
-          const motionNorm = Math.min(this.motion / 5, 1);
+          const intensityNorm = Math.min(this.intensity / 4, 1);
+          const motionNorm = Math.min(this.motion / 6, 1);
           
           let bg = `radial-gradient(circle at ${this.pos.x}% ${this.pos.y}%, `;
-          bg += `${theme.colors[0]} ${10 * motionNorm}%, `;
-          if (theme.colors[1]) bg += `${theme.colors[1]} ${30 * intensityNorm}%, `;
-          bg += `#f8f8f8 ${70 + 20 * intensityNorm}%`;
+          bg += `${theme.colors[0]} ${8 * motionNorm}%, `;
+          if (theme.colors[1]) bg += `${theme.colors[1]} ${25 * intensityNorm}%, `;
+          bg += `#f8f8f8 ${60 + 30 * intensityNorm}%`;
           bg += ')';
           
           document.body.style.background = bg;
           
-          // Overlay for vignette effect in intense moments
-          this.elements.cinematicOverlay.classList.toggle('active', this.intensity > 1.5);
+          this.elements.cinematicOverlay.classList.toggle('active', this.intensity > 1.2);
           
           requestAnimationFrame(loop);
         };
