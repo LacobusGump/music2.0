@@ -379,6 +379,17 @@
       background: radial-gradient(circle, rgba(255,255,255,0.4), transparent);
       transition: all 0.5s ease;
     }
+
+    .heart-rate-canvas {
+      position: fixed;
+      bottom: 150px;
+      left: 20px;
+      width: 100px;
+      height: 100px;
+      opacity: 0.5;
+      z-index: 5;
+      pointer-events: none;
+    }
   </style>
 </head>
 <body>
@@ -397,6 +408,8 @@
       <div class="stage-name" id="stageName">Dormant</div>
       <div class="metric">State: <span id="currentState">Awaiting</span></div>
       <div class="metric">Pattern: <span id="behaviorPattern">None</span></div>
+      <div class="metric">Ambient Vibe: <span id="ambientVibe">Silent</span></div>
+      <div class="metric">Heart Rate: <span id="heartRateDisplay">--</span></div> <!-- New UI for heart rate -->
     </div>
     
     <div class="ui-corner bottom-left">
@@ -411,6 +424,14 @@
       <div class="metric">Emotion Level</div>
       <div class="bar">
         <div class="bar-fill" id="emotionBar"></div>
+      </div>
+      <div class="metric">Ambient Energy</div>
+      <div class="bar">
+        <div class="bar-fill" id="ambientBar"></div>
+      </div>
+      <div class="metric">Pulse Sync</div> <!-- New bar for heart rate sync -->
+      <div class="bar">
+        <div class="bar-fill" id="pulseBar"></div>
       </div>
     </div>
     
@@ -429,6 +450,8 @@
     
     <div class="spectrum-viz" id="spectrumViz"></div>
     <div class="neural-patterns" id="neuralPatterns"></div>
+    <video id="heartVideo" playsinline autoplay muted style="display: none;"></video>
+    <canvas id="heartCanvas" class="heart-rate-canvas"></canvas> <!-- New canvas for webcam preview -->
   </div>
 
   <div class="cinematic-overlay" id="cinematicOverlay"></div>
@@ -446,7 +469,7 @@
         this.musicalBrain = {
           bpm: 72,
           key: 'D',
-          mode: 'dorian', // More sophisticated than just minor
+          mode: 'dorian',
           tension: 0,
           release: 0,
           complexity: 0,
@@ -495,9 +518,9 @@
         
         // Neural Network Simulation for Music AI
         this.neuralNetwork = {
-          inputLayer: new Array(12).fill(0), // Motion, emotion, time, etc.
+          inputLayer: new Array(12).fill(0),
           hiddenLayers: [new Array(24).fill(0), new Array(16).fill(0)],
-          outputLayer: new Array(8).fill(0), // Musical parameters
+          outputLayer: new Array(8).fill(0),
           weights: this.initializeWeights(),
           learningRate: 0.001
         };
@@ -533,7 +556,7 @@
             harmony: { voices: [], max: 12 },
             melody: { voices: [], max: 8 },
             atmosphere: { voices: [], max: 10 },
-            neural: { voices: [], max: 16 } // For AI-generated parts
+            neural: { voices: [], max: 16 }
           },
           allocation: new Map(),
           priority: new Map()
@@ -562,9 +585,37 @@
         
         // Time and rhythm
         this.timeSignature = [4, 4];
-        this.subdivision = 16; // 16th note resolution
+        this.subdivision = 16;
         this.stepCount = 0;
         this.measures = 0;
+        
+        // Ambient Environment Analyzer
+        this.ambientAnalyzer = {
+          micStream: null,
+          micAnalyser: null,
+          micData: new Uint8Array(128),
+          energy: 0,
+          spectralCentroid: 0,
+          lowEnergy: 0,
+          midEnergy: 0,
+          highEnergy: 0,
+          vibe: 'silent',
+          history: []
+        };
+
+        // New: Webcam Heart Rate Analyzer (rPPG - remote Photoplethysmography)
+        this.heartRateAnalyzer = {
+          video: null,
+          canvas: null,
+          context: null,
+          bpm: 0,
+          samples: [], // Array of green channel averages over time
+          timestamps: [], // Corresponding timestamps
+          lastTime: 0,
+          sampleInterval: 33, // ~30 fps
+          windowSize: 300, // Number of samples for BPM calculation (10 seconds at 30fps)
+          confidence: 0
+        };
         
         this.init();
       }
@@ -576,7 +627,10 @@
           'stageName', 'currentState', 'behaviorPattern', 'motionBar', 
           'neuralBar', 'emotionBar', 'bpmDisplay', 'keyDisplay', 'voiceCount',
           'complexityLevel', 'moodRing', 'behaviorIndicator', 'flowState',
-          'cinematicOverlay', 'themeText', 'spectrumViz', 'neuralPatterns'
+          'cinematicOverlay', 'themeText', 'spectrumViz', 'neuralPatterns',
+          'ambientVibe', 'ambientBar',
+          'heartRateDisplay', 'pulseBar', // New elements
+          'heartVideo', 'heartCanvas'
         ];
         
         elementIds.forEach(id => {
@@ -1150,7 +1204,12 @@
         const intensityModifier = this.motionSystem.smoothed * 20;
         const flowModifier = this.musicalBrain.flowState * 10;
         
-        const targetTempo = baseTempo + intensityModifier + flowModifier;
+        let targetTempo = baseTempo + intensityModifier + flowModifier;
+        
+        // New: Integrate heart rate if available
+        if (this.heartRateAnalyzer.bpm > 40 && this.heartRateAnalyzer.bpm < 200 && this.heartRateAnalyzer.confidence > 0.5) {
+          targetTempo = targetTempo * 0.7 + this.heartRateAnalyzer.bpm * 0.3; // Blend with heart rate for bio-sync
+        }
         
         // Smooth tempo transitions
         this.musicalBrain.bpm = this.musicalBrain.bpm * 0.95 + targetTempo * 0.05;
@@ -1283,7 +1342,7 @@
 
           // UI transitions
           this.elements.startScreen.classList.add('hidden');
-          this.elements.evolutionSpace.classList.add('active');
+          this.evolutionSpace.classList.add('active');
           
           setTimeout(() => {
             this.elements.instruction.classList.add('show');
@@ -1295,6 +1354,9 @@
           this.startAdvancedSequencer();
           this.startAdvancedAnimation();
           
+          // New: Setup ambient and heart rate analyzers
+          this.setupAmbientAnalyzer();
+          this.setupHeartRateAnalyzer();
         } catch (error) {
           console.error('Failed to initialize enhanced engine:', error);
           alert('Failed to initialize. Please ensure your browser supports Web Audio API.');
@@ -1360,7 +1422,6 @@
           for (let i = 0; i < data.length; i++) {
             const decay = Math.pow(1 - i / data.length, room.decay);
             const noise = (Math.random() * 2 - 1) * decay;
-            // Add some brightness filtering
             data[i] = noise * (room.brightness + (1 - room.brightness) * Math.random());
           }
         }
@@ -2461,6 +2522,124 @@
           recentGestures: this.behaviorAnalyzer.gestureMemory.slice(-3),
           emotionalTrajectory: this.behaviorAnalyzer.emotionalTrajectory.slice(-5)
         });
+      }
+
+      // New: Setup heart rate analyzer
+      async setupHeartRateAnalyzer() {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+          this.heartRateAnalyzer.video = this.elements.heartVideo;
+          this.heartRateAnalyzer.video.srcObject = stream;
+          this.heartRateAnalyzer.video.onloadedmetadata = () => {
+            this.heartRateAnalyzer.video.play();
+            this.heartRateAnalyzer.canvas = this.elements.heartCanvas;
+            this.heartRateAnalyzer.context = this.heartRateAnalyzer.canvas.getContext('2d');
+            this.startHeartRateAnalysis();
+          };
+        } catch (error) {
+          console.warn('Webcam access denied for heart rate sync. Proceeding without.', error);
+        }
+      }
+
+      startHeartRateAnalysis() {
+        const analyze = () => {
+          if (!this.active || !this.heartRateAnalyzer.video.videoWidth) return;
+
+          const now = performance.now();
+          if (now - this.heartRateAnalyzer.lastTime < this.heartRateAnalyzer.sampleInterval) {
+            requestAnimationFrame(analyze);
+            return;
+          }
+
+          this.heartRateAnalyzer.lastTime = now;
+
+          // Draw video to canvas
+          this.heartRateAnalyzer.context.drawImage(this.heartRateAnalyzer.video, 0, 0, this.heartRateAnalyzer.canvas.width, this.heartRateAnalyzer.canvas.height);
+
+          // Get image data
+          const imageData = this.heartRateAnalyzer.context.getImageData(0, 0, this.heartRateAnalyzer.canvas.width, this.heartRateAnalyzer.canvas.height);
+          const data = imageData.data;
+
+          // Calculate average green channel (for PPG signal)
+          let greenSum = 0;
+          const pixelCount = data.length / 4;
+          for (let i = 0; i < data.length; i += 4) {
+            greenSum += data[i + 1]; // Green channel
+          }
+          const avgGreen = greenSum / pixelCount;
+
+          // Push to samples
+          this.heartRateAnalyzer.samples.push(avgGreen);
+          this.heartRateAnalyzer.timestamps.push(now);
+
+          // Keep window size
+          if (this.heartRateAnalyzer.samples.length > this.heartRateAnalyzer.windowSize) {
+            this.heartRateAnalyzer.samples.shift();
+            this.heartRateAnalyzer.timestamps.shift();
+          }
+
+          // Calculate BPM if enough samples
+          if (this.heartRateAnalyzer.samples.length >= 60) { // Min 2 seconds at 30fps
+            this.calculateHeartRateBPM();
+          }
+
+          // Influence music (e.g., tempo blend in adaptTempo)
+
+          // Update UI
+          this.elements.heartRateDisplay.textContent = this.heartRateAnalyzer.bpm > 0 ? Math.round(this.heartRateAnalyzer.bpm) : '--';
+          const pulsePercent = (this.heartRateAnalyzer.bpm / 200) * 100; // Normalize to 200 max BPM
+          this.elements.pulseBar.style.width = pulsePercent + '%';
+
+          requestAnimationFrame(analyze);
+        };
+
+        requestAnimationFrame(analyze);
+      }
+
+      calculateHeartRateBPM() {
+        const samples = this.heartRateAnalyzer.samples;
+        const timestamps = this.heartRateAnalyzer.timestamps;
+
+        // Simple peak detection on detrended signal
+        // First, detrend (subtract moving average)
+        const window = 30; // Moving average window
+        const detrended = [];
+        for (let i = 0; i < samples.length; i++) {
+          let sum = 0;
+          let count = 0;
+          for (let j = Math.max(0, i - window / 2); j < Math.min(samples.length, i + window / 2); j++) {
+            sum += samples[j];
+            count++;
+          }
+          detrended[i] = samples[i] - (sum / count);
+        }
+
+        // Find peaks (local maxima)
+        const peaks = [];
+        for (let i = 1; i < detrended.length - 1; i++) {
+          if (detrended[i] > detrended[i - 1] && detrended[i] > detrended[i + 1] && detrended[i] > 0.1) { // Threshold for peak
+            peaks.push(timestamps[i]);
+          }
+        }
+
+        if (peaks.length < 2) {
+          this.heartRateAnalyzer.bpm = 0;
+          this.heartRateAnalyzer.confidence = 0;
+          return;
+        }
+
+        // Calculate average interval
+        let intervals = [];
+        for (let i = 1; i < peaks.length; i++) {
+          intervals.push(peaks[i] - peaks[i - 1]);
+        }
+
+        const avgInterval = intervals.reduce((a, b) => a + b, 0) / intervals.length / 1000; // seconds
+        this.heartRateAnalyzer.bpm = 60 / avgInterval;
+
+        // Confidence based on variance of intervals
+        const variance = intervals.reduce((sum, int) => sum + Math.pow(int - avgInterval * 1000, 2), 0) / intervals.length;
+        this.heartRateAnalyzer.confidence = Math.max(0, 1 - variance / (avgInterval * 1000 * 0.2)); // Arbitrary normalization
       }
     }
 
