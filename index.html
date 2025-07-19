@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>GUMP: Hans Zimmer Cinematic Engine</title>
+  <title>GUMP: Cinematic Void Engine</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     
@@ -41,7 +41,7 @@
       letter-spacing: 2px;
       backdrop-filter: blur(10px);
       transition: all 0.3s ease;
-      animation: zimmerPulse 6s ease-in-out infinite;
+      animation: pulse 6s ease-in-out infinite;
     }
     
     .start-btn:hover {
@@ -50,7 +50,7 @@
       transform: scale(1.05);
     }
     
-    @keyframes zimmerPulse {
+    @keyframes pulse {
       0%, 100% { transform: scale(1); box-shadow: 0 0 30px rgba(255,255,255,0.2); }
       50% { transform: scale(1.08); box-shadow: 0 0 60px rgba(255,255,255,0.4); }
     }
@@ -80,10 +80,10 @@
     }
     
     .orb.pulse {
-      animation: zimmerBeat 0.15s ease-out;
+      animation: beat 0.15s ease-out;
     }
     
-    @keyframes zimmerBeat {
+    @keyframes beat {
       0% { transform: translate(-50%, -50%) scale(1); }
       50% { transform: translate(-50%, -50%) scale(2.2); }
       100% { transform: translate(-50%, -50%) scale(1); }
@@ -102,10 +102,10 @@
     .orb.transcendent {
       background: radial-gradient(circle, #9b59b6 0%, #e74c3c 40%, #f39c12 70%, transparent 90%);
       box-shadow: 0 0 120px rgba(155,89,182,0.8);
-      animation: zimmerTranscend 3s ease-in-out infinite;
+      animation: transcend 3s ease-in-out infinite;
     }
     
-    @keyframes zimmerTranscend {
+    @keyframes transcend {
       0%, 100% { transform: translate(-50%, -50%) scale(1); }
       50% { transform: translate(-50%, -50%) scale(1.4); }
     }
@@ -134,11 +134,6 @@
     
     .ui-corner.top-right {
       top: 20px;
-      right: 20px;
-    }
-    
-    .ui-corner.bottom-right {
-      bottom: 20px;
       right: 20px;
     }
     
@@ -171,31 +166,6 @@
       border-radius: 2px;
     }
     
-    .midi-btn {
-      background: rgba(155,89,182,0.3);
-      border: 1px solid rgba(155,89,182,0.6);
-      color: #fff;
-      padding: 8px 12px;
-      border-radius: 5px;
-      cursor: pointer;
-      font-size: 10px;
-      font-weight: bold;
-      letter-spacing: 1px;
-      margin-top: 8px;
-      transition: all 0.3s ease;
-      backdrop-filter: blur(5px);
-    }
-    
-    .midi-btn:hover {
-      background: rgba(155,89,182,0.5);
-      border-color: rgba(155,89,182,0.9);
-      transform: scale(1.05);
-    }
-    
-    .midi-btn:active {
-      transform: scale(0.95);
-    }
-    
     .hidden { display: none !important; }
     
     .particles {
@@ -212,10 +182,10 @@
       height: 3px;
       border-radius: 50%;
       background: rgba(255,255,255,0.3);
-      animation: zimmerFloat 12s linear infinite;
+      animation: float 12s linear infinite;
     }
     
-    @keyframes zimmerFloat {
+    @keyframes float {
       0% { 
         transform: translateY(100vh) scale(0) rotate(0deg); 
         opacity: 0; 
@@ -303,7 +273,7 @@ AWAKEN
   <div class="evolution-space" id="evolutionSpace">
     <div class="orb" id="orb"></div>
     
-    <div class="instruction" id="instruction">MOVE TO COMPOSE YOUR EPIC</div>
+    <div class="instruction" id="instruction">MOVE TO UNRAVEL THE VOID</div>
     
     <div class="ui-corner top-left">
       <div class="stage-name" id="stageName">SILENCE</div>
@@ -327,12 +297,6 @@ AWAKEN
       <div class="metric">VOICES: <span id="voiceCount">0</span></div>
     </div>
     
-    <div class="ui-corner bottom-right">
-      <div class="stage-name">MIDI EXPORT</div>
-      <div class="metric">COMPOSITION: <span id="recordingStatus">READY</span></div>
-      <button class="midi-btn" id="exportMidiBtn">EXPORT EPIC</button>
-    </div>
-    
     <div class="spectrum-viz" id="spectrumViz"></div>
   </div>
 
@@ -340,130 +304,20 @@ AWAKEN
   <div class="theme-text" id="themeText"></div>
 
   <script>
-    // MIDI Utilities
-    class MIDIFile {
-      constructor(numTracks = 1) {
-        this.tracks = [];
-        this.ticksPerQuarter = 480;
-        this.format = numTracks > 1 ? 1 : 0;
-        
-        for (let i = 0; i < numTracks; i++) {
-          this.tracks.push([]);
-        }
-      }
-      
-      addTempo(track, time, bpm) {
-        const microsecondsPerQuarter = Math.round(60000000 / bpm);
-        this.addEvent(track, time, [0xFF, 0x51, 0x03, 
-          (microsecondsPerQuarter >> 16) & 0xFF,
-          (microsecondsPerQuarter >> 8) & 0xFF,
-          microsecondsPerQuarter & 0xFF
-        ]);
-      }
-      
-      addProgramChange(track, channel, time, program) {
-        this.addEvent(track, time, [0xC0 | channel, program]);
-      }
-      
-      addNote(track, channel, note, time, duration, velocity = 64) {
-        const noteOnTime = Math.round(time * this.ticksPerQuarter);
-        const noteOffTime = Math.round((time + duration) * this.ticksPerQuarter);
-        
-        this.addEvent(track, noteOnTime, [0x90 | channel, note, velocity]);
-        this.addEvent(track, noteOffTime, [0x80 | channel, note, 0]);
-      }
-      
-      addEvent(track, time, data) {
-        this.tracks[track].push({ time, data });
-      }
-      
-      writeFile() {
-        let data = [];
-        
-        // Header chunk
-        data.push(...this.stringToBytes('MThd'));
-        data.push(...this.numberToBytes(6, 4)); // Header length
-        data.push(...this.numberToBytes(this.format, 2)); // Format
-        data.push(...this.numberToBytes(this.tracks.length, 2)); // Number of tracks
-        data.push(...this.numberToBytes(this.ticksPerQuarter, 2)); // Ticks per quarter
-        
-        // Track chunks
-        this.tracks.forEach(track => {
-          const trackData = this.writeTrack(track);
-          data.push(...this.stringToBytes('MTrk'));
-          data.push(...this.numberToBytes(trackData.length, 4));
-          data.push(...trackData);
-        });
-        
-        return new Uint8Array(data);
-      }
-      
-      writeTrack(events) {
-        events.sort((a, b) => a.time - b.time);
-        
-        let data = [];
-        let lastTime = 0;
-        
-        events.forEach(event => {
-          const deltaTime = event.time - lastTime;
-          data.push(...this.writeVariableLength(deltaTime));
-          data.push(...event.data);
-          lastTime = event.time;
-        });
-        
-        // End of track
-        data.push(...this.writeVariableLength(0));
-        data.push(0xFF, 0x2F, 0x00);
-        
-        return data;
-      }
-      
-      writeVariableLength(value) {
-        let result = [];
-        result.unshift(value & 0x7F);
-        value >>= 7;
-        
-        while (value > 0) {
-          result.unshift((value & 0x7F) | 0x80);
-          value >>= 7;
-        }
-        
-        return result;
-      }
-      
-      stringToBytes(str) {
-        return Array.from(str).map(char => char.charCodeAt(0));
-      }
-      
-      numberToBytes(num, bytes) {
-        let result = [];
-        for (let i = bytes - 1; i >= 0; i--) {
-          result.push((num >> (i * 8)) & 0xFF);
-        }
-        return result;
-      }
-    }
-
-    class ZimmerEngine {
+    class VoidEngine {
       constructor() {
         this.ctx = null;
         this.active = false;
         this.analyser = null;
         this.dataArray = null;
         
-        // Musical Structure - Zimmer Style
+        // Musical Structure
         this.bpm = 60;
         this.step = 0;
         this.phrase = 'A';
         this.phraseCount = 0;
-        this.phraseStructure = ['A', 'A', 'B', 'A', 'C', 'D']; // Extended for epic builds
+        this.phraseStructure = ['A', 'A', 'B', 'A', 'C', 'D'];
         this.sectionLength = 32;
-        
-        // MIDI Recording
-        this.midiRecording = false;
-        this.midiStartTime = 0;
-        this.midiEvents = [];
-        this.currentComposition = 'void_orchestra';
         
         // Motion & Position
         this.motion = 0;
@@ -477,7 +331,7 @@ AWAKEN
         this.stepCounter = 0;
         this.lastStepTime = 0;
         
-        // Zimmer Evolution System
+        // Evolution System
         this.stage = 'SILENCE';
         this.subStage = 0;
         this.evolutionProgress = 0;
@@ -487,7 +341,7 @@ AWAKEN
         this.releasePhase = false;
         this.currentTechnique = 'waiting';
         
-        // Zimmer Cinematic Themes
+        // Cinematic Themes
         this.currentTheme = 'awakening';
         this.themes = {
           awakening: { mood: 'mysterious', colors: ['#1a1a1a', '#2a2a2a'], text: 'The Journey Begins' },
@@ -497,7 +351,7 @@ AWAKEN
           reflection: { mood: 'serene', colors: ['#f39c12', '#1a1a1a'], text: 'Eternal Reflection' }
         };
         
-        // ADVANCED ZIMMER AUDIO SYSTEM
+        // ADVANCED AUDIO SYSTEM
         this.masterGain = null;
         this.limiter = null;
         this.layerGains = {};
@@ -512,14 +366,14 @@ AWAKEN
         // Spatial Orientation
         this.orientation = { alpha: 0, beta: 0, gamma: 0 };
         
-        // Zimmer Techniques
-        this.shepardTones = []; // For infinite rising tension
-        this.ostinatoPattern = [0, 2, 0, 5, 0, 3, 0, 7]; // D minor ostinato
+        // Techniques
+        this.shepardTones = []; 
+        this.ostinatoPattern = [0, 2, 0, 5, 0, 3, 0, 7]; 
         this.ostinatoIndex = 0;
         this.shepardIntensity = 0;
         this.tensionBuildup = 0;
         
-        // Advanced Voice Management
+        // Voice Pool
         this.voicePool = {
           kick: { max: 3, active: [] },
           bass: { max: 4, active: [] },
@@ -529,34 +383,39 @@ AWAKEN
           harmony: { max: 12, active: [] },
           pad: { max: 10, active: [] },
           atmosphere: { max: 6, active: [] },
-          strings: { max: 16, active: [] }, // Zimmer loves strings
+          strings: { max: 16, active: [] }, 
           brass: { max: 8, active: [] },
           choir: { max: 12, active: [] },
           shepard: { max: 6, active: [] }
         };
         
-        // Layer Management
+        // Layers
         this.layers = {
           kick: false, bass: false, hihat: false, snare: false,
           ostinato: false, harmony: false, pad: false, atmosphere: false,
           strings: false, brass: false, choir: false, shepard: false
         };
         
-        // Zimmer Musical Elements
+        // Musical Elements
         this.key = 'D';
-        this.scale = [0, 2, 3, 5, 7, 8, 10]; // D natural minor (Zimmer's favorite)
+        this.scale = [0, 2, 3, 5, 7, 8, 10]; // Natural minor
         this.chordProgression = [
-          [0, 3, 7],    // Dm
-          [10, 2, 5],   // Bb
-          [5, 8, 0],    // Gm
-          [7, 10, 2]    // A
+          [0, 3, 7],    
+          [10, 2, 5],   
+          [5, 8, 0],    
+          [7, 10, 2]    
         ];
         this.currentChordIndex = 0;
         this.bassNote = 0;
-        this.lastLeadFreq = 293.66; // D4
+        this.lastLeadFreq = 293.66; 
         
         this.elements = {};
         this.spectrumBars = [];
+        
+        // Procedural Noise for Fractal Echo Veil
+        this.noiseSource = null;
+        this.noiseFilter = null;
+        this.noiseGain = null;
         
         this.init();
       }
@@ -564,186 +423,13 @@ AWAKEN
       init() {
         ['startScreen', 'startBtn', 'evolutionSpace', 'orb', 'instruction',
          'stageName', 'technique', 'motionBar', 'shepardBar', 'bpmDisplay',
-         'keyDisplay', 'voiceCount', 'cinematicOverlay', 'themeText', 'spectrumViz',
-         'exportMidiBtn', 'recordingStatus']
+         'keyDisplay', 'voiceCount', 'cinematicOverlay', 'themeText', 'spectrumViz']
         .forEach(id => this.elements[id] = document.getElementById(id));
         
         this.elements.startBtn.onclick = () => this.start();
-        this.elements.exportMidiBtn.onclick = () => this.exportVoidOrchestra();
         this.setupMotionDetection();
         this.setupOrientationDetection();
         this.setupSpectrumVisualizer();
-        this.startMidiRecording();
-      }
-
-      startMidiRecording() {
-        this.midiRecording = true;
-        this.midiStartTime = Date.now();
-        this.elements.recordingStatus.textContent = 'RECORDING';
-        console.log('🎼 MIDI Recording Started');
-      }
-
-      recordMidiEvent(track, channel, note, velocity, duration, instrument = 0) {
-        if (!this.midiRecording) return;
-        
-        const currentTime = (Date.now() - this.midiStartTime) / 1000; // seconds
-        
-        this.midiEvents.push({
-          track,
-          channel,
-          note,
-          velocity,
-          duration,
-          time: currentTime,
-          instrument
-        });
-      }
-
-      generateVoidOrchestraFromMotion() {
-        const duration = Math.max(60, Math.min(240, this.totalMotion / 10)); // 1-4 minutes based on motion
-        const tempo = Math.round(this.bpm);
-        const userSeed = this.generateSeedFromMotion();
-        
-        console.log(`🎭 Generating Void Orchestra: ${duration}s at ${tempo}BPM with seed ${userSeed}`);
-        
-        // Create MIDI file with 4 tracks
-        const midi = new MIDIFile(4);
-        midi.addTempo(0, 0, tempo);
-        
-        // Use motion pattern and stage to determine orchestration
-        const phases = this.calculateCompositionPhases(duration);
-        
-        // Track 1: Resonance echoes (based on motion intensity)
-        this.generateEchoTrack(midi, 1, phases, userSeed);
-        
-        // Track 2: Strings (based on stage evolution)
-        this.generateStringsTrack(midi, 2, phases, userSeed);
-        
-        // Track 3: Brass (based on build phases)
-        this.generateBrassTrack(midi, 3, phases, userSeed);
-        
-        // Track 4: Percussion (based on motion patterns)
-        this.generatePercussionTrack(midi, 0, phases, userSeed);
-        
-        return midi.writeFile();
-      }
-
-      generateSeedFromMotion() {
-        // Create a unique seed based on user's motion signature
-        const motionSignature = this.motionHistory.slice(-50).reduce((sum, m) => sum + m, 0);
-        const stageWeight = { 'SILENCE': 1, 'TRIBAL': 2, 'ORCHESTRAL': 3, 'TRANSCENDENT': 4 }[this.stage];
-        const themeWeight = Object.keys(this.themes).indexOf(this.currentTheme) + 1;
-        
-        return Math.floor(motionSignature * stageWeight * themeWeight * this.intensity) % 10000;
-      }
-
-      calculateCompositionPhases(duration) {
-        const voidPhase = duration * 0.3; // Quiet emergence
-        const buildPhase = duration * 0.4; // Rising tension
-        const climaxPhase = duration * 0.3; // Full orchestration
-        
-        return {
-          void: { start: 0, end: voidPhase },
-          build: { start: voidPhase, end: voidPhase + buildPhase },
-          climax: { start: voidPhase + buildPhase, end: duration }
-        };
-      }
-
-      generateEchoTrack(midi, track, phases, seed) {
-        midi.addProgramChange(track, 0, 0, 52); // Choir Aahs
-        
-        const echoNotes = [60, 64, 67, 72]; // C4, E4, G4, C5 harmonics
-        const random = this.seededRandom(seed);
-        
-        for (let t = phases.void.start; t < phases.void.end; t += 2) {
-          const note = echoNotes[Math.floor(random() * echoNotes.length)];
-          const velocity = Math.floor(20 + (t / phases.void.end) * 40);
-          midi.addNote(track, 0, note, t, 1.5, velocity);
-        }
-      }
-
-      generateStringsTrack(midi, track, phases, seed) {
-        midi.addProgramChange(track, 0, 0, 48); // String Ensemble
-        
-        const chord = [48, 52, 55, 60]; // Low C major chord
-        
-        for (let t = phases.build.start; t < phases.build.end; t += 1) {
-          const velocity = Math.floor(30 + ((t - phases.build.start) / (phases.build.end - phases.build.start)) * 70);
-          
-          chord.forEach((note, i) => {
-            midi.addNote(track, 0, note, t, 2, velocity);
-          });
-        }
-      }
-
-      generateBrassTrack(midi, track, phases, seed) {
-        midi.addProgramChange(track, 0, 0, 61); // Brass Section
-        
-        const melodyNotes = [60, 62, 64, 65, 67]; // Melodic line in C major
-        const random = this.seededRandom(seed * 2);
-        
-        for (let t = phases.climax.start; t < phases.climax.end; t += 0.5) {
-          const note = melodyNotes[Math.floor(random() * melodyNotes.length)];
-          const velocity = Math.floor(60 + ((t - phases.climax.start) / (phases.climax.end - phases.climax.start)) * 60);
-          midi.addNote(track, 0, note, t, 0.5, velocity);
-        }
-      }
-
-      generatePercussionTrack(midi, track, phases, seed) {
-        midi.addProgramChange(track, 9, 0, 0); // Percussion channel
-        
-        // Add kick pattern based on motion
-        for (let t = phases.build.start; t < phases.climax.end; t += 1) {
-          if (Math.floor(t) % 4 === 0) { // Kick on beats 1 and 3
-            midi.addNote(track, 9, 36, t, 0.5, 80); // Bass drum
-          }
-          if (Math.floor(t) % 4 === 2) { // Snare on beats 2 and 4
-            midi.addNote(track, 9, 38, t, 0.3, 70); // Snare
-          }
-        }
-      }
-
-      seededRandom(seed) {
-        let state = seed;
-        return function() {
-          state = (state * 9301 + 49297) % 233280;
-          return state / 233280;
-        };
-      }
-
-      exportVoidOrchestra() {
-        this.elements.recordingStatus.textContent = 'GENERATING...';
-        
-        setTimeout(() => {
-          try {
-            const midiData = this.generateVoidOrchestraFromMotion();
-            
-            // Create download
-            const blob = new Blob([midiData], { type: 'audio/midi' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `zimmer_void_orchestra_${this.stage.toLowerCase()}_${Date.now()}.mid`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-            
-            this.elements.recordingStatus.textContent = 'EXPORTED!';
-            console.log('🎼 Void Orchestra MIDI exported successfully');
-            
-            setTimeout(() => {
-              this.elements.recordingStatus.textContent = 'RECORDING';
-            }, 3000);
-            
-          } catch (error) {
-            console.error('Failed to export MIDI:', error);
-            this.elements.recordingStatus.textContent = 'ERROR';
-            setTimeout(() => {
-              this.elements.recordingStatus.textContent = 'RECORDING';
-            }, 3000);
-          }
-        }, 500);
       }
 
       setupSpectrumVisualizer() {
@@ -776,12 +462,10 @@ AWAKEN
         const betaRad = this.orientation.beta * Math.PI / 180;
         const gammaRad = this.orientation.gamma * Math.PI / 180;
 
-        // Compute forward vector (direction listener is facing)
         const forwardX = Math.cos(alphaRad) * Math.cos(betaRad);
         const forwardY = Math.sin(alphaRad) * Math.cos(betaRad);
         const forwardZ = Math.sin(betaRad);
 
-        // Compute up vector
         const upX = -Math.cos(alphaRad) * Math.sin(betaRad) * Math.sin(gammaRad) - Math.sin(alphaRad) * Math.cos(gammaRad);
         const upY = -Math.sin(alphaRad) * Math.sin(betaRad) * Math.sin(gammaRad) + Math.cos(alphaRad) * Math.cos(gammaRad);
         const upZ = Math.cos(betaRad) * Math.sin(gammaRad);
@@ -799,7 +483,7 @@ AWAKEN
           if (typeof DeviceMotionEvent?.requestPermission === 'function') {
             const motionPermission = await DeviceMotionEvent.requestPermission();
             if (motionPermission !== 'granted') {
-              alert('Motion permission required for your cinematic soundtrack');
+              alert('Motion permission required for unraveling the void');
               return;
             }
           }
@@ -807,14 +491,14 @@ AWAKEN
           if (typeof DeviceOrientationEvent?.requestPermission === 'function') {
             const orientationPermission = await DeviceOrientationEvent.requestPermission();
             if (orientationPermission !== 'granted') {
-              alert('Orientation permission required for spatial audio');
+              alert('Orientation permission required for spatial unravel');
               return;
             }
           }
 
           this.ctx = new (window.AudioContext || window.webkitAudioContext)();
           await this.ctx.resume();
-          this.setupZimmerAudioChain();
+          this.setupAudioChain();
           this.setLayerPositions();
 
           this.elements.startScreen.classList.add('hidden');
@@ -826,22 +510,20 @@ AWAKEN
           }, 1000);
 
           this.active = true;
-          this.startZimmerSequencer();
+          this.startSequencer();
           this.animate();
           
         } catch (e) {
-          console.error('Failed to start Zimmer Engine:', e);
+          console.error('Failed to start engine:', e);
           alert('Failed to initialize. Please try again.');
         }
       }
 
-      setupZimmerAudioChain() {
-        // SPECTRUM ANALYZER
+      setupAudioChain() {
         this.analyser = this.ctx.createAnalyser();
         this.analyser.fftSize = 128;
         this.dataArray = new Uint8Array(this.analyser.frequencyBinCount);
         
-        // MASTER LIMITER (Heavy Zimmer compression)
         this.limiter = this.ctx.createDynamicsCompressor();
         this.limiter.threshold.value = -6;
         this.limiter.knee.value = 1;
@@ -849,11 +531,9 @@ AWAKEN
         this.limiter.attack.value = 0.001;
         this.limiter.release.value = 0.01;
         
-        // MASTER GAIN
         this.masterGain = this.ctx.createGain();
         this.masterGain.gain.value = 0.4;
         
-        // MAIN COMPRESSOR (Zimmer's signature glue)
         this.compressor = this.ctx.createDynamicsCompressor();
         this.compressor.threshold.value = -24;
         this.compressor.knee.value = 16;
@@ -861,7 +541,6 @@ AWAKEN
         this.compressor.attack.value = 0.005;
         this.compressor.release.value = 0.15;
         
-        // LISTENER FOR SPATIAL AUDIO
         this.listener = this.ctx.listener;
         this.listener.positionX.value = 0;
         this.listener.positionY.value = 0;
@@ -873,7 +552,6 @@ AWAKEN
         this.listener.upY.value = 1;
         this.listener.upZ.value = 0;
         
-        // HALL REVERB (Epic Zimmer space)
         this.convolver = this.ctx.createConvolver();
         const reverbTime = 6;
         const buffer = this.ctx.createBuffer(2, this.ctx.sampleRate * reverbTime, this.ctx.sampleRate);
@@ -886,7 +564,6 @@ AWAKEN
         }
         this.convolver.buffer = buffer;
         
-        // DELAY (Zimmer's signature delay)
         this.delay = this.ctx.createDelay(0.8);
         this.delay.delayTime.value = 0.375;
         const delayFeedback = this.ctx.createGain();
@@ -898,7 +575,6 @@ AWAKEN
         delayFeedback.connect(this.delay);
         this.delay.connect(delayMix);
         
-        // LAYER GAINS AND PANNERS (Zimmer mix levels with spatialization)
         const layerNames = ['kick', 'bass', 'hihat', 'snare', 'ostinato', 'harmony', 'pad', 'atmosphere', 'strings', 'brass', 'choir', 'shepard'];
         const layerLevels = [0.5, 0.4, 0.15, 0.3, 0.25, 0.2, 0.15, 0.1, 0.3, 0.25, 0.2, 0.15];
         
@@ -916,51 +592,80 @@ AWAKEN
           this.layerPanners[name].coneOuterAngle = 0;
           this.layerPanners[name].coneOuterGain = 0;
 
-          // Connect gain -> panner -> compressor
           this.layerGains[name].connect(this.layerPanners[name]);
           this.layerPanners[name].connect(this.compressor);
 
-          // Epic reverb sends (direct from gain for non-spatial wet signal)
           if (['strings', 'brass', 'choir', 'harmony', 'pad'].includes(name)) {
             this.layerGains[name].connect(this.convolver);
           }
           
-          // Delay sends
           if (['ostinato', 'strings', 'snare'].includes(name)) {
             this.layerGains[name].connect(this.delay);
           }
         });
         
-        // SPECIAL GAINS
         this.shepardGain = this.ctx.createGain();
         this.shepardGain.gain.value = 0.15;
         this.ostinatoGain = this.ctx.createGain();
         this.ostinatoGain.gain.value = 0.25;
         
-        // Final chain (no stereo panner, spatial is handled per layer)
         this.compressor.connect(this.limiter);
         this.convolver.connect(this.limiter);
         delayMix.connect(this.limiter);
         this.limiter.connect(this.analyser);
         this.analyser.connect(this.masterGain);
         this.masterGain.connect(this.ctx.destination);
+        
+        // Setup Procedural Noise for Fractal Echo Veil
+        this.setupProceduralNoise();
+      }
+
+      setupProceduralNoise() {
+        const bufferSize = 2 * this.ctx.sampleRate;
+        const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+        const output = buffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) {
+          output[i] = Math.random() * 2 - 1;
+        }
+
+        this.noiseSource = this.ctx.createBufferSource();
+        this.noiseSource.buffer = buffer;
+        this.noiseSource.loop = true;
+
+        this.noiseFilter = this.ctx.createBiquadFilter();
+        this.noiseFilter.type = 'bandpass';
+        this.noiseFilter.frequency.value = 1000;
+        this.noiseFilter.Q.value = 10;
+
+        this.noiseGain = this.ctx.createGain();
+        this.noiseGain.gain.value = 0.05; // Start low, modulate dynamically
+
+        this.noiseSource.connect(this.noiseFilter);
+        this.noiseFilter.connect(this.noiseGain);
+        this.noiseGain.connect(this.layerPanners.atmosphere); // Connect to atmosphere panner
+        this.noiseSource.start();
+      }
+
+      updateProceduralNoise(avgMotion, variance) {
+        // Modulate filter for fractal-like dynamism
+        this.noiseFilter.frequency.value = 500 + avgMotion * 100 + variance * 50;
+        this.noiseFilter.Q.value = 5 + variance * 2;
+        this.noiseGain.gain.value = 0.05 + (this.shepardIntensity * 0.1);
       }
 
       setLayerPositions() {
-        // Assign 3D positions to layers for panoramic/depth effect
-        // Coordinate system: X (right/left), Y (up/down), Z (front/back, negative Z in front)
-        this.layerPanners['kick'].setPosition(0, 0, -2); // Front center
-        this.layerPanners['bass'].setPosition(0, -1, -3); // Low front center
-        this.layerPanners['hihat'].setPosition(0, 1, -4); // Above front
-        this.layerPanners['snare'].setPosition(0, 0, -1); // Close front
-        this.layerPanners['ostinato'].setPosition(-2, 0, -5); // Left mid
-        this.layerPanners['harmony'].setPosition(2, 0, -5); // Right mid
-        this.layerPanners['pad'].setPosition(0, 2, 5); // Above behind
-        this.layerPanners['atmosphere'].setPosition(0, 3, 10); // Far above behind
-        this.layerPanners['strings'].setPosition(-5, 0, -6); // Left front depth
-        this.layerPanners['brass'].setPosition(5, 0, -6); // Right front depth
-        this.layerPanners['choir'].setPosition(0, 2, 8); // Behind elevated
-        this.layerPanners['shepard'].setPosition(0, 4, -10); // Far front above for tension
+        this.layerPanners['kick'].setPosition(0, 0, -2);
+        this.layerPanners['bass'].setPosition(0, -1, -3);
+        this.layerPanners['hihat'].setPosition(0, 1, -4);
+        this.layerPanners['snare'].setPosition(0, 0, -1);
+        this.layerPanners['ostinato'].setPosition(-2, 0, -5);
+        this.layerPanners['harmony'].setPosition(2, 0, -5);
+        this.layerPanners['pad'].setPosition(0, 2, 5);
+        this.layerPanners['atmosphere'].setPosition(0, 3, 10);
+        this.layerPanners['strings'].setPosition(-5, 0, -6);
+        this.layerPanners['brass'].setPosition(5, 0, -6);
+        this.layerPanners['choir'].setPosition(0, 2, 8);
+        this.layerPanners['shepard'].setPosition(0, 4, -10);
       }
 
       setupMotionDetection() {
@@ -1012,10 +717,9 @@ AWAKEN
           this.pos.y = newY;
           this.direction = Math.atan2(velocityY, velocityX) * (180 / Math.PI);
           
-          // Simulate orientation with mouse for desktop (map x to alpha/yaw, y to beta/pitch)
           this.orientation.alpha = (newX / 100) * 360;
-          this.orientation.beta = (newY - 50) * 1.8; // -90 to 90
-          this.orientation.gamma = 0; // No roll for mouse
+          this.orientation.beta = (newY - 50) * 1.8;
+          this.orientation.gamma = 0;
           this.updateListenerOrientation();
           
           lastMouse = { x: newX, y: newY, time: now };
@@ -1037,7 +741,6 @@ AWAKEN
         const avgMotion = this.motionHistory.reduce((a, b) => a + b, 0) / this.motionHistory.length;
         this.intensity = this.motionHistory.reduce((sum, m) => sum + Math.abs(m - avgMotion), 0) / this.motionHistory.length;
         
-        // Zimmer Motion Patterns
         const variance = this.intensity;
         const recentHistory = this.motionHistory.slice(-40);
         const isRhythmic = recentHistory.filter(m => m > 2.5).length > 20 && variance < 2;
@@ -1045,13 +748,14 @@ AWAKEN
         const isSustained = avgMotion > 2.5 && variance < 1.5;
         this.motionPattern = isErratic ? 'erratic' : isRhythmic ? 'rhythmic' : isSustained ? 'sustained' : 'calm';
         
-        // Zimmer Techniques
-        this.updateZimmerTechniques(avgMotion, variance);
+        this.updateTechniques(avgMotion, variance);
         this.updateEvolution();
+        
+        // Update procedural noise for fractal echo
+        this.updateProceduralNoise(avgMotion, variance);
       }
 
-      updateZimmerTechniques(avgMotion, variance) {
-        // Shepard Tone Intensity
+      updateTechniques(avgMotion, variance) {
         if (avgMotion > 2 && variance > 1.5) {
           this.shepardIntensity = Math.min(this.shepardIntensity + 0.02, 1);
           this.tensionBuildup = Math.min(this.tensionBuildup + 0.01, 1);
@@ -1062,12 +766,11 @@ AWAKEN
           this.currentTechnique = 'ostinato-calm';
         }
         
-        // Build/Release Phases
         this.buildPhase = (this.motionPattern === 'sustained' || this.motionPattern === 'rhythmic') && avgMotion > 2;
         this.releasePhase = this.motionPattern === 'calm' && this.totalMotion > 100;
         
-        if (this.buildPhase) this.currentTechnique = 'zimmer-build';
-        if (this.releasePhase) this.currentTechnique = 'epic-release';
+        if (this.buildPhase) this.currentTechnique = 'build';
+        if (this.releasePhase) this.currentTechnique = 'release';
       }
 
       updatePosition() {
@@ -1097,7 +800,6 @@ AWAKEN
       updateEvolution() {
         const avgMotion = this.motionHistory.reduce((a, b) => a + b, 0) / this.motionHistory.length;
         
-        // Zimmer Layer Activation
         const activationThreshold = this.buildPhase ? 0.8 : 1.5;
         const deactivationThreshold = 0.6;
         
@@ -1123,7 +825,6 @@ AWAKEN
           this.evolveToTranscendent();
         }
         
-        // Zimmer BPM Calculation
         let baseBPM = 60 + (avgMotion * 8) + (this.intensity * 5);
         baseBPM += (this.subStage * 15);
         if (this.stage === 'TRIBAL') baseBPM += 25;
@@ -1157,25 +858,25 @@ AWAKEN
       evolveToTribal() {
         this.stage = 'TRIBAL';
         this.elements.orb.className = 'orb tribal';
-        this.createZimmerParticles(40, '#ff6b35');
-        console.log('🔥 TRIBAL EVOLUTION: The Adventure Awakens');
+        this.createParticles(40, '#ff6b35');
+        console.log('🔥 TRIBAL EVOLUTION: Into the Unknown');
       }
 
       evolveToOrchestral() {
         this.stage = 'ORCHESTRAL';
         this.elements.orb.className = 'orb orchestral';
-        this.createZimmerParticles(60, '#4a90e2');
-        console.log('🎼 ORCHESTRAL EVOLUTION: Epic Orchestration');
+        this.createParticles(60, '#4a90e2');
+        console.log('🌊 ORCHESTRAL EVOLUTION: Rising Storm');
       }
 
       evolveToTranscendent() {
         this.stage = 'TRANSCENDENT';
         this.elements.orb.className = 'orb transcendent';
-        this.createZimmerParticles(80, '#9b59b6');
-        console.log('✨ TRANSCENDENT EVOLUTION: Zimmer Apotheosis');
+        this.createParticles(80, '#9b59b6');
+        console.log('✨ TRANSCENDENT EVOLUTION: Void Apotheosis');
       }
 
-      createZimmerParticles(count, color) {
+      createParticles(count, color) {
         const existing = document.querySelector('.particles');
         if (existing) existing.remove();
         
@@ -1194,11 +895,11 @@ AWAKEN
         }
       }
 
-      startZimmerSequencer() {
+      startSequencer() {
         const tick = () => {
           if (!this.active) return;
           
-          this.playZimmerStep();
+          this.playStep();
           this.step = (this.step + 1) % this.sectionLength;
           
           if (this.step === 0) {
@@ -1214,31 +915,27 @@ AWAKEN
         tick();
       }
 
-      playZimmerStep() {
+      playStep() {
         if (this.step % 4 === 0) {
           this.elements.orb.classList.add('pulse');
           setTimeout(() => this.elements.orb.classList.remove('pulse'), 150);
         }
         
-        // Spatial panning is now handled by orientation and fixed positions
-        
-        if (this.layers.kick && this.step % 8 === 0) this.playZimmerKick();
-        if (this.layers.bass && this.step % 4 === 0) this.playZimmerBass();
-        if (this.layers.hihat && this.step % 2 === 1 && Math.random() < 0.7) this.playZimmerHihat();
-        if (this.layers.snare && (this.step % 8 === 4 || (this.motionPattern === 'erratic' && this.step % 8 === 6 && Math.random() < 0.5))) this.playZimmerSnare();
-        if (this.layers.ostinato && this.step % 2 === 0) this.playZimmerOstinato();
-        if (this.layers.harmony && this.step % 16 === 0) this.playZimmerHarmony();
-        if (this.layers.pad && this.step % 32 === 0 && this.releasePhase) this.playZimmerPad();
-        if (this.layers.atmosphere && Math.random() < 0.03 && this.releasePhase) this.playZimmerAtmosphere();
-        if (this.layers.strings && (this.step % 4 === 0 || this.buildPhase)) this.playZimmerStrings();
-        if (this.layers.brass && this.step % 16 === 0 && this.buildPhase) this.playZimmerBrass();
-        if (this.layers.choir && this.step % 32 === 0 && this.releasePhase) this.playZimmerChoir();
+        if (this.layers.kick && this.step % 8 === 0) this.playKick();
+        if (this.layers.bass && this.step % 4 === 0) this.playBass();
+        if (this.layers.hihat && this.step % 2 === 1 && Math.random() < 0.7) this.playHihat();
+        if (this.layers.snare && (this.step % 8 === 4 || (this.motionPattern === 'erratic' && this.step % 8 === 6 && Math.random() < 0.5))) this.playSnare();
+        if (this.layers.ostinato && this.step % 2 === 0) this.playOstinato();
+        if (this.layers.harmony && this.step % 16 === 0) this.playHarmony();
+        if (this.layers.pad && this.step % 32 === 0 && this.releasePhase) this.playPad();
+        if (this.layers.atmosphere && Math.random() < 0.03 && this.releasePhase) this.playAtmosphere();
+        if (this.layers.strings && (this.step % 4 === 0 || this.buildPhase)) this.playStrings();
+        if (this.layers.brass && this.step % 16 === 0 && this.buildPhase) this.playBrass();
+        if (this.layers.choir && this.step % 32 === 0 && this.releasePhase) this.playChoir();
         if (this.layers.shepard && this.step % 8 === 0) this.playShepardTone();
       }
 
-      // ZIMMER SIGNATURE INSTRUMENTS
-
-      playZimmerKick() {
+      playKick() {
         const osc = this.ctx.createOscillator();
         const gain = this.ctx.createGain();
         const env = this.ctx.createGain();
@@ -1257,12 +954,9 @@ AWAKEN
         osc.connect(env).connect(gain).connect(this.layerGains.kick);
         osc.start();
         osc.stop(this.ctx.currentTime + 0.6);
-
-        // Record MIDI event
-        this.recordMidiEvent(0, 9, 36, 80, 0.6, 0); // Kick on percussion channel
       }
 
-      playZimmerBass() {
+      playBass() {
         const noteIndex = this.bassNote % this.scale.length;
         const freq = this.noteToFreq(this.scale[noteIndex], 1);
         
@@ -1288,13 +982,9 @@ AWAKEN
         osc.connect(filter).connect(env).connect(gain).connect(this.layerGains.bass);
         osc.start();
         osc.stop(this.ctx.currentTime + 0.8);
-
-        // Record MIDI event
-        const midiNote = this.freqToMidi(freq * 0.75);
-        this.recordMidiEvent(1, 0, midiNote, 80, 0.8, 32); // Bass
       }
 
-      playZimmerHihat() {
+      playHihat() {
         const osc = this.ctx.createOscillator();
         const gain = this.ctx.createGain();
         const env = this.ctx.createGain();
@@ -1317,12 +1007,9 @@ AWAKEN
         osc.connect(filter).connect(env).connect(gain).connect(this.layerGains.hihat);
         osc.start();
         osc.stop(this.ctx.currentTime + 0.15);
-
-        // Record MIDI event
-        this.recordMidiEvent(0, 9, 42, 60, 0.15, 0); // Hi-hat on percussion
       }
 
-      playZimmerSnare() {
+      playSnare() {
         const osc1 = this.ctx.createOscillator();
         const osc2 = this.ctx.createOscillator();
         const gain = this.ctx.createGain();
@@ -1346,13 +1033,9 @@ AWAKEN
         osc2.start();
         osc1.stop(this.ctx.currentTime + 0.3);
         osc2.stop(this.ctx.currentTime + 0.08);
-
-        // Record MIDI event
-        this.recordMidiEvent(0, 9, 38, 70, 0.3, 0); // Snare on percussion
       }
 
-      // ZIMMER'S SIGNATURE OSTINATO
-      playZimmerOstinato() {
+      playOstinato() {
         const noteIndex = this.ostinatoPattern[this.ostinatoIndex % this.ostinatoPattern.length];
         const freq = this.noteToFreq(noteIndex, 4);
         
@@ -1365,7 +1048,7 @@ AWAKEN
         
         osc.type = 'sawtooth';
         osc.frequency.value = freq;
-        osc.detune.value = Math.random() * 6 - 3; // Slight humanization
+        osc.detune.value = Math.random() * 6 - 3;
         
         filter.type = 'lowpass';
         filter.frequency.value = 800 + this.motion * 200 + this.intensity * 150;
@@ -1380,15 +1063,11 @@ AWAKEN
         osc.connect(filter).connect(env).connect(gain).connect(this.layerGains.ostinato);
         osc.start();
         osc.stop(this.ctx.currentTime + 0.8);
-
-        // Record MIDI event
-        const midiNote = this.freqToMidi(freq);
-        this.recordMidiEvent(1, 0, midiNote, this.buildPhase ? 40 : 64, 0.8, 48); // String Ensemble
         
         this.ostinatoIndex++;
       }
 
-      playZimmerHarmony() {
+      playHarmony() {
         const chord = this.chordProgression[this.currentChordIndex];
         const duration = 4;
         const baseGain = 0.2 / chord.length;
@@ -1420,18 +1099,13 @@ AWAKEN
           osc.connect(filter).connect(env).connect(gain).connect(this.layerGains.harmony);
           osc.start();
           osc.stop(this.ctx.currentTime + duration);
-
-          // Record MIDI event
-          const midiNote = this.freqToMidi(freq);
-          this.recordMidiEvent(2, 0, midiNote, 50, duration, 48); // String Ensemble
         });
       }
 
-      playZimmerStrings() {
+      playStrings() {
         const noteIndex = this.ostinatoPattern[this.ostinatoIndex % this.ostinatoPattern.length];
         const freq = this.noteToFreq(noteIndex, 3);
         
-        // Zimmer's signature string ensemble
         for (let i = 0; i < 4; i++) {
           const osc = this.ctx.createOscillator();
           const gain = this.ctx.createGain();
@@ -1457,16 +1131,10 @@ AWAKEN
           osc.connect(filter).connect(env).connect(gain).connect(this.layerGains.strings);
           osc.start();
           osc.stop(this.ctx.currentTime + 3);
-
-          // Record MIDI event (only for first voice to avoid duplicates)
-          if (i === 0) {
-            const midiNote = this.freqToMidi(freq);
-            this.recordMidiEvent(2, 0, midiNote, this.buildPhase ? 30 : 70, 3, 48); // String Ensemble
-          }
         }
       }
 
-      playZimmerBrass() {
+      playBrass() {
         const note = this.scale[Math.floor(this.scale.length / 2)];
         const freq = this.noteToFreq(note, 3);
         
@@ -1484,7 +1152,6 @@ AWAKEN
         filter.frequency.value = 500 + this.intensity * 200;
         filter.Q.value = 4;
         
-        // Zimmer's signature brass swell
         env.gain.setValueAtTime(0.1, this.ctx.currentTime);
         env.gain.linearRampToValueAtTime(1, this.ctx.currentTime + 1.2);
         env.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 3);
@@ -1494,13 +1161,9 @@ AWAKEN
         osc.connect(filter).connect(env).connect(gain).connect(this.layerGains.brass);
         osc.start();
         osc.stop(this.ctx.currentTime + 3);
-
-        // Record MIDI event
-        const midiNote = this.freqToMidi(freq);
-        this.recordMidiEvent(3, 0, midiNote, 80, 3, 61); // Brass Section
       }
 
-      playZimmerChoir() {
+      playChoir() {
         this.chordProgression[this.currentChordIndex].forEach((interval, i) => {
           const freq = this.noteToFreq(interval, 4 + i % 2);
           
@@ -1527,14 +1190,10 @@ AWAKEN
           osc.connect(filter).connect(env).connect(gain).connect(this.layerGains.choir);
           osc.start();
           osc.stop(this.ctx.currentTime + 15);
-
-          // Record MIDI event
-          const midiNote = this.freqToMidi(freq);
-          this.recordMidiEvent(2, 0, midiNote, 60, 15, 52); // Choir Aahs
         });
       }
 
-      playZimmerPad() {
+      playPad() {
         this.scale.forEach((note, i) => {
           if (i % 2 !== 0) return;
           
@@ -1563,14 +1222,10 @@ AWAKEN
           osc.connect(filter).connect(env).connect(gain).connect(this.layerGains.pad);
           osc.start();
           osc.stop(this.ctx.currentTime + 12);
-
-          // Record MIDI event
-          const midiNote = this.freqToMidi(freq);
-          this.recordMidiEvent(2, 0, midiNote, 40, 12, 89); // Pad
         });
       }
 
-      playZimmerAtmosphere() {
+      playAtmosphere() {
         const freq = this.noteToFreq(this.scale[Math.floor(Math.random() * this.scale.length)], 5 + Math.random() * 2);
         
         const osc = this.ctx.createOscillator();
@@ -1596,15 +1251,13 @@ AWAKEN
         osc.connect(filter).connect(env).connect(gain).connect(this.layerGains.atmosphere);
         osc.start();
         osc.stop(this.ctx.currentTime + 20);
-
-        // Record MIDI event
-        const midiNote = this.freqToMidi(freq);
-        this.recordMidiEvent(2, 0, midiNote, 30, 20, 95); // Atmosphere
+        
+        // Blend with procedural noise for fractal echo veil
+        this.noiseGain.gain.linearRampToValueAtTime(0.1 + Math.random() * 0.05, this.ctx.currentTime + 4);
       }
 
-      // ZIMMER'S SIGNATURE SHEPARD TONE
       playShepardTone() {
-        const baseFreq = 220; // A3
+        const baseFreq = 220;
         const shepardLayers = 6;
         
         for (let i = 0; i < shepardLayers; i++) {
@@ -1619,7 +1272,6 @@ AWAKEN
           osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
           osc.frequency.exponentialRampToValueAtTime(freq * 1.5, this.ctx.currentTime + 4);
           
-          // Shepard tone amplitude envelope
           const amplitude = Math.sin((i / shepardLayers) * Math.PI) * this.shepardIntensity;
           
           env.gain.setValueAtTime(amplitude, this.ctx.currentTime);
@@ -1630,16 +1282,9 @@ AWAKEN
           osc.connect(env).connect(gain).connect(this.layerGains.shepard);
           osc.start();
           osc.stop(this.ctx.currentTime + 4);
-
-          // Record MIDI event (only for first layer to represent the effect)
-          if (i === 0) {
-            const midiNote = this.freqToMidi(freq);
-            this.recordMidiEvent(1, 0, midiNote, Math.floor(amplitude * 127), 4, 95); // Atmosphere
-          }
         }
       }
 
-      // VOICE MANAGEMENT
       allocateVoice(layer, osc, gainNode, duration) {
         const pool = this.voicePool[layer];
         if (!pool) return false;
@@ -1670,11 +1315,7 @@ AWAKEN
       }
 
       noteToFreq(note, octave = 4) {
-        return 293.66 * Math.pow(2, (note - 2) / 12 + (octave - 4)); // D4 = 293.66Hz
-      }
-
-      freqToMidi(freq) {
-        return Math.round(69 + 12 * Math.log2(freq / 440));
+        return 293.66 * Math.pow(2, (note - 2) / 12 + (octave - 4));
       }
 
       updateUI() {
@@ -1692,7 +1333,6 @@ AWAKEN
         const totalVoices = Object.values(this.voicePool).reduce((sum, pool) => sum + pool.active.length, 0);
         this.elements.voiceCount.textContent = totalVoices;
         
-        // Update spectrum visualizer
         if (this.analyser) {
           this.analyser.getByteFrequencyData(this.dataArray);
           this.spectrumBars.forEach((bar, i) => {
@@ -1733,7 +1373,7 @@ AWAKEN
       }
     }
 
-    new ZimmerEngine();
+    new VoidEngine();
   </script>
 </body>
 </html>
