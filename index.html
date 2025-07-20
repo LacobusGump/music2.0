@@ -2,13 +2,14 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>GUMP: Cinematic Void Engine</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <title>GUMP: Cinematic Void Engine - Mobile Enhanced</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     
     body {
-      background: #1a1a1a;
+      background: #0a0a0a;
       color: #fff;
       overflow: hidden;
       touch-action: none;
@@ -18,6 +19,8 @@
       align-items: center;
       justify-content: center;
       transition: all 2s ease;
+      -webkit-user-select: none;
+      user-select: none;
     }
     
     .start-screen {
@@ -42,9 +45,10 @@
       backdrop-filter: blur(10px);
       transition: all 0.3s ease;
       animation: pulse 6s ease-in-out infinite;
+      -webkit-tap-highlight-color: transparent;
     }
     
-    .start-btn:hover {
+    .start-btn:hover, .start-btn:active {
       border-color: rgba(255,255,255,0.6);
       background: radial-gradient(circle, rgba(255,255,255,0.2) 0%, transparent 70%);
       transform: scale(1.05);
@@ -77,6 +81,7 @@
       transition: all 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
       box-shadow: 0 0 40px rgba(255,255,255,0.5);
       backdrop-filter: blur(5px);
+      pointer-events: none;
     }
     
     .orb.pulse {
@@ -211,6 +216,7 @@
       transition: opacity 2s ease;
       margin-top: 80px;
       font-weight: bold;
+      padding: 0 20px;
     }
     
     .instruction.show { opacity: 1; }
@@ -261,6 +267,31 @@
       border-radius: 4px 4px 0 0;
       transition: height 0.1s ease;
     }
+    
+    .error-message {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(255,0,0,0.2);
+      border: 1px solid rgba(255,0,0,0.5);
+      padding: 20px;
+      border-radius: 10px;
+      text-align: center;
+      max-width: 80%;
+      display: none;
+    }
+    
+    .error-message.show {
+      display: block;
+    }
+
+    @media (max-width: 768px) {
+      .ui-corner { font-size: 10px; padding: 8px; }
+      .stage-name { font-size: 12px; }
+      .metric { font-size: 9px; }
+      .bar { width: 60px; }
+    }
   </style>
 </head>
 <body>
@@ -273,7 +304,7 @@ AWAKEN
   <div class="evolution-space" id="evolutionSpace">
     <div class="orb" id="orb"></div>
     
-    <div class="instruction" id="instruction">MOVE TO UNRAVEL THE VOID</div>
+    <div class="instruction" id="instruction">MOVE YOUR DEVICE TO UNRAVEL THE VOID</div>
     
     <div class="ui-corner top-left">
       <div class="stage-name" id="stageName">SILENCE</div>
@@ -302,14 +333,22 @@ AWAKEN
 
   <div class="cinematic-overlay" id="cinematicOverlay"></div>
   <div class="theme-text" id="themeText"></div>
+  
+  <div class="error-message" id="errorMessage">
+    <h3>Initialization Error</h3>
+    <p id="errorText"></p>
+    <button onclick="location.reload()">Reload</button>
+  </div>
 
   <script>
-    class VoidEngine {
+    class MobileVoidEngine {
       constructor() {
         this.ctx = null;
         this.active = false;
         this.analyser = null;
         this.dataArray = null;
+        this.isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+        this.debugMode = true;
         
         // Musical Structure
         this.bpm = 60;
@@ -351,17 +390,13 @@ AWAKEN
           reflection: { mood: 'serene', colors: ['#f39c12', '#1a1a1a'], text: 'Eternal Reflection' }
         };
         
-        // ADVANCED AUDIO SYSTEM
+        // SIMPLIFIED AUDIO SYSTEM FOR MOBILE
         this.masterGain = null;
         this.limiter = null;
         this.layerGains = {};
-        this.layerPanners = {};
-        this.listener = null;
         this.convolver = null;
         this.delay = null;
         this.compressor = null;
-        this.shepardGain = null;
-        this.ostinatoGain = null;
         
         // Spatial Orientation
         this.orientation = { alpha: 0, beta: 0, gamma: 0 };
@@ -373,20 +408,20 @@ AWAKEN
         this.shepardIntensity = 0;
         this.tensionBuildup = 0;
         
-        // Voice Pool
+        // REDUCED Voice Pool for mobile
         this.voicePool = {
-          kick: { max: 3, active: [] },
-          bass: { max: 4, active: [] },
-          hihat: { max: 6, active: [] },
-          snare: { max: 3, active: [] },
-          ostinato: { max: 8, active: [] },
-          harmony: { max: 12, active: [] },
-          pad: { max: 10, active: [] },
-          atmosphere: { max: 6, active: [] },
-          strings: { max: 16, active: [] }, 
-          brass: { max: 8, active: [] },
-          choir: { max: 12, active: [] },
-          shepard: { max: 6, active: [] }
+          kick: { max: 2, active: [] },
+          bass: { max: 2, active: [] },
+          hihat: { max: 3, active: [] },
+          snare: { max: 2, active: [] },
+          ostinato: { max: 4, active: [] },
+          harmony: { max: 6, active: [] },
+          pad: { max: 4, active: [] },
+          atmosphere: { max: 3, active: [] },
+          strings: { max: 8, active: [] }, 
+          brass: { max: 4, active: [] },
+          choir: { max: 6, active: [] },
+          shepard: { max: 3, active: [] }
         };
         
         // Layers
@@ -412,268 +447,70 @@ AWAKEN
         this.elements = {};
         this.spectrumBars = [];
         
-        // Procedural Noise for Fractal Echo Veil
-        this.noiseSource = null;
-        this.noiseFilter = null;
-        this.noiseGain = null;
-        
         this.init();
       }
 
+      log(message) {
+        if (this.debugMode) {
+          console.log(`[MobileVoidEngine] ${message}`);
+        }
+      }
+
+      showError(message) {
+        this.log(`ERROR: ${message}`);
+        const errorEl = document.getElementById('errorMessage');
+        const errorText = document.getElementById('errorText');
+        errorText.textContent = message;
+        errorEl.classList.add('show');
+      }
+
       init() {
+        this.log('Initializing...');
+        
         ['startScreen', 'startBtn', 'evolutionSpace', 'orb', 'instruction',
          'stageName', 'technique', 'motionBar', 'shepardBar', 'bpmDisplay',
          'keyDisplay', 'voiceCount', 'cinematicOverlay', 'themeText', 'spectrumViz']
         .forEach(id => this.elements[id] = document.getElementById(id));
         
-        this.elements.startBtn.onclick = () => this.start();
-        this.setupMotionDetection();
-        this.setupOrientationDetection();
+        // Touch event for mobile
+        this.elements.startBtn.addEventListener('touchend', (e) => {
+          e.preventDefault();
+          this.start();
+        });
+        
+        // Click for desktop fallback
+        this.elements.startBtn.addEventListener('click', (e) => {
+          e.preventDefault();
+          this.start();
+        });
+        
         this.setupSpectrumVisualizer();
+        this.log('Initialization complete');
       }
 
       setupSpectrumVisualizer() {
-        for (let i = 0; i < 64; i++) {
+        for (let i = 0; i < 32; i++) { // Reduced for mobile
           const bar = document.createElement('div');
           bar.className = 'spectrum-bar';
-          bar.style.left = (i * 12) + 'px';
+          bar.style.left = (i * 24) + 'px';
           bar.style.height = '0px';
           this.elements.spectrumViz.appendChild(bar);
           this.spectrumBars.push(bar);
         }
       }
 
-      setupOrientationDetection() {
-        window.addEventListener('deviceorientation', e => {
-          if (!this.active) return;
-          if (e.alpha !== null) {
-            this.orientation.alpha = e.alpha;
-            this.orientation.beta = e.beta;
-            this.orientation.gamma = e.gamma;
-            this.updateListenerOrientation();
-          }
-        });
-      }
-
-      updateListenerOrientation() {
-        if (!this.listener) return;
-
-        const alphaRad = this.orientation.alpha * Math.PI / 180;
-        const betaRad = this.orientation.beta * Math.PI / 180;
-        const gammaRad = this.orientation.gamma * Math.PI / 180;
-
-        const forwardX = Math.cos(alphaRad) * Math.cos(betaRad);
-        const forwardY = Math.sin(alphaRad) * Math.cos(betaRad);
-        const forwardZ = Math.sin(betaRad);
-
-        const upX = -Math.cos(alphaRad) * Math.sin(betaRad) * Math.sin(gammaRad) - Math.sin(alphaRad) * Math.cos(gammaRad);
-        const upY = -Math.sin(alphaRad) * Math.sin(betaRad) * Math.sin(gammaRad) + Math.cos(alphaRad) * Math.cos(gammaRad);
-        const upZ = Math.cos(betaRad) * Math.sin(gammaRad);
-
-        this.listener.forwardX.value = forwardX;
-        this.listener.forwardY.value = forwardY;
-        this.listener.forwardZ.value = forwardZ;
-        this.listener.upX.value = upX;
-        this.listener.upY.value = upY;
-        this.listener.upZ.value = upZ;
-      }
-
-      async start() {
-        try {
-          if (typeof DeviceMotionEvent?.requestPermission === 'function') {
-            const motionPermission = await DeviceMotionEvent.requestPermission();
-            if (motionPermission !== 'granted') {
-              alert('Motion permission required for unraveling the void');
-              return;
-            }
-          }
-
-          if (typeof DeviceOrientationEvent?.requestPermission === 'function') {
-            const orientationPermission = await DeviceOrientationEvent.requestPermission();
-            if (orientationPermission !== 'granted') {
-              alert('Orientation permission required for spatial unravel');
-              return;
-            }
-          }
-
-          this.ctx = new (window.AudioContext || window.webkitAudioContext)();
-          await this.ctx.resume();
-          this.setupAudioChain();
-          this.setLayerPositions();
-
-          this.elements.startScreen.classList.add('hidden');
-          this.elements.evolutionSpace.classList.add('active');
-          
-          setTimeout(() => {
-            this.elements.instruction.classList.add('show');
-            setTimeout(() => this.elements.instruction.classList.remove('show'), 4000);
-          }, 1000);
-
-          this.active = true;
-          this.startSequencer();
-          this.animate();
-          
-        } catch (e) {
-          console.error('Failed to start engine:', e);
-          alert('Failed to initialize. Please try again.');
-        }
-      }
-
-      setupAudioChain() {
-        this.analyser = this.ctx.createAnalyser();
-        this.analyser.fftSize = 128;
-        this.dataArray = new Uint8Array(this.analyser.frequencyBinCount);
-        
-        this.limiter = this.ctx.createDynamicsCompressor();
-        this.limiter.threshold.value = -6;
-        this.limiter.knee.value = 1;
-        this.limiter.ratio.value = 20;
-        this.limiter.attack.value = 0.001;
-        this.limiter.release.value = 0.01;
-        
-        this.masterGain = this.ctx.createGain();
-        this.masterGain.gain.value = 0.4;
-        
-        this.compressor = this.ctx.createDynamicsCompressor();
-        this.compressor.threshold.value = -24;
-        this.compressor.knee.value = 16;
-        this.compressor.ratio.value = 8;
-        this.compressor.attack.value = 0.005;
-        this.compressor.release.value = 0.15;
-        
-        this.listener = this.ctx.listener;
-        this.listener.positionX.value = 0;
-        this.listener.positionY.value = 0;
-        this.listener.positionZ.value = 0;
-        this.listener.forwardX.value = 0;
-        this.listener.forwardY.value = 0;
-        this.listener.forwardZ.value = -1;
-        this.listener.upX.value = 0;
-        this.listener.upY.value = 1;
-        this.listener.upZ.value = 0;
-        
-        this.convolver = this.ctx.createConvolver();
-        const reverbTime = 6;
-        const buffer = this.ctx.createBuffer(2, this.ctx.sampleRate * reverbTime, this.ctx.sampleRate);
-        for (let c = 0; c < 2; c++) {
-          const data = buffer.getChannelData(c);
-          for (let i = 0; i < data.length; i++) {
-            const decay = Math.pow(1 - i / data.length, 3);
-            data[i] = (Math.random() * 2 - 1) * decay * 0.2;
-          }
-        }
-        this.convolver.buffer = buffer;
-        
-        this.delay = this.ctx.createDelay(0.8);
-        this.delay.delayTime.value = 0.375;
-        const delayFeedback = this.ctx.createGain();
-        delayFeedback.gain.value = 0.35;
-        const delayMix = this.ctx.createGain();
-        delayMix.gain.value = 0.25;
-        
-        this.delay.connect(delayFeedback);
-        delayFeedback.connect(this.delay);
-        this.delay.connect(delayMix);
-        
-        const layerNames = ['kick', 'bass', 'hihat', 'snare', 'ostinato', 'harmony', 'pad', 'atmosphere', 'strings', 'brass', 'choir', 'shepard'];
-        const layerLevels = [0.5, 0.4, 0.15, 0.3, 0.25, 0.2, 0.15, 0.1, 0.3, 0.25, 0.2, 0.15];
-        
-        layerNames.forEach((name, i) => {
-          this.layerGains[name] = this.ctx.createGain();
-          this.layerGains[name].gain.value = layerLevels[i];
-
-          this.layerPanners[name] = this.ctx.createPanner();
-          this.layerPanners[name].panningModel = 'HRTF';
-          this.layerPanners[name].distanceModel = 'inverse';
-          this.layerPanners[name].refDistance = 1;
-          this.layerPanners[name].maxDistance = 10000;
-          this.layerPanners[name].rolloffFactor = 1;
-          this.layerPanners[name].coneInnerAngle = 360;
-          this.layerPanners[name].coneOuterAngle = 0;
-          this.layerPanners[name].coneOuterGain = 0;
-
-          this.layerGains[name].connect(this.layerPanners[name]);
-          this.layerPanners[name].connect(this.compressor);
-
-          if (['strings', 'brass', 'choir', 'harmony', 'pad'].includes(name)) {
-            this.layerGains[name].connect(this.convolver);
-          }
-          
-          if (['ostinato', 'strings', 'snare'].includes(name)) {
-            this.layerGains[name].connect(this.delay);
-          }
-        });
-        
-        this.shepardGain = this.ctx.createGain();
-        this.shepardGain.gain.value = 0.15;
-        this.ostinatoGain = this.ctx.createGain();
-        this.ostinatoGain.gain.value = 0.25;
-        
-        this.compressor.connect(this.limiter);
-        this.convolver.connect(this.limiter);
-        delayMix.connect(this.limiter);
-        this.limiter.connect(this.analyser);
-        this.analyser.connect(this.masterGain);
-        this.masterGain.connect(this.ctx.destination);
-        
-        // Setup Procedural Noise for Fractal Echo Veil
-        this.setupProceduralNoise();
-      }
-
-      setupProceduralNoise() {
-        const bufferSize = 2 * this.ctx.sampleRate;
-        const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
-        const output = buffer.getChannelData(0);
-        for (let i = 0; i < bufferSize; i++) {
-          output[i] = Math.random() * 2 - 1;
-        }
-
-        this.noiseSource = this.ctx.createBufferSource();
-        this.noiseSource.buffer = buffer;
-        this.noiseSource.loop = true;
-
-        this.noiseFilter = this.ctx.createBiquadFilter();
-        this.noiseFilter.type = 'bandpass';
-        this.noiseFilter.frequency.value = 1000;
-        this.noiseFilter.Q.value = 10;
-
-        this.noiseGain = this.ctx.createGain();
-        this.noiseGain.gain.value = 0.05; // Start low, modulate dynamically
-
-        this.noiseSource.connect(this.noiseFilter);
-        this.noiseFilter.connect(this.noiseGain);
-        this.noiseGain.connect(this.layerPanners.atmosphere); // Connect to atmosphere panner
-        this.noiseSource.start();
-      }
-
-      updateProceduralNoise(avgMotion, variance) {
-        // Modulate filter for fractal-like dynamism
-        this.noiseFilter.frequency.value = 500 + avgMotion * 100 + variance * 50;
-        this.noiseFilter.Q.value = 5 + variance * 2;
-        this.noiseGain.gain.value = 0.05 + (this.shepardIntensity * 0.1);
-      }
-
-      setLayerPositions() {
-        this.layerPanners['kick'].setPosition(0, 0, -2);
-        this.layerPanners['bass'].setPosition(0, -1, -3);
-        this.layerPanners['hihat'].setPosition(0, 1, -4);
-        this.layerPanners['snare'].setPosition(0, 0, -1);
-        this.layerPanners['ostinato'].setPosition(-2, 0, -5);
-        this.layerPanners['harmony'].setPosition(2, 0, -5);
-        this.layerPanners['pad'].setPosition(0, 2, 5);
-        this.layerPanners['atmosphere'].setPosition(0, 3, 10);
-        this.layerPanners['strings'].setPosition(-5, 0, -6);
-        this.layerPanners['brass'].setPosition(5, 0, -6);
-        this.layerPanners['choir'].setPosition(0, 2, 8);
-        this.layerPanners['shepard'].setPosition(0, 4, -10);
-      }
-
       setupMotionDetection() {
-        window.addEventListener('devicemotion', e => {
+        this.log('Setting up motion detection...');
+        
+        // Primary motion handler
+        const handleMotion = (e) => {
           if (!this.active) return;
           
-          const acc = e.accelerationIncludingGravity;
-          if (!acc || acc.x === null) return;
+          let acc = e.accelerationIncludingGravity || e.acceleration;
+          if (!acc || acc.x === null) {
+            this.log('No acceleration data available');
+            return;
+          }
 
           const dx = Math.abs(acc.x - this.lastAccel.x);
           const dy = Math.abs(acc.y - this.lastAccel.y);
@@ -695,8 +532,45 @@ AWAKEN
           }
           
           this.lastAccel = { x: acc.x, y: acc.y, z: acc.z };
-        });
+        };
 
+        window.addEventListener('devicemotion', handleMotion);
+        
+        // Touch fallback for devices without motion
+        let lastTouch = { x: 0, y: 0, time: 0 };
+        
+        const handleTouch = (e) => {
+          if (!this.active) return;
+          
+          const touch = e.touches[0] || e.changedTouches[0];
+          if (!touch) return;
+          
+          const now = Date.now();
+          const dt = Math.max(1, now - lastTouch.time);
+          
+          const newX = (touch.clientX / window.innerWidth) * 100;
+          const newY = (touch.clientY / window.innerHeight) * 100;
+          
+          const velocityX = (newX - lastTouch.x) / dt * 100;
+          const velocityY = (newY - lastTouch.y) / dt * 100;
+          
+          const touchMotion = Math.sqrt(velocityX * velocityX + velocityY * velocityY) * 0.15;
+          
+          if (lastTouch.time > 0) { // Skip first touch
+            this.updateMotion(touchMotion);
+          }
+          
+          this.pos.x = newX;
+          this.pos.y = newY;
+          this.direction = Math.atan2(velocityY, velocityX) * (180 / Math.PI);
+          
+          lastTouch = { x: newX, y: newY, time: now };
+        };
+        
+        window.addEventListener('touchmove', handleTouch, { passive: true });
+        window.addEventListener('touchstart', handleTouch, { passive: true });
+        
+        // Desktop fallback
         let lastMouse = { x: 0, y: 0, time: 0 };
         window.addEventListener('mousemove', e => {
           if (!this.active) return;
@@ -715,15 +589,198 @@ AWAKEN
           
           this.pos.x = newX;
           this.pos.y = newY;
-          this.direction = Math.atan2(velocityY, velocityX) * (180 / Math.PI);
-          
-          this.orientation.alpha = (newX / 100) * 360;
-          this.orientation.beta = (newY - 50) * 1.8;
-          this.orientation.gamma = 0;
-          this.updateListenerOrientation();
           
           lastMouse = { x: newX, y: newY, time: now };
         });
+        
+        this.log('Motion detection setup complete');
+      }
+
+      setupOrientationDetection() {
+        window.addEventListener('deviceorientation', e => {
+          if (!this.active) return;
+          if (e.alpha !== null) {
+            this.orientation.alpha = e.alpha;
+            this.orientation.beta = e.beta;
+            this.orientation.gamma = e.gamma;
+          }
+        });
+      }
+
+      async start() {
+        this.log('Starting engine...');
+        
+        try {
+          // Create audio context with user gesture
+          this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+          this.log(`Audio context created. State: ${this.ctx.state}`);
+          
+          // iOS specific handling
+          if (this.isIOS) {
+            this.log('iOS detected, creating silent buffer...');
+            const buffer = this.ctx.createBuffer(1, 1, 22050);
+            const source = this.ctx.createBufferSource();
+            source.buffer = buffer;
+            source.connect(this.ctx.destination);
+            source.start(0);
+          }
+          
+          // Resume context
+          if (this.ctx.state === 'suspended') {
+            this.log('Resuming suspended context...');
+            await this.ctx.resume();
+          }
+          
+          this.log(`Context state after resume: ${this.ctx.state}`);
+          
+          // Request permissions
+          let motionGranted = false;
+          let orientationGranted = false;
+          
+          if (typeof DeviceMotionEvent?.requestPermission === 'function') {
+            this.log('Requesting motion permission...');
+            try {
+              const motionPermission = await DeviceMotionEvent.requestPermission();
+              motionGranted = motionPermission === 'granted';
+              this.log(`Motion permission: ${motionPermission}`);
+            } catch (e) {
+              this.log(`Motion permission error: ${e.message}`);
+            }
+          } else {
+            motionGranted = true; // Assume granted if no permission needed
+          }
+
+          if (typeof DeviceOrientationEvent?.requestPermission === 'function') {
+            this.log('Requesting orientation permission...');
+            try {
+              const orientationPermission = await DeviceOrientationEvent.requestPermission();
+              orientationGranted = orientationPermission === 'granted';
+              this.log(`Orientation permission: ${orientationPermission}`);
+            } catch (e) {
+              this.log(`Orientation permission error: ${e.message}`);
+            }
+          } else {
+            orientationGranted = true; // Assume granted if no permission needed
+          }
+
+          // Setup audio chain
+          this.setupAudioChain();
+          
+          // Setup motion/orientation if granted
+          this.setupMotionDetection();
+          if (orientationGranted) {
+            this.setupOrientationDetection();
+          }
+
+          // Hide start screen and show main UI
+          this.elements.startScreen.classList.add('hidden');
+          this.elements.evolutionSpace.classList.add('active');
+          
+          setTimeout(() => {
+            this.elements.instruction.classList.add('show');
+            setTimeout(() => this.elements.instruction.classList.remove('show'), 4000);
+          }, 1000);
+
+          this.active = true;
+          this.log('Engine started successfully!');
+          
+          // Start the sequencer and animation
+          this.startSequencer();
+          this.animate();
+          
+        } catch (e) {
+          this.showError(`Failed to initialize: ${e.message}`);
+        }
+      }
+
+      setupAudioChain() {
+        this.log('Setting up audio chain...');
+        
+        try {
+          // Analyzer
+          this.analyser = this.ctx.createAnalyser();
+          this.analyser.fftSize = 128; // Reduced for mobile
+          this.dataArray = new Uint8Array(this.analyser.frequencyBinCount);
+          
+          // Simple limiter
+          this.limiter = this.ctx.createDynamicsCompressor();
+          this.limiter.threshold.value = -6;
+          this.limiter.knee.value = 1;
+          this.limiter.ratio.value = 20;
+          this.limiter.attack.value = 0.001;
+          this.limiter.release.value = 0.01;
+          
+          // Master gain
+          this.masterGain = this.ctx.createGain();
+          this.masterGain.gain.value = 0.5; // Lower for mobile
+          
+          // Simple compressor
+          this.compressor = this.ctx.createDynamicsCompressor();
+          this.compressor.threshold.value = -24;
+          this.compressor.knee.value = 16;
+          this.compressor.ratio.value = 6;
+          this.compressor.attack.value = 0.005;
+          this.compressor.release.value = 0.15;
+          
+          // Simple reverb
+          this.convolver = this.ctx.createConvolver();
+          const reverbTime = 3; // Shorter for mobile
+          const buffer = this.ctx.createBuffer(2, this.ctx.sampleRate * reverbTime, this.ctx.sampleRate);
+          for (let c = 0; c < 2; c++) {
+            const data = buffer.getChannelData(c);
+            for (let i = 0; i < data.length; i++) {
+              const decay = Math.pow(1 - i / data.length, 3);
+              data[i] = (Math.random() * 2 - 1) * decay * 0.2;
+            }
+          }
+          this.convolver.buffer = buffer;
+          
+          // Simple delay
+          this.delay = this.ctx.createDelay(0.5);
+          this.delay.delayTime.value = 0.375;
+          const delayFeedback = this.ctx.createGain();
+          delayFeedback.gain.value = 0.3;
+          const delayMix = this.ctx.createGain();
+          delayMix.gain.value = 0.2;
+          
+          this.delay.connect(delayFeedback);
+          delayFeedback.connect(this.delay);
+          this.delay.connect(delayMix);
+          
+          // Layer gains
+          const layerNames = ['kick', 'bass', 'hihat', 'snare', 'ostinato', 'harmony', 
+                            'pad', 'atmosphere', 'strings', 'brass', 'choir', 'shepard'];
+          const layerLevels = [0.5, 0.4, 0.15, 0.3, 0.25, 0.2, 0.15, 0.1, 0.3, 0.25, 0.2, 0.15];
+          
+          layerNames.forEach((name, i) => {
+            this.layerGains[name] = this.ctx.createGain();
+            this.layerGains[name].gain.value = layerLevels[i];
+            this.layerGains[name].connect(this.compressor);
+            
+            // Reverb sends for some layers
+            if (['strings', 'brass', 'choir', 'harmony', 'pad'].includes(name)) {
+              this.layerGains[name].connect(this.convolver);
+            }
+            
+            // Delay sends
+            if (['ostinato', 'strings', 'snare'].includes(name)) {
+              this.layerGains[name].connect(this.delay);
+            }
+          });
+          
+          // Connect main chain
+          this.compressor.connect(this.limiter);
+          this.convolver.connect(this.limiter);
+          delayMix.connect(this.limiter);
+          this.limiter.connect(this.analyser);
+          this.analyser.connect(this.masterGain);
+          this.masterGain.connect(this.ctx.destination);
+          
+          this.log('Audio chain setup complete');
+        } catch (e) {
+          this.log(`Audio chain error: ${e.message}`);
+          throw e;
+        }
       }
 
       updateMotion(newMotion) {
@@ -750,9 +807,6 @@ AWAKEN
         
         this.updateTechniques(avgMotion, variance);
         this.updateEvolution();
-        
-        // Update procedural noise for fractal echo
-        this.updateProceduralNoise(avgMotion, variance);
       }
 
       updateTechniques(avgMotion, variance) {
@@ -858,22 +912,22 @@ AWAKEN
       evolveToTribal() {
         this.stage = 'TRIBAL';
         this.elements.orb.className = 'orb tribal';
-        this.createParticles(40, '#ff6b35');
-        console.log('🔥 TRIBAL EVOLUTION: Into the Unknown');
+        this.createParticles(20, '#ff6b35'); // Reduced for mobile
+        this.log('🔥 TRIBAL EVOLUTION');
       }
 
       evolveToOrchestral() {
         this.stage = 'ORCHESTRAL';
         this.elements.orb.className = 'orb orchestral';
-        this.createParticles(60, '#4a90e2');
-        console.log('🌊 ORCHESTRAL EVOLUTION: Rising Storm');
+        this.createParticles(30, '#4a90e2'); // Reduced for mobile
+        this.log('🌊 ORCHESTRAL EVOLUTION');
       }
 
       evolveToTranscendent() {
         this.stage = 'TRANSCENDENT';
         this.elements.orb.className = 'orb transcendent';
-        this.createParticles(80, '#9b59b6');
-        console.log('✨ TRANSCENDENT EVOLUTION: Void Apotheosis');
+        this.createParticles(40, '#9b59b6'); // Reduced for mobile
+        this.log('✨ TRANSCENDENT EVOLUTION');
       }
 
       createParticles(count, color) {
@@ -1106,7 +1160,8 @@ AWAKEN
         const noteIndex = this.ostinatoPattern[this.ostinatoIndex % this.ostinatoPattern.length];
         const freq = this.noteToFreq(noteIndex, 3);
         
-        for (let i = 0; i < 4; i++) {
+        // Reduced voices for mobile
+        for (let i = 0; i < 2; i++) {
           const osc = this.ctx.createOscillator();
           const gain = this.ctx.createGain();
           const env = this.ctx.createGain();
@@ -1116,7 +1171,7 @@ AWAKEN
           
           osc.type = 'sawtooth';
           osc.frequency.value = freq * (1 + i * 0.001);
-          osc.detune.value = (i - 2) * 3;
+          osc.detune.value = (i - 1) * 3;
           
           filter.type = 'lowpass';
           filter.frequency.value = 600 + this.motion * 150 + this.intensity * 100;
@@ -1126,7 +1181,7 @@ AWAKEN
           if (this.buildPhase) env.gain.linearRampToValueAtTime(1, this.ctx.currentTime + 1);
           env.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 3);
           
-          gain.gain.value = 0.15;
+          gain.gain.value = 0.3;
           
           osc.connect(filter).connect(env).connect(gain).connect(this.layerGains.strings);
           osc.start();
@@ -1251,14 +1306,11 @@ AWAKEN
         osc.connect(filter).connect(env).connect(gain).connect(this.layerGains.atmosphere);
         osc.start();
         osc.stop(this.ctx.currentTime + 20);
-        
-        // Blend with procedural noise for fractal echo veil
-        this.noiseGain.gain.linearRampToValueAtTime(0.1 + Math.random() * 0.05, this.ctx.currentTime + 4);
       }
 
       playShepardTone() {
         const baseFreq = 220;
-        const shepardLayers = 6;
+        const shepardLayers = 3; // Reduced for mobile
         
         for (let i = 0; i < shepardLayers; i++) {
           const osc = this.ctx.createOscillator();
@@ -1333,12 +1385,16 @@ AWAKEN
         const totalVoices = Object.values(this.voicePool).reduce((sum, pool) => sum + pool.active.length, 0);
         this.elements.voiceCount.textContent = totalVoices;
         
-        if (this.analyser) {
-          this.analyser.getByteFrequencyData(this.dataArray);
-          this.spectrumBars.forEach((bar, i) => {
-            const height = (this.dataArray[i] / 255) * 80;
-            bar.style.height = height + 'px';
-          });
+        if (this.analyser && this.dataArray) {
+          try {
+            this.analyser.getByteFrequencyData(this.dataArray);
+            this.spectrumBars.forEach((bar, i) => {
+              const height = (this.dataArray[i] / 255) * 80;
+              bar.style.height = height + 'px';
+            });
+          } catch (e) {
+            this.log(`Spectrum update error: ${e.message}`);
+          }
         }
       }
 
@@ -1373,7 +1429,8 @@ AWAKEN
       }
     }
 
-    new VoidEngine();
+    // Initialize the engine
+    const engine = new MobileVoidEngine();
   </script>
 </body>
 </html>
