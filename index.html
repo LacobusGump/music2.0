@@ -4,10 +4,6 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>GUMP: Cinematic Void Engine</title>
-  <script src="https://cdn.jsdelivr.net/npm/tone@14.7.77/build/Tone.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/tunajs/1.0.14/tuna.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/mathjs@13.1.1/dist/math.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/midi-writer-js@3.0.0/browser/midi-writer-js.js"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     
@@ -140,12 +136,6 @@
       top: 20px;
       right: 20px;
     }
-
-.ui-corner.bottom-right {
-      bottom: 20px;
-      right: 20px;
-      cursor: pointer;
-    }
     
     .stage-name {
       font-size: 14px;
@@ -263,6 +253,14 @@
       z-index: 3;
     }
     
+    .spectrum-bar {
+      position: absolute;
+      bottom: 0;
+      width: 8px;
+      background: linear-gradient(0deg, rgba(255,255,255,0.8), rgba(255,255,255,0.2));
+      border-radius: 4px 4px 0 0;
+      transition: height 0.1s ease;
+    }
   </style>
 </head>
 <body>
@@ -298,12 +296,8 @@ AWAKEN
       <div class="metric">KEY: <span id="keyDisplay">D MIN</span></div>
       <div class="metric">VOICES: <span id="voiceCount">0</span></div>
     </div>
-
-    <div class="ui-corner bottom-right" id="exportBtn">
-EXPORT MIDI
-    </div>
     
-    <canvas id="spectrumViz" class="spectrum-viz"></canvas>
+    <div class="spectrum-viz" id="spectrumViz"></div>
   </div>
 
   <div class="cinematic-overlay" id="cinematicOverlay"></div>
@@ -368,9 +362,6 @@ EXPORT MIDI
         this.compressor = null;
         this.shepardGain = null;
         this.ostinatoGain = null;
-        this.sidechainGain = null;
-        this.tuna = null;
-        this.tunaEffects = {};
         
         // Spatial Orientation
         this.orientation = { alpha: 0, beta: 0, gamma: 0 };
@@ -417,85 +408,39 @@ EXPORT MIDI
         this.currentChordIndex = 0;
         this.bassNote = 0;
         this.lastLeadFreq = 293.66; 
-        this.lastNote = 0;
-        
-        // Fractal Rhythm
-        this.fractalRhythm = this.generateFractalPattern(3);
-        
-        // ML-inspired Melody Net
-        this.melodyNet = {
-          w1: math.matrix([[0.1, 0.2, 0.3], [0.4, 0.5, 0.6], [0.7, 0.8, 0.9]]),
-          b1: math.matrix([0.1, 0.2, 0.3]),
-          w2: math.matrix([[0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3], [0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8], [0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5]]),
-          b2: math.matrix([0,0,0,0,0,0,0])
-        };
         
         this.elements = {};
-        this.spectrumCtx = null;
+        this.spectrumBars = [];
         
         // Procedural Noise for Fractal Echo Veil
         this.noiseSource = null;
         this.noiseFilter = null;
         this.noiseGain = null;
         
-        // Tone.js Synth
-        this.toneSynth = null;
-        
         this.init();
-      }
-
-      generateFractalPattern(depth) {
-        if (depth === 0) return [1];
-        const sub = this.generateFractalPattern(depth - 1);
-        return sub.concat(sub.map(x => x === 1 ? 0 : 1), sub);
-      }
-
-      softmax(arr) {
-        const max = Math.max(...arr);
-        const exp = arr.map(x => Math.exp(x - max));
-        const sum = exp.reduce((a, b) => a + b, 0);
-        return exp.map(x => x / sum);
-      }
-
-      sampleFromProbs(probs) {
-        let r = Math.random();
-        let cum = 0;
-        for (let i = 0; i < probs.length; i++) {
-          cum += probs[i];
-          if (r < cum) return i;
-        }
-        return probs.length - 1;
-      }
-
-      predictNextNote(currentNote, motion, intensity) {
-        const input = math.matrix([currentNote / 12, motion / 10, intensity / 5]);
-        let hidden = math.add(math.multiply(input, this.melodyNet.w1), this.melodyNet.b1);
-        hidden = math.map(hidden, x => Math.max(0, x));
-        let output = math.add(math.multiply(hidden, this.melodyNet.w2), this.melodyNet.b2);
-        const probs = this.softmax(output.toArray());
-        return this.sampleFromProbs(probs);
       }
 
       init() {
         ['startScreen', 'startBtn', 'evolutionSpace', 'orb', 'instruction',
          'stageName', 'technique', 'motionBar', 'shepardBar', 'bpmDisplay',
-         'keyDisplay', 'voiceCount', 'cinematicOverlay', 'themeText', 'spectrumViz', 'exportBtn']
+         'keyDisplay', 'voiceCount', 'cinematicOverlay', 'themeText', 'spectrumViz']
         .forEach(id => this.elements[id] = document.getElementById(id));
         
         this.elements.startBtn.onclick = () => this.start();
         this.setupMotionDetection();
         this.setupOrientationDetection();
         this.setupSpectrumVisualizer();
-        this.elements.exportBtn.onclick = () => this.exportMidi();
       }
 
       setupSpectrumVisualizer() {
-        this.spectrumCtx = this.elements.spectrumViz.getContext('2d');
-        this.elements.spectrumViz.width = window.innerWidth;
-        this.elements.spectrumViz.height = 100;
-        window.addEventListener('resize', () => {
-          this.elements.spectrumViz.width = window.innerWidth;
-        });
+        for (let i = 0; i < 64; i++) {
+          const bar = document.createElement('div');
+          bar.className = 'spectrum-bar';
+          bar.style.left = (i * 12) + 'px';
+          bar.style.height = '0px';
+          this.elements.spectrumViz.appendChild(bar);
+          this.spectrumBars.push(bar);
+        }
       }
 
       setupOrientationDetection() {
@@ -553,12 +498,8 @@ EXPORT MIDI
 
           this.ctx = new (window.AudioContext || window.webkitAudioContext)();
           await this.ctx.resume();
-          this.tuna = new Tuna(this.ctx);
           this.setupAudioChain();
           this.setLayerPositions();
-          Tone.setContext(this.ctx);
-
-          this.toneSynth = new Tone.PolySynth().connect(this.masterGain);
 
           this.elements.startScreen.classList.add('hidden');
           this.elements.evolutionSpace.classList.add('active');
@@ -572,39 +513,9 @@ EXPORT MIDI
           this.startSequencer();
           this.animate();
           
-          this.setupServiceWorker();
-
         } catch (e) {
           console.error('Failed to start engine:', e);
           alert('Failed to initialize. Please try again.');
-        }
-      }
-
-      setupServiceWorker() {
-        if ('serviceWorker' in navigator) {
-          const swScript = `
-            const cacheName = 'void-engine-v1';
-            const resources = [
-              '/',
-              'https://cdn.jsdelivr.net/npm/tone@14.7.77/build/Tone.js',
-              'https://cdnjs.cloudflare.com/ajax/libs/tunajs/1.0.14/tuna.js',
-              'https://cdn.jsdelivr.net/npm/mathjs@13.1.1/dist/math.js',
-              'https://cdn.jsdelivr.net/npm/midi-writer-js@3.0.0/browser/midi-writer-js.js'
-            ];
-            addEventListener('install', e => {
-              e.waitUntil(
-                caches.open(cacheName).then(cache => cache.addAll(resources))
-              );
-            });
-            addEventListener('fetch', e => {
-              e.respondWith(
-                caches.match(e.request).then(cached => cached || fetch(e.request))
-              );
-            });
-          `;
-          const blob = new Blob([swScript], {type: 'application/javascript'});
-          const url = URL.createObjectURL(blob);
-          navigator.serviceWorker.register(url).then(reg => console.log('SW registered')).catch(err => console.error('SW fail', err));
         }
       }
 
@@ -629,16 +540,6 @@ EXPORT MIDI
         this.compressor.ratio.value = 8;
         this.compressor.attack.value = 0.005;
         this.compressor.release.value = 0.15;
-        
-        this.tunaEffects.compressor = new this.tuna.Compressor({
-          threshold: -24,
-          makeupGain: 1,
-          attack: 1,
-          release: 0,
-          ratio: 4,
-          knee: 5,
-          automakeup: true
-        });
         
         this.listener = this.ctx.listener;
         this.listener.positionX.value = 0;
@@ -674,9 +575,6 @@ EXPORT MIDI
         delayFeedback.connect(this.delay);
         this.delay.connect(delayMix);
         
-        this.sidechainGain = this.ctx.createGain();
-        this.sidechainGain.gain.value = 1;
-        
         const layerNames = ['kick', 'bass', 'hihat', 'snare', 'ostinato', 'harmony', 'pad', 'atmosphere', 'strings', 'brass', 'choir', 'shepard'];
         const layerLevels = [0.5, 0.4, 0.15, 0.3, 0.25, 0.2, 0.15, 0.1, 0.3, 0.25, 0.2, 0.15];
         
@@ -695,11 +593,7 @@ EXPORT MIDI
           this.layerPanners[name].coneOuterGain = 0;
 
           this.layerGains[name].connect(this.layerPanners[name]);
-          if (name === 'bass') {
-            this.layerPanners[name].connect(this.sidechainGain).connect(this.compressor);
-          } else {
-            this.layerPanners[name].connect(this.compressor);
-          }
+          this.layerPanners[name].connect(this.compressor);
 
           if (['strings', 'brass', 'choir', 'harmony', 'pad'].includes(name)) {
             this.layerGains[name].connect(this.convolver);
@@ -715,8 +609,7 @@ EXPORT MIDI
         this.ostinatoGain = this.ctx.createGain();
         this.ostinatoGain.gain.value = 0.25;
         
-        this.compressor.connect(this.tunaEffects.compressor.input);
-        this.tunaEffects.compressor.connect(this.limiter);
+        this.compressor.connect(this.limiter);
         this.convolver.connect(this.limiter);
         delayMix.connect(this.limiter);
         this.limiter.connect(this.analyser);
@@ -944,10 +837,6 @@ EXPORT MIDI
         this.bpm = this.bpm * 0.85 + baseBPM * 0.15;
         this.bpm = Math.max(40, Math.min(180, this.bpm));
         
-        if (this.stage === 'TRANSCENDENT' && Math.random() < 0.1) {
-          this.scale = [0, 2, 4, 6, 8, 10]; // Debussy-inspired whole tone
-        }
-        
         this.updateCinematicTheme(avgMotion, this.intensity);
       }
 
@@ -1034,10 +923,7 @@ EXPORT MIDI
         
         if (this.layers.kick && this.step % 8 === 0) this.playKick();
         if (this.layers.bass && this.step % 4 === 0) this.playBass();
-        if (this.layers.hihat) {
-          const rhythmIndex = this.step % this.fractalRhythm.length;
-          if (this.fractalRhythm[rhythmIndex] === 1) this.playHihat();
-        }
+        if (this.layers.hihat && this.step % 2 === 1 && Math.random() < 0.7) this.playHihat();
         if (this.layers.snare && (this.step % 8 === 4 || (this.motionPattern === 'erratic' && this.step % 8 === 6 && Math.random() < 0.5))) this.playSnare();
         if (this.layers.ostinato && this.step % 2 === 0) this.playOstinato();
         if (this.layers.harmony && this.step % 16 === 0) this.playHarmony();
@@ -1068,10 +954,6 @@ EXPORT MIDI
         osc.connect(env).connect(gain).connect(this.layerGains.kick);
         osc.start();
         osc.stop(this.ctx.currentTime + 0.6);
-        
-        // Sidechain
-        this.sidechainGain.gain.setValueAtTime(0.3, this.ctx.currentTime);
-        this.sidechainGain.gain.linearRampToValueAtTime(1, this.ctx.currentTime + 0.2);
       }
 
       playBass() {
@@ -1100,14 +982,6 @@ EXPORT MIDI
         osc.connect(filter).connect(env).connect(gain).connect(this.layerGains.bass);
         osc.start();
         osc.stop(this.ctx.currentTime + 0.8);
-        
-        // Sub-bass layer
-        const subOsc = this.ctx.createOscillator();
-        subOsc.type = 'sine';
-        subOsc.frequency.value = freq * 0.5;
-        subOsc.connect(filter).connect(env).connect(gain).connect(this.layerGains.bass);
-        subOsc.start();
-        subOsc.stop(this.ctx.currentTime + 0.8);
       }
 
       playHihat() {
@@ -1162,10 +1036,8 @@ EXPORT MIDI
       }
 
       playOstinato() {
-        const nextInterval = this.predictNextNote(this.lastNote, this.motion, this.intensity);
-        const noteIndex = this.ostinatoPattern[this.ostinatoIndex % this.ostinatoPattern.length] + nextInterval;
-        const freq = this.noteToFreq(noteIndex % this.scale.length, 4);
-        this.lastNote = nextInterval;
+        const noteIndex = this.ostinatoPattern[this.ostinatoIndex % this.ostinatoPattern.length];
+        const freq = this.noteToFreq(noteIndex, 4);
         
         const osc = this.ctx.createOscillator();
         const gain = this.ctx.createGain();
@@ -1177,7 +1049,6 @@ EXPORT MIDI
         osc.type = 'sawtooth';
         osc.frequency.value = freq;
         osc.detune.value = Math.random() * 6 - 3;
-        if (this.motionPattern === 'erratic') osc.detune.value += Math.random() * 20 - 10; // Aphex glitch
         
         filter.type = 'lowpass';
         filter.frequency.value = 800 + this.motion * 200 + this.intensity * 150;
@@ -1229,12 +1100,6 @@ EXPORT MIDI
           osc.start();
           osc.stop(this.ctx.currentTime + duration);
         });
-        
-        // Bach-inspired counterpoint
-        if (this.layers.strings) {
-          const counterNote = (chord[0] + 7) % this.scale.length;
-          this.toneSynth.triggerAttackRelease(this.noteToFreq(counterNote, 4), '2n', this.ctx.currentTime + 1);
-        }
       }
 
       playStrings() {
@@ -1258,7 +1123,7 @@ EXPORT MIDI
           filter.Q.value = 2.5;
           
           env.gain.setValueAtTime(this.buildPhase ? 0.1 : 0.8, this.ctx.currentTime);
-          if (this.buildPhase) env.gain.linearRampToValueAtTime(1, this.ctx.currentTime + 1); // Zimmer swell
+          if (this.buildPhase) env.gain.linearRampToValueAtTime(1, this.ctx.currentTime + 1);
           env.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 3);
           
           gain.gain.value = 0.15;
@@ -1470,13 +1335,10 @@ EXPORT MIDI
         
         if (this.analyser) {
           this.analyser.getByteFrequencyData(this.dataArray);
-          this.spectrumCtx.clearRect(0, 0, this.elements.spectrumViz.width, this.elements.spectrumViz.height);
-          const barWidth = this.elements.spectrumViz.width / this.dataArray.length;
-          for (let i = 0; i < this.dataArray.length; i++) {
-            const height = (this.dataArray[i] / 255) * this.elements.spectrumViz.height;
-            this.spectrumCtx.fillStyle = `hsl(${i * 360 / this.dataArray.length}, 100%, 50%)`;
-            this.spectrumCtx.fillRect(i * barWidth, this.elements.spectrumViz.height - height, barWidth - 1, height);
-          }
+          this.spectrumBars.forEach((bar, i) => {
+            const height = (this.dataArray[i] / 255) * 80;
+            bar.style.height = height + 'px';
+          });
         }
       }
 
@@ -1508,45 +1370,6 @@ EXPORT MIDI
           requestAnimationFrame(loop);
         };
         requestAnimationFrame(loop);
-      }
-
-      exportMidi() {
-        const drumTrack = new MidiWriter.Track();
-        drumTrack.setTempo(this.bpm);
-        drumTrack.addEvent(0, new MidiWriter.MetaEvent({type: 'channelPrefix', data: [9]})); // Drums on channel 10
-
-        const bassTrack = new MidiWriter.Track();
-        bassTrack.addEvent(0, new MidiWriter.ProgramChangeEvent({instrument: 33})); // Bass
-
-        const harmonyTrack = new MidiWriter.Track();
-        harmonyTrack.addEvent(0, new MidiWriter.ProgramChangeEvent({instrument: 49})); // Strings
-
-        let currentTime = 0; // in ticks
-        const ticksPerBeat = 480;
-        const ticksPer16th = ticksPerBeat / 4;
-
-        for (let step = 0; step < 64; step++) {
-          if (this.layers.kick && step % 8 === 0) {
-            drumTrack.addEvent(currentTime, new MidiWriter.NoteEvent({pitch: 36, duration: '16', velocity: 100}));
-          }
-          if (this.layers.bass && step % 4 === 0) {
-            const midiNote = 36 + this.scale[this.bassNote % this.scale.length];
-            bassTrack.addEvent(currentTime, new MidiWriter.NoteEvent({pitch: midiNote, duration: '8', velocity: 90}));
-          }
-          if (this.layers.harmony && step % 16 === 0) {
-            const chord = this.chordProgression[this.currentChordIndex % this.chordProgression.length];
-            const pitches = chord.map(interval => 60 + interval);
-            harmonyTrack.addEvent(currentTime, new MidiWriter.NoteEvent({pitch: pitches, duration: '1', velocity: 80}));
-          }
-          currentTime += ticksPer16th;
-        }
-
-        const writer = new MidiWriter.Writer([drumTrack, bassTrack, harmonyTrack]);
-        const uri = writer.dataUri();
-        const a = document.createElement('a');
-        a.href = uri;
-        a.download = 'humanity-soul.mid';
-        a.click();
       }
     }
 
