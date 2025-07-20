@@ -398,18 +398,7 @@ AWAKEN
         
         // Musical Elements
         this.key = 'D';
-        this.keyOffsets = {'C':0, 'D':2, 'E':4, 'F':5, 'G':7, 'A':9, 'B':11};
-        this.mode = 'minor';
-        this.scales = {
-          minor: [0, 2, 3, 5, 7, 8, 10],
-          major: [0, 2, 4, 5, 7, 9, 11],
-          dorian: [0, 2, 3, 5, 7, 9, 10],
-          phrygian: [0, 1, 3, 5, 7, 8, 10],
-          lydian: [0, 2, 4, 6, 7, 9, 11],
-          mixolydian: [0, 2, 4, 5, 7, 9, 10],
-          locrian: [0, 1, 3, 5, 6, 8, 10]
-        };
-        this.scale = this.scales[this.mode];
+        this.scale = [0, 2, 3, 5, 7, 8, 10]; // Natural minor
         this.chordProgression = [
           [0, 3, 7],    
           [10, 2, 5],   
@@ -427,10 +416,6 @@ AWAKEN
         this.noiseSource = null;
         this.noiseFilter = null;
         this.noiseGain = null;
-
-        // Environment
-        this.weather = null;
-        this.dayOfWeek = new Date().getDay();
         
         this.init();
       }
@@ -528,78 +513,10 @@ AWAKEN
           this.startSequencer();
           this.animate();
           
-          // Get environment data
-          this.fetchEnvironmentData();
-          
         } catch (e) {
           console.error('Failed to start engine:', e);
           alert('Failed to initialize. Please try again.');
         }
-      }
-
-      fetchEnvironmentData() {
-        navigator.geolocation.getCurrentPosition(
-          (pos) => {
-            fetch(`https://api.open-meteo.com/v1/forecast?latitude=${pos.coords.latitude}&longitude=${pos.coords.longitude}&current_weather=true`)
-              .then(res => res.json())
-              .then(data => {
-                this.weather = data.current_weather;
-                this.updateFromEnvironment();
-              })
-              .catch(err => console.error('Weather fetch error:', err));
-          },
-          (err) => console.error('Geolocation error:', err),
-          { enableHighAccuracy: true }
-        );
-      }
-
-      updateFromEnvironment() {
-        if (this.weather) {
-          const temp = this.weather.temperature;
-          const weatherCode = this.weather.weathercode;
-
-          // Influence BPM based on temperature
-          this.bpm += (temp - 15) * 0.5; // Warmer = faster BPM
-          this.bpm = Math.max(40, Math.min(180, this.bpm));
-
-          // Weather code influence
-          if (weatherCode >= 61 && weatherCode <= 67) { // Rain
-            this.layers.atmosphere = true;
-            this.convolver.buffer = this.createReverbBuffer(8); // Longer reverb for rain
-            this.currentTheme = 'tension';
-          } else if (weatherCode <= 3) { // Clear
-            this.currentTheme = 'adventure';
-            this.layers.pad = true;
-          } else if (weatherCode >= 71 && weatherCode <= 77) { // Snow
-            this.layers.choir = true;
-            this.currentTheme = 'reflection';
-          }
-
-          // Adjust intensity based on wind
-          this.intensity += this.weather.windspeed / 20;
-        }
-
-        // Day of week influence
-        const days = ['minor', 'major', 'dorian', 'phrygian', 'lydian', 'mixolydian', 'locrian'];
-        this.mode = days[this.dayOfWeek];
-        this.scale = this.scales[this.mode];
-
-        const keys = ['C', 'D', 'E', 'F', 'G', 'A', 'B'];
-        this.key = keys[this.dayOfWeek];
-
-        this.elements.keyDisplay.textContent = `${this.key} ${this.mode.toUpperCase()}`;
-      }
-
-      createReverbBuffer(time) {
-        const buffer = this.ctx.createBuffer(2, this.ctx.sampleRate * time, this.ctx.sampleRate);
-        for (let c = 0; c < 2; c++) {
-          const data = buffer.getChannelData(c);
-          for (let i = 0; i < data.length; i++) {
-            const decay = Math.pow(1 - i / data.length, 3);
-            data[i] = (Math.random() * 2 - 1) * decay * 0.2;
-          }
-        }
-        return buffer;
       }
 
       setupAudioChain() {
@@ -636,7 +553,16 @@ AWAKEN
         this.listener.upZ.value = 0;
         
         this.convolver = this.ctx.createConvolver();
-        this.convolver.buffer = this.createReverbBuffer(6);
+        const reverbTime = 6;
+        const buffer = this.ctx.createBuffer(2, this.ctx.sampleRate * reverbTime, this.ctx.sampleRate);
+        for (let c = 0; c < 2; c++) {
+          const data = buffer.getChannelData(c);
+          for (let i = 0; i < data.length; i++) {
+            const decay = Math.pow(1 - i / data.length, 3);
+            data[i] = (Math.random() * 2 - 1) * decay * 0.2;
+          }
+        }
+        this.convolver.buffer = buffer;
         
         this.delay = this.ctx.createDelay(0.8);
         this.delay.delayTime.value = 0.375;
@@ -1363,13 +1289,7 @@ AWAKEN
         const pool = this.voicePool[layer];
         if (!pool) return false;
         
-        pool.active = pool.active.filter(voice => {
-          if (voice && voice.osc && this.ctx.currentTime > voice.startTime + duration + 0.1) {
-            voice.osc.stop();
-            return false;
-          }
-          return true;
-        });
+        pool.active = pool.active.filter(voice => voice.osc && voice.osc.playbackState !== 'finished');
         
         if (pool.active.length >= pool.max) {
           const oldest = pool.active.shift();
@@ -1395,8 +1315,7 @@ AWAKEN
       }
 
       noteToFreq(note, octave = 4) {
-        const semitones = this.keyOffsets[this.key] + note;
-        return 261.63 * Math.pow(2, semitones / 12 + (octave - 4));
+        return 293.66 * Math.pow(2, (note - 2) / 12 + (octave - 4));
       }
 
       updateUI() {
