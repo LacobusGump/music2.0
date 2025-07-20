@@ -368,12 +368,10 @@ AWAKEN
         
         // Techniques
         this.shepardTones = []; 
-        this.ostinatoPattern = [0, 2, 0, 5, 0,  // Note: original was [0, 2, 0, 5, 0, 3, 0, 3, 0, 0, 3, 0]; 
+        this.ostinatoPattern = [0, 2, 0, 5, 0, 3, 0, 7]; 
         this.ostinatoIndex = 0;
         this.shepardIntensity = 0;
         this.tensionBuildup = 0;
-        
-        this.solfeggioFrequencies = [174, 285, 396, 417, 528, 639, 639,852, 741, 852, 963];
         
         // Voice Pool
         this.voicePool = {
@@ -382,27 +380,36 @@ AWAKEN
           hihat: { max: 6, active: [] },
           snare: { max: 3, active: [] },
           ostinato: { max: 8, active: [] },
-          harmony: { max: 12, active: 12, active: [] },
+          harmony: { max: 12, active: [] },
           pad: { max: 10, active: [] },
           atmosphere: { max: 6, active: [] },
           strings: { max: 16, active: [] }, 
           brass: { max: 8, active: [] },
           choir: { max: 12, active: [] },
-          shepard: { max: 6, active: [] },
-          healing: { max: 4, active: [] }  // New healing layer
+          shepard: { max: 6, active: [] }
         };
         
         // Layers
         this.layers = {
           kick: false, bass: false, hihat: false, snare: false,
           ostinato: false, harmony: false, pad: false, atmosphere: false,
-          strings: false, brass: false, choir: false, shepard: false,
-          healing: false  // New healing layer
+          strings: false, brass: false, choir: false, shepard: false
         };
         
         // Musical Elements
         this.key = 'D';
-        this.scale = [0, 2, 3, 5, 7, 8, 10]; // Natural minor
+        this.keyOffsets = {'C':0, 'D':2, 'E':4, 'F':5, 'G':7, 'A':9, 'B':11};
+        this.mode = 'minor';
+        this.scales = {
+          minor: [0, 2, 3, 5, 7, 8, 10],
+          major: [0, 2, 4, 5, 7, 9, 11],
+          dorian: [0, 2, 3, 5, 7, 9, 10],
+          phrygian: [0, 1, 3, 5, 7, 8, 10],
+          lydian: [0, 2, 4, 6, 7, 9, 11],
+          mixolydian: [0, 2, 4, 5, 7, 9, 10],
+          locrian: [0, 1, 3, 5, 6, 8, 10]
+        };
+        this.scale = this.scales[this.mode];
         this.chordProgression = [
           [0, 3, 7],    
           [10, 2, 5],   
@@ -420,21 +427,10 @@ AWAKEN
         this.noiseSource = null;
         this.noiseFilter = null;
         this.noiseGain = null;
-        
+
         // Environment
         this.weather = null;
         this.dayOfWeek = new Date().getDay();
-        
-        // New features for gestures and looping
-        this.accelHistory = [];
-        this.orientationHistory = [];
-        this.recentTriggers = [];
-        this.currentTriggers = new Set();
-        this.loopMode = false;
-        this.loopBuffer = [];
-        this.loopIndex = 0;
-        this.loopCycles = 0;
-        this.loopType = '';
         
         this.init();
       }
@@ -469,8 +465,6 @@ AWAKEN
             this.orientation.alpha = e.alpha;
             this.orientation.beta = e.beta;
             this.orientation.gamma = e.gamma;
-            this.orientationHistory.push({alpha: e.alpha, beta: e.beta, gamma: e.gamma});
-            if (this.orientationHistory.length > 40) this.orientationHistory.shift();
             this.updateListenerOrientation();
           }
         });
@@ -588,7 +582,7 @@ AWAKEN
         // Day of week influence
         const days = ['minor', 'major', 'dorian', 'phrygian', 'lydian', 'mixolydian', 'locrian'];
         this.mode = days[this.dayOfWeek];
-        this.scale = this.scales[this.mode]; // Assuming this.scales is defined elsewhere; if not, add default scales object
+        this.scale = this.scales[this.mode];
 
         const keys = ['C', 'D', 'E', 'F', 'G', 'A', 'B'];
         this.key = keys[this.dayOfWeek];
@@ -655,8 +649,8 @@ AWAKEN
         delayFeedback.connect(this.delay);
         this.delay.connect(delayMix);
         
-        const layerNames = ['kick', 'bass', 'hihat', 'snare', 'ostinato', 'harmony', 'pad', 'atmosphere', 'strings', 'brass', 'choir', 'shepard', 'healing'];
-        const layerLevels = [0.5, 0.4, 0.15, 0.3, 0.25, 0.2, 0.15, 0.1, 0.3, 0.25, 0.2, 0.15, 0.1];
+        const layerNames = ['kick', 'bass', 'hihat', 'snare', 'ostinato', 'harmony', 'pad', 'atmosphere', 'strings', 'brass', 'choir', 'shepard'];
+        const layerLevels = [0.5, 0.4, 0.15, 0.3, 0.25, 0.2, 0.15, 0.1, 0.3, 0.25, 0.2, 0.15];
         
         layerNames.forEach((name, i) => {
           this.layerGains[name] = this.ctx.createGain();
@@ -675,7 +669,7 @@ AWAKEN
           this.layerGains[name].connect(this.layerPanners[name]);
           this.layerPanners[name].connect(this.compressor);
 
-          if (['strings', 'brass', 'choir', 'harmony', 'pad', 'healing'].includes(name)) {
+          if (['strings', 'brass', 'choir', 'harmony', 'pad'].includes(name)) {
             this.layerGains[name].connect(this.convolver);
           }
           
@@ -746,7 +740,6 @@ AWAKEN
         this.layerPanners['brass'].setPosition(5, 0, -6);
         this.layerPanners['choir'].setPosition(0, 2, 8);
         this.layerPanners['shepard'].setPosition(0, 4, -10);
-        this.layerPanners['healing'].setPosition(0, 0, 0); // Close to listener for immersion
       }
 
       setupMotionDetection() {
@@ -774,9 +767,6 @@ AWAKEN
             this.lastStepTime = Date.now();
             this.syncBPMToSteps();
           }
-          
-          this.accelHistory.push({x: acc.x, y: acc.y, z: acc.z});
-          if (this.accelHistory.length > 40) this.accelHistory.shift();
           
           this.lastAccel = { x: acc.x, y: acc.y, z: acc.z };
         });
@@ -837,46 +827,6 @@ AWAKEN
         
         // Update procedural noise for fractal echo
         this.updateProceduralNoise(avgMotion, variance);
-        
-        const gesture = this.detectGesture();
-        if (gesture && gesture !== this.loopType) {
-          this.triggerLoop(gesture);
-        }
-      }
-
-      detectGesture() {
-        if (this.accelHistory.length < 20 || this.orientationHistory.length < 20) return null;
-
-        const recentAcc = this.accelHistory.slice(-20);
-
-        const xVariance = recentAcc.reduce((sum, a) => sum + a.x ** 2, 0) / 20;
-        const yVariance = recentAcc.reduce((sum, a) => sum + a.y ** 2, 0) / 20;
-
-        if (xVariance > 50 && xVariance > yVariance * 2) return 'horizontal';
-        if (yVariance > 50 && yVariance > xVariance * 2) return 'vertical';
-
-        const recentOri = this.orientationHistory.slice(-20);
-        let alphaDelta = 0;
-        for (let i = 1; i < recentOri.length; i++) {
-          let d = recentOri[i].alpha - recentOri[i - 1].alpha;
-          if (d > 180) d -= 360;
-          if (d < -180) d += 360;
-          alphaDelta += d;
-        }
-        if (Math.abs(alphaDelta) > 270) return 'circular';
-
-        const avgBeta = recentOri.reduce((sum, o) => sum + o.beta, 0) / 20;
-        if (Math.abs(avgBeta) > 150) return 'invert';
-
-        return null;
-      }
-
-      triggerLoop(type) {
-        this.loopBuffer = this.recentTriggers.map(set => new Set([...set]));
-        this.loopIndex = 0;
-        this.loopCycles = 1;
-        this.loopType = type;
-        this.loopMode = this.loopBuffer.length > 0;
       }
 
       updateTechniques(avgMotion, variance) {
@@ -939,7 +889,6 @@ AWAKEN
         this.layers.brass = this.stage !== 'SILENCE' && this.intensity > 2.5 && this.buildPhase;
         this.layers.choir = this.stage === 'TRANSCENDENT' && avgMotion < 2 && this.releasePhase;
         this.layers.shepard = this.shepardIntensity > 0.1;
-        this.layers.healing = this.releasePhase && this.motionPattern === 'calm' && this.totalMotion > 50;
         
         this.evolutionProgress = Math.min(this.totalMotion / 1200, 3);
         this.subStage = Math.floor(this.evolutionProgress);
@@ -1046,103 +995,18 @@ AWAKEN
           setTimeout(() => this.elements.orb.classList.remove('pulse'), 150);
         }
         
-        let triggers = null;
-        if (this.loopMode) {
-          triggers = this.loopBuffer[this.loopIndex];
-        }
-        
-        if ((this.loopMode ? triggers.has('kick') : this.layers.kick && this.step % 8 === 0)) this.playKick();
-        if ((this.loopMode ? triggers.has('bass') : this.layers.bass && this.step % 4 === 0)) this.playBass();
-        if ((this.loopMode ? triggers.has('hihat') : this.layers.hihat && this.step % 2 === 1 && Math.random() < 0.7)) this.playHihat();
-        if ((this.loopMode ? triggers.has('snare') : this.layers.snare && (this.step % 8 === 4 || (this.motionPattern === 'erratic' && this.step % 8 === 6 && Math.random() < 0.5)))) this.playSnare();
-        if ((this.loopMode ? triggers.has('ostinato') : this.layers.ostinato && this.step % 2 === 0)) this.playOstinato();
-        if ((this.loopMode ? triggers.has('harmony') : this.layers.harmony && this.step % 16 === 0)) this.playHarmony();
-        if ((this.loopMode ? triggers.has('pad') : this.layers.pad && this.step % 32 === 0 && this.releasePhase)) this.playPad();
-        if ((this.loopMode ? triggers.has('atmosphere') : this.layers.atmosphere && Math.random() < 0.03 && this.releasePhase)) this.playAtmosphere();
-        if ((this.loopMode ? triggers.has('strings') : this.layers.strings && (this.step % 4 === 0 || this.buildPhase))) this.playStrings();
-        if ((this.loopMode ? triggers.has('brass') : this.layers.brass && this.step % 16 === 0 && this.buildPhase)) this.playBrass();
-        if ((this.loopMode ? triggers.has('choir') : this.layers.choir && this.step % 32 === 0 && this.releasePhase)) this.playChoir();
-        if ((this.loopMode ? triggers.has('shepard') : this.layers.shepard && this.step % 8 === 0)) this.playShepardTone();
-        if ((this.loopMode ? triggers.has('healing') : this.layers.healing && this.step % 32 === 0)) this.playHealingTone();
-        
-        this.recentTriggers.push(new Set(this.currentTriggers));
-        if (this.recentTriggers.length > 16) this.recentTriggers.shift();
-        this.currentTriggers = new Set();
-        
-        if (this.loopMode) {
-          this.loopIndex++;
-          if (this.loopIndex >= this.loopBuffer.length) {
-            this.loopIndex = 0;
-            this.loopCycles--;
-            if (this.loopCycles <= 0) {
-              this.loopMode = false;
-              this.loopType = '';
-            }
-          }
-        }
-      }
-
-      applyLoopModulation(osc, gain, filter, layer) {
-        if (!this.loopMode) return;
-        switch (this.loopType) {
-          case 'horizontal':
-            this.layerPanners[layer].positionX.value = Math.sin(this.direction * Math.PI / 180) * 5;
-            break;
-          case 'vertical':
-            gain.gain.value *= 1 + Math.abs(this.velocity.y) / 10;
-            break;
-          case 'circular':
-            osc.detune.value += Math.sin(this.ctx.currentTime * 2 * Math.PI) * 20;
-            break;
-          case 'invert':
-            osc.frequency.value *= 0.8;
-            if (filter) filter.frequency.value *= 0.8;
-            break;
-        }
-      }
-
-      playHealingTone() {
-        let freqs = [];
-        if (this.stage === 'SILENCE') {
-          freqs = [174, 285];
-        } else if (this.stage === 'TRIBAL') {
-          freqs = [396, 417];
-        } else if (this.stage === 'ORCHESTRAL') {
-          freqs = [528, 639];
-        } else if (this.stage === 'TRANSCENDENT') {
-          freqs = [741, 852, 963];
-        }
-
-        freqs.forEach(freq => {
-          const osc = this.ctx.createOscillator();
-          const gain = this.ctx.createGain();
-          const env = this.ctx.createGain();
-          const filter = this.ctx.createBiquadFilter();
-          
-          if (!this.allocateVoice('healing', osc, gain, 30)) return;
-          
-          this.currentTriggers.add('healing');
-          
-          osc.type = 'sine';
-          osc.frequency.value = freq;
-          
-          filter.type = 'lowpass';
-          filter.frequency.value = freq * 2;
-          filter.Q.value = 1;
-          
-          env.gain.setValueAtTime(0, this.ctx.currentTime);
-          env.gain.linearRampToValueAtTime(0.2, this.ctx.currentTime + 5);
-          env.gain.setValueAtTime(0.2, this.ctx.currentTime + 25);
-          env.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 30);
-          
-          gain.gain.value = 0.15 / freqs.length;
-          
-          this.applyLoopModulation(osc, gain, filter, 'healing');
-          
-          osc.connect(filter).connect(env).connect(gain).connect(this.layerGains.healing);
-          osc.start();
-          osc.stop(this.ctx.currentTime + 30);
-        });
+        if (this.layers.kick && this.step % 8 === 0) this.playKick();
+        if (this.layers.bass && this.step % 4 === 0) this.playBass();
+        if (this.layers.hihat && this.step % 2 === 1 && Math.random() < 0.7) this.playHihat();
+        if (this.layers.snare && (this.step % 8 === 4 || (this.motionPattern === 'erratic' && this.step % 8 === 6 && Math.random() < 0.5))) this.playSnare();
+        if (this.layers.ostinato && this.step % 2 === 0) this.playOstinato();
+        if (this.layers.harmony && this.step % 16 === 0) this.playHarmony();
+        if (this.layers.pad && this.step % 32 === 0 && this.releasePhase) this.playPad();
+        if (this.layers.atmosphere && Math.random() < 0.03 && this.releasePhase) this.playAtmosphere();
+        if (this.layers.strings && (this.step % 4 === 0 || this.buildPhase)) this.playStrings();
+        if (this.layers.brass && this.step % 16 === 0 && this.buildPhase) this.playBrass();
+        if (this.layers.choir && this.step % 32 === 0 && this.releasePhase) this.playChoir();
+        if (this.layers.shepard && this.step % 8 === 0) this.playShepardTone();
       }
 
       playKick() {
@@ -1152,8 +1016,6 @@ AWAKEN
         
         if (!this.allocateVoice('kick', osc, gain, 0.6)) return;
         
-        this.currentTriggers.add('kick');
-        
         osc.type = 'sine';
         osc.frequency.setValueAtTime(45 + this.intensity * 8, this.ctx.currentTime);
         osc.frequency.exponentialRampToValueAtTime(25, this.ctx.currentTime + 0.4);
@@ -1162,8 +1024,6 @@ AWAKEN
         env.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.6);
         
         gain.gain.value = 0.9;
-        
-        this.applyLoopModulation(osc, gain, null, 'kick');
         
         osc.connect(env).connect(gain).connect(this.layerGains.kick);
         osc.start();
@@ -1181,8 +1041,6 @@ AWAKEN
         
         if (!this.allocateVoice('bass', osc, gain, 0.8)) return;
         
-        this.currentTriggers.add('bass');
-        
         osc.type = 'sawtooth';
         osc.frequency.value = freq * 0.75;
         
@@ -1194,8 +1052,6 @@ AWAKEN
         env.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.8);
         
         gain.gain.value = 0.8;
-        
-        this.applyLoopModulation(osc, gain, filter, 'bass');
         
         osc.connect(filter).connect(env).connect(gain).connect(this.layerGains.bass);
         osc.start();
@@ -1210,8 +1066,6 @@ AWAKEN
         
         if (!this.allocateVoice('hihat', osc, gain, 0.15)) return;
         
-        this.currentTriggers.add('hihat');
-        
         osc.type = 'square';
         osc.frequency.value = 8000 + Math.random() * 2000 + this.intensity * 400;
         
@@ -1223,8 +1077,6 @@ AWAKEN
         env.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.15);
         
         gain.gain.value = 0.4;
-        
-        this.applyLoopModulation(osc, gain, filter, 'hihat');
         
         osc.connect(filter).connect(env).connect(gain).connect(this.layerGains.hihat);
         osc.start();
@@ -1239,8 +1091,6 @@ AWAKEN
         
         if (!this.allocateVoice('snare', osc1, gain, 0.3)) return;
         
-        this.currentTriggers.add('snare');
-        
         osc1.type = 'triangle';
         osc1.frequency.value = 150 + this.intensity * 20;
         osc2.type = 'square';
@@ -1250,8 +1100,6 @@ AWAKEN
         env.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.3);
         
         gain.gain.value = 0.6;
-        
-        this.applyLoopModulation(osc1, gain, null, 'snare');
         
         osc1.connect(env).connect(gain).connect(this.layerGains.snare);
         osc2.connect(env).connect(gain).connect(this.layerGains.snare);
@@ -1272,8 +1120,6 @@ AWAKEN
         
         if (!this.allocateVoice('ostinato', osc, gain, 0.8)) return;
         
-        this.currentTriggers.add('ostinato');
-        
         osc.type = 'sawtooth';
         osc.frequency.value = freq;
         osc.detune.value = Math.random() * 6 - 3;
@@ -1287,8 +1133,6 @@ AWAKEN
         env.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.8);
         
         gain.gain.value = 0.6;
-        
-        this.applyLoopModulation(osc, gain, filter, 'ostinato');
         
         osc.connect(filter).connect(env).connect(gain).connect(this.layerGains.ostinato);
         osc.start();
@@ -1312,8 +1156,6 @@ AWAKEN
           
           if (!this.allocateVoice('harmony', osc, gain, duration)) return;
           
-          this.currentTriggers.add('harmony');
-          
           osc.type = 'sine';
           osc.frequency.value = freq;
           osc.detune.value = Math.random() * 4 - 2;
@@ -1327,8 +1169,6 @@ AWAKEN
           env.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + duration);
           
           gain.gain.value = baseGain;
-          
-          this.applyLoopModulation(osc, gain, filter, 'harmony');
           
           osc.connect(filter).connect(env).connect(gain).connect(this.layerGains.harmony);
           osc.start();
@@ -1348,8 +1188,6 @@ AWAKEN
           
           if (!this.allocateVoice('strings', osc, gain, 3)) return;
           
-          this.currentTriggers.add('strings');
-          
           osc.type = 'sawtooth';
           osc.frequency.value = freq * (1 + i * 0.001);
           osc.detune.value = (i - 2) * 3;
@@ -1363,8 +1201,6 @@ AWAKEN
           env.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 3);
           
           gain.gain.value = 0.15;
-          
-          this.applyLoopModulation(osc, gain, filter, 'strings');
           
           osc.connect(filter).connect(env).connect(gain).connect(this.layerGains.strings);
           osc.start();
@@ -1383,8 +1219,6 @@ AWAKEN
         
         if (!this.allocateVoice('brass', osc, gain, 3)) return;
         
-        this.currentTriggers.add('brass');
-        
         osc.type = 'sawtooth';
         osc.frequency.value = freq;
         
@@ -1397,8 +1231,6 @@ AWAKEN
         env.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 3);
         
         gain.gain.value = 0.4;
-        
-        this.applyLoopModulation(osc, gain, filter, 'brass');
         
         osc.connect(filter).connect(env).connect(gain).connect(this.layerGains.brass);
         osc.start();
@@ -1416,8 +1248,6 @@ AWAKEN
           
           if (!this.allocateVoice('choir', osc, gain, 15)) return;
           
-          this.currentTriggers.add('choir');
-          
           osc.type = 'triangle';
           osc.frequency.value = freq * (1 + Math.random() * 0.003);
           
@@ -1430,8 +1260,6 @@ AWAKEN
           env.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 15);
           
           gain.gain.value = 0.12;
-          
-          this.applyLoopModulation(osc, gain, filter, 'choir');
           
           osc.connect(filter).connect(env).connect(gain).connect(this.layerGains.choir);
           osc.start();
@@ -1452,8 +1280,6 @@ AWAKEN
           
           if (!this.allocateVoice('pad', osc, gain, 12)) return;
           
-          this.currentTriggers.add('pad');
-          
           osc.type = 'sine';
           osc.frequency.value = freq * (1 + i * 0.002);
           
@@ -1466,8 +1292,6 @@ AWAKEN
           env.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 12);
           
           gain.gain.value = 0.1;
-          
-          this.applyLoopModulation(osc, gain, filter, 'pad');
           
           osc.connect(filter).connect(env).connect(gain).connect(this.layerGains.pad);
           osc.start();
@@ -1485,8 +1309,6 @@ AWAKEN
         
         if (!this.allocateVoice('atmosphere', osc, gain, 20)) return;
         
-        this.currentTriggers.add('atmosphere');
-        
         osc.type = 'sine';
         osc.frequency.value = freq;
         
@@ -1499,8 +1321,6 @@ AWAKEN
         env.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 20);
         
         gain.gain.value = 0.08;
-        
-        this.applyLoopModulation(osc, gain, filter, 'atmosphere');
         
         osc.connect(filter).connect(env).connect(gain).connect(this.layerGains.atmosphere);
         osc.start();
@@ -1521,8 +1341,6 @@ AWAKEN
           
           if (!this.allocateVoice('shepard', osc, gain, 4)) return;
           
-          this.currentTriggers.add('shepard');
-          
           const freq = baseFreq * Math.pow(2, i);
           osc.type = 'sine';
           osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
@@ -1534,8 +1352,6 @@ AWAKEN
           env.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 4);
           
           gain.gain.value = 0.3;
-          
-          this.applyLoopModulation(osc, gain, null, 'shepard');
           
           osc.connect(env).connect(gain).connect(this.layerGains.shepard);
           osc.start();
@@ -1579,7 +1395,8 @@ AWAKEN
       }
 
       noteToFreq(note, octave = 4) {
-        return 293.66 * Math.pow(2, (note - 2) / 12 + (octave - 4));
+        const semitones = this.keyOffsets[this.key] + note;
+        return 261.63 * Math.pow(2, semitones / 12 + (octave - 4));
       }
 
       updateUI() {
