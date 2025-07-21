@@ -356,10 +356,21 @@ AWAKEN
         this.limiter = null;
         this.layerGains = {};
         this.layerPanners = {};
+        this.basePositions = {};
+        this.layerPositions = {};
+        this.layerTargets = {};
+        this.layerPanScales = {
+          kick: 0.1, bass: 0.2, hihat: 0.8, snare: 0.3,
+          ostinato: 1.2, harmony: 1.5, pad: 2.0, atmosphere: 3.0,
+          strings: 1.8, brass: 1.0, choir: 2.5, shepard: 3.5
+        };
+        this.panningLerp = 0.02; // Small value for slow panning
         this.listener = null;
         this.convolver = null;
         this.delay = null;
         this.compressor = null;
+        this.lowBoost = null;
+        this.saturator = null;
         this.shepardGain = null;
         this.ostinatoGain = null;
         
@@ -371,9 +382,11 @@ AWAKEN
         this.ostinatoPattern = [0, 2, 0, 5, 0, 3, 0, 7]; 
         this.ostinatoIndex = 0;
         this.shepardIntensity = 0;
+        this.shepardIntensity
         this.tensionBuildup = 0;
         
         // Voice Pool
+        this.voicePool = this.voicePool; // typo fix if any
         this.voicePool = {
           kick: { max: 3, active: [] },
           bass: { max: 4, active: [] },
@@ -451,7 +464,7 @@ AWAKEN
         for (let i = 0; i < 64; i++) {
           const bar = document.createElement('div');
           bar.className = 'spectrum-bar';
-          bar.style.left = (i * 12) + 'px';
+          bar.style.left = `${i * 1.5625}%`; // better spacing
           bar.style.height = '0px';
           this.elements.spectrumViz.appendChild(bar);
           this.spectrumBars.push(bar);
@@ -596,10 +609,22 @@ AWAKEN
           const data = buffer.getChannelData(c);
           for (let i = 0; i < data.length; i++) {
             const decay = Math.pow(1 - i / data.length, 3);
-            data[i] = (Math.random() * 2 - 1) * decay * 0.2;
+            data[i] = (Math.random() * 2 - 1) * decay * 0.3;
           }
         }
         return buffer;
+      }
+
+      makeDistortionCurve(amount) {
+        const k = amount;
+        const n = 22050;
+        const curve = new Float32Array(n);
+        const deg = Math.PI / 180;
+        for (let i = 0; i < n; i++) {
+          const x = (i * 2) / n - 1;
+          curve[i] = (3 + k) * x * 20 * deg / (Math.PI + k * Math.abs(x));
+        }
+        return curve;
       }
 
       setupAudioChain() {
@@ -608,21 +633,30 @@ AWAKEN
         this.dataArray = new Uint8Array(this.analyser.frequencyBinCount);
         
         this.limiter = this.ctx.createDynamicsCompressor();
-        this.limiter.threshold.value = -6;
+        this.limiter.threshold.value = -3; // Better headroom
         this.limiter.knee.value = 1;
         this.limiter.ratio.value = 20;
         this.limiter.attack.value = 0.001;
         this.limiter.release.value = 0.01;
         
         this.masterGain = this.ctx.createGain();
-        this.masterGain.gain.value = 0.4;
+        this.masterGain.gain.value = 0.5; // Adjusted for richer sound
         
         this.compressor = this.ctx.createDynamicsCompressor();
-        this.compressor.threshold.value = -24;
-        this.compressor.knee.value = 16;
-        this.compressor.ratio.value = 8;
-        this.compressor.attack.value = 0.005;
-        this.compressor.release.value = 0.15;
+        this.compressor.threshold.value = -20; // Gentler compression for dynamics
+        this.compressor.knee.value = 10;
+        this.compressor.ratio.value = 6;
+        this.compressor.attack.value = 0.003;
+        this.compressor.release.value = 0.2;
+        
+        this.lowBoost = this.ctx.createBiquadFilter();
+        this.lowBoost.type = 'lowshelf';
+        this.lowBoost.frequency.value = 150;
+        this.lowBoost.gain.value = 4; // Boost for deeper sound
+        
+        this.saturator = this.ctx.createWaveShaper();
+        this.saturator.curve = this.makeDistortionCurve(5); // Light saturation for warmth
+        this.saturator.oversample = '4x';
         
         this.listener = this.ctx.listener;
         this.listener.positionX.value = 0;
@@ -636,21 +670,21 @@ AWAKEN
         this.listener.upZ.value = 0;
         
         this.convolver = this.ctx.createConvolver();
-        this.convolver.buffer = this.createReverbBuffer(6);
+        this.convolver.buffer = this.createReverbBuffer(7); // Slightly longer for richness
         
         this.delay = this.ctx.createDelay(0.8);
         this.delay.delayTime.value = 0.375;
         const delayFeedback = this.ctx.createGain();
-        delayFeedback.gain.value = 0.35;
+        delayFeedback.gain.value = 0.4; // Increased for richer echo
         const delayMix = this.ctx.createGain();
-        delayMix.gain.value = 0.25;
+        delayMix.gain.value = 0.3;
         
         this.delay.connect(delayFeedback);
         delayFeedback.connect(this.delay);
         this.delay.connect(delayMix);
         
         const layerNames = ['kick', 'bass', 'hihat', 'snare', 'ostinato', 'harmony', 'pad', 'atmosphere', 'strings', 'brass', 'choir', 'shepard'];
-        const layerLevels = [0.5, 0.4, 0.15, 0.3, 0.25, 0.2, 0.15, 0.1, 0.3, 0.25, 0.2, 0.15];
+        const layerLevels = [0.6, 0.5, 0.2, 0.35, 0.3, 0.25, 0.2, 0.15, 0.35, 0.3, 0.25, 0.2]; // Adjusted for better mix
         
         layerNames.forEach((name, i) => {
           this.layerGains[name] = this.ctx.createGain();
@@ -661,29 +695,35 @@ AWAKEN
           this.layerPanners[name].distanceModel = 'inverse';
           this.layerPanners[name].refDistance = 1;
           this.layerPanners[name].maxDistance = 10000;
-          this.layerPanners[name].rolloffFactor = 1;
+          this.layerPanners[name].rolloffFactor = 1.2; // Slightly higher for depth
           this.layerPanners[name].coneInnerAngle = 360;
           this.layerPanners[name].coneOuterAngle = 0;
           this.layerPanners[name].coneOuterGain = 0;
 
+          this.layerPositions[name] = {x: 0, y: 0, z: 0};
+          this.basePositions[name] = {x: 0, y: 0, z: 0};
+          this.layerTargets[name] = {x: 0, y: 0, z: 0};
+
           this.layerGains[name].connect(this.layerPanners[name]);
           this.layerPanners[name].connect(this.compressor);
 
-          if (['strings', 'brass', 'choir', 'harmony', 'pad'].includes(name)) {
+          if (['strings', 'brass', 'choir', 'harmony', 'pad', 'atmosphere'].includes(name)) {
             this.layerGains[name].connect(this.convolver);
           }
           
-          if (['ostinato', 'strings', 'snare'].includes(name)) {
+          if (['ostinato', 'strings', 'snare', 'brass'].includes(name)) {
             this.layerGains[name].connect(this.delay);
           }
         });
         
         this.shepardGain = this.ctx.createGain();
-        this.shepardGain.gain.value = 0.15;
+        this.shepardGain.gain.value = 0.2; // Adjusted
         this.ostinatoGain = this.ctx.createGain();
-        this.ostinatoGain.gain.value = 0.25;
+        this.ostinatoGain.gain.value = 0.3;
         
-        this.compressor.connect(this.limiter);
+        this.compressor.connect(this.lowBoost);
+        this.lowBoost.connect(this.saturator);
+        this.saturator.connect(this.limiter);
         this.convolver.connect(this.limiter);
         delayMix.connect(this.limiter);
         this.limiter.connect(this.analyser);
@@ -697,9 +737,9 @@ AWAKEN
       setupProceduralNoise() {
         const bufferSize = 2 * this.ctx.sampleRate;
         const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
-        const output = buffer.getChannelData(0);
+        const data = buffer.getChannelData(0);
         for (let i = 0; i < bufferSize; i++) {
-          output[i] = Math.random() * 2 - 1;
+          data[i] = Math.random() * 2 - 1;
         }
 
         this.noiseSource = this.ctx.createBufferSource();
@@ -709,37 +749,48 @@ AWAKEN
         this.noiseFilter = this.ctx.createBiquadFilter();
         this.noiseFilter.type = 'bandpass';
         this.noiseFilter.frequency.value = 1000;
-        this.noiseFilter.Q.value = 10;
+        this.noiseFilter.Q.value = 12; // Higher Q for richer texture
 
         this.noiseGain = this.ctx.createGain();
-        this.noiseGain.gain.value = 0.05; // Start low, modulate dynamically
+        this.noiseGain.gain.value = 0.05;
 
         this.noiseSource.connect(this.noiseFilter);
         this.noiseFilter.connect(this.noiseGain);
-        this.noiseGain.connect(this.layerPanners.atmosphere); // Connect to atmosphere panner
+        this.noiseGain.connect(this.layerPanners.atmosphere);
         this.noiseSource.start();
       }
 
       updateProceduralNoise(avgMotion, variance) {
-        // Modulate filter for fractal-like dynamism
-        this.noiseFilter.frequency.value = 500 + avgMotion * 100 + variance * 50;
-        this.noiseFilter.Q.value = 5 + variance * 2;
-        this.noiseGain.gain.value = 0.05 + (this.shepardIntensity * 0.1);
+        this.noiseFilter.frequency.value = 400 + avgMotion * 120 + variance * 60; // Lowered for deeper sound
+        this.noiseFilter.Q.value = 6 + variance * 3;
+        this.noiseGain.gain.value = 0.06 + (this.shepardIntensity * 0.12);
       }
 
       setLayerPositions() {
-        this.layerPanners['kick'].setPosition(0, 0, -2);
-        this.layerPanners['bass'].setPosition(0, -1, -3);
-        this.layerPanners['hihat'].setPosition(0, 1, -4);
-        this.layerPanners['snare'].setPosition(0, 0, -1);
-        this.layerPanners['ostinato'].setPosition(-2, 0, -5);
-        this.layerPanners['harmony'].setPosition(2, 0, -5);
-        this.layerPanners['pad'].setPosition(0, 2, 5);
-        this.layerPanners['atmosphere'].setPosition(0, 3, 10);
-        this.layerPanners['strings'].setPosition(-5, 0, -6);
-        this.layerPanners['brass'].setPosition(5, 0, -6);
-        this.layerPanners['choir'].setPosition(0, 2, 8);
-        this.layerPanners['shepard'].setPosition(0, 4, -10);
+        const positions = {
+          kick: {x: 0, y: 0, z: -2},
+          bass: {x: 0, y: -1, z: -3},
+          hihat: {x: 0, y: 1, z: -4},
+          snare: {x: 0, y: 0, z: -1},
+          ostinato: {x: -2, y: 0, z: -5},
+          harmony: {x: 2, y: 0, z: -5},
+          pad: {x: 0, y: 2, z: 5},
+          atmosphere: {x: 0, y: 3, z: 10},
+          strings: {x: -5, y: 0, z: -6},
+          brass: {x: 5, y: 0, z: -6},
+          choir: {x: 0, y: 2, z: 8},
+          shepard: {x: 0, y: 4, z: -10}
+        };
+
+        Object.keys(positions).forEach(name => {
+          const pos = positions[name];
+          this.basePositions[name] = {...pos};
+          this.layerPositions[name] = {...pos};
+          this.layerTargets[name] = {...pos};
+          this.layerPanners[name].positionX.value = pos.x;
+          this.layerPanners[name].positionY.value = pos.y;
+          this.layerPanners[name].positionZ.value = pos.z;
+        });
       }
 
       setupMotionDetection() {
@@ -1011,14 +1062,19 @@ AWAKEN
 
       playKick() {
         const osc = this.ctx.createOscillator();
+        const oscClick = this.ctx.createOscillator();
         const gain = this.ctx.createGain();
         const env = this.ctx.createGain();
         
         if (!this.allocateVoice('kick', osc, gain, 0.6)) return;
         
         osc.type = 'sine';
-        osc.frequency.setValueAtTime(45 + this.intensity * 8, this.ctx.currentTime);
-        osc.frequency.exponentialRampToValueAtTime(25, this.ctx.currentTime + 0.4);
+        osc.frequency.setValueAtTime(50 + this.intensity * 10, this.ctx.currentTime); // Lower for deeper
+        osc.frequency.exponentialRampToValueAtTime(20, this.ctx.currentTime + 0.4);
+        
+        oscClick.type = 'triangle';
+        oscClick.frequency.setValueAtTime(200, this.ctx.currentTime);
+        oscClick.frequency.exponentialRampToValueAtTime(100, this.ctx.currentTime + 0.05);
         
         env.gain.setValueAtTime(1, this.ctx.currentTime);
         env.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.6);
@@ -1026,8 +1082,11 @@ AWAKEN
         gain.gain.value = 0.9;
         
         osc.connect(env).connect(gain).connect(this.layerGains.kick);
+        oscClick.connect(env).connect(gain).connect(this.layerGains.kick);
         osc.start();
+        oscClick.start();
         osc.stop(this.ctx.currentTime + 0.6);
+        oscClick.stop(this.ctx.currentTime + 0.1);
       }
 
       playBass() {
@@ -1035,6 +1094,7 @@ AWAKEN
         const freq = this.noteToFreq(this.scale[noteIndex], 1);
         
         const osc = this.ctx.createOscillator();
+        const subOsc = this.ctx.createOscillator();
         const gain = this.ctx.createGain();
         const env = this.ctx.createGain();
         const filter = this.ctx.createBiquadFilter();
@@ -1044,9 +1104,12 @@ AWAKEN
         osc.type = 'sawtooth';
         osc.frequency.value = freq * 0.75;
         
+        subOsc.type = 'sine';
+        subOsc.frequency.value = freq / 2;
+        
         filter.type = 'lowpass';
-        filter.frequency.value = 80 + this.motion * 20 + this.intensity * 15;
-        filter.Q.value = 3 + this.intensity * 0.8;
+        filter.frequency.value = 100 + this.motion * 30 + this.intensity * 20; // Lower cutoff for deeper
+        filter.Q.value = 4 + this.intensity * 1;
         
         env.gain.setValueAtTime(1, this.ctx.currentTime);
         env.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.8);
@@ -1054,8 +1117,11 @@ AWAKEN
         gain.gain.value = 0.8;
         
         osc.connect(filter).connect(env).connect(gain).connect(this.layerGains.bass);
+        subOsc.connect(filter).connect(env).connect(gain).connect(this.layerGains.bass);
         osc.start();
+        subOsc.start();
         osc.stop(this.ctx.currentTime + 0.8);
+        subOsc.stop(this.ctx.currentTime + 0.8);
       }
 
       playHihat() {
@@ -1153,12 +1219,20 @@ AWAKEN
           const gain = this.ctx.createGain();
           const env = this.ctx.createGain();
           const filter = this.ctx.createBiquadFilter();
+          const lfo = this.ctx.createOscillator(); // Add vibrato for richness
           
           if (!this.allocateVoice('harmony', osc, gain, duration)) return;
           
           osc.type = 'sine';
           osc.frequency.value = freq;
           osc.detune.value = Math.random() * 4 - 2;
+          
+          lfo.type = 'sine';
+          lfo.frequency.value = 4 + Math.random() * 2;
+          lfo.connect(osc.detune);
+          lfo.start();
+          lfo.stop(this.ctx.currentTime + duration);
+          osc.detune.value = 10; // Vibrato depth
           
           filter.type = 'lowpass';
           filter.frequency.value = 400 + this.motion * 100;
@@ -1185,22 +1259,30 @@ AWAKEN
           const gain = this.ctx.createGain();
           const env = this.ctx.createGain();
           const filter = this.ctx.createBiquadFilter();
+          const lfo = this.ctx.createOscillator(); // Vibrato
           
           if (!this.allocateVoice('strings', osc, gain, 3)) return;
           
           osc.type = 'sawtooth';
           osc.frequency.value = freq * (1 + i * 0.001);
-          osc.detune.value = (i - 2) * 3;
+          osc.detune.value = (i - 2) * 5; // Increased detune for richness
+          
+          lfo.type = 'sine';
+          lfo.frequency.value = 5 + Math.random() * 3;
+          lfo.connect(osc.detune);
+          lfo.start();
+          lfo.stop(this.ctx.currentTime + 3);
+          osc.detune.value = 15;
           
           filter.type = 'lowpass';
-          filter.frequency.value = 600 + this.motion * 150 + this.intensity * 100;
-          filter.Q.value = 2.5;
+          filter.frequency.value = 500 + this.motion * 200 + this.intensity * 150; // Lowered for warmer
+          filter.Q.value = 3;
           
           env.gain.setValueAtTime(this.buildPhase ? 0.1 : 0.8, this.ctx.currentTime);
           if (this.buildPhase) env.gain.linearRampToValueAtTime(1, this.ctx.currentTime + 1);
           env.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 3);
           
-          gain.gain.value = 0.15;
+          gain.gain.value = 0.18; // Adjusted
           
           osc.connect(filter).connect(env).connect(gain).connect(this.layerGains.strings);
           osc.start();
@@ -1213,6 +1295,7 @@ AWAKEN
         const freq = this.noteToFreq(note, 3);
         
         const osc = this.ctx.createOscillator();
+        const osc2 = this.ctx.createOscillator(); // Add second osc for richness
         const gain = this.ctx.createGain();
         const env = this.ctx.createGain();
         const filter = this.ctx.createBiquadFilter();
@@ -1221,6 +1304,8 @@ AWAKEN
         
         osc.type = 'sawtooth';
         osc.frequency.value = freq;
+        osc2.type = 'square';
+        osc2.frequency.value = freq * 1.01; // Slight detune
         
         filter.type = 'lowpass';
         filter.frequency.value = 500 + this.intensity * 200;
@@ -1233,8 +1318,11 @@ AWAKEN
         gain.gain.value = 0.4;
         
         osc.connect(filter).connect(env).connect(gain).connect(this.layerGains.brass);
+        osc2.connect(filter).connect(env).connect(gain).connect(this.layerGains.brass);
         osc.start();
+        osc2.start();
         osc.stop(this.ctx.currentTime + 3);
+        osc2.stop(this.ctx.currentTime + 3);
       }
 
       playChoir() {
@@ -1245,21 +1333,29 @@ AWAKEN
           const gain = this.ctx.createGain();
           const env = this.ctx.createGain();
           const filter = this.ctx.createBiquadFilter();
+          const lfo = this.ctx.createOscillator(); // Vibrato
           
           if (!this.allocateVoice('choir', osc, gain, 15)) return;
           
           osc.type = 'triangle';
           osc.frequency.value = freq * (1 + Math.random() * 0.003);
           
+          lfo.type = 'sine';
+          lfo.frequency.value = 3 + Math.random() * 2;
+          lfo.connect(osc.detune);
+          lfo.start();
+          lfo.stop(this.ctx.currentTime + 15);
+          osc.detune.value = 12;
+          
           filter.type = 'lowpass';
-          filter.frequency.value = 1000 + this.motion * 100;
-          filter.Q.value = 0.8;
+          filter.frequency.value = 800 + this.motion * 150; // Lowered
+          filter.Q.value = 1;
           
           env.gain.setValueAtTime(0, this.ctx.currentTime);
           env.gain.linearRampToValueAtTime(1, this.ctx.currentTime + 5);
           env.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 15);
           
-          gain.gain.value = 0.12;
+          gain.gain.value = 0.15; // Adjusted
           
           osc.connect(filter).connect(env).connect(gain).connect(this.layerGains.choir);
           osc.start();
@@ -1274,6 +1370,7 @@ AWAKEN
           const freq = this.noteToFreq(note, 2 + i % 3);
           
           const osc = this.ctx.createOscillator();
+          const osc2 = this.ctx.createOscillator(); // Add for richness
           const gain = this.ctx.createGain();
           const env = this.ctx.createGain();
           const filter = this.ctx.createBiquadFilter();
@@ -1283,19 +1380,25 @@ AWAKEN
           osc.type = 'sine';
           osc.frequency.value = freq * (1 + i * 0.002);
           
+          osc2.type = 'sine';
+          osc2.frequency.value = freq * 1.005;
+          
           filter.type = 'lowpass';
-          filter.frequency.value = 200 + this.motion * 50;
-          filter.Q.value = 1;
+          filter.frequency.value = 150 + this.motion * 60; // Lower for deeper
+          filter.Q.value = 1.2;
           
           env.gain.setValueAtTime(0, this.ctx.currentTime);
           env.gain.linearRampToValueAtTime(1, this.ctx.currentTime + 3);
           env.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 12);
           
-          gain.gain.value = 0.1;
+          gain.gain.value = 0.12;
           
           osc.connect(filter).connect(env).connect(gain).connect(this.layerGains.pad);
+          osc2.connect(filter).connect(env).connect(gain).connect(this.layerGains.pad);
           osc.start();
+          osc2.start();
           osc.stop(this.ctx.currentTime + 12);
+          osc2.stop(this.ctx.currentTime + 12);
         });
       }
 
@@ -1313,25 +1416,25 @@ AWAKEN
         osc.frequency.value = freq;
         
         filter.type = 'lowpass';
-        filter.frequency.value = 100 + Math.random() * 150;
-        filter.Q.value = 8 + this.intensity * 0.5;
+        filter.frequency.value = 80 + Math.random() * 120; // Lowered
+        filter.Q.value = 10 + this.intensity * 1;
         
         env.gain.setValueAtTime(0, this.ctx.currentTime);
         env.gain.linearRampToValueAtTime(1, this.ctx.currentTime + 4);
         env.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 20);
         
-        gain.gain.value = 0.08;
+        gain.gain.value = 0.1;
         
         osc.connect(filter).connect(env).connect(gain).connect(this.layerGains.atmosphere);
         osc.start();
         osc.stop(this.ctx.currentTime + 20);
         
         // Blend with procedural noise for fractal echo veil
-        this.noiseGain.gain.linearRampToValueAtTime(0.1 + Math.random() * 0.05, this.ctx.currentTime + 4);
+        this.noiseGain.gain.linearRampToValueAtTime(0.12 + Math.random() * 0.06, this.ctx.currentTime + 4);
       }
 
       playShepardTone() {
-        const baseFreq = 220;
+        const baseFreq = 200; // Lowered for deeper
         const shepardLayers = 6;
         
         for (let i = 0; i < shepardLayers; i++) {
@@ -1351,7 +1454,7 @@ AWAKEN
           env.gain.setValueAtTime(amplitude, this.ctx.currentTime);
           env.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 4);
           
-          gain.gain.value = 0.3;
+          gain.gain.value = 0.35; // Adjusted
           
           osc.connect(env).connect(gain).connect(this.layerGains.shepard);
           osc.start();
@@ -1403,7 +1506,7 @@ AWAKEN
         this.elements.stageName.textContent = this.stage;
         this.elements.technique.textContent = this.currentTechnique.toUpperCase();
         this.elements.bpmDisplay.textContent = Math.round(this.bpm);
-        this.elements.keyDisplay.textContent = this.key + ' MIN';
+        this.elements.keyDisplay.textContent = `${this.key} ${this.mode.toUpperCase()}`;
         
         const motionPercent = Math.min((this.motion + this.intensity) * 10, 100);
         this.elements.motionBar.style.width = motionPercent + '%';
@@ -1447,6 +1550,27 @@ AWAKEN
           document.body.style.background = bg;
           
           this.elements.cinematicOverlay.classList.toggle('active', this.buildPhase || this.intensity > 2);
+          
+          // Update dynamic 3D panning
+          const targetX = Math.cos(this.direction * Math.PI / 180) * (this.motion + this.intensity) * 3; // Increased range for dynamic
+          const targetY = Math.sin(this.direction * Math.PI / 180) * (this.motion + this.intensity) * 3;
+          const targetZ = (this.orientation.gamma / 90) * (this.motion + this.intensity) * 2;
+          
+          Object.keys(this.layerPanners).forEach(name => {
+            const scale = this.layerPanScales[name] || 1;
+            const tx = this.basePositions[name].x + targetX * scale;
+            const ty = this.basePositions[name].y + targetY * scale;
+            const tz = this.basePositions[name].z + targetZ * scale;
+            
+            const pos = this.layerPositions[name];
+            pos.x += (tx - pos.x) * this.panningLerp;
+            pos.y += (ty - pos.y) * this.panningLerp;
+            pos.z += (tz - pos.z) * this.panningLerp;
+            
+            this.layerPanners[name].positionX.value = pos.x;
+            this.layerPanners[name].positionY.value = pos.y;
+            this.layerPanners[name].positionZ.value = pos.z;
+          });
           
           requestAnimationFrame(loop);
         };
