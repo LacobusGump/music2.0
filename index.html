@@ -362,7 +362,8 @@ AWAKEN
         this.layerPanScales = {
           kick: 0.1, bass: 0.2, hihat: 0.8, snare: 0.3,
           ostinato: 1.2, harmony: 1.5, pad: 2.0, atmosphere: 3.0,
-          strings: 1.8, brass: 1.0, choir: 2.5, shepard: 3.5
+          strings: 1.8, brass: 1.0, choir: 2.5, shepard: 3.5,
+          healing: 2.5
         };
         this.panningLerp = 0.02; // Small value for slow panning
         this.listener = null;
@@ -382,11 +383,9 @@ AWAKEN
         this.ostinatoPattern = [0, 2, 0, 5, 0, 3, 0, 7]; 
         this.ostinatoIndex = 0;
         this.shepardIntensity = 0;
-        this.shepardIntensity
         this.tensionBuildup = 0;
         
         // Voice Pool
-        this.voicePool = this.voicePool; // typo fix if any
         this.voicePool = {
           kick: { max: 3, active: [] },
           bass: { max: 4, active: [] },
@@ -399,14 +398,16 @@ AWAKEN
           strings: { max: 16, active: [] }, 
           brass: { max: 8, active: [] },
           choir: { max: 12, active: [] },
-          shepard: { max: 6, active: [] }
+          shepard: { max: 6, active: [] },
+          healing: { max: 4, active: [] }
         };
         
         // Layers
         this.layers = {
           kick: false, bass: false, hihat: false, snare: false,
           ostinato: false, harmony: false, pad: false, atmosphere: false,
-          strings: false, brass: false, choir: false, shepard: false
+          strings: false, brass: false, choir: false, shepard: false,
+          healing: false
         };
         
         // Musical Elements
@@ -683,8 +684,8 @@ AWAKEN
         delayFeedback.connect(this.delay);
         this.delay.connect(delayMix);
         
-        const layerNames = ['kick', 'bass', 'hihat', 'snare', 'ostinato', 'harmony', 'pad', 'atmosphere', 'strings', 'brass', 'choir', 'shepard'];
-        const layerLevels = [0.6, 0.5, 0.2, 0.35, 0.3, 0.25, 0.2, 0.15, 0.35, 0.3, 0.25, 0.2]; // Adjusted for better mix
+        const layerNames = ['kick', 'bass', 'hihat', 'snare', 'ostinato', 'harmony', 'pad', 'atmosphere', 'strings', 'brass', 'choir', 'shepard', 'healing'];
+        const layerLevels = [0.6, 0.5, 0.2, 0.35, 0.3, 0.25, 0.2, 0.15, 0.35, 0.3, 0.25, 0.2, 0.1]; // Added healing
         
         layerNames.forEach((name, i) => {
           this.layerGains[name] = this.ctx.createGain();
@@ -707,7 +708,7 @@ AWAKEN
           this.layerGains[name].connect(this.layerPanners[name]);
           this.layerPanners[name].connect(this.compressor);
 
-          if (['strings', 'brass', 'choir', 'harmony', 'pad', 'atmosphere'].includes(name)) {
+          if (['strings', 'brass', 'choir', 'harmony', 'pad', 'atmosphere', 'kick', 'snare', 'healing'].includes(name)) {
             this.layerGains[name].connect(this.convolver);
           }
           
@@ -779,7 +780,8 @@ AWAKEN
           strings: {x: -5, y: 0, z: -6},
           brass: {x: 5, y: 0, z: -6},
           choir: {x: 0, y: 2, z: 8},
-          shepard: {x: 0, y: 4, z: -10}
+          shepard: {x: 0, y: 4, z: -10},
+          healing: {x: 0, y: 5, z: 15}
         };
 
         Object.keys(positions).forEach(name => {
@@ -940,6 +942,7 @@ AWAKEN
         this.layers.brass = this.stage !== 'SILENCE' && this.intensity > 2.5 && this.buildPhase;
         this.layers.choir = this.stage === 'TRANSCENDENT' && avgMotion < 2 && this.releasePhase;
         this.layers.shepard = this.shepardIntensity > 0.1;
+        this.layers.healing = this.motionPattern === 'calm' && avgMotion < 0.5;
         
         this.evolutionProgress = Math.min(this.totalMotion / 1200, 3);
         this.subStage = Math.floor(this.evolutionProgress);
@@ -1058,35 +1061,44 @@ AWAKEN
         if (this.layers.brass && this.step % 16 === 0 && this.buildPhase) this.playBrass();
         if (this.layers.choir && this.step % 32 === 0 && this.releasePhase) this.playChoir();
         if (this.layers.shepard && this.step % 8 === 0) this.playShepardTone();
+        if (this.layers.healing && Math.random() < 0.02) this.playHealingWaves();
       }
 
       playKick() {
         const osc = this.ctx.createOscillator();
         const oscClick = this.ctx.createOscillator();
+        const oscSub = this.ctx.createOscillator(); // Added for massive
         const gain = this.ctx.createGain();
         const env = this.ctx.createGain();
         
-        if (!this.allocateVoice('kick', osc, gain, 0.6)) return;
+        if (!this.allocateVoice('kick', osc, gain, 0.8)) return; // Longer duration
         
         osc.type = 'sine';
-        osc.frequency.setValueAtTime(50 + this.intensity * 10, this.ctx.currentTime); // Lower for deeper
-        osc.frequency.exponentialRampToValueAtTime(20, this.ctx.currentTime + 0.4);
+        osc.frequency.setValueAtTime(45 + this.intensity * 10, this.ctx.currentTime); // Lower
+        osc.frequency.exponentialRampToValueAtTime(20, this.ctx.currentTime + 0.5);
         
         oscClick.type = 'triangle';
-        oscClick.frequency.setValueAtTime(200, this.ctx.currentTime);
-        oscClick.frequency.exponentialRampToValueAtTime(100, this.ctx.currentTime + 0.05);
+        oscClick.frequency.setValueAtTime(180, this.ctx.currentTime);
+        oscClick.frequency.exponentialRampToValueAtTime(80, this.ctx.currentTime + 0.06);
+        
+        oscSub.type = 'sine';
+        oscSub.frequency.setValueAtTime(30, this.ctx.currentTime);
+        oscSub.frequency.exponentialRampToValueAtTime(15, this.ctx.currentTime + 0.5);
         
         env.gain.setValueAtTime(1, this.ctx.currentTime);
-        env.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.6);
+        env.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.8);
         
-        gain.gain.value = 0.9;
+        gain.gain.value = 1.0; // Louder for massive
         
         osc.connect(env).connect(gain).connect(this.layerGains.kick);
         oscClick.connect(env).connect(gain).connect(this.layerGains.kick);
+        oscSub.connect(env).connect(gain).connect(this.layerGains.kick);
         osc.start();
         oscClick.start();
-        osc.stop(this.ctx.currentTime + 0.6);
+        oscSub.start();
+        osc.stop(this.ctx.currentTime + 0.8);
         oscClick.stop(this.ctx.currentTime + 0.1);
+        oscSub.stop(this.ctx.currentTime + 0.8);
       }
 
       playBass() {
@@ -1152,27 +1164,38 @@ AWAKEN
       playSnare() {
         const osc1 = this.ctx.createOscillator();
         const osc2 = this.ctx.createOscillator();
+        const noise = this.ctx.createBufferSource(); // Added noise for snappy
         const gain = this.ctx.createGain();
         const env = this.ctx.createGain();
         
-        if (!this.allocateVoice('snare', osc1, gain, 0.3)) return;
+        if (!this.allocateVoice('snare', osc1, gain, 0.4)) return; // Longer
         
         osc1.type = 'triangle';
-        osc1.frequency.value = 150 + this.intensity * 20;
+        osc1.frequency.value = 140 + this.intensity * 25; // Lower
         osc2.type = 'square';
-        osc2.frequency.value = 6000 + this.motion * 500;
+        osc2.frequency.value = 5500 + this.motion * 600;
+        
+        const noiseBuffer = this.ctx.createBuffer(1, this.ctx.sampleRate * 0.4, this.ctx.sampleRate);
+        const noiseData = noiseBuffer.getChannelData(0);
+        for (let i = 0; i < noiseData.length; i++) {
+          noiseData[i] = Math.random() * 2 - 1;
+        }
+        noise.buffer = noiseBuffer;
         
         env.gain.setValueAtTime(1, this.ctx.currentTime);
-        env.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.3);
+        env.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.4);
         
-        gain.gain.value = 0.6;
+        gain.gain.value = 0.7; // Louder
         
         osc1.connect(env).connect(gain).connect(this.layerGains.snare);
         osc2.connect(env).connect(gain).connect(this.layerGains.snare);
+        noise.connect(env).connect(gain).connect(this.layerGains.snare);
         osc1.start();
         osc2.start();
-        osc1.stop(this.ctx.currentTime + 0.3);
-        osc2.stop(this.ctx.currentTime + 0.08);
+        noise.start();
+        osc1.stop(this.ctx.currentTime + 0.4);
+        osc2.stop(this.ctx.currentTime + 0.1);
+        noise.stop(this.ctx.currentTime + 0.4);
       }
 
       playOstinato() {
@@ -1460,6 +1483,58 @@ AWAKEN
           osc.start();
           osc.stop(this.ctx.currentTime + 4);
         }
+      }
+
+      playHealingWaves() {
+        // Binaural beats for healing, e.g., Delta waves ~4Hz difference
+        const baseFreq = 136; // Heart chakra frequency
+        const duration = 30; // Long duration
+        const leftFreq = baseFreq;
+        const rightFreq = baseFreq + 4; // 4Hz binaural beat
+
+        // Left channel
+        const oscLeft = this.ctx.createOscillator();
+        const gainLeft = this.ctx.createGain();
+        const envLeft = this.ctx.createGain();
+        
+        if (!this.allocateVoice('healing', oscLeft, gainLeft, duration)) return;
+        
+        oscLeft.type = 'sine';
+        oscLeft.frequency.value = leftFreq;
+        
+        envLeft.gain.setValueAtTime(0, this.ctx.currentTime);
+        envLeft.gain.linearRampToValueAtTime(0.5, this.ctx.currentTime + 5);
+        envLeft.gain.linearRampToValueAtTime(0, this.ctx.currentTime + duration);
+        
+        gainLeft.gain.value = 0.08; // Low volume
+        
+        oscLeft.connect(envLeft).connect(gainLeft).connect(this.layerGains.healing);
+        this.layerPanners.healing.positionX.value = -5; // Left
+        
+        oscLeft.start();
+        oscLeft.stop(this.ctx.currentTime + duration);
+
+        // Right channel
+        const oscRight = this.ctx.createOscillator();
+        const gainRight = this.ctx.createGain();
+        const envRight = this.ctx.createGain();
+        
+        if (!this.allocateVoice('healing', oscRight, gainRight, duration)) return;
+        
+        oscRight.type = 'sine';
+        oscRight.frequency.value = rightFreq;
+        
+        envRight.gain.setValueAtTime(0, this.ctx.currentTime);
+        envRight.gain.linearRampToValueAtTime(0.5, this.ctx.currentTime + 5);
+        envRight.gain.linearRampToValueAtTime(0, this.ctx.currentTime + duration);
+        
+        gainRight.gain.value = 0.08;
+        
+        oscRight.connect(envRight).connect(gainRight).connect(this.layerGains.healing);
+        this.layerPanners.healing.positionX.value = 5; // Right
+        
+        oscRight.start();
+        oscRight.stop(this.ctx.currentTime + duration);
       }
 
       allocateVoice(layer, osc, gainNode, duration) {
