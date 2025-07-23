@@ -437,9 +437,6 @@
         this.elements = {};
         this.waveBars = [];
         
-        this.noiseSource = null;
-        this.noiseFilter = null;
-        this.noiseGain = null;
         this.granularBuffer = null;
         
         this.easterEggs = {
@@ -776,9 +773,9 @@
         this.limiter.attack.value = 0.002;
         this.limiter.release.value = 0.15;
         
-        // Master gain - significantly reduced
+        // Master gain - increased for louder music
         this.masterGain = this.ctx.createGain();
-        this.masterGain.gain.value = 0.15; // Lowered further
+        this.masterGain.gain.value = 0.45; 
         
         // Master compressor with musical settings
         this.compressor = this.ctx.createDynamicsCompressor();
@@ -1146,41 +1143,6 @@
             data[i] = sample * 0.08 * envelope; // Reduced volume
           }
         }
-
-        // Pink noise generator
-        const noiseBufferSize = 2 * this.ctx.sampleRate;
-        const noiseBuffer = this.ctx.createBuffer(1, noiseBufferSize, this.ctx.sampleRate);
-        const noiseData = noiseBuffer.getChannelData(0);
-        
-        let b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0;
-        for (let i = 0; i < noiseBufferSize; i++) {
-          const white = Math.random() * 2 - 1;
-          b0 = 0.99886 * b0 + white * 0.0555179;
-          b1 = 0.99332 * b1 + white * 0.0750759;
-          b2 = 0.96900 * b2 + white * 0.1538520;
-          b3 = 0.86650 * b3 + white * 0.3104856;
-          b4 = 0.55000 * b4 + white * 0.5329522;
-          b5 = -0.7616 * b5 - white * 0.0168980;
-          noiseData[i] = (b0 + b1 + b2 + b3 + b4 + b5 + b6 + white * 0.5362) * 0.06; // Reduced
-          b6 = white * 0.115926;
-        }
-
-        this.noiseSource = this.ctx.createBufferSource();
-        this.noiseSource.buffer = noiseBuffer;
-        this.noiseSource.loop = true;
-
-        this.noiseFilter = this.ctx.createBiquadFilter();
-        this.noiseFilter.type = 'bandpass';
-        this.noiseFilter.frequency.value = 1000;
-        this.noiseFilter.Q.value = 5;
-
-        this.noiseGain = this.ctx.createGain();
-        this.noiseGain.gain.value = 0.04; // Reduced
-
-        this.noiseSource.connect(this.noiseFilter);
-        this.noiseFilter.connect(this.noiseGain);
-        this.noiseGain.connect(this.layerGains.atmosphere);
-        this.noiseSource.start();
       }
 
       setLayerPositions() {
@@ -1353,7 +1315,9 @@
         
         // Start void cycle
         this.voidCycleTime = 0;
-        this.startVoidSoundscape();
+        
+        // Start heavenly soundscape
+        this.playHeavenlySoundscape();
         
         // Show theme text
         this.elements.themeText.textContent = this.themes.void.text;
@@ -1361,148 +1325,98 @@
         setTimeout(() => this.elements.themeText.classList.remove('visible'), 5000);
       }
 
-      startVoidSoundscape() {
-        // Healing frequency orchestra
-        const healingFrequencies = {
-          // Solfeggio frequencies
-          174: 'pain relief',
-          285: 'healing tissues',
-          396: 'liberation from fear',
-          417: 'facilitating change',
-          528: 'love frequency',
-          639: 'harmonious relationships',
-          741: 'awakening intuition',
-          852: 'returning to spiritual order',
-          963: 'divine consciousness',
-          // Additional healing frequencies
-          432: 'universal harmony',
-          111: 'cell rejuvenation',
-          40: 'gamma waves'
-        };
-        
-        this.playVoidOrchestra(healingFrequencies);
+      playHeavenlySoundscape() {
+        this.playHeavenlyPad();
+        this.playHeavenlyChimes();
+        setTimeout(() => {
+          if (this.voidPhase && this.active) {
+            this.playHeavenlySoundscape();
+          }
+        }, 20000); // Loop every 20 seconds with overlap
       }
 
-      playVoidOrchestra(frequencies) {
+      playHeavenlyPad() {
         const now = this.ctx.currentTime;
-        const cycleDuration = 30; // 30 second cycles
-        const freqArray = Object.keys(frequencies).map(f => parseFloat(f));
+        const duration = 25;
         
-        // Create healing frequency layers
-        freqArray.forEach((freq, index) => {
-          const phase = (index / freqArray.length) * Math.PI * 2;
-          
-          // Main tone
-          const osc = this.ctx.createOscillator();
-          const gain = this.ctx.createGain();
-          const filter = this.ctx.createBiquadFilter();
-          const panner = this.ctx.createStereoPanner();
-          
-          osc.type = 'sine';
-          osc.frequency.value = freq;
-          
-          // Gentle filter
-          filter.type = 'lowpass';
-          filter.frequency.value = freq * 2;
-          filter.Q.value = 0.5;
-          
-          // Spatial positioning
-          panner.pan.value = Math.sin(phase) * 0.7;
-          
-          // Breathing envelope - intro, build, release, build, augment, release out
-          const breatheCycle = cycleDuration / 6;
-          
-          gain.gain.setValueAtTime(0, now);
-          // Intro
-          gain.gain.linearRampToValueAtTime(0.015, now + breatheCycle); // Reduced
-          // Build
-          gain.gain.linearRampToValueAtTime(0.03, now + breatheCycle * 2); // Reduced
-          // Release
-          gain.gain.linearRampToValueAtTime(0.01, now + breatheCycle * 3); // Reduced
-          // Build
-          gain.gain.linearRampToValueAtTime(0.04, now + breatheCycle * 4); // Reduced
-          // Augment
-          gain.gain.linearRampToValueAtTime(0.05, now + breatheCycle * 5); // Reduced
-          // Release out
-          gain.gain.linearRampToValueAtTime(0, now + cycleDuration);
-          
-          // Add subtle harmonics
-          const harmonic2 = this.ctx.createOscillator();
-          const harmonic3 = this.ctx.createOscillator();
-          const harmonicGain = this.ctx.createGain();
-          
-          harmonic2.type = 'sine';
-          harmonic2.frequency.value = freq * 2;
-          harmonic3.type = 'sine';
-          harmonic3.frequency.value = freq * 3;
-          
-          harmonicGain.gain.value = 0.004; // Reduced
-          
-          // Connect
-          osc.connect(filter);
-          filter.connect(panner);
-          panner.connect(gain);
-          gain.connect(this.masterGain);
-          
-          harmonic2.connect(harmonicGain);
-          harmonic3.connect(harmonicGain);
-          harmonicGain.connect(gain);
-          
-          // Start
-          osc.start(now);
-          harmonic2.start(now);
-          harmonic3.start(now);
-          
-          // Stop after cycle
-          osc.stop(now + cycleDuration);
-          harmonic2.stop(now + cycleDuration);
-          harmonic3.stop(now + cycleDuration);
-        });
-        
-        // Add ethereal pad
-        this.playVoidPad();
-        
-        // Schedule next cycle
-        if (this.voidPhase) {
-          setTimeout(() => {
-            if (this.voidPhase && this.active) {
-              this.playVoidOrchestra(frequencies);
-            }
-          }, cycleDuration * 900); // Slight overlap
+        // Multiple layers for richness
+        for (let layer = 0; layer < 3; layer++) {
+          const baseFreq = 110 * Math.pow(2, layer / 3);
+          for (let i = 0; i < 4; i++) {
+            const osc = this.ctx.createOscillator();
+            const gain = this.ctx.createGain();
+            const filter = this.ctx.createBiquadFilter();
+            const lfo = this.ctx.createOscillator();
+            const lfoGain = this.ctx.createGain();
+            
+            osc.type = 'sine';
+            osc.frequency.value = baseFreq * Math.pow(2, i / 12);
+            osc.detune.value = (i - 2) * 5;
+            
+            filter.type = 'lowpass';
+            filter.frequency.value = 400;
+            filter.Q.value = 0.3;
+            
+            lfo.type = 'sine';
+            lfo.frequency.value = 0.1 + layer * 0.05;
+            lfoGain.gain.value = 50;
+            lfo.connect(lfoGain);
+            lfoGain.connect(filter.frequency);
+            
+            // Slow fade
+            gain.gain.setValueAtTime(0, now);
+            gain.gain.linearRampToValueAtTime(0.012, now + 8); 
+            gain.gain.setValueAtTime(0.012, now + duration - 8);
+            gain.gain.linearRampToValueAtTime(0, now + duration);
+            
+            osc.connect(filter);
+            filter.connect(gain);
+            gain.connect(this.convolver);
+            gain.connect(this.masterGain);
+            
+            lfo.start(now);
+            osc.start(now);
+            lfo.stop(now + duration);
+            osc.stop(now + duration);
+          }
         }
       }
 
-      playVoidPad() {
+      playHeavenlyChimes() {
         const now = this.ctx.currentTime;
-        const duration = 35;
+        const chimes = 3 + Math.floor(Math.random() * 3);
         
-        // Create rich pad with multiple detuned oscillators
-        for (let i = 0; i < 4; i++) {
-          const osc = this.ctx.createOscillator();
-          const gain = this.ctx.createGain();
-          const filter = this.ctx.createBiquadFilter();
-          
-          osc.type = 'sine';
-          osc.frequency.value = 110 * Math.pow(2, i / 12); // Microtonal intervals
-          osc.detune.value = (i - 2) * 8;
-          
-          filter.type = 'lowpass';
-          filter.frequency.value = 300;
-          filter.Q.value = 0.5;
-          
-          // Very slow fade in/out
-          gain.gain.setValueAtTime(0, now);
-          gain.gain.linearRampToValueAtTime(0.008, now + 10); // Reduced
-          gain.gain.setValueAtTime(0.008, now + duration - 10);
-          gain.gain.linearRampToValueAtTime(0, now + duration);
-          
-          osc.connect(filter);
-          filter.connect(gain);
-          gain.connect(this.convolver); // Through reverb
-          gain.connect(this.masterGain);
-          
-          osc.start(now);
-          osc.stop(now + duration);
+        for (let c = 0; c < chimes; c++) {
+          setTimeout(() => {
+            const freq = 880 + Math.random() * 440;
+            
+            const osc = this.ctx.createOscillator();
+            const gain = this.ctx.createGain();
+            const env = this.ctx.createGain();
+            const filter = this.ctx.createBiquadFilter();
+            
+            osc.type = 'sine';
+            osc.frequency.value = freq;
+            
+            filter.type = 'highpass';
+            filter.frequency.value = 2000;
+            filter.Q.value = 1;
+            
+            env.gain.setValueAtTime(0, this.ctx.currentTime);
+            env.gain.linearRampToValueAtTime(0.1, this.ctx.currentTime + 0.05);
+            env.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 5);
+            
+            gain.gain.value = 0.08;
+            
+            osc.connect(filter);
+            filter.connect(env);
+            env.connect(gain);
+            gain.connect(this.convolver);
+            gain.connect(this.masterGain);
+            
+            osc.start(this.ctx.currentTime);
+            osc.stop(this.ctx.currentTime + 5);
+          }, Math.random() * 10000);
         }
       }
 
@@ -2217,10 +2131,10 @@
         lfo.connect(lfoGain);
         lfoGain.connect(filter.frequency);
         
-        // Resonant filter
-        filter.type = 'bandpass';
-        filter.frequency.value = freq;
-        filter.Q.value = 15 + this.intensity * 5;
+        // Lowpass instead of bandpass to avoid feedback
+        filter.type = 'lowpass';
+        filter.frequency.value = freq * 2;
+        filter.Q.value = 0.5; // Low Q for smooth sound
         
         // Very slow envelope
         env.gain.setValueAtTime(0, now);
@@ -2353,9 +2267,10 @@
         
         if (!this.allocateVoice('texture', noise, gain, 2)) return;
         
-        filter.type = 'bandpass';
-        filter.frequency.value = 500 + Math.random() * 1500;
-        filter.Q.value = 20;
+        // Change to lowpass to avoid resonance
+        filter.type = 'lowpass';
+        filter.frequency.value = 1000 + Math.random() * 2000;
+        filter.Q.value = 0.5; // Low Q
         
         env.gain.setValueAtTime(0, now);
         env.gain.linearRampToValueAtTime(0.12, now + 0.5); // Reduced
@@ -2513,10 +2428,10 @@
         breathNoise.buffer = noiseBuffer;
         breathNoise.loop = true;
         
-        // Resonant filter
+        // Resonant filter - reduced Q
         filter.type = 'bandpass';
         filter.frequency.value = freq * 1.5;
-        filter.Q.value = 5;
+        filter.Q.value = 2; // Reduced from 5
         
         // Woodwind envelope
         env.gain.setValueAtTime(0, now);
@@ -3305,12 +3220,6 @@
 
       updateProceduralSystems(avgMotion, variance) {
         const now = this.ctx.currentTime;
-        
-        // Update noise filter with smooth changes
-        const targetFreq = 500 + avgMotion * 150 + variance * 100 + Math.sin(Date.now() * 0.002) * 200;
-        this.noiseFilter.frequency.linearRampToValueAtTime(targetFreq, now + 0.1);
-        this.noiseFilter.Q.linearRampToValueAtTime(5 + variance * 3 + this.shepardIntensity * 5, now + 0.1);
-        this.noiseGain.gain.linearRampToValueAtTime(0.04 + (this.shepardIntensity * 0.12) + (this.intensity * 0.08), now + 0.1); // Reduced
         
         // Update layer filters smoothly
         Object.keys(this.layerFilters).forEach(layer => {
