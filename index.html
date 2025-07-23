@@ -478,7 +478,7 @@ AWAKEN
           breath: false, whisper: false
         };
         
-        // Musical Elements - Adapted progressions
+        // Musical Elements - Adapted progressions to match Inception "Time" style
         this.key = 'A';
         this.keyOffsets = {'C':0, 'D':2, 'E':4, 'F':5, 'G':7, 'A':9, 'B':11};
         this.mode = 'minor';
@@ -497,10 +497,10 @@ AWAKEN
         };
         this.scale = this.scales[this.mode];
         this.chordProgression = [
-          [8,0,3],  // VI F
-          [10,2,5], // VII G
           [0,3,7],  // i Am
-          [10,2,5]  // VII G
+          [8,12,15], // VI F
+          [3,7,10],  // III C
+          [10,14,17] // VII G
         ];
         this.currentChordIndex = 0;
         this.bassNote = 0;
@@ -869,9 +869,9 @@ AWAKEN
         const layerNames = ['kick', 'bass', 'hihat', 'snare', 'ostinato', 'harmony', 'pad', 
                            'atmosphere', 'strings', 'brass', 'choir', 'shepard', 'healing',
                            'granular', 'risers', 'impacts', 'breath', 'whisper'];
-        const layerLevels = [0.8, 0.7, 0.15, 0.4, 0.25, 0.2, 0.18, 
+        const layerLevels = [1.0, 0.9, 0.15, 0.4, 0.25, 0.2, 0.18, 
                             0.12, 0.3, 0.25, 0.2, 0.15, 0.08,
-                            0.2, 0.3, 0.5, 0.1, 0.1]; 
+                            0.2, 0.3, 0.5, 0.1, 0.1]; // Increased kick and bass levels
         
         layerNames.forEach((name, i) => {
           this.layerGains[name] = this.ctx.createGain();
@@ -1124,12 +1124,18 @@ AWAKEN
       exitVoidState() {
         console.log('🌌 EXITING VOID STATE: Returning to Motion');
         this.voidPhase = false;
-        this.stage = this.stage === 'VOID' ? 'SILENCE' : this.stage; // Reset to silence or previous
+        this.stage = 'SILENCE'; // Reset to silence
         this.elements.orb.className = 'orb'; // Reset orb class
         this.currentTheme = 'awakening';
         
         // Fade out void sounds
         this.layerGains.healing.gain.linearRampToValueAtTime(0, this.ctx.currentTime + 1);
+        
+        // Kickstart basic layers to ensure smooth transition
+        this.layers.hihat = true; // Ticking starts
+        this.layers.atmosphere = true;
+        this.layers.ostinato = true;
+        this.motionHistory = Array(150).fill(this.motion); // Boost history to activate layers
         
         // Re-enable layers based on motion
         this.updateEvolution();
@@ -1254,24 +1260,25 @@ AWAKEN
         const activationThreshold = this.buildPhase ? 0.8 : 1.5;
         const deactivationThreshold = 0.6;
         
-        this.layers.kick = avgMotion > activationThreshold || (this.layers.kick && avgMotion > deactivationThreshold);
-        this.layers.bass = (avgMotion > 1.5 || (this.layers.bass && avgMotion > 0.8)) && (this.motionPattern !== 'calm');
-        this.layers.hihat = (avgMotion > 0.5 || (this.layers.hihat && avgMotion > 0.3)); // Ticking always on after start
-        this.layers.snare = (avgMotion > 2.5 && this.intensity > 2) || (this.motionPattern === 'erratic');
-        this.layers.ostinato = avgMotion > 1.2 && this.stage !== 'SILENCE';
-        this.layers.harmony = (avgMotion > 3 || this.intensity > 2.5) && !this.releasePhase;
-        this.layers.pad = avgMotion < 1.5 && this.totalMotion > 80 && this.releasePhase;
-        this.layers.atmosphere = this.intensity < 1 && avgMotion < 1.5 && this.releasePhase || true; // Always on for space texture
-        this.layers.strings = this.stage !== 'SILENCE' && avgMotion > 1.8;
-        this.layers.brass = this.stage !== 'SILENCE' && this.intensity > 2.5 && this.buildPhase;
-        this.layers.choir = this.stage === 'TRANSCENDENT' && avgMotion < 2 && this.releasePhase;
-        this.layers.shepard = this.shepardIntensity > 0.1 || this.intensity > 2;
+        // More nuanced layer activation based on motion type
+        this.layers.kick = (this.motionPattern === 'rhythmic' || this.motionPattern === 'chaotic') && avgMotion > activationThreshold;
+        this.layers.bass = (this.motionPattern === 'sustained' || this.motionPattern === 'rhythmic') && avgMotion > 1.5;
+        this.layers.hihat = true; // Ticking always on after start for "Time" feel
+        this.layers.snare = this.motionPattern === 'erratic' || this.intensity > 2;
+        this.layers.ostinato = this.motionPattern !== 'calm' && this.stage !== 'SILENCE';
+        this.layers.harmony = this.totalMotion > 200 && (this.buildPhase || this.climaxPhase);
+        this.layers.pad = this.releasePhase || this.motionPattern === 'sustained';
+        this.layers.atmosphere = true; // Always on for space texture
+        this.layers.strings = this.totalMotion > 100 && avgMotion > 1.0;
+        this.layers.brass = this.buildPhase && this.intensity > 2.0;
+        this.layers.choir = this.releasePhase && this.totalMotion > 500;
+        this.layers.shepard = this.shepardIntensity > 0.1 || this.buildPhase;
         this.layers.healing = this.motionPattern === 'calm' && avgMotion < 0.5;
-        this.layers.granular = this.stage !== 'SILENCE' && this.intensity > 2;
-        this.layers.risers = this.buildPhase && this.intensity > 2.5;
-        this.layers.impacts = this.gestureRecognition.tap > 0.5 || this.climaxPhase;
-        this.layers.breath = this.buildPhase || this.phraseCount % 4 === 0;
-        this.layers.whisper = this.releasePhase || Math.random() < 0.05;
+        this.layers.granular = this.motionPattern === 'chaotic' && this.intensity > 2;
+        this.layers.risers = this.buildPhase && this.gestureRecognition.sustained > 0.5;
+        this.layers.impacts = this.gestureRecognition.shake > 0.5 || this.climaxPhase;
+        this.layers.breath = this.releasePhase || this.phraseCount % 4 === 0;
+        this.layers.whisper = this.motionPattern === 'erratic' || Math.random() < 0.05;
         
         this.evolutionProgress = Math.min(this.totalMotion / 1200, 3);
         this.subStage = Math.floor(this.evolutionProgress);
@@ -1412,7 +1419,7 @@ AWAKEN
           setTimeout(() => this.elements.orb.classList.remove('pulse'), 150);
         }
         
-        // Rhythmic patterns - removed glitch
+        // Rhythmic patterns
         if (this.layers.kick && this.step % 8 === 0) this.playKick();
         if (this.layers.bass && this.step % 4 === 0) this.playBass();
         if (this.layers.hihat && this.step % 4 === 0) this.playHihat();
@@ -1432,36 +1439,64 @@ AWAKEN
         if (this.layers.breath && Math.random() < 0.1) this.playBreath();
         if (this.layers.whisper && Math.random() < 0.05) this.playWhisper();
         
+        // Glitch effects in chaotic mode
+        if (this.motionPattern === 'chaotic' && Math.random() < this.glitchProbability) {
+          this.applyGlitchEffect();
+        }
+        
         // Update special events
         Object.keys(this.specialEvents).forEach(event => {
           this.specialEvents[event] = Math.max(0, this.specialEvents[event] - 0.01);
         });
       }
 
+      applyGlitchEffect() {
+        // Temporary distortion or detune on random layer
+        const layers = Object.keys(this.layers).filter(l => this.layers[l]);
+        if (layers.length === 0) return;
+        const randomLayer = layers[Math.floor(Math.random() * layers.length)];
+        const glitchDuration = 0.1 + Math.random() * 0.2;
+        
+        const detuneAmount = (Math.random() - 0.5) * 200;
+        // Assuming we can add a temporary wave shaper or detune, but for simplicity, adjust gain or filter
+        this.layerGains[randomLayer].gain.linearRampToValueAtTime(1.2, this.ctx.currentTime + glitchDuration / 2);
+        this.layerGains[randomLayer].gain.linearRampToValueAtTime(0.65, this.ctx.currentTime + glitchDuration);
+        console.log(`Glitch applied to ${randomLayer}`);
+      }
+
       playKick() {
-        // Cleaner 808-style kick: Single sine with harmonic decay, no click/sub for less overlay, tighter envelope
+        // Enhanced for massive low end: Added sub sine, lower freq, longer decay
         const osc = this.ctx.createOscillator();
+        const subOsc = this.ctx.createOscillator();
         const gain = this.ctx.createGain();
         const env = this.ctx.createGain();
         const comp = this.ctx.createDynamicsCompressor();
         
-        if (!this.allocateVoice('kick', osc, gain, 0.3)) return;
+        if (!this.allocateVoice('kick', osc, gain, 0.6)) return;
         
         osc.type = 'sine';
-        osc.frequency.setValueAtTime(55 + this.intensity * 5, this.ctx.currentTime); // Reduced intensity impact for clarity
-        osc.frequency.exponentialRampToValueAtTime(28, this.ctx.currentTime + 0.3); 
+        osc.frequency.setValueAtTime(60 + this.intensity * 5, this.ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(30, this.ctx.currentTime + 0.6); 
         
-        env.gain.setValueAtTime(1, this.ctx.currentTime);
-        env.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.3); // Tighter tail
+        subOsc.type = 'sine';
+        subOsc.frequency.setValueAtTime(40, this.ctx.currentTime);
+        subOsc.frequency.exponentialRampToValueAtTime(20, this.ctx.currentTime + 0.6);
+        
+        env.gain.setValueAtTime(1.2, this.ctx.currentTime);
+        env.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.6); 
         
         comp.threshold.value = -20;
         comp.ratio.value = 8;
         
-        gain.gain.value = 1.0;
+        gain.gain.value = 1.2; // Boosted gain
         
-        osc.connect(env).connect(comp).connect(gain).connect(this.layerGains.kick);
+        osc.connect(env);
+        subOsc.connect(env);
+        env.connect(comp).connect(gain).connect(this.layerGains.kick);
         osc.start();
-        osc.stop(this.ctx.currentTime + 0.3);
+        subOsc.start();
+        osc.stop(this.ctx.currentTime + 0.6);
+        subOsc.stop(this.ctx.currentTime + 0.6);
       }
 
       playBass() {
@@ -1469,28 +1504,35 @@ AWAKEN
         const freq = this.noteToFreq(this.scale[noteIndex], 1);
         
         const osc = this.ctx.createOscillator();
+        const subOsc = this.ctx.createOscillator();
         const gain = this.ctx.createGain();
         const env = this.ctx.createGain();
         const filter = this.ctx.createBiquadFilter();
         
-        if (!this.allocateVoice('bass', osc, gain, 0.5)) return;
+        if (!this.allocateVoice('bass', osc, gain, 0.8)) return;
         
-        osc.type = 'triangle'; // Changed to triangle for cleaner harmonic content
+        osc.type = 'triangle';
         osc.frequency.value = freq;
-        // Removed subOsc and LFO for less chaos
+        
+        subOsc.type = 'sine';
+        subOsc.frequency.value = freq / 2; // Sub octave for deeper low end
         
         filter.type = 'lowpass';
-        filter.frequency.value = 120 + this.motion * 20; // Reduced modulation for stability
+        filter.frequency.value = 80 + this.motion * 20;
         filter.Q.value = 5;
         
-        env.gain.setValueAtTime(1, this.ctx.currentTime);
-        env.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.5); // Shorter decay
+        env.gain.setValueAtTime(1.2, this.ctx.currentTime);
+        env.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.8); 
         
-        gain.gain.value = 0.8;
+        gain.gain.value = 1.0; // Boosted
         
-        osc.connect(filter).connect(env).connect(gain).connect(this.layerGains.bass);
+        osc.connect(filter);
+        subOsc.connect(filter);
+        filter.connect(env).connect(gain).connect(this.layerGains.bass);
         osc.start();
-        osc.stop(this.ctx.currentTime + 0.5);
+        subOsc.start();
+        osc.stop(this.ctx.currentTime + 0.8);
+        subOsc.stop(this.ctx.currentTime + 0.8);
       }
 
       playHihat() {
@@ -1901,6 +1943,7 @@ AWAKEN
       playRiser() {
         const duration = 5 + this.intensity * 3;
         const osc = this.ctx.createOscillator();
+        const lowSweep = this.ctx.createOscillator();
         const noise = this.ctx.createBufferSource();
         const gain = this.ctx.createGain();
         const env = this.ctx.createGain();
@@ -1911,6 +1954,10 @@ AWAKEN
         osc.type = 'sawtooth';
         osc.frequency.setValueAtTime(60, this.ctx.currentTime);
         osc.frequency.exponentialRampToValueAtTime(2500, this.ctx.currentTime + duration);
+        
+        lowSweep.type = 'sine';
+        lowSweep.frequency.setValueAtTime(20, this.ctx.currentTime);
+        lowSweep.frequency.exponentialRampToValueAtTime(60, this.ctx.currentTime + duration);
         
         const noiseBuffer = this.ctx.createBuffer(1, this.ctx.sampleRate * duration, this.ctx.sampleRate);
         const noiseData = noiseBuffer.getChannelData(0);
@@ -1930,12 +1977,15 @@ AWAKEN
         gain.gain.value = 0.4;
         
         osc.connect(filter);
+        lowSweep.connect(filter);
         noise.connect(filter);
         filter.connect(env).connect(gain).connect(this.layerGains.risers);
         
         osc.start();
+        lowSweep.start();
         noise.start();
         osc.stop(this.ctx.currentTime + duration);
+        lowSweep.stop(this.ctx.currentTime + duration);
         noise.stop(this.ctx.currentTime + duration);
       }
 
