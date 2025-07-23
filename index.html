@@ -1070,7 +1070,9 @@ AWAKEN
         // Track last motion for void state
         if (this.motion > 0.5) {
           this.lastMotionTime = Date.now();
-          this.voidPhase = false;
+          if (this.voidPhase) {
+            this.exitVoidState();
+          }
         }
         
         // Enter void state after 5 seconds of no motion
@@ -1108,7 +1110,10 @@ AWAKEN
         this.elements.orb.className = 'orb void';
         this.currentTheme = 'void';
         
-        // Disable all active layers
+        // Fade out all active layers
+        Object.keys(this.layerGains).forEach(layer => {
+          this.layerGains[layer].gain.linearRampToValueAtTime(0, this.ctx.currentTime + 1);
+        });
         Object.keys(this.layers).forEach(layer => this.layers[layer] = false);
         
         // Play void ambience
@@ -1118,6 +1123,20 @@ AWAKEN
         this.elements.themeText.textContent = this.themes.void.text;
         this.elements.themeText.classList.add('visible');
         setTimeout(() => this.elements.themeText.classList.remove('visible'), 5000);
+      }
+
+      exitVoidState() {
+        console.log('🌌 EXITING VOID STATE: Returning to Motion');
+        this.voidPhase = false;
+        this.stage = this.stage === 'VOID' ? 'SILENCE' : this.stage; // Reset to silence or previous
+        this.elements.orb.className = 'orb'; // Reset orb class
+        this.currentTheme = 'awakening';
+        
+        // Fade out void sounds
+        this.layerGains.healing.gain.linearRampToValueAtTime(0, this.ctx.currentTime + 1);
+        
+        // Re-enable layers based on motion
+        this.updateEvolution();
       }
 
       playVoidAmbience() {
@@ -1424,32 +1443,23 @@ AWAKEN
         });
       }
 
-      // Improved sound generators for more cinematic, C418-like ambient depth
+      // Redesigned sound generators for cleaner, more harmonic rap-inspired beats (influenced by Metro Boomin-style production: punchy 808 kicks, crisp hi-hats, harmonic alignment, reduced chaos/detune, tighter envelopes for clarity)
 
       playKick() {
+        // Cleaner 808-style kick: Single sine with harmonic decay, no click/sub for less overlay, tighter envelope
         const osc = this.ctx.createOscillator();
-        const oscClick = this.ctx.createOscillator();
-        const oscSub = this.ctx.createOscillator();
         const gain = this.ctx.createGain();
         const env = this.ctx.createGain();
         const comp = this.ctx.createDynamicsCompressor();
         
-        if (!this.allocateVoice('kick', osc, gain, 0.8)) return;
+        if (!this.allocateVoice('kick', osc, gain, 0.3)) return;
         
         osc.type = 'sine';
-        osc.frequency.setValueAtTime(55 + this.intensity * 10, this.ctx.currentTime);
-        osc.frequency.exponentialRampToValueAtTime(28, this.ctx.currentTime + 0.4); // Deeper decay
-        
-        oscClick.type = 'triangle';
-        oscClick.frequency.setValueAtTime(200, this.ctx.currentTime);
-        oscClick.frequency.exponentialRampToValueAtTime(90, this.ctx.currentTime + 0.05);
-        
-        oscSub.type = 'sine';
-        oscSub.frequency.setValueAtTime(35, this.ctx.currentTime);
-        oscSub.frequency.exponentialRampToValueAtTime(20, this.ctx.currentTime + 0.4);
+        osc.frequency.setValueAtTime(55 + this.intensity * 5, this.ctx.currentTime); // Reduced intensity impact for clarity
+        osc.frequency.exponentialRampToValueAtTime(28, this.ctx.currentTime + 0.3); 
         
         env.gain.setValueAtTime(1, this.ctx.currentTime);
-        env.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.6); // Longer tail
+        env.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.3); // Tighter tail
         
         comp.threshold.value = -20;
         comp.ratio.value = 8;
@@ -1457,14 +1467,8 @@ AWAKEN
         gain.gain.value = 1.0;
         
         osc.connect(env).connect(comp).connect(gain).connect(this.layerGains.kick);
-        oscClick.connect(env).connect(comp).connect(gain).connect(this.layerGains.kick);
-        oscSub.connect(env).connect(comp).connect(gain).connect(this.layerGains.kick);
         osc.start();
-        oscClick.start();
-        oscSub.start();
-        osc.stop(this.ctx.currentTime + 0.6);
-        oscClick.stop(this.ctx.currentTime + 0.08);
-        oscSub.stop(this.ctx.currentTime + 0.6);
+        osc.stop(this.ctx.currentTime + 0.3);
       }
 
       playBass() {
@@ -1472,41 +1476,28 @@ AWAKEN
         const freq = this.noteToFreq(this.scale[noteIndex], 1);
         
         const osc = this.ctx.createOscillator();
-        const subOsc = this.ctx.createOscillator();
         const gain = this.ctx.createGain();
         const env = this.ctx.createGain();
         const filter = this.ctx.createBiquadFilter();
-        const lfo = this.ctx.createOscillator();
         
-        if (!this.allocateVoice('bass', osc, gain, 0.8)) return;
+        if (!this.allocateVoice('bass', osc, gain, 0.5)) return;
         
-        osc.type = 'sawtooth';
-        osc.frequency.value = freq * 0.75;
-        
-        subOsc.type = 'sine';
-        subOsc.frequency.value = freq / 2;
+        osc.type = 'triangle'; // Changed to triangle for cleaner harmonic content
+        osc.frequency.value = freq;
+        // Removed subOsc and LFO for less chaos
         
         filter.type = 'lowpass';
-        filter.frequency.value = 120 + this.motion * 40 + this.intensity * 30; // Smoother cutoff
-        filter.Q.value = 5 + this.intensity * 2;
-        
-        lfo.type = 'sine';
-        lfo.frequency.value = 0.5;
-        lfo.connect(filter.frequency);
-        lfo.start();
-        lfo.stop(this.ctx.currentTime + 0.8);
+        filter.frequency.value = 120 + this.motion * 20; // Reduced modulation for stability
+        filter.Q.value = 5;
         
         env.gain.setValueAtTime(1, this.ctx.currentTime);
-        env.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.8);
+        env.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.5); // Shorter decay
         
         gain.gain.value = 0.8;
         
         osc.connect(filter).connect(env).connect(gain).connect(this.layerGains.bass);
-        subOsc.connect(filter).connect(env).connect(gain).connect(this.layerGains.bass);
         osc.start();
-        subOsc.start();
-        osc.stop(this.ctx.currentTime + 0.8);
-        subOsc.stop(this.ctx.currentTime + 0.8);
+        osc.stop(this.ctx.currentTime + 0.5);
       }
 
       playHihat() {
@@ -1515,9 +1506,9 @@ AWAKEN
         const env = this.ctx.createGain();
         const filter = this.ctx.createBiquadFilter();
         
-        if (!this.allocateVoice('hihat', noise, gain, 0.15)) return;
+        if (!this.allocateVoice('hihat', noise, gain, 0.1)) return;
         
-        const noiseBuffer = this.ctx.createBuffer(1, this.ctx.sampleRate * 0.15, this.ctx.sampleRate);
+        const noiseBuffer = this.ctx.createBuffer(1, this.ctx.sampleRate * 0.1, this.ctx.sampleRate);
         const noiseData = noiseBuffer.getChannelData(0);
         for (let i = 0; i < noiseData.length; i++) {
           noiseData[i] = Math.random() * 2 - 1;
@@ -1525,40 +1516,36 @@ AWAKEN
         noise.buffer = noiseBuffer;
         
         filter.type = 'highpass';
-        filter.frequency.value = 7000 + this.motion * 400;
+        filter.frequency.value = 8000 + this.motion * 200; // Reduced range for consistency
         filter.Q.value = 3;
         
         env.gain.setValueAtTime(1, this.ctx.currentTime);
-        env.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.15);
+        env.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.1); // Tighter for clean rap hats
         
         gain.gain.value = 0.4;
         
         noise.connect(filter).connect(env).connect(gain).connect(this.layerGains.hihat);
         noise.start();
-        noise.stop(this.ctx.currentTime + 0.15);
+        noise.stop(this.ctx.currentTime + 0.1);
       }
 
       playSnare() {
         const osc1 = this.ctx.createOscillator();
-        const osc2 = this.ctx.createOscillator();
         const noise = this.ctx.createBufferSource();
         const gain = this.ctx.createGain();
         const env = this.ctx.createGain();
         const filter = this.ctx.createBiquadFilter();
         
-        if (!this.allocateVoice('snare', osc1, gain, 0.4)) return;
+        if (!this.allocateVoice('snare', osc1, gain, 0.2)) return;
         
         osc1.type = 'triangle';
-        osc1.frequency.setValueAtTime(160 + this.intensity * 30, this.ctx.currentTime);
-        osc1.frequency.exponentialRampToValueAtTime(80, this.ctx.currentTime + 0.1);
+        osc1.frequency.setValueAtTime(160 + this.intensity * 10, this.ctx.currentTime); // Reduced intensity
+        osc1.frequency.exponentialRampToValueAtTime(80, this.ctx.currentTime + 0.05); // Shorter
         
-        osc2.type = 'square';
-        osc2.frequency.value = 6000 + this.motion * 800;
-        
-        const noiseBuffer = this.ctx.createBuffer(1, this.ctx.sampleRate * 0.4, this.ctx.sampleRate);
+        const noiseBuffer = this.ctx.createBuffer(1, this.ctx.sampleRate * 0.2, this.ctx.sampleRate);
         const noiseData = noiseBuffer.getChannelData(0);
         for (let i = 0; i < noiseData.length; i++) {
-          noiseData[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / noiseData.length, 2); // Shaped noise for realism
+          noiseData[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / noiseData.length, 2);
         }
         noise.buffer = noiseBuffer;
         
@@ -1567,19 +1554,16 @@ AWAKEN
         filter.Q.value = 1.5;
         
         env.gain.setValueAtTime(1, this.ctx.currentTime);
-        env.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.4);
+        env.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.2); // Tighter
         
         gain.gain.value = 0.7;
         
         osc1.connect(filter).connect(env).connect(gain).connect(this.layerGains.snare);
-        osc2.connect(filter).connect(env).connect(gain).connect(this.layerGains.snare);
         noise.connect(filter).connect(env).connect(gain).connect(this.layerGains.snare);
         osc1.start();
-        osc2.start();
         noise.start();
-        osc1.stop(this.ctx.currentTime + 0.4);
-        osc2.stop(this.ctx.currentTime + 0.1);
-        noise.stop(this.ctx.currentTime + 0.4);
+        osc1.stop(this.ctx.currentTime + 0.2);
+        noise.stop(this.ctx.currentTime + 0.2);
       }
 
       playOstinato() {
@@ -1590,33 +1574,26 @@ AWAKEN
         const gain = this.ctx.createGain();
         const env = this.ctx.createGain();
         const filter = this.ctx.createBiquadFilter();
-        const lfo = this.ctx.createOscillator();
         
-        if (!this.allocateVoice('ostinato', osc, gain, 0.8)) return;
+        if (!this.allocateVoice('ostinato', osc, gain, 0.5)) return;
         
         osc.type = 'sawtooth';
         osc.frequency.value = freq;
-        osc.detune.value = Math.random() * 6 - 3;
+        // Removed detune and LFO for harmonic clarity
         
         filter.type = 'lowpass';
-        filter.frequency.value = 900 + this.motion * 250 + this.intensity * 200;
-        filter.Q.value = 4 + this.intensity * 1;
-        
-        lfo.type = 'sine';
-        lfo.frequency.value = 2;
-        lfo.connect(filter.frequency);
-        lfo.start();
-        lfo.stop(this.ctx.currentTime + 0.8);
+        filter.frequency.value = 900 + this.motion * 100; // Reduced modulation
+        filter.Q.value = 4;
         
         env.gain.setValueAtTime(this.buildPhase ? 0.3 : 1, this.ctx.currentTime);
         if (this.buildPhase) env.gain.linearRampToValueAtTime(1, this.ctx.currentTime + 0.2);
-        env.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.8);
+        env.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.5); // Shorter
         
         gain.gain.value = 0.6;
         
         osc.connect(filter).connect(env).connect(gain).connect(this.layerGains.ostinato);
         osc.start();
-        osc.stop(this.ctx.currentTime + 0.8);
+        osc.stop(this.ctx.currentTime + 0.5);
         
         this.ostinatoIndex++;
       }
@@ -1633,23 +1610,15 @@ AWAKEN
           const gain = this.ctx.createGain();
           const env = this.ctx.createGain();
           const filter = this.ctx.createBiquadFilter();
-          const lfo = this.ctx.createOscillator();
           
           if (!this.allocateVoice('harmony', osc, gain, duration)) return;
           
           osc.type = 'sine';
           osc.frequency.value = freq;
-          osc.detune.value = Math.random() * 4 - 2;
-          
-          lfo.type = 'sine';
-          lfo.frequency.value = 3 + Math.random() * 2;
-          lfo.connect(osc.detune);
-          lfo.start();
-          lfo.stop(this.ctx.currentTime + duration);
-          osc.detune.value = 8;
+          // Removed detune and LFO for clean harmonics
           
           filter.type = 'lowpass';
-          filter.frequency.value = 500 + this.motion * 150;
+          filter.frequency.value = 500 + this.motion * 100; // Reduced
           filter.Q.value = 2;
           
           env.gain.setValueAtTime(0.1, this.ctx.currentTime);
@@ -1668,32 +1637,24 @@ AWAKEN
         const noteIndex = this.ostinatoPattern[this.ostinatoIndex % this.ostinatoPattern.length];
         const freq = this.noteToFreq(noteIndex, 3);
         
-        for (let i = 0; i < 4; i++) {
+        for (let i = 0; i < 3; i++) { // Reduced voices for less overlay
           const osc = this.ctx.createOscillator();
           const gain = this.ctx.createGain();
           const env = this.ctx.createGain();
           const filter = this.ctx.createBiquadFilter();
-          const lfo = this.ctx.createOscillator();
           
           if (!this.allocateVoice('strings', osc, gain, 3)) return;
           
           osc.type = 'sawtooth';
           osc.frequency.value = freq * (1 + i * 0.001);
-          osc.detune.value = (i - 2) * 5;
-          
-          lfo.type = 'sine';
-          lfo.frequency.value = 4 + Math.random() * 3;
-          lfo.connect(osc.detune);
-          lfo.start();
-          lfo.stop(this.ctx.currentTime + 3);
-          osc.detune.value = 12;
+          // Removed detune and LFO
           
           filter.type = 'lowpass';
-          filter.frequency.value = 600 + this.motion * 250 + this.intensity * 200;
+          filter.frequency.value = 600 + this.motion * 100; // Reduced
           filter.Q.value = 4;
           
           env.gain.setValueAtTime(this.buildPhase ? 0.1 : 0.8, this.ctx.currentTime);
-          if (this.buildPhase) env.gain.linearRampToValueAtTime(1, this.ctx.currentTime + 1.5); // Slower swell
+          if (this.buildPhase) env.gain.linearRampToValueAtTime(1, this.ctx.currentTime + 1.5);
           env.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 3);
           
           gain.gain.value = 0.18;
@@ -1709,7 +1670,6 @@ AWAKEN
         const freq = this.noteToFreq(note, 3);
         
         const osc = this.ctx.createOscillator();
-        const osc2 = this.ctx.createOscillator();
         const gain = this.ctx.createGain();
         const env = this.ctx.createGain();
         const filter = this.ctx.createBiquadFilter();
@@ -1719,32 +1679,27 @@ AWAKEN
         
         osc.type = 'sawtooth';
         osc.frequency.value = freq;
-        osc2.type = 'square';
-        osc2.frequency.value = freq * 1.01;
+        // Removed osc2 for simplicity
         
         vibrato.type = 'sine';
         vibrato.frequency.value = 5;
         vibrato.connect(osc.detune);
-        vibrato.connect(osc2.detune);
         vibrato.start();
         vibrato.stop(this.ctx.currentTime + 3);
         
         filter.type = 'lowpass';
-        filter.frequency.value = 600 + this.intensity * 300;
+        filter.frequency.value = 600 + this.intensity * 200; // Reduced
         filter.Q.value = 5;
         
         env.gain.setValueAtTime(0.1, this.ctx.currentTime);
-        env.gain.linearRampToValueAtTime(1, this.ctx.currentTime + 1.5); // Slower attack for cinematic swell
+        env.gain.linearRampToValueAtTime(1, this.ctx.currentTime + 1.5);
         env.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 3);
         
         gain.gain.value = 0.4;
         
         osc.connect(filter).connect(env).connect(gain).connect(this.layerGains.brass);
-        osc2.connect(filter).connect(env).connect(gain).connect(this.layerGains.brass);
         osc.start();
-        osc2.start();
         osc.stop(this.ctx.currentTime + 3);
-        osc2.stop(this.ctx.currentTime + 3);
       }
 
       playChoir() {
@@ -1755,26 +1710,19 @@ AWAKEN
           const gain = this.ctx.createGain();
           const env = this.ctx.createGain();
           const filter = this.ctx.createBiquadFilter();
-          const lfo = this.ctx.createOscillator();
           
           if (!this.allocateVoice('choir', osc, gain, 15)) return;
           
           osc.type = 'triangle';
-          osc.frequency.value = freq * (1 + Math.random() * 0.003);
-          
-          lfo.type = 'sine';
-          lfo.frequency.value = 2.5 + Math.random() * 1.5;
-          lfo.connect(osc.detune);
-          lfo.start();
-          lfo.stop(this.ctx.currentTime + 15);
-          osc.detune.value = 10;
+          osc.frequency.value = freq;
+          // Removed random and LFO
           
           filter.type = 'lowpass';
-          filter.frequency.value = 1000 + this.motion * 200;
+          filter.frequency.value = 1000 + this.motion * 100; // Reduced
           filter.Q.value = 0.8;
           
           env.gain.setValueAtTime(0, this.ctx.currentTime);
-          env.gain.linearRampToValueAtTime(1, this.ctx.currentTime + 6); // Longer swell
+          env.gain.linearRampToValueAtTime(1, this.ctx.currentTime + 6);
           env.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 15);
           
           gain.gain.value = 0.15;
@@ -1792,7 +1740,6 @@ AWAKEN
           const freq = this.noteToFreq(note, 2 + i % 3);
           
           const osc = this.ctx.createOscillator();
-          const osc2 = this.ctx.createOscillator();
           const gain = this.ctx.createGain();
           const env = this.ctx.createGain();
           const filter = this.ctx.createBiquadFilter();
@@ -1800,32 +1747,28 @@ AWAKEN
           if (!this.allocateVoice('pad', osc, gain, 12)) return;
           
           osc.type = 'sine';
-          osc.frequency.value = freq * (1 + i * 0.002);
-          
-          osc2.type = 'sine';
-          osc2.frequency.value = freq * 1.005;
+          osc.frequency.value = freq;
+          // Removed osc2
           
           filter.type = 'lowpass';
-          filter.frequency.value = 200 + this.motion * 80;
+          filter.frequency.value = 200 + this.motion * 50; // Reduced
           filter.Q.value = 1.0;
           
           env.gain.setValueAtTime(0, this.ctx.currentTime);
-          env.gain.linearRampToValueAtTime(1, this.ctx.currentTime + 4); // Slower fade in
+          env.gain.linearRampToValueAtTime(1, this.ctx.currentTime + 4);
           env.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 12);
           
           gain.gain.value = 0.12;
           
           osc.connect(filter).connect(env).connect(gain).connect(this.layerGains.pad);
-          osc2.connect(filter).connect(env).connect(gain).connect(this.layerGains.pad);
           osc.start();
-          osc2.start();
           osc.stop(this.ctx.currentTime + 12);
-          osc2.stop(this.ctx.currentTime + 12);
         });
       }
 
       playAtmosphere() {
-        const freq = this.noteToFreq(this.scale[Math.floor(Math.random() * this.scale.length)], 5 + Math.random() * 2);
+        const freq = this.noteToFreq(this.scale[Math.floor(Math.random() * this.scale.length)], 5);
+        // Removed random octave for consistency
         
         const osc = this.ctx.createOscillator();
         const gain = this.ctx.createGain();
@@ -1838,8 +1781,8 @@ AWAKEN
         osc.frequency.value = freq;
         
         filter.type = 'lowpass';
-        filter.frequency.value = 100 + Math.random() * 150;
-        filter.Q.value = 12 + this.intensity * 2;
+        filter.frequency.value = 100 + 100; // Fixed range
+        filter.Q.value = 12;
         
         env.gain.setValueAtTime(0, this.ctx.currentTime);
         env.gain.linearRampToValueAtTime(1, this.ctx.currentTime + 5);
@@ -1851,12 +1794,12 @@ AWAKEN
         osc.start();
         osc.stop(this.ctx.currentTime + 20);
         
-        this.noiseGain.gain.linearRampToValueAtTime(0.12 + Math.random() * 0.06, this.ctx.currentTime + 4);
+        this.noiseGain.gain.linearRampToValueAtTime(0.12, this.ctx.currentTime + 4); // Removed random
       }
 
       playShepardTone() {
         const baseFreq = 200;
-        const shepardLayers = 8; // More layers for smoother illusion
+        const shepardLayers = 6; // Reduced layers for less chaos
         
         for (let i = 0; i < shepardLayers; i++) {
           const osc = this.ctx.createOscillator();
@@ -1865,12 +1808,12 @@ AWAKEN
           
           if (!this.allocateVoice('shepard', osc, gain, 4)) return;
           
-          const freq = baseFreq * Math.pow(2, i / 2); // Octave spacing adjusted
+          const freq = baseFreq * Math.pow(2, i / 2);
           osc.type = 'sine';
           osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
-          osc.frequency.exponentialRampToValueAtTime(freq * 1.5, this.ctx.currentTime + 4);
+          osc.frequency.exponentialRampToValueAtTime(freq * 1.2, this.ctx.currentTime + 4); // Slower rise for depth
           
-          const amplitude = Math.sin((i / shepardLayers) * Math.PI) * this.shepardIntensity * 1.2;
+          const amplitude = Math.sin((i / shepardLayers) * Math.PI) * this.shepardIntensity;
           
           env.gain.setValueAtTime(amplitude, this.ctx.currentTime);
           env.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 4);
@@ -1933,7 +1876,7 @@ AWAKEN
       }
 
       playGranular() {
-        const grainCount = 6 + Math.floor(this.intensity * 4);
+        const grainCount = 4 + Math.floor(this.intensity * 2); // Reduced count
         
         for (let i = 0; i < grainCount; i++) {
           setTimeout(() => {
@@ -1945,11 +1888,11 @@ AWAKEN
             if (!this.allocateVoice('granular', osc, gain, 0.25)) return;
             
             osc.type = 'sine';
-            osc.frequency.value = 250 + Math.random() * 700 + this.intensity * 250;
+            osc.frequency.value = 250 + 500 + this.intensity * 100; // Reduced random
             
             filter.type = 'bandpass';
-            filter.frequency.value = 1200 + Math.random() * 2500;
-            filter.Q.value = 12 + Math.random() * 12;
+            filter.frequency.value = 1200 + 1500; // Reduced random
+            filter.Q.value = 12;
             
             env.gain.setValueAtTime(0, this.ctx.currentTime);
             env.gain.linearRampToValueAtTime(0.35, this.ctx.currentTime + 0.03);
@@ -2006,9 +1949,8 @@ AWAKEN
       }
 
       playImpact() {
-        const freq = 50 + Math.random() * 50;
+        const freq = 50 + 30; // Reduced random
         const osc = this.ctx.createOscillator();
-        const osc2 = this.ctx.createOscillator();
         const gain = this.ctx.createGain();
         const env = this.ctx.createGain();
         const filter = this.ctx.createBiquadFilter();
@@ -2018,9 +1960,6 @@ AWAKEN
         osc.type = 'sine';
         osc.frequency.setValueAtTime(freq * 2.5, this.ctx.currentTime);
         osc.frequency.exponentialRampToValueAtTime(freq, this.ctx.currentTime + 0.08);
-        
-        osc2.type = 'triangle';
-        osc2.frequency.value = freq * 0.6;
         
         filter.type = 'lowpass';
         filter.frequency.setValueAtTime(freq * 12, this.ctx.currentTime);
@@ -2034,13 +1973,10 @@ AWAKEN
         gain.gain.value = 0.8;
         
         osc.connect(filter);
-        osc2.connect(filter);
         filter.connect(env).connect(gain).connect(this.layerGains.impacts);
         
         osc.start();
-        osc2.start();
         osc.stop(this.ctx.currentTime + 1.5);
-        osc2.stop(this.ctx.currentTime + 1.5);
         
         this.flashImpact();
       }
@@ -2133,13 +2069,13 @@ AWAKEN
         noise.buffer = noiseBuffer;
         
         osc.type = 'sine';
-        osc.frequency.value = 4 + Math.random() * 2; // Modulation for whisper texture
+        osc.frequency.value = 4; // Fixed for consistency
         osc.connect(mod.gain);
         osc.start();
         osc.stop(this.ctx.currentTime + 2);
         
         filter.type = 'bandpass';
-        filter.frequency.value = 2000 + Math.random() * 1000;
+        filter.frequency.value = 2000 + 500; // Reduced random
         filter.Q.value = 2;
         
         env.gain.setValueAtTime(0, this.ctx.currentTime);
