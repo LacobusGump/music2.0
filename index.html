@@ -334,680 +334,6 @@ AWAKEN
     
     <div class="ui-corner top-right">
       <div class="metric">BPM: <span id="bpmDisplay">60</span></div>
-      <div class="metric">KEY: <span id="keyDisplay">D MIN</span></div>
-      <div class="metric">VOICES: <span id="voiceCount">0</span></div>
-    </div>
-    
-    <div class="spectrum-viz" id="spectrumViz"></div>
-  </div>
-
-  <div class="cinematic-overlay" id="cinematicOverlay"></div>
-  <div class="theme-text" id="themeText"></div>
-  <div class="impact-flash" id="impactFlash"></div>
-
-  <script>
-    class VoidEngine {
-      constructor() {
-        this.ctx = null;
-        this.active = false;
-        this.analyser = null;
-        this.dataArray = null;
-        
-        // Musical Structure
-        this.bpm = 96;
-        this.step = 0;
-        this.phrase = 'A';
-        this.phraseCount = 0;
-        this.phraseStructure = ['A', 'A', 'B', 'A', 'C', 'D', 'E', 'F'];
-        this.sectionLength = 32;
-        
-        // Motion & Position
-        this.motion = 0;
-        this.intensity = 0;
-        this.direction = 0;
-        this.pos = { x: 50, y: 50 };
-        this.velocity = { x: 0, y: 0 };
-        this.lastAccel = { x: 0, y: 0, z: 0 };
-        this.motionHistory = [];
-        this.motionPattern = 'calm';
-        this.stepCounter = 0;
-        this.lastStepTime = 0;
-        this.lastMotionTime = Date.now();
-        
-        // Gesture Recognition
-        this.gestureRecognition = {
-          shake: 0,
-          spiral: 0,
-          tap: 0,
-          sustained: 0,
-          chaos: 0,
-          wave: 0
-        };
-        
-        // Evolution System
-        this.stage = 'SILENCE';
-        this.subStage = 0;
-        this.evolutionProgress = 0;
-        this.totalMotion = 0;
-        this.firstMovement = false;
-        this.buildPhase = false;
-        this.releasePhase = false;
-        this.climaxPhase = false;
-        this.dimensionalPhase = false;
-        this.voidPhase = false;
-        this.currentTechnique = 'waiting';
-        this.transposition = 0;
-        
-        // Cinematic Themes (Adapted to Interstellar)
-        this.currentTheme = 'awakening';
-        this.themes = {
-          awakening: { mood: 'mysterious', colors: ['#1a1a1a', '#2a2a2a'], text: 'Into the Void' },
-          adventure: { mood: 'heroic', colors: ['#ff6b35', '#1a1a1a'], text: 'Ticking Begins' },
-          tension: { mood: 'suspenseful', colors: ['#4a90e2', '#1a1a1a'], text: 'Rising Tension' },
-          triumph: { mood: 'epic', colors: ['#9b59b6', '#e74c3c'], text: 'Docking Climax' },
-          reflection: { mood: 'serene', colors: ['#f39c12', '#1a1a1a'], text: 'Eternal Space' },
-          chaos: { mood: 'chaotic', colors: ['#ff0000', '#000000'], text: 'Reality Fractures' },
-          dimensional: { mood: 'transcendent', colors: ['#00ffff', '#ff00ff'], text: 'No Time for Caution' },
-          void: { mood: 'healing', colors: ['#9370db', '#0a0a0a'], text: 'Vacuum Silence' }
-        };
-        
-        // AUDIO SYSTEM - Enhanced for cinematic depth
-        this.masterGain = null;
-        this.limiter = null;
-        this.layerGains = {};
-        this.layerPanners = {};
-        this.basePositions = {};
-        this.layerPositions = {};
-        this.layerTargets = {};
-        this.layerPanScales = {
-          kick: 0.1, bass: 0.2, hihat: 0.8, snare: 0.3,
-          ostinato: 1.2, harmony: 1.5, pad: 2.0, atmosphere: 3.0,
-          strings: 1.8, brass: 1.0, choir: 2.5, shepard: 3.5,
-          healing: 2.5, granular: 2.0, risers: 2.5, impacts: 0.5,
-          breath: 1.0, whisper: 1.5
-        };
-        this.panningLerp = 0.02;
-        this.listener = null;
-        this.convolver = null;
-        this.delay = null;
-        this.compressor = null;
-        this.lowBoost = null;
-        this.saturator = null;
-        this.shepardGain = null;
-        this.ostinatoGain = null;
-        
-        // Spatial Orientation
-        this.orientation = { alpha: 0, beta: 0, gamma: 0 };
-        
-        // Techniques
-        this.shepardTones = []; 
-        this.ostinatoPattern = [0,7,12,15,12,7,12,15]; // Adapted to Interstellar organ ostinato (Am arpeggio)
-        this.ostinatoIndex = 0;
-        this.shepardIntensity = 0;
-        this.tensionBuildup = 0;
-        this.glitchProbability = 0;
-        
-        // Voice Pool - Adjusted for new layers
-        this.voicePool = {
-          kick: { max: 3, active: [] },
-          bass: { max: 4, active: [] },
-          hihat: { max: 6, active: [] }, // Used for ticking
-          snare: { max: 3, active: [] },
-          ostinato: { max: 8, active: [] },
-          harmony: { max: 12, active: [] },
-          pad: { max: 10, active: [] },
-          atmosphere: { max: 6, active: [] },
-          strings: { max: 16, active: [] }, 
-          brass: { max: 8, active: [] },
-          choir: { max: 12, active: [] },
-          shepard: { max: 6, active: [] },
-          healing: { max: 4, active: [] },
-          granular: { max: 8, active: [] },
-          risers: { max: 2, active: [] },
-          impacts: { max: 2, active: [] },
-          breath: { max: 2, active: [] },
-          whisper: { max: 4, active: [] }
-        };
-        
-        // Layers - Adapted for Interstellar (hihat as ticking)
-        this.layers = {
-          kick: false, bass: false, hihat: false, snare: false,
-          ostinato: false, harmony: false, pad: false, atmosphere: false,
-          strings: false, brass: false, choir: false, shepard: false,
-          healing: false, granular: false, risers: false, impacts: false,
-          breath: false, whisper: false
-        };
-        
-        // Musical Elements - Adapted progressions
-        this.key = 'Ab';
-        this.keyOffsets = {'C':0, 'D':2, 'E':4, 'F':5, 'G':7, 'A':9, 'B':11, 'Ab':8};
-        this.mode = 'major';
-        this.scales = {
-          minor: [0, 2, 3, 5, 7, 8, 10],
-          major: [0, 2, 4, 5, 7, 9, 11],
-          dorian: [0, 2, 3, 5, 7, 9, 10],
-          phrygian: [0, 1, 3, 5, 7, 8, 10],
-          lydian: [0, 2, 4, 6, 7, 9, 11],
-          mixolydian: [0, 2, 4, 5, 7, 9, 10],
-          locrian: [0, 1, 3, 5, 6, 8, 10],
-          pentatonic: [0, 2, 4, 7, 9],
-          blues: [0, 3, 5, 6, 7, 10],
-          chromatic: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
-          wholeTone: [0, 2, 4, 6, 8, 10]
-        };
-        this.scale = this.scales[this.mode];
-        this.chordProgression = [
-          [5,9,0,2,7],  // IV D♭6/9
-          [7,11,2,4], // V E Good, examples:
-
-- Time After Time by Cyndi Lauper: uses IV V iii vi? Wait, Time After Time is in C: F G Em Am — IV V iii vi
-
-Yes, F=IV, G=V, Em=iii, Am=vi
-
-Wait, that's IV V iii vi
-
-User wants IV V vi iii, which is F G Am Em in C.
-
-Swapped.
-
-But close.
-
-Other: Robo's Theme from Chrono Trigger: F-G-Em-Am which is IV V iii vi in C.
-
-Too Much Heaven Bee Gees.
-
-Beautiful Day by Ballyhoo!
-
-Milla by Netinho.
-
-Stairway To Heaven after solo Am-Am-F-G ? Wait, Am F G, but that's i VI VII in A min.
-
-Not the same.
-
-The Trooper Em C Em D Em — i VI i VII i in E min.
-
-Not.
-
-So mainly IV V iii vi examples.
-
-But since almost same as user's, just order of last two swapped.
-
-Now, for inspiration: these songs use it in chorus often, looping.
-
-For the engine, since it's interactive, perhaps the progression cycles with motion.
-
-To make music completely different, perhaps change the layers or patterns.
-
-But user says "the music to be completely different" but locked to this.
-
-Perhaps change the ostinato to arpeggio based on the new chords.
-
-Original ostinato [0,7,12,15,12,7,12,15] — root,5,root', min3', etc.
-
-To make different, perhaps change to something like in Dilemma or Time After Time rhythm.
-
-But since code is synth, not real songs.
-
-Also, bpm=96 originally, perhaps change.
-
-But main is change key, mode, chords.
-
-For ostinato, perhaps make it arpeggio of the progression or something.
-
-User says "pull inspiration on how the engine will use the other options if these are not enough"
-
-Perhaps meaning if the 4 chords not enough, use variations from inspirations.
-
-But I think to implement, I need to modify the JS code.
-
-To output the new HTML with changed code.
-
-First, add 'Ab':8 to keyOffsets.
-
-Set this.key = 'Ab';
-
-this.mode = 'major';
-
-this.scale = this.scales.major;
-
-Then, chordProgression = [
-
-  [5,9,0,2,7], // IV Db6/9
-
-  [7,11,2,4], // V Eb6 with optional Bb, I include 2=Bb
-
-  [9,0,4,7,11], // vi Fm11
-
-  [0,4,7,11] // iii/I Cm/Ab = Ab maj7 no5? Ab C Eb G
-
-]
-
-For V, user said [E♭, G, C] optionally Bb, but to make it chord, include Bb.
-
-Perhaps [7,11,4] without, but add 2.
-
-Let's follow user: for V [E♭, G, C] so [7,11,4]
-
-But C=4+12.
-
-In code, intervals can be >11, but original are mod12.
-
-Original has 0,3,7 all <12.
-
-But in playHarmony, noteToFreq(interval, 3 + i%2), so interval can be high.
-
-But to match, perhaps keep mod12.
-
-For higher notes, they use higher octave in voicing.
-
-But since 4 <11, but for C in Ab, C is 4, but if voicing is Eb=7 (low), G=11, C=16=4+12
-
-So in array [7,11,4], and in playHarmony, freq = noteToFreq(4, 3 + 2%2=3+0=3), but to have higher, perhaps order the array from low to high.
-
-In original, [8,0,3] for VI, 8=F,0=A(+12),3=C(+12), and in play [interval, 3 + i%2] so first interval8 octave3 or4, etc.
-
-It works as is.
-
-So for IV: user [Db, F, Ab, Bb, Eb] =5,9,0(+12),2(+12),7(+12)
-
-So array [5,9,0,2,7]
-
-For V: let's include optional Bb, [Eb, G, Bb, C] =7,11,2(+12),4(+12) [7,11,2,4]
-
-For vi: [F, Ab, C, Eb, G] =9,0(+12),4(+12),7(+12),11(+12) [9,0,4,7,11]
-
-For iii: [Ab, C, Eb, G] =0,4,7,11 [0,4,7,11]
-
-Yes.
-
-For ostinato, to make different, perhaps change to a different pattern.
-
-Inspired by Interstellar, but to make different, perhaps inspired by one of these songs.
-
-But since Interstellar is already, and user wants different, perhaps change bpm, or layers.
-
-But I think main change is key and progression.
-
-Also, original keyDisplay "D MIN", change to Ab maj.
-
-Original key='A', but display "D MIN"? No, "D MIN" is default, but code sets key='A'
-
-In HTML: <span id="keyDisplay">D MIN</span> but in code this.key = 'A'; this.mode = 'minor';
-
-Perhaps placeholder.
-
-In init, it sets keyDisplay to `${this.key} ${this.mode.toUpperCase()}` later? In updateFromEnvironment, but initially D MIN.
-
-Anyway.
-
-To lock, perhaps remove the phraseStructure or something, but since progression is 4 chords, and currentChordIndex ++ % length each 32 steps? No, each sectionLength=32, but phraseCount++, chordIndex ++ %length when step==0, but phraseCount %4 ? No.
-
-this.step ++ % sectionLength=32
-
-if step==0: phraseCount++, phrase=phraseStructure[phraseCount%length], currentChordIndex ++ %length
-
-So cycles through the 4 chords every 32 steps.
-
-phraseStructure = ['A', 'A', 'B', 'A', 'C', 'D', 'E', 'F']; but not used for chords.
-
-Chords cycle independently.
-
-To lock, perhaps it's already locked to the progression.
-
-To make completely different, perhaps change the ostinato to something else.
-
-Original ostinato inspired by Interstellar in Am: A C E or something? Wait, [0,7,12,15] 0=root A,7=E P5,12=A,15=C min3 above.
-
-So arpeggio A E A C
-
-To change, perhaps make it arpeggio of the first chord or something.
-
-Inspired from Dilemma, which has a harp arpeggio or something.
-
-Dilemma in G major? Wait, actually Dilemma is in Bb major I think, but progression Gm Eb F Dm — wait no.
-
-Dilemma key is G minor? Wait, let's think.
-
-To confirm, use tool to search "chord progression of Dilemma by Nelly"
-
-Use web_search "what is the chord progression in Dilemma by Nelly"
-
-To get inspiration.<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>GUMP: Interstellar Docking Engine</title>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    
-    body {
-      background: #0a0a0a;
-      color: #fff;
-      overflow: hidden;
-      touch-action: none;
-      height: 100vh;
-      font-family: 'Courier New', monospace;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      transition: all 2s ease;
-    }
-    
-    .start-screen {
-      text-align: center;
-      z-index: 100;
-    }
-    
-    .start-btn {
-      width: 200px;
-      height: 200px;
-      border-radius: 50%;
-      background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%);
-      border: 2px solid rgba(255,255,255,0.3);
-      color: #fff;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 16px;
-      font-weight: bold;
-      letter-spacing: 2px;
-      backdrop-filter: blur(10px);
-      transition: all 0.3s ease;
-      animation: pulse 6s ease-in-out infinite;
-    }
-    
-    .start-btn:hover {
-      border-color: rgba(255,255,255,0.6);
-      background: radial-gradient(circle, rgba(255,255,255,0.2) 0%, transparent 70%);
-      transform: scale(1.05);
-    }
-    
-    @keyframes pulse {
-      0%, 100% { transform: scale(1); box-shadow: 0 0 30px rgba(255,255,255,0.2); }
-      50% { transform: scale(1.08); box-shadow: 0 0 60px rgba(255,255,255,0.4); }
-    }
-    
-    .evolution-space {
-      position: fixed;
-      top: 0; left: 0;
-      width: 100%; height: 100%;
-      opacity: 0;
-      transition: opacity 2s ease;
-    }
-    
-    .evolution-space.active { opacity: 1; }
-    
-    .orb {
-      position: absolute;
-      width: 40px;
-      height: 40px;
-      border-radius: 50%;
-      background: radial-gradient(circle, #fff 0%, rgba(255,255,255,0.3) 50%, transparent 80%);
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      transition: all 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
-      box-shadow: 0 0 40px rgba(255,255,255,0.5);
-      backdrop-filter: blur(5px);
-    }
-    
-    .orb.pulse {
-      animation: beat 0.15s ease-out;
-    }
-    
-    @keyframes beat {
-      0% { transform: translate(-50%, -50%) scale(1); }
-      50% { transform: translate(-50%, -50%) scale(2.2); }
-      100% { transform: translate(-50%, -50%) scale(1); }
-    }
-    
-    .orb.tribal {
-      background: radial-gradient(circle, #ff6b35 0%, rgba(255,107,53,0.4) 50%, transparent 80%);
-      box-shadow: 0 0 60px rgba(255,107,53,0.7);
-    }
-    
-    .orb.orchestral {
-      background: radial-gradient(circle, #4a90e2 0%, rgba(74,144,226,0.4) 50%, transparent 80%);
-      box-shadow: 0 0 80px rgba(74,144,226,0.7);
-    }
-    
-    .orb.transcendent {
-      background: radial-gradient(circle, #9b59b6 0%, #e74c3c 40%, #f39c12 70%, transparent 90%);
-      box-shadow: 0 0 120px rgba(155,89,182,0.8);
-      animation: transcend 3s ease-in-out infinite;
-    }
-    
-    .orb.dimensional {
-      background: radial-gradient(circle, #00ffff 0%, #ff00ff 25%, #ffff00 50%, #00ff00 75%, transparent 95%);
-      box-shadow: 0 0 200px rgba(0,255,255,1);
-      filter: drop-shadow(0 0 80px rgba(255,0,255,0.8));
-    }
-    
-    .orb.void {
-      background: radial-gradient(circle, #9370db 0%, rgba(147,112,219,0.3) 40%, transparent 80%);
-      box-shadow: 0 0 40px rgba(147,112,219,0.4);
-      filter: drop-shadow(0 0 20px rgba(147,112,219,0.2));
-      animation: voidBreathe 3s ease-in-out infinite;
-    }
-    
-    @keyframes transcend {
-      0%, 100% { transform: translate(-50%, -50%) scale(1); }
-      50% { transform: translate(-50%, -50%) scale(1.4); }
-    }
-    
-    @keyframes voidBreathe {
-      0%, 100% { 
-        transform: translate(-50%, -50%) scale(1); 
-        opacity: 0.7; 
-      }
-      50% { 
-        transform: translate(-50%, -50%) scale(1.1); 
-        opacity: 1; 
-      }
-    }
-    
-    .ui-corner {
-      position: fixed;
-      font-size: 11px;
-      color: rgba(255,255,255,0.8);
-      font-weight: normal;
-      letter-spacing: 1px;
-      background: rgba(0,0,0,0.3);
-      padding: 10px;
-      border-radius: 5px;
-      backdrop-filter: blur(10px);
-    }
-    
-    .ui-corner.top-left {
-      top: 20px;
-      left: 20px;
-    }
-    
-    .ui-corner.bottom-left {
-      bottom: 20px;
-      left: 20px;
-    }
-    
-    .ui-corner.top-right {
-      top: 20px;
-      right: 20px;
-    }
-    
-    .stage-name {
-      font-size: 14px;
-      color: rgba(255,255,255,0.9);
-      margin-bottom: 8px;
-      font-weight: bold;
-    }
-    
-    .metric {
-      margin: 3px 0;
-      font-size: 10px;
-    }
-    
-    .bar {
-      width: 80px;
-      height: 3px;
-      background: rgba(255,255,255,0.2);
-      margin: 3px 0;
-      border-radius: 2px;
-      overflow: hidden;
-    }
-    
-    .bar-fill {
-      height: 100%;
-      background: linear-gradient(90deg, #4a90e2, #9b59b6);
-      width: 0%;
-      transition: width 0.3s ease;
-      border-radius: 2px;
-    }
-    
-    .hidden { display: none !important; }
-    
-    .particles {
-      position: fixed;
-      top: 0; left: 0;
-      width: 100%; height: 100%;
-      pointer-events: none;
-      z-index: 1;
-    }
-    
-    .particle {
-      position: absolute;
-      width: 3px;
-      height: 3px;
-      border-radius: 50%;
-      background: rgba(255,255,255,0.3);
-      animation: float 12s linear infinite;
-    }
-    
-    @keyframes float {
-      0% { 
-        transform: translateY(100vh) scale(0) rotate(0deg); 
-        opacity: 0; 
-      }
-      10% { opacity: 1; }
-      90% { opacity: 1; }
-      100% { 
-        transform: translateY(-20vh) scale(1.5) rotate(360deg); 
-        opacity: 0; 
-      }
-    }
-    
-    .instruction {
-      position: fixed;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      font-size: 14px;
-      color: rgba(255,255,255,0.7);
-      text-align: center;
-      letter-spacing: 2px;
-      opacity: 0;
-      transition: opacity 2s ease;
-      margin-top: 80px;
-      font-weight: bold;
-    }
-    
-    .instruction.show { opacity: 1; }
-
-    .cinematic-overlay {
-      position: fixed;
-      top: 0; left: 0;
-      width: 100%; height: 100%;
-      pointer-events: none;
-      background: radial-gradient(circle at center, transparent 30%, rgba(0,0,0,0.6) 100%);
-      opacity: 0;
-      transition: opacity 3s ease;
-      z-index: 2;
-    }
-    
-    .cinematic-overlay.active { opacity: 1; }
-    
-    .theme-text {
-      position: fixed;
-      bottom: 30px;
-      right: 30px;
-      font-size: 12px;
-      color: rgba(255,255,255,0.6);
-      text-transform: uppercase;
-      letter-spacing: 3px;
-      opacity: 0;
-      transition: opacity 2s ease;
-      font-weight: bold;
-    }
-    
-    .theme-text.visible { opacity: 1; }
-
-    .spectrum-viz {
-      position: fixed;
-      bottom: 0;
-      left: 0;
-      width: 100%;
-      height: 100px;
-      pointer-events: none;
-      z-index: 3;
-    }
-    
-    .spectrum-bar {
-      position: absolute;
-      bottom: 0;
-      width: 8px;
-      background: linear-gradient(0deg, rgba(255,255,255,0.8), rgba(255,255,255,0.2));
-      border-radius: 4px 4px 0 0;
-      transition: height 0.1s ease;
-    }
-
-    .impact-flash {
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      background: rgba(255,255,255,0.1);
-      opacity: 0;
-      pointer-events: none;
-      z-index: 10;
-    }
-
-    .impact-flash.active {
-      opacity: 1;
-      transition: opacity 0.15s ease-out;
-    }
-  </style>
-</head>
-<body>
-  <div class="start-screen" id="startScreen">
-    <div class="start-btn" id="startBtn">
-AWAKEN
-    </div>
-  </div>
-  
-  <div class="evolution-space" id="evolutionSpace">
-    <div class="orb" id="orb"></div>
-    
-    <div class="instruction" id="instruction">MOVE TO UNRAVEL THE VOID</div>
-    
-    <div class="ui-corner top-left">
-      <div class="stage-name" id="stageName">SILENCE</div>
-      <div class="metric">TECHNIQUE: <span id="technique">WAITING</span></div>
-    </div>
-    
-    <div class="ui-corner bottom-left">
-      <div class="metric">MOTION INTENSITY</div>
-      <div class="bar">
-        <div class="bar-fill" id="motionBar"></div>
-      </div>
-      <div class="metric">SHEPARD TENSION</div>
-      <div class="bar">
-        <div class="bar-fill" id="shepardBar"></div>
-      </div>
-    </div>
-    
-    <div class="ui-corner top-right">
-      <div class="metric">BPM: <span id="bpmDisplay">60</span></div>
       <div class="metric">KEY: <span id="keyDisplay">Ab MAJ</span></div>
       <div class="metric">VOICES: <span id="voiceCount">0</span></div>
     </div>
@@ -1207,8 +533,12 @@ AWAKEN
         };
 
         // Environment
-        this.weather = null;
         this.dayOfWeek = new Date().getDay();
+        
+        // Additional flags for permissions
+        this.useTouchForMotion = false;
+        this.lastTouch = { x: 0, y: 0, time: 0 };
+        this.lastMouse = { x: 0, y: 0, time: 0 };
         
         this.init();
       }
@@ -1371,15 +701,18 @@ AWAKEN
 
       async start() {
         try {
+          let motionPermission = 'granted';
           if (typeof DeviceMotionEvent?.requestPermission === 'function') {
-            const motionPermission = await DeviceMotionEvent.requestPermission();
+            motionPermission = await DeviceMotionEvent.requestPermission();
             if (motionPermission !== 'granted') {
-              console.log('Motion permission not granted, continuing with mouse input');
+              console.log('Motion permission not granted, continuing with touch input');
+              this.useTouchForMotion = true;
             }
           }
 
+          let orientationPermission = 'granted';
           if (typeof DeviceOrientationEvent?.requestPermission === 'function') {
-            const orientationPermission = await DeviceOrientationEvent.requestPermission();
+            orientationPermission = await DeviceOrientationEvent.requestPermission();
             if (orientationPermission !== 'granted') {
               console.log('Orientation permission not granted');
             }
@@ -1400,11 +733,9 @@ AWAKEN
           }, 1000);
 
           this.active = true;
+          this.updateFromEnvironment();
           this.startSequencer();
           this.animate();
-          
-          // Get environment data
-          this.fetchEnvironmentData();
           
         } catch (e) {
           console.error('Failed to start engine:', e);
@@ -1412,48 +743,7 @@ AWAKEN
         }
       }
 
-      fetchEnvironmentData() {
-        navigator.geolocation.getCurrentPosition(
-          (pos) => {
-            fetch(`https://api.open-meteo.com/v1/forecast?latitude=${pos.coords.latitude}&longitude=${pos.coords.longitude}&current_weather=true`)
-              .then(res => res.json())
-              .then(data => {
-                this.weather = data.current_weather;
-                this.updateFromEnvironment();
-              })
-              .catch(err => console.error('Weather fetch error:', err));
-          },
-          (err) => console.error('Geolocation error:', err),
-          { enableHighAccuracy: true }
-        );
-      }
-
       updateFromEnvironment() {
-        if (this.weather) {
-          const temp = this.weather.temperature;
-          const weatherCode = this.weather.weathercode;
-
-          // Influence BPM based on temperature
-          this.bpm += (temp - 15) * 0.5;
-          this.bpm = Math.max(40, Math.min(180, this.bpm));
-
-          // Weather code influence
-          if (weatherCode >= 61 && weatherCode <= 67) { // Rain
-            this.layers.atmosphere = true;
-            this.convolver.buffer = this.createReverbBuffer(8);
-            this.currentTheme = 'tension';
-          } else if (weatherCode <= 3) { // Clear
-            this.currentTheme = 'adventure';
-            this.layers.pad = true;
-          } else if (weatherCode >= 71 && weatherCode <= 77) { // Snow
-            this.layers.choir = true;
-            this.currentTheme = 'reflection';
-          }
-
-          // Adjust intensity based on wind
-          this.intensity += this.weather.windspeed / 20;
-        }
-
         // Day of week influence
         const days = ['minor', 'major', 'dorian', 'phrygian', 'lydian', 'mixolydian', 'locrian'];
         this.mode = days[this.dayOfWeek];
@@ -1701,18 +991,18 @@ AWAKEN
           this.lastAccel = { x: acc.x, y: acc.y, z: acc.z };
         });
 
-        let lastMouse = { x: 0, y: 0, time: 0 };
+        this.lastMouse = { x: 0, y: 0, time: 0 };
         window.addEventListener('mousemove', e => {
           if (!this.active) return;
           
           const now = Date.now();
-          const dt = Math.max(1, now - lastMouse.time);
+          const dt = Math.max(1, now - this.lastMouse.time);
           
           const newX = (e.clientX / window.innerWidth) * 100;
           const newY = (e.clientY / window.innerHeight) * 100;
           
-          const velocityX = (newX - lastMouse.x) / dt * 100;
-          const velocityY = (newY - lastMouse.y) / dt * 100;
+          const velocityX = (newX - this.lastMouse.x) / dt * 100;
+          const velocityY = (newY - this.lastMouse.y) / dt * 100;
           
           const mouseMotion = Math.sqrt(velocityX * velocityX + velocityY * velocityY) * 0.15;
           this.updateMotion(mouseMotion);
@@ -1726,8 +1016,49 @@ AWAKEN
           this.orientation.gamma = 0;
           this.updateListenerOrientation();
           
-          lastMouse = { x: newX, y: newY, time: now };
+          this.lastMouse = { x: newX, y: newY, time: now };
         });
+
+        // Add touchmove for mobile fallback
+        this.lastTouch = { x: 0, y: 0, time: 0 };
+        window.addEventListener('touchmove', e => {
+          if (!this.active || !this.useTouchForMotion) return;
+          
+          e.preventDefault();
+          
+          const touch = e.touches[0];
+          const now = Date.now();
+          const dt = Math.max(1, now - this.lastTouch.time);
+          
+          const newX = (touch.clientX / window.innerWidth) * 100;
+          const newY = (touch.clientY / window.innerHeight) * 100;
+          
+          const velocityX = (newX - this.lastTouch.x) / dt * 100;
+          const velocityY = (newY - this.lastTouch.y) / dt * 100;
+          
+          const touchMotion = Math.sqrt(velocityX * velocityX + velocityY * velocityY) * 0.15;
+          this.updateMotion(touchMotion);
+          
+          this.pos.x = newX;
+          this.pos.y = newY;
+          this.direction = Math.atan2(velocityY, velocityX) * (180 / Math.PI);
+          
+          this.orientation.alpha = (newX / 100) * 360;
+          this.orientation.beta = (newY - 50) * 1.8;
+          this.orientation.gamma = 0;
+          this.updateListenerOrientation();
+          
+          this.lastTouch = { x: newX, y: newY, time: now };
+        }, { passive: false });
+      }
+
+      updatePosition() {
+        this.pos.x += this.velocity.x;
+        this.pos.y += this.velocity.y;
+        this.velocity.x *= 0.94;
+        this.velocity.y *= 0.94;
+        this.pos.x = Math.max(0, Math.min(100, this.pos.x));
+        this.pos.y = Math.max(0, Math.min(100, this.pos.y));
       }
 
       updateMotion(newMotion) {
@@ -1760,7 +1091,7 @@ AWAKEN
         
         const variance = this.intensity;
         const recentHistory = this.motionHistory.slice(-40);
-        const isRhythmic = recentHistory.filter(m => m > 2.5).length > 20 && variance < 2;
+        const isRhythmic = recentHistory.filter(m => m > 2).length > 20 && variance < 2;
         const isErratic = variance > 2.5 && avgMotion > 2;
         const isSustained = avgMotion > 2.5 && variance < 1.5;
         const isChaotic = variance > 4 && avgMotion > 4;
@@ -1773,11 +1104,76 @@ AWAKEN
         this.updateProceduralNoise(avgMotion, variance);
       }
 
+      updateTechniques(avgMotion, variance) {
+        this.currentTechnique = this.motionPattern;
+        this.shepardIntensity = Math.min(1, avgMotion / 10);
+        this.tensionBuildup += variance * 0.01;
+        this.tensionBuildup = Math.min(1, this.tensionBuildup);
+      }
+
+      updateEvolution() {
+        this.evolutionProgress += this.motion * 0.1 + this.intensity * 0.05;
+        
+        if (this.stage === 'SILENCE' && this.evolutionProgress > 50) {
+          this.evolveToTribal();
+        } else if (this.stage === 'TRIBAL' && this.evolutionProgress > 200) {
+          this.evolveToOrchestral();
+        } else if (this.stage === 'ORCHESTRAL' && this.evolutionProgress > 500) {
+          this.evolveToTranscendent();
+        } else if (this.stage === 'TRANSCENDENT' && this.evolutionProgress > 1000) {
+          this.evolveToDimensional();
+        }
+      }
+
+      evolveToTribal() {
+        this.stage = 'TRIBAL';
+        this.elements.orb.classList.add('tribal');
+        this.layers.kick = true;
+        this.layers.bass = true;
+        this.layers.hihat = true;
+        this.currentTheme = 'adventure';
+      }
+
+      evolveToOrchestral() {
+        this.stage = 'ORCHESTRAL';
+        this.elements.orb.classList.add('orchestral');
+        this.layers.strings = true;
+        this.layers.brass = true;
+        this.layers.ostinato = true;
+        this.layers.snare = true;
+        this.currentTheme = 'tension';
+      }
+
+      evolveToTranscendent() {
+        this.stage = 'TRANSCENDENT';
+        this.elements.orb.classList.add('transcendent');
+        this.layers.pad = true;
+        this.layers.choir = true;
+        this.layers.atmosphere = true;
+        this.layers.harmony = true;
+        this.currentTheme = 'triumph';
+        this.buildPhase = true;
+      }
+
+      evolveToDimensional() {
+        this.stage = 'DIMENSIONAL';
+        this.elements.orb.classList.add('dimensional');
+        this.layers.shepard = true;
+        this.layers.granular = true;
+        this.layers.risers = true;
+        this.layers.impacts = true;
+        this.layers.breath = true;
+        this.layers.whisper = true;
+        this.currentTheme = 'dimensional';
+        this.dimensionalPhase = true;
+        this.climaxPhase = true;
+      }
+
       enterVoidState() {
         console.log('🌌 ENTERING VOID STATE: Healing Frequencies Activated');
         this.voidPhase = true;
         this.stage = 'VOID';
-        this.elements.orb.className = 'orb void';
+        this.elements.orb.classList.add('void');
         this.currentTheme = 'void';
         
         // Fade out all active layers
@@ -2550,6 +1946,56 @@ AWAKEN
       noteToFreq(note, octave = 4) {
         const semitones = this.keyOffsets[this.key] + note + this.transposition;
         return 261.63 * Math.pow(2, semitones / 12 + (octave - 4));
+      }
+
+      startSequencer() {
+        const beatDuration = 60000 / this.bpm;
+        this.sequencerInterval = setInterval(() => {
+          this.step = (this.step + 1) % this.sectionLength;
+          if (this.step === 0) {
+            this.phraseCount++;
+            this.phrase = this.phraseStructure[this.phraseCount % this.phraseStructure.length];
+            this.currentChordIndex = (this.currentChordIndex + 1) % this.chordProgression.length;
+            this.updateHarmony();
+          }
+          this.triggerLayerEvents();
+        }, beatDuration / 4); // 16th notes
+      }
+
+      triggerLayerEvents() {
+        if (this.voidPhase) return;
+
+        if (this.layers.kick && this.step % 8 === 0) this.playKick();
+        if (this.layers.bass && this.step % 4 === 0) this.playBass();
+        if (this.layers.hihat) this.playHihat(); // ticking every step
+        if (this.layers.snare && this.step % 8 === 4) this.playSnare();
+        if (this.layers.ostinato) this.playOstinato();
+        if (this.layers.harmony && this.step % 16 === 0) this.playHarmony();
+        if (this.layers.strings && this.step % 4 === 0) this.playStrings();
+        if (this.layers.brass && this.step % 16 === 0) this.playBrass();
+        if (this.layers.choir && this.step % 32 === 0) this.playChoir();
+        if (this.layers.pad && this.step % 32 === 0) this.playPad();
+        if (this.layers.atmosphere && this.step % 32 === 0) this.playAtmosphere();
+        if (this.layers.shepard && this.step % 8 === 0) this.playShepardTone();
+        if (this.layers.granular && this.step % 4 === 0) this.playGranular();
+        if (this.layers.risers && this.step % 32 === 0) this.playRiser();
+        if (this.layers.impacts && this.step % 16 === 0) this.playImpact();
+        if (this.layers.breath && this.step % 16 === 0) this.playBreath();
+        if (this.layers.whisper && this.step % 8 === 0) this.playWhisper();
+      }
+
+      syncBPMToSteps() {
+        // Simple stub to avoid error; can be expanded
+        if (this.stepCounter > 4) {
+          this.bpm = Math.round(this.bpm * 1.05);
+          this.stepCounter = 0;
+        }
+      }
+
+      triggerShakeEffects() {
+        this.playImpact();
+        this.glitchProbability += 0.2;
+        this.gestureRecognition.shake = 0;
       }
 
       updateUI() {
