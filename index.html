@@ -1175,8 +1175,8 @@ AWAKEN
                            'atmosphere', 'strings', 'brass', 'choir', 'shepard', 'healing',
                            'granular', 'risers', 'impacts', 'breath', 'whisper'];
         const layerLevels = [1.2, 1.1, 0.15, 0.3, 0.25, 0.2, 0.18, 
-                            0.12, 0.25, 0.2, 0.15, 0.1, 0.08,
-                            0.2, 0.3, 0.5, 0.1, 0.1]; // Adjusted: higher kick/bass, lower snare/shepard/strings/brass/choir
+                            0.12, 0.25, 0.2, 0.15, 0.1, 0.1,
+                            0.2, 0.3, 0.5, 0.1, 0.1]; // Adjusted: higher kick/bass, lower snare/shepard/strings/brass/choir, healing to 0.1
         
         layerNames.forEach((name, i) => {
           this.layerGains[name] = this.ctx.createGain();
@@ -1321,7 +1321,7 @@ AWAKEN
             this.syncBPMToSteps();
           }
           
-          if (newMotion > 8) {
+          if (newMotion > 4) {
             this.gestureRecognition.shake += 0.3;
             if (this.gestureRecognition.shake > 2) {
               this.triggerShakeEffects();
@@ -1344,7 +1344,7 @@ AWAKEN
           const velocityX = (newX - lastMouse.x) / dt * 100;
           const velocityY = (newY - lastMouse.y) / dt * 100;
           
-          const mouseMotion = Math.sqrt(velocityX * velocityX + velocityY * velocityY) * 0.15;
+          const mouseMotion = Math.sqrt(velocityX * velocityX + velocityY * velocityY) * 0.3;
           this.updateMotion(mouseMotion);
           
           this.pos.x = newX;
@@ -1368,7 +1368,7 @@ AWAKEN
         this.totalMotion += this.motion;
         
         // Track last motion for void state
-        if (this.motion > 0.5) {
+        if (this.motion > 0.3) {
           this.lastMotionTime = Date.now();
           if (this.voidPhase) {
             this.exitVoidState();
@@ -1409,9 +1409,11 @@ AWAKEN
         this.elements.orb.className = 'orb void';
         this.currentTheme = 'void';
         
-        // Fade out all active layers
+        // Fade out all active layers except healing
         Object.keys(this.layerGains).forEach(layer => {
-          this.layerGains[layer].gain.linearRampToValueAtTime(0, this.ctx.currentTime + 1);
+          if (layer !== 'healing') {
+            this.layerGains[layer].gain.linearRampToValueAtTime(0, this.ctx.currentTime + 1);
+          }
         });
         Object.keys(this.layers).forEach(layer => this.layers[layer] = false);
         
@@ -1422,6 +1424,11 @@ AWAKEN
         this.elements.themeText.textContent = this.themes.void.text;
         this.elements.themeText.classList.add('visible');
         setTimeout(() => this.elements.themeText.classList.remove('visible'), 5000);
+
+        // Show instruction to move
+        this.elements.instruction.textContent = 'MOVE TO UNRAVEL THE VOID';
+        this.elements.instruction.classList.add('show');
+        setTimeout(() => this.elements.instruction.classList.remove('show'), 5000);
       }
 
       exitVoidState() {
@@ -1432,6 +1439,10 @@ AWAKEN
         this.currentTheme = 'adventure';
         
         // Fade out void sounds
+        this.voicePool.healing.active.forEach(voice => {
+          voice.gain.gain.linearRampToValueAtTime(0, this.ctx.currentTime + 1);
+          setTimeout(() => { if (voice.source) voice.source.stop(); }, 1000);
+        });
         this.layerGains.healing.gain.linearRampToValueAtTime(0, this.ctx.currentTime + 1);
         
         // Kickstart basic layers to ensure smooth transition
@@ -1448,6 +1459,9 @@ AWAKEN
         // Switch to next song in order
         this.currentSongIndex = (this.currentSongIndex + 1) % this.songs.length;
         this.setSong(this.currentSongIndex);
+
+        // Hide instruction
+        this.elements.instruction.classList.remove('show');
       }
 
       playVoidAmbience() {
@@ -1793,11 +1807,11 @@ AWAKEN
         osc.frequency.exponentialRampToValueAtTime(28, this.ctx.currentTime + 0.8); 
         
         subOsc.type = 'sine';
-        subOsc.frequency.setValueAtTime(35, this.ctx.currentTime);
+        subOsc.frequency.value = 35;
         subOsc.frequency.exponentialRampToValueAtTime(18, this.ctx.currentTime + 0.8);
 
         extraSub.type = 'sine';
-        extraSub.frequency.setValueAtTime(25, this.ctx.currentTime);
+        extraSub.frequency.value = 25;
         extraSub.frequency.exponentialRampToValueAtTime(15, this.ctx.currentTime + 0.8);
         
         env.gain.setValueAtTime(1.4, this.ctx.currentTime);
@@ -2442,7 +2456,7 @@ AWAKEN
         
         env.gain.setValueAtTime(0, this.ctx.currentTime);
         env.gain.linearRampToValueAtTime(0.3, this.ctx.currentTime + 0.5);
-        env.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 2);
+        env.gain.linearRampToValueAtTime(0.001, this.ctx.currentTime + 2);
         
         mod.gain.value = 0.5;
         noise.connect(mod).connect(filter).connect(env).connect(gain).connect(this.layerGains.whisper);
