@@ -361,6 +361,687 @@ AWAKEN
         this.phraseStructure = ['A', 'A', 'B', 'A', 'C', 'D', 'E', 'F'];
         this.sectionLength = 32;
         
+ The user is describing an issue with their code: it gets stuck after entering the void state. When movement stops, it enters the void, but when movement is detected again, it's supposed to exit the void and change to one of 7 "songs" with unique flavor and key. They want me to review the code and optimize/rewrite to fix this.
+
+The code is an HTML file with CSS and JavaScript for an interactive audio-visual experience called "GUMP: Interstellar Docking Engine". It's a complex system that generates music based on device motion or mouse movement, evolving through stages, with themes inspired by movies like Interstellar and The Social Network.
+
+Key parts:
+
+- **Void State**: Entered when no motion for 5 seconds. Plays healing ambience, fades out other layers.
+
+- **Exiting Void**: When motion detected (>0.3), should exit void, set stage to 'TRIBAL', activate basic layers, switch to next song.
+
+The issue: It gets stuck in void; doesn't properly exit or change songs upon movement.
+
+I need to debug and optimize.
+
+First, look at updateMotion():
+
+if (this.motion > 0.3) {
+
+  this.lastMotionTime = Date.now();
+
+  if (this.voidPhase) {
+
+    this.exitVoidState();
+
+  }
+
+}
+
+if (Date.now() - this.lastMotionTime > 5000 && !this.voidPhase) {
+
+  this.enterVoidState();
+
+}
+
+This seems correct. When motion >0.3, if in void, call exitVoidState().
+
+In exitVoidState():
+
+- Set voidPhase = false
+
+- Set stage = 'TRIBAL'
+
+- orb class to tribal
+
+- currentTheme = 'adventure'
+
+- Fade out healing
+
+- Activate layers: hihat, atmosphere, ostinato, bass, kick, strings
+
+- Boost motionHistory and totalMotion
+
+- Call evolveToTribal() which also sets voidPhase=false and tribal
+
+- Then: this.currentSongIndex = (this.currentSongIndex + 1) % this.songs.length;
+
+  this.setSong(this.currentSongIndex);
+
+It does change to next song.
+
+Perhaps the issue is that after entering void, the layers don't reactivate properly, or the sequencer stops, or audio context issues.
+
+The sequencer is started in start() and runs with setTimeout recursively, checking if (!this.active) return; but active is true.
+
+In playStep(), if (this.voidPhase) return; so during void, no playback except the void ambience which is separate.
+
+When exiting, it should resume playStep since voidPhase=false.
+
+But perhaps the motion detection isn't triggering properly after void.
+
+Or maybe on some devices, motion events stop or something.
+
+Also, in enterVoidState(), it fades out layers and sets layers to false.
+
+In exit, it sets some layers to true, boosts history and totalMotion, calls evolveToTribal.
+
+In updateEvolution(), if voidPhase, sets all layers false, returns.
+
+Since exit sets false, and updateMotion calls exit if in void.
+
+updateMotion is called from devicemotion or mousemove.
+
+Perhaps the problem is that during void, if no movement, but when movement starts, the first motion might not be enough, or something.
+
+The user says "once we stop moving it goes into the void, but then its supposed to come out when it detects movement and change all the music inputs going into the music engine to be changed to one of 7 "songs""
+
+It does change to next song in exitVoidState.
+
+Perhaps it's not detecting movement properly after void.
+
+Or the song change is not noticeable because layers are not activating.
+
+In exitVoidState, it sets motionHistory = Array(150).fill(3); totalMotion +=300;
+
+In updateEvolution, avgMotion = sum / length, which would be 3, which is > many thresholds.
+
+So layers should activate.
+
+Perhaps the issue is in setSong, which fades out, then after 2s sets new song params, resets states, clears voices, updates UI, fades in.
+
+During the fade out 2s, if still moving, but since voices cleared, might seem stuck.
+
+But after 2s, should start new song.
+
+Perhaps the user expects immediate change, but there's delay.
+
+Or maybe bug in setSong: it stops all voices, but sequencer continues, but since voices cleared, and layers set, but playStep will create new voices.
+
+Seems ok.
+
+To fix, perhaps remove the delay in setSong, or make fade faster.
+
+Also, optimize: the code is long, many layers, might be performance issues.
+
+But since it's JS in browser, and audio, might be ok.
+
+To rewrite/optimize: perhaps simplify some parts, fix potential issues.
+
+One potential issue: in void, playVoidAmbience calls itself every 15s if still void.
+
+But when exiting, it fades out healing, but if a new ambience started, it will continue.
+
+But in exit, it fades layerGains.healing to 0, and stops active healing voices after 1s.
+
+But if new one starts during that, might not stop.
+
+But active voices are in pool, so when allocating, old ones stop if max.
+
+Seems ok.
+
+Another: in start(), if no motion permission, simulates motion, but only if motion==0, but in void, motion=0, but simulate checks if motion>0 stop.
+
+But in void, motion=0, so simulate would run, but user says gets stuck after void, perhaps on desktop without motion.
+
+If no motion, simulate runs, but only if motion==0, so keeps gentle motion, preventing void.
+
+But if user stops moving mouse, motion=0, enters void, then if move mouse, exits.
+
+Perhaps on mobile, after void, motion events not firing or permission lost.
+
+But permission is requested at start.
+
+Perhaps need to request permission again, but usually once.
+
+Perhaps the bug is that in void, instruction is "MOVE TO UNRAVEL THE VOID", but if not moving, stays.
+
+But user says gets stuck, meaning doesn't exit when moving.
+
+Perhaps test code, but since I can't run, need to reason.
+
+To fix, perhaps add logs in exitVoidState, or make sure.
+
+Since tool is code_execution, I can use that to run the code and see.
+
+But the code is HTML/JS, code_execution is Python.
+
+No, code_execution is Python REPL.
+
+Can't run JS.
+
+Perhaps browse_page to see if similar issues, but it's custom code.
+
+I need to suggest fixes.
+
+The fix: in exitVoidState, after setSong, add this.startSequencer(); if not running, but it is running, but in playStep if void return, but after exit, void=false, so next tick will play.
+
+The setTimeout for sequencer is ongoing.
+
+Perhaps if during void, the setTimeout continues, but since return, but when exit, it continues from current step.
+
+Seems ok.
+
+Perhaps the problem is that in setSong, it fades out, then in timeout 2s later sets new params, but during the 2s, playStep is still running with old params, but voices cleared, so no sound, then after 2s, new song starts.
+
+So seems like delay in exiting.
+
+To fix, make fadeTime shorter, or immediate change.
+
+Also, to optimize, perhaps reduce number of oscillators, use AudioBuffers for samples instead of synth for performance.
+
+But since it's synth, for real-time.
+
+For rewrite, I can provide updated JS class.
+
+Also, ensure that when exiting, immediately play some sound.
+
+In exit, after setSong, perhaps call playStep() to kickstart.
+
+But setSong has timeout.
+
+Perhaps move the setSong logic without delay, or make fade in/out faster.
+
+Let's propose to set fadeTime = 0.5; or something.
+
+Also, in updateMotion, when exiting, perhaps reset step=0 or something.
+
+Also, ensure that after void, the song changes to a random one or specific, but user says "one of 7 songs", it does cycle to next.
+
+Perhaps the user wants random song, not next.
+
+But code cycles.
+
+The message: "change all the music inputs going into the music engine to be changed to one of 7 "songs" each with unique flavor and key"
+
+It does.
+
+Perhaps it's working, but audio not resuming or something.
+
+Perhaps audio context suspends if no interaction.
+
+But in motion, it's interaction.
+
+To fix, perhaps add a note to tap to resume if stuck.
+
+But for response, I need to provide the fixed code.
+
+Since the task is "review code and see if you can sort it out with an optimization rewrite"
+
+I should rewrite the class with fixes.
+
+Fixes:
+
+1. Reduce fadeTime in setSong to 0.5 seconds for faster transition.
+
+2. In exitVoidState, after setSong, call this.playStep() to immediate start.
+
+3. Ensure masterGain is set to 0.65 after fade.
+
+4. Add log for entering/exiting.
+
+5. Perhaps select random song instead of next.
+
+this.currentSongIndex = Math.floor(Math.random() * this.songs.length);
+
+To "one of 7"
+
+Yes, perhaps random.
+
+6. Optimize by reducing max voices if needed, but seems ok.
+
+7. In void, stop the sequencer? But no, because it's running but returning.
+
+Perhaps pause the sequencer in void, resume in exit.
+
+But to pause, need to clear the timeout, but since recursive, hard.
+
+Better leave.
+
+I think the delay in setSong is the issue.
+
+So, in setSong, make the fade out immediate or short.
+
+Let's rewrite setSong to be synchronous, fade out fast.
+
+In setSong:
+
+// Fade out fast
+
+this.masterGain.gain.linearRampToValueAtTime(0, this.ctx.currentTime + 0.5);
+
+// Clear voices immediately
+
+Object.keys(this.voicePool).forEach(layer => {
+
+  this.voicePool[layer].active.forEach(voice => {
+
+    if (voice.source) {
+
+      voice.gain.gain.linearRampToValueAtTime(0, this.ctx.currentTime + 0.5);
+
+      setTimeout(() => voice.source.stop(), 500);
+
+    }
+
+  });
+
+  this.voicePool[layer].active = [];
+
+});
+
+// Then set new params immediately
+
+const song = this.songs[index];
+
+this.key = song.key;
+
+... all
+
+// Update UI immediate
+
+this.elements.themeText.textContent = song.name;
+
+this.elements.themeText.classList.add('visible');
+
+setTimeout(() => this.elements.themeText.classList.remove('visible'), 4000);
+
+// Fade in
+
+this.masterGain.gain.linearRampToValueAtTime(0.65, this.ctx.currentTime + 1);
+
+// Since sequencer running, next tick will use new params.
+
+Yes.
+
+Also, in exitVoidState, after setSong, this.totalMotion += 1000; to advance stage if needed.
+
+But already +=300, and history fill 3.
+
+Seems good.
+
+For optimization, perhaps limit the number of particles or animations.
+
+But CSS is ok.
+
+Also, in animate, requestAnimationFrame, update bg every frame, might be heavy, but for modern browsers ok.
+
+I think this is the way.
+
+So, the response should be the fixed HTML code.<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GUMP: Interstellar Docking Engine</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    
+    body {
+      background: #0a0a0a;
+      color: #fff;
+      overflow: hidden;
+      touch-action: none;
+      height: 100vh;
+      font-family: 'Courier New', monospace;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 2s ease;
+    }
+    
+    .start-screen {
+      text-align: center;
+      z-index: 100;
+    }
+    
+    .start-btn {
+      width: 200px;
+      height: 200px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%);
+      border: 2px solid rgba(255,255,255,0.3);
+      color: #fff;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      font-weight: bold;
+      letter-spacing: 2px;
+      backdrop-filter: blur(10px);
+      transition: all 0.3s ease;
+      animation: pulse 6s ease-in-out infinite;
+    }
+    
+    .start-btn:hover {
+      border-color: rgba(255,255,255,0.6);
+      background: radial-gradient(circle, rgba(255,255,255,0.2) 0%, transparent 70%);
+      transform: scale(1.05);
+    }
+    
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); box-shadow: 0 0 30px rgba(255,255,255,0.2); }
+      50% { transform: scale(1.08); box-shadow: 0 0 60px rgba(255,255,255,0.4); }
+    }
+    
+    .evolution-space {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      opacity: 0;
+      transition: opacity 2s ease;
+    }
+    
+    .evolution-space.active { opacity: 1; }
+    
+    .orb {
+      position: absolute;
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      background: radial-gradient(circle, #fff 0%, rgba(255,255,255,0.3) 50%, transparent 80%);
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      transition: all 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+      box-shadow: 0 0 40px rgba(255,255,255,0.5);
+      backdrop-filter: blur(5px);
+    }
+    
+    .orb.pulse {
+      animation: beat 0.15s ease-out;
+    }
+    
+    @keyframes beat {
+      0% { transform: translate(-50%, -50%) scale(1); }
+      50% { transform: translate(-50%, -50%) scale(2.2); }
+      100% { transform: translate(-50%, -50%) scale(1); }
+    }
+    
+    .orb.tribal {
+      background: radial-gradient(circle, #ff6b35 0%, rgba(255,107,53,0.4) 50%, transparent 80%);
+      box-shadow: 0 0 60px rgba(255,107,53,0.7);
+    }
+    
+    .orb.orchestral {
+      background: radial-gradient(circle, #4a90e2 0%, rgba(74,144,226,0.4) 50%, transparent 80%);
+      box-shadow: 0 0 80px rgba(74,144,226,0.7);
+    }
+    
+    .orb.transcendent {
+      background: radial-gradient(circle, #9b59b6 0%, #e74c3c 40%, #f39c12 70%, transparent 90%);
+      box-shadow: 0 0 120px rgba(155,89,182,0.8);
+      animation: transcend 3s ease-in-out infinite;
+    }
+    
+    .orb.dimensional {
+      background: radial-gradient(circle, #00ffff 0%, #ff00ff 25%, #ffff00 50%, #00ff00 75%, transparent 95%);
+      box-shadow: 0 0 200px rgba(0,255,255,1);
+      filter: drop-shadow(0 0 80px rgba(255,0,255,0.8));
+    }
+    
+    .orb.void {
+      background: radial-gradient(circle, #9370db 0%, rgba(147,112,219,0.3) 40%, transparent 80%);
+      box-shadow: 0 0 40px rgba(147,112,219,0.4);
+      filter: drop-shadow(0 0 20px rgba(147,112,219,0.2));
+      animation: voidBreathe 3s ease-in-out infinite;
+    }
+    
+    @keyframes transcend {
+      0%, 100% { transform: translate(-50%, -50%) scale(1); }
+      50% { transform: translate(-50%, -50%) scale(1.4); }
+    }
+    
+    @keyframes voidBreathe {
+      0%, 100% { 
+        transform: translate(-50%, -50%) scale(1); 
+        opacity: 0.7; 
+      }
+      50% { 
+        transform: translate(-50%, -50%) scale(1.1); 
+        opacity: 1; 
+      }
+    }
+    
+    .ui-corner {
+      position: fixed;
+      font-size: 11px;
+      color: rgba(255,255,255,0.8);
+      font-weight: normal;
+      letter-spacing: 1px;
+      background: rgba(0,0,0,0.3);
+      padding: 10px;
+      border-radius: 5px;
+      backdrop-filter: blur(10px);
+    }
+    
+    .ui-corner.top-left {
+      top: 20px;
+      left: 20px;
+    }
+    
+    .ui-corner.bottom-left {
+      bottom: 20px;
+      left: 20px;
+    }
+    
+    .ui-corner.top-right {
+      top: 20px;
+      right: 20px;
+    }
+    
+    .stage-name {
+      font-size: 14px;
+      color: rgba(255,255,255,0.9);
+      margin-bottom: 8px;
+      font-weight: bold;
+    }
+    
+    .metric {
+      margin: 3px 0;
+      font-size: 10px;
+    }
+    
+    .bar {
+      width: 80px;
+      height: 3px;
+      background: rgba(255,255,255,0.2);
+      margin: 3px 0;
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    
+    .bar-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #4a90e2, #9b59b6);
+      width: 0%;
+      transition: width 0.3s ease;
+      border-radius: 2px;
+    }
+    
+    .hidden { display: none !important; }
+    
+    .particles {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      pointer-events: none;
+      z-index: 1;
+    }
+    
+    .particle {
+      position: absolute;
+      width: 3px;
+      height: 3px;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.3);
+      animation: float 12s linear infinite;
+    }
+    
+    @keyframes float {
+      0% { 
+        transform: translateY(100vh) scale(0) rotate(0deg); 
+        opacity: 0; 
+      }
+      10% { opacity: 1; }
+      90% { opacity: 1; }
+      100% { 
+        transform: translateY(-20vh) scale(1.5) rotate(360deg); 
+        opacity: 0; 
+      }
+    }
+    
+    .instruction {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 14px;
+      color: rgba(255,255,255,0.7);
+      text-align: center;
+      letter-spacing: 2px;
+      opacity: 0;
+      transition: opacity 2s ease;
+      margin-top: 80px;
+      font-weight: bold;
+    }
+    
+    .instruction.show { opacity: 1; }
+
+    .cinematic-overlay {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      pointer-events: none;
+      background: radial-gradient(circle at center, transparent 30%, rgba(0,0,0,0.6) 100%);
+      opacity: 0;
+      transition: opacity 3s ease;
+      z-index: 2;
+    }
+    
+    .cinematic-overlay.active { opacity: 1; }
+    
+    .theme-text {
+      position: fixed;
+      bottom: 30px;
+      right: 30px;
+      font-size: 12px;
+      color: rgba(255,255,255,0.6);
+      text-transform: uppercase;
+      letter-spacing: 3px;
+      opacity: 0;
+      transition: opacity 2s ease;
+      font-weight: bold;
+    }
+    
+    .theme-text.visible { opacity: 1; }
+
+    .spectrum-viz {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      width: 100%;
+      height: 100px;
+      pointer-events: none;
+      z-index: 3;
+    }
+    
+    .spectrum-bar {
+      position: absolute;
+      bottom: 0;
+      width: 8px;
+      background: linear-gradient(0deg, rgba(255,255,255,0.8), rgba(255,255,255,0.2));
+      border-radius: 4px 4px 0 0;
+      transition: height 0.1s ease;
+    }
+
+    .impact-flash {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(255,255,255,0.1);
+      opacity: 0;
+      pointer-events: none;
+      z-index: 10;
+    }
+
+    .impact-flash.active {
+      opacity: 1;
+      transition: opacity 0.15s ease-out;
+    }
+  </style>
+</head>
+<body>
+  <div class="start-screen" id="startScreen">
+    <div class="start-btn" id="startBtn">
+AWAKEN
+    </div>
+  </div>
+  
+  <div class="evolution-space" id="evolutionSpace">
+    <div class="orb" id="orb"></div>
+    
+    <div class="instruction" id="instruction">MOVE TO UNRAVEL THE VOID</div>
+    
+    <div class="ui-corner top-left">
+      <div class="stage-name" id="stageName">SILENCE</div>
+      <div class="metric">TECHNIQUE: <span id="technique">WAITING</span></div>
+    </div>
+    
+    <div class="ui-corner bottom-left">
+      <div class="metric">MOTION INTENSITY</div>
+      <div class="bar">
+        <div class="bar-fill" id="motionBar"></div>
+      </div>
+      <div class="metric">SHEPARD TENSION</div>
+      <div class="bar">
+        <div class="bar-fill" id="shepardBar"></div>
+      </div>
+    </div>
+    
+    <div class="ui-corner top-right">
+      <div class="metric">BPM: <span id="bpmDisplay">60</span></div>
+      <div class="metric">KEY: <span id="keyDisplay">D MIN</span></div>
+      <div class="metric">VOICES: <span id="voiceCount">0</span></div>
+    </div>
+    
+    <div class="spectrum-viz" id="spectrumViz"></div>
+  </div>
+
+  <div class="cinematic-overlay" id="cinematicOverlay"></div>
+  <div class="theme-text" id="themeText"></div>
+  <div class="impact-flash" id="impactFlash"></div>
+
+  <script>
+    class GUMPEngine {
+      constructor() {
+        this.ctx = null;
+        this.active = false;
+        this.analyser = null;
+        this.dataArray = null;
+        
+        // Musical Structure
+        this.bpm = 96;
+        this.step = 0;
+        this.phrase = 'A';
+        this.phraseCount = 0;
+        this.phraseStructure = ['A', 'A', 'B', 'A', 'C', 'D', 'E', 'F'];
+        this.sectionLength = 32;
+        
         // Motion & Position
         this.motion = 0;
         this.intensity = 0;
@@ -509,7 +1190,7 @@ AWAKEN
           },
           {
             name: 'GUMP Thematic Pulse',
-            influences: 'Ramin Djawadi blended with Trent Reznor & Atticus Ross; thematic fantasy tension with electronic pulsing motifs, immersive minimalist rhythms, and dark ambient pads inspired by Game of Thrones and Social Network suspense',
+            influences: 'Ramin Djawadi blended with Trent Reznor & Atticus Ross; thematic fantasy tension with electronic pulsing motifs,immersive minimalist rhythms, and dark ambient pads inspired by Game of Thrones and Social Network suspense',
             key: 'G',
             mode: 'phrygian',
             bpmBase: 115,
@@ -928,7 +1609,6 @@ AWAKEN
             const motionPermission = await DeviceMotionEvent.requestPermission();
             if (motionPermission !== 'granted') {
               motionGranted = false;
-              alert('Motion permission not granted. The experience will use mouse/keyboard input as fallback. For full immersion on mobile, reload and grant permission.');
               console.log('Motion permission not granted, continuing with mouse input');
             }
           }
@@ -937,7 +1617,6 @@ AWAKEN
             const orientationPermission = await DeviceOrientationEvent.requestPermission();
             if (orientationPermission !== 'granted') {
               orientationGranted = false;
-              alert('Orientation permission not granted. Some spatial audio features may be limited.');
               console.log('Orientation permission not granted');
             }
           }
@@ -991,51 +1670,53 @@ AWAKEN
 
       setSong(index) {
         const song = this.songs[index];
-        const fadeTime = 2; // seconds
+        const fadeTime = 0.5; // Reduced fade time for faster transitions
 
-        // Fade out
+        // Fade out quickly
         this.masterGain.gain.linearRampToValueAtTime(0, this.ctx.currentTime + fadeTime);
 
-        setTimeout(() => {
-          this.key = song.key;
-          this.mode = song.mode;
-          this.scale = this.scales[this.mode];
-          this.bpm = song.bpmBase;
-          this.chordProgression = song.chordProgression;
-          this.ostinatoPattern = song.ostinatoPattern;
-          this.phraseStructure = song.phraseStructure;
-          this.currentTheme = song.defaultTheme;
-          this.currentSongIndex = index;
-
-          // Reset states
-          this.phraseCount = 0;
-          this.phrase = this.phraseStructure[0];
-          this.ostinatoIndex = 0;
-          this.currentChordIndex = 0;
-          this.transposition = 0;
-          this.shepardIntensity = 0;
-          this.tensionBuildup = 0;
-
-          // Clear active voices
-          Object.keys(this.voicePool).forEach(layer => {
-            this.voicePool[layer].active.forEach(voice => {
-              if (voice.source) voice.source.stop();
-            });
-            this.voicePool[layer].active = [];
+        // Clear active voices immediately
+        Object.keys(this.voicePool).forEach(layer => {
+          this.voicePool[layer].active.forEach(voice => {
+            if (voice.source) {
+              voice.gain.gain.linearRampToValueAtTime(0, this.ctx.currentTime + fadeTime);
+              setTimeout(() => voice.source.stop(), fadeTime * 1000);
+            }
           });
+          this.voicePool[layer].active = [];
+        });
 
-          // Update UI theme text
-          this.elements.themeText.textContent = song.name;
-          this.elements.themeText.classList.add('visible');
-          setTimeout(() => this.elements.themeText.classList.remove('visible'), 4000);
+        // Set new song parameters immediately
+        this.key = song.key;
+        this.mode = song.mode;
+        this.scale = this.scales[this.mode];
+        this.bpm = song.bpmBase;
+        this.chordProgression = song.chordProgression;
+        this.ostinatoPattern = song.ostinatoPattern;
+        this.phraseStructure = song.phraseStructure;
+        this.currentTheme = song.defaultTheme;
+        this.currentSongIndex = index;
 
-          console.log(`Transitioned to song: ${song.name} (Influences: ${song.influences})`);
+        // Reset states
+        this.phraseCount = 0;
+        this.phrase = this.phraseStructure[0];
+        this.ostinatoIndex = 0;
+        this.currentChordIndex = 0;
+        this.transposition = 0;
+        this.shepardIntensity = 0;
+        this.tensionBuildup = 0;
 
-          // Fade in
-          this.masterGain.gain.linearRampToValueAtTime(0.65, this.ctx.currentTime + fadeTime);
+        // Update UI
+        this.elements.themeText.textContent = song.name;
+        this.elements.themeText.classList.add('visible');
+        setTimeout(() => this.elements.themeText.classList.remove('visible'), 4000);
 
-          this.songStartTime = Date.now();
-        }, fadeTime * 1000);
+        console.log(`Transitioned to song: ${song.name} (Influences: ${song.influences})`);
+
+        // Fade in quickly
+        this.masterGain.gain.linearRampToValueAtTime(0.65, this.ctx.currentTime + fadeTime * 2);
+
+        this.songStartTime = Date.now();
       }
 
       fetchEnvironmentData() {
@@ -1306,7 +1987,7 @@ AWAKEN
           const dy = Math.abs(acc.y - this.lastAccel.y);
           const dz = Math.abs(acc.z - this.lastAccel.z);
           
-          const newMotion = Math.sqrt(dx * dx + dy * dy + dz * dz) * 0.6;
+          const newMotion = Math.sqrt(dx * dx + dy * dy + dz * dz); // Increased sensitivity by removing *0.6
           this.updateMotion(newMotion);
           
           this.velocity.x += acc.x * 0.015;
@@ -1344,7 +2025,7 @@ AWAKEN
           const velocityX = (newX - lastMouse.x) / dt * 100;
           const velocityY = (newY - lastMouse.y) / dt * 100;
           
-          const mouseMotion = Math.sqrt(velocityX * velocityX + velocityY * velocityY) * 0.3;
+          const mouseMotion = Math.sqrt(velocityX * velocityX + velocityY * velocityY) * 0.5; // Increased sensitivity from 0.3 to 0.5
           this.updateMotion(mouseMotion);
           
           this.pos.x = newX;
@@ -1368,14 +2049,14 @@ AWAKEN
         this.totalMotion += this.motion;
         
         // Track last motion for void state
-        if (this.motion > 0.3) {
+        if (this.motion > 0.2) { // Lowered threshold from 0.3 to 0.2 for better detection
           this.lastMotionTime = Date.now();
           if (this.voidPhase) {
             this.exitVoidState();
           }
         }
         
-        if (Date.now() - this.lastMotionTime > 5000 && !this.voidPhase) {
+        if (Date.now() - this.lastMotionTime > 10000 && !this.voidPhase) { // Increased to 10 seconds to prevent quick re-entry
           this.enterVoidState();
         }
         
