@@ -1092,7 +1092,7 @@ AWAKEN
           });
 
           // Update UI theme text
-          this.elements.themeText.textContent = `${song.name}`;
+          this.elements.themeText.textContent = song.name;
           this.elements.themeText.classList.add('visible');
           setTimeout(() => this.elements.themeText.classList.remove('visible'), 4000);
 
@@ -1271,7 +1271,6 @@ AWAKEN
           this.basePositions[name] = {x: 0, y: 0, z: 0};
           this.layerTargets[name] = {x: 0, y: 0, z: 0};
 
-          this.layerGains[name].connect(this.layerPanners[name]);
           this.layerPanners[name].connect(this.compressor);
 
           // Selective reverb sends
@@ -1743,6 +1742,7 @@ AWAKEN
         
         this.bpm = this.bpm * 0.85 + baseBPM * 0.15;
         this.bpm = Math.max(40, Math.min(180, this.bpm));
+        
         this.updateCinematicTheme(avgMotion, this.intensity);
       }
 
@@ -1928,7 +1928,6 @@ AWAKEN
         
         // Sub layer - the foundation
         const sub = this.ctx.createOscillator();
-        const subGain = this.ctx.createGain();
         const subEnv = this.ctx.createGain();
         
         sub.type = 'sine';
@@ -1937,7 +1936,6 @@ AWAKEN
         
         // Mid punch layer
         const mid = this.ctx.createOscillator();
-        const midGain = this.ctx.createGain();
         const midEnv = this.ctx.createGain();
         
         mid.type = 'sine';
@@ -1946,7 +1944,6 @@ AWAKEN
         
         // Click layer for attack
         const click = this.ctx.createBufferSource();
-        const clickGain = this.ctx.createGain();
         const clickEnv = this.ctx.createGain();
         const clickFilter = this.ctx.createBiquadFilter();
         
@@ -1981,15 +1978,18 @@ AWAKEN
         kickComp.attack.value = 0.001;
         kickComp.release.value = 0.1;
         
+        // Master gain for voice
+        const kickGain = this.ctx.createGain();
+        kickGain.gain.value = 1.0;
+        
         // Routing
         sub.connect(subEnv).connect(kickComp);
         mid.connect(midEnv).connect(kickComp);
         click.connect(clickFilter).connect(clickEnv).connect(kickComp);
-        
-        kickComp.connect(this.layerGains.kick);
+        kickComp.connect(kickGain).connect(this.layerGains.kick);
         
         // Voice allocation
-        if (!this.allocateVoice('kick', sub, subGain, 0.6)) return;
+        if (!this.allocateVoice('kick', sub, kickGain, 0.6)) return;
         
         // Start
         sub.start(now + humanize);
@@ -2009,7 +2009,6 @@ AWAKEN
         // Tone component
         const tone1 = this.ctx.createOscillator();
         const tone2 = this.ctx.createOscillator();
-        const toneGain = this.ctx.createGain();
         const toneEnv = this.ctx.createGain();
         
         tone1.type = 'triangle';
@@ -2019,7 +2018,6 @@ AWAKEN
         
         // Noise component - the snap
         const noise = this.ctx.createBufferSource();
-        const noiseGain = this.ctx.createGain();
         const noiseEnv = this.ctx.createGain();
         const noiseFilter = this.ctx.createBiquadFilter();
         
@@ -2049,17 +2047,18 @@ AWAKEN
         snareDistortion.curve = this.makeDistortionCurve(8);
         snareDistortion.oversample = '2x';
         
+        // Master gain for voice
+        const snareGain = this.ctx.createGain();
+        snareGain.gain.value = 1.0;
+        
         // Routing
-        tone1.connect(toneEnv);
-        tone2.connect(toneEnv);
-        toneEnv.connect(snareDistortion);
-        
+        tone1.connect(toneEnv).connect(snareDistortion);
+        tone2.connect(toneEnv).connect(snareDistortion);
         noise.connect(noiseFilter).connect(noiseEnv).connect(snareDistortion);
-        
-        snareDistortion.connect(this.layerGains.snare);
+        snareDistortion.connect(snareGain).connect(this.layerGains.snare);
         
         // Voice allocation
-        if (!this.allocateVoice('snare', tone1, toneGain, 0.4)) return;
+        if (!this.allocateVoice('snare', tone1, snareGain, 0.4)) return;
         
         // Start
         tone1.start(now + humanize);
@@ -2117,12 +2116,16 @@ AWAKEN
         brightener.frequency.value = 10000;
         brightener.gain.value = 3;
         
+        // Master gain for voice
+        const hihatGain = this.ctx.createGain();
+        hihatGain.gain.value = 1.0;
+        
         // Connect all
         gains.forEach(g => g.connect(env));
-        env.connect(brightener).connect(this.layerGains.hihat);
+        env.connect(brightener).connect(hihatGain).connect(this.layerGains.hihat);
         
         // Voice allocation
-        if (!this.allocateVoice('hihat', sources[0], gains[0], openness)) return;
+        if (!this.allocateVoice('hihat', sources[0], hihatGain, openness)) return;
         
         // Start all sources
         sources.forEach((s, i) => {
