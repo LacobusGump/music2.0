@@ -928,8 +928,7 @@ AWAKEN
             const motionPermission = await DeviceMotionEvent.requestPermission();
             if (motionPermission !== 'granted') {
               motionGranted = false;
-              alert('Motion permission not granted. The experience will use mouse/keyboard input as fallback. For full immersion on mobile, reload and grant permission.');
-              console.log('Motion permission not granted, continuing with mouse input');
+              console.log('Motion permission not granted, falling back to mouse/keyboard input');
             }
           }
 
@@ -937,8 +936,7 @@ AWAKEN
             const orientationPermission = await DeviceOrientationEvent.requestPermission();
             if (orientationPermission !== 'granted') {
               orientationGranted = false;
-              alert('Orientation permission not granted. Some spatial audio features may be limited.');
-              console.log('Orientation permission not granted');
+              console.log('Orientation permission not granted, some spatial features limited');
             }
           }
 
@@ -965,7 +963,7 @@ AWAKEN
           // Get environment data
           this.fetchEnvironmentData();
 
-          if (!motionGranted && !orientationGranted) {
+          if (!motionGranted) {
             // Fallback to simulated motion if no permissions
             this.simulateMotion();
           }
@@ -990,11 +988,11 @@ AWAKEN
       }
 
       setSong(index) {
-        const song = this.songs[index];
+        const song = this.songs[index % this.songs.length];
         const fadeTime = 2; // seconds
 
         // Fade out
-        this.masterGain.gain.linearRampToValueAtTime(0, this.ctx.currentTime + fadeTime);
+        if (this.masterGain) this.masterGain.gain.linearRampToValueAtTime(0, this.ctx.currentTime + fadeTime);
 
         setTimeout(() => {
           this.key = song.key;
@@ -1032,26 +1030,37 @@ AWAKEN
           console.log(`Transitioned to song: ${song.name} (Influences: ${song.influences})`);
 
           // Fade in
-          this.masterGain.gain.linearRampToValueAtTime(0.65, this.ctx.currentTime + fadeTime);
+          if (this.masterGain) this.masterGain.gain.linearRampToValueAtTime(0.65, this.ctx.currentTime + fadeTime);
 
           this.songStartTime = Date.now();
         }, fadeTime * 1000);
       }
 
       fetchEnvironmentData() {
+        if (!navigator.geolocation) {
+          console.error('Geolocation not supported');
+          this.weather = { temperature: 20, weathercode: 0, windspeed: 5 };
+          this.updateFromEnvironment();
+          return;
+        }
         navigator.geolocation.getCurrentPosition(
           (pos) => {
+            // Note: In production, use a real API key or proxy to avoid exposure
+            // For demo, assuming Open-Meteo API
             fetch(`https://api.open-meteo.com/v1/forecast?latitude=${pos.coords.latitude}&longitude=${pos.coords.longitude}&current_weather=true`)
               .then(res => res.json())
               .then(data => {
                 this.weather = data.current_weather;
                 this.updateFromEnvironment();
               })
-              .catch(err => console.error('Weather fetch error:', err));
+              .catch(err => {
+                console.error('Weather fetch error:', err);
+                this.weather = { temperature: 20, weathercode: 0, windspeed: 5 };
+                this.updateFromEnvironment();
+              });
           },
           (err) => {
             console.error('Geolocation error:', err);
-            // Fallback to default weather
             this.weather = { temperature: 20, weathercode: 0, windspeed: 5 };
             this.updateFromEnvironment();
           },
