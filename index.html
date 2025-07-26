@@ -642,15 +642,32 @@ DROP THE BASS
 
       async start() {
         try {
+          console.log('Starting Dubstep Engine...');
+          
+          // Request permissions first if needed
+          if (typeof DeviceMotionEvent?.requestPermission === 'function') {
+            try {
+              const permission = await DeviceMotionEvent.requestPermission();
+              if (permission !== 'granted') {
+                console.log('Motion permission denied, using fallback');
+              }
+            } catch (e) {
+              console.log('Permission request failed, continuing anyway');
+            }
+          }
+
           this.ctx = new (window.AudioContext || window.webkitAudioContext)();
           await this.ctx.resume();
+          console.log('Audio context created and resumed');
+          
           this.setupAudioChain();
+          console.log('Audio chain setup complete');
 
           this.elements.startScreen.classList.add('hidden');
           this.elements.evolutionSpace.classList.add('active');
           
           setTimeout(() => {
-            this.elements.instruction.textContent = 'MOVE TO BUILD THE DROP';
+            this.elements.instruction.textContent = 'MOVE OR CLICK TO BUILD THE DROP';
             this.elements.instruction.classList.add('show');
             setTimeout(() => this.elements.instruction.classList.remove('show'), 4000);
           }, 1000);
@@ -660,9 +677,11 @@ DROP THE BASS
           this.startSequencer();
           this.animate();
           
+          console.log('Dubstep Engine started successfully!');
+          
         } catch (e) {
           console.error('Failed to start engine:', e);
-          alert('Failed to initialize audio. Please check permissions and try again.');
+          alert('Failed to initialize audio. Error: ' + e.message);
         }
       }
 
@@ -772,59 +791,73 @@ DROP THE BASS
       }
 
       setupMotionDetection() {
+        // Initialize motion tracking
+        this.lastAccel = { x: 0, y: 0, z: 0 };
+        this.isMotionSupported = false;
+
+        // Device motion with better error handling
         window.addEventListener('devicemotion', e => {
           if (!this.active) return;
           
           const acc = e.accelerationIncludingGravity;
-          if (!acc || acc.x === null) return;
+          if (!acc || acc.x === null || acc.x === undefined) return;
 
-          const dx = Math.abs(acc.x - this.lastAccel.x);
-          const dy = Math.abs(acc.y - this.lastAccel.y);
-          const dz = Math.abs(acc.z - this.lastAccel.z);
+          this.isMotionSupported = true;
           
-          const newMotion = Math.sqrt(dx * dx + dy * dy + dz * dz) * 0.8;
+          const dx = Math.abs((acc.x || 0) - this.lastAccel.x);
+          const dy = Math.abs((acc.y || 0) - this.lastAccel.y);
+          const dz = Math.abs((acc.z || 0) - this.lastAccel.z);
+          
+          const newMotion = Math.sqrt(dx * dx + dy * dy + dz * dz) * 0.5;
           this.updateMotion(newMotion);
           
-          this.velocity.x += acc.x * 0.02;
-          this.velocity.y += acc.y * 0.02;
+          this.velocity.x += (acc.x || 0) * 0.01;
+          this.velocity.y += (acc.y || 0) * 0.01;
           this.updatePosition();
           
           this.direction = Math.atan2(this.velocity.y, this.velocity.x) * (180 / Math.PI);
           
-          // Detect drops and shakes
-          if (newMotion > 6) {
-            this.gestureRecognition.drop += 0.5;
-            if (this.gestureRecognition.drop > 1 && !this.isDropping) {
+          // Detect drops and shakes with lower thresholds
+          if (newMotion > 3) {
+            this.gestureRecognition.drop += 0.3;
+            if (this.gestureRecognition.drop > 0.8 && !this.isDropping) {
               this.triggerDropSequence();
             }
           }
           
-          if (newMotion > 4) {
-            this.gestureRecognition.shake += 0.3;
-            if (this.gestureRecognition.shake > 2) {
+          if (newMotion > 2) {
+            this.gestureRecognition.shake += 0.2;
+            if (this.gestureRecognition.shake > 1.5) {
               this.triggerBreakdown();
             }
           }
           
-          this.lastAccel = { x: acc.x, y: acc.y, z: acc.z };
+          this.lastAccel = { x: acc.x || 0, y: acc.y || 0, z: acc.z || 0 };
         });
 
-        // Mouse/desktop fallback
-        let lastMouse = { x: 0, y: 0, time: 0 };
+        // Enhanced mouse/desktop fallback
+        let lastMouse = { x: 50, y: 50, time: Date.now() };
+        let mouseActive = false;
+        
         window.addEventListener('mousemove', e => {
           if (!this.active) return;
           
+          mouseActive = true;
           const now = Date.now();
           const dt = Math.max(1, now - lastMouse.time);
           
           const newX = (e.clientX / window.innerWidth) * 100;
           const newY = (e.clientY / window.innerHeight) * 100;
           
-          const velocityX = (newX - lastMouse.x) / dt * 100;
-          const velocityY = (newY - lastMouse.y) / dt * 100;
+          const velocityX = (newX - lastMouse.x) / dt * 50;
+          const velocityY = (newY - lastMouse.y) / dt * 50;
           
-          const mouseMotion = Math.sqrt(velocityX * velocityX + velocityY * velocityY) * 0.4;
-          this.updateMotion(mouseMotion);
+          const mouseMotion = Math.sqrt(velocityX * velocityX + velocityY * velocityY);
+          
+          // Only use mouse if device motion isn't working
+          if (!this.isMotionSupported || dt > 100) {
+            this.updateMotion(mouseMotion);
+          }
           
           this.pos.x = newX;
           this.pos.y = newY;
@@ -832,42 +865,84 @@ DROP THE BASS
           
           lastMouse = { x: newX, y: newY, time: now };
         });
+
+        // Automatic motion simulation if no input detected
+        setTimeout(() => {
+          if (!mouseActive && !this.isMotionSupported) {
+            console.log('Starting automatic motion simulation...');
+            this.startAutoMotion();
+          }
+        }, 3000);
+      }
+
+      startAutoMotion() {
+        let time = 0;
+        const simulate = () => {
+          if (!this.active) return;
+          
+          time += 0.02;
+          const autoMotion = Math.sin(time) * 2 + Math.cos(time * 1.5) * 1.5 + 2;
+          this.updateMotion(autoMotion);
+          
+          // Simulate position changes
+          this.pos.x = 50 + Math.sin(time * 0.7) * 20;
+          this.pos.y = 50 + Math.cos(time * 0.5) * 15;
+          
+          requestAnimationFrame(simulate);
+        };
+        simulate();
       }
 
       updateMotion(newMotion) {
-        this.motion = this.motion * 0.7 + newMotion * 0.3;
+        // Ensure motion is a valid number
+        if (isNaN(newMotion) || newMotion < 0) newMotion = 0;
+        
+        this.motion = this.motion * 0.85 + newMotion * 0.15;
         this.motionHistory.push(this.motion);
-        if (this.motionHistory.length > 100) this.motionHistory.shift();
+        if (this.motionHistory.length > 50) this.motionHistory.shift();
         
         this.totalMotion += this.motion;
         
-        if (this.motion > 0.5) {
+        if (this.motion > 0.3) {
           this.lastMotionTime = Date.now();
         }
         
-        if (!this.firstMovement && this.motion > 1.5) {
+        // First movement trigger
+        if (!this.firstMovement && this.motion > 0.8) {
           this.firstMovement = true;
           this.evolveToBuildup();
         }
         
-        const avgMotion = this.motionHistory.reduce((a, b) => a + b, 0) / this.motionHistory.length;
-        this.intensity = this.motionHistory.reduce((sum, m) => sum + Math.abs(m - avgMotion), 0) / this.motionHistory.length;
+        // Calculate intensity and patterns
+        const avgMotion = this.motionHistory.length > 0 ? 
+          this.motionHistory.reduce((a, b) => a + b, 0) / this.motionHistory.length : 0;
         
-        // Determine motion patterns for dubstep
+        this.intensity = this.motionHistory.length > 5 ? 
+          this.motionHistory.slice(-5).reduce((sum, m) => sum + Math.abs(m - avgMotion), 0) / 5 : 0;
+        
+        // Simpler motion pattern detection
         const variance = this.intensity;
-        const isShaking = variance > 3 && avgMotion > 3;
-        const isBuilding = avgMotion > 2 && variance < 2;
-        const isChaotic = variance > 4 && avgMotion > 4;
-        const isChill = avgMotion < 1.5 && variance < 1;
-        
-        this.motionPattern = isChaotic ? 'breakdown' : isShaking ? 'wobble' : isBuilding ? 'buildup' : isChill ? 'chill' : 'normal';
+        if (variance > 2.5 && avgMotion > 2.5) {
+          this.motionPattern = 'breakdown';
+        } else if (variance > 1.5 && avgMotion > 1.5) {
+          this.motionPattern = 'wobble';
+        } else if (avgMotion > 1.2 && variance < 1.5) {
+          this.motionPattern = 'buildup';
+        } else if (avgMotion < 0.8) {
+          this.motionPattern = 'chill';
+        } else {
+          this.motionPattern = 'normal';
+        }
         
         this.updateDubstepElements(avgMotion, variance);
         this.updateEvolution();
         
-        // Decay gesture recognition
+        // Update technique display
+        this.currentTechnique = this.motionPattern;
+        
+        // Decay gesture recognition more aggressively
         Object.keys(this.gestureRecognition).forEach(key => {
-          this.gestureRecognition[key] = Math.max(0, this.gestureRecognition[key] - 0.02);
+          this.gestureRecognition[key] = Math.max(0, this.gestureRecognition[key] - 0.05);
         });
       }
 
@@ -1428,38 +1503,39 @@ DROP THE BASS
 
       allocateVoice(layer, source, gainNode, duration) {
         const pool = this.voicePool[layer];
-        if (!pool) return false;
+        if (!pool) {
+          console.warn(`Voice pool not found for layer: ${layer}`);
+          return false;
+        }
         
-        // Clean up expired voices
+        // Simple cleanup - just remove very old voices
+        const now = this.ctx.currentTime;
         pool.active = pool.active.filter(voice => {
-          if (voice && voice.source && this.ctx.currentTime > voice.startTime + duration + 0.1) {
+          if (now > voice.startTime + voice.duration + 1) {
             try {
-              voice.source.stop();
-            } catch(e) {}
+              if (voice.source && voice.source.stop) voice.source.stop();
+            } catch(e) {
+              // Ignore stop errors
+            }
             return false;
           }
           return true;
         });
         
-        // If pool is full, remove oldest voice
+        // If pool is full, remove oldest
         if (pool.active.length >= pool.max) {
           const oldest = pool.active.shift();
-          if (oldest && oldest.source) {
+          if (oldest && oldest.source && oldest.source.stop) {
             try {
-              oldest.gain.gain.setValueAtTime(0, this.ctx.currentTime);
-              oldest.source.stop(this.ctx.currentTime + 0.01);
-            } catch(e) {}
+              oldest.source.stop();
+            } catch(e) {
+              // Ignore stop errors
+            }
           }
         }
         
-        const voice = { source, gain: gainNode, startTime: this.ctx.currentTime };
+        const voice = { source, gain: gainNode, startTime: now, duration };
         pool.active.push(voice);
-        
-        // Auto-cleanup
-        setTimeout(() => {
-          const index = pool.active.indexOf(voice);
-          if (index !== -1) pool.active.splice(index, 1);
-        }, duration * 1000 + 100);
         
         return true;
       }
