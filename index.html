@@ -399,6 +399,8 @@ Let's Go
         this.dropCountdown = 0;
         this.isDropping = false;
         this.buildupIntensity = 0;
+        this.timeSignature = '4/4'; // New: Support for 6/8
+        this.halfTimeMode = false; // New: Half-time ability
         
         // Motion & Position
         this.motion = 0;
@@ -438,7 +440,7 @@ Let's Go
           chill: { mood: 'relaxed', colors: ['#4488ff', '#88ccff'], text: 'Chill Step' }
         };
         
-        // Dubstep Presets
+        // Dubstep Presets - Enhanced with 2025 trends: More bass-heavy, AI-like variations, genre blends
         this.dubstepStyles = [
           {
             name: 'Classic Wobble',
@@ -461,7 +463,7 @@ Let's Go
             leadPattern: [12, 19, 15, 22]
           },
           {
-            name: 'Future Bass',
+            name: 'Future Bass Blend', // Blended with future bass trends
             key: 'G',
             mode: 'major',
             bpmBase: 130,
@@ -471,7 +473,7 @@ Let's Go
             leadPattern: [12, 16, 19, 23]
           },
           {
-            name: 'Riddim Bass',
+            name: 'Riddim Bass House', // Blended with house elements
             key: 'F',
             mode: 'minor',
             bpmBase: 145,
@@ -483,13 +485,16 @@ Let's Go
         ];
         this.currentStyleIndex = 0;
         
-        // AUDIO SYSTEM
+        // AUDIO SYSTEM - Enhanced with reverb, delay, sidechain
         this.masterGain = null;
         this.limiter = null;
         this.layerGains = {};
         this.layerFilters = {};
         this.compressor = null;
         this.distortion = null;
+        this.reverb = null; // New
+        this.delay = null; // New
+        this.sidechainGain = null; // New for sidechain effect
         
         // Dubstep-specific audio elements
         this.wobbleLFO = null;
@@ -506,6 +511,7 @@ Let's Go
           hihat: { max: 4, active: [] },
           wobble: { max: 6, active: [] },
           bass: { max: 4, active: [] },
+          subBass: { max: 2, active: [] }, // New: Sub bass layer
           lead: { max: 8, active: [] },
           pad: { max: 6, active: [] },
           noise: { max: 4, active: [] },
@@ -515,13 +521,14 @@ Let's Go
           fx: { max: 8, active: [] }
         };
         
-        // Dubstep Layers
+        // Dubstep Layers - Added subBass
         this.layers = {
           kick: false,
           snare: false,
           hihat: false,
           wobble: false,
           bass: false,
+          subBass: false,
           lead: false,
           pad: false,
           noise: false,
@@ -531,7 +538,7 @@ Let's Go
           fx: false
         };
         
-        // Musical Elements
+        // Musical Elements - Enhanced with procedural variations
         this.key = 'E';
         this.keyOffsets = {'C':0, 'D':2, 'E':4, 'F':5, 'G':7, 'A':9, 'B':11};
         this.mode = 'minor';
@@ -604,6 +611,7 @@ Let's Go
           console.log('🎵 MANUAL DROP TRIGGERED!');
           this.forceDrop();
           this.flashDrop();
+          this.vibrate(200); // New: Tactile feedback
         }
       }
 
@@ -616,13 +624,18 @@ Let's Go
         this.currentTheme = 'drop';
         this.layers.wobble = true;
         this.layers.bass = true;
+        this.layers.subBass = true; // New
         this.layers.kick = true;
         this.layers.impact = true;
+        
+        // Toggle half-time during drop
+        this.halfTimeMode = true;
         
         // Auto-exit drop after 8 beats
         setTimeout(() => {
           if (this.isDropping) {
             this.isDropping = false;
+            this.halfTimeMode = false;
             this.stage = 'WOBBLE';
             this.elements.orb.className = 'orb wobble';
             this.currentTheme = 'wobble';
@@ -638,6 +651,13 @@ Let's Go
       flashImpact() {
         this.elements.impactFlash.classList.add('active');
         setTimeout(() => this.elements.impactFlash.classList.remove('active'), 50);
+      }
+      
+      // New: Haptic feedback
+      vibrate(duration) {
+        if (navigator.vibrate) {
+          navigator.vibrate(duration);
+        }
       }
 
       async start() {
@@ -728,6 +748,21 @@ Let's Go
         this.distortion.curve = this.makeDistortionCurve(5);
         this.distortion.oversample = '4x';
         
+        // New: Reverb
+        this.reverb = this.ctx.createConvolver();
+        this.generateReverbImpulse();
+        
+        // New: Delay
+        this.delay = this.ctx.createDelay(0.5);
+        this.delayFeedback = this.ctx.createGain();
+        this.delayFeedback.gain.value = 0.3;
+        this.delay.connect(this.delayFeedback);
+        this.delayFeedback.connect(this.delay);
+        
+        // New: Sidechain gain
+        this.sidechainGain = this.ctx.createGain();
+        this.sidechainGain.gain.value = 1;
+        
         // Wobble LFO setup
         this.wobbleLFO = this.ctx.createOscillator();
         this.wobbleLFO.type = 'sawtooth';
@@ -737,10 +772,10 @@ Let's Go
         this.wobbleLFO.connect(this.wobbleGain);
         this.wobbleLFO.start();
         
-        // Layer setup
-        const layerNames = ['kick', 'snare', 'hihat', 'wobble', 'bass', 'lead', 
+        // Layer setup - Added subBass
+        const layerNames = ['kick', 'snare', 'hihat', 'wobble', 'bass', 'subBass', 'lead', 
                            'pad', 'noise', 'riser', 'impact', 'vocal', 'fx'];
-        const layerLevels = [1.0, 0.8, 0.3, 0.6, 0.8, 0.5, 
+        const layerLevels = [1.0, 0.8, 0.3, 0.6, 0.8, 1.0, 0.5, 
                             0.3, 0.4, 0.5, 0.9, 0.4, 0.3];
         
         layerNames.forEach((name, i) => {
@@ -753,7 +788,7 @@ Let's Go
           this.layerFilters[name].Q.value = 1;
 
           this.layerGains[name].connect(this.layerFilters[name]);
-          this.layerFilters[name].connect(this.compressor);
+          this.layerFilters[name].connect(this.sidechainGain); // Connect to sidechain
         });
         
         // Special filters for wobble and bass
@@ -771,12 +806,28 @@ Let's Go
         this.wobbleGain.connect(this.bassFilter.frequency);
         this.wobbleGain.connect(this.leadFilter.frequency);
         
-        // Audio chain
+        // Audio chain - Added effects
+        this.sidechainGain.connect(this.compressor);
         this.compressor.connect(this.distortion);
-        this.distortion.connect(this.limiter);
+        this.distortion.connect(this.delay); // Add delay
+        this.delay.connect(this.reverb); // Add reverb
+        this.reverb.connect(this.limiter);
         this.limiter.connect(this.analyser);
         this.analyser.connect(this.masterGain);
         this.masterGain.connect(this.ctx.destination);
+      }
+
+      // New: Generate reverb impulse
+      generateReverbImpulse() {
+        const length = this.ctx.sampleRate * 2;
+        const impulse = this.ctx.createBuffer(2, length, this.ctx.sampleRate);
+        const left = impulse.getChannelData(0);
+        const right = impulse.getChannelData(1);
+        for (let i = 0; i < length; i++) {
+          left[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / length, 2);
+          right[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / length, 2);
+        }
+        this.reverb.buffer = impulse;
       }
 
       makeDistortionCurve(amount) {
@@ -798,7 +849,6 @@ Let's Go
         // Device motion with better error handling
         window.addEventListener('devicemotion', e => {
           if (!this.active) return;
-          
           const acc = e.accelerationIncludingGravity;
           if (!acc || acc.x === null || acc.x === undefined) return;
 
@@ -816,6 +866,11 @@ Let's Go
           this.updatePosition();
           
           this.direction = Math.atan2(this.velocity.y, this.velocity.x) * (180 / Math.PI);
+          
+          // New: Map motion to audio params for better feedback
+          this.bassFilter.frequency.value = 100 + newMotion * 50; // Motion affects bass filter
+          this.wobbleLFO.frequency.value = 1 + (Math.abs(acc.x || 0) / 10); // X axis to wobble rate
+          this.leadFilter.frequency.value = 800 + (Math.abs(acc.y || 0) * 100); // Y axis to lead filter
           
           // Detect drops and shakes with lower thresholds
           if (newMotion > 3) {
@@ -862,6 +917,11 @@ Let's Go
           this.pos.x = newX;
           this.pos.y = newY;
           this.direction = Math.atan2(velocityY, velocityX) * (180 / Math.PI);
+          
+          // New: Map mouse to params
+          this.bassFilter.frequency.value = 100 + mouseMotion * 50;
+          this.wobbleLFO.frequency.value = 1 + (Math.abs(velocityX) / 10);
+          this.leadFilter.frequency.value = 800 + (Math.abs(velocityY) * 100);
           
           lastMouse = { x: newX, y: newY, time: now };
         });
@@ -920,18 +980,23 @@ Let's Go
         this.intensity = this.motionHistory.length > 5 ? 
           this.motionHistory.slice(-5).reduce((sum, m) => sum + Math.abs(m - avgMotion), 0) / 5 : 0;
         
-        // Simpler motion pattern detection
+        // Simpler motion pattern detection - New: Detect for 6/8 switch
         const variance = this.intensity;
         if (variance > 2.5 && avgMotion > 2.5) {
           this.motionPattern = 'breakdown';
+          this.timeSignature = '4/4';
         } else if (variance > 1.5 && avgMotion > 1.5) {
           this.motionPattern = 'wobble';
+          this.timeSignature = '4/4';
         } else if (avgMotion > 1.2 && variance < 1.5) {
           this.motionPattern = 'buildup';
+          this.timeSignature = '4/4';
         } else if (avgMotion < 0.8) {
           this.motionPattern = 'chill';
+          this.timeSignature = '6/8'; // Switch to 6/8 for chill half-time feel
         } else {
           this.motionPattern = 'normal';
+          this.timeSignature = '4/4';
         }
         
         this.updateDubstepElements(avgMotion, variance);
@@ -968,6 +1033,17 @@ Let's Go
             this.triggerDropSequence();
           }
         }
+        
+        // New: Procedural melody variation (AI-like)
+        if (Math.random() < 0.05) {
+          this.varyMelody();
+        }
+      }
+      
+      // New: Vary melody procedurally
+      varyMelody() {
+        const variation = Math.floor(Math.random() * 3) - 1;
+        this.leadPattern = this.leadPattern.map(note => note + variation);
       }
 
       triggerDropSequence() {
@@ -983,11 +1059,13 @@ Let's Go
         // Activate drop layers
         this.layers.wobble = true;
         this.layers.bass = true;
+        this.layers.subBass = true;
         this.layers.kick = true;
         this.layers.impact = true;
         this.layers.fx = true;
         
         this.flashDrop();
+        this.vibrate(300); // Tactile on drop
         
         // End drop after 16 beats
         setTimeout(() => {
@@ -1031,12 +1109,13 @@ Let's Go
       updateEvolution() {
         const avgMotion = this.motionHistory.reduce((a, b) => a + b, 0) / this.motionHistory.length;
         
-        // Layer activation based on motion and stage
+        // Layer activation based on motion and stage - Added subBass
         this.layers.kick = this.stage !== 'SILENCE' && (this.step % 4 === 0 || this.isDropping);
         this.layers.snare = this.stage !== 'SILENCE' && avgMotion > 1;
         this.layers.hihat = this.stage !== 'SILENCE';
         this.layers.wobble = this.isDropping || this.wobbleIntensity > 0.3;
         this.layers.bass = this.stage !== 'SILENCE' && avgMotion > 0.8;
+        this.layers.subBass = this.layers.bass; // Always with bass
         this.layers.lead = this.buildupIntensity > 0.5 || this.isDropping;
         this.layers.pad = this.motionPattern === 'chill' || this.buildupIntensity > 0.3;
         this.layers.noise = this.motionPattern === 'breakdown' || this.intensity > 3;
@@ -1116,7 +1195,9 @@ Let's Go
             this.currentLeadIndex = (this.currentLeadIndex + 1) % this.leadPattern.length;
           }
           
-          const interval = (60 / this.bpm) * 250; // 16th notes
+          let interval = (60 / this.bpm) * 250; // 16th notes
+          if (this.halfTimeMode) interval *= 2; // Half-time
+          if (this.timeSignature === '6/8') interval *= 1.5; // Triplet feel approximation
           setTimeout(tick, interval);
         };
         tick();
@@ -1128,12 +1209,23 @@ Let's Go
           setTimeout(() => this.elements.orb.classList.remove('pulse'), 100);
         }
         
-        // Dubstep rhythm patterns
-        if (this.layers.kick && this.step % 4 === 0) this.playKick();
-        if (this.layers.snare && this.step % 8 === 4) this.playSnare();
-        if (this.layers.hihat && this.step % 2 === 1) this.playHihat();
+        // New: Sidechain pump on kick
+        if (this.layers.kick && this.step % 4 === 0) {
+          this.sidechainGain.gain.setValueAtTime(0.3, this.ctx.currentTime);
+          this.sidechainGain.gain.exponentialRampToValueAtTime(1, this.ctx.currentTime + 0.2);
+        }
+        
+        // Dubstep rhythm patterns - Adjusted for 6/8
+        const kickPattern = this.timeSignature === '6/8' ? this.step % 6 === 0 : this.step % 4 === 0;
+        const snarePattern = this.timeSignature === '6/8' ? this.step % 6 === 3 : this.step % 8 === 4;
+        const hihatPattern = this.timeSignature === '6/8' ? this.step % 3 === 1 : this.step % 2 === 1;
+        
+        if (this.layers.kick && kickPattern) this.playKick();
+        if (this.layers.snare && snarePattern) this.playSnare();
+        if (this.layers.hihat && hihatPattern) this.playHihat();
         if (this.layers.wobble && this.step % 1 === 0) this.playWobble();
-        if (this.layers.bass && this.step % 4 === 0) this.playBass();
+        if (this.layers.bass && kickPattern) this.playBass();
+        if (this.layers.subBass && kickPattern) this.playSubBass(); // New
         if (this.layers.lead && this.step % 2 === 0) this.playLead();
         if (this.layers.pad && this.step % 16 === 0) this.playPad();
         if (this.layers.noise && Math.random() < 0.1) this.playNoise();
@@ -1162,6 +1254,8 @@ Let's Go
         osc.connect(env).connect(gain).connect(this.layerGains.kick);
         osc.start();
         osc.stop(this.ctx.currentTime + 0.5);
+        
+        this.vibrate(50); // Tactile on kick
       }
 
       playSnare() {
@@ -1233,46 +1327,62 @@ Let's Go
         const noteIndex = this.bassline[this.currentBassIndex % this.bassline.length];
         const freq = this.noteToFreq(noteIndex, 2);
         
-        const osc1 = this.ctx.createOscillator();
-        const osc2 = this.ctx.createOscillator();
+        // New: FM synthesis for richer wobble
+        const carrier = this.ctx.createOscillator();
+        const modulator = this.ctx.createOscillator();
+        const modGain = this.ctx.createGain();
         const gain = this.ctx.createGain();
         const env = this.ctx.createGain();
         
-        if (!this.allocateVoice('wobble', osc1, gain, 0.25)) return;
+        if (!this.allocateVoice('wobble', carrier, gain, 0.25)) return;
         
-        osc1.type = 'sawtooth';
-        osc1.frequency.value = freq;
-        osc2.type = 'square';
-        osc2.frequency.value = freq * 1.01;
+        carrier.type = 'sawtooth';
+        carrier.frequency.value = freq;
+        
+        modulator.type = 'sine';
+        modulator.frequency.value = freq * 2; // FM ratio
+        modGain.gain.value = 200; // Modulation index
+        
+        modulator.connect(modGain);
+        modGain.connect(carrier.frequency);
         
         env.gain.setValueAtTime(1, this.ctx.currentTime);
         env.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.25);
         
         gain.gain.value = this.isDropping ? 0.8 : 0.4;
         
-        osc1.connect(this.bassFilter);
-        osc2.connect(this.bassFilter);
+        carrier.connect(this.bassFilter);
         this.bassFilter.connect(env).connect(gain).connect(this.layerGains.wobble);
         
-        osc1.start();
-        osc2.start();
-        osc1.stop(this.ctx.currentTime + 0.25);
-        osc2.stop(this.ctx.currentTime + 0.25);
+        carrier.start();
+        modulator.start();
+        carrier.stop(this.ctx.currentTime + 0.25);
+        modulator.stop(this.ctx.currentTime + 0.25);
       }
 
       playBass() {
         const noteIndex = this.bassline[this.currentBassIndex % this.bassline.length];
         const freq = this.noteToFreq(noteIndex, 1);
         
-        const osc = this.ctx.createOscillator();
+        // New: FM for bass
+        const carrier = this.ctx.createOscillator();
+        const modulator = this.ctx.createOscillator();
+        const modGain = this.ctx.createGain();
         const gain = this.ctx.createGain();
         const env = this.ctx.createGain();
         const filter = this.ctx.createBiquadFilter();
         
-        if (!this.allocateVoice('bass', osc, gain, 0.5)) return;
+        if (!this.allocateVoice('bass', carrier, gain, 0.5)) return;
         
-        osc.type = 'square';
-        osc.frequency.value = freq;
+        carrier.type = 'square';
+        carrier.frequency.value = freq;
+        
+        modulator.type = 'sine';
+        modulator.frequency.value = freq * 1.5;
+        modGain.gain.value = 100;
+        
+        modulator.connect(modGain);
+        modGain.connect(carrier.frequency);
         
         filter.type = 'lowpass';
         filter.frequency.value = 150 + this.wobbleIntensity * 100;
@@ -1283,7 +1393,38 @@ Let's Go
         
         gain.gain.value = this.isDropping ? 1.0 : 0.6;
         
-        osc.connect(filter).connect(env).connect(gain).connect(this.layerGains.bass);
+        carrier.connect(filter).connect(env).connect(gain).connect(this.layerGains.bass);
+        carrier.start();
+        modulator.start();
+        carrier.stop(this.ctx.currentTime + 0.5);
+        modulator.stop(this.ctx.currentTime + 0.5);
+      }
+      
+      // New: Sub bass layer for deeper sound
+      playSubBass() {
+        const noteIndex = this.bassline[this.currentBassIndex % this.bassline.length];
+        const freq = this.noteToFreq(noteIndex, 0); // Octave down
+        
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        const env = this.ctx.createGain();
+        const filter = this.ctx.createBiquadFilter();
+        
+        if (!this.allocateVoice('subBass', osc, gain, 0.5)) return;
+        
+        osc.type = 'sine';
+        osc.frequency.value = freq;
+        
+        filter.type = 'lowpass';
+        filter.frequency.value = 80;
+        filter.Q.value = 1;
+        
+        env.gain.setValueAtTime(1, this.ctx.currentTime);
+        env.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.5);
+        
+        gain.gain.value = 0.8;
+        
+        osc.connect(filter).connect(env).connect(gain).connect(this.layerGains.subBass);
         osc.start();
         osc.stop(this.ctx.currentTime + 0.5);
       }
@@ -1292,14 +1433,24 @@ Let's Go
         const noteIndex = this.leadPattern[this.currentLeadIndex % this.leadPattern.length];
         const freq = this.noteToFreq(noteIndex, 4);
         
-        const osc = this.ctx.createOscillator();
+        // New: FM for lead
+        const carrier = this.ctx.createOscillator();
+        const modulator = this.ctx.createOscillator();
+        const modGain = this.ctx.createGain();
         const gain = this.ctx.createGain();
         const env = this.ctx.createGain();
         
-        if (!this.allocateVoice('lead', osc, gain, 0.3)) return;
+        if (!this.allocateVoice('lead', carrier, gain, 0.3)) return;
         
-        osc.type = 'sawtooth';
-        osc.frequency.value = freq;
+        carrier.type = 'sawtooth';
+        carrier.frequency.value = freq;
+        
+        modulator.type = 'square';
+        modulator.frequency.value = freq * 3;
+        modGain.gain.value = 300;
+        
+        modulator.connect(modGain);
+        modGain.connect(carrier.frequency);
         
         env.gain.setValueAtTime(0, this.ctx.currentTime);
         env.gain.linearRampToValueAtTime(1, this.ctx.currentTime + 0.05);
@@ -1307,10 +1458,12 @@ Let's Go
         
         gain.gain.value = this.buildupIntensity * 0.4;
         
-        osc.connect(this.leadFilter);
+        carrier.connect(this.leadFilter);
         this.leadFilter.connect(env).connect(gain).connect(this.layerGains.lead);
-        osc.start();
-        osc.stop(this.ctx.currentTime + 0.3);
+        carrier.start();
+        modulator.start();
+        carrier.stop(this.ctx.currentTime + 0.3);
+        modulator.stop(this.ctx.currentTime + 0.3);
       }
 
       playPad() {
@@ -1436,15 +1589,17 @@ Let's Go
         noise.stop(this.ctx.currentTime + 0.8);
         
         this.flashImpact();
+        this.vibrate(100); // Tactile on impact
       }
 
       playVocal() {
-        // Synthetic vocal sound
+        // Synthetic vocal sound - Enhanced with formants
         const osc1 = this.ctx.createOscillator();
         const osc2 = this.ctx.createOscillator();
         const gain = this.ctx.createGain();
         const env = this.ctx.createGain();
-        const filter = this.ctx.createBiquadFilter();
+        const filter1 = this.ctx.createBiquadFilter();
+        const filter2 = this.ctx.createBiquadFilter();
         
         if (!this.allocateVoice('vocal', osc1, gain, 1)) return;
         
@@ -1455,9 +1610,13 @@ Let's Go
         osc2.type = 'triangle';
         osc2.frequency.value = freq * 2;
         
-        filter.type = 'bandpass';
-        filter.frequency.value = 800;
-        filter.Q.value = 5;
+        // Formant filters
+        filter1.type = 'bandpass';
+        filter1.frequency.value = 800;
+        filter1.Q.value = 5;
+        filter2.type = 'bandpass';
+        filter2.frequency.value = 1200;
+        filter2.Q.value = 5;
         
         env.gain.setValueAtTime(0, this.ctx.currentTime);
         env.gain.linearRampToValueAtTime(0.3, this.ctx.currentTime + 0.1);
@@ -1465,9 +1624,10 @@ Let's Go
         
         gain.gain.value = 0.2;
         
-        osc1.connect(filter);
-        osc2.connect(filter);
-        filter.connect(env).connect(gain).connect(this.layerGains.vocal);
+        osc1.connect(filter1);
+        osc2.connect(filter2);
+        filter1.connect(env).connect(gain).connect(this.layerGains.vocal);
+        filter2.connect(env).connect(gain).connect(this.layerGains.vocal);
         osc1.start();
         osc2.start();
         osc1.stop(this.ctx.currentTime + 1);
