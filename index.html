@@ -511,12 +511,15 @@
 
                 // Microphone
                 this.microphone = null;
+                this.micGain = null;
                 this.micAnalyser = null;
                 this.micDataArray = null;
+                this.mediaRecorder = null;
+                this.recordedChunks = [];
 
                 // Sampling
                 this.isRecording = false;
-                this.recordingData = [];
+                this.recordingStartTime = 0;
                 this.sampleLibrary = [];
                 this.sampleThreshold = 0.1;
                 this.samplingCooldown = 2000;
@@ -547,6 +550,7 @@
                 this.beatCount = 0;
                 this.stage = 'LISTENING';
                 this.isPlaying = false;
+                this.nextStepTime = 0;
 
                 // Controls
                 this.controls = {
@@ -673,7 +677,7 @@
 
                 // Click to sample
                 document.addEventListener('click', (e) => {
-                    if (!this.active || e.target.closest('.controls, .layer-status, .instructions')) return;
+                    if (!this.active || e.target.closest('.controls, .layer-status, .instructions, .start-screen')) return;
                     this.triggerSample();
                 });
             }
@@ -780,13 +784,20 @@
                         audio: {
                             echoCancellation: false,
                             noiseSuppression: false,
-                            autoGainControl: false
+                            autoGainControl: false,
+                            sampleRate: 44100
                         }
                     });
 
                     // Create audio context
-                    this.ctx = new (window.AudioContext || window.webkitAudioContext)();
-                    await this.ctx.resume();
+                    this.ctx = new (window.AudioContext || window.webkitAudioContext)({
+                        sampleRate: 44100
+                    });
+                    
+                    // Resume context if suspended
+                    if (this.ctx.state === 'suspended') {
+                        await this.ctx.resume();
+                    }
 
                     this.setupAudioChain();
                     this.setupMicrophone(stream);
@@ -810,7 +821,7 @@
                     
                 } catch (error) {
                     console.error('Failed to start engine:', error);
-                    alert('Microphone access required!');
+                    alert('Microphone access required! ' + error.message);
                 }
             }
 
@@ -902,13 +913,108 @@
             setupMicrophone(stream) {
                 this.microphone = this.ctx.createMediaStreamSource(stream);
                 
+                // Create a gain node for mic input
+                this.micGain = this.ctx.createGain();
+                this.micGain.gain.value = 1.0;
+                
                 this.micAnalyser = this.ctx.createAnalyser();
                 this.micAnalyser.fftSize = 2048;
                 this.micAnalyser.smoothingTimeConstant = 0.3;
                 this.micDataArray = new Uint8Array(this.micAnalyser.frequencyBinCount);
                 
-                this.microphone.connect(this.micAnalyser);
-                // Don't connect to output to avoid feedback
+                // Connect mic -> gain -> analyser
+                this.microphone.connect(this.micGain);
+                this.micGain.connect(this.micAnalyser);
+                
+                // Set up MediaRecorder for recording
+                this.mediaRecorder = new MediaRecorder(stream);
+                this.mediaRecorder.ondataavailable = (e) => {
+                    if (e.data.size > 0) {
+                        this.recordedChunks.push(e.data);
+                    }
+                };
+                
+                this.mediaRecorder.onstop = () => {
+                    this.processRecordedAudio();
+                };
+            }
+
+            async processRecordedAudio() {
+                if (this.recordedChunks.length === 0) return;
+                
+                const blob = new Blob(this.recordedChunks, { type: 'audio/webm' });
+                this.recordedChunks = [];
+                
+                try {
+                    const arrayBuffer = await blob.arrayBuffer();
+                    const audioBuffer = await this.ctx.decodeAudioData(arrayBuffer);
+                    
+                    // Create sample from decoded audio
+                    const sample = {
+                        id: Date.now(),
+                        buffer: audioBuffer,
+                        duration: audioBuffer.duration,
+                        analysis: this.analyzeBuffer(audioBuffer),
+                        timestamp: Date.now()
+                    };
+                    
+                    this.sampleLibrary.push(sample);
+                    this.categorizeSample(sample);
+                    this.updateStage();
+                    
+                    console.log(`📚 LIBRARY: ${this.sampleLibrary.length} samples`);
+                } catch (error) {
+                    console.error('Error processing recorded audio:', error);
+                }
+            }
+
+            analyzeBuffer(buffer) {
+                const data = buffer.getChannelData(0);
+                const rms = Math.sqrt(data.reduce((sum, val) => sum + val * val, 0) / data.length);
+                const peak = Math.max(...data.map(Math.abs));
+                const crest = peak / Math.max(rms, 0.001);
+
+                // Simple frequency analysis
+                const sampleRate = buffer.sampleRate;
+                const fftSize = 2048;
+                const fft = new Float32Array(fftSize);
+                
+                // Copy a portion of the audio for FFT analysis
+                for (let i = 0; i < Math.min(fftSize, data.length); i++) {
+                    fft[i] = data[i];
+                }
+                
+                // Basic frequency band energy calculation
+                let lowFreq = 0, midFreq = 0, highFreq = 0;
+                const binWidth = sampleRate / fftSize;
+                
+                for (let i = 0; i < fftSize / 2; i++) {
+                    const freq = i * binWidth;
+                    const magnitude = Math.abs(fft[i]);
+                    
+                    if (freq < 200) lowFreq += magnitude;
+                    else if (freq < 2000) midFreq += magnitude;
+                    else if (freq < 8000) highFreq += magnitude;
+                }
+                
+                // Normalize
+                const total = lowFreq + midFreq + highFreq;
+                if (total > 0) {
+                    lowFreq /= total;
+                    midFreq /= total;
+                    highFreq /= total;
+                }
+
+                return {
+                    rms,
+                    peak,
+                    crest,
+                    lowFreq,
+                    midFreq,
+                    highFreq,
+                    energy: peak > 0.3 ? 'high' : rms > 0.1 ? 'medium' : 'low',
+                    brightness: highFreq > midFreq ? 'bright' : 'dark'
+                };
             }
 
             startSamplingLoop() {
@@ -918,20 +1024,16 @@
                     this.micAnalyser.getByteFrequencyData(this.micDataArray);
                     this.updateVisualization();
 
-                    // Check for sampling trigger
-                    const avgLevel = this.micDataArray.reduce((sum, val) => sum + val) / this.micDataArray.length;
+                    // Check for automatic sampling trigger
+                    const avgLevel = this.micDataArray.reduce((sum, val) => sum + val, 0) / this.micDataArray.length;
                     const normalizedLevel = avgLevel / 255;
 
                     const now = Date.now();
                     const canSample = now - this.lastSampleTime > this.samplingCooldown;
-                    const shouldSample = normalizedLevel > this.sampleThreshold && canSample;
+                    const shouldSample = normalizedLevel > this.sampleThreshold && canSample && !this.isRecording;
 
                     if (shouldSample && this.sampleLibrary.length < 25) {
                         this.startRecording();
-                    }
-
-                    if (this.isRecording) {
-                        this.continueRecording();
                     }
 
                     requestAnimationFrame(loop);
@@ -967,108 +1069,32 @@
             }
 
             startRecording() {
+                if (this.isRecording || !this.mediaRecorder) return;
+                
                 console.log('🎤 RECORDING SAMPLE...');
                 this.isRecording = true;
-                this.recordingData = [];
-                this.recordingStartTime = this.ctx.currentTime;
+                this.recordingStartTime = Date.now();
                 this.lastSampleTime = Date.now();
-
-                // Create script processor for recording
-                this.processor = this.ctx.createScriptProcessor(4096, 1, 1);
-                this.microphone.connect(this.processor);
-                this.processor.connect(this.ctx.destination);
-
-                this.processor.onaudioprocess = (e) => {
-                    if (!this.isRecording) return;
-                    
-                    const inputData = e.inputBuffer.getChannelData(0);
-                    this.recordingData.push(...inputData);
-                    
-                    const duration = this.recordingData.length / this.ctx.sampleRate;
-                    if (duration >= this.maxSampleLength) {
-                        this.finishRecording();
+                
+                this.recordedChunks = [];
+                this.mediaRecorder.start();
+                
+                // Auto-stop after max duration
+                setTimeout(() => {
+                    if (this.isRecording) {
+                        this.stopRecording();
                     }
-                };
-
+                }, this.maxSampleLength * 1000);
+                
                 this.updateOrbVisual();
             }
 
-            continueRecording() {
-                // Recording handled by processor
-            }
-
-            finishRecording() {
-                if (!this.isRecording || this.recordingData.length === 0) return;
-
+            stopRecording() {
+                if (!this.isRecording || !this.mediaRecorder) return;
+                
                 console.log('✅ SAMPLE RECORDED');
                 this.isRecording = false;
-
-                // Clean up processor
-                if (this.processor) {
-                    this.microphone.disconnect(this.processor);
-                    this.processor.disconnect();
-                    this.processor = null;
-                }
-
-                // Create audio buffer
-                const duration = this.recordingData.length / this.ctx.sampleRate;
-                const buffer = this.ctx.createBuffer(1, this.recordingData.length, this.ctx.sampleRate);
-                buffer.getChannelData(0).set(this.recordingData);
-
-                // Analyze sample
-                const analysis = this.analyzeSample(this.recordingData);
-                
-                // Create sample object
-                const sample = {
-                    id: Date.now(),
-                    buffer: buffer,
-                    duration: duration,
-                    analysis: analysis,
-                    timestamp: Date.now()
-                };
-
-                this.sampleLibrary.push(sample);
-                this.categorizeSample(sample);
-                this.updateStage();
-
-                console.log(`📚 LIBRARY: ${this.sampleLibrary.length} samples`);
-            }
-
-            analyzeSample(audioData) {
-                const rms = Math.sqrt(audioData.reduce((sum, val) => sum + val * val, 0) / audioData.length);
-                const peak = Math.max(...audioData.map(Math.abs));
-                const crest = peak / Math.max(rms, 0.001);
-
-                // Simple frequency analysis
-                const lowFreq = this.analyzeFrequencyBand(audioData, 0, 200);
-                const midFreq = this.analyzeFrequencyBand(audioData, 200, 2000);
-                const highFreq = this.analyzeFrequencyBand(audioData, 2000, 8000);
-
-                return {
-                    rms,
-                    peak,
-                    crest,
-                    lowFreq,
-                    midFreq,
-                    highFreq,
-                    energy: peak > 0.3 ? 'high' : rms > 0.1 ? 'medium' : 'low',
-                    brightness: highFreq > midFreq ? 'bright' : 'dark'
-                };
-            }
-
-            analyzeFrequencyBand(audioData, lowFreq, highFreq) {
-                // Simplified frequency analysis
-                const sampleRate = this.ctx.sampleRate;
-                const nyquist = sampleRate / 2;
-                const lowBin = Math.floor(lowFreq / nyquist * audioData.length);
-                const highBin = Math.floor(highFreq / nyquist * audioData.length);
-                
-                let energy = 0;
-                for (let i = lowBin; i < Math.min(highBin, audioData.length); i++) {
-                    energy += audioData[i] * audioData[i];
-                }
-                
-                return Math.sqrt(energy / Math.max(1, highBin - lowBin));
+                this.mediaRecorder.stop();
             }
 
             categorizeSample(sample) {
@@ -1140,108 +1166,119 @@
             startSequencer() {
                 if (this.isPlaying) return;
                 this.isPlaying = true;
+                this.nextStepTime = this.ctx.currentTime;
 
-                const tick = () => {
+                const scheduleAhead = 0.1; // Schedule 100ms ahead
+                const lookAheadTime = 25; // Check every 25ms
+
+                const scheduler = () => {
                     if (!this.active || !this.isPlaying) return;
 
-                    this.playStep();
-                    this.step = (this.step + 1) % 32;
-                    this.beatCount++;
+                    while (this.nextStepTime < this.ctx.currentTime + scheduleAhead) {
+                        this.scheduleStep(this.nextStepTime);
+                        const secondsPerBeat = 60.0 / this.bpm;
+                        this.nextStepTime += secondsPerBeat / 4; // 16th notes
+                        this.step = (this.step + 1) % 32;
+                        this.beatCount++;
+                    }
 
-                    const interval = (60 / this.bpm) * 250; // 16th notes
-                    setTimeout(tick, interval);
+                    setTimeout(scheduler, lookAheadTime);
                 };
 
-                tick();
+                scheduler();
             }
 
-            playStep() {
+            scheduleStep(time) {
                 // Beat pulse on kick
                 if (this.step % 4 === 0) {
-                    this.elements.orb.classList.add('pulse');
-                    setTimeout(() => this.elements.orb.classList.remove('pulse'), 150);
+                    setTimeout(() => {
+                        this.elements.orb.classList.add('pulse');
+                        setTimeout(() => this.elements.orb.classList.remove('pulse'), 150);
+                    }, (time - this.ctx.currentTime) * 1000);
                 }
 
                 // Play patterns based on stage
                 switch (this.stage) {
                     case 'SAMPLING':
-                        this.playSamplingPattern();
+                        this.playSamplingPattern(time);
                         break;
                     case 'CHOPPING':
-                        this.playChoppingPattern();
+                        this.playChoppingPattern(time);
                         break;
                     case 'FLIPPING':
-                        this.playFlippingPattern();
+                        this.playFlippingPattern(time);
                         break;
                     case 'DROPPING':
-                        this.playDroppingPattern();
+                        this.playDroppingPattern(time);
                         break;
                 }
             }
 
-            playSamplingPattern() {
+            playSamplingPattern(time) {
                 // Simple kick pattern
                 if (this.step % 4 === 0 && this.sampleLayers.kick.samples.length > 0) {
-                    this.playLayerSample('kick');
+                    this.playLayerSample('kick', time);
                 }
             }
 
-            playChoppingPattern() {
+            playChoppingPattern(time) {
                 // Kick and snare
                 if (this.step % 4 === 0 && this.sampleLayers.kick.samples.length > 0) {
-                    this.playLayerSample('kick');
+                    this.playLayerSample('kick', time);
                 }
                 if (this.step % 8 === 4 && this.sampleLayers.snare.samples.length > 0) {
-                    this.playLayerSample('snare');
+                    this.playLayerSample('snare', time);
                 }
                 // Occasional hats
                 if (this.step % 2 === 0 && Math.random() < 0.3 && this.sampleLayers.hats.samples.length > 0) {
-                    this.playLayerSample('hats');
+                    this.playLayerSample('hats', time);
                 }
             }
 
-            playFlippingPattern() {
-                this.playChoppingPattern();
+            playFlippingPattern(time) {
+                this.playChoppingPattern(time);
                 
                 // Add bass
                 if (this.step % 4 === 0 && this.sampleLayers.bass.samples.length > 0) {
-                    this.playLayerSample('bass');
+                    this.playLayerSample('bass', time);
                 }
                 // Lead melody
                 if (this.step % 16 === 0 && this.sampleLayers.lead.samples.length > 0) {
-                    this.playLayerSample('lead');
+                    this.playLayerSample('lead', time);
                 }
             }
 
-            playDroppingPattern() {
-                this.playFlippingPattern();
+            playDroppingPattern(time) {
+                this.playFlippingPattern(time);
                 
                 // Chaos mode - random FX
                 if (Math.random() < 0.1 && this.sampleLayers.fx.samples.length > 0) {
-                    this.playLayerSample('fx');
+                    this.playLayerSample('fx', time);
                 }
                 // Double kick
                 if (this.step % 8 === 2 && Math.random() < 0.5 && this.sampleLayers.kick.samples.length > 0) {
-                    this.playLayerSample('kick');
+                    this.playLayerSample('kick', time);
                 }
             }
 
-            playLayerSample(layerName) {
+            playLayerSample(layerName, time) {
                 const layer = this.sampleLayers[layerName];
                 if (!layer || layer.samples.length === 0) return;
 
                 const sample = layer.samples[Math.floor(Math.random() * layer.samples.length)];
-                this.playSample(sample, layerName);
+                this.playSample(sample, layerName, time);
                 
                 // Visual feedback
-                const layerEl = document.querySelector(`[data-layer="${layerName}"]`);
-                if (layerEl) {
-                    layerEl.classList.add('active');
-                    setTimeout(() => layerEl.classList.remove('active'), 200);
-                }
+                setTimeout(() => {
+                    const layerEl = document.querySelector(`[data-layer="${layerName}"]`);
+                    if (layerEl) {
+                        layerEl.classList.add('active');
+                        setTimeout(() => layerEl.classList.remove('active'), 200);
+                    }
+                }, (time - this.ctx.currentTime) * 1000);
             }
 
-            playSample(sample, layerName) {
+            playSample(sample, layerName, startTime = 0) {
                 if (!sample || !this.sampleLayers[layerName]) return;
 
                 const source = this.ctx.createBufferSource();
@@ -1253,18 +1290,25 @@
                 source.connect(gain);
                 gain.connect(this.sampleLayers[layerName].gain);
 
-                source.start();
-                source.stop(this.ctx.currentTime + sample.duration);
+                // Add some randomization based on chaos control
+                if (this.controls.chaos > 0.5 && Math.random() < this.controls.chaos) {
+                    source.playbackRate.value = 0.5 + Math.random() * 1.5;
+                }
+
+                const actualStartTime = startTime || this.ctx.currentTime;
+                source.start(actualStartTime);
+                source.stop(actualStartTime + sample.duration);
             }
 
             // Manual trigger methods
             triggerSample() {
-                if (this.sampleLibrary.length === 0) return;
-                
-                const sample = this.sampleLibrary[Math.floor(Math.random() * this.sampleLibrary.length)];
-                this.playSample(sample, 'fx');
+                if (this.isRecording) {
+                    this.stopRecording();
+                } else {
+                    this.startRecording();
+                }
                 this.createParticles(5, '#ff1414');
-                console.log('🎵 MANUAL TRIGGER');
+                console.log('🎵 MANUAL SAMPLE TRIGGER');
             }
 
             chopSample() {
@@ -1296,7 +1340,7 @@
             }
 
             triggerLayer(layerName) {
-                this.playLayerSample(layerName);
+                this.playLayerSample(layerName, this.ctx.currentTime);
                 this.createParticles(6, this.getLayerColor(layerName));
             }
 
@@ -1335,12 +1379,19 @@
                 if (!sample || !this.sampleLayers[layerName]) return;
 
                 // Create reversed buffer
-                const reversedBuffer = this.ctx.createBuffer(1, sample.buffer.length, sample.buffer.sampleRate);
-                const originalData = sample.buffer.getChannelData(0);
-                const reversedData = reversedBuffer.getChannelData(0);
-
-                for (let i = 0; i < originalData.length; i++) {
-                    reversedData[i] = originalData[originalData.length - 1 - i];
+                const reversedBuffer = this.ctx.createBuffer(
+                    sample.buffer.numberOfChannels,
+                    sample.buffer.length,
+                    sample.buffer.sampleRate
+                );
+                
+                for (let channel = 0; channel < sample.buffer.numberOfChannels; channel++) {
+                    const originalData = sample.buffer.getChannelData(channel);
+                    const reversedData = reversedBuffer.getChannelData(channel);
+                    
+                    for (let i = 0; i < originalData.length; i++) {
+                        reversedData[i] = originalData[originalData.length - 1 - i];
+                    }
                 }
 
                 const source = this.ctx.createBufferSource();
