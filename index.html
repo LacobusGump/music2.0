@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>GUMP: World-Stitching Beat Engine</title>
     <style>
-        /* Original CSS remains, but enhanced for better visuals and cohesion */
         * {
             margin: 0;
             padding: 0;
@@ -14,11 +13,593 @@
 
         body {
             background: #000;
-            color: #fff;
             overflow: hidden;
             touch-action: none;
             height: 100vh;
-            font-family: 'Courier New', monospace;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .evolution-space {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
+
+        .orb {
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: #ff1414;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            transition: all 0.3s ease;
+            box-shadow: 0 0 20px rgba(255,20,20,0.7);
+            cursor: pointer;
+            z-index: 10;
+        }
+
+        .orb.pulse {
+            animation: beatPulse 0.15s ease-out;
+        }
+
+        @keyframes beatPulse {
+            0% { transform: translate(-50%, -50%) scale(1); }
+            50% { transform: translate(-50%, -50%) scale(1.5); }
+            100% { transform: translate(-50%, -50%) scale(1); }
+        }
+
+        .orb.recording {
+            background: #ff6600;
+            box-shadow: 0 0 30px rgba(255,102,0,0.8);
+        }
+
+        .waveform {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: 50px;
+            background: rgba(0,0,0,0.5);
+            overflow: hidden;
+        }
+
+        .waveform-bar {
+            position: absolute;
+            bottom: 0;
+            width: 1%;
+            background: linear-gradient(to top, #ff1414, #ff6600);
+            transition: height 0.05s ease;
+        }
+    </style>
+</head>
+<body>
+    <div id="evolutionSpace" class="evolution-space">
+        <div id="orb" class="orb"></div>
+        <div id="waveform" class="waveform"></div>
+    </div>
+
+    <script>
+        'use strict';
+
+        class GUMPEngine {
+            constructor() {
+                this.ctx = null;
+                this.active = false;
+                this.nodes = {};
+                this.effects = {};
+                this.recorder = {
+                    active: false,
+                    buffer: [],
+                    startTime: 0,
+                    maxDuration: 5000,
+                    threshold: 0.2
+                };
+                this.samples = [];
+                this.maxSamples = 20;
+                this.layers = {
+                    kick: { samples: [], pattern: [], gain: null, send: null },
+                    snare: { samples: [], pattern: [], gain: null, send: null },
+                    hats: { samples: [], pattern: [], gain: null, send: null },
+                    bass: { samples: [], pattern: [], gain: null, send: null },
+                    lead: { samples: [], pattern: [], gain: null, send: null },
+                    fx: { samples: [], pattern: [], gain: null, send: null }
+                };
+                this.seq = {
+                    bpm: 145,
+                    step: 0,
+                    stepsPerBar: 16,
+                    playing: false,
+                    lastTime: 0,
+                    patterns: {},
+                    nextNoteTime: 0,
+                    scheduleAheadTime: 0.1,
+                    key: 'C',
+                    scale: 'minor',
+                    notesInScale: this.getNotesInScale('C', 'minor')
+                };
+                this.motion = {
+                    value: 0,
+                    history: new Float32Array(120),
+                    index: 0,
+                    pattern: 'calm',
+                    alpha: 0.9
+                };
+                this.agent = {
+                    active: true,
+                    interval: null,
+                    autotuneStrength: 0.7,
+                    chaosLevel: 0.2
+                };
+                this.analyzer = null;
+                this.dataArray = null;
+                this.bufferLength = 2048;
+                this.ui = {};
+                this.raf = null;
+                this.waveformBars = [];
+
+                this.init();
+            }
+
+            init() {
+                this.ui.orb = document.getElementById('orb');
+                this.ui.waveform = document.getElementById('waveform');
+
+                // Setup waveform bars
+                const frag = document.createDocumentFragment();
+                for (let i = 0; i < 100; i++) {
+                    const bar = document.createElement('div');
+                    bar.className = 'waveform-bar';
+                    bar.style.left = `${i}%`;
+                    frag.appendChild(bar);
+                }
+                this.ui.waveform.appendChild(frag);
+                this.waveformBars = this.ui.waveform.querySelectorAll('.waveform-bar');
+
+                this.ui.orb.onclick = () => this.start();
+                this.setupInput();
+                this.setupMotion();
+                this.compilePatterns();
+            }
+
+            setupInput() {
+                document.addEventListener('keydown', (e) => {
+                    if (!this.active) return;
+                    switch (e.key.toLowerCase()) {
+                        case ' ':
+                            this.toggleRecording();
+                            break;
+                        case 'c':
+                            this.chopLastSample();
+                            break;
+                        case 'f':
+                            this.flipLastSample();
+                            break;
+                        case 'p':
+                            this.pitchShiftLastSample();
+                            break;
+                    }
+                });
+            }
+
+            setupMotion() {
+                if (window.DeviceMotionEvent) {
+                    window.addEventListener('devicemotion', (e) => {
+                        const acc = e.accelerationIncludingGravity;
+                        const motion = Math.sqrt(acc.x**2 + acc.y**2 + acc.z**2) / 9.81;
+                        this.updateMotion(motion);
+                    });
+                }
+                let lastX = 0, lastY = 0;
+                document.addEventListener('mousemove', (e) => {
+                    const dx = e.clientX - lastX;
+                    const dy = e.clientY - lastY;
+                    const motion = Math.sqrt(dx**2 + dy**2) / 100;
+                    this.updateMotion(motion);
+                    lastX = e.clientX;
+                    lastY = e.clientY;
+                });
+            }
+
+            updateMotion(rawValue) {
+                this.motion.value = this.motion.alpha * this.motion.value + (1 - this.motion.alpha) * rawValue;
+                this.motion.history[this.motion.index] = this.motion.value;
+                this.motion.index = (this.motion.index + 1) % this.motion.history.length;
+                const avg = Array.from(this.motion.history).reduce((a, b) => a + b, 0) / this.motion.history.length;
+                if (avg < 0.2) this.motion.pattern = 'calm';
+                else if (avg < 0.5) this.motion.pattern = 'rhythmic';
+                else if (avg < 0.8) this.motion.pattern = 'active';
+                else this.motion.pattern = 'chaotic';
+                this.agent.chaosLevel = Math.min(0.4, avg);
+            }
+
+            getNotesInScale(root, type) {
+                const roots = { 'C': 60, 'C#': 61, 'D': 62, 'D#': 63, 'E': 64, 'F': 65, 'F#': 66, 'G': 67, 'G#': 68, 'A': 69, 'A#': 70, 'B': 71 };
+                const scales = {
+                    major: [0, 2, 4, 5, 7, 9, 11],
+                    minor: [0, 2, 3, 5, 7, 8, 10],
+                    pentatonic: [0, 3, 5, 7, 10]
+                };
+                const intervals = scales[type] || scales.minor;
+                const notes = [];
+                for (let oct = -2; oct <= 2; oct++) {
+                    intervals.forEach(int => notes.push(roots[root] + int + oct * 12));
+                }
+                return notes;
+            }
+
+            midiToFreq(midi) {
+                return 440 * Math.pow(2, (midi - 69) / 12);
+            }
+
+            async start() {
+                try {
+                    this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+                    await this.ctx.resume();
+
+                    this.setupAudioGraph();
+                    this.setupEffects();
+                    this.setupAnalyzer();
+                    await this.loadInitialSounds();
+
+                    const stream = await navigator.mediaDevices.getUserMedia({
+                        audio: {
+                            echoCancellation: false,
+                            noiseSuppression: false,
+                            autoGainControl: false
+                        }
+                    });
+                    this.setupMic(stream);
+
+                    this.active = true;
+                    this.motion.history.fill(0.1);
+
+                    this.startVisualizer();
+                    this.startScheduler();
+                    this.startAgent();
+
+                    console.log('🎵 ENGINE STARTED');
+                } catch (e) {
+                    console.error('Start failed:', e);
+                }
+            }
+
+            setupAudioGraph() {
+                // Master chain
+                this.nodes.master = this.ctx.createGain();
+                this.nodes.master.gain.value = 0.9;
+                this.nodes.master.connect(this.ctx.destination);
+
+                // Limiter
+                this.nodes.limiter = this.ctx.createDynamicsCompressor();
+                this.nodes.limiter.threshold.value = -3;
+                this.nodes.limiter.knee.value = 0;
+                this.nodes.limiter.ratio.value = 20;
+                this.nodes.limiter.attack.value = 0.001;
+                this.nodes.limiter.release.value = 0.1;
+                this.nodes.limiter.connect(this.nodes.master);
+
+                // Compressor
+                this.nodes.compressor = this.ctx.createDynamicsCompressor();
+                this.nodes.compressor.threshold.value = -24;
+                this.nodes.compressor.knee.value = 20;
+                this.nodes.compressor.ratio.value = 8;
+                this.nodes.compressor.attack.value = 0.005;
+                this.nodes.compressor.release.value = 0.2;
+                this.nodes.compressor.connect(this.nodes.limiter);
+
+                // EQ for bass boost
+                this.nodes.lowShelf = this.ctx.createBiquadFilter();
+                this.nodes.lowShelf.type = 'lowshelf';
+                this.nodes.lowShelf.frequency.value = 200;
+                this.nodes.lowShelf.gain.value = 6;
+                this.nodes.lowShelf.connect(this.nodes.compressor);
+
+                // Reverb send
+                this.effects.reverbSend = this.ctx.createGain();
+                this.effects.reverbSend.gain.value = 0.3;
+                this.effects.reverbSend.connect(this.effects.reverb);
+
+                // Layer gains
+                Object.keys(this.layers).forEach(layer => {
+                    this.layers[layer].gain = this.ctx.createGain();
+                    this.layers[layer].gain.connect(this.nodes.lowShelf);
+                    this.layers[layer].send = this.ctx.createGain();
+                    this.layers[layer].send.connect(this.effects.reverbSend);
+                    if (layer === 'kick' || layer === 'bass') {
+                        this.layers[layer].gain.gain.value = 1.0;
+                        this.layers[layer].send.gain.value = 0.1;
+                    } else if (layer === 'snare' || layer === 'hats') {
+                        this.layers[layer].gain.gain.value = 0.8;
+                        this.layers[layer].send.gain.value = 0.4;
+                    } else {
+                        this.layers[layer].gain.gain.value = 0.7;
+                        this.layers[layer].send.gain.value = 0.3;
+                    }
+                });
+            }
+
+            setupEffects() {
+                const {ctx} = this;
+                // Reverb
+                this.effects.reverb = ctx.createConvolver();
+                const length = ctx.sampleRate * 2.5;
+                const impulse = ctx.createBuffer(2, length, ctx.sampleRate);
+                for (let ch = 0; ch < 2; ch++) {
+                    const data = impulse.getChannelData(ch);
+                    for (let i = 0; i < length; i++) {
+                        data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / length, 3);
+                    }
+                }
+                this.effects.reverb.buffer = impulse;
+                this.effects.reverb.connect(this.nodes.lowShelf);
+
+                // Delay
+                this.effects.delay = ctx.createDelay(0.75);
+                this.effects.delayFeedback = ctx.createGain();
+                this.effects.delayFeedback.gain.value = 0.35;
+                this.effects.delay.connect(this.effects.delayFeedback);
+                this.effects.delayFeedback.connect(this.effects.delay);
+                this.effects.delay.connect(this.nodes.lowShelf);
+
+                // Saturation
+                this.effects.saturation = ctx.createWaveShaper();
+                this.effects.saturation.curve = this.makeDistortionCurve(40);
+                this.effects.saturation.connect(this.nodes.lowShelf);
+            }
+
+            makeDistortionCurve(amount) {
+                const k = amount;
+                const n = 22050;
+                const curve = new Float32Array(n);
+                const deg = Math.PI / 180;
+                for (let i = 0; i < n; i++) {
+                    const x = i * 2 / n - 1;
+                    curve[i] = (3 + k) * x * 20 * deg / (Math.PI + k * Math.abs(x));
+                }
+                return curve;
+            }
+
+            setupAnalyzer() {
+                this.analyzer = this.ctx.createAnalyser();
+                this.analyzer.fftSize = this.bufferLength;
+                this.dataArray = new Float32Array(this.analyzer.fftSize);
+            }
+
+            async loadInitialSounds() {
+                const kickBuffer = await this.generate808Kick();
+                this.addSampleToLayer(kickBuffer, 'kick');
+
+                const snareBuffer = await this.generateTrapSnare();
+                this.addSampleToLayer(snareBuffer, 'snare');
+
+                const closedHat = await this.generateClosedHat();
+                this.addSampleToLayer(closedHat, 'hats');
+
+                const openHat = await this.generateOpenHat();
+                this.addSampleToLayer(openHat, 'hats');
+
+                const bassBuffer = await this.generate808Bass();
+                this.addSampleToLayer(bassBuffer, 'bass');
+            }
+
+            async generate808Kick() {
+                const offline = new OfflineAudioContext(1, this.ctx.sampleRate * 1, this.ctx.sampleRate);
+                const osc = offline.createOscillator();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(120, 0);
+                osc.frequency.exponentialRampToValueAtTime(40, 0.5);
+
+                const gain = offline.createGain();
+                gain.gain.setValueAtTime(1, 0);
+                gain.gain.exponentialRampToValueAtTime(0.01, 0.5);
+
+                const dist = offline.createWaveShaper();
+                dist.curve = this.makeDistortionCurve(20);
+
+                osc.connect(gain);
+                gain.connect(dist);
+                dist.connect(offline.destination);
+                osc.start(0);
+                return await offline.startRendering();
+            }
+
+            async generateTrapSnare() {
+                const offline = new OfflineAudioContext(1, this.ctx.sampleRate * 0.3, this.ctx.sampleRate);
+                const noiseBuffer = offline.createBuffer(1, offline.sampleRate * 0.3, offline.sampleRate);
+                const data = noiseBuffer.getChannelData(0);
+                for (let i = 0; i < data.length; i++) {
+                    data[i] = Math.random() * 2 - 1;
+                }
+                const noise = offline.createBufferSource();
+                noise.buffer = noiseBuffer;
+
+                const filter = offline.createBiquadFilter();
+                filter.type = 'highpass';
+                filter.frequency.value = 1500;
+
+                const gain = offline.createGain();
+                gain.gain.setValueAtTime(1, 0);
+                gain.gain.exponentialRampToValueAtTime(0.01, 0.3);
+
+                const tone = offline.createOscillator();
+                tone.type = 'triangle';
+                tone.frequency.value = 200;
+                tone.start(0);
+                tone.stop(0.3);
+
+                const toneGain = offline.createGain();
+                toneGain.gain.setValueAtTime(0.5, 0);
+                toneGain.gain.exponentialRampToValueAtTime(0.01, 0.1);
+
+                noise.connect(filter);
+                filter.connect(gain);
+                tone.connect(toneGain);
+                toneGain.connect(gain);
+                gain.connect(offline.destination);
+                noise.start(0);
+                return await offline.startRendering();
+            }
+
+            async generateClosedHat() {
+                const offline = new OfflineAudioContext(1, this.ctx.sampleRate * 0.05, this.ctx.sampleRate);
+                const noiseBuffer = offline.createBuffer(1, offline.sampleRate * 0.05, offline.sampleRate);
+                const data = noiseBuffer.getChannelData(0);
+                for (let i = 0; i < data.length; i++) {
+                    data[i] = Math.random() * 2 - 1;
+                }
+                const noise = offline.createBufferSource();
+                noise.buffer = noiseBuffer;
+
+                const filter = offline.createBiquadFilter();
+                filter.type = 'highpass';
+                filter.frequency.value = 8000;
+
+                const gain = offline.createGain();
+                gain.gain.setValueAtTime(0.7, 0);
+                gain.gain.exponentialRampToValueAtTime(0.01, 0.05);
+
+                noise.connect(filter);
+                filter.connect(gain);
+                gain.connect(offline Now, with this info, I can rewrite the code.
+
+First, for visuals: Minimal.
+
+HTML: Remove all panels with text: sampleViz keep only waveform div, no info.
+
+Remove controls, layerStatus, instructions, keyDisplay, spectrum.
+
+Keep startScreen with btn, but remove text, make btn plain circle.
+
+Or remove subtext, keep "LETS GO" but user said no words.
+
+User: "it doesnt need ANY words"
+
+So, remove all text.
+
+Start btn: empty circle.
+
+In code, on click start.
+
+Orb as dot.
+
+Waveform at bottom, no text.
+
+Particles maybe remove.
+
+For audio:
+
+Enhance 808: From search, sine with pitch decay, add distortion.
+
+In code, already has.
+
+Add WaveShaper for saturation on kick.
+
+For patterns: From browse 
+
+BPM 145
+
+Sparse kick, double at end.
+
+Snare rush.
+
+Hi-hats constant, double-time 1/32 at end.
+
+Triplets.
+
+So, in compilePatterns, define 16 step patterns for each motion.
+
+For trap: Half-time feel.
+
+For mixing: From 
+
+Use envelopes for decays.
+
+Filters for noise (hats).
+
+Scheduling precise.
+
+Already using requestAnimationFrame for tick.
+
+For pro mixing: Add EQ, sidechain.
+
+Sidechain: Use compressor with sidechain from kick.
+
+But Web Audio has no built-in sidechain, need to route kick to compressor key input, but DynamicsCompressor has no sidechain.
+
+To simulate, use gain reduction based on kick envelope.
+
+Complex, perhaps add.
+
+Add lowpass/highpass.
+
+For depth: Convolver reverb better impulse.
+
+But code has generated impulse.
+
+Load real impulse, but no internet, generate better.
+
+For trap/EDM: Add builds by increasing intensity with motion.
+
+Higher motion adds more layers, faster hats.
+
+Start with 808: Initial drums include 808 kick and bass.
+
+Generate bass as low sine.
+
+Layers have bass.
+
+When sampling, low freq to bass layer, pitch to scale.
+
+Now, rewrite code.
+
+Make it longer with more functions.
+
+Fix no music: Ensure seq starts, sources play.
+
+Perhaps add ctx.resume() in start.
+
+After getUserMedia, context resumes.
+
+But add.
+
+For better production: Add master EQ, limiter.
+
+Limiter: Use compressor with high ratio, low threshold.
+
+Already has compressor.
+
+Adjust params.
+
+Add stereo panner for width.
+
+For hats, pan slightly.
+
+Etc.
+
+Output the new HTML.<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GUMP: World-Stitching Beat Engine</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #000;
+            overflow: hidden;
+            touch-action: none;
+            height: 100vh;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -28,24 +609,17 @@
         .start-screen {
             text-align: center;
             z-index: 100;
+            width: 100%;
+            height: 100%;
         }
 
         .start-btn {
-            width: 240px;
-            height: 240px;
+            width: 100px;
+            height: 100px;
             border-radius: 50%;
             background: radial-gradient(circle, rgba(255,20,20,0.1) 0%, transparent 70%);
             border: 3px solid rgba(255,20,20,0.4);
-            color: #ff1414;
             cursor: pointer;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            font-size: 16px;
-            font-weight: bold;
-            letter-spacing: 1px;
-            backdrop-filter: blur(15px);
             transition: all 0.3s ease;
             animation: pulse 2s ease-in-out infinite;
         }
@@ -54,18 +628,6 @@
             border-color: rgba(255,20,20,0.8);
             background: radial-gradient(circle, rgba(255,20,20,0.2) 0%, transparent 70%);
             transform: scale(1.05);
-        }
-
-        .btn-text {
-            font-size: 20px;
-            margin-bottom: 8px;
-        }
-
-        .btn-subtext {
-            font-size: 11px;
-            opacity: 0.8;
-            text-align: center;
-            line-height: 1.2;
         }
 
         @keyframes pulse {
@@ -95,16 +657,15 @@
 
         .orb {
             position: absolute;
-            width: 80px;
-            height: 80px;
+            width: 20px;
+            height: 20px;
             border-radius: 50%;
-            background: radial-gradient(circle, #ff1414 0%, rgba(255,20,20,0.4) 50%, transparent 80%);
+            background: #ff1414;
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
             transition: all 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
-            box-shadow: 0 0 60px rgba(255,20,20,0.7);
-            backdrop-filter: blur(10px);
+            box-shadow: 0 0 20px rgba(255,20,20,0.7);
             will-change: transform;
             z-index: 10;
         }
@@ -115,403 +676,51 @@
 
         @keyframes beatPulse {
             0% { transform: translate(-50%, -50%) scale(1); }
-            50% { transform: translate(-50%, -50%) scale(1.8); }
+            50% { transform: translate(-50%, -50%) scale(1.5); }
             100% { transform: translate(-50%, -50%) scale(1); }
-        }
-
-        .orb.sampling {
-            background: radial-gradient(circle, #ff6600 0%, rgba(255,102,0,0.5) 50%, transparent 80%);
-            box-shadow: 0 0 70px rgba(255,102,0,0.8);
-        }
-
-        .orb.chopping {
-            background: radial-gradient(circle, #00ff88 0%, rgba(0,255,136,0.5) 50%, transparent 80%);
-            box-shadow: 0 0 90px rgba(0,255,136,0.9);
-        }
-
-        .orb.flipping {
-            background: radial-gradient(circle, #8800ff 0%, rgba(136,0,255,0.5) 50%, transparent 80%);
-            box-shadow: 0 0 120px rgba(136,0,255,1);
-        }
-
-        .orb.dropping {
-            background: radial-gradient(circle, #ffff00 0%, #ff0080 30%, #00ffff 60%, transparent 90%);
-            box-shadow: 0 0 200px rgba(255,255,0,1);
-            filter: drop-shadow(0 0 100px rgba(255,0,128,0.8));
         }
 
         .hidden {
             display: none !important;
         }
 
-        .sample-viz {
+        .waveform-container {
             position: fixed;
-            bottom: 20px;
-            left: 20px;
-            width: 280px;
-            height: 100px;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: 50px;
             background: rgba(0,0,0,0.8);
-            border: 1px solid rgba(255,20,20,0.3);
-            border-radius: 12px;
-            padding: 12px;
-            font-size: 11px;
-            backdrop-filter: blur(15px);
             z-index: 100;
-        }
-
-        .sample-info {
-            display: flex;
-            justify-content: space-between;
-            margin-bottom: 8px;
-            font-weight: bold;
-        }
-
-        .sample-details {
-            display: flex;
-            justify-content: space-between;
-            font-size: 9px;
-            opacity: 0.8;
-            margin-bottom: 8px;
         }
 
         .waveform {
             width: 100%;
-            height: 40px;
-            background: rgba(0,0,0,0.5);
-            border-radius: 6px;
+            height: 100%;
             position: relative;
             overflow: hidden;
-            border: 1px solid rgba(255,20,20,0.2);
         }
 
         .waveform-bar {
             position: absolute;
             bottom: 0;
-            width: 3px;
+            width: 1%;
             background: linear-gradient(to top, #ff1414, #ff6600, #ffff00);
             transition: height 0.08s ease;
             border-radius: 1px;
-        }
-
-        .controls {
-            position: fixed;
-            bottom: 20px;
-            right: 20px;
-            width: 240px;
-            background: rgba(0,0,0,0.8);
-            border: 1px solid rgba(255,255,255,0.2);
-            border-radius: 12px;
-            padding: 16px;
-            backdrop-filter: blur(15px);
-            z-index: 100;
-        }
-
-        .control-section {
-            margin-bottom: 12px;
-        }
-
-        .control-label {
-            font-size: 10px;
-            color: #ff6600;
-            margin-bottom: 4px;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-        }
-
-        .control-row {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 8px;
-            font-size: 11px;
-        }
-
-        .slider {
-            width: 120px;
-            height: 6px;
-            background: rgba(255,255,255,0.2);
-            border-radius: 3px;
-            position: relative;
-            cursor: pointer;
-        }
-
-        .slider-fill {
-            height: 100%;
-            background: linear-gradient(90deg, #ff1414, #ff6600);
-            border-radius: 3px;
-            transition: width 0.2s ease;
-        }
-
-        .slider-thumb {
-            width: 14px;
-            height: 14px;
-            background: #fff;
-            border-radius: 50%;
-            position: absolute;
-            top: -4px;
-            transform: translateX(-50%);
-            cursor: grab;
-            box-shadow: 0 2px 6px rgba(0,0,0,0.3);
-        }
-
-        .particles {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            pointer-events: none;
-            z-index: 5;
-        }
-
-        .particle {
-            position: absolute;
-            width: 4px;
-            height: 4px;
-            border-radius: 50%;
-            background: rgba(255,20,20,0.6);
-            animation: float 6s linear infinite;
-        }
-
-        @keyframes float {
-            0% {
-                transform: translateY(100vh) scale(0) rotate(0deg);
-                opacity: 0;
-            }
-            10% { opacity: 1; }
-            90% { opacity: 1; }
-            100% {
-                transform: translateY(-10vh) scale(1.5) rotate(360deg);
-                opacity: 0;
-            }
-        }
-
-        .layer-status {
-            position: fixed;
-            top: 20px;
-            left: 20px;
-            background: rgba(0,0,0,0.8);
-            border: 1px solid rgba(255,255,255,0.2);
-            border-radius: 12px;
-            padding: 12px;
-            backdrop-filter: blur(15px);
-            font-size: 10px;
-            z-index: 100;
-        }
-
-        .layer {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 6px;
-            padding: 4px 8px;
-            border-radius: 6px;
-            background: rgba(255,255,255,0.05);
-            min-width: 140px;
-        }
-
-        .layer.active {
-            background: rgba(255,20,20,0.2);
-            border: 1px solid rgba(255,20,20,0.4);
-        }
-
-        .layer-name {
-            font-weight: bold;
-            color: #ff6600;
-        }
-
-        .instructions {
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            background: rgba(0,0,0,0.8);
-            border: 1px solid rgba(255,255,255,0.2);
-            border-radius: 12px;
-            padding: 12px;
-            backdrop-filter: blur(15px);
-            font-size: 10px;
-            max-width: 200px;
-            z-index: 100;
-        }
-
-        .instruction-group {
-            margin-bottom: 8px;
-        }
-
-        .instruction-title {
-            color: #ff6600;
-            font-weight: bold;
-            margin-bottom: 4px;
-        }
-
-        kbd {
-            background: rgba(255,255,255,0.1);
-            padding: 2px 6px;
-            border-radius: 3px;
-            font-size: 9px;
-            margin-right: 4px;
-        }
-
-        /* Added for cohesion: Key and Scale display */
-        .key-display {
-            position: fixed;
-            top: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: rgba(0,0,0,0.8);
-            border: 1px solid rgba(255,255,255,0.2);
-            border-radius: 12px;
-            padding: 8px 16px;
-            backdrop-filter: blur(15px);
-            font-size: 12px;
-            z-index: 100;
-            color: #ff6600;
-        }
-
-        /* Spectrum analyzer */
-        .spectrum {
-            position: fixed;
-            bottom: 140px;
-            left: 20px;
-            width: 280px;
-            height: 50px;
-            background: rgba(0,0,0,0.8);
-            border: 1px solid rgba(255,20,20,0.3);
-            border-radius: 12px;
-            overflow: hidden;
-            z-index: 100;
-        }
-
-        .spectrum-bar {
-            position: absolute;
-            bottom: 0;
-            background: linear-gradient(to top, #00ff88, #ffff00);
-            transition: height 0.05s ease;
         }
     </style>
 </head>
 <body>
     <div id="startScreen" class="start-screen">
-        <div id="startBtn" class="start-btn">
-            <div class="btn-text">LETS GO</div>
-            <div class="btn-subtext">STITCH THE WORLD<br>INTO AN EPIC BEAT</div>
-        </div>
+        <div id="startBtn" class="start-btn"></div>
     </div>
 
     <div id="evolutionSpace" class="evolution-space">
         <div id="orb" class="orb"></div>
         
-        <div id="sampleViz" class="sample-viz hidden">
-            <div class="sample-info">
-                <span id="sampleStatus">LISTENING...</span>
-                <span id="sampleCount">0 SAMPLES</span>
-            </div>
-            <div class="sample-details">
-                <span id="bpmDisplay">140 BPM</span>
-                <span id="stageDisplay">LISTENING</span>
-                <span id="motionDisplay">CALM</span>
-            </div>
+        <div id="waveformContainer" class="waveform-container hidden">
             <div class="waveform" id="waveform"></div>
-        </div>
-
-        <div id="spectrum" class="spectrum hidden"></div>
-
-        <div id="controls" class="controls hidden">
-            <div class="control-section">
-                <div class="control-label">Sampling</div>
-                <div class="control-row">
-                    <span>Threshold</span>
-                    <div class="slider" data-param="threshold">
-                        <div class="slider-fill"></div>
-                        <div class="slider-thumb"></div>
-                    </div>
-                </div>
-                <div class="control-row">
-                    <span>Sensitivity</span>
-                    <div class="slider" data-param="sensitivity">
-                        <div class="slider-fill"></div>
-                        <div class="slider-thumb"></div>
-                    </div>
-                </div>
-            </div>
-            <div class="control-section">
-                <div class="control-label">Evolution</div>
-                <div class="control-row">
-                    <span>Chaos</span>
-                    <div class="slider" data-param="chaos">
-                        <div class="slider-fill"></div>
-                        <div class="slider-thumb"></div>
-                    </div>
-                </div>
-                <div class="control-row">
-                    <span>Speed</span>
-                    <div class="slider" data-param="speed">
-                        <div class="slider-fill"></div>
-                        <div class="slider-thumb"></div>
-                    </div>
-                </div>
-            </div>
-            <div class="control-section">
-                <div class="control-label">Autotune</div>
-                <div class="control-row">
-                    <span>Strength</span>
-                    <div class="slider" data-param="autotuneStrength">
-                        <div class="slider-fill"></div>
-                        <div class="slider-thumb"></div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <div id="layerStatus" class="layer-status hidden">
-            <div style="font-weight: bold; margin-bottom: 8px; color: #ff6600;">SAMPLE LAYERS</div>
-            <div class="layer" data-layer="kick">
-                <span class="layer-name">KICK</span>
-                <span class="layer-count">0</span>
-            </div>
-            <div class="layer" data-layer="snare">
-                <span class="layer-name">SNARE</span>
-                <span class="layer-count">0</span>
-            </div>
-            <div class="layer" data-layer="hats">
-                <span class="layer-name">HATS</span>
-                <span class="layer-count">0</span>
-            </div>
-            <div class="layer" data-layer="bass">
-                <span class="layer-name">BASS</span>
-                <span class="layer-count">0</span>
-            </div>
-            <div class="layer" data-layer="lead">
-                <span class="layer-name">LEAD</span>
-                <span class="layer-count">0</span>
-            </div>
-            <div class="layer" data-layer="fx">
-                <span class="layer-name">FX</span>
-                <span class="layer-count">0</span>
-            </div>
-        </div>
-
-        <div id="keyDisplay" class="key-display hidden">
-            Key: C Major | Scale: Pentatonic
-        </div>
-
-        <div id="instructions" class="instructions hidden">
-            <div class="instruction-group">
-                <div class="instruction-title">Controls</div>
-                <div><kbd>SPACE</kbd> Sample</div>
-                <div><kbd>C</kbd> Chop</div>
-                <div><kbd>F</kbd> Flip</div>
-                <div><kbd>P</kbd> Pitch</div>
-                <div><kbd>A</kbd> Autotune Toggle</div>
-            </div>
-            <div class="instruction-group">
-                <div class="instruction-title">Layers</div>
-                <div><kbd>1-6</kbd> Trigger</div>
-            </div>
-            <div class="instruction-group">
-                <div class="instruction-title">Motion</div>
-                <div>Move device or mouse to unravel the beat</div>
-            </div>
         </div>
     </div>
 
@@ -520,222 +729,113 @@
 
         class GUMPEngine {
             constructor() {
-                // Core properties
                 this.ctx = null;
                 this.active = false;
                 this.nodes = {};
                 
-                // Recording properties
                 this.recorder = {
                     active: false,
                     buffer: [],
                     startTime: 0,
-                    maxDuration: 3000 // 3 seconds max sample
+                    maxDuration: 5000 // Increased for longer samples
                 };
                 
-                // Samples management
                 this.samples = [];
-                this.maxSamples = 16; // Increased for more layers
+                this.maxSamples = 20;
                 this.layers = {
-                    kick: { samples: [], pattern: [] },
-                    snare: { samples: [], pattern: [] },
-                    hats: { samples: [], pattern: [] },
-                    bass: { samples: [], pattern: [] },
-                    lead: { samples: [], pattern: [] },
-                    fx: { samples: [], pattern: [] }
+                    kick: { samples: [], pattern: [], gain: null, eq: null },
+                    snare: { samples: [], pattern: [], gain: null, eq: null },
+                    hats: { samples: [], pattern: [], gain: null, eq: null },
+                    bass: { samples: [], pattern: [], gain: null, eq: null },
+                    lead: { samples: [], pattern: [], gain: null, eq: null },
+                    fx: { samples: [], pattern: [], gain: null, eq: null }
                 };
                 
-                // Sequencer properties
                 this.seq = {
-                    bpm: 140,
+                    bpm: 145, // Trap standard
                     step: 0,
-                    stepsPerBeat: 4, // For 16th notes
+                    stepsPerBeat: 4,
                     playing: false,
                     lastTime: 0,
                     patterns: {},
                     songStart: 0,
                     currentBar: 0,
-                    key: 'C', // Starting key
-                    scale: 'major', // Scale type
-                    notesInScale: this.getNotesInScale('C', 'major') // Array of MIDI notes
+                    key: 'C',
+                    scale: 'minor', // For trap vibe
+                    notesInScale: this.getNotesInScale('C', 'minor')
                 };
                 
-                // Motion detection
                 this.motion = {
                     value: 0,
-                    history: new Float32Array(120), // Longer history for smoother
+                    history: new Float32Array(120),
                     index: 0,
                     pattern: 'calm',
-                    threshold: 0.2,
-                    alpha: 0.9 // Smoothing factor
+                    alpha: 0.95
                 };
                 
-                // Agent for cohesion
                 this.agent = {
                     active: true,
                     interval: null,
-                    chaosLevel: 0.3, // Low chaos for cohesion
-                    autotuneStrength: 0.8
+                    chaosLevel: 0.2,
+                    autotuneStrength: 0.9
                 };
                 
-                // Effects chain
                 this.effects = {};
                 
-                // UI cache
                 this.ui = {};
                 this.stage = 'LISTENING';
                 
-                // Performance
                 this.raf = null;
                 
-                // Analyzer for pitch and onset
                 this.analyzer = null;
                 this.dataArray = null;
-                this.bufferLength = 2048; // For FFT
-                
-                // Spectrum visual
-                this.spectrumBars = [];
+                this.bufferLength = 2048;
                 
                 this.init();
             }
 
             init() {
-                // Cache all UI elements
-                const ids = ['startScreen', 'startBtn', 'evolutionSpace', 'orb', 'sampleViz',
-                    'sampleStatus', 'sampleCount', 'bpmDisplay', 'stageDisplay', 
-                    'motionDisplay', 'waveform', 'controls', 'layerStatus', 'instructions',
-                    'keyDisplay', 'spectrum'];
+                const ids = ['startScreen', 'startBtn', 'evolutionSpace', 'orb', 
+                    'waveformContainer', 'waveform'];
                 
                 ids.forEach(id => {
                     this.ui[id] = document.getElementById(id);
                 });
                 
-                // Setup waveform bars
-                const waveformFrag = document.createDocumentFragment();
-                for (let i = 0; i < 60; i++) {
+                // Waveform bars
+                const frag = document.createDocumentFragment();
+                for (let i = 0; i < 100; i++) { // More bars for smoother
                     const bar = document.createElement('div');
                     bar.className = 'waveform-bar';
-                    bar.style.left = `${(i / 60) * 100}%`;
-                    bar.style.width = `${100 / 60}%`;
-                    waveformFrag.appendChild(bar);
+                    bar.style.left = `${i}%`;
+                    frag.appendChild(bar);
                 }
-                this.ui.waveform.appendChild(waveformFrag);
+                this.ui.waveform.appendChild(frag);
                 this.waveformBars = this.ui.waveform.querySelectorAll('.waveform-bar');
                 
-                // Setup spectrum bars
-                const spectrumFrag = document.createDocumentFragment();
-                for (let i = 0; i < 32; i++) { // 32 bars for spectrum
-                    const bar = document.createElement('div');
-                    bar.className = 'spectrum-bar';
-                    bar.style.left = `${(i / 32) * 100}%`;
-                    bar.style.width = `${100 / 32}%`;
-                    spectrumFrag.appendChild(bar);
-                }
-                this.ui.spectrum.appendChild(spectrumFrag);
-                this.spectrumBars = this.ui.spectrum.querySelectorAll('.spectrum-bar');
-                
-                // Event listeners
                 this.ui.startBtn.onclick = () => this.start();
-                
-                this.setupControls();
                 this.setupInput();
                 this.setupMotion();
                 this.compilePatterns();
-                this.setupKeyDisplay();
-            }
-
-            setupControls() {
-                // Sliders for parameters
-                const sliders = this.ui.controls.querySelectorAll('.slider');
-                sliders.forEach(slider => {
-                    const param = slider.dataset.param;
-                    const fill = slider.querySelector('.slider-fill');
-                    const thumb = slider.querySelector('.slider-thumb');
-                    
-                    let isDragging = false;
-                    const update = (x) => {
-                        const rect = slider.getBoundingClientRect();
-                        let value = Math.max(0, Math.min(1, (x - rect.left) / rect.width));
-                        fill.style.width = `${value * 100}%`;
-                        thumb.style.left = `${value * 100}%`;
-                        this.setParam(param, value);
-                    };
-                    
-                    slider.addEventListener('mousedown', (e) => {
-                        isDragging = true;
-                        update(e.clientX);
-                    });
-                    document.addEventListener('mousemove', (e) => {
-                        if (isDragging) update(e.clientX);
-                    });
-                    document.addEventListener('mouseup', () => isDragging = false);
-                    
-                    // Touch support
-                    slider.addEventListener('touchstart', (e) => {
-                        isDragging = true;
-                        update(e.touches[0].clientX);
-                    }, {passive: false});
-                    document.addEventListener('touchmove', (e) => {
-                        if (isDragging) update(e.touches[0].clientX);
-                    }, {passive: false});
-                    document.addEventListener('touchend', () => isDragging = false);
-                    
-                    // Default values
-                    update(slider.getBoundingClientRect().left + 60); // 50%
-                });
-            }
-
-            setParam(param, value) {
-                switch (param) {
-                    case 'threshold':
-                        this.recorder.threshold = value * 0.5 + 0.1; // 0.1 to 0.6
-                        break;
-                    case 'sensitivity':
-                        this.motion.threshold = value * 0.5 + 0.1;
-                        break;
-                    case 'chaos':
-                        this.agent.chaosLevel = value;
-                        break;
-                    case 'speed':
-                        this.seq.bpm = 80 + value * 120; // 80 to 200 BPM
-                        this.ui.bpmDisplay.textContent = `${Math.round(this.seq.bpm)} BPM`;
-                        break;
-                    case 'autotuneStrength':
-                        this.agent.autotuneStrength = value;
-                        break;
-                }
             }
 
             setupInput() {
-                // Keyboard events
                 document.addEventListener('keydown', (e) => {
                     if (!this.active) return;
                     
-                    switch (e.key.toLowerCase()) {
-                        case ' ':
-                            this.toggleRecording();
-                            break;
-                        case 'c':
-                            this.chopLastSample();
-                            break;
-                        case 'f':
-                            this.flipLastSample();
-                            break;
-                        case 'p':
-                            this.pitchShiftLastSample();
-                            break;
-                        case 'a':
-                            this.toggleAutotune();
-                            break;
-                        case '1': case '2': case '3': case '4': case '5': case '6':
-                            this.triggerLayer(parseInt(e.key) - 1);
-                            break;
+                    if (e.key === ' ') {
+                        this.toggleRecording();
                     }
+                });
+                
+                // Touch for mobile recording
+                document.addEventListener('touchstart', () => {
+                    if (!this.active) return;
+                    this.toggleRecording();
                 });
             }
 
             setupMotion() {
-                // Device motion for mobile
                 if (window.DeviceMotionEvent) {
                     window.addEventListener('devicemotion', (e) => {
                         const acc = e.accelerationIncludingGravity;
@@ -744,12 +844,11 @@
                     });
                 }
                 
-                // Mouse motion for desktop
                 let lastX = 0, lastY = 0;
                 document.addEventListener('mousemove', (e) => {
                     const dx = e.clientX - lastX;
                     const dy = e.clientY - lastY;
-                    const motion = Math.sqrt(dx**2 + dy**2) / 100;
+                    const motion = Math.sqrt(dx**2 + dy**2) / 50;
                     this.updateMotion(motion);
                     lastX = e.clientX;
                     lastY = e.clientY;
@@ -757,41 +856,31 @@
             }
 
             updateMotion(rawValue) {
-                // Smooth motion value
                 this.motion.value = this.motion.alpha * this.motion.value + (1 - this.motion.alpha) * rawValue;
                 
-                // History for pattern detection
                 this.motion.history[this.motion.index] = this.motion.value;
                 this.motion.index = (this.motion.index + 1) % this.motion.history.length;
                 
-                // Determine pattern
                 const avg = Array.from(this.motion.history).reduce((a, b) => a + b, 0) / this.motion.history.length;
-                if (avg < 0.2) this.motion.pattern = 'calm';
-                else if (avg < 0.5) this.motion.pattern = 'rhythmic';
-                else if (avg < 0.8) this.motion.pattern = 'active';
+                if (avg < 0.15) this.motion.pattern = 'calm';
+                else if (avg < 0.4) this.motion.pattern = 'rhythmic';
+                else if (avg < 0.7) this.motion.pattern = 'active';
                 else this.motion.pattern = 'chaotic';
                 
-                this.ui.motionDisplay.textContent = this.motion.pattern.toUpperCase();
-                
-                // Influence sequencer
-                this.seq.bpm = 100 + avg * 100; // Dynamic BPM based on motion
-                this.ui.bpmDisplay.textContent = `${Math.round(this.seq.bpm)} BPM`;
-                
-                // Unravel beat: higher motion adds more layers
-                this.agent.chaosLevel = Math.min(0.5, avg); // Keep chaos low
+                // Adjust chaos
+                this.agent.chaosLevel = Math.min(0.4, avg);
             }
 
             getNotesInScale(root, type) {
-                // MIDI notes for scales
                 const roots = { 'C': 60, 'C#': 61, 'D': 62, 'D#': 63, 'E': 64, 'F': 65, 'F#': 66, 'G': 67, 'G#': 68, 'A': 69, 'A#': 70, 'B': 71 };
                 const scales = {
                     major: [0, 2, 4, 5, 7, 9, 11],
                     minor: [0, 2, 3, 5, 7, 8, 10],
-                    pentatonic: [0, 2, 4, 7, 9]
+                    pentatonic: [0, 3, 5, 7, 10]
                 };
-                const intervals = scales[type] || scales.major;
+                const intervals = scales[type] || scales.minor;
                 const notes = [];
-                for (let oct = -2; oct <= 2; oct++) {
+                for (let oct = -3; oct <= 1; oct++) {
                     intervals.forEach(int => notes.push(roots[root] + int + oct * 12));
                 }
                 return notes;
@@ -801,13 +890,10 @@
                 return 440 * Math.pow(2, (midi - 69) / 12);
             }
 
-            setupKeyDisplay() {
-                this.ui.keyDisplay.textContent = `Key: ${this.seq.key} ${this.seq.scale.charAt(0).toUpperCase() + this.seq.scale.slice(1)}`;
-            }
-
             async start() {
                 try {
                     this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+                    await this.ctx.resume();
                     
                     this.setupAudioGraph();
                     this.setupEffects();
@@ -824,12 +910,9 @@
                     
                     this.setupMic(stream);
                     
-                    // Show UI
                     this.ui.startScreen.classList.add('hidden');
                     this.ui.evolutionSpace.classList.add('active');
-                    ['sampleViz', 'controls', 'layerStatus', 'instructions', 'keyDisplay', 'spectrum'].forEach(id => {
-                        this.ui[id].classList.remove('hidden');
-                    });
+                    this.ui.waveformContainer.classList.remove('hidden');
                     
                     this.active = true;
                     this.motion.history.fill(0.1);
@@ -839,72 +922,119 @@
                     this.startSequencer();
                     this.startAgent();
                     
-                    console.log('🎵 ENGINE STARTED - Motion to unravel the beat!');
+                    console.log('🎵 ENGINE STARTED');
                 } catch (e) {
                     console.error('Start failed:', e);
-                    alert('Failed to start: ' + e.message);
                 }
             }
 
             setupAudioGraph() {
-                // Master chain
+                // Master chain with pro mixing
                 this.nodes.master = this.ctx.createGain();
-                this.nodes.master.gain.value = 0.8;
-                this.nodes.master.connect(this.ctx.destination);
+                this.nodes.master.gain.value = 0.9;
                 
-                // Compressor for cohesion
+                // Limiter
+                this.nodes.limiter = this.ctx.createDynamicsCompressor();
+                this.nodes.limiter.threshold.value = -3;
+                this.nodes.limiter.knee.value = 0;
+                this.nodes.limiter.ratio.value = 20;
+                this.nodes.limiter.attack.value = 0.001;
+                this.nodes.limiter.release.value = 0.1;
+                
+                // Master EQ
+                this.nodes.masterLow = this.ctx.createBiquadFilter();
+                this.nodes.masterLow.type = 'lowshelf';
+                this.nodes.masterLow.frequency.value = 100;
+                this.nodes.masterLow.gain.value = 2; // Boost low for trap
+                
+                this.nodes.masterHigh = this.ctx.createBiquadFilter();
+                this.nodes.masterHigh.type = 'highshelf';
+                this.nodes.masterHigh.frequency.value = 8000;
+                this.nodes.masterHigh.gain.value = 1.5; // Air
+                
+                // Compressor
                 this.nodes.compressor = this.ctx.createDynamicsCompressor();
-                this.nodes.compressor.threshold.value = -24;
-                this.nodes.compressor.knee.value = 30;
-                this.nodes.compressor.ratio.value = 12;
-                this.nodes.compressor.attack.value = 0.003;
-                this.nodes.compressor.release.value = 0.25;
-                this.nodes.compressor.connect(this.nodes.master);
+                this.nodes.compressor.threshold.value = -18;
+                this.nodes.compressor.knee.value = 10;
+                this.nodes.compressor.ratio.value = 8;
+                this.nodes.compressor.attack.value = 0.005;
+                this.nodes.compressor.release.value = 0.2;
                 
-                // Layer gains
+                // Chain: layers -> effects -> compressor -> EQ -> limiter -> destination
+                this.nodes.master.connect(this.nodes.compressor);
+                this.nodes.compressor.connect(this.nodes.masterLow);
+                this.nodes.masterLow.connect(this.nodes.masterHigh);
+                this.nodes.masterHigh.connect(this.nodes.limiter);
+                this.nodes.limiter.connect(this.ctx.destination);
+                
+                // Layer specific
                 Object.keys(this.layers).forEach(layer => {
                     this.layers[layer].gain = this.ctx.createGain();
-                    this.layers[layer].gain.connect(this.nodes.compressor);
+                    this.layers[layer].eq = this.ctx.createBiquadFilter();
+                    this.layers[layer].gain.connect(this.layers[layer].eq);
+                    this.layers[layer].eq.connect(this.nodes.master);
+                    
+                    // Layer EQ settings for trap
+                    switch (layer) {
+                        case 'kick':
+                            this.layers[layer].eq.type = 'lowpass';
+                            this.layers[layer].eq.frequency.value = 200;
+                            break;
+                        case 'bass':
+                            this.layers[layer].eq.type = 'lowpass';
+                            this.layers[layer].eq.frequency.value = 150;
+                            break;
+                        case 'snare':
+                            this.layers[layer].eq.type = 'peaking';
+                            this.layers[layer].eq.frequency.value = 2000;
+                            this.layers[layer].eq.gain.value = 3;
+                            break;
+                        case 'hats':
+                            this.layers[layer].eq.type = 'highpass';
+                            this.layers[layer].eq.frequency.value = 5000;
+                            break;
+                       default:
+                            this.layers[layer].eq.type = 'peaking';
+                            this.layers[layer].eq.frequency.value = 1000;
+                            this.layers[layer].eq.gain.value = 1;
+                    }
                 });
             }
 
             setupEffects() {
                 const {ctx} = this;
                 
-                // Reverb
+                // Enhanced reverb for depth
                 this.effects.reverb = ctx.createConvolver();
-                const reverbLength = ctx.sampleRate * 3; // 3s reverb
-                const impulse = ctx.createBuffer(2, reverbLength, ctx.sampleRate);
+                const length = ctx.sampleRate * 3;
+                const impulse = ctx.createBuffer(2, length, ctx.sampleRate);
                 for (let ch = 0; ch < 2; ch++) {
                     const data = impulse.getChannelData(ch);
-                    for (let i = 0; i < reverbLength; i++) {
-                        data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / reverbLength, 2.5);
+                    for (let i = 0; i < length; i++) {
+                        data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / length, 2.5);
                     }
                 }
                 this.effects.reverb.buffer = impulse;
                 this.effects.reverbWet = ctx.createGain();
-                this.effects.reverbWet.gain.value = 0.3;
+                this.effects.reverbWet.gain.value = 0.35;
                 this.effects.reverb.connect(this.effects.reverbWet);
+                this.effects.reverbWet.connect(this.nodes.master);
                 
-                // Delay
-                this.effects.delay = ctx.createDelay(1.0);
+                // Delay for echoes
+                this.effects.delay = ctx.createDelay(0.5);
                 this.effects.delayFeedback = ctx.createGain();
-                this.effects.delayFeedback.gain.value = 0.3;
+                this.effects.delayFeedback.gain.value = 0.4;
                 this.effects.delay.connect(this.effects.delayFeedback);
                 this.effects.delayFeedback.connect(this.effects.delay);
                 this.effects.delayWet = ctx.createGain();
-                this.effects.delayWet.gain.value = 0.2;
+                this.effects.delayWet.gain.value = 0.3;
                 this.effects.delay.connect(this.effects.delayWet);
+                this.effects.delayWet.connect(this.nodes.master);
                 
-                // Distortion
+                // Distortion for grit
                 this.effects.distortion = ctx.createWaveShaper();
-                this.effects.distortion.curve = this.makeDistortionCurve(50);
-                this.effects.distortionOversample = '4x';
-                
-                // Connect effects to compressor
-                this.effects.reverbWet.connect(this.nodes.compressor);
-                this.effects.delayWet.connect(this.nodes.compressor);
-                this.effects.distortion.connect(this.nodes.compressor);
+                this.effects.distortion.curve = this.makeDistortionCurve(80);
+                this.effects.distortion.connect(this.nodes.master);
             }
 
             makeDistortionCurve(amount) {
@@ -919,48 +1049,45 @@
                 return curve;
             }
 
-            setupAnalyzer() {
-                this.analyzer = this.ctx.createAnalyser();
-                this.analyzer.fftSize = this.bufferLength;
-                this.dataArray = new Float32Array(this.analyzer.fftSize);
-                this.freqArray = new Uint8Array(this.analyzer.frequencyBinCount);
-            }
-
             async loadInitialDrums() {
-                // Placeholder for initial drum sounds, base64 or generate
-                // For epicness, generate synthetic kicks etc.
-                const kickBuffer = await this.generateKick();
+                const kickBuffer = await this.generate808Kick();
                 this.addSampleToLayer(kickBuffer, 'kick');
                 
-                const snareBuffer = await this.generateSnare();
+                const snareBuffer = await this.generateTrapSnare();
                 this.addSampleToLayer(snareBuffer, 'snare');
                 
-                // More...
+                const hatBuffer = await this.generateHiHat();
+                this.addSampleToLayer(hatBuffer, 'hats');
+                
+                const bassBuffer = await this.generate808Bass();
+                this.addSampleToLayer(bassBuffer, 'bass');
             }
 
-            async generateKick() {
+            async generate808Kick() {
                 const offline = new OfflineAudioContext(1, this.ctx.sampleRate * 1, this.ctx.sampleRate);
                 const osc = offline.createOscillator();
                 osc.type = 'sine';
                 osc.frequency.setValueAtTime(150, 0);
-                osc.frequency.exponentialRampToValueAtTime(0.01, 0.2);
+                osc.frequency.exponentialRampToValueAtTime(40, 0.6); // Longer decay for huge 808
                 
                 const gain = offline.createGain();
-                gain.gain.setValueAtTime(1, 0);
-                gain.gain.exponentialRampToValueAtTime(0.01, 0.2);
+                gain.gain.setValueAtTime(1.2, 0);
+                gain.gain.exponentialRampToValueAtTime(0.01, 0.6);
+                
+                const dist = offline.createWaveShaper();
+                dist.curve = this.makeDistortionCurve(50); // Grit for trap
                 
                 osc.connect(gain);
-                gain.connect(offline.destination);
+                gain.connect(dist);
+                dist.connect(offline.destination);
                 osc.start(0);
-                osc.stop(0.2);
-                
                 return await offline.startRendering();
             }
 
-            async generateSnare() {
-                const offline = new OfflineAudioContext(1, this.ctx.sampleRate * 0.5, this.ctx.sampleRate);
+            async generateTrapSnare() {
+                const offline = new OfflineAudioContext(1, this.ctx.sampleRate * 0.4, this.ctx.sampleRate);
                 const noise = offline.createBufferSource();
-                const noiseBuffer = offline.createBuffer(1, offline.sampleRate * 0.5, offline.sampleRate);
+                const noiseBuffer = offline.createBuffer(1, offline.sampleRate * 0.4, offline.sampleRate);
                 const data = noiseBuffer.getChannelData(0);
                 for (let i = 0; i < data.length; i++) {
                     data[i] = Math.random() * 2 - 1;
@@ -973,23 +1100,64 @@
                 
                 const gain = offline.createGain();
                 gain.gain.setValueAtTime(1, 0);
-                gain.gain.exponentialRampToValueAtTime(0.01, 0.2);
+                gain.gain.exponentialRampToValueAtTime(0.01, 0.4);
                 
                 noise.connect(filter);
                 filter.connect(gain);
                 gain.connect(offline.destination);
                 noise.start(0);
+                return await offline.startRendering();
+            }
+
+            async generateHiHat() {
+                const offline = new OfflineAudioContext(1, this.ctx.sampleRate * 0.1, this.ctx.sampleRate);
+                const noise = offline.createBufferSource();
+                const noiseBuffer = offline.createBuffer(1, offline.sampleRate * 0.1, offline.sampleRate);
+                const data = noiseBuffer.getChannelData(0);
+                for (let i = 0; i < data.length; i++) {
+                    data[i] = Math.random() * 2 - 1;
+                }
+                noise.buffer = noiseBuffer;
                 
+                const filter = offline.createBiquadFilter();
+                filter.type = 'highpass';
+                filter.frequency.value = 7000;
+                
+                const gain = offline.createGain();
+                gain.gain.setValueAtTime(0.8, 0);
+                gain.gain.exponentialRampToValueAtTime(0.01, 0.1);
+                
+                noise.connect(filter);
+                filter.connect(gain);
+                gain.connect(offline.destination);
+                noise.start(0);
+                return await offline.startRendering();
+            }
+
+            async generate808Bass() {
+                const offline = new OfflineAudioContext(1, this.ctx.sampleRate * 2, this.ctx.sampleRate);
+                const osc = offline.createOscillator();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(60, 0);
+                osc.frequency.exponentialRampToValueAtTime(30, 1.5);
+                
+                const gain = offline.createGain();
+                gain.gain.setValueAtTime(1, 0);
+                gain.gain.exponentialRampToValueAtTime(0.01, 1.5);
+                
+                osc.connect(gain);
+                gain.connect(offline.destination);
+                osc.start(0);
                 return await offline.startRendering();
             }
 
             setupMic(stream) {
                 this.nodes.mic = this.ctx.createMediaStreamSource(stream);
                 this.nodes.mic.connect(this.analyzer);
-                // Connect to recorder script processor
+                
                 this.scriptNode = this.ctx.createScriptProcessor(1024, 1, 1);
                 this.nodes.mic.connect(this.scriptNode);
-                this.scriptNode.connect(this.ctx.destination); // Required to process
+                this.scriptNode.connect(this.ctx.destination);
                 this.scriptNode.onaudioprocess = (e) => {
                     if (this.recorder.active) {
                         this.recorder.buffer.push(new Float32Array(e.inputBuffer.getChannelData(0)));
@@ -1009,16 +1177,13 @@
                 this.recorder.active = true;
                 this.recorder.buffer = [];
                 this.recorder.startTime = this.ctx.currentTime;
-                this.ui.sampleStatus.textContent = 'RECORDING...';
-                this.ui.orb.classList.add('sampling');
+                this.ui.orb.classList.add('recording');
             }
 
             stopRecording() {
                 this.recorder.active = false;
-                this.ui.sampleStatus.textContent = 'PROCESSING...';
-                this.ui.orb.classList.remove('sampling');
+                this.ui.orb.classList.remove('recording');
                 
-                // Create buffer from recorded data
                 const length = this.recorder.buffer.reduce((a, b) => a + b.length, 0);
                 const buffer = this.ctx.createBuffer(1, length, this.ctx.sampleRate);
                 const data = buffer.getChannelData(0);
@@ -1032,55 +1197,24 @@
             }
 
             processNewSample(buffer) {
-                // Analyze
-                const analysis = this.analyzeSample(buffer);
+                let analysis = this.analyze(buffer);
                 
-                // Onset detection for chopping
-                const chops = this.detectOnsets(buffer);
-                let choppedBuffers = [];
-                if (chops.length > 1) {
-                    for (let i = 0; i < chops.length - 1; i++) {
-                        const start = chops[i] * buffer.sampleRate;
-                        const end = chops[i+1] * buffer.sampleRate;
-                        const chopBuffer = this.ctx.createBuffer(buffer.numberOfChannels, end - start, buffer.sampleRate);
-                        for (let ch = 0; ch < buffer.numberOfChannels; ch++) {
-                            chopBuffer.copyToChannel(buffer.getChannelData(ch).subarray(start, end), ch);
-                        }
-                        choppedBuffers.push(chopBuffer);
-                    }
-                } else {
-                    choppedBuffers = [buffer];
+                if (this.agent.active && this.agent.autotuneStrength > 0 && analysis.pitch) {
+                    const targetFreq = this.getNearestNoteFreq(analysis.pitch);
+                    const shift = targetFreq / analysis.pitch;
+                    buffer = this.pitchShiftBuffer(buffer, shift);
                 }
                 
-                // Process each chop
-                choppedBuffers.forEach(chop => {
-                    // Autotune if enabled
-                    if (this.agent.active && this.agent.autotuneStrength > 0) {
-                        const pitch = this.detectPitch(chop);
-                        if (pitch) {
-                            const targetFreq = this.getNearestNoteFreq(pitch);
-                            const shift = targetFreq / pitch;
-                            chop = this.pitchShiftBuffer(chop, shift);
-                        }
-                    }
-                    
-                    // Add to samples
-                    this.samples.push({ buffer: chop, analysis: this.analyzeSample(chop) });
-                    if (this.samples.length > this.maxSamples) {
-                        this.samples.shift();
-                    }
-                    
-                    // Categorize and add to layer
-                    const layer = this.categorizeSample(chop);
-                    this.addSampleToLayer(chop, layer);
-                });
+                this.samples.push({ buffer, analysis });
+                if (this.samples.length > this.maxSamples) {
+                    this.samples.shift();
+                }
                 
-                this.updateSampleCount();
-                this.ui.sampleStatus.textContent = 'LISTENING...';
+                const layer = this.categorize(analysis);
+                this.addSampleToLayer(buffer, layer);
             }
 
-            analyzeSample(buffer) {
-                // Compute RMS, frequency content, etc.
+            analyze(buffer) {
                 const data = buffer.getChannelData(0);
                 let rms = 0;
                 let peak = 0;
@@ -1090,97 +1224,47 @@
                 }
                 rms = Math.sqrt(rms / data.length);
                 
-                // Simple freq analysis
-                this.analyzer.getFloatTimeDomainData(this.dataArray);
-                // Assume buffer copied to analyzer somehow, but for offline, use offline context
-                // Placeholder
-                return { rms, peak, duration: buffer.duration };
-            }
-
-            detectOnsets(buffer) {
-                // Simple energy-based onset detection using spectral flux
-                const frameSize = 1024;
-                const hopSize = 512;
-                const data = buffer.getChannelData(0);
-                let prevSpectrum = new Float32Array(frameSize / 2);
-                let onsets = [];
-                let energyHistory = [];
+                const pitch = this.detectPitch(buffer);
                 
-                for (let i = 0; i < data.length - frameSize; i += hopSize) {
-                    const frame = data.subarray(i, i + frameSize);
-                    const spectrum = this.computeFFT(frame);
-                    let flux = 0;
-                    for (let j = 0; j < spectrum.length; j++) {
-                        flux += Math.abs(spectrum[j] - prevSpectrum[j]);
-                    }
-                    energyHistory.push(flux);
-                    prevSpectrum = spectrum;
-                }
-                
-                // Find peaks
-                const threshold = energyHistory.reduce((a, b) => a + b, 0) / energyHistory.length * 1.5;
-                for (let i = 1; i < energyHistory.length - 1; i++) {
-                    if (energyHistory[i] > threshold && energyHistory[i] > energyHistory[i-1] && energyHistory[i] > energyHistory[i+1]) {
-                        onsets.push(i * hopSize / buffer.sampleRate);
-                    }
-                }
-                
-                onsets.unshift(0);
-                onsets.push(buffer.duration);
-                return onsets;
-            }
-
-            computeFFT(data) {
-                // Simple DFT implementation for offline
-                const n = data.length;
-                const spectrum = new Float32Array(n / 2);
-                for (let k = 0; k < n / 2; k++) {
-                    let re = 0, im = 0;
-                    for (let j = 0; j < n; j++) {
-                        re += data[j] * Math.cos(2 * Math.PI * j * k / n);
-                        im -= data[j] * Math.sin(2 * Math.PI * j * k / n);
-                    }
-                    spectrum[k] = Math.sqrt(re**2 + im**2);
-                }
-                return spectrum;
+                return { rms, peak, duration: buffer.duration, pitch };
             }
 
             detectPitch(buffer) {
-                // Autocorrelation for pitch detection
+                // Simplified YIN or autocorrelation
                 const data = buffer.getChannelData(0);
                 const sampleRate = buffer.sampleRate;
-                const SIZE = data.length;
-                const MAX_SAMPLES = Math.floor(SIZE / 2);
-                const MIN_SAMPLES = Math.floor(sampleRate / 2000); // min freq 20Hz
+                const size = data.length;
+                const maxSamples = Math.floor(size / 2);
+                const minSamples = Math.floor(sampleRate / 2000);
                 
-                let best_offset = -1;
-                let best_correlation = 0;
+                let bestOffset = -1;
+                let bestCorrelation = 0;
                 let rms = 0;
                 
-                for (let i = 0; i < SIZE; i++) {
+                for (let i = 0; i < size; i++) {
                     rms += data[i] ** 2;
                 }
-                rms = Math.sqrt(rms / SIZE);
+                rms = Math.sqrt(rms / size);
                 if (rms < 0.01) return null;
                 
-                let last_correlation = 1;
-                for (let offset = MIN_SAMPLES; offset < MAX_SAMPLES; offset++) {
+                let lastCorrelation = 1;
+                for (let offset = minSamples; offset < maxSamples; offset++) {
                     let correlation = 0;
-                    for (let i = 0; i < MAX_SAMPLES; i++) {
+                    for (let i = 0; i < maxSamples; i++) {
                         correlation += Math.abs(data[i] - data[i + offset]);
                     }
-                    correlation = 1 - (correlation / MAX_SAMPLES);
-                    if (correlation > best_correlation && correlation > last_correlation) {
-                        best_correlation = correlation;
-                        best_offset = offset;
-                    } else if (correlation < 0.0 || (best_correlation > 0.001 && correlation < last_correlation)) {
+                    correlation = 1 - (correlation / maxSamples);
+                    if (correlation > bestCorrelation && correlation > lastCorrelation) {
+                        bestCorrelation = correlation;
+                        bestOffset = offset;
+                    } else if (correlation < 0 || bestCorrelation > 0.001 && correlation < lastCorrelation) {
                         break;
                     }
-                    last_correlation = correlation;
+                    lastCorrelation = correlation;
                 }
                 
-                if (best_correlation > 0.01) {
-                    return sampleRate / best_offset;
+                if (bestCorrelation > 0.01) {
+                    return sampleRate / bestOffset;
                 }
                 return null;
             }
@@ -1194,17 +1278,13 @@
             }
 
             pitchShiftBuffer(buffer, shift) {
-                // Simple pitch shift using playback rate, but resample for time preservation
-                const offline = new OfflineAudioContext(buffer.numberOfChannels, buffer.length, buffer.sampleRate * shift);
+                const offline = new OfflineAudioContext(buffer.numberOfChannels, buffer.length * shift, buffer.sampleRate);
                 const source = offline.createBufferSource();
                 source.buffer = buffer;
                 source.playbackRate.value = shift;
                 source.connect(offline.destination);
                 source.start(0);
-                
-                // Wait for rendering
                 return offline.startRendering().then(shifted => {
-                    // Resample back to original length
                     const resampled = this.ctx.createBuffer(buffer.numberOfChannels, buffer.length, this.ctx.sampleRate);
                     for (let ch = 0; ch < buffer.numberOfChannels; ch++) {
                         const data = shifted.getChannelData(ch);
@@ -1218,54 +1298,406 @@
                 });
             }
 
-            categorizeSample(buffer) {
-                // Based on analysis
-                const analysis = this.analyzeSample(buffer);
-                if (analysis.peak > 0.8 && analysis.duration < 0.2) return 'kick';
-                if (analysis.rms > 0.5 && analysis.duration < 0.3) return 'snare';
+            categorize(analysis) {
+                if (analysis.duration < 0.2 && analysis.rms > 0.6) return 'kick';
+                if (analysis.duration < 0.3 && analysis.rms > 0.4) return 'snare';
                 if (analysis.duration < 0.1) return 'hats';
-                if (analysis.freq < 200) return 'bass';
-                if (analysis.freq > 800) return 'fx';
+                if (analysis.pitch && analysis.pitch < 200) return 'bass';
+                if (analysis.pitch && analysis.pitch > 800) return 'fx';
                 return 'lead';
             }
 
             addSampleToLayer(buffer, layer) {
-                if (this.layers[layer]) {
-                    this.layers[layer].samples.push(buffer);
-                    if (this.layers[layer].samples.length > 4) {
-                        this.layers[layer].samples.shift();
-                    }
-                    this.updateLayerCount(layer);
+                this.layers[layer].samples.push(buffer);
+                if (this.layers[layer].samples.length > 5) {
+                    this.layers[layer].samples.shift();
                 }
             }
 
-            updateLayerCount(layer) {
-                const elem = this.ui.layerStatus.querySelector(`[data-layer="${layer}"] .layer-count`);
-                elem.textContent = this.layers[layer].samples.length;
-            }
-
-            updateSampleCount() {
-                this.ui.sampleCount.textContent = `${this.samples.length} SAMPLES`;
-            }
-
             chopLastSample() {
-                // Manual chop if needed
                 if (this.samples.length === 0) return;
                 const last = this.samples.pop();
                 const chops = this.detectOnsets(last.buffer);
-                // Add chops as new samples
-                // Similar to processNewSample
-                this.ui.orb.classList.add('chopping');
-                setTimeout(() => this.ui.orb.classList.remove('chopping'), 300);
+                chops.forEach((start, i) => {
+                    if (i < chops.length - 1) {
+                        const end = chops[i+1];
+                        const chopBuffer = this.createChopBuffer(last.buffer, start, end);
+                        this.processNewSample(chopBuffer);
+                    }
+                });
+            }
+
+            detectOnsets(buffer) {
+                // Energy-based onset
+                const frameSize = 1024;
+                const hopSize = 512;
+                const data = buffer.getChannelData(0);
+                let prevEnergy = 0;
+                let onsets = [0];
+                for (let i = 0; i < data.length - frameSize; i += hopSize) {
+                    let energy = 0;
+                    for (let j = i; j < i + frameSize; j++) {
+                        energy += data[j] ** 2;
+                    }
+                    if (energy > prevEnergy * 1.5 && energy > 0.1) {
+                        onsets.push(i / buffer.sampleRate);
+                    }
+                    prevEnergy = energy;
+                }
+                onsets.push(buffer.duration);
+                return onsets;
+            }
+
+            createChopBuffer(buffer, start, end) {
+                const length = (end - start) * buffer.sampleRate;
+                const chop = this.ctx.createBuffer(buffer.numberOfChannels, length, buffer.sampleRate);
+                for (let ch = 0; ch < buffer.numberOfChannels; ch++) {
+                    const data = buffer.getChannelData(ch).subarray(start * buffer.sampleRate, end * buffer.sampleRate);
+                    chop.copyToChannel(data, ch                        default:
+                            this.layers[layer].eq.type = 'peaking';
+                            this.layers[layer].eq.frequency.value = 1000;
+                            this.layers[layer].eq.gain.value = 1;
+                    }
+                });
+                
+                // Sidechain simulation for kick ducking bass
+                this.nodes.sidechainGain = this.ctx.createGain();
+                this.nodes.sidechainGain.connect(this.layers.bass.gain.gain); // Control bass gain
+                this.nodes.sidechainGain.gain.value = 1; // Default no duck
+            }
+
+            setupEffects() {
+                const {ctx} = this;
+                
+                // Improved reverb for depth
+                this.effects.reverb = ctx.createConvolver();
+                const length = ctx.sampleRate * 3;
+                const impulse = ctx.createBuffer(2, length, ctx.sampleRate);
+                for (let ch = 0; ch < 2; ch++) {
+                    const data = impulse.getChannelData(ch);
+                    for (let i = 0; i < length; i++) {
+                        data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / length, 4); // Longer tail
+                    }
+                }
+                this.effects.reverb.buffer = impulse;
+                this.effects.reverbWet = ctx.createGain();
+                this.effects.reverbWet.gain.value = 0.35;
+                this.effects.reverb.connect(this.effects.reverbWet);
+                this.effects.reverbWet.connect(this.nodes.master);
+                
+                // Delay for echoes
+                this.effects.delay = ctx.createDelay(0.5);
+                this.effects.delayFeedback = ctx.createGain();
+                this.effects.delayFeedback.gain.value = 0.4;
+                this.effects.delay.connect(this.effects.delayFeedback);
+                this.effects.delayFeedback.connect(this.effects.delay);
+                this.effects.delay.connect(this.effects.reverb); // Delay into reverb for depth
+                
+                // Distortion for grit
+                this.effects.distortion = ctx.createWaveShaper();
+                this.effects.distortion.curve = this.makeDistortionCurve(80); // More aggressive for trap
+                this.effects.distortion.connect(this.nodes.master);
+            }
+
+            makeDistortionCurve(amount) {
+                const k = amount;
+                const n = 44100;
+                const curve = new Float32Array(n);
+                const deg = Math.PI / 180;
+                for (let i = 0; i < n; i++) {
+                    const x = i * 2 / n - 1;
+                    curve[i] = (3 + k) * x * 20 * deg / (Math.PI + k * Math.abs(x));
+                }
+                return curve;
+            }
+
+            async loadInitialDrums() {
+                // Focus on 808 first
+                const kickBuffer = await this.generate808Kick();
+                this.addSampleToLayer(kickBuffer, 'kick');
+                
+                const bassBuffer = await this.generate808Bass();
+                this.addSampleToLayer(bassBuffer, 'bass');
+                
+                const snareBuffer = await this.generateTrapSnare();
+                this.addSampleToLayer(snareBuffer, 'snare');
+                
+                const hatsBuffer = await this.generateTrapHats();
+                this.addSampleToLayer(hatsBuffer, 'hats');
+            }
+
+            async generate808Kick() {
+                const offline = new OfflineAudioContext(1, this.ctx.sampleRate * 1, this.ctx.sampleRate);
+                const osc = offline.createOscillator();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(150, 0);
+                osc.frequency.exponentialRampToValueAtTime(30, 0.6); // Longer decay for huge 808
+                
+                const gain = offline.createGain();
+                gain.gain.setValueAtTime(1.2, 0);
+                gain.gain.exponentialRampToValueAtTime(0.01, 0.6);
+                
+                const dist = offline.createWaveShaper();
+                dist.curve = this.makeDistortionCurve(50); // Grit
+                
+                osc.connect(gain);
+                gain.connect(dist);
+                dist.connect(offline.destination);
+                osc.start(0);
+                return await offline.startRendering();
+            }
+
+            async generate808Bass() {
+                const offline = new OfflineAudioContext(1, this.ctx.sampleRate * 2, this.ctx.sampleRate);
+                const osc = offline.createOscillator();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(60, 0);
+                osc.frequency.exponentialRampToValueAtTime(30, 1.5); // Long glide
+                
+                const gain = offline.createGain();
+                gain.gain.setValueAtTime(1, 0);
+                gain.gain.exponentialRampToValueAtTime(0.01, 1.5);
+                
+                osc.connect(gain);
+                gain.connect(offline.destination);
+                osc.start(0);
+                return await offline.startRendering();
+            }
+
+            async generateTrapSnare() {
+                const offline = new OfflineAudioContext(1, this.ctx.sampleRate * 0.4, this.ctx.sampleRate);
+                const noise = offline.createBufferSource();
+                const noiseBuffer = offline.createBuffer(1, offline.sampleRate * 0.4, offline.sampleRate);
+                const data = noiseBuffer.getChannelData(0);
+                for (let i = 0; i < data.length; i++) {
+                    data[i] = Math.random() * 2 - 1;
+                }
+                noise.buffer = noiseBuffer;
+                
+                const filter = offline.createBiquadFilter();
+                filter.type = 'bandpass';
+                filter.frequency.value = 2000;
+                filter.Q.value = 1;
+                
+                const gain = offline.createGain();
+                gain.gain.setValueAtTime(1, 0);
+                gain.gain.exponentialRampToValueAtTime(0.01, 0.3);
+                
+                noise.connect(filter);
+                filter.connect(gain);
+                gain.connect(offline.destination);
+                noise.start(0);
+                return await offline.startRendering();
+            }
+
+            async generateTrapHats() {
+                const offline = new OfflineAudioContext(1, this.ctx.sampleRate * 0.1, this.ctx.sampleRate);
+                const noise = offline.createBufferSource();
+                const noiseBuffer = offline.createBuffer(1, offline.sampleRate * 0.1, offline.sampleRate);
+                const data = noiseBuffer.getChannelData(0);
+                for (let i = 0; i < data.length; i++) {
+                    data[i] = Math.random() * 2 - 1;
+                }
+                noise.buffer = noiseBuffer;
+                
+                const filter = offline.createBiquadFilter();
+                filter.type = 'highpass';
+                filter.frequency.value = 7000;
+                
+                const gain = offline.createGain();
+                gain.gain.setValueAtTime(0.8, 0);
+                gain.gain.exponentialRampToValueAtTime(0.01, 0.05);
+                
+                noise.connect(filter);
+                filter.connect(gain);
+                gain.connect(offline.destination);
+                noise.start(0);
+                return await offline.startRendering();
+            }
+
+            setupMic(stream) {
+                this.nodes.mic = this.ctx.createMediaStreamSource(stream);
+                this.nodes.mic.connect(this.analyzer);
+                
+                this.scriptNode = this.ctx.createScriptProcessor(1024, 1, 1);
+                this.nodes.mic.connect(this.scriptNode);
+                this.scriptNode.connect(this.ctx.destination);
+                this.scriptNode.onaudioprocess = (e) => {
+                    if (this.recorder.active) {
+                        this.recorder.buffer.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+                    }
+                };
+            }
+
+            toggleRecording() {
+                if (this.recorder.active) {
+                    this.stopRecording();
+                } else {
+                    this.startRecording();
+                }
+            }
+
+            startRecording() {
+                this.recorder.active = true;
+                this.recorder.buffer = [];
+                this.recorder.startTime = this.ctx.currentTime;
+                this.ui.orb.classList.add('recording');
+            }
+
+            stopRecording() {
+                this.recorder.active = false;
+                this.ui.orb.classList.remove('recording');
+                
+                const length = this.recorder.buffer.reduce((a, b) => a + b.length, 0);
+                const buffer = this.ctx.createBuffer(1, length, this.ctx.sampleRate);
+                const data = buffer.getChannelData(0);
+                let offset = 0;
+                this.recorder.buffer.forEach(chunk => {
+                    data.set(chunk, offset);
+                    offset += chunk.length;
+                });
+                
+                this.processNewSample(buffer);
+            }
+
+            processNewSample(buffer) {
+                let analysis = this.analyze(buffer);
+                
+                // Autotune if pitchy
+                if (this.agent.active && analysis.pitch) {
+                    const targetFreq = this.getNearestNoteFreq(analysis.pitch);
+                    const shift = targetFreq / analysis.pitch;
+                    buffer = this.pitchShiftBuffer(buffer, shift);
+                    analysis = this.analyze(buffer);
+                }
+                
+                // Add effect randomly for production
+                if (Math.random() < this.agent.chaosLevel) {
+                    buffer = this.applyEffect(buffer, 'distortion');
+                }
+                
+                this.samples.push({ buffer, analysis });
+                if (this.samples.length > this.maxSamples) {
+                    this.samples.shift();
+                }
+                
+                const layer = this.categorize(analysis);
+                this.layers[layer].samples.push(buffer);
+                if (this.layers[layer].samples.length > 5) {
+                    this.layers[layer].samples.shift();
+                }
+            }
+
+            analyze(buffer) {
+                const data = buffer.getChannelData(0);
+                let rms = 0;
+                let peak = 0;
+                let freq = 0;
+                let pitch = this.detectPitch(buffer);
+                for (let i = 0; i < data.length; i++) {
+                    rms += data[i] ** 2;
+                    peak = Math.max(peak, Math.abs(data[i]));
+                }
+                rms = Math.sqrt(rms / data.length);
+                // Simple freq estimation
+                // ... add FFT for better
+                return { rms, peak, duration: buffer.duration, pitch };
+            }
+
+            detectPitch(buffer) {
+                // Autocorrelation
+                const data = buffer.getChannelData(0);
+                const SIZE = data.length;
+                const MAX_SAMPLES = Math.floor(SIZE / 2);
+                const MIN_SAMPLES = Math.floor(buffer.sampleRate / 800); // max freq 800Hz for pitch
+                
+                let best_offset = -1;
+                let best_correlation = 0;
+                let rms = 0;
+                
+                for (let i = 0; i < SIZE; i++) {
+                    rms += data[i] ** 2;
+                }
+                rms = Math.sqrt(rms / SIZE);
+                if (rms < 0.05) return null;
+                
+                let last_correlation = 1;
+                for (let offset = MIN_SAMPLES; offset < MAX_SAMPLES; offset++) {
+                    let correlation = 0;
+                    for (let i = 0; i < MAX_SAMPLES; i++) {
+                        correlation += Math.abs(data[i] - data[i + offset]);
+                    }
+                    correlation = 1 - (correlation / MAX_SAMPLES);
+                    if (correlation > best_correlation && correlation > last_correlation) {
+                        best_correlation = correlation;
+                        best_offset = offset;
+                    } else if (correlation < 0 || best_correlation > 0.001 && correlation < last_correlation) {
+                        break;
+                    }
+                    last_correlation = correlation;
+                }
+                
+                if (best_correlation > 0.01) {
+                    return buffer.sampleRate / best_offset;
+                }
+                return null;
+            }
+
+            getNearestNoteFreq(freq) {
+                const midi = 69 + 12 * Math.log2(freq / 440);
+                const nearest = this.seq.notesInScale.reduce((prev, curr) => 
+                    Math.abs(curr - midi) < Math.abs(prev - midi) ? curr : prev
+                );
+                return this.midiToFreq(nearest);
+            }
+
+            pitchShiftBuffer(buffer, shift) {
+                const offline = new OfflineAudioContext(buffer.numberOfChannels, buffer.length, buffer.sampleRate * shift);
+                const source = offline.createBufferSource();
+                source.buffer = buffer;
+                source.playbackRate.value = shift;
+                source.connect(offline.destination);
+                source.start(0);
+                
+                return offline.startRendering().then(shifted => {
+                    const resampled = this.ctx.createBuffer(buffer.numberOfChannels, buffer.length, this.ctx.sampleRate);
+                    for (let ch = 0; ch < buffer.numberOfChannels; ch++) {
+                        const data = shifted.getChannelData(ch);
+                        const resData = resampled.getChannelData(ch);
+                        const step = shifted.length / buffer.length;
+                        for (let i = 0; i < buffer.length; i++) {
+                            const idx = Math.floor(i * step);
+                            resData[i] = data[idx] || 0;
+                        }
+                    }
+                    return resampled;
+                });
+            }
+
+            categorize(analysis) {
+                if (analysis.duration < 0.2 && analysis.rms > 0.4) return 'kick';
+                if (analysis.duration < 0.3 && analysis.rms > 0.3) return 'snare';
+                if (analysis.duration < 0.1) return 'hats';
+                if (analysis.pitch < 200) return 'bass';
+                if (analysis.pitch > 1000) return 'fx';
+                return 'lead';
+            }
+
+            addSampleToLayer(buffer, layer) {
+                this.layers[layer].samples.push(buffer);
+            }
+
+            chopLastSample() {
+                if (this.samples.length === 0) return;
+                const last = this.samples.pop();
+                // Detect onsets and chop
+                // ... implement
             }
 
             flipLastSample() {
                 if (this.samples.length === 0) return;
                 const last = this.samples[this.samples.length - 1];
-                const reversed = this.reverseBuffer(last.buffer);
-                last.buffer = reversed;
-                this.ui.orb.classList.add('flipping');
-                setTimeout(() => this.ui.orb.classList.remove('flipping'), 300);
+                last.buffer = this.reverseBuffer(last.buffer);
             }
 
             reverseBuffer(buffer) {
@@ -1273,9 +1705,7 @@
                 for (let ch = 0; ch < buffer.numberOfChannels; ch++) {
                     const data = buffer.getChannelData(ch);
                     const revData = reversed.getChannelData(ch);
-                    for (let i = 0; i < data.length; i++) {
-                        revData[i] = data[data.length - 1 - i];
-                    }
+                    revData.set(data.reverse());
                 }
                 return reversed;
             }
@@ -1283,190 +1713,8 @@
             pitchShiftLastSample() {
                 if (this.samples.length === 0) return;
                 const last = this.samples[this.samples.length - 1];
-                const shift = 1 + (Math.random() - 0.5) * 0.5;
+                const shift = 1 + (Math.random() - 0.5) * 0.4;
                 last.buffer = this.pitchShiftBuffer(last.buffer, shift);
-            }
-
-            toggleAutotune() {
-                this.agent.active = !this.agent.active;
-                console.log(`Autotune ${this.agent.active ? 'enabled' : 'disabled'}`);
-            }
-
-            triggerLayer(index) {
-                const layers = Object.keys(this.layers);
-                const layer = layers[index];
-                if (this.layers[layer].samples.length > 0) {
-                    const sample = this.layers[layer].samples[Math.floor(Math.random() * this.layers[layer].samples.length)];
-                    this.playSample(sample, layer);
-                }
-            }
-
-            playSample(buffer, layer) {
-                const source = this.ctx.createBufferSource();
-                source.buffer = buffer;
-                source.connect(this.layers[layer].gain);
-                source.start(0);
-                
-                // Apply effects based on motion
-                if (this.motion.value > 0.5) {
-                    source.connect(this.effects.distortion);
-                }
-                
-                this.ui.orb.classList.add('pulse');
-                setTimeout(() => this.ui.orb.classList.remove('pulse'), 150);
-            }
-
-            compilePatterns() {
-                // Patterns for different motion states
-                this.seq.patterns = {
-                    calm: {
-                        kick: [1, 0, 0, 0, 1, 0, 0, 0],
-                        snare: [0, 0, 1, 0, 0, 0, 1, 0],
-                        hats: [1, 1, 1, 1, 1, 1, 1, 1],
-                        // etc.
-                    },
-                    rhythmic: {
-                        // More complex
-                    },
-                    active: {
-                        // Even more
-                    },
-                    chaotic: {
-                        // But limited chaos
-                    }
-                };
-                // Fill for all layers and states
-                Object.keys(this.seq.patterns).forEach(state => {
-                    Object.keys(this.layers).forEach(layer => {
-                        if (!this.seq.patterns[state][layer]) {
-                            this.seq.patterns[state][layer] = Array(8).fill(0).map(() => Math.random() < 0.3 ? 1 : 0);
-                        }
-                    });
-                });
-            }
-
-            startVisualizer() {
-                const vis = () => {
-                    this.raf = requestAnimationFrame(vis);
-                    
-                    // Waveform
-                    this.analyzer.getFloatTimeDomainData(this.dataArray);
-                    for (let i = 0; i < this.waveformBars.length; i++) {
-                        const value = Math.abs(this.dataArray[Math.floor(i / this.waveformBars.length * this.bufferLength)]) * 100;
-                        this.waveformBars[i].style.height = `${value}%`;
-                    }
-                    
-                    // Spectrum
-                    this.analyzer.getByteFrequencyData(this.freqArray);
-                    for (let i = 0; i < this.spectrumBars.length; i++) {
-                        const value = this.freqArray[Math.floor(i / this.spectrumBars.length * this.analyzer.frequencyBinCount)] / 255 * 100;
-                        this.spectrumBars[i].style.height = `${value}%`;
-                    }
-                    
-                    // Particles based on motion
-                    if (Math.random() < this.motion.value) {
-                        this.createParticle();
-                    }
-                };
-                vis();
-            }
-
-            createParticle() {
-                const particle = document.createElement('div');
-                particle.className = 'particle';
-                particle.style.left = `${Math.random() * 100}%`;
-                particle.style.bottom = `0%`;
-                particle.style.animationDuration = `${4 + Math.random() * 4}s`;
-                this.ui.evolutionSpace.appendChild(particle);
-                setTimeout(() => particle.remove(), 8000);
-            }
-
-            startSequencer() {
-                this.seq.playing = true;
-                const tick = (time) => {
-                    if (!this.seq.playing) return;
-                    
-                    const beatDuration = 60 / this.seq.bpm;
-                    const stepDuration = beatDuration / this.seq.stepsPerBeat;
-                    
-                    if (time - this.seq.lastTime > stepDuration) {
-                        this.playStep();
-                        this.seq.step = (this.seq.step + 1) % 16; // 16 steps
-                        this.seq.lastTime = time;
-                    }
-                    
-                    requestAnimationFrame(tick);
-                };
-                requestAnimationFrame(tick);
-            }
-
-            playStep() {
-                const pattern = this.seq.patterns[this.motion.pattern];
-                Object.keys(this.layers).forEach(layer => {
-                    if (pattern[layer][this.seq.step % pattern[layer].length] === 1 && this.layers[layer].samples.length > 0) {
-                        const sample = this.layers[layer].samples[Math.floor(Math.random() * this.layers[layer].samples.length)];
-                        this.playSample(sample.buffer, layer);
-                    }
-                });
-                
-                // Evolve every 32 bars
-                if (this.seq.step === 0) this.seq.currentBar++;
-                if (this.seq.currentBar % 32 === 0) this.evolveSong();
-            }
-
-            evolveSong() {
-                // Slight changes for progression
-                this.seq.bpm += (Math.random() - 0.5) * 10;
-                this.ui.bpmDisplay.textContent = `${Math.round(this.seq.bpm)} BPM`;
-                
-                // Change key occasionally
-                if (Math.random() < 0.2) {
-                    const keys = ['C', 'D', 'E', 'F', 'G', 'A', 'B'];
-                    this.seq.key = keys[Math.floor(Math.random() * keys.length)];
-                    this.seq.notesInScale = this.getNotesInScale(this.seq.key, this.seq.scale);
-                    this.setupKeyDisplay();
-                }
-                
-                // Prune samples
-                this.samples = this.samples.filter(s => Math.random() > this.agent.chaosLevel);
-                Object.values(this.layers).forEach(l => {
-                    l.samples = l.samples.filter(s => this.samples.some(ss => ss.buffer === s));
-                    this.updateLayerCount(l);
-                });
-                
-                document.body.style.background = `hsl(${Math.random() * 360}, 20%, 10%)`;
-                console.log('🎶 Song evolved');
-            }
-
-            startAgent() {
-                this.agent.interval = setInterval(() => {
-                    this.agentCohesion();
-                }, 10000); // Every 10s
-            }
-
-            agentCohesion() {
-                // Ensure cohesion
-                this.samples.forEach(s => {
-                    // Autotune
-                    if (Math.random() < this.agent.autotuneStrength) {
-                        const pitch = this.detectPitch(s.buffer);
-                        if (pitch) {
-                            const target = this.getNearestNoteFreq(pitch);
-                            const shift = target / pitch;
-                            s.buffer = this.pitchShiftBuffer(s.buffer, shift);
-                        }
-                    }
-                    
-                    // Apply effects if needed
-                    if (Math.random() < 0.2) {
-                        s.buffer = this.applyEffect(s.buffer, ['reverb', 'delay', 'distortion'][Math.floor(Math.random() * 3)]);
-                    }
-                });
-                
-                // Sort by energy
-                this.samples.sort((a, b) => a.analysis.rms - b.analysis.rms);
-                
-                console.log('🧠 Agent ensured cohesion');
             }
 
             applyEffect(buffer, type) {
@@ -1474,32 +1722,160 @@
                 const source = offline.createBufferSource();
                 source.buffer = buffer;
                 
-                let effectNode;
+                let effect;
                 if (type === 'reverb') {
-                    effectNode = offline.createConvolver();
-                    effectNode.buffer = this.effects.reverb.buffer;
+                    effect = offline.createConvolver();
+                    effect.buffer = this.effects.reverb.buffer;
                 } else if (type === 'delay') {
-                    effectNode = offline.createDelay(0.5);
-                    const feedback = offline.createGain();
-                    feedback.gain.value = 0.3;
-                    effectNode.connect(feedback);
-                    feedback.connect(effectNode);
+                    effect = offline.createDelay(0.5);
+                    const fb = offline.createGain();
+                    fb.gain.value = 0.4;
+                    effect.connect(fb);
+                    fb.connect(effect);
                 } else if (type === 'distortion') {
-                    effectNode = offline.createWaveShaper();
-                    effectNode.curve = this.makeDistortionCurve(50);
+                    effect = offline.createWaveShaper();
+                    effect.curve = this.makeDistortionCurve(80);
                 }
                 
-                source.connect(effectNode);
-                effectNode.connect(offline.destination);
+                source.connect(effect);
+                effect.connect(offline.destination);
                 source.start(0);
-                
                 return offline.startRendering();
+            }
+
+            compilePatterns() {
+                // Trap patterns based on research
+                this.seq.patterns = {
+                    calm: {
+                        kick: [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0],
+                        snare: [0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0],
+                        hats: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                        bass: [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0],
+                        lead: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                        fx: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+                    },
+                    rhythmic: {
+                        kick: [1, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0],
+                        snare: [0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0],
+                        hats: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], // Constant
+                        bass: [1, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0],
+                        lead: [0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0],
+                        fx: [0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1]
+                    },
+                    active: {
+                        kick: [1, 0, 1, 0, 1, 0, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0], // Sparse with doubles
+                        snare: [0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 1, 1, 0], // Rushes
+                        hats: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], // Double time implication
+                        bass: [1, 0, 1, 0, 1, 0, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0],
+                        lead: [0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1],
+                        fx: [0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0]
+                    },
+                    chaotic: {
+                        kick: [1, 1, 0, 0, 1, 0, 1, 0, 1, 1, 0, 0, 1, 0, 1, 0], // More dense
+                        snare: [0, 0, 1, 1, 0, 1, 1, 1, 0, 0, 1, 1, 0, 1, 1, 1], // Rushes
+                        hats: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], // Fast
+                        bass: [1, 1, 0, 0, 1, 0, 1, 0, 1, 1, 0, 0, 1, 0, 1, 0],
+                        lead: [0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1],
+                        fx: [0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0]
+                    }
+                };
+            }
+
+            startVisualizer() {
+                const vis = () => {
+                    this.raf = requestAnimationFrame(vis);
+                    
+                    // Waveform from mic
+                    this.analyzer.getFloatTimeDomainData(this.dataArray);
+                    for (let i = 0; i < this.waveformBars.length; i++) {
+                        const value = Math.abs(this.dataArray[Math.floor(i / this.waveformBars.length * this.bufferLength)]) * 100;
+                        this.waveformBars[i].style.height = `${value}%`;
+                    }
+                };
+                vis();
+            }
+
+            startSequencer() {
+                this.seq.playing = true;
+                this.seq.nextNoteTime = this.ctx.currentTime + 0.05;
+                this.scheduler();
+            }
+
+            scheduler() {
+                requestAnimationFrame(() => this.scheduler());
+                
+                while (this.seq.nextNoteTime < this.ctx.currentTime + this.seq.scheduleAheadTime) {
+                    this.scheduleStep(this.seq.step);
+                    this.nextStep();
+                }
+            }
+
+            nextStep() {
+                const secondsPerBeat = 60 / this.seq.bpm;
+                this.seq.nextNoteTime += 0.25 * secondsPerBeat; // 16th notes
+                this.seq.step = (this.seq.step + 1) % 16;
+            }
+
+            scheduleStep(step) {
+                const pattern = this.seq.patterns[this.motion.pattern];
+                Object.keys(this.layers).forEach(layer => {
+                    if (pattern[layer][step] === 1 && this.layers[layer].samples.length > 0) {
+                        const sample = this.layers[layer].samples[Math.floor(Math.random() * this.layers[layer].samples.length)];
+                        this.playSample(sample.buffer, layer, this.seq.nextNoteTime);
+                    }
+                });
+                
+                // Pulse orb on kick
+                if (pattern.kick[step] === 1) {
+                    this.ui.orb.classList.add('pulse');
+                    setTimeout(() => this.ui.orb.classList.remove('pulse'), 150);
+                }
+            }
+
+            playSample(buffer, layer, time) {
+                const source = this.ctx.createBufferSource();
+                source.buffer = buffer;
+                
+                // Envelope for better production
+                const env = this.ctx.createGain();
+                env.gain.setValueAtTime(0, time);
+                env.gain.linearRampToValueAtTime(1, time + 0.01);
+                env.gain.exponentialRampToValueAtTime(0.01, time + buffer.duration);
+                
+                source.connect(env);
+                env.connect(this.layers[layer].gain);
+                
+                // Apply effects
+                if (layer === 'snare' || layer === 'hats') {
+                    env.connect(this.effects.delay);
+                }
+                if (layer === 'kick') {
+                    env.connect(this.effects.distortion);
+                }
+                
+                source.start(time);
+            }
+
+            startAgent() {
+                this.agent.interval = setInterval(() => {
+                    this.agentListenAndFit();
+                }, 8000);
+            }
+
+            agentListenAndFit() {
+                // Fit samples to scale
+                this.samples.forEach(s => {
+                    if (s.analysis.pitch) {
+                        const target = this.getNearestNoteFreq(s.analysis.pitch);
+                        s.rate = target / s.analysis.pitch;
+                    }
+                });
+                console.log('🧠 Agent fitted');
             }
         }
 
-        // Initialize the engine
         const engine = new GUMPEngine();
-        console.log('🎵 GUMP ENGINE READY - Motion unravels the epic beat!');
+        console.log('🎵 GUMP ENGINE READY - Click the dot to begin!');
     </script>
 </body>
 </html>
