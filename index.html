@@ -194,7 +194,7 @@
                 bitcrusher.connect(filter);
                 filter.connect(waveshaper);
                 
-                return waveshaper;
+                return {processed: waveshaper, bitcrusher, filter, waveshaper};
             }
         }
 
@@ -313,6 +313,7 @@
                     space: 0.5,        // Amount of reverb/delay
                     mutation: 0.1      // How quickly things change
                 };
+                this.scale = [0, 3, 5, 7, 10, 12, 15, 17, 19, 22, 24]; // Minor pentatonic intervals
             }
 
             evolve(analysis) {
@@ -327,16 +328,21 @@
                     const avgDensity = recent.reduce((sum, a) => sum + a.harmonicDensity, 0) / recent.length;
                     
                     // Evolve traits based on environment
-                    this.traits.harmony = Math.max(0, Math.min(1, this.traits.harmony + (avgBrightness - 0.5) * 0.1));
-                    this.traits.density = Math.max(0, Math.min(1, this.traits.density + (avgDensity - 20) * 0.01));
-                    this.traits.energy = Math.max(0, Math.min(1, this.traits.energy * 0.95 + avgBrightness * 0.05));
+                    this.traits.harmony = Math.max(0, Math.min(1, this.traits.harmony + (avgBrightness - 0.5) * 0.15)); // More change
+                    this.traits.density = Math.max(0, Math.min(1, this.traits.density + (avgDensity - 20) * 0.015)); // More responsive
+                    this.traits.energy = Math.max(0, Math.min(1, this.traits.energy * 0.9 + avgBrightness * 0.1)); // Faster adaptation
+                    this.traits.space = Math.max(0, Math.min(1, this.traits.space + (1 - avgBrightness) * 0.1)); // More space if dark
                     
                     // Occasional mutations
-                    if (Math.random() < this.traits.mutation) {
+                    if (Math.random() < this.traits.mutation * 1.5) { // More frequent mutations
                         const trait = ['density', 'harmony', 'energy', 'space'][Math.floor(Math.random() * 4)];
-                        this.traits[trait] += (Math.random() - 0.5) * 0.3;
+                        this.traits[trait] += (Math.random() - 0.5) * 0.4;
                         this.traits[trait] = Math.max(0, Math.min(1, this.traits[trait]));
                     }
+                } else {
+                    // Slow decay if no new inputs
+                    this.traits.energy *= 0.99;
+                    this.traits.density *= 0.99;
                 }
                 
                 this.generation++;
@@ -373,12 +379,18 @@
                     }
                 }
                 
-                // Bass - harmonic complexity
-                if (this.traits.harmony > 0.3) {
-                    patterns.bass = [0, 3, 8, 11, 16, 19, 24, 27];
-                    if (this.traits.harmony > 0.7) {
-                        patterns.bass.push(6, 14, 22, 30);
+                // Bass - evolved bass line based on harmony and density
+                let currentIntervalIndex = 0;
+                for (let i = 0; i < 32; i += 4) { // Downbeats
+                    patterns.bass.push({pos: i, interval: this.scale[currentIntervalIndex % this.scale.length]});
+                    if (Math.random() < this.traits.density) {
+                        patterns.bass.push({pos: i + 2, interval: this.scale[(currentIntervalIndex + 1) % this.scale.length]});
                     }
+                    if (Math.random() < this.traits.harmony * 0.5) {
+                        patterns.bass.push({pos: i + 1, interval: this.scale[(currentIntervalIndex - 1 + this.scale.length) % this.scale.length]});
+                    }
+                    currentIntervalIndex += Math.floor(Math.random() * 3) - 1; // Random walk
+                    if (currentIntervalIndex < 0) currentIntervalIndex = 0;
                 }
                 
                 return patterns;
@@ -401,6 +413,8 @@
                 this.evolution = new EvolutionEngine();
                 this.harmonicAnalyzer = null;
                 this.currentPattern = null;
+                this.currentSample = null;
+                this.currentSampleChain = null;
                 
                 // Kanye-style pitch shifts
                 this.pitchShifts = [0.5, 0.667, 0.75, 1, 1.5, 2];
@@ -409,7 +423,24 @@
                 this.sampleHistory = [];
                 this.maxHistory = 8;
                 
+                // Note frequencies for bass root
+                this.noteFreqs = {
+                    'C': [65.41, 130.81, 261.63, 523.25, 1046.50],
+                    'C#': [69.30, 138.59, 277.18, 554.37, 1108.73],
+                    'D': [73.42, 146.83, 293.66, 587.33, 1174.66],
+                    'D#': [77.78, 155.56, 311.13, 622.25, 1244.51],
+                    'E': [82.41, 164.81, 329.63, 659.25, 1318.51],
+                    'F': [87.31, 174.61, 349.23, 698.46, 1396.91],
+                    'F#': [92.50, 185.00, 369.99, 739.99, 1479.98],
+                    'G': [98.00, 196.00, 392.00, 783.99, 1567.98],
+                    'G#': [103.83, 207.65, 415.30, 830.61, 1661.22],
+                    'A': [110.00, 220.00, 440.00, 880.00, 1760.00],
+                    'A#': [116.54, 233.08, 466.16, 932.33, 1864.66],
+                    'B': [123.47, 246.94, 493.88, 987.77, 1975.53]
+                };
+                
                 document.addEventListener('click', () => this.start());
+                document.addEventListener('touchstart', () => this.start()); // For mobile
             }
 
             async start() {
@@ -417,6 +448,7 @@
                 
                 try {
                     this.ctx = new AudioContext({ sampleRate: 44100 });
+                    if (this.ctx.state === 'suspended') await this.ctx.resume();
                     this.lofi = new LoFi(this.ctx);
                     this.harmonicAnalyzer = new HarmonicAnalyzer(this.ctx);
                     
@@ -699,19 +731,17 @@
                     this.samples.get('hats').push({ buffer: hat, rate: 1 });
                 }
                 
-                // Bass with variations
-                const bassNotes = [40, 45, 50]; // E, A, D
-                for (const note of bassNotes) {
-                    const bass = this.ctx.createBuffer(1, sr * 1, sr);
-                    const bd = bass.getChannelData(0);
-                    
-                    for (let i = 0; i < bd.length; i++) {
-                        const t = i / sr;
-                        const env = t < 0.02 ? t / 0.02 : Math.exp(-2 * (t - 0.02));
-                        bd[i] = Math.sin(2 * Math.PI * note * t) * env * 0.8;
-                    }
-                    this.samples.get('bass').push({ buffer: bass, rate: 1, note });
+                // Bass with single base buffer
+                const baseFreq = 55; // A1
+                const bass = this.ctx.createBuffer(1, sr * 1, sr);
+                const bd = bass.getChannelData(0);
+                
+                for (let i = 0; i < bd.length; i++) {
+                    const t = i / sr;
+                    const env = t < 0.02 ? t / 0.02 : Math.exp(-2 * (t - 0.02));
+                    bd[i] = Math.sin(2 * Math.PI * baseFreq * t) * env * 0.8;
                 }
+                this.samples.get('bass').push({ buffer: bass, freq: baseFreq });
             }
 
             createVinyl() {
@@ -760,6 +790,14 @@
                 this.nodes.reverb.buffer = impulse;
             }
 
+            getRootFreq() {
+                if (this.sampleHistory.length > 0) {
+                    const lastKey = this.sampleHistory[this.sampleHistory.length - 1].analysis.key;
+                    return this.noteFreqs[lastKey][0] / 2; // Lower octave for bass
+                }
+                return 55; // Default A
+            }
+
             tick() {
                 if (!this.ctx) return;
                 
@@ -784,7 +822,7 @@
                         kick: [0, 10],
                         snare: [8, 24],
                         hats: [2, 6, 10, 12, 14, 18, 22, 26, 30],
-                        bass: [0, 3, 8, 11, 16, 19, 24, 27]
+                        bass: [{pos: 0, interval: 0}, {pos: 8, interval: 0}, {pos: 16, interval: 0}, {pos: 24, interval: 0}]
                     };
                     
                     // Dynamic velocity based on evolution
@@ -802,8 +840,9 @@
                         this.play('hats', 0.2 + Math.random() * 0.2 * energy);
                     }
                     
-                    if (pattern.bass.includes(this.seq.step)) {
-                        this.playBass(0.6 + energy * 0.3);
+                    const bassNote = pattern.bass.find(p => p.pos === this.seq.step);
+                    if (bassNote) {
+                        this.playBass(0.6 + energy * 0.3, bassNote.interval);
                     }
                     
                     // Main sample - plays continuously when available
@@ -823,6 +862,11 @@
                     if (this.sampleHistory.length > 4 && Math.random() < 0.05) {
                         const ghost = this.sampleHistory[Math.floor(Math.random() * (this.sampleHistory.length - 2))];
                         this.playGhost(ghost);
+                    }
+                    
+                    // Evolve even without new sample every 32 steps
+                    if (this.seq.step === 0) {
+                        this.evolution.evolve(this.memory.length > 0 ? this.memory[this.memory.length - 1] : {brightness: 0.5, harmonicDensity: 20});
                     }
                     
                     this.seq.step = (this.seq.step + 1) % 32;
@@ -853,42 +897,51 @@
                 gain.gain.value = vel;
                 
                 // Lo-fi processing
-                const processed = this.lofi.process(src);
+                const {processed, bitcrusher, filter, waveshaper} = this.lofi.process(src);
                 processed.connect(gain);
                 gain.connect(this.nodes[type]);
+                
+                src.onended = () => {
+                    bitcrusher.onaudioprocess = null;
+                    bitcrusher.disconnect();
+                    filter.disconnect();
+                    waveshaper.disconnect();
+                    gain.disconnect();
+                    src.disconnect();
+                };
                 
                 src.start();
             }
 
-            playBass(vel) {
+            playBass(vel, interval) {
                 const samples = this.samples.get('bass');
                 if (!samples.length) return;
                 
-                // Select bass note based on harmonic context
-                let selectedSample = samples[0];
-                if (this.sampleHistory.length > 0) {
-                    const lastKey = this.sampleHistory[this.sampleHistory.length - 1].analysis.key;
-                    // Simple key matching
-                    if (lastKey.includes('#')) {
-                        selectedSample = samples[1]; // A
-                    } else if (['C', 'F', 'G'].includes(lastKey)) {
-                        selectedSample = samples[0]; // E
-                    } else {
-                        selectedSample = samples[2]; // D
-                    }
-                }
+                const sample = samples[0];
+                const rootFreq = this.getRootFreq();
+                const targetFreq = rootFreq * Math.pow(2, interval / 12);
+                const rate = targetFreq / sample.freq;
                 
                 const src = this.ctx.createBufferSource();
                 const gain = this.ctx.createGain();
                 
-                src.buffer = selectedSample.buffer;
-                src.playbackRate.value = selectedSample.rate || 1;
+                src.buffer = sample.buffer;
+                src.playbackRate.value = rate;
                 gain.gain.value = vel;
                 
                 // Lo-fi processing
-                const processed = this.lofi.process(src);
+                const {processed, bitcrusher, filter, waveshaper} = this.lofi.process(src);
                 processed.connect(gain);
                 gain.connect(this.nodes.bass);
+                
+                src.onended = () => {
+                    bitcrusher.onaudioprocess = null;
+                    bitcrusher.disconnect();
+                    filter.disconnect();
+                    waveshaper.disconnect();
+                    gain.disconnect();
+                    src.disconnect();
+                };
                 
                 src.start();
             }
@@ -897,6 +950,7 @@
                 // Stop previous main sample
                 if (this.currentSample) {
                     this.currentSample.stop();
+                    // onended will handle disconnect
                 }
                 
                 // Play the full sample loop Kanye-style
@@ -929,6 +983,23 @@
                 
                 gain.gain.value = 0.7;
                 
+                // Lo-fi processing
+                const {processed, bitcrusher, lofiFilter, waveshaper} = this.lofi.process(src);
+                processed.connect(filter);
+                filter.connect(gain);
+                gain.connect(this.nodes.sample);
+                
+                // Clean up on end or stop
+                src.onended = () => {
+                    bitcrusher.onaudioprocess = null;
+                    bitcrusher.disconnect();
+                    lofiFilter.disconnect();
+                    waveshaper.disconnect();
+                    filter.disconnect();
+                    gain.disconnect();
+                    src.disconnect();
+                };
+                
                 // Sidechain compression effect
                 const sidechain = () => {
                     // Duck on kicks
@@ -940,12 +1011,6 @@
                     
                     setTimeout(sidechain, 60000 / this.beatMatcher.bpm / 4);
                 };
-                
-                // Lo-fi processing
-                const processed = this.lofi.process(src);
-                processed.connect(filter);
-                filter.connect(gain);
-                gain.connect(this.nodes.sample);
                 
                 src.start();
                 sidechain();
@@ -972,13 +1037,6 @@
                 const dur = 1 + Math.random() * 1.5;
                 let startPos = Math.random() * (sample.buffer.duration - dur);
                 
-                if (isReverse) {
-                    src.playbackRate.value *= -1;
-                    src.start(0, startPos + dur, dur);
-                } else {
-                    src.start(0, startPos, dur);
-                }
-                
                 // Random panning
                 panner.pan.value = -0.8 + Math.random() * 1.6;
                 
@@ -987,10 +1045,23 @@
                 gain.gain.linearRampToValueAtTime(0.3, this.ctx.currentTime + 0.5);
                 gain.gain.linearRampToValueAtTime(0, this.ctx.currentTime + dur);
                 
-                // Connect
+                // Connect without lofi for textures to save resources
                 src.connect(panner);
                 panner.connect(gain);
                 gain.connect(this.nodes.texture);
+                
+                src.onended = () => {
+                    panner.disconnect();
+                    gain.disconnect();
+                    src.disconnect();
+                };
+                
+                if (isReverse) {
+                    src.playbackRate.value *= -1;
+                    src.start(0, startPos + dur, dur);
+                } else {
+                    src.start(0, startPos, dur);
+                }
             }
 
             playGhost(sample) {
@@ -1014,12 +1085,19 @@
                 const reverbSend = this.ctx.createGain();
                 reverbSend.gain.value = 0.8;
                 
-                // Connect
+                // Connect without lofi
                 src.connect(filter);
                 filter.connect(gain);
                 gain.connect(this.nodes.out);
                 gain.connect(reverbSend);
                 reverbSend.connect(this.nodes.reverb);
+                
+                src.onended = () => {
+                    filter.disconnect();
+                    gain.disconnect();
+                    reverbSend.disconnect();
+                    src.disconnect();
+                };
                 
                 // Play a random section
                 const startTime = Math.random() * Math.max(0, sample.buffer.duration - 1);
