@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="Permissions-Policy" content="microphone=(self)">
-    <title>GUMP: Environmental Sampling EDM Engine</title>
+    <title>AURORA: Symbiotic Sonic Weaver v12 - Motion Sampling Engine</title>
     <style>
         * {
             margin: 0;
@@ -166,14 +166,7 @@
             font-weight: bold;
         }
 
-        .btn-subtext {
-            font-size: 11px;
-            opacity: 0.8;
-            text-align: center;
-            line-height: 1.2;
-        }
-
-        .btn-details {
+        .sample-details {
             display: flex;
             justify-content: space-between;
             font-size: 9px;
@@ -471,36 +464,37 @@
     <script>
         'use strict';
 
-        class GUMPEngine {
+        class AuroraWeaver {
             constructor() {
-                // Core
+                // Core audio
                 this.ctx = null;
                 this.active = false;
-                this.nodes = {};
+                this.masterGain = null;
+                this.analyzer = null;
+                this.dataArray = null;
+                this.timeDomainData = null;
                 
-                // Recording
-                this.recorder = {
-                    active: false,
-                    buffer: [],
-                    startTime: 0,
-                    maxDuration: 3000
-                };
+                // Microphone and recording
+                this.microphone = null;
+                this.recorder = null;
+                this.dummyGain = null;
+                this.sampleBuffer = [];
+                this.isRecording = false;
+                this.recordingChunks = [];
                 
-                // Samples
-                this.samples = [];
-                this.maxSamples = 12;
+                // Sample management
+                this.processedSamples = [];
                 this.layers = {};
+                this.maxSamples = 24;
                 
                 // Sequencer
-                this.seq = {
-                    bpm: 140,
-                    step: 0,
-                    playing: false,
-                    lastTime: 0,
-                    patterns: {}
-                };
+                this.tempo = 140;
+                this.beatStep = 0;
+                this.patternLength = 32;
+                this.sequenceTimeout = null;
+                this.isPlaying = false;
                 
-                // Motion
+                // Motion and AI
                 this.motion = {
                     value: 0,
                     history: new Float32Array(60),
@@ -508,28 +502,70 @@
                     pattern: 'calm'
                 };
                 
-                // UI Cache
-                this.ui = {};
+                this.lmState = {
+                    mood: 'neutral',
+                    energy: 0,
+                    complexity: 0,
+                    spectralCentroid: 0,
+                    onsetDensity: 0,
+                    harmony: 0
+                };
+                
+                // Sampling parameters
+                this.threshold = 0.05;
+                this.sensitivity = 1.0;
+                this.cooldown = 2000;
+                this.lastSampleTime = 0;
+                this.samplingInterval = 1000;
+                this.maxSampleDuration = 3;
+                
+                // Effects and processing
+                this.autotuneScale = [0, 3, 5, 7, 10]; // Blues pentatonic
+                this.keyRoot = 0;
+                this.fractalSeed = Math.random();
+                this.chaos = 0.5;
+                
+                // UI elements
+                this.elements = {};
+                this.waveformBars = [];
                 this.stage = 'LISTENING';
                 
                 // Performance
-                this.raf = null;
-                this.worker = null;
+                this.lastX = undefined;
+                this.lastY = undefined;
+                this.animationFrame = null;
                 
                 this.init();
             }
 
             init() {
                 // Cache DOM elements
-                const ids = ['startScreen', 'startBtn', 'evolutionSpace', 'orb', 'sampleViz',
+                const ids = [
+                    'startScreen', 'startBtn', 'evolutionSpace', 'orb', 'sampleViz',
                     'sampleStatus', 'sampleCount', 'bpmDisplay', 'stageDisplay', 
-                    'motionDisplay', 'waveform', 'controls', 'layerStatus', 'instructions'];
+                    'motionDisplay', 'waveform', 'controls', 'layerStatus', 'instructions'
+                ];
                 
                 ids.forEach(id => {
-                    this.ui[id] = document.getElementById(id);
+                    this.elements[id] = document.getElementById(id);
                 });
                 
-                // Pre-create waveform bars
+                // Create waveform visualization
+                this.setupWaveform();
+                
+                // Setup controls
+                this.setupControls();
+                
+                // Setup input handlers
+                this.setupInput();
+                
+                // Bind start button
+                this.elements.startBtn.onclick = () => this.awaken();
+                
+                console.log('🎵 Aurora Weaver initialized');
+            }
+
+            setupWaveform() {
                 const frag = document.createDocumentFragment();
                 for (let i = 0; i < 60; i++) {
                     const bar = document.createElement('div');
@@ -538,21 +574,18 @@
                     bar.style.width = '1.33%';
                     frag.appendChild(bar);
                 }
-                this.ui.waveform.appendChild(frag);
-                this.waveformBars = this.ui.waveform.querySelectorAll('.waveform-bar');
-                
-                // Event listeners
-                this.ui.startBtn.onclick = () => this.start();
-                this.setupControls();
-                this.setupInput();
-                
-                // Pre-compile patterns
-                this.compilePatterns();
+                this.elements.waveform.appendChild(frag);
+                this.waveformBars = this.elements.waveform.querySelectorAll('.waveform-bar');
             }
 
             setupControls() {
                 const sliders = document.querySelectorAll('.slider');
-                const params = { threshold: 0.15, sensitivity: 0.5, chaos: 0.2, speed: 0.5 };
+                const params = { 
+                    threshold: 0.15, 
+                    sensitivity: 0.5, 
+                    chaos: 0.2, 
+                    speed: 0.5 
+                };
                 
                 sliders.forEach(slider => {
                     const param = slider.dataset.param;
@@ -560,6 +593,7 @@
                     const thumb = slider.querySelector('.slider-thumb');
                     const value = params[param];
                     
+                    // Set initial position
                     fill.style.width = `${value * 100}%`;
                     thumb.style.left = `${value * 100}%`;
                     
@@ -574,16 +608,24 @@
                         fill.style.width = `${val * 100}%`;
                         thumb.style.left = `${val * 100}%`;
                         
-                        // Direct parameter updates
-                        if (param === 'speed') this.seq.bpm = 100 + val * 100;
-                        else if (param === 'threshold') this.threshold = 0.01 + val * 0.1;
-                        else if (param === 'sensitivity') this.cooldown = 500 + (1 - val) * 3000;
-                        else if (param === 'chaos') this.chaos = val;
+                        // Update parameters
+                        if (param === 'speed') {
+                            this.tempo = 80 + val * 80;
+                        } else if (param === 'threshold') {
+                            this.threshold = 0.01 + val * 0.1;
+                        } else if (param === 'sensitivity') {
+                            this.sensitivity = 0.5 + val * 2;
+                        } else if (param === 'chaos') {
+                            this.chaos = val;
+                        }
+                        
+                        this.updateDisplay();
                     };
                     
                     slider.onmousedown = (e) => {
                         active = true;
                         update(e);
+                        
                         document.onmousemove = update;
                         document.onmouseup = () => {
                             active = false;
@@ -595,7 +637,7 @@
             }
 
             setupInput() {
-                // Keyboard
+                // Keyboard controls
                 const keys = {
                     ' ': () => this.toggleRecording(),
                     'c': () => this.playRandom('chop'),
@@ -618,13 +660,13 @@
                     }
                 };
                 
-                // Motion tracking
+                // Mouse motion tracking
                 let lastMove = 0;
                 document.onmousemove = (e) => {
                     if (!this.active) return;
                     
                     const now = performance.now();
-                    if (now - lastMove < 16) return; // 60fps cap
+                    if (now - lastMove < 16) return; // 60fps throttle
                     lastMove = now;
                     
                     const x = e.clientX / window.innerWidth;
@@ -639,17 +681,23 @@
                     
                     this.lastX = x;
                     this.lastY = y;
-                    this.ui.orb.style.left = `${x * 100}%`;
-                    this.ui.orb.style.top = `${y * 100}%`;
+                    
+                    // Move orb
+                    this.elements.orb.style.left = `${x * 100}%`;
+                    this.elements.orb.style.top = `${y * 100}%`;
+                    
+                    // Update background
+                    document.body.style.background = `radial-gradient(circle at ${x * 100}% ${y * 100}%, rgba(255,20,20,0.1), #000)`;
                 };
                 
                 // Device motion
                 if (window.DeviceMotionEvent) {
                     window.addEventListener('devicemotion', (e) => {
                         if (!this.active || !e.accelerationIncludingGravity) return;
+                        
                         const {x, y, z} = e.accelerationIncludingGravity;
-                        const mag = Math.sqrt(x*x + y*y + z*z) * 0.1;
-                        this.updateMotion(mag);
+                        const magnitude = Math.sqrt(x*x + y*y + z*z) * 0.1;
+                        this.updateMotion(magnitude);
                     });
                 }
             }
@@ -661,38 +709,45 @@
                 
                 const avg = this.motion.history.reduce((a, b) => a + b) / 60;
                 
-                if (avg > 3) this.motion.pattern = 'chaotic';
-                else if (avg > 1.5) this.motion.pattern = 'active';
-                else if (avg > 0.5) this.motion.pattern = 'rhythmic';
-                else this.motion.pattern = 'calm';
+                if (avg > 3) {
+                    this.motion.pattern = 'chaotic';
+                    this.lmState.mood = 'chaotic';
+                } else if (avg > 1.5) {
+                    this.motion.pattern = 'active';
+                    this.lmState.mood = 'aggressive';
+                } else if (avg > 0.5) {
+                    this.motion.pattern = 'rhythmic';
+                    this.lmState.mood = 'rhythmic';
+                } else {
+                    this.motion.pattern = 'calm';
+                    this.lmState.mood = 'mellow';
+                }
+                
+                this.lmState.complexity = Math.min(1, avg / 2);
+                this.updateDisplay();
             }
 
-            async start() {
+            async awaken() {
                 try {
+                    // Create audio context
                     this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+                    await this.ctx.resume();
                     
-                    // Setup audio nodes
+                    // Setup audio chain
                     this.setupAudio();
                     
-                    // Create drums
+                    // Create initial drum samples
                     await this.createDrums();
                     
-                    // Get mic
-                    const stream = await navigator.mediaDevices.getUserMedia({
-                        audio: {
-                            echoCancellation: false,
-                            noiseSuppression: false,
-                            autoGainControl: false
-                        }
-                    });
-                    
-                    this.setupMic(stream);
+                    // Get microphone access
+                    await this.setupMic();
                     
                     // Show UI
-                    this.ui.startScreen.classList.add('hidden');
-                    this.ui.evolutionSpace.classList.add('active');
+                    this.elements.startScreen.classList.add('hidden');
+                    this.elements.evolutionSpace.classList.add('active');
+                    
                     ['sampleViz', 'controls', 'layerStatus', 'instructions'].forEach(id => {
-                        this.ui[id].classList.remove('hidden');
+                        this.elements[id].classList.remove('hidden');
                     });
                     
                     this.active = true;
@@ -702,52 +757,66 @@
                     this.startVis();
                     this.startSeq();
                     
-                    console.log('🎵 ENGINE STARTED');
+                    this.elements.sampleStatus.textContent = 'SYMBIOSIS ACTIVE';
+                    this.stage = 'SAMPLING';
+                    this.updateDisplay();
+                    
+                    console.log('🎵 Aurora Weaver awakened successfully');
                     
                 } catch (e) {
-                    console.error('Start failed:', e);
-                    alert('Failed to start: ' + e.message);
+                    console.error('Awakening failed:', e);
+                    this.elements.sampleStatus.textContent = 'SYMBIOSIS DENIED: ' + e.message;
                 }
             }
 
             setupAudio() {
-                const {ctx} = this;
+                // Master chain with lo-fi processing
+                this.masterGain = this.ctx.createGain();
+                this.masterGain.gain.value = 0.7;
                 
-                // Master chain
-                this.nodes.master = ctx.createGain();
-                this.nodes.master.gain.value = 0.8;
+                // Lo-fi filter chain
+                const lowpass = this.ctx.createBiquadFilter();
+                lowpass.type = 'lowpass';
+                lowpass.frequency.value = 8000;
+                lowpass.Q.value = 0.5;
                 
-                this.nodes.comp = ctx.createDynamicsCompressor();
-                this.nodes.comp.threshold.value = -12;
-                this.nodes.comp.knee.value = 2;
-                this.nodes.comp.ratio.value = 4;
-                this.nodes.comp.attack.value = 0.003;
-                this.nodes.comp.release.value = 0.1;
+                const highpass = this.ctx.createBiquadFilter();
+                highpass.type = 'highpass';
+                highpass.frequency.value = 80;
+                highpass.Q.value = 0.5;
                 
-                this.nodes.eq = ctx.createBiquadFilter();
-                this.nodes.eq.type = 'highshelf';
-                this.nodes.eq.frequency.value = 8000;
-                this.nodes.eq.gain.value = 2;
+                // Warm saturation
+                const waveshaper = this.ctx.createWaveShaper();
+                const curve = new Float32Array(65536);
+                for (let i = 0; i < 65536; i++) {
+                    const x = (i - 32768) / 32768;
+                    curve[i] = Math.tanh(x * 0.5) * 0.8;
+                }
+                waveshaper.curve = curve;
                 
-                this.nodes.limit = ctx.createDynamicsCompressor();
-                this.nodes.limit.threshold.value = -0.5;
-                this.nodes.limit.knee.value = 0;
-                this.nodes.limit.ratio.value = 20;
-                this.nodes.limit.attack.value = 0.001;
-                this.nodes.limit.release.value = 0.05;
+                // Connect chain
+                this.masterGain.connect(highpass);
+                highpass.connect(lowpass);
+                lowpass.connect(waveshaper);
+                waveshaper.connect(this.ctx.destination);
                 
-                this.nodes.master.connect(this.nodes.comp);
-                this.nodes.comp.connect(this.nodes.eq);
-                this.nodes.eq.connect(this.nodes.limit);
-                this.nodes.limit.connect(ctx.destination);
+                // Analyzer for visualization
+                this.analyzer = this.ctx.createAnalyser();
+                this.analyzer.fftSize = 2048;
+                this.analyzer.smoothingTimeConstant = 0.3;
+                this.dataArray = new Uint8Array(this.analyzer.frequencyBinCount);
+                this.timeDomainData = new Float32Array(this.analyzer.fftSize);
                 
-                // Layer channels
-                const gains = {kick: 1, snare: 0.85, hats: 0.5, bass: 0.9, lead: 0.7, fx: 0.6};
+                this.masterGain.connect(this.analyzer);
                 
-                Object.keys(gains).forEach(name => {
-                    const gain = ctx.createGain();
-                    gain.gain.value = gains[name];
-                    gain.connect(this.nodes.master);
+                // Initialize layer gains
+                const layerNames = ['kick', 'snare', 'hats', 'bass', 'lead', 'fx'];
+                const layerGains = [1.0, 0.8, 0.6, 0.9, 0.7, 0.5];
+                
+                layerNames.forEach((name, i) => {
+                    const gain = this.ctx.createGain();
+                    gain.gain.value = layerGains[i];
+                    gain.connect(this.masterGain);
                     
                     this.layers[name] = {
                         gain,
@@ -757,134 +826,159 @@
             }
 
             async createDrums() {
-                const {ctx} = this;
-                const sr = ctx.sampleRate;
+                const sr = this.ctx.sampleRate;
                 
                 // 808 Kick
-                const kick = ctx.createBuffer(2, sr * 0.8, sr);
-                for (let ch = 0; ch < 2; ch++) {
-                    const data = kick.getChannelData(ch);
-                    for (let i = 0; i < data.length; i++) {
-                        const t = i / sr;
-                        const env = t < 0.01 ? t / 0.01 : Math.exp(-2.5 * (t - 0.01));
-                        const pitch = 50 * Math.exp(-35 * t) + 25;
-                        
-                        let s = Math.sin(2 * Math.PI * pitch * t) * 0.8;
-                        s += Math.sin(4 * Math.PI * pitch * t) * 0.15 * Math.exp(-50 * t);
-                        
-                        if (t < 0.005) {
-                            const click = (Math.random() * 2 - 1) * 0.3 * (1 - t / 0.005);
-                            s += click + Math.sin(2 * Math.PI * 200 * t) * 0.3 * (1 - t / 0.005);
-                        }
-                        
-                        data[i] = Math.tanh(s * 1.5) * env;
+                const kickBuffer = this.ctx.createBuffer(1, sr * 0.8, sr);
+                const kickData = kickBuffer.getChannelData(0);
+                
+                for (let i = 0; i < kickData.length; i++) {
+                    const t = i / sr;
+                    const env = t < 0.01 ? t / 0.01 : Math.exp(-3 * (t - 0.01));
+                    const pitch = 60 * Math.exp(-30 * t) + 30;
+                    
+                    let signal = Math.sin(2 * Math.PI * pitch * t) * 0.8;
+                    signal += Math.sin(4 * Math.PI * pitch * t) * 0.2 * Math.exp(-40 * t);
+                    
+                    // Add click for punch
+                    if (t < 0.003) {
+                        const click = Math.sin(2 * Math.PI * 1000 * t) * 0.4 * (1 - t / 0.003);
+                        signal += click;
                     }
+                    
+                    kickData[i] = Math.tanh(signal * 1.5) * env;
                 }
                 
                 // Trap Snare
-                const snare = ctx.createBuffer(2, sr * 0.25, sr);
-                for (let ch = 0; ch < 2; ch++) {
-                    const data = snare.getChannelData(ch);
-                    for (let i = 0; i < data.length; i++) {
-                        const t = i / sr;
-                        const env = (t < 0.003 ? t / 0.003 : 1) * Math.exp(-12 * t);
-                        
-                        const tone = Math.sin(2 * Math.PI * 220 * t) * 0.3;
-                        const noise = (Math.random() * 2 - 1) * 0.5;
-                        const sizzle = (Math.random() * 2 - 1) * 0.2 * Math.exp(-30 * t);
-                        
-                        data[i] = Math.tanh((tone * Math.exp(-15 * t) + noise * Math.exp(-8 * t) + sizzle) * 2) * 0.8 * env;
-                    }
+                const snareBuffer = this.ctx.createBuffer(1, sr * 0.2, sr);
+                const snareData = snareBuffer.getChannelData(0);
+                
+                for (let i = 0; i < snareData.length; i++) {
+                    const t = i / sr;
+                    const env = Math.exp(-8 * t);
+                    
+                    const tone = Math.sin(2 * Math.PI * 200 * t) * 0.3;
+                    const noise = (Math.random() * 2 - 1) * 0.6;
+                    const crack = Math.sin(2 * Math.PI * 300 * t) * 0.2 * Math.exp(-20 * t);
+                    
+                    snareData[i] = Math.tanh((tone + noise + crack) * 1.8) * env * 0.7;
                 }
                 
-                // Hi-Hat
-                const hat = ctx.createBuffer(2, sr * 0.08, sr);
-                for (let ch = 0; ch < 2; ch++) {
-                    const data = hat.getChannelData(ch);
-                    for (let i = 0; i < data.length; i++) {
-                        const t = i / sr;
-                        let s = 0;
-                        
-                        [6000, 8000, 10000, 12000, 14000].forEach((f, j) => {
-                            s += Math.sin(2 * Math.PI * f * (1 + Math.random() * 0.02 - 0.01) * t) * (0.2 / (j + 1));
-                        });
-                        
-                        s = (s + (Math.random() * 2 - 1) * 0.3) * Math.exp(-80 * t) * 0.6;
-                        
-                        if (ch === 1 && i > 10) {
-                            s = data[i-10] * 0.1 + s * 0.9;
-                        }
-                        
-                        data[i] = s;
-                    }
+                // Hi-hats
+                const hatBuffer = this.ctx.createBuffer(1, sr * 0.05, sr);
+                const hatData = hatBuffer.getChannelData(0);
+                
+                for (let i = 0; i < hatData.length; i++) {
+                    const t = i / sr;
+                    let signal = 0;
+                    
+                    // High frequency content
+                    [8000, 10000, 12000, 15000].forEach(freq => {
+                        signal += Math.sin(2 * Math.PI * freq * t) * 0.15;
+                    });
+                    
+                    signal += (Math.random() * 2 - 1) * 0.4;
+                    signal *= Math.exp(-60 * t);
+                    
+                    hatData[i] = signal * 0.5;
                 }
                 
                 // Sub Bass
-                const sub = ctx.createBuffer(2, sr * 2, sr);
-                for (let ch = 0; ch < 2; ch++) {
-                    const data = sub.getChannelData(ch);
-                    for (let i = 0; i < data.length; i++) {
-                        const t = i / sr;
-                        const fade = Math.min(1, t / 0.01) * (t > 1.8 ? Math.max(0, 1 - (t - 1.8) / 0.2) : 1);
-                        data[i] = Math.sin(2 * Math.PI * 55 * (1 + Math.sin(2 * Math.PI * 5 * t) * 0.01) * t) * fade * 0.7;
-                    }
+                const bassBuffer = this.ctx.createBuffer(1, sr * 1.5, sr);
+                const bassData = bassBuffer.getChannelData(0);
+                
+                for (let i = 0; i < bassData.length; i++) {
+                    const t = i / sr;
+                    const env = Math.min(1, t / 0.01) * (t > 1.2 ? Math.max(0, 1 - (t - 1.2) / 0.3) : 1);
+                    const wobble = 1 + Math.sin(2 * Math.PI * 3 * t) * 0.02;
+                    
+                    bassData[i] = Math.sin(2 * Math.PI * 55 * wobble * t) * env * 0.8;
                 }
                 
-                // Add initial samples
-                const drums = [
-                    {buffer: kick, layer: 'kick', analysis: {energy: 'high', pitch: null}},
-                    {buffer: snare, layer: 'snare', analysis: {energy: 'medium', pitch: null}},
-                    {buffer: hat, layer: 'hats', analysis: {energy: 'low', pitch: null}},
-                    {buffer: sub, layer: 'bass', analysis: {energy: 'medium', pitch: 55}}
+                // Create sample objects
+                const drumSamples = [
+                    { buffer: kickBuffer, layer: 'kick', pitch: 60 },
+                    { buffer: snareBuffer, layer: 'snare', pitch: 200 },
+                    { buffer: hatBuffer, layer: 'hats', pitch: null },
+                    { buffer: bassBuffer, layer: 'bass', pitch: 55 }
                 ];
                 
-                drums.forEach(({buffer, layer, analysis}) => {
+                drumSamples.forEach(({ buffer, layer, pitch }) => {
                     const sample = {
                         id: `${layer}_${Date.now()}`,
                         buffer,
                         duration: buffer.duration,
-                        analysis,
-                        rate: 1
+                        analysis: {
+                            pitch,
+                            energy: layer === 'kick' ? 'high' : layer === 'snare' ? 'medium' : 'low',
+                            brightness: layer === 'hats' ? 'bright' : 'dark'
+                        },
+                        rate: 1,
+                        layer
                     };
-                    this.samples.push(sample);
+                    
+                    this.processedSamples.push(sample);
                     this.layers[layer].samples.push(sample);
                 });
                 
                 this.updateStage();
             }
 
-            setupMic(stream) {
-                const {ctx} = this;
+            async setupMic() {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    audio: {
+                        echoCancellation: false,
+                        noiseSuppression: false,
+                        autoGainControl: false,
+                        sampleRate: 44100
+                    }
+                });
                 
-                this.nodes.mic = ctx.createMediaStreamSource(stream);
-                this.nodes.analyser = ctx.createAnalyser();
-                this.nodes.analyser.fftSize = 2048;
-                this.nodes.analyser.smoothingTimeConstant = 0.3;
-                
-                this.micData = new Uint8Array(this.nodes.analyser.frequencyBinCount);
-                this.nodes.mic.connect(this.nodes.analyser);
+                this.microphone = this.ctx.createMediaStreamSource(stream);
                 
                 // Recording processor
-                this.nodes.recorder = ctx.createScriptProcessor(4096, 1, 1);
-                this.nodes.recorder.onaudioprocess = (e) => {
-                    if (!this.recorder.active) return;
-                    
-                    const data = e.inputBuffer.getChannelData(0);
-                    this.recorder.buffer.push(...data);
-                    
-                    if (this.recorder.buffer.length > ctx.sampleRate * 3) {
-                        this.stopRecording();
-                    }
-                };
+                this.recorder = this.ctx.createScriptProcessor(4096, 1, 1);
+                this.dummyGain = this.ctx.createGain();
+                this.dummyGain.gain.value = 0;
                 
-                // Thresholds
-                this.threshold = 0.02;
-                this.cooldown = 2000;
-                this.lastSample = 0;
+                this.recorder.onaudioprocess = (e) => this.processAudio(e);
+                
+                this.microphone.connect(this.recorder);
+                this.recorder.connect(this.dummyGain);
+                this.dummyGain.connect(this.ctx.destination);
+            }
+
+            processAudio(e) {
+                if (!this.active) return;
+                
+                const input = e.inputBuffer.getChannelData(0);
+                const rms = this.rootMeanSquare(input);
+                const now = Date.now();
+                
+                // Auto-sampling on sound detection
+                if (rms > this.threshold && !this.isRecording && now - this.lastSampleTime > this.cooldown) {
+                    this.startRecording();
+                } else if (rms < this.threshold * 0.3 && this.isRecording) {
+                    this.stopRecording();
+                }
+                
+                // Real-time analysis for LM
+                this.lmState.energy = rms * this.sensitivity;
+                
+                // Update waveform visualization
+                this.updateWaveform(input);
+            }
+
+            rootMeanSquare(array) {
+                let sum = 0;
+                for (let i = 0; i < array.length; i++) {
+                    sum += array[i] * array[i];
+                }
+                return Math.sqrt(sum / array.length);
             }
 
             toggleRecording() {
-                if (this.recorder.active) {
+                if (this.isRecording) {
                     this.stopRecording();
                 } else {
                     this.startRecording();
@@ -892,111 +986,119 @@
             }
 
             startRecording() {
-                if (this.recorder.active) return;
+                if (this.isRecording) return;
                 
-                this.recorder.active = true;
-                this.recorder.buffer = [];
-                this.recorder.startTime = Date.now();
-                this.lastSample = Date.now();
+                this.isRecording = true;
+                this.sampleBuffer = [];
+                this.lastSampleTime = Date.now();
                 
-                this.nodes.mic.connect(this.nodes.recorder);
-                this.nodes.recorder.connect(this.ctx.destination);
+                this.elements.orb.classList.add('sampling');
+                this.elements.sampleStatus.textContent = 'SAMPLING...';
+                this.stage = 'SAMPLING';
                 
-                console.log('🎤 Recording...');
+                console.log('🎤 Recording started');
             }
 
             stopRecording() {
-                if (!this.recorder.active) return;
+                if (!this.isRecording) return;
                 
-                this.recorder.active = false;
-                this.nodes.mic.disconnect(this.nodes.recorder);
-                this.nodes.recorder.disconnect();
+                this.isRecording = false;
+                this.elements.orb.classList.remove('sampling');
                 
-                if (this.recorder.buffer.length > 0) {
+                if (this.sampleBuffer.length > 0) {
                     this.createSample();
                 }
                 
-                console.log('✅ Recording stopped');
+                this.elements.sampleStatus.textContent = 'PROCESSING...';
+                this.stage = 'PROCESSING';
+                
+                console.log('✅ Recording stopped, processing sample');
             }
 
             createSample() {
-                const {ctx} = this;
-                const buffer = ctx.createBuffer(1, this.recorder.buffer.length, ctx.sampleRate);
-                buffer.getChannelData(0).set(this.recorder.buffer);
+                if (this.sampleBuffer.length === 0) return;
                 
+                // Create audio buffer from recorded data
+                const buffer = this.ctx.createBuffer(1, this.sampleBuffer.length, this.ctx.sampleRate);
+                buffer.getChannelData(0).set(this.sampleBuffer);
+                
+                // Analyze sample
                 const analysis = this.analyze(buffer);
                 
+                // Create sample object
                 const sample = {
                     id: `rec_${Date.now()}`,
                     buffer,
                     duration: buffer.duration,
                     analysis,
-                    rate: 1
+                    rate: 1,
+                    layer: this.categorize(analysis)
                 };
                 
                 // Autotune if pitched
                 if (analysis.pitch) {
-                    const target = this.quantizePitch(analysis.pitch);
-                    sample.rate = target / analysis.pitch;
+                    const targetPitch = this.quantizePitch(analysis.pitch);
+                    sample.rate = targetPitch / analysis.pitch;
                 }
                 
-                // Maintain max samples
-                if (this.samples.length >= this.maxSamples) {
-                    const old = this.samples.shift();
+                // Add to collections
+                this.processedSamples.push(sample);
+                this.layers[sample.layer].samples.push(sample);
+                
+                // Maintain sample limit
+                while (this.processedSamples.length > this.maxSamples) {
+                    const oldSample = this.processedSamples.shift();
                     Object.values(this.layers).forEach(layer => {
-                        layer.samples = layer.samples.filter(s => s.id !== old.id);
+                        layer.samples = layer.samples.filter(s => s.id !== oldSample.id);
                     });
                 }
                 
-                this.samples.push(sample);
-                
-                // Categorize
-                const category = this.categorize(analysis);
-                this.layers[category].samples.push(sample);
-                
                 this.updateStage();
-                console.log(`📚 Sample added to ${category}`);
+                console.log(`📚 Sample added to ${sample.layer}, total: ${this.processedSamples.length}`);
             }
 
             analyze(buffer) {
                 const data = buffer.getChannelData(0);
                 const len = data.length;
                 
-                // RMS
+                // RMS Energy
                 let rms = 0;
                 for (let i = 0; i < len; i++) {
                     rms += data[i] * data[i];
                 }
                 rms = Math.sqrt(rms / len);
                 
-                // Zero crossings
-                let zc = 0;
+                // Zero crossing rate (brightness indicator)
+                let zeroCrossings = 0;
                 for (let i = 1; i < len; i++) {
-                    if ((data[i] >= 0) !== (data[i-1] >= 0)) zc++;
+                    if ((data[i] >= 0) !== (data[i-1] >= 0)) {
+                        zeroCrossings++;
+                    }
                 }
-                const zcr = zc / buffer.duration;
+                const zcr = zeroCrossings / buffer.duration;
                 
-                // Pitch detection (simplified autocorrelation)
+                // Simple pitch detection via autocorrelation
                 let pitch = null;
-                if (len > 512) {
-                    const maxLag = Math.min(len >> 1, 1000);
-                    const minLag = 20;
-                    let maxCorr = 0;
-                    let bestLag = -1;
+                if (len > 1024) {
+                    const maxDelay = Math.min(len >> 1, 2000);
+                    const minDelay = 40;
+                    let maxCorrelation = 0;
+                    let bestDelay = -1;
                     
-                    for (let lag = minLag; lag < maxLag; lag++) {
-                        let corr = 0;
-                        for (let i = 0; i < len - lag; i++) {
-                            corr += data[i] * data[i + lag];
+                    for (let delay = minDelay; delay < maxDelay; delay++) {
+                        let correlation = 0;
+                        for (let i = 0; i < len - delay; i++) {
+                            correlation += data[i] * data[i + delay];
                         }
-                        if (corr > maxCorr) {
-                            maxCorr = corr;
-                            bestLag = lag;
+                        
+                        if (correlation > maxCorrelation) {
+                            maxCorrelation = correlation;
+                            bestDelay = delay;
                         }
                     }
                     
-                    if (maxCorr > rms * rms * len * 0.3 && bestLag > 0) {
-                        pitch = this.ctx.sampleRate / bestLag;
+                    if (maxCorrelation > rms * rms * len * 0.3 && bestDelay > 0) {
+                        pitch = this.ctx.sampleRate / bestDelay;
                     }
                 }
                 
@@ -1011,166 +1113,427 @@
             }
 
             categorize(analysis) {
-                const {energy, brightness, pitch, duration, zcr} = analysis;
+                const { energy, brightness, pitch, duration, zcr } = analysis;
                 
-                if (energy === 'high' && brightness === 'dark' && duration < 0.5) return 'kick';
-                if (energy === 'medium' && zcr > 2000 && zcr < 5000) return 'snare';
-                if (brightness === 'bright' && duration < 0.1) return 'hats';
-                if (pitch && pitch < 200 && duration > 0.5) return 'bass';
-                if (pitch && pitch > 200 && pitch < 1000) return 'lead';
+                // Kick: High energy, dark, short
+                if (energy === 'high' && brightness === 'dark' && duration < 0.8) {
+                    return 'kick';
+                }
                 
+                // Snare: Medium energy, some brightness, short-medium
+                if (energy === 'medium' && zcr > 1500 && zcr < 6000 && duration < 1) {
+                    return 'snare';
+                }
+                
+                // Hi-hats: Bright, short
+                if (brightness === 'bright' && duration < 0.2) {
+                    return 'hats';
+                }
+                
+                // Bass: Low pitch, longer duration
+                if (pitch && pitch < 150 && duration > 0.3) {
+                    return 'bass';
+                }
+                
+                // Lead: Mid-high pitch
+                if (pitch && pitch >= 150 && pitch < 1000) {
+                    return 'lead';
+                }
+                
+                // Everything else goes to FX
                 return 'fx';
             }
 
-            quantizePitch(freq) {
-                // A minor scale
-                const scale = [0, 2, 3, 5, 7, 8, 10];
-                const midi = 69 + 12 * Math.log2(freq / 440);
-                const note = Math.round(midi);
-                const octave = Math.floor(note / 12);
-                const degree = note % 12;
+            quantizePitch(frequency) {
+                // Quantize to A minor pentatonic scale
+                const scales = {
+                    'mellow': [0, 3, 5, 7, 10],      // Minor pentatonic
+                    'aggressive': [0, 2, 3, 5, 7, 8, 10], // Natural minor
+                    'rhythmic': [0, 2, 4, 7, 9],     // Major pentatonic
+                    'chaotic': [0, 1, 3, 6, 8, 10]   // Blues scale
+                };
                 
+                const scale = scales[this.lmState.mood] || scales['mellow'];
+                const rootFreq = 110; // A2
+                
+                // Convert to semitones from root
+                const semitones = 12 * Math.log2(frequency / rootFreq);
+                const octave = Math.floor(semitones / 12);
+                const note = semitones % 12;
+                
+                // Find closest scale note
                 let closest = scale[0];
-                let minDiff = Math.abs(degree - closest);
+                let minDistance = Math.abs(note - closest);
                 
-                for (let s of scale) {
-                    const diff = Math.abs(degree - s);
-                    if (diff < minDiff) {
-                        minDiff = diff;
-                        closest = s;
+                for (const scaleNote of scale) {
+                    const distance = Math.abs(note - scaleNote);
+                    if (distance < minDistance) {
+                        minDistance = distance;
+                        closest = scaleNote;
                     }
                 }
                 
-                return 440 * Math.pow(2, (octave * 12 + closest - 69) / 12);
-            }
-
-            compilePatterns() {
-                // Pre-compile beat patterns for performance
-                this.seq.patterns = {
-                    listening: {
-                        kick: [0, 16],
-                        hats: [8, 24]
-                    },
-                    sampling: {
-                        kick: [0, 16],
-                        snare: [8, 24],
-                        hats: [4, 12, 20, 28]
-                    },
-                    chopping: {
-                        kick: [0, 16],
-                        snare: [8, 24],
-                        hats: [2, 6, 10, 14, 18, 22, 26, 30],
-                        bass: [0, 16]
-                    },
-                    flipping: {
-                        kick: [0, 16],
-                        snare: [8, 24],
-                        hats: [0, 4, 8, 12, 16, 20, 24, 28],
-                        bass: [0, 16],
-                        lead: [4, 12, 20, 28]
-                    },
-                    dropping: {
-                        kick: [0, 16],
-                        snare: [8, 24],
-                        hats: [0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30],
-                        bass: [0, 16],
-                        lead: [4, 12, 20, 28],
-                        fx: [0, 8, 16, 24]
-                    }
-                };
+                // Return quantized frequency
+                return rootFreq * Math.pow(2, (octave * 12 + closest) / 12);
             }
 
             startVis() {
                 const loop = () => {
                     if (!this.active) return;
-
+                    
+                    this.analyzer.getByteFrequencyData(this.dataArray);
                     this.analyzer.getFloatTimeDomainData(this.timeDomainData);
                     
-                    // Update waveform
-                    let rms = 0;
-                    for (let val of this.timeDomainData) rms += val * val;
-                    rms = Math.sqrt(rms / this.timeDomainData.length) * this.sensitivity;
-                    this.lmState.energy = rms;
+                    // Update LM state from real-time audio
+                    this.updateLMState();
                     
-                    const now = Date.now();
-                    if (rms > this.threshold && !this.isRecording && now - this.lastSampleTime > this.samplingInterval) {
-                        this.recordingChunks = [];
-                        this.recorder.start();
-                        this.isRecording = true;
-                        console.log('Sampling Started');
-                    } else if (rms < this.threshold / 2 && this.isRecording) {
-                        this.recorder.stop();
-                        this.isRecording = false;
-                        this.lastSampleTime = now;
-                        console.log('Sampling Stopped');
-                    }
-
-                    requestAnimationFrame(loop);
+                    // Continue loop
+                    this.animationFrame = requestAnimationFrame(loop);
                 };
-                requestAnimationFrame(loop);
+                
+                this.animationFrame = requestAnimationFrame(loop);
             }
 
-            sequencerLoop() {
-                const stepDuration = 60 / this.tempo / 4 * 1000; // 16th note ms
-                setTimeout(() => {
-                    this.playBeatStep();
-                    this.sequencerLoop();
-                }, stepDuration);
+            updateLMState() {
+                // Energy from time domain
+                let energy = 0;
+                for (let val of this.timeDomainData) {
+                    energy += val * val;
+                }
+                this.lmState.energy = Math.sqrt(energy / this.timeDomainData.length);
+                
+                // Spectral centroid from frequency domain
+                let numerator = 0, denominator = 0;
+                for (let i = 0; i < this.dataArray.length; i++) {
+                    const magnitude = this.dataArray[i];
+                    numerator += i * magnitude;
+                    denominator += magnitude;
+                }
+                
+                if (denominator > 0) {
+                    this.lmState.spectralCentroid = (numerator / denominator) * (this.ctx.sampleRate / 2 / this.dataArray.length);
+                }
+                
+                // Update complexity based on motion and energy
+                this.lmState.complexity = Math.min(1, (this.motion.value + this.lmState.energy) / 2);
             }
 
-            playBeatStep() {
-                const pattern = this.generateFractalPattern();
-                if (pattern[this.beatStep % this.patternLength]) {
-                    const sampleIndex = Math.floor(Math.random() * this.processedSamples.length);
-                    const sample = this.processedSamples[sampleIndex];
-                    if (sample) {
-                        const source = this.ctx.createBufferSource();
-                        source.buffer = sample;
-                        source.connect(this.masterGain);
-                        source.start(0);
+            updateWaveform(audioData) {
+                const stride = Math.floor(audioData.length / this.waveformBars.length);
+                
+                for (let i = 0; i < this.waveformBars.length; i++) {
+                    let max = 0;
+                    for (let j = 0; j < stride; j++) {
+                        const sample = Math.abs(audioData[i * stride + j] || 0);
+                        if (sample > max) max = sample;
+                    }
+                    
+                    const height = Math.min(100, max * this.sensitivity * 200);
+                    this.waveformBars[i].style.height = `${height}%`;
+                }
+                
+                // Store in sample buffer if recording
+                if (this.isRecording) {
+                    this.sampleBuffer.push(...audioData);
+                    
+                    // Auto-stop if too long
+                    if (this.sampleBuffer.length > this.ctx.sampleRate * this.maxSampleDuration) {
+                        this.stopRecording();
                     }
                 }
-                this.beatStep++;
+            }
+
+            startSeq() {
+                if (this.isPlaying) return;
+                this.isPlaying = true;
+                this.playStep();
+            }
+
+            playStep() {
+                if (!this.active || !this.isPlaying) return;
+                
+                const pattern = this.generateFractalPattern();
+                const stepDuration = (60 / this.tempo / 4) * 1000; // 16th note duration in ms
+                
+                // Play samples based on pattern and LM state
+                this.executeStep(pattern);
+                
+                this.beatStep = (this.beatStep + 1) % this.patternLength;
+                
+                // Schedule next step
+                this.sequenceTimeout = setTimeout(() => this.playStep(), stepDuration);
             }
 
             generateFractalPattern() {
-                const pattern = new Array(this.patternLength).fill(0);
-                // Sierpinski-like fractal for rhythm
-                for (let i = 0; i < this.patternLength; i++) {
-                    pattern[i] = (i & (i >> Math.floor(this.lmState.complexity * 4 + 1))) === 0 ? 1 : 0;
-                }
-                // Modulate by mood
-                if (this.lmState.mood === 'aggressive') {
-                    pattern.forEach((v, idx) => { if (idx % 2 === 0) pattern[idx] = 1; });
-                } else if (this.lmState.mood === 'mellow') {
-                    pattern.forEach((v, idx) => { if (idx % 4 !== 0) pattern[idx] = 0; });
-                }
+                const pattern = {
+                    kick: new Array(this.patternLength).fill(false),
+                    snare: new Array(this.patternLength).fill(false),
+                    hats: new Array(this.patternLength).fill(false),
+                    bass: new Array(this.patternLength).fill(false),
+                    lead: new Array(this.patternLength).fill(false),
+                    fx: new Array(this.patternLength).fill(false)
+                };
+                
+                // Base patterns influenced by mood
+                const moodPatterns = {
+                    'mellow': {
+                        kick: [0, 16],
+                        snare: [8, 24],
+                        hats: [4, 12, 20, 28]
+                    },
+                    'aggressive': {
+                        kick: [0, 6, 16, 22],
+                        snare: [8, 24],
+                        hats: [0, 4, 8, 12, 16, 20, 24, 28],
+                        bass: [0, 16]
+                    },
+                    'rhythmic': {
+                        kick: [0, 16],
+                        snare: [8, 24],
+                        hats: [2, 6, 10, 14, 18, 22, 26, 30],
+                        bass: [0, 8, 16, 24]
+                    },
+                    'chaotic': {
+                        kick: [0, 5, 16, 21],
+                        snare: [8, 15, 24, 31],
+                        hats: [1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31],
+                        bass: [0, 4, 8, 12, 16, 20, 24, 28],
+                        lead: [2, 6, 10, 14, 18, 22, 26, 30]
+                    }
+                };
+                
+                const basePattern = moodPatterns[this.lmState.mood] || moodPatterns['mellow'];
+                
+                // Apply base pattern
+                Object.keys(basePattern).forEach(layer => {
+                    basePattern[layer].forEach(step => {
+                        if (step < this.patternLength) {
+                            pattern[layer][step] = true;
+                        }
+                    });
+                });
+                
+                // Add chaos and complexity
+                Object.keys(pattern).forEach(layer => {
+                    for (let i = 0; i < this.patternLength; i++) {
+                        // Fractal-based additions
+                        const fractalValue = this.fractalNoise(i, layer.length);
+                        const threshold = 0.7 - (this.chaos * 0.4) - (this.lmState.complexity * 0.2);
+                        
+                        if (fractalValue > threshold && Math.random() < this.chaos) {
+                            pattern[layer][i] = true;
+                        }
+                        
+                        // Motion-based modifications
+                        if (this.motion.value > 2 && Math.random() < this.motion.value * 0.1) {
+                            pattern[layer][i] = !pattern[layer][i];
+                        }
+                    }
+                });
+                
                 return pattern;
             }
 
-            analysisLoop() {
-                requestAnimationFrame(this.analysisLoop.bind(this));
-                if (!this.active) return;
+            fractalNoise(x, seed) {
+                const scale1 = Math.sin(x * 0.1 + seed) * 0.5 + 0.5;
+                const scale2 = Math.sin(x * 0.3 + seed * 2) * 0.3 + 0.5;
+                const scale3 = Math.sin(x * 0.7 + seed * 3) * 0.2 + 0.5;
+                return (scale1 + scale2 + scale3) / 3;
+            }
 
-                this.analyzer.getByteFrequencyData(this.dataArray);
-                this.analyzer.getFloatTimeDomainData(this.timeDomainData);
-
-                // Update LM from real-time audio
-                let energy = 0;
-                for (let val of this.timeDomainData) energy += val * val;
-                this.lmState.energy = Math.sqrt(energy / this.timeDomainData.length);
-
-                // Spectral centroid
-                let num = 0, den = 0;
-                for (let i = 0; i < this.dataArray.length; i++) {
-                    num += i * this.dataArray[i];
-                    den += this.dataArray[i];
+            executeStep(pattern) {
+                Object.keys(pattern).forEach(layer => {
+                    if (pattern[layer][this.beatStep] && this.layers[layer].samples.length > 0) {
+                        this.triggerLayer(layer);
+                    }
+                });
+                
+                // Visual feedback
+                if (pattern.kick[this.beatStep] || pattern.snare[this.beatStep]) {
+                    this.elements.orb.classList.add('pulse');
+                    setTimeout(() => this.elements.orb.classList.remove('pulse'), 150);
                 }
-                this.lmState.spectralCentroid = den > 0 ? (num / den) * (this.ctx.sampleRate / 2 / this.dataArray.length) : 0;
+            }
+
+            triggerLayer(layerName) {
+                const layer = this.layers[layerName];
+                if (!layer || layer.samples.length === 0) return;
+                
+                // Select sample based on LM state
+                let sampleIndex;
+                if (this.lmState.mood === 'chaotic') {
+                    sampleIndex = Math.floor(Math.random() * layer.samples.length);
+                } else {
+                    // Use most recent sample for consistency
+                    sampleIndex = layer.samples.length - 1;
+                }
+                
+                const sample = layer.samples[sampleIndex];
+                this.play(sample, layer.gain);
+                
+                // Visual feedback
+                const layerElement = document.querySelector(`[data-layer="${layerName}"]`);
+                if (layerElement) {
+                    layerElement.classList.add('active');
+                    setTimeout(() => layerElement.classList.remove('active'), 200);
+                }
+                
+                console.log(`🥁 Triggered ${layerName}`);
+            }
+
+            play(sample, gainNode, rate = null) {
+                if (!sample || !sample.buffer) return;
+                
+                const source = this.ctx.createBufferSource();
+                source.buffer = sample.buffer;
+                source.playbackRate.value = rate || sample.rate;
+                
+                // Add subtle randomization for humanization
+                source.playbackRate.value *= 1 + (Math.random() - 0.5) * 0.02;
+                
+                // Create envelope for smooth playback
+                const envelope = this.ctx.createGain();
+                envelope.gain.setValueAtTime(0, this.ctx.currentTime);
+                envelope.gain.linearRampToValueAtTime(1, this.ctx.currentTime + 0.01);
+                envelope.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + sample.duration * 0.9);
+                
+                source.connect(envelope);
+                envelope.connect(gainNode);
+                
+                source.start(0);
+                source.stop(this.ctx.currentTime + sample.duration);
+            }
+
+            playRandom(effect) {
+                if (this.processedSamples.length === 0) return;
+                
+                const sample = this.processedSamples[Math.floor(Math.random() * this.processedSamples.length)];
+                const layer = this.layers[sample.layer];
+                
+                this.elements.orb.classList.add(effect);
+                setTimeout(() => this.elements.orb.classList.remove(effect), 300);
+                
+                switch (effect) {
+                    case 'chop':
+                        this.playChop(sample, layer.gain);
+                        this.stage = 'CHOPPING';
+                        break;
+                    case 'flip':
+                        this.playReverse(sample, layer.gain);
+                        this.stage = 'FLIPPING';
+                        break;
+                    case 'pitch':
+                        const randomRate = 0.5 + Math.random() * 1.5;
+                        this.play(sample, layer.gain, randomRate);
+                        this.stage = 'PITCHING';
+                        break;
+                }
+                
+                this.updateDisplay();
+                setTimeout(() => {
+                    this.stage = 'LISTENING';
+                    this.updateDisplay();
+                }, 1000);
+            }
+
+            playChop(sample, gainNode) {
+                const chopSize = 0.1 + Math.random() * 0.2; // 100-300ms chops
+                const numChops = Math.floor(sample.duration / chopSize);
+                
+                for (let i = 0; i < Math.min(numChops, 8); i++) {
+                    setTimeout(() => {
+                        const source = this.ctx.createBufferSource();
+                        source.buffer = sample.buffer;
+                        source.connect(gainNode);
+                        
+                        const startTime = i * chopSize;
+                        source.start(0, startTime, chopSize);
+                    }, i * 120); // Slight delay between chops
+                }
+            }
+
+            playReverse(sample, gainNode) {
+                // Create reversed buffer
+                const reversedBuffer = this.ctx.createBuffer(
+                    sample.buffer.numberOfChannels,
+                    sample.buffer.length,
+                    sample.buffer.sampleRate
+                );
+                
+                for (let channel = 0; channel < sample.buffer.numberOfChannels; channel++) {
+                    const originalData = sample.buffer.getChannelData(channel);
+                    const reversedData = reversedBuffer.getChannelData(channel);
+                    
+                    for (let i = 0; i < originalData.length; i++) {
+                        reversedData[i] = originalData[originalData.length - 1 - i];
+                    }
+                }
+                
+                const source = this.ctx.createBufferSource();
+                source.buffer = reversedBuffer;
+                source.connect(gainNode);
+                source.start(0);
+            }
+
+            updateStage() {
+                this.elements.sampleCount.textContent = `${this.processedSamples.length} SAMPLES`;
+                
+                // Update layer counts
+                Object.keys(this.layers).forEach(layerName => {
+                    const count = this.layers[layerName].samples.length;
+                    const element = document.querySelector(`[data-layer="${layerName}"] .layer-count`);
+                    if (element) {
+                        element.textContent = count;
+                    }
+                });
+                
+                // Update stage based on activity
+                if (this.processedSamples.length === 0) {
+                    this.stage = 'LISTENING';
+                } else if (this.isRecording) {
+                    this.stage = 'SAMPLING';
+                } else {
+                    this.stage = 'WEAVING';
+                }
+                
+                this.updateDisplay();
+            }
+
+            updateDisplay() {
+                this.elements.bpmDisplay.textContent = `${Math.round(this.tempo)} BPM`;
+                this.elements.stageDisplay.textContent = this.stage;
+                this.elements.motionDisplay.textContent = this.motion.pattern.toUpperCase();
+                
+                // Update orb size based on motion
+                const scale = 1 + this.motion.value * 0.1;
+                this.elements.orb.style.transform = `translate(-50%, -50%) scale(${scale})`;
+            }
+
+            destroy() {
+                this.active = false;
+                
+                if (this.animationFrame) {
+                    cancelAnimationFrame(this.animationFrame);
+                }
+                
+                if (this.sequenceTimeout) {
+                    clearTimeout(this.sequenceTimeout);
+                }
+                
+                if (this.ctx) {
+                    this.ctx.close();
+                }
+                
+                console.log('🔇 Aurora Weaver destroyed');
             }
         }
 
-        new GUMPEngine();
+        // Initialize the engine
+        const weaver = new AuroraWeaver();
+        
+        // Global access for debugging
+        window.weaver = weaver;
+        
     </script>
 </body>
 </html>
