@@ -336,14 +336,22 @@
                     // Occasional mutations
                     if (Math.random() < this.traits.mutation * 1.5) { // More frequent mutations
                         const trait = ['density', 'harmony', 'energy', 'space'][Math.floor(Math.random() * 4)];
-                        this.traits[trait] += (Math.random() - 0.5) * 0.4;
+                        let delta = (Math.random() - 0.5) * 0.4;
+                        if (this.traits[trait] < 0.4) delta = Math.abs(delta); // Bias upwards if low
+                        this.traits[trait] += delta;
                         this.traits[trait] = Math.max(0, Math.min(1, this.traits[trait]));
                     }
                 } else {
-                    // Slow decay if no new inputs
-                    this.traits.energy *= 0.99;
-                    this.traits.density *= 0.99;
+                    // Slow decay if no new inputs, but maintain minimum
+                    this.traits.energy = Math.max(0.4, this.traits.energy * 0.99);
+                    this.traits.density = Math.max(0.4, this.traits.density * 0.99);
                 }
+
+                // Enforce minimum traits to prevent die-off
+                this.traits.density = Math.max(0.4, this.traits.density);
+                this.traits.energy = Math.max(0.4, this.traits.energy);
+                this.traits.harmony = Math.max(0.4, this.traits.harmony);
+                this.traits.space = Math.max(0.4, this.traits.space);
                 
                 this.generation++;
                 return this.traits;
@@ -381,13 +389,16 @@
                 
                 // Bass - evolved bass line based on harmony and density
                 let currentIntervalIndex = 0;
-                for (let i = 0; i < 32; i += 4) { // Downbeats
+                for (let i = 0; i < 32; i += 4) { // Downbeats always for basic line
                     patterns.bass.push({pos: i, interval: this.scale[currentIntervalIndex % this.scale.length]});
                     if (Math.random() < this.traits.density) {
                         patterns.bass.push({pos: i + 2, interval: this.scale[(currentIntervalIndex + 1) % this.scale.length]});
                     }
                     if (Math.random() < this.traits.harmony * 0.5) {
                         patterns.bass.push({pos: i + 1, interval: this.scale[(currentIntervalIndex - 1 + this.scale.length) % this.scale.length]});
+                    }
+                    if (Math.random() < this.traits.harmony * 0.7) {
+                        patterns.bass.push({pos: i + 3, interval: this.scale[(currentIntervalIndex + 2) % this.scale.length]});
                     }
                     currentIntervalIndex += Math.floor(Math.random() * 3) - 1; // Random walk
                     if (currentIntervalIndex < 0) currentIntervalIndex = 0;
@@ -415,6 +426,7 @@
                 this.currentPattern = null;
                 this.currentSample = null;
                 this.currentSampleChain = null;
+                this.currentSidechain = null;
                 
                 // Kanye-style pitch shifts
                 this.pitchShifts = [0.5, 0.667, 0.75, 1, 1.5, 2];
@@ -950,7 +962,10 @@
                 // Stop previous main sample
                 if (this.currentSample) {
                     this.currentSample.stop();
-                    // onended will handle disconnect
+                    if (this.currentSample.onended) this.currentSample.onended(); // Manually trigger cleanup
+                    this.currentSample = null;
+                    this.currentSampleChain = null;
+                    if (this.currentSidechain) clearTimeout(this.currentSidechain);
                 }
                 
                 // Play the full sample loop Kanye-style
@@ -1009,7 +1024,7 @@
                         gain.gain.linearRampToValueAtTime(0.7, this.ctx.currentTime + 0.1);
                     }
                     
-                    setTimeout(sidechain, 60000 / this.beatMatcher.bpm / 4);
+                    this.currentSidechain = setTimeout(sidechain, 60000 / this.beatMatcher.bpm / 4);
                 };
                 
                 src.start();
