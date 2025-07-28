@@ -104,6 +104,7 @@
             async awaken() {
                 try {
                     this.ctx = new AudioContext();
+                    await this.ctx.resume(); // Ensure context is running
                     this.masterGain = this.ctx.createGain();
                     this.masterGain.gain.value = 0.7;
                     this.masterGain.connect(this.ctx.destination);
@@ -246,30 +247,22 @@
 
             analyzeSample(buffer) {
                 const data = buffer.getChannelData(0);
-                let energy = 0, spectralCentroid = 0, freqSum = 0, total = 0;
+                let energy = 0;
 
                 // Time domain energy
                 for (let val of data) energy += val * val;
                 this.lmState.energy = Math.sqrt(energy / data.length);
 
-                // Freq domain
-                const offline = new OfflineAudioContext(1, buffer.length, this.ctx.sampleRate);
-                const source = offline.createBufferSource();
-                source.buffer = buffer;
-                source.connect(offline.destination);
-                await offline.startRendering();
-                const freqData = new Float32Array(buffer.length / 2);
-                // Simulate FFT (in real, use Analyzer in offline but approx)
-                // Placeholder: assume centroid
-                this.lmState.spectralCentroid = 2000 + Math.random() * 2000; // TODO proper FFT
-
                 // Onset density
                 const onsets = this.getPeaksAtThreshold(data, 0.1).length / (buffer.duration);
                 this.lmState.onsetDensity = onsets;
 
-                // Harmony: approx consonance by pitch stability
+                // Pitch for harmony
                 const pitch = this.detectPitch(data);
                 this.lmState.harmony = 1 / (Math.abs(pitch - this.snapToScale(pitch)) + 1);
+
+                // Spectral centroid placeholder (improved approximation based on pitch)
+                this.lmState.spectralCentroid = pitch > 0 ? pitch * 5 + Math.random() * 500 : 2000 + Math.random() * 2000;
 
                 // Determine mood
                 if (this.lmState.energy > 0.2 && this.lmState.onsetDensity > 5) this.lmState.mood = 'aggressive';
@@ -308,7 +301,7 @@
                 const peaks = [];
                 const length = data.length;
                 for (let i = 0; i < length;) {
-                    if (data[i] > threshold) {
+                    if (Math.abs(data[i]) > threshold) { // Use abs for positive/negative peaks
                         peaks.push(i);
                         i += Math.floor(this.ctx.sampleRate * 0.05); // Skip 50ms
                     }
@@ -324,8 +317,9 @@
                     const target = this.snapToScale(pitch);
                     const factor = target / pitch;
 
-                    // Simple pitch shift via playback rate, but for better, approx phase vocoder
-                    const offline = new OfflineAudioContext(1, chop.length / factor, this.ctx.sampleRate);
+                    // Simple pitch shift via playback rate in offline context
+                    const newLength = Math.floor(chop.length / factor);
+                    const offline = new OfflineAudioContext(1, newLength, this.ctx.sampleRate);
                     const source = offline.createBufferSource();
                     source.buffer = chop;
                     source.playbackRate.value = factor;
@@ -336,34 +330,51 @@
                 return chop;
             }
 
-            detectPitch(buffer) {
-                // Autocorrelation from snippet
-                const SIZE = buffer.length;
+            detectPitch(data) {
                 const sampleRate = this.ctx.sampleRate;
-                const offsetSums = new Array(SIZE).fill(0);
+                const minFreq = 50;
+                const maxFreq = 1000;
+                let size = data.length;
 
-                for (let offset = 0; offset < SIZE; offset++) {
-                    for (let j = 0; j < SIZE - offset; j++) {
-                        offsetSums[offset] += buffer[j] * buffer[j + offset];
+                // Limit analysis size to prevent heavy computation
+                const maxAnalysisSize = 8192;
+                if (size > maxAnalysisSize) {
+                    const start = Math.floor((size - maxAnalysisSize) / 2);
+                    data = data.subarray(start, start + maxAnalysisSize);
+                    size = maxAnalysisSize;
+                }
+
+                const minLag = Math.ceil(sampleRate / maxFreq);
+                const maxLag = Math.floor(sampleRate / minFreq);
+
+                const ac = new Array(maxLag + 1).fill(0);
+
+                for (let lag = minLag; lag <= maxLag; lag++) {
+                    let sum = 0;
+                    for (let j = 0; j < size - lag; j++) {
+                        sum += data[j] * data[j + lag];
                     }
+                    ac[lag] = sum / (size - lag); // Normalize
                 }
 
                 let maxValue = -Infinity;
-                let bestOffset = -1;
-                for (let i = Math.floor(sampleRate / 2000); i < offsetSums.length / 2; i++) { // Min freq 50Hz, max 1000Hz
-                    if (offsetSums[i] > maxValue) {
-                        maxValue = offsetSums[i];
-                        bestOffset = i;
+                let bestLag = -1;
+
+                for (let lag = minLag; lag <= maxLag; lag++) {
+                    if (ac[lag] > maxValue) {
+                        maxValue = ac[lag];
+                        bestLag = lag;
                     }
                 }
 
-                if (bestOffset > 0) {
-                    return sampleRate / bestOffset;
+                if (bestLag > 0 && maxValue > 0.2) { // Threshold for reliable detection
+                    return sampleRate / bestLag;
                 }
                 return -1;
             }
 
             snapToScale(pitch) {
+                if (pitch <= 0) return 440; // Default to A4 if no pitch
                 const midi = 69 + 12 * Math.log2(pitch / 440);
                 const scaleMidi = this.autotuneScale.map(s => s + this.keyRoot + 60); // C4 base
                 const closest = scaleMidi.reduce((prev, curr) => Math.abs(curr - midi) < Math.abs(prev - midi) ? curr : prev);
@@ -371,12 +382,15 @@
             }
 
             updateLayers() {
-                // Clear old layers if too many
-                this.layers.forEach(layer => layer.source.stop());
+                // Stop and clear old layers
+                this.layers.forEach(layer => {
+                    if (layer.source) layer.source.stop();
+                });
                 this.layers = [];
 
                 // Create new layers from recent samples
                 this.processedSamples.slice(-8).forEach((sample, i) => {
+                    if (!sample) return;
                     const source = this.ctx.createBufferSource();
                     source.buffer = sample;
                     source.loop = true;
@@ -410,9 +424,10 @@
                 const pattern = this.generateFractalPattern();
                 if (pattern[this.beatStep % this.patternLength]) {
                     const sampleIndex = Math.floor(Math.random() * this.processedSamples.length);
-                    if (this.processedSamples[sampleIndex]) {
+                    const sample = this.processedSamples[sampleIndex];
+                    if (sample) {
                         const source = this.ctx.createBufferSource();
-                        source.buffer = this.processedSamples[sampleIndex];
+                        source.buffer = sample;
                         source.connect(this.masterGain);
                         source.start(0);
                     }
@@ -453,7 +468,7 @@
                     num += i * this.dataArray[i];
                     den += this.dataArray[i];
                 }
-                this.lmState.spectralCentroid = (num / den) * (this.ctx.sampleRate / 2 / this.dataArray.length);
+                this.lmState.spectralCentroid = den > 0 ? (num / den) * (this.ctx.sampleRate / 2 / this.dataArray.length) : 0;
             }
         }
 
