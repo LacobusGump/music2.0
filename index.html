@@ -209,6 +209,8 @@
                 this.buffer = [];
                 this.seq = { step: 0, swing: 0.15 };
                 this.orb = document.getElementById('orb');
+                this.pitchFactor = 1; // Default pitch factor
+                this.orientation = { gamma: 0 };
                 
                 // Kanye-style pitch shifts
                 this.pitchShifts = [0.5, 0.667, 0.75, 1, 1.5, 2]; // Octave down, 5th down, 4th down, original, 5th up, octave up
@@ -302,6 +304,16 @@
                         }
                     };
                     
+                    // Setup device orientation for musical evolutions
+                    if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+                        const permission = await DeviceOrientationEvent.requestPermission();
+                        if (permission === 'granted') {
+                            window.addEventListener('deviceorientation', (e) => this.handleOrientation(e));
+                        }
+                    } else if (window.DeviceOrientationEvent) {
+                        window.addEventListener('deviceorientation', (e) => this.handleOrientation(e));
+                    }
+                    
                     // Start
                     this.loop();
                     this.seq.last = this.ctx.currentTime;
@@ -315,6 +327,23 @@
                 } catch (e) {
                     console.error(e);
                 }
+            }
+
+            handleOrientation(e) {
+                // Update pitch factor based on left-right tilt (gamma)
+                const gamma = e.gamma || 0;
+                // Clamp gamma to -90 to 90
+                const clampedGamma = Math.max(-90, Math.min(90, gamma));
+                // Map to pitch factor: left (-90) -> 0.5, center (0) -> 1, right (90) -> 2
+                this.pitchFactor = Math.pow(2, clampedGamma / 90);
+
+                // Optional: Use beta for filter evolution (front-back tilt)
+                const beta = e.beta || 0;
+                const clampedBeta = Math.max(-90, Math.min(90, beta));
+                const filterNorm = (clampedBeta + 90) / 180;
+                // Map to filter frequency: forward tilt -> lower freq (muffled), back -> higher (brighter)
+                const filterFreq = 2000 + filterNorm * 6000; // 2000Hz to 8000Hz
+                this.nodes.dust.frequency.value = filterFreq;
             }
 
             toggle() {
@@ -499,6 +528,11 @@
                     this.seq.step = (this.seq.step + 1) % 32;
                 }
                 
+                // Update current sample pitch in real-time if playing
+                if (this.currentSample && this.currentSampleBaseRate) {
+                    this.currentSample.playbackRate.value = this.currentSampleBaseRate * this.pitchFactor;
+                }
+                
                 requestAnimationFrame(() => this.tick());
             }
 
@@ -511,7 +545,7 @@
                 const gain = this.ctx.createGain();
                 
                 src.buffer = sample.buffer;
-                src.playbackRate.value = sample.rate || 1;
+                src.playbackRate.value = (sample.rate || 1) * this.pitchFactor;
                 gain.gain.value = vel;
                 
                 // Lo-fi processing
@@ -529,7 +563,8 @@
                 const filter = this.ctx.createBiquadFilter();
                 
                 src.buffer = sample.buffer;
-                src.playbackRate.value = sample.rate;
+                this.currentSampleBaseRate = sample.rate;
+                src.playbackRate.value = this.currentSampleBaseRate * this.pitchFactor;
                 src.loop = true;
                 src.loopStart = 0;
                 src.loopEnd = Math.min(sample.buffer.duration, 60 / this.beatMatcher.bpm * 4); // 4 bar loop
