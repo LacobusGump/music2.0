@@ -481,6 +481,7 @@
                 // Samples
                 this.samples = [];
                 this.maxSamples = 12;
+                this.maxPerLayer = 4;
                 this.layers = {};
                 
                 // Sequencer
@@ -489,7 +490,7 @@
                     step: 0,
                     playing: false,
                     lastTime: 0,
-                    patterns: {}
+                    patternSets: {}
                 };
                 
                 // Motion
@@ -499,6 +500,12 @@
                     index: 0,
                     pattern: 'calm'
                 };
+                
+                // Agent
+                this.agentInterval = null;
+                this.songStart = 0;
+                this.currentScale = [0, 2, 3, 5, 7, 8, 10]; // A minor pentatonic
+                this.rootNote = 57; // A3 MIDI note
                 
                 // UI Cache
                 this.ui = {};
@@ -539,7 +546,7 @@
                 this.setupInput();
                 
                 // Pre-compile patterns
-                this.compilePatterns();
+                this.compilePatternSets();
             }
 
             setupControls() {
@@ -665,6 +672,7 @@
                     
                     // Setup audio nodes
                     this.setupAudio();
+                    await this.createImpulse();
                     
                     // Create drums
                     await this.createDrums();
@@ -689,10 +697,12 @@
                     
                     this.active = true;
                     this.motion.history.fill(0.1);
+                    this.songStart = performance.now();
                     
                     // Start loops
                     this.startVis();
                     this.startSeq();
+                    this.startAgent();
                     
                     console.log('🎵 ENGINE STARTED');
                     
@@ -706,6 +716,9 @@
                 const {ctx} = this;
                 
                 // Master chain
+                this.nodes.dry = ctx.createGain();
+                this.nodes.dry.gain.value = 0.8;
+                
                 this.nodes.master = ctx.createGain();
                 this.nodes.master.gain.value = 0.8;
                 
@@ -728,10 +741,25 @@
                 this.nodes.limit.attack.value = 0.001;
                 this.nodes.limit.release.value = 0.05;
                 
-                this.nodes.master.connect(this.nodes.comp);
+                this.nodes.dry.connect(this.nodes.comp);
                 this.nodes.comp.connect(this.nodes.eq);
                 this.nodes.eq.connect(this.nodes.limit);
                 this.nodes.limit.connect(ctx.destination);
+                
+                // Delay
+                this.nodes.delay = ctx.createDelay(0.3);
+                this.nodes.delayFeedback = ctx.createGain();
+                this.nodes.delayFeedback.gain.value = 0.4;
+                this.nodes.delay.connect(this.nodes.delayFeedback);
+                this.nodes.delayFeedback.connect(this.nodes.delay);
+                this.nodes.delayWet = ctx.createGain();
+                this.nodes.delayWet.gain.value = 0.3;
+                this.nodes.delay.connect(this.nodes.delayWet);
+                this.nodes.delayWet.connect(this.nodes.master);
+                
+                // Reverb wet
+                this.nodes.reverbWet = ctx.createGain();
+                this.nodes.reverbWet.gain.value = 0.2;
                 
                 // Layer channels
                 const gains = {kick: 1, snare: 0.85, hats: 0.5, bass: 0.9, lead: 0.7, fx: 0.6};
@@ -739,86 +767,120 @@
                 Object.keys(gains).forEach(name => {
                     const gain = ctx.createGain();
                     gain.gain.value = gains[name];
-                    gain.connect(this.nodes.master);
+                    gain.connect(this.nodes.dry);
+                    gain.connect(this.nodes.master); // For effects send
                     
                     this.layers[name] = {
                         gain,
                         samples: []
                     };
                 });
+                
+                // Connect effects sends
+                this.nodes.master.connect(this.nodes.reverb);
+                this.nodes.reverbWet.connect(this.nodes.comp);
+                this.nodes.master.connect(this.nodes.delay);
+            }
+
+            async createImpulse() {
+                const {ctx} = this;
+                const len = ctx.sampleRate * 2;
+                const buf = ctx.createBuffer(2, len, ctx.sampleRate);
+                for (let ch = 0; ch < 2; ch++) {
+                    const data = buf.getChannelData(ch);
+                    for (let i = 0; i < len; i++) {
+                        data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3);
+                    }
+                }
+                this.nodes.reverb = ctx.createConvolver();
+                this.nodes.reverb.buffer = buf;
+                this.nodes.reverb.connect(this.nodes.reverbWet);
             }
 
             async createDrums() {
                 const {ctx} = this;
                 const sr = ctx.sampleRate;
                 
-                // 808 Kick
-                const kick = ctx.createBuffer(2, sr * 0.8, sr);
+                // Enhanced 808 Kick with longer decay and distortion
+                const kickLen = sr * 1.2;
+                const kick = ctx.createBuffer(2, kickLen, sr);
                 for (let ch = 0; ch < 2; ch++) {
                     const data = kick.getChannelData(ch);
-                    for (let i = 0; i < data.length; i++) {
+                    for (let i = 0; i < kickLen; i++) {
                         const t = i / sr;
-                        const env = t < 0.01 ? t / 0.01 : Math.exp(-2.5 * (t - 0.01));
-                        const pitch = 50 * Math.exp(-35 * t) + 25;
+                        const env = t < 0.02 ? t / 0.02 : Math.exp(-3.5 * (t - 0.02));
+                        const pitch = 60 * Math.exp(-40 * t) + 30;
                         
-                        let s = Math.sin(2 * Math.PI * pitch * t) * 0.8;
-                        s += Math.sin(4 * Math.PI * pitch * t) * 0.15 * Math.exp(-50 * t);
+                        let s = Math.sin(2 * Math.PI * pitch * t) * 0.9;
+                        s += Math.sin(4 * Math.PI * pitch * t) * 0.2 * Math.exp(-60 * t);
+                        s += Math.sin(6 * Math.PI * pitch * t) * 0.1 * Math.exp(-80 * t);
                         
-                        if (t < 0.005) {
-                            const click = (Math.random() * 2 - 1) * 0.3 * (1 - t / 0.005);
-                            s += click + Math.sin(2 * Math.PI * 200 * t) * 0.3 * (1 - t / 0.005);
+                        if (t < 0.008) {
+                            const click = (Math.random() * 2 - 1) * 0.4 * (1 - t / 0.008);
+                            s += click + Math.sin(2 * Math.PI * 250 * t) * 0.4 * (1 - t / 0.008);
                         }
                         
-                        data[i] = Math.tanh(s * 1.5) * env;
+                        // Soft distortion
+                        s = Math.tanh(s * 1.8);
+                        data[i] = s * env;
                     }
                 }
                 
-                // Trap Snare
-                const snare = ctx.createBuffer(2, sr * 0.25, sr);
+                // Trap Snare with more layers
+                const snareLen = sr * 0.35;
+                const snare = ctx.createBuffer(2, snareLen, sr);
                 for (let ch = 0; ch < 2; ch++) {
                     const data = snare.getChannelData(ch);
-                    for (let i = 0; i < data.length; i++) {
+                    for (let i = 0; i < snareLen; i++) {
                         const t = i / sr;
-                        const env = (t < 0.003 ? t / 0.003 : 1) * Math.exp(-12 * t);
+                        const env = (t < 0.005 ? t / 0.005 : 1) * Math.exp(-15 * t);
                         
-                        const tone = Math.sin(2 * Math.PI * 220 * t) * 0.3;
-                        const noise = (Math.random() * 2 - 1) * 0.5;
-                        const sizzle = (Math.random() * 2 - 1) * 0.2 * Math.exp(-30 * t);
+                        const tone1 = Math.sin(2 * Math.PI * 180 * t) * 0.4 * Math.exp(-20 * t);
+                        const tone2 = Math.sin(2 * Math.PI * 330 * t) * 0.2 * Math.exp(-25 * t);
+                        const noise = (Math.random() * 2 - 1) * 0.6 * Math.exp(-10 * t);
+                        const sizzle = (Math.random() * 2 - 1) * 0.3 * Math.exp(-40 * t);
                         
-                        data[i] = Math.tanh((tone * Math.exp(-15 * t) + noise * Math.exp(-8 * t) + sizzle) * 2) * 0.8 * env;
-                    }
-                }
-                
-                // Hi-Hat
-                const hat = ctx.createBuffer(2, sr * 0.08, sr);
-                for (let ch = 0; ch < 2; ch++) {
-                    const data = hat.getChannelData(ch);
-                    for (let i = 0; i < data.length; i++) {
-                        const t = i / sr;
-                        let s = 0;
-                        
-                        [6000, 8000, 10000, 12000, 14000].forEach((f, j) => {
-                            s += Math.sin(2 * Math.PI * f * (1 + Math.random() * 0.02 - 0.01) * t) * (0.2 / (j + 1));
-                        });
-                        
-                        s = (s + (Math.random() * 2 - 1) * 0.3) * Math.exp(-80 * t) * 0.6;
-                        
-                        if (ch === 1 && i > 10) {
-                            s = data[i-10] * 0.1 + s * 0.9;
-                        }
-                        
+                        let s = tone1 + tone2 + noise + sizzle;
+                        s = Math.tanh(s * 1.5) * 0.9 * env;
                         data[i] = s;
                     }
                 }
                 
-                // Sub Bass
-                const sub = ctx.createBuffer(2, sr * 2, sr);
+                // Hi-Hat with metallic resonance
+                const hatLen = sr * 0.12;
+                const hat = ctx.createBuffer(2, hatLen, sr);
+                for (let ch = 0; ch < 2; ch++) {
+                    const data = hat.getChannelData(ch);
+                    for (let i = 0; i < hatLen; i++) {
+                        const t = i / sr;
+                        let s = 0;
+                        
+                        [5500, 7500, 9500, 11500, 13500, 15500].forEach((f, j) => {
+                            s += Math.sin(2 * Math.PI * f * (1 + Math.random() * 0.03 - 0.015) * t) * (0.25 / (j + 1)) * Math.exp(-90 * t);
+                        });
+                        
+                        s += (Math.random() * 2 - 1) * 0.4 * Math.exp(-100 * t);
+                        
+                        if (ch === 1 && i > 5) {
+                            s = data[i-5] * 0.15 + s * 0.85;
+                        }
+                        
+                        data[i] = s * 0.7;
+                    }
+                }
+                
+                // Sub Bass with modulation
+                const subLen = sr * 2.5;
+                const sub = ctx.createBuffer(2, subLen, sr);
                 for (let ch = 0; ch < 2; ch++) {
                     const data = sub.getChannelData(ch);
-                    for (let i = 0; i < data.length; i++) {
+                    for (let i = 0; i < subLen; i++) {
                         const t = i / sr;
-                        const fade = Math.min(1, t / 0.01) * (t > 1.8 ? Math.max(0, 1 - (t - 1.8) / 0.2) : 1);
-                        data[i] = Math.sin(2 * Math.PI * 55 * (1 + Math.sin(2 * Math.PI * 5 * t) * 0.01) * t) * fade * 0.7;
+                        const fade = Math.min(1, t / 0.02) * (t > 2.2 ? Math.max(0, 1 - (t - 2.2) / 0.3) : 1);
+                        const mod = Math.sin(2 * Math.PI * 4 * t) * 0.02;
+                        data[i] = Math.sin(2 * Math.PI * 50 * (1 + mod) * t) * fade * 0.8;
+                        data[i] += Math.sin(4 * Math.PI * 50 * t) * fade * 0.15 * Math.exp(-5 * t);
+                        data[i] = Math.tanh(data[i] * 1.2);
                     }
                 }
                 
@@ -827,7 +889,7 @@
                     {buffer: kick, layer: 'kick', analysis: {energy: 'high', pitch: null}},
                     {buffer: snare, layer: 'snare', analysis: {energy: 'medium', pitch: null}},
                     {buffer: hat, layer: 'hats', analysis: {energy: 'low', pitch: null}},
-                    {buffer: sub, layer: 'bass', analysis: {energy: 'medium', pitch: 55}}
+                    {buffer: sub, layer: 'bass', analysis: {energy: 'medium', pitch: 50}}
                 ];
                 
                 drums.forEach(({buffer, layer, analysis}) => {
@@ -918,10 +980,20 @@
                 
                 const analysis = this.analyze(buffer);
                 
+                // Chop to fit beat if too long
+                const beatDur = 60 / this.seq.bpm;
+                let finalBuffer = buffer;
+                if (buffer.duration > beatDur) {
+                    const newLen = Math.floor(beatDur * ctx.sampleRate);
+                    finalBuffer = ctx.createBuffer(1, newLen, ctx.sampleRate);
+                    finalBuffer.getChannelData(0).set(buffer.getChannelData(0).subarray(0, newLen));
+                    analysis.duration = beatDur;
+                }
+                
                 const sample = {
                     id: `rec_${Date.now()}`,
-                    buffer,
-                    duration: buffer.duration,
+                    buffer: finalBuffer,
+                    duration: analysis.duration,
                     analysis,
                     rate: 1
                 };
@@ -945,6 +1017,12 @@
                 // Categorize
                 const category = this.categorize(analysis);
                 this.layers[category].samples.push(sample);
+                
+                // Limit per layer
+                if (this.layers[category].samples.length > this.maxPerLayer) {
+                    const removed = this.layers[category].samples.shift();
+                    this.samples = this.samples.filter(s => s.id !== removed.id);
+                }
                 
                 this.updateStage();
                 console.log(`📚 Sample added to ${category}`);
@@ -992,40 +1070,50 @@
                     }
                 }
                 
+                // Simple pattern recognition: repetitiveness (autocorr at beat intervals)
+                let repetitiveness = 0;
+                if (pitch) {
+                    const beatSamples = Math.floor(this.ctx.sampleRate * (60 / this.seq.bpm / 4));
+                    let corr = 0;
+                    for (let i = 0; i < len - beatSamples; i++) {
+                        corr += data[i] * data[i + beatSamples];
+                    }
+                    repetitiveness = corr / (rms * rms * (len - beatSamples));
+                }
+                
                 return {
                     rms,
                     zcr,
                     energy: rms > 0.1 ? 'high' : rms > 0.03 ? 'medium' : 'low',
                     brightness: zcr > 3000 ? 'bright' : 'dark',
                     pitch,
-                    duration: buffer.duration
+                    duration: buffer.duration,
+                    repetitiveness: repetitiveness > 0.5 ? 'high' : 'low'
                 };
             }
 
             categorize(analysis) {
-                const {energy, brightness, pitch, duration, zcr} = analysis;
+                const {energy, brightness, pitch, duration, zcr, repetitiveness} = analysis;
                 
                 if (energy === 'high' && brightness === 'dark' && duration < 0.5) return 'kick';
                 if (energy === 'medium' && zcr > 2000 && zcr < 5000) return 'snare';
                 if (brightness === 'bright' && duration < 0.1) return 'hats';
-                if (pitch && pitch < 200 && duration > 0.5) return 'bass';
+                if (pitch && pitch < 200 && duration > 0.5 && repetitiveness === 'high') return 'bass';
                 if (pitch && pitch > 200 && pitch < 1000) return 'lead';
                 
                 return 'fx';
             }
 
             quantizePitch(freq) {
-                // A minor scale
-                const scale = [0, 2, 3, 5, 7, 8, 10];
                 const midi = 69 + 12 * Math.log2(freq / 440);
                 const note = Math.round(midi);
                 const octave = Math.floor(note / 12);
                 const degree = note % 12;
                 
-                let closest = scale[0];
+                let closest = this.currentScale[0];
                 let minDiff = Math.abs(degree - closest);
                 
-                for (const s of scale) {
+                for (const s of this.currentScale) {
                     const diff = Math.abs(degree - s);
                     if (diff < minDiff) {
                         minDiff = diff;
@@ -1036,40 +1124,120 @@
                 return 440 * Math.pow(2, (octave * 12 + closest - 69) / 12);
             }
 
-            compilePatterns() {
-                // Pre-compile beat patterns for performance
-                this.seq.patterns = {
-                    sampling: {
-                        kick: [0, 11, 22],
-                        hats: [2, 6, 10, 14, 18, 22, 26, 30].map(s => ({s, v: 0.3}))
+            compilePatternSets() {
+                // Patterns vary by motion pattern for musical coherence
+                this.seq.patternSets = {
+                    calm: {
+                        sampling: {
+                            kick: [0, 16],
+                            hats: [4, 8, 12, 20, 24, 28].map(s => ({s, v: 0.4}))
+                        },
+                        chopping: {
+                            kick: [0, 16],
+                            snare: [8, 24],
+                            hats: Array.from({length: 8}, (_, i) => ({s: i * 4, v: 0.4})),
+                            bass: [0, 16]
+                        },
+                        flipping: {
+                            kick: [0, 8, 16, 24],
+                            snare: [4, 12, 20, 28],
+                            hats: Array.from({length: 16}, (_, i) => ({s: i * 2, v: 0.3})),
+                            bass: [0, 8, 16, 24].map(s => ({s, v: 0.7, p: 1})),
+                            lead: [12, 28].map(s => ({s, v: 0.5}))
+                        },
+                        dropping: {
+                            kick: [0, 8, 16, 24],
+                            snare: [4, 12, 20, 28],
+                            hats: Array.from({length: 32}, (_, i) => i % 4 === 0 ? {s: i, v: 0.5} : null).filter(Boolean),
+                            bass: [0, 8, 16, 24].map(s => ({s, v: 0.8, p: 1})),
+                            fx: [0, 16]
+                        }
                     },
-                    chopping: {
-                        kick: [0, 10, 22],
-                        snare: [{s: 7, v: 0.2}, {s: 8, v: 0.9}, {s: 23, v: 0.2}, {s: 24, v: 0.9}],
-                        hats: Array.from({length: 16}, (_, i) => ({s: i * 2, v: i % 4 === 0 ? 0.5 : 0.3})),
-                        bass: [{s: 0, v: 0.8}, {s: 16, v: 0.8}]
+                    rhythmic: {
+                        sampling: {
+                            kick: [0, 12, 24],
+                            hats: [2, 6, 10, 14, 18, 22, 26, 30].map(s => ({s, v: 0.3}))
+                        },
+                        chopping: {
+                            kick: [0, 10, 22],
+                            snare: [{s: 7, v: 0.2}, {s: 8, v: 0.9}, {s: 23, v: 0.2}, {s: 24, v: 0.9}],
+                            hats: Array.from({length: 16}, (_, i) => ({s: i * 2, v: i % 4 === 0 ? 0.5 : 0.3})),
+                            bass: [{s: 0, v: 0.8}, {s: 16, v: 0.8}]
+                        },
+                        flipping: {
+                            kick: [0, 3, 8, 19].map(s => ({s, v: s % 8 === 0 ? 1 : 0.7})),
+                            snare: [4, 8, 12, 20, 24, 28].map(s => ({s, v: s % 16 === 8 ? 0.85 : 0.4})),
+                            hats: Array.from({length: 32}, (_, i) => ({s: i, v: i % 2 === 0 ? 0.5 : Math.random() < 0.3 ? 0.2 : 0})),
+                            bass: [0, 3, 8, 11, 16, 19, 24, 27].map((s, i) => ({s, v: 0.8, p: i < 4 ? 1 : 0.75})),
+                            lead: [6, 14, 22, 30].map(s => ({s, v: 0.6}))
+                        },
+                        dropping: {
+                            kick: [0, 3, 8, 16, 19, 24].map(s => ({s, v: 1})),
+                            snare: Array.from({length: 32}, (_, i) => {
+                                if (i % 16 === 8) return {s: i, v: 0.85};
+                                if (i % 16 >= 14) return {s: i, v: 0.3 + (i % 2) * 0.2};
+                                if (i % 8 === 4) return {s: i, v: 0.4};
+                                return null;
+                            }).filter(Boolean),
+                            hats: Array.from({length: 32}, (_, i) => {
+                                if (i >= 28) return {s: i, v: 0.4 + (i % 4) * 0.1};
+                                return i % 2 === 0 ? {s: i, v: 0.5} : null;
+                            }).filter(Boolean),
+                            bass: [0, 3, 8, 11, 12, 16, 19, 24, 27, 28].map(s => ({s, v: 0.7, slide: s === 12 || s === 28})),
+                            fx: [0, 16].map(s => ({s, v: 0.8}))
+                        }
                     },
-                    flipping: {
-                        kick: [0, 3, 8, 19].map(s => ({s, v: s % 8 === 0 ? 1 : 0.7})),
-                        snare: [4, 8, 12, 20, 24, 28].map(s => ({s, v: s % 16 === 8 ? 0.85 : 0.4})),
-                        hats: Array.from({length: 32}, (_, i) => ({s: i, v: i % 2 === 0 ? 0.5 : Math.random() < 0.3 ? 0.2 : 0})),
-                        bass: [0, 3, 8, 11, 16, 19, 24, 27].map((s, i) => ({s, v: 0.8, p: i < 4 ? 1 : 0.75})),
-                        lead: [6, 14, 22, 30].map(s => ({s, v: 0.6}))
+                    active: {
+                        sampling: {
+                            kick: [0, 8, 16, 24],
+                            hats: Array.from({length: 16}, (_, i) => ({s: i * 2, v: 0.4 + Math.random()*0.1}))
+                        },
+                        chopping: {
+                            kick: [0, 4, 8, 12, 16, 20, 24, 28],
+                            snare: [2, 6, 10, 14, 18, 22, 26, 30].map(s => ({s, v: 0.7})),
+                            hats: Array.from({length: 32}, (_, i) => ({s: i, v: 0.4})),
+                            bass: [0, 8, 16, 24]
+                        },
+                        flipping: {
+                            kick: [0, 2, 8, 10, 16, 18, 24, 26],
+                            snare: [4, 12, 20, 28],
+                            hats: Array.from({length: 32}, (_, i) => ({s: i, v: i % 2 === 0 ? 0.6 : 0.3})),
+                            bass: [0, 4, 8, 12, 16, 20, 24, 28].map((s, i) => ({s, v: 0.8, p: 1 + (i % 4)*0.1})),
+                            lead: [6, 14, 22, 30]
+                        },
+                        dropping: {
+                            kick: [0, 2, 4, 8, 10, 12, 16, 18, 20, 24, 26, 28],
+                            snare: [6, 14, 22, 30].map(s => ({s, v: 0.9})),
+                            hats: Array.from({length: 32}, (_, i) => ({s: i, v: 0.5 + (i % 8)*0.05})),
+                            bass: [0, 4, 8, 12, 16, 20, 24, 28].map(s => ({s, v: 0.8, slide: Math.random() > 0.5})),
+                            fx: [0, 8, 16, 24]
+                        }
                     },
-                    dropping: {
-                        kick: [0, 3, 8, 16, 19, 24].map(s => ({s, v: 1})),
-                        snare: Array.from({length: 32}, (_, i) => {
-                            if (i % 16 === 8) return {s: i, v: 0.85};
-                            if (i % 16 >= 14) return {s: i, v: 0.3 + (i % 2) * 0.2};
-                            if (i % 8 === 4) return {s: i, v: 0.4};
-                            return null;
-                        }).filter(Boolean),
-                        hats: Array.from({length: 32}, (_, i) => {
-                            if (i >= 28) return {s: i, v: 0.4 + (i % 4) * 0.1};
-                            return i % 2 === 0 ? {s: i, v: 0.5} : null;
-                        }).filter(Boolean),
-                        bass: [0, 3, 8, 11, 12, 16, 19, 24, 27, 28].map(s => ({s, v: 0.7, slide: s === 12 || s === 28})),
-                        fx: [0, 16].map(s => ({s, v: 0.8}))
+                    chaotic: {
+                        sampling: {
+                            kick: [0, 5, 10, 15, 20, 25, 30],
+                            hats: Array.from({length: 32}, (_, i) => Math.random() > 0.6 ? {s: i, v: 0.3} : null).filter(Boolean)
+                        },
+                        chopping: {
+                            kick: [0, 3, 6, 9, 12, 15, 18, 21, 24, 27, 30],
+                            snare: Array.from({length: 32}, (_, i) => i % 3 === 1 ? {s: i, v: 0.8} : null).filter(Boolean),
+                            hats: Array.from({length: 32}, (_, i) => {s: i, v: 0.4 + Math.random()*0.2}),
+                            bass: [0, 6, 12, 18, 24, 30]
+                        },
+                        flipping: {
+                            kick: Array.from({length: 32}, (_, i) => i % 5 === 0 ? {s: i, v: 1} : null).filter(Boolean),
+                            snare: [2, 7, 11, 17, 21, 25, 31],
+                            hats: Array.from({length: 32}, (_, i) => ({s: i, v: Math.random()*0.5 + 0.3})),
+                            bass: Array.from({length: 32}, (_, i) => i % 4 === 0 ? {s: i, v: 0.8, p: 1 + Math.random()*0.5 - 0.25} : null).filter(Boolean),
+                            lead: [1, 9, 17, 25]
+                        },
+                        dropping: {
+                            kick: Array.from({length: 32}, (_, i) => i % 3 === 0 ? {s: i, v: 1} : null).filter(Boolean),
+                            snare: Array.from({length: 32}, (_, i) => Math.random() > 0.7 ? {s: i, v: 0.7} : null).filter(Boolean),
+                            hats: Array.from({length: 32}, (_, i) => ({s: i, v: 0.6})),
+                            bass: Array.from({length: 32}, (_, i) => i % 2 === 0 ? {s: i, v: 0.7, slide: Math.random() > 0.5} : null).filter(Boolean),
+                            fx: Array.from({length: 32}, (_, i) => i % 8 === 0 ? {s: i, v: 0.8} : null).filter(Boolean)
+                        }
                     }
                 };
             }
@@ -1140,6 +1308,12 @@
                         this.seq.step = (this.seq.step + 1) % 32;
                     }
                     
+                    // Check for song evolution
+                    const songTime = performance.now() - this.songStart;
+                    if (songTime > 90000) {
+                        this.evolveSong();
+                    }
+                    
                     requestAnimationFrame(tick);
                 };
                 
@@ -1154,22 +1328,24 @@
                     setTimeout(() => this.ui.orb.classList.remove('pulse'), 150);
                 }
                 
-                // Get pattern
-                const pattern = this.seq.patterns[this.stage.toLowerCase()] || this.seq.patterns.sampling;
+                // Get pattern based on motion
+                const patterns = this.seq.patternSets[this.motion.pattern] || this.seq.patternSets.rhythmic;
+                const pattern = patterns[this.stage.toLowerCase()] || patterns.sampling;
                 
                 // Play layers
                 Object.entries(pattern).forEach(([layer, steps]) => {
-                    const hit = steps.find(s => (s.s || s) === this.seq.step);
+                    const hit = steps.find(h => h && (h.s === this.seq.step || h === this.seq.step));
                     if (hit) {
-                        this.triggerLayer(layer, hit.v || 0.8, hit.p || 1, hit.slide);
+                        this.triggerLayer(layer, hit.v || 0.8, hit.p || 1, hit.slide || false);
                     }
                 });
                 
-                // Chaos
-                if (this.stage === 'dropping' && Math.random() < (this.chaos || 0.2) * 0.5) {
+                // Chaos addition based on motion
+                const chaosLevel = {calm: 0.1, rhythmic: 0.2, active: 0.4, chaotic: 0.6}[this.motion.pattern];
+                if (Math.random() < chaosLevel) {
                     const layers = ['hats', 'lead', 'fx'];
                     const layer = layers[Math.floor(Math.random() * layers.length)];
-                    this.triggerLayer(layer, 0.2 + Math.random() * 0.3);
+                    this.triggerLayer(layer, 0.2 + Math.random() * 0.3, 1 + (Math.random() - 0.5) * 0.5);
                 }
             }
 
@@ -1195,15 +1371,15 @@
                 source.buffer = sample.buffer;
                 gain.gain.value = Math.pow(velocity, 0.5);
                 
-                // Playback rate with humanization
+                // Playback rate with humanization and pitch
                 const rate = (sample.rate || 1) * pitch * (1 + (Math.random() - 0.5) * 0.01);
                 source.playbackRate.value = rate;
                 
-                // Effects
+                // Slide effect
                 if (slide) {
                     source.detune.setValueAtTime(0, this.ctx.currentTime);
-                    source.detune.linearRampToValueAtTime(-200, this.ctx.currentTime + 0.2);
-                    source.detune.linearRampToValueAtTime(0, this.ctx.currentTime + 0.4);
+                    source.detune.linearRampToValueAtTime(-300 + Math.random()*200, this.ctx.currentTime + 0.15);
+                    source.detune.linearRampToValueAtTime(0, this.ctx.currentTime + 0.3);
                 }
                 
                 source.connect(gain);
@@ -1217,7 +1393,7 @@
                 const sample = this.samples[Math.floor(Math.random() * this.samples.length)];
                 const gain = this.ctx.createGain();
                 gain.gain.value = 0.7;
-                gain.connect(this.nodes.master);
+                gain.connect(this.nodes.dry);
                 
                 if (type === 'chop') {
                     this.playChop(sample, gain);
@@ -1297,6 +1473,82 @@
                 else this.stage = 'DROPPING';
                 
                 this.ui.orb.className = `orb ${this.stage.toLowerCase()}`;
+            }
+
+            startAgent() {
+                this.agentInterval = setInterval(() => this.djMix(), 5000); // DJ agent mixes every 5 seconds
+            }
+
+            djMix() {
+                const intensityMap = {calm: 0.3, rhythmic: 0.5, active: 0.7, chaotic: 1};
+                const int = intensityMap[this.motion.pattern] || 0.5;
+                
+                // Adjust master gain and chaos
+                this.nodes.master.gain.value = 0.6 + int * 0.4;
+                this.chaos = int * 0.5;
+                
+                // Adjust effects based on motion
+                this.nodes.reverbWet.gain.value = 0.1 + int * 0.3;
+                this.nodes.delayWet.gain.value = 0.1 + int * 0.4;
+                this.nodes.delay.delayTime.value = 0.1 + int * 0.2;
+                this.nodes.delayFeedback.gain.value = 0.3 + int * 0.3;
+                
+                // Prune and sort samples for fit
+                Object.values(this.layers).forEach(layer => {
+                    // Sort by pitch fit to current scale
+                    layer.samples.sort((a, b) => {
+                        if (!a.analysis.pitch) return 1;
+                        if (!b.analysis.pitch) return -1;
+                        const da = Math.abs(a.analysis.pitch - this.quantizePitch(a.analysis.pitch));
+                        const db = Math.abs(b.analysis.pitch - this.quantizePitch(b.analysis.pitch));
+                        return da - db;
+                    });
+                    
+                    // Drop worst if exceeding max (already limited, but reinforce)
+                    if (layer.samples.length > this.maxPerLayer) {
+                        const removed = layer.samples.pop();
+                        this.samples = this.samples.filter(s => s.id !== removed.id);
+                    }
+                });
+                
+                // Adjust EQ for balance
+                const eqGain = -2 + int * 4;
+                this.nodes.eq.gain.value = eqGain;
+                
+                console.log(`🧑‍🎤 DJ Mix adjusted for ${this.motion.pattern}: intensity ${int.toFixed(2)}`);
+            }
+
+            evolveSong() {
+                this.songStart = performance.now();
+                
+                // Change BPM
+                this.seq.bpm = 120 + Math.random() * 40;
+                
+                // Change root note for new key feel
+                this.rootNote = 45 + Math.floor(Math.random() * 24);
+                
+                // Clear half samples randomly
+                this.samples = this.samples.filter(() => Math.random() > 0.5);
+                Object.values(this.layers).forEach(layer => {
+                    layer.samples = layer.samples.filter(s => this.samples.includes(s));
+                });
+                
+                // Update stage
+                this.updateStage();
+                
+                // Change background
+                const hue = Math.random() * 360;
+                document.body.style.background = `hsl(${hue}, 50%, 10%)`;
+                
+                // Re-quantize remaining samples
+                this.samples.forEach(sample => {
+                    if (sample.analysis.pitch) {
+                        const target = this.quantizePitch(sample.analysis.pitch);
+                        sample.rate = target / sample.analysis.pitch;
+                    }
+                });
+                
+                console.log('🎶 Song evolved to new phase!');
             }
         }
 
