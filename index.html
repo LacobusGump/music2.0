@@ -224,14 +224,16 @@
             }
 
             async analyze(buffer) {
+                const analysisRate = 8; // Speed up analysis by 8x
                 const source = this.ctx.createBufferSource();
                 source.buffer = buffer;
+                source.playbackRate.value = analysisRate;
                 source.connect(this.analyzer);
                 source.start();
 
                 const peaks = [];
                 const binCount = this.analyzer.frequencyBinCount;
-                const freqBin = this.ctx.sampleRate / this.analyzer.fftSize;
+                const freqBin = this.ctx.sampleRate / this.analyzer.fftSize / analysisRate; // Scale frequency bin
 
                 const collect = () => {
                     this.analyzer.getFloatFrequencyData(this.freqData);
@@ -243,11 +245,12 @@
                     }
                 };
 
-                const intervalId = setInterval(collect, 100); // Collect every 100ms
+                const intervalMs = 100 / analysisRate;
+                const intervalId = setInterval(collect, intervalMs); // Adjust interval for speed up
 
                 await new Promise(resolve => {
                     source.onended = resolve;
-                    setTimeout(resolve, buffer.duration * 1000 + 500); // Safety timeout
+                    setTimeout(resolve, buffer.duration * 1000 / analysisRate + 500); // Safety timeout adjusted for rate
                 });
 
                 clearInterval(intervalId);
@@ -632,6 +635,10 @@
                     this.ctx.currentTime + 2
                 );
                 
+                // Evolve BPM based on energy
+                this.beatMatcher.bpm = 60 + 30 * traits.energy;
+                this.nodes.delay.delayTime.value = 60 / this.beatMatcher.bpm * 0.75;
+                
                 // Update patterns
                 this.currentPattern = this.evolution.getPattern();
             }
@@ -953,11 +960,24 @@
                 
                 src.buffer = sample.buffer;
                 
-                // Random playback position
-                const startPos = Math.random() * (sample.buffer.duration - 1);
-                
                 // Varied playback rates for texture
-                src.playbackRate.value = sample.rate * (0.5 + Math.random());
+                let rate = sample.rate * (0.5 + Math.random());
+                src.playbackRate.value = rate;
+                
+                // Random detune
+                src.detune.value = (Math.random() - 0.5) * 200;
+                
+                // Random reverse
+                const isReverse = Math.random() < 0.2 * this.evolution.traits.mutation;
+                const dur = 1 + Math.random() * 1.5;
+                let startPos = Math.random() * (sample.buffer.duration - dur);
+                
+                if (isReverse) {
+                    src.playbackRate.value *= -1;
+                    src.start(0, startPos + dur, dur);
+                } else {
+                    src.start(0, startPos, dur);
+                }
                 
                 // Random panning
                 panner.pan.value = -0.8 + Math.random() * 1.6;
@@ -965,14 +985,12 @@
                 // Fade in/out
                 gain.gain.setValueAtTime(0, this.ctx.currentTime);
                 gain.gain.linearRampToValueAtTime(0.3, this.ctx.currentTime + 0.5);
-                gain.gain.linearRampToValueAtTime(0, this.ctx.currentTime + 2);
+                gain.gain.linearRampToValueAtTime(0, this.ctx.currentTime + dur);
                 
                 // Connect
                 src.connect(panner);
                 panner.connect(gain);
                 gain.connect(this.nodes.texture);
-                
-                src.start(0, startPos, 2);
             }
 
             playGhost(sample) {
