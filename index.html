@@ -458,7 +458,6 @@
                 <div>Move device or mouse</div>
             </div>
         </div>
-
     </div>
 
     <script>
@@ -508,9 +507,6 @@
                 // Performance
                 this.raf = null;
                 this.worker = null;
-                
-                // Pitch factor for tilt
-                this.pitchFactor = 1;
                 
                 this.init();
             }
@@ -663,23 +659,6 @@
                 else this.motion.pattern = 'calm';
             }
 
-            async setupOrientation() {
-                if (typeof DeviceOrientationEvent.requestPermission === 'function') {
-                    const permission = await DeviceOrientationEvent.requestPermission();
-                    if (permission === 'granted') {
-                        window.addEventListener('deviceorientation', (e) => this.handleOrientation(e));
-                    }
-                } else {
-                    window.addEventListener('deviceorientation', (e) => this.handleOrientation(e));
-                }
-            }
-
-            handleOrientation(e) {
-                const gamma = e.gamma || 0;
-                const clamped = Math.max(-90, Math.min(90, gamma));
-                this.pitchFactor = Math.pow(2, clamped / 90); // Tilt right (positive gamma): higher pitch, left (negative): lower
-            }
-
             async start() {
                 try {
                     this.ctx = new (window.AudioContext || window.webkitAudioContext)();
@@ -700,9 +679,6 @@
                     });
                     
                     this.setupMic(stream);
-                    
-                    // Setup device orientation for tilt-based evolutions
-                    await this.setupOrientation();
                     
                     // Show UI
                     this.ui.startScreen.classList.add('hidden');
@@ -813,7 +789,7 @@
                     }
                 }
                 
-                // Trap Hi-Hat
+                // Hi-Hat
                 const hat = ctx.createBuffer(2, sr * 0.08, sr);
                 for (let ch = 0; ch < 2; ch++) {
                     const data = hat.getChannelData(ch);
@@ -1219,8 +1195,8 @@
                 source.buffer = sample.buffer;
                 gain.gain.value = Math.pow(velocity, 0.5);
                 
-                // Playback rate with humanization and tilt factor
-                const rate = (sample.rate || 1) * pitch * (1 + (Math.random() - 0.5) * 0.01) * this.pitchFactor;
+                // Playback rate with humanization
+                const rate = (sample.rate || 1) * pitch * (1 + (Math.random() - 0.5) * 0.01);
                 source.playbackRate.value = rate;
                 
                 // Effects
@@ -1248,7 +1224,7 @@
                 } else if (type === 'flip') {
                     this.playReverse(sample, gain);
                 } else if (type === 'pitch') {
-                    this.play(sample, gain, 0.7, Math.pow(2, (Math.random() * 2 - 1)) * this.pitchFactor);
+                    this.play(sample, gain, 0.7, Math.pow(2, (Math.random() * 2 - 1)));
                 }
                 
                 this.particles(type);
@@ -1257,9 +1233,6 @@
             playChop(sample, output) {
                 const source = this.ctx.createBufferSource();
                 source.buffer = sample.buffer;
-                
-                // Apply tilt pitch factor
-                source.playbackRate.value = sample.rate * this.pitchFactor;
                 
                 const dur = Math.min(0.2, sample.duration * 0.25);
                 const start = Math.random() * (sample.duration - dur);
@@ -1285,10 +1258,6 @@
                 
                 const source = this.ctx.createBufferSource();
                 source.buffer = reversed;
-                
-                // Apply tilt pitch factor
-                source.playbackRate.value = sample.rate * this.pitchFactor;
-                
                 source.connect(output);
                 source.start();
             }
