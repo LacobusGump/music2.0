@@ -5,6 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>GUMP</title>
     <script src="https://unpkg.com/tone@14.7.77/build/Tone.js"></script>
+    <script src="https://unpkg.com/@magenta/music@1.5.5"></script>
+    <script src="https://unpkg.com/essentia.js@0.1.3/dist/essentia.js-core.js"></script>
+    <script src="https://unpkg.com/soundtouch-js@0.0.3/soundtouch.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -120,12 +123,12 @@
     <div class="particles" id="particles"></div>
 
     <script>
-        class ProLofiUniverse {
+        class RichLofiEngine {
             constructor() {
                 this.mic = null;
                 this.analyser = null;
-                this.recorder = null;
-                this.isRecording = false;
+                this.mixRecorder = null;
+                this.isRecordingSample = false;
                 this.lastSampleTime = 0;
                 this.samples = { drums: [], bass: [], melody: [], pads: [] };
                 this.samplers = {};
@@ -143,7 +146,11 @@
                 };
                 this.waveBars = [];
                 this.bpm = 85;
+                this.key = 'Cminor';
                 this.active = false;
+                this.essentia = null;
+                this.musicRNN = null;
+                this.soundTouch = new SoundTouch();
                 this.init();
             }
 
@@ -154,95 +161,6 @@
                 this.setupOrientation();
             }
 
-            setupOrientation() {
-                window.addEventListener('deviceorientation', e => {
-                    if (!this.active) return;
-                    this.orientation.alpha = e.alpha || 0;
-                    this.orientation.beta = e.beta || 0;
-                    this.orientation.gamma = e.gamma || 0;
-                    Tone.Listener.setOrientation(
-                        Math.cos(this.orientation.alpha * Math.PI / 180),
-                        Math.sin(this.orientation.alpha * Math.PI / 180),
-                        1,
-                        Math.sin(this.orientation.beta * Math.PI / 180),
-                        Math.cos(this.orientation.beta * Math.PI / 180),
-                        Math.sin(this.orientation.gamma * Math.PI / 180)
-                    );
-                });
-            }
-
-            createWaveBars(count) {
-                for (let i = 0; i < count; i++) {
-                    const bar = document.createElement('div');
-                    bar.className = 'wave-bar';
-                    this.elements.waveform.appendChild(bar);
-                    this.waveBars.push(bar);
-                }
-            }
-
-            setupMotion() {
-                let lastMouse = { x: 0, y: 0, time: 0 };
-                document.addEventListener('mousemove', e => {
-                    if (!this.active) return;
-                    const now = Date.now();
-                    const dx = e.clientX - lastMouse.x;
-                    const dy = e.clientY - lastMouse.y;
-                    const dt = now - lastMouse.time || 1;
-                    const vel = Math.sqrt(dx*dx + dy*dy) / dt;
-                    this.updateMotion(vel);
-                    lastMouse = { x: e.clientX, y: e.clientY, time: now };
-                    this.pos.x = (e.clientX / window.innerWidth - 0.5) * 2;
-                    this.pos.y = (e.clientY / window.innerHeight - 0.5) * 2;
-                    this.updatePanners();
-                });
-
-                window.addEventListener('devicemotion', e => {
-                    if (!this.active || !e.acceleration) return;
-                    const acc = e.acceleration;
-                    const mag = Math.sqrt(acc.x**2 + acc.y**2 + acc.z**2);
-                    this.updateMotion(mag * 0.05);
-                    this.pos.x += acc.x * 0.01;
-                    this.pos.y += acc.y * 0.01;
-                    this.pos.z += acc.z * 0.01;
-                    this.updatePanners();
-                });
-            }
-
-            updateMotion(vel) {
-                this.motion = this.motion * 0.8 + vel * 0.2;
-                this.motionHistory.push(this.motion);
-                if (this.motionHistory.length > 60) this.motionHistory.shift();
-                this.detectTempoFromMotion();
-            }
-
-            detectTempoFromMotion() {
-                const threshold = 0.5;
-                const now = performance.now();
-                const peaks = this.motionHistory.filter((m, i) => m > threshold && (i === 0 || this.motionHistory[i-1] <= threshold));
-                if (peaks.length < 4) return;
-                const intervals = [];
-                for (let i = 1; i < peaks.length; i++) {
-                    intervals.push(peaks[i] - peaks[i-1]);
-                }
-                const avgInterval = intervals.reduce((a, b) => a + b, 0) / intervals.length;
-                const targetBpm = 60 / (avgInterval / 1000) * 4; // Assuming 16th notes
-                this.bpmHistory.push(targetBpm);
-                if (this.bpmHistory.length > 5) this.bpmHistory.shift();
-                const smoothedBpm = this.bpmHistory.reduce((a, b) => a + b, 0) / this.bpmHistory.length;
-                this.bpm = this.bpm * 0.8 + smoothedBpm * 0.2;
-                Tone.Transport.bpm.value = Math.max(60, Math.min(100, this.bpm));
-            }
-
-            updatePanners() {
-                Object.values(this.samplers).forEach((sampler, i) => {
-                    if (sampler.panner) {
-                        sampler.panner.positionX.value = this.pos.x + Math.sin(i) * 2;
-                        sampler.panner.positionY.value = this.pos.y + Math.cos(i) * 2;
-                        sampler.panner.positionZ.value = this.pos.z - i;
-                    }
-                });
-            }
-
             async start() {
                 try {
                     await Tone.start();
@@ -250,6 +168,11 @@
                     await this.mic.open();
                     this.analyser = new Tone.Analyser('fft', 1024);
                     this.mic.connect(this.analyser);
+                    this.mixRecorder = new Tone.Recorder();
+                    Tone.Master.connect(this.mixRecorder);
+                    this.essentia = new Essentia(EssentiaWASM);
+                    this.musicRNN = new mm.MusicRNN('https://storage.googleapis.com/magentadata/js/checkpoints/music_rnn/basic_rnn');
+                    await this.musicRNN.initialize();
                     this.setupEffects();
                     this.setupSamplers();
                     this.elements.startBtn.style.display = 'none';
@@ -260,6 +183,7 @@
                     this.startSequencer();
                     this.addVinylNoise();
                     this.addAmbientLayer();
+                    setInterval(() => this.feedbackLoop(), 30000); // Every 30s analyze and evolve
                 } catch (err) {
                     console.error('Error:', err);
                 }
@@ -267,34 +191,36 @@
 
             setupEffects() {
                 this.effects.compressor = new Tone.Compressor(-20, 4);
-                this.effects.eq = new Tone.EQ3(-3, 0, -6); // Gentle rolloff
-                this.effects.lowpass = new Tone.Filter(2500, 'lowpass');
-                this.effects.bitcrush = new Tone.BitCrusher(12);
-                this.effects.tape = new Tone.Distortion(0.05); // Soft saturation
-                this.effects.reverb = new Tone.Reverb({ decay: 3, preDelay: 0.2 });
+                this.effects.eq = new Tone.EQ3(-2, 1, -3); // Warm mids
+                this.effects.lowpass = new Tone.Filter(2800, 'lowpass');
+                this.effects.bitcrush = new Tone.BitCrusher(10);
+                this.effects.tape = new Tone.Distortion(0.08); // Tape saturation
+                this.effects.reverb = new Tone.Reverb({ decay: 4, preDelay: 0.1 });
                 this.effects.reverb.generate();
-                this.effects.delay = new Tone.PingPongDelay({ delayTime: 0.25, feedback: 0.3 });
-                this.effects.chorus = new Tone.Chorus(0.5, 2.5, 0.5);
+                this.effects.delay = new Tone.PingPongDelay({ delayTime: 0.3, feedback: 0.25, wet: 0.2 });
+                this.effects.chorus = new Tone.Chorus(0.4, 3, 0.4);
+                this.effects.width = new Tone.StereoWidener(0.6);
 
                 this.masterChain = new Tone.Chain(
-                    this.effects.compressor,
-                    this.effects.eq,
                     this.effects.chorus,
                     this.effects.delay,
                     this.effects.reverb,
+                    this.effects.width,
                     this.effects.lowpass,
                     this.effects.bitcrush,
                     this.effects.tape,
-                    Tone.Destination
+                    this.effects.eq,
+                    this.effects.compressor,
+                    Tone.Master
                 );
             }
 
             setupSamplers() {
                 ['drums', 'bass', 'melody', 'pads'].forEach(layer => {
                     this.samplers[layer] = new Tone.Sampler({
-                        attack: layer === 'pads' ? 1 : 0.05,
-                        release: layer === 'pads' ? 2 : 0.3,
-                        curve: 'linear'
+                        attack: layer === 'pads' ? 1.2 : 0.02,
+                        release: layer === 'pads' ? 2.5 : 0.2,
+                        curve: 'exponential'
                     });
                     this.samplers[layer].panner = new Tone.Panner3D();
                     this.samplers[layer].connect(this.samplers[layer].panner);
@@ -304,18 +230,20 @@
 
             addVinylNoise() {
                 this.effects.vinyl = new Tone.Noise('brown');
-                this.effects.vinyl.volume.value = -28;
-                const vinylFilter = new Tone.Filter(4000, 'lowpass');
-                this.effects.vinyl.connect(vinylFilter).connect(this.masterChain);
+                this.effects.vinyl.volume.value = -32;
+                const vinylFilter = new Tone.Filter(3500, 'lowpass');
+                const vinylComp = new Tone.Compressor(-30, 8);
+                this.effects.vinyl.connect(vinylFilter).connect(vinylComp).connect(this.masterChain);
                 this.effects.vinyl.start();
             }
 
             addAmbientLayer() {
                 this.effects.ambient = new Tone.Noise('white');
-                this.effects.ambient.volume.value = -32;
-                const ambFilter = new Tone.Filter(800, 'lowpass');
-                const ambReverb = new Tone.Reverb(5);
-                this.effects.ambient.connect(ambFilter).connect(ambReverb).connect(this.masterChain);
+                this.effects.ambient.volume.value = -35;
+                const ambFilter = new Tone.Filter(600, 'lowpass');
+                const ambReverb = new Tone.Reverb(6);
+                const ambComp = new Tone.Compressor(-40, 4);
+                this.effects.ambient.connect(ambFilter).connect(ambReverb).connect(ambComp).connect(this.masterChain);
                 this.effects.ambient.start();
             }
 
@@ -332,170 +260,188 @@
                 loop();
             }
 
-            updateViz(fft) {
-                const avg = fft.reduce((a, b) => a + Math.abs(b), 0) / fft.length / 128;
-                this.elements.orb.style.transform = `translate(-50%, -50%) scale(${1 + avg * 0.5})`;
-                this.waveBars.forEach((bar, i) => {
-                    const val = Math.abs(fft[i * (fft.length / 64)]) / 128;
-                    bar.style.height = `${val * 60}px`;
-                });
-                if (Math.random() < avg * 0.1) this.createParticles(3 + Math.floor(avg * 5));
-            }
-
-            createParticles(count) {
-                for (let i = 0; i < count; i++) {
-                    const p = document.createElement('div');
-                    p.className = 'particle';
-                    p.style.left = `${this.pos.x * window.innerWidth + (Math.random() - 0.5) * 20}px`;
-                    p.style.top = `${this.pos.y * window.innerHeight + (Math.random() - 0.5) * 20}px`;
-                    p.style.animationDelay = `${Math.random() * 2}s`;
-                    this.elements.particles.appendChild(p);
-                    setTimeout(() => p.remove(), 8000);
-                }
-            }
-
-            checkSample(fft) {
+            async checkSample(fft) {
                 const now = Date.now();
-                if (now - this.lastSampleTime < 3000 || this.isRecording) return;
-                const avgLevel = fft.reduce((a, b) => a + Math.abs(b), 0) / fft.length / 128;
-                if (avgLevel > 0.08) {
-                    this.isRecording = true;
+                if (now - this.lastSampleTime < 4000 || this.isRecordingSample) return;
+                const rms = Tone.dbToGain(fft.reduce((a, b) => a + b, 0) / fft.length);
+                if (rms > 0.06) {
+                    this.isRecordingSample = true;
                     this.elements.orb.classList.add('recording');
-                    this.recorder = new Tone.Recorder();
-                    this.mic.connect(this.recorder);
-                    this.recorder.start();
-                    const recordTime = 1000 + Math.random() * 2000;
-                    setTimeout(async () => await this.processSample(), recordTime);
+                    const recorder = new Tone.Recorder();
+                    this.mic.connect(recorder);
+                    recorder.start();
+                    const recordTime = 1500 + Math.random() * 2000;
+                    setTimeout(async () => {
+                        const recording = await recorder.stop();
+                        const url = URL.createObjectURL(recording);
+                        const buffer = await new Tone.Buffer(url);
+                        await this.processAndIntegrateSample(buffer);
+                        this.isRecordingSample = false;
+                        this.elements.orb.classList.remove('recording');
+                    }, recordTime);
                 }
             }
 
-            async processSample() {
-                this.isRecording = false;
-                this.elements.orb.classList.remove('recording');
-                const recording = await this.recorder.stop();
-                const url = URL.createObjectURL(recording);
-                const buffer = await new Tone.Buffer(url);
-
-                // Advanced processing for rich lo-fi
-                const pitch = await this.detectPitch(buffer);
-                const targetPitch = this.snapToScale(pitch);
-                const shiftSemitones = Math.log2(targetPitch / pitch) * 12;
-
-                // Offline processing chain
-                const offline = await Tone.Offline(async (context) => {
-                    const player = new Tone.Player(buffer).connect(context.destination);
-                    const pitchShift = new Tone.PitchShift(shiftSemitones).connect(context.destination);
-                    const vibrato = new Tone.Vibrato(0.5, 0.02).connect(pitchShift);
-                    const eq = new Tone.EQ3(-2, 2, -4).connect(vibrato); // Boost mids for warmth
-                    const comp = new Tone.Compressor(-25, 6).connect(eq);
-                    const dist = new Tone.Distortion(0.1).connect(comp); // Gentle tape-like
-                    player.connect(dist);
-                    player.start();
-                }, buffer.duration, 1);
-
-                const processed = new Tone.Buffer(offline);
-
-                // Chop
-                const numSlices = 4 + Math.floor(Math.random() * 5);
-                const sliceDur = processed.duration / numSlices;
+            async processAndIntegrateSample(buffer) {
+                // Onset detection for chopping
+                const onsets = await this.essentia.OnsetDetection({ buffer: buffer.toArray(0) });
                 const slices = [];
-                for (let i = 0; i < numSlices; i++) {
-                    slices.push(processed.slice(i * sliceDur, (i+1) * sliceDur));
-                }
+                let start = 0;
+                onsets.onsetTimes.forEach(time => {
+                    const end = time * buffer.duration;
+                    if (end - start > 0.1) {
+                        slices.push(buffer.slice(start, end));
+                    }
+                    start = end;
+                });
+                slices.push(buffer.slice(start));
 
-                // Categorize
-                const low = await this.getBandEnergy(processed, 0, 200);
-                const mid = await this.getBandEnergy(processed, 200, 2000);
-                const high = await this.getBandEnergy(processed, 2000, 11025);
+                // Pitch detection and time-stretch
+                const pitch = await this.essentia.PitchYin({ buffer: buffer.toArray(0) }).pitch;
+                const targetPitch = this.snapToScale(pitch, this.key);
+                const pitchRatio = targetPitch / pitch;
+
+                // Time-stretch to fit tempo without initial pitch change
+                const targetDur = 60 / this.bpm / (Math.random() < 0.5 ? 4 : 8); // Quarter or eighth notes
+                const timeRatio = targetDur / buffer.duration;
+
+                const stretchedSlices = await Promise.all(slices.map(slice => this.timeStretch(slice, timeRatio)));
+
+                // Apply pitch shift after time stretch
+                const tunedSlices = await Promise.all(stretchedSlices.map(slice => this.pitchShift(slice, pitchRatio)));
+
+                // Categorize and add
+                const energy = await this.essentia.Energy({ buffer: buffer.toArray(0) }).energy;
+                const spectralCentroid = await this.essentia.SpectralCentroidTime({ buffer: buffer.toArray(0) }).spectralCentroid;
                 let layer = 'pads';
-                if (high > mid * 1.2 && high > low) layer = 'drums';
-                else if (low > mid * 1.2 && low > high) layer = 'bass';
-                else if (mid > low && mid > high) layer = 'melody';
+                if (energy > 0.5 && spectralCentroid > 2000) layer = 'drums';
+                else if (energy > 0.3 && spectralCentroid < 500) layer = 'bass';
+                else if (spectralCentroid > 500 && spectralCentroid < 2000) layer = 'melody';
 
-                // Add slices with variations
-                slices.forEach((slice, idx) => {
-                    const note = idx; // Use index as 'note'
-                    this.samplers[layer].add(note, slice);
+                tunedSlices.forEach((slice, idx) => {
+                    this.samplers[layer].add(idx + Object.keys(this.samplers[layer]._buffers._buffers).length, slice);
                 });
 
                 this.lastSampleTime = Date.now();
             }
 
-            async detectPitch(buffer) {
-                const offline = await Tone.Offline(() => {
-                    const player = new Tone.Player(buffer).toDestination();
-                    player.start();
-                }, buffer.duration);
-                const data = offline.toArray(0);
-                let maxCorr = 0;
-                let bestLag = 0;
-                const minLag = Math.floor(offline.sampleRate / 1000);
-                const maxLag = Math.floor(offline.sampleRate / 40);
-                for (let lag = minLag; lag < maxLag; lag++) {
-                    let corr = 0;
-                    for (let i = 0; i < data.length - lag; i++) {
-                        corr += data[i] * data[i + lag];
-                    }
-                    if (corr > maxCorr) {
-                        maxCorr = corr;
-                        bestLag = lag;
-                    }
-                }
-                return offline.sampleRate / bestLag || 220;
+            async timeStretch(buffer, ratio) {
+                return new Promise(resolve => {
+                    const filter = new SimpleFilter(buffer.getChannelData(0), new this.soundTouch.Stretch(ratio));
+                    const samples = new Float32Array(buffer.length * ratio);
+                    filter.extract(samples, samples.length);
+                    const newBuffer = new Tone.Buffer(samples);
+                    resolve(newBuffer);
+                });
             }
 
-            snapToScale(pitch) {
-                const scale = [130.81, 138.59, 146.83, 155.56, 164.81, 174.61, 185, 196, 207.65, 220, 233.08, 246.94]; // Aeolian mode from C3
+            pitchShift(buffer, ratio) {
+                const shifter = new Tone.PitchShift(Math.log2(ratio) * 12);
+                const offline = new Tone.Offline(buffer.duration);
+                const player = new Tone.Player(buffer).connect(shifter);
+                shifter.connect(offline.destination);
+                player.start();
+                return offline.render();
+            }
+
+            snapToScale(pitch, key) {
+                // Simple scale for key, e.g. C minor
+                const base = 130.81; // C3
+                const scaleIntervals = [0, 2, 3, 5, 7, 8, 10, 12, 14, 15, 17, 19, 20, 22, 24]; // Minor scale over 2 octaves
+                const scale = scaleIntervals.map(int => base * 2 ** (int / 12));
                 return scale.reduce((prev, curr) => Math.abs(curr - pitch) < Math.abs(prev - pitch) ? curr : prev);
             }
 
-            async getBandEnergy(buffer, low, high) {
-                const offline = await Tone.Offline(async (context) => {
-                    const player = new Tone.Player(buffer).connect(context.destination);
-                    const filter = new Tone.Filter({
-                        type: 'bandpass',
-                        frequency: (low + high) / 2,
-                        Q: (high - low) / ((low + high) / 2)
-                    }).connect(context.destination);
-                    player.connect(filter);
-                    player.start();
-                }, buffer.duration);
-                const data = offline.toArray(0);
-                return data.reduce((sum, val) => sum + val ** 2, 0) / data.length;
+            async feedbackLoop() {
+                // Record 8 seconds of current mix
+                this.mixRecorder.start();
+                await Tone.sleep(8);
+                const recording = await this.mixRecorder.stop();
+                const url = URL.createObjectURL(recording);
+                const buffer = await new Tone.Buffer(url);
+
+                // Analyze with Essentia and Magenta
+                const tempoInfo = await this.essentia.PercivalBpmEstimator({ buffer: buffer.toArray(0) });
+                const keyInfo = await this.essentia.KeyExtractor({ buffer: buffer.toArray(0) });
+                const rnnInput = mm.sequences.quantizeNoteSequence({
+                    ticksPerQuarter: 220,
+                    totalTime: buffer.duration,
+                    quantizationInfo: {stepsPerQuarter: 4},
+                    noteNames: ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'],
+                    velocities: [80]
+                }, 4);
+                const continued = await this.musicRNN.continueSequence(rnnInput, 20, 1.0);
+
+                // Update engine
+                this.bpm = this.bpm * 0.7 + tempoInfo.bpm * 0.3;
+                Tone.Transport.bpm.value = this.bpm;
+                this.key = keyInfo.key + keyInfo.scale;
+
+                // Evolve patterns using continued sequence
+                this.evolvePatterns(continued);
+
+                // Adjust effects based on analysis
+                const loudness = await this.essentia.LoudnessEBUR128({ buffer: buffer.toArray(0) });
+                this.effects.compressor.threshold.value = -24 + (loudness.integratedLoudness / -14 * 6); // Normalize to -14 LUFS
+            }
+
+            evolvePatterns(sequence) {
+                // Use generated sequence to update sampler triggers
+                // For simplicity, map notes to layers
+                sequence.notes.forEach(note => {
+                    const layer = this.mapNoteToLayer(note.pitch);
+                    // Schedule trigger
+                    Tone.Transport.scheduleOnce(time => {
+                        this.samplers[layer].triggerAttackRelease(note.pitch, note.quantizedEndStep - note.quantizedStartStep / (this.bpm / 60 * 4), time, note.velocity / 127);
+                    }, note.quantizedStartStep / (this.bpm / 60 * 4));
+                });
+            }
+
+            mapNoteToLayer(pitch) {
+                if (pitch < 48) return 'bass';
+                if (pitch > 72) return 'melody';
+                return 'pads';
             }
 
             startSequencer() {
-                const layers = ['drums', 'bass', 'melody', 'pads'];
-                new Tone.Loop(time => {
-                    layers.forEach(layer => {
-                        if (this.samplers[layer].loaded && Math.random() < this.getTriggerProb(layer)) {
-                            const notes = Object.keys(this.samplers[layer]._buffers._buffers);
-                            if (notes.length > 0) {
-                                const note = notes[Math.floor(Math.random() * notes.length)];
-                                const dur = layer === 'pads' ? '2m' : layer === 'melody' ? '4n' : '8n';
-                                this.samplers[layer].triggerAttackRelease(note, dur, time);
-                            }
-                        }
-                    });
-                    Tone.Draw.schedule(() => {
-                        this.elements.orb.classList.add('pulse');
-                        setTimeout(() => this.elements.orb.classList.remove('pulse'), 100);
-                    }, time);
+                Tone.Transport.bpm.value = this.bpm;
+                Tone.Loop(() => {
+                    // Base loop, evolved by feedback
+                    ['drums', 'bass'].forEach(layer => this.triggerLayer(layer));
                 }, "4n").start(0);
+                Tone.Loop(() => {
+                    ['melody', 'pads'].forEach(layer => this.triggerLayer(layer));
+                }, "2m").start(0);
                 Tone.Transport.start();
             }
 
-            getTriggerProb(layer) {
-                switch(layer) {
-                    case 'drums': return 0.8;
-                    case 'bass': return 0.6;
-                    case 'melody': return 0.4;
-                    case 'pads': return 0.3;
+            triggerLayer(layer) {
+                const notes = Object.keys(this.samplers[layer]._buffers._buffers);
+                if (notes.length > 0) {
+                    const note = notes[Math.floor(Math.random() * notes.length)];
+                    const dur = layer === 'pads' ? '1m' : layer === 'melody' ? '4n' : '8n';
+                    this.samplers[layer].triggerAttackRelease(note, dur);
                 }
+            }
+
+            updateParams() {
+                const avgMotion = this.motionHistory.reduce((a,b)=>a+b,0)/this.motionHistory.length || 0;
+                this.effects.lowpass.frequency.value = 2200 + avgMotion * 800;
+                this.effects.bitcrush.bits.value = 12 - Math.floor(avgMotion * 3);
+                this.effects.reverb.wet.value = 0.25 + avgMotion * 0.15;
+                this.effects.delay.wet.value = 0.15 + avgMotion * 0.1;
+                this.effects.chorus.depth.value = 0.3 + avgMotion * 0.2;
+                this.effects.width.width.value = 0.5 + avgMotion * 0.3;
+            }
+
+            updateBackground() {
+                const intensity = Math.min(this.motion / 5, 1);
+                const hue = 30 + intensity * 60;
+                document.body.style.background = `radial-gradient(circle at 50% 50%, hsla(${hue}, 40%, 20%, 0.5) 0%, #111 70%)`;
             }
         }
 
-        new ProLofiUniverse();
+        new RichLofiEngine();
     </script>
 </body>
 </html>
