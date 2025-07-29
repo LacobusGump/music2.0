@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GUMP - Motion Sampler</title>
+    <title>GUMP</title>
     <style>
         * {
             margin: 0;
@@ -21,7 +21,6 @@
             align-items: center;
             justify-content: center;
             cursor: none;
-            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
         }
 
         .orb {
@@ -60,20 +59,10 @@
             0%, 100% { transform: translate(-50%, -50%) scale(1); }
             50% { transform: translate(-50%, -50%) scale(1.2); }
         }
-        
-        .info {
-            position: fixed;
-            bottom: 20px;
-            left: 20px;
-            font-size: 11px;
-            opacity: 0.5;
-            letter-spacing: 0.5px;
-        }
     </style>
 </head>
 <body>
     <div id="orb" class="orb"></div>
-    <div class="info">SPACE TO SAMPLE • CLICK TO START</div>
 
     <script>
         'use strict';
@@ -90,6 +79,7 @@
                 const windowSize = 1024;
                 const hop = 512;
                 
+                // Energy-based peak detection
                 for (let i = 0; i < data.length - windowSize; i += hop) {
                     let energy = 0;
                     for (let j = 0; j < windowSize; j++) {
@@ -108,6 +98,7 @@
             matchToGrid(peaks, barLength = 4) {
                 if (peaks.length < 2) return 1;
                 
+                // Find average interval between peaks
                 const intervals = [];
                 for (let i = 1; i < peaks.length; i++) {
                     intervals.push(peaks[i].time - peaks[i - 1].time);
@@ -116,6 +107,7 @@
                 const avgInterval = intervals.reduce((a, b) => a + b) / intervals.length;
                 const beatDuration = 60 / this.bpm;
                 
+                // Find closest musical division (1/4, 1/8, 1/16, etc.)
                 const divisions = [4, 2, 1, 0.5, 0.25];
                 let bestDiv = 1;
                 let minDiff = Infinity;
@@ -129,6 +121,7 @@
                     }
                 }
                 
+                // Calculate stretch factor
                 const targetDuration = beatDuration * barLength;
                 const actualDuration = peaks[peaks.length - 1].time - peaks[0].time;
                 
@@ -140,6 +133,7 @@
                 const beatDuration = 60 / this.bpm;
                 const chopLength = beatDuration * 4 / chopsPerBar;
                 
+                // Create chops at peak positions
                 for (let i = 0; i < Math.min(peaks.length - 1, chopsPerBar); i++) {
                     const start = peaks[i].time;
                     const end = Math.min(start + chopLength, buffer.duration);
@@ -150,221 +144,57 @@
             }
         }
 
-        // Production Suite - Kanye/Madlib style processing
-        class ProductionSuite {
+        // Lo-fi processor
+        class LoFi {
             constructor(ctx) {
                 this.ctx = ctx;
-                this.setupEffects();
             }
 
-            setupEffects() {
-                // Vintage preamp simulation
-                this.preamp = this.ctx.createWaveShaper();
-                const preampCurve = new Float32Array(65536);
-                for (let i = 0; i < 32768; i++) {
-                    let x = i / 32768;
-                    // Warm saturation curve
-                    preampCurve[32768 + i] = Math.tanh(x * 2) * 0.9;
-                    preampCurve[32768 - i - 1] = -Math.tanh(x * 2) * 0.9;
-                }
-                this.preamp.curve = preampCurve;
-                this.preamp.oversample = '2x';
-
-                // Analog-style filters
-                this.highpass = this.ctx.createBiquadFilter();
-                this.highpass.type = 'highpass';
-                this.highpass.frequency.value = 20;
-                this.highpass.Q.value = 0.7;
-
-                this.lowshelf = this.ctx.createBiquadFilter();
-                this.lowshelf.type = 'lowshelf';
-                this.lowshelf.frequency.value = 100;
-                this.lowshelf.gain.value = 3;
-
-                // Tape saturation
-                this.tapeWow = this.ctx.createOscillator();
-                this.tapeWow.frequency.value = 0.5;
-                this.tapeWow.start();
+            process(source) {
+                // Bitcrusher
+                const bitcrusher = this.ctx.createScriptProcessor(4096, 1, 1);
+                const bits = 8; // 8-bit sound
+                const normFreq = 0.3; // Downsample
                 
-                this.tapeFlutter = this.ctx.createOscillator();
-                this.tapeFlutter.frequency.value = 4.3;
-                this.tapeFlutter.start();
-
-                // Vinyl dust
-                this.vinylNoise = this.createVinylNoise();
-            }
-
-            createVinylNoise() {
-                const duration = 10;
-                const buffer = this.ctx.createBuffer(2, this.ctx.sampleRate * duration, this.ctx.sampleRate);
-                
-                for (let channel = 0; channel < 2; channel++) {
-                    const data = buffer.getChannelData(channel);
-                    for (let i = 0; i < data.length; i++) {
-                        // Surface noise
-                        data[i] = (Math.random() - 0.5) * 0.005;
-                        
-                        // Occasional pops
-                        if (Math.random() < 0.00001) {
-                            data[i] = (Math.random() - 0.5) * 0.1;
-                        }
-                        
-                        // Subtle rumble
-                        data[i] += Math.sin(2 * Math.PI * 0.5 * i / this.ctx.sampleRate) * 0.002;
-                    }
-                }
-                
-                return buffer;
-            }
-
-            processSample(inputBuffer) {
-                // Heavy production processing chain
-                const sampleRate = inputBuffer.sampleRate;
-                const length = inputBuffer.length;
-                const outputBuffer = this.ctx.createBuffer(1, length, sampleRate);
-                const input = inputBuffer.getChannelData(0);
-                const output = outputBuffer.getChannelData(0);
-
-                // 1. Gate and expand dynamics
-                let envelope = 0;
-                const attack = 0.001;
-                const release = 0.05;
-                
-                for (let i = 0; i < length; i++) {
-                    const inputLevel = Math.abs(input[i]);
-                    const rate = inputLevel > envelope ? attack : release;
-                    envelope += (inputLevel - envelope) * rate;
+                let phaser = 0;
+                bitcrusher.onaudioprocess = (e) => {
+                    const input = e.inputBuffer.getChannelData(0);
+                    const output = e.outputBuffer.getChannelData(0);
                     
-                    // Gate with soft knee
-                    const gateThreshold = 0.02;
-                    let gateGain = 1;
-                    if (envelope < gateThreshold) {
-                        gateGain = Math.pow(envelope / gateThreshold, 2);
-                    }
-                    
-                    output[i] = input[i] * gateGain;
-                }
-
-                // 2. EQ and color
-                const processed = this.ctx.createBuffer(1, length, sampleRate);
-                const processedData = processed.getChannelData(0);
-                
-                // Simple high-pass to remove DC
-                let lastInput = 0;
-                let lastOutput = 0;
-                const hpFreq = 20 / (sampleRate / 2);
-                const rc = 1.0 / (2.0 * Math.PI * hpFreq);
-                const alpha = rc / (rc + 1.0);
-                
-                for (let i = 0; i < length; i++) {
-                    processedData[i] = alpha * (lastOutput + output[i] - lastInput);
-                    lastInput = output[i];
-                    lastOutput = processedData[i];
-                }
-
-                // 3. Compression and warmth
-                let rms = 0;
-                const windowSize = 512;
-                
-                for (let i = 0; i < length; i++) {
-                    // RMS detection
-                    const startIdx = Math.max(0, i - windowSize);
-                    const endIdx = i;
-                    let sum = 0;
-                    for (let j = startIdx; j < endIdx; j++) {
-                        sum += processedData[j] * processedData[j];
-                    }
-                    rms = Math.sqrt(sum / (endIdx - startIdx));
-                    
-                    // Soft knee compression
-                    const threshold = 0.3;
-                    const ratio = 4;
-                    const knee = 0.1;
-                    
-                    if (rms > threshold - knee) {
-                        const excess = rms - threshold;
-                        const kneeRatio = Math.min(1, excess / knee);
-                        const gain = 1 - (excess * (1 - 1/ratio) * kneeRatio);
-                        processedData[i] *= gain;
-                    }
-                    
-                    // Tape-style saturation
-                    processedData[i] = Math.tanh(processedData[i] * 1.5) * 0.9;
-                }
-
-                // 4. Find good loop points
-                const peaks = this.findZeroCrossings(processed);
-                let loopStart = 0;
-                let loopEnd = length - 1;
-                
-                if (peaks.length >= 2) {
-                    // Find loop points that align with the beat
-                    const beatSamples = sampleRate * 60 / 75; // samples per beat at 75 BPM
-                    const barSamples = beatSamples * 4;
-                    
-                    for (let i = 0; i < peaks.length; i++) {
-                        if (peaks[i] > barSamples) {
-                            loopStart = peaks[i - 1] || 0;
-                            
-                            // Find end point that's a multiple of bars away
-                            for (let j = i; j < peaks.length; j++) {
-                                const distance = peaks[j] - loopStart;
-                                if (Math.abs(distance - barSamples) < beatSamples * 0.1) {
-                                    loopEnd = peaks[j];
-                                    break;
-                                }
-                            }
-                            break;
+                    for (let i = 0; i < input.length; i++) {
+                        phaser += normFreq;
+                        if (phaser >= 1) {
+                            phaser -= 1;
+                            const step = Math.pow(0.5, bits);
+                            output[i] = step * Math.floor(input[i] / step + 0.5);
+                        } else {
+                            output[i] = output[i - 1] || 0;
                         }
                     }
-                }
-
-                // 5. Create final processed buffer with loop points
-                const finalLength = loopEnd - loopStart;
-                const finalBuffer = this.ctx.createBuffer(1, finalLength, sampleRate);
-                const finalData = finalBuffer.getChannelData(0);
+                };
                 
-                // Copy with fade in/out for smooth looping
-                const fadeLength = Math.min(512, finalLength * 0.01);
-                for (let i = 0; i < finalLength; i++) {
-                    let fadeMult = 1;
-                    if (i < fadeLength) {
-                        fadeMult = i / fadeLength;
-                    } else if (i > finalLength - fadeLength) {
-                        fadeMult = (finalLength - i) / fadeLength;
-                    }
-                    
-                    finalData[i] = processedData[loopStart + i] * fadeMult;
-                }
-
-                // Normalize
-                let maxVal = 0;
-                for (let i = 0; i < finalLength; i++) {
-                    maxVal = Math.max(maxVal, Math.abs(finalData[i]));
-                }
+                // Warm filter
+                const filter = this.ctx.createBiquadFilter();
+                filter.type = 'lowpass';
+                filter.frequency.value = 3000;
+                filter.Q.value = 1;
                 
-                if (maxVal > 0) {
-                    const targetLevel = 0.85;
-                    const gain = targetLevel / maxVal;
-                    for (let i = 0; i < finalLength; i++) {
-                        finalData[i] *= gain;
-                    }
+                // Subtle saturation
+                const waveshaper = this.ctx.createWaveShaper();
+                const curve = new Float32Array(256);
+                for (let i = 0; i < 128; i++) {
+                    const x = i / 128;
+                    curve[128 + i] = Math.tanh(x * 2);
+                    curve[128 - i - 1] = -Math.tanh(x * 2);
                 }
-
-                return finalBuffer;
-            }
-
-            findZeroCrossings(buffer) {
-                const data = buffer.getChannelData(0);
-                const crossings = [];
+                waveshaper.curve = curve;
                 
-                for (let i = 1; i < data.length; i++) {
-                    if ((data[i-1] < 0 && data[i] >= 0) || (data[i-1] >= 0 && data[i] < 0)) {
-                        crossings.push(i);
-                    }
-                }
+                // Chain
+                source.connect(bitcrusher);
+                bitcrusher.connect(filter);
+                filter.connect(waveshaper);
                 
-                return crossings;
+                return waveshaper;
             }
         }
 
@@ -375,24 +205,13 @@
                 this.nodes = {};
                 this.samples = new Map();
                 this.beatMatcher = new BeatMatcher();
-                this.production = null;
                 this.recording = false;
                 this.buffer = [];
                 this.seq = { step: 0, swing: 0.15 };
                 this.orb = document.getElementById('orb');
-                this.activeSources = new Map();
                 
                 // Kanye-style pitch shifts
-                this.pitchShifts = [0.5, 0.667, 0.75, 1, 1.5, 2];
-                
-                // Musical state
-                this.currentChord = 0;
-                this.chordProgression = [
-                    { root: 'C', type: 'min7', bass: 48 },   // Cm7
-                    { root: 'F', type: 'maj7', bass: 41 },   // FMaj7
-                    { root: 'Ab', type: 'maj7', bass: 44 },  // AbMaj7
-                    { root: 'G', type: '7', bass: 43 }       // G7
-                ];
+                this.pitchShifts = [0.5, 0.667, 0.75, 1, 1.5, 2]; // Octave down, 5th down, 4th down, original, 5th up, octave up
                 
                 document.addEventListener('click', () => this.start());
             }
@@ -402,70 +221,65 @@
                 
                 try {
                     this.ctx = new AudioContext({ sampleRate: 44100 });
-                    this.production = new ProductionSuite(this.ctx);
+                    this.lofi = new LoFi(this.ctx);
                     
-                    // Master chain
-                    this.nodes.master = this.ctx.createGain();
-                    this.nodes.master.gain.value = 0.8;
+                    // Master chain - lo-fi trip hop style
+                    this.nodes.out = this.ctx.createGain();
+                    this.nodes.out.gain.value = 0.8;
                     
-                    // Bus compression
-                    this.nodes.busComp = this.ctx.createDynamicsCompressor();
-                    this.nodes.busComp.threshold.value = -12;
-                    this.nodes.busComp.knee.value = 6;
-                    this.nodes.busComp.ratio.value = 3;
-                    this.nodes.busComp.attack.value = 0.003;
-                    this.nodes.busComp.release.value = 0.1;
+                    // Vinyl simulation
+                    this.nodes.vinyl = this.ctx.createBiquadFilter();
+                    this.nodes.vinyl.type = 'highpass';
+                    this.nodes.vinyl.frequency.value = 30;
                     
-                    // Master limiter
-                    this.nodes.limiter = this.ctx.createDynamicsCompressor();
-                    this.nodes.limiter.threshold.value = -1;
-                    this.nodes.limiter.knee.value = 0;
-                    this.nodes.limiter.ratio.value = 20;
-                    this.nodes.limiter.attack.value = 0.001;
-                    this.nodes.limiter.release.value = 0.01;
+                    // Tape warmth
+                    this.nodes.warmth = this.ctx.createBiquadFilter();
+                    this.nodes.warmth.type = 'lowshelf';
+                    this.nodes.warmth.frequency.value = 200;
+                    this.nodes.warmth.gain.value = 2;
                     
-                    // Reverb bus
-                    this.nodes.reverb = this.ctx.createConvolver();
-                    this.nodes.reverbSend = this.ctx.createGain();
-                    this.nodes.reverbSend.gain.value = 0.2;
-                    this.nodes.reverbReturn = this.ctx.createGain();
-                    this.nodes.reverbReturn.gain.value = 0.3;
-                    await this.createReverb();
+                    // Gentle compression
+                    this.nodes.comp = this.ctx.createDynamicsCompressor();
+                    this.nodes.comp.threshold.value = -20;
+                    this.nodes.comp.knee.value = 10;
+                    this.nodes.comp.ratio.value = 3;
+                    this.nodes.comp.attack.value = 0.01;
+                    this.nodes.comp.release.value = 0.25;
                     
-                    // Create mix busses
-                    const busses = {
-                        drums: { gain: 0.9, pan: 0 },
-                        bass: { gain: 0.85, pan: 0 },
-                        samples: { gain: 0.7, pan: 0 },
-                        vinyl: { gain: 0.1, pan: 0 }
+                    // Master filter for that dusty sound
+                    this.nodes.dust = this.ctx.createBiquadFilter();
+                    this.nodes.dust.type = 'lowpass';
+                    this.nodes.dust.frequency.value = 8000;
+                    this.nodes.dust.Q.value = 0.7;
+                    
+                    // Connect master chain
+                    this.nodes.out.connect(this.nodes.vinyl);
+                    this.nodes.vinyl.connect(this.nodes.warmth);
+                    this.nodes.warmth.connect(this.nodes.comp);
+                    this.nodes.comp.connect(this.nodes.dust);
+                    this.nodes.dust.connect(this.ctx.destination);
+                    
+                    // Create layers with trip hop levels
+                    const layers = {
+                        kick: 0.9,
+                        snare: 0.7,
+                        hats: 0.3,
+                        sample: 0.8,
+                        bass: 0.85,
+                        vinyl: 0.15
                     };
                     
-                    Object.entries(busses).forEach(([name, config]) => {
-                        const bus = this.ctx.createGain();
-                        const pan = this.ctx.createStereoPanner();
-                        
-                        bus.gain.value = config.gain;
-                        pan.pan.value = config.pan;
-                        
-                        bus.connect(pan);
-                        pan.connect(this.nodes.busComp);
-                        
-                        this.nodes[name] = bus;
+                    Object.entries(layers).forEach(([name, vol]) => {
+                        this.nodes[name] = this.ctx.createGain();
+                        this.nodes[name].gain.value = vol;
+                        this.nodes[name].connect(this.nodes.out);
                         this.samples.set(name, []);
                     });
                     
-                    // Connect master chain
-                    this.nodes.busComp.connect(this.nodes.master);
-                    this.nodes.master.connect(this.nodes.limiter);
-                    this.nodes.limiter.connect(this.ctx.destination);
-                    
-                    // Reverb routing
-                    this.nodes.reverbSend.connect(this.nodes.reverb);
-                    this.nodes.reverb.connect(this.nodes.reverbReturn);
-                    this.nodes.reverbReturn.connect(this.nodes.busComp);
-                    
-                    // Create sounds
+                    // Create lo-fi drums
                     await this.createDrums();
+                    
+                    // Add vinyl noise
                     this.createVinyl();
                     
                     // Mic setup
@@ -483,6 +297,7 @@
                     this.nodes.rec.onaudioprocess = e => {
                         if (this.recording) {
                             this.buffer.push(...e.inputBuffer.getChannelData(0));
+                            // Longer samples for that Kanye feel (up to 8 seconds)
                             if (this.buffer.length > this.ctx.sampleRate * 8) this.stopRec();
                         }
                     };
@@ -492,42 +307,14 @@
                     this.seq.last = this.ctx.currentTime;
                     requestAnimationFrame(() => this.tick());
                     
+                    // Keys
                     document.onkeydown = e => {
-                        if (e.key === ' ') {
-                            e.preventDefault();
-                            this.toggle();
-                        }
+                        if (e.key === ' ') this.toggle();
                     };
-                    
-                    document.querySelector('.info').style.display = 'none';
                     
                 } catch (e) {
                     console.error(e);
                 }
-            }
-
-            async createReverb() {
-                // Hall reverb impulse
-                const length = this.ctx.sampleRate * 3;
-                const impulse = this.ctx.createBuffer(2, length, this.ctx.sampleRate);
-                
-                for (let channel = 0; channel < 2; channel++) {
-                    const channelData = impulse.getChannelData(channel);
-                    
-                    for (let i = 0; i < length; i++) {
-                        // Early reflections
-                        if (i < this.ctx.sampleRate * 0.1) {
-                            if (i % Math.floor(this.ctx.sampleRate * 0.007) === 0) {
-                                channelData[i] = (Math.random() - 0.5) * Math.pow(1 - i / length, 2) * 0.5;
-                            }
-                        }
-                        
-                        // Diffuse tail
-                        channelData[i] += (Math.random() - 0.5) * Math.pow(1 - i / length, 1.5) * 0.2;
-                    }
-                }
-                
-                this.nodes.reverb.buffer = impulse;
             }
 
             toggle() {
@@ -548,113 +335,114 @@
                 this.nodes.rec.disconnect();
                 this.orb.classList.remove('recording');
                 
-                if (this.buffer.length > this.ctx.sampleRate * 0.5) {
+                if (this.buffer.length > this.ctx.sampleRate * 0.5) { // Min 0.5 seconds
                     const buf = this.ctx.createBuffer(1, this.buffer.length, this.ctx.sampleRate);
                     buf.getChannelData(0).set(this.buffer);
                     
-                    // Heavy production processing
-                    const processed = this.production.processSample(buf);
-                    
                     // Find peaks and match to beat
-                    const peaks = this.beatMatcher.findPeaks(processed, this.ctx.sampleRate);
+                    const peaks = this.beatMatcher.findPeaks(buf, this.ctx.sampleRate);
                     const stretch = this.beatMatcher.matchToGrid(peaks);
                     
                     // Kanye-style pitch shift
                     const pitch = this.pitchShifts[Math.floor(Math.random() * this.pitchShifts.length)];
                     
                     // Create chops
-                    const chops = this.beatMatcher.chopSample(processed, peaks);
+                    const chops = this.beatMatcher.chopSample(buf, peaks);
                     
                     const sample = {
-                        buffer: processed,
+                        buffer: buf,
                         rate: stretch * pitch,
                         chops,
-                        pitch,
-                        evolution: 0
+                        pitch
                     };
                     
-                    // Add to samples
-                    const samples = this.samples.get('samples');
-                    if (samples.length >= 4) {
-                        const oldest = samples.shift();
-                        if (this.activeSources.has(oldest)) {
-                            this.activeSources.get(oldest).stop();
-                            this.activeSources.delete(oldest);
-                        }
-                    }
+                    // Add as main sample
+                    const samples = this.samples.get('sample');
+                    if (samples.length >= 2) samples.shift(); // Keep 2 main samples max
                     samples.push(sample);
                     
-                    console.log(`Sample: ${pitch}x pitch, ${stretch.toFixed(2)}x stretch, ${chops.length} chops`);
+                    console.log(`Sample: ${pitch}x pitch, ${stretch.toFixed(2)}x stretch`);
                 }
             }
 
             async createDrums() {
                 const sr = this.ctx.sampleRate;
                 
-                // Punchy kick with sub
-                const kick = this.ctx.createBuffer(1, sr * 0.5, sr);
+                // Lo-fi kick - shorter, punchier
+                const kick = this.ctx.createBuffer(1, sr * 0.3, sr);
                 const kd = kick.getChannelData(0);
                 for (let i = 0; i < kd.length; i++) {
                     const t = i / sr;
-                    const env = Math.pow(1 - t * 2, 3);
-                    const pitch = 60 * Math.exp(-35 * t);
-                    const click = Math.sin(2 * Math.PI * 1500 * t) * Math.exp(-100 * t) * 0.3;
-                    const sub = Math.sin(2 * Math.PI * pitch * 0.5 * t);
-                    kd[i] = (Math.sin(2 * Math.PI * pitch * t) + sub * 0.5 + click) * env;
+                    const env = Math.exp(-10 * t);
+                    const pitch = 60 * Math.exp(-50 * t);
+                    let s = Math.sin(2 * Math.PI * pitch * t) * env;
+                    // Bit reduction
+                    s = Math.round(s * 8) / 8;
+                    kd[i] = s * 0.9;
                 }
                 
-                // Snappy snare
-                const snare = this.ctx.createBuffer(1, sr * 0.2, sr);
+                // Lo-fi snare - crispy and short
+                const snare = this.ctx.createBuffer(1, sr * 0.15, sr);
                 const sd = snare.getChannelData(0);
                 for (let i = 0; i < sd.length; i++) {
                     const t = i / sr;
-                    const env = Math.exp(-20 * t);
-                    const tone = Math.sin(2 * Math.PI * 200 * t) * 0.5;
-                    const noise = (Math.random() * 2 - 1) * 0.7;
-                    sd[i] = (tone + noise) * env;
+                    const env = Math.exp(-30 * t);
+                    const tone = Math.sin(2 * Math.PI * 200 * t) * 0.3;
+                    const noise = (Math.random() * 2 - 1) * 0.6;
+                    let s = (tone + noise) * env;
+                    // Bit reduction
+                    s = Math.round(s * 6) / 6;
+                    sd[i] = s * 0.8;
                 }
                 
-                // Crispy hat
+                // Soft hat
                 const hat = this.ctx.createBuffer(1, sr * 0.05, sr);
                 const hd = hat.getChannelData(0);
                 for (let i = 0; i < hd.length; i++) {
                     const t = i / sr;
                     const env = Math.exp(-100 * t);
                     let s = (Math.random() * 2 - 1) * env;
-                    if (i > 0) s = s * 0.3 + hd[i-1] * 0.7; // Low-pass
-                    hd[i] = s;
+                    // Heavy filtering
+                    if (i > 0) s = s * 0.3 + hd[i-1] * 0.7;
+                    hd[i] = s * 0.5;
                 }
                 
-                this.samples.get('drums').push(
-                    { type: 'kick', buffer: kick },
-                    { type: 'snare', buffer: snare },
-                    { type: 'hat', buffer: hat }
-                );
+                // Sub bass - pure and deep
+                const bass = this.ctx.createBuffer(1, sr * 1, sr);
+                const bd = bass.getChannelData(0);
+                for (let i = 0; i < bd.length; i++) {
+                    const t = i / sr;
+                    const env = t < 0.02 ? t / 0.02 : Math.exp(-2 * (t - 0.02));
+                    bd[i] = Math.sin(2 * Math.PI * 40 * t) * env * 0.8;
+                }
+                
+                // Add to samples
+                this.samples.get('kick').push({ buffer: kick, rate: 1 });
+                this.samples.get('snare').push({ buffer: snare, rate: 1 });
+                this.samples.get('hats').push({ buffer: hat, rate: 1 });
+                this.samples.get('bass').push({ buffer: bass, rate: 1 });
             }
 
             createVinyl() {
+                // Continuous vinyl crackle
                 const duration = 10;
-                const vinyl = this.ctx.createBuffer(2, this.ctx.sampleRate * duration, this.ctx.sampleRate);
-                const data0 = vinyl.getChannelData(0);
-                const data1 = vinyl.getChannelData(1);
+                const vinyl = this.ctx.createBuffer(1, this.ctx.sampleRate * duration, this.ctx.sampleRate);
+                const data = vinyl.getChannelData(0);
                 
-                for (let i = 0; i < data0.length; i++) {
-                    // Surface noise
-                    data0[i] = (Math.random() - 0.5) * 0.01;
-                    data1[i] = (Math.random() - 0.5) * 0.01;
-                    
+                for (let i = 0; i < data.length; i++) {
                     // Crackle
                     if (Math.random() < 0.0001) {
-                        data0[i] = (Math.random() - 0.5) * 0.2;
-                        data1[i] = (Math.random() - 0.5) * 0.2;
+                        data[i] = (Math.random() - 0.5) * 0.3;
+                    } else {
+                        // Surface noise
+                        data[i] = (Math.random() - 0.5) * 0.02;
                     }
                     
                     // Low rumble
-                    const rumble = Math.sin(2 * Math.PI * 0.5 * i / this.ctx.sampleRate) * 0.005;
-                    data0[i] += rumble;
-                    data1[i] += rumble;
+                    data[i] += Math.sin(2 * Math.PI * 0.5 * i / this.ctx.sampleRate) * 0.01;
                 }
                 
+                // Loop the vinyl noise
                 const playVinyl = () => {
                     const source = this.ctx.createBufferSource();
                     source.buffer = vinyl;
@@ -678,307 +466,146 @@
                 if (now >= this.seq.last + swing) {
                     this.seq.last = now;
                     
-                    // Pulse on downbeat
+                    // Pulse
                     if (this.seq.step % 4 === 0) {
                         this.orb.classList.add('pulse');
                         setTimeout(() => this.orb.classList.remove('pulse'), 300);
                     }
                     
-                    // Drum pattern - classic boom bap
-                    const drums = this.samples.get('drums');
-                    
-                    // Kick pattern
-                    if ([0, 10].includes(this.seq.step % 16)) {
-                        this.playDrum('kick', 0.9);
+                    // Trip hop patterns - sparse and groovy
+                    if (this.seq.step === 0 || this.seq.step === 10) {
+                        this.play('kick', 0.9);
                     }
                     
-                    // Snare pattern
-                    if ([4, 12].includes(this.seq.step % 16)) {
-                        this.playDrum('snare', 0.7);
+                    if (this.seq.step === 8 || this.seq.step === 24) {
+                        this.play('snare', 0.7);
                     }
                     
-                    // Hi-hat pattern
-                    if ([2, 6, 10, 14].includes(this.seq.step % 16)) {
-                        this.playDrum('hat', 0.3 + Math.random() * 0.1);
+                    if ([2, 6, 10, 12, 14, 18, 22, 26, 30].includes(this.seq.step)) {
+                        this.play('hats', 0.3 + Math.random() * 0.2);
                     }
                     
-                    // Bassline
-                    if (this.samples.get('samples').length >= 2) {
-                        this.playBassline();
+                    // Bass on specific hits
+                    if ([0, 3, 8, 11, 16, 19, 24, 27].includes(this.seq.step)) {
+                        this.play('bass', 0.8);
                     }
                     
-                    // Sample triggering
-                    const samples = this.samples.get('samples');
-                    if (samples.length > 0) {
-                        // Main sample loop
-                        if (this.seq.step % 16 === 0) {
-                            this.playSample(samples[samples.length - 1]);
-                        }
-                        
-                        // Sample chops for variation
-                        if (samples.length > 1 && [6, 14].includes(this.seq.step % 16)) {
-                            const chop = Math.floor(Math.random() * samples[0].chops.length);
-                            this.playChop(samples[0], chop);
-                        }
+                    // Main sample - plays continuously when available
+                    const samples = this.samples.get('sample');
+                    if (samples.length > 0 && this.seq.step % 16 === 0) {
+                        this.playSample(samples[0]);
                     }
                     
-                    // Chord progression every 2 bars
-                    if (this.seq.step % 32 === 0) {
-                        this.currentChord = (this.currentChord + 1) % this.chordProgression.length;
-                    }
-                    
-                    this.seq.step = (this.seq.step + 1) % 64;
+                    this.seq.step = (this.seq.step + 1) % 32;
                 }
                 
                 requestAnimationFrame(() => this.tick());
             }
 
-            playDrum(type, vel) {
-                const drums = this.samples.get('drums');
-                const drum = drums.find(d => d.type === type);
-                if (!drum) return;
+            play(type, vel) {
+                const samples = this.samples.get(type);
+                if (!samples.length) return;
                 
+                const sample = samples[Math.floor(Math.random() * samples.length)];
                 const src = this.ctx.createBufferSource();
                 const gain = this.ctx.createGain();
-                const filter = this.ctx.createBiquadFilter();
                 
-                src.buffer = drum.buffer;
+                src.buffer = sample.buffer;
+                src.playbackRate.value = sample.rate || 1;
                 gain.gain.value = vel;
                 
-                // EQ for punch
-                filter.type = 'peaking';
-                filter.frequency.value = type === 'kick' ? 80 : type === 'snare' ? 200 : 8000;
-                filter.Q.value = 2;
-                filter.gain.value = 3;
-                
-                src.connect(filter);
-                filter.connect(gain);
-                gain.connect(this.nodes.drums);
-                
-                // Send snare to reverb
-                if (type === 'snare') {
-                    gain.connect(this.nodes.reverbSend);
-                }
+                // Lo-fi processing
+                const processed = this.lofi.process(src);
+                processed.connect(gain);
+                gain.connect(this.nodes[type]);
                 
                 src.start();
             }
 
-            playBassline() {
-                const chord = this.chordProgression[this.currentChord];
-                const pattern = [0, 0, 7, 5, 3, 3, -2, 0]; // Bassline pattern
-                const note = chord.bass + pattern[this.seq.step % 8];
-                
-                // Multiple oscillators for fat bass
-                const oscs = [];
-                const gains = [];
-                
-                for (let i = 0; i < 3; i++) {
-                    const osc = this.ctx.createOscillator();
-                    const gain = this.ctx.createGain();
-                    
-                    osc.type = i === 0 ? 'sine' : 'sawtooth';
-                    osc.frequency.value = this.noteToFreq(note - (i === 0 ? 12 : 0)); // Sub an octave down
-                    if (i > 0) osc.detune.value = (i - 1.5) * 15; // Detune for width
-                    
-                    oscs.push(osc);
-                    gains.push(gain);
-                }
-                
-                // Filter for character
-                const filter = this.ctx.createBiquadFilter();
-                filter.type = 'lowpass';
-                filter.frequency.value = 400;
-                filter.Q.value = 4;
-                
-                // Envelope
-                const envelope = this.ctx.createGain();
-                const now = this.ctx.currentTime;
-                const duration = 0.5;
-                
-                envelope.gain.setValueAtTime(0, now);
-                envelope.gain.linearRampToValueAtTime(0.8, now + 0.01);
-                envelope.gain.exponentialRampToValueAtTime(0.3, now + 0.1);
-                envelope.gain.exponentialRampToValueAtTime(0.01, now + duration);
-                
-                // Filter envelope
-                filter.frequency.setValueAtTime(100, now);
-                filter.frequency.exponentialRampToValueAtTime(800, now + 0.02);
-                filter.frequency.exponentialRampToValueAtTime(200, now + duration);
-                
-                // Connect
-                oscs.forEach((osc, i) => {
-                    gains[i].gain.value = i === 0 ? 0.5 : 0.2; // Sub louder
-                    osc.connect(gains[i]);
-                    gains[i].connect(filter);
-                });
-                
-                filter.connect(envelope);
-                envelope.connect(this.nodes.bass);
-                
-                // Start/stop
-                oscs.forEach(osc => {
-                    osc.start(now);
-                    osc.stop(now + duration);
-                });
-            }
-
             playSample(sample) {
-                if (this.activeSources.has(sample)) return;
-                
+                // Play the full sample loop Kanye-style
                 const src = this.ctx.createBufferSource();
                 const gain = this.ctx.createGain();
                 const filter = this.ctx.createBiquadFilter();
-                const comp = this.ctx.createDynamicsCompressor();
                 
                 src.buffer = sample.buffer;
                 src.playbackRate.value = sample.rate;
                 src.loop = true;
+                src.loopStart = 0;
+                src.loopEnd = Math.min(sample.buffer.duration, 60 / this.beatMatcher.bpm * 4); // 4 bar loop
                 
-                // Dynamic filtering based on evolution
+                // Filter sweep for movement
                 filter.type = 'lowpass';
-                filter.frequency.value = 20000 - (sample.evolution * 10000);
-                filter.Q.value = 1 + sample.evolution * 2;
+                filter.frequency.value = 2000;
+                filter.Q.value = 2;
                 
-                // Per-sample compression
-                comp.threshold.value = -18;
-                comp.knee.value = 10;
-                comp.ratio.value = 3;
-                comp.attack.value = 0.003;
-                comp.release.value = 0.1;
+                // Slow filter automation
+                const sweepTime = 8; // 8 second sweep
+                filter.frequency.setValueAtTime(2000, this.ctx.currentTime);
+                filter.frequency.linearRampToValueAtTime(5000, this.ctx.currentTime + sweepTime / 2);
+                filter.frequency.linearRampToValueAtTime(2000, this.ctx.currentTime + sweepTime);
                 
-                gain.gain.value = 0.6;
+                gain.gain.value = 0.7;
                 
-                // Sidechain setup
-                const sidechain = this.ctx.createGain();
-                sidechain.gain.value = 1;
-                
-                // Connect chain
-                src.connect(filter);
-                filter.connect(comp);
-                comp.connect(sidechain);
-                sidechain.connect(gain);
-                gain.connect(this.nodes.samples);
-                gain.connect(this.nodes.reverbSend);
-                
-                src.start();
-                this.activeSources.set(sample, src);
-                
-                // Sidechain pumping
-                const pump = () => {
-                    if (!this.activeSources.has(sample)) return;
-                    
-                    const now = this.ctx.currentTime;
+                // Sidechain compression effect
+                const sidechain = () => {
+                    if (!src.playbackState || src.playbackState === 'finished') return;
                     
                     // Duck on kicks
-                    if (this.seq.step % 4 === 0) {
-                        sidechain.gain.cancelScheduledValues(now);
-                        sidechain.gain.setValueAtTime(sidechain.gain.value, now);
-                        sidechain.gain.linearRampToValueAtTime(0.3, now + 0.01);
-                        sidechain.gain.linearRampToValueAtTime(1, now + 0.15);
+                    if (this.seq.step === 0 || this.seq.step === 10) {
+                        gain.gain.cancelScheduledValues(this.ctx.currentTime);
+                        gain.gain.setValueAtTime(0.3, this.ctx.currentTime);
+                        gain.gain.linearRampToValueAtTime(0.7, this.ctx.currentTime + 0.1);
                     }
                     
-                    // Filter movement
-                    const lfo = Math.sin(now * 0.5) * 0.5 + 0.5;
-                    filter.frequency.value = 500 + lfo * 5000;
-                    
-                    requestAnimationFrame(pump);
+                    setTimeout(sidechain, 60000 / this.beatMatcher.bpm / 4);
                 };
-                pump();
                 
-                // Evolve sample over time
-                setTimeout(() => {
-                    sample.evolution = Math.min(sample.evolution + 0.5, 2);
-                }, 8000);
-            }
-
-            playChop(sample, chopIndex) {
-                const chop = sample.chops[chopIndex];
-                if (!chop) return;
-                
-                const src = this.ctx.createBufferSource();
-                const gain = this.ctx.createGain();
-                const filter = this.ctx.createBiquadFilter();
-                
-                src.buffer = sample.buffer;
-                src.playbackRate.value = sample.rate;
-                
-                // Play specific chop
-                const offset = chop.start;
-                const duration = chop.end - chop.start;
-                
-                // Filter sweep
-                filter.type = 'bandpass';
-                filter.frequency.value = 1000;
-                filter.Q.value = 5;
-                
-                gain.gain.value = 0.5;
-                
-                // Quick envelope
-                const now = this.ctx.currentTime;
-                gain.gain.setValueAtTime(0, now);
-                gain.gain.linearRampToValueAtTime(0.5, now + 0.01);
-                gain.gain.linearRampToValueAtTime(0, now + duration * 0.9);
-                
-                src.connect(filter);
+                // Lo-fi processing
+                const processed = this.lofi.process(src);
+                processed.connect(filter);
                 filter.connect(gain);
-                gain.connect(this.nodes.samples);
+                gain.connect(this.nodes.sample);
                 
-                src.start(0, offset, duration);
-            }
-
-            noteToFreq(note) {
-                return 440 * Math.pow(2, (note - 69) / 12);
+                src.start();
+                sidechain();
+                
+                // Stop previous samples
+                if (this.currentSample) {
+                    this.currentSample.stop();
+                }
+                this.currentSample = src;
             }
 
             loop() {
-                // Auto-sample detection
+                // Auto-sample interesting sounds
                 const analyser = this.ctx.createAnalyser();
                 this.nodes.mic.connect(analyser);
                 analyser.fftSize = 2048;
                 
                 const data = new Uint8Array(analyser.frequencyBinCount);
-                let silenceCount = 0;
-                let recordingTriggered = false;
+                let cooldown = 0;
                 
                 setInterval(() => {
-                    if (this.recording) {
-                        recordingTriggered = true;
+                    if (this.recording || cooldown > 0) {
+                        cooldown--;
                         return;
                     }
                     
                     analyser.getByteFrequencyData(data);
                     
                     // Look for interesting harmonic content
-                    let energy = 0;
                     let harmonics = 0;
-                    
-                    for (let i = 10; i < 500; i++) {
-                        if (data[i] > 100) {
-                            energy += data[i];
-                            harmonics++;
-                        }
+                    for (let i = 10; i < 100; i++) {
+                        if (data[i] > 100) harmonics++;
                     }
                     
-                    // Auto-record if interesting and enough silence has passed
-                    if (harmonics > 20 && energy > 2000 && silenceCount > 50 && !recordingTriggered) {
+                    // Auto-record if interesting
+                    if (harmonics > 20) {
                         this.toggle();
-                        silenceCount = 0;
-                        recordingTriggered = true;
-                        
-                        // Reset after cooldown
-                        setTimeout(() => {
-                            recordingTriggered = false;
-                        }, 10000);
+                        cooldown = 200; // 4 second cooldown
                     }
-                    
-                    // Track silence
-                    if (energy < 500) {
-                        silenceCount++;
-                    } else {
-                        silenceCount = 0;
-                    }
-                    
-                }, 100);
+                }, 20);
             }
         }
 
