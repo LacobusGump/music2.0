@@ -241,6 +241,8 @@
                 this.playingSamples = [];
                 this.stage = 0;
                 this.barCount = 0;
+                this.section = 'A'; // For AABA
+                this.sectionBar = 0; // Bars in current section
                 
                 // Pitch shifts evolve to brighter
                 this.pitchShifts = [0.5, 0.6, 0.7, 0.8, 1, 1.2, 1.5, 2]; 
@@ -332,7 +334,7 @@
                         this.samples.set(name, []);
                     });
                     
-                    // Create drums
+                    // Create drums with more Kanye lo-fi vibe
                     await this.createDrums();
                     
                     // Piano
@@ -434,46 +436,50 @@
             async createDrums() {
                 const sr = this.ctx.sampleRate;
                 
-                const kick = this.ctx.createBuffer(1, sr * 0.5, sr);
+                // Enhanced Kanye-style kick: deep sub with punchy attack
+                const kick = this.ctx.createBuffer(1, sr * 0.4, sr);
                 const kd = kick.getChannelData(0);
                 for (let i = 0; i < kd.length; i++) {
                     const t = i / sr;
-                    const env = Math.exp(-7 * t);
-                    const pitch = 45 * Math.exp(-35 * t);
+                    const env = Math.exp(-8 * t); // Shorter decay for punch
+                    const pitch = 50 * Math.exp(-40 * t); // Deeper start, faster drop
                     let s = Math.sin(2 * Math.PI * pitch * t) * env;
-                    s += 0.2 * Math.sin(2 * Math.PI * (pitch * 2) * t) * env;
-                    s = Math.round(s * 8) / 8;
+                    s += 0.3 * Math.sin(2 * Math.PI * (pitch * 2) * t) * env * Math.exp(-20 * t); // Add attack harmonic
+                    s = Math.tanh(s * 1.2); // Soft clip for compression feel
                     kd[i] = s * 0.95;
                 }
                 
-                const snare = this.ctx.createBuffer(1, sr * 0.25, sr);
+                // Crispy snare with lo-fi noise
+                const snare = this.ctx.createBuffer(1, sr * 0.2, sr);
                 const sd = snare.getChannelData(0);
                 for (let i = 0; i < sd.length; i++) {
                     const t = i / sr;
-                    const env = Math.exp(-20 * t);
-                    const tone = Math.sin(2 * Math.PI * 160 * t) * 0.2;
-                    const noise = (Math.random() * 2 - 1) * 0.5;
+                    const env = Math.exp(-25 * t);
+                    const tone = Math.sin(2 * Math.PI * 180 * t) * 0.25;
+                    const noise = (Math.random() * 2 - 1) * 0.6;
                     let s = (tone + noise) * env;
-                    s = Math.round(s * 6) / 6;
-                    sd[i] = s * 0.7;
+                    s = Math.round(s * 6) / 6; // Bit reduction
+                    sd[i] = s * 0.8;
                 }
                 
-                const hat = this.ctx.createBuffer(1, sr * 0.1, sr);
+                // Subtle hat with variation
+                const hat = this.ctx.createBuffer(1, sr * 0.08, sr);
                 const hd = hat.getChannelData(0);
                 for (let i = 0; i < hd.length; i++) {
                     const t = i / sr;
-                    const env = Math.exp(-70 * t);
+                    const env = Math.exp(-80 * t);
                     let s = (Math.random() * 2 - 1) * env;
-                    if (i > 0) s = s * 0.4 + hd[i-1] * 0.6;
-                    hd[i] = s * 0.3;
+                    if (i > 0) s = s * 0.3 + hd[i-1] * 0.7; // HPF
+                    hd[i] = s * 0.4;
                 }
                 
-                const bass = this.ctx.createBuffer(1, sr * 1.5, sr);
+                // Bass with Kanye warmth
+                const bass = this.ctx.createBuffer(1, sr * 1.2, sr);
                 const bd = bass.getChannelData(0);
                 for (let i = 0; i < bd.length; i++) {
                     const t = i / sr;
-                    const env = t < 0.04 ? t / 0.04 : Math.exp(-1 * (t - 0.04));
-                    bd[i] = Math.sin(2 * Math.PI * 35 * t) * env * 0.85;
+                    const env = t < 0.03 ? t / 0.03 : Math.exp(-1.5 * (t - 0.03));
+                    bd[i] = Math.sin(2 * Math.PI * 40 * t) * env * 0.9;
                 }
                 
                 this.samples.get('kick').push({ buffer: kick, rate: 1 });
@@ -579,28 +585,43 @@
                         setTimeout(() => this.orb.classList.remove('pulse'), 300);
                     }
                     
-                    // Evolve drum patterns: more fills as stage increases
-                    // Kick: base sparse, add more
+                    // AABA section logic: each section 8 bars
+                    if (this.barCount >= 16) { // Start AABA after 16 bars
+                        if (this.sectionBar >= 8) {
+                            this.sectionBar = 0;
+                            if (this.section === 'A') {
+                                if (Math.random() < 0.5) this.section = 'A'; // AA
+                                else this.section = 'B'; // To B
+                            } else if (this.section === 'B') {
+                                this.section = 'A'; // Back to A
+                            }
+                        }
+                    } else {
+                        this.section = 'intro';
+                    }
+                    
+                    // Evolve drum patterns: more fills as stage increases, vary by section
+                    // Kick: base sparse, add more in B
                     const kickPositions = [0, 16];
-                    if (this.stage >= 2) kickPositions.push(4, 20);
-                    if (this.stage >= 4) kickPositions.push(8, 24);
+                    if (this.stage >= 2 || this.section === 'B') kickPositions.push(4, 20);
+                    if (this.stage >= 4 || this.section === 'B') kickPositions.push(8, 24);
                     if (kickPositions.includes(this.seq.step)) {
                         this.play('kick', 0.95);
                     }
                     
                     // Snare
                     const snarePositions = [8, 24];
-                    if (this.stage >= 3) snarePositions.push(12, 28);
+                    if (this.stage >= 3 || this.section === 'B') snarePositions.push(12, 28);
                     if (snarePositions.includes(this.seq.step)) {
                         this.play('snare', 0.6);
                     }
                     
-                    // Hats: more dense
+                    // Hats: more dense in later stages and B
                     let hatsPositions = [4,12,20,28];
-                    if (this.stage >=1) hatsPositions = hatsPositions.concat([6,14,22,30]);
-                    if (this.stage >=2) hatsPositions = hatsPositions.concat([2,10,18,26]);
-                    if (this.stage >=3) hatsPositions = hatsPositions.concat([0,8,16,24]);
-                    if (this.stage >=4) hatsPositions = hatsPositions.concat([1,3,5,7,9,11,13,15,17,19,21,23,25,27,29,31]);
+                    if (this.stage >=1 || this.section === 'B') hatsPositions = hatsPositions.concat([6,14,22,30]);
+                    if (this.stage >=2 || this.section === 'B') hatsPositions = hatsPositions.concat([2,10,18,26]);
+                    if (this.stage >=3 || this.section === 'B') hatsPositions = hatsPositions.concat([0,8,16,24]);
+                    if (this.stage >=4 || this.section === 'B') hatsPositions = hatsPositions.concat([1,3,5,7,9,11,13,15,17,19,21,23,25,27,29,31]);
                     if (hatsPositions.includes(this.seq.step)) {
                         this.play('hats', 0.15 + Math.random() * 0.05 + this.stage * 0.05);
                     }
@@ -626,9 +647,10 @@
                         }
                     }
                     
-                    // Bar count: 16 steps = 1 bar (16 16ths)
-                    if (this.seq.step % 16 === 0) {
+                    // Bar count: 16 steps =1 bar
+                    if (this.seq.step === 0) { // Every 16 steps (since 32 step loop, but count per 16)
                         this.barCount++;
+                        this.sectionBar++;
                         // After 16 bars, pickup if not already
                         if (this.barCount >= 16 && this.stage < 1) {
                             this.stage = 1;
