@@ -209,9 +209,22 @@
                 this.buffer = [];
                 this.seq = { step: 0, swing: 0.15 };
                 this.orb = document.getElementById('orb');
+                this.playingSamples = [];
                 
                 // Kanye-style pitch shifts
                 this.pitchShifts = [0.5, 0.667, 0.75, 1, 1.5, 2]; // Octave down, 5th down, 4th down, original, 5th up, octave up
+                
+                // Bass pattern for Kanye vibe (minor pentatonic-ish, relative pitches)
+                this.bassPattern = [
+                    {step: 0, rate: 1},      // Root
+                    {step: 3, rate: 1.189},  // Minor 3rd
+                    {step: 8, rate: 1.5},    // Perfect 5th
+                    {step: 11, rate: 1.189}, // Minor 3rd
+                    {step: 16, rate: 1},     // Root
+                    {step: 19, rate: 1.189}, // Minor 3rd
+                    {step: 24, rate: 1.5},   // Perfect 5th
+                    {step: 27, rate: 1.682}  // Minor 7th
+                ];
                 
                 document.addEventListener('click', () => this.start());
             }
@@ -358,8 +371,10 @@
                     
                     // Add as main sample
                     const samples = this.samples.get('sample');
-                    if (samples.length >= 2) samples.shift(); // Keep 2 main samples max
                     samples.push(sample);
+                    
+                    // Start playing the new sample as a layer
+                    this.playSample(sample);
                     
                     console.log(`Sample: ${pitch}x pitch, ${stretch.toFixed(2)}x stretch`);
                 }
@@ -485,15 +500,19 @@
                         this.play('hats', 0.3 + Math.random() * 0.2);
                     }
                     
-                    // Bass on specific hits
-                    if ([0, 3, 8, 11, 16, 19, 24, 27].includes(this.seq.step)) {
-                        this.play('bass', 0.8);
+                    // Bass on specific hits with varied pitches
+                    const bassPlay = this.bassPattern.find(p => p.step === this.seq.step);
+                    if (bassPlay) {
+                        this.play('bass', 0.8, bassPlay.rate);
                     }
                     
-                    // Main sample - plays continuously when available
-                    const samples = this.samples.get('sample');
-                    if (samples.length > 0 && this.seq.step % 16 === 0) {
-                        this.playSample(samples[0]);
+                    // Sidechain ducking for all sample layers on kick hits
+                    if (this.seq.step === 0 || this.seq.step === 10) {
+                        this.playingSamples.forEach(ps => {
+                            ps.gain.gain.cancelScheduledValues(now);
+                            ps.gain.gain.setValueAtTime(0.3, now);
+                            ps.gain.gain.linearRampToValueAtTime(0.7, now + 0.1);
+                        });
                     }
                     
                     this.seq.step = (this.seq.step + 1) % 32;
@@ -502,7 +521,7 @@
                 requestAnimationFrame(() => this.tick());
             }
 
-            play(type, vel) {
+            play(type, vel, rateMult = 1) {
                 const samples = this.samples.get(type);
                 if (!samples.length) return;
                 
@@ -511,7 +530,7 @@
                 const gain = this.ctx.createGain();
                 
                 src.buffer = sample.buffer;
-                src.playbackRate.value = sample.rate || 1;
+                src.playbackRate.value = (sample.rate || 1) * rateMult;
                 gain.gain.value = vel;
                 
                 // Lo-fi processing
@@ -547,20 +566,6 @@
                 
                 gain.gain.value = 0.7;
                 
-                // Sidechain compression effect
-                const sidechain = () => {
-                    if (!src.playbackState || src.playbackState === 'finished') return;
-                    
-                    // Duck on kicks
-                    if (this.seq.step === 0 || this.seq.step === 10) {
-                        gain.gain.cancelScheduledValues(this.ctx.currentTime);
-                        gain.gain.setValueAtTime(0.3, this.ctx.currentTime);
-                        gain.gain.linearRampToValueAtTime(0.7, this.ctx.currentTime + 0.1);
-                    }
-                    
-                    setTimeout(sidechain, 60000 / this.beatMatcher.bpm / 4);
-                };
-                
                 // Lo-fi processing
                 const processed = this.lofi.process(src);
                 processed.connect(filter);
@@ -568,13 +573,15 @@
                 gain.connect(this.nodes.sample);
                 
                 src.start();
-                sidechain();
                 
-                // Stop previous samples
-                if (this.currentSample) {
-                    this.currentSample.stop();
+                // Add to playing samples
+                this.playingSamples.push({src, gain});
+                
+                // Limit to 3 layers
+                if (this.playingSamples.length > 3) {
+                    const old = this.playingSamples.shift();
+                    old.src.stop();
                 }
-                this.currentSample = src;
             }
 
             loop() {
@@ -602,7 +609,10 @@
                     
                     // Auto-record if interesting
                     if (harmonics > 20) {
-                        this.toggle();
+                        this.toggle(); // Start recording
+                        setTimeout(() => {
+                            if (this.recording) this.toggle(); // Stop after 2-4 seconds
+                        }, 2000 + Math.random() * 2000);
                         cooldown = 200; // 4 second cooldown
                     }
                 }, 20);
