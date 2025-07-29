@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GUMP: Advanced World-Sampling Trip Hop Engine</title>
+    <title>GUMP: Kanye-Style Sampling Engine</title>
     <style>
         * {
             margin: 0;
@@ -18,58 +18,56 @@
             touch-action: none;
             height: 100vh;
             display: flex;
-            flex-direction: column;
             align-items: center;
             justify-content: center;
             cursor: none;
-            font-family: Arial, sans-serif;
         }
 
-        #orb {
+        .orb {
             position: fixed;
-            width: 16px;
-            height: 16px;
+            width: 12px;
+            height: 12px;
             border-radius: 50%;
-            background: radial-gradient(circle, rgba(255,255,255,0.9) 0%, rgba(255,255,255,0.4) 50%, transparent 80%);
+            background: radial-gradient(circle, rgba(255,255,255,0.8) 0%, rgba(255,255,255,0.3) 50%, transparent 80%);
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
-            transition: all 0.15s cubic-bezier(0.25, 0.46, 0.45, 0.94);
-            box-shadow: 0 0 25px rgba(255,255,255,0.5);
+            transition: all 0.1s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+            box-shadow: 0 0 20px rgba(255,255,255,0.4);
             pointer-events: none;
             z-index: 10;
-            filter: blur(0.2px);
+            filter: blur(0.3px);
         }
 
-        #orb.pulse {
-            animation: pulse 0.5s ease-out;
+        .orb.pulse {
+            animation: pulse 0.4s ease-out;
         }
 
         @keyframes pulse {
-            0% { transform: translate(-50%, -50%) scale(1); filter: blur(0.2px); }
-            50% { transform: translate(-50%, -50%) scale(4); box-shadow: 0 0 50px rgba(255,255,255,0.8); filter: blur(0); }
-            100% { transform: translate(-50%, -50%) scale(1); filter: blur(0.2px); }
+            0% { transform: translate(-50%, -50%) scale(1); filter: blur(0.3px); }
+            50% { transform: translate(-50%, -50%) scale(3.5); box-shadow: 0 0 40px rgba(255,255,255,0.7); filter: blur(0); }
+            100% { transform: translate(-50%, -50%) scale(1); filter: blur(0.3px); }
         }
 
-        #orb.recording {
-            background: radial-gradient(circle, rgba(255,100,100,1) 0%, rgba(255,0,0,0.5) 50%, transparent 80%);
-            box-shadow: 0 0 30px rgba(255,0,0,0.7);
-            animation: rec 0.7s ease-in-out infinite;
+        .orb.recording {
+            background: radial-gradient(circle, rgba(255,100,100,1) 0%, rgba(255,0,0,0.4) 50%, transparent 80%);
+            box-shadow: 0 0 25px rgba(255,0,0,0.6);
+            animation: rec 0.8s ease-in-out infinite;
         }
 
         @keyframes rec {
             0%, 100% { transform: translate(-50%, -50%) scale(1); }
-            50% { transform: translate(-50%, -50%) scale(1.4); }
+            50% { transform: translate(-50%, -50%) scale(1.3); }
         }
 
-        #orb.motion {
-            background: radial-gradient(circle, rgba(100,255,100,1) 0%, rgba(0,255,0,0.5) 50%, transparent 80%);
-            box-shadow: 0 0 30px rgba(0,255,0,0.7);
-            animation: motionGlow 0.4s ease-in-out infinite alternate;
+        .orb.motion {
+            background: radial-gradient(circle, rgba(100,255,100,1) 0%, rgba(0,255,0,0.4) 50%, transparent 80%);
+            box-shadow: 0 0 25px rgba(0,255,0,0.6);
+            animation: motionGlow 0.5s ease-in-out infinite alternate;
         }
 
         @keyframes motionGlow {
-            0% { opacity: 0.7; }
+            0% { opacity: 0.8; }
             100% { opacity: 1; }
         }
 
@@ -104,7 +102,7 @@
     </style>
 </head>
 <body>
-    <div id="orb"></div>
+    <div id="orb" class="orb"></div>
     <div id="controls">
         <div id="status">Click to start</div>
         <button id="micButton">Request Microphone Access</button>
@@ -114,7 +112,6 @@
     <script>
         'use strict';
 
-        // Enhanced BeatMatcher with energy-based onset detection (improved from search insights)
         class BeatMatcher {
             constructor(bpm = 75) {
                 this.bpm = bpm;
@@ -135,55 +132,62 @@
                     }
                     energy = Math.sqrt(energy / windowSize);
 
-                    if (energy > prevEnergy * 1.5 && energy > 0.08) {
+                    if (energy > prevEnergy * 1.4 && energy > 0.06) {
                         peaks.push({ time: i / buffer.sampleRate, energy, index: i });
                     }
                     prevEnergy = energy;
                 }
 
-                return peaks.filter((p, idx) => idx === 0 || p.time - peaks[idx - 1].time > 0.1);
+                return peaks.filter((p, idx) => idx === 0 || p.time - peaks[idx - 1].time > 0.08);
             }
 
             matchToGrid(peaks) {
-                if (peaks.length < 3) return 1;
+                if (peaks.length < 2) return 1;
 
                 const intervals = peaks.slice(1).map((p, i) => p.time - peaks[i].time);
-                const medianInterval = intervals.sort((a, b) => a - b)[Math.floor(intervals.length / 2)];
-                this.bpm = Math.round(60 / medianInterval / 4) * 4;
-                this.bpm = Math.max(60, Math.min(90, this.bpm));
-
+                const avgInterval = intervals.reduce((a, b) => a + b, 0) / intervals.length;
                 const beatDuration = 60 / this.bpm;
-                const targetDuration = beatDuration * this.barLength * intervals.length;
+                const divisions = [4, 2, 1, 0.5, 0.25];
+                let bestDiv = 1;
+                let minDiff = Infinity;
+
+                for (const div of divisions) {
+                    const target = beatDuration * div;
+                    const diff = Math.abs(avgInterval - target);
+                    if (diff < minDiff) {
+                        minDiff = diff;
+                        bestDiv = div;
+                    }
+                }
+
+                const targetDuration = beatDuration * this.barLength;
                 const actualDuration = peaks[peaks.length - 1].time - peaks[0].time;
-                return targetDuration / actualDuration;
+                return (targetDuration / actualDuration) * bestDiv;
             }
 
-            chopSample(buffer, peaks, chopsPerBar = 16) {
+            chopSample(buffer, peaks) {
                 const chops = [];
                 const beatDuration = 60 / this.bpm;
-                const chopLength = beatDuration / (chopsPerBar / this.barLength);
+                const chopLength = beatDuration / 2; // 8th notes
 
-                for (let i = 0; i < Math.min(peaks.length - 1, chopsPerBar); i++) {
-                    const start = peaks[i].time;
-                    const end = Math.min(start + chopLength, buffer.duration);
-                    chops.push({ start, end, energy: peaks[i].energy });
+                for (let i = 0; i < peaks.length - 1; i++) {
+                    const start = peaks[i].index;
+                    const end = Math.min(start + buffer.sampleRate * chopLength, buffer.length);
+                    const chopBuffer = this.ctx.createBuffer(1, end - start, buffer.sampleRate);
+                    chopBuffer.getChannelData(0).set(buffer.getChannelData(0).subarray(start, end));
+                    chops.push(chopBuffer);
                 }
                 return chops;
             }
         }
 
-        // Ultra-Rich Bass Synth: Kanye-Inspired with Distortion, Sub Layers, and Glide
         class ProfessionalBass {
             constructor(ctx, bpm) {
                 this.ctx = ctx;
                 this.bpm = bpm;
                 this.activeVoices = new Map();
-                this.patterns = [
-                    [33, 33, 40, 38, 35, 35, 31, 33], // Deeper notes for low end
-                    [28, 28, 35, 33, 30, 30, 26, 28]
-                ];
-                this.currentPattern = 0;
-                this.triggerPattern = [1, 0, 0, 1, 1, 0, 1, 0, 1, 0, 0, 1, 1, 0, 1, 0];
+                this.notes = [36, 36, 43, 41, 38, 38, 34, 36];
+                this.pattern = [1, 0, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 1, 0, 1, 0];
             }
 
             midiToFreq(midi) {
@@ -191,226 +195,90 @@
             }
 
             play(step, output) {
-                if (!this.triggerPattern[step % 16]) return;
+                if (!this.pattern[step % 16]) return;
 
-                const noteIndex = Math.floor(step / 2) % 8;
-                const midi = this.patterns[this.currentPattern][noteIndex];
+                const noteIndex = Math.floor(step / 2) % this.notes.length;
+                const midi = this.notes[noteIndex];
                 const freq = this.midiToFreq(midi);
 
                 if (this.activeVoices.has(midi)) {
                     this.activeVoices.get(midi).stop(this.ctx.currentTime);
+                    this.activeVoices.delete(midi);
                 }
 
                 const voice = this.createVoice(freq, output);
                 this.activeVoices.set(midi, voice);
-
-                if (step % 64 === 0) this.currentPattern = (this.currentPattern + 1) % this.patterns.length;
             }
 
             createVoice(freq, output) {
                 const now = this.ctx.currentTime;
-                const duration = 60 / this.bpm;
+                const duration = 60 / this.bpm / 4 * 2;
 
-                // Layers: Deep sub sine, FM mid, Distorted top
-                const sub1 = this.ctx.createOscillator();
-                sub1.type = 'sine';
-                sub1.frequency.value = freq * 0.5;
-
-                const sub2 = this.ctx.createOscillator();
-                sub2.type = 'sine';
-                sub2.frequency.value = freq * 0.25; // Ultra low sub
-
-                const fmCarrier = this.ctx.createOscillator();
-                fmCarrier.type = 'sine';
-                fmCarrier.frequency.value = freq;
-
-                const fmMod = this.ctx.createOscillator();
-                fmMod.type = 'sine';
-                fmMod.frequency.value = freq * 4;
-
-                const fmGain = this.ctx.createGain();
-                fmGain.gain.value = freq * 3;
-
-                fmMod.connect(fmGain);
-                fmGain.connect(fmCarrier.frequency);
-
+                const sub = this.ctx.createOscillator();
+                const mid = this.ctx.createOscillator();
                 const top = this.ctx.createOscillator();
+
+                sub.type = 'sine';
+                sub.frequency.value = freq * 0.5;
+                mid.type = 'sine';
+                mid.frequency.value = freq;
                 top.type = 'triangle';
                 top.frequency.value = freq * 2;
 
-                // Distortion for richness (Kanye 808 style)
-                const distortion = this.ctx.createWaveShaper();
-                const distCurve = new Float32Array(4096);
-                for (let i = 0; i < 4096; i++) {
-                    const x = (i / 2048 - 1) * 2;
-                    distCurve[i] = (3 + 2 * x) / (1 + 3 * Math.abs(x)); // Soft clip
-                }
-                distortion.curve = distCurve;
-                distortion.oversample = '4x';
-
-                // Gains
-                const sub1Gain = this.ctx.createGain(); sub1Gain.gain.value = 1.0;
-                const sub2Gain = this.ctx.createGain(); sub2Gain.gain.value = 0.8;
-                const fmGainNode = this.ctx.createGain(); fmGainNode.gain.value = 0.75;
-                const topGain = this.ctx.createGain(); topGain.gain.value = 0.5;
-
-                // Resonant filter
                 const filter = this.ctx.createBiquadFilter();
                 filter.type = 'lowpass';
-                filter.frequency.value = 100;
-                filter.Q.value = 15;
+                filter.frequency.value = 120;
+                filter.Q.value = 6;
+
+                const envelope = this.ctx.createGain();
+                envelope.gain.setValueAtTime(0, now);
+                envelope.gain.linearRampToValueAtTime(0.8, now + 0.005);
+                envelope.gain.exponentialRampToValueAtTime(0.4, now + 0.1);
+                envelope.gain.exponentialRampToValueAtTime(0.01, now + duration * 0.8);
 
                 filter.frequency.setValueAtTime(80, now);
-                filter.frequency.exponentialRampToValueAtTime(400, now + 0.05);
-                filter.frequency.exponentialRampToValueAtTime(100, now + duration * 0.5);
-                filter.frequency.exponentialRampToValueAtTime(50, now + duration);
+                filter.frequency.exponentialRampToValueAtTime(250, now + 0.02);
+                filter.frequency.exponentialRampToValueAtTime(120, now + duration * 0.3);
+                filter.frequency.exponentialRampToValueAtTime(60, now + duration);
 
-                // Envelope with longer decay for deep boom
-                const env = this.ctx.createGain();
-                env.gain.setValueAtTime(0, now);
-                env.gain.linearRampToValueAtTime(1.2, now + 0.015);
-                env.gain.exponentialRampToValueAtTime(0.7, now + 0.2);
-                env.gain.exponentialRampToValueAtTime(0.001, now + duration * 1.5);
+                const pitchBend = -18;
+                sub.frequency.exponentialRampToValueAtTime(freq * 0.5 * Math.pow(2, pitchBend/12), now + duration * 0.8);
+                mid.frequency.exponentialRampToValueAtTime(freq * Math.pow(2, pitchBend/12), now + duration * 0.8);
 
-                // Deep glide
-                const glideAmount = -24;
-                [sub1, sub2, fmCarrier, top].forEach(osc => {
-                    osc.frequency.exponentialRampToValueAtTime(osc.frequency.value * Math.pow(2, glideAmount/12), now + duration * 0.95);
-                });
+                sub.connect(filter);
+                mid.connect(filter);
+                top.connect(filter);
+                filter.connect(envelope);
+                envelope.connect(output);
 
-                // Connect
-                sub1.connect(sub1Gain);
-                sub2.connect(sub2Gain);
-                fmCarrier.connect(fmGainNode);
-                top.connect(topGain);
-
-                [sub1Gain, sub2Gain, fmGainNode, topGain].forEach(g => g.connect(distortion));
-                distortion.connect(filter);
-                filter.connect(env);
-                env.connect(output);
-
-                // Start
-                [sub1, sub2, fmCarrier, fmMod, top].forEach(osc => {
+                [sub, mid, top].forEach(osc => {
                     osc.start(now);
-                    osc.stop(now + duration * 1.5 + 0.2);
+                    osc.stop(now + duration);
                 });
 
-                return {
-                    stop: (when) => [sub1, sub2, fmCarrier, fmMod, top].forEach(osc => osc.stop(when))
-                };
+                return { stop: (when) => [sub, mid, top].forEach(osc => osc.stop(when)) };
             }
         }
 
-        // Advanced LoFi Processor with delay, reverb, and saturation
-        class LoFi {
-            constructor(ctx) {
-                this.ctx = ctx;
-            }
-
-            createProcessor() {
-                const input = this.ctx.createGain();
-
-                // Bitcrusher
-                const bitcrusher = this.ctx.createScriptProcessor(8192, 1, 1);
-                const bits = 6;
-                const downsample = 0.2;
-                let phase = 0;
-                bitcrusher.onaudioprocess = (e) => {
-                    const inp = e.inputBuffer.getChannelData(0);
-                    const out = e.outputBuffer.getChannelData(0);
-                    for (let i = 0; i < inp.length; i++) {
-                        phase += downsample;
-                        if (phase >= 1) {
-                            phase -= 1;
-                            const step = Math.pow(0.5, bits);
-                            out[i] = step * Math.floor(inp[i] / step + 0.5);
-                        } else {
-                            out[i] = out[i - 1] || 0;
-                        }
-                    }
-                };
-
-                // Saturation
-                const saturator = this.ctx.createWaveShaper();
-                const satCurve = new Float32Array(2048);
-                for (let i = 0; i < 2048; i++) {
-                    const x = (i / 1024 - 1) * 3;
-                    satCurve[i] = x / (1 + Math.abs(x * 2));
-                }
-                saturator.curve = satCurve;
-                saturator.oversample = '4x';
-
-                // Filter
-                const filter = this.ctx.createBiquadFilter();
-                filter.type = 'lowpass';
-                filter.frequency.value = 2200;
-                filter.Q.value = 1.2;
-
-                // Delay for echo
-                const delay = this.ctx.createDelay(0.5);
-                delay.delayTime.value = 0.3;
-                const delayGain = this.ctx.createGain();
-                delayGain.gain.value = 0.4;
-
-                // Feedback
-                const feedback = this.ctx.createGain();
-                feedback.gain.value = 0.3;
-                delay.connect(feedback);
-                feedback.connect(delay);
-
-                // Hiss
-                const hiss = this.ctx.createScriptProcessor(8192, 1, 1);
-                hiss.onaudioprocess = (e) => {
-                    const out = e.outputBuffer.getChannelData(0);
-                    for (let i = 0; i < out.length; i++) {
-                        out[i] += (Math.random() * 2 - 1) * 0.03;
-                    }
-                };
-                const hissGain = this.ctx.createGain();
-                hissGain.gain.value = 0.04;
-
-                // Chain
-                input.connect(bitcrusher);
-                bitcrusher.connect(saturator);
-                saturator.connect(filter);
-                filter.connect(delay);
-                delay.connect(delayGain);
-                delayGain.connect(hiss);
-                hiss.connect(hissGain);
-
-                const output = this.ctx.createGain();
-                hissGain.connect(output);
-                filter.connect(output); // Dry mix
-
-                return { input, output };
-            }
-        }
-
-        // Main Engine with rich features: Effects chains, controls, permission handling
         class Engine {
             constructor() {
                 this.ctx = null;
                 this.nodes = {};
-                this.samples = new Map();
+                this.samples = { drums: {}, chops: [] };
                 this.beatMatcher = new BeatMatcher();
                 this.professionalBass = null;
-                this.lofi = null;
                 this.recording = false;
                 this.buffer = [];
-                this.seq = { step: 0, swing: 0.25, last: 0 };
+                this.seq = { step: 0, swing: 0.15, last: 0 };
                 this.orb = document.getElementById('orb');
                 this.bassActive = false;
                 this.warmupBeats = 0;
-                this.pitchShifts = [0.5, 0.707, 0.8, 1, 1.25, 1.414, 2, 0.25]; // Added ultra low
-                this.motionThreshold = 1.2;
-                this.motionEffect = null;
+                this.pitchShifts = [1.0, 1.5, 2.0, 0.5, 0.75]; // Less extreme for professional sound
+                this.motionThreshold = 1.5;
                 this.status = document.getElementById('status');
                 this.micButton = document.getElementById('micButton');
                 this.recordButton = document.getElementById('recordButton');
-                this.currentSampleSource = null;
-                this.currentSampleSidechain = null;
 
-                // Event listeners
                 document.addEventListener('mousemove', (e) => {
                     this.orb.style.left = `${e.clientX}px`;
                     this.orb.style.top = `${e.clientY}px`;
@@ -423,17 +291,17 @@
                 this.micButton.addEventListener('click', () => this.requestMicAccess());
                 this.recordButton.addEventListener('click', () => this.toggleRecording());
 
-                document.addEventListener('click', () => this.start(), { once: true });
+                document.addEventListener('keydown', (e) => {
+                    if (e.key === ' ') this.toggleRecording();
+                });
+
+                document.addEventListener('click', () => this.start());
             }
 
             async requestMicAccess() {
                 try {
                     const stream = await navigator.mediaDevices.getUserMedia({
-                        audio: {
-                            echoCancellation: false,
-                            noiseSuppression: false,
-                            autoGainControl: false
-                        }
+                        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
                     });
                     this.nodes.mic = this.ctx.createMediaStreamSource(stream);
                     this.nodes.recorder = this.ctx.createScriptProcessor(4096, 1, 1);
@@ -441,7 +309,7 @@
                     this.nodes.recorder.onaudioprocess = (e) => {
                         if (this.recording) {
                             this.buffer.push(...e.inputBuffer.getChannelData(0));
-                            if (this.buffer.length > this.ctx.sampleRate * 12) this.stopRecording();
+                            if (this.buffer.length > this.ctx.sampleRate * 8) this.stopRecording();
                         }
                     };
 
@@ -450,143 +318,101 @@
                     this.recordButton.disabled = false;
                     this.autoSampleLoop();
                 } catch (e) {
-                    console.error(e);
-                    this.status.textContent = 'Microphone access denied. Check browser/system permissions.';
-                    alert('Microphone permission denied. Please enable in browser settings and system privacy (e.g., Chrome > Settings > Privacy > Microphone). Ensure page is HTTPS if remote.');
+                    this.status.textContent = 'Microphone access denied.';
                 }
             }
 
             async start() {
+                if (this.ctx) return this.toggleRecording();
+
                 this.ctx = new AudioContext({ sampleRate: 44100 });
-                this.lofi = new LoFi(this.ctx);
                 this.professionalBass = new ProfessionalBass(this.ctx, this.beatMatcher.bpm);
 
-                // Master chain with advanced effects
+                // Master chain for professional sound
                 this.nodes.master = this.ctx.createGain();
-                this.nodes.master.gain.value = 0.9;
+                this.nodes.master.gain.value = 0.7;
 
-                const reverb = this.ctx.createConvolver();
-                const reverbBuffer = await this.generateReverbImpulse();
-                reverb.buffer = reverbBuffer;
+                this.nodes.comp = this.ctx.createDynamicsCompressor();
+                this.nodes.comp.threshold.value = -24;
+                this.nodes.comp.knee.value = 30;
+                this.nodes.comp.ratio.value = 12;
+                this.nodes.comp.attack.value = 0.003;
+                this.nodes.comp.release.value = 0.25;
 
-                const reverbWet = this.ctx.createGain();
-                reverbWet.gain.value = 0.35;
+                this.nodes.limiter = this.ctx.createDynamicsCompressor();
+                this.nodes.limiter.threshold.value = -0.1;
+                this.nodes.limiter.knee.value = 0;
+                this.nodes.limiter.ratio.value = 20;
+                this.nodes.limiter.attack.value = 0;
+                this.nodes.limiter.release.value = 0.1;
 
-                this.nodes.master.connect(reverb);
-                reverb.connect(reverbWet);
-                reverbWet.connect(this.ctx.destination);
-                this.nodes.master.connect(this.ctx.destination); // Dry
+                this.nodes.master.connect(this.nodes.comp);
+                this.nodes.comp.connect(this.nodes.limiter);
+                this.nodes.limiter.connect(this.ctx.destination);
 
-                const comp = this.ctx.createDynamicsCompressor();
-                comp.threshold.value = -30;
-                comp.knee.value = 20;
-                comp.ratio.value = 6;
-                comp.attack.value = 0.003;
-                comp.release.value = 0.3;
-
-                const dust = this.ctx.createBiquadFilter();
-                dust.type = 'lowpass';
-                dust.frequency.value = 6000;
-                dust.Q.value = 0.8;
-
-                this.nodes.master.connect(comp);
-                comp.connect(dust);
-                dust.connect(reverb);
-                dust.connect(this.ctx.destination);
-
-                // Layers
+                // Layers with reduced gains
                 const layers = {
-                    kick: 1.0,
-                    snare: 0.8,
-                    hats: 0.4,
-                    sample: 0.9,
-                    bass: 0.95,
-                    vinyl: 0.1
+                    kick: 0.6,
+                    snare: 0.5,
+                    hats: 0.2,
+                    sample: 0.4,
+                    bass: 0.6
                 };
                 Object.entries(layers).forEach(([name, vol]) => {
                     this.nodes[name] = this.ctx.createGain();
                     this.nodes[name].gain.value = vol;
                     this.nodes[name].connect(this.nodes.master);
-                    this.samples.set(name, []);
                 });
 
                 await this.generateDrums();
-                this.generateVinylNoise();
 
                 this.seq.last = this.ctx.currentTime;
                 requestAnimationFrame(this.tick.bind(this));
-
-                this.status.textContent = 'Engine started. Request mic access.';
-            }
-
-            async generateReverbImpulse() {
-                const length = this.ctx.sampleRate * 4;
-                const buffer = this.ctx.createBuffer(1, length, this.ctx.sampleRate);
-                const data = buffer.getChannelData(0);
-                for (let i = 0; i < length; i++) {
-                    data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / length, 3);
-                }
-                return buffer;
             }
 
             async generateDrums() {
                 const sr = this.ctx.sampleRate;
 
-                // Deep 808 kick with layered subs
-                const kickBuffer = this.ctx.createBuffer(1, sr * 0.5, sr);
-                const kickData = kickBuffer.getChannelData(0);
-                for (let i = 0; i < kickData.length; i++) {
+                // Kick with controlled amplitude
+                const kick = this.ctx.createBuffer(1, sr * 0.4, sr);
+                const kd = kick.getChannelData(0);
+                for (let i = 0; i < kd.length; i++) {
                     const t = i / sr;
-                    const env = Math.exp(-t * 10);
-                    const freq = 50 * Math.exp(-t * 30);
-                    const sub = Math.sin(2 * Math.PI * freq * t) * env * 1.2;
-                    const punch = Math.sin(2 * Math.PI * 120 * t) * Math.exp(-t * 50) * 0.5;
-                    const click = (Math.random() * 2 - 1) * Math.exp(-t * 200) * 0.3;
-                    kickData[i] = Math.tanh(sub + punch + click);
+                    const subEnv = Math.exp(-8 * t);
+                    const subFreq = 45 * Math.exp(-25 * t);
+                    const sub = Math.sin(2 * Math.PI * subFreq * t) * subEnv * 0.7;
+                    const midEnv = Math.exp(-15 * t);
+                    const midFreq = 80 * Math.exp(-30 * t);
+                    const mid = Math.sin(2 * Math.PI * midFreq * t) * midEnv * 0.5;
+                    const clickEnv = Math.exp(-100 * t);
+                    const click = Math.sin(2 * Math.PI * 2000 * t) * clickEnv * 0.2;
+                    kd[i] = sub + mid + click;
                 }
 
-                // Rich snare with noise body
-                const snareBuffer = this.ctx.createBuffer(1, sr * 0.3, sr);
-                const snareData = snareBuffer.getChannelData(0);
-                for (let i = 0; i < snareData.length; i++) {
+                // Snare
+                const snare = this.ctx.createBuffer(1, sr * 0.2, sr);
+                const sd = snare.getChannelData(0);
+                for (let i = 0; i < sd.length; i++) {
                     const t = i / sr;
-                    const env = Math.exp(-t * 25);
-                    const tone = Math.sin(2 * Math.PI * 180 * t) * 0.5;
-                    const body = Math.sin(2 * Math.PI * 90 * t) * Math.exp(-t * 60) * 0.4;
-                    const noise = (Math.random() * 2 - 1) * 0.8;
-                    snareData[i] = Math.tanh((tone + body + noise) * env * 1.1);
+                    const env = Math.exp(-20 * t);
+                    const tone = Math.sin(2 * Math.PI * 200 * t) * 0.3;
+                    const body = Math.sin(2 * Math.PI * 80 * t) * Math.exp(-40 * t) * 0.2;
+                    const noise = (Math.random() * 2 - 1) * 0.6;
+                    sd[i] = (tone + body + noise) * env;
                 }
 
-                // Airy hats with shimmer
-                const hatBuffer = this.ctx.createBuffer(1, sr * 0.1, sr);
-                const hatData = hatBuffer.getChannelData(0);
-                for (let i = 0; i < hatData.length; i++) {
+                // Hats
+                const hat = this.ctx.createBuffer(1, sr * 0.08, sr);
+                const hd = hat.getChannelData(0);
+                for (let i = 0; i < hd.length; i++) {
                     const t = i / sr;
-                    const env = Math.exp(-t * 80);
-                    let s = (Math.random() * 2 - 1) * env;
-                    if (i > 2) s = s * 0.4 + hatData[i-1] * 0.5 + hatData[i-2] * 0.4;
-                    hatData[i] = s * 0.6;
+                    const env = Math.exp(-60 * t);
+                    let s = (Math.random() * 2 - 1) * env * 0.4;
+                    if (i > 2) s = s * 0.3 + hd[i-1] * 0.4 + hd[i-2] * 0.3;
+                    hd[i] = s;
                 }
 
-                this.samples.get('kick').push({ buffer: kickBuffer, rate: 1 });
-                this.samples.get('snare').push({ buffer: snareBuffer, rate: 1 });
-                this.samples.get('hats').push({ buffer: hatBuffer, rate: 1 });
-            }
-
-            generateVinylNoise() {
-                const duration = 5;
-                const buffer = this.ctx.createBuffer(1, this.ctx.sampleRate * duration, this.ctx.sampleRate);
-                const data = buffer.getChannelData(0);
-                for (let i = 0; i < data.length; i++) {
-                    data[i] = (Math.random() - 0.5) * 0.03; // Hiss
-                    if (Math.random() < 0.0002) data[i] += (Math.random() - 0.5) * 0.4; // Pops
-                }
-
-                const source = this.ctx.createBufferSource();
-                source.buffer = buffer;
-                source.loop = true;
-                source.connect(this.nodes.vinyl);
-                source.start();
+                this.samples.drums = { kick, snare, hat };
             }
 
             toggleRecording() {
@@ -605,35 +431,47 @@
             }
 
             stopRecording() {
-                if (!this.nodes.mic) return;
-
                 this.recording = false;
                 this.nodes.mic.disconnect(this.nodes.recorder);
                 this.nodes.recorder.disconnect();
                 this.orb.classList.remove('recording');
                 this.status.textContent = 'Processing sample...';
 
-                if (this.buffer.length < this.ctx.sampleRate * 0.4) {
-                    this.status.textContent = 'Sample too short.';
-                    return;
-                }
+                if (this.buffer.length < this.ctx.sampleRate * 0.5) return;
 
                 const audioBuffer = this.ctx.createBuffer(1, this.buffer.length, this.ctx.sampleRate);
-                audioBuffer.getChannelData(0).set(this.buffer);
+                const data = audioBuffer.getChannelData(0);
+                data.set(this.buffer);
+
+                // Normalize
+                let max = 0;
+                for (let i = 0; i < data.length; i++) {
+                    max = Math.max(max, Math.abs(data[i]));
+                }
+                if (max > 0) {
+                    for (let i = 0; i < data.length; i++) {
+                        data[i] /= max;
+                        data[i] *= 0.8;
+                    }
+                }
 
                 const peaks = this.beatMatcher.findPeaks(audioBuffer);
                 const stretch = this.beatMatcher.matchToGrid(peaks);
                 const pitch = this.pitchShifts[Math.floor(Math.random() * this.pitchShifts.length)];
                 const chops = this.beatMatcher.chopSample(audioBuffer, peaks);
 
-                const sample = { buffer: audioBuffer, rate: stretch * pitch, chops, pitch };
+                this.samples.chops = chops.map(chop => {
+                    // Pitch shift chop
+                    const pitched = this.ctx.createBuffer(1, chop.length / pitch, this.ctx.sampleRate);
+                    const pitchedData = pitched.getChannelData(0);
+                    for (let i = 0; i < pitched.length; i++) {
+                        const origIndex = Math.floor(i * pitch);
+                        if (origIndex < chop.length) pitchedData[i] = chop.getChannelData(0)[origIndex];
+                    }
+                    return pitched;
+                });
 
-                const samples = this.samples.get('sample');
-                if (samples.length >= 4) samples.shift();
-                samples.push(sample);
-
-                console.log(`Advanced sample: ${pitch.toFixed(2)}x pitch, ${stretch.toFixed(2)}x stretch, ${chops.length} chops`);
-                this.status.textContent = 'Sample added!';
+                this.status.textContent = 'Sample chopped and ready!';
             }
 
             autoSampleLoop() {
@@ -656,14 +494,14 @@
                     analyser.getFloatFrequencyData(data);
 
                     let score = 0;
-                    for (let i = 20; i < 200; i++) { // Mid-range harmonics
+                    for (let i = 20; i < 200; i++) {
                         if (data[i] > -60) score += data[i] + 60;
                     }
                     score /= 180;
 
                     if (score > 20) {
                         this.toggleRecording();
-                        cooldown = 300; // ~6s cooldown
+                        cooldown = 300;
                     }
 
                     requestAnimationFrame(check);
@@ -677,8 +515,6 @@
 
                 if (g > this.motionThreshold) {
                     this.orb.classList.add('motion');
-                    // Motion-triggered effect: Modulate filter
-                    if (this.motionEffect) this.motionEffect.frequency.value = 2000 + (g - 1) * 1000;
                     setTimeout(() => this.orb.classList.remove('motion'), 500);
                 }
             }
@@ -693,37 +529,30 @@
                     this.seq.last = now;
                     this.warmupBeats++;
 
-                    // Visual pulse on downbeat
                     if (this.seq.step % 4 === 0) {
                         this.orb.classList.add('pulse');
-                        setTimeout(() => this.orb.classList.remove('pulse'), 400);
+                        setTimeout(() => this.orb.classList.remove('pulse'), 300);
                     }
 
-                    // Drum patterns (trip hop groove)
-                    if ([0, 8, 16, 24].includes(this.seq.step % 32)) {
-                        this.playSampleType('kick', 1);
-                    }
-                    if ([4, 12, 20, 28].includes(this.seq.step % 32)) {
-                        this.playSampleType('snare', 0.9);
-                    }
-                    if ([1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31].includes(this.seq.step % 32)) {
-                        this.playSampleType('hats', 0.4 + Math.random() * 0.2);
-                    }
+                    // Drums
+                    if (this.seq.step % 4 === 0) this.playDrum('kick');
+                    if (this.seq.step % 8 === 4) this.playDrum('snare');
+                    if (this.seq.step % 2 === 0) this.playDrum('hats');
 
-                    // Activate bass after warmup (4 bars)
-                    if (this.warmupBeats > 64 && !this.bassActive) {
-                        this.bassActive = true;
-                        console.log('Deep bass engaged');
-                    }
-
+                    // Bass
                     if (this.bassActive) {
                         this.professionalBass.play(this.seq.step, this.nodes.bass);
+                    } else if (this.warmupBeats > 16) {
+                        this.bassActive = true;
                     }
 
-                    // Play layered samples
-                    const samples = this.samples.get('sample');
-                    if (samples.length > 0 && this.seq.step % 8 === 0) {
-                        this.playLayeredSample(samples[samples.length - 1]);
+                    // Chops
+                    if (this.samples.chops.length > 0 && this.seq.step % 2 === 1) {
+                        const chop = this.samples.chops[Math.floor(Math.random() * this.samples.chops.length)];
+                        const src = this.ctx.createBufferSource();
+                        src.buffer = chop;
+                        src.connect(this.nodes.sample);
+                        src.start();
                     }
 
                     this.seq.step = (this.seq.step + 1) % 32;
@@ -732,71 +561,11 @@
                 requestAnimationFrame(this.tick.bind(this));
             }
 
-            playSampleType(type, velocity) {
-                const samples = this.samples.get(type);
-                if (!samples.length) return;
-
-                const sample = samples[Math.floor(Math.random() * samples.length)];
-                const source = this.ctx.createBufferSource();
-                source.buffer = sample.buffer;
-                source.playbackRate.value = sample.rate || 1;
-
-                const gain = this.ctx.createGain();
-                gain.gain.value = velocity;
-
-                const processor = this.lofi.createProcessor();
-                source.connect(processor.input);
-                processor.output.connect(gain);
-                gain.connect(this.nodes[type]);
-
-                source.start();
-            }
-
-            playLayeredSample(sample) {
-                const source = this.ctx.createBufferSource();
-                source.buffer = sample.buffer;
-                source.playbackRate.value = sample.rate;
-                source.loop = true;
-                source.loopEnd = 60 / this.beatMatcher.bpm * this.beatMatcher.barLength;
-
-                const gain = this.ctx.createGain();
-                gain.gain.value = 0.8;
-
-                // Dynamic filter with motion integration
-                const filter = this.ctx.createBiquadFilter();
-                filter.type = 'lowpass';
-                filter.frequency.value = 1800;
-                filter.Q.value = 3;
-                this.motionEffect = filter; // For motion modulation
-
-                // Sweep
-                filter.frequency.linearRampToValueAtTime(4000, this.ctx.currentTime + 4);
-                filter.frequency.linearRampToValueAtTime(1800, this.ctx.currentTime + 8);
-
-                // Sidechain ducking
-                const beatDuration = 60 / this.beatMatcher.bpm / 4;
-                const sidechainInterval = setInterval(() => {
-                    if (this.seq.step % 4 === 0) {
-                        gain.gain.setValueAtTime(0.4, this.ctx.currentTime);
-                        gain.gain.linearRampToValueAtTime(0.8, this.ctx.currentTime + 0.15);
-                    }
-                }, beatDuration * 1000);
-
-                const processor = this.lofi.createProcessor();
-                source.connect(processor.input);
-                processor.output.connect(filter);
-                filter.connect(gain);
-                gain.connect(this.nodes.sample);
-
-                source.start();
-
-                // Stop previous
-                if (this.currentSampleSource) {
-                    this.currentSampleSource.stop();
-                    clearInterval(this.currentSampleSidechain);
-                }
-                this.currentSampleSource = source;
-                this.currentSampleSidechain = sidechainInterval;
+            playDrum(type) {
+                const src = this.ctx.createBufferSource();
+                src.buffer = this.samples.drums[type];
+                src.connect(this.nodes[type]);
+                src.start();
             }
         }
 
