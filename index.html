@@ -230,7 +230,399 @@
             }
         }
 
-        // Professional Bass Synth - 2025 Kanye Style
+        // Advanced Sample Processor - turns world sounds into musical layers
+        class WorldSampleProcessor {
+            constructor(ctx) {
+                this.ctx = ctx;
+                this.sampleLayers = new Map();
+                this.layerProfiles = {
+                    // Different sonic profiles for sample layers
+                    foundation: { 
+                        filter: { type: 'lowpass', freq: 400, q: 2 },
+                        pitch: [0.5, 0.667], 
+                        reverb: 0.3,
+                        position: 'center',
+                        volume: 0.8
+                    },
+                    atmosphere: { 
+                        filter: { type: 'highpass', freq: 2000, q: 1 },
+                        pitch: [1, 1.5, 2], 
+                        reverb: 0.7,
+                        position: 'wide',
+                        volume: 0.4
+                    },
+                    texture: { 
+                        filter: { type: 'bandpass', freq: 800, q: 3 },
+                        pitch: [0.75, 1, 1.33], 
+                        reverb: 0.5,
+                        position: 'left',
+                        volume: 0.6
+                    },
+                    melody: { 
+                        filter: { type: 'peaking', freq: 1500, q: 2, gain: 6 },
+                        pitch: [1, 1.5, 2, 3], 
+                        reverb: 0.4,
+                        position: 'right',
+                        volume: 0.7
+                    },
+                    rhythm: { 
+                        filter: { type: 'lowshelf', freq: 300, gain: 4 },
+                        pitch: [0.5, 1], 
+                        reverb: 0.2,
+                        position: 'center',
+                        volume: 0.9
+                    },
+                    ambient: { 
+                        filter: { type: 'lowpass', freq: 8000, q: 0.5 },
+                        pitch: [1, 2, 4], 
+                        reverb: 0.9,
+                        position: 'wide',
+                        volume: 0.3
+                    }
+                };
+            }
+
+            analyzeBuffer(buffer) {
+                const data = buffer.getChannelData(0);
+                const analysis = {
+                    spectralCentroid: 0,
+                    spectralSpread: 0,
+                    zeroCrossingRate: 0,
+                    rms: 0,
+                    dynamicRange: 0,
+                    harmonicity: 0
+                };
+
+                // RMS and dynamic range
+                let sum = 0;
+                let max = 0;
+                let min = 0;
+                let zeroCrossings = 0;
+
+                for (let i = 0; i < data.length; i++) {
+                    const sample = data[i];
+                    sum += sample * sample;
+                    max = Math.max(max, Math.abs(sample));
+                    if (i > 0 && ((data[i-1] >= 0 && sample < 0) || (data[i-1] < 0 && sample >= 0))) {
+                        zeroCrossings++;
+                    }
+                }
+
+                analysis.rms = Math.sqrt(sum / data.length);
+                analysis.zeroCrossingRate = zeroCrossings / data.length;
+                analysis.dynamicRange = max;
+
+                // Simple spectral analysis using autocorrelation
+                const windowSize = Math.min(2048, data.length);
+                const window = data.slice(0, windowSize);
+                
+                // Autocorrelation for pitch detection
+                let maxCorr = 0;
+                let bestLag = 0;
+                for (let lag = 20; lag < windowSize / 2; lag++) {
+                    let corr = 0;
+                    for (let i = 0; i < windowSize - lag; i++) {
+                        corr += window[i] * window[i + lag];
+                    }
+                    if (corr > maxCorr) {
+                        maxCorr = corr;
+                        bestLag = lag;
+                    }
+                }
+
+                analysis.harmonicity = maxCorr / (windowSize - bestLag);
+                analysis.spectralCentroid = bestLag > 0 ? buffer.sampleRate / bestLag : 1000;
+
+                return analysis;
+            }
+
+            classifySample(analysis) {
+                // Classify sample based on its acoustic properties
+                const { spectralCentroid, zeroCrossingRate, rms, harmonicity, dynamicRange } = analysis;
+
+                if (rms > 0.1 && spectralCentroid < 200 && harmonicity > 0.3) {
+                    return 'foundation'; // Low, harmonic, loud = bass/foundation
+                }
+                if (spectralCentroid > 3000 && zeroCrossingRate > 0.1) {
+                    return 'atmosphere'; // High frequency, noisy = atmospheric
+                }
+                if (harmonicity > 0.5 && spectralCentroid > 400 && spectralCentroid < 2000) {
+                    return 'melody'; // Harmonic, mid-range = melodic content
+                }
+                if (dynamicRange > 0.3 && rms > 0.05) {
+                    return 'rhythm'; // Dynamic, punchy = rhythmic
+                }
+                if (spectralCentroid > 800 && spectralCentroid < 3000 && harmonicity < 0.3) {
+                    return 'texture'; // Mid-range, inharmonic = textural
+                }
+                
+                return 'ambient'; // Default: ambient/pad
+            }
+
+            processToProfile(buffer, profileName) {
+                const profile = this.layerProfiles[profileName];
+                if (!profile) return buffer;
+
+                // Create processed buffer
+                const processedBuffer = this.ctx.createBuffer(
+                    buffer.numberOfChannels, 
+                    buffer.length, 
+                    buffer.sampleRate
+                );
+
+                // Copy and process audio data
+                for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
+                    const inputData = buffer.getChannelData(channel);
+                    const outputData = processedBuffer.getChannelData(channel);
+                    
+                    // Apply envelope and normalize
+                    const fadeLength = Math.floor(buffer.length * 0.05); // 5% fade
+                    for (let i = 0; i < buffer.length; i++) {
+                        let sample = inputData[i];
+                        
+                        // Fade in/out for smooth looping
+                        if (i < fadeLength) {
+                            sample *= (i / fadeLength);
+                        } else if (i > buffer.length - fadeLength) {
+                            sample *= ((buffer.length - i) / fadeLength);
+                        }
+                        
+                        // Soft saturation for warmth
+                        sample = Math.tanh(sample * 1.2) * 0.9;
+                        
+                        outputData[i] = sample;
+                    }
+                }
+
+                return processedBuffer;
+            }
+
+            createSampleLayer(buffer, profileName, originalPitch = 1) {
+                const profile = this.layerProfiles[profileName];
+                const processedBuffer = this.processToProfile(buffer, profileName);
+                
+                // Choose pitch from profile
+                const pitchOptions = profile.pitch;
+                const pitch = pitchOptions[Math.floor(Math.random() * pitchOptions.length)];
+                
+                return {
+                    buffer: processedBuffer,
+                    profile: profileName,
+                    pitch: pitch / originalPitch, // Adjust for original sample pitch
+                    volume: profile.volume,
+                    filterConfig: profile.filter,
+                    reverbSend: profile.reverb,
+                    position: profile.position,
+                    playbackRate: 1,
+                    active: false,
+                    source: null,
+                    startTime: 0
+                };
+            }
+
+            addSample(buffer, originalPitch = 1) {
+                // Analyze the sample
+                const analysis = this.analyzeBuffer(buffer);
+                const classification = this.classifySample(analysis);
+                
+                console.log(`Sample classified as: ${classification}`, analysis);
+
+                // Create layer for the classified profile
+                const layer = this.createSampleLayer(buffer, classification, originalPitch);
+                
+                // Also create complementary layers for richness
+                const complementaryProfiles = this.getComplementaryProfiles(classification);
+                const allLayers = [layer];
+                
+                complementaryProfiles.forEach(profileName => {
+                    if (Math.random() > 0.4) { // 60% chance for each complementary layer
+                        allLayers.push(this.createSampleLayer(buffer, profileName, originalPitch));
+                    }
+                });
+
+                // Store layers by profile type
+                allLayers.forEach(layer => {
+                    if (!this.sampleLayers.has(layer.profile)) {
+                        this.sampleLayers.set(layer.profile, []);
+                    }
+                    const profileLayers = this.sampleLayers.get(layer.profile);
+                    profileLayers.push(layer);
+                    
+                    // Keep maximum 3 layers per profile
+                    if (profileLayers.length > 3) {
+                        const oldLayer = profileLayers.shift();
+                        if (oldLayer.source) {
+                            oldLayer.source.stop();
+                        }
+                    }
+                });
+
+                return allLayers;
+            }
+
+            getComplementaryProfiles(primaryProfile) {
+                const complementMap = {
+                    foundation: ['rhythm', 'texture'],
+                    atmosphere: ['ambient', 'melody'],
+                    texture: ['atmosphere', 'foundation'],
+                    melody: ['texture', 'ambient'],
+                    rhythm: ['foundation', 'melody'],
+                    ambient: ['atmosphere', 'melody']
+                };
+                return complementMap[primaryProfile] || [];
+            }
+
+            playLayer(layer, output, beatMatcher) {
+                if (layer.active && layer.source) {
+                    layer.source.stop();
+                }
+
+                // Create audio graph for this layer
+                const source = this.ctx.createBufferSource();
+                const gain = this.ctx.createGain();
+                const filter = this.ctx.createBiquadFilter();
+                const panner = this.ctx.createStereoPanner();
+                const reverbSend = this.ctx.createGain();
+
+                // Configure source
+                source.buffer = layer.buffer;
+                source.playbackRate.value = layer.pitch * layer.playbackRate;
+                source.loop = true;
+                
+                // Set loop points based on beat
+                const loopLength = Math.min(layer.buffer.duration, 60 / beatMatcher.bpm * 4);
+                source.loopEnd = loopLength;
+
+                // Configure filter based on profile
+                const filterConfig = layer.filterConfig;
+                filter.type = filterConfig.type;
+                filter.frequency.value = filterConfig.freq;
+                filter.Q.value = filterConfig.q || 1;
+                if (filterConfig.gain) {
+                    filter.gain.value = filterConfig.gain;
+                }
+
+                // Configure gain and panning
+                gain.gain.value = layer.volume;
+                reverbSend.gain.value = layer.reverbSend;
+                
+                // Position in stereo field
+                switch (layer.position) {
+                    case 'left': panner.pan.value = -0.7; break;
+                    case 'right': panner.pan.value = 0.7; break;
+                    case 'wide': panner.pan.value = (Math.random() - 0.5) * 1.4; break;
+                    default: panner.pan.value = 0; // center
+                }
+
+                // Connect audio graph
+                source.connect(filter);
+                filter.connect(gain);
+                gain.connect(panner);
+                panner.connect(output);
+                
+                // Connect to reverb send if available
+                if (output.context.reverbSend) {
+                    gain.connect(reverbSend);
+                    reverbSend.connect(output.context.reverbSend);
+                }
+
+                // Automation for movement
+                this.addLayerAutomation(layer, filter, gain, beatMatcher);
+
+                // Start playback
+                source.start();
+                
+                // Update layer state
+                layer.active = true;
+                layer.source = source;
+                layer.startTime = this.ctx.currentTime;
+
+                return source;
+            }
+
+            addLayerAutomation(layer, filter, gain, beatMatcher) {
+                const now = this.ctx.currentTime;
+                const period = 60 / beatMatcher.bpm * 8; // 8 beat cycles
+                
+                // Filter automation based on layer profile
+                switch (layer.profile) {
+                    case 'foundation':
+                        // Subtle filter movement for foundation
+                        filter.frequency.setValueAtTime(layer.filterConfig.freq * 0.8, now);
+                        filter.frequency.linearRampToValueAtTime(layer.filterConfig.freq * 1.2, now + period);
+                        break;
+                        
+                    case 'atmosphere':
+                        // Sweeping highs for atmosphere
+                        filter.frequency.setValueAtTime(layer.filterConfig.freq, now);
+                        filter.frequency.exponentialRampToValueAtTime(layer.filterConfig.freq * 2, now + period / 2);
+                        filter.frequency.exponentialRampToValueAtTime(layer.filterConfig.freq, now + period);
+                        break;
+                        
+                    case 'melody':
+                        // Resonance sweeps for melody
+                        filter.Q.setValueAtTime(layer.filterConfig.q, now);
+                        filter.Q.linearRampToValueAtTime(layer.filterConfig.q * 2, now + period / 4);
+                        filter.Q.linearRampToValueAtTime(layer.filterConfig.q, now + period / 2);
+                        break;
+                        
+                    case 'texture':
+                        // Frequency and Q modulation for texture
+                        const centerFreq = layer.filterConfig.freq;
+                        filter.frequency.setValueAtTime(centerFreq * 0.7, now);
+                        filter.frequency.linearRampToValueAtTime(centerFreq * 1.5, now + period / 3);
+                        filter.frequency.linearRampToValueAtTime(centerFreq, now + period);
+                        break;
+                }
+
+                // Volume automation for breathing
+                const baseVolume = layer.volume;
+                gain.gain.setValueAtTime(baseVolume * 0.8, now);
+                gain.gain.linearRampToValueAtTime(baseVolume, now + 0.1);
+                gain.gain.setValueAtTime(baseVolume, now + period - 0.1);
+                gain.gain.linearRampToValueAtTime(baseVolume * 0.8, now + period);
+            }
+
+            getAllActiveLayers() {
+                const allLayers = [];
+                for (const layers of this.sampleLayers.values()) {
+                    allLayers.push(...layers.filter(layer => layer.active));
+                }
+                return allLayers;
+            }
+
+            stopAllLayers() {
+                for (const layers of this.sampleLayers.values()) {
+                    layers.forEach(layer => {
+                        if (layer.source && layer.active) {
+                            layer.source.stop();
+                            layer.active = false;
+                        }
+                    });
+                }
+            }
+
+            getLayersForBeat(step) {
+                // Return which layers should play on which beats
+                const patterns = {
+                    foundation: [0, 8, 16, 24], // Every 2 bars
+                    rhythm: [0, 4, 8, 12, 16, 20, 24, 28], // Every bar
+                    melody: [0, 16], // Every 4 bars
+                    texture: [2, 6, 10, 14, 18, 22, 26, 30], // Off-beats
+                    atmosphere: [0], // Long sustained
+                    ambient: [0] // Long sustained
+                };
+
+                const activeProfiles = [];
+                for (const [profile, pattern] of Object.entries(patterns)) {
+                    if (pattern.includes(step % 32) && this.sampleLayers.has(profile)) {
+                        activeProfiles.push(profile);
+                    }
+                }
+
+                return activeProfiles;
+            }
+        }
         class ProfessionalBass {
             constructor(ctx) {
                 this.ctx = ctx;
@@ -410,6 +802,7 @@
                 this.samples = new Map();
                 this.beatMatcher = new BeatMatcher();
                 this.professionalBass = null;
+                this.worldProcessor = null;
                 this.motionController = null;
                 this.recording = false;
                 this.buffer = [];
@@ -431,6 +824,7 @@
                     this.ctx = new AudioContext({ sampleRate: 44100 });
                     this.lofi = new LoFi(this.ctx);
                     this.professionalBass = new ProfessionalBass(this.ctx);
+                    this.worldProcessor = new WorldSampleProcessor(this.ctx);
                     
                     // Setup motion controller (optional)
                     this.motionController = new MotionController((bpm) => {
@@ -470,7 +864,7 @@
                     this.nodes.comp.connect(this.nodes.dust);
                     this.nodes.dust.connect(this.ctx.destination);
                     
-                    // Create layers with proper levels
+                    // Create layers with proper levels - add reverb
                     const layers = {
                         kick: 1.0,    // Full volume for kick
                         snare: 0.8,   // Slightly lower snare
@@ -486,6 +880,12 @@
                         this.nodes[name].connect(this.nodes.out);
                         this.samples.set(name, []);
                     });
+                    
+                    // Create reverb for sample layers
+                    this.nodes.reverbSend = this.ctx.createGain();
+                    this.nodes.reverbSend.gain.value = 0.3;
+                    this.ctx.reverbSend = this.nodes.reverbSend;
+                    this.nodes.reverbSend.connect(this.nodes.out);
                     
                     // Create PROFESSIONAL drums
                     await this.createProfessionalDrums();
@@ -567,22 +967,11 @@
                     // Kanye-style pitch shift
                     const pitch = this.pitchShifts[Math.floor(Math.random() * this.pitchShifts.length)];
                     
-                    // Create chops
-                    const chops = this.beatMatcher.chopSample(buf, peaks);
+                    // Process sample into multiple layers using WorldSampleProcessor
+                    const sampleLayers = this.worldProcessor.addSample(buf, pitch);
                     
-                    const sample = {
-                        buffer: buf,
-                        rate: stretch * pitch,
-                        chops,
-                        pitch
-                    };
-                    
-                    // Add as main sample
-                    const samples = this.samples.get('sample');
-                    if (samples.length >= 2) samples.shift(); // Keep 2 main samples max
-                    samples.push(sample);
-                    
-                    console.log(`Sample: ${pitch}x pitch, ${stretch.toFixed(2)}x stretch`);
+                    console.log(`Sample processed into ${sampleLayers.length} layers:`, 
+                                sampleLayers.map(l => l.profile));
                 }
             }
 
@@ -726,10 +1115,23 @@
                         this.professionalBass.play(this.seq.step, this.nodes.bass, this.beatMatcher.bpm);
                     }
                     
-                    // Main sample - plays continuously when available
+                    // Play sample layers based on their profiles and timing
+                    const activeProfiles = this.worldProcessor.getLayersForBeat(this.seq.step);
+                    activeProfiles.forEach(profileName => {
+                        const layers = this.worldProcessor.sampleLayers.get(profileName);
+                        if (layers && layers.length > 0) {
+                            // Play the most recent layer for this profile
+                            const layer = layers[layers.length - 1];
+                            if (!layer.active || this.seq.step % 32 === 0) { // Restart every 2 bars
+                                this.worldProcessor.playLayer(layer, this.nodes.sample, this.beatMatcher);
+                            }
+                        }
+                    });
+                    
+                    // Legacy sample playback (remove this eventually)
                     const samples = this.samples.get('sample');
                     if (samples.length > 0 && this.seq.step % 16 === 0) {
-                        this.playSample(samples[0]);
+                        // this.playSample(samples[0]); // Disabled in favor of layer system
                     }
                     
                     this.seq.step = (this.seq.step + 1) % 32;
