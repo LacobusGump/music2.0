@@ -70,7 +70,7 @@
         // Beat Matcher - finds transients and stretches samples to fit
         class BeatMatcher {
             constructor() {
-                this.bpm = 75; // Lo-fi trip hop tempo
+                this.bpm = 75; // Matches Meet the Grahams tempo
             }
 
             findPeaks(buffer, sr) {
@@ -144,13 +144,13 @@
             }
         }
 
-        // Lo-fi processor
+        // Lo-fi processor with added haunting effects
         class LoFi {
             constructor(ctx) {
                 this.ctx = ctx;
             }
 
-            process(source) {
+            process(source, isPiano = false) {
                 // Bitcrusher
                 const bitcrusher = this.ctx.createScriptProcessor(4096, 1, 1);
                 const bits = 8; // 8-bit sound
@@ -173,10 +173,10 @@
                     }
                 };
                 
-                // Warm filter
+                // Darker filter for haunting vibe
                 const filter = this.ctx.createBiquadFilter();
                 filter.type = 'lowpass';
-                filter.frequency.value = 3000;
+                filter.frequency.value = isPiano ? 2000 : 2500; // Slightly lower for piano
                 filter.Q.value = 1;
                 
                 // Subtle saturation
@@ -189,12 +189,27 @@
                 }
                 waveshaper.curve = curve;
                 
-                // Chain
+                // Add simple reverb-like delay for eerie atmosphere
+                const delay = this.ctx.createDelay(0.3);
+                delay.delayTime.value = 0.3;
+                const feedback = this.ctx.createGain();
+                feedback.gain.value = 0.4;
+                
+                // Chain with reverb
                 source.connect(bitcrusher);
                 bitcrusher.connect(filter);
                 filter.connect(waveshaper);
+                waveshaper.connect(delay);
+                delay.connect(feedback);
+                feedback.connect(delay);
                 
-                return waveshaper;
+                // Output from waveshaper and some reverb
+                const merger = this.ctx.createGain();
+                waveshaper.connect(merger);
+                feedback.connect(merger);
+                merger.gain.value = 0.7;
+                
+                return merger;
             }
         }
 
@@ -207,23 +222,19 @@
                 this.beatMatcher = new BeatMatcher();
                 this.recording = false;
                 this.buffer = [];
-                this.seq = { step: 0, swing: 0.15 };
+                this.seq = { step: 0, swing: 0.1 }; // Reduced swing for more ominous feel
                 this.orb = document.getElementById('orb');
                 this.playingSamples = [];
                 
-                // Kanye-style pitch shifts
-                this.pitchShifts = [0.5, 0.667, 0.75, 1, 1.5, 2]; // Octave down, 5th down, 4th down, original, 5th up, octave up
+                // Pitch shifts biased towards lower for darker vibe
+                this.pitchShifts = [0.5, 0.6, 0.7, 0.8, 1, 1.2]; 
                 
-                // Bass pattern for Kanye vibe (minor pentatonic-ish, relative pitches)
+                // Bass pattern for darker vibe
                 this.bassPattern = [
-                    {step: 0, rate: 1},      // Root
-                    {step: 3, rate: 1.189},  // Minor 3rd
-                    {step: 8, rate: 1.5},    // Perfect 5th
-                    {step: 11, rate: 1.189}, // Minor 3rd
-                    {step: 16, rate: 1},     // Root
-                    {step: 19, rate: 1.189}, // Minor 3rd
-                    {step: 24, rate: 1.5},   // Perfect 5th
-                    {step: 27, rate: 1.682}  // Minor 7th
+                    {step: 0, rate: 1},      
+                    {step: 8, rate: 0.84},   // Lower pitch
+                    {step: 16, rate: 1},     
+                    {step: 24, rate: 0.84}   
                 ];
                 
                 document.addEventListener('click', () => this.start());
@@ -236,34 +247,34 @@
                     this.ctx = new AudioContext({ sampleRate: 44100 });
                     this.lofi = new LoFi(this.ctx);
                     
-                    // Master chain - lo-fi trip hop style
+                    // Master chain - darker, more haunting
                     this.nodes.out = this.ctx.createGain();
-                    this.nodes.out.gain.value = 0.8;
+                    this.nodes.out.gain.value = 0.7; // Slightly lower volume
                     
-                    // Vinyl simulation
+                    // Vinyl simulation with more rumble
                     this.nodes.vinyl = this.ctx.createBiquadFilter();
                     this.nodes.vinyl.type = 'highpass';
-                    this.nodes.vinyl.frequency.value = 30;
+                    this.nodes.vinyl.frequency.value = 20; // Deeper rumble
                     
-                    // Tape warmth
+                    // Tape warmth boosted
                     this.nodes.warmth = this.ctx.createBiquadFilter();
                     this.nodes.warmth.type = 'lowshelf';
-                    this.nodes.warmth.frequency.value = 200;
-                    this.nodes.warmth.gain.value = 2;
+                    this.nodes.warmth.frequency.value = 150;
+                    this.nodes.warmth.gain.value = 3;
                     
-                    // Gentle compression
+                    // Stronger compression for controlled dynamics
                     this.nodes.comp = this.ctx.createDynamicsCompressor();
-                    this.nodes.comp.threshold.value = -20;
-                    this.nodes.comp.knee.value = 10;
-                    this.nodes.comp.ratio.value = 3;
-                    this.nodes.comp.attack.value = 0.01;
-                    this.nodes.comp.release.value = 0.25;
+                    this.nodes.comp.threshold.value = -25;
+                    this.nodes.comp.knee.value = 15;
+                    this.nodes.comp.ratio.value = 4;
+                    this.nodes.comp.attack.value = 0.005;
+                    this.nodes.comp.release.value = 0.3;
                     
-                    // Master filter for that dusty sound
+                    // Dustier filter
                     this.nodes.dust = this.ctx.createBiquadFilter();
                     this.nodes.dust.type = 'lowpass';
-                    this.nodes.dust.frequency.value = 8000;
-                    this.nodes.dust.Q.value = 0.7;
+                    this.nodes.dust.frequency.value = 6000; // Lower for darker sound
+                    this.nodes.dust.Q.value = 0.8;
                     
                     // Connect master chain
                     this.nodes.out.connect(this.nodes.vinyl);
@@ -272,14 +283,15 @@
                     this.nodes.comp.connect(this.nodes.dust);
                     this.nodes.dust.connect(this.ctx.destination);
                     
-                    // Create layers with trip hop levels
+                    // Layers with adjusted volumes for minimalistic feel
                     const layers = {
-                        kick: 0.9,
-                        snare: 0.7,
-                        hats: 0.3,
-                        sample: 0.8,
-                        bass: 0.85,
-                        vinyl: 0.15
+                        kick: 0.95,
+                        snare: 0.6, // Softer snare
+                        hats: 0.2, // Quieter hats
+                        sample: 0.7,
+                        bass: 0.9,
+                        vinyl: 0.2,
+                        piano: 0.85 // New piano layer
                     };
                     
                     Object.entries(layers).forEach(([name, vol]) => {
@@ -291,6 +303,9 @@
                     
                     // Create lo-fi drums
                     await this.createDrums();
+                    
+                    // Create haunting piano
+                    await this.createPiano();
                     
                     // Add vinyl noise
                     this.createVinyl();
@@ -310,10 +325,12 @@
                     this.nodes.rec.onaudioprocess = e => {
                         if (this.recording) {
                             this.buffer.push(...e.inputBuffer.getChannelData(0));
-                            // Longer samples for that Kanye feel (up to 8 seconds)
                             if (this.buffer.length > this.ctx.sampleRate * 8) this.stopRec();
                         }
                     };
+                    
+                    // Start piano loop
+                    this.playPiano();
                     
                     // Start
                     this.loop();
@@ -348,18 +365,15 @@
                 this.nodes.rec.disconnect();
                 this.orb.classList.remove('recording');
                 
-                if (this.buffer.length > this.ctx.sampleRate * 0.5) { // Min 0.5 seconds
+                if (this.buffer.length > this.ctx.sampleRate * 0.5) {
                     const buf = this.ctx.createBuffer(1, this.buffer.length, this.ctx.sampleRate);
                     buf.getChannelData(0).set(this.buffer);
                     
-                    // Find peaks and match to beat
                     const peaks = this.beatMatcher.findPeaks(buf, this.ctx.sampleRate);
                     const stretch = this.beatMatcher.matchToGrid(peaks);
                     
-                    // Kanye-style pitch shift
                     const pitch = this.pitchShifts[Math.floor(Math.random() * this.pitchShifts.length)];
                     
-                    // Create chops
                     const chops = this.beatMatcher.chopSample(buf, peaks);
                     
                     const sample = {
@@ -369,11 +383,9 @@
                         pitch
                     };
                     
-                    // Add as main sample
                     const samples = this.samples.get('sample');
                     samples.push(sample);
                     
-                    // Start playing the new sample as a layer
                     this.playSample(sample);
                     
                     console.log(`Sample: ${pitch}x pitch, ${stretch.toFixed(2)}x stretch`);
@@ -383,81 +395,127 @@
             async createDrums() {
                 const sr = this.ctx.sampleRate;
                 
-                // Lo-fi kick - shorter, punchier
-                const kick = this.ctx.createBuffer(1, sr * 0.3, sr);
+                // Deeper kick
+                const kick = this.ctx.createBuffer(1, sr * 0.4, sr);
                 const kd = kick.getChannelData(0);
                 for (let i = 0; i < kd.length; i++) {
                     const t = i / sr;
-                    const env = Math.exp(-10 * t);
-                    const pitch = 60 * Math.exp(-50 * t);
+                    const env = Math.exp(-8 * t);
+                    const pitch = 50 * Math.exp(-40 * t);
                     let s = Math.sin(2 * Math.PI * pitch * t) * env;
-                    // Bit reduction
                     s = Math.round(s * 8) / 8;
-                    kd[i] = s * 0.9;
+                    kd[i] = s * 0.95;
                 }
                 
-                // Lo-fi snare - crispy and short
-                const snare = this.ctx.createBuffer(1, sr * 0.15, sr);
+                // Softer, crispier snare
+                const snare = this.ctx.createBuffer(1, sr * 0.2, sr);
                 const sd = snare.getChannelData(0);
                 for (let i = 0; i < sd.length; i++) {
                     const t = i / sr;
-                    const env = Math.exp(-30 * t);
-                    const tone = Math.sin(2 * Math.PI * 200 * t) * 0.3;
-                    const noise = (Math.random() * 2 - 1) * 0.6;
+                    const env = Math.exp(-25 * t);
+                    const tone = Math.sin(2 * Math.PI * 180 * t) * 0.25;
+                    const noise = (Math.random() * 2 - 1) * 0.5;
                     let s = (tone + noise) * env;
-                    // Bit reduction
                     s = Math.round(s * 6) / 6;
-                    sd[i] = s * 0.8;
+                    sd[i] = s * 0.7;
                 }
                 
-                // Soft hat
-                const hat = this.ctx.createBuffer(1, sr * 0.05, sr);
+                // Subtler hat
+                const hat = this.ctx.createBuffer(1, sr * 0.08, sr);
                 const hd = hat.getChannelData(0);
                 for (let i = 0; i < hd.length; i++) {
                     const t = i / sr;
-                    const env = Math.exp(-100 * t);
+                    const env = Math.exp(-80 * t);
                     let s = (Math.random() * 2 - 1) * env;
-                    // Heavy filtering
-                    if (i > 0) s = s * 0.3 + hd[i-1] * 0.7;
-                    hd[i] = s * 0.5;
+                    if (i > 0) s = s * 0.4 + hd[i-1] * 0.6;
+                    hd[i] = s * 0.4;
                 }
                 
-                // Sub bass - pure and deep
-                const bass = this.ctx.createBuffer(1, sr * 1, sr);
+                // Deeper sub bass
+                const bass = this.ctx.createBuffer(1, sr * 1.2, sr);
                 const bd = bass.getChannelData(0);
                 for (let i = 0; i < bd.length; i++) {
                     const t = i / sr;
-                    const env = t < 0.02 ? t / 0.02 : Math.exp(-2 * (t - 0.02));
-                    bd[i] = Math.sin(2 * Math.PI * 40 * t) * env * 0.8;
+                    const env = t < 0.03 ? t / 0.03 : Math.exp(-1.5 * (t - 0.03));
+                    bd[i] = Math.sin(2 * Math.PI * 35 * t) * env * 0.85;
                 }
                 
-                // Add to samples
                 this.samples.get('kick').push({ buffer: kick, rate: 1 });
                 this.samples.get('snare').push({ buffer: snare, rate: 1 });
                 this.samples.get('hats').push({ buffer: hat, rate: 1 });
                 this.samples.get('bass').push({ buffer: bass, rate: 1 });
             }
 
+            async createPiano() {
+                const sr = this.ctx.sampleRate;
+                const beatDuration = 60 / this.beatMatcher.bpm;
+                const loopDuration = beatDuration * 8; // 2 bars loop
+                
+                const piano = this.ctx.createBuffer(1, sr * loopDuration, sr);
+                const pd = piano.getChannelData(0);
+                
+                // Simple piano synth: base sin + harmonics with decay
+                const generateNote = (startTime, duration, freq) => {
+                    const start = Math.floor(startTime * sr);
+                    const len = Math.floor(duration * sr);
+                    for (let i = 0; i < len; i++) {
+                        const t = i / sr;
+                        const env = Math.exp(-t / 1.5); // Slow decay for haunting
+                        let s = Math.sin(2 * Math.PI * freq * t) * env;
+                        s += 0.5 * Math.sin(2 * Math.PI * 2 * freq * t) * env;
+                        s += 0.3 * Math.sin(2 * Math.PI * 3 * freq * t) * env;
+                        s += 0.2 * Math.sin(2 * Math.PI * 4 * freq * t) * env;
+                        pd[start + i] += s * 0.4; // Add to buffer
+                    }
+                };
+                
+                // Approximate haunting progression: Am (A2, C3, E3) -> G (G2, B2, D3)
+                // Each chord for 4 beats
+                const chords = [
+                    {time: 0, dur: 4 * beatDuration, notes: [110, 130.81, 164.81]}, // Am low
+                    {time: 4 * beatDuration, dur: 4 * beatDuration, notes: [98, 123.47, 146.83]} // G
+                ];
+                
+                chords.forEach(chord => {
+                    chord.notes.forEach(freq => {
+                        generateNote(chord.time, chord.dur, freq);
+                    });
+                });
+                
+                this.samples.get('piano').push({ buffer: piano, rate: 1 });
+            }
+
+            playPiano() {
+                const samples = this.samples.get('piano');
+                if (!samples.length) return;
+                
+                const sample = samples[0];
+                const src = this.ctx.createBufferSource();
+                src.buffer = sample.buffer;
+                src.loop = true;
+                
+                // Process with piano-specific effects
+                const processed = this.lofi.process(src, true);
+                processed.connect(this.nodes.piano);
+                
+                src.start();
+                this.pianoSource = src;
+            }
+
             createVinyl() {
-                // Continuous vinyl crackle
                 const duration = 10;
                 const vinyl = this.ctx.createBuffer(1, this.ctx.sampleRate * duration, this.ctx.sampleRate);
                 const data = vinyl.getChannelData(0);
                 
                 for (let i = 0; i < data.length; i++) {
-                    // Crackle
-                    if (Math.random() < 0.0001) {
-                        data[i] = (Math.random() - 0.5) * 0.3;
+                    if (Math.random() < 0.0002) {
+                        data[i] = (Math.random() - 0.5) * 0.4;
                     } else {
-                        // Surface noise
-                        data[i] = (Math.random() - 0.5) * 0.02;
+                        data[i] = (Math.random() - 0.5) * 0.03;
                     }
-                    
-                    // Low rumble
-                    data[i] += Math.sin(2 * Math.PI * 0.5 * i / this.ctx.sampleRate) * 0.01;
+                    data[i] += Math.sin(2 * Math.PI * 0.3 * i / this.ctx.sampleRate) * 0.015;
                 }
                 
-                // Loop the vinyl noise
                 const playVinyl = () => {
                     const source = this.ctx.createBufferSource();
                     source.buffer = vinyl;
@@ -475,44 +533,48 @@
                 const now = this.ctx.currentTime;
                 const beat = 60 / this.beatMatcher.bpm / 4;
                 
-                // Swing timing
                 let swing = this.seq.step % 2 === 1 ? beat * (1 + this.seq.swing) : beat * (1 - this.seq.swing);
                 
                 if (now >= this.seq.last + swing) {
                     this.seq.last = now;
                     
-                    // Pulse
-                    if (this.seq.step % 4 === 0) {
+                    if (this.seq.step % 8 === 0) {
                         this.orb.classList.add('pulse');
                         setTimeout(() => this.orb.classList.remove('pulse'), 300);
                     }
                     
-                    // Trip hop patterns - sparse and groovy
-                    if (this.seq.step === 0 || this.seq.step === 10) {
-                        this.play('kick', 0.9);
+                    // More minimal trip hop patterns for ominous feel
+                    if (this.seq.step === 0 || this.seq.step === 16) { // Sparser kicks
+                        this.play('kick', 0.95);
                     }
                     
                     if (this.seq.step === 8 || this.seq.step === 24) {
-                        this.play('snare', 0.7);
+                        this.play('snare', 0.6);
                     }
                     
-                    if ([2, 6, 10, 12, 14, 18, 22, 26, 30].includes(this.seq.step)) {
-                        this.play('hats', 0.3 + Math.random() * 0.2);
+                    // Fewer hats
+                    if ([4, 12, 20, 28].includes(this.seq.step)) {
+                        this.play('hats', 0.2 + Math.random() * 0.1);
                     }
                     
-                    // Bass on specific hits with varied pitches
+                    // Bass on fewer hits with lower pitches
                     const bassPlay = this.bassPattern.find(p => p.step === this.seq.step);
                     if (bassPlay) {
-                        this.play('bass', 0.8, bassPlay.rate);
+                        this.play('bass', 0.9, bassPlay.rate);
                     }
                     
-                    // Sidechain ducking for all sample layers on kick hits
-                    if (this.seq.step === 0 || this.seq.step === 10) {
+                    // Sidechain for samples and piano
+                    if (this.seq.step === 0 || this.seq.step === 16) {
                         this.playingSamples.forEach(ps => {
                             ps.gain.gain.cancelScheduledValues(now);
-                            ps.gain.gain.setValueAtTime(0.3, now);
-                            ps.gain.gain.linearRampToValueAtTime(0.7, now + 0.1);
+                            ps.gain.gain.setValueAtTime(0.25, now);
+                            ps.gain.gain.linearRampToValueAtTime(0.7, now + 0.15);
                         });
+                        
+                        // Subtle duck on piano
+                        this.nodes.piano.gain.cancelScheduledValues(now);
+                        this.nodes.piano.gain.setValueAtTime(0.6, now);
+                        this.nodes.piano.gain.linearRampToValueAtTime(0.85, now + 0.15);
                     }
                     
                     this.seq.step = (this.seq.step + 1) % 32;
@@ -533,7 +595,6 @@
                 src.playbackRate.value = (sample.rate || 1) * rateMult;
                 gain.gain.value = vel;
                 
-                // Lo-fi processing
                 const processed = this.lofi.process(src);
                 processed.connect(gain);
                 gain.connect(this.nodes[type]);
@@ -542,7 +603,6 @@
             }
 
             playSample(sample) {
-                // Play the full sample loop Kanye-style
                 const src = this.ctx.createBufferSource();
                 const gain = this.ctx.createGain();
                 const filter = this.ctx.createBiquadFilter();
@@ -551,22 +611,19 @@
                 src.playbackRate.value = sample.rate;
                 src.loop = true;
                 src.loopStart = 0;
-                src.loopEnd = Math.min(sample.buffer.duration, 60 / this.beatMatcher.bpm * 4); // 4 bar loop
+                src.loopEnd = Math.min(sample.buffer.duration, 60 / this.beatMatcher.bpm * 4);
                 
-                // Filter sweep for movement
                 filter.type = 'lowpass';
-                filter.frequency.value = 2000;
-                filter.Q.value = 2;
+                filter.frequency.value = 1800; // Darker filter
+                filter.Q.value = 1.5;
                 
-                // Slow filter automation
-                const sweepTime = 8; // 8 second sweep
-                filter.frequency.setValueAtTime(2000, this.ctx.currentTime);
-                filter.frequency.linearRampToValueAtTime(5000, this.ctx.currentTime + sweepTime / 2);
-                filter.frequency.linearRampToValueAtTime(2000, this.ctx.currentTime + sweepTime);
+                const sweepTime = 12; // Slower sweep for atmosphere
+                filter.frequency.setValueAtTime(1800, this.ctx.currentTime);
+                filter.frequency.linearRampToValueAtTime(4000, this.ctx.currentTime + sweepTime / 2);
+                filter.frequency.linearRampToValueAtTime(1800, this.ctx.currentTime + sweepTime);
                 
                 gain.gain.value = 0.7;
                 
-                // Lo-fi processing
                 const processed = this.lofi.process(src);
                 processed.connect(filter);
                 filter.connect(gain);
@@ -574,10 +631,8 @@
                 
                 src.start();
                 
-                // Add to playing samples
                 this.playingSamples.push({src, gain});
                 
-                // Limit to 3 layers
                 if (this.playingSamples.length > 3) {
                     const old = this.playingSamples.shift();
                     old.src.stop();
@@ -585,7 +640,6 @@
             }
 
             loop() {
-                // Auto-sample interesting sounds
                 const analyser = this.ctx.createAnalyser();
                 this.nodes.mic.connect(analyser);
                 analyser.fftSize = 2048;
@@ -601,19 +655,17 @@
                     
                     analyser.getByteFrequencyData(data);
                     
-                    // Look for interesting harmonic content
                     let harmonics = 0;
                     for (let i = 10; i < 100; i++) {
                         if (data[i] > 100) harmonics++;
                     }
                     
-                    // Auto-record if interesting
                     if (harmonics > 20) {
-                        this.toggle(); // Start recording
+                        this.toggle();
                         setTimeout(() => {
-                            if (this.recording) this.toggle(); // Stop after 2-4 seconds
+                            if (this.recording) this.toggle();
                         }, 2000 + Math.random() * 2000);
-                        cooldown = 200; // 4 second cooldown
+                        cooldown = 200;
                     }
                 }, 20);
             }
