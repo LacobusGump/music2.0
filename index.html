@@ -229,15 +229,30 @@
                 this.seq = { step: 0, swing: 0.05 }; // Minimal swing for ominous feel
                 this.orb = document.getElementById('orb');
                 this.playingSamples = [];
+                this.stage = 0; // 0: beat only, 1: with samples, 2: with piano and advanced bass
                 
                 // Pitch shifts biased lower
                 this.pitchShifts = [0.5, 0.6, 0.7, 0.8, 1]; 
                 
-                // Bass pattern simpler and deeper
-                this.bassPattern = [
+                // Basic bass pattern
+                this.basicBassPattern = [
                     {step: 0, rate: 1},      
                     {step: 16, rate: 1}   
                 ];
+                
+                // Advanced Kanye-style bass pattern: more melodic, with minor feel
+                this.advancedBassPattern = [
+                    {step: 0, rate: 1},         // Root
+                    {step: 4, rate: 1.189},     // Minor 3rd
+                    {step: 8, rate: 1.5},       // 5th
+                    {step: 12, rate: 1.189},    // Minor 3rd
+                    {step: 16, rate: 1},        // Root
+                    {step: 20, rate: 1.189},    // Minor 3rd
+                    {step: 24, rate: 1.5},      // 5th
+                    {step: 28, rate: 1.682}     // Minor 7th
+                ];
+                
+                this.bassPattern = this.basicBassPattern; // Start with basic
                 
                 // Pitch multiplier for aggressive tuning (A450 / A440 ≈ 1.0227)
                 this.pitchMult = 1.0227;
@@ -288,15 +303,15 @@
                     this.nodes.comp.connect(this.nodes.dust);
                     this.nodes.dust.connect(this.ctx.destination);
                     
-                    // Layers
+                    // Layers with adjusted volumes
                     const layers = {
                         kick: 0.95,
                         snare: 0.6,
-                        hats: 0.15, // Quieter
+                        hats: 0.15,
                         sample: 0.7,
                         bass: 0.9,
                         vinyl: 0.2,
-                        piano: 0.85
+                        piano: 0.4 // Lowered volume for piano
                     };
                     
                     Object.entries(layers).forEach(([name, vol]) => {
@@ -333,9 +348,6 @@
                             if (this.buffer.length > this.ctx.sampleRate * 8) this.stopRec();
                         }
                     };
-                    
-                    // Start piano
-                    this.playPiano();
                     
                     // Start
                     this.loop();
@@ -393,6 +405,18 @@
                     
                     this.playSample(sample);
                     
+                    // Evolve stages
+                    if (samples.length >= 1) {
+                        this.stage = 1;
+                    }
+                    if (samples.length >= 2) {
+                        this.stage = 2;
+                        this.bassPattern = this.advancedBassPattern;
+                        if (!this.pianoSource) {
+                            this.playPiano();
+                        }
+                    }
+                    
                     console.log(`Sample: ${pitch}x pitch, ${stretch.toFixed(2)}x stretch`);
                 }
             }
@@ -436,7 +460,7 @@
                     hd[i] = s * 0.3;
                 }
                 
-                // Deep sub bass
+                // Deep sub bass with optional glide for Kanye feel
                 const bass = this.ctx.createBuffer(1, sr * 1.5, sr);
                 const bd = bass.getChannelData(0);
                 for (let i = 0; i < bd.length; i++) {
@@ -454,7 +478,7 @@
             async createPiano() {
                 const sr = this.ctx.sampleRate;
                 const beatDuration = 60 / this.beatMatcher.bpm;
-                const loopDuration = beatDuration * 4; // Shorter loop for repetition
+                const loopDuration = beatDuration * 4; // 1 bar
                 
                 const piano = this.ctx.createBuffer(1, sr * loopDuration, sr);
                 const pd = piano.getChannelData(0);
@@ -478,14 +502,14 @@
                 const bassFreq = 98 * this.pitchMult; // G2
                 generateNote(0, loopDuration, bassFreq, 1.2);
                 
-                // Repetitive ostinato in upper register: C# D E F (pitched up)
+                // Less busy ostinato: quarter notes C# D E F
                 const ostinatoNotes = [277.18, 293.66, 329.63, 349.23].map(f => f * this.pitchMult); // C#4 D4 E4 F4
-                const noteDuration = beatDuration / 4; // Quarter notes
+                const noteDuration = beatDuration; // Quarter notes
                 
-                for (let i = 0; i < 16; i++) { // Repeat ostinato
+                for (let i = 0; i < 4; i++) {
                     const note = ostinatoNotes[i % 4];
                     generateNote(i * noteDuration, noteDuration, note, 0.8);
-                    // Add octave for stark texture
+                    // Add octave for texture
                     generateNote(i * noteDuration, noteDuration, note * 2, 0.4);
                 }
                 
@@ -563,7 +587,7 @@
                         this.play('hats', 0.15 + Math.random() * 0.05);
                     }
                     
-                    // Bass sparse
+                    // Bass
                     const bassPlay = this.bassPattern.find(p => p.step === this.seq.step);
                     if (bassPlay) {
                         this.play('bass', 0.9, bassPlay.rate);
@@ -577,9 +601,11 @@
                             ps.gain.gain.linearRampToValueAtTime(0.7, now + 0.2);
                         });
                         
-                        this.nodes.piano.gain.cancelScheduledValues(now);
-                        this.nodes.piano.gain.setValueAtTime(0.5, now);
-                        this.nodes.piano.gain.linearRampToValueAtTime(0.85, now + 0.2);
+                        if (this.stage >= 2) {
+                            this.nodes.piano.gain.cancelScheduledValues(now);
+                            this.nodes.piano.gain.setValueAtTime(0.3, now);
+                            this.nodes.piano.gain.linearRampToValueAtTime(0.4, now + 0.2);
+                        }
                     }
                     
                     this.seq.step = (this.seq.step + 1) % 32;
@@ -608,6 +634,9 @@
             }
 
             playSample(sample) {
+                // Only play if stage >=1
+                if (this.stage < 1) return;
+                
                 const src = this.ctx.createBufferSource();
                 const gain = this.ctx.createGain();
                 const filter = this.ctx.createBiquadFilter();
