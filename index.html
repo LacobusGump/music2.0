@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GUMP</title>
+    <title>GUMP - Motion Sampler</title>
     <style>
         * {
             margin: 0;
@@ -21,6 +21,7 @@
             align-items: center;
             justify-content: center;
             cursor: none;
+            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
         }
 
         .orb {
@@ -59,18 +60,127 @@
             0%, 100% { transform: translate(-50%, -50%) scale(1); }
             50% { transform: translate(-50%, -50%) scale(1.2); }
         }
+
+        .orb.motion {
+            background: radial-gradient(circle, rgba(100,255,100,0.8) 0%, rgba(0,255,0,0.3) 50%, transparent 80%);
+            box-shadow: 0 0 20px rgba(0,255,0,0.5);
+        }
+
+        .info {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            font-size: 11px;
+            opacity: 0.5;
+            letter-spacing: 0.5px;
+        }
+
+        .tempo {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            font-size: 14px;
+            opacity: 0.7;
+            font-family: monospace;
+        }
     </style>
 </head>
 <body>
     <div id="orb" class="orb"></div>
+    <div class="info">SPACE TO SAMPLE • MOVE TO CONTROL TEMPO • CLICK TO START</div>
+    <div class="tempo" id="tempo">BPM: --</div>
 
     <script>
         'use strict';
 
+        // Motion Controller for tempo
+        class MotionController {
+            constructor(onTempoChange) {
+                this.onTempoChange = onTempoChange;
+                this.baseAccel = null;
+                this.smoothedAccel = 0;
+                this.lastUpdate = 0;
+                this.motionActive = false;
+                this.calibrating = false;
+                this.calibrationSamples = [];
+                this.alpha = 0.1; // Smoothing factor
+            }
+
+            async init() {
+                if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
+                    const permission = await DeviceMotionEvent.requestPermission();
+                    if (permission !== 'granted') {
+                        console.log('Motion permission denied');
+                        return false;
+                    }
+                }
+
+                window.addEventListener('devicemotion', (e) => this.handleMotion(e), { passive: true });
+                
+                // Calibrate baseline
+                this.calibrate();
+                return true;
+            }
+
+            calibrate() {
+                this.calibrating = true;
+                this.calibrationSamples = [];
+                
+                setTimeout(() => {
+                    if (this.calibrationSamples.length > 0) {
+                        this.baseAccel = this.calibrationSamples.reduce((a, b) => a + b) / this.calibrationSamples.length;
+                        console.log(`Motion calibrated: ${this.baseAccel.toFixed(2)}`);
+                    }
+                    this.calibrating = false;
+                    this.motionActive = true;
+                }, 2000);
+            }
+
+            handleMotion(event) {
+                const now = Date.now();
+                if (now - this.lastUpdate < 50) return; // Throttle to 20fps
+                this.lastUpdate = now;
+
+                const accel = event.accelerationIncludingGravity;
+                if (!accel || accel.x === null) return;
+
+                // Total acceleration magnitude
+                const totalAccel = Math.sqrt(accel.x * accel.x + accel.y * accel.y + accel.z * accel.z);
+
+                if (this.calibrating) {
+                    this.calibrationSamples.push(totalAccel);
+                    return;
+                }
+
+                if (!this.motionActive || this.baseAccel === null) return;
+
+                // Smooth the acceleration
+                this.smoothedAccel = this.alpha * totalAccel + (1 - this.alpha) * this.smoothedAccel;
+
+                // Convert motion to BPM (60-120 range)
+                const motionDelta = Math.abs(this.smoothedAccel - this.baseAccel);
+                const normalizedMotion = Math.min(motionDelta / 3, 1); // Cap at 3g delta
+                const bpm = 60 + (normalizedMotion * 60); // 60-120 BPM range
+
+                this.onTempoChange(Math.round(bpm));
+            }
+        }
+
         // Beat Matcher - finds transients and stretches samples to fit
         class BeatMatcher {
             constructor() {
-                this.bpm = 75; // Lo-fi trip hop tempo
+                this.bpm = 75; // Starting tempo
+                this.targetBpm = 75;
+                this.bpmSmooth = 0.02; // Tempo smoothing
+            }
+
+            setBpm(newBpm) {
+                this.targetBpm = Math.max(50, Math.min(140, newBpm));
+            }
+
+            updateBpm() {
+                // Smooth tempo changes
+                this.bpm += (this.targetBpm - this.bpm) * this.bpmSmooth;
             }
 
             findPeaks(buffer, sr) {
@@ -98,7 +208,6 @@
             matchToGrid(peaks, barLength = 4) {
                 if (peaks.length < 2) return 1;
                 
-                // Find average interval between peaks
                 const intervals = [];
                 for (let i = 1; i < peaks.length; i++) {
                     intervals.push(peaks[i].time - peaks[i - 1].time);
@@ -107,7 +216,6 @@
                 const avgInterval = intervals.reduce((a, b) => a + b) / intervals.length;
                 const beatDuration = 60 / this.bpm;
                 
-                // Find closest musical division (1/4, 1/8, 1/16, etc.)
                 const divisions = [4, 2, 1, 0.5, 0.25];
                 let bestDiv = 1;
                 let minDiff = Infinity;
@@ -121,7 +229,6 @@
                     }
                 }
                 
-                // Calculate stretch factor
                 const targetDuration = beatDuration * barLength;
                 const actualDuration = peaks[peaks.length - 1].time - peaks[0].time;
                 
@@ -133,7 +240,6 @@
                 const beatDuration = 60 / this.bpm;
                 const chopLength = beatDuration * 4 / chopsPerBar;
                 
-                // Create chops at peak positions
                 for (let i = 0; i < Math.min(peaks.length - 1, chopsPerBar); i++) {
                     const start = peaks[i].time;
                     const end = Math.min(start + chopLength, buffer.duration);
@@ -141,6 +247,118 @@
                 }
                 
                 return chops;
+            }
+        }
+
+        // Bass Synth
+        class BassSynth {
+            constructor(ctx) {
+                this.ctx = ctx;
+                this.notes = [
+                    36, 36, 43, 41, 38, 38, 34, 36, // C, C, G, F, D, D, Bb, C (MIDI notes)
+                    36, 36, 43, 41, 38, 38, 34, 36
+                ];
+                this.pattern = [1, 0, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 1, 0, 1, 0]; // 16th note pattern
+                this.activeVoices = new Map();
+            }
+
+            midiToFreq(midi) {
+                return 440 * Math.pow(2, (midi - 69) / 12);
+            }
+
+            play(step, output, bpm) {
+                if (!this.pattern[step % 16]) return;
+                
+                const noteIndex = Math.floor(step / 2) % this.notes.length;
+                const midi = this.notes[noteIndex];
+                const freq = this.midiToFreq(midi);
+                
+                // Kill previous voice if playing same note
+                if (this.activeVoices.has(midi)) {
+                    this.activeVoices.get(midi).stop(this.ctx.currentTime);
+                    this.activeVoices.delete(midi);
+                }
+
+                // Create bass voice with multiple oscillators for fatness
+                const voice = this.createVoice(freq, output, bpm);
+                this.activeVoices.set(midi, voice);
+            }
+
+            createVoice(freq, output, bpm) {
+                const now = this.ctx.currentTime;
+                const duration = 60 / bpm / 4 * 2; // Half note duration
+                
+                // Multiple oscillators for phat bass
+                const oscs = [];
+                const gains = [];
+                
+                // Sub bass (sine)
+                const sub = this.ctx.createOscillator();
+                const subGain = this.ctx.createGain();
+                sub.type = 'sine';
+                sub.frequency.value = freq * 0.5; // Octave down
+                subGain.gain.value = 0.6;
+                oscs.push(sub);
+                gains.push(subGain);
+                
+                // Main bass (sawtooth with slight detune)
+                for (let i = 0; i < 2; i++) {
+                    const osc = this.ctx.createOscillator();
+                    const gain = this.ctx.createGain();
+                    osc.type = 'sawtooth';
+                    osc.frequency.value = freq;
+                    osc.detune.value = (i - 0.5) * 8; // Slight detune for width
+                    gain.gain.value = 0.25;
+                    oscs.push(osc);
+                    gains.push(gain);
+                }
+                
+                // Filter for movement and character
+                const filter = this.ctx.createBiquadFilter();
+                filter.type = 'lowpass';
+                filter.frequency.value = 150;
+                filter.Q.value = 3;
+                
+                // Envelope
+                const envelope = this.ctx.createGain();
+                envelope.gain.setValueAtTime(0, now);
+                envelope.gain.linearRampToValueAtTime(0.8, now + 0.005); // Quick attack
+                envelope.gain.exponentialRampToValueAtTime(0.4, now + 0.1); // Sustain level
+                envelope.gain.exponentialRampToValueAtTime(0.01, now + duration * 0.8); // Release
+                
+                // Filter envelope for movement
+                filter.frequency.setValueAtTime(80, now);
+                filter.frequency.exponentialRampToValueAtTime(300, now + 0.02);
+                filter.frequency.exponentialRampToValueAtTime(150, now + duration * 0.3);
+                filter.frequency.exponentialRampToValueAtTime(80, now + duration);
+                
+                // Distortion for edge
+                const waveshaper = this.ctx.createWaveShaper();
+                const curve = new Float32Array(256);
+                for (let i = 0; i < 128; i++) {
+                    const x = i / 128;
+                    curve[128 + i] = Math.tanh(x * 3) * 0.8;
+                    curve[128 - i - 1] = -Math.tanh(x * 3) * 0.8;
+                }
+                waveshaper.curve = curve;
+                
+                // Connect chain
+                oscs.forEach((osc, i) => {
+                    osc.connect(gains[i]);
+                    gains[i].connect(filter);
+                });
+                
+                filter.connect(waveshaper);
+                waveshaper.connect(envelope);
+                envelope.connect(output);
+                
+                // Start and schedule stop
+                oscs.forEach(osc => {
+                    osc.start(now);
+                    osc.stop(now + duration);
+                });
+                
+                return { stop: (when) => oscs.forEach(osc => osc.stop(when)) };
             }
         }
 
@@ -153,8 +371,8 @@
             process(source) {
                 // Bitcrusher
                 const bitcrusher = this.ctx.createScriptProcessor(4096, 1, 1);
-                const bits = 8; // 8-bit sound
-                const normFreq = 0.3; // Downsample
+                const bits = 8;
+                const normFreq = 0.3;
                 
                 let phaser = 0;
                 bitcrusher.onaudioprocess = (e) => {
@@ -189,7 +407,6 @@
                 }
                 waveshaper.curve = curve;
                 
-                // Chain
                 source.connect(bitcrusher);
                 bitcrusher.connect(filter);
                 filter.connect(waveshaper);
@@ -205,13 +422,18 @@
                 this.nodes = {};
                 this.samples = new Map();
                 this.beatMatcher = new BeatMatcher();
+                this.bassSynth = null;
+                this.motionController = null;
                 this.recording = false;
                 this.buffer = [];
                 this.seq = { step: 0, swing: 0.15 };
                 this.orb = document.getElementById('orb');
+                this.tempoDisplay = document.getElementById('tempo');
+                this.bassActive = false;
+                this.warmupBeats = 0;
                 
                 // Kanye-style pitch shifts
-                this.pitchShifts = [0.5, 0.667, 0.75, 1, 1.5, 2]; // Octave down, 5th down, 4th down, original, 5th up, octave up
+                this.pitchShifts = [0.5, 0.667, 0.75, 1, 1.5, 2];
                 
                 document.addEventListener('click', () => this.start());
             }
@@ -222,6 +444,24 @@
                 try {
                     this.ctx = new AudioContext({ sampleRate: 44100 });
                     this.lofi = new LoFi(this.ctx);
+                    this.bassSynth = new BassSynth(this.ctx);
+                    
+                    // Initialize motion control
+                    this.motionController = new MotionController((bpm) => {
+                        this.beatMatcher.setBpm(bpm);
+                        this.tempoDisplay.textContent = `BPM: ${bpm}`;
+                        
+                        if (bpm > 70) {
+                            this.orb.classList.add('motion');
+                        } else {
+                            this.orb.classList.remove('motion');
+                        }
+                    });
+                    
+                    const motionEnabled = await this.motionController.init();
+                    if (!motionEnabled) {
+                        console.log('Motion control not available, using static tempo');
+                    }
                     
                     // Master chain - lo-fi trip hop style
                     this.nodes.out = this.ctx.createGain();
@@ -297,7 +537,6 @@
                     this.nodes.rec.onaudioprocess = e => {
                         if (this.recording) {
                             this.buffer.push(...e.inputBuffer.getChannelData(0));
-                            // Longer samples for that Kanye feel (up to 8 seconds)
                             if (this.buffer.length > this.ctx.sampleRate * 8) this.stopRec();
                         }
                     };
@@ -307,10 +546,14 @@
                     this.seq.last = this.ctx.currentTime;
                     requestAnimationFrame(() => this.tick());
                     
-                    // Keys
                     document.onkeydown = e => {
-                        if (e.key === ' ') this.toggle();
+                        if (e.key === ' ') {
+                            e.preventDefault();
+                            this.toggle();
+                        }
                     };
+                    
+                    document.querySelector('.info').style.display = 'none';
                     
                 } catch (e) {
                     console.error(e);
@@ -335,7 +578,7 @@
                 this.nodes.rec.disconnect();
                 this.orb.classList.remove('recording');
                 
-                if (this.buffer.length > this.ctx.sampleRate * 0.5) { // Min 0.5 seconds
+                if (this.buffer.length > this.ctx.sampleRate * 0.5) {
                     const buf = this.ctx.createBuffer(1, this.buffer.length, this.ctx.sampleRate);
                     buf.getChannelData(0).set(this.buffer);
                     
@@ -358,7 +601,7 @@
                     
                     // Add as main sample
                     const samples = this.samples.get('sample');
-                    if (samples.length >= 2) samples.shift(); // Keep 2 main samples max
+                    if (samples.length >= 2) samples.shift();
                     samples.push(sample);
                     
                     console.log(`Sample: ${pitch}x pitch, ${stretch.toFixed(2)}x stretch`);
@@ -368,63 +611,61 @@
             async createDrums() {
                 const sr = this.ctx.sampleRate;
                 
-                // Lo-fi kick - shorter, punchier
-                const kick = this.ctx.createBuffer(1, sr * 0.3, sr);
+                // Professional lo-fi kick - Kanye style
+                const kick = this.ctx.createBuffer(1, sr * 0.4, sr);
                 const kd = kick.getChannelData(0);
                 for (let i = 0; i < kd.length; i++) {
                     const t = i / sr;
-                    const env = Math.exp(-10 * t);
-                    const pitch = 60 * Math.exp(-50 * t);
-                    let s = Math.sin(2 * Math.PI * pitch * t) * env;
-                    // Bit reduction
-                    s = Math.round(s * 8) / 8;
-                    kd[i] = s * 0.9;
+                    const env = Math.pow(1 - t * 2.5, 4) * Math.exp(-8 * t);
+                    const pitch = 65 * Math.exp(-35 * t);
+                    const click = Math.sin(2 * Math.PI * 2000 * t) * Math.exp(-200 * t) * 0.4;
+                    const sub = Math.sin(2 * Math.PI * pitch * 0.5 * t) * 0.7;
+                    let s = (Math.sin(2 * Math.PI * pitch * t) + sub + click) * env;
+                    
+                    // Professional saturation
+                    s = Math.tanh(s * 1.2) * 0.95;
+                    
+                    // Bit reduction for lo-fi character
+                    s = Math.round(s * 12) / 12;
+                    kd[i] = s;
                 }
                 
-                // Lo-fi snare - crispy and short
-                const snare = this.ctx.createBuffer(1, sr * 0.15, sr);
+                // Crispy snare with body
+                const snare = this.ctx.createBuffer(1, sr * 0.2, sr);
                 const sd = snare.getChannelData(0);
                 for (let i = 0; i < sd.length; i++) {
                     const t = i / sr;
-                    const env = Math.exp(-30 * t);
-                    const tone = Math.sin(2 * Math.PI * 200 * t) * 0.3;
-                    const noise = (Math.random() * 2 - 1) * 0.6;
-                    let s = (tone + noise) * env;
-                    // Bit reduction
-                    s = Math.round(s * 6) / 6;
-                    sd[i] = s * 0.8;
+                    const env = Math.exp(-25 * t);
+                    const tone = Math.sin(2 * Math.PI * 220 * t) * 0.4;
+                    const body = Math.sin(2 * Math.PI * 80 * t) * Math.exp(-50 * t) * 0.3;
+                    const noise = (Math.random() * 2 - 1) * 0.8;
+                    let s = (tone + body + noise) * env;
+                    
+                    // Professional processing
+                    s = Math.tanh(s * 0.9) * 0.85;
+                    s = Math.round(s * 8) / 8;
+                    sd[i] = s;
                 }
                 
-                // Soft hat
-                const hat = this.ctx.createBuffer(1, sr * 0.05, sr);
+                // Smooth hat with character
+                const hat = this.ctx.createBuffer(1, sr * 0.08, sr);
                 const hd = hat.getChannelData(0);
                 for (let i = 0; i < hd.length; i++) {
                     const t = i / sr;
-                    const env = Math.exp(-100 * t);
+                    const env = Math.exp(-80 * t);
                     let s = (Math.random() * 2 - 1) * env;
-                    // Heavy filtering
-                    if (i > 0) s = s * 0.3 + hd[i-1] * 0.7;
-                    hd[i] = s * 0.5;
+                    // Multiple filter passes for smoothness
+                    if (i > 2) s = s * 0.2 + hd[i-1] * 0.5 + hd[i-2] * 0.3;
+                    s = Math.round(s * 16) / 16;
+                    hd[i] = s * 0.6;
                 }
                 
-                // Sub bass - pure and deep
-                const bass = this.ctx.createBuffer(1, sr * 1, sr);
-                const bd = bass.getChannelData(0);
-                for (let i = 0; i < bd.length; i++) {
-                    const t = i / sr;
-                    const env = t < 0.02 ? t / 0.02 : Math.exp(-2 * (t - 0.02));
-                    bd[i] = Math.sin(2 * Math.PI * 40 * t) * env * 0.8;
-                }
-                
-                // Add to samples
                 this.samples.get('kick').push({ buffer: kick, rate: 1 });
                 this.samples.get('snare').push({ buffer: snare, rate: 1 });
                 this.samples.get('hats').push({ buffer: hat, rate: 1 });
-                this.samples.get('bass').push({ buffer: bass, rate: 1 });
             }
 
             createVinyl() {
-                // Continuous vinyl crackle
                 const duration = 10;
                 const vinyl = this.ctx.createBuffer(1, this.ctx.sampleRate * duration, this.ctx.sampleRate);
                 const data = vinyl.getChannelData(0);
@@ -442,7 +683,6 @@
                     data[i] += Math.sin(2 * Math.PI * 0.5 * i / this.ctx.sampleRate) * 0.01;
                 }
                 
-                // Loop the vinyl noise
                 const playVinyl = () => {
                     const source = this.ctx.createBufferSource();
                     source.buffer = vinyl;
@@ -457,6 +697,9 @@
             tick() {
                 if (!this.ctx) return;
                 
+                // Update BPM smoothing
+                this.beatMatcher.updateBpm();
+                
                 const now = this.ctx.currentTime;
                 const beat = 60 / this.beatMatcher.bpm / 4;
                 
@@ -465,6 +708,7 @@
                 
                 if (now >= this.seq.last + swing) {
                     this.seq.last = now;
+                    this.warmupBeats++;
                     
                     // Pulse
                     if (this.seq.step % 4 === 0) {
@@ -472,7 +716,7 @@
                         setTimeout(() => this.orb.classList.remove('pulse'), 300);
                     }
                     
-                    // Trip hop patterns - sparse and groovy
+                    // Professional trip hop patterns
                     if (this.seq.step === 0 || this.seq.step === 10) {
                         this.play('kick', 0.9);
                     }
@@ -485,9 +729,15 @@
                         this.play('hats', 0.3 + Math.random() * 0.2);
                     }
                     
-                    // Bass on specific hits
-                    if ([0, 3, 8, 11, 16, 19, 24, 27].includes(this.seq.step)) {
-                        this.play('bass', 0.8);
+                    // Bass starts after warmup period (8 bars = 128 steps)
+                    if (this.warmupBeats > 128 && !this.bassActive) {
+                        this.bassActive = true;
+                        console.log('Bass line activated');
+                    }
+                    
+                    // Play bass line when active
+                    if (this.bassActive) {
+                        this.bassSynth.play(this.seq.step, this.nodes.bass, this.beatMatcher.bpm);
                     }
                     
                     // Main sample - plays continuously when available
@@ -532,17 +782,18 @@
                 src.playbackRate.value = sample.rate;
                 src.loop = true;
                 src.loopStart = 0;
-                src.loopEnd = Math.min(sample.buffer.duration, 60 / this.beatMatcher.bpm * 4); // 4 bar loop
+                src.loopEnd = Math.min(sample.buffer.duration, 60 / this.beatMatcher.bpm * 4);
                 
                 // Filter sweep for movement
                 filter.type = 'lowpass';
                 filter.frequency.value = 2000;
                 filter.Q.value = 2;
                 
-                // Slow filter automation
-                const sweepTime = 8; // 8 second sweep
+                // Slow filter automation that responds to motion
+                const sweepTime = 8;
+                const motionMod = this.beatMatcher.bpm / 75; // Motion affects filter
                 filter.frequency.setValueAtTime(2000, this.ctx.currentTime);
-                filter.frequency.linearRampToValueAtTime(5000, this.ctx.currentTime + sweepTime / 2);
+                filter.frequency.linearRampToValueAtTime(5000 * motionMod, this.ctx.currentTime + sweepTime / 2);
                 filter.frequency.linearRampToValueAtTime(2000, this.ctx.currentTime + sweepTime);
                 
                 gain.gain.value = 0.7;
@@ -551,10 +802,11 @@
                 const sidechain = () => {
                     if (!src.playbackState || src.playbackState === 'finished') return;
                     
-                    // Duck on kicks
+                    // Duck on kicks - more aggressive with motion
                     if (this.seq.step === 0 || this.seq.step === 10) {
+                        const duckAmount = 0.2 + (this.beatMatcher.bpm - 75) / 200; // More ducking at higher BPM
                         gain.gain.cancelScheduledValues(this.ctx.currentTime);
-                        gain.gain.setValueAtTime(0.3, this.ctx.currentTime);
+                        gain.gain.setValueAtTime(duckAmount, this.ctx.currentTime);
                         gain.gain.linearRampToValueAtTime(0.7, this.ctx.currentTime + 0.1);
                     }
                     
@@ -596,12 +848,17 @@
                     
                     // Look for interesting harmonic content
                     let harmonics = 0;
+                    let energy = 0;
                     for (let i = 10; i < 100; i++) {
-                        if (data[i] > 100) harmonics++;
+                        if (data[i] > 100) {
+                            harmonics++;
+                            energy += data[i];
+                        }
                     }
                     
-                    // Auto-record if interesting
-                    if (harmonics > 20) {
+                    // Auto-record if interesting - more sensitive when motion is active
+                    const threshold = this.beatMatcher.bpm > 80 ? 15 : 20;
+                    if (harmonics > threshold && energy > 1500) {
                         this.toggle();
                         cooldown = 200; // 4 second cooldown
                     }
