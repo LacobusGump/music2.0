@@ -52,6 +52,16 @@
                         0 0 100px rgba(255,255,255,0.8);
         }
 
+        #orb.god-mode {
+            background: radial-gradient(circle at 30% 30%, #ff00ff, #00ffff);
+            animation: godPulse 2s ease-in-out infinite;
+        }
+
+        @keyframes godPulse {
+            0%, 100% { transform: scale(1); filter: hue-rotate(0deg); }
+            50% { transform: scale(1.5); filter: hue-rotate(180deg); }
+        }
+
         .status {
             position: fixed;
             top: 40px;
@@ -83,11 +93,42 @@
         .hint.visible {
             opacity: 0.5;
         }
+
+        .producer-status {
+            position: fixed;
+            top: 80px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 10px;
+            letter-spacing: 2px;
+            opacity: 0;
+            transition: opacity 0.5s;
+            text-transform: uppercase;
+            color: #ff00ff;
+        }
+
+        .producer-status.visible {
+            opacity: 0.6;
+        }
+
+        .visualizer {
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 3s;
+        }
+
+        .visualizer.active {
+            opacity: 0.3;
+        }
     </style>
 </head>
 <body>
+    <canvas id="visualizer" class="visualizer"></canvas>
     <div id="orb"></div>
     <div id="status" class="status"></div>
+    <div id="producer-status" class="producer-status"></div>
     <div id="hint" class="hint">Click anywhere to begin</div>
 
     <script>
@@ -104,14 +145,26 @@
                 this.loops = [];
                 
                 // Tempo and swing
-                this.bpm = 72; // That slow, heavy Kanye tempo
+                this.bpm = 72;
                 this.swing = 0.15;
                 this.currentStep = 0;
+                this.barCount = 0;
                 
                 // Visual elements
                 this.orb = document.getElementById('orb');
                 this.status = document.getElementById('status');
+                this.producerStatus = document.getElementById('producer-status');
                 this.hint = document.getElementById('hint');
+                
+                // Producer AI state
+                this.producer = {
+                    energy: 0,
+                    complexity: 0,
+                    evolution: 0,
+                    mood: 'building',
+                    godMode: false,
+                    decisions: []
+                };
                 
                 // Track mouse
                 document.addEventListener('mousemove', (e) => {
@@ -148,14 +201,20 @@
                     // Setup microphone
                     await this.setupMicrophone();
                     
+                    // Initialize visualizer
+                    this.initVisualizer();
+                    
                     // Create the intro sequence
                     this.scheduleIntro();
                     
                     // Setup keyboard controls
                     this.setupControls();
                     
+                    // Start the producer AI
+                    this.startProducerAI();
+                    
                     this.isInitialized = true;
-                    this.hint.textContent = 'Space to sample • Hold to clear';
+                    this.hint.textContent = 'Space to sample • G for god mode • Hold space to clear';
                     
                     console.log('GUMP initialized - let\'s make beats');
 
@@ -212,14 +271,99 @@
                 this.clipper.connect(this.limiter);
                 this.limiter.connect(this.ctx.destination);
 
-                // Create separate buses
+                // Create separate buses with effects
                 this.drumBus = this.ctx.createGain();
                 this.drumBus.gain.value = 1;
-                this.drumBus.connect(this.master);
+                
+                // Drum effects chain
+                this.drumReverb = this.createReverb(0.3);
+                this.drumDelay = this.createDelay(0.375, 0.3);
+                this.drumFilter = this.ctx.createBiquadFilter();
+                this.drumFilter.frequency.value = 20000;
+                
+                this.drumBus.connect(this.drumFilter);
+                this.drumFilter.connect(this.master);
+                
+                // Parallel drum effects
+                this.drumBus.connect(this.drumReverb.input);
+                this.drumReverb.output.connect(this.master);
+                this.drumBus.connect(this.drumDelay.input);
+                this.drumDelay.output.connect(this.master);
 
+                // Sample bus with heavy processing
                 this.sampleBus = this.ctx.createGain();
                 this.sampleBus.gain.value = 0.8;
-                this.sampleBus.connect(this.master);
+                
+                // Sample effects
+                this.sampleReverb = this.createReverb(0.7);
+                this.sampleDelay = this.createDelay(0.5, 0.5);
+                this.sampleDistortion = this.ctx.createWaveShaper();
+                this.sampleDistortion.curve = this.makeDistortionCurve(50);
+                this.sampleFilter = this.ctx.createBiquadFilter();
+                this.sampleFilter.frequency.value = 5000;
+                
+                // Sample routing
+                this.sampleBus.connect(this.sampleFilter);
+                this.sampleFilter.connect(this.sampleDistortion);
+                this.sampleDistortion.connect(this.master);
+                
+                // Parallel sample effects
+                this.sampleBus.connect(this.sampleReverb.input);
+                this.sampleReverb.output.connect(this.master);
+                this.sampleBus.connect(this.sampleDelay.input);
+                this.sampleDelay.output.connect(this.master);
+
+                // Analyzer for visualizer
+                this.analyzer = this.ctx.createAnalyser();
+                this.analyzer.fftSize = 2048;
+                this.limiter.connect(this.analyzer);
+            }
+
+            createReverb(wetness) {
+                const convolver = this.ctx.createConvolver();
+                const length = this.ctx.sampleRate * 3;
+                const impulse = this.ctx.createBuffer(2, length, this.ctx.sampleRate);
+                
+                for (let channel = 0; channel < 2; channel++) {
+                    const channelData = impulse.getChannelData(channel);
+                    for (let i = 0; i < length; i++) {
+                        channelData[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / length, 2);
+                    }
+                }
+                
+                convolver.buffer = impulse;
+                
+                const input = this.ctx.createGain();
+                const wet = this.ctx.createGain();
+                const output = this.ctx.createGain();
+                
+                wet.gain.value = wetness;
+                
+                input.connect(convolver);
+                convolver.connect(wet);
+                wet.connect(output);
+                
+                return { input, output };
+            }
+
+            createDelay(time, feedback) {
+                const delay = this.ctx.createDelay(2);
+                const feedbackGain = this.ctx.createGain();
+                const input = this.ctx.createGain();
+                const output = this.ctx.createGain();
+                const wetGain = this.ctx.createGain();
+                
+                delay.delayTime.value = time;
+                feedbackGain.gain.value = feedback;
+                wetGain.gain.value = 0.3;
+                
+                input.connect(delay);
+                delay.connect(feedbackGain);
+                feedbackGain.connect(delay);
+                delay.connect(wetGain);
+                wetGain.connect(output);
+                
+                return { input, output };
             }
 
             makeSoftClipCurve() {
@@ -228,15 +372,25 @@
                 
                 for (let i = 0; i < samples; i++) {
                     const x = (i / samples) * 2 - 1;
-                    // Soft clipping formula
                     curve[i] = Math.sign(x) * Math.min(Math.abs(x), 0.9 + 0.1 * Math.tanh(10 * (Math.abs(x) - 0.9)));
                 }
                 
                 return curve;
             }
 
+            makeDistortionCurve(amount) {
+                const samples = 44100;
+                const curve = new Float32Array(samples);
+                
+                for (let i = 0; i < samples; i++) {
+                    const x = (i / samples) * 2 - 1;
+                    curve[i] = Math.tanh(x * amount) * 0.7;
+                }
+                
+                return curve;
+            }
+
             createDrumKit() {
-                // Store drum sounds
                 this.drums = {
                     kick: this.synthesizeKick(),
                     snare: this.synthesizeSnare(),
@@ -280,30 +434,47 @@
             }
 
             synthesizeSnare() {
-                const duration = 0.2;
+                const duration = 0.25;
                 const buffer = this.ctx.createBuffer(1, duration * this.ctx.sampleRate, this.ctx.sampleRate);
                 const data = buffer.getChannelData(0);
+                
+                // Layer 1: Pitched tone (body)
+                const toneFreq1 = 200;
+                const toneFreq2 = 340;
+                
+                // Layer 2: Noise burst
+                let previousNoise = 0;
                 
                 for (let i = 0; i < data.length; i++) {
                     const t = i / this.ctx.sampleRate;
                     
-                    // Envelope
-                    const env = Math.exp(-35 * t);
+                    // Envelopes
+                    const toneEnv = Math.exp(-20 * t) * (1 - t * 2);
+                    const noiseEnv = Math.exp(-30 * t);
+                    const clickEnv = t < 0.003 ? (1 - t * 333) : 0;
                     
-                    // Tone component (200Hz and 250Hz for body)
-                    const tone = (Math.sin(2 * Math.PI * 200 * t) + 
-                                 Math.sin(2 * Math.PI * 250 * t)) * 0.3;
+                    // Tone component - two detuned sine waves
+                    const tone1 = Math.sin(2 * Math.PI * toneFreq1 * t);
+                    const tone2 = Math.sin(2 * Math.PI * toneFreq2 * t);
+                    const toneComponent = (tone1 + tone2 * 0.8) * toneEnv * 0.4;
                     
-                    // Noise component
-                    const noise = (Math.random() * 2 - 1) * 0.7;
+                    // Noise component with high-pass filtering
+                    const whiteNoise = Math.random() * 2 - 1;
+                    const highpassedNoise = whiteNoise - previousNoise * 0.95;
+                    previousNoise = whiteNoise;
+                    const noiseComponent = highpassedNoise * noiseEnv * 0.6;
                     
-                    // Mix and apply envelope
-                    data[i] = (tone + noise) * env * 0.8;
+                    // Click/attack transient
+                    const click = Math.sin(2 * Math.PI * 3500 * t + Math.sin(8000 * t)) * clickEnv * 0.5;
                     
-                    // Add snap in first 2ms
-                    if (t < 0.002) {
-                        data[i] += Math.sin(2 * Math.PI * 1500 * t) * (1 - t * 500) * 0.5;
-                    }
+                    // Mix all components
+                    let sample = toneComponent + noiseComponent + click;
+                    
+                    // Add subtle ring modulation for character
+                    sample *= (1 + 0.3 * Math.sin(2 * Math.PI * 1700 * t));
+                    
+                    // Soft saturation
+                    data[i] = Math.tanh(sample * 1.2) * 0.85;
                 }
                 
                 return buffer;
@@ -442,6 +613,60 @@
                 }
             }
 
+            initVisualizer() {
+                const canvas = document.getElementById('visualizer');
+                const ctx = canvas.getContext('2d');
+                
+                const resize = () => {
+                    canvas.width = window.innerWidth;
+                    canvas.height = window.innerHeight;
+                };
+                resize();
+                window.addEventListener('resize', resize);
+                
+                this.visualizerCtx = ctx;
+                this.visualizerCanvas = canvas;
+            }
+
+            animateVisualizer() {
+                if (!this.analyzer || this.producer.energy < 0.3) return;
+                
+                const canvas = this.visualizerCanvas;
+                const ctx = this.visualizerCtx;
+                const bufferLength = this.analyzer.frequencyBinCount;
+                const dataArray = new Uint8Array(bufferLength);
+                
+                const draw = () => {
+                    if (this.producer.energy < 0.3) {
+                        canvas.classList.remove('active');
+                        return;
+                    }
+                    
+                    canvas.classList.add('active');
+                    requestAnimationFrame(draw);
+                    
+                    this.analyzer.getByteFrequencyData(dataArray);
+                    
+                    ctx.fillStyle = 'rgba(0, 0, 0, 0.1)';
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+                    
+                    const barWidth = canvas.width / bufferLength * 2.5;
+                    let x = 0;
+                    
+                    for (let i = 0; i < bufferLength; i++) {
+                        const barHeight = dataArray[i] * canvas.height / 255 * this.producer.energy;
+                        
+                        const hue = i / bufferLength * 360 + this.ctx.currentTime * 50;
+                        ctx.fillStyle = `hsla(${hue}, 100%, 50%, ${0.5 + this.producer.complexity * 0.5})`;
+                        
+                        ctx.fillRect(x, canvas.height - barHeight, barWidth, barHeight);
+                        x += barWidth + 1;
+                    }
+                };
+                
+                draw();
+            }
+
             scheduleIntro() {
                 const startTime = this.ctx.currentTime + 0.1;
                 const beat = 60 / this.bpm;
@@ -474,8 +699,6 @@
                     { time: beat * 14.5, sound: 'hihat', vel: 0.5 },
                     { time: beat * 15, sound: 'snare', vel: 0.5 },
                     { time: beat * 15.5, sound: 'snare', vel: 0.4 },
-                    
-                    // Bar 5-8 - Full pattern drops
                 ];
                 
                 // Schedule intro hits
@@ -489,18 +712,35 @@
                 }, beat * 16 * 1000);
             }
 
-            scheduleSound(sound, time, velocity = 1) {
+            scheduleSound(sound, time, velocity = 1, bus = null) {
                 const source = this.ctx.createBufferSource();
                 const gainNode = this.ctx.createGain();
                 
                 source.buffer = this.drums[sound];
-                gainNode.gain.value = velocity;
+                
+                // Producer AI can modify velocity
+                const producerMultiplier = this.producer.godMode ? 
+                    1 + Math.random() * 0.5 : 1;
+                
+                gainNode.gain.value = velocity * producerMultiplier;
                 
                 // Add slight pitch variation for life
                 source.playbackRate.value = 1 + (Math.random() - 0.5) * 0.02;
                 
-                source.connect(gainNode);
-                gainNode.connect(this.drumBus);
+                // Producer can add extra effects
+                if (this.producer.complexity > 0.7 && Math.random() < 0.3) {
+                    const filter = this.ctx.createBiquadFilter();
+                    filter.type = Math.random() > 0.5 ? 'highpass' : 'lowpass';
+                    filter.frequency.value = 200 + Math.random() * 5000;
+                    filter.Q.value = 1 + Math.random() * 10;
+                    
+                    source.connect(filter);
+                    filter.connect(gainNode);
+                } else {
+                    source.connect(gainNode);
+                }
+                
+                gainNode.connect(bus || this.drumBus);
                 
                 source.start(time);
                 
@@ -536,27 +776,34 @@
                     while (nextTime < currentTime + 0.1) {
                         const step = this.currentStep % 32;
                         
+                        // Track bars for producer AI
+                        if (step === 0) {
+                            this.barCount++;
+                            this.updateProducerState();
+                        }
+                        
                         // Apply swing to off-beats
                         let swingOffset = 0;
                         if (step % 2 === 1) {
                             swingOffset = sixteenth * this.swing;
                         }
                         
-                        // Schedule hits
+                        // Schedule hits based on producer decisions
                         Object.entries(pattern).forEach(([sound, steps]) => {
                             if (steps.includes(step)) {
-                                let velocity = 0.8;
-                                
-                                // Velocity variations
-                                if (sound === 'hihat') {
-                                    velocity = step % 4 === 0 ? 0.6 : 0.4;
-                                } else if (sound === 'kick' && step === 0) {
-                                    velocity = 1;
+                                // Producer can mute/modify sounds
+                                if (this.shouldPlaySound(sound, step)) {
+                                    let velocity = this.getProducerVelocity(sound, step);
+                                    this.scheduleSound(sound, nextTime + swingOffset, velocity);
                                 }
-                                
-                                this.scheduleSound(sound, nextTime + swingOffset, velocity);
                             }
                         });
+                        
+                        // Producer can add ghost notes
+                        if (this.producer.complexity > 0.5 && Math.random() < this.producer.complexity * 0.1) {
+                            const ghostSound = ['kick', 'snare', 'hihat'][Math.floor(Math.random() * 3)];
+                            this.scheduleSound(ghostSound, nextTime + swingOffset + Math.random() * sixteenth * 0.5, 0.2);
+                        }
                         
                         // Trigger samples
                         if (step === 0 && this.loops.length > 0) {
@@ -571,6 +818,156 @@
                 };
                 
                 loop();
+            }
+
+            shouldPlaySound(sound, step) {
+                // Producer AI decisions on what to play
+                if (this.producer.godMode) {
+                    // In god mode, anything can happen
+                    if (Math.random() < 0.05) return false; // Random dropouts
+                    if (Math.random() < 0.02) return true; // Force play even off-pattern
+                }
+                
+                // Energy-based decisions
+                if (this.producer.energy < 0.3) {
+                    // Low energy - strip back to essentials
+                    if (sound === 'hihat' && Math.random() < 0.5) return false;
+                    if (sound === 'perc') return false;
+                }
+                
+                // Complexity-based decisions
+                if (this.producer.complexity < 0.3) {
+                    // Simple mode - remove embellishments
+                    if (sound === 'openhat' && step !== 14) return false;
+                    if (sound === 'clap' && step === 24) return false;
+                }
+                
+                return true;
+            }
+
+            getProducerVelocity(sound, step) {
+                let velocity = 0.8;
+                
+                // Basic velocity variations
+                if (sound === 'hihat') {
+                    velocity = step % 4 === 0 ? 0.6 : 0.4;
+                } else if (sound === 'kick' && step === 0) {
+                    velocity = 1;
+                }
+                
+                // Producer modifications
+                velocity *= (0.7 + this.producer.energy * 0.3);
+                
+                // God mode chaos
+                if (this.producer.godMode) {
+                    velocity *= (0.5 + Math.random() * 1);
+                }
+                
+                return Math.min(velocity, 1);
+            }
+
+            startProducerAI() {
+                // Producer AI that evolves the track
+                setInterval(() => {
+                    if (!this.isInitialized) return;
+                    
+                    // Analyze current state
+                    const hasLoops = this.loops.length > 0;
+                    const loopCount = this.loops.length;
+                    const timeElapsed = this.barCount * 4 * 60 / this.bpm;
+                    
+                    // Update evolution
+                    this.producer.evolution = Math.min(timeElapsed / 120, 1); // 2 minutes to full evolution
+                    
+                    // Make decisions
+                    if (this.producer.godMode) {
+                        // God mode - maximum chaos and creativity
+                        this.producer.energy = 0.7 + Math.sin(this.ctx.currentTime * 0.1) * 0.3;
+                        this.producer.complexity = 0.8 + Math.sin(this.ctx.currentTime * 0.15) * 0.2;
+                        
+                        // Random filter sweeps
+                        this.drumFilter.frequency.setTargetAtTime(
+                            500 + Math.random() * 19500,
+                            this.ctx.currentTime,
+                            0.5
+                        );
+                        
+                        // Random tempo variations
+                        if (Math.random() < 0.01) {
+                            this.bpm = 72 + (Math.random() - 0.5) * 10;
+                        }
+                    } else {
+                        // Normal evolution
+                        const targetEnergy = hasLoops ? 
+                            0.4 + loopCount * 0.15 + this.producer.evolution * 0.2 : 
+                            0.3 + this.producer.evolution * 0.3;
+                        
+                        const targetComplexity = hasLoops ?
+                            0.3 + loopCount * 0.1 + this.producer.evolution * 0.3 :
+                            0.2 + this.producer.evolution * 0.2;
+                        
+                        // Smooth transitions
+                        this.producer.energy += (targetEnergy - this.producer.energy) * 0.05;
+                        this.producer.complexity += (targetComplexity - this.producer.complexity) * 0.05;
+                    }
+                    
+                    // Update effects based on producer state
+                    this.updateEffects();
+                    
+                    // Start visualizer when energy is high enough
+                    if (this.producer.energy > 0.3 && !this.visualizerActive) {
+                        this.visualizerActive = true;
+                        this.animateVisualizer();
+                    }
+                    
+                }, 100);
+            }
+
+            updateProducerState() {
+                // Called every bar
+                const decision = [];
+                
+                // Decide on arrangement changes
+                if (this.barCount % 8 === 0) {
+                    if (Math.random() < 0.3) {
+                        decision.push('BREAKDOWN');
+                        this.producer.energy *= 0.5;
+                    }
+                }
+                
+                if (this.barCount % 16 === 0) {
+                    if (Math.random() < 0.5) {
+                        decision.push('BUILD');
+                        this.producer.energy = Math.min(this.producer.energy * 1.2, 1);
+                    }
+                }
+                
+                // Update UI
+                if (decision.length > 0) {
+                    this.producerStatus.textContent = decision.join(' • ');
+                    this.producerStatus.classList.add('visible');
+                    setTimeout(() => this.producerStatus.classList.remove('visible'), 3000);
+                }
+            }
+
+            updateEffects() {
+                // Drum bus filter automation
+                const drumFreq = 20000 - (1 - this.producer.energy) * 15000;
+                this.drumFilter.frequency.setTargetAtTime(drumFreq, this.ctx.currentTime, 0.5);
+                
+                // Sample bus processing intensity
+                const sampleFreq = 500 + this.producer.complexity * 10000;
+                this.sampleFilter.frequency.setTargetAtTime(sampleFreq, this.ctx.currentTime, 1);
+                
+                // Update distortion curve based on energy
+                const distAmount = 10 + this.producer.energy * 100;
+                this.sampleDistortion.curve = this.makeDistortionCurve(distAmount);
+                
+                // Reverb automation
+                if (this.sampleReverb && this.sampleReverb.output.gain) {
+                    const reverbAmount = 0.3 + this.producer.complexity * 0.5;
+                    this.sampleReverb.output.gain.setTargetAtTime(reverbAmount, this.ctx.currentTime, 0.5);
+                }
             }
 
             toggleRecording() {
@@ -647,7 +1044,8 @@
                 // Store the loop
                 this.loops.push({
                     buffer: loopBuffer,
-                    playing: null
+                    playing: null,
+                    age: 0
                 });
                 
                 // Keep only last 4 loops
@@ -664,8 +1062,10 @@
             }
 
             triggerSampleLoop(time) {
-                // Play all loops
+                // Play all loops with increasing processing
                 this.loops.forEach((loop, index) => {
+                    loop.age++;
+                    
                     // Stop previous instance
                     if (loop.playing) {
                         loop.playing.stop(time);
@@ -675,33 +1075,52 @@
                     const source = this.ctx.createBufferSource();
                     const gainNode = this.ctx.createGain();
                     const filter = this.ctx.createBiquadFilter();
+                    const panner = this.ctx.createStereoPanner();
                     
                     source.buffer = loop.buffer;
                     source.loop = true;
                     
-                    // Different processing for each layer
-                    filter.type = 'lowpass';
+                    // Processing gets more intense with age and producer state
+                    const processingIntensity = (loop.age / 100) * this.producer.complexity;
+                    
+                    // Filter automation
+                    filter.type = ['lowpass', 'highpass', 'bandpass'][index % 3];
                     filter.frequency.value = 20000 - (index * 3000);
-                    filter.Q.value = 1;
+                    filter.Q.value = 1 + processingIntensity * 10;
                     
-                    // Gain based on layer
-                    gainNode.gain.value = 0.7 - (index * 0.1);
+                    // Stereo positioning
+                    panner.pan.value = (index % 2 === 0 ? -1 : 1) * (index * 0.2) * this.producer.complexity;
                     
-                    // Connect
+                    // Gain based on layer and producer energy
+                    gainNode.gain.value = (0.7 - (index * 0.1)) * (0.5 + this.producer.energy * 0.5);
+                    
+                    // Pitch shifting for trippiness
+                    source.playbackRate.value = 1 + (processingIntensity * 0.1 * Math.sin(loop.age * 0.01));
+                    
+                    // Connect chain
                     source.connect(filter);
-                    filter.connect(gainNode);
+                    filter.connect(panner);
+                    panner.connect(gainNode);
                     gainNode.connect(this.sampleBus);
                     
                     source.start(time);
                     loop.playing = source;
                     
-                    // Add movement to filter
-                    const lfoRate = 0.1 + (index * 0.05);
+                    // Animate filter for movement
+                    const lfoRate = 0.1 + (index * 0.05) + (this.producer.complexity * 0.2);
                     const animateFilter = () => {
                         if (loop.playing === source) {
                             const now = this.ctx.currentTime;
                             const mod = Math.sin(now * lfoRate) * 0.5 + 0.5;
-                            filter.frequency.value = 2000 + mod * (18000 - index * 3000);
+                            const baseFreq = 2000 + this.producer.energy * 10000;
+                            filter.frequency.value = baseFreq + mod * (18000 - index * 3000);
+                            
+                            // In god mode, go crazy
+                            if (this.producer.godMode) {
+                                filter.Q.value = 1 + Math.sin(now * 0.3) * 20;
+                                panner.pan.value = Math.sin(now * 0.7) * 0.8;
+                            }
+                            
                             requestAnimationFrame(animateFilter);
                         }
                     };
@@ -715,6 +1134,8 @@
                     if (e.code === 'Space') {
                         e.preventDefault();
                         this.toggleRecording();
+                    } else if (e.code === 'KeyG') {
+                        this.toggleGodMode();
                     }
                 });
                 
@@ -733,6 +1154,26 @@
                         clearTimeout(spaceHoldTimer);
                     }
                 });
+            }
+
+            toggleGodMode() {
+                this.producer.godMode = !this.producer.godMode;
+                
+                if (this.producer.godMode) {
+                    this.orb.classList.add('god-mode');
+                    this.producerStatus.textContent = 'GOD MODE ACTIVATED';
+                    this.producerStatus.classList.add('visible');
+                    
+                    // Immediate energy boost
+                    this.producer.energy = 1;
+                    this.producer.complexity = 1;
+                } else {
+                    this.orb.classList.remove('god-mode');
+                    this.producerStatus.textContent = 'God mode deactivated';
+                    this.producerStatus.classList.add('visible');
+                }
+                
+                setTimeout(() => this.producerStatus.classList.remove('visible'), 2000);
             }
 
             clearSamples() {
