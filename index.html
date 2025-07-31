@@ -5,6 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
     <title>GUMP MOBILE</title>
     <style>
+        :root {
+            --hue-shift: 0deg;
+        }
+        
         * {
             margin: 0;
             padding: 0;
@@ -41,6 +45,7 @@
             top: 50%;
             transform: translate(-50%, -50%);
             cursor: pointer;
+            filter: hue-rotate(var(--hue-shift));
         }
 
         #orb.recording {
@@ -63,8 +68,8 @@
         }
 
         @keyframes godPulse {
-            0%, 100% { transform: translate(-50%, -50%) scale(1) rotate(0deg); filter: hue-rotate(0deg); }
-            50% { transform: translate(-50%, -50%) scale(1.5) rotate(180deg); filter: hue-rotate(180deg); }
+            0%, 100% { transform: translate(-50%, -50%) scale(1) rotate(0deg); filter: hue-rotate(var(--hue-shift)); }
+            50% { transform: translate(-50%, -50%) scale(1.5) rotate(180deg); filter: hue-rotate(calc(var(--hue-shift) + 180deg)); }
         }
 
         .status {
@@ -220,7 +225,7 @@
     <div id="status" class="status"></div>
     <div id="producer-status" class="producer-status"></div>
     <div id="ai-personality" class="ai-personality"></div>
-    <div id="hint" class="hint">TAP TO BEGIN</div>
+    <div id="hint" class="hint">TAP TO START</div>
     <div id="sample-counter" class="sample-counter">0</div>
     <div id="tempo-display" class="tempo-display">72 BPM</div>
     <div class="evolution-bar">
@@ -259,7 +264,7 @@
                 
                 // Producer AI state
                 this.producer = {
-                    energy: 0,
+                    energy: 0.3,
                     complexity: 0,
                     evolution: 0,
                     mood: 'building',
@@ -269,7 +274,7 @@
                     decisions: [],
                     memory: [],
                     structurePosition: 0,
-                    intensity: 0,
+                    intensity: 0.5,
                     autoEvolve: true
                 };
                 
@@ -281,6 +286,42 @@
                 this.sidechain = {
                     active: false,
                     amount: 0
+                };
+                
+                // Motion controls
+                this.motion = {
+                    alpha: 0,    // rotation around z-axis
+                    beta: 0,     // front-to-back tilt
+                    gamma: 0,    // left-to-right tilt
+                    acceleration: { x: 0, y: 0, z: 0 },
+                    rotationRate: { alpha: 0, beta: 0, gamma: 0 },
+                    shakeIntensity: 0,
+                    lastShakeTime: 0,
+                    smoothAlpha: 0,
+                    smoothBeta: 0,
+                    smoothGamma: 0,
+                    calibration: { alpha: 0, beta: 0, gamma: 0 },
+                    enabled: false
+                };
+                
+                // Musical context
+                this.musicalContext = {
+                    energy: 0,
+                    harmony: 0,
+                    rhythm: 0,
+                    space: 0
+                };
+                
+                // Personalization
+                this.personal = {
+                    sessionId: Date.now().toString(36) + Math.random().toString(36).substr(2),
+                    timeOfDay: this.getTimeOfDay(),
+                    movementPattern: 'neutral',
+                    interactionStyle: 'explorer',
+                    colorSeed: Math.random() * 360,
+                    personalityBlend: 0,
+                    motionHistory: [],
+                    touchPatterns: []
                 };
                 
                 // Touch interactions
@@ -297,6 +338,15 @@
                 };
             }
 
+            getTimeOfDay() {
+                const hour = new Date().getHours();
+                if (hour < 6) return 'night';
+                if (hour < 12) return 'morning';
+                if (hour < 17) return 'afternoon';
+                if (hour < 21) return 'evening';
+                return 'night';
+            }
+
             setupTouchControls() {
                 // Single tap to init or toggle recording
                 this.orb.addEventListener('click', (e) => {
@@ -306,6 +356,19 @@
                     } else {
                         this.toggleRecording();
                     }
+                });
+                
+                // Track touch patterns
+                let touchStartTime = 0;
+                let touchStartPos = { x: 0, y: 0 };
+                
+                this.orb.addEventListener('touchstart', (e) => {
+                    e.preventDefault();
+                    touchStartTime = Date.now();
+                    touchStartPos = {
+                        x: e.touches[0].clientX,
+                        y: e.touches[0].clientY
+                    };
                 });
                 
                 // Long press to clear samples
@@ -326,6 +389,33 @@
                 this.orb.addEventListener('touchend', (e) => {
                     e.preventDefault();
                     clearTimeout(longPressTimer);
+                    
+                    // Track touch patterns for personalization
+                    if (this.isInitialized) {
+                        const touchDuration = Date.now() - touchStartTime;
+                        const touchEndPos = {
+                            x: e.changedTouches[0].clientX,
+                            y: e.changedTouches[0].clientY
+                        };
+                        const distance = Math.sqrt(
+                            Math.pow(touchEndPos.x - touchStartPos.x, 2) +
+                            Math.pow(touchEndPos.y - touchStartPos.y, 2)
+                        );
+                        
+                        this.personal.touchPatterns.push({
+                            duration: touchDuration,
+                            distance: distance,
+                            time: Date.now()
+                        });
+                        
+                        // Keep only last 20 touches
+                        if (this.personal.touchPatterns.length > 20) {
+                            this.personal.touchPatterns.shift();
+                        }
+                        
+                        // Update interaction style based on patterns
+                        this.updateInteractionStyle();
+                    }
                 });
                 
                 this.orb.addEventListener('touchcancel', (e) => {
@@ -335,6 +425,154 @@
                 
                 // Prevent default touch behaviors
                 document.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
+            }
+
+            initMotionListeners() {
+                // Simple motion setup without permission blocking
+                window.addEventListener('deviceorientation', (e) => {
+                    if (e.alpha !== null && e.beta !== null && e.gamma !== null) {
+                        this.motion.enabled = true;
+                        
+                        // Store raw values
+                        this.motion.alpha = e.alpha;
+                        this.motion.beta = e.beta;
+                        this.motion.gamma = e.gamma;
+                        
+                        // Smooth the values
+                        const smoothing = 0.9;
+                        this.motion.smoothAlpha = this.motion.smoothAlpha * smoothing + e.alpha * (1 - smoothing);
+                        this.motion.smoothBeta = this.motion.smoothBeta * smoothing + e.beta * (1 - smoothing);
+                        this.motion.smoothGamma = this.motion.smoothGamma * smoothing + e.gamma * (1 - smoothing);
+                        
+                        // First reading becomes calibration
+                        if (this.motion.calibration.alpha === 0) {
+                            this.motion.calibration = {
+                                alpha: e.alpha,
+                                beta: e.beta,
+                                gamma: e.gamma
+                            };
+                        }
+                        
+                        // Apply motion effects
+                        this.applyMotionEffects();
+                    }
+                });
+                
+                // Device motion for shake detection
+                window.addEventListener('devicemotion', (e) => {
+                    if (e.acceleration) {
+                        this.motion.acceleration = {
+                            x: e.acceleration.x || 0,
+                            y: e.acceleration.y || 0,
+                            z: e.acceleration.z || 0
+                        };
+                        
+                        // Detect shake
+                        const totalAcceleration = Math.sqrt(
+                            Math.pow(this.motion.acceleration.x, 2) +
+                            Math.pow(this.motion.acceleration.y, 2) +
+                            Math.pow(this.motion.acceleration.z, 2)
+                        );
+                        
+                        if (totalAcceleration > 15) {
+                            const now = Date.now();
+                            if (now - this.motion.lastShakeTime > 500) {
+                                this.onShake(totalAcceleration);
+                                this.motion.lastShakeTime = now;
+                            }
+                        }
+                        
+                        this.motion.shakeIntensity = Math.min(totalAcceleration / 30, 1);
+                    }
+                });
+            }
+
+            updateMovementPattern() {
+                // Simplified movement detection
+                if (!this.motion.enabled) {
+                    this.personal.movementPattern = 'still';
+                }
+            }
+
+            updateInteractionStyle() {
+                // Simple interaction classification
+                const patterns = this.personal.touchPatterns.slice(-10);
+                if (patterns.length < 5) return;
+                
+                const avgDuration = patterns.reduce((sum, p) => sum + p.duration, 0) / patterns.length;
+                
+                if (avgDuration < 200) {
+                    this.personal.interactionStyle = 'precise';
+                } else if (avgDuration > 500) {
+                    this.personal.interactionStyle = 'contemplative';
+                } else {
+                    this.personal.interactionStyle = 'explorer';
+                }
+            }
+
+            applyMotionEffects() {
+                if (!this.motion.enabled || !this.isInitialized) return;
+                
+                // Make sure we have calibration
+                if (!this.motion.calibration.beta) {
+                    this.motion.calibration = {
+                        alpha: this.motion.smoothAlpha || 0,
+                        beta: this.motion.smoothBeta || 0,
+                        gamma: this.motion.smoothGamma || 0
+                    };
+                }
+                
+                // Simple, intuitive motion mapping
+                const tilt = (this.motion.smoothBeta - this.motion.calibration.beta) / 45; // -1 to 1
+                const rotation = (this.motion.smoothGamma - this.motion.calibration.gamma) / 45; // -1 to 1
+                
+                // Tilt forward/back = energy
+                const motionEnergy = Math.max(0, Math.min(1, 0.5 + tilt));
+                
+                // Subtle master volume response
+                this.master.gain.linearRampToValueAtTime(
+                    0.95 * (0.8 + motionEnergy * 0.2),
+                    this.ctx.currentTime + 0.1
+                );
+                
+                // Filter all samples together
+                const filterFreq = 1000 + (1 + tilt) * 7000; // 1k-15k range
+                this.sampleFilter.frequency.linearRampToValueAtTime(filterFreq, this.ctx.currentTime + 0.1);
+                
+                // Rotation adds space
+                const reverbAmount = Math.max(0, Math.min(1, 0.3 + Math.abs(rotation) * 0.4));
+                this.reverbSend.gain.linearRampToValueAtTime(reverbAmount, this.ctx.currentTime + 0.1);
+                
+                // Update movement pattern occasionally
+                if (Math.random() < 0.1) {
+                    if (Math.abs(tilt) < 0.2 && Math.abs(rotation) < 0.2) {
+                        this.personal.movementPattern = 'still';
+                    } else if (Math.abs(tilt) > 0.6 || Math.abs(rotation) > 0.6) {
+                        this.personal.movementPattern = 'energetic';
+                    } else {
+                        this.personal.movementPattern = 'gentle';
+                    }
+                }
+            }
+
+            onShake(intensity) {
+                if (!this.isInitialized) return;
+                
+                // Simple shake = trigger effect
+                if (this.loops.length > 0) {
+                    // Quick stutter
+                    this.stutterActive = true;
+                    setTimeout(() => this.stutterActive = false, 200);
+                    
+                    // Visual feedback
+                    this.orb.classList.add('god-mode');
+                    setTimeout(() => this.orb.classList.remove('god-mode'), 200);
+                }
+                
+                // Haptic
+                if ('vibrate' in navigator) {
+                    navigator.vibrate(50);
+                }
             }
 
             async init() {
@@ -363,6 +601,9 @@
                     this.initVisualizer();
                     this.initWaveform();
                     
+                    // Personalize based on context
+                    this.personalizeExperience();
+                    
                     // Create the intro sequence
                     this.scheduleIntro();
                     
@@ -376,20 +617,80 @@
                     this.sessionStartTime = this.ctx.currentTime;
                     
                     this.isInitialized = true;
-                    this.hint.textContent = 'TAP ORB TO SAMPLE';
+                    this.hint.textContent = 'TAP TO SAMPLE';
+                    
+                    // Try to setup motion after init (non-blocking)
+                    setTimeout(() => {
+                        this.trySetupMotion();
+                    }, 2000);
                     
                     // Haptic feedback
                     if ('vibrate' in navigator) {
                         navigator.vibrate(50);
                     }
 
-                    console.log('GUMP MOBILE initialized');
+                    console.log('GUMP MOBILE initialized - Session:', this.personal.sessionId);
 
                 } catch (err) {
                     console.error('Failed to initialize:', err);
                     this.status.textContent = 'Failed to initialize';
                     this.status.classList.add('visible');
                 }
+            }
+
+            trySetupMotion() {
+                // Only setup motion if available, don't block
+                if (window.DeviceOrientationEvent) {
+                    // Just start listening - permissions will be requested when needed
+                    this.initMotionListeners();
+                }
+            }
+
+            personalizeExperience() {
+                // Set initial personality based on time of day
+                const timePersonalities = {
+                    'night': 'arca',      // Weird late night vibes
+                    'morning': 'dilla',   // Smooth morning grooves
+                    'afternoon': 'kanye', // Bold afternoon energy
+                    'evening': 'flylo',   // Psychedelic evening journey
+                };
+                
+                this.producer.personality = timePersonalities[this.personal.timeOfDay] || 'kanye';
+                this.producer.currentPersonalityIndex = ['kanye', 'dilla', 'flylo', 'arca', 'sophie']
+                    .indexOf(this.producer.personality);
+                
+                // Adjust tempo based on time
+                const tempoAdjustments = {
+                    'night': 0.8,
+                    'morning': 1.1,
+                    'afternoon': 1.0,
+                    'evening': 0.9
+                };
+                
+                this.bpm *= tempoAdjustments[this.personal.timeOfDay] || 1;
+                
+                // Color scheme based on personal seed
+                document.documentElement.style.setProperty('--hue-shift', this.personal.colorSeed + 'deg');
+                
+                // Welcome message
+                const greetings = {
+                    'night': 'LATE NIGHT SESSION',
+                    'morning': 'MORNING VIBES',
+                    'afternoon': 'AFTERNOON BEATS',
+                    'evening': 'EVENING JOURNEY'
+                };
+                
+                this.status.textContent = greetings[this.personal.timeOfDay];
+                this.status.classList.add('visible');
+                setTimeout(() => {
+                    this.status.classList.remove('visible');
+                    // Show personality after greeting
+                    setTimeout(() => {
+                        this.status.textContent = `${this.producer.personality.toUpperCase()} MODE`;
+                        this.status.classList.add('visible');
+                        setTimeout(() => this.status.classList.remove('visible'), 2000);
+                    }, 1000);
+                }, 3000);
             }
 
             buildMasterChain() {
@@ -1051,7 +1352,7 @@
                     
                 } catch (err) {
                     console.log('Microphone not available');
-                    this.hint.textContent = 'TAP TO PLAY (NO MIC)';
+                    // Still allow the experience without mic
                 }
             }
 
@@ -1137,16 +1438,42 @@
                             break;
                     }
                     
-                    // Update particles
+                    // Update particles with motion influence
                     const bass = dataArray[0] / 255;
                     particles.forEach(p => {
+                        // Base movement
                         p.x += p.vx + bass * 5 * (Math.random() - 0.5);
                         p.y += p.vy + bass * 5 * (Math.random() - 0.5);
                         
+                        // Motion influence
+                        if (this.motion.enabled) {
+                            // Tilt affects particle drift
+                            p.x += (this.motion.smoothGamma - this.motion.calibration.gamma) / 30;
+                            p.y += (this.motion.smoothBeta - this.motion.calibration.beta) / 30;
+                            
+                            // Shake scatters particles
+                            if (this.motion.shakeIntensity > 0.3) {
+                                p.vx += (Math.random() - 0.5) * this.motion.shakeIntensity * 5;
+                                p.vy += (Math.random() - 0.5) * this.motion.shakeIntensity * 5;
+                            }
+                        }
+                        
+                        // Boundaries
                         if (p.x < 0 || p.x > canvas.width) p.vx *= -1;
                         if (p.y < 0 || p.y > canvas.height) p.vy *= -1;
                         
-                        p.hue += this.producer.evolution * 5;
+                        // Clamp velocities
+                        p.vx = Math.max(-5, Math.min(5, p.vx));
+                        p.vy = Math.max(-5, Math.min(5, p.vy));
+                        
+                        // Color evolution with personal touch
+                        p.hue += this.producer.evolution * 5 + this.personal.colorSeed / 100;
+                        
+                        // Draw particle
+                        ctx.beginPath();
+                        ctx.arc(p.x, p.y, p.size * (1 + bass), 0, Math.PI * 2);
+                        ctx.fillStyle = `hsla(${p.hue % 360}, 100%, 50%, 0.6)`;
+                        ctx.fill();
                     });
                 };
                 
@@ -1163,15 +1490,28 @@
                 
                 ctx.save();
                 ctx.translate(canvas.width / 2, canvas.height / 2);
-                ctx.rotate(this.ctx.currentTime * 0.1);
                 
-                ctx.strokeStyle = `hsl(${this.ctx.currentTime * 50}, 100%, 50%)`;
+                // Rotate based on device rotation
+                const rotation = this.motion.enabled ? 
+                    this.ctx.currentTime * 0.1 + (this.motion.smoothAlpha / 360) : 
+                    this.ctx.currentTime * 0.1;
+                ctx.rotate(rotation);
+                
+                // Color based on personal seed and motion
+                const hue = this.personal.colorSeed + this.ctx.currentTime * 50 + 
+                    (this.motion.enabled ? this.motion.smoothGamma : 0);
+                ctx.strokeStyle = `hsl(${hue}, 100%, 50%)`;
                 ctx.lineWidth = 5 + bass * 20;
+                
+                // Shape morphs with tilt
+                const tiltMorph = this.motion.enabled ? 
+                    1 + (this.motion.smoothBeta - this.motion.calibration.beta) / 90 : 1;
+                
                 ctx.beginPath();
-                ctx.moveTo(0, -100 - bass * 200);
-                ctx.lineTo(100 + mid * 200, 0);
-                ctx.lineTo(0, 100 + bass * 200);
-                ctx.lineTo(-100 - mid * 200, 0);
+                ctx.moveTo(0, (-100 - bass * 200) * tiltMorph);
+                ctx.lineTo((100 + mid * 200) * tiltMorph, 0);
+                ctx.lineTo(0, (100 + bass * 200) * tiltMorph);
+                ctx.lineTo((-100 - mid * 200) * tiltMorph, 0);
                 ctx.closePath();
                 ctx.stroke();
                 
@@ -1183,14 +1523,23 @@
                 ctx.fillStyle = 'rgba(0, 0, 0, 0.05)';
                 ctx.fillRect(0, 0, canvas.width, canvas.height);
                 
+                // Wobble based on motion
+                const wobbleX = this.motion.enabled ? 
+                    Math.sin(this.ctx.currentTime * 2) * this.motion.smoothGamma / 10 : 0;
+                const wobbleY = this.motion.enabled ? 
+                    Math.cos(this.ctx.currentTime * 1.5) * this.motion.smoothBeta / 10 : 0;
+                
                 for (let i = 0; i < dataArray.length; i += 20) {
                     const value = dataArray[i] / 255;
-                    const x = (i / dataArray.length) * canvas.width;
-                    const y = canvas.height / 2 + Math.sin(this.ctx.currentTime + i) * 100;
+                    const x = (i / dataArray.length) * canvas.width + wobbleX;
+                    const y = canvas.height / 2 + Math.sin(this.ctx.currentTime + i) * 100 + wobbleY;
                     
                     ctx.beginPath();
-                    ctx.arc(x, y, value * 50, 0, Math.PI * 2);
-                    ctx.fillStyle = `hsla(${30 + value * 30}, 70%, 50%, ${value * 0.5})`;
+                    ctx.arc(x, y, value * 50 * (1 + this.motion.shakeIntensity), 0, Math.PI * 2);
+                    
+                    // Color varies with personal interaction style
+                    const hueOffset = this.personal.interactionStyle === 'contemplative' ? 0 : 30;
+                    ctx.fillStyle = `hsla(${30 + value * 30 + hueOffset}, 70%, 50%, ${value * 0.5})`;
                     ctx.fill();
                 }
             }
@@ -1200,41 +1549,65 @@
                 ctx.fillStyle = 'rgba(0, 0, 0, 0.02)';
                 ctx.fillRect(0, 0, canvas.width, canvas.height);
                 
-                ctx.beginPath();
-                for (let i = 0; i < dataArray.length; i++) {
-                    const value = dataArray[i] / 255;
-                    const x = (i / dataArray.length) * canvas.width;
-                    const y = canvas.height / 2 + value * 200 * Math.sin(this.ctx.currentTime * 2 + i * 0.1);
-                    
-                    if (i === 0) {
-                        ctx.moveTo(x, y);
-                    } else {
-                        ctx.lineTo(x, y);
-                    }
-                }
+                // Multiple waves based on motion
+                const numWaves = this.personal.movementPattern === 'energetic' ? 3 : 1;
                 
-                ctx.strokeStyle = `hsla(${this.ctx.currentTime * 100}, 100%, 50%, 0.8)`;
-                ctx.lineWidth = 2;
-                ctx.stroke();
+                for (let wave = 0; wave < numWaves; wave++) {
+                    ctx.beginPath();
+                    for (let i = 0; i < dataArray.length; i++) {
+                        const value = dataArray[i] / 255;
+                        const x = (i / dataArray.length) * canvas.width;
+                        
+                        // Wave amplitude affected by tilt
+                        const tiltAmplitude = this.motion.enabled ? 
+                            1 + Math.abs(this.motion.smoothBeta - this.motion.calibration.beta) / 45 : 1;
+                        
+                        const y = canvas.height / 2 + 
+                            value * 200 * tiltAmplitude * 
+                            Math.sin(this.ctx.currentTime * 2 + i * 0.1 + wave * Math.PI / numWaves);
+                        
+                        if (i === 0) {
+                            ctx.moveTo(x, y);
+                        } else {
+                            ctx.lineTo(x, y);
+                        }
+                    }
+                    
+                    const hue = this.personal.colorSeed + 
+                        this.ctx.currentTime * 100 + wave * 120 +
+                        (this.motion.enabled ? this.motion.smoothAlpha / 3 : 0);
+                    ctx.strokeStyle = `hsla(${hue}, 100%, 50%, ${0.8 - wave * 0.2})`;
+                    ctx.lineWidth = 2 + wave;
+                    ctx.stroke();
+                }
             }
 
             drawArcaViz(ctx, dataArray) {
                 const canvas = ctx.canvas;
                 
-                for (let i = 0; i < 10; i++) {
+                // Glitch intensity based on shake
+                const glitchFactor = 10 + this.motion.shakeIntensity * 20;
+                
+                for (let i = 0; i < glitchFactor; i++) {
                     const index = Math.floor(Math.random() * dataArray.length);
                     const value = dataArray[index] / 255;
                     
-                    if (value > 0.5) {
+                    if (value > 0.5 || this.personal.movementPattern === 'energetic') {
                         ctx.save();
-                        ctx.translate(
-                            Math.random() * canvas.width,
-                            Math.random() * canvas.height
-                        );
-                        ctx.scale(value * 5, value * 5);
-                        ctx.rotate(Math.random() * Math.PI * 2);
                         
-                        ctx.fillStyle = `hsla(${Math.random() * 360}, 100%, 50%, ${value * 0.3})`;
+                        // Position affected by device orientation
+                        const baseX = Math.random() * canvas.width;
+                        const baseY = Math.random() * canvas.height;
+                        const offsetX = this.motion.enabled ? 
+                            (this.motion.smoothGamma - this.motion.calibration.gamma) * 2 : 0;
+                        const offsetY = this.motion.enabled ? 
+                            (this.motion.smoothBeta - this.motion.calibration.beta) * 2 : 0;
+                        
+                        ctx.translate(baseX + offsetX, baseY + offsetY);
+                        ctx.scale(value * 5, value * 5);
+                        ctx.rotate(Math.random() * Math.PI * 2 + this.motion.smoothAlpha / 100);
+                        
+                        ctx.fillStyle = `hsla(${Math.random() * 360 + this.personal.colorSeed}, 100%, 50%, ${value * 0.3})`;
                         ctx.fillRect(-50, -50, 100, 100);
                         
                         ctx.restore();
@@ -1253,29 +1626,47 @@
                 const centerX = canvas.width / 2;
                 const centerY = canvas.height / 2;
                 
-                for (let i = 0; i < dataArray.length; i += 10) {
+                // Crystal rotation based on device
+                ctx.save();
+                ctx.translate(centerX, centerY);
+                if (this.motion.enabled) {
+                    ctx.rotate((this.motion.smoothAlpha - this.motion.calibration.alpha) * Math.PI / 180);
+                }
+                
+                // Number of segments based on interaction style
+                const segments = this.personal.interactionStyle === 'precise' ? 16 : 12;
+                
+                for (let i = 0; i < dataArray.length; i += Math.floor(dataArray.length / segments)) {
                     const value = dataArray[i] / 255;
                     const angle = (i / dataArray.length) * Math.PI * 2;
-                    const radius = 100 + value * 200;
                     
-                    const x = centerX + Math.cos(angle) * radius;
-                    const y = centerY + Math.sin(angle) * radius;
+                    // Radius pulses with motion
+                    const motionPulse = this.motion.enabled ? 
+                        1 + Math.sin(this.ctx.currentTime * 3) * this.motion.shakeIntensity * 0.3 : 1;
+                    const radius = (100 + value * 200) * motionPulse;
+                    
+                    const x = Math.cos(angle) * radius;
+                    const y = Math.sin(angle) * radius;
                     
                     ctx.beginPath();
-                    ctx.moveTo(centerX, centerY);
+                    ctx.moveTo(0, 0);
                     ctx.lineTo(x, y);
                     
-                    const nextAngle = ((i + 10) / dataArray.length) * Math.PI * 2;
-                    const nextRadius = 100 + (dataArray[Math.min(i + 10, dataArray.length - 1)] / 255) * 200;
-                    const nextX = centerX + Math.cos(nextAngle) * nextRadius;
-                    const nextY = centerY + Math.sin(nextAngle) * nextRadius;
+                    const nextAngle = ((i + Math.floor(dataArray.length / segments)) / dataArray.length) * Math.PI * 2;
+                    const nextValue = dataArray[Math.min(i + Math.floor(dataArray.length / segments), dataArray.length - 1)] / 255;
+                    const nextRadius = (100 + nextValue * 200) * motionPulse;
+                    const nextX = Math.cos(nextAngle) * nextRadius;
+                    const nextY = Math.sin(nextAngle) * nextRadius;
                     
                     ctx.lineTo(nextX, nextY);
                     ctx.closePath();
                     
-                    ctx.fillStyle = `hsla(${300 + value * 60}, 100%, 50%, ${value * 0.5})`;
+                    const hue = 300 + value * 60 + this.personal.colorSeed / 6;
+                    ctx.fillStyle = `hsla(${hue}, 100%, 50%, ${value * 0.5})`;
                     ctx.fill();
                 }
+                
+                ctx.restore();
             }
 
             animateWaveform() {
@@ -1440,14 +1831,26 @@
             scheduleSound(sound, time, velocity = 1, bus = null) {
                 const source = this.ctx.createBufferSource();
                 const gainNode = this.ctx.createGain();
+                const panNode = this.ctx.createStereoPanner();
                 
                 source.buffer = this.drums[sound];
+                
+                // Personalized velocity based on interaction style
+                const personalVelocity = {
+                    'precise': 0.9,
+                    'contemplative': 0.7,
+                    'expressive': 1.1,
+                    'explorer': 1.0
+                };
                 
                 const producerMultiplier = this.producer.godMode ? 
                     1 + Math.random() * 0.5 * this.producer.intensity : 1;
                 
-                gainNode.gain.value = velocity * producerMultiplier;
+                const personalMultiplier = personalVelocity[this.personal.interactionStyle] || 1;
                 
+                gainNode.gain.value = velocity * producerMultiplier * personalMultiplier;
+                
+                // Pitch variation based on personality and motion
                 const pitchVariation = {
                     kanye: 0.02,
                     dilla: 0.08,
@@ -1455,9 +1858,41 @@
                     arca: 0.15,
                     sophie: 0.01
                 };
-                source.playbackRate.value = 1 + (Math.random() - 0.5) * (pitchVariation[this.producer.personality] || 0.02);
+                
+                let pitchShift = 1 + (Math.random() - 0.5) * (pitchVariation[this.producer.personality] || 0.02);
+                
+                // Add motion-based pitch shift
+                if (this.motion.enabled) {
+                    const motionPitch = 1 + (this.motion.smoothBeta - this.motion.calibration.beta) / 200;
+                    pitchShift *= motionPitch;
+                }
+                
+                source.playbackRate.value = pitchShift;
+                
+                // Pan based on motion
+                if (this.motion.enabled) {
+                    const motionPan = (this.motion.smoothGamma - this.motion.calibration.gamma) / 90;
+                    panNode.pan.value = Math.max(-1, Math.min(1, motionPan));
+                }
                 
                 let finalConnection = source;
+                
+                // Personal effects based on movement pattern
+                if (this.personal.movementPattern === 'rhythmic' && Math.random() < 0.3) {
+                    const filter = this.ctx.createBiquadFilter();
+                    filter.type = 'bandpass';
+                    filter.frequency.value = 1000 + Math.random() * 3000;
+                    filter.Q.value = 5 + Math.random() * 10;
+                    
+                    finalConnection.connect(filter);
+                    finalConnection = filter;
+                } else if (this.personal.movementPattern === 'energetic' && Math.random() < 0.4) {
+                    const distortion = this.ctx.createWaveShaper();
+                    distortion.curve = this.makeDistortionCurve(30 + Math.random() * 50);
+                    
+                    finalConnection.connect(distortion);
+                    finalConnection = distortion;
+                }
                 
                 if (this.producer.complexity > 0.7 && Math.random() < 0.3) {
                     const filter = this.ctx.createBiquadFilter();
@@ -1484,7 +1919,8 @@
                     finalConnection = stutterGain;
                 }
                 
-                finalConnection.connect(gainNode);
+                finalConnection.connect(panNode);
+                panNode.connect(gainNode);
                 gainNode.connect(bus || this.drumBus);
                 
                 if (this.producer.godMode) {
@@ -1507,7 +1943,19 @@
                 if (delay >= 0 && delay < 100) {
                     setTimeout(() => {
                         this.orb.classList.add('beat');
-                        setTimeout(() => this.orb.classList.remove('beat'), 50);
+                        
+                        // Orb size based on motion
+                        if (this.motion.enabled) {
+                            const scale = 1.3 + this.motion.shakeIntensity * 0.3;
+                            this.orb.style.transform = `translate(-50%, -50%) scale(${scale})`;
+                        }
+                        
+                        setTimeout(() => {
+                            this.orb.classList.remove('beat');
+                            if (this.motion.enabled) {
+                                this.orb.style.transform = 'translate(-50%, -50%) scale(1)';
+                            }
+                        }, 50);
                     }, delay);
                 }
             }
@@ -1630,64 +2078,260 @@
             }
 
             startProducerAI() {
+                // Smarter AI that weaves everything together
                 setInterval(() => {
-                    if (!this.producer.godMode) return;
+                    if (!this.isInitialized) return;
                     
                     const sampleCount = this.loops.length;
                     const timeElapsed = this.barCount * 4 * 60 / this.bpm;
                     
-                    this.updateProducerIntensity(timeElapsed, sampleCount);
+                    // Analyze the musical journey
+                    this.analyzeMusicalContext();
                     
-                    const decisions = this.makeProductionDecisions(timeElapsed, sampleCount);
+                    // Make intelligent production decisions
+                    this.makeIntelligentDecisions(timeElapsed, sampleCount);
                     
-                    this.updateEffects();
-                    
-                    if (decisions.length > 0) {
-                        this.producerStatus.textContent = decisions[0];
-                        this.producerStatus.classList.add('visible');
-                        setTimeout(() => {
-                            this.producerStatus.classList.remove('visible');
-                        }, 2000);
-                    }
+                    // Update effects to support the journey
+                    this.updateEffectsIntelligently();
                     
                 }, 2000);
+                
+                // Micro-decisions every beat
+                setInterval(() => {
+                    if (this.producer.godMode && this.loops.length > 0) {
+                        this.makeMicroAdjustments();
+                    }
+                }, (60 / this.bpm) * 1000);
+            }
+
+            analyzeMusicalContext() {
+                // Build understanding of current musical state
+                const context = {
+                    energy: 0,
+                    harmony: 0,
+                    rhythm: 0,
+                    space: 0
+                };
+                
+                // Analyze energy from recent samples
+                if (this.producer.memory.length > 0) {
+                    const recentMemories = this.producer.memory.slice(-5);
+                    context.energy = recentMemories.reduce((sum, m) => sum + m.energy, 0) / recentMemories.length;
+                }
+                
+                // Detect rhythm consistency
+                context.rhythm = this.loops.length > 2 ? 0.8 : 0.3;
+                
+                // Calculate space (inverse of complexity)
+                context.space = 1 - this.producer.complexity;
+                
+                // Store context for decisions
+                this.musicalContext = context;
+            }
+
+            makeIntelligentDecisions(timeElapsed, sampleCount) {
+                const decisions = [];
+                
+                // Journey phases with smoother transitions
+                const phase = Math.floor(timeElapsed / 45) % 5;
+                const phases = ['introduction', 'building', 'peak', 'breakdown', 'resolution'];
+                const currentPhase = phases[phase];
+                
+                // Make decisions based on phase and context
+                switch (currentPhase) {
+                    case 'introduction':
+                        if (sampleCount === 0) {
+                            decisions.push('WAITING FOR YOUR VOICE');
+                        } else {
+                            // Gentle introduction of elements
+                            this.producer.energy = 0.3 + sampleCount * 0.1;
+                            this.drumBus.gain.linearRampToValueAtTime(0.7, this.ctx.currentTime + 2);
+                            decisions.push('SETTING THE SCENE');
+                        }
+                        break;
+                        
+                    case 'building':
+                        // Gradually increase energy
+                        this.producer.energy = Math.min(0.8, this.producer.energy + 0.05);
+                        
+                        // Add layers intelligently
+                        if (sampleCount > 1 && Math.random() < 0.3) {
+                            this.reverbSend.gain.linearRampToValueAtTime(0.4, this.ctx.currentTime + 1);
+                            this.delaySend.gain.linearRampToValueAtTime(0.3, this.ctx.currentTime + 1);
+                            decisions.push('ADDING DEPTH');
+                        }
+                        
+                        // Increase complexity
+                        this.producer.complexity = Math.min(1, sampleCount * 0.2);
+                        break;
+                        
+                    case 'peak':
+                        // Maximum energy but with control
+                        this.producer.energy = 0.9 + Math.sin(timeElapsed * 0.1) * 0.1;
+                        
+                        // All elements working together
+                        if (!this.producer.godMode && sampleCount > 2) {
+                            this.toggleGodMode();
+                            decisions.push('TAKING CONTROL');
+                        }
+                        
+                        // Sidechain for punch
+                        this.sidechain.active = true;
+                        this.sidechain.amount = 0.6;
+                        break;
+                        
+                    case 'breakdown':
+                        // Strategic reduction
+                        this.producer.energy = 0.4;
+                        
+                        // Focus on samples
+                        this.drumBus.gain.linearRampToValueAtTime(0.3, this.ctx.currentTime + 2);
+                        this.sampleBus.gain.linearRampToValueAtTime(1.2, this.ctx.currentTime + 2);
+                        decisions.push('BREATHING SPACE');
+                        
+                        // Add atmosphere
+                        this.reverbSend.gain.linearRampToValueAtTime(0.6, this.ctx.currentTime + 2);
+                        break;
+                        
+                    case 'resolution':
+                        // Bring it home
+                        this.producer.energy = 0.7;
+                        this.drumBus.gain.linearRampToValueAtTime(0.9, this.ctx.currentTime + 2);
+                        this.sampleBus.gain.linearRampToValueAtTime(0.8, this.ctx.currentTime + 2);
+                        decisions.push('FINDING BALANCE');
+                        break;
+                }
+                
+                // Show meaningful status
+                if (decisions.length > 0) {
+                    this.producerStatus.textContent = decisions[0];
+                    this.producerStatus.classList.add('visible');
+                    setTimeout(() => {
+                        this.producerStatus.classList.remove('visible');
+                    }, 3000);
+                }
+                
+                // Update personality based on the journey
+                this.chooseNextPersonality(currentPhase);
+            }
+
+            chooseNextPersonality(phase) {
+                // Intelligent personality selection based on musical needs
+                const phasePersonalities = {
+                    'introduction': ['dilla', 'flylo'],
+                    'building': ['kanye', 'dilla'],
+                    'peak': ['sophie', 'kanye'],
+                    'breakdown': ['flylo', 'arca'],
+                    'resolution': ['dilla', 'flylo']
+                };
+                
+                // Also consider user interaction
+                if (this.personal.movementPattern === 'energetic') {
+                    // Favor more intense personalities
+                    if (Math.random() < 0.6) {
+                        this.setAIPersonality(['arca', 'sophie', 'kanye'][Math.floor(Math.random() * 3)]);
+                        return;
+                    }
+                }
+                
+                const candidates = phasePersonalities[phase] || ['kanye'];
+                const next = candidates[Math.floor(Math.random() * candidates.length)];
+                
+                if (next !== this.producer.personality) {
+                    this.setAIPersonality(next);
+                }
+            }
+
+            makeMicroAdjustments() {
+                // Subtle real-time adjustments for cohesion
+                
+                // Adjust sample volumes based on their age and relevance
+                this.loops.forEach((loop, index) => {
+                    if (loop.playing && loop.effects) {
+                        const age = this.ctx.currentTime - loop.timestamp;
+                        let relevance = 1 - (age / 200); // Older samples fade
+                        
+                        // But keep interesting ones
+                        if (this.musicalContext && this.musicalContext.energy > 0.7) {
+                            // In high energy, keep all samples present
+                            relevance = Math.max(0.5, relevance);
+                        }
+                        
+                        // Smooth volume adjustment
+                        const targetGain = (0.8 - index * 0.08) * relevance * this.producer.energy;
+                        // Note: gain control happens through the effect chain
+                    }
+                });
+                
+                // Intelligent filter sweeps
+                if (Math.random() < 0.1 && this.musicalContext) {
+                    const sweepType = this.musicalContext.energy > 0.5 ? 'opening' : 'closing';
+                    const startFreq = sweepType === 'opening' ? 500 : 15000;
+                    const endFreq = sweepType === 'opening' ? 15000 : 500;
+                    
+                    this.drumFilter.frequency.linearRampToValueAtTime(startFreq, this.ctx.currentTime);
+                    this.drumFilter.frequency.linearRampToValueAtTime(endFreq, this.ctx.currentTime + 4);
+                }
+                
+                // Dynamic swing based on feel
+                if (this.producer.personality === 'dilla') {
+                    this.swing = 0.15 + Math.sin(this.ctx.currentTime * 0.1) * 0.1;
+                }
+            }
+
+            updateEffectsIntelligently() {
+                // Effects that support the musical journey
+                
+                // Reverb increases with evolution
+                const reverbAmount = 0.2 + this.producer.evolution * 0.3;
+                this.reverbSend.gain.linearRampToValueAtTime(reverbAmount, this.ctx.currentTime + 0.5);
+                
+                // Delay based on complexity
+                const delayAmount = 0.1 + this.producer.complexity * 0.3;
+                this.delaySend.gain.linearRampToValueAtTime(delayAmount, this.ctx.currentTime + 0.5);
+                
+                // Filter resonance for tension
+                if (this.musicalContext) {
+                    const tension = this.musicalContext.energy * this.producer.complexity;
+                    this.drumFilter.Q.value = 1 + tension * 10;
+                    this.sampleFilter.Q.value = 2 + tension * 8;
+                }
+                
+                // Sidechain amount based on energy
+                if (this.sidechain.active) {
+                    this.sidechain.amount = 0.3 + this.producer.energy * 0.4;
+                }
             }
 
             startAutoEvolution() {
-                // Auto-evolve personality every 45 seconds
-                this.evolutionTimers.personalitySwitch = setInterval(() => {
-                    if (this.loops.length > 0) {
-                        const personalities = ['kanye', 'dilla', 'flylo', 'arca', 'sophie'];
-                        this.producer.currentPersonalityIndex = (this.producer.currentPersonalityIndex + 1) % personalities.length;
-                        this.setAIPersonality(personalities[this.producer.currentPersonalityIndex]);
-                    }
-                }, 45000);
+                // Simple, musical evolution
                 
-                // Auto-enable god mode after 30 seconds
-                this.evolutionTimers.godModeActivation = setTimeout(() => {
+                // AI takes control after first sample
+                this.evolutionTimers.godModeActivation = setInterval(() => {
                     if (!this.producer.godMode && this.loops.length > 0) {
                         this.toggleGodMode();
+                        clearInterval(this.evolutionTimers.godModeActivation);
+                    }
+                }, 5000);
+                
+                // Personality changes every 30 seconds for variety
+                this.evolutionTimers.personalitySwitch = setInterval(() => {
+                    if (this.loops.length > 0 && this.producer.godMode) {
+                        const personalities = ['kanye', 'dilla', 'flylo', 'arca', 'sophie'];
+                        const current = personalities.indexOf(this.producer.personality);
+                        const next = (current + 1) % personalities.length;
+                        this.setAIPersonality(personalities[next]);
                     }
                 }, 30000);
                 
-                // Effect cycles every 15 seconds
-                this.evolutionTimers.effectCycles = setInterval(() => {
-                    if (this.producer.godMode) {
-                        const effects = [
-                            () => { this.reverseMode = !this.reverseMode; },
-                            () => { this.stutterActive = true; setTimeout(() => this.stutterActive = false, 2000); },
-                            () => { this.applyCreativeEffect(); }
-                        ];
-                        
-                        const randomEffect = effects[Math.floor(Math.random() * effects.length)];
-                        randomEffect();
-                    }
-                }, 15000);
-                
-                // Update tempo display
+                // Update displays
                 setInterval(() => {
                     this.tempoDisplay.textContent = `${Math.round(this.bpm)} BPM`;
                     this.tempoDisplay.classList.add('visible');
+                    
+                    // Evolution progress
+                    const progress = Math.min(100, (this.barCount / 64) * 100);
+                    this.evolutionProgress.style.width = progress + '%';
                 }, 1000);
             }
 
@@ -1900,36 +2544,24 @@
                 return pattern;
             }
 
-            updateEffects() {
-                this.drumBus.gain.value = 0.8 + this.producer.energy * 0.2;
-                
-                this.reverbSend.gain.linearRampToValueAtTime(
-                    this.producer.energy * 0.3 * (this.producer.personality === 'flylo' ? 1.5 : 1), 
-                    this.ctx.currentTime + 0.5
-                );
-                
-                const distortionAmount = 10 + this.producer.evolution * 90;
-                this.heavyDistortion.curve = this.makeDistortionCurve(distortionAmount);
-                
-                const filterFreq = 1000 + this.producer.complexity * 15000;
-                this.sampleFilter.frequency.linearRampToValueAtTime(
-                    filterFreq,
-                    this.ctx.currentTime + 0.5
-                );
-                
-                this.delaySend.gain.linearRampToValueAtTime(
-                    0.2 + this.producer.evolution * 0.3,
-                    this.ctx.currentTime + 0.5
-                );
-            }
+
 
             toggleRecording() {
+                if (!this.micSource) {
+                    this.status.textContent = 'NO MIC ACCESS';
+                    this.status.classList.add('visible');
+                    setTimeout(() => this.status.classList.remove('visible'), 2000);
+                    return;
+                }
+                
                 if (this.isRecording) {
                     this.stopRecording();
                 } else {
                     this.startRecording();
                 }
             }
+
+
 
             startRecording() {
                 if (!this.micSource) return;
@@ -1989,7 +2621,14 @@
                     },
                     grains: [],
                     personality: this.producer.personality,
-                    timestamp: this.ctx.currentTime
+                    timestamp: this.ctx.currentTime,
+                    // Personal metadata
+                    movementPattern: this.personal.movementPattern,
+                    interactionStyle: this.personal.interactionStyle,
+                    motionSnapshot: {
+                        beta: this.motion.smoothBeta,
+                        gamma: this.motion.smoothGamma
+                    }
                 });
                 
                 if (this.loops.length > 8) {
@@ -2009,7 +2648,18 @@
                 this.sampleCounter.textContent = this.loops.length;
                 this.sampleCounter.classList.add('visible');
                 
-                this.status.textContent = `SAMPLE ${this.loops.length} • ${this.producer.personality.toUpperCase()}`;
+                // Personalized feedback messages
+                const messages = {
+                    'still': ['CAPTURED', 'FROZEN IN TIME', 'PRESERVED'],
+                    'gentle': ['SMOOTH', 'FLOWING', 'GENTLE TOUCH'],
+                    'rhythmic': ['GROOVY', 'IN THE POCKET', 'LOCKED IN'],
+                    'energetic': ['WILD', 'UNLEASHED', 'EXPLOSIVE']
+                };
+                
+                const messageSet = messages[this.personal.movementPattern] || messages['gentle'];
+                const message = messageSet[Math.floor(Math.random() * messageSet.length)];
+                
+                this.status.textContent = `${message} • SAMPLE ${this.loops.length}`;
                 this.status.classList.add('visible');
                 setTimeout(() => this.status.classList.remove('visible'), 2000);
                 
@@ -2018,14 +2668,25 @@
                     this.toggleGodMode();
                 }
                 
-                // Haptic feedback
+                // Haptic feedback based on energy
                 if ('vibrate' in navigator) {
-                    navigator.vibrate(100);
+                    const energy = this.analyzeEnergy(loopBuffer);
+                    navigator.vibrate(50 + Math.floor(energy * 150));
                 }
             }
 
             processAudioForPersonality(sourceData, loopData, loopLength) {
                 const fadeLength = 100;
+                
+                // Add personal touch based on movement pattern
+                const movementProcessing = {
+                    'still': (sample, i) => sample, // Clean, unprocessed
+                    'gentle': (sample, i) => sample * (0.9 + Math.sin(i * 0.0001) * 0.1), // Subtle modulation
+                    'rhythmic': (sample, i) => sample * (0.8 + Math.sin(i * 0.001) * 0.2), // Rhythmic pulsing
+                    'energetic': (sample, i) => Math.tanh(sample * 2) * 0.9 // Driven harder
+                };
+                
+                const processMovement = movementProcessing[this.personal.movementPattern] || movementProcessing['gentle'];
                 
                 switch (this.producer.personality) {
                     case 'kanye':
@@ -2033,6 +2694,10 @@
                             let sample = sourceData[i];
                             sample = Math.sign(sample) * Math.min(Math.abs(sample) * 2, 1);
                             sample = Math.tanh(sample * 3) * 0.9;
+                            
+                            // Personal movement processing
+                            sample = processMovement(sample, i);
+                            
                             if (i < fadeLength) sample *= i / fadeLength;
                             if (i > loopLength - fadeLength) sample *= (loopLength - i) / fadeLength;
                             loopData[i] = sample;
@@ -2041,15 +2706,21 @@
                         
                     case 'dilla':
                         let phase = 0;
+                        // More wobble for contemplative users
+                        const wobbleAmount = this.personal.interactionStyle === 'contemplative' ? 0.0002 : 0.0001;
+                        
                         for (let i = 0; i < loopLength; i++) {
                             let sample = sourceData[i];
                             if (Math.random() < 0.001) {
                                 sample += (Math.random() - 0.5) * 0.1;
                             }
                             sample = Math.tanh(sample * 1.5) * 0.8;
-                            phase += 0.0001 + Math.sin(i * 0.00001) * 0.00005;
+                            phase += wobbleAmount + Math.sin(i * 0.00001) * 0.00005;
                             const wobbleIndex = Math.floor(i + Math.sin(phase) * 10) % sourceData.length;
                             sample = sample * 0.7 + sourceData[wobbleIndex] * 0.3;
+                            
+                            sample = processMovement(sample, i);
+                            
                             if (i < fadeLength) sample *= i / fadeLength;
                             if (i > loopLength - fadeLength) sample *= (loopLength - i) / fadeLength;
                             loopData[i] = sample;
@@ -2059,6 +2730,9 @@
                     case 'flylo':
                         let delayBuffer = new Float32Array(4000);
                         let delayIndex = 0;
+                        // More delay for expressive users
+                        const delayFeedback = this.personal.interactionStyle === 'expressive' ? 0.6 : 0.5;
+                        
                         for (let i = 0; i < loopLength; i++) {
                             let sample = sourceData[i];
                             if (i > 1) {
@@ -2066,9 +2740,12 @@
                                 sample = sample * cutoff + loopData[i-1] * (1 - cutoff) * 0.9;
                             }
                             const delayed = delayBuffer[delayIndex];
-                            delayBuffer[delayIndex] = sample + delayed * 0.5;
+                            delayBuffer[delayIndex] = sample + delayed * delayFeedback;
                             sample = sample + delayed * 0.3;
                             delayIndex = (delayIndex + 1) % delayBuffer.length;
+                            
+                            sample = processMovement(sample, i);
+                            
                             if (i < fadeLength) sample *= i / fadeLength;
                             if (i > loopLength - fadeLength) sample *= (loopLength - i) / fadeLength;
                             loopData[i] = Math.tanh(sample) * 0.8;
@@ -2077,9 +2754,12 @@
                         
                     case 'arca':
                         let glitchBuffer = [];
+                        // More glitches for energetic movement
+                        const glitchChance = this.personal.movementPattern === 'energetic' ? 0.08 : 0.05;
+                        
                         for (let i = 0; i < loopLength; i++) {
                             let sample = sourceData[i];
-                            if (Math.random() < 0.05) {
+                            if (Math.random() < glitchChance) {
                                 const glitchLength = Math.floor(Math.random() * 1000) + 100;
                                 for (let j = 0; j < glitchLength && i + j < loopLength; j++) {
                                     glitchBuffer.push(sourceData[i]);
@@ -2089,6 +2769,9 @@
                                 sample = glitchBuffer.shift();
                             }
                             sample = Math.sign(sample) * Math.pow(Math.abs(sample), 0.5);
+                            
+                            sample = processMovement(sample, i);
+                            
                             if (i < fadeLength) sample *= i / fadeLength;
                             if (i > loopLength - fadeLength) sample *= (loopLength - i) / fadeLength;
                             loopData[i] = sample * 0.9;
@@ -2096,12 +2779,18 @@
                         break;
                         
                     case 'sophie':
+                        // Precision varies with user style
+                        const precision = this.personal.interactionStyle === 'precise' ? 0.99 : 0.98;
+                        
                         for (let i = 0; i < loopLength; i++) {
                             let sample = sourceData[i];
                             if (i > 0) {
-                                sample = sample - sourceData[i-1] * 0.98;
+                                sample = sample - sourceData[i-1] * precision;
                             }
                             sample = Math.max(-0.95, Math.min(0.95, sample * 2));
+                            
+                            sample = processMovement(sample, i);
+                            
                             const fadeCurve = x => x * x * (3 - 2 * x);
                             if (i < fadeLength) sample *= fadeCurve(i / fadeLength);
                             if (i > loopLength - fadeLength) sample *= fadeCurve((loopLength - i) / fadeLength);
@@ -2112,10 +2801,24 @@
                     default:
                         for (let i = 0; i < loopLength; i++) {
                             let sample = sourceData[i];
+                            sample = processMovement(sample, i);
                             if (i < fadeLength) sample *= i / fadeLength;
                             if (i > loopLength - fadeLength) sample *= (loopLength - i) / fadeLength;
                             loopData[i] = sample;
                         }
+                }
+                
+                // Apply motion-based processing if device is tilted during recording
+                if (this.motion.enabled && this.isRecording) {
+                    const tiltProcessing = Math.abs(this.motion.smoothBeta - this.motion.calibration.beta) / 90;
+                    if (tiltProcessing > 0.2) {
+                        // Apply pitch shift to the recorded loop
+                        for (let i = 0; i < loopLength; i++) {
+                            const shiftAmount = Math.floor(tiltProcessing * 100);
+                            const shiftedIndex = (i + shiftAmount) % loopLength;
+                            loopData[i] = loopData[i] * 0.7 + loopData[shiftedIndex] * 0.3;
+                        }
+                    }
                 }
             }
 
@@ -2150,6 +2853,7 @@
                     
                     const source = this.ctx.createBufferSource();
                     const gainNode = this.ctx.createGain();
+                    const panNode = this.ctx.createStereoPanner();
                     
                     source.buffer = loop.buffer;
                     source.loop = true;
@@ -2165,6 +2869,14 @@
                     filter.frequency.value = 1000 + index * 1000 * ageMultiplier;
                     filter.Q.value = 2 + this.producer.complexity * 10;
                     
+                    // Personalize based on the loop's captured movement pattern
+                    if (loop.movementPattern === 'energetic') {
+                        filter.Q.value *= 1.5;
+                        filter.frequency.value *= 1.2;
+                    } else if (loop.movementPattern === 'gentle') {
+                        filter.Q.value *= 0.7;
+                    }
+                    
                     const distAmount = 10 + index * 15 + this.producer.evolution * 40 * ageMultiplier;
                     distortion.curve = this.makeDistortionCurve(distAmount);
                     distortion.oversample = '4x';
@@ -2172,13 +2884,27 @@
                     const baseGain = (0.8 - (index * 0.08)) * (0.5 + this.producer.energy * 0.5);
                     gainNode.gain.value = baseGain;
                     
+                    // Pan based on the motion when recorded
+                    let recordedTilt = 0;
+                    if (loop.motionSnapshot && this.motion.calibration.gamma !== undefined) {
+                        recordedTilt = (loop.motionSnapshot.gamma - this.motion.calibration.gamma) / 90;
+                        panNode.pan.value = Math.max(-0.8, Math.min(0.8, recordedTilt));
+                    }
+                    
                     if (index > 3 && this.producer.evolution > 0.5) {
                         this.setupGranularProcessing(loop, source, time);
                     }
                     
+                    // Apply current motion to pitch
+                    if (this.motion.enabled) {
+                        const currentTilt = (this.motion.smoothBeta - this.motion.calibration.beta) / 90;
+                        source.playbackRate.value = 1 + currentTilt * 0.2;
+                    }
+                    
                     source.connect(filter);
                     filter.connect(distortion);
-                    distortion.connect(gainNode);
+                    distortion.connect(panNode);
+                    panNode.connect(gainNode);
                     gainNode.connect(this.sampleBus);
                     
                     const wetAmount = Math.min(0.8, 0.2 + index * 0.1);
@@ -2207,12 +2933,28 @@
                             const lfo2 = Math.sin(now * (0.2 + index * 0.03)) * 0.5 + 0.5;
                             const lfo3 = Math.sin(now * 0.05) * 0.5 + 0.5;
                             
+                            // Add motion modulation
+                            let motionMod = 1;
+                            if (this.motion.enabled) {
+                                const tiltDelta = Math.abs(this.motion.smoothBeta - loop.motionSnapshot.beta) / 90;
+                                motionMod = 1 + tiltDelta * 0.5;
+                            }
+                            
                             const baseFreq = 500 + this.producer.evolution * 3000;
-                            filter.frequency.value = baseFreq + lfo1 * (15000 - index * 1000);
+                            filter.frequency.value = baseFreq + lfo1 * (15000 - index * 1000) * motionMod;
                             filter.Q.value = 1 + this.producer.energy * 15 + lfo2 * 10;
                             
                             const targetGain = baseGain * (0.7 + lfo3 * 0.3);
                             gainNode.gain.linearRampToValueAtTime(targetGain, now + 0.1);
+                            
+                            // Pan automation based on motion difference
+                            if (this.motion.enabled && loop.motionSnapshot && this.motion.calibration.gamma !== undefined) {
+                                const panDrift = (this.motion.smoothGamma - loop.motionSnapshot.gamma) / 180;
+                                panNode.pan.linearRampToValueAtTime(
+                                    Math.max(-1, Math.min(1, recordedTilt + panDrift)),
+                                    now + 0.1
+                                );
+                            }
                             
                             requestAnimationFrame(animateEffects);
                         }
@@ -2265,36 +3007,25 @@
             }
 
             toggleGodMode() {
-                this.producer.godMode = !this.producer.godMode;
+                this.producer.godMode = true; // Always on after activation
                 
-                if (this.producer.godMode) {
-                    this.orb.classList.add('god-mode');
-                    this.status.innerHTML = 'GOD MODE ACTIVATED<br>' + this.producer.personality.toUpperCase() + ' AI ONLINE';
-                    this.status.classList.add('visible');
-                    
-                    this.master.gain.linearRampToValueAtTime(1.1, this.ctx.currentTime + 0.5);
-                    
-                    this.sidechain.active = true;
-                    this.sidechain.amount = 0.5;
-                    
-                    this.animateVisualizer();
-                    
-                    this.aiPersonality.textContent = `AI: ${this.producer.personality.toUpperCase()}`;
-                    this.aiPersonality.classList.add('visible');
-                    
-                    // Haptic feedback
-                    if ('vibrate' in navigator) {
-                        navigator.vibrate([100, 50, 100]);
-                    }
-                } else {
-                    this.orb.classList.remove('god-mode');
-                    this.status.textContent = 'God mode deactivated';
-                    this.status.classList.add('visible');
-                    
-                    this.master.gain.linearRampToValueAtTime(0.95, this.ctx.currentTime + 0.5);
-                    this.sidechain.active = false;
-                    
-                    this.aiPersonality.classList.remove('visible');
+                this.orb.classList.add('god-mode');
+                this.status.textContent = 'AI PRODUCER ACTIVE';
+                this.status.classList.add('visible');
+                
+                this.master.gain.linearRampToValueAtTime(1.1, this.ctx.currentTime + 0.5);
+                
+                this.sidechain.active = true;
+                this.sidechain.amount = 0.5;
+                
+                this.animateVisualizer();
+                
+                this.aiPersonality.textContent = `${this.producer.personality.toUpperCase()}`;
+                this.aiPersonality.classList.add('visible');
+                
+                // Haptic feedback
+                if ('vibrate' in navigator) {
+                    navigator.vibrate([100, 50, 100]);
                 }
                 
                 setTimeout(() => this.status.classList.remove('visible'), 2000);
@@ -2328,12 +3059,12 @@
                             break;
                     }
                     
-                    this.status.textContent = `AI: ${personality.toUpperCase()}`;
+                    this.status.textContent = `${personality.toUpperCase()} MODE`;
                     this.status.classList.add('visible');
                     setTimeout(() => this.status.classList.remove('visible'), 2000);
                     
                     if (this.producer.godMode) {
-                        this.aiPersonality.textContent = `AI: ${personality.toUpperCase()}`;
+                        this.aiPersonality.textContent = personality.toUpperCase();
                     }
                     
                     // Haptic feedback
