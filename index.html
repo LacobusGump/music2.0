@@ -698,7 +698,7 @@
 
                 this.master = null;
 
-                this.buses = {};
+                this.layers = {};
 
                 this.effects = {};
 
@@ -726,6 +726,8 @@
 
                 this.nextEventTime = 0;
 
+                this.patternLength = 16;
+
              
 
                 // AI State
@@ -733,6 +735,8 @@
                 this.complexity = 0;
 
                 this.energy = 0.5;
+
+                this.mood = 'mellow';
 
                 this.pattern = null;
 
@@ -930,17 +934,19 @@
 
              
 
-                // Buses
+                // Layers
 
-                this.buses.sub = this.ctx.createGain();
+                const layerNames = ['kick', 'bass', 'snare', 'perc', 'hats', 'mid', 'high', 'air'];
 
-                this.buses.bass = this.ctx.createGain();
+                layerNames.forEach(name => {
 
-                this.buses.mid = this.ctx.createGain();
+                    const gain = this.ctx.createGain();
 
-                this.buses.high = this.ctx.createGain();
+                    gain.gain.value = name === 'kick' ? 1.0 : name === 'bass' ? 0.9 : name === 'snare' ? 0.8 : 0.7;
 
-                this.buses.air = this.ctx.createGain();
+                    this.layers[name] = gain;
+
+                });
 
              
 
@@ -952,9 +958,9 @@
 
                 // Routing
 
-                Object.values(this.buses).forEach(bus => {
+                Object.values(this.layers).forEach(layer => {
 
-                    bus.connect(this.effects.eq.input);
+                    layer.connect(this.effects.eq.input);
 
                 });
 
@@ -1344,7 +1350,7 @@
 
                 osc2.connect(gain);
 
-                gain.connect(this.buses.sub);
+                gain.connect(this.layers.bass);
 
              
 
@@ -1400,7 +1406,7 @@
 
                         if (this.currentBar % 16 === 0) {
 
-                            this.complexity = Math.max(20, this.complexity - 1);
+                            this.complexity = Math.max(0, this.complexity - 1);
 
                             this.ui.complexity.textContent = Math.floor(this.complexity);
 
@@ -1426,155 +1432,137 @@
 
             generatePattern() {
 
-                // Evolve complexity (decreasing for settling)
+                const moodPatterns = {
 
-                this.pattern = {
+                    'chaotic': {
 
-                    kick: this.generateKickPattern(),
+                        kick: [0, 5, 16, 21],
 
-                    bass: this.generateBassPattern(),
+                        snare: [8, 15, 24, 31],
 
-                    perc: this.generatePercPattern(),
+                        hats: [1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31],
 
-                    hats: this.generateHatsPattern(),
+                        bass: [0, 4, 8, 12, 16, 20, 24, 28],
 
-                    melody: this.generateMelodyPattern(),
+                        mid: [2, 6, 10, 14, 18, 22, 26, 30],
 
-                    atm: Math.random() < 0.3
+                        high: [1, 5, 9, 13, 17, 21, 25, 29]
+
+                    },
+
+                    'aggressive': {
+
+                        kick: [0, 6, 16, 22],
+
+                        snare: [8, 24],
+
+                        hats: [0, 4, 8, 12, 16, 20, 24, 28],
+
+                        bass: [0, 16],
+
+                        mid: [8, 24],
+
+                        high: [4, 12, 20, 28]
+
+                    },
+
+                    'rhythmic': {
+
+                        kick: [0, 16],
+
+                        snare: [8, 24],
+
+                        hats: [2, 6, 10, 14, 18, 22, 26, 30],
+
+                        bass: [0, 8, 16, 24],
+
+                        mid: [4, 12, 20, 28],
+
+                        high: [2, 10, 18, 26]
+
+                    },
+
+                    'mellow': {
+
+                        kick: [0, 16],
+
+                        snare: [8, 24],
+
+                        hats: [4, 12, 20, 28],
+
+                        bass: [0, 16],
+
+                        mid: [8, 24],
+
+                        high: [4, 20]
+
+                    }
 
                 };
 
-            }
+               
 
-         
+                const basePattern = moodPatterns[this.mood];
 
-            generateKickPattern() {
+               
 
-                const pattern = new Array(16).fill(false);
+                const pattern = {};
 
-             
+                Object.keys(basePattern).forEach(layer => {
 
-                // Four on floor base
+                    pattern[layer] = new Array(this.patternLength).fill(false);
 
-                for (let i = 0; i < 16; i += 4) {
+                    basePattern[layer].forEach(step => {
 
-                    pattern[i] = true;
+                        if (step < this.patternLength) {
 
-                }
+                            pattern[layer][step % this.patternLength] = true;
 
-             
+                        }
 
-                // Add complexity (more in chaotic phase)
+                    });
 
-                if (this.complexity > 30) {
-
-                    pattern[14] = Math.random() < (this.complexity / 100);
-
-                }
+                });
 
              
 
-                if (this.complexity > 60) {
+                // Add fractal complexity
 
-                    pattern[7] = Math.random() < (this.complexity / 100);
+                Object.keys(pattern).forEach(layer => {
 
-                }
+                    for (let i = 0; i < this.patternLength; i++) {
 
-             
+                        const fractalValue = this.fractalNoise(i, layer.length);
 
-                return pattern;
+                        const threshold = 0.7 - (this.complexity / 100 * 0.4);
 
-            }
+                        if (fractalValue > threshold) {
 
-         
+                            pattern[layer][i] = true;
 
-            generateBassPattern() {
-
-                const pattern = new Array(16).fill(null);
-
-                const progression = [0, 0, 5, 3, 0, 0, 7, 3];
-
-             
-
-                for (let i = 0; i < 16; i += 2) {
-
-                    if (Math.random() < 0.8) {
-
-                        pattern[i] = progression[Math.floor(i/2) % progression.length];
+                        }
 
                     }
 
-                }
+                });
 
              
 
-                return pattern;
+                this.pattern = pattern;
 
             }
 
          
 
-            generatePercPattern() {
+            fractalNoise(x, seed) {
 
-                const pattern = new Array(16).fill(false);
+                const scale1 = Math.sin(x * 0.1 + seed) * 0.5 + 0.5;
 
-             
+                const scale2 = Math.sin(x * 0.3 + seed * 2) * 0.3 + 0.5;
 
-                for (let i = 0; i < 16; i++) {
+                const scale3 = Math.sin(x * 0.7 + seed * 3) * 0.2 + 0.5;
 
-                    if (i % 2 === 1) {
-
-                        pattern[i] = Math.random() < (0.3 + this.complexity / 200);
-
-                    }
-
-                }
-
-             
-
-                return pattern;
-
-            }
-
-         
-
-            generateHatsPattern() {
-
-                const pattern = new Array(16).fill(false);
-
-             
-
-                for (let i = 1; i < 16; i += 2) {
-
-                    pattern[i] = Math.random() < (0.5 + (100 - this.complexity) / 200);
-
-                }
-
-             
-
-                return pattern;
-
-            }
-
-         
-
-            generateMelodyPattern() {
-
-                const pattern = new Array(16).fill(null);
-
-                const prob = (100 - this.complexity) / 100; // more melody at low complexity
-
-                for (let i = 0; i < 16; i += 2) {
-
-                    if (Math.random() < prob) {
-
-                      pattern[i] = Math.floor(Math.random() * this.scale.length);
-
-                    }
-
-                }
-
-                return pattern;
+                return (scale1 + scale2 + scale3) / 3;
 
             }
 
@@ -1602,53 +1590,17 @@
 
              
 
-                // Kick
+                // Play layers
 
-                if (this.pattern.kick[step]) {
+                Object.keys(this.pattern).forEach(layer => {
 
-                    this.playKick(time);
+                    if (this.pattern[layer][step]) {
 
-                }
+                        this.triggerLayer(layer, time);
 
-             
+                    }
 
-                // Bass
-
-                if (this.pattern.bass[step] !== null) {
-
-                    this.playBass(this.pattern.bass[step], time);
-
-                }
-
-             
-
-                // Percussion
-
-                if (this.pattern.perc[step]) {
-
-                    this.playPerc(time);
-
-                }
-
-             
-
-                // Hats
-
-                if (this.pattern.hats[step]) {
-
-                    this.playHat(time);
-
-                }
-
-             
-
-                // Melody
-
-                if (this.pattern.melody[step] !== null) {
-
-                    this.playMelody(this.pattern.melody[step], time);
-
-                }
+                });
 
              
 
@@ -1665,6 +1617,58 @@
                     }
 
                 });
+
+            }
+
+         
+
+            triggerLayer(layer, time) {
+
+                const samples = this.samples.values();
+
+                let sampleList = [];
+
+                for (let sample of samples) {
+
+                    if (sample.layer === layer) {
+
+                        sampleList.push(sample);
+
+                    }
+
+                }
+
+                if (sampleList.length === 0) return;
+
+             
+
+                const idx = Math.floor(Math.random() * sampleList.length);
+
+                const sample = sampleList[idx];
+
+                const source = this.ctx.createBufferSource();
+
+                source.buffer = sample.buffer;
+
+                source.playbackRate.value = sample.pitch || 1;
+
+             
+
+                const gain = this.ctx.createGain();
+
+                gain.gain.setValueAtTime(0.5, time);
+
+                gain.gain.exponentialRampToValueAtTime(0.01, time + sample.buffer.duration);
+
+             
+
+                source.connect(gain);
+
+                gain.connect(this.layers[layer]);
+
+             
+
+                source.start(time);
 
             }
 
@@ -1700,7 +1704,7 @@
 
                 gain.connect(dist);
 
-                dist.connect(this.buses.bass);
+                dist.connect(this.layers.kick);
 
              
 
@@ -1712,77 +1716,9 @@
 
          
 
-            playBass(note, time) {
+            playSnare(time) {
 
-                const freq = 55 * Math.pow(2, this.scale[note] / 12);
-
-             
-
-                const osc1 = this.ctx.createOscillator();
-
-                osc1.type = 'sawtooth';
-
-                osc1.frequency.value = freq;
-
-             
-
-                const osc2 = this.ctx.createOscillator();
-
-                osc2.type = 'square';
-
-                osc2.frequency.value = freq * 0.5;
-
-             
-
-                const filter = this.ctx.createBiquadFilter();
-
-                filter.type = 'lowpass';
-
-                filter.frequency.setValueAtTime(100, time);
-
-                filter.frequency.exponentialRampToValueAtTime(1000, time + 0.01);
-
-                filter.frequency.exponentialRampToValueAtTime(200, time + 0.5);
-
-                filter.Q.value = 8;
-
-             
-
-                const gain = this.ctx.createGain();
-
-                gain.gain.setValueAtTime(0, time);
-
-                gain.gain.linearRampToValueAtTime(0.5, time + 0.01);
-
-                gain.gain.exponentialRampToValueAtTime(0.01, time + 0.8);
-
-             
-
-                osc1.connect(filter);
-
-                osc2.connect(filter);
-
-                filter.connect(gain);
-
-                gain.connect(this.buses.bass);
-
-             
-
-                osc1.start(time);
-
-                osc2.start(time);
-
-                osc1.stop(time + 0.8);
-
-                osc2.stop(time + 0.8);
-
-            }
-
-         
-
-            playPerc(time) {
-
-                const buffer = this.ctx.createBuffer(1, 0.05 * this.ctx.sampleRate, this.ctx.sampleRate);
+                const buffer = this.ctx.createBuffer(1, 0.2 * this.ctx.sampleRate, this.ctx.sampleRate);
 
                 const data = buffer.getChannelData(0);
 
@@ -1790,7 +1726,7 @@
 
                 for (let i = 0; i < data.length; i++) {
 
-                    data[i] = (Math.random() - 0.5) * Math.exp(-i / data.length * 10);
+                    data[i] = (Math.random() - 0.5) * Math.exp(-i / data.length * 8);
 
                 }
 
@@ -1804,11 +1740,59 @@
 
                 const filter = this.ctx.createBiquadFilter();
 
-                filter.type = 'bandpass';
+                filter.type = 'highpass';
 
-                filter.frequency.value = 5000 + Math.random() * 5000;
+                filter.frequency.value = 1000;
 
-                filter.Q.value = 10;
+             
+
+                const gain = this.ctx.createGain();
+
+                gain.gain.value = 0.7;
+
+             
+
+                source.connect(filter);
+
+                filter.connect(gain);
+
+                gain.connect(this.layers.snare);
+
+             
+
+                source.start(time);
+
+            }
+
+         
+
+            playHat(time) {
+
+                const buffer = this.ctx.createBuffer(1, 0.05 * this.ctx.sampleRate, this.ctx.sampleRate);
+
+                const data = buffer.getChannelData(0);
+
+             
+
+                for (let i = 0; i < data.length; i++) {
+
+                    data[i] = (Math.random() - 0.5) * Math.exp(-i / data.length * 30);
+
+                }
+
+             
+
+                const source = this.ctx.createBufferSource();
+
+                source.buffer = buffer;
+
+             
+
+                const filter = this.ctx.createBiquadFilter();
+
+                filter.type = 'highpass';
+
+                filter.frequency.value = 8000;
 
              
 
@@ -1822,99 +1806,11 @@
 
                 filter.connect(gain);
 
-                gain.connect(this.buses.high);
+                gain.connect(this.layers.hats);
 
              
 
                 source.start(time);
-
-            }
-
-         
-
-            playHat(time) {
-
-                const buffer = this.ctx.createBuffer(1, 0.01 * this.ctx.sampleRate, this.ctx.sampleRate);
-
-                const data = buffer.getChannelData(0);
-
-             
-
-                for (let i = 0; i < data.length; i++) {
-
-                    data[i] = (Math.random() - 0.5) * Math.exp(-i / data.length * 20);
-
-                }
-
-             
-
-                const source = this.ctx.createBufferSource();
-
-                source.buffer = buffer;
-
-             
-
-                const filter = this.ctx.createBiquadFilter();
-
-                filter.type = 'bandpass';
-
-                filter.frequency.value = 12000;
-
-                filter.Q.value = 5;
-
-             
-
-                const gain = this.ctx.createGain();
-
-                gain.gain.value = 0.2;
-
-             
-
-                source.connect(filter);
-
-                filter.connect(gain);
-
-                gain.connect(this.buses.air);
-
-             
-
-                source.start(time);
-
-            }
-
-         
-
-            playMelody(note, time) {
-
-                const freq = 220 * Math.pow(2, this.scale[note]/12); // A3 base
-
-                const osc = this.ctx.createOscillator();
-
-                osc.type = 'sine'; // beautiful
-
-                osc.frequency.value = freq;
-
-                const gain = this.ctx.createGain();
-
-                gain.gain.setValueAtTime(0.3, time);
-
-                gain.gain.exponentialRampToValueAtTime(0.01, time + 0.5);
-
-                const filter = this.ctx.createBiquadFilter();
-
-                filter.type = 'lowpass';
-
-                filter.frequency.value = 2000;
-
-                osc.connect(filter);
-
-                filter.connect(gain);
-
-                gain.connect(this.buses.high);
-
-                osc.start(time);
-
-                osc.stop(time + 0.5);
 
             }
 
@@ -1948,7 +1844,7 @@
 
                 source.connect(gain);
 
-                gain.connect(sample.bus || this.buses.mid);
+                gain.connect(this.layers[sample.layer]);
 
              
 
@@ -2042,9 +1938,9 @@
 
              
 
-                // Trim to last 2 seconds for longer samples
+                // Trim to last 1 second for shorter samples
 
-                const trimLength = Math.min(this.captureBuffer.length, this.ctx.sampleRate * 2);
+                const trimLength = Math.min(this.captureBuffer.length, this.ctx.sampleRate * 1);
 
                 const startIdx = this.captureBuffer.length - trimLength;
 
@@ -2070,15 +1966,17 @@
 
             generateFakeSample() {
 
-                const length = this.ctx.sampleRate * (0.5 + Math.random() * 1.5);
+                const length = this.ctx.sampleRate * (0.2 + Math.random() * 0.5);
 
                 const buffer = this.ctx.createBuffer(1, length, this.ctx.sampleRate);
 
                 const data = buffer.getChannelData(0);
 
+                const freq = 100 + Math.random() * 400;
+
                 for (let i = 0; i < length; i++) {
 
-                    data[i] = (Math.random() * 2 - 1) * Math.exp(-i / length * 3);
+                    data[i] = Math.sin(i / this.ctx.sampleRate * freq * 2 * Math.PI) * Math.exp(-i / length * 3);
 
                 }
 
@@ -2096,25 +1994,21 @@
 
              
 
-                const pitch = this.detectPitch(buffer);
+                const analysis = this.analyzeSample(buffer);
+
+                const layer = this.categorizeSample(analysis);
+
+                const pitch = analysis.pitch;
 
                 let playbackRate = 1;
 
                 if (pitch > 0) {
 
-                    const target = this.quantizeFreq(pitch);
+                    const target = this.quantizePitch(pitch);
 
                     playbackRate = target / pitch;
 
                 }
-
-                let bus = this.buses.mid;
-
-             
-
-                if (pitch < 200) bus = this.buses.bass;
-
-                else if (pitch > 1000) bus = this.buses.high;
 
              
 
@@ -2122,7 +2016,7 @@
 
                 for (let i = 0; i < 16; i++) {
 
-                    pattern[i] = Math.random() < (0.1 + this.complexity / 200); // Sparser as complexity decreases
+                    pattern[i] = Math.random() < (0.1 + this.complexity / 200);
 
                 }
 
@@ -2138,7 +2032,7 @@
 
                     pattern: pattern,
 
-                    bus: bus
+                    layer: layer
 
                 });
 
@@ -2158,6 +2052,190 @@
 
          
 
+            analyzeSample(buffer) {
+
+                const data = buffer.getChannelData(0);
+
+                const len = data.length;
+
+               
+
+                // RMS Energy
+
+                let rms = 0;
+
+                for (let i = 0; i < len; i++) {
+
+                    rms += data[i] * data[i];
+
+                }
+
+                rms = Math.sqrt(rms / len);
+
+               
+
+                // Zero crossing rate
+
+                let zeroCrossings = 0;
+
+                for (let i = 1; i < len; i++) {
+
+                    if ((data[i] >= 0) !== (data[i-1] >= 0)) {
+
+                        zeroCrossings++;
+
+                    }
+
+                }
+
+                const zcr = zeroCrossings / buffer.duration;
+
+               
+
+                // Pitch detection
+
+                let pitch = 0;
+
+                if (len > 1024) {
+
+                    const maxDelay = Math.min(len >> 1, 2000);
+
+                    const minDelay = 40;
+
+                    let maxCorrelation = 0;
+
+                    let bestDelay = -1;
+
+                   
+
+                    for (let delay = minDelay; delay < maxDelay; delay++) {
+
+                        let correlation = 0;
+
+                        for (let i = 0; i < len - delay; i++) {
+
+                            correlation += data[i] * data[i + delay];
+
+                        }
+
+                        if (correlation > maxCorrelation) {
+
+                            maxCorrelation = correlation;
+
+                            bestDelay = delay;
+
+                        }
+
+                    }
+
+                   
+
+                    if (maxCorrelation > rms * rms * len * 0.3 && bestDelay > 0) {
+
+                        pitch = this.ctx.sampleRate / bestDelay;
+
+                    }
+
+                }
+
+               
+
+                return {
+
+                    rms,
+
+                    zcr,
+
+                    pitch,
+
+                    duration: buffer.duration
+
+                };
+
+            }
+
+         
+
+            categorizeSample(analysis) {
+
+                const { rms, zcr, pitch, duration } = analysis;
+
+               
+
+                if (rms > 0.1 && zcr < 3000 && duration < 0.8) return 'kick';
+
+                if (rms > 0.03 && rms <= 0.1 && zcr > 1500 && zcr < 6000 && duration < 1) return 'snare';
+
+                if (zcr > 6000 && duration < 0.2) return 'hats';
+
+                if (pitch && pitch < 150 && duration > 0.3) return 'bass';
+
+                if (pitch && pitch >= 150 && pitch < 1000) return 'mid';
+
+                return 'high';
+
+            }
+
+         
+
+            quantizePitch(frequency) {
+
+                const scales = {
+
+                    'chaotic': [0, 1, 3, 6, 8, 10],
+
+                    'aggressive': [0, 2, 3, 5, 7, 8, 10],
+
+                    'rhythmic': [0, 2, 4, 7, 9],
+
+                    'mellow': [0, 3, 5, 7, 10]
+
+                };
+
+               
+
+                const scale = scales[this.mood] || scales['mellow'];
+
+                const rootFreq = 55; // A1
+
+               
+
+                const semitones = 12 * Math.log2(frequency / rootFreq);
+
+                const octave = Math.floor(semitones / 12);
+
+                const note = semitones % 12;
+
+               
+
+                let closest = scale[0];
+
+                let minDistance = Math.abs(note - closest);
+
+               
+
+                for (const scaleNote of scale) {
+
+                    const distance = Math.abs(note - scaleNote);
+
+                    if (distance < minDistance) {
+
+                        minDistance = distance;
+
+                        closest = scaleNote;
+
+                    }
+
+                }
+
+               
+
+                return rootFreq * Math.pow(2, (octave * 12 + closest) / 12);
+
+            }
+
+         
+
             captureNow() {
 
                 if (this.captureBuffer.length > 0) {
@@ -2165,62 +2243,6 @@
                     this.processCapturedAudio();
 
                 }
-
-            }
-
-         
-
-            detectPitch(buffer) {
-
-                const data = buffer.getChannelData(0);
-
-                let maxCorr = 0;
-
-                let bestPeriod = 0;
-
-             
-
-                for (let period = 50; period < 500; period++) {
-
-                    let corr = 0;
-
-                    for (let i = 0; i < data.length - period; i++) {
-
-                        corr += data[i] * data[i + period];
-
-                    }
-
-                    if (corr > maxCorr) {
-
-                        maxCorr = corr;
-
-                        bestPeriod = period;
-
-                    }
-
-                }
-
-             
-
-                return bestPeriod > 0 ? this.ctx.sampleRate / bestPeriod : 0;
-
-            }
-
-         
-
-            quantizeFreq(freq) {
-
-                const midi = 12 * Math.log2(freq / 440) + 69;
-
-                const octave = Math.floor(midi / 12);
-
-                const note = midi % 12;
-
-                const closestOffset = this.scale.reduce((prev, curr) => Math.abs(curr - note) < Math.abs(prev - note) ? curr : prev, this.scale[0]);
-
-                const quantizedMidi = octave * 12 + closestOffset;
-
-                return 440 * Math.pow(2, (quantizedMidi - 69)/12);
 
             }
 
@@ -2375,6 +2397,32 @@
                     // Modulate energy
 
                     this.energy = Math.sqrt(x * x + y * y) / Math.sqrt(2);
+
+                    this.updateMood();
+
+                }
+
+            }
+
+         
+
+            updateMood() {
+
+                if (this.energy > 0.8) {
+
+                    this.mood = 'chaotic';
+
+                } else if (this.energy > 0.6) {
+
+                    this.mood = 'aggressive';
+
+                } else if (this.energy > 0.4) {
+
+                    this.mood = 'rhythmic';
+
+                } else {
+
+                    this.mood = 'mellow';
 
                 }
 
