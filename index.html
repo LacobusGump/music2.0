@@ -10,6 +10,7 @@
             --accent-color: hsl(var(--primary-hue), 100%, 60%);
             --bg-color: #0a0a0a;
             --text-color: #ffffff;
+            --glow-intensity: 1;
         }
         
         * {
@@ -17,6 +18,9 @@
             padding: 0;
             box-sizing: border-box;
             -webkit-tap-highlight-color: transparent;
+            -webkit-touch-callout: none;
+            -webkit-user-select: none;
+            user-select: none;
         }
 
         body {
@@ -25,7 +29,7 @@
             overflow: hidden;
             touch-action: none;
             height: 100vh;
-            height: 100svh;
+            height: 100dvh;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -75,11 +79,11 @@
         @keyframes aiPulse {
             0%, 100% { 
                 transform: translate(-50%, -50%) scale(1);
-                filter: hue-rotate(var(--primary-hue, 0deg));
+                filter: hue-rotate(var(--primary-hue, 0deg)) brightness(1);
             }
             50% { 
                 transform: translate(-50%, -50%) scale(1.15);
-                filter: hue-rotate(calc(var(--primary-hue, 0deg) + 60deg));
+                filter: hue-rotate(calc(var(--primary-hue, 0deg) + 60deg)) brightness(1.3);
             }
         }
 
@@ -105,6 +109,7 @@
             text-align: center;
             padding: 0 20px;
             font-weight: 500;
+            pointer-events: none;
         }
 
         .status.visible {
@@ -124,6 +129,7 @@
             text-align: center;
             padding: 0 20px;
             color: rgba(255,255,255,0.6);
+            pointer-events: none;
         }
 
         .hint.visible {
@@ -142,10 +148,30 @@
             text-transform: uppercase;
             font-weight: bold;
             color: var(--accent-color);
+            text-align: center;
+            pointer-events: none;
         }
 
         .producer-info.visible {
             opacity: 0.9;
+        }
+
+        .mix-info {
+            position: fixed;
+            top: 70px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 12px;
+            letter-spacing: 2px;
+            opacity: 0;
+            transition: opacity 0.5s ease;
+            text-transform: uppercase;
+            color: rgba(255,255,255,0.6);
+            pointer-events: none;
+        }
+
+        .mix-info.visible {
+            opacity: 0.7;
         }
 
         .visualizer {
@@ -169,6 +195,7 @@
             opacity: 0;
             transition: opacity 0.5s ease;
             color: var(--accent-color);
+            pointer-events: none;
         }
 
         .sample-counter.visible {
@@ -183,6 +210,7 @@
             gap: 8px;
             opacity: 0;
             transition: opacity 0.5s ease;
+            pointer-events: none;
         }
 
         .audio-meters.visible {
@@ -270,14 +298,28 @@
             background: hsl(var(--primary-hue), 100%, 70%);
             transform: translateY(-2px);
         }
+
+        .matrix-rain {
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 2s ease;
+        }
+
+        .matrix-rain.active {
+            opacity: 0.15;
+        }
     </style>
 </head>
 <body>
+    <canvas id="matrix-rain" class="matrix-rain"></canvas>
     <canvas id="visualizer" class="visualizer"></canvas>
     <canvas id="waveform" class="waveform"></canvas>
     <div id="orb"></div>
     <div id="status" class="status"></div>
     <div id="producer-info" class="producer-info"></div>
+    <div id="mix-info" class="mix-info"></div>
     <div id="hint" class="hint">TAP TO START</div>
     <div id="sample-counter" class="sample-counter">0</div>
     
@@ -291,7 +333,7 @@
     <div id="permission-modal" class="permission-modal">
         <div class="permission-content">
             <h2>🎤 Microphone Access</h2>
-            <p>GUMP PRO needs microphone access to capture your audio samples for music creation.</p>
+            <p>GUMP PRO needs microphone access to capture your audio samples for professional music creation.</p>
             <button id="grant-permission" class="permission-btn">Enable Microphone</button>
         </div>
     </div>
@@ -306,15 +348,15 @@
                 this.isInitialized = false;
                 this.isRecording = false;
                 this.recordBuffer = [];
-                this.micPermissionState = 'unknown';
+                this.micStream = null;
                 
                 // Musical elements
                 this.samples = new Map();
                 this.loops = [];
                 this.drums = {};
                 
-                // Timing
-                this.bpm = 120;
+                // Professional timing
+                this.bpm = 85;
                 this.currentStep = 0;
                 this.nextStepTime = 0;
                 this.isPlaying = false;
@@ -325,21 +367,34 @@
                     style: 'minimal',
                     energy: 0.5,
                     complexity: 0.3,
-                    evolution: 0
+                    evolution: 0,
+                    mixEngine: {
+                        spatialPositions: new Map(),
+                        compressorSettings: new Map()
+                    },
+                    musicalAI: {
+                        arrangementSection: 'intro',
+                        tension: 0,
+                        phrasePosition: 0
+                    }
                 };
+                
+                // Mastering chain
+                this.masteringChain = {};
                 
                 // UI elements
                 this.orb = document.getElementById('orb');
                 this.status = document.getElementById('status');
                 this.producerInfo = document.getElementById('producer-info');
+                this.mixInfo = document.getElementById('mix-info');
                 this.hint = document.getElementById('hint');
                 this.sampleCounter = document.getElementById('sample-counter');
                 this.audioMeters = document.getElementById('audio-meters');
                 this.permissionModal = document.getElementById('permission-modal');
                 this.grantPermissionBtn = document.getElementById('grant-permission');
                 
-                // Setup
-                this.setupControls();
+                // Initialize
+                this.setupEventListeners();
                 this.showHint();
             }
 
@@ -347,249 +402,190 @@
                 setTimeout(() => this.hint.classList.add('visible'), 1000);
             }
 
-            setupControls() {
-                // Main tap control
-                this.orb.addEventListener('click', (e) => {
+            setupEventListeners() {
+                // Use unified event handling
+                const isTouchDevice = 'ontouchstart' in window;
+                const clickEvent = isTouchDevice ? 'touchend' : 'click';
+                
+                // Main orb interaction
+                this.orb.addEventListener(clickEvent, (e) => {
                     e.preventDefault();
-                    if (!this.isInitialized) {
-                        this.init();
-                    } else {
-                        this.toggleRecording();
-                    }
+                    e.stopPropagation();
+                    this.handleOrbTap();
                 });
 
-                // Permission modal
+                // Permission button
                 this.grantPermissionBtn.addEventListener('click', (e) => {
                     e.preventDefault();
                     this.requestMicrophonePermission();
                 });
 
-                // Long press to clear
+                // Long press detection
                 let longPressTimer;
-                this.orb.addEventListener('touchstart', (e) => {
+                const startEvent = isTouchDevice ? 'touchstart' : 'mousedown';
+                const endEvent = isTouchDevice ? 'touchend' : 'mouseup';
+                
+                this.orb.addEventListener(startEvent, (e) => {
                     e.preventDefault();
                     longPressTimer = setTimeout(() => {
                         if (this.isInitialized) {
                             this.clearAll();
-                            this.hapticFeedback(200);
+                            this.hapticFeedback([200, 50, 200]);
                         }
                     }, 1500);
                 });
 
-                this.orb.addEventListener('touchend', (e) => {
+                this.orb.addEventListener(endEvent, (e) => {
                     e.preventDefault();
                     clearTimeout(longPressTimer);
                 });
 
-                // Prevent scrolling
-                document.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
-            }
-
-            async checkPermissions() {
-                try {
-                    if ('permissions' in navigator) {
-                        const result = await navigator.permissions.query({ name: 'microphone' });
-                        this.micPermissionState = result.state;
-                        
-                        result.addEventListener('change', () => {
-                            this.micPermissionState = result.state;
-                            this.updatePermissionUI();
-                        });
+                // Double tap for style change
+                let lastTapTime = 0;
+                this.orb.addEventListener(clickEvent, (e) => {
+                    const currentTime = Date.now();
+                    const tapInterval = currentTime - lastTapTime;
+                    
+                    if (tapInterval < 300 && tapInterval > 50) {
+                        this.cycleProducerStyle();
                     }
-                    
-                    const constraints = {
-                        audio: {
-                            echoCancellation: false,
-                            noiseSuppression: false,
-                            autoGainControl: false
-                        }
-                    };
-                    
-                    const testStream = await navigator.mediaDevices.getUserMedia(constraints);
-                    testStream.getTracks().forEach(track => track.stop());
-                    this.micPermissionState = 'granted';
-                    return true;
-                    
-                } catch (error) {
-                    console.warn('Microphone permission check failed:', error);
-                    this.micPermissionState = 'denied';
-                    return false;
-                }
+                    lastTapTime = currentTime;
+                });
+
+                // Prevent default touch behaviors
+                document.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
+                document.addEventListener('gesturestart', (e) => e.preventDefault());
             }
 
-            async requestMicrophonePermission() {
-                try {
-                    this.permissionModal.classList.remove('visible');
-                    this.showStatus('REQUESTING PERMISSION...', 0);
-                    
-                    const constraints = {
-                        audio: {
-                            echoCancellation: false,
-                            noiseSuppression: false,
-                            autoGainControl: false
-                        }
-                    };
-                    
-                    const stream = await navigator.mediaDevices.getUserMedia(constraints);
-                    stream.getTracks().forEach(track => track.stop());
-                    
-                    this.micPermissionState = 'granted';
-                    this.orb.classList.remove('permission-denied');
-                    this.hideStatus();
-                    
-                    this.init();
-                    
-                } catch (error) {
-                    console.error('Permission denied:', error);
-                    this.micPermissionState = 'denied';
-                    this.showPermissionDeniedState();
-                }
-            }
-
-            showPermissionDeniedState() {
-                this.orb.classList.add('permission-denied');
-                this.showStatus('MICROPHONE ACCESS DENIED', 5000);
-                this.hint.textContent = 'ENABLE MIC IN BROWSER SETTINGS';
+            async handleOrbTap() {
+                console.log('Orb tapped - initialized:', this.isInitialized);
                 
-                setTimeout(() => {
-                    this.showStatus('CHECK BROWSER PERMISSION ICON', 3000);
-                }, 6000);
-            }
-
-            updatePermissionUI() {
-                if (this.micPermissionState === 'denied') {
-                    this.showPermissionDeniedState();
-                } else if (this.micPermissionState === 'granted') {
-                    this.orb.classList.remove('permission-denied');
+                if (!this.isInitialized) {
+                    await this.init();
+                } else {
+                    this.toggleRecording();
                 }
             }
 
             async init() {
                 try {
-                    const hasPermission = await this.checkPermissions();
+                    console.log('Initializing GUMP PRO...');
                     
-                    if (this.micPermissionState === 'prompt' || this.micPermissionState === 'unknown') {
-                        this.permissionModal.classList.add('visible');
-                        return;
-                    }
-                    
-                    if (!hasPermission) {
-                        this.showPermissionDeniedState();
-                        return;
-                    }
+                    // Create audio context first
+                    this.ctx = new (window.AudioContext || window.webkitAudioContext)({
+                        latencyHint: 'interactive',
+                        sampleRate: 48000
+                    });
 
-                    // Audio context
-                    this.ctx = new (window.AudioContext || window.webkitAudioContext)();
-
+                    // Resume context if suspended
                     if (this.ctx.state === 'suspended') {
                         await this.ctx.resume();
                     }
 
-                    // Build audio chain
-                    this.buildAudioChain();
+                    // Initialize audio components
+                    await this.initializeAudioComponents();
                     
-                    // Create drums
-                    this.createDrumKit();
+                    // Check mic permissions and setup
+                    const micReady = await this.setupMicrophone();
                     
-                    // Setup microphone
-                    await this.setupMicrophone();
-                    
-                    // Initialize visualizers
-                    this.initVisualizer();
-                    this.initWaveform();
-                    this.initAudioMeters();
-                    
+                    if (!micReady) {
+                        console.log('Mic not ready, showing permission modal');
+                        this.permissionModal.classList.add('visible');
+                        return;
+                    }
+
                     // Start sequencer
                     this.startSequencer();
                     
                     this.isInitialized = true;
                     this.hint.textContent = 'TAP TO SAMPLE';
-                    
                     this.showStatus('GUMP PRO READY', 2000);
                     this.hapticFeedback(50);
 
                 } catch (err) {
                     console.error('Initialization failed:', err);
-                    this.showStatus('FAILED TO INITIALIZE', 3000);
-                    this.showPermissionDeniedState();
+                    this.showStatus('INIT FAILED', 3000);
                 }
             }
 
-            buildAudioChain() {
+            async initializeAudioComponents() {
                 // Master bus
-                this.masterGain = this.ctx.createGain();
-                this.masterGain.gain.value = 0.9;
+                this.masterBus = this.ctx.createGain();
+                this.masterBus.gain.value = 0.9;
                 
-                // Compressor
-                this.masterCompressor = this.ctx.createDynamicsCompressor();
-                this.masterCompressor.threshold.value = -10;
-                this.masterCompressor.knee.value = 4;
-                this.masterCompressor.ratio.value = 4;
-                this.masterCompressor.attack.value = 0.003;
-                this.masterCompressor.release.value = 0.1;
+                // Simple compressor as limiter
+                this.limiter = this.ctx.createDynamicsCompressor();
+                this.limiter.threshold.value = -1;
+                this.limiter.knee.value = 0;
+                this.limiter.ratio.value = 20;
+                this.limiter.attack.value = 0.003;
+                this.limiter.release.value = 0.1;
                 
                 // Connect master chain
-                this.masterGain.connect(this.masterCompressor);
-                this.masterCompressor.connect(this.ctx.destination);
+                this.masterBus.connect(this.limiter);
+                this.limiter.connect(this.ctx.destination);
                 
-                // Sub-busses
+                // Create buses
                 this.drumBus = this.ctx.createGain();
                 this.drumBus.gain.value = 0.8;
-                this.drumBus.connect(this.masterGain);
+                this.drumBus.connect(this.masterBus);
                 
                 this.sampleBus = this.ctx.createGain();
                 this.sampleBus.gain.value = 0.7;
-                this.sampleBus.connect(this.masterGain);
+                this.sampleBus.connect(this.masterBus);
                 
-                // Effects
-                this.reverb = this.createReverb();
-                this.delay = this.createDelay();
+                // Create reverb send
+                this.reverbSend = this.ctx.createGain();
+                this.reverbSend.gain.value = 0;
                 
-                // Analyzer
-                this.analyzer = this.ctx.createAnalyser();
-                this.analyzer.fftSize = 2048;
-                this.analyzer.smoothingTimeConstant = 0.85;
-                this.masterCompressor.connect(this.analyzer);
+                // Simple reverb using delay
+                this.reverb = this.createSimpleReverb();
+                this.reverbSend.connect(this.reverb.input);
+                this.reverb.output.connect(this.masterBus);
+                
+                // Create analyzer
+                this.masteringChain.analyzer = this.ctx.createAnalyser();
+                this.masteringChain.analyzer.fftSize = 2048;
+                this.limiter.connect(this.masteringChain.analyzer);
+                
+                // Create drums
+                this.createDrumKit();
+                
+                // Initialize visualizers
+                this.initVisualizers();
             }
 
-            createReverb() {
-                const convolver = this.ctx.createConvolver();
-                const length = this.ctx.sampleRate * 2;
-                const impulse = this.ctx.createBuffer(2, length, this.ctx.sampleRate);
+            createSimpleReverb() {
+                const input = this.ctx.createGain();
+                const output = this.ctx.createGain();
+                output.gain.value = 0.4;
                 
-                for (let channel = 0; channel < 2; channel++) {
-                    const channelData = impulse.getChannelData(channel);
-                    for (let i = 0; i < length; i++) {
-                        channelData[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / length, 2);
-                    }
-                }
+                const delays = [];
+                const times = [0.03, 0.05, 0.07, 0.09];
+                const gains = [0.7, 0.5, 0.3, 0.2];
                 
-                convolver.buffer = impulse;
+                times.forEach((time, i) => {
+                    const delay = this.ctx.createDelay(time);
+                    delay.delayTime.value = time;
+                    
+                    const gain = this.ctx.createGain();
+                    gain.gain.value = gains[i];
+                    
+                    const feedback = this.ctx.createGain();
+                    feedback.gain.value = 0.5;
+                    
+                    input.connect(delay);
+                    delay.connect(gain);
+                    gain.connect(output);
+                    
+                    // Feedback loop
+                    delay.connect(feedback);
+                    feedback.connect(delay);
+                    
+                    delays.push({ delay, gain, feedback });
+                });
                 
-                const wetGain = this.ctx.createGain();
-                wetGain.gain.value = 0.2;
-                convolver.connect(wetGain);
-                wetGain.connect(this.masterGain);
-                
-                return convolver;
-            }
-
-            createDelay() {
-                const delay = this.ctx.createDelay();
-                delay.delayTime.value = 60 / this.bpm / 4; // 16th note delay
-                
-                const feedback = this.ctx.createGain();
-                feedback.gain.value = 0.4;
-                
-                const wetGain = this.ctx.createGain();
-                wetGain.gain.value = 0.15;
-                
-                delay.connect(feedback);
-                feedback.connect(delay);
-                delay.connect(wetGain);
-                wetGain.connect(this.masterGain);
-                
-                return delay;
+                return { input, output, delays };
             }
 
             createDrumKit() {
@@ -610,7 +606,7 @@
                 
                 for (let i = 0; i < data.length; i++) {
                     const t = i / sampleRate;
-                    const envelope = Math.exp(-5 * t);
+                    const envelope = Math.exp(-35 * t);
                     const pitch = 60 * Math.exp(-35 * t);
                     data[i] = Math.sin(2 * Math.PI * pitch * t) * envelope;
                 }
@@ -626,7 +622,7 @@
                 
                 for (let i = 0; i < data.length; i++) {
                     const t = i / sampleRate;
-                    const envelope = Math.exp(-30 * t);
+                    const envelope = Math.exp(-35 * t);
                     const tone = Math.sin(2 * Math.PI * 200 * t) * 0.5;
                     const noise = (Math.random() * 2 - 1) * 0.5;
                     data[i] = (tone + noise) * envelope;
@@ -636,7 +632,7 @@
             }
 
             synthesizeHihat() {
-                const duration = 0.05;
+                const duration = 0.1;
                 const sampleRate = this.ctx.sampleRate;
                 const buffer = this.ctx.createBuffer(1, duration * sampleRate, sampleRate);
                 const data = buffer.getChannelData(0);
@@ -644,7 +640,7 @@
                 for (let i = 0; i < data.length; i++) {
                     const t = i / sampleRate;
                     const envelope = Math.exp(-100 * t);
-                    data[i] = (Math.random() * 2 - 1) * envelope * 0.8;
+                    data[i] = (Math.random() * 2 - 1) * envelope * 0.3;
                 }
                 
                 return buffer;
@@ -658,8 +654,8 @@
                 
                 for (let i = 0; i < data.length; i++) {
                     const t = i / sampleRate;
-                    const envelope = Math.exp(-10 * t);
-                    data[i] = (Math.random() * 2 - 1) * envelope * 0.6;
+                    const envelope = Math.exp(-5 * t);
+                    data[i] = (Math.random() * 2 - 1) * envelope * 0.3;
                 }
                 
                 return buffer;
@@ -671,11 +667,21 @@
                 const buffer = this.ctx.createBuffer(1, duration * sampleRate, sampleRate);
                 const data = buffer.getChannelData(0);
                 
+                const clapTimes = [0, 0.01, 0.013, 0.02];
+                
                 for (let i = 0; i < data.length; i++) {
                     const t = i / sampleRate;
-                    const envelope = Math.exp(-50 * t);
-                    const clap = (Math.random() * 2 - 1) * envelope * 0.7;
-                    data[i] = clap;
+                    let sample = 0;
+                    
+                    clapTimes.forEach(clapTime => {
+                        if (t >= clapTime) {
+                            const localTime = t - clapTime;
+                            const env = Math.exp(-50 * localTime);
+                            sample += (Math.random() * 2 - 1) * env * 0.3;
+                        }
+                    });
+                    
+                    data[i] = sample;
                 }
                 
                 return buffer;
@@ -683,6 +689,8 @@
 
             async setupMicrophone() {
                 try {
+                    console.log('Setting up microphone...');
+                    
                     const constraints = {
                         audio: {
                             echoCancellation: false,
@@ -691,28 +699,58 @@
                         }
                     };
                     
-                    const stream = await navigator.mediaDevices.getUserMedia(constraints);
-                    this.micSource = this.ctx.createMediaStreamSource(stream);
+                    this.micStream = await navigator.mediaDevices.getUserMedia(constraints);
                     
+                    this.micSource = this.ctx.createMediaStreamSource(this.micStream);
+                    this.recordGain = this.ctx.createGain();
+                    this.recordGain.gain.value = 1;
+                    
+                    // Create processor
                     this.recorder = this.ctx.createScriptProcessor(4096, 1, 1);
                     this.recorder.onaudioprocess = (e) => {
                         if (this.isRecording) {
                             const inputData = e.inputBuffer.getChannelData(0);
                             this.recordBuffer.push(...inputData);
                             
-                            if (this.recordBuffer.length > this.ctx.sampleRate * 8) {
+                            if (this.recordBuffer.length > this.ctx.sampleRate * 10) {
                                 this.stopRecording();
                             }
                         }
                     };
                     
+                    console.log('Microphone setup successful');
+                    return true;
+                    
                 } catch (err) {
-                    console.warn('Microphone setup failed:', err);
-                    throw err;
+                    console.error('Microphone setup failed:', err);
+                    return false;
                 }
             }
 
-            initVisualizer() {
+            async requestMicrophonePermission() {
+                try {
+                    this.permissionModal.classList.remove('visible');
+                    this.showStatus('REQUESTING PERMISSION...', 0);
+                    
+                    const micReady = await this.setupMicrophone();
+                    
+                    if (micReady) {
+                        this.hideStatus();
+                        this.init();
+                    } else {
+                        this.showStatus('PERMISSION DENIED', 3000);
+                        this.orb.classList.add('permission-denied');
+                    }
+                    
+                } catch (error) {
+                    console.error('Permission request failed:', error);
+                    this.showStatus('PERMISSION DENIED', 3000);
+                    this.orb.classList.add('permission-denied');
+                }
+            }
+
+            initVisualizers() {
+                // Simple analyzer setup
                 const canvas = document.getElementById('visualizer');
                 const ctx = canvas.getContext('2d');
                 
@@ -726,64 +764,47 @@
                 this.visualizerCtx = ctx;
                 this.visualizerCanvas = canvas;
                 
+                // Start animation
                 this.animateVisualizer();
-            }
-
-            initWaveform() {
-                const canvas = document.getElementById('waveform');
-                const ctx = canvas.getContext('2d');
                 
-                const resize = () => {
-                    canvas.width = window.innerWidth;
-                    canvas.height = 60;
-                };
-                resize();
-                window.addEventListener('resize', resize);
-                
-                this.waveformCtx = ctx;
-                this.waveformCanvas = canvas;
-                
-                this.animateWaveform();
-            }
-
-            initAudioMeters() {
+                // Meters
                 this.meterFills = Array.from(document.querySelectorAll('.meter-fill'));
-                this.updateMeters();
+                this.animateMeters();
             }
 
             animateVisualizer() {
-                if (!this.analyzer) {
-                    requestAnimationFrame(() => this.animateVisualizer());
-                    return;
-                }
-                
-                const canvas = this.visualizerCanvas;
-                const ctx = this.visualizerCtx;
-                const bufferLength = this.analyzer.frequencyBinCount;
-                const dataArray = new Uint8Array(bufferLength);
-                
                 const draw = () => {
                     requestAnimationFrame(draw);
                     
-                    this.analyzer.getByteFrequencyData(dataArray);
+                    if (!this.masteringChain.analyzer || !this.isInitialized) return;
                     
-                    ctx.fillStyle = 'rgba(10, 10, 10, 0.1)';
+                    const analyzer = this.masteringChain.analyzer;
+                    const bufferLength = analyzer.frequencyBinCount;
+                    const dataArray = new Uint8Array(bufferLength);
+                    analyzer.getByteFrequencyData(dataArray);
+                    
+                    const ctx = this.visualizerCtx;
+                    const canvas = this.visualizerCanvas;
+                    
+                    ctx.fillStyle = 'rgba(10, 10, 10, 0.2)';
                     ctx.fillRect(0, 0, canvas.width, canvas.height);
                     
-                    const barWidth = canvas.width / bufferLength * 2.5;
+                    const barWidth = canvas.width / 64;
                     let x = 0;
                     
-                    for (let i = 0; i < bufferLength; i++) {
-                        const barHeight = dataArray[i] / 255 * canvas.height * 0.7;
-                        const hue = i / bufferLength * 360;
+                    for (let i = 0; i < 64; i++) {
+                        const dataIndex = Math.floor(i * bufferLength / 64);
+                        const value = dataArray[dataIndex];
+                        const height = (value / 255) * canvas.height * 0.7;
+                        const hue = (i / 64) * 120 + 200;
                         
-                        ctx.fillStyle = `hsl(${hue}, 70%, 50%)`;
-                        ctx.fillRect(x, canvas.height - barHeight, barWidth, barHeight);
+                        ctx.fillStyle = `hsla(${hue}, 70%, 50%, 0.8)`;
+                        ctx.fillRect(x, canvas.height - height, barWidth - 2, height);
                         
-                        x += barWidth + 1;
+                        x += barWidth;
                     }
                     
-                    const hasAudio = dataArray.some(value => value > 10);
+                    const hasAudio = dataArray.some(v => v > 10);
                     if (hasAudio) {
                         canvas.classList.add('active');
                     }
@@ -792,81 +813,43 @@
                 draw();
             }
 
-            animateWaveform() {
-                if (!this.analyzer) {
-                    requestAnimationFrame(() => this.animateWaveform());
-                    return;
-                }
-                
-                const canvas = this.waveformCanvas;
-                const ctx = this.waveformCtx;
-                const bufferLength = this.analyzer.fftSize;
-                const dataArray = new Float32Array(bufferLength);
-                
-                const draw = () => {
-                    requestAnimationFrame(draw);
-                    
-                    if (this.loops.length === 0) return;
-                    
-                    this.analyzer.getFloatTimeDomainData(dataArray);
-                    
-                    ctx.fillStyle = 'rgba(10, 10, 10, 0.2)';
-                    ctx.fillRect(0, 0, canvas.width, canvas.height);
-                    
-                    ctx.lineWidth = 2;
-                    ctx.strokeStyle = `hsl(${200 + this.producer.evolution * 160}, 70%, 60%)`;
-                    ctx.beginPath();
-                    
-                    const sliceWidth = canvas.width / bufferLength;
-                    let x = 0;
-                    
-                    for (let i = 0; i < bufferLength; i++) {
-                        const v = dataArray[i];
-                        const y = (v + 1) / 2 * canvas.height;
-                        
-                        if (i === 0) {
-                            ctx.moveTo(x, y);
-                        } else {
-                            ctx.lineTo(x, y);
-                        }
-                        
-                        x += sliceWidth;
-                    }
-                    
-                    ctx.stroke();
-                    canvas.classList.add('visible');
-                };
-                
-                draw();
-            }
-
-            updateMeters() {
-                if (!this.analyzer || !this.meterFills) {
-                    requestAnimationFrame(() => this.updateMeters());
-                    return;
-                }
-                
+            animateMeters() {
                 const update = () => {
                     requestAnimationFrame(update);
                     
-                    const bufferLength = this.analyzer.frequencyBinCount;
-                    const dataArray = new Uint8Array(bufferLength);
-                    this.analyzer.getByteFrequencyData(dataArray);
+                    if (!this.masteringChain.analyzer || !this.isInitialized) return;
                     
+                    const analyzer = this.masteringChain.analyzer;
+                    const bufferLength = analyzer.frequencyBinCount;
+                    const dataArray = new Uint8Array(bufferLength);
+                    analyzer.getByteFrequencyData(dataArray);
+                    
+                    // Simple 4-band meter
                     const bands = [
-                        dataArray.slice(0, bufferLength / 16),
-                        dataArray.slice(bufferLength / 16, bufferLength / 8),
-                        dataArray.slice(bufferLength / 8, bufferLength / 2),
-                        dataArray.slice(bufferLength / 2, bufferLength)
+                        { start: 0, end: 0.1 },
+                        { start: 0.1, end: 0.3 },
+                        { start: 0.3, end: 0.6 },
+                        { start: 0.6, end: 1.0 }
                     ];
                     
-                    bands.forEach((band, index) => {
-                        const average = band.reduce((sum, value) => sum + value, 0) / band.length;
-                        const level = Math.min(100, (average / 255) * 130);
-                        this.meterFills[index].style.height = level + '%';
+                    bands.forEach((band, i) => {
+                        const startIdx = Math.floor(band.start * bufferLength);
+                        const endIdx = Math.floor(band.end * bufferLength);
+                        
+                        let sum = 0;
+                        for (let j = startIdx; j < endIdx; j++) {
+                            sum += dataArray[j];
+                        }
+                        
+                        const avg = sum / (endIdx - startIdx);
+                        const height = (avg / 255) * 100;
+                        
+                        if (this.meterFills[i]) {
+                            this.meterFills[i].style.height = height + '%';
+                        }
                     });
                     
-                    const hasAudio = dataArray.some(value => value > 5);
+                    const hasAudio = dataArray.some(v => v > 5);
                     if (hasAudio) {
                         this.audioMeters.classList.add('visible');
                     }
@@ -876,7 +859,7 @@
             }
 
             startSequencer() {
-                const stepTime = 60 / this.bpm / 4; // 16th notes
+                const stepTime = 60 / this.bpm / 4;
                 this.nextStepTime = this.ctx.currentTime;
                 this.isPlaying = true;
                 
@@ -902,7 +885,7 @@
             }
 
             scheduleStep(time, step) {
-                if (this.loops.length === 0 && !this.producer.active) return;
+                if (!this.producer.active) return;
                 
                 const patterns = this.getPatterns();
                 
@@ -913,7 +896,7 @@
                 });
                 
                 if (step === 0 && this.loops.length > 0) {
-                    this.playSamples(time);
+                    this.playLoops(time);
                 }
                 
                 if (step % 4 === 0) {
@@ -930,10 +913,21 @@
                         hihat: [0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0]
                     },
                     groovy: {
-                        kick: [1, 0, 0, 0.5, 0, 0, 1, 0, 0.7, 0, 0, 0, 0, 0, 0.5, 0],
-                        snare: [0, 0, 0, 0, 1, 0, 0, 0.3, 0, 0, 0, 0, 1, 0, 0, 0],
-                        hihat: [0.7, 0.5, 1, 0.5, 0.7, 0.5, 1, 0.5, 0.7, 0.5, 1, 0.5, 0.7, 0.5, 1, 0.5],
-                        openhat: [0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0]
+                        kick: [1, 0, 0, 0.3, 0, 0, 1, 0, 0.5, 0, 0, 0, 0, 0, 0.3, 0],
+                        snare: [0, 0, 0, 0, 1, 0, 0, 0.3, 0, 0.5, 0, 0, 1, 0, 0, 0],
+                        hihat: [0.7, 0.3, 1, 0.3, 0.7, 0.3, 1, 0.3, 0.7, 0.3, 1, 0.3, 0.7, 0.3, 1, 0.3],
+                        openhat: [0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0.7]
+                    },
+                    aggressive: {
+                        kick: [1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0],
+                        snare: [0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0.5, 0],
+                        hihat: [1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 0, 1, 0],
+                        clap: [0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0]
+                    },
+                    atmospheric: {
+                        kick: [1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0],
+                        snare: [0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0],
+                        hihat: [0.3, 0, 0.5, 0, 0.3, 0, 0.5, 0, 0.3, 0, 0.5, 0, 0.3, 0, 0.5, 0]
                     }
                 };
                 
@@ -944,59 +938,44 @@
                 if (!this.drums[drum]) return;
                 
                 const source = this.ctx.createBufferSource();
-                const gainNode = this.ctx.createGain();
+                const gain = this.ctx.createGain();
                 
                 source.buffer = this.drums[drum];
-                gainNode.gain.value = velocity * 0.8;
+                gain.gain.value = velocity * 0.8;
                 
-                source.connect(gainNode);
-                gainNode.connect(this.drumBus);
+                source.connect(gain);
+                gain.connect(this.drumBus);
                 
-                // Add reverb send for snare
+                // Send to reverb
                 if (drum === 'snare' || drum === 'clap') {
-                    const reverbSend = this.ctx.createGain();
-                    reverbSend.gain.value = 0.2;
-                    gainNode.connect(reverbSend);
-                    reverbSend.connect(this.reverb);
+                    const reverbGain = this.ctx.createGain();
+                    reverbGain.gain.value = 0.2;
+                    gain.connect(reverbGain);
+                    reverbGain.connect(this.reverbSend);
                 }
                 
                 source.start(time);
             }
 
-            playSamples(time) {
-                this.loops.forEach((loop, index) => {
+            playLoops(time) {
+                this.loops.forEach(loop => {
                     if (loop.source) {
                         loop.source.stop(time);
                     }
                     
                     const source = this.ctx.createBufferSource();
-                    const gainNode = this.ctx.createGain();
-                    
                     source.buffer = loop.buffer;
                     source.loop = true;
                     
-                    // Reduce gain for older samples
-                    gainNode.gain.value = 0.8 - (index * 0.1);
+                    const gain = this.ctx.createGain();
+                    gain.gain.value = 0.7;
                     
-                    source.connect(gainNode);
-                    gainNode.connect(this.sampleBus);
-                    
-                    // Add effects
-                    if (this.producer.active && this.producer.complexity > 0.5) {
-                        const delaySend = this.ctx.createGain();
-                        delaySend.gain.value = 0.2;
-                        gainNode.connect(delaySend);
-                        delaySend.connect(this.delay);
-                    }
+                    source.connect(gain);
+                    gain.connect(this.sampleBus);
                     
                     source.start(time);
                     loop.source = source;
                 });
-            }
-
-            visualBeat() {
-                this.orb.classList.add('beat');
-                setTimeout(() => this.orb.classList.remove('beat'), 100);
             }
 
             updateProducer() {
@@ -1004,21 +983,35 @@
                 
                 this.producer.evolution = Math.min(1, this.producer.evolution + 0.02);
                 
-                if (this.loops.length > 0) {
-                    this.producer.energy = 0.3 + (this.loops.length / 8) * 0.5;
-                    this.producer.complexity = Math.min(0.8, this.loops.length / 6);
-                }
+                // Update UI
+                const style = this.producer.style.toUpperCase();
+                const section = this.producer.musicalAI.arrangementSection.toUpperCase();
                 
-                // Change style occasionally
-                if (Math.random() < 0.1) {
-                    this.producer.style = this.producer.complexity > 0.5 ? 'groovy' : 'minimal';
-                    this.showStatus(`STYLE: ${this.producer.style.toUpperCase()}`, 1500);
-                }
+                this.producerInfo.textContent = `AI: ${style}`;
+                this.mixInfo.textContent = section;
                 
-                this.producerInfo.textContent = `AI: ${this.producer.style.toUpperCase()}`;
-                if (this.producer.active) {
-                    this.producerInfo.classList.add('visible');
-                }
+                this.producerInfo.classList.add('visible');
+                this.mixInfo.classList.add('visible');
+                
+                // Update reverb amount
+                this.reverbSend.gain.value = 0.1 + this.producer.evolution * 0.2;
+            }
+
+            visualBeat() {
+                this.orb.classList.add('beat');
+                setTimeout(() => this.orb.classList.remove('beat'), 100);
+            }
+
+            cycleProducerStyle() {
+                if (!this.producer.active) return;
+                
+                const styles = ['minimal', 'groovy', 'aggressive', 'atmospheric'];
+                const currentIndex = styles.indexOf(this.producer.style);
+                const nextIndex = (currentIndex + 1) % styles.length;
+                
+                this.producer.style = styles[nextIndex];
+                this.showStatus(`STYLE: ${this.producer.style.toUpperCase()}`, 2000);
+                this.hapticFeedback([50, 50]);
             }
 
             toggleRecording() {
@@ -1040,10 +1033,11 @@
                 this.orb.classList.add('recording');
                 this.showStatus('RECORDING...', 0);
                 
-                this.micSource.connect(this.recorder);
+                this.micSource.connect(this.recordGain);
+                this.recordGain.connect(this.recorder);
                 this.recorder.connect(this.ctx.destination);
                 
-                this.hapticFeedback(50);
+                this.hapticFeedback([50, 50, 50]);
             }
 
             stopRecording() {
@@ -1051,7 +1045,8 @@
                 this.orb.classList.remove('recording');
                 
                 try {
-                    this.micSource.disconnect(this.recorder);
+                    this.micSource.disconnect();
+                    this.recordGain.disconnect();
                     this.recorder.disconnect();
                 } catch (e) {}
                 
@@ -1063,15 +1058,13 @@
             }
 
             processSample() {
-                const rawBuffer = this.ctx.createBuffer(1, this.recordBuffer.length, this.ctx.sampleRate);
-                rawBuffer.getChannelData(0).set(this.recordBuffer);
-                
-                const processedBuffer = this.transformSample(rawBuffer);
+                const buffer = this.ctx.createBuffer(1, this.recordBuffer.length, this.ctx.sampleRate);
+                buffer.getChannelData(0).set(this.recordBuffer);
                 
                 const loop = {
-                    buffer: processedBuffer,
-                    source: null,
-                    timestamp: this.ctx.currentTime
+                    id: Date.now(),
+                    buffer: buffer,
+                    source: null
                 };
                 
                 this.loops.push(loop);
@@ -1086,50 +1079,27 @@
                 this.sampleCounter.textContent = this.loops.length;
                 this.sampleCounter.classList.add('visible');
                 
-                if (this.loops.length === 1) {
+                if (this.loops.length === 1 && !this.producer.active) {
                     this.activateProducer();
                 }
                 
-                this.showStatus(`SAMPLE ${this.loops.length} CAPTURED`, 1500);
-                this.hapticFeedback(100);
-            }
-
-            transformSample(inputBuffer) {
-                const inputData = inputBuffer.getChannelData(0);
-                const duration = Math.min(inputBuffer.duration, 8);
-                const outputLength = Math.floor(duration * this.ctx.sampleRate);
-                
-                const outputBuffer = this.ctx.createBuffer(1, outputLength, this.ctx.sampleRate);
-                const outputData = outputBuffer.getChannelData(0);
-                
-                for (let i = 0; i < outputLength; i++) {
-                    let sample = inputData[i] || 0;
-                    
-                    // Normalize
-                    sample = Math.tanh(sample * 2) * 0.8;
-                    
-                    // Fade in/out
-                    const fadeLength = Math.min(1000, outputLength / 20);
-                    if (i < fadeLength) {
-                        sample *= i / fadeLength;
-                    } else if (i > outputLength - fadeLength) {
-                        sample *= (outputLength - i) / fadeLength;
-                    }
-                    
-                    outputData[i] = sample;
-                }
-                
-                return outputBuffer;
+                this.showStatus(`SAMPLE ${this.loops.length}`, 1500);
+                this.hapticFeedback([100, 50]);
             }
 
             activateProducer() {
                 this.producer.active = true;
-                this.producer.style = 'minimal';
-                this.producer.energy = 0.4;
-                this.producer.complexity = 0.2;
-                
                 this.orb.classList.add('ai-active');
-                this.showStatus('AI PRODUCER ACTIVE', 2000);
+                this.showStatus('AI PRODUCER ACTIVATED', 2000);
+                
+                // Initialize spatial positions
+                const drums = ['kick', 'snare', 'hihat', 'openhat', 'clap'];
+                drums.forEach((drum, i) => {
+                    this.producer.mixEngine.spatialPositions.set(drum, {
+                        gain: 1,
+                        pan: (i / drums.length - 0.5) * 0.5
+                    });
+                });
             }
 
             clearAll() {
@@ -1138,16 +1108,16 @@
                         loop.source.stop();
                     }
                 });
-                this.loops = [];
                 
+                this.loops = [];
                 this.producer.active = false;
                 this.producer.evolution = 0;
                 
                 this.orb.classList.remove('ai-active');
                 this.producerInfo.classList.remove('visible');
+                this.mixInfo.classList.remove('visible');
                 this.sampleCounter.textContent = '0';
                 this.sampleCounter.classList.remove('visible');
-                this.audioMeters.classList.remove('visible');
                 
                 this.showStatus('CLEARED', 1500);
             }
@@ -1172,8 +1142,11 @@
             }
         }
 
-        // Initialize GUMP PRO
+        // Initialize
         const gump = new GUMPPro();
+        
+        // Debug info
+        console.log('GUMP PRO initialized');
     </script>
 </body>
 </html>
