@@ -1351,16 +1351,21 @@
             playBassNote(note, time = this.ctx.currentTime, duration = 1.0) {
                 const freq = this.noteToFreq(note);
                
-                // Main oscillator
-                const osc = this.ctx.createOscillator();
-                osc.type = 'sawtooth';
-                osc.frequency.value = freq;
+                // Carrier oscillator
+                const carrier = this.ctx.createOscillator();
+                carrier.type = 'sawtooth';
+                carrier.frequency.value = freq;
 
-                // Second oscillator for thickness
-                const osc2 = this.ctx.createOscillator();
-                osc2.type = 'square';
-                osc2.frequency.value = freq * 0.5;
-                osc2.detune.value = 5;
+                // Modulator for wobble
+                const modulator = this.ctx.createOscillator();
+                modulator.type = 'sine';
+                modulator.frequency.value = 0.5 + this.aiProducer.energy * 10; // Wobble rate based on energy
+
+                const modGain = this.ctx.createGain();
+                modGain.gain.value = 50 + this.aiProducer.energy * 200; // Mod depth
+
+                modulator.connect(modGain);
+                modGain.connect(carrier.frequency);
 
                 // Filter
                 const filter = this.ctx.createBiquadFilter();
@@ -1382,8 +1387,7 @@
                 env.gain.exponentialRampToValueAtTime(0.001, time + duration);
 
                 // Connect
-                osc.connect(filter);
-                osc2.connect(filter);
+                carrier.connect(filter);
                 filter.connect(dist);
                 dist.connect(env);
                 env.connect(this.nodes.bassBus);
@@ -1399,12 +1403,12 @@
                 this.nodes.subSubGain.gain.exponentialRampToValueAtTime(0.001, time + duration * 1.5);
 
                 // Start/stop
-                osc.start(time);
-                osc2.start(time);
-                osc.stop(time + duration);
-                osc2.stop(time + duration);
+                modulator.start(time);
+                carrier.start(time);
+                modulator.stop(time + duration);
+                carrier.stop(time + duration);
 
-                return { osc, osc2 };
+                return { carrier, modulator };
             }
 
             createLeadSynth() {
@@ -1503,7 +1507,7 @@
                             echoCancellation: false,
                             noiseSuppression: false,
                             autoGainControl: false,
-                            sampleRate: 48000
+                            sampleRate: this.ctx.sampleRate // Match context sample rate
                         }
                     });
                     this.micSource = this.ctx.createMediaStreamSource(stream);
@@ -1529,6 +1533,7 @@
                 } catch (error) {
                     console.warn('Microphone access denied:', error);
                     // Continue without mic
+                    alert('Microphone access is required for recording samples. Please allow access.');
                 }
             }
 
