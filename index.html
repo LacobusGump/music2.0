@@ -3,15 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-    <title>GUMP: Advanced Engine</title>
+    <title>GUMP: Meta Engine</title>
     <style>
         :root {
             --phi: 1.618033988749895;
-            --bg: #000000;
-            --surface: #0a0a0a;
-            --accent: #ff00ff;
-            --text: rgba(255,255,255,0.05);
-            --glow: rgba(255,0,255,0.3);
+            --bg: #000;
+            --glow: #ff00ff;
         }
         
         * {
@@ -23,1233 +20,784 @@
         
         body {
             background: var(--bg);
-            color: var(--text);
             overflow: hidden;
-            touch-action: none;
             height: 100vh;
-            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+            font-family: -apple-system, sans-serif;
             font-weight: 100;
-            letter-spacing: 0.1em;
+            cursor: none;
         }
         
-        /* Fibonacci Layout Grid */
-        .fib-container {
+        /* Custom Cursor */
+        .cursor {
             position: fixed;
-            inset: 0;
-            display: grid;
-            grid-template-columns: 1fr calc(1fr * var(--phi));
-            grid-template-rows: 1fr calc(1fr * var(--phi));
-            gap: 1px;
-            padding: 13px;
+            width: 20px;
+            height: 20px;
+            border: 1px solid var(--glow);
+            border-radius: 50%;
+            pointer-events: none;
+            z-index: 10000;
+            mix-blend-mode: screen;
+            transition: transform 0.1s ease;
         }
         
-        /* Start Overlay */
-        .start-overlay {
+        .cursor-trail {
+            position: fixed;
+            width: 40px;
+            height: 40px;
+            background: radial-gradient(circle, var(--glow) 0%, transparent 70%);
+            border-radius: 50%;
+            pointer-events: none;
+            opacity: 0.2;
+            z-index: 9999;
+        }
+        
+        /* Fibonacci Spiral Layout */
+        .fibonacci-container {
             position: fixed;
             inset: 0;
-            background: var(--bg);
             display: flex;
             align-items: center;
             justify-content: center;
-            z-index: 9999;
-            transition: opacity 1s cubic-bezier(0.4, 0, 0.2, 1);
         }
         
-        .start-orb {
+        .golden-rect {
+            position: absolute;
+            border: 1px solid rgba(255,0,255,0.1);
+            pointer-events: none;
+        }
+        
+        /* Core Orb - Center of Spiral */
+        .core-orb {
             width: 233px;
             height: 233px;
+            position: absolute;
+            top: 50%;
+            left: 38.2%;
+            transform: translate(-50%, -50%);
+            cursor: pointer;
+            z-index: 100;
+        }
+        
+        .orb-inner {
+            width: 100%;
+            height: 100%;
             border-radius: 50%;
             background: radial-gradient(circle at 38.2% 38.2%,
-                var(--glow) 0%,
-                transparent 61.8%);
-            cursor: pointer;
-            transition: all 0.3s ease;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            position: relative;
+                rgba(255,255,255,0.2) 0%,
+                var(--glow) 23.6%,
+                rgba(255,0,255,0.5) 38.2%,
+                rgba(138,0,255,0.3) 61.8%,
+                transparent 100%);
+            box-shadow: 0 0 100px var(--glow),
+                       inset 0 0 50px rgba(255,255,255,0.2);
+            animation: breathe 4s ease-in-out infinite;
         }
         
-        .start-orb::before {
-            content: '';
+        @keyframes breathe {
+            0%, 100% { transform: scale(1) rotate(0deg); filter: brightness(1); }
+            50% { transform: scale(1.05) rotate(180deg); filter: brightness(1.3); }
+        }
+        
+        .orb-ring {
             position: absolute;
-            inset: -21px;
+            inset: -20px;
             border-radius: 50%;
-            background: conic-gradient(from 0deg, transparent, var(--accent), transparent);
-            animation: spin 8s linear infinite;
-            opacity: 0.2;
-        }
-        
-        .start-orb:hover {
-            transform: scale(1.1);
-            box-shadow: 0 0 89px var(--accent);
+            background: conic-gradient(from 0deg,
+                transparent,
+                var(--glow),
+                transparent,
+                var(--glow),
+                transparent);
+            animation: spin 10s linear infinite;
+            opacity: 0.5;
         }
         
         @keyframes spin {
             100% { transform: rotate(360deg); }
         }
         
-        /* Main Orb */
-        .orb-container {
-            grid-column: 2;
-            grid-row: 1;
+        /* Sample Nodes - Fibonacci Positions */
+        .sample-node {
+            position: absolute;
+            width: 55px;
+            height: 55px;
+            border-radius: 50%;
+            background: radial-gradient(circle at center,
+                rgba(255,0,255,0.2) 0%,
+                transparent 61.8%);
+            border: 1px solid rgba(255,0,255,0.3);
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
             display: flex;
             align-items: center;
             justify-content: center;
-        }
-        
-        #mainOrb {
-            width: 144px;
-            height: 144px;
-            border-radius: 50%;
-            background: radial-gradient(circle at 38.2% 38.2%,
-                rgba(255,255,255,0.1) 0%,
-                var(--accent) 38.2%,
-                transparent 100%);
-            cursor: pointer;
-            transition: all 0.2s ease;
-            position: relative;
-        }
-        
-        #mainOrb.active {
-            box-shadow: 0 0 144px var(--accent),
-                       inset 0 0 34px rgba(255,255,255,0.3);
-            animation: breathe 2s ease-in-out infinite;
-        }
-        
-        @keyframes breathe {
-            0%, 100% { transform: scale(1); }
-            50% { transform: scale(1.05); }
-        }
-        
-        #mainOrb.listening {
-            background: radial-gradient(circle at 38.2% 38.2%,
-                rgba(0,255,0,0.2) 0%,
-                #00ff00 38.2%,
-                transparent 100%);
-        }
-        
-        /* Visualizer */
-        .viz-container {
-            grid-column: 1;
-            grid-row: 1 / -1;
-            position: relative;
-            overflow: hidden;
-        }
-        
-        #vizCanvas {
-            position: absolute;
-            inset: 0;
-            width: 100%;
-            height: 100%;
-        }
-        
-        /* Info Display */
-        .info-container {
-            grid-column: 2;
-            grid-row: 2;
-            padding: 21px;
-            display: flex;
-            flex-direction: column;
-            justify-content: flex-end;
-        }
-        
-        .info-line {
-            font-size: 13px;
-            margin-bottom: 8px;
-            opacity: 0;
-            animation: fadeIn 1s ease forwards;
-            animation-delay: var(--delay);
-        }
-        
-        @keyframes fadeIn {
-            to { opacity: 0.5; }
-        }
-        
-        .info-value {
-            color: var(--accent);
-            font-weight: 300;
-        }
-        
-        /* Hidden Elements */
-        .hidden {
-            display: none;
-        }
-        
-        /* Processing Indicator */
-        .process-ring {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            width: 89px;
-            height: 89px;
-            transform: translate(-50%, -50%);
-            pointer-events: none;
-        }
-        
-        .process-ring svg {
-            width: 100%;
-            height: 100%;
-            transform: rotate(-90deg);
-        }
-        
-        .process-ring circle {
-            fill: none;
-            stroke: var(--accent);
-            stroke-width: 1;
-            stroke-dasharray: 280;
-            stroke-dashoffset: 280;
-            transition: stroke-dashoffset 0.3s ease;
-        }
-        
-        /* Samples Grid */
-        .samples-container {
-            position: fixed;
-            bottom: 21px;
-            left: 21px;
-            display: grid;
-            grid-template-columns: repeat(8, 34px);
-            gap: 5px;
-            opacity: 0.3;
-        }
-        
-        .sample-dot {
-            width: 34px;
-            height: 34px;
-            border-radius: 50%;
-            background: var(--surface);
-            border: 1px solid transparent;
-            transition: all 0.2s ease;
-            cursor: pointer;
-            position: relative;
-            overflow: hidden;
-        }
-        
-        .sample-dot.loaded {
-            border-color: var(--accent);
-            background: radial-gradient(circle at center,
-                var(--glow) 0%,
-                var(--surface) 61.8%);
-        }
-        
-        .sample-dot.playing {
-            transform: scale(0.9);
-            box-shadow: 0 0 21px var(--accent);
-        }
-        
-        .sample-dot::after {
-            content: '';
-            position: absolute;
-            inset: 0;
-            background: var(--accent);
-            opacity: 0;
-            border-radius: 50%;
-            transform: scale(0);
-            transition: all 0.3s ease;
-        }
-        
-        .sample-dot.playing::after {
-            opacity: 0.3;
-            transform: scale(1);
-        }
-        
-        /* Feedback Visualizer */
-        .feedback-viz {
-            position: fixed;
-            top: 21px;
-            right: 21px;
-            width: 89px;
-            height: 89px;
+            font-size: 8px;
+            color: var(--glow);
             opacity: 0.5;
         }
         
-        #feedbackCanvas {
-            width: 100%;
-            height: 100%;
-            border-radius: 50%;
+        .sample-node.loaded {
+            background: radial-gradient(circle at center,
+                var(--glow) 0%,
+                rgba(255,0,255,0.5) 38.2%,
+                transparent 100%);
+            opacity: 1;
+            animation: pulse 2s ease-in-out infinite;
         }
         
-        /* Dark Atmosphere */
-        .atmosphere {
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+        }
+        
+        .sample-node.playing {
+            box-shadow: 0 0 30px var(--glow);
+            transform: scale(0.9);
+        }
+        
+        /* Spectrum Visualizer - Full Screen */
+        .spectrum-canvas {
             position: fixed;
             inset: 0;
+            opacity: 0.5;
             pointer-events: none;
-            z-index: -1;
-            opacity: 0.03;
-            background: radial-gradient(circle at 61.8% 38.2%,
-                var(--accent) 0%,
-                transparent 38.2%);
-            animation: drift 21s ease-in-out infinite;
+            mix-blend-mode: screen;
         }
         
-        @keyframes drift {
-            0%, 100% { transform: translate(0, 0) scale(1); }
-            33% { transform: translate(-13px, 8px) scale(1.1); }
-            66% { transform: translate(8px, -13px) scale(0.9); }
+        /* Waveform Scope */
+        .waveform-scope {
+            position: fixed;
+            bottom: 34px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 377px;
+            height: 89px;
+            border: 1px solid rgba(255,0,255,0.2);
+            background: rgba(0,0,0,0.5);
+            opacity: 0.7;
         }
         
-        /* Minimal Controls */
-        .controls {
+        /* Info Overlay */
+        .info-overlay {
+            position: fixed;
+            top: 21px;
+            left: 21px;
+            font-size: 13px;
+            color: rgba(255,255,255,0.5);
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            line-height: 1.618;
+        }
+        
+        .info-value {
+            color: var(--glow);
+            font-weight: 300;
+        }
+        
+        /* Control Gestures */
+        .gesture-indicator {
             position: fixed;
             bottom: 21px;
             right: 21px;
-            display: flex;
-            gap: 13px;
-            opacity: 0.3;
+            font-size: 11px;
+            color: rgba(255,255,255,0.3);
+            text-align: right;
+            line-height: 1.618;
         }
         
-        .control-btn {
-            width: 34px;
-            height: 34px;
+        /* Particle System */
+        .particle {
+            position: fixed;
+            width: 2px;
+            height: 2px;
+            background: var(--glow);
+            pointer-events: none;
             border-radius: 50%;
-            background: var(--surface);
-            border: 1px solid var(--text);
-            cursor: pointer;
-            transition: all 0.2s ease;
+        }
+        
+        /* Start Screen */
+        .start-screen {
+            position: fixed;
+            inset: 0;
+            background: var(--bg);
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 13px;
+            z-index: 1000;
+            cursor: pointer;
         }
         
-        .control-btn:hover {
-            border-color: var(--accent);
-            transform: scale(1.1);
+        .start-text {
+            font-size: 144px;
+            font-weight: 100;
+            color: var(--glow);
+            opacity: 0;
+            animation: fadeIn 2s ease forwards;
+            text-shadow: 0 0 50px var(--glow);
         }
         
-        .control-btn.active {
-            background: var(--accent);
-            color: var(--bg);
+        @keyframes fadeIn {
+            to { opacity: 1; }
+        }
+        
+        /* Atmospheric Layers */
+        .atmosphere-layer {
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            opacity: 0.03;
+        }
+        
+        .atmosphere-1 {
+            background: radial-gradient(circle at 61.8% 38.2%, var(--glow) 0%, transparent 50%);
+            animation: drift1 34s ease-in-out infinite;
+        }
+        
+        .atmosphere-2 {
+            background: radial-gradient(circle at 38.2% 61.8%, rgba(138,0,255,1) 0%, transparent 50%);
+            animation: drift2 55s ease-in-out infinite;
+        }
+        
+        @keyframes drift1 {
+            0%, 100% { transform: translate(0, 0) scale(1); }
+            50% { transform: translate(-34px, 21px) scale(1.2); }
+        }
+        
+        @keyframes drift2 {
+            0%, 100% { transform: translate(0, 0) scale(1); }
+            50% { transform: translate(21px, -34px) scale(0.8); }
         }
         
         /* Mobile Optimization */
         @media (max-width: 768px) {
-            .fib-container {
-                grid-template-columns: 1fr;
-                grid-template-rows: 1fr 1fr;
-                padding: 8px;
-            }
-            
-            .orb-container {
-                grid-column: 1;
-                grid-row: 1;
-            }
-            
-            .viz-container {
-                grid-column: 1;
-                grid-row: 2;
-            }
-            
-            .info-container {
-                position: fixed;
-                top: 13px;
-                left: 13px;
-                padding: 0;
-            }
-            
-            .samples-container {
-                grid-template-columns: repeat(6, 34px);
-            }
-            
-            .feedback-viz {
-                width: 55px;
-                height: 55px;
-            }
+            .start-text { font-size: 89px; }
+            .waveform-scope { width: 233px; }
+            .info-overlay { font-size: 11px; }
+            .cursor, .cursor-trail { display: none; }
         }
     </style>
 </head>
 <body>
-    <!-- Start Overlay -->
-    <div class="start-overlay" id="startOverlay">
-        <div class="start-orb" id="startOrb"></div>
+    <!-- Cursor -->
+    <div class="cursor" id="cursor"></div>
+    <div class="cursor-trail" id="cursorTrail"></div>
+    
+    <!-- Start -->
+    <div class="start-screen" id="startScreen">
+        <div class="start-text">GUMP</div>
     </div>
     
     <!-- Atmosphere -->
-    <div class="atmosphere"></div>
+    <div class="atmosphere-layer atmosphere-1"></div>
+    <div class="atmosphere-layer atmosphere-2"></div>
     
-    <!-- Main Layout -->
-    <div class="fib-container">
-        <!-- Visualizer -->
-        <div class="viz-container">
-            <canvas id="vizCanvas"></canvas>
+    <!-- Main -->
+    <div class="fibonacci-container" id="mainContainer" style="display: none;">
+        <!-- Golden Rectangles -->
+        <div class="golden-rect" style="width: 610px; height: 377px; top: 50%; left: 50%; transform: translate(-50%, -50%);"></div>
+        <div class="golden-rect" style="width: 377px; height: 233px; top: 50%; left: 50%; transform: translate(-31%, -50%);"></div>
+        <div class="golden-rect" style="width: 233px; height: 144px; top: 50%; left: 50%; transform: translate(-19%, -31%);"></div>
+        
+        <!-- Core Orb -->
+        <div class="core-orb" id="coreOrb">
+            <div class="orb-ring"></div>
+            <div class="orb-inner"></div>
         </div>
         
-        <!-- Main Orb -->
-        <div class="orb-container">
-            <div id="mainOrb">
-                <div class="process-ring" id="processRing">
-                    <svg>
-                        <circle cx="44.5" cy="44.5" r="44" id="processCircle"></circle>
-                    </svg>
-                </div>
-            </div>
-        </div>
-        
-        <!-- Info Display -->
-        <div class="info-container">
-            <div class="info-line" style="--delay: 0.5s">
-                <span class="info-value" id="bpmDisplay">--</span> BPM
-            </div>
-            <div class="info-line" style="--delay: 0.6s">
-                <span class="info-value" id="keyDisplay">--</span>
-            </div>
-            <div class="info-line" style="--delay: 0.7s">
-                <span class="info-value" id="modeDisplay">INITIALIZING</span>
-            </div>
-            <div class="info-line" style="--delay: 0.8s">
-                AI: <span class="info-value" id="aiDisplay">LEARNING</span>
-            </div>
-        </div>
+        <!-- Sample Nodes -->
+        <div id="sampleNodes"></div>
     </div>
     
-    <!-- Samples -->
-    <div class="samples-container" id="samplesContainer"></div>
+    <!-- Visualizers -->
+    <canvas class="spectrum-canvas" id="spectrumCanvas"></canvas>
+    <canvas class="waveform-scope" id="waveformScope"></canvas>
     
-    <!-- Feedback Visualizer -->
-    <div class="feedback-viz">
-        <canvas id="feedbackCanvas"></canvas>
+    <!-- Info -->
+    <div class="info-overlay" id="info">
+        <div><span class="info-value" id="bpm">120</span> BPM</div>
+        <div><span class="info-value" id="key">A</span> MINOR</div>
+        <div>COMPLEXITY <span class="info-value" id="complexity">0</span>%</div>
+        <div>SAMPLES <span class="info-value" id="samples">0</span></div>
     </div>
     
-    <!-- Minimal Controls -->
-    <div class="controls">
-        <div class="control-btn" id="clearBtn" title="Clear">×</div>
-        <div class="control-btn" id="darkBtn" title="Dark Mode">◐</div>
+    <!-- Gestures -->
+    <div class="gesture-indicator">
+        CLICK: CAPTURE<br>
+        MOVE: MODULATE<br>
+        SPACE: CLEAR
     </div>
 
     <script>
         'use strict';
 
-        class AdvancedGUMP {
+        class GUMPMeta {
             constructor() {
-                // Core
                 this.ctx = null;
-                this.isInit = false;
+                this.isRunning = false;
                 
-                // Audiophile Chain
-                this.nodes = {
-                    // Input
-                    micGain: null,
-                    inputAnalyzer: null,
-                    
-                    // Buses
-                    drumBus: null,
-                    bassBus: null,
-                    leadBus: null,
-                    atmBus: null,
-                    
-                    // Processing
-                    multiband: {
-                        low: { comp: null, gain: null },
-                        mid: { comp: null, gain: null },
-                        high: { comp: null, gain: null }
-                    },
-                    
-                    // Spatial
-                    convolverDark: null,
-                    stereoEnhancer: null,
-                    
-                    // Master
-                    masterComp: null,
-                    masterLimiter: null,
-                    outputAnalyzer: null
-                };
+                // Buses & Effects
+                this.master = null;
+                this.buses = {};
+                this.effects = {};
                 
-                // Ambient Sampler
-                this.ambientSampler = {
-                    isActive: false,
-                    buffer: [],
-                    threshold: 0.02,
-                    silenceCounter: 0,
-                    captureBuffer: null,
-                    analyzer: null
-                };
-                
-                // Advanced Samples
+                // Samples & Synthesis
                 this.samples = new Map();
-                this.sampleSlots = new Array(16).fill(null);
-                this.grainEngine = null;
-                
-                // AI Producer
-                this.ai = {
-                    isActive: false,
-                    mode: 'LEARNING',
-                    energy: 0,
-                    complexity: 0.5,
-                    pattern: null,
-                    feedback: {
-                        spectralBalance: 0,
-                        dynamics: 0,
-                        clarity: 0,
-                        groove: 0
-                    },
-                    lastAdjustment: 0
-                };
+                this.nodes = [];
+                this.currentNodeIndex = 0;
                 
                 // Musical State
-                this.state = {
-                    bpm: 80,
-                    key: 'F',
-                    scale: 'minor',
-                    currentStep: 0,
-                    isPlaying: false,
-                    nextStepTime: 0
-                };
+                this.bpm = 120;
+                this.key = 'A';
+                this.scale = [0, 2, 3, 5, 7, 8, 10]; // Natural minor
+                this.currentBar = 0;
+                this.nextEventTime = 0;
                 
-                // Dark Soundscape
-                this.darkElements = {
-                    drones: new Map(),
-                    textures: new Map(),
-                    reverseCache: new Map()
-                };
+                // AI State
+                this.complexity = 0;
+                this.energy = 0.5;
+                this.pattern = null;
+                
+                // Ambient Capture
+                this.micStream = null;
+                this.isListening = false;
+                this.captureBuffer = [];
                 
                 // UI
                 this.ui = {};
-                this.viz = {
-                    main: null,
-                    feedback: null,
-                    particles: []
-                };
+                this.mouseX = 0;
+                this.mouseY = 0;
                 
-                // Performance
-                this.frame = 0;
-                this.lastTime = 0;
+                // Visualization
+                this.analyser = null;
+                this.scopeAnalyser = null;
                 
                 this.init();
             }
             
             init() {
-                // Cache UI
-                [
-                    'startOverlay', 'startOrb', 'mainOrb', 'processRing', 'processCircle',
-                    'bpmDisplay', 'keyDisplay', 'modeDisplay', 'aiDisplay',
-                    'vizCanvas', 'feedbackCanvas', 'samplesContainer',
-                    'clearBtn', 'darkBtn'
-                ].forEach(id => {
+                // Cache elements
+                ['startScreen', 'mainContainer', 'coreOrb', 'sampleNodes', 
+                 'spectrumCanvas', 'waveformScope', 'cursor', 'cursorTrail',
+                 'bpm', 'key', 'complexity', 'samples', 'info'].forEach(id => {
                     this.ui[id] = document.getElementById(id);
                 });
                 
-                // Setup visualizers
-                this.setupVisualizers();
-                
-                // Create sample dots
-                this.createSampleDots();
+                // Create sample nodes in Fibonacci positions
+                this.createFibonacciNodes();
                 
                 // Events
-                this.ui.startOrb.addEventListener('click', () => this.start());
-                this.ui.mainOrb.addEventListener('click', () => this.toggleAmbient());
-                this.ui.clearBtn.addEventListener('click', () => this.clearAll());
-                this.ui.darkBtn.addEventListener('click', () => this.toggleDarkMode());
+                this.ui.startScreen.addEventListener('click', () => this.start());
+                this.ui.coreOrb.addEventListener('click', () => this.captureNow());
+                document.addEventListener('keydown', e => this.handleKey(e));
+                document.addEventListener('mousemove', e => this.handleMouse(e));
+                document.addEventListener('touchmove', e => this.handleTouch(e));
                 
-                // Prevent mobile bounce
-                document.addEventListener('touchmove', e => e.preventDefault(), { passive: false });
+                // Setup visualizers
+                this.setupVisualizers();
             }
             
             async start() {
-                try {
-                    // Create context
-                    this.ctx = new (window.AudioContext || window.webkitAudioContext)({
-                        latencyHint: 'playback',
-                        sampleRate: 48000
-                    });
-                    
-                    if (this.ctx.state === 'suspended') {
-                        await this.ctx.resume();
-                    }
-                    
-                    // Initialize audio
-                    await this.initAudio();
-                    
-                    // Setup microphone
-                    await this.setupMicrophone();
-                    
-                    // Start engines
-                    this.startAmbientSampler();
-                    this.startSequencer();
-                    this.startFeedbackLoop();
-                    
-                    // UI transition
-                    this.ui.startOverlay.style.opacity = '0';
-                    setTimeout(() => {
-                        this.ui.startOverlay.style.display = 'none';
-                    }, 1000);
-                    
-                    // Start animation
-                    this.animate();
-                    
-                    this.isInit = true;
-                    this.ui.modeDisplay.textContent = 'AMBIENT';
-                    
-                } catch (err) {
-                    console.error('Init failed:', err);
-                }
+                // Create audio context
+                this.ctx = new (window.AudioContext || window.webkitAudioContext)({
+                    latencyHint: 'playback',
+                    sampleRate: 48000
+                });
+                
+                // Initialize audio system
+                await this.initAudio();
+                
+                // Setup microphone
+                await this.setupMic();
+                
+                // Start engines
+                this.startSequencer();
+                this.startAmbientCapture();
+                
+                // UI transition
+                this.ui.startScreen.style.display = 'none';
+                this.ui.mainContainer.style.display = 'block';
+                
+                // Start visuals
+                this.animate();
+                
+                // Immediate bass drone
+                this.startDrone();
+                
+                this.isRunning = true;
             }
             
             async initAudio() {
-                // Create audiophile signal chain
-                
-                // Buses
-                this.nodes.drumBus = this.ctx.createGain();
-                this.nodes.bassBus = this.ctx.createGain();
-                this.nodes.leadBus = this.ctx.createGain();
-                this.nodes.atmBus = this.ctx.createGain();
-                
-                // Multiband Splitter
-                const lowShelf = this.ctx.createBiquadFilter();
-                lowShelf.type = 'lowshelf';
-                lowShelf.frequency.value = 200;
-                
-                const highShelf = this.ctx.createBiquadFilter();
-                highShelf.type = 'highshelf';
-                highShelf.frequency.value = 2000;
-                
-                // Multiband Compressors
-                this.nodes.multiband.low.comp = this.createCompressor(-20, 6, 0.003, 0.1);
-                this.nodes.multiband.mid.comp = this.createCompressor(-18, 4, 0.002, 0.05);
-                this.nodes.multiband.high.comp = this.createCompressor(-16, 3, 0.001, 0.03);
-                
-                this.nodes.multiband.low.gain = this.ctx.createGain();
-                this.nodes.multiband.mid.gain = this.ctx.createGain();
-                this.nodes.multiband.high.gain = this.ctx.createGain();
-                
-                // Dark Reverb
-                this.nodes.convolverDark = this.ctx.createConvolver();
-                this.nodes.convolverDark.buffer = await this.createDarkReverb();
-                
-                // Stereo Enhancer
-                this.nodes.stereoEnhancer = this.createStereoEnhancer();
-                
-                // Master Chain
-                this.nodes.masterComp = this.createCompressor(-12, 4, 0.003, 0.05);
-                this.nodes.masterLimiter = this.createCompressor(-0.3, 20, 0.001, 0.01);
+                // Master chain
+                this.master = this.ctx.createGain();
+                this.master.gain.value = 0.9;
                 
                 // Analyzers
-                this.nodes.outputAnalyzer = this.ctx.createAnalyser();
-                this.nodes.outputAnalyzer.fftSize = 4096;
+                this.analyser = this.ctx.createAnalyser();
+                this.analyser.fftSize = 4096;
+                
+                this.scopeAnalyser = this.ctx.createAnalyser();
+                this.scopeAnalyser.fftSize = 2048;
+                
+                // Buses
+                this.buses.sub = this.ctx.createGain();
+                this.buses.bass = this.ctx.createGain();
+                this.buses.mid = this.ctx.createGain();
+                this.buses.high = this.ctx.createGain();
+                this.buses.air = this.ctx.createGain();
+                
+                // Create high-end effects chain
+                await this.createEffects();
                 
                 // Routing
-                const sumBus = this.ctx.createGain();
+                Object.values(this.buses).forEach(bus => {
+                    bus.connect(this.effects.eq.input);
+                });
                 
-                this.nodes.drumBus.connect(sumBus);
-                this.nodes.bassBus.connect(sumBus);
-                this.nodes.leadBus.connect(sumBus);
-                this.nodes.atmBus.connect(this.nodes.convolverDark);
+                this.effects.eq.connect(this.effects.multiband);
+                this.effects.multiband.connect(this.effects.comp);
+                this.effects.comp.connect(this.effects.space);
+                this.effects.space.connect(this.effects.saturator);
+                this.effects.saturator.connect(this.effects.limiter);
+                this.effects.limiter.connect(this.master);
                 
-                sumBus.connect(lowShelf);
-                sumBus.connect(highShelf);
-                sumBus.connect(this.nodes.multiband.mid.comp);
-                
-                lowShelf.connect(this.nodes.multiband.low.comp);
-                highShelf.connect(this.nodes.multiband.high.comp);
-                
-                this.nodes.multiband.low.comp.connect(this.nodes.multiband.low.gain);
-                this.nodes.multiband.mid.comp.connect(this.nodes.multiband.mid.gain);
-                this.nodes.multiband.high.comp.connect(this.nodes.multiband.high.gain);
-                
-                const multibandSum = this.ctx.createGain();
-                this.nodes.multiband.low.gain.connect(multibandSum);
-                this.nodes.multiband.mid.gain.connect(multibandSum);
-                this.nodes.multiband.high.gain.connect(multibandSum);
-                
-                multibandSum.connect(this.nodes.masterComp);
-                this.nodes.convolverDark.connect(this.nodes.masterComp);
-                
-                this.nodes.masterComp.connect(this.nodes.stereoEnhancer.input);
-                this.nodes.stereoEnhancer.output.connect(this.nodes.masterLimiter);
-                
-                this.nodes.masterLimiter.connect(this.nodes.outputAnalyzer);
-                this.nodes.outputAnalyzer.connect(this.ctx.destination);
-                
-                // Initialize grain engine
-                this.grainEngine = new GranularEngine(this.ctx);
-                
-                // Create dark atmosphere generators
-                this.createDarkAtmosphere();
+                this.master.connect(this.analyser);
+                this.master.connect(this.scopeAnalyser);
+                this.analyser.connect(this.ctx.destination);
             }
             
-            createCompressor(threshold, ratio, attack, release) {
-                const comp = this.ctx.createDynamicsCompressor();
-                comp.threshold.value = threshold;
-                comp.ratio.value = ratio;
-                comp.attack.value = attack;
-                comp.release.value = release;
-                comp.knee.value = 2;
-                return comp;
+            async createEffects() {
+                // Parametric EQ
+                this.effects.eq = {
+                    input: this.ctx.createGain(),
+                    low: this.ctx.createBiquadFilter(),
+                    lowMid: this.ctx.createBiquadFilter(),
+                    highMid: this.ctx.createBiquadFilter(),
+                    high: this.ctx.createBiquadFilter(),
+                    output: this.ctx.createGain()
+                };
+                
+                this.effects.eq.low.type = 'lowshelf';
+                this.effects.eq.low.frequency.value = 100;
+                this.effects.eq.low.gain.value = 3;
+                
+                this.effects.eq.lowMid.type = 'peaking';
+                this.effects.eq.lowMid.frequency.value = 250;
+                this.effects.eq.lowMid.Q.value = 0.5;
+                this.effects.eq.lowMid.gain.value = -2;
+                
+                this.effects.eq.highMid.type = 'peaking';
+                this.effects.eq.highMid.frequency.value = 3000;
+                this.effects.eq.highMid.Q.value = 0.7;
+                this.effects.eq.highMid.gain.value = 2;
+                
+                this.effects.eq.high.type = 'highshelf';
+                this.effects.eq.high.frequency.value = 10000;
+                this.effects.eq.high.gain.value = 4;
+                
+                this.effects.eq.input.connect(this.effects.eq.low);
+                this.effects.eq.low.connect(this.effects.eq.lowMid);
+                this.effects.eq.lowMid.connect(this.effects.eq.highMid);
+                this.effects.eq.highMid.connect(this.effects.eq.high);
+                this.effects.eq.high.connect(this.effects.eq.output);
+                
+                this.effects.eq.connect = (dest) => this.effects.eq.output.connect(dest);
+                
+                // Multiband Dynamics
+                this.effects.multiband = this.ctx.createDynamicsCompressor();
+                this.effects.multiband.threshold.value = -24;
+                this.effects.multiband.knee.value = 12;
+                this.effects.multiband.ratio.value = 3;
+                this.effects.multiband.attack.value = 0.003;
+                this.effects.multiband.release.value = 0.1;
+                
+                // Bus Compressor
+                this.effects.comp = this.ctx.createDynamicsCompressor();
+                this.effects.comp.threshold.value = -12;
+                this.effects.comp.knee.value = 6;
+                this.effects.comp.ratio.value = 4;
+                this.effects.comp.attack.value = 0.01;
+                this.effects.comp.release.value = 0.05;
+                
+                // Spatial Processor
+                this.effects.space = await this.createSpace();
+                
+                // Tape Saturator
+                this.effects.saturator = this.ctx.createWaveShaper();
+                this.effects.saturator.curve = this.makeSaturationCurve(10);
+                this.effects.saturator.oversample = '4x';
+                
+                // Brickwall Limiter
+                this.effects.limiter = this.ctx.createDynamicsCompressor();
+                this.effects.limiter.threshold.value = -0.5;
+                this.effects.limiter.knee.value = 0;
+                this.effects.limiter.ratio.value = 20;
+                this.effects.limiter.attack.value = 0.001;
+                this.effects.limiter.release.value = 0.01;
             }
             
-            createStereoEnhancer() {
-                const input = this.ctx.createGain();
-                const output = this.ctx.createGain();
+            async createSpace() {
+                const convolver = this.ctx.createConvolver();
                 
-                const splitter = this.ctx.createChannelSplitter(2);
-                const merger = this.ctx.createChannelMerger(2);
-                
-                const leftDelay = this.ctx.createDelay(0.03);
-                leftDelay.delayTime.value = 0.001;
-                
-                const rightDelay = this.ctx.createDelay(0.03);
-                rightDelay.delayTime.value = 0.002;
-                
-                const leftFilter = this.ctx.createBiquadFilter();
-                leftFilter.type = 'allpass';
-                leftFilter.frequency.value = 600;
-                
-                const rightFilter = this.ctx.createBiquadFilter();
-                rightFilter.type = 'allpass';
-                rightFilter.frequency.value = 800;
-                
-                input.connect(splitter);
-                
-                splitter.connect(leftDelay, 0);
-                splitter.connect(rightDelay, 1);
-                
-                leftDelay.connect(leftFilter);
-                rightFilter.connect(rightFilter);
-                
-                leftFilter.connect(merger, 0, 0);
-                rightFilter.connect(merger, 0, 1);
-                
-                merger.connect(output);
-                
-                return { input, output };
-            }
-            
-            async createDarkReverb() {
-                const length = this.ctx.sampleRate * 8;
+                // Create dark hall reverb
+                const length = this.ctx.sampleRate * 6;
                 const impulse = this.ctx.createBuffer(2, length, this.ctx.sampleRate);
                 
                 for (let ch = 0; ch < 2; ch++) {
                     const data = impulse.getChannelData(ch);
+                    
                     for (let i = 0; i < length; i++) {
-                        // Dark, long decay
-                        const env = Math.pow(1 - i / length, 2);
-                        data[i] = (Math.random() * 2 - 1) * env;
+                        const decay = Math.pow(1 - i / length, 1.5);
                         
-                        // Low-pass for darkness
+                        // Early reflections
+                        if (i < this.ctx.sampleRate * 0.1) {
+                            if (i % Math.floor(this.ctx.sampleRate * 0.013) === 0) {
+                                data[i] = (Math.random() - 0.5) * 0.5 * decay;
+                            }
+                        }
+                        
+                        // Diffuse field
+                        data[i] += (Math.random() - 0.5) * decay * 0.3;
+                        
+                        // Low-pass decay
                         if (i > 0) {
-                            const cutoff = 0.2 + env * 0.3;
-                            data[i] = data[i] * cutoff + data[i-1] * (1 - cutoff);
-                        }
-                        
-                        // Add occasional metallic resonances
-                        if (Math.random() < 0.001) {
-                            const freq = 100 + Math.random() * 500;
-                            const resonance = Math.sin(2 * Math.PI * freq * i / this.ctx.sampleRate);
-                            data[i] += resonance * env * 0.3;
+                            const cutoff = 0.99 - (i / length) * 0.7;
+                            data[i] = data[i] * (1 - cutoff) + data[i-1] * cutoff;
                         }
                     }
                 }
                 
-                return impulse;
-            }
-            
-            createDarkAtmosphere() {
-                // Sub bass drone
-                const droneOsc = this.ctx.createOscillator();
-                droneOsc.type = 'sine';
-                droneOsc.frequency.value = 27.5; // A0
+                convolver.buffer = impulse;
                 
-                const droneGain = this.ctx.createGain();
-                droneGain.gain.value = 0;
+                // Wet/dry mix
+                const dry = this.ctx.createGain();
+                const wet = this.ctx.createGain();
+                const output = this.ctx.createGain();
                 
-                droneOsc.connect(droneGain);
-                droneGain.connect(this.nodes.bassBus);
-                droneOsc.start();
+                dry.gain.value = 0.7;
+                wet.gain.value = 0.3;
                 
-                this.darkElements.drones.set('sub', { osc: droneOsc, gain: droneGain });
+                convolver.connect(wet);
                 
-                // Noise texture
-                const noiseBuffer = this.ctx.createBuffer(2, this.ctx.sampleRate * 10, this.ctx.sampleRate);
-                for (let ch = 0; ch < 2; ch++) {
-                    const data = noiseBuffer.getChannelData(ch);
-                    for (let i = 0; i < data.length; i++) {
-                        data[i] = (Math.random() * 2 - 1) * 0.05;
+                const merger = this.ctx.createGain();
+                dry.connect(merger);
+                wet.connect(merger);
+                merger.connect(output);
+                
+                return {
+                    connect: (dest) => {
+                        dry.connect(dest);
+                        output.connect(dest);
                     }
-                }
-                
-                const noise = this.ctx.createBufferSource();
-                noise.buffer = noiseBuffer;
-                noise.loop = true;
-                
-                const noiseFilter = this.ctx.createBiquadFilter();
-                noiseFilter.type = 'bandpass';
-                noiseFilter.frequency.value = 1000;
-                noiseFilter.Q.value = 10;
-                
-                const noiseGain = this.ctx.createGain();
-                noiseGain.gain.value = 0;
-                
-                noise.connect(noiseFilter);
-                noiseFilter.connect(noiseGain);
-                noiseGain.connect(this.nodes.atmBus);
-                noise.start();
-                
-                this.darkElements.textures.set('noise', { 
-                    source: noise, 
-                    filter: noiseFilter, 
-                    gain: noiseGain 
-                });
+                };
             }
             
-            async setupMicrophone() {
+            async setupMic() {
                 try {
                     const stream = await navigator.mediaDevices.getUserMedia({
                         audio: {
                             echoCancellation: false,
                             noiseSuppression: false,
-                            autoGainControl: false,
-                            sampleRate: 48000
+                            autoGainControl: false
                         }
                     });
                     
-                    const source = this.ctx.createMediaStreamSource(stream);
-                    this.nodes.micGain = this.ctx.createGain();
-                    this.nodes.micGain.gain.value = 1;
+                    this.micStream = this.ctx.createMediaStreamSource(stream);
+                    const micGain = this.ctx.createGain();
+                    micGain.gain.value = 1;
                     
-                    this.nodes.inputAnalyzer = this.ctx.createAnalyser();
-                    this.nodes.inputAnalyzer.fftSize = 2048;
-                    
-                    source.connect(this.nodes.micGain);
-                    this.nodes.micGain.connect(this.nodes.inputAnalyzer);
-                    
-                    // Setup ambient processor
-                    this.ambientSampler.analyzer = this.ctx.createScriptProcessor(4096, 1, 1);
-                    this.ambientSampler.analyzer.onaudioprocess = (e) => {
-                        if (this.ambientSampler.isActive) {
-                            this.processAmbientAudio(e);
+                    const processor = this.ctx.createScriptProcessor(4096, 1, 1);
+                    processor.onaudioprocess = (e) => {
+                        if (this.isListening) {
+                            const data = e.inputBuffer.getChannelData(0);
+                            this.processAmbientAudio(data);
                         }
                     };
                     
-                    this.nodes.micGain.connect(this.ambientSampler.analyzer);
-                    this.ambientSampler.analyzer.connect(this.ctx.destination);
+                    this.micStream.connect(micGain);
+                    micGain.connect(processor);
+                    processor.connect(this.ctx.destination);
                     
-                } catch (err) {
-                    console.warn('Mic access denied:', err);
+                } catch (e) {
+                    console.log('Mic unavailable, using generated sounds only');
                 }
             }
             
-            startAmbientSampler() {
-                this.ambientSampler.isActive = true;
-                this.ui.mainOrb.classList.add('listening');
-                this.ui.modeDisplay.textContent = 'LISTENING';
+            startDrone() {
+                // Deep sub bass drone
+                const osc = this.ctx.createOscillator();
+                osc.type = 'sine';
+                osc.frequency.value = 55; // A1
+                
+                const osc2 = this.ctx.createOscillator();
+                osc2.type = 'sine';
+                osc2.frequency.value = 55.5; // Slight detune for thickness
+                
+                const gain = this.ctx.createGain();
+                gain.gain.setValueAtTime(0, this.ctx.currentTime);
+                gain.gain.linearRampToValueAtTime(0.15, this.ctx.currentTime + 2);
+                
+                osc.connect(gain);
+                osc2.connect(gain);
+                gain.connect(this.buses.sub);
+                
+                osc.start();
+                osc2.start();
+                
+                // Modulate drone
+                const lfo = this.ctx.createOscillator();
+                lfo.frequency.value = 0.1;
+                const lfoGain = this.ctx.createGain();
+                lfoGain.gain.value = 0.5;
+                
+                lfo.connect(lfoGain);
+                lfoGain.connect(osc.frequency);
+                lfo.start();
             }
             
-            processAmbientAudio(e) {
-                const input = e.inputBuffer.getChannelData(0);
-                
-                // Analyze for interesting sounds
-                let rms = 0;
-                let zeroCrossings = 0;
-                let spectralCentroid = 0;
-                
-                for (let i = 0; i < input.length; i++) {
-                    rms += input[i] * input[i];
-                    
-                    if (i > 0 && input[i] * input[i-1] < 0) {
-                        zeroCrossings++;
-                    }
-                }
-                
-                rms = Math.sqrt(rms / input.length);
-                
-                // FFT for spectral analysis
-                const fftData = new Float32Array(this.nodes.inputAnalyzer.frequencyBinCount);
-                this.nodes.inputAnalyzer.getFloatFrequencyData(fftData);
-                
-                let totalMag = 0;
-                let weightedSum = 0;
-                
-                for (let i = 0; i < fftData.length; i++) {
-                    const mag = Math.pow(10, fftData[i] / 20);
-                    totalMag += mag;
-                    weightedSum += mag * i;
-                }
-                
-                if (totalMag > 0) {
-                    spectralCentroid = weightedSum / totalMag;
-                }
-                
-                // Detect interesting events
-                const isInteresting = rms > this.ambientSampler.threshold &&
-                                    spectralCentroid > 100 &&
-                                    zeroCrossings > 50;
-                
-                if (isInteresting) {
-                    this.ambientSampler.buffer.push(...input);
-                    this.ambientSampler.silenceCounter = 0;
-                } else if (this.ambientSampler.buffer.length > 0) {
-                    this.ambientSampler.silenceCounter++;
-                    
-                    if (this.ambientSampler.silenceCounter > 10) {
-                        this.captureAmbientSample();
-                    }
-                }
-                
-                // Limit buffer size
-                if (this.ambientSampler.buffer.length > this.ctx.sampleRate * 4) {
-                    this.captureAmbientSample();
-                }
-            }
-            
-            async captureAmbientSample() {
-                if (this.ambientSampler.buffer.length < this.ctx.sampleRate * 0.1) {
-                    this.ambientSampler.buffer = [];
-                    return;
-                }
-                
-                // Create buffer
-                const buffer = this.ctx.createBuffer(1, this.ambientSampler.buffer.length, this.ctx.sampleRate);
-                buffer.getChannelData(0).set(this.ambientSampler.buffer);
-                
-                // Analyze
-                const analysis = await this.analyzeSample(buffer);
-                
-                // Process and integrate
-                const processed = await this.processSampleForIntegration(buffer, analysis);
-                
-                // Find slot
-                let slot = this.sampleSlots.findIndex(s => s === null);
-                if (slot === -1) {
-                    slot = Math.floor(Math.random() * 16);
-                }
-                
-                // Store
-                const sample = {
-                    buffer: processed.buffer,
-                    original: buffer,
-                    analysis: analysis,
-                    grains: processed.grains,
-                    pattern: this.generateAdaptivePattern(analysis),
-                    gain: 0.7,
-                    bus: this.routeSampleToBus(analysis)
-                };
-                
-                this.sampleSlots[slot] = sample;
-                this.updateSampleDot(slot);
-                
-                // Clear buffer
-                this.ambientSampler.buffer = [];
-                
-                // Update AI
-                if (this.samples.size > 3 && !this.ai.isActive) {
-                    this.activateAI();
-                }
-                
-                // Visual feedback
-                this.showCaptureEffect();
-            }
-            
-            async analyzeSample(buffer) {
-                const data = buffer.getChannelData(0);
-                const sampleRate = buffer.sampleRate;
-                
-                // Advanced analysis
-                const analysis = {
-                    duration: buffer.duration,
-                    rms: 0,
-                    peak: 0,
-                    zeroCrossings: 0,
-                    spectralCentroid: 0,
-                    pitch: null,
-                    bpm: null,
-                    onsets: [],
-                    type: 'unknown',
-                    harmonicity: 0,
-                    brightness: 0,
-                    roughness: 0
-                };
-                
-                // Time domain
-                for (let i = 0; i < data.length; i++) {
-                    analysis.rms += data[i] * data[i];
-                    analysis.peak = Math.max(analysis.peak, Math.abs(data[i]));
-                    
-                    if (i > 0 && data[i] * data[i-1] < 0) {
-                        analysis.zeroCrossings++;
-                    }
-                }
-                
-                analysis.rms = Math.sqrt(analysis.rms / data.length);
-                
-                // Pitch detection (autocorrelation)
-                analysis.pitch = this.detectPitch(data, sampleRate);
-                
-                // Onset detection
-                const onsets = this.detectOnsets(data, sampleRate);
-                analysis.onsets = onsets;
-                
-                // BPM from onsets
-                if (onsets.length > 2) {
-                    const intervals = [];
-                    for (let i = 1; i < onsets.length; i++) {
-                        intervals.push(onsets[i] - onsets[i-1]);
-                    }
-                    const avgInterval = intervals.reduce((a,b) => a+b) / intervals.length;
-                    analysis.bpm = 60 / avgInterval;
-                }
-                
-                // Classify
-                if (analysis.zeroCrossings / buffer.duration > 1000) {
-                    analysis.type = 'noise';
-                } else if (analysis.onsets.length > 4 && analysis.bpm) {
-                    analysis.type = 'rhythmic';
-                } else if (analysis.pitch && analysis.harmonicity > 0.8) {
-                    analysis.type = 'tonal';
-                } else {
-                    analysis.type = 'texture';
-                }
-                
-                return analysis;
-            }
-            
-            detectPitch(data, sampleRate) {
-                const minFreq = 80;
-                const maxFreq = 800;
-                
-                const minPeriod = Math.floor(sampleRate / maxFreq);
-                const maxPeriod = Math.floor(sampleRate / minFreq);
-                
-                let bestPeriod = 0;
-                let bestCorr = 0;
-                
-                for (let period = minPeriod; period < maxPeriod; period++) {
-                    let corr = 0;
-                    for (let i = 0; i < data.length - period; i++) {
-                        corr += data[i] * data[i + period];
-                    }
-                    
-                    if (corr > bestCorr) {
-                        bestCorr = corr;
-                        bestPeriod = period;
-                    }
-                }
-                
-                return bestPeriod > 0 ? sampleRate / bestPeriod : null;
-            }
-            
-            detectOnsets(data, sampleRate) {
-                const windowSize = 2048;
-                const hopSize = 512;
-                const onsets = [];
-                
-                let prevEnergy = 0;
-                
-                for (let i = 0; i < data.length - windowSize; i += hopSize) {
-                    let energy = 0;
-                    for (let j = 0; j < windowSize; j++) {
-                        energy += data[i + j] * data[i + j];
-                    }
-                    
-                    const diff = energy - prevEnergy;
-                    if (diff > prevEnergy * 0.3 && energy > 0.01) {
-                        onsets.push(i / sampleRate);
-                    }
-                    
-                    prevEnergy = energy;
-                }
-                
-                return onsets;
-            }
-            
-            async processSampleForIntegration(buffer, analysis) {
-                // Match to current musical context
-                const targetBPM = this.state.bpm;
-                const targetKey = this.state.key;
-                
-                let processed = buffer;
-                
-                // Time stretch to match BPM
-                if (analysis.bpm && Math.abs(analysis.bpm - targetBPM) > 5) {
-                    const stretchRatio = targetBPM / analysis.bpm;
-                    processed = await this.grainEngine.timeStretch(buffer, stretchRatio);
-                }
-                
-                // Pitch shift to match key
-                if (analysis.pitch) {
-                    const targetPitch = this.noteToFreq(targetKey + '2');
-                    const shiftRatio = targetPitch / analysis.pitch;
-                    if (Math.abs(shiftRatio - 1) > 0.05) {
-                        processed = await this.grainEngine.pitchShift(processed, shiftRatio);
-                    }
-                }
-                
-                // Create grain cloud for manipulation
-                const grains = this.grainEngine.createGrainCloud(processed, {
-                    grainSize: 0.05,
-                    overlap: 0.7,
-                    randomization: 0.2
-                });
-                
-                return {
-                    buffer: processed,
-                    grains: grains
-                };
-            }
-            
-            generateAdaptivePattern(analysis) {
-                const steps = 16;
-                const pattern = new Array(steps).fill(false);
-                
-                if (analysis.type === 'rhythmic' && analysis.onsets.length > 0) {
-                    // Map onsets to pattern
-                    const stepDuration = 60 / this.state.bpm / 4;
-                    
-                    analysis.onsets.forEach(onset => {
-                        const step = Math.floor((onset % (stepDuration * steps)) / stepDuration);
-                        if (step < steps) {
-                            pattern[step] = true;
+            startSequencer() {
+                const schedule = () => {
+                    while (this.nextEventTime < this.ctx.currentTime + 0.1) {
+                        const bar = Math.floor(this.currentBar / 16);
+                        const step = this.currentBar % 16;
+                        
+                        // Generate pattern if needed
+                        if (step === 0 && bar % 4 === 0) {
+                            this.generatePattern();
                         }
-                    });
-                } else if (analysis.type === 'tonal') {
-                    // Melodic pattern - every 2 or 4 steps
-                    for (let i = 0; i < steps; i += 4) {
-                        pattern[i] = true;
+                        
+                        // Play pattern
+                        if (this.pattern) {
+                            this.playStep(step, this.nextEventTime);
+                        }
+                        
+                        // Advance
+                        this.nextEventTime += 60 / this.bpm / 4;
+                        this.currentBar++;
                     }
-                } else {
-                    // Texture - sparse random
-                    for (let i = 0; i < steps; i++) {
-                        pattern[i] = Math.random() < 0.2;
+                    
+                    setTimeout(schedule, 25);
+                };
+                
+                this.nextEventTime = this.ctx.currentTime;
+                schedule();
+            }
+            
+            generatePattern() {
+                // Evolve complexity
+                this.complexity = Math.min(100, this.complexity + 1);
+                this.ui.complexity.textContent = Math.floor(this.complexity);
+                
+                this.pattern = {
+                    kick: this.generateKickPattern(),
+                    bass: this.generateBassPattern(),
+                    perc: this.generatePercPattern(),
+                    atm: Math.random() < 0.3
+                };
+            }
+            
+            generateKickPattern() {
+                const pattern = new Array(16).fill(false);
+                
+                // Four on floor base
+                for (let i = 0; i < 16; i += 4) {
+                    pattern[i] = true;
+                }
+                
+                // Add complexity
+                if (this.complexity > 30) {
+                    pattern[14] = Math.random() < 0.5;
+                }
+                
+                if (this.complexity > 60) {
+                    pattern[7] = Math.random() < 0.3;
+                }
+                
+                return pattern;
+            }
+            
+            generateBassPattern() {
+                const pattern = new Array(16).fill(null);
+                const progression = [0, 0, 5, 3, 0, 0, 7, 3];
+                
+                for (let i = 0; i < 16; i += 2) {
+                    if (Math.random() < 0.8) {
+                        pattern[i] = progression[Math.floor(i/2) % progression.length];
                     }
                 }
                 
                 return pattern;
             }
             
-            routeSampleToBus(analysis) {
-                switch (analysis.type) {
-                    case 'rhythmic':
-                        return this.nodes.drumBus;
-                    case 'tonal':
-                        if (analysis.pitch && analysis.pitch < 200) {
-                            return this.nodes.bassBus;
-                        }
-                        return this.nodes.leadBus;
-                    case 'noise':
-                    case 'texture':
-                        return this.nodes.atmBus;
-                    default:
-                        return this.nodes.leadBus;
-                }
-            }
-            
-            startSequencer() {
-                const schedule = () => {
-                    if (!this.state.isPlaying) {
-                        this.state.isPlaying = true;
-                        this.state.nextStepTime = this.ctx.currentTime;
-                    }
-                    
-                    while (this.state.nextStepTime < this.ctx.currentTime + 0.1) {
-                        this.scheduleStep(this.state.nextStepTime);
-                        
-                        const stepTime = 60 / this.state.bpm / 4;
-                        this.state.nextStepTime += stepTime;
-                        this.state.currentStep = (this.state.currentStep + 1) % 16;
-                    }
-                    
-                    setTimeout(schedule, 25);
-                };
+            generatePercPattern() {
+                const pattern = new Array(16).fill(false);
                 
-                schedule();
-            }
-            
-            scheduleStep(time) {
-                // Update AI
-                if (this.state.currentStep === 0) {
-                    this.updateAI();
+                for (let i = 0; i < 16; i++) {
+                    if (i % 2 === 1) {
+                        pattern[i] = Math.random() < (0.3 + this.complexity / 200);
+                    }
                 }
                 
+                return pattern;
+            }
+            
+            playStep(step, time) {
                 // Visual pulse
-                if (this.state.currentStep % 4 === 0) {
+                if (step % 4 === 0) {
                     setTimeout(() => {
-                        this.ui.mainOrb.classList.add('active');
+                        this.ui.coreOrb.style.filter = 'brightness(1.5)';
                         setTimeout(() => {
-                            this.ui.mainOrb.classList.remove('active');
-                        }, 100);
+                            this.ui.coreOrb.style.filter = 'brightness(1)';
+                        }, 50);
                     }, (time - this.ctx.currentTime) * 1000);
                 }
                 
-                // Play samples
-                this.sampleSlots.forEach((sample, idx) => {
-                    if (sample && sample.pattern[this.state.currentStep]) {
-                        this.playSample(idx, time);
-                    }
-                });
-                
-                // AI pattern
-                if (this.ai.isActive && this.ai.pattern) {
-                    this.playAIPattern(time);
+                // Kick
+                if (this.pattern.kick[step]) {
+                    this.playKick(time);
                 }
                 
-                // Update atmosphere
-                this.updateDarkAtmosphere(time);
-            }
-            
-            playSample(idx, time = this.ctx.currentTime) {
-                const sample = this.sampleSlots[idx];
-                if (!sample) return;
-                
-                const source = this.ctx.createBufferSource();
-                source.buffer = sample.buffer;
-                
-                const gain = this.ctx.createGain();
-                gain.gain.value = sample.gain;
-                
-                // Dark processing
-                const filter = this.ctx.createBiquadFilter();
-                filter.type = 'lowpass';
-                filter.frequency.value = 2000 - (this.ai.energy * 1500);
-                filter.Q.value = 5 + (this.ai.energy * 10);
-                
-                source.connect(filter);
-                filter.connect(gain);
-                gain.connect(sample.bus);
-                
-                // Reverse randomly for spookiness
-                if (Math.random() < 0.1) {
-                    source.playbackRate.value = -1;
-                    source.start(time, sample.buffer.duration);
-                } else {
-                    source.start(time);
-                }
-                
-                // Visual feedback
-                if (time === this.ctx.currentTime) {
-                    const dot = this.ui.samplesContainer.children[idx];
-                    if (dot) {
-                        dot.classList.add('playing');
-                        setTimeout(() => {
-                            dot.classList.remove('playing');
-                        }, 100);
-                    }
-                }
-            }
-            
-            playAIPattern(time) {
-                const pattern = this.ai.pattern;
-                const step = this.state.currentStep;
-                
-                // Dark bass
-                if (pattern.bass[step]) {
-                    this.playDarkBass(pattern.bass[step], time);
-                }
-                
-                // Eerie lead
-                if (pattern.lead[step] && this.ai.energy > 0.5) {
-                    this.playEerieLead(pattern.lead[step], time);
+                // Bass
+                if (this.pattern.bass[step] !== null) {
+                    this.playBass(this.pattern.bass[step], time);
                 }
                 
                 // Percussion
-                if (pattern.kick[step]) {
-                    this.playDarkKick(time);
+                if (this.pattern.perc[step]) {
+                    this.playPerc(time);
                 }
                 
-                if (pattern.snare[step]) {
-                    this.playDarkSnare(time);
-                }
+                // Samples
+                this.nodes.forEach((node, idx) => {
+                    const sample = this.samples.get(idx);
+                    if (sample && sample.pattern && sample.pattern[step]) {
+                        this.playSample(idx, time);
+                    }
+                });
             }
             
-            playDarkBass(note, time) {
-                const freq = this.noteToFreq(note + '1');
+            playKick(time) {
+                const osc = this.ctx.createOscillator();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(150, time);
+                osc.frequency.exponentialRampToValueAtTime(30, time + 0.5);
+                
+                const gain = this.ctx.createGain();
+                gain.gain.setValueAtTime(1, time);
+                gain.gain.exponentialRampToValueAtTime(0.01, time + 0.5);
+                
+                const dist = this.ctx.createWaveShaper();
+                dist.curve = this.makeSaturationCurve(20);
+                
+                osc.connect(gain);
+                gain.connect(dist);
+                dist.connect(this.buses.bass);
+                
+                osc.start(time);
+                osc.stop(time + 0.5);
+            }
+            
+            playBass(note, time) {
+                const freq = 55 * Math.pow(2, this.scale[note] / 12);
                 
                 const osc1 = this.ctx.createOscillator();
                 osc1.type = 'sawtooth';
@@ -1258,553 +806,387 @@
                 const osc2 = this.ctx.createOscillator();
                 osc2.type = 'square';
                 osc2.frequency.value = freq * 0.5;
-                osc2.detune.value = -7;
+                osc2.detune.value = -10;
                 
                 const filter = this.ctx.createBiquadFilter();
                 filter.type = 'lowpass';
-                filter.frequency.setValueAtTime(50, time);
-                filter.frequency.exponentialRampToValueAtTime(800, time + 0.01);
-                filter.frequency.exponentialRampToValueAtTime(100, time + 0.5);
-                filter.Q.value = 15;
+                filter.frequency.setValueAtTime(100, time);
+                filter.frequency.exponentialRampToValueAtTime(1000, time + 0.01);
+                filter.frequency.exponentialRampToValueAtTime(200, time + 0.5);
+                filter.Q.value = 8;
                 
-                const distortion = this.ctx.createWaveShaper();
-                distortion.curve = this.makeDistortionCurve(30);
-                
-                const env = this.ctx.createGain();
-                env.gain.setValueAtTime(0, time);
-                env.gain.linearRampToValueAtTime(0.8, time + 0.01);
-                env.gain.exponentialRampToValueAtTime(0.001, time + 1);
+                const gain = this.ctx.createGain();
+                gain.gain.setValueAtTime(0, time);
+                gain.gain.linearRampToValueAtTime(0.5, time + 0.01);
+                gain.gain.exponentialRampToValueAtTime(0.01, time + 0.8);
                 
                 osc1.connect(filter);
                 osc2.connect(filter);
-                filter.connect(distortion);
-                distortion.connect(env);
-                env.connect(this.nodes.bassBus);
+                filter.connect(gain);
+                gain.connect(this.buses.bass);
                 
                 osc1.start(time);
                 osc2.start(time);
-                osc1.stop(time + 1);
-                osc2.stop(time + 1);
+                osc1.stop(time + 0.8);
+                osc2.stop(time + 0.8);
             }
             
-            playEerieLead(note, time) {
-                const freq = this.noteToFreq(note + '3');
+            playPerc(time) {
+                const buffer = this.ctx.createBuffer(1, 0.05 * this.ctx.sampleRate, this.ctx.sampleRate);
+                const data = buffer.getChannelData(0);
                 
-                const osc = this.ctx.createOscillator();
-                osc.type = 'sine';
-                osc.frequency.value = freq;
+                for (let i = 0; i < data.length; i++) {
+                    data[i] = (Math.random() - 0.5) * Math.exp(-i / data.length * 10);
+                }
                 
-                // FM modulation for eeriness
-                const modOsc = this.ctx.createOscillator();
-                modOsc.type = 'sine';
-                modOsc.frequency.value = freq * 3.7;
-                
-                const modGain = this.ctx.createGain();
-                modGain.gain.value = freq * 0.5;
-                
-                modOsc.connect(modGain);
-                modGain.connect(osc.frequency);
+                const source = this.ctx.createBufferSource();
+                source.buffer = buffer;
                 
                 const filter = this.ctx.createBiquadFilter();
                 filter.type = 'bandpass';
-                filter.frequency.value = freq * 2;
-                filter.Q.value = 20;
+                filter.frequency.value = 5000 + Math.random() * 5000;
+                filter.Q.value = 10;
                 
-                const env = this.ctx.createGain();
-                env.gain.setValueAtTime(0, time);
-                env.gain.linearRampToValueAtTime(0.4, time + 0.1);
-                env.gain.exponentialRampToValueAtTime(0.001, time + 0.5);
+                const gain = this.ctx.createGain();
+                gain.gain.value = 0.3;
                 
-                osc.connect(filter);
-                filter.connect(env);
-                env.connect(this.nodes.leadBus);
-                env.connect(this.nodes.convolverDark);
+                source.connect(filter);
+                filter.connect(gain);
+                gain.connect(this.buses.high);
                 
-                osc.start(time);
-                modOsc.start(time);
-                osc.stop(time + 0.5);
-                modOsc.stop(time + 0.5);
+                source.start(time);
             }
             
-            playDarkKick(time) {
-                const osc = this.ctx.createOscillator();
-                osc.type = 'sine';
-                osc.frequency.setValueAtTime(150, time);
-                osc.frequency.exponentialRampToValueAtTime(30, time + 0.3);
+            playSample(idx, time) {
+                const sample = this.samples.get(idx);
+                if (!sample) return;
                 
-                const dist = this.ctx.createWaveShaper();
-                dist.curve = this.makeDistortionCurve(20);
+                const source = this.ctx.createBufferSource();
+                source.buffer = sample.buffer;
+                source.playbackRate.value = sample.pitch || 1;
                 
-                const env = this.ctx.createGain();
-                env.gain.setValueAtTime(1, time);
-                env.gain.exponentialRampToValueAtTime(0.001, time + 0.5);
+                const gain = this.ctx.createGain();
+                gain.gain.value = sample.gain || 0.5;
                 
-                osc.connect(dist);
-                dist.connect(env);
-                env.connect(this.nodes.drumBus);
+                source.connect(gain);
+                gain.connect(sample.bus || this.buses.mid);
                 
-                osc.start(time);
-                osc.stop(time + 0.5);
+                source.start(time);
+                
+                // Visual feedback
+                const node = this.nodes[idx];
+                node.classList.add('playing');
+                setTimeout(() => node.classList.remove('playing'), 100);
             }
             
-            playDarkSnare(time) {
-                // Tone
-                const tone = this.ctx.createOscillator();
-                tone.type = 'triangle';
-                tone.frequency.value = 200;
-                
-                // Noise
-                const noiseBuffer = this.ctx.createBuffer(1, 0.1 * this.ctx.sampleRate, this.ctx.sampleRate);
-                const data = noiseBuffer.getChannelData(0);
-                for (let i = 0; i < data.length; i++) {
-                    data[i] = Math.random() * 2 - 1;
-                }
-                
-                const noise = this.ctx.createBufferSource();
-                noise.buffer = noiseBuffer;
-                
-                const filter = this.ctx.createBiquadFilter();
-                filter.type = 'highpass';
-                filter.frequency.value = 3000;
-                
-                const env = this.ctx.createGain();
-                env.gain.setValueAtTime(0.7, time);
-                env.gain.exponentialRampToValueAtTime(0.001, time + 0.15);
-                
-                tone.connect(env);
-                noise.connect(filter);
-                filter.connect(env);
-                env.connect(this.nodes.drumBus);
-                
-                tone.start(time);
-                noise.start(time);
-                tone.stop(time + 0.1);
-                noise.stop(time + 0.15);
-            }
-            
-            updateDarkAtmosphere(time) {
-                // Evolve drones
-                const droneGain = this.darkElements.drones.get('sub').gain;
-                const targetGain = this.ai.energy * 0.15;
-                droneGain.gain.linearRampToValueAtTime(targetGain, time + 0.1);
-                
-                // Modulate texture filter
-                const noiseFilter = this.darkElements.textures.get('noise').filter;
-                const centerFreq = 200 + (Math.sin(time * 0.1) * 100) + (this.ai.energy * 800);
-                noiseFilter.frequency.linearRampToValueAtTime(centerFreq, time + 0.1);
-                
-                const noiseGain = this.darkElements.textures.get('noise').gain;
-                noiseGain.gain.linearRampToValueAtTime(this.ai.energy * 0.1, time + 0.1);
-            }
-            
-            startFeedbackLoop() {
+            startAmbientCapture() {
+                this.isListening = true;
                 setInterval(() => {
-                    if (!this.ai.isActive) return;
-                    
-                    // Analyze output
-                    const data = new Uint8Array(this.nodes.outputAnalyzer.frequencyBinCount);
-                    this.nodes.outputAnalyzer.getByteFrequencyData(data);
-                    
-                    // Calculate metrics
-                    let lowEnergy = 0, midEnergy = 0, highEnergy = 0;
-                    const third = data.length / 3;
-                    
-                    for (let i = 0; i < data.length; i++) {
-                        if (i < third) lowEnergy += data[i];
-                        else if (i < third * 2) midEnergy += data[i];
-                        else highEnergy += data[i];
+                    if (this.captureBuffer.length > this.ctx.sampleRate * 0.5) {
+                        this.processCapturedAudio();
                     }
-                    
-                    lowEnergy /= third;
-                    midEnergy /= third;
-                    highEnergy /= third;
-                    
-                    // Update feedback
-                    this.ai.feedback.spectralBalance = (lowEnergy + midEnergy + highEnergy) / 3;
-                    this.ai.feedback.dynamics = Math.max(lowEnergy, midEnergy, highEnergy) - Math.min(lowEnergy, midEnergy, highEnergy);
-                    
-                    // Adjust mix
-                    this.adjustMixFromFeedback(lowEnergy, midEnergy, highEnergy);
-                    
-                }, 500);
+                }, 2000);
             }
             
-            adjustMixFromFeedback(low, mid, high) {
-                const now = this.ctx.currentTime;
+            processAmbientAudio(data) {
+                // Simple energy detection
+                let energy = 0;
+                for (let i = 0; i < data.length; i++) {
+                    energy += data[i] * data[i];
+                }
+                energy = Math.sqrt(energy / data.length);
                 
-                // Balance frequencies
-                if (low > mid * 2) {
-                    this.nodes.multiband.low.gain.gain.linearRampToValueAtTime(0.8, now + 0.1);
-                } else {
-                    this.nodes.multiband.low.gain.gain.linearRampToValueAtTime(1.2, now + 0.1);
+                if (energy > 0.01) {
+                    this.captureBuffer.push(...data);
                 }
                 
-                if (high < mid * 0.5) {
-                    this.nodes.multiband.high.gain.gain.linearRampToValueAtTime(1.5, now + 0.1);
-                } else {
-                    this.nodes.multiband.high.gain.gain.linearRampToValueAtTime(0.9, now + 0.1);
+                // Limit buffer
+                if (this.captureBuffer.length > this.ctx.sampleRate * 4) {
+                    this.captureBuffer = this.captureBuffer.slice(-this.ctx.sampleRate * 4);
                 }
+            }
+            
+            async processCapturedAudio() {
+                if (this.captureBuffer.length < this.ctx.sampleRate * 0.1) {
+                    return;
+                }
+                
+                const buffer = this.ctx.createBuffer(1, this.captureBuffer.length, this.ctx.sampleRate);
+                buffer.getChannelData(0).set(this.captureBuffer);
+                
+                // Find next slot
+                const idx = this.currentNodeIndex % 16;
+                
+                // Basic pitch detection for routing
+                const pitch = this.detectPitch(buffer);
+                let bus = this.buses.mid;
+                
+                if (pitch < 200) bus = this.buses.bass;
+                else if (pitch > 1000) bus = this.buses.high;
+                
+                // Create pattern
+                const pattern = new Array(16).fill(false);
+                for (let i = 0; i < 16; i++) {
+                    pattern[i] = Math.random() < 0.3;
+                }
+                
+                // Store
+                this.samples.set(idx, {
+                    buffer: buffer,
+                    pitch: 1,
+                    gain: 0.5,
+                    pattern: pattern,
+                    bus: bus
+                });
                 
                 // Update UI
-                this.ui.aiDisplay.textContent = `${Math.round(this.ai.feedback.spectralBalance)}% BALANCED`;
+                this.nodes[idx].classList.add('loaded');
+                this.nodes[idx].textContent = '●';
+                this.ui.samples.textContent = this.samples.size;
+                
+                this.currentNodeIndex++;
+                this.captureBuffer = [];
             }
             
-            updateAI() {
-                if (!this.ai.isActive) return;
+            captureNow() {
+                // Force capture current buffer
+                if (this.captureBuffer.length > 0) {
+                    this.processCapturedAudio();
+                }
+            }
+            
+            detectPitch(buffer) {
+                const data = buffer.getChannelData(0);
+                let maxCorr = 0;
+                let bestPeriod = 0;
                 
-                // Evolve
-                this.ai.energy = Math.min(1, this.ai.energy + 0.01);
-                this.ai.complexity = 0.5 + (this.ai.energy * 0.3);
-                
-                // Generate pattern
-                this.ai.pattern = this.generateAIPattern();
-                
-                // Update mode
-                if (this.ai.energy > 0.8) {
-                    this.ai.mode = 'PEAK';
-                } else if (this.ai.energy > 0.5) {
-                    this.ai.mode = 'BUILDING';
-                } else {
-                    this.ai.mode = 'EVOLVING';
+                for (let period = 50; period < 500; period++) {
+                    let corr = 0;
+                    for (let i = 0; i < data.length - period; i++) {
+                        corr += data[i] * data[i + period];
+                    }
+                    if (corr > maxCorr) {
+                        maxCorr = corr;
+                        bestPeriod = period;
+                    }
                 }
                 
-                this.ui.bpmDisplay.textContent = Math.round(this.state.bpm);
-                this.ui.keyDisplay.textContent = this.state.key + 'm';
+                return this.ctx.sampleRate / bestPeriod;
             }
             
-            generateAIPattern() {
-                const pattern = {
-                    kick: new Array(16).fill(false),
-                    snare: new Array(16).fill(false),
-                    bass: new Array(16).fill(null),
-                    lead: new Array(16).fill(null)
-                };
+            createFibonacciNodes() {
+                const positions = [];
+                const phi = 1.618033988749895;
                 
-                // Dark minimal patterns
+                // Generate Fibonacci spiral positions
                 for (let i = 0; i < 16; i++) {
-                    // Kick - four on floor with variations
-                    if (i % 4 === 0) {
-                        pattern.kick[i] = true;
-                    } else if (i % 4 === 3 && this.ai.energy > 0.6) {
-                        pattern.kick[i] = Math.random() < 0.3;
-                    }
+                    const angle = i * 137.5 * Math.PI / 180; // Golden angle
+                    const radius = 50 + i * 15;
                     
-                    // Snare - off beats
-                    if ((i + 2) % 4 === 0 && this.ai.energy > 0.3) {
-                        pattern.snare[i] = true;
-                    }
+                    const x = 50 + radius * Math.cos(angle) * 0.3;
+                    const y = 50 + radius * Math.sin(angle) * 0.3;
                     
-                    // Bass - dark progression
-                    if (i % 4 === 0) {
-                        const progression = [0, 0, 3, 5, 7, 7, 3, 0];
-                        pattern.bass[i] = progression[Math.floor(i/2) % progression.length];
-                    }
-                    
-                    // Lead - sparse eerie notes
-                    if (this.ai.energy > 0.5 && Math.random() < 0.2) {
-                        pattern.lead[i] = Math.floor(Math.random() * 12);
-                    }
+                    positions.push({ x, y });
                 }
                 
-                return pattern;
+                // Create nodes
+                positions.forEach((pos, idx) => {
+                    const node = document.createElement('div');
+                    node.className = 'sample-node';
+                    node.style.left = pos.x + '%';
+                    node.style.top = pos.y + '%';
+                    node.style.transform = 'translate(-50%, -50%)';
+                    
+                    node.addEventListener('click', () => {
+                        if (this.samples.has(idx)) {
+                            this.playSample(idx);
+                        }
+                    });
+                    
+                    this.ui.sampleNodes.appendChild(node);
+                    this.nodes.push(node);
+                });
             }
             
-            activateAI() {
-                this.ai.isActive = true;
-                this.ai.mode = 'ACTIVE';
-                this.ui.mainOrb.classList.add('ai-active');
-            }
-            
-            toggleAmbient() {
-                this.ambientSampler.isActive = !this.ambientSampler.isActive;
+            setupVisualizers() {
+                // Spectrum
+                const spectrum = this.ui.spectrumCanvas;
+                spectrum.width = window.innerWidth;
+                spectrum.height = window.innerHeight;
                 
-                if (this.ambientSampler.isActive) {
-                    this.ui.mainOrb.classList.add('listening');
-                    this.ui.modeDisplay.textContent = 'LISTENING';
-                } else {
-                    this.ui.mainOrb.classList.remove('listening');
-                    this.ui.modeDisplay.textContent = 'PAUSED';
+                // Waveform
+                const scope = this.ui.waveformScope;
+                scope.width = 377;
+                scope.height = 89;
+            }
+            
+            handleKey(e) {
+                if (e.key === ' ') {
+                    e.preventDefault();
+                    this.clearAll();
                 }
             }
             
-            toggleDarkMode() {
-                this.ui.darkBtn.classList.toggle('active');
+            handleMouse(e) {
+                this.mouseX = e.clientX;
+                this.mouseY = e.clientY;
                 
-                // Increase darkness
-                const isDark = this.ui.darkBtn.classList.contains('active');
+                // Update cursor
+                this.ui.cursor.style.left = e.clientX + 'px';
+                this.ui.cursor.style.top = e.clientY + 'px';
                 
-                if (isDark) {
-                    this.darkElements.drones.forEach(drone => {
-                        drone.gain.gain.value *= 2;
-                    });
+                this.ui.cursorTrail.style.left = e.clientX + 'px';
+                this.ui.cursorTrail.style.top = e.clientY + 'px';
+                
+                // Modulate based on position
+                if (this.isRunning) {
+                    const x = e.clientX / window.innerWidth;
+                    const y = e.clientY / window.innerHeight;
                     
-                    this.darkElements.textures.forEach(texture => {
-                        texture.gain.gain.value *= 2;
-                    });
+                    // Modulate filter
+                    this.effects.eq.highMid.frequency.value = 1000 + x * 4000;
+                    this.effects.eq.highMid.gain.value = -5 + y * 10;
                     
-                    document.querySelector('.atmosphere').style.opacity = '0.1';
-                } else {
-                    this.darkElements.drones.forEach(drone => {
-                        drone.gain.gain.value *= 0.5;
-                    });
-                    
-                    this.darkElements.textures.forEach(texture => {
-                        texture.gain.gain.value *= 0.5;
-                    });
-                    
-                    document.querySelector('.atmosphere').style.opacity = '0.03';
+                    // Modulate energy
+                    this.energy = Math.sqrt(x * x + y * y) / Math.sqrt(2);
+                }
+            }
+            
+            handleTouch(e) {
+                if (e.touches[0]) {
+                    this.handleMouse(e.touches[0]);
                 }
             }
             
             clearAll() {
-                this.sampleSlots.fill(null);
                 this.samples.clear();
-                this.ai.isActive = false;
-                this.ai.energy = 0;
-                this.ai.pattern = null;
-                
-                document.querySelectorAll('.sample-dot').forEach(dot => {
-                    dot.classList.remove('loaded', 'playing');
+                this.nodes.forEach(node => {
+                    node.classList.remove('loaded');
+                    node.textContent = '';
                 });
+                this.ui.samples.textContent = '0';
+                this.complexity = 0;
+                this.ui.complexity.textContent = '0';
                 
-                this.ui.aiDisplay.textContent = 'LEARNING';
-                this.ui.mainOrb.classList.remove('ai-active');
-            }
-            
-            createSampleDots() {
-                for (let i = 0; i < 16; i++) {
-                    const dot = document.createElement('div');
-                    dot.className = 'sample-dot';
-                    dot.addEventListener('click', () => {
-                        if (this.sampleSlots[i]) {
-                            this.playSample(i);
-                        }
-                    });
-                    this.ui.samplesContainer.appendChild(dot);
+                // Create particles for effect
+                for (let i = 0; i < 50; i++) {
+                    this.createParticle();
                 }
             }
             
-            updateSampleDot(idx) {
-                const dot = this.ui.samplesContainer.children[idx];
-                if (dot && this.sampleSlots[idx]) {
-                    dot.classList.add('loaded');
-                }
-            }
-            
-            showCaptureEffect() {
-                // Process indicator
-                const circle = this.ui.processCircle;
-                circle.style.strokeDashoffset = '0';
-                setTimeout(() => {
-                    circle.style.strokeDashoffset = '280';
-                }, 300);
-            }
-            
-            setupVisualizers() {
-                // Main visualizer
-                const mainCanvas = this.ui.vizCanvas;
-                const mainCtx = mainCanvas.getContext('2d');
-                mainCanvas.width = mainCanvas.offsetWidth;
-                mainCanvas.height = mainCanvas.offsetHeight;
-                this.viz.main = mainCtx;
+            createParticle() {
+                const particle = document.createElement('div');
+                particle.className = 'particle';
+                particle.style.left = '50%';
+                particle.style.top = '50%';
+                document.body.appendChild(particle);
                 
-                // Feedback visualizer
-                const fbCanvas = this.ui.feedbackCanvas;
-                const fbCtx = fbCanvas.getContext('2d');
-                fbCanvas.width = 89;
-                fbCanvas.height = 89;
-                this.viz.feedback = fbCtx;
+                const angle = Math.random() * Math.PI * 2;
+                const velocity = 100 + Math.random() * 200;
+                const lifetime = 1000 + Math.random() * 1000;
+                
+                let x = 0, y = 0;
+                const start = Date.now();
+                
+                const update = () => {
+                    const elapsed = Date.now() - start;
+                    const progress = elapsed / lifetime;
+                    
+                    if (progress >= 1) {
+                        particle.remove();
+                        return;
+                    }
+                    
+                    x += Math.cos(angle) * velocity * 0.016;
+                    y += Math.sin(angle) * velocity * 0.016;
+                    
+                    particle.style.transform = `translate(${x}px, ${y}px)`;
+                    particle.style.opacity = 1 - progress;
+                    
+                    requestAnimationFrame(update);
+                };
+                
+                update();
             }
             
             animate() {
                 requestAnimationFrame(() => this.animate());
                 
-                this.frame++;
-                
-                if (this.frame % 2 === 0) {
-                    this.drawVisualizers();
-                }
-                
-                if (this.frame % 60 === 0) {
-                    this.updateProcessIndicator();
-                }
-            }
-            
-            drawVisualizers() {
-                if (!this.nodes.outputAnalyzer) return;
-                
-                // Main viz
-                const data = new Uint8Array(this.nodes.outputAnalyzer.frequencyBinCount);
-                this.nodes.outputAnalyzer.getByteFrequencyData(data);
-                
-                const ctx = this.viz.main;
-                const w = ctx.canvas.width;
-                const h = ctx.canvas.height;
-                
-                ctx.fillStyle = 'rgba(0, 0, 0, 0.1)';
-                ctx.fillRect(0, 0, w, h);
-                
-                const barWidth = w / data.length * 2;
-                
-                for (let i = 0; i < data.length; i++) {
-                    const barHeight = (data[i] / 255) * h;
-                    const x = i * barWidth;
+                // Spectrum visualization
+                if (this.analyser) {
+                    const canvas = this.ui.spectrumCanvas;
+                    const ctx = canvas.getContext('2d');
+                    const data = new Uint8Array(this.analyser.frequencyBinCount);
+                    this.analyser.getByteFrequencyData(data);
                     
-                    const gradient = ctx.createLinearGradient(0, h - barHeight, 0, h);
-                    gradient.addColorStop(0, 'rgba(255, 0, 255, 0.8)');
-                    gradient.addColorStop(1, 'rgba(255, 0, 255, 0.1)');
+                    ctx.fillStyle = 'rgba(0, 0, 0, 0.05)';
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
                     
-                    ctx.fillStyle = gradient;
-                    ctx.fillRect(x, h - barHeight, barWidth - 1, barHeight);
-                }
-                
-                // Feedback viz
-                const fbCtx = this.viz.feedback;
-                const fbData = new Uint8Array(32);
-                this.nodes.outputAnalyzer.getByteFrequencyData(fbData);
-                
-                fbCtx.fillStyle = 'rgba(0, 0, 0, 0.1)';
-                fbCtx.fillRect(0, 0, 89, 89);
-                
-                fbCtx.beginPath();
-                fbCtx.strokeStyle = '#ff00ff';
-                fbCtx.lineWidth = 1;
-                
-                for (let i = 0; i < fbData.length; i++) {
-                    const angle = (i / fbData.length) * Math.PI * 2;
-                    const radius = 20 + (fbData[i] / 255) * 20;
-                    const x = 44.5 + Math.cos(angle) * radius;
-                    const y = 44.5 + Math.sin(angle) * radius;
+                    const barWidth = canvas.width / data.length * 3;
                     
-                    if (i === 0) {
-                        fbCtx.moveTo(x, y);
-                    } else {
-                        fbCtx.lineTo(x, y);
+                    for (let i = 0; i < data.length; i++) {
+                        const height = (data[i] / 255) * canvas.height;
+                        const x = i * barWidth;
+                        
+                        const gradient = ctx.createLinearGradient(0, canvas.height - height, 0, canvas.height);
+                        gradient.addColorStop(0, `rgba(255, 0, 255, ${data[i] / 255})`);
+                        gradient.addColorStop(1, 'rgba(138, 0, 255, 0.1)');
+                        
+                        ctx.fillStyle = gradient;
+                        ctx.fillRect(x, canvas.height - height, barWidth - 1, height);
                     }
                 }
                 
-                fbCtx.closePath();
-                fbCtx.stroke();
+                // Waveform scope
+                if (this.scopeAnalyser) {
+                    const scope = this.ui.waveformScope;
+                    const ctx = scope.getContext('2d');
+                    const data = new Uint8Array(this.scopeAnalyser.fftSize);
+                    this.scopeAnalyser.getByteTimeDomainData(data);
+                    
+                    ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
+                    ctx.fillRect(0, 0, scope.width, scope.height);
+                    
+                    ctx.beginPath();
+                    ctx.strokeStyle = '#ff00ff';
+                    ctx.lineWidth = 1;
+                    
+                    const sliceWidth = scope.width / data.length;
+                    let x = 0;
+                    
+                    for (let i = 0; i < data.length; i++) {
+                        const v = data[i] / 128;
+                        const y = v * scope.height / 2;
+                        
+                        if (i === 0) {
+                            ctx.moveTo(x, y);
+                        } else {
+                            ctx.lineTo(x, y);
+                        }
+                        
+                        x += sliceWidth;
+                    }
+                    
+                    ctx.stroke();
+                }
             }
             
-            updateProcessIndicator() {
-                const progress = (this.ai.energy * 280);
-                this.ui.processCircle.style.strokeDashoffset = 280 - progress;
-            }
-            
-            makeDistortionCurve(amount) {
+            makeSaturationCurve(amount) {
                 const samples = 44100;
                 const curve = new Float32Array(samples);
                 
                 for (let i = 0; i < samples; i++) {
                     const x = (i * 2 / samples) - 1;
-                    curve[i] = (3 + amount) * x / (1 + amount * Math.abs(x));
+                    curve[i] = Math.tanh(x * amount) / Math.tanh(amount);
                 }
                 
                 return curve;
             }
-            
-            noteToFreq(note) {
-                const notes = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
-                const octave = parseInt(note.slice(-1));
-                const noteName = note.slice(0, -1);
-                const noteIndex = notes.indexOf(noteName);
-                
-                return 440 * Math.pow(2, (noteIndex - 9) / 12 + (octave - 4));
-            }
         }
         
-        // Granular Engine for time/pitch manipulation
-        class GranularEngine {
-            constructor(ctx) {
-                this.ctx = ctx;
-            }
-            
-            async timeStretch(buffer, ratio) {
-                const grainSize = 0.05;
-                const overlap = 0.5;
-                
-                const newLength = Math.floor(buffer.length * ratio);
-                const stretched = this.ctx.createBuffer(
-                    buffer.numberOfChannels,
-                    newLength,
-                    buffer.sampleRate
-                );
-                
-                for (let ch = 0; ch < buffer.numberOfChannels; ch++) {
-                    const input = buffer.getChannelData(ch);
-                    const output = stretched.getChannelData(ch);
-                    
-                    const grainSamples = Math.floor(grainSize * buffer.sampleRate);
-                    const hopSize = Math.floor(grainSamples * (1 - overlap));
-                    
-                    let readPos = 0;
-                    let writePos = 0;
-                    
-                    while (readPos < input.length - grainSamples && writePos < output.length - grainSamples) {
-                        // Extract grain
-                        for (let i = 0; i < grainSamples; i++) {
-                            if (writePos + i < output.length) {
-                                const window = 0.5 - 0.5 * Math.cos(2 * Math.PI * i / grainSamples);
-                                output[writePos + i] += input[readPos + i] * window * 0.5;
-                            }
-                        }
-                        
-                        readPos += hopSize;
-                        writePos += Math.floor(hopSize * ratio);
-                    }
-                }
-                
-                return stretched;
-            }
-            
-            async pitchShift(buffer, ratio) {
-                // Simple pitch shift by resampling
-                const shifted = this.ctx.createBuffer(
-                    buffer.numberOfChannels,
-                    buffer.length,
-                    buffer.sampleRate
-                );
-                
-                for (let ch = 0; ch < buffer.numberOfChannels; ch++) {
-                    const input = buffer.getChannelData(ch);
-                    const output = shifted.getChannelData(ch);
-                    
-                    for (let i = 0; i < output.length; i++) {
-                        const sourceIndex = i / ratio;
-                        if (sourceIndex < input.length - 1) {
-                            const index = Math.floor(sourceIndex);
-                            const fraction = sourceIndex - index;
-                            output[i] = input[index] * (1 - fraction) + input[index + 1] * fraction;
-                        }
-                    }
-                }
-                
-                return shifted;
-            }
-            
-            createGrainCloud(buffer, params) {
-                const grains = [];
-                const numGrains = Math.floor(buffer.duration / params.grainSize);
-                
-                for (let i = 0; i < numGrains; i++) {
-                    const startTime = i * params.grainSize * (1 - params.overlap);
-                    const randomOffset = (Math.random() - 0.5) * params.randomization * params.grainSize;
-                    
-                    grains.push({
-                        start: Math.max(0, startTime + randomOffset),
-                        duration: params.grainSize,
-                        pitch: 1 + (Math.random() - 0.5) * 0.1
-                    });
-                }
-                
-                return grains;
-            }
-        }
-        
-        // Initialize
+        // Start
         window.addEventListener('DOMContentLoaded', () => {
-            window.gump = new AdvancedGUMP();
+            window.gump = new GUMPMeta();
         });
     </script>
 </body>
