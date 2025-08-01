@@ -104,12 +104,10 @@
                        inset 0 0 100px rgba(138,0,255,0.6);
         }
         .start-title {
-            font-size: 32px;
+            font-size: 48px;
             margin-bottom: 10px;
             z-index: 1;
             text-shadow: 0 0 30px var(--accent-color);
-            line-height: 1.2;
-            text-align: center;
         }
         .start-subtitle {
             font-size: 14px;
@@ -575,7 +573,7 @@
             <div class="status-title" id="stageDisplay">INITIALIZING</div>
             <div class="status-row">
                 <span class="status-label">BPM</span>
-                <span class="status-value" id="bpmDisplay">80</span>
+                <span class="status-value" id="bpmDisplay">140</span>
             </div>
             <div class="status-row">
                 <span class="status-label">KEY</span>
@@ -614,7 +612,7 @@
                 <div class="control-title">AI PRODUCER</div>
                 <div class="control-row">
                     <span class="control-label">Style</span>
-                    <span class="control-value" id="styleValue">TRIBAL KANYE</span>
+                    <span class="control-value" id="styleValue">HEAVY BASS</span>
                 </div>
                 <div class="control-row">
                     <span class="control-label">Energy</span>
@@ -658,10 +656,6 @@
             <div class="fx-slot" id="fxFilter">
                 <div class="fx-name">FILTER</div>
                 <div class="fx-param">Cutoff: <span id="filterCutoff">20kHz</span></div>
-            </div>
-            <div class="fx-slot" id="fxPhaser">
-                <div class="fx-name">PHASER</div>
-                <div class="fx-param">Rate: <span id="phaserRate">0.5Hz</span></div>
             </div>
         </div>
         <!-- Instructions -->
@@ -755,7 +749,6 @@
                     filter: null,
                     compressor: null,
                     limiter: null,
-                    phaser: null,
                     // Spatial
                     panners: new Map(),
                     listener: null
@@ -778,7 +771,7 @@
                     autoSample: true,
                     recordThreshold: 0.1,
                     quantize: true,
-                    swing: 0.3 // Increased swing for groovy feel
+                    swing: 0.1
                 };
                 this.init();
             }
@@ -792,7 +785,7 @@
                     'sensitivityValue', 'patternValue', 'styleValue', 'energyValue',
                     'saturationValue', 'sampleGrid', 'particleSystem', 'impactFlash',
                     'loading', 'reverbSize', 'delayTime', 'distortionAmount', 'filterCutoff',
-                    'fxReverb', 'fxDelay', 'fxDistortion', 'fxFilter', 'fxPhaser', 'phaserRate'
+                    'fxReverb', 'fxDelay', 'fxDistortion', 'fxFilter'
                 ];
                 ids.forEach(id => {
                     this.elements[id] = document.getElementById(id);
@@ -821,7 +814,6 @@
                 this.elements.fxDelay.addEventListener('click', () => this.toggleFX('delay'));
                 this.elements.fxDistortion.addEventListener('click', () => this.toggleFX('distortion'));
                 this.elements.fxFilter.addEventListener('click', () => this.toggleFX('filter'));
-                this.elements.fxPhaser.addEventListener('click', () => this.toggleFX('phaser'));
                 // Prevent mobile bouncing
                 document.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
                 // Handle visibility change for background resume
@@ -966,8 +958,7 @@
                
                 this.nodes.compressor.connect(this.nodes.distortion);
                 this.nodes.distortion.connect(this.nodes.filter);
-                this.nodes.filter.connect(this.nodes.phaser);
-                this.nodes.phaser.connect(this.nodes.limiter);
+                this.nodes.filter.connect(this.nodes.limiter);
                 this.nodes.reverb.connect(this.nodes.limiter);
                 this.nodes.delay.connect(this.nodes.limiter);
                 this.nodes.limiter.connect(this.analyser);
@@ -1027,38 +1018,6 @@
                 this.nodes.delay.connect(delayFeedback);
                 delayFeedback.connect(delayFilter);
                 delayFilter.connect(this.nodes.delay);
-                // Phaser
-                this.nodes.phaser = this.createPhaser();
-            }
-            createPhaser() {
-                const stages = 8;
-                const firstFilter = this.ctx.createBiquadFilter();
-                firstFilter.type = 'allpass';
-                firstFilter.frequency.value = 440;
-                firstFilter.Q.value = 0.7;
-               
-                let lastFilter = firstFilter;
-                for (let i = 1; i < stages; i++) {
-                    const filter = this.ctx.createBiquadFilter();
-                    filter.type = 'allpass';
-                    filter.frequency.value = 440 * Math.pow(1.4, i);
-                    filter.Q.value = 0.7;
-                    lastFilter.connect(filter);
-                    lastFilter = filter;
-                }
-               
-                const feedback = this.ctx.createGain();
-                feedback.gain.value = 0.4;
-               
-                lastFilter.connect(feedback);
-                feedback.connect(firstFilter);
-               
-                return {
-                    input: firstFilter,
-                    output: lastFilter,
-                    connect: (node) => lastFilter.connect(node),
-                    frequency: { value: 0.5 } // Placeholder for rate
-                };
             }
             createSynthEngines() {
                 // Create drum synthesis
@@ -1071,6 +1030,7 @@
                 this.createAtmosphereGenerators();
             }
             createDrumSynths() {
+                // Will be created on demand for each hit
                 this.drumSynths = {
                     kick: () => this.synthesizeKick(),
                     snare: () => this.synthesizeSnare(),
@@ -1081,49 +1041,50 @@
             }
             synthesizeKick() {
                 const time = this.ctx.currentTime;
-                const duration = 1.0; // Longer for thicker sound
+                const duration = 0.5;
                 // Tone oscillator
                 const osc = this.ctx.createOscillator();
                 osc.type = 'sine';
                
                 // Pitch envelope
-                osc.frequency.setValueAtTime(120, time);
-                osc.frequency.exponentialRampToValueAtTime(40, time + 0.3);
-                // Body
-                const body = this.ctx.createOscillator();
-                body.type = 'triangle';
-                body.frequency.value = 60;
+                osc.frequency.setValueAtTime(150, time);
+                osc.frequency.exponentialRampToValueAtTime(60, time + 0.01);
+                osc.frequency.exponentialRampToValueAtTime(40, time + duration);
+                // Click oscillator
+                const click = this.ctx.createOscillator();
+                click.type = 'square';
+                click.frequency.value = 200;
                 // Amplitude envelopes
                 const toneEnv = this.ctx.createGain();
-                toneEnv.gain.setValueAtTime(1.2, time);
+                toneEnv.gain.setValueAtTime(1, time);
                 toneEnv.gain.exponentialRampToValueAtTime(0.001, time + duration);
-                const bodyEnv = this.ctx.createGain();
-                bodyEnv.gain.setValueAtTime(0.8, time);
-                bodyEnv.gain.exponentialRampToValueAtTime(0.001, time + 0.5);
+                const clickEnv = this.ctx.createGain();
+                clickEnv.gain.setValueAtTime(0.5, time);
+                clickEnv.gain.exponentialRampToValueAtTime(0.001, time + 0.02);
                 // Saturation
                 const saturator = this.ctx.createWaveShaper();
-                saturator.curve = this.makeDistortionCurve(15);
-                saturator.oversample = '4x';
+                saturator.curve = this.makeDistortionCurve(10);
+                saturator.oversample = '2x';
                 // Connect
                 osc.connect(toneEnv);
-                body.connect(bodyEnv);
+                click.connect(clickEnv);
                 toneEnv.connect(saturator);
-                bodyEnv.connect(saturator);
+                clickEnv.connect(saturator);
                 saturator.connect(this.nodes.drumBus);
                 // Start/stop
                 osc.start(time);
-                body.start(time);
+                click.start(time);
                 osc.stop(time + duration);
-                body.stop(time + 0.5);
-                return { osc, body };
+                click.stop(time + 0.02);
+                return { osc, click };
             }
             synthesizeSnare() {
                 const time = this.ctx.currentTime;
-                const duration = 0.4; // Slightly longer
+                const duration = 0.2;
                 // Tone
                 const tone = this.ctx.createOscillator();
                 tone.type = 'triangle';
-                tone.frequency.value = 180;
+                tone.frequency.value = 200;
                 // Noise
                 const noiseBuffer = this.ctx.createBuffer(1, this.ctx.sampleRate * duration, this.ctx.sampleRate);
                 const noiseData = noiseBuffer.getChannelData(0);
@@ -1263,19 +1224,13 @@
             }
             playBassNote(note, time = this.ctx.currentTime, duration = 1.5) {
                 const freq = this.noteToFreq(note);
-                // Sine sub
-                const sine = this.ctx.createOscillator();
-                sine.type = 'sine';
-                sine.frequency.setValueAtTime(freq + 50, time);
-                sine.frequency.exponentialRampToValueAtTime(freq, time + 0.1);
-                // Saw for thickness
-                const saw = this.ctx.createOscillator();
-                saw.type = 'sawtooth';
-                saw.frequency.value = freq;
-                saw.detune.value = 5;
+                const osc = this.ctx.createOscillator();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(freq + 50, time);
+                osc.frequency.exponentialRampToValueAtTime(freq, time + 0.1);
                 const env = this.ctx.createGain();
                 env.gain.setValueAtTime(1, time);
-                env.gain.exponentialRampToValueAtTime(0.001, time + duration);
+                env.gain.exponentialRampToValueAtTime(0.001, time + 1.5);
                 const dist = this.ctx.createWaveShaper();
                 dist.curve = this.makeDistortionCurve(5);
                 dist.oversample = '2x';
@@ -1283,8 +1238,7 @@
                 filter.type = 'lowpass';
                 filter.frequency.value = 200;
                 filter.Q.value = 8;
-                sine.connect(dist);
-                saw.connect(dist);
+                osc.connect(dist);
                 dist.connect(filter);
                 filter.connect(env);
                 env.connect(this.nodes.bassBus);
@@ -1293,11 +1247,9 @@
                 this.nodes.subGain.gain.setValueAtTime(0.3, time);
                 this.nodes.subGain.gain.exponentialRampToValueAtTime(0.001, time + duration * 1.5);
                 // Start/stop
-                sine.start(time);
-                saw.start(time);
-                sine.stop(time + duration);
-                saw.stop(time + duration);
-                return { sine, saw };
+                osc.start(time);
+                osc.stop(time + 1.5);
+                return { osc };
             }
             createLeadSynth() {
                 // Lead synth will be created per note with modulation
@@ -2000,11 +1952,6 @@
                         const filterActive = fxElement.classList.contains('active');
                         this.nodes.filter.frequency.value = filterActive ? 2000 : 20000;
                         this.elements.filterCutoff.textContent = filterActive ? '2kHz' : '20kHz';
-                        break;
-                    case 'phaser':
-                        const phaserActive = fxElement.classList.contains('active');
-                        this.nodes.phaser.frequency.value = phaserActive ? 0.5 : 0;
-                        this.elements.phaserRate.textContent = phaserActive ? '0.5Hz' : 'OFF';
                         break;
                 }
             }
