@@ -444,7 +444,7 @@
                 if (!this.hasMic) {
                     const warning = document.createElement('div');
                     warning.className = 'mic-warning';
-                    warning.textContent = 'Microphone access denied or unavailable. Sampler disabled. Please check permissions and reload.';
+                    warning.textContent = 'Microphone access denied or unavailable. Using generated samples instead. For real ambient sampling, serve this file over HTTP/HTTPS (not file://) and grant permission.';
                     document.body.appendChild(warning);
                 }
             }
@@ -637,9 +637,13 @@
                         }
                     };
                    
+                    const mute = this.ctx.createGain();
+                    mute.gain.value = 0;
+                   
                     this.micStream.connect(micGain);
                     micGain.connect(processor);
-                    processor.connect(this.ctx.destination);
+                    processor.connect(mute);
+                    mute.connect(this.ctx.destination);
                    
                     this.hasMic = true;
                 } catch (e) {
@@ -906,13 +910,16 @@
             }
            
             startAmbientCapture() {
-                if (!this.hasMic) return;
-                this.isListening = true;
-                setInterval(() => {
-                    if (this.captureBuffer.length > this.ctx.sampleRate * 0.5) {
-                        this.processCapturedAudio();
-                    }
-                }, 2000);
+                if (this.hasMic) {
+                    this.isListening = true;
+                    setInterval(() => {
+                        if (this.captureBuffer.length > this.ctx.sampleRate * 0.5) {
+                            this.processCapturedAudio();
+                        }
+                    }, 2000);
+                } else {
+                    setInterval(() => this.generateFakeSample(), 3000);
+                }
             }
            
             processAmbientAudio(data) {
@@ -923,7 +930,7 @@
                 }
                 energy = Math.sqrt(energy / data.length);
                
-                if (energy > 0.005) {  // Lowered threshold for better sensitivity
+                if (energy > 0.001) {
                     this.captureBuffer.push(...data);
                 }
                
@@ -933,7 +940,7 @@
                 }
             }
            
-            async processCapturedAudio() {
+            processCapturedAudio() {
                 if (this.captureBuffer.length < this.ctx.sampleRate * 0.1) {
                     return;
                 }
@@ -941,23 +948,37 @@
                 const buffer = this.ctx.createBuffer(1, this.captureBuffer.length, this.ctx.sampleRate);
                 buffer.getChannelData(0).set(this.captureBuffer);
                
-                // Find next slot
+                this.createSampleFromBuffer(buffer);
+               
+                this.captureBuffer = [];
+            }
+           
+            generateFakeSample() {
+                const length = this.ctx.sampleRate * (0.5 + Math.random() * 2);
+                const buffer = this.ctx.createBuffer(1, length, this.ctx.sampleRate);
+                const data = buffer.getChannelData(0);
+                const freq = 100 + Math.random() * 400;
+                for (let i = 0; i < length; i++) {
+                    data[i] = Math.sin(i / this.ctx.sampleRate * freq * 2 * Math.PI) * Math.exp(-i / length * 3);
+                }
+               
+                this.createSampleFromBuffer(buffer);
+            }
+           
+            createSampleFromBuffer(buffer) {
                 const idx = this.currentNodeIndex % 16;
                
-                // Basic pitch detection for routing
                 const pitch = this.detectPitch(buffer);
                 let bus = this.buses.mid;
                
                 if (pitch < 200) bus = this.buses.bass;
                 else if (pitch > 1000) bus = this.buses.high;
                
-                // Create pattern
                 const pattern = new Array(16).fill(false);
                 for (let i = 0; i < 16; i++) {
                     pattern[i] = Math.random() < 0.3;
                 }
                
-                // Store
                 this.samples.set(idx, {
                     buffer: buffer,
                     pitch: 1,
@@ -966,17 +987,14 @@
                     bus: bus
                 });
                
-                // Update UI
                 this.nodes[idx].classList.add('loaded');
                 this.nodes[idx].textContent = '●';
                 this.ui.samples.textContent = this.samples.size;
                
                 this.currentNodeIndex++;
-                this.captureBuffer = [];
             }
            
             captureNow() {
-                // Force capture current buffer
                 if (this.captureBuffer.length > 0) {
                     this.processCapturedAudio();
                 }
@@ -998,7 +1016,7 @@
                     }
                 }
                
-                return this.ctx.sampleRate / bestPeriod;
+                return bestPeriod > 0 ? this.ctx.sampleRate / bestPeriod : 440;
             }
            
             createFibonacciNodes() {
