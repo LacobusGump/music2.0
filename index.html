@@ -137,16 +137,16 @@
             height: 120px;
             border-radius: 50%;
             background: radial-gradient(circle at 35% 35%,
-                rgba(255,255,255,0.9) 0%,
+                rgba(255,255,255,0.7) 0%,
                 var(--accent-color) 30%,
-                rgba(138,0,255,0.3) 60%,
+                rgba(138,0,255,0.2) 60%,
                 transparent 100%);
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
             transition: all 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
-            box-shadow: 0 0 100px var(--accent-color),
-                       inset 0 0 50px rgba(255,255,255,0.3);
+            box-shadow: 0 0 80px var(--accent-color),
+                       inset 0 0 40px rgba(255,255,255,0.2);
             cursor: pointer;
             z-index: 100;
         }
@@ -156,9 +156,9 @@
         @keyframes beatPulse {
             0% { transform: translate(-50%, -50%) scale(1); }
             50% {
-                transform: translate(-50%, -50%) scale(1.4);
-                box-shadow: 0 0 200px var(--accent-color),
-                           inset 0 0 80px rgba(255,255,255,0.5);
+                transform: translate(-50%, -50%) scale(1.3);
+                box-shadow: 0 0 150px var(--accent-color),
+                           inset 0 0 60px rgba(255,255,255,0.4);
             }
             100% { transform: translate(-50%, -50%) scale(1); }
         }
@@ -166,25 +166,25 @@
             background: radial-gradient(circle at 35% 35%,
                 #ff0000 0%,
                 #ff0066 40%,
-                rgba(255,0,0,0.3) 70%,
+                rgba(255,0,0,0.2) 70%,
                 transparent 100%);
             animation: recordPulse 1s ease-in-out infinite;
         }
         @keyframes recordPulse {
             0%, 100% {
                 transform: translate(-50%, -50%) scale(1);
-                box-shadow: 0 0 80px #ff0066;
+                box-shadow: 0 0 60px #ff0066;
             }
             50% {
                 transform: translate(-50%, -50%) scale(1.1);
-                box-shadow: 0 0 150px #ff0066;
+                box-shadow: 0 0 120px #ff0066;
             }
         }
         #orb.ai-active {
             background: radial-gradient(circle at 35% 35%,
                 #00ffff 0%,
                 #0099ff 40%,
-                rgba(0,255,255,0.3) 70%,
+                rgba(0,255,255,0.2) 70%,
                 transparent 100%);
             animation: aiPulse 2s ease-in-out infinite;
         }
@@ -193,7 +193,7 @@
                 filter: hue-rotate(0deg) brightness(1);
             }
             50% {
-                filter: hue-rotate(180deg) brightness(1.3);
+                filter: hue-rotate(180deg) brightness(1.2);
             }
         }
         #orb.dimensional {
@@ -226,7 +226,7 @@
             width: 1.4%;
             background: linear-gradient(to top,
                 var(--accent-color),
-                rgba(255,255,255,0.8));
+                rgba(255,255,255,0.6));
             border-radius: 2px 2px 0 0;
             transition: height 0.05s ease;
         }
@@ -667,10 +667,6 @@
                 <div class="fx-name">FILTER</div>
                 <div class="fx-param">Cutoff: <span id="filterCutoff">20kHz</span></div>
             </div>
-            <div class="fx-slot" id="fxPhaser">
-                <div class="fx-name">PHASER</div>
-                <div class="fx-param">Rate: <span id="phaserRate">0.5Hz</span></div>
-            </div>
         </div>
         <!-- Instructions -->
         <div class="instructions">
@@ -733,6 +729,7 @@
                 this.key = 'F';
                 this.scale = 'minor';
                 this.chordProgression = 0;
+                this.isTripletMode = false;
 
                 // AI Producer
                 this.aiProducer = {
@@ -771,6 +768,7 @@
                     filter: null,
                     compressor: null,
                     limiter: null,
+                    bassCompressor: null,
                     // Spatial
                     panners: new Map(),
                     listener: null
@@ -780,6 +778,7 @@
                 this.synthVoices = new Map();
                 this.bassOsc = null;
                 this.subOsc = null;
+                this.subSubOsc = null;
 
                 // UI Elements
                 this.elements = {};
@@ -940,7 +939,7 @@
                     // Create audio context
                     this.ctx = new (window.AudioContext || window.webkitAudioContext)({
                         latencyHint: 'interactive',
-                        sampleRate: 48000
+                        sampleRate: 44100 // Lower for mobile bass handling
                     });
                     if (this.ctx.state === 'suspended') {
                         await this.ctx.resume();
@@ -1006,7 +1005,8 @@
 
                 // Connect routing
                 this.nodes.drumBus.connect(this.nodes.compressor);
-                this.nodes.bassBus.connect(this.nodes.compressor);
+                this.nodes.bassBus.connect(this.nodes.bassCompressor);
+                this.nodes.bassCompressor.connect(this.nodes.compressor);
                 this.nodes.leadBus.connect(this.nodes.compressor);
                 this.nodes.atmBus.connect(this.nodes.reverb);
                
@@ -1037,6 +1037,14 @@
                 this.nodes.compressor.attack.value = 0.003;
                 this.nodes.compressor.release.value = 0.05;
 
+                // Bass Compressor
+                this.nodes.bassCompressor = this.ctx.createDynamicsCompressor();
+                this.nodes.bassCompressor.threshold.value = -18;
+                this.nodes.bassCompressor.knee.value = 6;
+                this.nodes.bassCompressor.ratio.value = 8;
+                this.nodes.bassCompressor.attack.value = 0.005;
+                this.nodes.bassCompressor.release.value = 0.1;
+
                 // Distortion
                 this.nodes.distortion = this.ctx.createWaveShaper();
                 this.nodes.distortion.curve = this.makeDistortionCurve(0);
@@ -1058,7 +1066,7 @@
 
                 // Reverb
                 this.nodes.reverb = this.ctx.createConvolver();
-                this.nodes.reverb.buffer = await this.createReverbImpulse(2, 2, 2000);
+                this.nodes.reverb.buffer = await this.createReverbImpulse(4, 2.5, 3000);
 
                 // Delay
                 this.nodes.delay = this.ctx.createDelay(1);
@@ -1093,66 +1101,81 @@
                     kick: () => this.synthesizeKick(),
                     snare: () => this.synthesizeSnare(),
                     hihat: () => this.synthesizeHihat(),
-                    clap: () => this.synthesizeClap()
+                    clap: () => this.synthesizeClap(),
+                    tom: () => this.synthesizeTom()
                 };
             }
 
             synthesizeKick() {
                 const time = this.ctx.currentTime;
-                const duration = 0.5;
+                const duration = 1.0; // Longer for deeper sound
 
                 // Tone oscillator
                 const osc = this.ctx.createOscillator();
                 osc.type = 'sine';
                
-                // Pitch envelope
-                osc.frequency.setValueAtTime(150, time);
-                osc.frequency.exponentialRampToValueAtTime(60, time + 0.01);
-                osc.frequency.exponentialRampToValueAtTime(40, time + duration);
+                // Pitch envelope for deep low
+                osc.frequency.setValueAtTime(80, time);
+                osc.frequency.exponentialRampToValueAtTime(30, time + 0.3);
+                osc.frequency.exponentialRampToValueAtTime(20, time + duration);
+
+                // Sub tone
+                const subOsc = this.ctx.createOscillator();
+                subOsc.type = 'sine';
+                subOsc.frequency.setValueAtTime(40, time);
+                subOsc.frequency.exponentialRampToValueAtTime(20, time + duration);
 
                 // Click oscillator
                 const click = this.ctx.createOscillator();
                 click.type = 'square';
-                click.frequency.value = 200;
+                click.frequency.value = 150;
 
                 // Amplitude envelopes
                 const toneEnv = this.ctx.createGain();
-                toneEnv.gain.setValueAtTime(1, time);
+                toneEnv.gain.setValueAtTime(0.8, time);
                 toneEnv.gain.exponentialRampToValueAtTime(0.001, time + duration);
 
+                const subEnv = this.ctx.createGain();
+                subEnv.gain.setValueAtTime(0.6, time);
+                subEnv.gain.exponentialRampToValueAtTime(0.001, time + duration);
+
                 const clickEnv = this.ctx.createGain();
-                clickEnv.gain.setValueAtTime(0.5, time);
+                clickEnv.gain.setValueAtTime(0.4, time);
                 clickEnv.gain.exponentialRampToValueAtTime(0.001, time + 0.02);
 
-                // Saturation
+                // Saturation for warmth
                 const saturator = this.ctx.createWaveShaper();
-                saturator.curve = this.makeDistortionCurve(10);
-                saturator.oversample = '2x';
+                saturator.curve = this.makeDistortionCurve(8);
+                saturator.oversample = '4x';
 
                 // Connect
                 osc.connect(toneEnv);
+                subOsc.connect(subEnv);
                 click.connect(clickEnv);
                 toneEnv.connect(saturator);
+                subEnv.connect(saturator);
                 clickEnv.connect(saturator);
                 saturator.connect(this.nodes.drumBus);
 
                 // Start/stop
                 osc.start(time);
+                subOsc.start(time);
                 click.start(time);
                 osc.stop(time + duration);
+                subOsc.stop(time + duration);
                 click.stop(time + 0.02);
 
-                return { osc, click };
+                return { osc, subOsc, click };
             }
 
             synthesizeSnare() {
                 const time = this.ctx.currentTime;
-                const duration = 0.2;
+                const duration = 0.3;
 
                 // Tone
                 const tone = this.ctx.createOscillator();
                 tone.type = 'triangle';
-                tone.frequency.value = 200;
+                tone.frequency.value = 180;
 
                 // Noise
                 const noiseBuffer = this.ctx.createBuffer(1, this.ctx.sampleRate * duration, this.ctx.sampleRate);
@@ -1166,21 +1189,21 @@
                 // Filters
                 const toneFilter = this.ctx.createBiquadFilter();
                 toneFilter.type = 'bandpass';
-                toneFilter.frequency.value = 200;
-                toneFilter.Q.value = 10;
+                toneFilter.frequency.value = 180;
+                toneFilter.Q.value = 8;
 
                 const noiseFilter = this.ctx.createBiquadFilter();
                 noiseFilter.type = 'highpass';
-                noiseFilter.frequency.value = 2000;
-                noiseFilter.Q.value = 2;
+                noiseFilter.frequency.value = 1500;
+                noiseFilter.Q.value = 1.5;
 
                 // Envelopes
                 const toneEnv = this.ctx.createGain();
-                toneEnv.gain.setValueAtTime(0.7, time);
-                toneEnv.gain.exponentialRampToValueAtTime(0.001, time + 0.1);
+                toneEnv.gain.setValueAtTime(0.6, time);
+                toneEnv.gain.exponentialRampToValueAtTime(0.001, time + 0.15);
 
                 const noiseEnv = this.ctx.createGain();
-                noiseEnv.gain.setValueAtTime(0.8, time);
+                noiseEnv.gain.setValueAtTime(0.7, time);
                 noiseEnv.gain.exponentialRampToValueAtTime(0.001, time + duration);
 
                 // Connect
@@ -1194,7 +1217,7 @@
                 // Start/stop
                 tone.start(time);
                 noise.start(time);
-                tone.stop(time + 0.1);
+                tone.stop(time + 0.15);
                 noise.stop(time + duration);
 
                 return { tone, noise };
@@ -1202,18 +1225,7 @@
 
             synthesizeHihat() {
                 const time = this.ctx.currentTime;
-                const duration = 0.05;
-
-                // Multiple square waves for metallic sound
-                const oscs = [];
-                const freqs = [4000, 5500, 7000, 9000];
-               
-                freqs.forEach(freq => {
-                    const osc = this.ctx.createOscillator();
-                    osc.type = 'square';
-                    osc.frequency.value = freq + Math.random() * 100;
-                    oscs.push(osc);
-                });
+                const duration = 0.2;
 
                 // Noise
                 const noiseBuffer = this.ctx.createBuffer(1, this.ctx.sampleRate * duration, this.ctx.sampleRate);
@@ -1227,8 +1239,8 @@
                 // Filter
                 const filter = this.ctx.createBiquadFilter();
                 filter.type = 'highpass';
-                filter.frequency.value = 8000;
-                filter.Q.value = 2;
+                filter.frequency.value = 6000;
+                filter.Q.value = 1.5;
 
                 // Envelope
                 const env = this.ctx.createGain();
@@ -1236,58 +1248,73 @@
                 env.gain.exponentialRampToValueAtTime(0.001, time + duration);
 
                 // Connect
-                oscs.forEach(osc => {
-                    osc.connect(filter);
-                });
                 noise.connect(filter);
                 filter.connect(env);
                 env.connect(this.nodes.drumBus);
 
                 // Start/stop
-                oscs.forEach(osc => {
-                    osc.start(time);
-                    osc.stop(time + duration);
-                });
                 noise.start(time);
                 noise.stop(time + duration);
 
-                return { oscs, noise };
+                return { noise };
             }
 
             synthesizeClap() {
                 const time = this.ctx.currentTime;
-                const clapTimes = [0, 0.01, 0.015, 0.025];
-               
+                const clapTimes = [0, 0.01, 0.02, 0.03];
+
                 clapTimes.forEach(offset => {
                     const env = this.ctx.createGain();
                     const filter = this.ctx.createBiquadFilter();
-                   
+
                     // Create short noise burst
-                    const duration = 0.02;
+                    const duration = 0.025;
                     const noiseBuffer = this.ctx.createBuffer(1, this.ctx.sampleRate * duration, this.ctx.sampleRate);
                     const noiseData = noiseBuffer.getChannelData(0);
-                   
+
                     for (let i = 0; i < noiseData.length; i++) {
                         noiseData[i] = Math.random() * 2 - 1;
                     }
-                   
+
                     const noise = this.ctx.createBufferSource();
                     noise.buffer = noiseBuffer;
-                   
+
                     filter.type = 'bandpass';
-                    filter.frequency.value = 1500;
-                    filter.Q.value = 5;
-                   
-                    env.gain.setValueAtTime(0.6, time + offset);
+                    filter.frequency.value = 1200;
+                    filter.Q.value = 4;
+
+                    env.gain.setValueAtTime(0.5, time + offset);
                     env.gain.exponentialRampToValueAtTime(0.001, time + offset + duration);
-                   
+
                     noise.connect(filter);
                     filter.connect(env);
                     env.connect(this.nodes.drumBus);
-                   
+
                     noise.start(time + offset);
                     noise.stop(time + offset + duration);
                 });
+            }
+
+            synthesizeTom() {
+                const time = this.ctx.currentTime;
+                const duration = 0.4;
+
+                const osc = this.ctx.createOscillator();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(100, time);
+                osc.frequency.exponentialRampToValueAtTime(50, time + duration);
+
+                const env = this.ctx.createGain();
+                env.gain.setValueAtTime(0.7, time);
+                env.gain.exponentialRampToValueAtTime(0.001, time + duration);
+
+                osc.connect(env);
+                env.connect(this.nodes.drumBus);
+
+                osc.start(time);
+                osc.stop(time + duration);
+
+                return { osc };
             }
 
             createBassSynth() {
@@ -1304,13 +1331,24 @@
                 this.subOsc.connect(subFilter);
                 subFilter.connect(subGain);
                 subGain.connect(this.nodes.bassBus);
+
+                // Sub-sub for deeper low
+                this.subSubOsc = this.ctx.createOscillator();
+                this.subSubOsc.type = 'sine';
+                this.subSubOsc.frequency.value = 27.5; // Lower
+                const subSubGain = this.ctx.createGain();
+                subSubGain.gain.value = 0;
+                this.subSubOsc.connect(subSubGain);
+                subSubGain.connect(this.nodes.bassBus);
                
                 this.subOsc.start();
+                this.subSubOsc.start();
                 this.nodes.subGain = subGain;
+                this.nodes.subSubGain = subSubGain;
                 // Main bass will be created per note
             }
 
-            playBassNote(note, time = this.ctx.currentTime, duration = 0.25) {
+            playBassNote(note, time = this.ctx.currentTime, duration = 1.0) {
                 const freq = this.noteToFreq(note);
                
                 // Main oscillator
@@ -1328,19 +1366,19 @@
                 const filter = this.ctx.createBiquadFilter();
                 filter.type = 'lowpass';
                 filter.frequency.setValueAtTime(100, time);
-                filter.frequency.exponentialRampToValueAtTime(800, time + 0.01);
-                filter.frequency.exponentialRampToValueAtTime(200, time + duration);
-                filter.Q.value = 8;
+                filter.frequency.exponentialRampToValueAtTime(600, time + 0.02);
+                filter.frequency.exponentialRampToValueAtTime(150, time + duration);
+                filter.Q.value = 6;
 
                 // Distortion
                 const dist = this.ctx.createWaveShaper();
-                dist.curve = this.makeDistortionCurve(20);
-                dist.oversample = '2x';
+                dist.curve = this.makeDistortionCurve(15);
+                dist.oversample = '4x';
 
                 // Envelope
                 const env = this.ctx.createGain();
                 env.gain.setValueAtTime(0, time);
-                env.gain.linearRampToValueAtTime(0.8, time + 0.01);
+                env.gain.linearRampToValueAtTime(0.7, time + 0.02);
                 env.gain.exponentialRampToValueAtTime(0.001, time + duration);
 
                 // Connect
@@ -1352,8 +1390,13 @@
 
                 // Update sub bass
                 this.subOsc.frequency.setValueAtTime(freq * 0.5, time);
-                this.nodes.subGain.gain.setValueAtTime(0.3, time);
+                this.nodes.subGain.gain.setValueAtTime(0.25, time);
                 this.nodes.subGain.gain.exponentialRampToValueAtTime(0.001, time + duration * 1.5);
+
+                // Update sub-sub
+                this.subSubOsc.frequency.setValueAtTime(freq * 0.25, time);
+                this.nodes.subSubGain.gain.setValueAtTime(0.2, time);
+                this.nodes.subSubGain.gain.exponentialRampToValueAtTime(0.001, time + duration * 1.5);
 
                 // Start/stop
                 osc.start(time);
@@ -1503,11 +1546,11 @@
                         this.scheduleStep(this.nextStepTime);
                        
                         // Calculate next step time with swing
-                        const stepTime = 60 / this.bpm / 4; // 16th notes
+                        const stepTime = 60 / this.bpm / (this.isTripletMode ? 6 : 4); // Adjust for triplet
                         const swing = this.currentStep % 2 === 1 ? this.settings.swing : -this.settings.swing;
                         this.nextStepTime += stepTime * (1 + swing);
                        
-                        this.currentStep = (this.currentStep + 1) % 16;
+                        this.currentStep = (this.currentStep + 1) % (this.isTripletMode ? 12 : 16);
                     }
 
                     setTimeout(schedule, lookAhead * 1000);
@@ -1847,7 +1890,7 @@
                 // Analyze with beat matcher
                 const analysis = this.beatMatcher ?
                     await this.beatMatcher.analyzeBuffer(buffer) :
-                    { bpm: this.bpm, beats: [], transients: [] };
+                    { bpm: this.bpm, beats: [], transients: [], rhythmType: 'straight', pitch: 440 };
 
                 // Find empty slot
                 let slotIndex = this.sampleSlots.findIndex(slot => slot === null);
@@ -1883,9 +1926,9 @@
                 this.elements.sampleCount.textContent = this.samples.size;
                 this.elements.modeDisplay.textContent = 'SAMPLE LOADED';
 
-                // Auto-assign to pattern
+                // Auto-assign to pattern and adapt song
                 if (this.settings.autoSample) {
-                    this.autoAssignPattern(slotIndex, analysis);
+                    this.adaptToSample(sample, analysis, slotIndex);
                 }
 
                 // Activate AI if we have enough samples
@@ -1896,6 +1939,46 @@
                 setTimeout(() => {
                     this.elements.modeDisplay.textContent = 'READY';
                 }, 1000);
+            }
+
+            adaptToSample(sample, analysis, slotIndex) {
+                // Adjust BPM if close
+                if (analysis.bpm) {
+                    this.bpm = Math.round((this.bpm + analysis.bpm) / 2);
+                }
+
+                // Detect rhythm type
+                if (analysis.rhythmType === 'triplet') {
+                    this.isTripletMode = true;
+                    // Adjust pattern for triplet
+                    sample.pattern = new Array(12).fill(false);
+                    sample.pattern[0] = true;
+                    sample.pattern[4] = true;
+                    sample.pattern[8] = true;
+                } else {
+                    this.autoAssignPattern(slotIndex, analysis);
+                }
+
+                // Adjust key or pitch
+                if (analysis.pitch) {
+                    this.key = this.freqToNote(analysis.pitch);
+                }
+
+                // Regenerate AI pattern
+                if (this.aiProducer.active) {
+                    this.generateAIPattern();
+                }
+            }
+
+            freqToNote(freq) {
+                // Simple freq to note conversion
+                const a = 440;
+                const c0 = a * Math.pow(2, -4.75);
+                const halfSteps = Math.round(12 * Math.log2(freq / c0));
+                const octave = Math.floor(halfSteps / 12);
+                const noteIndex = halfSteps % 12;
+                const notes = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+                return notes[noteIndex] + octave;
             }
 
             chopSample(buffer, beats) {
@@ -2170,7 +2253,7 @@
                 if (this.motionPattern === 'intense') {
                     this.bpm = Math.min(180, this.bpm + 0.5);
                 } else if (this.motionPattern === 'idle') {
-                    this.bpm = Math.max(120, this.bpm - 0.2);
+                    this.bpm = Math.max(60, this.bpm - 0.2);
                 }
 
                 // Update evolution
@@ -2224,13 +2307,13 @@
                 // Spectrum visualizer
                 const spectrumCanvas = this.elements.spectrumViz;
                 spectrumCanvas.width = window.innerWidth;
-                spectrumCanvas.height = 150;
+                spectrumCanvas.height = 100;
                 this.visualizers.spectrum = spectrumCanvas.getContext('2d');
 
                 // Waveform visualizer
                 const waveformCanvas = this.elements.waveformDisplay;
                 waveformCanvas.width = window.innerWidth;
-                waveformCanvas.height = 200;
+                waveformCanvas.height = 150;
                 this.visualizers.waveform = waveformCanvas.getContext('2d');
 
                 // Matrix rain
@@ -2465,7 +2548,7 @@
                 const data = buffer.getChannelData(0);
                 const sampleRate = buffer.sampleRate;
                
-                // Energy detection
+                // Energy detection for beats
                 const windowSize = 2048;
                 const hopSize = 512;
                 const energies = [];
@@ -2494,7 +2577,7 @@
                 }
                
                 // Estimate BPM
-                let bpm = 140; // Default
+                let bpm = 80; // Default lower for tribal
                 if (beats.length > 1) {
                     const intervals = [];
                     for (let i = 1; i < beats.length; i++) {
@@ -2504,7 +2587,7 @@
                     bpm = 60 / avgInterval;
                    
                     // Snap to common BPMs
-                    const commonBPMs = [128, 140, 150, 160, 170, 174];
+                    const commonBPMs = [60, 70, 80, 90, 100, 110, 120];
                     let closestBPM = commonBPMs[0];
                     let minDiff = Math.abs(bpm - closestBPM);
                    
@@ -2537,14 +2620,57 @@
                 } else if (beats.length < 2 && buffer.duration < 0.5) {
                     type = 'oneshot';
                 }
+
+                // Pitch detection using autocorrelation
+                const pitch = this.detectPitch(data, sampleRate);
+
+                // Rhythm type detection
+                let rhythmType = 'straight';
+                if (intervals.length > 2) {
+                    const ratios = [];
+                    for (let i = 1; i < intervals.length; i++) {
+                        ratios.push(intervals[i] / intervals[i-1]);
+                    }
+                    const avgRatio = ratios.reduce((a, b) => a + b, 0) / ratios.length;
+                    if (Math.abs(avgRatio - 0.666) < 0.1 || Math.abs(avgRatio - 1.5) < 0.1) {
+                        rhythmType = 'triplet';
+                    }
+                }
                
                 return {
                     bpm: Math.round(bpm),
                     beats: beats,
                     transients: transients,
                     type: type,
-                    energy: avgEnergy
+                    energy: avgEnergy,
+                    pitch: pitch,
+                    rhythmType: rhythmType
                 };
+            }
+
+            detectPitch(data, sampleRate) {
+                // Simple autocorrelation pitch detection
+                const size = data.length;
+                const maxLag = Math.floor(sampleRate / 40); // Min freq 40Hz
+                const minLag = Math.floor(sampleRate / 800); // Max freq 800Hz
+                let bestLag = -1;
+                let bestCorr = -Infinity;
+
+                for (let lag = minLag; lag < maxLag; lag++) {
+                    let corr = 0;
+                    for (let i = 0; i < size - lag; i++) {
+                        corr += data[i] * data[i + lag];
+                    }
+                    if (corr > bestCorr) {
+                        bestCorr = corr;
+                        bestLag = lag;
+                    }
+                }
+
+                if (bestLag > 0) {
+                    return sampleRate / bestLag;
+                }
+                return 440; // Default A4
             }
         }
 
@@ -2566,6 +2692,7 @@
             console.log('🎵 GUMP: Unified Bass Music Engine Ready');
             console.log('🎹 Click START to begin your journey');
         });
+
     </script>
 </body>
 </html>
