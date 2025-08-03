@@ -329,6 +329,32 @@
             0%, 100% { opacity: 1; }
             50% { opacity: 0.5; }
         }
+        /* AI DJ indicator */
+        .ai-dj-status {
+            position: fixed;
+            top: 50%;
+            left: var(--fib55);
+            transform: translateY(-50%);
+            font-size: var(--fib8);
+            letter-spacing: var(--fib3);
+            opacity: 0.382;
+            writing-mode: vertical-rl;
+            text-orientation: mixed;
+        }
+        .ai-dj-mood {
+            font-size: var(--fib13);
+            opacity: 0.618;
+            transition: all 0.618s ease;
+        }
+        .ai-dj-mood.excited {
+            color: rgba(255,140,0,0.8);
+        }
+        .ai-dj-mood.chill {
+            color: rgba(138,43,226,0.8);
+        }
+        .ai-dj-mood.groovy {
+            color: rgba(34,139,34,0.8);
+        }
     </style>
 </head>
 <body>
@@ -379,6 +405,11 @@
             <div class="bpm-value" id="bpmValue">89</div>
         </div>
         
+        <div class="ai-dj-status">
+            <div>AI-DJ</div>
+            <div class="ai-dj-mood" id="aiDJMood">NEUTRAL</div>
+        </div>
+        
         <div class="processing" id="processing">ANALYZING...</div>
         <div class="recording-indicator" id="recordingIndicator">RECORDING</div>
     </div>
@@ -399,10 +430,10 @@
                 // Fixed sampler system using MediaRecorder
                 this.sampler = {
                     slots: [
-                        { type: 'drums', filled: false, buffer: null, analysis: null, source: null, gainNode: null },
-                        { type: 'bass', filled: false, buffer: null, analysis: null, source: null, gainNode: null },
-                        { type: 'melody', filled: false, buffer: null, analysis: null, source: null, gainNode: null },
-                        { type: 'lead', filled: false, buffer: null, analysis: null, source: null, gainNode: null }
+                        { type: 'drums', filled: false, buffer: null, analysis: null, source: null, gainNode: null, currentPattern: null },
+                        { type: 'bass', filled: false, buffer: null, analysis: null, source: null, gainNode: null, currentPattern: null },
+                        { type: 'melody', filled: false, buffer: null, analysis: null, source: null, gainNode: null, currentPattern: null },
+                        { type: 'lead', filled: false, buffer: null, analysis: null, source: null, gainNode: null, currentPattern: null }
                     ],
                     selectedSlot: 0,
                     isRecording: false,
@@ -454,7 +485,7 @@
             init() {
                 // Cache DOM elements
                 ['start', 'interface', 'loading', 'motionValue', 'recordButton',
-                 'processing', 'bpmValue', 'recordingIndicator'].forEach(id => {
+                 'processing', 'bpmValue', 'recordingIndicator', 'aiDJMood'].forEach(id => {
                     this.elements[id] = document.getElementById(id);
                 });
                 
@@ -813,8 +844,11 @@
                 // Get the audio data
                 const channelData = audioBuffer.getChannelData(0);
                 
-                // Analyze the recording
+                // Deep musical analysis
                 const analysis = await this.analyzeRecording(channelData, audioBuffer);
+                
+                // Extract musical moments
+                const musicalMoments = await this.findMusicalMoments(channelData, analysis);
                 
                 // Determine which slot type this should be
                 const slotType = this.categorizeSound(analysis);
@@ -825,11 +859,18 @@
                 // Process for the specific slot type
                 const processedBuffer = await this.processForSlot(audioBuffer, analysis, slotType);
                 
-                // Store in slot
+                // Create intelligent slices and patterns
+                const slices = await this.createIntelligentSlices(processedBuffer, analysis, musicalMoments);
+                
+                // Store in slot with enhanced data
                 const slot = this.sampler.slots[targetSlot];
                 slot.filled = true;
                 slot.buffer = processedBuffer;
                 slot.analysis = analysis;
+                slot.musicalMoments = musicalMoments;
+                slot.slices = slices;
+                slot.currentPattern = this.generateInitialPattern(analysis, slotType);
+                slot.variations = this.createVariations(slot.currentPattern);
                 
                 // Update UI
                 const slotElement = document.querySelectorAll('.sample-slot')[targetSlot];
@@ -841,6 +882,9 @@
                 if (!this.activeSources.has(targetSlot)) {
                     this.startSlotPlayback(targetSlot);
                 }
+                
+                // Start AI DJ for this slot
+                this.initializeAIDJ(targetSlot);
             }
             
             async analyzeRecording(data, buffer) {
@@ -995,6 +1039,528 @@
                     }
                 }
                 return crossings;
+            }
+            
+            async findMusicalMoments(data, analysis) {
+                const moments = {
+                    peaks: [],
+                    valleys: [],
+                    rhythmicPoints: [],
+                    melodicPhrases: [],
+                    transients: [],
+                    silences: []
+                };
+                
+                // Find peaks and valleys with musical significance
+                const windowSize = 512;
+                const threshold = analysis.rms * 0.5;
+                
+                for (let i = windowSize; i < data.length - windowSize; i += windowSize / 4) {
+                    const window = data.slice(i - windowSize/2, i + windowSize/2);
+                    const energy = Math.sqrt(window.reduce((sum, x) => sum + x * x, 0) / windowSize);
+                    
+                    // Peak detection
+                    if (energy > threshold * 2) {
+                        // Check if it's a local maximum
+                        const prevEnergy = Math.sqrt(
+                            data.slice(i - windowSize, i).reduce((sum, x) => sum + x * x, 0) / windowSize
+                        );
+                        const nextEnergy = Math.sqrt(
+                            data.slice(i, i + windowSize).reduce((sum, x) => sum + x * x, 0) / windowSize
+                        );
+                        
+                        if (energy > prevEnergy && energy > nextEnergy) {
+                            moments.peaks.push({
+                                position: i,
+                                energy: energy,
+                                sharpness: (energy - prevEnergy) + (energy - nextEnergy),
+                                time: i / this.ctx.sampleRate
+                            });
+                        }
+                    }
+                    
+                    // Valley detection (quiet moments)
+                    if (energy < threshold * 0.2) {
+                        moments.valleys.push({
+                            position: i,
+                            energy: energy,
+                            duration: windowSize / this.ctx.sampleRate,
+                            time: i / this.ctx.sampleRate
+                        });
+                    }
+                }
+                
+                // Find rhythmic points using onset detection refinement
+                for (let onset of analysis.onsets) {
+                    // Analyze the attack characteristics
+                    const attackWindow = 256;
+                    if (onset + attackWindow < data.length) {
+                        const attackData = data.slice(onset, onset + attackWindow);
+                        const attackSlope = this.calculateAttackSlope(attackData);
+                        
+                        moments.rhythmicPoints.push({
+                            position: onset,
+                            strength: attackSlope,
+                            time: onset / this.ctx.sampleRate,
+                            type: attackSlope > 10 ? 'hard' : 'soft'
+                        });
+                    }
+                }
+                
+                // Find melodic phrases using pitch tracking
+                if (analysis.pitch > 0) {
+                    const pitchContour = await this.trackPitchContour(data);
+                    const phrases = this.segmentMelodicPhrases(pitchContour);
+                    moments.melodicPhrases = phrases;
+                }
+                
+                // Detect transients (sudden changes)
+                const transientThreshold = analysis.peak * 0.3;
+                for (let i = 1; i < data.length - 1; i++) {
+                    const diff = Math.abs(data[i] - data[i-1]);
+                    if (diff > transientThreshold) {
+                        moments.transients.push({
+                            position: i,
+                            magnitude: diff,
+                            time: i / this.ctx.sampleRate
+                        });
+                    }
+                }
+                
+                // Intelligent grouping of moments into musical sections
+                moments.musicalSections = this.groupMomentsIntoSections(moments, analysis);
+                
+                return moments;
+            }
+            
+            calculateAttackSlope(attackData) {
+                // Calculate the slope of the attack
+                let maxSlope = 0;
+                for (let i = 1; i < attackData.length; i++) {
+                    const slope = Math.abs(attackData[i] - attackData[i-1]);
+                    maxSlope = Math.max(maxSlope, slope);
+                }
+                return maxSlope * 1000; // Scale for easier comparison
+            }
+            
+            async trackPitchContour(data) {
+                const contour = [];
+                const hopSize = 512;
+                const windowSize = 2048;
+                
+                for (let i = 0; i < data.length - windowSize; i += hopSize) {
+                    const window = data.slice(i, i + windowSize);
+                    const pitch = this.detectPitch(window);
+                    contour.push({
+                        time: i / this.ctx.sampleRate,
+                        pitch: pitch,
+                        confidence: pitch > 0 ? this.calculatePitchConfidence(window, pitch) : 0
+                    });
+                }
+                
+                return contour;
+            }
+            
+            calculatePitchConfidence(window, detectedPitch) {
+                // Simple confidence metric based on periodicity
+                if (detectedPitch === 0) return 0;
+                
+                const period = Math.round(this.ctx.sampleRate / detectedPitch);
+                if (period >= window.length / 2) return 0;
+                
+                let correlation = 0;
+                let count = 0;
+                
+                for (let i = 0; i < window.length - period; i++) {
+                    correlation += window[i] * window[i + period];
+                    count++;
+                }
+                
+                return Math.max(0, Math.min(1, correlation / count * 10));
+            }
+            
+            segmentMelodicPhrases(pitchContour) {
+                const phrases = [];
+                let currentPhrase = null;
+                const minPhraseLength = 0.1; // seconds
+                
+                for (let i = 0; i < pitchContour.length; i++) {
+                    const point = pitchContour[i];
+                    
+                    if (point.confidence > 0.5) {
+                        if (!currentPhrase) {
+                            currentPhrase = {
+                                startTime: point.time,
+                                pitches: [point.pitch],
+                                confidences: [point.confidence]
+                            };
+                        } else {
+                            currentPhrase.pitches.push(point.pitch);
+                            currentPhrase.confidences.push(point.confidence);
+                        }
+                    } else if (currentPhrase) {
+                        currentPhrase.endTime = pitchContour[i-1].time;
+                        if (currentPhrase.endTime - currentPhrase.startTime >= minPhraseLength) {
+                            phrases.push(currentPhrase);
+                        }
+                        currentPhrase = null;
+                    }
+                }
+                
+                return phrases;
+            }
+            
+            groupMomentsIntoSections(moments, analysis) {
+                const sections = [];
+                const sectionDuration = 60 / this.bpm; // One beat
+                const totalDuration = analysis.duration;
+                
+                for (let time = 0; time < totalDuration; time += sectionDuration) {
+                    const section = {
+                        startTime: time,
+                        endTime: Math.min(time + sectionDuration, totalDuration),
+                        peaks: moments.peaks.filter(p => p.time >= time && p.time < time + sectionDuration),
+                        rhythmic: moments.rhythmicPoints.filter(r => r.time >= time && r.time < time + sectionDuration),
+                        energy: 0,
+                        character: 'neutral'
+                    };
+                    
+                    // Calculate section energy
+                    section.energy = section.peaks.reduce((sum, p) => sum + p.energy, 0) / Math.max(1, section.peaks.length);
+                    
+                    // Determine character
+                    if (section.rhythmic.length > 2) section.character = 'rhythmic';
+                    else if (section.peaks.length > 1) section.character = 'dynamic';
+                    else if (section.energy < analysis.rms * 0.3) section.character = 'quiet';
+                    else section.character = 'sustained';
+                    
+                    sections.push(section);
+                }
+                
+                return sections;
+            }
+            
+            async createIntelligentSlices(buffer, analysis, musicalMoments) {
+                const slices = [];
+                const data = buffer.getChannelData(0);
+                
+                // Create slices based on musical sections
+                for (let section of musicalMoments.musicalSections) {
+                    const startSample = Math.floor(section.startTime * this.ctx.sampleRate);
+                    const endSample = Math.floor(section.endTime * this.ctx.sampleRate);
+                    
+                    if (startSample < data.length && endSample <= data.length) {
+                        const sliceLength = endSample - startSample;
+                        const sliceBuffer = this.ctx.createBuffer(1, sliceLength, buffer.sampleRate);
+                        const sliceData = sliceBuffer.getChannelData(0);
+                        
+                        // Copy with fade in/out
+                        const fadeLength = Math.min(64, sliceLength / 10);
+                        for (let i = 0; i < sliceLength; i++) {
+                            let sample = data[startSample + i];
+                            
+                            // Fade in
+                            if (i < fadeLength) {
+                                sample *= i / fadeLength;
+                            }
+                            // Fade out
+                            else if (i > sliceLength - fadeLength) {
+                                sample *= (sliceLength - i) / fadeLength;
+                            }
+                            
+                            sliceData[i] = sample;
+                        }
+                        
+                        slices.push({
+                            buffer: sliceBuffer,
+                            startTime: section.startTime,
+                            duration: section.endTime - section.startTime,
+                            energy: section.energy,
+                            character: section.character,
+                            peaks: section.peaks.length,
+                            rhythmicStrength: section.rhythmic.reduce((sum, r) => sum + r.strength, 0)
+                        });
+                    }
+                }
+                
+                // Also create micro-slices from individual transients for glitch effects
+                const glitchSlices = [];
+                for (let transient of musicalMoments.transients.slice(0, 16)) { // Limit to 16
+                    const start = Math.max(0, transient.position - 64);
+                    const length = 128;
+                    
+                    if (start + length < data.length) {
+                        const glitchBuffer = this.ctx.createBuffer(1, length, buffer.sampleRate);
+                        const glitchData = glitchBuffer.getChannelData(0);
+                        
+                        for (let i = 0; i < length; i++) {
+                            glitchData[i] = data[start + i];
+                        }
+                        
+                        glitchSlices.push({
+                            buffer: glitchBuffer,
+                            type: 'glitch',
+                            magnitude: transient.magnitude
+                        });
+                    }
+                }
+                
+                return { main: slices, glitch: glitchSlices };
+            }
+            
+            generateInitialPattern(analysis, slotType) {
+                const pattern = new Array(16).fill(0);
+                
+                // Generate patterns based on slot type and analysis
+                switch (slotType) {
+                    case 'drums':
+                        // Create drum patterns based on detected rhythm
+                        pattern[0] = 1;  // Kick on 1
+                        pattern[4] = 0.5; // Ghost note
+                        pattern[8] = 0.8; // Snare
+                        pattern[12] = 0.3; // Ghost
+                        
+                        // Add hi-hat pattern based on energy
+                        if (analysis.brightness > 0.5) {
+                            for (let i = 0; i < 16; i += 2) {
+                                pattern[i] = Math.max(pattern[i], 0.4);
+                            }
+                        }
+                        break;
+                        
+                    case 'bass':
+                        // Bass pattern following root notes
+                        pattern[0] = 1;
+                        pattern[6] = 0.7;
+                        pattern[10] = 0.5;
+                        if (analysis.tonality > 0.7) {
+                            pattern[3] = 0.3;
+                            pattern[13] = 0.4;
+                        }
+                        break;
+                        
+                    case 'melody':
+                        // Melodic pattern based on phrase detection
+                        if (analysis.onsets.length > 0) {
+                            // Map onsets to 16th note grid
+                            const beatLength = 60 / this.bpm / 4;
+                            analysis.onsets.forEach(onset => {
+                                const beatPos = (onset / this.ctx.sampleRate) / beatLength;
+                                const gridPos = Math.round(beatPos) % 16;
+                                pattern[gridPos] = 0.8;
+                            });
+                        } else {
+                            // Default melodic pattern
+                            pattern[0] = 1;
+                            pattern[3] = 0.6;
+                            pattern[7] = 0.8;
+                            pattern[11] = 0.4;
+                        }
+                        break;
+                        
+                    case 'lead':
+                        // Sparse lead pattern
+                        pattern[0] = 1;
+                        pattern[7] = 0.7;
+                        pattern[12] = 0.5;
+                        break;
+                }
+                
+                return pattern;
+            }
+            
+            createVariations(basePattern) {
+                const variations = [];
+                
+                // Variation 1: Inverse
+                variations.push(basePattern.map(v => v > 0 ? 1 - v : 0));
+                
+                // Variation 2: Shifted
+                const shifted = [...basePattern];
+                shifted.push(shifted.shift());
+                variations.push(shifted);
+                
+                // Variation 3: Density increase
+                variations.push(basePattern.map((v, i) => 
+                    v > 0 ? v : (i % 4 === 2 ? 0.3 : 0)
+                ));
+                
+                // Variation 4: Syncopated
+                variations.push(basePattern.map((v, i) => 
+                    i % 3 === 1 ? Math.min(1, v + 0.3) : v * 0.7
+                ));
+                
+                return variations;
+            }
+            
+            initializeAIDJ(slotIndex) {
+                const slot = this.sampler.slots[slotIndex];
+                
+                // AI DJ state for this slot
+                slot.aiDJ = {
+                    active: true,
+                    mood: 'neutral',
+                    energy: 0.5,
+                    complexity: 0.5,
+                    lastChange: this.ctx.currentTime,
+                    changeInterval: 8, // bars
+                    currentVariation: 0,
+                    effects: {
+                        filter: { freq: 1000, res: 1 },
+                        delay: { amount: 0, time: 0.375 },
+                        reverb: { amount: 0 },
+                        gate: { threshold: 0 }
+                    }
+                };
+                
+                // Start the AI DJ process for this slot
+                this.runAIDJ(slotIndex);
+            }
+            
+            runAIDJ(slotIndex) {
+                const slot = this.sampler.slots[slotIndex];
+                if (!slot.aiDJ || !slot.aiDJ.active) return;
+                
+                const beatLength = 60 / this.bpm;
+                const barLength = beatLength * 4;
+                const checkInterval = barLength * 1000; // Check every bar
+                
+                const djProcess = () => {
+                    if (!slot.filled || !this.activeSources.has(slotIndex)) return;
+                    
+                    const now = this.ctx.currentTime;
+                    const timeSinceChange = now - slot.aiDJ.lastChange;
+                    
+                    // Analyze current state
+                    const currentEnergy = this.calculateCurrentEnergy();
+                    const crowdResponse = this.motion.intensity;
+                    
+                    // Decision making
+                    if (timeSinceChange > barLength * slot.aiDJ.changeInterval) {
+                        // Time for a change
+                        this.makeAIDJDecision(slotIndex, currentEnergy, crowdResponse);
+                        slot.aiDJ.lastChange = now;
+                    }
+                    
+                    // Apply continuous modulation
+                    this.applyAIDJModulation(slotIndex);
+                    
+                    // Schedule next check
+                    if (slot.aiDJ.active) {
+                        setTimeout(djProcess, checkInterval);
+                    }
+                };
+                
+                djProcess();
+            }
+            
+            calculateCurrentEnergy() {
+                // Analyze current mix energy
+                let energy = 0;
+                let activeCount = 0;
+                
+                this.activeSources.forEach((nodes, idx) => {
+                    const slot = this.sampler.slots[idx];
+                    if (slot.analysis) {
+                        energy += slot.analysis.rms;
+                        activeCount++;
+                    }
+                });
+                
+                return activeCount > 0 ? energy / activeCount : 0;
+            }
+            
+            makeAIDJDecision(slotIndex, currentEnergy, crowdResponse) {
+                const slot = this.sampler.slots[slotIndex];
+                const aiDJ = slot.aiDJ;
+                
+                // Mood analysis
+                if (crowdResponse > 0.7) {
+                    aiDJ.mood = 'excited';
+                    aiDJ.energy = Math.min(1, aiDJ.energy + 0.1);
+                } else if (crowdResponse < 0.3) {
+                    aiDJ.mood = 'chill';
+                    aiDJ.energy = Math.max(0.2, aiDJ.energy - 0.1);
+                } else {
+                    aiDJ.mood = 'groovy';
+                    aiDJ.energy = 0.5 + Math.sin(this.ctx.currentTime * 0.1) * 0.2;
+                }
+                
+                // Update UI
+                if (this.elements.aiDJMood) {
+                    this.elements.aiDJMood.textContent = aiDJ.mood.toUpperCase();
+                    this.elements.aiDJMood.className = `ai-dj-mood ${aiDJ.mood}`;
+                }
+                
+                // Pattern variation decision
+                if (Math.random() < 0.7) { // 70% chance to change pattern
+                    aiDJ.currentVariation = (aiDJ.currentVariation + 1) % slot.variations.length;
+                    slot.currentPattern = slot.variations[aiDJ.currentVariation];
+                }
+                
+                // Effect changes based on mood
+                switch (aiDJ.mood) {
+                    case 'excited':
+                        aiDJ.effects.filter.freq = 2000 + Math.random() * 3000;
+                        aiDJ.effects.filter.res = 5 + Math.random() * 10;
+                        aiDJ.effects.delay.amount = Math.random() * 0.3;
+                        aiDJ.changeInterval = 4; // Change more frequently
+                        break;
+                        
+                    case 'chill':
+                        aiDJ.effects.filter.freq = 500 + Math.random() * 1000;
+                        aiDJ.effects.filter.res = 1 + Math.random() * 3;
+                        aiDJ.effects.reverb.amount = 0.3 + Math.random() * 0.3;
+                        aiDJ.changeInterval = 16; // Change less frequently
+                        break;
+                        
+                    case 'groovy':
+                        aiDJ.effects.filter.freq = 1000 + Math.sin(this.ctx.currentTime) * 500;
+                        aiDJ.effects.delay.amount = 0.2;
+                        aiDJ.effects.delay.time = Math.random() < 0.5 ? 0.375 : 0.25;
+                        aiDJ.changeInterval = 8;
+                        break;
+                }
+                
+                // Complexity adjustment
+                if (this.activeSources.size > 2) {
+                    // Simplify when many elements playing
+                    aiDJ.complexity = Math.max(0.3, aiDJ.complexity - 0.1);
+                } else {
+                    // Add complexity when sparse
+                    aiDJ.complexity = Math.min(0.9, aiDJ.complexity + 0.1);
+                }
+            }
+            
+            applyAIDJModulation(slotIndex) {
+                const nodes = this.activeSources.get(slotIndex);
+                if (!nodes) return;
+                
+                const slot = this.sampler.slots[slotIndex];
+                const aiDJ = slot.aiDJ;
+                
+                // Apply filter modulation
+                if (nodes.filterNode) {
+                    const targetFreq = aiDJ.effects.filter.freq * (1 + this.motion.smoothed * 0.5);
+                    nodes.filterNode.frequency.linearRampToValueAtTime(
+                        targetFreq,
+                        this.ctx.currentTime + 0.1
+                    );
+                    nodes.filterNode.Q.linearRampToValueAtTime(
+                        aiDJ.effects.filter.res,
+                        this.ctx.currentTime + 0.1
+                    );
+                }
+                
+                // Apply gain modulation based on energy
+                if (nodes.gainNode) {
+                    const baseGain = { drums: 0.8, bass: 0.7, melody: 0.6, lead: 0.5 }[slot.type] || 0.6;
+                    const targetGain = baseGain * aiDJ.energy * (0.8 + Math.sin(this.ctx.currentTime * 0.5) * 0.2);
+                    nodes.gainNode.gain.linearRampToValueAtTime(
+                        targetGain,
+                        this.ctx.currentTime + 0.05
+                    );
+                }
             }
             
             categorizeSound(analysis) {
@@ -1175,49 +1741,182 @@
                 if (!slot.filled || !slot.buffer) return;
                 
                 // Create nodes
-                const source = this.ctx.createBufferSource();
                 const gainNode = this.ctx.createGain();
                 const filterNode = this.ctx.createBiquadFilter();
-                
-                source.buffer = slot.buffer;
-                source.loop = true;
+                const delayNode = this.ctx.createDelay(1);
+                const delayGain = this.ctx.createGain();
+                const delayFeedback = this.ctx.createGain();
                 
                 // Setup filter based on slot type
                 filterNode.type = 'lowpass';
                 filterNode.frequency.value = 20000;
                 filterNode.Q.value = 1;
                 
+                // Setup delay
+                delayNode.delayTime.value = 0.375;
+                delayFeedback.gain.value = 0.3;
+                delayGain.gain.value = 0;
+                
                 // Set gain based on slot type
                 const gains = { drums: 0.8, bass: 0.7, melody: 0.6, lead: 0.5 };
                 gainNode.gain.value = gains[slot.type] || 0.6;
                 
-                // Connect chain
-                source.connect(filterNode);
+                // Connect effects chain
                 filterNode.connect(gainNode);
                 gainNode.connect(this.masterGain);
                 
-                // Start playback synchronized to next beat
-                const startTime = this.getNextBeatTime();
-                source.start(startTime);
+                // Delay chain
+                gainNode.connect(delayNode);
+                delayNode.connect(delayFeedback);
+                delayFeedback.connect(delayNode);
+                delayNode.connect(delayGain);
+                delayGain.connect(this.masterGain);
                 
-                // Store references
-                this.activeSources.set(slotIndex, { source, gainNode, filterNode });
-                slot.source = source;
-                slot.gainNode = gainNode;
+                // Store node references
+                const nodeGroup = {
+                    gainNode,
+                    filterNode,
+                    delayNode,
+                    delayGain,
+                    delayFeedback,
+                    sources: new Map(),
+                    nextStepTime: this.getNextBeatTime()
+                };
+                
+                this.activeSources.set(slotIndex, nodeGroup);
+                
+                // Start pattern playback
+                this.scheduleSlotPattern(slotIndex);
                 
                 // Update UI
                 document.querySelectorAll('.sample-slot')[slotIndex].classList.add('playing');
             }
             
+            scheduleSlotPattern(slotIndex) {
+                const slot = this.sampler.slots[slotIndex];
+                const nodeGroup = this.activeSources.get(slotIndex);
+                if (!slot || !nodeGroup) return;
+                
+                const scheduleAhead = () => {
+                    if (!this.activeSources.has(slotIndex)) return;
+                    
+                    const currentTime = this.ctx.currentTime;
+                    const beatLength = 60 / this.bpm / 4; // 16th note
+                    
+                    // Schedule ahead
+                    while (nodeGroup.nextStepTime < currentTime + 0.1) {
+                        const stepIndex = this.currentBeat % 16;
+                        const velocity = slot.currentPattern[stepIndex];
+                        
+                        if (velocity > 0) {
+                            this.triggerSlotSound(slotIndex, nodeGroup.nextStepTime, velocity);
+                        }
+                        
+                        nodeGroup.nextStepTime += beatLength;
+                    }
+                    
+                    // Continue scheduling
+                    setTimeout(scheduleAhead, 25);
+                };
+                
+                scheduleAhead();
+            }
+            
+            triggerSlotSound(slotIndex, when, velocity) {
+                const slot = this.sampler.slots[slotIndex];
+                const nodeGroup = this.activeSources.get(slotIndex);
+                if (!slot || !nodeGroup) return;
+                
+                // Choose which slice to play
+                let bufferToPlay = slot.buffer;
+                
+                if (slot.slices && slot.slices.main.length > 0) {
+                    // Intelligent slice selection based on AI DJ state
+                    if (slot.aiDJ && slot.aiDJ.complexity > 0.7 && Math.random() < 0.3) {
+                        // Sometimes play a different slice for variation
+                        const sliceIndex = Math.floor(Math.random() * slot.slices.main.length);
+                        bufferToPlay = slot.slices.main[sliceIndex].buffer;
+                    } else if (slot.aiDJ && slot.aiDJ.mood === 'excited' && Math.random() < 0.1) {
+                        // Occasionally throw in a glitch
+                        if (slot.slices.glitch.length > 0) {
+                            const glitchIndex = Math.floor(Math.random() * slot.slices.glitch.length);
+                            bufferToPlay = slot.slices.glitch[glitchIndex].buffer;
+                        }
+                    } else {
+                        // Play the main slice that matches current energy
+                        const targetEnergy = slot.aiDJ ? slot.aiDJ.energy : 0.5;
+                        let bestSlice = slot.slices.main[0];
+                        let bestDiff = Math.abs(bestSlice.energy - targetEnergy);
+                        
+                        for (let slice of slot.slices.main) {
+                            const diff = Math.abs(slice.energy - targetEnergy);
+                            if (diff < bestDiff) {
+                                bestDiff = diff;
+                                bestSlice = slice;
+                            }
+                        }
+                        
+                        bufferToPlay = bestSlice.buffer;
+                    }
+                }
+                
+                // Create and play source
+                const source = this.ctx.createBufferSource();
+                source.buffer = bufferToPlay;
+                
+                // Apply playback variations
+                const pitchVariation = slot.aiDJ && slot.aiDJ.mood === 'excited' ? 
+                    (Math.random() - 0.5) * 0.1 : 0;
+                source.playbackRate.value = 1 + pitchVariation;
+                
+                // Apply velocity
+                const velocityGain = this.ctx.createGain();
+                velocityGain.gain.value = velocity * (0.8 + Math.random() * 0.2);
+                
+                // Connect
+                source.connect(velocityGain);
+                velocityGain.connect(nodeGroup.filterNode);
+                
+                // Start
+                source.start(when);
+                
+                // Store reference for potential stopping
+                const sourceId = Date.now() + Math.random();
+                nodeGroup.sources.set(sourceId, source);
+                
+                source.onended = () => {
+                    nodeGroup.sources.delete(sourceId);
+                };
+                
+                // Visual feedback
+                const slotElement = document.querySelectorAll('.sample-slot')[slotIndex];
+                setTimeout(() => {
+                    slotElement.style.filter = `brightness(${1 + velocity * 0.5})`;
+                    setTimeout(() => {
+                        slotElement.style.filter = 'brightness(1)';
+                    }, 50);
+                }, (when - this.ctx.currentTime) * 1000);
+            }
+            
             stopSlotPlayback(slotIndex) {
-                const nodes = this.activeSources.get(slotIndex);
-                if (nodes) {
-                    nodes.source.stop();
+                const nodeGroup = this.activeSources.get(slotIndex);
+                if (nodeGroup) {
+                    // Stop all sources
+                    nodeGroup.sources.forEach(source => {
+                        try {
+                            source.stop();
+                        } catch (e) {
+                            // Source may have already stopped
+                        }
+                    });
+                    
+                    // Clean up
                     this.activeSources.delete(slotIndex);
                     
                     const slot = this.sampler.slots[slotIndex];
-                    slot.source = null;
-                    slot.gainNode = null;
+                    if (slot.aiDJ) {
+                        slot.aiDJ.active = false;
+                    }
                     
                     // Update UI
                     document.querySelectorAll('.sample-slot')[slotIndex].classList.remove('playing');
@@ -1321,30 +2020,63 @@
             }
             
             modulateActiveSamples() {
-                this.activeSources.forEach((nodes, slotIndex) => {
+                this.activeSources.forEach((nodeGroup, slotIndex) => {
                     const slot = this.sampler.slots[slotIndex];
                     
-                    // Modulate filter based on motion
-                    if (nodes.filterNode) {
-                        const baseFreq = 1000 + slotIndex * 500;
-                        const modFreq = baseFreq + this.motion.smoothed * 2000;
-                        nodes.filterNode.frequency.linearRampToValueAtTime(
-                            modFreq,
+                    // Modulate filter based on motion and AI DJ state
+                    if (nodeGroup.filterNode) {
+                        let targetFreq = 1000 + slotIndex * 500;
+                        
+                        if (slot.aiDJ) {
+                            targetFreq = slot.aiDJ.effects.filter.freq;
+                        }
+                        
+                        // Add motion modulation
+                        targetFreq += this.motion.smoothed * 2000;
+                        
+                        nodeGroup.filterNode.frequency.linearRampToValueAtTime(
+                            targetFreq,
                             this.ctx.currentTime + 0.1
                         );
                         
-                        // Resonance based on motion intensity
-                        nodes.filterNode.Q.linearRampToValueAtTime(
-                            1 + this.motion.intensity * 5,
+                        // Resonance based on motion intensity and AI state
+                        const targetQ = slot.aiDJ ? 
+                            slot.aiDJ.effects.filter.res : 
+                            (1 + this.motion.intensity * 5);
+                            
+                        nodeGroup.filterNode.Q.linearRampToValueAtTime(
+                            targetQ,
                             this.ctx.currentTime + 0.1
                         );
                     }
                     
-                    // Subtle gain modulation
-                    if (nodes.gainNode) {
+                    // Modulate delay based on AI DJ
+                    if (nodeGroup.delayGain && slot.aiDJ) {
+                        nodeGroup.delayGain.gain.linearRampToValueAtTime(
+                            slot.aiDJ.effects.delay.amount,
+                            this.ctx.currentTime + 0.1
+                        );
+                        
+                        nodeGroup.delayNode.delayTime.linearRampToValueAtTime(
+                            slot.aiDJ.effects.delay.time,
+                            this.ctx.currentTime + 0.1
+                        );
+                    }
+                    
+                    // Overall gain modulation
+                    if (nodeGroup.gainNode) {
                         const baseGain = { drums: 0.8, bass: 0.7, melody: 0.6, lead: 0.5 }[slot.type] || 0.6;
-                        const modGain = baseGain * (0.8 + this.motion.intensity * 0.2);
-                        nodes.gainNode.gain.linearRampToValueAtTime(
+                        let modGain = baseGain;
+                        
+                        if (slot.aiDJ) {
+                            modGain *= slot.aiDJ.energy;
+                        }
+                        
+                        // Add subtle pumping effect
+                        const pump = Math.sin(this.currentBeat * Math.PI / 8) * 0.1 + 0.9;
+                        modGain *= pump;
+                        
+                        nodeGroup.gainNode.gain.linearRampToValueAtTime(
                             modGain,
                             this.ctx.currentTime + 0.05
                         );
