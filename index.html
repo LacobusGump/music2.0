@@ -340,12 +340,20 @@
             opacity: 0.382;
             writing-mode: vertical-rl;
             text-orientation: mixed;
-            display: none;
         }
         .ai-dj-mood {
             font-size: var(--fib13);
             opacity: 0.618;
             transition: all 0.618s ease;
+        }
+        .ai-dj-mood.excited {
+            color: rgba(255,140,0,0.8);
+        }
+        .ai-dj-mood.chill {
+            color: rgba(138,43,226,0.8);
+        }
+        .ai-dj-mood.groovy {
+            color: rgba(34,139,34,0.8);
         }
     </style>
 </head>
@@ -482,7 +490,7 @@
             init() {
                 // Cache DOM elements
                 ['start', 'interface', 'loading', 'motionValue', 'recordButton',
-                 'processing', 'bpmValue', 'recordingIndicator'].forEach(id => {
+                 'processing', 'bpmValue', 'recordingIndicator', 'aiDJMood'].forEach(id => {
                     this.elements[id] = document.getElementById(id);
                 });
                 
@@ -519,13 +527,9 @@
                             document.querySelectorAll('.sample-slot').forEach(s => s.classList.remove('selected'));
                             el.classList.add('selected');
                             this.sampler.selectedSlot = index;
-                            console.log('Selected slot', index, 'for recording');
                         }
                     });
                 });
-                
-                // Select first slot by default
-                document.querySelectorAll('.sample-slot')[0].classList.add('selected');
                 
                 // Outfit selection
                 document.querySelectorAll('.outfit').forEach(el => {
@@ -738,10 +742,6 @@
                 // Create audio source from microphone
                 this.sampler.source = this.ctx.createMediaStreamSource(this.sampler.stream);
                 
-                // Create gain for input level control
-                const inputGain = this.ctx.createGain();
-                inputGain.gain.value = 1.0;
-                
                 // Create recorder using ScriptProcessor (more compatible than AudioWorklet)
                 const bufferSize = 4096;
                 this.sampler.recorder = this.ctx.createScriptProcessor(bufferSize, 1, 1);
@@ -751,30 +751,18 @@
                 this.sampler.monitorGain.gain.value = 0; // Start muted
                 
                 // Recording process
-                let sampleCount = 0;
                 this.sampler.recorder.onaudioprocess = (e) => {
                     if (this.sampler.isRecording) {
                         const inputData = e.inputBuffer.getChannelData(0);
                         // Clone the data to avoid reference issues
                         const clonedData = new Float32Array(inputData);
                         this.sampler.recordBuffer.push(...clonedData);
-                        
-                        // Debug logging every second
-                        sampleCount += bufferSize;
-                        if (sampleCount >= this.ctx.sampleRate) {
-                            console.log('Recording...', (this.sampler.recordBuffer.length / this.ctx.sampleRate).toFixed(1), 'seconds');
-                            sampleCount = 0;
-                        }
                     }
                 };
                 
                 // Setup monitoring path
-                this.sampler.source.connect(inputGain);
-                inputGain.connect(this.sampler.monitorGain);
+                this.sampler.source.connect(this.sampler.monitorGain);
                 this.sampler.monitorGain.connect(this.masterGain);
-                
-                // Store input gain for recording
-                this.sampler.inputGain = inputGain;
                 
                 console.log('Recording chain setup complete');
             }
@@ -819,49 +807,21 @@
             startRecording() {
                 console.log('Starting recording...');
                 
-                // Play click sound to indicate recording start
-                this.playClick();
-                
                 // Clear previous recording
                 this.sampler.recordBuffer = [];
                 this.sampler.isRecording = true;
                 this.sampler.recordingStartTime = this.ctx.currentTime;
                 
                 // Connect recording chain
-                this.sampler.inputGain.connect(this.sampler.recorder);
+                this.sampler.source.connect(this.sampler.recorder);
                 this.sampler.recorder.connect(this.ctx.destination); // Required for ScriptProcessor
                 
-                // Enable monitoring with low volume
+                // Enable monitoring
                 this.sampler.monitorGain.gain.value = 0.1;
                 
                 // Update UI
                 this.elements.recordButton.classList.add('recording');
                 this.elements.recordingIndicator.classList.add('active');
-                
-                // Auto-stop after 4 bars
-                const maxRecordTime = (60 / this.bpm) * 4 * 4; // 4 bars
-                this.recordTimeout = setTimeout(() => {
-                    if (this.sampler.isRecording) {
-                        console.log('Auto-stopping recording after 4 bars');
-                        this.stopRecording();
-                    }
-                }, maxRecordTime * 1000);
-            }
-            
-            playClick() {
-                // Play a short click sound
-                const osc = this.ctx.createOscillator();
-                const gain = this.ctx.createGain();
-                
-                osc.frequency.value = 1000;
-                gain.gain.value = 0.1;
-                gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.05);
-                
-                osc.connect(gain);
-                gain.connect(this.ctx.destination);
-                
-                osc.start();
-                osc.stop(this.ctx.currentTime + 0.05);
             }
             
             stopRecording() {
@@ -869,14 +829,9 @@
                 
                 this.sampler.isRecording = false;
                 
-                // Clear timeout
-                if (this.recordTimeout) {
-                    clearTimeout(this.recordTimeout);
-                }
-                
                 // Disconnect recording chain
                 try {
-                    this.sampler.inputGain.disconnect(this.sampler.recorder);
+                    this.sampler.source.disconnect(this.sampler.recorder);
                     this.sampler.recorder.disconnect();
                 } catch (e) {
                     // Ignore disconnect errors
@@ -890,9 +845,7 @@
                 this.elements.recordingIndicator.classList.remove('active');
                 
                 // Process the recording
-                setTimeout(() => {
-                    this.processRecording();
-                }, 100);
+                this.processRecording();
             }
             
             processRecording() {
@@ -907,16 +860,6 @@
                 
                 // Create audio buffer from recorded data
                 const recordedData = new Float32Array(this.sampler.recordBuffer);
-                
-                // Normalize audio
-                const maxValue = Math.max(...recordedData.map(Math.abs));
-                if (maxValue > 0) {
-                    const normalizeRatio = 0.8 / maxValue;
-                    for (let i = 0; i < recordedData.length; i++) {
-                        recordedData[i] *= normalizeRatio;
-                    }
-                }
-                
                 const audioBuffer = this.ctx.createBuffer(1, recordedData.length, this.ctx.sampleRate);
                 const channelData = audioBuffer.getChannelData(0);
                 channelData.set(recordedData);
@@ -959,40 +902,21 @@
                 const slotElement = document.querySelectorAll('.sample-slot')[this.sampler.selectedSlot];
                 slotElement.classList.add('filled');
                 slotElement.classList.remove('selected');
-                
-                // Draw waveform
-                setTimeout(() => {
-                    this.drawWaveform(this.sampler.selectedSlot, processedBuffer);
-                }, 50);
+                this.drawWaveform(this.sampler.selectedSlot, processedBuffer);
                 
                 // Start playback immediately
-                setTimeout(() => {
-                    this.startSlotPlayback(this.sampler.selectedSlot);
-                }, 100);
+                this.startSlotPlayback(this.sampler.selectedSlot);
                 
                 this.elements.processing.classList.remove('active');
                 
                 console.log('Recording stored in slot', this.sampler.selectedSlot);
-                
-                // Move to next slot
-                this.sampler.selectedSlot = (this.sampler.selectedSlot + 1) % 4;
-                document.querySelectorAll('.sample-slot')[this.sampler.selectedSlot].classList.add('selected');
             }
             
             createLoopBuffer(inputBuffer) {
                 // Calculate loop length based on BPM (1 bar)
                 const beatLength = 60 / this.bpm;
                 const barLength = beatLength * 4;
-                
-                // Determine number of bars based on recording length
-                let bars = 1;
-                if (inputBuffer.duration > barLength * 2.5) bars = 4;
-                else if (inputBuffer.duration > barLength * 1.2) bars = 2;
-                
-                const targetLength = barLength * bars;
-                const targetSamples = Math.floor(targetLength * this.ctx.sampleRate);
-                
-                console.log(`Creating ${bars} bar loop (${targetLength}s)`);
+                const targetSamples = Math.floor(barLength * this.ctx.sampleRate);
                 
                 // Create new buffer
                 const loopBuffer = this.ctx.createBuffer(1, targetSamples, this.ctx.sampleRate);
@@ -1550,13 +1474,9 @@
             getNextBeatTime() {
                 const beatLength = 60 / this.bpm;
                 const currentTime = this.ctx.currentTime;
-                
-                // Find the next beat boundary
                 const beatsSinceStart = currentTime / beatLength;
                 const nextBeat = Math.ceil(beatsSinceStart) * beatLength;
-                
-                // Add a small lookahead to ensure we don't miss the beat
-                return Math.max(currentTime + 0.005, nextBeat);
+                return nextBeat;
             }
             
             updateOutfitParameters() {
