@@ -760,6 +760,7 @@ class NeuromancerEngine {
     
     this.state = {
       isInitialized: false,
+      isStarting: false,
       currentState: 'void',
       journeyStartTime: null,
       motionLevel: 0,
@@ -772,7 +773,7 @@ class NeuromancerEngine {
       aiDjActive: true,
       loopMode: false,
       activeFx: 'reverb',
-      lastAccel: { x: 0, y: 0, z: 0, t: Date.now() },
+      lastAccel: { x: null, y: null, z: null, t: Date.now() },
     };
     
     this.audio = {};
@@ -790,14 +791,10 @@ class NeuromancerEngine {
     
     // Debug toggle
     let pressCount = 0;
-    document.addEventListener('click', (e) => {
-        if (e.target.id === 'currentState') {
-            pressCount++;
-            if (pressCount > 5) {
-                this.ui.debug.panel.classList.toggle('visible');
-                pressCount = 0;
-            }
-        } else {
+    document.getElementById('currentState').addEventListener('click', () => {
+        pressCount++;
+        if (pressCount > 5) {
+            this.ui.debug.panel.classList.toggle('visible');
             pressCount = 0;
         }
     });
@@ -852,90 +849,72 @@ class NeuromancerEngine {
   }
 
   setupEventListeners() {
-    document.getElementById('startBtn').addEventListener('click', () => this.requestPermissions());
-    this.ui.btnRecord.addEventListener('click', () => this.handleRecordButton());
-    this.ui.btnTap.addEventListener('click', () => this.handleTapTempo());
-    this.ui.btnLoop.addEventListener('click', () => this.toggleLoopMode());
-    this.ui.btnAI.addEventListener('click', () => this.toggleAIDJ());
-    this.ui.btnFX.addEventListener('click', () => this.cycleEffects());
+    // *** KEY CHANGE: Use 'pointerdown' for the most reliable initial interaction ***
+    document.getElementById('startBtn').addEventListener('pointerdown', (e) => this.start(e));
+
+    this.ui.btnRecord.addEventListener('pointerdown', () => this.handleRecordButton());
+    this.ui.btnTap.addEventListener('pointerdown', () => this.handleTapTempo());
+    this.ui.btnLoop.addEventListener('pointerdown', () => this.toggleLoopMode());
+    this.ui.btnAI.addEventListener('pointerdown', () => this.toggleAIDJ());
+    this.ui.btnFX.addEventListener('pointerdown', () => this.cycleEffects());
     
     this.ui.sampleNodes.forEach(node => {
-      node.addEventListener('click', (e) => {
+      node.addEventListener('pointerdown', (e) => {
         this.handleSampleTouch(parseInt(node.dataset.slot));
         this.createTouchRipple(e);
       });
     });
 
-    document.body.addEventListener('click', (e) => {
+    document.body.addEventListener('pointerdown', (e) => {
         if (!e.target.closest('.control-btn, .sample-node, .permission-btn')) {
             this.createTouchRipple(e);
         }
     });
   }
+  
+  // *** KEY CHANGE: Master start function to handle user interaction ***
+  async start(e) {
+    e.preventDefault();
+    if (this.state.isInitialized || this.state.isStarting) return;
+    this.state.isStarting = true;
 
-  async requestPermissions() {
-    if (this.state.isInitialized) return;
-    this.showNotification('INITIALIZING SYSTEM...');
-    
     try {
-      // Audio Permissions
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      
-      // Motion Permissions (for iOS 13+)
-      if (typeof DeviceMotionEvent.requestPermission === 'function') {
-        const permission = await DeviceMotionEvent.requestPermission();
-        if (permission !== 'granted') {
-          throw new Error('Motion permission not granted.');
+        // Create and resume AudioContext immediately on user tap
+        this.audio.context = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: this.config.sampleRate });
+        await this.audio.context.resume();
+        console.log('AudioContext started and resumed.');
+
+        this.showNotification('REQUESTING PERMISSIONS...');
+        
+        // Now ask for permissions
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        
+        if (typeof DeviceMotionEvent.requestPermission === 'function') {
+            const permission = await DeviceMotionEvent.requestPermission();
+            if (permission !== 'granted') {
+                throw new Error('Motion permission not granted.');
+            }
         }
-      }
-      
-      this.initAudioSystem(stream);
-      this.setupMotionDetection();
-      this.startJourney();
+        
+        // With permissions granted and context running, initialize everything else
+        await this.initAudioSystem(stream);
+        this.setupMotionDetection();
+        this.startJourney();
 
     } catch (err) {
-      console.error("Permission Error:", err);
+      console.error("Error during startup:", err);
       this.showNotification('ERROR: PERMISSIONS REQUIRED', 5000, true);
+    } finally {
+      this.state.isStarting = false;
     }
   }
 
   async initAudioSystem(stream) {
-    this.audio.context = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: this.config.sampleRate });
-    await this.audio.context.resume();
-
-    // Create the recorder worklet
+    // AudioContext is already created and resumed in start()
     const recorderWorkletCode = `
       class RecorderProcessor extends AudioWorkletProcessor {
-        constructor() {
-          super();
-          this.buffer = [];
-          this.maxSize = ${this.config.sampleRate * (this.config.sampleDuration / 1000)};
-          this.isRecording = false;
-          this.port.onmessage = (event) => {
-              if (event.data.command === 'start') {
-                  this.isRecording = true;
-              }
-              if (event.data.command === 'stop') {
-                  this.isRecording = false;
-                  this.port.postMessage({ buffer: this.buffer.slice(0) });
-                  this.buffer = [];
-              }
-          };
-        }
-
-        process(inputs, outputs, parameters) {
-          if (this.isRecording) {
-            const input = inputs[0][0];
-            if (this.buffer.length < this.maxSize) {
-                this.buffer.push(...input);
-            } else {
-                this.isRecording = false; // Auto-stop
-                this.port.postMessage({ buffer: this.buffer.slice(0) });
-                this.buffer = [];
-            }
-          }
-          return true;
-        }
+        constructor() { super(); this.buffer = []; this.maxSize = ${this.config.sampleRate * (this.config.sampleDuration / 1000)}; this.isRecording = false; this.port.onmessage = (e) => { if (e.data.command === 'start') { this.isRecording = true; } if (e.data.command === 'stop') { this.isRecording = false; this.port.postMessage({ buffer: this.buffer.slice(0) }); this.buffer = []; } }; }
+        process(inputs) { if (this.isRecording) { const input = inputs[0][0]; if (this.buffer.length < this.maxSize) { this.buffer.push(...input); } else { this.isRecording = false; this.port.postMessage({ buffer: this.buffer.slice(0) }); this.buffer = []; } } return true; }
       }
       registerProcessor('recorder-processor', RecorderProcessor);
     `;
@@ -952,25 +931,19 @@ class NeuromancerEngine {
     this.audio.masterGain = this.audio.context.createGain();
     this.audio.masterGain.gain.value = 0.8;
     
-    // FX Nodes
     this.audio.fx = {};
     this.audio.fx.reverb = this.audio.context.createConvolver();
     this.audio.fx.reverb.buffer = this.createImpulseResponse();
     this.audio.fx.delay = this.audio.context.createDelay(5.0);
     this.audio.fx.delayFeedback = this.audio.context.createGain();
     this.audio.fx.delayFeedback.gain.value = 0.5;
-    this.audio.fx.filter = this.audio.context.createBiquadFilter();
-    this.audio.fx.filter.type = 'lowpass';
-    this.audio.fx.filter.frequency.value = 5000;
     this.audio.fx.sendGain = this.audio.context.createGain();
     this.audio.fx.sendGain.gain.value = 0.3;
 
-    // Connections
     this.audio.micInput.connect(this.audio.recorderNode);
     this.audio.masterGain.connect(this.audio.fx.sendGain);
     this.audio.masterGain.connect(this.audio.context.destination);
     
-    // FX Chain
     this.audio.fx.sendGain.connect(this.audio.fx.reverb);
     this.audio.fx.reverb.connect(this.audio.context.destination);
     
@@ -978,17 +951,21 @@ class NeuromancerEngine {
     this.audio.fx.delay.connect(this.audio.fx.delayFeedback);
     this.audio.fx.delayFeedback.connect(this.audio.fx.delay);
     this.audio.fx.delay.connect(this.audio.context.destination);
+    
+    // Connect analyser to master output for visualization
+    this.audio.masterGain.connect(this.audio.analyser);
   }
 
   setupMotionDetection() {
     window.addEventListener('devicemotion', (e) => {
-        if (!this.state.lastAccel.x) { // First event
+        if (this.state.lastAccel.x === null) { // First event
             this.state.lastAccel = { x: e.acceleration.x, y: e.acceleration.y, z: e.acceleration.z, t: Date.now() };
             return;
         }
 
         const now = Date.now();
         const dt = (now - this.state.lastAccel.t) / 1000;
+        if (dt === 0) return;
         const dx = e.acceleration.x - this.state.lastAccel.x;
         const dy = e.acceleration.y - this.state.lastAccel.y;
         const dz = e.acceleration.z - this.state.lastAccel.z;
@@ -999,19 +976,19 @@ class NeuromancerEngine {
         this.state.motionLevel = (this.state.motionLevel * this.config.motionSmoothingFactor) + (normalizedJerk * (1 - this.config.motionSmoothingFactor));
         this.state.lastAccel = { x: e.acceleration.x, y: e.acceleration.y, z: e.acceleration.z, t: now };
 
-        this.ui.debug.accel.textContent = `${e.acceleration.x.toFixed(1)},${e.acceleration.y.toFixed(1)},${e.acceleration.z.toFixed(1)}`;
+        this.ui.debug.accel.textContent = `${(e.acceleration.x || 0).toFixed(1)},${(e.acceleration.y || 0).toFixed(1)},${(e.acceleration.z || 0).toFixed(1)}`;
     });
   }
 
   startJourney() {
     this.state.isInitialized = true;
     this.state.journeyStartTime = this.audio.context.currentTime;
+    this.state.nextNoteTime = this.audio.context.currentTime;
     
     this.ui.permissionOverlay.classList.add('hidden');
     this.showNotification('JOURNEY BEGUN', 2000);
     this.updateState('calm');
 
-    this.scheduler();
     requestAnimationFrame(() => this.mainLoop());
   }
 
@@ -1033,15 +1010,10 @@ class NeuromancerEngine {
     requestAnimationFrame(() => this.mainLoop());
   }
 
-  scheduler() {
-      // Metronome-like scheduler
-  }
-
   updateState(newState = null) {
     if (newState) {
         this.state.currentState = newState;
     } else {
-        // Dynamic state changes based on energy
         if (this.state.energy > 0.8) this.state.currentState = 'peak';
         else if (this.state.energy > 0.5) this.state.currentState = 'building';
         else if (this.state.energy > 0.1) this.state.currentState = 'calm';
@@ -1054,17 +1026,15 @@ class NeuromancerEngine {
       const sampleEnergy = (this.state.samples.size / this.config.maxSamples) * 0.3;
       const combinedEnergy = Math.min(motionEnergy + sampleEnergy, 1.0);
       
-      // Smooth energy change
       this.state.energy = this.state.energy * 0.98 + combinedEnergy * 0.02;
-      this.updateState(); // Update state based on new energy
+      this.updateState();
   }
 
   updateJourney(elapsed) {
       const progress = Math.min(elapsed / this.config.journeyDuration, 1.0);
       
-      // Update Journey Phases
       const phases = ['INTRO', 'DEVELOPMENT', 'CLIMAX', 'RESOLUTION', 'FADE OUT'];
-      const phaseIndex = Math.floor(progress * phases.length);
+      const phaseIndex = Math.min(Math.floor(progress * phases.length), phases.length - 1);
       this.ui.journeyPhase.textContent = phases[phaseIndex];
       this.ui.journeyProgress.style.width = `${progress * 100}%`;
 
@@ -1085,12 +1055,10 @@ class NeuromancerEngine {
     this.ui.btnAI.classList.toggle('active', this.state.aiDjActive);
     this.ui.btnLoop.classList.toggle('active', this.state.loopMode);
 
-    // Update FX indicators
     for (const fx in this.ui.fxIndicators) {
         this.ui.fxIndicators[fx].classList.toggle('active', this.state.activeFx === fx);
     }
 
-    // Debug Panel Update
     this.ui.debug.motion.textContent = this.state.motionLevel.toFixed(2);
     this.ui.debug.energy.textContent = this.state.energy.toFixed(2);
     this.ui.debug.state.textContent = this.state.currentState;
@@ -1099,7 +1067,7 @@ class NeuromancerEngine {
   }
 
   handleRecordButton() {
-    if (this.state.isRecording) return;
+    if (this.state.isRecording || !this.state.isInitialized) return;
     
     if (this.state.samples.size >= this.config.maxSamples) {
         this.showNotification("SAMPLE SLOTS FULL", 2000, true);
@@ -1127,7 +1095,7 @@ class NeuromancerEngine {
       for (let i = 0; i < this.config.maxSamples; i++) {
           if (!this.state.samples.has(i)) return i;
       }
-      return 0; // Fallback
+      return 0;
   }
 
   processSample(rawBuffer) {
@@ -1135,11 +1103,7 @@ class NeuromancerEngine {
     audioBuffer.copyToChannel(new Float32Array(rawBuffer), 0);
     
     const slot = this.currentRecordingSlot;
-    const sample = {
-        buffer: audioBuffer,
-        analysis: this.analyzeSample(audioBuffer),
-        playCount: 0,
-    };
+    const sample = { buffer: audioBuffer };
     this.state.samples.set(slot, sample);
     
     this.ui.sampleNodes[slot].classList.add('loaded');
@@ -1147,22 +1111,12 @@ class NeuromancerEngine {
     this.showNotification(`SAMPLE ${slot + 1} CAPTURED`, 1500);
   }
   
-  analyzeSample(buffer) {
-      // A simple analysis for now
-      const data = buffer.getChannelData(0);
-      let rms = 0;
-      for (let i = 0; i < data.length; i++) {
-          rms += data[i] * data[i];
-      }
-      rms = Math.sqrt(rms / data.length);
-      return { loudness: rms };
-  }
-
   handleSampleTouch(slot) {
+    if (!this.state.isInitialized) return;
     if (this.state.samples.has(slot)) {
         this.playSample(slot, this.audio.context.currentTime);
     } else {
-        this.handleRecordButton(); // If slot is empty, trigger recording
+        this.handleRecordButton();
     }
   }
 
@@ -1184,22 +1138,19 @@ class NeuromancerEngine {
   }
 
   aiScheduler(time) {
-      const beatPattern = Math.floor(((time - this.state.journeyStartTime) / this.state.beatDuration)) % 16; // 4 bars
-
       if (this.state.samples.size === 0) return;
-
+      const beatPattern = Math.floor(((time - this.state.journeyStartTime) / this.state.beatDuration)) % 16;
       const availableSamples = Array.from(this.state.samples.keys());
 
-      // Simple logic based on state
       let playChance = 0.1;
       if (this.state.currentState === 'calm') playChance = 0.2;
       if (this.state.currentState === 'building') playChance = 0.5;
       if (this.state.currentState === 'peak') playChance = 0.8;
       
-      if (beatPattern % 4 === 0 && Math.random() < playChance) { // On the downbeat
+      if (beatPattern % 4 === 0 && Math.random() < playChance) {
           const randomSlot = availableSamples[Math.floor(Math.random() * availableSamples.length)];
           this.playSample(randomSlot, time);
-      } else if (Math.random() < playChance / 4) { // Off-beats
+      } else if (Math.random() < playChance / 4) {
           const randomSlot = availableSamples[Math.floor(Math.random() * availableSamples.length)];
           const rate = this.state.loopMode ? (Math.random() > 0.5 ? 2.0 : 0.5) : 1.0;
           this.playSample(randomSlot, time, rate, 0.5);
@@ -1207,42 +1158,30 @@ class NeuromancerEngine {
   }
 
   handleTapTempo() {
+      if (!this.state.isInitialized) return;
       const now = this.audio.context.currentTime;
-      if (this.tapTempo.lastTap) {
+      if (this.tapTempo.lastTap && (now - this.tapTempo.lastTap) < 2.0) {
           const interval = now - this.tapTempo.lastTap;
-          if (interval < 2.0) { // Max 2 seconds between taps
-              this.tapTempo.taps.push(interval);
-              if (this.tapTempo.taps.length > 3) {
-                  this.tapTempo.taps.shift(); // Keep last 3 taps
-              }
-              const avgInterval = this.tapTempo.taps.reduce((a, b) => a + b, 0) / this.tapTempo.taps.length;
-              this.state.bpm = 60 / avgInterval;
-              this.state.beatDuration = avgInterval;
-          } else {
-              this.tapTempo.taps = []; // Reset if too long
-          }
+          this.tapTempo.taps.push(interval);
+          if (this.tapTempo.taps.length > 3) this.tapTempo.taps.shift();
+          const avgInterval = this.tapTempo.taps.reduce((a, b) => a + b, 0) / this.tapTempo.taps.length;
+          this.state.bpm = 60 / avgInterval;
+          this.state.beatDuration = avgInterval;
+      } else {
+          this.tapTempo.taps = [];
       }
       this.tapTempo.lastTap = now;
       this.showNotification(`BPM: ${Math.round(this.state.bpm)}`, 1000);
   }
 
-  toggleLoopMode() {
-      this.state.loopMode = !this.state.loopMode;
-      this.showNotification(`LOOP MODE: ${this.state.loopMode ? 'ON' : 'OFF'}`, 1500);
-  }
-
-  toggleAIDJ() {
-      this.state.aiDjActive = !this.state.aiDjActive;
-      this.showNotification(`AI DJ: ${this.state.aiDjActive ? 'ACTIVE' : 'MUTED'}`, 1500);
-  }
+  toggleLoopMode() { this.state.loopMode = !this.state.loopMode; this.showNotification(`LOOP MODE: ${this.state.loopMode ? 'ON' : 'OFF'}`, 1500); }
+  toggleAIDJ() { this.state.aiDjActive = !this.state.aiDjActive; this.showNotification(`AI DJ: ${this.state.aiDjActive ? 'ACTIVE' : 'MUTED'}`, 1500); }
   
   cycleEffects() {
       const fxList = ['reverb', 'delay', 'filter', 'grain', 'pitch'];
-      const currentIndex = fxList.indexOf(this.state.activeFx);
-      const nextIndex = (currentIndex + 1) % fxList.length;
+      const nextIndex = (fxList.indexOf(this.state.activeFx) + 1) % fxList.length;
       this.state.activeFx = fxList[nextIndex];
       this.showNotification(`FX: ${this.state.activeFx.toUpperCase()}`, 1500);
-      // In a full version, you would re-route the audio graph here.
   }
   
   createTouchRipple(e) {
@@ -1258,18 +1197,17 @@ class NeuromancerEngine {
     this.ui.notification.textContent = message;
     this.ui.notification.style.borderColor = isError ? 'var(--electric-red)' : 'var(--quantum-blue)';
     this.ui.notification.classList.add('visible');
-    setTimeout(() => this.ui.notification.classList.remove('visible'), duration);
+    clearTimeout(this.notificationTimeout);
+    this.notificationTimeout = setTimeout(() => this.ui.notification.classList.remove('visible'), duration);
   }
   
   createImpulseResponse() {
     const sr = this.audio.context.sampleRate;
-    const duration = 2;
-    const decay = 3;
-    const buffer = this.audio.context.createBuffer(2, sr * duration, sr);
+    const buffer = this.audio.context.createBuffer(2, sr * 2, sr);
     for (let c = 0; c < 2; c++) {
       const channel = buffer.getChannelData(c);
       for (let i = 0; i < channel.length; i++) {
-        channel[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / channel.length, decay);
+        channel[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / channel.length, 3);
       }
     }
     return buffer;
@@ -1304,103 +1242,66 @@ class VisualsManager {
     }
 
     render(analyser) {
-        this.clearCanvases();
-        if (analyser) {
-            const bufferLength = analyser.frequencyBinCount;
-            const dataArray = new Uint8Array(bufferLength);
-            analyser.getByteTimeDomainData(dataArray);
-            this.drawWaveform(dataArray, bufferLength);
-        }
-        this.drawParticles();
-        this.drawSpatial();
-    }
-    
-    clearCanvases() {
         this.contexts.particle.clearRect(0, 0, this.canvases.particle.width, this.canvases.particle.height);
         this.contexts.spatial.clearRect(0, 0, this.canvases.spatial.width, this.canvases.spatial.height);
+
+        if (analyser && this.state.isInitialized) {
+            const dataArray = new Uint8Array(analyser.frequencyBinCount);
+            analyser.getByteTimeDomainData(dataArray);
+            this.drawWaveform(dataArray);
+        }
+        this.drawParticles();
     }
     
-    drawWaveform(dataArray, bufferLength) {
+    drawWaveform(dataArray) {
         const ctx = this.contexts.waveform;
         const w = this.canvases.waveform.width;
         const h = this.canvases.waveform.height;
+        ctx.clearRect(0,0,w,h);
         ctx.lineWidth = 2;
         ctx.strokeStyle = 'rgba(0, 255, 255, 0.8)';
         ctx.beginPath();
-
-        const sliceWidth = w * 1.0 / bufferLength;
-        let x = 0;
-
-        for (let i = 0; i < bufferLength; i++) {
+        const sliceWidth = w / dataArray.length;
+        for (let i = 0; i < dataArray.length; i++) {
             const v = dataArray[i] / 128.0;
             const y = v * h / 2;
-            if (i === 0) {
-                ctx.moveTo(x, y);
-            } else {
-                ctx.lineTo(x, y);
-            }
-            x += sliceWidth;
+            const x = i * sliceWidth;
+            if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
         }
-        ctx.lineTo(w, h / 2);
         ctx.stroke();
     }
     
     drawSampleWaveform(slot, buffer) {
         const canvas = this.ui.sampleNodes[slot].querySelector('.sample-canvas');
         const ctx = canvas.getContext('2d');
-        const dpr = window.devicePixelRatio;
-        canvas.width = canvas.offsetWidth * dpr;
-        canvas.height = canvas.offsetHeight * dpr;
-        ctx.scale(dpr, dpr);
-
+        canvas.width = canvas.offsetWidth * window.devicePixelRatio;
+        canvas.height = canvas.offsetHeight * window.devicePixelRatio;
         const data = buffer.getChannelData(0);
-        const w = canvas.offsetWidth;
-        const h = canvas.offsetHeight;
-        
-        ctx.lineWidth = 1;
+        const w = canvas.width;
+        const h = canvas.height;
+        ctx.lineWidth = 1.5;
         ctx.strokeStyle = 'rgba(0, 255, 0, 0.7)';
         ctx.beginPath();
         const sliceWidth = w / data.length;
-        for (let i = 0; i < data.length; i++) {
+        for (let i = 0; i < data.length; i+=10) { // Step for performance
             const x = i * sliceWidth;
             const y = (data[i] * h / 2) + h / 2;
-            if (i === 0) ctx.moveTo(x, y);
-            else ctx.lineTo(x, y);
+            if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
         }
         ctx.stroke();
     }
 
     drawParticles() {
         if (Math.random() < this.state.energy * 0.5) {
-            this.particles.push({
-                x: Math.random() * this.canvases.particle.width,
-                y: Math.random() * this.canvases.particle.height,
-                vx: (Math.random() - 0.5) * 2,
-                vy: (Math.random() - 0.5) * 2,
-                life: 100
-            });
+            this.particles.push({ x: Math.random() * this.canvases.particle.width, y: Math.random() * this.canvases.particle.height, vx: (Math.random() - 0.5) * 2, vy: (Math.random() - 0.5) * 2, life: 100 });
         }
-
         const ctx = this.contexts.particle;
         this.particles = this.particles.filter(p => p.life > 0);
         this.particles.forEach(p => {
-            p.x += p.vx;
-            p.y += p.vy;
-            p.life--;
+            p.x += p.vx; p.y += p.vy; p.life--;
             ctx.fillStyle = `rgba(0, 255, 255, ${p.life / 100})`;
-            ctx.beginPath();
-            ctx.arc(p.x, p.y, 2, 0, Math.PI * 2);
-            ctx.fill();
+            ctx.beginPath(); ctx.arc(p.x, p.y, 2, 0, Math.PI * 2); ctx.fill();
         });
-    }
-
-    drawSpatial() {
-        // Placeholder for a more complex spatial visualizer
-        const ctx = this.contexts.spatial;
-        ctx.fillStyle = `rgba(255, 0, 255, ${this.state.motionLevel * 0.1})`;
-        ctx.beginPath();
-        ctx.arc(this.canvases.spatial.width / 2, this.canvases.spatial.height / 2, this.state.motionLevel * 200, 0, Math.PI*2);
-        ctx.fill();
     }
 }
 
