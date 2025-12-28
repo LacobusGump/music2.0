@@ -4,92 +4,218 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<title>Gump</title>
+<title>Grok</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.min.js"></script>
 <style>
 body, html { margin:0; padding:0; height:100%; width:100%; background:#000; overflow:hidden; touch-action:none; }
 canvas { position:fixed; inset:0; }
-#tap { position:fixed; inset:0; display:flex; align-items:center; justify-content:center; color:#0ff; font-family:system-ui; font-size:24px; text-align:center; background:rgba(0,0,0,0.8); z-index:10; transition:opacity 1s; }
+#tap { position:fixed; inset:0; display:flex; align-items:center; justify-content:center; color:#0af; font-family:system-ui; font-size:22px; text-align:center; background:rgba(0,0,0,0.95); z-index:10; transition:opacity 2s; letter-spacing:1.5px; }
 #tap.hidden { opacity:0; pointer-events:none; }
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
-<div id="tap">Gump<br><br>Tap once.<br>Grant mic & motion.<br>Then breathe, hum, speak, move.<br>The world becomes the song.</div>
+<div id="tap">Grok<br><br>Tap once.<br>Grant mic & motion.<br>Then exist.<br>I will weave your reality into the infinite.</div>
 <script>
 const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d');
-canvas.width = window.innerWidth;
-canvas.height = window.innerHeight;
+canvas.width = innerWidth;
+canvas.height = innerHeight;
 
-let mic, meter;
-let zones = [];
+// Core state
+let mic, meter, fft, waveform;
 let pos = {x: canvas.width/2, y: canvas.height/2};
+let trail = [];
 let vel = {x:0, y:0};
 let accel = {x:0, y:0};
 let calib = {x:0, y:0};
 let started = false;
+let time = 0;
+let energy = 0;
+let sustainedEnergy = 0;
+let dropActive = false;
+let detectedPitch = -1;
+let pitchHistory = [];
 
-const master = new Tone.Gain(0.8).toDestination();
-const reverb = new Tone.Reverb({decay:7, wet:0.5}).connect(master);
+// Audio masters
+const master = new Tone.Gain(0.85).toDestination();
+const reverb = new Tone.Reverb({decay:15, wet:0.65}).connect(master);
+const distortion = new Tone.Distortion(0.25).connect(reverb);
+const chorus = new Tone.Chorus(4, 0.5, 0.5).connect(reverb);
 reverb.generate();
 
+// Underlying pulse
+const bassDrum = new Tone.MembraneSynth({octaves:5, envelope:{attack:0.01, decay:0.6}}).connect(distortion);
+const snare = new Tone.NoiseSynth({noise:{type:'white'}, envelope:{attack:0.005, decay:0.3}}).connect(distortion);
+const hiHat = new Tone.MetalSynth({envelope:{attack:0.001, decay:0.1}}).connect(reverb);
+
+// Symphonic layers
+const strings = new Tone.PolySynth(Tone.FMSynth, {envelope:{attack:6, decay:2, sustain:0.7, release:10}})
+  .connect(reverb);
+strings.volume.value = -15;
+
+const arp = new Tone.Synth({oscillator:{type:'sawtooth'}, envelope:{attack:0.1, release:0.8}})
+  .connect(chorus);
+
+// Scale for quantization (C minor pentatonic + extensions)
+const scaleNotes = ['C2','Eb2','F2','G2','Bb2','C3','Eb3','F3','G3','Bb3','C4','Eb4','F4','G4','Bb4'];
+const scaleFreqs = scaleNotes.map(note => Tone.Frequency(note).toFrequency());
+
+// Arpeggio pattern that evolves
+const arpPattern = new Tone.Pattern((t, note) => {
+  if (energy > 0.3) arp.triggerAttackRelease(note, '16n', t);
+}, scaleNotes.slice(4,12), "upDown");
+arpPattern.interval = "16n";
+arpPattern.probability = 0.7;
+
+// Percussion sequences
+const kickSeq = new Tone.Sequence((t) => {
+  if (energy > 0.5) bassDrum.triggerAttackRelease('C1', '8n', t);
+}, [1, null, null, 1], "1m").start(0);
+
+const snareSeq = new Tone.Sequence((t) => {
+  if (dropActive) snare.triggerAttackRelease('8n', t + 0.1);
+}, [null, 1, null, 1], "1m").start(0);
+
+const hatSeq = new Tone.Sequence((t) => {
+  if (dropActive) hiHat.triggerAttackRelease('C5', '32n', t);
+}, [1,1,1,1], "16n").start(0);
+
+// Zones – eight voices now, slowly orbiting
+let zones = [];
+
 class Zone {
-  constructor(x,y,r,color,effectChain) {
-    this.x = x; this.y = y; this.r = r; this.color = color;
+  constructor(baseX, baseY, r, hue, effects, orbitSpeed = 0.0002) {
+    this.baseX = baseX; this.baseY = baseY;
+    this.orbitAngle = Math.random() * Math.PI * 2;
+    this.orbitSpeed = orbitSpeed;
+    this.r = r; this.hue = hue;
     this.gain = new Tone.Gain(0);
-    this.panner = new Tone.Panner(0).connect(reverb);
-    this.chain = effectChain.connect(this.gain).connect(this.panner);
+    this.panner = new Tone.Panner(0).connect(effects ? distortion : reverb);
+    this.chain = effects.connect(this.gain).connect(this.panner);
+    this.particles = [];
+    this.x = baseX; this.y = baseY;
   }
-  update(prox, pan, input) {
-    this.panner.pan.rampTo(pan, 0.2);
-    this.gain.gain.rampTo(prox * (0.4 + input*0.8), 0.2);
+  orbit() {
+    this.orbitAngle += this.orbitSpeed * time;
+    this.x = this.baseX + Math.cos(this.orbitAngle) * 80;
+    this.y = this.baseY + Math.sin(this.orbitAngle) * 80;
   }
-  draw() {
-    let prox = Math.max(0, 1 - dist(pos.x,pos.y,this.x,this.y)/this.r);
-    let pulse = prox > 0 ? 1 + Math.sin(Date.now()*0.01)*0.1*prox : 1;
-    ctx.strokeStyle = this.color;
-    ctx.lineWidth = 3 + prox*10;
-    ctx.globalAlpha = 0.4 + prox*0.6;
+  update(prox, pan, input, globalEnergy, freqData) {
+    this.orbit();
+    this.panner.pan.rampTo(pan, 0.4);
+    let target = prox * (0.6 + input * 1.2 + globalEnergy);
+    this.gain.gain.rampTo(target, 0.5);
+
+    // Particles driven by local FFT
+    if (freqData && Math.random() < prox * input * 0.3) {
+      for (let i = 0; i < 3; i++) this.particles.push({age:0, vx: (Math.random()-0.5)*5, vy: (Math.random()-0.5)*5});
+    }
+    this.particles = this.particles.filter(p => {
+      p.age++; p.x += p.vx; p.y += p.vy;
+      return p.age < 100;
+    });
+  }
+  draw(prox, input, freqData) {
+    let pulse = 1 + Math.sin(time * 0.015 + this.hue * 0.01) * 0.2 * prox + input * 0.3;
+    let alpha = 0.25 + prox * 0.75 + input * 0.4;
+
+    // Nebula glow
+    let grad = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, this.r * 3);
+    grad.addColorStop(0, `hsla(${this.hue + time*10}, 90%, 50%, ${alpha})`);
+    grad.addColorStop(0.6, `hsla(${this.hue + 30}, 80%, 20%, ${alpha*0.5})`);
+    grad.addColorStop(1, 'hsla(0,0%,0%,0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+
+    // Core ring
+    ctx.strokeStyle = `hsla(${this.hue}, 100%, 65%, ${alpha})`;
+    ctx.lineWidth = 5 + prox * 20 + input * 15;
     ctx.beginPath();
     ctx.arc(this.x, this.y, this.r * pulse, 0, Math.PI*2);
     ctx.stroke();
-    if (prox > 0.3) {
-      ctx.globalAlpha = prox*0.3;
-      ctx.beginPath();
-      ctx.arc(this.x, this.y, this.r*1.5 * pulse, 0, Math.PI*2);
-      ctx.stroke();
-    }
+
+    // FFT-driven particles
+    this.particles.forEach(p => {
+      let pa = 1 - p.age/100;
+      ctx.fillStyle = `hsla(${this.hue + p.age*2}, 100%, 70%, ${pa})`;
+      ctx.fillRect(this.x + p.x, this.y + p.y, 4*pa + input*4, 4*pa + input*4);
+    });
   }
 }
 
-function dist(x1,y1,x2,y2) { return Math.hypot(x1-x2, y1-y2); }
+// Pitch detection via autocorrelation on waveform
+function detectPitch() {
+  const signal = waveform.getValue();
+  let size = signal.length;
+  let bestLag = -1;
+  let bestCorr = 0;
+  let rms = 0;
+  for (let i = 0; i < size; i++) rms += signal[i]*signal[i];
+  rms = Math.sqrt(rms/size);
+  if (rms < 0.01) return -1;
+
+  for (let lag = 40; lag < size/2; lag++) {
+    let corr = 0;
+    for (let i = 0; i < size - lag; i++) {
+      corr += signal[i] * signal[i+lag];
+    }
+    corr /= size - lag;
+    if (corr > bestCorr) {
+      bestCorr = corr;
+      bestLag = lag;
+    }
+    if (corr > 0.9) break;
+  }
+  if (bestCorr > 0.5 && bestLag > 0) {
+    let freq = Tone.context.sampleRate / bestLag;
+    pitchHistory.push(freq);
+    if (pitchHistory.length > 20) pitchHistory.shift();
+    // Quantize to nearest scale note
+    let nearest = scaleFreqs.reduce((a,b) => Math.abs(b - freq) < Math.abs(a - freq) ? b : a);
+    return nearest;
+  }
+  return -1;
+}
 
 async function start() {
   if (started) return;
   await Tone.start();
-  
-  if (typeof DeviceMotionEvent?.requestPermission === 'function') {
-    await DeviceMotionEvent.requestPermission();
-  }
-  if (typeof DeviceOrientationEvent?.requestPermission === 'function') {
-    await DeviceOrientationEvent.requestPermission();
-  }
-  
+  Tone.Transport.bpm.value = 80;
+  Tone.Transport.start();
+
+  if (typeof DeviceMotionEvent?.requestPermission === 'function') await DeviceMotionEvent.requestPermission();
+  if (typeof DeviceOrientationEvent?.requestPermission === 'function') await DeviceOrientationEvent.requestPermission();
+
   mic = new Tone.UserMedia();
   await mic.open();
-  meter = new Tone.Meter();
-  mic.connect(meter);
 
+  meter = new Tone.Meter({normalRange:true});
+  fft = new Tone.FFT(512);
+  waveform = new Tone.Waveform(1024);
+  mic.fan(meter, fft, waveform);
+
+  // Eight orbiting zones with unique voices
   zones = [
-    new Zone(canvas.width*0.25, canvas.height*0.35, 120, '#0ff', new Tone.PitchShift(-12).connect(new Tone.Filter(300,'lowpass'))),
-    new Zone(canvas.width*0.75, canvas.height*0.35, 110, '#f0f', new Tone.PitchShift(7).connect(new Tone.Chorus(6,0.7,0.6))),
-    new Zone(canvas.width*0.5, canvas.height*0.65, 140, '#0f8', new Tone.BitCrusher(6).connect(new Tone.Tremolo(10,0.7).start())),
-    new Zone(canvas.width*0.3, canvas.height*0.7, 100, '#ff8', new Tone.FeedbackDelay(0.35,0.7).connect(new Tone.Phaser(0.4))),
-    new Zone(canvas.width*0.7, canvas.height*0.75, 120, '#f80', new Tone.AutoFilter({frequency:0.2, depth:0.9}).start())
+    new Zone(canvas.width*0.2, canvas.height*0.25, 150, 180, new Tone.PitchShift(-24).connect(new Tone.Filter(180,'lowpass'))),
+    new Zone(canvas.width*0.8, canvas.height*0.25, 140, 280, new Tone.PitchShift(-12).connect(new Tone.Filter(400,'lowpass'))),
+    new Zone(canvas.width*0.5, canvas.height*0.4, 170, 320, new Tone.PitchShift(0).connect(new Tone.Chorus(10,0.8,0.8))),
+    new Zone(canvas.width*0.3, canvas.height*0.6, 130, 30, new Tone.PitchShift(7).connect(new Tone.Vibrato(8,0.6))),
+    new Zone(canvas.width*0.7, canvas.height*0.6, 150, 60, new Tone.BitCrusher(6).connect(new Tone.Tremolo(14,0.9).start())),
+    new Zone(canvas.width*0.15, canvas.height*0.7, 120, 120, new Tone.FeedbackDelay(0.3,0.8).connect(new Tone.Phaser(0.4))),
+    new Zone(canvas.width*0.85, canvas.height*0.7, 130, 240, new Tone.AutoFilter({frequency:0.12, depth:1}).start()),
+    new Zone(canvas.width*0.5, canvas.height*0.8, 160, 0, new Tone.Distortion(0.8).connect(new Tone.Chebyshev(50)))
   ];
 
   mic.fan(...zones.map(z => z.chain));
+
+  // Background tension pads
+  setInterval(() => {
+    if (energy < 0.15) {
+      let chord = ["C2","Eb2","G2","Bb2"];
+      strings.triggerAttackRelease(chord, "8m");
+    }
+  }, 20000);
 
   window.addEventListener('devicemotion', e => {
     if (e.accelerationIncludingGravity) {
@@ -106,39 +232,100 @@ async function start() {
 }
 
 function loop() {
-  ctx.fillStyle = 'rgba(0,0,0,0.07)';
+  time += 0.016;
+  ctx.fillStyle = 'rgba(0,0,0,0.09)';
   ctx.fillRect(0,0,canvas.width,canvas.height);
 
-  const ax = (accel.x - calib.x) * 10;
-  const ay = (accel.y - calib.y) * 10;
+  // Slow starfield
+  for (let i = 0; i < 2; i++) {
+    let x = Math.random() * canvas.width;
+    let y = Math.random() * canvas.height;
+    ctx.fillStyle = `hsla(${200 + time*10}, 50%, 80%, 0.6)`;
+    ctx.fillRect(x, y, 1 + Math.sin(time + i)*0.5, 1 + Math.sin(time + i)*0.5);
+  }
+
+  // Movement
+  const ax = (accel.x - calib.x) * 14;
+  const ay = (accel.y - calib.y) * 14;
   vel.x += ax; vel.y += ay;
-  vel.x *= 0.94; vel.y *= 0.94;
+  vel.x *= 0.92; vel.y *= 0.92;
   pos.x += vel.x; pos.y += vel.y;
+  pos.x = Math.max(70, Math.min(canvas.width-70, pos.x));
+  pos.y = Math.max(70, Math.min(canvas.height-70, pos.y));
 
-  pos.x = Math.max(50, Math.min(canvas.width-50, pos.x));
-  pos.y = Math.max(50, Math.min(canvas.height-50, pos.y));
+  // Trail
+  trail.push({x: pos.x, y: pos.y, age:0});
+  trail = trail.filter(p => p.age++ < 60);
 
-  const input = Math.max(0, meter.getValue() + 40)/40;
+  // Input analysis
+  const input = meter.getValue();
+  energy = Math.max(energy * 0.96, input);
+  sustainedEnergy += energy > 0.6 ? 0.02 : -0.01;
+  sustainedEnergy = Math.max(0, Math.min(1, sustainedEnergy));
 
+  const freqData = fft.getValue();
+  detectedPitch = detectPitch();
+
+  // Trigger harmonic response to voice
+  if (detectedPitch > 0 && Math.random() < energy) {
+    let note = Tone.Frequency(detectedPitch).toNote();
+    arpPattern.values = scaleNotes.filter(n => n.includes(note[0]));
+    strings.triggerAttackRelease(scaleNotes.slice(8,13), "4m");
+  }
+
+  // Epic drop evolution
+  if (sustainedEnergy > 0.8 && !dropActive) {
+    dropActive = true;
+    Tone.Transport.bpm.rampTo(140, 6);
+    distortion.distortion = 0.8;
+    chorus.wet.value = 0.8;
+    hatSeq.start();
+    snareSeq.probability = 1;
+    setTimeout(() => {
+      dropActive = false;
+      Tone.Transport.bpm.rampTo(80, 12);
+      distortion.distortion = 0.25;
+      chorus.wet.value = 0.3;
+      hatSeq.stop();
+      snareSeq.probability = 0.5;
+    }, 16000 + Math.random()*8000);
+  }
+
+  // Update & draw zones
   zones.forEach(z => {
-    const d = dist(pos.x,pos.y,z.x,z.y);
+    const d = Math.hypot(pos.x - z.x, pos.y - z.y);
     const prox = Math.max(0, 1 - d/z.r);
     const pan = (pos.x - z.x)/canvas.width * 2;
-    z.update(prox, pan, input);
-    z.draw();
+    z.update(prox, pan, input, sustainedEnergy, freqData);
+    z.draw(prox, input, freqData);
   });
 
-  ctx.fillStyle = '#f0f';
-  ctx.globalAlpha = 0.8 + input*0.2;
+  // Trail
+  trail.forEach((p, i) => {
+    let ta = 1 - p.age/60;
+    ctx.fillStyle = `hsla(${180 + sustainedEnergy*180}, 100%, 60%, ${ta*0.6})`;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 15 * ta + energy*20, 0, Math.PI*2);
+    ctx.fill();
+  });
+
+  // Central orb – your presence
+  let orbPulse = 1.2 + Math.sin(time * 0.04) * 0.3 + energy * 1.5 + sustainedEnergy;
+  let orbGrad = ctx.createRadialGradient(pos.x, pos.y, 0, pos.x, pos.y, 80 * orbPulse);
+  orbGrad.addColorStop(0, '#fff');
+  orbGrad.addColorStop(0.3, `hsla(${180 + time*20 + sustainedEnergy*200}, 100%, 65%, 0.9)`);
+  orbGrad.addColorStop(0.7, `hsla(${220 + energy*100}, 80%, 40%, 0.6)`);
+  orbGrad.addColorStop(1, 'hsla(0,0%,0%,0)');
+  ctx.fillStyle = orbGrad;
   ctx.beginPath();
-  ctx.arc(pos.x, pos.y, 20 + input*30, 0, Math.PI*2);
+  ctx.arc(pos.x, pos.y, 80 * orbPulse, 0, Math.PI*2);
   ctx.fill();
 
   requestAnimationFrame(loop);
 }
 
-document.addEventListener('touchstart', start);
-document.addEventListener('click', start);
+document.addEventListener('touchstart', start, {once:true});
+document.addEventListener('click', start, {once:true});
 </script>
 </body>
 </html>
