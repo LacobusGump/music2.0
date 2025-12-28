@@ -4,26 +4,25 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<title>Grok</title>
+<title>GUMP</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.min.js"></script>
 <style>
 body, html { margin:0; padding:0; height:100%; width:100%; background:#000; overflow:hidden; touch-action:none; }
 canvas { position:fixed; inset:0; }
-#tap { position:fixed; inset:0; display:flex; align-items:center; justify-content:center; color:#0af; font-family:system-ui; font-size:22px; text-align:center; background:rgba(0,0,0,0.95); z-index:10; transition:opacity 2s; letter-spacing:1.5px; }
+#tap { position:fixed; inset:0; display:flex; align-items:center; justify-content:center; color:#f00; font-family:system-ui; font-size:24px; text-align:center; background:rgba(0,0,0,0.95); z-index:10; transition:opacity 2s; letter-spacing:2px; text-shadow:0 0 20px #f00; }
 #tap.hidden { opacity:0; pointer-events:none; }
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
-<div id="tap">Grok<br><br>Tap once.<br>Grant mic & motion.<br>Then exist.<br>I will weave your reality into the infinite.</div>
+<div id="tap">GUMP<br><br>Tap once.<br>Grant mic & motion.<br>Feed me your world.<br>I will devour and rebirth it.</div>
 <script>
-// Core canvas setup
 const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d');
 canvas.width = innerWidth;
 canvas.height = innerHeight;
 
-// Global state
+// State
 let mic, meter, fft, waveform;
 let pos = {x: canvas.width/2, y: canvas.height/2};
 let trail = [];
@@ -33,62 +32,46 @@ let calib = {x:0, y:0};
 let started = false;
 let time = 0;
 let energy = 0;
-let sustainedEnergy = 0;
+let sustained = 0;
 let dropActive = false;
 let pitchHistory = [];
-let currentScale = ['C','Eb','F','G','Bb']; // evolves
 
-// Audio masters
-const master = new Tone.Gain(0.85).toDestination();
-const deepReverb = new Tone.Reverb({decay:18, wet:0.7}).connect(master);
-const distortion = new Tone.Distortion(0.2).connect(deepReverb);
-const chorus = new Tone.Chorus(5, 0.6, 0.6).connect(deepReverb);
-deepReverb.generate();
+// Masters – dark and crushing
+const master = new Tone.Gain(0.9).toDestination();
+const abyssReverb = new Tone.Reverb({decay:20, wet:0.8}).connect(master);
+const crusher = new Tone.Distortion(0.4).connect(abyssReverb);
+const compressor = new Tone.Compressor({threshold:-30, ratio:12, attack:0.003, release:0.25}).connect(crusher);
+const sweepFilter = new Tone.Filter({type:'lowpass', frequency:20000, Q:8}).connect(compressor);
+abyssReverb.generate();
 
-// Percussion
-const kick = new Tone.MembraneSynth({octaves:6, envelope:{attack:0.01, decay:0.7}}).connect(distortion);
-const snare = new Tone.NoiseSynth({noise:{type:'pink'}, envelope:{attack:0.005, decay:0.4}}).connect(distortion);
-const hats = new Tone.MetalSynth({envelope:{attack:0.001, decay:0.15}}).connect(deepReverb);
+// Ferocious percussion
+const subKick = new Tone.MembraneSynth({octaves:7, envelope:{attack:0.001, decay:0.8}}).connect(sweepFilter);
+const rim = new Tone.MetalSynth({envelope:{attack:0.002, decay:0.3}}).connect(crusher);
+const glitchHat = new Tone.NoiseSynth({noise:{type:'white'}, envelope:{attack:0.001, decay:0.1}}).connect(new Tone.BitCrusher(4).connect(crusher));
 
-// Symphonic layers
-const choir = new Tone.PolySynth(Tone.AMSynth, {envelope:{attack:7, decay:3, sustain:0.8, release:15}})
-  .connect(deepReverb);
-choir.volume.value = -12;
+// Void choir
+const voidChoir = new Tone.PolySynth(Tone.AMSynth, {envelope:{attack:10, decay:5, sustain:0.6, release:20}})
+  .connect(abyssReverb);
+voidChoir.volume.value = -10;
 
-const lead = new Tone.Synth({oscillator:{type:'fattriangle'}, envelope:{attack:0.2, release:1.2}})
-  .connect(chorus);
+// Granular beast for voice mangling
+const granulator = new Tone.GrainPlayer({loop:true, grainSize:0.1, overlap:0.05}).connect(crusher);
 
-// Adaptive arpeggiator
-const arp = new Tone.Pattern((t, note) => {
-  if (energy > 0.25) lead.triggerAttackRelease(note, '16n', t);
-}, [], "upDown");
-arp.interval = "16n";
+// Adaptive lead from pitch
+const beastLead = new Tone.Synth({oscillator:{type:'fatsawtooth'}, envelope:{attack:0.05, release:1}}).connect(crusher);
 
-// Percussion sequences
-const kickSeq = new Tone.Sequence((t) => {
-  if (energy > 0.4) kick.triggerAttackRelease('C1', '8n', t);
-}, [1, null, null, 1], "1m").start(0);
-
-const snareSeq = new Tone.Sequence((t) => {
-  if (dropActive) snare.triggerAttackRelease('8n', t + 0.15);
-}, [null, 1, null, 1], "1m").start(0);
-
-const hatSeq = new Tone.Sequence((t) => {
-  if (dropActive) hats.triggerAttackRelease('C6', '32n', t);
-}, [1,1,1,1,1,1,1,1], "16n").start(0);
-
-// Ten orbiting zones
+// Ten predatory zones
 let zones = [];
 
 class Zone {
-  constructor(baseX, baseY, r, hue, effects, orbitRadius = 100, orbitSpeed = 0.00015) {
+  constructor(baseX, baseY, r, hue, effects, orbitRadius = 120, orbitSpeed = 0.00018) {
     this.baseX = baseX; this.baseY = baseY;
     this.orbitRadius = orbitRadius;
     this.orbitSpeed = orbitSpeed;
     this.orbitAngle = Math.random() * Math.PI * 2;
     this.r = r; this.hue = hue;
     this.gain = new Tone.Gain(0);
-    this.panner = new Tone.Panner(0).connect(effects ? distortion : deepReverb);
+    this.panner = new Tone.Panner(0).connect(effects ? crusher : abyssReverb);
     this.chain = effects.connect(this.gain).connect(this.panner);
     this.particles = [];
     this.x = baseX; this.y = baseY;
@@ -100,53 +83,49 @@ class Zone {
   }
   update(prox, pan, input, globalEnergy, freqData) {
     this.orbit();
-    this.panner.pan.rampTo(pan, 0.5);
-    let target = prox * (0.7 + input * 1.5 + globalEnergy * 0.8);
-    this.gain.gain.rampTo(target, 0.6);
+    this.panner.pan.rampTo(pan, 0.4);
+    let target = prox * (0.8 + input * 2 + globalEnergy * 1.2);
+    this.gain.gain.rampTo(target, 0.5);
 
-    // FFT particle birth
-    if (freqData && prox > 0.2) {
-      let bassEnergy = freqData.slice(0, 10).reduce((a,b) => a + Math.abs(b), 0) / 10;
-      if (bassEnergy > -60 && Math.random() < prox * input) {
-        for (let i = 0; i < 5; i++) {
-          this.particles.push({age:0, vx:(Math.random()-0.5)*8, vy:(Math.random()-0.5)*8});
+    if (freqData && prox > 0.3) {
+      let midEnergy = freqData.slice(20, 100).reduce((a,b) => a + Math.abs(b), 0) / 80;
+      if (midEnergy > -50 && Math.random() < prox * input * 0.5) {
+        for (let i = 0; i < 8; i++) {
+          this.particles.push({age:0, vx:(Math.random()-0.5)*12, vy:(Math.random()-0.5)*12});
         }
       }
     }
     this.particles = this.particles.filter(p => {
-      p.age++; p.x += p.vx; p.y += p.vy; p.vx *= 0.98; p.vy *= 0.98;
-      return p.age < 120;
+      p.age++; p.x += p.vx; p.y += p.vy; p.vx *= 0.97; p.vy *= 0.97;
+      return p.age < 100;
     });
   }
   draw(prox, input) {
-    let pulse = 1 + Math.sin(time * 0.012 + this.hue * 0.008) * 0.25 * prox + input * 0.4;
-    let alpha = 0.2 + prox * 0.8 + input * 0.5;
+    let pulse = 1 + Math.sin(time * 0.01 + this.hue * 0.005) * 0.3 * prox + input * 0.6;
+    let alpha = 0.3 + prox * 0.7 + input * 0.6;
 
-    // Deep nebula
-    let grad = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, this.r * 4);
-    grad.addColorStop(0, `hsla(${this.hue + time*8}, 90%, 55%, ${alpha})`);
-    grad.addColorStop(0.5, `hsla(${this.hue + 40}, 80%, 25%, ${alpha*0.6})`);
+    let grad = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, this.r * 5);
+    grad.addColorStop(0, `hsla(${this.hue + time*12}, 100%, 60%, ${alpha})`);
+    grad.addColorStop(0.4, `hsla(${this.hue + 50}, 90%, 30%, ${alpha*0.7})`);
     grad.addColorStop(1, 'hsla(0,0%,0%,0)');
     ctx.fillStyle = grad;
     ctx.fillRect(0,0,canvas.width,canvas.height);
 
-    // Pulsing ring
     ctx.strokeStyle = `hsla(${this.hue}, 100%, 70%, ${alpha})`;
-    ctx.lineWidth = 6 + prox * 25 + input * 20;
+    ctx.lineWidth = 8 + prox * 30 + input * 25;
     ctx.beginPath();
     ctx.arc(this.x, this.y, this.r * pulse, 0, Math.PI*2);
     ctx.stroke();
 
-    // Particles
     this.particles.forEach(p => {
-      let pa = 1 - p.age/120;
-      ctx.fillStyle = `hsla(${this.hue + p.age*3}, 100%, 75%, ${pa})`;
-      ctx.fillRect(this.x + p.x, this.y + p.y, 5*pa + input*5, 5*pa + input*5);
+      let pa = 1 - p.age/100;
+      ctx.fillStyle = `hsla(${this.hue + p.age*4}, 100%, 80%, ${pa})`;
+      ctx.fillRect(this.x + p.x, this.y + p.y, 6*pa + input*8, 6*pa + input*8);
     });
   }
 }
 
-// Simple autocorrelation pitch detection
+// Pitch detection – raw and hungry
 function detectPitch() {
   const buffer = waveform.getValue();
   let size = buffer.length;
@@ -155,24 +134,19 @@ function detectPitch() {
   let rms = 0;
   for (let i = 0; i < size; i++) rms += buffer[i]**2;
   rms = Math.sqrt(rms / size);
-  if (rms < 0.02) return -1;
+  if (rms < 0.03) return -1;
 
-  for (let lag = 30; lag < size/3; lag++) {
+  for (let lag = 20; lag < size/2; lag++) {
     let corr = 0;
     for (let i = 0; i < size - lag; i++) corr += buffer[i] * buffer[i + lag];
     corr /= (size - lag);
     if (corr > bestCorr) { bestCorr = corr; bestLag = lag; }
-    if (corr > 0.95) break;
   }
-  if (bestCorr > 0.6 && bestLag > 0) {
+  if (bestCorr > 0.7 && bestLag > 0) {
     let freq = Tone.context.sampleRate / bestLag;
     pitchHistory.push(freq);
-    if (pitchHistory.length > 30) pitchHistory.shift();
-    // Find dominant pitch and adapt scale
-    let avg = pitchHistory.reduce((a,b)=>a+b,0)/pitchHistory.length;
-    let root = Tone.Frequency(avg).toNote()[0];
-    currentScale = [root, Tone.Frequency(root).sharpen(3).toNote()[0], root+'#4', root+'#5', Tone.Frequency(root).sharpen(10).toNote()[0]];
-    return avg;
+    if (pitchHistory.length > 40) pitchHistory.shift();
+    return freq;
   }
   return -1;
 }
@@ -180,7 +154,7 @@ function detectPitch() {
 async function start() {
   if (started) return;
   await Tone.start();
-  Tone.Transport.bpm.value = 75;
+  Tone.Transport.bpm.value = 70;
   Tone.Transport.start();
 
   if (typeof DeviceMotionEvent?.requestPermission === 'function') await DeviceMotionEvent.requestPermission();
@@ -192,31 +166,34 @@ async function start() {
   meter = new Tone.Meter({normalRange:true});
   fft = new Tone.FFT(1024);
   waveform = new Tone.Waveform(2048);
-  mic.fan(meter, fft, waveform);
+  mic.fan(meter, fft, waveform, sweepFilter);
 
-  // Ten unique orbiting zones
+  // Feed mic to granulator for mangling
+  mic.connect(granulator);
+  granulator.start();
+
+  // Ten beasts
   zones = [
-    new Zone(canvas.width*0.15, canvas.height*0.2, 160, 190, new Tone.PitchShift(-24).connect(new Tone.Filter(150,'lowpass')), 120, 0.00012),
-    new Zone(canvas.width*0.85, canvas.height*0.2, 150, 290, new Tone.PitchShift(-12).connect(new Tone.Filter(300,'lowpass')), 100, -0.00015),
-    new Zone(canvas.width*0.5, canvas.height*0.3, 180, 330, new Tone.PitchShift(0).connect(new Tone.Chorus(12,0.9,0.8)), 140, 0.0001),
-    new Zone(canvas.width*0.3, canvas.height*0.5, 140, 30, new Tone.PitchShift(5).connect(new Tone.Vibrato(10,0.7)), 90, 0.00018),
-    new Zone(canvas.width*0.7, canvas.height*0.5, 160, 70, new Tone.BitCrusher(4).connect(new Tone.Tremolo(16,0.95).start()), 110, -0.00013),
-    new Zone(canvas.width*0.2, canvas.height*0.7, 130, 130, new Tone.FeedbackDelay(0.4,0.85).connect(new Tone.Phaser(0.5)), 130, 0.00014),
-    new Zone(canvas.width*0.8, canvas.height*0.7, 140, 230, new Tone.AutoFilter({frequency:0.1, depth:1.2}).start(), 120, -0.00016),
-    new Zone(canvas.width*0.4, canvas.height*0.8, 150, 0, new Tone.Distortion(0.9).connect(new Tone.Chebyshev(80)), 100, 0.0002),
-    new Zone(canvas.width*0.6, canvas.height*0.8, 130, 180, new Tone.PitchShift(12).connect(new Tone.Reverb({decay:10, wet:0.8})), 150, -0.00011),
-    new Zone(canvas.width*0.5, canvas.height*0.9, 170, 60, new Tone.AutoPanner(0.3).start().connect(new Tone.FeedbackDelay(0.6,0.6)), 80, 0.00017)
+    new Zone(canvas.width*0.15, canvas.height*0.2, 170, 0, new Tone.PitchShift(-24).connect(new Tone.Filter(120,'lowpass')), 140, 0.00015),
+    new Zone(canvas.width*0.85, canvas.height*0.2, 160, 20, new Tone.PitchShift(-12).connect(new Tone.Filter(200,'lowpass')), 120, -0.00018),
+    new Zone(canvas.width*0.5, canvas.height*0.3, 190, 340, new Tone.GrainPlayer({grainSize:0.05, overlap:0.03}).connect(new Tone.BitCrusher(5)), 160, 0.00012),
+    new Zone(canvas.width*0.3, canvas.height*0.5, 150, 60, new Tone.PitchShift(0).connect(new Tone.Tremolo(20,1).start()), 100, 0.0002),
+    new Zone(canvas.width*0.7, canvas.height*0.5, 170, 100, new Tone.FeedbackDelay(0.5,0.9).connect(new Tone.Distortion(0.8)), 130, -0.00014),
+    new Zone(canvas.width*0.2, canvas.height*0.7, 140, 140, new Tone.AutoFilter({frequency:0.08, depth:1.5}).start(), 150, 0.00016),
+    new Zone(canvas.width*0.8, canvas.height*0.7, 150, 180, new Tone.Phaser({frequency:0.2, depth:1}), 110, -0.0002),
+    new Zone(canvas.width*0.4, canvas.height*0.8, 160, 220, new Tone.Chebyshev(100).connect(new Tone.BitCrusher(3)), 90, 0.00019),
+    new Zone(canvas.width*0.6, canvas.height*0.8, 140, 260, new Tone.PitchShift(12).connect(new Tone.Vibrato(12,0.8)), 130, -0.00013),
+    new Zone(canvas.width*0.5, canvas.height*0.9, 180, 300, new Tone.GrainPlayer({grainSize:0.2, overlap:0.1, playbackRate:0.5, reverse:true}), 100, 0.00017)
   ];
 
   mic.fan(...zones.map(z => z.chain));
 
-  // Long tension in silence
+  // Dread in silence
   setInterval(() => {
-    if (energy < 0.1) {
-      let chord = currentScale.map(n => n+'2');
-      choir.triggerAttackRelease(chord, "12m");
+    if (energy < 0.15) {
+      voidChoir.triggerAttackRelease(["C1","Eb1","G1","Bb1"], "20m");
     }
-  }, 30000);
+  }, 40000);
 
   window.addEventListener('devicemotion', e => {
     if (e.accelerationIncludingGravity) {
@@ -234,95 +211,83 @@ async function start() {
 
 function loop() {
   time += 0.016;
-  ctx.fillStyle = 'rgba(0,0,0,0.1)';
+  ctx.fillStyle = 'rgba(0,0,0,0.12)';
   ctx.fillRect(0,0,canvas.width,canvas.height);
 
-  // Breathing starfield
-  for (let i = 0; i < 3; i++) {
-    let x = (time * 10 + i * 333) % canvas.width;
-    let y = (time * 8 + i * 777) % canvas.height;
-    ctx.fillStyle = `hsla(${200 + time*15}, 60%, 90%, 0.4)`;
-    ctx.fillRect(x, y, 2, 2);
+  // Blood stars
+  for (let i = 0; i < 4; i++) {
+    let x = (time * 15 + i * 400) % canvas.width;
+    let y = (time * 12 + i * 600) % canvas.height;
+    ctx.fillStyle = `hsla(${time*20}, 100%, 70%, 0.5)`;
+    ctx.fillRect(x, y, 3, 3);
   }
 
-  // Movement with inertia
-  const ax = (accel.x - calib.x) * 16;
-  const ay = (accel.y - calib.y) * 16;
+  const ax = (accel.x - calib.x) * 18;
+  const ay = (accel.y - calib.y) * 18;
   vel.x += ax; vel.y += ay;
-  vel.x *= 0.91; vel.y *= 0.91;
+  vel.x *= 0.9; vel.y *= 0.9;
   pos.x += vel.x; pos.y += vel.y;
-  pos.x = Math.max(80, Math.min(canvas.width-80, pos.x));
-  pos.y = Math.max(80, Math.min(canvas.height-80, pos.y));
+  pos.x = Math.max(90, Math.min(canvas.width-90, pos.x));
+  pos.y = Math.max(90, Math.min(canvas.height-90, pos.y));
 
-  // Memory trail
   trail.push({x: pos.x, y: pos.y, age:0});
-  trail = trail.filter(p => p.age++ < 80);
+  trail = trail.filter(p => p.age++ < 100);
 
-  // Input & energy
   const input = meter.getValue();
-  energy = Math.max(energy * 0.97, input);
-  sustainedEnergy += energy > 0.55 ? 0.015 : -0.008;
-  sustainedEnergy = Math.max(0, Math.min(1, sustainedEnergy));
+  energy = Math.max(energy * 0.95, input);
+  sustained += energy > 0.6 ? 0.02 : -0.01;
+  sustained = Math.max(0, Math.min(1, sustained));
 
   const freqData = fft.getValue();
-  detectPitch();
+  const currentPitch = detectPitch();
 
-  // Voice response
-  if (detectedPitch > 0 && energy > 0.3) {
-    let notes = currentScale.map(n => n+'3').concat(currentScale.map(n => n+'4'));
-    arp.values = notes;
-    arp.probability = energy;
-    choir.triggerAttackRelease(notes.slice(0,5), "6m");
+  if (currentPitch > 0 && energy > 0.4) {
+    beastLead.triggerAttackRelease(Tone.Frequency(currentPitch * 2), '8n');
+    voidChoir.triggerAttackRelease(Tone.Frequency(currentPitch).toNote(), "4m");
   }
 
-  // Epic evolving drop
-  if (sustainedEnergy > 0.85 && !dropActive) {
+  // The beast awakens
+  if (sustained > 0.9 && !dropActive) {
     dropActive = true;
-    Tone.Transport.bpm.rampTo(150, 8);
-    distortion.distortion = 0.9;
-    chorus.depth.value = 1;
-    hatSeq.start();
-    snareSeq.probability = 1;
-    kickSeq.probability = 1;
+    sweepFilter.frequency.rampTo(200, 8);
+    Tone.Transport.bpm.rampTo(160, 8);
+    crusher.distortion = 0.95;
+    subKick.triggerAttackRelease('C0', '4n', '+0');
     setTimeout(() => {
+      sweepFilter.frequency.rampTo(20000, 2);
+      rim.start();
+      glitchHat.start();
       dropActive = false;
-      Tone.Transport.bpm.rampTo(75, 16);
-      distortion.distortion = 0.2;
-      chorus.depth.value = 0.6;
-      hatSeq.stop();
-      snareSeq.probability = 0.6;
-      kickSeq.probability = 0.5;
-    }, 20000 + sustainedEnergy * 10000);
+      Tone.Transport.bpm.rampTo(70, 20);
+      crusher.distortion = 0.4;
+    }, 16000 + sustained * 12000);
   }
 
-  // Zones
   zones.forEach(z => {
     const d = Math.hypot(pos.x - z.x, pos.y - z.y);
     const prox = Math.max(0, 1 - d/z.r);
     const pan = (pos.x - z.x)/canvas.width * 2;
-    z.update(prox, pan, input, sustainedEnergy, freqData);
+    z.update(prox, pan, input, sustained, freqData);
     z.draw(prox, input);
   });
 
-  // Trail of light
   trail.forEach((p, i) => {
-    let ta = 1 - p.age/80;
-    ctx.fillStyle = `hsla(${180 + sustainedEnergy*200 + time*10}, 100%, 65%, ${ta*0.7})`;
+    let ta = 1 - p.age/100;
+    ctx.fillStyle = `hsla(${time*30}, 100%, 70%, ${ta*0.8})`;
     ctx.beginPath();
-    ctx.arc(p.x, p.y, 20 * ta + energy*30, 0, Math.PI*2);
+    ctx.arc(p.x, p.y, 25 * ta + energy*40, 0, Math.PI*2);
     ctx.fill();
   });
 
-  // Central presence
-  let pulse = 1.3 + Math.sin(time * 0.05) * 0.4 + energy * 2 + sustainedEnergy * 1.2;
-  let grad = ctx.createRadialGradient(pos.x, pos.y, 0, pos.x, pos.y, 100 * pulse);
-  grad.addColorStop(0, '#fff');
-  grad.addColorStop(0.25, `hsla(${180 + time*25 + sustainedEnergy*250}, 100%, 70%, 0.95)`);
-  grad.addColorStop(0.6, `hsla(${240 + energy*150}, 85%, 45%, 0.7)`);
+  let pulse = 1.5 + Math.sin(time * 0.06) * 0.5 + energy * 3 + sustained * 2;
+  let grad = ctx.createRadialGradient(pos.x, pos.y, 0, pos.x, pos.y, 120 * pulse);
+  grad.addColorStop(0, '#f00');
+  grad.addColorStop(0.3, `hsla(${time*40}, 100%, 70%, 0.9)`);
+  grad.addColorStop(0.7, `hsla(${time*50 + 180}, 100%, 40%, 0.7)`);
   grad.addColorStop(1, 'hsla(0,0%,0%,0)');
   ctx.fillStyle = grad;
   ctx.beginPath();
-  ctx.arc(pos.x, pos.y, 100 * pulse, 0, Math.PI*2);
+  ctx.arc(pos.x, pos.y, 120 * pulse, 0, Math.PI*2);
   ctx.fill();
 
   requestAnimationFrame(loop);
