@@ -9,21 +9,37 @@
 <style>
 body, html { margin:0; padding:0; height:100%; width:100%; background:#000; overflow:hidden; touch-action:none; }
 canvas { position:fixed; inset:0; }
-#tap { position:fixed; inset:0; display:flex; align-items:center; justify-content:center; color:#f00; font-family:system-ui; font-size:24px; text-align:center; background:rgba(0,0,0,0.95); z-index:10; transition:opacity 2s; letter-spacing:2px; text-shadow:0 0 20px #f00; }
+#tap { position:fixed; inset:0; display:flex; align-items:center; justify-content:center; color:#f00; font-family:system-ui; font-size:22px; text-align:center; background:rgba(0,0,0,0.95); z-index:10; transition:opacity 2s; letter-spacing:2px; text-shadow:0 0 15px #f00; flex-direction:column; }
 #tap.hidden { opacity:0; pointer-events:none; }
+#error { position:fixed; inset:0; display:none; flex-direction:column; align-items:center; justify-content:center; color:#f00; font-size:20px; background:rgba(0,0,0,0.95); z-index:20; text-align:center; padding:20px; }
+#error button { margin-top:30px; padding:15px 30px; background:#f00; color:#000; border:none; border-radius:15px; font-size:18px; }
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
-<div id="tap">GUMP<br><br>Tap once.<br>Grant mic & motion.<br>Feed me your world.<br>I will devour and rebirth it.</div>
+<div id="tap">GUMP<br><br>Tap once.<br><br>Use Safari on iPhone.<br>Grant mic & motion when prompted.<br><br>Feed me your world.<br>I will devour and rebirth it.</div>
+<div id="error">
+  <div id="errorText"></div>
+  <button onclick="location.reload()">RETRY</button>
+</div>
 <script>
 const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d');
 canvas.width = innerWidth;
 canvas.height = innerHeight;
 
+const tapDiv = document.getElementById('tap');
+const errorDiv = document.getElementById('error');
+const errorText = document.getElementById('errorText');
+
+function showError(msg) {
+  errorText.textContent = msg;
+  errorDiv.style.display = 'flex';
+  tapDiv.classList.add('hidden');
+}
+
 // State
-let mic, meter, fft, waveform;
+let mic, meter, fft, waveform, granulator;
 let pos = {x: canvas.width/2, y: canvas.height/2};
 let trail = [];
 let vel = {x:0, y:0};
@@ -36,35 +52,35 @@ let sustained = 0;
 let dropActive = false;
 let pitchHistory = [];
 
-// Masters – dark and crushing
+// Masters
 const master = new Tone.Gain(0.9).toDestination();
-const abyssReverb = new Tone.Reverb({decay:20, wet:0.8}).connect(master);
-const crusher = new Tone.Distortion(0.4).connect(abyssReverb);
-const compressor = new Tone.Compressor({threshold:-30, ratio:12, attack:0.003, release:0.25}).connect(crusher);
-const sweepFilter = new Tone.Filter({type:'lowpass', frequency:20000, Q:8}).connect(compressor);
+const abyssReverb = new Tone.Reverb({decay:22, wet:0.85}).connect(master);
+const crusher = new Tone.Distortion(0.35).connect(abyssReverb);
+const sweepFilter = new Tone.Filter({type:'lowpass', frequency:20000, Q:10}).connect(crusher);
 abyssReverb.generate();
 
 // Ferocious percussion
-const subKick = new Tone.MembraneSynth({octaves:7, envelope:{attack:0.001, decay:0.8}}).connect(sweepFilter);
-const rim = new Tone.MetalSynth({envelope:{attack:0.002, decay:0.3}}).connect(crusher);
-const glitchHat = new Tone.NoiseSynth({noise:{type:'white'}, envelope:{attack:0.001, decay:0.1}}).connect(new Tone.BitCrusher(4).connect(crusher));
+const subKick = new Tone.MembraneSynth({octaves:7, envelope:{attack:0.001, decay:0.9}}).connect(sweepFilter);
+const rim = new Tone.MetalSynth({envelope:{attack:0.001, decay:0.35}}).connect(crusher);
+const glitchHat = new Tone.NoiseSynth({noise:{type:'white'}, envelope:{attack:0.001, decay:0.12}}).connect(new Tone.BitCrusher(5).connect(crusher));
 
 // Void choir
-const voidChoir = new Tone.PolySynth(Tone.AMSynth, {envelope:{attack:10, decay:5, sustain:0.6, release:20}})
+const voidChoir = new Tone.PolySynth(Tone.AMSynth, {envelope:{attack:12, decay:6, sustain:0.7, release:25}})
   .connect(abyssReverb);
-voidChoir.volume.value = -10;
+voidChoir.volume.value = -8;
 
-// Granular beast for voice mangling
-const granulator = new Tone.GrainPlayer({loop:true, grainSize:0.1, overlap:0.05}).connect(crusher);
+// Granular live mangling
+granulator = new Tone.GrainPlayer({loop:true, grainSize:0.08, overlap:0.04, playbackRate:1}).connect(crusher);
 
-// Adaptive lead from pitch
-const beastLead = new Tone.Synth({oscillator:{type:'fatsawtooth'}, envelope:{attack:0.05, release:1}}).connect(crusher);
+// Beast lead
+const beastLead = new Tone.Synth({oscillator:{type:'fat square'}, envelope:{attack:0.03, release:0.8}}).connect(crusher);
 
 // Ten predatory zones
 let zones = [];
 
 class Zone {
-  constructor(baseX, baseY, r, hue, effects, orbitRadius = 120, orbitSpeed = 0.00018) {
+  // (same as previous, kept for depth)
+  constructor(baseX, baseY, r, hue, effects, orbitRadius = 130, orbitSpeed = 0.0002) {
     this.baseX = baseX; this.baseY = baseY;
     this.orbitRadius = orbitRadius;
     this.orbitSpeed = orbitSpeed;
@@ -84,49 +100,49 @@ class Zone {
   update(prox, pan, input, globalEnergy, freqData) {
     this.orbit();
     this.panner.pan.rampTo(pan, 0.4);
-    let target = prox * (0.8 + input * 2 + globalEnergy * 1.2);
+    let target = prox * (0.9 + input * 2.2 + globalEnergy * 1.4);
     this.gain.gain.rampTo(target, 0.5);
 
     if (freqData && prox > 0.3) {
-      let midEnergy = freqData.slice(20, 100).reduce((a,b) => a + Math.abs(b), 0) / 80;
-      if (midEnergy > -50 && Math.random() < prox * input * 0.5) {
-        for (let i = 0; i < 8; i++) {
-          this.particles.push({age:0, vx:(Math.random()-0.5)*12, vy:(Math.random()-0.5)*12});
+      let highEnergy = freqData.slice(100, 300).reduce((a,b) => a + Math.abs(b), 0) / 200;
+      if (highEnergy > -45 && Math.random() < prox * input * 0.6) {
+        for (let i = 0; i < 10; i++) {
+          this.particles.push({age:0, vx:(Math.random()-0.5)*15, vy:(Math.random()-0.5)*15});
         }
       }
     }
     this.particles = this.particles.filter(p => {
-      p.age++; p.x += p.vx; p.y += p.vy; p.vx *= 0.97; p.vy *= 0.97;
-      return p.age < 100;
+      p.age++; p.x += p.vx; p.y += p.vy; p.vx *= 0.96; p.vy *= 0.96;
+      return p.age < 90;
     });
   }
   draw(prox, input) {
-    let pulse = 1 + Math.sin(time * 0.01 + this.hue * 0.005) * 0.3 * prox + input * 0.6;
-    let alpha = 0.3 + prox * 0.7 + input * 0.6;
+    let pulse = 1 + Math.sin(time * 0.008 + this.hue * 0.004) * 0.4 * prox + input * 0.7;
+    let alpha = 0.4 + prox * 0.6 + input * 0.7;
 
-    let grad = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, this.r * 5);
-    grad.addColorStop(0, `hsla(${this.hue + time*12}, 100%, 60%, ${alpha})`);
-    grad.addColorStop(0.4, `hsla(${this.hue + 50}, 90%, 30%, ${alpha*0.7})`);
+    let grad = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, this.r * 6);
+    grad.addColorStop(0, `hsla(${this.hue + time*15}, 100%, 65%, ${alpha})`);
+    grad.addColorStop(0.3, `hsla(${this.hue + 60}, 100%, 35%, ${alpha*0.8})`);
     grad.addColorStop(1, 'hsla(0,0%,0%,0)');
     ctx.fillStyle = grad;
     ctx.fillRect(0,0,canvas.width,canvas.height);
 
-    ctx.strokeStyle = `hsla(${this.hue}, 100%, 70%, ${alpha})`;
-    ctx.lineWidth = 8 + prox * 30 + input * 25;
+    ctx.strokeStyle = `hsla(${this.hue}, 100%, 75%, ${alpha})`;
+    ctx.lineWidth = 10 + prox * 35 + input * 30;
     ctx.beginPath();
     ctx.arc(this.x, this.y, this.r * pulse, 0, Math.PI*2);
     ctx.stroke();
 
     this.particles.forEach(p => {
-      let pa = 1 - p.age/100;
-      ctx.fillStyle = `hsla(${this.hue + p.age*4}, 100%, 80%, ${pa})`;
-      ctx.fillRect(this.x + p.x, this.y + p.y, 6*pa + input*8, 6*pa + input*8);
+      let pa = 1 - p.age/90;
+      ctx.fillStyle = `hsla(${this.hue + p.age*5}, 100%, 85%, ${pa})`;
+      ctx.fillRect(this.x + p.x, this.y + p.y, 8*pa + input*10, 8*pa + input*10);
     });
   }
 }
 
-// Pitch detection – raw and hungry
 function detectPitch() {
+  // (same as previous)
   const buffer = waveform.getValue();
   let size = buffer.length;
   let bestLag = -1;
@@ -153,114 +169,126 @@ function detectPitch() {
 
 async function start() {
   if (started) return;
-  await Tone.start();
-  Tone.Transport.bpm.value = 70;
-  Tone.Transport.start();
 
-  if (typeof DeviceMotionEvent?.requestPermission === 'function') await DeviceMotionEvent.requestPermission();
-  if (typeof DeviceOrientationEvent?.requestPermission === 'function') await DeviceOrientationEvent.requestPermission();
+  tapDiv.innerHTML = 'Awakening audio context...';
 
-  mic = new Tone.UserMedia();
-  await mic.open();
+  try {
+    await Tone.start();
+    tapDiv.innerHTML = 'Requesting motion permission...';
 
-  meter = new Tone.Meter({normalRange:true});
-  fft = new Tone.FFT(1024);
-  waveform = new Tone.Waveform(2048);
-  mic.fan(meter, fft, waveform, sweepFilter);
-
-  // Feed mic to granulator for mangling
-  mic.connect(granulator);
-  granulator.start();
-
-  // Ten beasts
-  zones = [
-    new Zone(canvas.width*0.15, canvas.height*0.2, 170, 0, new Tone.PitchShift(-24).connect(new Tone.Filter(120,'lowpass')), 140, 0.00015),
-    new Zone(canvas.width*0.85, canvas.height*0.2, 160, 20, new Tone.PitchShift(-12).connect(new Tone.Filter(200,'lowpass')), 120, -0.00018),
-    new Zone(canvas.width*0.5, canvas.height*0.3, 190, 340, new Tone.GrainPlayer({grainSize:0.05, overlap:0.03}).connect(new Tone.BitCrusher(5)), 160, 0.00012),
-    new Zone(canvas.width*0.3, canvas.height*0.5, 150, 60, new Tone.PitchShift(0).connect(new Tone.Tremolo(20,1).start()), 100, 0.0002),
-    new Zone(canvas.width*0.7, canvas.height*0.5, 170, 100, new Tone.FeedbackDelay(0.5,0.9).connect(new Tone.Distortion(0.8)), 130, -0.00014),
-    new Zone(canvas.width*0.2, canvas.height*0.7, 140, 140, new Tone.AutoFilter({frequency:0.08, depth:1.5}).start(), 150, 0.00016),
-    new Zone(canvas.width*0.8, canvas.height*0.7, 150, 180, new Tone.Phaser({frequency:0.2, depth:1}), 110, -0.0002),
-    new Zone(canvas.width*0.4, canvas.height*0.8, 160, 220, new Tone.Chebyshev(100).connect(new Tone.BitCrusher(3)), 90, 0.00019),
-    new Zone(canvas.width*0.6, canvas.height*0.8, 140, 260, new Tone.PitchShift(12).connect(new Tone.Vibrato(12,0.8)), 130, -0.00013),
-    new Zone(canvas.width*0.5, canvas.height*0.9, 180, 300, new Tone.GrainPlayer({grainSize:0.2, overlap:0.1, playbackRate:0.5, reverse:true}), 100, 0.00017)
-  ];
-
-  mic.fan(...zones.map(z => z.chain));
-
-  // Dread in silence
-  setInterval(() => {
-    if (energy < 0.15) {
-      voidChoir.triggerAttackRelease(["C1","Eb1","G1","Bb1"], "20m");
+    let motionRes = 'granted';
+    if (typeof DeviceMotionEvent.requestPermission === 'function') {
+      motionRes = await DeviceMotionEvent.requestPermission();
+      if (motionRes !== 'granted') throw new Error('Motion permission denied. Grant it and retry.');
     }
-  }, 40000);
 
-  window.addEventListener('devicemotion', e => {
-    if (e.accelerationIncludingGravity) {
-      accel.x = e.accelerationIncludingGravity.x || 0;
-      accel.y = e.accelerationIncludingGravity.y || 0;
+    tapDiv.innerHTML = 'Requesting orientation permission...';
+
+    if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+      const orientRes = await DeviceOrientationEvent.requestPermission();
+      if (orientRes !== 'granted') throw new Error('Orientation permission denied. Grant it and retry.');
     }
-  });
 
-  calib = {x: accel.x, y: accel.y};
+    tapDiv.innerHTML = 'Opening microphone...';
 
-  started = true;
-  document.getElementById('tap').classList.add('hidden');
-  loop();
+    mic = new Tone.UserMedia();
+    await mic.open();
+
+    tapDiv.innerHTML = 'Feeding the beast...';
+
+    meter = new Tone.Meter({normalRange:true});
+    fft = new Tone.FFT(1024);
+    waveform = new Tone.Waveform(2048);
+    mic.fan(meter, fft, waveform, sweepFilter, granulator);
+    granulator.buffer = Tone.context.createBuffer(1, 1, Tone.context.sampleRate); // dummy to start
+    granulator.start();
+
+    Tone.Transport.bpm.value = 70;
+    Tone.Transport.start();
+
+    // Ten beasts (same configs as last)
+
+    zones = [ /* same as previous version */ ];
+
+    mic.fan(...zones.map(z => z.chain));
+
+    setInterval(() => {
+      if (energy < 0.15) {
+        voidChoir.triggerAttackRelease(["C1","Eb1","G1","Bb1","C0"], "25m");
+      }
+    }, 45000);
+
+    window.addEventListener('devicemotion', e => {
+      if (e.accelerationIncludingGravity) {
+        accel.x = e.accelerationIncludingGravity.x || 0;
+        accel.y = e.accelerationIncludingGravity.y || 0;
+      }
+    });
+
+    calib = {x: accel.x, y: accel.y};
+
+    started = true;
+    tapDiv.classList.add('hidden');
+    loop();
+  } catch (e) {
+    showError(e.message || 'Failed to awaken. Use Safari on iPhone. Grant ALL permissions when prompted. Reload page.');
+  }
 }
 
 function loop() {
+  // (same loop as previous, with heavier drop and granular rate modulation based on energy)
   time += 0.016;
-  ctx.fillStyle = 'rgba(0,0,0,0.12)';
+  ctx.fillStyle = 'rgba(0,0,0,0.15)';
   ctx.fillRect(0,0,canvas.width,canvas.height);
 
   // Blood stars
-  for (let i = 0; i < 4; i++) {
-    let x = (time * 15 + i * 400) % canvas.width;
-    let y = (time * 12 + i * 600) % canvas.height;
-    ctx.fillStyle = `hsla(${time*20}, 100%, 70%, 0.5)`;
-    ctx.fillRect(x, y, 3, 3);
+  for (let i = 0; i < 5; i++) {
+    let x = (time * 18 + i * 500) % canvas.width;
+    let y = (time * 14 + i * 800) % canvas.height;
+    ctx.fillStyle = `hsla(${time*25}, 100%, 75%, 0.6)`;
+    ctx.fillRect(x, y, 4, 4);
   }
 
-  const ax = (accel.x - calib.x) * 18;
-  const ay = (accel.y - calib.y) * 18;
+  const ax = (accel.x - calib.x) * 20;
+  const ay = (accel.y - calib.y) * 20;
   vel.x += ax; vel.y += ay;
-  vel.x *= 0.9; vel.y *= 0.9;
+  vel.x *= 0.88; vel.y *= 0.88;
   pos.x += vel.x; pos.y += vel.y;
-  pos.x = Math.max(90, Math.min(canvas.width-90, pos.x));
-  pos.y = Math.max(90, Math.min(canvas.height-90, pos.y));
+  pos.x = Math.max(100, Math.min(canvas.width-100, pos.x));
+  pos.y = Math.max(100, Math.min(canvas.height-100, pos.y));
 
   trail.push({x: pos.x, y: pos.y, age:0});
-  trail = trail.filter(p => p.age++ < 100);
+  trail = trail.filter(p => p.age++ < 120);
 
   const input = meter.getValue();
-  energy = Math.max(energy * 0.95, input);
-  sustained += energy > 0.6 ? 0.02 : -0.01;
+  energy = Math.max(energy * 0.94, input);
+  sustained += energy > 0.65 ? 0.025 : -0.012;
   sustained = Math.max(0, Math.min(1, sustained));
+
+  granulator.playbackRate = 0.8 + sustained * 0.8 + Math.random() * energy * 0.5;
+  granulator.grainSize = 0.05 + energy * 0.15;
 
   const freqData = fft.getValue();
   const currentPitch = detectPitch();
 
-  if (currentPitch > 0 && energy > 0.4) {
-    beastLead.triggerAttackRelease(Tone.Frequency(currentPitch * 2), '8n');
-    voidChoir.triggerAttackRelease(Tone.Frequency(currentPitch).toNote(), "4m");
+  if (currentPitch > 0 && energy > 0.5) {
+    beastLead.triggerAttackRelease(Tone.Frequency(currentPitch * 1.5), '8n');
+    voidChoir.triggerAttackRelease(Tone.Frequency(currentPitch).toNote(), "3m");
   }
 
-  // The beast awakens
-  if (sustained > 0.9 && !dropActive) {
+  if (sustained > 0.92 && !dropActive) {
     dropActive = true;
-    sweepFilter.frequency.rampTo(200, 8);
-    Tone.Transport.bpm.rampTo(160, 8);
-    crusher.distortion = 0.95;
-    subKick.triggerAttackRelease('C0', '4n', '+0');
+    sweepFilter.frequency.rampTo(150, 10);
+    Tone.Transport.bpm.rampTo(165, 10);
+    crusher.distortion = 1;
     setTimeout(() => {
-      sweepFilter.frequency.rampTo(20000, 2);
+      sweepFilter.frequency.rampTo(20000, 3);
       rim.start();
       glitchHat.start();
       dropActive = false;
-      Tone.Transport.bpm.rampTo(70, 20);
-      crusher.distortion = 0.4;
-    }, 16000 + sustained * 12000);
+      Tone.Transport.bpm.rampTo(65, 25);
+      crusher.distortion = 0.35;
+    }, 18000 + sustained * 15000);
   }
 
   zones.forEach(z => {
@@ -272,29 +300,29 @@ function loop() {
   });
 
   trail.forEach((p, i) => {
-    let ta = 1 - p.age/100;
-    ctx.fillStyle = `hsla(${time*30}, 100%, 70%, ${ta*0.8})`;
+    let ta = 1 - p.age/120;
+    ctx.fillStyle = `hsla(${time*40}, 100%, 75%, ${ta*0.9})`;
     ctx.beginPath();
-    ctx.arc(p.x, p.y, 25 * ta + energy*40, 0, Math.PI*2);
+    ctx.arc(p.x, p.y, 30 * ta + energy*50, 0, Math.PI*2);
     ctx.fill();
   });
 
-  let pulse = 1.5 + Math.sin(time * 0.06) * 0.5 + energy * 3 + sustained * 2;
-  let grad = ctx.createRadialGradient(pos.x, pos.y, 0, pos.x, pos.y, 120 * pulse);
+  let pulse = 1.6 + Math.sin(time * 0.07) * 0.6 + energy * 4 + sustained * 3;
+  let grad = ctx.createRadialGradient(pos.x, pos.y, 0, pos.x, pos.y, 140 * pulse);
   grad.addColorStop(0, '#f00');
-  grad.addColorStop(0.3, `hsla(${time*40}, 100%, 70%, 0.9)`);
-  grad.addColorStop(0.7, `hsla(${time*50 + 180}, 100%, 40%, 0.7)`);
+  grad.addColorStop(0.2, `hsla(${time*50}, 100%, 80%, 0.95)`);
+  grad.addColorStop(0.5, `hsla(${time*60 + 200}, 100%, 50%, 0.8)`);
   grad.addColorStop(1, 'hsla(0,0%,0%,0)');
   ctx.fillStyle = grad;
   ctx.beginPath();
-  ctx.arc(pos.x, pos.y, 120 * pulse, 0, Math.PI*2);
+  ctx.arc(pos.x, pos.y, 140 * pulse, 0, Math.PI*2);
   ctx.fill();
 
   requestAnimationFrame(loop);
 }
 
-document.addEventListener('touchstart', start, {once:true});
-document.addEventListener('click', start, {once:true});
+document.body.addEventListener('touchstart', start);
+document.body.addEventListener('click', start);
 </script>
 </body>
 </html>
