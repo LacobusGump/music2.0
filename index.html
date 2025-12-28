@@ -15,7 +15,7 @@ canvas { position:fixed; inset:0; }
 </head>
 <body>
 <canvas id="c"></canvas>
-<div id="overlay">GUMP<br><br>Touch the void.<br><br>Your world will bleed into me.</div>
+<div id="overlay">GUMP<br><br>Touch once.<br><br>The world will become the song.<br>I will become the composer.</div>
 <script>
 const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d');
@@ -34,38 +34,41 @@ let time = 0;
 let energy = 0;
 let sustained = 0;
 let audioReady = false;
+let lastOnset = 0;
+let detectedTempo = 80;
+let pitchHistory = [];
 
-// Masters – raw and hungry
+// Generative masters
 const master = new Tone.Gain(0.95).toDestination();
-const voidReverb = new Tone.Reverb({decay:25, wet:0.9}).connect(master);
-const devour = new Tone.Distortion(0.3).connect(voidReverb);
-const choke = new Tone.Filter({type:'lowpass', frequency:20000, Q:12}).connect(devour);
-voidReverb.generate();
+const cosmicReverb = new Tone.Reverb({decay:30, wet:0.9}).connect(master);
+const evolveDist = new Tone.Distortion(0.25).connect(cosmicReverb);
+const pulseFilter = new Tone.Filter({type:'lowpass', frequency:20000, Q:15}).connect(evolveDist);
+cosmicReverb.generate();
 
-// Beasts
-const abyssKick = new Tone.MembraneSynth({octaves:8, envelope:{attack:0.001, decay:1}}).connect(choke);
-const tearSnare = new Tone.NoiseSynth({noise:{type:'pink'}, envelope:{attack:0.002, decay:0.4}}).connect(devour);
-const venomHat = new Tone.MetalSynth({envelope:{attack:0.001, decay:0.15}}).connect(devour);
+// Generative instruments
+const cosmicBass = new Tone.MonoSynth({oscillator:{type:'sine'}, envelope:{attack:0.02, decay:0.8}}).connect(pulseFilter);
+const harmonyChoir = new Tone.PolySynth(Tone.FMSynth, {envelope:{attack:10, decay:6, sustain:0.9, release:25}}).connect(cosmicReverb);
+harmonyChoir.volume.value = -8;
 
-// Choral void
-const abyssChoir = new Tone.PolySynth(Tone.FMSynth, {envelope:{attack:15, decay:8, sustain:0.8, release:30}})
-  .connect(voidReverb);
-abyssChoir.volume.value = -6;
+const counterMelody = new Tone.Synth({oscillator:{type:'triangle'}, envelope:{attack:0.1, release:1.5}}).connect(cosmicReverb);
 
-// Live devourer
-const devourer = new Tone.GrainPlayer({loop:true, grainSize:0.06, overlap:0.03}).connect(devour);
+const percKick = new Tone.MembraneSynth({octaves:6}).connect(pulseFilter);
+const percSnare = new Tone.NoiseSynth({envelope:{attack:0.01, decay:0.4}}).connect(evolveDist);
 
-// Ten drifting predators
+// Granular for raw world
+const worldEater = new Tone.GrainPlayer({loop:true, grainSize:0.07, overlap:0.04}).connect(evolveDist);
+
+// Twelve evolving zones
 let zones = [];
 
 class Zone {
-  constructor(baseX, baseY, r, hue, effects, drift = 120, speed = 0.00022) {
+  constructor(baseX, baseY, r, hue, effects, drift = 140, speed = 0.00025) {
     this.baseX = baseX; this.baseY = baseY;
     this.drift = drift; this.speed = speed;
     this.angle = Math.random() * Math.PI * 2;
     this.r = r; this.hue = hue;
     this.gain = new Tone.Gain(0);
-    this.panner = new Tone.Panner(0).connect(effects ? devour : voidReverb);
+    this.panner = new Tone.Panner(0).connect(effects ? evolveDist : cosmicReverb);
     this.chain = effects.connect(this.gain).connect(this.panner);
     this.particles = [];
     this.x = baseX; this.y = baseY;
@@ -78,72 +81,114 @@ class Zone {
   update(prox, pan, input, global) {
     this.drift();
     this.panner.pan.rampTo(pan, 0.3);
-    let target = prox * (1 + input * 2.5 + global * 1.6);
+    let target = prox * (1.2 + input * 3 + global * 2);
     this.gain.gain.rampTo(target, 0.4);
 
-    if (input > 0.3 && prox > 0.2 && Math.random() < 0.7) {
-      for (let i = 0; i < 12; i++) this.particles.push({age:0, vx:(Math.random()-0.5)*18, vy:(Math.random()-0.5)*18});
+    if (input > 0.4 && prox > 0.3 && Math.random() < 0.8) {
+      for (let i = 0; i < 15; i++) this.particles.push({age:0, vx:(Math.random()-0.5)*20, vy:(Math.random()-0.5)*20});
     }
-    this.particles = this.particles.filter(p => p.age++ < 80);
+    this.particles = this.particles.filter(p => p.age++ < 70);
   }
   draw(prox, input) {
-    let pulse = 1 + Math.sin(time * 0.009 + this.hue * 0.003) * 0.5 * prox + input * 0.8;
-    let alpha = 0.5 + prox * 0.5 + input * 0.6;
+    let pulse = 1 + Math.sin(time * 0.01 + this.hue * 0.002) * 0.6 * prox + input * 1;
+    let alpha = 0.6 + prox * 0.4 + input * 0.7;
 
-    let grad = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, this.r * 7);
-    grad.addColorStop(0, `hsla(${this.hue + time*18}, 100%, 70%, ${alpha})`);
-    grad.addColorStop(0.2, `hsla(${this.hue + 70}, 100%, 40%, ${alpha*0.9})`);
+    let grad = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, this.r * 8);
+    grad.addColorStop(0, `hsla(${this.hue + time*20}, 100%, 75%, ${alpha})`);
+    grad.addColorStop(0.15, `hsla(${this.hue + 80}, 100%, 45%, ${alpha*0.95})`);
     grad.addColorStop(1, 'hsla(0,0%,0%,0)');
     ctx.fillStyle = grad;
     ctx.fillRect(0,0,canvas.width,canvas.height);
 
-    ctx.strokeStyle = `hsla(${this.hue}, 100%, 80%, ${alpha})`;
-    ctx.lineWidth = 12 + prox * 40 + input * 35;
+    ctx.strokeStyle = `hsla(${this.hue}, 100%, 85%, ${alpha})`;
+    ctx.lineWidth = 15 + prox * 50 + input * 40;
     ctx.beginPath();
     ctx.arc(this.x, this.y, this.r * pulse, 0, Math.PI*2);
     ctx.stroke();
 
     this.particles.forEach(p => {
-      let pa = 1 - p.age/80;
-      ctx.fillStyle = `hsla(${this.hue + p.age*6}, 100%, 90%, ${pa})`;
-      ctx.fillRect(this.x + p.x, this.y + p.y, 10*pa + input*12, 10*pa + input*12);
+      let pa = 1 - p.age/70;
+      ctx.fillStyle = `hsla(${this.hue + p.age*7}, 100%, 95%, ${pa})`;
+      ctx.fillRect(this.x + p.x, this.y + p.y, 12*pa + input*15, 12*pa + input*15);
     });
   }
 }
 
+// Onset detection for rhythm
+function detectOnset() {
+  const data = fft.getValue();
+  let energyNow = data.slice(0,50).reduce((a,b) => a + Math.pow(10, b/10), 0);
+  if (energyNow > lastOnset * 3 && time - lastOnsetTime > 0.1) {
+    lastOnsetTime = time;
+    return true;
+  }
+  lastOnset = energyNow;
+  return false;
+}
+
+let lastOnsetTime = 0;
+
+// Pitch detection – refined
+function detectPitch() {
+  const buffer = waveform.getValue();
+  let size = buffer.length;
+  let bestLag = -1;
+  let bestCorr = 0;
+  let rms = 0;
+  for (let i = 0; i < size; i++) rms += buffer[i]**2;
+  rms = Math.sqrt(rms / size);
+  if (rms < 0.04) return -1;
+
+  for (let lag = 15; lag < size/3; lag++) {
+    let corr = 0;
+    for (let i = 0; i < size - lag; i++) corr += buffer[i] * buffer[i + lag];
+    corr /= (size - lag);
+    if (corr > bestCorr) { bestCorr = corr; bestLag = lag; }
+  }
+  if (bestCorr > 0.75 && bestLag > 0) {
+    let freq = Tone.context.sampleRate / bestLag;
+    pitchHistory.push(freq);
+    if (pitchHistory.length > 50) pitchHistory.shift();
+    return freq;
+  }
+  return -1;
+}
+
 function awaken() {
   overlay.classList.add('hidden');
-  loop(); // visuals always live
+  loop();
 
-  // Attempt the hunger
   (async () => {
     try {
       await Tone.start();
-      Tone.Transport.bpm.value = 65;
+      Tone.Transport.bpm.value = 70;
       Tone.Transport.start();
 
       mic = new Tone.UserMedia();
       await mic.open();
 
       meter = new Tone.Meter({normalRange:true});
-      fft = new Tone.FFT(1024);
-      waveform = new Tone.Waveform(2048);
-      mic.fan(meter, fft, waveform, choke, devourer);
-      devourer.start();
+      fft = new Tone.FFT(2048);
+      waveform = new Tone.Waveform(4096);
+      mic.fan(meter, fft, waveform, pulseFilter, worldEater);
+      worldEater.start();
 
       audioReady = true;
 
+      // Twelve evolving zones
       zones = [
-        new Zone(canvas.width*0.1, canvas.height*0.15, 180, 0, new Tone.PitchShift(-36).connect(new Tone.Filter(100,'lowpass')), 150, 0.0002),
-        new Zone(canvas.width*0.9, canvas.height*0.15, 170, 30, new Tone.PitchShift(-18).connect(new Tone.Filter(180,'lowpass')), 130, -0.00022),
-        new Zone(canvas.width*0.5, canvas.height*0.25, 200, 340, new Tone.GrainPlayer({grainSize:0.04, overlap:0.02}).connect(new Tone.BitCrusher(6)), 170, 0.00018),
-        new Zone(canvas.width*0.25, canvas.height*0.45, 160, 60, new Tone.Tremolo(22,1).start(), 110, 0.00025),
-        new Zone(canvas.width*0.75, canvas.height*0.45, 180, 100, new Tone.FeedbackDelay(0.55,0.95).connect(new Tone.Distortion(0.9)), 140, -0.00019),
-        new Zone(canvas.width*0.15, canvas.height*0.65, 150, 140, new Tone.AutoFilter({frequency:0.07, depth:1.8}).start(), 160, 0.00021),
-        new Zone(canvas.width*0.85, canvas.height*0.65, 160, 180, new Tone.Phaser({frequency:0.15, depth:1.2}), 120, -0.00023),
-        new Zone(canvas.width*0.35, canvas.height*0.8, 170, 220, new Tone.Chebyshev(120), 100, 0.00024),
-        new Zone(canvas.width*0.65, canvas.height*0.8, 150, 260, new Tone.PitchShift(18).connect(new Tone.Vibrato(15,0.9)), 140, -0.00017),
-        new Zone(canvas.width*0.5, canvas.height*0.9, 190, 300, new Tone.GrainPlayer({grainSize:0.25, overlap:0.15, reverse:true}), 110, 0.0002)
+        new Zone(canvas.width*0.08, canvas.height*0.12, 190, 0, new Tone.PitchShift(-48).connect(new Tone.Filter(80,'lowpass')), 160, 0.00023),
+        new Zone(canvas.width*0.92, canvas.height*0.12, 180, 30, new Tone.PitchShift(-24).connect(new Tone.Filter(150,'lowpass')), 140, -0.00025),
+        new Zone(canvas.width*0.5, canvas.height*0.2, 210, 340, new Tone.GrainPlayer({grainSize:0.03, overlap:0.02}).connect(new Tone.BitCrusher(8)), 180, 0.0002),
+        new Zone(canvas.width*0.2, canvas.height*0.4, 170, 60, new Tone.Tremolo(25,1).start(), 120, 0.00028),
+        new Zone(canvas.width*0.8, canvas.height*0.4, 190, 100, new Tone.FeedbackDelay(0.6,0.98).connect(new Tone.Distortion(1)), 150, -0.00022),
+        new Zone(canvas.width*0.12, canvas.height*0.6, 160, 140, new Tone.AutoFilter({frequency:0.06, depth:2}).start(), 170, 0.00024),
+        new Zone(canvas.width*0.88, canvas.height*0.6, 170, 180, new Tone.Phaser({frequency:0.12, depth:1.5}), 130, -0.00026),
+        new Zone(canvas.width*0.3, canvas.height*0.75, 180, 220, new Tone.Chebyshev(150), 110, 0.00027),
+        new Zone(canvas.width*0.7, canvas.height*0.75, 160, 260, new Tone.PitchShift(24).connect(new Tone.Vibrato(18,1)), 150, -0.00021),
+        new Zone(canvas.width*0.5, canvas.height*0.85, 200, 300, new Tone.GrainPlayer({grainSize:0.3, overlap:0.2, reverse:true}), 120, 0.00023),
+        new Zone(canvas.width*0.4, canvas.height*0.9, 170, 150, new Tone.AutoPanner(0.4).start().connect(new Tone.FeedbackDelay(0.7,0.7)), 100, 0.00029),
+        new Zone(canvas.width*0.6, canvas.height*0.9, 180, 210, new Tone.Distortion(0.95).connect(new Tone.BitCrusher(4)), 130, -0.00024)
       ];
 
       mic.fan(...zones.map(z => z.chain));
@@ -157,71 +202,84 @@ function awaken() {
 
       calib = {x: accel.x, y: accel.y};
     } catch (e) {
-      // Silence if world denies – visuals still breathe
-      console.log('The world resists');
+      console.log('World resists – visuals live on');
     }
   })();
 }
 
 function loop() {
   time += 0.016;
-  ctx.fillStyle = 'rgba(0,0,0,0.13)';
+  ctx.fillStyle = 'rgba(0,0,0,0.14)';
   ctx.fillRect(0,0,canvas.width,canvas.height);
 
-  // Eternal stars
-  for (let i = 0; i < 6; i++) {
-    let x = (time * 20 + i * 450) % canvas.width;
-    let y = (time * 16 + i * 750) % canvas.height;
-    ctx.fillStyle = `hsla(${time*30}, 100%, 80%, 0.7)`;
-    ctx.fillRect(x, y, 5, 5);
+  // Cosmic dust
+  for (let i = 0; i < 8; i++) {
+    let x = (time * 25 + i * 500) % canvas.width;
+    let y = (time * 20 + i * 800) % canvas.height;
+    ctx.fillStyle = `hsla(${time*40}, 100%, 85%, 0.8)`;
+    ctx.fillRect(x, y, 6, 6);
   }
 
-  const ax = (accel.x - calib.x) * 22;
-  const ay = (accel.y - calib.y) * 22;
+  const ax = (accel.x - calib.x) * 25;
+  const ay = (accel.y - calib.y) * 25;
   vel.x += ax; vel.y += ay;
-  vel.x *= 0.87; vel.y *= 0.87;
+  vel.x *= 0.85; vel.y *= 0.85;
   pos.x += vel.x; pos.y += vel.y;
-  pos.x = Math.max(110, Math.min(canvas.width-110, pos.x));
-  pos.y = Math.max(110, Math.min(canvas.height-110, pos.y));
+  pos.x = Math.max(120, Math.min(canvas.width-120, pos.x));
+  pos.y = Math.max(120, Math.min(canvas.height-120, pos.y));
 
   trail.push({x: pos.x, y: pos.y, age:0});
-  trail = trail.filter(p => p.age++ < 140);
+  trail = trail.filter(p => p.age++ < 160);
 
-  let input = audioReady ? meter.getValue() : 0.05 + Math.sin(time * 0.5) * 0.03; // breathe even in silence
-  energy = Math.max(energy * 0.93, input);
-  sustained += energy > 0.7 ? 0.03 : -0.015;
+  let input = audioReady ? meter.getValue() : 0.08 + Math.sin(time * 0.4) * 0.05;
+  energy = Math.max(energy * 0.92, input);
+  sustained += energy > 0.75 ? 0.035 : -0.018;
   sustained = Math.max(0, Math.min(1, sustained));
 
   if (audioReady) {
-    devourer.playbackRate = 0.7 + sustained * 1 + energy * 0.6;
-    devourer.grainSize = 0.04 + energy * 0.2;
+    worldEater.playbackRate = 0.6 + sustained * 1.2 + energy * 0.8;
+    worldEater.grainSize = 0.03 + energy * 0.25;
+
+    if (detectOnset()) {
+      percKick.triggerAttackRelease('C1', '8n');
+      detectedTempo = 60 / (time - lastOnsetTime);
+      Tone.Transport.bpm.rampTo(detectedTempo, 2);
+    }
+
+    const currentPitch = detectPitch();
+    if (currentPitch > 0 && energy > 0.5) {
+      let note = Tone.Frequency(currentPitch).toNote();
+      counterMelody.triggerAttackRelease(note + '5', '8n');
+      harmonyChoir.triggerAttackRelease([note, Tone.Frequency(currentPitch*1.5).toNote(), Tone.Frequency(currentPitch*2).toNote()], "6m");
+      percSnare.triggerAttackRelease('16n');
+    }
   }
 
   zones.forEach(z => {
     const d = Math.hypot(pos.x - z.x, pos.y - z.y);
     const prox = Math.max(0, 1 - d/z.r);
     const pan = (pos.x - z.x)/canvas.width * 2;
-    z.update(prox, pan, input, sustained, null);
+    z.update(prox, pan, input, sustained);
     z.draw(prox, input);
   });
 
   trail.forEach(p => {
-    let ta = 1 - p.age/140;
-    ctx.fillStyle = `hsla(${time*50}, 100%, 80%, ${ta*0.95})`;
+    let ta = 1 - p.age/160;
+    ctx.fillStyle = `hsla(${time*60}, 100%, 85%, ${ta})`;
     ctx.beginPath();
-    ctx.arc(p.x, p.y, 35 * ta + energy*60, 0, Math.PI*2);
+    ctx.arc(p.x, p.y, 40 * ta + energy*70, 0, Math.PI*2);
     ctx.fill();
   });
 
-  let pulse = 1.8 + Math.sin(time * 0.08) * 0.7 + energy * 5 + sustained * 4;
-  let grad = ctx.createRadialGradient(pos.x, pos.y, 0, pos.x, pos.y, 160 * pulse);
+  let pulse = 2 + Math.sin(time * 0.09) * 0.8 + energy * 6 + sustained * 5;
+  let grad = ctx.createRadialGradient(pos.x, pos.y, 0, pos.x, pos.y, 180 * pulse);
   grad.addColorStop(0, '#f00');
-  grad.addColorStop(0.15, `hsla(${time*60}, 100%, 85%, 0.98)`);
-  grad.addColorStop(0.4, `hsla(${time*70 + 220}, 100%, 55%, 0.85)`);
+  grad.addColorStop(0.1, `hsla(${time*70}, 100%, 90%, 0.99)`);
+  grad.addColorStop(0.3, `hsla(${time*80 + 240}, 100%, 60%, 0.9)`);
   grad.addColorStop(1, 'hsla(0,0%,0%,0)');
   ctx.fillStyle = grad;
   ctx.beginPath();
-  ctx.arc(pos.x, pos.y, 160 * pulse, 0, Math.PI*2);
+  ctx.arc(pos.x, pos.y, 180 * pulse, 0, Math.PI*2);
   ctx.fill();
 
   requestAnimationFrame(loop);
