@@ -291,7 +291,7 @@ class RealSampler {
       // Create script processor for recording
       this.scriptProcessor = this.audioCtx.createScriptProcessor(4096, 1, 1);
       this.micSource.connect(this.scriptProcessor);
-      this.scriptProcessor.connect(this.audioCtx.destination);
+      // DON'T connect to destination - just capture data
       
       this.scriptProcessor.onaudioprocess = (e) => {
         if (!this.isRecording) return;
@@ -384,21 +384,22 @@ class RealSampler {
   }
   
   startSampling() {
+    // Auto-record samples
     setInterval(() => {
       if (!this.isRecording && this.samples.length < this.maxSamples) {
         const now = Date.now();
-        if (now - this.lastSampleTime > 2000) {
+        if (now - this.lastSampleTime > 3000) {
           this.startRecording();
         }
       }
     }, 500);
     
-    // Auto-play samples
+    // Auto-play samples frequently
     setInterval(() => {
-      if (this.samples.length > 0 && Math.random() < 0.3) {
+      if (this.samples.length > 0) {
         this.playSample();
       }
-    }, 1000);
+    }, 800);
   }
   
   startRecording() {
@@ -449,7 +450,12 @@ class RealSampler {
       }
       
       this.updateSampleList();
-      console.log('Sample captured, RMS:', rms.toFixed(4));
+      console.log('Sample captured, RMS:', rms.toFixed(4), 'Duration:', audioBuffer.duration.toFixed(2));
+      
+      // Play it immediately so you hear what was captured
+      setTimeout(() => this.playSample(), 100);
+    } else {
+      console.log('Sample too quiet, RMS:', rms.toFixed(4));
     }
     
     this.recordingBuffer = [];
@@ -467,14 +473,17 @@ class RealSampler {
     const rateVariation = 1 + (Math.random() - 0.5) * (this.motion / 20);
     source.playbackRate.value = Math.max(0.5, Math.min(2, rateVariation));
     
-    // Gain based on sample RMS
+    // Gain - boost it significantly
     const gain = this.audioCtx.createGain();
-    gain.gain.value = Math.min(1, sample.rms * 20);
+    gain.gain.value = Math.min(2.5, (sample.rms * 50) + 0.5); // Much louder
     
     source.connect(gain);
     gain.connect(this.filter);
     
-    source.start();
+    const now = this.audioCtx.currentTime;
+    source.start(now);
+    
+    console.log('Playing sample, rate:', source.playbackRate.value.toFixed(2), 'gain:', gain.gain.value.toFixed(2));
     
     this.playingSources.push({ source, gain, startTime: Date.now() });
     
