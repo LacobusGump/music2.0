@@ -3,662 +3,1116 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>OMNI // SPECTRAL ENGINE v1.0.4</title>
+    <title>OMNI | Music 2.0</title>
+
+    <!-- Essentia.js for audio analysis -->
+    <script src="https://cdn.jsdelivr.net/npm/essentia.js@0.1.3/dist/essentia-wasm.web.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/essentia.js@0.1.3/dist/essentia.js-core.js"></script>
+
+    <!-- Tone.js for synthesis -->
+    <script src="https://cdn.jsdelivr.net/npm/tone@15.0.4/build/Tone.min.js"></script>
+
     <style>
         :root {
-            --bg: #010203;
+            /* Fibonacci-based spacing: 1, 2, 3, 5, 8, 13, 21, 34, 55, 89 */
+            --phi: 1.618033988749;
+            --space-1: 1px;
+            --space-2: 2px;
+            --space-3: 3px;
+            --space-5: 5px;
+            --space-8: 8px;
+            --space-13: 13px;
+            --space-21: 21px;
+            --space-34: 34px;
+            --space-55: 55px;
+            --space-89: 89px;
+
+            --bg: #0a0a0b;
+            --surface: #111113;
             --accent: #00ffa3;
-            --accent-dim: rgba(0, 255, 163, 0.2);
-            --warn: #ff0055;
-            --text: #e0e0e0;
-            --font-main: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
+            --accent-dim: rgba(0, 255, 163, 0.15);
+            --text: #e8e8e8;
+            --text-dim: #666;
+            --font: 'SF Mono', 'Fira Code', 'Consolas', monospace;
         }
 
-        * { margin: 0; padding: 0; box-sizing: border-box; -webkit-font-smoothing: antialiased; }
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
 
         body {
-            background-color: var(--bg);
+            background: var(--bg);
             color: var(--text);
-            font-family: var(--font-main);
+            font-family: var(--font);
             height: 100vh;
             width: 100vw;
             overflow: hidden;
             display: flex;
-            flex-direction: column;
-        }
-
-        .sys-header {
-            padding: 15px 25px;
-            display: flex;
-            justify-content: space-between;
             align-items: center;
-            border-bottom: 1px solid var(--accent-dim);
-            background: rgba(5, 5, 5, 0.8);
-            z-index: 100;
+            justify-content: center;
         }
 
-        .sys-title {
-            font-size: 14px;
-            letter-spacing: 2px;
-            font-weight: 700;
-            color: var(--accent);
-        }
-
-        .sys-stats {
-            display: flex;
-            gap: 20px;
-            font-size: 10px;
-            text-transform: uppercase;
-        }
-
-        #viewport-container {
-            flex: 1;
-            position: relative;
-            background: radial-gradient(circle at center, #050810 0%, #010203 100%);
-        }
-
-        canvas#gl-canvas {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-        }
-
-        .ui-overlay {
-            position: absolute;
-            inset: 0;
-            pointer-events: none;
+        /* Golden ratio container: width/height = phi */
+        .container {
+            width: min(90vw, 610px);
+            height: min(90vh, 377px); /* 610/phi ≈ 377 */
             display: flex;
             flex-direction: column;
-            padding: 25px;
-            z-index: 50;
+            position: relative;
         }
 
-        .module-grid {
-            display: grid;
-            grid-template-columns: repeat(12, 1fr);
-            gap: 15px;
-            flex: 1;
-        }
-
-        .panel {
-            grid-column: span 3;
-            background: rgba(0, 0, 0, 0.7);
-            border: 1px solid var(--accent-dim);
-            padding: 15px;
-            backdrop-filter: blur(10px);
-            pointer-events: auto;
-        }
-
-        .panel-header {
-            font-size: 9px;
-            color: var(--accent);
-            margin-bottom: 12px;
-            border-bottom: 1px solid var(--accent-dim);
-            padding-bottom: 5px;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-        }
-
-        #boot-screen {
+        /* Start screen */
+        #start-screen {
             position: fixed;
             inset: 0;
             background: var(--bg);
-            z-index: 1000;
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            gap: 30px;
+            gap: var(--space-34);
+            z-index: 100;
+            transition: opacity 0.8s ease, visibility 0.8s ease;
         }
 
-        .boot-loader {
-            width: 300px;
-            height: 2px;
-            background: #111;
+        #start-screen.hidden {
+            opacity: 0;
+            visibility: hidden;
+            pointer-events: none;
+        }
+
+        .logo {
+            font-size: var(--space-21);
+            letter-spacing: var(--space-8);
+            font-weight: 300;
+            color: var(--text);
+        }
+
+        .logo span {
+            color: var(--accent);
+        }
+
+        .start-btn {
+            width: 144px; /* Fibonacci: 89 + 55 */
+            height: 89px;
+            background: transparent;
+            border: 1px solid var(--accent-dim);
+            color: var(--accent);
+            font-family: var(--font);
+            font-size: 11px;
+            letter-spacing: var(--space-3);
+            cursor: pointer;
+            transition: all 0.3s ease;
             position: relative;
             overflow: hidden;
         }
 
-        .boot-progress {
+        .start-btn::before {
+            content: '';
             position: absolute;
-            left: 0;
+            inset: 0;
+            background: var(--accent);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .start-btn:hover::before {
+            opacity: 0.1;
+        }
+
+        .start-btn:hover {
+            border-color: var(--accent);
+            box-shadow: 0 0 var(--space-34) var(--accent-dim);
+        }
+
+        /* Main interface */
+        #main {
+            display: none;
+            flex-direction: column;
+            height: 100vh;
+            width: 100vw;
+        }
+
+        #main.active {
+            display: flex;
+        }
+
+        /* Header */
+        .header {
+            height: var(--space-55);
+            padding: 0 var(--space-21);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid var(--accent-dim);
+            background: var(--surface);
+        }
+
+        .header-title {
+            font-size: 11px;
+            letter-spacing: var(--space-3);
+            color: var(--text-dim);
+        }
+
+        .header-title span {
+            color: var(--accent);
+        }
+
+        .header-stats {
+            display: flex;
+            gap: var(--space-21);
+            font-size: 10px;
+            color: var(--text-dim);
+        }
+
+        .stat-value {
+            color: var(--accent);
+        }
+
+        /* Canvas area */
+        .viewport {
+            flex: 1;
+            position: relative;
+            background: var(--bg);
+        }
+
+        #canvas {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+        }
+
+        /* Central orb */
+        .orb-container {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .orb {
+            width: 89px;
+            height: 89px;
+            border-radius: 50%;
+            background: radial-gradient(circle at 30% 30%,
+                rgba(0, 255, 163, 0.4) 0%,
+                rgba(0, 255, 163, 0.1) 50%,
+                transparent 70%);
+            box-shadow: 0 0 var(--space-55) var(--accent-dim);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .orb.listening {
+            animation: breathe 3s ease-in-out infinite;
+        }
+
+        .orb.active {
+            animation: pulse 0.5s ease-out;
+        }
+
+        @keyframes breathe {
+            0%, 100% { transform: scale(1); opacity: 0.8; }
+            50% { transform: scale(1.08); opacity: 1; }
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.3); box-shadow: 0 0 var(--space-89) var(--accent); }
+            100% { transform: scale(1); }
+        }
+
+        /* Stage indicator */
+        .stage {
+            position: absolute;
+            bottom: var(--space-34);
+            left: 50%;
+            transform: translateX(-50%);
+            text-align: center;
+        }
+
+        .stage-name {
+            font-size: 10px;
+            letter-spacing: var(--space-5);
+            color: var(--accent);
+            margin-bottom: var(--space-8);
+        }
+
+        .stage-progress {
+            width: 144px;
+            height: var(--space-2);
+            background: var(--surface);
+            border-radius: 1px;
+            overflow: hidden;
+        }
+
+        .stage-fill {
             height: 100%;
             width: 0%;
             background: var(--accent);
-            box-shadow: 0 0 15px var(--accent);
-            transition: width 0.1s;
+            transition: width 0.5s ease;
         }
 
-        .btn-engage {
-            background: transparent;
-            border: 1px solid var(--accent);
-            color: var(--accent);
-            padding: 15px 40px;
-            font-family: var(--font-main);
-            font-size: 16px;
-            letter-spacing: 5px;
-            cursor: pointer;
-            transition: all 0.3s;
-            opacity: 0;
-            pointer-events: none;
-        }
-
-        .btn-engage.ready {
-            opacity: 1;
-            pointer-events: auto;
-        }
-
-        .btn-engage:hover {
-            background: var(--accent);
-            color: #000;
-            box-shadow: 0 0 30px var(--accent);
-        }
-
-        #log-window {
-            height: 120px;
-            overflow: hidden;
+        /* Info panels - Fibonacci positioned */
+        .panel {
+            position: absolute;
+            background: rgba(17, 17, 19, 0.9);
+            border: 1px solid var(--accent-dim);
+            padding: var(--space-13);
             font-size: 9px;
-            color: #666;
-            margin-top: auto;
+            backdrop-filter: blur(8px);
         }
 
-        .stat-value { color: var(--accent); }
+        .panel-left {
+            left: var(--space-21);
+            top: var(--space-21);
+            width: 144px;
+        }
+
+        .panel-right {
+            right: var(--space-21);
+            top: var(--space-21);
+            width: 89px;
+        }
+
+        .panel-label {
+            color: var(--text-dim);
+            margin-bottom: var(--space-3);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .panel-value {
+            color: var(--text);
+            font-size: 11px;
+        }
+
+        .panel-row {
+            margin-bottom: var(--space-8);
+        }
+
+        .panel-row:last-child {
+            margin-bottom: 0;
+        }
+
+        /* Meter bar */
+        .meter {
+            height: var(--space-3);
+            background: var(--surface);
+            margin-top: var(--space-3);
+            border-radius: 1px;
+            overflow: hidden;
+        }
+
+        .meter-fill {
+            height: 100%;
+            background: var(--accent);
+            width: 0%;
+            transition: width 0.1s ease;
+        }
+
+        /* Log window */
+        .log {
+            position: absolute;
+            bottom: var(--space-21);
+            left: var(--space-21);
+            width: 233px; /* 144 + 89 */
+            height: 89px;
+            overflow: hidden;
+            font-size: 8px;
+            color: var(--text-dim);
+        }
+
+        .log-entry {
+            margin-bottom: var(--space-2);
+            opacity: 0.7;
+        }
+
+        .log-entry.highlight {
+            color: var(--accent);
+            opacity: 1;
+        }
+
+        /* Mobile adjustments */
+        @media (max-width: 600px) {
+            .panel { display: none; }
+            .log { display: none; }
+            .orb { width: 55px; height: 55px; }
+        }
     </style>
 </head>
 <body>
 
-<div id="boot-screen">
-    <div class="sys-title">OMNI // NEURAL ARCHITECTURE</div>
-    <div class="boot-loader"><div id="boot-bar" class="boot-progress"></div></div>
-    <div id="boot-status" style="font-size: 10px; color: #444;">LOADING CORE MODULES...</div>
-    <button id="boot-btn" class="btn-engage">ENGAGE</button>
+<div id="start-screen">
+    <div class="logo">OMNI <span>//</span> MUSIC 2.0</div>
+    <button class="start-btn" id="start-btn">LISTEN</button>
 </div>
 
-<header class="sys-header">
-    <div class="sys-title">OMNI<span>_ENGINE</span></div>
-    <div class="sys-stats">
-        <div>SR: <span id="stat-sr" class="stat-value">44100</span></div>
-        <div>LATENCY: <span id="stat-lat" class="stat-value">--</span></div>
-        <div>ENTROPY: <span id="val-entropy" class="stat-value">0%</span></div>
-    </div>
-</header>
+<div id="main">
+    <header class="header">
+        <div class="header-title">OMNI <span>_</span> ENGINE</div>
+        <div class="header-stats">
+            <div>STAGE: <span id="stat-stage" class="stat-value">LISTENING</span></div>
+            <div>BPM: <span id="stat-bpm" class="stat-value">--</span></div>
+            <div>KEY: <span id="stat-key" class="stat-value">--</span></div>
+        </div>
+    </header>
 
-<div id="viewport-container">
-    <canvas id="gl-canvas"></canvas>
-    <div class="ui-overlay">
-        <div class="module-grid">
-            <div class="panel">
-                <div class="panel-header">Spectral Analysis</div>
-                <div id="spectral-stats">INITIALIZING...</div>
+    <div class="viewport">
+        <canvas id="canvas"></canvas>
+
+        <div class="orb-container">
+            <div class="orb listening" id="orb"></div>
+        </div>
+
+        <div class="panel panel-left">
+            <div class="panel-row">
+                <div class="panel-label">Energy</div>
+                <div class="meter"><div class="meter-fill" id="meter-energy"></div></div>
+            </div>
+            <div class="panel-row">
+                <div class="panel-label">Detected</div>
+                <div class="panel-value" id="val-detected">--</div>
+            </div>
+            <div class="panel-row">
+                <div class="panel-label">Samples</div>
+                <div class="panel-value" id="val-samples">0</div>
             </div>
         </div>
-        <div id="log-window"></div>
+
+        <div class="panel panel-right">
+            <div class="panel-row">
+                <div class="panel-label">Voices</div>
+                <div class="panel-value" id="val-voices">0</div>
+            </div>
+            <div class="panel-row">
+                <div class="panel-label">Coherence</div>
+                <div class="meter"><div class="meter-fill" id="meter-coherence"></div></div>
+            </div>
+        </div>
+
+        <div class="stage">
+            <div class="stage-name" id="stage-name">AWAKENING</div>
+            <div class="stage-progress">
+                <div class="stage-fill" id="stage-fill"></div>
+            </div>
+        </div>
+
+        <div class="log" id="log"></div>
     </div>
 </div>
 
 <script>
 // ============================================================================
-// OMNI CORE SYSTEM - INTEGRATED BUILD v1.0.4
+// OMNI MUSIC 2.0 - HYBRID AI AUDIO ENGINE
+// ============================================================================
+
+const PHI = 1.618033988749;
+const FIB = [1, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89, 144, 233, 377, 610];
+
+// ============================================================================
+// CORE STATE
 // ============================================================================
 
 const OMNI = {
-    VERSION: "1.0.4",
-    Config: {
-        SAMPLE_RATE: 44100,
-        FFT_SIZE: 2048,
-        RING_BUFFER_SECONDS: 12,
-        GRAIN_MAX_POLYPHONY: 64,
-        MOTION_SENSITIVITY: 1.5
-    },
+    stage: 'AWAKENING',
+    stageProgress: 0,
+    isRunning: false,
 
-    State: {
-        isInitialized: false,
-        isRecording: false,
-        energy: 0,
-        centroid: 0,
-        entropy: 0,
-        flux: 0,
-        tilt: { x: 0, y: 0, z: 0 },
-        activeGrains: 0,
-        modValue: 0,
-        manualScrub: 0
-    },
+    // Audio analysis state
+    energy: 0,
+    pitch: 0,
+    onset: false,
+    tempo: 0,
 
-    Math: {
-        lerp: (a, b, t) => a + (b - a) * t,
-        clamp: (val, min, max) => Math.max(min, Math.min(max, val)),
-        
-        createHannWindow: (size) => {
-            const window = new Float32Array(size);
-            for (let i = 0; i < size; i++) {
-                window[i] = 0.5 * (1 - Math.cos((2 * Math.PI * i) / (size - 1)));
-            }
-            return window;
-        },
+    // Musical state
+    detectedKey: null,
+    detectedBPM: null,
+    coherence: 0,
 
-        calculateRMS: (buffer) => {
-            let sum = 0;
-            const len = buffer.length;
-            for (let i = 0; i < len; i++) sum += buffer[i] * buffer[i];
-            return Math.sqrt(sum / len);
-        },
+    // Sample memory
+    samples: [],
+    maxSamples: 34, // Fibonacci
 
-        calculateZCR: (buffer) => {
-            let zcr = 0;
-            for (let i = 1; i < buffer.length; i++) {
-                if ((buffer[i] >= 0 && buffer[i-1] < 0) || (buffer[i] < 0 && buffer[i-1] >= 0)) zcr++;
-            }
-            return zcr / buffer.length;
-        },
+    // Voice count
+    activeVoices: 0,
 
-        ampToDb: (amp) => 20 * Math.log10(Math.max(amp, 0.0001)),
-        dbToAmp: (db) => Math.pow(10, db / 20)
-    },
-
-    UI: {
-        log: (msg, type = 'info') => {
-            const win = document.getElementById('log-window');
-            const div = document.createElement('div');
-            const colors = { info: '#666', warn: '#ff0055', success: '#00ffa3', error: '#ff0055' };
-            div.style.color = colors[type] || colors.info;
-            div.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
-            win.prepend(div);
-            if (win.children.length > 15) win.removeChild(win.lastChild);
-        },
-        updateBoot: (progress, status) => {
-            document.getElementById('boot-bar').style.width = progress + '%';
-            document.getElementById('boot-status').textContent = status;
-            if (progress >= 100) {
-                setTimeout(() => {
-                    document.getElementById('boot-btn').classList.add('ready');
-                }, 500);
-            }
-        }
+    // Evolution thresholds (Fibonacci-based)
+    stages: {
+        AWAKENING: { threshold: 0, next: 'GATHERING' },
+        GATHERING: { threshold: 21, next: 'PULSING' },
+        PULSING: { threshold: 55, next: 'HARMONIZING' },
+        HARMONIZING: { threshold: 89, next: 'COHESION' },
+        COHESION: { threshold: 144, next: null }
     }
 };
 
 // ============================================================================
-// AUDIO KERNEL
+// LOGGING
 // ============================================================================
 
-const KERNEL = {
-    ctx: null,
-    analyser: null,
-    micSource: null,
+function log(msg, highlight = false) {
+    const logEl = document.getElementById('log');
+    const entry = document.createElement('div');
+    entry.className = 'log-entry' + (highlight ? ' highlight' : '');
+    entry.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+    logEl.prepend(entry);
+    if (logEl.children.length > 13) {
+        logEl.removeChild(logEl.lastChild);
+    }
+}
+
+// ============================================================================
+// AUDIO ENGINE
+// ============================================================================
+
+class AudioEngine {
+    constructor() {
+        this.ctx = null;
+        this.analyser = null;
+        this.micSource = null;
+        this.essentia = null;
+
+        // Ring buffer for sample capture
+        this.ringBuffer = null;
+        this.ringBufferSize = 44100 * 8; // 8 seconds
+        this.writePtr = 0;
+
+        // Analysis buffers
+        this.fftSize = 2048;
+        this.timeData = null;
+        this.freqData = null;
+
+        // Onset detection state
+        this.prevEnergy = 0;
+        this.onsetThreshold = 0.15;
+        this.onsetCooldown = 0;
+
+        // Pitch tracking
+        this.pitchHistory = [];
+        this.pitchHistorySize = 21;
+
+        // Tempo detection
+        this.onsetTimes = [];
+        this.tempoWindow = 5000; // 5 seconds
+    }
 
     async init() {
         try {
-            this.ctx = new (window.AudioContext || window.webkitAudioContext)();
-            this.analyser = this.ctx.createAnalyser();
-            this.analyser.fftSize = OMNI.Config.FFT_SIZE;
-            this.analyser.smoothingTimeConstant = 0.8;
+            // Initialize Web Audio
+            this.ctx = new (window.AudioContext || window.webkitAudioContext)({
+                sampleRate: 44100
+            });
 
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            // Get microphone
+            const stream = await navigator.mediaDevices.getUserMedia({
+                audio: {
+                    echoCancellation: false,
+                    noiseSuppression: false,
+                    autoGainControl: false
+                }
+            });
+
             this.micSource = this.ctx.createMediaStreamSource(stream);
+
+            // Analyser node
+            this.analyser = this.ctx.createAnalyser();
+            this.analyser.fftSize = this.fftSize;
+            this.analyser.smoothingTimeConstant = 0.3;
             this.micSource.connect(this.analyser);
 
-            OMNI.UI.log("AUDIO_KERNEL: MICROPHONE_ACTIVE");
+            // Buffers
+            this.timeData = new Float32Array(this.fftSize);
+            this.freqData = new Float32Array(this.analyser.frequencyBinCount);
+            this.ringBuffer = new Float32Array(this.ringBufferSize);
+
+            // Initialize Essentia
+            if (typeof EssentiaWASM !== 'undefined') {
+                const wasmModule = await EssentiaWASM();
+                this.essentia = new Essentia(wasmModule);
+                log('ESSENTIA: Audio analysis ready', true);
+            } else {
+                log('ESSENTIA: Fallback to basic analysis');
+            }
+
+            // Script processor for ring buffer (deprecated but works everywhere)
+            const processor = this.ctx.createScriptProcessor(2048, 1, 1);
+            this.micSource.connect(processor);
+            processor.connect(this.ctx.destination);
+            processor.onaudioprocess = (e) => {
+                const input = e.inputBuffer.getChannelData(0);
+                this.writeToRingBuffer(input);
+            };
+
+            log('AUDIO: Microphone active', true);
             return true;
-        } catch (e) {
-            OMNI.UI.log("AUDIO_KERNEL: MIC_ACCESS_DENIED", "error");
-            throw e;
-        }
-    }
-};
 
-// ============================================================================
-// NEURAL MEMORY (Ring Buffer)
-// ============================================================================
-
-class NeuralMemory {
-    constructor(seconds, sampleRate) {
-        this.sampleRate = sampleRate;
-        this.length = seconds * sampleRate;
-        this.buffer = new Float32Array(this.length);
-        this.writePtr = 0;
-        this.isFull = false;
-    }
-
-    write(inputData) {
-        for (let i = 0; i < inputData.length; i++) {
-            this.buffer[this.writePtr] = inputData[i];
-            this.writePtr++;
-            if (this.writePtr >= this.length) {
-                this.writePtr = 0;
-                this.isFull = true;
-            }
+        } catch (err) {
+            log('AUDIO: ' + err.message);
+            throw err;
         }
     }
 
-    read(offsetSeconds, durationSamples) {
-        const startOffset = Math.floor(offsetSeconds * this.sampleRate);
-        let readPtr = (this.writePtr - startOffset - durationSamples);
-        while (readPtr < 0) readPtr += this.length;
-        
-        const outBuffer = new Float32Array(durationSamples);
-        for (let i = 0; i < durationSamples; i++) {
-            outBuffer[i] = this.buffer[(readPtr + i) % this.length];
-        }
-        return outBuffer;
-    }
-}
-
-const Memory = new NeuralMemory(OMNI.Config.RING_BUFFER_SECONDS, OMNI.Config.SAMPLE_RATE);
-
-// ============================================================================
-// SENSOR FUSION
-// ============================================================================
-
-class SensorFusion {
-    constructor() {
-        this.motion = { x: 0, y: 0, z: 0, velocity: 0 };
-        this.orientation = { alpha: 0, beta: 0, gamma: 0 };
-        this.history = new Float32Array(64);
-        this.ptr = 0;
-    }
-
-    init() {
-        if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
-            DeviceMotionEvent.requestPermission()
-                .then(response => {
-                    if (response === 'granted') this.listen();
-                })
-                .catch(console.error);
-        } else {
-            this.listen();
+    writeToRingBuffer(data) {
+        for (let i = 0; i < data.length; i++) {
+            this.ringBuffer[this.writePtr] = data[i];
+            this.writePtr = (this.writePtr + 1) % this.ringBufferSize;
         }
     }
 
-    listen() {
-        window.addEventListener('devicemotion', (e) => {
-            const acc = e.accelerationIncludingGravity || { x: 0, y: 0, z: 0 };
-            this.motion.x = acc.x || 0;
-            this.motion.y = acc.y || 0;
-            this.motion.z = acc.z || 0;
-            
-            const v = Math.sqrt(acc.x**2 + acc.y**2 + acc.z**2) - 9.8; 
-            this.motion.velocity = Math.max(0, v);
-            
-            OMNI.State.tilt.x = acc.x || 0;
-            OMNI.State.tilt.y = acc.y || 0;
-            
-            this.trackHistory(this.motion.velocity);
-        });
+    analyze() {
+        if (!this.analyser) return null;
 
-        window.addEventListener('deviceorientation', (e) => {
-            this.orientation.alpha = e.alpha || 0;
-            this.orientation.beta = e.beta || 0;
-            this.orientation.gamma = e.gamma || 0;
-            
-            OMNI.State.entropy = OMNI.Math.clamp(Math.abs(e.beta || 0) / 90, 0, 1);
-        });
-    }
+        this.analyser.getFloatTimeDomainData(this.timeData);
+        this.analyser.getFloatFrequencyData(this.freqData);
 
-    trackHistory(val) {
-        this.history[this.ptr] = val;
-        this.ptr = (this.ptr + 1) % this.history.length;
-        
-        let totalChange = 0;
-        for(let i = 1; i < this.history.length; i++) {
-            totalChange += Math.abs(this.history[i] - this.history[i-1]);
-        }
-        OMNI.State.flux = totalChange / this.history.length;
-    }
-}
-
-const Sensors = new SensorFusion();
-
-// ============================================================================
-// SPECTRAL ANALYZER
-// ============================================================================
-
-class SpectralAnalyzer {
-    constructor(fftSize, sampleRate) {
-        this.fftSize = fftSize;
-        this.sampleRate = sampleRate;
-        this.binCount = fftSize / 2;
-        
-        this.freqData = new Uint8Array(this.binCount);
-        this.floatFreqData = new Float32Array(this.binCount);
-        this.timeData = new Float32Array(fftSize);
-        
-        this.stats = {
-            centroid: 0,
-            flatness: 0,
-            peakFreq: 0,
-            energy: 0
-        };
-    }
-
-    analyze(webAudioAnalyser) {
-        webAudioAnalyser.getByteFrequencyData(this.freqData);
-        webAudioAnalyser.getFloatFrequencyData(this.floatFreqData);
-        webAudioAnalyser.getFloatTimeDomainData(this.timeData);
-
-        this.stats.energy = OMNI.Math.calculateRMS(this.timeData);
-        this.stats.centroid = this.calculateCentroid();
-        this.stats.flatness = this.calculateFlatness();
-        this.stats.peakFreq = this.calculatePeakFrequency();
-
-        OMNI.State.energy = this.stats.energy;
-        OMNI.State.centroid = this.stats.centroid;
-        
-        return this.stats;
-    }
-
-    calculateCentroid() {
+        // RMS Energy
         let sum = 0;
-        let weightedSum = 0;
-        for (let i = 0; i < this.binCount; i++) {
-            const magnitude = this.freqData[i];
-            sum += magnitude;
-            weightedSum += magnitude * (i * this.sampleRate / this.fftSize);
+        for (let i = 0; i < this.timeData.length; i++) {
+            sum += this.timeData[i] * this.timeData[i];
         }
-        return sum === 0 ? 0 : weightedSum / sum;
-    }
+        const energy = Math.sqrt(sum / this.timeData.length);
+        OMNI.energy = energy;
 
-    calculateFlatness() {
-        let gSum = 0;
-        let aSum = 0;
-        const norm = 1.0 / 255.0;
+        // Onset detection (energy increase)
+        const energyDelta = energy - this.prevEnergy;
+        let onset = false;
 
-        for (let i = 0; i < this.binCount; i++) {
-            const mag = this.freqData[i] * norm + 0.0001;
-            aSum += mag;
-            gSum += Math.log(mag);
+        if (this.onsetCooldown > 0) {
+            this.onsetCooldown--;
+        } else if (energyDelta > this.onsetThreshold && energy > 0.05) {
+            onset = true;
+            this.onsetCooldown = 8; // Prevent rapid retriggering
+            this.recordOnsetTime();
         }
+        this.prevEnergy = energy * 0.7 + this.prevEnergy * 0.3;
+        OMNI.onset = onset;
 
-        const arithmetic = aSum / this.binCount;
-        const geometric = Math.exp(gSum / this.binCount);
-        
-        return geometric / arithmetic;
-    }
-
-    calculatePeakFrequency() {
-        let maxMag = -Infinity;
-        let peakBin = 0;
-        for (let i = 0; i < this.binCount; i++) {
-            if (this.freqData[i] > maxMag) {
-                maxMag = this.freqData[i];
-                peakBin = i;
+        // Pitch estimation (zero crossing + spectral peak)
+        let pitch = this.estimatePitch();
+        if (pitch > 0) {
+            this.pitchHistory.push(pitch);
+            if (this.pitchHistory.length > this.pitchHistorySize) {
+                this.pitchHistory.shift();
             }
         }
-        return peakBin * (this.sampleRate / this.fftSize);
-    }
-}
+        OMNI.pitch = pitch;
 
-const Analyzer = new SpectralAnalyzer(OMNI.Config.FFT_SIZE, OMNI.Config.SAMPLE_RATE);
+        // Tempo estimation
+        OMNI.tempo = this.estimateTempo();
 
-// ============================================================================
-// SPECTRAL GRAIN
-// ============================================================================
-
-class SpectralGrain {
-    constructor(ctx, destination) {
-        this.ctx = ctx;
-        this.destination = destination;
-        
-        this.source = null;
-        this.gain = this.ctx.createGain();
-        this.filter = this.ctx.createBiquadFilter();
-        this.panner = this.ctx.createStereoPanner();
-
-        this.filter.connect(this.panner);
-        this.panner.connect(this.gain);
-        this.gain.connect(this.destination);
-
-        this.isActive = false;
-        this.startTime = 0;
+        return { energy, onset, pitch };
     }
 
-    trigger(audioBuffer, params) {
-        const now = this.ctx.currentTime;
-        this.isActive = true;
-        this.startTime = now;
+    estimatePitch() {
+        // Simple autocorrelation-based pitch detection
+        const buffer = this.timeData;
+        const SIZE = buffer.length;
+        const MAX_SAMPLES = Math.floor(SIZE / 2);
+        let bestOffset = -1;
+        let bestCorrelation = 0;
+        let foundGoodCorrelation = false;
 
-        // Create new source each time
-        this.source = this.ctx.createBufferSource();
-        this.source.buffer = audioBuffer;
-        this.source.playbackRate.value = params.playbackRate || 1.0;
-        
-        this.filter.type = params.filterType || 'bandpass';
-        this.filter.frequency.setValueAtTime(params.filterFreq || 1000, now);
-        this.filter.Q.value = params.Q || 1.0;
+        const correlations = new Array(MAX_SAMPLES);
 
-        this.panner.pan.setValueAtTime(OMNI.Math.clamp(params.pan || 0, -1, 1), now);
+        for (let offset = 0; offset < MAX_SAMPLES; offset++) {
+            let correlation = 0;
+            for (let i = 0; i < MAX_SAMPLES; i++) {
+                correlation += Math.abs(buffer[i] - buffer[i + offset]);
+            }
+            correlation = 1 - (correlation / MAX_SAMPLES);
+            correlations[offset] = correlation;
 
-        this.gain.gain.setValueAtTime(0, now);
-        this.gain.gain.linearRampToValueAtTime(params.amp || 0.5, now + 0.01);
-        this.gain.gain.exponentialRampToValueAtTime(0.001, now + params.duration);
-
-        this.source.connect(this.filter);
-        this.source.start(now, params.offset, params.duration);
-        
-        this.source.onended = () => {
-            this.isActive = false;
-            OMNI.State.activeGrains = Math.max(0, OMNI.State.activeGrains - 1);
-        };
-    }
-}
-
-// ============================================================================
-// VOICE MANAGER
-// ============================================================================
-
-class VoiceManager {
-    constructor(ctx, masterBus) {
-        this.ctx = ctx;
-        this.masterBus = masterBus;
-        this.poolSize = OMNI.Config.GRAIN_MAX_POLYPHONY;
-        this.pool = [];
-        this.initPool();
-    }
-
-    initPool() {
-        for (let i = 0; i < this.poolSize; i++) {
-            this.pool.push(new SpectralGrain(this.ctx, this.masterBus));
-        }
-        OMNI.UI.log(`VOICE_MANAGER: ${this.poolSize} NODES ALLOCATED`);
-    }
-
-    getNextAvailableVoice() {
-        let voice = this.pool.find(v => !v.isActive);
-
-        if (!voice) {
-            voice = this.pool.reduce((oldest, current) => {
-                return (current.startTime < oldest.startTime) ? current : oldest;
-            });
-            if (voice.source) voice.source.stop();
-            voice.isActive = false;
+            if (correlation > 0.9 && correlation > bestCorrelation) {
+                bestCorrelation = correlation;
+                bestOffset = offset;
+                foundGoodCorrelation = true;
+            }
         }
 
-        OMNI.State.activeGrains++;
-        return voice;
+        if (!foundGoodCorrelation) return 0;
+
+        // Refine with parabolic interpolation
+        const shift = (correlations[bestOffset + 1] - correlations[bestOffset - 1]) /
+                     (2 * (2 * correlations[bestOffset] - correlations[bestOffset - 1] - correlations[bestOffset + 1]));
+
+        return this.ctx.sampleRate / (bestOffset + shift);
+    }
+
+    recordOnsetTime() {
+        const now = Date.now();
+        this.onsetTimes.push(now);
+
+        // Keep only recent onsets
+        const cutoff = now - this.tempoWindow;
+        this.onsetTimes = this.onsetTimes.filter(t => t > cutoff);
+    }
+
+    estimateTempo() {
+        if (this.onsetTimes.length < 4) return 0;
+
+        // Calculate intervals between onsets
+        const intervals = [];
+        for (let i = 1; i < this.onsetTimes.length; i++) {
+            intervals.push(this.onsetTimes[i] - this.onsetTimes[i - 1]);
+        }
+
+        // Filter reasonable intervals (200ms to 2000ms = 30 to 300 BPM)
+        const validIntervals = intervals.filter(i => i >= 200 && i <= 2000);
+        if (validIntervals.length < 3) return 0;
+
+        // Find median interval
+        validIntervals.sort((a, b) => a - b);
+        const medianInterval = validIntervals[Math.floor(validIntervals.length / 2)];
+
+        // Convert to BPM
+        return Math.round(60000 / medianInterval);
+    }
+
+    captureSample(durationMs = 500) {
+        const samples = Math.floor((durationMs / 1000) * this.ctx.sampleRate);
+        const buffer = new Float32Array(samples);
+
+        let readPtr = this.writePtr - samples;
+        if (readPtr < 0) readPtr += this.ringBufferSize;
+
+        for (let i = 0; i < samples; i++) {
+            buffer[i] = this.ringBuffer[(readPtr + i) % this.ringBufferSize];
+        }
+
+        return buffer;
     }
 }
 
-let Voices;
-
 // ============================================================================
-// ADAPTIVE SEQUENCER
+// SYNTHESIS ENGINE (Tone.js)
 // ============================================================================
 
-class AdaptiveSequencer {
+class SynthEngine {
     constructor() {
-        this.baseBPM = 120;
-        this.nextEventTime = 0;
-        this.stepIndex = 0;
-        this.subdivision = 0.25;
-        this.rhythmMatrix = [1, 0.5, 0.75, 0, 1, 0.25, 0.5, 0.9];
-        this.isRunning = false;
+        this.isReady = false;
+        this.synths = {};
+        this.effects = {};
+        this.grainPlayers = [];
     }
 
-    process(currentTime, audioCtx) {
-        if (!this.isRunning) return;
+    async init() {
+        await Tone.start();
 
-        while (this.nextEventTime < currentTime + 0.1) {
-            this.scheduleStep(this.nextEventTime, audioCtx);
-            this.advanceStep();
-        }
+        // Master limiter
+        const limiter = new Tone.Limiter(-1).toDestination();
+
+        // Reverb for space
+        this.effects.reverb = new Tone.Reverb({
+            decay: 3,
+            wet: 0.3
+        }).connect(limiter);
+        await this.effects.reverb.generate();
+
+        // Delay for rhythmic interest
+        this.effects.delay = new Tone.FeedbackDelay({
+            delayTime: '8n',
+            feedback: 0.3,
+            wet: 0.2
+        }).connect(this.effects.reverb);
+
+        // Filter for warmth
+        this.effects.filter = new Tone.Filter({
+            frequency: 2000,
+            type: 'lowpass',
+            rolloff: -24
+        }).connect(this.effects.delay);
+
+        // Synths
+        this.synths.pad = new Tone.PolySynth(Tone.Synth, {
+            oscillator: { type: 'sine' },
+            envelope: { attack: 0.5, decay: 0.3, sustain: 0.8, release: 2 }
+        }).connect(this.effects.filter);
+        this.synths.pad.volume.value = -12;
+
+        this.synths.pluck = new Tone.PluckSynth({
+            resonance: 0.9,
+            release: 1
+        }).connect(this.effects.delay);
+        this.synths.pluck.volume.value = -8;
+
+        this.synths.membrane = new Tone.MembraneSynth({
+            pitchDecay: 0.05,
+            octaves: 4
+        }).connect(limiter);
+        this.synths.membrane.volume.value = -10;
+
+        // Noise for texture
+        this.synths.noise = new Tone.NoiseSynth({
+            noise: { type: 'brown' },
+            envelope: { attack: 0.5, decay: 0.2, sustain: 0.5, release: 1 }
+        }).connect(this.effects.reverb);
+        this.synths.noise.volume.value = -20;
+
+        this.isReady = true;
+        log('SYNTH: Tone.js initialized', true);
     }
 
-    advanceStep() {
-        const tempoMod = OMNI.Math.lerp(0.5, 2.0, OMNI.State.flux);
-        const secondsPerBeat = 60.0 / (this.baseBPM * tempoMod);
-        
-        this.nextEventTime += this.subdivision * secondsPerBeat;
-        this.stepIndex = (this.stepIndex + 1) % 128;
+    playPad(notes, duration = '2n') {
+        if (!this.isReady) return;
+        this.synths.pad.triggerAttackRelease(notes, duration);
+        OMNI.activeVoices++;
+        setTimeout(() => OMNI.activeVoices--, Tone.Time(duration).toMilliseconds());
     }
 
-    scheduleStep(time, ctx) {
-        const prob = this.rhythmMatrix[this.stepIndex % this.rhythmMatrix.length];
-        
-        if (Math.random() * (1.1 - OMNI.State.energy) < prob) {
-            if (this.stepIndex % 4 === 0) {
-                this.triggerNeuralEvent(time, 'lowpass', 150, 0.8, 0.4);
-            }
-            
-            if (OMNI.State.centroid > 3000 && Math.random() > 0.5) {
-                this.triggerNeuralEvent(time, 'highpass', OMNI.State.centroid, 0.2, 0.1);
-            }
-        }
+    playPluck(note, duration = '8n') {
+        if (!this.isReady) return;
+        this.synths.pluck.triggerAttackRelease(note, duration);
+        OMNI.activeVoices++;
+        setTimeout(() => OMNI.activeVoices--, Tone.Time(duration).toMilliseconds());
     }
 
-    triggerNeuralEvent(time, type, freq, amp, dur) {
-        if (!Voices) return;
-        
-        const grain = Voices.getNextAvailableVoice();
-        const offset = Math.random() * (OMNI.Config.RING_BUFFER_SECONDS - 1);
-        const pRate = OMNI.Math.lerp(0.5, 2.0, OMNI.State.entropy);
-
-        // Create audio buffer from memory
-        const durationSamples = Math.floor(dur * OMNI.Config.SAMPLE_RATE);
-        const memData = Memory.read(offset, durationSamples);
-        const buffer = KERNEL.ctx.createBuffer(1, durationSamples, OMNI.Config.SAMPLE_RATE);
-        buffer.copyToChannel(memData, 0);
-
-        grain.trigger(buffer, {
-            offset: 0,
-            duration: dur,
-            playbackRate: pRate,
-            filterType: type,
-            filterFreq: freq,
-            amp: amp * OMNI.State.energy * 2,
-            pan: OMNI.State.tilt.x / 10,
-            Q: 10
-        });
+    playKick(note = 'C1') {
+        if (!this.isReady) return;
+        this.synths.membrane.triggerAttackRelease(note, '8n');
+        OMNI.activeVoices++;
+        setTimeout(() => OMNI.activeVoices--, 200);
     }
 
-    start() {
-        this.isRunning = true;
-        this.nextEventTime = KERNEL.ctx.currentTime;
-        OMNI.UI.log("SEQUENCER: NEURAL_GRID_ACTIVE");
+    playTexture(duration = '4n') {
+        if (!this.isReady) return;
+        this.synths.noise.triggerAttackRelease(duration);
+    }
+
+    setTempo(bpm) {
+        Tone.Transport.bpm.value = bpm;
+    }
+
+    getTransportTime() {
+        return Tone.Transport.seconds;
     }
 }
 
-const Sequencer = new AdaptiveSequencer();
+// ============================================================================
+// SAMPLE MEMORY
+// ============================================================================
+
+class SampleMemory {
+    constructor() {
+        this.samples = [];
+        this.maxSamples = 34;
+    }
+
+    add(audioBuffer, metadata) {
+        const sample = {
+            id: Date.now(),
+            buffer: audioBuffer,
+            type: metadata.type || 'unknown', // 'percussive', 'tonal', 'texture'
+            energy: metadata.energy || 0,
+            pitch: metadata.pitch || 0,
+            timestamp: Date.now()
+        };
+
+        this.samples.push(sample);
+
+        // Keep only maxSamples
+        if (this.samples.length > this.maxSamples) {
+            this.samples.shift();
+        }
+
+        OMNI.samples = this.samples;
+        return sample;
+    }
+
+    getByType(type) {
+        return this.samples.filter(s => s.type === type);
+    }
+
+    getRandom() {
+        if (this.samples.length === 0) return null;
+        return this.samples[Math.floor(Math.random() * this.samples.length)];
+    }
+
+    getRecent(count = 5) {
+        return this.samples.slice(-count);
+    }
+}
+
+// ============================================================================
+// CONDUCTOR - The AI that creates musical order
+// ============================================================================
+
+class Conductor {
+    constructor(audioEngine, synthEngine, sampleMemory) {
+        this.audio = audioEngine;
+        this.synth = synthEngine;
+        this.memory = sampleMemory;
+
+        // Musical state
+        this.detectedKey = null;
+        this.currentScale = [0, 2, 4, 5, 7, 9, 11]; // Major scale intervals
+        this.rootNote = 60; // Middle C
+
+        // Fibonacci timing
+        this.fibIndex = 0;
+        this.nextEventTime = 0;
+        this.baseInterval = 500; // ms
+
+        // Evolution
+        this.totalEvents = 0;
+        this.coherenceScore = 0;
+
+        // Pattern building
+        this.rhythmPattern = [];
+        this.melodyPattern = [];
+
+        // Scheduling
+        this.scheduledEvents = [];
+    }
+
+    update(analysisResult) {
+        if (!analysisResult) return;
+
+        const { energy, onset, pitch } = analysisResult;
+        const now = Date.now();
+
+        // Capture sample on onset
+        if (onset && energy > 0.1) {
+            this.captureAndClassify(energy, pitch);
+        }
+
+        // Fibonacci-timed generative events
+        if (now >= this.nextEventTime) {
+            this.generateEvent();
+            this.scheduleNextEvent();
+        }
+
+        // Update coherence based on pattern consistency
+        this.updateCoherence();
+
+        // Check for stage evolution
+        this.checkEvolution();
+    }
+
+    captureAndClassify(energy, pitch) {
+        const buffer = this.audio.captureSample(300);
+
+        // Classify the sound
+        let type = 'texture';
+        if (energy > 0.3 && pitch < 200) {
+            type = 'percussive';
+        } else if (pitch > 100 && pitch < 2000) {
+            type = 'tonal';
+        }
+
+        const sample = this.memory.add(buffer, { type, energy, pitch });
+
+        // Update detected key if tonal
+        if (type === 'tonal' && pitch > 0) {
+            this.updateKeyDetection(pitch);
+        }
+
+        document.getElementById('val-detected').textContent = type.toUpperCase();
+        document.getElementById('val-samples').textContent = this.memory.samples.length;
+
+        log(`CAPTURED: ${type} (E:${energy.toFixed(2)} P:${Math.round(pitch)}Hz)`);
+
+        // Pulse the orb
+        const orb = document.getElementById('orb');
+        orb.classList.remove('listening');
+        orb.classList.add('active');
+        setTimeout(() => {
+            orb.classList.remove('active');
+            orb.classList.add('listening');
+        }, 500);
+
+        this.totalEvents++;
+    }
+
+    updateKeyDetection(pitch) {
+        // Convert frequency to MIDI note
+        const midiNote = 12 * Math.log2(pitch / 440) + 69;
+        const noteClass = Math.round(midiNote) % 12;
+
+        // Simple key detection: track note occurrences
+        if (!this.noteHistogram) {
+            this.noteHistogram = new Array(12).fill(0);
+        }
+        this.noteHistogram[noteClass]++;
+
+        // Find most common note as root
+        let maxCount = 0;
+        let root = 0;
+        for (let i = 0; i < 12; i++) {
+            if (this.noteHistogram[i] > maxCount) {
+                maxCount = this.noteHistogram[i];
+                root = i;
+            }
+        }
+
+        const noteNames = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+        this.detectedKey = noteNames[root];
+        this.rootNote = 48 + root; // C3 + root
+
+        document.getElementById('stat-key').textContent = this.detectedKey;
+        OMNI.detectedKey = this.detectedKey;
+    }
+
+    generateEvent() {
+        const stage = OMNI.stage;
+
+        switch (stage) {
+            case 'AWAKENING':
+                // Just listen, occasional texture
+                if (Math.random() < 0.1) {
+                    this.synth.playTexture('2n');
+                }
+                break;
+
+            case 'GATHERING':
+                // Start responding to captured sounds
+                this.playFromMemory();
+                break;
+
+            case 'PULSING':
+                // Establish rhythm
+                this.playRhythm();
+                break;
+
+            case 'HARMONIZING':
+                // Add harmony and melody
+                this.playHarmony();
+                this.playRhythm();
+                break;
+
+            case 'COHESION':
+                // Full ensemble
+                this.playFull();
+                break;
+        }
+    }
+
+    playFromMemory() {
+        const sample = this.memory.getRandom();
+        if (!sample) return;
+
+        // Play synthesized response based on sample type
+        if (sample.type === 'percussive') {
+            this.synth.playKick();
+        } else if (sample.type === 'tonal' && sample.pitch > 0) {
+            const note = Tone.Frequency(sample.pitch, 'hz').toNote();
+            this.synth.playPluck(note);
+        }
+    }
+
+    playRhythm() {
+        // Use detected tempo or default
+        const bpm = OMNI.tempo || 90;
+        this.synth.setTempo(bpm);
+        document.getElementById('stat-bpm').textContent = bpm;
+        OMNI.detectedBPM = bpm;
+
+        // Play kick on downbeat
+        if (this.fibIndex % 2 === 0) {
+            this.synth.playKick();
+        }
+
+        // Pluck on off-beats (Fibonacci pattern)
+        if (FIB[this.fibIndex % FIB.length] % 3 === 0) {
+            const noteIndex = this.currentScale[this.fibIndex % this.currentScale.length];
+            const note = Tone.Frequency(this.rootNote + noteIndex, 'midi').toNote();
+            this.synth.playPluck(note);
+        }
+    }
+
+    playHarmony() {
+        // Build chord from scale
+        const root = this.rootNote;
+        const chord = [
+            Tone.Frequency(root, 'midi').toNote(),
+            Tone.Frequency(root + this.currentScale[2], 'midi').toNote(),
+            Tone.Frequency(root + this.currentScale[4], 'midi').toNote()
+        ];
+
+        // Play pad chord occasionally
+        if (this.fibIndex % 8 === 0) {
+            this.synth.playPad(chord, '1n');
+        }
+
+        // Melody from Fibonacci sequence
+        const melodyDegree = FIB[this.fibIndex % 8] % this.currentScale.length;
+        const melodyNote = Tone.Frequency(root + 12 + this.currentScale[melodyDegree], 'midi').toNote();
+
+        if (Math.random() < 0.6) {
+            this.synth.playPluck(melodyNote, '4n');
+        }
+    }
+
+    playFull() {
+        this.playHarmony();
+        this.playRhythm();
+
+        // Add texture from captured samples
+        if (Math.random() < 0.2) {
+            this.synth.playTexture('8n');
+        }
+    }
+
+    scheduleNextEvent() {
+        // Fibonacci-based timing
+        const fibMs = FIB[this.fibIndex % 8] * this.baseInterval / 8;
+        this.nextEventTime = Date.now() + fibMs;
+        this.fibIndex++;
+    }
+
+    updateCoherence() {
+        // Coherence increases with consistent patterns
+        const hasKey = this.detectedKey !== null;
+        const hasTempo = OMNI.tempo > 0;
+        const hasSamples = this.memory.samples.length > 5;
+
+        let score = 0;
+        if (hasKey) score += 0.3;
+        if (hasTempo) score += 0.3;
+        if (hasSamples) score += 0.4;
+
+        // Smooth transition
+        this.coherenceScore = this.coherenceScore * 0.95 + score * 0.05;
+        OMNI.coherence = this.coherenceScore;
+
+        document.getElementById('meter-coherence').style.width = (this.coherenceScore * 100) + '%';
+    }
+
+    checkEvolution() {
+        const current = OMNI.stages[OMNI.stage];
+        if (!current || !current.next) return;
+
+        const nextStage = current.next;
+        const threshold = OMNI.stages[nextStage]?.threshold || Infinity;
+
+        // Progress based on total events
+        const progress = Math.min(100, (this.totalEvents / threshold) * 100);
+        OMNI.stageProgress = progress;
+        document.getElementById('stage-fill').style.width = progress + '%';
+
+        // Evolve to next stage
+        if (this.totalEvents >= threshold) {
+            this.evolve(nextStage);
+        }
+    }
+
+    evolve(nextStage) {
+        OMNI.stage = nextStage;
+        document.getElementById('stage-name').textContent = nextStage;
+        document.getElementById('stat-stage').textContent = nextStage;
+        log(`EVOLVED: ${nextStage}`, true);
+
+        // Visual feedback
+        const orb = document.getElementById('orb');
+        orb.classList.add('active');
+        setTimeout(() => orb.classList.remove('active'), 1000);
+    }
+}
 
 // ============================================================================
 // VISUAL ENGINE
@@ -667,284 +1121,150 @@ const Sequencer = new AdaptiveSequencer();
 class VisualEngine {
     constructor(canvasId) {
         this.canvas = document.getElementById(canvasId);
-        this.gl = this.canvas.getContext('webgl') || this.canvas.getContext('experimental-webgl');
-        if (!this.gl) { 
-            OMNI.UI.log("WEBGL_FAILURE: FALLBACK_REQUIRED", "warn"); 
-            return; 
+        this.ctx = this.canvas.getContext('2d');
+        this.particles = [];
+        this.resize();
+        window.addEventListener('resize', () => this.resize());
+    }
+
+    resize() {
+        const dpr = window.devicePixelRatio || 1;
+        this.canvas.width = window.innerWidth * dpr;
+        this.canvas.height = window.innerHeight * dpr;
+        this.ctx.scale(dpr, dpr);
+    }
+
+    update() {
+        this.ctx.fillStyle = 'rgba(10, 10, 11, 0.1)';
+        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+        // Spawn particles on energy
+        if (OMNI.energy > 0.1 && Math.random() < OMNI.energy) {
+            this.spawnParticle();
         }
 
-        this.program = null;
-        this.init();
-    }
+        // Update particles
+        for (let i = this.particles.length - 1; i >= 0; i--) {
+            const p = this.particles[i];
+            p.x += p.vx;
+            p.y += p.vy;
+            p.life -= 0.01;
+            p.vy += 0.02; // gravity
 
-    init() {
-        const vs = `
-            attribute vec2 position;
-            void main() { gl_Position = vec4(position, 0.0, 1.0); }
-        `;
-
-        const fs = `
-            precision highp float;
-            uniform vec2 u_resolution;
-            uniform float u_time;
-            uniform float u_entropy;
-
-            float hash(vec2 p) {
-                return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+            if (p.life <= 0) {
+                this.particles.splice(i, 1);
+                continue;
             }
 
-            void main() {
-                vec2 uv = gl_FragCoord.xy / u_resolution.xy;
-                
-                float spec = hash(vec2(uv.x, u_time * 0.1)) * u_entropy;
-                vec3 color = vec3(0.0, u_entropy * 0.8, spec * 0.9);
-                
-                float scanline = sin(uv.y * 800.0 + u_time * 10.0) * 0.1;
-                float beam = smoothstep(0.01, 0.0, abs(uv.y - spec));
-                
-                color += vec3(0.0, beam, beam * 0.5);
-                color *= (1.0 - scanline);
-
-                gl_FragColor = vec4(color * spec, 1.0);
-            }
-        `;
-
-        this.program = this.createProgram(vs, fs);
-        this.gl.useProgram(this.program);
-
-        this.positionLocation = this.gl.getAttribLocation(this.program, "position");
-        this.resolutionLocation = this.gl.getUniformLocation(this.program, "u_resolution");
-        this.timeLocation = this.gl.getUniformLocation(this.program, "u_time");
-        this.entropyLocation = this.gl.getUniformLocation(this.program, "u_entropy");
-
-        this.buffer = this.gl.createBuffer();
-        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.buffer);
-        this.gl.bufferData(this.gl.ARRAY_BUFFER, new Float32Array([
-            -1, -1, 1, -1, -1, 1,
-            -1, 1, 1, -1, 1, 1,
-        ]), this.gl.STATIC_DRAW);
-
-        OMNI.UI.log("VISUAL_ENGINE: SHADER_PIPELINE_STABLE");
+            this.ctx.beginPath();
+            this.ctx.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2);
+            this.ctx.fillStyle = `rgba(0, 255, 163, ${p.life * 0.5})`;
+            this.ctx.fill();
+        }
     }
 
-    render(time, spectralArray) {
-        if (!this.gl) return;
-        
-        this.gl.viewport(0, 0, this.canvas.width, this.canvas.height);
-        this.gl.useProgram(this.program);
+    spawnParticle() {
+        const cx = window.innerWidth / 2;
+        const cy = window.innerHeight / 2;
+        const angle = Math.random() * Math.PI * 2;
+        const speed = 1 + Math.random() * 2;
 
-        this.gl.uniform2f(this.resolutionLocation, this.canvas.width, this.canvas.height);
-        this.gl.uniform1f(this.timeLocation, time * 0.001);
-        this.gl.uniform1f(this.entropyLocation, OMNI.State.entropy);
+        this.particles.push({
+            x: cx + (Math.random() - 0.5) * 50,
+            y: cy + (Math.random() - 0.5) * 50,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed - 2,
+            size: 2 + Math.random() * 3,
+            life: 1
+        });
 
-        this.gl.enableVertexAttribArray(this.positionLocation);
-        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.buffer);
-        this.gl.vertexAttribPointer(this.positionLocation, 2, this.gl.FLOAT, false, 0, 0);
-        this.gl.drawArrays(this.gl.TRIANGLES, 0, 6);
-    }
-
-    createProgram(vsSource, fsSource) {
-        const vs = this.gl.createShader(this.gl.VERTEX_SHADER);
-        this.gl.shaderSource(vs, vsSource);
-        this.gl.compileShader(vs);
-        
-        const fs = this.gl.createShader(this.gl.FRAGMENT_SHADER);
-        this.gl.shaderSource(fs, fsSource);
-        this.gl.compileShader(fs);
-        
-        const prog = this.gl.createProgram();
-        this.gl.attachShader(prog, vs);
-        this.gl.attachShader(prog, fs);
-        this.gl.linkProgram(prog);
-        return prog;
+        // Limit particles
+        if (this.particles.length > 89) {
+            this.particles.shift();
+        }
     }
 }
 
-let Graphics;
-
 // ============================================================================
-// MASTER CONTROLLER
+// MAIN APPLICATION
 // ============================================================================
 
-class OmniController {
+class OmniApp {
     constructor() {
-        this.rafId = null;
-        this.lastTime = 0;
-        this.masterGain = null;
-        this.limiter = null;
-        this.audioProcessor = null;
+        this.audio = new AudioEngine();
+        this.synth = new SynthEngine();
+        this.memory = new SampleMemory();
+        this.conductor = null;
+        this.visuals = null;
+        this.isRunning = false;
     }
 
     async start() {
-        OMNI.UI.updateBoot(20, "INITIALIZING_AUDIO_KERNEL...");
-        
-        await KERNEL.init();
-        
-        this.masterGain = KERNEL.ctx.createGain();
-        this.limiter = KERNEL.ctx.createDynamicsCompressor();
-        
-        this.limiter.threshold.setValueAtTime(-1.0, KERNEL.ctx.currentTime);
-        this.limiter.knee.setValueAtTime(40, KERNEL.ctx.currentTime);
-        this.limiter.ratio.setValueAtTime(12, KERNEL.ctx.currentTime);
-        this.limiter.attack.setValueAtTime(0.003, KERNEL.ctx.currentTime);
-        this.limiter.release.setValueAtTime(0.25, KERNEL.ctx.currentTime);
-        
-        this.masterGain.connect(this.limiter);
-        this.limiter.connect(KERNEL.ctx.destination);
+        try {
+            log('OMNI: Initializing...', true);
 
-        OMNI.UI.updateBoot(40, "ALLOCATING_VOICE_POOLS...");
-        
-        Voices = new VoiceManager(KERNEL.ctx, this.masterGain);
+            await this.audio.init();
+            await this.synth.init();
 
-        OMNI.UI.updateBoot(60, "BOOTING_VISUAL_NERVOUS_SYSTEM...");
-        
-        Graphics = new VisualEngine('gl-canvas');
-        this.handleResize();
-        window.addEventListener('resize', () => this.handleResize());
+            this.conductor = new Conductor(this.audio, this.synth, this.memory);
+            this.visuals = new VisualEngine('canvas');
 
-        OMNI.UI.updateBoot(80, "LINKING_SENSORS...");
-        
-        Sensors.init();
-        
-        // Setup audio processing for memory buffer
-        this.setupAudioProcessing();
-        
-        Sequencer.start();
+            // Hide start screen, show main
+            document.getElementById('start-screen').classList.add('hidden');
+            document.getElementById('main').classList.add('active');
 
-        OMNI.UI.updateBoot(100, "SYSTEM_ONLINE");
-        
-        this.run(0);
-        
-        OMNI.State.isInitialized = true;
-        OMNI.UI.log("OMNI_ENGINE_V1: FULL_STACK_IGNITION", "success");
-        
-        // Hide boot screen
-        setTimeout(() => {
-            document.getElementById('boot-screen').style.display = 'none';
-        }, 1000);
-    }
+            this.isRunning = true;
+            OMNI.isRunning = true;
 
-    setupAudioProcessing() {
-        // Create script processor to feed memory buffer
-        this.audioProcessor = KERNEL.ctx.createScriptProcessor(4096, 1, 1);
-        KERNEL.analyser.connect(this.audioProcessor);
-        this.audioProcessor.connect(KERNEL.ctx.destination);
-        
-        this.audioProcessor.onaudioprocess = (e) => {
-            const input = e.inputBuffer.getChannelData(0);
-            Memory.write(input);
-        };
-    }
+            log('OMNI: Music 2.0 Active', true);
+            log('Make sounds to begin...');
 
-    handleResize() {
-        if (!Graphics || !Graphics.canvas) return;
-        const dpr = window.devicePixelRatio || 1;
-        Graphics.canvas.width = window.innerWidth * dpr;
-        Graphics.canvas.height = window.innerHeight * dpr;
-    }
+            this.run();
 
-    run(time) {
-        const dt = time - this.lastTime;
-        this.lastTime = time;
-
-        if (KERNEL.ctx) {
-            const stats = Analyzer.analyze(KERNEL.analyser);
-            Sequencer.process(KERNEL.ctx.currentTime, KERNEL.ctx);
-            
-            if (Graphics) {
-                Graphics.render(time, Analyzer.freqData);
-            }
-
-            this.updateHUD(stats);
+        } catch (err) {
+            log('ERROR: ' + err.message);
+            console.error(err);
         }
-
-        this.rafId = requestAnimationFrame((t) => this.run(t));
     }
 
-    updateHUD(stats) {
-        document.getElementById('stat-lat').textContent = 
-            (KERNEL.ctx.baseLatency * 1000).toFixed(1) + "ms";
-        
-        const entropyVal = (stats.flatness * 100).toFixed(1);
-        document.getElementById('val-entropy').textContent = entropyVal + "%";
-        
-        document.getElementById('spectral-stats').innerHTML = `
-            Energy: ${(stats.energy * 100).toFixed(1)}%<br>
-            Centroid: ${Math.round(stats.centroid)}Hz<br>
-            Peak: ${Math.round(stats.peakFreq)}Hz<br>
-            Grains: ${OMNI.State.activeGrains}
-        `;
+    run() {
+        if (!this.isRunning) return;
+
+        // Analyze audio
+        const analysis = this.audio.analyze();
+
+        // Update conductor
+        this.conductor.update(analysis);
+
+        // Update visuals
+        this.visuals.update();
+
+        // Update UI
+        document.getElementById('meter-energy').style.width = (OMNI.energy * 100) + '%';
+        document.getElementById('val-voices').textContent = OMNI.activeVoices;
+
+        requestAnimationFrame(() => this.run());
     }
 }
-
-const Main = new OmniController();
 
 // ============================================================================
 // BOOTSTRAP
 // ============================================================================
 
-class OmniBootstrap {
-    constructor() {
-        this.isPoweredOn = false;
-    }
+const app = new OmniApp();
 
-    async ignite() {
-        if (this.isPoweredOn) return;
-        
-        console.log("%c OMNI OS v1.0.4 : INITIALIZING ", "background: #000; color: #0f0; font-weight: bold;");
-        
-        OMNI.UI.log("MEMORY_MATRIX: 12S BUFFER ALLOCATED");
-        OMNI.UI.log("SENSOR_FUSION: STANDBY");
-        OMNI.UI.log("SPECTRAL_KERNEL: FFT_SIZE 2048 INITIALIZED");
-        OMNI.UI.log("HEURISTICS: CENTROID, FLATNESS, PEAK_DETECTION READY");
-        
-        try {
-            await Main.start();
-            this.isPoweredOn = true;
-            this.setupGlobalHandlers();
-        } catch (e) {
-            this.emergencyShutdown(e);
-        }
-    }
-
-    setupGlobalHandlers() {
-        document.addEventListener('visibilitychange', () => {
-            if (document.hidden) {
-                if (KERNEL.ctx) KERNEL.ctx.suspend();
-                OMNI.UI.log("SYSTEM: HIBERNATING", "warn");
-            } else {
-                if (KERNEL.ctx) KERNEL.ctx.resume();
-                OMNI.UI.log("SYSTEM: AWAKENED");
-            }
-        });
-
-        window.onerror = (msg, url, line) => {
-            OMNI.UI.log(`CRITICAL_ERR: ${msg} @ ${line}`, "error");
-            return false;
-        };
-    }
-
-    emergencyShutdown(error) {
-        console.error("OMNI_FATAL_EXCEPTION:", error);
-        OMNI.UI.updateBoot(0, "SYSTEM_HALTED");
-        if (KERNEL.ctx) KERNEL.ctx.close();
-        OMNI.UI.log("SYSTEM HALTED: " + error.message, "error");
-    }
-}
-
-const OMNI_BOOT = new OmniBootstrap();
-
-document.getElementById('boot-btn').addEventListener('click', async () => {
-    // Resume AudioContext for mobile
-    if (KERNEL.ctx && KERNEL.ctx.state === 'suspended') {
-        await KERNEL.ctx.resume();
-    }
-    
-    document.getElementById('boot-btn').style.display = 'none';
-    await OMNI_BOOT.ignite();
+document.getElementById('start-btn').addEventListener('click', async () => {
+    await app.start();
 });
 
-// Auto-show engage button after 1 second
-setTimeout(() => {
-    OMNI.UI.updateBoot(100, "READY_TO_ENGAGE");
-}, 1000);
+// Keyboard shortcut
+document.addEventListener('keydown', async (e) => {
+    if (e.code === 'Space' && !OMNI.isRunning) {
+        e.preventDefault();
+        await app.start();
+    }
+});
+</script>
+
+</body>
+</html>
