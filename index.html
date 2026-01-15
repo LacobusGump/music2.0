@@ -41,8 +41,8 @@
 </div>
 <script>
 // GUMP - Grand Unified Music Project
-// THE SOUL MACHINE
-// YOU ARE THE INSTRUMENT. THE SIMULATION RESPONDS.
+// SOUNDS GOOD IMMEDIATELY. YOU SHAPE IT.
+// NO BUILDUP. NO WAITING. INSTANT BEAUTY.
 
 const PHI = 1.618033988749;
 const TAU = Math.PI * 2;
@@ -268,8 +268,8 @@ const M = {
 };
 
 // Audio nodes
-let ctx, master, reverb, delay, subDrone;
-let walls = [];
+let ctx, master, reverb, delay;
+let DRONE = null;
 let running = false;
 
 // Additional sound layers
@@ -445,21 +445,21 @@ function init() {
     master.connect(comp);
     comp.connect(ctx.destination);
 
-    // ============ THE EARS ============
-    // The machine listens to itself
-    createEars();
+    // ============ SIMPLE. IMMEDIATE. BEAUTIFUL. ============
 
-    // ============ THE SOUL VOICE ============
-    // This is YOU. Continuous. Always on. Following your position.
-    createSoulVoice();
+    // The drone - ALREADY PLAYING when you start
+    createSimpleDrone();
 
-    // The drone beneath - the foundation triad
-    createTriadDrone();
+    // The voice that follows you
+    createSimpleVoice();
 
-    // Resonance system - notes that linger from where you've been
-    createResonanceSystem();
+    // Beat - starts gentle, already going
+    BEAT.active = true;
+    BEAT.lastKick = ctx.currentTime;
+    BEAT.lastSnare = ctx.currentTime;
+    BEAT.intensity = 0.3; // start audible
 
-    console.log('SOUL MACHINE initialized. Listening. Power of three.');
+    console.log('Ready. Move to shape the sound.');
 }
 
 // ============ THE EARS ============
@@ -558,52 +558,69 @@ function analyzeHarmony() {
     EARS.resolution = EARS.tension > 0.5 ? EARS.tension : 0;
 }
 
-// ============ THE SOUL VOICE ============
-// Clean, simple, beautiful. Not harsh.
+// ============ SIMPLE DRONE ============
+// Plays immediately. Sounds good. You shape it.
 
-function createSoulVoice() {
-    SOUL.voice = [];
+function createSimpleDrone() {
+    // Just root + fifth. The power of two becoming three.
+    const root = DNA.root;
+    const fifth = root * 1.5; // perfect fifth
 
-    // Just 3 voices - sine based, gentle
-    const voiceMixer = ctx.createGain();
-    voiceMixer.gain.value = 0.25;
+    DRONE = {
+        osc1: ctx.createOscillator(),
+        osc2: ctx.createOscillator(),
+        filter: ctx.createBiquadFilter(),
+        gain: ctx.createGain()
+    };
 
-    // Simple lowpass - no harsh resonance
-    SOUL.voiceFilter = ctx.createBiquadFilter();
-    SOUL.voiceFilter.type = 'lowpass';
-    SOUL.voiceFilter.frequency.value = 1200;
-    SOUL.voiceFilter.Q.value = 1; // LOW Q = smooth
+    DRONE.osc1.type = 'sine';
+    DRONE.osc1.frequency.value = root;
 
-    SOUL.voiceGain = ctx.createGain();
-    SOUL.voiceGain.gain.value = 0;
+    DRONE.osc2.type = 'sine';
+    DRONE.osc2.frequency.value = fifth;
 
-    // Three gentle voices
-    const configs = [
-        { type: 'sine', detune: 0, gain: 0.5 },      // pure center
-        { type: 'triangle', detune: -7, gain: 0.3 }, // warm left
-        { type: 'triangle', detune: 7, gain: 0.3 }   // warm right
-    ];
+    DRONE.filter.type = 'lowpass';
+    DRONE.filter.frequency.value = 600;
+    DRONE.filter.Q.value = 1;
 
-    configs.forEach(cfg => {
-        const osc = ctx.createOscillator();
-        osc.type = cfg.type;
-        osc.frequency.value = DNA.root;
-        osc.detune.value = cfg.detune;
+    DRONE.gain.gain.value = 0.15; // AUDIBLE FROM START
 
-        const oscGain = ctx.createGain();
-        oscGain.gain.value = cfg.gain;
+    DRONE.osc1.connect(DRONE.filter);
+    DRONE.osc2.connect(DRONE.filter);
+    DRONE.filter.connect(DRONE.gain);
+    DRONE.gain.connect(master);
 
-        osc.connect(oscGain);
-        oscGain.connect(voiceMixer);
-        osc.start();
+    DRONE.osc1.start();
+    DRONE.osc2.start();
+}
 
-        SOUL.voice.push({ osc, gain: oscGain });
-    });
+// ============ SIMPLE VOICE ============
+// One oscillator. Follows your Y position. That's it.
 
-    voiceMixer.connect(SOUL.voiceFilter);
-    SOUL.voiceFilter.connect(SOUL.voiceGain);
-    SOUL.voiceGain.connect(master);
-    // NO reverb, NO delay on voice - keep it clean
+let VOICE = null;
+
+function createSimpleVoice() {
+    VOICE = {
+        osc: ctx.createOscillator(),
+        filter: ctx.createBiquadFilter(),
+        gain: ctx.createGain()
+    };
+
+    VOICE.osc.type = 'triangle';
+    VOICE.osc.frequency.value = DNA.root * 2; // octave up from drone
+
+    VOICE.filter.type = 'lowpass';
+    VOICE.filter.frequency.value = 1000;
+    VOICE.filter.Q.value = 2;
+
+    VOICE.gain.gain.value = 0; // starts silent, movement brings it in
+
+    VOICE.osc.connect(VOICE.filter);
+    VOICE.filter.connect(VOICE.gain);
+    VOICE.gain.connect(master);
+    VOICE.gain.connect(reverb);
+
+    VOICE.osc.start();
 }
 
 // ============ THE BEAT ============
@@ -2701,116 +2718,43 @@ function tick() {
 
     const now = ctx.currentTime;
 
-    // ============ LISTEN FIRST ============
-    listen();
+    // ============ SIMPLE: DRONE RESPONDS TO YOU ============
 
-    // ============ THE LOOP ============
-    // Record your movement, play it back
-    let inputX = F.x;
-    let inputY = F.y;
-    let inputSpeed = F.speed;
+    if (DRONE) {
+        // Filter opens with your X position (left=dark, right=bright)
+        const filterFreq = 300 + (F.x + 1) * 400;
+        DRONE.filter.frequency.linearRampToValueAtTime(filterFreq, now + 0.1);
 
-    if (SOUL.loop.recording) {
-        // Record this frame
-        SOUL.loop.buffer.push({ x: F.x, y: F.y, speed: F.speed });
-
-        // Auto-stop recording when buffer is full
-        if (SOUL.loop.buffer.length >= SOUL.loop.length) {
-            SOUL.loop.recording = false;
-            SOUL.loop.playing = true;
-            SOUL.loop.playhead = 0;
-            console.log('Loop recorded. Playing back.');
-
-            // DROP THE BEAT when loop is established
-            setTimeout(dropTheBeat, 500); // slight delay for drama
-        }
+        // Pitch bends slightly with Y
+        const bend = 1 + F.y * 0.05;
+        DRONE.osc1.frequency.linearRampToValueAtTime(DNA.root * bend, now + 0.1);
+        DRONE.osc2.frequency.linearRampToValueAtTime(DNA.root * 1.5 * bend, now + 0.1);
     }
 
-    if (SOUL.loop.playing && SOUL.loop.buffer.length > 0) {
-        // Blend live input with loop playback
-        const loopFrame = SOUL.loop.buffer[SOUL.loop.playhead];
-        const loopBlend = 0.6; // 60% loop, 40% live
+    // ============ SIMPLE: VOICE FOLLOWS YOUR MOVEMENT ============
 
-        inputX = loopFrame.x * loopBlend + F.x * (1 - loopBlend);
-        inputY = loopFrame.y * loopBlend + F.y * (1 - loopBlend);
-        inputSpeed = Math.max(loopFrame.speed * loopBlend, F.speed);
+    if (VOICE) {
+        // Y position = pitch
+        const semitone = (F.y + 1) * 12; // one octave range
+        const snapped = snapToScale(Math.round(semitone), DNA.scale);
+        const freq = DNA.root * 2 * Math.pow(2, snapped / 12);
 
-        // Advance playhead
-        SOUL.loop.playhead = (SOUL.loop.playhead + 1) % SOUL.loop.buffer.length;
+        VOICE.osc.frequency.linearRampToValueAtTime(freq, now + 0.05);
+
+        // Speed = volume (move to be heard)
+        const targetGain = F.speed * 0.2;
+        VOICE.gain.gain.linearRampToValueAtTime(targetGain, now + 0.1);
+
+        // X = filter brightness
+        const voiceFilter = 400 + (F.x + 1) * 800;
+        VOICE.filter.frequency.linearRampToValueAtTime(voiceFilter, now + 0.1);
     }
 
-    // Start recording on first significant movement
-    if (!SOUL.loop.recording && !SOUL.loop.playing && F.speed > 0.2 && SOUL.loop.buffer.length === 0) {
-        SOUL.loop.recording = true;
-        console.log('Recording loop...');
-    }
-
-    // ============ THE SOUL RESPONDS ============
-
-    // Position = Pitch (using blended input)
-    const semitone = SOUL.baseOctave + (inputY + 1) * 0.5 * SOUL.pitchRange;
-    const snappedSemitone = snapToScale(Math.round(semitone), DNA.scale);
-    const finalFreq = DNA.root * Math.pow(2, snappedSemitone / 12);
-
-    // Update voice - GENTLE volume
-    if (SOUL.voice) {
-        SOUL.voice.forEach(v => {
-            v.osc.frequency.linearRampToValueAtTime(finalFreq, now + 0.1);
-        });
-    }
-
-    // Filter follows X
-    if (SOUL.voiceFilter) {
-        const filterFreq = 300 + (inputX + 1) * 0.5 * 1500;
-        SOUL.voiceFilter.frequency.linearRampToValueAtTime(filterFreq, now + 0.1);
-        SOUL.voiceFilter.Q.linearRampToValueAtTime(2 + inputSpeed * 4, now + 0.1);
-    }
-
-    // Volume follows speed - MUCH QUIETER
-    if (SOUL.voiceGain) {
-        const targetGain = inputSpeed * 0.15; // was 0.5, now 0.15
-        SOUL.voiceGain.gain.linearRampToValueAtTime(targetGain, now + 0.15);
-    }
-
-    // ============ TRIAD DRONE - GUIDED BY HARMONY ============
-
-    F.energy = F.energy * SOUL.memory + inputSpeed * (1 - SOUL.memory);
-
-    if (subDrone && subDrone.voices) {
-        // Drone volume - quiet foundation
-        const droneAmp = 0.03 + F.energy * 0.08; // was much louder
-        subDrone.gain.gain.linearRampToValueAtTime(droneAmp, now + 0.3);
-
-        // Filter opens with energy
-        const filterFreq = 200 + F.energy * 600 + EARS.harmonyScore * 400;
-        subDrone.filter.frequency.linearRampToValueAtTime(filterFreq, now + 0.2);
-
-        // Pitch bend based on Y position
-        const bend = 1 + inputY * 0.03;
-        subDrone.voices.forEach(v => {
-            v.osc1.frequency.linearRampToValueAtTime(v.baseFreq * bend, now + 0.2);
-            v.osc2.frequency.linearRampToValueAtTime(v.baseFreq * bend * 1.001, now + 0.2);
-        });
-    }
-
-    // ============ RESONANCE ON SIGNIFICANT MOMENTS ============
-
-    SOUL.trail.push({ x: inputX, y: inputY, speed: inputSpeed, time: now });
-    if (SOUL.trail.length > SOUL.maxTrail) SOUL.trail.shift();
-
-    // Only add resonance when harmony is good and we pause
-    if (SOUL.trail.length > 10 && EARS.harmonyScore > 0.5) {
-        const recent = SOUL.trail.slice(-10);
-        const avgSpeed = recent.reduce((s, p) => s + p.speed, 0) / 10;
-
-        if (inputSpeed < 0.08 && avgSpeed > 0.25 && now - (SOUL.lastResonance || 0) > 2) {
-            addResonance(snappedSemitone, avgSpeed * 0.5); // quieter resonances
-            SOUL.lastResonance = now;
-        }
-    }
-
-    // ============ THE BEAT ============
+    // ============ BEAT ============
     updateBeat();
+
+    // ============ UPDATE ENERGY ============
+    F.energy = F.energy * 0.95 + F.speed * 0.05;
 
     // ============ VISUAL & UI ============
     J.totalTime += 1/60;
