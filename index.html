@@ -41,14 +41,13 @@
 </div>
 <script>
 // GUMP - Grand Unified Music Project
-// Space, time, and world unified through movement
+// The sound of something that shouldn't exist
 
 const PHI = 1.618033988749;
-const SCALES = {
-    minor: [0, 2, 3, 5, 7, 8, 10],
-    dorian: [0, 2, 3, 5, 7, 9, 10],
-    phrygian: [0, 1, 3, 5, 7, 8, 10]
-};
+
+// Dark modes - b2 is the key to unease
+const PHRYGIAN = [0, 1, 3, 5, 7, 8, 10]; // that b2 tension
+const LOCRIAN = [0, 1, 3, 5, 6, 8, 10];  // diminished, unstable
 
 // State
 const F = {
@@ -57,7 +56,8 @@ const F = {
     speed: 0,
     phase: 0,
     density: 0,
-    field: 0
+    field: 0,
+    lfo: 0 // slow movement
 };
 
 // Memory
@@ -72,242 +72,395 @@ const M = {
     activeLayer: null,
     blend: 0.6,
     beatDropped: false,
-    beatIntensity: 0
+    beatIntensity: 0,
+    darkness: 0 // builds over time
 };
 
-// Audio
-let ctx, master, reverb, delay, delayFeedback;
-let pads = [], voices = [];
+// Audio nodes
+let ctx, master, reverb, reverbDistort, delay, subDrone, textureNoise;
+let walls = []; // the massive sound walls
 let running = false;
 
-// Microphone capture
+// Mic
 let micStream, micSource, micBuffer;
-const MIC_BUFFER_SIZE = 48000 * 4; // 4 seconds
+const MIC_BUFFER_SIZE = 48000 * 4;
 let micWritePos = 0;
-let grains = [];
 
 const ROOT = 55;
-const BPM = 92;
+const BPM = 78; // slower, heavier
 
 // ============ AUDIO ENGINE ============
 
 function init() {
     ctx = new (window.AudioContext || window.webkitAudioContext)();
-    M.beatTime = 60 / BPM / 2; // 8th notes
+    M.beatTime = 60 / BPM / 2;
 
-    // Master chain
+    // Master
     master = ctx.createGain();
-    master.gain.value = 0.7;
+    master.gain.value = 0.8;
 
-    // Reverb (convolution-style using delays)
-    reverb = createReverb();
+    // Create waveshaper for saturation
+    const saturator = createSaturator();
 
-    // Stereo delay
-    delay = ctx.createDelay(1);
-    delay.delayTime.value = 60 / BPM * 0.75; // dotted 8th
-    delayFeedback = ctx.createGain();
-    delayFeedback.gain.value = 0.35;
+    // Dark reverb with distortion after it
+    reverb = createDarkReverb();
+
+    // Delay
+    delay = ctx.createDelay(2);
+    delay.delayTime.value = 60 / BPM * 0.75;
+    const delayFb = ctx.createGain();
+    delayFb.gain.value = 0.4;
     const delayFilter = ctx.createBiquadFilter();
-    delayFilter.type = 'highpass';
-    delayFilter.frequency.value = 400;
+    delayFilter.type = 'lowpass';
+    delayFilter.frequency.value = 2000;
 
     delay.connect(delayFilter);
-    delayFilter.connect(delayFeedback);
-    delayFeedback.connect(delay);
-    delay.connect(master);
+    delayFilter.connect(delayFb);
+    delayFb.connect(delay);
+    delay.connect(saturator);
 
-    // Compression
+    // Compression - aggressive
     const comp = ctx.createDynamicsCompressor();
-    comp.threshold.value = -18;
-    comp.ratio.value = 6;
-    comp.attack.value = 0.003;
-    comp.release.value = 0.15;
+    comp.threshold.value = -24;
+    comp.ratio.value = 8;
+    comp.attack.value = 0.002;
+    comp.release.value = 0.1;
+    comp.knee.value = 0;
 
-    // Final EQ
-    const low = ctx.createBiquadFilter();
-    low.type = 'lowshelf';
-    low.frequency.value = 120;
-    low.gain.value = 2;
-
-    const high = ctx.createBiquadFilter();
-    high.type = 'highshelf';
-    high.frequency.value = 8000;
-    high.gain.value = 1.5;
-
-    master.connect(low);
-    low.connect(high);
-    high.connect(comp);
+    // Final chain
+    saturator.connect(master);
+    master.connect(comp);
     comp.connect(ctx.destination);
 
-    // Initialize sound sources
-    createPads();
+    // Create the sound sources
+    createSubDrone();
+    createWalls();
+    createTexture();
     initMic();
 }
 
-function createReverb() {
-    // Multi-tap delay reverb
+// Waveshaper for that gritty saturation
+function createSaturator() {
+    const shaper = ctx.createWaveShaper();
+    const samples = 44100;
+    const curve = new Float32Array(samples);
+
+    for (let i = 0; i < samples; i++) {
+        const x = (i * 2) / samples - 1;
+        // Soft clipping with odd harmonics
+        curve[i] = Math.tanh(x * 2) * 0.8 + Math.tanh(x * 4) * 0.2;
+    }
+
+    shaper.curve = curve;
+    shaper.oversample = '2x';
+    return shaper;
+}
+
+// Dark reverb - long, filtered, with distortion
+function createDarkReverb() {
     const input = ctx.createGain();
     const output = ctx.createGain();
-    output.gain.value = 0.3;
+    output.gain.value = 0.4;
 
-    const times = [0.03, 0.07, 0.11, 0.17, 0.23, 0.31];
-    const gains = [0.7, 0.5, 0.4, 0.3, 0.25, 0.2];
+    // Longer, darker taps
+    const times = [0.05, 0.13, 0.21, 0.34, 0.55, 0.89, 1.44];
+    const gains = [0.6, 0.5, 0.45, 0.35, 0.3, 0.25, 0.2];
 
     times.forEach((t, i) => {
-        const d = ctx.createDelay(1);
+        const d = ctx.createDelay(2);
         d.delayTime.value = t;
         const g = ctx.createGain();
         g.gain.value = gains[i];
         const f = ctx.createBiquadFilter();
         f.type = 'lowpass';
-        f.frequency.value = 4000 - i * 500;
+        f.frequency.value = 2500 - i * 300; // gets darker
+        f.Q.value = 0.5;
         input.connect(d);
         d.connect(f);
         f.connect(g);
         g.connect(output);
     });
 
-    output.connect(master);
+    // Distortion AFTER reverb - key for that eerie sound
+    reverbDistort = ctx.createWaveShaper();
+    const curve = new Float32Array(256);
+    for (let i = 0; i < 256; i++) {
+        const x = (i / 128) - 1;
+        curve[i] = Math.sign(x) * Math.pow(Math.abs(x), 0.7);
+    }
+    reverbDistort.curve = curve;
+
+    output.connect(reverbDistort);
+    reverbDistort.connect(master);
+
     return input;
 }
 
-// ============ RICH PAD SYNTHESIS ============
+// ============ SUB DRONE - THE FOUNDATION ============
 
-function createPads() {
-    // 4 evolving pads with FM and filtering
-    for (let i = 0; i < 4; i++) {
-        const note = ROOT * Math.pow(2, i / 2);
-        const pad = createFMPad(note, i);
-        pads.push(pad);
-    }
+function createSubDrone() {
+    // Deep, rumbling sub that's always there
+    const sub = ctx.createOscillator();
+    const sub2 = ctx.createOscillator();
+    const subGain = ctx.createGain();
+    const subFilter = ctx.createBiquadFilter();
+
+    sub.type = 'sine';
+    sub.frequency.value = ROOT / 2; // 27.5 Hz - you feel it more than hear it
+
+    sub2.type = 'sine';
+    sub2.frequency.value = ROOT / 2 * 1.002; // beating
+
+    subFilter.type = 'lowpass';
+    subFilter.frequency.value = 80;
+
+    subGain.gain.value = 0;
+
+    sub.connect(subFilter);
+    sub2.connect(subFilter);
+    subFilter.connect(subGain);
+    subGain.connect(master);
+
+    sub.start();
+    sub2.start();
+
+    subDrone = { sub, sub2, gain: subGain, filter: subFilter };
 }
 
-function createFMPad(freq, idx) {
-    // FM synthesis: carrier + modulator
-    const carrier = ctx.createOscillator();
-    const modulator = ctx.createOscillator();
-    const modGain = ctx.createGain();
-    const output = ctx.createGain();
-    const filter = ctx.createBiquadFilter();
-    const pan = ctx.createStereoPanner();
+// ============ THE WALLS - MASSIVE SUPERSAW CHORDS ============
 
-    // Carrier
-    carrier.type = 'sine';
-    carrier.frequency.value = freq;
+function createWalls() {
+    // 3 massive chord voices, each is a 7-oscillator supersaw
+    const chordIntervals = [
+        [0, 0],      // root
+        [3, 1],      // minor 3rd + octave (cluster)
+        [7, 13]      // 5th + b9 up high (the tension)
+    ];
 
-    // Modulator (creates evolving timbre)
-    modulator.type = 'sine';
-    modulator.frequency.value = freq * (idx % 2 === 0 ? 2 : 3);
-    modGain.gain.value = freq * 0.5; // modulation depth
-
-    // Rich filter
-    filter.type = 'lowpass';
-    filter.frequency.value = freq * 4;
-    filter.Q.value = 2;
-
-    output.gain.value = 0;
-    pan.pan.value = (idx - 1.5) * 0.4;
-
-    // Connections
-    modulator.connect(modGain);
-    modGain.connect(carrier.frequency);
-    carrier.connect(filter);
-    filter.connect(output);
-    output.connect(pan);
-    pan.connect(master);
-    pan.connect(reverb);
-
-    carrier.start();
-    modulator.start();
-
-    return { carrier, modulator, modGain, output, filter, pan, freq };
-}
-
-function updatePads() {
-    const now = ctx.currentTime;
-    const S = getBlendedState();
-
-    pads.forEach((p, i) => {
-        // Amplitude from position
-        const xFactor = i < 2 ? (1 - S.x) / 2 : (1 + S.x) / 2;
-        const yFactor = i % 2 === 0 ? (1 - S.y) / 2 : (1 + S.y) / 2;
-        let amp = xFactor * yFactor * (0.1 + S.speed * 0.15);
-
-        // FM modulation depth from movement
-        const modDepth = p.freq * (0.3 + S.speed * 1.5);
-        p.modGain.gain.linearRampToValueAtTime(modDepth, now + 0.1);
-
-        // Filter opens with intensity
-        const filterFreq = p.freq * (2 + S.speed * 6 + F.density * 4);
-        p.filter.frequency.linearRampToValueAtTime(filterFreq, now + 0.1);
-        p.filter.Q.linearRampToValueAtTime(1 + S.speed * 4, now + 0.1);
-
-        p.output.gain.linearRampToValueAtTime(amp, now + 0.15);
+    chordIntervals.forEach((interval, idx) => {
+        const wall = createSupersaw(ROOT * Math.pow(2, interval[0]/12 + interval[1]/12), idx);
+        walls.push(wall);
     });
 }
 
-// ============ MELODIC VOICES ============
-
-function playNote(degree, octave, type, duration) {
-    const scale = SCALES.dorian;
-    const semitone = scale[degree % 7] + Math.floor(degree / 7) * 12;
-    const freq = ROOT * Math.pow(2, (semitone + octave * 12) / 12);
-    const now = ctx.currentTime;
-
-    const osc = ctx.createOscillator();
-    const osc2 = ctx.createOscillator();
-    const gain = ctx.createGain();
+function createSupersaw(baseFreq, idx) {
+    // 7 detuned oscillators - the classic supersaw
+    const NUM_OSCS = 7;
+    const oscs = [];
+    const gains = [];
+    const output = ctx.createGain();
     const filter = ctx.createBiquadFilter();
-    const pan = ctx.createStereoPanner();
+    const panL = ctx.createGain();
+    const panR = ctx.createGain();
+    const merger = ctx.createChannelMerger(2);
 
-    // Different timbres based on type
-    if (type === 'pluck') {
-        osc.type = 'triangle';
-        osc2.type = 'sine';
-        osc2.frequency.value = freq * 2;
-        filter.frequency.value = 2000 + F.speed * 4000;
-        filter.Q.value = 3;
-    } else if (type === 'bell') {
-        osc.type = 'sine';
-        osc2.type = 'sine';
-        osc2.frequency.value = freq * 2.4; // inharmonic
-        filter.frequency.value = 6000;
-        filter.Q.value = 0.5;
-    } else {
+    // Detune amounts (in cents) - asymmetric like the JP-8000
+    const detunes = [-35, -20, -10, 0, 12, 24, 40];
+    // Gains - center voice loudest
+    const oscGains = [0.5, 0.7, 0.9, 1, 0.9, 0.7, 0.5];
+
+    for (let i = 0; i < NUM_OSCS; i++) {
+        const osc = ctx.createOscillator();
+        const g = ctx.createGain();
+
         osc.type = 'sawtooth';
-        osc2.type = 'square';
-        osc2.frequency.value = freq * 0.998;
-        filter.frequency.value = 1500;
-        filter.Q.value = 5;
+        osc.frequency.value = baseFreq;
+        osc.detune.value = detunes[i];
+
+        g.gain.value = oscGains[i] / NUM_OSCS;
+
+        // Stereo spread - left voices detuned down, right detuned up
+        if (i < 3) {
+            osc.connect(g);
+            g.connect(panL);
+        } else if (i > 3) {
+            osc.connect(g);
+            g.connect(panR);
+        } else {
+            // Center goes to both
+            osc.connect(g);
+            g.connect(panL);
+            g.connect(panR);
+        }
+
+        osc.start();
+        oscs.push(osc);
+        gains.push(g);
     }
 
-    osc.frequency.value = freq;
+    // Stereo output
+    panL.connect(merger, 0, 0);
+    panR.connect(merger, 0, 1);
+
+    // Rich resonant filter
     filter.type = 'lowpass';
-    pan.pan.value = (Math.random() - 0.5) * 0.6;
+    filter.frequency.value = 800;
+    filter.Q.value = 4;
 
-    const attack = type === 'bell' ? 0.01 : 0.005;
-    const decay = duration * PHI;
+    merger.connect(filter);
+    filter.connect(output);
+    output.gain.value = 0;
+    output.connect(master);
+    output.connect(reverb);
+    output.connect(delay);
 
-    gain.gain.setValueAtTime(0, now);
-    gain.gain.linearRampToValueAtTime(0.25, now + attack);
-    gain.gain.exponentialRampToValueAtTime(0.001, now + decay);
+    return { oscs, gains, output, filter, baseFreq, panL, panR };
+}
+
+function updateWalls() {
+    const now = ctx.currentTime;
+    const S = getBlendedState();
+
+    // LFO for slow movement
+    F.lfo = Math.sin(now * 0.3) * 0.5 + 0.5;
+
+    walls.forEach((w, i) => {
+        // Amplitude - builds with movement and darkness
+        let amp = (0.05 + S.speed * 0.15 + M.darkness * 0.1);
+
+        // Position affects which voices are prominent
+        if (i === 0) amp *= 0.8; // root always present
+        if (i === 1) amp *= (1 + S.x) / 2; // minor 3rd on right side
+        if (i === 2) amp *= (1 + S.y) / 2 * M.darkness; // tension voice builds
+
+        w.output.gain.linearRampToValueAtTime(amp * 0.3, now + 0.2);
+
+        // Filter - opens slowly, controlled by movement
+        const filterBase = 400 + M.darkness * 1500;
+        const filterMod = S.speed * 2000 + F.lfo * 500;
+        w.filter.frequency.linearRampToValueAtTime(filterBase + filterMod, now + 0.15);
+        w.filter.Q.linearRampToValueAtTime(2 + S.speed * 6, now + 0.15);
+
+        // Subtle pitch drift
+        const drift = Math.sin(now * (0.1 + i * 0.07)) * 5;
+        w.oscs.forEach((osc, j) => {
+            const baseDetune = [-35, -20, -10, 0, 12, 24, 40][j];
+            osc.detune.linearRampToValueAtTime(baseDetune + drift, now + 0.1);
+        });
+    });
+
+    // Sub drone - always rumbling, intensity varies
+    const subAmp = 0.15 + S.speed * 0.2 + M.darkness * 0.15;
+    subDrone.gain.gain.linearRampToValueAtTime(subAmp, now + 0.2);
+
+    // Sub filter opens with intensity
+    subDrone.filter.frequency.linearRampToValueAtTime(60 + S.speed * 40, now + 0.2);
+
+    // Build darkness over time
+    M.darkness = Math.min(1, M.darkness + 0.0005);
+}
+
+// ============ TEXTURE LAYER - FILTERED NOISE CHAOS ============
+
+function createTexture() {
+    // Continuous noise that morphs with movement
+    const bufferSize = ctx.sampleRate * 2;
+    const noiseBuffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+    const data = noiseBuffer.getChannelData(0);
+
+    for (let i = 0; i < bufferSize; i++) {
+        data[i] = Math.random() * 2 - 1;
+    }
+
+    const noise = ctx.createBufferSource();
+    noise.buffer = noiseBuffer;
+    noise.loop = true;
+
+    const noiseGain = ctx.createGain();
+    noiseGain.gain.value = 0;
+
+    const noiseFilter = ctx.createBiquadFilter();
+    noiseFilter.type = 'bandpass';
+    noiseFilter.frequency.value = 1000;
+    noiseFilter.Q.value = 5;
+
+    noise.connect(noiseFilter);
+    noiseFilter.connect(noiseGain);
+    noiseGain.connect(reverb);
+
+    noise.start();
+
+    textureNoise = { source: noise, gain: noiseGain, filter: noiseFilter };
+}
+
+function updateTexture() {
+    const now = ctx.currentTime;
+    const S = getBlendedState();
+
+    // Noise level - whispers of chaos
+    const noiseAmp = S.speed * 0.08 + M.darkness * 0.05;
+    textureNoise.gain.gain.linearRampToValueAtTime(noiseAmp, now + 0.1);
+
+    // Filter sweeps with position
+    const freq = 500 + S.x * 2000 + S.y * 1500 + F.lfo * 1000;
+    textureNoise.filter.frequency.linearRampToValueAtTime(freq, now + 0.1);
+    textureNoise.filter.Q.linearRampToValueAtTime(3 + M.darkness * 8, now + 0.1);
+}
+
+// ============ DARK MELODIC VOICES ============
+
+function playDarkNote(semitones, duration) {
+    const freq = ROOT * Math.pow(2, semitones / 12);
+    const now = ctx.currentTime;
+
+    // Supersaw voice for melody too
+    const NUM = 5;
+    const oscs = [];
+    const output = ctx.createGain();
+    const filter = ctx.createBiquadFilter();
+
+    const detunes = [-25, -10, 0, 10, 25];
+
+    for (let i = 0; i < NUM; i++) {
+        const osc = ctx.createOscillator();
+        osc.type = i === 2 ? 'triangle' : 'sawtooth';
+        osc.frequency.value = freq;
+        osc.detune.value = detunes[i];
+        osc.connect(filter);
+        osc.start(now);
+        osc.stop(now + duration + 0.5);
+        oscs.push(osc);
+    }
+
+    filter.type = 'lowpass';
+    filter.frequency.value = 3000;
+    filter.Q.value = 3;
 
     // Filter envelope
-    filter.frequency.setValueAtTime(filter.frequency.value * 2, now);
-    filter.frequency.exponentialRampToValueAtTime(filter.frequency.value * 0.5, now + decay * 0.7);
+    filter.frequency.setValueAtTime(5000, now);
+    filter.frequency.exponentialRampToValueAtTime(800, now + duration * 0.7);
 
-    osc.connect(filter);
-    osc2.connect(filter);
-    filter.connect(gain);
-    gain.connect(pan);
-    pan.connect(master);
-    pan.connect(delay);
-    pan.connect(reverb);
+    output.gain.setValueAtTime(0, now);
+    output.gain.linearRampToValueAtTime(0.15, now + 0.01);
+    output.gain.exponentialRampToValueAtTime(0.001, now + duration);
 
-    osc.start(now);
-    osc2.start(now);
-    osc.stop(now + decay + 0.1);
-    osc2.stop(now + decay + 0.1);
+    filter.connect(output);
+    output.connect(master);
+    output.connect(delay);
+    output.connect(reverb);
+}
+
+function playCluster() {
+    // Cluster chord - notes fighting each other
+    const now = ctx.currentTime;
+    const scale = M.darkness > 0.5 ? LOCRIAN : PHRYGIAN;
+
+    // Pick 3-4 close notes
+    const root = Math.floor(F.y * 3 + 2) * 12; // octave from position
+    const notes = [
+        root + scale[0],
+        root + scale[1], // b2 - the tension
+        root + scale[2],
+    ];
+
+    // Sometimes add the tritone
+    if (M.darkness > 0.3 && Math.random() > 0.5) {
+        notes.push(root + 6); // tritone
+    }
+
+    notes.forEach((n, i) => {
+        setTimeout(() => playDarkNote(n, M.beatTime * 4), i * 30);
+    });
 }
 
 // ============ MICROPHONE CAPTURE ============
@@ -565,14 +718,23 @@ function updateMemory() {
             // Beat
             updateBeat();
 
-            // Melodic events on certain beats
-            if (M.playhead % 2 === 0) {
-                const degree = Math.floor((F.y + 1) * 3.5);
-                const types = ['pluck', 'bell', 'pad'];
-                playNote(degree, 2, types[M.playhead % 3], M.beatTime * 2);
+            // Dark melodic events - clusters and tension
+            if (M.playhead === 0 || M.playhead === 4) {
+                // Cluster chords on downbeats
+                if (F.speed > 0.15 || M.darkness > 0.3) {
+                    playCluster();
+                }
             }
 
-            // Grains on odd beats
+            // Single dark notes on other beats
+            if (M.playhead % 2 === 1 && F.speed > 0.2) {
+                const scale = PHRYGIAN;
+                const degree = scale[Math.floor((F.y + 1) * 3) % 7];
+                const octave = Math.floor(F.x * 2 + 2) * 12;
+                playDarkNote(degree + octave, M.beatTime * 3);
+            }
+
+            // Grains woven in
             if (M.playhead % 2 === 1 && F.speed > 0.1) {
                 playGrain();
             }
@@ -724,27 +886,36 @@ function draw() {
         vc.stroke();
     }
 
-    // FM pad visualization
-    pads.forEach((p, i) => {
-        const amp = p.output.gain.value;
-        if (amp > 0.01) {
-            const angle = (i / 4) * Math.PI * 2 - Math.PI / 2;
-            const dist = 60 + amp * 80;
-            const px = cx + Math.cos(angle) * dist;
-            const py = cy + Math.sin(angle) * dist;
-
+    // Wall visualization - massive rings that pulse
+    walls.forEach((w, i) => {
+        const amp = w.output.gain.value;
+        if (amp > 0.005) {
+            const r = 50 + i * 40 + amp * 100;
             vc.beginPath();
-            vc.arc(px, py, 10 + amp * 30, 0, Math.PI * 2);
-            vc.fillStyle = `hsla(${180 + i * 30}, 70%, 50%, ${amp * 0.5})`;
-            vc.fill();
+            vc.arc(cx, cy, r, 0, Math.PI * 2);
+            // Colors shift darker with darkness level
+            const hue = 200 - M.darkness * 60 + i * 20;
+            vc.strokeStyle = `hsla(${hue}, 50%, ${30 + amp * 30}%, ${amp * 1.5})`;
+            vc.lineWidth = 3 + amp * 10;
+            vc.stroke();
         }
     });
 
-    // Core
+    // Darkness fog creeping in
+    if (M.darkness > 0.1) {
+        const fogGr = vc.createRadialGradient(w/2, h/2, loopR * 0.5, w/2, h/2, loopR * 1.5);
+        fogGr.addColorStop(0, 'transparent');
+        fogGr.addColorStop(1, `rgba(20,0,30,${M.darkness * 0.4})`);
+        vc.fillStyle = fogGr;
+        vc.fillRect(0, 0, w, h);
+    }
+
+    // Core - shifts color with darkness
     const coreR = 30 + S.speed * 40;
+    const coreHue = 170 - M.darkness * 50;
     const gr = vc.createRadialGradient(cx, cy, 0, cx, cy, coreR);
-    gr.addColorStop(0, `rgba(0,255,170,${0.4 + S.speed * 0.4})`);
-    gr.addColorStop(0.5, `rgba(0,200,255,${0.2 + S.speed * 0.2})`);
+    gr.addColorStop(0, `hsla(${coreHue}, 80%, 50%, ${0.5 + S.speed * 0.4})`);
+    gr.addColorStop(0.5, `hsla(${coreHue - 30}, 60%, 40%, ${0.3 + S.speed * 0.2})`);
     gr.addColorStop(1, 'transparent');
     vc.fillStyle = gr;
     vc.beginPath();
@@ -789,7 +960,8 @@ function tick() {
         M.activeLayer = [];
     }
 
-    updatePads();
+    updateWalls();
+    updateTexture();
     draw();
     updateUI();
 
