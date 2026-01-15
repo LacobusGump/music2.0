@@ -34,10 +34,10 @@
 </div>
 <div id="app">
     <canvas id="c"></canvas>
-    <div class="hud tl"><div>FIELD</div><div class="v" id="fld">0</div></div>
+    <div class="hud tl"><div>MODE</div><div class="v" id="mode">BUILDING</div></div>
     <div class="hud tr"><div>FLOW</div><div class="v" id="flw">0</div></div>
-    <div class="hud bl"><div>HARMONIC</div><div class="v" id="hrm">1</div></div>
-    <div class="hud br"><div>DENSITY</div><div class="v" id="dns">0</div></div>
+    <div class="hud bl"><div>LAYERS</div><div class="v" id="layers">0</div></div>
+    <div class="hud br"><div>BEAT</div><div class="v" id="beat">1</div></div>
 </div>
 <script>
 // GUMP - Grand Unified Music Project
@@ -55,6 +55,19 @@ const F = {
     density: 0,                  // event density
     harmonic: 1,                 // current harmonic emphasis
     field: 0                     // field intensity
+};
+
+// Memory - the song builds itself
+const M = {
+    mode: 'building',           // 'building' or 'looping'
+    tape: [],                   // recorded snapshots
+    loopLen: 8,                 // beats in the base loop
+    beatTime: 0.5,              // seconds per beat (PHI-derived)
+    playhead: 0,                // current position in loop
+    lastBeat: 0,                // last beat timestamp
+    layers: [],                 // additional recorded layers
+    activeLayer: null,          // layer being recorded now
+    blend: 0.6                  // how much loop vs live (0=all live, 1=all loop)
 };
 
 let ctx, out;
@@ -135,8 +148,85 @@ function createDroneField() {
     }
 }
 
+// Snapshot the current state for recording
+function snapshot() {
+    return {
+        x: F.x, y: F.y,
+        speed: F.speed,
+        density: F.density,
+        amps: drones.map(d => d.gain.gain.value)
+    };
+}
+
+// Memory system - record and playback
+function updateMemory() {
+    const now = ctx.currentTime;
+
+    // Beat clock
+    if (now - M.lastBeat >= M.beatTime) {
+        M.lastBeat = now;
+
+        if (M.mode === 'building') {
+            // Record this beat
+            M.tape.push(snapshot());
+
+            // Check if base loop is complete
+            if (M.tape.length >= M.loopLen) {
+                M.mode = 'looping';
+                M.playhead = 0;
+            }
+        } else {
+            // Advance playhead
+            M.playhead = (M.playhead + 1) % M.loopLen;
+
+            // Record to active layer if exists
+            if (M.activeLayer) {
+                M.activeLayer.push(snapshot());
+                if (M.activeLayer.length >= M.loopLen) {
+                    M.layers.push(M.activeLayer);
+                    M.activeLayer = null;
+                    // Limit layers to prevent chaos
+                    if (M.layers.length > 3) M.layers.shift();
+                }
+            }
+        }
+    }
+}
+
+// Get the blended state from memory + live input
+function getBlendedState() {
+    if (M.mode === 'building' || M.tape.length === 0) {
+        return { x: F.x, y: F.y, speed: F.speed };
+    }
+
+    // Get recorded state at playhead
+    const rec = M.tape[M.playhead];
+
+    // Blend recorded with live
+    const live = 1 - M.blend;
+    const loop = M.blend;
+
+    let x = rec.x * loop + F.x * live;
+    let y = rec.y * loop + F.y * live;
+    let speed = rec.speed * loop + F.speed * live;
+
+    // Add layers on top
+    M.layers.forEach((layer, li) => {
+        const ls = layer[M.playhead];
+        const layerWeight = 0.3 / (li + 1); // each layer quieter
+        x += ls.x * layerWeight;
+        y += ls.y * layerWeight;
+        speed += ls.speed * layerWeight;
+    });
+
+    return { x: Math.max(-1, Math.min(1, x)), y: Math.max(-1, Math.min(1, y)), speed: Math.min(1, speed) };
+}
+
 function updateDrones() {
     const now = ctx.currentTime;
+
+    // Get blended state (loop + live)
+    const S = getBlendedState();
 
     drones.forEach((d, i) => {
         // Position in space determines harmonic mix
@@ -145,11 +235,11 @@ function updateDrones() {
         // z-axis (speed): attack/presence
 
         const isOdd = d.harmonic % 2 === 1;
-        const oddEvenMix = isOdd ? (1 + F.x) / 2 : (1 - F.x) / 2;
+        const oddEvenMix = isOdd ? (1 + S.x) / 2 : (1 - S.x) / 2;
 
-        const heightFactor = i < 4 ? (1 - F.y) / 2 : (1 + F.y) / 2;
+        const heightFactor = i < 4 ? (1 - S.y) / 2 : (1 + S.y) / 2;
 
-        const presence = 0.15 + F.speed * 0.4;
+        const presence = 0.15 + S.speed * 0.4;
 
         // Combined amplitude
         let amp = oddEvenMix * heightFactor * presence;
@@ -164,11 +254,11 @@ function updateDrones() {
         d.gain.gain.linearRampToValueAtTime(amp, now + 0.1);
 
         // Filter opens with speed
-        const filterFreq = d.freq * (1 + F.speed * 3);
+        const filterFreq = d.freq * (1 + S.speed * 3);
         d.filter.frequency.linearRampToValueAtTime(filterFreq, now + 0.1);
 
         // Subtle pitch bend based on position
-        const bendCents = F.x * 10 + F.y * 5;
+        const bendCents = S.x * 10 + S.y * 5;
         const bendRatio = Math.pow(2, bendCents / 1200);
         d.osc1.frequency.linearRampToValueAtTime(d.freq * bendRatio, now + 0.1);
         d.osc2.frequency.linearRampToValueAtTime(d.freq * 1.001 * bendRatio, now + 0.1);
@@ -310,37 +400,74 @@ function draw() {
     vc.fillStyle = `rgba(0,0,0,${0.05 + (1-F.density) * 0.1})`;
     vc.fillRect(0, 0, w, h);
 
-    // Center follows position
-    const cx = w/2 + F.x * w * 0.3;
-    const cy = h/2 - F.y * h * 0.3;
+    // Center follows blended position
+    const S = getBlendedState();
+    const cx = w/2 + S.x * w * 0.3;
+    const cy = h/2 - S.y * h * 0.3;
+
+    // Loop progress ring (outer)
+    if (M.mode === 'looping' || M.tape.length > 0) {
+        const loopR = Math.min(w, h) * 0.4;
+        const progress = M.mode === 'building'
+            ? M.tape.length / M.loopLen
+            : M.playhead / M.loopLen;
+
+        vc.beginPath();
+        vc.arc(w/2, h/2, loopR, -Math.PI/2, -Math.PI/2 + progress * Math.PI * 2);
+        vc.strokeStyle = M.mode === 'building' ? 'rgba(255,100,100,0.3)' : 'rgba(0,255,170,0.2)';
+        vc.lineWidth = 3;
+        vc.stroke();
+
+        // Layer rings
+        M.layers.forEach((_, i) => {
+            vc.beginPath();
+            vc.arc(w/2, h/2, loopR - 10 - i * 8, 0, Math.PI * 2);
+            vc.strokeStyle = `rgba(0,255,170,${0.1 + i * 0.05})`;
+            vc.lineWidth = 2;
+            vc.stroke();
+        });
+
+        // Recording indicator
+        if (M.activeLayer) {
+            const recProgress = M.activeLayer.length / M.loopLen;
+            vc.beginPath();
+            vc.arc(w/2, h/2, loopR - 10 - M.layers.length * 8, -Math.PI/2, -Math.PI/2 + recProgress * Math.PI * 2);
+            vc.strokeStyle = 'rgba(255,100,100,0.5)';
+            vc.lineWidth = 2;
+            vc.stroke();
+        }
+    }
 
     // Harmonic rings
     drones.forEach((d, i) => {
-        const r = 20 + i * 25 + F.speed * 20;
+        const r = 20 + i * 25 + S.speed * 20;
         const alpha = d.gain.gain.value * 2;
 
         if (alpha > 0.01) {
             vc.beginPath();
             vc.arc(cx, cy, r, 0, Math.PI * 2);
             vc.strokeStyle = `hsla(${160 + i * 15}, 60%, 50%, ${alpha})`;
-            vc.lineWidth = 1 + F.speed * 2;
+            vc.lineWidth = 1 + S.speed * 2;
             vc.stroke();
         }
     });
 
     // Core glow
-    const gr = vc.createRadialGradient(cx, cy, 0, cx, cy, 50 + F.speed * 50);
-    gr.addColorStop(0, `rgba(0,255,170,${0.3 + F.speed * 0.3})`);
+    const gr = vc.createRadialGradient(cx, cy, 0, cx, cy, 50 + S.speed * 50);
+    gr.addColorStop(0, `rgba(0,255,170,${0.3 + S.speed * 0.3})`);
     gr.addColorStop(1, 'transparent');
     vc.fillStyle = gr;
     vc.fillRect(0, 0, w, h);
 }
 
 function updateUI() {
-    document.getElementById('fld').textContent = F.field.toFixed(2);
+    const modeText = M.mode === 'building'
+        ? `BUILDING ${M.tape.length}/${M.loopLen}`
+        : (M.activeLayer ? 'RECORDING' : 'LOOPING');
+    document.getElementById('mode').textContent = modeText;
     document.getElementById('flw').textContent = F.speed.toFixed(2);
-    document.getElementById('hrm').textContent = Math.floor((F.y + 1) * 4) + 1;
-    document.getElementById('dns').textContent = F.density.toFixed(2);
+    document.getElementById('layers').textContent = M.layers.length + (M.activeLayer ? '+1' : '');
+    document.getElementById('beat').textContent = M.playhead + 1;
 }
 
 // Main loop
@@ -348,6 +475,13 @@ function tick() {
     if (!running) return;
 
     F.phase += 0.01 * (1 + F.speed);
+
+    updateMemory();
+
+    // Auto-start new layer recording when significant movement in loop mode
+    if (M.mode === 'looping' && !M.activeLayer && F.speed > 0.3) {
+        M.activeLayer = [];
+    }
 
     updateDrones();
     pulse();
