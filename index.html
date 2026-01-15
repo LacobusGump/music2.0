@@ -35,39 +35,46 @@
 <div id="app">
     <canvas id="c"></canvas>
     <div class="hud tl"><div>STAGE</div><div class="v" id="stage">VOID</div></div>
-    <div class="hud tr"><div>FLOW</div><div class="v" id="flw">0</div></div>
-    <div class="hud bl"><div>LAYERS</div><div class="v" id="layers">0</div></div>
-    <div class="hud br"><div>JOURNEY</div><div class="v" id="journey">0:00</div></div>
+    <div class="hud tr"><div>ENERGY</div><div class="v" id="flw">0</div></div>
+    <div class="hud bl"><div>MOOD</div><div class="v" id="layers">-</div></div>
+    <div class="hud br"><div>TIME</div><div class="v" id="journey">0:00</div></div>
 </div>
 <script>
 // GUMP - Grand Unified Music Project
 // A journey through sound and self
+// GENERATIVE. UNPREDICTABLE. ALIVE.
 
 const PHI = 1.618033988749;
 const TAU = Math.PI * 2;
 
-// Scales for different emotional states
-const SCALES = {
-    void: [0, 5, 7],                    // sparse, open fifths
-    phrygian: [0, 1, 3, 5, 7, 8, 10],   // dark, tense
-    locrian: [0, 1, 3, 5, 6, 8, 10],    // unstable, diminished
-    lydian: [0, 2, 4, 6, 7, 9, 11],     // bright, transcendent
-    wholetone: [0, 2, 4, 6, 8, 10],     // dreamlike, floating
+// ============ GENERATIVE DNA - UNIQUE EACH SESSION ============
+
+// This gets randomized at init - every session is different
+const DNA = {
+    root: 55,           // will be randomized
+    bpm: 72,            // will be randomized
+    scale: null,        // will be picked
+    chordSet: null,     // will be generated
+    loopLen: 8,         // will vary
+    swingAmount: 0,     // rhythmic swing
+    chaosLevel: 0.3,    // probability of random events
+    dropThreshold: 0.5, // when drops happen
+    mutationRate: 0.02  // how fast things evolve
 };
 
-// Quick access for common scales
-const PHRYGIAN = SCALES.phrygian;
-const LOCRIAN = SCALES.locrian;
+// All available scales - will pick randomly
+const SCALE_POOL = [
+    { name: 'phrygian', notes: [0, 1, 3, 5, 7, 8, 10], mood: 'dark' },
+    { name: 'locrian', notes: [0, 1, 3, 5, 6, 8, 10], mood: 'unstable' },
+    { name: 'dorian', notes: [0, 2, 3, 5, 7, 9, 10], mood: 'mysterious' },
+    { name: 'harmonic_minor', notes: [0, 2, 3, 5, 7, 8, 11], mood: 'dramatic' },
+    { name: 'hungarian', notes: [0, 2, 3, 6, 7, 8, 11], mood: 'exotic' },
+    { name: 'prometheus', notes: [0, 2, 4, 6, 9, 10], mood: 'alien' },
+    { name: 'enigmatic', notes: [0, 1, 4, 6, 8, 10, 11], mood: 'wtf' }
+];
 
-// THE JOURNEY - stages of the experience
-const STAGES = {
-    VOID: 0,        // sparse, uncertain - you're alone
-    AWAKENING: 1,   // first sounds emerge - curiosity
-    DESCENT: 2,     // going deeper - tension builds
-    DEEP: 3,        // maximum darkness - disorientation
-    EMERGENCE: 4,   // light breaking through - hope
-    TRANSCEND: 5    // full release - frisson
-};
+// Possible root notes (different vibes)
+const ROOT_POOL = [41.2, 46.25, 49, 55, 58.27, 61.74, 65.41]; // Eb2 to C3
 
 // State
 const F = {
@@ -78,25 +85,30 @@ const F = {
     density: 0,
     field: 0,
     lfo: 0,
-    breath: 0,      // breath cycle (5 second period)
-    orbit: 0        // spatial rotation
+    breath: 0,
+    orbit: 0,
+    energy: 0,          // accumulated movement energy
+    lastEventTime: 0    // for spacing out events
 };
 
-// Journey state
+// Journey state - now more responsive
 const J = {
-    stage: STAGES.VOID,
-    stageTime: 0,       // time in current stage
-    totalTime: 0,       // total journey time
-    intensity: 0,       // overall intensity
-    tension: 0,         // tension level (for release)
-    lastDrop: 0,        // time of last "drop"
-    dropPending: false, // is a drop coming?
-    frisson: 0,         // frisson intensity
-    keyOffset: 0,       // current key (for modulation)
-    silenceUntil: 0     // silence timestamp
+    stage: 0,
+    stageTime: 0,
+    totalTime: 0,
+    intensity: 0,
+    tension: 0,         // NOW builds continuously based on energy
+    lastDrop: -10,      // start negative so first drop can happen sooner
+    dropPending: false,
+    frisson: 0,
+    keyOffset: 0,
+    silenceUntil: 0,
+    chordIndex: 0,      // current chord in progression
+    nextChordTime: 0,   // when to change chords
+    surpriseCount: 0    // track surprising events
 };
 
-// Memory
+// Memory - now with mutation
 const M = {
     mode: 'building',
     tape: [],
@@ -106,19 +118,21 @@ const M = {
     lastBeat: 0,
     layers: [],
     activeLayer: null,
-    blend: 0.6,
+    blend: 0.5,
     beatDropped: false,
     beatIntensity: 0,
-    darkness: 0
+    darkness: 0,
+    mutationAccum: 0,   // accumulates toward tape mutation
+    groove: []          // randomized beat pattern
 };
 
 // Audio nodes
 let ctx, master, reverb, reverbDistort, delay, subDrone, textureNoise;
 let walls = [];
-let binaural = null;    // binaural beat layer
-let shimmer = null;     // high frequency shimmer
-let whisper = null;     // vocal-like formant layer
-let orbitSounds = [];   // sounds that move around you
+let binaural = null;
+let shimmer = null;
+let whisper = null;
+let orbitSounds = [];
 let running = false;
 
 // Mic
@@ -126,14 +140,95 @@ let micStream, micSource, micBuffer;
 const MIC_BUFFER_SIZE = 48000 * 4;
 let micWritePos = 0;
 
-const ROOT = 55;
-const BPM = 72; // slower for the journey
+// ============ GENERATE UNIQUE DNA ============
+
+function generateDNA() {
+    // Random root note
+    DNA.root = ROOT_POOL[Math.floor(Math.random() * ROOT_POOL.length)];
+
+    // Random tempo 60-90 BPM
+    DNA.bpm = 60 + Math.random() * 30;
+
+    // Random scale
+    DNA.scale = SCALE_POOL[Math.floor(Math.random() * SCALE_POOL.length)];
+
+    // Random loop length 6-12
+    DNA.loopLen = 6 + Math.floor(Math.random() * 7);
+    M.loopLen = DNA.loopLen;
+
+    // Generate unique chord progression (4-6 chords)
+    const numChords = 4 + Math.floor(Math.random() * 3);
+    DNA.chordSet = [];
+    for (let i = 0; i < numChords; i++) {
+        DNA.chordSet.push(generateChord());
+    }
+
+    // Random swing 0-0.3
+    DNA.swingAmount = Math.random() * 0.3;
+
+    // Chaos level 0.2-0.5
+    DNA.chaosLevel = 0.2 + Math.random() * 0.3;
+
+    // Drop threshold - lower = more drops
+    DNA.dropThreshold = 0.4 + Math.random() * 0.3;
+
+    // Generate unique groove pattern
+    generateGroove();
+
+    console.log('DNA:', DNA.scale.name, 'root:', DNA.root.toFixed(1), 'bpm:', DNA.bpm.toFixed(0));
+}
+
+function generateChord() {
+    // Generate interesting chord voicings from the scale
+    const scale = DNA.scale.notes;
+    const voicing = [];
+
+    // Root (maybe)
+    if (Math.random() > 0.2) voicing.push(0);
+
+    // Pick 2-4 more notes from scale, possibly in different octaves
+    const numNotes = 2 + Math.floor(Math.random() * 3);
+    for (let i = 0; i < numNotes; i++) {
+        const degree = scale[Math.floor(Math.random() * scale.length)];
+        const octave = Math.floor(Math.random() * 2) * 12; // 0 or 12
+        voicing.push(degree + octave);
+    }
+
+    // Sometimes add tension notes outside the scale
+    if (Math.random() > 0.7) {
+        const tension = [1, 6, 11][Math.floor(Math.random() * 3)]; // b2, tritone, or maj7
+        voicing.push(tension + 12);
+    }
+
+    return [...new Set(voicing)].sort((a, b) => a - b); // unique, sorted
+}
+
+function generateGroove() {
+    // Create a unique rhythmic pattern
+    M.groove = [];
+    for (let i = 0; i < DNA.loopLen; i++) {
+        M.groove.push({
+            kick: Math.random() > 0.6,
+            snare: Math.random() > 0.7,
+            hat: Math.random() > 0.5,
+            accent: Math.random() > 0.8,
+            probability: 0.5 + Math.random() * 0.5 // how likely this beat plays
+        });
+    }
+    // Ensure at least one kick
+    M.groove[0].kick = true;
+    M.groove[0].probability = 1;
+}
 
 // ============ AUDIO ENGINE ============
 
 function init() {
     ctx = new (window.AudioContext || window.webkitAudioContext)();
-    M.beatTime = 60 / BPM / 2;
+
+    // GENERATE UNIQUE DNA FOR THIS SESSION
+    generateDNA();
+
+    M.beatTime = 60 / DNA.bpm / 2;
 
     // Master
     master = ctx.createGain();
@@ -145,9 +240,9 @@ function init() {
     // Dark reverb with distortion after it
     reverb = createDarkReverb();
 
-    // Delay
+    // Delay - synced to tempo
     delay = ctx.createDelay(2);
-    delay.delayTime.value = 60 / BPM * 0.75;
+    delay.delayTime.value = 60 / DNA.bpm * 0.75;
     const delayFb = ctx.createGain();
     delayFb.gain.value = 0.4;
     const delayFilter = ctx.createBiquadFilter();
@@ -181,6 +276,9 @@ function init() {
     createWhisper();
     initOrbits();
     initMic();
+
+    // Schedule first chord change
+    J.nextChordTime = ctx.currentTime + 4 + Math.random() * 4;
 }
 
 // Waveshaper for that gritty saturation
@@ -250,10 +348,10 @@ function createSubDrone() {
     const subFilter = ctx.createBiquadFilter();
 
     sub.type = 'sine';
-    sub.frequency.value = ROOT / 2; // 27.5 Hz - you feel it more than hear it
+    sub.frequency.value = DNA.root / 2; // You feel it more than hear it
 
     sub2.type = 'sine';
-    sub2.frequency.value = ROOT / 2 * 1.002; // beating
+    sub2.frequency.value = DNA.root / 2 * 1.002; // beating
 
     subFilter.type = 'lowpass';
     subFilter.frequency.value = 80;
@@ -268,23 +366,44 @@ function createSubDrone() {
     sub.start();
     sub2.start();
 
-    subDrone = { sub, sub2, gain: subGain, filter: subFilter };
+    subDrone = { sub, sub2, gain: subGain, filter: subFilter, baseFreq: DNA.root / 2 };
 }
 
 // ============ THE WALLS - MASSIVE SUPERSAW CHORDS ============
 
 function createWalls() {
-    // 3 massive chord voices, each is a 7-oscillator supersaw
-    const chordIntervals = [
-        [0, 0],      // root
-        [3, 1],      // minor 3rd + octave (cluster)
-        [7, 13]      // 5th + b9 up high (the tension)
-    ];
+    // Create walls based on the FIRST chord in our generated progression
+    // These will morph to other chords over time
+    const chord = DNA.chordSet[0];
 
-    chordIntervals.forEach((interval, idx) => {
-        const wall = createSupersaw(ROOT * Math.pow(2, interval[0]/12 + interval[1]/12), idx);
+    chord.forEach((semitone, idx) => {
+        const freq = DNA.root * Math.pow(2, semitone / 12);
+        const wall = createSupersaw(freq, idx);
+        wall.semitone = semitone; // track what note this is
         walls.push(wall);
     });
+}
+
+function morphToChord(chordIndex) {
+    // Smoothly morph all walls to a new chord voicing
+    const chord = DNA.chordSet[chordIndex % DNA.chordSet.length];
+    const now = ctx.currentTime;
+
+    // Match existing walls to new chord notes (some may not map)
+    walls.forEach((wall, i) => {
+        if (i < chord.length) {
+            const newSemitone = chord[i];
+            const newFreq = DNA.root * Math.pow(2, (newSemitone + J.keyOffset) / 12);
+            wall.semitone = newSemitone;
+            wall.baseFreq = newFreq;
+
+            wall.oscs.forEach(osc => {
+                osc.frequency.linearRampToValueAtTime(newFreq, now + 0.8);
+            });
+        }
+    });
+
+    J.chordIndex = chordIndex;
 }
 
 function createSupersaw(baseFreq, idx) {
@@ -637,10 +756,11 @@ function createOrbitSound(freq, radius) {
 }
 
 function initOrbits() {
-    // Create several orbital sounds at different frequencies
-    const freqs = [ROOT * 2, ROOT * 3, ROOT * 4, ROOT * 5];
-    freqs.forEach((f, i) => {
-        orbitSounds.push(createOrbitSound(f, 0.8 - i * 0.15));
+    // Create several orbital sounds at harmonics of the root
+    const harmonics = [2, 3, 4, 5, 6];
+    harmonics.forEach((h, i) => {
+        const freq = DNA.root * h;
+        orbitSounds.push(createOrbitSound(freq, 0.8 - i * 0.12));
     });
 }
 
@@ -665,141 +785,247 @@ function updateOrbits() {
     });
 }
 
-// ============ THE JOURNEY - STAGE PROGRESSION ============
+// ============ THE JOURNEY - NOW ACTUALLY RESPONSIVE ============
 
 function updateJourney() {
     const now = ctx.currentTime;
-    const dt = 1/60; // approx frame time
+    const dt = 1/60;
 
     J.totalTime += dt;
     J.stageTime += dt;
 
-    // Breath cycle - 5 second period
+    // Breath cycle
     F.breath = (Math.sin(now * TAU / 5) + 1) / 2;
 
-    // LFO for slow movement
+    // LFO
     F.lfo = Math.sin(now * 0.3) * 0.5 + 0.5;
 
-    // Intensity builds with movement and time
-    J.intensity = Math.min(1, J.intensity * 0.999 + F.speed * 0.01 + 0.0001);
+    // ENERGY accumulates with movement - this drives everything
+    F.energy = Math.min(1, F.energy * 0.998 + F.speed * 0.02);
 
-    // Tension builds in certain stages
-    if (J.stage === STAGES.DESCENT || J.stage === STAGES.DEEP) {
-        J.tension = Math.min(1, J.tension + 0.0008 + F.speed * 0.002);
-    } else {
-        J.tension *= 0.995;
+    // TENSION NOW BUILDS CONTINUOUSLY based on energy AND time since last drop
+    const timeSinceDrop = now - J.lastDrop;
+    const tensionGrowth = 0.002 + F.energy * 0.008 + (timeSinceDrop * 0.0001);
+    J.tension = Math.min(1, J.tension + tensionGrowth);
+
+    // Intensity for visuals
+    J.intensity = Math.min(1, J.intensity * 0.995 + F.speed * 0.02 + 0.001);
+
+    // Frisson decays but can spike
+    J.frisson *= 0.98;
+
+    // CHORD CHANGES - happen on their own timeline
+    if (now > J.nextChordTime) {
+        J.chordIndex = (J.chordIndex + 1) % DNA.chordSet.length;
+        morphToChord(J.chordIndex);
+        // Next chord change in 6-15 seconds
+        J.nextChordTime = now + 6 + Math.random() * 9;
     }
 
-    // Frisson builds in emergence/transcendence
-    if (J.stage >= STAGES.EMERGENCE) {
-        J.frisson = Math.min(1, J.frisson + 0.002);
-    } else {
-        J.frisson *= 0.99;
+    // THE DROP - triggers when tension is high enough (much lower threshold!)
+    // Minimum 8 seconds between drops, tension threshold based on DNA
+    if (J.tension > DNA.dropThreshold && !J.dropPending && timeSinceDrop > 8) {
+        J.dropPending = true;
+        scheduleDrop(now + 1.5 + Math.random()); // drop in 1.5-2.5 seconds
     }
 
-    // Stage progression based on time and intensity
+    // RANDOM CHAOS EVENTS - based on DNA.chaosLevel
+    if (Math.random() < DNA.chaosLevel * 0.01) {
+        triggerChaos();
+    }
+
+    // Stage progression - faster, based on energy not time
     const stageThresholds = [
-        { time: 8, intensity: 0.1 },   // VOID → AWAKENING
-        { time: 20, intensity: 0.25 }, // AWAKENING → DESCENT
-        { time: 40, intensity: 0.5 },  // DESCENT → DEEP
-        { time: 70, intensity: 0.7 },  // DEEP → EMERGENCE
-        { time: 100, intensity: 0.85 } // EMERGENCE → TRANSCEND
+        { energy: 0.15, time: 5 },   // VOID → AWAKENING
+        { energy: 0.3, time: 12 },   // AWAKENING → DESCENT
+        { energy: 0.5, time: 25 },   // DESCENT → DEEP
+        { energy: 0.7, time: 45 },   // DEEP → EMERGENCE
+        { energy: 0.85, time: 70 }   // EMERGENCE → TRANSCEND
     ];
 
-    if (J.stage < STAGES.TRANSCEND) {
+    if (J.stage < 5) {
         const threshold = stageThresholds[J.stage];
-        if (J.totalTime > threshold.time && J.intensity > threshold.intensity) {
+        if (F.energy > threshold.energy && J.totalTime > threshold.time) {
             advanceStage();
         }
     }
 
-    // Check for drop trigger
-    if (J.tension > 0.8 && !J.dropPending && now - J.lastDrop > 15) {
-        J.dropPending = true;
-        scheduleDrop(now + 2); // drop in 2 seconds
-    }
-
-    // Update darkness based on stage
-    M.darkness = [0, 0.1, 0.3, 0.7, 0.4, 0.1][J.stage];
+    // Darkness based on stage and tension
+    M.darkness = Math.min(1, [0, 0.15, 0.4, 0.8, 0.5, 0.2][J.stage] + J.tension * 0.3);
 }
 
 function advanceStage() {
-    J.stage = Math.min(STAGES.TRANSCEND, J.stage + 1);
+    J.stage = Math.min(5, J.stage + 1);
     J.stageTime = 0;
 
-    // Key modulation on stage change - instant emotion
-    if (J.stage === STAGES.EMERGENCE) {
-        modulateKey(1); // up a half step - the lift
-    } else if (J.stage === STAGES.TRANSCEND) {
-        modulateKey(2); // up a whole step - transcendence
+    // Key modulation on certain stages
+    if (J.stage === 4) { // EMERGENCE
+        modulateKey(1);
+        J.frisson = 0.5;
+    } else if (J.stage === 5) { // TRANSCEND
+        modulateKey(2);
+        J.frisson = 0.8;
     }
+
+    // Trigger a surprise sound
+    triggerSurprise();
 }
 
 function modulateKey(semitones) {
-    // Shift all pitched elements up - creates instant emotional lift
     J.keyOffset += semitones;
+    const now = ctx.currentTime;
 
+    // Shift all walls
     walls.forEach(w => {
-        const newFreq = w.baseFreq * Math.pow(2, J.keyOffset / 12);
+        const newFreq = DNA.root * Math.pow(2, (w.semitone + J.keyOffset) / 12);
         w.oscs.forEach(osc => {
-            osc.frequency.linearRampToValueAtTime(newFreq, ctx.currentTime + 0.5);
+            osc.frequency.linearRampToValueAtTime(newFreq, now + 0.5);
         });
     });
+
+    // Shift sub drone
+    const newSub = subDrone.baseFreq * Math.pow(2, J.keyOffset / 12);
+    subDrone.sub.frequency.linearRampToValueAtTime(newSub, now + 0.5);
+    subDrone.sub2.frequency.linearRampToValueAtTime(newSub * 1.002, now + 0.5);
+}
+
+// CHAOS EVENTS - random disruptions
+function triggerChaos() {
+    const now = ctx.currentTime;
+    const chaos = Math.random();
+
+    if (chaos < 0.3) {
+        // Filter sweep
+        walls.forEach(w => {
+            const target = 200 + Math.random() * 4000;
+            w.filter.frequency.linearRampToValueAtTime(target, now + 0.1);
+            w.filter.frequency.linearRampToValueAtTime(800, now + 0.5);
+        });
+    } else if (chaos < 0.5) {
+        // Pitch wobble
+        walls.forEach(w => {
+            w.oscs.forEach(osc => {
+                const wobble = (Math.random() - 0.5) * 100;
+                osc.detune.linearRampToValueAtTime(wobble, now + 0.05);
+                osc.detune.linearRampToValueAtTime(0, now + 0.3);
+            });
+        });
+    } else if (chaos < 0.7) {
+        // Volume duck
+        master.gain.linearRampToValueAtTime(0.3, now + 0.05);
+        master.gain.linearRampToValueAtTime(0.8, now + 0.2);
+    } else {
+        // Random melodic fragment
+        playRandomMelody();
+    }
+}
+
+function triggerSurprise() {
+    // Play a surprising sound on stage change
+    const now = ctx.currentTime;
+    J.surpriseCount++;
+
+    // Rising sweep
+    const sweep = ctx.createOscillator();
+    const sweepGain = ctx.createGain();
+    sweep.type = 'sawtooth';
+    sweep.frequency.setValueAtTime(DNA.root, now);
+    sweep.frequency.exponentialRampToValueAtTime(DNA.root * 4, now + 0.5);
+    sweepGain.gain.setValueAtTime(0.3, now);
+    sweepGain.gain.exponentialRampToValueAtTime(0.001, now + 0.6);
+
+    sweep.connect(sweepGain);
+    sweepGain.connect(reverb);
+    sweepGain.connect(master);
+    sweep.start(now);
+    sweep.stop(now + 0.7);
+}
+
+function playRandomMelody() {
+    // Quick random melody from the scale
+    const scale = DNA.scale.notes;
+    const numNotes = 3 + Math.floor(Math.random() * 4);
+    const baseOctave = 1 + Math.floor(Math.random() * 2);
+
+    for (let i = 0; i < numNotes; i++) {
+        const degree = scale[Math.floor(Math.random() * scale.length)];
+        const octave = baseOctave * 12;
+        setTimeout(() => {
+            playDarkNote(degree + octave + J.keyOffset, M.beatTime * 2);
+        }, i * 80);
+    }
 }
 
 // ============ THE DROP - SILENCE THEN RELEASE ============
 
 function scheduleDrop(time) {
     // Everything cuts out, tension hangs, then SLAM back
-
     const now = ctx.currentTime;
+    const silenceDuration = 0.8 + Math.random() * 0.7; // 0.8-1.5 seconds
 
-    // Fade everything out
+    // Fade everything out quickly
     setTimeout(() => {
-        J.silenceUntil = ctx.currentTime + 1.5; // 1.5 seconds of near-silence
-        master.gain.linearRampToValueAtTime(0.05, ctx.currentTime + 0.3);
-    }, (time - now - 0.5) * 1000);
+        J.silenceUntil = ctx.currentTime + silenceDuration;
+        master.gain.linearRampToValueAtTime(0.02, ctx.currentTime + 0.15);
 
-    // The return - everything slams back louder
-    setTimeout(() => {
-        master.gain.linearRampToValueAtTime(1.0, ctx.currentTime + 0.05);
-        J.dropPending = false;
-        J.lastDrop = ctx.currentTime;
-        J.tension = 0;
-
-        // Trigger frisson response
-        J.frisson = Math.min(1, J.frisson + 0.5);
-
-        // Big kick on the return
-        playKick();
-        playKick(); // double hit
-
-        // Advance stage if ready
-        if (J.stage < STAGES.TRANSCEND && J.intensity > 0.5) {
-            advanceStage();
+        // Maybe shift to a new chord during the silence
+        if (Math.random() > 0.5) {
+            J.chordIndex = (J.chordIndex + 1) % DNA.chordSet.length;
+            morphToChord(J.chordIndex);
         }
-    }, (time - now + 1.5) * 1000);
+    }, (time - now - 0.3) * 1000);
+
+    // THE RETURN - slam back harder
+    setTimeout(() => {
+        const returnTime = ctx.currentTime;
+
+        // Volume surge (louder than before)
+        master.gain.linearRampToValueAtTime(1.2, returnTime + 0.02);
+        master.gain.linearRampToValueAtTime(0.85, returnTime + 0.3);
+
+        J.dropPending = false;
+        J.lastDrop = returnTime;
+        J.tension = 0.1; // reset but not to zero
+
+        // BIG frisson spike
+        J.frisson = Math.min(1, J.frisson + 0.7);
+
+        // Impact sounds
+        playKick();
+        setTimeout(() => playKick(), 50);
+        setTimeout(() => playKick(), 100);
+
+        // Maybe key change on the drop
+        if (Math.random() > 0.7) {
+            modulateKey(Math.random() > 0.5 ? 1 : -1);
+        }
+
+        // Regenerate groove pattern for variety
+        if (Math.random() > 0.6) {
+            generateGroove();
+        }
+
+    }, (time - now + silenceDuration) * 1000);
 }
 
 // ============ DARK MELODIC VOICES ============
 
 function playDarkNote(semitones, duration) {
-    const freq = ROOT * Math.pow(2, semitones / 12);
+    const freq = DNA.root * Math.pow(2, semitones / 12);
     const now = ctx.currentTime;
 
-    // Supersaw voice for melody too
-    const NUM = 5;
+    // Supersaw voice for melody - with randomized character
+    const NUM = 3 + Math.floor(Math.random() * 3); // 3-5 oscillators
     const oscs = [];
     const output = ctx.createGain();
     const filter = ctx.createBiquadFilter();
 
-    const detunes = [-25, -10, 0, 10, 25];
-
     for (let i = 0; i < NUM; i++) {
         const osc = ctx.createOscillator();
-        osc.type = i === 2 ? 'triangle' : 'sawtooth';
+        // Random waveform selection
+        osc.type = ['sawtooth', 'square', 'triangle'][Math.floor(Math.random() * 3)];
         osc.frequency.value = freq;
-        osc.detune.value = detunes[i];
+        osc.detune.value = (Math.random() - 0.5) * 50; // random detune
         osc.connect(filter);
         osc.start(now);
         osc.stop(now + duration + 0.5);
@@ -807,43 +1033,58 @@ function playDarkNote(semitones, duration) {
     }
 
     filter.type = 'lowpass';
-    filter.frequency.value = 3000;
-    filter.Q.value = 3;
+    filter.frequency.value = 1500 + Math.random() * 2000;
+    filter.Q.value = 1 + Math.random() * 5;
 
-    // Filter envelope
-    filter.frequency.setValueAtTime(5000, now);
-    filter.frequency.exponentialRampToValueAtTime(800, now + duration * 0.7);
+    // Filter envelope with variation
+    const filterStart = 2000 + Math.random() * 4000;
+    const filterEnd = 400 + Math.random() * 600;
+    filter.frequency.setValueAtTime(filterStart, now);
+    filter.frequency.exponentialRampToValueAtTime(filterEnd, now + duration * 0.7);
 
+    // Amplitude with variation
+    const amp = 0.1 + Math.random() * 0.1;
     output.gain.setValueAtTime(0, now);
-    output.gain.linearRampToValueAtTime(0.15, now + 0.01);
+    output.gain.linearRampToValueAtTime(amp, now + 0.01);
     output.gain.exponentialRampToValueAtTime(0.001, now + duration);
 
-    filter.connect(output);
+    // Random panning
+    const pan = ctx.createStereoPanner();
+    pan.pan.value = (Math.random() - 0.5) * 0.8;
+
+    filter.connect(pan);
+    pan.connect(output);
     output.connect(master);
     output.connect(delay);
     output.connect(reverb);
 }
 
 function playCluster() {
-    // Cluster chord - notes fighting each other
-    const now = ctx.currentTime;
-    const scale = M.darkness > 0.5 ? LOCRIAN : PHRYGIAN;
+    // Cluster chord from current scale
+    const scale = DNA.scale.notes;
 
-    // Pick 3-4 close notes
-    const root = Math.floor(F.y * 3 + 2) * 12; // octave from position
-    const notes = [
-        root + scale[0],
-        root + scale[1], // b2 - the tension
-        root + scale[2],
-    ];
+    // Pick octave based on position
+    const octave = Math.floor((F.y + 1) * 1.5 + 1) * 12;
 
-    // Sometimes add the tritone
-    if (M.darkness > 0.3 && Math.random() > 0.5) {
-        notes.push(root + 6); // tritone
+    // Pick 2-4 notes from scale
+    const numNotes = 2 + Math.floor(Math.random() * 3);
+    const notes = [];
+
+    for (let i = 0; i < numNotes; i++) {
+        const degree = scale[Math.floor(Math.random() * scale.length)];
+        notes.push(octave + degree + J.keyOffset);
     }
 
+    // Sometimes add chromatic tension
+    if (M.darkness > 0.4 && Math.random() > 0.5) {
+        const tension = [1, 6, 11][Math.floor(Math.random() * 3)];
+        notes.push(octave + tension + J.keyOffset);
+    }
+
+    // Stagger the notes slightly
     notes.forEach((n, i) => {
-        setTimeout(() => playDarkNote(n, M.beatTime * 4), i * 30);
+        const delay = i * (20 + Math.random() * 40);
+        setTimeout(() => playDarkNote(n, M.beatTime * (3 + Math.random() * 2)), delay);
     });
 }
 
@@ -944,27 +1185,32 @@ function playGrain() {
 function playKick() {
     const now = ctx.currentTime;
 
+    // Kick tuned to the root note for musical coherence
+    const kickFreq = DNA.root * 2 + Math.random() * 20; // slight variation
+
     // Sub oscillator
     const sub = ctx.createOscillator();
     sub.type = 'sine';
-    sub.frequency.setValueAtTime(150, now);
-    sub.frequency.exponentialRampToValueAtTime(40, now + 0.15);
+    sub.frequency.setValueAtTime(kickFreq * 2, now);
+    sub.frequency.exponentialRampToValueAtTime(kickFreq * 0.5, now + 0.15);
 
-    // Click
+    // Click with variation
     const click = ctx.createOscillator();
-    click.type = 'triangle';
-    click.frequency.setValueAtTime(1000, now);
-    click.frequency.exponentialRampToValueAtTime(100, now + 0.03);
+    click.type = Math.random() > 0.5 ? 'triangle' : 'square';
+    click.frequency.setValueAtTime(800 + Math.random() * 400, now);
+    click.frequency.exponentialRampToValueAtTime(kickFreq, now + 0.03);
 
     const subGain = ctx.createGain();
     const clickGain = ctx.createGain();
     const output = ctx.createGain();
 
-    subGain.gain.setValueAtTime(0.8 * M.beatIntensity, now);
-    subGain.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+    // Amplitude variation
+    const amp = 0.6 + Math.random() * 0.3;
+    subGain.gain.setValueAtTime(amp * M.beatIntensity, now);
+    subGain.gain.exponentialRampToValueAtTime(0.001, now + 0.25 + Math.random() * 0.1);
 
-    clickGain.gain.setValueAtTime(0.5 * M.beatIntensity, now);
-    clickGain.gain.exponentialRampToValueAtTime(0.001, now + 0.05);
+    clickGain.gain.setValueAtTime((amp * 0.6) * M.beatIntensity, now);
+    clickGain.gain.exponentialRampToValueAtTime(0.001, now + 0.04);
 
     output.gain.value = 0.7;
 
@@ -983,39 +1229,46 @@ function playKick() {
 function playSnare() {
     const now = ctx.currentTime;
 
-    // Noise burst
-    const noiseLen = 0.15;
+    // Varied noise length
+    const noiseLen = 0.1 + Math.random() * 0.1;
     const noise = ctx.createBuffer(1, ctx.sampleRate * noiseLen, ctx.sampleRate);
     const noiseData = noise.getChannelData(0);
+    const decay = 0.03 + Math.random() * 0.04;
     for (let i = 0; i < noiseData.length; i++) {
-        noiseData[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * 0.05));
+        noiseData[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * decay));
     }
 
     const noiseSource = ctx.createBufferSource();
     noiseSource.buffer = noise;
 
-    // Tone body
+    // Tone body with pitch variation
     const tone = ctx.createOscillator();
-    tone.type = 'triangle';
-    tone.frequency.value = 200;
+    tone.type = Math.random() > 0.7 ? 'square' : 'triangle';
+    tone.frequency.value = 150 + Math.random() * 100;
 
     const noiseGain = ctx.createGain();
     const toneGain = ctx.createGain();
     const filter = ctx.createBiquadFilter();
     filter.type = 'highpass';
-    filter.frequency.value = 1000;
+    filter.frequency.value = 800 + Math.random() * 600;
 
-    noiseGain.gain.setValueAtTime(0.6 * M.beatIntensity, now);
-    noiseGain.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+    // Random pan
+    const pan = ctx.createStereoPanner();
+    pan.pan.value = (Math.random() - 0.5) * 0.4;
 
-    toneGain.gain.setValueAtTime(0.3 * M.beatIntensity, now);
-    toneGain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+    const amp = 0.5 + Math.random() * 0.2;
+    noiseGain.gain.setValueAtTime(amp * M.beatIntensity, now);
+    noiseGain.gain.exponentialRampToValueAtTime(0.001, now + noiseLen);
+
+    toneGain.gain.setValueAtTime((amp * 0.5) * M.beatIntensity, now);
+    toneGain.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
 
     noiseSource.connect(filter);
     filter.connect(noiseGain);
     tone.connect(toneGain);
-    noiseGain.connect(master);
-    toneGain.connect(master);
+    noiseGain.connect(pan);
+    toneGain.connect(pan);
+    pan.connect(master);
     noiseGain.connect(reverb);
 
     noiseSource.start(now);
@@ -1052,42 +1305,84 @@ function playHat(open = false) {
 }
 
 function updateBeat() {
-    // Beat drops after 2 layers
-    if (!M.beatDropped && M.layers.length >= 2) {
+    // Beat drops based on energy now, not layers
+    if (!M.beatDropped && F.energy > 0.2) {
         M.beatDropped = true;
-        M.beatIntensity = 0.3;
+        M.beatIntensity = 0.4;
     }
 
     if (!M.beatDropped) return;
 
-    // Intensity builds with layers
-    const targetIntensity = 0.3 + M.layers.length * 0.2;
-    M.beatIntensity += (targetIntensity - M.beatIntensity) * 0.01;
+    // Intensity builds with energy and tension
+    const targetIntensity = 0.4 + F.energy * 0.3 + J.tension * 0.2;
+    M.beatIntensity += (targetIntensity - M.beatIntensity) * 0.02;
     M.beatIntensity = Math.min(1, M.beatIntensity);
 
-    // Play beat elements based on playhead
-    const beat = M.playhead;
+    // Use the GENERATED groove pattern
+    const beat = M.playhead % M.groove.length;
+    const groove = M.groove[beat];
 
-    if (beat === 0 || beat === 4) playKick();
-    if (beat === 2 || beat === 6) playSnare();
-    if (M.beatIntensity > 0.5) {
-        playHat(beat === 4);
+    // Probability gate - not every beat fires
+    if (Math.random() > groove.probability * M.beatIntensity) return;
+
+    // Play elements based on generated pattern
+    if (groove.kick) {
+        playKick();
+        // Sometimes double hit
+        if (groove.accent && Math.random() > 0.6) {
+            setTimeout(() => playKick(), 30 + Math.random() * 30);
+        }
     }
-    if (M.beatIntensity > 0.7 && (beat === 3 || beat === 7)) {
-        playKick(); // extra kicks at high intensity
+
+    if (groove.snare && M.beatIntensity > 0.4) {
+        playSnare();
+    }
+
+    if (groove.hat && M.beatIntensity > 0.3) {
+        playHat(groove.accent);
+    }
+
+    // Random ghost notes at high intensity
+    if (M.beatIntensity > 0.7 && Math.random() > 0.8) {
+        setTimeout(() => {
+            if (Math.random() > 0.5) playKick();
+            else playHat(false);
+        }, M.beatTime * 250); // off-grid
     }
 }
 
-// ============ MEMORY SYSTEM ============
+// ============ MEMORY SYSTEM - NOW WITH MUTATION ============
 
 function snapshot() {
-    return { x: F.x, y: F.y, speed: F.speed, density: F.density };
+    return {
+        x: F.x,
+        y: F.y,
+        speed: F.speed,
+        density: F.density,
+        energy: F.energy
+    };
+}
+
+function mutateTape() {
+    // Slowly mutate the recorded tape - nothing stays the same
+    if (M.tape.length === 0) return;
+
+    const idx = Math.floor(Math.random() * M.tape.length);
+    const mutation = (Math.random() - 0.5) * DNA.mutationRate * 2;
+
+    // Mutate a random property
+    const prop = ['x', 'y', 'speed'][Math.floor(Math.random() * 3)];
+    M.tape[idx][prop] = Math.max(-1, Math.min(1, M.tape[idx][prop] + mutation));
 }
 
 function updateMemory() {
     const now = ctx.currentTime;
 
-    if (now - M.lastBeat >= M.beatTime) {
+    // Apply swing to beat timing
+    const swingOffset = (M.playhead % 2 === 1) ? DNA.swingAmount * M.beatTime : 0;
+    const effectiveBeatTime = M.beatTime + swingOffset * 0.5;
+
+    if (now - M.lastBeat >= effectiveBeatTime) {
         M.lastBeat = now;
 
         if (M.mode === 'building') {
@@ -1099,28 +1394,40 @@ function updateMemory() {
         } else {
             M.playhead = (M.playhead + 1) % M.loopLen;
 
-            // Beat
+            // ACCUMULATE MUTATION
+            M.mutationAccum += DNA.mutationRate;
+            if (M.mutationAccum > 1) {
+                mutateTape();
+                M.mutationAccum = 0;
+            }
+
+            // Beat system
             updateBeat();
 
-            // Dark melodic events - clusters and tension
-            if (M.playhead === 0 || M.playhead === 4) {
-                // Cluster chords on downbeats
-                if (F.speed > 0.15 || M.darkness > 0.3) {
+            // PROBABILISTIC melodic events - not tied to specific beats
+            const melodicChance = 0.15 + F.energy * 0.2 + J.tension * 0.1;
+
+            if (Math.random() < melodicChance) {
+                // Cluster or single note?
+                if (Math.random() > 0.6) {
                     playCluster();
+                } else {
+                    // Single note from scale
+                    const scale = DNA.scale.notes;
+                    const degree = scale[Math.floor(Math.random() * scale.length)];
+                    const octave = Math.floor(Math.random() * 2 + 1) * 12;
+                    playDarkNote(degree + octave + J.keyOffset, M.beatTime * (2 + Math.random() * 3));
                 }
             }
 
-            // Single dark notes on other beats
-            if (M.playhead % 2 === 1 && F.speed > 0.2) {
-                const scale = PHRYGIAN;
-                const degree = scale[Math.floor((F.y + 1) * 3) % 7];
-                const octave = Math.floor(F.x * 2 + 2) * 12;
-                playDarkNote(degree + octave, M.beatTime * 3);
+            // Grains - probabilistic
+            if (Math.random() < 0.15 + F.speed * 0.2) {
+                playGrain();
             }
 
-            // Grains woven in
-            if (M.playhead % 2 === 1 && F.speed > 0.1) {
-                playGrain();
+            // Random melodic runs at high tension
+            if (J.tension > 0.6 && Math.random() > 0.95) {
+                playRandomMelody();
             }
 
             // Layer recording
@@ -1416,14 +1723,20 @@ function updateUI() {
     let stageName = stageNames[J.stage];
 
     // Add tension/frisson indicators
-    if (J.tension > 0.6) stageName += ' \u2191';  // tension rising
+    if (J.tension > 0.5) stageName += ' \u2191';  // tension rising
+    if (J.dropPending) stageName += ' ...';       // drop coming
     if (J.frisson > 0.3) stageName += ' \u2728'; // sparkle for frisson
 
     document.getElementById('stage').textContent = stageName;
-    document.getElementById('flw').textContent = F.speed.toFixed(2);
-    document.getElementById('layers').textContent = M.layers.length + (M.activeLayer ? '+1' : '');
 
-    // Journey time as MM:SS
+    // Show energy instead of raw speed
+    document.getElementById('flw').textContent = F.energy.toFixed(2);
+
+    // Show DNA mood instead of layers
+    const moodInfo = DNA.scale ? DNA.scale.mood.toUpperCase() : 'INIT';
+    document.getElementById('layers').textContent = moodInfo;
+
+    // Journey time
     const mins = Math.floor(J.totalTime / 60);
     const secs = Math.floor(J.totalTime % 60);
     document.getElementById('journey').textContent = `${mins}:${secs.toString().padStart(2, '0')}`;
