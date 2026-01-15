@@ -41,151 +41,548 @@
 </div>
 <script>
 // GUMP - Grand Unified Music Project
-// Space and time unified through movement
+// Space, time, and world unified through movement
 
 const PHI = 1.618033988749;
-const HARMONIC_SERIES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
+const SCALES = {
+    minor: [0, 2, 3, 5, 7, 8, 10],
+    dorian: [0, 2, 3, 5, 7, 9, 10],
+    phrygian: [0, 1, 3, 5, 7, 8, 10]
+};
 
-// State - position in the unified field
+// State
 const F = {
-    x: 0, y: 0, z: 0,           // spatial position (-1 to 1)
-    vx: 0, vy: 0, vz: 0,        // velocity
-    speed: 0,                    // magnitude
-    phase: 0,                    // temporal phase
-    density: 0,                  // event density
-    harmonic: 1,                 // current harmonic emphasis
-    field: 0                     // field intensity
+    x: 0, y: 0, z: 0,
+    vx: 0, vy: 0, vz: 0,
+    speed: 0,
+    phase: 0,
+    density: 0,
+    field: 0
 };
 
-// Memory - the song builds itself
+// Memory
 const M = {
-    mode: 'building',           // 'building' or 'looping'
-    tape: [],                   // recorded snapshots
-    loopLen: 8,                 // beats in the base loop
-    beatTime: 0.5,              // seconds per beat (PHI-derived)
-    playhead: 0,                // current position in loop
-    lastBeat: 0,                // last beat timestamp
-    layers: [],                 // additional recorded layers
-    activeLayer: null,          // layer being recorded now
-    blend: 0.6                  // how much loop vs live (0=all live, 1=all loop)
+    mode: 'building',
+    tape: [],
+    loopLen: 8,
+    beatTime: 0.4,
+    playhead: 0,
+    lastBeat: 0,
+    layers: [],
+    activeLayer: null,
+    blend: 0.6,
+    beatDropped: false,
+    beatIntensity: 0
 };
 
-let ctx, out;
-let drones = [];
+// Audio
+let ctx, master, reverb, delay, delayFeedback;
+let pads = [], voices = [];
 let running = false;
 
-// The fundamental frequency - everything derives from this
-const ROOT = 55; // A1 - low, powerful
+// Microphone capture
+let micStream, micSource, micBuffer;
+const MIC_BUFFER_SIZE = 48000 * 4; // 4 seconds
+let micWritePos = 0;
+let grains = [];
+
+const ROOT = 55;
+const BPM = 92;
+
+// ============ AUDIO ENGINE ============
 
 function init() {
     ctx = new (window.AudioContext || window.webkitAudioContext)();
+    M.beatTime = 60 / BPM / 2; // 8th notes
 
-    // Simple, clean output
-    out = ctx.createGain();
-    out.gain.value = 0.6;
+    // Master chain
+    master = ctx.createGain();
+    master.gain.value = 0.7;
 
-    // Gentle compression
+    // Reverb (convolution-style using delays)
+    reverb = createReverb();
+
+    // Stereo delay
+    delay = ctx.createDelay(1);
+    delay.delayTime.value = 60 / BPM * 0.75; // dotted 8th
+    delayFeedback = ctx.createGain();
+    delayFeedback.gain.value = 0.35;
+    const delayFilter = ctx.createBiquadFilter();
+    delayFilter.type = 'highpass';
+    delayFilter.frequency.value = 400;
+
+    delay.connect(delayFilter);
+    delayFilter.connect(delayFeedback);
+    delayFeedback.connect(delay);
+    delay.connect(master);
+
+    // Compression
     const comp = ctx.createDynamicsCompressor();
-    comp.threshold.value = -12;
-    comp.ratio.value = 4;
-    comp.attack.value = 0.01;
-    comp.release.value = 0.3;
+    comp.threshold.value = -18;
+    comp.ratio.value = 6;
+    comp.attack.value = 0.003;
+    comp.release.value = 0.15;
 
-    // Warmth
-    const warm = ctx.createBiquadFilter();
-    warm.type = 'lowshelf';
-    warm.frequency.value = 200;
-    warm.gain.value = 3;
+    // Final EQ
+    const low = ctx.createBiquadFilter();
+    low.type = 'lowshelf';
+    low.frequency.value = 120;
+    low.gain.value = 2;
 
-    out.connect(warm);
-    warm.connect(comp);
+    const high = ctx.createBiquadFilter();
+    high.type = 'highshelf';
+    high.frequency.value = 8000;
+    high.gain.value = 1.5;
+
+    master.connect(low);
+    low.connect(high);
+    high.connect(comp);
     comp.connect(ctx.destination);
 
-    // Create the drone field - harmonics of the root
-    createDroneField();
+    // Initialize sound sources
+    createPads();
+    initMic();
 }
 
-function createDroneField() {
-    // 8 drones based on harmonic series
-    // Position in space controls which harmonics are audible
+function createReverb() {
+    // Multi-tap delay reverb
+    const input = ctx.createGain();
+    const output = ctx.createGain();
+    output.gain.value = 0.3;
 
-    for (let i = 0; i < 8; i++) {
-        const harmonic = HARMONIC_SERIES[i];
-        const freq = ROOT * harmonic;
+    const times = [0.03, 0.07, 0.11, 0.17, 0.23, 0.31];
+    const gains = [0.7, 0.5, 0.4, 0.3, 0.25, 0.2];
 
-        // Each drone has multiple detuned oscillators for richness
-        const osc1 = ctx.createOscillator();
-        const osc2 = ctx.createOscillator();
-        const gain = ctx.createGain();
-        const pan = ctx.createStereoPanner();
-        const filter = ctx.createBiquadFilter();
+    times.forEach((t, i) => {
+        const d = ctx.createDelay(1);
+        d.delayTime.value = t;
+        const g = ctx.createGain();
+        g.gain.value = gains[i];
+        const f = ctx.createBiquadFilter();
+        f.type = 'lowpass';
+        f.frequency.value = 4000 - i * 500;
+        input.connect(d);
+        d.connect(f);
+        f.connect(g);
+        g.connect(output);
+    });
 
-        osc1.type = 'sine';
-        osc1.frequency.value = freq;
+    output.connect(master);
+    return input;
+}
 
-        osc2.type = 'sine';
-        osc2.frequency.value = freq * 1.001; // slight detune
+// ============ RICH PAD SYNTHESIS ============
 
-        filter.type = 'lowpass';
-        filter.frequency.value = freq * 2;
-        filter.Q.value = 1;
-
-        gain.gain.value = 0; // start silent
-
-        // Higher harmonics pan wider
-        pan.pan.value = (i % 2 === 0 ? 1 : -1) * (i / 16);
-
-        osc1.connect(filter);
-        osc2.connect(filter);
-        filter.connect(gain);
-        gain.connect(pan);
-        pan.connect(out);
-
-        osc1.start();
-        osc2.start();
-
-        drones.push({ osc1, osc2, gain, filter, pan, harmonic, freq });
+function createPads() {
+    // 4 evolving pads with FM and filtering
+    for (let i = 0; i < 4; i++) {
+        const note = ROOT * Math.pow(2, i / 2);
+        const pad = createFMPad(note, i);
+        pads.push(pad);
     }
 }
 
-// Snapshot the current state for recording
-function snapshot() {
-    return {
-        x: F.x, y: F.y,
-        speed: F.speed,
-        density: F.density,
-        amps: drones.map(d => d.gain.gain.value)
-    };
+function createFMPad(freq, idx) {
+    // FM synthesis: carrier + modulator
+    const carrier = ctx.createOscillator();
+    const modulator = ctx.createOscillator();
+    const modGain = ctx.createGain();
+    const output = ctx.createGain();
+    const filter = ctx.createBiquadFilter();
+    const pan = ctx.createStereoPanner();
+
+    // Carrier
+    carrier.type = 'sine';
+    carrier.frequency.value = freq;
+
+    // Modulator (creates evolving timbre)
+    modulator.type = 'sine';
+    modulator.frequency.value = freq * (idx % 2 === 0 ? 2 : 3);
+    modGain.gain.value = freq * 0.5; // modulation depth
+
+    // Rich filter
+    filter.type = 'lowpass';
+    filter.frequency.value = freq * 4;
+    filter.Q.value = 2;
+
+    output.gain.value = 0;
+    pan.pan.value = (idx - 1.5) * 0.4;
+
+    // Connections
+    modulator.connect(modGain);
+    modGain.connect(carrier.frequency);
+    carrier.connect(filter);
+    filter.connect(output);
+    output.connect(pan);
+    pan.connect(master);
+    pan.connect(reverb);
+
+    carrier.start();
+    modulator.start();
+
+    return { carrier, modulator, modGain, output, filter, pan, freq };
 }
 
-// Memory system - record and playback
+function updatePads() {
+    const now = ctx.currentTime;
+    const S = getBlendedState();
+
+    pads.forEach((p, i) => {
+        // Amplitude from position
+        const xFactor = i < 2 ? (1 - S.x) / 2 : (1 + S.x) / 2;
+        const yFactor = i % 2 === 0 ? (1 - S.y) / 2 : (1 + S.y) / 2;
+        let amp = xFactor * yFactor * (0.1 + S.speed * 0.15);
+
+        // FM modulation depth from movement
+        const modDepth = p.freq * (0.3 + S.speed * 1.5);
+        p.modGain.gain.linearRampToValueAtTime(modDepth, now + 0.1);
+
+        // Filter opens with intensity
+        const filterFreq = p.freq * (2 + S.speed * 6 + F.density * 4);
+        p.filter.frequency.linearRampToValueAtTime(filterFreq, now + 0.1);
+        p.filter.Q.linearRampToValueAtTime(1 + S.speed * 4, now + 0.1);
+
+        p.output.gain.linearRampToValueAtTime(amp, now + 0.15);
+    });
+}
+
+// ============ MELODIC VOICES ============
+
+function playNote(degree, octave, type, duration) {
+    const scale = SCALES.dorian;
+    const semitone = scale[degree % 7] + Math.floor(degree / 7) * 12;
+    const freq = ROOT * Math.pow(2, (semitone + octave * 12) / 12);
+    const now = ctx.currentTime;
+
+    const osc = ctx.createOscillator();
+    const osc2 = ctx.createOscillator();
+    const gain = ctx.createGain();
+    const filter = ctx.createBiquadFilter();
+    const pan = ctx.createStereoPanner();
+
+    // Different timbres based on type
+    if (type === 'pluck') {
+        osc.type = 'triangle';
+        osc2.type = 'sine';
+        osc2.frequency.value = freq * 2;
+        filter.frequency.value = 2000 + F.speed * 4000;
+        filter.Q.value = 3;
+    } else if (type === 'bell') {
+        osc.type = 'sine';
+        osc2.type = 'sine';
+        osc2.frequency.value = freq * 2.4; // inharmonic
+        filter.frequency.value = 6000;
+        filter.Q.value = 0.5;
+    } else {
+        osc.type = 'sawtooth';
+        osc2.type = 'square';
+        osc2.frequency.value = freq * 0.998;
+        filter.frequency.value = 1500;
+        filter.Q.value = 5;
+    }
+
+    osc.frequency.value = freq;
+    filter.type = 'lowpass';
+    pan.pan.value = (Math.random() - 0.5) * 0.6;
+
+    const attack = type === 'bell' ? 0.01 : 0.005;
+    const decay = duration * PHI;
+
+    gain.gain.setValueAtTime(0, now);
+    gain.gain.linearRampToValueAtTime(0.25, now + attack);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + decay);
+
+    // Filter envelope
+    filter.frequency.setValueAtTime(filter.frequency.value * 2, now);
+    filter.frequency.exponentialRampToValueAtTime(filter.frequency.value * 0.5, now + decay * 0.7);
+
+    osc.connect(filter);
+    osc2.connect(filter);
+    filter.connect(gain);
+    gain.connect(pan);
+    pan.connect(master);
+    pan.connect(delay);
+    pan.connect(reverb);
+
+    osc.start(now);
+    osc2.start(now);
+    osc.stop(now + decay + 0.1);
+    osc2.stop(now + decay + 0.1);
+}
+
+// ============ MICROPHONE CAPTURE ============
+
+async function initMic() {
+    try {
+        micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        micSource = ctx.createMediaStreamSource(micStream);
+
+        // Create buffer for granular
+        micBuffer = ctx.createBuffer(1, MIC_BUFFER_SIZE, ctx.sampleRate);
+
+        // Use ScriptProcessor to capture (AudioWorklet would be better but more complex)
+        const processor = ctx.createScriptProcessor(4096, 1, 1);
+        processor.onaudioprocess = (e) => {
+            const input = e.inputBuffer.getChannelData(0);
+            const buffer = micBuffer.getChannelData(0);
+
+            for (let i = 0; i < input.length; i++) {
+                buffer[micWritePos] = input[i];
+                micWritePos = (micWritePos + 1) % MIC_BUFFER_SIZE;
+            }
+        };
+
+        micSource.connect(processor);
+        processor.connect(ctx.createGain()); // dummy connection to keep alive
+    } catch (e) {
+        console.log('Mic not available');
+    }
+}
+
+function playGrain() {
+    if (!micBuffer) return;
+
+    const now = ctx.currentTime;
+    const bufferData = micBuffer.getChannelData(0);
+
+    // Find a loud section to grab
+    let bestPos = 0, bestAmp = 0;
+    for (let i = 0; i < 10; i++) {
+        const pos = Math.floor(Math.random() * (MIC_BUFFER_SIZE - 4096));
+        let amp = 0;
+        for (let j = 0; j < 512; j++) {
+            amp += Math.abs(bufferData[pos + j]);
+        }
+        if (amp > bestAmp) {
+            bestAmp = amp;
+            bestPos = pos;
+        }
+    }
+
+    if (bestAmp < 10) return; // too quiet
+
+    // Create grain
+    const grainLen = 0.05 + Math.random() * 0.15;
+    const grainSamples = Math.floor(grainLen * ctx.sampleRate);
+    const grain = ctx.createBuffer(1, grainSamples, ctx.sampleRate);
+    const grainData = grain.getChannelData(0);
+
+    // Copy with envelope
+    for (let i = 0; i < grainSamples; i++) {
+        const env = Math.sin(Math.PI * i / grainSamples); // smooth envelope
+        const srcIdx = (bestPos + i) % MIC_BUFFER_SIZE;
+        grainData[i] = bufferData[srcIdx] * env;
+    }
+
+    // Play grain
+    const source = ctx.createBufferSource();
+    source.buffer = grain;
+
+    // Random pitch shift (musical intervals)
+    const pitchShifts = [0.5, 0.75, 1, 1, 1.5, 2];
+    source.playbackRate.value = pitchShifts[Math.floor(Math.random() * pitchShifts.length)];
+
+    const gain = ctx.createGain();
+    gain.gain.value = 0.4;
+
+    const filter = ctx.createBiquadFilter();
+    filter.type = Math.random() > 0.5 ? 'lowpass' : 'bandpass';
+    filter.frequency.value = 500 + Math.random() * 3000;
+    filter.Q.value = 1 + Math.random() * 3;
+
+    const pan = ctx.createStereoPanner();
+    pan.pan.value = (Math.random() - 0.5) * 0.8;
+
+    source.connect(filter);
+    filter.connect(gain);
+    gain.connect(pan);
+    pan.connect(master);
+    pan.connect(reverb);
+
+    source.start(now);
+}
+
+// ============ BEAT ENGINE ============
+
+function playKick() {
+    const now = ctx.currentTime;
+
+    // Sub oscillator
+    const sub = ctx.createOscillator();
+    sub.type = 'sine';
+    sub.frequency.setValueAtTime(150, now);
+    sub.frequency.exponentialRampToValueAtTime(40, now + 0.15);
+
+    // Click
+    const click = ctx.createOscillator();
+    click.type = 'triangle';
+    click.frequency.setValueAtTime(1000, now);
+    click.frequency.exponentialRampToValueAtTime(100, now + 0.03);
+
+    const subGain = ctx.createGain();
+    const clickGain = ctx.createGain();
+    const output = ctx.createGain();
+
+    subGain.gain.setValueAtTime(0.8 * M.beatIntensity, now);
+    subGain.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+
+    clickGain.gain.setValueAtTime(0.5 * M.beatIntensity, now);
+    clickGain.gain.exponentialRampToValueAtTime(0.001, now + 0.05);
+
+    output.gain.value = 0.7;
+
+    sub.connect(subGain);
+    click.connect(clickGain);
+    subGain.connect(output);
+    clickGain.connect(output);
+    output.connect(master);
+
+    sub.start(now);
+    click.start(now);
+    sub.stop(now + 0.4);
+    click.stop(now + 0.1);
+}
+
+function playSnare() {
+    const now = ctx.currentTime;
+
+    // Noise burst
+    const noiseLen = 0.15;
+    const noise = ctx.createBuffer(1, ctx.sampleRate * noiseLen, ctx.sampleRate);
+    const noiseData = noise.getChannelData(0);
+    for (let i = 0; i < noiseData.length; i++) {
+        noiseData[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * 0.05));
+    }
+
+    const noiseSource = ctx.createBufferSource();
+    noiseSource.buffer = noise;
+
+    // Tone body
+    const tone = ctx.createOscillator();
+    tone.type = 'triangle';
+    tone.frequency.value = 200;
+
+    const noiseGain = ctx.createGain();
+    const toneGain = ctx.createGain();
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'highpass';
+    filter.frequency.value = 1000;
+
+    noiseGain.gain.setValueAtTime(0.6 * M.beatIntensity, now);
+    noiseGain.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+
+    toneGain.gain.setValueAtTime(0.3 * M.beatIntensity, now);
+    toneGain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+
+    noiseSource.connect(filter);
+    filter.connect(noiseGain);
+    tone.connect(toneGain);
+    noiseGain.connect(master);
+    toneGain.connect(master);
+    noiseGain.connect(reverb);
+
+    noiseSource.start(now);
+    tone.start(now);
+    tone.stop(now + 0.15);
+}
+
+function playHat(open = false) {
+    const now = ctx.currentTime;
+
+    const len = open ? 0.2 : 0.05;
+    const noise = ctx.createBuffer(1, ctx.sampleRate * len, ctx.sampleRate);
+    const data = noise.getChannelData(0);
+    for (let i = 0; i < data.length; i++) {
+        data[i] = (Math.random() * 2 - 1);
+    }
+
+    const source = ctx.createBufferSource();
+    source.buffer = noise;
+
+    const gain = ctx.createGain();
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'highpass';
+    filter.frequency.value = 7000;
+
+    gain.gain.setValueAtTime(0.25 * M.beatIntensity, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + len);
+
+    source.connect(filter);
+    filter.connect(gain);
+    gain.connect(master);
+
+    source.start(now);
+}
+
+function updateBeat() {
+    // Beat drops after 2 layers
+    if (!M.beatDropped && M.layers.length >= 2) {
+        M.beatDropped = true;
+        M.beatIntensity = 0.3;
+    }
+
+    if (!M.beatDropped) return;
+
+    // Intensity builds with layers
+    const targetIntensity = 0.3 + M.layers.length * 0.2;
+    M.beatIntensity += (targetIntensity - M.beatIntensity) * 0.01;
+    M.beatIntensity = Math.min(1, M.beatIntensity);
+
+    // Play beat elements based on playhead
+    const beat = M.playhead;
+
+    if (beat === 0 || beat === 4) playKick();
+    if (beat === 2 || beat === 6) playSnare();
+    if (M.beatIntensity > 0.5) {
+        playHat(beat === 4);
+    }
+    if (M.beatIntensity > 0.7 && (beat === 3 || beat === 7)) {
+        playKick(); // extra kicks at high intensity
+    }
+}
+
+// ============ MEMORY SYSTEM ============
+
+function snapshot() {
+    return { x: F.x, y: F.y, speed: F.speed, density: F.density };
+}
+
 function updateMemory() {
     const now = ctx.currentTime;
 
-    // Beat clock
     if (now - M.lastBeat >= M.beatTime) {
         M.lastBeat = now;
 
         if (M.mode === 'building') {
-            // Record this beat
             M.tape.push(snapshot());
-
-            // Check if base loop is complete
             if (M.tape.length >= M.loopLen) {
                 M.mode = 'looping';
                 M.playhead = 0;
             }
         } else {
-            // Advance playhead
             M.playhead = (M.playhead + 1) % M.loopLen;
 
-            // Record to active layer if exists
+            // Beat
+            updateBeat();
+
+            // Melodic events on certain beats
+            if (M.playhead % 2 === 0) {
+                const degree = Math.floor((F.y + 1) * 3.5);
+                const types = ['pluck', 'bell', 'pad'];
+                playNote(degree, 2, types[M.playhead % 3], M.beatTime * 2);
+            }
+
+            // Grains on odd beats
+            if (M.playhead % 2 === 1 && F.speed > 0.1) {
+                playGrain();
+            }
+
+            // Layer recording
             if (M.activeLayer) {
                 M.activeLayer.push(snapshot());
                 if (M.activeLayer.length >= M.loopLen) {
                     M.layers.push(M.activeLayer);
                     M.activeLayer = null;
-                    // Limit layers to prevent chaos
                     if (M.layers.length > 3) M.layers.shift();
                 }
             }
@@ -193,16 +590,12 @@ function updateMemory() {
     }
 }
 
-// Get the blended state from memory + live input
 function getBlendedState() {
     if (M.mode === 'building' || M.tape.length === 0) {
         return { x: F.x, y: F.y, speed: F.speed };
     }
 
-    // Get recorded state at playhead
     const rec = M.tape[M.playhead];
-
-    // Blend recorded with live
     const live = 1 - M.blend;
     const loop = M.blend;
 
@@ -210,173 +603,57 @@ function getBlendedState() {
     let y = rec.y * loop + F.y * live;
     let speed = rec.speed * loop + F.speed * live;
 
-    // Add layers on top
     M.layers.forEach((layer, li) => {
         const ls = layer[M.playhead];
-        const layerWeight = 0.3 / (li + 1); // each layer quieter
-        x += ls.x * layerWeight;
-        y += ls.y * layerWeight;
-        speed += ls.speed * layerWeight;
+        const w = 0.3 / (li + 1);
+        x += ls.x * w;
+        y += ls.y * w;
+        speed += ls.speed * w;
     });
 
-    return { x: Math.max(-1, Math.min(1, x)), y: Math.max(-1, Math.min(1, y)), speed: Math.min(1, speed) };
+    return {
+        x: Math.max(-1, Math.min(1, x)),
+        y: Math.max(-1, Math.min(1, y)),
+        speed: Math.min(1, speed)
+    };
 }
 
-function updateDrones() {
-    const now = ctx.currentTime;
+// ============ INPUT HANDLERS ============
 
-    // Get blended state (loop + live)
-    const S = getBlendedState();
-
-    drones.forEach((d, i) => {
-        // Position in space determines harmonic mix
-        // x-axis: odd vs even harmonics
-        // y-axis: low vs high harmonics
-        // z-axis (speed): attack/presence
-
-        const isOdd = d.harmonic % 2 === 1;
-        const oddEvenMix = isOdd ? (1 + S.x) / 2 : (1 - S.x) / 2;
-
-        const heightFactor = i < 4 ? (1 - S.y) / 2 : (1 + S.y) / 2;
-
-        const presence = 0.15 + S.speed * 0.4;
-
-        // Combined amplitude
-        let amp = oddEvenMix * heightFactor * presence;
-
-        // Fundamental always present
-        if (i === 0) amp = Math.max(amp, 0.2);
-
-        // Higher harmonics quieter
-        amp *= 1 / Math.sqrt(d.harmonic);
-
-        // Smooth transition
-        d.gain.gain.linearRampToValueAtTime(amp, now + 0.1);
-
-        // Filter opens with speed
-        const filterFreq = d.freq * (1 + S.speed * 3);
-        d.filter.frequency.linearRampToValueAtTime(filterFreq, now + 0.1);
-
-        // Subtle pitch bend based on position
-        const bendCents = S.x * 10 + S.y * 5;
-        const bendRatio = Math.pow(2, bendCents / 1200);
-        d.osc1.frequency.linearRampToValueAtTime(d.freq * bendRatio, now + 0.1);
-        d.osc2.frequency.linearRampToValueAtTime(d.freq * 1.001 * bendRatio, now + 0.1);
-    });
-}
-
-// Rhythmic events - triggered by movement
-let lastPulse = 0;
-let pulseInterval = 0.5;
-
-function pulse() {
-    if (!ctx || F.speed < 0.05) return;
-
-    const now = ctx.currentTime;
-
-    // Pulse interval based on speed - faster movement = faster rhythm
-    // But quantized to musical intervals using PHI
-    const baseInterval = 0.8 / (1 + F.speed * 2);
-    pulseInterval = baseInterval * Math.pow(PHI, Math.floor(F.density * 3) - 1);
-    pulseInterval = Math.max(0.1, Math.min(2, pulseInterval));
-
-    if (now - lastPulse < pulseInterval) return;
-    lastPulse = now;
-
-    // Choose harmonic based on position
-    const harmonicIndex = Math.floor((F.y + 1) * 4) % 8;
-    const freq = ROOT * HARMONIC_SERIES[harmonicIndex + 1];
-
-    // Pluck sound
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    const filter = ctx.createBiquadFilter();
-
-    // Waveform based on x position
-    osc.type = F.x > 0 ? 'triangle' : 'sine';
-    osc.frequency.value = freq * (F.y > 0 ? 2 : 1);
-
-    filter.type = 'lowpass';
-    filter.frequency.value = 1000 + F.speed * 3000;
-    filter.Q.value = 2;
-
-    // Quick attack, PHI-based decay
-    const decay = 0.1 + (1 - F.speed) * 0.4;
-    gain.gain.setValueAtTime(0.3 * F.speed, now);
-    gain.gain.exponentialRampToValueAtTime(0.001, now + decay);
-
-    osc.connect(filter);
-    filter.connect(gain);
-    gain.connect(out);
-
-    osc.start(now);
-    osc.stop(now + decay + 0.1);
-
-    // Occasional harmony note
-    if (Math.random() < F.density * 0.3) {
-        setTimeout(() => {
-            if (!ctx) return;
-            const osc2 = ctx.createOscillator();
-            const g2 = ctx.createGain();
-            osc2.type = 'sine';
-            // Perfect fifth or octave
-            osc2.frequency.value = freq * (Math.random() > 0.5 ? 1.5 : 2);
-            g2.gain.setValueAtTime(0.1, ctx.currentTime);
-            g2.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + decay * PHI);
-            osc2.connect(g2);
-            g2.connect(out);
-            osc2.start();
-            osc2.stop(ctx.currentTime + decay * PHI + 0.1);
-        }, pulseInterval * 500 * (1 / PHI));
-    }
-}
-
-// Motion handlers
 function onMotion(e) {
     const a = e.accelerationIncludingGravity;
     if (!a) return;
 
-    // Velocity from acceleration
     F.vx = F.vx * 0.8 + (a.x || 0) * 0.02;
     F.vy = F.vy * 0.8 + (a.y || 0) * 0.02;
     F.vz = F.vz * 0.8 + (a.z || 0) * 0.02;
 
-    // Speed magnitude
-    F.speed = Math.sqrt(F.vx*F.vx + F.vy*F.vy + F.vz*F.vz);
-    F.speed = Math.min(1, F.speed / 3);
-
-    // Density accumulates with movement
+    F.speed = Math.min(1, Math.sqrt(F.vx*F.vx + F.vy*F.vy + F.vz*F.vz) / 3);
     F.density = F.density * 0.99 + F.speed * 0.01;
 }
 
 function onOrientation(e) {
-    // Position in space from orientation
     F.x = Math.max(-1, Math.min(1, (e.gamma || 0) / 45));
     F.y = Math.max(-1, Math.min(1, (e.beta || 0) / 45 - 1));
-
-    // Field intensity from compass
     F.field = (e.alpha || 0) / 360;
 }
 
-// Mouse/touch fallback
 function onPointer(x, y) {
     const px = (x / window.innerWidth) * 2 - 1;
     const py = 1 - (y / window.innerHeight) * 2;
 
-    // Velocity from movement
     F.vx = F.vx * 0.7 + (px - F.x) * 0.3;
     F.vy = F.vy * 0.7 + (py - F.y) * 0.3;
 
     F.x = px;
     F.y = py;
 
-    F.speed = Math.sqrt(F.vx*F.vx + F.vy*F.vy);
-    F.speed = Math.min(1, F.speed * 3);
-
+    F.speed = Math.min(1, Math.sqrt(F.vx*F.vx + F.vy*F.vy) * 3);
     F.density = F.density * 0.98 + F.speed * 0.02;
 }
 
-// Visualization
+// ============ VISUALIZATION ============
+
 let vc;
 function initViz() {
     const canvas = document.getElementById('c');
@@ -395,82 +672,111 @@ function resize() {
 function draw() {
     const w = window.innerWidth;
     const h = window.innerHeight;
+    const S = getBlendedState();
 
-    // Fade based on density
-    vc.fillStyle = `rgba(0,0,0,${0.05 + (1-F.density) * 0.1})`;
+    // Fade
+    vc.fillStyle = `rgba(0,0,0,${0.08 + (1-F.density) * 0.07})`;
     vc.fillRect(0, 0, w, h);
 
-    // Center follows blended position
-    const S = getBlendedState();
-    const cx = w/2 + S.x * w * 0.3;
-    const cy = h/2 - S.y * h * 0.3;
+    const cx = w/2 + S.x * w * 0.25;
+    const cy = h/2 - S.y * h * 0.25;
 
-    // Loop progress ring (outer)
-    if (M.mode === 'looping' || M.tape.length > 0) {
-        const loopR = Math.min(w, h) * 0.4;
+    // Outer loop ring
+    const loopR = Math.min(w, h) * 0.4;
+    if (M.tape.length > 0) {
         const progress = M.mode === 'building'
             ? M.tape.length / M.loopLen
-            : M.playhead / M.loopLen;
+            : (M.playhead + 1) / M.loopLen;
 
         vc.beginPath();
         vc.arc(w/2, h/2, loopR, -Math.PI/2, -Math.PI/2 + progress * Math.PI * 2);
-        vc.strokeStyle = M.mode === 'building' ? 'rgba(255,100,100,0.3)' : 'rgba(0,255,170,0.2)';
+        vc.strokeStyle = M.mode === 'building' ? 'rgba(255,100,100,0.4)' : 'rgba(0,255,170,0.25)';
+        vc.lineWidth = M.beatDropped ? 4 + M.beatIntensity * 4 : 3;
+        vc.stroke();
+    }
+
+    // Layer rings
+    M.layers.forEach((_, i) => {
+        vc.beginPath();
+        vc.arc(w/2, h/2, loopR - 12 - i * 10, 0, Math.PI * 2);
+        vc.strokeStyle = `rgba(0,255,170,${0.15 + i * 0.08})`;
+        vc.lineWidth = 2;
+        vc.stroke();
+    });
+
+    // Recording ring
+    if (M.activeLayer) {
+        const recP = M.activeLayer.length / M.loopLen;
+        vc.beginPath();
+        vc.arc(w/2, h/2, loopR - 12 - M.layers.length * 10, -Math.PI/2, -Math.PI/2 + recP * Math.PI * 2);
+        vc.strokeStyle = 'rgba(255,100,100,0.6)';
         vc.lineWidth = 3;
         vc.stroke();
+    }
 
-        // Layer rings
-        M.layers.forEach((_, i) => {
-            vc.beginPath();
-            vc.arc(w/2, h/2, loopR - 10 - i * 8, 0, Math.PI * 2);
-            vc.strokeStyle = `rgba(0,255,170,${0.1 + i * 0.05})`;
-            vc.lineWidth = 2;
-            vc.stroke();
-        });
+    // Beat pulse
+    if (M.beatDropped) {
+        const beatPulse = Math.sin(M.playhead * Math.PI / 4) * 0.5 + 0.5;
+        vc.beginPath();
+        vc.arc(w/2, h/2, loopR + 20 + beatPulse * 15 * M.beatIntensity, 0, Math.PI * 2);
+        vc.strokeStyle = `rgba(255,200,100,${0.1 + beatPulse * 0.2 * M.beatIntensity})`;
+        vc.lineWidth = 2;
+        vc.stroke();
+    }
 
-        // Recording indicator
-        if (M.activeLayer) {
-            const recProgress = M.activeLayer.length / M.loopLen;
+    // FM pad visualization
+    pads.forEach((p, i) => {
+        const amp = p.output.gain.value;
+        if (amp > 0.01) {
+            const angle = (i / 4) * Math.PI * 2 - Math.PI / 2;
+            const dist = 60 + amp * 80;
+            const px = cx + Math.cos(angle) * dist;
+            const py = cy + Math.sin(angle) * dist;
+
             vc.beginPath();
-            vc.arc(w/2, h/2, loopR - 10 - M.layers.length * 8, -Math.PI/2, -Math.PI/2 + recProgress * Math.PI * 2);
-            vc.strokeStyle = 'rgba(255,100,100,0.5)';
+            vc.arc(px, py, 10 + amp * 30, 0, Math.PI * 2);
+            vc.fillStyle = `hsla(${180 + i * 30}, 70%, 50%, ${amp * 0.5})`;
+            vc.fill();
+        }
+    });
+
+    // Core
+    const coreR = 30 + S.speed * 40;
+    const gr = vc.createRadialGradient(cx, cy, 0, cx, cy, coreR);
+    gr.addColorStop(0, `rgba(0,255,170,${0.4 + S.speed * 0.4})`);
+    gr.addColorStop(0.5, `rgba(0,200,255,${0.2 + S.speed * 0.2})`);
+    gr.addColorStop(1, 'transparent');
+    vc.fillStyle = gr;
+    vc.beginPath();
+    vc.arc(cx, cy, coreR, 0, Math.PI * 2);
+    vc.fill();
+
+    // Mic activity indicator
+    if (micBuffer) {
+        const micLevel = micBuffer.getChannelData(0).slice(micWritePos - 512, micWritePos)
+            .reduce((a, b) => a + Math.abs(b), 0) / 512;
+        if (micLevel > 0.01) {
+            vc.beginPath();
+            vc.arc(cx, cy, coreR + 10 + micLevel * 50, 0, Math.PI * 2);
+            vc.strokeStyle = `rgba(255,150,100,${micLevel * 2})`;
             vc.lineWidth = 2;
             vc.stroke();
         }
     }
-
-    // Harmonic rings
-    drones.forEach((d, i) => {
-        const r = 20 + i * 25 + S.speed * 20;
-        const alpha = d.gain.gain.value * 2;
-
-        if (alpha > 0.01) {
-            vc.beginPath();
-            vc.arc(cx, cy, r, 0, Math.PI * 2);
-            vc.strokeStyle = `hsla(${160 + i * 15}, 60%, 50%, ${alpha})`;
-            vc.lineWidth = 1 + S.speed * 2;
-            vc.stroke();
-        }
-    });
-
-    // Core glow
-    const gr = vc.createRadialGradient(cx, cy, 0, cx, cy, 50 + S.speed * 50);
-    gr.addColorStop(0, `rgba(0,255,170,${0.3 + S.speed * 0.3})`);
-    gr.addColorStop(1, 'transparent');
-    vc.fillStyle = gr;
-    vc.fillRect(0, 0, w, h);
 }
 
 function updateUI() {
-    const modeText = M.mode === 'building'
+    let modeText = M.mode === 'building'
         ? `BUILDING ${M.tape.length}/${M.loopLen}`
-        : (M.activeLayer ? 'RECORDING' : 'LOOPING');
+        : (M.activeLayer ? 'RECORDING' : (M.beatDropped ? 'LIVE' : 'LOOPING'));
     document.getElementById('mode').textContent = modeText;
     document.getElementById('flw').textContent = F.speed.toFixed(2);
     document.getElementById('layers').textContent = M.layers.length + (M.activeLayer ? '+1' : '');
-    document.getElementById('beat').textContent = M.playhead + 1;
+    document.getElementById('beat').textContent = M.beatDropped ? `${M.playhead + 1} \u266A` : M.playhead + 1;
 }
 
-// Main loop
+// ============ MAIN LOOP ============
+
 function tick() {
     if (!running) return;
 
@@ -478,25 +784,25 @@ function tick() {
 
     updateMemory();
 
-    // Auto-start new layer recording when significant movement in loop mode
-    if (M.mode === 'looping' && !M.activeLayer && F.speed > 0.3) {
+    // Auto-start layer recording on significant movement
+    if (M.mode === 'looping' && !M.activeLayer && F.speed > 0.35) {
         M.activeLayer = [];
     }
 
-    updateDrones();
-    pulse();
+    updatePads();
     draw();
     updateUI();
 
     requestAnimationFrame(tick);
 }
 
-// Start
+// ============ START ============
+
 async function start() {
     document.getElementById('start').classList.add('off');
     document.getElementById('app').classList.add('on');
 
-    // Request motion permission (iOS)
+    // Request permissions
     if (typeof DeviceMotionEvent !== 'undefined' &&
         typeof DeviceMotionEvent.requestPermission === 'function') {
         try { await DeviceMotionEvent.requestPermission(); } catch(e) {}
