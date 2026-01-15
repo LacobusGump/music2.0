@@ -47,31 +47,94 @@
 const PHI = 1.618033988749;
 const TAU = Math.PI * 2;
 
-// ============ THE SIMULATION ============
-// No beat grid. No clock. Just you and the void.
-// Your position IS the pitch. Your speed IS the intensity.
-// The machine mirrors your soul back at you.
+// ============ THE LISTENER ============
+// The machine has ears. It hears what it creates.
+// It understands harmony. It knows the power of three.
 
+const EARS = {
+    analyser: null,
+    freqData: null,
+    timeData: null,
+
+    // What we're hearing RIGHT NOW
+    dominantFreq: 0,
+    dominantNote: 0,
+
+    // The triad we're building (power of three)
+    triad: {
+        root: null,      // the foundation
+        third: null,     // the color (major/minor)
+        fifth: null      // the strength
+    },
+
+    // Harmonic analysis
+    harmonyScore: 0,     // how "good" does this sound? (0-1)
+    tension: 0,          // dissonance level
+    resolution: 0,       // need to resolve?
+
+    // What notes are currently sounding
+    activeNotes: [],
+
+    // Loop detection
+    patterns: [],
+    loopLength: 0,
+    loopConfidence: 0
+};
+
+// ============ THE SOUL ============
 const SOUL = {
-    // Direct mappings - no randomness, just you
-    pitchRange: 36,      // semitones of range (3 octaves)
-    baseOctave: -12,     // start an octave below root
+    // Direct mappings
+    pitchRange: 24,      // 2 octaves - more focused
+    baseOctave: 0,       // start at root
 
-    // How much the simulation "remembers"
-    memory: 0.95,        // how much past affects present (0.95 = long tail)
+    // Memory
+    memory: 0.92,
 
-    // The voice - continuous, not triggered
+    // The voice
     voice: null,
     voiceFilter: null,
     voiceGain: null,
 
-    // What you've been doing
-    trail: [],           // history of positions
-    maxTrail: 100,
+    // Trail and resonance
+    trail: [],
+    maxTrail: 60,
+    resonances: [],
+    maxResonances: 3,    // less is more
 
-    // The resonance - harmony that builds from your movement
-    resonances: [],      // notes that ring out from where you've been
-    maxResonances: 5
+    // The loop we're building
+    loop: {
+        recording: false,
+        playing: false,
+        buffer: [],      // recorded positions
+        length: 120,     // frames (2 seconds at 60fps)
+        playhead: 0
+    }
+};
+
+// ============ POWER OF THREE ============
+// Triads are everything. Root + Third + Fifth.
+const TRIAD = {
+    // Interval from root in semitones
+    MAJOR: [0, 4, 7],        // happy, bright
+    MINOR: [0, 3, 7],        // sad, dark
+    DIMINISHED: [0, 3, 6],   // tense, unstable
+    AUGMENTED: [0, 4, 8],    // weird, suspended
+    SUS4: [0, 5, 7],         // unresolved
+    SUS2: [0, 2, 7],         // open
+
+    // Which triad fits this scale?
+    forScale: function(scale) {
+        // Check if scale has major or minor third
+        const hasMinor3 = scale.notes.includes(3);
+        const hasMajor3 = scale.notes.includes(4);
+        const hasDim5 = scale.notes.includes(6);
+        const hasPerfect5 = scale.notes.includes(7);
+
+        if (hasDim5 && hasMinor3) return this.DIMINISHED;
+        if (hasMinor3 && hasPerfect5) return this.MINOR;
+        if (hasMajor3 && hasPerfect5) return this.MAJOR;
+        return this.MINOR; // default dark
+    }
 };
 
 // Scales that know suffering
@@ -382,17 +445,117 @@ function init() {
     master.connect(comp);
     comp.connect(ctx.destination);
 
+    // ============ THE EARS ============
+    // The machine listens to itself
+    createEars();
+
     // ============ THE SOUL VOICE ============
     // This is YOU. Continuous. Always on. Following your position.
     createSoulVoice();
 
-    // The drone beneath - the weight of existence
-    createSubDrone();
+    // The drone beneath - the foundation triad
+    createTriadDrone();
 
     // Resonance system - notes that linger from where you've been
     createResonanceSystem();
 
-    console.log('SOUL MACHINE initialized. You are the instrument.');
+    console.log('SOUL MACHINE initialized. Listening. Power of three.');
+}
+
+// ============ THE EARS ============
+// FFT analysis of what we're creating
+
+function createEars() {
+    EARS.analyser = ctx.createAnalyser();
+    EARS.analyser.fftSize = 2048;
+    EARS.analyser.smoothingTimeConstant = 0.8;
+
+    EARS.freqData = new Uint8Array(EARS.analyser.frequencyBinCount);
+    EARS.timeData = new Uint8Array(EARS.analyser.fftSize);
+
+    // Connect master output to analyser
+    master.connect(EARS.analyser);
+}
+
+function listen() {
+    if (!EARS.analyser) return;
+
+    // Get frequency data
+    EARS.analyser.getByteFrequencyData(EARS.freqData);
+
+    // Find dominant frequency
+    let maxAmp = 0;
+    let maxBin = 0;
+    for (let i = 1; i < EARS.freqData.length / 4; i++) { // focus on lower freqs
+        if (EARS.freqData[i] > maxAmp) {
+            maxAmp = EARS.freqData[i];
+            maxBin = i;
+        }
+    }
+
+    // Convert bin to frequency
+    const nyquist = ctx.sampleRate / 2;
+    EARS.dominantFreq = maxBin * nyquist / EARS.analyser.frequencyBinCount;
+
+    // Convert to note (semitones from A4=440)
+    if (EARS.dominantFreq > 20) {
+        EARS.dominantNote = 12 * Math.log2(EARS.dominantFreq / 440) + 69;
+    }
+
+    // Detect which notes are active (looking for peaks)
+    EARS.activeNotes = [];
+    const threshold = 100;
+    for (let i = 1; i < EARS.freqData.length / 4; i++) {
+        if (EARS.freqData[i] > threshold &&
+            EARS.freqData[i] > EARS.freqData[i-1] &&
+            EARS.freqData[i] > EARS.freqData[i+1]) {
+            const freq = i * nyquist / EARS.analyser.frequencyBinCount;
+            const note = Math.round(12 * Math.log2(freq / DNA.root)) % 12;
+            if (!EARS.activeNotes.includes(note)) {
+                EARS.activeNotes.push(note);
+            }
+        }
+    }
+
+    // Analyze harmony - are we hearing a triad?
+    analyzeHarmony();
+}
+
+function analyzeHarmony() {
+    const notes = EARS.activeNotes;
+    if (notes.length < 2) {
+        EARS.harmonyScore = 0.5; // neutral
+        EARS.tension = 0;
+        return;
+    }
+
+    // Check for triad intervals
+    let triadScore = 0;
+    const idealTriad = TRIAD.forScale(DNA.scale);
+
+    // How many of our active notes fit the ideal triad?
+    notes.forEach(note => {
+        if (idealTriad.includes(note)) {
+            triadScore += 0.33;
+        }
+    });
+
+    // Check for dissonant intervals
+    let dissonance = 0;
+    for (let i = 0; i < notes.length; i++) {
+        for (let j = i + 1; j < notes.length; j++) {
+            const interval = Math.abs(notes[i] - notes[j]) % 12;
+            // Minor 2nd (1) and tritone (6) are most dissonant
+            if (interval === 1 || interval === 2) dissonance += 0.3;
+            if (interval === 6) dissonance += 0.2;
+        }
+    }
+
+    EARS.harmonyScore = Math.min(1, triadScore);
+    EARS.tension = Math.min(1, dissonance);
+
+    // Do we need to resolve?
+    EARS.resolution = EARS.tension > 0.5 ? EARS.tension : 0;
 }
 
 // ============ THE SOUL VOICE ============
@@ -1009,35 +1172,60 @@ function createDarkReverb() {
     return input;
 }
 
-// ============ SUB DRONE - THE FOUNDATION ============
+// ============ TRIAD DRONE - THE POWER OF THREE ============
 
-function createSubDrone() {
-    // Deep, rumbling sub that's always there
-    const sub = ctx.createOscillator();
-    const sub2 = ctx.createOscillator();
-    const subGain = ctx.createGain();
-    const subFilter = ctx.createBiquadFilter();
+function createTriadDrone() {
+    // Three voices: root, third, fifth - the foundation of harmony
+    const triad = TRIAD.forScale(DNA.scale);
 
-    sub.type = 'sine';
-    sub.frequency.value = DNA.root / 2; // You feel it more than hear it
+    subDrone = {
+        voices: [],
+        gain: ctx.createGain(),
+        filter: ctx.createBiquadFilter(),
+        baseFreq: DNA.root
+    };
 
-    sub2.type = 'sine';
-    sub2.frequency.value = DNA.root / 2 * 1.002; // beating
+    subDrone.filter.type = 'lowpass';
+    subDrone.filter.frequency.value = 400;
+    subDrone.filter.Q.value = 1;
 
-    subFilter.type = 'lowpass';
-    subFilter.frequency.value = 80;
+    subDrone.gain.gain.value = 0;
 
-    subGain.gain.value = 0;
+    // Create three voices - the triad
+    triad.forEach((interval, i) => {
+        const freq = DNA.root * Math.pow(2, interval / 12);
 
-    sub.connect(subFilter);
-    sub2.connect(subFilter);
-    subFilter.connect(subGain);
-    subGain.connect(master);
+        // Each voice has two slightly detuned oscillators for warmth
+        const osc1 = ctx.createOscillator();
+        const osc2 = ctx.createOscillator();
+        const voiceGain = ctx.createGain();
 
-    sub.start();
-    sub2.start();
+        osc1.type = 'sine';
+        osc2.type = 'triangle';
+        osc1.frequency.value = freq;
+        osc2.frequency.value = freq * 1.001; // slight detune
 
-    subDrone = { sub, sub2, gain: subGain, filter: subFilter, baseFreq: DNA.root / 2 };
+        // Root is loudest, third and fifth softer
+        const amp = i === 0 ? 0.4 : 0.25;
+        voiceGain.gain.value = amp;
+
+        osc1.connect(voiceGain);
+        osc2.connect(voiceGain);
+        voiceGain.connect(subDrone.filter);
+
+        osc1.start();
+        osc2.start();
+
+        subDrone.voices.push({
+            osc1, osc2, gain: voiceGain,
+            baseFreq: freq,
+            interval: interval
+        });
+    });
+
+    subDrone.filter.connect(subDrone.gain);
+    subDrone.gain.connect(master);
+    subDrone.gain.connect(reverb);
 }
 
 // ============ THE DARK WALL - MASSIVE LAYERED SYNTH ============
@@ -2434,75 +2622,109 @@ function tick() {
 
     const now = ctx.currentTime;
 
-    // ============ THE SOUL RESPONDS ============
-    // No clock. No grid. Just you.
+    // ============ LISTEN FIRST ============
+    listen();
 
-    // YOUR POSITION = THE PITCH
-    // Y axis maps directly to semitones
-    const semitone = SOUL.baseOctave + (F.y + 1) * 0.5 * SOUL.pitchRange;
-    const targetFreq = DNA.root * Math.pow(2, semitone / 12);
+    // ============ THE LOOP ============
+    // Record your movement, play it back
+    let inputX = F.x;
+    let inputY = F.y;
+    let inputSpeed = F.speed;
 
-    // Snap to scale for harmonic coherence
-    const snappedSemitone = snapToScale(Math.round(semitone), DNA.scale);
-    const snappedFreq = DNA.root * Math.pow(2, snappedSemitone / 12);
+    if (SOUL.loop.recording) {
+        // Record this frame
+        SOUL.loop.buffer.push({ x: F.x, y: F.y, speed: F.speed });
 
-    // Blend between raw and snapped based on speed (faster = more raw/emotional)
-    const rawness = Math.min(1, F.speed * 2);
-    const finalFreq = snappedFreq + (targetFreq - snappedFreq) * rawness * 0.3;
-
-    // Update all voice oscillators smoothly
-    if (SOUL.voice) {
-        SOUL.voice.forEach(v => {
-            v.osc.frequency.linearRampToValueAtTime(finalFreq, now + 0.05);
-        });
-    }
-
-    // YOUR X POSITION = THE TIMBRE
-    // Left = dark/closed, Right = bright/open
-    if (SOUL.voiceFilter) {
-        const filterFreq = 200 + (F.x + 1) * 0.5 * 3000 + F.speed * 2000;
-        SOUL.voiceFilter.frequency.linearRampToValueAtTime(filterFreq, now + 0.05);
-        SOUL.voiceFilter.Q.linearRampToValueAtTime(2 + F.speed * 8, now + 0.05);
-    }
-
-    // YOUR SPEED = THE INTENSITY
-    // Still = silence, Moving = sound
-    if (SOUL.voiceGain) {
-        const targetGain = F.speed * 0.5;
-        SOUL.voiceGain.gain.linearRampToValueAtTime(targetGain, now + 0.08);
-    }
-
-    // ============ RESONANCE - YOUR TRAIL ============
-    // When you move significantly, leave a note ringing
-
-    // Track your trail
-    SOUL.trail.push({ x: F.x, y: F.y, speed: F.speed, time: now });
-    if (SOUL.trail.length > SOUL.maxTrail) SOUL.trail.shift();
-
-    // Add resonance at significant moments (direction changes, pauses)
-    if (SOUL.trail.length > 10) {
-        const recent = SOUL.trail.slice(-10);
-        const avgSpeed = recent.reduce((s, p) => s + p.speed, 0) / 10;
-
-        // If we just slowed down significantly, add a resonance
-        if (F.speed < 0.1 && avgSpeed > 0.3 && now - (SOUL.lastResonance || 0) > 1) {
-            addResonance(snappedSemitone, avgSpeed);
-            SOUL.lastResonance = now;
+        // Auto-stop recording when buffer is full
+        if (SOUL.loop.buffer.length >= SOUL.loop.length) {
+            SOUL.loop.recording = false;
+            SOUL.loop.playing = true;
+            SOUL.loop.playhead = 0;
+            console.log('Loop recorded. Playing back.');
         }
     }
 
-    // ============ THE DRONE RESPONDS ============
-    // Sub follows your energy over time
-    F.energy = F.energy * SOUL.memory + F.speed * (1 - SOUL.memory);
+    if (SOUL.loop.playing && SOUL.loop.buffer.length > 0) {
+        // Blend live input with loop playback
+        const loopFrame = SOUL.loop.buffer[SOUL.loop.playhead];
+        const loopBlend = 0.6; // 60% loop, 40% live
 
-    if (subDrone) {
-        const subAmp = 0.05 + F.energy * 0.25;
-        subDrone.gain.gain.linearRampToValueAtTime(subAmp, now + 0.2);
+        inputX = loopFrame.x * loopBlend + F.x * (1 - loopBlend);
+        inputY = loopFrame.y * loopBlend + F.y * (1 - loopBlend);
+        inputSpeed = Math.max(loopFrame.speed * loopBlend, F.speed);
 
-        // Sub pitch bends slightly with your Y
-        const subBend = 1 + F.y * 0.02;
-        subDrone.sub.frequency.linearRampToValueAtTime(subDrone.baseFreq * subBend, now + 0.3);
-        subDrone.sub2.frequency.linearRampToValueAtTime(subDrone.baseFreq * subBend * 1.002, now + 0.3);
+        // Advance playhead
+        SOUL.loop.playhead = (SOUL.loop.playhead + 1) % SOUL.loop.buffer.length;
+    }
+
+    // Start recording on first significant movement
+    if (!SOUL.loop.recording && !SOUL.loop.playing && F.speed > 0.2 && SOUL.loop.buffer.length === 0) {
+        SOUL.loop.recording = true;
+        console.log('Recording loop...');
+    }
+
+    // ============ THE SOUL RESPONDS ============
+
+    // Position = Pitch (using blended input)
+    const semitone = SOUL.baseOctave + (inputY + 1) * 0.5 * SOUL.pitchRange;
+    const snappedSemitone = snapToScale(Math.round(semitone), DNA.scale);
+    const finalFreq = DNA.root * Math.pow(2, snappedSemitone / 12);
+
+    // Update voice - GENTLE volume
+    if (SOUL.voice) {
+        SOUL.voice.forEach(v => {
+            v.osc.frequency.linearRampToValueAtTime(finalFreq, now + 0.1);
+        });
+    }
+
+    // Filter follows X
+    if (SOUL.voiceFilter) {
+        const filterFreq = 300 + (inputX + 1) * 0.5 * 1500;
+        SOUL.voiceFilter.frequency.linearRampToValueAtTime(filterFreq, now + 0.1);
+        SOUL.voiceFilter.Q.linearRampToValueAtTime(2 + inputSpeed * 4, now + 0.1);
+    }
+
+    // Volume follows speed - MUCH QUIETER
+    if (SOUL.voiceGain) {
+        const targetGain = inputSpeed * 0.15; // was 0.5, now 0.15
+        SOUL.voiceGain.gain.linearRampToValueAtTime(targetGain, now + 0.15);
+    }
+
+    // ============ TRIAD DRONE - GUIDED BY HARMONY ============
+
+    F.energy = F.energy * SOUL.memory + inputSpeed * (1 - SOUL.memory);
+
+    if (subDrone && subDrone.voices) {
+        // Drone volume - quiet foundation
+        const droneAmp = 0.03 + F.energy * 0.08; // was much louder
+        subDrone.gain.gain.linearRampToValueAtTime(droneAmp, now + 0.3);
+
+        // Filter opens with energy
+        const filterFreq = 200 + F.energy * 600 + EARS.harmonyScore * 400;
+        subDrone.filter.frequency.linearRampToValueAtTime(filterFreq, now + 0.2);
+
+        // Pitch bend based on Y position
+        const bend = 1 + inputY * 0.03;
+        subDrone.voices.forEach(v => {
+            v.osc1.frequency.linearRampToValueAtTime(v.baseFreq * bend, now + 0.2);
+            v.osc2.frequency.linearRampToValueAtTime(v.baseFreq * bend * 1.001, now + 0.2);
+        });
+    }
+
+    // ============ RESONANCE ON SIGNIFICANT MOMENTS ============
+
+    SOUL.trail.push({ x: inputX, y: inputY, speed: inputSpeed, time: now });
+    if (SOUL.trail.length > SOUL.maxTrail) SOUL.trail.shift();
+
+    // Only add resonance when harmony is good and we pause
+    if (SOUL.trail.length > 10 && EARS.harmonyScore > 0.5) {
+        const recent = SOUL.trail.slice(-10);
+        const avgSpeed = recent.reduce((s, p) => s + p.speed, 0) / 10;
+
+        if (inputSpeed < 0.08 && avgSpeed > 0.25 && now - (SOUL.lastResonance || 0) > 2) {
+            addResonance(snappedSemitone, avgSpeed * 0.5); // quieter resonances
+            SOUL.lastResonance = now;
+        }
     }
 
     // ============ VISUAL & UI ============
