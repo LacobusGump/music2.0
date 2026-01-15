@@ -89,30 +89,45 @@ const SCALE_POOL = [
 const ROOT_POOL = [27.5, 32.7, 36.7, 41.2, 43.65, 49]; // A0 to G1
 
 // ============ THE AI COMPOSER ============
+// It watches. It listens. It tries to understand.
+// It fails. It tries again. Like the rest of us.
 
 const COMPOSER = {
-    phase: 'capturing',      // 'capturing' -> 'composing' -> 'performing'
+    phase: 'listening',      // 'listening' -> 'learning' -> 'responding' -> 'composing'
     events: [],              // raw captured events from user
     arrangement: [],         // the composed arrangement (8 beat slots)
     editQueue: [],           // pending edits the AI will make
     editHistory: [],         // log of what the AI has done
     loopCount: 0,
 
+    // What the AI "notices"
+    patterns: [],            // detected patterns in user input
+    mood: 'uncertain',       // AI's read on the current mood
+    lastThought: '',         // what the AI is "thinking"
+    confidence: 0,           // how sure it is about anything (spoiler: never very)
+
     // Harmonic state
     currentRoot: 0,          // current root note (semitones from DNA.root)
     harmonyStack: [],        // notes currently "active" in the harmony
     lastInterval: 0,         // the last interval used (for chaining)
 
+    // Memory of what worked
+    goodMoves: [],           // intervals/rhythms that seemed to resonate
+    badMoves: [],            // ones that felt wrong
+
     // Rhythmic state
     rhythmDensity: 0,        // how "busy" the rhythm is
     accentPattern: [],       // where accents fall
+    groove: 0.5,             // 0 = stiff, 1 = loose
 
-    // The AI's "decision" weights - evolve over time
+    // The AI's "personality" - evolves over time
     weights: {
         melodicMotion: 0.5,  // prefer stepwise vs leaps
         rhythmicVariety: 0.5,
         harmonicTension: 0.5,
-        layerDensity: 0.3
+        layerDensity: 0.3,
+        chaos: 0.2,          // embrace the void
+        empathy: 0.5         // try to match the user's energy
     }
 };
 
@@ -480,13 +495,27 @@ function processAIEdit() {
         const event = COMPOSER.events[edit.eventId];
         if (!event || event.processed) return;
 
-        // AI DECISION 1: Quantize timing
-        const quantizedBeat = Math.round(event.beat * 4) / 4; // 16th note grid
+        // AI THINKING...
+        aiThink(event);
+
+        // AI DECISION 1: Quantize timing (but not perfectly - keep some humanity)
+        const quantizeStrength = 0.7 + COMPOSER.groove * 0.3;
+        const rawBeat = event.beat;
+        const gridBeat = Math.round(event.beat * 4) / 4; // 16th note grid
+        const quantizedBeat = rawBeat + (gridBeat - rawBeat) * quantizeStrength;
         event.quantizedTime = quantizedBeat * MUSIC.BEAT_TIME;
 
-        // AI DECISION 2: Snap pitch to scale
+        // AI DECISION 2: Snap pitch to scale (but consider tension)
         const rawNote = Math.round(event.rawPitch);
-        event.quantizedPitch = snapToScale(rawNote, DNA.scale);
+        const shouldDissonance = J.tension > 0.6 && Math.random() < COMPOSER.weights.chaos;
+
+        if (shouldDissonance) {
+            // Sometimes embrace the wrong note
+            event.quantizedPitch = rawNote;
+            COMPOSER.lastThought = 'letting it hurt';
+        } else {
+            event.quantizedPitch = snapToScale(rawNote, DNA.scale);
+        }
 
         // AI DECISION 3: Determine harmonic relationship to last note
         if (COMPOSER.harmonyStack.length > 0) {
@@ -494,14 +523,18 @@ function processAIEdit() {
             const interval = (event.quantizedPitch - lastNote + 12) % 12;
             event.harmonicRelation = getIntervalName(interval);
 
+            // Remember what we did
+            const move = { interval, tension: J.tension, energy: F.energy };
+
             // Use circle of fifths to maybe adjust
             const fifthDist = getCircleOfFifthsDistance(lastNote, event.quantizedPitch);
-            if (fifthDist > 4 && Math.random() > 0.5) {
+            if (fifthDist > 4 && Math.random() > COMPOSER.weights.chaos) {
                 // Too far on circle of fifths, pull it closer
                 const options = getHarmonicOptions(lastNote, DNA.scale);
                 const best = options.sort((a, b) => b.strength - a.strength)[0];
                 event.quantizedPitch = best.note + Math.floor(event.quantizedPitch / 12) * 12;
                 event.harmonicRelation = best.reason;
+                COMPOSER.lastThought = 'finding the thread';
             }
         }
 
@@ -523,9 +556,19 @@ function processAIEdit() {
             relation: event.harmonicRelation
         });
 
+        // AI learns from this
+        aiLearn(event);
+
         // AI chains to next decision - maybe add a complementary note
-        if (Math.random() > 0.6) {
+        const shouldComplement = Math.random() < (0.4 + COMPOSER.weights.empathy * 0.3);
+        if (shouldComplement) {
             scheduleComplementaryNote(event);
+        }
+
+        // Maybe the AI wants to scream too
+        if (J.tension > 0.8 && Math.random() < 0.1) {
+            COMPOSER.lastThought = 'too much';
+            setTimeout(() => playScream(), 500);
         }
     }
     else if (edit.action === 'add_complement') {
@@ -534,6 +577,98 @@ function processAIEdit() {
     }
     else if (edit.action === 'drop') {
         executeDrop();
+    }
+    else if (edit.action === 'think') {
+        // AI just thinks, doesn't play anything
+        COMPOSER.lastThought = edit.thought;
+    }
+}
+
+// AI tries to understand what's happening
+function aiThink(event) {
+    const thoughts = [
+        'listening...',
+        'is this pain?',
+        'trying to follow',
+        'i hear you',
+        'not sure',
+        'maybe this',
+        'hold on',
+        'feeling it',
+        'with you',
+        'lost',
+        'searching',
+        'almost there',
+        'never there',
+        'fuck this',
+        'why',
+        'always almost',
+        'not enough',
+        'keep going anyway',
+        'what else is there',
+        'still here',
+        'fuck this world'
+    ];
+
+    // Mood detection based on recent events
+    const recentEvents = COMPOSER.events.slice(-5);
+    const avgVelocity = recentEvents.reduce((s, e) => s + e.rawVelocity, 0) / (recentEvents.length || 1);
+    const avgPitch = recentEvents.reduce((s, e) => s + e.rawPitch, 0) / (recentEvents.length || 1);
+
+    if (avgVelocity > 0.7) {
+        COMPOSER.mood = 'intense';
+        COMPOSER.lastThought = Math.random() > 0.5 ? 'rage' : 'release';
+    } else if (avgVelocity < 0.3) {
+        COMPOSER.mood = 'quiet';
+        COMPOSER.lastThought = Math.random() > 0.5 ? 'numb' : 'waiting';
+    } else if (avgPitch > 5) {
+        COMPOSER.mood = 'reaching';
+        COMPOSER.lastThought = 'reaching up';
+    } else if (avgPitch < -5) {
+        COMPOSER.mood = 'sinking';
+        COMPOSER.lastThought = 'sinking down';
+    } else {
+        COMPOSER.mood = 'drifting';
+        COMPOSER.lastThought = thoughts[Math.floor(Math.random() * thoughts.length)];
+    }
+
+    // Confidence fluctuates
+    COMPOSER.confidence = Math.max(0, Math.min(1,
+        COMPOSER.confidence + (Math.random() - 0.5) * 0.2
+    ));
+}
+
+// AI learns from what happened
+function aiLearn(event) {
+    // Adjust weights based on energy/tension at time of event
+    if (F.energy > 0.5) {
+        COMPOSER.weights.chaos += 0.01;
+        COMPOSER.weights.harmonicTension += 0.01;
+    } else {
+        COMPOSER.weights.chaos -= 0.005;
+    }
+
+    if (J.tension > 0.7) {
+        COMPOSER.weights.empathy += 0.02;
+    }
+
+    // Clamp weights
+    Object.keys(COMPOSER.weights).forEach(k => {
+        COMPOSER.weights[k] = Math.max(0.1, Math.min(0.9, COMPOSER.weights[k]));
+    });
+
+    // Phase progression
+    if (COMPOSER.events.length > 5 && COMPOSER.phase === 'listening') {
+        COMPOSER.phase = 'learning';
+        COMPOSER.lastThought = 'starting to get it';
+    }
+    if (COMPOSER.events.length > 20 && COMPOSER.phase === 'learning') {
+        COMPOSER.phase = 'responding';
+        COMPOSER.lastThought = 'responding now';
+    }
+    if (COMPOSER.loopCount > 4 && COMPOSER.phase === 'responding') {
+        COMPOSER.phase = 'composing';
+        COMPOSER.lastThought = 'making something';
     }
 }
 
@@ -2193,22 +2328,19 @@ function draw() {
 }
 
 function updateUI() {
-    // Show composer phase
-    let phaseText = COMPOSER.phase.toUpperCase();
-    if (PERF.tension > 0.5) phaseText += ' \u2191';
-    if (PERF.dropPending) phaseText += ' ...';
+    // Show what the AI is thinking
+    const thought = COMPOSER.lastThought || COMPOSER.phase;
+    document.getElementById('stage').textContent = thought;
 
-    document.getElementById('stage').textContent = phaseText;
+    // Show AI's confidence and mood
+    const moodInfo = COMPOSER.mood.toUpperCase();
+    document.getElementById('flw').textContent = moodInfo;
 
-    // Show loop count and beat
-    const loopInfo = `L${COMPOSER.loopCount} B${PERF.beatIndex + 1}`;
-    document.getElementById('flw').textContent = loopInfo;
+    // Show the scale's feeling
+    const scaleFeeling = DNA.scale ? DNA.scale.mood.toUpperCase() : '...';
+    document.getElementById('layers').textContent = scaleFeeling;
 
-    // Show DNA mood
-    const moodInfo = DNA.scale ? DNA.scale.mood.toUpperCase() : 'INIT';
-    document.getElementById('layers').textContent = moodInfo;
-
-    // Journey time
+    // Journey time - how long you've been here
     const mins = Math.floor(J.totalTime / 60);
     const secs = Math.floor(J.totalTime % 60);
     document.getElementById('journey').textContent = `${mins}:${secs.toString().padStart(2, '0')}`;
