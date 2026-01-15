@@ -34,20 +34,40 @@
 </div>
 <div id="app">
     <canvas id="c"></canvas>
-    <div class="hud tl"><div>MODE</div><div class="v" id="mode">BUILDING</div></div>
+    <div class="hud tl"><div>STAGE</div><div class="v" id="stage">VOID</div></div>
     <div class="hud tr"><div>FLOW</div><div class="v" id="flw">0</div></div>
     <div class="hud bl"><div>LAYERS</div><div class="v" id="layers">0</div></div>
-    <div class="hud br"><div>BEAT</div><div class="v" id="beat">1</div></div>
+    <div class="hud br"><div>JOURNEY</div><div class="v" id="journey">0:00</div></div>
 </div>
 <script>
 // GUMP - Grand Unified Music Project
-// The sound of something that shouldn't exist
+// A journey through sound and self
 
 const PHI = 1.618033988749;
+const TAU = Math.PI * 2;
 
-// Dark modes - b2 is the key to unease
-const PHRYGIAN = [0, 1, 3, 5, 7, 8, 10]; // that b2 tension
-const LOCRIAN = [0, 1, 3, 5, 6, 8, 10];  // diminished, unstable
+// Scales for different emotional states
+const SCALES = {
+    void: [0, 5, 7],                    // sparse, open fifths
+    phrygian: [0, 1, 3, 5, 7, 8, 10],   // dark, tense
+    locrian: [0, 1, 3, 5, 6, 8, 10],    // unstable, diminished
+    lydian: [0, 2, 4, 6, 7, 9, 11],     // bright, transcendent
+    wholetone: [0, 2, 4, 6, 8, 10],     // dreamlike, floating
+};
+
+// Quick access for common scales
+const PHRYGIAN = SCALES.phrygian;
+const LOCRIAN = SCALES.locrian;
+
+// THE JOURNEY - stages of the experience
+const STAGES = {
+    VOID: 0,        // sparse, uncertain - you're alone
+    AWAKENING: 1,   // first sounds emerge - curiosity
+    DESCENT: 2,     // going deeper - tension builds
+    DEEP: 3,        // maximum darkness - disorientation
+    EMERGENCE: 4,   // light breaking through - hope
+    TRANSCEND: 5    // full release - frisson
+};
 
 // State
 const F = {
@@ -57,7 +77,23 @@ const F = {
     phase: 0,
     density: 0,
     field: 0,
-    lfo: 0 // slow movement
+    lfo: 0,
+    breath: 0,      // breath cycle (5 second period)
+    orbit: 0        // spatial rotation
+};
+
+// Journey state
+const J = {
+    stage: STAGES.VOID,
+    stageTime: 0,       // time in current stage
+    totalTime: 0,       // total journey time
+    intensity: 0,       // overall intensity
+    tension: 0,         // tension level (for release)
+    lastDrop: 0,        // time of last "drop"
+    dropPending: false, // is a drop coming?
+    frisson: 0,         // frisson intensity
+    keyOffset: 0,       // current key (for modulation)
+    silenceUntil: 0     // silence timestamp
 };
 
 // Memory
@@ -73,12 +109,16 @@ const M = {
     blend: 0.6,
     beatDropped: false,
     beatIntensity: 0,
-    darkness: 0 // builds over time
+    darkness: 0
 };
 
 // Audio nodes
 let ctx, master, reverb, reverbDistort, delay, subDrone, textureNoise;
-let walls = []; // the massive sound walls
+let walls = [];
+let binaural = null;    // binaural beat layer
+let shimmer = null;     // high frequency shimmer
+let whisper = null;     // vocal-like formant layer
+let orbitSounds = [];   // sounds that move around you
 let running = false;
 
 // Mic
@@ -87,7 +127,7 @@ const MIC_BUFFER_SIZE = 48000 * 4;
 let micWritePos = 0;
 
 const ROOT = 55;
-const BPM = 78; // slower, heavier
+const BPM = 72; // slower for the journey
 
 // ============ AUDIO ENGINE ============
 
@@ -136,6 +176,10 @@ function init() {
     createSubDrone();
     createWalls();
     createTexture();
+    createBinaural();
+    createShimmer();
+    createWhisper();
+    initOrbits();
     initMic();
 }
 
@@ -387,14 +431,354 @@ function updateTexture() {
     const now = ctx.currentTime;
     const S = getBlendedState();
 
-    // Noise level - whispers of chaos
-    const noiseAmp = S.speed * 0.08 + M.darkness * 0.05;
+    // Noise level varies with journey stage
+    const stageNoise = [0.02, 0.04, 0.08, 0.12, 0.06, 0.03][J.stage];
+    const noiseAmp = S.speed * 0.08 + stageNoise;
     textureNoise.gain.gain.linearRampToValueAtTime(noiseAmp, now + 0.1);
 
     // Filter sweeps with position
     const freq = 500 + S.x * 2000 + S.y * 1500 + F.lfo * 1000;
     textureNoise.filter.frequency.linearRampToValueAtTime(freq, now + 0.1);
-    textureNoise.filter.Q.linearRampToValueAtTime(3 + M.darkness * 8, now + 0.1);
+    textureNoise.filter.Q.linearRampToValueAtTime(3 + J.tension * 8, now + 0.1);
+}
+
+// ============ BINAURAL BEATS - ALTER CONSCIOUSNESS ============
+
+function createBinaural() {
+    // Two oscillators with slightly different frequencies in each ear
+    // The difference creates a perceived "beat" that entrains brainwaves
+    // Theta (4-8Hz) = dreamlike, meditative
+    // Alpha (8-12Hz) = relaxed, aware
+
+    const baseFreq = 100; // carrier frequency
+    const merger = ctx.createChannelMerger(2);
+
+    const oscL = ctx.createOscillator();
+    const oscR = ctx.createOscillator();
+    const gainL = ctx.createGain();
+    const gainR = ctx.createGain();
+
+    oscL.type = 'sine';
+    oscR.type = 'sine';
+    oscL.frequency.value = baseFreq;
+    oscR.frequency.value = baseFreq + 6; // 6Hz difference = theta waves
+
+    gainL.gain.value = 0;
+    gainR.gain.value = 0;
+
+    oscL.connect(gainL);
+    oscR.connect(gainR);
+    gainL.connect(merger, 0, 0);
+    gainR.connect(merger, 0, 1);
+    merger.connect(master);
+
+    oscL.start();
+    oscR.start();
+
+    binaural = { oscL, oscR, gainL, gainR, baseFreq };
+}
+
+function updateBinaural() {
+    if (!binaural) return;
+    const now = ctx.currentTime;
+
+    // Binaural intensity based on journey stage
+    const stageAmp = [0.03, 0.05, 0.08, 0.12, 0.08, 0.15][J.stage];
+    const amp = stageAmp * (0.5 + F.breath * 0.5);
+
+    binaural.gainL.gain.linearRampToValueAtTime(amp, now + 0.5);
+    binaural.gainR.gain.linearRampToValueAtTime(amp, now + 0.5);
+
+    // Frequency difference changes with stage
+    // Deeper stages = slower theta, transcendence = higher alpha
+    const beatFreqs = [4, 5, 6, 7, 8, 10]; // Hz difference per stage
+    const beatFreq = beatFreqs[J.stage];
+
+    binaural.oscL.frequency.linearRampToValueAtTime(binaural.baseFreq, now + 1);
+    binaural.oscR.frequency.linearRampToValueAtTime(binaural.baseFreq + beatFreq, now + 1);
+}
+
+// ============ SHIMMER - HIGH FREQUENCY TINGLE ============
+
+function createShimmer() {
+    // Very high frequencies that create that "tingle" sensation
+    // Multiple detuned oscillators in the 3-6kHz range
+
+    const oscs = [];
+    const output = ctx.createGain();
+    output.gain.value = 0;
+
+    const freqs = [3000, 4000, 5000, 6000];
+    freqs.forEach((f, i) => {
+        const osc = ctx.createOscillator();
+        osc.type = 'sine';
+        osc.frequency.value = f;
+        osc.detune.value = Math.random() * 20 - 10;
+
+        const g = ctx.createGain();
+        g.gain.value = 0.1 / freqs.length;
+
+        osc.connect(g);
+        g.connect(output);
+        osc.start();
+        oscs.push({ osc, gain: g });
+    });
+
+    output.connect(reverb);
+    shimmer = { oscs, output };
+}
+
+function updateShimmer() {
+    if (!shimmer) return;
+    const now = ctx.currentTime;
+
+    // Shimmer emerges in later stages, peaks at transcendence
+    const stageAmp = [0, 0, 0.02, 0.03, 0.08, 0.15][J.stage];
+    const amp = stageAmp * J.frisson;
+
+    shimmer.output.gain.linearRampToValueAtTime(amp, now + 0.3);
+
+    // Slight frequency wobble
+    shimmer.oscs.forEach((s, i) => {
+        const wobble = Math.sin(now * (0.5 + i * 0.2)) * 50;
+        s.osc.detune.linearRampToValueAtTime(wobble, now + 0.1);
+    });
+}
+
+// ============ WHISPER - VOCAL-LIKE FORMANTS ============
+
+function createWhisper() {
+    // Filtered noise that sounds almost like distant voices
+    // Uses formant frequencies to create vocal quality
+
+    const bufferSize = ctx.sampleRate * 2;
+    const noiseBuffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+    const data = noiseBuffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) {
+        data[i] = Math.random() * 2 - 1;
+    }
+
+    const noise = ctx.createBufferSource();
+    noise.buffer = noiseBuffer;
+    noise.loop = true;
+
+    // Formant filters (vowel-like resonances)
+    const formants = [
+        { freq: 700, Q: 10 },   // "ah"
+        { freq: 1200, Q: 8 },   // "eh"
+        { freq: 2500, Q: 6 }    // "ee" / presence
+    ];
+
+    const filters = formants.map(f => {
+        const filter = ctx.createBiquadFilter();
+        filter.type = 'bandpass';
+        filter.frequency.value = f.freq;
+        filter.Q.value = f.Q;
+        return filter;
+    });
+
+    const output = ctx.createGain();
+    output.gain.value = 0;
+
+    // Parallel formants
+    filters.forEach(f => {
+        noise.connect(f);
+        f.connect(output);
+    });
+
+    output.connect(reverb);
+    noise.start();
+
+    whisper = { noise, filters, output };
+}
+
+function updateWhisper() {
+    if (!whisper) return;
+    const now = ctx.currentTime;
+
+    // Whispers appear in deep/emergence stages
+    const stageAmp = [0, 0, 0.01, 0.04, 0.03, 0.02][J.stage];
+    const amp = stageAmp * (0.5 + F.breath * 0.5);
+
+    whisper.output.gain.linearRampToValueAtTime(amp, now + 0.5);
+
+    // Formants shift slowly, creating morphing "words"
+    const shift = Math.sin(now * 0.2) * 200;
+    whisper.filters[0].frequency.linearRampToValueAtTime(700 + shift, now + 0.5);
+    whisper.filters[1].frequency.linearRampToValueAtTime(1200 - shift * 0.5, now + 0.5);
+}
+
+// ============ ORBITAL SOUNDS - SPATIAL MOVEMENT ============
+
+function createOrbitSound(freq, radius) {
+    // A sound that rotates around the listener in stereo
+
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    const panL = ctx.createGain();
+    const panR = ctx.createGain();
+    const merger = ctx.createChannelMerger(2);
+
+    osc.type = 'sine';
+    osc.frequency.value = freq;
+    gain.gain.value = 0;
+
+    osc.connect(gain);
+    gain.connect(panL);
+    gain.connect(panR);
+    panL.connect(merger, 0, 0);
+    panR.connect(merger, 0, 1);
+    merger.connect(master);
+    merger.connect(reverb);
+
+    osc.start();
+
+    return { osc, gain, panL, panR, radius, angle: Math.random() * TAU };
+}
+
+function initOrbits() {
+    // Create several orbital sounds at different frequencies
+    const freqs = [ROOT * 2, ROOT * 3, ROOT * 4, ROOT * 5];
+    freqs.forEach((f, i) => {
+        orbitSounds.push(createOrbitSound(f, 0.8 - i * 0.15));
+    });
+}
+
+function updateOrbits() {
+    const now = ctx.currentTime;
+    F.orbit += 0.005 * (1 + J.intensity);
+
+    orbitSounds.forEach((o, i) => {
+        // Rotate at different speeds
+        o.angle += 0.01 * (1 + i * 0.3) * (1 + F.speed);
+
+        // Pan based on angle
+        const pan = Math.sin(o.angle);
+        const depth = Math.cos(o.angle) * 0.5 + 0.5; // 0.5 to 1 (front/back simulation)
+
+        o.panL.gain.linearRampToValueAtTime((1 - pan) * 0.5 * depth, now + 0.05);
+        o.panR.gain.linearRampToValueAtTime((1 + pan) * 0.5 * depth, now + 0.05);
+
+        // Amplitude based on stage
+        const stageAmp = [0, 0.02, 0.04, 0.06, 0.08, 0.1][J.stage];
+        o.gain.gain.linearRampToValueAtTime(stageAmp * (0.5 + F.speed * 0.5), now + 0.1);
+    });
+}
+
+// ============ THE JOURNEY - STAGE PROGRESSION ============
+
+function updateJourney() {
+    const now = ctx.currentTime;
+    const dt = 1/60; // approx frame time
+
+    J.totalTime += dt;
+    J.stageTime += dt;
+
+    // Breath cycle - 5 second period
+    F.breath = (Math.sin(now * TAU / 5) + 1) / 2;
+
+    // LFO for slow movement
+    F.lfo = Math.sin(now * 0.3) * 0.5 + 0.5;
+
+    // Intensity builds with movement and time
+    J.intensity = Math.min(1, J.intensity * 0.999 + F.speed * 0.01 + 0.0001);
+
+    // Tension builds in certain stages
+    if (J.stage === STAGES.DESCENT || J.stage === STAGES.DEEP) {
+        J.tension = Math.min(1, J.tension + 0.0008 + F.speed * 0.002);
+    } else {
+        J.tension *= 0.995;
+    }
+
+    // Frisson builds in emergence/transcendence
+    if (J.stage >= STAGES.EMERGENCE) {
+        J.frisson = Math.min(1, J.frisson + 0.002);
+    } else {
+        J.frisson *= 0.99;
+    }
+
+    // Stage progression based on time and intensity
+    const stageThresholds = [
+        { time: 8, intensity: 0.1 },   // VOID → AWAKENING
+        { time: 20, intensity: 0.25 }, // AWAKENING → DESCENT
+        { time: 40, intensity: 0.5 },  // DESCENT → DEEP
+        { time: 70, intensity: 0.7 },  // DEEP → EMERGENCE
+        { time: 100, intensity: 0.85 } // EMERGENCE → TRANSCEND
+    ];
+
+    if (J.stage < STAGES.TRANSCEND) {
+        const threshold = stageThresholds[J.stage];
+        if (J.totalTime > threshold.time && J.intensity > threshold.intensity) {
+            advanceStage();
+        }
+    }
+
+    // Check for drop trigger
+    if (J.tension > 0.8 && !J.dropPending && now - J.lastDrop > 15) {
+        J.dropPending = true;
+        scheduleDrop(now + 2); // drop in 2 seconds
+    }
+
+    // Update darkness based on stage
+    M.darkness = [0, 0.1, 0.3, 0.7, 0.4, 0.1][J.stage];
+}
+
+function advanceStage() {
+    J.stage = Math.min(STAGES.TRANSCEND, J.stage + 1);
+    J.stageTime = 0;
+
+    // Key modulation on stage change - instant emotion
+    if (J.stage === STAGES.EMERGENCE) {
+        modulateKey(1); // up a half step - the lift
+    } else if (J.stage === STAGES.TRANSCEND) {
+        modulateKey(2); // up a whole step - transcendence
+    }
+}
+
+function modulateKey(semitones) {
+    // Shift all pitched elements up - creates instant emotional lift
+    J.keyOffset += semitones;
+
+    walls.forEach(w => {
+        const newFreq = w.baseFreq * Math.pow(2, J.keyOffset / 12);
+        w.oscs.forEach(osc => {
+            osc.frequency.linearRampToValueAtTime(newFreq, ctx.currentTime + 0.5);
+        });
+    });
+}
+
+// ============ THE DROP - SILENCE THEN RELEASE ============
+
+function scheduleDrop(time) {
+    // Everything cuts out, tension hangs, then SLAM back
+
+    const now = ctx.currentTime;
+
+    // Fade everything out
+    setTimeout(() => {
+        J.silenceUntil = ctx.currentTime + 1.5; // 1.5 seconds of near-silence
+        master.gain.linearRampToValueAtTime(0.05, ctx.currentTime + 0.3);
+    }, (time - now - 0.5) * 1000);
+
+    // The return - everything slams back louder
+    setTimeout(() => {
+        master.gain.linearRampToValueAtTime(1.0, ctx.currentTime + 0.05);
+        J.dropPending = false;
+        J.lastDrop = ctx.currentTime;
+        J.tension = 0;
+
+        // Trigger frisson response
+        J.frisson = Math.min(1, J.frisson + 0.5);
+
+        // Big kick on the return
+        playKick();
+        playKick(); // double hit
+
+        // Advance stage if ready
+        if (J.stage < STAGES.TRANSCEND && J.intensity > 0.5) {
+            advanceStage();
+        }
+    }, (time - now + 1.5) * 1000);
 }
 
 // ============ DARK MELODIC VOICES ============
@@ -831,20 +1215,63 @@ function resize() {
     vc.scale(devicePixelRatio, devicePixelRatio);
 }
 
+// Stage color palettes - each stage has its own vibe
+const STAGE_COLORS = {
+    0: { bg: [0, 0, 5], core: [180, 30, 30], ring: [200, 40, 20] },      // VOID - deep black, dim cyan
+    1: { bg: [5, 5, 10], core: [200, 50, 40], ring: [180, 60, 30] },     // AWAKENING - emerging blue
+    2: { bg: [10, 0, 15], core: [270, 60, 45], ring: [260, 50, 35] },    // DESCENT - purple tension
+    3: { bg: [15, 0, 20], core: [300, 70, 35], ring: [280, 60, 30] },    // DEEP - deep magenta
+    4: { bg: [10, 10, 20], core: [30, 80, 55], ring: [40, 70, 45] },     // EMERGENCE - golden hope
+    5: { bg: [20, 20, 30], core: [50, 90, 70], ring: [60, 85, 60] }      // TRANSCEND - brilliant white-gold
+};
+
 function draw() {
     const w = window.innerWidth;
     const h = window.innerHeight;
     const S = getBlendedState();
+    const colors = STAGE_COLORS[J.stage];
 
-    // Fade
-    vc.fillStyle = `rgba(0,0,0,${0.08 + (1-F.density) * 0.07})`;
+    // Background - stage dependent, darkens during silence
+    const silenceMult = ctx && ctx.currentTime < J.silenceUntil ? 0.3 : 1;
+    vc.fillStyle = `rgba(${colors.bg[0] * silenceMult},${colors.bg[1] * silenceMult},${colors.bg[2] * silenceMult},${0.08 + (1-F.density) * 0.07})`;
     vc.fillRect(0, 0, w, h);
 
     const cx = w/2 + S.x * w * 0.25;
     const cy = h/2 - S.y * h * 0.25;
+    const loopR = Math.min(w, h) * 0.4;
+
+    // FRISSON PARTICLES - sparkles when frisson is high
+    if (J.frisson > 0.2) {
+        const numParticles = Math.floor(J.frisson * 50);
+        for (let i = 0; i < numParticles; i++) {
+            const angle = Math.random() * TAU;
+            const dist = loopR * 0.3 + Math.random() * loopR * 0.8;
+            const px = w/2 + Math.cos(angle) * dist;
+            const py = h/2 + Math.sin(angle) * dist;
+            const size = 1 + Math.random() * 3 * J.frisson;
+
+            vc.beginPath();
+            vc.arc(px, py, size, 0, TAU);
+            vc.fillStyle = `rgba(255,255,${200 + Math.random() * 55},${J.frisson * 0.7})`;
+            vc.fill();
+        }
+    }
+
+    // TENSION WAVES - pulsing circles when tension builds
+    if (J.tension > 0.3) {
+        const numWaves = Math.floor(J.tension * 4);
+        for (let i = 0; i < numWaves; i++) {
+            const wavePhase = (F.phase * 0.5 + i * 0.25) % 1;
+            const waveR = loopR * 0.5 + wavePhase * loopR * 0.7;
+            vc.beginPath();
+            vc.arc(w/2, h/2, waveR, 0, TAU);
+            vc.strokeStyle = `rgba(${colors.ring[0]}, ${colors.ring[1]}%, ${colors.ring[2]}%, ${(1 - wavePhase) * J.tension * 0.3})`;
+            vc.lineWidth = 2 + J.tension * 3;
+            vc.stroke();
+        }
+    }
 
     // Outer loop ring
-    const loopR = Math.min(w, h) * 0.4;
     if (M.tape.length > 0) {
         const progress = M.mode === 'building'
             ? M.tape.length / M.loopLen
@@ -852,7 +1279,9 @@ function draw() {
 
         vc.beginPath();
         vc.arc(w/2, h/2, loopR, -Math.PI/2, -Math.PI/2 + progress * Math.PI * 2);
-        vc.strokeStyle = M.mode === 'building' ? 'rgba(255,100,100,0.4)' : 'rgba(0,255,170,0.25)';
+        vc.strokeStyle = M.mode === 'building'
+            ? 'rgba(255,100,100,0.4)'
+            : `hsla(${colors.ring[0]}, ${colors.ring[1]}%, ${colors.ring[2]}%, 0.35)`;
         vc.lineWidth = M.beatDropped ? 4 + M.beatIntensity * 4 : 3;
         vc.stroke();
     }
@@ -861,7 +1290,7 @@ function draw() {
     M.layers.forEach((_, i) => {
         vc.beginPath();
         vc.arc(w/2, h/2, loopR - 12 - i * 10, 0, Math.PI * 2);
-        vc.strokeStyle = `rgba(0,255,170,${0.15 + i * 0.08})`;
+        vc.strokeStyle = `hsla(${colors.ring[0]}, ${colors.ring[1]}%, ${colors.ring[2] + 10}%, ${0.15 + i * 0.08})`;
         vc.lineWidth = 2;
         vc.stroke();
     });
@@ -887,17 +1316,32 @@ function draw() {
     }
 
     // Wall visualization - massive rings that pulse
-    walls.forEach((w, i) => {
-        const amp = w.output.gain.value;
+    walls.forEach((wall, i) => {
+        const amp = wall.output.gain.value;
         if (amp > 0.005) {
             const r = 50 + i * 40 + amp * 100;
             vc.beginPath();
             vc.arc(cx, cy, r, 0, Math.PI * 2);
-            // Colors shift darker with darkness level
-            const hue = 200 - M.darkness * 60 + i * 20;
-            vc.strokeStyle = `hsla(${hue}, 50%, ${30 + amp * 30}%, ${amp * 1.5})`;
+            // Colors based on stage
+            const hue = colors.core[0] - i * 15 + J.frisson * 30;
+            vc.strokeStyle = `hsla(${hue}, ${colors.core[1] + 20}%, ${colors.core[2] + amp * 25}%, ${amp * 1.5})`;
             vc.lineWidth = 3 + amp * 10;
             vc.stroke();
+        }
+    });
+
+    // ORBITAL VISUALIZATION - spinning lights
+    orbitSounds.forEach((o, i) => {
+        const orbitAmp = o.gain.gain.value;
+        if (orbitAmp > 0.01) {
+            const orbitR = loopR * 0.6 + i * 20;
+            const ox = w/2 + Math.cos(o.angle) * orbitR;
+            const oy = h/2 + Math.sin(o.angle) * orbitR;
+
+            vc.beginPath();
+            vc.arc(ox, oy, 4 + orbitAmp * 20, 0, TAU);
+            vc.fillStyle = `hsla(${colors.core[0] + i * 30}, 70%, 60%, ${orbitAmp * 3})`;
+            vc.fill();
         }
     });
 
@@ -910,17 +1354,40 @@ function draw() {
         vc.fillRect(0, 0, w, h);
     }
 
-    // Core - shifts color with darkness
-    const coreR = 30 + S.speed * 40;
-    const coreHue = 170 - M.darkness * 50;
+    // BINAURAL VISUALIZATION - subtle pulsing rings at breath rate
+    if (binaural && J.stage > 0) {
+        const binAmp = binaural.gainL.gain.value;
+        if (binAmp > 0.01) {
+            const binR = 80 + F.breath * 30;
+            vc.beginPath();
+            vc.arc(cx, cy, binR, 0, TAU);
+            vc.strokeStyle = `rgba(100,150,255,${binAmp * 2})`;
+            vc.lineWidth = 1 + F.breath * 2;
+            vc.stroke();
+        }
+    }
+
+    // Core - shifts color with stage
+    const coreR = 30 + S.speed * 40 + J.frisson * 20;
     const gr = vc.createRadialGradient(cx, cy, 0, cx, cy, coreR);
-    gr.addColorStop(0, `hsla(${coreHue}, 80%, 50%, ${0.5 + S.speed * 0.4})`);
-    gr.addColorStop(0.5, `hsla(${coreHue - 30}, 60%, 40%, ${0.3 + S.speed * 0.2})`);
+    gr.addColorStop(0, `hsla(${colors.core[0]}, ${colors.core[1]}%, ${colors.core[2] + 20}%, ${0.5 + S.speed * 0.4 + J.frisson * 0.3})`);
+    gr.addColorStop(0.5, `hsla(${colors.core[0] - 30}, ${colors.core[1] - 10}%, ${colors.core[2]}%, ${0.3 + S.speed * 0.2})`);
     gr.addColorStop(1, 'transparent');
     vc.fillStyle = gr;
     vc.beginPath();
     vc.arc(cx, cy, coreR, 0, Math.PI * 2);
     vc.fill();
+
+    // GLITCH EFFECT - during high tension moments
+    if (J.tension > 0.7 && Math.random() > 0.9) {
+        const glitchH = 5 + Math.random() * 20;
+        const glitchY = Math.random() * h;
+        const glitchShift = (Math.random() - 0.5) * 30;
+
+        // Slice and shift
+        const imgData = vc.getImageData(0, glitchY, w, glitchH);
+        vc.putImageData(imgData, glitchShift, glitchY);
+    }
 
     // Mic activity indicator
     if (micBuffer) {
@@ -934,16 +1401,32 @@ function draw() {
             vc.stroke();
         }
     }
+
+    // STAGE INDICATOR - subtle text at bottom
+    const stageNames = ['VOID', 'AWAKENING', 'DESCENT', 'DEEP', 'EMERGENCE', 'TRANSCEND'];
+    vc.font = '10px system-ui';
+    vc.fillStyle = `rgba(255,255,255,${0.1 + J.intensity * 0.2})`;
+    vc.textAlign = 'center';
+    vc.fillText(stageNames[J.stage], w/2, h - 30);
 }
 
 function updateUI() {
-    let modeText = M.mode === 'building'
-        ? `BUILDING ${M.tape.length}/${M.loopLen}`
-        : (M.activeLayer ? 'RECORDING' : (M.beatDropped ? 'LIVE' : 'LOOPING'));
-    document.getElementById('mode').textContent = modeText;
+    // Stage names with emotional cues
+    const stageNames = ['VOID', 'AWAKENING', 'DESCENT', 'DEEP', 'EMERGENCE', 'TRANSCEND'];
+    let stageName = stageNames[J.stage];
+
+    // Add tension/frisson indicators
+    if (J.tension > 0.6) stageName += ' \u2191';  // tension rising
+    if (J.frisson > 0.3) stageName += ' \u2728'; // sparkle for frisson
+
+    document.getElementById('stage').textContent = stageName;
     document.getElementById('flw').textContent = F.speed.toFixed(2);
     document.getElementById('layers').textContent = M.layers.length + (M.activeLayer ? '+1' : '');
-    document.getElementById('beat').textContent = M.beatDropped ? `${M.playhead + 1} \u266A` : M.playhead + 1;
+
+    // Journey time as MM:SS
+    const mins = Math.floor(J.totalTime / 60);
+    const secs = Math.floor(J.totalTime % 60);
+    document.getElementById('journey').textContent = `${mins}:${secs.toString().padStart(2, '0')}`;
 }
 
 // ============ MAIN LOOP ============
@@ -953,6 +1436,8 @@ function tick() {
 
     F.phase += 0.01 * (1 + F.speed);
 
+    // The journey evolves
+    updateJourney();
     updateMemory();
 
     // Auto-start layer recording on significant movement
@@ -960,8 +1445,14 @@ function tick() {
         M.activeLayer = [];
     }
 
+    // Update all sound layers
     updateWalls();
     updateTexture();
+    updateBinaural();
+    updateShimmer();
+    updateWhisper();
+    updateOrbits();
+
     draw();
     updateUI();
 
