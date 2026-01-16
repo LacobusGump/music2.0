@@ -123,7 +123,8 @@ const DNA = {
     scale: null,
     chordProgression: [],
     swingAmount: 0,
-    darkness: 0.5  // how "dark" to make it
+    darkness: 0.5,  // how "dark" to make it
+    mutationRate: 0.02  // was undefined - caused crashes
 };
 
 // Movement state
@@ -176,7 +177,7 @@ const M = {
     lastBeat: 0,
     beatTime: 0.5,      // will be set from MUSIC
     beatDropped: false,
-    beatIntensity: 0,
+    beatIntensity: 0.5,  // start audible, not silent
     darkness: 0,
     groove: [],
     mutationAccum: 0
@@ -1660,34 +1661,34 @@ function playGrain() {
 function playKick() {
     const now = ctx.currentTime;
 
-    // Kick tuned to the root note for musical coherence
-    const kickFreq = DNA.root * 2 + Math.random() * 20; // slight variation
+    // Proper 808-style kick - starts at ~150Hz, drops to ~50Hz
+    const startFreq = 150;
+    const endFreq = 50;
 
-    // Sub oscillator
+    // Sub oscillator - the body
     const sub = ctx.createOscillator();
     sub.type = 'sine';
-    sub.frequency.setValueAtTime(kickFreq * 2, now);
-    sub.frequency.exponentialRampToValueAtTime(kickFreq * 0.5, now + 0.15);
+    sub.frequency.setValueAtTime(startFreq, now);
+    sub.frequency.exponentialRampToValueAtTime(endFreq, now + 0.08);
 
-    // Click with variation
+    // Click - the attack transient
     const click = ctx.createOscillator();
-    click.type = Math.random() > 0.5 ? 'triangle' : 'square';
-    click.frequency.setValueAtTime(800 + Math.random() * 400, now);
-    click.frequency.exponentialRampToValueAtTime(kickFreq, now + 0.03);
+    click.type = 'triangle';
+    click.frequency.setValueAtTime(1000, now);
+    click.frequency.exponentialRampToValueAtTime(60, now + 0.02);
 
     const subGain = ctx.createGain();
     const clickGain = ctx.createGain();
     const output = ctx.createGain();
 
-    // Amplitude variation
-    const amp = 0.6 + Math.random() * 0.3;
-    subGain.gain.setValueAtTime(amp * M.beatIntensity, now);
-    subGain.gain.exponentialRampToValueAtTime(0.001, now + 0.25 + Math.random() * 0.1);
+    // Solid envelope - no randomness
+    subGain.gain.setValueAtTime(0.8, now);
+    subGain.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
 
-    clickGain.gain.setValueAtTime((amp * 0.6) * M.beatIntensity, now);
-    clickGain.gain.exponentialRampToValueAtTime(0.001, now + 0.04);
+    clickGain.gain.setValueAtTime(0.5, now);
+    clickGain.gain.exponentialRampToValueAtTime(0.001, now + 0.03);
 
-    output.gain.value = 0.7;
+    output.gain.value = 0.9;
 
     sub.connect(subGain);
     click.connect(clickGain);
@@ -1704,46 +1705,41 @@ function playKick() {
 function playSnare() {
     const now = ctx.currentTime;
 
-    // Varied noise length
-    const noiseLen = 0.1 + Math.random() * 0.1;
+    // Consistent snare - noise + tone body
+    const noiseLen = 0.15;
     const noise = ctx.createBuffer(1, ctx.sampleRate * noiseLen, ctx.sampleRate);
     const noiseData = noise.getChannelData(0);
-    const decay = 0.03 + Math.random() * 0.04;
     for (let i = 0; i < noiseData.length; i++) {
-        noiseData[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * decay));
+        noiseData[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * 0.05));
     }
 
     const noiseSource = ctx.createBufferSource();
     noiseSource.buffer = noise;
 
-    // Tone body with pitch variation
+    // Tone body - consistent pitch
     const tone = ctx.createOscillator();
-    tone.type = Math.random() > 0.7 ? 'square' : 'triangle';
-    tone.frequency.value = 150 + Math.random() * 100;
+    tone.type = 'triangle';
+    tone.frequency.setValueAtTime(200, now);
+    tone.frequency.exponentialRampToValueAtTime(120, now + 0.05);
 
     const noiseGain = ctx.createGain();
     const toneGain = ctx.createGain();
     const filter = ctx.createBiquadFilter();
     filter.type = 'highpass';
-    filter.frequency.value = 800 + Math.random() * 600;
+    filter.frequency.value = 1200;
 
-    // Random pan
-    const pan = ctx.createStereoPanner();
-    pan.pan.value = (Math.random() - 0.5) * 0.4;
-
-    const amp = 0.5 + Math.random() * 0.2;
-    noiseGain.gain.setValueAtTime(amp * M.beatIntensity, now);
+    // Solid levels
+    noiseGain.gain.setValueAtTime(0.6, now);
     noiseGain.gain.exponentialRampToValueAtTime(0.001, now + noiseLen);
 
-    toneGain.gain.setValueAtTime((amp * 0.5) * M.beatIntensity, now);
-    toneGain.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
+    toneGain.gain.setValueAtTime(0.4, now);
+    toneGain.gain.exponentialRampToValueAtTime(0.001, now + 0.06);
 
     noiseSource.connect(filter);
     filter.connect(noiseGain);
     tone.connect(toneGain);
-    noiseGain.connect(pan);
-    toneGain.connect(pan);
-    pan.connect(master);
+    noiseGain.connect(master);
+    toneGain.connect(master);
     noiseGain.connect(reverb);
 
     noiseSource.start(now);
@@ -1754,11 +1750,11 @@ function playSnare() {
 function playHat(open = false) {
     const now = ctx.currentTime;
 
-    const len = open ? 0.2 : 0.05;
+    const len = open ? 0.15 : 0.04;
     const noise = ctx.createBuffer(1, ctx.sampleRate * len, ctx.sampleRate);
     const data = noise.getChannelData(0);
     for (let i = 0; i < data.length; i++) {
-        data[i] = (Math.random() * 2 - 1);
+        data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * (open ? 0.1 : 0.02)));
     }
 
     const source = ctx.createBufferSource();
@@ -1767,9 +1763,10 @@ function playHat(open = false) {
     const gain = ctx.createGain();
     const filter = ctx.createBiquadFilter();
     filter.type = 'highpass';
-    filter.frequency.value = 7000;
+    filter.frequency.value = 8000;
 
-    gain.gain.setValueAtTime(0.25 * M.beatIntensity, now);
+    // Solid volume
+    gain.gain.setValueAtTime(0.3, now);
     gain.gain.exponentialRampToValueAtTime(0.001, now + len);
 
     source.connect(filter);
@@ -2172,7 +2169,7 @@ function draw() {
     }
 
     // Mic activity indicator
-    if (micBuffer) {
+    if (micBuffer && micWritePos >= 512) {
         const micLevel = micBuffer.getChannelData(0).slice(micWritePos - 512, micWritePos)
             .reduce((a, b) => a + Math.abs(b), 0) / 512;
         if (micLevel > 0.01) {
