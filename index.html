@@ -6,870 +6,323 @@
     <title>GUMP</title>
     <style>
         *{margin:0;padding:0;box-sizing:border-box}
-        body{background:#000;color:#fff;font-family:system-ui;height:100vh;overflow:hidden;touch-action:none}
-        #start{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:24px;z-index:10}
-        #start.off{display:none}
-        .title{font-size:10px;letter-spacing:8px;opacity:0.4}
-        .sub{font-size:20px;font-weight:200;letter-spacing:3px}
-        button{width:100px;height:100px;border-radius:50%;background:transparent;border:1px solid #0fa;color:#0fa;font:inherit;font-size:9px;letter-spacing:2px;cursor:pointer;transition:0.3s}
-        button:hover{background:#0fa;color:#000}
-        .hint{font-size:9px;opacity:0.25;text-align:center;max-width:220px;line-height:1.5}
-        #app{display:none;height:100vh}
-        #app.on{display:block}
-        canvas{position:fixed;inset:0;width:100%;height:100%}
-        .hud{position:fixed;font-size:8px;letter-spacing:1px;opacity:0.3;z-index:5}
-        .tl{top:16px;left:16px}
-        .tr{top:16px;right:16px;text-align:right}
-        .bl{bottom:16px;left:16px}
-        .br{bottom:16px;right:16px;text-align:right}
-        .v{font-size:11px;margin-top:3px;opacity:0.7}
-        .recording .v{color:#f44}
-        .layers{position:fixed;bottom:60px;left:16px;font-size:8px;opacity:0.4}
-        .layer{margin:4px 0;display:flex;gap:8px;align-items:center}
-        .layer-bar{width:40px;height:4px;background:#222;border-radius:2px;overflow:hidden}
-        .layer-fill{height:100%;background:#0fa;transition:width 0.3s}
-        kbd{display:inline-block;padding:2px 5px;background:rgba(255,255,255,0.1);border-radius:3px;font-size:7px;margin-left:4px}
+        body{background:#000;overflow:hidden;touch-action:none;height:100vh}
+        canvas{position:fixed;inset:0}
+        #enter{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;z-index:10;cursor:pointer}
+        #enter.off{display:none}
+        #enter div{width:120px;height:120px;border-radius:50%;border:1px solid rgba(255,255,255,0.2);display:flex;align-items:center;justify-content:center;font:10px system-ui;letter-spacing:4px;color:rgba(255,255,255,0.4);transition:0.3s}
+        #enter:hover div{border-color:rgba(255,255,255,0.5);color:rgba(255,255,255,0.7)}
     </style>
 </head>
 <body>
-<div id="start">
-    <div class="title">GUMP</div>
-    <div class="sub">Grand Unified Music Project</div>
-    <button id="go">ENTER</button>
-    <div class="hint">Move to unlock the synth. Tap/click to sample the world. Your sounds become the instrument.</div>
-</div>
-<div id="app">
-    <canvas id="c"></canvas>
-    <div class="hud tl"><div>STAGE</div><div class="v" id="stage">VOID</div></div>
-    <div class="hud tr"><div>TIER</div><div class="v" id="tier">0</div></div>
-    <div class="hud bl" id="samplerHud"><div>SAMPLER</div><div class="v" id="sampler">TAP TO RECORD</div></div>
-    <div class="hud br"><div>TIME</div><div class="v" id="time">0:00</div></div>
-    <div class="layers" id="layersHud"></div>
-</div>
+<div id="enter"><div>ENTER</div></div>
+<canvas id="c"></canvas>
 <script>
 // GUMP - Grand Unified Music Project
-// The Blend: G7 Flywheel + Dew Waz + Lowfiye
-// Movement unlocks synth tiers. Sampling builds the beat.
+// You are the waveform. Movement is music. No gates. No unlock. Just you.
 
 const TAU = Math.PI * 2;
 
-// ============ MUSIC THEORY ============
+// ============ THE FIELD ============
+// A continuous harmonic space you move through.
+// Your position IS the harmony. Your velocity IS the energy.
 
-const MUSIC = {
-    BPM: 100,
-    get BEAT() { return 60 / this.BPM; },
-    get BAR() { return this.BEAT * 4; },
+let ctx, master, verb, dly;
+let field = { x: 0.5, y: 0.5, vx: 0, vy: 0, energy: 0 };
+let voices = [];
+let running = false;
+let canvas, vc;
 
-    // A minor for that emotional feel
-    SCALE: [0, 2, 3, 5, 7, 8, 10],
-    ROOT: 55, // A1
-
-    // Chord progressions
-    PROGRESSIONS: [
-        [0, 5, 3, 4],  // Am - Dm - C - E (dark)
-        [0, 3, 5, 4],  // Am - C - Dm - E
-        [0, 7, 5, 7],  // Am - Em - Dm - Em
-    ]
-};
-
-// ============ STATE ============
-
-const STATE = {
-    // Movement/unlock (from G7)
-    tier: 0,
-    tierThresholds: [0, 3, 12, 30, 60, 120, 200],
-    movementAccum: 0,
-
-    // Samples (from Dew Waz + Lowfiye)
-    samples: [],
-    maxSamples: 16,
-    layers: {
-        kick: [], snare: [], hats: [], bass: [], lead: [], pad: [], fx: []
-    },
-
-    // Evolution stage (blend of both)
-    stage: 'VOID',
-
-    // Recording
-    recording: false,
-    recBuffer: [],
-
-    // Movement input
-    x: 0, y: 0,
-    vx: 0, vy: 0,
-    speed: 0,
-
-    // Timing
-    totalTime: 0,
-    beatIndex: 0,
-    lastBeatTime: 0,
-    chordIndex: 0,
-
-    // Synth voice gains (for smooth fades)
-    voiceGains: new Array(7).fill(0)
-};
-
-// ============ AUDIO NODES ============
-
-let ctx, master, pump, reverb, delay, lofi;
-let synths = { voices: [], sub: null };
-let drums = {};
-let mic, recorder, analyser, micData;
+// Harmonic ratios - just intonation for natural beauty
+const HARMONICS = [1, 1.5, 2, 2.5, 3, 4, 5, 6, 8];
+const BASE = 55; // A1
 
 // ============ INIT ============
 
-async function init() {
+function init() {
     ctx = new (window.AudioContext || window.webkitAudioContext)();
 
-    // Master chain
+    // Master with soft compression
     master = ctx.createGain();
-    master.gain.value = 0.7;
+    master.gain.value = 0.6;
 
-    // Pump node for sidechain feel
-    pump = ctx.createGain();
-    pump.gain.value = 1;
-
-    // Compressor
     const comp = ctx.createDynamicsCompressor();
-    comp.threshold.value = -18;
+    comp.threshold.value = -24;
     comp.ratio.value = 4;
-    comp.attack.value = 0.003;
-    comp.release.value = 0.15;
+    comp.attack.value = 0.01;
+    comp.release.value = 0.3;
 
-    // Lo-fi processor (from Lowfiye)
-    lofi = createLoFi();
+    // Deep reverb - the space itself
+    verb = createVerb();
 
-    // Reverb
-    reverb = createReverb();
+    // Delay - echoes of your movement
+    dly = ctx.createDelay(2);
+    dly.delayTime.value = 0.4;
+    const dlyFb = ctx.createGain();
+    dlyFb.gain.value = 0.3;
+    const dlyFilt = ctx.createBiquadFilter();
+    dlyFilt.type = 'lowpass';
+    dlyFilt.frequency.value = 1500;
+    dly.connect(dlyFilt);
+    dlyFilt.connect(dlyFb);
+    dlyFb.connect(dly);
+    dly.connect(master);
 
-    // Delay (dotted eighth)
-    delay = ctx.createDelay(2);
-    delay.delayTime.value = MUSIC.BEAT * 0.75;
-    const delayFb = ctx.createGain();
-    delayFb.gain.value = 0.35;
-    const delayFilter = ctx.createBiquadFilter();
-    delayFilter.type = 'lowpass';
-    delayFilter.frequency.value = 2000;
-    delay.connect(delayFilter);
-    delayFilter.connect(delayFb);
-    delayFb.connect(delay);
-    delay.connect(pump);
-
-    // Chain: sources -> pump -> master -> comp -> out
-    pump.connect(master);
     master.connect(comp);
     comp.connect(ctx.destination);
-    reverb.connect(pump);
+    verb.output.connect(master);
 
-    // Create synth voices (from G7)
-    createSynthVoices();
+    // Create the harmonic field - always present, always responding
+    createField();
 
-    // Create built-in drums
-    createDrums();
-
-    // Setup mic (from Dew Waz + Lowfiye)
-    await setupMic();
-
-    // Build layer UI
-    buildLayerUI();
-
-    console.log('GUMP initialized - The Blend');
+    // Canvas
+    canvas = document.getElementById('c');
+    vc = canvas.getContext('2d');
+    resize();
+    window.addEventListener('resize', resize);
 }
 
-// ============ LO-FI PROCESSOR (from Lowfiye) ============
-
-function createLoFi() {
-    // Warm filter
-    const filter = ctx.createBiquadFilter();
-    filter.type = 'lowpass';
-    filter.frequency.value = 4000;
-    filter.Q.value = 0.7;
-
-    // Tape warmth
-    const warmth = ctx.createBiquadFilter();
-    warmth.type = 'lowshelf';
-    warmth.frequency.value = 200;
-    warmth.gain.value = 3;
-
-    // Saturation
-    const saturator = ctx.createWaveShaper();
-    const curve = new Float32Array(256);
-    for (let i = 0; i < 256; i++) {
-        const x = (i / 128) - 1;
-        curve[i] = Math.tanh(x * 1.5);
-    }
-    saturator.curve = curve;
-
-    filter.connect(warmth);
-    warmth.connect(saturator);
-    saturator.connect(pump);
-
-    return { input: filter, output: saturator };
-}
-
-// ============ REVERB ============
-
-function createReverb() {
+function createVerb() {
     const input = ctx.createGain();
     const output = ctx.createGain();
-    output.gain.value = 0.3;
+    output.gain.value = 0.5;
 
-    const times = [0.03, 0.08, 0.13, 0.21, 0.34, 0.55];
-    const gains = [0.6, 0.5, 0.4, 0.3, 0.25, 0.2];
-
-    times.forEach((t, i) => {
+    // Multiple delay lines for rich space
+    [0.03, 0.07, 0.11, 0.17, 0.23, 0.31, 0.43, 0.59, 0.79].forEach((t, i) => {
         const d = ctx.createDelay(1);
         d.delayTime.value = t;
         const g = ctx.createGain();
-        g.gain.value = gains[i];
+        g.gain.value = 0.4 * Math.pow(0.85, i);
         const f = ctx.createBiquadFilter();
         f.type = 'lowpass';
-        f.frequency.value = 3000 - i * 400;
+        f.frequency.value = 4000 - i * 400;
         input.connect(d);
         d.connect(f);
         f.connect(g);
         g.connect(output);
     });
 
-    return input;
+    return { input, output };
 }
 
-// ============ SYNTH VOICES (from G7) ============
+// ============ THE HARMONIC FIELD ============
+// Not voices that unlock. A field that's always there.
+// Your position modulates it. Your movement shapes it.
 
-function createSynthVoices() {
-    const voicings = [0, 7, 12, 16, 19, 24, 28]; // Stacked 5ths + extensions
-
-    voicings.forEach((semitone, idx) => {
-        const freq = MUSIC.ROOT * Math.pow(2, semitone / 12);
-        const voice = createSupersaw(freq, idx);
-        synths.voices.push(voice);
+function createField() {
+    HARMONICS.forEach((ratio, i) => {
+        const voice = createVoice(BASE * ratio, i);
+        voices.push(voice);
     });
-
-    // Sub drone
-    const sub = ctx.createOscillator();
-    const sub2 = ctx.createOscillator();
-    const subGain = ctx.createGain();
-    const subFilter = ctx.createBiquadFilter();
-
-    sub.type = 'sine';
-    sub.frequency.value = MUSIC.ROOT / 2;
-    sub2.type = 'sine';
-    sub2.frequency.value = MUSIC.ROOT / 2 * 1.002;
-
-    subFilter.type = 'lowpass';
-    subFilter.frequency.value = 80;
-    subGain.gain.value = 0;
-
-    sub.connect(subFilter);
-    sub2.connect(subFilter);
-    subFilter.connect(subGain);
-    subGain.connect(pump);
-
-    sub.start();
-    sub2.start();
-
-    synths.sub = { gain: subGain, filter: subFilter };
 }
 
-function createSupersaw(baseFreq, idx) {
-    const NUM = 7;
-    const oscs = [];
-    const output = ctx.createGain();
+function createVoice(freq, index) {
+    // Each voice: osc -> filter -> gain -> destinations
+    const osc = ctx.createOscillator();
+    const osc2 = ctx.createOscillator(); // Slight detune for warmth
     const filter = ctx.createBiquadFilter();
+    const gain = ctx.createGain();
+    const pan = ctx.createStereoPanner();
 
-    const detunes = [-35, -20, -10, 0, 10, 20, 35];
+    // Oscillators
+    osc.type = 'sine';
+    osc.frequency.value = freq;
+    osc2.type = 'sine';
+    osc2.frequency.value = freq * 1.002; // Gentle beating
 
-    for (let i = 0; i < NUM; i++) {
-        const osc = ctx.createOscillator();
-        const g = ctx.createGain();
-        osc.type = 'sawtooth';
-        osc.frequency.value = baseFreq;
-        osc.detune.value = detunes[i];
-        g.gain.value = 0.15 / NUM;
-        osc.connect(g);
-        g.connect(filter);
-        osc.start();
-        oscs.push(osc);
-    }
-
+    // Filter - position controls this
     filter.type = 'lowpass';
-    filter.frequency.value = 1500;
-    filter.Q.value = 0.5;
-    filter.connect(output);
+    filter.frequency.value = 200;
+    filter.Q.value = 1;
 
-    output.gain.value = 0;
-    output.connect(pump);
-    output.connect(reverb);
-    output.connect(delay);
+    // Start silent
+    gain.gain.value = 0;
 
-    return { oscs, output, filter, baseFreq };
+    // Panning based on harmonic position
+    pan.pan.value = (index / HARMONICS.length) * 2 - 1;
+
+    // Connect
+    osc.connect(filter);
+    osc2.connect(filter);
+    filter.connect(gain);
+    gain.connect(pan);
+    pan.connect(master);
+    pan.connect(verb.input);
+    pan.connect(dly);
+
+    osc.start();
+    osc2.start();
+
+    return { osc, osc2, filter, gain, pan, baseFreq: freq, index };
 }
 
-// ============ DRUMS ============
-
-function createDrums() {
-    const sr = ctx.sampleRate;
-
-    // 808 Kick
-    const kick = ctx.createBuffer(1, sr * 0.4, sr);
-    const kd = kick.getChannelData(0);
-    for (let i = 0; i < kd.length; i++) {
-        const t = i / sr;
-        const env = Math.exp(-4 * t);
-        const pitch = 150 * Math.exp(-40 * t) + 45;
-        kd[i] = Math.sin(TAU * pitch * t) * env * 0.9;
-        if (t < 0.01) kd[i] += (Math.random() * 2 - 1) * (1 - t / 0.01) * 0.3;
-    }
-    drums.kick = kick;
-
-    // Snare
-    const snare = ctx.createBuffer(1, sr * 0.2, sr);
-    const sd = snare.getChannelData(0);
-    for (let i = 0; i < sd.length; i++) {
-        const t = i / sr;
-        const env = Math.exp(-20 * t);
-        const tone = Math.sin(TAU * 200 * t) * 0.3 * Math.exp(-30 * t);
-        const noise = (Math.random() * 2 - 1) * 0.7;
-        sd[i] = (tone + noise) * env * 0.8;
-    }
-    drums.snare = snare;
-
-    // Hat
-    const hat = ctx.createBuffer(1, sr * 0.05, sr);
-    const hd = hat.getChannelData(0);
-    for (let i = 0; i < hd.length; i++) {
-        const t = i / sr;
-        hd[i] = (Math.random() * 2 - 1) * Math.exp(-100 * t) * 0.4;
-    }
-    drums.hat = hat;
-
-    // Add to layers
-    STATE.layers.kick.push({ buffer: kick, rate: 1, type: 'builtin' });
-    STATE.layers.snare.push({ buffer: snare, rate: 1, type: 'builtin' });
-    STATE.layers.hats.push({ buffer: hat, rate: 1, type: 'builtin' });
-}
-
-// ============ MIC SETUP (from Dew Waz + Lowfiye) ============
-
-async function setupMic() {
-    try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-            audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
-        });
-
-        mic = ctx.createMediaStreamSource(stream);
-        analyser = ctx.createAnalyser();
-        analyser.fftSize = 2048;
-        analyser.smoothingTimeConstant = 0.3;
-        micData = new Uint8Array(analyser.frequencyBinCount);
-        mic.connect(analyser);
-
-        recorder = ctx.createScriptProcessor(4096, 1, 1);
-        recorder.onaudioprocess = e => {
-            if (!STATE.recording) return;
-            STATE.recBuffer.push(...e.inputBuffer.getChannelData(0));
-            if (STATE.recBuffer.length > ctx.sampleRate * 4) stopRecording();
-        };
-
-        console.log('Mic ready');
-    } catch (e) {
-        console.log('No mic access:', e);
-    }
-}
-
-// ============ RECORDING (from Lowfiye + Dew Waz) ============
-
-function startRecording() {
-    if (!mic || STATE.recording) return;
-    STATE.recording = true;
-    STATE.recBuffer = [];
-    mic.connect(recorder);
-    recorder.connect(ctx.destination);
-    document.getElementById('samplerHud').classList.add('recording');
-    console.log('Recording...');
-}
-
-function stopRecording() {
-    if (!STATE.recording) return;
-    STATE.recording = false;
-    mic.disconnect(recorder);
-    recorder.disconnect();
-    document.getElementById('samplerHud').classList.remove('recording');
-
-    if (STATE.recBuffer.length > ctx.sampleRate * 0.2) {
-        processSample();
-    }
-}
-
-function processSample() {
-    const buffer = ctx.createBuffer(1, STATE.recBuffer.length, ctx.sampleRate);
-    buffer.getChannelData(0).set(STATE.recBuffer);
-
-    // Analyze (from Dew Waz)
-    const analysis = analyzeSample(buffer);
-
-    // Kanye-style pitch shifts (from Lowfiye)
-    const pitchShifts = [0.5, 0.667, 0.75, 1, 1.25, 1.5, 2];
-    const shift = pitchShifts[Math.floor(Math.random() * pitchShifts.length)];
-
-    // Quantize pitch to scale if detected
-    let rate = shift;
-    if (analysis.pitch) {
-        const target = quantizePitch(analysis.pitch);
-        rate = (target / analysis.pitch) * shift;
-    }
-
-    const sample = {
-        buffer,
-        rate,
-        analysis,
-        shift,
-        id: Date.now()
-    };
-
-    // Categorize into layer
-    const layer = categorize(analysis);
-    STATE.layers[layer].push(sample);
-    STATE.samples.push(sample);
-
-    // Limit samples
-    if (STATE.samples.length > STATE.maxSamples) {
-        const old = STATE.samples.shift();
-        Object.values(STATE.layers).forEach(l => {
-            const idx = l.findIndex(s => s.id === old.id);
-            if (idx > -1) l.splice(idx, 1);
-        });
-    }
-
-    updateStage();
-    console.log(`Sample -> ${layer} (${shift}x pitch)`);
-}
-
-function analyzeSample(buffer) {
-    const data = buffer.getChannelData(0);
-    const len = data.length;
-
-    // RMS energy
-    let rms = 0;
-    for (let i = 0; i < len; i++) rms += data[i] * data[i];
-    rms = Math.sqrt(rms / len);
-
-    // Zero crossing rate
-    let zc = 0;
-    for (let i = 1; i < len; i++) {
-        if ((data[i] >= 0) !== (data[i-1] >= 0)) zc++;
-    }
-    const zcr = zc / buffer.duration;
-
-    // Simple pitch detection
-    let pitch = null;
-    if (len > 512) {
-        const maxLag = Math.min(len >> 1, 800);
-        let maxCorr = 0, bestLag = -1;
-        for (let lag = 30; lag < maxLag; lag++) {
-            let corr = 0;
-            for (let i = 0; i < len - lag; i++) corr += data[i] * data[i + lag];
-            if (corr > maxCorr) { maxCorr = corr; bestLag = lag; }
-        }
-        if (maxCorr > rms * rms * len * 0.2 && bestLag > 0) {
-            pitch = ctx.sampleRate / bestLag;
-        }
-    }
-
-    return { rms, zcr, pitch, duration: buffer.duration };
-}
-
-function categorize(analysis) {
-    const { rms, zcr, pitch, duration } = analysis;
-
-    if (rms > 0.15 && zcr < 2000 && duration < 0.5) return 'kick';
-    if (rms > 0.08 && zcr > 2000 && zcr < 6000 && duration < 0.4) return 'snare';
-    if (zcr > 5000 && duration < 0.2) return 'hats';
-    if (pitch && pitch < 150 && duration > 0.3) return 'bass';
-    if (pitch && pitch > 150 && pitch < 800) return 'lead';
-    if (duration > 1) return 'pad';
-    return 'fx';
-}
-
-function quantizePitch(freq) {
-    const midi = 69 + 12 * Math.log2(freq / 440);
-    const note = Math.round(midi);
-    const degree = ((note % 12) + 12) % 12;
-
-    let closest = MUSIC.SCALE[0];
-    let minDiff = 12;
-    for (const s of MUSIC.SCALE) {
-        const diff = Math.min(Math.abs(degree - s), 12 - Math.abs(degree - s));
-        if (diff < minDiff) { minDiff = diff; closest = s; }
-    }
-
-    const octave = Math.floor(note / 12);
-    return 440 * Math.pow(2, (octave * 12 + closest - 69) / 12);
-}
-
-// ============ PLAYBACK ============
-
-function playDrum(type, vel = 0.8) {
-    const layer = STATE.layers[type];
-    if (!layer.length) return;
-
-    const sample = layer[Math.floor(Math.random() * layer.length)];
-    const src = ctx.createBufferSource();
-    const gain = ctx.createGain();
-
-    src.buffer = sample.buffer;
-    src.playbackRate.value = sample.rate * (0.98 + Math.random() * 0.04);
-    gain.gain.value = vel;
-
-    src.connect(gain);
-
-    // Route through lo-fi if it's a recorded sample
-    if (sample.type !== 'builtin') {
-        gain.connect(lofi.input);
-    } else {
-        gain.connect(pump);
-    }
-
-    src.start();
-}
-
-function playSample(sample, vel = 0.6) {
-    const src = ctx.createBufferSource();
-    const gain = ctx.createGain();
-
-    src.buffer = sample.buffer;
-    src.playbackRate.value = sample.rate;
-    gain.gain.value = vel;
-
-    src.connect(gain);
-    gain.connect(lofi.input);
-    gain.connect(reverb);
-
-    src.start();
-}
-
-// ============ MOVEMENT & UNLOCK (from G7) ============
-
-function updateMovement(dt) {
-    const movement = STATE.speed + Math.abs(STATE.vx) + Math.abs(STATE.vy);
-    if (movement > 0.03) {
-        STATE.movementAccum += movement * dt;
-    }
-
-    // Check tier advancement
-    while (STATE.tier < 6 && STATE.movementAccum > STATE.tierThresholds[STATE.tier + 1]) {
-        STATE.tier++;
-        triggerTierUp();
-        console.log('TIER UP:', STATE.tier);
-    }
-
-    // Smooth voice gains based on tier
-    for (let i = 0; i < synths.voices.length; i++) {
-        const target = i < STATE.tier ? 0.2 : 0;
-        STATE.voiceGains[i] += (target - STATE.voiceGains[i]) * 0.02;
-    }
-}
-
-function triggerTierUp() {
-    // Filter sweep celebration
-    const now = ctx.currentTime;
-    synths.voices.forEach(v => {
-        v.filter.frequency.setValueAtTime(v.filter.frequency.value, now);
-        v.filter.frequency.linearRampToValueAtTime(4000, now + 0.3);
-        v.filter.frequency.linearRampToValueAtTime(1500, now + 1.5);
-    });
-}
-
-// ============ STAGE EVOLUTION (blend of G7 + Dew Waz) ============
-
-function updateStage() {
-    const sampleCount = STATE.samples.length;
-    const tier = STATE.tier;
-
-    // Stage depends on both movement tier AND sample count
-    if (tier === 0 && sampleCount === 0) STATE.stage = 'VOID';
-    else if (tier < 2 && sampleCount < 3) STATE.stage = 'AWAKENING';
-    else if (tier < 4 && sampleCount < 6) STATE.stage = 'BUILDING';
-    else if (tier < 5 && sampleCount < 10) STATE.stage = 'RISING';
-    else if (tier >= 5 || sampleCount >= 10) STATE.stage = 'ASCENDING';
-    if (tier >= 6 && sampleCount >= 12) STATE.stage = 'TRANSCEND';
-}
-
-// ============ PUMP (from G7) ============
-
-function triggerPump() {
-    const now = ctx.currentTime;
-    const depth = 0.15 + STATE.speed * 0.3;
-    pump.gain.cancelScheduledValues(now);
-    pump.gain.setValueAtTime(pump.gain.value, now);
-    pump.gain.linearRampToValueAtTime(1 - depth, now + 0.01);
-    pump.gain.linearRampToValueAtTime(1, now + 0.15);
-}
-
-// ============ BEAT PATTERNS ============
-
-function onBeat(beat) {
-    triggerPump();
-
-    const stage = STATE.stage;
-    const hasSamples = STATE.samples.length > 0;
-
-    // Pattern complexity increases with stage
-    if (stage === 'VOID') return;
-
-    // Kick
-    if (beat === 0 || beat === 8 || (stage !== 'AWAKENING' && beat === 6)) {
-        playDrum('kick', 0.9);
-    }
-
-    // Snare (backbeat)
-    if (beat === 4 || beat === 12) {
-        playDrum('snare', 0.75);
-    }
-
-    // Hats
-    if (stage !== 'AWAKENING' && stage !== 'VOID') {
-        if (beat % 2 === 0) playDrum('hats', 0.3 + Math.random() * 0.15);
-        if (stage === 'TRANSCEND' && beat % 2 === 1 && Math.random() > 0.5) {
-            playDrum('hats', 0.2);
-        }
-    }
-
-    // Bass from samples
-    if (STATE.layers.bass.length && (beat === 0 || beat === 6 || beat === 10)) {
-        const s = STATE.layers.bass[Math.floor(Math.random() * STATE.layers.bass.length)];
-        playSample(s, 0.7);
-    }
-
-    // Lead stabs
-    if (STATE.layers.lead.length && stage !== 'AWAKENING' && beat % 8 === 4) {
-        const s = STATE.layers.lead[Math.floor(Math.random() * STATE.layers.lead.length)];
-        playSample(s, 0.5);
-    }
-
-    // Pads (long samples)
-    if (STATE.layers.pad.length && beat === 0) {
-        const s = STATE.layers.pad[Math.floor(Math.random() * STATE.layers.pad.length)];
-        playSample(s, 0.4);
-    }
-
-    // FX hits
-    if (STATE.layers.fx.length && Math.random() < 0.1) {
-        const s = STATE.layers.fx[Math.floor(Math.random() * STATE.layers.fx.length)];
-        playSample(s, 0.3);
-    }
-}
-
-// ============ UPDATE SYNTHS ============
-
-function updateSynths() {
+// ============ THE SHAPING ============
+// Your movement continuously shapes the field.
+// No events. No triggers. Just continuous modulation.
+
+function shapeField() {
     const now = ctx.currentTime;
 
-    // Voice amplitudes
-    synths.voices.forEach((v, i) => {
-        const amp = STATE.voiceGains[i] * (0.8 + STATE.speed * 0.4);
-        v.output.gain.linearRampToValueAtTime(amp, now + 0.1);
+    // Energy from velocity
+    field.energy = field.energy * 0.95 + Math.sqrt(field.vx*field.vx + field.vy*field.vy) * 0.5;
 
-        // Filter modulation
-        const filterBase = 1000 + (1 + STATE.y) * 1500 + STATE.speed * 500;
+    // Position maps to harmonic emphasis
+    // X = which harmonics are loud (low to high across screen)
+    // Y = filter openness (up = brighter)
+
+    voices.forEach((v, i) => {
+        // Which harmonics sing based on X position
+        const harmonicPosition = i / voices.length;
+        const distance = Math.abs(field.x - harmonicPosition);
+        const presence = Math.max(0, 1 - distance * 2); // Closer = louder
+
+        // Base amplitude from position + energy boost
+        const amp = presence * 0.15 * (0.5 + field.energy);
+        v.gain.gain.linearRampToValueAtTime(amp, now + 0.1);
+
+        // Filter opens with Y position and energy
+        const filterBase = 150 + field.y * 2000 + field.energy * 1500;
         v.filter.frequency.linearRampToValueAtTime(filterBase, now + 0.1);
+
+        // Subtle pitch drift with movement
+        const drift = 1 + (field.vx * 0.02 * (i - voices.length/2));
+        v.osc.frequency.linearRampToValueAtTime(v.baseFreq * drift, now + 0.15);
+        v.osc2.frequency.linearRampToValueAtTime(v.baseFreq * drift * 1.002, now + 0.15);
+
+        // Pan follows movement direction slightly
+        const panBase = (i / voices.length) * 1.6 - 0.8;
+        const panMod = field.vx * 0.3;
+        v.pan.pan.linearRampToValueAtTime(Math.max(-1, Math.min(1, panBase + panMod)), now + 0.1);
     });
 
-    // Sub drone
-    if (synths.sub) {
-        const subAmp = STATE.tier > 0 ? (0.15 + STATE.speed * 0.1) : 0.03;
-        synths.sub.gain.gain.linearRampToValueAtTime(subAmp, now + 0.2);
-    }
+    // Reverb amount increases with stillness (let it breathe)
+    const stillness = 1 - Math.min(1, field.energy * 2);
+    verb.output.gain.linearRampToValueAtTime(0.3 + stillness * 0.4, now + 0.3);
+
+    // Delay feedback increases with energy (movement echoes)
+    dly.delayTime.linearRampToValueAtTime(0.2 + field.energy * 0.4, now + 0.2);
 }
 
 // ============ INPUT ============
+// Movement from anywhere: mouse, touch, device motion
+
+function onMove(nx, ny) {
+    // nx, ny are 0-1 normalized
+    field.vx = field.vx * 0.7 + (nx - field.x) * 0.3;
+    field.vy = field.vy * 0.7 + (ny - field.y) * 0.3;
+    field.x = nx;
+    field.y = ny;
+}
 
 function onMotion(e) {
     const a = e.accelerationIncludingGravity;
     if (!a) return;
-    STATE.vx = STATE.vx * 0.8 + (a.x || 0) * 0.02;
-    STATE.vy = STATE.vy * 0.8 + (a.y || 0) * 0.02;
-    STATE.speed = Math.min(1, Math.sqrt(STATE.vx*STATE.vx + STATE.vy*STATE.vy) / 3);
+
+    // Map acceleration to movement
+    const ax = (a.x || 0) / 10;
+    const ay = (a.y || 0) / 10;
+
+    field.vx = field.vx * 0.8 + ax * 0.2;
+    field.vy = field.vy * 0.8 + ay * 0.2;
+
+    // Drift position based on tilt
+    field.x = Math.max(0, Math.min(1, field.x + field.vx * 0.1));
+    field.y = Math.max(0, Math.min(1, field.y - field.vy * 0.1));
 }
 
 function onOrientation(e) {
-    STATE.x = Math.max(-1, Math.min(1, (e.gamma || 0) / 45));
-    STATE.y = Math.max(-1, Math.min(1, (e.beta || 0) / 45 - 1));
-}
+    // Use orientation for absolute position
+    const gx = (e.gamma || 0) / 45; // -1 to 1
+    const gy = (e.beta || 0) / 45 - 1; // -1 to 1
 
-function onPointer(x, y) {
-    const px = (x / window.innerWidth) * 2 - 1;
-    const py = 1 - (y / window.innerHeight) * 2;
-    STATE.vx = STATE.vx * 0.7 + (px - STATE.x) * 0.3;
-    STATE.vy = STATE.vy * 0.7 + (py - STATE.y) * 0.3;
-    STATE.x = px;
-    STATE.y = py;
-    STATE.speed = Math.min(1, Math.sqrt(STATE.vx*STATE.vx + STATE.vy*STATE.vy) * 3);
+    const nx = (gx + 1) / 2; // 0 to 1
+    const ny = 1 - (gy + 1) / 2; // 0 to 1
+
+    onMove(nx, ny);
 }
 
 // ============ VISUALIZATION ============
-
-let vc;
-function initViz() {
-    const canvas = document.getElementById('c');
-    vc = canvas.getContext('2d');
-    resize();
-    window.addEventListener('resize', resize);
-}
+// The field made visible. Not UI. Just the sound, shown.
 
 function resize() {
-    const canvas = document.getElementById('c');
     canvas.width = window.innerWidth * devicePixelRatio;
     canvas.height = window.innerHeight * devicePixelRatio;
     vc.scale(devicePixelRatio, devicePixelRatio);
 }
 
-const STAGE_COLORS = {
-    'VOID': { bg: [5, 5, 8], core: [180, 20, 30], ring: [180, 30, 25] },
-    'AWAKENING': { bg: [8, 6, 12], core: [280, 40, 45], ring: [270, 35, 40] },
-    'BUILDING': { bg: [10, 8, 15], core: [200, 60, 50], ring: [190, 50, 45] },
-    'RISING': { bg: [12, 10, 18], core: [160, 70, 55], ring: [150, 60, 50] },
-    'ASCENDING': { bg: [15, 12, 20], core: [140, 80, 65], ring: [130, 70, 60] },
-    'TRANSCEND': { bg: [18, 15, 25], core: [50, 90, 80], ring: [45, 85, 75] }
-};
-
 function draw() {
     const w = window.innerWidth;
     const h = window.innerHeight;
-    const colors = STAGE_COLORS[STATE.stage] || STAGE_COLORS.VOID;
 
-    // Background fade
-    vc.fillStyle = `rgba(${colors.bg[0]},${colors.bg[1]},${colors.bg[2]},0.1)`;
+    // Fade
+    vc.fillStyle = `rgba(0, 0, 0, ${0.1 + (1 - field.energy) * 0.05})`;
     vc.fillRect(0, 0, w, h);
 
-    const cx = w/2 + STATE.x * w * 0.15;
-    const cy = h/2 - STATE.y * h * 0.15;
-    const baseR = Math.min(w, h) * 0.3;
+    const cx = field.x * w;
+    const cy = (1 - field.y) * h;
 
-    // Tier rings (synth voices)
-    synths.voices.forEach((v, i) => {
-        const amp = STATE.voiceGains[i];
-        if (amp > 0.01) {
-            const r = 50 + i * 40 + amp * 30;
+    // Draw each voice as a ring at its harmonic position
+    voices.forEach((v, i) => {
+        const amp = v.gain.gain.value;
+        if (amp < 0.005) return;
+
+        const vx = (i / voices.length) * w;
+        const vy = h / 2;
+
+        // Connection to cursor
+        const dist = Math.sqrt((cx - vx) ** 2 + (cy - vy) ** 2);
+        const maxDist = w * 0.5;
+        const conn = Math.max(0, 1 - dist / maxDist);
+
+        if (conn > 0.1) {
             vc.beginPath();
-            vc.arc(cx, cy, r, 0, TAU);
-            const hue = colors.core[0] + i * 15;
-            vc.strokeStyle = `hsla(${hue}, ${colors.core[1]}%, ${colors.core[2]}%, ${amp * 0.8})`;
-            vc.lineWidth = 2 + amp * 6;
+            vc.moveTo(cx, cy);
+            vc.lineTo(vx, vy);
+            vc.strokeStyle = `rgba(255, 255, 255, ${conn * amp * 0.3})`;
+            vc.lineWidth = 1;
             vc.stroke();
         }
-    });
 
-    // Sample particles
-    STATE.samples.forEach((s, i) => {
-        const angle = (i / STATE.samples.length) * TAU + STATE.totalTime * 0.2;
-        const dist = baseR * 0.6 + Math.sin(STATE.totalTime * 2 + i) * 20;
-        const px = cx + Math.cos(angle) * dist;
-        const py = cy + Math.sin(angle) * dist;
-        const size = 3 + (s.analysis?.rms || 0.1) * 15;
-
+        // Voice ring
+        const r = 20 + amp * 100;
         vc.beginPath();
-        vc.arc(px, py, size, 0, TAU);
-        vc.fillStyle = `hsla(${colors.ring[0] + i * 20}, ${colors.ring[1]}%, ${colors.ring[2]}%, 0.6)`;
-        vc.fill();
+        vc.arc(vx, vy, r, 0, TAU);
+        const hue = 200 + i * 20;
+        vc.strokeStyle = `hsla(${hue}, 60%, ${50 + amp * 30}%, ${amp * 2})`;
+        vc.lineWidth = 2 + amp * 4;
+        vc.stroke();
     });
 
-    // Movement energy ring
-    const energyR = baseR + STATE.speed * 40;
-    vc.beginPath();
-    vc.arc(w/2, h/2, energyR, 0, TAU);
-    vc.strokeStyle = `hsla(${colors.ring[0]}, ${colors.ring[1]}%, ${colors.ring[2]}%, ${0.1 + STATE.speed * 0.4})`;
-    vc.lineWidth = 2 + STATE.speed * 6;
-    vc.stroke();
-
-    // Core orb
-    const coreR = 20 + STATE.speed * 25 + STATE.tier * 5;
-    const gr = vc.createRadialGradient(cx, cy, 0, cx, cy, coreR);
-    gr.addColorStop(0, `hsla(${colors.core[0]}, ${colors.core[1]}%, ${colors.core[2] + 20}%, 0.8)`);
-    gr.addColorStop(0.6, `hsla(${colors.core[0]}, ${colors.core[1]}%, ${colors.core[2]}%, 0.3)`);
+    // Cursor glow
+    const glowR = 30 + field.energy * 50;
+    const gr = vc.createRadialGradient(cx, cy, 0, cx, cy, glowR);
+    gr.addColorStop(0, `rgba(255, 255, 255, ${0.3 + field.energy * 0.4})`);
+    gr.addColorStop(0.5, `rgba(200, 220, 255, ${0.1 + field.energy * 0.2})`);
     gr.addColorStop(1, 'transparent');
     vc.fillStyle = gr;
     vc.beginPath();
-    vc.arc(cx, cy, coreR, 0, TAU);
+    vc.arc(cx, cy, glowR, 0, TAU);
     vc.fill();
 
-    // Recording indicator
-    if (STATE.recording) {
+    // Movement trail
+    if (field.energy > 0.05) {
+        const trailLen = field.energy * 80;
         vc.beginPath();
-        vc.arc(cx, cy, coreR + 10, 0, TAU);
-        const pulse = 0.5 + Math.sin(STATE.totalTime * 8) * 0.5;
-        vc.strokeStyle = `rgba(255, 60, 60, ${pulse})`;
-        vc.lineWidth = 3;
+        vc.moveTo(cx, cy);
+        vc.lineTo(cx - field.vx * trailLen * 10, cy + field.vy * trailLen * 10);
+        vc.strokeStyle = `rgba(255, 255, 255, ${field.energy * 0.5})`;
+        vc.lineWidth = 2;
         vc.stroke();
     }
 }
 
-function buildLayerUI() {
-    const container = document.getElementById('layersHud');
-    const layerNames = ['kick', 'snare', 'hats', 'bass', 'lead', 'pad', 'fx'];
-
-    layerNames.forEach(name => {
-        const div = document.createElement('div');
-        div.className = 'layer';
-        div.innerHTML = `
-            <span style="width:30px">${name.toUpperCase()}</span>
-            <div class="layer-bar"><div class="layer-fill" id="layer-${name}" style="width:0%"></div></div>
-        `;
-        container.appendChild(div);
-    });
-}
-
-function updateUI() {
-    document.getElementById('stage').textContent = STATE.stage;
-    document.getElementById('tier').textContent = STATE.tier + '/6';
-    document.getElementById('sampler').textContent = STATE.recording ? 'RECORDING...' : `${STATE.samples.length} SAMPLES`;
-
-    const mins = Math.floor(STATE.totalTime / 60);
-    const secs = Math.floor(STATE.totalTime % 60);
-    document.getElementById('time').textContent = `${mins}:${secs.toString().padStart(2, '0')}`;
-
-    // Update layer bars
-    const maxPerLayer = 4;
-    Object.entries(STATE.layers).forEach(([name, samples]) => {
-        const el = document.getElementById(`layer-${name}`);
-        if (el) {
-            const pct = Math.min(100, (samples.length / maxPerLayer) * 100);
-            el.style.width = `${pct}%`;
-        }
-    });
-}
-
-// ============ MAIN LOOP ============
-
-let running = false;
+// ============ LOOP ============
 
 function tick() {
     if (!running) return;
 
-    const now = ctx.currentTime;
-    const dt = 1/60;
-    STATE.totalTime += dt;
-
-    // Movement & unlock
-    updateMovement(dt);
-    updateStage();
-
-    // Beat clock (16th notes)
-    const beatTime = MUSIC.BEAT / 4;
-    const loopTime = now % (MUSIC.BAR * 2);
-    const currentBeat = Math.floor(loopTime / beatTime);
-
-    if (currentBeat !== STATE.beatIndex) {
-        STATE.beatIndex = currentBeat;
-        onBeat(currentBeat);
-    }
-
-    // Update sounds
-    updateSynths();
-
-    // Visuals
+    shapeField();
     draw();
-    updateUI();
 
     requestAnimationFrame(tick);
 }
@@ -877,56 +330,49 @@ function tick() {
 // ============ START ============
 
 async function start() {
-    document.getElementById('start').classList.add('off');
-    document.getElementById('app').classList.add('on');
+    document.getElementById('enter').classList.add('off');
 
-    // Request motion permissions
+    // Request motion permissions (iOS)
     if (typeof DeviceMotionEvent !== 'undefined' &&
         typeof DeviceMotionEvent.requestPermission === 'function') {
         try { await DeviceMotionEvent.requestPermission(); } catch(e) {}
     }
+    if (typeof DeviceOrientationEvent !== 'undefined' &&
+        typeof DeviceOrientationEvent.requestPermission === 'function') {
+        try { await DeviceOrientationEvent.requestPermission(); } catch(e) {}
+    }
 
-    // Input listeners
+    init();
+
+    // Input handlers
     window.addEventListener('devicemotion', onMotion);
     window.addEventListener('deviceorientation', onOrientation);
-    document.addEventListener('mousemove', e => onPointer(e.clientX, e.clientY));
 
-    // Tap/click to record
-    const tapHandler = e => {
-        if (STATE.recording) {
-            stopRecording();
-        } else {
-            startRecording();
-        }
-    };
-    document.addEventListener('touchstart', e => {
-        e.preventDefault();
-        onPointer(e.touches[0].clientX, e.touches[0].clientY);
-        tapHandler();
-    }, { passive: false });
-    document.addEventListener('click', tapHandler);
+    document.addEventListener('mousemove', e => {
+        onMove(e.clientX / window.innerWidth, 1 - e.clientY / window.innerHeight);
+    });
 
-    // Touch move
     document.addEventListener('touchmove', e => {
         e.preventDefault();
-        onPointer(e.touches[0].clientX, e.touches[0].clientY);
+        const t = e.touches[0];
+        onMove(t.clientX / window.innerWidth, 1 - t.clientY / window.innerHeight);
     }, { passive: false });
 
-    // Initialize
-    await init();
+    document.addEventListener('touchstart', e => {
+        e.preventDefault();
+        const t = e.touches[0];
+        onMove(t.clientX / window.innerWidth, 1 - t.clientY / window.innerHeight);
+    }, { passive: false });
 
     if (ctx.state === 'suspended') {
         await ctx.resume();
     }
 
-    initViz();
     running = true;
     tick();
-
-    console.log('GUMP running - The Blend');
 }
 
-document.getElementById('go').addEventListener('click', start);
+document.getElementById('enter').addEventListener('click', start);
 </script>
 </body>
 </html>
