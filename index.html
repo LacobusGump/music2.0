@@ -19,7 +19,7 @@
 <canvas id="c"></canvas>
 <script>
 // GUMP - Grand Unified Music Project
-// Sound as life. Harmonics as creatures. Chaos into form.
+// Life. Birth. Death. Memory. Time emerging from relationship.
 
 const TAU = Math.PI * 2;
 const PHI = 1.618033988749;
@@ -28,66 +28,103 @@ const PHI = 1.618033988749;
 
 let ctx, master, verb, dly, sub;
 let entities = [];
-let field = { x: 0.5, y: 0.5, vx: 0, vy: 0, energy: 0, time: 0 };
+let ghosts = []; // Fading entities
+let memory = []; // Pattern memory
+let field = {
+    x: 0.5, y: 0.5,
+    vx: 0, vy: 0,
+    energy: 0,
+    time: 0,
+    pulse: 0,        // Emergent rhythm
+    stillness: 0,    // Accumulated stillness
+    gestureAngle: 0, // For detecting circles
+    lastGesture: 0
+};
 let canvas, vc;
 let running = false;
 
-// The harmonic ratios - intervals that want to exist
-const RATIOS = [
-    1,      // unison
-    9/8,    // major second
-    5/4,    // major third
-    4/3,    // perfect fourth
-    3/2,    // perfect fifth
-    5/3,    // major sixth
-    15/8,   // major seventh
-    2,      // octave
-    9/4,    // ninth
-    5/2,    // tenth
-    3,      // twelfth (octave + fifth)
-    4,      // double octave
+// All possible harmonic ratios - the DNA pool
+const ALL_RATIOS = [
+    1, 16/15, 9/8, 6/5, 5/4, 4/3, 45/32, 3/2, 8/5, 5/3, 9/5, 15/8,
+    2, 9/4, 12/5, 5/2, 8/3, 3, 16/5, 10/3, 15/4, 4, 9/2, 5, 6, 8
 ];
 
-const BASE = 55; // A1
+const BASE = 55;
+const MAX_ENTITIES = 24;
+const MIN_ENTITIES = 5;
 
-// Consonance map - how much ratios attract each other
+// Consonance - the gravity of music
 function consonance(r1, r2) {
     const ratio = r1 > r2 ? r1/r2 : r2/r1;
-    // Perfect consonances
-    if (Math.abs(ratio - 1) < 0.01) return 1;      // unison
-    if (Math.abs(ratio - 2) < 0.01) return 0.95;   // octave
-    if (Math.abs(ratio - 1.5) < 0.01) return 0.9;  // fifth
-    if (Math.abs(ratio - 4/3) < 0.02) return 0.85; // fourth
-    // Imperfect consonances
-    if (Math.abs(ratio - 5/4) < 0.02) return 0.7;  // major third
-    if (Math.abs(ratio - 6/5) < 0.02) return 0.65; // minor third
-    if (Math.abs(ratio - 5/3) < 0.02) return 0.6;  // major sixth
-    // Mild dissonance creates interest
+    // Normalize to one octave
+    while (ratio > 2) ratio /= 2;
+
+    if (Math.abs(ratio - 1) < 0.01) return 1;
+    if (Math.abs(ratio - 2) < 0.01) return 0.95;
+    if (Math.abs(ratio - 1.5) < 0.01) return 0.9;
+    if (Math.abs(ratio - 4/3) < 0.02) return 0.85;
+    if (Math.abs(ratio - 5/4) < 0.02) return 0.75;
+    if (Math.abs(ratio - 6/5) < 0.02) return 0.7;
+    if (Math.abs(ratio - 5/3) < 0.02) return 0.65;
+    if (Math.abs(ratio - 8/5) < 0.02) return 0.6;
     return 0.3;
+}
+
+// Harmonic regions - different areas favor different modes
+function getRegionalMode(x, y) {
+    // Center = pure/Ionian, edges = more color
+    const distFromCenter = Math.sqrt((x-0.5)**2 + (y-0.5)**2);
+    const angle = Math.atan2(y - 0.5, x - 0.5);
+
+    // Different corners = different modes
+    // Top-right: Lydian (bright)
+    // Bottom-right: Mixolydian (bluesy)
+    // Bottom-left: Dorian (dark)
+    // Top-left: Phrygian (exotic)
+
+    const modeInfluence = Math.min(1, distFromCenter * 2);
+    let ratioBonus = {};
+
+    if (angle > 0 && angle < Math.PI/2) { // Top-right: Lydian
+        ratioBonus = { [45/32]: 0.3, [15/8]: 0.2 }; // #4, maj7
+    } else if (angle >= Math.PI/2) { // Top-left: Phrygian
+        ratioBonus = { [16/15]: 0.3, [8/5]: 0.2 }; // b2, b6
+    } else if (angle < -Math.PI/2) { // Bottom-left: Dorian
+        ratioBonus = { [6/5]: 0.2, [9/5]: 0.2 }; // min3, min7
+    } else { // Bottom-right: Mixolydian
+        ratioBonus = { [9/5]: 0.3, [5/4]: 0.2 }; // b7, maj3
+    }
+
+    return { influence: modeInfluence, bonus: ratioBonus };
 }
 
 // ============ ENTITY - A LIVING HARMONIC ============
 
+let entityId = 0;
+
 class Entity {
-    constructor(ratio, index) {
+    constructor(ratio, x, y) {
+        this.id = entityId++;
         this.ratio = ratio;
         this.freq = BASE * ratio;
-        this.index = index;
 
-        // Position in space (0-1)
-        this.x = 0.5 + (Math.random() - 0.5) * 0.3;
-        this.y = 0.5 + (Math.random() - 0.5) * 0.3;
+        this.x = x !== undefined ? x : 0.5 + (Math.random() - 0.5) * 0.4;
+        this.y = y !== undefined ? y : 0.5 + (Math.random() - 0.5) * 0.4;
+        this.vx = (Math.random() - 0.5) * 0.005;
+        this.vy = (Math.random() - 0.5) * 0.005;
 
-        // Velocity
-        this.vx = (Math.random() - 0.5) * 0.01;
-        this.vy = (Math.random() - 0.5) * 0.01;
-
-        // Properties
-        this.mass = 1 / ratio; // Lower = heavier
-        this.brightness = 0;
+        this.mass = 1 / Math.sqrt(ratio);
         this.life = 1;
+        this.age = 0;
+        this.lastVisit = 0; // When cursor was last near
+        this.brightness = 0;
 
-        // Audio
+        // Synchronization
+        this.phase = Math.random() * TAU;
+        this.syncPhase = 0;
+        this.neighbors = [];
+
+        // Audio nodes
         this.osc = null;
         this.osc2 = null;
         this.filter = null;
@@ -98,45 +135,38 @@ class Entity {
 
         // Visual
         this.trail = [];
-        this.maxTrail = 30;
-        this.hue = 220 - (Math.log2(ratio) * 40);
+        this.maxTrail = 40;
+        this.hue = (180 - Math.log2(ratio) * 60 + 360) % 360;
+        this.birthTime = field.time;
     }
 
     createAudio() {
-        // Main oscillator
         this.osc = ctx.createOscillator();
-        this.osc.type = this.ratio < 2 ? 'sine' : 'triangle';
+        this.osc.type = this.ratio < 2 ? 'sine' : (this.ratio < 4 ? 'triangle' : 'sine');
         this.osc.frequency.value = this.freq;
 
-        // Detuned oscillator for warmth
         this.osc2 = ctx.createOscillator();
         this.osc2.type = 'sine';
-        this.osc2.frequency.value = this.freq * 1.002;
+        this.osc2.frequency.value = this.freq * 1.003;
 
-        // FM modulator
         this.mod = ctx.createOscillator();
         this.modGain = ctx.createGain();
         this.mod.type = 'sine';
-        this.mod.frequency.value = this.freq * PHI; // Golden ratio modulation
+        this.mod.frequency.value = this.freq * PHI;
         this.modGain.gain.value = 0;
         this.mod.connect(this.modGain);
         this.modGain.connect(this.osc.frequency);
 
-        // Filter
         this.filter = ctx.createBiquadFilter();
         this.filter.type = 'lowpass';
         this.filter.frequency.value = 200;
         this.filter.Q.value = 1;
 
-        // Gain
         this.gain = ctx.createGain();
         this.gain.gain.value = 0;
 
-        // Pan
         this.pan = ctx.createStereoPanner();
-        this.pan.pan.value = 0;
 
-        // Connect
         this.osc.connect(this.filter);
         this.osc2.connect(this.filter);
         this.filter.connect(this.gain);
@@ -150,94 +180,149 @@ class Entity {
         this.mod.start();
     }
 
+    destroy() {
+        const now = ctx.currentTime;
+        this.gain.gain.linearRampToValueAtTime(0, now + 0.5);
+        setTimeout(() => {
+            this.osc.stop();
+            this.osc2.stop();
+            this.mod.stop();
+        }, 600);
+    }
+
     update(dt) {
         const now = ctx.currentTime;
+        this.age += dt;
 
-        // ============ PHYSICS ============
+        // ============ LIFE AND DEATH ============
 
-        // Attraction to cursor
         const dx = field.x - this.x;
         const dy = field.y - this.y;
         const distToCursor = Math.sqrt(dx*dx + dy*dy);
-        const cursorForce = 0.0003 / (distToCursor + 0.1);
 
+        // Being near cursor sustains life
+        if (distToCursor < 0.2) {
+            this.lastVisit = field.time;
+            this.life = Math.min(1, this.life + dt * 0.5);
+        }
+
+        // Neglect causes fading
+        const timeSinceVisit = field.time - this.lastVisit;
+        if (timeSinceVisit > 5) {
+            this.life -= dt * 0.05 * (timeSinceVisit - 5);
+        }
+
+        // Young entities are fragile
+        if (this.age < 2) {
+            this.life = Math.min(this.life, this.age / 2);
+        }
+
+        // ============ PHYSICS ============
+
+        const cursorForce = 0.0004 / (distToCursor + 0.1);
         this.vx += dx * cursorForce;
         this.vy += dy * cursorForce;
 
-        // Attraction/repulsion to other entities based on consonance
+        // Inter-entity forces
+        this.neighbors = [];
         for (const other of entities) {
-            if (other === this) continue;
+            if (other === this || other.life <= 0) continue;
 
             const odx = other.x - this.x;
             const ody = other.y - this.y;
             const dist = Math.sqrt(odx*odx + ody*ody);
-            if (dist < 0.01) continue;
+            if (dist < 0.01 || dist > 0.4) continue;
 
             const cons = consonance(this.ratio, other.ratio);
-
-            // Consonant = attract, dissonant = slight repel
-            const force = (cons - 0.4) * 0.00005 / (dist + 0.05);
+            const force = (cons - 0.35) * 0.00004 / (dist + 0.03);
 
             this.vx += odx * force;
             this.vy += ody * force;
+
+            if (dist < 0.15 && cons > 0.6) {
+                this.neighbors.push(other);
+            }
         }
 
-        // Gentle pull toward center (prevents escape)
-        this.vx += (0.5 - this.x) * 0.0001;
-        this.vy += (0.5 - this.y) * 0.0001;
+        // Center gravity
+        this.vx += (0.5 - this.x) * 0.00015;
+        this.vy += (0.5 - this.y) * 0.00015;
 
-        // Angular momentum from cursor movement (creates spirals)
-        const perpX = -dy;
-        const perpY = dx;
-        this.vx += perpX * field.vx * 0.01;
-        this.vy += perpY * field.vx * 0.01;
+        // Angular momentum from cursor
+        this.vx += -dy * field.vx * 0.015;
+        this.vy += dx * field.vy * 0.015;
 
-        // Damping
-        this.vx *= 0.995;
-        this.vy *= 0.995;
+        // Regional mode influence on movement
+        const mode = getRegionalMode(this.x, this.y);
+        if (mode.bonus[this.ratio]) {
+            // This entity belongs here - slow down, settle
+            this.vx *= 0.98;
+            this.vy *= 0.98;
+        }
 
-        // Update position
+        this.vx *= 0.994;
+        this.vy *= 0.994;
+
         this.x += this.vx;
         this.y += this.vy;
 
         // Soft boundaries
-        if (this.x < 0.05) { this.x = 0.05; this.vx *= -0.5; }
-        if (this.x > 0.95) { this.x = 0.95; this.vx *= -0.5; }
-        if (this.y < 0.05) { this.y = 0.05; this.vy *= -0.5; }
-        if (this.y > 0.95) { this.y = 0.95; this.vy *= -0.5; }
+        if (this.x < 0.03) { this.x = 0.03; this.vx *= -0.5; }
+        if (this.x > 0.97) { this.x = 0.97; this.vx *= -0.5; }
+        if (this.y < 0.03) { this.y = 0.03; this.vy *= -0.5; }
+        if (this.y > 0.97) { this.y = 0.97; this.vy *= -0.5; }
 
         // Trail
-        this.trail.unshift({ x: this.x, y: this.y });
+        this.trail.unshift({ x: this.x, y: this.y, life: this.life });
         if (this.trail.length > this.maxTrail) this.trail.pop();
+
+        // ============ SYNCHRONIZATION ============
+
+        // Phase advances based on frequency (creates natural rhythm)
+        this.phase += dt * (this.freq / BASE) * 0.5;
+
+        // Sync with neighbors
+        if (this.neighbors.length > 0) {
+            let avgPhase = 0;
+            for (const n of this.neighbors) {
+                avgPhase += n.phase;
+            }
+            avgPhase /= this.neighbors.length;
+
+            // Gently pull toward average phase
+            const phaseDiff = avgPhase - this.phase;
+            this.phase += phaseDiff * 0.02;
+        }
+
+        this.syncPhase = (Math.sin(this.phase) + 1) / 2; // 0-1 pulse
 
         // ============ SOUND ============
 
-        // Amplitude based on distance to cursor
-        const proximity = 1 - Math.min(1, distToCursor * 2);
-        const baseAmp = proximity * 0.08 * this.mass;
-
-        // Brightness from velocity
+        const proximity = 1 - Math.min(1, distToCursor * 2.5);
         const vel = Math.sqrt(this.vx*this.vx + this.vy*this.vy);
-        this.brightness = this.brightness * 0.9 + vel * 10;
+        this.brightness = this.brightness * 0.92 + vel * 8;
 
-        // Set gain
-        this.gain.gain.linearRampToValueAtTime(baseAmp * (0.5 + this.brightness), now + 0.05);
+        // Amplitude: proximity + sync pulse + life
+        const syncPulse = this.neighbors.length > 0 ? this.syncPhase * 0.3 : 0;
+        const baseAmp = (proximity * 0.08 + syncPulse * 0.04) * this.mass * this.life;
 
-        // Filter follows proximity and brightness
-        const filterFreq = 200 + proximity * 3000 + this.brightness * 2000;
-        this.filter.frequency.linearRampToValueAtTime(filterFreq, now + 0.08);
+        this.gain.gain.linearRampToValueAtTime(baseAmp * (0.6 + this.brightness * 0.5), now + 0.06);
 
-        // FM depth from field energy
-        const fmDepth = field.energy * this.freq * 0.3;
+        // Filter
+        const filterFreq = 150 + proximity * 2500 + this.brightness * 2000 + this.syncPhase * 500;
+        this.filter.frequency.linearRampToValueAtTime(filterFreq * this.life, now + 0.08);
+
+        // FM from energy
+        const fmDepth = field.energy * this.freq * 0.4 + this.syncPhase * this.freq * 0.1;
         this.modGain.gain.linearRampToValueAtTime(fmDepth, now + 0.05);
 
-        // Pan from position
-        this.pan.pan.linearRampToValueAtTime((this.x - 0.5) * 1.8, now + 0.05);
+        // Pan
+        this.pan.pan.linearRampToValueAtTime((this.x - 0.5) * 1.6, now + 0.05);
 
-        // Subtle pitch bend toward cursor (entities "reach" for you)
-        const pitchBend = 1 + dx * 0.02;
-        this.osc.frequency.linearRampToValueAtTime(this.freq * pitchBend, now + 0.1);
-        this.osc2.frequency.linearRampToValueAtTime(this.freq * pitchBend * 1.002, now + 0.1);
+        // Pitch bend toward cursor
+        const bend = 1 + dx * 0.015;
+        this.osc.frequency.linearRampToValueAtTime(this.freq * bend, now + 0.1);
+        this.osc2.frequency.linearRampToValueAtTime(this.freq * bend * 1.003, now + 0.1);
     }
 
     draw() {
@@ -246,72 +331,201 @@ class Entity {
         const px = this.x * w;
         const py = this.y * h;
 
+        if (this.life <= 0) return;
+
         const amp = this.gain.gain.value;
-        if (amp < 0.001) return;
+        const alpha = this.life;
 
         // Trail
-        if (this.trail.length > 1) {
+        if (this.trail.length > 1 && amp > 0.001) {
             vc.beginPath();
             vc.moveTo(this.trail[0].x * w, this.trail[0].y * h);
             for (let i = 1; i < this.trail.length; i++) {
                 vc.lineTo(this.trail[i].x * w, this.trail[i].y * h);
             }
-            const trailAlpha = amp * 0.5;
-            vc.strokeStyle = `hsla(${this.hue}, 70%, 60%, ${trailAlpha})`;
-            vc.lineWidth = 1;
+            vc.strokeStyle = `hsla(${this.hue}, 70%, 60%, ${amp * alpha * 0.4})`;
+            vc.lineWidth = 1 + amp * 2;
+            vc.stroke();
+        }
+
+        // Sync pulse ring
+        if (this.neighbors.length > 0) {
+            const pulseR = 10 + this.syncPhase * 30;
+            vc.beginPath();
+            vc.arc(px, py, pulseR, 0, TAU);
+            vc.strokeStyle = `hsla(${this.hue}, 60%, 70%, ${this.syncPhase * amp * alpha * 0.5})`;
+            vc.lineWidth = 2;
             vc.stroke();
         }
 
         // Core
-        const r = 3 + amp * 40 + this.brightness * 20;
+        const r = 3 + amp * 35 + this.brightness * 15;
         const grad = vc.createRadialGradient(px, py, 0, px, py, r);
-        grad.addColorStop(0, `hsla(${this.hue}, 80%, ${70 + amp * 30}%, ${0.8 + amp})`);
-        grad.addColorStop(0.5, `hsla(${this.hue}, 70%, 50%, ${amp * 0.5})`);
+        grad.addColorStop(0, `hsla(${this.hue}, 85%, ${75 + amp * 20}%, ${(0.9 + amp * 0.1) * alpha})`);
+        grad.addColorStop(0.5, `hsla(${this.hue}, 70%, 50%, ${amp * 0.6 * alpha})`);
         grad.addColorStop(1, 'transparent');
 
         vc.fillStyle = grad;
         vc.beginPath();
         vc.arc(px, py, r, 0, TAU);
         vc.fill();
+
+        // Birth glow
+        if (this.age < 1) {
+            const birthGlow = (1 - this.age) * 0.5;
+            const birthR = r + 20 * (1 - this.age);
+            vc.beginPath();
+            vc.arc(px, py, birthR, 0, TAU);
+            vc.strokeStyle = `hsla(${this.hue}, 90%, 80%, ${birthGlow})`;
+            vc.lineWidth = 3;
+            vc.stroke();
+        }
     }
 }
 
-// ============ CONNECTIONS - THE HARMONY BETWEEN ============
+// ============ BIRTH ============
+
+function birthEntity() {
+    if (entities.length >= MAX_ENTITIES) return;
+
+    // Choose ratio based on existing harmonics and regional mode
+    const mode = getRegionalMode(field.x, field.y);
+
+    // Prefer ratios consonant with existing entities
+    let bestRatio = ALL_RATIOS[Math.floor(Math.random() * ALL_RATIOS.length)];
+    let bestScore = 0;
+
+    for (const ratio of ALL_RATIOS) {
+        let score = Math.random() * 0.3; // Base randomness
+
+        // Bonus for regional mode
+        if (mode.bonus[ratio]) {
+            score += mode.bonus[ratio] * mode.influence;
+        }
+
+        // Bonus for consonance with existing
+        for (const e of entities) {
+            if (e.life > 0.5) {
+                score += consonance(ratio, e.ratio) * 0.1;
+            }
+        }
+
+        // Penalty for duplicates
+        for (const e of entities) {
+            if (Math.abs(e.ratio - ratio) < 0.01) {
+                score -= 0.5;
+            }
+        }
+
+        if (score > bestScore) {
+            bestScore = score;
+            bestRatio = ratio;
+        }
+    }
+
+    const entity = new Entity(bestRatio, field.x + (Math.random()-0.5)*0.1, field.y + (Math.random()-0.5)*0.1);
+    entity.createAudio();
+    entity.lastVisit = field.time;
+    entities.push(entity);
+
+    // Memory: record the birth
+    memory.push({
+        type: 'birth',
+        ratio: bestRatio,
+        x: field.x,
+        y: field.y,
+        time: field.time
+    });
+    if (memory.length > 100) memory.shift();
+}
+
+// ============ DEATH ============
+
+function processDeath() {
+    for (let i = entities.length - 1; i >= 0; i--) {
+        const e = entities[i];
+        if (e.life <= 0) {
+            e.destroy();
+
+            // Create ghost for visual fade
+            ghosts.push({
+                x: e.x, y: e.y,
+                hue: e.hue,
+                alpha: 0.5,
+                radius: 20
+            });
+
+            // Memory: record the death
+            memory.push({
+                type: 'death',
+                ratio: e.ratio,
+                x: e.x,
+                y: e.y,
+                time: field.time
+            });
+
+            entities.splice(i, 1);
+        }
+    }
+
+    // Fade ghosts
+    for (let i = ghosts.length - 1; i >= 0; i--) {
+        ghosts[i].alpha -= 0.01;
+        ghosts[i].radius += 0.5;
+        if (ghosts[i].alpha <= 0) {
+            ghosts.splice(i, 1);
+        }
+    }
+
+    // Ensure minimum population
+    if (entities.length < MIN_ENTITIES && field.time > 2) {
+        birthEntity();
+    }
+}
+
+// ============ CONNECTIONS ============
 
 function drawConnections() {
     const w = window.innerWidth;
     const h = window.innerHeight;
 
     for (let i = 0; i < entities.length; i++) {
+        const a = entities[i];
+        if (a.life <= 0) continue;
+
         for (let j = i + 1; j < entities.length; j++) {
-            const a = entities[i];
             const b = entities[j];
+            if (b.life <= 0) continue;
 
             const dx = b.x - a.x;
             const dy = b.y - a.y;
             const dist = Math.sqrt(dx*dx + dy*dy);
 
-            if (dist > 0.3) continue;
+            if (dist > 0.25) continue;
 
             const cons = consonance(a.ratio, b.ratio);
-            if (cons < 0.6) continue;
+            if (cons < 0.65) continue;
 
             const amp = Math.min(a.gain.gain.value, b.gain.gain.value);
-            const alpha = cons * amp * (1 - dist / 0.3) * 2;
+            const life = Math.min(a.life, b.life);
+            const alpha = cons * amp * (1 - dist / 0.25) * life * 2;
 
             if (alpha < 0.02) continue;
+
+            // Pulsing connection
+            const pulse = (Math.sin((a.phase + b.phase) / 2) + 1) / 2;
 
             vc.beginPath();
             vc.moveTo(a.x * w, a.y * h);
             vc.lineTo(b.x * w, b.y * h);
-            vc.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
-            vc.lineWidth = 1 + cons * 2;
+            vc.strokeStyle = `rgba(255, 255, 255, ${alpha * (0.7 + pulse * 0.3)})`;
+            vc.lineWidth = 1 + cons * pulse * 3;
             vc.stroke();
         }
     }
 }
 
-// ============ THE SUB - THE GRAVITY WELL ============
+// ============ SUB BASS ============
 
 function createSub() {
     const osc = ctx.createOscillator();
@@ -322,7 +536,7 @@ function createSub() {
     osc.type = 'sine';
     osc.frequency.value = BASE / 2;
     osc2.type = 'sine';
-    osc2.frequency.value = BASE / 2 * 1.001;
+    osc2.frequency.value = BASE / 2 * 1.002;
 
     filter.type = 'lowpass';
     filter.frequency.value = 80;
@@ -342,31 +556,42 @@ function createSub() {
 function updateSub() {
     const now = ctx.currentTime;
 
-    // Sub responds to the system's total energy and clustering
-    let totalEnergy = 0;
-    let centerMass = { x: 0, y: 0, total: 0 };
+    // Global pulse from synchronized entities
+    let globalPulse = 0;
+    let syncCount = 0;
 
     for (const e of entities) {
-        const vel = Math.sqrt(e.vx*e.vx + e.vy*e.vy);
-        totalEnergy += vel;
-        centerMass.x += e.x * e.mass;
-        centerMass.y += e.y * e.mass;
-        centerMass.total += e.mass;
+        if (e.neighbors.length > 0 && e.life > 0.5) {
+            globalPulse += e.syncPhase;
+            syncCount++;
+        }
     }
 
-    if (centerMass.total > 0) {
-        centerMass.x /= centerMass.total;
-        centerMass.y /= centerMass.total;
+    if (syncCount > 0) {
+        globalPulse /= syncCount;
+        field.pulse = field.pulse * 0.9 + globalPulse * 0.1;
     }
 
-    // Distance from cursor to center of mass
-    const dx = field.x - centerMass.x;
-    const dy = field.y - centerMass.y;
-    const distToCenter = Math.sqrt(dx*dx + dy*dy);
+    // Sub amplitude
+    const baseAmp = 0.12 + field.stillness * 0.08;
+    const pulseAmp = field.pulse * 0.1;
+    sub.gain.gain.linearRampToValueAtTime(baseAmp + pulseAmp, now + 0.1);
 
-    // Sub is louder when cursor is near the center of mass
-    const subAmp = 0.15 + (1 - distToCenter) * 0.15 - totalEnergy * 2;
-    sub.gain.gain.linearRampToValueAtTime(Math.max(0.05, subAmp), now + 0.2);
+    // Sub frequency follows center of mass
+    let cx = 0, cy = 0, total = 0;
+    for (const e of entities) {
+        if (e.life > 0) {
+            cx += e.x * e.mass;
+            cy += e.y * e.mass;
+            total += e.mass;
+        }
+    }
+    if (total > 0) {
+        cy /= total;
+        const subFreq = (BASE / 2) * (1 - (cy - 0.5) * 0.2);
+        sub.osc.frequency.linearRampToValueAtTime(subFreq, now + 0.2);
+        sub.osc2.frequency.linearRampToValueAtTime(subFreq * 1.002, now + 0.2);
+    }
 }
 
 // ============ EFFECTS ============
@@ -376,22 +601,22 @@ function createVerb() {
     const output = ctx.createGain();
     output.gain.value = 0.35;
 
-    const times = [0.02, 0.05, 0.08, 0.13, 0.21, 0.34, 0.55, 0.89, 1.2, 1.6, 2.1];
+    const times = [0.02, 0.05, 0.08, 0.13, 0.21, 0.34, 0.55, 0.89, 1.2, 1.6, 2.1, 2.8];
     times.forEach((t, i) => {
-        const d = ctx.createDelay(3);
-        d.delayTime.value = t + Math.random() * 0.02;
+        const d = ctx.createDelay(4);
+        d.delayTime.value = t + Math.random() * 0.015;
         const g = ctx.createGain();
-        g.gain.value = 0.3 * Math.pow(0.78, i);
+        g.gain.value = 0.28 * Math.pow(0.77, i);
         const f = ctx.createBiquadFilter();
         f.type = 'lowpass';
-        f.frequency.value = 5000 - i * 400;
+        f.frequency.value = 5500 - i * 400;
         input.connect(d);
         d.connect(f);
         f.connect(g);
         g.connect(output);
-        if (i > 4) {
+        if (i > 5) {
             const fb = ctx.createGain();
-            fb.gain.value = 0.12;
+            fb.gain.value = 0.1;
             g.connect(fb);
             fb.connect(input);
         }
@@ -403,7 +628,7 @@ function createVerb() {
 function createDelay() {
     const input = ctx.createGain();
     const output = ctx.createGain();
-    output.gain.value = 0.25;
+    output.gain.value = 0.22;
 
     const delayL = ctx.createDelay(2);
     const delayR = ctx.createDelay(2);
@@ -412,13 +637,13 @@ function createDelay() {
 
     const fbL = ctx.createGain();
     const fbR = ctx.createGain();
-    fbL.gain.value = 0.35;
-    fbR.gain.value = 0.3;
+    fbL.gain.value = 0.32;
+    fbR.gain.value = 0.28;
 
     const filterL = ctx.createBiquadFilter();
     const filterR = ctx.createBiquadFilter();
     filterL.type = filterR.type = 'lowpass';
-    filterL.frequency.value = filterR.frequency.value = 2000;
+    filterL.frequency.value = filterR.frequency.value = 2200;
 
     const panL = ctx.createStereoPanner();
     const panR = ctx.createStereoPanner();
@@ -441,7 +666,7 @@ function createDelay() {
     return { input, output, delayL, delayR, fbL, fbR };
 }
 
-// ============ INITIALIZATION ============
+// ============ INIT ============
 
 function init() {
     ctx = new (window.AudioContext || window.webkitAudioContext)();
@@ -451,7 +676,7 @@ function init() {
 
     const comp = ctx.createDynamicsCompressor();
     comp.threshold.value = -18;
-    comp.ratio.value = 6;
+    comp.ratio.value = 5;
     comp.attack.value = 0.003;
     comp.release.value = 0.2;
 
@@ -470,17 +695,17 @@ function init() {
     verb.output.connect(master);
     dly.output.connect(master);
 
-    // Create the sub
     createSub();
 
-    // Birth the entities
-    RATIOS.forEach((ratio, i) => {
-        const entity = new Entity(ratio, i);
-        entity.createAudio();
-        entities.push(entity);
-    });
+    // Birth initial entities - the primordial soup
+    const initialRatios = [1, 5/4, 3/2, 2, 5/2, 3];
+    for (const ratio of initialRatios) {
+        const e = new Entity(ratio);
+        e.createAudio();
+        e.lastVisit = 0;
+        entities.push(e);
+    }
 
-    // Canvas
     canvas = document.getElementById('c');
     vc = canvas.getContext('2d');
     resize();
@@ -493,12 +718,38 @@ function onMove(nx, ny) {
     nx = Math.max(0, Math.min(1, nx));
     ny = Math.max(0, Math.min(1, ny));
 
+    const prevX = field.x;
+    const prevY = field.y;
+
     field.vx = field.vx * 0.6 + (nx - field.x) * 0.4;
     field.vy = field.vy * 0.6 + (ny - field.y) * 0.4;
-    field.x = field.x * 0.8 + nx * 0.2;
-    field.y = field.y * 0.8 + ny * 0.2;
+    field.x = field.x * 0.75 + nx * 0.25;
+    field.y = field.y * 0.75 + ny * 0.25;
 
-    field.energy = field.energy * 0.9 + Math.sqrt(field.vx*field.vx + field.vy*field.vy) * 0.5;
+    const speed = Math.sqrt(field.vx*field.vx + field.vy*field.vy);
+    field.energy = field.energy * 0.9 + speed * 0.5;
+
+    // Stillness
+    if (speed < 0.005) {
+        field.stillness = Math.min(3, field.stillness + 0.016);
+    } else {
+        field.stillness *= 0.95;
+    }
+
+    // Birth from energy
+    if (field.energy > 0.15 && Math.random() < field.energy * 0.03) {
+        birthEntity();
+    }
+
+    // Gesture detection (circle)
+    const angle = Math.atan2(field.vy, field.vx);
+    const angleDiff = angle - field.gestureAngle;
+    field.gestureAngle = angle;
+
+    // If consistently turning, it's a circle
+    if (Math.abs(angleDiff) > 0.1 && Math.abs(angleDiff) < 0.5) {
+        // Circle gesture - could trigger mode shift or special birth
+    }
 }
 
 function onMotion(e) {
@@ -515,6 +766,10 @@ function onMotion(e) {
     field.y = Math.max(0, Math.min(1, field.y - field.vy * 0.08));
 
     field.energy = field.energy * 0.9 + Math.sqrt(ax*ax + ay*ay) * 0.3;
+
+    if (field.energy > 0.2 && Math.random() < field.energy * 0.02) {
+        birthEntity();
+    }
 }
 
 function onOrientation(e) {
@@ -536,10 +791,26 @@ function draw() {
     const h = window.innerHeight;
 
     // Fade
-    vc.fillStyle = 'rgba(0, 0, 0, 0.08)';
+    vc.fillStyle = `rgba(0, 0, 0, ${0.06 + field.stillness * 0.02})`;
     vc.fillRect(0, 0, w, h);
 
-    // Connections between consonant entities
+    // Ghosts (fading dead entities)
+    for (const g of ghosts) {
+        vc.beginPath();
+        vc.arc(g.x * w, g.y * h, g.radius, 0, TAU);
+        vc.strokeStyle = `hsla(${g.hue}, 50%, 50%, ${g.alpha})`;
+        vc.lineWidth = 1;
+        vc.stroke();
+    }
+
+    // Regional mode visualization (subtle)
+    const gradient = vc.createRadialGradient(w/2, h/2, 0, w/2, h/2, Math.max(w,h)/2);
+    gradient.addColorStop(0, 'transparent');
+    gradient.addColorStop(1, `rgba(50, 50, 80, ${0.02 + field.stillness * 0.01})`);
+    vc.fillStyle = gradient;
+    vc.fillRect(0, 0, w, h);
+
+    // Connections
     drawConnections();
 
     // Entities
@@ -547,18 +818,28 @@ function draw() {
         e.draw();
     }
 
-    // Cursor presence
+    // Cursor
     const cx = field.x * w;
     const cy = field.y * h;
-    const cursorR = 20 + field.energy * 60;
+    const cursorR = 15 + field.energy * 50;
     const cursorGrad = vc.createRadialGradient(cx, cy, 0, cx, cy, cursorR);
-    cursorGrad.addColorStop(0, `rgba(255, 255, 255, ${0.3 + field.energy * 0.5})`);
-    cursorGrad.addColorStop(0.5, `rgba(200, 220, 255, ${0.1 + field.energy * 0.2})`);
+    cursorGrad.addColorStop(0, `rgba(255, 255, 255, ${0.35 + field.energy * 0.4})`);
+    cursorGrad.addColorStop(0.5, `rgba(200, 220, 255, ${0.1 + field.energy * 0.15})`);
     cursorGrad.addColorStop(1, 'transparent');
     vc.fillStyle = cursorGrad;
     vc.beginPath();
     vc.arc(cx, cy, cursorR, 0, TAU);
     vc.fill();
+
+    // Global pulse visualization
+    if (field.pulse > 0.1) {
+        const pulseR = 100 + field.pulse * 200;
+        vc.beginPath();
+        vc.arc(w/2, h/2, pulseR, 0, TAU);
+        vc.strokeStyle = `rgba(255, 255, 255, ${field.pulse * 0.08})`;
+        vc.lineWidth = 2;
+        vc.stroke();
+    }
 }
 
 // ============ LOOP ============
@@ -568,15 +849,12 @@ function tick() {
 
     field.time += 0.016;
 
-    // Update all entities
     for (const e of entities) {
         e.update(0.016);
     }
 
-    // Update sub
+    processDeath();
     updateSub();
-
-    // Draw
     draw();
 
     requestAnimationFrame(tick);
