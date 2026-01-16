@@ -9,9 +9,9 @@
         body{background:#000;overflow:hidden;touch-action:none;height:100vh}
         canvas{position:fixed;inset:0}
         #enter{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;z-index:10;cursor:pointer}
-        #enter.off{opacity:0;pointer-events:none;transition:opacity 1s}
-        #enter div{width:120px;height:120px;border-radius:50%;border:1px solid rgba(255,255,255,0.15);display:flex;align-items:center;justify-content:center;font:9px system-ui;letter-spacing:4px;color:rgba(255,255,255,0.3);transition:0.5s}
-        #enter:hover div{border-color:rgba(255,255,255,0.4);color:rgba(255,255,255,0.6);transform:scale(1.05)}
+        #enter.off{opacity:0;pointer-events:none;transition:opacity 2s}
+        #enter div{width:120px;height:120px;border-radius:50%;border:1px solid rgba(255,255,255,0.1);display:flex;align-items:center;justify-content:center;font:9px system-ui;letter-spacing:4px;color:rgba(255,255,255,0.25);transition:0.5s}
+        #enter:hover div{border-color:rgba(255,255,255,0.3);color:rgba(255,255,255,0.5)}
     </style>
 </head>
 <body>
@@ -19,111 +19,379 @@
 <canvas id="c"></canvas>
 <script>
 // GUMP - Grand Unified Music Project
-// The field is alive. It remembers. It breathes with you.
+// Sound as life. Harmonics as creatures. Chaos into form.
 
 const TAU = Math.PI * 2;
+const PHI = 1.618033988749;
 
-// ============ THE LIVING FIELD ============
+// ============ THE UNIVERSE ============
 
-let ctx, master;
-let field = {
-    x: 0.5, y: 0.5,           // Position
-    vx: 0, vy: 0,             // Velocity
-    ax: 0, ay: 0,             // Acceleration (for transients)
-    energy: 0,                 // Movement energy
-    stillness: 0,              // How long still
-    memory: [],                // Trail of where you've been
-    maxMemory: 120,            // ~2 seconds at 60fps
-    breath: 0,                 // Breathing cycle
-    time: 0                    // Total time
-};
-
-let voices = [];
-let sub = null;
-let shimmer = null;
-let texture = null;
-let verb, dly;
+let ctx, master, verb, dly, sub;
+let entities = [];
+let field = { x: 0.5, y: 0.5, vx: 0, vy: 0, energy: 0, time: 0 };
 let canvas, vc;
 let running = false;
 
-// The harmonic series - the DNA of all sound
-const HARMONICS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
-const BASE = 55; // A1 - you feel it in your chest
+// The harmonic ratios - intervals that want to exist
+const RATIOS = [
+    1,      // unison
+    9/8,    // major second
+    5/4,    // major third
+    4/3,    // perfect fourth
+    3/2,    // perfect fifth
+    5/3,    // major sixth
+    15/8,   // major seventh
+    2,      // octave
+    9/4,    // ninth
+    5/2,    // tenth
+    3,      // twelfth (octave + fifth)
+    4,      // double octave
+];
 
-// ============ INITIALIZATION ============
+const BASE = 55; // A1
 
-function init() {
-    ctx = new (window.AudioContext || window.webkitAudioContext)();
-
-    // Master chain
-    master = ctx.createGain();
-    master.gain.value = 0.7;
-
-    const comp = ctx.createDynamicsCompressor();
-    comp.threshold.value = -20;
-    comp.ratio.value = 6;
-    comp.attack.value = 0.003;
-    comp.release.value = 0.25;
-
-    const limiter = ctx.createDynamicsCompressor();
-    limiter.threshold.value = -3;
-    limiter.ratio.value = 20;
-    limiter.attack.value = 0.001;
-    limiter.release.value = 0.1;
-
-    // Reverb - the space you exist in
-    verb = createReverb();
-
-    // Delay - your echoes
-    dly = createDelay();
-
-    // Connect master chain
-    master.connect(comp);
-    comp.connect(limiter);
-    limiter.connect(ctx.destination);
-    verb.output.connect(master);
-    dly.output.connect(master);
-
-    // Create the layers
-    createSub();
-    createHarmonics();
-    createShimmer();
-    createTexture();
-
-    // Canvas
-    canvas = document.getElementById('c');
-    vc = canvas.getContext('2d');
-    resize();
-    window.addEventListener('resize', resize);
+// Consonance map - how much ratios attract each other
+function consonance(r1, r2) {
+    const ratio = r1 > r2 ? r1/r2 : r2/r1;
+    // Perfect consonances
+    if (Math.abs(ratio - 1) < 0.01) return 1;      // unison
+    if (Math.abs(ratio - 2) < 0.01) return 0.95;   // octave
+    if (Math.abs(ratio - 1.5) < 0.01) return 0.9;  // fifth
+    if (Math.abs(ratio - 4/3) < 0.02) return 0.85; // fourth
+    // Imperfect consonances
+    if (Math.abs(ratio - 5/4) < 0.02) return 0.7;  // major third
+    if (Math.abs(ratio - 6/5) < 0.02) return 0.65; // minor third
+    if (Math.abs(ratio - 5/3) < 0.02) return 0.6;  // major sixth
+    // Mild dissonance creates interest
+    return 0.3;
 }
 
-function createReverb() {
+// ============ ENTITY - A LIVING HARMONIC ============
+
+class Entity {
+    constructor(ratio, index) {
+        this.ratio = ratio;
+        this.freq = BASE * ratio;
+        this.index = index;
+
+        // Position in space (0-1)
+        this.x = 0.5 + (Math.random() - 0.5) * 0.3;
+        this.y = 0.5 + (Math.random() - 0.5) * 0.3;
+
+        // Velocity
+        this.vx = (Math.random() - 0.5) * 0.01;
+        this.vy = (Math.random() - 0.5) * 0.01;
+
+        // Properties
+        this.mass = 1 / ratio; // Lower = heavier
+        this.brightness = 0;
+        this.life = 1;
+
+        // Audio
+        this.osc = null;
+        this.osc2 = null;
+        this.filter = null;
+        this.gain = null;
+        this.pan = null;
+        this.mod = null;
+        this.modGain = null;
+
+        // Visual
+        this.trail = [];
+        this.maxTrail = 30;
+        this.hue = 220 - (Math.log2(ratio) * 40);
+    }
+
+    createAudio() {
+        // Main oscillator
+        this.osc = ctx.createOscillator();
+        this.osc.type = this.ratio < 2 ? 'sine' : 'triangle';
+        this.osc.frequency.value = this.freq;
+
+        // Detuned oscillator for warmth
+        this.osc2 = ctx.createOscillator();
+        this.osc2.type = 'sine';
+        this.osc2.frequency.value = this.freq * 1.002;
+
+        // FM modulator
+        this.mod = ctx.createOscillator();
+        this.modGain = ctx.createGain();
+        this.mod.type = 'sine';
+        this.mod.frequency.value = this.freq * PHI; // Golden ratio modulation
+        this.modGain.gain.value = 0;
+        this.mod.connect(this.modGain);
+        this.modGain.connect(this.osc.frequency);
+
+        // Filter
+        this.filter = ctx.createBiquadFilter();
+        this.filter.type = 'lowpass';
+        this.filter.frequency.value = 200;
+        this.filter.Q.value = 1;
+
+        // Gain
+        this.gain = ctx.createGain();
+        this.gain.gain.value = 0;
+
+        // Pan
+        this.pan = ctx.createStereoPanner();
+        this.pan.pan.value = 0;
+
+        // Connect
+        this.osc.connect(this.filter);
+        this.osc2.connect(this.filter);
+        this.filter.connect(this.gain);
+        this.gain.connect(this.pan);
+        this.pan.connect(master);
+        this.pan.connect(verb.input);
+        this.pan.connect(dly.input);
+
+        this.osc.start();
+        this.osc2.start();
+        this.mod.start();
+    }
+
+    update(dt) {
+        const now = ctx.currentTime;
+
+        // ============ PHYSICS ============
+
+        // Attraction to cursor
+        const dx = field.x - this.x;
+        const dy = field.y - this.y;
+        const distToCursor = Math.sqrt(dx*dx + dy*dy);
+        const cursorForce = 0.0003 / (distToCursor + 0.1);
+
+        this.vx += dx * cursorForce;
+        this.vy += dy * cursorForce;
+
+        // Attraction/repulsion to other entities based on consonance
+        for (const other of entities) {
+            if (other === this) continue;
+
+            const odx = other.x - this.x;
+            const ody = other.y - this.y;
+            const dist = Math.sqrt(odx*odx + ody*ody);
+            if (dist < 0.01) continue;
+
+            const cons = consonance(this.ratio, other.ratio);
+
+            // Consonant = attract, dissonant = slight repel
+            const force = (cons - 0.4) * 0.00005 / (dist + 0.05);
+
+            this.vx += odx * force;
+            this.vy += ody * force;
+        }
+
+        // Gentle pull toward center (prevents escape)
+        this.vx += (0.5 - this.x) * 0.0001;
+        this.vy += (0.5 - this.y) * 0.0001;
+
+        // Angular momentum from cursor movement (creates spirals)
+        const perpX = -dy;
+        const perpY = dx;
+        this.vx += perpX * field.vx * 0.01;
+        this.vy += perpY * field.vx * 0.01;
+
+        // Damping
+        this.vx *= 0.995;
+        this.vy *= 0.995;
+
+        // Update position
+        this.x += this.vx;
+        this.y += this.vy;
+
+        // Soft boundaries
+        if (this.x < 0.05) { this.x = 0.05; this.vx *= -0.5; }
+        if (this.x > 0.95) { this.x = 0.95; this.vx *= -0.5; }
+        if (this.y < 0.05) { this.y = 0.05; this.vy *= -0.5; }
+        if (this.y > 0.95) { this.y = 0.95; this.vy *= -0.5; }
+
+        // Trail
+        this.trail.unshift({ x: this.x, y: this.y });
+        if (this.trail.length > this.maxTrail) this.trail.pop();
+
+        // ============ SOUND ============
+
+        // Amplitude based on distance to cursor
+        const proximity = 1 - Math.min(1, distToCursor * 2);
+        const baseAmp = proximity * 0.08 * this.mass;
+
+        // Brightness from velocity
+        const vel = Math.sqrt(this.vx*this.vx + this.vy*this.vy);
+        this.brightness = this.brightness * 0.9 + vel * 10;
+
+        // Set gain
+        this.gain.gain.linearRampToValueAtTime(baseAmp * (0.5 + this.brightness), now + 0.05);
+
+        // Filter follows proximity and brightness
+        const filterFreq = 200 + proximity * 3000 + this.brightness * 2000;
+        this.filter.frequency.linearRampToValueAtTime(filterFreq, now + 0.08);
+
+        // FM depth from field energy
+        const fmDepth = field.energy * this.freq * 0.3;
+        this.modGain.gain.linearRampToValueAtTime(fmDepth, now + 0.05);
+
+        // Pan from position
+        this.pan.pan.linearRampToValueAtTime((this.x - 0.5) * 1.8, now + 0.05);
+
+        // Subtle pitch bend toward cursor (entities "reach" for you)
+        const pitchBend = 1 + dx * 0.02;
+        this.osc.frequency.linearRampToValueAtTime(this.freq * pitchBend, now + 0.1);
+        this.osc2.frequency.linearRampToValueAtTime(this.freq * pitchBend * 1.002, now + 0.1);
+    }
+
+    draw() {
+        const w = window.innerWidth;
+        const h = window.innerHeight;
+        const px = this.x * w;
+        const py = this.y * h;
+
+        const amp = this.gain.gain.value;
+        if (amp < 0.001) return;
+
+        // Trail
+        if (this.trail.length > 1) {
+            vc.beginPath();
+            vc.moveTo(this.trail[0].x * w, this.trail[0].y * h);
+            for (let i = 1; i < this.trail.length; i++) {
+                vc.lineTo(this.trail[i].x * w, this.trail[i].y * h);
+            }
+            const trailAlpha = amp * 0.5;
+            vc.strokeStyle = `hsla(${this.hue}, 70%, 60%, ${trailAlpha})`;
+            vc.lineWidth = 1;
+            vc.stroke();
+        }
+
+        // Core
+        const r = 3 + amp * 40 + this.brightness * 20;
+        const grad = vc.createRadialGradient(px, py, 0, px, py, r);
+        grad.addColorStop(0, `hsla(${this.hue}, 80%, ${70 + amp * 30}%, ${0.8 + amp})`);
+        grad.addColorStop(0.5, `hsla(${this.hue}, 70%, 50%, ${amp * 0.5})`);
+        grad.addColorStop(1, 'transparent');
+
+        vc.fillStyle = grad;
+        vc.beginPath();
+        vc.arc(px, py, r, 0, TAU);
+        vc.fill();
+    }
+}
+
+// ============ CONNECTIONS - THE HARMONY BETWEEN ============
+
+function drawConnections() {
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+
+    for (let i = 0; i < entities.length; i++) {
+        for (let j = i + 1; j < entities.length; j++) {
+            const a = entities[i];
+            const b = entities[j];
+
+            const dx = b.x - a.x;
+            const dy = b.y - a.y;
+            const dist = Math.sqrt(dx*dx + dy*dy);
+
+            if (dist > 0.3) continue;
+
+            const cons = consonance(a.ratio, b.ratio);
+            if (cons < 0.6) continue;
+
+            const amp = Math.min(a.gain.gain.value, b.gain.gain.value);
+            const alpha = cons * amp * (1 - dist / 0.3) * 2;
+
+            if (alpha < 0.02) continue;
+
+            vc.beginPath();
+            vc.moveTo(a.x * w, a.y * h);
+            vc.lineTo(b.x * w, b.y * h);
+            vc.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
+            vc.lineWidth = 1 + cons * 2;
+            vc.stroke();
+        }
+    }
+}
+
+// ============ THE SUB - THE GRAVITY WELL ============
+
+function createSub() {
+    const osc = ctx.createOscillator();
+    const osc2 = ctx.createOscillator();
+    const gain = ctx.createGain();
+    const filter = ctx.createBiquadFilter();
+
+    osc.type = 'sine';
+    osc.frequency.value = BASE / 2;
+    osc2.type = 'sine';
+    osc2.frequency.value = BASE / 2 * 1.001;
+
+    filter.type = 'lowpass';
+    filter.frequency.value = 80;
+    gain.gain.value = 0;
+
+    osc.connect(filter);
+    osc2.connect(filter);
+    filter.connect(gain);
+    gain.connect(master);
+
+    osc.start();
+    osc2.start();
+
+    sub = { osc, osc2, gain, filter };
+}
+
+function updateSub() {
+    const now = ctx.currentTime;
+
+    // Sub responds to the system's total energy and clustering
+    let totalEnergy = 0;
+    let centerMass = { x: 0, y: 0, total: 0 };
+
+    for (const e of entities) {
+        const vel = Math.sqrt(e.vx*e.vx + e.vy*e.vy);
+        totalEnergy += vel;
+        centerMass.x += e.x * e.mass;
+        centerMass.y += e.y * e.mass;
+        centerMass.total += e.mass;
+    }
+
+    if (centerMass.total > 0) {
+        centerMass.x /= centerMass.total;
+        centerMass.y /= centerMass.total;
+    }
+
+    // Distance from cursor to center of mass
+    const dx = field.x - centerMass.x;
+    const dy = field.y - centerMass.y;
+    const distToCenter = Math.sqrt(dx*dx + dy*dy);
+
+    // Sub is louder when cursor is near the center of mass
+    const subAmp = 0.15 + (1 - distToCenter) * 0.15 - totalEnergy * 2;
+    sub.gain.gain.linearRampToValueAtTime(Math.max(0.05, subAmp), now + 0.2);
+}
+
+// ============ EFFECTS ============
+
+function createVerb() {
     const input = ctx.createGain();
     const output = ctx.createGain();
-    output.gain.value = 0.4;
+    output.gain.value = 0.35;
 
-    // Long, diffuse reverb - like being inside sound
-    const times = [0.02, 0.05, 0.08, 0.13, 0.21, 0.34, 0.55, 0.89, 1.2, 1.6];
+    const times = [0.02, 0.05, 0.08, 0.13, 0.21, 0.34, 0.55, 0.89, 1.2, 1.6, 2.1];
     times.forEach((t, i) => {
-        const d = ctx.createDelay(2);
-        d.delayTime.value = t + Math.random() * 0.01; // Slight randomness for diffusion
+        const d = ctx.createDelay(3);
+        d.delayTime.value = t + Math.random() * 0.02;
         const g = ctx.createGain();
-        g.gain.value = 0.35 * Math.pow(0.8, i);
+        g.gain.value = 0.3 * Math.pow(0.78, i);
         const f = ctx.createBiquadFilter();
         f.type = 'lowpass';
-        f.frequency.value = 6000 - i * 500;
-        const f2 = ctx.createBiquadFilter();
-        f2.type = 'highpass';
-        f2.frequency.value = 80;
+        f.frequency.value = 5000 - i * 400;
         input.connect(d);
         d.connect(f);
-        f.connect(f2);
-        f2.connect(g);
+        f.connect(g);
         g.connect(output);
-        // Feedback into verb for density
-        if (i > 3) {
+        if (i > 4) {
             const fb = ctx.createGain();
-            fb.gain.value = 0.15;
+            fb.gain.value = 0.12;
             g.connect(fb);
             fb.connect(input);
         }
@@ -135,28 +403,27 @@ function createReverb() {
 function createDelay() {
     const input = ctx.createGain();
     const output = ctx.createGain();
-    output.gain.value = 0.3;
+    output.gain.value = 0.25;
 
-    // Ping-pong delay
     const delayL = ctx.createDelay(2);
     const delayR = ctx.createDelay(2);
-    delayL.delayTime.value = 0.375; // Dotted eighth at ~80bpm
-    delayR.delayTime.value = 0.5;   // Quarter
+    delayL.delayTime.value = 0.333;
+    delayR.delayTime.value = 0.5;
 
     const fbL = ctx.createGain();
     const fbR = ctx.createGain();
-    fbL.gain.value = 0.4;
-    fbR.gain.value = 0.35;
+    fbL.gain.value = 0.35;
+    fbR.gain.value = 0.3;
 
     const filterL = ctx.createBiquadFilter();
     const filterR = ctx.createBiquadFilter();
     filterL.type = filterR.type = 'lowpass';
-    filterL.frequency.value = filterR.frequency.value = 2500;
+    filterL.frequency.value = filterR.frequency.value = 2000;
 
     const panL = ctx.createStereoPanner();
     const panR = ctx.createStereoPanner();
-    panL.pan.value = -0.7;
-    panR.pan.value = 0.7;
+    panL.pan.value = -0.8;
+    panR.pan.value = 0.8;
 
     input.connect(delayL);
     delayL.connect(filterL);
@@ -174,283 +441,50 @@ function createDelay() {
     return { input, output, delayL, delayR, fbL, fbR };
 }
 
-// ============ THE SUB ============
-// The foundation. You feel it before you hear it.
+// ============ INITIALIZATION ============
 
-function createSub() {
-    const osc = ctx.createOscillator();
-    const osc2 = ctx.createOscillator();
-    const gain = ctx.createGain();
-    const filter = ctx.createBiquadFilter();
+function init() {
+    ctx = new (window.AudioContext || window.webkitAudioContext)();
 
-    osc.type = 'sine';
-    osc.frequency.value = BASE / 2; // Octave below root
-    osc2.type = 'sine';
-    osc2.frequency.value = BASE / 2 * 1.001; // Slow beating
+    master = ctx.createGain();
+    master.gain.value = 0.7;
 
-    filter.type = 'lowpass';
-    filter.frequency.value = 100;
-    gain.gain.value = 0;
+    const comp = ctx.createDynamicsCompressor();
+    comp.threshold.value = -18;
+    comp.ratio.value = 6;
+    comp.attack.value = 0.003;
+    comp.release.value = 0.2;
 
-    osc.connect(filter);
-    osc2.connect(filter);
-    filter.connect(gain);
-    gain.connect(master);
+    const limiter = ctx.createDynamicsCompressor();
+    limiter.threshold.value = -2;
+    limiter.ratio.value = 20;
+    limiter.attack.value = 0.001;
+    limiter.release.value = 0.1;
 
-    osc.start();
-    osc2.start();
+    verb = createVerb();
+    dly = createDelay();
 
-    sub = { osc, osc2, gain, filter };
-}
+    master.connect(comp);
+    comp.connect(limiter);
+    limiter.connect(ctx.destination);
+    verb.output.connect(master);
+    dly.output.connect(master);
 
-// ============ THE HARMONICS ============
-// The spectrum of overtones. Your position reveals different colors.
+    // Create the sub
+    createSub();
 
-function createHarmonics() {
-    HARMONICS.forEach((ratio, i) => {
-        const freq = BASE * ratio;
-
-        // Main oscillator
-        const osc = ctx.createOscillator();
-        osc.type = i < 4 ? 'sine' : 'triangle'; // Lower = purer, higher = richer
-
-        // FM modulator for movement
-        const mod = ctx.createOscillator();
-        const modGain = ctx.createGain();
-        mod.type = 'sine';
-        mod.frequency.value = freq * (i % 3 === 0 ? 2 : i % 3 === 1 ? 3 : 1.5);
-        modGain.gain.value = 0; // FM depth controlled by movement
-
-        mod.connect(modGain);
-        modGain.connect(osc.frequency);
-        osc.frequency.value = freq;
-
-        // Filter per voice
-        const filter = ctx.createBiquadFilter();
-        filter.type = 'lowpass';
-        filter.frequency.value = 200;
-        filter.Q.value = 1 + i * 0.3;
-
-        // Gain
-        const gain = ctx.createGain();
-        gain.gain.value = 0;
-
-        // Panning - spread across stereo field
-        const pan = ctx.createStereoPanner();
-        pan.pan.value = ((i % 2 === 0 ? 1 : -1) * (i / HARMONICS.length) * 0.8);
-
-        // Connect
-        osc.connect(filter);
-        filter.connect(gain);
-        gain.connect(pan);
-        pan.connect(master);
-        pan.connect(verb.input);
-        pan.connect(dly.input);
-
-        osc.start();
-        mod.start();
-
-        voices.push({ osc, mod, modGain, filter, gain, pan, freq, ratio, index: i });
-    });
-}
-
-// ============ THE SHIMMER ============
-// High harmonics that appear with energy. Sparkle.
-
-function createShimmer() {
-    const oscs = [];
-    const output = ctx.createGain();
-    output.gain.value = 0;
-
-    // High, clustered frequencies
-    [16, 17, 18, 19, 20, 24, 25, 32].forEach((ratio, i) => {
-        const osc = ctx.createOscillator();
-        osc.type = 'sine';
-        osc.frequency.value = BASE * ratio + Math.random() * 10;
-
-        const g = ctx.createGain();
-        g.gain.value = 0.1 / 8;
-
-        const pan = ctx.createStereoPanner();
-        pan.pan.value = Math.random() * 2 - 1;
-
-        osc.connect(g);
-        g.connect(pan);
-        pan.connect(output);
-        osc.start();
-        oscs.push({ osc, gain: g, pan });
+    // Birth the entities
+    RATIOS.forEach((ratio, i) => {
+        const entity = new Entity(ratio, i);
+        entity.createAudio();
+        entities.push(entity);
     });
 
-    output.connect(master);
-    output.connect(verb.input);
-
-    shimmer = { oscs, output };
-}
-
-// ============ THE TEXTURE ============
-// Filtered noise that breathes. The air around the sound.
-
-function createTexture() {
-    // Noise source
-    const bufferSize = ctx.sampleRate * 2;
-    const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
-    const data = buffer.getChannelData(0);
-    for (let i = 0; i < bufferSize; i++) {
-        data[i] = Math.random() * 2 - 1;
-    }
-
-    const source = ctx.createBufferSource();
-    source.buffer = buffer;
-    source.loop = true;
-
-    const filter = ctx.createBiquadFilter();
-    filter.type = 'bandpass';
-    filter.frequency.value = 400;
-    filter.Q.value = 2;
-
-    const filter2 = ctx.createBiquadFilter();
-    filter2.type = 'lowpass';
-    filter2.frequency.value = 2000;
-
-    const gain = ctx.createGain();
-    gain.gain.value = 0;
-
-    source.connect(filter);
-    filter.connect(filter2);
-    filter2.connect(gain);
-    gain.connect(master);
-    gain.connect(verb.input);
-
-    source.start();
-
-    texture = { source, filter, filter2, gain };
-}
-
-// ============ THE SHAPING ============
-// Every frame, the field responds to you.
-
-function shapeField() {
-    const now = ctx.currentTime;
-    const t = field.time;
-
-    // Update physics
-    const prevVx = field.vx;
-    const prevVy = field.vy;
-    field.ax = field.vx - prevVx;
-    field.ay = field.vy - prevVy;
-
-    // Energy from velocity
-    const rawEnergy = Math.sqrt(field.vx*field.vx + field.vy*field.vy);
-    field.energy = field.energy * 0.92 + rawEnergy * 0.4;
-
-    // Stillness accumulates when not moving
-    if (rawEnergy < 0.01) {
-        field.stillness = Math.min(5, field.stillness + 0.016);
-    } else {
-        field.stillness = field.stillness * 0.95;
-    }
-
-    // Breath - slow oscillation
-    field.breath = Math.sin(t * 0.3) * 0.5 + 0.5;
-
-    // Memory - trail of positions
-    field.memory.unshift({ x: field.x, y: field.y, energy: field.energy, t: now });
-    if (field.memory.length > field.maxMemory) field.memory.pop();
-
-    // ============ SHAPE THE SUB ============
-    // Always present, swells with stillness
-    const subAmp = 0.15 + field.stillness * 0.1 + field.breath * 0.05;
-    sub.gain.gain.linearRampToValueAtTime(subAmp, now + 0.1);
-    // Sub follows Y slightly - lower = more sub
-    const subFreq = (BASE / 2) * (1 - field.y * 0.1);
-    sub.osc.frequency.linearRampToValueAtTime(subFreq, now + 0.2);
-    sub.osc2.frequency.linearRampToValueAtTime(subFreq * 1.001, now + 0.2);
-
-    // ============ SHAPE THE HARMONICS ============
-    voices.forEach((v, i) => {
-        // Position determines which harmonics sing
-        // Create multiple "zones" across X axis
-        const zones = 3;
-        const zone = Math.floor(field.x * zones);
-        const zoneProgress = (field.x * zones) % 1;
-
-        // Each harmonic belongs to certain zones
-        const harmonicZone = i % zones;
-        const inZone = harmonicZone === zone || harmonicZone === (zone + 1) % zones;
-        const zoneAffinity = inZone ? 1 - Math.abs(zoneProgress - 0.5) * 2 : 0;
-
-        // Y position opens the harmonics
-        const yOpen = field.y;
-
-        // Higher harmonics need more Y to open
-        const harmonicThreshold = i / HARMONICS.length * 0.7;
-        const harmonicPresence = Math.max(0, yOpen - harmonicThreshold) / (1 - harmonicThreshold);
-
-        // Combine for amplitude
-        const baseAmp = zoneAffinity * harmonicPresence * 0.12;
-        const energyBoost = field.energy * 0.08;
-        const breathMod = 1 + field.breath * 0.1;
-        const amp = (baseAmp + energyBoost) * breathMod;
-
-        v.gain.gain.linearRampToValueAtTime(amp, now + 0.08);
-
-        // Filter follows Y and energy
-        const filterBase = 200 + yOpen * 3000 + field.energy * 2000;
-        v.filter.frequency.linearRampToValueAtTime(filterBase, now + 0.1);
-
-        // FM depth from movement - movement adds richness
-        const fmDepth = field.energy * v.freq * 0.5;
-        v.modGain.gain.linearRampToValueAtTime(fmDepth, now + 0.05);
-
-        // Subtle pitch drift from velocity
-        const drift = 1 + field.vx * 0.01 * Math.sin(i);
-        v.osc.frequency.linearRampToValueAtTime(v.freq * drift, now + 0.1);
-
-        // Pan follows movement
-        const basePan = ((i % 2 === 0 ? 1 : -1) * (i / HARMONICS.length) * 0.6);
-        const panMod = field.vx * 0.4;
-        v.pan.pan.linearRampToValueAtTime(
-            Math.max(-1, Math.min(1, basePan + panMod)),
-            now + 0.08
-        );
-    });
-
-    // ============ SHAPE THE SHIMMER ============
-    // Appears with energy
-    const shimmerAmp = Math.pow(field.energy, 1.5) * 0.3;
-    shimmer.output.gain.linearRampToValueAtTime(shimmerAmp, now + 0.1);
-
-    // Shimmer frequencies drift with movement
-    shimmer.oscs.forEach((s, i) => {
-        const baseFreq = BASE * [16, 17, 18, 19, 20, 24, 25, 32][i];
-        const drift = 1 + Math.sin(t * 2 + i) * 0.02 + field.vx * 0.05;
-        s.osc.frequency.linearRampToValueAtTime(baseFreq * drift, now + 0.15);
-    });
-
-    // ============ SHAPE THE TEXTURE ============
-    // Breathes with stillness
-    const textureAmp = 0.02 + field.stillness * 0.03;
-    texture.gain.gain.linearRampToValueAtTime(textureAmp, now + 0.2);
-
-    // Filter follows position
-    const textureFreq = 200 + field.y * 800 + field.breath * 200;
-    texture.filter.frequency.linearRampToValueAtTime(textureFreq, now + 0.15);
-    texture.filter2.frequency.linearRampToValueAtTime(1000 + field.y * 3000, now + 0.15);
-
-    // ============ SHAPE THE SPACE ============
-    // Reverb blooms with stillness
-    const verbAmount = 0.3 + field.stillness * 0.2;
-    verb.output.gain.linearRampToValueAtTime(verbAmount, now + 0.3);
-
-    // Delay feedback with energy
-    const delayFb = 0.3 + field.energy * 0.25;
-    dly.fbL.gain.linearRampToValueAtTime(delayFb, now + 0.1);
-    dly.fbR.gain.linearRampToValueAtTime(delayFb * 0.9, now + 0.1);
-
-    // Delay time shifts slightly with movement
-    const dlyTime = 0.375 + field.vx * 0.05;
-    dly.delayL.delayTime.linearRampToValueAtTime(dlyTime, now + 0.2);
-    dly.delayR.delayTime.linearRampToValueAtTime(dlyTime * 1.33, now + 0.2);
+    // Canvas
+    canvas = document.getElementById('c');
+    vc = canvas.getContext('2d');
+    resize();
+    window.addEventListener('resize', resize);
 }
 
 // ============ INPUT ============
@@ -461,8 +495,10 @@ function onMove(nx, ny) {
 
     field.vx = field.vx * 0.6 + (nx - field.x) * 0.4;
     field.vy = field.vy * 0.6 + (ny - field.y) * 0.4;
-    field.x = field.x * 0.7 + nx * 0.3;
-    field.y = field.y * 0.7 + ny * 0.3;
+    field.x = field.x * 0.8 + nx * 0.2;
+    field.y = field.y * 0.8 + ny * 0.2;
+
+    field.energy = field.energy * 0.9 + Math.sqrt(field.vx*field.vx + field.vy*field.vy) * 0.5;
 }
 
 function onMotion(e) {
@@ -477,16 +513,14 @@ function onMotion(e) {
 
     field.x = Math.max(0, Math.min(1, field.x + field.vx * 0.08));
     field.y = Math.max(0, Math.min(1, field.y - field.vy * 0.08));
+
+    field.energy = field.energy * 0.9 + Math.sqrt(ax*ax + ay*ay) * 0.3;
 }
 
 function onOrientation(e) {
     const gx = Math.max(-1, Math.min(1, (e.gamma || 0) / 40));
     const gy = Math.max(-1, Math.min(1, (e.beta || 0) / 40 - 1));
-
-    const nx = (gx + 1) / 2;
-    const ny = (1 - gy) / 2;
-
-    onMove(nx, ny);
+    onMove((gx + 1) / 2, (1 - gy) / 2);
 }
 
 // ============ VISUALIZATION ============
@@ -500,100 +534,31 @@ function resize() {
 function draw() {
     const w = window.innerWidth;
     const h = window.innerHeight;
-    const t = field.time;
 
-    // Fade - slower when still (let trails linger)
-    const fadeSpeed = 0.06 + field.energy * 0.04 - field.stillness * 0.02;
-    vc.fillStyle = `rgba(0, 0, 0, ${Math.max(0.02, fadeSpeed)})`;
+    // Fade
+    vc.fillStyle = 'rgba(0, 0, 0, 0.08)';
     vc.fillRect(0, 0, w, h);
 
+    // Connections between consonant entities
+    drawConnections();
+
+    // Entities
+    for (const e of entities) {
+        e.draw();
+    }
+
+    // Cursor presence
     const cx = field.x * w;
-    const cy = (1 - field.y) * h;
-
-    // Draw memory trail
-    if (field.memory.length > 1) {
-        vc.beginPath();
-        vc.moveTo(field.memory[0].x * w, (1 - field.memory[0].y) * h);
-        for (let i = 1; i < field.memory.length; i++) {
-            const m = field.memory[i];
-            const age = i / field.memory.length;
-            vc.lineTo(m.x * w, (1 - m.y) * h);
-        }
-        const trailGrad = vc.createLinearGradient(
-            field.memory[0].x * w, (1 - field.memory[0].y) * h,
-            field.memory[field.memory.length-1].x * w, (1 - field.memory[field.memory.length-1].y) * h
-        );
-        trailGrad.addColorStop(0, `rgba(255, 255, 255, ${0.2 + field.energy * 0.3})`);
-        trailGrad.addColorStop(1, 'rgba(255, 255, 255, 0)');
-        vc.strokeStyle = trailGrad;
-        vc.lineWidth = 2;
-        vc.stroke();
-    }
-
-    // Harmonic visualization - vertical bands that glow
-    voices.forEach((v, i) => {
-        const amp = v.gain.gain.value;
-        if (amp < 0.003) return;
-
-        const vx = ((i + 0.5) / voices.length) * w;
-
-        // Vertical line
-        const lineHeight = amp * h * 0.8;
-        const gradient = vc.createLinearGradient(vx, h/2 - lineHeight/2, vx, h/2 + lineHeight/2);
-        const hue = 220 - i * 8;
-        gradient.addColorStop(0, 'transparent');
-        gradient.addColorStop(0.3, `hsla(${hue}, 70%, ${50 + amp * 40}%, ${amp * 0.8})`);
-        gradient.addColorStop(0.5, `hsla(${hue}, 80%, ${60 + amp * 30}%, ${amp})`);
-        gradient.addColorStop(0.7, `hsla(${hue}, 70%, ${50 + amp * 40}%, ${amp * 0.8})`);
-        gradient.addColorStop(1, 'transparent');
-
-        vc.beginPath();
-        vc.moveTo(vx, h/2 - lineHeight/2);
-        vc.lineTo(vx, h/2 + lineHeight/2);
-        vc.strokeStyle = gradient;
-        vc.lineWidth = 8 + amp * 30;
-        vc.lineCap = 'round';
-        vc.stroke();
-    });
-
-    // Shimmer particles
-    if (field.energy > 0.1) {
-        const numParticles = Math.floor(field.energy * 20);
-        for (let i = 0; i < numParticles; i++) {
-            const px = cx + (Math.random() - 0.5) * 200 * field.energy;
-            const py = cy + (Math.random() - 0.5) * 200 * field.energy;
-            const size = Math.random() * 2 + 1;
-            vc.beginPath();
-            vc.arc(px, py, size, 0, TAU);
-            vc.fillStyle = `rgba(255, 255, 255, ${Math.random() * 0.5})`;
-            vc.fill();
-        }
-    }
-
-    // Core presence
-    const coreR = 15 + field.energy * 40 + field.breath * 10;
-    const coreGrad = vc.createRadialGradient(cx, cy, 0, cx, cy, coreR);
-    coreGrad.addColorStop(0, `rgba(255, 255, 255, ${0.4 + field.energy * 0.4})`);
-    coreGrad.addColorStop(0.4, `rgba(200, 220, 255, ${0.2 + field.energy * 0.2})`);
-    coreGrad.addColorStop(1, 'transparent');
-    vc.fillStyle = coreGrad;
+    const cy = field.y * h;
+    const cursorR = 20 + field.energy * 60;
+    const cursorGrad = vc.createRadialGradient(cx, cy, 0, cx, cy, cursorR);
+    cursorGrad.addColorStop(0, `rgba(255, 255, 255, ${0.3 + field.energy * 0.5})`);
+    cursorGrad.addColorStop(0.5, `rgba(200, 220, 255, ${0.1 + field.energy * 0.2})`);
+    cursorGrad.addColorStop(1, 'transparent');
+    vc.fillStyle = cursorGrad;
     vc.beginPath();
-    vc.arc(cx, cy, coreR, 0, TAU);
+    vc.arc(cx, cy, cursorR, 0, TAU);
     vc.fill();
-
-    // Stillness bloom - grows when still
-    if (field.stillness > 0.5) {
-        const bloomR = 50 + field.stillness * 100;
-        const bloomGrad = vc.createRadialGradient(cx, cy, 0, cx, cy, bloomR);
-        const bloomAlpha = Math.min(0.15, (field.stillness - 0.5) * 0.1);
-        bloomGrad.addColorStop(0, 'transparent');
-        bloomGrad.addColorStop(0.5, `rgba(100, 150, 255, ${bloomAlpha})`);
-        bloomGrad.addColorStop(1, 'transparent');
-        vc.fillStyle = bloomGrad;
-        vc.beginPath();
-        vc.arc(cx, cy, bloomR, 0, TAU);
-        vc.fill();
-    }
 }
 
 // ============ LOOP ============
@@ -602,7 +567,16 @@ function tick() {
     if (!running) return;
 
     field.time += 0.016;
-    shapeField();
+
+    // Update all entities
+    for (const e of entities) {
+        e.update(0.016);
+    }
+
+    // Update sub
+    updateSub();
+
+    // Draw
     draw();
 
     requestAnimationFrame(tick);
@@ -628,19 +602,19 @@ async function start() {
     window.addEventListener('deviceorientation', onOrientation);
 
     document.addEventListener('mousemove', e => {
-        onMove(e.clientX / window.innerWidth, 1 - e.clientY / window.innerHeight);
+        onMove(e.clientX / window.innerWidth, e.clientY / window.innerHeight);
     });
 
     document.addEventListener('touchmove', e => {
         e.preventDefault();
         const t = e.touches[0];
-        onMove(t.clientX / window.innerWidth, 1 - t.clientY / window.innerHeight);
+        onMove(t.clientX / window.innerWidth, t.clientY / window.innerHeight);
     }, { passive: false });
 
     document.addEventListener('touchstart', e => {
         e.preventDefault();
         const t = e.touches[0];
-        onMove(t.clientX / window.innerWidth, 1 - t.clientY / window.innerHeight);
+        onMove(t.clientX / window.innerWidth, t.clientY / window.innerHeight);
     }, { passive: false });
 
     if (ctx.state === 'suspended') await ctx.resume();
