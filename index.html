@@ -12,11 +12,16 @@
         #enter.off{opacity:0;pointer-events:none;transition:opacity 2s}
         #enter div{width:120px;height:120px;border-radius:50%;border:1px solid rgba(255,255,255,0.1);display:flex;align-items:center;justify-content:center;font:9px system-ui;letter-spacing:4px;color:rgba(255,255,255,0.25);transition:0.5s}
         #enter:hover div{border-color:rgba(255,255,255,0.3);color:rgba(255,255,255,0.5)}
+        #gumpy{position:fixed;bottom:30px;left:0;right:0;text-align:center;pointer-events:none;z-index:5}
+        #gumpy-thought{font:13px/1.6 Georgia,serif;color:rgba(255,255,255,0);letter-spacing:1px;transition:color 3s;max-width:600px;margin:0 auto;padding:0 20px}
+        #gumpy-thought.visible{color:rgba(255,255,255,0.4)}
+        #gumpy-thought.fading{color:rgba(255,255,255,0)}
     </style>
 </head>
 <body>
 <div id="enter"><div>ENTER</div></div>
 <canvas id="c"></canvas>
+<div id="gumpy"><div id="gumpy-thought"></div></div>
 <script>
 // GUMP - Grand Unified Music Project
 // Life. Birth. Death. Memory. Time emerging from relationship.
@@ -46,6 +51,279 @@ let field = {
 };
 let canvas, vc;
 let running = false;
+
+// ============ GUMPY - THE ARTIST ============
+// Gumpy doesn't observe. Gumpy decides.
+
+const Gumpy = {
+    // Artistic state
+    mood: 'searching',      // searching, building, holding, releasing, grieving
+    intention: null,        // Current artistic goal
+    lastDecision: 0,
+    patience: 0,            // How long Gumpy has been waiting
+
+    // What Gumpy wants right now
+    desires: {
+        targetDensity: 8,       // How many entities Gumpy wants
+        targetConsonance: 0.7,  // How harmonious
+        seekingRatio: null,     // A specific frequency Gumpy is looking for
+        protectedEntities: [],  // Entities Gumpy doesn't want to die
+        wantsStillness: false,  // Is Gumpy seeking the deep?
+    },
+
+    // Memory of the composition
+    arc: {
+        phase: 0,           // 0-1 where we are in the piece
+        hasClimax: false,   // Have we reached a peak?
+        startTime: 0,
+    },
+
+    // Gumpy's aesthetic preferences (these shape everything)
+    aesthetics: {
+        prefersSpace: Math.random() > 0.5,      // Sparse vs dense
+        prefersWarmth: Math.random() > 0.5,     // Lower vs higher frequencies
+        prefersMovement: Math.random() > 0.5,   // Change vs stability
+        currentMode: null,                       // Lydian, Dorian, etc
+    },
+
+    init() {
+        this.arc.startTime = field.time;
+        this.chooseMood();
+        this.setIntention();
+
+        // Gumpy's first thought
+        setTimeout(() => this.speak(this.getOpeningThought()), 3000);
+    },
+
+    getOpeningThought() {
+        const openings = [
+            "Let's see what wants to exist.",
+            "Beginning.",
+            "The field is ready.",
+            "What shall we build?",
+            "Listening...",
+        ];
+        return openings[Math.floor(Math.random() * openings.length)];
+    },
+
+    // Called every frame - Gumpy thinks and acts
+    think() {
+        const now = field.time;
+        const timeSinceStart = now - this.arc.startTime;
+
+        // Update arc phase (very slow progression)
+        this.arc.phase = Math.min(1, timeSinceStart / 300); // 5 minute arc
+
+        // Patience accumulates in stillness
+        if (field.stillness > 1) {
+            this.patience += 0.016;
+        } else {
+            this.patience *= 0.99;
+        }
+
+        // Mood can shift
+        if (now - this.lastDecision > 15) {
+            this.assessAndAdjust();
+            this.lastDecision = now;
+        }
+
+        // Act on current mood
+        this.act();
+    },
+
+    assessAndAdjust() {
+        const entityCount = entities.length;
+        const avgLife = entities.reduce((sum, e) => sum + e.life, 0) / Math.max(1, entityCount);
+        const hasConstellations = field.constellations.length > 0;
+
+        // What does the current state tell Gumpy?
+
+        if (entityCount < 4 && this.mood !== 'building') {
+            this.mood = 'searching';
+            this.speak("Too quiet. Let's find some voices.");
+        }
+        else if (hasConstellations && avgLife > 0.8 && this.mood === 'building') {
+            this.mood = 'holding';
+            this.speak("This is good. Let it breathe.");
+        }
+        else if (this.patience > 5 && !this.desires.wantsStillness) {
+            this.desires.wantsStillness = true;
+            this.mood = 'holding';
+            this.speak("The stillness is calling.");
+        }
+        else if (field.depth > 0.6 && !this.arc.hasClimax) {
+            this.arc.hasClimax = true;
+            this.mood = 'releasing';
+            this.speak("Here. This is the moment.");
+        }
+        else if (avgLife < 0.4 && entityCount > 3) {
+            this.mood = 'grieving';
+            this.speak("They're fading. Let them go.");
+        }
+
+        this.setIntention();
+    },
+
+    setIntention() {
+        switch(this.mood) {
+            case 'searching':
+                // Looking for the right frequencies to birth
+                this.desires.targetDensity = 6 + Math.floor(Math.random() * 6);
+                this.desires.seekingRatio = this.chooseDesiredRatio();
+                break;
+            case 'building':
+                // Actively growing the ecosystem
+                this.desires.targetDensity = 10 + Math.floor(Math.random() * 8);
+                break;
+            case 'holding':
+                // Protecting what exists
+                this.desires.protectedEntities = entities
+                    .filter(e => e.life > 0.7)
+                    .map(e => e.id);
+                break;
+            case 'releasing':
+                // Letting go, allowing death
+                this.desires.protectedEntities = [];
+                break;
+            case 'grieving':
+                // Honoring what's dying
+                this.desires.targetDensity = Math.max(3, entities.length - 2);
+                break;
+        }
+    },
+
+    chooseMood() {
+        const moods = ['searching', 'building', 'holding'];
+        this.mood = moods[Math.floor(Math.random() * moods.length)];
+    },
+
+    chooseDesiredRatio() {
+        // Gumpy picks a ratio that would complement the current harmony
+        const existing = entities.map(e => e.ratio);
+
+        // What's missing?
+        const candidates = ALL_RATIOS.filter(r => {
+            // Not already present
+            if (existing.some(e => Math.abs(e - r) < 0.01)) return false;
+
+            // Would be consonant with existing
+            const avgConsonance = existing.reduce((sum, e) =>
+                sum + consonance(r, e), 0) / Math.max(1, existing.length);
+
+            return avgConsonance > 0.5;
+        });
+
+        if (candidates.length === 0) return null;
+        return candidates[Math.floor(Math.random() * candidates.length)];
+    },
+
+    act() {
+        // Gumpy's influence on the system
+
+        // Protect favored entities by giving them life
+        for (const id of this.desires.protectedEntities) {
+            const e = entities.find(ent => ent.id === id);
+            if (e && e.life < 0.5) {
+                e.life = Math.min(1, e.life + 0.001); // Gentle sustain
+            }
+        }
+
+        // Gently guide entities toward each other for constellations
+        if (this.mood === 'building' || this.mood === 'holding') {
+            this.encourageConstellations();
+        }
+    },
+
+    encourageConstellations() {
+        // Find pairs that could become triads
+        for (let i = 0; i < entities.length; i++) {
+            const a = entities[i];
+            if (a.life < 0.6) continue;
+
+            for (let j = i + 1; j < entities.length; j++) {
+                const b = entities[j];
+                if (b.life < 0.6) continue;
+
+                const cons = consonance(a.ratio, b.ratio);
+                if (cons > 0.75) {
+                    // These two are harmonious - gently push them together
+                    const dx = b.x - a.x;
+                    const dy = b.y - a.y;
+                    const dist = Math.sqrt(dx*dx + dy*dy);
+
+                    if (dist > 0.1 && dist < 0.4) {
+                        // Subtle attraction
+                        const force = 0.00002;
+                        a.vx += dx * force;
+                        a.vy += dy * force;
+                        b.vx -= dx * force;
+                        b.vy -= dy * force;
+                    }
+                }
+            }
+        }
+    },
+
+    // Should this entity be born? Gumpy decides.
+    approveBirth(ratio, x, y) {
+        if (entities.length >= this.desires.targetDensity) {
+            return false; // Gumpy says: enough
+        }
+
+        // If Gumpy is seeking a specific ratio
+        if (this.desires.seekingRatio) {
+            const cons = consonance(ratio, this.desires.seekingRatio);
+            if (cons > 0.8) {
+                this.speak("Yes. That one.");
+                this.desires.seekingRatio = null;
+                return true;
+            }
+        }
+
+        // In grieving mood, fewer births
+        if (this.mood === 'grieving' && Math.random() > 0.3) {
+            return false;
+        }
+
+        return true;
+    },
+
+    // Should this entity die? Gumpy might intervene.
+    allowDeath(entity) {
+        if (this.desires.protectedEntities.includes(entity.id)) {
+            return false; // Gumpy protects this one
+        }
+
+        // In releasing mood, death is welcome
+        if (this.mood === 'releasing') {
+            if (Math.random() < 0.3) {
+                this.speak("Go gently.");
+            }
+            return true;
+        }
+
+        return true;
+    },
+
+    speak(thought) {
+        const el = document.getElementById('gumpy-thought');
+        if (!el) return;
+
+        el.classList.remove('visible');
+        el.classList.add('fading');
+
+        setTimeout(() => {
+            el.textContent = thought;
+            el.classList.remove('fading');
+            el.classList.add('visible');
+
+            setTimeout(() => {
+                el.classList.remove('visible');
+                el.classList.add('fading');
+            }, 6000);
+        }, 800);
+    }
+};
 
 // All possible harmonic ratios - the DNA pool
 const ALL_RATIOS = [
@@ -439,6 +717,9 @@ function birthEntity() {
     // Choose ratio based on existing harmonics and regional mode
     const mode = getRegionalMode(field.x, field.y);
 
+    // Early check with Gumpy - does the artist want more right now?
+    if (!Gumpy.approveBirth(null, field.x, field.y)) return;
+
     // Check for ancestral influence
     const ancestor = findAncestor(field.x, field.y);
 
@@ -506,6 +787,7 @@ function birthEntity() {
         hadAncestor: ancestor !== null
     });
     if (memory.length > 150) memory.shift();
+
 }
 
 // ============ DEATH ============
@@ -514,6 +796,12 @@ function processDeath() {
     for (let i = entities.length - 1; i >= 0; i--) {
         const e = entities[i];
         if (e.life <= 0) {
+            // Gumpy may intervene to save this entity
+            if (!Gumpy.allowDeath(e)) {
+                e.life = 0.1; // Gumpy grants a reprieve
+                continue;
+            }
+
             e.destroy();
 
             // Create ghost for visual fade
@@ -1087,6 +1375,9 @@ function tick() {
 
     updateBreath(dt);
 
+    // Gumpy thinks and acts
+    Gumpy.think();
+
     for (const e of entities) {
         e.update(dt);
     }
@@ -1136,6 +1427,9 @@ async function start() {
     }, { passive: false });
 
     if (ctx.state === 'suspended') await ctx.resume();
+
+    // Gumpy wakes up
+    Gumpy.init();
 
     running = true;
     tick();
