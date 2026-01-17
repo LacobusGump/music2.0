@@ -52,254 +52,285 @@ let field = {
 let canvas, vc;
 let running = false;
 
-// ============ GUMPY - THE ARTIST ============
-// Gumpy doesn't observe. Gumpy decides.
+// ============ THE YEARNING ============
+// Organization emerges not from control, but from what's missing.
+// Every entity feels the absence of what would complete it.
+// The silence between frequencies has gravity.
 
-const Gumpy = {
-    // Artistic state
-    mood: 'searching',      // searching, building, holding, releasing, grieving
-    intention: null,        // Current artistic goal
-    lastDecision: 0,
-    patience: 0,            // How long Gumpy has been waiting
+const Yearning = {
+    // The collective pull toward what doesn't exist yet
+    field: new Map(), // ratio -> strength of yearning
 
-    // What Gumpy wants right now
-    desires: {
-        targetDensity: 8,       // How many entities Gumpy wants
-        targetConsonance: 0.7,  // How harmonious
-        seekingRatio: null,     // A specific frequency Gumpy is looking for
-        protectedEntities: [],  // Entities Gumpy doesn't want to die
-        wantsStillness: false,  // Is Gumpy seeking the deep?
-    },
+    // What the universe remembers wanting
+    echoes: [],
 
-    // Memory of the composition
-    arc: {
-        phase: 0,           // 0-1 where we are in the piece
-        hasClimax: false,   // Have we reached a peak?
-        startTime: 0,
-    },
+    // Calculate what each entity yearns for
+    feel() {
+        this.field.clear();
 
-    // Gumpy's aesthetic preferences (these shape everything)
-    aesthetics: {
-        prefersSpace: Math.random() > 0.5,      // Sparse vs dense
-        prefersWarmth: Math.random() > 0.5,     // Lower vs higher frequencies
-        prefersMovement: Math.random() > 0.5,   // Change vs stability
-        currentMode: null,                       // Lydian, Dorian, etc
-    },
+        for (const entity of entities) {
+            if (entity.life < 0.3) continue;
 
-    init() {
-        this.arc.startTime = field.time;
-        this.chooseMood();
-        this.setIntention();
+            // What would complete this entity?
+            const completions = this.whatCompletes(entity);
 
-        // Gumpy's first thought
-        setTimeout(() => this.speak(this.getOpeningThought()), 3000);
-    },
-
-    getOpeningThought() {
-        const openings = [
-            "Let's see what wants to exist.",
-            "Beginning.",
-            "The field is ready.",
-            "What shall we build?",
-            "Listening...",
-        ];
-        return openings[Math.floor(Math.random() * openings.length)];
-    },
-
-    // Called every frame - Gumpy thinks and acts
-    think() {
-        const now = field.time;
-        const timeSinceStart = now - this.arc.startTime;
-
-        // Update arc phase (very slow progression)
-        this.arc.phase = Math.min(1, timeSinceStart / 300); // 5 minute arc
-
-        // Patience accumulates in stillness
-        if (field.stillness > 1) {
-            this.patience += 0.016;
-        } else {
-            this.patience *= 0.99;
-        }
-
-        // Mood can shift
-        if (now - this.lastDecision > 15) {
-            this.assessAndAdjust();
-            this.lastDecision = now;
-        }
-
-        // Act on current mood
-        this.act();
-    },
-
-    assessAndAdjust() {
-        const entityCount = entities.length;
-        const avgLife = entities.reduce((sum, e) => sum + e.life, 0) / Math.max(1, entityCount);
-        const hasConstellations = field.constellations.length > 0;
-
-        // What does the current state tell Gumpy?
-
-        if (entityCount < 4 && this.mood !== 'building') {
-            this.mood = 'searching';
-            this.speak("Too quiet. Let's find some voices.");
-        }
-        else if (hasConstellations && avgLife > 0.8 && this.mood === 'building') {
-            this.mood = 'holding';
-            this.speak("This is good. Let it breathe.");
-        }
-        else if (this.patience > 5 && !this.desires.wantsStillness) {
-            this.desires.wantsStillness = true;
-            this.mood = 'holding';
-            this.speak("The stillness is calling.");
-        }
-        else if (field.depth > 0.6 && !this.arc.hasClimax) {
-            this.arc.hasClimax = true;
-            this.mood = 'releasing';
-            this.speak("Here. This is the moment.");
-        }
-        else if (avgLife < 0.4 && entityCount > 3) {
-            this.mood = 'grieving';
-            this.speak("They're fading. Let them go.");
-        }
-
-        this.setIntention();
-    },
-
-    setIntention() {
-        switch(this.mood) {
-            case 'searching':
-                // Looking for the right frequencies to birth
-                this.desires.targetDensity = 6 + Math.floor(Math.random() * 6);
-                this.desires.seekingRatio = this.chooseDesiredRatio();
-                break;
-            case 'building':
-                // Actively growing the ecosystem
-                this.desires.targetDensity = 10 + Math.floor(Math.random() * 8);
-                break;
-            case 'holding':
-                // Protecting what exists
-                this.desires.protectedEntities = entities
-                    .filter(e => e.life > 0.7)
-                    .map(e => e.id);
-                break;
-            case 'releasing':
-                // Letting go, allowing death
-                this.desires.protectedEntities = [];
-                break;
-            case 'grieving':
-                // Honoring what's dying
-                this.desires.targetDensity = Math.max(3, entities.length - 2);
-                break;
-        }
-    },
-
-    chooseMood() {
-        const moods = ['searching', 'building', 'holding'];
-        this.mood = moods[Math.floor(Math.random() * moods.length)];
-    },
-
-    chooseDesiredRatio() {
-        // Gumpy picks a ratio that would complement the current harmony
-        const existing = entities.map(e => e.ratio);
-
-        // What's missing?
-        const candidates = ALL_RATIOS.filter(r => {
-            // Not already present
-            if (existing.some(e => Math.abs(e - r) < 0.01)) return false;
-
-            // Would be consonant with existing
-            const avgConsonance = existing.reduce((sum, e) =>
-                sum + consonance(r, e), 0) / Math.max(1, existing.length);
-
-            return avgConsonance > 0.5;
-        });
-
-        if (candidates.length === 0) return null;
-        return candidates[Math.floor(Math.random() * candidates.length)];
-    },
-
-    act() {
-        // Gumpy's influence on the system
-
-        // Protect favored entities by giving them life
-        for (const id of this.desires.protectedEntities) {
-            const e = entities.find(ent => ent.id === id);
-            if (e && e.life < 0.5) {
-                e.life = Math.min(1, e.life + 0.001); // Gentle sustain
+            for (const {ratio, pull} of completions) {
+                const current = this.field.get(ratio) || 0;
+                this.field.set(ratio, current + pull * entity.life);
             }
         }
 
-        // Gently guide entities toward each other for constellations
-        if (this.mood === 'building' || this.mood === 'holding') {
-            this.encourageConstellations();
-        }
-    },
-
-    encourageConstellations() {
-        // Find pairs that could become triads
-        for (let i = 0; i < entities.length; i++) {
-            const a = entities[i];
-            if (a.life < 0.6) continue;
-
-            for (let j = i + 1; j < entities.length; j++) {
-                const b = entities[j];
-                if (b.life < 0.6) continue;
-
-                const cons = consonance(a.ratio, b.ratio);
-                if (cons > 0.75) {
-                    // These two are harmonious - gently push them together
-                    const dx = b.x - a.x;
-                    const dy = b.y - a.y;
-                    const dist = Math.sqrt(dx*dx + dy*dy);
-
-                    if (dist > 0.1 && dist < 0.4) {
-                        // Subtle attraction
-                        const force = 0.00002;
-                        a.vx += dx * force;
-                        a.vy += dy * force;
-                        b.vx -= dx * force;
-                        b.vy -= dy * force;
-                    }
+        // Memory also yearns - the dead pull toward rebirth
+        for (const m of memory) {
+            if (m.type === 'death') {
+                const age = field.time - m.time;
+                if (age < 60) { // Memory fades over a minute
+                    const pull = (1 - age / 60) * 0.3;
+                    const current = this.field.get(m.ratio) || 0;
+                    this.field.set(m.ratio, current + pull);
                 }
             }
         }
     },
 
-    // Should this entity be born? Gumpy decides.
-    approveBirth(ratio, x, y) {
-        if (entities.length >= this.desires.targetDensity) {
-            return false; // Gumpy says: enough
-        }
+    whatCompletes(entity) {
+        const completions = [];
+        const r = entity.ratio;
 
-        // If Gumpy is seeking a specific ratio
-        if (this.desires.seekingRatio) {
-            const cons = consonance(ratio, this.desires.seekingRatio);
-            if (cons > 0.8) {
-                this.speak("Yes. That one.");
-                this.desires.seekingRatio = null;
-                return true;
+        // Harmonic series yearning - reaching toward overtones and undertones
+        const harmonics = [
+            r * 2, r / 2,           // Octaves
+            r * 3/2, r * 2/3,       // Fifths
+            r * 5/4, r * 4/5,       // Thirds
+            r * 4/3, r * 3/4,       // Fourths
+        ];
+
+        for (const h of harmonics) {
+            // Normalize to our range
+            let normalized = h;
+            while (normalized > 8) normalized /= 2;
+            while (normalized < 1) normalized *= 2;
+
+            // Only yearn for what's missing
+            const exists = entities.some(e =>
+                Math.abs(e.ratio - normalized) < 0.05 && e.life > 0.3
+            );
+
+            if (!exists) {
+                // Pull is stronger for simpler ratios
+                const simplicity = 1 / (Math.log2(normalized) + 1);
+                completions.push({
+                    ratio: normalized,
+                    pull: simplicity * 0.5
+                });
             }
         }
 
-        // In grieving mood, fewer births
-        if (this.mood === 'grieving' && Math.random() > 0.3) {
+        // Also yearn based on neighbors - what would complete the local harmony?
+        for (const neighbor of entity.neighbors) {
+            // What's the interval between us?
+            const interval = entity.ratio / neighbor.ratio;
+
+            // What third note would make a triad?
+            const triadCompletions = [
+                entity.ratio * 5/4,  // Add a major third above
+                entity.ratio * 6/5,  // Add a minor third above
+                neighbor.ratio * 5/4,
+                neighbor.ratio * 6/5,
+            ];
+
+            for (const tc of triadCompletions) {
+                let normalized = tc;
+                while (normalized > 8) normalized /= 2;
+                while (normalized < 1) normalized *= 2;
+
+                const exists = entities.some(e =>
+                    Math.abs(e.ratio - normalized) < 0.05 && e.life > 0.3
+                );
+
+                if (!exists) {
+                    completions.push({ ratio: normalized, pull: 0.8 });
+                }
+            }
+        }
+
+        return completions;
+    },
+
+    // What does the universe most want right now?
+    strongestYearning() {
+        let strongest = null;
+        let maxPull = 0;
+
+        for (const [ratio, pull] of this.field) {
+            if (pull > maxPull) {
+                maxPull = pull;
+                strongest = ratio;
+            }
+        }
+
+        return { ratio: strongest, pull: maxPull };
+    },
+
+    // Find the closest ratio from ALL_RATIOS to a yearned-for frequency
+    findClosestRatio(target) {
+        let closest = ALL_RATIOS[0];
+        let minDiff = Infinity;
+
+        for (const r of ALL_RATIOS) {
+            const diff = Math.abs(r - target);
+            if (diff < minDiff) {
+                minDiff = diff;
+                closest = r;
+            }
+        }
+
+        return closest;
+    }
+};
+
+// ============ THE FOLD ============
+// Space bends toward harmony. Distance is measured in consonance.
+// What is harmonically close becomes spatially close.
+
+const Fold = {
+    // Apply harmonic topology - space curves toward consonance
+    bend() {
+        for (const entity of entities) {
+            if (entity.life < 0.2) continue;
+
+            // Find harmonic center of mass
+            let hx = 0, hy = 0, totalPull = 0;
+
+            for (const other of entities) {
+                if (other === entity || other.life < 0.2) continue;
+
+                const cons = consonance(entity.ratio, other.ratio);
+                if (cons > 0.6) {
+                    // Consonant entities curve space toward each other
+                    const pull = (cons - 0.6) * 0.5;
+                    hx += other.x * pull;
+                    hy += other.y * pull;
+                    totalPull += pull;
+                }
+            }
+
+            if (totalPull > 0.1) {
+                hx /= totalPull;
+                hy /= totalPull;
+
+                // Gently curve toward harmonic center
+                const dx = hx - entity.x;
+                const dy = hy - entity.y;
+                const dist = Math.sqrt(dx*dx + dy*dy);
+
+                if (dist > 0.05 && dist < 0.5) {
+                    const bendForce = 0.00008 * totalPull;
+                    entity.vx += dx * bendForce;
+                    entity.vy += dy * bendForce;
+                }
+            }
+        }
+    }
+};
+
+// ============ GUMPY - THE MEDIUM ============
+// Gumpy doesn't decide. Gumpy listens to what the universe wants
+// and channels it into being.
+
+const Gumpy = {
+    lastUtterance: 0,
+    isListening: true,
+
+    init() {
+        setTimeout(() => this.speak("Listening..."), 2000);
+    },
+
+    // Gumpy feels, doesn't think
+    feel() {
+        // Update the yearning field
+        Yearning.feel();
+
+        // Apply the fold
+        Fold.bend();
+
+        // What is the universe asking for?
+        const {ratio, pull} = Yearning.strongestYearning();
+
+        // Sometimes speak what's being felt
+        if (field.time - this.lastUtterance > 20 && Math.random() < 0.02) {
+            this.utterFeeling();
+        }
+    },
+
+    utterFeeling() {
+        const {ratio, pull} = Yearning.strongestYearning();
+        const entityCount = entities.length;
+        const constCount = field.constellations.length;
+
+        let utterance = null;
+
+        if (pull > 2) {
+            utterance = "Something is missing.";
+        } else if (constCount > 0 && Math.random() < 0.5) {
+            utterance = "They found each other.";
+        } else if (field.depth > 0.4) {
+            utterance = "The deep.";
+        } else if (entityCount < 4) {
+            utterance = "Sparse.";
+        } else if (entityCount > 16) {
+            utterance = "Full.";
+        } else if (field.breath > 0.8) {
+            utterance = "Exhale.";
+        } else if (field.breath < 0.2) {
+            utterance = "Inhale.";
+        }
+
+        if (utterance) {
+            this.speak(utterance);
+            this.lastUtterance = field.time;
+        }
+    },
+
+    // Birth emerges from yearning, not decision
+    shouldBirth() {
+        if (entities.length >= MAX_ENTITIES) return { should: false };
+
+        const {ratio, pull} = Yearning.strongestYearning();
+
+        // Strong yearning increases birth probability
+        if (ratio && pull > 0.5) {
+            const probability = Math.min(0.8, pull * 0.2);
+            if (Math.random() < probability) {
+                const actualRatio = Yearning.findClosestRatio(ratio);
+                return { should: true, ratio: actualRatio, pull };
+            }
+        }
+
+        return { should: false };
+    },
+
+    // Death is allowed when nothing yearns for this frequency
+    allowDeath(entity) {
+        // Is anything yearning for this frequency?
+        const yearningFor = Yearning.field.get(entity.ratio) || 0;
+
+        // Strong yearning protects
+        if (yearningFor > 1) {
+            entity.life = Math.max(entity.life, 0.1);
             return false;
         }
 
-        return true;
-    },
-
-    // Should this entity die? Gumpy might intervene.
-    allowDeath(entity) {
-        if (this.desires.protectedEntities.includes(entity.id)) {
-            return false; // Gumpy protects this one
+        // Consonance with living entities protects
+        let totalConsonance = 0;
+        for (const other of entities) {
+            if (other !== entity && other.life > 0.5) {
+                totalConsonance += consonance(entity.ratio, other.ratio);
+            }
         }
 
-        // In releasing mood, death is welcome
-        if (this.mood === 'releasing') {
-            if (Math.random() < 0.3) {
-                this.speak("Go gently.");
-            }
-            return true;
+        if (totalConsonance > 3) {
+            return false; // Too connected to die
         }
 
         return true;
@@ -320,8 +351,8 @@ const Gumpy = {
             setTimeout(() => {
                 el.classList.remove('visible');
                 el.classList.add('fading');
-            }, 6000);
-        }, 800);
+            }, 5000);
+        }, 600);
     }
 };
 
@@ -717,8 +748,6 @@ function birthEntity() {
     // Choose ratio based on existing harmonics and regional mode
     const mode = getRegionalMode(field.x, field.y);
 
-    // Early check with Gumpy - does the artist want more right now?
-    if (!Gumpy.approveBirth(null, field.x, field.y)) return;
 
     // Check for ancestral influence
     const ancestor = findAncestor(field.x, field.y);
@@ -788,6 +817,48 @@ function birthEntity() {
     });
     if (memory.length > 150) memory.shift();
 
+}
+
+// Birth from yearning - the universe calls a specific frequency into being
+function birthFromYearning(ratio) {
+    if (entities.length >= MAX_ENTITIES) return;
+
+    // Born near the center of harmonic gravity
+    let bx = 0.5, by = 0.5;
+
+    // Find entities that yearn for this ratio and birth near them
+    for (const e of entities) {
+        if (e.life > 0.5) {
+            const cons = consonance(ratio, e.ratio);
+            if (cons > 0.7) {
+                bx = bx * 0.5 + e.x * 0.5;
+                by = by * 0.5 + e.y * 0.5;
+            }
+        }
+    }
+
+    // Add some variation
+    bx += (Math.random() - 0.5) * 0.2;
+    by += (Math.random() - 0.5) * 0.2;
+    bx = Math.max(0.1, Math.min(0.9, bx));
+    by = Math.max(0.1, Math.min(0.9, by));
+
+    const entity = new Entity(ratio, bx, by);
+    entity.createAudio();
+    entity.lastVisit = field.time;
+    entity.bornFromYearning = true;
+
+    entities.push(entity);
+
+    memory.push({
+        type: 'birth',
+        ratio: ratio,
+        x: bx,
+        y: by,
+        time: field.time,
+        fromYearning: true
+    });
+    if (memory.length > 150) memory.shift();
 }
 
 // ============ DEATH ============
@@ -1375,8 +1446,14 @@ function tick() {
 
     updateBreath(dt);
 
-    // Gumpy thinks and acts
-    Gumpy.think();
+    // Gumpy feels what the universe wants
+    Gumpy.feel();
+
+    // Yearning may cause spontaneous birth
+    const yearningBirth = Gumpy.shouldBirth();
+    if (yearningBirth.should) {
+        birthFromYearning(yearningBirth.ratio);
+    }
 
     for (const e of entities) {
         e.update(dt);
