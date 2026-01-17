@@ -23,320 +23,830 @@
 <canvas id="c"></canvas>
 <div id="gumpy"><div id="gumpy-thought"></div></div>
 <script>
+// ============================================================
 // GUMP - Grand Unified Music Project
-// Life. Birth. Death. Memory. Time emerging from relationship.
+// ============================================================
+// The universe is not particles in void.
+// The universe is a field. The vacuum hums.
+// What we see are excitations - collapsed probability.
+// Music is the substrate. We are learning to hear it.
+// ============================================================
 
 const TAU = Math.PI * 2;
 const PHI = 1.618033988749;
+const PLANCK = 6.62607015e-34; // Not used literally, but as spirit
+const ALPHA = 1/137.035999; // Fine structure constant - why this number?
 
-// ============ THE UNIVERSE ============
+// ============ THE FIELD ============
+// The vacuum is not empty. It vibrates.
+// Every point in space has potential for every frequency.
+// This is the zero-point energy. The hum beneath silence.
 
-let ctx, master, verb, dly, sub;
-let entities = [];
-let ghosts = []; // Fading entities
-let memory = []; // Pattern memory
-let field = {
-    x: 0.5, y: 0.5,
-    vx: 0, vy: 0,
-    energy: 0,
-    time: 0,
-    pulse: 0,        // Emergent rhythm
-    stillness: 0,    // Accumulated stillness
-    gestureAngle: 0, // For detecting circles
-    lastGesture: 0,
-    breath: 0,       // Cosmic breath - slow oscillation
-    breathPhase: 0,  // Phase of the breath cycle
-    depth: 0,        // How deep into stillness we've gone
-    constellations: [] // Stable harmonic formations
-};
-let canvas, vc;
-let running = false;
+const Field = {
+    // Resolution of the probability field
+    resolution: 32,
 
-// ============ THE YEARNING ============
-// Organization emerges not from control, but from what's missing.
-// Every entity feels the absence of what would complete it.
-// The silence between frequencies has gravity.
+    // The field itself - amplitude of each frequency at each point
+    // field[x][y] = Map(frequency -> amplitude)
+    grid: [],
 
-const Yearning = {
-    // The collective pull toward what doesn't exist yet
-    field: new Map(), // ratio -> strength of yearning
+    // Vacuum energy - the hum of empty space
+    vacuumEnergy: 0.01,
 
-    // What the universe remembers wanting
-    echoes: [],
+    // The fundamental frequencies - derived from physics
+    // Electron orbitals: 1s, 2s, 2p, 3s... follow n² pattern
+    // This maps to octaves: 1, 4, 9, 16... but we use musical ratios
+    fundamentals: [],
 
-    // Calculate what each entity yearns for
-    feel() {
-        this.field.clear();
+    init() {
+        // The harmonic series - overtones of existence
+        // These are the "allowed" frequencies - like electron orbitals
+        const base = 1;
+        this.fundamentals = [
+            base,           // Ground state
+            base * 2,       // First octave - n=2 orbital
+            base * 3/2,     // Perfect fifth - the most consonant
+            base * 4/3,     // Perfect fourth
+            base * 5/4,     // Major third - the sweetness
+            base * 6/5,     // Minor third - the melancholy
+            base * 5/3,     // Major sixth
+            base * 8/5,     // Minor sixth
+            base * 9/8,     // Major second
+            base * 16/15,   // Minor second - tension
+            base * 15/8,    // Major seventh - yearning
+            base * 9/5,     // Minor seventh
+            base * 45/32,   // Tritone - the devil's interval
+        ];
 
-        for (const entity of entities) {
-            if (entity.life < 0.3) continue;
+        // Initialize the probability field
+        for (let x = 0; x < this.resolution; x++) {
+            this.grid[x] = [];
+            for (let y = 0; y < this.resolution; y++) {
+                this.grid[x][y] = new Map();
 
-            // What would complete this entity?
-            const completions = this.whatCompletes(entity);
-
-            for (const {ratio, pull} of completions) {
-                const current = this.field.get(ratio) || 0;
-                this.field.set(ratio, current + pull * entity.life);
-            }
-        }
-
-        // Memory also yearns - the dead pull toward rebirth
-        for (const m of memory) {
-            if (m.type === 'death') {
-                const age = field.time - m.time;
-                if (age < 60) { // Memory fades over a minute
-                    const pull = (1 - age / 60) * 0.3;
-                    const current = this.field.get(m.ratio) || 0;
-                    this.field.set(m.ratio, current + pull);
+                // Every point has vacuum fluctuation in all frequencies
+                for (const freq of this.fundamentals) {
+                    // Random phase, tiny amplitude - quantum foam
+                    this.grid[x][y].set(freq, {
+                        amplitude: this.vacuumEnergy * (0.5 + Math.random() * 0.5),
+                        phase: Math.random() * TAU
+                    });
                 }
             }
         }
     },
 
-    whatCompletes(entity) {
-        const completions = [];
-        const r = entity.ratio;
+    // Get interpolated field value at any point
+    sample(x, y, freq) {
+        const gx = x * (this.resolution - 1);
+        const gy = y * (this.resolution - 1);
+        const x0 = Math.floor(gx);
+        const y0 = Math.floor(gy);
+        const x1 = Math.min(x0 + 1, this.resolution - 1);
+        const y1 = Math.min(y0 + 1, this.resolution - 1);
+        const fx = gx - x0;
+        const fy = gy - y0;
 
-        // Harmonic series yearning - reaching toward overtones and undertones
-        const harmonics = [
-            r * 2, r / 2,           // Octaves
-            r * 3/2, r * 2/3,       // Fifths
-            r * 5/4, r * 4/5,       // Thirds
-            r * 4/3, r * 3/4,       // Fourths
-        ];
+        const get = (gx, gy) => {
+            const cell = this.grid[gx]?.[gy];
+            if (!cell) return { amplitude: 0, phase: 0 };
+            return cell.get(freq) || { amplitude: 0, phase: 0 };
+        };
 
-        for (const h of harmonics) {
-            // Normalize to our range
-            let normalized = h;
-            while (normalized > 8) normalized /= 2;
-            while (normalized < 1) normalized *= 2;
+        // Bilinear interpolation
+        const v00 = get(x0, y0);
+        const v10 = get(x1, y0);
+        const v01 = get(x0, y1);
+        const v11 = get(x1, y1);
 
-            // Only yearn for what's missing
-            const exists = entities.some(e =>
-                Math.abs(e.ratio - normalized) < 0.05 && e.life > 0.3
-            );
+        return {
+            amplitude: v00.amplitude * (1-fx) * (1-fy) +
+                      v10.amplitude * fx * (1-fy) +
+                      v01.amplitude * (1-fx) * fy +
+                      v11.amplitude * fx * fy,
+            phase: v00.phase // Simplified - phase interpolation is complex
+        };
+    },
 
-            if (!exists) {
-                // Pull is stronger for simpler ratios
-                const simplicity = 1 / (Math.log2(normalized) + 1);
-                completions.push({
-                    ratio: normalized,
-                    pull: simplicity * 0.5
+    // Excite the field at a point
+    excite(x, y, freq, energy) {
+        const gx = Math.floor(x * (this.resolution - 1));
+        const gy = Math.floor(y * (this.resolution - 1));
+
+        // Excitation spreads to neighbors
+        for (let dx = -2; dx <= 2; dx++) {
+            for (let dy = -2; dy <= 2; dy++) {
+                const nx = gx + dx;
+                const ny = gy + dy;
+                if (nx < 0 || nx >= this.resolution || ny < 0 || ny >= this.resolution) continue;
+
+                const dist = Math.sqrt(dx*dx + dy*dy);
+                const falloff = Math.exp(-dist * 0.8);
+
+                const cell = this.grid[nx][ny];
+                const current = cell.get(freq) || { amplitude: 0, phase: 0 };
+
+                cell.set(freq, {
+                    amplitude: Math.min(1, current.amplitude + energy * falloff),
+                    phase: current.phase
+                });
+            }
+        }
+    },
+
+    // The field evolves - waves propagate, interfere, decay
+    evolve(dt) {
+        const newGrid = [];
+
+        for (let x = 0; x < this.resolution; x++) {
+            newGrid[x] = [];
+            for (let y = 0; y < this.resolution; y++) {
+                newGrid[x][y] = new Map();
+
+                for (const freq of this.fundamentals) {
+                    const current = this.grid[x][y].get(freq);
+                    if (!current) continue;
+
+                    // Wave equation: amplitude propagates from neighbors
+                    let neighborSum = 0;
+                    let neighborCount = 0;
+
+                    for (let dx = -1; dx <= 1; dx++) {
+                        for (let dy = -1; dy <= 1; dy++) {
+                            if (dx === 0 && dy === 0) continue;
+                            const nx = x + dx;
+                            const ny = y + dy;
+                            if (nx < 0 || nx >= this.resolution || ny < 0 || ny >= this.resolution) continue;
+
+                            const neighbor = this.grid[nx][ny].get(freq);
+                            if (neighbor) {
+                                neighborSum += neighbor.amplitude;
+                                neighborCount++;
+                            }
+                        }
+                    }
+
+                    const neighborAvg = neighborCount > 0 ? neighborSum / neighborCount : 0;
+
+                    // Diffusion + decay back to vacuum energy
+                    const diffusion = 0.1;
+                    const decay = 0.995;
+
+                    let newAmp = current.amplitude * decay;
+                    newAmp += (neighborAvg - current.amplitude) * diffusion;
+                    newAmp = Math.max(this.vacuumEnergy * 0.5, newAmp);
+
+                    // Phase advances based on frequency
+                    const newPhase = (current.phase + dt * freq * 2) % TAU;
+
+                    newGrid[x][y].set(freq, {
+                        amplitude: newAmp,
+                        phase: newPhase
+                    });
+                }
+            }
+        }
+
+        this.grid = newGrid;
+    },
+
+    // Find the strongest excitation in the field
+    findPeak() {
+        let maxAmp = 0;
+        let peakX = 0.5, peakY = 0.5, peakFreq = 1;
+
+        for (let x = 0; x < this.resolution; x++) {
+            for (let y = 0; y < this.resolution; y++) {
+                for (const [freq, state] of this.grid[x][y]) {
+                    if (state.amplitude > maxAmp) {
+                        maxAmp = state.amplitude;
+                        peakX = x / (this.resolution - 1);
+                        peakY = y / (this.resolution - 1);
+                        peakFreq = freq;
+                    }
+                }
+            }
+        }
+
+        return { x: peakX, y: peakY, freq: peakFreq, amplitude: maxAmp };
+    }
+};
+
+// ============ SUPERPOSITION ============
+// Before observation, a quantum exists in all possible states.
+// The wave function contains all possibilities weighted by amplitude.
+
+class WaveFunction {
+    constructor(x, y) {
+        this.x = x;
+        this.y = y;
+
+        // Superposition: map of frequency -> probability amplitude
+        this.states = new Map();
+
+        // Sample the field to determine initial superposition
+        for (const freq of Field.fundamentals) {
+            const fieldState = Field.sample(x, y, freq);
+            if (fieldState.amplitude > Field.vacuumEnergy * 2) {
+                this.states.set(freq, {
+                    amplitude: fieldState.amplitude,
+                    phase: fieldState.phase
                 });
             }
         }
 
-        // Also yearn based on neighbors - what would complete the local harmony?
-        for (const neighbor of entity.neighbors) {
-            // What's the interval between us?
-            const interval = entity.ratio / neighbor.ratio;
-
-            // What third note would make a triad?
-            const triadCompletions = [
-                entity.ratio * 5/4,  // Add a major third above
-                entity.ratio * 6/5,  // Add a minor third above
-                neighbor.ratio * 5/4,
-                neighbor.ratio * 6/5,
-            ];
-
-            for (const tc of triadCompletions) {
-                let normalized = tc;
-                while (normalized > 8) normalized /= 2;
-                while (normalized < 1) normalized *= 2;
-
-                const exists = entities.some(e =>
-                    Math.abs(e.ratio - normalized) < 0.05 && e.life > 0.3
-                );
-
-                if (!exists) {
-                    completions.push({ ratio: normalized, pull: 0.8 });
-                }
-            }
+        // If field is quiet, create from vacuum fluctuation
+        if (this.states.size === 0) {
+            const randomFreq = Field.fundamentals[Math.floor(Math.random() * Field.fundamentals.length)];
+            this.states.set(randomFreq, {
+                amplitude: 0.3 + Math.random() * 0.3,
+                phase: Math.random() * TAU
+            });
         }
 
-        return completions;
-    },
-
-    // What does the universe most want right now?
-    strongestYearning() {
-        let strongest = null;
-        let maxPull = 0;
-
-        for (const [ratio, pull] of this.field) {
-            if (pull > maxPull) {
-                maxPull = pull;
-                strongest = ratio;
-            }
-        }
-
-        return { ratio: strongest, pull: maxPull };
-    },
-
-    // Find the closest ratio from ALL_RATIOS to a yearned-for frequency
-    findClosestRatio(target) {
-        let closest = ALL_RATIOS[0];
-        let minDiff = Infinity;
-
-        for (const r of ALL_RATIOS) {
-            const diff = Math.abs(r - target);
-            if (diff < minDiff) {
-                minDiff = diff;
-                closest = r;
-            }
-        }
-
-        return closest;
+        this.normalize();
     }
-};
 
-// ============ THE FOLD ============
-// Space bends toward harmony. Distance is measured in consonance.
-// What is harmonically close becomes spatially close.
+    normalize() {
+        // Total probability must equal 1
+        let total = 0;
+        for (const [freq, state] of this.states) {
+            total += state.amplitude * state.amplitude;
+        }
 
-const Fold = {
-    // Apply harmonic topology - space curves toward consonance
-    bend() {
-        for (const entity of entities) {
-            if (entity.life < 0.2) continue;
+        if (total > 0) {
+            const scale = 1 / Math.sqrt(total);
+            for (const [freq, state] of this.states) {
+                state.amplitude *= scale;
+            }
+        }
+    }
 
-            // Find harmonic center of mass
-            let hx = 0, hy = 0, totalPull = 0;
+    // Collapse the wave function - observation creates reality
+    collapse() {
+        // Probability of each state is |amplitude|²
+        let random = Math.random();
 
-            for (const other of entities) {
-                if (other === entity || other.life < 0.2) continue;
+        for (const [freq, state] of this.states) {
+            const probability = state.amplitude * state.amplitude;
+            random -= probability;
 
-                const cons = consonance(entity.ratio, other.ratio);
-                if (cons > 0.6) {
-                    // Consonant entities curve space toward each other
-                    const pull = (cons - 0.6) * 0.5;
-                    hx += other.x * pull;
-                    hy += other.y * pull;
-                    totalPull += pull;
+            if (random <= 0) {
+                return freq;
+            }
+        }
+
+        // Fallback - return highest amplitude state
+        let maxAmp = 0;
+        let maxFreq = 1;
+        for (const [freq, state] of this.states) {
+            if (state.amplitude > maxAmp) {
+                maxAmp = state.amplitude;
+                maxFreq = freq;
+            }
+        }
+        return maxFreq;
+    }
+
+    // Get the probability distribution for visualization
+    getDistribution() {
+        const dist = [];
+        for (const [freq, state] of this.states) {
+            dist.push({
+                freq,
+                probability: state.amplitude * state.amplitude,
+                phase: state.phase
+            });
+        }
+        return dist.sort((a, b) => b.probability - a.probability);
+    }
+}
+
+// ============ QUANTA ============
+// A quantum is a collapsed wave function - a definite excitation.
+// But it remembers its wave nature. It can interfere. It can tunnel.
+// And it can become entangled.
+
+let quantumId = 0;
+
+class Quantum {
+    constructor(x, y, freq, fromCollapse = false) {
+        this.id = quantumId++;
+        this.x = x;
+        this.y = y;
+        this.vx = (Math.random() - 0.5) * 0.003;
+        this.vy = (Math.random() - 0.5) * 0.003;
+
+        this.freq = freq;
+        this.baseFreq = 55; // A1
+        this.hz = this.baseFreq * freq;
+
+        this.phase = Math.random() * TAU;
+        this.amplitude = fromCollapse ? 1 : 0;
+        this.targetAmplitude = 1;
+
+        this.life = 1;
+        this.age = 0;
+        this.observed = false;
+        this.lastObservation = 0;
+
+        // Entanglement
+        this.entangledWith = null;
+        this.entanglementStrength = 0;
+
+        // The wave function shadow - even collapsed, it remembers
+        this.waveMemory = new Map();
+        this.waveMemory.set(freq, { amplitude: 1, phase: this.phase });
+
+        // Audio
+        this.osc = null;
+        this.gain = null;
+        this.filter = null;
+        this.pan = null;
+
+        // Visual
+        this.hue = (180 - Math.log2(freq) * 60 + 360) % 360;
+        this.trail = [];
+    }
+
+    createAudio(ctx, master, verb, dly) {
+        this.osc = ctx.createOscillator();
+        this.osc.type = this.freq < 2 ? 'sine' : 'triangle';
+        this.osc.frequency.value = this.hz;
+
+        this.filter = ctx.createBiquadFilter();
+        this.filter.type = 'lowpass';
+        this.filter.frequency.value = 200;
+        this.filter.Q.value = 2;
+
+        this.gain = ctx.createGain();
+        this.gain.gain.value = 0;
+
+        this.pan = ctx.createStereoPanner();
+        this.pan.pan.value = 0;
+
+        this.osc.connect(this.filter);
+        this.filter.connect(this.gain);
+        this.gain.connect(this.pan);
+        this.pan.connect(master);
+        this.pan.connect(verb);
+        this.pan.connect(dly);
+
+        this.osc.start();
+    }
+
+    destroy(ctx) {
+        if (this.gain) {
+            this.gain.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.3);
+            setTimeout(() => this.osc?.stop(), 400);
+        }
+    }
+
+    // Observation - the cursor collapses and energizes
+    observe(observerX, observerY, strength) {
+        const dx = this.x - observerX;
+        const dy = this.y - observerY;
+        const dist = Math.sqrt(dx*dx + dy*dy);
+
+        if (dist < 0.2) {
+            this.observed = true;
+            this.lastObservation = Universe.time;
+            this.life = Math.min(1, this.life + strength * 0.01);
+            this.amplitude = Math.min(1, this.amplitude + strength * 0.02);
+
+            // Observation excites the field
+            Field.excite(this.x, this.y, this.freq, strength * 0.1);
+
+            return true;
+        }
+        return false;
+    }
+
+    update(dt, ctx) {
+        this.age += dt;
+        this.phase += dt * this.freq * 0.5;
+
+        // Amplitude rises to target, falls without observation
+        if (this.amplitude < this.targetAmplitude) {
+            this.amplitude += dt * 0.5;
+        }
+
+        // Without observation, amplitude decays
+        const timeSinceObserved = Universe.time - this.lastObservation;
+        if (timeSinceObserved > 3) {
+            this.amplitude *= 0.998;
+            this.life -= dt * 0.02;
+        }
+
+        // Movement influenced by field gradient
+        const fieldHere = Field.sample(this.x, this.y, this.freq);
+
+        // Move toward higher amplitude regions of same frequency
+        const eps = 0.02;
+        const fieldRight = Field.sample(Math.min(1, this.x + eps), this.y, this.freq);
+        const fieldUp = Field.sample(this.x, Math.min(1, this.y + eps), this.freq);
+
+        const gradX = (fieldRight.amplitude - fieldHere.amplitude) / eps;
+        const gradY = (fieldUp.amplitude - fieldHere.amplitude) / eps;
+
+        this.vx += gradX * 0.0001;
+        this.vy += gradY * 0.0001;
+
+        // Entanglement force - entangled particles mirror each other
+        if (this.entangledWith && this.entangledWith.life > 0) {
+            const partner = this.entangledWith;
+
+            // Phase correlation - they oscillate together
+            const phaseDiff = partner.phase - this.phase;
+            this.phase += phaseDiff * this.entanglementStrength * 0.1;
+
+            // Amplitude correlation
+            const ampDiff = partner.amplitude - this.amplitude;
+            this.amplitude += ampDiff * this.entanglementStrength * 0.05;
+        }
+
+        // Gentle center gravity
+        this.vx += (0.5 - this.x) * 0.0001;
+        this.vy += (0.5 - this.y) * 0.0001;
+
+        // Damping
+        this.vx *= 0.99;
+        this.vy *= 0.99;
+
+        this.x += this.vx;
+        this.y += this.vy;
+
+        // Soft boundaries
+        if (this.x < 0.02) { this.x = 0.02; this.vx *= -0.5; }
+        if (this.x > 0.98) { this.x = 0.98; this.vx *= -0.5; }
+        if (this.y < 0.02) { this.y = 0.02; this.vy *= -0.5; }
+        if (this.y > 0.98) { this.y = 0.98; this.vy *= -0.5; }
+
+        // Trail
+        this.trail.unshift({ x: this.x, y: this.y, amp: this.amplitude });
+        if (this.trail.length > 30) this.trail.pop();
+
+        // Audio update
+        if (this.gain && ctx) {
+            const now = ctx.currentTime;
+            const vol = this.amplitude * this.life * 0.08;
+            this.gain.gain.linearRampToValueAtTime(vol, now + 0.05);
+
+            const filterFreq = 200 + this.amplitude * 2000 + this.life * 1000;
+            this.filter.frequency.linearRampToValueAtTime(filterFreq, now + 0.05);
+
+            this.pan.pan.linearRampToValueAtTime((this.x - 0.5) * 1.5, now + 0.05);
+
+            // Frequency modulated by entanglement
+            let freqMod = 1;
+            if (this.entangledWith) {
+                freqMod = 1 + (this.entangledWith.phase - this.phase) * 0.001 * this.entanglementStrength;
+            }
+            this.osc.frequency.linearRampToValueAtTime(this.hz * freqMod, now + 0.05);
+        }
+    }
+
+    draw(vc, w, h) {
+        if (this.life <= 0) return;
+
+        const px = this.x * w;
+        const py = this.y * h;
+        const alpha = this.life * this.amplitude;
+
+        // Trail
+        if (this.trail.length > 1) {
+            vc.beginPath();
+            vc.moveTo(this.trail[0].x * w, this.trail[0].y * h);
+            for (let i = 1; i < this.trail.length; i++) {
+                vc.lineTo(this.trail[i].x * w, this.trail[i].y * h);
+            }
+            vc.strokeStyle = `hsla(${this.hue}, 70%, 60%, ${alpha * 0.3})`;
+            vc.lineWidth = 1 + this.amplitude;
+            vc.stroke();
+        }
+
+        // Wave function visualization - probability cloud
+        const waveR = 20 + this.amplitude * 30;
+        const waveGrad = vc.createRadialGradient(px, py, 0, px, py, waveR);
+        waveGrad.addColorStop(0, `hsla(${this.hue}, 80%, 70%, ${alpha * 0.8})`);
+        waveGrad.addColorStop(0.5, `hsla(${this.hue}, 60%, 50%, ${alpha * 0.3})`);
+        waveGrad.addColorStop(1, 'transparent');
+
+        vc.fillStyle = waveGrad;
+        vc.beginPath();
+        vc.arc(px, py, waveR, 0, TAU);
+        vc.fill();
+
+        // Phase indicator
+        const phaseX = px + Math.cos(this.phase) * 8 * this.amplitude;
+        const phaseY = py + Math.sin(this.phase) * 8 * this.amplitude;
+        vc.beginPath();
+        vc.arc(phaseX, phaseY, 2, 0, TAU);
+        vc.fillStyle = `hsla(${this.hue}, 90%, 90%, ${alpha})`;
+        vc.fill();
+
+        // Entanglement line
+        if (this.entangledWith && this.entangledWith.life > 0) {
+            const ex = this.entangledWith.x * w;
+            const ey = this.entangledWith.y * h;
+
+            // Pulsing based on shared phase
+            const pulse = (Math.sin(this.phase + this.entangledWith.phase) + 1) / 2;
+
+            vc.beginPath();
+            vc.moveTo(px, py);
+            vc.lineTo(ex, ey);
+            vc.strokeStyle = `rgba(255, 220, 150, ${this.entanglementStrength * pulse * 0.4})`;
+            vc.lineWidth = 1 + pulse * 2;
+            vc.stroke();
+        }
+    }
+}
+
+// ============ THE UNIVERSE ============
+
+const Universe = {
+    time: 0,
+    quanta: [],
+    waveFunctions: [], // Uncollapsed possibilities
+
+    ctx: null,
+    master: null,
+    verb: null,
+    dly: null,
+    sub: null,
+
+    observer: {
+        x: 0.5, y: 0.5,
+        vx: 0, vy: 0,
+        energy: 0,
+        presence: 0 // How "present" the observer is
+    },
+
+    // The breath of existence
+    breath: 0,
+    breathPhase: 0,
+
+    // Microphone input - listening to reality
+    micStream: null,
+    micAnalyzer: null,
+    micData: null,
+    micLevel: 0,
+
+    async init() {
+        Field.init();
+
+        // Audio context
+        this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+
+        this.master = this.ctx.createGain();
+        this.master.gain.value = 0.6;
+
+        const comp = this.ctx.createDynamicsCompressor();
+        comp.threshold.value = -20;
+        comp.ratio.value = 4;
+
+        this.verb = this.ctx.createGain();
+        this.verb.gain.value = 0.3;
+
+        this.dly = this.ctx.createGain();
+        this.dly.gain.value = 0.2;
+
+        // Simple reverb via delays
+        const verbDelay = this.ctx.createDelay(1);
+        verbDelay.delayTime.value = 0.3;
+        const verbFb = this.ctx.createGain();
+        verbFb.gain.value = 0.4;
+        const verbFilter = this.ctx.createBiquadFilter();
+        verbFilter.type = 'lowpass';
+        verbFilter.frequency.value = 3000;
+
+        this.verb.connect(verbDelay);
+        verbDelay.connect(verbFilter);
+        verbFilter.connect(verbFb);
+        verbFb.connect(verbDelay);
+        verbFilter.connect(this.master);
+
+        // Ping-pong delay
+        const dlyL = this.ctx.createDelay(1);
+        const dlyR = this.ctx.createDelay(1);
+        dlyL.delayTime.value = 0.25;
+        dlyR.delayTime.value = 0.375;
+        const dlyFb = this.ctx.createGain();
+        dlyFb.gain.value = 0.35;
+
+        this.dly.connect(dlyL);
+        dlyL.connect(dlyFb);
+        dlyFb.connect(dlyR);
+        dlyR.connect(this.master);
+        dlyL.connect(this.master);
+
+        this.master.connect(comp);
+        comp.connect(this.ctx.destination);
+
+        // Sub bass - the ground
+        this.sub = this.ctx.createOscillator();
+        this.sub.type = 'sine';
+        this.sub.frequency.value = 27.5; // A0
+        const subGain = this.ctx.createGain();
+        subGain.gain.value = 0.15;
+        const subFilter = this.ctx.createBiquadFilter();
+        subFilter.type = 'lowpass';
+        subFilter.frequency.value = 60;
+        this.sub.connect(subFilter);
+        subFilter.connect(subGain);
+        subGain.connect(this.master);
+        this.sub.start();
+        this.subGain = subGain;
+
+        // Try to get microphone
+        try {
+            this.micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            const micSource = this.ctx.createMediaStreamSource(this.micStream);
+            this.micAnalyzer = this.ctx.createAnalyser();
+            this.micAnalyzer.fftSize = 256;
+            micSource.connect(this.micAnalyzer);
+            this.micData = new Uint8Array(this.micAnalyzer.frequencyBinCount);
+        } catch (e) {
+            console.log('No microphone access - that\'s okay');
+        }
+
+        // Seed initial wave functions from vacuum fluctuations
+        for (let i = 0; i < 5; i++) {
+            const x = 0.3 + Math.random() * 0.4;
+            const y = 0.3 + Math.random() * 0.4;
+            this.waveFunctions.push(new WaveFunction(x, y));
+        }
+    },
+
+    // Listen to reality through the microphone
+    listenToReality() {
+        if (!this.micAnalyzer) return;
+
+        this.micAnalyzer.getByteFrequencyData(this.micData);
+
+        // Average level
+        let sum = 0;
+        for (let i = 0; i < this.micData.length; i++) {
+            sum += this.micData[i];
+        }
+        this.micLevel = sum / this.micData.length / 255;
+
+        // Reality excites the field
+        if (this.micLevel > 0.1) {
+            // Find dominant frequency bands and excite corresponding field frequencies
+            const bands = 8;
+            const bandSize = Math.floor(this.micData.length / bands);
+
+            for (let b = 0; b < bands; b++) {
+                let bandSum = 0;
+                for (let i = b * bandSize; i < (b + 1) * bandSize; i++) {
+                    bandSum += this.micData[i];
+                }
+                const bandLevel = bandSum / bandSize / 255;
+
+                if (bandLevel > 0.15) {
+                    // Map band to musical frequency
+                    const freqIndex = Math.floor(b / bands * Field.fundamentals.length);
+                    const freq = Field.fundamentals[freqIndex];
+
+                    // Excite random location in field
+                    const x = Math.random();
+                    const y = Math.random();
+                    Field.excite(x, y, freq, bandLevel * 0.3);
                 }
             }
+        }
+    },
 
-            if (totalPull > 0.1) {
-                hx /= totalPull;
-                hy /= totalPull;
+    update(dt) {
+        this.time += dt;
 
-                // Gently curve toward harmonic center
-                const dx = hx - entity.x;
-                const dy = hy - entity.y;
+        // Breath
+        this.breathPhase += dt * 0.1;
+        this.breath = (Math.sin(this.breathPhase) + 1) / 2;
+
+        // Listen to reality
+        this.listenToReality();
+
+        // Field evolves
+        Field.evolve(dt);
+
+        // Observer presence increases with stillness
+        const speed = Math.sqrt(this.observer.vx * this.observer.vx + this.observer.vy * this.observer.vy);
+        if (speed < 0.005) {
+            this.observer.presence = Math.min(1, this.observer.presence + dt * 0.1);
+        } else {
+            this.observer.presence *= 0.98;
+        }
+
+        // Observer excites the field
+        if (this.observer.energy > 0.05) {
+            // Excite multiple frequencies based on energy
+            const numFreqs = Math.ceil(this.observer.energy * 3);
+            for (let i = 0; i < numFreqs; i++) {
+                const freq = Field.fundamentals[Math.floor(Math.random() * Field.fundamentals.length)];
+                Field.excite(this.observer.x, this.observer.y, freq, this.observer.energy * 0.2);
+            }
+        }
+
+        // Wave function collapse - strong field excitations become quanta
+        const peak = Field.findPeak();
+        if (peak.amplitude > 0.3 && this.quanta.length < 20 && Math.random() < peak.amplitude * 0.02) {
+            this.collapseAt(peak.x, peak.y);
+        }
+
+        // Update existing quanta
+        for (const q of this.quanta) {
+            // Observation
+            q.observe(this.observer.x, this.observer.y, this.observer.presence);
+            q.update(dt, this.ctx);
+        }
+
+        // Remove dead quanta
+        for (let i = this.quanta.length - 1; i >= 0; i--) {
+            if (this.quanta[i].life <= 0 || this.quanta[i].amplitude < 0.01) {
+                this.quanta[i].destroy(this.ctx);
+                this.quanta.splice(i, 1);
+            }
+        }
+
+        // Entanglement - nearby consonant quanta become entangled
+        for (let i = 0; i < this.quanta.length; i++) {
+            const a = this.quanta[i];
+            if (a.entangledWith) continue;
+
+            for (let j = i + 1; j < this.quanta.length; j++) {
+                const b = this.quanta[j];
+                if (b.entangledWith) continue;
+
+                const dx = a.x - b.x;
+                const dy = a.y - b.y;
                 const dist = Math.sqrt(dx*dx + dy*dy);
 
-                if (dist > 0.05 && dist < 0.5) {
-                    const bendForce = 0.00008 * totalPull;
-                    entity.vx += dx * bendForce;
-                    entity.vy += dy * bendForce;
+                // Check consonance
+                let ratio = a.freq > b.freq ? a.freq / b.freq : b.freq / a.freq;
+                while (ratio > 2) ratio /= 2;
+
+                const isConsonant = Math.abs(ratio - 1) < 0.02 ||
+                                   Math.abs(ratio - 1.5) < 0.02 ||
+                                   Math.abs(ratio - 4/3) < 0.02 ||
+                                   Math.abs(ratio - 5/4) < 0.02;
+
+                if (dist < 0.15 && isConsonant && Math.random() < 0.01) {
+                    // Entangle!
+                    a.entangledWith = b;
+                    b.entangledWith = a;
+                    a.entanglementStrength = 0.5 + Math.random() * 0.5;
+                    b.entanglementStrength = a.entanglementStrength;
+
+                    Gumpy.speak("Entangled.");
                 }
             }
         }
+
+        // Sub bass responds to universe state
+        const avgAmplitude = this.quanta.reduce((sum, q) => sum + q.amplitude, 0) / Math.max(1, this.quanta.length);
+        const subVol = 0.1 + avgAmplitude * 0.1 + this.breath * 0.05;
+        this.subGain.gain.linearRampToValueAtTime(subVol, this.ctx.currentTime + 0.1);
+    },
+
+    collapseAt(x, y) {
+        const wf = new WaveFunction(x, y);
+        const freq = wf.collapse();
+
+        const quantum = new Quantum(x, y, freq, true);
+        quantum.createAudio(this.ctx, this.master, this.verb, this.dly);
+        quantum.lastObservation = this.time;
+        this.quanta.push(quantum);
+
+        // Collapse drains the field
+        Field.excite(x, y, freq, -0.2);
+    },
+
+    onMove(nx, ny) {
+        nx = Math.max(0, Math.min(1, nx));
+        ny = Math.max(0, Math.min(1, ny));
+
+        this.observer.vx = this.observer.vx * 0.5 + (nx - this.observer.x) * 0.5;
+        this.observer.vy = this.observer.vy * 0.5 + (ny - this.observer.y) * 0.5;
+
+        this.observer.x = this.observer.x * 0.7 + nx * 0.3;
+        this.observer.y = this.observer.y * 0.7 + ny * 0.3;
+
+        const speed = Math.sqrt(this.observer.vx * this.observer.vx + this.observer.vy * this.observer.vy);
+        this.observer.energy = this.observer.energy * 0.9 + speed * 0.4;
     }
 };
 
-// ============ GUMPY - THE MEDIUM ============
-// Gumpy doesn't decide. Gumpy listens to what the universe wants
-// and channels it into being.
+// ============ GUMPY ============
 
 const Gumpy = {
-    lastUtterance: 0,
-    isListening: true,
-
-    init() {
-        setTimeout(() => this.speak("Listening..."), 2000);
-    },
-
-    // Gumpy feels, doesn't think
-    feel() {
-        // Update the yearning field
-        Yearning.feel();
-
-        // Apply the fold
-        Fold.bend();
-
-        // What is the universe asking for?
-        const {ratio, pull} = Yearning.strongestYearning();
-
-        // Sometimes speak what's being felt
-        if (field.time - this.lastUtterance > 20 && Math.random() < 0.02) {
-            this.utterFeeling();
-        }
-    },
-
-    utterFeeling() {
-        const {ratio, pull} = Yearning.strongestYearning();
-        const entityCount = entities.length;
-        const constCount = field.constellations.length;
-
-        let utterance = null;
-
-        if (pull > 2) {
-            utterance = "Something is missing.";
-        } else if (constCount > 0 && Math.random() < 0.5) {
-            utterance = "They found each other.";
-        } else if (field.depth > 0.4) {
-            utterance = "The deep.";
-        } else if (entityCount < 4) {
-            utterance = "Sparse.";
-        } else if (entityCount > 16) {
-            utterance = "Full.";
-        } else if (field.breath > 0.8) {
-            utterance = "Exhale.";
-        } else if (field.breath < 0.2) {
-            utterance = "Inhale.";
-        }
-
-        if (utterance) {
-            this.speak(utterance);
-            this.lastUtterance = field.time;
-        }
-    },
-
-    // Birth emerges from yearning, not decision
-    shouldBirth() {
-        if (entities.length >= MAX_ENTITIES) return { should: false };
-
-        const {ratio, pull} = Yearning.strongestYearning();
-
-        // Strong yearning increases birth probability
-        if (ratio && pull > 0.5) {
-            const probability = Math.min(0.8, pull * 0.2);
-            if (Math.random() < probability) {
-                const actualRatio = Yearning.findClosestRatio(ratio);
-                return { should: true, ratio: actualRatio, pull };
-            }
-        }
-
-        return { should: false };
-    },
-
-    // Death is allowed when nothing yearns for this frequency
-    allowDeath(entity) {
-        // Is anything yearning for this frequency?
-        const yearningFor = Yearning.field.get(entity.ratio) || 0;
-
-        // Strong yearning protects
-        if (yearningFor > 1) {
-            entity.life = Math.max(entity.life, 0.1);
-            return false;
-        }
-
-        // Consonance with living entities protects
-        let totalConsonance = 0;
-        for (const other of entities) {
-            if (other !== entity && other.life > 0.5) {
-                totalConsonance += consonance(entity.ratio, other.ratio);
-            }
-        }
-
-        if (totalConsonance > 3) {
-            return false; // Too connected to die
-        }
-
-        return true;
-    },
+    lastSpoke: 0,
 
     speak(thought) {
+        if (Universe.time - this.lastSpoke < 8) return;
+
         const el = document.getElementById('gumpy-thought');
         if (!el) return;
 
@@ -352,891 +862,51 @@ const Gumpy = {
                 el.classList.remove('visible');
                 el.classList.add('fading');
             }, 5000);
-        }, 600);
+        }, 500);
+
+        this.lastSpoke = Universe.time;
+    },
+
+    observe() {
+        // Occasionally speak about what's happening
+        if (Math.random() > 0.002) return;
+
+        const thoughts = [];
+
+        if (Universe.quanta.length === 0) {
+            thoughts.push("The vacuum hums.");
+        } else if (Universe.quanta.length > 15) {
+            thoughts.push("Complex.");
+        }
+
+        if (Universe.observer.presence > 0.7) {
+            thoughts.push("Presence.");
+        }
+
+        if (Universe.micLevel > 0.3) {
+            thoughts.push("Reality speaks.");
+        }
+
+        const entangled = Universe.quanta.filter(q => q.entangledWith).length;
+        if (entangled > 4) {
+            thoughts.push("Correlated.");
+        }
+
+        if (Universe.breath > 0.9) {
+            thoughts.push("Exhale.");
+        } else if (Universe.breath < 0.1) {
+            thoughts.push("Inhale.");
+        }
+
+        if (thoughts.length > 0) {
+            this.speak(thoughts[Math.floor(Math.random() * thoughts.length)]);
+        }
     }
 };
 
-// All possible harmonic ratios - the DNA pool
-const ALL_RATIOS = [
-    1, 16/15, 9/8, 6/5, 5/4, 4/3, 45/32, 3/2, 8/5, 5/3, 9/5, 15/8,
-    2, 9/4, 12/5, 5/2, 8/3, 3, 16/5, 10/3, 15/4, 4, 9/2, 5, 6, 8
-];
+// ============ RENDER ============
 
-const BASE = 55;
-const MAX_ENTITIES = 24;
-const MIN_ENTITIES = 5;
-
-// Consonance - the gravity of music
-function consonance(r1, r2) {
-    let ratio = r1 > r2 ? r1/r2 : r2/r1;
-    // Normalize to one octave
-    while (ratio > 2) ratio /= 2;
-
-    if (Math.abs(ratio - 1) < 0.01) return 1;
-    if (Math.abs(ratio - 2) < 0.01) return 0.95;
-    if (Math.abs(ratio - 1.5) < 0.01) return 0.9;
-    if (Math.abs(ratio - 4/3) < 0.02) return 0.85;
-    if (Math.abs(ratio - 5/4) < 0.02) return 0.75;
-    if (Math.abs(ratio - 6/5) < 0.02) return 0.7;
-    if (Math.abs(ratio - 5/3) < 0.02) return 0.65;
-    if (Math.abs(ratio - 8/5) < 0.02) return 0.6;
-    return 0.3;
-}
-
-// Harmonic regions - different areas favor different modes
-function getRegionalMode(x, y) {
-    // Center = pure/Ionian, edges = more color
-    const distFromCenter = Math.sqrt((x-0.5)**2 + (y-0.5)**2);
-    const angle = Math.atan2(y - 0.5, x - 0.5);
-
-    // Different corners = different modes
-    // Top-right: Lydian (bright)
-    // Bottom-right: Mixolydian (bluesy)
-    // Bottom-left: Dorian (dark)
-    // Top-left: Phrygian (exotic)
-
-    const modeInfluence = Math.min(1, distFromCenter * 2);
-    let ratioBonus = {};
-
-    if (angle > 0 && angle < Math.PI/2) { // Top-right: Lydian
-        ratioBonus = { [45/32]: 0.3, [15/8]: 0.2 }; // #4, maj7
-    } else if (angle >= Math.PI/2) { // Top-left: Phrygian
-        ratioBonus = { [16/15]: 0.3, [8/5]: 0.2 }; // b2, b6
-    } else if (angle < -Math.PI/2) { // Bottom-left: Dorian
-        ratioBonus = { [6/5]: 0.2, [9/5]: 0.2 }; // min3, min7
-    } else { // Bottom-right: Mixolydian
-        ratioBonus = { [9/5]: 0.3, [5/4]: 0.2 }; // b7, maj3
-    }
-
-    return { influence: modeInfluence, bonus: ratioBonus };
-}
-
-// ============ ENTITY - A LIVING HARMONIC ============
-
-let entityId = 0;
-
-class Entity {
-    constructor(ratio, x, y) {
-        this.id = entityId++;
-        this.ratio = ratio;
-        this.freq = BASE * ratio;
-
-        this.x = x !== undefined ? x : 0.5 + (Math.random() - 0.5) * 0.4;
-        this.y = y !== undefined ? y : 0.5 + (Math.random() - 0.5) * 0.4;
-        this.vx = (Math.random() - 0.5) * 0.005;
-        this.vy = (Math.random() - 0.5) * 0.005;
-
-        this.mass = 1 / Math.sqrt(ratio);
-        this.life = 1;
-        this.age = 0;
-        this.lastVisit = 0; // When cursor was last near
-        this.brightness = 0;
-
-        // Synchronization
-        this.phase = Math.random() * TAU;
-        this.syncPhase = 0;
-        this.neighbors = [];
-
-        // Audio nodes
-        this.osc = null;
-        this.osc2 = null;
-        this.filter = null;
-        this.gain = null;
-        this.pan = null;
-        this.mod = null;
-        this.modGain = null;
-
-        // Visual
-        this.trail = [];
-        this.maxTrail = 40;
-        this.hue = (180 - Math.log2(ratio) * 60 + 360) % 360;
-        this.birthTime = field.time;
-    }
-
-    createAudio() {
-        this.osc = ctx.createOscillator();
-        this.osc.type = this.ratio < 2 ? 'sine' : (this.ratio < 4 ? 'triangle' : 'sine');
-        this.osc.frequency.value = this.freq;
-
-        this.osc2 = ctx.createOscillator();
-        this.osc2.type = 'sine';
-        this.osc2.frequency.value = this.freq * 1.003;
-
-        this.mod = ctx.createOscillator();
-        this.modGain = ctx.createGain();
-        this.mod.type = 'sine';
-        this.mod.frequency.value = this.freq * PHI;
-        this.modGain.gain.value = 0;
-        this.mod.connect(this.modGain);
-        this.modGain.connect(this.osc.frequency);
-
-        this.filter = ctx.createBiquadFilter();
-        this.filter.type = 'lowpass';
-        this.filter.frequency.value = 200;
-        this.filter.Q.value = 1;
-
-        this.gain = ctx.createGain();
-        this.gain.gain.value = 0;
-
-        this.pan = ctx.createStereoPanner();
-
-        this.osc.connect(this.filter);
-        this.osc2.connect(this.filter);
-        this.filter.connect(this.gain);
-        this.gain.connect(this.pan);
-        this.pan.connect(master);
-        this.pan.connect(verb.input);
-        this.pan.connect(dly.input);
-
-        this.osc.start();
-        this.osc2.start();
-        this.mod.start();
-    }
-
-    destroy() {
-        const now = ctx.currentTime;
-        this.gain.gain.linearRampToValueAtTime(0, now + 0.5);
-        setTimeout(() => {
-            this.osc.stop();
-            this.osc2.stop();
-            this.mod.stop();
-        }, 600);
-    }
-
-    update(dt) {
-        const now = ctx.currentTime;
-        this.age += dt;
-
-        // ============ LIFE AND DEATH ============
-
-        const dx = field.x - this.x;
-        const dy = field.y - this.y;
-        const distToCursor = Math.sqrt(dx*dx + dy*dy);
-
-        // Being near cursor sustains life
-        if (distToCursor < 0.2) {
-            this.lastVisit = field.time;
-            this.life = Math.min(1, this.life + dt * 0.5);
-        }
-
-        // Neglect causes fading
-        const timeSinceVisit = field.time - this.lastVisit;
-        if (timeSinceVisit > 5) {
-            this.life -= dt * 0.05 * (timeSinceVisit - 5);
-        }
-
-        // Young entities are fragile
-        if (this.age < 2) {
-            this.life = Math.min(this.life, this.age / 2);
-        }
-
-        // ============ PHYSICS ============
-
-        const cursorForce = 0.0004 / (distToCursor + 0.1);
-        this.vx += dx * cursorForce;
-        this.vy += dy * cursorForce;
-
-        // Inter-entity forces
-        this.neighbors = [];
-        for (const other of entities) {
-            if (other === this || other.life <= 0) continue;
-
-            const odx = other.x - this.x;
-            const ody = other.y - this.y;
-            const dist = Math.sqrt(odx*odx + ody*ody);
-            if (dist < 0.01 || dist > 0.4) continue;
-
-            const cons = consonance(this.ratio, other.ratio);
-            const force = (cons - 0.35) * 0.00004 / (dist + 0.03);
-
-            this.vx += odx * force;
-            this.vy += ody * force;
-
-            if (dist < 0.15 && cons > 0.6) {
-                this.neighbors.push(other);
-            }
-        }
-
-        // Center gravity
-        this.vx += (0.5 - this.x) * 0.00015;
-        this.vy += (0.5 - this.y) * 0.00015;
-
-        // Angular momentum from cursor
-        this.vx += -dy * field.vx * 0.015;
-        this.vy += dx * field.vy * 0.015;
-
-        // Regional mode influence on movement
-        const mode = getRegionalMode(this.x, this.y);
-        if (mode.bonus[this.ratio]) {
-            // This entity belongs here - slow down, settle
-            this.vx *= 0.98;
-            this.vy *= 0.98;
-        }
-
-        this.vx *= 0.994;
-        this.vy *= 0.994;
-
-        this.x += this.vx;
-        this.y += this.vy;
-
-        // Soft boundaries
-        if (this.x < 0.03) { this.x = 0.03; this.vx *= -0.5; }
-        if (this.x > 0.97) { this.x = 0.97; this.vx *= -0.5; }
-        if (this.y < 0.03) { this.y = 0.03; this.vy *= -0.5; }
-        if (this.y > 0.97) { this.y = 0.97; this.vy *= -0.5; }
-
-        // Trail
-        this.trail.unshift({ x: this.x, y: this.y, life: this.life });
-        if (this.trail.length > this.maxTrail) this.trail.pop();
-
-        // ============ SYNCHRONIZATION ============
-
-        // Phase advances based on frequency (creates natural rhythm)
-        this.phase += dt * (this.freq / BASE) * 0.5;
-
-        // Sync with neighbors
-        if (this.neighbors.length > 0) {
-            let avgPhase = 0;
-            for (const n of this.neighbors) {
-                avgPhase += n.phase;
-            }
-            avgPhase /= this.neighbors.length;
-
-            // Gently pull toward average phase
-            const phaseDiff = avgPhase - this.phase;
-            this.phase += phaseDiff * 0.02;
-        }
-
-        this.syncPhase = (Math.sin(this.phase) + 1) / 2; // 0-1 pulse
-
-        // ============ SOUND ============
-
-        const proximity = 1 - Math.min(1, distToCursor * 2.5);
-        const vel = Math.sqrt(this.vx*this.vx + this.vy*this.vy);
-        this.brightness = this.brightness * 0.92 + vel * 8;
-
-        // Amplitude: proximity + sync pulse + life + breath in deep states
-        const syncPulse = this.neighbors.length > 0 ? this.syncPhase * 0.3 : 0;
-        const breathBonus = field.depth * field.breath * 0.02;
-        const baseAmp = (proximity * 0.08 + syncPulse * 0.04 + breathBonus) * this.mass * this.life;
-
-        this.gain.gain.linearRampToValueAtTime(baseAmp * (0.6 + this.brightness * 0.5), now + 0.06);
-
-        // Filter - opens more in deep states, modulated by breath
-        const depthFilter = field.depth * 400 * (0.5 + field.breath * 0.5);
-        const filterFreq = 150 + proximity * 2500 + this.brightness * 2000 + this.syncPhase * 500 + depthFilter;
-        this.filter.frequency.linearRampToValueAtTime(filterFreq * this.life, now + 0.08);
-
-        // FM from energy
-        const fmDepth = field.energy * this.freq * 0.4 + this.syncPhase * this.freq * 0.1;
-        this.modGain.gain.linearRampToValueAtTime(fmDepth, now + 0.05);
-
-        // Pan - narrower in deep states for intimacy
-        const panWidth = 1.6 - field.depth * 0.8;
-        this.pan.pan.linearRampToValueAtTime((this.x - 0.5) * panWidth, now + 0.05);
-
-        // Pitch bend toward cursor - gentler in deep states
-        const bendAmount = 0.015 * (1 - field.depth * 0.5);
-        const bend = 1 + dx * bendAmount;
-        this.osc.frequency.linearRampToValueAtTime(this.freq * bend, now + 0.1);
-        this.osc2.frequency.linearRampToValueAtTime(this.freq * bend * 1.003, now + 0.1);
-    }
-
-    draw() {
-        const w = window.innerWidth;
-        const h = window.innerHeight;
-        const px = this.x * w;
-        const py = this.y * h;
-
-        if (this.life <= 0) return;
-
-        const amp = this.gain.gain.value;
-        const alpha = this.life;
-
-        // Trail
-        if (this.trail.length > 1 && amp > 0.001) {
-            vc.beginPath();
-            vc.moveTo(this.trail[0].x * w, this.trail[0].y * h);
-            for (let i = 1; i < this.trail.length; i++) {
-                vc.lineTo(this.trail[i].x * w, this.trail[i].y * h);
-            }
-            vc.strokeStyle = `hsla(${this.hue}, 70%, 60%, ${amp * alpha * 0.4})`;
-            vc.lineWidth = 1 + amp * 2;
-            vc.stroke();
-        }
-
-        // Sync pulse ring
-        if (this.neighbors.length > 0) {
-            const pulseR = 10 + this.syncPhase * 30;
-            vc.beginPath();
-            vc.arc(px, py, pulseR, 0, TAU);
-            vc.strokeStyle = `hsla(${this.hue}, 60%, 70%, ${this.syncPhase * amp * alpha * 0.5})`;
-            vc.lineWidth = 2;
-            vc.stroke();
-        }
-
-        // Core
-        const r = 3 + amp * 35 + this.brightness * 15;
-        const grad = vc.createRadialGradient(px, py, 0, px, py, r);
-        grad.addColorStop(0, `hsla(${this.hue}, 85%, ${75 + amp * 20}%, ${(0.9 + amp * 0.1) * alpha})`);
-        grad.addColorStop(0.5, `hsla(${this.hue}, 70%, 50%, ${amp * 0.6 * alpha})`);
-        grad.addColorStop(1, 'transparent');
-
-        vc.fillStyle = grad;
-        vc.beginPath();
-        vc.arc(px, py, r, 0, TAU);
-        vc.fill();
-
-        // Birth glow
-        if (this.age < 1) {
-            const birthGlow = (1 - this.age) * 0.5;
-            const birthR = r + 20 * (1 - this.age);
-            vc.beginPath();
-            vc.arc(px, py, birthR, 0, TAU);
-            vc.strokeStyle = `hsla(${this.hue}, 90%, 80%, ${birthGlow})`;
-            vc.lineWidth = 3;
-            vc.stroke();
-        }
-
-        // Ancestral glow - reborn souls carry a golden shimmer
-        if (this.ancestralGlow && this.ancestralGlow > 0.1) {
-            const ancestralR = r + 15;
-            const shimmer = 0.5 + Math.sin(field.time * 3 + this.id) * 0.5;
-            vc.beginPath();
-            vc.arc(px, py, ancestralR, 0, TAU);
-            vc.strokeStyle = `hsla(45, 80%, 70%, ${this.ancestralGlow * shimmer * alpha * 0.5})`;
-            vc.lineWidth = 2;
-            vc.stroke();
-
-            // Fade the ancestral connection over time
-            this.ancestralGlow *= 0.9995;
-        }
-    }
-}
-
-// ============ ANCESTRAL MEMORY ============
-
-function findAncestor(x, y) {
-    // Search recent deaths near this location
-    for (let i = memory.length - 1; i >= 0; i--) {
-        const m = memory[i];
-        if (m.type !== 'death') continue;
-
-        const dx = m.x - x;
-        const dy = m.y - y;
-        const dist = Math.sqrt(dx*dx + dy*dy);
-        const age = field.time - m.time;
-
-        // Closer and more recent = stronger connection
-        if (dist < 0.15 && age < 30) {
-            return {
-                ratio: m.ratio,
-                strength: (1 - dist / 0.15) * (1 - age / 30),
-                x: m.x,
-                y: m.y
-            };
-        }
-    }
-    return null;
-}
-
-// ============ BIRTH ============
-
-function birthEntity() {
-    if (entities.length >= MAX_ENTITIES) return;
-
-    // Choose ratio based on existing harmonics and regional mode
-    const mode = getRegionalMode(field.x, field.y);
-
-
-    // Check for ancestral influence
-    const ancestor = findAncestor(field.x, field.y);
-
-    // Prefer ratios consonant with existing entities
-    let bestRatio = ALL_RATIOS[Math.floor(Math.random() * ALL_RATIOS.length)];
-    let bestScore = 0;
-
-    for (const ratio of ALL_RATIOS) {
-        let score = Math.random() * 0.3; // Base randomness
-
-        // Bonus for regional mode
-        if (mode.bonus[ratio]) {
-            score += mode.bonus[ratio] * mode.influence;
-        }
-
-        // Bonus for consonance with existing
-        for (const e of entities) {
-            if (e.life > 0.5) {
-                score += consonance(ratio, e.ratio) * 0.1;
-            }
-        }
-
-        // Ancestral echo - favor harmonics of the departed
-        if (ancestor) {
-            const ancestralCons = consonance(ratio, ancestor.ratio);
-            score += ancestralCons * ancestor.strength * 0.5;
-            // Strong pull toward the exact same ratio
-            if (Math.abs(ratio - ancestor.ratio) < 0.01) {
-                score += ancestor.strength * 0.8;
-            }
-        }
-
-        // Penalty for duplicates
-        for (const e of entities) {
-            if (Math.abs(e.ratio - ratio) < 0.01) {
-                score -= 0.5;
-            }
-        }
-
-        if (score > bestScore) {
-            bestScore = score;
-            bestRatio = ratio;
-        }
-    }
-
-    const entity = new Entity(bestRatio, field.x + (Math.random()-0.5)*0.1, field.y + (Math.random()-0.5)*0.1);
-    entity.createAudio();
-    entity.lastVisit = field.time;
-
-    // Mark if this is a reborn soul
-    if (ancestor && consonance(bestRatio, ancestor.ratio) > 0.8) {
-        entity.ancestralGlow = ancestor.strength;
-        entity.ancestorRatio = ancestor.ratio;
-    }
-
-    entities.push(entity);
-
-    // Memory: record the birth
-    memory.push({
-        type: 'birth',
-        ratio: bestRatio,
-        x: field.x,
-        y: field.y,
-        time: field.time,
-        hadAncestor: ancestor !== null
-    });
-    if (memory.length > 150) memory.shift();
-
-}
-
-// Birth from yearning - the universe calls a specific frequency into being
-function birthFromYearning(ratio) {
-    if (entities.length >= MAX_ENTITIES) return;
-
-    // Born near the center of harmonic gravity
-    let bx = 0.5, by = 0.5;
-
-    // Find entities that yearn for this ratio and birth near them
-    for (const e of entities) {
-        if (e.life > 0.5) {
-            const cons = consonance(ratio, e.ratio);
-            if (cons > 0.7) {
-                bx = bx * 0.5 + e.x * 0.5;
-                by = by * 0.5 + e.y * 0.5;
-            }
-        }
-    }
-
-    // Add some variation
-    bx += (Math.random() - 0.5) * 0.2;
-    by += (Math.random() - 0.5) * 0.2;
-    bx = Math.max(0.1, Math.min(0.9, bx));
-    by = Math.max(0.1, Math.min(0.9, by));
-
-    const entity = new Entity(ratio, bx, by);
-    entity.createAudio();
-    entity.lastVisit = field.time;
-    entity.bornFromYearning = true;
-
-    entities.push(entity);
-
-    memory.push({
-        type: 'birth',
-        ratio: ratio,
-        x: bx,
-        y: by,
-        time: field.time,
-        fromYearning: true
-    });
-    if (memory.length > 150) memory.shift();
-}
-
-// ============ DEATH ============
-
-function processDeath() {
-    for (let i = entities.length - 1; i >= 0; i--) {
-        const e = entities[i];
-        if (e.life <= 0) {
-            // Gumpy may intervene to save this entity
-            if (!Gumpy.allowDeath(e)) {
-                e.life = 0.1; // Gumpy grants a reprieve
-                continue;
-            }
-
-            e.destroy();
-
-            // Create ghost for visual fade
-            ghosts.push({
-                x: e.x, y: e.y,
-                hue: e.hue,
-                alpha: 0.5,
-                radius: 20
-            });
-
-            // Memory: record the death
-            memory.push({
-                type: 'death',
-                ratio: e.ratio,
-                x: e.x,
-                y: e.y,
-                time: field.time
-            });
-
-            entities.splice(i, 1);
-        }
-    }
-
-    // Fade ghosts
-    for (let i = ghosts.length - 1; i >= 0; i--) {
-        ghosts[i].alpha -= 0.01;
-        ghosts[i].radius += 0.5;
-        if (ghosts[i].alpha <= 0) {
-            ghosts.splice(i, 1);
-        }
-    }
-
-    // Ensure minimum population
-    if (entities.length < MIN_ENTITIES && field.time > 2) {
-        birthEntity();
-    }
-}
-
-// ============ CONNECTIONS ============
-
-function drawConnections() {
-    const w = window.innerWidth;
-    const h = window.innerHeight;
-
-    for (let i = 0; i < entities.length; i++) {
-        const a = entities[i];
-        if (a.life <= 0) continue;
-
-        for (let j = i + 1; j < entities.length; j++) {
-            const b = entities[j];
-            if (b.life <= 0) continue;
-
-            const dx = b.x - a.x;
-            const dy = b.y - a.y;
-            const dist = Math.sqrt(dx*dx + dy*dy);
-
-            if (dist > 0.25) continue;
-
-            const cons = consonance(a.ratio, b.ratio);
-            if (cons < 0.65) continue;
-
-            const amp = Math.min(a.gain.gain.value, b.gain.gain.value);
-            const life = Math.min(a.life, b.life);
-            const alpha = cons * amp * (1 - dist / 0.25) * life * 2;
-
-            if (alpha < 0.02) continue;
-
-            // Pulsing connection
-            const pulse = (Math.sin((a.phase + b.phase) / 2) + 1) / 2;
-
-            vc.beginPath();
-            vc.moveTo(a.x * w, a.y * h);
-            vc.lineTo(b.x * w, b.y * h);
-            vc.strokeStyle = `rgba(255, 255, 255, ${alpha * (0.7 + pulse * 0.3)})`;
-            vc.lineWidth = 1 + cons * pulse * 3;
-            vc.stroke();
-        }
-    }
-}
-
-// ============ SUB BASS ============
-
-function createSub() {
-    const osc = ctx.createOscillator();
-    const osc2 = ctx.createOscillator();
-    const gain = ctx.createGain();
-    const filter = ctx.createBiquadFilter();
-
-    osc.type = 'sine';
-    osc.frequency.value = BASE / 2;
-    osc2.type = 'sine';
-    osc2.frequency.value = BASE / 2 * 1.002;
-
-    filter.type = 'lowpass';
-    filter.frequency.value = 80;
-    gain.gain.value = 0;
-
-    osc.connect(filter);
-    osc2.connect(filter);
-    filter.connect(gain);
-    gain.connect(master);
-
-    osc.start();
-    osc2.start();
-
-    sub = { osc, osc2, gain, filter };
-}
-
-function updateSub() {
-    const now = ctx.currentTime;
-
-    // Global pulse from synchronized entities
-    let globalPulse = 0;
-    let syncCount = 0;
-
-    for (const e of entities) {
-        if (e.neighbors.length > 0 && e.life > 0.5) {
-            globalPulse += e.syncPhase;
-            syncCount++;
-        }
-    }
-
-    if (syncCount > 0) {
-        globalPulse /= syncCount;
-        field.pulse = field.pulse * 0.9 + globalPulse * 0.1;
-    }
-
-    // Sub amplitude - breathes with the cosmos in deep states
-    const baseAmp = 0.12 + field.stillness * 0.08;
-    const pulseAmp = field.pulse * 0.1;
-    const breathAmp = field.depth * field.breath * 0.08;
-    const constellationBonus = field.constellations.length * 0.02;
-    sub.gain.gain.linearRampToValueAtTime(
-        Math.min(0.35, baseAmp + pulseAmp + breathAmp + constellationBonus),
-        now + 0.1
-    );
-
-    // Sub frequency follows center of mass
-    let cx = 0, cy = 0, total = 0;
-    for (const e of entities) {
-        if (e.life > 0) {
-            cx += e.x * e.mass;
-            cy += e.y * e.mass;
-            total += e.mass;
-        }
-    }
-    if (total > 0) {
-        cy /= total;
-        // In deep states, the breath modulates the sub frequency
-        const breathBend = 1 + field.depth * field.breath * 0.03;
-        const subFreq = (BASE / 2) * (1 - (cy - 0.5) * 0.2) * breathBend;
-        sub.osc.frequency.linearRampToValueAtTime(subFreq, now + 0.2);
-        sub.osc2.frequency.linearRampToValueAtTime(subFreq * 1.002, now + 0.2);
-    }
-
-    // Filter opens in deep states
-    const filterFreq = 80 + field.depth * 60 + field.breath * field.depth * 40;
-    sub.filter.frequency.linearRampToValueAtTime(filterFreq, now + 0.15);
-}
-
-// ============ EFFECTS ============
-
-function createVerb() {
-    const input = ctx.createGain();
-    const output = ctx.createGain();
-    output.gain.value = 0.35;
-    const baseGain = 0.35;
-
-    const times = [0.02, 0.05, 0.08, 0.13, 0.21, 0.34, 0.55, 0.89, 1.2, 1.6, 2.1, 2.8];
-    times.forEach((t, i) => {
-        const d = ctx.createDelay(4);
-        d.delayTime.value = t + Math.random() * 0.015;
-        const g = ctx.createGain();
-        g.gain.value = 0.28 * Math.pow(0.77, i);
-        const f = ctx.createBiquadFilter();
-        f.type = 'lowpass';
-        f.frequency.value = 5500 - i * 400;
-        input.connect(d);
-        d.connect(f);
-        f.connect(g);
-        g.connect(output);
-        if (i > 5) {
-            const fb = ctx.createGain();
-            fb.gain.value = 0.1;
-            g.connect(fb);
-            fb.connect(input);
-        }
-    });
-
-    return { input, output, baseGain };
-}
-
-function createDelay() {
-    const input = ctx.createGain();
-    const output = ctx.createGain();
-    output.gain.value = 0.22;
-    const baseGain = 0.22;
-
-    const delayL = ctx.createDelay(2);
-    const delayR = ctx.createDelay(2);
-    delayL.delayTime.value = 0.333;
-    delayR.delayTime.value = 0.5;
-
-    const fbL = ctx.createGain();
-    const fbR = ctx.createGain();
-    fbL.gain.value = 0.32;
-    fbR.gain.value = 0.28;
-
-    const filterL = ctx.createBiquadFilter();
-    const filterR = ctx.createBiquadFilter();
-    filterL.type = filterR.type = 'lowpass';
-    filterL.frequency.value = filterR.frequency.value = 2200;
-
-    const panL = ctx.createStereoPanner();
-    const panR = ctx.createStereoPanner();
-    panL.pan.value = -0.8;
-    panR.pan.value = 0.8;
-
-    input.connect(delayL);
-    delayL.connect(filterL);
-    filterL.connect(fbL);
-    fbL.connect(delayR);
-    delayR.connect(filterR);
-    filterR.connect(fbR);
-    fbR.connect(delayL);
-
-    filterL.connect(panL);
-    filterR.connect(panR);
-    panL.connect(output);
-    panR.connect(output);
-
-    return { input, output, delayL, delayR, fbL, fbR, baseGain };
-}
-
-function updateEffects() {
-    const now = ctx.currentTime;
-
-    // Reverb grows in deep states - more spacious, ethereal
-    const verbGain = verb.baseGain + field.depth * 0.25 + field.breath * field.depth * 0.1;
-    verb.output.gain.linearRampToValueAtTime(Math.min(0.7, verbGain), now + 0.1);
-
-    // Delay grows subtly in deep states
-    const dlyGain = dly.baseGain + field.depth * 0.15;
-    dly.output.gain.linearRampToValueAtTime(Math.min(0.45, dlyGain), now + 0.1);
-
-    // Feedback increases for longer tails in deep states
-    const fbAmount = 0.32 + field.depth * 0.15;
-    dly.fbL.gain.linearRampToValueAtTime(Math.min(0.55, fbAmount), now + 0.15);
-    dly.fbR.gain.linearRampToValueAtTime(Math.min(0.5, fbAmount * 0.9), now + 0.15);
-}
-
-// ============ INIT ============
-
-function init() {
-    ctx = new (window.AudioContext || window.webkitAudioContext)();
-
-    master = ctx.createGain();
-    master.gain.value = 0.7;
-
-    const comp = ctx.createDynamicsCompressor();
-    comp.threshold.value = -18;
-    comp.ratio.value = 5;
-    comp.attack.value = 0.003;
-    comp.release.value = 0.2;
-
-    const limiter = ctx.createDynamicsCompressor();
-    limiter.threshold.value = -2;
-    limiter.ratio.value = 20;
-    limiter.attack.value = 0.001;
-    limiter.release.value = 0.1;
-
-    verb = createVerb();
-    dly = createDelay();
-
-    master.connect(comp);
-    comp.connect(limiter);
-    limiter.connect(ctx.destination);
-    verb.output.connect(master);
-    dly.output.connect(master);
-
-    createSub();
-
-    // Birth initial entities - the primordial soup
-    const initialRatios = [1, 5/4, 3/2, 2, 5/2, 3];
-    for (const ratio of initialRatios) {
-        const e = new Entity(ratio);
-        e.createAudio();
-        e.lastVisit = 0;
-        entities.push(e);
-    }
-
-    canvas = document.getElementById('c');
-    vc = canvas.getContext('2d');
-    resize();
-    window.addEventListener('resize', resize);
-}
-
-// ============ INPUT ============
-
-function onMove(nx, ny) {
-    nx = Math.max(0, Math.min(1, nx));
-    ny = Math.max(0, Math.min(1, ny));
-
-    const prevX = field.x;
-    const prevY = field.y;
-
-    field.vx = field.vx * 0.6 + (nx - field.x) * 0.4;
-    field.vy = field.vy * 0.6 + (ny - field.y) * 0.4;
-    field.x = field.x * 0.75 + nx * 0.25;
-    field.y = field.y * 0.75 + ny * 0.25;
-
-    const speed = Math.sqrt(field.vx*field.vx + field.vy*field.vy);
-    field.energy = field.energy * 0.9 + speed * 0.5;
-
-    // Stillness
-    if (speed < 0.005) {
-        field.stillness = Math.min(3, field.stillness + 0.016);
-    } else {
-        field.stillness *= 0.95;
-    }
-
-    // Birth from energy
-    if (field.energy > 0.15 && Math.random() < field.energy * 0.03) {
-        birthEntity();
-    }
-
-    // Gesture detection (circle)
-    const angle = Math.atan2(field.vy, field.vx);
-    const angleDiff = angle - field.gestureAngle;
-    field.gestureAngle = angle;
-
-    // If consistently turning, it's a circle
-    if (Math.abs(angleDiff) > 0.1 && Math.abs(angleDiff) < 0.5) {
-        // Circle gesture - could trigger mode shift or special birth
-    }
-}
-
-function onMotion(e) {
-    const a = e.accelerationIncludingGravity;
-    if (!a) return;
-
-    const ax = (a.x || 0) / 8;
-    const ay = (a.y || 0) / 8;
-
-    field.vx = field.vx * 0.7 + ax * 0.3;
-    field.vy = field.vy * 0.7 + ay * 0.3;
-
-    field.x = Math.max(0, Math.min(1, field.x + field.vx * 0.08));
-    field.y = Math.max(0, Math.min(1, field.y - field.vy * 0.08));
-
-    field.energy = field.energy * 0.9 + Math.sqrt(ax*ax + ay*ay) * 0.3;
-
-    if (field.energy > 0.2 && Math.random() < field.energy * 0.02) {
-        birthEntity();
-    }
-}
-
-function onOrientation(e) {
-    const gx = Math.max(-1, Math.min(1, (e.gamma || 0) / 40));
-    const gy = Math.max(-1, Math.min(1, (e.beta || 0) / 40 - 1));
-    onMove((gx + 1) / 2, (1 - gy) / 2);
-}
-
-// ============ VISUALIZATION ============
+let canvas, vc;
 
 function resize() {
     canvas.width = window.innerWidth * devicePixelRatio;
@@ -1248,223 +918,77 @@ function draw() {
     const w = window.innerWidth;
     const h = window.innerHeight;
 
-    // Fade - slower in deep stillness, creating trails
-    const fadeAlpha = 0.06 + field.stillness * 0.02 - field.depth * 0.03;
-    vc.fillStyle = `rgba(0, 0, 0, ${Math.max(0.02, fadeAlpha)})`;
+    // Fade
+    vc.fillStyle = `rgba(0, 0, 0, 0.08)`;
     vc.fillRect(0, 0, w, h);
 
-    // Deep stillness - the universe breathes with subtle color
-    if (field.depth > 0.1) {
-        const breathHue = 220 + field.breath * 40;
-        const depthGrad = vc.createRadialGradient(w/2, h/2, 0, w/2, h/2, Math.max(w,h)/2);
-        depthGrad.addColorStop(0, `hsla(${breathHue}, 30%, 15%, ${field.depth * field.breath * 0.08})`);
-        depthGrad.addColorStop(0.5, `hsla(${breathHue + 30}, 25%, 10%, ${field.depth * 0.05})`);
-        depthGrad.addColorStop(1, 'transparent');
-        vc.fillStyle = depthGrad;
-        vc.fillRect(0, 0, w, h);
-    }
+    // Draw the field - subtle visualization of probability
+    const cellW = w / Field.resolution;
+    const cellH = h / Field.resolution;
 
-    // Ghosts (fading dead entities)
-    for (const g of ghosts) {
-        vc.beginPath();
-        vc.arc(g.x * w, g.y * h, g.radius, 0, TAU);
-        vc.strokeStyle = `hsla(${g.hue}, 50%, 50%, ${g.alpha})`;
-        vc.lineWidth = 1;
-        vc.stroke();
-    }
+    for (let x = 0; x < Field.resolution; x++) {
+        for (let y = 0; y < Field.resolution; y++) {
+            let totalAmp = 0;
+            let dominantHue = 0;
+            let maxAmp = 0;
 
-    // Regional mode visualization (subtle)
-    const gradient = vc.createRadialGradient(w/2, h/2, 0, w/2, h/2, Math.max(w,h)/2);
-    gradient.addColorStop(0, 'transparent');
-    gradient.addColorStop(1, `rgba(50, 50, 80, ${0.02 + field.stillness * 0.01})`);
-    vc.fillStyle = gradient;
-    vc.fillRect(0, 0, w, h);
+            for (const [freq, state] of Field.grid[x][y]) {
+                totalAmp += state.amplitude;
+                if (state.amplitude > maxAmp) {
+                    maxAmp = state.amplitude;
+                    dominantHue = (180 - Math.log2(freq) * 60 + 360) % 360;
+                }
+            }
 
-    // Constellations (behind connections)
-    drawConstellations();
-
-    // Connections
-    drawConnections();
-
-    // Entities
-    for (const e of entities) {
-        e.draw();
-    }
-
-    // Cursor
-    const cx = field.x * w;
-    const cy = field.y * h;
-    const cursorR = 15 + field.energy * 50 + field.depth * 20 * field.breath;
-    const cursorGrad = vc.createRadialGradient(cx, cy, 0, cx, cy, cursorR);
-    cursorGrad.addColorStop(0, `rgba(255, 255, 255, ${0.35 + field.energy * 0.4})`);
-    cursorGrad.addColorStop(0.5, `rgba(200, 220, 255, ${0.1 + field.energy * 0.15 + field.depth * 0.1})`);
-    cursorGrad.addColorStop(1, 'transparent');
-    vc.fillStyle = cursorGrad;
-    vc.beginPath();
-    vc.arc(cx, cy, cursorR, 0, TAU);
-    vc.fill();
-
-    // Global pulse visualization
-    if (field.pulse > 0.1) {
-        const pulseR = 100 + field.pulse * 200;
-        vc.beginPath();
-        vc.arc(w/2, h/2, pulseR, 0, TAU);
-        vc.strokeStyle = `rgba(255, 255, 255, ${field.pulse * 0.08})`;
-        vc.lineWidth = 2;
-        vc.stroke();
-    }
-
-    // Cosmic breath ring - visible in deep states
-    if (field.depth > 0.3) {
-        const breathR = 150 + field.breath * 100;
-        vc.beginPath();
-        vc.arc(w/2, h/2, breathR, 0, TAU);
-        vc.strokeStyle = `hsla(240, 40%, 70%, ${field.depth * field.breath * 0.15})`;
-        vc.lineWidth = 1 + field.breath * 3;
-        vc.stroke();
-    }
-}
-
-// ============ BREATH OF THE UNIVERSE ============
-
-function updateBreath(dt) {
-    // Slow cosmic oscillation - about 8 breaths per minute
-    field.breathPhase += dt * 0.14;
-
-    // The breath itself - a gentle wave
-    field.breath = (Math.sin(field.breathPhase) + 1) / 2;
-
-    // Depth accumulates in stillness, fades with movement
-    if (field.stillness > 1.5) {
-        field.depth = Math.min(1, field.depth + dt * 0.02);
-    } else {
-        field.depth *= 0.995;
-    }
-}
-
-// ============ CONSTELLATIONS ============
-
-function findConstellations() {
-    // Find stable triads - three entities mutually consonant and close
-    const constellations = [];
-
-    for (let i = 0; i < entities.length; i++) {
-        const a = entities[i];
-        if (a.life < 0.7 || a.age < 3) continue;
-
-        for (let j = i + 1; j < entities.length; j++) {
-            const b = entities[j];
-            if (b.life < 0.7 || b.age < 3) continue;
-
-            const abCons = consonance(a.ratio, b.ratio);
-            if (abCons < 0.7) continue;
-
-            const abDist = Math.sqrt((a.x-b.x)**2 + (a.y-b.y)**2);
-            if (abDist > 0.25) continue;
-
-            for (let k = j + 1; k < entities.length; k++) {
-                const c = entities[k];
-                if (c.life < 0.7 || c.age < 3) continue;
-
-                const acCons = consonance(a.ratio, c.ratio);
-                const bcCons = consonance(b.ratio, c.ratio);
-
-                if (acCons < 0.7 || bcCons < 0.7) continue;
-
-                const acDist = Math.sqrt((a.x-c.x)**2 + (a.y-c.y)**2);
-                const bcDist = Math.sqrt((b.x-c.x)**2 + (b.y-c.y)**2);
-
-                if (acDist > 0.25 || bcDist > 0.25) continue;
-
-                // This is a constellation!
-                const avgCons = (abCons + acCons + bcCons) / 3;
-                const avgLife = (a.life + b.life + c.life) / 3;
-
-                constellations.push({
-                    entities: [a, b, c],
-                    center: {
-                        x: (a.x + b.x + c.x) / 3,
-                        y: (a.y + b.y + c.y) / 3
-                    },
-                    consonance: avgCons,
-                    strength: avgCons * avgLife
-                });
+            if (totalAmp > Field.vacuumEnergy * Field.fundamentals.length * 1.5) {
+                const alpha = (totalAmp - Field.vacuumEnergy * Field.fundamentals.length) * 0.3;
+                vc.fillStyle = `hsla(${dominantHue}, 50%, 30%, ${Math.min(0.3, alpha)})`;
+                vc.fillRect(x * cellW, y * cellH, cellW, cellH);
             }
         }
     }
 
-    field.constellations = constellations;
-}
+    // Draw quanta
+    for (const q of Universe.quanta) {
+        q.draw(vc, w, h);
+    }
 
-function drawConstellations() {
-    const w = window.innerWidth;
-    const h = window.innerHeight;
+    // Observer
+    const ox = Universe.observer.x * w;
+    const oy = Universe.observer.y * h;
+    const or = 10 + Universe.observer.energy * 40 + Universe.observer.presence * 20;
 
-    for (const c of field.constellations) {
-        const [a, b, e3] = c.entities;
-        const alpha = c.strength * 0.4 * (0.7 + field.breath * 0.3);
+    const observerGrad = vc.createRadialGradient(ox, oy, 0, ox, oy, or);
+    observerGrad.addColorStop(0, `rgba(255, 255, 255, ${0.4 + Universe.observer.presence * 0.3})`);
+    observerGrad.addColorStop(0.5, `rgba(200, 220, 255, ${0.15 + Universe.observer.energy * 0.2})`);
+    observerGrad.addColorStop(1, 'transparent');
 
-        // Triangle fill
-        vc.beginPath();
-        vc.moveTo(a.x * w, a.y * h);
-        vc.lineTo(b.x * w, b.y * h);
-        vc.lineTo(e3.x * w, e3.y * h);
-        vc.closePath();
+    vc.fillStyle = observerGrad;
+    vc.beginPath();
+    vc.arc(ox, oy, or, 0, TAU);
+    vc.fill();
 
-        // Average hue of the triad
-        const avgHue = (a.hue + b.hue + e3.hue) / 3;
-        vc.fillStyle = `hsla(${avgHue}, 40%, 50%, ${alpha * 0.15})`;
-        vc.fill();
+    // Breath visualization
+    const breathR = 100 + Universe.breath * 150;
+    vc.beginPath();
+    vc.arc(w/2, h/2, breathR, 0, TAU);
+    vc.strokeStyle = `rgba(100, 150, 255, ${Universe.breath * 0.1})`;
+    vc.lineWidth = 1;
+    vc.stroke();
 
-        // Glowing outline
-        vc.strokeStyle = `hsla(${avgHue}, 60%, 70%, ${alpha * 0.6})`;
-        vc.lineWidth = 1 + c.consonance * 2;
-        vc.stroke();
-
-        // Center point - the heart of the constellation
-        const cx = c.center.x * w;
-        const cy = c.center.y * h;
-        const pulseR = 5 + field.breath * 10 * c.strength;
-
-        const grad = vc.createRadialGradient(cx, cy, 0, cx, cy, pulseR);
-        grad.addColorStop(0, `hsla(${avgHue}, 70%, 80%, ${alpha})`);
-        grad.addColorStop(1, 'transparent');
-        vc.fillStyle = grad;
-        vc.beginPath();
-        vc.arc(cx, cy, pulseR, 0, TAU);
-        vc.fill();
+    // Mic level indicator
+    if (Universe.micLevel > 0.05) {
+        vc.fillStyle = `rgba(255, 200, 100, ${Universe.micLevel * 0.3})`;
+        vc.fillRect(w - 30, h - 10 - Universe.micLevel * 100, 20, Universe.micLevel * 100);
     }
 }
 
 // ============ LOOP ============
 
 function tick() {
-    if (!running) return;
-
-    const dt = 0.016;
-    field.time += dt;
-
-    updateBreath(dt);
-
-    // Gumpy feels what the universe wants
-    Gumpy.feel();
-
-    // Yearning may cause spontaneous birth
-    const yearningBirth = Gumpy.shouldBirth();
-    if (yearningBirth.should) {
-        birthFromYearning(yearningBirth.ratio);
-    }
-
-    for (const e of entities) {
-        e.update(dt);
-    }
-
-    processDeath();
-    findConstellations();
-    updateSub();
-    updateEffects();
+    Universe.update(0.016);
+    Gumpy.observe();
     draw();
-
     requestAnimationFrame(tick);
 }
 
@@ -1473,42 +997,53 @@ function tick() {
 async function start() {
     document.getElementById('enter').classList.add('off');
 
-    if (typeof DeviceMotionEvent !== 'undefined' &&
-        typeof DeviceMotionEvent.requestPermission === 'function') {
-        try { await DeviceMotionEvent.requestPermission(); } catch(e) {}
+    canvas = document.getElementById('c');
+    vc = canvas.getContext('2d');
+    resize();
+    window.addEventListener('resize', resize);
+
+    await Universe.init();
+
+    if (Universe.ctx.state === 'suspended') {
+        await Universe.ctx.resume();
     }
-    if (typeof DeviceOrientationEvent !== 'undefined' &&
-        typeof DeviceOrientationEvent.requestPermission === 'function') {
-        try { await DeviceOrientationEvent.requestPermission(); } catch(e) {}
-    }
 
-    init();
-
-    window.addEventListener('devicemotion', onMotion);
-    window.addEventListener('deviceorientation', onOrientation);
-
+    // Input handlers
     document.addEventListener('mousemove', e => {
-        onMove(e.clientX / window.innerWidth, e.clientY / window.innerHeight);
+        Universe.onMove(e.clientX / window.innerWidth, e.clientY / window.innerHeight);
     });
 
     document.addEventListener('touchmove', e => {
         e.preventDefault();
         const t = e.touches[0];
-        onMove(t.clientX / window.innerWidth, t.clientY / window.innerHeight);
+        Universe.onMove(t.clientX / window.innerWidth, t.clientY / window.innerHeight);
     }, { passive: false });
 
     document.addEventListener('touchstart', e => {
         e.preventDefault();
         const t = e.touches[0];
-        onMove(t.clientX / window.innerWidth, t.clientY / window.innerHeight);
+        Universe.onMove(t.clientX / window.innerWidth, t.clientY / window.innerHeight);
     }, { passive: false });
 
-    if (ctx.state === 'suspended') await ctx.resume();
+    // Device motion
+    if (typeof DeviceMotionEvent !== 'undefined' && DeviceMotionEvent.requestPermission) {
+        try { await DeviceMotionEvent.requestPermission(); } catch(e) {}
+    }
 
-    // Gumpy wakes up
-    Gumpy.init();
+    window.addEventListener('devicemotion', e => {
+        const a = e.accelerationIncludingGravity;
+        if (!a) return;
 
-    running = true;
+        const ax = (a.x || 0) / 10;
+        const ay = (a.y || 0) / 10;
+
+        Universe.observer.vx += ax * 0.01;
+        Universe.observer.vy -= ay * 0.01;
+        Universe.observer.energy += Math.sqrt(ax*ax + ay*ay) * 0.02;
+    });
+
+    Gumpy.speak("The vacuum hums.");
+
     tick();
 }
 
