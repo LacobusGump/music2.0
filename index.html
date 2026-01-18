@@ -20,7 +20,7 @@
 <script>
 // GUMP - Grand Unified Music Project
 // You are the waveform. Movement is music.
-// Stillness becomes pulse. Memory leaves traces.
+// Stillness becomes groove. The shuffle breathes.
 
 const TAU = Math.PI * 2;
 const PHI = 1.618033988749;
@@ -29,6 +29,7 @@ const PHI = 1.618033988749;
 
 let ctx, master, verb, dly, sub;
 let voices = [];
+let drums = {};
 let canvas, vc;
 let running = false;
 
@@ -37,35 +38,84 @@ const field = {
     vx: 0, vy: 0,
     energy: 0,
     stillness: 0,
-    pulse: 0,
-    pulsePhase: 0,
+    groove: 0,        // How much rhythm is present
     time: 0
 };
 
-// Memory - where you've been leaves harmonic traces
+// Memory traces
 const memory = [];
 const MAX_MEMORY = 50;
 
-// Harmonic series - the DNA of music
+// Harmonic series
 const HARMONICS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
-const BASE = 55; // A1
+const BASE = 55;
+
+// ============ RHYTHM ============
+// The Purdie shuffle: triplet feel, ghost notes breathe
+// 12 subdivisions per beat (triplets of triplets)
+// Pattern emerges from stillness, dissolves with movement
+
+const rhythm = {
+    bpm: 72,
+    swing: 0.15,
+
+    // Position in the cycle (0-47 for 4 beats × 12 subdivisions)
+    position: 0,
+    accumulator: 0,
+
+    // Purdie-style patterns - velocity values (0 = rest, 0.1-0.3 = ghost, 0.8+ = accent)
+    // 12 steps per beat, 4 beats = 48 steps
+
+    // Kick: simple, grounding - on 1 and the "and" of 2
+    kick: [
+        0.9, 0,0,0,0,0, 0,0,0,0,0,0,     // beat 1
+        0,0,0,0,0,0, 0.5,0,0,0,0,0,       // beat 2 (soft on and)
+        0.7,0,0,0,0,0, 0,0,0,0,0,0,       // beat 3
+        0,0,0,0,0,0, 0.4,0,0,0,0,0        // beat 4
+    ],
+
+    // Snare: backbeat with ghost notes dancing around it
+    // This is the soul - ghosts on the triplet subdivisions
+    snare: [
+        0,0, 0.12,0, 0.15,0, 0,0, 0.1,0, 0.18,0,    // beat 1: ghosts lead to...
+        0.95,0, 0.15,0, 0.1,0, 0.08,0, 0.2,0, 0.12,0,  // beat 2: CRACK + ghosts
+        0,0, 0.1,0, 0.18,0, 0,0, 0.12,0, 0.22,0,    // beat 3: building...
+        1.0,0, 0.12,0, 0.15,0, 0.1,0, 0.18,0, 0.15,0   // beat 4: CRACK + ghosts
+    ],
+
+    // Hi-hat: shuffle feel - accent on downbeats, lighter on upbeats
+    hat: [
+        0.6,0,0, 0.35,0,0, 0.5,0,0, 0.3,0,0,   // beat 1
+        0.6,0,0, 0.35,0,0, 0.5,0,0, 0.3,0,0,   // beat 2
+        0.6,0,0, 0.35,0,0, 0.5,0,0, 0.3,0,0,   // beat 3
+        0.6,0,0, 0.35,0,0, 0.5,0,0, 0.35,0,0   // beat 4
+    ],
+
+    // Visual pulse for each drum hit
+    kickPulse: 0,
+    snarePulse: 0,
+    hatPulse: 0,
+
+    get subdivisionLength() {
+        return (60 / this.bpm) / 12;
+    }
+};
 
 // ============ AUDIO INIT ============
 
 function initAudio() {
     ctx = new (window.AudioContext || window.webkitAudioContext)();
 
-    // Master chain
     master = ctx.createGain();
-    master.gain.value = 0.5;
+    master.gain.value = 0.55;
 
     const comp = ctx.createDynamicsCompressor();
-    comp.threshold.value = -20;
+    comp.threshold.value = -18;
     comp.ratio.value = 4;
-    comp.attack.value = 0.005;
-    comp.release.value = 0.2;
+    comp.attack.value = 0.003;
+    comp.release.value = 0.15;
 
-    // Sub bass - the ground
+    // Sub bass
     sub = ctx.createOscillator();
     const subGain = ctx.createGain();
     const subFilter = ctx.createBiquadFilter();
@@ -80,10 +130,10 @@ function initAudio() {
     sub.start();
     sub.gainNode = subGain;
 
-    // Reverb - space
+    // Reverb
     verb = createVerb();
 
-    // Delay - echoes
+    // Delay - tempo synced
     dly = createDelay();
 
     // Routing
@@ -92,26 +142,29 @@ function initAudio() {
     verb.output.connect(master);
     dly.output.connect(master);
 
-    // Create harmonic voices
+    // Harmonic voices
     HARMONICS.forEach((h, i) => {
         voices.push(createVoice(BASE * h, i));
     });
+
+    // Drums
+    initDrums();
 }
 
 function createVerb() {
     const input = ctx.createGain();
     const output = ctx.createGain();
-    output.gain.value = 0.4;
+    output.gain.value = 0.35;
 
     const times = [0.029, 0.067, 0.113, 0.179, 0.233, 0.307, 0.419, 0.541, 0.709];
     times.forEach((t, i) => {
         const d = ctx.createDelay(1);
         d.delayTime.value = t;
         const g = ctx.createGain();
-        g.gain.value = 0.35 * Math.pow(0.82, i);
+        g.gain.value = 0.32 * Math.pow(0.8, i);
         const f = ctx.createBiquadFilter();
         f.type = 'lowpass';
-        f.frequency.value = 3500 - i * 350;
+        f.frequency.value = 3000 - i * 300;
         input.connect(d);
         d.connect(f);
         f.connect(g);
@@ -124,15 +177,16 @@ function createVerb() {
 function createDelay() {
     const input = ctx.createGain();
     const output = ctx.createGain();
-    output.gain.value = 0.25;
+    output.gain.value = 0.2;
 
+    const beatTime = 60 / rhythm.bpm;
     const d = ctx.createDelay(2);
-    d.delayTime.value = 0.375;
+    d.delayTime.value = beatTime * 0.75; // Dotted eighth
     const fb = ctx.createGain();
-    fb.gain.value = 0.35;
+    fb.gain.value = 0.3;
     const f = ctx.createBiquadFilter();
     f.type = 'lowpass';
-    f.frequency.value = 2000;
+    f.frequency.value = 1800;
 
     input.connect(d);
     d.connect(f);
@@ -150,26 +204,18 @@ function createVoice(freq, index) {
     const gain = ctx.createGain();
     const pan = ctx.createStereoPanner();
 
-    // Primary oscillator
     osc.type = index < 4 ? 'sine' : (index < 8 ? 'triangle' : 'sine');
     osc.frequency.value = freq;
-
-    // Detuned pair for warmth
     osc2.type = 'sine';
     osc2.frequency.value = freq * 1.003;
 
-    // Filter
     filter.type = 'lowpass';
     filter.frequency.value = 100;
     filter.Q.value = 0.7;
 
-    // Start silent
     gain.gain.value = 0;
-
-    // Spread across stereo field
     pan.pan.value = ((index % 6) / 5) * 1.6 - 0.8;
 
-    // Connect
     osc.connect(filter);
     osc2.connect(filter);
     filter.connect(gain);
@@ -181,16 +227,128 @@ function createVoice(freq, index) {
     osc.start();
     osc2.start();
 
-    return {
-        osc, osc2, filter, gain, pan,
-        baseFreq: freq,
-        harmonic: HARMONICS[index],
-        index
-    };
+    return { osc, osc2, filter, gain, pan, baseFreq: freq, harmonic: HARMONICS[index], index };
+}
+
+// ============ DRUMS ============
+// Synthesized, not sampled - part of the same sonic world
+
+function initDrums() {
+    drums.master = ctx.createGain();
+    drums.master.gain.value = 0;
+    drums.master.connect(master);
+    drums.master.connect(verb.input);
+}
+
+function triggerKick(velocity) {
+    const now = ctx.currentTime;
+    const v = velocity * field.groove;
+    if (v < 0.05) return;
+
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(150 * (0.8 + field.y * 0.4), now);
+    osc.frequency.exponentialRampToValueAtTime(35, now + 0.12);
+
+    gain.gain.setValueAtTime(v * 0.7, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+
+    osc.connect(gain);
+    gain.connect(drums.master);
+
+    osc.start(now);
+    osc.stop(now + 0.4);
+
+    rhythm.kickPulse = v;
+}
+
+function triggerSnare(velocity) {
+    const now = ctx.currentTime;
+    const v = velocity * field.groove;
+    if (v < 0.02) return;
+
+    const isGhost = velocity < 0.4;
+
+    // Noise burst
+    const bufferSize = ctx.sampleRate * (isGhost ? 0.08 : 0.15);
+    const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) {
+        data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufferSize * (isGhost ? 0.15 : 0.12)));
+    }
+
+    const noise = ctx.createBufferSource();
+    noise.buffer = buffer;
+
+    const noiseFilter = ctx.createBiquadFilter();
+    noiseFilter.type = 'bandpass';
+    noiseFilter.frequency.value = isGhost ? 3000 + field.y * 2000 : 2000;
+    noiseFilter.Q.value = isGhost ? 1.5 : 0.8;
+
+    const noiseGain = ctx.createGain();
+    noiseGain.gain.setValueAtTime(v * (isGhost ? 0.25 : 0.45), now);
+    noiseGain.gain.exponentialRampToValueAtTime(0.001, now + (isGhost ? 0.06 : 0.12));
+
+    noise.connect(noiseFilter);
+    noiseFilter.connect(noiseGain);
+    noiseGain.connect(drums.master);
+
+    // Body tone (less for ghosts)
+    if (!isGhost || velocity > 0.15) {
+        const osc = ctx.createOscillator();
+        const oscGain = ctx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(isGhost ? 250 : 180, now);
+        osc.frequency.exponentialRampToValueAtTime(isGhost ? 150 : 90, now + 0.04);
+        oscGain.gain.setValueAtTime(v * (isGhost ? 0.15 : 0.35), now);
+        oscGain.gain.exponentialRampToValueAtTime(0.001, now + (isGhost ? 0.04 : 0.08));
+
+        osc.connect(oscGain);
+        oscGain.connect(drums.master);
+        osc.start(now);
+        osc.stop(now + 0.15);
+    }
+
+    noise.start(now);
+
+    rhythm.snarePulse = Math.max(rhythm.snarePulse, v);
+}
+
+function triggerHat(velocity) {
+    const now = ctx.currentTime;
+    const v = velocity * field.groove;
+    if (v < 0.05) return;
+
+    const bufferSize = ctx.sampleRate * 0.04;
+    const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) {
+        data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufferSize * 0.25));
+    }
+
+    const noise = ctx.createBufferSource();
+    noise.buffer = buffer;
+
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'highpass';
+    filter.frequency.value = 7000 + field.y * 3000;
+
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(v * 0.18, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.04);
+
+    noise.connect(filter);
+    filter.connect(gain);
+    gain.connect(drums.master);
+
+    noise.start(now);
+
+    rhythm.hatPulse = Math.max(rhythm.hatPulse, v);
 }
 
 // ============ THE SHAPING ============
-// Your movement shapes the harmonic field continuously
 
 function shapeField(dt) {
     const now = ctx.currentTime;
@@ -199,84 +357,101 @@ function shapeField(dt) {
     const speed = Math.sqrt(field.vx * field.vx + field.vy * field.vy);
     field.energy = field.energy * 0.92 + speed * 0.8;
 
-    // Stillness accumulates when not moving
-    if (speed < 0.01) {
-        field.stillness = Math.min(1, field.stillness + dt * 0.3);
+    // Stillness accumulates
+    if (speed < 0.008) {
+        field.stillness = Math.min(1, field.stillness + dt * 0.25);
     } else {
-        field.stillness *= 0.9;
+        field.stillness *= 0.92;
     }
 
-    // Pulse emerges from stillness
-    if (field.stillness > 0.3) {
-        field.pulsePhase += dt * (1 + field.stillness);
-        field.pulse = Math.sin(field.pulsePhase * TAU * 0.5) * 0.5 + 0.5;
-        field.pulse *= field.stillness;
-    } else {
-        field.pulse *= 0.95;
-        field.pulsePhase *= 0.95;
-    }
+    // Groove emerges from stillness (slower than stillness itself)
+    // High energy suppresses groove
+    const targetGroove = field.stillness * (1 - field.energy * 0.7);
+    field.groove += (targetGroove - field.groove) * dt * 0.8;
+    field.groove = Math.max(0, Math.min(1, field.groove));
 
-    // Each voice responds to position
+    // Drums volume follows groove
+    drums.master.gain.linearRampToValueAtTime(field.groove * 0.85, now + 0.1);
+
+    // Harmonic voices
     voices.forEach((v, i) => {
-        // X position = which harmonics sing (spread across screen)
         const harmonicX = (i + 0.5) / voices.length;
         const xDistance = Math.abs(field.x - harmonicX);
         const xPresence = Math.max(0, 1 - xDistance * 2.5);
 
-        // Y position = register/brightness (lower harmonics bottom, higher top)
         const harmonicY = i / voices.length;
         const yDistance = Math.abs(field.y - harmonicY);
         const yPresence = Math.max(0, 1 - yDistance * 2);
 
-        // Combined presence
         let presence = (xPresence * 0.7 + yPresence * 0.3);
 
-        // Energy amplifies everything
+        // Energy boost
         const energyBoost = 0.3 + field.energy * 2;
 
-        // Stillness pulse modulates amplitude
-        const pulseAmp = 1 + field.pulse * 0.5 * (1 - field.energy);
+        // Groove adds subtle pulse to harmonics (sync with rhythm)
+        const rhythmSync = 1 + rhythm.kickPulse * 0.3 * field.groove;
 
-        // Final amplitude
-        const amp = presence * energyBoost * pulseAmp * 0.12;
-        v.gain.gain.linearRampToValueAtTime(Math.min(0.2, amp), now + 0.08);
+        const amp = presence * energyBoost * rhythmSync * 0.11;
+        v.gain.gain.linearRampToValueAtTime(Math.min(0.18, amp), now + 0.08);
 
-        // Filter opens with Y and energy
+        // Filter
         const filterBase = 80 + field.y * 2500 + field.energy * 2000;
-        const filterPulse = field.pulse * 500 * field.stillness;
-        v.filter.frequency.linearRampToValueAtTime(filterBase + filterPulse, now + 0.08);
+        v.filter.frequency.linearRampToValueAtTime(filterBase, now + 0.08);
 
-        // Pitch responds to movement (subtle)
+        // Pitch drift
         const pitchDrift = 1 + field.vx * 0.015 * (i - voices.length / 2) / voices.length;
         v.osc.frequency.linearRampToValueAtTime(v.baseFreq * pitchDrift, now + 0.1);
         v.osc2.frequency.linearRampToValueAtTime(v.baseFreq * pitchDrift * 1.003, now + 0.1);
 
-        // Pan follows movement
+        // Pan
         const panBase = ((i % 6) / 5) * 1.6 - 0.8;
         const panMod = field.vx * 0.4;
-        v.pan.pan.linearRampToValueAtTime(
-            Math.max(-1, Math.min(1, panBase + panMod)),
-            now + 0.08
-        );
+        v.pan.pan.linearRampToValueAtTime(Math.max(-1, Math.min(1, panBase + panMod)), now + 0.08);
     });
 
-    // Sub bass from stillness pulse
-    const subAmp = field.pulse * field.stillness * 0.3;
-    sub.gainNode.gain.linearRampToValueAtTime(subAmp, now + 0.1);
+    // Sub follows kick
+    const subAmp = rhythm.kickPulse * field.groove * 0.4;
+    sub.gainNode.gain.linearRampToValueAtTime(subAmp, now + 0.05);
 
-    // Reverb grows with stillness
-    verb.output.gain.linearRampToValueAtTime(0.25 + field.stillness * 0.4, now + 0.2);
+    // Reverb: more stillness = more space
+    verb.output.gain.linearRampToValueAtTime(0.2 + field.stillness * 0.35, now + 0.2);
 
-    // Delay feedback grows with energy
-    dly.feedback.gain.linearRampToValueAtTime(0.2 + field.energy * 0.35, now + 0.1);
-    dly.delay.delayTime.linearRampToValueAtTime(0.25 + field.energy * 0.25, now + 0.15);
+    // Delay: energy creates echoes
+    dly.feedback.gain.linearRampToValueAtTime(0.15 + field.energy * 0.35, now + 0.1);
+}
+
+// ============ RHYTHM ENGINE ============
+
+function tickRhythm(dt) {
+    rhythm.accumulator += dt;
+
+    // Decay visual pulses
+    rhythm.kickPulse *= 0.85;
+    rhythm.snarePulse *= 0.88;
+    rhythm.hatPulse *= 0.9;
+
+    // Check for new subdivisions
+    while (rhythm.accumulator >= rhythm.subdivisionLength) {
+        rhythm.accumulator -= rhythm.subdivisionLength;
+
+        // Get velocities from patterns
+        const kickVel = rhythm.kick[rhythm.position];
+        const snareVel = rhythm.snare[rhythm.position];
+        const hatVel = rhythm.hat[rhythm.position];
+
+        // Trigger drums (they respect field.groove internally)
+        if (kickVel > 0) triggerKick(kickVel);
+        if (snareVel > 0) triggerSnare(snareVel);
+        if (hatVel > 0) triggerHat(hatVel);
+
+        // Advance position
+        rhythm.position = (rhythm.position + 1) % 48;
+    }
 }
 
 // ============ MEMORY ============
-// Where you've been leaves traces
 
 function updateMemory() {
-    // Add current position to memory occasionally
     if (field.energy > 0.1 && Math.random() < 0.1) {
         memory.push({
             x: field.x,
@@ -285,18 +460,12 @@ function updateMemory() {
             time: field.time,
             hue: (field.x * 360 + field.y * 60) % 360
         });
-
-        if (memory.length > MAX_MEMORY) {
-            memory.shift();
-        }
+        if (memory.length > MAX_MEMORY) memory.shift();
     }
 
-    // Fade old memories
     for (let i = memory.length - 1; i >= 0; i--) {
         memory[i].energy *= 0.995;
-        if (memory[i].energy < 0.01) {
-            memory.splice(i, 1);
-        }
+        if (memory[i].energy < 0.01) memory.splice(i, 1);
     }
 }
 
@@ -342,8 +511,6 @@ function resize() {
 
     canvas.width = w * dpr;
     canvas.height = h * dpr;
-
-    // Reset and set transform properly
     vc.setTransform(dpr, 0, 0, dpr, 0, 0);
 }
 
@@ -351,13 +518,53 @@ function draw() {
     const w = window.innerWidth;
     const h = window.innerHeight;
 
-    // Fade
-    const fadeAlpha = 0.08 + (1 - field.energy) * 0.04 + field.stillness * 0.02;
+    // Fade - faster when groove is present (sharper visuals)
+    const fadeAlpha = 0.06 + (1 - field.energy) * 0.04 + field.groove * 0.04;
     vc.fillStyle = `rgba(0, 0, 0, ${fadeAlpha})`;
     vc.fillRect(0, 0, w, h);
 
     const cx = field.x * w;
     const cy = (1 - field.y) * h;
+
+    // Rhythm ring - pulses with the groove
+    if (field.groove > 0.1) {
+        const beatPhase = (rhythm.position % 12) / 12;
+        const grooveR = 80 + rhythm.kickPulse * 60 + rhythm.snarePulse * 40;
+
+        // Kick ring
+        if (rhythm.kickPulse > 0.1) {
+            vc.beginPath();
+            vc.arc(cx, cy, grooveR, 0, TAU);
+            vc.strokeStyle = `rgba(255, 150, 100, ${rhythm.kickPulse * field.groove * 0.5})`;
+            vc.lineWidth = 3 + rhythm.kickPulse * 4;
+            vc.stroke();
+        }
+
+        // Snare ring (tighter)
+        if (rhythm.snarePulse > 0.05) {
+            vc.beginPath();
+            vc.arc(cx, cy, 40 + rhythm.snarePulse * 30, 0, TAU);
+            vc.strokeStyle = `rgba(255, 255, 255, ${rhythm.snarePulse * field.groove * 0.6})`;
+            vc.lineWidth = 1 + rhythm.snarePulse * 3;
+            vc.stroke();
+        }
+
+        // Hat dots around the circle
+        if (rhythm.hatPulse > 0.1) {
+            const hatCount = 8;
+            for (let i = 0; i < hatCount; i++) {
+                const angle = (i / hatCount) * TAU + field.time * 0.2;
+                const hr = 60 + rhythm.hatPulse * 20;
+                const hx = cx + Math.cos(angle) * hr;
+                const hy = cy + Math.sin(angle) * hr;
+
+                vc.beginPath();
+                vc.arc(hx, hy, 2 + rhythm.hatPulse * 3, 0, TAU);
+                vc.fillStyle = `rgba(200, 220, 255, ${rhythm.hatPulse * field.groove * 0.5})`;
+                vc.fill();
+            }
+        }
+    }
 
     // Memory traces
     memory.forEach(m => {
@@ -376,11 +583,10 @@ function draw() {
         const amp = v.gain.gain.value;
         if (amp < 0.003) return;
 
-        // Position based on harmonic
         const vx = ((i + 0.5) / voices.length) * w;
-        const vy = h / 2 + Math.sin(field.time * 0.5 + i) * 20 * field.stillness;
+        const vy = h / 2 + Math.sin(field.time * 0.5 + i) * 15 * field.stillness;
 
-        // Connection line to cursor
+        // Connection
         const dist = Math.sqrt((cx - vx) ** 2 + (cy - vy) ** 2);
         const maxDist = w * 0.4;
         const conn = Math.max(0, 1 - dist / maxDist);
@@ -395,7 +601,7 @@ function draw() {
         }
 
         // Voice circle
-        const r = 15 + amp * 120 + field.pulse * 20 * field.stillness;
+        const r = 12 + amp * 100 + rhythm.kickPulse * 15 * field.groove;
         const hue = 200 + i * 12;
 
         vc.beginPath();
@@ -408,21 +614,11 @@ function draw() {
         vc.fill();
     });
 
-    // Stillness pulse ring
-    if (field.stillness > 0.1) {
-        const pulseR = 50 + field.pulse * 100;
-        vc.beginPath();
-        vc.arc(cx, cy, pulseR, 0, TAU);
-        vc.strokeStyle = `rgba(255, 255, 255, ${field.stillness * field.pulse * 0.3})`;
-        vc.lineWidth = 2;
-        vc.stroke();
-    }
-
     // Cursor glow
-    const glowR = 25 + field.energy * 60 + field.pulse * 20;
+    const glowR = 25 + field.energy * 50 + rhythm.kickPulse * 20 * field.groove;
     const cursorGrad = vc.createRadialGradient(cx, cy, 0, cx, cy, glowR);
     cursorGrad.addColorStop(0, `rgba(255, 255, 255, ${0.4 + field.energy * 0.4})`);
-    cursorGrad.addColorStop(0.4, `rgba(200, 220, 255, ${0.15 + field.energy * 0.2})`);
+    cursorGrad.addColorStop(0.4, `rgba(200, 220, 255, ${0.12 + field.energy * 0.15})`);
     cursorGrad.addColorStop(1, 'transparent');
     vc.fillStyle = cursorGrad;
     vc.beginPath();
@@ -453,6 +649,7 @@ function tick(timestamp) {
     lastTime = timestamp;
     field.time += dt;
 
+    tickRhythm(dt);
     shapeField(dt);
     updateMemory();
     draw();
@@ -465,7 +662,6 @@ function tick(timestamp) {
 async function start() {
     document.getElementById('enter').classList.add('off');
 
-    // iOS motion permissions
     if (typeof DeviceMotionEvent !== 'undefined' &&
         typeof DeviceMotionEvent.requestPermission === 'function') {
         try { await DeviceMotionEvent.requestPermission(); } catch(e) {}
@@ -482,7 +678,6 @@ async function start() {
 
     initAudio();
 
-    // Input
     window.addEventListener('devicemotion', onMotion);
     window.addEventListener('deviceorientation', onOrientation);
 
