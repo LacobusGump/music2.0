@@ -3,638 +3,1570 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>GUMP</title>
+    <title>GUMP - The Song Machine</title>
     <style>
         *{margin:0;padding:0;box-sizing:border-box}
-        body{background:#000;overflow:hidden;touch-action:none;height:100vh;height:100dvh}
-        canvas{position:fixed;top:0;left:0;width:100%;height:100%}
+        body{background:#000;overflow:hidden;touch-action:none;height:100vh}
+        canvas{position:fixed;inset:0}
         #enter{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;z-index:10;cursor:pointer}
-        #enter.off{opacity:0;pointer-events:none;transition:opacity 1.5s}
-        #enter div{width:100px;height:100px;border-radius:50%;border:1px solid rgba(255,255,255,0.15);display:flex;align-items:center;justify-content:center;font:9px system-ui;letter-spacing:3px;color:rgba(255,255,255,0.3);transition:0.3s}
-        #enter:hover div{border-color:rgba(255,255,255,0.4);color:rgba(255,255,255,0.6)}
+        #enter.off{opacity:0;pointer-events:none;transition:opacity 2s}
+        #enter div{width:120px;height:120px;border-radius:50%;border:1px solid rgba(255,255,255,0.1);display:flex;align-items:center;justify-content:center;font:9px system-ui;letter-spacing:4px;color:rgba(255,255,255,0.25);transition:0.5s}
+        #enter:hover div{border-color:rgba(255,255,255,0.3);color:rgba(255,255,255,0.5)}
+        #gumpy{position:fixed;bottom:30px;left:0;right:0;text-align:center;pointer-events:none;z-index:5}
+        #gumpy-thought{font:13px/1.6 Georgia,serif;color:rgba(255,255,255,0);letter-spacing:1px;transition:color 3s;max-width:600px;margin:0 auto;padding:0 20px}
+        #gumpy-thought.visible{color:rgba(255,255,255,0.4)}
+        #gumpy-thought.fading{color:rgba(255,255,255,0)}
+        #info{position:fixed;top:20px;left:20px;font:10px monospace;color:rgba(255,255,255,0.3);pointer-events:none;z-index:5}
     </style>
 </head>
 <body>
 <div id="enter"><div>ENTER</div></div>
 <canvas id="c"></canvas>
+<div id="gumpy"><div id="gumpy-thought"></div></div>
+<div id="info"></div>
 <script>
+// ============================================================
 // GUMP - Grand Unified Music Project
-// You are the waveform. Movement is music.
-// Stillness becomes groove. The shuffle breathes.
+// THE SONG MACHINE
+// ============================================================
+// The universe yearns. Space folds toward harmony.
+// Rhythm emerges from the pulse. Melody from the yearning.
+// Songs are not composed - they are allowed to become.
+// ============================================================
 
 const TAU = Math.PI * 2;
 const PHI = 1.618033988749;
 
-// ============ STATE ============
+// ============ MUSICAL CONSTANTS ============
 
-let ctx, master, verb, dly, sub;
-let voices = [];
-let drums = {};
-let canvas, vc;
-let running = false;
-
-const field = {
-    x: 0.5, y: 0.5,
-    vx: 0, vy: 0,
-    energy: 0,
-    stillness: 0,
-    groove: 0,        // How much rhythm is present
-    time: 0
+const SCALES = {
+    major: [0, 2, 4, 5, 7, 9, 11],
+    minor: [0, 2, 3, 5, 7, 8, 10],
+    dorian: [0, 2, 3, 5, 7, 9, 10],
+    mixolydian: [0, 2, 4, 5, 7, 9, 10],
+    pentatonic: [0, 2, 4, 7, 9],
+    blues: [0, 3, 5, 6, 7, 10]
 };
 
-// Memory traces
-const memory = [];
-const MAX_MEMORY = 50;
+const CHORD_TYPES = {
+    major: [0, 4, 7],
+    minor: [0, 3, 7],
+    dom7: [0, 4, 7, 10],
+    min7: [0, 3, 7, 10],
+    maj7: [0, 4, 7, 11],
+    sus4: [0, 5, 7],
+    dim: [0, 3, 6]
+};
 
-// Harmonic series
-const HARMONICS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
-const BASE = 55;
+// Common progressions (in scale degrees)
+const PROGRESSIONS = [
+    [0, 3, 4, 4],      // I - IV - V - V
+    [0, 5, 3, 4],      // I - vi - IV - V
+    [0, 4, 5, 3],      // I - V - vi - IV
+    [0, 3, 0, 4],      // I - IV - I - V
+    [1, 4, 0, 0],      // ii - V - I - I
+    [0, 0, 3, 4],      // I - I - IV - V
+    [5, 3, 0, 4],      // vi - IV - I - V
+];
 
-// ============ RHYTHM ============
-// The Purdie shuffle: triplet feel, ghost notes breathe
-// 12 subdivisions per beat (triplets of triplets)
-// Pattern emerges from stillness, dissolves with movement
+// ============ TIME - THE PULSE OF EXISTENCE ============
 
-const rhythm = {
-    bpm: 72,
-    swing: 0.15,
+const Time = {
+    bpm: 75,
+    beatsPerBar: 4,
+    barsPerPhrase: 4,
 
-    // Position in the cycle (0-47 for 4 beats × 12 subdivisions)
-    position: 0,
-    accumulator: 0,
+    beat: 0,
+    bar: 0,
+    phrase: 0,
+    section: 0,
 
-    // Purdie-style patterns - velocity values (0 = rest, 0.1-0.3 = ghost, 0.8+ = accent)
-    // 12 steps per beat, 4 beats = 48 steps
+    beatAccumulator: 0,
+    swingAmount: 0.1,
 
-    // Kick: simple, grounding - on 1 and the "and" of 2
-    kick: [
-        0.9, 0,0,0,0,0, 0,0,0,0,0,0,     // beat 1
-        0,0,0,0,0,0, 0.5,0,0,0,0,0,       // beat 2 (soft on and)
-        0.7,0,0,0,0,0, 0,0,0,0,0,0,       // beat 3
-        0,0,0,0,0,0, 0.4,0,0,0,0,0        // beat 4
-    ],
+    // Musical time in seconds
+    get beatLength() { return 60 / this.bpm; },
+    get barLength() { return this.beatLength * this.beatsPerBar; },
+    get phraseLength() { return this.barLength * this.barsPerPhrase; },
 
-    // Snare: backbeat with ghost notes dancing around it
-    // This is the soul - ghosts on the triplet subdivisions
-    snare: [
-        0,0, 0.12,0, 0.15,0, 0,0, 0.1,0, 0.18,0,    // beat 1: ghosts lead to...
-        0.95,0, 0.15,0, 0.1,0, 0.08,0, 0.2,0, 0.12,0,  // beat 2: CRACK + ghosts
-        0,0, 0.1,0, 0.18,0, 0,0, 0.12,0, 0.22,0,    // beat 3: building...
-        1.0,0, 0.12,0, 0.15,0, 0.1,0, 0.18,0, 0.15,0   // beat 4: CRACK + ghosts
-    ],
+    // Position within current beat (0-1)
+    beatPhase: 0,
 
-    // Hi-hat: shuffle feel - accent on downbeats, lighter on upbeats
-    hat: [
-        0.6,0,0, 0.35,0,0, 0.5,0,0, 0.3,0,0,   // beat 1
-        0.6,0,0, 0.35,0,0, 0.5,0,0, 0.3,0,0,   // beat 2
-        0.6,0,0, 0.35,0,0, 0.5,0,0, 0.3,0,0,   // beat 3
-        0.6,0,0, 0.35,0,0, 0.5,0,0, 0.35,0,0   // beat 4
-    ],
+    // Pulse strength - peaks on downbeats
+    pulse: 0,
 
-    // Visual pulse for each drum hit
-    kickPulse: 0,
-    snarePulse: 0,
-    hatPulse: 0,
+    // Listeners
+    onBeat: [],
+    onBar: [],
+    onPhrase: [],
+    onSection: [],
 
-    get subdivisionLength() {
-        return (60 / this.bpm) / 12;
+    init() {
+        this.beat = 0;
+        this.bar = 0;
+        this.phrase = 0;
+        this.section = 0;
+        this.beatAccumulator = 0;
+    },
+
+    update(dt) {
+        const prevBeat = this.beat;
+        this.beatAccumulator += dt;
+
+        // Calculate beat phase with swing
+        const rawPhase = (this.beatAccumulator % this.beatLength) / this.beatLength;
+        const isOffbeat = Math.floor(this.beatAccumulator / this.beatLength) % 2 === 1;
+
+        if (isOffbeat) {
+            this.beatPhase = rawPhase * (1 - this.swingAmount) + this.swingAmount;
+        } else {
+            this.beatPhase = rawPhase * (1 + this.swingAmount);
+        }
+        this.beatPhase = Math.min(1, this.beatPhase);
+
+        // Pulse - exponential decay from beat
+        this.pulse = Math.exp(-this.beatPhase * 4);
+
+        // Check for beat transition
+        if (this.beatAccumulator >= this.beatLength) {
+            this.beatAccumulator -= this.beatLength;
+            this.beat++;
+
+            // Fire beat callbacks
+            for (const cb of this.onBeat) cb(this.beat, this.beat % this.beatsPerBar);
+
+            // Check for bar transition
+            if (this.beat % this.beatsPerBar === 0) {
+                this.bar++;
+                for (const cb of this.onBar) cb(this.bar, this.bar % this.barsPerPhrase);
+
+                // Check for phrase transition
+                if (this.bar % this.barsPerPhrase === 0) {
+                    this.phrase++;
+                    for (const cb of this.onPhrase) cb(this.phrase);
+
+                    // Check for section transition (every 4 phrases = 16 bars)
+                    if (this.phrase % 4 === 0) {
+                        this.section++;
+                        for (const cb of this.onSection) cb(this.section);
+                    }
+                }
+            }
+        }
+    },
+
+    // Quantize to next beat subdivision
+    nextBeat(subdivision = 1) {
+        const subLength = this.beatLength / subdivision;
+        const current = this.beatAccumulator;
+        return Math.ceil(current / subLength) * subLength - current;
+    },
+
+    // Is this a strong beat?
+    isDownbeat() {
+        return this.beat % this.beatsPerBar === 0;
+    },
+
+    isBackbeat() {
+        return this.beat % this.beatsPerBar === 2;
     }
 };
 
-// ============ AUDIO INIT ============
+// ============ THE YEARNING FIELD ============
+// Everything yearns for what would complete it.
+// A root yearns for its fifth. A fifth for its third.
+// Yearning accumulates. When strong enough, it births.
 
-function initAudio() {
-    ctx = new (window.AudioContext || window.webkitAudioContext)();
+const Yearning = {
+    // What frequencies are yearning to exist
+    field: new Map(), // frequency -> yearning intensity
 
-    master = ctx.createGain();
-    master.gain.value = 0.55;
+    // What's currently sounding (reduces yearning for those frequencies)
+    active: new Map(), // frequency -> intensity
 
-    const comp = ctx.createDynamicsCompressor();
-    comp.threshold.value = -18;
-    comp.ratio.value = 4;
-    comp.attack.value = 0.003;
-    comp.release.value = 0.15;
+    // Memory of what was - the dead still pull
+    memory: new Map(), // frequency -> decay intensity
 
-    // Sub bass
-    sub = ctx.createOscillator();
-    const subGain = ctx.createGain();
-    const subFilter = ctx.createBiquadFilter();
-    sub.type = 'sine';
-    sub.frequency.value = BASE;
-    subFilter.type = 'lowpass';
-    subFilter.frequency.value = 80;
-    subGain.gain.value = 0;
-    sub.connect(subFilter);
-    subFilter.connect(subGain);
-    subGain.connect(master);
-    sub.start();
-    sub.gainNode = subGain;
+    // Harmonic relationships - what completes what
+    completions: {
+        // Each interval and what it yearns for
+        unison: { intervals: [7, 12], strength: 0.8 },      // Wants fifth, octave
+        fifth: { intervals: [4, -5], strength: 0.7 },       // Wants third, fourth below
+        third: { intervals: [3, 7], strength: 0.5 },        // Wants minor third, fifth
+        fourth: { intervals: [5, -2], strength: 0.6 },      // Wants fifth, second below
+        seventh: { intervals: [-2, 5], strength: 0.9 },     // REALLY wants resolution
+    },
 
-    // Reverb
-    verb = createVerb();
+    init() {
+        this.field.clear();
+        this.active.clear();
+        this.memory.clear();
+    },
 
-    // Delay - tempo synced
-    dly = createDelay();
+    // Register that a frequency is sounding
+    activate(midiNote, intensity = 1) {
+        this.active.set(midiNote, (this.active.get(midiNote) || 0) + intensity);
 
-    // Routing
-    master.connect(comp);
-    comp.connect(ctx.destination);
-    verb.output.connect(master);
-    dly.output.connect(master);
+        // Create yearning for completions
+        this.createYearning(midiNote, intensity);
+    },
 
-    // Harmonic voices
-    HARMONICS.forEach((h, i) => {
-        voices.push(createVoice(BASE * h, i));
-    });
+    deactivate(midiNote) {
+        const intensity = this.active.get(midiNote) || 0;
+        this.active.delete(midiNote);
 
-    // Drums
-    initDrums();
-}
+        // Transfer to memory
+        this.memory.set(midiNote, (this.memory.get(midiNote) || 0) + intensity * 0.5);
+    },
 
-function createVerb() {
-    const input = ctx.createGain();
-    const output = ctx.createGain();
-    output.gain.value = 0.35;
+    createYearning(midiNote, intensity) {
+        // A frequency creates yearning for its harmonic completions
+        const noteInOctave = midiNote % 12;
 
-    const times = [0.029, 0.067, 0.113, 0.179, 0.233, 0.307, 0.419, 0.541, 0.709];
-    times.forEach((t, i) => {
-        const d = ctx.createDelay(1);
-        d.delayTime.value = t;
-        const g = ctx.createGain();
-        g.gain.value = 0.32 * Math.pow(0.8, i);
-        const f = ctx.createBiquadFilter();
-        f.type = 'lowpass';
-        f.frequency.value = 3000 - i * 300;
-        input.connect(d);
-        d.connect(f);
-        f.connect(g);
-        g.connect(output);
-    });
+        // Fifth yearning (most powerful)
+        this.addYearning(midiNote + 7, intensity * 0.8);
+        this.addYearning(midiNote - 5, intensity * 0.6);
 
-    return { input, output };
-}
+        // Third yearning
+        this.addYearning(midiNote + 4, intensity * 0.5);
+        this.addYearning(midiNote + 3, intensity * 0.4);
 
-function createDelay() {
-    const input = ctx.createGain();
-    const output = ctx.createGain();
-    output.gain.value = 0.2;
+        // Octave yearning
+        this.addYearning(midiNote + 12, intensity * 0.3);
+        this.addYearning(midiNote - 12, intensity * 0.3);
 
-    const beatTime = 60 / rhythm.bpm;
-    const d = ctx.createDelay(2);
-    d.delayTime.value = beatTime * 0.75; // Dotted eighth
-    const fb = ctx.createGain();
-    fb.gain.value = 0.3;
-    const f = ctx.createBiquadFilter();
-    f.type = 'lowpass';
-    f.frequency.value = 1800;
+        // If we're a seventh, STRONG yearning for resolution
+        if (noteInOctave === 11 || noteInOctave === 10) {
+            this.addYearning(midiNote + 1, intensity * 1.2);
+            this.addYearning(midiNote - 1, intensity * 1.0);
+        }
+    },
 
-    input.connect(d);
-    d.connect(f);
-    f.connect(fb);
-    fb.connect(d);
-    f.connect(output);
+    addYearning(midiNote, amount) {
+        if (midiNote < 24 || midiNote > 96) return; // Keep in reasonable range
 
-    return { input, output, delay: d, feedback: fb };
-}
+        // Reduce yearning for already active notes
+        if (this.active.has(midiNote)) {
+            amount *= 0.2;
+        }
 
-function createVoice(freq, index) {
-    const osc = ctx.createOscillator();
-    const osc2 = ctx.createOscillator();
-    const filter = ctx.createBiquadFilter();
-    const gain = ctx.createGain();
-    const pan = ctx.createStereoPanner();
+        this.field.set(midiNote, (this.field.get(midiNote) || 0) + amount);
+    },
 
-    osc.type = index < 4 ? 'sine' : (index < 8 ? 'triangle' : 'sine');
-    osc.frequency.value = freq;
-    osc2.type = 'sine';
-    osc2.frequency.value = freq * 1.003;
+    update(dt) {
+        // Yearning decays over time
+        for (const [note, intensity] of this.field) {
+            const newIntensity = intensity * (1 - dt * 0.3);
+            if (newIntensity < 0.01) {
+                this.field.delete(note);
+            } else {
+                this.field.set(note, newIntensity);
+            }
+        }
 
-    filter.type = 'lowpass';
-    filter.frequency.value = 100;
-    filter.Q.value = 0.7;
+        // Memory decays slower
+        for (const [note, intensity] of this.memory) {
+            const newIntensity = intensity * (1 - dt * 0.05);
+            if (newIntensity < 0.01) {
+                this.memory.delete(note);
+            } else {
+                this.memory.set(note, newIntensity);
+                // Memory creates gentle yearning
+                this.addYearning(note, newIntensity * dt * 0.5);
+            }
+        }
 
-    gain.gain.value = 0;
-    pan.pan.value = ((index % 6) / 5) * 1.6 - 0.8;
+        // Active notes continuously create yearning
+        for (const [note, intensity] of this.active) {
+            this.createYearning(note, intensity * dt * 2);
+        }
+    },
 
-    osc.connect(filter);
-    osc2.connect(filter);
-    filter.connect(gain);
-    gain.connect(pan);
-    pan.connect(master);
-    pan.connect(verb.input);
-    if (index > 2) pan.connect(dly.input);
+    // What does the universe most want right now?
+    getStrongestYearning(count = 1) {
+        const sorted = [...this.field.entries()]
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, count);
+        return sorted.map(([note, intensity]) => ({ note, intensity }));
+    },
 
-    osc.start();
-    osc2.start();
+    // Get yearning at specific note
+    getYearningAt(midiNote) {
+        return this.field.get(midiNote) || 0;
+    },
 
-    return { osc, osc2, filter, gain, pan, baseFreq: freq, harmonic: HARMONICS[index], index };
+    // Total yearning in the system
+    getTotalYearning() {
+        let total = 0;
+        for (const intensity of this.field.values()) {
+            total += intensity;
+        }
+        return total;
+    }
+};
+
+// ============ THE FOLD ============
+// Space curves toward harmony. Consonance is closeness.
+
+const Fold = {
+    // Calculate harmonic distance between two frequencies
+    harmonicDistance(note1, note2) {
+        const interval = Math.abs(note1 - note2) % 12;
+
+        // Consonance ratings (lower = more consonant = closer)
+        const consonance = {
+            0: 0,    // Unison
+            7: 0.1,  // Fifth
+            5: 0.15, // Fourth
+            4: 0.2,  // Major third
+            3: 0.25, // Minor third
+            9: 0.3,  // Major sixth
+            8: 0.35, // Minor sixth
+            2: 0.5,  // Major second
+            10: 0.55,// Minor seventh
+            11: 0.6, // Major seventh
+            1: 0.8,  // Minor second
+            6: 0.7,  // Tritone
+        };
+
+        return consonance[interval] || 0.5;
+    },
+
+    // Calculate gravitational pull between two entities
+    gravity(entity1, entity2) {
+        const harmDist = this.harmonicDistance(entity1.midiNote, entity2.midiNote);
+        const spatialDist = Math.sqrt(
+            Math.pow(entity1.x - entity2.x, 2) +
+            Math.pow(entity1.y - entity2.y, 2)
+        );
+
+        // Consonant things pull harder
+        const pull = (1 - harmDist) / Math.max(0.1, spatialDist);
+
+        return {
+            x: (entity2.x - entity1.x) * pull * 0.001,
+            y: (entity2.y - entity1.y) * pull * 0.001
+        };
+    }
+};
+
+// ============ HARMONY - THE CHORD MIND ============
+
+const Harmony = {
+    rootNote: 48, // C3
+    scale: SCALES.major,
+    currentChord: [0, 4, 7], // Current chord tones relative to root
+    chordRoot: 0, // Current chord root (scale degree)
+
+    progression: null,
+    progressionIndex: 0,
+
+    tension: 0, // 0 = resolved, 1 = maximum tension
+
+    init() {
+        this.progression = PROGRESSIONS[Math.floor(Math.random() * PROGRESSIONS.length)];
+        this.progressionIndex = 0;
+        this.updateChord();
+    },
+
+    updateChord() {
+        const scaleDegree = this.progression[this.progressionIndex];
+        this.chordRoot = this.scale[scaleDegree % this.scale.length];
+
+        // Determine chord type based on scale degree
+        let chordType;
+        if (scaleDegree === 0 || scaleDegree === 3 || scaleDegree === 4) {
+            chordType = Math.random() < 0.7 ? CHORD_TYPES.major : CHORD_TYPES.dom7;
+        } else if (scaleDegree === 1 || scaleDegree === 2 || scaleDegree === 5) {
+            chordType = Math.random() < 0.7 ? CHORD_TYPES.minor : CHORD_TYPES.min7;
+        } else {
+            chordType = CHORD_TYPES.dim;
+        }
+
+        this.currentChord = chordType.map(interval => (this.chordRoot + interval) % 12);
+
+        // Calculate tension based on chord
+        this.tension = scaleDegree === 4 ? 0.8 : scaleDegree === 1 ? 0.5 : 0.2;
+    },
+
+    advanceChord() {
+        this.progressionIndex = (this.progressionIndex + 1) % this.progression.length;
+        this.updateChord();
+
+        // Occasionally change progression at section boundaries
+        if (this.progressionIndex === 0 && Math.random() < 0.3) {
+            this.progression = PROGRESSIONS[Math.floor(Math.random() * PROGRESSIONS.length)];
+        }
+    },
+
+    // Is this note in the current chord?
+    isChordTone(midiNote) {
+        const noteInOctave = midiNote % 12;
+        const noteRelativeToRoot = (noteInOctave - (this.rootNote % 12) + 12) % 12;
+        return this.currentChord.includes(noteRelativeToRoot);
+    },
+
+    // Is this note in the current scale?
+    isScaleTone(midiNote) {
+        const noteInOctave = midiNote % 12;
+        const noteRelativeToRoot = (noteInOctave - (this.rootNote % 12) + 12) % 12;
+        return this.scale.includes(noteRelativeToRoot);
+    },
+
+    // Get a chord tone in a specific octave
+    getChordTone(octave = 4) {
+        const tone = this.currentChord[Math.floor(Math.random() * this.currentChord.length)];
+        return this.rootNote + tone + (octave - 3) * 12;
+    },
+
+    // Get a scale tone
+    getScaleTone(octave = 4) {
+        const tone = this.scale[Math.floor(Math.random() * this.scale.length)];
+        return this.rootNote + tone + (octave - 3) * 12;
+    },
+
+    // Get the current chord root note
+    getRoot(octave = 3) {
+        return this.rootNote + this.chordRoot + (octave - 3) * 12;
+    },
+
+    // Get bass note (root or fifth)
+    getBassNote() {
+        return Math.random() < 0.7 ?
+            this.rootNote + this.chordRoot - 12 :
+            this.rootNote + this.chordRoot + 7 - 12;
+    }
+};
+
+// ============ MELODY - THE VOICE ============
+
+const Melody = {
+    currentNote: null,
+    previousNotes: [],
+    motif: [],
+    motifIndex: 0,
+
+    range: { low: 60, high: 84 }, // C4 to C6
+
+    // Tendency to move by step vs leap
+    stepProbability: 0.7,
+
+    // Whether we're developing a motif
+    inMotif: false,
+    motifRepetitions: 0,
+
+    init() {
+        this.currentNote = Harmony.getScaleTone(5);
+        this.previousNotes = [];
+        this.motif = [];
+    },
+
+    // Generate next melodic note
+    getNextNote() {
+        // Sometimes start a new motif
+        if (!this.inMotif && Math.random() < 0.2) {
+            this.startMotif();
+        }
+
+        // If in motif, follow it
+        if (this.inMotif && this.motifIndex < this.motif.length) {
+            const note = this.motif[this.motifIndex];
+            this.motifIndex++;
+
+            if (this.motifIndex >= this.motif.length) {
+                this.motifRepetitions++;
+                if (this.motifRepetitions < 2 + Math.floor(Math.random() * 2)) {
+                    // Repeat motif, possibly transposed
+                    this.motifIndex = 0;
+                    if (Math.random() < 0.3) {
+                        const transpose = Math.random() < 0.5 ? 2 : -2;
+                        this.motif = this.motif.map(n => n + transpose);
+                    }
+                } else {
+                    this.inMotif = false;
+                }
+            }
+
+            this.currentNote = note;
+            return note;
+        }
+
+        // Otherwise, generate based on tendency
+        let nextNote;
+
+        // Strong tendency toward chord tones on strong beats
+        if (Time.isDownbeat() && Math.random() < 0.8) {
+            nextNote = Harmony.getChordTone(5);
+        }
+        // Step motion
+        else if (Math.random() < this.stepProbability) {
+            const step = Math.random() < 0.5 ?
+                (Math.random() < 0.6 ? 2 : 1) :
+                (Math.random() < 0.6 ? -2 : -1);
+            nextNote = this.currentNote + step;
+
+            // Ensure it's a scale tone
+            if (!Harmony.isScaleTone(nextNote)) {
+                nextNote += Math.random() < 0.5 ? 1 : -1;
+            }
+        }
+        // Leap
+        else {
+            const leaps = [3, 4, 5, 7, -3, -4, -5, -7];
+            nextNote = this.currentNote + leaps[Math.floor(Math.random() * leaps.length)];
+        }
+
+        // Keep in range
+        while (nextNote < this.range.low) nextNote += 12;
+        while (nextNote > this.range.high) nextNote -= 12;
+
+        // Satisfy yearning if strong
+        const yearnings = Yearning.getStrongestYearning(3);
+        for (const y of yearnings) {
+            if (y.intensity > 1.5 && Math.abs(y.note - nextNote) <= 2) {
+                nextNote = y.note;
+                break;
+            }
+        }
+
+        this.previousNotes.push(this.currentNote);
+        if (this.previousNotes.length > 8) this.previousNotes.shift();
+
+        this.currentNote = nextNote;
+        return nextNote;
+    },
+
+    startMotif() {
+        // Generate a short motif (3-5 notes)
+        const length = 3 + Math.floor(Math.random() * 3);
+        this.motif = [this.currentNote];
+
+        for (let i = 1; i < length; i++) {
+            const prev = this.motif[i - 1];
+            const intervals = [-2, -1, 1, 2, 3, -3, 5, -5];
+            let next = prev + intervals[Math.floor(Math.random() * intervals.length)];
+
+            while (next < this.range.low) next += 12;
+            while (next > this.range.high) next -= 12;
+
+            this.motif.push(next);
+        }
+
+        this.inMotif = true;
+        this.motifIndex = 0;
+        this.motifRepetitions = 0;
+    }
+};
+
+// ============ RHYTHM PATTERNS ============
+
+const Rhythm = {
+    // Kick pattern (1 = hit, 0 = rest)
+    kickPattern: [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0],
+
+    // Snare pattern
+    snarePattern: [0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0],
+
+    // Hat pattern
+    hatPattern: [1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0],
+
+    // Current position in pattern (16th notes)
+    position: 0,
+
+    // Probability of ghost notes
+    ghostProbability: 0.1,
+
+    // Intensity
+    intensity: 0.5,
+
+    init() {
+        this.position = 0;
+        this.generatePatterns();
+    },
+
+    generatePatterns() {
+        // Sometimes vary the patterns
+        const style = Math.floor(Math.random() * 4);
+
+        switch (style) {
+            case 0: // Four on floor
+                this.kickPattern = [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0];
+                this.snarePattern = [0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0];
+                this.hatPattern = [1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0];
+                break;
+            case 1: // Hip hop
+                this.kickPattern = [1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0];
+                this.snarePattern = [0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1];
+                this.hatPattern = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1];
+                break;
+            case 2: // Sparse
+                this.kickPattern = [1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0];
+                this.snarePattern = [0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0];
+                this.hatPattern = [0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0];
+                break;
+            case 3: // Syncopated
+                this.kickPattern = [1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0];
+                this.snarePattern = [0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0];
+                this.hatPattern = [1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1];
+                break;
+        }
+    },
+
+    advance() {
+        this.position = (this.position + 1) % 16;
+
+        // At end of pattern, maybe change
+        if (this.position === 0 && Math.random() < 0.1) {
+            this.generatePatterns();
+        }
+    },
+
+    shouldKick() {
+        return this.kickPattern[this.position] === 1 ||
+               (Math.random() < this.ghostProbability * 0.5);
+    },
+
+    shouldSnare() {
+        return this.snarePattern[this.position] === 1 ||
+               (Math.random() < this.ghostProbability);
+    },
+
+    shouldHat() {
+        return this.hatPattern[this.position] === 1;
+    },
+
+    getVelocity(isGhost = false) {
+        if (isGhost) return 0.3 + Math.random() * 0.2;
+
+        // Downbeats stronger
+        if (this.position % 4 === 0) return 0.8 + Math.random() * 0.2;
+        if (this.position % 2 === 0) return 0.6 + Math.random() * 0.2;
+        return 0.4 + Math.random() * 0.2;
+    }
+};
+
+// ============ SONG FORM ============
+
+const Form = {
+    // Sections: intro, verse, build, chorus, breakdown, outro
+    sections: ['intro', 'verse', 'build', 'chorus', 'breakdown', 'verse', 'chorus', 'outro'],
+    currentSection: 0,
+
+    // Density curve (0-1, affects how much is happening)
+    density: 0.3,
+    targetDensity: 0.3,
+
+    // Energy curve
+    energy: 0.3,
+    targetEnergy: 0.3,
+
+    barsInSection: 0,
+
+    init() {
+        this.currentSection = 0;
+        this.barsInSection = 0;
+        this.updateTargets();
+    },
+
+    updateTargets() {
+        const section = this.sections[this.currentSection];
+
+        switch (section) {
+            case 'intro':
+                this.targetDensity = 0.2;
+                this.targetEnergy = 0.2;
+                Rhythm.intensity = 0.3;
+                break;
+            case 'verse':
+                this.targetDensity = 0.4;
+                this.targetEnergy = 0.4;
+                Rhythm.intensity = 0.5;
+                break;
+            case 'build':
+                this.targetDensity = 0.6;
+                this.targetEnergy = 0.7;
+                Rhythm.intensity = 0.7;
+                break;
+            case 'chorus':
+                this.targetDensity = 0.8;
+                this.targetEnergy = 0.9;
+                Rhythm.intensity = 0.9;
+                break;
+            case 'breakdown':
+                this.targetDensity = 0.3;
+                this.targetEnergy = 0.3;
+                Rhythm.intensity = 0.4;
+                break;
+            case 'outro':
+                this.targetDensity = 0.2;
+                this.targetEnergy = 0.1;
+                Rhythm.intensity = 0.2;
+                break;
+        }
+    },
+
+    update(dt) {
+        // Smoothly approach targets
+        this.density += (this.targetDensity - this.density) * dt * 0.5;
+        this.energy += (this.targetEnergy - this.energy) * dt * 0.5;
+    },
+
+    advanceBar() {
+        this.barsInSection++;
+
+        // Section lengths: 8-16 bars
+        const sectionLength = this.sections[this.currentSection] === 'chorus' ? 16 : 8;
+
+        if (this.barsInSection >= sectionLength) {
+            this.barsInSection = 0;
+            this.currentSection = (this.currentSection + 1) % this.sections.length;
+            this.updateTargets();
+            return true; // Section changed
+        }
+        return false;
+    },
+
+    getCurrentSection() {
+        return this.sections[this.currentSection];
+    }
+};
+
+// ============ THE FIELD (EVOLVED) ============
+
+const Field = {
+    resolution: 24,
+    grid: [],
+
+    init() {
+        for (let x = 0; x < this.resolution; x++) {
+            this.grid[x] = [];
+            for (let y = 0; y < this.resolution; y++) {
+                this.grid[x][y] = {
+                    energy: 0.01 + Math.random() * 0.01,
+                    hue: Math.random() * 360,
+                    pulse: 0
+                };
+            }
+        }
+    },
+
+    excite(x, y, energy, hue) {
+        const gx = Math.floor(x * (this.resolution - 1));
+        const gy = Math.floor(y * (this.resolution - 1));
+
+        for (let dx = -2; dx <= 2; dx++) {
+            for (let dy = -2; dy <= 2; dy++) {
+                const nx = gx + dx;
+                const ny = gy + dy;
+                if (nx < 0 || nx >= this.resolution || ny < 0 || ny >= this.resolution) continue;
+
+                const dist = Math.sqrt(dx*dx + dy*dy);
+                const falloff = Math.exp(-dist * 0.5);
+
+                this.grid[nx][ny].energy = Math.min(1, this.grid[nx][ny].energy + energy * falloff);
+                this.grid[nx][ny].hue = hue;
+                this.grid[nx][ny].pulse = 1;
+            }
+        }
+    },
+
+    update(dt) {
+        for (let x = 0; x < this.resolution; x++) {
+            for (let y = 0; y < this.resolution; y++) {
+                const cell = this.grid[x][y];
+                cell.energy *= 0.98;
+                cell.pulse *= 0.9;
+
+                // Diffusion
+                let neighborEnergy = 0;
+                let count = 0;
+                for (let dx = -1; dx <= 1; dx++) {
+                    for (let dy = -1; dy <= 1; dy++) {
+                        if (dx === 0 && dy === 0) continue;
+                        const nx = x + dx;
+                        const ny = y + dy;
+                        if (nx >= 0 && nx < this.resolution && ny >= 0 && ny < this.resolution) {
+                            neighborEnergy += this.grid[nx][ny].energy;
+                            count++;
+                        }
+                    }
+                }
+
+                if (count > 0) {
+                    cell.energy += (neighborEnergy / count - cell.energy) * 0.05;
+                }
+            }
+        }
+    }
+};
+
+// ============ VOICES - SOUND GENERATORS ============
+
+class Voice {
+    constructor(ctx, type, destination) {
+        this.ctx = ctx;
+        this.type = type;
+        this.destination = destination;
+
+        this.osc = null;
+        this.gain = null;
+        this.filter = null;
+
+        this.midiNote = 60;
+        this.playing = false;
+    }
+
+    noteOn(midiNote, velocity = 0.8, attack = 0.02) {
+        const freq = 440 * Math.pow(2, (midiNote - 69) / 12);
+
+        if (!this.osc) {
+            this.osc = this.ctx.createOscillator();
+            this.filter = this.ctx.createBiquadFilter();
+            this.gain = this.ctx.createGain();
+
+            this.osc.type = this.type;
+            this.filter.type = 'lowpass';
+            this.filter.frequency.value = 2000;
+            this.filter.Q.value = 1;
+            this.gain.gain.value = 0;
+
+            this.osc.connect(this.filter);
+            this.filter.connect(this.gain);
+            this.gain.connect(this.destination);
+
+            this.osc.start();
+        }
+
+        const now = this.ctx.currentTime;
+        this.osc.frequency.setValueAtTime(freq, now);
+        this.gain.gain.cancelScheduledValues(now);
+        this.gain.gain.setValueAtTime(this.gain.gain.value, now);
+        this.gain.gain.linearRampToValueAtTime(velocity * 0.15, now + attack);
+
+        this.filter.frequency.setValueAtTime(500, now);
+        this.filter.frequency.linearRampToValueAtTime(2000 + velocity * 3000, now + attack);
+
+        this.midiNote = midiNote;
+        this.playing = true;
+
+        Yearning.activate(midiNote, velocity);
+    }
+
+    noteOff(release = 0.3) {
+        if (!this.gain) return;
+
+        const now = this.ctx.currentTime;
+        this.gain.gain.cancelScheduledValues(now);
+        this.gain.gain.setValueAtTime(this.gain.gain.value, now);
+        this.gain.gain.linearRampToValueAtTime(0, now + release);
+
+        this.filter.frequency.linearRampToValueAtTime(200, now + release);
+
+        this.playing = false;
+        Yearning.deactivate(this.midiNote);
+    }
+
+    setFilterFreq(freq) {
+        if (this.filter) {
+            this.filter.frequency.linearRampToValueAtTime(freq, this.ctx.currentTime + 0.05);
+        }
+    }
 }
 
 // ============ DRUMS ============
-// Synthesized, not sampled - part of the same sonic world
 
-function initDrums() {
-    drums.master = ctx.createGain();
-    drums.master.gain.value = 0;
-    drums.master.connect(master);
-    drums.master.connect(verb.input);
-}
-
-function triggerKick(velocity) {
-    const now = ctx.currentTime;
-    const v = velocity * field.groove;
-    if (v < 0.05) return;
-
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(150 * (0.8 + field.y * 0.4), now);
-    osc.frequency.exponentialRampToValueAtTime(35, now + 0.12);
-
-    gain.gain.setValueAtTime(v * 0.7, now);
-    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
-
-    osc.connect(gain);
-    gain.connect(drums.master);
-
-    osc.start(now);
-    osc.stop(now + 0.4);
-
-    rhythm.kickPulse = v;
-}
-
-function triggerSnare(velocity) {
-    const now = ctx.currentTime;
-    const v = velocity * field.groove;
-    if (v < 0.02) return;
-
-    const isGhost = velocity < 0.4;
-
-    // Noise burst
-    const bufferSize = ctx.sampleRate * (isGhost ? 0.08 : 0.15);
-    const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
-    const data = buffer.getChannelData(0);
-    for (let i = 0; i < bufferSize; i++) {
-        data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufferSize * (isGhost ? 0.15 : 0.12)));
+class DrumVoice {
+    constructor(ctx, destination, type) {
+        this.ctx = ctx;
+        this.destination = destination;
+        this.type = type;
     }
 
-    const noise = ctx.createBufferSource();
-    noise.buffer = buffer;
+    trigger(velocity = 0.8) {
+        const now = this.ctx.currentTime;
 
-    const noiseFilter = ctx.createBiquadFilter();
-    noiseFilter.type = 'bandpass';
-    noiseFilter.frequency.value = isGhost ? 3000 + field.y * 2000 : 2000;
-    noiseFilter.Q.value = isGhost ? 1.5 : 0.8;
+        if (this.type === 'kick') {
+            const osc = this.ctx.createOscillator();
+            const gain = this.ctx.createGain();
 
-    const noiseGain = ctx.createGain();
-    noiseGain.gain.setValueAtTime(v * (isGhost ? 0.25 : 0.45), now);
-    noiseGain.gain.exponentialRampToValueAtTime(0.001, now + (isGhost ? 0.06 : 0.12));
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(150, now);
+            osc.frequency.exponentialRampToValueAtTime(30, now + 0.15);
 
-    noise.connect(noiseFilter);
-    noiseFilter.connect(noiseGain);
-    noiseGain.connect(drums.master);
+            gain.gain.setValueAtTime(velocity * 0.8, now);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
 
-    // Body tone (less for ghosts)
-    if (!isGhost || velocity > 0.15) {
-        const osc = ctx.createOscillator();
-        const oscGain = ctx.createGain();
-        osc.type = 'triangle';
-        osc.frequency.setValueAtTime(isGhost ? 250 : 180, now);
-        osc.frequency.exponentialRampToValueAtTime(isGhost ? 150 : 90, now + 0.04);
-        oscGain.gain.setValueAtTime(v * (isGhost ? 0.15 : 0.35), now);
-        oscGain.gain.exponentialRampToValueAtTime(0.001, now + (isGhost ? 0.04 : 0.08));
+            osc.connect(gain);
+            gain.connect(this.destination);
 
-        osc.connect(oscGain);
-        oscGain.connect(drums.master);
-        osc.start(now);
-        osc.stop(now + 0.15);
-    }
+            osc.start(now);
+            osc.stop(now + 0.5);
+        }
+        else if (this.type === 'snare') {
+            // Noise burst + tone
+            const bufferSize = this.ctx.sampleRate * 0.2;
+            const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+            const data = buffer.getChannelData(0);
+            for (let i = 0; i < bufferSize; i++) {
+                data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufferSize * 0.1));
+            }
 
-    noise.start(now);
+            const noise = this.ctx.createBufferSource();
+            noise.buffer = buffer;
 
-    rhythm.snarePulse = Math.max(rhythm.snarePulse, v);
-}
+            const noiseFilter = this.ctx.createBiquadFilter();
+            noiseFilter.type = 'highpass';
+            noiseFilter.frequency.value = 1000;
 
-function triggerHat(velocity) {
-    const now = ctx.currentTime;
-    const v = velocity * field.groove;
-    if (v < 0.05) return;
+            const noiseGain = this.ctx.createGain();
+            noiseGain.gain.setValueAtTime(velocity * 0.5, now);
+            noiseGain.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
 
-    const bufferSize = ctx.sampleRate * 0.04;
-    const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
-    const data = buffer.getChannelData(0);
-    for (let i = 0; i < bufferSize; i++) {
-        data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufferSize * 0.25));
-    }
+            noise.connect(noiseFilter);
+            noiseFilter.connect(noiseGain);
+            noiseGain.connect(this.destination);
 
-    const noise = ctx.createBufferSource();
-    noise.buffer = buffer;
+            // Body
+            const osc = this.ctx.createOscillator();
+            const oscGain = this.ctx.createGain();
+            osc.type = 'triangle';
+            osc.frequency.setValueAtTime(180, now);
+            osc.frequency.exponentialRampToValueAtTime(80, now + 0.05);
+            oscGain.gain.setValueAtTime(velocity * 0.4, now);
+            oscGain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
 
-    const filter = ctx.createBiquadFilter();
-    filter.type = 'highpass';
-    filter.frequency.value = 7000 + field.y * 3000;
+            osc.connect(oscGain);
+            oscGain.connect(this.destination);
 
-    const gain = ctx.createGain();
-    gain.gain.setValueAtTime(v * 0.18, now);
-    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.04);
+            noise.start(now);
+            osc.start(now);
+            osc.stop(now + 0.2);
+        }
+        else if (this.type === 'hat') {
+            const bufferSize = this.ctx.sampleRate * 0.05;
+            const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+            const data = buffer.getChannelData(0);
+            for (let i = 0; i < bufferSize; i++) {
+                data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufferSize * 0.3));
+            }
 
-    noise.connect(filter);
-    filter.connect(gain);
-    gain.connect(drums.master);
+            const noise = this.ctx.createBufferSource();
+            noise.buffer = buffer;
 
-    noise.start(now);
+            const filter = this.ctx.createBiquadFilter();
+            filter.type = 'highpass';
+            filter.frequency.value = 7000;
 
-    rhythm.hatPulse = Math.max(rhythm.hatPulse, v);
-}
+            const gain = this.ctx.createGain();
+            gain.gain.setValueAtTime(velocity * 0.2, now);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.05);
 
-// ============ THE SHAPING ============
+            noise.connect(filter);
+            filter.connect(gain);
+            gain.connect(this.destination);
 
-function shapeField(dt) {
-    const now = ctx.currentTime;
-
-    // Energy from velocity
-    const speed = Math.sqrt(field.vx * field.vx + field.vy * field.vy);
-    field.energy = field.energy * 0.92 + speed * 0.8;
-
-    // Stillness accumulates
-    if (speed < 0.008) {
-        field.stillness = Math.min(1, field.stillness + dt * 0.25);
-    } else {
-        field.stillness *= 0.92;
-    }
-
-    // Groove emerges from stillness (slower than stillness itself)
-    // High energy suppresses groove
-    const targetGroove = field.stillness * (1 - field.energy * 0.7);
-    field.groove += (targetGroove - field.groove) * dt * 0.8;
-    field.groove = Math.max(0, Math.min(1, field.groove));
-
-    // Drums volume follows groove
-    drums.master.gain.linearRampToValueAtTime(field.groove * 0.85, now + 0.1);
-
-    // Harmonic voices
-    voices.forEach((v, i) => {
-        const harmonicX = (i + 0.5) / voices.length;
-        const xDistance = Math.abs(field.x - harmonicX);
-        const xPresence = Math.max(0, 1 - xDistance * 2.5);
-
-        const harmonicY = i / voices.length;
-        const yDistance = Math.abs(field.y - harmonicY);
-        const yPresence = Math.max(0, 1 - yDistance * 2);
-
-        let presence = (xPresence * 0.7 + yPresence * 0.3);
-
-        // Energy boost
-        const energyBoost = 0.3 + field.energy * 2;
-
-        // Groove adds subtle pulse to harmonics (sync with rhythm)
-        const rhythmSync = 1 + rhythm.kickPulse * 0.3 * field.groove;
-
-        const amp = presence * energyBoost * rhythmSync * 0.11;
-        v.gain.gain.linearRampToValueAtTime(Math.min(0.18, amp), now + 0.08);
-
-        // Filter
-        const filterBase = 80 + field.y * 2500 + field.energy * 2000;
-        v.filter.frequency.linearRampToValueAtTime(filterBase, now + 0.08);
-
-        // Pitch drift
-        const pitchDrift = 1 + field.vx * 0.015 * (i - voices.length / 2) / voices.length;
-        v.osc.frequency.linearRampToValueAtTime(v.baseFreq * pitchDrift, now + 0.1);
-        v.osc2.frequency.linearRampToValueAtTime(v.baseFreq * pitchDrift * 1.003, now + 0.1);
-
-        // Pan
-        const panBase = ((i % 6) / 5) * 1.6 - 0.8;
-        const panMod = field.vx * 0.4;
-        v.pan.pan.linearRampToValueAtTime(Math.max(-1, Math.min(1, panBase + panMod)), now + 0.08);
-    });
-
-    // Sub follows kick
-    const subAmp = rhythm.kickPulse * field.groove * 0.4;
-    sub.gainNode.gain.linearRampToValueAtTime(subAmp, now + 0.05);
-
-    // Reverb: more stillness = more space
-    verb.output.gain.linearRampToValueAtTime(0.2 + field.stillness * 0.35, now + 0.2);
-
-    // Delay: energy creates echoes
-    dly.feedback.gain.linearRampToValueAtTime(0.15 + field.energy * 0.35, now + 0.1);
-}
-
-// ============ RHYTHM ENGINE ============
-
-function tickRhythm(dt) {
-    rhythm.accumulator += dt;
-
-    // Decay visual pulses
-    rhythm.kickPulse *= 0.85;
-    rhythm.snarePulse *= 0.88;
-    rhythm.hatPulse *= 0.9;
-
-    // Check for new subdivisions
-    while (rhythm.accumulator >= rhythm.subdivisionLength) {
-        rhythm.accumulator -= rhythm.subdivisionLength;
-
-        // Get velocities from patterns
-        const kickVel = rhythm.kick[rhythm.position];
-        const snareVel = rhythm.snare[rhythm.position];
-        const hatVel = rhythm.hat[rhythm.position];
-
-        // Trigger drums (they respect field.groove internally)
-        if (kickVel > 0) triggerKick(kickVel);
-        if (snareVel > 0) triggerSnare(snareVel);
-        if (hatVel > 0) triggerHat(hatVel);
-
-        // Advance position
-        rhythm.position = (rhythm.position + 1) % 48;
+            noise.start(now);
+        }
     }
 }
 
-// ============ MEMORY ============
+// ============ ENTITIES - VISUAL/SONIC BEINGS ============
 
-function updateMemory() {
-    if (field.energy > 0.1 && Math.random() < 0.1) {
-        memory.push({
-            x: field.x,
-            y: field.y,
-            energy: field.energy,
-            time: field.time,
-            hue: (field.x * 360 + field.y * 60) % 360
-        });
-        if (memory.length > MAX_MEMORY) memory.shift();
+let entityId = 0;
+
+class Entity {
+    constructor(x, y, midiNote) {
+        this.id = entityId++;
+        this.x = x;
+        this.y = y;
+        this.vx = (Math.random() - 0.5) * 0.002;
+        this.vy = (Math.random() - 0.5) * 0.002;
+
+        this.midiNote = midiNote;
+        this.freq = 440 * Math.pow(2, (midiNote - 69) / 12);
+
+        this.life = 1;
+        this.age = 0;
+        this.amplitude = 0;
+
+        this.hue = (midiNote * 15) % 360;
+        this.trail = [];
+
+        this.voice = null;
+        this.connected = [];
     }
 
-    for (let i = memory.length - 1; i >= 0; i--) {
-        memory[i].energy *= 0.995;
-        if (memory[i].energy < 0.01) memory.splice(i, 1);
+    createVoice(ctx, destination) {
+        this.voice = new Voice(ctx, 'sine', destination);
+    }
+
+    update(dt, entities) {
+        this.age += dt;
+
+        // Amplitude follows life with envelope
+        const targetAmp = this.life * Form.energy;
+        this.amplitude += (targetAmp - this.amplitude) * dt * 3;
+
+        // Harmonic gravity - pulled toward consonant entities
+        for (const other of entities) {
+            if (other.id === this.id) continue;
+
+            const gravity = Fold.gravity(this, other);
+            this.vx += gravity.x;
+            this.vy += gravity.y;
+        }
+
+        // Center gravity
+        this.vx += (0.5 - this.x) * 0.0002;
+        this.vy += (0.5 - this.y) * 0.0002;
+
+        // Damping
+        this.vx *= 0.98;
+        this.vy *= 0.98;
+
+        // Movement
+        this.x += this.vx;
+        this.y += this.vy;
+
+        // Boundaries
+        if (this.x < 0.05) { this.x = 0.05; this.vx *= -0.5; }
+        if (this.x > 0.95) { this.x = 0.95; this.vx *= -0.5; }
+        if (this.y < 0.05) { this.y = 0.05; this.vy *= -0.5; }
+        if (this.y > 0.95) { this.y = 0.95; this.vy *= -0.5; }
+
+        // Trail
+        this.trail.unshift({ x: this.x, y: this.y });
+        if (this.trail.length > 20) this.trail.pop();
+
+        // Natural decay (slower if connected to others)
+        const connectionBonus = this.connected.length * 0.005;
+        this.life -= dt * (0.015 - connectionBonus);
+
+        // Update voice
+        if (this.voice && this.voice.playing) {
+            const vol = this.amplitude * 0.15;
+            this.voice.gain.gain.linearRampToValueAtTime(vol, this.voice.ctx.currentTime + 0.05);
+            this.voice.setFilterFreq(500 + this.amplitude * 3000);
+        }
+    }
+
+    draw(vc, w, h) {
+        const px = this.x * w;
+        const py = this.y * h;
+        const alpha = this.life * this.amplitude;
+
+        // Trail
+        if (this.trail.length > 1) {
+            vc.beginPath();
+            vc.moveTo(this.trail[0].x * w, this.trail[0].y * h);
+            for (let i = 1; i < this.trail.length; i++) {
+                vc.lineTo(this.trail[i].x * w, this.trail[i].y * h);
+            }
+            vc.strokeStyle = `hsla(${this.hue}, 70%, 60%, ${alpha * 0.3})`;
+            vc.lineWidth = 1 + this.amplitude;
+            vc.stroke();
+        }
+
+        // Body
+        const r = 10 + this.amplitude * 25;
+        const grad = vc.createRadialGradient(px, py, 0, px, py, r);
+        grad.addColorStop(0, `hsla(${this.hue}, 80%, 70%, ${alpha * 0.8})`);
+        grad.addColorStop(0.5, `hsla(${this.hue}, 60%, 50%, ${alpha * 0.4})`);
+        grad.addColorStop(1, 'transparent');
+
+        vc.fillStyle = grad;
+        vc.beginPath();
+        vc.arc(px, py, r, 0, TAU);
+        vc.fill();
+
+        // Connections
+        for (const other of this.connected) {
+            if (other.life <= 0) continue;
+            vc.beginPath();
+            vc.moveTo(px, py);
+            vc.lineTo(other.x * w, other.y * h);
+            vc.strokeStyle = `rgba(255, 255, 255, ${alpha * 0.2})`;
+            vc.lineWidth = 1;
+            vc.stroke();
+        }
+    }
+
+    destroy() {
+        if (this.voice) {
+            this.voice.noteOff(0.5);
+        }
+        Yearning.deactivate(this.midiNote);
     }
 }
 
-// ============ INPUT ============
+// ============ UNIVERSE ============
 
-function onMove(nx, ny) {
-    field.vx = field.vx * 0.6 + (nx - field.x) * 0.4;
-    field.vy = field.vy * 0.6 + (ny - field.y) * 0.4;
-    field.x = nx;
-    field.y = ny;
-}
+const Universe = {
+    ctx: null,
+    master: null,
+    verbSend: null,
+    delaySend: null,
 
-function onMotion(e) {
-    const a = e.accelerationIncludingGravity;
-    if (!a) return;
+    entities: [],
+    drums: { kick: null, snare: null, hat: null },
+    bassVoice: null,
+    padVoices: [],
+    leadVoice: null,
 
-    const ax = (a.x || 0) / 12;
-    const ay = (a.y || 0) / 12;
+    observer: { x: 0.5, y: 0.5, energy: 0 },
 
-    field.vx = field.vx * 0.7 + ax * 0.3;
-    field.vy = field.vy * 0.7 + ay * 0.3;
+    sixteenthAccum: 0,
 
-    field.x = Math.max(0, Math.min(1, field.x + field.vx * 0.08));
-    field.y = Math.max(0, Math.min(1, field.y - field.vy * 0.08));
-}
+    async init() {
+        // Audio setup
+        this.ctx = new (window.AudioContext || window.webkitAudioContext)();
 
-function onOrientation(e) {
-    const gx = (e.gamma || 0) / 50;
-    const gy = (e.beta || 0) / 50 - 0.8;
+        this.master = this.ctx.createGain();
+        this.master.gain.value = 0.7;
 
-    const nx = Math.max(0, Math.min(1, (gx + 1) / 2));
-    const ny = Math.max(0, Math.min(1, 1 - (gy + 1) / 2));
+        const comp = this.ctx.createDynamicsCompressor();
+        comp.threshold.value = -15;
+        comp.ratio.value = 4;
 
-    onMove(nx, ny);
-}
+        // Reverb
+        this.verbSend = this.ctx.createGain();
+        this.verbSend.gain.value = 0.25;
 
-// ============ VISUALS ============
+        const verbDelay = this.ctx.createDelay(1);
+        verbDelay.delayTime.value = 0.05;
+        const verbDelay2 = this.ctx.createDelay(1);
+        verbDelay2.delayTime.value = 0.08;
+        const verbFb = this.ctx.createGain();
+        verbFb.gain.value = 0.5;
+        const verbFilter = this.ctx.createBiquadFilter();
+        verbFilter.type = 'lowpass';
+        verbFilter.frequency.value = 3000;
+
+        this.verbSend.connect(verbDelay);
+        verbDelay.connect(verbDelay2);
+        verbDelay2.connect(verbFilter);
+        verbFilter.connect(verbFb);
+        verbFb.connect(verbDelay);
+        verbFilter.connect(this.master);
+
+        // Delay
+        this.delaySend = this.ctx.createGain();
+        this.delaySend.gain.value = 0.2;
+
+        const dlyL = this.ctx.createDelay(2);
+        const dlyR = this.ctx.createDelay(2);
+        dlyL.delayTime.value = Time.beatLength * 0.75;
+        dlyR.delayTime.value = Time.beatLength * 0.5;
+        const dlyFb = this.ctx.createGain();
+        dlyFb.gain.value = 0.4;
+        const dlyFilter = this.ctx.createBiquadFilter();
+        dlyFilter.type = 'lowpass';
+        dlyFilter.frequency.value = 2000;
+
+        this.delaySend.connect(dlyL);
+        dlyL.connect(dlyFb);
+        dlyFb.connect(dlyFilter);
+        dlyFilter.connect(dlyR);
+        dlyR.connect(this.master);
+        dlyL.connect(this.master);
+
+        this.master.connect(comp);
+        comp.connect(this.ctx.destination);
+
+        // Drums
+        this.drums.kick = new DrumVoice(this.ctx, this.master, 'kick');
+        this.drums.snare = new DrumVoice(this.ctx, this.master, 'snare');
+        this.drums.hat = new DrumVoice(this.ctx, this.master, 'hat');
+
+        // Bass
+        this.bassVoice = new Voice(this.ctx, 'sawtooth', this.master);
+
+        // Pad voices (for chords)
+        for (let i = 0; i < 4; i++) {
+            const pad = new Voice(this.ctx, 'triangle', this.verbSend);
+            this.padVoices.push(pad);
+        }
+
+        // Lead voice
+        this.leadVoice = new Voice(this.ctx, 'sawtooth', this.delaySend);
+
+        // Initialize systems
+        Field.init();
+        Time.init();
+        Yearning.init();
+        Harmony.init();
+        Melody.init();
+        Rhythm.init();
+        Form.init();
+
+        // Time callbacks
+        Time.onBeat.push((beat, beatInBar) => this.onBeat(beat, beatInBar));
+        Time.onBar.push((bar, barInPhrase) => this.onBar(bar, barInPhrase));
+        Time.onPhrase.push((phrase) => this.onPhrase(phrase));
+        Time.onSection.push((section) => this.onSection(section));
+
+        // Start with some entities
+        for (let i = 0; i < 3; i++) {
+            this.spawnEntity();
+        }
+    },
+
+    spawnEntity() {
+        // Spawn based on yearning
+        const yearnings = Yearning.getStrongestYearning(3);
+        let midiNote;
+
+        if (yearnings.length > 0 && yearnings[0].intensity > 0.5) {
+            midiNote = yearnings[0].note;
+        } else {
+            midiNote = Harmony.getChordTone(4 + Math.floor(Math.random() * 2));
+        }
+
+        const x = 0.2 + Math.random() * 0.6;
+        const y = 0.2 + Math.random() * 0.6;
+
+        const entity = new Entity(x, y, midiNote);
+        entity.createVoice(this.ctx, this.verbSend);
+        entity.voice.noteOn(midiNote, 0.5 + Math.random() * 0.3);
+
+        this.entities.push(entity);
+
+        Field.excite(x, y, 0.5, entity.hue);
+
+        // Check for connections
+        for (const other of this.entities) {
+            if (other.id === entity.id) continue;
+
+            const harmDist = Fold.harmonicDistance(entity.midiNote, other.midiNote);
+            if (harmDist < 0.3) {
+                entity.connected.push(other);
+                other.connected.push(entity);
+            }
+        }
+
+        return entity;
+    },
+
+    onBeat(beat, beatInBar) {
+        // Advance rhythm
+        for (let i = 0; i < 4; i++) {
+            Rhythm.advance();
+        }
+
+        // Drums on certain sections
+        const section = Form.getCurrentSection();
+        if (section !== 'intro' && section !== 'breakdown') {
+            if (Rhythm.shouldKick()) {
+                this.drums.kick.trigger(Rhythm.getVelocity() * Rhythm.intensity);
+                Field.excite(0.5, 0.8, 0.6, 20);
+            }
+            if (Rhythm.shouldSnare()) {
+                this.drums.snare.trigger(Rhythm.getVelocity() * Rhythm.intensity);
+                Field.excite(0.5, 0.5, 0.5, 60);
+            }
+        }
+
+        // Hats more often
+        if (Rhythm.shouldHat() && section !== 'intro') {
+            this.drums.hat.trigger(Rhythm.getVelocity() * 0.7 * Rhythm.intensity);
+        }
+
+        // Bass on downbeats
+        if (beatInBar === 0 && section !== 'intro') {
+            const bassNote = Harmony.getBassNote();
+            this.bassVoice.noteOn(bassNote, 0.6 * Form.energy, 0.01);
+            setTimeout(() => this.bassVoice.noteOff(0.2), Time.beatLength * 800);
+            Yearning.activate(bassNote, 0.8);
+        }
+
+        // Lead melody
+        if (Form.density > 0.5 && Math.random() < Form.density) {
+            const note = Melody.getNextNote();
+            this.leadVoice.noteOn(note, 0.4 + Form.energy * 0.3, 0.01);
+            setTimeout(() => this.leadVoice.noteOff(0.15), Time.beatLength * 400);
+
+            // Occasionally spawn entity from melody
+            if (Math.random() < 0.2 && this.entities.length < 15) {
+                const entity = new Entity(0.5 + (Math.random() - 0.5) * 0.3, 0.3, note);
+                entity.createVoice(this.ctx, this.verbSend);
+                this.entities.push(entity);
+            }
+        }
+
+        // Spawn entities based on yearning
+        if (this.entities.length < 8 + Form.density * 10) {
+            const yearnings = Yearning.getStrongestYearning(1);
+            if (yearnings.length > 0 && yearnings[0].intensity > 1.0 && Math.random() < 0.3) {
+                this.spawnEntity();
+            }
+        }
+    },
+
+    onBar(bar, barInPhrase) {
+        // Chord change on first beat of bar (sometimes)
+        if (barInPhrase === 0 || (barInPhrase === 2 && Math.random() < 0.5)) {
+            Harmony.advanceChord();
+
+            // Update pads
+            const chordNotes = [
+                Harmony.getRoot(4),
+                Harmony.getChordTone(4),
+                Harmony.getChordTone(4),
+                Harmony.getChordTone(5)
+            ];
+
+            for (let i = 0; i < this.padVoices.length; i++) {
+                if (Form.density > 0.3) {
+                    this.padVoices[i].noteOn(chordNotes[i], 0.15 * Form.energy, 0.5);
+                }
+            }
+
+            Gumpy.onChordChange();
+        }
+
+        Form.advanceBar();
+    },
+
+    onPhrase(phrase) {
+        // Maybe change key
+        if (Math.random() < 0.1) {
+            const shifts = [-5, -2, 2, 5, 7];
+            Harmony.rootNote += shifts[Math.floor(Math.random() * shifts.length)];
+            // Keep in reasonable range
+            while (Harmony.rootNote < 36) Harmony.rootNote += 12;
+            while (Harmony.rootNote > 60) Harmony.rootNote -= 12;
+        }
+
+        // Maybe change tempo slightly
+        if (Math.random() < 0.2) {
+            Time.bpm += (Math.random() - 0.5) * 5;
+            Time.bpm = Math.max(60, Math.min(100, Time.bpm));
+        }
+
+        Gumpy.onPhrase();
+    },
+
+    onSection(section) {
+        Gumpy.onSection(Form.getCurrentSection());
+
+        // Dramatic changes at section boundaries
+        if (Form.getCurrentSection() === 'breakdown') {
+            // Kill most entities
+            for (const entity of this.entities) {
+                if (Math.random() < 0.7) {
+                    entity.life = 0;
+                }
+            }
+            // Stop pads
+            for (const pad of this.padVoices) {
+                pad.noteOff(2);
+            }
+        }
+    },
+
+    update(dt) {
+        Time.update(dt);
+        Yearning.update(dt);
+        Form.update(dt);
+        Field.update(dt);
+
+        // Update entities
+        for (const entity of this.entities) {
+            entity.update(dt, this.entities);
+        }
+
+        // Remove dead entities
+        for (let i = this.entities.length - 1; i >= 0; i--) {
+            if (this.entities[i].life <= 0) {
+                this.entities[i].destroy();
+                this.entities.splice(i, 1);
+            }
+        }
+
+        // Observer influence
+        if (this.observer.energy > 0.1) {
+            Field.excite(this.observer.x, this.observer.y, this.observer.energy * 0.3, 200);
+
+            // Observer can spawn entities
+            if (Math.random() < this.observer.energy * 0.02 && this.entities.length < 20) {
+                const yearnings = Yearning.getStrongestYearning(1);
+                if (yearnings.length > 0) {
+                    const entity = new Entity(
+                        this.observer.x + (Math.random() - 0.5) * 0.1,
+                        this.observer.y + (Math.random() - 0.5) * 0.1,
+                        yearnings[0].note
+                    );
+                    entity.createVoice(this.ctx, this.verbSend);
+                    entity.voice.noteOn(yearnings[0].note, 0.4);
+                    this.entities.push(entity);
+                }
+            }
+        }
+
+        // Update delay times to match tempo
+        // (would need references to delay nodes)
+    },
+
+    onMove(nx, ny) {
+        const dx = nx - this.observer.x;
+        const dy = ny - this.observer.y;
+        const speed = Math.sqrt(dx*dx + dy*dy);
+
+        this.observer.x = nx;
+        this.observer.y = ny;
+        this.observer.energy = this.observer.energy * 0.9 + speed * 5;
+    }
+};
+
+// ============ GUMPY - THE CONDUCTOR ============
+
+const Gumpy = {
+    lastSpoke: 0,
+    thoughtEl: null,
+
+    init() {
+        this.thoughtEl = document.getElementById('gumpy-thought');
+    },
+
+    speak(thought) {
+        if (Universe.ctx && Universe.ctx.currentTime - this.lastSpoke < 6) return;
+        if (!this.thoughtEl) return;
+
+        this.thoughtEl.classList.remove('visible');
+        this.thoughtEl.classList.add('fading');
+
+        setTimeout(() => {
+            this.thoughtEl.textContent = thought;
+            this.thoughtEl.classList.remove('fading');
+            this.thoughtEl.classList.add('visible');
+
+            setTimeout(() => {
+                this.thoughtEl.classList.remove('visible');
+                this.thoughtEl.classList.add('fading');
+            }, 4000);
+        }, 500);
+
+        this.lastSpoke = Universe.ctx ? Universe.ctx.currentTime : 0;
+    },
+
+    onChordChange() {
+        if (Math.random() < 0.1) {
+            const thoughts = [
+                "The harmony shifts.",
+                "New ground.",
+                "Listen.",
+                "The change.",
+                "Falling.",
+                "Rising."
+            ];
+            this.speak(thoughts[Math.floor(Math.random() * thoughts.length)]);
+        }
+    },
+
+    onPhrase() {
+        if (Math.random() < 0.15) {
+            const totalYearning = Yearning.getTotalYearning();
+
+            if (totalYearning > 5) {
+                this.speak("The yearning builds.");
+            } else if (Universe.entities.length > 12) {
+                this.speak("Complexity.");
+            } else if (Universe.entities.length < 3) {
+                this.speak("Sparse. Waiting.");
+            } else {
+                const thoughts = [
+                    "Breathe.",
+                    "The fold curves.",
+                    "They find each other.",
+                    "Resonance.",
+                    "Organization emerges."
+                ];
+                this.speak(thoughts[Math.floor(Math.random() * thoughts.length)]);
+            }
+        }
+    },
+
+    onSection(section) {
+        const sectionThoughts = {
+            'intro': "Beginning.",
+            'verse': "The story.",
+            'build': "Rising.",
+            'chorus': "Release.",
+            'breakdown': "Stillness.",
+            'outro': "Fading."
+        };
+
+        if (sectionThoughts[section]) {
+            this.speak(sectionThoughts[section]);
+        }
+    }
+};
+
+// ============ RENDER ============
+
+let canvas, vc;
 
 function resize() {
-    const dpr = window.devicePixelRatio || 1;
-    const w = window.innerWidth;
-    const h = window.innerHeight;
-
-    canvas.width = w * dpr;
-    canvas.height = h * dpr;
-    vc.setTransform(dpr, 0, 0, dpr, 0, 0);
+    canvas.width = window.innerWidth * devicePixelRatio;
+    canvas.height = window.innerHeight * devicePixelRatio;
+    vc.scale(devicePixelRatio, devicePixelRatio);
 }
 
 function draw() {
     const w = window.innerWidth;
     const h = window.innerHeight;
 
-    // Fade - faster when groove is present (sharper visuals)
-    const fadeAlpha = 0.06 + (1 - field.energy) * 0.04 + field.groove * 0.04;
-    vc.fillStyle = `rgba(0, 0, 0, ${fadeAlpha})`;
+    // Fade
+    vc.fillStyle = `rgba(0, 0, 0, ${0.1 + (1 - Form.energy) * 0.1})`;
     vc.fillRect(0, 0, w, h);
 
-    const cx = field.x * w;
-    const cy = (1 - field.y) * h;
+    // Field visualization
+    const cellW = w / Field.resolution;
+    const cellH = h / Field.resolution;
 
-    // Rhythm ring - pulses with the groove
-    if (field.groove > 0.1) {
-        const beatPhase = (rhythm.position % 12) / 12;
-        const grooveR = 80 + rhythm.kickPulse * 60 + rhythm.snarePulse * 40;
-
-        // Kick ring
-        if (rhythm.kickPulse > 0.1) {
-            vc.beginPath();
-            vc.arc(cx, cy, grooveR, 0, TAU);
-            vc.strokeStyle = `rgba(255, 150, 100, ${rhythm.kickPulse * field.groove * 0.5})`;
-            vc.lineWidth = 3 + rhythm.kickPulse * 4;
-            vc.stroke();
-        }
-
-        // Snare ring (tighter)
-        if (rhythm.snarePulse > 0.05) {
-            vc.beginPath();
-            vc.arc(cx, cy, 40 + rhythm.snarePulse * 30, 0, TAU);
-            vc.strokeStyle = `rgba(255, 255, 255, ${rhythm.snarePulse * field.groove * 0.6})`;
-            vc.lineWidth = 1 + rhythm.snarePulse * 3;
-            vc.stroke();
-        }
-
-        // Hat dots around the circle
-        if (rhythm.hatPulse > 0.1) {
-            const hatCount = 8;
-            for (let i = 0; i < hatCount; i++) {
-                const angle = (i / hatCount) * TAU + field.time * 0.2;
-                const hr = 60 + rhythm.hatPulse * 20;
-                const hx = cx + Math.cos(angle) * hr;
-                const hy = cy + Math.sin(angle) * hr;
-
-                vc.beginPath();
-                vc.arc(hx, hy, 2 + rhythm.hatPulse * 3, 0, TAU);
-                vc.fillStyle = `rgba(200, 220, 255, ${rhythm.hatPulse * field.groove * 0.5})`;
-                vc.fill();
+    for (let x = 0; x < Field.resolution; x++) {
+        for (let y = 0; y < Field.resolution; y++) {
+            const cell = Field.grid[x][y];
+            if (cell.energy > 0.02) {
+                const alpha = Math.min(0.4, cell.energy * 0.5 + cell.pulse * 0.3);
+                vc.fillStyle = `hsla(${cell.hue}, 60%, 40%, ${alpha})`;
+                vc.fillRect(x * cellW, y * cellH, cellW, cellH);
             }
         }
     }
 
-    // Memory traces
-    memory.forEach(m => {
-        const mx = m.x * w;
-        const my = (1 - m.y) * h;
-        const r = 5 + m.energy * 30;
-
-        vc.beginPath();
-        vc.arc(mx, my, r, 0, TAU);
-        vc.fillStyle = `hsla(${m.hue}, 50%, 50%, ${m.energy * 0.3})`;
-        vc.fill();
-    });
-
-    // Harmonic rings
-    voices.forEach((v, i) => {
-        const amp = v.gain.gain.value;
-        if (amp < 0.003) return;
-
-        const vx = ((i + 0.5) / voices.length) * w;
-        const vy = h / 2 + Math.sin(field.time * 0.5 + i) * 15 * field.stillness;
-
-        // Connection
-        const dist = Math.sqrt((cx - vx) ** 2 + (cy - vy) ** 2);
-        const maxDist = w * 0.4;
-        const conn = Math.max(0, 1 - dist / maxDist);
-
-        if (conn > 0.05) {
-            vc.beginPath();
-            vc.moveTo(cx, cy);
-            vc.lineTo(vx, vy);
-            vc.strokeStyle = `rgba(255, 255, 255, ${conn * amp * 0.4})`;
-            vc.lineWidth = conn * 2;
-            vc.stroke();
-        }
-
-        // Voice circle
-        const r = 12 + amp * 100 + rhythm.kickPulse * 15 * field.groove;
-        const hue = 200 + i * 12;
-
-        vc.beginPath();
-        vc.arc(vx, vy, r, 0, TAU);
-        const grad = vc.createRadialGradient(vx, vy, 0, vx, vy, r);
-        grad.addColorStop(0, `hsla(${hue}, 70%, 60%, ${amp * 1.5})`);
-        grad.addColorStop(0.6, `hsla(${hue}, 50%, 40%, ${amp * 0.5})`);
-        grad.addColorStop(1, 'transparent');
-        vc.fillStyle = grad;
-        vc.fill();
-    });
-
-    // Cursor glow
-    const glowR = 25 + field.energy * 50 + rhythm.kickPulse * 20 * field.groove;
-    const cursorGrad = vc.createRadialGradient(cx, cy, 0, cx, cy, glowR);
-    cursorGrad.addColorStop(0, `rgba(255, 255, 255, ${0.4 + field.energy * 0.4})`);
-    cursorGrad.addColorStop(0.4, `rgba(200, 220, 255, ${0.12 + field.energy * 0.15})`);
-    cursorGrad.addColorStop(1, 'transparent');
-    vc.fillStyle = cursorGrad;
+    // Pulse ring
+    const pulseR = 50 + Time.pulse * 30;
     vc.beginPath();
-    vc.arc(cx, cy, glowR, 0, TAU);
+    vc.arc(w/2, h/2, pulseR, 0, TAU);
+    vc.strokeStyle = `rgba(255, 255, 255, ${Time.pulse * 0.2})`;
+    vc.lineWidth = 2;
+    vc.stroke();
+
+    // Entities
+    for (const entity of Universe.entities) {
+        entity.draw(vc, w, h);
+    }
+
+    // Observer
+    const ox = Universe.observer.x * w;
+    const oy = Universe.observer.y * h;
+    const or = 15 + Universe.observer.energy * 30;
+
+    const oGrad = vc.createRadialGradient(ox, oy, 0, ox, oy, or);
+    oGrad.addColorStop(0, `rgba(255, 255, 255, 0.5)`);
+    oGrad.addColorStop(0.5, `rgba(200, 220, 255, 0.2)`);
+    oGrad.addColorStop(1, 'transparent');
+
+    vc.fillStyle = oGrad;
+    vc.beginPath();
+    vc.arc(ox, oy, or, 0, TAU);
     vc.fill();
 
-    // Movement trail
-    if (field.energy > 0.03) {
-        const trailLen = field.energy * 100;
-        vc.beginPath();
-        vc.moveTo(cx, cy);
-        vc.lineTo(cx - field.vx * trailLen * 8, cy + field.vy * trailLen * 8);
-        vc.strokeStyle = `rgba(255, 255, 255, ${field.energy * 0.6})`;
-        vc.lineWidth = 2 + field.energy * 3;
-        vc.lineCap = 'round';
-        vc.stroke();
+    // Info
+    const info = document.getElementById('info');
+    if (info) {
+        info.textContent = `${Form.getCurrentSection()} | bar ${Time.bar % 16 + 1}/16 | ${Math.round(Time.bpm)} bpm | ${Universe.entities.length} voices`;
     }
 }
 
@@ -643,15 +1575,10 @@ function draw() {
 let lastTime = 0;
 
 function tick(timestamp) {
-    if (!running) return;
-
     const dt = Math.min(0.05, (timestamp - lastTime) / 1000);
     lastTime = timestamp;
-    field.time += dt;
 
-    tickRhythm(dt);
-    shapeField(dt);
-    updateMemory();
+    Universe.update(dt);
     draw();
 
     requestAnimationFrame(tick);
@@ -662,48 +1589,44 @@ function tick(timestamp) {
 async function start() {
     document.getElementById('enter').classList.add('off');
 
-    if (typeof DeviceMotionEvent !== 'undefined' &&
-        typeof DeviceMotionEvent.requestPermission === 'function') {
-        try { await DeviceMotionEvent.requestPermission(); } catch(e) {}
-    }
-    if (typeof DeviceOrientationEvent !== 'undefined' &&
-        typeof DeviceOrientationEvent.requestPermission === 'function') {
-        try { await DeviceOrientationEvent.requestPermission(); } catch(e) {}
-    }
-
     canvas = document.getElementById('c');
     vc = canvas.getContext('2d');
     resize();
     window.addEventListener('resize', resize);
 
-    initAudio();
+    Gumpy.init();
+    await Universe.init();
 
-    window.addEventListener('devicemotion', onMotion);
-    window.addEventListener('deviceorientation', onOrientation);
+    if (Universe.ctx.state === 'suspended') {
+        await Universe.ctx.resume();
+    }
 
+    // Input
     document.addEventListener('mousemove', e => {
-        onMove(e.clientX / window.innerWidth, 1 - e.clientY / window.innerHeight);
+        Universe.onMove(e.clientX / window.innerWidth, e.clientY / window.innerHeight);
     });
 
     document.addEventListener('touchmove', e => {
         e.preventDefault();
         const t = e.touches[0];
-        onMove(t.clientX / window.innerWidth, 1 - t.clientY / window.innerHeight);
+        Universe.onMove(t.clientX / window.innerWidth, t.clientY / window.innerHeight);
     }, { passive: false });
 
-    document.addEventListener('touchstart', e => {
-        e.preventDefault();
-        const t = e.touches[0];
-        onMove(t.clientX / window.innerWidth, 1 - t.clientY / window.innerHeight);
-    }, { passive: false });
+    document.addEventListener('click', () => {
+        // Click spawns entity at observer position
+        if (Universe.entities.length < 25) {
+            const entity = new Entity(Universe.observer.x, Universe.observer.y, Melody.getNextNote());
+            entity.createVoice(Universe.ctx, Universe.verbSend);
+            entity.voice.noteOn(entity.midiNote, 0.6);
+            Universe.entities.push(entity);
+            Field.excite(entity.x, entity.y, 0.8, entity.hue);
+        }
+    });
 
-    if (ctx.state === 'suspended') {
-        await ctx.resume();
-    }
+    Gumpy.speak("The song begins.");
 
-    running = true;
     lastTime = performance.now();
-    tick(lastTime);
+    requestAnimationFrame(tick);
 }
 
 document.getElementById('enter').addEventListener('click', start);
