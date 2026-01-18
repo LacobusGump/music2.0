@@ -19,17 +19,13 @@
 <canvas id="c"></canvas>
 <script>
 // GUMP - Grand Unified Music Project
-// You are the waveform. Movement is music.
-// Stillness becomes groove. The shuffle breathes.
+// Position is harmony. Stillness blooms. Movement is melody.
 
 const TAU = Math.PI * 2;
-const PHI = 1.618033988749;
 
 // ============ STATE ============
 
-let ctx, master, verb, dly, sub;
-let voices = [];
-let drums = {};
+let ctx, master, verb, dly;
 let canvas, vc;
 let running = false;
 
@@ -38,76 +34,114 @@ const field = {
     vx: 0, vy: 0,
     energy: 0,
     stillness: 0,
-    groove: 0,        // How much rhythm is present
-    time: 0
+    groove: 0,
+    time: 0,
+
+    // Current harmony
+    root: 0,
+    color: 0.5,
+    lastRoot: 0
 };
 
-// Memory traces
-const memory = [];
-const MAX_MEMORY = 50;
+// Living notes - spawn from stillness, fade with movement
+const notes = [];
+const MAX_NOTES = 16;
 
-// Harmonic series
-const HARMONICS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
-const BASE = 55;
+// Melody state
+const melody = {
+    voice: null,
+    currentNote: null,
+    targetNote: null,
+    lastTrigger: 0
+};
+
+// ============ MUSIC THEORY ============
+
+const BASE = 110; // A2
+
+// Scale degrees (major scale intervals in semitones)
+const SCALE = [0, 2, 4, 5, 7, 9, 11]; // Major scale
+
+// Chord tones relative to root (in semitones)
+const CHORDS = {
+    major: [0, 4, 7, 11],      // maj7
+    minor: [0, 3, 7, 10],      // min7
+    dom: [0, 4, 7, 10],        // dom7
+    dim: [0, 3, 6, 9],         // dim7
+    sus: [0, 5, 7, 10]         // sus4
+};
+
+// Get chord type based on Y position (color)
+function getChordType(y) {
+    if (y < 0.2) return 'minor';
+    if (y < 0.4) return 'dom';
+    if (y < 0.6) return 'major';
+    if (y < 0.8) return 'sus';
+    return 'major';
+}
+
+// Get root note from X position (moves through scale)
+function getRootFromX(x) {
+    const degree = Math.floor(x * 7) % 7;
+    return SCALE[degree];
+}
+
+// Get a random chord tone
+function getChordTone(root, chordType, octaveOffset = 0) {
+    const chord = CHORDS[chordType];
+    const interval = chord[Math.floor(Math.random() * chord.length)];
+    return BASE * Math.pow(2, (root + interval) / 12 + octaveOffset);
+}
+
+// Get scale tone for melody
+function getScaleTone(root, y) {
+    // Y position determines register (octave) and tendency
+    const octave = Math.floor(y * 2) + 1;
+    const degree = SCALE[Math.floor(Math.random() * SCALE.length)];
+    return BASE * Math.pow(2, (root + degree) / 12 + octave);
+}
 
 // ============ RHYTHM ============
-// The Purdie shuffle: triplet feel, ghost notes breathe
-// 12 subdivisions per beat (triplets of triplets)
-// Pattern emerges from stillness, dissolves with movement
 
 const rhythm = {
     bpm: 72,
-    swing: 0.15,
-
-    // Position in the cycle (0-47 for 4 beats × 12 subdivisions)
     position: 0,
     accumulator: 0,
 
-    // Purdie-style patterns - velocity values (0 = rest, 0.1-0.3 = ghost, 0.8+ = accent)
-    // 12 steps per beat, 4 beats = 48 steps
-
-    // Kick: simple, grounding - on 1 and the "and" of 2
+    // Purdie shuffle - 48 steps (12 per beat × 4 beats)
     kick: [
-        0.9, 0,0,0,0,0, 0,0,0,0,0,0,     // beat 1
-        0,0,0,0,0,0, 0.5,0,0,0,0,0,       // beat 2 (soft on and)
-        0.7,0,0,0,0,0, 0,0,0,0,0,0,       // beat 3
-        0,0,0,0,0,0, 0.4,0,0,0,0,0        // beat 4
+        0.9,0,0,0,0,0, 0,0,0,0,0,0,
+        0,0,0,0,0,0, 0.5,0,0,0,0,0,
+        0.7,0,0,0,0,0, 0,0,0,0,0,0,
+        0,0,0,0,0,0, 0.4,0,0,0,0,0
     ],
-
-    // Snare: backbeat with ghost notes dancing around it
-    // This is the soul - ghosts on the triplet subdivisions
     snare: [
-        0,0, 0.12,0, 0.15,0, 0,0, 0.1,0, 0.18,0,    // beat 1: ghosts lead to...
-        0.95,0, 0.15,0, 0.1,0, 0.08,0, 0.2,0, 0.12,0,  // beat 2: CRACK + ghosts
-        0,0, 0.1,0, 0.18,0, 0,0, 0.12,0, 0.22,0,    // beat 3: building...
-        1.0,0, 0.12,0, 0.15,0, 0.1,0, 0.18,0, 0.15,0   // beat 4: CRACK + ghosts
+        0,0,0.12,0,0.15,0, 0,0,0.1,0,0.18,0,
+        0.95,0,0.15,0,0.1,0, 0.08,0,0.2,0,0.12,0,
+        0,0,0.1,0,0.18,0, 0,0,0.12,0,0.22,0,
+        1.0,0,0.12,0,0.15,0, 0.1,0,0.18,0,0.15,0
     ],
-
-    // Hi-hat: shuffle feel - accent on downbeats, lighter on upbeats
     hat: [
-        0.6,0,0, 0.35,0,0, 0.5,0,0, 0.3,0,0,   // beat 1
-        0.6,0,0, 0.35,0,0, 0.5,0,0, 0.3,0,0,   // beat 2
-        0.6,0,0, 0.35,0,0, 0.5,0,0, 0.3,0,0,   // beat 3
-        0.6,0,0, 0.35,0,0, 0.5,0,0, 0.35,0,0   // beat 4
+        0.5,0,0,0.3,0,0, 0.4,0,0,0.25,0,0,
+        0.5,0,0,0.3,0,0, 0.4,0,0,0.25,0,0,
+        0.5,0,0,0.3,0,0, 0.4,0,0,0.25,0,0,
+        0.5,0,0,0.3,0,0, 0.45,0,0,0.3,0,0
     ],
 
-    // Visual pulse for each drum hit
     kickPulse: 0,
     snarePulse: 0,
     hatPulse: 0,
 
-    get subdivisionLength() {
-        return (60 / this.bpm) / 12;
-    }
+    get subdivisionLength() { return (60 / this.bpm) / 12; }
 };
 
-// ============ AUDIO INIT ============
+// ============ AUDIO ============
 
 function initAudio() {
     ctx = new (window.AudioContext || window.webkitAudioContext)();
 
     master = ctx.createGain();
-    master.gain.value = 0.55;
+    master.gain.value = 0.6;
 
     const comp = ctx.createDynamicsCompressor();
     comp.threshold.value = -18;
@@ -115,56 +149,31 @@ function initAudio() {
     comp.attack.value = 0.003;
     comp.release.value = 0.15;
 
-    // Sub bass
-    sub = ctx.createOscillator();
-    const subGain = ctx.createGain();
-    const subFilter = ctx.createBiquadFilter();
-    sub.type = 'sine';
-    sub.frequency.value = BASE;
-    subFilter.type = 'lowpass';
-    subFilter.frequency.value = 80;
-    subGain.gain.value = 0;
-    sub.connect(subFilter);
-    subFilter.connect(subGain);
-    subGain.connect(master);
-    sub.start();
-    sub.gainNode = subGain;
-
-    // Reverb
     verb = createVerb();
-
-    // Delay - tempo synced
     dly = createDelay();
 
-    // Routing
     master.connect(comp);
     comp.connect(ctx.destination);
     verb.output.connect(master);
     dly.output.connect(master);
 
-    // Harmonic voices
-    HARMONICS.forEach((h, i) => {
-        voices.push(createVoice(BASE * h, i));
-    });
-
-    // Drums
     initDrums();
+    initMelody();
 }
 
 function createVerb() {
     const input = ctx.createGain();
     const output = ctx.createGain();
-    output.gain.value = 0.35;
+    output.gain.value = 0.3;
 
-    const times = [0.029, 0.067, 0.113, 0.179, 0.233, 0.307, 0.419, 0.541, 0.709];
-    times.forEach((t, i) => {
+    [0.029, 0.067, 0.113, 0.179, 0.233, 0.307, 0.419, 0.541].forEach((t, i) => {
         const d = ctx.createDelay(1);
         d.delayTime.value = t;
         const g = ctx.createGain();
-        g.gain.value = 0.32 * Math.pow(0.8, i);
+        g.gain.value = 0.3 * Math.pow(0.8, i);
         const f = ctx.createBiquadFilter();
         f.type = 'lowpass';
-        f.frequency.value = 3000 - i * 300;
+        f.frequency.value = 2500 - i * 250;
         input.connect(d);
         d.connect(f);
         f.connect(g);
@@ -179,9 +188,8 @@ function createDelay() {
     const output = ctx.createGain();
     output.gain.value = 0.2;
 
-    const beatTime = 60 / rhythm.bpm;
     const d = ctx.createDelay(2);
-    d.delayTime.value = beatTime * 0.75; // Dotted eighth
+    d.delayTime.value = (60 / rhythm.bpm) * 0.75;
     const fb = ctx.createGain();
     fb.gain.value = 0.3;
     const f = ctx.createBiquadFilter();
@@ -197,41 +205,9 @@ function createDelay() {
     return { input, output, delay: d, feedback: fb };
 }
 
-function createVoice(freq, index) {
-    const osc = ctx.createOscillator();
-    const osc2 = ctx.createOscillator();
-    const filter = ctx.createBiquadFilter();
-    const gain = ctx.createGain();
-    const pan = ctx.createStereoPanner();
-
-    osc.type = index < 4 ? 'sine' : (index < 8 ? 'triangle' : 'sine');
-    osc.frequency.value = freq;
-    osc2.type = 'sine';
-    osc2.frequency.value = freq * 1.003;
-
-    filter.type = 'lowpass';
-    filter.frequency.value = 100;
-    filter.Q.value = 0.7;
-
-    gain.gain.value = 0;
-    pan.pan.value = ((index % 6) / 5) * 1.6 - 0.8;
-
-    osc.connect(filter);
-    osc2.connect(filter);
-    filter.connect(gain);
-    gain.connect(pan);
-    pan.connect(master);
-    pan.connect(verb.input);
-    if (index > 2) pan.connect(dly.input);
-
-    osc.start();
-    osc2.start();
-
-    return { osc, osc2, filter, gain, pan, baseFreq: freq, harmonic: HARMONICS[index], index };
-}
-
 // ============ DRUMS ============
-// Synthesized, not sampled - part of the same sonic world
+
+let drums = {};
 
 function initDrums() {
     drums.master = ctx.createGain();
@@ -240,232 +216,308 @@ function initDrums() {
     drums.master.connect(verb.input);
 }
 
-function triggerKick(velocity) {
-    const now = ctx.currentTime;
-    const v = velocity * field.groove;
+function triggerKick(vel) {
+    const v = vel * field.groove;
     if (v < 0.05) return;
 
+    const now = ctx.currentTime;
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
 
     osc.type = 'sine';
-    osc.frequency.setValueAtTime(150 * (0.8 + field.y * 0.4), now);
-    osc.frequency.exponentialRampToValueAtTime(35, now + 0.12);
+    osc.frequency.setValueAtTime(150, now);
+    osc.frequency.exponentialRampToValueAtTime(40, now + 0.1);
 
     gain.gain.setValueAtTime(v * 0.7, now);
-    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
 
     osc.connect(gain);
     gain.connect(drums.master);
-
     osc.start(now);
-    osc.stop(now + 0.4);
+    osc.stop(now + 0.35);
 
     rhythm.kickPulse = v;
 }
 
-function triggerSnare(velocity) {
-    const now = ctx.currentTime;
-    const v = velocity * field.groove;
+function triggerSnare(vel) {
+    const v = vel * field.groove;
     if (v < 0.02) return;
 
-    const isGhost = velocity < 0.4;
+    const now = ctx.currentTime;
+    const isGhost = vel < 0.4;
 
-    // Noise burst
-    const bufferSize = ctx.sampleRate * (isGhost ? 0.08 : 0.15);
-    const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
-    const data = buffer.getChannelData(0);
-    for (let i = 0; i < bufferSize; i++) {
-        data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufferSize * (isGhost ? 0.15 : 0.12)));
+    const bufSize = ctx.sampleRate * (isGhost ? 0.06 : 0.12);
+    const buf = ctx.createBuffer(1, bufSize, ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < bufSize; i++) {
+        data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufSize * 0.12));
     }
 
     const noise = ctx.createBufferSource();
-    noise.buffer = buffer;
+    noise.buffer = buf;
 
-    const noiseFilter = ctx.createBiquadFilter();
-    noiseFilter.type = 'bandpass';
-    noiseFilter.frequency.value = isGhost ? 3000 + field.y * 2000 : 2000;
-    noiseFilter.Q.value = isGhost ? 1.5 : 0.8;
+    const filt = ctx.createBiquadFilter();
+    filt.type = 'bandpass';
+    filt.frequency.value = isGhost ? 4000 : 2500;
+    filt.Q.value = isGhost ? 2 : 1;
 
-    const noiseGain = ctx.createGain();
-    noiseGain.gain.setValueAtTime(v * (isGhost ? 0.25 : 0.45), now);
-    noiseGain.gain.exponentialRampToValueAtTime(0.001, now + (isGhost ? 0.06 : 0.12));
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(v * (isGhost ? 0.2 : 0.4), now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + (isGhost ? 0.05 : 0.1));
 
-    noise.connect(noiseFilter);
-    noiseFilter.connect(noiseGain);
-    noiseGain.connect(drums.master);
+    noise.connect(filt);
+    filt.connect(gain);
+    gain.connect(drums.master);
+    noise.start(now);
 
-    // Body tone (less for ghosts)
-    if (!isGhost || velocity > 0.15) {
+    if (!isGhost) {
         const osc = ctx.createOscillator();
         const oscGain = ctx.createGain();
         osc.type = 'triangle';
-        osc.frequency.setValueAtTime(isGhost ? 250 : 180, now);
-        osc.frequency.exponentialRampToValueAtTime(isGhost ? 150 : 90, now + 0.04);
-        oscGain.gain.setValueAtTime(v * (isGhost ? 0.15 : 0.35), now);
-        oscGain.gain.exponentialRampToValueAtTime(0.001, now + (isGhost ? 0.04 : 0.08));
-
+        osc.frequency.setValueAtTime(180, now);
+        osc.frequency.exponentialRampToValueAtTime(100, now + 0.03);
+        oscGain.gain.setValueAtTime(v * 0.3, now);
+        oscGain.gain.exponentialRampToValueAtTime(0.001, now + 0.06);
         osc.connect(oscGain);
         oscGain.connect(drums.master);
         osc.start(now);
-        osc.stop(now + 0.15);
+        osc.stop(now + 0.1);
     }
-
-    noise.start(now);
 
     rhythm.snarePulse = Math.max(rhythm.snarePulse, v);
 }
 
-function triggerHat(velocity) {
-    const now = ctx.currentTime;
-    const v = velocity * field.groove;
+function triggerHat(vel) {
+    const v = vel * field.groove;
     if (v < 0.05) return;
 
-    const bufferSize = ctx.sampleRate * 0.04;
-    const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
-    const data = buffer.getChannelData(0);
-    for (let i = 0; i < bufferSize; i++) {
-        data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufferSize * 0.25));
+    const now = ctx.currentTime;
+    const bufSize = ctx.sampleRate * 0.03;
+    const buf = ctx.createBuffer(1, bufSize, ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < bufSize; i++) {
+        data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufSize * 0.2));
     }
 
     const noise = ctx.createBufferSource();
-    noise.buffer = buffer;
+    noise.buffer = buf;
 
-    const filter = ctx.createBiquadFilter();
-    filter.type = 'highpass';
-    filter.frequency.value = 7000 + field.y * 3000;
+    const filt = ctx.createBiquadFilter();
+    filt.type = 'highpass';
+    filt.frequency.value = 8000;
 
     const gain = ctx.createGain();
-    gain.gain.setValueAtTime(v * 0.18, now);
-    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.04);
+    gain.gain.setValueAtTime(v * 0.15, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.03);
 
-    noise.connect(filter);
-    filter.connect(gain);
+    noise.connect(filt);
+    filt.connect(gain);
     gain.connect(drums.master);
-
     noise.start(now);
 
     rhythm.hatPulse = Math.max(rhythm.hatPulse, v);
 }
 
-// ============ THE SHAPING ============
+// ============ MELODY ============
+
+function initMelody() {
+    melody.voice = {
+        osc: ctx.createOscillator(),
+        gain: ctx.createGain(),
+        filter: ctx.createBiquadFilter()
+    };
+
+    melody.voice.osc.type = 'sawtooth';
+    melody.voice.osc.frequency.value = 220;
+    melody.voice.filter.type = 'lowpass';
+    melody.voice.filter.frequency.value = 800;
+    melody.voice.filter.Q.value = 2;
+    melody.voice.gain.gain.value = 0;
+
+    melody.voice.osc.connect(melody.voice.filter);
+    melody.voice.filter.connect(melody.voice.gain);
+    melody.voice.gain.connect(master);
+    melody.voice.gain.connect(dly.input);
+    melody.voice.gain.connect(verb.input);
+
+    melody.voice.osc.start();
+}
+
+function updateMelody(dt) {
+    const now = ctx.currentTime;
+
+    // Melody follows movement - more movement = more melody
+    const melodyIntensity = Math.min(1, field.energy * 3);
+
+    // Target frequency based on position
+    const root = getRootFromX(field.x);
+    const chordType = getChordType(field.y);
+    const octave = 1 + field.y;
+    const targetFreq = BASE * Math.pow(2, (root + SCALE[Math.floor(field.y * 7) % 7]) / 12 + octave);
+
+    // Glide to target
+    melody.voice.osc.frequency.linearRampToValueAtTime(targetFreq, now + 0.1);
+
+    // Volume follows energy
+    const vol = melodyIntensity * 0.12 * (1 - field.groove * 0.5);
+    melody.voice.gain.gain.linearRampToValueAtTime(vol, now + 0.05);
+
+    // Filter opens with Y and energy
+    const filterFreq = 400 + field.y * 2000 + field.energy * 1500;
+    melody.voice.filter.frequency.linearRampToValueAtTime(filterFreq, now + 0.08);
+}
+
+// ============ BLOOMING NOTES ============
+// When still, notes spawn to complete the harmony
+
+function spawnNote() {
+    if (notes.length >= MAX_NOTES) return;
+    if (field.stillness < 0.3) return;
+    if (Math.random() > field.stillness * 0.15) return;
+
+    const root = getRootFromX(field.x);
+    const chordType = getChordType(field.y);
+    const octave = Math.random() < 0.5 ? 0 : 1;
+    const freq = getChordTone(root, chordType, octave);
+
+    const note = {
+        freq,
+        life: 1,
+        x: field.x + (Math.random() - 0.5) * 0.2,
+        y: field.y + (Math.random() - 0.5) * 0.2,
+        osc: ctx.createOscillator(),
+        osc2: ctx.createOscillator(),
+        gain: ctx.createGain(),
+        filter: ctx.createBiquadFilter(),
+        pan: ctx.createStereoPanner()
+    };
+
+    // Setup audio
+    note.osc.type = 'sine';
+    note.osc.frequency.value = freq;
+    note.osc2.type = 'sine';
+    note.osc2.frequency.value = freq * 1.002;
+
+    note.filter.type = 'lowpass';
+    note.filter.frequency.value = 300 + field.y * 1500;
+    note.filter.Q.value = 0.5;
+
+    note.gain.gain.value = 0;
+    note.pan.pan.value = (note.x - 0.5) * 1.5;
+
+    // Connect
+    note.osc.connect(note.filter);
+    note.osc2.connect(note.filter);
+    note.filter.connect(note.gain);
+    note.gain.connect(note.pan);
+    note.pan.connect(master);
+    note.pan.connect(verb.input);
+
+    note.osc.start();
+    note.osc2.start();
+
+    // Fade in
+    const now = ctx.currentTime;
+    note.gain.gain.linearRampToValueAtTime(0.08 * field.stillness, now + 0.3);
+
+    notes.push(note);
+}
+
+function updateNotes(dt) {
+    const now = ctx.currentTime;
+
+    // Movement kills notes
+    const decayRate = 0.02 + field.energy * 0.5;
+
+    for (let i = notes.length - 1; i >= 0; i--) {
+        const note = notes[i];
+        note.life -= dt * decayRate;
+
+        if (note.life <= 0) {
+            // Fade out and remove
+            note.gain.gain.linearRampToValueAtTime(0, now + 0.3);
+            setTimeout(() => {
+                note.osc.stop();
+                note.osc2.stop();
+            }, 400);
+            notes.splice(i, 1);
+        } else {
+            // Update volume based on life and stillness
+            const vol = note.life * field.stillness * 0.08;
+            note.gain.gain.linearRampToValueAtTime(vol, now + 0.1);
+
+            // Filter follows field
+            note.filter.frequency.linearRampToValueAtTime(200 + field.y * 1500 + note.life * 500, now + 0.1);
+        }
+    }
+}
+
+// ============ FIELD SHAPING ============
 
 function shapeField(dt) {
     const now = ctx.currentTime;
 
-    // Energy from velocity
     const speed = Math.sqrt(field.vx * field.vx + field.vy * field.vy);
-    field.energy = field.energy * 0.92 + speed * 0.8;
+    field.energy = field.energy * 0.9 + speed * 1.0;
 
-    // Stillness accumulates
     if (speed < 0.008) {
-        field.stillness = Math.min(1, field.stillness + dt * 0.25);
+        field.stillness = Math.min(1, field.stillness + dt * 0.3);
     } else {
-        field.stillness *= 0.92;
+        field.stillness *= 0.88;
     }
 
-    // Groove emerges from stillness (slower than stillness itself)
-    // High energy suppresses groove
-    const targetGroove = field.stillness * (1 - field.energy * 0.7);
-    field.groove += (targetGroove - field.groove) * dt * 0.8;
+    // Groove from stillness
+    const targetGroove = field.stillness * (1 - field.energy * 0.5);
+    field.groove += (targetGroove - field.groove) * dt * 1.0;
     field.groove = Math.max(0, Math.min(1, field.groove));
 
-    // Drums volume follows groove
-    drums.master.gain.linearRampToValueAtTime(field.groove * 0.85, now + 0.1);
+    // Track harmony changes
+    const newRoot = getRootFromX(field.x);
+    if (newRoot !== field.root) {
+        field.lastRoot = field.root;
+        field.root = newRoot;
+        // Kill some notes on chord change
+        for (const note of notes) {
+            note.life *= 0.5;
+        }
+    }
+    field.color = field.y;
 
-    // Harmonic voices
-    voices.forEach((v, i) => {
-        const harmonicX = (i + 0.5) / voices.length;
-        const xDistance = Math.abs(field.x - harmonicX);
-        const xPresence = Math.max(0, 1 - xDistance * 2.5);
+    // Drums
+    drums.master.gain.linearRampToValueAtTime(field.groove * 0.8, now + 0.1);
 
-        const harmonicY = i / voices.length;
-        const yDistance = Math.abs(field.y - harmonicY);
-        const yPresence = Math.max(0, 1 - yDistance * 2);
+    // Reverb
+    verb.output.gain.linearRampToValueAtTime(0.2 + field.stillness * 0.3, now + 0.2);
 
-        let presence = (xPresence * 0.7 + yPresence * 0.3);
-
-        // Energy boost
-        const energyBoost = 0.3 + field.energy * 2;
-
-        // Groove adds subtle pulse to harmonics (sync with rhythm)
-        const rhythmSync = 1 + rhythm.kickPulse * 0.3 * field.groove;
-
-        const amp = presence * energyBoost * rhythmSync * 0.11;
-        v.gain.gain.linearRampToValueAtTime(Math.min(0.18, amp), now + 0.08);
-
-        // Filter
-        const filterBase = 80 + field.y * 2500 + field.energy * 2000;
-        v.filter.frequency.linearRampToValueAtTime(filterBase, now + 0.08);
-
-        // Pitch drift
-        const pitchDrift = 1 + field.vx * 0.015 * (i - voices.length / 2) / voices.length;
-        v.osc.frequency.linearRampToValueAtTime(v.baseFreq * pitchDrift, now + 0.1);
-        v.osc2.frequency.linearRampToValueAtTime(v.baseFreq * pitchDrift * 1.003, now + 0.1);
-
-        // Pan
-        const panBase = ((i % 6) / 5) * 1.6 - 0.8;
-        const panMod = field.vx * 0.4;
-        v.pan.pan.linearRampToValueAtTime(Math.max(-1, Math.min(1, panBase + panMod)), now + 0.08);
-    });
-
-    // Sub follows kick
-    const subAmp = rhythm.kickPulse * field.groove * 0.4;
-    sub.gainNode.gain.linearRampToValueAtTime(subAmp, now + 0.05);
-
-    // Reverb: more stillness = more space
-    verb.output.gain.linearRampToValueAtTime(0.2 + field.stillness * 0.35, now + 0.2);
-
-    // Delay: energy creates echoes
-    dly.feedback.gain.linearRampToValueAtTime(0.15 + field.energy * 0.35, now + 0.1);
+    // Delay
+    dly.feedback.gain.linearRampToValueAtTime(0.15 + field.energy * 0.3, now + 0.1);
 }
 
 // ============ RHYTHM ENGINE ============
 
 function tickRhythm(dt) {
     rhythm.accumulator += dt;
-
-    // Decay visual pulses
     rhythm.kickPulse *= 0.85;
     rhythm.snarePulse *= 0.88;
     rhythm.hatPulse *= 0.9;
 
-    // Check for new subdivisions
     while (rhythm.accumulator >= rhythm.subdivisionLength) {
         rhythm.accumulator -= rhythm.subdivisionLength;
 
-        // Get velocities from patterns
-        const kickVel = rhythm.kick[rhythm.position];
-        const snareVel = rhythm.snare[rhythm.position];
-        const hatVel = rhythm.hat[rhythm.position];
+        const k = rhythm.kick[rhythm.position];
+        const s = rhythm.snare[rhythm.position];
+        const h = rhythm.hat[rhythm.position];
 
-        // Trigger drums (they respect field.groove internally)
-        if (kickVel > 0) triggerKick(kickVel);
-        if (snareVel > 0) triggerSnare(snareVel);
-        if (hatVel > 0) triggerHat(hatVel);
+        if (k > 0) triggerKick(k);
+        if (s > 0) triggerSnare(s);
+        if (h > 0) triggerHat(h);
 
-        // Advance position
+        // Spawn notes on some beats when still
+        if (rhythm.position % 12 === 0) {
+            spawnNote();
+        }
+
         rhythm.position = (rhythm.position + 1) % 48;
-    }
-}
-
-// ============ MEMORY ============
-
-function updateMemory() {
-    if (field.energy > 0.1 && Math.random() < 0.1) {
-        memory.push({
-            x: field.x,
-            y: field.y,
-            energy: field.energy,
-            time: field.time,
-            hue: (field.x * 360 + field.y * 60) % 360
-        });
-        if (memory.length > MAX_MEMORY) memory.shift();
-    }
-
-    for (let i = memory.length - 1; i >= 0; i--) {
-        memory[i].energy *= 0.995;
-        if (memory[i].energy < 0.01) memory.splice(i, 1);
     }
 }
 
@@ -481,13 +533,8 @@ function onMove(nx, ny) {
 function onMotion(e) {
     const a = e.accelerationIncludingGravity;
     if (!a) return;
-
-    const ax = (a.x || 0) / 12;
-    const ay = (a.y || 0) / 12;
-
-    field.vx = field.vx * 0.7 + ax * 0.3;
-    field.vy = field.vy * 0.7 + ay * 0.3;
-
+    field.vx = field.vx * 0.7 + (a.x || 0) / 12 * 0.3;
+    field.vy = field.vy * 0.7 + (a.y || 0) / 12 * 0.3;
     field.x = Math.max(0, Math.min(1, field.x + field.vx * 0.08));
     field.y = Math.max(0, Math.min(1, field.y - field.vy * 0.08));
 }
@@ -495,22 +542,15 @@ function onMotion(e) {
 function onOrientation(e) {
     const gx = (e.gamma || 0) / 50;
     const gy = (e.beta || 0) / 50 - 0.8;
-
-    const nx = Math.max(0, Math.min(1, (gx + 1) / 2));
-    const ny = Math.max(0, Math.min(1, 1 - (gy + 1) / 2));
-
-    onMove(nx, ny);
+    onMove(Math.max(0, Math.min(1, (gx + 1) / 2)), Math.max(0, Math.min(1, 1 - (gy + 1) / 2)));
 }
 
 // ============ VISUALS ============
 
 function resize() {
     const dpr = window.devicePixelRatio || 1;
-    const w = window.innerWidth;
-    const h = window.innerHeight;
-
-    canvas.width = w * dpr;
-    canvas.height = h * dpr;
+    canvas.width = window.innerWidth * dpr;
+    canvas.height = window.innerHeight * dpr;
     vc.setTransform(dpr, 0, 0, dpr, 0, 0);
 }
 
@@ -518,121 +558,82 @@ function draw() {
     const w = window.innerWidth;
     const h = window.innerHeight;
 
-    // Fade - faster when groove is present (sharper visuals)
-    const fadeAlpha = 0.06 + (1 - field.energy) * 0.04 + field.groove * 0.04;
+    const fadeAlpha = 0.07 + (1 - field.energy) * 0.03 + field.groove * 0.03;
     vc.fillStyle = `rgba(0, 0, 0, ${fadeAlpha})`;
     vc.fillRect(0, 0, w, h);
 
     const cx = field.x * w;
     const cy = (1 - field.y) * h;
 
-    // Rhythm ring - pulses with the groove
-    if (field.groove > 0.1) {
-        const beatPhase = (rhythm.position % 12) / 12;
-        const grooveR = 80 + rhythm.kickPulse * 60 + rhythm.snarePulse * 40;
+    // Harmonic region indicator
+    const root = field.root;
+    const regionHue = (root * 30 + 180) % 360;
+    vc.fillStyle = `hsla(${regionHue}, 40%, 20%, ${0.1 + field.stillness * 0.1})`;
+    vc.fillRect(0, 0, w, h);
 
-        // Kick ring
+    // Rhythm rings
+    if (field.groove > 0.1) {
         if (rhythm.kickPulse > 0.1) {
             vc.beginPath();
-            vc.arc(cx, cy, grooveR, 0, TAU);
-            vc.strokeStyle = `rgba(255, 150, 100, ${rhythm.kickPulse * field.groove * 0.5})`;
-            vc.lineWidth = 3 + rhythm.kickPulse * 4;
+            vc.arc(cx, cy, 70 + rhythm.kickPulse * 50, 0, TAU);
+            vc.strokeStyle = `rgba(255, 150, 100, ${rhythm.kickPulse * field.groove * 0.4})`;
+            vc.lineWidth = 3 + rhythm.kickPulse * 3;
             vc.stroke();
         }
-
-        // Snare ring (tighter)
         if (rhythm.snarePulse > 0.05) {
             vc.beginPath();
-            vc.arc(cx, cy, 40 + rhythm.snarePulse * 30, 0, TAU);
-            vc.strokeStyle = `rgba(255, 255, 255, ${rhythm.snarePulse * field.groove * 0.6})`;
-            vc.lineWidth = 1 + rhythm.snarePulse * 3;
+            vc.arc(cx, cy, 35 + rhythm.snarePulse * 25, 0, TAU);
+            vc.strokeStyle = `rgba(255, 255, 255, ${rhythm.snarePulse * field.groove * 0.5})`;
+            vc.lineWidth = 1 + rhythm.snarePulse * 2;
             vc.stroke();
-        }
-
-        // Hat dots around the circle
-        if (rhythm.hatPulse > 0.1) {
-            const hatCount = 8;
-            for (let i = 0; i < hatCount; i++) {
-                const angle = (i / hatCount) * TAU + field.time * 0.2;
-                const hr = 60 + rhythm.hatPulse * 20;
-                const hx = cx + Math.cos(angle) * hr;
-                const hy = cy + Math.sin(angle) * hr;
-
-                vc.beginPath();
-                vc.arc(hx, hy, 2 + rhythm.hatPulse * 3, 0, TAU);
-                vc.fillStyle = `rgba(200, 220, 255, ${rhythm.hatPulse * field.groove * 0.5})`;
-                vc.fill();
-            }
         }
     }
 
-    // Memory traces
-    memory.forEach(m => {
-        const mx = m.x * w;
-        const my = (1 - m.y) * h;
-        const r = 5 + m.energy * 30;
+    // Blooming notes
+    for (const note of notes) {
+        const nx = note.x * w;
+        const ny = (1 - note.y) * h;
+        const nr = 8 + note.life * 25;
+        const noteHue = (Math.log2(note.freq / BASE) * 60 + 200) % 360;
 
         vc.beginPath();
-        vc.arc(mx, my, r, 0, TAU);
-        vc.fillStyle = `hsla(${m.hue}, 50%, 50%, ${m.energy * 0.3})`;
-        vc.fill();
-    });
-
-    // Harmonic rings
-    voices.forEach((v, i) => {
-        const amp = v.gain.gain.value;
-        if (amp < 0.003) return;
-
-        const vx = ((i + 0.5) / voices.length) * w;
-        const vy = h / 2 + Math.sin(field.time * 0.5 + i) * 15 * field.stillness;
-
-        // Connection
-        const dist = Math.sqrt((cx - vx) ** 2 + (cy - vy) ** 2);
-        const maxDist = w * 0.4;
-        const conn = Math.max(0, 1 - dist / maxDist);
-
-        if (conn > 0.05) {
-            vc.beginPath();
-            vc.moveTo(cx, cy);
-            vc.lineTo(vx, vy);
-            vc.strokeStyle = `rgba(255, 255, 255, ${conn * amp * 0.4})`;
-            vc.lineWidth = conn * 2;
-            vc.stroke();
-        }
-
-        // Voice circle
-        const r = 12 + amp * 100 + rhythm.kickPulse * 15 * field.groove;
-        const hue = 200 + i * 12;
-
-        vc.beginPath();
-        vc.arc(vx, vy, r, 0, TAU);
-        const grad = vc.createRadialGradient(vx, vy, 0, vx, vy, r);
-        grad.addColorStop(0, `hsla(${hue}, 70%, 60%, ${amp * 1.5})`);
-        grad.addColorStop(0.6, `hsla(${hue}, 50%, 40%, ${amp * 0.5})`);
+        vc.arc(nx, ny, nr, 0, TAU);
+        const grad = vc.createRadialGradient(nx, ny, 0, nx, ny, nr);
+        grad.addColorStop(0, `hsla(${noteHue}, 70%, 60%, ${note.life * 0.6})`);
         grad.addColorStop(1, 'transparent');
         vc.fillStyle = grad;
         vc.fill();
-    });
 
-    // Cursor glow
-    const glowR = 25 + field.energy * 50 + rhythm.kickPulse * 20 * field.groove;
-    const cursorGrad = vc.createRadialGradient(cx, cy, 0, cx, cy, glowR);
-    cursorGrad.addColorStop(0, `rgba(255, 255, 255, ${0.4 + field.energy * 0.4})`);
-    cursorGrad.addColorStop(0.4, `rgba(200, 220, 255, ${0.12 + field.energy * 0.15})`);
-    cursorGrad.addColorStop(1, 'transparent');
-    vc.fillStyle = cursorGrad;
+        // Connection to cursor
+        if (note.life > 0.3) {
+            vc.beginPath();
+            vc.moveTo(cx, cy);
+            vc.lineTo(nx, ny);
+            vc.strokeStyle = `rgba(255, 255, 255, ${note.life * 0.15})`;
+            vc.lineWidth = 1;
+            vc.stroke();
+        }
+    }
+
+    // Melody indicator
+    const melodySize = 15 + field.energy * 30;
     vc.beginPath();
-    vc.arc(cx, cy, glowR, 0, TAU);
+    vc.arc(cx, cy, melodySize, 0, TAU);
+    const melodyGrad = vc.createRadialGradient(cx, cy, 0, cx, cy, melodySize);
+    melodyGrad.addColorStop(0, `rgba(255, 255, 255, ${0.5 + field.energy * 0.4})`);
+    melodyGrad.addColorStop(0.5, `rgba(200, 220, 255, ${0.15 + field.energy * 0.2})`);
+    melodyGrad.addColorStop(1, 'transparent');
+    vc.fillStyle = melodyGrad;
     vc.fill();
 
     // Movement trail
     if (field.energy > 0.03) {
-        const trailLen = field.energy * 100;
+        const trailLen = field.energy * 80;
         vc.beginPath();
         vc.moveTo(cx, cy);
         vc.lineTo(cx - field.vx * trailLen * 8, cy + field.vy * trailLen * 8);
-        vc.strokeStyle = `rgba(255, 255, 255, ${field.energy * 0.6})`;
-        vc.lineWidth = 2 + field.energy * 3;
+        vc.strokeStyle = `rgba(255, 255, 255, ${field.energy * 0.5})`;
+        vc.lineWidth = 2 + field.energy * 2;
         vc.lineCap = 'round';
         vc.stroke();
     }
@@ -651,7 +652,9 @@ function tick(timestamp) {
 
     tickRhythm(dt);
     shapeField(dt);
-    updateMemory();
+    updateMelody(dt);
+    updateNotes(dt);
+    spawnNote();
     draw();
 
     requestAnimationFrame(tick);
@@ -662,12 +665,10 @@ function tick(timestamp) {
 async function start() {
     document.getElementById('enter').classList.add('off');
 
-    if (typeof DeviceMotionEvent !== 'undefined' &&
-        typeof DeviceMotionEvent.requestPermission === 'function') {
+    if (typeof DeviceMotionEvent?.requestPermission === 'function') {
         try { await DeviceMotionEvent.requestPermission(); } catch(e) {}
     }
-    if (typeof DeviceOrientationEvent !== 'undefined' &&
-        typeof DeviceOrientationEvent.requestPermission === 'function') {
+    if (typeof DeviceOrientationEvent?.requestPermission === 'function') {
         try { await DeviceOrientationEvent.requestPermission(); } catch(e) {}
     }
 
@@ -697,9 +698,7 @@ async function start() {
         onMove(t.clientX / window.innerWidth, 1 - t.clientY / window.innerHeight);
     }, { passive: false });
 
-    if (ctx.state === 'suspended') {
-        await ctx.resume();
-    }
+    if (ctx.state === 'suspended') await ctx.resume();
 
     running = true;
     lastTime = performance.now();
