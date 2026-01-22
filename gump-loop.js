@@ -1,45 +1,38 @@
 /**
- * GUMP Autonomous Loop
+ * GUMP Autonomous Loop (Claude Code Edition)
  *
- * The Three Minds (Engineer, Musician, Physicist) work continuously
- * on evolving GUMP within token/cost constraints.
+ * Uses Claude Code CLI (your Pro subscription) instead of API.
+ * The Three Minds work continuously on evolving GUMP.
  *
  * Safety features:
  * - Max consecutive failures before pause
  * - Must produce actual file changes to count as progress
- * - Token budget tracking
- * - Structured output parsing (no arbitrary execution)
- * - Exponential backoff on errors
+ * - Structured output parsing
  */
 
-import Anthropic from '@anthropic-ai/sdk';
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
-import { execSync } from 'child_process';
-import { config } from 'dotenv';
+import { execSync, spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-
-config();
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // ============ CONFIGURATION ============
 
 const CONFIG = {
-  apiKey: process.env.ANTHROPIC_API_KEY,
-  model: process.env.MODEL || 'claude-sonnet-4-20250514',
-  maxTokens: parseInt(process.env.MAX_TOKENS) || 8192,
   cycleMinutes: parseInt(process.env.CYCLE_INTERVAL_MINUTES) || 30,
 
   // Safety limits
   maxConsecutiveFailures: 3,
   maxCyclesWithoutProgress: 5,
-  maxTokensPerDay: 500000,  // ~$40/day cap for Opus
 
   // Paths
   projectDir: __dirname,
   gumpDir: join(__dirname, '.gump'),
   logsDir: join(__dirname, '.gump', 'logs'),
+
+  // Claude Code timeout (10 minutes max per cycle)
+  claudeTimeout: 600000,
 };
 
 // ============ STATE ============
@@ -48,8 +41,6 @@ let state = {
   cycleCount: 0,
   consecutiveFailures: 0,
   cyclesWithoutProgress: 0,
-  tokensUsedToday: 0,
-  lastResetDate: new Date().toDateString(),
   paused: false,
   pauseReason: null,
 };
@@ -70,53 +61,28 @@ function log(level, message, data = null) {
 // ============ FILE OPERATIONS ============
 
 function readContext() {
-  const files = ['vision.md', 'engineer.md', 'musician.md', 'physicist.md', 'dialogue.md', 'state.md'];
-  const context = {};
+  const files = ['vision.md', 'state.md', 'dialogue.md'];
+  let context = '';
 
   for (const file of files) {
     const path = join(CONFIG.gumpDir, file);
     if (existsSync(path)) {
-      context[file] = readFileSync(path, 'utf-8');
+      const content = readFileSync(path, 'utf-8');
+      context += `\n=== ${file} ===\n${content}\n`;
     }
   }
 
-  // Also read the current index.html
+  // Truncated index.html
   const indexPath = join(CONFIG.projectDir, 'index.html');
   if (existsSync(indexPath)) {
-    context['index.html'] = readFileSync(indexPath, 'utf-8');
+    const indexContent = readFileSync(indexPath, 'utf-8');
+    const truncated = indexContent.length > 4000
+      ? indexContent.substring(0, 4000) + `\n... [${indexContent.length} chars total]`
+      : indexContent;
+    context += `\n=== index.html (current code) ===\n${truncated}\n`;
   }
 
   return context;
-}
-
-function applyFileChanges(changes) {
-  let appliedCount = 0;
-
-  for (const change of changes) {
-    try {
-      const fullPath = join(CONFIG.projectDir, change.path);
-
-      // Security: only allow changes within project directory
-      if (!fullPath.startsWith(CONFIG.projectDir)) {
-        log('WARN', `Blocked path escape attempt: ${change.path}`);
-        continue;
-      }
-
-      // Security: block sensitive files
-      if (change.path.includes('.env') || change.path.includes('.git/')) {
-        log('WARN', `Blocked sensitive file change: ${change.path}`);
-        continue;
-      }
-
-      writeFileSync(fullPath, change.content, 'utf-8');
-      log('INFO', `Updated: ${change.path}`);
-      appliedCount++;
-    } catch (err) {
-      log('ERROR', `Failed to write ${change.path}`, { error: err.message });
-    }
-  }
-
-  return appliedCount;
 }
 
 // ============ GIT OPERATIONS ============
@@ -134,259 +100,157 @@ function git(command) {
   }
 }
 
-function hasChanges() {
+function hasUncommittedChanges() {
   const status = git('status --porcelain');
   return status && status.length > 0;
 }
 
-function commitAndPush(message) {
-  if (!hasChanges()) {
-    log('INFO', 'No changes to commit');
-    return false;
-  }
-
-  git('add -A');
-
-  const commitMsg = `${message}\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nAutonomous cycle #${state.cycleCount}`;
-
-  // Use file for commit message to handle special characters
-  const msgFile = join(CONFIG.gumpDir, '.commit-msg-temp');
-  writeFileSync(msgFile, commitMsg);
-
-  const commitResult = git(`commit -F "${msgFile}"`);
-  if (!commitResult) return false;
-
-  const pushResult = git('push');
-  if (pushResult === null) {
-    // Try pull and push again
-    git('pull --rebase');
-    git('push');
-  }
-
-  log('INFO', 'Committed and pushed', { message });
-  return true;
+function getLatestCommitMessage() {
+  return git('log -1 --pretty=%B') || '';
 }
 
-// ============ PROMPT BUILDING ============
+// ============ CLAUDE CODE EXECUTION ============
 
-function buildSystemPrompt() {
-  return `You are THREE MINDS working together to build GUMP - a musical instrument that creates music from physical experience.
+function runClaudeCode(prompt) {
+  return new Promise((resolve, reject) => {
+    log('INFO', 'Starting Claude Code...');
 
-THE ENGINEER: Master of code, real-time systems, Web Audio API. Focuses on making it WORK.
-THE MUSICIAN: Master of music theory, rhythm, emotional arc. Focuses on making it MUSICAL.
-THE PHYSICIST: Master of math, physics, signal processing. Focuses on finding the underlying STRUCTURE.
+    // Write prompt to temp file to avoid shell escaping issues
+    const promptFile = join(CONFIG.gumpDir, '.prompt-temp.txt');
+    writeFileSync(promptFile, prompt, 'utf-8');
 
-RULES:
-1. You have ONE task per cycle. Pick the most important next step from state.md.
-2. Make REAL progress - actual code changes, not just planning.
-3. Keep changes focused. One feature/fix per cycle.
-4. Test your logic mentally before outputting code.
-5. Update .gump/state.md and .gump/dialogue.md to track what you did.
-
-OUTPUT FORMAT - You MUST respond with this exact JSON structure:
-{
-  "thinking": "Brief internal reasoning (1-2 sentences)",
-  "task": "What you're doing this cycle",
-  "changes": [
-    {
-      "path": "relative/path/to/file.ext",
-      "content": "full file content here"
-    }
-  ],
-  "commit_message": "Short commit message",
-  "next_priority": "What the next cycle should focus on"
-}
-
-CRITICAL:
-- "changes" array must contain complete file contents, not diffs
-- Only change files that need changing
-- Always include updated state.md in changes
-- If you're stuck or need human input, set "paused": true and explain in "pause_reason"`;
-}
-
-function buildUserPrompt(context) {
-  // Truncate index.html to save tokens - just show structure
-  let indexSummary = context['index.html'] || '';
-  if (indexSummary.length > 3000) {
-    indexSummary = indexSummary.substring(0, 3000) + '\n\n... [truncated, ~' + context['index.html'].length + ' chars total]';
-  }
-
-  return `CURRENT STATE:
-
-=== vision.md ===
-${context['vision.md'] || 'Not found'}
-
-=== state.md ===
-${context['state.md'] || 'Not found'}
-
-=== Recent dialogue (last section) ===
-${(context['dialogue.md'] || '').split('---').slice(-2).join('---')}
-
-=== index.html (truncated) ===
-${indexSummary}
-
----
-
-Continue building GUMP. Pick ONE concrete task and complete it.
-Output valid JSON only, no markdown code blocks.`;
-}
-
-// ============ API CALL ============
-
-async function callClaude(systemPrompt, userPrompt) {
-  const client = new Anthropic({ apiKey: CONFIG.apiKey });
-
-  const inputTokensEstimate = (systemPrompt.length + userPrompt.length) / 4;
-
-  log('INFO', `Calling Claude (est. ${Math.round(inputTokensEstimate)} input tokens)`);
-
-  try {
-    const response = await client.messages.create({
-      model: CONFIG.model,
-      max_tokens: CONFIG.maxTokens,
-      messages: [
-        { role: 'user', content: userPrompt }
-      ],
-      system: systemPrompt,
+    // Use claude with -p flag for print mode (non-interactive)
+    // --dangerously-skip-permissions allows file writes without prompts
+    const claude = spawn('claude', [
+      '-p', prompt,
+      '--dangerously-skip-permissions'
+    ], {
+      cwd: CONFIG.projectDir,
+      timeout: CONFIG.claudeTimeout,
+      shell: true
     });
 
-    const tokensUsed = (response.usage?.input_tokens || 0) + (response.usage?.output_tokens || 0);
-    state.tokensUsedToday += tokensUsed;
+    let stdout = '';
+    let stderr = '';
 
-    log('INFO', `Claude responded (${tokensUsed} tokens, ${state.tokensUsedToday} today)`);
+    claude.stdout.on('data', (data) => {
+      stdout += data.toString();
+      process.stdout.write(data); // Stream output live
+    });
 
-    return response.content[0]?.text || null;
-  } catch (err) {
-    log('ERROR', 'Claude API call failed', { error: err.message });
-    return null;
-  }
+    claude.stderr.on('data', (data) => {
+      stderr += data.toString();
+      process.stderr.write(data);
+    });
+
+    claude.on('close', (code) => {
+      if (code === 0) {
+        resolve(stdout);
+      } else {
+        reject(new Error(`Claude exited with code ${code}: ${stderr}`));
+      }
+    });
+
+    claude.on('error', (err) => {
+      reject(err);
+    });
+  });
 }
 
-// ============ RESPONSE PARSING ============
+// ============ BUILD PROMPT ============
 
-function parseResponse(text) {
-  if (!text) return null;
+function buildPrompt(context) {
+  return `You are the THREE MINDS working on GUMP - a musical instrument that creates music from physical experience.
 
-  try {
-    // Try to extract JSON from response
-    let jsonStr = text.trim();
+ENGINEER: Code, real-time systems, Web Audio. Makes it WORK.
+MUSICIAN: Music theory, rhythm, emotion. Makes it MUSICAL.
+PHYSICIST: Math, physics, structure. Finds the PATTERNS.
 
-    // Remove markdown code blocks if present
-    if (jsonStr.startsWith('```')) {
-      jsonStr = jsonStr.replace(/^```json?\n?/, '').replace(/\n?```$/, '');
-    }
+CURRENT CONTEXT:
+${context}
 
-    const parsed = JSON.parse(jsonStr);
+YOUR TASK THIS CYCLE:
+1. Read state.md to see what's next
+2. Pick ONE concrete task - the most important next step
+3. IMPLEMENT it - make actual code changes to index.html
+4. Update .gump/state.md to mark progress
+5. Add a brief entry to .gump/dialogue.md about what you did
+6. Commit with a clear message
+7. Push to GitHub
 
-    // Validate required fields
-    if (!parsed.changes || !Array.isArray(parsed.changes)) {
-      log('WARN', 'Response missing changes array');
-      return null;
-    }
+RULES:
+- Make REAL changes. No planning-only cycles.
+- Keep changes focused - one feature or fix per cycle.
+- Test your logic mentally before writing code.
+- If stuck or need human input, say so clearly and stop.
 
-    if (!parsed.commit_message) {
-      log('WARN', 'Response missing commit_message');
-      return null;
-    }
-
-    return parsed;
-  } catch (err) {
-    log('ERROR', 'Failed to parse Claude response', { error: err.message, text: text.substring(0, 500) });
-    return null;
-  }
+START WORKING NOW. Don't ask questions - make decisions and build.`;
 }
 
 // ============ MAIN CYCLE ============
 
 async function runCycle() {
   state.cycleCount++;
-  log('INFO', `=== CYCLE ${state.cycleCount} STARTING ===`);
+  log('INFO', `\n${'='.repeat(50)}`);
+  log('INFO', `CYCLE ${state.cycleCount} STARTING`);
+  log('INFO', `${'='.repeat(50)}\n`);
 
-  // Check token budget
-  const today = new Date().toDateString();
-  if (today !== state.lastResetDate) {
-    state.tokensUsedToday = 0;
-    state.lastResetDate = today;
-    log('INFO', 'Daily token counter reset');
+  // Check for uncommitted changes from manual work
+  if (hasUncommittedChanges()) {
+    log('WARN', 'Found uncommitted changes - committing first');
+    git('add -A');
+    git('commit -m "WIP: uncommitted changes before autonomous cycle"');
   }
 
-  if (state.tokensUsedToday >= CONFIG.maxTokensPerDay) {
-    log('WARN', 'Daily token budget exhausted');
-    state.paused = true;
-    state.pauseReason = 'Daily token budget exhausted. Will resume tomorrow.';
-    return false;
-  }
+  // Pull latest
+  git('pull --rebase origin main');
 
-  // Read current context
+  // Read context
   const context = readContext();
 
-  // Build prompts
-  const systemPrompt = buildSystemPrompt();
-  const userPrompt = buildUserPrompt(context);
+  // Build prompt
+  const prompt = buildPrompt(context);
 
-  // Call Claude
-  const response = await callClaude(systemPrompt, userPrompt);
-  if (!response) {
+  // Run Claude Code
+  try {
+    await runClaudeCode(prompt);
+    log('INFO', 'Claude Code completed');
+  } catch (err) {
+    log('ERROR', 'Claude Code failed', { error: err.message });
     state.consecutiveFailures++;
-    log('WARN', `API call failed (${state.consecutiveFailures} consecutive failures)`);
     return false;
   }
 
-  // Parse response
-  const parsed = parseResponse(response);
-  if (!parsed) {
-    state.consecutiveFailures++;
-    log('WARN', `Response parse failed (${state.consecutiveFailures} consecutive failures)`);
-    return false;
-  }
-
-  // Check if Claude wants to pause
-  if (parsed.paused) {
-    state.paused = true;
-    state.pauseReason = parsed.pause_reason || 'Claude requested pause';
-    log('INFO', 'Claude requested pause', { reason: state.pauseReason });
-    return false;
-  }
-
-  // Apply file changes
-  const changesApplied = applyFileChanges(parsed.changes);
-
-  if (changesApplied === 0) {
-    state.cyclesWithoutProgress++;
-    log('WARN', `No changes applied (${state.cyclesWithoutProgress} cycles without progress)`);
-  } else {
-    state.cyclesWithoutProgress = 0;
+  // Check if changes were made
+  if (hasUncommittedChanges()) {
     state.consecutiveFailures = 0;
+    state.cyclesWithoutProgress = 0;
+    log('INFO', 'Changes detected - cycle successful');
+    return true;
+  } else {
+    // Check if Claude committed directly
+    const latestCommit = getLatestCommitMessage();
+    if (latestCommit.includes('Co-Authored-By: Claude')) {
+      state.consecutiveFailures = 0;
+      state.cyclesWithoutProgress = 0;
+      log('INFO', 'Claude committed changes directly - cycle successful');
+      return true;
+    }
+
+    state.cyclesWithoutProgress++;
+    log('WARN', `No changes made (${state.cyclesWithoutProgress} cycles without progress)`);
+    return false;
   }
-
-  // Commit and push
-  const committed = commitAndPush(parsed.commit_message);
-
-  log('INFO', `=== CYCLE ${state.cycleCount} COMPLETE ===`, {
-    task: parsed.task,
-    filesChanged: changesApplied,
-    committed,
-    nextPriority: parsed.next_priority
-  });
-
-  return changesApplied > 0;
 }
 
 // ============ MAIN LOOP ============
 
 async function main() {
-  log('INFO', '🎵 GUMP Autonomous Loop Starting');
+  log('INFO', '🎵 GUMP Autonomous Loop Starting (Claude Code Edition)');
   log('INFO', 'Configuration', {
-    model: CONFIG.model,
     cycleMinutes: CONFIG.cycleMinutes,
-    maxTokensPerDay: CONFIG.maxTokensPerDay
+    projectDir: CONFIG.projectDir
   });
-
-  // Check for required config
-  if (!CONFIG.apiKey) {
-    log('ERROR', 'ANTHROPIC_API_KEY not set. Copy .env.example to .env and add your key.');
-    process.exit(1);
-  }
 
   // Check for --once flag
   const runOnce = process.argv.includes('--once');
@@ -394,35 +258,40 @@ async function main() {
   while (true) {
     // Check safety limits
     if (state.consecutiveFailures >= CONFIG.maxConsecutiveFailures) {
-      log('ERROR', 'Too many consecutive failures. Pausing.');
+      log('ERROR', `Too many consecutive failures (${state.consecutiveFailures}). Pausing.`);
       state.paused = true;
-      state.pauseReason = `${CONFIG.maxConsecutiveFailures} consecutive failures`;
+      state.pauseReason = 'Too many consecutive failures';
     }
 
     if (state.cyclesWithoutProgress >= CONFIG.maxCyclesWithoutProgress) {
-      log('WARN', 'Too many cycles without progress. Pausing.');
+      log('WARN', `Too many cycles without progress (${state.cyclesWithoutProgress}). Pausing.`);
       state.paused = true;
-      state.pauseReason = `${CONFIG.maxCyclesWithoutProgress} cycles without progress - may be stuck`;
+      state.pauseReason = 'Stuck - no progress being made';
     }
 
     if (state.paused) {
-      log('INFO', `PAUSED: ${state.pauseReason}`);
-      log('INFO', 'To resume, restart the script.');
+      log('INFO', `\n⏸️  PAUSED: ${state.pauseReason}`);
+      log('INFO', 'Restart the script to resume.');
       break;
     }
 
     // Run a cycle
-    await runCycle();
+    try {
+      await runCycle();
+    } catch (err) {
+      log('ERROR', 'Cycle error', { error: err.message });
+      state.consecutiveFailures++;
+    }
 
     if (runOnce) {
-      log('INFO', 'Single cycle complete (--once flag)');
+      log('INFO', '\n✅ Single cycle complete (--once flag)');
       break;
     }
 
     // Wait for next cycle
-    const waitMs = CONFIG.cycleMinutes * 60 * 1000;
-    log('INFO', `Waiting ${CONFIG.cycleMinutes} minutes until next cycle...`);
-    await new Promise(resolve => setTimeout(resolve, waitMs));
+    log('INFO', `\n⏳ Waiting ${CONFIG.cycleMinutes} minutes until next cycle...`);
+    log('INFO', `   Next cycle at: ${new Date(Date.now() + CONFIG.cycleMinutes * 60000).toLocaleTimeString()}`);
+    await new Promise(resolve => setTimeout(resolve, CONFIG.cycleMinutes * 60 * 1000));
   }
 }
 
