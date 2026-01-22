@@ -115,15 +115,15 @@ function runClaudeCode(prompt) {
   return new Promise((resolve, reject) => {
     log('INFO', 'Starting Claude Code...');
 
-    // Write prompt to temp file to avoid shell escaping issues
+    // Write prompt to temp file to avoid command line length limits
     const promptFile = join(CONFIG.gumpDir, '.prompt-temp.txt');
     writeFileSync(promptFile, prompt, 'utf-8');
 
-    // Use claude with -p flag for print mode (non-interactive)
-    // --dangerously-skip-permissions allows file writes without prompts
+    // Use stdin to pass the prompt - avoids command line length limits
     const claude = spawn('claude', [
-      '-p', prompt,
-      '--dangerously-skip-permissions'
+      '--dangerously-skip-permissions',
+      '-p',
+      '-'  // Read from stdin
     ], {
       cwd: CONFIG.projectDir,
       timeout: CONFIG.claudeTimeout,
@@ -132,6 +132,10 @@ function runClaudeCode(prompt) {
 
     let stdout = '';
     let stderr = '';
+
+    // Send prompt via stdin
+    claude.stdin.write(prompt);
+    claude.stdin.end();
 
     claude.stdout.on('data', (data) => {
       stdout += data.toString();
