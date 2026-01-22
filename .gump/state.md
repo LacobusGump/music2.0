@@ -1,6 +1,6 @@
 # Current State
 
-*Last updated: January 21, 2026*
+*Last updated: January 21, 2026 (gesture buffer implemented)*
 
 ---
 
@@ -40,9 +40,10 @@ The Three Minds now run continuously via `gump-loop.js`. Each cycle:
 ## What's Next
 
 ### Immediate Priorities (This Session)
-1. [ ] Implement gesture buffer (store 500ms of accelerometer data)
-2. [ ] Basic gesture detection: tap, swipe, shake, hold
+1. [x] Implement gesture buffer (store 500ms of accelerometer data)
+2. [x] Basic gesture detection: tap, swipe, shake, hold, circle
 3. [ ] Harmonic gravity model (pitch bends toward consonance)
+4. [ ] Musical responses for each gesture type
 
 ### Short-Term Goals
 - [ ] Microphone input (start with onset detection, not full pitch)
@@ -91,7 +92,7 @@ The Three Minds now run continuously via `gump-loop.js`. Each cycle:
 - Full velocity → volume mapping (too sensitive to noise)
 
 ### What We Haven't Tried Yet
-- Gesture recognition
+- ~~Gesture recognition~~ **Implemented!** Buffer + detection for SHAKE, SWIPE, HOLD, CIRCLE
 - Microphone input
 - Harmonic gravity
 - Mode switching (Lydian ↔ Locrian spectrum)
@@ -122,10 +123,10 @@ The Three Minds now run continuously via `gump-loop.js`. Each cycle:
 
 | Agent | Current Focus | Status |
 |-------|--------------|--------|
-| Engineer | Gesture buffer implementation | Ready to code |
-| Musician | Gesture → musical response mapping | Designing |
+| Engineer | Gesture buffer implementation | **DONE** ✓ |
+| Musician | Gesture → musical response mapping | Next up |
 | Physicist | Harmonic gravity math | Formulating |
 
 ---
 
-*Next session: Implement gesture detection prototype*
+*Next session: Add musical responses to gestures, implement harmonic gravity*

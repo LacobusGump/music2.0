@@ -106,3 +106,53 @@
 ---
 
 *End of Session 1*
+
+---
+
+## Session 2 - January 21, 2026 (Later)
+
+### Gesture Buffer: Implementation Notes
+
+**ENGINEER**: Done. The gesture buffer is live. Here's what I built:
+
+- **Buffer**: Stores 500ms of samples (~30 at 60Hz). Each sample tracks position, velocity, acceleration, energy, and angle.
+- **Detection**: Runs on every input event, classifies into SHAKE, SWIPE, HOLD, or CIRCLE.
+- **Cooldown**: 200ms between gesture detections to prevent spam.
+
+**PHYSICIST**: Walk me through the detection logic.
+
+**ENGINEER**:
+- **SHAKE**: High average energy + multiple direction reversals (velocity dot product goes negative). Needs 3+ reversals.
+- **SWIPE**: High velocity + high linearity (displacement / path length > 0.7). Returns direction (UP/DOWN/LEFT/RIGHT).
+- **HOLD**: Low energy sustained for 400ms+. Only fires once per stillness period.
+- **CIRCLE**: Accumulated rotation exceeds 1.5π radians. Tracks CW vs CCW.
+
+**MUSICIAN**: What about TAP? That was in the original spec.
+
+**ENGINEER**: TAP is tricky. It requires touch-up detection, which we don't have in the continuous motion stream. We could add it through touchstart/touchend events, but I left it out for now. The existing gestures give us enough vocabulary to start.
+
+**PHYSICIST**: The thresholds - how did you choose them?
+
+**ENGINEER**: Educated guesses. `SHAKE_ENERGY: 0.15` means you need to be moving at 15% of our normalized velocity scale. `SHAKE_REVERSALS: 3` means back-and-forth-and-back minimum. These will need tuning once we have real device testing.
+
+**MUSICIAN**: So what does the system DO when it detects a gesture?
+
+**ENGINEER**: Right now? Logs to console and boosts `field.energy`. The musical responses are YOUR job.
+
+**MUSICIAN**: Fair. Here's what I'm thinking:
+- **SHAKE** → Trill/tremolo. Rapid alternation between two notes. The intensity parameter controls how wide the interval.
+- **SWIPE** → Glissando in the swipe direction. UP = ascending, DOWN = descending. Velocity controls speed.
+- **HOLD** → Sustain. Let the current harmonic state ring out, maybe with increasing reverb.
+- **CIRCLE** → Arpeggio loop. CW = ascending, CCW = descending. Each rotation cycles through the chord.
+
+**PHYSICIST**: The circle → arpeggio mapping is elegant. Circular motion has periodicity. Arpeggios have periodicity. The math aligns.
+
+**ENGINEER**: Next cycle I can wire up those responses. Or we could do harmonic gravity first - that affects how ALL notes sound, not just gesture responses.
+
+**MUSICIAN**: Harmonic gravity is more foundational. Let's do that first, then layer gestures on top.
+
+**ALL**: Agreed. Harmonic gravity next.
+
+---
+
+*End of Session 2*

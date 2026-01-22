@@ -47,6 +47,174 @@ let field = {
 let canvas, vc;
 let running = false;
 
+// ============ GESTURE RECOGNITION ============
+
+const GESTURE_BUFFER_MS = 500;
+const GESTURE_SAMPLE_RATE = 60; // ~16ms per sample
+const GESTURE_BUFFER_SIZE = Math.ceil(GESTURE_BUFFER_MS / (1000 / GESTURE_SAMPLE_RATE));
+
+let gestureBuffer = [];
+let lastGestureTime = 0;
+let currentGesture = null;
+
+// Gesture thresholds (tuned through experimentation)
+const GESTURE_THRESHOLDS = {
+    SHAKE_ENERGY: 0.15,      // Minimum energy for shake
+    SHAKE_REVERSALS: 3,      // Minimum direction changes for shake
+    SWIPE_VELOCITY: 0.08,    // Minimum velocity for swipe
+    SWIPE_LINEARITY: 0.7,    // How straight the path must be (0-1)
+    TAP_DURATION: 150,       // Max ms for a tap
+    HOLD_DURATION: 400,      // Min ms for a hold
+    CIRCLE_ROTATION: Math.PI * 1.5, // Min radians for circle
+    COOLDOWN: 200            // Min ms between gesture detections
+};
+
+function addGestureSample(x, y, vx, vy, ax, ay) {
+    const now = performance.now();
+
+    gestureBuffer.push({
+        time: now,
+        x, y,
+        vx, vy,
+        ax, ay,
+        energy: Math.sqrt(vx*vx + vy*vy),
+        angle: Math.atan2(vy, vx)
+    });
+
+    // Trim old samples
+    while (gestureBuffer.length > 0 &&
+           now - gestureBuffer[0].time > GESTURE_BUFFER_MS) {
+        gestureBuffer.shift();
+    }
+}
+
+function detectGesture() {
+    if (gestureBuffer.length < 5) return null;
+
+    const now = performance.now();
+    if (now - lastGestureTime < GESTURE_THRESHOLDS.COOLDOWN) return null;
+
+    const buffer = gestureBuffer;
+    const duration = buffer[buffer.length - 1].time - buffer[0].time;
+
+    // Calculate aggregate metrics
+    let totalEnergy = 0;
+    let maxEnergy = 0;
+    let directionReversals = 0;
+    let totalRotation = 0;
+    let prevAngle = buffer[0].angle;
+
+    // Track start and end positions for swipe detection
+    const startX = buffer[0].x;
+    const startY = buffer[0].y;
+    const endX = buffer[buffer.length - 1].x;
+    const endY = buffer[buffer.length - 1].y;
+    const displacement = Math.sqrt((endX - startX)**2 + (endY - startY)**2);
+
+    // Track path length for linearity
+    let pathLength = 0;
+
+    for (let i = 1; i < buffer.length; i++) {
+        const sample = buffer[i];
+        const prev = buffer[i - 1];
+
+        totalEnergy += sample.energy;
+        maxEnergy = Math.max(maxEnergy, sample.energy);
+
+        // Path length
+        pathLength += Math.sqrt((sample.x - prev.x)**2 + (sample.y - prev.y)**2);
+
+        // Direction reversals (for shake detection)
+        const dotProduct = sample.vx * prev.vx + sample.vy * prev.vy;
+        if (dotProduct < -0.001 && prev.energy > 0.02 && sample.energy > 0.02) {
+            directionReversals++;
+        }
+
+        // Total rotation (for circle detection)
+        let angleDiff = sample.angle - prevAngle;
+        // Normalize to -PI to PI
+        while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
+        while (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
+        totalRotation += angleDiff;
+        prevAngle = sample.angle;
+    }
+
+    const avgEnergy = totalEnergy / buffer.length;
+    const linearity = pathLength > 0.001 ? displacement / pathLength : 0;
+
+    // ============ GESTURE CLASSIFICATION ============
+
+    // SHAKE: High energy with multiple direction reversals
+    if (avgEnergy > GESTURE_THRESHOLDS.SHAKE_ENERGY &&
+        directionReversals >= GESTURE_THRESHOLDS.SHAKE_REVERSALS) {
+        lastGestureTime = now;
+        return {
+            type: 'SHAKE',
+            intensity: Math.min(1, avgEnergy / 0.3),
+            reversals: directionReversals
+        };
+    }
+
+    // CIRCLE: Accumulated rotation exceeds threshold
+    if (Math.abs(totalRotation) > GESTURE_THRESHOLDS.CIRCLE_ROTATION &&
+        avgEnergy > 0.02) {
+        lastGestureTime = now;
+        return {
+            type: 'CIRCLE',
+            direction: totalRotation > 0 ? 'CW' : 'CCW',
+            rotations: Math.abs(totalRotation) / (2 * Math.PI)
+        };
+    }
+
+    // SWIPE: Fast, linear movement
+    if (avgEnergy > GESTURE_THRESHOLDS.SWIPE_VELOCITY &&
+        linearity > GESTURE_THRESHOLDS.SWIPE_LINEARITY &&
+        displacement > 0.1) {
+        lastGestureTime = now;
+        const angle = Math.atan2(endY - startY, endX - startX);
+        let direction;
+        if (angle > -Math.PI/4 && angle <= Math.PI/4) direction = 'RIGHT';
+        else if (angle > Math.PI/4 && angle <= 3*Math.PI/4) direction = 'DOWN';
+        else if (angle > -3*Math.PI/4 && angle <= -Math.PI/4) direction = 'UP';
+        else direction = 'LEFT';
+
+        return {
+            type: 'SWIPE',
+            direction,
+            velocity: avgEnergy,
+            distance: displacement
+        };
+    }
+
+    // HOLD: Low energy for extended duration
+    if (avgEnergy < 0.01 && duration > GESTURE_THRESHOLDS.HOLD_DURATION) {
+        // Only fire hold once per stillness period
+        if (!currentGesture || currentGesture.type !== 'HOLD') {
+            lastGestureTime = now;
+            return {
+                type: 'HOLD',
+                duration: duration,
+                position: { x: endX, y: endY }
+            };
+        }
+    }
+
+    return null;
+}
+
+function onGestureDetected(gesture) {
+    // Store for external access
+    currentGesture = gesture;
+    field.lastGesture = field.time;
+
+    // Musical responses will be added here
+    // For now, log to help with tuning
+    console.log('Gesture:', gesture.type, gesture);
+
+    // Visual feedback - pulse the cursor
+    field.energy = Math.max(field.energy, gesture.intensity || 0.3);
+}
+
 // All possible harmonic ratios - the DNA pool
 const ALL_RATIOS = [
     1, 16/15, 9/8, 6/5, 5/4, 4/3, 45/32, 3/2, 8/5, 5/3, 9/5, 15/8,
@@ -819,11 +987,26 @@ function onMove(nx, ny) {
 
     const prevX = field.x;
     const prevY = field.y;
+    const prevVx = field.vx;
+    const prevVy = field.vy;
 
     field.vx = field.vx * 0.6 + (nx - field.x) * 0.4;
     field.vy = field.vy * 0.6 + (ny - field.y) * 0.4;
     field.x = field.x * 0.75 + nx * 0.25;
     field.y = field.y * 0.75 + ny * 0.25;
+
+    // Calculate acceleration for gesture buffer
+    const ax = field.vx - prevVx;
+    const ay = field.vy - prevVy;
+
+    // Add sample to gesture buffer
+    addGestureSample(field.x, field.y, field.vx, field.vy, ax, ay);
+
+    // Check for gestures
+    const gesture = detectGesture();
+    if (gesture) {
+        onGestureDetected(gesture);
+    }
 
     const speed = Math.sqrt(field.vx*field.vx + field.vy*field.vy);
     field.energy = field.energy * 0.9 + speed * 0.5;
@@ -839,32 +1022,38 @@ function onMove(nx, ny) {
     if (field.energy > 0.15 && Math.random() < field.energy * 0.03) {
         birthEntity();
     }
-
-    // Gesture detection (circle)
-    const angle = Math.atan2(field.vy, field.vx);
-    const angleDiff = angle - field.gestureAngle;
-    field.gestureAngle = angle;
-
-    // If consistently turning, it's a circle
-    if (Math.abs(angleDiff) > 0.1 && Math.abs(angleDiff) < 0.5) {
-        // Circle gesture - could trigger mode shift or special birth
-    }
 }
 
 function onMotion(e) {
     const a = e.accelerationIncludingGravity;
     if (!a) return;
 
-    const ax = (a.x || 0) / 8;
-    const ay = (a.y || 0) / 8;
+    const rawAx = (a.x || 0) / 8;
+    const rawAy = (a.y || 0) / 8;
 
-    field.vx = field.vx * 0.7 + ax * 0.3;
-    field.vy = field.vy * 0.7 + ay * 0.3;
+    const prevVx = field.vx;
+    const prevVy = field.vy;
+
+    field.vx = field.vx * 0.7 + rawAx * 0.3;
+    field.vy = field.vy * 0.7 + rawAy * 0.3;
 
     field.x = Math.max(0, Math.min(1, field.x + field.vx * 0.08));
     field.y = Math.max(0, Math.min(1, field.y - field.vy * 0.08));
 
-    field.energy = field.energy * 0.9 + Math.sqrt(ax*ax + ay*ay) * 0.3;
+    // Calculate acceleration change for gesture buffer
+    const ax = field.vx - prevVx;
+    const ay = field.vy - prevVy;
+
+    // Add sample to gesture buffer
+    addGestureSample(field.x, field.y, field.vx, field.vy, ax, ay);
+
+    // Check for gestures
+    const gesture = detectGesture();
+    if (gesture) {
+        onGestureDetected(gesture);
+    }
+
+    field.energy = field.energy * 0.9 + Math.sqrt(rawAx*rawAx + rawAy*rawAy) * 0.3;
 
     if (field.energy > 0.2 && Math.random() < field.energy * 0.02) {
         birthEntity();
