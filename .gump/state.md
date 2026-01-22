@@ -4,6 +4,19 @@
 
 ---
 
+## Autonomous Mode: ACTIVE
+
+The Three Minds now run continuously via `gump-loop.js`. Each cycle:
+1. Reads context from `.gump/` files
+2. Picks the highest priority task
+3. Makes changes, commits, pushes
+4. Updates this file
+
+**To start**: `npm install && npm start`
+**Single run**: `npm run once`
+
+---
+
 ## Where We Are
 
 ### Completed Milestones
