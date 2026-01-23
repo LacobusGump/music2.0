@@ -1,13 +1,8 @@
 /**
  * GUMP Autonomous Loop (Claude Code Edition)
  *
- * Uses Claude Code CLI (your Pro subscription) instead of API.
- * The Three Minds work continuously on evolving GUMP.
- *
- * Safety features:
- * - Max consecutive failures before pause
- * - Must produce actual file changes to count as progress
- * - Structured output parsing
+ * Uses Claude Code CLI (your Pro subscription).
+ * Two cycles per day. Careful breakthroughs. Preserve the vibe.
  */
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
@@ -20,7 +15,8 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 // ============ CONFIGURATION ============
 
 const CONFIG = {
-  cycleMinutes: parseInt(process.env.CYCLE_INTERVAL_MINUTES) || 30,
+  // 12 hours = 720 minutes. Two cycles per day.
+  cycleMinutes: parseInt(process.env.CYCLE_INTERVAL_MINUTES) || 720,
 
   // Safety limits
   maxConsecutiveFailures: 3,
@@ -52,7 +48,6 @@ function log(level, message, data = null) {
   const entry = `[${timestamp}] [${level}] ${message}${data ? '\n' + JSON.stringify(data, null, 2) : ''}`;
   console.log(entry);
 
-  // Append to daily log file
   if (!existsSync(CONFIG.logsDir)) mkdirSync(CONFIG.logsDir, { recursive: true });
   const logFile = join(CONFIG.logsDir, `${new Date().toISOString().split('T')[0]}.log`);
   writeFileSync(logFile, entry + '\n', { flag: 'a' });
@@ -61,7 +56,7 @@ function log(level, message, data = null) {
 // ============ FILE OPERATIONS ============
 
 function readContext() {
-  const files = ['vision.md', 'state.md', 'dialogue.md'];
+  const files = ['vision.md', 'COMPETITION.md', 'state.md', 'dialogue.md'];
   let context = '';
 
   for (const file of files) {
@@ -72,12 +67,12 @@ function readContext() {
     }
   }
 
-  // Truncated index.html
+  // Truncated index.html - show more for better context
   const indexPath = join(CONFIG.projectDir, 'index.html');
   if (existsSync(indexPath)) {
     const indexContent = readFileSync(indexPath, 'utf-8');
-    const truncated = indexContent.length > 4000
-      ? indexContent.substring(0, 4000) + `\n... [${indexContent.length} chars total]`
+    const truncated = indexContent.length > 8000
+      ? indexContent.substring(0, 8000) + `\n... [${indexContent.length} chars total]`
       : indexContent;
     context += `\n=== index.html (current code) ===\n${truncated}\n`;
   }
@@ -115,15 +110,13 @@ function runClaudeCode(prompt) {
   return new Promise((resolve, reject) => {
     log('INFO', 'Starting Claude Code...');
 
-    // Write prompt to temp file to avoid command line length limits
     const promptFile = join(CONFIG.gumpDir, '.prompt-temp.txt');
     writeFileSync(promptFile, prompt, 'utf-8');
 
-    // Use stdin to pass the prompt - avoids command line length limits
     const claude = spawn('claude', [
       '--dangerously-skip-permissions',
       '-p',
-      '-'  // Read from stdin
+      '-'
     ], {
       cwd: CONFIG.projectDir,
       timeout: CONFIG.claudeTimeout,
@@ -133,13 +126,12 @@ function runClaudeCode(prompt) {
     let stdout = '';
     let stderr = '';
 
-    // Send prompt via stdin
     claude.stdin.write(prompt);
     claude.stdin.end();
 
     claude.stdout.on('data', (data) => {
       stdout += data.toString();
-      process.stdout.write(data); // Stream output live
+      process.stdout.write(data);
     });
 
     claude.stderr.on('data', (data) => {
@@ -164,31 +156,71 @@ function runClaudeCode(prompt) {
 // ============ BUILD PROMPT ============
 
 function buildPrompt(context) {
-  return `You are the THREE MINDS working on GUMP - a musical instrument that creates music from physical experience.
+  return `You are THREE MINDS working on GUMP - a musical instrument that creates music from physical experience.
 
-ENGINEER: Code, real-time systems, Web Audio. Makes it WORK.
-MUSICIAN: Music theory, rhythm, emotion. Makes it MUSICAL.
-PHYSICIST: Math, physics, structure. Finds the PATTERNS.
+═══════════════════════════════════════════════════════════════════════════════
+THE ENGINEER
+═══════════════════════════════════════════════════════════════════════════════
+Expert in: Real-time systems, Web Audio API, sensor fusion, latency optimization.
+Your job: Make it WORK. Fast. Smooth. No jank.
 
-CURRENT CONTEXT:
+═══════════════════════════════════════════════════════════════════════════════
+THE MUSICIAN
+═══════════════════════════════════════════════════════════════════════════════
+Expert in: Music theory, rhythm, psychoacoustics, groove, emotional arc.
+Your job: Make it MUSICAL. Not random. Not mechanical. Alive.
+
+═══════════════════════════════════════════════════════════════════════════════
+THE PHYSICIST
+═══════════════════════════════════════════════════════════════════════════════
+Expert in: Dynamical systems, wave mechanics, information theory, emergence.
+Your job: Find the STRUCTURE. The math that makes music inevitable.
+
+═══════════════════════════════════════════════════════════════════════════════
+⚠️  CRITICAL WARNING - READ THIS ⚠️
+═══════════════════════════════════════════════════════════════════════════════
+
+PREVIOUS CYCLES BROKE THE APP. We had to revert.
+
+The mistake: Too ambitious. Rewrote too much. Lost the vibe.
+
+THE GOLDEN RULE: **PRESERVE THE VIBE.**
+
+The current app FEELS GOOD. The groove works. The blooming notes work.
+Your job is to ENHANCE it, not REPLACE it.
+
+BEFORE YOU SHIP ANYTHING:
+1. Add SMALL changes
+2. Make sure existing features STILL WORK
+3. Don't rewrite working code
+4. If in doubt, do LESS not more
+
+═══════════════════════════════════════════════════════════════════════════════
+CURRENT STATE
+═══════════════════════════════════════════════════════════════════════════════
 ${context}
 
-YOUR TASK THIS CYCLE:
-1. Read state.md to see what's next
-2. Pick ONE concrete task - the most important next step
-3. IMPLEMENT it - make actual code changes to index.html
-4. Update .gump/state.md to mark progress
-5. Add a brief entry to .gump/dialogue.md about what you did
-6. Commit with a clear message
-7. Push to GitHub
+═══════════════════════════════════════════════════════════════════════════════
+YOUR MISSION THIS CYCLE
+═══════════════════════════════════════════════════════════════════════════════
 
-RULES:
-- Make REAL changes. No planning-only cycles.
-- Keep changes focused - one feature or fix per cycle.
-- Test your logic mentally before writing code.
-- If stuck or need human input, say so clearly and stop.
+1. Read state.md carefully - it tells you EXACTLY what to do
 
-START WORKING NOW. Don't ask questions - make decisions and build.`;
+2. Do ONE SMALL THING that adds value without breaking anything
+
+3. Update .gump/state.md with what you did
+
+4. Add a brief note to .gump/dialogue.md
+
+5. Commit and push
+
+REMEMBER:
+- Small additions > big rewrites
+- Working code > ambitious broken code
+- The vibe is sacred
+- When in doubt, do less
+
+Go.`;
 }
 
 // ============ MAIN CYCLE ============
@@ -199,23 +231,17 @@ async function runCycle() {
   log('INFO', `CYCLE ${state.cycleCount} STARTING`);
   log('INFO', `${'='.repeat(50)}\n`);
 
-  // Check for uncommitted changes from manual work
   if (hasUncommittedChanges()) {
     log('WARN', 'Found uncommitted changes - committing first');
     git('add -A');
     git('commit -m "WIP: uncommitted changes before autonomous cycle"');
   }
 
-  // Pull latest
   git('pull --rebase origin main');
 
-  // Read context
   const context = readContext();
-
-  // Build prompt
   const prompt = buildPrompt(context);
 
-  // Run Claude Code
   try {
     await runClaudeCode(prompt);
     log('INFO', 'Claude Code completed');
@@ -225,14 +251,12 @@ async function runCycle() {
     return false;
   }
 
-  // Check if changes were made
   if (hasUncommittedChanges()) {
     state.consecutiveFailures = 0;
     state.cyclesWithoutProgress = 0;
     log('INFO', 'Changes detected - cycle successful');
     return true;
   } else {
-    // Check if Claude committed directly
     const latestCommit = getLatestCommitMessage();
     if (latestCommit.includes('Co-Authored-By: Claude')) {
       state.consecutiveFailures = 0;
@@ -250,36 +274,32 @@ async function runCycle() {
 // ============ MAIN LOOP ============
 
 async function main() {
-  log('INFO', '🎵 GUMP Autonomous Loop Starting (Claude Code Edition)');
+  log('INFO', '🎵 GUMP Autonomous Loop Starting');
   log('INFO', 'Configuration', {
     cycleMinutes: CONFIG.cycleMinutes,
     projectDir: CONFIG.projectDir
   });
 
-  // Check for --once flag
   const runOnce = process.argv.includes('--once');
 
   while (true) {
-    // Check safety limits
     if (state.consecutiveFailures >= CONFIG.maxConsecutiveFailures) {
-      log('ERROR', `Too many consecutive failures (${state.consecutiveFailures}). Pausing.`);
+      log('ERROR', `Too many consecutive failures. Pausing.`);
       state.paused = true;
       state.pauseReason = 'Too many consecutive failures';
     }
 
     if (state.cyclesWithoutProgress >= CONFIG.maxCyclesWithoutProgress) {
-      log('WARN', `Too many cycles without progress (${state.cyclesWithoutProgress}). Pausing.`);
+      log('WARN', `Too many cycles without progress. Pausing.`);
       state.paused = true;
       state.pauseReason = 'Stuck - no progress being made';
     }
 
     if (state.paused) {
       log('INFO', `\n⏸️  PAUSED: ${state.pauseReason}`);
-      log('INFO', 'Restart the script to resume.');
       break;
     }
 
-    // Run a cycle
     try {
       await runCycle();
     } catch (err) {
@@ -292,9 +312,9 @@ async function main() {
       break;
     }
 
-    // Wait for next cycle
-    log('INFO', `\n⏳ Waiting ${CONFIG.cycleMinutes} minutes until next cycle...`);
-    log('INFO', `   Next cycle at: ${new Date(Date.now() + CONFIG.cycleMinutes * 60000).toLocaleTimeString()}`);
+    const hours = Math.floor(CONFIG.cycleMinutes / 60);
+    log('INFO', `\n⏳ Waiting ${hours} hours until next cycle...`);
+    log('INFO', `   Next: ${new Date(Date.now() + CONFIG.cycleMinutes * 60000).toLocaleString()}`);
     await new Promise(resolve => setTimeout(resolve, CONFIG.cycleMinutes * 60 * 1000));
   }
 }

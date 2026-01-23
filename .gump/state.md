@@ -1,132 +1,104 @@
 # Current State
 
-*Last updated: January 21, 2026 (gesture buffer implemented)*
+*Last updated: January 22, 2026*
 
 ---
 
-## Autonomous Mode: ACTIVE
+## MODE: CAREFUL BREAKTHROUGHS
 
-The Three Minds now run continuously via `gump-loop.js`. Each cycle:
-1. Reads context from `.gump/` files
-2. Picks the highest priority task
-3. Makes changes, commits, pushes
-4. Updates this file
+Two updates per day. 12 hours between cycles.
+Think deeply. Ship carefully. **DON'T BREAK WHAT WORKS.**
 
-**To start**: `npm install && npm start`
-**Single run**: `npm run once`
+Previous cycles broke the vibe. We reverted. Don't let it happen again.
+
+---
+
+## THE GOLDEN RULE
+
+**PRESERVE THE VIBE.** The current app feels good. Enhance it, don't replace it.
+
+Before shipping ANY change:
+1. Load index.html locally
+2. Move around, listen
+3. Does it still feel musical?
+4. Only then commit and push
 
 ---
 
 ## Where We Are
 
-### Completed Milestones
-- [x] Basic Web Audio synthesis (oscillators, filters, effects)
+### Foundation (WORKING - PROTECT THIS)
+- [x] Web Audio synthesis (oscillators, filters, effects)
 - [x] Device motion/orientation capture
 - [x] Touch input mapping
-- [x] Visual feedback system (canvas)
+- [x] Visual feedback (canvas)
 - [x] Purdie shuffle drum pattern
 - [x] Position-based harmony (X=root, Y=chord quality)
 - [x] Blooming notes from stillness
 - [x] Continuous melody from movement
 - [x] Reverb + delay effects chain
+- [x] Gesture buffer (500ms rolling window)
+- [x] Gesture detection (SHAKE, SWIPE, HOLD, CIRCLE)
 
-### Current Version
-- **Commit**: 5a7c07e "Position is harmony. Stillness blooms. Movement is melody."
-- **Lines of code**: ~710 (single index.html file)
-- **Live at**: lacobusgump.github.io/music2.0/
-
----
-
-## What's Next
-
-### Immediate Priorities (This Session)
-1. [x] Implement gesture buffer (store 500ms of accelerometer data)
-2. [x] Basic gesture detection: tap, swipe, shake, hold, circle
-3. [ ] Harmonic gravity model (pitch bends toward consonance)
-4. [ ] Musical responses for each gesture type
-
-### Short-Term Goals
-- [ ] Microphone input (start with onset detection, not full pitch)
-- [ ] Session memory (localStorage - remember user patterns)
-- [ ] Modular code architecture (split index.html into modules)
-
-### Medium-Term Goals
-- [ ] Gesture-to-phrase mapping (each gesture triggers musical response)
-- [ ] Pitch detection from microphone
-- [ ] User pattern learning (the app adapts to YOUR gestures)
-
-### Long-Term Vision
-- [ ] Cross-session memory (your instrument evolves over weeks)
-- [ ] Social/shared experiences (jam with others?)
-- [ ] Hardware integration (MIDI out? Custom controllers?)
+**Live at**: lacobusgump.github.io/music2.0/
 
 ---
 
-## Open Questions
+## NEXT TASK (ONE THING ONLY)
 
-1. **Architecture**: Stay single-file for simplicity, or modularize for maintainability?
-   - *Leaning toward*: Modularize when we add microphone input
+### Wire Gesture Responses
 
-2. **Gesture vocabulary**: How many gestures before it's overwhelming?
-   - *Leaning toward*: Start with 5 (tap, swipe, shake, hold, circle)
+The gesture detection exists but `onGestureDetected()` is empty.
+Add musical responses:
 
-3. **Harmonic system**: Western 12-tone, or explore microtonal?
-   - *Leaning toward*: Stay 12-tone for now, but design for extensibility
+- **SHAKE** → Rapid tremolo/trill on current notes
+- **SWIPE** → Quick melodic run in swipe direction
+- **CIRCLE** → Arpeggio pattern cycling through chord
+- **HOLD** → Deepen reverb, let notes bloom and sustain
 
-4. **Memory scope**: How much should the app remember?
-   - *Leaning toward*: Session-level first, then persistent if it proves valuable
+Keep it SIMPLE. Small additions. Test each one.
 
 ---
 
-## Experiments Tried
+## FUTURE TARGETS (NOT YET)
 
-### What Worked
-- Purdie shuffle ghost notes (creates groove feel)
-- Stillness → spawning notes (reward for patience)
-- Y-axis → filter frequency (intuitive bright/dark mapping)
-- Delay feedback tied to energy (movement creates echoes)
-
-### What Didn't Work
-- Direct position → pitch (too twitchy, no musicality)
-- Fixed chord types per Y region (too discrete, needs smoothing)
-- Full velocity → volume mapping (too sensitive to noise)
-
-### What We Haven't Tried Yet
-- ~~Gesture recognition~~ **Implemented!** Buffer + detection for SHAKE, SWIPE, HOLD, CIRCLE
+Save these for later cycles:
+- Prediction (momentum-based)
+- Entrainment (detect user's rhythm)
+- Harmonic gravity (spring physics)
 - Microphone input
-- Harmonic gravity
-- Mode switching (Lydian ↔ Locrian spectrum)
-- Rhythmic entrainment (app syncs to user's pulse)
+
+One thing at a time. Don't rush.
 
 ---
 
-## Technical Notes
+## What Works (NEVER BREAK THESE)
 
-### Performance Observations
-- Runs smooth on iPhone 12+ and modern Android
-- Older devices may struggle with visual effects
-- Battery drain is noticeable after ~10 min continuous use
-
-### Known Issues
-- Device motion permission UI varies by browser
-- Some Android browsers have inconsistent accelerometer access
-- Safari sometimes requires user gesture before audio plays
-
-### Dependencies
-- None (vanilla JS, Web Audio API, Canvas)
-- No build step required
-- Works offline once loaded
+- The Purdie shuffle groove feel
+- Stillness → blooming notes reward
+- Position → harmony mapping
+- The visual feedback aesthetic
+- The overall musical vibe
 
 ---
 
-## The Three Minds' Assignments
+## What Broke Before
 
-| Agent | Current Focus | Status |
-|-------|--------------|--------|
-| Engineer | Gesture buffer implementation | **DONE** ✓ |
-| Musician | Gesture → musical response mapping | Next up |
-| Physicist | Harmonic gravity math | Formulating |
+Previous cycles tried to add prediction and harmonic gravity too aggressively.
+They rewrote too much. The app stopped feeling musical.
+
+**Lesson**: Add TO the system. Don't redesign it.
 
 ---
 
-*Next session: Add musical responses to gestures, implement harmonic gravity*
+## The Three Minds' Focus
+
+| Mind | Task | Rule |
+|------|------|------|
+| Engineer | Wire gesture callbacks | Don't touch working code |
+| Musician | Design gesture sounds | Keep it musical |
+| Physicist | Wait | Not this cycle |
+
+---
+
+*"The vibe is sacred. Protect it."*
