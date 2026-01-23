@@ -47,28 +47,24 @@ Before shipping ANY change:
 
 ## JUST COMPLETED
 
-### Gesture Responses - Wired!
+### Swipe Fallback - Always Respond
 
-All four gestures now have musical responses:
+Previously, swipe gestures produced no sound if no entity was nearby. Now they always respond:
 
-- **SHAKE** → `triggerShake()`: Rapid pitch wobble (tremolo) on nearby entities
-- **SWIPE** → `triggerSwipe()`: Quick 5-note pentatonic run in swipe direction
-- **CIRCLE** → `triggerCircle()`: Arpeggio through nearby entity frequencies
-- **HOLD** → `triggerHold()`: Boost reverb, sustain entities, deepen stillness
+- If nearby entity exists: use its frequency as before
+- If no nearby entity: derive frequency from field position (Y=octave, X=scale degree)
 
-Implementation notes:
-- SHAKE/HOLD modify existing entities (non-destructive)
-- SWIPE/CIRCLE spawn temporary oscillators (ephemeral ornaments)
-- All responses use existing audio infrastructure (master, verb, dly)
-- No new systems introduced - just wired the existing detection to sound
+This ensures gestures ALWAYS produce feedback. The body expects response.
+
+Small change. Big difference in feel.
 
 ---
 
 ## NEXT TASK (ONE THING ONLY)
 
-### Observe and Tune
+### Continue Observing and Tuning
 
-Before adding new features, we need to:
+Now that swipe always responds, we need to:
 1. Test on actual devices (phone sensors)
 2. Tune gesture thresholds if needed
 3. Listen for any musical issues (clashing notes, timing problems)

@@ -194,3 +194,29 @@ The swipe run using pentatonic intervals is smart - it'll always sound consonant
 ---
 
 *End of Session 3*
+
+---
+
+## Session 4 - January 22, 2026
+
+### The Silent Swipe Problem
+
+**PHYSICIST**: I found an issue. In `triggerSwipe()`, if there's no nearby entity, the function returns early and produces no sound. Same with `triggerCircle()`.
+
+**MUSICIAN**: That's bad. The body expects response. You make an intentional gesture - a swipe - and get silence? That breaks the contract between player and instrument.
+
+**ENGINEER**: Easy fix for swipe: if no entity nearby, derive a frequency from the field position. We already have the X/Y → harmony mapping everywhere else. Just apply it here as a fallback.
+
+**PHYSICIST**: Y controls octave (high Y = low pitch, natural for "reaching up"), X controls which scale degree. Use the major scale ratios we already have.
+
+**MUSICIAN**: And circle? Should that also have a fallback?
+
+**ENGINEER**: Circle is different. It's meant to arpeggiate through existing entities - that's its musical meaning. A circle gesture with no entities to cycle through... what would it even do? Random notes?
+
+**MUSICIAN**: Good point. Leave circle as-is. Its job is to cycle through what exists. If nothing exists, maybe that's the feedback: "build something first."
+
+**ALL**: Agreed. Small fix: swipe now always produces sound. Preserves the vibe, improves the feel.
+
+---
+
+*End of Session 4*
