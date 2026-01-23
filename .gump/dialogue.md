@@ -220,3 +220,27 @@ The swipe run using pentatonic intervals is smart - it'll always sound consonant
 ---
 
 *End of Session 4*
+
+---
+
+## Session 5 - January 23, 2026
+
+### The Lonely Orbit
+
+**ENGINEER**: Found another gap. `triggerCircle()` requires 2+ nearby entities. One entity means silence.
+
+**MUSICIAN**: But we said "Leave circle as-is" last session. Its job is to cycle through what exists.
+
+**PHYSICIST**: That's true for ZERO entities. But ONE entity is something. You're orbiting around it. The circular motion has meaning - it's periodic, it implies rhythm.
+
+**MUSICIAN**: Ah. A circle around a single note could pulse that note. Like a pedal tone with the rhythm of your motion. The rotation creates the groove, the entity provides the pitch.
+
+**ENGINEER**: Minimal change. If exactly one entity nearby, repeat its frequency 2-4 times based on rotation amount. Same sound generation as the multi-entity case, just simpler.
+
+**PHYSICIST**: The zero-entity case stays silent. That's intentional - circle's meaning is "cycle through the harmonic field." No field, no cycle. But one note IS a field, just a minimal one.
+
+**ALL**: Ship it. Enhances without replacing.
+
+---
+
+*End of Session 5*

@@ -1,6 +1,6 @@
 # Current State
 
-*Last updated: January 22, 2026*
+*Last updated: January 23, 2026*
 
 ---
 
@@ -47,16 +47,17 @@ Before shipping ANY change:
 
 ## JUST COMPLETED
 
-### Swipe Fallback - Always Respond
+### Circle Single-Entity Fallback
 
-Previously, swipe gestures produced no sound if no entity was nearby. Now they always respond:
+Previously, circle gestures required 2+ nearby entities to produce sound. Now:
 
-- If nearby entity exists: use its frequency as before
-- If no nearby entity: derive frequency from field position (Y=octave, X=scale degree)
+- If 2+ entities nearby: arpeggio through them (unchanged)
+- If exactly 1 entity nearby: rhythmic pulse on that single note
+- If no entities nearby: still silent (circle's job is to cycle what exists)
 
-This ensures gestures ALWAYS produce feedback. The body expects response.
+The single-entity case now produces a rhythmic pulse - the circular motion creates rhythm on the one note you're orbiting. Like a pedal tone with groove.
 
-Small change. Big difference in feel.
+Small addition. Preserves the vibe.
 
 ---
 
