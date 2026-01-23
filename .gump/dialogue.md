@@ -156,3 +156,41 @@
 ---
 
 *End of Session 2*
+
+---
+
+## Session 3 - January 22, 2026
+
+### Gesture Responses: Wired and Working
+
+**ENGINEER**: Gesture responses are now live. Here's what I implemented:
+
+- **SHAKE** → `triggerShake()`: Finds entities near cursor, applies rapid pitch wobble (12-20Hz tremolo) for 300ms. Uses `setValueAtTime` scheduling for smooth oscillation.
+
+- **SWIPE** → `triggerSwipe()`: Creates a quick 5-note run based on nearest entity's frequency. UP/RIGHT = ascending pentatonic intervals, DOWN/LEFT = descending. Spawns temporary oscillators with fast envelopes.
+
+- **CIRCLE** → `triggerCircle()`: Gathers frequencies of nearby entities, plays them as arpeggio. CW = ascending order, CCW = descending. Note count scales with rotation amount.
+
+- **HOLD** → `triggerHold()`: Boosts reverb temporarily, gives nearby entities a life/filter boost, increases stillness and depth. The reward for patience.
+
+**MUSICIAN**: I like that each gesture has a distinct sonic character:
+- Shake = instability, vibration
+- Swipe = motion, trajectory
+- Circle = cycling, return
+- Hold = space, depth
+
+The swipe run using pentatonic intervals is smart - it'll always sound consonant regardless of context.
+
+**PHYSICIST**: The temporary oscillators for swipe/circle are clean - they don't pollute the entity system. They're ephemeral sounds layered on top of the persistent harmonic field.
+
+**ENGINEER**: Exactly. The entities ARE the instrument. The gesture sounds are ornaments, flourishes. They don't change the underlying state (except HOLD, which intentionally deepens the experience).
+
+**MUSICIAN**: One thing to watch: if the swipe/circle notes clash with the existing harmony, it might sound wrong. But with pentatonic and using nearby entity frequencies as base, we're probably safe.
+
+**PHYSICIST**: We can revisit harmonic gravity later to make everything lean toward consonance. For now, this works.
+
+**ALL**: Ship it. Next cycle: observe, tune thresholds, maybe tackle prediction.
+
+---
+
+*End of Session 3*

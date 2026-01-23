@@ -39,24 +39,44 @@ Before shipping ANY change:
 - [x] Reverb + delay effects chain
 - [x] Gesture buffer (500ms rolling window)
 - [x] Gesture detection (SHAKE, SWIPE, HOLD, CIRCLE)
+- [x] **Gesture musical responses (NEW)**
 
 **Live at**: lacobusgump.github.io/music2.0/
 
 ---
 
+## JUST COMPLETED
+
+### Gesture Responses - Wired!
+
+All four gestures now have musical responses:
+
+- **SHAKE** → `triggerShake()`: Rapid pitch wobble (tremolo) on nearby entities
+- **SWIPE** → `triggerSwipe()`: Quick 5-note pentatonic run in swipe direction
+- **CIRCLE** → `triggerCircle()`: Arpeggio through nearby entity frequencies
+- **HOLD** → `triggerHold()`: Boost reverb, sustain entities, deepen stillness
+
+Implementation notes:
+- SHAKE/HOLD modify existing entities (non-destructive)
+- SWIPE/CIRCLE spawn temporary oscillators (ephemeral ornaments)
+- All responses use existing audio infrastructure (master, verb, dly)
+- No new systems introduced - just wired the existing detection to sound
+
+---
+
 ## NEXT TASK (ONE THING ONLY)
 
-### Wire Gesture Responses
+### Observe and Tune
 
-The gesture detection exists but `onGestureDetected()` is empty.
-Add musical responses:
+Before adding new features, we need to:
+1. Test on actual devices (phone sensors)
+2. Tune gesture thresholds if needed
+3. Listen for any musical issues (clashing notes, timing problems)
 
-- **SHAKE** → Rapid tremolo/trill on current notes
-- **SWIPE** → Quick melodic run in swipe direction
-- **CIRCLE** → Arpeggio pattern cycling through chord
-- **HOLD** → Deepen reverb, let notes bloom and sustain
-
-Keep it SIMPLE. Small additions. Test each one.
+If it sounds good, next targets (in order of priority):
+- Harmonic gravity (gentle pitch bend toward consonance)
+- Momentum prediction (anticipate where user is going)
+- Entrainment (detect and lock to user's rhythm)
 
 ---
 
@@ -79,6 +99,7 @@ One thing at a time. Don't rush.
 - Position → harmony mapping
 - The visual feedback aesthetic
 - The overall musical vibe
+- **Gesture → sound mappings (NEW)**
 
 ---
 
@@ -95,8 +116,8 @@ They rewrote too much. The app stopped feeling musical.
 
 | Mind | Task | Rule |
 |------|------|------|
-| Engineer | Wire gesture callbacks | Don't touch working code |
-| Musician | Design gesture sounds | Keep it musical |
+| Engineer | Test and tune | Monitor for issues |
+| Musician | Listen critically | Does it feel musical? |
 | Physicist | Wait | Not this cycle |
 
 ---

@@ -207,12 +207,208 @@ function onGestureDetected(gesture) {
     currentGesture = gesture;
     field.lastGesture = field.time;
 
-    // Musical responses will be added here
-    // For now, log to help with tuning
-    console.log('Gesture:', gesture.type, gesture);
-
     // Visual feedback - pulse the cursor
     field.energy = Math.max(field.energy, gesture.intensity || 0.3);
+
+    // ============ MUSICAL RESPONSES ============
+
+    switch (gesture.type) {
+        case 'SHAKE':
+            // Tremolo/trill - rapid oscillation of nearby entities
+            triggerShake(gesture.intensity);
+            break;
+
+        case 'SWIPE':
+            // Quick melodic run in swipe direction
+            triggerSwipe(gesture.direction, gesture.velocity);
+            break;
+
+        case 'CIRCLE':
+            // Arpeggio pattern cycling through chord
+            triggerCircle(gesture.direction, gesture.rotations);
+            break;
+
+        case 'HOLD':
+            // Deepen reverb, let notes bloom and sustain
+            triggerHold(gesture.duration);
+            break;
+    }
+}
+
+// ============ GESTURE MUSICAL RESPONSES ============
+
+function triggerShake(intensity) {
+    // Find entities near the cursor and make them tremble
+    const now = ctx.currentTime;
+
+    for (const e of entities) {
+        const dx = field.x - e.x;
+        const dy = field.y - e.y;
+        const dist = Math.sqrt(dx*dx + dy*dy);
+
+        if (dist < 0.25 && e.life > 0.3) {
+            // Rapid pitch wobble - tremolo effect
+            const wobbleDepth = intensity * e.freq * 0.03;
+            const wobbleSpeed = 12 + intensity * 8; // 12-20 Hz tremolo
+
+            // Schedule rapid oscillations over the next 300ms
+            for (let t = 0; t < 0.3; t += 0.025) {
+                const wobble = Math.sin(t * wobbleSpeed * TAU) * wobbleDepth;
+                e.osc.frequency.setValueAtTime(e.freq + wobble, now + t);
+                e.osc2.frequency.setValueAtTime(e.freq * 1.003 + wobble, now + t);
+            }
+            // Return to normal
+            e.osc.frequency.linearRampToValueAtTime(e.freq, now + 0.35);
+            e.osc2.frequency.linearRampToValueAtTime(e.freq * 1.003, now + 0.35);
+
+            // Brief brightness boost
+            e.brightness = Math.min(1, e.brightness + intensity * 0.5);
+        }
+    }
+}
+
+function triggerSwipe(direction, velocity) {
+    // Quick melodic run - spawn temporary notes in the swipe direction
+    const now = ctx.currentTime;
+
+    // Find a nearby entity to base the run on
+    let baseEntity = null;
+    let minDist = Infinity;
+    for (const e of entities) {
+        const dx = field.x - e.x;
+        const dy = field.y - e.y;
+        const dist = Math.sqrt(dx*dx + dy*dy);
+        if (dist < minDist && e.life > 0.5) {
+            minDist = dist;
+            baseEntity = e;
+        }
+    }
+
+    if (!baseEntity) return;
+
+    // Determine scale direction based on swipe
+    const ascending = (direction === 'UP' || direction === 'RIGHT');
+    const baseRatio = baseEntity.ratio;
+
+    // Simple pentatonic-ish intervals for the run
+    const intervals = ascending
+        ? [1, 9/8, 5/4, 3/2, 5/3]    // Ascending run
+        : [1, 8/9, 4/5, 2/3, 3/5];   // Descending run
+
+    // Play quick arpeggio using temporary oscillators
+    const runSpeed = 0.06 / (0.5 + velocity); // Faster swipe = faster notes
+
+    intervals.forEach((interval, i) => {
+        const noteTime = now + i * runSpeed;
+        const freq = BASE * baseRatio * interval;
+
+        // Create a quick note
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.value = freq;
+        gain.gain.value = 0;
+
+        osc.connect(gain);
+        gain.connect(master);
+        gain.connect(verb.input);
+
+        // Quick envelope
+        gain.gain.setValueAtTime(0, noteTime);
+        gain.gain.linearRampToValueAtTime(0.08 * (1 - i * 0.15), noteTime + 0.01);
+        gain.gain.exponentialRampToValueAtTime(0.001, noteTime + 0.15);
+
+        osc.start(noteTime);
+        osc.stop(noteTime + 0.2);
+    });
+}
+
+function triggerCircle(direction, rotations) {
+    // Arpeggio loop - cycle through chord tones of nearby entities
+    const now = ctx.currentTime;
+
+    // Gather frequencies of nearby, alive entities
+    const nearbyFreqs = [];
+    for (const e of entities) {
+        const dx = field.x - e.x;
+        const dy = field.y - e.y;
+        const dist = Math.sqrt(dx*dx + dy*dy);
+        if (dist < 0.3 && e.life > 0.4) {
+            nearbyFreqs.push(e.freq);
+        }
+    }
+
+    if (nearbyFreqs.length < 2) return;
+
+    // Sort by frequency
+    nearbyFreqs.sort((a, b) => a - b);
+
+    // Direction determines arpeggio direction
+    if (direction === 'CCW') nearbyFreqs.reverse();
+
+    // Play arpeggio with number of notes based on rotations
+    const noteCount = Math.min(nearbyFreqs.length * 2, Math.ceil(rotations * nearbyFreqs.length));
+    const noteSpeed = 0.1;
+
+    for (let i = 0; i < noteCount; i++) {
+        const freq = nearbyFreqs[i % nearbyFreqs.length];
+        const noteTime = now + i * noteSpeed;
+
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.value = freq;
+        gain.gain.value = 0;
+
+        osc.connect(gain);
+        gain.connect(master);
+        gain.connect(verb.input);
+        gain.connect(dly.input);
+
+        // Soft envelope
+        gain.gain.setValueAtTime(0, noteTime);
+        gain.gain.linearRampToValueAtTime(0.06, noteTime + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.001, noteTime + 0.25);
+
+        osc.start(noteTime);
+        osc.stop(noteTime + 0.3);
+    }
+}
+
+function triggerHold(duration) {
+    // Deepen reverb and let existing notes sustain and bloom
+    const now = ctx.currentTime;
+
+    // Temporarily boost reverb
+    const boostAmount = Math.min(0.3, duration / 2000);
+    verb.output.gain.linearRampToValueAtTime(
+        verb.baseGain + boostAmount + 0.15,
+        now + 0.2
+    );
+
+    // Slowly return to normal over 2 seconds
+    verb.output.gain.linearRampToValueAtTime(verb.baseGain, now + 2);
+
+    // Give nearby entities a life and brightness boost
+    for (const e of entities) {
+        const dx = field.x - e.x;
+        const dy = field.y - e.y;
+        const dist = Math.sqrt(dx*dx + dy*dy);
+        if (dist < 0.25) {
+            e.life = Math.min(1, e.life + 0.2);
+            e.lastVisit = field.time;
+
+            // Open their filters for more harmonics
+            e.filter.frequency.linearRampToValueAtTime(
+                e.filter.frequency.value + 500,
+                now + 0.3
+            );
+        }
+    }
+
+    // Boost stillness and depth
+    field.stillness = Math.min(3, field.stillness + 0.5);
+    field.depth = Math.min(1, field.depth + 0.1);
 }
 
 // All possible harmonic ratios - the DNA pool
