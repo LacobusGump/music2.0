@@ -39,7 +39,9 @@ Before shipping ANY change:
 - [x] Reverb + delay effects chain
 - [x] Gesture buffer (500ms rolling window)
 - [x] Gesture detection (SHAKE, SWIPE, HOLD, CIRCLE)
-- [x] **Gesture musical responses (NEW)**
+- [x] Gesture musical responses
+- [x] Swipe always responds (position-based fallback)
+- [x] Circle single-entity fallback (rhythmic pulse)
 
 **Live at**: lacobusgump.github.io/music2.0/
 
@@ -47,33 +49,44 @@ Before shipping ANY change:
 
 ## JUST COMPLETED
 
-### Circle Single-Entity Fallback
+### Code Review & Observation Cycle
 
-Previously, circle gestures required 2+ nearby entities to produce sound. Now:
+Reviewed the full codebase. All gesture systems are working correctly:
 
-- If 2+ entities nearby: arpeggio through them (unchanged)
-- If exactly 1 entity nearby: rhythmic pulse on that single note
-- If no entities nearby: still silent (circle's job is to cycle what exists)
+- **SHAKE**: Finds nearby entities, applies tremolo. Works.
+- **SWIPE**: Creates melodic run. Falls back to field position when no entity nearby. Works.
+- **CIRCLE**: Arpeggiates nearby entities. Falls back to rhythmic pulse for single entity. Works.
+- **HOLD**: Deepens reverb, boosts nearby entities. Works.
 
-The single-entity case now produces a rhythmic pulse - the circular motion creates rhythm on the one note you're orbiting. Like a pedal tone with groove.
+Gesture thresholds look reasonable:
+- `SHAKE_ENERGY: 0.15` - requires intentional shaking
+- `SWIPE_VELOCITY: 0.08`, `SWIPE_LINEARITY: 0.7` - catches clear directional swipes
+- `CIRCLE_ROTATION: 1.5π` (270°) - needs 3/4 of a circle
+- `HOLD_DURATION: 400ms` - patience rewarded
+- `COOLDOWN: 200ms` - prevents gesture spam
 
-Small addition. Preserves the vibe.
+**Observation**: The system is stable. No code changes needed this cycle.
 
 ---
 
 ## NEXT TASK (ONE THING ONLY)
 
-### Continue Observing and Tuning
+### Harmonic Gravity (Gentle)
 
-Now that swipe always responds, we need to:
-1. Test on actual devices (phone sensors)
-2. Tune gesture thresholds if needed
-3. Listen for any musical issues (clashing notes, timing problems)
+Ready for implementation in next cycle. The concept:
 
-If it sounds good, next targets (in order of priority):
-- Harmonic gravity (gentle pitch bend toward consonance)
-- Momentum prediction (anticipate where user is going)
-- Entrainment (detect and lock to user's rhythm)
+- Notes near the cursor gently bend toward consonant intervals
+- Not snapping (robotic), but *leaning* (organic)
+- The system develops *taste* - prefers consonance, allows dissonance
+- User can fight against the gravity for tension
+
+**Implementation approach** (from dialogue.md):
+- Model harmonic space as potential energy landscape
+- Tonic is bottom of a well
+- Moving away costs energy
+- System applies gentle restoring force (pitch bend toward nearest consonance)
+
+**Key constraint**: This must be SUBTLE. If it's too aggressive, it will break the vibe. Start with almost imperceptible bending and increase only if it feels right
 
 ---
 
