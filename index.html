@@ -239,6 +239,111 @@ function createBeatAudio() {
     beatOsc.start();
 }
 
+// ============ POLYRHYTHMIC COUNTER-VOICE ============
+// When you break YOUR pattern, a counter-voice emerges
+// playing AGAINST your established rhythm
+
+let counterOsc = null;
+let counterGain = null;
+let counterFilter = null;
+let counterPhase = 0;
+let counterActive = false;
+let counterSubdivision = 1;
+let lastCounterBeat = 0;
+
+function createCounterAudio() {
+    counterOsc = ctx.createOscillator();
+    counterGain = ctx.createGain();
+    counterFilter = ctx.createBiquadFilter();
+
+    counterOsc.type = 'triangle';
+    counterOsc.frequency.value = BASE * 2; // Higher than kick
+
+    counterFilter.type = 'bandpass';
+    counterFilter.frequency.value = 800;
+    counterFilter.Q.value = 2;
+
+    counterGain.gain.value = 0;
+
+    counterOsc.connect(counterFilter);
+    counterFilter.connect(counterGain);
+    counterGain.connect(master);
+    counterGain.connect(verb.input);
+
+    counterOsc.start();
+}
+
+// Update counter-rhythm based on pattern state
+function updateCounterRhythm(dt) {
+    const pattern = getPatternState();
+
+    // Counter-voice activates when there's an outlier
+    if (pattern.isOutlier && pattern.confidence > 0.5) {
+        counterActive = true;
+        counterSubdivision = pattern.polyrhythm.subdivision;
+    } else {
+        // Fade out when pattern normalizes
+        counterActive = counterActive && pattern.outlierScore > 1.0;
+    }
+
+    if (!counterActive || !counterGain || !ctx) return;
+
+    // Counter phase runs at a different rate than main beat
+    // This creates the polyrhythm
+    const beatsPerSecond = field.systemBPM / 60;
+    counterPhase += dt * beatsPerSecond * counterSubdivision;
+
+    // Check for counter beat crossing
+    const phaseInBeat = counterPhase % 1;
+    const beatWindow = 0.1;
+
+    if (phaseInBeat < beatWindow && (field.time - lastCounterBeat) > 0.1) {
+        lastCounterBeat = field.time;
+        triggerCounterBeat();
+    }
+}
+
+// The counter-beat sound - distinct from the main kick
+function triggerCounterBeat() {
+    if (!counterGain || !ctx) return;
+
+    const now = ctx.currentTime;
+    const pattern = getPatternState();
+
+    // Intensity based on how strong the outlier is
+    const outlierIntensity = Math.min(1, (pattern.outlierScore - PATTERN.OUTLIER_THRESHOLD) / 2);
+    const amp = 0.06 * outlierIntensity * (0.5 + pattern.confidence * 0.5);
+
+    // Pitch based on outlier type
+    let freq = BASE * 2;
+    switch (pattern.outlierType) {
+        case 'tempo':
+            freq = BASE * 3;      // Higher - rhythmic deviation
+            counterFilter.frequency.setValueAtTime(1200, now);
+            break;
+        case 'amplitude':
+            freq = BASE * 2.5;    // Mid-high - energy deviation
+            counterFilter.frequency.setValueAtTime(900, now);
+            break;
+        case 'direction':
+            freq = BASE * 4;      // Highest - spatial deviation
+            counterFilter.frequency.setValueAtTime(1500, now);
+            break;
+        default:
+            freq = BASE * 2;
+            counterFilter.frequency.setValueAtTime(800, now);
+    }
+
+    // Quick percussive envelope
+    counterOsc.frequency.setValueAtTime(freq * 1.5, now);
+    counterOsc.frequency.exponentialRampToValueAtTime(freq, now + 0.05);
+
+    counterGain.gain.cancelScheduledValues(now);
+    counterGain.gain.setValueAtTime(0, now);
+    counterGain.gain.linearRampToValueAtTime(amp, now + 0.008);
+    counterGain.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
+}
+
 // Trigger the beat sound - soft kick that pulses with the user's rhythm
 function triggerBeat() {
     if (!beatGain || !ctx) return;
@@ -276,6 +381,321 @@ function triggerBeat() {
     // Filter sweep for punch
     beatFilter.frequency.setValueAtTime(300 + activityBoost * 200, now);
     beatFilter.frequency.exponentialRampToValueAtTime(80, now + 0.15);
+}
+
+// ============ PATTERN LEARNING SYSTEM ============
+// The system learns YOUR movement pattern over time.
+// Your deviations from YOUR norm create the music.
+
+const PATTERN = {
+    WINDOW_SIZE: 300,           // Samples to track (~5 seconds at 60fps)
+    MIN_SAMPLES: 60,            // Minimum samples before pattern is valid
+    OUTLIER_THRESHOLD: 2.0,     // Standard deviations to count as outlier
+    MAJOR_OUTLIER: 3.0,         // Major break threshold
+    DECAY_RATE: 0.998,          // How fast old samples fade
+    UPDATE_INTERVAL: 3,         // Update stats every N frames (performance)
+};
+
+// Rolling statistics for pattern detection
+let patternStats = {
+    // Tempo (time between direction changes, in ms)
+    tempoSamples: [],
+    tempoMean: 500,         // Default ~120 BPM
+    tempoStdDev: 100,
+
+    // Amplitude (size of movements, 0-1 normalized)
+    amplitudeSamples: [],
+    amplitudeMean: 0.1,
+    amplitudeStdDev: 0.05,
+
+    // Direction histogram (8 directions, like a compass)
+    directionHist: [0, 0, 0, 0, 0, 0, 0, 0], // N, NE, E, SE, S, SW, W, NW
+    dominantDirection: -1,
+
+    // Rhythm intervals (time between movement starts)
+    rhythmSamples: [],
+    rhythmMean: 400,
+    rhythmStdDev: 100,
+
+    // Is the pattern established?
+    isValid: false,
+    confidence: 0,           // 0-1, how confident we are in the pattern
+
+    // Current outlier state
+    outlierScore: 0,         // How much current behavior deviates
+    outlierType: null,       // 'tempo', 'amplitude', 'direction', 'rhythm'
+    outlierRatio: 1,         // Ratio of outlier to norm (for polyrhythm)
+};
+
+// Frame counter for update throttling
+let patternFrameCount = 0;
+let lastDirectionChangeTime = 0;
+let lastMovementStartTime = 0;
+let wasStationary = true;
+
+// Quantize angle to 8 compass directions
+function angleToDirection(angle) {
+    // Normalize to 0-2π
+    while (angle < 0) angle += Math.PI * 2;
+    while (angle >= Math.PI * 2) angle -= Math.PI * 2;
+    // 8 directions, each 45 degrees (π/4)
+    return Math.floor((angle + Math.PI / 8) / (Math.PI / 4)) % 8;
+}
+
+// Calculate mean and standard deviation
+function calcStats(samples) {
+    if (samples.length < 3) return { mean: 0, stdDev: 1 };
+
+    const mean = samples.reduce((a, b) => a + b, 0) / samples.length;
+    const variance = samples.reduce((sum, val) => sum + (val - mean) ** 2, 0) / samples.length;
+    const stdDev = Math.sqrt(variance);
+
+    return { mean, stdDev: Math.max(stdDev, 0.001) }; // Avoid division by zero
+}
+
+// Add a tempo sample (time between direction changes)
+function addTempoSample(intervalMs) {
+    if (intervalMs < 100 || intervalMs > 3000) return; // Filter outliers
+
+    patternStats.tempoSamples.push(intervalMs);
+    while (patternStats.tempoSamples.length > PATTERN.WINDOW_SIZE) {
+        patternStats.tempoSamples.shift();
+    }
+}
+
+// Add an amplitude sample
+function addAmplitudeSample(amplitude) {
+    patternStats.amplitudeSamples.push(amplitude);
+    while (patternStats.amplitudeSamples.length > PATTERN.WINDOW_SIZE) {
+        patternStats.amplitudeSamples.shift();
+    }
+}
+
+// Add a rhythm sample (time between movement onsets)
+function addRhythmSample(intervalMs) {
+    if (intervalMs < 50 || intervalMs > 5000) return;
+
+    patternStats.rhythmSamples.push(intervalMs);
+    while (patternStats.rhythmSamples.length > PATTERN.WINDOW_SIZE) {
+        patternStats.rhythmSamples.shift();
+    }
+}
+
+// Update direction histogram
+function addDirectionSample(direction) {
+    // Decay all bins slightly
+    for (let i = 0; i < 8; i++) {
+        patternStats.directionHist[i] *= PATTERN.DECAY_RATE;
+    }
+    // Add to current direction
+    patternStats.directionHist[direction] += 1;
+
+    // Find dominant direction
+    let maxVal = 0;
+    let maxDir = -1;
+    for (let i = 0; i < 8; i++) {
+        if (patternStats.directionHist[i] > maxVal) {
+            maxVal = patternStats.directionHist[i];
+            maxDir = i;
+        }
+    }
+    patternStats.dominantDirection = maxDir;
+}
+
+// Update all pattern statistics
+function updatePatternStats() {
+    // Tempo stats
+    if (patternStats.tempoSamples.length >= 5) {
+        const stats = calcStats(patternStats.tempoSamples);
+        patternStats.tempoMean = stats.mean;
+        patternStats.tempoStdDev = stats.stdDev;
+    }
+
+    // Amplitude stats
+    if (patternStats.amplitudeSamples.length >= 10) {
+        const stats = calcStats(patternStats.amplitudeSamples);
+        patternStats.amplitudeMean = stats.mean;
+        patternStats.amplitudeStdDev = stats.stdDev;
+    }
+
+    // Rhythm stats
+    if (patternStats.rhythmSamples.length >= 5) {
+        const stats = calcStats(patternStats.rhythmSamples);
+        patternStats.rhythmMean = stats.mean;
+        patternStats.rhythmStdDev = stats.stdDev;
+    }
+
+    // Calculate confidence
+    const sampleCount = Math.min(
+        patternStats.tempoSamples.length,
+        patternStats.amplitudeSamples.length
+    );
+    patternStats.confidence = Math.min(1, sampleCount / PATTERN.MIN_SAMPLES);
+    patternStats.isValid = sampleCount >= PATTERN.MIN_SAMPLES;
+}
+
+// Detect outliers in current movement
+function detectOutlier(currentTempo, currentAmplitude, currentDirection) {
+    if (!patternStats.isValid) {
+        patternStats.outlierScore = 0;
+        patternStats.outlierType = null;
+        patternStats.outlierRatio = 1;
+        return;
+    }
+
+    let maxScore = 0;
+    let outlierType = null;
+    let outlierRatio = 1;
+
+    // Check tempo outlier
+    if (currentTempo > 0) {
+        const tempoZ = Math.abs(currentTempo - patternStats.tempoMean) / patternStats.tempoStdDev;
+        if (tempoZ > maxScore) {
+            maxScore = tempoZ;
+            outlierType = 'tempo';
+            outlierRatio = currentTempo / patternStats.tempoMean;
+        }
+    }
+
+    // Check amplitude outlier
+    const ampZ = Math.abs(currentAmplitude - patternStats.amplitudeMean) / patternStats.amplitudeStdDev;
+    if (ampZ > maxScore) {
+        maxScore = ampZ;
+        outlierType = 'amplitude';
+        outlierRatio = currentAmplitude / Math.max(0.01, patternStats.amplitudeMean);
+    }
+
+    // Check direction outlier (going where you usually don't)
+    if (currentDirection >= 0 && patternStats.dominantDirection >= 0) {
+        const dirDiff = Math.abs(currentDirection - patternStats.dominantDirection);
+        const normalizedDiff = Math.min(dirDiff, 8 - dirDiff) / 4; // 0-1
+        const totalHist = patternStats.directionHist.reduce((a, b) => a + b, 0);
+        const expectedProb = patternStats.directionHist[currentDirection] / Math.max(1, totalHist);
+
+        // Low probability direction = outlier
+        if (expectedProb < 0.1 && normalizedDiff > 0.5) {
+            const dirScore = (1 - expectedProb) * 3 + normalizedDiff * 2;
+            if (dirScore > maxScore) {
+                maxScore = dirScore;
+                outlierType = 'direction';
+                outlierRatio = 1 + normalizedDiff; // Direction ratio is less meaningful
+            }
+        }
+    }
+
+    // Smooth the outlier score
+    patternStats.outlierScore = patternStats.outlierScore * 0.7 + maxScore * 0.3;
+
+    // Only update type if score is significant
+    if (patternStats.outlierScore > PATTERN.OUTLIER_THRESHOLD) {
+        patternStats.outlierType = outlierType;
+        patternStats.outlierRatio = outlierRatio;
+    } else {
+        patternStats.outlierType = null;
+        patternStats.outlierRatio = 1;
+    }
+}
+
+// Quantize ratio to musical polyrhythm
+function quantizeToPolyrhythm(ratio) {
+    // Common polyrhythms and their ratios
+    const polyrhythms = [
+        { ratio: 1.0, name: '1:1', subdivision: 1 },
+        { ratio: 1.5, name: '3:2', subdivision: 1.5 },
+        { ratio: 1.333, name: '4:3', subdivision: 1.333 },
+        { ratio: 1.25, name: '5:4', subdivision: 1.25 },
+        { ratio: 1.2, name: '6:5', subdivision: 1.2 },
+        { ratio: 2.0, name: '2:1', subdivision: 2 },
+        { ratio: 0.667, name: '2:3', subdivision: 0.667 },
+        { ratio: 0.75, name: '3:4', subdivision: 0.75 },
+        { ratio: 0.8, name: '4:5', subdivision: 0.8 },
+    ];
+
+    // Find closest polyrhythm
+    let closest = polyrhythms[0];
+    let minDiff = Math.abs(ratio - closest.ratio);
+
+    for (const p of polyrhythms) {
+        const diff = Math.abs(ratio - p.ratio);
+        if (diff < minDiff) {
+            minDiff = diff;
+            closest = p;
+        }
+    }
+
+    return closest;
+}
+
+// Main pattern update function - called from input handlers
+function updatePattern(vx, vy) {
+    const now = performance.now();
+    const speed = Math.sqrt(vx * vx + vy * vy);
+    const isMoving = speed > 0.01;
+    const amplitude = Math.min(1, speed * 10); // Normalize to 0-1
+
+    // Track amplitude continuously
+    addAmplitudeSample(amplitude);
+
+    // Movement onset detection
+    if (isMoving && wasStationary) {
+        const interval = now - lastMovementStartTime;
+        if (lastMovementStartTime > 0) {
+            addRhythmSample(interval);
+        }
+        lastMovementStartTime = now;
+    }
+    wasStationary = !isMoving;
+
+    // Direction tracking (only when moving)
+    if (isMoving) {
+        const angle = Math.atan2(vy, vx);
+        const direction = angleToDirection(angle);
+        addDirectionSample(direction);
+
+        // Direction change detection for tempo
+        const currentDir = { x: Math.sign(vx), y: Math.sign(vy) };
+        if (lastMovementDirection.x !== 0 || lastMovementDirection.y !== 0) {
+            const dirChanged =
+                (currentDir.x !== 0 && currentDir.x !== lastMovementDirection.x) ||
+                (currentDir.y !== 0 && currentDir.y !== lastMovementDirection.y);
+
+            if (dirChanged) {
+                const tempoInterval = now - lastDirectionChangeTime;
+                if (lastDirectionChangeTime > 0) {
+                    addTempoSample(tempoInterval);
+                }
+                lastDirectionChangeTime = now;
+            }
+        }
+    }
+
+    // Throttled stats update
+    patternFrameCount++;
+    if (patternFrameCount >= PATTERN.UPDATE_INTERVAL) {
+        patternFrameCount = 0;
+        updatePatternStats();
+
+        // Detect outliers
+        const currentTempo = now - lastDirectionChangeTime;
+        const direction = isMoving ? angleToDirection(Math.atan2(vy, vx)) : -1;
+        detectOutlier(currentTempo, amplitude, direction);
+    }
+}
+
+// Get pattern data for musical response
+function getPatternState() {
+    return {
+        isValid: patternStats.isValid,
+        confidence: patternStats.confidence,
+        outlierScore: patternStats.outlierScore,
+        outlierType: patternStats.outlierType,
+        outlierRatio: patternStats.outlierRatio,
+        isOutlier: patternStats.outlierScore > PATTERN.OUTLIER_THRESHOLD,
+        isMajorOutlier: patternStats.outlierScore > PATTERN.MAJOR_OUTLIER,
+        polyrhythm: quantizeToPolyrhythm(patternStats.outlierRatio),
+        tempoMean: patternStats.tempoMean,
+        amplitudeMean: patternStats.amplitudeMean,
+    };
 }
 
 // ============ GESTURE RECOGNITION ============
@@ -955,6 +1375,12 @@ class Entity {
         const tensionFM = field.predictionTension * this.freq * 0.8;
         const tensionFilter = field.predictionTension * 800;
 
+        // OUTLIER INFLUENCE - when user breaks their pattern, sound responds
+        const pattern = getPatternState();
+        const outlierInfluence = pattern.isOutlier ? Math.min(1, (pattern.outlierScore - PATTERN.OUTLIER_THRESHOLD) / 2) : 0;
+        const outlierFM = outlierInfluence * this.freq * 0.5 * pattern.confidence;
+        const outlierFilter = outlierInfluence * 600 * pattern.confidence;
+
         // Amplitude: proximity + sync pulse + life + breath in deep states
         const syncPulse = this.neighbors.length > 0 ? this.syncPhase * 0.3 : 0;
         const breathBonus = field.depth * field.breath * 0.02;
@@ -962,13 +1388,13 @@ class Entity {
 
         this.gain.gain.linearRampToValueAtTime(baseAmp * (0.6 + this.brightness * 0.5), now + 0.06);
 
-        // Filter - opens more in deep states, modulated by breath AND tension
+        // Filter - opens more in deep states, modulated by breath, tension, AND outliers
         const depthFilter = field.depth * 400 * (0.5 + field.breath * 0.5);
-        const filterFreq = 150 + proximity * 2500 + this.brightness * 2000 + this.syncPhase * 500 + depthFilter + tensionFilter;
+        const filterFreq = 150 + proximity * 2500 + this.brightness * 2000 + this.syncPhase * 500 + depthFilter + tensionFilter + outlierFilter;
         this.filter.frequency.linearRampToValueAtTime(filterFreq * this.life, now + 0.08);
 
-        // FM from energy AND tension - tension adds instability to the sound
-        const fmDepth = field.energy * this.freq * 0.4 + this.syncPhase * this.freq * 0.1 + tensionFM;
+        // FM from energy, tension, AND outliers - outliers add harmonic richness
+        const fmDepth = field.energy * this.freq * 0.4 + this.syncPhase * this.freq * 0.1 + tensionFM + outlierFM;
         this.modGain.gain.linearRampToValueAtTime(fmDepth, now + 0.05);
 
         // Pan - narrower in deep states for intimacy
@@ -1455,6 +1881,7 @@ function init() {
 
     createSub();
     createBeatAudio();
+    createCounterAudio();
 
     // Birth initial entities - the primordial soup
     const initialRatios = [1, 5/4, 3/2, 2, 5/2, 3];
@@ -1506,6 +1933,9 @@ function onMove(nx, ny) {
     // ENTRAINMENT: Detect user tempo from movement
     detectUserTempo(field.vx, field.vy);
 
+    // PATTERN LEARNING: Track user's movement patterns
+    updatePattern(field.vx, field.vy);
+
     // Stillness
     if (speed < 0.005) {
         field.stillness = Math.min(3, field.stillness + 0.016);
@@ -1552,6 +1982,9 @@ function onMotion(e) {
 
     // ENTRAINMENT: Detect user tempo from motion
     detectUserTempo(field.vx, field.vy);
+
+    // PATTERN LEARNING: Track user's movement patterns
+    updatePattern(field.vx, field.vy);
 
     if (field.energy > 0.2 && Math.random() < field.energy * 0.02) {
         birthEntity();
@@ -1722,6 +2155,83 @@ function draw() {
         vc.textAlign = 'center';
         vc.fillText(Math.round(field.systemBPM) + ' BPM', w/2, h - 20);
     }
+
+    // PATTERN LEARNING VISUALIZATION
+    const pattern = getPatternState();
+
+    // Pattern confidence indicator (top-left corner)
+    if (pattern.confidence > 0.1) {
+        const barWidth = 60;
+        const barHeight = 4;
+        const barX = 20;
+        const barY = 20;
+
+        // Background
+        vc.fillStyle = 'rgba(255, 255, 255, 0.1)';
+        vc.fillRect(barX, barY, barWidth, barHeight);
+
+        // Confidence fill
+        const confColor = pattern.isValid ? 'rgba(100, 255, 150, 0.6)' : 'rgba(255, 200, 100, 0.5)';
+        vc.fillStyle = confColor;
+        vc.fillRect(barX, barY, barWidth * pattern.confidence, barHeight);
+
+        // Label
+        vc.fillStyle = 'rgba(255, 255, 255, 0.3)';
+        vc.font = '9px system-ui';
+        vc.textAlign = 'left';
+        vc.fillText('PATTERN', barX, barY + 14);
+    }
+
+    // OUTLIER VISUALIZATION - dramatic feedback when you break pattern
+    if (pattern.isOutlier && pattern.confidence > 0.5) {
+        const outlierIntensity = Math.min(1, (pattern.outlierScore - PATTERN.OUTLIER_THRESHOLD) / 2);
+
+        // Color based on outlier type
+        let outlierHue = 30; // Orange default
+        switch (pattern.outlierType) {
+            case 'tempo': outlierHue = 280; break;     // Purple for tempo
+            case 'amplitude': outlierHue = 60; break;   // Yellow for amplitude
+            case 'direction': outlierHue = 180; break;  // Cyan for direction
+        }
+
+        // Pulsing ring at cursor - YOU broke the pattern
+        const outlierR = 40 + outlierIntensity * 80;
+        const outlierAlpha = outlierIntensity * 0.4;
+        vc.beginPath();
+        vc.arc(field.x * w, field.y * h, outlierR, 0, TAU);
+        vc.strokeStyle = `hsla(${outlierHue}, 80%, 60%, ${outlierAlpha})`;
+        vc.lineWidth = 2 + outlierIntensity * 4;
+        vc.stroke();
+
+        // Polyrhythm indicator
+        if (pattern.polyrhythm && pattern.polyrhythm.name !== '1:1') {
+            vc.fillStyle = `hsla(${outlierHue}, 70%, 70%, ${outlierIntensity * 0.6})`;
+            vc.font = '14px system-ui';
+            vc.textAlign = 'center';
+            vc.fillText(pattern.polyrhythm.name, field.x * w, field.y * h - outlierR - 10);
+        }
+
+        // Flash at center when MAJOR outlier
+        if (pattern.isMajorOutlier) {
+            const flashR = 150 + outlierIntensity * 100;
+            const flashGrad = vc.createRadialGradient(w/2, h/2, 0, w/2, h/2, flashR);
+            flashGrad.addColorStop(0, `hsla(${outlierHue}, 60%, 50%, ${outlierIntensity * 0.2})`);
+            flashGrad.addColorStop(1, 'transparent');
+            vc.fillStyle = flashGrad;
+            vc.beginPath();
+            vc.arc(w/2, h/2, flashR, 0, TAU);
+            vc.fill();
+        }
+    }
+
+    // Counter-rhythm indicator - shows the polyrhythm is active
+    if (counterActive && pattern.isOutlier) {
+        const counterAlpha = 0.2 + Math.sin(counterPhase * Math.PI * 2) * 0.15;
+        vc.fillStyle = `rgba(255, 180, 100, ${counterAlpha})`;
+        vc.font = '10px system-ui';
+        vc.textAlign = 'right';
+        vc.fillText('COUNTER', w - 20, 24);
+    }
 }
 
 // ============ BREATH OF THE UNIVERSE ============
@@ -1848,6 +2358,9 @@ function tick() {
 
     // UPDATE ENTRAINMENT - beat syncs to user's rhythm
     updateEntrainment(dt);
+
+    // UPDATE COUNTER-RHYTHM - outliers create polyrhythms
+    updateCounterRhythm(dt);
 
     updateBreath(dt);
 

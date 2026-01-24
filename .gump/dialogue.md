@@ -589,3 +589,173 @@ The learning problem is the hardest. It's not just "track things" - it's "track 
 ---
 
 *End of Session 8*
+
+---
+
+## Session 9 - January 24, 2026
+
+### The Third Pillar: LEARNING
+
+**ENGINEER**: We have prediction. We have entrainment. Now we need the third pillar: LEARNING. The system that knows YOU.
+
+**MUSICIAN**: The state.md vision is clear: "Pattern vs Outlier." Your consistent behavior becomes the baseline. Your deviations become the interesting moments. But we can't detect deviations without knowing what's normal.
+
+**PHYSICIST**: This is statistics. Rolling windows of:
+- Tempo (time between direction changes)
+- Amplitude (size of movements)
+- Direction (where you tend to go)
+- Rhythm (timing between movement onsets)
+
+Then: `outlierScore = (current - mean) / stdDev`. Above 2σ = significant. Above 3σ = major break.
+
+---
+
+### What We Built
+
+**ENGINEER**: The Pattern Learning system is complete. Here's the architecture:
+
+**Rolling Statistics:**
+```javascript
+patternStats = {
+    tempoSamples: [],      // Time between direction changes (ms)
+    tempoMean, tempoStdDev,
+
+    amplitudeSamples: [],  // Movement size (0-1)
+    amplitudeMean, amplitudeStdDev,
+
+    directionHist: [],     // 8-bin compass histogram
+    dominantDirection,
+
+    rhythmSamples: [],     // Time between movement onsets
+    rhythmMean, rhythmStdDev,
+
+    isValid: false,        // True when we have enough data
+    confidence: 0,         // 0-1, how established the pattern is
+
+    outlierScore: 0,       // Current deviation in standard deviations
+    outlierType: null,     // 'tempo', 'amplitude', 'direction'
+    outlierRatio: 1        // Ratio for polyrhythm calculation
+}
+```
+
+**Outlier Detection:**
+- Every few frames, we compare current behavior to the established norm
+- If behavior is >2σ from mean, it's an outlier
+- The TYPE of outlier determines the musical response
+- The RATIO of outlier to norm gets quantized to a polyrhythm
+
+**Polyrhythm Quantization:**
+```javascript
+// If user normally moves at 120 BPM but current move suggests 90 BPM
+// Ratio = 120/90 ≈ 1.33 ≈ 4:3
+// System creates a 4:3 polyrhythm
+```
+
+---
+
+### The Musical Response
+
+**MUSICIAN**: Now for the fun part. What happens when someone breaks their pattern?
+
+**PHYSICIST**: We built a counter-voice. A second rhythmic layer that plays AGAINST the main beat.
+
+**ENGINEER**: Here's how it works:
+
+1. **Main beat** continues at `systemBPM` (entrained to user)
+2. **Counter beat** runs at `systemBPM * polyrhythmSubdivision`
+3. If outlier is 4:3, counter plays 3 hits for every 4 main beats
+4. Counter has different timbre - higher, bandpassed, percussive
+5. Counter fades when outlier score drops below threshold
+
+**MUSICIAN**: So if I'm moving steadily at 120 BPM, I hear the main kick. Then I suddenly move faster - say, in a 90 BPM pattern - and a 4:3 counter-rhythm emerges?
+
+**ENGINEER**: Exactly. And the counter-rhythm's timbre changes based on outlier TYPE:
+- Tempo outlier → purple-ish, higher pitch
+- Amplitude outlier → yellow-ish, mid pitch
+- Direction outlier → cyan-ish, highest pitch
+
+---
+
+### Honest Assessment
+
+**PHYSICIST**: What's still missing?
+
+**ENGINEER**:
+1. **No persistence** - Learning resets every session. True learning would remember across sessions.
+2. **Short window** - Only ~5 seconds of history. Longer patterns aren't captured.
+3. **No harmonic influence** - Outliers affect rhythm but not chord selection.
+4. **Simple polyrhythms** - Only supports common ratios (3:2, 4:3, etc.)
+
+**MUSICIAN**: But the foundation is there. For the first time, the system knows what "normal" looks like for THIS user. That's the prerequisite for everything else.
+
+**PHYSICIST**: And importantly: the learning is FAST. Within 10-15 seconds of consistent movement, the pattern establishes. That means even a short session can feel personalized.
+
+---
+
+### Visual Feedback
+
+**ENGINEER**: Added visualization:
+
+- **Pattern confidence bar** (top-left): Shows how established your pattern is
+- **Outlier ring**: Colored ring around cursor when you break pattern
+- **Polyrhythm label**: Shows "3:2" or "4:3" etc. when counter-rhythm is active
+- **Major outlier flash**: Center screen flash for dramatic pattern breaks
+- **"COUNTER" indicator**: Shows when counter-rhythm is playing
+
+**MUSICIAN**: The colors matter. Users can learn:
+- Purple = I changed my tempo
+- Yellow = I moved bigger/smaller than usual
+- Cyan = I went somewhere unexpected
+
+That's feedback. That's learning. The instrument teaches you about yourself.
+
+---
+
+### What The User Will Notice
+
+**MUSICIAN**: After this change, what's different?
+
+**PHYSICIST**:
+1. Move consistently for ~15 seconds → green bar fills up, pattern established
+2. Break your pattern → colored ring, polyrhythm counter-voice
+3. Major break → screen flash, dramatic counter-rhythm
+4. Return to pattern → counter fades, main beat resumes
+5. The music reflects YOUR consistency and YOUR surprises
+
+**ENGINEER**: The key insight: YOUR DEVIATIONS ARE THE INTERESTING MOMENTS. The system doesn't just react to what you do. It reacts to HOW DIFFERENT what you're doing is from what you USUALLY do.
+
+**MUSICIAN**: That's musical intelligence. A drummer doesn't just play the beat. They know the song. They know what's expected. The fills come at the unexpected moments.
+
+---
+
+### The Three Pillars Complete
+
+**ALL**: We now have all three pillars:
+
+1. **PREDICTION** - System anticipates where you're going
+2. **ENTRAINMENT** - Beat syncs to your natural tempo
+3. **LEARNING** - System knows your pattern and responds to deviations
+
+The instrument is no longer reactive. It's *conversational*. It knows you. It anticipates you. It surprises you when you surprise it.
+
+---
+
+### What Remains
+
+**PHYSICIST**: Future improvements:
+- Cross-session persistence (localStorage)
+- Harmonic influence from outliers
+- Supersaw lock-in when pattern is strong
+- More complex polyrhythm generation
+
+**MUSICIAN**: But those are enhancements. The core is done. The instrument has MEMORY.
+
+**ENGINEER**: And it shipped. Working. Testable. Not a plan - a feature.
+
+---
+
+*"Your pattern is the question. Your outlier is the answer."*
+
+---
+
+*End of Session 9*

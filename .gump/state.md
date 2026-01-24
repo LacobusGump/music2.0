@@ -4,7 +4,17 @@
 
 ---
 
-## NEW CREATIVE DIRECTION: PATTERN VS OUTLIER
+## THREE PILLARS: COMPLETE ✓
+
+All three hard problems have been solved:
+
+1. **PREDICTION** ✓ - System anticipates where you're going (120ms lookahead)
+2. **ENTRAINMENT** ✓ - Beat syncs to your natural movement tempo
+3. **LEARNING** ✓ - System tracks your pattern, responds to deviations
+
+---
+
+## PATTERN VS OUTLIER: IMPLEMENTED
 
 **The system learns YOUR pattern. Then it plays your DEVIATIONS against it.**
 
@@ -94,54 +104,88 @@ Build custom algorithms to find:
 
 ---
 
-## IMPLEMENTATION PRIORITIES
+## IMPLEMENTATION STATUS
 
-### This Cycle: Pattern Learning
-- Track rolling statistics of user movement
-- Calculate their personal "norm" (tempo, amplitude, direction)
-- Store as baseline for comparison
+### ✓ COMPLETED: Pattern Learning
+- Rolling statistics of tempo, amplitude, direction, rhythm
+- ~5 second window (300 samples at 60fps)
+- Confidence score (0-1) shows pattern establishment
+- Updates every 3 frames for performance
 
-### Next Cycle: Outlier Detection
-- Detect when current movement deviates from norm
-- Calculate the RATIO (how different? in what way?)
-- Score the outlier (small deviation vs. major break)
+### ✓ COMPLETED: Outlier Detection
+- Detects when current movement deviates from norm
+- Calculates outlier score (Z-score: σ from mean)
+- Identifies outlier TYPE (tempo, amplitude, direction)
+- Calculates RATIO for polyrhythm generation
+- Threshold: >2σ = significant, >3σ = major break
 
-### Following Cycle: Polyrhythmic Response
-- Convert outlier ratio to musical interval
-- Generate counter-rhythm that plays against norm
-- Layer voices to create polyrhythm
+### ✓ COMPLETED: Polyrhythmic Response
+- Counter-voice emerges when outlier detected
+- Runs at polyrhythm subdivision of main beat
+- Quantizes to musical ratios (3:2, 4:3, 5:4, etc.)
+- Different timbres for different outlier types
+- Fades when pattern normalizes
 
-### After That: Supersaw Upgrade
+### NEXT CYCLE: Supersaw Upgrade
 - Replace thin oscillators with detuned stacks
 - Lock saws tighter when pattern is strong
 - That massive chord sound when everything aligns
+
+### FUTURE: Persistence
+- localStorage for cross-session memory
+- Harmonic preferences learned over time
+- Truly personalized instrument
 
 ---
 
 ## TECHNICAL NOTES
 
-### Pattern Statistics to Track
+### Pattern Statistics (IMPLEMENTED)
 ```javascript
-norm: {
-  tempo: { mean, stdDev },      // BPM of movement
-  amplitude: { mean, stdDev },   // Size of movements
-  direction: { histogram },      // Where they tend to go
-  rhythm: { intervals[] }        // Their natural timing
+patternStats = {
+  tempoSamples: [],           // Time between direction changes
+  tempoMean, tempoStdDev,
+
+  amplitudeSamples: [],       // Movement size (0-1 normalized)
+  amplitudeMean, amplitudeStdDev,
+
+  directionHist: [8],         // Compass histogram with decay
+  dominantDirection,
+
+  rhythmSamples: [],          // Time between movement onsets
+  rhythmMean, rhythmStdDev,
+
+  isValid,                    // Pattern established?
+  confidence,                 // 0-1 confidence score
+
+  outlierScore,               // Current Z-score
+  outlierType,                // 'tempo'|'amplitude'|'direction'
+  outlierRatio                // For polyrhythm calculation
 }
 ```
 
-### Outlier Scoring
+### Outlier Scoring (IMPLEMENTED)
 ```javascript
-outlierScore = (current - norm.mean) / norm.stdDev
-// > 2 = significant outlier
-// > 3 = major break
+// Each type has its own Z-score
+tempoZ = abs(currentTempo - tempoMean) / tempoStdDev
+ampZ = abs(currentAmp - ampMean) / ampStdDev
+// Highest Z-score determines outlier type
+outlierScore = max(tempoZ, ampZ, directionScore)
+// > 2 = significant outlier, > 3 = major break
 ```
 
-### Polyrhythm Calculation
+### Polyrhythm Calculation (IMPLEMENTED)
 ```javascript
-ratio = normTempo / outlierTempo
-// Quantize to musical ratios: 3:2, 4:3, 5:4, 6:5, etc.
-// Use this to set counter-rhythm subdivision
+ratio = currentTempo / tempoMean  // or amplitude ratio
+// Quantize to nearest musical ratio:
+const polyrhythms = [
+  { ratio: 1.5, name: '3:2' },
+  { ratio: 1.333, name: '4:3' },
+  { ratio: 1.25, name: '5:4' },
+  { ratio: 1.2, name: '6:5' },
+  // ... etc
+]
+// Counter-rhythm runs at: systemBPM * subdivision
 ```
 
 ---
