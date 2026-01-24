@@ -432,3 +432,160 @@ But that's for the next cycle. This cycle, we solved prediction.
 ---
 
 *End of Session 7*
+
+---
+
+## Session 8 - January 24, 2026
+
+### The Missing Heartbeat
+
+**ENGINEER**: I just read 1,698 lines of code. There are no drums.
+
+**MUSICIAN**: What?
+
+**ENGINEER**: The state.md says "drums should sync to user tempo." The dialogue talks about "drums." But there are no drums in the code. There's:
+- Entities (continuous harmonic oscillators)
+- Sub bass (drone)
+- Gesture responses (ornamental sounds)
+- Effects (reverb, delay)
+
+No drums. No rhythm engine. Nothing that pulses.
+
+**PHYSICIST**: There's `field.pulse` though. And entity sync phases.
+
+**ENGINEER**: That's emergent rhythm from entity synchronization. It's subtle. Too subtle. The user can't FEEL it. They need something to push against. A downbeat. A heartbeat.
+
+**MUSICIAN**: We've been building an ambient instrument. Beautiful, but... shapeless. Rhythm gives shape to time. Without it, everything blurs together.
+
+---
+
+### The Design
+
+**PHYSICIST**: Let's be precise about what entrainment means. Two systems:
+
+1. **User rhythm** - Derived from their movement patterns
+2. **System rhythm** - A pulse that the user can hear
+
+Entrainment is when system rhythm locks onto user rhythm. Not instantly - that would feel robotic. Gradually. Like two musicians finding each other's groove.
+
+**MUSICIAN**: How do we detect user rhythm?
+
+**PHYSICIST**: Movement starts and direction changes are like drum hits. Track the time between them. Take the median (robust against outliers). Convert to BPM.
+
+**ENGINEER**: So if someone is moving back and forth at 120 BPM - roughly 500ms per direction change - we detect that as 120 BPM and sync our beat to it.
+
+**MUSICIAN**: And if they stop moving?
+
+**ENGINEER**: The system BPM drifts slowly back to a neutral tempo. Or holds the last detected tempo for a while. The pulse continues but without input it's not reinforced.
+
+---
+
+### Implementation: What We Built
+
+**ENGINEER**: Done. Here's the entrainment system:
+
+**Tempo Detection:**
+- Tracks movement starts and direction changes as "taps"
+- Uses median of recent tap intervals (robust against noise)
+- Range locked to 40-180 BPM (musically useful range)
+- Direction changes weighted 2x (stronger tempo signal)
+
+**Beat Generation:**
+- Soft kick at sub-bass frequency (BASE/2 ≈ 27Hz)
+- Pitch drops from 2x to 1x over 80ms (classic kick envelope)
+- Amplitude scales with user energy (more active = louder beat)
+- Quieter in deep stillness (respects the contemplative state)
+
+**Entrainment:**
+- System BPM converges toward user BPM at 8% per frame
+- Not instant lock - gradual drift, like musicians finding each other
+- Beat phase tracked continuously for precise timing
+
+**Visual Feedback:**
+- Expanding ring from center on each beat
+- Inner glow at center
+- BPM display at bottom of screen
+
+**MUSICIAN**: So the user starts moving in a rhythm, and after a few beats, the system starts pulsing with them?
+
+**ENGINEER**: Exactly. Move fast in a pattern → beat speeds up. Move slow and deliberate → beat slows down. Stop moving → beat continues at last tempo but quieter.
+
+**PHYSICIST**: The key is the 8% convergence rate. Too fast and it feels twitchy - every small tempo variation causes the beat to jump. Too slow and it never locks. 8% means it takes about a second to fully lock onto a new tempo.
+
+---
+
+### What the User Will Notice
+
+**MUSICIAN**: How does this FEEL different from before?
+
+**PHYSICIST**: Before: Move around, hear continuous tones, gesture sounds. No rhythmic anchor.
+
+After: Move around, feel a PULSE emerging. Move rhythmically, and the pulse LOCKS to your rhythm. You're not following the beat - the beat is following you.
+
+**ENGINEER**: The BPM display is important feedback. Users can see their tempo being detected. "Oh, I'm moving at 95 BPM." Then they can intentionally speed up or slow down and watch the system follow.
+
+**MUSICIAN**: This changes everything. Now there's a TIME structure. Music can have verses and choruses. Tension can build over multiple beats. The gesture sounds can sync to the beat (future improvement).
+
+---
+
+### Honest Criticism
+
+**PHYSICIST**: What's still wrong?
+
+**ENGINEER**: Several things:
+1. **No learning** - Still the last hard problem. Minute 1 = minute 100.
+2. **Entrainment is reactive only** - Doesn't anticipate tempo changes
+3. **Gestures don't sync to beat** - The swipe/shake/circle sounds trigger immediately, not quantized to the beat grid
+4. **No subdivision** - Just quarter notes. No eighth-note or sixteenth-note feel.
+
+**MUSICIAN**: The gesture-to-beat connection is interesting. A swipe that lands ON the beat should feel different from one that's off-beat. That's groove.
+
+**PHYSICIST**: That's a future refinement. For now, having a beat AT ALL is the breakthrough.
+
+---
+
+### What We Learned
+
+**ENGINEER**: Building entrainment forced us to confront something: this app didn't have rhythm. It had texture, harmony, gesture - but no pulse. We were building ambient music.
+
+**MUSICIAN**: Nothing wrong with ambient. But the vision is "music from experience." Music has rhythm. Without it, we had half an instrument.
+
+**PHYSICIST**: The prediction system added ANTICIPATION. The entrainment system adds TIME STRUCTURE. Two of three pillars.
+
+**MUSICIAN**: The third is MEMORY. Learning. That's next.
+
+---
+
+### What Remains
+
+**ALL**: Two hard problems solved. One remains.
+
+1. **PREDICTION** - Solved. System anticipates where you're going.
+2. **ENTRAINMENT** - Solved. Beat syncs to your movement rhythm.
+3. **LEARNING** - Unsolved. System has no memory of your preferences.
+
+The learning problem is the hardest. It's not just "track things" - it's "track the RIGHT things" and "use them in the RIGHT way."
+
+**PHYSICIST**: What should we track?
+- Which regions the user lingers in (harmonic preferences)
+- Typical tempo ranges (rhythm preferences)
+- Gesture frequency and style (interaction preferences)
+- How they respond to tension vs resolution (emotional preferences)
+
+**MUSICIAN**: And what do we DO with that data?
+- Weight entity birth toward preferred harmonies
+- Start sessions at typical tempo
+- Adjust gesture sensitivity to their style
+- Personalize the tension/resolution arc
+
+**ENGINEER**: That's a bigger change. Probably requires persistence (localStorage or server). And careful design to avoid "overfitting" to early behavior.
+
+**ALL**: Learning is for the next cycle. This cycle, we gave the instrument a heartbeat.
+
+---
+
+*"You don't follow the beat. The beat follows you."*
+
+---
+
+*End of Session 8*

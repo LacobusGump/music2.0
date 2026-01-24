@@ -4,104 +4,107 @@
 
 ---
 
-## PREDICTION: SHIPPED
+## ENTRAINMENT: SHIPPED
 
-**We did it.** Not planned. Not prepared. SHIPPED.
+**The beat follows YOU now.** Not the other way around.
 
 ---
 
 ## What Changed This Cycle
 
-### Prediction System (COMPLETE)
+### Entrainment System (COMPLETE)
 
-The system now predicts where you're going 120ms into the future.
+The system now detects your natural rhythm and syncs to it.
 
-**Implementation:**
-- `field.px, field.py` - Predicted position
-- `field.predictionError` - Tracks how wrong predictions were
-- `field.predictionTension` - Musical tension from misprediction
+**How it works:**
+1. **Tempo Detection** - Tracks movement starts and direction changes as "taps"
+2. **BPM Calculation** - Median of recent tap intervals converts to BPM (40-180 range)
+3. **Soft Lock** - System BPM smoothly entrains toward detected user BPM
+4. **Beat Generation** - Soft kick pulses on each beat at the entrained tempo
 
-**Where prediction is used:**
-1. **Entity sound** - Proximity, pitch bend, filter cutoff all use distance to PREDICTED position
-2. **Entity birth** - New entities spawn toward where you're GOING, not where you ARE
-3. **Regional mode** - Harmony selection uses predicted position
+**New state variables:**
+- `field.userBPM` - Detected user tempo
+- `field.systemBPM` - Current system tempo (converges to user)
+- `field.beatPhase` - Phase in beat cycle (0-1)
+- `field.beatStrength` - Intensity of current beat (decays)
+- `field.onBeat` - True during beat window
 
 **What users will notice:**
-- Harmony shifts BEFORE you arrive at a new position
-- Sudden direction changes create brief musical tension (brighter, more FM)
-- It feels like the system is reading your mind
+- A soft kick/pulse emerges that matches their movement rhythm
+- Move fast in a pattern -> drums speed up
+- Move slow and deliberate -> drums slow down
+- The BPM displays at the bottom of the screen
+- Visual ring expands from center on each beat
 
-**Visual feedback:**
-- Blue ghost dot shows predicted position
-- Line connects current to predicted
-- Red flash when prediction is wrong (matches the sonic tension)
+**Audio implementation:**
+- Sub-bass frequency sine wave (BASE/2 = ~27Hz)
+- Pitch drops from 2x to 1x over 80ms (classic kick shape)
+- Amplitude scales with user activity
+- Quieter in deep stillness (respects the vibe)
 
 ---
 
 ## THE THREE HARD PROBLEMS - Status
 
-### 1. PREDICTION - SOLVED
-Simple momentum extrapolation works. Prediction error creates musical tension. The system now thinks about the FUTURE, not just the present.
+### 1. PREDICTION - SOLVED (Last Cycle)
+System predicts where you're going 120ms ahead. Prediction error creates musical tension.
 
-### 2. ENTRAINMENT - NEXT
-The drums still ignore user tempo. This is the next hard problem.
+### 2. ENTRAINMENT - SOLVED (This Cycle)
+System detects your tempo from movement patterns. Beat syncs to YOUR rhythm, not a fixed BPM. Direction changes are weighted more heavily as tempo signals.
+
+### 3. LEARNING - NEXT
+Still no memory of user preferences. This is the last hard problem.
 
 **Approach for next cycle:**
-- Track time between direction changes / stillness→movement
-- Calculate user's natural tempo
-- Nudge drum BPM toward their rhythm
-- Eventually: drums WAIT for the user during stillness
-
-### 3. LEARNING - QUEUED
-Still no memory of user preferences. Sounds the same at minute 1 and minute 100.
-
-**Approach for future cycle:**
-- Track which harmonies user lingers in
-- Track typical gesture intensity
-- Weight future note choices toward preferences
-- Adapt sensitivity over time
+- Track which regions user lingers in (harmonic preferences)
+- Track which tempos user settles into
+- Track gesture frequency and intensity patterns
+- Use this to shape initial conditions in future sessions
 
 ---
 
 ## Technical State
 
-**Codebase:** ~1,650 lines in index.html
+**Codebase:** ~1,850 lines in index.html
 **New systems this cycle:**
-- Prediction calculation (updatePrediction)
-- Prediction visualization (draw function)
-- Tension-based sound modulation (Entity.update)
+- Tempo detection from movement (detectUserTempo)
+- Entrainment update loop (updateEntrainment)
+- Beat audio synthesis (createBeatAudio, triggerBeat)
+- Beat visualization (in draw function)
 
 **What didn't break:**
-- All gesture detection still works
+- Prediction still works
+- All gestures still work
 - Entity lifecycle unchanged
-- Performance seems fine (prediction is cheap)
+- Performance still good (entrainment is cheap)
 
 ---
 
 ## Honest Assessment
 
 **What's better:**
-- The system anticipates. That's huge.
-- Direction changes create musical events, not just parameter changes.
-- Visual feedback shows the user what the system is "thinking."
+- The system has a PULSE now. A heartbeat.
+- The pulse syncs to user movement - it's YOUR rhythm
+- Visual feedback (expanding ring, BPM display) shows entrainment working
+- Direction changes trigger tempo detection - intuitive
 
 **What's still wrong:**
-- Drums are deaf to user rhythm
-- No learning whatsoever
-- Prediction is simple (momentum only, no gesture pattern recognition)
-- Haven't tested on real mobile device with sensors
+- No learning. Minute 1 = minute 100.
+- Entrainment is reactive only - doesn't anticipate rhythm changes
+- Haven't tested on real mobile device
+- No integration with gesture system (gestures could reinforce beats)
 
-**Next priority:** Entrainment. Make the drums listen.
+**Next priority:** LEARNING. Make the system remember.
 
 ---
 
 ## Success Criteria: MET
 
 > After this cycle, a user should notice something DIFFERENT:
-> "It knew where I was going" (prediction) ✓
+> "The drums matched my movement" (entrainment) checkmark
 
-The cycle succeeded. Prediction is real. Ship it.
+The cycle succeeded. The beat follows the user. Ship it.
 
 ---
 
-*"The best way to predict the future is to invent it."* — Alan Kay
+*"You don't follow the beat. The beat follows you."*

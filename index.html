@@ -48,7 +48,14 @@ let field = {
     predictionError: 0,          // How wrong was our last prediction?
     predictionTension: 0,        // Musical tension from misprediction
     lastPredictedX: 0.5,
-    lastPredictedY: 0.5
+    lastPredictedY: 0.5,
+    // === ENTRAINMENT SYSTEM ===
+    userBPM: 90,                 // Detected user tempo (starts neutral)
+    systemBPM: 90,               // Current system tempo (entrains to user)
+    beatPhase: 0,                // Current phase in beat cycle (0-1)
+    lastBeat: 0,                 // Time of last beat
+    beatStrength: 0,             // How strong the current beat is
+    onBeat: false                // True during beat window
 };
 let canvas, vc;
 let running = false;
@@ -103,6 +110,172 @@ function updatePrediction() {
 // Get the predicted position for harmony selection
 function getPredictedPosition() {
     return { x: field.px, y: field.py };
+}
+
+// ============ ENTRAINMENT SYSTEM ============
+// The system listens to YOUR rhythm and syncs to it.
+// You don't follow the beat - the beat follows YOU.
+
+const ENTRAINMENT = {
+    MIN_BPM: 40,
+    MAX_BPM: 180,
+    DEFAULT_BPM: 90,
+    ENTRAIN_RATE: 0.08,         // How fast system BPM converges to user BPM
+    BEAT_WINDOW: 0.15,          // Seconds around beat that count as "on beat"
+    MIN_TAP_INTERVAL: 200,      // Minimum ms between tempo taps
+    MAX_TAP_INTERVAL: 2000,     // Maximum ms to still count as tempo tap
+    TAP_MEMORY: 8,              // Number of taps to average
+    MOVEMENT_THRESHOLD: 0.02,   // Minimum velocity to count as movement event
+    DIRECTION_CHANGE_WEIGHT: 2, // Direction changes are stronger tempo signals
+};
+
+// Circular buffer of movement event timestamps
+let movementTaps = [];
+let lastMovementTime = 0;
+let lastMovementDirection = { x: 0, y: 0 };
+let wasMoving = false;
+
+// Detect user's natural tempo from movement patterns
+function detectUserTempo(vx, vy) {
+    const now = performance.now();
+    const speed = Math.sqrt(vx * vx + vy * vy);
+    const isMoving = speed > ENTRAINMENT.MOVEMENT_THRESHOLD;
+
+    // Detect direction changes (strong tempo signal)
+    const currentDir = { x: Math.sign(vx), y: Math.sign(vy) };
+    const dirChanged = (currentDir.x !== 0 && currentDir.x !== lastMovementDirection.x) ||
+                       (currentDir.y !== 0 && currentDir.y !== lastMovementDirection.y);
+
+    // Movement start or direction change = potential tempo tap
+    const tapEvent = (!wasMoving && isMoving) || (isMoving && dirChanged);
+
+    if (tapEvent && now - lastMovementTime > ENTRAINMENT.MIN_TAP_INTERVAL) {
+        const interval = now - lastMovementTime;
+
+        if (interval < ENTRAINMENT.MAX_TAP_INTERVAL && lastMovementTime > 0) {
+            // Weight direction changes more heavily
+            const weight = dirChanged ? ENTRAINMENT.DIRECTION_CHANGE_WEIGHT : 1;
+            for (let i = 0; i < weight; i++) {
+                movementTaps.push(interval);
+            }
+
+            // Keep buffer size limited
+            while (movementTaps.length > ENTRAINMENT.TAP_MEMORY * 2) {
+                movementTaps.shift();
+            }
+
+            // Calculate average interval -> BPM
+            if (movementTaps.length >= 3) {
+                // Use median for robustness against outliers
+                const sorted = [...movementTaps].sort((a, b) => a - b);
+                const medianInterval = sorted[Math.floor(sorted.length / 2)];
+                const detectedBPM = 60000 / medianInterval;
+
+                // Clamp to valid range
+                field.userBPM = Math.max(ENTRAINMENT.MIN_BPM,
+                                  Math.min(ENTRAINMENT.MAX_BPM, detectedBPM));
+            }
+        }
+
+        lastMovementTime = now;
+    }
+
+    lastMovementDirection = currentDir;
+    wasMoving = isMoving;
+}
+
+// Entrain system BPM toward user BPM
+function updateEntrainment(dt) {
+    // Smoothly move system BPM toward user BPM
+    const diff = field.userBPM - field.systemBPM;
+    field.systemBPM += diff * ENTRAINMENT.ENTRAIN_RATE;
+
+    // Update beat phase
+    const beatsPerSecond = field.systemBPM / 60;
+    field.beatPhase += dt * beatsPerSecond;
+
+    // Detect beat crossing
+    const prevOnBeat = field.onBeat;
+    const phaseInBeat = field.beatPhase % 1;
+
+    // On-beat window is centered around 0 (wraps from ~0.9 to ~0.1)
+    field.onBeat = phaseInBeat < ENTRAINMENT.BEAT_WINDOW ||
+                   phaseInBeat > (1 - ENTRAINMENT.BEAT_WINDOW);
+
+    // Beat just started?
+    if (field.onBeat && !prevOnBeat) {
+        field.lastBeat = field.time;
+        field.beatStrength = 1;
+        triggerBeat();
+    }
+
+    // Beat strength decays
+    field.beatStrength *= 0.85;
+}
+
+// Audio nodes for beat
+let beatOsc = null;
+let beatGain = null;
+let beatFilter = null;
+
+function createBeatAudio() {
+    beatOsc = ctx.createOscillator();
+    beatGain = ctx.createGain();
+    beatFilter = ctx.createBiquadFilter();
+
+    beatOsc.type = 'sine';
+    beatOsc.frequency.value = BASE / 2; // Sub-bass frequency
+
+    beatFilter.type = 'lowpass';
+    beatFilter.frequency.value = 150;
+    beatFilter.Q.value = 8;
+
+    beatGain.gain.value = 0;
+
+    beatOsc.connect(beatFilter);
+    beatFilter.connect(beatGain);
+    beatGain.connect(master);
+
+    beatOsc.start();
+}
+
+// Trigger the beat sound - soft kick that pulses with the user's rhythm
+function triggerBeat() {
+    if (!beatGain || !ctx) return;
+
+    const now = ctx.currentTime;
+
+    // Beat intensity scales with how active the user is
+    const activityBoost = Math.min(1, field.energy * 3);
+    const depthDampen = 1 - field.depth * 0.5; // Quieter in deep stillness
+    const baseAmp = 0.15;
+    const amp = baseAmp * (0.3 + activityBoost * 0.7) * depthDampen;
+
+    // Pitch follows the harmonic center (lower when entities cluster low)
+    let avgY = 0.5;
+    let count = 0;
+    for (const e of entities) {
+        if (e.life > 0.3) {
+            avgY += e.y;
+            count++;
+        }
+    }
+    if (count > 0) avgY /= count;
+    const pitchMult = 0.8 + (1 - avgY) * 0.4; // Higher when entities are up
+    const beatFreq = (BASE / 2) * pitchMult;
+
+    // Soft kick envelope - quick attack, medium decay
+    beatOsc.frequency.setValueAtTime(beatFreq * 2, now); // Start higher
+    beatOsc.frequency.exponentialRampToValueAtTime(beatFreq, now + 0.08);
+
+    beatGain.gain.cancelScheduledValues(now);
+    beatGain.gain.setValueAtTime(0, now);
+    beatGain.gain.linearRampToValueAtTime(amp, now + 0.01);
+    beatGain.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
+
+    // Filter sweep for punch
+    beatFilter.frequency.setValueAtTime(300 + activityBoost * 200, now);
+    beatFilter.frequency.exponentialRampToValueAtTime(80, now + 0.15);
 }
 
 // ============ GESTURE RECOGNITION ============
@@ -1281,6 +1454,7 @@ function init() {
     dly.output.connect(master);
 
     createSub();
+    createBeatAudio();
 
     // Birth initial entities - the primordial soup
     const initialRatios = [1, 5/4, 3/2, 2, 5/2, 3];
@@ -1329,6 +1503,9 @@ function onMove(nx, ny) {
     const speed = Math.sqrt(field.vx*field.vx + field.vy*field.vy);
     field.energy = field.energy * 0.9 + speed * 0.5;
 
+    // ENTRAINMENT: Detect user tempo from movement
+    detectUserTempo(field.vx, field.vy);
+
     // Stillness
     if (speed < 0.005) {
         field.stillness = Math.min(3, field.stillness + 0.016);
@@ -1372,6 +1549,9 @@ function onMotion(e) {
     }
 
     field.energy = field.energy * 0.9 + Math.sqrt(rawAx*rawAx + rawAy*rawAy) * 0.3;
+
+    // ENTRAINMENT: Detect user tempo from motion
+    detectUserTempo(field.vx, field.vy);
 
     if (field.energy > 0.2 && Math.random() < field.energy * 0.02) {
         birthEntity();
@@ -1511,6 +1691,37 @@ function draw() {
         vc.lineWidth = 1 + field.breath * 3;
         vc.stroke();
     }
+
+    // BEAT VISUALIZATION - pulse from center on each beat
+    if (field.beatStrength > 0.1) {
+        const beatR = 50 + (1 - field.beatStrength) * 300;
+        const beatAlpha = field.beatStrength * 0.25;
+
+        // Expanding ring from center
+        vc.beginPath();
+        vc.arc(w/2, h/2, beatR, 0, TAU);
+        vc.strokeStyle = `rgba(255, 200, 150, ${beatAlpha})`;
+        vc.lineWidth = 3 + field.beatStrength * 5;
+        vc.stroke();
+
+        // Inner glow at center
+        const glowR = 30 + field.beatStrength * 50;
+        const glowGrad = vc.createRadialGradient(w/2, h/2, 0, w/2, h/2, glowR);
+        glowGrad.addColorStop(0, `rgba(255, 220, 180, ${field.beatStrength * 0.3})`);
+        glowGrad.addColorStop(1, 'transparent');
+        vc.fillStyle = glowGrad;
+        vc.beginPath();
+        vc.arc(w/2, h/2, glowR, 0, TAU);
+        vc.fill();
+    }
+
+    // BPM indicator - subtle, bottom of screen
+    if (field.energy > 0.02 || field.beatStrength > 0.05) {
+        vc.fillStyle = `rgba(255, 255, 255, ${0.15 + field.beatStrength * 0.3})`;
+        vc.font = '12px system-ui';
+        vc.textAlign = 'center';
+        vc.fillText(Math.round(field.systemBPM) + ' BPM', w/2, h - 20);
+    }
 }
 
 // ============ BREATH OF THE UNIVERSE ============
@@ -1634,6 +1845,9 @@ function tick() {
 
     // UPDATE PREDICTION FIRST - before anything else uses position
     updatePrediction();
+
+    // UPDATE ENTRAINMENT - beat syncs to user's rhythm
+    updateEntrainment(dt);
 
     updateBreath(dt);
 
