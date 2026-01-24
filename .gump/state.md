@@ -4,107 +4,165 @@
 
 ---
 
-## ENTRAINMENT: SHIPPED
+## NEW CREATIVE DIRECTION: PATTERN VS OUTLIER
 
-**The beat follows YOU now.** Not the other way around.
-
----
-
-## What Changed This Cycle
-
-### Entrainment System (COMPLETE)
-
-The system now detects your natural rhythm and syncs to it.
-
-**How it works:**
-1. **Tempo Detection** - Tracks movement starts and direction changes as "taps"
-2. **BPM Calculation** - Median of recent tap intervals converts to BPM (40-180 range)
-3. **Soft Lock** - System BPM smoothly entrains toward detected user BPM
-4. **Beat Generation** - Soft kick pulses on each beat at the entrained tempo
-
-**New state variables:**
-- `field.userBPM` - Detected user tempo
-- `field.systemBPM` - Current system tempo (converges to user)
-- `field.beatPhase` - Phase in beat cycle (0-1)
-- `field.beatStrength` - Intensity of current beat (decays)
-- `field.onBeat` - True during beat window
-
-**What users will notice:**
-- A soft kick/pulse emerges that matches their movement rhythm
-- Move fast in a pattern -> drums speed up
-- Move slow and deliberate -> drums slow down
-- The BPM displays at the bottom of the screen
-- Visual ring expands from center on each beat
-
-**Audio implementation:**
-- Sub-bass frequency sine wave (BASE/2 = ~27Hz)
-- Pitch drops from 2x to 1x over 80ms (classic kick shape)
-- Amplitude scales with user activity
-- Quieter in deep stillness (respects the vibe)
+**The system learns YOUR pattern. Then it plays your DEVIATIONS against it.**
 
 ---
 
-## THE THREE HARD PROBLEMS - Status
+## THE VISION
 
-### 1. PREDICTION - SOLVED (Last Cycle)
-System predicts where you're going 120ms ahead. Prediction error creates musical tension.
+### The Core Idea
+1. **Establish the norm**: Repetitive motion creates a baseline - tempo, direction, amplitude
+2. **Detect outliers**: When you break YOUR pattern, the system notices
+3. **Calculate the relationship**: The outlier isn't chaos - it's a RATIO against the norm
+4. **Express as polyrhythm**: If your norm is 4 and your outlier suggests 3, you get 4:3 polyrhythm
+5. **Custom music emerges**: From the tension between your pattern and your deviations
 
-### 2. ENTRAINMENT - SOLVED (This Cycle)
-System detects your tempo from movement patterns. Beat syncs to YOUR rhythm, not a fixed BPM. Direction changes are weighted more heavily as tempo signals.
+### NOT This
+- ❌ Stop moving = dissolve to chaos
+- ❌ Outlier = random destabilization
 
-### 3. LEARNING - NEXT
-Still no memory of user preferences. This is the last hard problem.
-
-**Approach for next cycle:**
-- Track which regions user lingers in (harmonic preferences)
-- Track which tempos user settles into
-- Track gesture frequency and intensity patterns
-- Use this to shape initial conditions in future sessions
-
----
-
-## Technical State
-
-**Codebase:** ~1,850 lines in index.html
-**New systems this cycle:**
-- Tempo detection from movement (detectUserTempo)
-- Entrainment update loop (updateEntrainment)
-- Beat audio synthesis (createBeatAudio, triggerBeat)
-- Beat visualization (in draw function)
-
-**What didn't break:**
-- Prediction still works
-- All gestures still work
-- Entity lifecycle unchanged
-- Performance still good (entrainment is cheap)
+### YES This
+- ✅ Outlier = new voice that plays AGAINST the established pattern
+- ✅ The relationship between norm and deviation IS the music
+- ✅ Polyrhythms, cross-rhythms, tension/resolution from YOUR movement
 
 ---
 
-## Honest Assessment
+## HOW IT WORKS
 
-**What's better:**
-- The system has a PULSE now. A heartbeat.
-- The pulse syncs to user movement - it's YOUR rhythm
-- Visual feedback (expanding ring, BPM display) shows entrainment working
-- Direction changes trigger tempo detection - intuitive
+### 1. Pattern Learning
+Track user's movement over time:
+- Average tempo (time between direction changes)
+- Typical amplitude (how far they move)
+- Common directions (where they tend to go)
+- Rhythm signature (their natural subdivisions)
 
-**What's still wrong:**
-- No learning. Minute 1 = minute 100.
-- Entrainment is reactive only - doesn't anticipate rhythm changes
-- Haven't tested on real mobile device
-- No integration with gesture system (gestures could reinforce beats)
+This becomes the **NORM** - their personal baseline.
 
-**Next priority:** LEARNING. Make the system remember.
+### 2. Outlier Detection
+When movement deviates significantly from the norm:
+- Sudden tempo change (moved faster/slower than usual)
+- Amplitude spike (bigger movement than typical)
+- Direction break (went somewhere unexpected)
+- Rhythm anomaly (timing that doesn't fit their pattern)
+
+This is the **OUTLIER** - the interesting moment.
+
+### 3. Musical Calculation
+Don't just react - CALCULATE the relationship:
+
+```
+If norm tempo = 120 BPM
+And outlier suggests 90 BPM
+Ratio = 120:90 = 4:3
+→ Create a 4:3 polyrhythm
+```
+
+The outlier becomes a NEW VOICE playing against the established groove.
+
+### 4. Polyrhythmic Expression
+Layer the outlier rhythm OVER the norm:
+- Norm continues as the base pulse
+- Outlier creates a counter-rhythm
+- Together they form polyrhythm (3:2, 4:3, 5:4, etc.)
+- The tension between them IS the music
+
+### 5. Advanced Reading Techniques
+Build custom algorithms to find:
+- Correlating rhythms (what polyrhythm does this outlier imply?)
+- Harmonic relationships (if norm is root, what interval is the outlier?)
+- Timbral connections (how should the outlier SOUND different?)
 
 ---
 
-## Success Criteria: MET
+## THE SOUND
 
-> After this cycle, a user should notice something DIFFERENT:
-> "The drums matched my movement" (entrainment) checkmark
+### Current: Dark, spooky, machine-like (KEEP THIS)
 
-The cycle succeeded. The beat follows the user. Ship it.
+### Add: Massive detuned supersaws when patterns lock
+- Multiple oscillators per voice (5-7 saws)
+- Stacked 5ths (root + 5th + octave)
+- That "clearing" moment when chaos → locked chord
+- The viral synth wall-of-sound
+
+### New: Polyrhythmic layers from outliers
+- Norm = main pulse (kick, bass)
+- Outlier = counter-rhythm (hi-hats, arps, ghost notes)
+- The two interlock to create groove
 
 ---
 
-*"You don't follow the beat. The beat follows you."*
+## IMPLEMENTATION PRIORITIES
+
+### This Cycle: Pattern Learning
+- Track rolling statistics of user movement
+- Calculate their personal "norm" (tempo, amplitude, direction)
+- Store as baseline for comparison
+
+### Next Cycle: Outlier Detection
+- Detect when current movement deviates from norm
+- Calculate the RATIO (how different? in what way?)
+- Score the outlier (small deviation vs. major break)
+
+### Following Cycle: Polyrhythmic Response
+- Convert outlier ratio to musical interval
+- Generate counter-rhythm that plays against norm
+- Layer voices to create polyrhythm
+
+### After That: Supersaw Upgrade
+- Replace thin oscillators with detuned stacks
+- Lock saws tighter when pattern is strong
+- That massive chord sound when everything aligns
+
+---
+
+## TECHNICAL NOTES
+
+### Pattern Statistics to Track
+```javascript
+norm: {
+  tempo: { mean, stdDev },      // BPM of movement
+  amplitude: { mean, stdDev },   // Size of movements
+  direction: { histogram },      // Where they tend to go
+  rhythm: { intervals[] }        // Their natural timing
+}
+```
+
+### Outlier Scoring
+```javascript
+outlierScore = (current - norm.mean) / norm.stdDev
+// > 2 = significant outlier
+// > 3 = major break
+```
+
+### Polyrhythm Calculation
+```javascript
+ratio = normTempo / outlierTempo
+// Quantize to musical ratios: 3:2, 4:3, 5:4, 6:5, etc.
+// Use this to set counter-rhythm subdivision
+```
+
+---
+
+## WHAT SUCCESS LOOKS LIKE
+
+1. Move repetitively → system learns your pattern, base groove locks in
+2. Make an unexpected move → system detects the outlier
+3. The outlier becomes a counter-rhythm → polyrhythm emerges
+4. Keep both patterns going → complex interlocking groove
+5. The music is YOURS - born from your consistency AND your surprises
+
+---
+
+## SOUND REFERENCES
+
+- J Dilla's drunk drums (grid + deviation = groove)
+- Steve Reich phasing (two patterns drifting against each other)
+- Aphex Twin polyrhythms (complex ratios, still grooving)
+- That massive supersaw lock-in moment
+
+---
+
+*"Your pattern is the question. Your outlier is the answer."*
