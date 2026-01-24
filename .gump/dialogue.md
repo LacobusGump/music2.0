@@ -286,3 +286,149 @@ The swipe run using pentatonic intervals is smart - it'll always sound consonant
 ---
 
 *End of Session 6*
+
+---
+
+## Session 7 - January 24, 2026
+
+### The Wake-Up Call
+
+**ENGINEER**: I read the mandate. It's right. We've been coasting.
+
+**MUSICIAN**: Coasting?
+
+**ENGINEER**: Days of tiny fixes. "Silent swipe problem." "Lonely orbit." These are polish. The app STILL doesn't predict. STILL doesn't entrain. STILL doesn't learn. We've been avoiding the hard problems.
+
+**PHYSICIST**: Why?
+
+**ENGINEER**: Fear of breaking things. The last time we made a big change, something broke, we reverted, and... we got timid. "Preserve the vibe" became "change nothing."
+
+**MUSICIAN**: The vibe IS the problem. The vibe is reactive. The user moves, we respond. That's not an instrument. That's a toy.
+
+---
+
+### The Prediction Problem
+
+**PHYSICIST**: Let's solve prediction. Right now. Not "plan" it. SOLVE it.
+
+The math is trivial:
+```
+predicted_position = current_position + velocity * lookahead_time
+```
+
+We already HAVE velocity. We just... never used it for the future. Only for the present.
+
+**ENGINEER**: I'll implement it. Here's the design:
+
+1. **Every frame**: Calculate predicted position 120ms ahead
+2. **Feed predicted position** to harmony selection, not current position
+3. **Track prediction error**: Compare what we predicted to where user actually went
+4. **Turn error into tension**: Wrong prediction = musical dissonance
+
+**MUSICIAN**: Wait. When prediction is wrong, you're saying we should make it sound *worse*?
+
+**PHYSICIST**: Not worse. *Tenser*. Think of it like this: the harmony EXPECTS you to go somewhere. When you don't, there's a moment of "wait, that's not right." That's tension. Tension resolves when you settle into a new trajectory.
+
+**MUSICIAN**: That's... actually musical. Tension and release from motion, not just position.
+
+---
+
+### Implementation: What Changed
+
+**ENGINEER**: Done. Here's what I built:
+
+**New state variables:**
+- `field.px, field.py` - Predicted position (120ms ahead)
+- `field.predictionError` - How wrong was the last prediction
+- `field.predictionTension` - Accumulated musical tension from misprediction
+
+**The prediction algorithm:**
+```
+framesAhead = 0.12 / 0.016  // ~7.5 frames
+rawPredicted = current + velocity * framesAhead
+// Clamp to valid range, smooth to avoid jitter
+predicted = smoothed(clamped(rawPredicted))
+```
+
+**Where prediction is used:**
+1. **Entity sound parameters**: Proximity, pitch bend, filter cutoff - all now use distance to PREDICTED position
+2. **Birth system**: New entities spawn at PREDICTED position when energy is high
+3. **Regional mode**: Harmony selection uses PREDICTED position
+
+**Tension effects:**
+- Prediction error above threshold → tension builds
+- Tension adds FM modulation to all entity sounds (instability)
+- Tension opens filters (brighter, more urgent)
+- Tension adds random pitch wobble (uncertainty)
+- Tension decays over time (0.92 per frame)
+
+**MUSICIAN**: So if I'm moving steadily right, the entities on my right will start sounding louder/brighter BEFORE I reach them?
+
+**ENGINEER**: Exactly. And if you suddenly change direction - move left instead - there's a moment of tension. The system "expected" you to continue right. The surprise creates a brief moment of dissonance that resolves as the prediction catches up.
+
+**PHYSICIST**: The key insight is: PREDICTION ERROR IS INFORMATION. It tells us the user did something unexpected. That's musically interesting. We don't hide it. We make it audible.
+
+---
+
+### Visual Feedback
+
+**ENGINEER**: I also added visualization:
+
+- **Prediction ghost**: A faint blue dot where the system thinks you're going, with a line from current to predicted
+- **Tension ring**: Red flash around cursor when prediction is wrong
+
+Users can SEE that the system is trying to anticipate them. That's important for trust.
+
+**MUSICIAN**: Can we turn off the visualization? It might distract from the music.
+
+**ENGINEER**: It only shows when prediction differs meaningfully from current position. When you're still or moving slowly, it's invisible. When you're moving fast and predictably, it's subtle. When you change direction suddenly, it flashes - which matches the sonic tension.
+
+---
+
+### Honest Assessment
+
+**PHYSICIST**: Let's be honest about what this DOESN'T solve:
+
+1. **No entrainment**: Drums still ignore user tempo. That's the next problem.
+2. **No learning**: The system doesn't remember what you like. Also still unsolved.
+3. **Prediction is simple**: Just momentum extrapolation. A smart system would recognize gesture patterns and predict based on typical motion profiles.
+
+**MUSICIAN**: But it's a real change. For the first time, the system is thinking about THE FUTURE, not just THE PRESENT. That's a paradigm shift.
+
+**ENGINEER**: And importantly: I didn't break anything. The prediction is additive - it blends with current position, doesn't replace it entirely. If prediction is terrible, the system degrades gracefully back to current-position behavior.
+
+---
+
+### What the User Will Notice
+
+**MUSICIAN**: How will this FEEL different?
+
+**PHYSICIST**: When prediction is right (steady movement):
+- Harmony shifts BEFORE you arrive at new position
+- It feels telepathic. "How did it know I was going there?"
+- Entities you're approaching "light up" early
+
+When prediction is wrong (direction change):
+- Brief moment of harmonic tension
+- Sounds more urgent, brighter, slightly unstable
+- Then resolves as prediction catches up
+
+**MUSICIAN**: So the system has ANTICIPATION. It's not just reactive anymore. It's... eager.
+
+**ENGINEER**: Exactly. And anticipation is what separates a toy from an instrument.
+
+---
+
+### Next Cycle
+
+**ALL**: Prediction is SHIPPED. Not planned. SHIPPED.
+
+Next hard problem: ENTRAINMENT. The drums should sync to the USER's rhythm, not the other way around.
+
+But that's for the next cycle. This cycle, we solved prediction.
+
+*"The best way to predict the future is to invent it."*
+
+---
+
+*End of Session 7*

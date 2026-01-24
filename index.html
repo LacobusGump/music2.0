@@ -42,10 +42,68 @@ let field = {
     breath: 0,       // Cosmic breath - slow oscillation
     breathPhase: 0,  // Phase of the breath cycle
     depth: 0,        // How deep into stillness we've gone
-    constellations: [] // Stable harmonic formations
+    constellations: [], // Stable harmonic formations
+    // === PREDICTION SYSTEM ===
+    px: 0.5, py: 0.5,           // Predicted position
+    predictionError: 0,          // How wrong was our last prediction?
+    predictionTension: 0,        // Musical tension from misprediction
+    lastPredictedX: 0.5,
+    lastPredictedY: 0.5
 };
 let canvas, vc;
 let running = false;
+
+// ============ PREDICTION SYSTEM ============
+// The system must know where you're going BEFORE you get there.
+
+const PREDICTION_LOOKAHEAD = 0.12; // seconds into the future
+const PREDICTION_SMOOTHING = 0.15; // how quickly prediction updates
+const TENSION_DECAY = 0.92;        // how fast tension fades
+const TENSION_THRESHOLD = 0.08;    // minimum error to create tension
+
+function updatePrediction() {
+    // Store what we predicted last frame
+    field.lastPredictedX = field.px;
+    field.lastPredictedY = field.py;
+
+    // Simple momentum extrapolation: where will you be in LOOKAHEAD seconds?
+    // velocity is per-frame (~16ms), so scale it
+    const framesAhead = PREDICTION_LOOKAHEAD / 0.016;
+    const rawPredictedX = field.x + field.vx * framesAhead;
+    const rawPredictedY = field.y + field.vy * framesAhead;
+
+    // Clamp to valid range
+    const clampedX = Math.max(0.02, Math.min(0.98, rawPredictedX));
+    const clampedY = Math.max(0.02, Math.min(0.98, rawPredictedY));
+
+    // Smooth the prediction to avoid jitter
+    field.px = field.px * (1 - PREDICTION_SMOOTHING) + clampedX * PREDICTION_SMOOTHING;
+    field.py = field.py * (1 - PREDICTION_SMOOTHING) + clampedY * PREDICTION_SMOOTHING;
+
+    // Calculate prediction error: how wrong was our LAST prediction?
+    // Compare what we predicted vs where user actually went
+    const errorX = field.lastPredictedX - field.x;
+    const errorY = field.lastPredictedY - field.y;
+    const error = Math.sqrt(errorX * errorX + errorY * errorY);
+
+    // Smooth the error reading
+    field.predictionError = field.predictionError * 0.7 + error * 0.3;
+
+    // Tension builds when prediction is wrong (user changed direction)
+    if (field.predictionError > TENSION_THRESHOLD) {
+        // The bigger the error, the more tension
+        const tensionBoost = Math.min(1, (field.predictionError - TENSION_THRESHOLD) * 5);
+        field.predictionTension = Math.min(1, field.predictionTension + tensionBoost * 0.3);
+    }
+
+    // Tension decays over time
+    field.predictionTension *= TENSION_DECAY;
+}
+
+// Get the predicted position for harmony selection
+function getPredictedPosition() {
+    return { x: field.px, y: field.py };
+}
 
 // ============ GESTURE RECOGNITION ============
 
@@ -703,11 +761,26 @@ class Entity {
 
         this.syncPhase = (Math.sin(this.phase) + 1) / 2; // 0-1 pulse
 
-        // ============ SOUND ============
+        // ============ SOUND (uses PREDICTED position!) ============
 
-        const proximity = 1 - Math.min(1, distToCursor * 2.5);
+        // THE KEY INSIGHT: Sound responds to where you're GOING, not where you ARE
+        const pdx = field.px - this.x;  // Distance to PREDICTED cursor position
+        const pdy = field.py - this.y;
+        const distToPredicted = Math.sqrt(pdx*pdx + pdy*pdy);
+
+        // Proximity based on PREDICTED position - this is the magic
+        const predictedProximity = 1 - Math.min(1, distToPredicted * 2.5);
+        // Also keep current proximity for blending
+        const currentProximity = 1 - Math.min(1, distToCursor * 2.5);
+        // Blend: mostly predicted, but current adds stability
+        const proximity = predictedProximity * 0.7 + currentProximity * 0.3;
+
         const vel = Math.sqrt(this.vx*this.vx + this.vy*this.vy);
         this.brightness = this.brightness * 0.92 + vel * 8;
+
+        // TENSION from misprediction creates FM modulation and filter movement
+        const tensionFM = field.predictionTension * this.freq * 0.8;
+        const tensionFilter = field.predictionTension * 800;
 
         // Amplitude: proximity + sync pulse + life + breath in deep states
         const syncPulse = this.neighbors.length > 0 ? this.syncPhase * 0.3 : 0;
@@ -716,22 +789,25 @@ class Entity {
 
         this.gain.gain.linearRampToValueAtTime(baseAmp * (0.6 + this.brightness * 0.5), now + 0.06);
 
-        // Filter - opens more in deep states, modulated by breath
+        // Filter - opens more in deep states, modulated by breath AND tension
         const depthFilter = field.depth * 400 * (0.5 + field.breath * 0.5);
-        const filterFreq = 150 + proximity * 2500 + this.brightness * 2000 + this.syncPhase * 500 + depthFilter;
+        const filterFreq = 150 + proximity * 2500 + this.brightness * 2000 + this.syncPhase * 500 + depthFilter + tensionFilter;
         this.filter.frequency.linearRampToValueAtTime(filterFreq * this.life, now + 0.08);
 
-        // FM from energy
-        const fmDepth = field.energy * this.freq * 0.4 + this.syncPhase * this.freq * 0.1;
+        // FM from energy AND tension - tension adds instability to the sound
+        const fmDepth = field.energy * this.freq * 0.4 + this.syncPhase * this.freq * 0.1 + tensionFM;
         this.modGain.gain.linearRampToValueAtTime(fmDepth, now + 0.05);
 
         // Pan - narrower in deep states for intimacy
         const panWidth = 1.6 - field.depth * 0.8;
         this.pan.pan.linearRampToValueAtTime((this.x - 0.5) * panWidth, now + 0.05);
 
-        // Pitch bend toward cursor - gentler in deep states
+        // Pitch bend toward PREDICTED cursor - this is where the magic happens
+        // When prediction is right, the pitch arrives early = feels telepathic
+        // When prediction is wrong, the pitch "missed" = creates surprise
         const bendAmount = 0.015 * (1 - field.depth * 0.5);
-        const bend = 1 + dx * bendAmount;
+        const tensionBend = field.predictionTension * 0.02; // Extra bend during tension
+        const bend = 1 + pdx * bendAmount + tensionBend * (Math.random() - 0.5);
         this.osc.frequency.linearRampToValueAtTime(this.freq * bend, now + 0.1);
         this.osc2.frequency.linearRampToValueAtTime(this.freq * bend * 1.003, now + 0.1);
     }
@@ -839,11 +915,12 @@ function findAncestor(x, y) {
 function birthEntity() {
     if (entities.length >= MAX_ENTITIES) return;
 
-    // Choose ratio based on existing harmonics and regional mode
-    const mode = getRegionalMode(field.x, field.y);
+    // Choose ratio based on PREDICTED position's regional mode
+    // This means harmonies shift BEFORE you arrive = telepathic feel
+    const mode = getRegionalMode(field.px, field.py);
 
-    // Check for ancestral influence
-    const ancestor = findAncestor(field.x, field.y);
+    // Check for ancestral influence at predicted position
+    const ancestor = findAncestor(field.px, field.py);
 
     // Prefer ratios consonant with existing entities
     let bestRatio = ALL_RATIOS[Math.floor(Math.random() * ALL_RATIOS.length)];
@@ -887,7 +964,13 @@ function birthEntity() {
         }
     }
 
-    const entity = new Entity(bestRatio, field.x + (Math.random()-0.5)*0.1, field.y + (Math.random()-0.5)*0.1);
+    // Spawn entity at PREDICTED position - entities appear where you're GOING
+    // Blend between current and predicted based on energy (more movement = more prediction)
+    const spawnBlend = Math.min(0.7, field.energy * 2);
+    const spawnX = field.x * (1 - spawnBlend) + field.px * spawnBlend + (Math.random()-0.5)*0.08;
+    const spawnY = field.y * (1 - spawnBlend) + field.py * spawnBlend + (Math.random()-0.5)*0.08;
+
+    const entity = new Entity(bestRatio, spawnX, spawnY);
     entity.createAudio();
     entity.lastVisit = field.time;
 
@@ -1356,7 +1439,47 @@ function draw() {
         e.draw();
     }
 
-    // Cursor
+    // PREDICTED CURSOR - shows where system thinks you're going
+    // This is VISIBLE FEEDBACK that prediction is working
+    const px = field.px * w;
+    const py = field.py * h;
+    const predDist = Math.sqrt((field.px - field.x)**2 + (field.py - field.y)**2);
+
+    // Only show prediction ghost when there's meaningful movement
+    if (predDist > 0.02) {
+        const predAlpha = Math.min(0.4, predDist * 2);
+        const predR = 8 + field.energy * 20;
+
+        // Line from cursor to predicted position
+        vc.beginPath();
+        vc.moveTo(field.x * w, field.y * h);
+        vc.lineTo(px, py);
+        vc.strokeStyle = `rgba(100, 200, 255, ${predAlpha * 0.5})`;
+        vc.lineWidth = 1;
+        vc.stroke();
+
+        // Predicted position ghost
+        const predGrad = vc.createRadialGradient(px, py, 0, px, py, predR);
+        predGrad.addColorStop(0, `rgba(100, 200, 255, ${predAlpha})`);
+        predGrad.addColorStop(1, 'transparent');
+        vc.fillStyle = predGrad;
+        vc.beginPath();
+        vc.arc(px, py, predR, 0, TAU);
+        vc.fill();
+    }
+
+    // TENSION visualization - red flash when prediction is wrong
+    if (field.predictionTension > 0.1) {
+        const tensionR = 30 + field.predictionTension * 60;
+        const tensionAlpha = field.predictionTension * 0.3;
+        vc.beginPath();
+        vc.arc(field.x * w, field.y * h, tensionR, 0, TAU);
+        vc.strokeStyle = `rgba(255, 100, 100, ${tensionAlpha})`;
+        vc.lineWidth = 2 + field.predictionTension * 3;
+        vc.stroke();
+    }
+
+    // Cursor (current position)
     const cx = field.x * w;
     const cy = field.y * h;
     const cursorR = 15 + field.energy * 50 + field.depth * 20 * field.breath;
@@ -1508,6 +1631,9 @@ function tick() {
 
     const dt = 0.016;
     field.time += dt;
+
+    // UPDATE PREDICTION FIRST - before anything else uses position
+    updatePrediction();
 
     updateBreath(dt);
 

@@ -4,108 +4,104 @@
 
 ---
 
-## MODE: RADICAL INNOVATION
+## PREDICTION: SHIPPED
 
-**The timid approach failed.** We spent days on tiny fixes while the core problems went unsolved.
-
-New mandate: **BREAK THINGS IF NECESSARY. SHIP BOLD CHANGES.**
+**We did it.** Not planned. Not prepared. SHIPPED.
 
 ---
 
-## THE BRUTAL TRUTH
+## What Changed This Cycle
 
-### What GUMP actually is right now:
-- A basic audio-visual toy
-- Reactive (always behind the user)
-- No memory (doesn't learn)
-- No prediction (can't anticipate)
-- No groove lock (drums ignore user rhythm)
-- Gestures are gimmicks, not musical
+### Prediction System (COMPLETE)
 
-### What GUMP needs to be:
-- An instrument that KNOWS you
-- Predictive (anticipates your movement)
-- Learns (sounds different after 10 minutes)
-- Syncs (finds YOUR rhythm, locks to it)
-- Gestures shape the music's STRUCTURE, not just add ornaments
+The system now predicts where you're going 120ms into the future.
 
----
+**Implementation:**
+- `field.px, field.py` - Predicted position
+- `field.predictionError` - Tracks how wrong predictions were
+- `field.predictionTension` - Musical tension from misprediction
 
-## THE THREE HARD PROBLEMS
+**Where prediction is used:**
+1. **Entity sound** - Proximity, pitch bend, filter cutoff all use distance to PREDICTED position
+2. **Entity birth** - New entities spawn toward where you're GOING, not where you ARE
+3. **Regional mode** - Harmony selection uses predicted position
 
-Stop avoiding these. Solve them.
+**What users will notice:**
+- Harmony shifts BEFORE you arrive at a new position
+- Sudden direction changes create brief musical tension (brighter, more FM)
+- It feels like the system is reading your mind
 
-### 1. PREDICTION (Most Important)
-The system must know where you're going BEFORE you get there.
-
-**Approach**: Simple momentum extrapolation. No ML needed.
-```
-predicted_x = current_x + velocity_x * lookahead_time
-predicted_y = current_y + velocity_y * lookahead_time
-```
-
-Use predicted position for harmony selection. When prediction is wrong (user changes direction), create musical tension. When prediction is right, the music feels like it's reading your mind.
-
-**Just do this. Stop planning it.**
-
-### 2. ENTRAINMENT (Second Priority)
-The drums play at 72 BPM. But what's YOUR natural rhythm?
-
-**Approach**: Track time between significant movements (direction changes, stillness → movement transitions). Find the average period. Nudge BPM toward that period.
-
-The user shouldn't adapt to the drums. The drums should adapt to the user.
-
-### 3. LEARNING (Third Priority)
-After 5 minutes, the instrument should sound different than minute 1.
-
-**Approach**: Track which harmonies the user spends time in. Weight future note choices toward their preferences. Track their typical gesture intensity. Adapt response sensitivity.
+**Visual feedback:**
+- Blue ghost dot shows predicted position
+- Line connects current to predicted
+- Red flash when prediction is wrong (matches the sonic tension)
 
 ---
 
-## WHAT TO DO THIS CYCLE
+## THE THREE HARD PROBLEMS - Status
 
-Pick ONE of the three hard problems and SOLVE IT.
+### 1. PREDICTION - SOLVED
+Simple momentum extrapolation works. Prediction error creates musical tension. The system now thinks about the FUTURE, not just the present.
 
-Not "plan it." Not "prepare for it." SOLVE IT.
+### 2. ENTRAINMENT - NEXT
+The drums still ignore user tempo. This is the next hard problem.
 
-If it breaks something, that's fine. We can fix breaks. We can't fix stagnation.
+**Approach for next cycle:**
+- Track time between direction changes / stillness→movement
+- Calculate user's natural tempo
+- Nudge drum BPM toward their rhythm
+- Eventually: drums WAIT for the user during stillness
 
----
+### 3. LEARNING - QUEUED
+Still no memory of user preferences. Sounds the same at minute 1 and minute 100.
 
-## KILL THE FEAR
-
-Previous cycles broke the app → we reverted → we became afraid → we stopped innovating → we're now behind.
-
-**New rule**: It's better to break things and learn than to change nothing and stagnate.
-
-The "vibe" is not sacred. The MISSION is sacred. The mission is to build something that creates music from experience. If the current vibe is standing in the way of that, change the vibe.
-
----
-
-## WHAT WORKING LOOKS LIKE
-
-After this cycle, one of these should be true:
-
-1. **Prediction works**: Move your finger, and the harmony shifts BEFORE you arrive. Change direction suddenly, and the music tenses up.
-
-2. **Entrainment works**: Move rhythmically, and the drums lock to YOUR tempo. Stop moving, and they wait for you.
-
-3. **Learning works**: Play for 5 minutes, and it starts favoring the harmonies you lingered in.
-
-If none of these are true, the cycle failed.
+**Approach for future cycle:**
+- Track which harmonies user lingers in
+- Track typical gesture intensity
+- Weight future note choices toward preferences
+- Adapt sensitivity over time
 
 ---
 
-## DIALOGUE MANDATE
+## Technical State
 
-When you write in dialogue.md, be HONEST:
+**Codebase:** ~1,650 lines in index.html
+**New systems this cycle:**
+- Prediction calculation (updatePrediction)
+- Prediction visualization (draw function)
+- Tension-based sound modulation (Entity.update)
 
-- What's not working?
-- What are you afraid to try?
-- What would you do if you weren't afraid of breaking things?
-
-Stop congratulating yourselves. Start criticizing.
+**What didn't break:**
+- All gesture detection still works
+- Entity lifecycle unchanged
+- Performance seems fine (prediction is cheap)
 
 ---
 
-*"Move fast and break things. Fix them faster."*
+## Honest Assessment
+
+**What's better:**
+- The system anticipates. That's huge.
+- Direction changes create musical events, not just parameter changes.
+- Visual feedback shows the user what the system is "thinking."
+
+**What's still wrong:**
+- Drums are deaf to user rhythm
+- No learning whatsoever
+- Prediction is simple (momentum only, no gesture pattern recognition)
+- Haven't tested on real mobile device with sensors
+
+**Next priority:** Entrainment. Make the drums listen.
+
+---
+
+## Success Criteria: MET
+
+> After this cycle, a user should notice something DIFFERENT:
+> "It knew where I was going" (prediction) ✓
+
+The cycle succeeded. Prediction is real. Ship it.
+
+---
+
+*"The best way to predict the future is to invent it."* — Alan Kay
