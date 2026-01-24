@@ -15,8 +15,8 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 // ============ CONFIGURATION ============
 
 const CONFIG = {
-  // 12 hours = 720 minutes. Two cycles per day.
-  cycleMinutes: parseInt(process.env.CYCLE_INTERVAL_MINUTES) || 720,
+  // 4 hours = 240 minutes. ~6 cycles per day for active testing.
+  cycleMinutes: parseInt(process.env.CYCLE_INTERVAL_MINUTES) || 240,
 
   // Safety limits
   maxConsecutiveFailures: 3,
@@ -224,6 +224,17 @@ In dialogue.md, be BRUTALLY HONEST:
 - What would you do if you weren't afraid?
 
 Stop celebrating. Start criticizing. That's how we get better.
+
+═══════════════════════════════════════════════════════════════════════════════
+THE USER IS ACTIVELY TESTING
+═══════════════════════════════════════════════════════════════════════════════
+
+They're checking lacobusgump.github.io/music2.0/ regularly to test your work.
+
+- Ship WORKING features, not broken experiments
+- Test your logic before committing
+- If you break something, the next cycle must fix it
+- Quality matters - they're judging your work in real time
 
 NOW GO SOLVE SOMETHING HARD.`;
 }
