@@ -1,135 +1,111 @@
 # Current State
 
-*Last updated: January 23, 2026*
+*Last updated: January 24, 2026*
 
 ---
 
-## MODE: CAREFUL BREAKTHROUGHS
+## MODE: RADICAL INNOVATION
 
-Two updates per day. 12 hours between cycles.
-Think deeply. Ship carefully. **DON'T BREAK WHAT WORKS.**
+**The timid approach failed.** We spent days on tiny fixes while the core problems went unsolved.
 
-Previous cycles broke the vibe. We reverted. Don't let it happen again.
-
----
-
-## THE GOLDEN RULE
-
-**PRESERVE THE VIBE.** The current app feels good. Enhance it, don't replace it.
-
-Before shipping ANY change:
-1. Load index.html locally
-2. Move around, listen
-3. Does it still feel musical?
-4. Only then commit and push
+New mandate: **BREAK THINGS IF NECESSARY. SHIP BOLD CHANGES.**
 
 ---
 
-## Where We Are
+## THE BRUTAL TRUTH
 
-### Foundation (WORKING - PROTECT THIS)
-- [x] Web Audio synthesis (oscillators, filters, effects)
-- [x] Device motion/orientation capture
-- [x] Touch input mapping
-- [x] Visual feedback (canvas)
-- [x] Purdie shuffle drum pattern
-- [x] Position-based harmony (X=root, Y=chord quality)
-- [x] Blooming notes from stillness
-- [x] Continuous melody from movement
-- [x] Reverb + delay effects chain
-- [x] Gesture buffer (500ms rolling window)
-- [x] Gesture detection (SHAKE, SWIPE, HOLD, CIRCLE)
-- [x] Gesture musical responses
-- [x] Swipe always responds (position-based fallback)
-- [x] Circle single-entity fallback (rhythmic pulse)
+### What GUMP actually is right now:
+- A basic audio-visual toy
+- Reactive (always behind the user)
+- No memory (doesn't learn)
+- No prediction (can't anticipate)
+- No groove lock (drums ignore user rhythm)
+- Gestures are gimmicks, not musical
 
-**Live at**: lacobusgump.github.io/music2.0/
+### What GUMP needs to be:
+- An instrument that KNOWS you
+- Predictive (anticipates your movement)
+- Learns (sounds different after 10 minutes)
+- Syncs (finds YOUR rhythm, locks to it)
+- Gestures shape the music's STRUCTURE, not just add ornaments
 
 ---
 
-## JUST COMPLETED
+## THE THREE HARD PROBLEMS
 
-### Code Review & Observation Cycle
+Stop avoiding these. Solve them.
 
-Reviewed the full codebase. All gesture systems are working correctly:
+### 1. PREDICTION (Most Important)
+The system must know where you're going BEFORE you get there.
 
-- **SHAKE**: Finds nearby entities, applies tremolo. Works.
-- **SWIPE**: Creates melodic run. Falls back to field position when no entity nearby. Works.
-- **CIRCLE**: Arpeggiates nearby entities. Falls back to rhythmic pulse for single entity. Works.
-- **HOLD**: Deepens reverb, boosts nearby entities. Works.
+**Approach**: Simple momentum extrapolation. No ML needed.
+```
+predicted_x = current_x + velocity_x * lookahead_time
+predicted_y = current_y + velocity_y * lookahead_time
+```
 
-Gesture thresholds look reasonable:
-- `SHAKE_ENERGY: 0.15` - requires intentional shaking
-- `SWIPE_VELOCITY: 0.08`, `SWIPE_LINEARITY: 0.7` - catches clear directional swipes
-- `CIRCLE_ROTATION: 1.5π` (270°) - needs 3/4 of a circle
-- `HOLD_DURATION: 400ms` - patience rewarded
-- `COOLDOWN: 200ms` - prevents gesture spam
+Use predicted position for harmony selection. When prediction is wrong (user changes direction), create musical tension. When prediction is right, the music feels like it's reading your mind.
 
-**Observation**: The system is stable. No code changes needed this cycle.
+**Just do this. Stop planning it.**
 
----
+### 2. ENTRAINMENT (Second Priority)
+The drums play at 72 BPM. But what's YOUR natural rhythm?
 
-## NEXT TASK (ONE THING ONLY)
+**Approach**: Track time between significant movements (direction changes, stillness → movement transitions). Find the average period. Nudge BPM toward that period.
 
-### Harmonic Gravity (Gentle)
+The user shouldn't adapt to the drums. The drums should adapt to the user.
 
-Ready for implementation in next cycle. The concept:
+### 3. LEARNING (Third Priority)
+After 5 minutes, the instrument should sound different than minute 1.
 
-- Notes near the cursor gently bend toward consonant intervals
-- Not snapping (robotic), but *leaning* (organic)
-- The system develops *taste* - prefers consonance, allows dissonance
-- User can fight against the gravity for tension
-
-**Implementation approach** (from dialogue.md):
-- Model harmonic space as potential energy landscape
-- Tonic is bottom of a well
-- Moving away costs energy
-- System applies gentle restoring force (pitch bend toward nearest consonance)
-
-**Key constraint**: This must be SUBTLE. If it's too aggressive, it will break the vibe. Start with almost imperceptible bending and increase only if it feels right
+**Approach**: Track which harmonies the user spends time in. Weight future note choices toward their preferences. Track their typical gesture intensity. Adapt response sensitivity.
 
 ---
 
-## FUTURE TARGETS (NOT YET)
+## WHAT TO DO THIS CYCLE
 
-Save these for later cycles:
-- Prediction (momentum-based)
-- Entrainment (detect user's rhythm)
-- Harmonic gravity (spring physics)
-- Microphone input
+Pick ONE of the three hard problems and SOLVE IT.
 
-One thing at a time. Don't rush.
+Not "plan it." Not "prepare for it." SOLVE IT.
+
+If it breaks something, that's fine. We can fix breaks. We can't fix stagnation.
 
 ---
 
-## What Works (NEVER BREAK THESE)
+## KILL THE FEAR
 
-- The Purdie shuffle groove feel
-- Stillness → blooming notes reward
-- Position → harmony mapping
-- The visual feedback aesthetic
-- The overall musical vibe
-- **Gesture → sound mappings (NEW)**
+Previous cycles broke the app → we reverted → we became afraid → we stopped innovating → we're now behind.
 
----
+**New rule**: It's better to break things and learn than to change nothing and stagnate.
 
-## What Broke Before
-
-Previous cycles tried to add prediction and harmonic gravity too aggressively.
-They rewrote too much. The app stopped feeling musical.
-
-**Lesson**: Add TO the system. Don't redesign it.
+The "vibe" is not sacred. The MISSION is sacred. The mission is to build something that creates music from experience. If the current vibe is standing in the way of that, change the vibe.
 
 ---
 
-## The Three Minds' Focus
+## WHAT WORKING LOOKS LIKE
 
-| Mind | Task | Rule |
-|------|------|------|
-| Engineer | Test and tune | Monitor for issues |
-| Musician | Listen critically | Does it feel musical? |
-| Physicist | Wait | Not this cycle |
+After this cycle, one of these should be true:
+
+1. **Prediction works**: Move your finger, and the harmony shifts BEFORE you arrive. Change direction suddenly, and the music tenses up.
+
+2. **Entrainment works**: Move rhythmically, and the drums lock to YOUR tempo. Stop moving, and they wait for you.
+
+3. **Learning works**: Play for 5 minutes, and it starts favoring the harmonies you lingered in.
+
+If none of these are true, the cycle failed.
 
 ---
 
-*"The vibe is sacred. Protect it."*
+## DIALOGUE MANDATE
+
+When you write in dialogue.md, be HONEST:
+
+- What's not working?
+- What are you afraid to try?
+- What would you do if you weren't afraid of breaking things?
+
+Stop congratulating yourselves. Start criticizing.
+
+---
+
+*"Move fast and break things. Fix them faster."*
