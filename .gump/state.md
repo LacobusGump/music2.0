@@ -134,7 +134,36 @@ Build custom algorithms to find:
 - Visual feedback: golden rings, white flash, edge glow when locked
 - That massive wall-of-sound when everything aligns
 
-### NEXT CYCLE: Persistence
+### 🔴 BUG: Mobile Scaling
+- On phone, only top-left corner is visible
+- Canvas/viewport scaling is wrong
+- PRIORITY FIX before next features
+
+### NEXT CYCLE: Order from Chaos (Cell Division Philosophy)
+
+**User feedback**: "We need to find order within the chaos with repetition. Think about how a cell splits the chaos in that only to then form a rather simple end point, in that the simplicity of the full organ is its complexity finished."
+
+**The Insight**:
+- A cell divides chaotically, but the end result (an organ) is simple in form, complex in function
+- Repetition doesn't just create pattern - it CRYSTALLIZES chaos into structure
+- The journey: chaos → repetition → crystallized simplicity → emergent complexity
+- Like how a heart is "simple" (pump) but emerged from billions of chaotic cell divisions
+
+**Musical Translation**:
+- Start chaotic (many voices, detuned, unpredictable)
+- Repetition causes CONVERGENCE (voices align, harmonies lock)
+- End state is SIMPLE but POWERFUL (one massive chord, one clear rhythm)
+- The simplicity IS the complexity finished
+- Then... the cycle can begin again (new chaos from order)
+
+**Implementation Ideas**:
+- Track repetition count, not just pattern confidence
+- More repetitions = MORE convergence (voices literally merge)
+- Ultimate lock-in state: everything becomes ONE voice, ONE pulse
+- That moment of crystallization should feel earned, profound
+- Then entropy slowly returns, inviting new exploration
+
+### FUTURE: Persistence
 - localStorage for cross-session memory
 - Harmonic preferences learned over time
 - Truly personalized instrument
