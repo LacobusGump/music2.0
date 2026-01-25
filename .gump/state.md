@@ -134,6 +134,35 @@ const CRYSTAL = {
 
 ---
 
+## 🔴 CRITICAL: THE SOUND IS JUST SWOOSHING
+
+**User feedback**: "It's making swooshing noise when you move the phone. We need this to become organized and find its own voice."
+
+**The Problem**:
+- Currently sounds like NOISE, not MUSIC
+- Swooshing = continuous pitch glides without structure
+- No clear notes, no rhythm, no musical identity
+- The foundations are good but it needs to SING
+
+**What "Finding Its Voice" Means**:
+1. **Discrete pitches** - Not continuous swooping, but NOTES that lock to scale
+2. **Rhythmic identity** - Notes should land ON beats, not smear across time
+3. **Melodic contour** - Movement should create PHRASES, not just texture
+4. **Harmonic grounding** - Always know what key we're in, always have a root
+5. **Silence matters** - Not everything needs to make sound. Rests are musical.
+
+**The Journey**:
+- Current: Swooshing noise (texture only)
+- Goal: An instrument that plays MUSIC (melody, harmony, rhythm)
+- The chaos should still be there, but it crystallizes into SONG
+
+**Implementation Ideas**:
+- Quantize pitches to scale degrees (no more continuous glides)
+- Gate notes to rhythmic grid (16th notes, 8th notes)
+- Create melodic "gravity" - phrases that resolve
+- Add clear rhythmic pulse that movement enhances (not creates)
+- Let stillness = held notes or rests, not just fade-out
+
 ## FUTURE IMPROVEMENTS
 
 ### Near-Term
