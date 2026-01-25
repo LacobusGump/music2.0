@@ -1354,6 +1354,262 @@ const SUPERSAW = {
     OCTAVE_RATIO: 2.0,            // Octave
 };
 
+// ============ PITCH QUANTIZATION ============
+// The swoosh becomes song through crystallization
+// Chaos = continuous pitch. Locked = discrete notes.
+
+// The musical scale - ratios that sound GOOD
+const SCALE_RATIOS = [
+    1,          // Unison
+    9/8,        // Major 2nd
+    5/4,        // Major 3rd
+    4/3,        // Perfect 4th
+    3/2,        // Perfect 5th
+    5/3,        // Major 6th
+    15/8,       // Major 7th
+    2,          // Octave
+    9/4,        // 9th
+    5/2,        // 10th
+    3,          // 12th
+    4,          // 15th (double octave)
+];
+
+// Quantize a frequency to the nearest scale degree
+function quantizeToScale(freq, strength) {
+    // strength: 0 = no quantization, 1 = hard snap
+    if (strength < 0.01) return freq;
+
+    const ratio = freq / BASE;
+    let bestRatio = 1;
+    let bestDist = Infinity;
+
+    // Find closest scale ratio (within any octave)
+    for (let octave = 0; octave < 4; octave++) {
+        const octaveMult = Math.pow(2, octave);
+        for (const scaleRatio of SCALE_RATIOS) {
+            const targetRatio = scaleRatio * octaveMult / 4; // Adjusted for bass range
+            const dist = Math.abs(Math.log2(ratio / targetRatio));
+            if (dist < bestDist) {
+                bestDist = dist;
+                bestRatio = targetRatio;
+            }
+        }
+    }
+
+    // Interpolate between original and quantized based on strength
+    const quantizedFreq = BASE * bestRatio;
+    return freq * (1 - strength) + quantizedFreq * strength;
+}
+
+// ============ RHYTHMIC GATING ============
+// Notes should land ON beats, not smear across time
+// The beat grid divides into 16th notes
+
+const RHYTHM = {
+    SUBDIVISIONS: 4,              // 16th notes (4 per beat)
+    GATE_ATTACK: 0.01,            // Note attack time (10ms)
+    GATE_RELEASE: 0.15,           // Note release time (150ms)
+    SWING: 0.1,                   // Shuffle amount (0-0.5)
+    REST_PROBABILITY_CHAOS: 0.7,  // 70% rest in chaos
+    REST_PROBABILITY_LOCKED: 0.2, // 20% rest when locked
+};
+
+// Track which beat subdivision we're on
+let lastSubdivision = -1;
+let currentNoteGate = 0;          // 0-1, used for gating sounds
+let noteTriggered = false;        // Did we trigger a note this subdivision?
+
+// Calculate swing offset for a subdivision
+function getSwingOffset(subdivision) {
+    // Swing affects odd-numbered subdivisions (2nd and 4th 16ths)
+    if (subdivision % 2 === 1) {
+        return RHYTHM.SWING * (60 / field.systemBPM) / RHYTHM.SUBDIVISIONS;
+    }
+    return 0;
+}
+
+// Update the rhythmic gate system
+function updateRhythmGate(dt) {
+    const beatsPerSecond = field.systemBPM / 60;
+    const subdivisionsPerSecond = beatsPerSecond * RHYTHM.SUBDIVISIONS;
+
+    // Calculate current subdivision position
+    const subdivisionPhase = (field.beatPhase * RHYTHM.SUBDIVISIONS) % 1;
+    const currentSubdivision = Math.floor(field.beatPhase * RHYTHM.SUBDIVISIONS) % RHYTHM.SUBDIVISIONS;
+
+    // Detect subdivision change (new note window)
+    if (currentSubdivision !== lastSubdivision) {
+        lastSubdivision = currentSubdivision;
+
+        // Should we trigger a note or rest?
+        const crystal = crystalState.crystallization;
+        const restProb = RHYTHM.REST_PROBABILITY_CHAOS * (1 - crystal) +
+                        RHYTHM.REST_PROBABILITY_LOCKED * crystal;
+
+        noteTriggered = Math.random() > restProb;
+
+        if (noteTriggered) {
+            // Trigger the note gate
+            currentNoteGate = 1;
+        }
+    }
+
+    // Gate envelope - attack/release
+    if (noteTriggered && currentNoteGate < 1) {
+        currentNoteGate = Math.min(1, currentNoteGate + dt / RHYTHM.GATE_ATTACK);
+    } else if (!noteTriggered || subdivisionPhase > 0.5) {
+        // Release after midpoint of subdivision
+        currentNoteGate = Math.max(0, currentNoteGate - dt / RHYTHM.GATE_RELEASE);
+    }
+}
+
+// ============ MELODIC VOICE ============
+// A clear, singing voice that plays NOTES not textures
+// This is the soul of the instrument
+
+let melodyOsc = null;
+let melodyGain = null;
+let melodyFilter = null;
+let melodyEnv = 0;                // Current envelope value
+let melodyTargetFreq = BASE * 2;  // Target frequency for glide
+let melodyCurrentFreq = BASE * 2; // Current (gliding) frequency
+let melodyNoteOn = false;         // Is a note currently playing?
+let lastMelodyNote = 0;           // When did we last play a note?
+let melodyPhrase = [];            // Current phrase in progress
+let melodyPhrasePos = 0;          // Position in phrase
+
+const MELODY = {
+    GLIDE_RATE: 0.15,             // How fast pitch glides (lower = slower)
+    MIN_NOTE_INTERVAL: 0.1,       // Minimum time between notes
+    PHRASE_LENGTH: 4,             // Notes per phrase
+    PHRASE_REST: 0.5,             // Rest between phrases (seconds)
+    BASE_OCTAVE: 2,               // Melody starts at 2nd octave
+    RANGE_OCTAVES: 2,             // Can span 2 octaves
+};
+
+function createMelodyVoice() {
+    melodyOsc = ctx.createOscillator();
+    melodyGain = ctx.createGain();
+    melodyFilter = ctx.createBiquadFilter();
+
+    // Triangle wave for clarity
+    melodyOsc.type = 'triangle';
+    melodyOsc.frequency.value = BASE * MELODY.BASE_OCTAVE;
+
+    // Warm lowpass
+    melodyFilter.type = 'lowpass';
+    melodyFilter.frequency.value = 2000;
+    melodyFilter.Q.value = 1;
+
+    melodyGain.gain.value = 0;
+
+    melodyOsc.connect(melodyFilter);
+    melodyFilter.connect(melodyGain);
+    melodyGain.connect(master);
+    melodyGain.connect(verb.input);
+
+    melodyOsc.start();
+}
+
+// Generate a melodic phrase based on movement
+function generateMelodyPhrase() {
+    const phrase = [];
+    const crystal = crystalState.crystallization;
+
+    // Base note from Y position (lower = bass, higher = treble)
+    const baseOctave = MELODY.BASE_OCTAVE + Math.floor((1 - field.y) * MELODY.RANGE_OCTAVES);
+
+    // X position influences scale degree
+    const baseIndex = Math.floor(field.x * SCALE_RATIOS.length);
+
+    for (let i = 0; i < MELODY.PHRASE_LENGTH; i++) {
+        // Movement creates melodic contour
+        let noteIndex = baseIndex;
+
+        // Add variation based on velocity direction
+        if (field.vx > 0.02) noteIndex += 1;  // Moving right = ascending
+        if (field.vx < -0.02) noteIndex -= 1; // Moving left = descending
+        if (field.vy > 0.02) noteIndex -= 1;  // Moving down = lower
+        if (field.vy < -0.02) noteIndex += 1; // Moving up = higher
+
+        // Add some randomness in chaos, none when locked
+        const randomness = Math.floor((Math.random() - 0.5) * 3 * (1 - crystal));
+        noteIndex += randomness + i; // Ascending tendency
+
+        // Clamp and wrap
+        noteIndex = Math.max(0, Math.min(SCALE_RATIOS.length - 1, noteIndex));
+
+        const ratio = SCALE_RATIOS[noteIndex] * Math.pow(2, baseOctave - 1);
+        phrase.push(BASE * ratio);
+    }
+
+    return phrase;
+}
+
+// Update the melodic voice - called every frame
+function updateMelodyVoice(dt) {
+    if (!melodyOsc || !ctx) return;
+
+    const now = ctx.currentTime;
+    const crystal = crystalState.crystallization;
+
+    // Melody becomes more prominent as crystallization increases
+    // In chaos: silent or very quiet. Locked: clear singing voice
+    const melodyVolume = crystal * 0.12;
+
+    // Only play melody when there's enough crystallization
+    if (crystal < 0.3) {
+        melodyEnv *= 0.95; // Fade out
+        melodyGain.gain.linearRampToValueAtTime(melodyEnv * melodyVolume, now + 0.05);
+        return;
+    }
+
+    // Should we start a new phrase?
+    if (melodyPhrase.length === 0 || melodyPhrasePos >= melodyPhrase.length) {
+        if (field.time - lastMelodyNote > MELODY.PHRASE_REST) {
+            melodyPhrase = generateMelodyPhrase();
+            melodyPhrasePos = 0;
+        }
+    }
+
+    // Trigger notes on the beat grid
+    if (noteTriggered && melodyPhrase.length > 0 && melodyPhrasePos < melodyPhrase.length) {
+        if (field.time - lastMelodyNote > MELODY.MIN_NOTE_INTERVAL) {
+            // Get next note from phrase
+            melodyTargetFreq = melodyPhrase[melodyPhrasePos];
+
+            // Quantize based on crystallization
+            melodyTargetFreq = quantizeToScale(melodyTargetFreq, crystal);
+
+            melodyPhrasePos++;
+            lastMelodyNote = field.time;
+            melodyNoteOn = true;
+
+            // Note-on envelope
+            melodyEnv = 1;
+        }
+    }
+
+    // Glide toward target frequency
+    const glideSpeed = MELODY.GLIDE_RATE * (1 + crystal * 2); // Faster glide when crystallized
+    melodyCurrentFreq += (melodyTargetFreq - melodyCurrentFreq) * glideSpeed;
+    melodyOsc.frequency.linearRampToValueAtTime(melodyCurrentFreq, now + 0.05);
+
+    // Envelope follows the gate
+    if (currentNoteGate > 0.1) {
+        melodyEnv = Math.min(1, melodyEnv + dt * 10);
+    } else {
+        melodyEnv *= 0.92;
+    }
+
+    // Filter opens with envelope
+    const filterFreq = 800 + melodyEnv * 2000 * crystal;
+    melodyFilter.frequency.linearRampToValueAtTime(filterFreq, now + 0.05);
+
+    // Apply volume
+    melodyGain.gain.linearRampToValueAtTime(melodyEnv * melodyVolume, now + 0.05);
+}
+
 // ============ ENTITY - A LIVING HARMONIC ============
 
 let entityId = 0;
@@ -1707,13 +1963,23 @@ class Entity {
         this.fifthGain.gain.linearRampToValueAtTime(fifthAmp * proximity, now + 0.1);
         this.octaveGain.gain.linearRampToValueAtTime(octaveAmp * proximity, now + 0.1);
 
-        // Amplitude: proximity + sync pulse + life + breath + crystallization
+        // ============ RHYTHMIC GATING ============
+        // Chaos = continuous sound. Crystallized = notes on the beat grid.
+        // The gate controls whether this entity sounds or rests.
+
+        // Gate influence: in chaos, always on. When crystallizing, follows the beat grid.
+        const gateInfluence = crystal; // 0 = no gating, 1 = full gating
+        const effectiveGate = 1 - gateInfluence + gateInfluence * currentNoteGate;
+
+        // Amplitude: proximity + sync pulse + life + breath + crystallization + GATE
         const syncPulse = this.neighbors.length > 0 ? this.syncPhase * 0.3 : 0;
         const breathBonus = field.depth * field.breath * 0.02;
         const lockBonus = this.lockedIn ? 0.04 : 0;  // Louder when locked
         const baseAmp = (proximity * 0.035 + syncPulse * 0.02 + breathBonus + lockBonus) * this.mass * this.life * crystalAmpMod;
 
-        this.gain.gain.linearRampToValueAtTime(baseAmp * (0.6 + this.brightness * 0.5), now + 0.06);
+        // Apply gate - entities fade in/out with the rhythm when crystallized
+        const gatedAmp = baseAmp * (0.6 + this.brightness * 0.5) * effectiveGate;
+        this.gain.gain.linearRampToValueAtTime(gatedAmp, now + 0.06);
 
         // Filter - opens more in deep states, modulated by breath, tension, AND outliers
         // Also opens when locked in for brighter sound
@@ -1730,12 +1996,20 @@ class Entity {
         const panWidth = 1.6 - field.depth * 0.8 - (this.lockedIn ? 0.3 : 0);
         this.pan.pan.linearRampToValueAtTime((this.x - 0.5) * panWidth, now + 0.05);
 
-        // ============ SUPERSAW PITCH: Apply bend + detune to all oscillators ============
+        // ============ SUPERSAW PITCH: Apply bend + detune + QUANTIZATION ============
         // Pitch bend toward PREDICTED cursor - this is where the magic happens
-        const bendAmount = 0.015 * (1 - field.depth * 0.5);
-        const tensionBend = field.predictionTension * 0.02;
+        // BUT: As crystallization increases, pitch SNAPS to scale degrees
+
+        // In chaos: continuous bend. In locked: quantized notes.
+        const bendAmount = 0.015 * (1 - field.depth * 0.5) * (1 - crystal * 0.8); // Less bend when crystallized
+        const tensionBend = field.predictionTension * 0.02 * (1 - crystal); // No tension bend when locked
         const bend = 1 + pdx * bendAmount + tensionBend * (Math.random() - 0.5);
-        const bentFreq = this.freq * bend;
+        let bentFreq = this.freq * bend;
+
+        // ============ PITCH QUANTIZATION ============
+        // The swoosh becomes song: continuous pitch crystallizes into discrete notes
+        // Quantization strength increases with crystallization
+        bentFreq = quantizeToScale(bentFreq, crystal);
 
         // Update all supersaw oscillators with detune
         for (let i = 0; i < this.sawOscs.length; i++) {
@@ -1746,7 +2020,7 @@ class Entity {
             this.sawOscs[i].frequency.linearRampToValueAtTime(bentFreq * detuneMultiplier, now + 0.1);
         }
 
-        // Update stacked 5ths with same bend
+        // Update stacked 5ths with same bend (also quantized)
         this.fifthOsc.frequency.linearRampToValueAtTime(bentFreq * SUPERSAW.FIFTH_RATIO, now + 0.1);
         this.octaveOsc.frequency.linearRampToValueAtTime(bentFreq * SUPERSAW.OCTAVE_RATIO, now + 0.1);
     }
@@ -2279,6 +2553,7 @@ function init() {
     createSub();
     createBeatAudio();
     createCounterAudio();
+    createMelodyVoice();  // The singing voice that emerges from crystallization
 
     // Birth initial entities - the primordial soup
     const initialRatios = [1, 5/4, 3/2, 2, 5/2, 3];
@@ -2843,6 +3118,12 @@ function tick() {
 
     // UPDATE CRYSTALLIZATION - order from chaos through repetition
     updateCrystallization(dt);
+
+    // UPDATE RHYTHM GATE - notes land on beats, not smear
+    updateRhythmGate(dt);
+
+    // UPDATE MELODIC VOICE - the singing voice that emerges from crystallization
+    updateMelodyVoice(dt);
 
     updateBreath(dt);
 

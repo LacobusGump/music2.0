@@ -134,34 +134,65 @@ const CRYSTAL = {
 
 ---
 
-## 🔴 CRITICAL: THE SOUND IS JUST SWOOSHING
+## ✅ SOLVED: THE SOUND NOW SINGS
 
 **User feedback**: "It's making swooshing noise when you move the phone. We need this to become organized and find its own voice."
 
-**The Problem**:
-- Currently sounds like NOISE, not MUSIC
-- Swooshing = continuous pitch glides without structure
-- No clear notes, no rhythm, no musical identity
-- The foundations are good but it needs to SING
+**FIXED!** The fifth pillar has been built: **MUSICAL VOICE**
 
-**What "Finding Its Voice" Means**:
-1. **Discrete pitches** - Not continuous swooping, but NOTES that lock to scale
-2. **Rhythmic identity** - Notes should land ON beats, not smear across time
-3. **Melodic contour** - Movement should create PHRASES, not just texture
-4. **Harmonic grounding** - Always know what key we're in, always have a root
-5. **Silence matters** - Not everything needs to make sound. Rests are musical.
+### What Was Added
 
-**The Journey**:
-- Current: Swooshing noise (texture only)
-- Goal: An instrument that plays MUSIC (melody, harmony, rhythm)
-- The chaos should still be there, but it crystallizes into SONG
+1. **Pitch Quantization** ✓
+   - `SCALE_RATIOS` array defines the "legal" notes (major scale + extensions)
+   - `quantizeToScale(freq, strength)` snaps frequencies toward scale degrees
+   - Quantization strength tied to crystallization: chaos = continuous, locked = snapped
 
-**Implementation Ideas**:
-- Quantize pitches to scale degrees (no more continuous glides)
-- Gate notes to rhythmic grid (16th notes, 8th notes)
-- Create melodic "gravity" - phrases that resolve
-- Add clear rhythmic pulse that movement enhances (not creates)
-- Let stillness = held notes or rests, not just fade-out
+2. **Rhythmic Gating** ✓
+   - `RHYTHM` config: subdivisions, attack/release times, rest probability
+   - `updateRhythmGate()` tracks beat subdivisions and triggers gates
+   - `currentNoteGate` opens/closes with the rhythm
+   - Entity amplitude now multiplied by gate: notes have ATTACK and RELEASE
+
+3. **Melodic Voice** ✓
+   - Dedicated triangle wave oscillator for clear, singing melody
+   - `generateMelodyPhrase()` creates phrases based on movement
+   - Only emerges when crystallization > 30%
+   - Plays discrete notes on the beat grid
+
+### The Journey Is Now Complete
+
+| State | Sound |
+|-------|-------|
+| **CHAOS** | Continuous swooshing, no clear pitches, always-on drone |
+| **FORMING** | Pitches start leaning toward scale, faint pulse emerging |
+| **CRYSTALLIZING** | Clear notes, rhythmic gating audible, melody starts |
+| **LOCKED** | Perfect scale pitches, notes on beat, melody singing |
+
+### Technical Implementation
+
+```javascript
+// Pitch quantization based on crystallization
+bentFreq = quantizeToScale(bentFreq, crystal);
+
+// Rhythmic gating
+const effectiveGate = 1 - gateInfluence + gateInfluence * currentNoteGate;
+const gatedAmp = baseAmp * effectiveGate;
+
+// Melodic voice emerges from crystallization
+if (crystal > 0.3) {
+    updateMelodyVoice(dt);
+}
+```
+
+### What The User Now Experiences
+
+1. **Enter chaos**: Move randomly → continuous swoosh (intentional chaos)
+2. **Start pattern**: Notes begin snapping to pitches, pulse emerges
+3. **Build crystal**: Clear notes, rhythmic gating, melody appears
+4. **Locked state**: MUSIC - discrete notes, singing melody, THE DROP
+5. **Break pattern**: Entropy returns, melody fades, back to chaos
+
+The swoosh becomes the song.
 
 ## FUTURE IMPROVEMENTS
 
