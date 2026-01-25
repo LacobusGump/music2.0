@@ -396,6 +396,47 @@ const PATTERN = {
     UPDATE_INTERVAL: 3,         // Update stats every N frames (performance)
 };
 
+// ============ ORDER FROM CHAOS: CRYSTALLIZATION SYSTEM ============
+// "A cell divides chaotically, but the result is order."
+// Repetition crystallizes chaos into structure.
+
+const CRYSTAL = {
+    // Phase thresholds (based on repetition count)
+    CHAOS_END: 5,               // Cycles before leaving pure chaos
+    FORMING_END: 15,            // Cycles before crystallizing begins
+    CRYSTAL_END: 30,            // Cycles before full lock
+    MAX_REPS: 50,               // Maximum tracked repetitions
+
+    // Behavior at each phase
+    CHAOS_DETUNE: 30,           // Wide detune in chaos (cents)
+    LOCKED_DETUNE: 1,           // Tight detune when locked (cents)
+
+    // Entity merging
+    MERGE_THRESHOLD: 0.7,       // Crystallization level to start merging
+    MIN_ENTITIES_LOCKED: 2,     // Never merge below this
+
+    // Entropy
+    ENTROPY_RATE: 0.003,        // How fast crystallization decays with movement
+    STILLNESS_PRESERVE: 0.5,    // Stillness slows entropy by this factor
+
+    // The Drop
+    DROP_THRESHOLD: 0.9,        // Crystallization level for "the drop"
+    DROP_SILENCE_MS: 80,        // Silence before the drop (ms)
+};
+
+// Crystallization state
+let crystalState = {
+    repetitionCount: 0,         // How many pattern cycles completed
+    crystallization: 0,         // 0-1, how crystallized the system is
+    phase: 'chaos',             // 'chaos', 'forming', 'crystallizing', 'locked'
+    entropy: 0,                 // Accumulated disorder from movement
+    lastCycleTime: 0,           // When the last pattern cycle completed
+    cycleDirection: 0,          // Direction at start of cycle
+    dropTriggered: false,       // Whether we've hit "the drop"
+    dropTime: 0,                // When the drop was triggered
+    dominantRatio: 1,           // The ratio that's winning the crystallization
+};
+
 // Rolling statistics for pattern detection
 let patternStats = {
     // Tempo (time between direction changes, in ms)
@@ -665,6 +706,9 @@ function updatePattern(vx, vy) {
                     addTempoSample(tempoInterval);
                 }
                 lastDirectionChangeTime = now;
+
+                // CRYSTALLIZATION: Track pattern cycles
+                detectPatternCycle(direction);
             }
         }
     }
@@ -695,7 +739,145 @@ function getPatternState() {
         polyrhythm: quantizeToPolyrhythm(patternStats.outlierRatio),
         tempoMean: patternStats.tempoMean,
         amplitudeMean: patternStats.amplitudeMean,
+        // Crystallization data
+        crystallization: crystalState.crystallization,
+        phase: crystalState.phase,
+        repetitionCount: crystalState.repetitionCount,
+        dropTriggered: crystalState.dropTriggered,
     };
+}
+
+// ============ CRYSTALLIZATION UPDATE ============
+// Track repetition cycles and update crystallization state
+
+function detectPatternCycle(direction) {
+    const now = performance.now();
+
+    // A cycle completes when we return to the starting direction
+    // after having moved away from it
+    if (crystalState.cycleDirection === -1) {
+        // First direction - set as cycle start
+        crystalState.cycleDirection = direction;
+        crystalState.lastCycleTime = now;
+        return;
+    }
+
+    // Check if we've returned to starting direction (opposite direction)
+    const opposite = (crystalState.cycleDirection + 4) % 8;
+    const isReturning = Math.abs(direction - opposite) <= 1 ||
+                        Math.abs(direction - opposite) >= 7;
+
+    if (isReturning && now - crystalState.lastCycleTime > 200) {
+        // Cycle complete!
+        crystalState.repetitionCount = Math.min(
+            CRYSTAL.MAX_REPS,
+            crystalState.repetitionCount + 1
+        );
+        crystalState.lastCycleTime = now;
+        crystalState.cycleDirection = direction;
+
+        // Find dominant ratio among entities
+        updateDominantRatio();
+    }
+}
+
+function updateDominantRatio() {
+    // Find which ratio has the most entities with high life
+    const ratioCounts = {};
+    for (const e of entities) {
+        if (e.life > 0.5) {
+            const key = e.ratio.toFixed(3);
+            ratioCounts[key] = (ratioCounts[key] || 0) + e.life;
+        }
+    }
+
+    let maxCount = 0;
+    let dominant = 1;
+    for (const [ratio, count] of Object.entries(ratioCounts)) {
+        if (count > maxCount) {
+            maxCount = count;
+            dominant = parseFloat(ratio);
+        }
+    }
+
+    crystalState.dominantRatio = dominant;
+}
+
+function updateCrystallization(dt) {
+    const speed = Math.sqrt(field.vx * field.vx + field.vy * field.vy);
+
+    // Entropy builds with movement, slowed by stillness
+    if (speed > 0.01) {
+        const stillnessFactor = 1 - field.stillness * CRYSTAL.STILLNESS_PRESERVE;
+        crystalState.entropy += speed * CRYSTAL.ENTROPY_RATE * stillnessFactor;
+    } else {
+        // Stillness slowly reduces entropy
+        crystalState.entropy *= 0.995;
+    }
+
+    // Calculate crystallization from repetition count minus entropy
+    const rawCrystal = crystalState.repetitionCount / CRYSTAL.CRYSTAL_END;
+    crystalState.crystallization = Math.max(0, Math.min(1,
+        rawCrystal - crystalState.entropy
+    ));
+
+    // Determine phase
+    const reps = crystalState.repetitionCount;
+    if (reps < CRYSTAL.CHAOS_END || crystalState.crystallization < 0.15) {
+        crystalState.phase = 'chaos';
+        crystalState.dropTriggered = false;
+    } else if (reps < CRYSTAL.FORMING_END || crystalState.crystallization < 0.4) {
+        crystalState.phase = 'forming';
+        crystalState.dropTriggered = false;
+    } else if (reps < CRYSTAL.CRYSTAL_END || crystalState.crystallization < 0.85) {
+        crystalState.phase = 'crystallizing';
+    } else {
+        crystalState.phase = 'locked';
+
+        // THE DROP - triggered once when hitting locked state
+        if (!crystalState.dropTriggered && crystalState.crystallization >= CRYSTAL.DROP_THRESHOLD) {
+            triggerTheDrop();
+        }
+    }
+
+    // Entropy can reset the repetition count if it overwhelms
+    if (crystalState.entropy > 0.8) {
+        crystalState.repetitionCount = Math.max(0,
+            crystalState.repetitionCount - 1
+        );
+        crystalState.entropy *= 0.9; // Consume entropy
+    }
+}
+
+function triggerTheDrop() {
+    if (!ctx) return;
+
+    crystalState.dropTriggered = true;
+    crystalState.dropTime = performance.now();
+
+    const now = ctx.currentTime;
+
+    // Brief silence before the drop
+    // Reduce all gains momentarily
+    master.gain.setValueAtTime(master.gain.value, now);
+    master.gain.linearRampToValueAtTime(0.1, now + CRYSTAL.DROP_SILENCE_MS / 1000);
+
+    // THE DROP - everything comes back HARD
+    master.gain.linearRampToValueAtTime(0.9, now + CRYSTAL.DROP_SILENCE_MS / 1000 + 0.02);
+    master.gain.linearRampToValueAtTime(0.7, now + 0.5);
+
+    // Trigger a strong beat at the drop
+    setTimeout(() => {
+        if (beatGain && ctx) {
+            const dropNow = ctx.currentTime;
+            beatOsc.frequency.setValueAtTime(BASE, dropNow);
+            beatOsc.frequency.exponentialRampToValueAtTime(BASE / 2, dropNow + 0.15);
+            beatGain.gain.cancelScheduledValues(dropNow);
+            beatGain.gain.setValueAtTime(0, dropNow);
+            beatGain.gain.linearRampToValueAtTime(0.35, dropNow + 0.01);
+            beatGain.gain.exponentialRampToValueAtTime(0.001, dropNow + 0.4);
+        }
+    }, CRYSTAL.DROP_SILENCE_MS);
 }
 
 // ============ GESTURE RECOGNITION ============
@@ -1448,57 +1630,88 @@ class Entity {
         const outlierFM = outlierInfluence * this.freq * 0.5 * pattern.confidence;
         const outlierFilter = outlierInfluence * 600 * pattern.confidence;
 
-        // ============ SUPERSAW DETUNE LOCK-IN ============
-        // When pattern is strong, oscillators lock together = massive sound
-        // When pattern is weak, oscillators drift apart = chaotic/ambient
+        // ============ CRYSTALLIZATION-DRIVEN SOUND ============
+        // Order from chaos: repetition crystallizes sound into focused power
 
         const patternLockStrength = pattern.isValid ? pattern.confidence : 0;
+        const crystal = crystalState.crystallization;
+        const phase = crystalState.phase;
 
-        // Target detune: tight when pattern is locked, wide when chaotic
+        // Is this entity the dominant ratio (or consonant with it)?
+        const isDominant = consonance(this.ratio, crystalState.dominantRatio) > 0.85;
+
+        // Target detune based on CRYSTALLIZATION (not just pattern)
+        // Chaos = wide, Locked = tight
         let targetDetune;
-        if (patternLockStrength > SUPERSAW.LOCK_THRESHOLD) {
-            // Locking in! Tighten the detune
-            const lockAmount = (patternLockStrength - SUPERSAW.LOCK_THRESHOLD) / (1 - SUPERSAW.LOCK_THRESHOLD);
-            targetDetune = SUPERSAW.MAX_DETUNE - lockAmount * (SUPERSAW.MAX_DETUNE - SUPERSAW.MIN_DETUNE);
+        if (phase === 'locked' && isDominant) {
+            // Fully crystallized - extremely tight
+            targetDetune = CRYSTAL.LOCKED_DETUNE;
             this.lockedIn = true;
+        } else if (phase === 'crystallizing') {
+            // Transitioning - interpolate based on crystallization
+            targetDetune = CRYSTAL.CHAOS_DETUNE - crystal * (CRYSTAL.CHAOS_DETUNE - CRYSTAL.LOCKED_DETUNE * 2);
+            this.lockedIn = crystal > 0.6 && isDominant;
+        } else if (phase === 'forming') {
+            // Starting to form - slight tightening
+            targetDetune = CRYSTAL.CHAOS_DETUNE * (1 - crystal * 0.3);
+            this.lockedIn = false;
         } else {
-            // Not locked - stay wide/chaotic
-            targetDetune = SUPERSAW.MAX_DETUNE;
+            // Pure chaos
+            targetDetune = CRYSTAL.CHAOS_DETUNE;
             this.lockedIn = false;
         }
 
+        // Non-dominant entities stay chaotic even when crystallizing
+        if (!isDominant && phase !== 'chaos') {
+            targetDetune = Math.max(targetDetune, CRYSTAL.CHAOS_DETUNE * 0.7);
+        }
+
         // Smooth transition toward target detune
-        const detuneRate = this.lockedIn ? SUPERSAW.LOCK_RATE : SUPERSAW.UNLOCK_RATE;
+        const detuneRate = this.lockedIn ? 0.08 : 0.03;
         this.currentDetune += (targetDetune - this.currentDetune) * detuneRate;
 
+        // ============ CRYSTALLIZATION AMPLITUDE ============
+        // Dominant entities get LOUDER as crystallization increases
+        // Non-dominant entities FADE
+
+        let crystalAmpMod = 1;
+        if (phase === 'crystallizing' || phase === 'locked') {
+            if (isDominant) {
+                // Dominant entities amplify
+                crystalAmpMod = 1 + crystal * 0.8;
+            } else {
+                // Non-dominant entities fade
+                crystalAmpMod = 1 - crystal * 0.6;
+            }
+        }
+
         // ============ STACKED 5THS - THE MASSIVE CHORD ============
-        // When pattern is VERY strong, add 5th and octave for that viral wall-of-sound
+        // Emerges during crystallization, not just pattern confidence
 
         let fifthAmp = 0;
         let octaveAmp = 0;
 
-        if (patternLockStrength > SUPERSAW.FIFTH_THRESHOLD) {
-            // Fade in the 5th
-            const fifthAmount = (patternLockStrength - SUPERSAW.FIFTH_THRESHOLD) / (1 - SUPERSAW.FIFTH_THRESHOLD);
-            fifthAmp = fifthAmount * 0.3 * this.mass * this.life;
+        // 5ths appear during crystallizing phase
+        if (crystal > 0.5 && isDominant) {
+            const fifthAmount = (crystal - 0.5) / 0.5;
+            fifthAmp = fifthAmount * 0.35 * this.mass * this.life;
         }
 
-        if (patternLockStrength > SUPERSAW.OCTAVE_THRESHOLD) {
-            // Fade in the octave
-            const octaveAmount = (patternLockStrength - SUPERSAW.OCTAVE_THRESHOLD) / (1 - SUPERSAW.OCTAVE_THRESHOLD);
-            octaveAmp = octaveAmount * 0.2 * this.mass * this.life;
+        // Octave appears when locked
+        if (phase === 'locked' && isDominant) {
+            const octaveAmount = (crystal - 0.85) / 0.15;
+            octaveAmp = Math.max(0, octaveAmount) * 0.25 * this.mass * this.life;
         }
 
         // Apply stacked 5ths gains
         this.fifthGain.gain.linearRampToValueAtTime(fifthAmp * proximity, now + 0.1);
         this.octaveGain.gain.linearRampToValueAtTime(octaveAmp * proximity, now + 0.1);
 
-        // Amplitude: proximity + sync pulse + life + breath in deep states
-        // Reduced base amp because we now have 7 oscillators + 5th + octave
+        // Amplitude: proximity + sync pulse + life + breath + crystallization
         const syncPulse = this.neighbors.length > 0 ? this.syncPhase * 0.3 : 0;
         const breathBonus = field.depth * field.breath * 0.02;
-        const lockBonus = this.lockedIn ? 0.02 : 0;  // Slightly louder when locked
-        const baseAmp = (proximity * 0.035 + syncPulse * 0.02 + breathBonus + lockBonus) * this.mass * this.life;
+        const lockBonus = this.lockedIn ? 0.04 : 0;  // Louder when locked
+        const baseAmp = (proximity * 0.035 + syncPulse * 0.02 + breathBonus + lockBonus) * this.mass * this.life * crystalAmpMod;
 
         this.gain.gain.linearRampToValueAtTime(baseAmp * (0.6 + this.brightness * 0.5), now + 0.06);
 
@@ -2184,9 +2397,20 @@ function onOrientation(e) {
 // ============ VISUALIZATION ============
 
 function resize() {
-    canvas.width = window.innerWidth * devicePixelRatio;
-    canvas.height = window.innerHeight * devicePixelRatio;
-    vc.scale(devicePixelRatio, devicePixelRatio);
+    const dpr = window.devicePixelRatio || 1;
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+
+    // Set the canvas internal resolution (high DPI)
+    canvas.width = w * dpr;
+    canvas.height = h * dpr;
+
+    // Set the display size (CSS pixels) - THIS WAS MISSING!
+    canvas.style.width = w + 'px';
+    canvas.style.height = h + 'px';
+
+    // Scale the context to account for DPI
+    vc.setTransform(dpr, 0, 0, dpr, 0, 0);
 }
 
 function draw() {
@@ -2343,68 +2567,98 @@ function draw() {
     // PATTERN LEARNING VISUALIZATION
     const pattern = getPatternState();
 
-    // Pattern confidence indicator (top-left corner)
-    if (pattern.confidence > 0.1) {
-        const barWidth = 60;
-        const barHeight = 4;
-        const barX = 20;
-        const barY = 20;
+    // ============ CRYSTALLIZATION VISUALIZATION ============
+    // Show the phase and crystallization progress
 
+    const barWidth = 60;
+    const barHeight = 4;
+    const barX = 20;
+    const barY = 20;
+
+    // Crystallization bar (replaces pattern confidence bar)
+    if (pattern.crystallization > 0.05 || pattern.repetitionCount > 0) {
         // Background
         vc.fillStyle = 'rgba(255, 255, 255, 0.1)';
         vc.fillRect(barX, barY, barWidth, barHeight);
 
-        // Confidence fill
-        const confColor = pattern.isValid ? 'rgba(100, 255, 150, 0.6)' : 'rgba(255, 200, 100, 0.5)';
-        vc.fillStyle = confColor;
-        vc.fillRect(barX, barY, barWidth * pattern.confidence, barHeight);
+        // Phase-based color
+        let phaseColor;
+        switch (pattern.phase) {
+            case 'chaos':
+                phaseColor = 'rgba(255, 100, 100, 0.5)';
+                break;
+            case 'forming':
+                phaseColor = 'rgba(255, 200, 100, 0.6)';
+                break;
+            case 'crystallizing':
+                phaseColor = 'rgba(100, 200, 255, 0.7)';
+                break;
+            case 'locked':
+                phaseColor = 'rgba(255, 255, 255, 0.9)';
+                break;
+            default:
+                phaseColor = 'rgba(150, 150, 150, 0.4)';
+        }
 
-        // Label
-        vc.fillStyle = 'rgba(255, 255, 255, 0.3)';
+        vc.fillStyle = phaseColor;
+        vc.fillRect(barX, barY, barWidth * pattern.crystallization, barHeight);
+
+        // Phase label
+        vc.fillStyle = `rgba(255, 255, 255, ${0.3 + pattern.crystallization * 0.4})`;
         vc.font = '9px system-ui';
         vc.textAlign = 'left';
-        vc.fillText('PATTERN', barX, barY + 14);
+        vc.fillText(pattern.phase.toUpperCase(), barX, barY + 14);
+
+        // Repetition count (small)
+        if (pattern.repetitionCount > 0) {
+            vc.fillStyle = 'rgba(255, 255, 255, 0.2)';
+            vc.font = '8px system-ui';
+            vc.fillText(`×${pattern.repetitionCount}`, barX + barWidth + 5, barY + 4);
+        }
     }
 
-    // ============ SUPERSAW LOCK-IN: WALL OF SOUND INDICATOR ============
-    // When pattern is strong, show the "clearing" moment - everything locks together
-    if (pattern.confidence > SUPERSAW.LOCK_THRESHOLD) {
-        const lockAmount = (pattern.confidence - SUPERSAW.LOCK_THRESHOLD) / (1 - SUPERSAW.LOCK_THRESHOLD);
-
-        // Count how many entities are locked
-        let lockedCount = 0;
-        for (const e of entities) {
-            if (e.lockedIn && e.life > 0.5) lockedCount++;
+    // THE DROP flash - full screen white flash at the moment of crystallization
+    if (pattern.dropTriggered && crystalState.dropTime > 0) {
+        const timeSinceDrop = performance.now() - crystalState.dropTime;
+        if (timeSinceDrop < 300) {
+            const dropAlpha = Math.max(0, 0.6 - timeSinceDrop / 500);
+            vc.fillStyle = `rgba(255, 255, 255, ${dropAlpha})`;
+            vc.fillRect(0, 0, w, h);
         }
+    }
 
-        if (lockedCount >= 2) {
-            // Full screen golden edge glow - the wall of sound is building
-            const edgeAlpha = lockAmount * 0.15 * Math.min(1, lockedCount / 4);
+    // Locked state: screen edges crystallize (white/ice effect)
+    if (pattern.phase === 'locked') {
+        const edgeSize = 40 + pattern.crystallization * 30;
+        const edgeAlpha = (pattern.crystallization - 0.85) / 0.15 * 0.2;
 
-            // Top edge
-            const topGrad = vc.createLinearGradient(0, 0, 0, 60);
-            topGrad.addColorStop(0, `rgba(255, 220, 150, ${edgeAlpha})`);
-            topGrad.addColorStop(1, 'transparent');
-            vc.fillStyle = topGrad;
-            vc.fillRect(0, 0, w, 60);
+        // Top edge
+        const topGrad = vc.createLinearGradient(0, 0, 0, edgeSize);
+        topGrad.addColorStop(0, `rgba(200, 220, 255, ${edgeAlpha})`);
+        topGrad.addColorStop(1, 'transparent');
+        vc.fillStyle = topGrad;
+        vc.fillRect(0, 0, w, edgeSize);
 
-            // Bottom edge
-            const bottomGrad = vc.createLinearGradient(0, h, 0, h - 60);
-            bottomGrad.addColorStop(0, `rgba(255, 220, 150, ${edgeAlpha})`);
-            bottomGrad.addColorStop(1, 'transparent');
-            vc.fillStyle = bottomGrad;
-            vc.fillRect(0, h - 60, w, 60);
+        // Bottom edge
+        const bottomGrad = vc.createLinearGradient(0, h, 0, h - edgeSize);
+        bottomGrad.addColorStop(0, `rgba(200, 220, 255, ${edgeAlpha})`);
+        bottomGrad.addColorStop(1, 'transparent');
+        vc.fillStyle = bottomGrad;
+        vc.fillRect(0, h - edgeSize, w, edgeSize);
 
-            // "LOCKED" indicator when very strong
-            if (pattern.confidence > SUPERSAW.FIFTH_THRESHOLD) {
-                const lockText = pattern.confidence > SUPERSAW.OCTAVE_THRESHOLD ? 'LOCKED' : 'LOCKING';
-                const textAlpha = lockAmount * 0.4;
-                vc.fillStyle = `rgba(255, 220, 150, ${textAlpha})`;
-                vc.font = '10px system-ui';
-                vc.textAlign = 'right';
-                vc.fillText(lockText, w - 20, 24);
-            }
-        }
+        // Left edge
+        const leftGrad = vc.createLinearGradient(0, 0, edgeSize, 0);
+        leftGrad.addColorStop(0, `rgba(200, 220, 255, ${edgeAlpha * 0.7})`);
+        leftGrad.addColorStop(1, 'transparent');
+        vc.fillStyle = leftGrad;
+        vc.fillRect(0, 0, edgeSize, h);
+
+        // Right edge
+        const rightGrad = vc.createLinearGradient(w, 0, w - edgeSize, 0);
+        rightGrad.addColorStop(0, `rgba(200, 220, 255, ${edgeAlpha * 0.7})`);
+        rightGrad.addColorStop(1, 'transparent');
+        vc.fillStyle = rightGrad;
+        vc.fillRect(w - edgeSize, 0, edgeSize, h);
     }
 
     // OUTLIER VISUALIZATION - dramatic feedback when you break pattern
@@ -2586,6 +2840,9 @@ function tick() {
 
     // UPDATE COUNTER-RHYTHM - outliers create polyrhythms
     updateCounterRhythm(dt);
+
+    // UPDATE CRYSTALLIZATION - order from chaos through repetition
+    updateCrystallization(dt);
 
     updateBreath(dt);
 

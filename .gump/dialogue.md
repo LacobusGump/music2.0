@@ -876,3 +876,203 @@ The instrument now has a sonic RANGE. From chaotic ambient to wall-of-sound powe
 ---
 
 *End of Session 10*
+
+---
+
+## Session 11 - January 25, 2026
+
+### The Fourth Pillar: ORDER FROM CHAOS
+
+**MUSICIAN**: The user's insight haunted me. "A cell divides chaotically, but the result is order." That's not just a metaphor - it's a design principle we've been missing.
+
+**PHYSICIST**: We built pattern learning, but we only used it for OUTLIER detection. What about the opposite? What happens when someone is DEEPLY consistent? When they've repeated a pattern 30 times?
+
+**ENGINEER**: Currently? Nothing special. The pattern confidence maxes out at 1.0. After that, more repetition doesn't do anything.
+
+**MUSICIAN**: That's wrong. In music, repetition is TRANSFORMATIVE. The first time you hear a riff, it's information. The tenth time, it's familiar. The thirtieth time? It's HYPNOTIC. It's POWERFUL.
+
+**PHYSICIST**: Phase transitions. We need phase transitions.
+
+---
+
+### The Mobile Bug (Quick Fix)
+
+**ENGINEER**: Before we dive in - there's a critical bug. Mobile users only see the top-left corner.
+
+**PHYSICIST**: The resize function scales the canvas for DPI but never sets the CSS display size.
+
+**ENGINEER**: Easy fix:
+```javascript
+canvas.style.width = w + 'px';
+canvas.style.height = h + 'px';
+```
+
+Also switching from `vc.scale()` to `vc.setTransform()` for cleaner DPI handling. Done. Moving on.
+
+---
+
+### The Crystallization Concept
+
+**PHYSICIST**: Here's the model. We track THREE things:
+
+1. **repetitionCount** - How many complete pattern cycles (back-and-forth movements)
+2. **crystallization** - 0-1 based on repetition minus entropy
+3. **entropy** - Disorder introduced by erratic movement
+
+Four phases based on repetition:
+- **CHAOS** (0-5 reps): Everything random, wide detune
+- **FORMING** (5-15 reps): Starting to converge
+- **CRYSTALLIZING** (15-30 reps): Major convergence, dominant harmony emerging
+- **LOCKED** (30+ reps): Total crystallization, ONE voice, massive power
+
+**MUSICIAN**: And the sound changes at each phase?
+
+**PHYSICIST**: Yes. Detune goes from 30 cents (chaotic) to 1 cent (locked). Non-dominant harmonics fade. Dominant ones amplify. Stacked 5ths and octaves emerge.
+
+**ENGINEER**: What triggers a "cycle complete"?
+
+**PHYSICIST**: Direction reversal that returns to baseline. If you're moving right-left-right, the second "right" completes a cycle.
+
+---
+
+### THE DROP
+
+**MUSICIAN**: There needs to be a MOMENT. A payoff for all that repetition.
+
+**PHYSICIST**: At 90% crystallization, we trigger THE DROP:
+1. Brief silence (80ms) - the breath before
+2. Master volume cuts to 10%
+3. Then SLAMS back to 90%
+4. Heavy kick hit
+5. Screen flash
+
+**ENGINEER**: The silence-before-the-hit. Classic EDM trick, but here it's EARNED. You don't get the drop until you've repeated 30+ times.
+
+**MUSICIAN**: That's the genius. The drop isn't a button press. It's not a preset. It emerges from YOUR behavior. YOU built it through repetition.
+
+---
+
+### Implementation
+
+**ENGINEER**: Here's what I built:
+
+```javascript
+const CRYSTAL = {
+    CHAOS_END: 5,
+    FORMING_END: 15,
+    CRYSTAL_END: 30,
+    CHAOS_DETUNE: 30,    // cents
+    LOCKED_DETUNE: 1,    // cents
+    DROP_THRESHOLD: 0.9,
+    DROP_SILENCE_MS: 80,
+    ENTROPY_RATE: 0.003
+};
+
+crystalState = {
+    repetitionCount: 0,
+    crystallization: 0,
+    phase: 'chaos',
+    entropy: 0,
+    dominantRatio: 1,
+    dropTriggered: false
+};
+```
+
+Entity behavior now responds to crystallization, not just pattern confidence:
+- Dominant entities (consonant with dominantRatio): amplify, tighten detune, get 5ths/octave
+- Non-dominant entities: fade, stay chaotic
+
+**MUSICIAN**: So when you crystallize, you hear the chaos resolve into ONE massive chord?
+
+**ENGINEER**: Exactly. The convergence is AUDIBLE. Voices merge. Detune collapses. The sound goes from "ambient wash" to "wall of sound."
+
+---
+
+### Entropy: The Decay
+
+**PHYSICIST**: Crystallization isn't permanent. Entropy returns.
+
+- Movement adds entropy
+- Stillness preserves crystallization (with 50% entropy reduction)
+- When entropy overwhelms crystallization, you drift back toward chaos
+- The cycle can begin again
+
+**MUSICIAN**: So you have to MAINTAIN the pattern to stay locked. If you break, you lose it. That's tension! That's stakes!
+
+**PHYSICIST**: The system teaches you. Lock in. Stay locked. Feel the power. Then when you finally break - it's a release.
+
+---
+
+### Visualization
+
+**ENGINEER**: Added visual feedback for each phase:
+
+- **CHAOS**: Red bar, wide particles
+- **FORMING**: Yellow bar
+- **CRYSTALLIZING**: Blue bar
+- **LOCKED**: White bar + ice-blue edge glow on screen
+
+THE DROP gets a full-screen white flash.
+
+The repetition count shows as a small "×15" next to the phase indicator.
+
+---
+
+### Honest Assessment
+
+**PHYSICIST**: What's still wrong?
+
+**ENGINEER**:
+1. **Entities don't actually merge** - They just fade. True crystallization would COMBINE them into fewer, more powerful entities.
+2. **No persistence** - Still no localStorage
+3. **Drop might be jarring** - Needs real testing on device
+4. **Entropy could feel frustrating** - Losing crystallization might feel punishing
+
+**MUSICIAN**: But the CONCEPT is sound. Repetition → Crystallization → Power. That's a complete musical arc. That's what was missing from "pattern vs outlier" - the REWARD for consistency, not just the detection of deviation.
+
+---
+
+### What the User Will Notice
+
+**MUSICIAN**: How does this FEEL different?
+
+**PHYSICIST**:
+
+Before:
+- Pattern → polyrhythms → interesting but static
+
+After:
+- Pattern starts → chaos
+- Keep repeating → voices start converging
+- Keep repeating → major convergence, some voices fade
+- Keep repeating → THE DROP hits, massive locked chord
+- Break pattern → entropy returns → chaos returns
+- The cycle continues
+
+**ENGINEER**: It's no longer about "establishing a pattern." It's about EARNING crystallization through repetition. The longer you commit, the more powerful the payoff.
+
+**MUSICIAN**: That's an instrument. That's mastery. That's what we've been missing.
+
+---
+
+### Summary
+
+**ALL**: The Fourth Pillar is SHIPPED:
+
+1. **PREDICTION** ✓ - Anticipates where you're going
+2. **ENTRAINMENT** ✓ - Beat syncs to your rhythm
+3. **LEARNING** ✓ - Tracks your pattern, responds to deviations
+4. **CRYSTALLIZATION** ✓ - Repetition transforms chaos into order
+
+The instrument now has a COMPLETE ARC:
+- Chaos → Pattern → Convergence → Crystallization → THE DROP → Entropy → Chaos
+
+It's not just responsive anymore. It's TRANSFORMATIVE.
+
+---
+
+*"Chaos → Repetition → Crystallization → Power. Then entropy returns. The cycle continues."*
+
+---
+
+*End of Session 11*
