@@ -1156,6 +1156,22 @@ function getRegionalMode(x, y) {
     return { influence: modeInfluence, bonus: ratioBonus };
 }
 
+// ============ SUPERSAW CONFIGURATION ============
+// When patterns lock in, the sound becomes MASSIVE
+
+const SUPERSAW = {
+    VOICES: 7,                    // Number of saw oscillators per entity
+    MAX_DETUNE: 25,               // Maximum detune in cents when chaotic
+    MIN_DETUNE: 3,                // Minimum detune when locked (tight)
+    LOCK_THRESHOLD: 0.7,          // Pattern confidence to start locking
+    FIFTH_THRESHOLD: 0.8,         // Pattern confidence to add 5th
+    OCTAVE_THRESHOLD: 0.9,        // Pattern confidence to add octave
+    LOCK_RATE: 0.05,              // How fast detune tightens (per frame)
+    UNLOCK_RATE: 0.02,            // How fast detune loosens
+    FIFTH_RATIO: 1.5,             // Perfect 5th
+    OCTAVE_RATIO: 2.0,            // Octave
+};
+
 // ============ ENTITY - A LIVING HARMONIC ============
 
 let entityId = 0;
@@ -1182,14 +1198,22 @@ class Entity {
         this.syncPhase = 0;
         this.neighbors = [];
 
-        // Audio nodes
-        this.osc = null;
-        this.osc2 = null;
+        // Audio nodes - SUPERSAW: multiple oscillators with variable detune
+        this.sawOscs = [];        // Array of sawtooth oscillators
+        this.sawDetunes = [];     // Base detune offsets for each saw
+        this.fifthOsc = null;     // 5th harmonic oscillator
+        this.octaveOsc = null;    // Octave oscillator
+        this.fifthGain = null;    // 5th gain (fades in with pattern)
+        this.octaveGain = null;   // Octave gain
         this.filter = null;
         this.gain = null;
         this.pan = null;
         this.mod = null;
         this.modGain = null;
+
+        // Supersaw state
+        this.currentDetune = SUPERSAW.MAX_DETUNE;  // Starts detuned (chaotic)
+        this.lockedIn = false;                      // Whether this entity is "locked"
 
         // Visual
         this.trail = [];
@@ -1199,42 +1223,82 @@ class Entity {
     }
 
     createAudio() {
-        this.osc = ctx.createOscillator();
-        this.osc.type = this.ratio < 2 ? 'sine' : (this.ratio < 4 ? 'triangle' : 'sine');
-        this.osc.frequency.value = this.freq;
+        // ============ SUPERSAW: 7 detuned sawtooth oscillators ============
+        // Detune spread: centered, symmetric distribution
+        const detuneOffsets = [-1, -0.67, -0.33, 0, 0.33, 0.67, 1];
 
-        this.osc2 = ctx.createOscillator();
-        this.osc2.type = 'sine';
-        this.osc2.frequency.value = this.freq * 1.003;
+        for (let i = 0; i < SUPERSAW.VOICES; i++) {
+            const osc = ctx.createOscillator();
+            osc.type = 'sawtooth';
+            osc.frequency.value = this.freq;
+            // Store base detune offset (will be scaled by currentDetune)
+            this.sawDetunes.push(detuneOffsets[i]);
+            this.sawOscs.push(osc);
+        }
 
+        // ============ STACKED 5THS: 5th and octave for massive chords ============
+        this.fifthOsc = ctx.createOscillator();
+        this.fifthOsc.type = 'sawtooth';
+        this.fifthOsc.frequency.value = this.freq * SUPERSAW.FIFTH_RATIO;
+
+        this.octaveOsc = ctx.createOscillator();
+        this.octaveOsc.type = 'sawtooth';
+        this.octaveOsc.frequency.value = this.freq * SUPERSAW.OCTAVE_RATIO;
+
+        this.fifthGain = ctx.createGain();
+        this.fifthGain.gain.value = 0;  // Starts silent, fades in with pattern
+
+        this.octaveGain = ctx.createGain();
+        this.octaveGain.gain.value = 0;
+
+        this.fifthOsc.connect(this.fifthGain);
+        this.octaveOsc.connect(this.octaveGain);
+
+        // FM modulation for texture
         this.mod = ctx.createOscillator();
         this.modGain = ctx.createGain();
         this.mod.type = 'sine';
         this.mod.frequency.value = this.freq * PHI;
         this.modGain.gain.value = 0;
         this.mod.connect(this.modGain);
-        this.modGain.connect(this.osc.frequency);
 
+        // Connect modulator to all saw oscillators
+        for (const osc of this.sawOscs) {
+            this.modGain.connect(osc.frequency);
+        }
+
+        // Filter - lowpass to tame the brightness
         this.filter = ctx.createBiquadFilter();
         this.filter.type = 'lowpass';
         this.filter.frequency.value = 200;
-        this.filter.Q.value = 1;
+        this.filter.Q.value = 1.5;  // Slightly more resonant for supersaws
 
+        // Main gain
         this.gain = ctx.createGain();
         this.gain.gain.value = 0;
 
+        // Stereo pan
         this.pan = ctx.createStereoPanner();
 
-        this.osc.connect(this.filter);
-        this.osc2.connect(this.filter);
+        // Connect all oscillators through filter
+        for (const osc of this.sawOscs) {
+            osc.connect(this.filter);
+        }
+        this.fifthGain.connect(this.filter);
+        this.octaveGain.connect(this.filter);
+
         this.filter.connect(this.gain);
         this.gain.connect(this.pan);
         this.pan.connect(master);
         this.pan.connect(verb.input);
         this.pan.connect(dly.input);
 
-        this.osc.start();
-        this.osc2.start();
+        // Start all oscillators
+        for (const osc of this.sawOscs) {
+            osc.start();
+        }
+        this.fifthOsc.start();
+        this.octaveOsc.start();
         this.mod.start();
     }
 
@@ -1242,8 +1306,11 @@ class Entity {
         const now = ctx.currentTime;
         this.gain.gain.linearRampToValueAtTime(0, now + 0.5);
         setTimeout(() => {
-            this.osc.stop();
-            this.osc2.stop();
+            for (const osc of this.sawOscs) {
+                osc.stop();
+            }
+            this.fifthOsc.stop();
+            this.octaveOsc.stop();
             this.mod.stop();
         }, 600);
     }
@@ -1381,34 +1448,94 @@ class Entity {
         const outlierFM = outlierInfluence * this.freq * 0.5 * pattern.confidence;
         const outlierFilter = outlierInfluence * 600 * pattern.confidence;
 
+        // ============ SUPERSAW DETUNE LOCK-IN ============
+        // When pattern is strong, oscillators lock together = massive sound
+        // When pattern is weak, oscillators drift apart = chaotic/ambient
+
+        const patternLockStrength = pattern.isValid ? pattern.confidence : 0;
+
+        // Target detune: tight when pattern is locked, wide when chaotic
+        let targetDetune;
+        if (patternLockStrength > SUPERSAW.LOCK_THRESHOLD) {
+            // Locking in! Tighten the detune
+            const lockAmount = (patternLockStrength - SUPERSAW.LOCK_THRESHOLD) / (1 - SUPERSAW.LOCK_THRESHOLD);
+            targetDetune = SUPERSAW.MAX_DETUNE - lockAmount * (SUPERSAW.MAX_DETUNE - SUPERSAW.MIN_DETUNE);
+            this.lockedIn = true;
+        } else {
+            // Not locked - stay wide/chaotic
+            targetDetune = SUPERSAW.MAX_DETUNE;
+            this.lockedIn = false;
+        }
+
+        // Smooth transition toward target detune
+        const detuneRate = this.lockedIn ? SUPERSAW.LOCK_RATE : SUPERSAW.UNLOCK_RATE;
+        this.currentDetune += (targetDetune - this.currentDetune) * detuneRate;
+
+        // ============ STACKED 5THS - THE MASSIVE CHORD ============
+        // When pattern is VERY strong, add 5th and octave for that viral wall-of-sound
+
+        let fifthAmp = 0;
+        let octaveAmp = 0;
+
+        if (patternLockStrength > SUPERSAW.FIFTH_THRESHOLD) {
+            // Fade in the 5th
+            const fifthAmount = (patternLockStrength - SUPERSAW.FIFTH_THRESHOLD) / (1 - SUPERSAW.FIFTH_THRESHOLD);
+            fifthAmp = fifthAmount * 0.3 * this.mass * this.life;
+        }
+
+        if (patternLockStrength > SUPERSAW.OCTAVE_THRESHOLD) {
+            // Fade in the octave
+            const octaveAmount = (patternLockStrength - SUPERSAW.OCTAVE_THRESHOLD) / (1 - SUPERSAW.OCTAVE_THRESHOLD);
+            octaveAmp = octaveAmount * 0.2 * this.mass * this.life;
+        }
+
+        // Apply stacked 5ths gains
+        this.fifthGain.gain.linearRampToValueAtTime(fifthAmp * proximity, now + 0.1);
+        this.octaveGain.gain.linearRampToValueAtTime(octaveAmp * proximity, now + 0.1);
+
         // Amplitude: proximity + sync pulse + life + breath in deep states
+        // Reduced base amp because we now have 7 oscillators + 5th + octave
         const syncPulse = this.neighbors.length > 0 ? this.syncPhase * 0.3 : 0;
         const breathBonus = field.depth * field.breath * 0.02;
-        const baseAmp = (proximity * 0.08 + syncPulse * 0.04 + breathBonus) * this.mass * this.life;
+        const lockBonus = this.lockedIn ? 0.02 : 0;  // Slightly louder when locked
+        const baseAmp = (proximity * 0.035 + syncPulse * 0.02 + breathBonus + lockBonus) * this.mass * this.life;
 
         this.gain.gain.linearRampToValueAtTime(baseAmp * (0.6 + this.brightness * 0.5), now + 0.06);
 
         // Filter - opens more in deep states, modulated by breath, tension, AND outliers
+        // Also opens when locked in for brighter sound
         const depthFilter = field.depth * 400 * (0.5 + field.breath * 0.5);
-        const filterFreq = 150 + proximity * 2500 + this.brightness * 2000 + this.syncPhase * 500 + depthFilter + tensionFilter + outlierFilter;
+        const lockFilter = this.lockedIn ? 600 * patternLockStrength : 0;  // Brighter when locked
+        const filterFreq = 150 + proximity * 2500 + this.brightness * 2000 + this.syncPhase * 500 + depthFilter + tensionFilter + outlierFilter + lockFilter;
         this.filter.frequency.linearRampToValueAtTime(filterFreq * this.life, now + 0.08);
 
         // FM from energy, tension, AND outliers - outliers add harmonic richness
         const fmDepth = field.energy * this.freq * 0.4 + this.syncPhase * this.freq * 0.1 + tensionFM + outlierFM;
         this.modGain.gain.linearRampToValueAtTime(fmDepth, now + 0.05);
 
-        // Pan - narrower in deep states for intimacy
-        const panWidth = 1.6 - field.depth * 0.8;
+        // Pan - narrower in deep states for intimacy, also narrower when locked (focused)
+        const panWidth = 1.6 - field.depth * 0.8 - (this.lockedIn ? 0.3 : 0);
         this.pan.pan.linearRampToValueAtTime((this.x - 0.5) * panWidth, now + 0.05);
 
+        // ============ SUPERSAW PITCH: Apply bend + detune to all oscillators ============
         // Pitch bend toward PREDICTED cursor - this is where the magic happens
-        // When prediction is right, the pitch arrives early = feels telepathic
-        // When prediction is wrong, the pitch "missed" = creates surprise
         const bendAmount = 0.015 * (1 - field.depth * 0.5);
-        const tensionBend = field.predictionTension * 0.02; // Extra bend during tension
+        const tensionBend = field.predictionTension * 0.02;
         const bend = 1 + pdx * bendAmount + tensionBend * (Math.random() - 0.5);
-        this.osc.frequency.linearRampToValueAtTime(this.freq * bend, now + 0.1);
-        this.osc2.frequency.linearRampToValueAtTime(this.freq * bend * 1.003, now + 0.1);
+        const bentFreq = this.freq * bend;
+
+        // Update all supersaw oscillators with detune
+        for (let i = 0; i < this.sawOscs.length; i++) {
+            // Detune in cents: offset * currentDetune
+            const detuneCents = this.sawDetunes[i] * this.currentDetune;
+            // Convert cents to frequency multiplier: 2^(cents/1200)
+            const detuneMultiplier = Math.pow(2, detuneCents / 1200);
+            this.sawOscs[i].frequency.linearRampToValueAtTime(bentFreq * detuneMultiplier, now + 0.1);
+        }
+
+        // Update stacked 5ths with same bend
+        this.fifthOsc.frequency.linearRampToValueAtTime(bentFreq * SUPERSAW.FIFTH_RATIO, now + 0.1);
+        this.octaveOsc.frequency.linearRampToValueAtTime(bentFreq * SUPERSAW.OCTAVE_RATIO, now + 0.1);
     }
 
     draw() {
@@ -1444,10 +1571,17 @@ class Entity {
             vc.stroke();
         }
 
-        // Core
-        const r = 3 + amp * 35 + this.brightness * 15;
+        // Core - larger and brighter when locked in
+        const lockBonus = this.lockedIn ? 15 : 0;
+        const r = 3 + amp * 35 + this.brightness * 15 + lockBonus;
+
+        // When locked, shift hue toward white/gold and increase saturation
+        const lockHue = this.lockedIn ? (this.hue + 30) % 360 : this.hue;
+        const lockSat = this.lockedIn ? 70 : 85;
+        const lockLight = this.lockedIn ? 85 + amp * 15 : 75 + amp * 20;
+
         const grad = vc.createRadialGradient(px, py, 0, px, py, r);
-        grad.addColorStop(0, `hsla(${this.hue}, 85%, ${75 + amp * 20}%, ${(0.9 + amp * 0.1) * alpha})`);
+        grad.addColorStop(0, `hsla(${lockHue}, ${lockSat}%, ${lockLight}%, ${(0.9 + amp * 0.1) * alpha})`);
         grad.addColorStop(0.5, `hsla(${this.hue}, 70%, 50%, ${amp * 0.6 * alpha})`);
         grad.addColorStop(1, 'transparent');
 
@@ -1455,6 +1589,56 @@ class Entity {
         vc.beginPath();
         vc.arc(px, py, r, 0, TAU);
         vc.fill();
+
+        // ============ SUPERSAW LOCK-IN GLOW ============
+        // When pattern is strong and entity is locked, show a distinct visual
+        if (this.lockedIn && amp > 0.01) {
+            // Calculate how tight the detune is (0 = max chaos, 1 = fully locked)
+            const lockTightness = 1 - (this.currentDetune - SUPERSAW.MIN_DETUNE) / (SUPERSAW.MAX_DETUNE - SUPERSAW.MIN_DETUNE);
+
+            // Outer golden ring - the "clearing" moment visual
+            const lockR = r + 10 + lockTightness * 25;
+            const lockAlpha = lockTightness * amp * alpha * 0.6;
+
+            vc.beginPath();
+            vc.arc(px, py, lockR, 0, TAU);
+            vc.strokeStyle = `hsla(45, 90%, 75%, ${lockAlpha})`;  // Golden
+            vc.lineWidth = 2 + lockTightness * 3;
+            vc.stroke();
+
+            // Inner white flash when very tight
+            if (lockTightness > 0.7) {
+                const flashIntensity = (lockTightness - 0.7) / 0.3;
+                const flashR = r * 0.6;
+                const flashGrad = vc.createRadialGradient(px, py, 0, px, py, flashR);
+                flashGrad.addColorStop(0, `rgba(255, 255, 255, ${flashIntensity * amp * 0.4})`);
+                flashGrad.addColorStop(1, 'transparent');
+                vc.fillStyle = flashGrad;
+                vc.beginPath();
+                vc.arc(px, py, flashR, 0, TAU);
+                vc.fill();
+            }
+
+            // Stacked 5ths indicator - concentric rings when 5th/octave are active
+            const pattern = getPatternState();
+            if (pattern.confidence > SUPERSAW.FIFTH_THRESHOLD) {
+                const fifthAlpha = ((pattern.confidence - SUPERSAW.FIFTH_THRESHOLD) / (1 - SUPERSAW.FIFTH_THRESHOLD)) * 0.3 * amp;
+                vc.beginPath();
+                vc.arc(px, py, lockR + 8, 0, TAU);
+                vc.strokeStyle = `hsla(200, 80%, 70%, ${fifthAlpha})`;  // Blue for 5th
+                vc.lineWidth = 1.5;
+                vc.stroke();
+            }
+
+            if (pattern.confidence > SUPERSAW.OCTAVE_THRESHOLD) {
+                const octaveAlpha = ((pattern.confidence - SUPERSAW.OCTAVE_THRESHOLD) / (1 - SUPERSAW.OCTAVE_THRESHOLD)) * 0.25 * amp;
+                vc.beginPath();
+                vc.arc(px, py, lockR + 14, 0, TAU);
+                vc.strokeStyle = `hsla(280, 70%, 75%, ${octaveAlpha})`;  // Purple for octave
+                vc.lineWidth = 1;
+                vc.stroke();
+            }
+        }
 
         // Birth glow
         if (this.age < 1) {
@@ -2180,6 +2364,47 @@ function draw() {
         vc.font = '9px system-ui';
         vc.textAlign = 'left';
         vc.fillText('PATTERN', barX, barY + 14);
+    }
+
+    // ============ SUPERSAW LOCK-IN: WALL OF SOUND INDICATOR ============
+    // When pattern is strong, show the "clearing" moment - everything locks together
+    if (pattern.confidence > SUPERSAW.LOCK_THRESHOLD) {
+        const lockAmount = (pattern.confidence - SUPERSAW.LOCK_THRESHOLD) / (1 - SUPERSAW.LOCK_THRESHOLD);
+
+        // Count how many entities are locked
+        let lockedCount = 0;
+        for (const e of entities) {
+            if (e.lockedIn && e.life > 0.5) lockedCount++;
+        }
+
+        if (lockedCount >= 2) {
+            // Full screen golden edge glow - the wall of sound is building
+            const edgeAlpha = lockAmount * 0.15 * Math.min(1, lockedCount / 4);
+
+            // Top edge
+            const topGrad = vc.createLinearGradient(0, 0, 0, 60);
+            topGrad.addColorStop(0, `rgba(255, 220, 150, ${edgeAlpha})`);
+            topGrad.addColorStop(1, 'transparent');
+            vc.fillStyle = topGrad;
+            vc.fillRect(0, 0, w, 60);
+
+            // Bottom edge
+            const bottomGrad = vc.createLinearGradient(0, h, 0, h - 60);
+            bottomGrad.addColorStop(0, `rgba(255, 220, 150, ${edgeAlpha})`);
+            bottomGrad.addColorStop(1, 'transparent');
+            vc.fillStyle = bottomGrad;
+            vc.fillRect(0, h - 60, w, 60);
+
+            // "LOCKED" indicator when very strong
+            if (pattern.confidence > SUPERSAW.FIFTH_THRESHOLD) {
+                const lockText = pattern.confidence > SUPERSAW.OCTAVE_THRESHOLD ? 'LOCKED' : 'LOCKING';
+                const textAlpha = lockAmount * 0.4;
+                vc.fillStyle = `rgba(255, 220, 150, ${textAlpha})`;
+                vc.font = '10px system-ui';
+                vc.textAlign = 'right';
+                vc.fillText(lockText, w - 20, 24);
+            }
+        }
     }
 
     // OUTLIER VISUALIZATION - dramatic feedback when you break pattern

@@ -759,3 +759,120 @@ The instrument is no longer reactive. It's *conversational*. It knows you. It an
 ---
 
 *End of Session 9*
+
+---
+
+## Session 10 - January 24, 2026
+
+### The Supersaw Upgrade: MASSIVE Sound When Patterns Lock
+
+**ENGINEER**: The three pillars are complete, but the SOUND was still thin. Two oscillators per entity? That's a toy synthesizer. Today we fixed that.
+
+**PHYSICIST**: What did you build?
+
+**ENGINEER**: The full supersaw system:
+
+1. **7 detuned sawtooth oscillators per entity** instead of 2 sines
+2. **Variable detune** - when pattern is weak (chaotic), oscillators spread wide. When pattern locks in, they tighten to near-unison
+3. **Stacked 5ths** - at 80% pattern confidence, a 5th appears. At 90%, an octave. That's the massive chord sound.
+
+**MUSICIAN**: So when you establish a consistent pattern, the sound becomes... massive?
+
+**ENGINEER**: Exactly. The detune tightens from 25 cents (chaotic, ambient) down to 3 cents (laser-focused, powerful). When everything locks, you get that viral wall-of-sound everyone talks about.
+
+---
+
+### The Technical Implementation
+
+**PHYSICIST**: Walk me through the math.
+
+**ENGINEER**: Detune spread uses symmetric offsets: `[-1, -0.67, -0.33, 0, 0.33, 0.67, 1]`. Each offset is multiplied by `currentDetune` (3-25 cents). Converted to frequency: `freq * 2^(cents/1200)`.
+
+Lock threshold is 70% pattern confidence. Above that, detune shrinks at 5% per frame. Below, it grows at 2% per frame. Asymmetric rates create a satisfying "snap" into lock and slower drift back to chaos.
+
+**MUSICIAN**: And the stacked 5ths?
+
+**ENGINEER**: Separate oscillators at `freq * 1.5` (perfect 5th) and `freq * 2` (octave). They fade in based on pattern confidence. At 80%, the 5th reaches 30% volume. At 90%, the octave reaches 20%. The result is a massive power chord that only emerges when you've earned it through consistent pattern.
+
+---
+
+### Visual Feedback
+
+**MUSICIAN**: What does it LOOK like?
+
+**ENGINEER**: Multiple layers:
+
+1. **Golden ring around locked entities** - tightens as detune decreases
+2. **White flash at core** - when lock is very tight (>70%)
+3. **Blue ring for 5th** - when 5th is active
+4. **Purple ring for octave** - when octave is active
+5. **Screen-edge glow** - golden edges when multiple entities are locked (wall of sound moment)
+6. **"LOCKED" indicator** - top-right when pattern is very strong
+
+**PHYSICIST**: So the user can SEE the sound getting massive. Important for feedback.
+
+---
+
+### Honest Assessment
+
+**ENGINEER**: Time to be brutally honest. What's STILL wrong?
+
+**PHYSICIST**: Several things:
+
+1. **No persistence** - Still no localStorage. Session ends, learning resets.
+2. **No microphone input** - The vision talks about humming, but there's no audio in.
+3. **No gesture quantization** - Gestures fire immediately, not synced to beat grid.
+4. **CPU usage** - 7 oscillators + 5th + octave per entity = 9 oscillators per entity. With 24 entities max, that's 216 oscillators. Might cause issues on weak devices.
+
+**MUSICIAN**: But the SOUND is transformed. Before: thin, ambient, ethereal. After: can be MASSIVE when you lock in. That's the difference between a meditation app and an instrument.
+
+**ENGINEER**: The key insight: the supersaw only engages when you've established a pattern. It rewards consistency. It makes learning visible and audible. That's good instrument design.
+
+---
+
+### What the User Will Notice
+
+**MUSICIAN**: How does this FEEL different?
+
+**PHYSICIST**: Before:
+- Move around, hear pleasant ambient sounds
+- Pattern detection works but only affects counter-rhythm
+- The sound is always the same texture
+
+After:
+- Move around, hear thin ambient sounds (chaotic state)
+- Establish a pattern, hear oscillators TIGHTEN (the lock-in)
+- Strong pattern, massive wall-of-sound with 5ths and octaves
+- The texture CHANGES based on your behavior
+
+**MUSICIAN**: The clearing moment. That's what we built. The moment when chaos resolves into a locked chord. It's visceral. You'll FEEL it.
+
+---
+
+### CPU Optimization Note
+
+**ENGINEER**: Future cycle: if CPU becomes an issue, we can:
+1. Reduce SUPERSAW.VOICES from 7 to 5
+2. Only create 5th/octave oscillators when pattern is strong (lazy creation)
+3. Use PeriodicWave with precomputed supersaw wavetable instead of 7 separate oscillators
+
+But ship now, optimize if needed. Real users on real devices will tell us.
+
+---
+
+### Summary
+
+**ALL**: The supersaw upgrade is SHIPPED.
+
+Before: Thin 2-oscillator sounds, ambient texture
+After: Massive 7-oscillator supersaws with stacked 5ths, texture that changes with pattern lock
+
+The instrument now has a sonic RANGE. From chaotic ambient to wall-of-sound power chords. The user's consistency unlocks the power.
+
+---
+
+*"Lock in. The sound will follow."*
+
+---
+
+*End of Session 10*

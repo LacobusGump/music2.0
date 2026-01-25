@@ -126,15 +126,23 @@ Build custom algorithms to find:
 - Different timbres for different outlier types
 - Fades when pattern normalizes
 
-### NEXT CYCLE: Supersaw Upgrade
-- Replace thin oscillators with detuned stacks
-- Lock saws tighter when pattern is strong
-- That massive chord sound when everything aligns
+### ✓ COMPLETED: Supersaw Upgrade
+- 7 detuned sawtooth oscillators per entity (was 2 sine/triangle)
+- Variable detune: 3-25 cents based on pattern confidence
+- Lock-in: detune tightens when pattern is strong (>70% confidence)
+- Stacked 5ths: 5th appears at 80%, octave at 90% confidence
+- Visual feedback: golden rings, white flash, edge glow when locked
+- That massive wall-of-sound when everything aligns
 
-### FUTURE: Persistence
+### NEXT CYCLE: Persistence
 - localStorage for cross-session memory
 - Harmonic preferences learned over time
 - Truly personalized instrument
+
+### FUTURE: Microphone Input
+- Pitch detection or onset detection
+- Hum to harmonize
+- Clap to trigger
 
 ---
 
