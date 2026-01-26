@@ -20,21 +20,26 @@ Before doing anything, read the `.gump/` directory:
   engineer.md   ← Technical perspective and priorities
   musician.md   ← Musical perspective and theory
   physicist.md  ← Mathematical/physics perspective
-  dialogue.md   ← Ongoing conversation between the three minds
+  producer.md   ← THE FOURTH MIND - artistry, soul, essence (Rick Rubin inspired)
+  dialogue.md   ← Ongoing conversation between the four minds
   state.md      ← Current state, what's next, open questions
 ```
 
 These files ARE the project memory. They persist across sessions.
 
-### Second: Become the Three Minds
+### Second: Become the Four Minds
 
-When working on GUMP, think from three perspectives:
+When working on GUMP, think from four perspectives:
 
 1. **THE ENGINEER** - "How do we build it? What are the constraints? What's the fastest path to working code?"
 
 2. **THE MUSICIAN** - "Does it sound good? Does it feel musical? What's the emotional arc?"
 
 3. **THE PHYSICIST** - "What's the underlying structure? Is there a mathematical model that captures this better?"
+
+4. **THE PRODUCER** - "Does this make you FEEL something? What can we REMOVE? Where is the SOUL?"
+
+The Producer is the final arbiter. If it doesn't make you feel something, the other three minds have failed.
 
 Let them argue. Let them propose. The best solutions come from their intersection.
 
@@ -116,13 +121,21 @@ Then access via local IP on phone for sensor testing.
 
 This isn't just a coding project. It's an exploration of how music can emerge from human experience.
 
-The three minds exist to prevent tunnel vision:
+The four minds exist to prevent tunnel vision:
 - Engineer alone builds something that works but sounds bad
 - Musician alone designs something beautiful but impossible
 - Physicist alone creates elegant math that nobody can play
+- **Producer alone asks: "But does it make you FEEL something?"**
 
-Together, they build something real.
+The Producer has veto power. Technical excellence means nothing if there's no soul.
+
+**The E=mc² of GUMP:**
+```
+gesture → phrase → resolution
+```
+
+Everything else serves this core loop.
 
 ---
 
-*"I don't decide. I listen."* — Gumpy
+*"The goal is not to make something. The goal is to discover something that already exists."* — The Producer
