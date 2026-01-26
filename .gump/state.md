@@ -1,74 +1,21 @@
 # Current State
 
-*Last updated: January 26, 2026 (Session 14)*
+*Last updated: January 26, 2026*
 
 ---
 
-## 🎵 THE MELODY IS NOW THE VOICE 🎵
-
-### What Changed This Session
-
-We rebuilt the melody system from scratch. The core insight:
-
-**The melody was playing to an empty room.**
-
-Previous cycles: Melody only activated above 10% crystallization. Entities were nearly silent (brightness-gated to near-zero). The user heard... mostly nothing.
-
-This cycle: **The melody IS the instrument. Everything else is accompaniment.**
-
-### The New Architecture
-
-```
-BEFORE:
-  168 oscillators (entities) = 60% of sound
-  Melody = 15% (gated by crystallization)
-  Effects wash = 25%
-
-AFTER:
-  Melody = 50% of sound (ALWAYS active)
-  Entities = 20% (background texture)
-  Effects = reduced for clarity
-```
-
-### Key Changes
-
-| What | Before | After | Why |
-|------|--------|-------|-----|
-| Melody volume | 15-40% | **50%** | Melody IS the voice |
-| Crystallization gate | Required 10%+ | **None** | Music from second one |
-| Note triggering | Beat grid only | **Movement-based** | Move → Music |
-| Phrase memory | None | **8-note memory** | Phrases develop musically |
-| Entity amplitude | 2% base | **0.8% base** | Entities support, don't compete |
-| Reverb | 20% | **12%** | Clarity over atmosphere |
-| Delay feedback | 20% | **15%** | Notes end, don't blur |
-
-### Musical Memory
-
-The melody now remembers what it played:
-- Last 8 notes stored in memory
-- New phrases start from where previous ended
-- Direction influenced by movement (up = ascending melody)
-- Momentum - phrases tend to continue their direction
-- Phrase endings resolve to stable intervals (tonic, fifth)
-
-### The Test (Same as Before)
-
-1. Move your phone
-2. Do you hear NOTES? (Not swoosh, not silence - NOTES)
-3. Can you hum along?
-4. Do phrases have beginning, middle, end?
-5. Does it feel like YOUR movement made that music?
-
-If yes → we're on the right track.
-If no → entities are still too loud, or melody still too quiet.
-
----
-
-## THE PRODUCER'S MANDATE (Still Active)
+## 🚨 THE FOURTH MIND HAS ARRIVED: THE PRODUCER 🚨
 
 **Read `.gump/producer.md` FIRST. This changes everything.**
 
-The user's feedback: "I started to hear some rather lame af beeps. Please get ARTISTRY in here. I want the teachings of Rick Rubin implemented."
+The user's feedback: "I started to hear some rather lame af beeps. Please get ARTISTRY in here. I want the teachings of Rick Rubin implemented. We need the system to become ALIVE. There is a lot of complexity here that needs to be summed up into an easily recognizable form. E=mc² is very simple yet it has infinite complexity and real use."
+
+**THE PRODUCER'S MANDATE:**
+1. Find ONE voice, ONE character - not 168 oscillators
+2. Make it BREATHE - rubato, dynamic swells, phrase endings
+3. Create ANTICIPATION - silence that makes you WANT the note
+4. Remove until it breaks - find the essence
+5. Make it MEMORABLE - can you hum it after 30 seconds?
 
 **THE E=mc² OF GUMP:**
 ```
@@ -77,9 +24,60 @@ gesture → phrase → resolution
 
 That's it. A gesture is a complete movement. A phrase is a musical sentence. A resolution is a conclusion. Everything else serves this.
 
+**THE TEST:**
+- Move your phone slowly in a circle
+- Do you hear a PHRASE that matches?
+- Does it have beginning, middle, end?
+- Could you hum it back?
+- Did it make you FEEL something?
+
+If not all four: keep cutting.
+
 ---
 
-## FIVE PILLARS: ALL IMPLEMENTED
+## PREVIOUS PROGRESS (Now Under Review)
+
+**WHAT CHANGED THIS CYCLE (January 26, 2026):**
+
+We found and fixed the fundamental bug: **entities never went silent**.
+
+### The Bug
+```javascript
+// BEFORE - the 0.6 meant entities ALWAYS made sound
+gatedAmp = baseAmp * (0.6 + brightness * 0.5) * effectiveGate;
+```
+
+Even with perfect gating (effectiveGate=0), entities were at 60% volume. Music needs silence as canvas; we had none.
+
+### The Fix
+```javascript
+// AFTER - entities start SILENT, notes emerge from silence
+gatedAmp = baseAmp * (brightness * 0.3) * effectiveGate;
+```
+
+### Other Critical Changes
+| What | Before | After | Why |
+|------|--------|-------|-----|
+| Entity base amp | 0.035 | 0.02 | Entities are texture, not melody |
+| Melody volume | 12% max | 15-40% | Melody IS the instrument |
+| Reverb | 35% | 20% | Less wash, more clarity |
+| Delay feedback | 32% | 20% | Notes END, don't echo forever |
+| Gate release | 150ms | 80ms | Faster silence between notes |
+| Chaos rest prob | 70% | 85% | More silence in chaos |
+| Melody glide | 0.15 | 0.6 | Notes JUMP, don't slide |
+
+### What Should Be Different Now
+- **CHAOS**: Mostly silence with occasional notes poking through
+- **FORMING**: Notes appearing regularly on beat grid
+- **CRYSTALLIZING**: Clear melody emerges above texture
+- **LOCKED**: MUSIC - melody singing, entities tight, everything rhythmic
+
+### The Test
+Can you hum along to it? If yes → it's music. If no → more work needed.
+
+---
+
+## FIVE PILLARS: NOW ACTUALLY AUDIBLE
 
 All four hard problems have been solved:
 

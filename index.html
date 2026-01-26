@@ -1467,12 +1467,10 @@ function updateRhythmGate(dt) {
 }
 
 // ============ MELODIC VOICE ============
-// THE SOUL OF THE INSTRUMENT
-// This is not texture. This is the SONG.
-// It plays ALWAYS - no crystallization gate. No waiting. MUSIC.
+// A clear, singing voice that plays NOTES not textures
+// This is the soul of the instrument
 
 let melodyOsc = null;
-let melodyOsc2 = null;            // Second oscillator for richness
 let melodyGain = null;
 let melodyFilter = null;
 let melodyEnv = 0;                // Current envelope value
@@ -1483,240 +1481,140 @@ let lastMelodyNote = 0;           // When did we last play a note?
 let melodyPhrase = [];            // Current phrase in progress
 let melodyPhrasePos = 0;          // Position in phrase
 
-// MUSICAL MEMORY - remember what we played, develop from it
-let melodyMemory = [];            // Last 8 notes played
-const MELODY_MEMORY_SIZE = 8;     // How many notes to remember
-let lastMelodyDirection = 0;      // -1 descending, 0 static, 1 ascending
-let melodyMomentum = 0;           // Tendency to continue in same direction
-
 const MELODY = {
-    GLIDE_RATE: 0.4,              // Moderate glide - notes connect but are distinct
-    MIN_NOTE_INTERVAL: 0.12,      // Not too fast - let notes breathe
+    GLIDE_RATE: 0.6,              // FAST glide - notes should JUMP, not slide
+    MIN_NOTE_INTERVAL: 0.08,      // Can play notes faster
     PHRASE_LENGTH: 4,             // Notes per phrase
-    PHRASE_REST: 0.4,             // Rest between phrases - silence creates anticipation
+    PHRASE_REST: 0.3,             // Less rest between phrases - keep it musical
     BASE_OCTAVE: 2,               // Melody starts at 2nd octave
     RANGE_OCTAVES: 2,             // Can span 2 octaves
-    VOLUME: 0.5,                  // LOUD - this is THE voice, not accompaniment
-    ATTACK: 0.015,                // Snappy attack
-    RELEASE: 0.25,                // Moderate release - notes end, but gracefully
 };
 
 function createMelodyVoice() {
     melodyOsc = ctx.createOscillator();
-    melodyOsc2 = ctx.createOscillator();
     melodyGain = ctx.createGain();
     melodyFilter = ctx.createBiquadFilter();
 
-    // Primary: triangle wave for clarity
+    // Triangle wave for clarity
     melodyOsc.type = 'triangle';
     melodyOsc.frequency.value = BASE * MELODY.BASE_OCTAVE;
 
-    // Secondary: slightly detuned sine for warmth
-    melodyOsc2.type = 'sine';
-    melodyOsc2.frequency.value = BASE * MELODY.BASE_OCTAVE * 1.002; // Slight detune
-
-    // Warm lowpass - opens with intensity
+    // Warm lowpass
     melodyFilter.type = 'lowpass';
-    melodyFilter.frequency.value = 2500;
-    melodyFilter.Q.value = 1.5;
+    melodyFilter.frequency.value = 2000;
+    melodyFilter.Q.value = 1;
 
     melodyGain.gain.value = 0;
 
     melodyOsc.connect(melodyFilter);
-    melodyOsc2.connect(melodyFilter);
     melodyFilter.connect(melodyGain);
     melodyGain.connect(master);
     melodyGain.connect(verb.input);
 
     melodyOsc.start();
-    melodyOsc2.start();
 }
 
-// Generate a melodic phrase with MUSICAL MEMORY
-// Phrases develop from previous notes - not random, but MUSICAL
+// Generate a melodic phrase based on movement
 function generateMelodyPhrase() {
     const phrase = [];
     const crystal = crystalState.crystallization;
-    const energy = field.energy;
 
     // Base note from Y position (lower = bass, higher = treble)
     const baseOctave = MELODY.BASE_OCTAVE + Math.floor((1 - field.y) * MELODY.RANGE_OCTAVES);
 
-    // Start from the last note we played (musical memory!)
-    // Or from position if no memory yet
-    let startIndex;
-    if (melodyMemory.length > 0) {
-        // Find which scale degree the last note was closest to
-        const lastFreq = melodyMemory[melodyMemory.length - 1];
-        const lastRatio = lastFreq / BASE;
-        let closestIndex = 0;
-        let closestDist = Infinity;
-        for (let i = 0; i < SCALE_RATIOS.length; i++) {
-            for (let oct = 0; oct < 4; oct++) {
-                const targetRatio = SCALE_RATIOS[i] * Math.pow(2, oct);
-                const dist = Math.abs(Math.log2(lastRatio / targetRatio));
-                if (dist < closestDist) {
-                    closestDist = dist;
-                    closestIndex = i;
-                }
-            }
-        }
-        startIndex = closestIndex;
-    } else {
-        startIndex = Math.floor(field.x * SCALE_RATIOS.length);
-    }
+    // X position influences scale degree
+    const baseIndex = Math.floor(field.x * SCALE_RATIOS.length);
 
-    // Determine melodic direction from gesture
-    let direction = 0;
-    const speed = Math.sqrt(field.vx * field.vx + field.vy * field.vy);
-    if (speed > 0.02) {
-        // Fast movement = more dramatic contour
-        if (field.vy < -0.02) direction = 1;      // Moving up = ascending
-        else if (field.vy > 0.02) direction = -1; // Moving down = descending
-        else if (field.vx > 0.02) direction = 1;  // Moving right = ascending
-        else if (field.vx < -0.02) direction = -1; // Moving left = descending
-    }
-
-    // Momentum: tend to continue in the same direction
-    melodyMomentum = melodyMomentum * 0.7 + direction * 0.3;
-    const effectiveDirection = Math.sign(melodyMomentum + direction * 0.5);
-
-    // Generate phrase with contour
     for (let i = 0; i < MELODY.PHRASE_LENGTH; i++) {
-        let noteIndex = startIndex;
+        // Movement creates melodic contour
+        let noteIndex = baseIndex;
 
-        // Apply direction and momentum
-        if (effectiveDirection > 0) {
-            noteIndex += i;  // Ascending
-        } else if (effectiveDirection < 0) {
-            noteIndex -= i;  // Descending
-        } else {
-            // Static: create tension with small movements
-            noteIndex += (i % 2 === 0) ? 1 : -1;
-        }
+        // Add variation based on velocity direction
+        if (field.vx > 0.02) noteIndex += 1;  // Moving right = ascending
+        if (field.vx < -0.02) noteIndex -= 1; // Moving left = descending
+        if (field.vy > 0.02) noteIndex -= 1;  // Moving down = lower
+        if (field.vy < -0.02) noteIndex += 1; // Moving up = higher
 
-        // Add slight variation based on energy (more energy = more leaps)
-        if (energy > 0.3 && i === 2) {
-            // Jump on the third note for interest
-            noteIndex += effectiveDirection * 2;
-        }
+        // Add some randomness in chaos, none when locked
+        const randomness = Math.floor((Math.random() - 0.5) * 3 * (1 - crystal));
+        noteIndex += randomness + i; // Ascending tendency
 
-        // Phrase ending: resolve toward tonic or fifth
-        if (i === MELODY.PHRASE_LENGTH - 1) {
-            // Last note tends toward stable intervals (0, 4, 7 in scale = 1, 5, 8)
-            const stableNotes = [0, 4, 7];
-            const nearest = stableNotes.reduce((best, n) =>
-                Math.abs(noteIndex - n) < Math.abs(noteIndex - best) ? n : best
-            );
-            noteIndex = noteIndex * 0.5 + nearest * 0.5; // Lean toward resolution
-        }
-
-        // Clamp to valid range
-        noteIndex = Math.max(0, Math.min(SCALE_RATIOS.length - 1, Math.round(noteIndex)));
+        // Clamp and wrap
+        noteIndex = Math.max(0, Math.min(SCALE_RATIOS.length - 1, noteIndex));
 
         const ratio = SCALE_RATIOS[noteIndex] * Math.pow(2, baseOctave - 1);
-        const freq = BASE * ratio;
-        phrase.push(freq);
-
-        // Update memory
-        melodyMemory.push(freq);
-        if (melodyMemory.length > MELODY_MEMORY_SIZE) {
-            melodyMemory.shift();
-        }
+        phrase.push(BASE * ratio);
     }
 
-    lastMelodyDirection = effectiveDirection;
     return phrase;
 }
 
 // Update the melodic voice - called every frame
-// THE MELODY PLAYS ALWAYS. No crystallization gate. This IS the instrument.
 function updateMelodyVoice(dt) {
     if (!melodyOsc || !ctx) return;
 
     const now = ctx.currentTime;
     const crystal = crystalState.crystallization;
-    const energy = field.energy;
-    const speed = Math.sqrt(field.vx * field.vx + field.vy * field.vy);
 
-    // MELODY IS THE MAIN VOICE - LOUD AND CLEAR
-    // Volume increases with activity - movement makes music
-    const activityBoost = Math.min(0.15, energy * 0.5);
-    const melodyVolume = MELODY.VOLUME * (0.6 + activityBoost + crystal * 0.25);
+    // Melody is THE MAIN VOICE - it should be LOUD and CLEAR
+    // Not buried under entity noise. This is the SONG.
+    // Even in partial crystallization, the melody should sing clearly
+    const melodyVolume = 0.15 + crystal * 0.25; // 15% minimum, up to 40% when locked
 
-    // Should we start a new phrase?
-    // In chaos: phrases start when you MOVE
-    // When crystallized: phrases follow the beat
-    const shouldStartPhrase = (melodyPhrase.length === 0 || melodyPhrasePos >= melodyPhrase.length);
-    const canStartPhrase = field.time - lastMelodyNote > MELODY.PHRASE_REST;
-
-    // Gesture-triggered phrases: movement starts music
-    const gestureTriggered = speed > 0.03 && canStartPhrase;
-
-    if (shouldStartPhrase && (canStartPhrase || gestureTriggered)) {
-        melodyPhrase = generateMelodyPhrase();
-        melodyPhrasePos = 0;
+    // Melody starts playing almost immediately - it IS the instrument
+    // Users need to hear NOTES from the start, not wait for crystallization
+    if (crystal < 0.1) {
+        melodyEnv *= 0.9; // Fade out faster when truly chaotic
+        melodyGain.gain.linearRampToValueAtTime(melodyEnv * melodyVolume * 0.5, now + 0.05);
+        return;
     }
 
-    // Note triggering - responds to MOVEMENT, not just beat grid
-    // Fast movement = faster notes. Slow = slower notes.
-    const noteInterval = MELODY.MIN_NOTE_INTERVAL * (1.5 - Math.min(0.8, energy * 2));
+    // Should we start a new phrase?
+    if (melodyPhrase.length === 0 || melodyPhrasePos >= melodyPhrase.length) {
+        if (field.time - lastMelodyNote > MELODY.PHRASE_REST) {
+            melodyPhrase = generateMelodyPhrase();
+            melodyPhrasePos = 0;
+        }
+    }
 
-    // Trigger conditions:
-    // 1. Beat grid when crystallized
-    // 2. Movement-based when in chaos
-    const beatTrigger = noteTriggered && crystal > 0.3;
-    const movementTrigger = speed > 0.02 && field.time - lastMelodyNote > noteInterval;
-    const shouldTriggerNote = beatTrigger || movementTrigger;
-
-    if (shouldTriggerNote && melodyPhrase.length > 0 && melodyPhrasePos < melodyPhrase.length) {
-        if (field.time - lastMelodyNote > noteInterval * 0.8) {
+    // Trigger notes on the beat grid
+    if (noteTriggered && melodyPhrase.length > 0 && melodyPhrasePos < melodyPhrase.length) {
+        if (field.time - lastMelodyNote > MELODY.MIN_NOTE_INTERVAL) {
             // Get next note from phrase
             melodyTargetFreq = melodyPhrase[melodyPhrasePos];
 
-            // Quantize - always some quantization, more when crystallized
-            // This ensures notes are always musical, not random swoosh
-            const quantizeStrength = 0.5 + crystal * 0.5; // 50% minimum!
-            melodyTargetFreq = quantizeToScale(melodyTargetFreq, quantizeStrength);
+            // Quantize based on crystallization
+            melodyTargetFreq = quantizeToScale(melodyTargetFreq, crystal);
 
             melodyPhrasePos++;
             lastMelodyNote = field.time;
             melodyNoteOn = true;
 
-            // Note-on envelope - ATTACK
+            // Note-on envelope
             melodyEnv = 1;
         }
     }
 
     // Glide toward target frequency
-    // Faster glide when crystallized, slower in chaos (more expressive)
-    const glideSpeed = MELODY.GLIDE_RATE * (0.8 + crystal * 0.4);
+    const glideSpeed = MELODY.GLIDE_RATE * (1 + crystal * 2); // Faster glide when crystallized
     melodyCurrentFreq += (melodyTargetFreq - melodyCurrentFreq) * glideSpeed;
-    melodyOsc.frequency.linearRampToValueAtTime(melodyCurrentFreq, now + 0.03);
-    melodyOsc2.frequency.linearRampToValueAtTime(melodyCurrentFreq * 1.002, now + 0.03);
+    melodyOsc.frequency.linearRampToValueAtTime(melodyCurrentFreq, now + 0.05);
 
-    // Envelope: DISTINCT notes with proper attack and release
-    if (melodyNoteOn && melodyEnv < 1) {
-        // Attack phase
-        melodyEnv = Math.min(1, melodyEnv + dt / MELODY.ATTACK);
-    } else if (field.time - lastMelodyNote > noteInterval * 0.6) {
-        // Release phase - notes END, creating space for next
-        melodyEnv = Math.max(0, melodyEnv - dt / MELODY.RELEASE);
-        if (melodyEnv < 0.01) melodyNoteOn = false;
+    // Envelope follows the gate - DISTINCT notes, not legato smear
+    if (currentNoteGate > 0.3) {
+        // Fast attack when gate opens
+        melodyEnv = Math.min(1, melodyEnv + dt * 20);
+    } else {
+        // Faster decay - notes should END, not fade forever
+        melodyEnv *= 0.85;
     }
 
-    // Stillness: notes sustain longer
-    if (speed < 0.01 && melodyEnv > 0.3) {
-        melodyEnv = Math.max(melodyEnv - dt * 0.5, 0.3); // Slow decay, hold at 30%
-    }
-
-    // Filter opens with envelope and energy
-    // Active movement = brighter sound
-    const filterFreq = 1200 + melodyEnv * 1500 + energy * 1000 + crystal * 500;
+    // Filter opens with envelope
+    const filterFreq = 800 + melodyEnv * 2000 * crystal;
     melodyFilter.frequency.linearRampToValueAtTime(filterFreq, now + 0.05);
 
-    // Apply volume - THE MELODY IS LOUD
-    melodyGain.gain.linearRampToValueAtTime(melodyEnv * melodyVolume, now + 0.03);
+    // Apply volume
+    melodyGain.gain.linearRampToValueAtTime(melodyEnv * melodyVolume, now + 0.05);
 }
 
 // ============ ENTITY - A LIVING HARMONIC ============
@@ -2080,25 +1978,24 @@ class Entity {
         const gateInfluence = crystal; // 0 = no gating, 1 = full gating
         const effectiveGate = 1 - gateInfluence + gateInfluence * currentNoteGate;
 
-        // ============ ENTITIES ARE TEXTURE, NOT MELODY ============
-        // The melody is the VOICE. Entities are the ATMOSPHERE.
-        // They should support, not compete. 20% of the mix MAX.
+        // Amplitude: entities are TEXTURE, not the melody
+        // They should be quiet background, not competing with the melody
+        const syncPulse = this.neighbors.length > 0 ? this.syncPhase * 0.15 : 0; // HALVED
+        const breathBonus = field.depth * field.breath * 0.01;
+        const lockBonus = this.lockedIn ? 0.06 : 0;  // Louder when locked (earned)
+        // REDUCED base amplitude - entities are accompaniment, not the star
+        const baseAmp = (proximity * 0.02 + syncPulse * 0.015 + breathBonus + lockBonus) * this.mass * this.life * crystalAmpMod;
 
-        const syncPulse = this.neighbors.length > 0 ? this.syncPhase * 0.08 : 0;
-        const breathBonus = field.depth * field.breath * 0.005;
-        const lockBonus = this.lockedIn ? 0.03 : 0;  // Slight boost when locked
+        // Apply gate - entities are SILENT when gate is closed
+        // THE FIX: No more constant drone. When gate closes, silence.
+        // Before: (0.6 + brightness) meant entities ALWAYS made sound
+        // After: (0.0 + brightness) means silence is the default, notes emerge from silence
+        const gatedAmp = baseAmp * (this.brightness * 0.3) * effectiveGate;
 
-        // VERY REDUCED base amplitude - entities are accompaniment
-        // Proximity matters less now - the melody handles melodic content
-        const baseAmp = (proximity * 0.008 + syncPulse * 0.008 + breathBonus + lockBonus) * this.mass * this.life * crystalAmpMod;
-
-        // Gate: entities pulse with the beat, creating rhythm texture
-        // But they're QUIET - background wash, not foreground
-        const gatedAmp = baseAmp * (0.3 + this.brightness * 0.2) * effectiveGate;
-
-        // In chaos: even quieter - let the melody speak
-        // When crystallized: entities add power but stay behind melody
-        const finalAmp = crystal > 0.1 ? gatedAmp : baseAmp * 0.15 * (0.3 + this.brightness * 0.2);
+        // MINIMUM GATE: In chaos, still apply some gating to prevent pure drone
+        // Even in chaos, we want discrete events, not continuous wash
+        const chaosGate = Math.max(0.1, effectiveGate);
+        const finalAmp = crystal > 0.1 ? gatedAmp : baseAmp * this.brightness * 0.2 * chaosGate;
 
         this.gain.gain.linearRampToValueAtTime(finalAmp, now + 0.06);
 
@@ -2559,10 +2456,10 @@ function updateSub() {
 function createVerb() {
     const input = ctx.createGain();
     const output = ctx.createGain();
-    // MINIMAL reverb - the melody needs CLARITY
-    // Reverb is for depth, not for drowning
-    output.gain.value = 0.12;
-    const baseGain = 0.12;
+    // REDUCED reverb - clarity over atmosphere
+    // Too much reverb = swooshy wash, not music
+    output.gain.value = 0.2;
+    const baseGain = 0.2;
 
     const times = [0.02, 0.05, 0.08, 0.13, 0.21, 0.34, 0.55, 0.89, 1.2, 1.6, 2.1, 2.8];
     times.forEach((t, i) => {
@@ -2591,10 +2488,9 @@ function createVerb() {
 function createDelay() {
     const input = ctx.createGain();
     const output = ctx.createGain();
-    // MINIMAL delay - notes need to be DISTINCT
-    // Delay adds space, not blur
-    output.gain.value = 0.08;
-    const baseGain = 0.08;
+    // REDUCED delay - notes should be distinct, not echo soup
+    output.gain.value = 0.12;
+    const baseGain = 0.12;
 
     const delayL = ctx.createDelay(2);
     const delayR = ctx.createDelay(2);
@@ -2636,18 +2532,18 @@ function createDelay() {
 function updateEffects() {
     const now = ctx.currentTime;
 
-    // Reverb: modest growth in deep states - clarity over atmosphere
-    const verbGain = verb.baseGain + field.depth * 0.15;
-    verb.output.gain.linearRampToValueAtTime(Math.min(0.35, verbGain), now + 0.1);
+    // Reverb grows in deep states - more spacious, ethereal
+    const verbGain = verb.baseGain + field.depth * 0.25 + field.breath * field.depth * 0.1;
+    verb.output.gain.linearRampToValueAtTime(Math.min(0.7, verbGain), now + 0.1);
 
-    // Delay: subtle - notes should be distinct
-    const dlyGain = dly.baseGain + field.depth * 0.08;
-    dly.output.gain.linearRampToValueAtTime(Math.min(0.2, dlyGain), now + 0.1);
+    // Delay grows subtly in deep states
+    const dlyGain = dly.baseGain + field.depth * 0.15;
+    dly.output.gain.linearRampToValueAtTime(Math.min(0.45, dlyGain), now + 0.1);
 
-    // Feedback: REDUCED - notes should END, not echo forever
-    const fbAmount = 0.15 + field.depth * 0.1;
-    dly.fbL.gain.linearRampToValueAtTime(Math.min(0.3, fbAmount), now + 0.15);
-    dly.fbR.gain.linearRampToValueAtTime(Math.min(0.25, fbAmount * 0.9), now + 0.15);
+    // Feedback increases for longer tails in deep states
+    const fbAmount = 0.32 + field.depth * 0.15;
+    dly.fbL.gain.linearRampToValueAtTime(Math.min(0.55, fbAmount), now + 0.15);
+    dly.fbR.gain.linearRampToValueAtTime(Math.min(0.5, fbAmount * 0.9), now + 0.15);
 }
 
 // ============ INIT ============
