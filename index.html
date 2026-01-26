@@ -1127,27 +1127,36 @@ function triggerTheDrop() {
 
     const now = ctx.currentTime;
 
-    // Brief silence before the drop
-    // Reduce all gains momentarily
+    // HANS ZIMMER MODE: The drop is CINEMATIC
+    // Longer silence for more tension
+    const silenceMs = CRYSTAL.DROP_SILENCE_MS * 1.5;
+
+    // Brief silence before the drop - COMPLETE silence
     master.gain.setValueAtTime(master.gain.value, now);
-    master.gain.linearRampToValueAtTime(0.1, now + CRYSTAL.DROP_SILENCE_MS / 1000);
+    master.gain.linearRampToValueAtTime(0.02, now + silenceMs / 1000);
 
-    // THE DROP - everything comes back HARD
-    master.gain.linearRampToValueAtTime(0.9, now + CRYSTAL.DROP_SILENCE_MS / 1000 + 0.02);
-    master.gain.linearRampToValueAtTime(0.7, now + 0.5);
+    // THE DROP - everything comes back MASSIVE
+    master.gain.linearRampToValueAtTime(1.0, now + silenceMs / 1000 + 0.02);
+    master.gain.linearRampToValueAtTime(0.85, now + 0.8);
 
-    // Trigger a strong beat at the drop
+    // TRIGGER THE BWAAAM at the drop moment
     setTimeout(() => {
+        triggerBwaaam();
+
+        // Also trigger kick for punch
+        playDrum('kick', 1.0);
+        playDrum('bass', 0.9);
+
         if (beatGain && ctx) {
             const dropNow = ctx.currentTime;
             beatOsc.frequency.setValueAtTime(BASE, dropNow);
-            beatOsc.frequency.exponentialRampToValueAtTime(BASE / 2, dropNow + 0.15);
+            beatOsc.frequency.exponentialRampToValueAtTime(BASE / 2, dropNow + 0.2);
             beatGain.gain.cancelScheduledValues(dropNow);
             beatGain.gain.setValueAtTime(0, dropNow);
-            beatGain.gain.linearRampToValueAtTime(0.35, dropNow + 0.01);
-            beatGain.gain.exponentialRampToValueAtTime(0.001, dropNow + 0.4);
+            beatGain.gain.linearRampToValueAtTime(0.5, dropNow + 0.01);
+            beatGain.gain.exponentialRampToValueAtTime(0.001, dropNow + 0.6);
         }
-    }, CRYSTAL.DROP_SILENCE_MS);
+    }, silenceMs);
 }
 
 // ============ GESTURE RECOGNITION ============
@@ -1609,19 +1618,23 @@ function getRegionalMode(x, y) {
 }
 
 // ============ SUPERSAW CONFIGURATION ============
-// When patterns lock in, the sound becomes MASSIVE
+// HANS ZIMMER MODE: Massive, cinematic, chest-shaking
+// When patterns lock in, the sound becomes LEGENDARY
 
 const SUPERSAW = {
-    VOICES: 7,                    // Number of saw oscillators per entity
-    MAX_DETUNE: 25,               // Maximum detune in cents when chaotic
-    MIN_DETUNE: 3,                // Minimum detune when locked (tight)
-    LOCK_THRESHOLD: 0.7,          // Pattern confidence to start locking
-    FIFTH_THRESHOLD: 0.8,         // Pattern confidence to add 5th
-    OCTAVE_THRESHOLD: 0.9,        // Pattern confidence to add octave
-    LOCK_RATE: 0.05,              // How fast detune tightens (per frame)
-    UNLOCK_RATE: 0.02,            // How fast detune loosens
+    VOICES: 16,                   // DOUBLED - more voices = more massive
+    MAX_DETUNE: 45,               // WIDER spread when chaotic - big stereo field
+    MIN_DETUNE: 2,                // TIGHTER when locked - laser focused power
+    LOCK_THRESHOLD: 0.6,          // Lock in faster
+    FIFTH_THRESHOLD: 0.7,         // 5th comes in earlier
+    OCTAVE_THRESHOLD: 0.8,        // Octave comes in earlier
+    LOCK_RATE: 0.08,              // Faster lock-in
+    UNLOCK_RATE: 0.015,           // Slower unlock - keep the power
     FIFTH_RATIO: 1.5,             // Perfect 5th
     OCTAVE_RATIO: 2.0,            // Octave
+    SUB_RATIO: 0.5,               // NEW: Sub-octave for CHEST-SHAKING bass
+    BRASS_ATTACK: 0.3,            // NEW: Slow attack for brass swells
+    INTENSITY_MULT: 1.8,          // NEW: Overall intensity multiplier
 };
 
 // ============ PITCH QUANTIZATION ============
@@ -1737,10 +1750,12 @@ function updateRhythmGate(dt) {
 }
 
 // ============ MELODIC VOICE ============
-// A clear, singing voice that plays NOTES not textures
-// This is the soul of the instrument
+// HANS ZIMMER MODE: Brass-like swells, epic phrases
+// This is the SOUL of the instrument
 
 let melodyOsc = null;
+let melodyOsc2 = null;            // Second oscillator for thickness
+let melodySubOsc = null;          // Sub oscillator for weight
 let melodyGain = null;
 let melodyFilter = null;
 let melodyEnv = 0;                // Current envelope value
@@ -1750,38 +1765,110 @@ let melodyNoteOn = false;         // Is a note currently playing?
 let lastMelodyNote = 0;           // When did we last play a note?
 let melodyPhrase = [];            // Current phrase in progress
 let melodyPhrasePos = 0;          // Position in phrase
+let melodyIntensity = 0;          // Builds over time for SWELLS
 
 const MELODY = {
-    GLIDE_RATE: 0.6,              // FAST glide - notes should JUMP, not slide
-    MIN_NOTE_INTERVAL: 0.08,      // Can play notes faster
+    GLIDE_RATE: 0.4,              // Slightly slower for more expressive glides
+    MIN_NOTE_INTERVAL: 0.1,       // Can play notes faster
     PHRASE_LENGTH: 4,             // Notes per phrase
-    PHRASE_REST: 0.3,             // Less rest between phrases - keep it musical
+    PHRASE_REST: 0.25,            // Less rest between phrases
     BASE_OCTAVE: 2,               // Melody starts at 2nd octave
     RANGE_OCTAVES: 2,             // Can span 2 octaves
+    SWELL_RATE: 0.02,             // How fast intensity builds
+    MAX_INTENSITY: 1.5,           // Maximum swell intensity
 };
 
 function createMelodyVoice() {
+    // MAIN OSCILLATOR - Sawtooth for brass-like tone
     melodyOsc = ctx.createOscillator();
+    melodyOsc.type = 'sawtooth';
+    melodyOsc.frequency.value = BASE * MELODY.BASE_OCTAVE;
+
+    // SECOND OSCILLATOR - Slightly detuned for thickness
+    melodyOsc2 = ctx.createOscillator();
+    melodyOsc2.type = 'sawtooth';
+    melodyOsc2.frequency.value = BASE * MELODY.BASE_OCTAVE * 1.003; // Slight detune
+
+    // SUB OSCILLATOR - Octave down for WEIGHT
+    melodySubOsc = ctx.createOscillator();
+    melodySubOsc.type = 'sine';
+    melodySubOsc.frequency.value = BASE * MELODY.BASE_OCTAVE * 0.5;
+
     melodyGain = ctx.createGain();
     melodyFilter = ctx.createBiquadFilter();
 
-    // Triangle wave for clarity
-    melodyOsc.type = 'triangle';
-    melodyOsc.frequency.value = BASE * MELODY.BASE_OCTAVE;
-
-    // Warm lowpass
+    // Lowpass filter - starts dark, opens with intensity
     melodyFilter.type = 'lowpass';
-    melodyFilter.frequency.value = 2000;
-    melodyFilter.Q.value = 1;
+    melodyFilter.frequency.value = 800;  // Start darker
+    melodyFilter.Q.value = 2;            // Slight resonance for brass character
 
     melodyGain.gain.value = 0;
 
-    melodyOsc.connect(melodyFilter);
+    // Mix oscillators
+    const osc1Gain = ctx.createGain();
+    osc1Gain.gain.value = 0.5;
+    const osc2Gain = ctx.createGain();
+    osc2Gain.gain.value = 0.35;
+    const subGain = ctx.createGain();
+    subGain.gain.value = 0.4;
+
+    melodyOsc.connect(osc1Gain);
+    melodyOsc2.connect(osc2Gain);
+    melodySubOsc.connect(subGain);
+
+    osc1Gain.connect(melodyFilter);
+    osc2Gain.connect(melodyFilter);
+    subGain.connect(melodyFilter);
+
     melodyFilter.connect(melodyGain);
     melodyGain.connect(master);
     melodyGain.connect(verb.input);
 
     melodyOsc.start();
+    melodyOsc2.start();
+    melodySubOsc.start();
+}
+
+// ============ THE BWAAAM ============
+// Hans Zimmer's signature: pitched-down brass hit with massive reverb
+let bwaaaamPlaying = false;
+
+function triggerBwaaam() {
+    if (bwaaaamPlaying || !ctx) return;
+    bwaaaamPlaying = true;
+
+    const now = ctx.currentTime;
+
+    // Multiple layered oscillators for the BWAAAM
+    const freqs = [BASE * 0.5, BASE * 0.5 * 1.01, BASE * 0.25, BASE * 1, BASE * 0.5 * 0.99];
+    const oscs = [];
+    const gains = [];
+
+    freqs.forEach((freq, i) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+
+        osc.type = i < 3 ? 'sawtooth' : 'sine';
+        osc.frequency.setValueAtTime(freq * 1.5, now);
+        osc.frequency.exponentialRampToValueAtTime(freq, now + 0.3); // Pitch drop
+
+        gain.gain.setValueAtTime(0, now);
+        gain.gain.linearRampToValueAtTime(0.4 / freqs.length, now + 0.05);
+        gain.gain.linearRampToValueAtTime(0.3 / freqs.length, now + 0.5);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 3);
+
+        osc.connect(gain);
+        gain.connect(master);
+        gain.connect(verb.input);
+
+        osc.start(now);
+        osc.stop(now + 3.5);
+
+        oscs.push(osc);
+        gains.push(gain);
+    });
+
+    setTimeout(() => { bwaaaamPlaying = false; }, 4000);
 }
 
 // Generate a melodic phrase based on movement
@@ -1868,23 +1955,34 @@ function updateMelodyVoice(dt) {
     // Glide toward target frequency
     const glideSpeed = MELODY.GLIDE_RATE * (1 + crystal * 2); // Faster glide when crystallized
     melodyCurrentFreq += (melodyTargetFreq - melodyCurrentFreq) * glideSpeed;
+
+    // Update ALL melody oscillators (HANS ZIMMER brass-like layers)
     melodyOsc.frequency.linearRampToValueAtTime(melodyCurrentFreq, now + 0.05);
+    if (melodyOsc2) {
+        melodyOsc2.frequency.linearRampToValueAtTime(melodyCurrentFreq * 1.003, now + 0.05);
+    }
+    if (melodySubOsc) {
+        melodySubOsc.frequency.linearRampToValueAtTime(melodyCurrentFreq * 0.5, now + 0.05);
+    }
 
     // Envelope follows the gate - DISTINCT notes, not legato smear
     if (currentNoteGate > 0.3) {
         // Fast attack when gate opens
         melodyEnv = Math.min(1, melodyEnv + dt * 20);
+        // Build intensity over time (SWELL)
+        melodyIntensity = Math.min(MELODY.MAX_INTENSITY, melodyIntensity + MELODY.SWELL_RATE);
     } else {
         // Faster decay - notes should END, not fade forever
         melodyEnv *= 0.85;
     }
 
-    // Filter opens with envelope
-    const filterFreq = 800 + melodyEnv * 2000 * crystal;
+    // HANS ZIMMER: Filter opens with envelope AND intensity (brass swell)
+    const filterFreq = 600 + melodyEnv * 3000 * crystal * melodyIntensity;
     melodyFilter.frequency.linearRampToValueAtTime(filterFreq, now + 0.05);
 
-    // Apply volume
-    melodyGain.gain.linearRampToValueAtTime(melodyEnv * melodyVolume, now + 0.05);
+    // Apply volume with intensity boost
+    const finalVolume = melodyEnv * melodyVolume * (0.7 + melodyIntensity * 0.3);
+    melodyGain.gain.linearRampToValueAtTime(finalVolume, now + 0.05);
 }
 
 // ============ ENTITY - A LIVING HARMONIC ============
@@ -1938,18 +2036,26 @@ class Entity {
     }
 
     createAudio() {
-        // ============ SUPERSAW: 7 detuned sawtooth oscillators ============
-        // Detune spread: centered, symmetric distribution
-        const detuneOffsets = [-1, -0.67, -0.33, 0, 0.33, 0.67, 1];
-
-        for (let i = 0; i < SUPERSAW.VOICES; i++) {
+        // ============ MASSIVE SUPERSAW: 16 detuned sawtooth oscillators ============
+        // HANS ZIMMER MODE: Wide stereo spread, massive unison
+        // Detune spread: symmetric distribution across 16 voices
+        const numVoices = SUPERSAW.VOICES; // Now 16
+        for (let i = 0; i < numVoices; i++) {
             const osc = ctx.createOscillator();
             osc.type = 'sawtooth';
             osc.frequency.value = this.freq;
-            // Store base detune offset (will be scaled by currentDetune)
-            this.sawDetunes.push(detuneOffsets[i]);
+            // Spread detune evenly from -1 to +1
+            const detuneOffset = (i / (numVoices - 1)) * 2 - 1;
+            this.sawDetunes.push(detuneOffset);
             this.sawOscs.push(osc);
         }
+
+        // ============ SUB OSCILLATOR: Chest-shaking bass ============
+        this.subOsc = ctx.createOscillator();
+        this.subOsc.type = 'sine';
+        this.subOsc.frequency.value = this.freq * SUPERSAW.SUB_RATIO;
+        this.subGain = ctx.createGain();
+        this.subGain.gain.value = 0.4; // Strong sub presence
 
         // ============ STACKED 5THS: 5th and octave for massive chords ============
         this.fifthOsc = ctx.createOscillator();
@@ -2002,6 +2108,10 @@ class Entity {
         this.fifthGain.connect(this.filter);
         this.octaveGain.connect(this.filter);
 
+        // Sub oscillator goes direct to gain (bypass filter for deep bass)
+        this.subOsc.connect(this.subGain);
+        this.subGain.connect(this.gain);
+
         this.filter.connect(this.gain);
         this.gain.connect(this.pan);
         this.pan.connect(master);
@@ -2014,6 +2124,7 @@ class Entity {
         }
         this.fifthOsc.start();
         this.octaveOsc.start();
+        this.subOsc.start();  // Start sub oscillator
         this.mod.start();
     }
 
@@ -2026,6 +2137,7 @@ class Entity {
             }
             this.fifthOsc.stop();
             this.octaveOsc.stop();
+            this.subOsc.stop();  // Stop sub oscillator
             this.mod.stop();
         }, 600);
     }
@@ -2253,19 +2365,25 @@ class Entity {
         // DRASTICALLY reduced so drums punch through
         const syncPulse = this.neighbors.length > 0 ? this.syncPhase * 0.08 : 0;
         const breathBonus = field.depth * field.breath * 0.005;
-        const lockBonus = this.lockedIn ? 0.03 : 0;
-        // Much quieter base - let the drums breathe
-        const baseAmp = (proximity * 0.008 + syncPulse * 0.006 + breathBonus + lockBonus) * this.mass * this.life * crystalAmpMod;
+        const lockBonus = this.lockedIn ? 0.08 : 0;  // BIGGER lock bonus
+        // HANS ZIMMER MODE: Entities are MASSIVE when locked, quiet when chaotic
+        const intensityMult = SUPERSAW.INTENSITY_MULT;
+        const baseAmp = (proximity * 0.015 + syncPulse * 0.012 + breathBonus + lockBonus) * this.mass * this.life * crystalAmpMod * intensityMult;
 
         // Apply gate - silence when gate is closed
-        const gatedAmp = baseAmp * (this.brightness * 0.2) * effectiveGate;
+        const gatedAmp = baseAmp * (this.brightness * 0.4) * effectiveGate;
 
-        // In chaos, even quieter - we want to hear the DRUMS not the swoosh
+        // DYNAMIC RANGE: Chaos is quiet, locked is MASSIVE
         const chaosGate = Math.max(0.05, effectiveGate);
-        const finalAmp = crystal > 0.1 ? gatedAmp : baseAmp * this.brightness * 0.1 * chaosGate;
+        const finalAmp = crystal > 0.1 ? gatedAmp : baseAmp * this.brightness * 0.15 * chaosGate;
 
-        // Entities should barely be audible - they're atmosphere, not the song
-        this.gain.gain.linearRampToValueAtTime(Math.min(finalAmp, 0.04), now + 0.06);
+        // HANS ZIMMER: Let the entities BREATHE with the music - much higher cap when locked
+        const maxAmp = this.lockedIn ? 0.15 : 0.08;
+        this.gain.gain.linearRampToValueAtTime(Math.min(finalAmp, maxAmp), now + 0.06);
+
+        // Update sub oscillator gain - deeper when locked
+        const subLevel = this.lockedIn ? 0.5 : 0.25;
+        this.subGain.gain.linearRampToValueAtTime(subLevel * finalAmp * 3, now + 0.06);
 
         // Filter - opens more in deep states, modulated by breath, tension, AND outliers
         // Also opens when locked in for brighter sound

@@ -115,7 +115,6 @@ function runClaudeCode(prompt) {
 
     const claude = spawn('claude', [
       '--dangerously-skip-permissions',
-      '--max-turns', '10',
       '-p',
       '-'
     ], {
