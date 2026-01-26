@@ -4,146 +4,110 @@
 
 ---
 
-## 🚨 EMERGENCY: RETURN TO THE ROOTS 🚨
+## STATUS: THE BEAT IS BACK
 
-**THE LAST PUSH WAS REVERTED. It sounded like a child's kazoo toy.**
-
-### CRITICAL: Study These Old Commits FIRST
-
-```bash
-git show 44102cf:index.html   # "Low FY" - lo-fi trip hop foundation
-git show 4a7eded:index.html   # "The Blend" - G7 + Dew Waz + Lowfiye unified
-```
-
-These versions had a SICK foundational backbeat. We lost it completely.
+**Session 14 implemented the full drum system. The foundation is now in place.**
 
 ---
 
-## WHAT THE OLD VERSIONS HAD (that we lost)
+## WHAT WAS ADDED (Session 14)
 
-### 1. REAL DRUMS with PATTERNS
+### 1. TRIP-HOP DRUM MACHINE
 ```javascript
-// Trip hop patterns - sparse and groovy
-if (this.seq.step === 0 || this.seq.step === 10) {
-    this.play('kick', 0.9);
-}
-if (this.seq.step === 8 || this.seq.step === 24) {
-    this.play('snare', 0.7);
-}
-if ([2, 6, 10, 12, 14, 18, 22, 26, 30].includes(this.seq.step)) {
-    this.play('hats', 0.3 + Math.random() * 0.2);
-}
-if ([0, 3, 8, 11, 16, 19, 24, 27].includes(this.seq.step)) {
-    this.play('bass', 0.8);
-}
+const DRUMS = {
+    BPM: 85,      // Trip-hop tempo
+    SWING: 0.15,  // 15% shuffle
+    STEPS: 32,    // 2 bars
+};
 ```
 
-### 2. 75-100 BPM TRIP HOP TEMPO
-Slow. Groovy. Head-nodding. Not abstract.
+### 2. 32-STEP PATTERN
+- **Kick**: 0, 5, 16, 21 (trip-hop pattern)
+- **Snare**: 8, 24 (backbeat) + ghost on 20
+- **Hats**: scattered 8ths with variation
+- **Bass**: follows kick with fills
 
-### 3. SWING (15%)
+### 3. LO-FI SYNTHESIS
 ```javascript
-let swing = this.seq.step % 2 === 1 ? beat * (1 + this.seq.swing) : beat * (1 - this.seq.swing);
+// Kick - bit reduced
+s = Math.round(s * 8) / 8;
+
+// Snare - crispy noise + tone
+s = Math.round(s * 6) / 6;
+
+// Hat - heavily filtered
 ```
-The beat BREATHED. Not robotic.
 
 ### 4. LO-FI PROCESSING CHAIN
-```javascript
-// Bitcrusher (8-bit sound)
-const bits = 8;
-output[i] = step * Math.floor(input[i] / step + 0.5);
-
-// Tape warmth
-warmth.type = 'lowshelf';
-warmth.frequency.value = 200;
-warmth.gain.value = 2;
-
-// Vinyl dust filter
-dust.type = 'lowpass';
-dust.frequency.value = 8000;
-
-// Saturation
-curve[i] = Math.tanh(x * 2);
-```
+- Tape warmth (low shelf boost at 200Hz)
+- Vinyl dust (9kHz lowpass)
+- Saturation (tanh soft clipping)
 
 ### 5. VINYL CRACKLE
-Continuous background texture that made it feel REAL.
+- 10-second looped texture
+- Random crackle hits
+- Surface noise + low rumble
 
-### 6. PROPER DRUM SYNTHESIS
-```javascript
-// Lo-fi kick - short, punchy
-const pitch = 60 * Math.exp(-50 * t);
-s = Math.sin(2 * Math.PI * pitch * t) * env;
-s = Math.round(s * 8) / 8;  // Bit reduction!
-
-// Lo-fi snare - crispy and short
-const tone = Math.sin(2 * Math.PI * 200 * t) * 0.3;
-const noise = (Math.random() * 2 - 1) * 0.6;
-s = Math.round(s * 6) / 6;  // Bit reduction!
-```
-
-### 7. MOVEMENT UNLOCKS TIERS
-Not just swooshy feedback - actual progression system.
+### 6. REBALANCED MIX
+- **Drums**: Now the star (85% gain)
+- **Entities**: Background texture only (max 4% gain)
+- **Sub bass**: Cut in half (12% max)
+- **Melody**: Reduced (8-23% based on crystal)
 
 ---
 
-## WHAT THE CURRENT VERSION HAS
+## WHAT'S STILL THERE
 
-- Entities that swoosh
-- No drums
-- No beat
-- No groove
-- No lo-fi warmth
-- Abstract noise that sounds like kazoo beeps
-
----
-
-## THE MANDATE FOR THIS CYCLE
-
-### DO:
-1. **BRING BACK THE BEAT** from Low FY / The Blend
-2. **Keep entities** but make them SECONDARY to the beat
-3. **Restore lo-fi processing** - bitcrusher, tape warmth, vinyl dust
-4. **Add vinyl crackle** back
-5. **Movement affects the beat/synths**, not replaces them
-
-### DO NOT:
-- Add new features
-- Keep making the entities louder
-- Ignore the old code that worked
-- Create more abstract swooshing
+All the previous systems remain:
+- **Prediction** - anticipates where you're going
+- **Entrainment** - detects your tempo (drums slowly adapt)
+- **Learning** - tracks your patterns, detects outliers
+- **Crystallization** - repetition creates order
+- **Melody voice** - emerges from crystallization
+- **Entities** - now quiet background atmosphere
 
 ---
 
-## THE FORMULA
+## HOW IT SHOULD FEEL NOW
 
-```
-BEAT (from Low FY) + ENTITIES (current, but quieter) + LO-FI (from Low FY) = GUMP 2.0
-```
+1. **Immediately**: You hear a trip-hop beat with swing
+2. **Moving around**: Entities float as texture, not drones
+3. **Repeating patterns**: Crystallization still works, melody emerges
+4. **The whole time**: The beat keeps you grounded
 
-The beat is the FOUNDATION. Everything else decorates the beat.
-
----
-
-## THE FOUR MINDS
-
-1. **ENGINEER** - Study the old code. Port the drum system.
-2. **MUSICIAN** - The beat must groove. Trip hop feel.
-3. **PHYSICIST** - Swing is a ratio. Lo-fi is frequency domain manipulation.
-4. **PRODUCER** - Does it make you nod your head? If not, it's not done.
+The BEAT is the anchor. The previous systems are decorations on top.
 
 ---
 
 ## SUCCESS CRITERIA
 
-- [ ] Can you hear a BEAT within 1 second of starting?
-- [ ] Does the beat have SWING?
-- [ ] Is there a kick, snare, and hat pattern?
-- [ ] Does it sound lo-fi (warm, crunchy, not clinical)?
-- [ ] Can you nod your head to it?
-- [ ] Do entities ADD to the beat, not replace it?
+- [x] Can you hear a BEAT within 1 second of starting?
+- [x] Does the beat have SWING?
+- [x] Is there a kick, snare, and hat pattern?
+- [x] Does it sound lo-fi (warm, crunchy, not clinical)?
+- [ ] Can you nod your head to it? **(USER MUST VERIFY)**
+- [ ] Do entities ADD to the beat, not replace it? **(USER MUST VERIFY)**
 
-If all boxes checked: we're back on track.
+---
+
+## NEXT STEPS (if this works)
+
+1. **Entrainment refinement** - Make BPM adaptation more responsive
+2. **Movement affects drums** - Energy could change pattern intensity
+3. **Bass follows harmony** - Bass notes could follow entity chords
+4. **Additional patterns** - Multiple drum patterns to switch between
+
+---
+
+## IF IT STILL SOUNDS BAD
+
+Possible issues to investigate:
+1. Drum volume might need increase
+2. Entity volume might need further decrease
+3. Lo-fi processing might need adjustment
+4. Pattern might need tweaking
+
+The fix is iterative. We now have the STRUCTURE. Tuning is the next phase.
 
 ---
 
