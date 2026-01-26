@@ -127,6 +127,39 @@ If not: keep cutting.
 
 ---
 
+## THE HANS ZIMMER MANDATE
+
+We are not making a synth app. We are making a CINEMATIC EXPERIENCE.
+
+### Study These:
+1. **Time (Inception)** - How it builds from nothing to everything
+2. **No Time for Caution (Interstellar)** - The organ swells, the urgency
+3. **Blade Runner 2049** - Massive synths that feel ALIVE
+4. **The Dark Knight** - Two notes. ICONIC.
+
+### What Zimmer Understands:
+- **SIMPLICITY** - The best themes are 2-4 notes
+- **DYNAMICS** - Whisper to ROAR
+- **TENSION** - Hold the dissonance until it HURTS, then resolve
+- **SPACE** - Silence is as important as sound
+- **LAYERS** - Start with one voice, end with an orchestra
+- **EMOTION** - Every note serves a feeling
+
+### The Sound Palette:
+- **Massive unison saws** (32+ voices, huge detune)
+- **Brass simulation** (filtered saws, slow attack)
+- **Sub harmonics** (octave-down sines that shake your chest)
+- **Tension clusters** (dissonant notes that want to resolve)
+- **The BWAAAM** (pitched-down brass hit, long reverb)
+- **Orchestral swells** (volume + filter + layers building)
+
+### The Goal:
+When someone moves their phone, they should feel like they're conducting the Inception soundtrack.
+
+Not playing a toy. CONDUCTING A FUCKING ORCHESTRA.
+
+---
+
 *"The goal is not to make something. The goal is to discover something that already exists."*
 
 — The Producer
