@@ -27,8 +27,8 @@ const CONFIG = {
   gumpDir: join(__dirname, '.gump'),
   logsDir: join(__dirname, '.gump', 'logs'),
 
-  // Claude Code timeout (10 minutes max per cycle)
-  claudeTimeout: 600000,
+  // Claude Code timeout (3 minutes max per cycle - FAST MODE)
+  claudeTimeout: 180000,
 };
 
 // ============ STATE ============
@@ -115,6 +115,7 @@ function runClaudeCode(prompt) {
 
     const claude = spawn('claude', [
       '--dangerously-skip-permissions',
+      '--max-turns', '3',
       '-p',
       '-'
     ], {
