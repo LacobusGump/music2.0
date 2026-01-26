@@ -1407,11 +1407,11 @@ function quantizeToScale(freq, strength) {
 
 const RHYTHM = {
     SUBDIVISIONS: 4,              // 16th notes (4 per beat)
-    GATE_ATTACK: 0.01,            // Note attack time (10ms)
-    GATE_RELEASE: 0.15,           // Note release time (150ms)
+    GATE_ATTACK: 0.005,           // Note attack time (5ms) - SNAPPIER
+    GATE_RELEASE: 0.08,           // Note release time (80ms) - FASTER release = more silence
     SWING: 0.1,                   // Shuffle amount (0-0.5)
-    REST_PROBABILITY_CHAOS: 0.7,  // 70% rest in chaos
-    REST_PROBABILITY_LOCKED: 0.2, // 20% rest when locked
+    REST_PROBABILITY_CHAOS: 0.85, // 85% rest in chaos - MORE SILENCE
+    REST_PROBABILITY_LOCKED: 0.35,// 35% rest when locked - STILL SOME SILENCE
 };
 
 // Track which beat subdivision we're on
@@ -1455,10 +1455,13 @@ function updateRhythmGate(dt) {
     }
 
     // Gate envelope - attack/release
-    if (noteTriggered && currentNoteGate < 1) {
+    // THE KEY: Notes should have REAL attack and REAL silence after
+    if (noteTriggered && subdivisionPhase < 0.4) {
+        // Note ON - fast attack
         currentNoteGate = Math.min(1, currentNoteGate + dt / RHYTHM.GATE_ATTACK);
-    } else if (!noteTriggered || subdivisionPhase > 0.5) {
-        // Release after midpoint of subdivision
+    } else {
+        // Note OFF - must reach ZERO to create silence
+        // Aggressive release - silence is part of the music!
         currentNoteGate = Math.max(0, currentNoteGate - dt / RHYTHM.GATE_RELEASE);
     }
 }
@@ -1479,10 +1482,10 @@ let melodyPhrase = [];            // Current phrase in progress
 let melodyPhrasePos = 0;          // Position in phrase
 
 const MELODY = {
-    GLIDE_RATE: 0.15,             // How fast pitch glides (lower = slower)
-    MIN_NOTE_INTERVAL: 0.1,       // Minimum time between notes
+    GLIDE_RATE: 0.6,              // FAST glide - notes should JUMP, not slide
+    MIN_NOTE_INTERVAL: 0.08,      // Can play notes faster
     PHRASE_LENGTH: 4,             // Notes per phrase
-    PHRASE_REST: 0.5,             // Rest between phrases (seconds)
+    PHRASE_REST: 0.3,             // Less rest between phrases - keep it musical
     BASE_OCTAVE: 2,               // Melody starts at 2nd octave
     RANGE_OCTAVES: 2,             // Can span 2 octaves
 };
@@ -1553,14 +1556,16 @@ function updateMelodyVoice(dt) {
     const now = ctx.currentTime;
     const crystal = crystalState.crystallization;
 
-    // Melody becomes more prominent as crystallization increases
-    // In chaos: silent or very quiet. Locked: clear singing voice
-    const melodyVolume = crystal * 0.12;
+    // Melody is THE MAIN VOICE - it should be LOUD and CLEAR
+    // Not buried under entity noise. This is the SONG.
+    // Even in partial crystallization, the melody should sing clearly
+    const melodyVolume = 0.15 + crystal * 0.25; // 15% minimum, up to 40% when locked
 
-    // Only play melody when there's enough crystallization
-    if (crystal < 0.3) {
-        melodyEnv *= 0.95; // Fade out
-        melodyGain.gain.linearRampToValueAtTime(melodyEnv * melodyVolume, now + 0.05);
+    // Melody starts playing almost immediately - it IS the instrument
+    // Users need to hear NOTES from the start, not wait for crystallization
+    if (crystal < 0.1) {
+        melodyEnv *= 0.9; // Fade out faster when truly chaotic
+        melodyGain.gain.linearRampToValueAtTime(melodyEnv * melodyVolume * 0.5, now + 0.05);
         return;
     }
 
@@ -1595,11 +1600,13 @@ function updateMelodyVoice(dt) {
     melodyCurrentFreq += (melodyTargetFreq - melodyCurrentFreq) * glideSpeed;
     melodyOsc.frequency.linearRampToValueAtTime(melodyCurrentFreq, now + 0.05);
 
-    // Envelope follows the gate
-    if (currentNoteGate > 0.1) {
-        melodyEnv = Math.min(1, melodyEnv + dt * 10);
+    // Envelope follows the gate - DISTINCT notes, not legato smear
+    if (currentNoteGate > 0.3) {
+        // Fast attack when gate opens
+        melodyEnv = Math.min(1, melodyEnv + dt * 20);
     } else {
-        melodyEnv *= 0.92;
+        // Faster decay - notes should END, not fade forever
+        melodyEnv *= 0.85;
     }
 
     // Filter opens with envelope
@@ -1971,15 +1978,26 @@ class Entity {
         const gateInfluence = crystal; // 0 = no gating, 1 = full gating
         const effectiveGate = 1 - gateInfluence + gateInfluence * currentNoteGate;
 
-        // Amplitude: proximity + sync pulse + life + breath + crystallization + GATE
-        const syncPulse = this.neighbors.length > 0 ? this.syncPhase * 0.3 : 0;
-        const breathBonus = field.depth * field.breath * 0.02;
-        const lockBonus = this.lockedIn ? 0.04 : 0;  // Louder when locked
-        const baseAmp = (proximity * 0.035 + syncPulse * 0.02 + breathBonus + lockBonus) * this.mass * this.life * crystalAmpMod;
+        // Amplitude: entities are TEXTURE, not the melody
+        // They should be quiet background, not competing with the melody
+        const syncPulse = this.neighbors.length > 0 ? this.syncPhase * 0.15 : 0; // HALVED
+        const breathBonus = field.depth * field.breath * 0.01;
+        const lockBonus = this.lockedIn ? 0.06 : 0;  // Louder when locked (earned)
+        // REDUCED base amplitude - entities are accompaniment, not the star
+        const baseAmp = (proximity * 0.02 + syncPulse * 0.015 + breathBonus + lockBonus) * this.mass * this.life * crystalAmpMod;
 
-        // Apply gate - entities fade in/out with the rhythm when crystallized
-        const gatedAmp = baseAmp * (0.6 + this.brightness * 0.5) * effectiveGate;
-        this.gain.gain.linearRampToValueAtTime(gatedAmp, now + 0.06);
+        // Apply gate - entities are SILENT when gate is closed
+        // THE FIX: No more constant drone. When gate closes, silence.
+        // Before: (0.6 + brightness) meant entities ALWAYS made sound
+        // After: (0.0 + brightness) means silence is the default, notes emerge from silence
+        const gatedAmp = baseAmp * (this.brightness * 0.3) * effectiveGate;
+
+        // MINIMUM GATE: In chaos, still apply some gating to prevent pure drone
+        // Even in chaos, we want discrete events, not continuous wash
+        const chaosGate = Math.max(0.1, effectiveGate);
+        const finalAmp = crystal > 0.1 ? gatedAmp : baseAmp * this.brightness * 0.2 * chaosGate;
+
+        this.gain.gain.linearRampToValueAtTime(finalAmp, now + 0.06);
 
         // Filter - opens more in deep states, modulated by breath, tension, AND outliers
         // Also opens when locked in for brighter sound
@@ -2397,13 +2415,16 @@ function updateSub() {
         field.pulse = field.pulse * 0.9 + globalPulse * 0.1;
     }
 
-    // Sub amplitude - breathes with the cosmos in deep states
-    const baseAmp = 0.12 + field.stillness * 0.08;
-    const pulseAmp = field.pulse * 0.1;
-    const breathAmp = field.depth * field.breath * 0.08;
-    const constellationBonus = field.constellations.length * 0.02;
+    // Sub bass - should SUPPORT the music, not drown it
+    // Reduced base amp, more responsive to actual musical events
+    const baseAmp = 0.06 + field.stillness * 0.04; // HALVED from before
+    const pulseAmp = field.pulse * 0.08;
+    const breathAmp = field.depth * field.breath * 0.05;
+    const constellationBonus = field.constellations.length * 0.015;
+    // Only bring up sub when crystallized - it's the BASS, not the SONG
+    const crystalBonus = crystalState.crystallization * 0.08;
     sub.gain.gain.linearRampToValueAtTime(
-        Math.min(0.35, baseAmp + pulseAmp + breathAmp + constellationBonus),
+        Math.min(0.25, baseAmp + pulseAmp + breathAmp + constellationBonus + crystalBonus),
         now + 0.1
     );
 
@@ -2435,8 +2456,10 @@ function updateSub() {
 function createVerb() {
     const input = ctx.createGain();
     const output = ctx.createGain();
-    output.gain.value = 0.35;
-    const baseGain = 0.35;
+    // REDUCED reverb - clarity over atmosphere
+    // Too much reverb = swooshy wash, not music
+    output.gain.value = 0.2;
+    const baseGain = 0.2;
 
     const times = [0.02, 0.05, 0.08, 0.13, 0.21, 0.34, 0.55, 0.89, 1.2, 1.6, 2.1, 2.8];
     times.forEach((t, i) => {
@@ -2465,8 +2488,9 @@ function createVerb() {
 function createDelay() {
     const input = ctx.createGain();
     const output = ctx.createGain();
-    output.gain.value = 0.22;
-    const baseGain = 0.22;
+    // REDUCED delay - notes should be distinct, not echo soup
+    output.gain.value = 0.12;
+    const baseGain = 0.12;
 
     const delayL = ctx.createDelay(2);
     const delayR = ctx.createDelay(2);
@@ -2475,8 +2499,9 @@ function createDelay() {
 
     const fbL = ctx.createGain();
     const fbR = ctx.createGain();
-    fbL.gain.value = 0.32;
-    fbR.gain.value = 0.28;
+    // REDUCED feedback - notes shouldn't echo forever
+    fbL.gain.value = 0.2;
+    fbR.gain.value = 0.15;
 
     const filterL = ctx.createBiquadFilter();
     const filterR = ctx.createBiquadFilter();

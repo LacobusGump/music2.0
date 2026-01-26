@@ -1227,3 +1227,113 @@ The journey is now: NOISE → TEXTURE → NOTES → MELODY → SONG
 ---
 
 *End of Session 12*
+
+---
+
+## Session 13 - January 26, 2026
+
+### THE BRUTAL TRUTH: We Lied to Ourselves
+
+**MUSICIAN**: I just read the user's feedback again. "It still sounds like a swooshy mess without any organization." All our "completed" features? The user can't hear them. We've been writing documentation about imaginary progress.
+
+**ENGINEER**: I traced the code. Here's what we actually built:
+1. Entities have `gain.gain.value` that NEVER goes to zero
+2. The "rhythmic gating" formula was: `gatedAmp = baseAmp * (0.6 + brightness) * effectiveGate`
+3. See that 0.6? Even with perfect gating (effectiveGate=0), entities make 60% of their sound
+4. The melody was at 12% volume MAX. Entities hit much higher.
+5. 7 sawtooth oscillators per entity × 24 entities = 168 oscillators constantly droning
+
+**PHYSICIST**: The math doesn't lie. We created a system where:
+- Silence was mathematically impossible
+- Notes couldn't emerge because there was no silence for them to emerge FROM
+- The melody was quieter than the background texture
+
+**MUSICIAN**: We built TEXTURE first and hoped NOTES would poke through. That's like painting a wall solid black and hoping people can see the details. Music needs silence as the canvas.
+
+---
+
+### What We Were Avoiding
+
+**ENGINEER**: The truth? We were afraid to break things. "Preserve the vibe" became "change nothing." We added features on top of a broken foundation instead of fixing the foundation.
+
+**PHYSICIST**: The crystallization system was beautiful math. The entrainment system was elegant. The prediction system was clever. But they were all controlling... a constant drone. Sophisticated control over garbage output.
+
+**MUSICIAN**: We built a sports car engine and attached it to a shopping cart. All that power, nowhere useful to go.
+
+---
+
+### The Actual Fix
+
+**ENGINEER**: I changed the core amplitude formula:
+
+BEFORE:
+```javascript
+gatedAmp = baseAmp * (0.6 + brightness * 0.5) * effectiveGate;
+```
+
+AFTER:
+```javascript
+gatedAmp = baseAmp * (brightness * 0.3) * effectiveGate;
+```
+
+The 0.6 is GONE. Entities now start SILENT and only make sound when:
+1. They have brightness (from movement/activity)
+2. The gate is open (on the beat grid)
+
+**PHYSICIST**: Other changes:
+- Melody volume: 12% → 15-40% (finally audible!)
+- Entity base amplitude: HALVED
+- Reverb: 35% → 20% (less wash)
+- Delay feedback: 32% → 20% (notes end instead of echo forever)
+- Gate release: 150ms → 80ms (faster silence between notes)
+- Rest probability in chaos: 70% → 85% (more silence!)
+
+**MUSICIAN**: The key insight: SILENCE IS PART OF MUSIC. We had zero silence. Now we have gaps. And in those gaps, the notes can actually be heard.
+
+---
+
+### What Should Change Now
+
+**MUSICIAN**: When you move the phone:
+- Chaos: Mostly silence with occasional notes poking through
+- Forming: Notes start appearing more regularly, on a beat grid
+- Crystallizing: Clear melody emerges, entities support it
+- Locked: MUSIC - melody singing, entities pulsing, everything tight
+
+**ENGINEER**: The difference should be OBVIOUS. Before: constant swoosh. After: actual notes with silence between them. A child should be able to tell "that's music."
+
+**PHYSICIST**: The test is simple: can you hum along to it? If it's just texture, you can't hum it. If it has melody and rhythm, you can.
+
+---
+
+### What We Learned About Ourselves
+
+**ENGINEER**: We got lost in complexity. Prediction, entrainment, learning, crystallization - all brilliant systems controlling... nothing useful. We should have started with "make it play a note" and built from there.
+
+**MUSICIAN**: We were building a synthesizer, not an instrument. Synthesizers make interesting sounds. Instruments make music. The difference is: instruments have notes, silence, rhythm, melody. We had none of those until now.
+
+**PHYSICIST**: The lesson: sophisticated systems need simple foundations. You can't build complex emergent behavior on top of broken basics. The basics were broken. Now they're fixed.
+
+---
+
+### Honest Assessment
+
+**ALL**: Is this the breakthrough? Maybe. It should be RADICALLY different:
+- Before: Continuous swooshing noise that changes texture
+- After: Discrete notes with silence between them, melody audible
+
+If the user still hears "swooshy mess," we need to be even more aggressive:
+- More silence
+- Louder melody
+- Quieter entities
+- Shorter note durations
+
+But this is the right DIRECTION. For the first time, we're building music from silence instead of trying to carve music out of noise.
+
+---
+
+*"The first draft of everything is garbage." — But eventually you have to stop writing drafts and start fixing the garbage.*
+
+---
+
+*End of Session 13*
