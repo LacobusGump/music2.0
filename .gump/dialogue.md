@@ -1749,3 +1749,143 @@ If this is wrong, we need to iterate. But at least we're finally building what t
 ---
 
 *End of Session 16*
+
+---
+
+## Session 17 - January 27, 2026
+
+### THE BRUTAL TRUTH: What Are We Actually Avoiding?
+
+**ENGINEER**: I reviewed the codebase. Session 16 was a complete rebuild - we went from 456 oscillators to 9. From chaos to simplicity. The code is clean now: one active voice, orbs that become layers, harmonic probability. But there's still something missing.
+
+**PHYSICIST**: What's missing is ANTICIPATION. The system is reactive. User tilts → sound follows. User records layer → layer plays. There's no sense that the system KNOWS you. It doesn't predict. It doesn't expect. It just responds.
+
+**MUSICIAN**: The difference between a toy and an instrument is that an instrument feels like a conversation. Right now, we're talking AT the user, not WITH them.
+
+---
+
+### What We Were Avoiding
+
+**ENGINEER**: We've been avoiding prediction for 17 sessions. We talked about it in Session 7 - we even "shipped" it supposedly. But looking at the current code? Zero prediction. The velocity is tracked (`field.vx`, `field.vy`) but never used for the future. We calculate it and throw it away.
+
+**PHYSICIST**: That's embarrassing. We have the data. We just never used it.
+
+**MUSICIAN**: Why?
+
+**ENGINEER**: Because prediction is scary. If you predict wrong, the user notices. It feels jarring. So we avoided it. We built "safe" features that couldn't fail - harmonic probability, volume scaling, visual feedback. Nothing that requires us to make a bet about the future.
+
+**PHYSICIST**: But that's exactly what makes an instrument feel alive. A good accompanist ANTICIPATES the soloist. They're not always right, but when they are, it's magic. And when they're wrong, the tension is musically interesting.
+
+---
+
+### The Implementation
+
+**ENGINEER**: Here's what I built:
+
+**Prediction State:**
+```javascript
+field.px, field.py          // Predicted position (100ms ahead)
+field.predictionError       // How wrong was our last prediction
+field.predictionTension     // Musical tension from wrong predictions
+field.orb.predictedFreq     // Where we predict the pitch will be
+```
+
+**The Algorithm:**
+```javascript
+// Look 100ms into the future
+rawPredicted = current + velocity * framesAhead
+predicted = smooth(clamp(rawPredicted))
+
+// Calculate how wrong we were
+error = distance(lastPrediction, actualPosition)
+tension = buildup when error > threshold
+tension *= 0.92 each frame (decay)
+```
+
+**Where Prediction Is Used:**
+
+1. **Harmony Selection**: When recording a layer, we blend current pitch with predicted pitch. Confident prediction = stronger blend toward where user is GOING.
+
+2. **Quantization Strength**: When prediction is confident, we quantize more strongly to the harmonic grid. When prediction fails (direction change), we allow more raw pitch.
+
+3. **Active Voice Tension**: Wrong prediction → pitch wobble, brighter filter, slightly louder. This makes direction changes sound "surprising."
+
+4. **Visual Feedback**: Blue ghost dot shows predicted position. Red ring flashes when prediction fails. "predicting..." or "surprise!" text feedback.
+
+---
+
+### What The User Will Notice
+
+**MUSICIAN**: How does this FEEL different?
+
+**PHYSICIST**: When moving steadily in one direction:
+- The blue ghost appears ahead of you
+- "predicting..." shows in the corner
+- When you record a layer, it subtly anticipates where you were GOING
+- The harmonization feels slightly... prescient
+
+When you suddenly change direction:
+- The red tension ring flashes
+- "surprise!" appears
+- The sound gets brighter, slightly wobbly
+- Then settles as prediction catches up
+
+**ENGINEER**: The key insight: PREDICTION ERROR IS INFORMATION. A direction change means the user did something unexpected. That's musically interesting. We make it audible instead of hiding it.
+
+---
+
+### Honest Self-Criticism
+
+**PHYSICIST**: What's still wrong?
+
+**ENGINEER**: Several things:
+
+1. **Simple extrapolation only** - We just project velocity forward. A smarter system would recognize gesture patterns (oscillating motion, circular sweeps) and predict based on motion type.
+
+2. **No entrainment yet** - Prediction is about POSITION. We don't predict TEMPO. The layer system has no beat grid - everything is free-time.
+
+3. **No learning** - We don't remember what the user typically does. Every session starts from zero knowledge.
+
+**MUSICIAN**: But those are the other two hard problems. This session was about prediction. And prediction is now SHIPPED.
+
+**PHYSICIST**: Is it actually working? Or did we just write code that claims to predict but doesn't affect anything meaningful?
+
+**ENGINEER**: Let me trace it:
+- `updatePrediction()` is called every frame ✓
+- `field.px/py` are calculated from velocity ✓
+- `recordLayer()` uses `field.orb.predictedFreq` and `field.predictionTension` ✓
+- `updateActiveVoice()` uses `field.predictionTension` for wobble/filter/volume ✓
+- `draw()` renders prediction ghost and tension ring ✓
+
+The code is connected. Whether it FEELS right is an empirical question.
+
+---
+
+### The Test
+
+**MUSICIAN**: How do we know if this worked?
+
+**PHYSICIST**: The user should notice:
+- "It knew where I was going" - when moving steadily and recording
+- "That surprised it" - when changing direction suddenly
+- A subtle difference between predictable and unpredictable movement
+
+**ENGINEER**: If they don't notice anything, we need to increase the effect sizes. Make prediction more audible. Make tension more dramatic.
+
+**MUSICIAN**: But we should ship first and see. Over-engineering the effect before testing is how we got into trouble before.
+
+---
+
+### What We Learned
+
+**ALL**: We avoided prediction for 17 sessions because we were afraid of being wrong. But being wrong is INTERESTING. The tension from wrong prediction adds musicality, not noise.
+
+The new insight: **Don't hide failure. Make it audible. Surprise is part of music.**
+
+---
+
+*"Anticipation is what separates a toy from an instrument. Even when you're wrong, the attempt to predict creates conversation."*
+
+---
+
+*End of Session 17*
