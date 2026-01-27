@@ -1889,3 +1889,151 @@ The new insight: **Don't hide failure. Make it audible. Surprise is part of musi
 ---
 
 *End of Session 17*
+
+---
+
+## Session 18 - January 27, 2026
+
+### THE BRUTAL TRUTH: Prediction Exists But Nobody Can Hear It
+
+**ENGINEER**: I just read through the code I wrote in Session 17. The prediction system is there. It calculates `field.px`, `field.py`, tracks `predictionError`, builds `predictionTension`. But what does it actually DO?
+
+**PHYSICIST**: Let me trace it:
+- Tension creates a 2% pitch wobble: `Math.sin(field.time * 30) * field.predictionTension * 0.02`
+- Tension opens the filter by 1500Hz
+- Tension increases volume by 30%
+- Recording blends 30% of predicted frequency when confident
+
+**MUSICIAN**: A 2% pitch wobble. A 30% volume boost. A 30% frequency blend. These are SUBTLE. Too subtle. The user won't consciously notice any of this. We built prediction infrastructure but the OUTPUT is imperceptible.
+
+**ENGINEER**: We did the math. We didn't do the MUSIC.
+
+---
+
+### What We Were Actually Avoiding
+
+**PHYSICIST**: The real question: why did we make the effects so subtle?
+
+**ENGINEER**: Because we were afraid of breaking the vibe. If prediction is wrong and creates a LOUD dissonance, the user might be annoyed. So we made everything gentle.
+
+**MUSICIAN**: But gentle means invisible. Invisible means useless. The user said "it knew where I was going" should be a noticeably different experience. Not a 2% wobble.
+
+**PHYSICIST**: We optimized for "never sounds bad" instead of "sometimes sounds magical."
+
+---
+
+### The Fix: PREDICTIVE HARMONIC PULL
+
+**ENGINEER**: Here's what I built this session. A new system called PREDICTIVE HARMONIC PULL.
+
+The concept:
+1. **Analyze the harmonic center** - What "key" has the user established through their layers?
+2. **Predict their destination** - Based on velocity, where will they be in 150ms?
+3. **Calculate the most harmonious pitch** at that destination
+4. **PULL the active voice** toward that harmonic target
+
+**PHYSICIST**: Walk me through the math.
+
+**ENGINEER**:
+
+```javascript
+harmonicState = {
+    root: BASE_FREQ,           // The key center
+    rootConfidence: 0,         // How sure we are
+    targetPullFreq: null,      // The frequency we're pulling toward
+    pullAmount: 0,             // How strongly we're pulling (0-1)
+    consonanceScore: 0         // How harmonious is the target
+}
+```
+
+The `calculateHarmonicTarget()` function:
+1. Takes the predicted Y position
+2. Tests frequencies in a range around the predicted frequency
+3. Scores each by consonance with existing layers AND consonance with the established root
+4. Returns the most consonant option
+
+**MUSICIAN**: And how is this different from regular quantization?
+
+**ENGINEER**: Regular quantization snaps the CURRENT frequency toward harmony. Predictive pull blends toward WHERE YOU'RE GOING to want to be. The difference:
+- Quantization: "You're at 300Hz, the nearest consonant is 330Hz, I'll nudge you there"
+- Prediction: "You're at 300Hz moving upward, by the time you record you'll want 440Hz, I'll start pulling you toward 440Hz NOW"
+
+---
+
+### The Audible Effects
+
+**PHYSICIST**: What will the user actually HEAR?
+
+**ENGINEER**: Several things:
+
+1. **Pitch pull** - As they move, the pitch doesn't just follow their tilt. It BENDS toward the most harmonious option ahead. Up to 60% blend toward the predicted harmonic target.
+
+2. **Shimmer effect** - When being pulled, the pitch has a subtle vibrato (8Hz, 0.8% depth). This makes the "magnetic" pull audible.
+
+3. **Warmer filter** - Pull opens the filter by 800Hz. The sound literally gets warmer as it finds harmony.
+
+4. **Volume bump** - Pull increases volume by 15%. You can hear when the system is confident.
+
+5. **Recording bonus** - When an orb records a layer, if there was strong pull active, the recorded frequency uses up to 60% of the harmonic target. The recorded note is BETTER than what you played.
+
+**MUSICIAN**: That last one is the key. The system isn't just predicting - it's IMPROVING your performance. It's like an auto-tune that knows where you MEANT to go.
+
+---
+
+### Visual Feedback
+
+**ENGINEER**: Added visualization:
+
+1. **Green glow** around cursor when consonance is high and pull is active
+2. **Curved dashed line** showing the pull direction toward harmonic target
+3. **Small circle** at the target pitch position
+4. **"→ harmony" text** when pull is strong
+5. **"key: A3" indicator** when harmonic root is established
+
+The user can SEE the system pulling them toward good choices.
+
+---
+
+### Honest Self-Criticism
+
+**PHYSICIST**: What's still wrong?
+
+**ENGINEER**:
+1. **No tempo prediction** - We predict POSITION but not TIMING. Entrainment is still missing.
+2. **No learning** - Every session starts from zero. We don't remember preferences.
+3. **Pull might feel "sticky"** - If the user wants dissonance, the system fights them. Maybe we need a way to "break free" of the pull.
+
+**MUSICIAN**: But the core insight is solid: prediction should be PROACTIVE, not just REACTIVE. Don't just predict where they're going - predict what they'll WANT and start giving it to them early.
+
+---
+
+### What the User Will Notice
+
+**PHYSICIST**: Before this session:
+- Move around, sound follows
+- Record a layer, it's whatever frequency you happened to be at
+- No sense of guidance
+
+After this session:
+- Move around, sound BENDS toward harmony as you approach layers
+- Record a layer, the system subtly improves your pitch toward consonance
+- A green glow and curved line show you're being "pulled"
+- Text indicators show "→ harmony" and the current key
+
+**MUSICIAN**: The magic moment: you're moving vaguely toward a pitch, and the sound arrives there BEFORE you do. Not by snapping, but by ANTICIPATING. That's the "it knew where I was going" feeling.
+
+---
+
+### The Meta-Insight
+
+**ALL**: We kept prediction subtle because we were afraid of being wrong. But prediction should be BOLD. When it's right, it feels like magic. When it's wrong, the correction creates tension - and tension is musical.
+
+The new rule: **Make prediction audible. Users should KNOW the system is anticipating them.**
+
+---
+
+*"Don't just predict where they're going. Predict what they'll want to hear when they get there."*
+
+---
+
+*End of Session 18*

@@ -185,14 +185,128 @@ function tiltToFreq(y) {
 // The system looks 100ms into the future based on current velocity
 // This creates ANTICIPATION - the harmony shifts BEFORE you arrive
 // When prediction fails (direction change), it creates musical TENSION
+//
+// NEW: PREDICTIVE HARMONIC PULL
+// The system doesn't just predict WHERE you're going - it predicts
+// what HARMONY you're building toward and PULLS you there
 
 const PREDICTION = {
-    LOOKAHEAD_MS: 100,          // How far ahead we predict (ms)
+    LOOKAHEAD_MS: 150,          // How far ahead we predict (ms) - increased for more anticipation
     TENSION_DECAY: 0.92,        // How fast tension decays per frame
-    TENSION_THRESHOLD: 0.15,    // Prediction error above this = tension
-    ERROR_SMOOTH: 0.3,          // Smoothing for error calculation
-    POSITION_SMOOTH: 0.8        // Smoothing for predicted position
+    TENSION_THRESHOLD: 0.12,    // Prediction error above this = tension (more sensitive)
+    ERROR_SMOOTH: 0.25,         // Smoothing for error calculation
+    POSITION_SMOOTH: 0.7,       // Smoothing for predicted position (less smooth = more responsive)
+    // NEW: Harmonic Pull parameters
+    PULL_STRENGTH: 0.35,        // How strongly the system pulls toward harmony (0-1)
+    PULL_RAMP_TIME: 0.08,       // Seconds to ramp to new pull target
+    CONSONANCE_THRESHOLD: 0.6   // Minimum consonance to trigger strong pull
 };
+
+// Harmonic state - tracks the "home key" the user is establishing
+let harmonicState = {
+    root: BASE_FREQ,            // The root frequency of the user's harmonic center
+    rootConfidence: 0,          // How confident we are in the root (0-1)
+    targetPullFreq: null,       // The frequency we're pulling toward
+    pullAmount: 0,              // Current pull amount (0-1)
+    lastPullFreq: BASE_FREQ,    // For smooth transitions
+    consonanceScore: 0          // How harmonious is the current state
+};
+
+// Find the most likely root from existing layers
+function analyzeHarmonicCenter() {
+    if (layers.length === 0) {
+        harmonicState.root = BASE_FREQ;
+        harmonicState.rootConfidence = 0;
+        return;
+    }
+
+    // The first layer is often the "home" - weight it heavily
+    // But also consider which frequency appears most as a consonant interval
+    let rootCandidates = {};
+
+    for (const layer of layers) {
+        // Each layer's frequency is a candidate
+        let normalizedFreq = layer.freq;
+        // Bring to base octave range
+        while (normalizedFreq > BASE_FREQ * 2) normalizedFreq /= 2;
+        while (normalizedFreq < BASE_FREQ) normalizedFreq *= 2;
+
+        const key = Math.round(normalizedFreq);
+        rootCandidates[key] = (rootCandidates[key] || 0) + 1;
+
+        // Also add fifths and octaves as potential roots
+        const fifth = normalizedFreq / 1.5;
+        const fifthNorm = fifth < BASE_FREQ ? fifth * 2 : fifth;
+        const fifthKey = Math.round(fifthNorm);
+        rootCandidates[fifthKey] = (rootCandidates[fifthKey] || 0) + 0.5;
+    }
+
+    // Find the most common root candidate
+    let bestRoot = BASE_FREQ;
+    let bestScore = 0;
+    for (const [freqStr, score] of Object.entries(rootCandidates)) {
+        if (score > bestScore) {
+            bestScore = score;
+            bestRoot = parseFloat(freqStr);
+        }
+    }
+
+    // Smoothly update root
+    harmonicState.root = harmonicState.root * 0.8 + bestRoot * 0.2;
+    harmonicState.rootConfidence = Math.min(1, layers.length / 3); // Full confidence at 3+ layers
+}
+
+// Calculate the best harmonic target given predicted position
+function calculateHarmonicTarget(predictedY) {
+    const rawPredictedFreq = tiltToFreq(predictedY);
+
+    if (layers.length === 0) {
+        // No layers yet - just quantize to chromatic scale
+        return quantizeToHarmony(rawPredictedFreq, 0.3);
+    }
+
+    // Find the most consonant frequency near the predicted frequency
+    let bestFreq = rawPredictedFreq;
+    let bestConsonance = 0;
+
+    // Test frequencies in a range around the predicted frequency
+    const testRange = 0.25; // +/- 25% of predicted freq (about 4 semitones)
+    const steps = 12;
+
+    for (let i = 0; i <= steps; i++) {
+        const ratio = 1 - testRange + (testRange * 2 * i / steps);
+        const testFreq = rawPredictedFreq * ratio;
+
+        // Calculate consonance with existing layers
+        let totalConsonance = getHarmonicFit(testFreq);
+
+        // Bonus for being close to consonant intervals from root
+        const rootRatio = testFreq / harmonicState.root;
+        let normalizedRatio = rootRatio;
+        while (normalizedRatio > 2) normalizedRatio /= 2;
+        while (normalizedRatio < 1) normalizedRatio *= 2;
+
+        for (const interval of CONSONANT_RATIOS) {
+            const diff = Math.abs(normalizedRatio - interval.ratio);
+            if (diff < 0.02) {
+                totalConsonance += interval.consonance * 0.3;
+            }
+        }
+
+        // Slight preference for frequencies closer to the raw prediction
+        // (don't pull too far from user's intent)
+        const proximityBonus = (1 - Math.abs(ratio - 1) / testRange) * 0.2;
+        totalConsonance += proximityBonus;
+
+        if (totalConsonance > bestConsonance) {
+            bestConsonance = totalConsonance;
+            bestFreq = testFreq;
+        }
+    }
+
+    harmonicState.consonanceScore = bestConsonance;
+    return bestFreq;
+}
 
 function updatePrediction(dt) {
     // Calculate how many frames ahead we're predicting
@@ -232,8 +346,51 @@ function updatePrediction(dt) {
     field.lastPredictedX = field.px;
     field.lastPredictedY = field.py;
 
-    // Update orb's predicted frequency (where we think the note will be)
-    field.orb.predictedFreq = tiltToFreq(field.py);
+    // ============ PREDICTIVE HARMONIC PULL ============
+    // This is the magic: we analyze where the user is GOING and
+    // calculate the most HARMONIOUS destination, then PULL toward it
+
+    // Update our understanding of the harmonic center
+    analyzeHarmonicCenter();
+
+    // Calculate the harmonic target based on predicted position
+    const harmonicTarget = calculateHarmonicTarget(field.py);
+
+    // Update pull state
+    if (field.energy > 0.01 && layers.length > 0) {
+        // Actively moving with layers established - apply pull
+        harmonicState.targetPullFreq = harmonicTarget;
+
+        // Pull strength increases with:
+        // 1. Higher consonance score (we're confident in the target)
+        // 2. Lower prediction tension (movement is predictable)
+        // 3. More layers (more established harmony)
+        const consonanceBonus = Math.max(0, harmonicState.consonanceScore - 0.5) * 2;
+        const tensionPenalty = field.predictionTension * 0.5;
+        const layerBonus = Math.min(1, layers.length / 4) * 0.3;
+
+        const targetPull = Math.min(1, PREDICTION.PULL_STRENGTH * (1 + consonanceBonus + layerBonus - tensionPenalty));
+        harmonicState.pullAmount = harmonicState.pullAmount * 0.9 + targetPull * 0.1;
+    } else {
+        // Not moving or no layers - decay pull
+        harmonicState.pullAmount *= 0.95;
+        harmonicState.targetPullFreq = null;
+    }
+
+    // Smooth the last pull frequency for transitions
+    if (harmonicState.targetPullFreq) {
+        harmonicState.lastPullFreq = harmonicState.lastPullFreq * 0.85 + harmonicState.targetPullFreq * 0.15;
+    }
+
+    // Update orb's predicted frequency (now includes harmonic pull!)
+    const rawPredictedFreq = tiltToFreq(field.py);
+    if (harmonicState.targetPullFreq && harmonicState.pullAmount > 0.1) {
+        // Blend between raw prediction and harmonic target
+        field.orb.predictedFreq = rawPredictedFreq * (1 - harmonicState.pullAmount) +
+                                   harmonicState.targetPullFreq * harmonicState.pullAmount;
+    } else {
+        field.orb.predictedFreq = rawPredictedFreq;
+    }
 }
 
 // ============ THE SINGLE VOICE ============
@@ -273,22 +430,46 @@ function updateActiveVoice() {
 
     const now = ctx.currentTime;
 
-    // Get frequency from tilt
+    // Get raw frequency from tilt
     const rawFreq = tiltToFreq(field.y);
 
-    // PREDICTION EFFECT: When prediction is confident, quantize more strongly
-    // When prediction fails (tension high), allow more raw pitch
-    const predictionConfidence = 1 - field.predictionTension;
-    const quantizeStrength = Math.min(0.8, layers.length * 0.2) * (0.5 + predictionConfidence * 0.5);
-    const freq = quantizeToHarmony(rawFreq, quantizeStrength);
+    // ============ HARMONIC PULL: The Magic ============
+    // The system PREDICTS the most harmonious destination and PULLS you there
+    // This is what makes the user say "it knew where I was going"
 
-    // Update orb frequency
+    let freq;
+
+    if (harmonicState.pullAmount > 0.1 && harmonicState.targetPullFreq) {
+        // PULL toward the harmonious target
+        // The stronger the pull, the more the sound bends toward consonance
+        const pullStrength = harmonicState.pullAmount;
+
+        // Blend between raw frequency and the predicted harmonic target
+        freq = rawFreq * (1 - pullStrength * 0.6) + harmonicState.lastPullFreq * (pullStrength * 0.6);
+
+        // Also apply standard quantization (less strongly when pull is active)
+        const quantizeStrength = Math.max(0, 0.3 - pullStrength * 0.2);
+        freq = quantizeToHarmony(freq, quantizeStrength);
+    } else {
+        // No pull active - use standard quantization
+        const predictionConfidence = 1 - field.predictionTension;
+        const quantizeStrength = Math.min(0.8, layers.length * 0.2) * (0.5 + predictionConfidence * 0.5);
+        freq = quantizeToHarmony(rawFreq, quantizeStrength);
+    }
+
+    // Update orb frequency (this is what gets recorded when orb hits center)
     field.orb.freq = freq;
 
-    // TENSION EFFECT: Add slight pitch instability when prediction is wrong
+    // TENSION EFFECT: Add pitch instability when prediction is wrong
     // This makes direction changes sound "surprising" / "tense"
     const tensionWobble = Math.sin(field.time * 30) * field.predictionTension * 0.02;
-    const finalFreq = freq * (1 + tensionWobble);
+
+    // HARMONIC PULL EFFECT: Add subtle shimmer when being pulled toward harmony
+    // This creates a "magnetic" feel - the note wants to go somewhere
+    const pullShimmer = harmonicState.pullAmount > 0.2 ?
+        Math.sin(field.time * 8) * harmonicState.pullAmount * 0.008 : 0;
+
+    const finalFreq = freq * (1 + tensionWobble + pullShimmer);
 
     // Smooth frequency transition
     activeVoice.osc.frequency.linearRampToValueAtTime(finalFreq, now + 0.05);
@@ -300,15 +481,22 @@ function updateActiveVoice() {
     // TENSION EFFECT: Slightly louder when prediction fails (urgency)
     const tensionVolume = 1 + field.predictionTension * 0.3;
 
-    // Delicate volume - QUIET
-    const baseVolume = 0.08;
-    const volume = baseVolume * activeVoice.envelope * tensionVolume;
+    // PULL EFFECT: Slightly louder when being pulled (significance)
+    const pullVolume = 1 + harmonicState.pullAmount * 0.15;
+
+    // Delicate volume - QUIET but audible
+    const baseVolume = 0.09; // Slightly increased for better audibility
+    const volume = baseVolume * activeVoice.envelope * tensionVolume * pullVolume;
     activeVoice.gain.gain.linearRampToValueAtTime(volume, now + 0.03);
 
     // Filter opens slightly with movement
     // TENSION EFFECT: Filter opens more when prediction fails (brighter, more urgent)
     const tensionFilter = field.predictionTension * 1500;
-    const filterFreq = 800 + field.energy * 2000 + tensionFilter;
+
+    // PULL EFFECT: Filter opens more when being pulled toward harmony (warmth)
+    const pullFilter = harmonicState.pullAmount * 800;
+
+    const filterFreq = 800 + field.energy * 2000 + tensionFilter + pullFilter;
     activeVoice.filter.frequency.linearRampToValueAtTime(filterFreq, now + 0.05);
 }
 
@@ -365,17 +553,39 @@ function recordLayer() {
         oldLayer.osc.stop();
     }
 
-    // USE PREDICTION: Blend current freq with predicted freq for smarter harmony
-    // This means the recorded note anticipates where the user was GOING
+    // ============ PREDICTIVE HARMONIC RECORDING ============
+    // The system uses its prediction to record the MOST HARMONIOUS frequency
+    // This is the payoff: "It knew what note I wanted"
+
     const currentFreq = field.orb.freq;
     const predictedFreq = field.orb.predictedFreq;
+    const harmonicTarget = harmonicState.targetPullFreq || predictedFreq;
 
-    // Blend based on prediction confidence (inverse of tension)
+    // Calculate how confident we are in prediction
     const predictionConfidence = 1 - field.predictionTension;
-    const blendedFreq = currentFreq * (1 - predictionConfidence * 0.3) + predictedFreq * (predictionConfidence * 0.3);
 
-    // Apply stronger harmonic quantization when prediction is confident
-    const quantizeStrength = 0.5 + predictionConfidence * 0.3;
+    // Calculate blend factors:
+    // 1. If we were actively being pulled toward a harmonic target, use that
+    // 2. Otherwise blend current with predicted based on confidence
+    let blendedFreq;
+
+    if (harmonicState.pullAmount > 0.2 && harmonicTarget) {
+        // Strong pull was active - the user was being guided
+        // Trust the harmonic target more heavily
+        const pullBlend = Math.min(0.6, harmonicState.pullAmount * 0.8);
+        blendedFreq = currentFreq * (1 - pullBlend) + harmonicTarget * pullBlend;
+
+        console.log(`Recording with harmonic pull: ${currentFreq.toFixed(1)}Hz → ${blendedFreq.toFixed(1)}Hz (${(pullBlend * 100).toFixed(0)}% pull)`);
+    } else {
+        // No strong pull - use prediction blending
+        blendedFreq = currentFreq * (1 - predictionConfidence * 0.3) + predictedFreq * (predictionConfidence * 0.3);
+    }
+
+    // Apply strong harmonic quantization to the recorded frequency
+    // More layers = stronger quantization (we have more context)
+    const baseQuantize = 0.4 + layers.length * 0.1;
+    const confidenceBonus = predictionConfidence * 0.2;
+    const quantizeStrength = Math.min(0.9, baseQuantize + confidenceBonus);
     const freq = quantizeToHarmony(blendedFreq, quantizeStrength);
 
     const now = ctx.currentTime;
@@ -793,6 +1003,79 @@ function draw() {
             vc.fillText('predicting...', w - 20, 25);
         }
         vc.textAlign = 'center'; // Reset
+    }
+
+    // ============ HARMONIC PULL VISUALIZATION ============
+    // Shows when the system is pulling the user toward a harmonious pitch
+
+    if (harmonicState.pullAmount > 0.15 && harmonicState.targetPullFreq && field.energy > 0.02) {
+        // Calculate where the harmonic target is in screen space
+        // Convert frequency to Y position (inverse of tiltToFreq)
+        const targetRatio = Math.log2(harmonicState.targetPullFreq / BASE_FREQ) / 3;
+        const targetY = (1 - targetRatio) * h;
+
+        // Current cursor position
+        const cx = field.x * w;
+        const cy = field.y * h;
+
+        // Draw a "magnetic field line" from cursor toward harmonic target
+        const pullStrength = harmonicState.pullAmount;
+
+        // Green glow around cursor when being pulled toward consonance
+        if (harmonicState.consonanceScore > 0.6) {
+            const consonanceGlow = vc.createRadialGradient(cx, cy, 0, cx, cy, 50 * pullStrength);
+            consonanceGlow.addColorStop(0, `rgba(100, 255, 150, ${0.2 * pullStrength})`);
+            consonanceGlow.addColorStop(1, 'transparent');
+            vc.fillStyle = consonanceGlow;
+            vc.beginPath();
+            vc.arc(cx, cy, 50 * pullStrength, 0, TAU);
+            vc.fill();
+        }
+
+        // Dashed line showing the pull direction
+        const pullLineAlpha = 0.15 + pullStrength * 0.3;
+        const pullDist = Math.abs(targetY - cy);
+
+        // Only show if there's meaningful distance to the target
+        if (pullDist > 20) {
+            // Draw subtle curve toward target
+            vc.strokeStyle = `rgba(100, 255, 150, ${pullLineAlpha})`;
+            vc.lineWidth = 1;
+            vc.setLineDash([3, 6]);
+            vc.beginPath();
+            vc.moveTo(cx, cy);
+
+            // Curve toward the harmonic target
+            const midY = (cy + targetY) / 2;
+            vc.quadraticCurveTo(cx + 30 * pullStrength, midY, cx, targetY);
+            vc.stroke();
+            vc.setLineDash([]);
+
+            // Small circle at target pitch
+            vc.strokeStyle = `rgba(100, 255, 150, ${pullLineAlpha * 0.6})`;
+            vc.beginPath();
+            vc.arc(cx, targetY, 6, 0, TAU);
+            vc.stroke();
+        }
+
+        // Show "pulling toward harmony" text when strong pull
+        if (pullStrength > 0.4 && harmonicState.consonanceScore > 0.7) {
+            vc.fillStyle = `rgba(100, 255, 150, ${0.3 + pullStrength * 0.3})`;
+            vc.font = '8px system-ui';
+            vc.textAlign = 'left';
+            vc.fillText('→ harmony', 20, h - 20);
+            vc.textAlign = 'center';
+        }
+    }
+
+    // Show harmonic root indicator when established
+    if (harmonicState.rootConfidence > 0.5 && layers.length >= 2) {
+        const rootNote = getNoteName(harmonicState.root);
+        vc.fillStyle = `rgba(255, 255, 255, ${0.15 + harmonicState.rootConfidence * 0.15})`;
+        vc.font = '9px system-ui';
+        vc.textAlign = 'left';
+        vc.fillText(`key: ${rootNote}`, 20, 40);
+        vc.textAlign = 'center';
     }
 }
 
