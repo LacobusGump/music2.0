@@ -218,9 +218,9 @@ function updateEntrainment(dt) {
 // This is the HEARTBEAT - everything else decorates this
 
 const DRUMS = {
-    BPM: 85,                    // Trip-hop tempo (75-100 range)
-    SWING: 0.15,                // 15% shuffle
-    STEPS: 32,                  // 32 steps = 2 bars
+    BPM: 140,                   // 2026 HYPERPOP/CLUB energy (130-150 range)
+    SWING: 0.05,                // Less swing for electronic feel
+    STEPS: 16,                  // 1 bar, faster turnover
     STEP_TIME: 0,               // Calculated at init
 };
 
@@ -400,40 +400,35 @@ function playDrum(type, velocity = 1) {
     source.start();
 }
 
-// The PATTERN - this is where the groove lives
-// Trip-hop: sparse kicks, backbeat snare, scattered hats
+// The PATTERN - 2026 HYPERPOP/CLUB ENERGY
+// Four-on-the-floor kick, driving hats, punchy snare
 function triggerDrumStep(step) {
-    // === KICK PATTERN ===
-    // Classic trip-hop: kicks on 1 and the "and" of 2
-    if (step === 0 || step === 5 || step === 16 || step === 21) {
-        playDrum('kick', 0.9);
+    // === KICK PATTERN === Four-on-the-floor
+    if (step % 4 === 0) {
+        playDrum('kick', 1.0);
+        // Trigger sidechain on every kick
+        triggerSidechain();
     }
 
-    // === SNARE PATTERN ===
-    // Backbeat on 2 and 4
-    if (step === 8 || step === 24) {
-        playDrum('snare', 0.75);
-    }
-    // Ghost snare
-    if (step === 20) {
-        playDrum('snare', 0.35);
-    }
-
-    // === HAT PATTERN ===
-    // Scattered 8th notes with variation
-    const hatSteps = [2, 6, 10, 14, 18, 22, 26, 30];
-    if (hatSteps.includes(step)) {
-        playDrum('hat', 0.3 + Math.random() * 0.2);
-    }
-    // Extra hat for groove
+    // === SNARE PATTERN === Backbeat on 2 and 4
     if (step === 4 || step === 12) {
-        playDrum('hat', 0.25);
+        playDrum('snare', 0.85);
     }
 
-    // === BASS PATTERN ===
-    // Follows kick, plus some fills
-    if (step === 0 || step === 5 || step === 11 || step === 16 || step === 21 || step === 27) {
-        playDrum('bass', 0.7);
+    // === HAT PATTERN === Driving 8th notes + some 16ths
+    if (step % 2 === 0) {
+        playDrum('hat', 0.4 + Math.random() * 0.2);
+    }
+    // Off-beat 16ths for energy
+    if (step % 4 === 1 || step % 4 === 3) {
+        if (Math.random() > 0.3) {
+            playDrum('hat', 0.25);
+        }
+    }
+
+    // === BASS PATTERN === Follows kick
+    if (step % 4 === 0) {
+        playDrum('bass', 0.8);
     }
 }
 
@@ -474,11 +469,182 @@ function updateDrumSequencer(dt) {
     }
 
     // Entrainment: slowly adjust BPM toward user's detected tempo
-    // But keep it in trip-hop range (70-110 BPM)
-    const targetBPM = Math.max(70, Math.min(110, field.userBPM));
+    // Keep it in club range (120-160 BPM)
+    const targetBPM = Math.max(120, Math.min(160, field.userBPM));
     const diff = targetBPM - DRUMS.BPM;
     if (Math.abs(diff) > 1) {
-        DRUMS.BPM += diff * 0.01; // Very slow entrainment
+        DRUMS.BPM += diff * 0.02; // Faster entrainment for energy
+    }
+}
+
+// ============ 2026 SAW WAVE MANIPULATION SYSTEM ============
+// This is THE sound. LFOs, formants, sidechain, everything.
+
+// Sidechain compression - the PUMP that makes everything breathe
+let sidechainGain = null;
+let sidechainAmount = 0;  // 0-1, how much we're ducking
+
+function createSidechainCompressor() {
+    // All synth audio goes through this gain node
+    sidechainGain = ctx.createGain();
+    sidechainGain.gain.value = 1;
+}
+
+function triggerSidechain() {
+    // Duck everything on kick
+    if (!sidechainGain || !ctx) return;
+    const now = ctx.currentTime;
+    const attackTime = 0.005;   // 5ms attack - instant duck
+    const releaseTime = 0.15;   // 150ms release - smooth pump
+
+    sidechainGain.gain.cancelScheduledValues(now);
+    sidechainGain.gain.setValueAtTime(sidechainGain.gain.value, now);
+    sidechainGain.gain.linearRampToValueAtTime(0.3, now + attackTime);  // Duck to 30%
+    sidechainGain.gain.linearRampToValueAtTime(1.0, now + releaseTime); // Release back
+}
+
+// LFO system for filter sweeps - THE sound of 2026
+let lfoOsc = null;
+let lfoGain = null;
+let lfoPhase = 0;
+const LFO = {
+    RATE: 0.25,          // Hz - slow sweep (4 seconds per cycle)
+    DEPTH: 3000,         // Hz - how much filter sweeps
+    MIN_FREQ: 200,       // Hz - filter floor
+    MAX_FREQ: 8000,      // Hz - filter ceiling
+    RATE_MOVEMENT: 4,    // Hz - faster rate when moving
+};
+
+function updateLFO(dt) {
+    // LFO rate changes with movement - faster when active
+    const moveSpeed = Math.sqrt(field.vx * field.vx + field.vy * field.vy);
+    const rate = LFO.RATE + moveSpeed * LFO.RATE_MOVEMENT * 10;
+
+    lfoPhase += dt * rate * Math.PI * 2;
+
+    // Return LFO value (0-1)
+    return (Math.sin(lfoPhase) + 1) / 2;
+}
+
+// Formant filter - vowel sounds from saw waves
+// Movement position controls which vowel
+const FORMANTS = {
+    // Formant frequencies for vowels (F1, F2, F3)
+    'a': [800, 1200, 2800],   // "ah"
+    'e': [400, 2200, 2800],   // "eh"
+    'i': [280, 2300, 3000],   // "ee"
+    'o': [500, 900, 2400],    // "oh"
+    'u': [350, 650, 2400],    // "oo"
+};
+let formantFilters = [];
+let formantGains = [];
+
+function createFormantFilter() {
+    // Three bandpass filters for formant synthesis
+    formantFilters = [];
+    formantGains = [];
+
+    for (let i = 0; i < 3; i++) {
+        const filter = ctx.createBiquadFilter();
+        filter.type = 'bandpass';
+        filter.Q.value = 8;  // Narrow bandwidth
+        filter.frequency.value = 1000;
+        formantFilters.push(filter);
+
+        const gain = ctx.createGain();
+        gain.gain.value = 0.3 / (i + 1);  // Higher formants quieter
+        formantGains.push(gain);
+    }
+}
+
+function getFormantVowel(x, y) {
+    // Map position to vowel blend
+    // Left = 'a', Right = 'i', Top = 'u', Bottom = 'o', Center = 'e'
+    const vowels = Object.keys(FORMANTS);
+    const centerDist = Math.sqrt((x - 0.5) ** 2 + (y - 0.5) ** 2);
+
+    if (centerDist < 0.15) return FORMANTS['e'];
+
+    const angle = Math.atan2(y - 0.5, x - 0.5);
+    if (angle > -Math.PI/4 && angle <= Math.PI/4) return FORMANTS['i'];      // Right
+    if (angle > Math.PI/4 && angle <= 3*Math.PI/4) return FORMANTS['o'];     // Bottom
+    if (angle > -3*Math.PI/4 && angle <= -Math.PI/4) return FORMANTS['u'];   // Top
+    return FORMANTS['a'];  // Left
+}
+
+function updateFormantFilter() {
+    if (formantFilters.length === 0 || !ctx) return;
+
+    const targetFormants = getFormantVowel(field.x, field.y);
+    const now = ctx.currentTime;
+
+    for (let i = 0; i < 3; i++) {
+        formantFilters[i].frequency.linearRampToValueAtTime(targetFormants[i], now + 0.1);
+    }
+}
+
+// ============ GLITCH EFFECTS - The TikTok aesthetic ============
+// Stutters, tape stops, bitcrush pulses
+
+let glitchActive = false;
+let glitchEndTime = 0;
+let stutterBuffer = null;
+let stutterSource = null;
+
+// Tape stop effect - pitch drops dramatically
+function triggerTapeStop() {
+    if (!ctx || glitchActive) return;
+    glitchActive = true;
+    glitchEndTime = performance.now() + 400;
+
+    // All entities pitch-drop
+    for (const e of entities) {
+        const now = ctx.currentTime;
+        for (const osc of e.sawOscs) {
+            const currentFreq = osc.frequency.value;
+            osc.frequency.cancelScheduledValues(now);
+            osc.frequency.setValueAtTime(currentFreq, now);
+            osc.frequency.exponentialRampToValueAtTime(currentFreq * 0.3, now + 0.3);
+            osc.frequency.linearRampToValueAtTime(currentFreq, now + 0.5);
+        }
+    }
+
+    setTimeout(() => { glitchActive = false; }, 500);
+}
+
+// Stutter effect - rapid repeats
+function triggerStutter(intensity = 0.5) {
+    if (!ctx || glitchActive) return;
+    glitchActive = true;
+
+    const now = ctx.currentTime;
+    const stutterCount = Math.floor(4 + intensity * 8);  // 4-12 stutters
+    const stutterDuration = 0.03 + (1 - intensity) * 0.05;  // 30-80ms per stutter
+
+    // Quick volume gates for stutter effect
+    if (sidechainGain) {
+        for (let i = 0; i < stutterCount; i++) {
+            const t = now + i * stutterDuration;
+            sidechainGain.gain.setValueAtTime(1, t);
+            sidechainGain.gain.setValueAtTime(0.1, t + stutterDuration * 0.5);
+        }
+        sidechainGain.gain.setValueAtTime(1, now + stutterCount * stutterDuration);
+    }
+
+    setTimeout(() => { glitchActive = false; }, stutterCount * stutterDuration * 1000 + 50);
+}
+
+// Bitcrush pulse - adds grit on the beat
+let bitcrushAmount = 0;  // 0 = clean, 1 = crushed
+
+function updateBitcrush(dt) {
+    // Bitcrush follows energy - more movement = more grit
+    const targetCrush = field.energy * 0.6;
+    bitcrushAmount = bitcrushAmount * 0.9 + targetCrush * 0.1;
+
+    // Pulse on beat
+    if (field.beatStrength > 0.5) {
+        bitcrushAmount = Math.min(1, bitcrushAmount + 0.3);
     }
 }
 
@@ -1322,17 +1488,22 @@ function onGestureDetected(gesture) {
     // Visual feedback - pulse the cursor
     field.energy = Math.max(field.energy, gesture.intensity || 0.3);
 
-    // ============ MUSICAL RESPONSES ============
+    // ============ 2026 MUSICAL RESPONSES - GLITCHY & IMPACTFUL ============
 
     switch (gesture.type) {
         case 'SHAKE':
-            // Tremolo/trill - rapid oscillation of nearby entities
+            // STUTTER EFFECT - rapid glitchy repeats
+            triggerStutter(gesture.intensity);
             triggerShake(gesture.intensity);
             break;
 
         case 'SWIPE':
-            // Quick melodic run in swipe direction
-            triggerSwipe(gesture.direction, gesture.velocity);
+            // TAPE STOP on downward swipes, quick run otherwise
+            if (gesture.direction === 'DOWN') {
+                triggerTapeStop();
+            } else {
+                triggerSwipe(gesture.direction, gesture.velocity);
+            }
             break;
 
         case 'CIRCLE':
@@ -2114,7 +2285,12 @@ class Entity {
 
         this.filter.connect(this.gain);
         this.gain.connect(this.pan);
-        this.pan.connect(master);
+        // Route through sidechain for PUMP effect
+        if (sidechainGain) {
+            this.pan.connect(sidechainGain);
+        } else {
+            this.pan.connect(master);
+        }
         this.pan.connect(verb.input);
         this.pan.connect(dly.input);
 
@@ -2352,49 +2528,61 @@ class Entity {
         this.fifthGain.gain.linearRampToValueAtTime(fifthAmp * proximity, now + 0.1);
         this.octaveGain.gain.linearRampToValueAtTime(octaveAmp * proximity, now + 0.1);
 
-        // ============ RHYTHMIC GATING ============
-        // Chaos = continuous sound. Crystallized = notes on the beat grid.
-        // The gate controls whether this entity sounds or rests.
+        // ============ 2026 SAW WAVE MANIPULATION ============
+        // INSTANT IMPACT - Sound is SICK from second 1
+        // No waiting for crystallization - proximity = sound NOW
 
-        // Gate influence: in chaos, always on. When crystallizing, follows the beat grid.
-        const gateInfluence = crystal; // 0 = no gating, 1 = full gating
-        const effectiveGate = 1 - gateInfluence + gateInfluence * currentNoteGate;
+        // Get LFO value for filter sweep (0-1)
+        const lfoValue = (Math.sin(lfoPhase + this.id * 0.5) + 1) / 2;
 
-        // Amplitude: entities are TEXTURE behind the beat
-        // THE BEAT is the star. Entities are atmosphere.
-        // DRASTICALLY reduced so drums punch through
-        const syncPulse = this.neighbors.length > 0 ? this.syncPhase * 0.08 : 0;
-        const breathBonus = field.depth * field.breath * 0.005;
-        const lockBonus = this.lockedIn ? 0.08 : 0;  // BIGGER lock bonus
-        // HANS ZIMMER MODE: Entities are MASSIVE when locked, quiet when chaotic
-        const intensityMult = SUPERSAW.INTENSITY_MULT;
-        const baseAmp = (proximity * 0.015 + syncPulse * 0.012 + breathBonus + lockBonus) * this.mass * this.life * crystalAmpMod * intensityMult;
+        // ============ AMPLITUDE: INSTANT and MASSIVE ============
+        // Proximity-based - closer = louder, IMMEDIATELY
+        const baseAmp = 0.03 + proximity * 0.12 + this.brightness * 0.05;
+        const lockBonus = this.lockedIn ? 0.08 : 0;
+        const crystalBoost = 1 + crystal * 0.5;  // Crystallization adds power, not gates it
 
-        // Apply gate - silence when gate is closed
-        const gatedAmp = baseAmp * (this.brightness * 0.4) * effectiveGate;
+        // Movement adds energy - no gating, just MORE
+        const energyBoost = 1 + field.energy * 0.8;
 
-        // DYNAMIC RANGE: Chaos is quiet, locked is MASSIVE
-        const chaosGate = Math.max(0.05, effectiveGate);
-        const finalAmp = crystal > 0.1 ? gatedAmp : baseAmp * this.brightness * 0.15 * chaosGate;
+        // Final amplitude - ALWAYS audible when near cursor
+        let finalAmp = baseAmp * this.mass * this.life * energyBoost * crystalBoost + lockBonus;
 
-        // HANS ZIMMER: Let the entities BREATHE with the music - much higher cap when locked
-        const maxAmp = this.lockedIn ? 0.15 : 0.08;
-        this.gain.gain.linearRampToValueAtTime(Math.min(finalAmp, maxAmp), now + 0.06);
+        // Higher cap - let these BREATHE
+        const maxAmp = 0.18 + crystal * 0.1;
+        finalAmp = Math.min(finalAmp, maxAmp);
 
-        // Update sub oscillator gain - deeper when locked
-        const subLevel = this.lockedIn ? 0.5 : 0.25;
-        this.subGain.gain.linearRampToValueAtTime(subLevel * finalAmp * 3, now + 0.06);
+        this.gain.gain.linearRampToValueAtTime(finalAmp, now + 0.03);
 
-        // Filter - opens more in deep states, modulated by breath, tension, AND outliers
-        // Also opens when locked in for brighter sound
-        const depthFilter = field.depth * 400 * (0.5 + field.breath * 0.5);
-        const lockFilter = this.lockedIn ? 600 * patternLockStrength : 0;  // Brighter when locked
-        const filterFreq = 150 + proximity * 2500 + this.brightness * 2000 + this.syncPhase * 500 + depthFilter + tensionFilter + outlierFilter + lockFilter;
-        this.filter.frequency.linearRampToValueAtTime(filterFreq * this.life, now + 0.08);
+        // Sub oscillator - CHEST-SHAKING
+        const subLevel = 0.4 + proximity * 0.3;
+        this.subGain.gain.linearRampToValueAtTime(subLevel * finalAmp * 2, now + 0.03);
 
-        // FM from energy, tension, AND outliers - outliers add harmonic richness
-        const fmDepth = field.energy * this.freq * 0.4 + this.syncPhase * this.freq * 0.1 + tensionFM + outlierFM;
-        this.modGain.gain.linearRampToValueAtTime(fmDepth, now + 0.05);
+        // ============ FILTER: LFO SWEEP - THE 2026 SOUND ============
+        // Movement controls filter + LFO sweeps it
+        const moveSpeed = Math.sqrt(field.vx * field.vx + field.vy * field.vy);
+
+        // Base filter from proximity and movement
+        const proximityFilter = proximity * 4000;
+        const moveFilter = moveSpeed * 6000;
+
+        // LFO SWEEP - this is THE sound of 2026
+        const lfoFilter = lfoValue * LFO.DEPTH;
+
+        // Energy opens filter further
+        const energyFilter = field.energy * 2000;
+
+        // Combine everything
+        const filterFreq = LFO.MIN_FREQ + proximityFilter + moveFilter + lfoFilter + energyFilter + tensionFilter + outlierFilter;
+        const clampedFilter = Math.min(LFO.MAX_FREQ, Math.max(LFO.MIN_FREQ, filterFreq * this.life));
+
+        // Resonance increases with movement for that SQUELCHY sound
+        const resonance = 2 + moveSpeed * 8;
+        this.filter.Q.value = Math.min(12, resonance);
+        this.filter.frequency.linearRampToValueAtTime(clampedFilter, now + 0.04);
+
+        // ============ FM MODULATION: Movement = Texture ============
+        const fmDepth = field.energy * this.freq * 0.5 + moveSpeed * this.freq * 0.3 + tensionFM + outlierFM;
+        this.modGain.gain.linearRampToValueAtTime(fmDepth, now + 0.03);
 
         // Pan - narrower in deep states for intimacy, also narrower when locked (focused)
         const panWidth = 1.6 - field.depth * 0.8 - (this.lockedIn ? 0.3 : 0);
@@ -2960,15 +3148,21 @@ function init() {
     verb.output.connect(master);
     dly.output.connect(master);
 
+    // === 2026 SOUND SYSTEM === Create sidechain and formant filters FIRST
+    createSidechainCompressor();
+    sidechainGain.connect(master);  // Sidechain feeds into master
+
+    createFormantFilter();
+
     createSub();
     createBeatAudio();
     createCounterAudio();
     createMelodyVoice();  // The singing voice that emerges from crystallization
 
-    // === THE BEAT === Create lo-fi drums and vinyl texture
+    // === THE BEAT === Create drums (no vinyl crackle for cleaner 2026 sound)
     createDrumBuffers();
     createLoFiChain();
-    createVinylCrackle();
+    // Skip vinyl crackle - cleaner modern sound
     seq.lastStepTime = ctx.currentTime;  // Initialize sequencer timing
 
     // Birth initial entities - the primordial soup
@@ -3520,6 +3714,11 @@ function tick() {
 
     const dt = 0.016;
     field.time += dt;
+
+    // === 2026 SOUND: Update LFO for filter sweeps ===
+    updateLFO(dt);
+    updateFormantFilter();
+    updateBitcrush(dt);
 
     // === THE BEAT - This runs first, it's the foundation ===
     updateDrumSequencer(dt);
