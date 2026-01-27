@@ -19,3072 +19,421 @@
 <canvas id="c"></canvas>
 <script>
 // GUMP - Grand Unified Music Project
-// Life. Birth. Death. Memory. Time emerging from relationship.
+// EMERGENT DELICACY: Silence → One Voice → Layers Build One by One
+// "The music must emerge from chaos as the highest probability path to sounding good"
 
 const TAU = Math.PI * 2;
-const PHI = 1.618033988749;
 
 // ============ THE UNIVERSE ============
 
-let ctx, master, verb, dly, sub;
-let entities = [];
-let ghosts = []; // Fading entities
-let memory = []; // Pattern memory
-let field = {
-    x: 0.5, y: 0.5,
-    vx: 0, vy: 0,
-    energy: 0,
-    time: 0,
-    pulse: 0,        // Emergent rhythm
-    stillness: 0,    // Accumulated stillness
-    gestureAngle: 0, // For detecting circles
-    lastGesture: 0,
-    breath: 0,       // Cosmic breath - slow oscillation
-    breathPhase: 0,  // Phase of the breath cycle
-    depth: 0,        // How deep into stillness we've gone
-    constellations: [], // Stable harmonic formations
-    // === PREDICTION SYSTEM ===
-    px: 0.5, py: 0.5,           // Predicted position
-    predictionError: 0,          // How wrong was our last prediction?
-    predictionTension: 0,        // Musical tension from misprediction
-    lastPredictedX: 0.5,
-    lastPredictedY: 0.5,
-    // === ENTRAINMENT SYSTEM ===
-    userBPM: 90,                 // Detected user tempo (starts neutral)
-    systemBPM: 90,               // Current system tempo (entrains to user)
-    beatPhase: 0,                // Current phase in beat cycle (0-1)
-    lastBeat: 0,                 // Time of last beat
-    beatStrength: 0,             // How strong the current beat is
-    onBeat: false                // True during beat window
-};
+let ctx, master, verb, dly;
 let canvas, vc;
 let running = false;
 
-// ============ PREDICTION SYSTEM ============
-// The system must know where you're going BEFORE you get there.
-
-const PREDICTION_LOOKAHEAD = 0.12; // seconds into the future
-const PREDICTION_SMOOTHING = 0.15; // how quickly prediction updates
-const TENSION_DECAY = 0.92;        // how fast tension fades
-const TENSION_THRESHOLD = 0.08;    // minimum error to create tension
-
-function updatePrediction() {
-    // Store what we predicted last frame
-    field.lastPredictedX = field.px;
-    field.lastPredictedY = field.py;
-
-    // Simple momentum extrapolation: where will you be in LOOKAHEAD seconds?
-    // velocity is per-frame (~16ms), so scale it
-    const framesAhead = PREDICTION_LOOKAHEAD / 0.016;
-    const rawPredictedX = field.x + field.vx * framesAhead;
-    const rawPredictedY = field.y + field.vy * framesAhead;
-
-    // Clamp to valid range
-    const clampedX = Math.max(0.02, Math.min(0.98, rawPredictedX));
-    const clampedY = Math.max(0.02, Math.min(0.98, rawPredictedY));
-
-    // Smooth the prediction to avoid jitter
-    field.px = field.px * (1 - PREDICTION_SMOOTHING) + clampedX * PREDICTION_SMOOTHING;
-    field.py = field.py * (1 - PREDICTION_SMOOTHING) + clampedY * PREDICTION_SMOOTHING;
-
-    // Calculate prediction error: how wrong was our LAST prediction?
-    // Compare what we predicted vs where user actually went
-    const errorX = field.lastPredictedX - field.x;
-    const errorY = field.lastPredictedY - field.y;
-    const error = Math.sqrt(errorX * errorX + errorY * errorY);
-
-    // Smooth the error reading
-    field.predictionError = field.predictionError * 0.7 + error * 0.3;
-
-    // Tension builds when prediction is wrong (user changed direction)
-    if (field.predictionError > TENSION_THRESHOLD) {
-        // The bigger the error, the more tension
-        const tensionBoost = Math.min(1, (field.predictionError - TENSION_THRESHOLD) * 5);
-        field.predictionTension = Math.min(1, field.predictionTension + tensionBoost * 0.3);
+// Field state (cursor position, tilt)
+let field = {
+    x: 0.5, y: 0.5,      // Normalized position (0-1)
+    vx: 0, vy: 0,        // Velocity
+    energy: 0,           // Movement energy
+    time: 0,
+    // Orb state
+    orb: {
+        active: false,    // Is an orb currently visible?
+        x: 0, y: 0,       // Orb position
+        freq: 220,        // Current frequency based on tilt
+        startTime: 0,     // When orb spawned
+        velocity: 0.3     // How fast orb moves toward center
     }
-
-    // Tension decays over time
-    field.predictionTension *= TENSION_DECAY;
-}
-
-// Get the predicted position for harmony selection
-function getPredictedPosition() {
-    return { x: field.px, y: field.py };
-}
-
-// ============ ENTRAINMENT SYSTEM ============
-// The system listens to YOUR rhythm and syncs to it.
-// You don't follow the beat - the beat follows YOU.
-
-const ENTRAINMENT = {
-    MIN_BPM: 40,
-    MAX_BPM: 180,
-    DEFAULT_BPM: 90,
-    ENTRAIN_RATE: 0.08,         // How fast system BPM converges to user BPM
-    BEAT_WINDOW: 0.15,          // Seconds around beat that count as "on beat"
-    MIN_TAP_INTERVAL: 200,      // Minimum ms between tempo taps
-    MAX_TAP_INTERVAL: 2000,     // Maximum ms to still count as tempo tap
-    TAP_MEMORY: 8,              // Number of taps to average
-    MOVEMENT_THRESHOLD: 0.02,   // Minimum velocity to count as movement event
-    DIRECTION_CHANGE_WEIGHT: 2, // Direction changes are stronger tempo signals
 };
 
-// Circular buffer of movement event timestamps
-let movementTaps = [];
-let lastMovementTime = 0;
-let lastMovementDirection = { x: 0, y: 0 };
-let wasMoving = false;
-
-// Detect user's natural tempo from movement patterns
-function detectUserTempo(vx, vy) {
-    const now = performance.now();
-    const speed = Math.sqrt(vx * vx + vy * vy);
-    const isMoving = speed > ENTRAINMENT.MOVEMENT_THRESHOLD;
-
-    // Detect direction changes (strong tempo signal)
-    const currentDir = { x: Math.sign(vx), y: Math.sign(vy) };
-    const dirChanged = (currentDir.x !== 0 && currentDir.x !== lastMovementDirection.x) ||
-                       (currentDir.y !== 0 && currentDir.y !== lastMovementDirection.y);
-
-    // Movement start or direction change = potential tempo tap
-    const tapEvent = (!wasMoving && isMoving) || (isMoving && dirChanged);
-
-    if (tapEvent && now - lastMovementTime > ENTRAINMENT.MIN_TAP_INTERVAL) {
-        const interval = now - lastMovementTime;
-
-        if (interval < ENTRAINMENT.MAX_TAP_INTERVAL && lastMovementTime > 0) {
-            // Weight direction changes more heavily
-            const weight = dirChanged ? ENTRAINMENT.DIRECTION_CHANGE_WEIGHT : 1;
-            for (let i = 0; i < weight; i++) {
-                movementTaps.push(interval);
-            }
-
-            // Keep buffer size limited
-            while (movementTaps.length > ENTRAINMENT.TAP_MEMORY * 2) {
-                movementTaps.shift();
-            }
-
-            // Calculate average interval -> BPM
-            if (movementTaps.length >= 3) {
-                // Use median for robustness against outliers
-                const sorted = [...movementTaps].sort((a, b) => a - b);
-                const medianInterval = sorted[Math.floor(sorted.length / 2)];
-                const detectedBPM = 60000 / medianInterval;
-
-                // Clamp to valid range
-                field.userBPM = Math.max(ENTRAINMENT.MIN_BPM,
-                                  Math.min(ENTRAINMENT.MAX_BPM, detectedBPM));
-            }
-        }
-
-        lastMovementTime = now;
-    }
-
-    lastMovementDirection = currentDir;
-    wasMoving = isMoving;
-}
-
-// Entrain system BPM toward user BPM
-function updateEntrainment(dt) {
-    // Smoothly move system BPM toward user BPM
-    const diff = field.userBPM - field.systemBPM;
-    field.systemBPM += diff * ENTRAINMENT.ENTRAIN_RATE;
-
-    // Update beat phase
-    const beatsPerSecond = field.systemBPM / 60;
-    field.beatPhase += dt * beatsPerSecond;
-
-    // Detect beat crossing
-    const prevOnBeat = field.onBeat;
-    const phaseInBeat = field.beatPhase % 1;
-
-    // On-beat window is centered around 0 (wraps from ~0.9 to ~0.1)
-    field.onBeat = phaseInBeat < ENTRAINMENT.BEAT_WINDOW ||
-                   phaseInBeat > (1 - ENTRAINMENT.BEAT_WINDOW);
-
-    // Beat just started?
-    if (field.onBeat && !prevOnBeat) {
-        field.lastBeat = field.time;
-        field.beatStrength = 1;
-        triggerBeat();
-    }
-
-    // Beat strength decays
-    field.beatStrength *= 0.85;
-}
-
-// ============ TRIP-HOP DRUM MACHINE ============
-// Real drums with patterns, swing, and lo-fi processing
-// This is the HEARTBEAT - everything else decorates this
-
-const DRUMS = {
-    BPM: 140,                   // 2026 HYPERPOP/CLUB energy (130-150 range)
-    SWING: 0.05,                // Less swing for electronic feel
-    STEPS: 16,                  // 1 bar, faster turnover
-    STEP_TIME: 0,               // Calculated at init
-};
-
-// Drum sample buffers
-let drumBuffers = {
-    kick: null,
-    snare: null,
-    hat: null,
-    bass: null
-};
-
-// Drum bus (separate from entities for clean lo-fi processing)
-let drumBus = null;
-let lofiChain = null;
-
-// Sequencer state
-let seq = {
-    step: 0,
-    lastStepTime: 0,
-    playing: true
-};
-
-// Vinyl crackle
-let vinylNoise = null;
-let vinylGain = null;
-
-function createDrumBuffers() {
-    const sr = ctx.sampleRate;
-
-    // === LO-FI KICK - short, punchy, bit-reduced ===
-    const kickLen = sr * 0.3;
-    const kickBuf = ctx.createBuffer(1, kickLen, sr);
-    const kd = kickBuf.getChannelData(0);
-    for (let i = 0; i < kickLen; i++) {
-        const t = i / sr;
-        const env = Math.exp(-10 * t);
-        const pitch = 55 * Math.exp(-50 * t);  // Start at 110Hz, drop to 55Hz
-        let s = Math.sin(2 * Math.PI * pitch * t) * env;
-        // Bit reduction for lo-fi crunch
-        s = Math.round(s * 8) / 8;
-        kd[i] = s * 0.9;
-    }
-    drumBuffers.kick = kickBuf;
-
-    // === LO-FI SNARE - crispy noise with tone ===
-    const snareLen = sr * 0.2;
-    const snareBuf = ctx.createBuffer(1, snareLen, sr);
-    const sd = snareBuf.getChannelData(0);
-    for (let i = 0; i < snareLen; i++) {
-        const t = i / sr;
-        const env = Math.exp(-25 * t);
-        const tone = Math.sin(2 * Math.PI * 180 * t) * 0.4;
-        const noise = (Math.random() * 2 - 1) * 0.6;
-        let s = (tone + noise) * env;
-        // Bit reduction
-        s = Math.round(s * 6) / 6;
-        sd[i] = s * 0.7;
-    }
-    drumBuffers.snare = snareBuf;
-
-    // === SOFT HAT - gentle, filtered ===
-    const hatLen = sr * 0.08;
-    const hatBuf = ctx.createBuffer(1, hatLen, sr);
-    const hd = hatBuf.getChannelData(0);
-    let prevHat = 0;
-    for (let i = 0; i < hatLen; i++) {
-        const t = i / sr;
-        const env = Math.exp(-80 * t);
-        let s = (Math.random() * 2 - 1) * env;
-        // Heavy filtering for softness
-        s = s * 0.3 + prevHat * 0.7;
-        prevHat = s;
-        hd[i] = s * 0.5;
-    }
-    drumBuffers.hat = hatBuf;
-
-    // === SUB BASS - pure sine with envelope ===
-    const bassLen = sr * 0.5;
-    const bassBuf = ctx.createBuffer(1, bassLen, sr);
-    const bd = bassBuf.getChannelData(0);
-    for (let i = 0; i < bassLen; i++) {
-        const t = i / sr;
-        const env = t < 0.02 ? t / 0.02 : Math.exp(-3 * (t - 0.02));
-        bd[i] = Math.sin(2 * Math.PI * 45 * t) * env * 0.8;
-    }
-    drumBuffers.bass = bassBuf;
-}
-
-function createLoFiChain() {
-    // Drum bus - all drums go through this
-    drumBus = ctx.createGain();
-    drumBus.gain.value = 0.85;
-
-    // === TAPE WARMTH - low shelf boost ===
-    const warmth = ctx.createBiquadFilter();
-    warmth.type = 'lowshelf';
-    warmth.frequency.value = 200;
-    warmth.gain.value = 2;
-
-    // === VINYL DUST - lowpass roll-off ===
-    const dust = ctx.createBiquadFilter();
-    dust.type = 'lowpass';
-    dust.frequency.value = 9000;
-    dust.Q.value = 0.7;
-
-    // === SATURATION - soft clipping ===
-    const saturation = ctx.createWaveShaper();
-    const curve = new Float32Array(256);
-    for (let i = 0; i < 128; i++) {
-        const x = i / 128;
-        curve[128 + i] = Math.tanh(x * 1.5);
-        curve[128 - i - 1] = -Math.tanh(x * 1.5);
-    }
-    saturation.curve = curve;
-
-    // Chain: drums -> warmth -> dust -> saturation -> master
-    drumBus.connect(warmth);
-    warmth.connect(dust);
-    dust.connect(saturation);
-    saturation.connect(master);
-
-    lofiChain = { warmth, dust, saturation };
-}
-
-function createVinylCrackle() {
-    // Continuous vinyl noise texture
-    const duration = 10; // 10 second loop
-    const sr = ctx.sampleRate;
-    const vinylBuf = ctx.createBuffer(1, sr * duration, sr);
-    const vd = vinylBuf.getChannelData(0);
-
-    for (let i = 0; i < vd.length; i++) {
-        // Random crackle hits
-        if (Math.random() < 0.00015) {
-            vd[i] = (Math.random() - 0.5) * 0.25;
-        } else {
-            // Subtle surface noise
-            vd[i] = (Math.random() - 0.5) * 0.015;
-        }
-        // Low rumble
-        vd[i] += Math.sin(2 * Math.PI * 0.5 * i / sr) * 0.005;
-    }
-
-    // Loop the vinyl noise
-    vinylNoise = ctx.createBufferSource();
-    vinylNoise.buffer = vinylBuf;
-    vinylNoise.loop = true;
-
-    vinylGain = ctx.createGain();
-    vinylGain.gain.value = 0.12;
-
-    vinylNoise.connect(vinylGain);
-    vinylGain.connect(master);
-    vinylNoise.start();
-}
-
-function playDrum(type, velocity = 1) {
-    if (!drumBuffers[type] || !ctx) return;
-
-    const source = ctx.createBufferSource();
-    source.buffer = drumBuffers[type];
-
-    const gain = ctx.createGain();
-    gain.gain.value = velocity;
-
-    source.connect(gain);
-    gain.connect(drumBus);
-
-    // Add to reverb for hats/snare only
-    if (type === 'hat' || type === 'snare') {
-        const reverbSend = ctx.createGain();
-        reverbSend.gain.value = 0.15;
-        gain.connect(reverbSend);
-        reverbSend.connect(verb.input);
-    }
-
-    source.start();
-}
-
-// The PATTERN - 2026 HYPERPOP/CLUB ENERGY
-// Four-on-the-floor kick, driving hats, punchy snare
-function triggerDrumStep(step) {
-    // === KICK PATTERN === Four-on-the-floor
-    if (step % 4 === 0) {
-        playDrum('kick', 1.0);
-        // Trigger sidechain on every kick
-        triggerSidechain();
-    }
-
-    // === SNARE PATTERN === Backbeat on 2 and 4
-    if (step === 4 || step === 12) {
-        playDrum('snare', 0.85);
-    }
-
-    // === HAT PATTERN === Driving 8th notes + some 16ths
-    if (step % 2 === 0) {
-        playDrum('hat', 0.4 + Math.random() * 0.2);
-    }
-    // Off-beat 16ths for energy
-    if (step % 4 === 1 || step % 4 === 3) {
-        if (Math.random() > 0.3) {
-            playDrum('hat', 0.25);
-        }
-    }
-
-    // === BASS PATTERN === Follows kick
-    if (step % 4 === 0) {
-        playDrum('bass', 0.8);
-    }
-}
-
-// Update the drum sequencer - called every frame
-function updateDrumSequencer(dt) {
-    if (!ctx || !seq.playing) return;
-
-    const now = ctx.currentTime;
-    const beatDuration = 60 / DRUMS.BPM;
-    const stepDuration = beatDuration / 4; // 16th notes
-
-    // Calculate time until next step with SWING
-    let nextStepTime = stepDuration;
-    if (seq.step % 2 === 1) {
-        // Odd steps (upbeats) are delayed by swing amount
-        nextStepTime = stepDuration * (1 + DRUMS.SWING);
-    } else {
-        // Even steps come early to compensate
-        nextStepTime = stepDuration * (1 - DRUMS.SWING * 0.5);
-    }
-
-    // Check if it's time for next step
-    if (now - seq.lastStepTime >= nextStepTime) {
-        seq.lastStepTime = now;
-
-        // Trigger drums for this step
-        triggerDrumStep(seq.step);
-
-        // Visual feedback on downbeats
-        if (seq.step === 0 || seq.step === 16) {
-            field.beatStrength = 1;
-        } else if (seq.step % 8 === 0) {
-            field.beatStrength = 0.6;
-        }
-
-        // Advance step
-        seq.step = (seq.step + 1) % DRUMS.STEPS;
-    }
-
-    // Entrainment: slowly adjust BPM toward user's detected tempo
-    // Keep it in club range (120-160 BPM)
-    const targetBPM = Math.max(120, Math.min(160, field.userBPM));
-    const diff = targetBPM - DRUMS.BPM;
-    if (Math.abs(diff) > 1) {
-        DRUMS.BPM += diff * 0.02; // Faster entrainment for energy
-    }
-}
-
-// ============ 2026 SAW WAVE MANIPULATION SYSTEM ============
-// This is THE sound. LFOs, formants, sidechain, everything.
-
-// Sidechain compression - the PUMP that makes everything breathe
-let sidechainGain = null;
-let sidechainAmount = 0;  // 0-1, how much we're ducking
-
-function createSidechainCompressor() {
-    // All synth audio goes through this gain node
-    sidechainGain = ctx.createGain();
-    sidechainGain.gain.value = 1;
-}
-
-function triggerSidechain() {
-    // Duck everything on kick
-    if (!sidechainGain || !ctx) return;
-    const now = ctx.currentTime;
-    const attackTime = 0.005;   // 5ms attack - instant duck
-    const releaseTime = 0.15;   // 150ms release - smooth pump
-
-    sidechainGain.gain.cancelScheduledValues(now);
-    sidechainGain.gain.setValueAtTime(sidechainGain.gain.value, now);
-    sidechainGain.gain.linearRampToValueAtTime(0.3, now + attackTime);  // Duck to 30%
-    sidechainGain.gain.linearRampToValueAtTime(1.0, now + releaseTime); // Release back
-}
-
-// LFO system for filter sweeps - THE sound of 2026
-let lfoOsc = null;
-let lfoGain = null;
-let lfoPhase = 0;
-const LFO = {
-    RATE: 0.25,          // Hz - slow sweep (4 seconds per cycle)
-    DEPTH: 3000,         // Hz - how much filter sweeps
-    MIN_FREQ: 200,       // Hz - filter floor
-    MAX_FREQ: 8000,      // Hz - filter ceiling
-    RATE_MOVEMENT: 4,    // Hz - faster rate when moving
-};
-
-function updateLFO(dt) {
-    // LFO rate changes with movement - faster when active
-    const moveSpeed = Math.sqrt(field.vx * field.vx + field.vy * field.vy);
-    const rate = LFO.RATE + moveSpeed * LFO.RATE_MOVEMENT * 10;
-
-    lfoPhase += dt * rate * Math.PI * 2;
-
-    // Return LFO value (0-1)
-    return (Math.sin(lfoPhase) + 1) / 2;
-}
-
-// Formant filter - vowel sounds from saw waves
-// Movement position controls which vowel
-const FORMANTS = {
-    // Formant frequencies for vowels (F1, F2, F3)
-    'a': [800, 1200, 2800],   // "ah"
-    'e': [400, 2200, 2800],   // "eh"
-    'i': [280, 2300, 3000],   // "ee"
-    'o': [500, 900, 2400],    // "oh"
-    'u': [350, 650, 2400],    // "oo"
-};
-let formantFilters = [];
-let formantGains = [];
-
-function createFormantFilter() {
-    // Three bandpass filters for formant synthesis
-    formantFilters = [];
-    formantGains = [];
-
-    for (let i = 0; i < 3; i++) {
-        const filter = ctx.createBiquadFilter();
-        filter.type = 'bandpass';
-        filter.Q.value = 8;  // Narrow bandwidth
-        filter.frequency.value = 1000;
-        formantFilters.push(filter);
-
-        const gain = ctx.createGain();
-        gain.gain.value = 0.3 / (i + 1);  // Higher formants quieter
-        formantGains.push(gain);
-    }
-}
-
-function getFormantVowel(x, y) {
-    // Map position to vowel blend
-    // Left = 'a', Right = 'i', Top = 'u', Bottom = 'o', Center = 'e'
-    const vowels = Object.keys(FORMANTS);
-    const centerDist = Math.sqrt((x - 0.5) ** 2 + (y - 0.5) ** 2);
-
-    if (centerDist < 0.15) return FORMANTS['e'];
-
-    const angle = Math.atan2(y - 0.5, x - 0.5);
-    if (angle > -Math.PI/4 && angle <= Math.PI/4) return FORMANTS['i'];      // Right
-    if (angle > Math.PI/4 && angle <= 3*Math.PI/4) return FORMANTS['o'];     // Bottom
-    if (angle > -3*Math.PI/4 && angle <= -Math.PI/4) return FORMANTS['u'];   // Top
-    return FORMANTS['a'];  // Left
-}
-
-function updateFormantFilter() {
-    if (formantFilters.length === 0 || !ctx) return;
-
-    const targetFormants = getFormantVowel(field.x, field.y);
-    const now = ctx.currentTime;
-
-    for (let i = 0; i < 3; i++) {
-        formantFilters[i].frequency.linearRampToValueAtTime(targetFormants[i], now + 0.1);
-    }
-}
-
-// ============ GLITCH EFFECTS - The TikTok aesthetic ============
-// Stutters, tape stops, bitcrush pulses
-
-let glitchActive = false;
-let glitchEndTime = 0;
-let stutterBuffer = null;
-let stutterSource = null;
-
-// Tape stop effect - pitch drops dramatically
-function triggerTapeStop() {
-    if (!ctx || glitchActive) return;
-    glitchActive = true;
-    glitchEndTime = performance.now() + 400;
-
-    // All entities pitch-drop
-    for (const e of entities) {
-        const now = ctx.currentTime;
-        for (const osc of e.sawOscs) {
-            const currentFreq = osc.frequency.value;
-            osc.frequency.cancelScheduledValues(now);
-            osc.frequency.setValueAtTime(currentFreq, now);
-            osc.frequency.exponentialRampToValueAtTime(currentFreq * 0.3, now + 0.3);
-            osc.frequency.linearRampToValueAtTime(currentFreq, now + 0.5);
-        }
-    }
-
-    setTimeout(() => { glitchActive = false; }, 500);
-}
-
-// Stutter effect - rapid repeats
-function triggerStutter(intensity = 0.5) {
-    if (!ctx || glitchActive) return;
-    glitchActive = true;
-
-    const now = ctx.currentTime;
-    const stutterCount = Math.floor(4 + intensity * 8);  // 4-12 stutters
-    const stutterDuration = 0.03 + (1 - intensity) * 0.05;  // 30-80ms per stutter
-
-    // Quick volume gates for stutter effect
-    if (sidechainGain) {
-        for (let i = 0; i < stutterCount; i++) {
-            const t = now + i * stutterDuration;
-            sidechainGain.gain.setValueAtTime(1, t);
-            sidechainGain.gain.setValueAtTime(0.1, t + stutterDuration * 0.5);
-        }
-        sidechainGain.gain.setValueAtTime(1, now + stutterCount * stutterDuration);
-    }
-
-    setTimeout(() => { glitchActive = false; }, stutterCount * stutterDuration * 1000 + 50);
-}
-
-// Bitcrush pulse - adds grit on the beat
-let bitcrushAmount = 0;  // 0 = clean, 1 = crushed
-
-function updateBitcrush(dt) {
-    // Bitcrush follows energy - more movement = more grit
-    const targetCrush = field.energy * 0.6;
-    bitcrushAmount = bitcrushAmount * 0.9 + targetCrush * 0.1;
-
-    // Pulse on beat
-    if (field.beatStrength > 0.5) {
-        bitcrushAmount = Math.min(1, bitcrushAmount + 0.3);
-    }
-}
-
-// Legacy beat audio - keep for compatibility but reduce volume
-let beatOsc = null;
-let beatGain = null;
-let beatFilter = null;
-
-function createBeatAudio() {
-    beatOsc = ctx.createOscillator();
-    beatGain = ctx.createGain();
-    beatFilter = ctx.createBiquadFilter();
-
-    beatOsc.type = 'sine';
-    beatOsc.frequency.value = BASE / 2;
-
-    beatFilter.type = 'lowpass';
-    beatFilter.frequency.value = 150;
-    beatFilter.Q.value = 8;
-
-    // Much quieter - the real drums handle the beat now
-    beatGain.gain.value = 0;
-
-    beatOsc.connect(beatFilter);
-    beatFilter.connect(beatGain);
-    beatGain.connect(master);
-
-    beatOsc.start();
-}
-
-// ============ POLYRHYTHMIC COUNTER-VOICE ============
-// When you break YOUR pattern, a counter-voice emerges
-// playing AGAINST your established rhythm
-
-let counterOsc = null;
-let counterGain = null;
-let counterFilter = null;
-let counterPhase = 0;
-let counterActive = false;
-let counterSubdivision = 1;
-let lastCounterBeat = 0;
-
-function createCounterAudio() {
-    counterOsc = ctx.createOscillator();
-    counterGain = ctx.createGain();
-    counterFilter = ctx.createBiquadFilter();
-
-    counterOsc.type = 'triangle';
-    counterOsc.frequency.value = BASE * 2; // Higher than kick
-
-    counterFilter.type = 'bandpass';
-    counterFilter.frequency.value = 800;
-    counterFilter.Q.value = 2;
-
-    counterGain.gain.value = 0;
-
-    counterOsc.connect(counterFilter);
-    counterFilter.connect(counterGain);
-    counterGain.connect(master);
-    counterGain.connect(verb.input);
-
-    counterOsc.start();
-}
-
-// Update counter-rhythm based on pattern state
-function updateCounterRhythm(dt) {
-    const pattern = getPatternState();
-
-    // Counter-voice activates when there's an outlier
-    if (pattern.isOutlier && pattern.confidence > 0.5) {
-        counterActive = true;
-        counterSubdivision = pattern.polyrhythm.subdivision;
-    } else {
-        // Fade out when pattern normalizes
-        counterActive = counterActive && pattern.outlierScore > 1.0;
-    }
-
-    if (!counterActive || !counterGain || !ctx) return;
-
-    // Counter phase runs at a different rate than main beat
-    // This creates the polyrhythm
-    const beatsPerSecond = field.systemBPM / 60;
-    counterPhase += dt * beatsPerSecond * counterSubdivision;
-
-    // Check for counter beat crossing
-    const phaseInBeat = counterPhase % 1;
-    const beatWindow = 0.1;
-
-    if (phaseInBeat < beatWindow && (field.time - lastCounterBeat) > 0.1) {
-        lastCounterBeat = field.time;
-        triggerCounterBeat();
-    }
-}
-
-// The counter-beat sound - distinct from the main kick
-function triggerCounterBeat() {
-    if (!counterGain || !ctx) return;
-
-    const now = ctx.currentTime;
-    const pattern = getPatternState();
-
-    // Intensity based on how strong the outlier is
-    const outlierIntensity = Math.min(1, (pattern.outlierScore - PATTERN.OUTLIER_THRESHOLD) / 2);
-    const amp = 0.06 * outlierIntensity * (0.5 + pattern.confidence * 0.5);
-
-    // Pitch based on outlier type
-    let freq = BASE * 2;
-    switch (pattern.outlierType) {
-        case 'tempo':
-            freq = BASE * 3;      // Higher - rhythmic deviation
-            counterFilter.frequency.setValueAtTime(1200, now);
-            break;
-        case 'amplitude':
-            freq = BASE * 2.5;    // Mid-high - energy deviation
-            counterFilter.frequency.setValueAtTime(900, now);
-            break;
-        case 'direction':
-            freq = BASE * 4;      // Highest - spatial deviation
-            counterFilter.frequency.setValueAtTime(1500, now);
-            break;
-        default:
-            freq = BASE * 2;
-            counterFilter.frequency.setValueAtTime(800, now);
-    }
-
-    // Quick percussive envelope
-    counterOsc.frequency.setValueAtTime(freq * 1.5, now);
-    counterOsc.frequency.exponentialRampToValueAtTime(freq, now + 0.05);
-
-    counterGain.gain.cancelScheduledValues(now);
-    counterGain.gain.setValueAtTime(0, now);
-    counterGain.gain.linearRampToValueAtTime(amp, now + 0.008);
-    counterGain.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
-}
-
-// Trigger the beat sound - soft kick that pulses with the user's rhythm
-function triggerBeat() {
-    if (!beatGain || !ctx) return;
-
-    const now = ctx.currentTime;
-
-    // Beat intensity scales with how active the user is
-    const activityBoost = Math.min(1, field.energy * 3);
-    const depthDampen = 1 - field.depth * 0.5; // Quieter in deep stillness
-    const baseAmp = 0.15;
-    const amp = baseAmp * (0.3 + activityBoost * 0.7) * depthDampen;
-
-    // Pitch follows the harmonic center (lower when entities cluster low)
-    let avgY = 0.5;
-    let count = 0;
-    for (const e of entities) {
-        if (e.life > 0.3) {
-            avgY += e.y;
-            count++;
-        }
-    }
-    if (count > 0) avgY /= count;
-    const pitchMult = 0.8 + (1 - avgY) * 0.4; // Higher when entities are up
-    const beatFreq = (BASE / 2) * pitchMult;
-
-    // Soft kick envelope - quick attack, medium decay
-    beatOsc.frequency.setValueAtTime(beatFreq * 2, now); // Start higher
-    beatOsc.frequency.exponentialRampToValueAtTime(beatFreq, now + 0.08);
-
-    beatGain.gain.cancelScheduledValues(now);
-    beatGain.gain.setValueAtTime(0, now);
-    beatGain.gain.linearRampToValueAtTime(amp, now + 0.01);
-    beatGain.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
-
-    // Filter sweep for punch
-    beatFilter.frequency.setValueAtTime(300 + activityBoost * 200, now);
-    beatFilter.frequency.exponentialRampToValueAtTime(80, now + 0.15);
-}
-
-// ============ PATTERN LEARNING SYSTEM ============
-// The system learns YOUR movement pattern over time.
-// Your deviations from YOUR norm create the music.
-
-const PATTERN = {
-    WINDOW_SIZE: 300,           // Samples to track (~5 seconds at 60fps)
-    MIN_SAMPLES: 60,            // Minimum samples before pattern is valid
-    OUTLIER_THRESHOLD: 2.0,     // Standard deviations to count as outlier
-    MAJOR_OUTLIER: 3.0,         // Major break threshold
-    DECAY_RATE: 0.998,          // How fast old samples fade
-    UPDATE_INTERVAL: 3,         // Update stats every N frames (performance)
-};
-
-// ============ ORDER FROM CHAOS: CRYSTALLIZATION SYSTEM ============
-// "A cell divides chaotically, but the result is order."
-// Repetition crystallizes chaos into structure.
-
-const CRYSTAL = {
-    // Phase thresholds (based on repetition count)
-    CHAOS_END: 5,               // Cycles before leaving pure chaos
-    FORMING_END: 15,            // Cycles before crystallizing begins
-    CRYSTAL_END: 30,            // Cycles before full lock
-    MAX_REPS: 50,               // Maximum tracked repetitions
-
-    // Behavior at each phase
-    CHAOS_DETUNE: 30,           // Wide detune in chaos (cents)
-    LOCKED_DETUNE: 1,           // Tight detune when locked (cents)
-
-    // Entity merging
-    MERGE_THRESHOLD: 0.7,       // Crystallization level to start merging
-    MIN_ENTITIES_LOCKED: 2,     // Never merge below this
-
-    // Entropy
-    ENTROPY_RATE: 0.003,        // How fast crystallization decays with movement
-    STILLNESS_PRESERVE: 0.5,    // Stillness slows entropy by this factor
-
-    // The Drop
-    DROP_THRESHOLD: 0.9,        // Crystallization level for "the drop"
-    DROP_SILENCE_MS: 80,        // Silence before the drop (ms)
-};
-
-// Crystallization state
-let crystalState = {
-    repetitionCount: 0,         // How many pattern cycles completed
-    crystallization: 0,         // 0-1, how crystallized the system is
-    phase: 'chaos',             // 'chaos', 'forming', 'crystallizing', 'locked'
-    entropy: 0,                 // Accumulated disorder from movement
-    lastCycleTime: 0,           // When the last pattern cycle completed
-    cycleDirection: 0,          // Direction at start of cycle
-    dropTriggered: false,       // Whether we've hit "the drop"
-    dropTime: 0,                // When the drop was triggered
-    dominantRatio: 1,           // The ratio that's winning the crystallization
-};
-
-// Rolling statistics for pattern detection
-let patternStats = {
-    // Tempo (time between direction changes, in ms)
-    tempoSamples: [],
-    tempoMean: 500,         // Default ~120 BPM
-    tempoStdDev: 100,
-
-    // Amplitude (size of movements, 0-1 normalized)
-    amplitudeSamples: [],
-    amplitudeMean: 0.1,
-    amplitudeStdDev: 0.05,
-
-    // Direction histogram (8 directions, like a compass)
-    directionHist: [0, 0, 0, 0, 0, 0, 0, 0], // N, NE, E, SE, S, SW, W, NW
-    dominantDirection: -1,
-
-    // Rhythm intervals (time between movement starts)
-    rhythmSamples: [],
-    rhythmMean: 400,
-    rhythmStdDev: 100,
-
-    // Is the pattern established?
-    isValid: false,
-    confidence: 0,           // 0-1, how confident we are in the pattern
-
-    // Current outlier state
-    outlierScore: 0,         // How much current behavior deviates
-    outlierType: null,       // 'tempo', 'amplitude', 'direction', 'rhythm'
-    outlierRatio: 1,         // Ratio of outlier to norm (for polyrhythm)
-};
-
-// Frame counter for update throttling
-let patternFrameCount = 0;
-let lastDirectionChangeTime = 0;
-let lastMovementStartTime = 0;
-let wasStationary = true;
-
-// Quantize angle to 8 compass directions
-function angleToDirection(angle) {
-    // Normalize to 0-2π
-    while (angle < 0) angle += Math.PI * 2;
-    while (angle >= Math.PI * 2) angle -= Math.PI * 2;
-    // 8 directions, each 45 degrees (π/4)
-    return Math.floor((angle + Math.PI / 8) / (Math.PI / 4)) % 8;
-}
-
-// Calculate mean and standard deviation
-function calcStats(samples) {
-    if (samples.length < 3) return { mean: 0, stdDev: 1 };
-
-    const mean = samples.reduce((a, b) => a + b, 0) / samples.length;
-    const variance = samples.reduce((sum, val) => sum + (val - mean) ** 2, 0) / samples.length;
-    const stdDev = Math.sqrt(variance);
-
-    return { mean, stdDev: Math.max(stdDev, 0.001) }; // Avoid division by zero
-}
-
-// Add a tempo sample (time between direction changes)
-function addTempoSample(intervalMs) {
-    if (intervalMs < 100 || intervalMs > 3000) return; // Filter outliers
-
-    patternStats.tempoSamples.push(intervalMs);
-    while (patternStats.tempoSamples.length > PATTERN.WINDOW_SIZE) {
-        patternStats.tempoSamples.shift();
-    }
-}
-
-// Add an amplitude sample
-function addAmplitudeSample(amplitude) {
-    patternStats.amplitudeSamples.push(amplitude);
-    while (patternStats.amplitudeSamples.length > PATTERN.WINDOW_SIZE) {
-        patternStats.amplitudeSamples.shift();
-    }
-}
-
-// Add a rhythm sample (time between movement onsets)
-function addRhythmSample(intervalMs) {
-    if (intervalMs < 50 || intervalMs > 5000) return;
-
-    patternStats.rhythmSamples.push(intervalMs);
-    while (patternStats.rhythmSamples.length > PATTERN.WINDOW_SIZE) {
-        patternStats.rhythmSamples.shift();
-    }
-}
-
-// Update direction histogram
-function addDirectionSample(direction) {
-    // Decay all bins slightly
-    for (let i = 0; i < 8; i++) {
-        patternStats.directionHist[i] *= PATTERN.DECAY_RATE;
-    }
-    // Add to current direction
-    patternStats.directionHist[direction] += 1;
-
-    // Find dominant direction
-    let maxVal = 0;
-    let maxDir = -1;
-    for (let i = 0; i < 8; i++) {
-        if (patternStats.directionHist[i] > maxVal) {
-            maxVal = patternStats.directionHist[i];
-            maxDir = i;
-        }
-    }
-    patternStats.dominantDirection = maxDir;
-}
-
-// Update all pattern statistics
-function updatePatternStats() {
-    // Tempo stats
-    if (patternStats.tempoSamples.length >= 5) {
-        const stats = calcStats(patternStats.tempoSamples);
-        patternStats.tempoMean = stats.mean;
-        patternStats.tempoStdDev = stats.stdDev;
-    }
-
-    // Amplitude stats
-    if (patternStats.amplitudeSamples.length >= 10) {
-        const stats = calcStats(patternStats.amplitudeSamples);
-        patternStats.amplitudeMean = stats.mean;
-        patternStats.amplitudeStdDev = stats.stdDev;
-    }
-
-    // Rhythm stats
-    if (patternStats.rhythmSamples.length >= 5) {
-        const stats = calcStats(patternStats.rhythmSamples);
-        patternStats.rhythmMean = stats.mean;
-        patternStats.rhythmStdDev = stats.stdDev;
-    }
-
-    // Calculate confidence
-    const sampleCount = Math.min(
-        patternStats.tempoSamples.length,
-        patternStats.amplitudeSamples.length
-    );
-    patternStats.confidence = Math.min(1, sampleCount / PATTERN.MIN_SAMPLES);
-    patternStats.isValid = sampleCount >= PATTERN.MIN_SAMPLES;
-}
-
-// Detect outliers in current movement
-function detectOutlier(currentTempo, currentAmplitude, currentDirection) {
-    if (!patternStats.isValid) {
-        patternStats.outlierScore = 0;
-        patternStats.outlierType = null;
-        patternStats.outlierRatio = 1;
-        return;
-    }
-
-    let maxScore = 0;
-    let outlierType = null;
-    let outlierRatio = 1;
-
-    // Check tempo outlier
-    if (currentTempo > 0) {
-        const tempoZ = Math.abs(currentTempo - patternStats.tempoMean) / patternStats.tempoStdDev;
-        if (tempoZ > maxScore) {
-            maxScore = tempoZ;
-            outlierType = 'tempo';
-            outlierRatio = currentTempo / patternStats.tempoMean;
-        }
-    }
-
-    // Check amplitude outlier
-    const ampZ = Math.abs(currentAmplitude - patternStats.amplitudeMean) / patternStats.amplitudeStdDev;
-    if (ampZ > maxScore) {
-        maxScore = ampZ;
-        outlierType = 'amplitude';
-        outlierRatio = currentAmplitude / Math.max(0.01, patternStats.amplitudeMean);
-    }
-
-    // Check direction outlier (going where you usually don't)
-    if (currentDirection >= 0 && patternStats.dominantDirection >= 0) {
-        const dirDiff = Math.abs(currentDirection - patternStats.dominantDirection);
-        const normalizedDiff = Math.min(dirDiff, 8 - dirDiff) / 4; // 0-1
-        const totalHist = patternStats.directionHist.reduce((a, b) => a + b, 0);
-        const expectedProb = patternStats.directionHist[currentDirection] / Math.max(1, totalHist);
-
-        // Low probability direction = outlier
-        if (expectedProb < 0.1 && normalizedDiff > 0.5) {
-            const dirScore = (1 - expectedProb) * 3 + normalizedDiff * 2;
-            if (dirScore > maxScore) {
-                maxScore = dirScore;
-                outlierType = 'direction';
-                outlierRatio = 1 + normalizedDiff; // Direction ratio is less meaningful
-            }
-        }
-    }
-
-    // Smooth the outlier score
-    patternStats.outlierScore = patternStats.outlierScore * 0.7 + maxScore * 0.3;
-
-    // Only update type if score is significant
-    if (patternStats.outlierScore > PATTERN.OUTLIER_THRESHOLD) {
-        patternStats.outlierType = outlierType;
-        patternStats.outlierRatio = outlierRatio;
-    } else {
-        patternStats.outlierType = null;
-        patternStats.outlierRatio = 1;
-    }
-}
-
-// Quantize ratio to musical polyrhythm
-function quantizeToPolyrhythm(ratio) {
-    // Common polyrhythms and their ratios
-    const polyrhythms = [
-        { ratio: 1.0, name: '1:1', subdivision: 1 },
-        { ratio: 1.5, name: '3:2', subdivision: 1.5 },
-        { ratio: 1.333, name: '4:3', subdivision: 1.333 },
-        { ratio: 1.25, name: '5:4', subdivision: 1.25 },
-        { ratio: 1.2, name: '6:5', subdivision: 1.2 },
-        { ratio: 2.0, name: '2:1', subdivision: 2 },
-        { ratio: 0.667, name: '2:3', subdivision: 0.667 },
-        { ratio: 0.75, name: '3:4', subdivision: 0.75 },
-        { ratio: 0.8, name: '4:5', subdivision: 0.8 },
-    ];
-
-    // Find closest polyrhythm
-    let closest = polyrhythms[0];
-    let minDiff = Math.abs(ratio - closest.ratio);
-
-    for (const p of polyrhythms) {
-        const diff = Math.abs(ratio - p.ratio);
-        if (diff < minDiff) {
-            minDiff = diff;
-            closest = p;
-        }
-    }
-
-    return closest;
-}
-
-// Main pattern update function - called from input handlers
-function updatePattern(vx, vy) {
-    const now = performance.now();
-    const speed = Math.sqrt(vx * vx + vy * vy);
-    const isMoving = speed > 0.01;
-    const amplitude = Math.min(1, speed * 10); // Normalize to 0-1
-
-    // Track amplitude continuously
-    addAmplitudeSample(amplitude);
-
-    // Movement onset detection
-    if (isMoving && wasStationary) {
-        const interval = now - lastMovementStartTime;
-        if (lastMovementStartTime > 0) {
-            addRhythmSample(interval);
-        }
-        lastMovementStartTime = now;
-    }
-    wasStationary = !isMoving;
-
-    // Direction tracking (only when moving)
-    if (isMoving) {
-        const angle = Math.atan2(vy, vx);
-        const direction = angleToDirection(angle);
-        addDirectionSample(direction);
-
-        // Direction change detection for tempo
-        const currentDir = { x: Math.sign(vx), y: Math.sign(vy) };
-        if (lastMovementDirection.x !== 0 || lastMovementDirection.y !== 0) {
-            const dirChanged =
-                (currentDir.x !== 0 && currentDir.x !== lastMovementDirection.x) ||
-                (currentDir.y !== 0 && currentDir.y !== lastMovementDirection.y);
-
-            if (dirChanged) {
-                const tempoInterval = now - lastDirectionChangeTime;
-                if (lastDirectionChangeTime > 0) {
-                    addTempoSample(tempoInterval);
-                }
-                lastDirectionChangeTime = now;
-
-                // CRYSTALLIZATION: Track pattern cycles
-                detectPatternCycle(direction);
-            }
-        }
-    }
-
-    // Throttled stats update
-    patternFrameCount++;
-    if (patternFrameCount >= PATTERN.UPDATE_INTERVAL) {
-        patternFrameCount = 0;
-        updatePatternStats();
-
-        // Detect outliers
-        const currentTempo = now - lastDirectionChangeTime;
-        const direction = isMoving ? angleToDirection(Math.atan2(vy, vx)) : -1;
-        detectOutlier(currentTempo, amplitude, direction);
-    }
-}
-
-// Get pattern data for musical response
-function getPatternState() {
-    return {
-        isValid: patternStats.isValid,
-        confidence: patternStats.confidence,
-        outlierScore: patternStats.outlierScore,
-        outlierType: patternStats.outlierType,
-        outlierRatio: patternStats.outlierRatio,
-        isOutlier: patternStats.outlierScore > PATTERN.OUTLIER_THRESHOLD,
-        isMajorOutlier: patternStats.outlierScore > PATTERN.MAJOR_OUTLIER,
-        polyrhythm: quantizeToPolyrhythm(patternStats.outlierRatio),
-        tempoMean: patternStats.tempoMean,
-        amplitudeMean: patternStats.amplitudeMean,
-        // Crystallization data
-        crystallization: crystalState.crystallization,
-        phase: crystalState.phase,
-        repetitionCount: crystalState.repetitionCount,
-        dropTriggered: crystalState.dropTriggered,
-    };
-}
-
-// ============ CRYSTALLIZATION UPDATE ============
-// Track repetition cycles and update crystallization state
-
-function detectPatternCycle(direction) {
-    const now = performance.now();
-
-    // A cycle completes when we return to the starting direction
-    // after having moved away from it
-    if (crystalState.cycleDirection === -1) {
-        // First direction - set as cycle start
-        crystalState.cycleDirection = direction;
-        crystalState.lastCycleTime = now;
-        return;
-    }
-
-    // Check if we've returned to starting direction (opposite direction)
-    const opposite = (crystalState.cycleDirection + 4) % 8;
-    const isReturning = Math.abs(direction - opposite) <= 1 ||
-                        Math.abs(direction - opposite) >= 7;
-
-    if (isReturning && now - crystalState.lastCycleTime > 200) {
-        // Cycle complete!
-        crystalState.repetitionCount = Math.min(
-            CRYSTAL.MAX_REPS,
-            crystalState.repetitionCount + 1
-        );
-        crystalState.lastCycleTime = now;
-        crystalState.cycleDirection = direction;
-
-        // Find dominant ratio among entities
-        updateDominantRatio();
-    }
-}
-
-function updateDominantRatio() {
-    // Find which ratio has the most entities with high life
-    const ratioCounts = {};
-    for (const e of entities) {
-        if (e.life > 0.5) {
-            const key = e.ratio.toFixed(3);
-            ratioCounts[key] = (ratioCounts[key] || 0) + e.life;
-        }
-    }
-
-    let maxCount = 0;
-    let dominant = 1;
-    for (const [ratio, count] of Object.entries(ratioCounts)) {
-        if (count > maxCount) {
-            maxCount = count;
-            dominant = parseFloat(ratio);
-        }
-    }
-
-    crystalState.dominantRatio = dominant;
-}
-
-function updateCrystallization(dt) {
-    const speed = Math.sqrt(field.vx * field.vx + field.vy * field.vy);
-
-    // Entropy builds with movement, slowed by stillness
-    if (speed > 0.01) {
-        const stillnessFactor = 1 - field.stillness * CRYSTAL.STILLNESS_PRESERVE;
-        crystalState.entropy += speed * CRYSTAL.ENTROPY_RATE * stillnessFactor;
-    } else {
-        // Stillness slowly reduces entropy
-        crystalState.entropy *= 0.995;
-    }
-
-    // Calculate crystallization from repetition count minus entropy
-    const rawCrystal = crystalState.repetitionCount / CRYSTAL.CRYSTAL_END;
-    crystalState.crystallization = Math.max(0, Math.min(1,
-        rawCrystal - crystalState.entropy
-    ));
-
-    // Determine phase
-    const reps = crystalState.repetitionCount;
-    if (reps < CRYSTAL.CHAOS_END || crystalState.crystallization < 0.15) {
-        crystalState.phase = 'chaos';
-        crystalState.dropTriggered = false;
-    } else if (reps < CRYSTAL.FORMING_END || crystalState.crystallization < 0.4) {
-        crystalState.phase = 'forming';
-        crystalState.dropTriggered = false;
-    } else if (reps < CRYSTAL.CRYSTAL_END || crystalState.crystallization < 0.85) {
-        crystalState.phase = 'crystallizing';
-    } else {
-        crystalState.phase = 'locked';
-
-        // THE DROP - triggered once when hitting locked state
-        if (!crystalState.dropTriggered && crystalState.crystallization >= CRYSTAL.DROP_THRESHOLD) {
-            triggerTheDrop();
-        }
-    }
-
-    // Entropy can reset the repetition count if it overwhelms
-    if (crystalState.entropy > 0.8) {
-        crystalState.repetitionCount = Math.max(0,
-            crystalState.repetitionCount - 1
-        );
-        crystalState.entropy *= 0.9; // Consume entropy
-    }
-}
-
-function triggerTheDrop() {
-    if (!ctx) return;
-
-    crystalState.dropTriggered = true;
-    crystalState.dropTime = performance.now();
-
-    const now = ctx.currentTime;
-
-    // HANS ZIMMER MODE: The drop is CINEMATIC
-    // Longer silence for more tension
-    const silenceMs = CRYSTAL.DROP_SILENCE_MS * 1.5;
-
-    // Brief silence before the drop - COMPLETE silence
-    master.gain.setValueAtTime(master.gain.value, now);
-    master.gain.linearRampToValueAtTime(0.02, now + silenceMs / 1000);
-
-    // THE DROP - everything comes back MASSIVE
-    master.gain.linearRampToValueAtTime(1.0, now + silenceMs / 1000 + 0.02);
-    master.gain.linearRampToValueAtTime(0.85, now + 0.8);
-
-    // TRIGGER THE BWAAAM at the drop moment
-    setTimeout(() => {
-        triggerBwaaam();
-
-        // Also trigger kick for punch
-        playDrum('kick', 1.0);
-        playDrum('bass', 0.9);
-
-        if (beatGain && ctx) {
-            const dropNow = ctx.currentTime;
-            beatOsc.frequency.setValueAtTime(BASE, dropNow);
-            beatOsc.frequency.exponentialRampToValueAtTime(BASE / 2, dropNow + 0.2);
-            beatGain.gain.cancelScheduledValues(dropNow);
-            beatGain.gain.setValueAtTime(0, dropNow);
-            beatGain.gain.linearRampToValueAtTime(0.5, dropNow + 0.01);
-            beatGain.gain.exponentialRampToValueAtTime(0.001, dropNow + 0.6);
-        }
-    }, silenceMs);
-}
-
-// ============ GESTURE RECOGNITION ============
-
-const GESTURE_BUFFER_MS = 500;
-const GESTURE_SAMPLE_RATE = 60; // ~16ms per sample
-const GESTURE_BUFFER_SIZE = Math.ceil(GESTURE_BUFFER_MS / (1000 / GESTURE_SAMPLE_RATE));
-
-let gestureBuffer = [];
-let lastGestureTime = 0;
-let currentGesture = null;
-
-// Gesture thresholds (tuned through experimentation)
-const GESTURE_THRESHOLDS = {
-    SHAKE_ENERGY: 0.15,      // Minimum energy for shake
-    SHAKE_REVERSALS: 3,      // Minimum direction changes for shake
-    SWIPE_VELOCITY: 0.08,    // Minimum velocity for swipe
-    SWIPE_LINEARITY: 0.7,    // How straight the path must be (0-1)
-    TAP_DURATION: 150,       // Max ms for a tap
-    HOLD_DURATION: 400,      // Min ms for a hold
-    CIRCLE_ROTATION: Math.PI * 1.5, // Min radians for circle
-    COOLDOWN: 200            // Min ms between gesture detections
-};
-
-function addGestureSample(x, y, vx, vy, ax, ay) {
-    const now = performance.now();
-
-    gestureBuffer.push({
-        time: now,
-        x, y,
-        vx, vy,
-        ax, ay,
-        energy: Math.sqrt(vx*vx + vy*vy),
-        angle: Math.atan2(vy, vx)
-    });
-
-    // Trim old samples
-    while (gestureBuffer.length > 0 &&
-           now - gestureBuffer[0].time > GESTURE_BUFFER_MS) {
-        gestureBuffer.shift();
-    }
-}
-
-function detectGesture() {
-    if (gestureBuffer.length < 5) return null;
-
-    const now = performance.now();
-    if (now - lastGestureTime < GESTURE_THRESHOLDS.COOLDOWN) return null;
-
-    const buffer = gestureBuffer;
-    const duration = buffer[buffer.length - 1].time - buffer[0].time;
-
-    // Calculate aggregate metrics
-    let totalEnergy = 0;
-    let maxEnergy = 0;
-    let directionReversals = 0;
-    let totalRotation = 0;
-    let prevAngle = buffer[0].angle;
-
-    // Track start and end positions for swipe detection
-    const startX = buffer[0].x;
-    const startY = buffer[0].y;
-    const endX = buffer[buffer.length - 1].x;
-    const endY = buffer[buffer.length - 1].y;
-    const displacement = Math.sqrt((endX - startX)**2 + (endY - startY)**2);
-
-    // Track path length for linearity
-    let pathLength = 0;
-
-    for (let i = 1; i < buffer.length; i++) {
-        const sample = buffer[i];
-        const prev = buffer[i - 1];
-
-        totalEnergy += sample.energy;
-        maxEnergy = Math.max(maxEnergy, sample.energy);
-
-        // Path length
-        pathLength += Math.sqrt((sample.x - prev.x)**2 + (sample.y - prev.y)**2);
-
-        // Direction reversals (for shake detection)
-        const dotProduct = sample.vx * prev.vx + sample.vy * prev.vy;
-        if (dotProduct < -0.001 && prev.energy > 0.02 && sample.energy > 0.02) {
-            directionReversals++;
-        }
-
-        // Total rotation (for circle detection)
-        let angleDiff = sample.angle - prevAngle;
-        // Normalize to -PI to PI
-        while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
-        while (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
-        totalRotation += angleDiff;
-        prevAngle = sample.angle;
-    }
-
-    const avgEnergy = totalEnergy / buffer.length;
-    const linearity = pathLength > 0.001 ? displacement / pathLength : 0;
-
-    // ============ GESTURE CLASSIFICATION ============
-
-    // SHAKE: High energy with multiple direction reversals
-    if (avgEnergy > GESTURE_THRESHOLDS.SHAKE_ENERGY &&
-        directionReversals >= GESTURE_THRESHOLDS.SHAKE_REVERSALS) {
-        lastGestureTime = now;
-        return {
-            type: 'SHAKE',
-            intensity: Math.min(1, avgEnergy / 0.3),
-            reversals: directionReversals
-        };
-    }
-
-    // CIRCLE: Accumulated rotation exceeds threshold
-    if (Math.abs(totalRotation) > GESTURE_THRESHOLDS.CIRCLE_ROTATION &&
-        avgEnergy > 0.02) {
-        lastGestureTime = now;
-        return {
-            type: 'CIRCLE',
-            direction: totalRotation > 0 ? 'CW' : 'CCW',
-            rotations: Math.abs(totalRotation) / (2 * Math.PI)
-        };
-    }
-
-    // SWIPE: Fast, linear movement
-    if (avgEnergy > GESTURE_THRESHOLDS.SWIPE_VELOCITY &&
-        linearity > GESTURE_THRESHOLDS.SWIPE_LINEARITY &&
-        displacement > 0.1) {
-        lastGestureTime = now;
-        const angle = Math.atan2(endY - startY, endX - startX);
-        let direction;
-        if (angle > -Math.PI/4 && angle <= Math.PI/4) direction = 'RIGHT';
-        else if (angle > Math.PI/4 && angle <= 3*Math.PI/4) direction = 'DOWN';
-        else if (angle > -3*Math.PI/4 && angle <= -Math.PI/4) direction = 'UP';
-        else direction = 'LEFT';
-
-        return {
-            type: 'SWIPE',
-            direction,
-            velocity: avgEnergy,
-            distance: displacement
-        };
-    }
-
-    // HOLD: Low energy for extended duration
-    if (avgEnergy < 0.01 && duration > GESTURE_THRESHOLDS.HOLD_DURATION) {
-        // Only fire hold once per stillness period
-        if (!currentGesture || currentGesture.type !== 'HOLD') {
-            lastGestureTime = now;
-            return {
-                type: 'HOLD',
-                duration: duration,
-                position: { x: endX, y: endY }
-            };
-        }
-    }
-
-    return null;
-}
-
-function onGestureDetected(gesture) {
-    // Store for external access
-    currentGesture = gesture;
-    field.lastGesture = field.time;
-
-    // Visual feedback - pulse the cursor
-    field.energy = Math.max(field.energy, gesture.intensity || 0.3);
-
-    // ============ 2026 MUSICAL RESPONSES - GLITCHY & IMPACTFUL ============
-
-    switch (gesture.type) {
-        case 'SHAKE':
-            // STUTTER EFFECT - rapid glitchy repeats
-            triggerStutter(gesture.intensity);
-            triggerShake(gesture.intensity);
-            break;
-
-        case 'SWIPE':
-            // TAPE STOP on downward swipes, quick run otherwise
-            if (gesture.direction === 'DOWN') {
-                triggerTapeStop();
-            } else {
-                triggerSwipe(gesture.direction, gesture.velocity);
-            }
-            break;
-
-        case 'CIRCLE':
-            // Arpeggio pattern cycling through chord
-            triggerCircle(gesture.direction, gesture.rotations);
-            break;
-
-        case 'HOLD':
-            // Deepen reverb, let notes bloom and sustain
-            triggerHold(gesture.duration);
-            break;
-    }
-}
-
-// ============ GESTURE MUSICAL RESPONSES ============
-
-function triggerShake(intensity) {
-    // Find entities near the cursor and make them tremble
-    const now = ctx.currentTime;
-
-    for (const e of entities) {
-        const dx = field.x - e.x;
-        const dy = field.y - e.y;
-        const dist = Math.sqrt(dx*dx + dy*dy);
-
-        if (dist < 0.25 && e.life > 0.3) {
-            // Rapid pitch wobble - tremolo effect
-            const wobbleDepth = intensity * e.freq * 0.03;
-            const wobbleSpeed = 12 + intensity * 8; // 12-20 Hz tremolo
-
-            // Schedule rapid oscillations over the next 300ms
-            for (let t = 0; t < 0.3; t += 0.025) {
-                const wobble = Math.sin(t * wobbleSpeed * TAU) * wobbleDepth;
-                e.osc.frequency.setValueAtTime(e.freq + wobble, now + t);
-                e.osc2.frequency.setValueAtTime(e.freq * 1.003 + wobble, now + t);
-            }
-            // Return to normal
-            e.osc.frequency.linearRampToValueAtTime(e.freq, now + 0.35);
-            e.osc2.frequency.linearRampToValueAtTime(e.freq * 1.003, now + 0.35);
-
-            // Brief brightness boost
-            e.brightness = Math.min(1, e.brightness + intensity * 0.5);
-        }
-    }
-}
-
-function triggerSwipe(direction, velocity) {
-    // Quick melodic run - spawn temporary notes in the swipe direction
-    const now = ctx.currentTime;
-
-    // Find a nearby entity to base the run on
-    let baseEntity = null;
-    let minDist = Infinity;
-    for (const e of entities) {
-        const dx = field.x - e.x;
-        const dy = field.y - e.y;
-        const dist = Math.sqrt(dx*dx + dy*dy);
-        if (dist < minDist && e.life > 0.5) {
-            minDist = dist;
-            baseEntity = e;
-        }
-    }
-
-    // Determine scale direction based on swipe
-    const ascending = (direction === 'UP' || direction === 'RIGHT');
-
-    // Use entity frequency if available, otherwise derive from field position
-    let baseRatio;
-    if (baseEntity) {
-        baseRatio = baseEntity.ratio;
-    } else {
-        // Fallback: position-based root (Y controls octave, X controls mode)
-        const octave = 1 + Math.floor((1 - field.y) * 3); // 1-4 based on Y
-        const rootRatios = [1, 9/8, 5/4, 4/3, 3/2, 5/3, 15/8]; // Major scale
-        const rootIndex = Math.floor(field.x * rootRatios.length);
-        baseRatio = rootRatios[rootIndex] * octave;
-    }
-
-    // Simple pentatonic-ish intervals for the run
-    const intervals = ascending
-        ? [1, 9/8, 5/4, 3/2, 5/3]    // Ascending run
-        : [1, 8/9, 4/5, 2/3, 3/5];   // Descending run
-
-    // Play quick arpeggio using temporary oscillators
-    const runSpeed = 0.06 / (0.5 + velocity); // Faster swipe = faster notes
-
-    intervals.forEach((interval, i) => {
-        const noteTime = now + i * runSpeed;
-        const freq = BASE * baseRatio * interval;
-
-        // Create a quick note
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = 'triangle';
-        osc.frequency.value = freq;
-        gain.gain.value = 0;
-
-        osc.connect(gain);
-        gain.connect(master);
-        gain.connect(verb.input);
-
-        // Quick envelope
-        gain.gain.setValueAtTime(0, noteTime);
-        gain.gain.linearRampToValueAtTime(0.08 * (1 - i * 0.15), noteTime + 0.01);
-        gain.gain.exponentialRampToValueAtTime(0.001, noteTime + 0.15);
-
-        osc.start(noteTime);
-        osc.stop(noteTime + 0.2);
-    });
-}
-
-function triggerCircle(direction, rotations) {
-    // Arpeggio loop - cycle through chord tones of nearby entities
-    const now = ctx.currentTime;
-
-    // Gather frequencies of nearby, alive entities
-    const nearbyFreqs = [];
-    for (const e of entities) {
-        const dx = field.x - e.x;
-        const dy = field.y - e.y;
-        const dist = Math.sqrt(dx*dx + dy*dy);
-        if (dist < 0.3 && e.life > 0.4) {
-            nearbyFreqs.push(e.freq);
-        }
-    }
-
-    // Fallback: if only one entity nearby, pulse it rhythmically
-    if (nearbyFreqs.length === 0) return;
-    if (nearbyFreqs.length === 1) {
-        // Single entity - create a rhythmic pulse on that one note
-        const freq = nearbyFreqs[0];
-        const noteCount = Math.min(4, Math.ceil(rotations * 2));
-        const noteSpeed = 0.12;
-
-        for (let i = 0; i < noteCount; i++) {
-            const noteTime = now + i * noteSpeed;
-
-            const osc = ctx.createOscillator();
-            const gain = ctx.createGain();
-            osc.type = 'sine';
-            osc.frequency.value = freq;
-            gain.gain.value = 0;
-
-            osc.connect(gain);
-            gain.connect(master);
-            gain.connect(verb.input);
-
-            // Pulsing envelope
-            gain.gain.setValueAtTime(0, noteTime);
-            gain.gain.linearRampToValueAtTime(0.07, noteTime + 0.015);
-            gain.gain.exponentialRampToValueAtTime(0.001, noteTime + 0.18);
-
-            osc.start(noteTime);
-            osc.stop(noteTime + 0.25);
-        }
-        return;
-    }
-
-    // Sort by frequency
-    nearbyFreqs.sort((a, b) => a - b);
-
-    // Direction determines arpeggio direction
-    if (direction === 'CCW') nearbyFreqs.reverse();
-
-    // Play arpeggio with number of notes based on rotations
-    const noteCount = Math.min(nearbyFreqs.length * 2, Math.ceil(rotations * nearbyFreqs.length));
-    const noteSpeed = 0.1;
-
-    for (let i = 0; i < noteCount; i++) {
-        const freq = nearbyFreqs[i % nearbyFreqs.length];
-        const noteTime = now + i * noteSpeed;
-
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = 'sine';
-        osc.frequency.value = freq;
-        gain.gain.value = 0;
-
-        osc.connect(gain);
-        gain.connect(master);
-        gain.connect(verb.input);
-        gain.connect(dly.input);
-
-        // Soft envelope
-        gain.gain.setValueAtTime(0, noteTime);
-        gain.gain.linearRampToValueAtTime(0.06, noteTime + 0.02);
-        gain.gain.exponentialRampToValueAtTime(0.001, noteTime + 0.25);
-
-        osc.start(noteTime);
-        osc.stop(noteTime + 0.3);
-    }
-}
-
-function triggerHold(duration) {
-    // Deepen reverb and let existing notes sustain and bloom
-    const now = ctx.currentTime;
-
-    // Temporarily boost reverb
-    const boostAmount = Math.min(0.3, duration / 2000);
-    verb.output.gain.linearRampToValueAtTime(
-        verb.baseGain + boostAmount + 0.15,
-        now + 0.2
-    );
-
-    // Slowly return to normal over 2 seconds
-    verb.output.gain.linearRampToValueAtTime(verb.baseGain, now + 2);
-
-    // Give nearby entities a life and brightness boost
-    for (const e of entities) {
-        const dx = field.x - e.x;
-        const dy = field.y - e.y;
-        const dist = Math.sqrt(dx*dx + dy*dy);
-        if (dist < 0.25) {
-            e.life = Math.min(1, e.life + 0.2);
-            e.lastVisit = field.time;
-
-            // Open their filters for more harmonics
-            e.filter.frequency.linearRampToValueAtTime(
-                e.filter.frequency.value + 500,
-                now + 0.3
-            );
-        }
-    }
-
-    // Boost stillness and depth
-    field.stillness = Math.min(3, field.stillness + 0.5);
-    field.depth = Math.min(1, field.depth + 0.1);
-}
-
-// All possible harmonic ratios - the DNA pool
-const ALL_RATIOS = [
-    1, 16/15, 9/8, 6/5, 5/4, 4/3, 45/32, 3/2, 8/5, 5/3, 9/5, 15/8,
-    2, 9/4, 12/5, 5/2, 8/3, 3, 16/5, 10/3, 15/4, 4, 9/2, 5, 6, 8
+// ============ THE LAYER SYSTEM ============
+// Each layer is a recorded loop of pitch + timing
+// Layers build ONE BY ONE through user action
+
+const BASE_FREQ = 110; // A2 - foundation frequency
+const MAX_LAYERS = 8;  // Maximum concurrent layers
+
+let layers = [];      // Array of recorded layers
+let activeVoice = null; // The SINGLE voice that follows tilt (before recording)
+
+// Layer structure:
+// {
+//   id: number,
+//   freq: number,           // The pitch of this layer
+//   startTime: number,      // When in the loop it plays
+//   loopLength: number,     // How long the loop is (in seconds)
+//   osc: OscillatorNode,
+//   gain: GainNode,
+//   filter: BiquadFilterNode,
+//   recorded: boolean,      // Has this been recorded (or still live)?
+//   volume: number          // 0-1, decreases with each layer
+// }
+
+// ============ MUSIC THEORY: HARMONIC PROBABILITY ============
+// New layers should HARMONIZE with existing layers
+// The system predicts what will sound GOOD
+
+// Just intonation ratios - these are the "legal" intervals
+const CONSONANT_RATIOS = [
+    { ratio: 1,     name: 'unison',   consonance: 1.0 },
+    { ratio: 2,     name: 'octave',   consonance: 0.95 },
+    { ratio: 3/2,   name: 'fifth',    consonance: 0.9 },
+    { ratio: 4/3,   name: 'fourth',   consonance: 0.85 },
+    { ratio: 5/4,   name: 'maj3',     consonance: 0.8 },
+    { ratio: 6/5,   name: 'min3',     consonance: 0.75 },
+    { ratio: 5/3,   name: 'maj6',     consonance: 0.7 },
+    { ratio: 8/5,   name: 'min6',     consonance: 0.65 },
+    { ratio: 9/8,   name: 'maj2',     consonance: 0.5 },
+    { ratio: 16/15, name: 'min2',     consonance: 0.3 },
 ];
 
-const BASE = 55;
-const MAX_ENTITIES = 24;
-const MIN_ENTITIES = 5;
-
-// Consonance - the gravity of music
-function consonance(r1, r2) {
-    let ratio = r1 > r2 ? r1/r2 : r2/r1;
-    // Normalize to one octave
+// Calculate consonance between two frequencies
+function getConsonance(freq1, freq2) {
+    let ratio = freq1 > freq2 ? freq1 / freq2 : freq2 / freq1;
+    // Normalize to within one octave
     while (ratio > 2) ratio /= 2;
 
-    if (Math.abs(ratio - 1) < 0.01) return 1;
-    if (Math.abs(ratio - 2) < 0.01) return 0.95;
-    if (Math.abs(ratio - 1.5) < 0.01) return 0.9;
-    if (Math.abs(ratio - 4/3) < 0.02) return 0.85;
-    if (Math.abs(ratio - 5/4) < 0.02) return 0.75;
-    if (Math.abs(ratio - 6/5) < 0.02) return 0.7;
-    if (Math.abs(ratio - 5/3) < 0.02) return 0.65;
-    if (Math.abs(ratio - 8/5) < 0.02) return 0.6;
-    return 0.3;
+    let bestConsonance = 0.2; // Default dissonance
+    for (const interval of CONSONANT_RATIOS) {
+        const diff = Math.abs(ratio - interval.ratio);
+        if (diff < 0.03) { // Within 3% of a just interval
+            bestConsonance = Math.max(bestConsonance, interval.consonance * (1 - diff * 10));
+        }
+    }
+    return bestConsonance;
 }
 
-// Harmonic regions - different areas favor different modes
-function getRegionalMode(x, y) {
-    // Center = pure/Ionian, edges = more color
-    const distFromCenter = Math.sqrt((x-0.5)**2 + (y-0.5)**2);
-    const angle = Math.atan2(y - 0.5, x - 0.5);
+// Calculate how well a new frequency fits with existing layers
+function getHarmonicFit(newFreq) {
+    if (layers.length === 0) return 1; // First layer always fits
 
-    // Different corners = different modes
-    // Top-right: Lydian (bright)
-    // Bottom-right: Mixolydian (bluesy)
-    // Bottom-left: Dorian (dark)
-    // Top-left: Phrygian (exotic)
+    let totalConsonance = 0;
+    for (const layer of layers) {
+        totalConsonance += getConsonance(newFreq, layer.freq);
+    }
+    return totalConsonance / layers.length;
+}
 
-    const modeInfluence = Math.min(1, distFromCenter * 2);
-    let ratioBonus = {};
-
-    if (angle > 0 && angle < Math.PI/2) { // Top-right: Lydian
-        ratioBonus = { [45/32]: 0.3, [15/8]: 0.2 }; // #4, maj7
-    } else if (angle >= Math.PI/2) { // Top-left: Phrygian
-        ratioBonus = { [16/15]: 0.3, [8/5]: 0.2 }; // b2, b6
-    } else if (angle < -Math.PI/2) { // Bottom-left: Dorian
-        ratioBonus = { [6/5]: 0.2, [9/5]: 0.2 }; // min3, min7
-    } else { // Bottom-right: Mixolydian
-        ratioBonus = { [9/5]: 0.3, [5/4]: 0.2 }; // b7, maj3
+// Quantize frequency toward most consonant nearby pitch
+function quantizeToHarmony(rawFreq, strength = 0.5) {
+    if (layers.length === 0) {
+        // No existing layers - quantize to chromatic scale
+        const semitone = Math.round(12 * Math.log2(rawFreq / BASE_FREQ));
+        const quantizedFreq = BASE_FREQ * Math.pow(2, semitone / 12);
+        return rawFreq * (1 - strength) + quantizedFreq * strength;
     }
 
-    return { influence: modeInfluence, bonus: ratioBonus };
-}
+    // Find the frequency that best fits with existing layers
+    let bestFreq = rawFreq;
+    let bestFit = getHarmonicFit(rawFreq);
 
-// ============ SUPERSAW CONFIGURATION ============
-// HANS ZIMMER MODE: Massive, cinematic, chest-shaking
-// When patterns lock in, the sound becomes LEGENDARY
+    // Try nearby semitones
+    for (let offset = -3; offset <= 3; offset++) {
+        const testFreq = rawFreq * Math.pow(2, offset / 12);
+        const fit = getHarmonicFit(testFreq);
+        if (fit > bestFit) {
+            bestFit = fit;
+            bestFreq = testFreq;
+        }
+    }
 
-const SUPERSAW = {
-    VOICES: 16,                   // DOUBLED - more voices = more massive
-    MAX_DETUNE: 45,               // WIDER spread when chaotic - big stereo field
-    MIN_DETUNE: 2,                // TIGHTER when locked - laser focused power
-    LOCK_THRESHOLD: 0.6,          // Lock in faster
-    FIFTH_THRESHOLD: 0.7,         // 5th comes in earlier
-    OCTAVE_THRESHOLD: 0.8,        // Octave comes in earlier
-    LOCK_RATE: 0.08,              // Faster lock-in
-    UNLOCK_RATE: 0.015,           // Slower unlock - keep the power
-    FIFTH_RATIO: 1.5,             // Perfect 5th
-    OCTAVE_RATIO: 2.0,            // Octave
-    SUB_RATIO: 0.5,               // NEW: Sub-octave for CHEST-SHAKING bass
-    BRASS_ATTACK: 0.3,            // NEW: Slow attack for brass swells
-    INTENSITY_MULT: 1.8,          // NEW: Overall intensity multiplier
-};
+    // Also try consonant intervals from existing layers
+    for (const layer of layers) {
+        for (const interval of CONSONANT_RATIOS) {
+            // Try above and below
+            for (const mult of [interval.ratio, 1 / interval.ratio]) {
+                const testFreq = layer.freq * mult;
+                // Bring into reasonable range
+                while (testFreq < rawFreq * 0.5) testFreq *= 2;
+                while (testFreq > rawFreq * 2) testFreq /= 2;
 
-// ============ PITCH QUANTIZATION ============
-// The swoosh becomes song through crystallization
-// Chaos = continuous pitch. Locked = discrete notes.
-
-// The musical scale - ratios that sound GOOD
-const SCALE_RATIOS = [
-    1,          // Unison
-    9/8,        // Major 2nd
-    5/4,        // Major 3rd
-    4/3,        // Perfect 4th
-    3/2,        // Perfect 5th
-    5/3,        // Major 6th
-    15/8,       // Major 7th
-    2,          // Octave
-    9/4,        // 9th
-    5/2,        // 10th
-    3,          // 12th
-    4,          // 15th (double octave)
-];
-
-// Quantize a frequency to the nearest scale degree
-function quantizeToScale(freq, strength) {
-    // strength: 0 = no quantization, 1 = hard snap
-    if (strength < 0.01) return freq;
-
-    const ratio = freq / BASE;
-    let bestRatio = 1;
-    let bestDist = Infinity;
-
-    // Find closest scale ratio (within any octave)
-    for (let octave = 0; octave < 4; octave++) {
-        const octaveMult = Math.pow(2, octave);
-        for (const scaleRatio of SCALE_RATIOS) {
-            const targetRatio = scaleRatio * octaveMult / 4; // Adjusted for bass range
-            const dist = Math.abs(Math.log2(ratio / targetRatio));
-            if (dist < bestDist) {
-                bestDist = dist;
-                bestRatio = targetRatio;
+                if (Math.abs(testFreq - rawFreq) < rawFreq * 0.3) {
+                    const fit = getHarmonicFit(testFreq);
+                    if (fit > bestFit) {
+                        bestFit = fit;
+                        bestFreq = testFreq;
+                    }
+                }
             }
         }
     }
 
-    // Interpolate between original and quantized based on strength
-    const quantizedFreq = BASE * bestRatio;
-    return freq * (1 - strength) + quantizedFreq * strength;
+    return rawFreq * (1 - strength) + bestFreq * strength;
 }
 
-// ============ RHYTHMIC GATING ============
-// Notes should land ON beats, not smear across time
-// The beat grid divides into 16th notes
+// ============ TILT TO PITCH ============
+// Y position (tilt forward/back) controls pitch
+// Higher Y = lower pitch (natural: tilt down to go down)
 
-const RHYTHM = {
-    SUBDIVISIONS: 4,              // 16th notes (4 per beat)
-    GATE_ATTACK: 0.005,           // Note attack time (5ms) - SNAPPIER
-    GATE_RELEASE: 0.08,           // Note release time (80ms) - FASTER release = more silence
-    SWING: 0.1,                   // Shuffle amount (0-0.5)
-    REST_PROBABILITY_CHAOS: 0.85, // 85% rest in chaos - MORE SILENCE
-    REST_PROBABILITY_LOCKED: 0.35,// 35% rest when locked - STILL SOME SILENCE
-};
-
-// Track which beat subdivision we're on
-let lastSubdivision = -1;
-let currentNoteGate = 0;          // 0-1, used for gating sounds
-let noteTriggered = false;        // Did we trigger a note this subdivision?
-
-// Calculate swing offset for a subdivision
-function getSwingOffset(subdivision) {
-    // Swing affects odd-numbered subdivisions (2nd and 4th 16ths)
-    if (subdivision % 2 === 1) {
-        return RHYTHM.SWING * (60 / field.systemBPM) / RHYTHM.SUBDIVISIONS;
-    }
-    return 0;
+function tiltToFreq(y) {
+    // Map Y (0-1) to frequency range
+    // Y=0 (top) = high pitch, Y=1 (bottom) = low pitch
+    const octaves = 3; // 3 octave range
+    const normalizedPitch = 1 - y; // Invert so up = high
+    const freq = BASE_FREQ * Math.pow(2, normalizedPitch * octaves);
+    return freq;
 }
 
-// Update the rhythmic gate system
-function updateRhythmGate(dt) {
-    const beatsPerSecond = field.systemBPM / 60;
-    const subdivisionsPerSecond = beatsPerSecond * RHYTHM.SUBDIVISIONS;
+// ============ THE SINGLE VOICE ============
+// Before recording, there is ONE voice that follows your tilt
+// It's delicate, pure, singular
 
-    // Calculate current subdivision position
-    const subdivisionPhase = (field.beatPhase * RHYTHM.SUBDIVISIONS) % 1;
-    const currentSubdivision = Math.floor(field.beatPhase * RHYTHM.SUBDIVISIONS) % RHYTHM.SUBDIVISIONS;
+function createActiveVoice() {
+    if (activeVoice) return; // Already exists
 
-    // Detect subdivision change (new note window)
-    if (currentSubdivision !== lastSubdivision) {
-        lastSubdivision = currentSubdivision;
-
-        // Should we trigger a note or rest?
-        const crystal = crystalState.crystallization;
-        const restProb = RHYTHM.REST_PROBABILITY_CHAOS * (1 - crystal) +
-                        RHYTHM.REST_PROBABILITY_LOCKED * crystal;
-
-        noteTriggered = Math.random() > restProb;
-
-        if (noteTriggered) {
-            // Trigger the note gate
-            currentNoteGate = 1;
-        }
-    }
-
-    // Gate envelope - attack/release
-    // THE KEY: Notes should have REAL attack and REAL silence after
-    if (noteTriggered && subdivisionPhase < 0.4) {
-        // Note ON - fast attack
-        currentNoteGate = Math.min(1, currentNoteGate + dt / RHYTHM.GATE_ATTACK);
-    } else {
-        // Note OFF - must reach ZERO to create silence
-        // Aggressive release - silence is part of the music!
-        currentNoteGate = Math.max(0, currentNoteGate - dt / RHYTHM.GATE_RELEASE);
-    }
-}
-
-// ============ MELODIC VOICE ============
-// HANS ZIMMER MODE: Brass-like swells, epic phrases
-// This is the SOUL of the instrument
-
-let melodyOsc = null;
-let melodyOsc2 = null;            // Second oscillator for thickness
-let melodySubOsc = null;          // Sub oscillator for weight
-let melodyGain = null;
-let melodyFilter = null;
-let melodyEnv = 0;                // Current envelope value
-let melodyTargetFreq = BASE * 2;  // Target frequency for glide
-let melodyCurrentFreq = BASE * 2; // Current (gliding) frequency
-let melodyNoteOn = false;         // Is a note currently playing?
-let lastMelodyNote = 0;           // When did we last play a note?
-let melodyPhrase = [];            // Current phrase in progress
-let melodyPhrasePos = 0;          // Position in phrase
-let melodyIntensity = 0;          // Builds over time for SWELLS
-
-const MELODY = {
-    GLIDE_RATE: 0.4,              // Slightly slower for more expressive glides
-    MIN_NOTE_INTERVAL: 0.1,       // Can play notes faster
-    PHRASE_LENGTH: 4,             // Notes per phrase
-    PHRASE_REST: 0.25,            // Less rest between phrases
-    BASE_OCTAVE: 2,               // Melody starts at 2nd octave
-    RANGE_OCTAVES: 2,             // Can span 2 octaves
-    SWELL_RATE: 0.02,             // How fast intensity builds
-    MAX_INTENSITY: 1.5,           // Maximum swell intensity
-};
-
-function createMelodyVoice() {
-    // MAIN OSCILLATOR - Sawtooth for brass-like tone
-    melodyOsc = ctx.createOscillator();
-    melodyOsc.type = 'sawtooth';
-    melodyOsc.frequency.value = BASE * MELODY.BASE_OCTAVE;
-
-    // SECOND OSCILLATOR - Slightly detuned for thickness
-    melodyOsc2 = ctx.createOscillator();
-    melodyOsc2.type = 'sawtooth';
-    melodyOsc2.frequency.value = BASE * MELODY.BASE_OCTAVE * 1.003; // Slight detune
-
-    // SUB OSCILLATOR - Octave down for WEIGHT
-    melodySubOsc = ctx.createOscillator();
-    melodySubOsc.type = 'sine';
-    melodySubOsc.frequency.value = BASE * MELODY.BASE_OCTAVE * 0.5;
-
-    melodyGain = ctx.createGain();
-    melodyFilter = ctx.createBiquadFilter();
-
-    // Lowpass filter - starts dark, opens with intensity
-    melodyFilter.type = 'lowpass';
-    melodyFilter.frequency.value = 800;  // Start darker
-    melodyFilter.Q.value = 2;            // Slight resonance for brass character
-
-    melodyGain.gain.value = 0;
-
-    // Mix oscillators
-    const osc1Gain = ctx.createGain();
-    osc1Gain.gain.value = 0.5;
-    const osc2Gain = ctx.createGain();
-    osc2Gain.gain.value = 0.35;
-    const subGain = ctx.createGain();
-    subGain.gain.value = 0.4;
-
-    melodyOsc.connect(osc1Gain);
-    melodyOsc2.connect(osc2Gain);
-    melodySubOsc.connect(subGain);
-
-    osc1Gain.connect(melodyFilter);
-    osc2Gain.connect(melodyFilter);
-    subGain.connect(melodyFilter);
-
-    melodyFilter.connect(melodyGain);
-    melodyGain.connect(master);
-    melodyGain.connect(verb.input);
-
-    melodyOsc.start();
-    melodyOsc2.start();
-    melodySubOsc.start();
-}
-
-// ============ THE BWAAAM ============
-// Hans Zimmer's signature: pitched-down brass hit with massive reverb
-let bwaaaamPlaying = false;
-
-function triggerBwaaam() {
-    if (bwaaaamPlaying || !ctx) return;
-    bwaaaamPlaying = true;
-
-    const now = ctx.currentTime;
-
-    // Multiple layered oscillators for the BWAAAM
-    const freqs = [BASE * 0.5, BASE * 0.5 * 1.01, BASE * 0.25, BASE * 1, BASE * 0.5 * 0.99];
-    const oscs = [];
-    const gains = [];
-
-    freqs.forEach((freq, i) => {
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-
-        osc.type = i < 3 ? 'sawtooth' : 'sine';
-        osc.frequency.setValueAtTime(freq * 1.5, now);
-        osc.frequency.exponentialRampToValueAtTime(freq, now + 0.3); // Pitch drop
-
-        gain.gain.setValueAtTime(0, now);
-        gain.gain.linearRampToValueAtTime(0.4 / freqs.length, now + 0.05);
-        gain.gain.linearRampToValueAtTime(0.3 / freqs.length, now + 0.5);
-        gain.gain.exponentialRampToValueAtTime(0.001, now + 3);
-
-        osc.connect(gain);
-        gain.connect(master);
-        gain.connect(verb.input);
-
-        osc.start(now);
-        osc.stop(now + 3.5);
-
-        oscs.push(osc);
-        gains.push(gain);
-    });
-
-    setTimeout(() => { bwaaaamPlaying = false; }, 4000);
-}
-
-// Generate a melodic phrase based on movement
-function generateMelodyPhrase() {
-    const phrase = [];
-    const crystal = crystalState.crystallization;
-
-    // Base note from Y position (lower = bass, higher = treble)
-    const baseOctave = MELODY.BASE_OCTAVE + Math.floor((1 - field.y) * MELODY.RANGE_OCTAVES);
-
-    // X position influences scale degree
-    const baseIndex = Math.floor(field.x * SCALE_RATIOS.length);
-
-    for (let i = 0; i < MELODY.PHRASE_LENGTH; i++) {
-        // Movement creates melodic contour
-        let noteIndex = baseIndex;
-
-        // Add variation based on velocity direction
-        if (field.vx > 0.02) noteIndex += 1;  // Moving right = ascending
-        if (field.vx < -0.02) noteIndex -= 1; // Moving left = descending
-        if (field.vy > 0.02) noteIndex -= 1;  // Moving down = lower
-        if (field.vy < -0.02) noteIndex += 1; // Moving up = higher
-
-        // Add some randomness in chaos, none when locked
-        const randomness = Math.floor((Math.random() - 0.5) * 3 * (1 - crystal));
-        noteIndex += randomness + i; // Ascending tendency
-
-        // Clamp and wrap
-        noteIndex = Math.max(0, Math.min(SCALE_RATIOS.length - 1, noteIndex));
-
-        const ratio = SCALE_RATIOS[noteIndex] * Math.pow(2, baseOctave - 1);
-        phrase.push(BASE * ratio);
-    }
-
-    return phrase;
-}
-
-// Update the melodic voice - called every frame
-function updateMelodyVoice(dt) {
-    if (!melodyOsc || !ctx) return;
-
-    const now = ctx.currentTime;
-    const crystal = crystalState.crystallization;
-
-    // Melody adds color on top of the beat
-    // Drums are the foundation, melody is the flourish
-    // Reduced so drums remain prominent
-    const melodyVolume = 0.08 + crystal * 0.15; // 8% minimum, up to 23% when locked
-
-    // Melody starts playing almost immediately - it IS the instrument
-    // Users need to hear NOTES from the start, not wait for crystallization
-    if (crystal < 0.1) {
-        melodyEnv *= 0.9; // Fade out faster when truly chaotic
-        melodyGain.gain.linearRampToValueAtTime(melodyEnv * melodyVolume * 0.5, now + 0.05);
-        return;
-    }
-
-    // Should we start a new phrase?
-    if (melodyPhrase.length === 0 || melodyPhrasePos >= melodyPhrase.length) {
-        if (field.time - lastMelodyNote > MELODY.PHRASE_REST) {
-            melodyPhrase = generateMelodyPhrase();
-            melodyPhrasePos = 0;
-        }
-    }
-
-    // Trigger notes on the beat grid
-    if (noteTriggered && melodyPhrase.length > 0 && melodyPhrasePos < melodyPhrase.length) {
-        if (field.time - lastMelodyNote > MELODY.MIN_NOTE_INTERVAL) {
-            // Get next note from phrase
-            melodyTargetFreq = melodyPhrase[melodyPhrasePos];
-
-            // Quantize based on crystallization
-            melodyTargetFreq = quantizeToScale(melodyTargetFreq, crystal);
-
-            melodyPhrasePos++;
-            lastMelodyNote = field.time;
-            melodyNoteOn = true;
-
-            // Note-on envelope
-            melodyEnv = 1;
-        }
-    }
-
-    // Glide toward target frequency
-    const glideSpeed = MELODY.GLIDE_RATE * (1 + crystal * 2); // Faster glide when crystallized
-    melodyCurrentFreq += (melodyTargetFreq - melodyCurrentFreq) * glideSpeed;
-
-    // Update ALL melody oscillators (HANS ZIMMER brass-like layers)
-    melodyOsc.frequency.linearRampToValueAtTime(melodyCurrentFreq, now + 0.05);
-    if (melodyOsc2) {
-        melodyOsc2.frequency.linearRampToValueAtTime(melodyCurrentFreq * 1.003, now + 0.05);
-    }
-    if (melodySubOsc) {
-        melodySubOsc.frequency.linearRampToValueAtTime(melodyCurrentFreq * 0.5, now + 0.05);
-    }
-
-    // Envelope follows the gate - DISTINCT notes, not legato smear
-    if (currentNoteGate > 0.3) {
-        // Fast attack when gate opens
-        melodyEnv = Math.min(1, melodyEnv + dt * 20);
-        // Build intensity over time (SWELL)
-        melodyIntensity = Math.min(MELODY.MAX_INTENSITY, melodyIntensity + MELODY.SWELL_RATE);
-    } else {
-        // Faster decay - notes should END, not fade forever
-        melodyEnv *= 0.85;
-    }
-
-    // HANS ZIMMER: Filter opens with envelope AND intensity (brass swell)
-    const filterFreq = 600 + melodyEnv * 3000 * crystal * melodyIntensity;
-    melodyFilter.frequency.linearRampToValueAtTime(filterFreq, now + 0.05);
-
-    // Apply volume with intensity boost
-    const finalVolume = melodyEnv * melodyVolume * (0.7 + melodyIntensity * 0.3);
-    melodyGain.gain.linearRampToValueAtTime(finalVolume, now + 0.05);
-}
-
-// ============ ENTITY - A LIVING HARMONIC ============
-
-let entityId = 0;
-
-class Entity {
-    constructor(ratio, x, y) {
-        this.id = entityId++;
-        this.ratio = ratio;
-        this.freq = BASE * ratio;
-
-        this.x = x !== undefined ? x : 0.5 + (Math.random() - 0.5) * 0.4;
-        this.y = y !== undefined ? y : 0.5 + (Math.random() - 0.5) * 0.4;
-        this.vx = (Math.random() - 0.5) * 0.005;
-        this.vy = (Math.random() - 0.5) * 0.005;
-
-        this.mass = 1 / Math.sqrt(ratio);
-        this.life = 1;
-        this.age = 0;
-        this.lastVisit = 0; // When cursor was last near
-        this.brightness = 0;
-
-        // Synchronization
-        this.phase = Math.random() * TAU;
-        this.syncPhase = 0;
-        this.neighbors = [];
-
-        // Audio nodes - SUPERSAW: multiple oscillators with variable detune
-        this.sawOscs = [];        // Array of sawtooth oscillators
-        this.sawDetunes = [];     // Base detune offsets for each saw
-        this.fifthOsc = null;     // 5th harmonic oscillator
-        this.octaveOsc = null;    // Octave oscillator
-        this.fifthGain = null;    // 5th gain (fades in with pattern)
-        this.octaveGain = null;   // Octave gain
-        this.filter = null;
-        this.gain = null;
-        this.pan = null;
-        this.mod = null;
-        this.modGain = null;
-
-        // Supersaw state
-        this.currentDetune = SUPERSAW.MAX_DETUNE;  // Starts detuned (chaotic)
-        this.lockedIn = false;                      // Whether this entity is "locked"
-
-        // Visual
-        this.trail = [];
-        this.maxTrail = 40;
-        this.hue = (180 - Math.log2(ratio) * 60 + 360) % 360;
-        this.birthTime = field.time;
-    }
-
-    createAudio() {
-        // ============ MASSIVE SUPERSAW: 16 detuned sawtooth oscillators ============
-        // HANS ZIMMER MODE: Wide stereo spread, massive unison
-        // Detune spread: symmetric distribution across 16 voices
-        const numVoices = SUPERSAW.VOICES; // Now 16
-        for (let i = 0; i < numVoices; i++) {
-            const osc = ctx.createOscillator();
-            osc.type = 'sawtooth';
-            osc.frequency.value = this.freq;
-            // Spread detune evenly from -1 to +1
-            const detuneOffset = (i / (numVoices - 1)) * 2 - 1;
-            this.sawDetunes.push(detuneOffset);
-            this.sawOscs.push(osc);
-        }
-
-        // ============ SUB OSCILLATOR: Chest-shaking bass ============
-        this.subOsc = ctx.createOscillator();
-        this.subOsc.type = 'sine';
-        this.subOsc.frequency.value = this.freq * SUPERSAW.SUB_RATIO;
-        this.subGain = ctx.createGain();
-        this.subGain.gain.value = 0.4; // Strong sub presence
-
-        // ============ STACKED 5THS: 5th and octave for massive chords ============
-        this.fifthOsc = ctx.createOscillator();
-        this.fifthOsc.type = 'sawtooth';
-        this.fifthOsc.frequency.value = this.freq * SUPERSAW.FIFTH_RATIO;
-
-        this.octaveOsc = ctx.createOscillator();
-        this.octaveOsc.type = 'sawtooth';
-        this.octaveOsc.frequency.value = this.freq * SUPERSAW.OCTAVE_RATIO;
-
-        this.fifthGain = ctx.createGain();
-        this.fifthGain.gain.value = 0;  // Starts silent, fades in with pattern
-
-        this.octaveGain = ctx.createGain();
-        this.octaveGain.gain.value = 0;
-
-        this.fifthOsc.connect(this.fifthGain);
-        this.octaveOsc.connect(this.octaveGain);
-
-        // FM modulation for texture
-        this.mod = ctx.createOscillator();
-        this.modGain = ctx.createGain();
-        this.mod.type = 'sine';
-        this.mod.frequency.value = this.freq * PHI;
-        this.modGain.gain.value = 0;
-        this.mod.connect(this.modGain);
-
-        // Connect modulator to all saw oscillators
-        for (const osc of this.sawOscs) {
-            this.modGain.connect(osc.frequency);
-        }
-
-        // Filter - lowpass to tame the brightness
-        this.filter = ctx.createBiquadFilter();
-        this.filter.type = 'lowpass';
-        this.filter.frequency.value = 200;
-        this.filter.Q.value = 1.5;  // Slightly more resonant for supersaws
-
-        // Main gain
-        this.gain = ctx.createGain();
-        this.gain.gain.value = 0;
-
-        // Stereo pan
-        this.pan = ctx.createStereoPanner();
-
-        // Connect all oscillators through filter
-        for (const osc of this.sawOscs) {
-            osc.connect(this.filter);
-        }
-        this.fifthGain.connect(this.filter);
-        this.octaveGain.connect(this.filter);
-
-        // Sub oscillator goes direct to gain (bypass filter for deep bass)
-        this.subOsc.connect(this.subGain);
-        this.subGain.connect(this.gain);
-
-        this.filter.connect(this.gain);
-        this.gain.connect(this.pan);
-        // Route through sidechain for PUMP effect
-        if (sidechainGain) {
-            this.pan.connect(sidechainGain);
-        } else {
-            this.pan.connect(master);
-        }
-        this.pan.connect(verb.input);
-        this.pan.connect(dly.input);
-
-        // Start all oscillators
-        for (const osc of this.sawOscs) {
-            osc.start();
-        }
-        this.fifthOsc.start();
-        this.octaveOsc.start();
-        this.subOsc.start();  // Start sub oscillator
-        this.mod.start();
-    }
-
-    destroy() {
-        const now = ctx.currentTime;
-        this.gain.gain.linearRampToValueAtTime(0, now + 0.5);
-        setTimeout(() => {
-            for (const osc of this.sawOscs) {
-                osc.stop();
-            }
-            this.fifthOsc.stop();
-            this.octaveOsc.stop();
-            this.subOsc.stop();  // Stop sub oscillator
-            this.mod.stop();
-        }, 600);
-    }
-
-    update(dt) {
-        const now = ctx.currentTime;
-        this.age += dt;
-
-        // ============ LIFE AND DEATH ============
-
-        const dx = field.x - this.x;
-        const dy = field.y - this.y;
-        const distToCursor = Math.sqrt(dx*dx + dy*dy);
-
-        // Being near cursor sustains life
-        if (distToCursor < 0.2) {
-            this.lastVisit = field.time;
-            this.life = Math.min(1, this.life + dt * 0.5);
-        }
-
-        // Neglect causes fading
-        const timeSinceVisit = field.time - this.lastVisit;
-        if (timeSinceVisit > 5) {
-            this.life -= dt * 0.05 * (timeSinceVisit - 5);
-        }
-
-        // Young entities are fragile
-        if (this.age < 2) {
-            this.life = Math.min(this.life, this.age / 2);
-        }
-
-        // ============ PHYSICS ============
-
-        const cursorForce = 0.0004 / (distToCursor + 0.1);
-        this.vx += dx * cursorForce;
-        this.vy += dy * cursorForce;
-
-        // Inter-entity forces
-        this.neighbors = [];
-        for (const other of entities) {
-            if (other === this || other.life <= 0) continue;
-
-            const odx = other.x - this.x;
-            const ody = other.y - this.y;
-            const dist = Math.sqrt(odx*odx + ody*ody);
-            if (dist < 0.01 || dist > 0.4) continue;
-
-            const cons = consonance(this.ratio, other.ratio);
-            const force = (cons - 0.35) * 0.00004 / (dist + 0.03);
-
-            this.vx += odx * force;
-            this.vy += ody * force;
-
-            if (dist < 0.15 && cons > 0.6) {
-                this.neighbors.push(other);
-            }
-        }
-
-        // Center gravity
-        this.vx += (0.5 - this.x) * 0.00015;
-        this.vy += (0.5 - this.y) * 0.00015;
-
-        // Angular momentum from cursor
-        this.vx += -dy * field.vx * 0.015;
-        this.vy += dx * field.vy * 0.015;
-
-        // Regional mode influence on movement
-        const mode = getRegionalMode(this.x, this.y);
-        if (mode.bonus[this.ratio]) {
-            // This entity belongs here - slow down, settle
-            this.vx *= 0.98;
-            this.vy *= 0.98;
-        }
-
-        this.vx *= 0.994;
-        this.vy *= 0.994;
-
-        this.x += this.vx;
-        this.y += this.vy;
-
-        // Soft boundaries
-        if (this.x < 0.03) { this.x = 0.03; this.vx *= -0.5; }
-        if (this.x > 0.97) { this.x = 0.97; this.vx *= -0.5; }
-        if (this.y < 0.03) { this.y = 0.03; this.vy *= -0.5; }
-        if (this.y > 0.97) { this.y = 0.97; this.vy *= -0.5; }
-
-        // Trail
-        this.trail.unshift({ x: this.x, y: this.y, life: this.life });
-        if (this.trail.length > this.maxTrail) this.trail.pop();
-
-        // ============ SYNCHRONIZATION ============
-
-        // Phase advances based on frequency (creates natural rhythm)
-        this.phase += dt * (this.freq / BASE) * 0.5;
-
-        // Sync with neighbors
-        if (this.neighbors.length > 0) {
-            let avgPhase = 0;
-            for (const n of this.neighbors) {
-                avgPhase += n.phase;
-            }
-            avgPhase /= this.neighbors.length;
-
-            // Gently pull toward average phase
-            const phaseDiff = avgPhase - this.phase;
-            this.phase += phaseDiff * 0.02;
-        }
-
-        this.syncPhase = (Math.sin(this.phase) + 1) / 2; // 0-1 pulse
-
-        // ============ SOUND (uses PREDICTED position!) ============
-
-        // THE KEY INSIGHT: Sound responds to where you're GOING, not where you ARE
-        const pdx = field.px - this.x;  // Distance to PREDICTED cursor position
-        const pdy = field.py - this.y;
-        const distToPredicted = Math.sqrt(pdx*pdx + pdy*pdy);
-
-        // Proximity based on PREDICTED position - this is the magic
-        const predictedProximity = 1 - Math.min(1, distToPredicted * 2.5);
-        // Also keep current proximity for blending
-        const currentProximity = 1 - Math.min(1, distToCursor * 2.5);
-        // Blend: mostly predicted, but current adds stability
-        const proximity = predictedProximity * 0.7 + currentProximity * 0.3;
-
-        const vel = Math.sqrt(this.vx*this.vx + this.vy*this.vy);
-        this.brightness = this.brightness * 0.92 + vel * 8;
-
-        // TENSION from misprediction creates FM modulation and filter movement
-        const tensionFM = field.predictionTension * this.freq * 0.8;
-        const tensionFilter = field.predictionTension * 800;
-
-        // OUTLIER INFLUENCE - when user breaks their pattern, sound responds
-        const pattern = getPatternState();
-        const outlierInfluence = pattern.isOutlier ? Math.min(1, (pattern.outlierScore - PATTERN.OUTLIER_THRESHOLD) / 2) : 0;
-        const outlierFM = outlierInfluence * this.freq * 0.5 * pattern.confidence;
-        const outlierFilter = outlierInfluence * 600 * pattern.confidence;
-
-        // ============ CRYSTALLIZATION-DRIVEN SOUND ============
-        // Order from chaos: repetition crystallizes sound into focused power
-
-        const patternLockStrength = pattern.isValid ? pattern.confidence : 0;
-        const crystal = crystalState.crystallization;
-        const phase = crystalState.phase;
-
-        // Is this entity the dominant ratio (or consonant with it)?
-        const isDominant = consonance(this.ratio, crystalState.dominantRatio) > 0.85;
-
-        // Target detune based on CRYSTALLIZATION (not just pattern)
-        // Chaos = wide, Locked = tight
-        let targetDetune;
-        if (phase === 'locked' && isDominant) {
-            // Fully crystallized - extremely tight
-            targetDetune = CRYSTAL.LOCKED_DETUNE;
-            this.lockedIn = true;
-        } else if (phase === 'crystallizing') {
-            // Transitioning - interpolate based on crystallization
-            targetDetune = CRYSTAL.CHAOS_DETUNE - crystal * (CRYSTAL.CHAOS_DETUNE - CRYSTAL.LOCKED_DETUNE * 2);
-            this.lockedIn = crystal > 0.6 && isDominant;
-        } else if (phase === 'forming') {
-            // Starting to form - slight tightening
-            targetDetune = CRYSTAL.CHAOS_DETUNE * (1 - crystal * 0.3);
-            this.lockedIn = false;
-        } else {
-            // Pure chaos
-            targetDetune = CRYSTAL.CHAOS_DETUNE;
-            this.lockedIn = false;
-        }
-
-        // Non-dominant entities stay chaotic even when crystallizing
-        if (!isDominant && phase !== 'chaos') {
-            targetDetune = Math.max(targetDetune, CRYSTAL.CHAOS_DETUNE * 0.7);
-        }
-
-        // Smooth transition toward target detune
-        const detuneRate = this.lockedIn ? 0.08 : 0.03;
-        this.currentDetune += (targetDetune - this.currentDetune) * detuneRate;
-
-        // ============ CRYSTALLIZATION AMPLITUDE ============
-        // Dominant entities get LOUDER as crystallization increases
-        // Non-dominant entities FADE
-
-        let crystalAmpMod = 1;
-        if (phase === 'crystallizing' || phase === 'locked') {
-            if (isDominant) {
-                // Dominant entities amplify
-                crystalAmpMod = 1 + crystal * 0.8;
-            } else {
-                // Non-dominant entities fade
-                crystalAmpMod = 1 - crystal * 0.6;
-            }
-        }
-
-        // ============ STACKED 5THS - THE MASSIVE CHORD ============
-        // Emerges during crystallization, not just pattern confidence
-
-        let fifthAmp = 0;
-        let octaveAmp = 0;
-
-        // 5ths appear during crystallizing phase
-        if (crystal > 0.5 && isDominant) {
-            const fifthAmount = (crystal - 0.5) / 0.5;
-            fifthAmp = fifthAmount * 0.35 * this.mass * this.life;
-        }
-
-        // Octave appears when locked
-        if (phase === 'locked' && isDominant) {
-            const octaveAmount = (crystal - 0.85) / 0.15;
-            octaveAmp = Math.max(0, octaveAmount) * 0.25 * this.mass * this.life;
-        }
-
-        // Apply stacked 5ths gains
-        this.fifthGain.gain.linearRampToValueAtTime(fifthAmp * proximity, now + 0.1);
-        this.octaveGain.gain.linearRampToValueAtTime(octaveAmp * proximity, now + 0.1);
-
-        // ============ 2026 SAW WAVE MANIPULATION ============
-        // INSTANT IMPACT - Sound is SICK from second 1
-        // No waiting for crystallization - proximity = sound NOW
-
-        // Get LFO value for filter sweep (0-1)
-        const lfoValue = (Math.sin(lfoPhase + this.id * 0.5) + 1) / 2;
-
-        // ============ AMPLITUDE: INSTANT and MASSIVE ============
-        // Proximity-based - closer = louder, IMMEDIATELY
-        const baseAmp = 0.03 + proximity * 0.12 + this.brightness * 0.05;
-        const lockBonus = this.lockedIn ? 0.08 : 0;
-        const crystalBoost = 1 + crystal * 0.5;  // Crystallization adds power, not gates it
-
-        // Movement adds energy - no gating, just MORE
-        const energyBoost = 1 + field.energy * 0.8;
-
-        // Final amplitude - ALWAYS audible when near cursor
-        let finalAmp = baseAmp * this.mass * this.life * energyBoost * crystalBoost + lockBonus;
-
-        // Higher cap - let these BREATHE
-        const maxAmp = 0.18 + crystal * 0.1;
-        finalAmp = Math.min(finalAmp, maxAmp);
-
-        this.gain.gain.linearRampToValueAtTime(finalAmp, now + 0.03);
-
-        // Sub oscillator - CHEST-SHAKING
-        const subLevel = 0.4 + proximity * 0.3;
-        this.subGain.gain.linearRampToValueAtTime(subLevel * finalAmp * 2, now + 0.03);
-
-        // ============ FILTER: LFO SWEEP - THE 2026 SOUND ============
-        // Movement controls filter + LFO sweeps it
-        const moveSpeed = Math.sqrt(field.vx * field.vx + field.vy * field.vy);
-
-        // Base filter from proximity and movement
-        const proximityFilter = proximity * 4000;
-        const moveFilter = moveSpeed * 6000;
-
-        // LFO SWEEP - this is THE sound of 2026
-        const lfoFilter = lfoValue * LFO.DEPTH;
-
-        // Energy opens filter further
-        const energyFilter = field.energy * 2000;
-
-        // Combine everything
-        const filterFreq = LFO.MIN_FREQ + proximityFilter + moveFilter + lfoFilter + energyFilter + tensionFilter + outlierFilter;
-        const clampedFilter = Math.min(LFO.MAX_FREQ, Math.max(LFO.MIN_FREQ, filterFreq * this.life));
-
-        // Resonance increases with movement for that SQUELCHY sound
-        const resonance = 2 + moveSpeed * 8;
-        this.filter.Q.value = Math.min(12, resonance);
-        this.filter.frequency.linearRampToValueAtTime(clampedFilter, now + 0.04);
-
-        // ============ FM MODULATION: Movement = Texture ============
-        const fmDepth = field.energy * this.freq * 0.5 + moveSpeed * this.freq * 0.3 + tensionFM + outlierFM;
-        this.modGain.gain.linearRampToValueAtTime(fmDepth, now + 0.03);
-
-        // Pan - narrower in deep states for intimacy, also narrower when locked (focused)
-        const panWidth = 1.6 - field.depth * 0.8 - (this.lockedIn ? 0.3 : 0);
-        this.pan.pan.linearRampToValueAtTime((this.x - 0.5) * panWidth, now + 0.05);
-
-        // ============ SUPERSAW PITCH: Apply bend + detune + QUANTIZATION ============
-        // Pitch bend toward PREDICTED cursor - this is where the magic happens
-        // BUT: As crystallization increases, pitch SNAPS to scale degrees
-
-        // In chaos: continuous bend. In locked: quantized notes.
-        const bendAmount = 0.015 * (1 - field.depth * 0.5) * (1 - crystal * 0.8); // Less bend when crystallized
-        const tensionBend = field.predictionTension * 0.02 * (1 - crystal); // No tension bend when locked
-        const bend = 1 + pdx * bendAmount + tensionBend * (Math.random() - 0.5);
-        let bentFreq = this.freq * bend;
-
-        // ============ PITCH QUANTIZATION ============
-        // The swoosh becomes song: continuous pitch crystallizes into discrete notes
-        // Quantization strength increases with crystallization
-        bentFreq = quantizeToScale(bentFreq, crystal);
-
-        // Update all supersaw oscillators with detune
-        for (let i = 0; i < this.sawOscs.length; i++) {
-            // Detune in cents: offset * currentDetune
-            const detuneCents = this.sawDetunes[i] * this.currentDetune;
-            // Convert cents to frequency multiplier: 2^(cents/1200)
-            const detuneMultiplier = Math.pow(2, detuneCents / 1200);
-            this.sawOscs[i].frequency.linearRampToValueAtTime(bentFreq * detuneMultiplier, now + 0.1);
-        }
-
-        // Update stacked 5ths with same bend (also quantized)
-        this.fifthOsc.frequency.linearRampToValueAtTime(bentFreq * SUPERSAW.FIFTH_RATIO, now + 0.1);
-        this.octaveOsc.frequency.linearRampToValueAtTime(bentFreq * SUPERSAW.OCTAVE_RATIO, now + 0.1);
-    }
-
-    draw() {
-        const w = window.innerWidth;
-        const h = window.innerHeight;
-        const px = this.x * w;
-        const py = this.y * h;
-
-        if (this.life <= 0) return;
-
-        const amp = this.gain.gain.value;
-        const alpha = this.life;
-
-        // Trail
-        if (this.trail.length > 1 && amp > 0.001) {
-            vc.beginPath();
-            vc.moveTo(this.trail[0].x * w, this.trail[0].y * h);
-            for (let i = 1; i < this.trail.length; i++) {
-                vc.lineTo(this.trail[i].x * w, this.trail[i].y * h);
-            }
-            vc.strokeStyle = `hsla(${this.hue}, 70%, 60%, ${amp * alpha * 0.4})`;
-            vc.lineWidth = 1 + amp * 2;
-            vc.stroke();
-        }
-
-        // Sync pulse ring
-        if (this.neighbors.length > 0) {
-            const pulseR = 10 + this.syncPhase * 30;
-            vc.beginPath();
-            vc.arc(px, py, pulseR, 0, TAU);
-            vc.strokeStyle = `hsla(${this.hue}, 60%, 70%, ${this.syncPhase * amp * alpha * 0.5})`;
-            vc.lineWidth = 2;
-            vc.stroke();
-        }
-
-        // Core - larger and brighter when locked in
-        const lockBonus = this.lockedIn ? 15 : 0;
-        const r = 3 + amp * 35 + this.brightness * 15 + lockBonus;
-
-        // When locked, shift hue toward white/gold and increase saturation
-        const lockHue = this.lockedIn ? (this.hue + 30) % 360 : this.hue;
-        const lockSat = this.lockedIn ? 70 : 85;
-        const lockLight = this.lockedIn ? 85 + amp * 15 : 75 + amp * 20;
-
-        const grad = vc.createRadialGradient(px, py, 0, px, py, r);
-        grad.addColorStop(0, `hsla(${lockHue}, ${lockSat}%, ${lockLight}%, ${(0.9 + amp * 0.1) * alpha})`);
-        grad.addColorStop(0.5, `hsla(${this.hue}, 70%, 50%, ${amp * 0.6 * alpha})`);
-        grad.addColorStop(1, 'transparent');
-
-        vc.fillStyle = grad;
-        vc.beginPath();
-        vc.arc(px, py, r, 0, TAU);
-        vc.fill();
-
-        // ============ SUPERSAW LOCK-IN GLOW ============
-        // When pattern is strong and entity is locked, show a distinct visual
-        if (this.lockedIn && amp > 0.01) {
-            // Calculate how tight the detune is (0 = max chaos, 1 = fully locked)
-            const lockTightness = 1 - (this.currentDetune - SUPERSAW.MIN_DETUNE) / (SUPERSAW.MAX_DETUNE - SUPERSAW.MIN_DETUNE);
-
-            // Outer golden ring - the "clearing" moment visual
-            const lockR = r + 10 + lockTightness * 25;
-            const lockAlpha = lockTightness * amp * alpha * 0.6;
-
-            vc.beginPath();
-            vc.arc(px, py, lockR, 0, TAU);
-            vc.strokeStyle = `hsla(45, 90%, 75%, ${lockAlpha})`;  // Golden
-            vc.lineWidth = 2 + lockTightness * 3;
-            vc.stroke();
-
-            // Inner white flash when very tight
-            if (lockTightness > 0.7) {
-                const flashIntensity = (lockTightness - 0.7) / 0.3;
-                const flashR = r * 0.6;
-                const flashGrad = vc.createRadialGradient(px, py, 0, px, py, flashR);
-                flashGrad.addColorStop(0, `rgba(255, 255, 255, ${flashIntensity * amp * 0.4})`);
-                flashGrad.addColorStop(1, 'transparent');
-                vc.fillStyle = flashGrad;
-                vc.beginPath();
-                vc.arc(px, py, flashR, 0, TAU);
-                vc.fill();
-            }
-
-            // Stacked 5ths indicator - concentric rings when 5th/octave are active
-            const pattern = getPatternState();
-            if (pattern.confidence > SUPERSAW.FIFTH_THRESHOLD) {
-                const fifthAlpha = ((pattern.confidence - SUPERSAW.FIFTH_THRESHOLD) / (1 - SUPERSAW.FIFTH_THRESHOLD)) * 0.3 * amp;
-                vc.beginPath();
-                vc.arc(px, py, lockR + 8, 0, TAU);
-                vc.strokeStyle = `hsla(200, 80%, 70%, ${fifthAlpha})`;  // Blue for 5th
-                vc.lineWidth = 1.5;
-                vc.stroke();
-            }
-
-            if (pattern.confidence > SUPERSAW.OCTAVE_THRESHOLD) {
-                const octaveAlpha = ((pattern.confidence - SUPERSAW.OCTAVE_THRESHOLD) / (1 - SUPERSAW.OCTAVE_THRESHOLD)) * 0.25 * amp;
-                vc.beginPath();
-                vc.arc(px, py, lockR + 14, 0, TAU);
-                vc.strokeStyle = `hsla(280, 70%, 75%, ${octaveAlpha})`;  // Purple for octave
-                vc.lineWidth = 1;
-                vc.stroke();
-            }
-        }
-
-        // Birth glow
-        if (this.age < 1) {
-            const birthGlow = (1 - this.age) * 0.5;
-            const birthR = r + 20 * (1 - this.age);
-            vc.beginPath();
-            vc.arc(px, py, birthR, 0, TAU);
-            vc.strokeStyle = `hsla(${this.hue}, 90%, 80%, ${birthGlow})`;
-            vc.lineWidth = 3;
-            vc.stroke();
-        }
-
-        // Ancestral glow - reborn souls carry a golden shimmer
-        if (this.ancestralGlow && this.ancestralGlow > 0.1) {
-            const ancestralR = r + 15;
-            const shimmer = 0.5 + Math.sin(field.time * 3 + this.id) * 0.5;
-            vc.beginPath();
-            vc.arc(px, py, ancestralR, 0, TAU);
-            vc.strokeStyle = `hsla(45, 80%, 70%, ${this.ancestralGlow * shimmer * alpha * 0.5})`;
-            vc.lineWidth = 2;
-            vc.stroke();
-
-            // Fade the ancestral connection over time
-            this.ancestralGlow *= 0.9995;
-        }
-    }
-}
-
-// ============ ANCESTRAL MEMORY ============
-
-function findAncestor(x, y) {
-    // Search recent deaths near this location
-    for (let i = memory.length - 1; i >= 0; i--) {
-        const m = memory[i];
-        if (m.type !== 'death') continue;
-
-        const dx = m.x - x;
-        const dy = m.y - y;
-        const dist = Math.sqrt(dx*dx + dy*dy);
-        const age = field.time - m.time;
-
-        // Closer and more recent = stronger connection
-        if (dist < 0.15 && age < 30) {
-            return {
-                ratio: m.ratio,
-                strength: (1 - dist / 0.15) * (1 - age / 30),
-                x: m.x,
-                y: m.y
-            };
-        }
-    }
-    return null;
-}
-
-// ============ BIRTH ============
-
-function birthEntity() {
-    if (entities.length >= MAX_ENTITIES) return;
-
-    // Choose ratio based on PREDICTED position's regional mode
-    // This means harmonies shift BEFORE you arrive = telepathic feel
-    const mode = getRegionalMode(field.px, field.py);
-
-    // Check for ancestral influence at predicted position
-    const ancestor = findAncestor(field.px, field.py);
-
-    // Prefer ratios consonant with existing entities
-    let bestRatio = ALL_RATIOS[Math.floor(Math.random() * ALL_RATIOS.length)];
-    let bestScore = 0;
-
-    for (const ratio of ALL_RATIOS) {
-        let score = Math.random() * 0.3; // Base randomness
-
-        // Bonus for regional mode
-        if (mode.bonus[ratio]) {
-            score += mode.bonus[ratio] * mode.influence;
-        }
-
-        // Bonus for consonance with existing
-        for (const e of entities) {
-            if (e.life > 0.5) {
-                score += consonance(ratio, e.ratio) * 0.1;
-            }
-        }
-
-        // Ancestral echo - favor harmonics of the departed
-        if (ancestor) {
-            const ancestralCons = consonance(ratio, ancestor.ratio);
-            score += ancestralCons * ancestor.strength * 0.5;
-            // Strong pull toward the exact same ratio
-            if (Math.abs(ratio - ancestor.ratio) < 0.01) {
-                score += ancestor.strength * 0.8;
-            }
-        }
-
-        // Penalty for duplicates
-        for (const e of entities) {
-            if (Math.abs(e.ratio - ratio) < 0.01) {
-                score -= 0.5;
-            }
-        }
-
-        if (score > bestScore) {
-            bestScore = score;
-            bestRatio = ratio;
-        }
-    }
-
-    // Spawn entity at PREDICTED position - entities appear where you're GOING
-    // Blend between current and predicted based on energy (more movement = more prediction)
-    const spawnBlend = Math.min(0.7, field.energy * 2);
-    const spawnX = field.x * (1 - spawnBlend) + field.px * spawnBlend + (Math.random()-0.5)*0.08;
-    const spawnY = field.y * (1 - spawnBlend) + field.py * spawnBlend + (Math.random()-0.5)*0.08;
-
-    const entity = new Entity(bestRatio, spawnX, spawnY);
-    entity.createAudio();
-    entity.lastVisit = field.time;
-
-    // Mark if this is a reborn soul
-    if (ancestor && consonance(bestRatio, ancestor.ratio) > 0.8) {
-        entity.ancestralGlow = ancestor.strength;
-        entity.ancestorRatio = ancestor.ratio;
-    }
-
-    entities.push(entity);
-
-    // Memory: record the birth
-    memory.push({
-        type: 'birth',
-        ratio: bestRatio,
-        x: field.x,
-        y: field.y,
-        time: field.time,
-        hadAncestor: ancestor !== null
-    });
-    if (memory.length > 150) memory.shift();
-}
-
-// ============ DEATH ============
-
-function processDeath() {
-    for (let i = entities.length - 1; i >= 0; i--) {
-        const e = entities[i];
-        if (e.life <= 0) {
-            e.destroy();
-
-            // Create ghost for visual fade
-            ghosts.push({
-                x: e.x, y: e.y,
-                hue: e.hue,
-                alpha: 0.5,
-                radius: 20
-            });
-
-            // Memory: record the death
-            memory.push({
-                type: 'death',
-                ratio: e.ratio,
-                x: e.x,
-                y: e.y,
-                time: field.time
-            });
-
-            entities.splice(i, 1);
-        }
-    }
-
-    // Fade ghosts
-    for (let i = ghosts.length - 1; i >= 0; i--) {
-        ghosts[i].alpha -= 0.01;
-        ghosts[i].radius += 0.5;
-        if (ghosts[i].alpha <= 0) {
-            ghosts.splice(i, 1);
-        }
-    }
-
-    // Ensure minimum population
-    if (entities.length < MIN_ENTITIES && field.time > 2) {
-        birthEntity();
-    }
-}
-
-// ============ CONNECTIONS ============
-
-function drawConnections() {
-    const w = window.innerWidth;
-    const h = window.innerHeight;
-
-    for (let i = 0; i < entities.length; i++) {
-        const a = entities[i];
-        if (a.life <= 0) continue;
-
-        for (let j = i + 1; j < entities.length; j++) {
-            const b = entities[j];
-            if (b.life <= 0) continue;
-
-            const dx = b.x - a.x;
-            const dy = b.y - a.y;
-            const dist = Math.sqrt(dx*dx + dy*dy);
-
-            if (dist > 0.25) continue;
-
-            const cons = consonance(a.ratio, b.ratio);
-            if (cons < 0.65) continue;
-
-            const amp = Math.min(a.gain.gain.value, b.gain.gain.value);
-            const life = Math.min(a.life, b.life);
-            const alpha = cons * amp * (1 - dist / 0.25) * life * 2;
-
-            if (alpha < 0.02) continue;
-
-            // Pulsing connection
-            const pulse = (Math.sin((a.phase + b.phase) / 2) + 1) / 2;
-
-            vc.beginPath();
-            vc.moveTo(a.x * w, a.y * h);
-            vc.lineTo(b.x * w, b.y * h);
-            vc.strokeStyle = `rgba(255, 255, 255, ${alpha * (0.7 + pulse * 0.3)})`;
-            vc.lineWidth = 1 + cons * pulse * 3;
-            vc.stroke();
-        }
-    }
-}
-
-// ============ SUB BASS ============
-
-function createSub() {
     const osc = ctx.createOscillator();
-    const osc2 = ctx.createOscillator();
     const gain = ctx.createGain();
     const filter = ctx.createBiquadFilter();
 
+    // Pure, delicate sine wave
     osc.type = 'sine';
-    osc.frequency.value = BASE / 2;
-    osc2.type = 'sine';
-    osc2.frequency.value = BASE / 2 * 1.002;
+    osc.frequency.value = BASE_FREQ * 2;
 
     filter.type = 'lowpass';
-    filter.frequency.value = 80;
+    filter.frequency.value = 2000;
+    filter.Q.value = 1;
+
+    // Start SILENT - only sound when moving
     gain.gain.value = 0;
 
     osc.connect(filter);
-    osc2.connect(filter);
     filter.connect(gain);
     gain.connect(master);
+    gain.connect(verb.input);
 
     osc.start();
-    osc2.start();
 
-    sub = { osc, osc2, gain, filter };
+    activeVoice = { osc, gain, filter, envelope: 0 };
 }
 
-function updateSub() {
+function updateActiveVoice() {
+    if (!activeVoice || !ctx) return;
+
     const now = ctx.currentTime;
 
-    // Global pulse from synchronized entities
-    let globalPulse = 0;
-    let syncCount = 0;
+    // Get frequency from tilt
+    const rawFreq = tiltToFreq(field.y);
 
-    for (const e of entities) {
-        if (e.neighbors.length > 0 && e.life > 0.5) {
-            globalPulse += e.syncPhase;
-            syncCount++;
-        }
-    }
+    // Quantize toward harmony with existing layers
+    const quantizeStrength = Math.min(0.8, layers.length * 0.2); // More layers = stronger pull
+    const freq = quantizeToHarmony(rawFreq, quantizeStrength);
 
-    if (syncCount > 0) {
-        globalPulse /= syncCount;
-        field.pulse = field.pulse * 0.9 + globalPulse * 0.1;
-    }
+    // Update orb frequency
+    field.orb.freq = freq;
 
-    // Sub bass - much quieter now that drums provide the low end
-    // This is just for texture/movement, not for bass foundation
-    const baseAmp = 0.02 + field.stillness * 0.02;
-    const pulseAmp = field.pulse * 0.04;
-    const breathAmp = field.depth * field.breath * 0.02;
-    const constellationBonus = field.constellations.length * 0.008;
-    const crystalBonus = crystalState.crystallization * 0.04;
-    sub.gain.gain.linearRampToValueAtTime(
-        Math.min(0.12, baseAmp + pulseAmp + breathAmp + constellationBonus + crystalBonus),
-        now + 0.1
-    );
+    // Smooth frequency transition
+    activeVoice.osc.frequency.linearRampToValueAtTime(freq, now + 0.05);
 
-    // Sub frequency follows center of mass
-    let cx = 0, cy = 0, total = 0;
-    for (const e of entities) {
-        if (e.life > 0) {
-            cx += e.x * e.mass;
-            cy += e.y * e.mass;
-            total += e.mass;
-        }
-    }
-    if (total > 0) {
-        cy /= total;
-        // In deep states, the breath modulates the sub frequency
-        const breathBend = 1 + field.depth * field.breath * 0.03;
-        const subFreq = (BASE / 2) * (1 - (cy - 0.5) * 0.2) * breathBend;
-        sub.osc.frequency.linearRampToValueAtTime(subFreq, now + 0.2);
-        sub.osc2.frequency.linearRampToValueAtTime(subFreq * 1.002, now + 0.2);
-    }
+    // Volume based on movement - stillness = silence, movement = sound
+    const targetEnv = Math.min(1, field.energy * 8);
+    activeVoice.envelope += (targetEnv - activeVoice.envelope) * 0.1;
 
-    // Filter opens in deep states
-    const filterFreq = 80 + field.depth * 60 + field.breath * field.depth * 40;
-    sub.filter.frequency.linearRampToValueAtTime(filterFreq, now + 0.15);
+    // Delicate volume - QUIET
+    const baseVolume = 0.08;
+    const volume = baseVolume * activeVoice.envelope;
+    activeVoice.gain.gain.linearRampToValueAtTime(volume, now + 0.03);
+
+    // Filter opens slightly with movement
+    const filterFreq = 800 + field.energy * 2000;
+    activeVoice.filter.frequency.linearRampToValueAtTime(filterFreq, now + 0.05);
 }
 
-// ============ EFFECTS ============
+// ============ THE ORB ============
+// Visual representation of the sound
+// When orb crosses center, that note gets RECORDED as a layer
+
+function updateOrb(dt) {
+    if (!field.orb.active) {
+        // Spawn orb when there's enough movement
+        if (field.energy > 0.02) {
+            field.orb.active = true;
+            field.orb.x = field.x;
+            field.orb.y = field.y;
+            field.orb.startTime = field.time;
+            field.orb.velocity = 0.2 + field.energy * 0.5;
+        }
+        return;
+    }
+
+    // Orb moves toward center
+    const dx = 0.5 - field.orb.x;
+    const dy = 0.5 - field.orb.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+
+    if (dist > 0.01) {
+        const moveAmount = field.orb.velocity * dt;
+        field.orb.x += (dx / dist) * moveAmount;
+        field.orb.y += (dy / dist) * moveAmount;
+    }
+
+    // Update orb frequency based on current tilt
+    field.orb.freq = tiltToFreq(field.y);
+
+    // Check if orb crossed center
+    if (dist < 0.03) {
+        recordLayer();
+        field.orb.active = false;
+    }
+
+    // Orb fades if no movement for too long
+    if (field.energy < 0.01 && field.time - field.orb.startTime > 2) {
+        field.orb.active = false;
+    }
+}
+
+// ============ LAYER RECORDING ============
+// When orb crosses center, record the current pitch as a new layer
+
+function recordLayer() {
+    if (layers.length >= MAX_LAYERS) {
+        // Remove oldest layer to make room
+        const oldLayer = layers.shift();
+        oldLayer.osc.stop();
+    }
+
+    const freq = field.orb.freq;
+    const now = ctx.currentTime;
+
+    // Calculate loop length based on tempo of orb travel
+    // Faster orb = shorter loop
+    const travelTime = field.time - field.orb.startTime;
+    const loopLength = Math.max(0.5, Math.min(4, travelTime * 2));
+
+    // Create layer audio
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    const filter = ctx.createBiquadFilter();
+
+    // Vary timbre based on layer number
+    const layerNum = layers.length;
+    if (layerNum === 0) {
+        osc.type = 'sine'; // First layer: pure sine
+    } else if (layerNum === 1) {
+        osc.type = 'triangle'; // Second: triangle
+    } else {
+        osc.type = 'sine'; // Rest: sine with slight detune for warmth
+    }
+
+    osc.frequency.value = freq;
+
+    filter.type = 'lowpass';
+    filter.frequency.value = 1500 + (1 - layerNum / MAX_LAYERS) * 2000;
+    filter.Q.value = 0.5;
+
+    // Volume decreases with each layer (prevent clashing)
+    const baseVolume = 0.12;
+    const volumeScale = Math.pow(0.75, layerNum); // Each layer is 75% of previous
+    gain.gain.value = baseVolume * volumeScale;
+
+    osc.connect(filter);
+    filter.connect(gain);
+    gain.connect(master);
+    gain.connect(verb.input);
+
+    osc.start();
+
+    const layer = {
+        id: Date.now(),
+        freq,
+        loopLength,
+        osc,
+        gain,
+        filter,
+        volume: baseVolume * volumeScale,
+        phase: 0,
+        birthTime: field.time
+    };
+
+    layers.push(layer);
+
+    // Console feedback for debugging
+    console.log(`Layer ${layers.length}: ${freq.toFixed(1)} Hz, loop: ${loopLength.toFixed(2)}s, fit: ${getHarmonicFit(freq).toFixed(2)}`);
+}
+
+// ============ LAYER PLAYBACK ============
+// Each layer loops with its own timing
+// Creates polyrhythmic interweaving
+
+function updateLayers(dt) {
+    const now = ctx.currentTime;
+
+    for (const layer of layers) {
+        // Update phase (0-1 within loop)
+        layer.phase += dt / layer.loopLength;
+        if (layer.phase >= 1) layer.phase -= 1;
+
+        // Envelope: note plays at start of loop, then decays
+        // Creates rhythmic pulsing
+        const envelope = Math.exp(-layer.phase * 4); // Exponential decay
+        const sustainedEnvelope = 0.3 + envelope * 0.7; // Never fully silent
+
+        // Apply envelope to volume
+        const targetGain = layer.volume * sustainedEnvelope;
+        layer.gain.gain.linearRampToValueAtTime(targetGain, now + 0.02);
+
+        // Subtle pitch drift for organic feel
+        const drift = Math.sin(field.time * 0.5 + layer.id) * 0.002;
+        layer.osc.frequency.linearRampToValueAtTime(layer.freq * (1 + drift), now + 0.1);
+    }
+}
+
+// ============ REVERB ============
 
 function createVerb() {
     const input = ctx.createGain();
     const output = ctx.createGain();
-    // REDUCED reverb - clarity over atmosphere
-    // Too much reverb = swooshy wash, not music
-    output.gain.value = 0.2;
-    const baseGain = 0.2;
+    output.gain.value = 0.25; // Gentle reverb
 
-    const times = [0.02, 0.05, 0.08, 0.13, 0.21, 0.34, 0.55, 0.89, 1.2, 1.6, 2.1, 2.8];
+    const times = [0.03, 0.07, 0.12, 0.19, 0.31, 0.5, 0.81, 1.3, 2.1];
     times.forEach((t, i) => {
         const d = ctx.createDelay(4);
-        d.delayTime.value = t + Math.random() * 0.015;
+        d.delayTime.value = t + Math.random() * 0.02;
         const g = ctx.createGain();
-        g.gain.value = 0.28 * Math.pow(0.77, i);
+        g.gain.value = 0.3 * Math.pow(0.75, i);
         const f = ctx.createBiquadFilter();
         f.type = 'lowpass';
-        f.frequency.value = 5500 - i * 400;
+        f.frequency.value = 4000 - i * 350;
         input.connect(d);
         d.connect(f);
         f.connect(g);
         g.connect(output);
-        if (i > 5) {
+        if (i > 4) {
             const fb = ctx.createGain();
-            fb.gain.value = 0.1;
+            fb.gain.value = 0.15;
             g.connect(fb);
             fb.connect(input);
         }
     });
 
-    return { input, output, baseGain };
+    return { input, output };
 }
+
+// ============ DELAY ============
 
 function createDelay() {
     const input = ctx.createGain();
     const output = ctx.createGain();
-    // REDUCED delay - notes should be distinct, not echo soup
-    output.gain.value = 0.12;
-    const baseGain = 0.12;
+    output.gain.value = 0.15;
 
     const delayL = ctx.createDelay(2);
     const delayR = ctx.createDelay(2);
-    delayL.delayTime.value = 0.333;
+    delayL.delayTime.value = 0.375;
     delayR.delayTime.value = 0.5;
 
     const fbL = ctx.createGain();
     const fbR = ctx.createGain();
-    // REDUCED feedback - notes shouldn't echo forever
-    fbL.gain.value = 0.2;
-    fbR.gain.value = 0.15;
+    fbL.gain.value = 0.25;
+    fbR.gain.value = 0.2;
 
     const filterL = ctx.createBiquadFilter();
     const filterR = ctx.createBiquadFilter();
     filterL.type = filterR.type = 'lowpass';
-    filterL.frequency.value = filterR.frequency.value = 2200;
+    filterL.frequency.value = filterR.frequency.value = 2000;
 
     const panL = ctx.createStereoPanner();
     const panR = ctx.createStereoPanner();
-    panL.pan.value = -0.8;
-    panR.pan.value = 0.8;
+    panL.pan.value = -0.7;
+    panR.pan.value = 0.7;
 
     input.connect(delayL);
     delayL.connect(filterL);
@@ -3099,24 +448,7 @@ function createDelay() {
     panL.connect(output);
     panR.connect(output);
 
-    return { input, output, delayL, delayR, fbL, fbR, baseGain };
-}
-
-function updateEffects() {
-    const now = ctx.currentTime;
-
-    // Reverb grows in deep states - more spacious, ethereal
-    const verbGain = verb.baseGain + field.depth * 0.25 + field.breath * field.depth * 0.1;
-    verb.output.gain.linearRampToValueAtTime(Math.min(0.7, verbGain), now + 0.1);
-
-    // Delay grows subtly in deep states
-    const dlyGain = dly.baseGain + field.depth * 0.15;
-    dly.output.gain.linearRampToValueAtTime(Math.min(0.45, dlyGain), now + 0.1);
-
-    // Feedback increases for longer tails in deep states
-    const fbAmount = 0.32 + field.depth * 0.15;
-    dly.fbL.gain.linearRampToValueAtTime(Math.min(0.55, fbAmount), now + 0.15);
-    dly.fbR.gain.linearRampToValueAtTime(Math.min(0.5, fbAmount * 0.9), now + 0.15);
+    return { input, output };
 }
 
 // ============ INIT ============
@@ -3125,54 +457,25 @@ function init() {
     ctx = new (window.AudioContext || window.webkitAudioContext)();
 
     master = ctx.createGain();
-    master.gain.value = 0.7;
+    master.gain.value = 0.8;
 
+    // Light compression for safety
     const comp = ctx.createDynamicsCompressor();
-    comp.threshold.value = -18;
-    comp.ratio.value = 5;
+    comp.threshold.value = -12;
+    comp.ratio.value = 4;
     comp.attack.value = 0.003;
-    comp.release.value = 0.2;
-
-    const limiter = ctx.createDynamicsCompressor();
-    limiter.threshold.value = -2;
-    limiter.ratio.value = 20;
-    limiter.attack.value = 0.001;
-    limiter.release.value = 0.1;
+    comp.release.value = 0.25;
 
     verb = createVerb();
     dly = createDelay();
 
     master.connect(comp);
-    comp.connect(limiter);
-    limiter.connect(ctx.destination);
+    comp.connect(ctx.destination);
     verb.output.connect(master);
     dly.output.connect(master);
 
-    // === 2026 SOUND SYSTEM === Create sidechain and formant filters FIRST
-    createSidechainCompressor();
-    sidechainGain.connect(master);  // Sidechain feeds into master
-
-    createFormantFilter();
-
-    createSub();
-    createBeatAudio();
-    createCounterAudio();
-    createMelodyVoice();  // The singing voice that emerges from crystallization
-
-    // === THE BEAT === Create drums (no vinyl crackle for cleaner 2026 sound)
-    createDrumBuffers();
-    createLoFiChain();
-    // Skip vinyl crackle - cleaner modern sound
-    seq.lastStepTime = ctx.currentTime;  // Initialize sequencer timing
-
-    // Birth initial entities - the primordial soup
-    const initialRatios = [1, 5/4, 3/2, 2, 5/2, 3];
-    for (const ratio of initialRatios) {
-        const e = new Entity(ratio);
-        e.createAudio();
-        e.lastVisit = 0;
-        entities.push(e);
-    }
+    // Create the single active voice
+    createActiveVoice();
 
     canvas = document.getElementById('c');
     vc = canvas.getContext('2d');
@@ -3186,49 +489,13 @@ function onMove(nx, ny) {
     nx = Math.max(0, Math.min(1, nx));
     ny = Math.max(0, Math.min(1, ny));
 
-    const prevX = field.x;
-    const prevY = field.y;
-    const prevVx = field.vx;
-    const prevVy = field.vy;
-
     field.vx = field.vx * 0.6 + (nx - field.x) * 0.4;
     field.vy = field.vy * 0.6 + (ny - field.y) * 0.4;
-    field.x = field.x * 0.75 + nx * 0.25;
-    field.y = field.y * 0.75 + ny * 0.25;
+    field.x = field.x * 0.7 + nx * 0.3;
+    field.y = field.y * 0.7 + ny * 0.3;
 
-    // Calculate acceleration for gesture buffer
-    const ax = field.vx - prevVx;
-    const ay = field.vy - prevVy;
-
-    // Add sample to gesture buffer
-    addGestureSample(field.x, field.y, field.vx, field.vy, ax, ay);
-
-    // Check for gestures
-    const gesture = detectGesture();
-    if (gesture) {
-        onGestureDetected(gesture);
-    }
-
-    const speed = Math.sqrt(field.vx*field.vx + field.vy*field.vy);
+    const speed = Math.sqrt(field.vx * field.vx + field.vy * field.vy);
     field.energy = field.energy * 0.9 + speed * 0.5;
-
-    // ENTRAINMENT: Detect user tempo from movement
-    detectUserTempo(field.vx, field.vy);
-
-    // PATTERN LEARNING: Track user's movement patterns
-    updatePattern(field.vx, field.vy);
-
-    // Stillness
-    if (speed < 0.005) {
-        field.stillness = Math.min(3, field.stillness + 0.016);
-    } else {
-        field.stillness *= 0.95;
-    }
-
-    // Birth from energy
-    if (field.energy > 0.15 && Math.random() < field.energy * 0.03) {
-        birthEntity();
-    }
 }
 
 function onMotion(e) {
@@ -3238,39 +505,13 @@ function onMotion(e) {
     const rawAx = (a.x || 0) / 8;
     const rawAy = (a.y || 0) / 8;
 
-    const prevVx = field.vx;
-    const prevVy = field.vy;
-
     field.vx = field.vx * 0.7 + rawAx * 0.3;
     field.vy = field.vy * 0.7 + rawAy * 0.3;
 
-    field.x = Math.max(0, Math.min(1, field.x + field.vx * 0.08));
-    field.y = Math.max(0, Math.min(1, field.y - field.vy * 0.08));
+    field.x = Math.max(0, Math.min(1, field.x + field.vx * 0.1));
+    field.y = Math.max(0, Math.min(1, field.y - field.vy * 0.1));
 
-    // Calculate acceleration change for gesture buffer
-    const ax = field.vx - prevVx;
-    const ay = field.vy - prevVy;
-
-    // Add sample to gesture buffer
-    addGestureSample(field.x, field.y, field.vx, field.vy, ax, ay);
-
-    // Check for gestures
-    const gesture = detectGesture();
-    if (gesture) {
-        onGestureDetected(gesture);
-    }
-
-    field.energy = field.energy * 0.9 + Math.sqrt(rawAx*rawAx + rawAy*rawAy) * 0.3;
-
-    // ENTRAINMENT: Detect user tempo from motion
-    detectUserTempo(field.vx, field.vy);
-
-    // PATTERN LEARNING: Track user's movement patterns
-    updatePattern(field.vx, field.vy);
-
-    if (field.energy > 0.2 && Math.random() < field.energy * 0.02) {
-        birthEntity();
-    }
+    field.energy = field.energy * 0.9 + Math.sqrt(rawAx * rawAx + rawAy * rawAy) * 0.3;
 }
 
 function onOrientation(e) {
@@ -3286,15 +527,10 @@ function resize() {
     const w = window.innerWidth;
     const h = window.innerHeight;
 
-    // Set the canvas internal resolution (high DPI)
     canvas.width = w * dpr;
     canvas.height = h * dpr;
-
-    // Set the display size (CSS pixels) - THIS WAS MISSING!
     canvas.style.width = w + 'px';
     canvas.style.height = h + 'px';
-
-    // Scale the context to account for DPI
     vc.setTransform(dpr, 0, 0, dpr, 0, 0);
 }
 
@@ -3302,409 +538,122 @@ function draw() {
     const w = window.innerWidth;
     const h = window.innerHeight;
 
-    // Fade - slower in deep stillness, creating trails
-    const fadeAlpha = 0.06 + field.stillness * 0.02 - field.depth * 0.03;
-    vc.fillStyle = `rgba(0, 0, 0, ${Math.max(0.02, fadeAlpha)})`;
+    // Dark fade
+    vc.fillStyle = 'rgba(0, 0, 0, 0.08)';
     vc.fillRect(0, 0, w, h);
 
-    // Deep stillness - the universe breathes with subtle color
-    if (field.depth > 0.1) {
-        const breathHue = 220 + field.breath * 40;
-        const depthGrad = vc.createRadialGradient(w/2, h/2, 0, w/2, h/2, Math.max(w,h)/2);
-        depthGrad.addColorStop(0, `hsla(${breathHue}, 30%, 15%, ${field.depth * field.breath * 0.08})`);
-        depthGrad.addColorStop(0.5, `hsla(${breathHue + 30}, 25%, 10%, ${field.depth * 0.05})`);
-        depthGrad.addColorStop(1, 'transparent');
-        vc.fillStyle = depthGrad;
-        vc.fillRect(0, 0, w, h);
-    }
-
-    // Ghosts (fading dead entities)
-    for (const g of ghosts) {
-        vc.beginPath();
-        vc.arc(g.x * w, g.y * h, g.radius, 0, TAU);
-        vc.strokeStyle = `hsla(${g.hue}, 50%, 50%, ${g.alpha})`;
-        vc.lineWidth = 1;
-        vc.stroke();
-    }
-
-    // Regional mode visualization (subtle)
-    const gradient = vc.createRadialGradient(w/2, h/2, 0, w/2, h/2, Math.max(w,h)/2);
-    gradient.addColorStop(0, 'transparent');
-    gradient.addColorStop(1, `rgba(50, 50, 80, ${0.02 + field.stillness * 0.01})`);
-    vc.fillStyle = gradient;
-    vc.fillRect(0, 0, w, h);
-
-    // Constellations (behind connections)
-    drawConstellations();
-
-    // Connections
-    drawConnections();
-
-    // Entities
-    for (const e of entities) {
-        e.draw();
-    }
-
-    // PREDICTED CURSOR - shows where system thinks you're going
-    // This is VISIBLE FEEDBACK that prediction is working
-    const px = field.px * w;
-    const py = field.py * h;
-    const predDist = Math.sqrt((field.px - field.x)**2 + (field.py - field.y)**2);
-
-    // Only show prediction ghost when there's meaningful movement
-    if (predDist > 0.02) {
-        const predAlpha = Math.min(0.4, predDist * 2);
-        const predR = 8 + field.energy * 20;
-
-        // Line from cursor to predicted position
-        vc.beginPath();
-        vc.moveTo(field.x * w, field.y * h);
-        vc.lineTo(px, py);
-        vc.strokeStyle = `rgba(100, 200, 255, ${predAlpha * 0.5})`;
-        vc.lineWidth = 1;
-        vc.stroke();
-
-        // Predicted position ghost
-        const predGrad = vc.createRadialGradient(px, py, 0, px, py, predR);
-        predGrad.addColorStop(0, `rgba(100, 200, 255, ${predAlpha})`);
-        predGrad.addColorStop(1, 'transparent');
-        vc.fillStyle = predGrad;
-        vc.beginPath();
-        vc.arc(px, py, predR, 0, TAU);
-        vc.fill();
-    }
-
-    // TENSION visualization - red flash when prediction is wrong
-    if (field.predictionTension > 0.1) {
-        const tensionR = 30 + field.predictionTension * 60;
-        const tensionAlpha = field.predictionTension * 0.3;
-        vc.beginPath();
-        vc.arc(field.x * w, field.y * h, tensionR, 0, TAU);
-        vc.strokeStyle = `rgba(255, 100, 100, ${tensionAlpha})`;
-        vc.lineWidth = 2 + field.predictionTension * 3;
-        vc.stroke();
-    }
-
-    // Cursor (current position)
-    const cx = field.x * w;
-    const cy = field.y * h;
-    const cursorR = 15 + field.energy * 50 + field.depth * 20 * field.breath;
-    const cursorGrad = vc.createRadialGradient(cx, cy, 0, cx, cy, cursorR);
-    cursorGrad.addColorStop(0, `rgba(255, 255, 255, ${0.35 + field.energy * 0.4})`);
-    cursorGrad.addColorStop(0.5, `rgba(200, 220, 255, ${0.1 + field.energy * 0.15 + field.depth * 0.1})`);
-    cursorGrad.addColorStop(1, 'transparent');
-    vc.fillStyle = cursorGrad;
+    // Center crosshair (subtle target for orb)
+    const centerAlpha = 0.1 + (field.orb.active ? 0.15 : 0);
+    vc.strokeStyle = `rgba(255, 255, 255, ${centerAlpha})`;
+    vc.lineWidth = 1;
     vc.beginPath();
-    vc.arc(cx, cy, cursorR, 0, TAU);
-    vc.fill();
+    vc.moveTo(w / 2 - 20, h / 2);
+    vc.lineTo(w / 2 + 20, h / 2);
+    vc.moveTo(w / 2, h / 2 - 20);
+    vc.lineTo(w / 2, h / 2 + 20);
+    vc.stroke();
 
-    // Global pulse visualization
-    if (field.pulse > 0.1) {
-        const pulseR = 100 + field.pulse * 200;
+    // Draw layers as concentric rings at center
+    for (let i = 0; i < layers.length; i++) {
+        const layer = layers[i];
+        const pulse = Math.exp(-layer.phase * 3);
+        const radius = 30 + i * 25 + pulse * 15;
+        const alpha = 0.15 + pulse * 0.25;
+
+        // Color based on frequency (higher = bluer, lower = warmer)
+        const freqRatio = Math.log2(layer.freq / BASE_FREQ);
+        const hue = 200 + freqRatio * 30; // Blue-ish range
+
         vc.beginPath();
-        vc.arc(w/2, h/2, pulseR, 0, TAU);
-        vc.strokeStyle = `rgba(255, 255, 255, ${field.pulse * 0.08})`;
-        vc.lineWidth = 2;
+        vc.arc(w / 2, h / 2, radius, 0, TAU);
+        vc.strokeStyle = `hsla(${hue}, 50%, 60%, ${alpha})`;
+        vc.lineWidth = 2 + pulse * 3;
         vc.stroke();
     }
 
-    // Cosmic breath ring - visible in deep states
-    if (field.depth > 0.3) {
-        const breathR = 150 + field.breath * 100;
-        vc.beginPath();
-        vc.arc(w/2, h/2, breathR, 0, TAU);
-        vc.strokeStyle = `hsla(240, 40%, 70%, ${field.depth * field.breath * 0.15})`;
-        vc.lineWidth = 1 + field.breath * 3;
-        vc.stroke();
-    }
+    // Draw the orb (if active)
+    if (field.orb.active) {
+        const ox = field.orb.x * w;
+        const oy = field.orb.y * h;
+        const orbRadius = 8 + field.energy * 15;
 
-    // BEAT VISUALIZATION - pulse from center on each beat
-    if (field.beatStrength > 0.1) {
-        const beatR = 50 + (1 - field.beatStrength) * 300;
-        const beatAlpha = field.beatStrength * 0.25;
+        // Frequency-based color
+        const freqRatio = Math.log2(field.orb.freq / BASE_FREQ);
+        const hue = 200 + freqRatio * 30;
 
-        // Expanding ring from center
-        vc.beginPath();
-        vc.arc(w/2, h/2, beatR, 0, TAU);
-        vc.strokeStyle = `rgba(255, 200, 150, ${beatAlpha})`;
-        vc.lineWidth = 3 + field.beatStrength * 5;
-        vc.stroke();
-
-        // Inner glow at center
-        const glowR = 30 + field.beatStrength * 50;
-        const glowGrad = vc.createRadialGradient(w/2, h/2, 0, w/2, h/2, glowR);
-        glowGrad.addColorStop(0, `rgba(255, 220, 180, ${field.beatStrength * 0.3})`);
-        glowGrad.addColorStop(1, 'transparent');
-        vc.fillStyle = glowGrad;
-        vc.beginPath();
-        vc.arc(w/2, h/2, glowR, 0, TAU);
-        vc.fill();
-    }
-
-    // BPM indicator - shows the DRUM tempo (the actual heartbeat)
-    vc.fillStyle = `rgba(255, 255, 255, ${0.2 + field.beatStrength * 0.4})`;
-    vc.font = '12px system-ui';
-    vc.textAlign = 'center';
-    vc.fillText(Math.round(DRUMS.BPM) + ' BPM', w/2, h - 20);
-
-    // PATTERN LEARNING VISUALIZATION
-    const pattern = getPatternState();
-
-    // ============ CRYSTALLIZATION VISUALIZATION ============
-    // Show the phase and crystallization progress
-
-    const barWidth = 60;
-    const barHeight = 4;
-    const barX = 20;
-    const barY = 20;
-
-    // Crystallization bar (replaces pattern confidence bar)
-    if (pattern.crystallization > 0.05 || pattern.repetitionCount > 0) {
-        // Background
-        vc.fillStyle = 'rgba(255, 255, 255, 0.1)';
-        vc.fillRect(barX, barY, barWidth, barHeight);
-
-        // Phase-based color
-        let phaseColor;
-        switch (pattern.phase) {
-            case 'chaos':
-                phaseColor = 'rgba(255, 100, 100, 0.5)';
-                break;
-            case 'forming':
-                phaseColor = 'rgba(255, 200, 100, 0.6)';
-                break;
-            case 'crystallizing':
-                phaseColor = 'rgba(100, 200, 255, 0.7)';
-                break;
-            case 'locked':
-                phaseColor = 'rgba(255, 255, 255, 0.9)';
-                break;
-            default:
-                phaseColor = 'rgba(150, 150, 150, 0.4)';
-        }
-
-        vc.fillStyle = phaseColor;
-        vc.fillRect(barX, barY, barWidth * pattern.crystallization, barHeight);
-
-        // Phase label
-        vc.fillStyle = `rgba(255, 255, 255, ${0.3 + pattern.crystallization * 0.4})`;
-        vc.font = '9px system-ui';
-        vc.textAlign = 'left';
-        vc.fillText(pattern.phase.toUpperCase(), barX, barY + 14);
-
-        // Repetition count (small)
-        if (pattern.repetitionCount > 0) {
-            vc.fillStyle = 'rgba(255, 255, 255, 0.2)';
-            vc.font = '8px system-ui';
-            vc.fillText(`×${pattern.repetitionCount}`, barX + barWidth + 5, barY + 4);
-        }
-    }
-
-    // THE DROP flash - full screen white flash at the moment of crystallization
-    if (pattern.dropTriggered && crystalState.dropTime > 0) {
-        const timeSinceDrop = performance.now() - crystalState.dropTime;
-        if (timeSinceDrop < 300) {
-            const dropAlpha = Math.max(0, 0.6 - timeSinceDrop / 500);
-            vc.fillStyle = `rgba(255, 255, 255, ${dropAlpha})`;
-            vc.fillRect(0, 0, w, h);
-        }
-    }
-
-    // Locked state: screen edges crystallize (white/ice effect)
-    if (pattern.phase === 'locked') {
-        const edgeSize = 40 + pattern.crystallization * 30;
-        const edgeAlpha = (pattern.crystallization - 0.85) / 0.15 * 0.2;
-
-        // Top edge
-        const topGrad = vc.createLinearGradient(0, 0, 0, edgeSize);
-        topGrad.addColorStop(0, `rgba(200, 220, 255, ${edgeAlpha})`);
-        topGrad.addColorStop(1, 'transparent');
-        vc.fillStyle = topGrad;
-        vc.fillRect(0, 0, w, edgeSize);
-
-        // Bottom edge
-        const bottomGrad = vc.createLinearGradient(0, h, 0, h - edgeSize);
-        bottomGrad.addColorStop(0, `rgba(200, 220, 255, ${edgeAlpha})`);
-        bottomGrad.addColorStop(1, 'transparent');
-        vc.fillStyle = bottomGrad;
-        vc.fillRect(0, h - edgeSize, w, edgeSize);
-
-        // Left edge
-        const leftGrad = vc.createLinearGradient(0, 0, edgeSize, 0);
-        leftGrad.addColorStop(0, `rgba(200, 220, 255, ${edgeAlpha * 0.7})`);
-        leftGrad.addColorStop(1, 'transparent');
-        vc.fillStyle = leftGrad;
-        vc.fillRect(0, 0, edgeSize, h);
-
-        // Right edge
-        const rightGrad = vc.createLinearGradient(w, 0, w - edgeSize, 0);
-        rightGrad.addColorStop(0, `rgba(200, 220, 255, ${edgeAlpha * 0.7})`);
-        rightGrad.addColorStop(1, 'transparent');
-        vc.fillStyle = rightGrad;
-        vc.fillRect(w - edgeSize, 0, edgeSize, h);
-    }
-
-    // OUTLIER VISUALIZATION - dramatic feedback when you break pattern
-    if (pattern.isOutlier && pattern.confidence > 0.5) {
-        const outlierIntensity = Math.min(1, (pattern.outlierScore - PATTERN.OUTLIER_THRESHOLD) / 2);
-
-        // Color based on outlier type
-        let outlierHue = 30; // Orange default
-        switch (pattern.outlierType) {
-            case 'tempo': outlierHue = 280; break;     // Purple for tempo
-            case 'amplitude': outlierHue = 60; break;   // Yellow for amplitude
-            case 'direction': outlierHue = 180; break;  // Cyan for direction
-        }
-
-        // Pulsing ring at cursor - YOU broke the pattern
-        const outlierR = 40 + outlierIntensity * 80;
-        const outlierAlpha = outlierIntensity * 0.4;
-        vc.beginPath();
-        vc.arc(field.x * w, field.y * h, outlierR, 0, TAU);
-        vc.strokeStyle = `hsla(${outlierHue}, 80%, 60%, ${outlierAlpha})`;
-        vc.lineWidth = 2 + outlierIntensity * 4;
-        vc.stroke();
-
-        // Polyrhythm indicator
-        if (pattern.polyrhythm && pattern.polyrhythm.name !== '1:1') {
-            vc.fillStyle = `hsla(${outlierHue}, 70%, 70%, ${outlierIntensity * 0.6})`;
-            vc.font = '14px system-ui';
-            vc.textAlign = 'center';
-            vc.fillText(pattern.polyrhythm.name, field.x * w, field.y * h - outlierR - 10);
-        }
-
-        // Flash at center when MAJOR outlier
-        if (pattern.isMajorOutlier) {
-            const flashR = 150 + outlierIntensity * 100;
-            const flashGrad = vc.createRadialGradient(w/2, h/2, 0, w/2, h/2, flashR);
-            flashGrad.addColorStop(0, `hsla(${outlierHue}, 60%, 50%, ${outlierIntensity * 0.2})`);
-            flashGrad.addColorStop(1, 'transparent');
-            vc.fillStyle = flashGrad;
-            vc.beginPath();
-            vc.arc(w/2, h/2, flashR, 0, TAU);
-            vc.fill();
-        }
-    }
-
-    // Counter-rhythm indicator - shows the polyrhythm is active
-    if (counterActive && pattern.isOutlier) {
-        const counterAlpha = 0.2 + Math.sin(counterPhase * Math.PI * 2) * 0.15;
-        vc.fillStyle = `rgba(255, 180, 100, ${counterAlpha})`;
-        vc.font = '10px system-ui';
-        vc.textAlign = 'right';
-        vc.fillText('COUNTER', w - 20, 24);
-    }
-}
-
-// ============ BREATH OF THE UNIVERSE ============
-
-function updateBreath(dt) {
-    // Slow cosmic oscillation - about 8 breaths per minute
-    field.breathPhase += dt * 0.14;
-
-    // The breath itself - a gentle wave
-    field.breath = (Math.sin(field.breathPhase) + 1) / 2;
-
-    // Depth accumulates in stillness, fades with movement
-    if (field.stillness > 1.5) {
-        field.depth = Math.min(1, field.depth + dt * 0.02);
-    } else {
-        field.depth *= 0.995;
-    }
-}
-
-// ============ CONSTELLATIONS ============
-
-function findConstellations() {
-    // Find stable triads - three entities mutually consonant and close
-    const constellations = [];
-
-    for (let i = 0; i < entities.length; i++) {
-        const a = entities[i];
-        if (a.life < 0.7 || a.age < 3) continue;
-
-        for (let j = i + 1; j < entities.length; j++) {
-            const b = entities[j];
-            if (b.life < 0.7 || b.age < 3) continue;
-
-            const abCons = consonance(a.ratio, b.ratio);
-            if (abCons < 0.7) continue;
-
-            const abDist = Math.sqrt((a.x-b.x)**2 + (a.y-b.y)**2);
-            if (abDist > 0.25) continue;
-
-            for (let k = j + 1; k < entities.length; k++) {
-                const c = entities[k];
-                if (c.life < 0.7 || c.age < 3) continue;
-
-                const acCons = consonance(a.ratio, c.ratio);
-                const bcCons = consonance(b.ratio, c.ratio);
-
-                if (acCons < 0.7 || bcCons < 0.7) continue;
-
-                const acDist = Math.sqrt((a.x-c.x)**2 + (a.y-c.y)**2);
-                const bcDist = Math.sqrt((b.x-c.x)**2 + (b.y-c.y)**2);
-
-                if (acDist > 0.25 || bcDist > 0.25) continue;
-
-                // This is a constellation!
-                const avgCons = (abCons + acCons + bcCons) / 3;
-                const avgLife = (a.life + b.life + c.life) / 3;
-
-                constellations.push({
-                    entities: [a, b, c],
-                    center: {
-                        x: (a.x + b.x + c.x) / 3,
-                        y: (a.y + b.y + c.y) / 3
-                    },
-                    consonance: avgCons,
-                    strength: avgCons * avgLife
-                });
-            }
-        }
-    }
-
-    field.constellations = constellations;
-}
-
-function drawConstellations() {
-    const w = window.innerWidth;
-    const h = window.innerHeight;
-
-    for (const c of field.constellations) {
-        const [a, b, e3] = c.entities;
-        const alpha = c.strength * 0.4 * (0.7 + field.breath * 0.3);
-
-        // Triangle fill
-        vc.beginPath();
-        vc.moveTo(a.x * w, a.y * h);
-        vc.lineTo(b.x * w, b.y * h);
-        vc.lineTo(e3.x * w, e3.y * h);
-        vc.closePath();
-
-        // Average hue of the triad
-        const avgHue = (a.hue + b.hue + e3.hue) / 3;
-        vc.fillStyle = `hsla(${avgHue}, 40%, 50%, ${alpha * 0.15})`;
-        vc.fill();
-
-        // Glowing outline
-        vc.strokeStyle = `hsla(${avgHue}, 60%, 70%, ${alpha * 0.6})`;
-        vc.lineWidth = 1 + c.consonance * 2;
-        vc.stroke();
-
-        // Center point - the heart of the constellation
-        const cx = c.center.x * w;
-        const cy = c.center.y * h;
-        const pulseR = 5 + field.breath * 10 * c.strength;
-
-        const grad = vc.createRadialGradient(cx, cy, 0, cx, cy, pulseR);
-        grad.addColorStop(0, `hsla(${avgHue}, 70%, 80%, ${alpha})`);
+        // Orb glow
+        const grad = vc.createRadialGradient(ox, oy, 0, ox, oy, orbRadius * 2);
+        grad.addColorStop(0, `hsla(${hue}, 70%, 80%, 0.9)`);
+        grad.addColorStop(0.5, `hsla(${hue}, 60%, 60%, 0.4)`);
         grad.addColorStop(1, 'transparent');
+
         vc.fillStyle = grad;
         vc.beginPath();
-        vc.arc(cx, cy, pulseR, 0, TAU);
+        vc.arc(ox, oy, orbRadius * 2, 0, TAU);
         vc.fill();
+
+        // Core
+        vc.fillStyle = `hsla(${hue}, 80%, 90%, 1)`;
+        vc.beginPath();
+        vc.arc(ox, oy, orbRadius * 0.5, 0, TAU);
+        vc.fill();
+
+        // Trail toward center
+        vc.strokeStyle = `hsla(${hue}, 50%, 60%, 0.3)`;
+        vc.lineWidth = 1;
+        vc.beginPath();
+        vc.moveTo(ox, oy);
+        vc.lineTo(w / 2, h / 2);
+        vc.stroke();
     }
+
+    // Cursor (follows tilt)
+    const cx = field.x * w;
+    const cy = field.y * h;
+    const cursorRadius = 5 + field.energy * 20;
+
+    const cursorGrad = vc.createRadialGradient(cx, cy, 0, cx, cy, cursorRadius);
+    cursorGrad.addColorStop(0, `rgba(255, 255, 255, ${0.3 + field.energy * 0.5})`);
+    cursorGrad.addColorStop(1, 'transparent');
+
+    vc.fillStyle = cursorGrad;
+    vc.beginPath();
+    vc.arc(cx, cy, cursorRadius, 0, TAU);
+    vc.fill();
+
+    // Layer count
+    if (layers.length > 0) {
+        vc.fillStyle = 'rgba(255, 255, 255, 0.3)';
+        vc.font = '10px system-ui';
+        vc.textAlign = 'left';
+        vc.fillText(`${layers.length} layer${layers.length > 1 ? 's' : ''}`, 20, 25);
+    }
+
+    // Current pitch indicator
+    const freqRatio = Math.log2(field.orb.freq / BASE_FREQ);
+    const noteName = getNoteName(field.orb.freq);
+    vc.fillStyle = `rgba(255, 255, 255, ${0.1 + field.energy * 0.3})`;
+    vc.font = '12px system-ui';
+    vc.textAlign = 'center';
+    vc.fillText(noteName, w / 2, h - 30);
+
+    // Harmonic fit indicator (when moving)
+    if (field.energy > 0.02 && layers.length > 0) {
+        const fit = getHarmonicFit(field.orb.freq);
+        const fitColor = fit > 0.7 ? '120, 255, 150' : fit > 0.5 ? '255, 220, 100' : '255, 100, 100';
+        vc.fillStyle = `rgba(${fitColor}, ${0.3 + fit * 0.4})`;
+        vc.font = '9px system-ui';
+        vc.fillText(fit > 0.7 ? 'consonant' : fit > 0.5 ? 'tension' : 'dissonant', w / 2, h - 15);
+    }
+}
+
+// Convert frequency to note name (approximate)
+function getNoteName(freq) {
+    const noteNames = ['A', 'A#', 'B', 'C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#'];
+    const semitones = Math.round(12 * Math.log2(freq / 110)); // A2 = 110Hz
+    const noteIndex = ((semitones % 12) + 12) % 12;
+    const octave = Math.floor(semitones / 12) + 2;
+    return noteNames[noteIndex] + octave;
 }
 
 // ============ LOOP ============
@@ -3712,45 +661,19 @@ function drawConstellations() {
 function tick() {
     if (!running) return;
 
-    const dt = 0.016;
+    const dt = 0.016; // ~60fps
     field.time += dt;
 
-    // === 2026 SOUND: Update LFO for filter sweeps ===
-    updateLFO(dt);
-    updateFormantFilter();
-    updateBitcrush(dt);
+    // Update orb physics
+    updateOrb(dt);
 
-    // === THE BEAT - This runs first, it's the foundation ===
-    updateDrumSequencer(dt);
+    // Update active voice (follows tilt)
+    updateActiveVoice();
 
-    // UPDATE PREDICTION FIRST - before anything else uses position
-    updatePrediction();
+    // Update recorded layers
+    updateLayers(dt);
 
-    // UPDATE ENTRAINMENT - beat syncs to user's rhythm
-    updateEntrainment(dt);
-
-    // UPDATE COUNTER-RHYTHM - outliers create polyrhythms
-    updateCounterRhythm(dt);
-
-    // UPDATE CRYSTALLIZATION - order from chaos through repetition
-    updateCrystallization(dt);
-
-    // UPDATE RHYTHM GATE - notes land on beats, not smear
-    updateRhythmGate(dt);
-
-    // UPDATE MELODIC VOICE - the singing voice that emerges from crystallization
-    updateMelodyVoice(dt);
-
-    updateBreath(dt);
-
-    for (const e of entities) {
-        e.update(dt);
-    }
-
-    processDeath();
-    findConstellations();
-    updateSub();
-    updateEffects();
+    // Draw
     draw();
 
     requestAnimationFrame(tick);
