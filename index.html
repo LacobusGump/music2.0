@@ -10,24 +10,18 @@
         canvas{position:fixed;inset:0}
 
         #enter{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;z-index:100;cursor:pointer;background:#0a0a0a}
-        #enter.off{opacity:0;pointer-events:none;transition:opacity 1s}
+        #enter.off{display:none}
         #enter div{width:140px;height:140px;border-radius:50%;border:1px solid rgba(255,255,255,0.15);display:flex;align-items:center;justify-content:center;flex-direction:column;gap:8px}
         #enter .title{font-size:11px;letter-spacing:6px;color:rgba(255,255,255,0.4)}
         #enter .sub{font-size:8px;letter-spacing:2px;color:rgba(255,255,255,0.2)}
-        #enter:hover div{border-color:rgba(255,255,255,0.4)}
 
-        /* DIAL SYSTEM */
         #dials{position:fixed;bottom:0;left:0;right:0;z-index:50;padding:15px 10px 25px;background:linear-gradient(transparent,rgba(0,0,0,0.9))}
         .dial{margin-bottom:12px}
         .dial-label{font-size:9px;letter-spacing:3px;color:rgba(255,255,255,0.3);margin-bottom:6px;text-transform:uppercase}
-        .dial-track{display:flex;gap:3px;overflow-x:auto;scrollbar-width:none;-ms-overflow-style:none;padding:3px 0}
+        .dial-track{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;padding:3px 0}
         .dial-track::-webkit-scrollbar{display:none}
-        .dial-option{flex-shrink:0;padding:8px 16px;border-radius:20px;font-size:11px;color:rgba(255,255,255,0.4);background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);cursor:pointer;transition:all 0.2s;user-select:none}
-        .dial-option:hover{background:rgba(255,255,255,0.1)}
-        .dial-option.active{background:rgba(255,255,255,0.15);color:rgba(255,255,255,0.9);border-color:rgba(255,255,255,0.3)}
-
-        /* Status */
-        #status{position:fixed;top:15px;left:15px;font-size:10px;color:rgba(255,255,255,0.25);z-index:40}
+        .dial-option{flex-shrink:0;padding:10px 18px;border-radius:20px;font-size:12px;color:rgba(255,255,255,0.4);background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);cursor:pointer;transition:all 0.2s;user-select:none;-webkit-tap-highlight-color:transparent}
+        .dial-option.active{background:rgba(255,255,255,0.15);color:#fff;border-color:rgba(255,255,255,0.4)}
     </style>
 </head>
 <body>
@@ -42,7 +36,7 @@
     <div class="dial" id="beats-dial">
         <div class="dial-label">beats</div>
         <div class="dial-track">
-            <div class="dial-option" data-value="none">none</div>
+            <div class="dial-option" data-value="none">off</div>
             <div class="dial-option active" data-value="lofi">lo-fi</div>
             <div class="dial-option" data-value="trap">trap</div>
             <div class="dial-option" data-value="jazz">jazz</div>
@@ -52,7 +46,7 @@
     <div class="dial" id="bass-dial">
         <div class="dial-label">bass</div>
         <div class="dial-track">
-            <div class="dial-option" data-value="none">none</div>
+            <div class="dial-option" data-value="none">off</div>
             <div class="dial-option active" data-value="sub">sub</div>
             <div class="dial-option" data-value="funk">funk</div>
             <div class="dial-option" data-value="synth">synth</div>
@@ -69,780 +63,387 @@
     </div>
 </div>
 
-<div id="status"></div>
 <canvas id="c"></canvas>
 
 <script>
-// GUMP 2.0 - THE DIAL SYSTEM
-// Genre dials + motion-controlled layers + vibe processing
+// GUMP 2.0 - Clean rebuild
 
 const TAU = Math.PI * 2;
-
-// ============ STATE ============
-
-let ctx, master, vibeChain, comp;
-let canvas, vc;
+let ctx, master, filter, canvas, vc;
 let running = false;
 
-// Dial selections
-let dials = {
-    beats: 'lofi',
-    bass: 'sub',
-    vibe: 'lofi'
+// State
+let dials = { beats: 'lofi', bass: 'sub', vibe: 'lofi' };
+let field = { x: 0.5, y: 0.5, energy: 0, time: 0 };
+
+// Beat configs
+const BEATS = {
+    none: null,
+    lofi: { bpm: 72, kick: [0, 2], snare: [1, 3], hat: [0.5, 1.5, 2.5, 3.5] },
+    trap: { bpm: 140, kick: [0, 1.5, 2], snare: [1, 3], hat: [0,0.25,0.5,0.75,1,1.25,1.5,1.75,2,2.25,2.5,2.75,3,3.25,3.5,3.75] },
+    jazz: { bpm: 95, kick: [0, 2.5], snare: [1.5], ride: [0,0.66,1.33,2,2.66,3.33] },
+    rock: { bpm: 120, kick: [0, 2], snare: [1, 3], hat: [0,0.5,1,1.5,2,2.5,3,3.5] }
 };
 
-// Field state
-let field = {
-    x: 0.5, y: 0.5,
-    vx: 0, vy: 0,
-    energy: 0,
-    time: 0
+const VIBES = {
+    raw: { cutoff: 20000 },
+    lofi: { cutoff: 3000 },
+    polished: { cutoff: 16000 },
+    crushed: { cutoff: 2000 }
 };
 
-// Layers created by motion
-let layers = [];
-const MAX_LAYERS = 6;
-
-// Beat state
-let beatTime = 0;
-let beatPhase = 0;
-
-// ============ GENRE CONFIGS ============
-
-const BEAT_CONFIGS = {
-    none: { bpm: 0, pattern: [] },
-    lofi: {
-        bpm: 72,
-        swing: 0.15,
-        pattern: [
-            { time: 0, type: 'kick', vel: 0.8 },
-            { time: 0.5, type: 'snare', vel: 0.5 },
-            { time: 1, type: 'kick', vel: 0.6 },
-            { time: 1.5, type: 'snare', vel: 0.7 },
-            { time: 0.25, type: 'hat', vel: 0.2 },
-            { time: 0.75, type: 'hat', vel: 0.25 },
-            { time: 1.25, type: 'hat', vel: 0.2 },
-            { time: 1.75, type: 'hat', vel: 0.3 }
-        ]
-    },
-    trap: {
-        bpm: 140,
-        swing: 0,
-        pattern: [
-            { time: 0, type: 'kick', vel: 1.0 },
-            { time: 0.75, type: 'kick', vel: 0.8 },
-            { time: 1, type: 'snare', vel: 0.9 },
-            { time: 1.5, type: 'kick', vel: 0.7 },
-            // Rapid hats
-            { time: 0, type: 'hat', vel: 0.4 },
-            { time: 0.125, type: 'hat', vel: 0.2 },
-            { time: 0.25, type: 'hat', vel: 0.35 },
-            { time: 0.375, type: 'hat', vel: 0.2 },
-            { time: 0.5, type: 'hat', vel: 0.4 },
-            { time: 0.625, type: 'hat', vel: 0.2 },
-            { time: 0.75, type: 'hat', vel: 0.35 },
-            { time: 0.875, type: 'hat', vel: 0.2 },
-            { time: 1.0, type: 'hat', vel: 0.4 },
-            { time: 1.125, type: 'hat', vel: 0.2 },
-            { time: 1.25, type: 'hat', vel: 0.35 },
-            { time: 1.375, type: 'hat', vel: 0.2 },
-            { time: 1.5, type: 'hat', vel: 0.4 },
-            { time: 1.625, type: 'hat', vel: 0.2 },
-            { time: 1.75, type: 'hat', vel: 0.35 },
-            { time: 1.875, type: 'hat', vel: 0.2 }
-        ]
-    },
-    jazz: {
-        bpm: 95,
-        swing: 0.3,
-        pattern: [
-            { time: 0, type: 'kick', vel: 0.5 },
-            { time: 1.5, type: 'kick', vel: 0.4 },
-            { time: 1, type: 'snare', vel: 0.3 },
-            // Ride pattern
-            { time: 0, type: 'ride', vel: 0.5 },
-            { time: 0.33, type: 'ride', vel: 0.3 },
-            { time: 0.66, type: 'ride', vel: 0.4 },
-            { time: 1, type: 'ride', vel: 0.5 },
-            { time: 1.33, type: 'ride', vel: 0.3 },
-            { time: 1.66, type: 'ride', vel: 0.4 }
-        ]
-    },
-    rock: {
-        bpm: 120,
-        swing: 0,
-        pattern: [
-            { time: 0, type: 'kick', vel: 1.0 },
-            { time: 1, type: 'snare', vel: 0.9 },
-            { time: 0.5, type: 'kick', vel: 0.7 },
-            { time: 1.5, type: 'snare', vel: 0.85 },
-            // Steady 8ths
-            { time: 0, type: 'hat', vel: 0.5 },
-            { time: 0.25, type: 'hat', vel: 0.4 },
-            { time: 0.5, type: 'hat', vel: 0.5 },
-            { time: 0.75, type: 'hat', vel: 0.4 },
-            { time: 1, type: 'hat', vel: 0.5 },
-            { time: 1.25, type: 'hat', vel: 0.4 },
-            { time: 1.5, type: 'hat', vel: 0.5 },
-            { time: 1.75, type: 'hat', vel: 0.4 }
-        ]
-    }
-};
-
-const BASS_CONFIGS = {
-    none: { type: 'none' },
-    sub: { type: 'sine', octave: -2, attack: 0.01, decay: 0.3 },
-    funk: { type: 'sawtooth', octave: -1, attack: 0.005, decay: 0.15, filter: 800 },
-    synth: { type: 'square', octave: -1, attack: 0.01, decay: 0.2, filter: 1200 }
-};
-
-const VIBE_CONFIGS = {
-    raw: {
-        filterFreq: 20000,
-        distortion: 0,
-        bitcrush: 0,
-        reverbMix: 0.1,
-        compression: 1
-    },
-    lofi: {
-        filterFreq: 3500,
-        distortion: 0.1,
-        bitcrush: 0.15,
-        reverbMix: 0.25,
-        compression: 4
-    },
-    polished: {
-        filterFreq: 18000,
-        distortion: 0,
-        bitcrush: 0,
-        reverbMix: 0.2,
-        compression: 6
-    },
-    crushed: {
-        filterFreq: 2500,
-        distortion: 0.4,
-        bitcrush: 0.5,
-        reverbMix: 0.15,
-        compression: 8
-    }
-};
-
-// ============ DRUMS ============
-
-function playKick(vel = 1) {
+// Drum sounds
+function kick() {
     const now = ctx.currentTime;
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(150, now);
-    osc.frequency.exponentialRampToValueAtTime(40, now + 0.1);
-
-    gain.gain.setValueAtTime(0.7 * vel, now);
-    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
-
-    osc.connect(gain);
-    gain.connect(vibeChain.input);
-
-    osc.start(now);
-    osc.stop(now + 0.3);
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.frequency.setValueAtTime(150, now);
+    o.frequency.exponentialRampToValueAtTime(40, now + 0.1);
+    g.gain.setValueAtTime(0.6, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
+    o.connect(g).connect(master);
+    o.start(now);
+    o.stop(now + 0.25);
 }
 
-function playSnare(vel = 1) {
+function snare() {
     const now = ctx.currentTime;
-
-    // Body
-    const osc = ctx.createOscillator();
-    const oscGain = ctx.createGain();
-    osc.type = 'triangle';
-    osc.frequency.setValueAtTime(200, now);
-    osc.frequency.exponentialRampToValueAtTime(120, now + 0.05);
-    oscGain.gain.setValueAtTime(0.3 * vel, now);
-    oscGain.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
-    osc.connect(oscGain);
-    oscGain.connect(vibeChain.input);
-    osc.start(now);
-    osc.stop(now + 0.15);
-
+    // Tone
+    const o = ctx.createOscillator();
+    const og = ctx.createGain();
+    o.type = 'triangle';
+    o.frequency.value = 180;
+    og.gain.setValueAtTime(0.2, now);
+    og.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+    o.connect(og).connect(master);
+    o.start(now);
+    o.stop(now + 0.1);
     // Noise
-    const bufferSize = ctx.sampleRate * 0.1;
-    const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
-    const data = buffer.getChannelData(0);
-    for (let i = 0; i < bufferSize; i++) {
-        data[i] = Math.random() * 2 - 1;
-    }
-    const noise = ctx.createBufferSource();
-    noise.buffer = buffer;
-
-    const noiseFilter = ctx.createBiquadFilter();
-    noiseFilter.type = 'highpass';
-    noiseFilter.frequency.value = 1000;
-
-    const noiseGain = ctx.createGain();
-    noiseGain.gain.setValueAtTime(0.4 * vel, now);
-    noiseGain.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
-
-    noise.connect(noiseFilter);
-    noiseFilter.connect(noiseGain);
-    noiseGain.connect(vibeChain.input);
-    noise.start(now);
-    noise.stop(now + 0.12);
+    const buf = ctx.createBuffer(1, ctx.sampleRate * 0.08, ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    const n = ctx.createBufferSource();
+    n.buffer = buf;
+    const nf = ctx.createBiquadFilter();
+    nf.type = 'highpass';
+    nf.frequency.value = 2000;
+    const ng = ctx.createGain();
+    ng.gain.setValueAtTime(0.25, now);
+    ng.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
+    n.connect(nf).connect(ng).connect(master);
+    n.start(now);
 }
 
-function playHat(vel = 1) {
+function hat() {
+    const now = ctx.currentTime;
+    const buf = ctx.createBuffer(1, ctx.sampleRate * 0.03, ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    const n = ctx.createBufferSource();
+    n.buffer = buf;
+    const f = ctx.createBiquadFilter();
+    f.type = 'highpass';
+    f.frequency.value = 8000;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.1, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.03);
+    n.connect(f).connect(g).connect(master);
+    n.start(now);
+}
+
+function ride() {
+    const now = ctx.currentTime;
+    const o1 = ctx.createOscillator();
+    const o2 = ctx.createOscillator();
+    const g = ctx.createGain();
+    o1.frequency.value = 400;
+    o2.frequency.value = 540;
+    g.gain.setValueAtTime(0.06, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
+    o1.connect(g);
+    o2.connect(g);
+    g.connect(master);
+    o1.start(now);
+    o2.start(now);
+    o1.stop(now + 0.4);
+    o2.stop(now + 0.4);
+}
+
+// Beat sequencer
+let beatStep = 0;
+let lastBeatTime = 0;
+
+function updateBeats() {
+    const cfg = BEATS[dials.beats];
+    if (!cfg) return;
+
+    const beatDuration = 60 / cfg.bpm / 4; // 16th notes
     const now = ctx.currentTime;
 
-    const bufferSize = ctx.sampleRate * 0.05;
-    const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
-    const data = buffer.getChannelData(0);
-    for (let i = 0; i < bufferSize; i++) {
-        data[i] = Math.random() * 2 - 1;
-    }
+    if (now - lastBeatTime >= beatDuration) {
+        lastBeatTime = now;
+        const step = beatStep % 16; // 4 beats * 4 subdivisions
+        const beat = step / 4;
 
-    const noise = ctx.createBufferSource();
-    noise.buffer = buffer;
+        if (cfg.kick && cfg.kick.includes(beat)) kick();
+        if (cfg.snare && cfg.snare.includes(beat)) snare();
+        if (cfg.hat && cfg.hat.includes(beat)) hat();
+        if (cfg.ride && cfg.ride.includes(beat)) ride();
 
-    const filter = ctx.createBiquadFilter();
-    filter.type = 'highpass';
-    filter.frequency.value = 7000;
-
-    const gain = ctx.createGain();
-    gain.gain.setValueAtTime(0.15 * vel, now);
-    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.04);
-
-    noise.connect(filter);
-    filter.connect(gain);
-    gain.connect(vibeChain.input);
-    noise.start(now);
-    noise.stop(now + 0.05);
-}
-
-function playRide(vel = 1) {
-    const now = ctx.currentTime;
-
-    // Metallic tone
-    const osc1 = ctx.createOscillator();
-    const osc2 = ctx.createOscillator();
-    const gain = ctx.createGain();
-
-    osc1.type = 'sine';
-    osc1.frequency.value = 350;
-    osc2.type = 'sine';
-    osc2.frequency.value = 471;
-
-    gain.gain.setValueAtTime(0.08 * vel, now);
-    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
-
-    osc1.connect(gain);
-    osc2.connect(gain);
-    gain.connect(vibeChain.input);
-
-    osc1.start(now);
-    osc2.start(now);
-    osc1.stop(now + 0.5);
-    osc2.stop(now + 0.5);
-}
-
-let lastTriggers = {};
-
-function updateBeats(dt) {
-    const config = BEAT_CONFIGS[dials.beats];
-    if (!config || config.bpm === 0) return;
-
-    const beatsPerSecond = config.bpm / 60;
-    const barLength = 2; // 2 beats per pattern
-    const barDuration = barLength / beatsPerSecond;
-
-    beatTime += dt;
-    const barProgress = (beatTime % barDuration) / barDuration * barLength;
-
-    // Check each pattern element
-    for (const hit of config.pattern) {
-        let triggerTime = hit.time;
-
-        // Apply swing to off-beats
-        if (config.swing && triggerTime % 0.5 !== 0) {
-            triggerTime += config.swing * 0.125;
-        }
-
-        const hitId = `${hit.type}-${hit.time}`;
-        const prevPhase = lastTriggers[hitId] || -1;
-
-        // Trigger if we crossed this beat
-        if (barProgress >= triggerTime && prevPhase < triggerTime) {
-            switch (hit.type) {
-                case 'kick': playKick(hit.vel); break;
-                case 'snare': playSnare(hit.vel); break;
-                case 'hat': playHat(hit.vel); break;
-                case 'ride': playRide(hit.vel); break;
-            }
-        }
-
-        lastTriggers[hitId] = barProgress >= triggerTime ? triggerTime : -1;
-    }
-
-    // Reset at bar boundary
-    if (barProgress < 0.1) {
-        lastTriggers = {};
+        beatStep++;
     }
 }
 
-// ============ BASS ============
-
-let bassOsc = null;
-let bassGain = null;
-let bassFilter = null;
+// Bass
+let bassOsc, bassGain;
 
 function initBass() {
     bassOsc = ctx.createOscillator();
     bassGain = ctx.createGain();
-    bassFilter = ctx.createBiquadFilter();
-
-    bassFilter.type = 'lowpass';
-    bassFilter.frequency.value = 500;
-
+    bassOsc.type = 'sine';
+    bassOsc.frequency.value = 55;
     bassGain.gain.value = 0;
-
-    bassOsc.connect(bassFilter);
-    bassFilter.connect(bassGain);
-    bassGain.connect(vibeChain.input);
-
+    bassOsc.connect(bassGain).connect(master);
     bassOsc.start();
 }
 
 function updateBass() {
-    const config = BASS_CONFIGS[dials.bass];
-    if (!config || config.type === 'none') {
-        bassGain.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.1);
+    if (dials.bass === 'none') {
+        bassGain.gain.value = 0;
         return;
     }
 
-    // Bass follows motion Y position (lower = lower pitch)
-    const baseFreq = 55; // A1
-    const octaveRange = 1.5;
-    const freq = baseFreq * Math.pow(2, (1 - field.y) * octaveRange + (config.octave || 0));
+    const baseFreq = dials.bass === 'sub' ? 40 : dials.bass === 'funk' ? 60 : 55;
+    const freq = baseFreq * Math.pow(2, (1 - field.y) * 1.5);
 
-    bassOsc.type = config.type;
-    bassOsc.frequency.linearRampToValueAtTime(freq, ctx.currentTime + 0.05);
-
-    // Volume based on movement
-    const targetVol = field.energy > 0.02 ? 0.25 : 0.1;
-    bassGain.gain.linearRampToValueAtTime(targetVol, ctx.currentTime + 0.1);
-
-    // Filter
-    const filterFreq = config.filter || 400;
-    bassFilter.frequency.linearRampToValueAtTime(filterFreq + field.energy * 500, ctx.currentTime + 0.05);
+    bassOsc.type = dials.bass === 'sub' ? 'sine' : dials.bass === 'funk' ? 'sawtooth' : 'square';
+    bassOsc.frequency.value = freq;
+    bassGain.gain.value = 0.15 + field.energy * 0.1;
 }
 
-// ============ LAYERS (Motion-created sounds) ============
-
-const BASE_FREQ = 220;
+// Layers from motion
+let layers = [];
 
 function createLayer() {
-    if (layers.length >= MAX_LAYERS) {
+    if (layers.length >= 5) {
         const old = layers.shift();
         old.osc.stop();
     }
 
-    // Frequency from Y position
-    const octaves = 2;
-    const freq = BASE_FREQ * Math.pow(2, (1 - field.y) * octaves);
+    const freq = 220 * Math.pow(2, (1 - field.y) * 2);
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
 
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    const filter = ctx.createBiquadFilter();
+    o.type = layers.length % 2 === 0 ? 'sine' : 'triangle';
+    o.frequency.value = freq;
+    g.gain.value = 0.06 * Math.pow(0.7, layers.length);
 
-    // Vary timbre by layer count
-    const types = ['sine', 'triangle', 'sine', 'triangle', 'sine', 'sine'];
-    osc.type = types[layers.length % types.length];
-    osc.frequency.value = freq;
+    o.connect(g).connect(master);
+    o.start();
 
-    filter.type = 'lowpass';
-    filter.frequency.value = 2000;
-    filter.Q.value = 1;
-
-    // Volume decreases with each layer
-    const vol = 0.08 * Math.pow(0.7, layers.length);
-    gain.gain.value = vol;
-
-    osc.connect(filter);
-    filter.connect(gain);
-    gain.connect(vibeChain.input);
-
-    osc.start();
-
-    layers.push({
-        osc, gain, filter,
-        freq, vol,
-        phase: 0,
-        loopLength: 1 + Math.random() * 2,
-        birthTime: field.time
-    });
+    layers.push({ osc: o, gain: g, freq, vol: g.gain.value, phase: 0, len: 1.5 + Math.random() });
 }
 
 function updateLayers(dt) {
-    const now = ctx.currentTime;
-
-    for (const layer of layers) {
-        layer.phase += dt / layer.loopLength;
-        if (layer.phase >= 1) layer.phase -= 1;
-
-        // Pulsing envelope
-        const env = 0.4 + 0.6 * Math.exp(-layer.phase * 3);
-        layer.gain.gain.linearRampToValueAtTime(layer.vol * env, now + 0.02);
-
-        // Subtle pitch drift
-        const drift = Math.sin(field.time * 0.3 + layer.birthTime) * 0.003;
-        layer.osc.frequency.linearRampToValueAtTime(layer.freq * (1 + drift), now + 0.05);
+    for (const L of layers) {
+        L.phase += dt / L.len;
+        if (L.phase >= 1) L.phase -= 1;
+        const env = 0.5 + 0.5 * Math.cos(L.phase * TAU);
+        L.gain.gain.value = L.vol * env;
     }
 }
 
-// Orb system for layer creation
-let orb = { active: false, x: 0.5, y: 0.5, velocity: 0 };
+// Orb
+let orb = { active: false, x: 0.5, y: 0.5 };
 
 function updateOrb(dt) {
-    if (!orb.active) {
-        if (field.energy > 0.03) {
-            orb.active = true;
-            orb.x = field.x;
-            orb.y = field.y;
-            orb.velocity = 0.3 + field.energy;
+    if (!orb.active && field.energy > 0.04) {
+        orb.active = true;
+        orb.x = field.x;
+        orb.y = field.y;
+    }
+
+    if (orb.active) {
+        const dx = 0.5 - orb.x;
+        const dy = 0.5 - orb.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+
+        if (dist > 0.03) {
+            const speed = 0.4 * dt;
+            orb.x += (dx / dist) * speed;
+            orb.y += (dy / dist) * speed;
+        } else {
+            createLayer();
+            orb.active = false;
         }
-        return;
-    }
 
-    // Move toward center
-    const dx = 0.5 - orb.x;
-    const dy = 0.5 - orb.y;
-    const dist = Math.sqrt(dx * dx + dy * dy);
-
-    if (dist > 0.02) {
-        orb.x += (dx / dist) * orb.velocity * dt;
-        orb.y += (dy / dist) * orb.velocity * dt;
-    }
-
-    // Create layer when reaching center
-    if (dist < 0.04) {
-        createLayer();
-        orb.active = false;
-    }
-
-    // Fade if no movement
-    if (field.energy < 0.01) {
-        orb.active = false;
+        if (field.energy < 0.01) orb.active = false;
     }
 }
 
-// ============ VIBE CHAIN ============
-
-function createVibeChain() {
-    const input = ctx.createGain();
-    const output = ctx.createGain();
-
-    // Low-pass filter
-    const filter = ctx.createBiquadFilter();
-    filter.type = 'lowpass';
-    filter.frequency.value = 20000;
-
-    // Distortion (waveshaper)
-    const distortion = ctx.createWaveShaper();
-    const distCurve = new Float32Array(256);
-    for (let i = 0; i < 256; i++) {
-        const x = (i / 128) - 1;
-        distCurve[i] = Math.tanh(x);
-    }
-    distortion.curve = distCurve;
-
-    // Simple reverb
-    const reverbGain = ctx.createGain();
-    reverbGain.gain.value = 0.2;
-
-    const delays = [];
-    const times = [0.03, 0.07, 0.11, 0.17, 0.25, 0.37, 0.5, 0.8];
-    times.forEach((t, i) => {
-        const d = ctx.createDelay(2);
-        d.delayTime.value = t;
-        const g = ctx.createGain();
-        g.gain.value = 0.2 * Math.pow(0.7, i);
-        const f = ctx.createBiquadFilter();
-        f.type = 'lowpass';
-        f.frequency.value = 3000 - i * 300;
-        input.connect(d);
-        d.connect(f);
-        f.connect(g);
-        g.connect(reverbGain);
-        delays.push({ delay: d, gain: g, filter: f });
-    });
-
-    input.connect(filter);
-    filter.connect(distortion);
-    distortion.connect(output);
-    reverbGain.connect(output);
-
-    return {
-        input, output, filter, distortion, reverbGain, delays,
-        update(config) {
-            const now = ctx.currentTime;
-            filter.frequency.linearRampToValueAtTime(config.filterFreq, now + 0.1);
-            reverbGain.gain.linearRampToValueAtTime(config.reverbMix, now + 0.1);
-
-            // Update distortion curve based on amount
-            const amount = 1 + config.distortion * 10;
-            for (let i = 0; i < 256; i++) {
-                const x = (i / 128) - 1;
-                distCurve[i] = Math.tanh(x * amount) / Math.tanh(amount);
-            }
-            distortion.curve = distCurve;
-        }
-    };
-}
-
+// Vibe (just filter for now - no glitchy waveshaper)
 function updateVibe() {
-    const config = VIBE_CONFIGS[dials.vibe];
-    vibeChain.update(config);
+    const cfg = VIBES[dials.vibe];
+    filter.frequency.value = cfg.cutoff;
 }
 
-// ============ INIT ============
-
-function init() {
-    ctx = new (window.AudioContext || window.webkitAudioContext)();
-
-    // Master chain
-    comp = ctx.createDynamicsCompressor();
-    comp.threshold.value = -12;
-    comp.ratio.value = 4;
-    comp.attack.value = 0.003;
-    comp.release.value = 0.15;
-
-    master = ctx.createGain();
-    master.gain.value = 0.8;
-
-    vibeChain = createVibeChain();
-
-    vibeChain.output.connect(comp);
-    comp.connect(master);
-    master.connect(ctx.destination);
-
-    initBass();
-
-    // Canvas
-    canvas = document.getElementById('c');
-    vc = canvas.getContext('2d');
-    resize();
-    window.addEventListener('resize', resize);
-
-    // Dial interactions
-    document.querySelectorAll('.dial-option').forEach(opt => {
-        opt.addEventListener('click', () => {
-            const dial = opt.closest('.dial');
-            const dialId = dial.id.replace('-dial', '');
-
-            // Deselect siblings
-            dial.querySelectorAll('.dial-option').forEach(o => o.classList.remove('active'));
-            opt.classList.add('active');
-
-            // Update state
-            dials[dialId] = opt.dataset.value;
-
-            // Reset beat tracking when changing beats
-            if (dialId === 'beats') {
-                beatTime = 0;
-                lastTriggers = {};
-            }
-
-            updateVibe();
-        });
-    });
-}
-
-// ============ INPUT ============
-
+// Input
 function onMove(nx, ny) {
-    nx = Math.max(0, Math.min(1, nx));
-    ny = Math.max(0, Math.min(1, ny));
-
-    field.vx = field.vx * 0.6 + (nx - field.x) * 0.4;
-    field.vy = field.vy * 0.6 + (ny - field.y) * 0.4;
-    field.x = field.x * 0.7 + nx * 0.3;
-    field.y = field.y * 0.7 + ny * 0.3;
-
-    const speed = Math.sqrt(field.vx * field.vx + field.vy * field.vy);
-    field.energy = field.energy * 0.85 + speed * 0.5;
+    const dx = nx - field.x;
+    const dy = ny - field.y;
+    field.x += dx * 0.2;
+    field.y += dy * 0.2;
+    field.energy = field.energy * 0.9 + Math.sqrt(dx*dx + dy*dy) * 2;
 }
 
 function onMotion(e) {
     const a = e.accelerationIncludingGravity;
     if (!a) return;
-
-    const rawAx = (a.x || 0) / 8;
-    const rawAy = (a.y || 0) / 8;
-
-    field.vx = field.vx * 0.7 + rawAx * 0.3;
-    field.vy = field.vy * 0.7 + rawAy * 0.3;
-
-    field.x = Math.max(0, Math.min(1, field.x + field.vx * 0.1));
-    field.y = Math.max(0, Math.min(1, field.y - field.vy * 0.1));
-
-    field.energy = field.energy * 0.85 + Math.sqrt(rawAx * rawAx + rawAy * rawAy) * 0.4;
+    const ax = (a.x || 0) / 10;
+    const ay = (a.y || 0) / 10;
+    field.x = Math.max(0, Math.min(1, field.x + ax * 0.05));
+    field.y = Math.max(0, Math.min(1, field.y - ay * 0.05));
+    field.energy = field.energy * 0.9 + Math.sqrt(ax*ax + ay*ay) * 0.5;
 }
 
 function onOrientation(e) {
-    const gx = Math.max(-1, Math.min(1, (e.gamma || 0) / 40));
-    const gy = Math.max(-1, Math.min(1, (e.beta || 0) / 40 - 1));
+    const gx = (e.gamma || 0) / 45;
+    const gy = (e.beta || 0) / 45 - 0.5;
     onMove((gx + 1) / 2, (1 - gy) / 2);
 }
 
-// ============ VISUALS ============
-
+// Visuals
 function resize() {
     const dpr = window.devicePixelRatio || 1;
-    const w = window.innerWidth;
-    const h = window.innerHeight;
-
-    canvas.width = w * dpr;
-    canvas.height = h * dpr;
-    canvas.style.width = w + 'px';
-    canvas.style.height = h + 'px';
+    canvas.width = innerWidth * dpr;
+    canvas.height = innerHeight * dpr;
+    canvas.style.width = innerWidth + 'px';
+    canvas.style.height = innerHeight + 'px';
     vc.setTransform(dpr, 0, 0, dpr, 0, 0);
 }
 
 function draw() {
-    const w = window.innerWidth;
-    const h = window.innerHeight;
+    const w = innerWidth, h = innerHeight;
 
-    // Fade
-    vc.fillStyle = 'rgba(10, 10, 10, 0.1)';
+    vc.fillStyle = 'rgba(10,10,10,0.15)';
     vc.fillRect(0, 0, w, h);
 
-    // Center target
-    const centerAlpha = 0.05 + (orb.active ? 0.1 : 0);
-    vc.strokeStyle = `rgba(255, 255, 255, ${centerAlpha})`;
-    vc.lineWidth = 1;
+    // Center
+    vc.strokeStyle = 'rgba(255,255,255,0.1)';
     vc.beginPath();
-    vc.arc(w / 2, h / 2, 30, 0, TAU);
+    vc.arc(w/2, h/2, 25, 0, TAU);
     vc.stroke();
 
-    // Layers as rings
-    for (let i = 0; i < layers.length; i++) {
-        const layer = layers[i];
-        const pulse = Math.exp(-layer.phase * 3);
-        const radius = 40 + i * 30 + pulse * 20;
-        const alpha = 0.1 + pulse * 0.2;
-
-        const hue = 200 + (layer.freq / BASE_FREQ) * 40;
-
+    // Layers
+    layers.forEach((L, i) => {
+        const r = 35 + i * 25;
+        const a = 0.1 + (0.5 + 0.5 * Math.cos(L.phase * TAU)) * 0.2;
+        vc.strokeStyle = `rgba(150,180,255,${a})`;
         vc.beginPath();
-        vc.arc(w / 2, h / 2, radius, 0, TAU);
-        vc.strokeStyle = `hsla(${hue}, 40%, 60%, ${alpha})`;
-        vc.lineWidth = 1 + pulse * 2;
+        vc.arc(w/2, h/2, r, 0, TAU);
         vc.stroke();
-    }
+    });
 
     // Orb
     if (orb.active) {
-        const ox = orb.x * w;
-        const oy = orb.y * h;
-        const r = 10 + field.energy * 15;
-
-        const grad = vc.createRadialGradient(ox, oy, 0, ox, oy, r * 2);
-        grad.addColorStop(0, 'rgba(255, 255, 255, 0.8)');
-        grad.addColorStop(0.5, 'rgba(200, 220, 255, 0.3)');
-        grad.addColorStop(1, 'transparent');
-
-        vc.fillStyle = grad;
+        const ox = orb.x * w, oy = orb.y * h;
+        vc.fillStyle = 'rgba(255,255,255,0.7)';
         vc.beginPath();
-        vc.arc(ox, oy, r * 2, 0, TAU);
+        vc.arc(ox, oy, 8, 0, TAU);
         vc.fill();
-
-        // Trail to center
-        vc.strokeStyle = 'rgba(255, 255, 255, 0.1)';
-        vc.beginPath();
-        vc.moveTo(ox, oy);
-        vc.lineTo(w / 2, h / 2);
-        vc.stroke();
     }
 
     // Cursor
-    const cx = field.x * w;
-    const cy = field.y * h;
-    const cr = 4 + field.energy * 20;
-
-    vc.fillStyle = `rgba(255, 255, 255, ${0.2 + field.energy * 0.4})`;
+    const cx = field.x * w, cy = field.y * h;
+    vc.fillStyle = `rgba(255,255,255,${0.2 + field.energy})`;
     vc.beginPath();
-    vc.arc(cx, cy, cr, 0, TAU);
+    vc.arc(cx, cy, 5 + field.energy * 15, 0, TAU);
     vc.fill();
-
-    // Beat pulse indicator
-    const config = BEAT_CONFIGS[dials.beats];
-    if (config && config.bpm > 0) {
-        const beatPulse = 1 - (beatTime % (60 / config.bpm)) / (60 / config.bpm);
-        const pulseAlpha = beatPulse * 0.15;
-        vc.strokeStyle = `rgba(255, 255, 255, ${pulseAlpha})`;
-        vc.lineWidth = 2;
-        vc.beginPath();
-        vc.arc(w / 2, h / 2, 25 + beatPulse * 10, 0, TAU);
-        vc.stroke();
-    }
 }
 
-// ============ LOOP ============
-
+// Loop
 function tick() {
     if (!running) return;
 
-    const dt = 0.016;
+    const dt = 1/60;
     field.time += dt;
+    field.energy *= 0.98;
 
-    updateBeats(dt);
+    updateBeats();
     updateBass();
     updateOrb(dt);
     updateLayers(dt);
-    updateVibe();
 
     draw();
-
     requestAnimationFrame(tick);
 }
 
-// ============ START ============
+// Init
+function init() {
+    ctx = new (window.AudioContext || window.webkitAudioContext)();
+
+    filter = ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.value = 3000;
+
+    const comp = ctx.createDynamicsCompressor();
+    comp.threshold.value = -10;
+    comp.ratio.value = 4;
+
+    master = ctx.createGain();
+    master.gain.value = 0.8;
+
+    master.connect(filter).connect(comp).connect(ctx.destination);
+
+    initBass();
+
+    canvas = document.getElementById('c');
+    vc = canvas.getContext('2d');
+    resize();
+    addEventListener('resize', resize);
+
+    // Dial clicks
+    document.querySelectorAll('.dial-option').forEach(opt => {
+        opt.addEventListener('click', () => {
+            const dial = opt.closest('.dial');
+            const id = dial.id.replace('-dial', '');
+            dial.querySelectorAll('.dial-option').forEach(o => o.classList.remove('active'));
+            opt.classList.add('active');
+            dials[id] = opt.dataset.value;
+            if (id === 'beats') { beatStep = 0; lastBeatTime = ctx.currentTime; }
+            if (id === 'vibe') updateVibe();
+        });
+    });
+
+    updateVibe();
+}
 
 async function start() {
     document.getElementById('enter').classList.add('off');
     document.getElementById('dials').style.display = 'block';
 
-    if (typeof DeviceMotionEvent !== 'undefined' &&
-        typeof DeviceMotionEvent.requestPermission === 'function') {
+    if (typeof DeviceMotionEvent?.requestPermission === 'function') {
         try { await DeviceMotionEvent.requestPermission(); } catch(e) {}
     }
-    if (typeof DeviceOrientationEvent !== 'undefined' &&
-        typeof DeviceOrientationEvent.requestPermission === 'function') {
+    if (typeof DeviceOrientationEvent?.requestPermission === 'function') {
         try { await DeviceOrientationEvent.requestPermission(); } catch(e) {}
     }
 
     init();
 
-    window.addEventListener('devicemotion', onMotion);
-    window.addEventListener('deviceorientation', onOrientation);
-
-    document.addEventListener('mousemove', e => {
-        onMove(e.clientX / window.innerWidth, e.clientY / window.innerHeight);
-    });
-
+    addEventListener('devicemotion', onMotion);
+    addEventListener('deviceorientation', onOrientation);
+    document.addEventListener('mousemove', e => onMove(e.clientX/innerWidth, e.clientY/innerHeight));
     document.addEventListener('touchmove', e => {
         e.preventDefault();
-        const t = e.touches[0];
-        onMove(t.clientX / window.innerWidth, t.clientY / window.innerHeight);
+        onMove(e.touches[0].clientX/innerWidth, e.touches[0].clientY/innerHeight);
     }, { passive: false });
-
     document.addEventListener('touchstart', e => {
         e.preventDefault();
-        const t = e.touches[0];
-        onMove(t.clientX / window.innerWidth, t.clientY / window.innerHeight);
+        onMove(e.touches[0].clientX/innerWidth, e.touches[0].clientY/innerHeight);
     }, { passive: false });
 
     if (ctx.state === 'suspended') await ctx.resume();
-
-    updateVibe();
 
     running = true;
     tick();
