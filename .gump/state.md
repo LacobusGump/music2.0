@@ -1,10 +1,104 @@
 # Current State
 
-*Last updated: January 27, 2026*
+*Last updated: January 28, 2026*
 
 ---
 
-## 🚨 CRITICAL: CLASHING SOUNDS - COMPLETE RETHINK NEEDED 🚨
+## ✅ SESSION 19: THE BEAT GRID - Music Finally Has a Heartbeat
+
+**THE PROBLEM WE FIXED:**
+Layers were looping at ARBITRARY lengths (1.2s, 2.7s, 0.8s) with no common time. Result: polyrhythmic chaos, not music.
+
+**THE SOLUTION:**
+A BEAT GRID that all layers align to. Now:
+- All loops snap to 1, 2, or 4 bars
+- Layers pulse ON THE BEAT, not randomly
+- Visible phase indicator shows position in phrase
+- Optional tempo entrainment matches user's natural rhythm
+
+---
+
+## WHAT WAS BUILT THIS SESSION
+
+### 1. BEAT GRID SYSTEM
+```javascript
+BEAT = {
+    BPM: 72,           // Meditative base tempo
+    BARS: 4,           // 4-bar phrase
+    BEATS_PER_BAR: 4,  // 4/4 time
+    SUBDIVISIONS: 4,   // 16th note resolution
+}
+```
+
+### 2. QUANTIZED LOOP LENGTHS
+- Raw loop length (based on orb travel time) → Quantized to 1, 2, or 4 bars
+- All layers now share a common time structure
+- Alignments happen naturally every 1, 2, or 4 bars
+
+### 3. BEAT-SYNCED ENVELOPES
+- Layers pulse on the beat, not continuously
+- Downbeats (start of loop) are accented
+- Global pulse sync adds subtle groove to all layers
+
+### 4. TEMPO ENTRAINMENT
+- Tracks user's movement "taps"
+- Calculates their natural tempo
+- BPM gradually adjusts toward user's rhythm
+- Confidence indicator shows sync status
+
+### 5. VISUAL BEAT FEEDBACK
+- Expanding ring on each beat
+- Circle of 16 dots shows position in phrase
+- BPM display with sync status
+- Current beat highlighted
+
+---
+
+## WHAT THE USER WILL NOTICE
+
+**Before Session 19:**
+- Layers pulse randomly, never align
+- No sense of groove or rhythm
+- "Clashing sounds" - everything fighting for attention
+
+**After Session 19:**
+- Visible pulse shows the beat
+- Layers align on musical boundaries (bar lines)
+- If you move rhythmically, tempo follows you
+- Music EMERGES because there's a GRID for it to emerge on
+
+---
+
+## SUCCESS CRITERIA - Session 19
+
+- [x] Layers loop in musical lengths (1, 2, 4 bars)
+- [x] Beat visualization shows position in phrase
+- [x] Layers pulse ON the beat, not randomly
+- [x] Tempo can entrain to user's movement rhythm
+- [ ] User reports "it sounds like music now" (requires testing)
+
+---
+
+## WHAT'S STILL MISSING
+
+1. **No audio pulse** - Beat is visual only, no subtle click option
+2. **No learning** - Preferences don't persist across sessions
+3. **Fixed 4/4** - No alternative time signatures
+4. **Basic tempo detection** - Could be more sophisticated
+
+---
+
+## THE THREE PILLARS STATUS
+
+| Pillar | Status | Notes |
+|--------|--------|-------|
+| PREDICTION | ✅ Done | Harmonic pull toward consonance |
+| ENTRAINMENT | ✅ Done | Beat grid + tempo following |
+| LEARNING | ❌ Missing | No cross-session memory |
+
+---
+
+## 🚨 PREVIOUS: CLASHING SOUNDS - COMPLETE RETHINK NEEDED 🚨
 
 **USER FEEDBACK:**
 > "The problem we have now is clashing sounds. No drums to start and get rid of the club idea. The massive synths are all on top of each other and there isn't any music. Reduce the overall amount of sounds competing for a voice and instead let each layer build ONE BY ONE."

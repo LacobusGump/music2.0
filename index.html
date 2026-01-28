@@ -63,6 +63,172 @@ const MAX_LAYERS = 8;  // Maximum concurrent layers
 let layers = [];      // Array of recorded layers
 let activeVoice = null; // The SINGLE voice that follows tilt (before recording)
 
+// ============ THE BEAT GRID ============
+// THIS IS WHAT WAS MISSING: A common time structure for all layers
+// Without this, layers loop independently = polyrhythmic chaos
+// With this, layers align to a shared pulse = MUSIC
+
+const BEAT = {
+    BPM: 72,                    // Slow, meditative tempo (adjustable through movement)
+    MIN_BPM: 50,                // Minimum tempo
+    MAX_BPM: 120,               // Maximum tempo
+    BARS: 4,                    // Phrase length in bars (4 = 8 seconds at 72 BPM)
+    BEATS_PER_BAR: 4,           // Time signature: 4/4
+    SUBDIVISIONS: 4,            // 16th note quantization
+    QUANTIZE_STRENGTH: 0.8,     // How strongly notes snap to grid (0 = free, 1 = rigid)
+    TEMPO_SMOOTH: 0.98,         // How slowly tempo changes (0.98 = very gradual)
+    TEMPO_SENSITIVITY: 0.3,     // How much movement affects tempo
+};
+
+let beatState = {
+    bpm: BEAT.BPM,              // Current tempo
+    phase: 0,                   // Current position in the beat cycle (0-1)
+    beat: 0,                    // Current beat number (0-15 for 4 bars of 4/4)
+    lastBeatTime: 0,            // When the last beat occurred
+    beatInterval: 60 / BEAT.BPM, // Seconds per beat
+    barPhase: 0,                // Position within current bar (0-1)
+    phrasePhase: 0,             // Position within the phrase (0-1)
+
+    // Tempo tracking from user movement
+    movementTaps: [],           // Timestamps of significant movements
+    detectedTempo: null,        // User's natural tempo (if detected)
+    tempoConfidence: 0,         // How confident we are in detected tempo
+
+    // Visual pulse
+    pulseIntensity: 0,          // For visual feedback
+};
+
+// Calculate beat-aligned loop length
+function getQuantizedLoopLength(rawLength) {
+    const beatDuration = 60 / beatState.bpm;
+    const barDuration = beatDuration * BEAT.BEATS_PER_BAR;
+
+    // Find the nearest musical loop length (1, 2, or 4 bars)
+    const bars = rawLength / barDuration;
+
+    let quantizedBars;
+    if (bars < 1.5) {
+        quantizedBars = 1;       // 1 bar loop
+    } else if (bars < 3) {
+        quantizedBars = 2;       // 2 bar loop
+    } else {
+        quantizedBars = 4;       // 4 bar loop
+    }
+
+    return quantizedBars * barDuration;
+}
+
+// Quantize a timing to the beat grid
+function quantizeToGrid(time, strength = BEAT.QUANTIZE_STRENGTH) {
+    const beatDuration = 60 / beatState.bpm;
+    const subdivision = beatDuration / BEAT.SUBDIVISIONS;
+
+    // Find nearest subdivision
+    const nearestSubdiv = Math.round(time / subdivision) * subdivision;
+
+    // Blend between raw and quantized based on strength
+    return time * (1 - strength) + nearestSubdiv * strength;
+}
+
+// Update the beat state every frame
+function updateBeat(dt) {
+    // Update phase
+    const prevPhase = beatState.phase;
+    beatState.phase += dt / beatState.beatInterval;
+
+    // Beat occurred?
+    if (Math.floor(beatState.phase) > Math.floor(prevPhase)) {
+        beatState.beat = (beatState.beat + 1) % (BEAT.BARS * BEAT.BEATS_PER_BAR);
+        beatState.lastBeatTime = field.time;
+        beatState.pulseIntensity = 1;
+
+        // On beat 0 (start of phrase), could trigger events
+        if (beatState.beat === 0) {
+            // Start of new phrase - good moment for changes
+        }
+    }
+
+    // Keep phase in range [0, 1] for current beat
+    beatState.phase = beatState.phase % 1;
+
+    // Calculate bar and phrase phase
+    const totalBeats = BEAT.BARS * BEAT.BEATS_PER_BAR;
+    beatState.barPhase = (beatState.beat % BEAT.BEATS_PER_BAR + beatState.phase) / BEAT.BEATS_PER_BAR;
+    beatState.phrasePhase = (beatState.beat + beatState.phase) / totalBeats;
+
+    // Decay pulse
+    beatState.pulseIntensity *= 0.85;
+
+    // ============ TEMPO ENTRAINMENT ============
+    // Detect user's natural tempo from their movement patterns
+    // If they're moving rhythmically, the system adjusts to match
+
+    // Track significant movements as "taps"
+    if (field.energy > 0.1) {
+        const now = field.time;
+        const lastTap = beatState.movementTaps[beatState.movementTaps.length - 1];
+
+        // Only count as a new tap if enough time has passed
+        if (!lastTap || now - lastTap > 0.2) {
+            beatState.movementTaps.push(now);
+
+            // Keep only recent taps (last 8 seconds)
+            while (beatState.movementTaps.length > 20 &&
+                   now - beatState.movementTaps[0] > 8) {
+                beatState.movementTaps.shift();
+            }
+        }
+    }
+
+    // Analyze taps to detect tempo
+    if (beatState.movementTaps.length >= 4) {
+        const intervals = [];
+        for (let i = 1; i < beatState.movementTaps.length; i++) {
+            const interval = beatState.movementTaps[i] - beatState.movementTaps[i - 1];
+            if (interval > 0.25 && interval < 2) { // Reasonable beat intervals
+                intervals.push(interval);
+            }
+        }
+
+        if (intervals.length >= 3) {
+            // Use median for robustness
+            intervals.sort((a, b) => a - b);
+            const medianInterval = intervals[Math.floor(intervals.length / 2)];
+            const detectedBpm = 60 / medianInterval;
+
+            // Only accept if in reasonable range
+            if (detectedBpm >= BEAT.MIN_BPM && detectedBpm <= BEAT.MAX_BPM) {
+                beatState.detectedTempo = detectedBpm;
+
+                // Calculate confidence based on consistency
+                const avgInterval = intervals.reduce((a, b) => a + b) / intervals.length;
+                const variance = intervals.reduce((sum, i) => sum + Math.pow(i - avgInterval, 2), 0) / intervals.length;
+                const stdDev = Math.sqrt(variance);
+                beatState.tempoConfidence = Math.max(0, 1 - stdDev * 2);
+            }
+        }
+    } else {
+        // Not enough data - decay confidence
+        beatState.tempoConfidence *= 0.99;
+    }
+
+    // Gradually entrain to detected tempo
+    if (beatState.detectedTempo && beatState.tempoConfidence > 0.3) {
+        const targetBpm = beatState.detectedTempo;
+        const entrainStrength = beatState.tempoConfidence * BEAT.TEMPO_SENSITIVITY;
+        beatState.bpm = beatState.bpm * (1 - entrainStrength * 0.01) + targetBpm * (entrainStrength * 0.01);
+    } else {
+        // Drift back toward default tempo when user isn't establishing rhythm
+        beatState.bpm = beatState.bpm * 0.999 + BEAT.BPM * 0.001;
+    }
+
+    // Clamp BPM
+    beatState.bpm = Math.max(BEAT.MIN_BPM, Math.min(BEAT.MAX_BPM, beatState.bpm));
+
+    // Update beat interval
+    beatState.beatInterval = 60 / beatState.bpm;
+}
+
 // Layer structure:
 // {
 //   id: number,
@@ -590,10 +756,22 @@ function recordLayer() {
 
     const now = ctx.currentTime;
 
-    // Calculate loop length based on tempo of orb travel
-    // Faster orb = shorter loop
+    // ============ RHYTHMIC QUANTIZATION ============
+    // Instead of arbitrary loop lengths, quantize to the BEAT GRID
+    // This is THE KEY to music emergence - shared time structure
+
     const travelTime = field.time - field.orb.startTime;
-    const loopLength = Math.max(0.5, Math.min(4, travelTime * 2));
+    const rawLoopLength = Math.max(0.5, Math.min(8, travelTime * 2));
+
+    // Quantize to musical divisions (1, 2, or 4 bars)
+    const loopLength = getQuantizedLoopLength(rawLoopLength);
+
+    // Also quantize the START TIME so layers align
+    // New layer starts at the next beat boundary
+    const beatDuration = 60 / beatState.bpm;
+    const startOffset = beatDuration - (field.time % beatDuration);
+
+    console.log(`Loop length: ${rawLoopLength.toFixed(2)}s → ${loopLength.toFixed(2)}s (${(loopLength / beatDuration / BEAT.BEATS_PER_BAR).toFixed(1)} bars at ${beatState.bpm.toFixed(0)} BPM)`);
 
     // Create layer audio
     const osc = ctx.createOscillator();
@@ -647,28 +825,50 @@ function recordLayer() {
 }
 
 // ============ LAYER PLAYBACK ============
-// Each layer loops with its own timing
-// Creates polyrhythmic interweaving
+// Layers are now BEAT-SYNCHRONIZED
+// All layers share the same time grid = music emerges
 
 function updateLayers(dt) {
     const now = ctx.currentTime;
+    const beatDuration = 60 / beatState.bpm;
 
     for (const layer of layers) {
         // Update phase (0-1 within loop)
         layer.phase += dt / layer.loopLength;
         if (layer.phase >= 1) layer.phase -= 1;
 
-        // Envelope: note plays at start of loop, then decays
-        // Creates rhythmic pulsing
-        const envelope = Math.exp(-layer.phase * 4); // Exponential decay
-        const sustainedEnvelope = 0.3 + envelope * 0.7; // Never fully silent
+        // ============ BEAT-SYNCED ENVELOPE ============
+        // Instead of free-running decay, pulse ON THE BEAT
+        // This creates rhythmic coherence between all layers
+
+        // How many beats in this layer's loop?
+        const beatsInLoop = Math.round(layer.loopLength / beatDuration);
+
+        // Current beat within the loop
+        const loopBeat = layer.phase * beatsInLoop;
+        const beatFraction = loopBeat % 1;
+
+        // Attack at the START of each beat, then decay
+        // This creates a rhythmic pulse that aligns across all layers
+        const beatEnvelope = Math.exp(-beatFraction * 3);
+
+        // Stronger attack on beat 1 of the loop (the "downbeat")
+        const isDownbeat = Math.floor(loopBeat) === 0;
+        const downbeatBoost = isDownbeat ? 1.3 : 1;
+
+        // Also accent when the global beat aligns
+        const globalBeatSync = 1 + beatState.pulseIntensity * 0.2;
+
+        // Combine envelopes
+        const sustainLevel = 0.25; // Minimum volume between beats
+        const envelope = sustainLevel + (1 - sustainLevel) * beatEnvelope * downbeatBoost;
 
         // Apply envelope to volume
-        const targetGain = layer.volume * sustainedEnvelope;
+        const targetGain = layer.volume * envelope * globalBeatSync;
         layer.gain.gain.linearRampToValueAtTime(targetGain, now + 0.02);
 
-        // Subtle pitch drift for organic feel
-        const drift = Math.sin(field.time * 0.5 + layer.id) * 0.002;
+        // Subtle pitch drift for organic feel (but smaller now)
+        const drift = Math.sin(field.time * 0.3 + layer.id) * 0.001;
         layer.osc.frequency.linearRampToValueAtTime(layer.freq * (1 + drift), now + 0.1);
     }
 }
@@ -838,6 +1038,59 @@ function draw() {
     vc.fillStyle = 'rgba(0, 0, 0, 0.08)';
     vc.fillRect(0, 0, w, h);
 
+    // ============ BEAT GRID VISUALIZATION ============
+    // A subtle pulse at the center shows the rhythm
+    // Users can FEEL and SEE the beat they're building on
+
+    if (layers.length > 0 || beatState.pulseIntensity > 0.1) {
+        // Expanding ring on each beat
+        const pulseRadius = 15 + (1 - beatState.pulseIntensity) * 80;
+        const pulseAlpha = beatState.pulseIntensity * 0.3;
+
+        if (pulseAlpha > 0.02) {
+            vc.strokeStyle = `rgba(255, 255, 255, ${pulseAlpha})`;
+            vc.lineWidth = 1 + beatState.pulseIntensity * 2;
+            vc.beginPath();
+            vc.arc(w / 2, h / 2, pulseRadius, 0, TAU);
+            vc.stroke();
+        }
+
+        // Beat indicator dots around center (shows position in phrase)
+        const totalBeats = BEAT.BARS * BEAT.BEATS_PER_BAR;
+        const indicatorRadius = 120;
+
+        for (let i = 0; i < totalBeats; i++) {
+            const angle = (i / totalBeats) * TAU - Math.PI / 2; // Start at top
+            const ix = w / 2 + Math.cos(angle) * indicatorRadius;
+            const iy = h / 2 + Math.sin(angle) * indicatorRadius;
+
+            // Highlight current beat
+            const isCurrent = i === beatState.beat;
+            const isPast = i < beatState.beat;
+            const isDownbeat = i % BEAT.BEATS_PER_BAR === 0;
+
+            let dotAlpha = 0.1;
+            let dotRadius = 2;
+
+            if (isCurrent) {
+                dotAlpha = 0.5 + beatState.pulseIntensity * 0.3;
+                dotRadius = 4;
+            } else if (isPast) {
+                dotAlpha = 0.2;
+            }
+
+            if (isDownbeat) {
+                dotRadius += 1;
+                dotAlpha += 0.05;
+            }
+
+            vc.fillStyle = `rgba(255, 255, 255, ${dotAlpha})`;
+            vc.beginPath();
+            vc.arc(ix, iy, dotRadius, 0, TAU);
+            vc.fill();
+        }
+    }
+
     // Center crosshair (subtle target for orb)
     const centerAlpha = 0.1 + (field.orb.active ? 0.15 : 0);
     vc.strokeStyle = `rgba(255, 255, 255, ${centerAlpha})`;
@@ -964,12 +1217,23 @@ function draw() {
     vc.arc(cx, cy, cursorRadius, 0, TAU);
     vc.fill();
 
-    // Layer count
+    // Layer count and BPM
     if (layers.length > 0) {
         vc.fillStyle = 'rgba(255, 255, 255, 0.3)';
         vc.font = '10px system-ui';
         vc.textAlign = 'left';
         vc.fillText(`${layers.length} layer${layers.length > 1 ? 's' : ''}`, 20, 25);
+
+        // BPM indicator
+        const bpmColor = beatState.tempoConfidence > 0.5 ? '150, 255, 150' : '255, 255, 255';
+        vc.fillStyle = `rgba(${bpmColor}, ${0.2 + beatState.tempoConfidence * 0.3})`;
+        vc.fillText(`${Math.round(beatState.bpm)} BPM`, 20, 55);
+
+        // Tempo sync indicator
+        if (beatState.tempoConfidence > 0.3) {
+            vc.fillStyle = `rgba(150, 255, 150, ${beatState.tempoConfidence * 0.4})`;
+            vc.fillText('♪ synced', 70, 55);
+        }
     }
 
     // Current pitch indicator
@@ -1096,7 +1360,10 @@ function tick() {
     const dt = 0.016; // ~60fps
     field.time += dt;
 
-    // Update PREDICTION first - this informs everything else
+    // Update BEAT GRID first - this provides the time structure
+    updateBeat(dt);
+
+    // Update PREDICTION - this informs harmony selection
     updatePrediction(dt);
 
     // Update orb physics
@@ -1105,7 +1372,7 @@ function tick() {
     // Update active voice (follows tilt, affected by prediction tension)
     updateActiveVoice();
 
-    // Update recorded layers
+    // Update recorded layers (now beat-synchronized!)
     updateLayers(dt);
 
     // Draw
