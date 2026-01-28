@@ -3,748 +3,603 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>GUMP</title>
+    <title>GUMP 2.0</title>
     <style>
         *{margin:0;padding:0;box-sizing:border-box}
-        body{background:#000;overflow:hidden;touch-action:none;height:100vh}
+        body{background:#0a0a0a;overflow:hidden;touch-action:none;height:100vh;font-family:system-ui,-apple-system,sans-serif}
         canvas{position:fixed;inset:0}
-        #enter{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;z-index:10;cursor:pointer}
-        #enter.off{opacity:0;pointer-events:none;transition:opacity 2s}
-        #enter div{width:120px;height:120px;border-radius:50%;border:1px solid rgba(255,255,255,0.1);display:flex;align-items:center;justify-content:center;font:9px system-ui;letter-spacing:4px;color:rgba(255,255,255,0.25);transition:0.5s}
-        #enter:hover div{border-color:rgba(255,255,255,0.3);color:rgba(255,255,255,0.5)}
+
+        #enter{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;z-index:100;cursor:pointer;background:#0a0a0a}
+        #enter.off{opacity:0;pointer-events:none;transition:opacity 1s}
+        #enter div{width:140px;height:140px;border-radius:50%;border:1px solid rgba(255,255,255,0.15);display:flex;align-items:center;justify-content:center;flex-direction:column;gap:8px}
+        #enter .title{font-size:11px;letter-spacing:6px;color:rgba(255,255,255,0.4)}
+        #enter .sub{font-size:8px;letter-spacing:2px;color:rgba(255,255,255,0.2)}
+        #enter:hover div{border-color:rgba(255,255,255,0.4)}
+
+        /* DIAL SYSTEM */
+        #dials{position:fixed;bottom:0;left:0;right:0;z-index:50;padding:15px 10px 25px;background:linear-gradient(transparent,rgba(0,0,0,0.9))}
+        .dial{margin-bottom:12px}
+        .dial-label{font-size:9px;letter-spacing:3px;color:rgba(255,255,255,0.3);margin-bottom:6px;text-transform:uppercase}
+        .dial-track{display:flex;gap:3px;overflow-x:auto;scrollbar-width:none;-ms-overflow-style:none;padding:3px 0}
+        .dial-track::-webkit-scrollbar{display:none}
+        .dial-option{flex-shrink:0;padding:8px 16px;border-radius:20px;font-size:11px;color:rgba(255,255,255,0.4);background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);cursor:pointer;transition:all 0.2s;user-select:none}
+        .dial-option:hover{background:rgba(255,255,255,0.1)}
+        .dial-option.active{background:rgba(255,255,255,0.15);color:rgba(255,255,255,0.9);border-color:rgba(255,255,255,0.3)}
+
+        /* Status */
+        #status{position:fixed;top:15px;left:15px;font-size:10px;color:rgba(255,255,255,0.25);z-index:40}
     </style>
 </head>
 <body>
-<div id="enter"><div>ENTER</div></div>
+<div id="enter">
+    <div>
+        <span class="title">GUMP</span>
+        <span class="sub">tap to begin</span>
+    </div>
+</div>
+
+<div id="dials" style="display:none">
+    <div class="dial" id="beats-dial">
+        <div class="dial-label">beats</div>
+        <div class="dial-track">
+            <div class="dial-option" data-value="none">none</div>
+            <div class="dial-option active" data-value="lofi">lo-fi</div>
+            <div class="dial-option" data-value="trap">trap</div>
+            <div class="dial-option" data-value="jazz">jazz</div>
+            <div class="dial-option" data-value="rock">rock</div>
+        </div>
+    </div>
+    <div class="dial" id="bass-dial">
+        <div class="dial-label">bass</div>
+        <div class="dial-track">
+            <div class="dial-option" data-value="none">none</div>
+            <div class="dial-option active" data-value="sub">sub</div>
+            <div class="dial-option" data-value="funk">funk</div>
+            <div class="dial-option" data-value="synth">synth</div>
+        </div>
+    </div>
+    <div class="dial" id="vibe-dial">
+        <div class="dial-label">vibe</div>
+        <div class="dial-track">
+            <div class="dial-option" data-value="raw">raw</div>
+            <div class="dial-option active" data-value="lofi">lo-fi</div>
+            <div class="dial-option" data-value="polished">polished</div>
+            <div class="dial-option" data-value="crushed">crushed</div>
+        </div>
+    </div>
+</div>
+
+<div id="status"></div>
 <canvas id="c"></canvas>
+
 <script>
-// GUMP - Grand Unified Music Project
-// EMERGENT DELICACY: Silence → One Voice → Layers Build One by One
-// "The music must emerge from chaos as the highest probability path to sounding good"
+// GUMP 2.0 - THE DIAL SYSTEM
+// Genre dials + motion-controlled layers + vibe processing
 
 const TAU = Math.PI * 2;
 
-// ============ THE UNIVERSE ============
+// ============ STATE ============
 
-let ctx, master, verb, dly;
+let ctx, master, vibeChain, comp;
 let canvas, vc;
 let running = false;
 
-// Field state (cursor position, tilt)
+// Dial selections
+let dials = {
+    beats: 'lofi',
+    bass: 'sub',
+    vibe: 'lofi'
+};
+
+// Field state
 let field = {
-    x: 0.5, y: 0.5,      // Normalized position (0-1)
-    vx: 0, vy: 0,        // Velocity
-    energy: 0,           // Movement energy
-    time: 0,
-    // PREDICTION: Where we think the user is GOING
-    px: 0.5, py: 0.5,    // Predicted position (100ms ahead)
-    predictionError: 0,   // How wrong our last prediction was (0-1)
-    predictionTension: 0, // Musical tension from wrong predictions
-    lastPredictedX: 0.5,  // What we predicted last frame
-    lastPredictedY: 0.5,
-    // Orb state
-    orb: {
-        active: false,    // Is an orb currently visible?
-        x: 0, y: 0,       // Orb position
-        freq: 220,        // Current frequency based on tilt
-        predictedFreq: 220, // Where we PREDICT the pitch will be
-        startTime: 0,     // When orb spawned
-        velocity: 0.3     // How fast orb moves toward center
+    x: 0.5, y: 0.5,
+    vx: 0, vy: 0,
+    energy: 0,
+    time: 0
+};
+
+// Layers created by motion
+let layers = [];
+const MAX_LAYERS = 6;
+
+// Beat state
+let beatTime = 0;
+let beatPhase = 0;
+
+// ============ GENRE CONFIGS ============
+
+const BEAT_CONFIGS = {
+    none: { bpm: 0, pattern: [] },
+    lofi: {
+        bpm: 72,
+        swing: 0.15,
+        pattern: [
+            { time: 0, type: 'kick', vel: 0.8 },
+            { time: 0.5, type: 'snare', vel: 0.5 },
+            { time: 1, type: 'kick', vel: 0.6 },
+            { time: 1.5, type: 'snare', vel: 0.7 },
+            { time: 0.25, type: 'hat', vel: 0.2 },
+            { time: 0.75, type: 'hat', vel: 0.25 },
+            { time: 1.25, type: 'hat', vel: 0.2 },
+            { time: 1.75, type: 'hat', vel: 0.3 }
+        ]
+    },
+    trap: {
+        bpm: 140,
+        swing: 0,
+        pattern: [
+            { time: 0, type: 'kick', vel: 1.0 },
+            { time: 0.75, type: 'kick', vel: 0.8 },
+            { time: 1, type: 'snare', vel: 0.9 },
+            { time: 1.5, type: 'kick', vel: 0.7 },
+            // Rapid hats
+            { time: 0, type: 'hat', vel: 0.4 },
+            { time: 0.125, type: 'hat', vel: 0.2 },
+            { time: 0.25, type: 'hat', vel: 0.35 },
+            { time: 0.375, type: 'hat', vel: 0.2 },
+            { time: 0.5, type: 'hat', vel: 0.4 },
+            { time: 0.625, type: 'hat', vel: 0.2 },
+            { time: 0.75, type: 'hat', vel: 0.35 },
+            { time: 0.875, type: 'hat', vel: 0.2 },
+            { time: 1.0, type: 'hat', vel: 0.4 },
+            { time: 1.125, type: 'hat', vel: 0.2 },
+            { time: 1.25, type: 'hat', vel: 0.35 },
+            { time: 1.375, type: 'hat', vel: 0.2 },
+            { time: 1.5, type: 'hat', vel: 0.4 },
+            { time: 1.625, type: 'hat', vel: 0.2 },
+            { time: 1.75, type: 'hat', vel: 0.35 },
+            { time: 1.875, type: 'hat', vel: 0.2 }
+        ]
+    },
+    jazz: {
+        bpm: 95,
+        swing: 0.3,
+        pattern: [
+            { time: 0, type: 'kick', vel: 0.5 },
+            { time: 1.5, type: 'kick', vel: 0.4 },
+            { time: 1, type: 'snare', vel: 0.3 },
+            // Ride pattern
+            { time: 0, type: 'ride', vel: 0.5 },
+            { time: 0.33, type: 'ride', vel: 0.3 },
+            { time: 0.66, type: 'ride', vel: 0.4 },
+            { time: 1, type: 'ride', vel: 0.5 },
+            { time: 1.33, type: 'ride', vel: 0.3 },
+            { time: 1.66, type: 'ride', vel: 0.4 }
+        ]
+    },
+    rock: {
+        bpm: 120,
+        swing: 0,
+        pattern: [
+            { time: 0, type: 'kick', vel: 1.0 },
+            { time: 1, type: 'snare', vel: 0.9 },
+            { time: 0.5, type: 'kick', vel: 0.7 },
+            { time: 1.5, type: 'snare', vel: 0.85 },
+            // Steady 8ths
+            { time: 0, type: 'hat', vel: 0.5 },
+            { time: 0.25, type: 'hat', vel: 0.4 },
+            { time: 0.5, type: 'hat', vel: 0.5 },
+            { time: 0.75, type: 'hat', vel: 0.4 },
+            { time: 1, type: 'hat', vel: 0.5 },
+            { time: 1.25, type: 'hat', vel: 0.4 },
+            { time: 1.5, type: 'hat', vel: 0.5 },
+            { time: 1.75, type: 'hat', vel: 0.4 }
+        ]
     }
 };
 
-// ============ THE LAYER SYSTEM ============
-// Each layer is a recorded loop of pitch + timing
-// Layers build ONE BY ONE through user action
+const BASS_CONFIGS = {
+    none: { type: 'none' },
+    sub: { type: 'sine', octave: -2, attack: 0.01, decay: 0.3 },
+    funk: { type: 'sawtooth', octave: -1, attack: 0.005, decay: 0.15, filter: 800 },
+    synth: { type: 'square', octave: -1, attack: 0.01, decay: 0.2, filter: 1200 }
+};
 
-const BASE_FREQ = 110; // A2 - foundation frequency
-const MAX_LAYERS = 8;  // Maximum concurrent layers
-
-let layers = [];      // Array of recorded layers
-let activeVoice = null; // The SINGLE voice that follows tilt (before recording)
-
-// Layer structure:
-// {
-//   id: number,
-//   freq: number,           // The pitch of this layer
-//   startTime: number,      // When in the loop it plays
-//   loopLength: number,     // How long the loop is (in seconds)
-//   osc: OscillatorNode,
-//   gain: GainNode,
-//   filter: BiquadFilterNode,
-//   recorded: boolean,      // Has this been recorded (or still live)?
-//   volume: number          // 0-1, decreases with each layer
-// }
-
-// ============ MUSIC THEORY: HARMONIC PROBABILITY ============
-// New layers should HARMONIZE with existing layers
-// The system predicts what will sound GOOD
-
-// Just intonation ratios - these are the "legal" intervals
-const CONSONANT_RATIOS = [
-    { ratio: 1,     name: 'unison',   consonance: 1.0 },
-    { ratio: 2,     name: 'octave',   consonance: 0.95 },
-    { ratio: 3/2,   name: 'fifth',    consonance: 0.9 },
-    { ratio: 4/3,   name: 'fourth',   consonance: 0.85 },
-    { ratio: 5/4,   name: 'maj3',     consonance: 0.8 },
-    { ratio: 6/5,   name: 'min3',     consonance: 0.75 },
-    { ratio: 5/3,   name: 'maj6',     consonance: 0.7 },
-    { ratio: 8/5,   name: 'min6',     consonance: 0.65 },
-    { ratio: 9/8,   name: 'maj2',     consonance: 0.5 },
-    { ratio: 16/15, name: 'min2',     consonance: 0.3 },
-];
-
-// Calculate consonance between two frequencies
-function getConsonance(freq1, freq2) {
-    let ratio = freq1 > freq2 ? freq1 / freq2 : freq2 / freq1;
-    // Normalize to within one octave
-    while (ratio > 2) ratio /= 2;
-
-    let bestConsonance = 0.2; // Default dissonance
-    for (const interval of CONSONANT_RATIOS) {
-        const diff = Math.abs(ratio - interval.ratio);
-        if (diff < 0.03) { // Within 3% of a just interval
-            bestConsonance = Math.max(bestConsonance, interval.consonance * (1 - diff * 10));
-        }
+const VIBE_CONFIGS = {
+    raw: {
+        filterFreq: 20000,
+        distortion: 0,
+        bitcrush: 0,
+        reverbMix: 0.1,
+        compression: 1
+    },
+    lofi: {
+        filterFreq: 3500,
+        distortion: 0.1,
+        bitcrush: 0.15,
+        reverbMix: 0.25,
+        compression: 4
+    },
+    polished: {
+        filterFreq: 18000,
+        distortion: 0,
+        bitcrush: 0,
+        reverbMix: 0.2,
+        compression: 6
+    },
+    crushed: {
+        filterFreq: 2500,
+        distortion: 0.4,
+        bitcrush: 0.5,
+        reverbMix: 0.15,
+        compression: 8
     }
-    return bestConsonance;
+};
+
+// ============ DRUMS ============
+
+function playKick(vel = 1) {
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(150, now);
+    osc.frequency.exponentialRampToValueAtTime(40, now + 0.1);
+
+    gain.gain.setValueAtTime(0.7 * vel, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+
+    osc.connect(gain);
+    gain.connect(vibeChain.input);
+
+    osc.start(now);
+    osc.stop(now + 0.3);
 }
 
-// Calculate how well a new frequency fits with existing layers
-function getHarmonicFit(newFreq) {
-    if (layers.length === 0) return 1; // First layer always fits
+function playSnare(vel = 1) {
+    const now = ctx.currentTime;
 
-    let totalConsonance = 0;
-    for (const layer of layers) {
-        totalConsonance += getConsonance(newFreq, layer.freq);
+    // Body
+    const osc = ctx.createOscillator();
+    const oscGain = ctx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(200, now);
+    osc.frequency.exponentialRampToValueAtTime(120, now + 0.05);
+    oscGain.gain.setValueAtTime(0.3 * vel, now);
+    oscGain.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+    osc.connect(oscGain);
+    oscGain.connect(vibeChain.input);
+    osc.start(now);
+    osc.stop(now + 0.15);
+
+    // Noise
+    const bufferSize = ctx.sampleRate * 0.1;
+    const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) {
+        data[i] = Math.random() * 2 - 1;
     }
-    return totalConsonance / layers.length;
+    const noise = ctx.createBufferSource();
+    noise.buffer = buffer;
+
+    const noiseFilter = ctx.createBiquadFilter();
+    noiseFilter.type = 'highpass';
+    noiseFilter.frequency.value = 1000;
+
+    const noiseGain = ctx.createGain();
+    noiseGain.gain.setValueAtTime(0.4 * vel, now);
+    noiseGain.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
+
+    noise.connect(noiseFilter);
+    noiseFilter.connect(noiseGain);
+    noiseGain.connect(vibeChain.input);
+    noise.start(now);
+    noise.stop(now + 0.12);
 }
 
-// Quantize frequency toward most consonant nearby pitch
-function quantizeToHarmony(rawFreq, strength = 0.5) {
-    if (layers.length === 0) {
-        // No existing layers - quantize to chromatic scale
-        const semitone = Math.round(12 * Math.log2(rawFreq / BASE_FREQ));
-        const quantizedFreq = BASE_FREQ * Math.pow(2, semitone / 12);
-        return rawFreq * (1 - strength) + quantizedFreq * strength;
+function playHat(vel = 1) {
+    const now = ctx.currentTime;
+
+    const bufferSize = ctx.sampleRate * 0.05;
+    const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) {
+        data[i] = Math.random() * 2 - 1;
     }
 
-    // Find the frequency that best fits with existing layers
-    let bestFreq = rawFreq;
-    let bestFit = getHarmonicFit(rawFreq);
+    const noise = ctx.createBufferSource();
+    noise.buffer = buffer;
 
-    // Try nearby semitones
-    for (let offset = -3; offset <= 3; offset++) {
-        const testFreq = rawFreq * Math.pow(2, offset / 12);
-        const fit = getHarmonicFit(testFreq);
-        if (fit > bestFit) {
-            bestFit = fit;
-            bestFreq = testFreq;
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'highpass';
+    filter.frequency.value = 7000;
+
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.15 * vel, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.04);
+
+    noise.connect(filter);
+    filter.connect(gain);
+    gain.connect(vibeChain.input);
+    noise.start(now);
+    noise.stop(now + 0.05);
+}
+
+function playRide(vel = 1) {
+    const now = ctx.currentTime;
+
+    // Metallic tone
+    const osc1 = ctx.createOscillator();
+    const osc2 = ctx.createOscillator();
+    const gain = ctx.createGain();
+
+    osc1.type = 'sine';
+    osc1.frequency.value = 350;
+    osc2.type = 'sine';
+    osc2.frequency.value = 471;
+
+    gain.gain.setValueAtTime(0.08 * vel, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+
+    osc1.connect(gain);
+    osc2.connect(gain);
+    gain.connect(vibeChain.input);
+
+    osc1.start(now);
+    osc2.start(now);
+    osc1.stop(now + 0.5);
+    osc2.stop(now + 0.5);
+}
+
+let lastTriggers = {};
+
+function updateBeats(dt) {
+    const config = BEAT_CONFIGS[dials.beats];
+    if (!config || config.bpm === 0) return;
+
+    const beatsPerSecond = config.bpm / 60;
+    const barLength = 2; // 2 beats per pattern
+    const barDuration = barLength / beatsPerSecond;
+
+    beatTime += dt;
+    const barProgress = (beatTime % barDuration) / barDuration * barLength;
+
+    // Check each pattern element
+    for (const hit of config.pattern) {
+        let triggerTime = hit.time;
+
+        // Apply swing to off-beats
+        if (config.swing && triggerTime % 0.5 !== 0) {
+            triggerTime += config.swing * 0.125;
         }
-    }
 
-    // Also try consonant intervals from existing layers
-    for (const layer of layers) {
-        for (const interval of CONSONANT_RATIOS) {
-            // Try above and below
-            for (const mult of [interval.ratio, 1 / interval.ratio]) {
-                const testFreq = layer.freq * mult;
-                // Bring into reasonable range
-                while (testFreq < rawFreq * 0.5) testFreq *= 2;
-                while (testFreq > rawFreq * 2) testFreq /= 2;
+        const hitId = `${hit.type}-${hit.time}`;
+        const prevPhase = lastTriggers[hitId] || -1;
 
-                if (Math.abs(testFreq - rawFreq) < rawFreq * 0.3) {
-                    const fit = getHarmonicFit(testFreq);
-                    if (fit > bestFit) {
-                        bestFit = fit;
-                        bestFreq = testFreq;
-                    }
-                }
+        // Trigger if we crossed this beat
+        if (barProgress >= triggerTime && prevPhase < triggerTime) {
+            switch (hit.type) {
+                case 'kick': playKick(hit.vel); break;
+                case 'snare': playSnare(hit.vel); break;
+                case 'hat': playHat(hit.vel); break;
+                case 'ride': playRide(hit.vel); break;
             }
         }
+
+        lastTriggers[hitId] = barProgress >= triggerTime ? triggerTime : -1;
     }
 
-    return rawFreq * (1 - strength) + bestFreq * strength;
+    // Reset at bar boundary
+    if (barProgress < 0.1) {
+        lastTriggers = {};
+    }
 }
 
-// ============ TILT TO PITCH ============
-// Y position (tilt forward/back) controls pitch
-// Higher Y = lower pitch (natural: tilt down to go down)
+// ============ BASS ============
 
-function tiltToFreq(y) {
-    // Map Y (0-1) to frequency range
-    // Y=0 (top) = high pitch, Y=1 (bottom) = low pitch
-    const octaves = 3; // 3 octave range
-    const normalizedPitch = 1 - y; // Invert so up = high
-    const freq = BASE_FREQ * Math.pow(2, normalizedPitch * octaves);
-    return freq;
+let bassOsc = null;
+let bassGain = null;
+let bassFilter = null;
+
+function initBass() {
+    bassOsc = ctx.createOscillator();
+    bassGain = ctx.createGain();
+    bassFilter = ctx.createBiquadFilter();
+
+    bassFilter.type = 'lowpass';
+    bassFilter.frequency.value = 500;
+
+    bassGain.gain.value = 0;
+
+    bassOsc.connect(bassFilter);
+    bassFilter.connect(bassGain);
+    bassGain.connect(vibeChain.input);
+
+    bassOsc.start();
 }
 
-// ============ PREDICTION SYSTEM ============
-// The system looks 100ms into the future based on current velocity
-// This creates ANTICIPATION - the harmony shifts BEFORE you arrive
-// When prediction fails (direction change), it creates musical TENSION
-//
-// NEW: PREDICTIVE HARMONIC PULL
-// The system doesn't just predict WHERE you're going - it predicts
-// what HARMONY you're building toward and PULLS you there
-
-const PREDICTION = {
-    LOOKAHEAD_MS: 150,          // How far ahead we predict (ms) - increased for more anticipation
-    TENSION_DECAY: 0.92,        // How fast tension decays per frame
-    TENSION_THRESHOLD: 0.12,    // Prediction error above this = tension (more sensitive)
-    ERROR_SMOOTH: 0.25,         // Smoothing for error calculation
-    POSITION_SMOOTH: 0.7,       // Smoothing for predicted position (less smooth = more responsive)
-    // NEW: Harmonic Pull parameters
-    PULL_STRENGTH: 0.35,        // How strongly the system pulls toward harmony (0-1)
-    PULL_RAMP_TIME: 0.08,       // Seconds to ramp to new pull target
-    CONSONANCE_THRESHOLD: 0.6   // Minimum consonance to trigger strong pull
-};
-
-// Harmonic state - tracks the "home key" the user is establishing
-let harmonicState = {
-    root: BASE_FREQ,            // The root frequency of the user's harmonic center
-    rootConfidence: 0,          // How confident we are in the root (0-1)
-    targetPullFreq: null,       // The frequency we're pulling toward
-    pullAmount: 0,              // Current pull amount (0-1)
-    lastPullFreq: BASE_FREQ,    // For smooth transitions
-    consonanceScore: 0          // How harmonious is the current state
-};
-
-// Find the most likely root from existing layers
-function analyzeHarmonicCenter() {
-    if (layers.length === 0) {
-        harmonicState.root = BASE_FREQ;
-        harmonicState.rootConfidence = 0;
+function updateBass() {
+    const config = BASS_CONFIGS[dials.bass];
+    if (!config || config.type === 'none') {
+        bassGain.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.1);
         return;
     }
 
-    // The first layer is often the "home" - weight it heavily
-    // But also consider which frequency appears most as a consonant interval
-    let rootCandidates = {};
+    // Bass follows motion Y position (lower = lower pitch)
+    const baseFreq = 55; // A1
+    const octaveRange = 1.5;
+    const freq = baseFreq * Math.pow(2, (1 - field.y) * octaveRange + (config.octave || 0));
 
-    for (const layer of layers) {
-        // Each layer's frequency is a candidate
-        let normalizedFreq = layer.freq;
-        // Bring to base octave range
-        while (normalizedFreq > BASE_FREQ * 2) normalizedFreq /= 2;
-        while (normalizedFreq < BASE_FREQ) normalizedFreq *= 2;
+    bassOsc.type = config.type;
+    bassOsc.frequency.linearRampToValueAtTime(freq, ctx.currentTime + 0.05);
 
-        const key = Math.round(normalizedFreq);
-        rootCandidates[key] = (rootCandidates[key] || 0) + 1;
+    // Volume based on movement
+    const targetVol = field.energy > 0.02 ? 0.25 : 0.1;
+    bassGain.gain.linearRampToValueAtTime(targetVol, ctx.currentTime + 0.1);
 
-        // Also add fifths and octaves as potential roots
-        const fifth = normalizedFreq / 1.5;
-        const fifthNorm = fifth < BASE_FREQ ? fifth * 2 : fifth;
-        const fifthKey = Math.round(fifthNorm);
-        rootCandidates[fifthKey] = (rootCandidates[fifthKey] || 0) + 0.5;
-    }
-
-    // Find the most common root candidate
-    let bestRoot = BASE_FREQ;
-    let bestScore = 0;
-    for (const [freqStr, score] of Object.entries(rootCandidates)) {
-        if (score > bestScore) {
-            bestScore = score;
-            bestRoot = parseFloat(freqStr);
-        }
-    }
-
-    // Smoothly update root
-    harmonicState.root = harmonicState.root * 0.8 + bestRoot * 0.2;
-    harmonicState.rootConfidence = Math.min(1, layers.length / 3); // Full confidence at 3+ layers
+    // Filter
+    const filterFreq = config.filter || 400;
+    bassFilter.frequency.linearRampToValueAtTime(filterFreq + field.energy * 500, ctx.currentTime + 0.05);
 }
 
-// Calculate the best harmonic target given predicted position
-function calculateHarmonicTarget(predictedY) {
-    const rawPredictedFreq = tiltToFreq(predictedY);
+// ============ LAYERS (Motion-created sounds) ============
 
-    if (layers.length === 0) {
-        // No layers yet - just quantize to chromatic scale
-        return quantizeToHarmony(rawPredictedFreq, 0.3);
+const BASE_FREQ = 220;
+
+function createLayer() {
+    if (layers.length >= MAX_LAYERS) {
+        const old = layers.shift();
+        old.osc.stop();
     }
 
-    // Find the most consonant frequency near the predicted frequency
-    let bestFreq = rawPredictedFreq;
-    let bestConsonance = 0;
-
-    // Test frequencies in a range around the predicted frequency
-    const testRange = 0.25; // +/- 25% of predicted freq (about 4 semitones)
-    const steps = 12;
-
-    for (let i = 0; i <= steps; i++) {
-        const ratio = 1 - testRange + (testRange * 2 * i / steps);
-        const testFreq = rawPredictedFreq * ratio;
-
-        // Calculate consonance with existing layers
-        let totalConsonance = getHarmonicFit(testFreq);
-
-        // Bonus for being close to consonant intervals from root
-        const rootRatio = testFreq / harmonicState.root;
-        let normalizedRatio = rootRatio;
-        while (normalizedRatio > 2) normalizedRatio /= 2;
-        while (normalizedRatio < 1) normalizedRatio *= 2;
-
-        for (const interval of CONSONANT_RATIOS) {
-            const diff = Math.abs(normalizedRatio - interval.ratio);
-            if (diff < 0.02) {
-                totalConsonance += interval.consonance * 0.3;
-            }
-        }
-
-        // Slight preference for frequencies closer to the raw prediction
-        // (don't pull too far from user's intent)
-        const proximityBonus = (1 - Math.abs(ratio - 1) / testRange) * 0.2;
-        totalConsonance += proximityBonus;
-
-        if (totalConsonance > bestConsonance) {
-            bestConsonance = totalConsonance;
-            bestFreq = testFreq;
-        }
-    }
-
-    harmonicState.consonanceScore = bestConsonance;
-    return bestFreq;
-}
-
-function updatePrediction(dt) {
-    // Calculate how many frames ahead we're predicting
-    const framesAhead = (PREDICTION.LOOKAHEAD_MS / 1000) / dt;
-
-    // Raw predicted position based on velocity extrapolation
-    const rawPx = field.x + field.vx * framesAhead;
-    const rawPy = field.y + field.vy * framesAhead;
-
-    // Clamp to valid range [0, 1]
-    const clampedPx = Math.max(0, Math.min(1, rawPx));
-    const clampedPy = Math.max(0, Math.min(1, rawPy));
-
-    // Smooth the prediction to avoid jitter
-    field.px = field.px * PREDICTION.POSITION_SMOOTH + clampedPx * (1 - PREDICTION.POSITION_SMOOTH);
-    field.py = field.py * PREDICTION.POSITION_SMOOTH + clampedPy * (1 - PREDICTION.POSITION_SMOOTH);
-
-    // Calculate prediction error: how wrong was our LAST prediction?
-    // Compare where we predicted we'd be vs where we actually are
-    const errorX = Math.abs(field.lastPredictedX - field.x);
-    const errorY = Math.abs(field.lastPredictedY - field.y);
-    const rawError = Math.sqrt(errorX * errorX + errorY * errorY);
-
-    // Smooth the error
-    field.predictionError = field.predictionError * (1 - PREDICTION.ERROR_SMOOTH) + rawError * PREDICTION.ERROR_SMOOTH;
-
-    // Build tension when prediction is significantly wrong
-    if (field.predictionError > PREDICTION.TENSION_THRESHOLD) {
-        const tensionIncrease = (field.predictionError - PREDICTION.TENSION_THRESHOLD) * 0.5;
-        field.predictionTension = Math.min(1, field.predictionTension + tensionIncrease);
-    }
-
-    // Decay tension over time
-    field.predictionTension *= PREDICTION.TENSION_DECAY;
-
-    // Store current prediction for next frame's error calculation
-    field.lastPredictedX = field.px;
-    field.lastPredictedY = field.py;
-
-    // ============ PREDICTIVE HARMONIC PULL ============
-    // This is the magic: we analyze where the user is GOING and
-    // calculate the most HARMONIOUS destination, then PULL toward it
-
-    // Update our understanding of the harmonic center
-    analyzeHarmonicCenter();
-
-    // Calculate the harmonic target based on predicted position
-    const harmonicTarget = calculateHarmonicTarget(field.py);
-
-    // Update pull state
-    if (field.energy > 0.01 && layers.length > 0) {
-        // Actively moving with layers established - apply pull
-        harmonicState.targetPullFreq = harmonicTarget;
-
-        // Pull strength increases with:
-        // 1. Higher consonance score (we're confident in the target)
-        // 2. Lower prediction tension (movement is predictable)
-        // 3. More layers (more established harmony)
-        const consonanceBonus = Math.max(0, harmonicState.consonanceScore - 0.5) * 2;
-        const tensionPenalty = field.predictionTension * 0.5;
-        const layerBonus = Math.min(1, layers.length / 4) * 0.3;
-
-        const targetPull = Math.min(1, PREDICTION.PULL_STRENGTH * (1 + consonanceBonus + layerBonus - tensionPenalty));
-        harmonicState.pullAmount = harmonicState.pullAmount * 0.9 + targetPull * 0.1;
-    } else {
-        // Not moving or no layers - decay pull
-        harmonicState.pullAmount *= 0.95;
-        harmonicState.targetPullFreq = null;
-    }
-
-    // Smooth the last pull frequency for transitions
-    if (harmonicState.targetPullFreq) {
-        harmonicState.lastPullFreq = harmonicState.lastPullFreq * 0.85 + harmonicState.targetPullFreq * 0.15;
-    }
-
-    // Update orb's predicted frequency (now includes harmonic pull!)
-    const rawPredictedFreq = tiltToFreq(field.py);
-    if (harmonicState.targetPullFreq && harmonicState.pullAmount > 0.1) {
-        // Blend between raw prediction and harmonic target
-        field.orb.predictedFreq = rawPredictedFreq * (1 - harmonicState.pullAmount) +
-                                   harmonicState.targetPullFreq * harmonicState.pullAmount;
-    } else {
-        field.orb.predictedFreq = rawPredictedFreq;
-    }
-}
-
-// ============ THE SINGLE VOICE ============
-// Before recording, there is ONE voice that follows your tilt
-// It's delicate, pure, singular
-
-function createActiveVoice() {
-    if (activeVoice) return; // Already exists
+    // Frequency from Y position
+    const octaves = 2;
+    const freq = BASE_FREQ * Math.pow(2, (1 - field.y) * octaves);
 
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     const filter = ctx.createBiquadFilter();
 
-    // Pure, delicate sine wave
-    osc.type = 'sine';
-    osc.frequency.value = BASE_FREQ * 2;
+    // Vary timbre by layer count
+    const types = ['sine', 'triangle', 'sine', 'triangle', 'sine', 'sine'];
+    osc.type = types[layers.length % types.length];
+    osc.frequency.value = freq;
 
     filter.type = 'lowpass';
     filter.frequency.value = 2000;
     filter.Q.value = 1;
 
-    // Start SILENT - only sound when moving
-    gain.gain.value = 0;
+    // Volume decreases with each layer
+    const vol = 0.08 * Math.pow(0.7, layers.length);
+    gain.gain.value = vol;
 
     osc.connect(filter);
     filter.connect(gain);
-    gain.connect(master);
-    gain.connect(verb.input);
+    gain.connect(vibeChain.input);
 
     osc.start();
 
-    activeVoice = { osc, gain, filter, envelope: 0 };
-}
-
-function updateActiveVoice() {
-    if (!activeVoice || !ctx) return;
-
-    const now = ctx.currentTime;
-
-    // Get raw frequency from tilt
-    const rawFreq = tiltToFreq(field.y);
-
-    // ============ HARMONIC PULL: The Magic ============
-    // The system PREDICTS the most harmonious destination and PULLS you there
-    // This is what makes the user say "it knew where I was going"
-
-    let freq;
-
-    if (harmonicState.pullAmount > 0.1 && harmonicState.targetPullFreq) {
-        // PULL toward the harmonious target
-        // The stronger the pull, the more the sound bends toward consonance
-        const pullStrength = harmonicState.pullAmount;
-
-        // Blend between raw frequency and the predicted harmonic target
-        freq = rawFreq * (1 - pullStrength * 0.6) + harmonicState.lastPullFreq * (pullStrength * 0.6);
-
-        // Also apply standard quantization (less strongly when pull is active)
-        const quantizeStrength = Math.max(0, 0.3 - pullStrength * 0.2);
-        freq = quantizeToHarmony(freq, quantizeStrength);
-    } else {
-        // No pull active - use standard quantization
-        const predictionConfidence = 1 - field.predictionTension;
-        const quantizeStrength = Math.min(0.8, layers.length * 0.2) * (0.5 + predictionConfidence * 0.5);
-        freq = quantizeToHarmony(rawFreq, quantizeStrength);
-    }
-
-    // Update orb frequency (this is what gets recorded when orb hits center)
-    field.orb.freq = freq;
-
-    // TENSION EFFECT: Add pitch instability when prediction is wrong
-    // This makes direction changes sound "surprising" / "tense"
-    const tensionWobble = Math.sin(field.time * 30) * field.predictionTension * 0.02;
-
-    // HARMONIC PULL EFFECT: Add subtle shimmer when being pulled toward harmony
-    // This creates a "magnetic" feel - the note wants to go somewhere
-    const pullShimmer = harmonicState.pullAmount > 0.2 ?
-        Math.sin(field.time * 8) * harmonicState.pullAmount * 0.008 : 0;
-
-    const finalFreq = freq * (1 + tensionWobble + pullShimmer);
-
-    // Smooth frequency transition
-    activeVoice.osc.frequency.linearRampToValueAtTime(finalFreq, now + 0.05);
-
-    // Volume based on movement - stillness = silence, movement = sound
-    const targetEnv = Math.min(1, field.energy * 8);
-    activeVoice.envelope += (targetEnv - activeVoice.envelope) * 0.1;
-
-    // TENSION EFFECT: Slightly louder when prediction fails (urgency)
-    const tensionVolume = 1 + field.predictionTension * 0.3;
-
-    // PULL EFFECT: Slightly louder when being pulled (significance)
-    const pullVolume = 1 + harmonicState.pullAmount * 0.15;
-
-    // Delicate volume - QUIET but audible
-    const baseVolume = 0.09; // Slightly increased for better audibility
-    const volume = baseVolume * activeVoice.envelope * tensionVolume * pullVolume;
-    activeVoice.gain.gain.linearRampToValueAtTime(volume, now + 0.03);
-
-    // Filter opens slightly with movement
-    // TENSION EFFECT: Filter opens more when prediction fails (brighter, more urgent)
-    const tensionFilter = field.predictionTension * 1500;
-
-    // PULL EFFECT: Filter opens more when being pulled toward harmony (warmth)
-    const pullFilter = harmonicState.pullAmount * 800;
-
-    const filterFreq = 800 + field.energy * 2000 + tensionFilter + pullFilter;
-    activeVoice.filter.frequency.linearRampToValueAtTime(filterFreq, now + 0.05);
-}
-
-// ============ THE ORB ============
-// Visual representation of the sound
-// When orb crosses center, that note gets RECORDED as a layer
-
-function updateOrb(dt) {
-    if (!field.orb.active) {
-        // Spawn orb when there's enough movement
-        if (field.energy > 0.02) {
-            field.orb.active = true;
-            field.orb.x = field.x;
-            field.orb.y = field.y;
-            field.orb.startTime = field.time;
-            field.orb.velocity = 0.2 + field.energy * 0.5;
-        }
-        return;
-    }
-
-    // Orb moves toward center
-    const dx = 0.5 - field.orb.x;
-    const dy = 0.5 - field.orb.y;
-    const dist = Math.sqrt(dx * dx + dy * dy);
-
-    if (dist > 0.01) {
-        const moveAmount = field.orb.velocity * dt;
-        field.orb.x += (dx / dist) * moveAmount;
-        field.orb.y += (dy / dist) * moveAmount;
-    }
-
-    // Update orb frequency based on current tilt
-    field.orb.freq = tiltToFreq(field.y);
-
-    // Check if orb crossed center
-    if (dist < 0.03) {
-        recordLayer();
-        field.orb.active = false;
-    }
-
-    // Orb fades if no movement for too long
-    if (field.energy < 0.01 && field.time - field.orb.startTime > 2) {
-        field.orb.active = false;
-    }
-}
-
-// ============ LAYER RECORDING ============
-// When orb crosses center, record the current pitch as a new layer
-
-function recordLayer() {
-    if (layers.length >= MAX_LAYERS) {
-        // Remove oldest layer to make room
-        const oldLayer = layers.shift();
-        oldLayer.osc.stop();
-    }
-
-    // ============ PREDICTIVE HARMONIC RECORDING ============
-    // The system uses its prediction to record the MOST HARMONIOUS frequency
-    // This is the payoff: "It knew what note I wanted"
-
-    const currentFreq = field.orb.freq;
-    const predictedFreq = field.orb.predictedFreq;
-    const harmonicTarget = harmonicState.targetPullFreq || predictedFreq;
-
-    // Calculate how confident we are in prediction
-    const predictionConfidence = 1 - field.predictionTension;
-
-    // Calculate blend factors:
-    // 1. If we were actively being pulled toward a harmonic target, use that
-    // 2. Otherwise blend current with predicted based on confidence
-    let blendedFreq;
-
-    if (harmonicState.pullAmount > 0.2 && harmonicTarget) {
-        // Strong pull was active - the user was being guided
-        // Trust the harmonic target more heavily
-        const pullBlend = Math.min(0.6, harmonicState.pullAmount * 0.8);
-        blendedFreq = currentFreq * (1 - pullBlend) + harmonicTarget * pullBlend;
-
-        console.log(`Recording with harmonic pull: ${currentFreq.toFixed(1)}Hz → ${blendedFreq.toFixed(1)}Hz (${(pullBlend * 100).toFixed(0)}% pull)`);
-    } else {
-        // No strong pull - use prediction blending
-        blendedFreq = currentFreq * (1 - predictionConfidence * 0.3) + predictedFreq * (predictionConfidence * 0.3);
-    }
-
-    // Apply strong harmonic quantization to the recorded frequency
-    // More layers = stronger quantization (we have more context)
-    const baseQuantize = 0.4 + layers.length * 0.1;
-    const confidenceBonus = predictionConfidence * 0.2;
-    const quantizeStrength = Math.min(0.9, baseQuantize + confidenceBonus);
-    const freq = quantizeToHarmony(blendedFreq, quantizeStrength);
-
-    const now = ctx.currentTime;
-
-    // Calculate loop length based on tempo of orb travel
-    // Faster orb = shorter loop
-    const travelTime = field.time - field.orb.startTime;
-    const loopLength = Math.max(0.5, Math.min(4, travelTime * 2));
-
-    // Create layer audio
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    const filter = ctx.createBiquadFilter();
-
-    // Vary timbre based on layer number
-    const layerNum = layers.length;
-    if (layerNum === 0) {
-        osc.type = 'sine'; // First layer: pure sine
-    } else if (layerNum === 1) {
-        osc.type = 'triangle'; // Second: triangle
-    } else {
-        osc.type = 'sine'; // Rest: sine with slight detune for warmth
-    }
-
-    osc.frequency.value = freq;
-
-    filter.type = 'lowpass';
-    filter.frequency.value = 1500 + (1 - layerNum / MAX_LAYERS) * 2000;
-    filter.Q.value = 0.5;
-
-    // Volume decreases with each layer (prevent clashing)
-    const baseVolume = 0.12;
-    const volumeScale = Math.pow(0.75, layerNum); // Each layer is 75% of previous
-    gain.gain.value = baseVolume * volumeScale;
-
-    osc.connect(filter);
-    filter.connect(gain);
-    gain.connect(master);
-    gain.connect(verb.input);
-
-    osc.start();
-
-    const layer = {
-        id: Date.now(),
-        freq,
-        loopLength,
-        osc,
-        gain,
-        filter,
-        volume: baseVolume * volumeScale,
+    layers.push({
+        osc, gain, filter,
+        freq, vol,
         phase: 0,
+        loopLength: 1 + Math.random() * 2,
         birthTime: field.time
-    };
-
-    layers.push(layer);
-
-    // Console feedback for debugging
-    console.log(`Layer ${layers.length}: ${freq.toFixed(1)} Hz, loop: ${loopLength.toFixed(2)}s, fit: ${getHarmonicFit(freq).toFixed(2)}`);
+    });
 }
-
-// ============ LAYER PLAYBACK ============
-// Each layer loops with its own timing
-// Creates polyrhythmic interweaving
 
 function updateLayers(dt) {
     const now = ctx.currentTime;
 
     for (const layer of layers) {
-        // Update phase (0-1 within loop)
         layer.phase += dt / layer.loopLength;
         if (layer.phase >= 1) layer.phase -= 1;
 
-        // Envelope: note plays at start of loop, then decays
-        // Creates rhythmic pulsing
-        const envelope = Math.exp(-layer.phase * 4); // Exponential decay
-        const sustainedEnvelope = 0.3 + envelope * 0.7; // Never fully silent
+        // Pulsing envelope
+        const env = 0.4 + 0.6 * Math.exp(-layer.phase * 3);
+        layer.gain.gain.linearRampToValueAtTime(layer.vol * env, now + 0.02);
 
-        // Apply envelope to volume
-        const targetGain = layer.volume * sustainedEnvelope;
-        layer.gain.gain.linearRampToValueAtTime(targetGain, now + 0.02);
-
-        // Subtle pitch drift for organic feel
-        const drift = Math.sin(field.time * 0.5 + layer.id) * 0.002;
-        layer.osc.frequency.linearRampToValueAtTime(layer.freq * (1 + drift), now + 0.1);
+        // Subtle pitch drift
+        const drift = Math.sin(field.time * 0.3 + layer.birthTime) * 0.003;
+        layer.osc.frequency.linearRampToValueAtTime(layer.freq * (1 + drift), now + 0.05);
     }
 }
 
-// ============ REVERB ============
+// Orb system for layer creation
+let orb = { active: false, x: 0.5, y: 0.5, velocity: 0 };
 
-function createVerb() {
+function updateOrb(dt) {
+    if (!orb.active) {
+        if (field.energy > 0.03) {
+            orb.active = true;
+            orb.x = field.x;
+            orb.y = field.y;
+            orb.velocity = 0.3 + field.energy;
+        }
+        return;
+    }
+
+    // Move toward center
+    const dx = 0.5 - orb.x;
+    const dy = 0.5 - orb.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+
+    if (dist > 0.02) {
+        orb.x += (dx / dist) * orb.velocity * dt;
+        orb.y += (dy / dist) * orb.velocity * dt;
+    }
+
+    // Create layer when reaching center
+    if (dist < 0.04) {
+        createLayer();
+        orb.active = false;
+    }
+
+    // Fade if no movement
+    if (field.energy < 0.01) {
+        orb.active = false;
+    }
+}
+
+// ============ VIBE CHAIN ============
+
+function createVibeChain() {
     const input = ctx.createGain();
     const output = ctx.createGain();
-    output.gain.value = 0.25; // Gentle reverb
 
-    const times = [0.03, 0.07, 0.12, 0.19, 0.31, 0.5, 0.81, 1.3, 2.1];
+    // Low-pass filter
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.value = 20000;
+
+    // Distortion (waveshaper)
+    const distortion = ctx.createWaveShaper();
+    const distCurve = new Float32Array(256);
+    for (let i = 0; i < 256; i++) {
+        const x = (i / 128) - 1;
+        distCurve[i] = Math.tanh(x);
+    }
+    distortion.curve = distCurve;
+
+    // Simple reverb
+    const reverbGain = ctx.createGain();
+    reverbGain.gain.value = 0.2;
+
+    const delays = [];
+    const times = [0.03, 0.07, 0.11, 0.17, 0.25, 0.37, 0.5, 0.8];
     times.forEach((t, i) => {
-        const d = ctx.createDelay(4);
-        d.delayTime.value = t + Math.random() * 0.02;
+        const d = ctx.createDelay(2);
+        d.delayTime.value = t;
         const g = ctx.createGain();
-        g.gain.value = 0.3 * Math.pow(0.75, i);
+        g.gain.value = 0.2 * Math.pow(0.7, i);
         const f = ctx.createBiquadFilter();
         f.type = 'lowpass';
-        f.frequency.value = 4000 - i * 350;
+        f.frequency.value = 3000 - i * 300;
         input.connect(d);
         d.connect(f);
         f.connect(g);
-        g.connect(output);
-        if (i > 4) {
-            const fb = ctx.createGain();
-            fb.gain.value = 0.15;
-            g.connect(fb);
-            fb.connect(input);
-        }
+        g.connect(reverbGain);
+        delays.push({ delay: d, gain: g, filter: f });
     });
 
-    return { input, output };
+    input.connect(filter);
+    filter.connect(distortion);
+    distortion.connect(output);
+    reverbGain.connect(output);
+
+    return {
+        input, output, filter, distortion, reverbGain, delays,
+        update(config) {
+            const now = ctx.currentTime;
+            filter.frequency.linearRampToValueAtTime(config.filterFreq, now + 0.1);
+            reverbGain.gain.linearRampToValueAtTime(config.reverbMix, now + 0.1);
+
+            // Update distortion curve based on amount
+            const amount = 1 + config.distortion * 10;
+            for (let i = 0; i < 256; i++) {
+                const x = (i / 128) - 1;
+                distCurve[i] = Math.tanh(x * amount) / Math.tanh(amount);
+            }
+            distortion.curve = distCurve;
+        }
+    };
 }
 
-// ============ DELAY ============
-
-function createDelay() {
-    const input = ctx.createGain();
-    const output = ctx.createGain();
-    output.gain.value = 0.15;
-
-    const delayL = ctx.createDelay(2);
-    const delayR = ctx.createDelay(2);
-    delayL.delayTime.value = 0.375;
-    delayR.delayTime.value = 0.5;
-
-    const fbL = ctx.createGain();
-    const fbR = ctx.createGain();
-    fbL.gain.value = 0.25;
-    fbR.gain.value = 0.2;
-
-    const filterL = ctx.createBiquadFilter();
-    const filterR = ctx.createBiquadFilter();
-    filterL.type = filterR.type = 'lowpass';
-    filterL.frequency.value = filterR.frequency.value = 2000;
-
-    const panL = ctx.createStereoPanner();
-    const panR = ctx.createStereoPanner();
-    panL.pan.value = -0.7;
-    panR.pan.value = 0.7;
-
-    input.connect(delayL);
-    delayL.connect(filterL);
-    filterL.connect(fbL);
-    fbL.connect(delayR);
-    delayR.connect(filterR);
-    filterR.connect(fbR);
-    fbR.connect(delayL);
-
-    filterL.connect(panL);
-    filterR.connect(panR);
-    panL.connect(output);
-    panR.connect(output);
-
-    return { input, output };
+function updateVibe() {
+    const config = VIBE_CONFIGS[dials.vibe];
+    vibeChain.update(config);
 }
 
 // ============ INIT ============
@@ -752,31 +607,52 @@ function createDelay() {
 function init() {
     ctx = new (window.AudioContext || window.webkitAudioContext)();
 
-    master = ctx.createGain();
-    master.gain.value = 0.8;
-
-    // Light compression for safety
-    const comp = ctx.createDynamicsCompressor();
+    // Master chain
+    comp = ctx.createDynamicsCompressor();
     comp.threshold.value = -12;
     comp.ratio.value = 4;
     comp.attack.value = 0.003;
-    comp.release.value = 0.25;
+    comp.release.value = 0.15;
 
-    verb = createVerb();
-    dly = createDelay();
+    master = ctx.createGain();
+    master.gain.value = 0.8;
 
-    master.connect(comp);
-    comp.connect(ctx.destination);
-    verb.output.connect(master);
-    dly.output.connect(master);
+    vibeChain = createVibeChain();
 
-    // Create the single active voice
-    createActiveVoice();
+    vibeChain.output.connect(comp);
+    comp.connect(master);
+    master.connect(ctx.destination);
 
+    initBass();
+
+    // Canvas
     canvas = document.getElementById('c');
     vc = canvas.getContext('2d');
     resize();
     window.addEventListener('resize', resize);
+
+    // Dial interactions
+    document.querySelectorAll('.dial-option').forEach(opt => {
+        opt.addEventListener('click', () => {
+            const dial = opt.closest('.dial');
+            const dialId = dial.id.replace('-dial', '');
+
+            // Deselect siblings
+            dial.querySelectorAll('.dial-option').forEach(o => o.classList.remove('active'));
+            opt.classList.add('active');
+
+            // Update state
+            dials[dialId] = opt.dataset.value;
+
+            // Reset beat tracking when changing beats
+            if (dialId === 'beats') {
+                beatTime = 0;
+                lastTriggers = {};
+            }
+
+            updateVibe();
+        });
+    });
 }
 
 // ============ INPUT ============
@@ -791,7 +667,7 @@ function onMove(nx, ny) {
     field.y = field.y * 0.7 + ny * 0.3;
 
     const speed = Math.sqrt(field.vx * field.vx + field.vy * field.vy);
-    field.energy = field.energy * 0.9 + speed * 0.5;
+    field.energy = field.energy * 0.85 + speed * 0.5;
 }
 
 function onMotion(e) {
@@ -807,7 +683,7 @@ function onMotion(e) {
     field.x = Math.max(0, Math.min(1, field.x + field.vx * 0.1));
     field.y = Math.max(0, Math.min(1, field.y - field.vy * 0.1));
 
-    field.energy = field.energy * 0.9 + Math.sqrt(rawAx * rawAx + rawAy * rawAy) * 0.3;
+    field.energy = field.energy * 0.85 + Math.sqrt(rawAx * rawAx + rawAy * rawAy) * 0.4;
 }
 
 function onOrientation(e) {
@@ -816,7 +692,7 @@ function onOrientation(e) {
     onMove((gx + 1) / 2, (1 - gy) / 2);
 }
 
-// ============ VISUALIZATION ============
+// ============ VISUALS ============
 
 function resize() {
     const dpr = window.devicePixelRatio || 1;
@@ -834,258 +710,79 @@ function draw() {
     const w = window.innerWidth;
     const h = window.innerHeight;
 
-    // Dark fade
-    vc.fillStyle = 'rgba(0, 0, 0, 0.08)';
+    // Fade
+    vc.fillStyle = 'rgba(10, 10, 10, 0.1)';
     vc.fillRect(0, 0, w, h);
 
-    // Center crosshair (subtle target for orb)
-    const centerAlpha = 0.1 + (field.orb.active ? 0.15 : 0);
+    // Center target
+    const centerAlpha = 0.05 + (orb.active ? 0.1 : 0);
     vc.strokeStyle = `rgba(255, 255, 255, ${centerAlpha})`;
     vc.lineWidth = 1;
     vc.beginPath();
-    vc.moveTo(w / 2 - 20, h / 2);
-    vc.lineTo(w / 2 + 20, h / 2);
-    vc.moveTo(w / 2, h / 2 - 20);
-    vc.lineTo(w / 2, h / 2 + 20);
+    vc.arc(w / 2, h / 2, 30, 0, TAU);
     vc.stroke();
 
-    // Draw layers as concentric rings at center
+    // Layers as rings
     for (let i = 0; i < layers.length; i++) {
         const layer = layers[i];
         const pulse = Math.exp(-layer.phase * 3);
-        const radius = 30 + i * 25 + pulse * 15;
-        const alpha = 0.15 + pulse * 0.25;
+        const radius = 40 + i * 30 + pulse * 20;
+        const alpha = 0.1 + pulse * 0.2;
 
-        // Color based on frequency (higher = bluer, lower = warmer)
-        const freqRatio = Math.log2(layer.freq / BASE_FREQ);
-        const hue = 200 + freqRatio * 30; // Blue-ish range
+        const hue = 200 + (layer.freq / BASE_FREQ) * 40;
 
         vc.beginPath();
         vc.arc(w / 2, h / 2, radius, 0, TAU);
-        vc.strokeStyle = `hsla(${hue}, 50%, 60%, ${alpha})`;
-        vc.lineWidth = 2 + pulse * 3;
+        vc.strokeStyle = `hsla(${hue}, 40%, 60%, ${alpha})`;
+        vc.lineWidth = 1 + pulse * 2;
         vc.stroke();
     }
 
-    // Draw the orb (if active)
-    if (field.orb.active) {
-        const ox = field.orb.x * w;
-        const oy = field.orb.y * h;
-        const orbRadius = 8 + field.energy * 15;
+    // Orb
+    if (orb.active) {
+        const ox = orb.x * w;
+        const oy = orb.y * h;
+        const r = 10 + field.energy * 15;
 
-        // Frequency-based color
-        const freqRatio = Math.log2(field.orb.freq / BASE_FREQ);
-        const hue = 200 + freqRatio * 30;
-
-        // Orb glow
-        const grad = vc.createRadialGradient(ox, oy, 0, ox, oy, orbRadius * 2);
-        grad.addColorStop(0, `hsla(${hue}, 70%, 80%, 0.9)`);
-        grad.addColorStop(0.5, `hsla(${hue}, 60%, 60%, 0.4)`);
+        const grad = vc.createRadialGradient(ox, oy, 0, ox, oy, r * 2);
+        grad.addColorStop(0, 'rgba(255, 255, 255, 0.8)');
+        grad.addColorStop(0.5, 'rgba(200, 220, 255, 0.3)');
         grad.addColorStop(1, 'transparent');
 
         vc.fillStyle = grad;
         vc.beginPath();
-        vc.arc(ox, oy, orbRadius * 2, 0, TAU);
+        vc.arc(ox, oy, r * 2, 0, TAU);
         vc.fill();
 
-        // Core
-        vc.fillStyle = `hsla(${hue}, 80%, 90%, 1)`;
-        vc.beginPath();
-        vc.arc(ox, oy, orbRadius * 0.5, 0, TAU);
-        vc.fill();
-
-        // Trail toward center
-        vc.strokeStyle = `hsla(${hue}, 50%, 60%, 0.3)`;
-        vc.lineWidth = 1;
+        // Trail to center
+        vc.strokeStyle = 'rgba(255, 255, 255, 0.1)';
         vc.beginPath();
         vc.moveTo(ox, oy);
         vc.lineTo(w / 2, h / 2);
         vc.stroke();
     }
 
-    // PREDICTION GHOST: Show where the system thinks you're going
-    // Only visible when moving and prediction differs from current position
-    const predictionDist = Math.sqrt(
-        Math.pow(field.px - field.x, 2) + Math.pow(field.py - field.y, 2)
-    );
-
-    if (predictionDist > 0.02 && field.energy > 0.02) {
-        const predX = field.px * w;
-        const predY = field.py * h;
-        const predRadius = 8 + field.energy * 10;
-
-        // Line from current to predicted
-        vc.strokeStyle = `rgba(100, 180, 255, ${0.2 + field.energy * 0.3})`;
-        vc.lineWidth = 1;
-        vc.setLineDash([4, 4]);
-        vc.beginPath();
-        vc.moveTo(field.x * w, field.y * h);
-        vc.lineTo(predX, predY);
-        vc.stroke();
-        vc.setLineDash([]);
-
-        // Prediction ghost dot
-        const ghostGrad = vc.createRadialGradient(predX, predY, 0, predX, predY, predRadius);
-        ghostGrad.addColorStop(0, `rgba(100, 180, 255, ${0.3 + field.energy * 0.4})`);
-        ghostGrad.addColorStop(0.5, `rgba(100, 180, 255, ${0.1})`);
-        ghostGrad.addColorStop(1, 'transparent');
-
-        vc.fillStyle = ghostGrad;
-        vc.beginPath();
-        vc.arc(predX, predY, predRadius, 0, TAU);
-        vc.fill();
-    }
-
-    // TENSION RING: Red flash when prediction is wrong (direction change)
-    if (field.predictionTension > 0.1) {
-        const cx = field.x * w;
-        const cy = field.y * h;
-        const tensionRadius = 30 + field.predictionTension * 40;
-        const tensionAlpha = field.predictionTension * 0.4;
-
-        vc.strokeStyle = `rgba(255, 100, 100, ${tensionAlpha})`;
-        vc.lineWidth = 2;
-        vc.beginPath();
-        vc.arc(cx, cy, tensionRadius, 0, TAU);
-        vc.stroke();
-    }
-
-    // Cursor (follows tilt)
+    // Cursor
     const cx = field.x * w;
     const cy = field.y * h;
-    const cursorRadius = 5 + field.energy * 20;
+    const cr = 4 + field.energy * 20;
 
-    const cursorGrad = vc.createRadialGradient(cx, cy, 0, cx, cy, cursorRadius);
-    cursorGrad.addColorStop(0, `rgba(255, 255, 255, ${0.3 + field.energy * 0.5})`);
-    cursorGrad.addColorStop(1, 'transparent');
-
-    vc.fillStyle = cursorGrad;
+    vc.fillStyle = `rgba(255, 255, 255, ${0.2 + field.energy * 0.4})`;
     vc.beginPath();
-    vc.arc(cx, cy, cursorRadius, 0, TAU);
+    vc.arc(cx, cy, cr, 0, TAU);
     vc.fill();
 
-    // Layer count
-    if (layers.length > 0) {
-        vc.fillStyle = 'rgba(255, 255, 255, 0.3)';
-        vc.font = '10px system-ui';
-        vc.textAlign = 'left';
-        vc.fillText(`${layers.length} layer${layers.length > 1 ? 's' : ''}`, 20, 25);
+    // Beat pulse indicator
+    const config = BEAT_CONFIGS[dials.beats];
+    if (config && config.bpm > 0) {
+        const beatPulse = 1 - (beatTime % (60 / config.bpm)) / (60 / config.bpm);
+        const pulseAlpha = beatPulse * 0.15;
+        vc.strokeStyle = `rgba(255, 255, 255, ${pulseAlpha})`;
+        vc.lineWidth = 2;
+        vc.beginPath();
+        vc.arc(w / 2, h / 2, 25 + beatPulse * 10, 0, TAU);
+        vc.stroke();
     }
-
-    // Current pitch indicator
-    const freqRatio = Math.log2(field.orb.freq / BASE_FREQ);
-    const noteName = getNoteName(field.orb.freq);
-    vc.fillStyle = `rgba(255, 255, 255, ${0.1 + field.energy * 0.3})`;
-    vc.font = '12px system-ui';
-    vc.textAlign = 'center';
-    vc.fillText(noteName, w / 2, h - 30);
-
-    // Harmonic fit indicator (when moving)
-    if (field.energy > 0.02 && layers.length > 0) {
-        const fit = getHarmonicFit(field.orb.freq);
-        const fitColor = fit > 0.7 ? '120, 255, 150' : fit > 0.5 ? '255, 220, 100' : '255, 100, 100';
-        vc.fillStyle = `rgba(${fitColor}, ${0.3 + fit * 0.4})`;
-        vc.font = '9px system-ui';
-        vc.fillText(fit > 0.7 ? 'consonant' : fit > 0.5 ? 'tension' : 'dissonant', w / 2, h - 15);
-    }
-
-    // PREDICTION indicator (top right)
-    if (field.energy > 0.01) {
-        const predictionConfidence = 1 - field.predictionTension;
-        const confColor = predictionConfidence > 0.7 ? '100, 180, 255' : predictionConfidence > 0.4 ? '255, 180, 100' : '255, 100, 100';
-        vc.fillStyle = `rgba(${confColor}, ${0.3 + field.energy * 0.3})`;
-        vc.font = '9px system-ui';
-        vc.textAlign = 'right';
-
-        if (field.predictionTension > 0.3) {
-            vc.fillText('surprise!', w - 20, 25);
-        } else if (predictionConfidence > 0.7 && field.energy > 0.05) {
-            vc.fillText('predicting...', w - 20, 25);
-        }
-        vc.textAlign = 'center'; // Reset
-    }
-
-    // ============ HARMONIC PULL VISUALIZATION ============
-    // Shows when the system is pulling the user toward a harmonious pitch
-
-    if (harmonicState.pullAmount > 0.15 && harmonicState.targetPullFreq && field.energy > 0.02) {
-        // Calculate where the harmonic target is in screen space
-        // Convert frequency to Y position (inverse of tiltToFreq)
-        const targetRatio = Math.log2(harmonicState.targetPullFreq / BASE_FREQ) / 3;
-        const targetY = (1 - targetRatio) * h;
-
-        // Current cursor position
-        const cx = field.x * w;
-        const cy = field.y * h;
-
-        // Draw a "magnetic field line" from cursor toward harmonic target
-        const pullStrength = harmonicState.pullAmount;
-
-        // Green glow around cursor when being pulled toward consonance
-        if (harmonicState.consonanceScore > 0.6) {
-            const consonanceGlow = vc.createRadialGradient(cx, cy, 0, cx, cy, 50 * pullStrength);
-            consonanceGlow.addColorStop(0, `rgba(100, 255, 150, ${0.2 * pullStrength})`);
-            consonanceGlow.addColorStop(1, 'transparent');
-            vc.fillStyle = consonanceGlow;
-            vc.beginPath();
-            vc.arc(cx, cy, 50 * pullStrength, 0, TAU);
-            vc.fill();
-        }
-
-        // Dashed line showing the pull direction
-        const pullLineAlpha = 0.15 + pullStrength * 0.3;
-        const pullDist = Math.abs(targetY - cy);
-
-        // Only show if there's meaningful distance to the target
-        if (pullDist > 20) {
-            // Draw subtle curve toward target
-            vc.strokeStyle = `rgba(100, 255, 150, ${pullLineAlpha})`;
-            vc.lineWidth = 1;
-            vc.setLineDash([3, 6]);
-            vc.beginPath();
-            vc.moveTo(cx, cy);
-
-            // Curve toward the harmonic target
-            const midY = (cy + targetY) / 2;
-            vc.quadraticCurveTo(cx + 30 * pullStrength, midY, cx, targetY);
-            vc.stroke();
-            vc.setLineDash([]);
-
-            // Small circle at target pitch
-            vc.strokeStyle = `rgba(100, 255, 150, ${pullLineAlpha * 0.6})`;
-            vc.beginPath();
-            vc.arc(cx, targetY, 6, 0, TAU);
-            vc.stroke();
-        }
-
-        // Show "pulling toward harmony" text when strong pull
-        if (pullStrength > 0.4 && harmonicState.consonanceScore > 0.7) {
-            vc.fillStyle = `rgba(100, 255, 150, ${0.3 + pullStrength * 0.3})`;
-            vc.font = '8px system-ui';
-            vc.textAlign = 'left';
-            vc.fillText('→ harmony', 20, h - 20);
-            vc.textAlign = 'center';
-        }
-    }
-
-    // Show harmonic root indicator when established
-    if (harmonicState.rootConfidence > 0.5 && layers.length >= 2) {
-        const rootNote = getNoteName(harmonicState.root);
-        vc.fillStyle = `rgba(255, 255, 255, ${0.15 + harmonicState.rootConfidence * 0.15})`;
-        vc.font = '9px system-ui';
-        vc.textAlign = 'left';
-        vc.fillText(`key: ${rootNote}`, 20, 40);
-        vc.textAlign = 'center';
-    }
-}
-
-// Convert frequency to note name (approximate)
-function getNoteName(freq) {
-    const noteNames = ['A', 'A#', 'B', 'C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#'];
-    const semitones = Math.round(12 * Math.log2(freq / 110)); // A2 = 110Hz
-    const noteIndex = ((semitones % 12) + 12) % 12;
-    const octave = Math.floor(semitones / 12) + 2;
-    return noteNames[noteIndex] + octave;
 }
 
 // ============ LOOP ============
@@ -1093,22 +790,15 @@ function getNoteName(freq) {
 function tick() {
     if (!running) return;
 
-    const dt = 0.016; // ~60fps
+    const dt = 0.016;
     field.time += dt;
 
-    // Update PREDICTION first - this informs everything else
-    updatePrediction(dt);
-
-    // Update orb physics
+    updateBeats(dt);
+    updateBass();
     updateOrb(dt);
-
-    // Update active voice (follows tilt, affected by prediction tension)
-    updateActiveVoice();
-
-    // Update recorded layers
     updateLayers(dt);
+    updateVibe();
 
-    // Draw
     draw();
 
     requestAnimationFrame(tick);
@@ -1118,6 +808,7 @@ function tick() {
 
 async function start() {
     document.getElementById('enter').classList.add('off');
+    document.getElementById('dials').style.display = 'block';
 
     if (typeof DeviceMotionEvent !== 'undefined' &&
         typeof DeviceMotionEvent.requestPermission === 'function') {
@@ -1150,6 +841,8 @@ async function start() {
     }, { passive: false });
 
     if (ctx.state === 'suspended') await ctx.resume();
+
+    updateVibe();
 
     running = true;
     tick();
