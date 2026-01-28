@@ -4,22 +4,73 @@
 
 ---
 
-## 🚨 SESSION 19 WAS REVERTED - APP FROZE 🚨
+## 🎛️ NEW VISION: THE DIAL SYSTEM 🎛️
 
-The "Beat Grid" implementation broke the app (froze on load). Reverted to working state.
+**User's idea - this is the new direction:**
 
-**DO NOT:**
-- Add 500+ lines in one commit
-- Push without testing
-- Overcomplicate the beat system
+### THE INTERFACE
+A **horizontal wheel/dial** on screen that you slide. Multiple dials for different musical elements.
 
-**The current working version has:**
-- Emergent delicacy philosophy
-- Layers that build one by one
-- Harmonic probability
-- NO beat grid (that's fine for now)
+### THE DIALS
 
-Keep it simple. Test before pushing.
+**1. BEATS DIAL**
+Options: "emo rock" | "trap hiphop" | "death metal" | "jazz" | etc.
+
+**2. BASS DIAL**
+Options: Same genre categories
+
+**3. GUITAR DIAL**
+Options: Same genre categories
+
+**4. MASTER VIBE DIAL**
+Options: "lo-fi" | "Quincy Jones polished" | "amateur bandcamp" | "regular"
+
+### THE KEY CHANGE: REAL SAMPLES, NOT SYNTHESIS
+
+**NO MORE computer-generated sounds.**
+
+Instead:
+- Preloaded audio samples for each genre/element
+- Motion TRIGGERS and MANIPULATES the samples
+- The dials change WHICH samples are active
+- Eventually: microphone input creates new "seeds"
+
+### HOW IT WORKS
+
+1. User selects genres via dials (e.g., "trap hiphop" beats + "jazz" bass + "lo-fi" vibe)
+2. Motion creates the music (same as now)
+3. But instead of oscillators, motion triggers/controls REAL audio loops
+4. The combination of dial settings + motion = unique music
+
+### RESEARCH FIRST
+
+Before building, the team needs to research:
+- Existing apps that do this (someone has probably done similar)
+- Sample libraries and licensing
+- How to layer/mix genre samples coherently
+- Web Audio API sample playback best practices
+
+---
+
+## 🔬 RESEARCH TASK FOR THE TEAM
+
+**Find examples of:**
+1. Apps with genre-mixing dial interfaces
+2. Sample-based music creation tools
+3. Motion-controlled sample triggering
+4. How to source/license audio loops
+
+**Questions to answer:**
+- How do we get quality samples for each genre? (royalty-free libraries? create our own?)
+- What's the best way to crossfade between genres?
+- How does the "vibe" dial affect the master output? (filters? compression? saturation?)
+- How do motion inputs map to sample manipulation? (pitch? slice selection? effects?)
+
+**DO THE RESEARCH BEFORE CODING.**
+
+---
+
+## PREVIOUS STATE (for reference)
 
 ---
 
