@@ -70,6 +70,112 @@ Before building, the team needs to research:
 
 ---
 
+## 🔬 RESEARCH FINDINGS
+
+### Similar Apps That Exist
+
+**Groovepad** (iOS/Android)
+- Genre-based sound libraries (hip-hop, EDM, house)
+- Organized into intuitive segment pads
+- Trigger samples in real-time, apply effects
+- [App Store Link](https://apps.apple.com/us/app/groovepad)
+
+**Strudel** (Web)
+- Device motion module (accelerometer, gyroscope)
+- All motion values normalized 0-1
+- Controls musical parameters in real-time
+- [strudel.cc/learn/devicemotion](https://strudel.cc/learn/devicemotion/)
+
+**MIDI Motion / TC-Orbiter** (iOS)
+- 53 controllers using gyro, accelerometer, compass
+- Yaw, pitch, roll to MIDI CC
+- Bluetooth/WiFi MIDI output
+
+**Tracklib Beatmaker**
+- Swipe through samples, find loops
+- Real records, not synthesized
+- [tracklib.com](https://www.tracklib.com/)
+
+### Sample Sources (Royalty-Free)
+
+| Source | Type | Cost | Notes |
+|--------|------|------|-------|
+| **Looperman** | Community | Free | User-uploaded, commercial use OK |
+| **Freesound.org** | Community | Free | CC licenses, varies |
+| **Splice** | Subscription | $9-20/mo | No web API, desktop only |
+| **Loopcloud** | Subscription | Similar | 4M+ samples, DAW integration |
+| **Loopmasters** | Purchase | Varies | Professional packs |
+| **Tracklib** | License | Per-sample | Real records |
+
+**Recommendation:** Use Looperman for free samples or create/record our own.
+
+### Motion Control Best Practices
+
+From Strudel's implementation:
+```javascript
+// Motion values normalized 0-1
+DeviceMotionEvent.requestPermission() // iOS requires permission
+// acceleration.x, y, z
+// rotationRate.alpha, beta, gamma
+```
+
+From MIDI Motion:
+- Yaw = horizontal rotation (pan?)
+- Pitch = tilt forward/back (filter cutoff?)
+- Roll = tilt left/right (pitch bend?)
+
+### "Vibe" Dial Implementation
+
+The master vibe can be achieved with **bus effects**:
+
+| Vibe | Effects Chain |
+|------|---------------|
+| **Lo-fi** | Bitcrush + Lowpass (3kHz) + Tape saturation + Vinyl noise |
+| **Quincy Jones Polished** | Multiband compression + High shelf boost + Stereo widening |
+| **Amateur Bandcamp** | Single-band limiting + Narrow stereo + Slight distortion |
+| **Regular** | Light compression + Flat EQ |
+
+### What DOESN'T Exist (Our Opportunity)
+
+No app combines:
+- Genre dial selection (beats/bass/guitar)
+- Real samples (not synthesis)
+- Motion-controlled triggering
+- Master vibe processing
+- All in a mobile web app
+
+**This is the innovation. This is GUMP 2.0.**
+
+---
+
+## IMPLEMENTATION PLAN
+
+### Phase 1: Sample Infrastructure
+1. Curate sample packs for each genre (20-30 loops each)
+2. Host on GitHub or CDN
+3. Preload system with loading indicator
+
+### Phase 2: Dial UI
+1. Horizontal wheel/slider component
+2. Snap to genre options
+3. Visual feedback on selection
+
+### Phase 3: Motion-to-Sample Mapping
+1. Tilt = which sample slice plays
+2. Speed = playback rate/intensity
+3. Shake = stutter/glitch effect
+
+### Phase 4: Vibe Processing
+1. Master bus effect chain
+2. Dial crossfades between effect settings
+
+### Phase 5: Recording/Seeds
+1. Microphone input
+2. Analyze audio → generate loop parameters
+3. New "seed" added to available samples
+
+---
+
 ## PREVIOUS STATE (for reference)
 
 ---
