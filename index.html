@@ -4,6 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>GUMP</title>
+    <!-- Magenta.js dependencies -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.11.0/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@magenta/music@^1.23.1/es6/core.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@magenta/music@^1.23.1/es6/music_rnn.js"></script>
     <style>
         :root{--phi:1.618}
         *{margin:0;padding:0;box-sizing:border-box}
@@ -15,8 +19,9 @@
         #enter i{width:89px;height:89px;border-radius:50%;border:1px solid rgba(200,180,255,0.1);display:flex;align-items:center;justify-content:center}
         #enter i::after{content:'';width:34px;height:34px;border-radius:50%;border:1px solid rgba(200,180,255,0.2)}
 
-        #loading{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;z-index:99;background:#050508;color:rgba(200,180,255,0.25);font-size:8px;letter-spacing:3px}
+        #loading{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:13px;z-index:99;background:#050508;color:rgba(200,180,255,0.3);font-size:9px;letter-spacing:2px}
         #loading.off{display:none}
+        #loading .status{opacity:0.5}
 
         #dials{position:fixed;bottom:0;left:0;right:0;z-index:50;padding:13px 21px 34px;touch-action:pan-x}
         .dial{display:flex;align-items:center;justify-content:center;gap:21px;margin-bottom:13px}
@@ -27,7 +32,10 @@
 </head>
 <body>
 <div id="enter"><i></i></div>
-<div id="loading" class="off">...</div>
+<div id="loading" class="off">
+    <div>loading</div>
+    <div class="status" id="load-status">...</div>
+</div>
 
 <div id="dials" style="display:none">
     <div class="dial" data-dial="pulse">
@@ -62,8 +70,8 @@
 <canvas id="c"></canvas>
 
 <script>
-// GUMP - THE CORE MAGIC
-// Generative + Motion → Music + Layers + Lo-fi + Evolution
+// GUMP + MAGENTA.JS
+// AI-generated patterns that never repeat
 
 const TAU = Math.PI * 2;
 const PHI = 1.618033988749;
@@ -75,13 +83,163 @@ let running = false;
 let dial = { pulse: 'dust', depth: 'sub', haze: 'fog' };
 let field = { x: 0.5, y: 0.5, energy: 0, time: 0, peak: 0 };
 
-// Musical state - THE HEART
+// Musical state
 let music = {
     intensity: 0.4,
     bar: 0,
     phrase: 0,
     density: 0.5
 };
+
+// Magenta models
+let drumsRNN = null;
+let melodyRNN = null;
+let magentaReady = false;
+
+// AI-generated pattern queue
+let aiPatterns = [];
+let currentAIPattern = null;
+
+// ============ MAGENTA SETUP ============
+
+const DRUM_CHECKPOINT = 'https://storage.googleapis.com/magentadata/js/checkpoints/music_rnn/drum_kit_rnn';
+const MELODY_CHECKPOINT = 'https://storage.googleapis.com/magentadata/js/checkpoints/music_rnn/melody_rnn';
+
+// Drum mapping for Magenta (General MIDI)
+const DRUM_MAP = {
+    36: 'kick',   // Bass Drum
+    38: 'snare',  // Snare
+    42: 'hat',    // Closed Hi-Hat
+    46: 'hatOpen', // Open Hi-Hat
+    45: 'tom',    // Low Tom
+    48: 'tom',    // Hi Tom
+    49: 'crash',  // Crash
+    51: 'ride'    // Ride
+};
+
+async function initMagenta() {
+    const status = document.getElementById('load-status');
+
+    try {
+        status.textContent = 'loading ai drums...';
+
+        // Initialize DrumsRNN
+        drumsRNN = new music_rnn.MusicRNN(DRUM_CHECKPOINT);
+        await drumsRNN.initialize();
+
+        status.textContent = 'loading ai melody...';
+
+        // Initialize MelodyRNN
+        melodyRNN = new music_rnn.MusicRNN(MELODY_CHECKPOINT);
+        await melodyRNN.initialize();
+
+        status.textContent = 'generating patterns...';
+
+        // Pre-generate some patterns
+        await generateAIPatterns(3);
+
+        magentaReady = true;
+        status.textContent = 'ready';
+
+    } catch (e) {
+        console.warn('Magenta failed, using fallback:', e);
+        status.textContent = 'using generative fallback';
+        magentaReady = false;
+    }
+}
+
+// Seed sequence for drums - gives AI something to continue from
+function createDrumSeed(style) {
+    const seeds = {
+        dust: {
+            notes: [
+                { pitch: 36, quantizedStartStep: 0, quantizedEndStep: 1 },
+                { pitch: 42, quantizedStartStep: 2, quantizedEndStep: 3 },
+                { pitch: 38, quantizedStartStep: 4, quantizedEndStep: 5 },
+                { pitch: 42, quantizedStartStep: 6, quantizedEndStep: 7 }
+            ],
+            totalQuantizedSteps: 8,
+            quantizationInfo: { stepsPerQuarter: 4 }
+        },
+        gold: {
+            notes: [
+                { pitch: 36, quantizedStartStep: 0, quantizedEndStep: 1 },
+                { pitch: 42, quantizedStartStep: 2, quantizedEndStep: 3 },
+                { pitch: 38, quantizedStartStep: 4, quantizedEndStep: 5 },
+                { pitch: 42, quantizedStartStep: 5, quantizedEndStep: 6 },
+                { pitch: 36, quantizedStartStep: 6, quantizedEndStep: 7 }
+            ],
+            totalQuantizedSteps: 8,
+            quantizationInfo: { stepsPerQuarter: 4 }
+        },
+        drive: {
+            notes: [
+                { pitch: 36, quantizedStartStep: 0, quantizedEndStep: 1 },
+                { pitch: 42, quantizedStartStep: 1, quantizedEndStep: 2 },
+                { pitch: 42, quantizedStartStep: 2, quantizedEndStep: 3 },
+                { pitch: 42, quantizedStartStep: 3, quantizedEndStep: 4 },
+                { pitch: 38, quantizedStartStep: 4, quantizedEndStep: 5 },
+                { pitch: 42, quantizedStartStep: 5, quantizedEndStep: 6 },
+                { pitch: 42, quantizedStartStep: 6, quantizedEndStep: 7 },
+                { pitch: 42, quantizedStartStep: 7, quantizedEndStep: 8 }
+            ],
+            totalQuantizedSteps: 8,
+            quantizationInfo: { stepsPerQuarter: 4 }
+        }
+    };
+    return seeds[style] || seeds.dust;
+}
+
+async function generateAIPatterns(count) {
+    if (!drumsRNN) return;
+
+    const style = dial.pulse === '0' ? 'dust' : dial.pulse;
+    const seed = createDrumSeed(style);
+
+    for (let i = 0; i < count; i++) {
+        try {
+            // Temperature affects randomness (0.5-1.5 range)
+            const temperature = 0.8 + music.intensity * 0.4;
+
+            const generated = await drumsRNN.continueSequence(
+                seed,
+                32, // Generate 32 steps (2 bars at 16 steps/bar)
+                temperature
+            );
+
+            // Convert Magenta sequence to our pattern format
+            const pattern = magentaToPattern(generated);
+            aiPatterns.push(pattern);
+
+        } catch (e) {
+            console.warn('Pattern generation failed:', e);
+        }
+    }
+}
+
+function magentaToPattern(sequence) {
+    const pattern = {
+        kicks: new Array(16).fill(0),
+        snares: new Array(16).fill(0),
+        hats: new Array(16).fill(0),
+        percs: new Array(16).fill(0)
+    };
+
+    if (!sequence || !sequence.notes) return pattern;
+
+    for (const note of sequence.notes) {
+        const step = note.quantizedStartStep % 16;
+        const drum = DRUM_MAP[note.pitch];
+        const vel = 0.5 + Math.random() * 0.4;
+
+        if (drum === 'kick') pattern.kicks[step] = vel;
+        else if (drum === 'snare') pattern.snares[step] = vel;
+        else if (drum === 'hat' || drum === 'hatOpen') pattern.hats[step] = vel * 0.7;
+        else if (drum === 'tom' || drum === 'crash' || drum === 'ride') pattern.percs[step] = vel * 0.5;
+    }
+
+    return pattern;
+}
 
 // ============ SAMPLES ============
 
@@ -165,7 +323,6 @@ function initFX() {
     lim.ratio.value = 20;
     lim.attack.value = 0.001;
 
-    // Lush reverb
     verb = ctx.createConvolver();
     const vLen = ctx.sampleRate * 2.8;
     const vBuf = ctx.createBuffer(2, vLen, ctx.sampleRate);
@@ -177,7 +334,6 @@ function initFX() {
     verbWet = ctx.createGain();
     verbWet.gain.value = 0.22;
 
-    // Tape delay
     dly = ctx.createDelay(1);
     dly.delayTime.value = 0.375;
     const dlyFb = ctx.createGain();
@@ -193,7 +349,6 @@ function initFX() {
     master = ctx.createGain();
     master.gain.value = 0.85;
 
-    // Routing
     [drumBus, bassBus, padBus].forEach(b => b.connect(masterBus));
     masterBus.connect(sat).connect(lofiFilter).connect(comp);
     masterBus.connect(verb); verb.connect(verbWet);
@@ -202,8 +357,9 @@ function initFX() {
     lim.connect(master).connect(ctx.destination);
 }
 
-// ============ EUCLIDEAN PATTERN ENGINE ============
+// ============ PATTERN ENGINE ============
 
+// Euclidean fallback
 function euclidean(steps, pulses, rot = 0) {
     const p = [];
     let b = 0;
@@ -216,45 +372,47 @@ function euclidean(steps, pulses, rot = 0) {
 }
 
 const GENES = {
-    dust: { bpm: 72, kickP: 3, swing: 0.12, ghost: 0.28, hatP: 0.4, kit: 'a' },
-    gold: { bpm: 88, kickP: 5, swing: 0.16, ghost: 0.22, hatP: 0.55, kit: 'b' },
-    drive: { bpm: 122, kickP: 4, swing: 0, ghost: 0.12, hatP: 0.7, kit: 'b' }
+    dust: { bpm: 72, kickP: 3, swing: 0.12, kit: 'a' },
+    gold: { bpm: 88, kickP: 5, swing: 0.16, kit: 'b' },
+    drive: { bpm: 122, kickP: 4, swing: 0, kit: 'b' }
 };
 
 let pattern = null;
 let step = 0;
 let lastStep = 0;
 
-function genPattern(gene, bar) {
-    const g = GENES[gene];
-    const evolution = Math.sin(bar * 0.3 + field.x * 2) * 0.6;
-    const kicks = euclidean(16, Math.round(g.kickP + evolution), bar % 5);
+function getNextPattern() {
+    // Use AI pattern if available
+    if (aiPatterns.length > 0) {
+        const p = aiPatterns.shift();
+        // Regenerate in background
+        if (aiPatterns.length < 2 && magentaReady) {
+            generateAIPatterns(2);
+        }
+        return p;
+    }
+
+    // Fallback to euclidean
+    const gene = GENES[dial.pulse] || GENES.dust;
+    const evolution = Math.sin(music.bar * 0.3 + field.x * 2) * 0.6;
+    const kicks = euclidean(16, Math.round(gene.kickP + evolution), music.bar % 5);
 
     const snares = new Array(16).fill(0);
     snares[4] = 0.9; snares[12] = 1;
-    // Variation based on phrase
     if (music.phrase === 3) snares[10] = 0.5;
     if (music.phrase === 7) snares[14] = 0.6;
 
-    // Hats driven by intensity
     const hats = [];
-    const hatDensity = g.hatP * (0.6 + music.intensity * 0.5);
     for (let i = 0; i < 16; i++) {
-        hats.push(Math.random() < hatDensity ? 0.2 + Math.random() * 0.35 : 0);
+        hats.push(Math.random() < 0.45 ? 0.25 + Math.random() * 0.3 : 0);
     }
 
-    // Ghost notes - subtle kicks between main hits
-    const ghosts = kicks.map((k, i) =>
-        !k && !snares[i] && Math.random() < g.ghost * music.intensity ? 0.12 + Math.random() * 0.1 : 0
-    );
-
-    // Perc accents - rare, add sparkle
     const percs = [];
     for (let i = 0; i < 16; i++) {
-        percs.push(i % 4 === 2 && Math.random() < 0.2 * music.intensity ? 0.15 : 0);
+        percs.push(i % 4 === 2 && Math.random() < 0.15 ? 0.12 : 0);
     }
 
-    return { kicks, snares, hats, ghosts, percs, swing: g.swing, kit: g.kit, bpm: g.bpm };
+    return { kicks, snares, hats, percs };
 }
 
 function play(buf, opts = {}) {
@@ -284,7 +442,6 @@ function play(buf, opts = {}) {
     }
 
     g.connect(opts.bus || drumBus);
-    // Humanize timing
     src.start(ctx.currentTime + (opts.delay || 0) + (Math.random() - 0.5) * 0.006);
 }
 
@@ -300,13 +457,11 @@ function updateBeats() {
     if (now - lastStep >= stepDur) {
         lastStep = now;
 
-        // New pattern each bar
         if (step % 16 === 0) {
             music.bar++;
             music.phrase = music.bar % 8;
-            pattern = genPattern(dial.pulse, music.bar);
+            pattern = getNextPattern();
 
-            // CORE MAGIC: Motion → Intensity
             music.intensity = music.intensity * 0.85 + field.peak * 0.15;
             music.intensity = Math.max(0.25, Math.min(1, music.intensity));
             music.density = 0.4 + music.intensity * 0.4;
@@ -315,39 +470,34 @@ function updateBeats() {
         if (!pattern) return;
 
         const s = step % 16;
-        const sw = s % 2 === 1 ? stepDur * pattern.swing : 0;
-        const k = pattern.kit;
+        const sw = s % 2 === 1 ? stepDur * gene.swing : 0;
+        const k = gene.kit;
 
-        // DRUMS - the groove
         if (pattern.kicks[s]) {
-            const vel = 0.8 + music.intensity * 0.2;
+            const vel = (typeof pattern.kicks[s] === 'number' ? pattern.kicks[s] : 0.8) * (0.9 + music.intensity * 0.15);
             play(samples['kick_' + k], { vol: vel, delay: sw });
         }
 
         if (pattern.snares[s]) {
-            const vel = pattern.snares[s] * (0.7 + music.intensity * 0.25);
+            const vel = (typeof pattern.snares[s] === 'number' ? pattern.snares[s] : 0.8) * (0.75 + music.intensity * 0.2);
             play(samples['snare_' + k], { vol: vel, delay: sw, pan: (Math.random() - 0.5) * 0.12 });
         }
 
         if (pattern.hats[s]) {
-            const vel = pattern.hats[s] * (0.5 + music.density * 0.4);
+            const vel = (typeof pattern.hats[s] === 'number' ? pattern.hats[s] : 0.4) * (0.6 + music.density * 0.35);
             const filt = dial.haze === 'fog' ? 5500 : dial.haze === 'heat' ? 7000 : 11000;
             play(samples['hat_' + k], { vol: vel, delay: sw, pan: (Math.random() - 0.5) * 0.4, filter: filt });
         }
 
-        if (pattern.ghosts[s]) {
-            play(samples['kick_' + k], { vol: pattern.ghosts[s], delay: sw, filter: 700, pitch: -3 });
-        }
-
-        if (pattern.percs[s]) {
-            play(samples['perc'], { vol: pattern.percs[s], delay: sw, pan: (Math.random() - 0.5) * 0.6, pitch: 5 });
+        if (pattern.percs && pattern.percs[s]) {
+            play(samples['perc'], { vol: pattern.percs[s], delay: sw, pan: (Math.random() - 0.5) * 0.5, pitch: 4 });
         }
 
         step++;
     }
 }
 
-// ============ BASS - EVOLVING ============
+// ============ BASS ============
 
 let bassO1, bassO2, bassF, bassG, bassLFO, bassLFOG;
 
@@ -382,7 +532,6 @@ function initBass() {
     bassO2.start();
 }
 
-// Bass sequence evolves
 let bassSeq = [0, 0, 5, 3];
 let lastBassShift = 0;
 
@@ -400,7 +549,6 @@ function updateBass() {
 
     if (!cfg) return;
 
-    // Evolve bass sequence
     if (field.time - lastBassShift > 4 && Math.random() < 0.06) {
         lastBassShift = field.time;
         bassSeq[Math.floor(Math.random() * 4)] = [0, 3, 5, 7, -5, -7][Math.floor(Math.random() * 6)];
@@ -415,7 +563,6 @@ function updateBass() {
     bassO2.frequency.linearRampToValueAtTime(freq, ctx.currentTime + 0.04);
     bassO2.detune.value = cfg.det;
 
-    // Filter opens with energy
     const filtMod = 1 + field.energy * 1.8 + music.intensity * 0.6;
     bassF.frequency.linearRampToValueAtTime(cfg.filt * filtMod, ctx.currentTime + 0.05);
     bassLFOG.gain.value = cfg.lfo * music.intensity;
@@ -424,7 +571,7 @@ function updateBass() {
     bassG.gain.linearRampToValueAtTime(cfg.vol, ctx.currentTime + 0.1);
 }
 
-// ============ PAD LAYER ============
+// ============ PAD ============
 
 let padOscs = [], padG, padF;
 
@@ -465,7 +612,6 @@ function updatePad() {
         p.o.frequency.linearRampToValueAtTime(freq, ctx.currentTime + 0.3);
     });
 
-    // CORE MAGIC: Stillness = pad swells
     const still = 1 - Math.min(1, field.energy * 5);
     const padVol = still * 0.22 * music.intensity;
     padG.gain.linearRampToValueAtTime(padVol, ctx.currentTime + 0.2);
@@ -502,7 +648,7 @@ function initTexture() {
     textureSrc.start();
 }
 
-// ============ MELODY LAYERS - DISCOVERY ============
+// ============ MELODY LAYERS ============
 
 let melodies = [];
 
@@ -544,7 +690,6 @@ function updateMelodies(dt) {
     }
 }
 
-// ORB - motion creates melody
 let orb = { on: false, x: 0.5, y: 0.5 };
 
 function updateOrb(dt) {
@@ -621,7 +766,13 @@ function initDials() {
                 d.querySelectorAll('.dial-opt').forEach(o => o.classList.remove('on'));
                 opt.classList.add('on');
                 dial[name] = opt.dataset.v;
-                if (name === 'pulse') { step = 0; lastStep = ctx.currentTime; pattern = null; }
+                if (name === 'pulse') {
+                    step = 0;
+                    lastStep = ctx.currentTime;
+                    pattern = null;
+                    aiPatterns = [];
+                    if (magentaReady) generateAIPatterns(3);
+                }
                 if (name === 'haze') updateHaze();
             });
             opt.addEventListener('touchend', e => e.stopPropagation());
@@ -643,11 +794,16 @@ function resize() {
 function draw() {
     const w = innerWidth, h = innerHeight;
 
-    // Subtle magenta-tinted fade
     vc.fillStyle = `rgba(5,5,8,${0.08 + music.intensity * 0.03})`;
     vc.fillRect(0, 0, w, h);
 
-    // Center pulse - phi proportions
+    // AI indicator
+    if (magentaReady) {
+        vc.fillStyle = 'rgba(200,180,255,0.04)';
+        vc.font = '8px system-ui';
+        vc.fillText('AI', 15, 20);
+    }
+
     const r = 21 + music.intensity * 13;
     vc.strokeStyle = `rgba(200,180,255,${0.03 + music.intensity * 0.04})`;
     vc.lineWidth = 1;
@@ -655,7 +811,6 @@ function draw() {
     vc.arc(w / 2, h / 2, r, 0, TAU);
     vc.stroke();
 
-    // Melody rings
     melodies.forEach((m, i) => {
         const mr = 34 + i * 21;
         const a = 0.05 + (0.5 + 0.5 * Math.cos(m.phase * TAU)) * 0.1;
@@ -665,7 +820,6 @@ function draw() {
         vc.stroke();
     });
 
-    // Orb
     if (orb.on) {
         vc.fillStyle = 'rgba(220,200,255,0.5)';
         vc.beginPath();
@@ -673,7 +827,6 @@ function draw() {
         vc.fill();
     }
 
-    // Cursor
     vc.fillStyle = `rgba(200,180,255,${0.1 + field.energy * 0.4})`;
     vc.beginPath();
     vc.arc(field.x * w, field.y * h, 3 + field.energy * 10, 0, TAU);
@@ -713,8 +866,14 @@ async function init() {
     resize();
     addEventListener('resize', resize);
 
-    document.getElementById('loading').classList.remove('off');
+    const status = document.getElementById('load-status');
+
+    status.textContent = 'loading samples...';
     await loadSamples();
+
+    // Initialize Magenta (non-blocking if fails)
+    await initMagenta();
+
     document.getElementById('loading').classList.add('off');
     document.getElementById('dials').style.display = 'block';
 
@@ -723,6 +882,7 @@ async function init() {
 
 async function start() {
     document.getElementById('enter').classList.add('off');
+    document.getElementById('loading').classList.remove('off');
 
     if (typeof DeviceMotionEvent?.requestPermission === 'function') {
         try { await DeviceMotionEvent.requestPermission(); } catch (e) {}
