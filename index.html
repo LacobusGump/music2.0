@@ -3,865 +3,1083 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>GUMP</title>
+    <title>GUMP Orchestra</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.11.0/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@magenta/music@1.23.1/es6/core.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@magenta/music@1.23.1/es6/music_rnn.js"></script>
     <style>
-        :root{--phi:1.618}
-        *{margin:0;padding:0;box-sizing:border-box}
-        body{background:#050508;overflow:hidden;touch-action:none;height:100vh;font-family:system-ui,-apple-system,sans-serif}
-        canvas{position:fixed;inset:0}
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: #08080c;
+            overflow: hidden;
+            touch-action: none;
+            height: 100vh;
+            font-family: system-ui, -apple-system, sans-serif;
+            color: rgba(200,180,255,0.8);
+        }
+        canvas { position: fixed; inset: 0; z-index: 0; }
 
-        #enter{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;z-index:100;cursor:pointer;background:#050508}
-        #enter.off{display:none}
-        #enter i{width:89px;height:89px;border-radius:50%;border:1px solid rgba(200,180,255,0.1);display:flex;align-items:center;justify-content:center}
-        #enter i::after{content:'';width:34px;height:34px;border-radius:50%;border:1px solid rgba(200,180,255,0.2)}
+        #enter {
+            position: fixed; inset: 0;
+            display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
+            z-index: 100; cursor: pointer; background: #08080c;
+            gap: 21px;
+        }
+        #enter.off { display: none; }
+        #enter h1 { font-size: 13px; letter-spacing: 4px; font-weight: 300; opacity: 0.6; }
+        #enter i {
+            width: 89px; height: 89px; border-radius: 50%;
+            border: 1px solid rgba(200,180,255,0.15);
+            display: flex; align-items: center; justify-content: center;
+        }
+        #enter i::after {
+            content: ''; width: 34px; height: 34px; border-radius: 50%;
+            border: 1px solid rgba(200,180,255,0.25);
+        }
 
-        #loading{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;z-index:99;background:#050508;color:rgba(200,180,255,0.25);font-size:8px;letter-spacing:3px}
-        #loading.off{display:none}
+        #loading {
+            position: fixed; inset: 0;
+            display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
+            z-index: 99; background: #08080c;
+            gap: 13px;
+        }
+        #loading.off { display: none; }
+        #loading .status { font-size: 10px; letter-spacing: 2px; opacity: 0.5; }
+        #loading .agents { font-size: 9px; opacity: 0.3; margin-top: 21px; }
 
-        #dials{position:fixed;bottom:0;left:0;right:0;z-index:50;padding:13px 21px 34px;touch-action:pan-x}
-        .dial{display:flex;align-items:center;justify-content:center;gap:21px;margin-bottom:13px}
-        .dial-opt{font-size:11px;color:rgba(200,180,255,0.15);cursor:pointer;padding:8px 13px;transition:all 0.3s;letter-spacing:1px;-webkit-tap-highlight-color:transparent}
-        .dial-opt.on{color:rgba(200,180,255,0.8)}
-        .dial-line{width:1px;height:13px;background:rgba(200,180,255,0.06)}
+        #agents {
+            position: fixed; top: 13px; left: 13px; right: 13px;
+            display: flex; justify-content: center; gap: 21px;
+            z-index: 50; flex-wrap: wrap;
+        }
+        .agent-badge {
+            font-size: 8px; letter-spacing: 2px;
+            padding: 5px 10px; border-radius: 13px;
+            background: rgba(200,180,255,0.05);
+            border: 1px solid rgba(200,180,255,0.1);
+            opacity: 0.4; transition: all 0.3s;
+        }
+        .agent-badge.active {
+            opacity: 1;
+            background: rgba(200,180,255,0.1);
+            border-color: rgba(200,180,255,0.3);
+        }
+        .agent-badge.listening {
+            box-shadow: 0 0 8px rgba(200,180,255,0.2);
+        }
     </style>
 </head>
 <body>
-<div id="enter"><i></i></div>
-<div id="loading" class="off">...</div>
+<div id="enter">
+    <h1>GUMP ORCHESTRA</h1>
+    <i></i>
+</div>
 
-<div id="dials" style="display:none">
-    <div class="dial" data-dial="pulse">
-        <span class="dial-opt" data-v="0">—</span>
-        <span class="dial-line"></span>
-        <span class="dial-opt on" data-v="dust">dust</span>
-        <span class="dial-line"></span>
-        <span class="dial-opt" data-v="gold">gold</span>
-        <span class="dial-line"></span>
-        <span class="dial-opt" data-v="drive">drive</span>
-    </div>
-    <div class="dial" data-dial="depth">
-        <span class="dial-opt" data-v="0">—</span>
-        <span class="dial-line"></span>
-        <span class="dial-opt on" data-v="sub">sub</span>
-        <span class="dial-line"></span>
-        <span class="dial-opt" data-v="thick">thick</span>
-        <span class="dial-line"></span>
-        <span class="dial-opt" data-v="warm">warm</span>
-    </div>
-    <div class="dial" data-dial="haze">
-        <span class="dial-opt" data-v="clear">clear</span>
-        <span class="dial-line"></span>
-        <span class="dial-opt on" data-v="fog">fog</span>
-        <span class="dial-line"></span>
-        <span class="dial-opt" data-v="glass">glass</span>
-        <span class="dial-line"></span>
-        <span class="dial-opt" data-v="heat">heat</span>
-    </div>
-    <div class="dial" data-dial="vox">
-        <span class="dial-opt on" data-v="0">—</span>
-        <span class="dial-line"></span>
-        <span class="dial-opt" data-v="lead">lead</span>
-        <span class="dial-line"></span>
-        <span class="dial-opt" data-v="choir">choir</span>
-        <span class="dial-line"></span>
-        <span class="dial-opt" data-v="both">both</span>
-    </div>
+<div id="loading" class="off">
+    <div class="status" id="load-status">initializing...</div>
+    <div class="agents">drums · bass · keys · lead · voice</div>
+</div>
+
+<div id="agents" style="display:none">
+    <div class="agent-badge" id="agent-drums">DRUMS</div>
+    <div class="agent-badge" id="agent-bass">BASS</div>
+    <div class="agent-badge" id="agent-keys">KEYS</div>
+    <div class="agent-badge" id="agent-lead">LEAD</div>
+    <div class="agent-badge" id="agent-voice">VOICE</div>
 </div>
 
 <canvas id="c"></canvas>
 
 <script>
-// GUMP - THE CORE MAGIC
-// Generative + Motion → Music + Layers + Lo-fi + Evolution
+// ============================================================
+// GUMP ORCHESTRA - AI Agents Playing Together
+// Each agent listens to the others and reacts like a jazz musician
+// ============================================================
 
 const TAU = Math.PI * 2;
-const PHI = 1.618033988749;
 
 let ctx, master, canvas, vc;
 let running = false;
 
-// State
-let dial = { pulse: 'dust', depth: 'sub', haze: 'fog', vox: '0' };
-let field = { x: 0.5, y: 0.5, energy: 0, time: 0, peak: 0 };
+// ============ SHARED MUSICAL STATE ============
+// This is what all agents can "hear" - like being in the same room
 
-// Musical state - THE HEART
-let music = {
-    intensity: 0.4,
+const SharedState = {
+    // Time
+    bpm: 85,
+    beat: 0,
     bar: 0,
     phrase: 0,
-    density: 0.5
+
+    // Harmony
+    key: 0,           // Root note (0-11)
+    mode: 'minor',    // minor, major, dorian, etc.
+    chord: [0, 3, 7], // Current chord tones
+    chordName: 'Am',
+
+    // Energy from motion
+    energy: 0,
+    direction: { x: 0, y: 0 },
+    intensity: 0.4,
+
+    // What each agent is currently playing (so others can hear)
+    playing: {
+        drums: { kick: false, snare: false, hat: false, pattern: null },
+        bass: { note: null, octave: 2, playing: false },
+        keys: { notes: [], voicing: null },
+        lead: { note: null, playing: false, phrase: [] },
+        voice: { note: null, vowel: 'a', playing: false }
+    },
+
+    // Conversation - agents can signal intentions
+    signals: {
+        buildUp: 0,      // 0-1, someone wants to build
+        dropHint: 0,     // 0-1, someone's about to drop
+        space: 0,        // 0-1, someone wants others to leave room
+        callResponse: null // { from: 'lead', phrase: [...] }
+    }
 };
 
-// ============ SAMPLES ============
+// ============ MOTION INPUT ============
 
-const URLS = {
-    kick_a: 'https://cdn.freesound.org/previews/171/171104_2394245-lq.mp3',
-    kick_b: 'https://cdn.freesound.org/previews/568/568573_12517458-lq.mp3',
-    snare_a: 'https://cdn.freesound.org/previews/387/387186_7255534-lq.mp3',
-    snare_b: 'https://cdn.freesound.org/previews/398/398712_183766-lq.mp3',
-    hat_a: 'https://cdn.freesound.org/previews/250/250540_4486188-lq.mp3',
-    hat_b: 'https://cdn.freesound.org/previews/353/353774_5121236-lq.mp3',
-    perc: 'https://cdn.freesound.org/previews/250/250537_4486188-lq.mp3',
+const Motion = {
+    x: 0.5,
+    y: 0.5,
+    vx: 0,
+    vy: 0,
+    energy: 0,
+    peak: 0,
+
+    update(nx, ny) {
+        const dx = nx - this.x;
+        const dy = ny - this.y;
+        this.vx = this.vx * 0.7 + dx * 0.3;
+        this.vy = this.vy * 0.7 + dy * 0.3;
+        this.x += dx * 0.15;
+        this.y += dy * 0.15;
+        this.energy = this.energy * 0.85 + Math.sqrt(dx*dx + dy*dy) * 3;
+        this.peak = Math.max(this.peak * 0.97, this.energy);
+
+        SharedState.energy = this.energy;
+        SharedState.direction = { x: this.vx, y: this.vy };
+        SharedState.intensity = SharedState.intensity * 0.95 + this.peak * 0.05;
+        SharedState.intensity = Math.max(0.2, Math.min(1, SharedState.intensity));
+    }
 };
 
-let samples = {};
+// ============ AGENT BASE CLASS ============
 
-async function loadSamples() {
-    for (const [k, url] of Object.entries(URLS)) {
+class Agent {
+    constructor(name, personality) {
+        this.name = name;
+        this.personality = {
+            reactivity: 0.5,    // How quickly they respond to others
+            density: 0.5,       // How much they play
+            adventurousness: 0.5, // How far they stray from safe choices
+            listening: 0.5,     // How much they follow vs lead
+            ...personality
+        };
+        this.active = false;
+        this.lastAction = 0;
+    }
+
+    // What this agent hears from others
+    listen() {
+        return {
+            drums: SharedState.playing.drums,
+            bass: SharedState.playing.bass,
+            keys: SharedState.playing.keys,
+            lead: SharedState.playing.lead,
+            voice: SharedState.playing.voice,
+            energy: SharedState.energy,
+            intensity: SharedState.intensity,
+            chord: SharedState.chord,
+            signals: SharedState.signals
+        };
+    }
+
+    // Should this agent play right now?
+    shouldPlay() {
+        const heard = this.listen();
+        const baseChance = this.personality.density;
+        const energyMod = heard.intensity * this.personality.reactivity;
+        return Math.random() < (baseChance * 0.5 + energyMod * 0.5);
+    }
+
+    // Announce what we're playing
+    broadcast(data) {
+        SharedState.playing[this.name] = { ...SharedState.playing[this.name], ...data };
+    }
+
+    // Signal an intention to other agents
+    signal(type, value) {
+        SharedState.signals[type] = value;
+    }
+
+    tick(time) {
+        // Override in subclass
+    }
+
+    updateBadge() {
+        const el = document.getElementById(`agent-${this.name}`);
+        if (el) {
+            el.classList.toggle('active', this.active);
+            el.classList.toggle('listening', this.personality.listening > 0.6);
+        }
+    }
+}
+
+// ============ DRUM AGENT ============
+
+class DrumAgent extends Agent {
+    constructor() {
+        super('drums', {
+            reactivity: 0.7,
+            density: 0.8,
+            adventurousness: 0.3,
+            listening: 0.4
+        });
+
+        this.samples = {};
+        this.pattern = null;
+        this.step = 0;
+        this.lastStep = 0;
+        this.patternMemory = []; // Remember patterns that worked
+        this.aiModel = null;
+    }
+
+    async init(audioCtx) {
+        this.ctx = audioCtx;
+        this.bus = audioCtx.createGain();
+        this.bus.gain.value = 0.75;
+
+        // Load samples
+        const urls = {
+            kick: 'https://cdn.freesound.org/previews/171/171104_2394245-lq.mp3',
+            snare: 'https://cdn.freesound.org/previews/387/387186_7255534-lq.mp3',
+            hat: 'https://cdn.freesound.org/previews/250/250540_4486188-lq.mp3',
+            rim: 'https://cdn.freesound.org/previews/209/209890_3797507-lq.mp3',
+            tom: 'https://cdn.freesound.org/previews/110/110011_1537491-lq.mp3'
+        };
+
+        for (const [name, url] of Object.entries(urls)) {
+            try {
+                const res = await fetch(url);
+                this.samples[name] = await audioCtx.decodeAudioData(await res.arrayBuffer());
+            } catch (e) {
+                this.samples[name] = this.createFallback(name);
+            }
+        }
+
+        // Try to load Magenta DrumsRNN
         try {
-            const r = await fetch(url);
-            samples[k] = await ctx.decodeAudioData(await r.arrayBuffer());
+            this.aiModel = new music_rnn.MusicRNN(
+                'https://storage.googleapis.com/magentadata/js/checkpoints/music_rnn/drum_kit_rnn'
+            );
+            await this.aiModel.initialize();
+            console.log('Drum AI ready');
         } catch (e) {
-            samples[k] = makeFallback(k);
+            console.warn('Drum AI unavailable, using generative fallback');
         }
-    }
-}
 
-function makeFallback(k) {
-    const sr = ctx.sampleRate, len = sr * 0.4;
-    const buf = ctx.createBuffer(2, len, sr);
-    for (let ch = 0; ch < 2; ch++) {
-        const d = buf.getChannelData(ch);
-        if (k.includes('kick')) {
-            for (let i = 0; i < len; i++) {
-                const t = i / sr;
-                d[i] = Math.sin(TAU * (140 * Math.exp(-t * 25) + 45) * t) * Math.exp(-t * 10) * 0.8;
+        this.generatePattern();
+    }
+
+    createFallback(name) {
+        const sr = this.ctx.sampleRate;
+        const len = sr * 0.3;
+        const buf = this.ctx.createBuffer(2, len, sr);
+        for (let ch = 0; ch < 2; ch++) {
+            const d = buf.getChannelData(ch);
+            if (name === 'kick') {
+                for (let i = 0; i < len; i++) {
+                    const t = i / sr;
+                    d[i] = Math.sin(TAU * (120 * Math.exp(-t * 25) + 40) * t) * Math.exp(-t * 10) * 0.8;
+                }
+            } else if (name === 'snare') {
+                for (let i = 0; i < len; i++) {
+                    const t = i / sr;
+                    d[i] = ((Math.random() * 2 - 1) * 0.6 + Math.sin(TAU * 180 * t) * 0.3) * Math.exp(-t * 15);
+                }
+            } else {
+                for (let i = 0; i < len * 0.1; i++) {
+                    const t = i / sr;
+                    d[i] = (Math.random() * 2 - 1) * Math.exp(-t * 40) * 0.3;
+                }
             }
-        } else if (k.includes('snare')) {
-            for (let i = 0; i < len; i++) {
-                const t = i / sr;
-                d[i] = ((Math.random() * 2 - 1) * 0.7 + Math.sin(TAU * 180 * t) * 0.3) * Math.exp(-t * 15) * 0.6;
-            }
+        }
+        return buf;
+    }
+
+    async generatePattern() {
+        const heard = this.listen();
+
+        // Listen to what others are doing
+        const bassPlaying = heard.bass.playing;
+        const intensity = heard.intensity;
+
+        // Decide on pattern density based on what we hear
+        let kickDensity = 3 + Math.round(intensity * 2);
+        let hatDensity = 0.4 + intensity * 0.4;
+
+        // If bass is busy, leave more space
+        if (bassPlaying) {
+            kickDensity = Math.max(2, kickDensity - 1);
+        }
+
+        // If someone signals "space", back off
+        if (heard.signals.space > 0.5) {
+            kickDensity = 2;
+            hatDensity *= 0.5;
+        }
+
+        // Generate pattern
+        this.pattern = {
+            kicks: this.euclidean(16, kickDensity, SharedState.bar % 5),
+            snares: [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
+            hats: Array(16).fill(0).map(() => Math.random() < hatDensity ? 0.3 + Math.random() * 0.3 : 0),
+            swing: 0.12
+        };
+
+        // Add variation in later phrases
+        if (SharedState.phrase === 3) this.pattern.snares[10] = 0.5;
+        if (SharedState.phrase === 7) this.pattern.snares[14] = 0.6;
+
+        this.broadcast({ pattern: this.pattern });
+    }
+
+    euclidean(steps, pulses, rotation = 0) {
+        const pattern = [];
+        let bucket = 0;
+        for (let i = 0; i < steps; i++) {
+            bucket += pulses;
+            pattern.push(bucket >= steps ? (bucket -= steps, 1) : 0);
+        }
+        for (let i = 0; i < rotation; i++) pattern.push(pattern.shift());
+        return pattern;
+    }
+
+    play(sample, opts = {}) {
+        if (!this.samples[sample]) return;
+        const src = this.ctx.createBufferSource();
+        src.buffer = this.samples[sample];
+        if (opts.pitch) src.playbackRate.value = Math.pow(2, opts.pitch / 12);
+
+        const g = this.ctx.createGain();
+        g.gain.value = opts.vol || 0.8;
+
+        if (opts.pan) {
+            const p = this.ctx.createStereoPanner();
+            p.pan.value = opts.pan;
+            src.connect(p).connect(g);
         } else {
-            for (let i = 0; i < len * 0.15; i++) {
-                const t = i / sr;
-                d[i] = (Math.random() * 2 - 1) * Math.exp(-t * 40) * 0.35;
-            }
+            src.connect(g);
         }
+
+        g.connect(this.bus);
+        src.start(this.ctx.currentTime + (opts.delay || 0));
     }
-    return buf;
+
+    tick(time) {
+        const stepDur = 60 / SharedState.bpm / 4;
+
+        if (time - this.lastStep >= stepDur) {
+            this.lastStep = time;
+
+            if (this.step % 16 === 0) {
+                SharedState.bar++;
+                SharedState.phrase = SharedState.bar % 8;
+                this.generatePattern();
+            }
+
+            if (!this.pattern) return;
+
+            const s = this.step % 16;
+            const sw = s % 2 === 1 ? stepDur * this.pattern.swing : 0;
+
+            // KICK
+            if (this.pattern.kicks[s]) {
+                this.play('kick', { vol: 0.85 + SharedState.intensity * 0.15, delay: sw });
+                this.broadcast({ kick: true });
+                this.active = true;
+            } else {
+                this.broadcast({ kick: false });
+            }
+
+            // SNARE
+            if (this.pattern.snares[s]) {
+                this.play('snare', {
+                    vol: this.pattern.snares[s] * (0.7 + SharedState.intensity * 0.25),
+                    delay: sw,
+                    pan: (Math.random() - 0.5) * 0.1
+                });
+                this.broadcast({ snare: true });
+            } else {
+                this.broadcast({ snare: false });
+            }
+
+            // HATS
+            if (this.pattern.hats[s]) {
+                this.play('hat', {
+                    vol: this.pattern.hats[s] * 0.6,
+                    delay: sw,
+                    pan: (Math.random() - 0.5) * 0.4
+                });
+                this.broadcast({ hat: true });
+            } else {
+                this.broadcast({ hat: false });
+            }
+
+            SharedState.beat = s;
+            this.step++;
+
+            if (s === 15) this.active = false;
+        }
+
+        this.updateBadge();
+    }
 }
 
-// ============ FX CHAIN ============
+// ============ BASS AGENT ============
 
-let drumBus, bassBus, padBus, masterBus;
-let lofiFilter, verb, verbWet, dly, dlyWet, sat, comp, lim;
+class BassAgent extends Agent {
+    constructor() {
+        super('bass', {
+            reactivity: 0.6,
+            density: 0.7,
+            adventurousness: 0.4,
+            listening: 0.7 // Bass listens a lot to drums
+        });
 
-function initFX() {
-    drumBus = ctx.createGain(); drumBus.gain.value = 0.75;
-    bassBus = ctx.createGain(); bassBus.gain.value = 0.6;
-    padBus = ctx.createGain(); padBus.gain.value = 0.4;
-    masterBus = ctx.createGain();
-
-    sat = ctx.createWaveShaper();
-    const curve = new Float32Array(65536);
-    for (let i = 0; i < 65536; i++) curve[i] = Math.tanh((i / 32768 - 1) * 1.5) * 0.95;
-    sat.curve = curve;
-    sat.oversample = '4x';
-
-    lofiFilter = ctx.createBiquadFilter();
-    lofiFilter.type = 'lowpass';
-    lofiFilter.frequency.value = 18000;
-
-    comp = ctx.createDynamicsCompressor();
-    comp.threshold.value = -14;
-    comp.ratio.value = 4;
-    comp.attack.value = 0.003;
-    comp.release.value = 0.12;
-
-    lim = ctx.createDynamicsCompressor();
-    lim.threshold.value = -2;
-    lim.ratio.value = 20;
-    lim.attack.value = 0.001;
-
-    // Lush reverb
-    verb = ctx.createConvolver();
-    const vLen = ctx.sampleRate * 2.8;
-    const vBuf = ctx.createBuffer(2, vLen, ctx.sampleRate);
-    for (let ch = 0; ch < 2; ch++) {
-        const d = vBuf.getChannelData(ch);
-        for (let i = 0; i < vLen; i++) d[i] = (Math.random() * 2 - 1) * Math.exp(-i / ctx.sampleRate / 1.4) * 0.45;
+        this.osc1 = null;
+        this.osc2 = null;
+        this.filter = null;
+        this.gain = null;
+        this.currentNote = 0;
+        this.pattern = [0, 0, 5, 3];
+        this.step = 0;
+        this.lastStep = 0;
     }
-    verb.buffer = vBuf;
-    verbWet = ctx.createGain();
-    verbWet.gain.value = 0.22;
 
-    // Tape delay
-    dly = ctx.createDelay(1);
-    dly.delayTime.value = 0.375;
-    const dlyFb = ctx.createGain();
-    dlyFb.gain.value = 0.35;
-    const dlyFilt = ctx.createBiquadFilter();
-    dlyFilt.type = 'lowpass';
-    dlyFilt.frequency.value = 2400;
-    dlyWet = ctx.createGain();
-    dlyWet.gain.value = 0.16;
-    dly.connect(dlyFilt).connect(dlyFb).connect(dly);
-    dlyFilt.connect(dlyWet);
+    async init(audioCtx) {
+        this.ctx = audioCtx;
+        this.bus = audioCtx.createGain();
+        this.bus.gain.value = 0.6;
 
-    master = ctx.createGain();
+        this.osc1 = audioCtx.createOscillator();
+        this.osc2 = audioCtx.createOscillator();
+        this.osc1.type = 'sine';
+        this.osc2.type = 'triangle';
+        this.osc1.frequency.value = 55;
+        this.osc2.frequency.value = 55;
+        this.osc2.detune.value = 5;
+
+        this.filter = audioCtx.createBiquadFilter();
+        this.filter.type = 'lowpass';
+        this.filter.frequency.value = 400;
+        this.filter.Q.value = 2;
+
+        this.gain = audioCtx.createGain();
+        this.gain.gain.value = 0;
+
+        const mix = audioCtx.createGain();
+        mix.gain.value = 0.5;
+        this.osc1.connect(mix);
+        this.osc2.connect(mix);
+        mix.connect(this.filter).connect(this.gain).connect(this.bus);
+
+        this.osc1.start();
+        this.osc2.start();
+    }
+
+    decideNextNote() {
+        const heard = this.listen();
+        const chord = heard.chord;
+
+        // Listen to drums - if kick just hit, consider root
+        if (heard.drums.kick) {
+            if (Math.random() < 0.6) return 0; // Play root on kick
+        }
+
+        // Listen to keys - try to complement their voicing
+        if (heard.keys.notes.length > 0) {
+            // Find a note that's NOT in the keys voicing
+            const keysNotes = heard.keys.notes.map(n => n % 12);
+            const options = chord.filter(n => !keysNotes.includes(n % 12));
+            if (options.length > 0) {
+                return options[Math.floor(Math.random() * options.length)];
+            }
+        }
+
+        // Default: walk through chord tones
+        const walkOptions = [0, chord[1] || 3, chord[2] || 7, 5, -5, 7];
+        return walkOptions[Math.floor(Math.random() * walkOptions.length)];
+    }
+
+    tick(time) {
+        const heard = this.listen();
+        const stepDur = 60 / SharedState.bpm / 2; // 8th notes
+
+        if (time - this.lastStep >= stepDur) {
+            this.lastStep = time;
+
+            // Decide note based on what we hear
+            if (this.step % 4 === 0 || Math.random() < this.personality.adventurousness * 0.3) {
+                this.currentNote = this.decideNextNote();
+            }
+
+            // Respond to intensity
+            const shouldPlay = heard.intensity > 0.2 || heard.drums.kick;
+
+            if (shouldPlay) {
+                // Y position shifts root
+                const rootShift = (1 - Motion.y) * 0.4;
+                const baseFreq = 55 * Math.pow(2, SharedState.key / 12);
+                const freq = baseFreq * Math.pow(2, this.currentNote / 12 + rootShift);
+
+                this.osc1.frequency.linearRampToValueAtTime(freq, this.ctx.currentTime + 0.02);
+                this.osc2.frequency.linearRampToValueAtTime(freq, this.ctx.currentTime + 0.02);
+
+                this.broadcast({ note: this.currentNote, playing: true });
+                this.active = true;
+            }
+
+            this.step++;
+        }
+
+        // Filter responds to energy
+        const filterFreq = 200 + heard.energy * 600 + heard.intensity * 300;
+        this.filter.frequency.linearRampToValueAtTime(filterFreq, this.ctx.currentTime + 0.05);
+
+        // Volume
+        const vol = heard.intensity > 0.15 ? 0.5 : 0.2;
+        this.gain.gain.linearRampToValueAtTime(vol, this.ctx.currentTime + 0.1);
+
+        if (heard.intensity < 0.1) {
+            this.active = false;
+            this.broadcast({ playing: false });
+        }
+
+        this.updateBadge();
+    }
+}
+
+// ============ KEYS AGENT ============
+
+class KeysAgent extends Agent {
+    constructor() {
+        super('keys', {
+            reactivity: 0.5,
+            density: 0.6,
+            adventurousness: 0.5,
+            listening: 0.8 // Keys listen to everyone
+        });
+
+        this.oscs = [];
+        this.filter = null;
+        this.gain = null;
+        this.currentVoicing = [];
+    }
+
+    async init(audioCtx) {
+        this.ctx = audioCtx;
+        this.bus = audioCtx.createGain();
+        this.bus.gain.value = 0.4;
+
+        this.filter = audioCtx.createBiquadFilter();
+        this.filter.type = 'lowpass';
+        this.filter.frequency.value = 2000;
+
+        this.gain = audioCtx.createGain();
+        this.gain.gain.value = 0;
+
+        // Create 4 oscillators for chords
+        for (let i = 0; i < 4; i++) {
+            const osc = audioCtx.createOscillator();
+            osc.type = i < 2 ? 'sine' : 'triangle';
+            osc.frequency.value = 220;
+            const g = audioCtx.createGain();
+            g.gain.value = 0.12;
+            osc.connect(g).connect(this.filter);
+            osc.start();
+            this.oscs.push({ osc, gain: g });
+        }
+
+        this.filter.connect(this.gain).connect(this.bus);
+    }
+
+    generateVoicing() {
+        const heard = this.listen();
+        const chord = heard.chord;
+        const bassNote = heard.bass.note;
+
+        // Build a voicing that complements the bass
+        let voicing = [];
+
+        // If bass has the root, we can skip it
+        if (bassNote === 0 || bassNote === null) {
+            voicing = [chord[1] || 3, chord[2] || 7, 12, (chord[1] || 3) + 12];
+        } else {
+            // Include root since bass doesn't have it
+            voicing = [0, chord[1] || 3, chord[2] || 7, 12];
+        }
+
+        // Add some color based on adventurousness
+        if (Math.random() < this.personality.adventurousness) {
+            // Add extensions
+            const extensions = [9, 11, 13, 14];
+            voicing[3] = extensions[Math.floor(Math.random() * extensions.length)];
+        }
+
+        return voicing;
+    }
+
+    tick(time) {
+        const heard = this.listen();
+
+        // Update voicing each bar
+        if (SharedState.beat === 0) {
+            this.currentVoicing = this.generateVoicing();
+            this.broadcast({ voicing: this.currentVoicing, notes: this.currentVoicing });
+        }
+
+        // Set frequencies
+        const baseFreq = 220 * Math.pow(2, SharedState.key / 12);
+        this.oscs.forEach((o, i) => {
+            const note = this.currentVoicing[i] || 0;
+            const freq = baseFreq * Math.pow(2, note / 12);
+            o.osc.frequency.linearRampToValueAtTime(freq, this.ctx.currentTime + 0.15);
+        });
+
+        // Volume based on stillness (keys swell when you stop moving)
+        const stillness = 1 - Math.min(1, heard.energy * 4);
+        const targetVol = stillness * 0.2 * heard.intensity;
+        this.gain.gain.linearRampToValueAtTime(targetVol, this.ctx.currentTime + 0.2);
+
+        // Filter
+        const filterFreq = 1200 + stillness * 1500 + heard.energy * 500;
+        this.filter.frequency.linearRampToValueAtTime(filterFreq, this.ctx.currentTime + 0.1);
+
+        this.active = targetVol > 0.02;
+        this.broadcast({ notes: this.currentVoicing });
+        this.updateBadge();
+    }
+}
+
+// ============ LEAD AGENT ============
+
+class LeadAgent extends Agent {
+    constructor() {
+        super('lead', {
+            reactivity: 0.8,
+            density: 0.4,
+            adventurousness: 0.6,
+            listening: 0.6
+        });
+
+        this.osc = null;
+        this.filter = null;
+        this.gain = null;
+        this.vibrato = null;
+        this.vibratoGain = null;
+        this.currentPhrase = [];
+        this.phraseIndex = 0;
+        this.lastNote = 0;
+        this.aiModel = null;
+    }
+
+    async init(audioCtx) {
+        this.ctx = audioCtx;
+        this.bus = audioCtx.createGain();
+        this.bus.gain.value = 0.35;
+
+        this.osc = audioCtx.createOscillator();
+        this.osc.type = 'sawtooth';
+        this.osc.frequency.value = 440;
+
+        this.filter = audioCtx.createBiquadFilter();
+        this.filter.type = 'lowpass';
+        this.filter.frequency.value = 2500;
+        this.filter.Q.value = 3;
+
+        this.gain = audioCtx.createGain();
+        this.gain.gain.value = 0;
+
+        this.vibrato = audioCtx.createOscillator();
+        this.vibrato.frequency.value = 5;
+        this.vibratoGain = audioCtx.createGain();
+        this.vibratoGain.gain.value = 0;
+        this.vibrato.connect(this.vibratoGain).connect(this.osc.frequency);
+        this.vibrato.start();
+
+        this.osc.connect(this.filter).connect(this.gain).connect(this.bus);
+        this.osc.start();
+
+        // Try to load Magenta MelodyRNN
+        try {
+            this.aiModel = new music_rnn.MusicRNN(
+                'https://storage.googleapis.com/magentadata/js/checkpoints/music_rnn/melody_rnn'
+            );
+            await this.aiModel.initialize();
+            console.log('Melody AI ready');
+        } catch (e) {
+            console.warn('Melody AI unavailable');
+        }
+    }
+
+    generatePhrase() {
+        const heard = this.listen();
+        const chord = heard.chord;
+        const scale = [0, 2, 3, 5, 7, 8, 10]; // Minor scale
+
+        // Listen to what keys are playing - avoid those notes initially
+        const keysNotes = (heard.keys.notes || []).map(n => n % 12);
+
+        // Build a phrase
+        const phraseLength = 4 + Math.floor(Math.random() * 5);
+        const phrase = [];
+
+        let currentNote = this.lastNote;
+
+        for (let i = 0; i < phraseLength; i++) {
+            // Decide direction
+            let step;
+            if (Math.random() < 0.3) {
+                // Jump to chord tone
+                step = chord[Math.floor(Math.random() * chord.length)] - currentNote;
+            } else {
+                // Step motion
+                step = Math.floor(Math.random() * 5) - 2; // -2 to +2
+            }
+
+            currentNote += step;
+            currentNote = Math.max(-12, Math.min(24, currentNote));
+
+            phrase.push({
+                note: currentNote,
+                duration: Math.random() < 0.3 ? 2 : 1 // Some notes are longer
+            });
+        }
+
+        this.lastNote = currentNote;
+        return phrase;
+    }
+
+    tick(time) {
+        const heard = this.listen();
+
+        // Lead plays when there's motion
+        const shouldPlay = heard.energy > 0.03 && heard.intensity > 0.35;
+
+        if (shouldPlay) {
+            // Generate new phrase if needed
+            if (this.currentPhrase.length === 0 || this.phraseIndex >= this.currentPhrase.length) {
+                this.currentPhrase = this.generatePhrase();
+                this.phraseIndex = 0;
+                this.broadcast({ phrase: this.currentPhrase });
+
+                // Signal call-response opportunity
+                this.signal('callResponse', { from: 'lead', phrase: this.currentPhrase });
+            }
+
+            // Play current note
+            const noteData = this.currentPhrase[this.phraseIndex];
+            if (noteData) {
+                // X position shifts pitch
+                const xShift = (Motion.x - 0.5) * 12;
+                const baseFreq = 440 * Math.pow(2, SharedState.key / 12);
+                const freq = baseFreq * Math.pow(2, (noteData.note + xShift) / 12);
+
+                this.osc.frequency.linearRampToValueAtTime(freq, this.ctx.currentTime + 0.05);
+                this.broadcast({ note: noteData.note, playing: true });
+            }
+
+            // Advance phrase on beats
+            if (SharedState.beat % 2 === 0) {
+                this.phraseIndex++;
+            }
+
+            // Vibrato
+            this.vibratoGain.gain.value = heard.intensity * 10;
+
+            // Filter opens with energy
+            const filterFreq = 1500 + heard.energy * 2000 + heard.intensity * 1000;
+            this.filter.frequency.linearRampToValueAtTime(filterFreq, this.ctx.currentTime + 0.05);
+
+            // Volume
+            this.gain.gain.linearRampToValueAtTime(0.15 * heard.intensity, this.ctx.currentTime + 0.1);
+            this.active = true;
+        } else {
+            this.gain.gain.linearRampToValueAtTime(0, this.ctx.currentTime + 0.2);
+            this.active = false;
+            this.broadcast({ playing: false });
+            this.currentPhrase = [];
+        }
+
+        this.updateBadge();
+    }
+}
+
+// ============ VOICE AGENT ============
+
+class VoiceAgent extends Agent {
+    constructor() {
+        super('voice', {
+            reactivity: 0.4,
+            density: 0.3,
+            adventurousness: 0.3,
+            listening: 0.9 // Voice listens to everyone before entering
+        });
+
+        this.oscs = [];
+        this.formantFilters = [];
+        this.gain = null;
+        this.currentVowel = 'a';
+    }
+
+    // Formant frequencies for vowels
+    static VOWELS = {
+        a: { f1: 800, f2: 1200, f3: 2500 },
+        e: { f1: 400, f2: 2000, f3: 2600 },
+        i: { f1: 300, f2: 2300, f3: 3000 },
+        o: { f1: 500, f2: 900, f3: 2400 },
+        u: { f1: 350, f2: 700, f3: 2400 }
+    };
+
+    async init(audioCtx) {
+        this.ctx = audioCtx;
+        this.bus = audioCtx.createGain();
+        this.bus.gain.value = 0.35;
+
+        this.gain = audioCtx.createGain();
+        this.gain.gain.value = 0;
+
+        // Create carrier oscillators (sawtooth rich in harmonics)
+        for (let i = 0; i < 2; i++) {
+            const osc = audioCtx.createOscillator();
+            osc.type = 'sawtooth';
+            osc.frequency.value = 220;
+            osc.detune.value = i * 5;
+            this.oscs.push(osc);
+        }
+
+        // Create formant filters
+        for (let i = 0; i < 3; i++) {
+            const filter = audioCtx.createBiquadFilter();
+            filter.type = 'bandpass';
+            filter.frequency.value = VoiceAgent.VOWELS.a[`f${i+1}`];
+            filter.Q.value = 10 + i * 5;
+
+            const filterGain = audioCtx.createGain();
+            filterGain.gain.value = 0.2 / (i + 1);
+
+            this.formantFilters.push({ filter, gain: filterGain });
+        }
+
+        // Connect: oscs -> formants -> gain -> bus
+        const oscMix = audioCtx.createGain();
+        oscMix.gain.value = 0.3;
+        this.oscs.forEach(osc => osc.connect(oscMix));
+
+        this.formantFilters.forEach(({ filter, gain }) => {
+            oscMix.connect(filter);
+            filter.connect(gain);
+            gain.connect(this.gain);
+        });
+
+        this.gain.connect(this.bus);
+        this.oscs.forEach(osc => osc.start());
+    }
+
+    chooseVowel() {
+        const heard = this.listen();
+
+        // Choose vowel based on position
+        const x = Motion.x;
+        if (x < 0.2) return 'a';
+        if (x < 0.4) return 'e';
+        if (x < 0.6) return 'i';
+        if (x < 0.8) return 'o';
+        return 'u';
+    }
+
+    tick(time) {
+        const heard = this.listen();
+
+        // Voice enters on stillness when intensity is high
+        // Voice responds to call-response from lead
+        const stillness = 1 - Math.min(1, heard.energy * 3);
+        const leadCalled = heard.signals.callResponse?.from === 'lead';
+
+        const shouldSing = (stillness > 0.5 && heard.intensity > 0.45) || leadCalled;
+
+        if (shouldSing) {
+            // Choose vowel based on position
+            this.currentVowel = this.chooseVowel();
+            const vowel = VoiceAgent.VOWELS[this.currentVowel];
+
+            // Set formant frequencies (morphing)
+            this.formantFilters.forEach(({ filter }, i) => {
+                const targetFreq = vowel[`f${i+1}`];
+                filter.frequency.linearRampToValueAtTime(targetFreq, this.ctx.currentTime + 0.15);
+            });
+
+            // Pitch: follow chord root, Y controls octave
+            const chord = heard.chord;
+            const rootNote = chord[0];
+            const octaveShift = (1 - Motion.y) * 0.5;
+            const baseFreq = 220 * Math.pow(2, SharedState.key / 12 + octaveShift);
+            const freq = baseFreq * Math.pow(2, rootNote / 12);
+
+            this.oscs.forEach(osc => {
+                osc.frequency.linearRampToValueAtTime(freq, this.ctx.currentTime + 0.1);
+            });
+
+            // Volume
+            const vol = stillness * 0.2 * heard.intensity;
+            this.gain.gain.linearRampToValueAtTime(vol, this.ctx.currentTime + 0.2);
+
+            this.active = true;
+            this.broadcast({ note: rootNote, vowel: this.currentVowel, playing: true });
+        } else {
+            this.gain.gain.linearRampToValueAtTime(0, this.ctx.currentTime + 0.3);
+            this.active = false;
+            this.broadcast({ playing: false });
+        }
+
+        this.updateBadge();
+    }
+}
+
+// ============ MASTER FX ============
+
+let masterBus, reverb, reverbWet, delay, delayWet, compressor, limiter;
+
+function initMasterFX(audioCtx) {
+    masterBus = audioCtx.createGain();
+    masterBus.gain.value = 1;
+
+    // Saturation
+    const sat = audioCtx.createWaveShaper();
+    const curve = new Float32Array(65536);
+    for (let i = 0; i < 65536; i++) {
+        curve[i] = Math.tanh((i / 32768 - 1) * 1.4) * 0.95;
+    }
+    sat.curve = curve;
+    sat.oversample = '2x';
+
+    // Reverb
+    reverb = audioCtx.createConvolver();
+    const reverbLen = audioCtx.sampleRate * 2.5;
+    const reverbBuf = audioCtx.createBuffer(2, reverbLen, audioCtx.sampleRate);
+    for (let ch = 0; ch < 2; ch++) {
+        const d = reverbBuf.getChannelData(ch);
+        for (let i = 0; i < reverbLen; i++) {
+            d[i] = (Math.random() * 2 - 1) * Math.exp(-i / audioCtx.sampleRate / 1.3) * 0.4;
+        }
+    }
+    reverb.buffer = reverbBuf;
+    reverbWet = audioCtx.createGain();
+    reverbWet.gain.value = 0.22;
+
+    // Delay
+    delay = audioCtx.createDelay(1);
+    delay.delayTime.value = 60 / SharedState.bpm * 0.75; // Dotted 8th
+    const delayFb = audioCtx.createGain();
+    delayFb.gain.value = 0.3;
+    const delayFilter = audioCtx.createBiquadFilter();
+    delayFilter.type = 'lowpass';
+    delayFilter.frequency.value = 2500;
+    delay.connect(delayFilter).connect(delayFb).connect(delay);
+    delayWet = audioCtx.createGain();
+    delayWet.gain.value = 0.15;
+    delayFilter.connect(delayWet);
+
+    // Compressor
+    compressor = audioCtx.createDynamicsCompressor();
+    compressor.threshold.value = -12;
+    compressor.ratio.value = 4;
+    compressor.attack.value = 0.003;
+    compressor.release.value = 0.12;
+
+    // Limiter
+    limiter = audioCtx.createDynamicsCompressor();
+    limiter.threshold.value = -1;
+    limiter.ratio.value = 20;
+    limiter.attack.value = 0.001;
+
+    // Master out
+    master = audioCtx.createGain();
     master.gain.value = 0.85;
 
     // Routing
-    [drumBus, bassBus, padBus].forEach(b => b.connect(masterBus));
-    masterBus.connect(sat).connect(lofiFilter).connect(comp);
-    masterBus.connect(verb); verb.connect(verbWet);
-    masterBus.connect(dly);
-    [comp, verbWet, dlyWet].forEach(n => n.connect(lim));
-    lim.connect(master).connect(ctx.destination);
+    masterBus.connect(sat).connect(compressor);
+    masterBus.connect(reverb); reverb.connect(reverbWet);
+    masterBus.connect(delay);
+    [compressor, reverbWet, delayWet].forEach(n => n.connect(limiter));
+    limiter.connect(master).connect(audioCtx.destination);
+
+    return masterBus;
 }
 
-// ============ EUCLIDEAN PATTERN ENGINE ============
+// ============ ORCHESTRA ============
 
-function euclidean(steps, pulses, rot = 0) {
-    const p = [];
-    let b = 0;
-    for (let i = 0; i < steps; i++) {
-        b += pulses;
-        p.push(b >= steps ? (b -= steps, 1) : 0);
+const Orchestra = {
+    agents: {},
+
+    async init(audioCtx) {
+        const masterOut = initMasterFX(audioCtx);
+
+        // Create agents
+        this.agents.drums = new DrumAgent();
+        this.agents.bass = new BassAgent();
+        this.agents.keys = new KeysAgent();
+        this.agents.lead = new LeadAgent();
+        this.agents.voice = new VoiceAgent();
+
+        // Initialize each agent
+        const status = document.getElementById('load-status');
+
+        for (const [name, agent] of Object.entries(this.agents)) {
+            status.textContent = `loading ${name}...`;
+            await agent.init(audioCtx);
+            agent.bus.connect(masterOut);
+        }
+
+        status.textContent = 'ready';
+    },
+
+    tick(time) {
+        // Update each agent
+        for (const agent of Object.values(this.agents)) {
+            agent.tick(time);
+        }
+
+        // Update shared harmony periodically
+        if (SharedState.beat === 0) {
+            this.updateHarmony();
+        }
+    },
+
+    updateHarmony() {
+        // Progress chord every few bars
+        const progressions = {
+            minor: [
+                { chord: [0, 3, 7], name: 'Am' },
+                { chord: [5, 8, 12], name: 'Dm' },
+                { chord: [3, 7, 10], name: 'C' },
+                { chord: [7, 10, 14], name: 'Em' }
+            ]
+        };
+
+        const prog = progressions[SharedState.mode];
+        const chordIndex = SharedState.bar % prog.length;
+        SharedState.chord = prog[chordIndex].chord;
+        SharedState.chordName = prog[chordIndex].name;
     }
-    for (let i = 0; i < rot; i++) p.push(p.shift());
-    return p;
-}
-
-const GENES = {
-    dust: { bpm: 72, kickP: 3, swing: 0.12, ghost: 0.28, hatP: 0.4, kit: 'a' },
-    gold: { bpm: 88, kickP: 5, swing: 0.16, ghost: 0.22, hatP: 0.55, kit: 'b' },
-    drive: { bpm: 122, kickP: 4, swing: 0, ghost: 0.12, hatP: 0.7, kit: 'b' }
 };
-
-let pattern = null;
-let step = 0;
-let lastStep = 0;
-
-function genPattern(gene, bar) {
-    const g = GENES[gene];
-    const evolution = Math.sin(bar * 0.3 + field.x * 2) * 0.6;
-    const kicks = euclidean(16, Math.round(g.kickP + evolution), bar % 5);
-
-    const snares = new Array(16).fill(0);
-    snares[4] = 0.9; snares[12] = 1;
-    // Variation based on phrase
-    if (music.phrase === 3) snares[10] = 0.5;
-    if (music.phrase === 7) snares[14] = 0.6;
-
-    // Hats driven by intensity
-    const hats = [];
-    const hatDensity = g.hatP * (0.6 + music.intensity * 0.5);
-    for (let i = 0; i < 16; i++) {
-        hats.push(Math.random() < hatDensity ? 0.2 + Math.random() * 0.35 : 0);
-    }
-
-    // Ghost notes - subtle kicks between main hits
-    const ghosts = kicks.map((k, i) =>
-        !k && !snares[i] && Math.random() < g.ghost * music.intensity ? 0.12 + Math.random() * 0.1 : 0
-    );
-
-    // Perc accents - rare, add sparkle
-    const percs = [];
-    for (let i = 0; i < 16; i++) {
-        percs.push(i % 4 === 2 && Math.random() < 0.2 * music.intensity ? 0.15 : 0);
-    }
-
-    return { kicks, snares, hats, ghosts, percs, swing: g.swing, kit: g.kit, bpm: g.bpm };
-}
-
-function play(buf, opts = {}) {
-    if (!buf) return;
-    const src = ctx.createBufferSource();
-    src.buffer = buf;
-    if (opts.pitch) src.playbackRate.value = Math.pow(2, opts.pitch / 12);
-
-    const g = ctx.createGain();
-    g.gain.value = opts.vol || 1;
-
-    let node = src;
-    if (opts.filter) {
-        const f = ctx.createBiquadFilter();
-        f.type = 'lowpass';
-        f.frequency.value = opts.filter;
-        src.connect(f);
-        node = f;
-    }
-
-    if (opts.pan) {
-        const p = ctx.createStereoPanner();
-        p.pan.value = opts.pan;
-        node.connect(p).connect(g);
-    } else {
-        node.connect(g);
-    }
-
-    g.connect(opts.bus || drumBus);
-    // Humanize timing
-    src.start(ctx.currentTime + (opts.delay || 0) + (Math.random() - 0.5) * 0.006);
-}
-
-function updateBeats() {
-    if (dial.pulse === '0') return;
-
-    const gene = GENES[dial.pulse];
-    if (!gene) return;
-
-    const stepDur = 60 / gene.bpm / 4;
-    const now = ctx.currentTime;
-
-    if (now - lastStep >= stepDur) {
-        lastStep = now;
-
-        // New pattern each bar
-        if (step % 16 === 0) {
-            music.bar++;
-            music.phrase = music.bar % 8;
-            pattern = genPattern(dial.pulse, music.bar);
-
-            // CORE MAGIC: Motion → Intensity
-            music.intensity = music.intensity * 0.85 + field.peak * 0.15;
-            music.intensity = Math.max(0.25, Math.min(1, music.intensity));
-            music.density = 0.4 + music.intensity * 0.4;
-        }
-
-        if (!pattern) return;
-
-        const s = step % 16;
-        const sw = s % 2 === 1 ? stepDur * pattern.swing : 0;
-        const k = pattern.kit;
-
-        // DRUMS - the groove
-        if (pattern.kicks[s]) {
-            const vel = 0.8 + music.intensity * 0.2;
-            play(samples['kick_' + k], { vol: vel, delay: sw });
-        }
-
-        if (pattern.snares[s]) {
-            const vel = pattern.snares[s] * (0.7 + music.intensity * 0.25);
-            play(samples['snare_' + k], { vol: vel, delay: sw, pan: (Math.random() - 0.5) * 0.12 });
-        }
-
-        if (pattern.hats[s]) {
-            const vel = pattern.hats[s] * (0.5 + music.density * 0.4);
-            const filt = dial.haze === 'fog' ? 5500 : dial.haze === 'heat' ? 7000 : 11000;
-            play(samples['hat_' + k], { vol: vel, delay: sw, pan: (Math.random() - 0.5) * 0.4, filter: filt });
-        }
-
-        if (pattern.ghosts[s]) {
-            play(samples['kick_' + k], { vol: pattern.ghosts[s], delay: sw, filter: 700, pitch: -3 });
-        }
-
-        if (pattern.percs[s]) {
-            play(samples['perc'], { vol: pattern.percs[s], delay: sw, pan: (Math.random() - 0.5) * 0.6, pitch: 5 });
-        }
-
-        step++;
-    }
-}
-
-// ============ BASS - EVOLVING ============
-
-let bassO1, bassO2, bassF, bassG, bassLFO, bassLFOG;
-
-function initBass() {
-    bassO1 = ctx.createOscillator();
-    bassO2 = ctx.createOscillator();
-    bassO1.type = bassO2.type = 'sine';
-    bassO1.frequency.value = bassO2.frequency.value = 55;
-    bassO2.detune.value = 7;
-
-    bassF = ctx.createBiquadFilter();
-    bassF.type = 'lowpass';
-    bassF.frequency.value = 350;
-    bassF.Q.value = 1.8;
-
-    bassLFO = ctx.createOscillator();
-    bassLFO.frequency.value = 0.35;
-    bassLFOG = ctx.createGain();
-    bassLFOG.gain.value = 0;
-    bassLFO.connect(bassLFOG).connect(bassF.frequency);
-    bassLFO.start();
-
-    bassG = ctx.createGain();
-    bassG.gain.value = 0;
-
-    const mix = ctx.createGain();
-    mix.gain.value = 0.5;
-    bassO1.connect(mix);
-    bassO2.connect(mix);
-    mix.connect(bassF).connect(bassG).connect(bassBus);
-    bassO1.start();
-    bassO2.start();
-}
-
-// Bass patterns - multiple evolving lines
-const BASS_PATTERNS = {
-    dust: [
-        [0, 0, 0, 0, 5, 5, 3, 3],      // Simple
-        [0, 0, 7, 5, 3, 3, 5, 0],      // Walking
-        [0, -5, 0, 3, 5, 3, 0, -5],    // Groovy
-    ],
-    gold: [
-        [0, 0, 5, 0, 7, 5, 3, 0],      // Bouncy
-        [0, 3, 5, 7, 5, 3, 0, -2],     // Ascending
-        [0, 0, 0, 5, 0, 0, 0, 7],      // Sparse
-    ],
-    drive: [
-        [0, 0, 0, 0, 0, 0, 0, 0],      // Root pump
-        [0, 0, 12, 0, 0, 0, 12, 0],    // Octave stabs
-        [0, 5, 7, 12, 7, 5, 0, -5],    // Arpeggio
-    ]
-};
-
-let bassPatternIndex = 0;
-let bassStep = 0;
-let lastBassStep = 0;
-
-function updateBass() {
-    if (dial.depth === '0') {
-        bassG.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.1);
-        return;
-    }
-
-    const cfg = {
-        sub: { t1: 'sine', t2: 'sine', base: 32.7, filt: 200, lfo: 0, vol: 0.55, det: 5 },
-        thick: { t1: 'sawtooth', t2: 'sawtooth', base: 55, filt: 550, lfo: 100, vol: 0.38, det: 18 },
-        warm: { t1: 'triangle', t2: 'sine', base: 55, filt: 650, lfo: 35, vol: 0.42, det: 8 }
-    }[dial.depth];
-
-    if (!cfg) return;
-
-    const gene = GENES[dial.pulse] || GENES.dust;
-    const stepDur = 60 / gene.bpm / 2; // 8th notes for bass
-    const now = ctx.currentTime;
-
-    if (now - lastBassStep >= stepDur) {
-        lastBassStep = now;
-
-        // Change pattern every 4 bars based on intensity
-        if (bassStep % 32 === 0) {
-            const patterns = BASS_PATTERNS[dial.pulse] || BASS_PATTERNS.dust;
-            bassPatternIndex = Math.floor(music.intensity * patterns.length * 0.99);
-        }
-
-        const patterns = BASS_PATTERNS[dial.pulse] || BASS_PATTERNS.dust;
-        const pattern = patterns[bassPatternIndex] || patterns[0];
-        const note = pattern[bassStep % pattern.length];
-
-        // Y position shifts the root
-        const rootShift = (1 - field.y) * 0.45;
-        const freq = cfg.base * Math.pow(2, note / 12) * Math.pow(2, rootShift);
-
-        bassO1.type = cfg.t1;
-        bassO2.type = cfg.t2;
-        bassO1.frequency.linearRampToValueAtTime(freq, ctx.currentTime + 0.02);
-        bassO2.frequency.linearRampToValueAtTime(freq, ctx.currentTime + 0.02);
-        bassO2.detune.value = cfg.det;
-
-        bassStep++;
-    }
-
-    // Filter opens with energy
-    const filtMod = 1 + field.energy * 1.8 + music.intensity * 0.6;
-    bassF.frequency.linearRampToValueAtTime(cfg.filt * filtMod, ctx.currentTime + 0.05);
-    bassLFOG.gain.value = cfg.lfo * music.intensity;
-    bassLFO.frequency.value = 0.25 + field.energy * 1.5;
-
-    bassG.gain.linearRampToValueAtTime(cfg.vol, ctx.currentTime + 0.1);
-}
-
-// ============ PAD LAYER ============
-
-let padOscs = [], padG, padF;
-
-const CHORDS = {
-    dust: [[0, 3, 7, 10], [5, 8, 12, 15], [3, 7, 10, 14], [7, 10, 14, 17]],
-    gold: [[0, 4, 7, 11], [5, 9, 12, 16], [7, 11, 14, 17], [0, 4, 7, 11]],
-    drive: [[0, 3, 7, 12], [5, 8, 12, 17], [7, 10, 14, 19], [0, 3, 7, 12]]
-};
-
-function initPad() {
-    padG = ctx.createGain();
-    padG.gain.value = 0;
-    padF = ctx.createBiquadFilter();
-    padF.type = 'lowpass';
-    padF.frequency.value = 1600;
-
-    for (let i = 0; i < 4; i++) {
-        const o = ctx.createOscillator();
-        o.type = 'sine';
-        o.frequency.value = 220;
-        const g = ctx.createGain();
-        g.gain.value = 0.1 / (i + 1);
-        o.connect(g).connect(padF);
-        o.start();
-        padOscs.push({ o, g });
-    }
-    padF.connect(padG).connect(padBus);
-}
-
-function updatePad() {
-    const genre = dial.pulse === '0' ? 'dust' : dial.pulse;
-    const chords = CHORDS[genre] || CHORDS.dust;
-    const chord = chords[music.bar % 4];
-    const base = 110 * Math.pow(2, (1 - field.y) * 0.35);
-
-    padOscs.forEach((p, i) => {
-        const freq = base * Math.pow(2, (chord[i] || 0) / 12);
-        p.o.frequency.linearRampToValueAtTime(freq, ctx.currentTime + 0.3);
-    });
-
-    // CORE MAGIC: Stillness = pad swells
-    const still = 1 - Math.min(1, field.energy * 5);
-    const padVol = still * 0.22 * music.intensity;
-    padG.gain.linearRampToValueAtTime(padVol, ctx.currentTime + 0.2);
-    padF.frequency.linearRampToValueAtTime(1000 + still * 1800 + field.energy * 600, ctx.currentTime + 0.1);
-}
-
-// ============ TEXTURE ============
-
-let textureSrc, textureG;
-
-function initTexture() {
-    const len = ctx.sampleRate * 6;
-    const buf = ctx.createBuffer(2, len, ctx.sampleRate);
-    for (let ch = 0; ch < 2; ch++) {
-        const d = buf.getChannelData(ch);
-        for (let i = 0; i < len; i++) {
-            const crackle = Math.random() < 0.0006 ? (Math.random() - 0.5) * 0.35 : 0;
-            d[i] = crackle + (Math.random() * 2 - 1) * 0.012;
-        }
-    }
-    textureSrc = ctx.createBufferSource();
-    textureSrc.buffer = buf;
-    textureSrc.loop = true;
-
-    const f = ctx.createBiquadFilter();
-    f.type = 'bandpass';
-    f.frequency.value = 2800;
-    f.Q.value = 0.35;
-
-    textureG = ctx.createGain();
-    textureG.gain.value = 0;
-
-    textureSrc.connect(f).connect(textureG).connect(masterBus);
-    textureSrc.start();
-}
-
-// ============ MELODY LAYERS - DISCOVERY ============
-
-let melodies = [];
-
-function createMelody() {
-    if (melodies.length >= 4) {
-        const old = melodies.shift();
-        old.o.stop();
-    }
-
-    const genre = dial.pulse === '0' ? 'dust' : dial.pulse;
-    const chord = (CHORDS[genre] || CHORDS.dust)[music.bar % 4];
-    const note = chord[Math.floor(Math.random() * chord.length)];
-    const base = 220 * Math.pow(2, (1 - field.y) * 0.7);
-    const freq = base * Math.pow(2, note / 12);
-
-    const o = ctx.createOscillator();
-    const g = ctx.createGain();
-    const f = ctx.createBiquadFilter();
-
-    o.type = melodies.length % 2 ? 'triangle' : 'sine';
-    o.frequency.value = freq;
-    f.type = 'lowpass';
-    f.frequency.value = 1600;
-    const vol = 0.045 * Math.pow(0.65, melodies.length);
-    g.gain.value = vol;
-
-    o.connect(f).connect(g).connect(padBus);
-    o.start();
-
-    melodies.push({ o, g, f, freq, vol, phase: 0, len: 1.8 + Math.random() * 1.8 });
-}
-
-function updateMelodies(dt) {
-    for (const m of melodies) {
-        m.phase += dt / m.len;
-        if (m.phase >= 1) m.phase -= 1;
-        const env = 0.5 + 0.5 * Math.cos(m.phase * TAU);
-        m.g.gain.value = m.vol * env;
-    }
-}
-
-// ORB - motion creates melody
-let orb = { on: false, x: 0.5, y: 0.5 };
-
-function updateOrb(dt) {
-    if (!orb.on && field.energy > 0.035) {
-        orb.on = true;
-        orb.x = field.x;
-        orb.y = field.y;
-    }
-    if (orb.on) {
-        const dx = 0.5 - orb.x, dy = 0.5 - orb.y;
-        const d = Math.sqrt(dx * dx + dy * dy);
-        if (d > 0.025) {
-            const speed = 0.4 + field.energy * 0.3;
-            orb.x += (dx / d) * speed * dt;
-            orb.y += (dy / d) * speed * dt;
-        } else {
-            createMelody();
-            orb.on = false;
-        }
-        if (field.energy < 0.008) orb.on = false;
-    }
-}
-
-// ============ LEAD SYNTH - Motion-controlled melody ============
-
-let leadOsc, leadFilter, leadGain, leadVibrato, leadVibratoGain;
-let leadActive = false;
-let leadTargetFreq = 440;
-
-function initLead() {
-    leadOsc = ctx.createOscillator();
-    leadOsc.type = 'sawtooth';
-    leadOsc.frequency.value = 440;
-
-    leadFilter = ctx.createBiquadFilter();
-    leadFilter.type = 'lowpass';
-    leadFilter.frequency.value = 2000;
-    leadFilter.Q.value = 2;
-
-    leadGain = ctx.createGain();
-    leadGain.gain.value = 0;
-
-    // Vibrato
-    leadVibrato = ctx.createOscillator();
-    leadVibrato.frequency.value = 5;
-    leadVibratoGain = ctx.createGain();
-    leadVibratoGain.gain.value = 0;
-    leadVibrato.connect(leadVibratoGain).connect(leadOsc.frequency);
-    leadVibrato.start();
-
-    leadOsc.connect(leadFilter).connect(leadGain).connect(padBus);
-    leadOsc.start();
-}
-
-// Scale for quantizing lead melody
-const LEAD_SCALE = [0, 2, 3, 5, 7, 8, 10, 12, 14, 15, 17, 19];
-
-function quantizeToScale(semitone) {
-    const octave = Math.floor(semitone / 12);
-    const note = ((semitone % 12) + 12) % 12;
-    let closest = LEAD_SCALE[0];
-    let minDist = 99;
-    for (const s of LEAD_SCALE) {
-        const dist = Math.abs((s % 12) - note);
-        if (dist < minDist) {
-            minDist = dist;
-            closest = s;
-        }
-    }
-    return octave * 12 + (closest % 12);
-}
-
-function updateLead() {
-    // Check if lead is enabled via vox dial
-    if (dial.vox !== 'lead' && dial.vox !== 'both') {
-        leadGain.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.1);
-        return;
-    }
-
-    // Lead activates when there's sustained movement
-    const shouldPlay = field.energy > 0.02 && music.intensity > 0.4;
-
-    if (shouldPlay && !leadActive) {
-        leadActive = true;
-    } else if (!shouldPlay && leadActive) {
-        leadActive = false;
-    }
-
-    // X position = pitch (2 octave range)
-    const rawSemitone = Math.round((field.x - 0.5) * 24);
-    const semitone = quantizeToScale(rawSemitone);
-    const baseFreq = 220; // A3
-    leadTargetFreq = baseFreq * Math.pow(2, semitone / 12);
-
-    // Smooth pitch glide
-    leadOsc.frequency.linearRampToValueAtTime(leadTargetFreq, ctx.currentTime + 0.08);
-
-    // Filter follows Y (higher = brighter)
-    const filterFreq = 800 + (1 - field.y) * 3000 + field.energy * 1500;
-    leadFilter.frequency.linearRampToValueAtTime(filterFreq, ctx.currentTime + 0.05);
-
-    // Vibrato increases with intensity
-    leadVibratoGain.gain.value = music.intensity * 8;
-    leadVibrato.frequency.value = 4 + music.intensity * 3;
-
-    // Volume - envelope based on activity
-    const targetVol = leadActive ? 0.12 * music.intensity : 0;
-    leadGain.gain.linearRampToValueAtTime(targetVol, ctx.currentTime + 0.15);
-}
-
-// ============ VOICE SYNTH - Formant synthesis ============
-
-let voiceOscs = [];
-let voiceGain, voiceFilter;
-
-// Formant frequencies for vowels (F1, F2, F3)
-const VOWELS = {
-    a: [800, 1200, 2500],   // "ah"
-    e: [400, 2000, 2600],   // "eh"
-    i: [300, 2300, 3000],   // "ee"
-    o: [500, 900, 2400],    // "oh"
-    u: [350, 700, 2400],    // "oo"
-};
-
-function initVoice() {
-    voiceGain = ctx.createGain();
-    voiceGain.gain.value = 0;
-
-    voiceFilter = ctx.createBiquadFilter();
-    voiceFilter.type = 'lowpass';
-    voiceFilter.frequency.value = 4000;
-
-    // Create 3 formant oscillators
-    for (let i = 0; i < 3; i++) {
-        const osc = ctx.createOscillator();
-        osc.type = 'sine';
-        osc.frequency.value = 440;
-
-        const formantFilter = ctx.createBiquadFilter();
-        formantFilter.type = 'bandpass';
-        formantFilter.frequency.value = VOWELS.a[i];
-        formantFilter.Q.value = 8 + i * 4;
-
-        const formantGain = ctx.createGain();
-        formantGain.gain.value = 0.15 / (i + 1);
-
-        osc.connect(formantFilter).connect(formantGain).connect(voiceFilter);
-        osc.start();
-
-        voiceOscs.push({ osc, filter: formantFilter, gain: formantGain });
-    }
-
-    voiceFilter.connect(voiceGain).connect(padBus);
-}
-
-// Current vowel blend
-let voiceVowel = { a: 1, e: 0, i: 0, o: 0, u: 0 };
-
-function updateVoice() {
-    // Check if voice is enabled via vox dial
-    if (dial.vox !== 'choir' && dial.vox !== 'both') {
-        voiceGain.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.1);
-        return;
-    }
-
-    // Voice activates on stillness + high intensity (like holding a note)
-    const stillness = 1 - Math.min(1, field.energy * 4);
-    const shouldSing = stillness > 0.6 && music.intensity > 0.5;
-
-    // X position controls vowel (left=a, right=i, center varies)
-    const x = field.x;
-    const y = field.y;
-
-    // Blend vowels based on position
-    voiceVowel.a = Math.max(0, 1 - Math.abs(x - 0.2) * 3);
-    voiceVowel.e = Math.max(0, 1 - Math.abs(x - 0.4) * 3);
-    voiceVowel.i = Math.max(0, 1 - Math.abs(x - 0.6) * 3);
-    voiceVowel.o = Math.max(0, 1 - Math.abs(x - 0.8) * 3);
-    voiceVowel.u = Math.max(0, 1 - Math.abs(y - 0.2) * 3);
-
-    // Normalize
-    const total = voiceVowel.a + voiceVowel.e + voiceVowel.i + voiceVowel.o + voiceVowel.u + 0.001;
-
-    // Calculate blended formants
-    const blendedFormants = [0, 0, 0];
-    for (const [vowel, weight] of Object.entries(voiceVowel)) {
-        const formants = VOWELS[vowel];
-        for (let i = 0; i < 3; i++) {
-            blendedFormants[i] += formants[i] * (weight / total);
-        }
-    }
-
-    // Pitch follows chord root (from pad)
-    const genre = dial.pulse === '0' ? 'dust' : dial.pulse;
-    const chord = (CHORDS[genre] || CHORDS.dust)[music.bar % 4];
-    const rootNote = chord[0];
-    const baseFreq = 110 * Math.pow(2, (1 - y) * 0.5); // Y controls octave
-    const voiceFreq = baseFreq * Math.pow(2, rootNote / 12);
-
-    // Update oscillators
-    voiceOscs.forEach((v, i) => {
-        // All oscs at same pitch (formants filter harmonics)
-        v.osc.frequency.linearRampToValueAtTime(voiceFreq, ctx.currentTime + 0.1);
-        v.filter.frequency.linearRampToValueAtTime(blendedFormants[i], ctx.currentTime + 0.15);
-    });
-
-    // Volume based on stillness and intensity
-    const targetVol = shouldSing ? stillness * 0.18 * music.intensity : 0;
-    voiceGain.gain.linearRampToValueAtTime(targetVol, ctx.currentTime + 0.2);
-
-    // Master filter - Y position
-    voiceFilter.frequency.linearRampToValueAtTime(2000 + y * 3000, ctx.currentTime + 0.1);
-}
-
-// ============ HAZE ============
-
-const HAZE = {
-    clear: { filt: 20000, verb: 0.1, dly: 0.06, tex: 0 },
-    fog: { filt: 3200, verb: 0.28, dly: 0.18, tex: 0.1 },
-    glass: { filt: 15000, verb: 0.18, dly: 0.1, tex: 0.02 },
-    heat: { filt: 7500, verb: 0.14, dly: 0.22, tex: 0.05 }
-};
-
-function updateHaze() {
-    const h = HAZE[dial.haze] || HAZE.fog;
-    lofiFilter.frequency.linearRampToValueAtTime(h.filt, ctx.currentTime + 0.15);
-    verbWet.gain.linearRampToValueAtTime(h.verb, ctx.currentTime + 0.15);
-    dlyWet.gain.linearRampToValueAtTime(h.dly, ctx.currentTime + 0.15);
-    textureG.gain.linearRampToValueAtTime(h.tex, ctx.currentTime + 0.15);
-}
-
-// ============ INPUT ============
-
-function onMove(nx, ny) {
-    const dx = nx - field.x, dy = ny - field.y;
-    field.x += dx * 0.2;
-    field.y += dy * 0.2;
-    field.energy = field.energy * 0.85 + Math.sqrt(dx * dx + dy * dy) * 2.5;
-    field.peak = Math.max(field.peak * 0.98, field.energy);
-}
-
-function onMotion(e) {
-    const a = e.accelerationIncludingGravity;
-    if (!a) return;
-    const ax = (a.x || 0) / 9, ay = (a.y || 0) / 9;
-    field.x = Math.max(0, Math.min(1, field.x + ax * 0.06));
-    field.y = Math.max(0, Math.min(1, field.y - ay * 0.06));
-    field.energy = field.energy * 0.85 + Math.sqrt(ax * ax + ay * ay) * 0.6;
-    field.peak = Math.max(field.peak * 0.98, field.energy);
-}
-
-function onOrientation(e) {
-    const gx = (e.gamma || 0) / 40, gy = (e.beta || 0) / 40 - 0.5;
-    onMove((gx + 1) / 2, (1 - gy) / 2);
-}
-
-// ============ DIALS ============
-
-function initDials() {
-    document.querySelectorAll('.dial').forEach(d => {
-        const name = d.dataset.dial;
-        d.querySelectorAll('.dial-opt').forEach(opt => {
-            opt.addEventListener('click', e => {
-                e.stopPropagation();
-                d.querySelectorAll('.dial-opt').forEach(o => o.classList.remove('on'));
-                opt.classList.add('on');
-                dial[name] = opt.dataset.v;
-                if (name === 'pulse') { step = 0; lastStep = ctx.currentTime; pattern = null; }
-                if (name === 'haze') updateHaze();
-            });
-            opt.addEventListener('touchend', e => e.stopPropagation());
-        });
-    });
-}
 
 // ============ VISUALS ============
 
@@ -877,91 +1095,81 @@ function resize() {
 function draw() {
     const w = innerWidth, h = innerHeight;
 
-    // Subtle magenta-tinted fade
-    vc.fillStyle = `rgba(5,5,8,${0.08 + music.intensity * 0.03})`;
+    vc.fillStyle = `rgba(8,8,12,${0.1 + SharedState.intensity * 0.04})`;
     vc.fillRect(0, 0, w, h);
 
-    // Center pulse - phi proportions
-    const r = 21 + music.intensity * 13;
-    vc.strokeStyle = `rgba(200,180,255,${0.03 + music.intensity * 0.04})`;
-    vc.lineWidth = 1;
-    vc.beginPath();
-    vc.arc(w / 2, h / 2, r, 0, TAU);
-    vc.stroke();
+    // Center - conductor position
+    const cx = w / 2, cy = h / 2;
 
-    // Melody rings
-    melodies.forEach((m, i) => {
-        const mr = 34 + i * 21;
-        const a = 0.05 + (0.5 + 0.5 * Math.cos(m.phase * TAU)) * 0.1;
-        vc.strokeStyle = `rgba(180,160,220,${a})`;
-        vc.beginPath();
-        vc.arc(w / 2, h / 2, mr, 0, TAU);
-        vc.stroke();
+    // Draw agent activity as rings
+    const agents = ['drums', 'bass', 'keys', 'lead', 'voice'];
+    agents.forEach((name, i) => {
+        const agent = Orchestra.agents[name];
+        if (agent && agent.active) {
+            const r = 30 + i * 25;
+            const alpha = 0.1 + (agent.active ? 0.15 : 0);
+            vc.strokeStyle = `rgba(200,180,255,${alpha})`;
+            vc.lineWidth = 1;
+            vc.beginPath();
+            vc.arc(cx, cy, r, 0, TAU);
+            vc.stroke();
+        }
     });
 
-    // Orb
-    if (orb.on) {
-        vc.fillStyle = 'rgba(220,200,255,0.5)';
-        vc.beginPath();
-        vc.arc(orb.x * w, orb.y * h, 4, 0, TAU);
-        vc.fill();
-    }
-
-    // Cursor
-    vc.fillStyle = `rgba(200,180,255,${0.1 + field.energy * 0.4})`;
+    // Beat pulse
+    const beatPhase = (SharedState.beat % 4) / 4;
+    const pulseR = 20 + (1 - beatPhase) * 15 * SharedState.intensity;
+    vc.fillStyle = `rgba(200,180,255,${0.03 + (1 - beatPhase) * 0.05})`;
     vc.beginPath();
-    vc.arc(field.x * w, field.y * h, 3 + field.energy * 10, 0, TAU);
+    vc.arc(cx, cy, pulseR, 0, TAU);
     vc.fill();
+
+    // Motion cursor
+    const mx = Motion.x * w, my = Motion.y * h;
+    vc.fillStyle = `rgba(220,200,255,${0.2 + Motion.energy * 0.5})`;
+    vc.beginPath();
+    vc.arc(mx, my, 5 + Motion.energy * 15, 0, TAU);
+    vc.fill();
+
+    // Chord indicator
+    vc.fillStyle = 'rgba(200,180,255,0.15)';
+    vc.font = '10px system-ui';
+    vc.fillText(SharedState.chordName, 15, h - 15);
 }
 
-// ============ LOOP ============
+// ============ MAIN ============
 
-function tick() {
-    if (!running) return;
-    const dt = 1 / 60;
-    field.time += dt;
-    field.energy *= 0.96;
-
-    updateBeats();
-    updateBass();
-    updatePad();
-    updateLead();
-    updateVoice();
-    updateOrb(dt);
-    updateMelodies(dt);
-
-    draw();
-    requestAnimationFrame(tick);
-}
-
-// ============ INIT ============
+let audioCtx;
 
 async function init() {
-    ctx = new (window.AudioContext || window.webkitAudioContext)();
-    initFX();
-    initBass();
-    initPad();
-    initLead();
-    initVoice();
-    initTexture();
-    initDials();
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+    await Orchestra.init(audioCtx);
 
     canvas = document.getElementById('c');
     vc = canvas.getContext('2d');
     resize();
     addEventListener('resize', resize);
 
-    document.getElementById('loading').classList.remove('off');
-    await loadSamples();
     document.getElementById('loading').classList.add('off');
-    document.getElementById('dials').style.display = 'block';
+    document.getElementById('agents').style.display = 'flex';
+}
 
-    updateHaze();
+function tick() {
+    if (!running) return;
+
+    Motion.energy *= 0.96;
+    Orchestra.tick(audioCtx.currentTime);
+    draw();
+
+    requestAnimationFrame(tick);
 }
 
 async function start() {
     document.getElementById('enter').classList.add('off');
+    document.getElementById('loading').classList.remove('off');
 
+    // Request permissions
     if (typeof DeviceMotionEvent?.requestPermission === 'function') {
         try { await DeviceMotionEvent.requestPermission(); } catch (e) {}
     }
@@ -971,13 +1179,39 @@ async function start() {
 
     await init();
 
-    addEventListener('devicemotion', onMotion);
-    addEventListener('deviceorientation', onOrientation);
-    canvas.addEventListener('mousemove', e => onMove(e.clientX / innerWidth, e.clientY / innerHeight));
-    canvas.addEventListener('touchmove', e => { e.preventDefault(); onMove(e.touches[0].clientX / innerWidth, e.touches[0].clientY / innerHeight); }, { passive: false });
-    canvas.addEventListener('touchstart', e => { e.preventDefault(); onMove(e.touches[0].clientX / innerWidth, e.touches[0].clientY / innerHeight); }, { passive: false });
+    // Input handlers
+    addEventListener('devicemotion', e => {
+        const a = e.accelerationIncludingGravity;
+        if (!a) return;
+        const ax = (a.x || 0) / 10;
+        const ay = (a.y || 0) / 10;
+        Motion.update(
+            Math.max(0, Math.min(1, Motion.x + ax * 0.08)),
+            Math.max(0, Math.min(1, Motion.y - ay * 0.08))
+        );
+    });
 
-    if (ctx.state === 'suspended') await ctx.resume();
+    addEventListener('deviceorientation', e => {
+        const gx = (e.gamma || 0) / 45;
+        const gy = (e.beta || 0) / 45 - 0.5;
+        Motion.update((gx + 1) / 2, (1 - gy) / 2);
+    });
+
+    canvas.addEventListener('mousemove', e => {
+        Motion.update(e.clientX / innerWidth, e.clientY / innerHeight);
+    });
+
+    canvas.addEventListener('touchmove', e => {
+        e.preventDefault();
+        Motion.update(e.touches[0].clientX / innerWidth, e.touches[0].clientY / innerHeight);
+    }, { passive: false });
+
+    canvas.addEventListener('touchstart', e => {
+        e.preventDefault();
+        Motion.update(e.touches[0].clientX / innerWidth, e.touches[0].clientY / innerHeight);
+    }, { passive: false });
+
+    if (audioCtx.state === 'suspended') await audioCtx.resume();
 
     running = true;
     tick();
