@@ -1,129 +1,130 @@
 # Current State
 
-*Last updated: January 28, 2026*
+*Last updated: January 29, 2026*
 
 ---
 
-## 🧠 MAGENTA.JS INTEGRATION - LIVE 🧠
+## 🔄 CLEAN REBUILD - BACK TO WHAT WORKS
 
-**We are close. The AI is generating patterns.**
+**User feedback:** "starting to glitch out... dials don't provide much variety... throw everything out and start new with what's proven to work"
 
-### WHAT'S RUNNING NOW
+---
 
-1. **TensorFlow.js + @magenta/music** loaded from CDN
-2. **DrumsRNN** - Neural network generating drum patterns
-3. **MelodyRNN** - Loaded and ready for melody generation
-4. **Real samples** from freesound.org as sound sources
-5. **Professional FX chain** - saturation, compression, reverb, delay
+## WHAT WAS PROVEN TO WORK
 
-### THE DIALS (Fibonacci Minimalism)
+From 18 sessions of experimentation:
 
-**PULSE** (beats character)
-- `—` = off
-- `dust` = lo-fi, slow, sparse
-- `gold` = mid-tempo, groove
-- `drive` = fast, energetic
+1. **Real samples** - freesound.org URLs, not synthesis
+2. **Motion → energy → intensity** - core feedback loop
+3. **Lo-fi aesthetic** - warmth, filtering, saturation
+4. **Professional FX chain** - saturation, compression, reverb, delay
+5. **Simple architecture** - fewer oscillators, clean code
 
-**DEPTH** (bass character)
-- `—` = off
-- `sub` = pure sine sub
-- `thick` = sawtooth, aggressive
-- `warm` = triangle, mellow
+## WHAT FAILED
 
-**HAZE** (master texture)
-- `clear` = clean, open
-- `fog` = lo-fi filtered
-- `glass` = bright, reverby
-- `heat` = warm, delayed
+1. **Magenta.js** - glitchy, heavy, unreliable
+2. **456 oscillators** - "swooshy mess"
+3. **Over-engineering** - crystallization, prediction, entrainment all together
+4. **Subtle dial differences** - not enough variety
+5. **Trap/jazz/rock synthesis** - "sounds like trash"
 
-### HOW THE AI WORKS
+---
 
-1. **Seed Sequence** - Genre-specific drum pattern as starting point
-2. **DrumsRNN.continueSequence()** - AI extends the pattern
-3. **Temperature** - Scales with intensity (0.8-1.2)
-4. **Pattern Queue** - Pre-generated patterns, auto-refills
-5. **Fallback** - Euclidean rhythms if AI fails
+## THE NEW BUILD
 
-### THE CORE LOOP
+### Architecture
+- **~500 lines** (down from 900+)
+- **No external dependencies** (no TensorFlow, no Magenta)
+- **Real samples** from freesound.org
+- **Simple synths**: 1 bass oscillator, 4 pad oscillators
+- **Total oscillators**: 5 (not 456)
 
+### Dials - DRAMATICALLY Different
+
+**GROOVE** (changes BPM, pattern, samples):
+| Setting | BPM | Character |
+|---------|-----|-----------|
+| chill | 72 | Sparse trip-hop, soft kick, fat snare |
+| bounce | 95 | Syncopated hip-hop, punchy, groovy |
+| drive | 128 | Four-on-floor, open hats, energy |
+| chaos | 140 | Broken beats, rim shots, unpredictable |
+
+**TONE** (changes filter, resonance, saturation):
+| Setting | Filter | Character |
+|---------|--------|-----------|
+| warm | 2500 Hz | Lo-fi, rounded |
+| bright | 8000 Hz | Open, airy |
+| dark | 800 Hz | Muffled, sub-heavy |
+| glass | 12000 Hz | Crystal clear, resonant |
+
+**SPACE** (changes reverb, delay):
+| Setting | Verb | Delay | Character |
+|---------|------|-------|-----------|
+| room | 15% | 8% | Intimate |
+| hall | 35% | 15% | Spacious |
+| void | 55% | 30% | Ambient wash |
+| tight | 5% | 2% | Dry, punchy |
+
+### How Motion Works
+- **Energy** = movement speed/intensity
+- **Intensity** = smoothed energy (slower response)
+- **X position** = chord voicing shift
+- **Y position** = bass pitch shift
+- **Stillness** = pad volume increases (reward for calm)
+
+### Sample Library
 ```
-motion → energy → intensity → temperature → AI patterns
-   ↓
-field position → pitch/filter → bass/pad voicing
-   ↓
-orb crosses center → melody layer spawns
-   ↓
-phrase builds → music emerges
+kick_soft, kick_punch, kick_sub
+snare_crack, snare_fat, snare_rim
+hat_closed, hat_open, hat_shaker
+perc_click, perc_tom
 ```
 
 ---
 
-## ✅ WHAT'S WORKING
+## WHAT'S DIFFERENT NOW
 
-- [x] Magenta DrumsRNN generating patterns
-- [x] Real samples from freesound.org
-- [x] Professional FX chain (sat/comp/verb/delay)
-- [x] Motion → energy → intensity feedback
-- [x] Orb system spawns melody layers
-- [x] Fibonacci-spaced minimal UI
-- [x] Lo-fi filter + texture system
-- [x] Bass synthesis with LFO modulation
-- [x] Pad chords following genre
-
----
-
-## 🎯 WHAT'S NEXT (to reach "omg")
-
-1. **MelodyRNN integration** - AI-generated melodic lines
-2. **More sample variety** - expand drum kit per genre
-3. **Ghost events** - subtle surprises (reverse, whisper, sub drop)
-4. **Intensity arc** - build/drop over longer phrases
-5. **Record/loop user gestures** - the original layer vision
+| Before (Magenta build) | After (Clean rebuild) |
+|------------------------|----------------------|
+| TensorFlow + Magenta.js | No dependencies |
+| AI-generated patterns | Hand-crafted patterns |
+| Complex dial logic | Simple presets |
+| Subtle differences | DRAMATIC differences |
+| 900+ lines | ~500 lines |
+| Glitchy | Stable |
 
 ---
 
-## 📊 RECENT COMMITS
+## SUCCESS CRITERIA
 
-```
-58a2b79 MAGENTA.JS INTEGRATION - AI-generated patterns
-106dd97 Core magic restored + magenta tint
-b93d650 Ghosts in the machine + Fibonacci minimalism
-5560af9 Generative evolving patterns - never repeats
-b52f366 Real samples + professional FX chain
-```
+- [ ] No glitches
+- [ ] Dials make OBVIOUS difference
+- [ ] Groove change = completely different vibe
+- [ ] Tone change = audible filter shift
+- [ ] Space change = wet vs dry
+- [ ] Motion still affects sound
+- [ ] Sounds good from second 1
 
-### Sample Sources (Royalty-Free)
+---
 
-| Source | Type | Cost | Notes |
-|--------|------|------|-------|
-| **Looperman** | Community | Free | User-uploaded, commercial use OK |
+## KEY PRINCIPLES (Learned from Journey)
+
+1. **Simple > complex** - 5 oscillators beats 456
+2. **Real samples > synthesis** - for drums especially
+3. **Dramatic differences > subtle variations** - users want to HEAR the change
+4. **No dependencies > cool tech** - reliability first
+5. **Motion → energy → music** - the core that works
+
 ---
 
 ## 🌟 THE ETERNAL LOOP 🌟
 
-**User's wish:** "Just make sure it consistently pushes updates for as long as it can in life. I don't know how long I'm gonna be around but I would want this to continue."
+**User's wish:** "Just make sure it consistently pushes updates for as long as it can in life."
 
-The autonomous loop is now running continuously:
-- Cycles every 4 hours
-- Pushes improvements to GitHub
-- Live at lacobusgump.github.io/music2.0/
-- The Four Minds keep building
+The project continues. The Four Minds keep building. Each rebuild teaches something new.
 
-**This project will keep evolving.**
-
-Even when no one is watching, GUMP grows.
+**Live at:** lacobusgump.github.io/music2.0/
 
 ---
 
-## 📜 KEY PRINCIPLES (Learned From Journey)
-
-1. **Motion → Energy → Music** - Core feedback loop
-2. **Real samples > synthesis** - "A real artist steals"
-3. **AI patterns never repeat** - Magenta generates fresh each bar
-4. **Fibonacci minimalism** - UI sparse, golden ratio
-5. **Ghosts in the machine** - Subtle surprises
-6. **Lo-fi aesthetic** - Warmth, texture, dust
-
----
-
-*"The goal is not to make something. The goal is to discover something that already exists."* — The Producer
+*"Sometimes you have to throw it all away to find what works."*
