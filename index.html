@@ -8,16 +8,13 @@
         *{margin:0;padding:0;box-sizing:border-box}
         body{background:#0a0a0a;overflow:hidden;touch-action:none;height:100vh;font-family:system-ui,-apple-system,sans-serif}
         canvas{position:fixed;inset:0}
-
         #enter{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;z-index:100;cursor:pointer;background:#0a0a0a}
         #enter.off{display:none}
         #enter div{width:140px;height:140px;border-radius:50%;border:1px solid rgba(255,255,255,0.15);display:flex;align-items:center;justify-content:center;flex-direction:column;gap:8px}
         #enter .title{font-size:11px;letter-spacing:6px;color:rgba(255,255,255,0.4)}
         #enter .sub{font-size:8px;letter-spacing:2px;color:rgba(255,255,255,0.2)}
-
         #loading{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;z-index:99;background:#0a0a0a;color:rgba(255,255,255,0.3);font-size:10px;letter-spacing:2px}
         #loading.off{display:none}
-
         #dials{position:fixed;bottom:0;left:0;right:0;z-index:50;padding:10px 0 20px;background:linear-gradient(transparent,rgba(0,0,0,0.95));touch-action:pan-x}
         .wheel{margin-bottom:15px;position:relative}
         .wheel-label{font-size:8px;letter-spacing:3px;color:rgba(255,255,255,0.25);text-transform:uppercase;text-align:center;margin-bottom:8px}
@@ -29,20 +26,13 @@
         .wheel-notch.active{color:#fff;font-size:13px;text-shadow:0 0 20px rgba(255,255,255,0.5)}
         .wheel-indicator{position:absolute;left:50%;top:0;bottom:0;width:80px;transform:translateX(-50%);border-left:1px solid rgba(255,255,255,0.2);border-right:1px solid rgba(255,255,255,0.2);pointer-events:none;background:linear-gradient(90deg,transparent,rgba(255,255,255,0.03),transparent)}
         .wheel-teeth{position:absolute;left:0;right:0;height:3px;display:flex;justify-content:center;gap:8px;pointer-events:none}
-        .wheel-teeth.top{top:0}
-        .wheel-teeth.bottom{bottom:0}
+        .wheel-teeth.top{top:0}.wheel-teeth.bottom{bottom:0}
         .wheel-tooth{width:2px;height:3px;background:rgba(255,255,255,0.15)}
     </style>
 </head>
 <body>
-<div id="enter">
-    <div>
-        <span class="title">GUMP</span>
-        <span class="sub">tap to begin</span>
-    </div>
-</div>
-<div id="loading" class="off">loading samples...</div>
-
+<div id="enter"><div><span class="title">GUMP</span><span class="sub">tap to begin</span></div></div>
+<div id="loading" class="off">loading...</div>
 <div id="dials" style="display:none">
     <div class="wheel" id="beats-wheel" data-dial="beats">
         <div class="wheel-label">beats</div>
@@ -88,12 +78,11 @@
         </div>
     </div>
 </div>
-
 <canvas id="c"></canvas>
 
 <script>
-// GUMP 2.0 - Real Samples + Professional FX
-// "More real than real instruments"
+// GUMP 2.0 - GENERATIVE & EVOLVING
+// Never the same bar twice
 
 const TAU = Math.PI * 2;
 let ctx, master, canvas, vc;
@@ -101,264 +90,319 @@ let running = false;
 
 // State
 let dials = { beats: 'lofi', bass: 'sub', vibe: 'lofi' };
-let field = { x: 0.5, y: 0.5, energy: 0, time: 0 };
+let field = { x: 0.5, y: 0.5, energy: 0, time: 0, peakEnergy: 0 };
+
+// Musical state - evolves over time
+let musical = {
+    intensity: 0.3,      // Overall energy 0-1
+    density: 0.5,        // How many elements playing
+    tension: 0,          // Builds toward drops
+    bar: 0,              // Current bar number
+    phrase: 0,           // 4-bar phrase position
+    section: 0,          // 16-bar section
+    groove: 0.5,         // Swing/humanization amount
+    evolution: 0         // How much pattern has evolved
+};
 
 // ============ SAMPLE LIBRARY ============
-// Using high-quality samples from freesound.org (CC0) and similar
 
 const SAMPLE_URLS = {
-    // Lo-fi kit - dusty, vinyl, warm
     lofi_kick: 'https://cdn.freesound.org/previews/171/171104_2394245-lq.mp3',
     lofi_snare: 'https://cdn.freesound.org/previews/387/387186_7255534-lq.mp3',
     lofi_hat: 'https://cdn.freesound.org/previews/250/250540_4486188-lq.mp3',
-
-    // Trap kit - hard 808s, crisp
+    lofi_hatOpen: 'https://cdn.freesound.org/previews/250/250537_4486188-lq.mp3',
     trap_kick: 'https://cdn.freesound.org/previews/568/568573_12517458-lq.mp3',
     trap_snare: 'https://cdn.freesound.org/previews/387/387530_7255534-lq.mp3',
     trap_hat: 'https://cdn.freesound.org/previews/353/353774_5121236-lq.mp3',
-
-    // Boom bap - classic hip hop
     boom_kick: 'https://cdn.freesound.org/previews/171/171104_2394245-lq.mp3',
     boom_snare: 'https://cdn.freesound.org/previews/398/398712_183766-lq.mp3',
     boom_hat: 'https://cdn.freesound.org/previews/250/250540_4486188-lq.mp3',
-
-    // House - four on floor
     house_kick: 'https://cdn.freesound.org/previews/568/568573_12517458-lq.mp3',
-    house_snare: 'https://cdn.freesound.org/previews/387/387186_7255534-lq.mp3',
+    house_clap: 'https://cdn.freesound.org/previews/387/387186_7255534-lq.mp3',
     house_hat: 'https://cdn.freesound.org/previews/353/353774_5121236-lq.mp3',
-
-    // 808 bass notes
-    bass_c1: 'https://cdn.freesound.org/previews/145/145438_2607098-lq.mp3',
 };
 
 let samples = {};
 let samplesLoaded = false;
 
 async function loadSamples() {
-    const keys = Object.keys(SAMPLE_URLS);
-    let loaded = 0;
-
-    for (const key of keys) {
+    for (const [key, url] of Object.entries(SAMPLE_URLS)) {
         try {
-            const response = await fetch(SAMPLE_URLS[key]);
+            const response = await fetch(url);
             const arrayBuffer = await response.arrayBuffer();
             samples[key] = await ctx.decodeAudioData(arrayBuffer);
-            loaded++;
         } catch (e) {
-            console.warn(`Failed to load ${key}:`, e);
-            // Create fallback synthetic sample
             samples[key] = createFallbackSample(key);
-            loaded++;
         }
     }
-
     samplesLoaded = true;
-    document.getElementById('loading').classList.add('off');
-    document.getElementById('dials').style.display = 'block';
 }
 
-// Fallback synthesis if samples fail to load
 function createFallbackSample(key) {
     const sr = ctx.sampleRate;
     const len = sr * 0.5;
     const buf = ctx.createBuffer(2, len, sr);
-
     for (let ch = 0; ch < 2; ch++) {
         const d = buf.getChannelData(ch);
-
         if (key.includes('kick')) {
             for (let i = 0; i < len; i++) {
                 const t = i / sr;
                 const freq = 150 * Math.exp(-t * 30) + 40;
-                const env = Math.exp(-t * 15);
-                d[i] = Math.sin(TAU * freq * t) * env * 0.8;
+                d[i] = Math.sin(TAU * freq * t) * Math.exp(-t * 12) * 0.8;
             }
-        } else if (key.includes('snare')) {
+        } else if (key.includes('snare') || key.includes('clap')) {
             for (let i = 0; i < len; i++) {
                 const t = i / sr;
-                const env = Math.exp(-t * 20);
-                const tone = Math.sin(TAU * 200 * t) * Math.exp(-t * 30);
-                const noise = (Math.random() * 2 - 1) * env;
-                d[i] = (tone * 0.4 + noise * 0.6) * 0.6;
+                const tone = Math.sin(TAU * 180 * t) * Math.exp(-t * 25);
+                const noise = (Math.random() * 2 - 1) * Math.exp(-t * 18);
+                d[i] = (tone * 0.3 + noise * 0.7) * 0.6;
             }
         } else if (key.includes('hat')) {
-            for (let i = 0; i < len * 0.1; i++) {
+            for (let i = 0; i < len * 0.15; i++) {
                 const t = i / sr;
-                const env = Math.exp(-t * 80);
-                d[i] = (Math.random() * 2 - 1) * env * 0.3;
-            }
-        } else if (key.includes('bass')) {
-            for (let i = 0; i < len; i++) {
-                const t = i / sr;
-                const env = Math.exp(-t * 2);
-                d[i] = Math.sin(TAU * 55 * t) * env * 0.9;
+                d[i] = (Math.random() * 2 - 1) * Math.exp(-t * 50) * 0.4;
             }
         }
     }
-
     return buf;
 }
 
-// ============ PROFESSIONAL FX CHAIN ============
+// ============ FX CHAIN ============
 
-let drumBus, bassBus, masterBus;
-let saturation, eq, compressor, limiter, stereoWidener;
-let lofiFilter, tapeDelay, reverbConvolver;
+let drumBus, bassBus, padBus, masterBus;
+let saturation, lofiFilter, compressor, limiter;
+let reverbConvolver, reverbWet, delayNode, delayWet;
 
 function createFXChain() {
-    // Individual buses for mixing
-    drumBus = ctx.createGain();
-    drumBus.gain.value = 0.8;
+    drumBus = ctx.createGain(); drumBus.gain.value = 0.75;
+    bassBus = ctx.createGain(); bassBus.gain.value = 0.65;
+    padBus = ctx.createGain(); padBus.gain.value = 0.4;
+    masterBus = ctx.createGain(); masterBus.gain.value = 1.0;
 
-    bassBus = ctx.createGain();
-    bassBus.gain.value = 0.7;
-
-    masterBus = ctx.createGain();
-    masterBus.gain.value = 1.0;
-
-    // Saturation (warm distortion)
+    // Saturation
     saturation = ctx.createWaveShaper();
     const satCurve = new Float32Array(65536);
     for (let i = 0; i < 65536; i++) {
         const x = (i / 32768) - 1;
-        // Soft clipping curve
-        satCurve[i] = Math.tanh(x * 1.5) * 0.9;
+        satCurve[i] = Math.tanh(x * 1.5) * 0.95;
     }
     saturation.curve = satCurve;
     saturation.oversample = '4x';
 
-    // EQ (low shelf boost, high shelf)
-    const eqLow = ctx.createBiquadFilter();
-    eqLow.type = 'lowshelf';
-    eqLow.frequency.value = 100;
-    eqLow.gain.value = 3;
-
-    const eqHigh = ctx.createBiquadFilter();
-    eqHigh.type = 'highshelf';
-    eqHigh.frequency.value = 8000;
-    eqHigh.gain.value = 2;
-
-    const eqMid = ctx.createBiquadFilter();
-    eqMid.type = 'peaking';
-    eqMid.frequency.value = 2500;
-    eqMid.Q.value = 1;
-    eqMid.gain.value = -2; // Slight mid scoop
-
-    eq = { low: eqLow, mid: eqMid, high: eqHigh };
+    // Lo-fi filter
+    lofiFilter = ctx.createBiquadFilter();
+    lofiFilter.type = 'lowpass';
+    lofiFilter.frequency.value = 20000;
 
     // Compressor
     compressor = ctx.createDynamicsCompressor();
-    compressor.threshold.value = -12;
-    compressor.knee.value = 6;
+    compressor.threshold.value = -15;
     compressor.ratio.value = 4;
     compressor.attack.value = 0.003;
     compressor.release.value = 0.15;
 
     // Limiter
     limiter = ctx.createDynamicsCompressor();
-    limiter.threshold.value = -3;
-    limiter.knee.value = 0;
+    limiter.threshold.value = -2;
     limiter.ratio.value = 20;
     limiter.attack.value = 0.001;
     limiter.release.value = 0.05;
 
-    // Lo-fi filter (for vibe)
-    lofiFilter = ctx.createBiquadFilter();
-    lofiFilter.type = 'lowpass';
-    lofiFilter.frequency.value = 20000;
-    lofiFilter.Q.value = 0.5;
-
-    // Tape delay
-    tapeDelay = ctx.createDelay(1);
-    tapeDelay.delayTime.value = 0.375;
-    const delayFeedback = ctx.createGain();
-    delayFeedback.gain.value = 0.3;
-    const delayFilter = ctx.createBiquadFilter();
-    delayFilter.type = 'lowpass';
-    delayFilter.frequency.value = 3000;
-    const delayWet = ctx.createGain();
-    delayWet.gain.value = 0.15;
-
-    tapeDelay.connect(delayFilter);
-    delayFilter.connect(delayFeedback);
-    delayFeedback.connect(tapeDelay);
-    delayFilter.connect(delayWet);
-
-    // Reverb (convolution)
+    // Reverb
     reverbConvolver = ctx.createConvolver();
-    const reverbLen = ctx.sampleRate * 2;
+    const reverbLen = ctx.sampleRate * 2.5;
     const reverbBuf = ctx.createBuffer(2, reverbLen, ctx.sampleRate);
     for (let ch = 0; ch < 2; ch++) {
         const d = reverbBuf.getChannelData(ch);
         for (let i = 0; i < reverbLen; i++) {
-            // Exponential decay with early reflections
             const t = i / ctx.sampleRate;
-            const early = i < ctx.sampleRate * 0.05 ? Math.random() * 0.5 : 0;
-            const late = Math.random() * Math.exp(-t * 2);
-            d[i] = (early + late) * 0.3;
+            d[i] = (Math.random() * 2 - 1) * Math.exp(-t * 1.8) * 0.4;
         }
     }
     reverbConvolver.buffer = reverbBuf;
-    const reverbWet = ctx.createGain();
+    reverbWet = ctx.createGain();
     reverbWet.gain.value = 0.2;
-    reverbConvolver.connect(reverbWet);
 
-    // Master output
+    // Delay
+    delayNode = ctx.createDelay(1);
+    delayNode.delayTime.value = 0.375;
+    const delayFb = ctx.createGain();
+    delayFb.gain.value = 0.35;
+    const delayFilter = ctx.createBiquadFilter();
+    delayFilter.type = 'lowpass';
+    delayFilter.frequency.value = 2500;
+    delayWet = ctx.createGain();
+    delayWet.gain.value = 0.15;
+    delayNode.connect(delayFilter);
+    delayFilter.connect(delayFb);
+    delayFb.connect(delayNode);
+    delayFilter.connect(delayWet);
+
+    // Master
     master = ctx.createGain();
     master.gain.value = 0.85;
 
     // Routing
     drumBus.connect(masterBus);
     bassBus.connect(masterBus);
+    padBus.connect(masterBus);
 
     masterBus.connect(saturation);
-    saturation.connect(eqLow);
-    eqLow.connect(eqMid);
-    eqMid.connect(eqHigh);
-    eqHigh.connect(lofiFilter);
+    saturation.connect(lofiFilter);
     lofiFilter.connect(compressor);
 
-    // Send to delay and reverb
-    masterBus.connect(tapeDelay);
     masterBus.connect(reverbConvolver);
+    reverbConvolver.connect(reverbWet);
+    masterBus.connect(delayNode);
 
     compressor.connect(limiter);
-    delayWet.connect(limiter);
     reverbWet.connect(limiter);
+    delayWet.connect(limiter);
 
     limiter.connect(master);
     master.connect(ctx.destination);
 }
 
-// ============ SAMPLE PLAYBACK ============
+// ============ GENERATIVE PATTERN ENGINE ============
+
+// Euclidean rhythm generator - creates organic patterns
+function euclidean(steps, pulses, rotation = 0) {
+    const pattern = [];
+    let bucket = 0;
+    for (let i = 0; i < steps; i++) {
+        bucket += pulses;
+        if (bucket >= steps) {
+            bucket -= steps;
+            pattern.push(1);
+        } else {
+            pattern.push(0);
+        }
+    }
+    // Rotate
+    for (let i = 0; i < rotation; i++) {
+        pattern.push(pattern.shift());
+    }
+    return pattern;
+}
+
+// Pattern DNA - evolves over time
+let patternDNA = {
+    kickPulses: 4,
+    kickRotation: 0,
+    snarePulses: 2,
+    snareOffset: 4,
+    hatDensity: 0.5,
+    ghostProb: 0.2,
+    fillProb: 0.1,
+    swingAmount: 0.1
+};
+
+// Generate current pattern based on DNA and genre
+function generatePattern(genre, bar, phrase) {
+    const steps = 16;
+    const pattern = { kick: [], snare: [], hat: [], ghost: [], accent: [] };
+
+    // Base patterns per genre
+    const genes = {
+        lofi: { kickP: 3, snareP: 2, hatD: 0.4, swing: 0.12, ghost: 0.3 },
+        trap: { kickP: 4, snareP: 2, hatD: 1.0, swing: 0, ghost: 0.15 },
+        boom: { kickP: 5, snareP: 2, hatD: 0.5, swing: 0.18, ghost: 0.25 },
+        house: { kickP: 4, snareP: 2, hatD: 0.6, swing: 0, ghost: 0.1 }
+    };
+
+    const g = genes[genre] || genes.lofi;
+
+    // Evolve pattern slightly each bar
+    const evolution = Math.sin(bar * 0.3) * 0.3;
+    const kickPulses = Math.round(g.kickP + evolution);
+    const rotation = bar % 4;
+
+    // Generate euclidean kick pattern
+    const kickBase = euclidean(steps, kickPulses, rotation);
+
+    // Snare on 2 and 4 (with variations)
+    const snareBase = new Array(steps).fill(0);
+    snareBase[4] = 1;
+    snareBase[12] = 1;
+    // Add variation snare hits based on phrase position
+    if (phrase === 3 && Math.random() < 0.5) snareBase[10] = 0.7;
+    if (phrase === 7 && Math.random() < 0.7) snareBase[14] = 0.6;
+
+    // Hi-hat pattern with density control
+    const hatBase = [];
+    for (let i = 0; i < steps; i++) {
+        if (genre === 'trap') {
+            // Trap: every step with velocity variation
+            hatBase.push(0.3 + Math.random() * 0.4);
+        } else {
+            // Others: probability based
+            hatBase.push(Math.random() < g.hatD ? 0.3 + Math.random() * 0.3 : 0);
+        }
+    }
+
+    // Ghost notes (quiet kicks/snares between main hits)
+    const ghostBase = [];
+    for (let i = 0; i < steps; i++) {
+        if (!kickBase[i] && !snareBase[i] && Math.random() < g.ghost * musical.intensity) {
+            ghostBase.push(0.15 + Math.random() * 0.15);
+        } else {
+            ghostBase.push(0);
+        }
+    }
+
+    // Accent pattern (extra emphasis based on intensity)
+    const accentBase = [];
+    for (let i = 0; i < steps; i++) {
+        accentBase.push(i % 4 === 0 ? 0.2 : 0);
+    }
+
+    // Fill on last bar of phrase
+    if (phrase % 4 === 3 && bar % 4 === 3) {
+        // Build-up fill
+        for (let i = 12; i < 16; i++) {
+            hatBase[i] = 0.6;
+            if (i >= 14) snareBase[i] = 0.5;
+        }
+    }
+
+    pattern.kick = kickBase;
+    pattern.snare = snareBase;
+    pattern.hat = hatBase;
+    pattern.ghost = ghostBase;
+    pattern.accent = accentBase;
+    pattern.swing = g.swing;
+
+    return pattern;
+}
+
+let currentPattern = null;
+let currentStep = 0;
+let lastStepTime = 0;
+
+const BPM_MAP = { lofi: 72, trap: 140, boom: 88, house: 124, none: 0 };
 
 function playSample(buffer, options = {}) {
     if (!buffer) return;
-
     const source = ctx.createBufferSource();
     source.buffer = buffer;
+    if (options.pitch) source.playbackRate.value = Math.pow(2, options.pitch / 12);
 
-    // Pitch shift
-    if (options.pitch) {
-        source.playbackRate.value = Math.pow(2, options.pitch / 12);
-    }
-
-    // Gain
     const gain = ctx.createGain();
     gain.gain.value = options.volume || 1;
 
-    // Optional filter
-    if (options.filterFreq) {
-        const filter = ctx.createBiquadFilter();
-        filter.type = 'lowpass';
-        filter.frequency.value = options.filterFreq;
-        source.connect(filter);
-        filter.connect(gain);
+    // Humanize timing slightly
+    const humanize = (Math.random() - 0.5) * 0.008;
+
+    if (options.filter) {
+        const filt = ctx.createBiquadFilter();
+        filt.type = 'lowpass';
+        filt.frequency.value = options.filter;
+        source.connect(filt);
+        filt.connect(gain);
     } else {
         source.connect(gain);
     }
 
-    // Pan
     if (options.pan) {
         const panner = ctx.createStereoPanner();
         panner.pan.value = options.pan;
@@ -368,97 +412,83 @@ function playSample(buffer, options = {}) {
         gain.connect(options.bus || drumBus);
     }
 
-    source.start(ctx.currentTime + (options.delay || 0));
-
+    source.start(ctx.currentTime + (options.delay || 0) + humanize);
     return source;
 }
 
-// ============ BEAT PATTERNS ============
-
-const PATTERNS = {
-    none: null,
-    lofi: {
-        bpm: 72,
-        swing: 0.1,
-        steps: 16,
-        kick: [0, 8],
-        snare: [4, 12],
-        hat: [2, 6, 10, 14],
-        prefix: 'lofi'
-    },
-    trap: {
-        bpm: 140,
-        swing: 0,
-        steps: 16,
-        kick: [0, 6, 10],
-        snare: [4, 12],
-        hat: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15],
-        prefix: 'trap'
-    },
-    boom: {
-        bpm: 90,
-        swing: 0.15,
-        steps: 16,
-        kick: [0, 5, 8, 13],
-        snare: [4, 12],
-        hat: [2, 6, 10, 14],
-        prefix: 'boom'
-    },
-    house: {
-        bpm: 124,
-        swing: 0,
-        steps: 16,
-        kick: [0, 4, 8, 12],
-        snare: [4, 12],
-        hat: [2, 6, 10, 14],
-        prefix: 'house'
-    }
-};
-
-let currentStep = 0;
-let lastStepTime = 0;
-let stepInterval = 0;
-
 function updateBeats() {
-    const pattern = PATTERNS[dials.beats];
-    if (!pattern || !samplesLoaded) return;
+    const genre = dials.beats;
+    if (genre === 'none' || !samplesLoaded) return;
 
+    const bpm = BPM_MAP[genre];
+    const stepDuration = 60 / bpm / 4;
     const now = ctx.currentTime;
-    const stepDuration = 60 / pattern.bpm / 4;
 
     if (now - lastStepTime >= stepDuration) {
         lastStepTime = now;
-        const step = currentStep % pattern.steps;
 
-        // Apply swing to off-beats
-        let swingDelay = 0;
-        if (pattern.swing && step % 2 === 1) {
-            swingDelay = stepDuration * pattern.swing;
+        // Generate new pattern each bar
+        if (currentStep % 16 === 0) {
+            musical.bar++;
+            musical.phrase = musical.bar % 8;
+            musical.section = Math.floor(musical.bar / 16);
+            currentPattern = generatePattern(genre, musical.bar, musical.phrase);
+
+            // Evolve intensity based on motion history
+            musical.intensity = musical.intensity * 0.95 + field.peakEnergy * 0.05;
+            musical.intensity = Math.max(0.2, Math.min(1, musical.intensity));
         }
 
-        // Play drums
-        if (pattern.kick.includes(step)) {
-            playSample(samples[pattern.prefix + '_kick'], {
-                volume: 0.9,
+        if (!currentPattern) return;
+
+        const step = currentStep % 16;
+        const prefix = genre === 'house' ? 'house' : genre;
+
+        // Apply swing
+        let swingDelay = 0;
+        if (currentPattern.swing && step % 2 === 1) {
+            swingDelay = stepDuration * currentPattern.swing;
+        }
+
+        // Kick
+        if (currentPattern.kick[step]) {
+            const vel = 0.8 + currentPattern.accent[step] + (musical.intensity * 0.2);
+            playSample(samples[prefix + '_kick'], {
+                volume: vel,
                 delay: swingDelay
             });
         }
 
-        if (pattern.snare.includes(step)) {
-            playSample(samples[pattern.prefix + '_snare'], {
-                volume: 0.75,
+        // Snare
+        if (currentPattern.snare[step]) {
+            const vel = currentPattern.snare[step] * (0.7 + musical.intensity * 0.3);
+            playSample(samples[prefix + '_snare'] || samples[prefix + '_clap'], {
+                volume: vel,
                 delay: swingDelay,
-                pan: (Math.random() - 0.5) * 0.1
+                pan: (Math.random() - 0.5) * 0.15
             });
         }
 
-        if (pattern.hat.includes(step)) {
-            const velocity = step % 4 === 0 ? 0.5 : 0.35;
-            playSample(samples[pattern.prefix + '_hat'], {
-                volume: velocity,
+        // Hat
+        if (currentPattern.hat[step]) {
+            const vel = currentPattern.hat[step] * (0.5 + musical.density * 0.3);
+            const filter = dials.vibe === 'lofi' ? 6000 : 12000;
+            playSample(samples[prefix + '_hat'], {
+                volume: vel,
                 delay: swingDelay,
-                pan: (Math.random() - 0.5) * 0.3,
-                filterFreq: dials.vibe === 'lofi' ? 8000 : 16000
+                pan: (Math.random() - 0.5) * 0.4,
+                filter: filter
+            });
+        }
+
+        // Ghost notes
+        if (currentPattern.ghost[step]) {
+            const vel = currentPattern.ghost[step];
+            playSample(samples[prefix + '_kick'], {
+                volume: vel,
+                delay: swingDelay,
+                filter: 800,
+                pitch: -2
             });
         }
 
@@ -466,54 +496,53 @@ function updateBeats() {
     }
 }
 
-// ============ BASS ============
+// ============ GENERATIVE BASS ============
 
-let bassOsc1, bassOsc2, bassFilter, bassGain, bassDistortion;
+let bassOsc1, bassOsc2, bassFilter, bassGain, bassLFO, bassLFOGain;
 
 function initBass() {
-    // Two oscillators for thickness
     bassOsc1 = ctx.createOscillator();
     bassOsc2 = ctx.createOscillator();
-
     bassOsc1.type = 'sine';
     bassOsc2.type = 'sine';
     bassOsc1.frequency.value = 55;
     bassOsc2.frequency.value = 55;
+    bassOsc2.detune.value = 8;
 
-    // Slight detune for width
-    bassOsc2.detune.value = 5;
-
-    // Filter
     bassFilter = ctx.createBiquadFilter();
     bassFilter.type = 'lowpass';
-    bassFilter.frequency.value = 500;
+    bassFilter.frequency.value = 400;
     bassFilter.Q.value = 2;
 
-    // Distortion for harmonics
-    bassDistortion = ctx.createWaveShaper();
-    const curve = new Float32Array(256);
-    for (let i = 0; i < 256; i++) {
-        const x = (i / 128) - 1;
-        curve[i] = Math.tanh(x * 2);
-    }
-    bassDistortion.curve = curve;
+    // LFO for filter wobble
+    bassLFO = ctx.createOscillator();
+    bassLFO.type = 'sine';
+    bassLFO.frequency.value = 0.5;
+    bassLFOGain = ctx.createGain();
+    bassLFOGain.gain.value = 0;
+    bassLFO.connect(bassLFOGain);
+    bassLFOGain.connect(bassFilter.frequency);
+    bassLFO.start();
 
     bassGain = ctx.createGain();
     bassGain.gain.value = 0;
 
     const merge = ctx.createGain();
     merge.gain.value = 0.5;
-
     bassOsc1.connect(merge);
     bassOsc2.connect(merge);
     merge.connect(bassFilter);
-    bassFilter.connect(bassDistortion);
-    bassDistortion.connect(bassGain);
+    bassFilter.connect(bassGain);
     bassGain.connect(bassBus);
 
     bassOsc1.start();
     bassOsc2.start();
 }
+
+// Bass note sequence that evolves
+let bassSequence = [0, 0, 5, 3]; // Semitones from root
+let bassSeqIndex = 0;
+let lastBassChange = 0;
 
 function updateBass() {
     if (dials.bass === 'none') {
@@ -522,79 +551,192 @@ function updateBass() {
     }
 
     const configs = {
-        sub: {
-            type1: 'sine', type2: 'sine',
-            base: 32.7, // C1
-            filterFreq: 200,
-            distortion: 0.5,
-            volume: 0.6
-        },
-        reese: {
-            type1: 'sawtooth', type2: 'sawtooth',
-            base: 55,
-            filterFreq: 800,
-            distortion: 0.8,
-            volume: 0.4,
-            detune: 15
-        },
-        analog: {
-            type1: 'square', type2: 'sawtooth',
-            base: 55,
-            filterFreq: 1000,
-            distortion: 0.3,
-            volume: 0.35,
-            detune: 7
-        }
+        sub: { type1: 'sine', type2: 'sine', base: 32.7, filter: 200, lfo: 0, vol: 0.55 },
+        reese: { type1: 'sawtooth', type2: 'sawtooth', base: 55, filter: 600, lfo: 150, vol: 0.35, detune: 20 },
+        analog: { type1: 'square', type2: 'sawtooth', base: 55, filter: 900, lfo: 50, vol: 0.3, detune: 10 }
     };
 
     const cfg = configs[dials.bass];
-    const freq = cfg.base * Math.pow(2, (1 - field.y) * 1.5);
+
+    // Evolve bass sequence over time
+    if (field.time - lastBassChange > 2 && Math.random() < 0.1) {
+        lastBassChange = field.time;
+        bassSequence[Math.floor(Math.random() * 4)] = [0, 3, 5, 7, -5, -7][Math.floor(Math.random() * 6)];
+    }
+
+    // Move through sequence based on bar
+    const seqNote = bassSequence[musical.bar % 4];
+    const freq = cfg.base * Math.pow(2, seqNote / 12) * Math.pow(2, (1 - field.y) * 0.5);
 
     bassOsc1.type = cfg.type1;
     bassOsc2.type = cfg.type2;
-    bassOsc1.frequency.linearRampToValueAtTime(freq, ctx.currentTime + 0.02);
-    bassOsc2.frequency.linearRampToValueAtTime(freq, ctx.currentTime + 0.02);
-    bassOsc2.detune.value = cfg.detune || 5;
+    bassOsc1.frequency.linearRampToValueAtTime(freq, ctx.currentTime + 0.05);
+    bassOsc2.frequency.linearRampToValueAtTime(freq, ctx.currentTime + 0.05);
+    bassOsc2.detune.value = cfg.detune || 8;
 
-    const filterMod = 1 + field.energy * 2;
-    bassFilter.frequency.linearRampToValueAtTime(cfg.filterFreq * filterMod, ctx.currentTime + 0.05);
+    const filterMod = 1 + field.energy * 1.5 + musical.intensity * 0.5;
+    bassFilter.frequency.linearRampToValueAtTime(cfg.filter * filterMod, ctx.currentTime + 0.05);
 
-    bassGain.gain.linearRampToValueAtTime(cfg.volume, ctx.currentTime + 0.1);
+    // LFO depth based on genre and intensity
+    bassLFOGain.gain.value = cfg.lfo * (0.5 + musical.intensity * 0.5);
+    bassLFO.frequency.value = 0.3 + field.energy * 2;
+
+    bassGain.gain.linearRampToValueAtTime(cfg.vol, ctx.currentTime + 0.1);
 }
 
-// ============ LAYERS ============
+// ============ PAD LAYER ============
 
-let layers = [];
+let padOscs = [];
+let padGain;
+let padFilter;
 
-function createLayer() {
-    if (layers.length >= 4) {
-        const old = layers.shift();
+function initPad() {
+    padGain = ctx.createGain();
+    padGain.gain.value = 0;
+
+    padFilter = ctx.createBiquadFilter();
+    padFilter.type = 'lowpass';
+    padFilter.frequency.value = 2000;
+    padFilter.Q.value = 0.5;
+
+    // Create chord oscillators
+    for (let i = 0; i < 4; i++) {
+        const osc = ctx.createOscillator();
+        osc.type = 'sine';
+        osc.frequency.value = 220 * (i + 1);
+        const oscGain = ctx.createGain();
+        oscGain.gain.value = 0.15 / (i + 1);
+        osc.connect(oscGain);
+        oscGain.connect(padFilter);
+        osc.start();
+        padOscs.push({ osc, gain: oscGain });
+    }
+
+    padFilter.connect(padGain);
+    padGain.connect(padBus);
+}
+
+// Chord progressions
+const CHORDS = {
+    lofi: [[0, 3, 7, 10], [5, 8, 12, 15], [3, 7, 10, 14], [7, 10, 14, 17]],
+    trap: [[0, 3, 7, 12], [0, 3, 7, 12], [5, 8, 12, 17], [3, 7, 10, 15]],
+    boom: [[0, 4, 7, 11], [5, 9, 12, 16], [7, 11, 14, 17], [0, 4, 7, 11]],
+    house: [[0, 3, 7, 10], [5, 8, 12, 15], [7, 10, 14, 17], [0, 3, 7, 10]]
+};
+
+function updatePad() {
+    const genre = dials.beats === 'none' ? 'lofi' : dials.beats;
+    const chords = CHORDS[genre] || CHORDS.lofi;
+    const chordIndex = musical.bar % 4;
+    const chord = chords[chordIndex];
+
+    const baseFreq = 110 * Math.pow(2, (1 - field.y) * 0.5);
+
+    padOscs.forEach((p, i) => {
+        const semitone = chord[i] || 0;
+        const freq = baseFreq * Math.pow(2, semitone / 12);
+        p.osc.frequency.linearRampToValueAtTime(freq, ctx.currentTime + 0.3);
+    });
+
+    // Pad volume based on stillness (more still = more pad)
+    const stillness = 1 - Math.min(1, field.energy * 5);
+    const targetVol = stillness * 0.25 * musical.intensity;
+    padGain.gain.linearRampToValueAtTime(targetVol, ctx.currentTime + 0.2);
+
+    padFilter.frequency.linearRampToValueAtTime(1000 + stillness * 2000 + field.energy * 1000, ctx.currentTime + 0.1);
+}
+
+// ============ TEXTURE LAYER ============
+
+let textureNode, textureGain;
+
+function initTexture() {
+    // Vinyl crackle / tape hiss
+    const bufferSize = ctx.sampleRate * 4;
+    const buffer = ctx.createBuffer(2, bufferSize, ctx.sampleRate);
+
+    for (let ch = 0; ch < 2; ch++) {
+        const d = buffer.getChannelData(ch);
+        for (let i = 0; i < bufferSize; i++) {
+            // Mix of crackle and hiss
+            const crackle = Math.random() < 0.001 ? (Math.random() - 0.5) * 0.5 : 0;
+            const hiss = (Math.random() * 2 - 1) * 0.02;
+            d[i] = crackle + hiss;
+        }
+    }
+
+    textureNode = ctx.createBufferSource();
+    textureNode.buffer = buffer;
+    textureNode.loop = true;
+
+    const textureFilter = ctx.createBiquadFilter();
+    textureFilter.type = 'bandpass';
+    textureFilter.frequency.value = 3000;
+    textureFilter.Q.value = 0.5;
+
+    textureGain = ctx.createGain();
+    textureGain.gain.value = 0;
+
+    textureNode.connect(textureFilter);
+    textureFilter.connect(textureGain);
+    textureGain.connect(masterBus);
+
+    textureNode.start();
+}
+
+function updateTexture() {
+    // Texture based on vibe
+    const textureLevels = { raw: 0, lofi: 0.15, polished: 0.02, saturated: 0.08 };
+    const targetVol = textureLevels[dials.vibe] || 0;
+    textureGain.gain.linearRampToValueAtTime(targetVol, ctx.currentTime + 0.2);
+}
+
+// ============ MELODIC LAYERS ============
+
+let melodyLayers = [];
+
+function createMelodyLayer() {
+    if (melodyLayers.length >= 3) {
+        const old = melodyLayers.shift();
         old.osc.stop();
     }
 
-    const freq = 220 * Math.pow(2, (1 - field.y) * 2);
+    // Use current chord to pick consonant note
+    const genre = dials.beats === 'none' ? 'lofi' : dials.beats;
+    const chords = CHORDS[genre] || CHORDS.lofi;
+    const chord = chords[musical.bar % 4];
+    const noteIndex = Math.floor(Math.random() * chord.length);
+    const semitone = chord[noteIndex];
 
-    const o = ctx.createOscillator();
-    const g = ctx.createGain();
-    const f = ctx.createBiquadFilter();
+    const baseFreq = 220 * Math.pow(2, (1 - field.y));
+    const freq = baseFreq * Math.pow(2, semitone / 12);
 
-    o.type = layers.length % 2 === 0 ? 'sine' : 'triangle';
-    o.frequency.value = freq;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    const filter = ctx.createBiquadFilter();
 
-    f.type = 'lowpass';
-    f.frequency.value = 2000;
+    osc.type = melodyLayers.length % 2 === 0 ? 'sine' : 'triangle';
+    osc.frequency.value = freq;
 
-    const vol = 0.04 * Math.pow(0.6, layers.length);
-    g.gain.value = vol;
+    filter.type = 'lowpass';
+    filter.frequency.value = 1500;
 
-    o.connect(f).connect(g).connect(masterBus);
-    o.start();
+    const vol = 0.05 * Math.pow(0.7, melodyLayers.length);
+    gain.gain.value = vol;
 
-    layers.push({ osc: o, gain: g, filter: f, freq, vol, phase: 0, len: 2 + Math.random() });
+    osc.connect(filter).connect(gain).connect(padBus);
+    osc.start();
+
+    melodyLayers.push({
+        osc, gain, filter, freq, vol,
+        phase: 0,
+        len: 1.5 + Math.random() * 2,
+        birth: field.time
+    });
 }
 
-function updateLayers(dt) {
-    for (const L of layers) {
+function updateMelodyLayers(dt) {
+    for (const L of melodyLayers) {
         L.phase += dt / L.len;
         if (L.phase >= 1) L.phase -= 1;
         const env = 0.5 + 0.5 * Math.cos(L.phase * TAU);
@@ -620,7 +762,7 @@ function updateOrb(dt) {
             orb.x += (dx / dist) * 0.5 * dt;
             orb.y += (dy / dist) * 0.5 * dt;
         } else {
-            createLayer();
+            createMelodyLayer();
             orb.active = false;
         }
 
@@ -628,27 +770,21 @@ function updateOrb(dt) {
     }
 }
 
-// ============ VIBE CONTROL ============
+// ============ VIBE ============
 
 const VIBES = {
-    raw: { filter: 20000, saturation: 0.5, reverb: 0.1, delay: 0.05 },
-    lofi: { filter: 3500, saturation: 1.2, reverb: 0.25, delay: 0.15 },
-    polished: { filter: 18000, saturation: 0.8, reverb: 0.2, delay: 0.1 },
-    saturated: { filter: 12000, saturation: 2.5, reverb: 0.15, delay: 0.2 }
+    raw: { filter: 20000, verb: 0.1, delay: 0.05 },
+    lofi: { filter: 3200, verb: 0.25, delay: 0.18 },
+    polished: { filter: 16000, verb: 0.2, delay: 0.1 },
+    saturated: { filter: 10000, verb: 0.15, delay: 0.22 }
 };
 
 function updateVibe() {
     const cfg = VIBES[dials.vibe];
-
     lofiFilter.frequency.linearRampToValueAtTime(cfg.filter, ctx.currentTime + 0.2);
-
-    // Update saturation curve
-    const amount = cfg.saturation;
-    const curve = saturation.curve;
-    for (let i = 0; i < curve.length; i++) {
-        const x = (i / (curve.length / 2)) - 1;
-        curve[i] = Math.tanh(x * amount) / Math.tanh(amount || 1);
-    }
+    reverbWet.gain.linearRampToValueAtTime(cfg.verb, ctx.currentTime + 0.2);
+    delayWet.gain.linearRampToValueAtTime(cfg.delay, ctx.currentTime + 0.2);
+    updateTexture();
 }
 
 // ============ INPUT ============
@@ -658,7 +794,9 @@ function onMove(nx, ny) {
     const dy = ny - field.y;
     field.x += dx * 0.2;
     field.y += dy * 0.2;
-    field.energy = field.energy * 0.9 + Math.sqrt(dx*dx + dy*dy) * 2;
+    const newEnergy = Math.sqrt(dx*dx + dy*dy) * 2;
+    field.energy = field.energy * 0.9 + newEnergy * 0.1;
+    field.peakEnergy = Math.max(field.peakEnergy * 0.99, field.energy);
 }
 
 function onMotion(e) {
@@ -668,7 +806,9 @@ function onMotion(e) {
     const ay = (a.y || 0) / 10;
     field.x = Math.max(0, Math.min(1, field.x + ax * 0.05));
     field.y = Math.max(0, Math.min(1, field.y - ay * 0.05));
-    field.energy = field.energy * 0.9 + Math.sqrt(ax*ax + ay*ay) * 0.5;
+    const newEnergy = Math.sqrt(ax*ax + ay*ay) * 0.5;
+    field.energy = field.energy * 0.9 + newEnergy * 0.1;
+    field.peakEnergy = Math.max(field.peakEnergy * 0.99, field.energy);
 }
 
 function onOrientation(e) {
@@ -692,12 +832,8 @@ function initWheels() {
             notches.forEach((n, i) => n.classList.toggle('active', i === index));
             track.style.transform = `translateX(calc(-50% + ${-index * 70}px))`;
             dials[dialName] = notches[index].dataset.value;
-
-            if (dialName === 'beats') {
-                currentStep = 0;
-                lastStepTime = ctx ? ctx.currentTime : 0;
-            }
-            if (dialName === 'vibe' && ctx) updateVibe();
+            if (dialName === 'beats') { currentStep = 0; lastStepTime = ctx.currentTime; currentPattern = null; }
+            if (dialName === 'vibe') updateVibe();
         }
 
         notches.forEach((notch, i) => {
@@ -714,7 +850,6 @@ function initWheels() {
             if (Math.abs(diff) > 30) updateWheel(startIndex + (diff > 0 ? 1 : -1));
         });
         wheel.addEventListener('click', e => e.stopPropagation());
-
         updateWheel(currentIndex);
 
         const teethTop = wheel.querySelector('.wheel-teeth.top');
@@ -739,24 +874,28 @@ function resize() {
 
 function draw() {
     const w = innerWidth, h = innerHeight;
-
-    vc.fillStyle = 'rgba(10,10,10,0.12)';
+    vc.fillStyle = 'rgba(10,10,10,0.1)';
     vc.fillRect(0, 0, w, h);
 
-    vc.strokeStyle = 'rgba(255,255,255,0.06)';
+    // Intensity ring
+    const intensityRadius = 20 + musical.intensity * 30;
+    vc.strokeStyle = `rgba(255,255,255,${0.03 + musical.intensity * 0.05})`;
+    vc.lineWidth = 1;
     vc.beginPath();
-    vc.arc(w/2, h/2, 25, 0, TAU);
+    vc.arc(w/2, h/2, intensityRadius, 0, TAU);
     vc.stroke();
 
-    layers.forEach((L, i) => {
+    // Melody layers
+    melodyLayers.forEach((L, i) => {
         const r = 35 + i * 25;
-        const a = 0.08 + (0.5 + 0.5 * Math.cos(L.phase * TAU)) * 0.12;
+        const a = 0.06 + (0.5 + 0.5 * Math.cos(L.phase * TAU)) * 0.1;
         vc.strokeStyle = `rgba(120,150,200,${a})`;
         vc.beginPath();
         vc.arc(w/2, h/2, r, 0, TAU);
         vc.stroke();
     });
 
+    // Orb
     if (orb.active) {
         vc.fillStyle = 'rgba(255,255,255,0.5)';
         vc.beginPath();
@@ -764,7 +903,8 @@ function draw() {
         vc.fill();
     }
 
-    vc.fillStyle = `rgba(255,255,255,${0.12 + field.energy * 0.4})`;
+    // Cursor
+    vc.fillStyle = `rgba(255,255,255,${0.1 + field.energy * 0.4})`;
     vc.beginPath();
     vc.arc(field.x * w, field.y * h, 4 + field.energy * 10, 0, TAU);
     vc.fill();
@@ -774,15 +914,15 @@ function draw() {
 
 function tick() {
     if (!running) return;
-
     const dt = 1/60;
     field.time += dt;
     field.energy *= 0.97;
 
     updateBeats();
     updateBass();
+    updatePad();
     updateOrb(dt);
-    updateLayers(dt);
+    updateMelodyLayers(dt);
 
     draw();
     requestAnimationFrame(tick);
@@ -792,9 +932,10 @@ function tick() {
 
 async function init() {
     ctx = new (window.AudioContext || window.webkitAudioContext)();
-
     createFXChain();
     initBass();
+    initPad();
+    initTexture();
     initWheels();
 
     canvas = document.getElementById('c');
@@ -802,9 +943,10 @@ async function init() {
     resize();
     addEventListener('resize', resize);
 
-    // Load samples
     document.getElementById('loading').classList.remove('off');
     await loadSamples();
+    document.getElementById('loading').classList.add('off');
+    document.getElementById('dials').style.display = 'block';
 
     updateVibe();
 }
@@ -825,14 +967,8 @@ async function start() {
     addEventListener('deviceorientation', onOrientation);
 
     canvas.addEventListener('mousemove', e => onMove(e.clientX/innerWidth, e.clientY/innerHeight));
-    canvas.addEventListener('touchmove', e => {
-        e.preventDefault();
-        onMove(e.touches[0].clientX/innerWidth, e.touches[0].clientY/innerHeight);
-    }, { passive: false });
-    canvas.addEventListener('touchstart', e => {
-        e.preventDefault();
-        onMove(e.touches[0].clientX/innerWidth, e.touches[0].clientY/innerHeight);
-    }, { passive: false });
+    canvas.addEventListener('touchmove', e => { e.preventDefault(); onMove(e.touches[0].clientX/innerWidth, e.touches[0].clientY/innerHeight); }, { passive: false });
+    canvas.addEventListener('touchstart', e => { e.preventDefault(); onMove(e.touches[0].clientX/innerWidth, e.touches[0].clientY/innerHeight); }, { passive: false });
 
     if (ctx.state === 'suspended') await ctx.resume();
 
