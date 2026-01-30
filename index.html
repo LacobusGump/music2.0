@@ -192,6 +192,9 @@ function initAudio() {
     initBass();
     initPad();
     initLead();
+
+    audioReady = true;
+    console.log('Audio ready');
 }
 
 function createReverbBuffer(duration) {
@@ -266,20 +269,26 @@ function createHat() {
 }
 
 function playDrum(buffer, volume = 1, when = 0) {
-    const source = ctx.createBufferSource();
-    source.buffer = buffer;
+    if (!buffer || !ctx || !masterGain) return;
 
-    const gain = ctx.createGain();
-    gain.gain.value = volume;
+    try {
+        const source = ctx.createBufferSource();
+        source.buffer = buffer;
 
-    source.connect(gain);
-    gain.connect(masterGain);
+        const gain = ctx.createGain();
+        gain.gain.value = volume;
 
-    source.start(ctx.currentTime + when);
+        source.connect(gain);
+        gain.connect(masterGain);
 
-    // Trigger sidechain
-    if (buffer === kickBuffer) {
-        sidechain = 0.3;
+        source.start(ctx.currentTime + when);
+
+        // Trigger sidechain
+        if (buffer === kickBuffer) {
+            sidechain = 0.3;
+        }
+    } catch (e) {
+        console.error('playDrum error:', e);
     }
 }
 
@@ -310,6 +319,8 @@ function initBass() {
 }
 
 function playBassNote(note, velocity = 0.6, duration = 0.5) {
+    if (!bassOsc || !ctx) return;
+
     const v = VIBES[vibe];
     const freq = 55 * Math.pow(2, (v.key + note) / 12) * v.bassOctave;
 
@@ -410,6 +421,8 @@ function initLead() {
 }
 
 function triggerLead(note, velocity = 0.5) {
+    if (!leadOsc || !ctx) return;
+
     const v = VIBES[vibe];
     const freq = 220 * Math.pow(2, (v.key + note) / 12);
 
@@ -430,12 +443,21 @@ function triggerLead(note, velocity = 0.5) {
 // ─────────────────────────────────────────────────────────────────
 
 let beat = 0;
-let lastBeatTime = 0;
+let lastBeatTime = -1; // -1 means not started yet
+let audioReady = false;
 
 function updateRhythm() {
+    if (!audioReady || !ctx) return;
+
     const v = VIBES[vibe];
     const beatDuration = 60 / v.bpm;
     const now = ctx.currentTime;
+
+    // Initialize on first run
+    if (lastBeatTime < 0) {
+        lastBeatTime = now;
+        return;
+    }
 
     if (now - lastBeatTime >= beatDuration) {
         lastBeatTime = now;
@@ -448,51 +470,57 @@ function updateRhythm() {
 }
 
 function onBeat(beatNum) {
-    const v = VIBES[vibe];
-    const bar = Math.floor(beatNum / 4);
-    const beatInBar = beatNum % 4;
+    try {
+        const v = VIBES[vibe];
+        if (!v) return;
 
-    // ── KICK on 1 and 3 ──
-    if (beatInBar === 0 || beatInBar === 2) {
-        const kickVel = 0.7 + world.energy * 0.3;
-        playDrum(kickBuffer, kickVel);
-    }
+        const bar = Math.floor(beatNum / 4);
+        const beatInBar = beatNum % 4;
 
-    // ── SNARE on 2 and 4 ──
-    if (beatInBar === 1 || beatInBar === 3) {
-        const snareVel = 0.5 + world.energy * 0.3;
-        playDrum(snareBuffer, snareVel);
-    }
+        // ── KICK on 1 and 3 ──
+        if (beatInBar === 0 || beatInBar === 2) {
+            const kickVel = 0.7 + world.energy * 0.3;
+            playDrum(kickBuffer, kickVel);
+        }
 
-    // ── HATS - density from energy ──
-    if (world.energy > 0.2 || beatInBar % 2 === 0) {
-        const hatVel = 0.2 + world.energy * 0.3;
-        playDrum(hatBuffer, hatVel);
-    }
+        // ── SNARE on 2 and 4 ──
+        if (beatInBar === 1 || beatInBar === 3) {
+            const snareVel = 0.5 + world.energy * 0.3;
+            playDrum(snareBuffer, snareVel);
+        }
 
-    // ── BASS - root on 1, movement on 3 ──
-    const scale = v.scale;
-    if (beatInBar === 0) {
-        playBassNote(scale[0], 0.7, 60/v.bpm * 2);
-    } else if (beatInBar === 2 && world.energy > 0.3) {
-        // Fifth or octave based on energy
-        const bassNote = world.energy > 0.6 ? 12 : scale[Math.floor(scale.length/2)];
-        playBassNote(bassNote, 0.5, 60/v.bpm);
-    }
+        // ── HATS - density from energy ──
+        if (world.energy > 0.2 || beatInBar % 2 === 0) {
+            const hatVel = 0.2 + world.energy * 0.3;
+            playDrum(hatBuffer, hatVel);
+        }
 
-    // ── PAD - update chord based on bar ──
-    if (beatInBar === 0) {
-        const chordRoot = scale[(bar % 4) * 2 % scale.length];
-        const chord = [chordRoot, chordRoot + scale[2], chordRoot + scale[4], chordRoot + 12];
-        updatePad(chord);
-    }
+        // ── BASS - root on 1, movement on 3 ──
+        const scale = v.scale;
+        if (beatInBar === 0) {
+            playBassNote(scale[0], 0.7, 60/v.bpm * 2);
+        } else if (beatInBar === 2 && world.energy > 0.3) {
+            // Fifth or octave based on energy
+            const bassNote = world.energy > 0.6 ? 12 : scale[Math.floor(scale.length/2)];
+            playBassNote(bassNote, 0.5, 60/v.bpm);
+        }
 
-    // ── LEAD - triggered by MOVEMENT ──
-    if (world.energy > 0.15 && Math.random() < world.energy) {
-        // Pick note from scale based on Y position
-        const noteIndex = Math.floor(world.y * scale.length);
-        const note = scale[noteIndex] + (world.y > 0.7 ? 12 : 0);
-        triggerLead(note, world.energy);
+        // ── PAD - update chord based on bar ──
+        if (beatInBar === 0) {
+            const chordRoot = scale[(bar % 4) * 2 % scale.length];
+            const chord = [chordRoot, chordRoot + scale[2], chordRoot + scale[4], chordRoot + 12];
+            updatePad(chord);
+        }
+
+        // ── LEAD - triggered by MOVEMENT ──
+        if (world.energy > 0.15 && Math.random() < world.energy) {
+            // Pick note from scale based on Y position
+            const noteIndex = Math.floor(world.y * scale.length);
+            const note = scale[noteIndex] + (world.y > 0.7 ? 12 : 0);
+            triggerLead(note, world.energy);
+        }
+    } catch (e) {
+        console.error('onBeat error:', e);
     }
 }
 
