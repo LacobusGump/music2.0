@@ -1,149 +1,143 @@
 # Current State
 
-*Last updated: January 29, 2026*
+*Last updated: January 30, 2026*
 
 ---
 
-## JAZZ ORCHESTRA - AI AGENTS THAT LISTEN
+## JAZZ ORCHESTRA 2.0 - AI AGENTS THAT LISTEN + REAL SAMPLES + MIC INPUT
 
-**The Vision Realized:** Multiple AI agents acting like jazz musicians, listening to each other and developing the music.
+**The Vision Realized:** Multiple AI agents acting like jazz musicians, listening to each other, responding to YOUR movement, and reacting to the WORLD through microphone input.
 
 ---
 
-## WHAT WE BUILT
+## WHAT'S NEW (January 30)
 
-### AI Integration
-- **Puter.js** - Free Kimi K2.5 access, no API keys, works in browser
-- **One script tag** - `<script src="https://js.puter.com/v2/"></script>`
-- **No backend needed** - Pure client-side AI
+### Real Drum Samples
+- Kicked synthesized garbage to the curb
+- Using high-quality samples from freesound.org
+- 6 drum sounds: kick, snare, hat, hatOpen, rim, perc
+- Pitch and pan variation for natural feel
 
-### The Four Musicians
+### Complex Rhythm Patterns
+- **16th note resolution** - no more boring quarter notes
+- **Swing timing** - delays every other 16th for groove
+- **Multiple patterns** based on AI decision:
+  - `steady` - classic jazz with ghost notes
+  - `push` - driving 16ths, more kicks
+  - `pull-back` - sparse, minimal
+  - `fill` - drum fills
+  - `drop` - near silence, just hints
+  - `accent` - syncopated with rim accents
+
+### Microphone Input
+- **Mic level** influences instrument velocity
+- **Frequency bands** (low/mid/high) analyzed
+- **Onset detection** - claps/taps trigger lead notes
+- Green indicator in top-right shows mic activity
+- External sound becomes part of the music
+
+### AI Agents (Groq + LLama 3.1 8B)
+Four AI musicians, each thinking every 2 seconds:
 
 | Agent | Listens To | Decides |
 |-------|-----------|---------|
-| **DrumMind** | Energy, tension, other instruments | steady, push, pull-back, fill, drop, accent |
-| **BassMind** | Drums, lead, direction | root, walk, climb, descend, pedal, rest |
-| **PadMind** | Drums, bass, activity | close, spread, shell, rich, sparse, out |
-| **LeadMind** | Everyone, tension, motion | develop, contrast, space, peak, echo, rest |
+| **DrumMind** | Energy, tension, mic | steady, push, pull-back, fill, drop, accent |
+| **BassMind** | Drums, direction | root, walk, climb, descend, pedal, rest |
+| **PadMind** | Stillness, tension | close, spread, shell, rich, sparse, out |
+| **LeadMind** | Everyone, mic, motion | develop, contrast, space, peak, echo, rest |
 
-### How They "Listen"
+---
 
-The `bandState` object is the shared musical memory:
+## HOW IT ALL WORKS TOGETHER
+
+```
+Your Movement  ─┬─> world.energy ─┬─> Drum velocity
+                │                 ├─> Lead probability
+                │                 └─> AI context
+                │
+Microphone ────┬─> micLevel ──────┬─> Extra velocity
+               │                  ├─> Onset triggers lead
+               │                  └─> AI context ("mic active")
+               │
+Stillness ─────┴─> world.stillness -> Pad volume/filter
+
+AI Agents ─────> Decisions every 2s -> Pattern/voicing changes
+
+Motion + Mic + AI = The music adapts to YOUR world
+```
+
+---
+
+## THE DRUM PATTERNS (16 steps = 1 bar)
+
 ```javascript
-bandState = {
-    drums: { density, lastFill, energy, pattern },
-    bass: { register, activity, walking },
-    pad: { voicing, volume },
-    lead: { active, register, developing, motif },
-
-    // The "conversation"
-    recentEvents: [...],  // What just happened
-    tension: 0-1,         // Building or releasing
-    direction: 'building' | 'releasing' | 'floating'
+steady: {
+    kick:  [1,0,0,0, 0,0,1,0, 0,0,0,0, 0,1,0,0],  // Jazz feel
+    snare: [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],  // 2 and 4
+    hat:   [1,0,1,0, 1,0,1,0, 1,0,1,0, 1,0,1,0],  // 8ths
+    ghost: [0,0,0,1, 0,0,0,1, 0,0,0,1, 0,0,0,1],  // Ghost snares
 }
 ```
 
-### Jazz Principles Encoded
+---
 
-1. **Call and Response** - Agents log musical events; others react
-2. **Tension Arc** - Direction naturally shifts: building -> releasing -> floating
-3. **Motif Development** - Lead stores and transforms melodic ideas
-4. **Register Conversation** - Bass climbs, lead might descend in response
-5. **Trading Space** - Agents can choose to "rest" and let others shine
+## VISUAL FEEDBACK
 
-### AI Decision Flow
-
-Every ~4 seconds, one agent asks Kimi K2:
-```
-"You are a jazz [instrument]. Energy: 70%, tension: 45%, direction: building.
-Bass is walking. Drums are pushing. Recent: lead developed idea, bass started walking.
-What's your next move? Reply with ONLY one word from: [options]"
-```
-
-The AI returns a single word decision that maps to musical parameters.
+- **Center breath** - pulses with rhythm
+- **Tension ring** - orange when building, blue when releasing
+- **Energy ring** - grows with movement
+- **Mic ring** - green ring pulses with external sound
+- **Mic indicator** - top right, green when mic active
 
 ---
 
-## WHAT'S PRESERVED FROM PEAK VERSION
+## STATUS DISPLAY (top left)
 
-- Real samples from freesound.org
-- Euclidean pattern engine
-- Motion -> energy -> intensity feedback
-- Lo-fi FX chain (saturation, reverb, delay, compression)
-- All three dials (pulse, depth, haze)
-- Orb system for melodies
-- Vinyl texture
-
----
-
-## HOW MOTION STILL WORKS
-
-Motion is the "world" that instigates:
-- **Energy** = movement speed -> affects intensity, hat density, filter
-- **Position X** = chord voicing shift, evolution parameter
-- **Position Y** = bass pitch shift, melody register
-- **Stillness** = pad swells (reward for calm)
-
-But now motion ALSO affects the AI:
-- High energy -> tension builds faster
-- Low energy -> AI might choose "space" or "rest"
-- The AI reacts to the world you create
-
----
-
-## UI ELEMENTS
-
-### Dials (Bottom)
-- **pulse**: dust (72 BPM) / gold (88 BPM) / drive (122 BPM) / off
-- **depth**: sub / thick / warm / off
-- **haze**: clear / fog / glass / heat
-
-### Band Status (Top Left)
-Shows what each AI musician is doing:
+Shows real-time AI decisions:
 ```
-drums: pushing
-bass: walking
+drums: push
+bass: walk
 pad: spread
-lead: developing
-/ 67%  <- direction and tension
+lead: develop
+↗ 67%    <- direction and tension
 ```
 
 ---
 
 ## SUCCESS CRITERIA
 
-- [x] Dials still work
-- [x] Motion still affects sound
-- [x] Lo-fi vibe preserved
-- [x] AI makes musical decisions
-- [x] Agents "hear" each other via shared state
-- [x] Decisions affect audio parameters
-- [x] Visual feedback shows AI activity
-- [ ] Actually sounds like jazz conversation (TESTING NEEDED)
-- [ ] No glitches
-- [ ] AI calls don't cause lag
+- [x] Real drum samples loaded from freesound
+- [x] 16th note resolution with swing
+- [x] Complex drum patterns with ghost notes
+- [x] AI makes musical decisions every 2 seconds
+- [x] Microphone input analyzed and integrated
+- [x] Mic onset triggers musical events
+- [x] Visual feedback for all inputs
+- [ ] Test on mobile with motion sensors
+- [ ] Verify samples load reliably
+- [ ] Tune AI prompts for better musicality
 
 ---
 
 ## KNOWN CONSIDERATIONS
 
-1. **AI Latency** - Calls take 100ms-2s, so decisions are phrase-level, not note-level
-2. **Puter.js requires user action** - May need initial consent popup
-3. **Fallback** - If AI fails, uses generative patterns (still sounds good)
+1. **Sample Loading** - Fetches from freesound CDN, has fallback synthesis
+2. **AI Latency** - 100-500ms for Groq calls, runs in background
+3. **Mic Permissions** - Browser will prompt, graceful fallback if denied
+4. **CORS** - freesound CDN allows cross-origin, should work
 
 ---
 
 ## NEXT STEPS IF NEEDED
 
-1. **Tune the prompts** - Make AI responses more musically appropriate
-2. **Add more agent personality** - Different "players" with distinct styles
-3. **Better call/response** - More reactive listening between agents
-4. **Microphone input** - Let the AI "hear" external sound
-5. **Longer memory** - AI remembers what happened in previous phrases
+1. **Better samples** - Find higher quality or host our own
+2. **More AI personality** - Tune prompts for different "player" styles
+3. **Faster AI** - Could reduce interval for more reactive changes
+4. **GPS/Weather** - Add location-based mood (cold = haunted)
+5. **Form awareness** - AI knows where in the song structure
 
 ---
 
-*"Jazz is about the conversation, not the notes."*
+*"The music listens to you. You listen to the music. The world becomes the song."*
 
 **Live at:** lacobusgump.github.io/music2.0/
-
