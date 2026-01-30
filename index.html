@@ -152,38 +152,96 @@ const VIBES = {
 
 let kickBuffer, snareBuffer, hatBuffer;
 let bassSynth, padSynth, leadSynth;
-let masterGain, reverbGain, compressor;
+let masterGain, reverbGain, compressor, saturation, delayNode, delayGain;
+let textureNode, textureGain;
+let filterLFO, filterLFOGain, masterFilter;
 let sidechain = 1;
 
 function initAudio() {
     ctx = new (window.AudioContext || window.webkitAudioContext)();
 
-    // Master chain
+    // ── SATURATION - Analog warmth ──
+    saturation = ctx.createWaveShaper();
+    const satCurve = new Float32Array(65536);
+    for (let i = 0; i < 65536; i++) {
+        const x = (i / 32768) - 1;
+        // Warm tape-style saturation
+        satCurve[i] = Math.tanh(x * 1.5) * 0.9 + x * 0.1;
+    }
+    saturation.curve = satCurve;
+    saturation.oversample = '4x';
+
+    // ── MASTER FILTER - Movement tied to motion ──
+    masterFilter = ctx.createBiquadFilter();
+    masterFilter.type = 'lowpass';
+    masterFilter.frequency.value = 18000;
+    masterFilter.Q.value = 0.5;
+
+    // Filter LFO for subtle movement
+    filterLFO = ctx.createOscillator();
+    filterLFO.type = 'sine';
+    filterLFO.frequency.value = 0.1;
+    filterLFOGain = ctx.createGain();
+    filterLFOGain.gain.value = 500;
+    filterLFO.connect(filterLFOGain);
+    filterLFOGain.connect(masterFilter.frequency);
+    filterLFO.start();
+
+    // Master gain
     masterGain = ctx.createGain();
-    masterGain.gain.value = 0.8;
+    masterGain.gain.value = 0.85;
 
-    // Compressor for glue
-    compressor = ctx.createDynamicsCompressor();
-    compressor.threshold.value = -12;
-    compressor.ratio.value = 4;
-    compressor.attack.value = 0.003;
-    compressor.release.value = 0.15;
+    // ── DELAY - Spatial depth ──
+    delayNode = ctx.createDelay(1.0);
+    delayNode.delayTime.value = 0.375;
+    const delayFeedback = ctx.createGain();
+    delayFeedback.gain.value = 0.3;
+    const delayFilter = ctx.createBiquadFilter();
+    delayFilter.type = 'lowpass';
+    delayFilter.frequency.value = 2500;
+    delayGain = ctx.createGain();
+    delayGain.gain.value = 0.2;
 
-    // Reverb
-    const reverbBuffer = createReverbBuffer(3.0);
+    delayNode.connect(delayFilter);
+    delayFilter.connect(delayFeedback);
+    delayFeedback.connect(delayNode);
+    delayFilter.connect(delayGain);
+
+    // ── REVERB - Space ──
+    const reverbBuffer = createReverbBuffer(3.5);
     const reverb = ctx.createConvolver();
     reverb.buffer = reverbBuffer;
     reverbGain = ctx.createGain();
-    reverbGain.gain.value = 0.25;
+    reverbGain.gain.value = 0.3;
 
-    // Routing
-    masterGain.connect(compressor);
+    // ── COMPRESSOR - Glue ──
+    compressor = ctx.createDynamicsCompressor();
+    compressor.threshold.value = -15;
+    compressor.ratio.value = 4;
+    compressor.attack.value = 0.002;
+    compressor.release.value = 0.1;
+    compressor.knee.value = 6;
+
+    // ── TEXTURE - Atmosphere ──
+    initTexture();
+
+    // ── ROUTING ──
+    // Main path: masterGain -> saturation -> masterFilter -> compressor -> destination
+    masterGain.connect(saturation);
+    saturation.connect(masterFilter);
+    masterFilter.connect(compressor);
+
+    // FX sends
     masterGain.connect(reverb);
     reverb.connect(reverbGain);
     reverbGain.connect(compressor);
+
+    masterGain.connect(delayNode);
+    delayGain.connect(compressor);
+
     compressor.connect(ctx.destination);
 
-    // Create drum sounds
+    // Create drum sounds (layered)
     kickBuffer = createKick();
     snareBuffer = createSnare();
     hatBuffer = createHat();
@@ -195,6 +253,39 @@ function initAudio() {
 
     audioReady = true;
     console.log('Audio ready');
+}
+
+// ── TEXTURE LAYER - The room is never silent ──
+function initTexture() {
+    const bufferSize = ctx.sampleRate * 4;
+    const noiseBuffer = ctx.createBuffer(2, bufferSize, ctx.sampleRate);
+
+    for (let ch = 0; ch < 2; ch++) {
+        const data = noiseBuffer.getChannelData(ch);
+        for (let i = 0; i < bufferSize; i++) {
+            // Subtle vinyl/tape texture
+            const noise = (Math.random() * 2 - 1) * 0.015;
+            const crackle = Math.random() < 0.0003 ? (Math.random() - 0.5) * 0.3 : 0;
+            data[i] = noise + crackle;
+        }
+    }
+
+    textureNode = ctx.createBufferSource();
+    textureNode.buffer = noiseBuffer;
+    textureNode.loop = true;
+
+    const textureFilter = ctx.createBiquadFilter();
+    textureFilter.type = 'bandpass';
+    textureFilter.frequency.value = 3000;
+    textureFilter.Q.value = 0.5;
+
+    textureGain = ctx.createGain();
+    textureGain.gain.value = 0.08;
+
+    textureNode.connect(textureFilter);
+    textureFilter.connect(textureGain);
+    textureGain.connect(masterGain);
+    textureNode.start();
 }
 
 function createReverbBuffer(duration) {
