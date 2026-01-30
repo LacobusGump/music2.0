@@ -4,127 +4,146 @@
 
 ---
 
-## 🔄 CLEAN REBUILD - BACK TO WHAT WORKS
+## JAZZ ORCHESTRA - AI AGENTS THAT LISTEN
 
-**User feedback:** "starting to glitch out... dials don't provide much variety... throw everything out and start new with what's proven to work"
-
----
-
-## WHAT WAS PROVEN TO WORK
-
-From 18 sessions of experimentation:
-
-1. **Real samples** - freesound.org URLs, not synthesis
-2. **Motion → energy → intensity** - core feedback loop
-3. **Lo-fi aesthetic** - warmth, filtering, saturation
-4. **Professional FX chain** - saturation, compression, reverb, delay
-5. **Simple architecture** - fewer oscillators, clean code
-
-## WHAT FAILED
-
-1. **Magenta.js** - glitchy, heavy, unreliable
-2. **456 oscillators** - "swooshy mess"
-3. **Over-engineering** - crystallization, prediction, entrainment all together
-4. **Subtle dial differences** - not enough variety
-5. **Trap/jazz/rock synthesis** - "sounds like trash"
+**The Vision Realized:** Multiple AI agents acting like jazz musicians, listening to each other and developing the music.
 
 ---
 
-## THE NEW BUILD
+## WHAT WE BUILT
 
-### Architecture
-- **~500 lines** (down from 900+)
-- **No external dependencies** (no TensorFlow, no Magenta)
-- **Real samples** from freesound.org
-- **Simple synths**: 1 bass oscillator, 4 pad oscillators
-- **Total oscillators**: 5 (not 456)
+### AI Integration
+- **Puter.js** - Free Kimi K2.5 access, no API keys, works in browser
+- **One script tag** - `<script src="https://js.puter.com/v2/"></script>`
+- **No backend needed** - Pure client-side AI
 
-### Dials - DRAMATICALLY Different
+### The Four Musicians
 
-**GROOVE** (changes BPM, pattern, samples):
-| Setting | BPM | Character |
-|---------|-----|-----------|
-| chill | 72 | Sparse trip-hop, soft kick, fat snare |
-| bounce | 95 | Syncopated hip-hop, punchy, groovy |
-| drive | 128 | Four-on-floor, open hats, energy |
-| chaos | 140 | Broken beats, rim shots, unpredictable |
+| Agent | Listens To | Decides |
+|-------|-----------|---------|
+| **DrumMind** | Energy, tension, other instruments | steady, push, pull-back, fill, drop, accent |
+| **BassMind** | Drums, lead, direction | root, walk, climb, descend, pedal, rest |
+| **PadMind** | Drums, bass, activity | close, spread, shell, rich, sparse, out |
+| **LeadMind** | Everyone, tension, motion | develop, contrast, space, peak, echo, rest |
 
-**TONE** (changes filter, resonance, saturation):
-| Setting | Filter | Character |
-|---------|--------|-----------|
-| warm | 2500 Hz | Lo-fi, rounded |
-| bright | 8000 Hz | Open, airy |
-| dark | 800 Hz | Muffled, sub-heavy |
-| glass | 12000 Hz | Crystal clear, resonant |
+### How They "Listen"
 
-**SPACE** (changes reverb, delay):
-| Setting | Verb | Delay | Character |
-|---------|------|-------|-----------|
-| room | 15% | 8% | Intimate |
-| hall | 35% | 15% | Spacious |
-| void | 55% | 30% | Ambient wash |
-| tight | 5% | 2% | Dry, punchy |
+The `bandState` object is the shared musical memory:
+```javascript
+bandState = {
+    drums: { density, lastFill, energy, pattern },
+    bass: { register, activity, walking },
+    pad: { voicing, volume },
+    lead: { active, register, developing, motif },
 
-### How Motion Works
-- **Energy** = movement speed/intensity
-- **Intensity** = smoothed energy (slower response)
-- **X position** = chord voicing shift
-- **Y position** = bass pitch shift
-- **Stillness** = pad volume increases (reward for calm)
-
-### Sample Library
-```
-kick_soft, kick_punch, kick_sub
-snare_crack, snare_fat, snare_rim
-hat_closed, hat_open, hat_shaker
-perc_click, perc_tom
+    // The "conversation"
+    recentEvents: [...],  // What just happened
+    tension: 0-1,         // Building or releasing
+    direction: 'building' | 'releasing' | 'floating'
+}
 ```
 
+### Jazz Principles Encoded
+
+1. **Call and Response** - Agents log musical events; others react
+2. **Tension Arc** - Direction naturally shifts: building -> releasing -> floating
+3. **Motif Development** - Lead stores and transforms melodic ideas
+4. **Register Conversation** - Bass climbs, lead might descend in response
+5. **Trading Space** - Agents can choose to "rest" and let others shine
+
+### AI Decision Flow
+
+Every ~4 seconds, one agent asks Kimi K2:
+```
+"You are a jazz [instrument]. Energy: 70%, tension: 45%, direction: building.
+Bass is walking. Drums are pushing. Recent: lead developed idea, bass started walking.
+What's your next move? Reply with ONLY one word from: [options]"
+```
+
+The AI returns a single word decision that maps to musical parameters.
+
 ---
 
-## WHAT'S DIFFERENT NOW
+## WHAT'S PRESERVED FROM PEAK VERSION
 
-| Before (Magenta build) | After (Clean rebuild) |
-|------------------------|----------------------|
-| TensorFlow + Magenta.js | No dependencies |
-| AI-generated patterns | Hand-crafted patterns |
-| Complex dial logic | Simple presets |
-| Subtle differences | DRAMATIC differences |
-| 900+ lines | ~500 lines |
-| Glitchy | Stable |
+- Real samples from freesound.org
+- Euclidean pattern engine
+- Motion -> energy -> intensity feedback
+- Lo-fi FX chain (saturation, reverb, delay, compression)
+- All three dials (pulse, depth, haze)
+- Orb system for melodies
+- Vinyl texture
+
+---
+
+## HOW MOTION STILL WORKS
+
+Motion is the "world" that instigates:
+- **Energy** = movement speed -> affects intensity, hat density, filter
+- **Position X** = chord voicing shift, evolution parameter
+- **Position Y** = bass pitch shift, melody register
+- **Stillness** = pad swells (reward for calm)
+
+But now motion ALSO affects the AI:
+- High energy -> tension builds faster
+- Low energy -> AI might choose "space" or "rest"
+- The AI reacts to the world you create
+
+---
+
+## UI ELEMENTS
+
+### Dials (Bottom)
+- **pulse**: dust (72 BPM) / gold (88 BPM) / drive (122 BPM) / off
+- **depth**: sub / thick / warm / off
+- **haze**: clear / fog / glass / heat
+
+### Band Status (Top Left)
+Shows what each AI musician is doing:
+```
+drums: pushing
+bass: walking
+pad: spread
+lead: developing
+/ 67%  <- direction and tension
+```
 
 ---
 
 ## SUCCESS CRITERIA
 
+- [x] Dials still work
+- [x] Motion still affects sound
+- [x] Lo-fi vibe preserved
+- [x] AI makes musical decisions
+- [x] Agents "hear" each other via shared state
+- [x] Decisions affect audio parameters
+- [x] Visual feedback shows AI activity
+- [ ] Actually sounds like jazz conversation (TESTING NEEDED)
 - [ ] No glitches
-- [ ] Dials make OBVIOUS difference
-- [ ] Groove change = completely different vibe
-- [ ] Tone change = audible filter shift
-- [ ] Space change = wet vs dry
-- [ ] Motion still affects sound
-- [ ] Sounds good from second 1
+- [ ] AI calls don't cause lag
 
 ---
 
-## KEY PRINCIPLES (Learned from Journey)
+## KNOWN CONSIDERATIONS
 
-1. **Simple > complex** - 5 oscillators beats 456
-2. **Real samples > synthesis** - for drums especially
-3. **Dramatic differences > subtle variations** - users want to HEAR the change
-4. **No dependencies > cool tech** - reliability first
-5. **Motion → energy → music** - the core that works
+1. **AI Latency** - Calls take 100ms-2s, so decisions are phrase-level, not note-level
+2. **Puter.js requires user action** - May need initial consent popup
+3. **Fallback** - If AI fails, uses generative patterns (still sounds good)
 
 ---
 
-## 🌟 THE ETERNAL LOOP 🌟
+## NEXT STEPS IF NEEDED
 
-**User's wish:** "Just make sure it consistently pushes updates for as long as it can in life."
+1. **Tune the prompts** - Make AI responses more musically appropriate
+2. **Add more agent personality** - Different "players" with distinct styles
+3. **Better call/response** - More reactive listening between agents
+4. **Microphone input** - Let the AI "hear" external sound
+5. **Longer memory** - AI remembers what happened in previous phrases
 
-The project continues. The Four Minds keep building. Each rebuild teaches something new.
+---
+
+*"Jazz is about the conversation, not the notes."*
 
 **Live at:** lacobusgump.github.io/music2.0/
 
----
-
-*"Sometimes you have to throw it all away to find what works."*
