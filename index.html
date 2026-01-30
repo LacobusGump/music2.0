@@ -116,8 +116,6 @@ let music = {
 // ============ SAMPLES ============
 
 const URLS = {
-    kick_a: 'https://cdn.freesound.org/previews/171/171104_2394245-lq.mp3',
-    kick_b: 'https://cdn.freesound.org/previews/568/568573_12517458-lq.mp3',
     snare_a: 'https://cdn.freesound.org/previews/387/387186_7255534-lq.mp3',
     snare_b: 'https://cdn.freesound.org/previews/398/398712_183766-lq.mp3',
     hat_a: 'https://cdn.freesound.org/previews/250/250540_4486188-lq.mp3',
@@ -136,6 +134,70 @@ async function loadSamples() {
             samples[k] = makeFallback(k);
         }
     }
+    // Generate proper kicks and snares
+    samples.kick_a = createKickBuffer('deep');
+    samples.kick_b = createKickBuffer('punch');
+}
+
+// ============ SYNTHESIZED KICK - THE FOUNDATION ============
+
+function createKickBuffer(type) {
+    const sr = ctx.sampleRate;
+    const len = sr * 0.5; // 500ms
+    const buf = ctx.createBuffer(2, len, sr);
+
+    // Kick parameters based on type
+    const params = {
+        deep: { // 808-style deep sub kick
+            startFreq: 150,
+            endFreq: 35,
+            pitchDecay: 0.08,
+            ampDecay: 0.4,
+            clickAmt: 0.3,
+            subAmt: 1.0,
+            drive: 1.2
+        },
+        punch: { // Punchier, more attack
+            startFreq: 180,
+            endFreq: 45,
+            pitchDecay: 0.05,
+            ampDecay: 0.25,
+            clickAmt: 0.5,
+            subAmt: 0.8,
+            drive: 1.4
+        }
+    }[type];
+
+    for (let ch = 0; ch < 2; ch++) {
+        const d = buf.getChannelData(ch);
+        for (let i = 0; i < len; i++) {
+            const t = i / sr;
+
+            // Pitch envelope - exponential drop
+            const pitchEnv = Math.exp(-t / params.pitchDecay);
+            const freq = params.endFreq + (params.startFreq - params.endFreq) * pitchEnv;
+
+            // Phase accumulation for smooth frequency sweep
+            const phase = TAU * (params.endFreq * t + (params.startFreq - params.endFreq) * params.pitchDecay * (1 - pitchEnv));
+
+            // Sub tone - pure sine
+            const sub = Math.sin(phase) * params.subAmt;
+
+            // Click/transient - noise burst + high sine
+            const clickEnv = Math.exp(-t * 80);
+            const click = (Math.sin(phase * 4) * 0.5 + (Math.random() * 2 - 1) * 0.5) * clickEnv * params.clickAmt;
+
+            // Amp envelope - fast attack, controlled decay
+            const ampEnv = Math.exp(-t / params.ampDecay) * Math.min(1, t * 500); // 2ms attack
+
+            // Combine and soft clip for warmth
+            let sample = (sub + click) * ampEnv * params.drive;
+            sample = Math.tanh(sample * 0.8) * 0.9; // Soft saturation
+
+            d[i] = sample;
+        }
+    }
+    return buf;
 }
 
 function makeFallback(k) {
@@ -143,15 +205,13 @@ function makeFallback(k) {
     const buf = ctx.createBuffer(2, len, sr);
     for (let ch = 0; ch < 2; ch++) {
         const d = buf.getChannelData(ch);
-        if (k.includes('kick')) {
+        if (k.includes('snare')) {
             for (let i = 0; i < len; i++) {
                 const t = i / sr;
-                d[i] = Math.sin(TAU * (140 * Math.exp(-t * 25) + 45) * t) * Math.exp(-t * 10) * 0.8;
-            }
-        } else if (k.includes('snare')) {
-            for (let i = 0; i < len; i++) {
-                const t = i / sr;
-                d[i] = ((Math.random() * 2 - 1) * 0.7 + Math.sin(TAU * 180 * t) * 0.3) * Math.exp(-t * 15) * 0.6;
+                // Body + noise
+                const body = Math.sin(TAU * 180 * t) * Math.exp(-t * 20);
+                const noise = (Math.random() * 2 - 1) * Math.exp(-t * 12);
+                d[i] = (body * 0.4 + noise * 0.6) * 0.7;
             }
         } else {
             for (let i = 0; i < len * 0.15; i++) {
@@ -163,20 +223,55 @@ function makeFallback(k) {
     return buf;
 }
 
+// ============ SIDECHAIN - MAKES LOW END BREATHE ============
+
+let sidechainGain;
+let sidechainEnv = 1;
+
+function initSidechain() {
+    sidechainGain = ctx.createGain();
+    sidechainGain.gain.value = 1;
+}
+
+function triggerSidechain(amount = 0.7, release = 0.15) {
+    // Duck to (1 - amount), then release
+    const now = ctx.currentTime;
+    sidechainGain.gain.cancelScheduledValues(now);
+    sidechainGain.gain.setValueAtTime(1 - amount, now);
+    sidechainGain.gain.exponentialRampToValueAtTime(1, now + release);
+}
+
 // ============ FX CHAIN ============
 
-let drumBus, bassBus, padBus, masterBus;
+let kickBus, drumBus, bassBus, padBus, masterBus;
 let lofiFilter, verb, verbWet, dly, dlyWet, sat, comp, lim;
+let subBass; // Separate sub bass bus for clean low end
 
 function initFX() {
-    drumBus = ctx.createGain(); drumBus.gain.value = 0.75;
-    bassBus = ctx.createGain(); bassBus.gain.value = 0.6;
-    padBus = ctx.createGain(); padBus.gain.value = 0.4;
+    // KICK gets its own bus - no reverb, no delay, clean and punchy
+    kickBus = ctx.createGain();
+    kickBus.gain.value = 0.85;
+
+    // Sub bass - also clean, sidechained
+    subBass = ctx.createGain();
+    subBass.gain.value = 0.7;
+
+    drumBus = ctx.createGain(); drumBus.gain.value = 0.7;
+    bassBus = ctx.createGain(); bassBus.gain.value = 0.55;
+    padBus = ctx.createGain(); padBus.gain.value = 0.35;
     masterBus = ctx.createGain();
 
+    // Initialize sidechain
+    initSidechain();
+
+    // Warm saturation
     sat = ctx.createWaveShaper();
     const curve = new Float32Array(65536);
-    for (let i = 0; i < 65536; i++) curve[i] = Math.tanh((i / 32768 - 1) * 1.5) * 0.95;
+    for (let i = 0; i < 65536; i++) {
+        const x = (i / 32768 - 1);
+        // Asymmetric soft clipping for analog warmth
+        curve[i] = Math.tanh(x * 1.8) * 0.85 + x * 0.1;
+    }
     sat.curve = curve;
     sat.oversample = '4x';
 
@@ -184,51 +279,82 @@ function initFX() {
     lofiFilter.type = 'lowpass';
     lofiFilter.frequency.value = 18000;
 
+    // Glue compressor - gentler
     comp = ctx.createDynamicsCompressor();
-    comp.threshold.value = -14;
-    comp.ratio.value = 4;
-    comp.attack.value = 0.003;
-    comp.release.value = 0.12;
+    comp.threshold.value = -18;
+    comp.ratio.value = 3;
+    comp.attack.value = 0.01;
+    comp.release.value = 0.15;
+    comp.knee.value = 6;
 
+    // Limiter
     lim = ctx.createDynamicsCompressor();
-    lim.threshold.value = -2;
+    lim.threshold.value = -3;
     lim.ratio.value = 20;
     lim.attack.value = 0.001;
 
-    // Lush reverb
+    // Low cut on master (sub handled separately)
+    const masterLowCut = ctx.createBiquadFilter();
+    masterLowCut.type = 'highpass';
+    masterLowCut.frequency.value = 30;
+    masterLowCut.Q.value = 0.7;
+
+    // Lush reverb - longer, more diffuse
     verb = ctx.createConvolver();
-    const vLen = ctx.sampleRate * 2.8;
+    const vLen = ctx.sampleRate * 3.2;
     const vBuf = ctx.createBuffer(2, vLen, ctx.sampleRate);
     for (let ch = 0; ch < 2; ch++) {
         const d = vBuf.getChannelData(ch);
-        for (let i = 0; i < vLen; i++) d[i] = (Math.random() * 2 - 1) * Math.exp(-i / ctx.sampleRate / 1.4) * 0.45;
+        for (let i = 0; i < vLen; i++) {
+            // Early reflections + diffuse tail
+            const early = i < ctx.sampleRate * 0.08 ? Math.random() * 0.3 : 0;
+            const tail = (Math.random() * 2 - 1) * Math.exp(-i / ctx.sampleRate / 1.8);
+            d[i] = (early + tail) * 0.4;
+        }
     }
     verb.buffer = vBuf;
     verbWet = ctx.createGain();
-    verbWet.gain.value = 0.22;
+    verbWet.gain.value = 0.2;
 
     // Tape delay
     dly = ctx.createDelay(1);
     dly.delayTime.value = 0.375;
     const dlyFb = ctx.createGain();
-    dlyFb.gain.value = 0.35;
+    dlyFb.gain.value = 0.32;
     const dlyFilt = ctx.createBiquadFilter();
     dlyFilt.type = 'lowpass';
-    dlyFilt.frequency.value = 2400;
+    dlyFilt.frequency.value = 2200;
     dlyWet = ctx.createGain();
-    dlyWet.gain.value = 0.16;
+    dlyWet.gain.value = 0.14;
     dly.connect(dlyFilt).connect(dlyFb).connect(dly);
     dlyFilt.connect(dlyWet);
 
     master = ctx.createGain();
-    master.gain.value = 0.85;
+    master.gain.value = 0.9;
 
-    // Routing
-    [drumBus, bassBus, padBus].forEach(b => b.connect(masterBus));
-    masterBus.connect(sat).connect(lofiFilter).connect(comp);
-    masterBus.connect(verb); verb.connect(verbWet);
-    masterBus.connect(dly);
-    [comp, verbWet, dlyWet].forEach(n => n.connect(lim));
+    // ROUTING - Key for clean low end
+
+    // Kick goes direct to limiter (clean, punchy)
+    kickBus.connect(lim);
+
+    // Sub bass through sidechain, then direct to limiter (no FX)
+    subBass.connect(sidechainGain).connect(lim);
+
+    // Bass mids through sidechain, then to master bus for FX
+    bassBus.connect(sidechainGain).connect(masterBus);
+
+    // Drums and pads to master bus
+    drumBus.connect(masterBus);
+    padBus.connect(masterBus);
+
+    // Master bus processing (everything except kick and sub)
+    masterBus.connect(sat).connect(lofiFilter).connect(masterLowCut).connect(comp).connect(lim);
+
+    // FX sends (not from kick or sub bass)
+    masterBus.connect(verb); verb.connect(verbWet).connect(lim);
+    masterBus.connect(dly); dlyWet.connect(lim);
+
+    // Final output
     lim.connect(master).connect(ctx.destination);
 }
 
@@ -380,10 +506,12 @@ function updateBeats() {
         const sw = s % 2 === 1 ? stepDur * pattern.swing : 0;
         const k = pattern.kit;
 
-        // DRUMS - the groove
+        // KICK - the foundation
         if (pattern.kicks[s]) {
-            const vel = 0.8 + music.intensity * 0.2;
-            play(samples['kick_' + k], { vol: vel, delay: sw });
+            const vel = 0.85 + music.intensity * 0.15;
+            play(samples['kick_' + k], { vol: vel, delay: sw, bus: kickBus });
+            // Trigger sidechain - bass ducks
+            triggerSidechain(0.6, 0.12 + (1 - music.intensity) * 0.08);
         }
 
         if (pattern.snares[s]) {
@@ -409,117 +537,159 @@ function updateBeats() {
     }
 }
 
-// ============ BASS - EVOLVING ============
+// ============ BASS - LAYERED, BREATHING ============
 
-let bassO1, bassO2, bassF, bassG, bassLFO, bassLFOG;
+// Bass has two layers: SUB (pure low) and MID (harmonics for speakers)
+let bassSubOsc, bassSubGain;
+let bassMidOsc1, bassMidOsc2, bassMidFilter, bassMidGain;
+let bassTargetFreq = 55;
+let bassCurrentFreq = 55;
+let bassNoteActive = false;
 
 function initBass() {
-    bassO1 = ctx.createOscillator();
-    bassO2 = ctx.createOscillator();
-    bassO1.type = bassO2.type = 'sine';
-    bassO1.frequency.value = bassO2.frequency.value = 55;
-    bassO2.detune.value = 7;
+    // SUB LAYER - Pure sine, very low, clean
+    bassSubOsc = ctx.createOscillator();
+    bassSubOsc.type = 'sine';
+    bassSubOsc.frequency.value = 55;
 
-    bassF = ctx.createBiquadFilter();
-    bassF.type = 'lowpass';
-    bassF.frequency.value = 350;
-    bassF.Q.value = 1.8;
+    bassSubGain = ctx.createGain();
+    bassSubGain.gain.value = 0;
 
-    bassLFO = ctx.createOscillator();
-    bassLFO.frequency.value = 0.35;
-    bassLFOG = ctx.createGain();
-    bassLFOG.gain.value = 0;
-    bassLFO.connect(bassLFOG).connect(bassF.frequency);
-    bassLFO.start();
+    // Sub goes to dedicated sub bus (sidechained, no FX)
+    bassSubOsc.connect(bassSubGain).connect(subBass);
+    bassSubOsc.start();
 
-    bassG = ctx.createGain();
-    bassG.gain.value = 0;
+    // MID LAYER - Harmonics that translate on small speakers
+    bassMidOsc1 = ctx.createOscillator();
+    bassMidOsc2 = ctx.createOscillator();
+    bassMidOsc1.type = 'triangle';
+    bassMidOsc2.type = 'sawtooth';
+    bassMidOsc1.frequency.value = 55;
+    bassMidOsc2.frequency.value = 55;
+    bassMidOsc2.detune.value = 8;
 
-    const mix = ctx.createGain();
-    mix.gain.value = 0.5;
-    bassO1.connect(mix);
-    bassO2.connect(mix);
-    mix.connect(bassF).connect(bassG).connect(bassBus);
-    bassO1.start();
-    bassO2.start();
+    bassMidFilter = ctx.createBiquadFilter();
+    bassMidFilter.type = 'lowpass';
+    bassMidFilter.frequency.value = 400;
+    bassMidFilter.Q.value = 2;
+
+    bassMidGain = ctx.createGain();
+    bassMidGain.gain.value = 0;
+
+    const midMix = ctx.createGain();
+    midMix.gain.value = 0.5;
+    bassMidOsc1.connect(midMix);
+    bassMidOsc2.connect(midMix);
+    midMix.connect(bassMidFilter).connect(bassMidGain).connect(bassBus);
+    bassMidOsc1.start();
+    bassMidOsc2.start();
 }
 
 // Bass sequence evolves
 let bassSeq = [0, 0, 5, 3];
 let lastBassShift = 0;
-let walkingBassStep = 0;
+let lastBassNote = -1;
 
 // Walking bass patterns - jazz movement
 const WALKING_PATTERNS = [
-    [0, 2, 4, 5],   // Ascending scale
-    [0, -2, -4, -5], // Descending
-    [0, 5, 3, 7],   // Arpeggiated
-    [0, 7, 5, 3],   // Descending arp
-    [0, 0, 5, 7],   // Pedal then move
-    [0, 3, 5, 6],   // Chromatic approach
+    [0, 2, 4, 5],
+    [0, -2, -4, -5],
+    [0, 5, 3, 7],
+    [0, 7, 5, 3],
+    [0, 0, 5, 7],
+    [0, 3, 5, 6],
 ];
+
+// Trigger a bass note with envelope - MAKES IT BREATHE
+function triggerBassNote(freq, velocity = 1, duration = 0.4) {
+    const now = ctx.currentTime;
+    const attack = 0.008;
+    const decay = 0.1;
+    const sustain = 0.7;
+    const release = duration * 0.4;
+
+    // Glide to new frequency (portamento)
+    bassSubOsc.frequency.exponentialRampToValueAtTime(freq, now + 0.03);
+    bassMidOsc1.frequency.exponentialRampToValueAtTime(freq, now + 0.03);
+    bassMidOsc2.frequency.exponentialRampToValueAtTime(freq, now + 0.03);
+
+    // SUB envelope - slower, rounder
+    const subVol = velocity * 0.65;
+    bassSubGain.gain.cancelScheduledValues(now);
+    bassSubGain.gain.setValueAtTime(bassSubGain.gain.value, now);
+    bassSubGain.gain.linearRampToValueAtTime(subVol, now + attack * 2);
+    bassSubGain.gain.linearRampToValueAtTime(subVol * sustain, now + attack * 2 + decay);
+    bassSubGain.gain.linearRampToValueAtTime(subVol * sustain * 0.8, now + duration - release);
+    bassSubGain.gain.linearRampToValueAtTime(0.001, now + duration);
+
+    // MID envelope - punchier attack
+    const midVol = velocity * 0.4;
+    bassMidGain.gain.cancelScheduledValues(now);
+    bassMidGain.gain.setValueAtTime(bassMidGain.gain.value, now);
+    bassMidGain.gain.linearRampToValueAtTime(midVol * 1.2, now + attack); // Overshoot
+    bassMidGain.gain.linearRampToValueAtTime(midVol * sustain, now + attack + decay);
+    bassMidGain.gain.linearRampToValueAtTime(midVol * sustain * 0.6, now + duration - release);
+    bassMidGain.gain.linearRampToValueAtTime(0.001, now + duration);
+
+    // Filter envelope - opens then closes
+    bassMidFilter.frequency.cancelScheduledValues(now);
+    bassMidFilter.frequency.setValueAtTime(200, now);
+    bassMidFilter.frequency.linearRampToValueAtTime(800 * velocity, now + attack);
+    bassMidFilter.frequency.exponentialRampToValueAtTime(300, now + duration * 0.5);
+
+    bassNoteActive = true;
+    bassTargetFreq = freq;
+}
 
 function updateBass() {
     if (dial.depth === '0') {
-        bassG.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.1);
+        bassSubGain.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.1);
+        bassMidGain.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.1);
         return;
     }
 
     const cfg = {
-        sub: { t1: 'sine', t2: 'sine', base: 32.7, filt: 200, lfo: 0, vol: 0.55, det: 5 },
-        thick: { t1: 'sawtooth', t2: 'sawtooth', base: 55, filt: 550, lfo: 100, vol: 0.38, det: 18 },
-        warm: { t1: 'triangle', t2: 'sine', base: 55, filt: 650, lfo: 35, vol: 0.42, det: 8 }
+        sub: { base: 32.7, subVol: 1.0, midVol: 0.3, filter: 300 },
+        thick: { base: 41.2, subVol: 0.7, midVol: 0.6, filter: 600 },
+        warm: { base: 55, subVol: 0.8, midVol: 0.5, filter: 450 }
     }[dial.depth];
 
     if (!cfg) return;
 
-    // AI INFLUENCE: Bass behavior from bandState
+    // AI INFLUENCE
     const aiWalking = bandState.bass.walking;
     const aiRegister = bandState.bass.register;
     const aiActivity = bandState.bass.activity;
 
-    // Register affects base frequency
     const registerMult = { low: 0.5, mid: 1, high: 2 }[aiRegister] || 1;
 
-    // When AI says walk, use walking patterns
+    // Pattern evolution
     if (aiWalking) {
-        // Pick a walking pattern based on bar
         const walkPattern = WALKING_PATTERNS[music.bar % WALKING_PATTERNS.length];
-        walkingBassStep = (walkingBassStep + 1) % 4;
         bassSeq = walkPattern;
-    } else {
-        // Standard evolution
-        if (field.time - lastBassShift > 4 && Math.random() < 0.06 * aiActivity) {
-            lastBassShift = field.time;
-            bassSeq[Math.floor(Math.random() * 4)] = [0, 3, 5, 7, -5, -7][Math.floor(Math.random() * 6)];
-        }
+    } else if (field.time - lastBassShift > 4 && Math.random() < 0.08 * aiActivity) {
+        lastBassShift = field.time;
+        bassSeq[Math.floor(Math.random() * 4)] = [0, 3, 5, 7, -5, -7][Math.floor(Math.random() * 6)];
     }
 
-    // AI climbing/descending affects sequence
-    if (aiRegister === 'high' && music.bar % 4 === 0) {
-        bassSeq = bassSeq.map(n => n + 5); // Shift up
-    } else if (aiRegister === 'low' && music.bar % 4 === 0) {
-        bassSeq = bassSeq.map(n => Math.max(-12, n - 3)); // Shift down
+    // Get current note
+    const noteIndex = step % 4;
+    const note = bassSeq[noteIndex];
+
+    // Only trigger on note change or every bar
+    if (note !== lastBassNote || step % 16 === 0) {
+        lastBassNote = note;
+
+        const freq = cfg.base * registerMult * Math.pow(2, note / 12);
+        const gene = GENES[dial.pulse] || GENES.dust;
+        const noteDuration = (60 / gene.bpm) * (aiWalking ? 1 : 2); // Walking = quarter notes
+
+        const velocity = 0.7 + aiActivity * 0.3 + music.intensity * 0.2;
+        triggerBassNote(freq, Math.min(1, velocity), noteDuration);
     }
 
-    const note = bassSeq[music.bar % 4];
-    let freq = cfg.base * registerMult * Math.pow(2, note / 12) * Math.pow(2, (1 - field.y) * 0.45);
-
-    bassO1.type = cfg.t1;
-    bassO2.type = cfg.t2;
-    bassO1.frequency.linearRampToValueAtTime(freq, ctx.currentTime + 0.04);
-    bassO2.frequency.linearRampToValueAtTime(freq, ctx.currentTime + 0.04);
-    bassO2.detune.value = cfg.det;
-
-    // Filter opens with energy AND activity
-    const filtMod = 1 + field.energy * 1.8 + music.intensity * 0.6 + aiActivity * 0.4;
-    bassF.frequency.linearRampToValueAtTime(cfg.filt * filtMod, ctx.currentTime + 0.05);
-    bassLFOG.gain.value = cfg.lfo * music.intensity * aiActivity;
-    bassLFO.frequency.value = 0.25 + field.energy * 1.5 + (aiWalking ? 0.5 : 0);
-
-    // Volume affected by AI activity level
-    const vol = cfg.vol * (0.5 + aiActivity * 0.5);
-    bassG.gain.linearRampToValueAtTime(vol, ctx.currentTime + 0.1);
+    // Mid layer character changes with dial
+    bassMidOsc1.type = dial.depth === 'thick' ? 'sawtooth' : 'triangle';
 }
 
 // ============ PAD LAYER ============
