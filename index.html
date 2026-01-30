@@ -890,10 +890,35 @@ const agentPersonality = {
 };
 
 // AI decision state
-let aiEnabled = true;
+let aiEnabled = false; // Start disabled, enable after successful init
+let aiReady = false;
 let lastAICall = 0;
 let aiCooldown = 4000; // ms between AI decisions
 let pendingDecisions = {};
+
+// Try to initialize Puter AI in background (non-blocking)
+async function initPuterAI() {
+    if (!window.puter) {
+        console.log('[GUMP] Puter.js not loaded');
+        return false;
+    }
+    try {
+        // Test with a simple call to see if AI is available
+        const test = await puter.ai.chat('Reply with just: ok', {
+            model: 'moonshotai/kimi-k2.5',
+            max_tokens: 5
+        });
+        if (test) {
+            console.log('[GUMP] Kimi K2 AI ready!');
+            aiEnabled = true;
+            aiReady = true;
+            return true;
+        }
+    } catch (e) {
+        console.log('[GUMP] AI init failed:', e.message);
+    }
+    return false;
+}
 
 // Build context for AI decision
 function buildMusicalContext() {
@@ -914,9 +939,55 @@ function buildMusicalContext() {
     };
 }
 
-// THE JAZZ BRAIN - asks Kimi for musical decisions
+// SMART FALLBACK - Jazz decisions without AI
+function jazzBrainFallback(agent, context) {
+    const energy = context.energy / 100;
+    const tension = context.tension / 100;
+    const building = context.direction === 'building';
+    const releasing = context.direction === 'releasing';
+    const r = Math.random();
+
+    switch (agent) {
+        case 'drums':
+            // High energy + building = push; low energy = pull back
+            if (energy > 0.7 && building) return r < 0.6 ? 'push' : 'fill';
+            if (energy < 0.3) return r < 0.5 ? 'pull-back' : 'steady';
+            if (tension > 0.8 && r < 0.3) return 'accent';
+            if (releasing && r < 0.4) return 'drop';
+            return 'steady';
+
+        case 'bass':
+            // Walking when energy is medium-high and building
+            if (energy > 0.5 && building && r < 0.5) return 'walk';
+            if (tension > 0.7 && r < 0.4) return 'climb';
+            if (releasing && r < 0.4) return 'descend';
+            if (energy < 0.2 && r < 0.3) return 'pedal';
+            return 'root';
+
+        case 'pad':
+            // Spread voicings when building, sparse when releasing
+            if (building && tension > 0.5) return r < 0.5 ? 'spread' : 'rich';
+            if (releasing) return r < 0.4 ? 'sparse' : 'shell';
+            if (tension > 0.8 && r < 0.2) return 'out'; // Outside tension
+            return 'close';
+
+        case 'lead':
+            // Develop when energy is up, space when releasing
+            if (energy > 0.6 && r < 0.5) return 'develop';
+            if (tension > 0.85 && r < 0.4) return 'peak';
+            if (releasing && r < 0.5) return 'space';
+            if (r < 0.3) return 'contrast';
+            return r < 0.4 ? 'rest' : 'echo';
+    }
+    return null;
+}
+
+// THE JAZZ BRAIN - asks Kimi for musical decisions (or uses fallback)
 async function askJazzMind(agent, context) {
-    if (!window.puter?.ai) return null;
+    // If AI not ready, use smart fallback
+    if (!aiReady || !window.puter?.ai) {
+        return jazzBrainFallback(agent, context);
+    }
 
     const prompts = {
         drums: `You are a jazz drummer. Energy:${context.energy}%, tension:${context.tension}%, direction:${context.direction}.
@@ -945,8 +1016,8 @@ What's your move? Reply with ONLY one word from: develop, contrast, space, peak,
         console.log(`[${agent}] AI: ${decision}`);
         return decision;
     } catch (e) {
-        console.log(`[${agent}] AI error:`, e.message);
-        return null;
+        console.log(`[${agent}] AI error, using fallback`);
+        return jazzBrainFallback(agent, context);
     }
 }
 
@@ -1150,7 +1221,8 @@ function updateBandStatus() {
     }
     if (dir) {
         const dirSymbol = { building: '/', releasing: '\\', floating: '~' }[bandState.direction] || '~';
-        dir.textContent = dirSymbol + ' ' + Math.round(bandState.tension * 100) + '%';
+        const aiIndicator = aiReady ? ' [AI]' : '';
+        dir.textContent = dirSymbol + ' ' + Math.round(bandState.tension * 100) + '%' + aiIndicator;
     }
 }
 
@@ -1241,13 +1313,20 @@ async function init() {
 
     updateHaze();
 
-    // Check if Puter.js loaded
-    if (window.puter?.ai) {
-        console.log('[GUMP] Kimi K2 AI ready - Jazz Orchestra enabled');
-    } else {
-        console.log('[GUMP] AI not available - using generative patterns');
-        aiEnabled = false;
-    }
+    // Start with smart fallback (works immediately)
+    aiEnabled = true; // Enable the jazz brain (will use fallback until AI ready)
+    console.log('[GUMP] Jazz Orchestra starting with smart fallback');
+
+    // Try to init Puter AI in background (non-blocking)
+    setTimeout(() => {
+        initPuterAI().then(ready => {
+            if (ready) {
+                console.log('[GUMP] Upgraded to Kimi K2 AI!');
+            } else {
+                console.log('[GUMP] Continuing with smart jazz logic');
+            }
+        });
+    }, 2000); // Wait 2 sec for app to settle before trying AI
 }
 
 async function start() {
