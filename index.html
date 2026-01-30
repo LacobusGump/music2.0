@@ -4,8 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>GUMP - Jazz Orchestra</title>
-    <!-- Puter.js for free Kimi K2 AI -->
-    <script src="https://js.puter.com/v2/"></script>
     <style>
         :root{--phi:1.618}
         *{margin:0;padding:0;box-sizing:border-box}
@@ -30,6 +28,17 @@
         #band-status .agent{opacity:0.4;transition:opacity 0.5s}
         #band-status .agent.active{opacity:1;color:rgba(200,180,255,0.7)}
         #band-status .direction{position:absolute;top:0;right:13px;color:rgba(200,180,255,0.25)}
+
+        #settings-btn{position:fixed;top:13px;right:13px;z-index:60;width:24px;height:24px;border:1px solid rgba(200,180,255,0.15);border-radius:50%;background:transparent;color:rgba(200,180,255,0.4);font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center}
+        #settings-btn:hover{border-color:rgba(200,180,255,0.4);color:rgba(200,180,255,0.7)}
+        #settings-panel{position:fixed;top:50px;right:13px;z-index:60;background:rgba(10,10,15,0.95);border:1px solid rgba(200,180,255,0.15);border-radius:8px;padding:13px;display:none;width:260px}
+        #settings-panel.open{display:block}
+        #settings-panel label{display:block;font-size:9px;color:rgba(200,180,255,0.5);margin-bottom:5px;letter-spacing:1px}
+        #settings-panel input{width:100%;background:rgba(200,180,255,0.05);border:1px solid rgba(200,180,255,0.2);border-radius:4px;padding:8px;color:rgba(200,180,255,0.8);font-size:10px;font-family:monospace}
+        #settings-panel input:focus{outline:none;border-color:rgba(200,180,255,0.5)}
+        #settings-panel .status{font-size:8px;color:rgba(200,180,255,0.4);margin-top:8px}
+        #settings-panel .status.ok{color:rgba(150,255,150,0.7)}
+        #settings-panel .status.err{color:rgba(255,150,150,0.7)}
     </style>
 </head>
 <body>
@@ -41,6 +50,13 @@
     <div class="agent" id="st-pad">pad: close</div>
     <div class="agent" id="st-lead">lead: rest</div>
     <div class="direction" id="st-direction">~</div>
+</div>
+
+<button id="settings-btn" style="display:none">*</button>
+<div id="settings-panel">
+    <label>GROQ API KEY</label>
+    <input type="password" id="groq-key" placeholder="gsk_..." autocomplete="off">
+    <div class="status" id="groq-status">paste your key from console.groq.com</div>
 </div>
 
 <div id="dials" style="display:none">
@@ -890,34 +906,84 @@ const agentPersonality = {
 };
 
 // AI decision state
-let aiEnabled = false; // Start disabled, enable after successful init
+let aiEnabled = false;
 let aiReady = false;
+let groqKey = null;
 let lastAICall = 0;
-let aiCooldown = 4000; // ms between AI decisions
+let aiCooldown = 3000; // ms between AI decisions (Groq is fast)
 let pendingDecisions = {};
 
-// Try to initialize Puter AI in background (non-blocking)
-async function initPuterAI() {
-    if (!window.puter) {
-        console.log('[GUMP] Puter.js not loaded');
-        return false;
-    }
+// Groq API call
+async function callGroq(prompt) {
+    if (!groqKey) return null;
+
     try {
-        // Test with a simple call to see if AI is available
-        const test = await puter.ai.chat('Reply with just: ok', {
-            model: 'moonshotai/kimi-k2.5',
-            max_tokens: 5
+        const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${groqKey}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                model: 'llama-3.1-8b-instant', // Fast and free
+                messages: [{ role: 'user', content: prompt }],
+                max_tokens: 10,
+                temperature: 0.7
+            })
         });
-        if (test) {
-            console.log('[GUMP] Kimi K2 AI ready!');
-            aiEnabled = true;
-            aiReady = true;
-            return true;
+
+        if (!response.ok) {
+            throw new Error(`Groq API error: ${response.status}`);
         }
+
+        const data = await response.json();
+        return data.choices?.[0]?.message?.content?.trim().toLowerCase().split(/\s/)[0] || null;
     } catch (e) {
-        console.log('[GUMP] AI init failed:', e.message);
+        console.log('[GUMP] Groq error:', e.message);
+        return null;
+    }
+}
+
+// Initialize Groq with saved key
+function initGroqAI() {
+    groqKey = localStorage.getItem('gump_groq_key');
+    if (groqKey) {
+        console.log('[GUMP] Groq API key loaded');
+        aiReady = true;
+        aiEnabled = true;
+        updateGroqStatus('connected', true);
+        return true;
     }
     return false;
+}
+
+// Save Groq key
+function saveGroqKey(key) {
+    if (key && key.startsWith('gsk_')) {
+        localStorage.setItem('gump_groq_key', key);
+        groqKey = key;
+        aiReady = true;
+        aiEnabled = true;
+        updateGroqStatus('connected - AI active!', true);
+        console.log('[GUMP] Groq API key saved');
+        return true;
+    } else {
+        updateGroqStatus('invalid key (should start with gsk_)', false);
+        return false;
+    }
+}
+
+function updateGroqStatus(msg, ok) {
+    const el = document.getElementById('groq-status');
+    if (el) {
+        el.textContent = msg;
+        el.className = 'status ' + (ok ? 'ok' : 'err');
+    }
+    // Update direction display too
+    const dir = document.getElementById('st-direction');
+    if (dir && aiReady) {
+        // Will be updated in updateBandStatus
+    }
 }
 
 // Build context for AI decision
@@ -982,39 +1048,30 @@ function jazzBrainFallback(agent, context) {
     return null;
 }
 
-// THE JAZZ BRAIN - asks Kimi for musical decisions (or uses fallback)
+// THE JAZZ BRAIN - asks Groq for musical decisions (or uses fallback)
 async function askJazzMind(agent, context) {
     // If AI not ready, use smart fallback
-    if (!aiReady || !window.puter?.ai) {
+    if (!aiReady || !groqKey) {
         return jazzBrainFallback(agent, context);
     }
 
     const prompts = {
-        drums: `You are a jazz drummer. Energy:${context.energy}%, tension:${context.tension}%, direction:${context.direction}.
-Bass is ${context.bass}. Lead is ${context.lead}. Recent: ${context.recentActivity}.
-What's your next move? Reply with ONLY one word from: steady, push, pull-back, fill, drop, accent`,
+        drums: `Jazz drummer. Energy:${context.energy}% tension:${context.tension}% ${context.direction}. Bass:${context.bass} Lead:${context.lead}. Reply ONE word: steady/push/pull-back/fill/drop/accent`,
 
-        bass: `You are a jazz bassist. Energy:${context.energy}%, tension:${context.tension}%, bar ${context.bar}.
-Drums are ${context.drums}. Lead is ${context.lead}. Recent: ${context.recentActivity}.
-What's your next move? Reply with ONLY one word from: root, walk, climb, descend, pedal, rest`,
+        bass: `Jazz bassist. Energy:${context.energy}% tension:${context.tension}% bar${context.bar}. Drums:${context.drums} Lead:${context.lead}. Reply ONE word: root/walk/climb/descend/pedal/rest`,
 
-        pad: `You are a jazz pianist comping. Energy:${context.energy}%, tension:${context.tension}%.
-Drums: ${context.drums}. Bass: ${context.bass}. Recent: ${context.recentActivity}.
-What voicing? Reply with ONLY one word from: close, spread, shell, rich, sparse, out`,
+        pad: `Jazz pianist. Energy:${context.energy}% tension:${context.tension}%. Drums:${context.drums} Bass:${context.bass}. Reply ONE word: close/spread/shell/rich/sparse/out`,
 
-        lead: `You are a jazz soloist. Energy:${context.energy}%, motion:${context.motion}%, tension:${context.tension}%.
-Direction: ${context.direction} for ${context.barsInDirection} bars. Recent: ${context.recentActivity}.
-What's your move? Reply with ONLY one word from: develop, contrast, space, peak, echo, rest`
+        lead: `Jazz soloist. Energy:${context.energy}% motion:${context.motion}% tension:${context.tension}% ${context.direction}. Reply ONE word: develop/contrast/space/peak/echo/rest`
     };
 
     try {
-        const response = await puter.ai.chat(prompts[agent], {
-            model: 'moonshotai/kimi-k2.5',
-            max_tokens: 10
-        });
-        const decision = (response?.toString() || '').trim().toLowerCase().split(/\s/)[0];
-        console.log(`[${agent}] AI: ${decision}`);
-        return decision;
+        const decision = await callGroq(prompts[agent]);
+        if (decision) {
+            console.log(`[${agent}] AI: ${decision}`);
+            return decision;
+        }
+        return jazzBrainFallback(agent, context);
     } catch (e) {
         console.log(`[${agent}] AI error, using fallback`);
         return jazzBrainFallback(agent, context);
@@ -1310,23 +1367,52 @@ async function init() {
     document.getElementById('loading').classList.add('off');
     document.getElementById('dials').style.display = 'block';
     document.getElementById('band-status').style.display = 'block';
+    document.getElementById('settings-btn').style.display = 'flex';
 
     updateHaze();
+    initSettings();
 
-    // Start with smart fallback (works immediately)
-    aiEnabled = true; // Enable the jazz brain (will use fallback until AI ready)
-    console.log('[GUMP] Jazz Orchestra starting with smart fallback');
+    // Start with smart fallback, upgrade to Groq if key exists
+    aiEnabled = true;
+    if (initGroqAI()) {
+        console.log('[GUMP] Groq AI active!');
+    } else {
+        console.log('[GUMP] Jazz Orchestra with smart fallback (add Groq key for AI)');
+    }
+}
 
-    // Try to init Puter AI in background (non-blocking)
-    setTimeout(() => {
-        initPuterAI().then(ready => {
-            if (ready) {
-                console.log('[GUMP] Upgraded to Kimi K2 AI!');
-            } else {
-                console.log('[GUMP] Continuing with smart jazz logic');
-            }
-        });
-    }, 2000); // Wait 2 sec for app to settle before trying AI
+function initSettings() {
+    const btn = document.getElementById('settings-btn');
+    const panel = document.getElementById('settings-panel');
+    const input = document.getElementById('groq-key');
+
+    btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        panel.classList.toggle('open');
+    });
+
+    // Close panel when clicking outside
+    document.addEventListener('click', (e) => {
+        if (!panel.contains(e.target) && e.target !== btn) {
+            panel.classList.remove('open');
+        }
+    });
+
+    // Load existing key
+    const savedKey = localStorage.getItem('gump_groq_key');
+    if (savedKey) {
+        input.value = savedKey;
+    }
+
+    // Save key on input
+    input.addEventListener('change', () => {
+        saveGroqKey(input.value.trim());
+    });
+    input.addEventListener('blur', () => {
+        if (input.value.trim()) {
+            saveGroqKey(input.value.trim());
+        }
+    });
 }
 
 async function start() {
