@@ -1041,38 +1041,201 @@ function draw() {
     vc.fill();
 }
 
+// ============ MUSIC THEORY ENGINE ============
+
+// The harmonic foundation everything builds on
+const harmony = {
+    // Current key (0 = C, 2 = D, etc.)
+    key: 0,
+    // Current mode/scale
+    mode: 'minor', // minor, major, dorian, mixolydian
+    // Current chord in progression
+    chordIndex: 0,
+    // The actual chord being played (degrees from root)
+    currentChord: [0, 3, 7, 10], // m7 default
+    // Root note of current chord (semitones from key)
+    chordRoot: 0,
+    // Chord name for display/AI
+    chordName: 'im7',
+    // Where are we in the form
+    formPosition: 0, // 0-31 (8 bar sections)
+    // Beats since last chord change
+    beatsSinceChange: 0
+};
+
+// Scale degrees for different modes
+const SCALES = {
+    minor: [0, 2, 3, 5, 7, 8, 10],      // Natural minor
+    major: [0, 2, 4, 5, 7, 9, 11],      // Major
+    dorian: [0, 2, 3, 5, 7, 9, 10],     // Dorian (minor with raised 6)
+    mixolydian: [0, 2, 4, 5, 7, 9, 10], // Mixolydian (major with flat 7)
+    blues: [0, 3, 5, 6, 7, 10]          // Blues scale
+};
+
+// Jazz chord progressions (degrees and qualities)
+const PROGRESSIONS = {
+    // ii-V-I in minor
+    minor_jazz: [
+        { root: 0, type: 'm7', degrees: [0, 3, 7, 10], bars: 4, tension: 0.4 },
+        { root: 5, type: '7', degrees: [0, 4, 7, 10], bars: 2, tension: 0.7 },  // V7
+        { root: 0, type: 'm7', degrees: [0, 3, 7, 10], bars: 2, tension: 0.3 }   // im7
+    ],
+    // Blues-influenced
+    blues: [
+        { root: 0, type: '7', degrees: [0, 4, 7, 10], bars: 4, tension: 0.5 },
+        { root: 5, type: '7', degrees: [0, 4, 7, 10], bars: 2, tension: 0.6 },
+        { root: 0, type: '7', degrees: [0, 4, 7, 10], bars: 2, tension: 0.4 }
+    ],
+    // Coltrane changes (more movement)
+    changes: [
+        { root: 0, type: 'maj7', degrees: [0, 4, 7, 11], bars: 2, tension: 0.4 },
+        { root: 4, type: '7', degrees: [0, 4, 7, 10], bars: 2, tension: 0.6 },
+        { root: 8, type: 'maj7', degrees: [0, 4, 7, 11], bars: 2, tension: 0.5 },
+        { root: 0, type: 'm7', degrees: [0, 3, 7, 10], bars: 2, tension: 0.3 }
+    ],
+    // Modal (stays on one chord longer)
+    modal: [
+        { root: 0, type: 'm7', degrees: [0, 3, 7, 10], bars: 8, tension: 0.4 }
+    ]
+};
+
+// Get notes that work over current chord
+function getChordTones() {
+    return harmony.currentChord.map(d => (harmony.key + harmony.chordRoot + d) % 12);
+}
+
+// Get scale notes in current key
+function getScaleNotes() {
+    const scale = SCALES[harmony.mode] || SCALES.minor;
+    return scale.map(d => (harmony.key + d) % 12);
+}
+
+// Get tension notes (color tones) - 9, 11, 13
+function getTensionNotes() {
+    const root = harmony.key + harmony.chordRoot;
+    return [(root + 2) % 12, (root + 5) % 12, (root + 9) % 12]; // 9, 11, 13
+}
+
+// Update harmony based on bar position
+function updateHarmony() {
+    const progName = dial.pulse === 'drive' ? 'blues' :
+                     dial.pulse === 'gold' ? 'changes' : 'minor_jazz';
+    const prog = PROGRESSIONS[progName];
+
+    // Find current chord based on bar
+    let barInProg = music.bar % prog.reduce((sum, c) => sum + c.bars, 0);
+    let accumulated = 0;
+
+    for (let i = 0; i < prog.length; i++) {
+        if (barInProg < accumulated + prog[i].bars) {
+            if (harmony.chordIndex !== i) {
+                // Chord change!
+                harmony.chordIndex = i;
+                harmony.chordRoot = prog[i].root;
+                harmony.currentChord = prog[i].degrees;
+                harmony.chordName = numToNote(prog[i].root) + prog[i].type;
+                harmony.beatsSinceChange = 0;
+                logMusicalEvent('harmony', `-> ${harmony.chordName}`);
+            }
+            harmony.formPosition = barInProg;
+            break;
+        }
+        accumulated += prog[i].bars;
+    }
+
+    harmony.beatsSinceChange++;
+}
+
+function numToNote(n) {
+    return ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B'][n % 12];
+}
+
 // ============ JAZZ ORCHESTRA - AI MINDS ============
 
 // Shared state - what all musicians can "hear"
 const bandState = {
-    // What's happening right now
-    drums: { density: 0.5, lastFill: 0, energy: 0.5, pattern: 'steady' },
-    bass: { register: 'mid', activity: 0.5, lastChange: 0, walking: false },
-    pad: { voicing: 'close', volume: 0.4, moving: false },
-    lead: { active: false, register: 'mid', motif: null, developing: false },
+    // What each instrument is actually playing
+    drums: {
+        density: 0.5,
+        lastFill: 0,
+        energy: 0.5,
+        pattern: 'steady',
+        lastHit: null,  // 'kick', 'snare', 'hat'
+        groove: 'straight' // straight, swung, broken
+    },
+    bass: {
+        register: 'mid',
+        activity: 0.5,
+        walking: false,
+        lastNote: 0,     // Last note played (semitones)
+        approach: null,  // Approaching what note
+        rhythm: 'quarter' // quarter, eighth, half
+    },
+    pad: {
+        voicing: 'close',
+        volume: 0.4,
+        extensions: false, // Using 9ths, 11ths, 13ths
+        lastVoicing: []    // Actual notes being played
+    },
+    lead: {
+        active: false,
+        register: 'mid',
+        developing: false,
+        lastPhrase: [],    // Recent notes played
+        motifNotes: [],    // The motif being developed
+        callWaiting: false // Expecting a response
+    },
 
-    // Conversation state
-    lastSolo: null,
+    // The conversation
     tension: 0.5,
-    direction: 'building', // building, releasing, floating
+    direction: 'building',
     barsInDirection: 0,
+    recentEvents: [],
 
-    // Recent events for context
-    recentEvents: []
+    // Musical memory
+    lastSoloist: null,
+    tradingFours: false,
+    peakReached: false
 };
 
 // Jazz conversation - when someone plays, others might respond
-function logMusicalEvent(who, what) {
-    bandState.recentEvents.push({ who, what, bar: music.bar, time: Date.now() });
-    if (bandState.recentEvents.length > 12) bandState.recentEvents.shift();
+function logMusicalEvent(who, what, notes = null) {
+    const event = { who, what, bar: music.bar, time: Date.now() };
+    if (notes) event.notes = notes;
+    bandState.recentEvents.push(event);
+    if (bandState.recentEvents.length > 16) bandState.recentEvents.shift();
 }
 
-// Agent personalities - different musical tendencies
+// Agent personalities - how they approach music
 const agentPersonality = {
-    drums: { responsive: 0.7, leadTendency: 0.3, spaceLove: 0.4 },
-    bass: { responsive: 0.8, leadTendency: 0.2, spaceLove: 0.3 },
-    pad: { responsive: 0.5, leadTendency: 0.1, spaceLove: 0.7 },
-    lead: { responsive: 0.6, leadTendency: 0.8, spaceLove: 0.5 }
+    drums: {
+        responsive: 0.7,
+        leadTendency: 0.3,
+        spaceLove: 0.4,
+        fillFrequency: 0.15,
+        dynamicRange: 0.6
+    },
+    bass: {
+        responsive: 0.8,
+        leadTendency: 0.2,
+        spaceLove: 0.3,
+        chromaticism: 0.3,  // Use passing tones
+        walkingTendency: 0.5
+    },
+    pad: {
+        responsive: 0.5,
+        leadTendency: 0.1,
+        spaceLove: 0.7,
+        voiceLeading: 0.7,  // Smooth voice leading
+        extensionLove: 0.5  // Add color tones
+    },
+    lead: {
+        responsive: 0.6,
+        leadTendency: 0.8,
+        spaceLove: 0.5,
+        motifDevelopment: 0.6,
+        outsidePlaying: 0.2  // Play "outside" the changes
+    }
 };
 
 // AI decision state
@@ -1171,64 +1334,98 @@ function updateGroqStatus(msg, ok) {
     }
 }
 
-// Build context for AI decision
+// Build rich musical context for AI decision
 function buildMusicalContext() {
-    const recent = bandState.recentEvents.slice(-6).map(e => `${e.who}: ${e.what}`).join('; ');
+    const recent = bandState.recentEvents.slice(-4).map(e => `${e.who}:${e.what}`).join(',');
+    const chordTones = getChordTones().map(numToNote).join('');
+    const scaleName = harmony.mode;
+
     return {
+        // Harmony
+        key: numToNote(harmony.key),
+        chord: harmony.chordName,
+        chordTones: chordTones,
+        scale: scaleName,
+        formPos: harmony.formPosition,
+        barsOnChord: Math.floor(harmony.beatsSinceChange / 4),
+
+        // Energy
         energy: Math.round(music.intensity * 100),
         motion: Math.round(field.energy * 100),
         tension: Math.round(bandState.tension * 100),
         direction: bandState.direction,
-        barsInDirection: bandState.barsInDirection,
-        drums: bandState.drums.pattern,
-        bass: bandState.bass.walking ? 'walking' : 'holding',
-        pad: bandState.pad.voicing,
-        lead: bandState.lead.active ? 'playing' : 'resting',
-        recentActivity: recent || 'quiet start',
-        bar: music.bar,
-        phrase: music.phrase
+        barsInDir: bandState.barsInDirection,
+
+        // What others are doing
+        drums: `${bandState.drums.pattern}/${bandState.drums.groove}`,
+        bassNote: numToNote(bandState.bass.lastNote),
+        bassStyle: bandState.bass.walking ? 'walking' : bandState.bass.rhythm,
+        padVoicing: bandState.pad.voicing + (bandState.pad.extensions ? '+ext' : ''),
+        leadActive: bandState.lead.active,
+        leadMotif: bandState.lead.motifNotes.slice(-3).map(numToNote).join(''),
+
+        // Context
+        recent: recent || 'start',
+        bar: music.bar % 8,
+        peakReached: bandState.peakReached
     };
 }
 
-// SMART FALLBACK - Jazz decisions without AI
+// SMART FALLBACK - Jazz decisions based on music theory
 function jazzBrainFallback(agent, context) {
     const energy = context.energy / 100;
     const tension = context.tension / 100;
     const building = context.direction === 'building';
     const releasing = context.direction === 'releasing';
+    const bar = context.bar; // Position in 8-bar phrase
     const r = Math.random();
 
     switch (agent) {
         case 'drums':
-            // High energy + building = push; low energy = pull back
-            if (energy > 0.7 && building) return r < 0.6 ? 'push' : 'fill';
-            if (energy < 0.3) return r < 0.5 ? 'pull-back' : 'steady';
-            if (tension > 0.8 && r < 0.3) return 'accent';
-            if (releasing && r < 0.4) return 'drop';
+            // Fills on bar 4 or 8 (phrase endings)
+            if ((bar === 3 || bar === 7) && r < 0.4) return 'fill';
+            // Trading fours
+            if (bandState.lead.callWaiting && r < 0.3) return 'trade';
+            // Energy-based
+            if (energy > 0.7 && building) return r < 0.5 ? 'push' : 'accent';
+            if (energy < 0.3) return r < 0.4 ? 'pullback' : 'steady';
+            if (releasing && r < 0.35) return 'breakdown';
             return 'steady';
 
         case 'bass':
-            // Walking when energy is medium-high and building
+            // Root on chord changes
+            if (context.barsOnChord === 0) return 'root';
+            // Walking when energy up
             if (energy > 0.5 && building && r < 0.5) return 'walk';
-            if (tension > 0.7 && r < 0.4) return 'climb';
-            if (releasing && r < 0.4) return 'descend';
-            if (energy < 0.2 && r < 0.3) return 'pedal';
-            return 'root';
+            // Chromatic approach before chord change
+            if (bar === 3 || bar === 7) return r < 0.5 ? 'chromatic' : 'fifth';
+            if (tension > 0.7) return r < 0.4 ? 'climb' : 'walk';
+            if (releasing) return r < 0.4 ? 'descend' : 'pedal';
+            if (energy < 0.2) return 'pedal';
+            return r < 0.6 ? 'root' : 'fifth';
 
         case 'pad':
-            // Spread voicings when building, sparse when releasing
-            if (building && tension > 0.5) return r < 0.5 ? 'spread' : 'rich';
-            if (releasing) return r < 0.4 ? 'sparse' : 'shell';
-            if (tension > 0.8 && r < 0.2) return 'out'; // Outside tension
-            return 'close';
+            // Shell voicings for sparse
+            if (releasing || energy < 0.3) return r < 0.5 ? 'shell' : 'rest';
+            // Build tension with clusters/quartal
+            if (tension > 0.7 && building) return r < 0.4 ? 'quartal' : 'cluster';
+            // Normal comping
+            if (building) return r < 0.5 ? 'spread' : 'drop2';
+            return r < 0.6 ? 'close' : 'shell';
 
         case 'lead':
-            // Develop when energy is up, space when releasing
-            if (energy > 0.6 && r < 0.5) return 'develop';
-            if (tension > 0.85 && r < 0.4) return 'peak';
-            if (releasing && r < 0.5) return 'space';
-            if (r < 0.3) return 'contrast';
-            return r < 0.4 ? 'rest' : 'echo';
+            // Phrase endings - breathe or answer
+            if (bar === 7) return bandState.lead.callWaiting ? 'answer' : 'breathe';
+            // Peak at high tension
+            if (tension > 0.85 && !context.peakReached && r < 0.5) return 'peak';
+            // Develop motif if we have one
+            if (bandState.lead.motifNotes.length > 0 && r < 0.5) {
+                return r < 0.5 ? 'develop' : 'sequence';
+            }
+            // Start new idea
+            if (energy > 0.5 && r < 0.4) return 'call';
+            if (releasing) return r < 0.5 ? 'breathe' : 'rest';
+            return r < 0.4 ? 'contrast' : 'rest';
     }
     return null;
 }
@@ -1240,14 +1437,27 @@ async function askJazzMind(agent, context) {
         return jazzBrainFallback(agent, context);
     }
 
+    // Rich, musically-informed prompts
     const prompts = {
-        drums: `Jazz drummer. Energy:${context.energy}% tension:${context.tension}% ${context.direction}. Bass:${context.bass} Lead:${context.lead}. Reply ONE word: steady/push/pull-back/fill/drop/accent`,
+        drums: `You're a jazz drummer. Current: ${context.chord} chord, bar ${context.bar}/8, ${context.direction} tension(${context.tension}%).
+Bass is ${context.bassStyle}, lead ${context.leadActive ? 'soloing' : 'resting'}.
+Energy ${context.energy}%. Recent: ${context.recent}.
+What groove? Reply ONE word: steady/push/pullback/fill/breakdown/accent/trade`,
 
-        bass: `Jazz bassist. Energy:${context.energy}% tension:${context.tension}% bar${context.bar}. Drums:${context.drums} Lead:${context.lead}. Reply ONE word: root/walk/climb/descend/pedal/rest`,
+        bass: `You're a jazz bassist on ${context.chord}. Root notes: ${context.chordTones}. Scale: ${context.scale}.
+Drums: ${context.drums}. Lead: ${context.leadMotif || 'resting'}. Tension ${context.tension}%, ${context.direction}.
+Bar ${context.bar}/8. Last note: ${context.bassNote}. Energy ${context.energy}%.
+What to play? Reply ONE word: root/fifth/walk/chromatic/pedal/climb/descend/rest`,
 
-        pad: `Jazz pianist. Energy:${context.energy}% tension:${context.tension}%. Drums:${context.drums} Bass:${context.bass}. Reply ONE word: close/spread/shell/rich/sparse/out`,
+        pad: `You're comping on ${context.chord} (${context.chordTones}). Key of ${context.key} ${context.scale}.
+Bass on ${context.bassNote}. Drums ${context.drums}. Tension ${context.tension}%.
+${context.barsOnChord} bars on this chord. ${context.direction}.
+Voicing? Reply ONE word: shell/close/spread/drop2/quartal/cluster/rest`,
 
-        lead: `Jazz soloist. Energy:${context.energy}% motion:${context.motion}% tension:${context.tension}% ${context.direction}. Reply ONE word: develop/contrast/space/peak/echo/rest`
+        lead: `You're soloing over ${context.chord}. Chord tones: ${context.chordTones}. Scale: ${context.key} ${context.scale}.
+Your motif: ${context.leadMotif || 'none'}. Tension ${context.tension}%, ${context.direction}.
+Drums ${context.drums}, bass ${context.bassStyle}. Bar ${context.bar}/8. Peak reached: ${context.peakReached}.
+What phrase? Reply ONE word: develop/sequence/contrast/peak/breathe/call/answer/rest`
     };
 
     try {
@@ -1263,7 +1473,7 @@ async function askJazzMind(agent, context) {
     }
 }
 
-// Apply drum decisions
+// Apply drum decisions with new vocabulary
 function applyDrumDecision(decision) {
     const prev = bandState.drums.pattern;
     switch (decision) {
@@ -1271,119 +1481,224 @@ function applyDrumDecision(decision) {
             bandState.drums.density = Math.min(1, bandState.drums.density + 0.2);
             bandState.drums.energy = Math.min(1, bandState.drums.energy + 0.15);
             bandState.drums.pattern = 'pushing';
-            if (prev !== 'pushing') logMusicalEvent('drums', 'pushing forward');
+            bandState.drums.groove = 'driving';
+            if (prev !== 'pushing') logMusicalEvent('drums', 'pushing');
             break;
-        case 'pull-back':
+        case 'pullback':
             bandState.drums.density = Math.max(0.2, bandState.drums.density - 0.25);
             bandState.drums.energy = Math.max(0.2, bandState.drums.energy - 0.2);
             bandState.drums.pattern = 'sparse';
-            if (prev !== 'sparse') logMusicalEvent('drums', 'pulling back');
+            bandState.drums.groove = 'laid-back';
+            if (prev !== 'sparse') logMusicalEvent('drums', 'pulled back');
             break;
         case 'fill':
             bandState.drums.lastFill = music.bar;
             bandState.drums.pattern = 'fill';
-            logMusicalEvent('drums', 'fill!');
-            // Fill affects next pattern generation
+            logMusicalEvent('drums', 'fill');
             break;
-        case 'drop':
+        case 'breakdown':
             bandState.drums.density = 0.15;
             bandState.drums.pattern = 'minimal';
-            if (prev !== 'minimal') logMusicalEvent('drums', 'dropped out');
+            bandState.drums.groove = 'sparse';
+            if (prev !== 'minimal') logMusicalEvent('drums', 'breakdown');
             break;
         case 'accent':
             bandState.drums.pattern = 'accenting';
-            logMusicalEvent('drums', 'accent hit');
+            logMusicalEvent('drums', 'accent');
+            break;
+        case 'trade':
+            bandState.drums.pattern = 'trading';
+            bandState.tradingFours = true;
+            logMusicalEvent('drums', 'trading');
             break;
         default: // steady
             bandState.drums.pattern = 'steady';
+            bandState.drums.groove = 'straight';
             bandState.drums.density = 0.5 + music.intensity * 0.3;
     }
 }
 
-// Apply bass decisions
+// Apply bass decisions with harmony awareness
 function applyBassDecision(decision) {
+    const chordTones = getChordTones();
+    const root = chordTones[0];
+    const fifth = (root + 7) % 12;
+
     switch (decision) {
+        case 'root':
+            bandState.bass.walking = false;
+            bandState.bass.lastNote = root;
+            bandState.bass.rhythm = 'quarter';
+            bandState.bass.activity = 0.5;
+            break;
+        case 'fifth':
+            bandState.bass.walking = false;
+            bandState.bass.lastNote = fifth;
+            bandState.bass.rhythm = 'quarter';
+            bandState.bass.activity = 0.6;
+            logMusicalEvent('bass', 'to fifth');
+            break;
         case 'walk':
             bandState.bass.walking = true;
+            bandState.bass.rhythm = 'quarter';
             bandState.bass.activity = 0.8;
-            logMusicalEvent('bass', 'started walking');
+            logMusicalEvent('bass', 'walking');
+            break;
+        case 'chromatic':
+            // Chromatic approach to next chord root
+            bandState.bass.walking = false;
+            bandState.bass.approach = root;
+            bandState.bass.lastNote = (root + 11) % 12; // Half step below
+            bandState.bass.activity = 0.7;
+            logMusicalEvent('bass', 'chromatic');
+            break;
+        case 'pedal':
+            bandState.bass.walking = false;
+            bandState.bass.lastNote = root;
+            bandState.bass.rhythm = 'half';
+            bandState.bass.activity = 0.3;
+            bandState.bass.register = 'low';
+            logMusicalEvent('bass', 'pedal');
             break;
         case 'climb':
             bandState.bass.register = 'high';
             bandState.bass.activity = 0.7;
-            logMusicalEvent('bass', 'climbing up');
+            bandState.bass.lastNote = (bandState.bass.lastNote + 5) % 12;
+            logMusicalEvent('bass', 'climb');
             break;
         case 'descend':
             bandState.bass.register = 'low';
             bandState.bass.activity = 0.7;
-            logMusicalEvent('bass', 'descending');
-            break;
-        case 'pedal':
-            bandState.bass.walking = false;
-            bandState.bass.activity = 0.3;
-            bandState.bass.register = 'low';
-            logMusicalEvent('bass', 'pedal tone');
+            bandState.bass.lastNote = (bandState.bass.lastNote + 7) % 12; // Down a 5th = up a 4th
+            logMusicalEvent('bass', 'descend');
             break;
         case 'rest':
             bandState.bass.activity = 0.1;
-            logMusicalEvent('bass', 'resting');
+            bandState.bass.rhythm = 'rest';
+            logMusicalEvent('bass', 'rest');
             break;
-        default: // root
-            bandState.bass.walking = false;
-            bandState.bass.activity = 0.5;
-            bandState.bass.register = 'mid';
     }
 }
 
-// Apply pad decisions
+// Apply pad decisions with voicing awareness
 function applyPadDecision(decision) {
+    const prev = bandState.pad.voicing;
     bandState.pad.voicing = decision || 'close';
-    if (decision === 'sparse' || decision === 'shell') {
-        bandState.pad.volume = 0.25;
-    } else if (decision === 'rich' || decision === 'spread') {
-        bandState.pad.volume = 0.55;
-    } else if (decision === 'out') {
-        bandState.pad.volume = 0.4;
-        logMusicalEvent('pad', 'outside voicing');
+
+    switch (decision) {
+        case 'shell':
+            // Just 3rd and 7th
+            bandState.pad.volume = 0.25;
+            bandState.pad.extensions = false;
+            bandState.pad.lastVoicing = [3, 10]; // 3rd and 7th
+            break;
+        case 'close':
+            bandState.pad.volume = 0.4;
+            bandState.pad.extensions = false;
+            break;
+        case 'spread':
+            bandState.pad.volume = 0.5;
+            bandState.pad.extensions = true;
+            if (prev !== 'spread') logMusicalEvent('pad', 'spread');
+            break;
+        case 'drop2':
+            // Drop 2 voicing - 2nd voice dropped an octave
+            bandState.pad.volume = 0.45;
+            bandState.pad.extensions = false;
+            if (prev !== 'drop2') logMusicalEvent('pad', 'drop2');
+            break;
+        case 'quartal':
+            // Voicing in 4ths - modern jazz sound
+            bandState.pad.volume = 0.45;
+            bandState.pad.extensions = true;
+            bandState.pad.lastVoicing = [0, 5, 10, 15]; // Stacked 4ths
+            if (prev !== 'quartal') logMusicalEvent('pad', 'quartal');
+            break;
+        case 'cluster':
+            // Cluster voicing - tension
+            bandState.pad.volume = 0.35;
+            bandState.pad.extensions = true;
+            bandState.tension = Math.min(1, bandState.tension + 0.1);
+            if (prev !== 'cluster') logMusicalEvent('pad', 'cluster tension');
+            break;
+        case 'rest':
+            bandState.pad.volume = 0;
+            logMusicalEvent('pad', 'rest');
+            break;
     }
 }
 
-// Apply lead decisions
+// Apply lead decisions with phrase awareness
 function applyLeadDecision(decision) {
+    const chordTones = getChordTones();
+
     switch (decision) {
         case 'develop':
             bandState.lead.active = true;
             bandState.lead.developing = true;
-            logMusicalEvent('lead', 'developing idea');
+            // Keep working with existing motif
+            logMusicalEvent('lead', 'developing');
+            break;
+        case 'sequence':
+            bandState.lead.active = true;
+            bandState.lead.developing = true;
+            // Transpose the motif
+            if (bandState.lead.motifNotes.length > 0) {
+                bandState.lead.motifNotes = bandState.lead.motifNotes.map(n => (n + 2) % 12);
+            }
+            logMusicalEvent('lead', 'sequence');
             break;
         case 'contrast':
             bandState.lead.active = true;
             bandState.lead.register = bandState.lead.register === 'high' ? 'low' : 'high';
-            logMusicalEvent('lead', 'contrast - switched register');
-            break;
-        case 'space':
-            bandState.lead.active = true;
             bandState.lead.developing = false;
-            logMusicalEvent('lead', 'leaving space');
+            // Start fresh motif
+            bandState.lead.motifNotes = [chordTones[Math.floor(Math.random() * chordTones.length)]];
+            logMusicalEvent('lead', 'contrast');
             break;
         case 'peak':
             bandState.lead.active = true;
             bandState.lead.register = 'high';
+            bandState.peakReached = true;
             bandState.tension = Math.min(1, bandState.tension + 0.2);
-            logMusicalEvent('lead', 'PEAK moment!');
+            logMusicalEvent('lead', 'PEAK!');
             break;
-        case 'echo':
+        case 'breathe':
             bandState.lead.active = true;
-            logMusicalEvent('lead', 'echoing previous');
+            bandState.lead.developing = false;
+            // Long note, space
+            logMusicalEvent('lead', 'breathe');
             break;
-        default: // rest
+        case 'call':
+            bandState.lead.active = true;
+            bandState.lead.callWaiting = true;
+            // Start a new motif
+            bandState.lead.motifNotes = [
+                chordTones[0],
+                chordTones[Math.floor(Math.random() * chordTones.length)],
+                (chordTones[0] + 2) % 12
+            ];
+            logMusicalEvent('lead', 'call', bandState.lead.motifNotes);
+            break;
+        case 'answer':
+            bandState.lead.active = true;
+            bandState.lead.callWaiting = false;
+            // Respond to previous call
+            logMusicalEvent('lead', 'answer');
+            break;
+        case 'rest':
+        default:
             bandState.lead.active = false;
             bandState.lead.developing = false;
+            bandState.lead.callWaiting = false;
     }
 }
 
 // Orchestra conductor - coordinates all minds
 async function updateOrchestra() {
+    // Always update harmony (runs every frame, but only changes on bar)
+    updateHarmony();
+
     const now = Date.now();
     if (now - lastAICall < aiCooldown) return;
     if (!aiEnabled) return;
@@ -1391,24 +1706,32 @@ async function updateOrchestra() {
     lastAICall = now;
     const context = buildMusicalContext();
 
-    // Update direction based on recent tension
+    // Update direction based on recent tension and form position
     bandState.barsInDirection++;
-    if (bandState.barsInDirection > 8) {
-        // Natural jazz arc - change direction
-        if (bandState.direction === 'building' && bandState.tension > 0.7) {
+
+    // Reset peak flag at start of new 8-bar section
+    if (harmony.formPosition === 0) {
+        bandState.peakReached = false;
+    }
+
+    // Natural jazz arc - tension follows form
+    if (bandState.barsInDirection > 6) {
+        if (bandState.direction === 'building' && (bandState.tension > 0.75 || bandState.peakReached)) {
             bandState.direction = 'releasing';
             bandState.barsInDirection = 0;
+            logMusicalEvent('form', 'releasing');
         } else if (bandState.direction === 'releasing' && bandState.tension < 0.3) {
             bandState.direction = 'floating';
             bandState.barsInDirection = 0;
-        } else if (bandState.direction === 'floating') {
+        } else if (bandState.direction === 'floating' && bandState.barsInDirection > 4) {
             bandState.direction = 'building';
             bandState.barsInDirection = 0;
+            logMusicalEvent('form', 'building');
         }
     }
 
-    // Stagger AI calls to avoid overwhelming
-    // Each agent decides every ~4 bars but offset from each other
+    // ALL FOUR AGENTS get called in parallel for faster response
+    // But we stagger which one actually makes the decision this cycle
     const agents = ['drums', 'bass', 'pad', 'lead'];
     const agentIndex = music.bar % 4;
     const agent = agents[agentIndex];
@@ -1423,15 +1746,15 @@ async function updateOrchestra() {
         }
     }
 
-    // Tension evolves with the direction
+    // Tension evolves with the direction AND motion
+    const motionInfluence = field.energy * 0.08;
     if (bandState.direction === 'building') {
-        bandState.tension = Math.min(1, bandState.tension + 0.03 + field.energy * 0.05);
+        bandState.tension = Math.min(1, bandState.tension + 0.025 + motionInfluence);
     } else if (bandState.direction === 'releasing') {
-        bandState.tension = Math.max(0, bandState.tension - 0.04);
+        bandState.tension = Math.max(0.1, bandState.tension - 0.035);
     } else {
-        // Floating - gentle oscillation
-        bandState.tension += (Math.random() - 0.5) * 0.06;
-        bandState.tension = Math.max(0.2, Math.min(0.8, bandState.tension));
+        // Floating - follows motion more directly
+        bandState.tension = bandState.tension * 0.95 + (0.4 + motionInfluence) * 0.05;
     }
 }
 
@@ -1448,13 +1771,14 @@ function updateBandStatus() {
         drums.classList.toggle('active', bandState.drums.pattern !== 'steady');
     }
     if (bass) {
-        const bassStatus = bandState.bass.walking ? 'walking' : bandState.bass.register;
+        const noteStr = numToNote(bandState.bass.lastNote);
+        const bassStatus = bandState.bass.walking ? `walk(${noteStr})` : noteStr;
         bass.textContent = `bass: ${bassStatus}`;
-        bass.classList.toggle('active', bandState.bass.walking || bandState.bass.register !== 'mid');
+        bass.classList.toggle('active', bandState.bass.walking || bandState.bass.activity > 0.6);
     }
     if (pad) {
         pad.textContent = `pad: ${bandState.pad.voicing}`;
-        pad.classList.toggle('active', bandState.pad.voicing !== 'close');
+        pad.classList.toggle('active', bandState.pad.voicing !== 'close' && bandState.pad.voicing !== 'shell');
     }
     if (lead) {
         const leadStatus = bandState.lead.developing ? 'developing' : (bandState.lead.active ? 'playing' : 'rest');
@@ -1463,8 +1787,9 @@ function updateBandStatus() {
     }
     if (dir) {
         const dirSymbol = { building: '/', releasing: '\\', floating: '~' }[bandState.direction] || '~';
-        const aiIndicator = aiReady ? ' [AI]' : '';
-        dir.textContent = dirSymbol + ' ' + Math.round(bandState.tension * 100) + '%' + aiIndicator;
+        const aiIndicator = aiReady ? '*' : '';
+        // Show chord and tension
+        dir.textContent = `${harmony.chordName} ${dirSymbol}${Math.round(bandState.tension * 100)}%${aiIndicator}`;
     }
 }
 
