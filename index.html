@@ -128,7 +128,7 @@ const ERAS = [
     },
     {
         name: 'emergence',
-        threshold: 50,
+        threshold: 30,          // Quick first transition
         bpm: 0,                 // No tempo, free time
         key: 0,
         scale: [0, 7, 12],      // Just octaves and fifths
@@ -136,7 +136,7 @@ const ERAS = [
     },
     {
         name: 'synth',
-        threshold: 200,
+        threshold: 120,
         bpm: 70,
         key: 0,
         scale: [0, 3, 5, 7, 10], // Minor pentatonic
@@ -144,7 +144,7 @@ const ERAS = [
     },
     {
         name: 'orchestra',
-        threshold: 500,
+        threshold: 300,
         bpm: 60,
         key: 0,
         scale: [0, 2, 4, 5, 7, 9, 11], // Major scale
@@ -152,7 +152,7 @@ const ERAS = [
     },
     {
         name: 'blues',
-        threshold: 900,
+        threshold: 550,
         bpm: 85,
         key: 5,                 // F
         scale: [0, 3, 5, 6, 7, 10], // Blues scale
@@ -160,7 +160,7 @@ const ERAS = [
     },
     {
         name: 'jazz',
-        threshold: 1400,
+        threshold: 850,
         bpm: 120,
         key: 2,                 // D
         scale: [0, 2, 3, 5, 7, 9, 10, 11], // Bebop dominant
@@ -168,7 +168,7 @@ const ERAS = [
     },
     {
         name: 'rock',
-        threshold: 2000,
+        threshold: 1200,
         bpm: 130,
         key: 7,                 // G
         scale: [0, 2, 4, 5, 7, 9, 11],
@@ -176,7 +176,7 @@ const ERAS = [
     },
     {
         name: 'modern',
-        threshold: 2800,
+        threshold: 1600,
         bpm: 110,
         key: 0,
         scale: [0, 2, 3, 5, 7, 8, 10], // Harmonic minor
@@ -277,44 +277,84 @@ function createReverb(duration) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// ERA 0: VOID - Almost nothing, just presence
+// ERA 0: VOID - Deep presence, breathing darkness
 // ═══════════════════════════════════════════════════════════════════════════
 
-let voidNoise, voidGain;
+let voidDrone, voidDrone2, voidGain, voidFilter;
 
 function initVoidEra() {
-    // Subaudible presence
-    const buffer = ctx.createBuffer(2, ctx.sampleRate * 8, ctx.sampleRate);
-    for (let ch = 0; ch < 2; ch++) {
-        const data = buffer.getChannelData(ch);
-        for (let i = 0; i < data.length; i++) {
-            // Very quiet, very low rumble
-            data[i] = (Math.random() * 2 - 1) * 0.02;
-        }
-    }
+    // Deep sine drone - the primordial tone
+    voidDrone = ctx.createOscillator();
+    voidDrone.type = 'sine';
+    voidDrone.frequency.value = 36; // Very low D
 
-    voidNoise = ctx.createBufferSource();
-    voidNoise.buffer = buffer;
-    voidNoise.loop = true;
+    // Second drone for thickness
+    voidDrone2 = ctx.createOscillator();
+    voidDrone2.type = 'sine';
+    voidDrone2.frequency.value = 54; // A, a fifth above
 
-    const filter = ctx.createBiquadFilter();
-    filter.type = 'lowpass';
-    filter.frequency.value = 60;
+    // Slow LFO to make it breathe
+    const lfo = ctx.createOscillator();
+    lfo.type = 'sine';
+    lfo.frequency.value = 0.08; // Very slow
+    const lfoGain = ctx.createGain();
+    lfoGain.gain.value = 8;
+    lfo.connect(lfoGain);
+    lfoGain.connect(voidDrone.frequency);
+    lfo.start();
+
+    // Second LFO slightly different
+    const lfo2 = ctx.createOscillator();
+    lfo2.type = 'sine';
+    lfo2.frequency.value = 0.05;
+    const lfo2Gain = ctx.createGain();
+    lfo2Gain.gain.value = 5;
+    lfo2.connect(lfo2Gain);
+    lfo2Gain.connect(voidDrone2.frequency);
+    lfo2.start();
+
+    voidFilter = ctx.createBiquadFilter();
+    voidFilter.type = 'lowpass';
+    voidFilter.frequency.value = 150;
+    voidFilter.Q.value = 1;
 
     voidGain = ctx.createGain();
     voidGain.gain.value = 0;
 
-    voidNoise.connect(filter);
-    filter.connect(voidGain);
+    const drone2Gain = ctx.createGain();
+    drone2Gain.gain.value = 0.4;
+
+    voidDrone.connect(voidFilter);
+    voidDrone2.connect(drone2Gain);
+    drone2Gain.connect(voidFilter);
+    voidFilter.connect(voidGain);
     voidGain.connect(masterFilter);
-    voidNoise.start();
+
+    voidDrone.start();
+    voidDrone2.start();
 }
 
 function updateVoid() {
     if (!voidGain) return;
     const active = music.era === 0;
-    const target = active ? 0.3 + Math.sin(world.breath * 0.3) * 0.1 : 0;
-    voidGain.gain.setTargetAtTime(target, ctx.currentTime, 0.5);
+    const approaching = music.era === 1;
+
+    let target = 0;
+    if (active) {
+        // Breathe with movement influence
+        const breath = Math.sin(world.breath * 0.3) * 0.15;
+        target = 0.35 + breath + world.energy * 0.2;
+    } else if (approaching) {
+        // Fade out slowly when we leave
+        target = 0.2 * (1 - music.eraProgress);
+    }
+
+    voidGain.gain.setTargetAtTime(target, ctx.currentTime, 0.3);
+
+    // Filter opens slightly with movement
+    if (voidFilter && active) {
+        voidFilter.frequency.setTargetAtTime(100 + world.energy * 150, ctx.currentTime, 0.2);
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -364,22 +404,24 @@ function initEmergenceEra() {
 function updateEmergence() {
     if (!emergenceGain) return;
     const active = music.era === 1;
-    const fadingIn = music.era === 0 && music.eraProgress > 0.5;
+    const fadingIn = music.era === 0 && music.eraProgress > 0.3; // Start earlier
 
     let target = 0;
     if (active) {
         target = 0.4 + world.energy * 0.3;
     } else if (fadingIn) {
-        target = (music.eraProgress - 0.5) * 0.4;
+        // Emergence tones creep in during void
+        target = (music.eraProgress - 0.3) * 0.5;
     }
 
-    emergenceGain.gain.setTargetAtTime(target, ctx.currentTime, 0.8);
+    emergenceGain.gain.setTargetAtTime(target, ctx.currentTime, 0.6);
 
     // Modulate drone volumes with movement
-    if (active) {
+    if (active || fadingIn) {
         emergenceDrones.forEach((d, i) => {
             const mod = Math.sin(world.breath + i * 0.7) * 0.5 + 0.5;
-            d.gain.gain.setTargetAtTime(0.1 + mod * 0.1 + world.energy * 0.1, ctx.currentTime, 0.3);
+            const baseVol = active ? 0.1 : 0.05;
+            d.gain.gain.setTargetAtTime(baseVol + mod * 0.08 + world.energy * 0.08, ctx.currentTime, 0.3);
         });
     }
 }
