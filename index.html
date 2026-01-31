@@ -27,6 +27,14 @@
             letter-spacing: 8px;
             color: rgba(255,255,255,0.25);
         }
+        #enter p {
+            font-size: 9px;
+            letter-spacing: 3px;
+            color: rgba(255,255,255,0.12);
+            max-width: 280px;
+            text-align: center;
+            line-height: 1.8;
+        }
         #enter .circle {
             width: 80px; height: 80px;
             border-radius: 50%;
@@ -42,50 +50,61 @@
         #world.on { display: block; }
         canvas { position: fixed; inset: 0; }
 
-        #evolution-bar {
+        #zone-indicator {
             position: fixed;
-            bottom: 0; left: 0; right: 0;
-            height: 2px;
-            background: rgba(255,255,255,0.03);
-            z-index: 50;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            width: 200px; height: 200px;
+            border: 1px solid rgba(255,255,255,0.03);
+            border-radius: 50%;
+            pointer-events: none;
+            z-index: 10;
         }
-        #evolution-fill {
-            height: 100%;
-            width: 0%;
-            background: rgba(255,255,255,0.15);
-            transition: width 0.5s ease-out;
+
+        #unlocks {
+            position: fixed;
+            bottom: 20px; left: 20px;
+            font-size: 8px;
+            color: rgba(255,255,255,0.15);
+            letter-spacing: 2px;
+            line-height: 1.8;
+            font-family: monospace;
+            text-transform: uppercase;
         }
+        #unlocks span.on { color: rgba(255,255,255,0.5); }
 
         #era-name {
             position: fixed;
-            bottom: 25px; left: 0; right: 0;
+            top: 20px; left: 0; right: 0;
             text-align: center;
             font-size: 10px;
             letter-spacing: 8px;
-            color: rgba(255,255,255,0.12);
-            text-transform: uppercase;
-            transition: all 2s;
-            z-index: 50;
-        }
-
-        #phase-name {
-            position: fixed;
-            bottom: 50px; left: 0; right: 0;
-            text-align: center;
-            font-size: 9px;
-            letter-spacing: 4px;
-            color: rgba(255,255,255,0.08);
-            font-style: italic;
-            z-index: 50;
-        }
-
-        #status {
-            position: fixed; top: 20px; left: 20px;
-            font-size: 9px;
             color: rgba(255,255,255,0.1);
-            letter-spacing: 1px;
-            line-height: 2;
+            text-transform: uppercase;
+            z-index: 50;
+        }
+
+        #zone-name {
+            position: fixed;
+            bottom: 20px; right: 20px;
+            font-size: 9px;
+            letter-spacing: 3px;
+            color: rgba(255,255,255,0.08);
             font-family: monospace;
+            z-index: 50;
+        }
+
+        #dwell-bar {
+            position: fixed;
+            bottom: 0; left: 0; right: 0;
+            height: 2px;
+            background: rgba(255,255,255,0.02);
+        }
+        #dwell-fill {
+            height: 100%;
+            width: 0%;
+            background: rgba(255,255,255,0.2);
+            transition: width 0.1s linear;
         }
     </style>
 </head>
@@ -94,14 +113,16 @@
 <div id="enter">
     <h1>THE EMERGENCE</h1>
     <div class="circle"></div>
+    <p>tilt to explore · dwell to activate · discover the patterns</p>
 </div>
 
 <div id="world">
     <canvas id="c"></canvas>
-    <div id="evolution-bar"><div id="evolution-fill"></div></div>
-    <div id="phase-name"></div>
-    <div id="era-name">void</div>
-    <div id="status"></div>
+    <div id="zone-indicator"></div>
+    <div id="era-name">genesis</div>
+    <div id="zone-name">center</div>
+    <div id="unlocks"></div>
+    <div id="dwell-bar"><div id="dwell-fill"></div></div>
 </div>
 
 <script>
@@ -109,206 +130,107 @@
 // GUMP - THE EMERGENCE
 // ═══════════════════════════════════════════════════════════════════════════
 //
-// A journey through the birth and evolution of music.
-// Each era contains multiple phases that unlock progressively.
-// Movement fills the bar. When full, the next phase/era begins.
+// An RPG of sound. Your movements are codes that unlock layers.
+// Where you tilt, how long you stay, and the patterns you trace
+// all shape what emerges from the void.
+//
+// ZONES:
+//   center - stillness, the seed
+//   north  - higher frequencies rise
+//   south  - sub bass deepens
+//   east   - brightness, filter opens
+//   west   - darkness, filter closes
+//   corners - specific instrument layers
+//
+// DWELL:
+//   < 1s   - touch (brief influence)
+//   1-3s   - activate (layer comes in)
+//   > 3s   - lock (becomes permanent)
+//
+// SEQUENCES:
+//   Certain movement patterns unlock hidden layers
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
 const TAU = Math.PI * 2;
 
 // ═══════════════════════════════════════════════════════════════════════════
-// THE JOURNEY - Eras and their phases
+// ZONE SYSTEM
 // ═══════════════════════════════════════════════════════════════════════════
 
-const JOURNEY = [
-    // ═══════════════════════════════════════════════════════════════════════
-    // ACT I: GENESIS - The divine emergence of sound
-    // ═══════════════════════════════════════════════════════════════════════
-    {
-        era: 'genesis',
-        name: 'The Void',
-        threshold: 0,
-        description: 'Before all things',
-        phase: 0
-    },
-    {
-        era: 'genesis',
-        name: 'First Vibration',
-        threshold: 80,
-        description: 'Something stirs in the darkness',
-        phase: 1
-    },
-    {
-        era: 'genesis',
-        name: 'Let There Be Light',
-        threshold: 200,
-        description: 'The overtones bloom',
-        phase: 2
-    },
-    {
-        era: 'genesis',
-        name: 'The Expansion',
-        threshold: 400,
-        description: 'Sound fills the void',
-        phase: 3
-    },
-    {
-        era: 'genesis',
-        name: 'First Pulse',
-        threshold: 650,
-        description: 'A heartbeat forms',
-        phase: 4
-    },
+const ZONES = {
+    center: { x: [0.35, 0.65], y: [0.35, 0.65] },
+    north: { x: [0.25, 0.75], y: [0, 0.35] },
+    south: { x: [0.25, 0.75], y: [0.65, 1] },
+    east: { x: [0.65, 1], y: [0.25, 0.75] },
+    west: { x: [0, 0.35], y: [0.25, 0.75] },
+    northeast: { x: [0.65, 1], y: [0, 0.35] },
+    northwest: { x: [0, 0.35], y: [0, 0.35] },
+    southeast: { x: [0.65, 1], y: [0.65, 1] },
+    southwest: { x: [0, 0.35], y: [0.65, 1] },
+};
 
-    // ═══════════════════════════════════════════════════════════════════════
-    // ACT II: TRIBAL - The discovery of rhythm
-    // ═══════════════════════════════════════════════════════════════════════
-    {
-        era: 'tribal',
-        name: 'Footsteps',
-        threshold: 950,
-        description: 'The body discovers rhythm',
-        phase: 0
-    },
-    {
-        era: 'tribal',
-        name: 'Hands',
-        threshold: 1300,
-        description: 'Claps and slaps',
-        phase: 1
-    },
-    {
-        era: 'tribal',
-        name: 'Wood & Stone',
-        threshold: 1700,
-        description: 'The world becomes instrument',
-        phase: 2
-    },
-    {
-        era: 'tribal',
-        name: 'The First Drums',
-        threshold: 2200,
-        description: 'Animal skin stretched tight',
-        phase: 3
-    },
-    {
-        era: 'tribal',
-        name: 'Voice Awakens',
-        threshold: 2800,
-        description: 'The first song',
-        phase: 4
-    },
-
-    // ═══════════════════════════════════════════════════════════════════════
-    // ACT III: ANCIENT - Melody is born
-    // ═══════════════════════════════════════════════════════════════════════
-    {
-        era: 'ancient',
-        name: 'The Chant',
-        threshold: 3500,
-        description: 'Voices in unison',
-        phase: 0
-    },
-    {
-        era: 'ancient',
-        name: 'First Instruments',
-        threshold: 4300,
-        description: 'Bone flutes, lyres of gut',
-        phase: 1
-    },
-
-    // ═══════════════════════════════════════════════════════════════════════
-    // ACT IV: CLASSICAL - Harmony emerges
-    // ═══════════════════════════════════════════════════════════════════════
-    {
-        era: 'classical',
-        name: 'Strings Alone',
-        threshold: 5200,
-        description: 'The violin sings',
-        phase: 0
-    },
-    {
-        era: 'classical',
-        name: 'The Orchestra Swells',
-        threshold: 6200,
-        description: 'Brass and winds join',
-        phase: 1
-    },
-
-    // ═══════════════════════════════════════════════════════════════════════
-    // ACT V: SOUL - The American sound
-    // ═══════════════════════════════════════════════════════════════════════
-    {
-        era: 'blues',
-        name: 'The Blues',
-        threshold: 7300,
-        description: 'Sorrow becomes beauty',
-        phase: 0
-    },
-    {
-        era: 'jazz',
-        name: 'Jazz',
-        threshold: 8500,
-        description: 'Freedom in complexity',
-        phase: 0
-    },
-
-    // ═══════════════════════════════════════════════════════════════════════
-    // ACT VI: ELECTRIC - The revolution
-    // ═══════════════════════════════════════════════════════════════════════
-    {
-        era: 'rock',
-        name: 'Rock',
-        threshold: 9800,
-        description: 'Raw power unleashed',
-        phase: 0
-    },
-
-    // ═══════════════════════════════════════════════════════════════════════
-    // ACT VII: NOW - Everything converges
-    // ═══════════════════════════════════════════════════════════════════════
-    {
-        era: 'electronic',
-        name: 'Electronic',
-        threshold: 11200,
-        description: 'The machine sings',
-        phase: 0
-    },
-    {
-        era: 'modern',
-        name: 'The Convergence',
-        threshold: 12800,
-        description: 'All music is one',
-        phase: 0
+function getZone(x, y) {
+    for (const [name, bounds] of Object.entries(ZONES)) {
+        if (x >= bounds.x[0] && x <= bounds.x[1] &&
+            y >= bounds.y[0] && y <= bounds.y[1]) {
+            return name;
+        }
     }
-];
+    return 'center';
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// UNLOCK SYSTEM - Layers that can be activated
+// ═══════════════════════════════════════════════════════════════════════════
+
+const LAYERS = {
+    // Genesis layers
+    void: { era: 'genesis', default: true, description: 'the presence' },
+    fundamental: { era: 'genesis', zone: 'center', dwell: 2, description: 'first tone' },
+    overtones: { era: 'genesis', zone: 'north', dwell: 2, description: 'harmonics bloom' },
+    sub: { era: 'genesis', zone: 'south', dwell: 2, description: 'depths open' },
+    brightness: { era: 'genesis', zone: 'east', dwell: 1, description: 'light enters' },
+    darkness: { era: 'genesis', zone: 'west', dwell: 1, description: 'shadow grows' },
+    shimmer: { era: 'genesis', sequence: ['north', 'south', 'north'], description: 'the shimmer' },
+    pulse: { era: 'genesis', sequence: ['east', 'west', 'east', 'west'], description: 'first pulse' },
+    width: { era: 'genesis', sequence: ['northeast', 'southeast', 'southwest', 'northwest'], description: 'space expands' },
+
+    // Tribal layers
+    feet: { era: 'tribal', zone: 'south', dwell: 2, description: 'footsteps' },
+    hands: { era: 'tribal', zone: 'north', dwell: 2, description: 'claps' },
+    wood: { era: 'tribal', zone: 'west', dwell: 2, description: 'wood strikes' },
+    stone: { era: 'tribal', zone: 'east', dwell: 2, description: 'stone clicks' },
+    drum: { era: 'tribal', zone: 'center', dwell: 3, description: 'the drum' },
+    voice: { era: 'tribal', sequence: ['northwest', 'northeast', 'southeast', 'southwest'], description: 'voice awakens' },
+    poly: { era: 'tribal', sequence: ['north', 'east', 'south', 'west', 'north'], description: 'polyrhythm' },
+};
 
 // ═══════════════════════════════════════════════════════════════════════════
 // GLOBAL STATE
 // ═══════════════════════════════════════════════════════════════════════════
 
 const world = {
-    x: 0.5, y: 0.5,
-    vx: 0, vy: 0,
-    tilt: { x: 0, y: 0 },
-    energy: 0,
-    totalMovement: 0,
-    breath: 0,
-    heartbeat: 0,
-    heartbeatPhase: 0,
+    x: 0.5, y: 0.5,              // Position (0-1)
+    zone: 'center',              // Current zone
+    zoneDwell: 0,                // Time in current zone
+    zoneHistory: [],             // Recent zones visited
+    energy: 0,                   // Movement intensity
+    breath: 0,                   // Slow oscillation
 };
 
 const music = {
-    journeyIndex: 0,
-    phaseProgress: 0,
+    era: 'genesis',
+    unlocked: new Set(['void']), // Which layers are active
+    locked: new Set(),           // Permanently locked in layers
+    layerVolumes: {},            // Current volume of each layer
     tick: 0,
-    bar: 0,
 };
 
-let ctx, masterGain, masterFilter, reverbGain, compressor;
+let ctx, masterGain, masterFilter, reverbGain;
 let canvas, vc;
 let audioReady = false;
+let lastTime = performance.now();
 
 // ═══════════════════════════════════════════════════════════════════════════
 // AUDIO ENGINE
@@ -317,27 +239,27 @@ let audioReady = false;
 async function initAudio() {
     ctx = new (window.AudioContext || window.webkitAudioContext)();
 
-    // Master filter - tilt controlled
+    // Master filter - zone controlled
     masterFilter = ctx.createBiquadFilter();
     masterFilter.type = 'lowpass';
-    masterFilter.frequency.value = 2000;
+    masterFilter.frequency.value = 1500;
     masterFilter.Q.value = 0.7;
 
-    // Large reverb for cosmic space
-    const reverbBuffer = createReverb(6.0);
+    // Reverb
+    const reverbBuffer = createReverb(5.0);
     const reverb = ctx.createConvolver();
     reverb.buffer = reverbBuffer;
     reverbGain = ctx.createGain();
-    reverbGain.gain.value = 0.4;
+    reverbGain.gain.value = 0.35;
 
-    // Gentle compression
-    compressor = ctx.createDynamicsCompressor();
-    compressor.threshold.value = -18;
-    compressor.ratio.value = 3;
-    compressor.attack.value = 0.01;
-    compressor.release.value = 0.2;
+    // Compressor
+    const compressor = ctx.createDynamicsCompressor();
+    compressor.threshold.value = -15;
+    compressor.ratio.value = 4;
+    compressor.attack.value = 0.005;
+    compressor.release.value = 0.15;
 
-    // Master output
+    // Master
     masterGain = ctx.createGain();
     masterGain.gain.value = 0.85;
 
@@ -349,16 +271,9 @@ async function initAudio() {
     compressor.connect(masterGain);
     masterGain.connect(ctx.destination);
 
-    // Initialize all sound layers
+    // Initialize sound layers
     initGenesis();
     initTribal();
-    initAncient();
-    initClassical();
-    initBlues();
-    initJazz();
-    initRock();
-    initElectronic();
-    initModern();
 
     audioReady = true;
 }
@@ -370,473 +285,362 @@ function createReverb(duration) {
         const data = buffer.getChannelData(ch);
         for (let i = 0; i < length; i++) {
             const t = i / ctx.sampleRate;
-            // Early reflections
-            const early = i < ctx.sampleRate * 0.1 ? Math.random() * 0.2 * Math.exp(-t * 10) : 0;
-            // Late reverb
-            const late = (Math.random() * 2 - 1) * Math.exp(-t / (duration * 0.45)) * 0.35;
-            data[i] = early + late;
+            data[i] = (Math.random() * 2 - 1) * Math.exp(-t / (duration * 0.4)) * 0.4;
         }
     }
     return buffer;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// GENESIS - The divine emergence
-// ═══════════════════════════════════════════════════════════════════════════
-//
-// Phase 0: The Void - near silence, a presence felt not heard
-// Phase 1: First Vibration - the primordial tone emerges
-// Phase 2: Let There Be Light - overtones bloom like light separating
-// Phase 3: The Expansion - sound fills cosmic space
-// Phase 4: First Pulse - a heartbeat begins
-//
+// GENESIS SOUNDS
 // ═══════════════════════════════════════════════════════════════════════════
 
-let genesis = {
-    // The fundamental - the first sound
-    fundamental: null,
-    fundamentalGain: null,
-
-    // Overtone series - harmonics that bloom
-    overtones: [],
-    overtonesGain: null,
-
-    // Sub frequencies - felt more than heard
-    sub: null,
-    subGain: null,
-
-    // Cosmic texture - the breath of the void
-    texture: null,
-    textureGain: null,
-
-    // The first heartbeat
-    heartbeatOsc: null,
-    heartbeatGain: null,
-
-    // LFOs for organic movement
-    lfos: []
-};
+const genesis = {};
 
 function initGenesis() {
     // ═══════════════════════════════════════════════════════════════════════
-    // THE VOID (Phase 0) - Almost imperceptible presence
+    // VOID - The base presence, always there in genesis
     // ═══════════════════════════════════════════════════════════════════════
+    genesis.voidOsc = ctx.createOscillator();
+    genesis.voidOsc.type = 'sine';
+    genesis.voidOsc.frequency.value = 18;
 
-    // Sub-bass rumble - you feel it in your chest
-    genesis.sub = ctx.createOscillator();
-    genesis.sub.type = 'sine';
-    genesis.sub.frequency.value = 20; // Below hearing, felt
+    genesis.voidGain = ctx.createGain();
+    genesis.voidGain.gain.value = 0;
 
-    const subFilter = ctx.createBiquadFilter();
-    subFilter.type = 'lowpass';
-    subFilter.frequency.value = 40;
+    const voidFilter = ctx.createBiquadFilter();
+    voidFilter.type = 'lowpass';
+    voidFilter.frequency.value = 50;
 
-    genesis.subGain = ctx.createGain();
-    genesis.subGain.gain.value = 0;
-
-    genesis.sub.connect(subFilter);
-    subFilter.connect(genesis.subGain);
-    genesis.subGain.connect(masterFilter);
-    genesis.sub.start();
-
-    // Cosmic texture - filtered noise, barely there
-    const textureBuffer = ctx.createBuffer(2, ctx.sampleRate * 10, ctx.sampleRate);
-    for (let ch = 0; ch < 2; ch++) {
-        const data = textureBuffer.getChannelData(ch);
-        for (let i = 0; i < data.length; i++) {
-            // Very subtle, slowly varying noise
-            const t = i / ctx.sampleRate;
-            data[i] = (Math.random() * 2 - 1) * 0.015 * (0.5 + 0.5 * Math.sin(t * 0.1));
-        }
-    }
-
-    genesis.texture = ctx.createBufferSource();
-    genesis.texture.buffer = textureBuffer;
-    genesis.texture.loop = true;
-
-    const textureFilter = ctx.createBiquadFilter();
-    textureFilter.type = 'bandpass';
-    textureFilter.frequency.value = 100;
-    textureFilter.Q.value = 0.5;
-
-    genesis.textureGain = ctx.createGain();
-    genesis.textureGain.gain.value = 0;
-
-    genesis.texture.connect(textureFilter);
-    textureFilter.connect(genesis.textureGain);
-    genesis.textureGain.connect(masterFilter);
-    genesis.texture.start();
+    genesis.voidOsc.connect(voidFilter);
+    voidFilter.connect(genesis.voidGain);
+    genesis.voidGain.connect(masterFilter);
+    genesis.voidOsc.start();
 
     // ═══════════════════════════════════════════════════════════════════════
-    // FIRST VIBRATION (Phase 1) - The primordial tone
+    // FUNDAMENTAL - The first tone (center zone)
     // ═══════════════════════════════════════════════════════════════════════
+    genesis.fundOsc = ctx.createOscillator();
+    genesis.fundOsc.type = 'sine';
+    genesis.fundOsc.frequency.value = 27.5; // A0
 
-    // The fundamental frequency - A0 (27.5 Hz) - the beginning of all music
-    genesis.fundamental = ctx.createOscillator();
-    genesis.fundamental.type = 'sine';
-    genesis.fundamental.frequency.value = 27.5;
-
-    // LFO to make it breathe
+    // Breathing LFO
     const fundLfo = ctx.createOscillator();
-    fundLfo.type = 'sine';
-    fundLfo.frequency.value = 0.06; // Very slow breathing
+    fundLfo.frequency.value = 0.07;
     const fundLfoGain = ctx.createGain();
-    fundLfoGain.gain.value = 2;
+    fundLfoGain.gain.value = 1.5;
     fundLfo.connect(fundLfoGain);
-    fundLfoGain.connect(genesis.fundamental.frequency);
+    fundLfoGain.connect(genesis.fundOsc.frequency);
     fundLfo.start();
-    genesis.lfos.push(fundLfo);
 
-    // Amplitude LFO for pulsing
-    const ampLfo = ctx.createOscillator();
-    ampLfo.type = 'sine';
-    ampLfo.frequency.value = 0.08;
-    const ampLfoGain = ctx.createGain();
-    ampLfoGain.gain.value = 0.15;
+    genesis.fundGain = ctx.createGain();
+    genesis.fundGain.gain.value = 0;
 
-    genesis.fundamentalGain = ctx.createGain();
-    genesis.fundamentalGain.gain.value = 0;
-
-    ampLfo.connect(ampLfoGain);
-    ampLfoGain.connect(genesis.fundamentalGain.gain);
-    ampLfo.start();
-    genesis.lfos.push(ampLfo);
-
-    genesis.fundamental.connect(genesis.fundamentalGain);
-    genesis.fundamentalGain.connect(masterFilter);
-    genesis.fundamental.start();
+    genesis.fundOsc.connect(genesis.fundGain);
+    genesis.fundGain.connect(masterFilter);
+    genesis.fundOsc.start();
 
     // ═══════════════════════════════════════════════════════════════════════
-    // LET THERE BE LIGHT (Phase 2) - Overtones bloom
+    // OVERTONES - Harmonics (north zone)
     // ═══════════════════════════════════════════════════════════════════════
-
+    genesis.overtones = [];
     genesis.overtonesGain = ctx.createGain();
     genesis.overtonesGain.gain.value = 0;
 
-    // The harmonic series - each overtone is a "color" of light
-    const harmonics = [
-        { ratio: 2, gain: 0.5 },     // Octave - pure
-        { ratio: 3, gain: 0.35 },    // Fifth - the first harmony
-        { ratio: 4, gain: 0.25 },    // Second octave
-        { ratio: 5, gain: 0.2 },     // Major third
-        { ratio: 6, gain: 0.15 },    // Fifth again
-        { ratio: 7, gain: 0.1 },     // Harmonic seventh (blue note)
-        { ratio: 8, gain: 0.08 },    // Third octave
-        { ratio: 9, gain: 0.06 },    // Major second
-        { ratio: 10, gain: 0.05 },   // Third again
-    ];
-
-    harmonics.forEach((h, i) => {
+    const harmonics = [2, 3, 4, 5, 6, 7, 8];
+    harmonics.forEach((ratio, i) => {
         const osc = ctx.createOscillator();
         osc.type = 'sine';
-        osc.frequency.value = 27.5 * h.ratio;
+        osc.frequency.value = 27.5 * ratio;
 
-        // Each harmonic has its own slow LFO for shimmer
         const lfo = ctx.createOscillator();
-        lfo.type = 'sine';
-        lfo.frequency.value = 0.03 + i * 0.008;
+        lfo.frequency.value = 0.03 + i * 0.01;
         const lfoGain = ctx.createGain();
-        lfoGain.gain.value = h.ratio * 0.3;
+        lfoGain.gain.value = ratio * 0.2;
         lfo.connect(lfoGain);
         lfoGain.connect(osc.frequency);
         lfo.start();
 
         const gain = ctx.createGain();
-        gain.gain.value = h.gain;
+        gain.gain.value = 0.12 / ratio;
 
         osc.connect(gain);
         gain.connect(genesis.overtonesGain);
         osc.start();
 
-        genesis.overtones.push({ osc, gain, lfo, ratio: h.ratio, baseGain: h.gain });
+        genesis.overtones.push({ osc, gain, ratio });
     });
 
     genesis.overtonesGain.connect(masterFilter);
 
     // ═══════════════════════════════════════════════════════════════════════
-    // FIRST PULSE (Phase 4) - The cosmic heartbeat
+    // SUB - Deep bass (south zone)
     // ═══════════════════════════════════════════════════════════════════════
+    genesis.subOsc = ctx.createOscillator();
+    genesis.subOsc.type = 'sine';
+    genesis.subOsc.frequency.value = 13.75; // Sub-sub A
 
-    genesis.heartbeatOsc = ctx.createOscillator();
-    genesis.heartbeatOsc.type = 'sine';
-    genesis.heartbeatOsc.frequency.value = 40;
+    genesis.subGain = ctx.createGain();
+    genesis.subGain.gain.value = 0;
 
-    genesis.heartbeatGain = ctx.createGain();
-    genesis.heartbeatGain.gain.value = 0;
+    const subFilter = ctx.createBiquadFilter();
+    subFilter.type = 'lowpass';
+    subFilter.frequency.value = 35;
+    subFilter.Q.value = 2;
 
-    const heartFilter = ctx.createBiquadFilter();
-    heartFilter.type = 'lowpass';
-    heartFilter.frequency.value = 80;
-    heartFilter.Q.value = 2;
+    genesis.subOsc.connect(subFilter);
+    subFilter.connect(genesis.subGain);
+    genesis.subGain.connect(masterFilter);
+    genesis.subOsc.start();
 
-    genesis.heartbeatOsc.connect(heartFilter);
-    heartFilter.connect(genesis.heartbeatGain);
-    genesis.heartbeatGain.connect(masterFilter);
-    genesis.heartbeatOsc.start();
-}
+    // ═══════════════════════════════════════════════════════════════════════
+    // SHIMMER - High ethereal layer (sequence unlock)
+    // ═══════════════════════════════════════════════════════════════════════
+    genesis.shimmerOscs = [];
+    genesis.shimmerGain = ctx.createGain();
+    genesis.shimmerGain.gain.value = 0;
 
-function triggerHeartbeat() {
-    if (!genesis.heartbeatGain || !audioReady) return;
+    [880, 1320, 1760].forEach((freq, i) => {
+        const osc = ctx.createOscillator();
+        osc.type = 'sine';
+        osc.frequency.value = freq;
+        osc.detune.value = (Math.random() - 0.5) * 10;
 
-    const now = ctx.currentTime;
-    const current = JOURNEY[music.journeyIndex];
-    if (current.era !== 'genesis' || current.phase < 4) return;
+        const lfo = ctx.createOscillator();
+        lfo.frequency.value = 0.2 + i * 0.1;
+        const lfoGain = ctx.createGain();
+        lfoGain.gain.value = 5;
+        lfo.connect(lfoGain);
+        lfoGain.connect(osc.detune);
+        lfo.start();
 
-    // Heartbeat envelope - quick attack, slow decay
-    genesis.heartbeatGain.gain.cancelScheduledValues(now);
-    genesis.heartbeatGain.gain.setValueAtTime(0.01, now);
-    genesis.heartbeatGain.gain.linearRampToValueAtTime(0.4 + world.energy * 0.3, now + 0.02);
-    genesis.heartbeatGain.gain.exponentialRampToValueAtTime(0.01, now + 0.5);
+        const gain = ctx.createGain();
+        gain.gain.value = 0.04;
 
-    // Pitch drop like a real heartbeat
-    genesis.heartbeatOsc.frequency.setValueAtTime(55, now);
-    genesis.heartbeatOsc.frequency.exponentialRampToValueAtTime(35, now + 0.15);
+        osc.connect(gain);
+        gain.connect(genesis.shimmerGain);
+        osc.start();
+
+        genesis.shimmerOscs.push(osc);
+    });
+
+    genesis.shimmerGain.connect(masterFilter);
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // PULSE - Rhythmic throb (sequence unlock)
+    // ═══════════════════════════════════════════════════════════════════════
+    genesis.pulseOsc = ctx.createOscillator();
+    genesis.pulseOsc.type = 'sine';
+    genesis.pulseOsc.frequency.value = 36;
+
+    genesis.pulseGain = ctx.createGain();
+    genesis.pulseGain.gain.value = 0;
+
+    genesis.pulseOsc.connect(genesis.pulseGain);
+    genesis.pulseGain.connect(masterFilter);
+    genesis.pulseOsc.start();
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // WIDTH - Stereo spread (corner sequence unlock)
+    // ═══════════════════════════════════════════════════════════════════════
+    genesis.widthOscL = ctx.createOscillator();
+    genesis.widthOscL.type = 'sine';
+    genesis.widthOscL.frequency.value = 55;
+
+    genesis.widthOscR = ctx.createOscillator();
+    genesis.widthOscR.type = 'sine';
+    genesis.widthOscR.frequency.value = 55.3; // Slight detune for width
+
+    genesis.widthGainL = ctx.createGain();
+    genesis.widthGainL.gain.value = 0;
+    genesis.widthGainR = ctx.createGain();
+    genesis.widthGainR.gain.value = 0;
+
+    const panL = ctx.createStereoPanner();
+    panL.pan.value = -0.8;
+    const panR = ctx.createStereoPanner();
+    panR.pan.value = 0.8;
+
+    genesis.widthOscL.connect(genesis.widthGainL);
+    genesis.widthGainL.connect(panL);
+    panL.connect(masterFilter);
+
+    genesis.widthOscR.connect(genesis.widthGainR);
+    genesis.widthGainR.connect(panR);
+    panR.connect(masterFilter);
+
+    genesis.widthOscL.start();
+    genesis.widthOscR.start();
 }
 
 function updateGenesis() {
-    if (!audioReady) return;
+    if (!audioReady || music.era !== 'genesis') return;
 
-    const current = JOURNEY[music.journeyIndex];
-    const isGenesis = current.era === 'genesis';
-    const phase = isGenesis ? current.phase : -1;
-    const progress = music.phaseProgress;
+    const now = ctx.currentTime;
+    const u = music.unlocked;
 
-    // ═══════════════════════════════════════════════════════════════════════
-    // PHASE 0: THE VOID
-    // ═══════════════════════════════════════════════════════════════════════
-    if (phase === 0) {
-        // Sub rumble - barely perceptible, grows with movement
-        const subVol = 0.15 + world.energy * 0.25 + progress * 0.2;
-        genesis.subGain.gain.setTargetAtTime(subVol, ctx.currentTime, 0.5);
-
-        // Texture emerges slowly
-        const textureVol = 0.1 + progress * 0.3;
-        genesis.textureGain.gain.setTargetAtTime(textureVol, ctx.currentTime, 0.8);
-
-        // Fundamental begins to fade in at the end of void
-        if (progress > 0.7) {
-            const fundVol = (progress - 0.7) * 0.5;
-            genesis.fundamentalGain.gain.setTargetAtTime(fundVol, ctx.currentTime, 1.0);
-        }
+    // VOID - always present in genesis
+    if (u.has('void')) {
+        const vol = 0.25 + Math.sin(world.breath * 0.2) * 0.1;
+        genesis.voidGain.gain.setTargetAtTime(vol, now, 0.5);
     }
 
-    // ═══════════════════════════════════════════════════════════════════════
-    // PHASE 1: FIRST VIBRATION
-    // ═══════════════════════════════════════════════════════════════════════
-    else if (phase === 1) {
-        // The fundamental tone grows in presence
-        const fundVol = 0.25 + progress * 0.3 + world.energy * 0.2;
-        genesis.fundamentalGain.gain.setTargetAtTime(fundVol, ctx.currentTime, 0.4);
-
-        // Sub continues
-        genesis.subGain.gain.setTargetAtTime(0.35, ctx.currentTime, 0.5);
-        genesis.textureGain.gain.setTargetAtTime(0.3, ctx.currentTime, 0.5);
-
-        // Tilt modulates the fundamental pitch slightly
-        const pitchMod = world.tilt.y * 5;
-        genesis.fundamental.frequency.setTargetAtTime(27.5 + pitchMod, ctx.currentTime, 0.2);
+    // FUNDAMENTAL - center dwelling
+    if (u.has('fundamental')) {
+        const vol = music.locked.has('fundamental') ? 0.4 : 0.3;
+        genesis.fundGain.gain.setTargetAtTime(vol + world.energy * 0.15, now, 0.3);
+    } else {
+        genesis.fundGain.gain.setTargetAtTime(0, now, 0.5);
     }
 
-    // ═══════════════════════════════════════════════════════════════════════
-    // PHASE 2: LET THERE BE LIGHT
-    // ═══════════════════════════════════════════════════════════════════════
-    else if (phase === 2) {
-        // Fundamental stays strong
-        genesis.fundamentalGain.gain.setTargetAtTime(0.5, ctx.currentTime, 0.3);
-
-        // Overtones bloom in sequence based on progress
-        genesis.overtones.forEach((h, i) => {
-            const threshold = i * 0.1; // Each harmonic has a threshold
-            if (progress > threshold) {
-                const harmonicProgress = (progress - threshold) / (1 - threshold);
-                const vol = h.baseGain * harmonicProgress * (0.7 + world.energy * 0.3);
-                h.gain.gain.setTargetAtTime(vol, ctx.currentTime, 0.5 + i * 0.1);
-            }
-        });
-
-        // Overall overtones volume
-        const overtonesVol = 0.15 + progress * 0.35;
-        genesis.overtonesGain.gain.setTargetAtTime(overtonesVol, ctx.currentTime, 0.6);
+    // OVERTONES - north dwelling
+    if (u.has('overtones')) {
+        const vol = music.locked.has('overtones') ? 0.35 : 0.25;
+        genesis.overtonesGain.gain.setTargetAtTime(vol + world.energy * 0.1, now, 0.3);
+    } else {
+        genesis.overtonesGain.gain.setTargetAtTime(0, now, 0.5);
     }
 
-    // ═══════════════════════════════════════════════════════════════════════
-    // PHASE 3: THE EXPANSION
-    // ═══════════════════════════════════════════════════════════════════════
-    else if (phase === 3) {
-        // Full fundamental and overtones
-        genesis.fundamentalGain.gain.setTargetAtTime(0.55, ctx.currentTime, 0.3);
-        genesis.overtonesGain.gain.setTargetAtTime(0.45 + world.energy * 0.15, ctx.currentTime, 0.3);
-
-        // Spread the overtones wider with tilt
-        genesis.overtones.forEach((h, i) => {
-            const spread = 1 + world.tilt.x * 0.05 * i;
-            h.osc.frequency.setTargetAtTime(27.5 * h.ratio * spread, ctx.currentTime, 0.1);
-        });
-
-        // Sub becomes more prominent
-        genesis.subGain.gain.setTargetAtTime(0.4 + world.energy * 0.2, ctx.currentTime, 0.3);
+    // SUB - south dwelling
+    if (u.has('sub')) {
+        const vol = music.locked.has('sub') ? 0.5 : 0.35;
+        genesis.subGain.gain.setTargetAtTime(vol, now, 0.3);
+    } else {
+        genesis.subGain.gain.setTargetAtTime(0, now, 0.5);
     }
 
-    // ═══════════════════════════════════════════════════════════════════════
-    // PHASE 4: FIRST PULSE
-    // ═══════════════════════════════════════════════════════════════════════
-    else if (phase === 4) {
-        // Everything continues
-        genesis.fundamentalGain.gain.setTargetAtTime(0.45, ctx.currentTime, 0.3);
-        genesis.overtonesGain.gain.setTargetAtTime(0.35, ctx.currentTime, 0.3);
-        genesis.subGain.gain.setTargetAtTime(0.35, ctx.currentTime, 0.3);
+    // BRIGHTNESS/DARKNESS - affects master filter
+    let filterTarget = 1500;
+    if (u.has('brightness')) filterTarget += 2000;
+    if (u.has('darkness')) filterTarget -= 800;
+    filterTarget += world.energy * 500;
+    masterFilter.frequency.setTargetAtTime(Math.max(200, filterTarget), now, 0.15);
 
-        // Heartbeat rhythm - irregular at first, becoming steady
-        world.heartbeat += 0.015 + progress * 0.01;
-        const heartRate = 0.7 + progress * 0.5; // Gets faster and more regular
-        const shouldBeat = Math.sin(world.heartbeat * heartRate) > 0.7;
-
-        if (shouldBeat && world.heartbeatPhase === 0) {
-            triggerHeartbeat();
-            world.heartbeatPhase = 1;
-        } else if (!shouldBeat) {
-            world.heartbeatPhase = 0;
-        }
+    // SHIMMER - sequence unlock
+    if (u.has('shimmer')) {
+        const vol = 0.15 + Math.sin(world.breath * 0.5) * 0.05;
+        genesis.shimmerGain.gain.setTargetAtTime(vol, now, 0.4);
+    } else {
+        genesis.shimmerGain.gain.setTargetAtTime(0, now, 0.5);
     }
 
-    // ═══════════════════════════════════════════════════════════════════════
-    // FADE OUT when leaving Genesis
-    // ═══════════════════════════════════════════════════════════════════════
-    else if (!isGenesis && current.era === 'tribal') {
-        // Slow crossfade
-        const fadeout = 1 - Math.min(1, progress * 2);
-        genesis.fundamentalGain.gain.setTargetAtTime(0.3 * fadeout, ctx.currentTime, 0.5);
-        genesis.overtonesGain.gain.setTargetAtTime(0.2 * fadeout, ctx.currentTime, 0.5);
-        genesis.subGain.gain.setTargetAtTime(0.2 * fadeout, ctx.currentTime, 0.5);
-        genesis.textureGain.gain.setTargetAtTime(0.1 * fadeout, ctx.currentTime, 0.5);
+    // PULSE - creates rhythmic throb
+    if (u.has('pulse')) {
+        const pulsePhase = (world.breath * 2) % TAU;
+        const pulseVol = Math.pow(Math.sin(pulsePhase) * 0.5 + 0.5, 3) * 0.4;
+        genesis.pulseGain.gain.setTargetAtTime(pulseVol, now, 0.05);
+    } else {
+        genesis.pulseGain.gain.setTargetAtTime(0, now, 0.3);
     }
-    else if (!isGenesis) {
-        // Fully faded
-        genesis.fundamentalGain.gain.setTargetAtTime(0, ctx.currentTime, 1);
-        genesis.overtonesGain.gain.setTargetAtTime(0, ctx.currentTime, 1);
-        genesis.subGain.gain.setTargetAtTime(0, ctx.currentTime, 1);
-        genesis.textureGain.gain.setTargetAtTime(0, ctx.currentTime, 1);
+
+    // WIDTH - stereo expansion
+    if (u.has('width')) {
+        const vol = 0.2;
+        genesis.widthGainL.gain.setTargetAtTime(vol, now, 0.3);
+        genesis.widthGainR.gain.setTargetAtTime(vol, now, 0.3);
+    } else {
+        genesis.widthGainL.gain.setTargetAtTime(0, now, 0.5);
+        genesis.widthGainR.gain.setTargetAtTime(0, now, 0.5);
     }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// TRIBAL - The discovery of rhythm
-// ═══════════════════════════════════════════════════════════════════════════
-//
-// Phase 0: Footsteps - basic pulse, stomping
-// Phase 1: Hands - claps, body percussion
-// Phase 2: Wood & Stone - found objects
-// Phase 3: First Drums - animal skins
-// Phase 4: Voice Awakens - first melodies
-//
+// TRIBAL SOUNDS
 // ═══════════════════════════════════════════════════════════════════════════
 
-let tribal = {
-    lastStep: 0,
-    lastClap: 0,
-    lastWood: 0,
-    lastDrum: 0,
+const tribal = {
+    buffers: {},
+    lastTrigger: {},
     voiceOsc: null,
     voiceGain: null,
-    droneOsc: null,
-    droneGain: null,
-    stepBuffer: null,
-    clapBuffer: null,
-    woodBuffer: null,
-    stoneBuffer: null,
-    drumBuffer: null,
+    polyPhase: 0,
 };
 
 function initTribal() {
-    // Create percussion buffers
+    // FEET - low thump
+    tribal.buffers.feet = createBuffer((t, sr) => {
+        const freq = 55 + 35 * Math.exp(-t * 25);
+        return Math.sin(TAU * freq * t) * Math.exp(-t * 10) * 0.7;
+    }, 0.4);
 
-    // Footstep - low thud
-    tribal.stepBuffer = ctx.createBuffer(1, ctx.sampleRate * 0.3, ctx.sampleRate);
-    const stepData = tribal.stepBuffer.getChannelData(0);
-    for (let i = 0; i < stepData.length; i++) {
-        const t = i / ctx.sampleRate;
-        const freq = 60 + 40 * Math.exp(-t * 30);
-        stepData[i] = Math.sin(TAU * freq * t) * Math.exp(-t * 12) * 0.7;
-    }
+    // HANDS - clap
+    tribal.buffers.hands = createBuffer((t, sr) => {
+        return (Math.random() * 2 - 1) * Math.exp(-t * 35) * 0.6;
+    }, 0.2);
 
-    // Clap - short noise burst
-    tribal.clapBuffer = ctx.createBuffer(1, ctx.sampleRate * 0.15, ctx.sampleRate);
-    const clapData = tribal.clapBuffer.getChannelData(0);
-    for (let i = 0; i < clapData.length; i++) {
-        const t = i / ctx.sampleRate;
-        clapData[i] = (Math.random() * 2 - 1) * Math.exp(-t * 40) * 0.6;
-    }
+    // WOOD - resonant hit
+    tribal.buffers.wood = createBuffer((t, sr) => {
+        const freq = 350 + 150 * Math.exp(-t * 15);
+        return (Math.sin(TAU * freq * t) * 0.7 + Math.sin(TAU * freq * 2.4 * t) * 0.3)
+               * Math.exp(-t * 12) * 0.5;
+    }, 0.5);
 
-    // Wood hit - resonant
-    tribal.woodBuffer = ctx.createBuffer(1, ctx.sampleRate * 0.4, ctx.sampleRate);
-    const woodData = tribal.woodBuffer.getChannelData(0);
-    for (let i = 0; i < woodData.length; i++) {
-        const t = i / ctx.sampleRate;
-        const freq = 400 + 200 * Math.exp(-t * 20);
-        woodData[i] = (Math.sin(TAU * freq * t) * 0.6 + Math.sin(TAU * freq * 2.3 * t) * 0.3) * Math.exp(-t * 15) * 0.5;
-    }
+    // STONE - high click
+    tribal.buffers.stone = createBuffer((t, sr) => {
+        return (Math.sin(TAU * 2200 * t) + Math.sin(TAU * 3500 * t) * 0.4)
+               * Math.exp(-t * 50) * 0.4;
+    }, 0.15);
 
-    // Stone click - high, short
-    tribal.stoneBuffer = ctx.createBuffer(1, ctx.sampleRate * 0.1, ctx.sampleRate);
-    const stoneData = tribal.stoneBuffer.getChannelData(0);
-    for (let i = 0; i < stoneData.length; i++) {
-        const t = i / ctx.sampleRate;
-        stoneData[i] = (Math.sin(TAU * 2500 * t) + Math.sin(TAU * 3200 * t) * 0.5) * Math.exp(-t * 60) * 0.4;
-    }
+    // DRUM - deep resonant
+    tribal.buffers.drum = createBuffer((t, sr) => {
+        const freq = 75 + 50 * Math.exp(-t * 12);
+        const body = Math.sin(TAU * freq * t) * Math.exp(-t * 4);
+        const slap = Math.sin(TAU * 250 * t) * Math.exp(-t * 40) * 0.3;
+        const skin = (Math.random() * 2 - 1) * Math.exp(-t * 18) * 0.15;
+        return (body + slap + skin) * 0.75;
+    }, 0.9);
 
-    // Drum - animal skin, deep and resonant
-    tribal.drumBuffer = ctx.createBuffer(1, ctx.sampleRate * 0.8, ctx.sampleRate);
-    const drumData = tribal.drumBuffer.getChannelData(0);
-    for (let i = 0; i < drumData.length; i++) {
-        const t = i / ctx.sampleRate;
-        const freq = 80 + 60 * Math.exp(-t * 15);
-        const body = Math.sin(TAU * freq * t) * Math.exp(-t * 5);
-        const skin = (Math.random() * 2 - 1) * Math.exp(-t * 20) * 0.2;
-        const slap = Math.sin(TAU * 300 * t) * Math.exp(-t * 50) * 0.3;
-        drumData[i] = (body + skin + slap) * 0.7;
-    }
+    // VOICE - drone oscillator
+    tribal.voiceOsc = ctx.createOscillator();
+    tribal.voiceOsc.type = 'sawtooth';
+    tribal.voiceOsc.frequency.value = 110;
 
-    // Vocal drone
-    tribal.droneOsc = ctx.createOscillator();
-    tribal.droneOsc.type = 'sawtooth';
-    tribal.droneOsc.frequency.value = 110;
+    const voiceFilter = ctx.createBiquadFilter();
+    voiceFilter.type = 'lowpass';
+    voiceFilter.frequency.value = 500;
+    voiceFilter.Q.value = 4;
 
-    const droneFilter = ctx.createBiquadFilter();
-    droneFilter.type = 'lowpass';
-    droneFilter.frequency.value = 400;
-    droneFilter.Q.value = 3;
-
-    tribal.droneGain = ctx.createGain();
-    tribal.droneGain.gain.value = 0;
-
-    // Vibrato for voice
+    // Vibrato
     const vibrato = ctx.createOscillator();
-    vibrato.frequency.value = 5;
-    const vibratoGain = ctx.createGain();
-    vibratoGain.gain.value = 4;
-    vibrato.connect(vibratoGain);
-    vibratoGain.connect(tribal.droneOsc.frequency);
+    vibrato.frequency.value = 5.5;
+    const vibGain = ctx.createGain();
+    vibGain.gain.value = 5;
+    vibrato.connect(vibGain);
+    vibGain.connect(tribal.voiceOsc.frequency);
     vibrato.start();
 
-    tribal.droneOsc.connect(droneFilter);
-    droneFilter.connect(tribal.droneGain);
-    tribal.droneGain.connect(masterFilter);
-    tribal.droneOsc.start();
+    tribal.voiceGain = ctx.createGain();
+    tribal.voiceGain.gain.value = 0;
+
+    tribal.voiceOsc.connect(voiceFilter);
+    voiceFilter.connect(tribal.voiceGain);
+    tribal.voiceGain.connect(masterFilter);
+    tribal.voiceOsc.start();
+
+    // Initialize last trigger times
+    Object.keys(tribal.buffers).forEach(k => tribal.lastTrigger[k] = 0);
 }
 
-function playTribalSound(type, vol = 1, pan = 0) {
-    if (!audioReady) return;
+function createBuffer(fn, duration) {
+    const length = ctx.sampleRate * duration;
+    const buffer = ctx.createBuffer(1, length, ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < length; i++) {
+        data[i] = fn(i / ctx.sampleRate, ctx.sampleRate);
+    }
+    return buffer;
+}
 
-    let buffer;
-    if (type === 'step') buffer = tribal.stepBuffer;
-    else if (type === 'clap') buffer = tribal.clapBuffer;
-    else if (type === 'wood') buffer = tribal.woodBuffer;
-    else if (type === 'stone') buffer = tribal.stoneBuffer;
-    else if (type === 'drum') buffer = tribal.drumBuffer;
-    else return;
+function playTribalSound(name, vol = 1, pan = 0) {
+    if (!tribal.buffers[name]) return;
+
+    const now = ctx.currentTime;
+    const minInterval = { feet: 0.25, hands: 0.15, wood: 0.2, stone: 0.1, drum: 0.4 };
+    if (now - (tribal.lastTrigger[name] || 0) < (minInterval[name] || 0.2)) return;
+    tribal.lastTrigger[name] = now;
 
     const source = ctx.createBufferSource();
-    source.buffer = buffer;
+    source.buffer = tribal.buffers[name];
 
     const gain = ctx.createGain();
     gain.gain.value = vol;
@@ -851,299 +655,194 @@ function playTribalSound(type, vol = 1, pan = 0) {
 }
 
 function updateTribal() {
-    if (!audioReady) return;
+    if (!audioReady || music.era !== 'tribal') return;
 
-    const current = JOURNEY[music.journeyIndex];
-    const isTribal = current.era === 'tribal';
-    const phase = isTribal ? current.phase : -1;
-    const progress = music.phaseProgress;
     const now = ctx.currentTime;
+    const u = music.unlocked;
 
-    // Base tempo gets faster with phases
-    const baseTempo = 0.7 + phase * 0.15;
+    // Base tempo
+    world.breath += 0.02;
+    tribal.polyPhase += 0.015;
 
-    // ═══════════════════════════════════════════════════════════════════════
-    // PHASE 0: FOOTSTEPS
-    // ═══════════════════════════════════════════════════════════════════════
-    if (phase >= 0 && isTribal) {
-        // Simple walking rhythm
-        world.heartbeat += 0.012 * baseTempo;
-        const stepPattern = Math.sin(world.heartbeat) > 0.6;
+    // FEET - south zone
+    if (u.has('feet')) {
+        const pattern = Math.sin(world.breath * 1.2) > 0.7;
+        if (pattern) playTribalSound('feet', 0.6, (Math.random() - 0.5) * 0.2);
+    }
 
-        if (stepPattern && now - tribal.lastStep > 0.3) {
-            playTribalSound('step', 0.5 + world.energy * 0.3, (Math.random() - 0.5) * 0.3);
-            tribal.lastStep = now;
+    // HANDS - north zone
+    if (u.has('hands')) {
+        const pattern = Math.sin(world.breath * 2.4 + 1.5) > 0.75;
+        if (pattern) playTribalSound('hands', 0.5, (Math.random() - 0.5) * 0.4);
+    }
+
+    // WOOD - west zone
+    if (u.has('wood')) {
+        const pattern = Math.sin(world.breath * 1.8 + 0.8) > 0.8;
+        if (pattern) playTribalSound('wood', 0.4, -0.3);
+    }
+
+    // STONE - east zone
+    if (u.has('stone')) {
+        if (Math.random() < 0.015) {
+            playTribalSound('stone', 0.3, 0.4);
         }
     }
 
-    // ═══════════════════════════════════════════════════════════════════════
-    // PHASE 1: HANDS - Claps join
-    // ═══════════════════════════════════════════════════════════════════════
-    if (phase >= 1 && isTribal) {
-        const clapPattern = Math.sin(world.heartbeat * 2 + 1.5) > 0.75;
-
-        if (clapPattern && now - tribal.lastClap > 0.2) {
-            playTribalSound('clap', 0.4 + world.energy * 0.2, (Math.random() - 0.5) * 0.5);
-            tribal.lastClap = now;
-        }
+    // DRUM - center zone (needs longer dwell)
+    if (u.has('drum')) {
+        const pattern = Math.sin(world.breath * 0.6) > 0.85;
+        if (pattern) playTribalSound('drum', 0.7, 0);
     }
 
-    // ═══════════════════════════════════════════════════════════════════════
-    // PHASE 2: WOOD & STONE
-    // ═══════════════════════════════════════════════════════════════════════
-    if (phase >= 2 && isTribal) {
-        // Wood on off-beats
-        const woodPattern = Math.sin(world.heartbeat * 2 + 0.5) > 0.8;
-        if (woodPattern && now - tribal.lastWood > 0.25) {
-            playTribalSound('wood', 0.35, (Math.random() - 0.5) * 0.4);
-            tribal.lastWood = now;
-        }
+    // VOICE - sequence unlock
+    if (u.has('voice')) {
+        const vol = 0.18 + Math.sin(world.breath * 0.3) * 0.06;
+        tribal.voiceGain.gain.setTargetAtTime(vol, now, 0.3);
 
-        // Occasional stone clicks
-        if (Math.random() < 0.008 + world.energy * 0.01) {
-            playTribalSound('stone', 0.25, (Math.random() - 0.5) * 0.8);
-        }
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════
-    // PHASE 3: FIRST DRUMS
-    // ═══════════════════════════════════════════════════════════════════════
-    if (phase >= 3 && isTribal) {
-        // Deep drum on the one
-        const drumPattern = Math.sin(world.heartbeat * 0.5) > 0.85;
-        if (drumPattern && now - tribal.lastDrum > 0.5) {
-            playTribalSound('drum', 0.6 + world.energy * 0.3, 0);
-            tribal.lastDrum = now;
-        }
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════
-    // PHASE 4: VOICE AWAKENS
-    // ═══════════════════════════════════════════════════════════════════════
-    if (phase >= 4 && isTribal) {
-        // Drone voice
-        const droneVol = 0.15 + Math.sin(world.breath * 0.3) * 0.05 + world.energy * 0.1;
-        tribal.droneGain.gain.setTargetAtTime(droneVol, now, 0.3);
-
-        // Pentatonic melody - movement selects notes
-        const pentatonic = [0, 2, 4, 7, 9]; // Minor pentatonic intervals
-        const noteIndex = Math.floor(world.y * pentatonic.length);
-        const note = 110 * Math.pow(2, pentatonic[noteIndex] / 12);
-        tribal.droneOsc.frequency.setTargetAtTime(note, now, 0.15);
+        // Pentatonic - position controls note
+        const pent = [0, 3, 5, 7, 10];
+        const noteIdx = Math.floor(world.y * pent.length);
+        const note = 110 * Math.pow(2, pent[noteIdx] / 12);
+        tribal.voiceOsc.frequency.setTargetAtTime(note, now, 0.1);
     } else {
-        tribal.droneGain.gain.setTargetAtTime(0, now, 0.5);
+        tribal.voiceGain.gain.setTargetAtTime(0, now, 0.5);
     }
 
-    // Fade out when leaving tribal
-    if (!isTribal && current.era === 'ancient') {
-        // Let sounds fade naturally, reduce trigger frequency
+    // POLY - sequence unlock, adds cross-rhythm
+    if (u.has('poly')) {
+        // 3 against 4 polyrhythm
+        const poly3 = Math.sin(tribal.polyPhase * 3) > 0.8;
+        const poly4 = Math.sin(tribal.polyPhase * 4 + 0.5) > 0.8;
+
+        if (poly3 && u.has('wood')) playTribalSound('wood', 0.3, -0.5);
+        if (poly4 && u.has('stone')) playTribalSound('stone', 0.25, 0.5);
     }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// ANCIENT - Melody is born (placeholder - expand later)
+// UNLOCK LOGIC
 // ═══════════════════════════════════════════════════════════════════════════
 
-let ancient = {
-    chantOsc: null,
-    chantGain: null,
-    fluteOsc: null,
-    fluteGain: null
-};
+function checkUnlocks() {
+    const zone = world.zone;
+    const dwell = world.zoneDwell;
+    const history = world.zoneHistory;
 
-function initAncient() {
-    // Monophonic chant
-    ancient.chantOsc = ctx.createOscillator();
-    ancient.chantOsc.type = 'sawtooth';
-    ancient.chantOsc.frequency.value = 165;
+    // Check zone-based unlocks
+    for (const [layerName, layer] of Object.entries(LAYERS)) {
+        if (music.unlocked.has(layerName)) continue;
+        if (layer.era !== music.era) continue;
 
-    const chantFilter = ctx.createBiquadFilter();
-    chantFilter.type = 'lowpass';
-    chantFilter.frequency.value = 600;
-    chantFilter.Q.value = 2;
-
-    ancient.chantGain = ctx.createGain();
-    ancient.chantGain.gain.value = 0;
-
-    ancient.chantOsc.connect(chantFilter);
-    chantFilter.connect(ancient.chantGain);
-    ancient.chantGain.connect(masterFilter);
-    ancient.chantOsc.start();
-
-    // Bone flute
-    ancient.fluteOsc = ctx.createOscillator();
-    ancient.fluteOsc.type = 'sine';
-    ancient.fluteOsc.frequency.value = 440;
-
-    const fluteFilter = ctx.createBiquadFilter();
-    fluteFilter.type = 'bandpass';
-    fluteFilter.frequency.value = 800;
-    fluteFilter.Q.value = 5;
-
-    ancient.fluteGain = ctx.createGain();
-    ancient.fluteGain.gain.value = 0;
-
-    // Breath noise for flute
-    const breathNoise = ctx.createBufferSource();
-    const breathBuffer = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
-    const breathData = breathBuffer.getChannelData(0);
-    for (let i = 0; i < breathData.length; i++) {
-        breathData[i] = (Math.random() * 2 - 1) * 0.02;
-    }
-    breathNoise.buffer = breathBuffer;
-    breathNoise.loop = true;
-
-    ancient.fluteOsc.connect(fluteFilter);
-    breathNoise.connect(ancient.fluteGain);
-    fluteFilter.connect(ancient.fluteGain);
-    ancient.fluteGain.connect(masterFilter);
-
-    ancient.fluteOsc.start();
-    breathNoise.start();
-}
-
-function updateAncient() {
-    if (!audioReady) return;
-    const current = JOURNEY[music.journeyIndex];
-    const isAncient = current.era === 'ancient';
-
-    if (isAncient) {
-        const phase = current.phase;
-
-        if (phase >= 0) {
-            // Chant
-            const chantVol = 0.2 + Math.sin(world.breath * 0.2) * 0.08;
-            ancient.chantGain.gain.setTargetAtTime(chantVol, ctx.currentTime, 0.4);
-
-            // Dorian mode for ancient feel
-            const dorian = [0, 2, 3, 5, 7, 9, 10];
-            const noteIndex = Math.floor(world.y * dorian.length);
-            const note = 165 * Math.pow(2, dorian[noteIndex] / 12);
-            ancient.chantOsc.frequency.setTargetAtTime(note, ctx.currentTime, 0.2);
+        // Zone + dwell unlock
+        if (layer.zone && layer.dwell) {
+            if (zone === layer.zone && dwell >= layer.dwell) {
+                unlock(layerName);
+            }
         }
 
-        if (phase >= 1) {
-            // Flute joins
-            const fluteVol = 0.12 + world.energy * 0.1;
-            ancient.fluteGain.gain.setTargetAtTime(fluteVol, ctx.currentTime, 0.3);
-
-            const phrygian = [0, 1, 3, 5, 7, 8, 10];
-            const noteIndex = Math.floor(world.x * phrygian.length);
-            const note = 440 * Math.pow(2, phrygian[noteIndex] / 12);
-            ancient.fluteOsc.frequency.setTargetAtTime(note, ctx.currentTime, 0.1);
+        // Sequence unlock
+        if (layer.sequence) {
+            if (matchesSequence(history, layer.sequence)) {
+                unlock(layerName);
+            }
         }
-    } else {
-        ancient.chantGain.gain.setTargetAtTime(0, ctx.currentTime, 0.8);
-        ancient.fluteGain.gain.setTargetAtTime(0, ctx.currentTime, 0.8);
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// CLASSICAL - Orchestra (placeholder)
-// ═══════════════════════════════════════════════════════════════════════════
-
-let classical = { strings: [], stringsGain: null, brassGain: null };
-
-function initClassical() {
-    classical.stringsGain = ctx.createGain();
-    classical.stringsGain.gain.value = 0;
-
-    // String section - layered oscillators
-    for (let i = 0; i < 6; i++) {
-        const osc = ctx.createOscillator();
-        osc.type = 'sawtooth';
-        osc.frequency.value = 220 * Math.pow(2, i * 0.4);
-        osc.detune.value = (Math.random() - 0.5) * 10;
-
-        const g = ctx.createGain();
-        g.gain.value = 0.06;
-
-        osc.connect(g);
-        g.connect(classical.stringsGain);
-        osc.start();
-
-        classical.strings.push({ osc, gain: g });
     }
 
-    const stringsFilter = ctx.createBiquadFilter();
-    stringsFilter.type = 'lowpass';
-    stringsFilter.frequency.value = 3000;
-
-    classical.stringsGain.connect(stringsFilter);
-    stringsFilter.connect(masterFilter);
-}
-
-function updateClassical() {
-    if (!audioReady) return;
-    const current = JOURNEY[music.journeyIndex];
-    const isClassical = current.era === 'classical';
-
-    if (isClassical) {
-        classical.stringsGain.gain.setTargetAtTime(0.3 + world.energy * 0.2, ctx.currentTime, 0.5);
-    } else {
-        classical.stringsGain.gain.setTargetAtTime(0, ctx.currentTime, 1);
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// BLUES, JAZZ, ROCK, ELECTRONIC, MODERN - Placeholders
-// ═══════════════════════════════════════════════════════════════════════════
-
-function initBlues() {}
-function updateBlues() {}
-function initJazz() {}
-function updateJazz() {}
-function initRock() {}
-function updateRock() {}
-function initElectronic() {}
-function updateElectronic() {}
-function initModern() {}
-function updateModern() {}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// JOURNEY PROGRESSION
-// ═══════════════════════════════════════════════════════════════════════════
-
-function updateJourney() {
-    const current = JOURNEY[music.journeyIndex];
-    const next = JOURNEY[music.journeyIndex + 1];
-
-    if (next) {
-        const range = next.threshold - current.threshold;
-        const progress = world.totalMovement - current.threshold;
-        music.phaseProgress = Math.min(1, Math.max(0, progress / range));
-
-        if (world.totalMovement >= next.threshold) {
-            music.journeyIndex++;
-            music.phaseProgress = 0;
-            console.log(`Entering: ${JOURNEY[music.journeyIndex].name}`);
+    // Lock in layers after extended dwell (5+ seconds)
+    if (dwell >= 5) {
+        for (const [layerName, layer] of Object.entries(LAYERS)) {
+            if (music.unlocked.has(layerName) && !music.locked.has(layerName)) {
+                if (layer.zone === zone) {
+                    music.locked.add(layerName);
+                    console.log(`Locked: ${layerName}`);
+                }
+            }
         }
-    } else {
-        music.phaseProgress = 1;
     }
+}
 
-    // Update UI
-    document.getElementById('evolution-fill').style.width = (music.phaseProgress * 100) + '%';
-    document.getElementById('era-name').textContent = current.era;
-    document.getElementById('phase-name').textContent = current.name;
+function matchesSequence(history, sequence) {
+    if (history.length < sequence.length) return false;
+
+    // Check if the last N zones match the sequence
+    const recent = history.slice(-sequence.length);
+    return recent.every((z, i) => z === sequence[i]);
+}
+
+function unlock(layerName) {
+    if (music.unlocked.has(layerName)) return;
+
+    music.unlocked.add(layerName);
+    console.log(`Unlocked: ${layerName} - ${LAYERS[layerName].description}`);
+
+    // Check for era transition
+    checkEraTransition();
+}
+
+function checkEraTransition() {
+    // Transition to tribal when certain genesis layers are locked
+    if (music.era === 'genesis') {
+        const genesisLocked = ['fundamental', 'overtones', 'sub'].filter(l => music.locked.has(l));
+        if (genesisLocked.length >= 2 && music.unlocked.has('pulse')) {
+            transitionToEra('tribal');
+        }
+    }
+}
+
+function transitionToEra(newEra) {
+    console.log(`Transitioning to: ${newEra}`);
+    music.era = newEra;
+
+    // Fade out previous era
+    if (genesis.voidGain) genesis.voidGain.gain.setTargetAtTime(0, ctx.currentTime, 2);
+    if (genesis.fundGain) genesis.fundGain.gain.setTargetAtTime(0, ctx.currentTime, 2);
+    if (genesis.overtonesGain) genesis.overtonesGain.gain.setTargetAtTime(0, ctx.currentTime, 2);
+    if (genesis.subGain) genesis.subGain.gain.setTargetAtTime(0, ctx.currentTime, 2);
+    if (genesis.shimmerGain) genesis.shimmerGain.gain.setTargetAtTime(0, ctx.currentTime, 2);
+    if (genesis.pulseGain) genesis.pulseGain.gain.setTargetAtTime(0, ctx.currentTime, 2);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
 // INPUT
 // ═══════════════════════════════════════════════════════════════════════════
 
-function onMove(nx, ny) {
+function updateInput(nx, ny, dt) {
     const dx = nx - world.x;
     const dy = ny - world.y;
 
-    world.vx = world.vx * 0.7 + dx * 0.3;
-    world.vy = world.vy * 0.7 + dy * 0.3;
     world.x = nx;
     world.y = ny;
 
     const movement = Math.sqrt(dx*dx + dy*dy);
-    world.energy = Math.min(1, world.energy * 0.85 + movement * 6);
-    world.totalMovement += movement * 60; // Slower accumulation
+    world.energy = Math.min(1, world.energy * 0.9 + movement * 5);
+
+    // Zone detection
+    const newZone = getZone(nx, ny);
+
+    if (newZone !== world.zone) {
+        // Zone changed
+        if (world.zoneDwell > 0.3) {
+            // Only record if we dwelt for a bit
+            world.zoneHistory.push(world.zone);
+            if (world.zoneHistory.length > 10) world.zoneHistory.shift();
+        }
+        world.zone = newZone;
+        world.zoneDwell = 0;
+    } else {
+        // Same zone - accumulate dwell
+        world.zoneDwell += dt;
+    }
+
+    // Check for unlocks
+    checkUnlocks();
+}
+
+function onMove(nx, ny) {
+    const now = performance.now();
+    const dt = (now - lastTime) / 1000;
+    lastTime = now;
+    updateInput(nx, ny, dt);
 }
 
 function onMotion(e) {
@@ -1153,15 +852,14 @@ function onMotion(e) {
     const ax = (a.x || 0) / 10;
     const ay = (a.y || 0) / 10;
 
-    world.x = Math.max(0, Math.min(1, world.x + ax * 0.04));
-    world.y = Math.max(0, Math.min(1, world.y - ay * 0.04));
+    // Convert tilt to position
+    const nx = Math.max(0, Math.min(1, 0.5 + ax * 0.8));
+    const ny = Math.max(0, Math.min(1, 0.5 - ay * 0.8));
 
-    world.tilt.x = Math.max(-1, Math.min(1, ax * 1.5));
-    world.tilt.y = Math.max(-1, Math.min(1, ay * 1.5));
-
-    const movement = Math.sqrt(ax*ax + ay*ay);
-    world.energy = Math.min(1, world.energy * 0.8 + movement * 0.35);
-    world.totalMovement += movement * 5;
+    const now = performance.now();
+    const dt = (now - lastTime) / 1000;
+    lastTime = now;
+    updateInput(nx, ny, Math.min(dt, 0.1));
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1186,53 +884,92 @@ function resize() {
 
 function draw() {
     const w = innerWidth, h = innerHeight;
-    const current = JOURNEY[music.journeyIndex];
 
-    // Fade based on era
-    const fadeSpeeds = {
-        genesis: 0.03,
-        tribal: 0.06,
-        ancient: 0.05,
-        classical: 0.04,
-        blues: 0.07,
-        jazz: 0.06,
-        rock: 0.08,
-        electronic: 0.05,
-        modern: 0.04
-    };
-
-    vc.fillStyle = `rgba(0,0,0,${fadeSpeeds[current.era] || 0.05})`;
+    // Fade
+    vc.fillStyle = 'rgba(0,0,0,0.06)';
     vc.fillRect(0, 0, w, h);
 
-    // Central presence - grows with journey
-    const breath = Math.sin(world.breath * 0.4) * 0.5 + 0.5;
-    const baseSize = 20 + music.journeyIndex * 8;
-    const size = baseSize + breath * 15 + world.energy * 40;
-
-    // Color shifts through journey
-    const hueShift = music.journeyIndex * 20;
-    const alpha = 0.03 + world.energy * 0.04 + music.phaseProgress * 0.02;
-
-    vc.strokeStyle = `hsla(${hueShift}, 20%, 60%, ${alpha})`;
+    // Zone grid (very subtle)
+    vc.strokeStyle = 'rgba(255,255,255,0.015)';
     vc.lineWidth = 1;
 
-    // Multiple rings
-    for (let i = 0; i < 4; i++) {
-        const ringSize = size + i * (20 + music.journeyIndex * 5);
-        vc.beginPath();
-        vc.arc(w/2, h/2, ringSize, 0, TAU);
-        vc.stroke();
-    }
+    // Horizontal thirds
+    vc.beginPath();
+    vc.moveTo(0, h * 0.35);
+    vc.lineTo(w, h * 0.35);
+    vc.moveTo(0, h * 0.65);
+    vc.lineTo(w, h * 0.65);
+    // Vertical thirds
+    vc.moveTo(w * 0.35, 0);
+    vc.lineTo(w * 0.35, h);
+    vc.moveTo(w * 0.65, 0);
+    vc.lineTo(w * 0.65, h);
+    vc.stroke();
 
-    // Position dot
+    // Center circle
+    const breath = Math.sin(world.breath * 0.5) * 0.5 + 0.5;
+    const centerSize = 30 + breath * 15 + world.energy * 30 + music.unlocked.size * 3;
+
+    vc.strokeStyle = `rgba(255,255,255,${0.03 + world.energy * 0.05})`;
+    vc.beginPath();
+    vc.arc(w/2, h/2, centerSize, 0, TAU);
+    vc.stroke();
+
+    // Rings for each unlock
+    let ring = 0;
+    music.unlocked.forEach(layer => {
+        if (LAYERS[layer]?.era === music.era) {
+            const ringSize = centerSize + 20 + ring * 15;
+            const alpha = music.locked.has(layer) ? 0.06 : 0.025;
+            vc.strokeStyle = `rgba(255,255,255,${alpha})`;
+            vc.beginPath();
+            vc.arc(w/2, h/2, ringSize, 0, TAU);
+            vc.stroke();
+            ring++;
+        }
+    });
+
+    // Position orb
     const px = world.x * w;
     const py = world.y * h;
-    const ps = 3 + world.energy * 12;
+    const ps = 4 + world.energy * 15 + (world.zoneDwell > 1 ? 5 : 0);
 
-    vc.fillStyle = `rgba(255,255,255,${0.15 + world.energy * 0.4})`;
+    // Glow when dwelling
+    if (world.zoneDwell > 0.5) {
+        const glowSize = ps + world.zoneDwell * 8;
+        const glowAlpha = Math.min(0.15, world.zoneDwell * 0.03);
+        vc.fillStyle = `rgba(255,255,255,${glowAlpha})`;
+        vc.beginPath();
+        vc.arc(px, py, glowSize, 0, TAU);
+        vc.fill();
+    }
+
+    vc.fillStyle = `rgba(255,255,255,${0.3 + world.energy * 0.5})`;
     vc.beginPath();
     vc.arc(px, py, ps, 0, TAU);
     vc.fill();
+}
+
+function updateUI() {
+    // Era name
+    document.getElementById('era-name').textContent = music.era;
+
+    // Zone name
+    document.getElementById('zone-name').textContent = world.zone;
+
+    // Dwell bar
+    const dwellPercent = Math.min(100, (world.zoneDwell / 3) * 100);
+    document.getElementById('dwell-fill').style.width = dwellPercent + '%';
+
+    // Unlocks list
+    const unlocksList = Array.from(music.unlocked)
+        .filter(l => LAYERS[l]?.era === music.era)
+        .map(l => {
+            const locked = music.locked.has(l) ? ' class="on"' : '';
+            return `<span${locked}>${l}</span>`;
+        })
+        .join(' · ');
+    document.getElementById('unlocks').innerHTML = unlocksList;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1241,38 +978,15 @@ function draw() {
 
 function frame() {
     world.breath += 0.015;
-    world.energy *= 0.992;
+    world.energy *= 0.995;
 
-    // Update journey progression
-    updateJourney();
-
-    // Update all sound layers
+    // Update sounds
     updateGenesis();
     updateTribal();
-    updateAncient();
-    updateClassical();
-    updateBlues();
-    updateJazz();
-    updateRock();
-    updateElectronic();
-    updateModern();
-
-    // Master filter follows tilt
-    if (masterFilter && audioReady) {
-        const baseFreq = 800 + music.journeyIndex * 200;
-        const tiltMod = world.tilt.x * 1500;
-        masterFilter.frequency.setTargetAtTime(
-            Math.max(200, baseFreq + tiltMod + world.energy * 1000),
-            ctx.currentTime, 0.1
-        );
-    }
 
     // Draw
     draw();
-
-    // Status
-    const status = `${Math.round(world.totalMovement)} | ${JOURNEY[music.journeyIndex].name}`;
-    document.getElementById('status').textContent = status;
+    updateUI();
 
     requestAnimationFrame(frame);
 }
