@@ -29,9 +29,9 @@ const GumpUnlocks = (function() {
             automatic: true, // Unlocked by default
             sound: {
                 type: 'ambient',
-                freq: 18,
+                freq: 55,  // A1 - audible low drone
                 waveform: 'sine',
-                volume: 0.15,
+                volume: 0.25,
             },
             visual: {
                 color: '#000000',

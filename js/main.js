@@ -1080,6 +1080,15 @@ const GUMP = (function() {
 
         await GumpAudio.start();
 
+        // Activate any already-unlocked items (automatic unlocks happen before event listeners)
+        for (const id of GumpUnlocks.state.unlocked) {
+            const unlock = GumpUnlocks.getUnlock(id);
+            if (unlock && unlock.sound) {
+                GumpUnlocks.activateUnlock(id);
+                activateUnlockSound(id, unlock);
+            }
+        }
+
         app.isRunning = true;
         app.lastTime = 0;
 
