@@ -170,7 +170,7 @@ const GumpAudio = (function() {
             });
 
             const ctx = audioState.ctx;
-            CONSTANTS.SAMPLE_RATE = ctx.sampleRate;
+            audioState.sampleRate = ctx.sampleRate;
 
             // Create master chain
             await createMasterChain();
