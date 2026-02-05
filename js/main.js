@@ -971,13 +971,16 @@ const GUMP = (function() {
 
         // Update session time and phase
         evolution.sessionTime += dt;
-        const newPhase = PHASE_THRESHOLDS.findIndex((t, i) =>
-            evolution.sessionTime >= t &&
-            (i === PHASE_THRESHOLDS.length - 1 || evolution.sessionTime < PHASE_THRESHOLDS[i + 1])
-        );
+        let newPhase = 0;
+        for (let i = PHASE_THRESHOLDS.length - 1; i >= 0; i--) {
+            if (evolution.sessionTime >= PHASE_THRESHOLDS[i]) {
+                newPhase = i;
+                break;
+            }
+        }
 
         // Phase transition
-        if (newPhase !== evolution.phase) {
+        if (newPhase !== evolution.phase && newPhase >= 0) {
             onPhaseChange(evolution.phase, newPhase);
             evolution.phase = newPhase;
         }
@@ -1759,15 +1762,17 @@ const GUMP = (function() {
         checkVelocitySounds(app.vx, app.vy, app.x, app.y);
 
         // === MUSICAL EVOLUTION SYSTEMS ===
-
-        // Update the evolution engine (phases, intensity, breathing, harmony)
-        updateEvolution(dt, app.x, app.y, app.vx, app.vy, gridResult.zone);
-
-        // Check for easter eggs
-        checkEasterEggs(gridResult.zone, app.x, app.y, app.vx, app.vy, dt);
-
-        // Detect gestures and play phrases
-        detectAndPlayGesture(app.x, app.y, app.vx, app.vy, dt);
+        try {
+            // Update the evolution engine (phases, intensity, breathing, harmony)
+            if (gridResult && gridResult.zone) {
+                updateEvolution(dt, app.x, app.y, app.vx || 0, app.vy || 0, gridResult.zone);
+                checkEasterEggs(gridResult.zone, app.x, app.y, app.vx || 0, app.vy || 0, dt);
+            }
+            // Detect gestures and play phrases
+            detectAndPlayGesture(app.x, app.y, app.vx || 0, app.vy || 0, dt);
+        } catch (e) {
+            console.error('Evolution system error:', e);
+        }
 
         // Add pattern data
         GumpPatterns.addPosition(app.x, app.y, app.vx, app.vy, Date.now());
@@ -1975,8 +1980,8 @@ const GUMP = (function() {
         ctx.textAlign = 'center';
 
         // Phase name (top center) - shows musical evolution
-        const phaseName = PHASE_NAMES[evolution.phase] || 'awakening';
-        const phaseAlpha = 0.1 + evolution.intensity * 0.15;
+        const phaseName = (PHASE_NAMES && PHASE_NAMES[evolution.phase]) ? PHASE_NAMES[evolution.phase] : 'awakening';
+        const phaseAlpha = 0.1 + (evolution.intensity || 0) * 0.15;
         ctx.fillStyle = `rgba(255, 255, 255, ${phaseAlpha})`;
         ctx.fillText(phaseName.toUpperCase(), w / 2, 30);
 
