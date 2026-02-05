@@ -53,6 +53,80 @@ const GUMP = (function() {
     };
 
     // ═══════════════════════════════════════════════════════════════════════
+    // MUSICAL EVOLUTION SYSTEM
+    // ═══════════════════════════════════════════════════════════════════════
+    //
+    // The music evolves the longer you play. Start sparse, end cinematic.
+    // Inspired by Hans Zimmer - whisper to ROAR.
+    //
+
+    const evolution = {
+        // Session progression
+        sessionTime: 0,
+        phase: 0,  // 0=awakening, 1=discovery, 2=journey, 3=transcendence
+
+        // Intensity builds with sustained activity
+        intensity: 0,
+        peakIntensity: 0,
+        intensityVelocity: 0,
+
+        // Harmonic state
+        currentChord: 0,  // Index into progression
+        chordProgress: 0,
+        rootNote: 55,  // A1
+
+        // The chord progression (i - IV - v - I in A minor = Am - D - Em - A)
+        progression: [0, 5, 7, 0],  // Semitones from root
+        chordQualities: ['minor', 'major', 'minor', 'major'],
+
+        // Breathing
+        breathPhase: 0,
+        breathRate: 0.15,  // Cycles per second
+
+        // Layers that unlock over time
+        layers: {
+            melody: false,      // Unlocks at phase 1
+            harmony: false,     // Unlocks at phase 1
+            bass: false,        // Unlocks at phase 2
+            rhythm: false,      // Unlocks at phase 2
+            orchestral: false,  // Unlocks at phase 3
+        },
+
+        // Gesture tracking
+        gestureBuffer: [],
+        lastGestureTime: 0,
+
+        // Easter egg tracking
+        zonesVisited: new Set(),
+        zoneVisitOrder: [],
+        lastZoneVisitTime: 0,
+        cornerSequence: [],
+        stillnessTime: 0,
+        shakeIntensity: 0,
+        circleProgress: 0,
+
+        // Easter egg states
+        easterEggs: {
+            journeyComplete: false,
+            meditationMode: false,
+            orbitMode: false,
+            earthquakeTriggered: false,
+            infinityMode: false,
+            ritualComplete: false,
+        },
+
+        // Call and response
+        systemCalling: false,
+        callTime: 0,
+        lastResponseTime: 0,
+        dialogueCount: 0,
+    };
+
+    // Phase thresholds (in seconds)
+    const PHASE_THRESHOLDS = [0, 30, 120, 300];  // 0s, 30s, 2min, 5min
+    const PHASE_NAMES = ['awakening', 'discovery', 'journey', 'transcendence'];
+
+    // ═══════════════════════════════════════════════════════════════════════
     // INITIALIZATION
     // ═══════════════════════════════════════════════════════════════════════
 
@@ -889,6 +963,767 @@ const GUMP = (function() {
     }
 
     // ═══════════════════════════════════════════════════════════════════════
+    // MUSICAL EVOLUTION ENGINE
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function updateEvolution(dt, x, y, vx, vy, currentZone) {
+        const speed = Math.sqrt(vx * vx + vy * vy);
+
+        // Update session time and phase
+        evolution.sessionTime += dt;
+        const newPhase = PHASE_THRESHOLDS.findIndex((t, i) =>
+            evolution.sessionTime >= t &&
+            (i === PHASE_THRESHOLDS.length - 1 || evolution.sessionTime < PHASE_THRESHOLDS[i + 1])
+        );
+
+        // Phase transition
+        if (newPhase !== evolution.phase) {
+            onPhaseChange(evolution.phase, newPhase);
+            evolution.phase = newPhase;
+        }
+
+        // Update intensity (builds with activity, decays slowly)
+        const activityBoost = speed * 0.1;
+        const decay = 0.02;
+        evolution.intensityVelocity += (activityBoost - evolution.intensityVelocity) * 0.1;
+        evolution.intensity = Math.min(1, Math.max(0,
+            evolution.intensity + evolution.intensityVelocity * dt - decay * dt
+        ));
+        evolution.peakIntensity = Math.max(evolution.peakIntensity, evolution.intensity);
+
+        // Update breathing
+        evolution.breathPhase += evolution.breathRate * dt * Math.PI * 2;
+
+        // Update chord progression based on zone
+        updateHarmony(currentZone, dt);
+
+        // Track stillness for easter eggs
+        if (speed < 0.1) {
+            evolution.stillnessTime += dt;
+        } else {
+            evolution.stillnessTime = 0;
+        }
+
+        // Track shake intensity
+        if (speed > 3) {
+            evolution.shakeIntensity = Math.min(1, evolution.shakeIntensity + dt * 2);
+        } else {
+            evolution.shakeIntensity = Math.max(0, evolution.shakeIntensity - dt);
+        }
+
+        // Apply breathing to master volume
+        const breathAmount = 0.05; // ±5% volume swell
+        const breathValue = Math.sin(evolution.breathPhase) * breathAmount;
+        if (GumpAudio.isInitialized && evolution.phase > 0) {
+            const baseVolume = 0.7 + evolution.intensity * 0.2;
+            GumpAudio.setMasterVolume?.(baseVolume + breathValue, 0.1);
+        }
+
+        // Intensity-based layers
+        updateIntensityLayers();
+
+        // Check for THE DROP
+        checkForTheDrop();
+
+        // Call and response system
+        updateCallAndResponse(dt, speed);
+    }
+
+    function onPhaseChange(from, to) {
+        console.log(`Phase change: ${PHASE_NAMES[from]} → ${PHASE_NAMES[to]}`);
+
+        // Unlock layers based on phase
+        if (to >= 1) {
+            evolution.layers.melody = true;
+            evolution.layers.harmony = true;
+            playPhaseUnlockSound(1);
+        }
+        if (to >= 2) {
+            evolution.layers.bass = true;
+            evolution.layers.rhythm = true;
+            playPhaseUnlockSound(2);
+        }
+        if (to >= 3) {
+            evolution.layers.orchestral = true;
+            playPhaseUnlockSound(3);
+        }
+    }
+
+    function playPhaseUnlockSound(phase) {
+        const rootFreq = evolution.rootNote;
+
+        switch (phase) {
+            case 1:
+                // Discovery - gentle chord swell
+                GumpAudio.playChord(rootFreq * 2, [0, 4, 7], 3, {
+                    volume: 0.25,
+                    attack: 0.5,
+                    release: 2,
+                    waveform: 'triangle',
+                });
+                break;
+            case 2:
+                // Journey - bass enters with power
+                GumpBass.playSubBass?.({ freq: rootFreq, duration: 2, volume: 0.4 });
+                setTimeout(() => {
+                    GumpDrums.playOrganicKick?.({ volume: 0.6 });
+                }, 500);
+                break;
+            case 3:
+                // Transcendence - full orchestral swell
+                playOrchestralSwell();
+                break;
+        }
+    }
+
+    function playOrchestralSwell() {
+        const root = evolution.rootNote;
+
+        // Layer 1: Sub bass
+        GumpBass.play808Long?.({ freq: root / 2, volume: 0.5 });
+
+        // Layer 2: Root power chord
+        GumpAudio.playChord(root, [0, 7, 12], 4, {
+            volume: 0.3,
+            attack: 1,
+            waveform: 'sawtooth',
+            channel: 'pads',
+        });
+
+        // Layer 3: High shimmer
+        GumpAudio.playChord(root * 4, [0, 4, 7, 11], 3, {
+            volume: 0.15,
+            attack: 1.5,
+            release: 2,
+        });
+
+        // Drum hit
+        setTimeout(() => {
+            GumpDrums.play808Deep?.({ volume: 0.8 });
+        }, 1000);
+    }
+
+    function updateHarmony(zone, dt) {
+        // Map zones to chord degrees
+        const zoneToChord = {
+            'center': 0,  // i (home)
+            'n': 2,       // v
+            's': 2,       // v
+            'e': 1,       // IV
+            'w': 1,       // IV
+            'ne': 3,      // I
+            'nw': 1,      // IV
+            'se': 2,      // v
+            'sw': 0,      // i
+        };
+
+        const targetChord = zoneToChord[zone] ?? 0;
+
+        // Smooth chord transitions
+        if (targetChord !== evolution.currentChord) {
+            evolution.chordProgress += dt * 0.5;
+            if (evolution.chordProgress >= 1) {
+                evolution.currentChord = targetChord;
+                evolution.chordProgress = 0;
+
+                // Play chord change sound if we have harmony unlocked
+                if (evolution.layers.harmony) {
+                    playChordChange(targetChord);
+                }
+            }
+        }
+    }
+
+    function playChordChange(chordIndex) {
+        const root = evolution.rootNote;
+        const semitones = evolution.progression[chordIndex];
+        const quality = evolution.chordQualities[chordIndex];
+        const freq = root * Math.pow(2, semitones / 12);
+
+        const intervals = quality === 'major' ? [0, 4, 7] : [0, 3, 7];
+
+        // Subtle chord pad
+        GumpAudio.playChord(freq * 2, intervals, 2, {
+            volume: 0.12 + evolution.intensity * 0.1,
+            attack: 0.3,
+            release: 1,
+            waveform: 'triangle',
+            channel: 'pads',
+        });
+    }
+
+    function updateIntensityLayers() {
+        // Low intensity: just melodic tones
+        // Medium: add bass pulse
+        // High: add rhythmic elements
+        // Max: full orchestral
+
+        if (evolution.intensity > 0.7 && evolution.layers.orchestral) {
+            // High intensity - trigger occasional hits
+            if (Math.random() < 0.01) {
+                const root = evolution.rootNote;
+                GumpAudio.playTone(root * 2, 0.5, {
+                    volume: 0.2,
+                    attack: 0.01,
+                    release: 0.3,
+                });
+            }
+        }
+    }
+
+    let dropCooldown = 0;
+    function checkForTheDrop() {
+        dropCooldown = Math.max(0, dropCooldown - 0.016);
+
+        // THE DROP: When intensity hits max after building
+        if (evolution.intensity > 0.95 &&
+            evolution.peakIntensity > 0.9 &&
+            evolution.sessionTime > 60 &&
+            dropCooldown === 0) {
+
+            triggerTheDrop();
+            dropCooldown = 30; // 30 second cooldown
+            evolution.intensity = 0.3; // Reset intensity after drop
+        }
+    }
+
+    function triggerTheDrop() {
+        console.log('THE DROP!');
+
+        const root = evolution.rootNote;
+
+        // Silence for anticipation
+        GumpAudio.setMasterVolume?.(0.2, 0.1);
+
+        setTimeout(() => {
+            // THE BWAAAM
+            GumpDrums.play808Deep?.({ volume: 1.0 });
+            GumpBass.play808Long?.({ freq: root / 2, volume: 1.0 });
+
+            // Massive chord
+            GumpAudio.playChord(root, [0, 7, 12, 19], 4, {
+                volume: 0.5,
+                attack: 0.01,
+                release: 3,
+                waveform: 'sawtooth',
+            });
+
+            // High stab
+            GumpAudio.playChord(root * 4, [0, 4, 7], 2, {
+                volume: 0.3,
+                attack: 0.01,
+                release: 1,
+            });
+
+            // Restore volume
+            GumpAudio.setMasterVolume?.(0.9, 0.5);
+        }, 200);
+    }
+
+    function updateCallAndResponse(dt, speed) {
+        // System occasionally calls
+        if (!evolution.systemCalling &&
+            evolution.phase >= 1 &&
+            Math.random() < 0.002 &&
+            evolution.sessionTime - evolution.lastResponseTime > 10) {
+
+            evolution.systemCalling = true;
+            evolution.callTime = evolution.sessionTime;
+            playSystemCall();
+        }
+
+        // Check for response (movement within 3 seconds of call)
+        if (evolution.systemCalling) {
+            const timeSinceCall = evolution.sessionTime - evolution.callTime;
+
+            if (speed > 0.5 && timeSinceCall > 0.5 && timeSinceCall < 3) {
+                // Response received
+                evolution.systemCalling = false;
+                evolution.lastResponseTime = evolution.sessionTime;
+                evolution.dialogueCount++;
+                playDialogueResponse();
+            } else if (timeSinceCall > 3) {
+                // No response, cancel
+                evolution.systemCalling = false;
+            }
+        }
+    }
+
+    function playSystemCall() {
+        const root = evolution.rootNote * 2;
+        const phrases = [
+            [0, 4, 7],      // Arpeggio up
+            [7, 4, 0],      // Arpeggio down
+            [0, 2, 4],      // Scale fragment
+            [0, 7, 12],     // Fifth leap
+        ];
+
+        const phrase = phrases[evolution.dialogueCount % phrases.length];
+
+        phrase.forEach((semitone, i) => {
+            setTimeout(() => {
+                const freq = root * Math.pow(2, semitone / 12);
+                GumpAudio.playTone(freq, 0.3, {
+                    volume: 0.3,
+                    attack: 0.01,
+                    decay: 0.1,
+                    release: 0.2,
+                });
+            }, i * 150);
+        });
+    }
+
+    function playDialogueResponse() {
+        const root = evolution.rootNote * 2;
+
+        // Respond with a resolving phrase
+        const response = [12, 11, 7, 0]; // Descending resolution
+
+        response.forEach((semitone, i) => {
+            setTimeout(() => {
+                const freq = root * Math.pow(2, semitone / 12);
+                GumpAudio.playTone(freq, 0.4, {
+                    volume: 0.25,
+                    attack: 0.01,
+                    release: 0.3,
+                });
+            }, i * 200);
+        });
+
+        // Reward for dialogue
+        if (evolution.dialogueCount >= 3) {
+            setTimeout(() => {
+                GumpAudio.playChord(root, [0, 4, 7, 12], 2, {
+                    volume: 0.2,
+                    attack: 0.3,
+                    release: 1,
+                });
+            }, 800);
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // EASTER EGG DETECTION
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function checkEasterEggs(zone, x, y, vx, vy, dt) {
+        const now = evolution.sessionTime;
+
+        // Track zone visits
+        if (zone && !evolution.zonesVisited.has(zone)) {
+            evolution.zonesVisited.add(zone);
+            evolution.zoneVisitOrder.push(zone);
+            evolution.lastZoneVisitTime = now;
+        }
+
+        // === EASTER EGG 1: Journey Complete ===
+        // Visit all 9 zones within 15 seconds
+        if (evolution.zonesVisited.size === 9 &&
+            !evolution.easterEggs.journeyComplete &&
+            now - evolution.lastZoneVisitTime < 15) {
+
+            evolution.easterEggs.journeyComplete = true;
+            triggerJourneyComplete();
+        }
+
+        // Reset zone tracking if too much time passes
+        if (now - evolution.lastZoneVisitTime > 15 && evolution.zonesVisited.size < 9) {
+            evolution.zonesVisited.clear();
+            evolution.zoneVisitOrder = [];
+        }
+
+        // === EASTER EGG 2: Meditation Mode ===
+        // Stay in center for 10+ seconds
+        if (zone === 'center' && evolution.stillnessTime > 10 &&
+            !evolution.easterEggs.meditationMode) {
+
+            evolution.easterEggs.meditationMode = true;
+            triggerMeditationMode();
+        }
+
+        // Exit meditation if you move
+        if (evolution.easterEggs.meditationMode && evolution.stillnessTime < 1) {
+            evolution.easterEggs.meditationMode = false;
+        }
+
+        // === EASTER EGG 3: Earthquake ===
+        // Rapid shaking
+        if (evolution.shakeIntensity > 0.8 && !evolution.easterEggs.earthquakeTriggered) {
+            evolution.easterEggs.earthquakeTriggered = true;
+            triggerEarthquake();
+
+            // Reset after cooldown
+            setTimeout(() => {
+                evolution.easterEggs.earthquakeTriggered = false;
+            }, 10000);
+        }
+
+        // === EASTER EGG 4: Ritual (clockwise corners) ===
+        const corners = ['nw', 'ne', 'se', 'sw'];
+        if (corners.includes(zone)) {
+            const lastCorner = evolution.cornerSequence[evolution.cornerSequence.length - 1];
+            if (zone !== lastCorner) {
+                evolution.cornerSequence.push(zone);
+                if (evolution.cornerSequence.length > 4) {
+                    evolution.cornerSequence.shift();
+                }
+
+                // Check for clockwise: nw -> ne -> se -> sw
+                if (evolution.cornerSequence.join(',') === 'nw,ne,se,sw' &&
+                    !evolution.easterEggs.ritualComplete) {
+                    evolution.easterEggs.ritualComplete = true;
+                    triggerRitual();
+                }
+            }
+        }
+
+        // === EASTER EGG 5: Circle/Orbit Detection ===
+        detectCircleGesture(x, y, dt);
+    }
+
+    let circlePoints = [];
+    function detectCircleGesture(x, y, dt) {
+        circlePoints.push({ x, y, t: evolution.sessionTime });
+
+        // Keep last 2 seconds of points
+        const cutoff = evolution.sessionTime - 2;
+        circlePoints = circlePoints.filter(p => p.t > cutoff);
+
+        if (circlePoints.length < 20) return;
+
+        // Calculate center of points
+        const cx = circlePoints.reduce((s, p) => s + p.x, 0) / circlePoints.length;
+        const cy = circlePoints.reduce((s, p) => s + p.y, 0) / circlePoints.length;
+
+        // Calculate average distance from center
+        const avgDist = circlePoints.reduce((s, p) => {
+            return s + Math.sqrt((p.x - cx) ** 2 + (p.y - cy) ** 2);
+        }, 0) / circlePoints.length;
+
+        // Calculate variance in distance (should be low for a circle)
+        const variance = circlePoints.reduce((s, p) => {
+            const dist = Math.sqrt((p.x - cx) ** 2 + (p.y - cy) ** 2);
+            return s + (dist - avgDist) ** 2;
+        }, 0) / circlePoints.length;
+
+        // Check if points form a rough circle (low variance, decent radius)
+        if (variance < 0.01 && avgDist > 0.15 && avgDist < 0.4) {
+            evolution.circleProgress += dt;
+
+            if (evolution.circleProgress > 2 && !evolution.easterEggs.orbitMode) {
+                evolution.easterEggs.orbitMode = true;
+                triggerOrbitMode();
+            }
+        } else {
+            evolution.circleProgress = Math.max(0, evolution.circleProgress - dt * 0.5);
+            if (evolution.circleProgress < 0.5) {
+                evolution.easterEggs.orbitMode = false;
+            }
+        }
+    }
+
+    // === Easter Egg Sound Triggers ===
+
+    function triggerJourneyComplete() {
+        console.log('Easter Egg: Journey Complete!');
+
+        const root = evolution.rootNote;
+
+        // Triumphant fanfare
+        const fanfare = [0, 4, 7, 12, 16, 12, 7, 4, 0];
+        fanfare.forEach((semitone, i) => {
+            setTimeout(() => {
+                const freq = root * 2 * Math.pow(2, semitone / 12);
+                GumpAudio.playTone(freq, 0.3, {
+                    volume: 0.35,
+                    attack: 0.01,
+                    release: 0.2,
+                });
+            }, i * 100);
+        });
+
+        // Final chord
+        setTimeout(() => {
+            GumpAudio.playChord(root * 2, [0, 4, 7, 12], 3, {
+                volume: 0.4,
+                attack: 0.1,
+                release: 2,
+            });
+        }, 900);
+
+        // Boost intensity as reward
+        evolution.intensity = Math.min(1, evolution.intensity + 0.3);
+    }
+
+    function triggerMeditationMode() {
+        console.log('Easter Egg: Meditation Mode');
+
+        const root = evolution.rootNote;
+
+        // Deep, peaceful drone
+        GumpAudio.playTone(root, 10, {
+            volume: 0.2,
+            attack: 2,
+            release: 3,
+            waveform: 'sine',
+        });
+
+        // Perfect fifth above
+        GumpAudio.playTone(root * 1.5, 10, {
+            volume: 0.1,
+            attack: 3,
+            release: 3,
+        });
+
+        // High octave shimmer
+        GumpAudio.playTone(root * 4, 8, {
+            volume: 0.05,
+            attack: 4,
+            release: 3,
+        });
+    }
+
+    function triggerEarthquake() {
+        console.log('Easter Egg: Earthquake!');
+
+        const root = evolution.rootNote;
+
+        // Massive sub bass
+        GumpBass.play808Long?.({ freq: root / 4, volume: 1.0 });
+        GumpBass.playSubBass?.({ freq: root / 2, duration: 2, volume: 0.8 });
+
+        // Drum chaos
+        for (let i = 0; i < 8; i++) {
+            setTimeout(() => {
+                GumpDrums.playOrganicKick?.({ volume: 0.5 + Math.random() * 0.3 });
+                if (i % 2 === 0) {
+                    GumpDrums.playSnare808?.({ volume: 0.4 });
+                }
+            }, i * 100);
+        }
+
+        // Low rumble tone
+        GumpAudio.playTone(root / 2, 2, {
+            volume: 0.4,
+            attack: 0.01,
+            release: 1,
+            waveform: 'sawtooth',
+            filterFreq: 200,
+        });
+    }
+
+    function triggerRitual() {
+        console.log('Easter Egg: Ritual Complete!');
+
+        const root = evolution.rootNote;
+
+        // Mystical chord progression
+        const progression = [
+            { chord: [0, 3, 7], time: 0 },      // minor
+            { chord: [0, 4, 7], time: 600 },    // major
+            { chord: [0, 3, 7, 10], time: 1200 }, // minor 7
+            { chord: [0, 4, 7, 11], time: 1800 }, // major 7
+        ];
+
+        progression.forEach(({ chord, time }) => {
+            setTimeout(() => {
+                GumpAudio.playChord(root * 2, chord, 1.5, {
+                    volume: 0.3,
+                    attack: 0.2,
+                    release: 1,
+                    waveform: 'triangle',
+                });
+            }, time);
+        });
+
+        // Reset corner sequence
+        evolution.cornerSequence = [];
+        setTimeout(() => {
+            evolution.easterEggs.ritualComplete = false;
+        }, 5000);
+    }
+
+    let orbitArpInterval = null;
+    function triggerOrbitMode() {
+        console.log('Easter Egg: Orbit Mode!');
+
+        const root = evolution.rootNote * 2;
+        const arpNotes = [0, 4, 7, 12, 7, 4]; // Up and down arpeggio
+        let noteIndex = 0;
+
+        // Clear any existing arpeggiator
+        if (orbitArpInterval) clearInterval(orbitArpInterval);
+
+        orbitArpInterval = setInterval(() => {
+            if (!evolution.easterEggs.orbitMode) {
+                clearInterval(orbitArpInterval);
+                orbitArpInterval = null;
+                return;
+            }
+
+            const freq = root * Math.pow(2, arpNotes[noteIndex] / 12);
+            GumpAudio.playTone(freq, 0.15, {
+                volume: 0.25,
+                attack: 0.01,
+                release: 0.1,
+            });
+
+            noteIndex = (noteIndex + 1) % arpNotes.length;
+        }, 120); // ~8th notes at 125bpm
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // GESTURE → PHRASE SYSTEM
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function detectAndPlayGesture(x, y, vx, vy, dt) {
+        const speed = Math.sqrt(vx * vx + vy * vy);
+
+        // Add to gesture buffer
+        evolution.gestureBuffer.push({ x, y, vx, vy, t: evolution.sessionTime });
+
+        // Keep last 1.5 seconds
+        const cutoff = evolution.sessionTime - 1.5;
+        evolution.gestureBuffer = evolution.gestureBuffer.filter(p => p.t > cutoff);
+
+        if (evolution.gestureBuffer.length < 10) return;
+
+        // Analyze gesture
+        const gesture = analyzeGesture();
+
+        if (gesture && evolution.sessionTime - evolution.lastGestureTime > 1) {
+            playGesturePhrase(gesture);
+            evolution.lastGestureTime = evolution.sessionTime;
+        }
+    }
+
+    function analyzeGesture() {
+        const points = evolution.gestureBuffer;
+        if (points.length < 10) return null;
+
+        // Calculate total movement
+        let totalDx = 0, totalDy = 0;
+        let maxSpeed = 0;
+
+        for (let i = 1; i < points.length; i++) {
+            totalDx += points[i].x - points[i - 1].x;
+            totalDy += points[i].y - points[i - 1].y;
+            const speed = Math.sqrt(points[i].vx ** 2 + points[i].vy ** 2);
+            maxSpeed = Math.max(maxSpeed, speed);
+        }
+
+        const totalDist = Math.sqrt(totalDx * totalDx + totalDy * totalDy);
+
+        // Classify gesture
+        if (maxSpeed > 4 && Math.abs(totalDx) > 0.3) {
+            return totalDx > 0 ? 'swipe_right' : 'swipe_left';
+        }
+        if (maxSpeed > 4 && Math.abs(totalDy) > 0.3) {
+            return totalDy > 0 ? 'swipe_down' : 'swipe_up';
+        }
+        if (maxSpeed < 0.3 && totalDist < 0.05) {
+            return 'hold';
+        }
+        if (maxSpeed > 2) {
+            return 'fast_movement';
+        }
+
+        return null;
+    }
+
+    function playGesturePhrase(gesture) {
+        const root = evolution.rootNote * 2;
+
+        switch (gesture) {
+            case 'swipe_right':
+                // Ascending scale run
+                playScaleRun(root, 'up');
+                break;
+
+            case 'swipe_left':
+                // Descending scale run
+                playScaleRun(root, 'down');
+                break;
+
+            case 'swipe_up':
+                // Rising arpeggio
+                playArpeggio(root, 'up');
+                break;
+
+            case 'swipe_down':
+                // Falling arpeggio
+                playArpeggio(root, 'down');
+                break;
+
+            case 'hold':
+                // Sustained chord
+                playSustainedChord(root);
+                break;
+
+            case 'fast_movement':
+                // Energetic burst
+                playEnergeticBurst(root);
+                break;
+        }
+    }
+
+    function playScaleRun(root, direction) {
+        const scale = [0, 2, 4, 5, 7, 9, 11, 12]; // Major scale
+        const notes = direction === 'up' ? scale : [...scale].reverse();
+
+        notes.forEach((semitone, i) => {
+            setTimeout(() => {
+                const freq = root * Math.pow(2, semitone / 12);
+                GumpAudio.playTone(freq, 0.15, {
+                    volume: 0.3,
+                    attack: 0.005,
+                    release: 0.1,
+                });
+            }, i * 60);
+        });
+    }
+
+    function playArpeggio(root, direction) {
+        const chord = [0, 4, 7, 12, 16]; // Major with extensions
+        const notes = direction === 'up' ? chord : [...chord].reverse();
+
+        notes.forEach((semitone, i) => {
+            setTimeout(() => {
+                const freq = root * Math.pow(2, semitone / 12);
+                GumpAudio.playTone(freq, 0.25, {
+                    volume: 0.3,
+                    attack: 0.01,
+                    release: 0.15,
+                });
+            }, i * 80);
+        });
+    }
+
+    function playSustainedChord(root) {
+        GumpAudio.playChord(root, [0, 4, 7], 2, {
+            volume: 0.25,
+            attack: 0.3,
+            release: 1.5,
+            waveform: 'triangle',
+        });
+    }
+
+    function playEnergeticBurst(root) {
+        // Quick burst of notes
+        const burst = [0, 12, 7, 4, 0, 12];
+        burst.forEach((semitone, i) => {
+            setTimeout(() => {
+                const freq = root * Math.pow(2, semitone / 12);
+                GumpAudio.playTone(freq, 0.1, {
+                    volume: 0.25,
+                    attack: 0.005,
+                    release: 0.05,
+                });
+            }, i * 40);
+        });
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
     // MAIN UPDATE LOOP
     // ═══════════════════════════════════════════════════════════════════════
 
@@ -922,6 +1757,17 @@ const GUMP = (function() {
 
         // Check for fast movements
         checkVelocitySounds(app.vx, app.vy, app.x, app.y);
+
+        // === MUSICAL EVOLUTION SYSTEMS ===
+
+        // Update the evolution engine (phases, intensity, breathing, harmony)
+        updateEvolution(dt, app.x, app.y, app.vx, app.vy, gridResult.zone);
+
+        // Check for easter eggs
+        checkEasterEggs(gridResult.zone, app.x, app.y, app.vx, app.vy, dt);
+
+        // Detect gestures and play phrases
+        detectAndPlayGesture(app.x, app.y, app.vx, app.vy, dt);
 
         // Add pattern data
         GumpPatterns.addPosition(app.x, app.y, app.vx, app.vy, Date.now());
@@ -1128,14 +1974,35 @@ const GUMP = (function() {
         ctx.font = '10px monospace';
         ctx.textAlign = 'center';
 
-        // Era name (top center)
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
-        ctx.fillText(era.toUpperCase(), w / 2, 30);
+        // Phase name (top center) - shows musical evolution
+        const phaseName = PHASE_NAMES[evolution.phase] || 'awakening';
+        const phaseAlpha = 0.1 + evolution.intensity * 0.15;
+        ctx.fillStyle = `rgba(255, 255, 255, ${phaseAlpha})`;
+        ctx.fillText(phaseName.toUpperCase(), w / 2, 30);
+
+        // Intensity ring around center
+        if (evolution.intensity > 0.1) {
+            const ringRadius = 30 + evolution.intensity * 50;
+            const ringAlpha = evolution.intensity * 0.2;
+            const breath = Math.sin(evolution.breathPhase) * 0.05;
+
+            ctx.strokeStyle = `rgba(255, ${200 - evolution.intensity * 150}, 100, ${ringAlpha + breath})`;
+            ctx.lineWidth = 1 + evolution.intensity * 2;
+            ctx.beginPath();
+            ctx.arc(w / 2, h / 2, ringRadius, 0, Math.PI * 2);
+            ctx.stroke();
+        }
 
         // Zone name (bottom right)
         ctx.textAlign = 'right';
         ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
         ctx.fillText(zone, w - 20, h - 20);
+
+        // Session time (top right)
+        const mins = Math.floor(evolution.sessionTime / 60);
+        const secs = Math.floor(evolution.sessionTime % 60);
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
+        ctx.fillText(`${mins}:${secs.toString().padStart(2, '0')}`, w - 20, 30);
 
         // Dwell bar (bottom)
         const dwellPercent = Math.min(1, dwellTime / 3);
@@ -1144,24 +2011,47 @@ const GUMP = (function() {
         ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
         ctx.fillRect(0, h - 2, w * dwellPercent, 2);
 
-        // Unlocked items (bottom left)
-        const unlocked = Array.from(GumpUnlocks.state.unlocked)
-            .filter(id => {
-                const u = GumpUnlocks.getUnlock(id);
-                return u && u.era === era;
-            });
+        // Intensity bar (top)
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.02)';
+        ctx.fillRect(0, 0, w, 2);
+        const intensityColor = evolution.intensity > 0.9 ?
+            'rgba(255, 100, 100, 0.5)' :  // Red when near drop
+            `rgba(255, 200, 100, ${0.2 + evolution.intensity * 0.3})`;
+        ctx.fillStyle = intensityColor;
+        ctx.fillRect(0, 0, w * evolution.intensity, 2);
 
+        // Easter egg indicators (small dots in corners when active)
+        if (evolution.easterEggs.meditationMode) {
+            ctx.fillStyle = 'rgba(100, 200, 255, 0.5)';
+            ctx.beginPath();
+            ctx.arc(w / 2, h / 2, 5, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        if (evolution.easterEggs.orbitMode) {
+            ctx.strokeStyle = 'rgba(255, 200, 100, 0.5)';
+            ctx.lineWidth = 2;
+            const orbitRadius = 40 + Math.sin(evolution.sessionTime * 3) * 10;
+            ctx.beginPath();
+            ctx.arc(w / 2, h / 2, orbitRadius, 0, Math.PI * 2);
+            ctx.stroke();
+        }
+
+        // Journey progress (bottom left)
         ctx.textAlign = 'left';
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
+        if (evolution.zonesVisited.size > 0 && evolution.zonesVisited.size < 9) {
+            ctx.fillStyle = 'rgba(255, 215, 0, 0.2)';
+            ctx.fillText(`Journey: ${evolution.zonesVisited.size}/9`, 20, h - 20);
+        } else if (evolution.easterEggs.journeyComplete) {
+            ctx.fillStyle = 'rgba(255, 215, 0, 0.4)';
+            ctx.fillText('✦ Journey Complete', 20, h - 20);
+        }
 
-        unlocked.slice(-5).forEach((id, i) => {
-            const u = GumpUnlocks.getUnlock(id);
-            const isLocked = GumpUnlocks.isLocked(id);
-            ctx.fillStyle = isLocked ?
-                'rgba(255, 215, 0, 0.3)' :
-                'rgba(255, 255, 255, 0.15)';
-            ctx.fillText(u?.name || id, 20, h - 40 - i * 15);
-        });
+        // Dialogue indicator
+        if (evolution.systemCalling) {
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+            ctx.textAlign = 'center';
+            ctx.fillText('?', w / 2, h / 2 - 60);
+        }
     }
 
     function drawDebug(ctx, w, h) {
@@ -1172,18 +2062,29 @@ const GUMP = (function() {
         const fps = 1 / app.deltaTime;
         const lines = [
             `FPS: ${fps.toFixed(1)}`,
-            `Pos: ${app.x.toFixed(2)}, ${app.y.toFixed(2)}`,
-            `Vel: ${app.vx.toFixed(2)}, ${app.vy.toFixed(2)}`,
+            `Phase: ${PHASE_NAMES[evolution.phase]}`,
+            `Intensity: ${(evolution.intensity * 100).toFixed(0)}%`,
+            `Session: ${Math.floor(evolution.sessionTime)}s`,
             `Zone: ${GumpState.get('grid.currentZone')}`,
-            `Era: ${GumpUnlocks.currentEra}`,
-            `Unlocks: ${GumpUnlocks.state.unlocked.size}`,
-            `Patterns: ${GumpPatterns.state.patternHistory.length}`,
-            `BPM: ${GumpPatterns.getDetectedBpm().bpm.toFixed(0)}`,
+            `Chord: ${evolution.chordQualities[evolution.currentChord]}`,
+            `Zones visited: ${evolution.zonesVisited.size}/9`,
+            `Dialogue: ${evolution.dialogueCount}`,
         ];
 
         lines.forEach((line, i) => {
             ctx.fillText(line, 10, 20 + i * 14);
         });
+
+        // Draw intensity bar
+        const barWidth = 100;
+        const barHeight = 4;
+        const barX = 10;
+        const barY = 20 + lines.length * 14 + 5;
+
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+        ctx.fillRect(barX, barY, barWidth, barHeight);
+        ctx.fillStyle = `rgba(255, ${255 - evolution.intensity * 200}, 100, 0.8)`;
+        ctx.fillRect(barX, barY, barWidth * evolution.intensity, barHeight);
     }
 
     // ═══════════════════════════════════════════════════════════════════════
