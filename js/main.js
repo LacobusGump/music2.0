@@ -68,8 +68,11 @@ const GUMP = (function() {
             // Setup canvas
             setupCanvas();
 
-            // Initialize audio
-            await GumpAudio.init();
+            // Initialize audio - MUST succeed before continuing
+            const audioInitialized = await GumpAudio.init();
+            if (!audioInitialized) {
+                throw new Error('Audio engine failed to initialize');
+            }
 
             // Initialize drums
             GumpDrums.init(GumpAudio.context, GumpAudio.channels.drums);

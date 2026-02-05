@@ -506,6 +506,10 @@ const GumpAudio = (function() {
 
     function createVoice(type = 'synth', options = {}) {
         const ctx = audioState.ctx;
+        if (!ctx) {
+            console.error('Cannot create voice: Audio context not available');
+            return null;
+        }
 
         const voice = {
             id: audioState.voiceCount++,
@@ -877,10 +881,20 @@ const GumpAudio = (function() {
     // ═══════════════════════════════════════════════════════════════════════
 
     function playTone(freq, duration = 1, options = {}) {
+        if (!audioState.isInitialized || !audioState.ctx) {
+            console.error('Audio not initialized');
+            return null;
+        }
+
         const voice = createVoice(options.waveform || 'sine', {
             freq,
             ...options,
         });
+
+        if (!voice) {
+            console.error('Failed to create voice');
+            return null;
+        }
 
         if (duration > 0) {
             setTimeout(() => releaseVoice(voice), duration * 1000);
