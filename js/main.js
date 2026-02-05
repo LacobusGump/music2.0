@@ -379,6 +379,125 @@ const GUMP = (function() {
         }
     }
 
+    // Track continuous sound state
+    let continuousVoice = null;
+    let lastContinuousFreq = 0;
+
+    // Instant sound when entering a zone
+    function playZoneEntrySound(zone, localX, localY) {
+        const currentEra = GumpUnlocks.currentEra;
+        const zoneProps = GumpGrid.getZoneProperties(zone);
+
+        // More musical frequency based on zone - use pentatonic scale
+        const pentatonic = [0, 2, 4, 7, 9]; // C D E G A
+        const zoneToNote = {
+            'nw': 9,  // A (high)
+            'n': 7,   // G
+            'ne': 4,  // E
+            'w': 2,   // D
+            'center': 0, // C (root)
+            'e': 4,   // E
+            'sw': -3, // A (low)
+            's': -5,  // G (low)
+            'se': 2,  // D
+        };
+
+        const rootFreq = 220; // A3
+        const semitones = zoneToNote[zone] || 0;
+        const baseFreq = rootFreq * Math.pow(2, semitones / 12);
+
+        // Play a clear, musical tone on zone entry
+        GumpAudio.playTone(baseFreq, 0.4, {
+            volume: 0.4,
+            attack: 0.01,
+            decay: 0.15,
+            sustain: 0.5,
+            release: 0.25,
+            channel: 'synth',
+        });
+
+        // Add an octave shimmer for brightness
+        GumpAudio.playTone(baseFreq * 2, 0.3, {
+            volume: 0.15,
+            attack: 0.02,
+            decay: 0.1,
+            sustain: 0.3,
+            release: 0.2,
+            channel: 'synth',
+        });
+
+        // In later eras, add percussion
+        if (currentEra === 'tribal' || currentEra === 'modern') {
+            if (zone === 's' || zone === 'sw' || zone === 'se') {
+                GumpDrums.playOrganicKick?.({ volume: 0.5 });
+            } else if (zone === 'n' || zone === 'nw' || zone === 'ne') {
+                GumpDrums.playHiHat?.({ type: 'closed', volume: 0.35 });
+            } else if (zone === 'e' || zone === 'w') {
+                GumpDrums.playClick?.({ volume: 0.3 });
+            }
+        }
+    }
+
+    // Continuous sound based on position (plays as you move)
+    function updateContinuousSound(x, y, vx, vy) {
+        if (!GumpAudio.isInitialized) return;
+
+        const speed = Math.sqrt(vx * vx + vy * vy);
+
+        // Only play when moving at reasonable speed
+        if (speed > 0.3) {
+            // Map Y position to frequency (higher = higher pitch)
+            const minFreq = 110;  // A2
+            const maxFreq = 440;  // A4
+            const targetFreq = minFreq + (1 - y) * (maxFreq - minFreq);
+
+            // Map X position to filter (left = dark, right = bright)
+            const filterFreq = 500 + x * 4000;
+
+            // Map speed to volume
+            const volume = Math.min(0.35, speed * 0.15);
+
+            // Play short tones based on movement
+            if (Math.abs(targetFreq - lastContinuousFreq) > 20) {
+                GumpAudio.playTone(targetFreq, 0.1, {
+                    volume: volume,
+                    attack: 0.005,
+                    decay: 0.05,
+                    sustain: 0.3,
+                    release: 0.05,
+                    filterFreq: filterFreq,
+                    channel: 'synth',
+                });
+                lastContinuousFreq = targetFreq;
+            }
+        }
+    }
+
+    // Fast movement triggers special sounds
+    function checkVelocitySounds(vx, vy, x, y) {
+        const speed = Math.sqrt(vx * vx + vy * vy);
+
+        // Fast swipe triggers a sweep sound
+        if (speed > 2) {
+            const direction = Math.abs(vx) > Math.abs(vy) ? 'horizontal' : 'vertical';
+
+            if (direction === 'horizontal') {
+                // Filter sweep based on direction
+                const startFreq = vx > 0 ? 200 : 2000;
+                const endFreq = vx > 0 ? 2000 : 200;
+                GumpAudio.setFilterCutoff?.(endFreq, 0.2);
+            } else {
+                // Pitch based on direction
+                const baseFreq = vy > 0 ? 440 : 220;
+                GumpAudio.playTone(baseFreq, 0.15, {
+                    volume: 0.25,
+                    attack: 0.01,
+                    release: 0.1,
+                });
+            }
+        }
+    }
+
     function triggerZoneSound(zone, threshold) {
         const currentEra = GumpUnlocks.currentEra;
         const zoneProps = GumpGrid.getZoneProperties(zone);
@@ -404,17 +523,39 @@ const GUMP = (function() {
     }
 
     function triggerGenesisZoneSound(zone, threshold, props) {
+        const baseFreq = 55 * (1 + (1 - props.coords.y) * 1);
+
         if (threshold === 'touch') {
-            // Brief tone
-            const freq = 55 * (1 + props.coords.y * 0.5);
-            GumpAudio.playTone(freq, 0.3, { volume: 0.2 });
+            // Brief tone with harmonics
+            GumpAudio.playTone(baseFreq, 0.5, { volume: 0.35, attack: 0.01 });
+            GumpAudio.playTone(baseFreq * 2, 0.4, { volume: 0.15, attack: 0.02 });
         } else if (threshold === 'activate') {
-            // Fuller tone
-            const freq = 55 * (1 + props.coords.y * 0.5);
-            GumpAudio.playTone(freq, 2, {
-                volume: 0.3,
+            // Rich sustained tone - this is a reward
+            GumpAudio.playTone(baseFreq, 3, {
+                volume: 0.4,
+                attack: 0.3,
+                decay: 0.5,
+                sustain: 0.7,
+                release: 1.5,
+            });
+            // Add fifth
+            GumpAudio.playTone(baseFreq * 1.5, 2.5, {
+                volume: 0.2,
                 attack: 0.5,
                 release: 1,
+            });
+            // Add octave shimmer
+            GumpAudio.playTone(baseFreq * 2, 2, {
+                volume: 0.15,
+                attack: 0.8,
+                release: 1,
+            });
+        } else if (threshold === 'lock') {
+            // Deep lock-in sound
+            GumpAudio.playChord(baseFreq, [0, 7, 12], 4, {
+                volume: 0.35,
+                attack: 0.5,
+                waveform: 'triangle',
             });
         }
     }
@@ -770,6 +911,17 @@ const GUMP = (function() {
 
         // Update grid
         const gridResult = GumpGrid.update(app.x, app.y, dt, GumpState);
+
+        // Play sound on zone entry (immediate feedback)
+        if (gridResult.transition) {
+            playZoneEntrySound(gridResult.transition.to, gridResult.localX, gridResult.localY);
+        }
+
+        // Continuous sound while moving
+        updateContinuousSound(app.x, app.y, app.vx, app.vy);
+
+        // Check for fast movements
+        checkVelocitySounds(app.vx, app.vy, app.x, app.y);
 
         // Add pattern data
         GumpPatterns.addPosition(app.x, app.y, app.vx, app.vy, Date.now());
