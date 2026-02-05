@@ -65,20 +65,8 @@ const GUMP = (function() {
         console.log('Initializing GUMP...');
 
         try {
-            // Setup canvas
+            // Setup canvas FIRST - this must work
             setupCanvas();
-
-            // Initialize audio - MUST succeed before continuing
-            const audioInitialized = await GumpAudio.init();
-            if (!audioInitialized) {
-                throw new Error('Audio engine failed to initialize');
-            }
-
-            // Initialize drums
-            GumpDrums.init(GumpAudio.context, GumpAudio.channels.drums);
-
-            // Initialize bass
-            GumpBass.init(GumpAudio.context, GumpAudio.channels.bass);
 
             // Setup input handlers
             setupInput();
@@ -88,6 +76,22 @@ const GUMP = (function() {
 
             // Start session
             GumpState.startSession();
+
+            // Initialize audio (don't let failure stop the app)
+            try {
+                const audioInitialized = await GumpAudio.init();
+                if (audioInitialized) {
+                    // Initialize drums
+                    GumpDrums.init(GumpAudio.context, GumpAudio.channels.drums);
+                    // Initialize bass
+                    GumpBass.init(GumpAudio.context, GumpAudio.channels.bass);
+                    console.log('Audio initialized successfully');
+                } else {
+                    console.warn('Audio init returned false, continuing without audio');
+                }
+            } catch (audioError) {
+                console.error('Audio init failed, continuing without audio:', audioError);
+            }
 
             app.isInitialized = true;
             console.log('GUMP initialized successfully');
@@ -1088,24 +1092,32 @@ const GUMP = (function() {
             await init();
         }
 
-        await GumpAudio.start();
+        // Start audio (don't let failure stop the app)
+        try {
+            if (GumpAudio.isInitialized) {
+                await GumpAudio.start();
 
-        // Activate any already-unlocked items (automatic unlocks happen before event listeners)
-        console.log('Activating unlocked sounds, count:', GumpUnlocks.state.unlocked.size);
-        for (const id of GumpUnlocks.state.unlocked) {
-            const unlock = GumpUnlocks.getUnlock(id);
-            console.log('Processing unlock:', id, 'has sound:', !!unlock?.sound);
-            if (unlock && unlock.sound) {
-                GumpUnlocks.activateUnlock(id);
-                try {
-                    activateUnlockSound(id, unlock);
-                    console.log('Activated sound for:', id);
-                } catch (e) {
-                    console.error('Failed to activate sound for', id, ':', e);
+                // Activate any already-unlocked items
+                console.log('Activating unlocked sounds, count:', GumpUnlocks.state.unlocked.size);
+                for (const id of GumpUnlocks.state.unlocked) {
+                    const unlock = GumpUnlocks.getUnlock(id);
+                    if (unlock && unlock.sound) {
+                        GumpUnlocks.activateUnlock(id);
+                        try {
+                            activateUnlockSound(id, unlock);
+                        } catch (e) {
+                            console.error('Failed to activate sound for', id, ':', e);
+                        }
+                    }
                 }
+            } else {
+                console.warn('Audio not initialized, starting without audio');
             }
+        } catch (audioError) {
+            console.error('Audio start failed:', audioError);
         }
 
+        // ALWAYS start the render loop
         app.isRunning = true;
         app.lastTime = 0;
 
