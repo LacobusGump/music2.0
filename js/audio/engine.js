@@ -472,7 +472,24 @@ const GumpAudio = (function() {
         audioState.isSuspended = false;
         audioState.nextBeatTime = ctx.currentTime;
 
-        console.log('Audio started');
+        console.log('Audio started, context state:', ctx.state);
+
+        // Play test tone to verify audio works
+        try {
+            const testOsc = ctx.createOscillator();
+            const testGain = ctx.createGain();
+            testOsc.frequency.value = 220;
+            testGain.gain.value = 0.3;
+            testOsc.connect(testGain);
+            testGain.connect(ctx.destination);
+            testOsc.start();
+            testGain.gain.setValueAtTime(0.3, ctx.currentTime);
+            testGain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 1);
+            setTimeout(() => testOsc.stop(), 1100);
+            console.log('Test tone playing at 220Hz');
+        } catch (e) {
+            console.error('Test tone failed:', e);
+        }
     }
 
     function stop() {
