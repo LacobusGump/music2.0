@@ -56,50 +56,55 @@ const GUMP = (function() {
     // INITIALIZATION
     // ═══════════════════════════════════════════════════════════════════════
 
+    function mdbg(msg) {
+        console.log(msg);
+        const el = document.getElementById('mobile-debug');
+        if (el) el.innerHTML = msg + '<br>' + el.innerHTML.slice(0, 400);
+    }
+
     async function init() {
         if (app.isInitialized) {
-            console.log('GUMP already initialized');
+            mdbg('already init');
             return true;
         }
 
-        console.log('Initializing GUMP...');
+        mdbg('init starting...');
 
         try {
             // Setup canvas FIRST - this must work
+            mdbg('setupCanvas...');
             setupCanvas();
 
-            // Setup input handlers
+            mdbg('setupInput...');
             setupInput();
 
-            // Setup event listeners
+            mdbg('setupEventListeners...');
             setupEventListeners();
 
-            // Start session
+            mdbg('startSession...');
             GumpState.startSession();
 
             // Initialize audio (don't let failure stop the app)
+            mdbg('audio init...');
             try {
                 const audioInitialized = await GumpAudio.init();
+                mdbg('audio init result: ' + audioInitialized);
                 if (audioInitialized) {
-                    // Initialize drums
                     GumpDrums.init(GumpAudio.context, GumpAudio.channels.drums);
-                    // Initialize bass
                     GumpBass.init(GumpAudio.context, GumpAudio.channels.bass);
-                    console.log('Audio initialized successfully');
-                } else {
-                    console.warn('Audio init returned false, continuing without audio');
+                    mdbg('drums+bass init done');
                 }
             } catch (audioError) {
-                console.error('Audio init failed, continuing without audio:', audioError);
+                mdbg('audio err: ' + audioError.message);
             }
 
             app.isInitialized = true;
-            console.log('GUMP initialized successfully');
+            mdbg('init complete');
 
             return true;
 
         } catch (error) {
-            console.error('Failed to initialize GUMP:', error);
+            mdbg('init FAILED: ' + error.message);
             return false;
         }
     }
@@ -1088,17 +1093,22 @@ const GUMP = (function() {
     // ═══════════════════════════════════════════════════════════════════════
 
     async function start() {
+        mdbg('start() called');
         if (!app.isInitialized) {
+            mdbg('calling init...');
             await init();
+            mdbg('init returned');
         }
 
         // Start audio (don't let failure stop the app)
         try {
+            mdbg('audio isInit: ' + GumpAudio.isInitialized);
             if (GumpAudio.isInitialized) {
+                mdbg('calling GumpAudio.start...');
                 await GumpAudio.start();
+                mdbg('GumpAudio.start done');
 
-                // Activate any already-unlocked items
-                console.log('Activating unlocked sounds, count:', GumpUnlocks.state.unlocked.size);
+                // Activate unlocked items
                 for (const id of GumpUnlocks.state.unlocked) {
                     const unlock = GumpUnlocks.getUnlock(id);
                     if (unlock && unlock.sound) {
@@ -1106,18 +1116,19 @@ const GUMP = (function() {
                         try {
                             activateUnlockSound(id, unlock);
                         } catch (e) {
-                            console.error('Failed to activate sound for', id, ':', e);
+                            mdbg('sound err: ' + e.message);
                         }
                     }
                 }
             } else {
-                console.warn('Audio not initialized, starting without audio');
+                mdbg('no audio, skipping');
             }
         } catch (audioError) {
-            console.error('Audio start failed:', audioError);
+            mdbg('audio start err: ' + audioError.message);
         }
 
         // ALWAYS start the render loop
+        mdbg('starting render loop');
         app.isRunning = true;
         app.lastTime = 0;
 
