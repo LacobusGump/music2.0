@@ -553,7 +553,14 @@ const GUMP = (function() {
 
         const sound = unlock.sound;
         const ctx = GumpAudio.context;
+
+        if (!ctx) {
+            console.error('No audio context for', id);
+            return;
+        }
+
         const now = ctx.currentTime;
+        console.log('activateUnlockSound:', id, 'type:', sound.type, 'freq:', sound.freq);
 
         let soundObj = null;
 
@@ -1084,11 +1091,18 @@ const GUMP = (function() {
         await GumpAudio.start();
 
         // Activate any already-unlocked items (automatic unlocks happen before event listeners)
+        console.log('Activating unlocked sounds, count:', GumpUnlocks.state.unlocked.size);
         for (const id of GumpUnlocks.state.unlocked) {
             const unlock = GumpUnlocks.getUnlock(id);
+            console.log('Processing unlock:', id, 'has sound:', !!unlock?.sound);
             if (unlock && unlock.sound) {
                 GumpUnlocks.activateUnlock(id);
-                activateUnlockSound(id, unlock);
+                try {
+                    activateUnlockSound(id, unlock);
+                    console.log('Activated sound for:', id);
+                } catch (e) {
+                    console.error('Failed to activate sound for', id, ':', e);
+                }
             }
         }
 

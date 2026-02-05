@@ -464,8 +464,25 @@ const GumpAudio = (function() {
 
         const ctx = audioState.ctx;
 
+        // iOS requires resume AND a sound to be played within user gesture
         if (ctx.state === 'suspended') {
-            await ctx.resume();
+            try {
+                await ctx.resume();
+            } catch (e) {
+                console.error('Failed to resume context:', e);
+            }
+        }
+
+        // iOS audio unlock - play silent buffer to unlock audio
+        try {
+            const silentBuffer = ctx.createBuffer(1, 1, ctx.sampleRate);
+            const silentSource = ctx.createBufferSource();
+            silentSource.buffer = silentBuffer;
+            silentSource.connect(ctx.destination);
+            silentSource.start(0);
+            console.log('iOS audio unlock triggered');
+        } catch (e) {
+            console.log('Silent buffer not needed or failed:', e);
         }
 
         audioState.isRunning = true;
@@ -473,22 +490,31 @@ const GumpAudio = (function() {
         audioState.nextBeatTime = ctx.currentTime;
 
         console.log('Audio started, context state:', ctx.state);
+        console.log('Master gain:', audioState.masterGain?.gain.value);
+        console.log('Synth channel gain:', audioState.channels.synth?.gain.value);
 
-        // Play test tone to verify audio works
+        // Play startup drone through routing
         try {
-            const testOsc = ctx.createOscillator();
-            const testGain = ctx.createGain();
-            testOsc.frequency.value = 220;
-            testGain.gain.value = 0.3;
-            testOsc.connect(testGain);
-            testGain.connect(ctx.destination);
-            testOsc.start();
-            testGain.gain.setValueAtTime(0.3, ctx.currentTime);
-            testGain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 1);
-            setTimeout(() => testOsc.stop(), 1100);
-            console.log('Test tone playing at 220Hz');
+            const startupOsc = ctx.createOscillator();
+            const startupGain = ctx.createGain();
+            startupOsc.type = 'sine';
+            startupOsc.frequency.value = 110;
+            startupGain.gain.value = 0.25;
+
+            startupOsc.connect(startupGain);
+            startupGain.connect(audioState.channels.synth);
+
+            const now = ctx.currentTime;
+            startupGain.gain.setValueAtTime(0, now);
+            startupGain.gain.linearRampToValueAtTime(0.25, now + 0.5);
+            startupGain.gain.setValueAtTime(0.25, now + 1.5);
+            startupGain.gain.exponentialRampToValueAtTime(0.001, now + 3);
+
+            startupOsc.start(now);
+            startupOsc.stop(now + 3.1);
+            console.log('Startup drone playing at 110Hz');
         } catch (e) {
-            console.error('Test tone failed:', e);
+            console.error('Startup drone failed:', e);
         }
     }
 
@@ -903,6 +929,8 @@ const GumpAudio = (function() {
             return null;
         }
 
+        console.log('playTone called:', freq, 'Hz, duration:', duration, 'options:', options);
+
         const voice = createVoice(options.waveform || 'sine', {
             freq,
             ...options,
@@ -912,6 +940,8 @@ const GumpAudio = (function() {
             console.error('Failed to create voice');
             return null;
         }
+
+        console.log('Voice created successfully, id:', voice.id);
 
         if (duration > 0) {
             setTimeout(() => releaseVoice(voice), duration * 1000);
