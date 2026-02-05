@@ -122,9 +122,27 @@ const GUMP = (function() {
         dialogueCount: 0,
     };
 
-    // Phase thresholds (in seconds)
-    const PHASE_THRESHOLDS = [0, 30, 120, 300];  // 0s, 30s, 2min, 5min
-    const PHASE_NAMES = ['awakening', 'discovery', 'journey', 'transcendence'];
+    // Phase thresholds (in seconds) - THE HERO'S JOURNEY
+    // Life gets dark before it gets brighter
+    const PHASE_THRESHOLDS = [0, 30, 90, 180, 300, 420];
+    const PHASE_NAMES = [
+        'awakening',    // 0-30s:   Hope, wonder, simple beauty
+        'discovery',    // 30-90s:  Exploring, curiosity, building
+        'descent',      // 90s-3m:  Things darken, tension creeps in
+        'struggle',     // 3-5m:    The low point, chaos, dissonance
+        'rise',         // 5-7m:    Fighting back, hope returns
+        'transcendence' // 7m+:     Brighter than ever, full catharsis
+    ];
+
+    // Musical characteristics for each phase
+    const PHASE_MOOD = {
+        awakening:    { brightness: 0.7, tension: 0.0, chaos: 0.0, hope: 1.0, rootShift: 0 },
+        discovery:    { brightness: 0.8, tension: 0.1, chaos: 0.0, hope: 0.9, rootShift: 0 },
+        descent:      { brightness: 0.4, tension: 0.5, chaos: 0.2, hope: 0.5, rootShift: -5 },  // Down a 4th
+        struggle:     { brightness: 0.1, tension: 0.9, chaos: 0.7, hope: 0.1, rootShift: -7 },  // Down a 5th (darkest)
+        rise:         { brightness: 0.6, tension: 0.4, chaos: 0.1, hope: 0.8, rootShift: -2 },  // Coming back up
+        transcendence:{ brightness: 1.0, tension: 0.0, chaos: 0.0, hope: 1.0, rootShift: 5 },   // Up a 4th (brightest)
+    };
 
     // ═══════════════════════════════════════════════════════════════════════
     // INITIALIZATION
@@ -1475,13 +1493,24 @@ const GUMP = (function() {
             evolution.shakeIntensity = Math.max(0, evolution.shakeIntensity - dt);
         }
 
-        // Apply breathing to master volume
-        const breathAmount = 0.05; // ±5% volume swell
+        // Get current mood
+        const phaseName = PHASE_NAMES[evolution.phase] || 'awakening';
+        const mood = PHASE_MOOD[phaseName] || PHASE_MOOD.awakening;
+
+        // Apply breathing to master volume (breathing rate changes with tension)
+        const breathRate = 0.15 + mood.tension * 0.2;  // Faster breathing when tense
+        evolution.breathPhase += dt * breathRate * Math.PI * 2;
+        const breathAmount = 0.05 + mood.chaos * 0.1;  // More variation during chaos
         const breathValue = Math.sin(evolution.breathPhase) * breathAmount;
+
         if (GumpAudio.isInitialized && evolution.phase > 0) {
-            const baseVolume = 0.7 + evolution.intensity * 0.2;
+            // Volume affected by mood brightness
+            const baseVolume = 0.5 + mood.brightness * 0.3 + evolution.intensity * 0.2;
             GumpAudio.setMasterVolume?.(baseVolume + breathValue, 0.1);
         }
+
+        // Apply continuous mood effects
+        applyMoodEffects(mood, dt);
 
         // Intensity-based layers
         updateIntensityLayers();
@@ -1493,50 +1522,302 @@ const GUMP = (function() {
         updateCallAndResponse(dt, speed);
     }
 
-    function onPhaseChange(from, to) {
-        console.log(`Phase change: ${PHASE_NAMES[from]} → ${PHASE_NAMES[to]}`);
+    function applyMoodEffects(mood, dt) {
+        // During struggle, occasionally play dissonant tones
+        if (mood.chaos > 0.5 && Math.random() < mood.chaos * 0.02) {
+            const root = evolution.rootNote;
+            // Random dissonant interval (minor 2nd, tritone, major 7th)
+            const dissonantIntervals = [1, 6, 11];
+            const interval = dissonantIntervals[Math.floor(Math.random() * dissonantIntervals.length)];
+            const freq = root * Math.pow(2, interval / 12) * (2 + Math.random() * 2);
 
-        // Unlock layers based on phase
+            GumpAudio.playTone?.(freq, 0.5 + Math.random(), {
+                volume: 0.05 + mood.chaos * 0.1,
+                attack: 0.01,
+                release: 0.5,
+                waveform: 'sawtooth',
+            });
+        }
+
+        // During struggle, occasional rumbles
+        if (mood.tension > 0.7 && Math.random() < 0.005) {
+            GumpBass.playSubBass?.({
+                freq: evolution.rootNote / 4,
+                duration: 1 + Math.random() * 2,
+                volume: 0.2 + mood.tension * 0.2
+            });
+        }
+
+        // During hope phases, occasional sparkles
+        if (mood.hope > 0.7 && mood.brightness > 0.6 && Math.random() < 0.01) {
+            const sparkleFreq = evolution.rootNote * (4 + Math.random() * 4);
+            GumpAudio.playTone?.(sparkleFreq, 0.3, {
+                volume: 0.1,
+                attack: 0.01,
+                release: 0.3,
+                waveform: 'triangle',
+            });
+        }
+    }
+
+    function onPhaseChange(from, to) {
+        const fromName = PHASE_NAMES[from] || 'awakening';
+        const toName = PHASE_NAMES[to] || 'awakening';
+        console.log(`Phase change: ${fromName} → ${toName}`);
+
+        // Get the mood for this phase
+        const mood = PHASE_MOOD[toName] || PHASE_MOOD.awakening;
+
+        // Apply root note shift (creates harmonic journey)
+        const baseRoot = 55;  // A1
+        evolution.rootNote = baseRoot * Math.pow(2, mood.rootShift / 12);
+
+        // Apply filter based on brightness (darker = more filtered)
+        const filterFreq = 200 + mood.brightness * 8000;
+        GumpAudio.setFilterCutoff?.(filterFreq, 2);
+
+        // Unlock layers progressively
         if (to >= 1) {
             evolution.layers.melody = true;
             evolution.layers.harmony = true;
-            playPhaseUnlockSound(1);
         }
         if (to >= 2) {
             evolution.layers.bass = true;
             evolution.layers.rhythm = true;
-            playPhaseUnlockSound(2);
         }
-        if (to >= 3) {
+        if (to >= 4) {  // Rise and beyond
             evolution.layers.orchestral = true;
-            playPhaseUnlockSound(3);
         }
+
+        // Play transition sound based on where we're going
+        playPhaseTransition(toName, mood);
     }
 
-    function playPhaseUnlockSound(phase) {
-        const rootFreq = evolution.rootNote;
+    function playPhaseTransition(phaseName, mood) {
+        const root = evolution.rootNote;
 
-        switch (phase) {
-            case 1:
-                // Discovery - gentle chord swell
-                GumpAudio.playChord(rootFreq * 2, [0, 4, 7], 3, {
+        switch (phaseName) {
+            case 'awakening':
+                // Gentle beginning
+                GumpAudio.playChord?.(root * 2, [0, 4, 7], 3, {
+                    volume: 0.2,
+                    attack: 1,
+                    release: 2,
+                    waveform: 'triangle',
+                });
+                break;
+
+            case 'discovery':
+                // Hopeful expansion
+                GumpAudio.playChord?.(root * 2, [0, 4, 7, 11], 3, {
                     volume: 0.25,
                     attack: 0.5,
                     release: 2,
                     waveform: 'triangle',
                 });
                 break;
-            case 2:
-                // Journey - bass enters with power
-                GumpBass.playSubBass?.({ freq: rootFreq, duration: 2, volume: 0.4 });
-                setTimeout(() => {
-                    GumpDrums.playOrganicKick?.({ volume: 0.6 });
-                }, 500);
+
+            case 'descent':
+                // Things get darker - minor chord, lower, filtered
+                playDescentTransition(root);
                 break;
-            case 3:
-                // Transcendence - full orchestral swell
-                playOrchestralSwell();
+
+            case 'struggle':
+                // The low point - dissonance, chaos
+                playStruggleTransition(root);
                 break;
+
+            case 'rise':
+                // Hope returns - building energy
+                playRiseTransition(root);
+                break;
+
+            case 'transcendence':
+                // The triumph - brighter than ever
+                playTranscendenceTransition(root);
+                break;
+        }
+    }
+
+    function playDescentTransition(root) {
+        // Descending into darkness
+        // Minor chord with lowered 5th (diminished feel)
+        GumpAudio.playChord?.(root, [0, 3, 6], 4, {
+            volume: 0.3,
+            attack: 0.1,
+            release: 3,
+            waveform: 'sawtooth',
+        });
+
+        // Low rumble
+        GumpBass.playSubBass?.({ freq: root / 2, duration: 4, volume: 0.3 });
+
+        // Distant thunder
+        setTimeout(() => {
+            GumpDrums.play808Deep?.({ volume: 0.4 });
+        }, 1000);
+
+        // Filter sweep down (things getting muffled)
+        GumpAudio.setFilterCutoff?.(4000, 0);
+        setTimeout(() => GumpAudio.setFilterCutoff?.(800, 3), 100);
+
+        if (navigator.vibrate) {
+            navigator.vibrate([50, 100, 50, 100, 200]);
+        }
+    }
+
+    function playStruggleTransition(root) {
+        // The darkest moment - chaos and dissonance
+        // Tritone - the devil's interval
+        const tritone = root * Math.pow(2, 6/12);
+
+        // Dissonant cluster
+        GumpAudio.playChord?.(root / 2, [0, 1, 6, 7], 5, {
+            volume: 0.35,
+            attack: 0.05,
+            release: 4,
+            waveform: 'sawtooth',
+        });
+
+        // Clashing tones
+        GumpAudio.playTone?.(tritone, 3, {
+            volume: 0.2,
+            attack: 0.5,
+            release: 2,
+            waveform: 'square',
+        });
+
+        // Heavy sub chaos
+        GumpBass.play808Long?.({ freq: root / 4, volume: 0.6 });
+
+        // Aggressive drums
+        [0, 200, 350, 600, 800].forEach((delay, i) => {
+            setTimeout(() => {
+                GumpDrums.play808Distorted?.({ volume: 0.3 + i * 0.1 });
+            }, delay);
+        });
+
+        // Very dark filter
+        GumpAudio.setFilterCutoff?.(400, 2);
+
+        // Intense vibration
+        if (navigator.vibrate) {
+            navigator.vibrate([100, 50, 100, 50, 100, 50, 300]);
+        }
+
+        // Screen darkens (add dark overlay)
+        triggerDarknessOverlay();
+    }
+
+    function playRiseTransition(root) {
+        // Hope returns - ascending energy
+
+        // Start low, sweep up
+        GumpAudio.setFilterCutoff?.(500, 0);
+
+        // Ascending chord sequence
+        const ascent = [0, 2, 4, 5, 7];
+        ascent.forEach((semitone, i) => {
+            setTimeout(() => {
+                const freq = root * Math.pow(2, semitone / 12);
+                GumpAudio.playTone?.(freq * 2, 2, {
+                    volume: 0.15 + i * 0.05,
+                    attack: 0.05,
+                    release: 1.5,
+                    waveform: 'triangle',
+                });
+            }, i * 300);
+        });
+
+        // Building bass
+        setTimeout(() => {
+            GumpBass.playSubBass?.({ freq: root, duration: 3, volume: 0.4 });
+        }, 500);
+
+        // Building drums
+        setTimeout(() => {
+            GumpDrums.playOrganicKick?.({ volume: 0.5 });
+        }, 800);
+        setTimeout(() => {
+            GumpDrums.playOrganicKick?.({ volume: 0.6 });
+        }, 1200);
+
+        // Filter opens up
+        setTimeout(() => GumpAudio.setFilterCutoff?.(2000, 1), 500);
+        setTimeout(() => GumpAudio.setFilterCutoff?.(5000, 2), 1500);
+
+        // Hopeful vibration
+        if (navigator.vibrate) {
+            navigator.vibrate([50, 100, 100, 100, 200]);
+        }
+
+        // Remove darkness overlay
+        removeDarknessOverlay();
+    }
+
+    function playTranscendenceTransition(root) {
+        // The ultimate triumph - brighter than ever
+
+        // Brief pause for anticipation
+        setTimeout(() => {
+            // THE BWAAAM but triumphant
+            triggerTheBWAAAM();
+
+            // Then the full orchestra
+            setTimeout(() => {
+                // Massive major chord stack
+                const majorChord = [0, 4, 7, 12, 16, 19];  // Major with extensions
+                [-1, 0, 1, 2].forEach((octave, i) => {
+                    setTimeout(() => {
+                        GumpAudio.playChord?.(root * Math.pow(2, octave), majorChord, 6, {
+                            volume: 0.2,
+                            attack: 0.3 + i * 0.2,
+                            release: 5,
+                            waveform: 'sawtooth',
+                        });
+                    }, i * 150);
+                });
+
+                // Bright filter
+                GumpAudio.setFilterCutoff?.(12000, 3);
+            }, 500);
+        }, 500);
+
+        // Full brightness
+        triggerScreenFlash();
+
+        if (navigator.vibrate) {
+            navigator.vibrate([100, 50, 100, 50, 500]);
+        }
+    }
+
+    function triggerDarknessOverlay() {
+        // Remove any existing
+        const existing = document.getElementById('darkness-overlay');
+        if (existing) existing.remove();
+
+        const overlay = document.createElement('div');
+        overlay.id = 'darkness-overlay';
+        overlay.style.cssText = `
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0);
+            pointer-events: none;
+            z-index: 100;
+            transition: background 3s ease;
+        `;
+        document.body.appendChild(overlay);
+
+        requestAnimationFrame(() => {
+            overlay.style.background = 'rgba(0, 0, 0, 0.5)';
+        });
+    }
+
+    function removeDarknessOverlay() {
+        const overlay = document.getElementById('darkness-overlay');
+        if (overlay) {
+            overlay.style.background = 'rgba(0, 0, 0, 0)';
+            setTimeout(() => overlay.remove(), 3000);
         }
     }
 
@@ -2443,26 +2724,64 @@ const GUMP = (function() {
         const zoneState = GumpGrid.getZoneState(zone);
         const dwellTime = zoneState?.dwellTime || 0;
 
+        // Get current mood for visual styling
+        const phaseName = (PHASE_NAMES && PHASE_NAMES[evolution.phase]) ? PHASE_NAMES[evolution.phase] : 'awakening';
+        const mood = PHASE_MOOD[phaseName] || PHASE_MOOD.awakening;
+
         ctx.font = '10px monospace';
         ctx.textAlign = 'center';
 
-        // Phase name (top center) - shows musical evolution
-        const phaseName = (PHASE_NAMES && PHASE_NAMES[evolution.phase]) ? PHASE_NAMES[evolution.phase] : 'awakening';
-        const phaseAlpha = 0.1 + (evolution.intensity || 0) * 0.15;
-        ctx.fillStyle = `rgba(255, 255, 255, ${phaseAlpha})`;
+        // Phase name (top center) - color reflects mood
+        const phaseAlpha = 0.15 + (evolution.intensity || 0) * 0.2;
+        // Color shifts: bright = white/gold, dark = red/purple
+        const r = Math.floor(255 * (0.5 + mood.brightness * 0.5));
+        const g = Math.floor(255 * mood.brightness * mood.hope);
+        const b = Math.floor(255 * (mood.tension * 0.5 + mood.brightness * 0.3));
+        ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${phaseAlpha})`;
         ctx.fillText(phaseName.toUpperCase(), w / 2, 30);
 
-        // Intensity ring around center
+        // During struggle, add subtitle
+        if (phaseName === 'struggle') {
+            ctx.font = '8px monospace';
+            ctx.fillStyle = 'rgba(150, 50, 50, 0.3)';
+            ctx.fillText('hold on...', w / 2, 45);
+        } else if (phaseName === 'rise') {
+            ctx.font = '8px monospace';
+            ctx.fillStyle = 'rgba(255, 200, 100, 0.3)';
+            ctx.fillText('rising...', w / 2, 45);
+        } else if (phaseName === 'transcendence') {
+            ctx.font = '8px monospace';
+            ctx.fillStyle = 'rgba(255, 255, 200, 0.4)';
+            ctx.fillText('∞', w / 2, 45);
+        }
+
+        ctx.font = '10px monospace';
+
+        // Intensity ring around center - color affected by mood
         if (evolution.intensity > 0.1) {
             const ringRadius = 30 + evolution.intensity * 50;
             const ringAlpha = evolution.intensity * 0.2;
             const breath = Math.sin(evolution.breathPhase) * 0.05;
 
-            ctx.strokeStyle = `rgba(255, ${200 - evolution.intensity * 150}, 100, ${ringAlpha + breath})`;
+            // Ring color: warm during hope, cold/red during struggle
+            const ringR = Math.floor(255 * (0.5 + mood.tension * 0.5));
+            const ringG = Math.floor(200 * mood.hope * mood.brightness);
+            const ringB = Math.floor(100 * mood.brightness);
+            ctx.strokeStyle = `rgba(${ringR}, ${ringG}, ${ringB}, ${ringAlpha + breath})`;
             ctx.lineWidth = 1 + evolution.intensity * 2;
             ctx.beginPath();
             ctx.arc(w / 2, h / 2, ringRadius, 0, Math.PI * 2);
             ctx.stroke();
+
+            // During chaos, add erratic secondary rings
+            if (mood.chaos > 0.3) {
+                const chaosOffset = Math.sin(Date.now() / 100) * mood.chaos * 20;
+                ctx.strokeStyle = `rgba(150, 50, 50, ${mood.chaos * 0.2})`;
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.arc(w / 2 + chaosOffset, h / 2, ringRadius * 0.8, 0, Math.PI * 2);
+                ctx.stroke();
+            }
         }
 
         // Zone name (bottom right)

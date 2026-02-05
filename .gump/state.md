@@ -4,9 +4,46 @@
 
 ---
 
-## MUSIC 2.0 - THE BWAAAM UPDATE (v11)
+## MUSIC 2.0 - THE HERO'S JOURNEY (v13)
 
-**The Vision Realized:** Music that evolves with you. The longer you play, the richer it gets. Easter eggs reward exploration. Gestures become phrases. THE BWAAAM makes you feel like you're conducting Inception.
+**The Vision Realized:** Music that mirrors life. It gets dark before it gets brighter. Stay through the struggle, and transcendence awaits.
+
+---
+
+## THE JOURNEY (v13)
+
+### The Arc of Life in Sound
+
+| Phase | Time | Mood | What Happens |
+|-------|------|------|--------------|
+| **Awakening** | 0-30s | Hope, wonder | Simple, beautiful tones. The beginning. |
+| **Discovery** | 30s-90s | Curiosity | Exploring, building. Things feel possible. |
+| **Descent** | 90s-3min | Creeping darkness | Minor keys, tension, filter closes. Something's coming. |
+| **Struggle** | 3-5min | The low point | Dissonance, chaos, tritones. Screen darkens. This is the test. |
+| **Rise** | 5-7min | Hope returns | Fighting back. Ascending melodies. Filter opens. |
+| **Transcendence** | 7min+ | Brighter than ever | Full catharsis. THE BWAAAM. Major keys. Victory. |
+
+### Musical Characteristics by Phase
+
+- **Root note shifts** - Descends during darkness (down a 5th at lowest), rises during transcendence (up a 4th)
+- **Filter** - Closes during struggle (muffled, distant), opens wide during transcendence
+- **Breathing rate** - Faster and more erratic during tension
+- **Random elements**:
+  - **Struggle**: Occasional dissonant tones (minor 2nds, tritones), rumbling sub bass
+  - **Hope phases**: Occasional sparkles and bright tones
+- **Visual feedback**:
+  - Phase name color reflects mood (golden=bright, red=dark)
+  - Ring color shifts with hope/tension
+  - Darkness overlay during struggle phase
+  - Chaos rings during high-tension moments
+
+### Phase Transitions
+
+Each transition has its own sound:
+- **→ Descent**: Diminished chord, low rumble, filter sweep down, subtle vibration
+- **→ Struggle**: Dissonant cluster, tritone, chaos drums, intense vibration, screen darkens
+- **→ Rise**: Ascending chord sequence, building drums, filter opens, hope returns
+- **→ Transcendence**: THE BWAAAM + full orchestral major chord stack, screen flash
 
 ---
 
