@@ -133,105 +133,134 @@ const GumpDrums = (function() {
         const now = ctx.currentTime;
 
         const {
-            freq = 45,
-            pitchDecay = 0.15,
-            pitchAmount = 1.5,      // Octaves of pitch sweep
-            bodyDecay = 0.4,
-            sustain = 0.3,
-            release = 0.6,
-            clickFreq = 3500,
-            clickDecay = 0.01,
-            clickAmount = 0.3,
-            distortion = 0.2,
-            volume = 0.8,
+            freq = 40,              // Lower fundamental for more sub
+            pitchDecay = 0.12,      // Smooth pitch sweep
+            pitchAmount = 1.2,      // Less dramatic sweep, more boom
+            bodyDecay = 0.5,        // Longer body
+            sustain = 0.4,          // More sustain
+            release = 0.8,          // Long release for that boom tail
+            clickFreq = 2500,       // Softer click
+            clickDecay = 0.008,
+            clickAmount = 0.15,     // Less click, more boom
+            saturation = 0.3,       // Renamed from distortion - warm saturation
+            volume = 0.9,
             time = now,
         } = options;
 
         // ─────────────────────────────────────────────────────────────────
-        // BODY OSCILLATOR
+        // FUNDAMENTAL OSCILLATOR - The chest thump
         // ─────────────────────────────────────────────────────────────────
 
-        const body = ctx.createOscillator();
-        body.type = 'sine';
+        const fundamental = ctx.createOscillator();
+        fundamental.type = 'sine';
 
-        // Pitch envelope - starts high, sweeps down
+        // Smooth pitch sweep - starts ~1 octave up, sweeps down
         const startFreq = freq * Math.pow(2, pitchAmount);
-        body.frequency.setValueAtTime(startFreq, time);
-        body.frequency.exponentialRampToValueAtTime(freq, time + pitchDecay);
+        fundamental.frequency.setValueAtTime(startFreq, time);
+        fundamental.frequency.exponentialRampToValueAtTime(freq, time + pitchDecay);
 
-        // Body gain envelope
-        const bodyGain = ctx.createGain();
-        bodyGain.gain.setValueAtTime(0, time);
-        bodyGain.gain.linearRampToValueAtTime(volume, time + 0.005);
-        bodyGain.gain.setValueAtTime(volume, time + 0.005 + sustain * bodyDecay);
-        bodyGain.gain.exponentialRampToValueAtTime(0.001, time + bodyDecay + release);
+        // Fundamental envelope - punchy attack, long sustain, smooth release
+        const fundGain = ctx.createGain();
+        fundGain.gain.setValueAtTime(0, time);
+        fundGain.gain.linearRampToValueAtTime(volume, time + 0.003);  // Fast attack
+        fundGain.gain.linearRampToValueAtTime(volume * 0.85, time + 0.003 + bodyDecay * sustain);
+        fundGain.gain.exponentialRampToValueAtTime(0.001, time + bodyDecay + release);
 
         // ─────────────────────────────────────────────────────────────────
-        // SUB OSCILLATOR (for extra low end)
+        // SUB OSCILLATOR - The earthquake
         // ─────────────────────────────────────────────────────────────────
 
         const sub = ctx.createOscillator();
         sub.type = 'sine';
-        sub.frequency.value = freq * 0.5;
+        sub.frequency.value = freq * 0.5;  // One octave below
 
         const subGain = ctx.createGain();
         subGain.gain.setValueAtTime(0, time);
-        subGain.gain.linearRampToValueAtTime(volume * 0.6, time + 0.01);
-        subGain.gain.exponentialRampToValueAtTime(0.001, time + bodyDecay * 1.2);
+        subGain.gain.linearRampToValueAtTime(volume * 0.8, time + 0.008);  // Slightly delayed
+        subGain.gain.linearRampToValueAtTime(volume * 0.6, time + bodyDecay * 0.5);
+        subGain.gain.exponentialRampToValueAtTime(0.001, time + bodyDecay + release * 1.2);
 
         // ─────────────────────────────────────────────────────────────────
-        // CLICK (for attack transient)
+        // SECOND HARMONIC - Adds warmth and presence
+        // ─────────────────────────────────────────────────────────────────
+
+        const harmonic = ctx.createOscillator();
+        harmonic.type = 'sine';
+        harmonic.frequency.setValueAtTime(startFreq * 2, time);
+        harmonic.frequency.exponentialRampToValueAtTime(freq * 2, time + pitchDecay * 0.8);
+
+        const harmonicGain = ctx.createGain();
+        harmonicGain.gain.setValueAtTime(0, time);
+        harmonicGain.gain.linearRampToValueAtTime(volume * 0.25, time + 0.002);
+        harmonicGain.gain.exponentialRampToValueAtTime(0.001, time + bodyDecay * 0.6);
+
+        // ─────────────────────────────────────────────────────────────────
+        // CLICK - Subtle attack transient
         // ─────────────────────────────────────────────────────────────────
 
         const click = ctx.createOscillator();
-        click.type = 'square';
+        click.type = 'triangle';  // Softer than square
         click.frequency.setValueAtTime(clickFreq, time);
-        click.frequency.exponentialRampToValueAtTime(clickFreq * 0.5, time + clickDecay);
+        click.frequency.exponentialRampToValueAtTime(clickFreq * 0.3, time + clickDecay);
 
         const clickGain = ctx.createGain();
         clickGain.gain.setValueAtTime(volume * clickAmount, time);
         clickGain.gain.exponentialRampToValueAtTime(0.001, time + clickDecay);
 
-        // ─────────────────────────────────────────────────────────────────
-        // DISTORTION PROCESSING
-        // ─────────────────────────────────────────────────────────────────
-
-        const distGain = ctx.createGain();
-        distGain.gain.value = 1 + distortion * 3;
-
-        const preDistFilter = ctx.createBiquadFilter();
-        preDistFilter.type = 'highpass';
-        preDistFilter.frequency.value = 30;
-
-        const postDistFilter = ctx.createBiquadFilter();
-        postDistFilter.type = 'lowpass';
-        postDistFilter.frequency.value = 120 + distortion * 500;
-        postDistFilter.Q.value = 0.5;
-
-        // Create fresh distortion with current amount
-        const dist = createDistortion(distortion);
+        const clickFilter = ctx.createBiquadFilter();
+        clickFilter.type = 'lowpass';
+        clickFilter.frequency.value = 4000;  // Roll off harsh highs
 
         // ─────────────────────────────────────────────────────────────────
-        // OUTPUT ROUTING
+        // WARM SATURATION - Lo-fi character without killing the sub
+        // ─────────────────────────────────────────────────────────────────
+
+        // Parallel saturation - blend clean + saturated
+        const saturationAmount = saturation;
+        const cleanMix = ctx.createGain();
+        cleanMix.gain.value = 1 - saturationAmount * 0.5;  // Keep most of the clean signal
+
+        const satMix = ctx.createGain();
+        satMix.gain.value = saturationAmount;
+
+        // Soft saturation curve (tape-style)
+        const saturator = ctx.createWaveShaper();
+        const samples = 44100;
+        const curve = new Float32Array(samples);
+        for (let i = 0; i < samples; i++) {
+            const x = (i * 2) / samples - 1;
+            // Soft clipping - preserves low end better than hard clipping
+            curve[i] = Math.tanh(x * (1 + saturationAmount * 2));
+        }
+        saturator.curve = curve;
+        saturator.oversample = '2x';
+
+        // ─────────────────────────────────────────────────────────────────
+        // OUTPUT MIXING - Keep the sub clean and powerful
         // ─────────────────────────────────────────────────────────────────
 
         const output = ctx.createGain();
         output.gain.value = 1;
 
-        // Connect body through distortion
-        body.connect(bodyGain);
-        bodyGain.connect(preDistFilter);
-        preDistFilter.connect(distGain);
-        distGain.connect(dist);
-        dist.connect(postDistFilter);
-        postDistFilter.connect(output);
+        // Fundamental goes through parallel saturation
+        fundamental.connect(fundGain);
+        fundGain.connect(cleanMix);
+        fundGain.connect(saturator);
+        saturator.connect(satMix);
+        cleanMix.connect(output);
+        satMix.connect(output);
 
-        // Sub bypasses distortion
+        // Sub stays COMPLETELY clean - this is your chest thump
         sub.connect(subGain);
         subGain.connect(output);
 
-        // Click goes direct
-        click.connect(clickGain);
+        // Harmonic adds presence
+        harmonic.connect(harmonicGain);
+        harmonicGain.connect(output);
+
+        // Click through filter
+        click.connect(clickFilter);
+        clickFilter.connect(clickGain);
         clickGain.connect(output);
 
         output.connect(drumState.output);
@@ -240,81 +269,91 @@ const GumpDrums = (function() {
         // START AND CLEANUP
         // ─────────────────────────────────────────────────────────────────
 
-        body.start(time);
+        fundamental.start(time);
         sub.start(time);
+        harmonic.start(time);
         click.start(time);
 
-        const stopTime = time + bodyDecay + release + 0.1;
-        body.stop(stopTime);
+        const stopTime = time + bodyDecay + release + 0.2;
+        fundamental.stop(stopTime);
         sub.stop(stopTime);
+        harmonic.stop(time + bodyDecay * 0.7);
         click.stop(time + clickDecay + 0.01);
 
         // Schedule cleanup
         setTimeout(() => {
-            body.disconnect();
+            fundamental.disconnect();
             sub.disconnect();
+            harmonic.disconnect();
             click.disconnect();
-            bodyGain.disconnect();
+            fundGain.disconnect();
             subGain.disconnect();
+            harmonicGain.disconnect();
             clickGain.disconnect();
             output.disconnect();
         }, (stopTime - now) * 1000 + 100);
 
-        return { body, sub, click, output };
+        return { fundamental, sub, harmonic, click, output };
     }
 
     function play808Deep(options = {}) {
+        // The classic 808 boom - long tail, earthquake sub
         return play808Kick({
-            freq: 35,
-            pitchDecay: 0.2,
-            pitchAmount: 1.8,
-            bodyDecay: 0.6,
+            freq: 32,               // Deep fundamental
+            pitchDecay: 0.18,       // Smooth sweep
+            pitchAmount: 1.0,       // Less pitch movement, more sub
+            bodyDecay: 0.7,         // Long body
             sustain: 0.5,
-            release: 0.8,
-            clickAmount: 0.15,
-            distortion: 0.15,
+            release: 1.2,           // That long tail
+            clickAmount: 0.08,      // Minimal click
+            saturation: 0.15,       // Light warmth
+            volume: 1.0,
             ...options,
         });
     }
 
     function play808Short(options = {}) {
+        // Punchy 808 - tight and controlled
         return play808Kick({
-            freq: 50,
-            pitchDecay: 0.08,
-            pitchAmount: 1.2,
-            bodyDecay: 0.2,
-            sustain: 0.1,
-            release: 0.15,
-            clickAmount: 0.4,
-            distortion: 0.3,
+            freq: 48,               // Higher = tighter
+            pitchDecay: 0.06,       // Fast sweep
+            pitchAmount: 0.8,
+            bodyDecay: 0.25,
+            sustain: 0.15,
+            release: 0.2,
+            clickAmount: 0.25,      // More attack
+            saturation: 0.2,
             ...options,
         });
     }
 
     function play808Distorted(options = {}) {
+        // Lo-fi 808 - warm saturation, still has the sub
         return play808Kick({
-            freq: 40,
-            pitchDecay: 0.12,
-            pitchAmount: 1.5,
-            bodyDecay: 0.4,
-            sustain: 0.3,
-            release: 0.4,
-            clickAmount: 0.25,
-            distortion: 0.6,
+            freq: 38,
+            pitchDecay: 0.1,
+            pitchAmount: 1.1,
+            bodyDecay: 0.5,
+            sustain: 0.35,
+            release: 0.6,
+            clickAmount: 0.12,
+            saturation: 0.7,        // Heavy saturation but sub stays clean
             ...options,
         });
     }
 
     function play808Sub(options = {}) {
+        // Pure sub bass - feel it in your chest
         return play808Kick({
-            freq: 28,
-            pitchDecay: 0.3,
-            pitchAmount: 1.2,
-            bodyDecay: 0.8,
-            sustain: 0.6,
-            release: 1.0,
-            clickAmount: 0.05,
-            distortion: 0.05,
+            freq: 28,               // Earthquake territory
+            pitchDecay: 0.25,
+            pitchAmount: 0.6,       // Minimal pitch movement
+            bodyDecay: 1.0,         // Very long
+            sustain: 0.7,
+            release: 1.5,           // Endless tail
+            clickAmount: 0.02,      // Almost no click
+            saturation: 0.05,       // Keep it clean
+            volume: 1.0,
             ...options,
         });
     }
@@ -435,26 +474,46 @@ const GumpDrums = (function() {
         const now = ctx.currentTime;
 
         const {
-            toneFreq = 180,
-            toneDecay = 0.1,
-            noiseDecay = 0.2,
-            noiseFilterFreq = 3000,
-            noiseAmount = 0.7,
-            volume = 0.6,
+            toneFreq = 160,         // Lower body tone
+            toneDecay = 0.15,       // Longer tone sustain
+            noiseDecay = 0.25,
+            noiseFilterFreq = 5000,
+            noiseAmount = 0.5,      // Better balance
+            bodyAmount = 0.4,       // More body
+            volume = 0.7,
             time = now,
         } = options;
 
-        // Tone body
-        const tone = ctx.createOscillator();
-        tone.type = 'triangle';
-        tone.frequency.setValueAtTime(toneFreq * 1.5, time);
-        tone.frequency.exponentialRampToValueAtTime(toneFreq, time + 0.02);
+        // ─────────────────────────────────────────────────────────────────
+        // BODY TONE - The thump of the snare
+        // ─────────────────────────────────────────────────────────────────
 
-        const toneGain = ctx.createGain();
-        toneGain.gain.setValueAtTime(volume * (1 - noiseAmount), time);
-        toneGain.gain.exponentialRampToValueAtTime(0.001, time + toneDecay);
+        const body = ctx.createOscillator();
+        body.type = 'sine';  // Clean fundamental
+        body.frequency.setValueAtTime(toneFreq * 1.8, time);
+        body.frequency.exponentialRampToValueAtTime(toneFreq, time + 0.015);
 
-        // Noise
+        const bodyGain = ctx.createGain();
+        bodyGain.gain.setValueAtTime(volume * bodyAmount, time);
+        bodyGain.gain.exponentialRampToValueAtTime(0.001, time + toneDecay);
+
+        // ─────────────────────────────────────────────────────────────────
+        // HARMONIC TONE - Adds crack and presence
+        // ─────────────────────────────────────────────────────────────────
+
+        const harmonic = ctx.createOscillator();
+        harmonic.type = 'triangle';
+        harmonic.frequency.setValueAtTime(toneFreq * 3.5, time);
+        harmonic.frequency.exponentialRampToValueAtTime(toneFreq * 2.5, time + 0.02);
+
+        const harmonicGain = ctx.createGain();
+        harmonicGain.gain.setValueAtTime(volume * 0.2, time);
+        harmonicGain.gain.exponentialRampToValueAtTime(0.001, time + toneDecay * 0.6);
+
+        // ─────────────────────────────────────────────────────────────────
+        // SNARE WIRES - The sizzle
+        // ─────────────────────────────────────────────────────────────────
+
         const noiseBuffer = ctx.createBuffer(1, ctx.sampleRate * 0.5, ctx.sampleRate);
         const noiseData = noiseBuffer.getChannelData(0);
         for (let i = 0; i < noiseData.length; i++) {
@@ -464,9 +523,16 @@ const GumpDrums = (function() {
         const noise = ctx.createBufferSource();
         noise.buffer = noiseBuffer;
 
+        // Shape the noise to sound like snare wires
         const noiseHighpass = ctx.createBiquadFilter();
         noiseHighpass.type = 'highpass';
-        noiseHighpass.frequency.value = 200;
+        noiseHighpass.frequency.value = 150;  // Keep some low end in noise
+
+        const noisePeak = ctx.createBiquadFilter();
+        noisePeak.type = 'peaking';
+        noisePeak.frequency.value = 2500;     // Snare wire presence
+        noisePeak.Q.value = 1;
+        noisePeak.gain.value = 4;
 
         const noiseLowpass = ctx.createBiquadFilter();
         noiseLowpass.type = 'lowpass';
@@ -474,35 +540,46 @@ const GumpDrums = (function() {
 
         const noiseGain = ctx.createGain();
         noiseGain.gain.setValueAtTime(volume * noiseAmount, time);
+        noiseGain.gain.linearRampToValueAtTime(volume * noiseAmount * 0.6, time + 0.02);
         noiseGain.gain.exponentialRampToValueAtTime(0.001, time + noiseDecay);
 
-        // Output
+        // ─────────────────────────────────────────────────────────────────
+        // OUTPUT
+        // ─────────────────────────────────────────────────────────────────
+
         const output = ctx.createGain();
         output.gain.value = 1;
 
-        tone.connect(toneGain);
-        toneGain.connect(output);
+        body.connect(bodyGain);
+        bodyGain.connect(output);
+
+        harmonic.connect(harmonicGain);
+        harmonicGain.connect(output);
 
         noise.connect(noiseHighpass);
-        noiseHighpass.connect(noiseLowpass);
+        noiseHighpass.connect(noisePeak);
+        noisePeak.connect(noiseLowpass);
         noiseLowpass.connect(noiseGain);
         noiseGain.connect(output);
 
         output.connect(drumState.output);
 
-        tone.start(time);
+        body.start(time);
+        harmonic.start(time);
         noise.start(time);
 
-        tone.stop(time + toneDecay + 0.1);
+        body.stop(time + toneDecay + 0.1);
+        harmonic.stop(time + toneDecay * 0.7);
         noise.stop(time + noiseDecay + 0.1);
 
         setTimeout(() => {
-            tone.disconnect();
+            body.disconnect();
+            harmonic.disconnect();
             noise.disconnect();
             output.disconnect();
         }, noiseDecay * 1000 + 200);
 
-        return { tone, noise, output };
+        return { body, harmonic, noise, output };
     }
 
     function playClap(options = {}) {
@@ -610,55 +687,111 @@ const GumpDrums = (function() {
 
         const {
             type = 'closed',  // closed, open, pedal
-            volume = 0.4,
+            volume = 0.35,
+            brightness = 0.6,  // 0-1, how bright/dark
             time = now,
         } = options;
 
         const decayTimes = {
-            closed: 0.05,
-            pedal: 0.08,
-            open: 0.3,
+            closed: 0.06,
+            pedal: 0.1,
+            open: 0.4,
         };
 
-        const decay = decayTimes[type] || 0.05;
+        const decay = decayTimes[type] || 0.06;
 
-        // Multiple detuned square waves for metallic sound
-        const frequencies = [3987, 4890, 6589, 7893, 9324, 11284];
+        // ─────────────────────────────────────────────────────────────────
+        // METALLIC OSCILLATORS - Detuned for realistic cymbal sound
+        // ─────────────────────────────────────────────────────────────────
+
+        // Use inharmonic ratios for metallic character (not perfect harmonics)
+        const ratios = [1.0, 1.34, 1.67, 2.0, 2.41, 2.83];
+        const baseFreq = 400;
+
         const output = ctx.createGain();
         output.gain.value = 1;
 
-        const masterGain = ctx.createGain();
-        masterGain.gain.setValueAtTime(volume, time);
-        masterGain.gain.exponentialRampToValueAtTime(0.001, time + decay);
+        const mixer = ctx.createGain();
+        mixer.gain.value = 0.15;  // Reduce overall level before filtering
 
-        const highpass = ctx.createBiquadFilter();
-        highpass.type = 'highpass';
-        highpass.frequency.value = 7000;
+        // ─────────────────────────────────────────────────────────────────
+        // NOISE LAYER - The "shhh" of the hi-hat
+        // ─────────────────────────────────────────────────────────────────
 
-        const bandpass = ctx.createBiquadFilter();
-        bandpass.type = 'bandpass';
-        bandpass.frequency.value = 10000;
-        bandpass.Q.value = 1;
+        const noiseBuffer = ctx.createBuffer(1, ctx.sampleRate * decay * 2, ctx.sampleRate);
+        const noiseData = noiseBuffer.getChannelData(0);
+        for (let i = 0; i < noiseData.length; i++) {
+            noiseData[i] = Math.random() * 2 - 1;
+        }
 
-        for (const freq of frequencies) {
+        const noise = ctx.createBufferSource();
+        noise.buffer = noiseBuffer;
+
+        const noiseHighpass = ctx.createBiquadFilter();
+        noiseHighpass.type = 'highpass';
+        noiseHighpass.frequency.value = 6000 + brightness * 3000;
+
+        const noiseGain = ctx.createGain();
+        noiseGain.gain.setValueAtTime(volume * 0.7, time);
+        noiseGain.gain.exponentialRampToValueAtTime(0.001, time + decay);
+
+        // ─────────────────────────────────────────────────────────────────
+        // METALLIC TONE LAYER - The "ting"
+        // ─────────────────────────────────────────────────────────────────
+
+        for (let i = 0; i < ratios.length; i++) {
             const osc = ctx.createOscillator();
             osc.type = 'square';
-            osc.frequency.value = freq;
+            osc.frequency.value = baseFreq * ratios[i] * (5 + brightness * 10);
 
             const oscGain = ctx.createGain();
-            oscGain.gain.value = 1 / frequencies.length;
+            const level = (1 - i * 0.12) / ratios.length;  // Higher harmonics quieter
+            oscGain.gain.setValueAtTime(level * volume * 0.3, time);
+            oscGain.gain.exponentialRampToValueAtTime(0.001, time + decay * 0.7);
 
             osc.connect(oscGain);
-            oscGain.connect(highpass);
+            oscGain.connect(mixer);
 
             osc.start(time);
             osc.stop(time + decay + 0.1);
         }
 
-        highpass.connect(bandpass);
-        bandpass.connect(masterGain);
+        // ─────────────────────────────────────────────────────────────────
+        // FILTERING - Shape the overall tone
+        // ─────────────────────────────────────────────────────────────────
+
+        const highpass = ctx.createBiquadFilter();
+        highpass.type = 'highpass';
+        highpass.frequency.value = 5000;
+
+        const lowpass = ctx.createBiquadFilter();
+        lowpass.type = 'lowpass';
+        lowpass.frequency.value = 10000 + brightness * 4000;
+        lowpass.Q.value = 0.5;
+
+        const masterGain = ctx.createGain();
+        masterGain.gain.setValueAtTime(volume, time);
+        masterGain.gain.exponentialRampToValueAtTime(0.001, time + decay);
+
+        // ─────────────────────────────────────────────────────────────────
+        // ROUTING
+        // ─────────────────────────────────────────────────────────────────
+
+        // Metallic tones
+        mixer.connect(highpass);
+        highpass.connect(lowpass);
+        lowpass.connect(masterGain);
+
+        // Noise layer
+        noise.connect(noiseHighpass);
+        noiseHighpass.connect(noiseGain);
+        noiseGain.connect(output);
+
         masterGain.connect(output);
         output.connect(drumState.output);
+
+        noise.start(time);
+        noise.stop(time + decay + 0.1);
 
         setTimeout(() => {
             output.disconnect();
