@@ -1,143 +1,149 @@
 # Current State
 
-*Last updated: January 30, 2026*
+*Last updated: February 5, 2026*
 
 ---
 
-## JAZZ ORCHESTRA 2.0 - AI AGENTS THAT LISTEN + REAL SAMPLES + MIC INPUT
+## MUSIC 2.0 - THE EVOLUTION UPDATE
 
-**The Vision Realized:** Multiple AI agents acting like jazz musicians, listening to each other, responding to YOUR movement, and reacting to the WORLD through microphone input.
+**The Vision Realized:** Music that evolves with you. The longer you play, the richer it gets. Easter eggs reward exploration. Gestures become phrases. THE DROP rewards sustained engagement.
 
 ---
 
-## WHAT'S NEW (January 30)
+## WHAT'S NEW (February 5)
 
-### Real Drum Samples
-- Kicked synthesized garbage to the curb
-- Using high-quality samples from freesound.org
-- 6 drum sounds: kick, snare, hat, hatOpen, rim, perc
-- Pitch and pan variation for natural feel
+### Musical Evolution System
+- **4-phase progression**: awakening → discovery → journey → transcendence
+- Music starts sparse (simple tones) and builds to cinematic (full orchestral)
+- Phase thresholds: 0s, 30s, 2min, 5min
+- Layers unlock over time:
+  - Phase 1: melody + harmony
+  - Phase 2: bass + rhythm
+  - Phase 3: full orchestral
 
-### Complex Rhythm Patterns
-- **16th note resolution** - no more boring quarter notes
-- **Swing timing** - delays every other 16th for groove
-- **Multiple patterns** based on AI decision:
-  - `steady` - classic jazz with ghost notes
-  - `push` - driving 16ths, more kicks
-  - `pull-back` - sparse, minimal
-  - `fill` - drum fills
-  - `drop` - near silence, just hints
-  - `accent` - syncopated with rim accents
+### Intensity System (Hans Zimmer)
+- Tracks activity level (0-100%)
+- Builds with movement, decays slowly
+- Affects:
+  - Master volume
+  - Number of simultaneous voices
+  - Harmonic richness
+- At max intensity → THE DROP
 
-### Microphone Input
-- **Mic level** influences instrument velocity
-- **Frequency bands** (low/mid/high) analyzed
-- **Onset detection** - claps/taps trigger lead notes
-- Green indicator in top-right shows mic activity
-- External sound becomes part of the music
+### THE DROP
+- Triggers when intensity stays high (>95%) after building
+- Brief silence for anticipation
+- Then: massive 808 + orchestral chord resolution
+- 30 second cooldown between drops
+- The cathartic payoff for sustained engagement
 
-### AI Agents (Groq + LLama 3.1 8B)
-Four AI musicians, each thinking every 2 seconds:
+### Breathing System
+- Subtle ±5% volume swell (like breathing)
+- Makes the music feel alive and organic
+- 0.15 Hz rate (about 9 breaths per minute)
 
-| Agent | Listens To | Decides |
-|-------|-----------|---------|
-| **DrumMind** | Energy, tension, mic | steady, push, pull-back, fill, drop, accent |
-| **BassMind** | Drums, direction | root, walk, climb, descend, pedal, rest |
-| **PadMind** | Stillness, tension | close, spread, shell, rich, sparse, out |
-| **LeadMind** | Everyone, mic, motion | develop, contrast, space, peak, echo, rest |
+### Harmonic Intelligence
+- Chord progression: i - IV - v - I (Am - D - Em - A)
+- Zones map to chord degrees:
+  - center/sw: i (home)
+  - e/w/nw: IV
+  - n/s/se: v
+  - ne: I
+- Movement creates actual chord progressions
+
+### Easter Eggs
+
+| Easter Egg | Trigger | Reward |
+|------------|---------|--------|
+| **Journey Complete** | Visit all 9 zones in 15s | Triumphant fanfare |
+| **Meditation Mode** | Stay still in center 10s+ | Peaceful drone |
+| **Earthquake** | Rapid shaking | Massive sub bass chaos |
+| **Ritual** | Clockwise corners (nw→ne→se→sw) | Mystical chord progression |
+| **Orbit Mode** | Trace circles for 2s | Continuous arpeggiator |
+
+### Gesture → Phrase System
+- **Swipe right**: ascending scale run (C D E F G A B C)
+- **Swipe left**: descending scale run
+- **Swipe up**: rising arpeggio (C E G C E)
+- **Swipe down**: falling arpeggio
+- **Hold still**: sustained chord
+- **Fast movement**: energetic burst
+
+### Call and Response
+- System occasionally "calls" with a melodic phrase
+- If you respond (move within 3 seconds), it develops
+- Creates actual musical dialogue
+- Rewards repeat interactions
 
 ---
 
 ## HOW IT ALL WORKS TOGETHER
 
 ```
-Your Movement  ─┬─> world.energy ─┬─> Drum velocity
-                │                 ├─> Lead probability
-                │                 └─> AI context
-                │
-Microphone ────┬─> micLevel ──────┬─> Extra velocity
-               │                  ├─> Onset triggers lead
-               │                  └─> AI context ("mic active")
+Your Movement ─┬─> Evolution Engine ─┬─> Phase progression
+               │                     ├─> Intensity tracking
+               │                     ├─> Breathing modulation
+               │                     └─> Chord progression
                │
-Stillness ─────┴─> world.stillness -> Pad volume/filter
+               ├─> Gesture Detection ─> Musical phrases
+               │
+               ├─> Easter Egg Detection ─> Special sounds
+               │
+               └─> Zone System ─┬─> Entry sounds (pentatonic)
+                                ├─> Dwell sounds (thresholds)
+                                └─> Continuous movement sounds
 
-AI Agents ─────> Decisions every 2s -> Pattern/voicing changes
-
-Motion + Mic + AI = The music adapts to YOUR world
-```
-
----
-
-## THE DRUM PATTERNS (16 steps = 1 bar)
-
-```javascript
-steady: {
-    kick:  [1,0,0,0, 0,0,1,0, 0,0,0,0, 0,1,0,0],  // Jazz feel
-    snare: [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],  // 2 and 4
-    hat:   [1,0,1,0, 1,0,1,0, 1,0,1,0, 1,0,1,0],  // 8ths
-    ghost: [0,0,0,1, 0,0,0,1, 0,0,0,1, 0,0,0,1],  // Ghost snares
-}
+Time + Activity + Exploration = Musical Evolution
 ```
 
 ---
 
 ## VISUAL FEEDBACK
 
-- **Center breath** - pulses with rhythm
-- **Tension ring** - orange when building, blue when releasing
-- **Energy ring** - grows with movement
-- **Mic ring** - green ring pulses with external sound
-- **Mic indicator** - top right, green when mic active
-
----
-
-## STATUS DISPLAY (top left)
-
-Shows real-time AI decisions:
-```
-drums: push
-bass: walk
-pad: spread
-lead: develop
-↗ 67%    <- direction and tension
-```
+- **Top center**: Current phase (awakening/discovery/journey/transcendence)
+- **Top right**: Session timer
+- **Top bar**: Intensity meter (red when near drop)
+- **Center ring**: Intensity glow (breathes with music)
+- **Bottom left**: Journey progress (X/9 zones)
+- **Bottom bar**: Dwell progress
+- **Center ?**: Call and response indicator
 
 ---
 
 ## SUCCESS CRITERIA
 
-- [x] Real drum samples loaded from freesound
-- [x] 16th note resolution with swing
-- [x] Complex drum patterns with ghost notes
-- [x] AI makes musical decisions every 2 seconds
-- [x] Microphone input analyzed and integrated
-- [x] Mic onset triggers musical events
-- [x] Visual feedback for all inputs
+- [x] Music evolves over time (phases)
+- [x] Intensity builds and triggers THE DROP
+- [x] Easter eggs reward exploration
+- [x] Gestures create musical phrases
+- [x] Call and response system
+- [x] Breathing makes it feel alive
+- [x] Harmonic progression based on position
 - [ ] Test on mobile with motion sensors
-- [ ] Verify samples load reliably
-- [ ] Tune AI prompts for better musicality
+- [ ] Fine-tune thresholds and timings
+- [ ] Add microphone input integration
 
 ---
 
 ## KNOWN CONSIDERATIONS
 
-1. **Sample Loading** - Fetches from freesound CDN, has fallback synthesis
-2. **AI Latency** - 100-500ms for Groq calls, runs in background
-3. **Mic Permissions** - Browser will prompt, graceful fallback if denied
-4. **CORS** - freesound CDN allows cross-origin, should work
+1. **Phase timing**: May need adjustment based on user testing
+2. **Intensity decay**: Currently 0.02/s, may need tuning
+3. **Easter egg detection**: Circle detection uses variance threshold of 0.01
+4. **THE DROP cooldown**: 30 seconds, prevents spam
 
 ---
 
 ## NEXT STEPS IF NEEDED
 
-1. **Better samples** - Find higher quality or host our own
-2. **More AI personality** - Tune prompts for different "player" styles
-3. **Faster AI** - Could reduce interval for more reactive changes
-4. **GPS/Weather** - Add location-based mood (cold = haunted)
-5. **Form awareness** - AI knows where in the song structure
+1. **Microphone input** - Claps/sounds trigger musical events
+2. **Gesture memory** - Remember your favorite gestures, make them richer
+3. **Session persistence** - Remember progress between sessions
+4. **More easter eggs** - Figure-8 (infinity), specific zone patterns
+5. **AI agents** - Integrate the drum/bass/pad minds for reactive patterns
 
 ---
 
-*"The music listens to you. You listen to the music. The world becomes the song."*
+*"The music evolves with you. Start with nothing. End with everything."*
 
 **Live at:** lacobusgump.github.io/music2.0/
