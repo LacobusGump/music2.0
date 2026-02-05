@@ -4,13 +4,59 @@
 
 ---
 
-## MUSIC 2.0 - THE EVOLUTION UPDATE
+## MUSIC 2.0 - THE BWAAAM UPDATE (v11)
 
-**The Vision Realized:** Music that evolves with you. The longer you play, the richer it gets. Easter eggs reward exploration. Gestures become phrases. THE DROP rewards sustained engagement.
+**The Vision Realized:** Music that evolves with you. The longer you play, the richer it gets. Easter eggs reward exploration. Gestures become phrases. THE BWAAAM makes you feel like you're conducting Inception.
 
 ---
 
-## WHAT'S NEW (February 5)
+## WHAT'S NEW (February 5 - v11-BWAAAM)
+
+### THE BWAAAM (Inception-Style Cinematic Hit)
+- **Cinematic Entrance**: 5-second orchestral swell when you first tap the screen
+  - Deep sub bass emerges from silence
+  - Harmonic tension builds with detuned saws
+  - Culminates in THE BWAAAM
+- **THE BWAAAM triggers**:
+  - Draw a square (4 corners) → BWAAAM + Chord Progression unlocked
+  - Draw a star pattern → BWAAAM + Starburst unlocked
+  - Visit all 4 corners → BWAAAM + Full Pad unlocked
+  - Visit all 4 edges → BWAAAM + Full Rhythm unlocked
+  - Visit ALL 9 zones → TRANSCENDENCE (ultimate Hans Zimmer moment)
+- **BWAAAM Components**:
+  - Massive sub-bass 808 hit
+  - Triple-detuned brass stabs (Inception horns)
+  - High brass for cut
+  - Deep 808 thump
+  - Screen flash
+  - Haptic feedback
+  - 5 second cooldown prevents spam
+
+### Shape-Based Layer Unlocks
+Shapes you draw with your movement unlock PERSISTENT music layers:
+
+| Shape | Layer Unlocked |
+|-------|----------------|
+| Horizontal swipe | Filter Pad |
+| Vertical swipe | Pitch Pad |
+| Swipe up | Rising Arpeggiator |
+| Swipe down | Falling Arpeggiator |
+| Triangle up | Triad harmony |
+| Triangle down | Inverted triad |
+| Square | Chord Progression + **BWAAAM** |
+| Plus cross | Rhythm layer |
+| X cross | Counter rhythm |
+| Circle CW | Build tension |
+| Circle CCW | Release |
+| Figure-8 | Infinity drone |
+| Star | Starburst + **BWAAAM** |
+| All corners | Full Pad + **BWAAAM** |
+| All edges | Full Rhythm + **BWAAAM** |
+| All 9 zones | **TRANSCENDENCE** |
+
+---
+
+## WHAT'S ALREADY WORKING (From Earlier)
 
 ### Musical Evolution System
 - **4-phase progression**: awakening → discovery → journey → transcendence
@@ -119,6 +165,10 @@ Time + Activity + Exploration = Musical Evolution
 - [x] Call and response system
 - [x] Breathing makes it feel alive
 - [x] Harmonic progression based on position
+- [x] **THE BWAAAM - Cinematic entrance**
+- [x] **Shape-based layer unlocks**
+- [x] **Screen flash + haptic feedback**
+- [x] **Transcendence mode for ultimate players**
 - [ ] Test on mobile with motion sensors
 - [ ] Fine-tune thresholds and timings
 - [ ] Add microphone input integration

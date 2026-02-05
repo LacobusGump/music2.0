@@ -419,7 +419,7 @@ const GUMP = (function() {
             // SHAPE patterns unlock rich layers
             'shape_triangle_top': { layer: 'triad', name: 'Triad' },
             'shape_triangle_down': { layer: 'triad_inv', name: 'Inverted Triad' },
-            'shape_square': { layer: 'progression', name: 'Chord Progression' },
+            'shape_square': { layer: 'progression', name: 'Chord Progression', triggerBWAAAM: true },
             'shape_cross_plus': { layer: 'rhythm', name: 'Rhythm' },
             'shape_cross_x': { layer: 'counter_rhythm', name: 'Counter Rhythm' },
             'shape_circle_cw': { layer: 'build', name: 'Build' },
@@ -431,12 +431,12 @@ const GUMP = (function() {
             // SPECIAL patterns unlock cinematic elements
             'special_pendulum_ns': { layer: 'pendulum_bass', name: 'Pendulum Bass' },
             'special_pendulum_ew': { layer: 'pendulum_filter', name: 'Pendulum Filter' },
-            'special_star': { layer: 'starburst', name: 'Starburst' },
+            'special_star': { layer: 'starburst', name: 'Starburst', triggerBWAAAM: true },
 
-            // COMBO patterns unlock the full orchestra
-            'combo_corners_all': { layer: 'full_pad', name: 'Full Pad' },
-            'combo_edges_all': { layer: 'full_rhythm', name: 'Full Rhythm' },
-            'combo_all_zones': { layer: 'transcendence', name: 'Transcendence' },
+            // COMBO patterns unlock the full orchestra - THE BIG MOMENTS
+            'combo_corners_all': { layer: 'full_pad', name: 'Full Pad', triggerBWAAAM: true },
+            'combo_edges_all': { layer: 'full_rhythm', name: 'Full Rhythm', triggerBWAAAM: true },
+            'combo_all_zones': { layer: 'transcendence', name: 'Transcendence', triggerTranscendence: true },
         },
     };
 
@@ -447,9 +447,21 @@ const GUMP = (function() {
         const patternId = pattern.id;
         const layerDef = musicLayers.definitions[patternId];
 
-        if (layerDef && !musicLayers.active.has(layerDef.layer)) {
-            // NEW LAYER UNLOCKED
-            unlockMusicLayer(layerDef.layer, layerDef.name);
+        if (layerDef) {
+            // Check for BWAAAM trigger (the big moment)
+            if (layerDef.triggerBWAAAM) {
+                triggerTheBWAAAM();
+            }
+
+            // Check for transcendence trigger
+            if (layerDef.triggerTranscendence) {
+                triggerTranscendence();
+            }
+
+            if (!musicLayers.active.has(layerDef.layer)) {
+                // NEW LAYER UNLOCKED
+                unlockMusicLayer(layerDef.layer, layerDef.name);
+            }
         }
 
         // Also trigger immediate response based on pattern type
@@ -808,34 +820,24 @@ const GUMP = (function() {
     function triggerTranscendence(root) {
         console.log('TRANSCENDENCE ACHIEVED');
 
-        // Everything at once - the ultimate moment
-        // Sub bass
-        GumpBass.play808Long?.({ freq: root / 4, volume: 0.8 });
+        // THE ULTIMATE MOMENT - triggers THE BWAAAM
+        triggerTheBWAAAM();
 
-        // Massive chord stack
-        [-1, 0, 1, 2, 3].forEach((octave, i) => {
-            setTimeout(() => {
-                const freq = root * Math.pow(2, octave);
-                GumpAudio.playChord?.(freq, [0, 4, 7, 11], 8, {
-                    volume: 0.15,
-                    attack: 0.5 + i * 0.5,
-                    release: 4,
-                    waveform: 'sawtooth',
-                });
-            }, i * 200);
-        });
-
-        // Drum hit
+        // Then build the full orchestra on top
         setTimeout(() => {
-            GumpDrums.play808Deep?.({ volume: 1.0 });
-            GumpDrums.playClap?.({ volume: 0.6 });
-        }, 1000);
-
-        // Filter sweep
-        GumpAudio.setFilterCutoff?.(500, 0);
-        setTimeout(() => {
-            GumpAudio.setFilterCutoff?.(8000, 3);
-        }, 100);
+            // Massive chord stack
+            [-1, 0, 1, 2, 3].forEach((octave, i) => {
+                setTimeout(() => {
+                    const freq = root * Math.pow(2, octave);
+                    GumpAudio.playChord?.(freq, [0, 4, 7, 11], 8, {
+                        volume: 0.15,
+                        attack: 0.5 + i * 0.5,
+                        release: 4,
+                        waveform: 'sawtooth',
+                    });
+                }, i * 200);
+            });
+        }, 500);
     }
 
     function playLayerUnlockFanfare(layerId) {
@@ -2621,6 +2623,10 @@ const GUMP = (function() {
             if (GumpAudio.isInitialized) {
                 await GumpAudio.start();
 
+                // === THE CINEMATIC ENTRANCE ===
+                // This is the moment that hooks people
+                playCinematicEntrance();
+
                 // Activate unlocked sounds
                 for (const id of GumpUnlocks.state.unlocked) {
                     const unlock = GumpUnlocks.getUnlock(id);
@@ -2645,6 +2651,145 @@ const GUMP = (function() {
         requestAnimationFrame(frame);
 
         console.log('GUMP started');
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // THE CINEMATIC ENTRANCE - First 5 seconds that hook you
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function playCinematicEntrance() {
+        const root = 55; // A1
+
+        // Phase 1: Deep sub emerges (0-2s)
+        GumpBass.playSubBass?.({ freq: root / 2, duration: 6, volume: 0.4 });
+
+        // Phase 2: Pad swell begins (0.5s)
+        setTimeout(() => {
+            GumpAudio.playChord?.(root, [0, 7, 12], 5, {
+                volume: 0.2,
+                attack: 2,
+                release: 2,
+                waveform: 'sawtooth',
+            });
+        }, 500);
+
+        // Phase 3: Higher harmonics join (1.5s)
+        setTimeout(() => {
+            GumpAudio.playChord?.(root * 2, [0, 4, 7], 4, {
+                volume: 0.15,
+                attack: 1.5,
+                release: 2,
+                waveform: 'triangle',
+            });
+        }, 1500);
+
+        // Phase 4: Tension build (2.5s)
+        setTimeout(() => {
+            GumpAudio.playChord?.(root * 4, [0, 5, 7, 11], 3, {
+                volume: 0.1,
+                attack: 1,
+                release: 1.5,
+            });
+            // Rising filter
+            GumpAudio.setFilterCutoff?.(500, 0);
+            GumpAudio.setFilterCutoff?.(4000, 2);
+        }, 2500);
+
+        // Phase 5: THE BWAAAM (4.5s)
+        setTimeout(() => {
+            triggerTheBWAAAM();
+        }, 4500);
+
+        // Haptic feedback on iOS
+        if (navigator.vibrate) {
+            // Pulse pattern: build... build... BWAAAM
+            setTimeout(() => navigator.vibrate(50), 500);
+            setTimeout(() => navigator.vibrate(100), 1500);
+            setTimeout(() => navigator.vibrate(200), 2500);
+            setTimeout(() => navigator.vibrate(500), 4500);
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // THE BWAAAM - The Inception Sound
+    // ═══════════════════════════════════════════════════════════════════════
+
+    let bwaamCooldown = 0;
+
+    function triggerTheBWAAAM() {
+        if (bwaamCooldown > 0) return;
+        bwaamCooldown = 5; // 5 second cooldown
+
+        console.log('THE BWAAAM');
+        const root = 55;
+
+        // Layer 1: MASSIVE sub hit
+        GumpBass.play808Long?.({ freq: root / 2, volume: 1.0 });
+
+        // Layer 2: Brass stab (detuned saws)
+        [-0.1, 0, 0.1].forEach(detune => {
+            GumpAudio.playChord?.(root * Math.pow(2, detune/12), [0, 7, 12, 19], 4, {
+                volume: 0.25,
+                attack: 0.01,
+                release: 3,
+                waveform: 'sawtooth',
+            });
+        });
+
+        // Layer 3: High brass
+        GumpAudio.playChord?.(root * 4, [0, 4, 7], 3, {
+            volume: 0.2,
+            attack: 0.01,
+            release: 2,
+            waveform: 'sawtooth',
+        });
+
+        // Layer 4: Sub octave
+        GumpAudio.playTone?.(root / 4, 5, {
+            volume: 0.3,
+            attack: 0.01,
+            release: 4,
+            waveform: 'sine',
+        });
+
+        // Drum hit
+        GumpDrums.play808Deep?.({ volume: 1.0 });
+
+        // Filter sweep down (the "waaaa" decay)
+        GumpAudio.setFilterCutoff?.(8000, 0);
+        setTimeout(() => {
+            GumpAudio.setFilterCutoff?.(500, 3);
+        }, 100);
+
+        // Screen flash effect (CSS)
+        triggerScreenFlash();
+
+        // Haptic
+        if (navigator.vibrate) {
+            navigator.vibrate([100, 50, 300]);
+        }
+
+        // Decay cooldown
+        setTimeout(() => { bwaamCooldown = 0; }, 5000);
+    }
+
+    function triggerScreenFlash() {
+        const flash = document.createElement('div');
+        flash.style.cssText = `
+            position: fixed;
+            inset: 0;
+            background: white;
+            opacity: 0.8;
+            pointer-events: none;
+            z-index: 9999;
+            transition: opacity 0.5s ease-out;
+        `;
+        document.body.appendChild(flash);
+
+        requestAnimationFrame(() => {
+            flash.style.opacity = '0';
+            setTimeout(() => flash.remove(), 500);
+        });
     }
 
     function stop() {
