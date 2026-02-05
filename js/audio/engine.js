@@ -463,22 +463,34 @@ const GumpAudio = (function() {
     // PLAYBACK CONTROL
     // ═══════════════════════════════════════════════════════════════════════
 
+    function mdbg(msg) {
+        console.log(msg);
+        const el = document.getElementById('mobile-debug');
+        if (el) el.innerHTML = msg + '<br>' + el.innerHTML.slice(0, 400);
+    }
+
     async function start() {
+        mdbg('engine.start()');
         if (!audioState.isInitialized) {
+            mdbg('engine not init, calling init');
             await init();
         }
 
         const ctx = audioState.ctx;
+        mdbg('ctx state: ' + ctx.state);
 
         // iOS requires resume AND a sound to be played within user gesture
         if (ctx.state === 'suspended') {
             try {
+                mdbg('resuming ctx...');
                 await ctx.resume();
+                mdbg('ctx resumed: ' + ctx.state);
             } catch (e) {
-                console.error('Failed to resume context:', e);
+                mdbg('resume err: ' + e.message);
             }
         }
 
+        mdbg('playing silent buffer...');
         // iOS audio unlock - play silent buffer to unlock audio
         try {
             const silentBuffer = ctx.createBuffer(1, 1, ctx.sampleRate);
@@ -486,19 +498,16 @@ const GumpAudio = (function() {
             silentSource.buffer = silentBuffer;
             silentSource.connect(ctx.destination);
             silentSource.start(0);
-            console.log('iOS audio unlock triggered');
+            mdbg('silent buffer played');
         } catch (e) {
-            console.log('Silent buffer not needed or failed:', e);
+            mdbg('silent err: ' + e.message);
         }
 
         audioState.isRunning = true;
         audioState.isSuspended = false;
         audioState.nextBeatTime = ctx.currentTime;
 
-        console.log('Audio started, context state:', ctx.state);
-        console.log('Master gain:', audioState.masterGain?.gain.value);
-        console.log('Synth channel gain:', audioState.channels.synth?.gain.value);
-
+        mdbg('playing startup drone...');
         // Play startup drone through routing
         try {
             const startupOsc = ctx.createOscillator();
@@ -518,10 +527,11 @@ const GumpAudio = (function() {
 
             startupOsc.start(now);
             startupOsc.stop(now + 3.1);
-            console.log('Startup drone playing at 110Hz');
+            mdbg('drone started');
         } catch (e) {
-            console.error('Startup drone failed:', e);
+            mdbg('drone err: ' + e.message);
         }
+        mdbg('engine.start() done');
     }
 
     function stop() {
