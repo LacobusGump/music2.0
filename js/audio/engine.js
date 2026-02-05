@@ -479,15 +479,17 @@ const GumpAudio = (function() {
         const ctx = audioState.ctx;
         mdbg('ctx state: ' + ctx.state);
 
-        // iOS requires resume AND a sound to be played within user gesture
+        // iOS: Don't await resume - it can hang. Just call it and continue.
         if (ctx.state === 'suspended') {
-            try {
-                mdbg('resuming ctx...');
-                await ctx.resume();
-                mdbg('ctx resumed: ' + ctx.state);
-            } catch (e) {
+            mdbg('calling resume (no await)...');
+            ctx.resume().then(() => {
+                mdbg('resume resolved: ' + ctx.state);
+            }).catch(e => {
                 mdbg('resume err: ' + e.message);
-            }
+            });
+            // Give it a moment
+            await new Promise(r => setTimeout(r, 100));
+            mdbg('after resume wait, state: ' + ctx.state);
         }
 
         mdbg('playing silent buffer...');
