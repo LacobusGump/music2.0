@@ -432,12 +432,33 @@
                 if (isStarted) return;
                 isStarted = true;
 
+                // iOS FIX: Create AudioContext SYNCHRONOUSLY in tap handler
+                // This MUST happen before any await calls
+                let iosAudioCtx = null;
+                try {
+                    iosAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                    // Immediately play a short sound to unlock iOS audio
+                    const osc = iosAudioCtx.createOscillator();
+                    const gain = iosAudioCtx.createGain();
+                    osc.connect(gain);
+                    gain.connect(iosAudioCtx.destination);
+                    gain.gain.value = 0.001; // Nearly silent
+                    osc.start();
+                    osc.stop(iosAudioCtx.currentTime + 0.1);
+                    console.log('iOS audio unlocked');
+
+                    // Store for GUMP to use
+                    window._iosAudioContext = iosAudioCtx;
+                } catch (e) {
+                    console.log('iOS audio unlock:', e.message);
+                }
+
                 // Hide entry, show world
                 entryScreen.classList.add('hidden');
                 worldContainer.classList.add('visible');
 
                 try {
-                    // Start GUMP
+                    // Start GUMP (will use the pre-created context)
                     await GUMP.start();
 
                     // Setup UI updates

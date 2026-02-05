@@ -164,10 +164,16 @@ const GumpAudio = (function() {
         }
 
         try {
-            // Create audio context
-            audioState.ctx = new (window.AudioContext || window.webkitAudioContext)({
-                latencyHint: 'interactive',
-            });
+            // Use pre-created iOS context if available, otherwise create new
+            if (window._iosAudioContext) {
+                audioState.ctx = window._iosAudioContext;
+                console.log('Using pre-created iOS AudioContext');
+            } else {
+                audioState.ctx = new (window.AudioContext || window.webkitAudioContext)({
+                    latencyHint: 'interactive',
+                });
+                console.log('Created new AudioContext');
+            }
 
             const ctx = audioState.ctx;
             audioState.sampleRate = ctx.sampleRate;
