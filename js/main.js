@@ -172,6 +172,9 @@ const GUMP = (function() {
                 console.error('Audio init failed:', audioError);
             }
 
+            // Initialize AI musicians
+            initializeAIMusicians();
+
             app.isInitialized = true;
             console.log('GUMP initialized');
             return true;
@@ -399,6 +402,296 @@ const GUMP = (function() {
         const { bar } = data;
 
         // Check for bar-based patterns
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // AI MUSICIAN SYSTEM
+    // ═══════════════════════════════════════════════════════════════════════
+    //
+    // The AI minds drive the music. They listen, they respond, they evolve.
+    //
+
+    const aiMusicians = {
+        initialized: false,
+        drumMind: null,
+        bassMind: null,
+        conductor: null,
+
+        // Rhythm clock
+        clock: {
+            bpm: 85,
+            step: 0,
+            bar: 0,
+            interval: null,
+            swingAmount: 0.15,
+        },
+
+        // Phase-to-pattern mapping
+        phasePatterns: {
+            awakening: { era: 'genesis', patterns: ['pulse', 'breath'], density: 0.2 },
+            discovery: { era: 'primordial', patterns: ['heartbeat', 'water'], density: 0.4 },
+            descent: { era: 'tribal', patterns: ['ritual', 'ceremony'], density: 0.5 },
+            struggle: { era: 'tribal', patterns: ['polyrhythm', 'trance'], density: 0.7 },
+            rise: { era: 'modern', patterns: ['breakbeat', 'boom'], density: 0.6 },
+            transcendence: { era: 'modern', patterns: ['trap', 'four_on_floor'], density: 0.8 },
+        },
+    };
+
+    function initializeAIMusicians() {
+        try {
+            // Initialize drum mind if available
+            if (typeof GumpDrumMind !== 'undefined') {
+                aiMusicians.drumMind = GumpDrumMind.getInstance();
+                if (aiMusicians.drumMind) {
+                    aiMusicians.drumMind.start();
+                    console.log('DrumMind AI initialized');
+                }
+            }
+
+            // Initialize bass mind if available
+            if (typeof GumpBassMind !== 'undefined') {
+                aiMusicians.bassMind = GumpBassMind.getInstance?.();
+                if (aiMusicians.bassMind) {
+                    aiMusicians.bassMind.start();
+                    console.log('BassMind AI initialized');
+                }
+            }
+
+            // Initialize conductor if available
+            if (typeof GumpConductor !== 'undefined') {
+                aiMusicians.conductor = GumpConductor.getInstance?.();
+                if (aiMusicians.conductor) {
+                    aiMusicians.conductor.start();
+                    console.log('Conductor AI initialized');
+                }
+            }
+
+            aiMusicians.initialized = true;
+        } catch (e) {
+            console.warn('AI Musicians init error:', e);
+        }
+    }
+
+    function startAIRhythm() {
+        if (aiMusicians.clock.interval) return;
+
+        const clock = aiMusicians.clock;
+        const msPerStep = (60000 / clock.bpm) / 4;  // 16th notes
+
+        clock.interval = setInterval(() => {
+            // Apply swing to even steps
+            const isSwungStep = clock.step % 2 === 1;
+            const swingDelay = isSwungStep ? clock.swingAmount * msPerStep : 0;
+
+            setTimeout(() => {
+                triggerAIStep(clock.step, clock.bar);
+            }, swingDelay);
+
+            clock.step++;
+            if (clock.step >= 16) {
+                clock.step = 0;
+                clock.bar++;
+                onAIBarChange(clock.bar);
+            }
+        }, msPerStep);
+
+        console.log('AI Rhythm started at', clock.bpm, 'BPM');
+    }
+
+    function stopAIRhythm() {
+        if (aiMusicians.clock.interval) {
+            clearInterval(aiMusicians.clock.interval);
+            aiMusicians.clock.interval = null;
+        }
+    }
+
+    function triggerAIStep(step, bar) {
+        // Get current phase mood
+        const phaseName = PHASE_NAMES[evolution.phase] || 'awakening';
+        const mood = PHASE_MOOD[phaseName] || PHASE_MOOD.awakening;
+        const phaseConfig = aiMusicians.phasePatterns[phaseName] || aiMusicians.phasePatterns.awakening;
+
+        // Send to AI drum mind if available
+        if (aiMusicians.drumMind) {
+            GumpEvents?.emit?.('step', { step, bar, mood, phaseConfig });
+        } else {
+            // Fallback: play drums directly based on phase
+            playPhaseBasedDrums(step, bar, phaseName, mood, phaseConfig);
+        }
+    }
+
+    function playPhaseBasedDrums(step, bar, phaseName, mood, phaseConfig) {
+        const volume = 0.3 + mood.tension * 0.3;
+        const density = phaseConfig.density;
+
+        // Different patterns for different phases - NOT just 2 and 4
+        switch (phaseName) {
+            case 'awakening':
+                // Minimal - just occasional deep pulses
+                if (step === 0 && Math.random() < 0.7) {
+                    GumpDrums.play808Sub?.({ volume: volume * 0.6 });
+                }
+                break;
+
+            case 'discovery':
+                // Heartbeat - organic, human
+                if (step === 0 || step === 7) {
+                    GumpDrums.playOrganicKick?.({ volume: volume * 0.7 });
+                }
+                if (step === 3 || step === 11) {
+                    GumpDrums.playClick?.({ volume: volume * 0.3 });
+                }
+                break;
+
+            case 'descent':
+                // Ritual - polyrhythmic, tribal
+                // 3-against-4 feel
+                if (step % 5 === 0) {
+                    GumpDrums.playTribalKick?.({ volume: volume * 0.8 });
+                }
+                if (step % 3 === 0 && step !== 0) {
+                    GumpDrums.playWoodBlock?.({ volume: volume * 0.4, freq: 600 + step * 50 });
+                }
+                if (step === 4 || step === 12) {
+                    GumpDrums.playSnare808?.({ volume: volume * 0.5, noiseAmount: 0.3 });
+                }
+                break;
+
+            case 'struggle':
+                // Chaos - syncopated, aggressive, unpredictable
+                const chaosRoll = Math.random();
+                if (step === 0 || step === 6 || step === 10) {
+                    GumpDrums.play808Distorted?.({ volume: volume });
+                }
+                if (step === 4 || step === 13) {
+                    GumpDrums.playSnare808?.({ volume: volume * 0.8 });
+                }
+                // Random ghost notes for chaos
+                if (chaosRoll < mood.chaos * 0.4) {
+                    GumpDrums.playHiHat?.({ type: 'closed', volume: volume * 0.3 });
+                }
+                // Occasional crash
+                if (step === 0 && bar % 4 === 0) {
+                    GumpDrums.playHiHat?.({ type: 'open', volume: volume * 0.5 });
+                }
+                break;
+
+            case 'rise':
+                // Building - driving, forward momentum
+                // Kick pattern that pushes forward
+                if (step === 0 || step === 3 || step === 8 || step === 11) {
+                    GumpDrums.play808Short?.({ volume: volume * 0.8 });
+                }
+                if (step === 4 || step === 12) {
+                    GumpDrums.playSnare808?.({ volume: volume * 0.7 });
+                }
+                // Hi-hats driving
+                if (step % 2 === 0) {
+                    GumpDrums.playHiHat?.({ type: 'closed', volume: volume * 0.4 });
+                }
+                // Build intensity with fills every 4 bars
+                if (bar % 4 === 3 && step >= 12) {
+                    GumpDrums.playSnare808?.({ volume: volume * 0.5 });
+                }
+                break;
+
+            case 'transcendence':
+                // Triumph - full, powerful, but breathing
+                if (step === 0 || step === 8) {
+                    GumpDrums.play808Deep?.({ volume: volume });
+                }
+                if (step === 4) {
+                    GumpDrums.play808Short?.({ volume: volume * 0.5 });
+                }
+                if (step === 4 || step === 12) {
+                    GumpDrums.playClap?.({ volume: volume * 0.6 });
+                }
+                // Driving hi-hats
+                GumpDrums.playHiHat?.({
+                    type: step % 4 === 2 ? 'open' : 'closed',
+                    volume: volume * (step % 2 === 0 ? 0.4 : 0.25)
+                });
+                break;
+        }
+    }
+
+    function onAIBarChange(bar) {
+        const phaseName = PHASE_NAMES[evolution.phase] || 'awakening';
+        const phaseConfig = aiMusicians.phasePatterns[phaseName];
+
+        // Update drum mind with current context
+        if (aiMusicians.drumMind) {
+            aiMusicians.drumMind.handleMessage?.({
+                type: 'dynamics.change',
+                data: { dynamics: evolution.intensity }
+            });
+        }
+
+        // Every 8 bars, consider pattern variation
+        if (bar % 8 === 7) {
+            if (aiMusicians.drumMind) {
+                aiMusicians.drumMind.triggerFill?.(evolution.intensity);
+            } else {
+                // Play a fill
+                playDrumFill(phaseName);
+            }
+        }
+    }
+
+    function playDrumFill(phaseName) {
+        const mood = PHASE_MOOD[phaseName] || PHASE_MOOD.awakening;
+        const volume = 0.4 + mood.tension * 0.3;
+
+        // Quick fill based on phase
+        switch (phaseName) {
+            case 'struggle':
+                // Chaotic fill
+                [0, 80, 160, 200, 250, 300, 350].forEach((delay, i) => {
+                    setTimeout(() => {
+                        if (i % 2 === 0) {
+                            GumpDrums.playSnare808?.({ volume: volume * (0.5 + i * 0.1) });
+                        } else {
+                            GumpDrums.play808Distorted?.({ volume: volume * 0.6 });
+                        }
+                    }, delay);
+                });
+                break;
+
+            case 'rise':
+                // Building fill - snare roll
+                for (let i = 0; i < 8; i++) {
+                    setTimeout(() => {
+                        GumpDrums.playSnare808?.({ volume: volume * (0.3 + i * 0.1) });
+                    }, i * 60);
+                }
+                break;
+
+            case 'transcendence':
+                // Triumphant fill
+                [0, 100, 200, 350].forEach((delay, i) => {
+                    setTimeout(() => {
+                        GumpDrums.playTom?.({ freq: 200 - i * 40, volume: volume });
+                    }, delay);
+                });
+                setTimeout(() => {
+                    GumpDrums.play808Deep?.({ volume: volume });
+                    GumpDrums.playHiHat?.({ type: 'open', volume: volume * 0.6 });
+                }, 450);
+                break;
+
+            default:
+                // Simple fill
+                setTimeout(() => GumpDrums.playSnare808?.({ volume: volume * 0.6 }), 0);
+                setTimeout(() => GumpDrums.playSnare808?.({ volume: volume * 0.8 }), 150);
+                setTimeout(() => GumpDrums.playOrganicKick?.({ volume: volume }), 300);
+        }
+    }
+
+    function setAITempo(bpm) {
+        const wasPlaying = aiMusicians.clock.interval !== null;
+        if (wasPlaying) stopAIRhythm();
+        aiMusicians.clock.bpm = Math.max(40, Math.min(180, bpm));
+        if (wasPlaying) startAIRhythm();
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -695,33 +988,23 @@ const GUMP = (function() {
     }
 
     function startRhythmLayer(root) {
-        let beat = 0;
+        // AI rhythm now handles drums - this layer just enables the flag
+        // The actual drum patterns come from playPhaseBasedDrums()
+        console.log('Rhythm layer activated - AI drums enabled');
 
-        const interval = setInterval(() => {
-            if (!musicLayers.active.has('rhythm')) {
-                clearInterval(interval);
-                return;
-            }
-
-            // 4-on-the-floor with variations
-            if (beat % 4 === 0) {
-                GumpDrums.playOrganicKick?.({ volume: 0.5 });
-            }
-            if (beat % 4 === 2) {
-                GumpDrums.playSnare808?.({ volume: 0.3 });
-            }
-            if (beat % 2 === 1) {
-                GumpDrums.playHiHat?.({ type: 'closed', volume: 0.2 });
-            }
-
-            beat++;
-        }, 250); // 240 BPM in 16ths = 60 BPM
-
-        musicLayers.voices.set('rhythm', interval);
+        // Boost the AI rhythm intensity when this layer is unlocked
+        if (aiMusicians.clock.interval) {
+            // Already running - just note that rhythm layer is now active
+        } else {
+            // Start it if not already running
+            startAIRhythm();
+        }
     }
 
     function startCounterRhythmLayer(root) {
-        let beat = 0;
+        // Counter rhythm adds polyrhythmic percussion texture
+        // Plays a 3-against-4 pattern for that tribal/complex feel
+        let step = 0;
 
         const interval = setInterval(() => {
             if (!musicLayers.active.has('counter_rhythm')) {
@@ -729,16 +1012,31 @@ const GUMP = (function() {
                 return;
             }
 
-            // Off-beat hits
-            if (beat % 4 === 1 || beat % 4 === 3) {
-                GumpDrums.playClick?.({ volume: 0.25 });
-            }
-            if (beat % 8 === 3) {
-                GumpDrums.playClap?.({ volume: 0.3 });
+            // Polyrhythmic pattern - accents every 3 steps against the 4-beat
+            if (step % 3 === 0) {
+                const phaseName = PHASE_NAMES[evolution.phase] || 'awakening';
+                const volume = 0.2 + (PHASE_MOOD[phaseName]?.tension || 0) * 0.2;
+
+                // Vary the percussion based on position in cycle
+                const cyclePos = (step / 3) % 4;
+                switch (cyclePos) {
+                    case 0:
+                        GumpDrums.playWoodBlock?.({ volume, freq: 800 });
+                        break;
+                    case 1:
+                        GumpDrums.playClick?.({ volume: volume * 0.8 });
+                        break;
+                    case 2:
+                        GumpDrums.playWoodBlock?.({ volume: volume * 0.9, freq: 600 });
+                        break;
+                    case 3:
+                        GumpDrums.playShaker?.({ volume: volume * 0.6 });
+                        break;
+                }
             }
 
-            beat++;
-        }, 250);
+            step++;
+        }, 125); // Faster for 16th note feel
 
         musicLayers.voices.set('counter_rhythm', interval);
     }
@@ -2968,6 +3266,11 @@ const GUMP = (function() {
         app.lastTime = 0;
 
         requestAnimationFrame(frame);
+
+        // Start AI rhythm after cinematic entrance settles (6 seconds)
+        setTimeout(() => {
+            startAIRhythm();
+        }, 6000);
 
         console.log('GUMP started');
     }
