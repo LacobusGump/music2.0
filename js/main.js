@@ -384,73 +384,532 @@ const GUMP = (function() {
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    // SOUND TRIGGERS
+    // SHAPE-BASED MUSIC LAYER SYSTEM
     // ═══════════════════════════════════════════════════════════════════════
+    //
+    // Each shape you trace UNLOCKS a persistent musical layer.
+    // More shapes = richer music. This IS Music 2.0.
+    //
+
+    const musicLayers = {
+        // Layer states
+        active: new Set(),
+        voices: new Map(),  // layerId -> voice/interval
+
+        // Root note (A2 = 110Hz)
+        root: 110,
+
+        // Chord progression state
+        chordIndex: 0,
+        progression: [
+            { root: 0, type: 'minor' },      // Am
+            { root: 5, type: 'major' },      // D
+            { root: 7, type: 'minor' },      // Em
+            { root: 0, type: 'major' },      // A
+        ],
+
+        // Layer definitions - SHAPES unlock these
+        definitions: {
+            // PATH patterns unlock basic textures
+            'path_horizontal': { layer: 'pad_filter', name: 'Filter Pad' },
+            'path_vertical': { layer: 'pad_pitch', name: 'Pitch Pad' },
+            'path_up': { layer: 'arp_up', name: 'Rising Arp' },
+            'path_down': { layer: 'arp_down', name: 'Falling Arp' },
+
+            // SHAPE patterns unlock rich layers
+            'shape_triangle_top': { layer: 'triad', name: 'Triad' },
+            'shape_triangle_down': { layer: 'triad_inv', name: 'Inverted Triad' },
+            'shape_square': { layer: 'progression', name: 'Chord Progression' },
+            'shape_cross_plus': { layer: 'rhythm', name: 'Rhythm' },
+            'shape_cross_x': { layer: 'counter_rhythm', name: 'Counter Rhythm' },
+            'shape_circle_cw': { layer: 'build', name: 'Build' },
+            'shape_circle_ccw': { layer: 'release', name: 'Release' },
+            'shape_figure_8': { layer: 'infinity', name: 'Infinity Drone' },
+            'shape_spiral_in': { layer: 'focus', name: 'Focus' },
+            'shape_spiral_out': { layer: 'expand', name: 'Expansion' },
+
+            // SPECIAL patterns unlock cinematic elements
+            'special_pendulum_ns': { layer: 'pendulum_bass', name: 'Pendulum Bass' },
+            'special_pendulum_ew': { layer: 'pendulum_filter', name: 'Pendulum Filter' },
+            'special_star': { layer: 'starburst', name: 'Starburst' },
+
+            // COMBO patterns unlock the full orchestra
+            'combo_corners_all': { layer: 'full_pad', name: 'Full Pad' },
+            'combo_edges_all': { layer: 'full_rhythm', name: 'Full Rhythm' },
+            'combo_all_zones': { layer: 'transcendence', name: 'Transcendence' },
+        },
+    };
 
     // Track active sounds per unlock
     const activeSounds = new Map();
 
     function triggerPatternResponse(pattern, data) {
-        const musical = pattern.musical;
-        if (!musical) return;
+        const patternId = pattern.id;
+        const layerDef = musicLayers.definitions[patternId];
 
-        const currentEra = GumpUnlocks.currentEra;
+        if (layerDef && !musicLayers.active.has(layerDef.layer)) {
+            // NEW LAYER UNLOCKED
+            unlockMusicLayer(layerDef.layer, layerDef.name);
+        }
 
-        switch (musical.effect) {
-            case 'filter_sweep':
-                // Sweep master filter
-                const direction = data.direction === 'right' ? 'up' : 'down';
-                const targetFreq = direction === 'up' ? 5000 : 500;
-                GumpAudio.setFilterCutoff(targetFreq, 0.3);
+        // Also trigger immediate response based on pattern type
+        triggerImmediatePatternSound(pattern, data);
+    }
+
+    function unlockMusicLayer(layerId, layerName) {
+        if (musicLayers.active.has(layerId)) return;
+
+        console.log(`LAYER UNLOCKED: ${layerName}`);
+        musicLayers.active.add(layerId);
+
+        // Start the persistent layer sound
+        startMusicLayer(layerId);
+
+        // Visual/audio feedback for unlock
+        playLayerUnlockFanfare(layerId);
+    }
+
+    function startMusicLayer(layerId) {
+        const root = musicLayers.root;
+
+        switch (layerId) {
+            case 'pad_filter':
+                // Slow filter sweep pad
+                startFilterPad(root);
                 break;
 
-            case 'frequency_sweep':
-                // Frequency based on direction
-                const freqMult = data.direction === 'up' ? 2 : 0.5;
-                // Could modulate active sounds
+            case 'pad_pitch':
+                // Pitch-shifting pad
+                startPitchPad(root);
                 break;
 
-            case 'chord_change':
-                if (currentEra === 'sacred' || currentEra === 'modern') {
-                    // Play a chord change
-                    const rootFreq = GumpAudio.midiToFreq(48);  // C3
-                    GumpAudio.playChord(rootFreq, GumpAudio.CHORDS.major, 2, {
-                        waveform: 'sawtooth',
-                        volume: 0.2,
-                        channel: 'pads',
-                    });
-                }
+            case 'arp_up':
+                // Rising arpeggiator
+                startArpeggiator(root, 'up');
                 break;
 
-            case 'key_change':
-                // Shift root note
+            case 'arp_down':
+                // Falling arpeggiator
+                startArpeggiator(root, 'down');
+                break;
+
+            case 'triad':
+                // Basic triad layer
+                startTriadLayer(root, 'root');
+                break;
+
+            case 'triad_inv':
+                // Inverted triad
+                startTriadLayer(root, 'first');
+                break;
+
+            case 'progression':
+                // Full chord progression
+                startProgressionLayer(root);
+                break;
+
+            case 'rhythm':
+                // Rhythmic pulse
+                startRhythmLayer(root);
+                break;
+
+            case 'counter_rhythm':
+                // Counter rhythm
+                startCounterRhythmLayer(root);
                 break;
 
             case 'build':
-                if (currentEra === 'tribal' || currentEra === 'modern') {
-                    // Start building intensity
-                    GumpAudio.setFilterCutoff(8000, 2);
-                    GumpAudio.setMasterVolume(0.9, 2);
-                }
+                // Building tension
+                startBuildLayer(root);
                 break;
 
-            case 'drop':
-                if (currentEra === 'tribal' || currentEra === 'modern') {
-                    // Drop - big impact
-                    GumpDrums.play808Deep({ volume: 1.0 });
-                    GumpBass.play808Long({ freq: 36, volume: 0.9 });
-                    GumpAudio.setFilterCutoff(500, 0.1);
-                }
+            case 'infinity':
+                // Infinite sustaining drone
+                startInfinityDrone(root);
                 break;
 
-            case 'pendulum':
-                // Oscillating sound
+            case 'pendulum_bass':
+                // Oscillating bass
+                startPendulumBass(root);
                 break;
 
             case 'starburst':
-                // Multiple directions at once
+                // Starburst effect
+                triggerStarburst(root);
+                break;
+
+            case 'full_pad':
+                // Full orchestral pad
+                startFullPad(root);
+                break;
+
+            case 'transcendence':
+                // Everything at once
+                triggerTranscendence(root);
                 break;
         }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // LAYER IMPLEMENTATIONS - CINEMATIC SOUNDS
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function startFilterPad(root) {
+        // Rich, evolving pad with filter movement
+        const voice = GumpAudio.createVoice?.('supersaw', {
+            freq: root,
+            voices: 7,
+            detune: 15,
+            volume: 0.15,
+            attack: 2,
+            filterFreq: 800,
+        });
+
+        if (voice) {
+            musicLayers.voices.set('pad_filter', voice);
+        }
+
+        // Also play a one-shot pad swell
+        GumpAudio.playChord?.(root, [0, 7, 12], 8, {
+            volume: 0.2,
+            attack: 2,
+            release: 4,
+            waveform: 'sawtooth',
+            channel: 'pads',
+        });
+    }
+
+    function startPitchPad(root) {
+        GumpAudio.playChord?.(root * 2, [0, 4, 7], 10, {
+            volume: 0.15,
+            attack: 3,
+            release: 5,
+            waveform: 'triangle',
+            channel: 'pads',
+        });
+    }
+
+    function startArpeggiator(root, direction) {
+        const notes = direction === 'up' ? [0, 4, 7, 12, 16, 12, 7, 4] : [16, 12, 7, 4, 0, 4, 7, 12];
+        let noteIndex = 0;
+
+        const interval = setInterval(() => {
+            if (!musicLayers.active.has(direction === 'up' ? 'arp_up' : 'arp_down')) {
+                clearInterval(interval);
+                return;
+            }
+
+            const semitone = notes[noteIndex];
+            const freq = root * 2 * Math.pow(2, semitone / 12);
+
+            GumpAudio.playTone?.(freq, 0.2, {
+                volume: 0.2,
+                attack: 0.01,
+                release: 0.15,
+            });
+
+            noteIndex = (noteIndex + 1) % notes.length;
+        }, 150);
+
+        musicLayers.voices.set(direction === 'up' ? 'arp_up' : 'arp_down', interval);
+    }
+
+    function startTriadLayer(root, inversion) {
+        const intervals = inversion === 'root' ? [0, 4, 7] : [4, 7, 12];
+
+        GumpAudio.playChord?.(root, intervals, 6, {
+            volume: 0.2,
+            attack: 1,
+            release: 3,
+            waveform: 'sawtooth',
+        });
+
+        // Add shimmer
+        GumpAudio.playChord?.(root * 4, [0, 4, 7], 5, {
+            volume: 0.08,
+            attack: 2,
+            release: 3,
+        });
+    }
+
+    function startProgressionLayer(root) {
+        let chordIndex = 0;
+
+        const playNextChord = () => {
+            if (!musicLayers.active.has('progression')) return;
+
+            const chord = musicLayers.progression[chordIndex];
+            const chordRoot = root * Math.pow(2, chord.root / 12);
+            const intervals = chord.type === 'major' ? [0, 4, 7] : [0, 3, 7];
+
+            // Rich chord voicing
+            GumpAudio.playChord?.(chordRoot, intervals, 3.5, {
+                volume: 0.25,
+                attack: 0.5,
+                release: 2,
+                waveform: 'sawtooth',
+                channel: 'pads',
+            });
+
+            // Bass note
+            GumpBass.playSubBass?.({ freq: chordRoot / 2, duration: 3, volume: 0.3 });
+
+            chordIndex = (chordIndex + 1) % musicLayers.progression.length;
+
+            // Schedule next chord
+            setTimeout(playNextChord, 4000);
+        };
+
+        playNextChord();
+        musicLayers.voices.set('progression', true);
+    }
+
+    function startRhythmLayer(root) {
+        let beat = 0;
+
+        const interval = setInterval(() => {
+            if (!musicLayers.active.has('rhythm')) {
+                clearInterval(interval);
+                return;
+            }
+
+            // 4-on-the-floor with variations
+            if (beat % 4 === 0) {
+                GumpDrums.playOrganicKick?.({ volume: 0.5 });
+            }
+            if (beat % 4 === 2) {
+                GumpDrums.playSnare808?.({ volume: 0.3 });
+            }
+            if (beat % 2 === 1) {
+                GumpDrums.playHiHat?.({ type: 'closed', volume: 0.2 });
+            }
+
+            beat++;
+        }, 250); // 240 BPM in 16ths = 60 BPM
+
+        musicLayers.voices.set('rhythm', interval);
+    }
+
+    function startCounterRhythmLayer(root) {
+        let beat = 0;
+
+        const interval = setInterval(() => {
+            if (!musicLayers.active.has('counter_rhythm')) {
+                clearInterval(interval);
+                return;
+            }
+
+            // Off-beat hits
+            if (beat % 4 === 1 || beat % 4 === 3) {
+                GumpDrums.playClick?.({ volume: 0.25 });
+            }
+            if (beat % 8 === 3) {
+                GumpDrums.playClap?.({ volume: 0.3 });
+            }
+
+            beat++;
+        }, 250);
+
+        musicLayers.voices.set('counter_rhythm', interval);
+    }
+
+    function startBuildLayer(root) {
+        // Rising tension - filter opens, volume builds
+        GumpAudio.setFilterCutoff?.(200, 0);
+
+        let buildPhase = 0;
+        const interval = setInterval(() => {
+            if (!musicLayers.active.has('build') || buildPhase > 100) {
+                clearInterval(interval);
+                return;
+            }
+
+            const filterFreq = 200 + buildPhase * 80;
+            GumpAudio.setFilterCutoff?.(filterFreq, 0.1);
+
+            if (buildPhase % 10 === 0) {
+                GumpAudio.playTone?.(root * (1 + buildPhase / 100), 0.3, {
+                    volume: 0.1 + buildPhase / 500,
+                    attack: 0.01,
+                });
+            }
+
+            buildPhase++;
+        }, 100);
+
+        musicLayers.voices.set('build', interval);
+    }
+
+    function startInfinityDrone(root) {
+        // Endless sustaining harmonics
+        const harmonics = [1, 1.5, 2, 3, 4];
+
+        harmonics.forEach((ratio, i) => {
+            GumpAudio.playTone?.(root * ratio, 30, {
+                volume: 0.1 / (i + 1),
+                attack: 3,
+                release: 5,
+                waveform: i === 0 ? 'sawtooth' : 'sine',
+            });
+        });
+    }
+
+    function startPendulumBass(root) {
+        let phase = 0;
+
+        const interval = setInterval(() => {
+            if (!musicLayers.active.has('pendulum_bass')) {
+                clearInterval(interval);
+                return;
+            }
+
+            // Oscillate between root and fifth
+            const freq = phase % 2 === 0 ? root / 2 : root / 2 * 1.5;
+            GumpBass.playSubBass?.({ freq, duration: 0.8, volume: 0.35 });
+
+            phase++;
+        }, 1000);
+
+        musicLayers.voices.set('pendulum_bass', interval);
+    }
+
+    function triggerStarburst(root) {
+        // Explosion of notes in all directions
+        const notes = [0, 2, 4, 5, 7, 9, 11, 12];
+
+        notes.forEach((semitone, i) => {
+            setTimeout(() => {
+                const freq = root * 2 * Math.pow(2, semitone / 12);
+                GumpAudio.playTone?.(freq, 0.4, {
+                    volume: 0.25,
+                    attack: 0.01,
+                    release: 0.3,
+                });
+            }, i * 50);
+        });
+
+        // Impact
+        GumpDrums.play808Deep?.({ volume: 0.7 });
+    }
+
+    function startFullPad(root) {
+        // Massive orchestral pad - multiple octaves
+        [-1, 0, 1, 2].forEach(octave => {
+            const freq = root * Math.pow(2, octave);
+            GumpAudio.playChord?.(freq, [0, 4, 7], 15, {
+                volume: 0.1,
+                attack: 4,
+                release: 6,
+                waveform: 'sawtooth',
+            });
+        });
+    }
+
+    function triggerTranscendence(root) {
+        console.log('TRANSCENDENCE ACHIEVED');
+
+        // Everything at once - the ultimate moment
+        // Sub bass
+        GumpBass.play808Long?.({ freq: root / 4, volume: 0.8 });
+
+        // Massive chord stack
+        [-1, 0, 1, 2, 3].forEach((octave, i) => {
+            setTimeout(() => {
+                const freq = root * Math.pow(2, octave);
+                GumpAudio.playChord?.(freq, [0, 4, 7, 11], 8, {
+                    volume: 0.15,
+                    attack: 0.5 + i * 0.5,
+                    release: 4,
+                    waveform: 'sawtooth',
+                });
+            }, i * 200);
+        });
+
+        // Drum hit
+        setTimeout(() => {
+            GumpDrums.play808Deep?.({ volume: 1.0 });
+            GumpDrums.playClap?.({ volume: 0.6 });
+        }, 1000);
+
+        // Filter sweep
+        GumpAudio.setFilterCutoff?.(500, 0);
+        setTimeout(() => {
+            GumpAudio.setFilterCutoff?.(8000, 3);
+        }, 100);
+    }
+
+    function playLayerUnlockFanfare(layerId) {
+        const root = musicLayers.root * 2;
+
+        // Quick ascending notes
+        [0, 4, 7, 12].forEach((semitone, i) => {
+            setTimeout(() => {
+                const freq = root * Math.pow(2, semitone / 12);
+                GumpAudio.playTone?.(freq, 0.2, {
+                    volume: 0.3,
+                    attack: 0.01,
+                    release: 0.15,
+                });
+            }, i * 80);
+        });
+    }
+
+    function triggerImmediatePatternSound(pattern, data) {
+        const musical = pattern.musical;
+        if (!musical) return;
+
+        // Quick immediate feedback based on pattern type
+        switch (musical.effect) {
+            case 'filter_sweep':
+            case 'filter_open':
+                GumpAudio.setFilterCutoff?.(4000, 0.3);
+                break;
+            case 'filter_close':
+                GumpAudio.setFilterCutoff?.(500, 0.3);
+                break;
+            case 'ascend':
+                playQuickScale(musicLayers.root * 2, 'up');
+                break;
+            case 'descend':
+                playQuickScale(musicLayers.root * 2, 'down');
+                break;
+            case 'drop':
+                GumpDrums.play808Deep?.({ volume: 0.8 });
+                GumpBass.play808Long?.({ freq: musicLayers.root / 2, volume: 0.7 });
+                break;
+        }
+    }
+
+    function playQuickScale(root, direction) {
+        const scale = [0, 2, 4, 5, 7];
+        const notes = direction === 'up' ? scale : [...scale].reverse();
+
+        notes.forEach((semitone, i) => {
+            setTimeout(() => {
+                const freq = root * Math.pow(2, semitone / 12);
+                GumpAudio.playTone?.(freq, 0.15, {
+                    volume: 0.25,
+                    attack: 0.01,
+                    release: 0.1,
+                });
+            }, i * 60);
+        });
+    }
+
+    // Reset all layers (called when holding center)
+    function resetMusicLayers() {
+        // Stop all intervals
+        for (const [layerId, voice] of musicLayers.voices.entries()) {
+            if (typeof voice === 'number') {
+                clearInterval(voice);
+            }
+        }
+
+        musicLayers.active.clear();
+        musicLayers.voices.clear();
+        musicLayers.chordIndex = 0;
+
+        console.log('Music layers reset');
     }
 
     // Track continuous sound state
@@ -1349,6 +1808,12 @@ const GUMP = (function() {
             evolution.easterEggs.meditationMode = false;
         }
 
+        // RESET music layers when dwelling in center for 8+ seconds
+        if (zone === 'center' && evolution.stillnessTime > 8 && musicLayers.active.size > 0) {
+            resetMusicLayers();
+            evolution.stillnessTime = 0; // Prevent repeat reset
+        }
+
         // === EASTER EGG 3: Earthquake ===
         // Rapid shaking
         if (evolution.shakeIntensity > 0.8 && !evolution.easterEggs.earthquakeTriggered) {
@@ -2041,14 +2506,36 @@ const GUMP = (function() {
             ctx.stroke();
         }
 
-        // Journey progress (bottom left)
+        // UNLOCKED LAYERS (left side)
         ctx.textAlign = 'left';
+        ctx.font = '9px monospace';
+        const layers = Array.from(musicLayers.active);
+        if (layers.length > 0) {
+            ctx.fillStyle = 'rgba(100, 255, 150, 0.3)';
+            ctx.fillText('LAYERS:', 20, h - 100);
+            layers.slice(-6).forEach((layer, i) => {
+                const def = Object.values(musicLayers.definitions).find(d => d.layer === layer);
+                const name = def?.name || layer;
+                ctx.fillStyle = 'rgba(100, 255, 150, 0.5)';
+                ctx.fillText(`◆ ${name}`, 20, h - 85 + i * 12);
+            });
+        }
+
+        // Journey progress (bottom left)
         if (evolution.zonesVisited.size > 0 && evolution.zonesVisited.size < 9) {
             ctx.fillStyle = 'rgba(255, 215, 0, 0.2)';
             ctx.fillText(`Journey: ${evolution.zonesVisited.size}/9`, 20, h - 20);
         } else if (evolution.easterEggs.journeyComplete) {
             ctx.fillStyle = 'rgba(255, 215, 0, 0.4)';
-            ctx.fillText('✦ Journey Complete', 20, h - 20);
+            ctx.fillText('Journey Complete', 20, h - 20);
+        }
+
+        // Reset indicator (when dwelling in center)
+        if (zone === 'center' && dwellTime > 3) {
+            const resetProgress = Math.min(1, (dwellTime - 3) / 5);
+            ctx.fillStyle = `rgba(255, 100, 100, ${resetProgress * 0.5})`;
+            ctx.textAlign = 'center';
+            ctx.fillText('RESET ' + Math.floor(resetProgress * 100) + '%', w / 2, h / 2 + 80);
         }
 
         // Dialogue indicator
