@@ -463,77 +463,54 @@ const GumpAudio = (function() {
     // PLAYBACK CONTROL
     // ═══════════════════════════════════════════════════════════════════════
 
-    function mdbg(msg) {
-        console.log(msg);
-        const el = document.getElementById('mobile-debug');
-        if (el) el.innerHTML = msg + '<br>' + el.innerHTML.slice(0, 400);
-    }
-
     async function start() {
-        mdbg('engine.start()');
         if (!audioState.isInitialized) {
-            mdbg('engine not init, calling init');
             await init();
         }
 
         const ctx = audioState.ctx;
-        mdbg('ctx state: ' + ctx.state);
 
         // iOS: Don't await resume - it can hang. Just call it and continue.
         if (ctx.state === 'suspended') {
-            mdbg('calling resume (no await)...');
-            ctx.resume().then(() => {
-                mdbg('resume resolved: ' + ctx.state);
-            }).catch(e => {
-                mdbg('resume err: ' + e.message);
-            });
-            // Give it a moment
+            ctx.resume().catch(e => console.log('Resume failed:', e));
             await new Promise(r => setTimeout(r, 100));
-            mdbg('after resume wait, state: ' + ctx.state);
         }
 
-        mdbg('playing silent buffer...');
-        // iOS audio unlock - play silent buffer to unlock audio
+        // iOS audio unlock - play silent buffer
         try {
             const silentBuffer = ctx.createBuffer(1, 1, ctx.sampleRate);
             const silentSource = ctx.createBufferSource();
             silentSource.buffer = silentBuffer;
             silentSource.connect(ctx.destination);
             silentSource.start(0);
-            mdbg('silent buffer played');
-        } catch (e) {
-            mdbg('silent err: ' + e.message);
-        }
+        } catch (e) { /* ignore */ }
 
         audioState.isRunning = true;
         audioState.isSuspended = false;
         audioState.nextBeatTime = ctx.currentTime;
 
-        mdbg('playing startup drone...');
-        // Play startup drone through routing
+        // Play startup drone
         try {
             const startupOsc = ctx.createOscillator();
             const startupGain = ctx.createGain();
             startupOsc.type = 'sine';
             startupOsc.frequency.value = 110;
-            startupGain.gain.value = 0.25;
 
             startupOsc.connect(startupGain);
             startupGain.connect(audioState.channels.synth);
 
             const now = ctx.currentTime;
             startupGain.gain.setValueAtTime(0, now);
-            startupGain.gain.linearRampToValueAtTime(0.25, now + 0.5);
-            startupGain.gain.setValueAtTime(0.25, now + 1.5);
-            startupGain.gain.exponentialRampToValueAtTime(0.001, now + 3);
+            startupGain.gain.linearRampToValueAtTime(0.2, now + 0.5);
+            startupGain.gain.exponentialRampToValueAtTime(0.001, now + 2);
 
             startupOsc.start(now);
-            startupOsc.stop(now + 3.1);
-            mdbg('drone started');
+            startupOsc.stop(now + 2.1);
         } catch (e) {
-            mdbg('drone err: ' + e.message);
+            console.error('Startup drone failed:', e);
         }
-        mdbg('engine.start() done');
+
+        console.log('Audio started');
     }
 
     function stop() {
@@ -943,11 +920,8 @@ const GumpAudio = (function() {
 
     function playTone(freq, duration = 1, options = {}) {
         if (!audioState.isInitialized || !audioState.ctx) {
-            console.error('Audio not initialized');
             return null;
         }
-
-        console.log('playTone called:', freq, 'Hz, duration:', duration, 'options:', options);
 
         const voice = createVoice(options.waveform || 'sine', {
             freq,
@@ -955,11 +929,8 @@ const GumpAudio = (function() {
         });
 
         if (!voice) {
-            console.error('Failed to create voice');
             return null;
         }
-
-        console.log('Voice created successfully, id:', voice.id);
 
         if (duration > 0) {
             setTimeout(() => releaseVoice(voice), duration * 1000);

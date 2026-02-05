@@ -56,55 +56,36 @@ const GUMP = (function() {
     // INITIALIZATION
     // ═══════════════════════════════════════════════════════════════════════
 
-    function mdbg(msg) {
-        console.log(msg);
-        const el = document.getElementById('mobile-debug');
-        if (el) el.innerHTML = msg + '<br>' + el.innerHTML.slice(0, 400);
-    }
-
     async function init() {
         if (app.isInitialized) {
-            mdbg('already init');
             return true;
         }
 
-        mdbg('init starting...');
+        console.log('Initializing GUMP...');
 
         try {
-            // Setup canvas FIRST - this must work
-            mdbg('setupCanvas...');
             setupCanvas();
-
-            mdbg('setupInput...');
             setupInput();
-
-            mdbg('setupEventListeners...');
             setupEventListeners();
-
-            mdbg('startSession...');
             GumpState.startSession();
 
             // Initialize audio (don't let failure stop the app)
-            mdbg('audio init...');
             try {
                 const audioInitialized = await GumpAudio.init();
-                mdbg('audio init result: ' + audioInitialized);
                 if (audioInitialized) {
                     GumpDrums.init(GumpAudio.context, GumpAudio.channels.drums);
                     GumpBass.init(GumpAudio.context, GumpAudio.channels.bass);
-                    mdbg('drums+bass init done');
                 }
             } catch (audioError) {
-                mdbg('audio err: ' + audioError.message);
+                console.error('Audio init failed:', audioError);
             }
 
             app.isInitialized = true;
-            mdbg('init complete');
-
+            console.log('GUMP initialized');
             return true;
 
         } catch (error) {
-            mdbg('init FAILED: ' + error.message);
+            console.error('Failed to initialize GUMP:', error);
             return false;
         }
     }
@@ -562,14 +543,7 @@ const GUMP = (function() {
 
         const sound = unlock.sound;
         const ctx = GumpAudio.context;
-
-        if (!ctx) {
-            console.error('No audio context for', id);
-            return;
-        }
-
-        const now = ctx.currentTime;
-        console.log('activateUnlockSound:', id, 'type:', sound.type, 'freq:', sound.freq);
+        if (!ctx) return;
 
         let soundObj = null;
 
@@ -1093,22 +1067,16 @@ const GUMP = (function() {
     // ═══════════════════════════════════════════════════════════════════════
 
     async function start() {
-        mdbg('start() called');
         if (!app.isInitialized) {
-            mdbg('calling init...');
             await init();
-            mdbg('init returned');
         }
 
         // Start audio (don't let failure stop the app)
         try {
-            mdbg('audio isInit: ' + GumpAudio.isInitialized);
             if (GumpAudio.isInitialized) {
-                mdbg('calling GumpAudio.start...');
                 await GumpAudio.start();
-                mdbg('GumpAudio.start done');
 
-                // Activate unlocked items
+                // Activate unlocked sounds
                 for (const id of GumpUnlocks.state.unlocked) {
                     const unlock = GumpUnlocks.getUnlock(id);
                     if (unlock && unlock.sound) {
@@ -1116,19 +1084,16 @@ const GUMP = (function() {
                         try {
                             activateUnlockSound(id, unlock);
                         } catch (e) {
-                            mdbg('sound err: ' + e.message);
+                            console.error('Sound activation failed:', id, e);
                         }
                     }
                 }
-            } else {
-                mdbg('no audio, skipping');
             }
         } catch (audioError) {
-            mdbg('audio start err: ' + audioError.message);
+            console.error('Audio start failed:', audioError);
         }
 
         // ALWAYS start the render loop
-        mdbg('starting render loop');
         app.isRunning = true;
         app.lastTime = 0;
 
