@@ -55,6 +55,7 @@ const GumpConductor = (function() {
         tiltX: 0,
         tiltY: 0,
         tiltPermission: false,
+        needsTiltPermission: false,
 
         // Musical state
         currentHarmony: 0,  // Which chord in progression
@@ -223,28 +224,51 @@ const GumpConductor = (function() {
     }
 
     function requestTiltPermission() {
+        // Check if iOS requires permission
         if (typeof DeviceOrientationEvent !== 'undefined' &&
             typeof DeviceOrientationEvent.requestPermission === 'function') {
-            const request = async () => {
-                try {
-                    const perm = await DeviceOrientationEvent.requestPermission();
-                    if (perm === 'granted') {
-                        state.tiltPermission = true;
-                        window.addEventListener('deviceorientation', onTilt, true);
-                        notify('Tilt enabled!');
-                    }
-                } catch (e) { console.warn('Tilt denied:', e); }
-                document.removeEventListener('touchstart', request);
-            };
-            document.addEventListener('touchstart', request, { once: true });
+
+            console.log('[Conductor] iOS detected - will request tilt permission on first touch');
+            state.needsTiltPermission = true;
+
         } else if (typeof DeviceOrientationEvent !== 'undefined') {
+            // Non-iOS - just add listener
             state.tiltPermission = true;
             window.addEventListener('deviceorientation', onTilt, true);
+            console.log('[Conductor] Tilt enabled (non-iOS)');
+        }
+    }
+
+    async function doTiltPermissionRequest() {
+        if (!state.needsTiltPermission || state.tiltPermission) return;
+
+        try {
+            console.log('[Conductor] Requesting tilt permission...');
+            const permission = await DeviceOrientationEvent.requestPermission();
+
+            if (permission === 'granted') {
+                state.tiltPermission = true;
+                state.needsTiltPermission = false;
+                window.addEventListener('deviceorientation', onTilt, true);
+                notify('TILT ENABLED!');
+                console.log('[Conductor] Tilt permission GRANTED!');
+            } else {
+                console.log('[Conductor] Tilt permission denied');
+                notify('Tilt denied');
+            }
+        } catch (e) {
+            console.error('[Conductor] Tilt permission error:', e);
         }
     }
 
     function onTouchStart(e) {
         e.preventDefault();
+
+        // Request tilt permission on first touch (iOS requirement)
+        if (state.needsTiltPermission && !state.tiltPermission) {
+            doTiltPermissionRequest();
+        }
+
         const t = e.touches[0];
         startGesture(t.clientX / window.innerWidth, t.clientY / window.innerHeight);
     }
