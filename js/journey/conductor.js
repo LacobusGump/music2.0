@@ -1,27 +1,15 @@
 /**
- * GUMP CONDUCTOR v2 - Music That Dances To You
+ * GUMP CONDUCTOR v3 - Instant & Fluid
  *
- * YOUR GESTURES UNRAVEL THE MUSIC:
+ * NO DELAY. NO BOXES. Just continuous space.
  *
- * POSITION:
- *   X = Register (left=bass, right=treble) + which instruments
- *   Y = Note in scale (top=high, bottom=low)
+ * X = pitch (left=low, right=high) - SMOOTH, not stepped
+ * Y = note in scale
+ * TILT = vibrato + brightness
  *
- * MOVEMENT:
- *   Slow = legato swells, sustained pads
- *   Fast = staccato plucks, arpeggios
- *   Sweeps = melodic runs following your path
- *
- * TILT:
- *   Left/Right = vibrato depth + stereo pan
- *   Forward = filter opens (brightness)
- *
- * ZONES:
- *   Where you are affects the harmony
- *   Moving between zones creates chord changes
- *
- * ENERGY:
- *   Builds from movement → unlocks groove → climax → resolution
+ * Touch = instant sound
+ * Move = melody follows your finger
+ * Energy builds → groove descends
  */
 
 const GumpConductor = (function() {
@@ -149,14 +137,7 @@ const GumpConductor = (function() {
         }
     };
 
-    // Instrument characters based on X position
-    const SECTIONS = {
-        bass:   { range: [0, 0.2], octave: 2, attack: 0.15, brightness: 0.2, type: 'bass' },
-        cello:  { range: [0.2, 0.4], octave: 3, attack: 0.1, brightness: 0.35, type: 'strings' },
-        viola:  { range: [0.4, 0.6], octave: 3, attack: 0.08, brightness: 0.5, type: 'strings' },
-        violin: { range: [0.6, 0.8], octave: 4, attack: 0.05, brightness: 0.7, type: 'strings' },
-        high:   { range: [0.8, 1.0], octave: 5, attack: 0.03, brightness: 0.85, type: 'pluck' }
-    };
+    // No rigid sections - continuous fluid space
 
     // ═══════════════════════════════════════════════════════════════════════
     // INITIALIZATION
@@ -313,10 +294,9 @@ const GumpConductor = (function() {
         state.gesturePoints = [{ x, y, time: performance.now() }];
         state.lastGestureTime = performance.now();
 
-        // Immediate response - play a note at this position
-        playMelodicNote(x, y, 0.7, 'attack');
+        // INSTANT response
+        playNote(x, y, 0.7);
 
-        // Boost energy
         state.energy = Math.min(1, state.energy + 0.03);
     }
 
@@ -324,315 +304,107 @@ const GumpConductor = (function() {
         if (!state.touching) return;
 
         const now = performance.now();
-        const dx = x - state.lastTouchX;
-        const dy = y - state.lastTouchY;
+        const dx = x - state.touchX;
+        const dy = y - state.touchY;
         const dist = Math.sqrt(dx * dx + dy * dy);
-        const dt = (now - state.lastGestureTime) / 1000;
 
-        // Calculate velocity and direction
-        state.touchVelocity = dt > 0 ? dist / dt : 0;
-        state.touchDirection = Math.atan2(dy, dx);
+        // Only play if moved enough (prevents retriggering)
+        if (dist > 0.008) {
+            const velocity = Math.min(1, dist * 15);
+            playNote(x, y, 0.3 + velocity * 0.4);
 
-        // Record gesture path
-        state.gesturePoints.push({ x, y, time: now });
-        if (state.gesturePoints.length > 30) state.gesturePoints.shift();
+            state.lastTouchX = state.touchX;
+            state.lastTouchY = state.touchY;
+            state.touchX = x;
+            state.touchY = y;
 
-        // Determine gesture type based on velocity
-        if (state.touchVelocity > 0.8) {
-            state.gestureType = 'sweep';
-        } else if (state.touchVelocity < 0.1) {
-            state.gestureType = 'hold';
-        } else {
-            state.gestureType = 'move';
+            state.energy = Math.min(1, state.energy + dist * 0.3);
         }
 
-        // MUSICAL RESPONSE based on gesture type
-        if (state.gestureType === 'sweep' && dist > 0.02) {
-            // Fast sweep = trigger melodic run
-            playMelodicNote(x, y, 0.5 + state.touchVelocity * 0.3, 'staccato');
-        } else if (state.gestureType === 'hold') {
-            // Holding = swell the current sound
-            updateHeldNote(x, y);
-        } else if (dist > 0.015) {
-            // Normal movement = legato melody
-            playMelodicNote(x, y, 0.4, 'legato');
-        }
-
-        // Zone-based harmony changes
-        const newHarmony = getHarmonyFromPosition(x, y);
-        if (newHarmony !== state.currentHarmony) {
-            state.currentHarmony = newHarmony;
-            playHarmonyChange(newHarmony);
-        }
-
-        // Update state
-        state.lastTouchX = state.touchX;
-        state.lastTouchY = state.touchY;
-        state.touchX = x;
-        state.touchY = y;
         state.lastGestureTime = now;
-
-        // Build energy from movement
-        state.energy = Math.min(1, state.energy + dist * 0.5);
     }
 
     function endGesture() {
-        if (!state.touching) return;
-
-        // Analyze the complete gesture
-        const gestureDuration = performance.now() - state.gesturePoints[0]?.time || 0;
-        const totalDist = calculateGestureLength();
-
-        // Quick tap = pluck
-        if (gestureDuration < 200 && totalDist < 0.05) {
-            playPluck(state.touchX, state.touchY, 0.8);
-        }
-        // Long hold = release swell
-        else if (state.gestureType === 'hold' && gestureDuration > 500) {
-            releaseHeldNote();
-        }
-
         state.touching = false;
-        state.gestureType = null;
-        state.touchVelocity = 0;
-    }
-
-    function calculateGestureLength() {
-        let len = 0;
-        for (let i = 1; i < state.gesturePoints.length; i++) {
-            const dx = state.gesturePoints[i].x - state.gesturePoints[i-1].x;
-            const dy = state.gesturePoints[i].y - state.gesturePoints[i-1].y;
-            len += Math.sqrt(dx * dx + dy * dy);
-        }
-        return len;
-    }
-
-    function getHarmonyFromPosition(x, y) {
-        // Divide screen into 4 harmonic zones
-        const zone = Math.floor(x * 2) + Math.floor(y * 2) * 2;
-        return zone % 4;
     }
 
     // ═══════════════════════════════════════════════════════════════════════
     // SOUND GENERATION - Where position becomes music
     // ═══════════════════════════════════════════════════════════════════════
 
-    function playMelodicNote(x, y, velocity, articulation) {
+    // ═══════════════════════════════════════════════════════════════════════
+    // INSTANT, FLUID NOTE - no boxes, just continuous space
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function playNote(x, y, velocity) {
         if (!ctx) return;
 
         const act = ACTS[state.act];
-        const section = getSectionFromX(x);
-        const note = getNoteFromY(y, act.scale, section.octave);
-        const freq = act.root * Math.pow(2, note / 12);
-
         const now = ctx.currentTime;
 
-        // Different articulations
-        let attack, sustain, release;
-        if (articulation === 'staccato') {
-            attack = 0.01;
-            sustain = 0.05;
-            release = 0.1;
-        } else if (articulation === 'legato') {
-            attack = 0.08;
-            sustain = 0.2;
-            release = 0.3;
-        } else { // attack
-            attack = 0.02;
-            sustain = 0.15;
-            release = 0.2;
-        }
+        // CONTINUOUS mapping - no rigid zones
+        // X = octave (smooth blend from low to high)
+        // Y = note in scale
+        const octave = 2 + x * 3;  // Ranges from octave 2 to 5
+        const scaleIndex = Math.floor((1 - y) * act.scale.length);
+        const note = act.scale[Math.min(scaleIndex, act.scale.length - 1)];
+        const freq = act.root * Math.pow(2, (note + octave * 12 - 36) / 12);
 
-        // Create the voice based on section type
-        if (section.type === 'bass') {
-            playBassNote(freq, velocity, attack, sustain, release);
-        } else if (section.type === 'pluck') {
-            playPluckNote(freq, velocity);
-        } else {
-            playStringNote(freq, velocity, attack, sustain, release, section);
-        }
+        // Brightness from X position (right = brighter)
+        const brightness = 0.3 + x * 0.7;
 
-        state.lastMelodyNote = { freq, time: now };
-    }
+        // Attack from velocity (faster movement = snappier)
+        const attack = 0.005;  // INSTANT
 
-    function getSectionFromX(x) {
-        for (const [name, sec] of Object.entries(SECTIONS)) {
-            if (x >= sec.range[0] && x < sec.range[1]) {
-                return { ...sec, name };
-            }
-        }
-        return SECTIONS.viola;
-    }
-
-    function getNoteFromY(y, scale, octave) {
-        // Y position maps to scale degree (inverted: top = high)
-        const normalY = 1 - y;
-        const scaleIndex = Math.floor(normalY * scale.length);
-        const note = scale[Math.min(scaleIndex, scale.length - 1)];
-        return note + (octave * 12);
-    }
-
-    function playStringNote(freq, velocity, attack, sustain, release, section) {
-        const now = ctx.currentTime;
-        const duration = attack + sustain + release;
-
-        // Multiple detuned oscillators
-        const oscs = [];
-        for (let i = 0; i < 3; i++) {
-            const osc = ctx.createOscillator();
-            osc.type = 'sawtooth';
-            osc.frequency.value = freq;
-            osc.detune.value = (i - 1) * 8 + (Math.random() - 0.5) * 4;
-            oscs.push(osc);
-        }
+        // Create voice
+        const osc1 = ctx.createOscillator();
+        const osc2 = ctx.createOscillator();
+        osc1.type = 'sawtooth';
+        osc2.type = 'triangle';
+        osc1.frequency.value = freq;
+        osc2.frequency.value = freq;
+        osc2.detune.value = 7;
 
         // Vibrato from tilt
-        const vibrato = ctx.createOscillator();
-        vibrato.frequency.value = 5 + Math.random();
-        const vibGain = ctx.createGain();
-        vibGain.gain.value = freq * 0.003 * (0.3 + Math.abs(state.tiltX) * 0.7);
-        vibrato.connect(vibGain);
-        oscs.forEach(o => vibGain.connect(o.frequency));
+        if (Math.abs(state.tiltX) > 0.1) {
+            const vib = ctx.createOscillator();
+            vib.frequency.value = 5;
+            const vibGain = ctx.createGain();
+            vibGain.gain.value = freq * 0.006 * Math.abs(state.tiltX);
+            vib.connect(vibGain);
+            vibGain.connect(osc1.frequency);
+            vibGain.connect(osc2.frequency);
+            vib.start(now);
+            vib.stop(now + 0.5);
+        }
 
-        // Filter - brightness from tilt Y and section
+        // Filter
         const filter = ctx.createBiquadFilter();
         filter.type = 'lowpass';
-        const brightness = section.brightness + Math.max(0, state.tiltY) * 0.3;
-        filter.frequency.value = 400 + brightness * 3000 + velocity * 2000;
-        filter.Q.value = 1;
+        filter.frequency.value = 300 + brightness * 3000 + Math.max(0, state.tiltY) * 2000;
+        filter.Q.value = 0.8;
 
-        // Envelope
+        // INSTANT envelope
         const env = ctx.createGain();
-        env.gain.setValueAtTime(0, now);
-        env.gain.linearRampToValueAtTime(velocity * 0.2, now + attack);
-        env.gain.setValueAtTime(velocity * 0.2, now + attack + sustain);
-        env.gain.linearRampToValueAtTime(0, now + duration);
+        env.gain.setValueAtTime(velocity * 0.22, now);
+        env.gain.exponentialRampToValueAtTime(0.001, now + 0.25 + (1 - velocity) * 0.2);
 
-        // Pan from tilt
+        // Pan from X and tilt
         const panner = ctx.createStereoPanner();
-        panner.pan.value = state.tiltX * 0.6;
+        panner.pan.value = (x - 0.5) * 0.5 + state.tiltX * 0.4;
 
         // Connect
-        const mix = ctx.createGain();
-        mix.gain.value = 1 / oscs.length;
-        oscs.forEach(o => o.connect(mix));
-        mix.connect(filter);
+        osc1.connect(filter);
+        osc2.connect(filter);
         filter.connect(env);
         env.connect(panner);
         panner.connect(masterGain);
         panner.connect(reverbNode);
 
-        // Start
-        oscs.forEach(o => { o.start(now); o.stop(now + duration + 0.1); });
-        vibrato.start(now);
-        vibrato.stop(now + duration + 0.1);
-    }
-
-    function playBassNote(freq, velocity, attack, sustain, release) {
-        const now = ctx.currentTime;
-        const duration = attack + sustain + release;
-
-        // Sub oscillator
-        const sub = ctx.createOscillator();
-        sub.type = 'sine';
-        sub.frequency.value = freq / 2;
-
-        // Body
-        const body = ctx.createOscillator();
-        body.type = 'triangle';
-        body.frequency.value = freq;
-
-        // Filter
-        const filter = ctx.createBiquadFilter();
-        filter.type = 'lowpass';
-        filter.frequency.value = 200 + velocity * 400;
-
-        // Envelope
-        const env = ctx.createGain();
-        env.gain.setValueAtTime(0, now);
-        env.gain.linearRampToValueAtTime(velocity * 0.35, now + attack);
-        env.gain.linearRampToValueAtTime(velocity * 0.25, now + attack + sustain);
-        env.gain.linearRampToValueAtTime(0, now + duration);
-
-        // Connect
-        sub.connect(filter);
-        body.connect(filter);
-        filter.connect(env);
-        env.connect(masterGain);
-
-        sub.start(now); sub.stop(now + duration + 0.1);
-        body.start(now); body.stop(now + duration + 0.1);
-    }
-
-    function playPluckNote(freq, velocity) {
-        const now = ctx.currentTime;
-
-        const osc = ctx.createOscillator();
-        osc.type = 'triangle';
-        osc.frequency.value = freq;
-
-        const filter = ctx.createBiquadFilter();
-        filter.type = 'lowpass';
-        filter.frequency.setValueAtTime(freq * 8, now);
-        filter.frequency.exponentialRampToValueAtTime(freq * 2, now + 0.1);
-
-        const env = ctx.createGain();
-        env.gain.setValueAtTime(velocity * 0.3, now);
-        env.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
-
-        osc.connect(filter);
-        filter.connect(env);
-        env.connect(masterGain);
-        env.connect(reverbNode);
-
-        osc.start(now); osc.stop(now + 0.5);
-    }
-
-    function playPluck(x, y, velocity) {
-        const act = ACTS[state.act];
-        const section = getSectionFromX(x);
-        const note = getNoteFromY(y, act.scale, section.octave);
-        const freq = act.root * Math.pow(2, note / 12);
-        playPluckNote(freq, velocity);
-    }
-
-    function playHarmonyChange(harmonyIndex) {
-        const act = ACTS[state.act];
-        const chord = act.chords[harmonyIndex];
-        if (!chord) return;
-
-        const now = ctx.currentTime;
-
-        // Soft pad for harmony change
-        chord.forEach((interval, i) => {
-            const freq = act.root * Math.pow(2, interval / 12);
-
-            setTimeout(() => {
-                const osc = ctx.createOscillator();
-                osc.type = 'sine';
-                osc.frequency.value = freq;
-
-                const env = ctx.createGain();
-                env.gain.setValueAtTime(0, ctx.currentTime);
-                env.gain.linearRampToValueAtTime(0.08, ctx.currentTime + 0.3);
-                env.gain.linearRampToValueAtTime(0, ctx.currentTime + 2);
-
-                osc.connect(env);
-                env.connect(reverbNode);
-
-                osc.start(ctx.currentTime);
-                osc.stop(ctx.currentTime + 2.5);
-            }, i * 50);  // Slight arpeggio
-        });
-    }
-
-    function updateHeldNote(x, y) {
-        // Modulate ambient drone based on hold position
-        // Could add pitch bend, filter sweep, etc.
-    }
-
-    function releaseHeldNote() {
-        // Release any held sounds with a swell
+        osc1.start(now);
+        osc2.start(now);
+        osc1.stop(now + 0.5);
+        osc2.stop(now + 0.5);
     }
 
     // ═══════════════════════════════════════════════════════════════════════
