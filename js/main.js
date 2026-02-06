@@ -695,6 +695,621 @@ const GUMP = (function() {
     }
 
     // ═══════════════════════════════════════════════════════════════════════
+    // ZONE COMBO UNLOCK SYSTEM
+    // ═══════════════════════════════════════════════════════════════════════
+    //
+    // Visit combinations of zones to unlock unique music presets.
+    // Zones glow yellow when part of an active combo.
+    // Each combo = a different musical world.
+    //
+
+    const comboSystem = {
+        // Track visited zones in current session
+        visitedZones: new Set(),
+        activeCombo: null,
+        comboTimeout: null,
+        lastVisitTime: 0,
+
+        // Visual state for each zone
+        zoneGlow: {},  // zone -> glow intensity (0-1)
+
+        // Unlocked combos persist
+        unlockedCombos: new Set(),
+
+        // All possible combos and their music presets
+        combos: {
+            // Cardinal directions - NSEW combos
+            'nsew': {
+                zones: ['n', 's', 'e', 'w'],
+                name: 'The Cross',
+                preset: 'ambient_cross',
+                sound: { style: 'ambient', root: 55, mode: 'dorian', bpm: 70 }
+            },
+            'corners': {
+                zones: ['nw', 'ne', 'sw', 'se'],
+                name: 'Four Corners',
+                preset: 'epic_corners',
+                sound: { style: 'cinematic', root: 65, mode: 'minor', bpm: 90 }
+            },
+
+            // Triangles
+            'triangle_up': {
+                zones: ['sw', 'n', 'se'],
+                name: 'Rising Triangle',
+                preset: 'uplifting',
+                sound: { style: 'uplifting', root: 82, mode: 'major', bpm: 120 }
+            },
+            'triangle_down': {
+                zones: ['nw', 's', 'ne'],
+                name: 'Falling Triangle',
+                preset: 'melancholy',
+                sound: { style: 'melancholy', root: 49, mode: 'phrygian', bpm: 65 }
+            },
+            'triangle_left': {
+                zones: ['nw', 'w', 'sw'],
+                name: 'West Triangle',
+                preset: 'mysterious',
+                sound: { style: 'mysterious', root: 55, mode: 'locrian', bpm: 75 }
+            },
+            'triangle_right': {
+                zones: ['ne', 'e', 'se'],
+                name: 'East Triangle',
+                preset: 'energetic',
+                sound: { style: 'energetic', root: 73, mode: 'mixolydian', bpm: 130 }
+            },
+
+            // Lines
+            'vertical_line': {
+                zones: ['n', 'center', 's'],
+                name: 'Vertical Flow',
+                preset: 'vertical',
+                sound: { style: 'flowing', root: 55, mode: 'aeolian', bpm: 85 }
+            },
+            'horizontal_line': {
+                zones: ['w', 'center', 'e'],
+                name: 'Horizontal Flow',
+                preset: 'horizontal',
+                sound: { style: 'pulsing', root: 65, mode: 'lydian', bpm: 100 }
+            },
+            'diagonal_down': {
+                zones: ['nw', 'center', 'se'],
+                name: 'Descending Path',
+                preset: 'descent',
+                sound: { style: 'dark', root: 41, mode: 'phrygian', bpm: 60 }
+            },
+            'diagonal_up': {
+                zones: ['sw', 'center', 'ne'],
+                name: 'Ascending Path',
+                preset: 'ascent',
+                sound: { style: 'bright', root: 98, mode: 'major', bpm: 110 }
+            },
+
+            // L-shapes
+            'l_nw': {
+                zones: ['n', 'w', 'sw'],
+                name: 'Northwest Hook',
+                preset: 'hook_nw',
+                sound: { style: 'jazz', root: 55, mode: 'dorian', bpm: 95 }
+            },
+            'l_ne': {
+                zones: ['n', 'e', 'se'],
+                name: 'Northeast Hook',
+                preset: 'hook_ne',
+                sound: { style: 'funk', root: 65, mode: 'mixolydian', bpm: 105 }
+            },
+            'l_sw': {
+                zones: ['s', 'w', 'nw'],
+                name: 'Southwest Hook',
+                preset: 'hook_sw',
+                sound: { style: 'tribal', root: 49, mode: 'aeolian', bpm: 80 }
+            },
+            'l_se': {
+                zones: ['s', 'e', 'ne'],
+                name: 'Southeast Hook',
+                preset: 'hook_se',
+                sound: { style: 'electronic', root: 82, mode: 'minor', bpm: 128 }
+            },
+
+            // Plus patterns
+            'plus_small': {
+                zones: ['n', 's', 'e', 'w', 'center'],
+                name: 'Inner Cross',
+                preset: 'centered',
+                sound: { style: 'meditative', root: 55, mode: 'major', bpm: 60 }
+            },
+
+            // Edge + corner combos
+            'north_span': {
+                zones: ['nw', 'n', 'ne'],
+                name: 'Northern Span',
+                preset: 'cold',
+                sound: { style: 'cold', root: 73, mode: 'phrygian', bpm: 70 }
+            },
+            'south_span': {
+                zones: ['sw', 's', 'se'],
+                name: 'Southern Span',
+                preset: 'warm',
+                sound: { style: 'warm', root: 49, mode: 'lydian', bpm: 85 }
+            },
+            'west_span': {
+                zones: ['nw', 'w', 'sw'],
+                name: 'Western Span',
+                preset: 'ancient',
+                sound: { style: 'ancient', root: 41, mode: 'dorian', bpm: 55 }
+            },
+            'east_span': {
+                zones: ['ne', 'e', 'se'],
+                name: 'Eastern Span',
+                preset: 'future',
+                sound: { style: 'future', root: 98, mode: 'lydian', bpm: 140 }
+            },
+
+            // Special combos
+            'all_nine': {
+                zones: ['nw', 'n', 'ne', 'w', 'center', 'e', 'sw', 's', 'se'],
+                name: 'Complete Unity',
+                preset: 'transcendence',
+                sound: { style: 'transcendent', root: 55, mode: 'major', bpm: 108 }
+            },
+            'outer_ring': {
+                zones: ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'],
+                name: 'Outer Ring',
+                preset: 'orbital',
+                sound: { style: 'orbital', root: 65, mode: 'aeolian', bpm: 118 }
+            },
+            'diamond': {
+                zones: ['n', 'e', 's', 'w'],
+                name: 'Diamond',
+                preset: 'crystal',
+                sound: { style: 'crystal', root: 110, mode: 'major', bpm: 125 }
+            },
+        },
+
+        // Preset sound definitions
+        presetSounds: {
+            ambient_cross: () => playAmbientCrossPreset(),
+            epic_corners: () => playEpicCornersPreset(),
+            uplifting: () => playUpliftingPreset(),
+            melancholy: () => playMelancholyPreset(),
+            transcendence: () => playTranscendencePreset(),
+        }
+    };
+
+    function onZoneVisit(zone) {
+        const now = Date.now();
+        comboSystem.visitedZones.add(zone);
+        comboSystem.lastVisitTime = now;
+
+        // Update zone glow
+        comboSystem.zoneGlow[zone] = 1.0;
+
+        // Clear timeout and set new one (2 second window to complete combo)
+        if (comboSystem.comboTimeout) {
+            clearTimeout(comboSystem.comboTimeout);
+        }
+        comboSystem.comboTimeout = setTimeout(() => {
+            checkAndTriggerCombo();
+            fadeZoneGlows();
+        }, 2000);
+
+        // Check for combo matches in real-time
+        checkComboProgress();
+    }
+
+    function checkComboProgress() {
+        const visited = comboSystem.visitedZones;
+
+        // Find matching combos
+        for (const [comboId, combo] of Object.entries(comboSystem.combos)) {
+            const required = new Set(combo.zones);
+            const matches = [...required].filter(z => visited.has(z));
+
+            if (matches.length === required.size) {
+                // COMBO UNLOCKED
+                triggerComboUnlock(comboId, combo);
+            } else if (matches.length >= 2) {
+                // Partial match - glow the remaining zones as hints
+                hintRemainingZones(combo.zones, visited);
+            }
+        }
+    }
+
+    function checkAndTriggerCombo() {
+        // Reset after timeout
+        comboSystem.visitedZones.clear();
+    }
+
+    function triggerComboUnlock(comboId, combo) {
+        if (comboSystem.unlockedCombos.has(comboId) && Date.now() - comboSystem.lastVisitTime < 500) {
+            // Already unlocked recently, don't spam
+            return;
+        }
+
+        console.log(`COMBO UNLOCKED: ${combo.name}`);
+        comboSystem.activeCombo = combo;
+        comboSystem.unlockedCombos.add(comboId);
+
+        // Visual feedback - all zones in combo glow bright
+        combo.zones.forEach(zone => {
+            comboSystem.zoneGlow[zone] = 1.0;
+        });
+
+        // Play combo unlock sound
+        playComboUnlockSound(combo);
+
+        // Apply the music preset
+        applyMusicPreset(combo);
+
+        // Clear for next combo
+        setTimeout(() => {
+            comboSystem.visitedZones.clear();
+            comboSystem.activeCombo = null;
+        }, 500);
+
+        // Haptic feedback
+        if (navigator.vibrate) {
+            navigator.vibrate([50, 30, 100]);
+        }
+    }
+
+    function hintRemainingZones(requiredZones, visitedZones) {
+        // Subtle glow on zones needed to complete combo
+        requiredZones.forEach(zone => {
+            if (!visitedZones.has(zone)) {
+                comboSystem.zoneGlow[zone] = Math.max(comboSystem.zoneGlow[zone] || 0, 0.3);
+            }
+        });
+    }
+
+    function fadeZoneGlows() {
+        for (const zone of Object.keys(comboSystem.zoneGlow)) {
+            comboSystem.zoneGlow[zone] *= 0.9;
+            if (comboSystem.zoneGlow[zone] < 0.05) {
+                delete comboSystem.zoneGlow[zone];
+            }
+        }
+    }
+
+    function playComboUnlockSound(combo) {
+        const root = combo.sound.root || 55;
+
+        // Fanfare based on combo style
+        switch (combo.sound.style) {
+            case 'cinematic':
+                GumpBass.play808Long?.({ freq: root / 2, volume: 0.6 });
+                triggerTheBWAAAM();
+                break;
+
+            case 'uplifting':
+                // Major arpeggio up
+                [0, 4, 7, 12].forEach((semi, i) => {
+                    setTimeout(() => {
+                        GumpAudio.playTone?.(root * Math.pow(2, semi/12), 0.5, { volume: 0.3, attack: 0.01 });
+                    }, i * 80);
+                });
+                break;
+
+            case 'melancholy':
+                // Minor chord swell
+                GumpAudio.playChord?.(root, [0, 3, 7], 3, { volume: 0.25, attack: 0.5, waveform: 'triangle' });
+                break;
+
+            case 'transcendent':
+                triggerTheBWAAAM();
+                setTimeout(() => triggerTranscendence(), 500);
+                break;
+
+            default:
+                // Generic unlock sound
+                GumpAudio.playTone?.(root * 2, 0.3, { volume: 0.25, attack: 0.01 });
+                GumpDrums.playClick?.({ volume: 0.3 });
+        }
+    }
+
+    function applyMusicPreset(combo) {
+        const sound = combo.sound;
+
+        // Adjust AI rhythm BPM
+        if (sound.bpm) {
+            setAITempo(sound.bpm);
+        }
+
+        // Adjust root note
+        if (sound.root) {
+            evolution.rootNote = sound.root;
+            musicLayers.root = sound.root;
+        }
+
+        // Set chord quality based on mode
+        if (sound.mode) {
+            applyMode(sound.mode);
+        }
+
+        console.log(`Applied preset: ${combo.preset} (${sound.style}, ${sound.bpm} BPM)`);
+    }
+
+    function applyMode(modeName) {
+        // Mode intervals (semitones from root)
+        const modes = {
+            major:      [0, 2, 4, 5, 7, 9, 11],
+            minor:      [0, 2, 3, 5, 7, 8, 10],
+            dorian:     [0, 2, 3, 5, 7, 9, 10],
+            phrygian:   [0, 1, 3, 5, 7, 8, 10],
+            lydian:     [0, 2, 4, 6, 7, 9, 11],
+            mixolydian: [0, 2, 4, 5, 7, 9, 10],
+            aeolian:    [0, 2, 3, 5, 7, 8, 10],
+            locrian:    [0, 1, 3, 5, 6, 8, 10],
+        };
+
+        const scale = modes[modeName] || modes.minor;
+        // Store for melody generation
+        evolution.currentScale = scale;
+        evolution.currentMode = modeName;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // PATTERN LEARNING SYSTEM
+    // ═══════════════════════════════════════════════════════════════════════
+    //
+    // Notices when you play something sick and saves it.
+    // Your best moves become building blocks.
+    //
+
+    const patternMemory = {
+        // Learned patterns
+        learned: [],
+        maxLearned: 20,
+
+        // Current recording buffer
+        recording: {
+            active: false,
+            zones: [],
+            timestamps: [],
+            startTime: 0,
+        },
+
+        // Thresholds for "sick" detection
+        sicknessThresholds: {
+            minZones: 4,           // At least 4 zones
+            maxDuration: 5000,     // Complete within 5 seconds
+            minSpeed: 0.3,         // Moving at decent speed
+            uniqueZones: 3,        // At least 3 different zones
+        },
+
+        // Playback state
+        playingBack: null,
+    };
+
+    function startPatternRecording() {
+        patternMemory.recording = {
+            active: true,
+            zones: [],
+            timestamps: [],
+            velocities: [],
+            startTime: Date.now(),
+        };
+    }
+
+    function recordPatternStep(zone, velocity) {
+        if (!patternMemory.recording.active) return;
+
+        const now = Date.now();
+        const relativeTime = now - patternMemory.recording.startTime;
+
+        patternMemory.recording.zones.push(zone);
+        patternMemory.recording.timestamps.push(relativeTime);
+        patternMemory.recording.velocities.push(velocity || 1);
+
+        // Check if pattern is getting too long
+        if (relativeTime > patternMemory.sicknessThresholds.maxDuration) {
+            finishPatternRecording();
+        }
+    }
+
+    function finishPatternRecording() {
+        if (!patternMemory.recording.active) return;
+
+        const recording = patternMemory.recording;
+        recording.active = false;
+
+        // Evaluate if this pattern is "sick"
+        const sickness = evaluatePatternSickness(recording);
+
+        if (sickness.isSick) {
+            learnPattern(recording, sickness);
+        }
+    }
+
+    function evaluatePatternSickness(recording) {
+        const thresholds = patternMemory.sicknessThresholds;
+
+        // Basic checks
+        if (recording.zones.length < thresholds.minZones) {
+            return { isSick: false, reason: 'too_short' };
+        }
+
+        const duration = recording.timestamps[recording.timestamps.length - 1];
+        if (duration > thresholds.maxDuration) {
+            return { isSick: false, reason: 'too_slow' };
+        }
+
+        const uniqueZones = new Set(recording.zones).size;
+        if (uniqueZones < thresholds.uniqueZones) {
+            return { isSick: false, reason: 'not_varied' };
+        }
+
+        // Calculate rhythm consistency
+        const intervals = [];
+        for (let i = 1; i < recording.timestamps.length; i++) {
+            intervals.push(recording.timestamps[i] - recording.timestamps[i-1]);
+        }
+
+        // Check for rhythmic pattern (consistent intervals)
+        const avgInterval = intervals.reduce((a,b) => a+b, 0) / intervals.length;
+        let rhythmScore = 0;
+        for (const interval of intervals) {
+            const ratio = interval / avgInterval;
+            // Good ratios: 0.5, 1, 2 (half time, normal, double)
+            if (Math.abs(ratio - 0.5) < 0.2 || Math.abs(ratio - 1) < 0.2 || Math.abs(ratio - 2) < 0.2) {
+                rhythmScore++;
+            }
+        }
+        const rhythmConsistency = rhythmScore / intervals.length;
+
+        // Check for shape (does it form a recognizable pattern?)
+        const shapeScore = detectShapeInRecording(recording);
+
+        // Overall sickness score
+        const sicknessScore = (rhythmConsistency * 0.4) + (shapeScore * 0.3) + (uniqueZones / 9 * 0.3);
+
+        return {
+            isSick: sicknessScore > 0.5,
+            score: sicknessScore,
+            rhythmConsistency,
+            shapeScore,
+            uniqueZones,
+            duration,
+        };
+    }
+
+    function detectShapeInRecording(recording) {
+        // Check if the zone sequence forms a known shape
+        const zones = recording.zones;
+
+        // Simple shape detection
+        const zoneSet = new Set(zones);
+
+        // Check for common patterns
+        if (arraysMatchLoose(zones, ['nw', 'ne', 'se', 'sw']) ||
+            arraysMatchLoose(zones, ['n', 's', 'e', 'w'])) {
+            return 1.0; // Perfect square or cross
+        }
+
+        if (zones.length >= 3 && zoneSet.size >= 3) {
+            // Check for triangle-ish patterns
+            return 0.6;
+        }
+
+        if (zones.length >= 6 && zoneSet.size >= 5) {
+            // Complex pattern
+            return 0.8;
+        }
+
+        return 0.3;
+    }
+
+    function arraysMatchLoose(arr1, arr2) {
+        if (arr1.length < arr2.length) return false;
+        const set1 = new Set(arr1);
+        return arr2.every(item => set1.has(item));
+    }
+
+    function learnPattern(recording, sickness) {
+        const pattern = {
+            id: `learned_${Date.now()}`,
+            zones: [...recording.zones],
+            timestamps: [...recording.timestamps],
+            velocities: [...recording.velocities],
+            sickness: sickness,
+            playCount: 0,
+            createdAt: Date.now(),
+        };
+
+        patternMemory.learned.push(pattern);
+
+        // Keep only the best patterns
+        if (patternMemory.learned.length > patternMemory.maxLearned) {
+            // Sort by sickness score and keep top
+            patternMemory.learned.sort((a, b) => b.sickness.score - a.sickness.score);
+            patternMemory.learned = patternMemory.learned.slice(0, patternMemory.maxLearned);
+        }
+
+        console.log(`SICK PATTERN LEARNED: ${pattern.id} (score: ${sickness.score.toFixed(2)})`);
+
+        // Visual/audio feedback
+        playPatternLearnedFeedback(sickness.score);
+    }
+
+    function playPatternLearnedFeedback(score) {
+        // Celebratory sound based on how sick the pattern was
+        const root = evolution.rootNote || 55;
+
+        if (score > 0.8) {
+            // Super sick - full fanfare
+            [0, 4, 7, 12, 16].forEach((semi, i) => {
+                setTimeout(() => {
+                    GumpAudio.playTone?.(root * Math.pow(2, semi/12), 0.4, {
+                        volume: 0.2,
+                        attack: 0.01,
+                        waveform: 'triangle'
+                    });
+                }, i * 60);
+            });
+            GumpDrums.playClap?.({ volume: 0.4 });
+        } else {
+            // Good pattern - simple confirmation
+            GumpAudio.playTone?.(root * 2, 0.2, { volume: 0.15, attack: 0.01 });
+        }
+
+        if (navigator.vibrate) {
+            navigator.vibrate(50);
+        }
+    }
+
+    function playbackLearnedPattern(patternId) {
+        const pattern = patternMemory.learned.find(p => p.id === patternId);
+        if (!pattern) return;
+
+        pattern.playCount++;
+        patternMemory.playingBack = pattern;
+
+        // Play the pattern as sound sequence
+        const root = evolution.rootNote || 55;
+        const zoneToFreq = {
+            'nw': root * 2,
+            'n': root * 2.25,
+            'ne': root * 2.5,
+            'w': root * 1.5,
+            'center': root * 1.75,
+            'e': root * 2,
+            'sw': root * 1.125,
+            's': root * 1.25,
+            'se': root * 1.5,
+        };
+
+        pattern.zones.forEach((zone, i) => {
+            setTimeout(() => {
+                const freq = zoneToFreq[zone] || root;
+                const velocity = pattern.velocities[i] || 1;
+
+                GumpAudio.playTone?.(freq, 0.2, {
+                    volume: 0.15 * velocity,
+                    attack: 0.01,
+                    waveform: 'triangle'
+                });
+
+                // Also light up the zone
+                comboSystem.zoneGlow[zone] = 0.8;
+            }, pattern.timestamps[i]);
+        });
+
+        // Clear playback state after done
+        const duration = pattern.timestamps[pattern.timestamps.length - 1] + 500;
+        setTimeout(() => {
+            patternMemory.playingBack = null;
+        }, duration);
+    }
+
+    function getLearnedPatterns() {
+        return patternMemory.learned.map(p => ({
+            id: p.id,
+            zones: p.zones.length,
+            score: p.sickness.score,
+            playCount: p.playCount,
+        }));
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
     // SHAPE-BASED MUSIC LAYER SYSTEM
     // ═══════════════════════════════════════════════════════════════════════
     //
@@ -2799,6 +3414,25 @@ const GUMP = (function() {
         // Play sound on zone entry (immediate feedback)
         if (gridResult.transition) {
             playZoneEntrySound(gridResult.transition.to, gridResult.localX, gridResult.localY);
+
+            // COMBO SYSTEM: Track zone visits for combo detection
+            onZoneVisit(gridResult.transition.to);
+
+            // PATTERN LEARNING: Record zone transitions
+            const speed = Math.sqrt((app.vx || 0) * (app.vx || 0) + (app.vy || 0) * (app.vy || 0));
+            if (speed > 0.1) {
+                // Start recording if not already
+                if (!patternMemory.recording.active) {
+                    startPatternRecording();
+                }
+                recordPatternStep(gridResult.transition.to, speed);
+            }
+        } else if (patternMemory.recording.active && Date.now() - patternMemory.recording.startTime > 1000) {
+            // If we stop transitioning for 1 second, finish recording
+            const timeSinceLastStep = Date.now() - (patternMemory.recording.timestamps[patternMemory.recording.timestamps.length - 1] || 0) - patternMemory.recording.startTime;
+            if (timeSinceLastStep > 1000) {
+                finishPatternRecording();
+            }
         }
 
         // Continuous sound while moving
@@ -2942,7 +3576,32 @@ const GUMP = (function() {
                 ctx.fillStyle = `rgba(255, 215, 0, ${0.05 + glow * 0.1})`;
                 ctx.fillRect(x + 10, y + 10, zoneWidth - 20, zoneHeight - 20);
             }
+
+            // COMBO SYSTEM: Zone glow for combo progress (yellow/gold)
+            const comboGlow = comboSystem.zoneGlow[zoneId] || 0;
+            if (comboGlow > 0.01) {
+                const comboGradient = ctx.createRadialGradient(
+                    x + zoneWidth / 2, y + zoneHeight / 2, 0,
+                    x + zoneWidth / 2, y + zoneHeight / 2, Math.min(zoneWidth, zoneHeight) * 0.6
+                );
+
+                // Yellow/gold glow for combo zones
+                comboGradient.addColorStop(0, `rgba(255, 215, 0, ${comboGlow * 0.4})`);
+                comboGradient.addColorStop(0.5, `rgba(255, 180, 0, ${comboGlow * 0.2})`);
+                comboGradient.addColorStop(1, 'rgba(255, 150, 0, 0)');
+
+                ctx.fillStyle = comboGradient;
+                ctx.fillRect(x, y, zoneWidth, zoneHeight);
+
+                // Border glow
+                ctx.strokeStyle = `rgba(255, 215, 0, ${comboGlow * 0.6})`;
+                ctx.lineWidth = 2 + comboGlow * 2;
+                ctx.strokeRect(x + 2, y + 2, zoneWidth - 4, zoneHeight - 4);
+            }
         }
+
+        // Fade zone glows each frame
+        fadeZoneGlows();
     }
 
     function drawConnections(ctx, w, h) {
