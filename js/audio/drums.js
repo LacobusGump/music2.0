@@ -438,10 +438,6 @@ const GumpDrums = (function() {
             release: 0.8
         });
     }
-            decay: 0.08,
-            filterFreq: 4000       // Low-passed
-        }
-    };
 
     // ═══════════════════════════════════════════════════════════════════════
     // 808 KICKS
