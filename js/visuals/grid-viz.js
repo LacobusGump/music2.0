@@ -1,13 +1,12 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════════
- * GUMP - GRID VISUALIZATION
+ * GUMP - GRID VISUALIZATION v2
  * ═══════════════════════════════════════════════════════════════════════════
  *
- * Visual representation of the 9-zone grid system.
- * Handles zone highlighting, transitions, patterns, and music visualization.
+ * Visual representation of the 6x6 expressive grid.
+ * Position-based coloring with gradient expression mapping.
  *
- * @version 2.0.0
- * @author GUMP Development Team
+ * @version 3.0.0
  */
 
 const GumpGridViz = (function() {
@@ -17,67 +16,86 @@ const GumpGridViz = (function() {
     // CONFIGURATION
     // ═══════════════════════════════════════════════════════════════════════
 
+    // Get grid config from GumpGrid or use defaults
+    const GRID_ROWS = (typeof GumpGrid !== 'undefined' && GumpGrid.GRID_CONFIG)
+        ? GumpGrid.GRID_CONFIG.rows : 6;
+    const GRID_COLS = (typeof GumpGrid !== 'undefined' && GumpGrid.GRID_CONFIG)
+        ? GumpGrid.GRID_CONFIG.cols : 6;
+
     const CONFIG = {
-        gridPadding: 40,
+        gridPadding: 30,
         lineWidth: 1,
-        glowRadius: 100,
+        glowRadius: 60,
         pulseSpeed: 0.002,
-        fadeSpeed: 0.03,
+        fadeSpeed: 0.05,
         beatPulseIntensity: 0.3,
-        zoneGlowIntensity: 0.4
+        zoneGlowIntensity: 0.5,
+        showTrail: true,
+        trailLength: 20
     };
 
-    // Zone colors by era
+    // Era colors - In Rainbows aesthetic
     const ERA_COLORS = {
         genesis: {
-            primary: '#1a1a2e',
-            secondary: '#16213e',
-            accent: '#0f3460',
-            glow: '#e94560',
+            primary: '#0a0a12',
+            secondary: '#12121f',
+            accent: '#1a1a2e',
+            glow: '#ff6b6b',
             text: '#ffffff'
         },
         primordial: {
-            primary: '#1a1a1a',
-            secondary: '#2d2d2d',
-            accent: '#3d5a80',
-            glow: '#98c1d9',
+            primary: '#0a0f0a',
+            secondary: '#121f12',
+            accent: '#1a2e1a',
+            glow: '#6bff6b',
             text: '#e0fbfc'
         },
         tribal: {
-            primary: '#1c1c1c',
-            secondary: '#2e2e2e',
-            accent: '#8b4513',
-            glow: '#ff6b35',
+            primary: '#120a0a',
+            secondary: '#1f1212',
+            accent: '#2e1a1a',
+            glow: '#ff8c42',
             text: '#f7c59f'
         },
         sacred: {
-            primary: '#0d0d1a',
-            secondary: '#1a1a33',
-            accent: '#4a148c',
-            glow: '#ce93d8',
+            primary: '#0a0a12',
+            secondary: '#12121f',
+            accent: '#1a1a2e',
+            glow: '#b388ff',
             text: '#e1bee7'
         },
         modern: {
-            primary: '#0a0a0a',
-            secondary: '#141414',
-            accent: '#1f1f1f',
-            glow: '#00ff88',
-            text: '#00ff88'
+            primary: '#050508',
+            secondary: '#0a0a10',
+            accent: '#101018',
+            glow: '#00ffd5',
+            text: '#00ffd5'
         }
     };
 
-    // Zone positions (normalized 0-1)
-    const ZONE_LAYOUT = {
-        'top-left': { x: 0, y: 0, w: 1/3, h: 1/3 },
-        'top-center': { x: 1/3, y: 0, w: 1/3, h: 1/3 },
-        'top-right': { x: 2/3, y: 0, w: 1/3, h: 1/3 },
-        'center-left': { x: 0, y: 1/3, w: 1/3, h: 1/3 },
-        'center': { x: 1/3, y: 1/3, w: 1/3, h: 1/3 },
-        'center-right': { x: 2/3, y: 1/3, w: 1/3, h: 1/3 },
-        'bottom-left': { x: 0, y: 2/3, w: 1/3, h: 1/3 },
-        'bottom-center': { x: 1/3, y: 2/3, w: 1/3, h: 1/3 },
-        'bottom-right': { x: 2/3, y: 2/3, w: 1/3, h: 1/3 }
-    };
+    // Generate zone layout dynamically for 6x6
+    function generateZoneLayout() {
+        const layout = {};
+        const cellW = 1 / GRID_COLS;
+        const cellH = 1 / GRID_ROWS;
+
+        for (let row = 0; row < GRID_ROWS; row++) {
+            for (let col = 0; col < GRID_COLS; col++) {
+                const zoneId = `${col}-${row}`;
+                layout[zoneId] = {
+                    x: col * cellW,
+                    y: row * cellH,
+                    w: cellW,
+                    h: cellH,
+                    col: col,
+                    row: row
+                };
+            }
+        }
+        return layout;
+    }
+
+    const ZONE_LAYOUT = generateZoneLayout();
 
     // ═══════════════════════════════════════════════════════════════════════
     // STATE
@@ -90,7 +108,7 @@ const GumpGridViz = (function() {
     let gridWidth = 0;
     let gridHeight = 0;
 
-    // Current visual state
+    // Current visual state - initialize for all 36 zones
     const zoneStates = {};
     for (const zone in ZONE_LAYOUT) {
         zoneStates[zone] = {
@@ -103,6 +121,9 @@ const GumpGridViz = (function() {
             pattern: null
         };
     }
+
+    // Position trail for gesture visualization
+    const positionTrail = [];
 
     // Active patterns
     const activePatterns = [];
@@ -219,13 +240,13 @@ const GumpGridViz = (function() {
     function renderGrid(ctx) {
         ctx.save();
 
-        // Grid lines
-        ctx.strokeStyle = `rgba(255, 255, 255, 0.05)`;
+        // Grid lines - dynamic based on GRID_ROWS/COLS
+        ctx.strokeStyle = `rgba(255, 255, 255, 0.03)`;
         ctx.lineWidth = CONFIG.lineWidth;
 
         // Vertical lines
-        for (let i = 0; i <= 3; i++) {
-            const x = gridX + (gridWidth / 3) * i;
+        for (let i = 0; i <= GRID_COLS; i++) {
+            const x = gridX + (gridWidth / GRID_COLS) * i;
             ctx.beginPath();
             ctx.moveTo(x, gridY);
             ctx.lineTo(x, gridY + gridHeight);
@@ -233,17 +254,35 @@ const GumpGridViz = (function() {
         }
 
         // Horizontal lines
-        for (let i = 0; i <= 3; i++) {
-            const y = gridY + (gridHeight / 3) * i;
+        for (let i = 0; i <= GRID_ROWS; i++) {
+            const y = gridY + (gridHeight / GRID_ROWS) * i;
             ctx.beginPath();
             ctx.moveTo(gridX, y);
             ctx.lineTo(gridX + gridWidth, y);
             ctx.stroke();
         }
 
-        // Outer border
-        ctx.strokeStyle = `rgba(255, 255, 255, 0.1)`;
+        // Outer border with gradient
+        ctx.strokeStyle = `rgba(255, 255, 255, 0.08)`;
+        ctx.lineWidth = 2;
         ctx.strokeRect(gridX, gridY, gridWidth, gridHeight);
+
+        // Axis labels (subtle)
+        ctx.fillStyle = `rgba(255, 255, 255, 0.1)`;
+        ctx.font = '10px monospace';
+        ctx.textAlign = 'center';
+
+        // X-axis: Pitch (left=bass, right=treble)
+        ctx.fillText('BASS', gridX + gridWidth * 0.1, gridY - 8);
+        ctx.fillText('TREBLE', gridX + gridWidth * 0.9, gridY - 8);
+
+        // Y-axis: Density (top=sparse, bottom=dense)
+        ctx.save();
+        ctx.translate(gridX - 8, gridY + gridHeight * 0.5);
+        ctx.rotate(-Math.PI / 2);
+        ctx.fillText('SPARSE', -gridHeight * 0.4, 0);
+        ctx.fillText('DENSE', gridHeight * 0.4, 0);
+        ctx.restore();
 
         ctx.restore();
     }

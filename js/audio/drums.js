@@ -25,6 +25,10 @@ const GumpDrums = (function() {
         KICK_808_PUNCHY: '808_punchy',
         KICK_808_SUB: '808_sub',
 
+        // Lofi Kicks (In Rainbows aesthetic)
+        KICK_LOFI: 'kick_lofi',
+        KICK_LOFI_WARM: 'kick_lofi_warm',
+
         // Organic Kicks
         KICK_ORGANIC: 'kick_organic',
         KICK_TRIBAL: 'kick_tribal',
@@ -36,12 +40,14 @@ const GumpDrums = (function() {
         SNARE_CLAP: 'snare_clap',
         SNARE_RIM: 'snare_rim',
         SNARE_ORGANIC: 'snare_organic',
+        SNARE_LOFI: 'snare_lofi',
 
         // Hi-Hats
         HAT_CLOSED: 'hat_closed',
         HAT_OPEN: 'hat_open',
         HAT_PEDAL: 'hat_pedal',
         HAT_TRAP: 'hat_trap',
+        HAT_LOFI: 'hat_lofi',
 
         // Percussion
         PERC_CLICK: 'perc_click',
@@ -99,7 +105,13 @@ const GumpDrums = (function() {
         // Create global distortion for drums
         drumState.distortion = createDistortion(drumState.drive);
 
-        console.log('Drum synthesis initialized');
+        // Create global bitcrusher for lofi character
+        drumState.bitcrusher = createBitcrusher(12);  // 12-bit default
+
+        // Create tape saturation
+        drumState.tapeSaturation = createTapeSaturation(0.3);
+
+        console.log('[Drums] Synthesis initialized with lofi processing');
     }
 
     function createDistortion(amount = 0.3) {
@@ -123,6 +135,313 @@ const GumpDrums = (function() {
 
         return curve;
     }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // LOFI PROCESSING - Bitcrusher & Tape Saturation
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function createBitcrusher(bits = 12) {
+        const ctx = drumState.ctx;
+        const bufferSize = 4096;
+
+        // ScriptProcessor for bitcrushing
+        const crusher = ctx.createScriptProcessor(bufferSize, 2, 2);
+        const step = Math.pow(0.5, bits);
+
+        crusher.bits = bits;
+        crusher.onaudioprocess = function(e) {
+            const inputL = e.inputBuffer.getChannelData(0);
+            const inputR = e.inputBuffer.getChannelData(1);
+            const outputL = e.outputBuffer.getChannelData(0);
+            const outputR = e.outputBuffer.getChannelData(1);
+
+            for (let i = 0; i < inputL.length; i++) {
+                // Quantize to lower bit depth
+                outputL[i] = Math.round(inputL[i] / step) * step;
+                outputR[i] = Math.round(inputR[i] / step) * step;
+            }
+        };
+
+        return crusher;
+    }
+
+    function createTapeSaturation(amount = 0.3) {
+        const ctx = drumState.ctx;
+        const waveshaper = ctx.createWaveShaper();
+
+        // Soft tape-like saturation curve
+        const samples = 44100;
+        const curve = new Float32Array(samples);
+
+        for (let i = 0; i < samples; i++) {
+            const x = (i * 2) / samples - 1;
+            // Soft clipping with asymmetry for tape character
+            curve[i] = Math.tanh(x * (1 + amount * 2)) * (1 - amount * 0.1);
+        }
+
+        waveshaper.curve = curve;
+        waveshaper.oversample = '2x';
+        return waveshaper;
+    }
+
+    // LOFI PRESETS - In Rainbows aesthetic
+    const LOFI_PRESETS = {
+        // Lofi kick - warm, round, less attack
+        kick: {
+            freq: 42,
+            pitchDecay: 0.1,
+            pitchAmount: 0.8,      // Less dramatic sweep
+            bodyDecay: 0.5,
+            sustain: 0.5,
+            release: 0.6,
+            clickAmount: 0.08,     // Very subtle click
+            saturation: 0.4,
+            bitcrush: 14,          // Light crushing
+            filterFreq: 600        // Roll off highs
+        },
+        // Organic snare - more body, less snap
+        snare: {
+            toneFreq: 180,
+            toneDecay: 0.2,
+            noiseDecay: 0.15,
+            noiseFilterFreq: 3500, // Darker
+            bodyAmount: 0.7,       // More tone body
+            saturation: 0.3
+        },
+        // Dark hi-hats
+        hihat: {
+            baseFreq: 300,
+            brightness: 0.4,       // Much darker
+            decay: 0.08,
+            filterFreq: 4000
+        }
+    };
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // LOFI DRUM FUNCTIONS - In Rainbows aesthetic
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function playLofiKick(options = {}) {
+        const ctx = drumState.ctx;
+        const now = ctx.currentTime;
+        const preset = LOFI_PRESETS.kick;
+
+        const {
+            freq = preset.freq,
+            pitchDecay = preset.pitchDecay,
+            pitchAmount = preset.pitchAmount,
+            bodyDecay = preset.bodyDecay,
+            sustain = preset.sustain,
+            release = preset.release,
+            clickAmount = preset.clickAmount,
+            saturation = preset.saturation,
+            volume = 0.85,
+            time = now
+        } = options;
+
+        // Fundamental - warm and round
+        const fundamental = ctx.createOscillator();
+        fundamental.type = 'sine';
+        const startFreq = freq * Math.pow(2, pitchAmount);
+        fundamental.frequency.setValueAtTime(startFreq, time);
+        fundamental.frequency.exponentialRampToValueAtTime(freq, time + pitchDecay);
+
+        const fundGain = ctx.createGain();
+        fundGain.gain.setValueAtTime(0, time);
+        fundGain.gain.linearRampToValueAtTime(volume, time + 0.005);
+        fundGain.gain.linearRampToValueAtTime(volume * sustain, time + bodyDecay);
+        fundGain.gain.exponentialRampToValueAtTime(0.001, time + bodyDecay + release);
+
+        // Sub - deep foundation
+        const sub = ctx.createOscillator();
+        sub.type = 'sine';
+        sub.frequency.value = freq * 0.5;
+
+        const subGain = ctx.createGain();
+        subGain.gain.setValueAtTime(0, time);
+        subGain.gain.linearRampToValueAtTime(volume * 0.7, time + 0.01);
+        subGain.gain.exponentialRampToValueAtTime(0.001, time + bodyDecay + release * 1.3);
+
+        // Warmth filter - roll off highs
+        const warmFilter = ctx.createBiquadFilter();
+        warmFilter.type = 'lowpass';
+        warmFilter.frequency.value = 600;
+        warmFilter.Q.value = 0.5;
+
+        // Tape saturation
+        const satCurve = new Float32Array(44100);
+        for (let i = 0; i < 44100; i++) {
+            const x = (i * 2) / 44100 - 1;
+            satCurve[i] = Math.tanh(x * (1 + saturation * 2.5));
+        }
+        const saturator = ctx.createWaveShaper();
+        saturator.curve = satCurve;
+        saturator.oversample = '2x';
+
+        // Output
+        const output = ctx.createGain();
+        output.gain.value = 1;
+
+        // Routing
+        fundamental.connect(fundGain);
+        fundGain.connect(warmFilter);
+        warmFilter.connect(saturator);
+        saturator.connect(output);
+
+        sub.connect(subGain);
+        subGain.connect(output);
+
+        output.connect(drumState.output);
+
+        // Start
+        fundamental.start(time);
+        sub.start(time);
+
+        const stopTime = time + bodyDecay + release + 0.3;
+        fundamental.stop(stopTime);
+        sub.stop(stopTime);
+
+        setTimeout(() => {
+            fundamental.disconnect();
+            sub.disconnect();
+            output.disconnect();
+        }, (stopTime - now + 0.1) * 1000);
+    }
+
+    function playLofiSnare(options = {}) {
+        const ctx = drumState.ctx;
+        const now = ctx.currentTime;
+        const preset = LOFI_PRESETS.snare;
+
+        const {
+            toneFreq = preset.toneFreq,
+            toneDecay = preset.toneDecay,
+            noiseDecay = preset.noiseDecay,
+            noiseFilterFreq = preset.noiseFilterFreq,
+            bodyAmount = preset.bodyAmount,
+            volume = 0.7,
+            time = now
+        } = options;
+
+        // Tone body - more prominent
+        const tone = ctx.createOscillator();
+        tone.type = 'triangle';
+        tone.frequency.setValueAtTime(toneFreq * 1.5, time);
+        tone.frequency.exponentialRampToValueAtTime(toneFreq, time + 0.02);
+
+        const toneGain = ctx.createGain();
+        toneGain.gain.setValueAtTime(volume * bodyAmount, time);
+        toneGain.gain.exponentialRampToValueAtTime(0.001, time + toneDecay);
+
+        // Noise - subtle, filtered dark
+        const noiseBuffer = ctx.createBuffer(1, ctx.sampleRate * 0.3, ctx.sampleRate);
+        const noiseData = noiseBuffer.getChannelData(0);
+        for (let i = 0; i < noiseData.length; i++) {
+            noiseData[i] = (Math.random() * 2 - 1);
+        }
+
+        const noise = ctx.createBufferSource();
+        noise.buffer = noiseBuffer;
+
+        const noiseGain = ctx.createGain();
+        noiseGain.gain.setValueAtTime(volume * (1 - bodyAmount * 0.3), time);
+        noiseGain.gain.exponentialRampToValueAtTime(0.001, time + noiseDecay);
+
+        const noiseFilter = ctx.createBiquadFilter();
+        noiseFilter.type = 'bandpass';
+        noiseFilter.frequency.value = noiseFilterFreq;
+        noiseFilter.Q.value = 1.5;
+
+        // Output
+        const output = ctx.createGain();
+
+        tone.connect(toneGain);
+        toneGain.connect(output);
+
+        noise.connect(noiseFilter);
+        noiseFilter.connect(noiseGain);
+        noiseGain.connect(output);
+
+        output.connect(drumState.output);
+
+        tone.start(time);
+        noise.start(time);
+
+        tone.stop(time + toneDecay + 0.05);
+        noise.stop(time + noiseDecay + 0.05);
+
+        setTimeout(() => {
+            output.disconnect();
+        }, (noiseDecay + 0.2) * 1000);
+    }
+
+    function playLofiHat(options = {}) {
+        const ctx = drumState.ctx;
+        const now = ctx.currentTime;
+        const preset = LOFI_PRESETS.hihat;
+
+        const {
+            brightness = preset.brightness,
+            decay = options.type === 'open' ? 0.25 : preset.decay,
+            filterFreq = preset.filterFreq,
+            volume = 0.5,
+            time = now
+        } = options;
+
+        // Metallic oscillators - fewer, darker
+        const freqs = [300, 400, 540, 700];
+        const oscs = [];
+        const gains = [];
+
+        freqs.forEach((f, i) => {
+            const osc = ctx.createOscillator();
+            osc.type = 'square';
+            osc.frequency.value = f * (1 + brightness);
+
+            const gain = ctx.createGain();
+            gain.gain.setValueAtTime(volume * (1 - i * 0.2) * 0.15, time);
+            gain.gain.exponentialRampToValueAtTime(0.001, time + decay);
+
+            osc.connect(gain);
+            oscs.push(osc);
+            gains.push(gain);
+        });
+
+        // Dark filter
+        const filter = ctx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.value = filterFreq;
+        filter.Q.value = 0.7;
+
+        const output = ctx.createGain();
+
+        gains.forEach(g => g.connect(filter));
+        filter.connect(output);
+        output.connect(drumState.output);
+
+        oscs.forEach(o => {
+            o.start(time);
+            o.stop(time + decay + 0.05);
+        });
+
+        setTimeout(() => {
+            output.disconnect();
+        }, (decay + 0.2) * 1000);
+    }
+
+    // Lofi kick variant - extra warm
+    function playLofiKickWarm(options = {}) {
+        return playLofiKick({
+            ...options,
+            freq: 38,
+            saturation: 0.5,
+            release: 0.8
+        });
+    }
+            decay: 0.08,
+            filterFreq: 4000       // Low-passed
+        }
+    };
 
     // ═══════════════════════════════════════════════════════════════════════
     // 808 KICKS
@@ -1117,6 +1436,12 @@ const GumpDrums = (function() {
             case DRUM_TYPES.KICK_808_SUB:
                 return play808Sub(options);
 
+            // Lofi Kicks (In Rainbows aesthetic)
+            case DRUM_TYPES.KICK_LOFI:
+                return playLofiKick(options);
+            case DRUM_TYPES.KICK_LOFI_WARM:
+                return playLofiKickWarm(options);
+
             // Organic Kicks
             case DRUM_TYPES.KICK_ORGANIC:
                 return playOrganicKick(options);
@@ -1136,6 +1461,8 @@ const GumpDrums = (function() {
                 return playRimshot(options);
             case DRUM_TYPES.SNARE_ORGANIC:
                 return playSnare808({ ...options, toneDecay: 0.15, noiseAmount: 0.5 });
+            case DRUM_TYPES.SNARE_LOFI:
+                return playLofiSnare(options);
 
             // Hi-Hats
             case DRUM_TYPES.HAT_CLOSED:
@@ -1146,6 +1473,8 @@ const GumpDrums = (function() {
                 return playHiHat({ ...options, type: 'pedal' });
             case DRUM_TYPES.HAT_TRAP:
                 return playTrapHat(options);
+            case DRUM_TYPES.HAT_LOFI:
+                return playLofiHat(options);
 
             // Percussion
             case DRUM_TYPES.PERC_CLICK:

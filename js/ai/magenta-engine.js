@@ -23,6 +23,7 @@ const GumpMagentaEngine = (function() {
         initialized: false,
         modelsLoaded: false,
         loading: false,
+        usingFallback: false,  // True when Magenta CDN unavailable
 
         // Loaded models
         models: {
@@ -58,8 +59,11 @@ const GumpMagentaEngine = (function() {
     };
 
     // ═══════════════════════════════════════════════════════════════════════
-    // INITIALIZATION
+    // INITIALIZATION (with robust error handling)
     // ═══════════════════════════════════════════════════════════════════════
+
+    const LOAD_TIMEOUT = 10000;  // 10 seconds max
+    const MAX_RETRIES = 3;
 
     async function init() {
         if (state.initialized || state.loading) return state.initialized;
@@ -71,85 +75,158 @@ const GumpMagentaEngine = (function() {
             // Check if Magenta.js is available (needs to be loaded externally)
             if (typeof mm === 'undefined') {
                 console.log('[MagentaEngine] Loading Magenta.js from CDN...');
-                await loadMagentaScript();
+                const loaded = await loadMagentaWithRetry();
+
+                if (!loaded) {
+                    console.log('[MagentaEngine] CDN unavailable, using procedural generation (works great!)');
+                    state.loading = false;
+                    state.initialized = true;  // Initialize anyway - procedural works fine
+                    state.usingFallback = true;
+                    return true;
+                }
             }
 
             if (typeof mm === 'undefined') {
-                console.warn('[MagentaEngine] Magenta.js not available, using fallback');
-                state.loading = false;
-                return false;
+                console.log('[MagentaEngine] Using procedural fallback (no Magenta)');
+                state.usingFallback = true;
             }
 
             state.initialized = true;
-            console.log('[MagentaEngine] Base initialized, models will load on demand');
+            console.log('[MagentaEngine] Initialized' + (state.usingFallback ? ' (procedural mode)' : ' (AI mode available)'));
 
         } catch (error) {
-            console.error('[MagentaEngine] Init failed:', error);
+            console.warn('[MagentaEngine] Init error, using procedural fallback:', error.message);
+            state.initialized = true;  // Still initialize - procedural works
+            state.usingFallback = true;
             state.loading = false;
-            return false;
+            return true;
         }
 
         state.loading = false;
         return true;
     }
 
+    async function loadMagentaWithRetry() {
+        for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+            try {
+                console.log(`[MagentaEngine] Load attempt ${attempt}/${MAX_RETRIES}...`);
+
+                const loaded = await Promise.race([
+                    loadMagentaScript(),
+                    new Promise((_, reject) =>
+                        setTimeout(() => reject(new Error('Timeout')), LOAD_TIMEOUT)
+                    )
+                ]);
+
+                if (typeof mm !== 'undefined') {
+                    console.log('[MagentaEngine] Magenta.js loaded successfully');
+                    return true;
+                }
+            } catch (error) {
+                console.warn(`[MagentaEngine] Attempt ${attempt} failed:`, error.message);
+
+                if (attempt < MAX_RETRIES) {
+                    // Wait before retry (exponential backoff)
+                    await new Promise(r => setTimeout(r, 1000 * attempt));
+                }
+            }
+        }
+
+        return false;
+    }
+
     async function loadMagentaScript() {
         return new Promise((resolve, reject) => {
+            // Check if already loaded
+            if (typeof mm !== 'undefined') {
+                resolve(true);
+                return;
+            }
+
             // Load Magenta.js core
             const script = document.createElement('script');
             script.src = 'https://cdn.jsdelivr.net/npm/@magenta/music@1.23.1/es6/core.js';
             script.type = 'module';
+
             script.onload = () => {
                 console.log('[MagentaEngine] Magenta core loaded');
                 // Also load music_rnn for drums
                 const rnnScript = document.createElement('script');
                 rnnScript.src = 'https://cdn.jsdelivr.net/npm/@magenta/music@1.23.1/es6/music_rnn.js';
                 rnnScript.type = 'module';
-                rnnScript.onload = resolve;
-                rnnScript.onerror = reject;
+                rnnScript.onload = () => resolve(true);
+                rnnScript.onerror = (e) => {
+                    console.warn('[MagentaEngine] music_rnn failed to load');
+                    resolve(true);  // Core loaded, can still work without RNN
+                };
                 document.head.appendChild(rnnScript);
             };
-            script.onerror = reject;
+
+            script.onerror = (e) => {
+                reject(new Error('Failed to load Magenta core'));
+            };
+
             document.head.appendChild(script);
         });
     }
 
     async function loadDrumsModel() {
+        // Skip if in fallback mode
+        if (state.usingFallback) return null;
         if (state.models.drumsRnn) return state.models.drumsRnn;
 
         if (typeof mm === 'undefined' || !mm.MusicRNN) {
-            console.warn('[MagentaEngine] MusicRNN not available');
+            console.log('[MagentaEngine] MusicRNN not available, using procedural');
             return null;
         }
 
         console.log('[MagentaEngine] Loading DrumsRNN...');
         try {
-            state.models.drumsRnn = new mm.MusicRNN(MODEL_URLS.drumsRnn);
-            await state.models.drumsRnn.initialize();
+            // Load with timeout
+            const model = new mm.MusicRNN(MODEL_URLS.drumsRnn);
+
+            await Promise.race([
+                model.initialize(),
+                new Promise((_, reject) =>
+                    setTimeout(() => reject(new Error('Model load timeout')), LOAD_TIMEOUT)
+                )
+            ]);
+
+            state.models.drumsRnn = model;
             console.log('[MagentaEngine] DrumsRNN loaded');
             return state.models.drumsRnn;
         } catch (error) {
-            console.error('[MagentaEngine] DrumsRNN load failed:', error);
+            console.warn('[MagentaEngine] DrumsRNN load failed, using procedural:', error.message);
             return null;
         }
     }
 
     async function loadGrooveModel() {
+        // Skip if in fallback mode
+        if (state.usingFallback) return null;
         if (state.models.groovae) return state.models.groovae;
 
         if (typeof mm === 'undefined' || !mm.MusicVAE) {
-            console.warn('[MagentaEngine] MusicVAE not available for GrooVAE');
+            console.log('[MagentaEngine] MusicVAE not available, using procedural');
             return null;
         }
 
         console.log('[MagentaEngine] Loading GrooVAE...');
         try {
-            state.models.groovae = new mm.MusicVAE(MODEL_URLS.groovae);
-            await state.models.groovae.initialize();
+            const model = new mm.MusicVAE(MODEL_URLS.groovae);
+
+            await Promise.race([
+                model.initialize(),
+                new Promise((_, reject) =>
+                    setTimeout(() => reject(new Error('Model load timeout')), LOAD_TIMEOUT)
+                )
+            ]);
+
+            state.models.groovae = model;
             console.log('[MagentaEngine] GrooVAE loaded');
             return state.models.groovae;
         } catch (error) {
-            console.error('[MagentaEngine] GrooVAE load failed:', error);
+            console.warn('[MagentaEngine] GrooVAE load failed, using procedural:', error.message);
             return null;
         }
     }
@@ -764,6 +841,7 @@ const GumpMagentaEngine = (function() {
         init,
         get isInitialized() { return state.initialized; },
         get isLoading() { return state.loading; },
+        get usingFallback() { return state.usingFallback; },
 
         // Model loading
         loadDrumsModel,

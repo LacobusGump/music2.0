@@ -29,6 +29,9 @@ const GumpBass = (function() {
         FM: 'fm',
         WOBBLE: 'wobble',
         PLUCK: 'pluck',
+        // In Rainbows aesthetic
+        LUSH: 'lush',           // Detuned saws with chorus
+        WARM_SUB: 'warm_sub',   // Sub with harmonic warmth
     };
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -615,6 +618,246 @@ const GumpBass = (function() {
     }
 
     // ═══════════════════════════════════════════════════════════════════════
+    // LUSH BASS - In Rainbows aesthetic
+    // ═══════════════════════════════════════════════════════════════════════
+    //
+    // 4-voice detuned saws with chorus, sub layer, and warm filtering.
+    // Melancholic, layered, emotional - like 15 Step or Weird Fishes.
+    //
+
+    function playLushBass(options = {}) {
+        const ctx = bassState.ctx;
+        const now = ctx.currentTime;
+
+        const {
+            freq = 55,
+            volume = 0.65,
+            attack = 0.02,
+            decay = 0.15,
+            sustain = 0.8,
+            release = 0.4,
+            filterFreq = 600,       // Warm, not bright
+            filterEnvAmount = 400,
+            filterDecay = 0.25,
+            duration = null,
+            time = now,
+        } = options;
+
+        if (bassState.monoMode && bassState.lastNote) {
+            releaseNote(bassState.lastNote);
+        }
+
+        // 4-voice detuned saws with asymmetric detuning
+        const detuneValues = [0, -12, +18, -8];  // Asymmetric = more movement
+        const oscTypes = ['sawtooth', 'sawtooth', 'sawtooth', 'triangle'];
+        const oscillators = [];
+
+        const sawMixer = ctx.createGain();
+        sawMixer.gain.value = 0.25;  // Balance 4 voices
+
+        for (let i = 0; i < 4; i++) {
+            const osc = ctx.createOscillator();
+            osc.type = oscTypes[i];
+            osc.frequency.value = freq;
+            osc.detune.value = detuneValues[i];
+
+            // Stereo spread via slight delay modulation (simulated chorus)
+            const delayL = ctx.createDelay(0.02);
+            const delayR = ctx.createDelay(0.02);
+            delayL.delayTime.value = 0.002 + (i * 0.001);
+            delayR.delayTime.value = 0.003 + (i * 0.0008);
+
+            osc.connect(sawMixer);
+            oscillators.push(osc);
+        }
+
+        // Sub oscillator - clean sine one octave down
+        const sub = ctx.createOscillator();
+        sub.type = 'sine';
+        sub.frequency.value = freq * 0.5;
+
+        const subGain = ctx.createGain();
+        subGain.gain.value = volume * 0.5;
+
+        // Filter with envelope - warm character
+        const filter = ctx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(filterFreq + filterEnvAmount, time);
+        filter.frequency.exponentialRampToValueAtTime(filterFreq, time + filterDecay);
+        filter.Q.value = 1.5;
+
+        // Subtle chorus via modulated delay
+        const chorusDelay = ctx.createDelay(0.03);
+        chorusDelay.delayTime.value = 0.012;
+
+        const chorusLfo = ctx.createOscillator();
+        chorusLfo.type = 'sine';
+        chorusLfo.frequency.value = 0.4;
+
+        const chorusDepth = ctx.createGain();
+        chorusDepth.gain.value = 0.002;
+
+        chorusLfo.connect(chorusDepth);
+        chorusDepth.connect(chorusDelay.delayTime);
+        chorusLfo.start(time);
+
+        const chorusMix = ctx.createGain();
+        chorusMix.gain.value = 0.3;
+
+        // Main envelope
+        const envelope = ctx.createGain();
+        envelope.gain.setValueAtTime(0, time);
+        envelope.gain.linearRampToValueAtTime(volume, time + attack);
+        envelope.gain.linearRampToValueAtTime(volume * sustain, time + attack + decay);
+
+        // Sub envelope (slower attack for weight)
+        const subEnvelope = ctx.createGain();
+        subEnvelope.gain.setValueAtTime(0, time);
+        subEnvelope.gain.linearRampToValueAtTime(volume * 0.5, time + attack * 2);
+
+        // Tape-like saturation for warmth
+        const saturation = ctx.createWaveShaper();
+        const satCurve = new Float32Array(44100);
+        for (let i = 0; i < 44100; i++) {
+            const x = (i * 2) / 44100 - 1;
+            satCurve[i] = Math.tanh(x * 1.3);
+        }
+        saturation.curve = satCurve;
+        saturation.oversample = '2x';
+
+        // Routing
+        sawMixer.connect(filter);
+        filter.connect(saturation);
+        saturation.connect(envelope);
+
+        // Chorus path
+        filter.connect(chorusDelay);
+        chorusDelay.connect(chorusMix);
+        chorusMix.connect(envelope);
+
+        envelope.connect(bassState.output);
+
+        // Sub path (clean, no saturation)
+        sub.connect(subGain);
+        subGain.connect(subEnvelope);
+        subEnvelope.connect(bassState.output);
+
+        // Start oscillators
+        oscillators.forEach(osc => osc.start(time));
+        sub.start(time);
+
+        const note = {
+            id: Date.now(),
+            type: 'lush',
+            oscillators: [...oscillators, sub],
+            chorusLfo,
+            filter,
+            envelope,
+            subEnvelope,
+            freq,
+            volume,
+            adsr: { attack, decay, sustain, release },
+            startTime: time,
+        };
+
+        bassState.activeNotes.set(note.id, note);
+        bassState.lastNote = note;
+        bassState.currentFreq = freq;
+
+        if (duration) {
+            setTimeout(() => releaseNote(note), duration * 1000);
+        }
+
+        return note;
+    }
+
+    // Warm sub - sub with harmonic layer
+    function playWarmSub(options = {}) {
+        const ctx = bassState.ctx;
+        const now = ctx.currentTime;
+
+        const {
+            freq = 55,
+            volume = 0.7,
+            attack = 0.015,
+            decay = 0.1,
+            sustain = 0.85,
+            release = 0.35,
+            duration = null,
+            time = now,
+        } = options;
+
+        if (bassState.monoMode && bassState.lastNote) {
+            releaseNote(bassState.lastNote);
+        }
+
+        // Pure sub sine
+        const sub = ctx.createOscillator();
+        sub.type = 'sine';
+        sub.frequency.value = freq;
+
+        // Harmonic layer for warmth (triangle one octave up)
+        const harmonic = ctx.createOscillator();
+        harmonic.type = 'triangle';
+        harmonic.frequency.value = freq * 2;
+
+        // Filter the harmonic
+        const harmonicFilter = ctx.createBiquadFilter();
+        harmonicFilter.type = 'lowpass';
+        harmonicFilter.frequency.value = freq * 3;
+
+        const subGain = ctx.createGain();
+        const harmonicGain = ctx.createGain();
+        harmonicGain.gain.value = 0.15;  // Subtle
+
+        const envelope = ctx.createGain();
+        envelope.gain.setValueAtTime(0, time);
+        envelope.gain.linearRampToValueAtTime(volume, time + attack);
+        envelope.gain.linearRampToValueAtTime(volume * sustain, time + attack + decay);
+
+        // Sub filter to remove DC and rumble
+        const subFilter = ctx.createBiquadFilter();
+        subFilter.type = 'lowpass';
+        subFilter.frequency.value = 100;
+        subFilter.Q.value = 0.7;
+
+        // Routing
+        sub.connect(subGain);
+        subGain.connect(subFilter);
+        subFilter.connect(envelope);
+
+        harmonic.connect(harmonicFilter);
+        harmonicFilter.connect(harmonicGain);
+        harmonicGain.connect(envelope);
+
+        envelope.connect(bassState.output);
+
+        sub.start(time);
+        harmonic.start(time);
+
+        const note = {
+            id: Date.now(),
+            type: 'warm_sub',
+            oscillators: [sub, harmonic],
+            envelope,
+            freq,
+            volume,
+            adsr: { attack, decay, sustain, release },
+            startTime: time,
+        };
+
+        bassState.activeNotes.set(note.id, note);
+        bassState.lastNote = note;
+        bassState.currentFreq = freq;
+
+        if (duration) {
+            setTimeout(() => releaseNote(note), duration * 1000);
+        }
+
+        return note;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
     // FM BASS
     // ═══════════════════════════════════════════════════════════════════════
 
@@ -1030,6 +1273,11 @@ const GumpBass = (function() {
                 return playWobbleBass(options);
             case BASS_TYPES.PLUCK:
                 return playPluckBass(options);
+            // In Rainbows aesthetic
+            case BASS_TYPES.LUSH:
+                return playLushBass(options);
+            case BASS_TYPES.WARM_SUB:
+                return playWarmSub(options);
             default:
                 console.warn(`Unknown bass type: ${bassType}`);
                 return null;

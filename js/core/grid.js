@@ -1,9 +1,10 @@
 // ═══════════════════════════════════════════════════════════════════════════
-// GUMP GRID SYSTEM
+// GUMP GRID SYSTEM v2 - 6x6 Expressive Grid
 // ═══════════════════════════════════════════════════════════════════════════
 //
-// The 9-zone grid that tracks user movement and creates musical meaning.
-// Each zone has specific properties and musical associations.
+// Revolutionary 6x6 grid where position = continuous musical expression.
+// X-axis: Pitch register (left=bass, right=treble)
+// Y-axis: Texture density (top=sparse, bottom=dense)
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -11,222 +12,256 @@ const GumpGrid = (function() {
     'use strict';
 
     // ═══════════════════════════════════════════════════════════════════════
-    // ZONE DEFINITIONS
+    // GRID CONFIGURATION
     // ═══════════════════════════════════════════════════════════════════════
 
-    // Zone boundaries (normalized 0-1)
-    const ZONE_BOUNDS = {
-        nw: { x: [0, 0.333], y: [0, 0.333] },
-        n:  { x: [0.333, 0.666], y: [0, 0.333] },
-        ne: { x: [0.666, 1], y: [0, 0.333] },
-        w:  { x: [0, 0.333], y: [0.333, 0.666] },
-        center: { x: [0.333, 0.666], y: [0.333, 0.666] },
-        e:  { x: [0.666, 1], y: [0.333, 0.666] },
-        sw: { x: [0, 0.333], y: [0.666, 1] },
-        s:  { x: [0.333, 0.666], y: [0.666, 1] },
-        se: { x: [0.666, 1], y: [0.666, 1] },
-    };
+    const GRID_CONFIG = Object.freeze({
+        rows: 6,
+        cols: 6,
+        zoneCount: 36,
+        cellWidth: 1 / 6,
+        cellHeight: 1 / 6
+    });
 
-    // Zone musical properties
-    const ZONE_PROPERTIES = {
-        center: {
-            name: 'center',
-            displayName: 'The Center',
-            coords: { x: 1, y: 1 },
-            role: 'anchor',
-            frequency: 'root',
-            energy: 'grounding',
-            color: '#ffffff',
-            description: 'The root, the anchor, the source',
-            musicalMeaning: {
-                harmonic: 'tonic',
-                rhythmic: 'downbeat',
-                dynamic: 'sustain',
-                textural: 'foundation',
-            },
-            unlockAffinity: ['fundamental', 'root', 'anchor'],
-        },
-        n: {
-            name: 'n',
-            displayName: 'The Heights',
-            coords: { x: 1, y: 0 },
-            role: 'brightness',
-            frequency: 'high',
-            energy: 'ascending',
-            color: '#87ceeb',
-            description: 'High frequencies, overtones, light',
-            musicalMeaning: {
-                harmonic: 'brightness',
-                rhythmic: 'offbeat_high',
-                dynamic: 'crescendo',
-                textural: 'shimmer',
-            },
-            unlockAffinity: ['overtones', 'shimmer', 'light'],
-        },
-        s: {
-            name: 's',
-            displayName: 'The Depths',
-            coords: { x: 1, y: 2 },
-            role: 'depth',
-            frequency: 'low',
-            energy: 'descending',
-            color: '#4a0080',
-            description: 'Sub bass, foundation, gravity',
-            musicalMeaning: {
-                harmonic: 'depth',
-                rhythmic: 'downbeat_heavy',
-                dynamic: 'weight',
-                textural: 'rumble',
-            },
-            unlockAffinity: ['sub', 'bass', 'foundation', '808'],
-        },
-        e: {
-            name: 'e',
-            displayName: 'The Attack',
-            coords: { x: 2, y: 1 },
-            role: 'attack',
-            frequency: 'transient',
-            energy: 'forward',
-            color: '#ff6b35',
-            description: 'Attack, transients, energy burst',
-            musicalMeaning: {
-                harmonic: 'brightness_burst',
-                rhythmic: 'accent',
-                dynamic: 'attack',
-                textural: 'percussive',
-            },
-            unlockAffinity: ['attack', 'transient', 'energy', 'hit'],
-        },
-        w: {
-            name: 'w',
-            displayName: 'The Decay',
-            coords: { x: 0, y: 1 },
-            role: 'release',
-            frequency: 'filtered',
-            energy: 'retreating',
-            color: '#2e4057',
-            description: 'Decay, sustain, space, reverb',
-            musicalMeaning: {
-                harmonic: 'darkness',
-                rhythmic: 'sustained',
-                dynamic: 'release',
-                textural: 'ambient',
-            },
-            unlockAffinity: ['decay', 'space', 'reverb', 'pad'],
-        },
-        ne: {
-            name: 'ne',
-            displayName: 'The Sparkle',
-            coords: { x: 2, y: 0 },
-            role: 'arpeggio',
-            frequency: 'high_rhythmic',
-            energy: 'dancing',
-            color: '#ffd700',
-            description: 'Arpeggios, harmonics, glitter',
-            musicalMeaning: {
-                harmonic: 'upper_harmonics',
-                rhythmic: 'arpeggio',
-                dynamic: 'flutter',
-                textural: 'crystalline',
-            },
-            unlockAffinity: ['arp', 'sparkle', 'chime', 'bell'],
-        },
-        nw: {
-            name: 'nw',
-            displayName: 'The Breath',
-            coords: { x: 0, y: 0 },
-            role: 'modulation',
-            frequency: 'lfo_high',
-            energy: 'breathing',
-            color: '#90ee90',
-            description: 'LFO, breath, slow movement',
-            musicalMeaning: {
-                harmonic: 'modulated',
-                rhythmic: 'polyrhythm',
-                dynamic: 'swell',
-                textural: 'organic',
-            },
-            unlockAffinity: ['breath', 'lfo', 'swell', 'pulse'],
-        },
-        se: {
-            name: 'se',
-            displayName: 'The Pulse',
-            coords: { x: 2, y: 2 },
-            role: 'rhythm',
-            frequency: 'rhythmic',
-            energy: 'driving',
-            color: '#ff4444',
-            description: 'Drums, rhythm, pulse',
-            musicalMeaning: {
-                harmonic: 'percussive',
-                rhythmic: 'groove',
-                dynamic: 'driving',
-                textural: 'rhythmic',
-            },
-            unlockAffinity: ['drums', 'rhythm', 'beat', 'groove'],
-        },
-        sw: {
-            name: 'sw',
-            displayName: 'The Foundation',
-            coords: { x: 0, y: 2 },
-            role: 'sub',
-            frequency: 'sub_bass',
-            energy: 'heavy',
-            color: '#330066',
-            description: 'Sub bass, 808, floor-shaking lows',
-            musicalMeaning: {
-                harmonic: 'sub_harmonic',
-                rhythmic: 'slow_pulse',
-                dynamic: 'massive',
-                textural: 'deep',
-            },
-            unlockAffinity: ['808', 'sub', 'bass_drop', 'earthquake'],
-        },
-    };
+    // ═══════════════════════════════════════════════════════════════════════
+    // ZONE BOUNDS - Algorithmically generated
+    // ═══════════════════════════════════════════════════════════════════════
 
-    // Zone adjacency map
-    const ZONE_ADJACENCY = {
-        nw: ['n', 'w', 'center'],
-        n: ['nw', 'ne', 'center', 'w', 'e'],
-        ne: ['n', 'e', 'center'],
-        w: ['nw', 'sw', 'center', 'n', 's'],
-        center: ['n', 's', 'e', 'w', 'nw', 'ne', 'sw', 'se'],
-        e: ['ne', 'se', 'center', 'n', 's'],
-        sw: ['w', 's', 'center'],
-        s: ['sw', 'se', 'center', 'w', 'e'],
-        se: ['s', 'e', 'center'],
-    };
+    function generateZoneBounds() {
+        const bounds = {};
+        const { rows, cols, cellWidth, cellHeight } = GRID_CONFIG;
 
-    // Zone transition musical meanings
-    const ZONE_TRANSITIONS = {
-        // Horizontal
-        'w_to_e': { meaning: 'filter_open', energy: 'expanding' },
-        'e_to_w': { meaning: 'filter_close', energy: 'contracting' },
-        'nw_to_ne': { meaning: 'shimmer_sweep', energy: 'gliding_high' },
-        'sw_to_se': { meaning: 'bass_sweep', energy: 'rumbling' },
+        for (let row = 0; row < rows; row++) {
+            for (let col = 0; col < cols; col++) {
+                const zoneId = `${col}-${row}`;
+                bounds[zoneId] = {
+                    x: [col * cellWidth, (col + 1) * cellWidth],
+                    y: [row * cellHeight, (row + 1) * cellHeight]
+                };
+            }
+        }
 
-        // Vertical
-        'n_to_s': { meaning: 'frequency_descend', energy: 'falling' },
-        's_to_n': { meaning: 'frequency_ascend', energy: 'rising' },
-        'nw_to_sw': { meaning: 'filter_descend', energy: 'darkening' },
-        'ne_to_se': { meaning: 'energy_descend', energy: 'grounding' },
+        return Object.freeze(bounds);
+    }
 
-        // Diagonal
-        'nw_to_se': { meaning: 'full_sweep', energy: 'complete' },
-        'ne_to_sw': { meaning: 'cross_fade', energy: 'inverting' },
-        'sw_to_ne': { meaning: 'bass_to_treble', energy: 'liberating' },
-        'se_to_nw': { meaning: 'rhythm_to_breath', energy: 'relaxing' },
+    const ZONE_BOUNDS = generateZoneBounds();
 
-        // Center transitions
-        'center_to_n': { meaning: 'root_to_bloom', energy: 'opening' },
-        'center_to_s': { meaning: 'root_to_depth', energy: 'sinking' },
-        'center_to_e': { meaning: 'root_to_attack', energy: 'striking' },
-        'center_to_w': { meaning: 'root_to_space', energy: 'expanding' },
-        'n_to_center': { meaning: 'bloom_to_root', energy: 'grounding' },
-        's_to_center': { meaning: 'depth_to_root', energy: 'rising' },
-        'e_to_center': { meaning: 'attack_to_root', energy: 'resolving' },
-        'w_to_center': { meaning: 'space_to_root', energy: 'focusing' },
-    };
+    // ═══════════════════════════════════════════════════════════════════════
+    // ZONE PROPERTIES - Position-based musical mapping
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function generateZoneProperties() {
+        const properties = {};
+        const { rows, cols } = GRID_CONFIG;
+
+        // Musical characteristics based on position
+        const getRoleFromPosition = (col, row) => {
+            const x = col / (cols - 1);  // 0-1
+            const y = row / (rows - 1);  // 0-1
+
+            // Corners and edges have distinct roles
+            if (row === 0 && col === 0) return 'breath';
+            if (row === 0 && col === cols - 1) return 'sparkle';
+            if (row === rows - 1 && col === 0) return 'sub';
+            if (row === rows - 1 && col === cols - 1) return 'pulse';
+
+            // Center area
+            if (col >= 2 && col <= 3 && row >= 2 && row <= 3) return 'anchor';
+
+            // Edges
+            if (row === 0) return 'brightness';
+            if (row === rows - 1) return 'depth';
+            if (col === 0) return 'release';
+            if (col === cols - 1) return 'attack';
+
+            return 'expressive';
+        };
+
+        const getFrequencyFromPosition = (col, row) => {
+            const x = col / (cols - 1);
+            if (x < 0.2) return 'sub_bass';
+            if (x < 0.4) return 'bass';
+            if (x < 0.6) return 'mid';
+            if (x < 0.8) return 'high_mid';
+            return 'high';
+        };
+
+        const getColorFromPosition = (col, row) => {
+            const x = col / (cols - 1);
+            const y = row / (rows - 1);
+
+            // HSL color mapping: x=hue rotation, y=saturation/lightness
+            const hue = x * 360;
+            const sat = 50 + y * 30;
+            const light = 60 - y * 20;
+
+            return `hsl(${hue}, ${sat}%, ${light}%)`;
+        };
+
+        for (let row = 0; row < rows; row++) {
+            for (let col = 0; col < cols; col++) {
+                const zoneId = `${col}-${row}`;
+                const x = col / (cols - 1);  // 0-1 normalized
+                const y = row / (rows - 1);  // 0-1 normalized
+
+                properties[zoneId] = {
+                    name: zoneId,
+                    displayName: `Zone ${col},${row}`,
+                    coords: { x: col, y: row },
+
+                    // Continuous position for musical mapping
+                    normalizedX: x,
+                    normalizedY: y,
+
+                    role: getRoleFromPosition(col, row),
+                    frequency: getFrequencyFromPosition(col, row),
+                    energy: y > 0.5 ? 'grounded' : 'ascending',
+                    color: getColorFromPosition(col, row),
+
+                    description: `Position ${col},${row}`,
+
+                    // Musical meaning derived from position
+                    musicalMeaning: {
+                        // X-axis: harmonic brightness
+                        harmonic: x < 0.3 ? 'dark' : x > 0.7 ? 'bright' : 'neutral',
+                        // Y-axis: rhythmic density
+                        rhythmic: y < 0.3 ? 'sparse' : y > 0.7 ? 'dense' : 'moderate',
+                        // Combined: dynamic character
+                        dynamic: (x + y) / 2 > 0.5 ? 'active' : 'passive',
+                        // Texture from position
+                        textural: x > 0.5 ? 'crisp' : 'warm'
+                    },
+
+                    // Unlock affinity based on position
+                    unlockAffinity: getAffinityFromPosition(col, row)
+                };
+            }
+        }
+
+        return Object.freeze(properties);
+    }
+
+    function getAffinityFromPosition(col, row) {
+        const affinities = [];
+        const { cols, rows } = GRID_CONFIG;
+        const x = col / (cols - 1);
+        const y = row / (rows - 1);
+
+        // Position-based affinities
+        if (x < 0.3) affinities.push('bass', 'sub', 'warmth');
+        if (x > 0.7) affinities.push('treble', 'brightness', 'sparkle');
+        if (y < 0.3) affinities.push('sparse', 'breath', 'space');
+        if (y > 0.7) affinities.push('dense', 'rhythm', 'pulse');
+
+        // Center
+        if (x > 0.3 && x < 0.7 && y > 0.3 && y < 0.7) {
+            affinities.push('anchor', 'root', 'foundation');
+        }
+
+        // Corners
+        if (col === 0 && row === 0) affinities.push('origin', 'breath');
+        if (col === cols - 1 && row === 0) affinities.push('sparkle', 'chime');
+        if (col === 0 && row === rows - 1) affinities.push('earthquake', '808');
+        if (col === cols - 1 && row === rows - 1) affinities.push('groove', 'beat');
+
+        return affinities.length > 0 ? affinities : ['expressive'];
+    }
+
+    const ZONE_PROPERTIES = generateZoneProperties();
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // ZONE ADJACENCY - Algorithmic
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function generateZoneAdjacency() {
+        const adjacency = {};
+        const { rows, cols } = GRID_CONFIG;
+
+        for (let row = 0; row < rows; row++) {
+            for (let col = 0; col < cols; col++) {
+                const zoneId = `${col}-${row}`;
+                const adjacent = [];
+
+                // All 8 directions
+                const directions = [
+                    [-1, -1], [0, -1], [1, -1],
+                    [-1, 0],          [1, 0],
+                    [-1, 1],  [0, 1],  [1, 1]
+                ];
+
+                for (const [dx, dy] of directions) {
+                    const nx = col + dx;
+                    const ny = row + dy;
+                    if (nx >= 0 && nx < cols && ny >= 0 && ny < rows) {
+                        adjacent.push(`${nx}-${ny}`);
+                    }
+                }
+
+                adjacency[zoneId] = adjacent;
+            }
+        }
+
+        return Object.freeze(adjacency);
+    }
+
+    const ZONE_ADJACENCY = generateZoneAdjacency();
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // ZONE TRANSITIONS - Dynamic based on movement
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function getTransitionMeaning(fromZone, toZone) {
+        if (!fromZone || !toZone) return null;
+
+        const from = ZONE_PROPERTIES[fromZone];
+        const to = ZONE_PROPERTIES[toZone];
+        if (!from || !to) return null;
+
+        const dx = to.normalizedX - from.normalizedX;
+        const dy = to.normalizedY - from.normalizedY;
+
+        let meaning = 'movement';
+        let energy = 'neutral';
+
+        // Horizontal movement = harmonic change
+        if (Math.abs(dx) > Math.abs(dy)) {
+            if (dx > 0) {
+                meaning = 'brighten';
+                energy = 'opening';
+            } else {
+                meaning = 'darken';
+                energy = 'closing';
+            }
+        }
+        // Vertical movement = texture change
+        else if (Math.abs(dy) > Math.abs(dx)) {
+            if (dy > 0) {
+                meaning = 'densify';
+                energy = 'intensifying';
+            } else {
+                meaning = 'rarify';
+                energy = 'relaxing';
+            }
+        }
+        // Diagonal movement
+        else {
+            if (dx > 0 && dy > 0) {
+                meaning = 'crescendo';
+                energy = 'building';
+            } else if (dx < 0 && dy < 0) {
+                meaning = 'diminuendo';
+                energy = 'fading';
+            } else if (dx > 0 && dy < 0) {
+                meaning = 'ascend_bright';
+                energy = 'lifting';
+            } else {
+                meaning = 'descend_dark';
+                energy = 'sinking';
+            }
+        }
+
+        return { meaning, energy, dx, dy };
+    }
 
     // ═══════════════════════════════════════════════════════════════════════
     // GRID STATE
@@ -243,6 +278,10 @@ const GumpGrid = (function() {
         localX: 0.5,
         localY: 0.5,
 
+        // Global position (0-1 across entire grid)
+        globalX: 0.5,
+        globalY: 0.5,
+
         // Zone transition state
         lastTransition: null,
         transitionHistory: [],
@@ -258,6 +297,13 @@ const GumpGrid = (function() {
 
         // Connection tracking
         connectionDecayRate: 0.01,
+
+        // Movement tracking for gesture detection
+        velocityX: 0,
+        velocityY: 0,
+        movementPath: [],
+        lastPosition: { x: 0.5, y: 0.5 },
+        lastPositionTime: 0
     };
 
     // Initialize zone states
@@ -266,14 +312,14 @@ const GumpGrid = (function() {
             energy: 0,
             heat: 0,
             dwellTime: 0,
-            dwellProgress: 0,      // 0-1 progress toward next threshold
-            currentThreshold: 0,   // Which threshold we're working toward
+            dwellProgress: 0,
+            currentThreshold: 0,
             isActive: false,
             isLocked: false,
             lastVisit: 0,
             visitCount: 0,
             glowIntensity: 0,
-            pulsePhase: Math.random() * Math.PI * 2,
+            pulsePhase: Math.random() * Math.PI * 2
         };
     });
 
@@ -283,39 +329,32 @@ const GumpGrid = (function() {
 
     function getZoneFromPosition(x, y) {
         // Clamp to valid range
-        x = Math.max(0, Math.min(1, x));
-        y = Math.max(0, Math.min(1, y));
+        x = Math.max(0, Math.min(0.9999, x));
+        y = Math.max(0, Math.min(0.9999, y));
 
-        for (const [zoneId, bounds] of Object.entries(ZONE_BOUNDS)) {
-            if (x >= bounds.x[0] && x < bounds.x[1] &&
-                y >= bounds.y[0] && y < bounds.y[1]) {
-                return zoneId;
-            }
-        }
+        const col = Math.floor(x * GRID_CONFIG.cols);
+        const row = Math.floor(y * GRID_CONFIG.rows);
 
-        // Edge case: exactly at 1.0
-        if (x >= 0.666) {
-            if (y >= 0.666) return 'se';
-            if (y >= 0.333) return 'e';
-            return 'ne';
-        }
-
-        return 'center'; // Fallback
+        return `${col}-${row}`;
     }
 
     function getZoneCenter(zoneId) {
         const bounds = ZONE_BOUNDS[zoneId];
+        if (!bounds) return { x: 0.5, y: 0.5 };
+
         return {
             x: (bounds.x[0] + bounds.x[1]) / 2,
-            y: (bounds.y[0] + bounds.y[1]) / 2,
+            y: (bounds.y[0] + bounds.y[1]) / 2
         };
     }
 
     function getLocalPosition(x, y, zoneId) {
         const bounds = ZONE_BOUNDS[zoneId];
+        if (!bounds) return { x: 0.5, y: 0.5 };
+
         return {
             x: (x - bounds.x[0]) / (bounds.x[1] - bounds.x[0]),
-            y: (y - bounds.y[0]) / (bounds.y[1] - bounds.y[0]),
+            y: (y - bounds.y[0]) / (bounds.y[1] - bounds.y[0])
         };
     }
 
@@ -327,13 +366,63 @@ const GumpGrid = (function() {
     }
 
     function getZoneDistance(zone1, zone2) {
-        const c1 = ZONE_PROPERTIES[zone1].coords;
-        const c2 = ZONE_PROPERTIES[zone2].coords;
+        const c1 = ZONE_PROPERTIES[zone1]?.coords;
+        const c2 = ZONE_PROPERTIES[zone2]?.coords;
+        if (!c1 || !c2) return 999;
         return Math.abs(c1.x - c2.x) + Math.abs(c1.y - c2.y);
     }
 
     function areZonesAdjacent(zone1, zone2) {
-        return ZONE_ADJACENCY[zone1].includes(zone2);
+        return ZONE_ADJACENCY[zone1]?.includes(zone2) || false;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // CONTINUOUS EXPRESSION MAPPING
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /**
+     * Get musical expression values from current position.
+     * This is the core of the 6x6 expressive grid.
+     */
+    function getExpression(x, y, velocity = 0) {
+        // Clamp inputs
+        x = Math.max(0, Math.min(1, x));
+        y = Math.max(0, Math.min(1, y));
+        velocity = Math.max(0, Math.min(1, velocity));
+
+        return {
+            // Pitch: X-axis maps to octave register
+            octave: Math.floor(x * 4) + 1,  // Octaves 1-5
+            pitchBend: (x % 0.25) * 4,       // 0-1 within octave
+
+            // Rhythm: Y-axis maps to density
+            density: y,                       // 0=sparse, 1=dense
+            subdivisionLevel: Math.floor(y * 4),  // 0=whole, 1=half, 2=quarter, 3=16th
+
+            // Swing increases with density
+            swing: y > 0.5 ? (y - 0.5) * 0.4 : 0,
+
+            // Dynamics from velocity (movement speed)
+            velocity: velocity,
+            attack: 0.005 + (1 - velocity) * 0.1,  // Faster = shorter attack
+
+            // Texture from combined position
+            filterCutoff: 200 + x * 4000,    // Hz: left=dark, right=bright
+            filterResonance: 0.5 + y * 2,    // More resonance when dense
+
+            // Spatial
+            reverbMix: (1 - y) * 0.6,        // Sparse = more reverb
+            delayMix: x * 0.3,               // Right = more delay
+
+            // In Rainbows character
+            detuneAmount: 10 + y * 40,       // More detune when dense
+            chorusDepth: x * 0.4,            // More chorus on highs
+            warmth: 1 - x,                   // Left = warmer
+
+            // Raw position for custom mapping
+            rawX: x,
+            rawY: y
+        };
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -341,6 +430,31 @@ const GumpGrid = (function() {
     // ═══════════════════════════════════════════════════════════════════════
 
     function update(x, y, dt, state) {
+        const now = performance.now();
+
+        // Store global position
+        gridState.globalX = x;
+        gridState.globalY = y;
+
+        // Calculate velocity
+        const timeDelta = (now - gridState.lastPositionTime) / 1000;
+        if (timeDelta > 0 && timeDelta < 0.5) {
+            const dx = x - gridState.lastPosition.x;
+            const dy = y - gridState.lastPosition.y;
+            gridState.velocityX = dx / timeDelta;
+            gridState.velocityY = dy / timeDelta;
+        }
+
+        // Update movement path
+        gridState.movementPath.push({ x, y, time: now });
+        if (gridState.movementPath.length > 100) {
+            gridState.movementPath = gridState.movementPath.slice(-50);
+        }
+
+        gridState.lastPosition = { x, y };
+        gridState.lastPositionTime = now;
+
+        // Get current zone
         const currentZone = getZoneFromPosition(x, y);
         const previousZone = state.get('grid.currentZone');
 
@@ -355,9 +469,11 @@ const GumpGrid = (function() {
         }
 
         // Update current zone dwell
-        updateZoneDwell(currentZone, dt, state);
+        if (currentZone && gridState.zones[currentZone]) {
+            updateZoneDwell(currentZone, dt, state);
+        }
 
-        // Update all zone states (heat decay, etc.)
+        // Update all zone states
         updateAllZones(dt, currentZone, state);
 
         // Update connections
@@ -366,14 +482,25 @@ const GumpGrid = (function() {
         // Update state
         state.setCurrentZone(currentZone);
 
+        // Calculate velocity magnitude for expression
+        const velocityMag = Math.min(1, Math.sqrt(
+            gridState.velocityX * gridState.velocityX +
+            gridState.velocityY * gridState.velocityY
+        ) * 2);
+
         return {
             zone: currentZone,
             localX: gridState.localX,
             localY: gridState.localY,
+            globalX: x,
+            globalY: y,
+            velocity: velocityMag,
+            expression: getExpression(x, y, velocityMag),
             transition: currentZone !== previousZone ? {
                 from: previousZone,
                 to: currentZone,
-            } : null,
+                meaning: getTransitionMeaning(previousZone, currentZone)
+            } : null
         };
     }
 
@@ -385,7 +512,6 @@ const GumpGrid = (function() {
             const zoneState = gridState.zones[fromZone];
             const dwellDuration = zoneState.dwellTime;
 
-            // Add to zone buffer
             state.addToZoneBuffer(fromZone, now, dwellDuration);
 
             // Reset dwell
@@ -402,15 +528,14 @@ const GumpGrid = (function() {
         }
 
         // Record transition
-        const transitionKey = `${fromZone}_to_${toZone}`;
-        const transitionInfo = ZONE_TRANSITIONS[transitionKey];
+        const transitionInfo = getTransitionMeaning(fromZone, toZone);
 
         gridState.lastTransition = {
             from: fromZone,
             to: toZone,
             timestamp: now,
             meaning: transitionInfo?.meaning || 'movement',
-            energy: transitionInfo?.energy || 'neutral',
+            energy: transitionInfo?.energy || 'neutral'
         };
 
         gridState.transitionHistory.push(gridState.lastTransition);
@@ -419,25 +544,26 @@ const GumpGrid = (function() {
         }
 
         // Update visit counts
-        gridState.zones[toZone].visitCount++;
-        gridState.zones[toZone].lastVisit = now;
+        if (gridState.zones[toZone]) {
+            gridState.zones[toZone].visitCount++;
+            gridState.zones[toZone].lastVisit = now;
+            gridState.zones[toZone].heat = Math.min(1, gridState.zones[toZone].heat + 0.3);
+        }
 
-        // Add heat to new zone
-        gridState.zones[toZone].heat = Math.min(1, gridState.zones[toZone].heat + 0.3);
-
-        // Start dwell tracking
         gridState.currentDwellStart = now;
     }
 
     function updateZoneDwell(zoneId, dt, state) {
         const zoneState = gridState.zones[zoneId];
+        if (!zoneState) return;
+
         const thresholds = GumpState.DWELL_THRESHOLDS;
 
         // Accumulate dwell time
         zoneState.dwellTime += dt;
         state.updateZone(zoneId, { dwellTime: zoneState.dwellTime });
 
-        // Accumulate energy (faster when dwelling longer)
+        // Accumulate energy
         const energyGain = gridState.energyRate * dt * (1 + zoneState.dwellTime * 0.5);
         zoneState.energy = Math.min(1, zoneState.energy + energyGain);
 
@@ -462,26 +588,20 @@ const GumpGrid = (function() {
         }
 
         // Calculate progress toward next threshold
-        let nextThreshold;
         if (dwellTime < thresholds.TOUCH) {
             zoneState.dwellProgress = dwellTime / thresholds.TOUCH;
-            nextThreshold = 'touch';
         } else if (dwellTime < thresholds.ACTIVATE) {
             zoneState.dwellProgress = (dwellTime - thresholds.TOUCH) /
                                      (thresholds.ACTIVATE - thresholds.TOUCH);
-            nextThreshold = 'activate';
         } else if (dwellTime < thresholds.LOCK) {
             zoneState.dwellProgress = (dwellTime - thresholds.ACTIVATE) /
                                      (thresholds.LOCK - thresholds.ACTIVATE);
-            nextThreshold = 'lock';
         } else if (dwellTime < thresholds.TRANSCEND) {
             zoneState.dwellProgress = (dwellTime - thresholds.LOCK) /
                                      (thresholds.TRANSCEND - thresholds.LOCK);
-            nextThreshold = 'transcend';
         } else {
             zoneState.dwellProgress = Math.min(1, (dwellTime - thresholds.TRANSCEND) /
                                      (thresholds.ENLIGHTEN - thresholds.TRANSCEND));
-            nextThreshold = 'enlighten';
         }
     }
 
@@ -489,49 +609,32 @@ const GumpGrid = (function() {
         const zoneState = gridState.zones[zoneId];
         const zoneProps = ZONE_PROPERTIES[zoneId];
 
-        console.log(`Zone ${zoneId} reached ${threshold} threshold`);
+        console.log(`[Grid] Zone ${zoneId} reached ${threshold}`);
 
         switch (threshold) {
             case 'touch':
-                // Brief activation - temporary effect
                 zoneState.glowIntensity = 0.3;
                 break;
-
             case 'activate':
-                // Full activation
                 zoneState.isActive = true;
                 zoneState.glowIntensity = 0.6;
                 state.activateZone(zoneId);
-
-                // Try to unlock zone-associated content
-                zoneProps.unlockAffinity.forEach(unlockId => {
-                    // This will be handled by the unlock system
-                });
                 break;
-
             case 'lock':
-                // Permanent lock
                 zoneState.isLocked = true;
                 zoneState.glowIntensity = 0.9;
                 break;
-
             case 'transcend':
-                // Deep connection - special effects
-                zoneState.glowIntensity = 1.0;
-                break;
-
             case 'enlighten':
-                // Ultimate - era-specific special event
                 zoneState.glowIntensity = 1.0;
                 break;
         }
 
-        // Emit event for other systems
         if (typeof window !== 'undefined' && window.GumpEvents) {
             window.GumpEvents.emit('zone.threshold', {
                 zone: zoneId,
                 threshold,
-                zoneState,
+                zoneState
             });
         }
     }
@@ -543,7 +646,7 @@ const GumpGrid = (function() {
                 zoneState.heat = Math.max(0, zoneState.heat - gridState.heatDecayRate * dt);
             }
 
-            // Energy decay (slower than heat)
+            // Energy decay
             if (!zoneState.isLocked) {
                 zoneState.energy = Math.max(0, zoneState.energy - 0.005 * dt);
             }
@@ -555,7 +658,6 @@ const GumpGrid = (function() {
             // Pulse phase
             zoneState.pulsePhase += dt * 2;
 
-            // Update visual state in main state
             state.set(`visual.zoneGlows.${zoneId}`, zoneState.glowIntensity);
         }
     }
@@ -614,7 +716,7 @@ const GumpGrid = (function() {
             if (z1 === zoneId || z2 === zoneId) {
                 connections.push({
                     zone: z1 === zoneId ? z2 : z1,
-                    strength,
+                    strength
                 });
             }
         }
@@ -623,136 +725,48 @@ const GumpGrid = (function() {
 
     function getTotalEnergy() {
         return Object.values(gridState.zones)
-            .reduce((sum, state) => sum + state.energy, 0) / 9;
+            .reduce((sum, state) => sum + state.energy, 0) / GRID_CONFIG.zoneCount;
     }
 
     function getTotalHeat() {
         return Object.values(gridState.zones)
-            .reduce((sum, state) => sum + state.heat, 0) / 9;
+            .reduce((sum, state) => sum + state.heat, 0) / GRID_CONFIG.zoneCount;
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    // PATTERN HELPERS
+    // MOVEMENT & GESTURE HELPERS
     // ═══════════════════════════════════════════════════════════════════════
 
     function getRecentZoneSequence(count = 10) {
         return gridState.transitionHistory.slice(-count).map(t => t.to);
     }
 
-    function getZonePath(zones) {
-        // Calculate the "shape" formed by a sequence of zones
-        if (zones.length < 2) return null;
+    function getMovementDirection() {
+        const vx = gridState.velocityX;
+        const vy = gridState.velocityY;
+        const speed = Math.sqrt(vx * vx + vy * vy);
 
-        const coords = zones.map(z => ZONE_PROPERTIES[z].coords);
+        if (speed < 0.1) return { direction: 'still', speed: 0 };
 
-        // Check for various shapes
-        if (isLine(coords)) return { shape: 'line', direction: getLineDirection(coords) };
-        if (isTriangle(coords)) return { shape: 'triangle', clockwise: isClockwise(coords) };
-        if (isSquare(coords)) return { shape: 'square', clockwise: isClockwise(coords) };
-        if (isCross(zones)) return { shape: 'cross', type: getCrossType(zones) };
-        if (isCircle(zones)) return { shape: 'circle', clockwise: isClockwise(coords) };
+        const angle = Math.atan2(vy, vx) * 180 / Math.PI;
+        let direction;
 
-        return { shape: 'freeform', zones };
+        if (angle >= -22.5 && angle < 22.5) direction = 'right';
+        else if (angle >= 22.5 && angle < 67.5) direction = 'down-right';
+        else if (angle >= 67.5 && angle < 112.5) direction = 'down';
+        else if (angle >= 112.5 && angle < 157.5) direction = 'down-left';
+        else if (angle >= 157.5 || angle < -157.5) direction = 'left';
+        else if (angle >= -157.5 && angle < -112.5) direction = 'up-left';
+        else if (angle >= -112.5 && angle < -67.5) direction = 'up';
+        else direction = 'up-right';
+
+        return { direction, speed, angle };
     }
 
-    function isLine(coords) {
-        if (coords.length < 3) return true;
-
-        // Check if all points are collinear
-        const dx = coords[1].x - coords[0].x;
-        const dy = coords[1].y - coords[0].y;
-
-        for (let i = 2; i < coords.length; i++) {
-            const ddx = coords[i].x - coords[0].x;
-            const ddy = coords[i].y - coords[0].y;
-
-            // Cross product should be zero for collinear points
-            if (Math.abs(dx * ddy - dy * ddx) > 0.01) return false;
-        }
-
-        return true;
-    }
-
-    function getLineDirection(coords) {
-        const start = coords[0];
-        const end = coords[coords.length - 1];
-        const dx = end.x - start.x;
-        const dy = end.y - start.y;
-
-        if (Math.abs(dx) > Math.abs(dy)) {
-            return dx > 0 ? 'east' : 'west';
-        } else {
-            return dy > 0 ? 'south' : 'north';
-        }
-    }
-
-    function isTriangle(coords) {
-        // Need exactly 3 or 4 points (returning to start)
-        const uniqueCoords = getUniqueCoords(coords);
-        return uniqueCoords.length === 3;
-    }
-
-    function isSquare(coords) {
-        const uniqueCoords = getUniqueCoords(coords);
-        return uniqueCoords.length === 4 &&
-               isRectangular(uniqueCoords);
-    }
-
-    function isCross(zones) {
-        // Check if zones form a + or X pattern
-        const hasCenter = zones.includes('center');
-        if (!hasCenter) return false;
-
-        const hasNS = zones.includes('n') && zones.includes('s');
-        const hasEW = zones.includes('e') && zones.includes('w');
-        const hasDiag1 = zones.includes('nw') && zones.includes('se');
-        const hasDiag2 = zones.includes('ne') && zones.includes('sw');
-
-        return (hasNS && hasEW) || (hasDiag1 && hasDiag2);
-    }
-
-    function getCrossType(zones) {
-        const hasNS = zones.includes('n') && zones.includes('s');
-        const hasEW = zones.includes('e') && zones.includes('w');
-        if (hasNS && hasEW) return 'plus';
-
-        return 'x';
-    }
-
-    function isCircle(zones) {
-        // Check if the path forms a rough circle through corners
-        const corners = ['nw', 'ne', 'se', 'sw'];
-        const cornerCount = zones.filter(z => corners.includes(z)).length;
-        return cornerCount >= 3 && zones[0] === zones[zones.length - 1];
-    }
-
-    function isClockwise(coords) {
-        // Calculate signed area
-        let sum = 0;
-        for (let i = 0; i < coords.length - 1; i++) {
-            sum += (coords[i + 1].x - coords[i].x) * (coords[i + 1].y + coords[i].y);
-        }
-        return sum > 0;
-    }
-
-    function isRectangular(coords) {
-        if (coords.length !== 4) return false;
-
-        // Check if we have 2 distinct x values and 2 distinct y values
-        const xs = [...new Set(coords.map(c => c.x))];
-        const ys = [...new Set(coords.map(c => c.y))];
-
-        return xs.length === 2 && ys.length === 2;
-    }
-
-    function getUniqueCoords(coords) {
-        const seen = new Set();
-        return coords.filter(c => {
-            const key = `${c.x},${c.y}`;
-            if (seen.has(key)) return false;
-            seen.add(key);
-            return true;
-        });
+    function getRecentPath(durationMs = 500) {
+        const now = performance.now();
+        const cutoff = now - durationMs;
+        return gridState.movementPath.filter(p => p.time >= cutoff);
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -762,6 +776,8 @@ const GumpGrid = (function() {
     function getMusicalContext(zoneId) {
         const props = ZONE_PROPERTIES[zoneId];
         const state = gridState.zones[zoneId];
+
+        if (!props || !state) return null;
 
         return {
             zone: zoneId,
@@ -774,6 +790,8 @@ const GumpGrid = (function() {
             heat: state.heat,
             isActive: state.isActive,
             isLocked: state.isLocked,
+            normalizedX: props.normalizedX,
+            normalizedY: props.normalizedY
         };
     }
 
@@ -781,41 +799,37 @@ const GumpGrid = (function() {
         const activeZones = getActiveZones();
         const lockedZones = getLockedZones();
 
-        // Calculate dominant characteristics
-        let harmonicBalance = 0;  // -1 = dark, 1 = bright
-        let rhythmicBalance = 0;  // -1 = sustained, 1 = percussive
-        let energyLevel = 0;
-
-        for (const zoneId of activeZones) {
-            const props = ZONE_PROPERTIES[zoneId];
-            const state = gridState.zones[zoneId];
-
-            // Harmonic balance
-            if (['n', 'ne', 'e'].includes(zoneId)) {
-                harmonicBalance += state.energy * 0.5;
-            } else if (['s', 'sw', 'w'].includes(zoneId)) {
-                harmonicBalance -= state.energy * 0.5;
-            }
-
-            // Rhythmic balance
-            if (['e', 'se', 's'].includes(zoneId)) {
-                rhythmicBalance += state.energy * 0.5;
-            } else if (['w', 'nw', 'n'].includes(zoneId)) {
-                rhythmicBalance -= state.energy * 0.5;
-            }
-
-            energyLevel += state.energy;
-        }
+        // Calculate from global position
+        const x = gridState.globalX;
+        const y = gridState.globalY;
 
         return {
             activeZones,
             lockedZones,
-            harmonicBalance: Math.max(-1, Math.min(1, harmonicBalance)),
-            rhythmicBalance: Math.max(-1, Math.min(1, rhythmicBalance)),
-            energyLevel: energyLevel / 9,
+            harmonicBalance: (x - 0.5) * 2,   // -1 to 1 (dark to bright)
+            rhythmicBalance: (y - 0.5) * 2,    // -1 to 1 (sparse to dense)
+            energyLevel: getTotalEnergy(),
             totalHeat: getTotalHeat(),
             totalEnergy: getTotalEnergy(),
+            globalExpression: getExpression(x, y, Math.sqrt(
+                gridState.velocityX ** 2 + gridState.velocityY ** 2
+            ))
         };
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // LEGACY COMPATIBILITY
+    // ═══════════════════════════════════════════════════════════════════════
+
+    // Map old zone names to new format for compatibility
+    const LEGACY_ZONE_MAP = {
+        'nw': '0-0', 'n': '2-0', 'ne': '5-0',
+        'w': '0-2', 'center': '2-2', 'e': '5-2',
+        'sw': '0-5', 's': '2-5', 'se': '5-5'
+    };
+
+    function legacyZoneToNew(legacyZone) {
+        return LEGACY_ZONE_MAP[legacyZone] || legacyZone;
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -835,13 +849,14 @@ const GumpGrid = (function() {
                 lastVisit: 0,
                 visitCount: 0,
                 glowIntensity: 0,
-                pulsePhase: Math.random() * Math.PI * 2,
+                pulsePhase: Math.random() * Math.PI * 2
             };
         });
 
         gridState.connections.clear();
         gridState.transitionHistory = [];
         gridState.lastTransition = null;
+        gridState.movementPath = [];
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -849,15 +864,16 @@ const GumpGrid = (function() {
     // ═══════════════════════════════════════════════════════════════════════
 
     return Object.freeze({
-        // Constants
+        // Configuration
+        GRID_CONFIG,
         ZONE_BOUNDS,
         ZONE_PROPERTIES,
         ZONE_ADJACENCY,
-        ZONE_TRANSITIONS,
 
         // Core functions
         update,
         reset,
+        getExpression,
 
         // Zone detection
         getZoneFromPosition,
@@ -878,16 +894,22 @@ const GumpGrid = (function() {
         getTotalEnergy,
         getTotalHeat,
 
-        // Pattern helpers
+        // Movement helpers
         getRecentZoneSequence,
-        getZonePath,
+        getMovementDirection,
+        getRecentPath,
+        getTransitionMeaning,
 
         // Musical queries
         getMusicalContext,
         getGlobalMusicalState,
 
+        // Legacy compatibility
+        legacyZoneToNew,
+        LEGACY_ZONE_MAP,
+
         // State access
-        get state() { return gridState; },
+        get state() { return gridState; }
     });
 })();
 
