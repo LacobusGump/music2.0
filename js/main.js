@@ -201,6 +201,12 @@ const GUMP = (function() {
                         });
                     }
 
+                    // Initialize Journey System (the conducting experience)
+                    if (typeof GumpJourney !== 'undefined') {
+                        GumpJourney.init(GumpAudio.context);
+                        console.log('[GUMP] Journey system ready - music will dance to you');
+                    }
+
                     console.log('[GUMP] Recording & voice systems initialized');
                 }
             } catch (audioError) {
