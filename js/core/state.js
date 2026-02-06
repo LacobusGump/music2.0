@@ -23,37 +23,17 @@ const GumpState = (function() {
         MODERN: 'modern'
     });
 
-    // 6x6 Grid zones
-    const GRID_SIZE = 6;
+    const ZONES = Object.freeze({
+        NW: 'nw', N: 'n', NE: 'ne',
+        W: 'w', CENTER: 'center', E: 'e',
+        SW: 'sw', S: 's', SE: 'se'
+    });
 
-    // Generate zone IDs dynamically
-    const ZONES = Object.freeze(
-        (() => {
-            const zones = {};
-            for (let row = 0; row < GRID_SIZE; row++) {
-                for (let col = 0; col < GRID_SIZE; col++) {
-                    const id = `${col}-${row}`;
-                    zones[`Z_${col}_${row}`] = id;
-                }
-            }
-            // Keep CENTER for backwards compatibility
-            zones.CENTER = '2-2';
-            return zones;
-        })()
-    );
-
-    // Generate zone coords dynamically
-    const ZONE_COORDS = Object.freeze(
-        (() => {
-            const coords = {};
-            for (let row = 0; row < GRID_SIZE; row++) {
-                for (let col = 0; col < GRID_SIZE; col++) {
-                    coords[`${col}-${row}`] = { x: col, y: row };
-                }
-            }
-            return coords;
-        })()
-    );
+    const ZONE_COORDS = Object.freeze({
+        nw: { x: 0, y: 0 }, n: { x: 1, y: 0 }, ne: { x: 2, y: 0 },
+        w: { x: 0, y: 1 }, center: { x: 1, y: 1 }, e: { x: 2, y: 1 },
+        sw: { x: 0, y: 2 }, s: { x: 1, y: 2 }, se: { x: 2, y: 2 }
+    });
 
     const DWELL_THRESHOLDS = Object.freeze({
         TOUCH: 0.5,      // Brief touch
