@@ -224,51 +224,41 @@ const GumpConductor = (function() {
     }
 
     function requestTiltPermission() {
-        // Check if iOS requires permission
+        // Check if iOS requires permission (iOS 13+)
         if (typeof DeviceOrientationEvent !== 'undefined' &&
             typeof DeviceOrientationEvent.requestPermission === 'function') {
-
-            console.log('[Conductor] iOS detected - will request tilt permission on first touch');
+            // iOS - will request on first touch
             state.needsTiltPermission = true;
-
+            console.log('[Conductor] iOS - tilt permission needed, will ask on first tap');
         } else if (typeof DeviceOrientationEvent !== 'undefined') {
-            // Non-iOS - just add listener
+            // Android/desktop - just enable
             state.tiltPermission = true;
             window.addEventListener('deviceorientation', onTilt, true);
             console.log('[Conductor] Tilt enabled (non-iOS)');
+        } else {
+            console.log('[Conductor] No tilt support');
         }
     }
 
-    async function doTiltPermissionRequest() {
-        if (!state.needsTiltPermission || state.tiltPermission) return;
-
-        try {
-            console.log('[Conductor] Requesting tilt permission...');
-            const permission = await DeviceOrientationEvent.requestPermission();
-
-            if (permission === 'granted') {
-                state.tiltPermission = true;
-                state.needsTiltPermission = false;
-                window.addEventListener('deviceorientation', onTilt, true);
-                notify('TILT ENABLED!');
-                console.log('[Conductor] Tilt permission GRANTED!');
-            } else {
-                console.log('[Conductor] Tilt permission denied');
-                notify('Tilt denied');
-            }
-        } catch (e) {
-            console.error('[Conductor] Tilt permission error:', e);
-        }
-    }
-
-    function onTouchStart(e) {
-        e.preventDefault();
-
-        // Request tilt permission on first touch (iOS requirement)
+    async function onTouchStart(e) {
+        // iOS TILT PERMISSION - must happen FIRST, BEFORE preventDefault
         if (state.needsTiltPermission && !state.tiltPermission) {
-            doTiltPermissionRequest();
+            try {
+                const permission = await DeviceOrientationEvent.requestPermission();
+                if (permission === 'granted') {
+                    state.tiltPermission = true;
+                    state.needsTiltPermission = false;
+                    window.addEventListener('deviceorientation', onTilt, true);
+                    notify('TILT ON!');
+                    console.log('[Conductor] TILT GRANTED');
+                }
+            } catch (err) {
+                console.error('[Conductor] Tilt error:', err);
+                state.needsTiltPermission = false; // Don't keep asking
+            }
         }
 
+        e.preventDefault();
         const t = e.touches[0];
         startGesture(t.clientX / window.innerWidth, t.clientY / window.innerHeight);
     }
