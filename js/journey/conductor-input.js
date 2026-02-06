@@ -1,94 +1,232 @@
 /**
- * GUMP Conductor Input System
+ * GUMP Conductor Input System v2
  *
- * Interprets touch + device motion as conducting gestures.
- * You're not pressing buttons - you're conducting an orchestra.
+ * You are the conductor. The orchestra follows.
  *
- * Input dimensions:
- * - Touch X/Y position
- * - Touch velocity (speed of movement)
- * - Device tilt (gyroscope)
- * - Device shake (accelerometer)
+ * Touch = which section plays, how loud
+ * Movement speed = articulation (legato/staccato)
+ * Tilt = expression (vibrato, swell, pan)
+ * Shake = intensity, fills, chaos
+ *
+ * iOS requires explicit permission for motion sensors.
  */
 
 const GumpConductorInput = (function() {
     'use strict';
 
     const state = {
+        // Permission
+        motionPermission: false,
+        permissionRequested: false,
+
         // Touch state
         touching: false,
         touchX: 0.5,
         touchY: 0.5,
+        touchStartX: 0.5,
+        touchStartY: 0.5,
         lastTouchX: 0.5,
         lastTouchY: 0.5,
         touchVelocityX: 0,
         touchVelocityY: 0,
         touchStartTime: 0,
+        lastTouchTime: 0,
 
-        // Device motion
+        // Smoothed values for conducting feel
+        smoothX: 0.5,
+        smoothY: 0.5,
+        smoothVelocity: 0,
+
+        // Device motion (requires permission on iOS)
         gyro: { alpha: 0, beta: 0, gamma: 0 },
         accel: { x: 0, y: 0, z: 0 },
         shake: 0,
+        shakeHistory: [],
 
-        // Gesture detection
+        // Gesture recognition
         gestureBuffer: [],
-        gestureBufferSize: 30,  // ~0.5s at 60fps
-        lastUpdateTime: 0,
-
-        // Detected gestures
         currentGesture: null,
-        gestureConfidence: 0
+        gestureIntensity: 0,
+
+        // Expression derived from all inputs
+        expression: {
+            vibrato: 0,      // From tilt oscillation
+            swell: 0,        // From forward tilt
+            pan: 0,          // From left/right tilt
+            intensity: 0,    // From shake
+            articulation: 0, // From movement speed
+            dynamics: 0.5,   // From Y position
+            section: 0.5     // From X position (which instruments)
+        },
+
+        // Update timing
+        lastUpdateTime: 0,
+        deltaTime: 0
     };
 
-    const GESTURES = {
-        SWEEP_UP: { name: 'sweep_up', musical: 'crescendo' },
-        SWEEP_DOWN: { name: 'sweep_down', musical: 'diminuendo' },
-        SWEEP_LEFT: { name: 'sweep_left', musical: 'strings_low' },
-        SWEEP_RIGHT: { name: 'sweep_right', musical: 'strings_high' },
-        CIRCLE_CW: { name: 'circle_cw', musical: 'arpeggio_up' },
-        CIRCLE_CCW: { name: 'circle_ccw', musical: 'arpeggio_down' },
-        TAP: { name: 'tap', musical: 'staccato' },
-        HOLD: { name: 'hold', musical: 'sustain' },
-        SHAKE: { name: 'shake', musical: 'tremolo' },
-        TILT_LEFT: { name: 'tilt_left', musical: 'pan_left' },
-        TILT_RIGHT: { name: 'tilt_right', musical: 'pan_right' },
-        TILT_FORWARD: { name: 'tilt_forward', musical: 'swell' },
-        TILT_BACK: { name: 'tilt_back', musical: 'release' }
+    const config = {
+        smoothing: 0.12,           // Position smoothing (lower = smoother)
+        velocitySmoothing: 0.2,    // Velocity smoothing
+        shakeThreshold: 15,        // Acceleration magnitude for shake
+        shakeDecay: 0.92,          // How fast shake dies down
+        vibratoSensitivity: 0.03,  // How much tilt affects vibrato
+        swellSensitivity: 0.02,    // How much forward tilt affects swell
+        panSensitivity: 0.025      // How much side tilt affects pan
     };
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // INITIALIZATION
+    // ═══════════════════════════════════════════════════════════════════════
 
     function init() {
         setupTouchListeners();
-        setupMotionListeners();
-        console.log('[ConductorInput] Ready to conduct');
+
+        // Check if we already have motion permission
+        if (typeof DeviceMotionEvent !== 'undefined') {
+            if (typeof DeviceMotionEvent.requestPermission === 'function') {
+                // iOS 13+ requires permission
+                console.log('[Conductor] iOS detected - motion requires permission');
+            } else {
+                // Non-iOS or older iOS - just add listeners
+                setupMotionListeners();
+                state.motionPermission = true;
+            }
+        }
+
+        // Start update loop
+        requestAnimationFrame(update);
+
+        console.log('[Conductor] Ready to conduct');
+    }
+
+    /**
+     * Request motion permission - MUST be called from user gesture (tap/click)
+     */
+    async function requestMotionPermission() {
+        if (state.motionPermission) return true;
+        if (state.permissionRequested) return state.motionPermission;
+
+        state.permissionRequested = true;
+
+        if (typeof DeviceMotionEvent !== 'undefined' &&
+            typeof DeviceMotionEvent.requestPermission === 'function') {
+            try {
+                const permission = await DeviceMotionEvent.requestPermission();
+                if (permission === 'granted') {
+                    setupMotionListeners();
+                    state.motionPermission = true;
+                    console.log('[Conductor] Motion permission granted!');
+
+                    // Emit event for UI feedback
+                    emit('motion.granted', {});
+                    return true;
+                } else {
+                    console.warn('[Conductor] Motion permission denied');
+                    emit('motion.denied', {});
+                    return false;
+                }
+            } catch (error) {
+                console.error('[Conductor] Motion permission error:', error);
+                return false;
+            }
+        }
+
+        return state.motionPermission;
     }
 
     function setupTouchListeners() {
-        const canvas = document.getElementById('c');
-        if (!canvas) {
-            console.warn('[ConductorInput] No canvas found, using document');
-        }
-        const target = canvas || document;
+        // Use document for full-screen conducting
+        document.addEventListener('touchstart', onTouchStart, { passive: false });
+        document.addEventListener('touchmove', onTouchMove, { passive: false });
+        document.addEventListener('touchend', onTouchEnd, { passive: false });
+        document.addEventListener('touchcancel', onTouchEnd, { passive: false });
 
-        target.addEventListener('touchstart', onTouchStart, { passive: false });
-        target.addEventListener('touchmove', onTouchMove, { passive: false });
-        target.addEventListener('touchend', onTouchEnd, { passive: false });
-
-        target.addEventListener('mousedown', onMouseDown);
-        target.addEventListener('mousemove', onMouseMove);
-        target.addEventListener('mouseup', onMouseUp);
+        // Mouse for desktop testing
+        document.addEventListener('mousedown', onMouseDown);
+        document.addEventListener('mousemove', onMouseMove);
+        document.addEventListener('mouseup', onMouseUp);
     }
 
     function setupMotionListeners() {
-        if (window.DeviceOrientationEvent) {
-            window.addEventListener('deviceorientation', onDeviceOrientation);
-        }
-        if (window.DeviceMotionEvent) {
-            window.addEventListener('devicemotion', onDeviceMotion);
-        }
+        window.addEventListener('deviceorientation', onDeviceOrientation, true);
+        window.addEventListener('devicemotion', onDeviceMotion, true);
+        console.log('[Conductor] Motion listeners active');
     }
 
-    // Touch handlers
+    // ═══════════════════════════════════════════════════════════════════════
+    // UPDATE LOOP
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function update(timestamp) {
+        const now = timestamp || performance.now();
+        state.deltaTime = Math.min(50, now - state.lastUpdateTime); // Cap at 50ms
+        state.lastUpdateTime = now;
+
+        // Smooth position for fluid conducting feel
+        state.smoothX += (state.touchX - state.smoothX) * config.smoothing;
+        state.smoothY += (state.touchY - state.smoothY) * config.smoothing;
+
+        // Calculate smoothed velocity
+        const rawVelocity = Math.sqrt(
+            state.touchVelocityX ** 2 + state.touchVelocityY ** 2
+        );
+        state.smoothVelocity += (rawVelocity - state.smoothVelocity) * config.velocitySmoothing;
+
+        // Decay shake
+        state.shake *= config.shakeDecay;
+
+        // Update expression values
+        updateExpression();
+
+        // Emit continuous update for instruments
+        if (state.touching) {
+            emit('conducting.update', {
+                position: { x: state.smoothX, y: state.smoothY },
+                velocity: state.smoothVelocity,
+                expression: { ...state.expression },
+                gesture: state.currentGesture,
+                touching: true
+            });
+        }
+
+        requestAnimationFrame(update);
+    }
+
+    function updateExpression() {
+        // Section (X): 0 = low instruments (bass, cello), 1 = high (violin)
+        state.expression.section = state.smoothX;
+
+        // Dynamics (Y): 0 = soft (top), 1 = loud (bottom)
+        state.expression.dynamics = state.smoothY;
+
+        // Articulation: from movement speed
+        // 0 = legato (slow/no movement), 1 = staccato (fast movement)
+        state.expression.articulation = Math.min(1, state.smoothVelocity * 2);
+
+        // Vibrato: from side-to-side tilt oscillation
+        state.expression.vibrato = Math.min(1, Math.abs(state.gyro.gamma || 0) * config.vibratoSensitivity);
+
+        // Swell: from forward tilt (phone tilted toward you = swell up)
+        const forwardTilt = (state.gyro.beta || 45) - 45; // Neutral at 45 degrees
+        state.expression.swell = Math.max(0, Math.min(1, forwardTilt * config.swellSensitivity));
+
+        // Pan: from left/right tilt
+        state.expression.pan = Math.max(-1, Math.min(1, (state.gyro.gamma || 0) * config.panSensitivity));
+
+        // Intensity: from shake
+        state.expression.intensity = Math.min(1, state.shake / 10);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // TOUCH HANDLERS
+    // ═══════════════════════════════════════════════════════════════════════
+
     function onTouchStart(e) {
+        // Request motion permission on first touch (iOS requirement)
+        if (!state.motionPermission && !state.permissionRequested) {
+            requestMotionPermission();
+        }
+
         e.preventDefault();
         const touch = e.touches[0];
         startTouch(touch.clientX, touch.clientY);
@@ -96,8 +234,10 @@ const GumpConductorInput = (function() {
 
     function onTouchMove(e) {
         e.preventDefault();
-        const touch = e.touches[0];
-        moveTouch(touch.clientX, touch.clientY);
+        if (e.touches.length > 0) {
+            const touch = e.touches[0];
+            moveTouch(touch.clientX, touch.clientY);
+        }
     }
 
     function onTouchEnd(e) {
@@ -120,107 +260,104 @@ const GumpConductorInput = (function() {
     }
 
     function startTouch(clientX, clientY) {
-        state.touching = true;
-        state.touchStartTime = performance.now();
-
+        const now = performance.now();
         const x = clientX / window.innerWidth;
         const y = clientY / window.innerHeight;
 
+        state.touching = true;
+        state.touchStartTime = now;
+        state.touchStartX = x;
+        state.touchStartY = y;
         state.touchX = x;
         state.touchY = y;
         state.lastTouchX = x;
         state.lastTouchY = y;
+        state.lastTouchTime = now;
         state.touchVelocityX = 0;
         state.touchVelocityY = 0;
 
-        state.gestureBuffer = [];
+        // Initialize smooth values
+        state.smoothX = x;
+        state.smoothY = y;
 
-        emit('gesture.start', {
-            x, y,
-            velocityX: 0,
-            velocityY: 0,
-            time: state.touchStartTime
+        // Clear gesture buffer
+        state.gestureBuffer = [{ x, y, time: now }];
+
+        emit('conducting.start', {
+            position: { x, y },
+            expression: { ...state.expression }
         });
     }
 
     function moveTouch(clientX, clientY) {
         const now = performance.now();
-        const dt = now - state.lastUpdateTime;
-        if (dt < 8) return;  // Throttle to ~120fps max
+        const dt = (now - state.lastTouchTime) / 1000; // seconds
+
+        if (dt < 0.008) return; // Throttle to ~120fps
 
         const x = clientX / window.innerWidth;
         const y = clientY / window.innerHeight;
 
-        // Calculate velocity
-        const dx = x - state.lastTouchX;
-        const dy = y - state.lastTouchY;
-        state.touchVelocityX = dx / (dt / 1000);
-        state.touchVelocityY = dy / (dt / 1000);
+        // Calculate velocity (units per second)
+        if (dt > 0) {
+            state.touchVelocityX = (x - state.lastTouchX) / dt;
+            state.touchVelocityY = (y - state.lastTouchY) / dt;
+        }
 
         state.lastTouchX = state.touchX;
         state.lastTouchY = state.touchY;
         state.touchX = x;
         state.touchY = y;
-        state.lastUpdateTime = now;
+        state.lastTouchTime = now;
 
         // Add to gesture buffer
-        state.gestureBuffer.push({ x, y, dx, dy, time: now });
-        if (state.gestureBuffer.length > state.gestureBufferSize) {
+        state.gestureBuffer.push({ x, y, time: now });
+        if (state.gestureBuffer.length > 60) {
             state.gestureBuffer.shift();
         }
 
-        // Detect gesture pattern
+        // Detect gesture patterns
         detectGesture();
 
-        emit('gesture.move', {
-            x, y,
-            velocityX: state.touchVelocityX,
-            velocityY: state.touchVelocityY,
-            gesture: state.currentGesture,
-            time: now
+        emit('conducting.move', {
+            position: { x, y },
+            velocity: { x: state.touchVelocityX, y: state.touchVelocityY },
+            expression: { ...state.expression },
+            gesture: state.currentGesture
         });
     }
 
     function endTouch() {
-        const touchDuration = performance.now() - state.touchStartTime;
+        if (!state.touching) return;
 
-        // Detect tap vs hold
-        if (touchDuration < 200 && state.gestureBuffer.length < 5) {
-            state.currentGesture = GESTURES.TAP;
-        } else if (touchDuration > 500 && getAverageVelocity() < 0.1) {
-            state.currentGesture = GESTURES.HOLD;
-        }
+        const duration = performance.now() - state.touchStartTime;
 
-        emit('gesture.end', {
+        emit('conducting.end', {
+            duration,
+            finalVelocity: state.smoothVelocity,
             gesture: state.currentGesture,
-            duration: touchDuration,
-            finalVelocity: getAverageVelocity()
+            expression: { ...state.expression }
         });
 
         state.touching = false;
+        state.touchVelocityX = 0;
+        state.touchVelocityY = 0;
         state.currentGesture = null;
         state.gestureBuffer = [];
     }
 
-    // Motion handlers
+    // ═══════════════════════════════════════════════════════════════════════
+    // MOTION HANDLERS
+    // ═══════════════════════════════════════════════════════════════════════
+
     function onDeviceOrientation(e) {
         state.gyro = {
-            alpha: e.alpha || 0,  // Z-axis rotation (0-360)
-            beta: e.beta || 0,    // X-axis tilt (-180 to 180)
-            gamma: e.gamma || 0   // Y-axis tilt (-90 to 90)
+            alpha: e.alpha || 0,  // Compass direction (0-360)
+            beta: e.beta || 0,    // Front-back tilt (-180 to 180)
+            gamma: e.gamma || 0   // Left-right tilt (-90 to 90)
         };
 
-        // Detect tilt gestures
-        if (Math.abs(state.gyro.gamma) > 20) {
-            state.currentGesture = state.gyro.gamma > 0 ?
-                GESTURES.TILT_RIGHT : GESTURES.TILT_LEFT;
-        }
-        if (Math.abs(state.gyro.beta - 45) > 30) {
-            state.currentGesture = state.gyro.beta > 45 ?
-                GESTURES.TILT_FORWARD : GESTURES.TILT_BACK;
-        }
-
-        emit('gyro.update', state.gyro);
+        emit('gyro.update', { ...state.gyro });
     }
 
     function onDeviceMotion(e) {
@@ -231,80 +368,108 @@ const GumpConductorInput = (function() {
             z: accel.z || 0
         };
 
-        // Detect shake
+        // Calculate shake magnitude (subtract gravity ~9.8)
         const magnitude = Math.sqrt(
             state.accel.x ** 2 +
             state.accel.y ** 2 +
             state.accel.z ** 2
         );
 
-        // Subtract gravity (~9.8)
-        const shake = Math.max(0, magnitude - 12);
-        state.shake = shake * 0.3 + state.shake * 0.7;  // Smooth
+        const shakeAmount = Math.max(0, magnitude - 12); // Threshold above gravity
 
-        if (state.shake > 5) {
-            state.currentGesture = GESTURES.SHAKE;
-            emit('gesture.shake', { intensity: state.shake / 20 });
+        // Track shake history for pattern detection
+        state.shakeHistory.push(shakeAmount);
+        if (state.shakeHistory.length > 10) {
+            state.shakeHistory.shift();
         }
 
-        emit('accel.update', { ...state.accel, shake: state.shake });
+        // Update shake (accumulates, decays in update loop)
+        if (shakeAmount > config.shakeThreshold) {
+            state.shake = Math.min(20, state.shake + shakeAmount * 0.3);
+            emit('conducting.shake', { intensity: state.shake / 20 });
+        }
     }
 
+    // ═══════════════════════════════════════════════════════════════════════
+    // GESTURE DETECTION
+    // ═══════════════════════════════════════════════════════════════════════
+
     function detectGesture() {
-        if (state.gestureBuffer.length < 5) return;
-
-        const recent = state.gestureBuffer.slice(-10);
-        const totalDx = recent.reduce((sum, p) => sum + p.dx, 0);
-        const totalDy = recent.reduce((sum, p) => sum + p.dy, 0);
-
-        const absX = Math.abs(totalDx);
-        const absY = Math.abs(totalDy);
-
-        // Sweep detection
-        if (absX > 0.1 || absY > 0.1) {
-            if (absY > absX) {
-                state.currentGesture = totalDy < 0 ?
-                    GESTURES.SWEEP_UP : GESTURES.SWEEP_DOWN;
-            } else {
-                state.currentGesture = totalDx > 0 ?
-                    GESTURES.SWEEP_RIGHT : GESTURES.SWEEP_LEFT;
-            }
+        if (state.gestureBuffer.length < 5) {
+            state.currentGesture = null;
+            return;
         }
 
-        // Circle detection (simplified)
-        if (state.gestureBuffer.length >= 20) {
-            const isCircle = detectCircle(state.gestureBuffer.slice(-20));
-            if (isCircle.detected) {
-                state.currentGesture = isCircle.clockwise ?
-                    GESTURES.CIRCLE_CW : GESTURES.CIRCLE_CCW;
+        const recent = state.gestureBuffer.slice(-15);
+        const first = recent[0];
+        const last = recent[recent.length - 1];
+
+        const dx = last.x - first.x;
+        const dy = last.y - first.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        const duration = (last.time - first.time) / 1000;
+
+        if (distance < 0.05) {
+            state.currentGesture = 'hold';
+            state.gestureIntensity = 0;
+            return;
+        }
+
+        const speed = distance / duration;
+        state.gestureIntensity = Math.min(1, speed * 2);
+
+        // Determine gesture direction
+        const angle = Math.atan2(dy, dx) * 180 / Math.PI;
+
+        if (Math.abs(dy) > Math.abs(dx) * 1.5) {
+            // Vertical gesture
+            state.currentGesture = dy < 0 ? 'sweep_up' : 'sweep_down';
+        } else if (Math.abs(dx) > Math.abs(dy) * 1.5) {
+            // Horizontal gesture
+            state.currentGesture = dx > 0 ? 'sweep_right' : 'sweep_left';
+        } else {
+            // Diagonal or circular - check for circles
+            if (recent.length >= 12) {
+                const circle = detectCircle(recent);
+                if (circle.isCircle) {
+                    state.currentGesture = circle.clockwise ? 'circle_cw' : 'circle_ccw';
+                } else {
+                    state.currentGesture = 'sweep';
+                }
+            } else {
+                state.currentGesture = 'sweep';
             }
         }
     }
 
     function detectCircle(points) {
-        // Calculate angular movement
+        // Calculate cumulative angle change
         let totalAngle = 0;
-        for (let i = 1; i < points.length; i++) {
+        for (let i = 2; i < points.length; i++) {
             const prev = points[i - 1];
             const curr = points[i];
-            const angle = Math.atan2(curr.dy, curr.dx) - Math.atan2(prev.dy, prev.dx);
-            totalAngle += angle;
+            const pprev = points[i - 2];
+
+            const angle1 = Math.atan2(prev.y - pprev.y, prev.x - pprev.x);
+            const angle2 = Math.atan2(curr.y - prev.y, curr.x - prev.x);
+
+            let angleDiff = angle2 - angle1;
+            // Normalize to -PI to PI
+            while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
+            while (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
+
+            totalAngle += angleDiff;
         }
 
-        const detected = Math.abs(totalAngle) > Math.PI;  // At least half circle
         return {
-            detected,
+            isCircle: Math.abs(totalAngle) > Math.PI * 0.8, // At least 144 degrees
             clockwise: totalAngle > 0
         };
     }
 
-    function getAverageVelocity() {
-        if (state.gestureBuffer.length === 0) return 0;
-        const velocities = state.gestureBuffer.map(p =>
-            Math.sqrt(p.dx * p.dx + p.dy * p.dy)
-        );
-        return velocities.reduce((a, b) => a + b, 0) / velocities.length;
-    }
+    // ═══════════════════════════════════════════════════════════════════════
+    // PUBLIC API
+    // ═══════════════════════════════════════════════════════════════════════
 
     function emit(event, data) {
         if (typeof GumpEvents !== 'undefined') {
@@ -312,55 +477,40 @@ const GumpConductorInput = (function() {
         }
     }
 
-    // Public getters
+    function getExpression() {
+        return { ...state.expression };
+    }
+
     function getState() {
         return {
             touching: state.touching,
-            position: { x: state.touchX, y: state.touchY },
-            velocity: {
-                x: state.touchVelocityX,
-                y: state.touchVelocityY,
-                magnitude: getAverageVelocity()
-            },
+            position: { x: state.smoothX, y: state.smoothY },
+            velocity: state.smoothVelocity,
+            expression: { ...state.expression },
+            gesture: state.currentGesture,
+            gestureIntensity: state.gestureIntensity,
             gyro: { ...state.gyro },
-            accel: { ...state.accel },
             shake: state.shake,
-            gesture: state.currentGesture
+            motionPermission: state.motionPermission
         };
     }
 
-    function getConductingVector() {
-        // Returns a normalized "conducting" interpretation
-        return {
-            // Horizontal position: which section of orchestra
-            section: state.touchX,  // 0=low strings, 1=high strings
-
-            // Vertical position: dynamics
-            dynamics: 1 - state.touchY,  // 0=soft, 1=loud
-
-            // Movement speed: articulation
-            articulation: Math.min(1, getAverageVelocity() * 10),
-
-            // Device tilt: expression
-            expression: {
-                vibrato: Math.abs(state.gyro.gamma || 0) / 45,
-                swell: Math.max(0, (state.gyro.beta - 45) / 45),
-                pan: (state.gyro.gamma || 0) / 45
-            },
-
-            // Shake: intensity/chaos
-            intensity: state.shake / 10,
-
-            // Current gesture for articulation
-            gesture: state.currentGesture
-        };
+    function hasMotionPermission() {
+        return state.motionPermission;
     }
 
     return Object.freeze({
         init,
+        requestMotionPermission,
+        getExpression,
         getState,
-        getConductingVector,
-        GESTURES
+        hasMotionPermission,
+
+        // Direct access for debugging
+        get touching() { return state.touching; },
+        get position() { return { x: state.smoothX, y: state.smoothY }; },
+        get velocity() { return state.smoothVelocity; },
+        get gesture() { return state.currentGesture; }
     });
 
 })();
