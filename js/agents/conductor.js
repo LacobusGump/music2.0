@@ -262,7 +262,7 @@ const GumpConductor = (function() {
     class ConductorAgent extends Agent {
         constructor(id = 'conductor', config = {}) {
             super(id, 'conductor', {
-                updateRate: 100,  // Slower updates, strategic level
+                updateRate: 30,  // Faster updates for responsiveness
                 ...config
             });
 
@@ -279,7 +279,8 @@ const GumpConductor = (function() {
                 dynamics: 0.5,
                 targetDynamics: 0.5,
                 tension: 0,
-                release: 0
+                release: 0,
+                root: 220  // Track root for phrase playback
             };
 
             // Timing
@@ -304,6 +305,11 @@ const GumpConductor = (function() {
                 activityLevel: 0.5
             };
 
+            // User interaction tracking (for responsive wind-down)
+            this.lastGestureTime = performance.now();
+            this.interactionMode = 'responsive';  // 'responsive' | 'winding_down' | 'silent'
+            this.silenceTimeout = 3000;  // 3 seconds of inactivity before wind-down
+
             // Planned actions
             this.plannedTransitions = [];
             this.pendingInstructions = [];
@@ -322,6 +328,11 @@ const GumpConductor = (function() {
                 GumpEvents.on('pattern.detected', (data) => this.onPattern(data));
                 GumpEvents.on('unlock.complete', (data) => this.onUnlock(data));
                 GumpEvents.on('era.change', (data) => this.onEraChange(data));
+
+                // Gesture tracking for responsive behavior
+                GumpEvents.on('gesture.start', (data) => this.onGestureStart(data));
+                GumpEvents.on('gesture.end', (data) => this.onGestureEnd(data));
+                GumpEvents.on('conduct.gesture', (data) => this.onConductGesture(data));
             }
 
             // Initialize musical form
@@ -330,6 +341,64 @@ const GumpConductor = (function() {
             // Set initial mood based on era
             const era = GumpState?.get('era.current') || 'genesis';
             this.setMoodForEra(era);
+        }
+
+        // Gesture tracking for responsive music
+        onGestureStart(data) {
+            this.lastGestureTime = performance.now();
+            this.interactionMode = 'responsive';
+
+            // Boost activity when user engages
+            this.userActivity.activityLevel = Math.min(1, this.userActivity.activityLevel + 0.2);
+
+            // Update zone tracking
+            if (data.zone) {
+                this.userActivity.lastZone = data.zone;
+                const zoneCount = this.userActivity.zones.get(data.zone) || 0;
+                this.userActivity.zones.set(data.zone, zoneCount + 1);
+            }
+        }
+
+        onGestureEnd(data) {
+            // Note end time but don't immediately wind down
+            // Wind-down happens in getPossibleActions based on elapsed time
+        }
+
+        // Handle conduct zone gestures - adjust parameters in real-time
+        onConductGesture(data) {
+            const { param, value } = data;
+
+            // Map conduct gestures to musical state changes
+            switch (param) {
+                case 'brightness':
+                    // Affects mood and filter
+                    this.musicalState.tension = value * 0.5;
+                    break;
+                case 'bass':
+                    // Affects dynamics
+                    this.musicalState.dynamics = 0.3 + value * 0.5;
+                    break;
+                case 'release':
+                    // Affects release/reverb
+                    this.musicalState.release = value;
+                    break;
+                case 'modulation':
+                    // Affects tension
+                    this.musicalState.tension = value;
+                    break;
+                case 'arpeggio':
+                    // Could signal other agents
+                    this.emit('arpeggio.density', { density: value });
+                    break;
+                case 'sub':
+                    // Sub bass intensity
+                    this.emit('sub.intensity', { intensity: value });
+                    break;
+            }
+
+            // Keep responsive while conducting
+            this.lastGestureTime = performance.now();
+            this.interactionMode = 'responsive';
         }
 
         _onStop() {
@@ -421,6 +490,46 @@ const GumpConductor = (function() {
 
         getPossibleActions() {
             const actions = [];
+            const timeSinceGesture = performance.now() - this.lastGestureTime;
+
+            // Check for user inactivity - wind down gracefully
+            if (timeSinceGesture > this.silenceTimeout) {
+                // User hasn't interacted for a while - wind down
+                if (this.interactionMode !== 'silent') {
+                    this.interactionMode = 'winding_down';
+                }
+
+                // Decay activity level
+                this.userActivity.activityLevel = Math.max(0, this.userActivity.activityLevel - 0.05);
+
+                // In winding down mode, only return reduce intensity actions
+                if (this.musicalState.dynamics > 0.1) {
+                    actions.push({
+                        type: 'reduce_intensity',
+                        amount: 0.05,
+                        priority: 1.0
+                    });
+                }
+
+                // Eventually go silent
+                if (timeSinceGesture > this.silenceTimeout * 3) {
+                    this.interactionMode = 'silent';
+
+                    // Only action: fade to silence
+                    if (this.musicalState.dynamics > 0.05) {
+                        actions.push({
+                            type: 'fade_to_silence',
+                            priority: 1.0
+                        });
+                    }
+                    return actions; // Don't add other actions when going silent
+                }
+
+                return actions; // Limited actions during wind-down
+            }
+
+            // User is active - normal responsive behavior
+            this.interactionMode = 'responsive';
 
             // Section transitions
             if (this.shouldTransitionSection()) {
@@ -544,10 +653,54 @@ const GumpConductor = (function() {
                 case 'release_tension':
                     return this.executeReleaseTension(action.amount);
 
+                case 'reduce_intensity':
+                    return this.executeReduceIntensity(action.amount);
+
+                case 'fade_to_silence':
+                    return this.executeFadeToSilence();
+
                 default:
                     this.log('Unknown action type:', action.type);
                     return null;
             }
+        }
+
+        // Gradual intensity reduction during wind-down
+        executeReduceIntensity(amount = 0.05) {
+            this.musicalState.dynamics = Math.max(0, this.musicalState.dynamics - amount);
+            this.musicalState.tension = Math.max(0, this.musicalState.tension - amount);
+
+            // Notify agents to reduce their activity
+            this.broadcastToAgents('reduce.intensity', {
+                dynamics: this.musicalState.dynamics,
+                amount
+            });
+
+            // Fade out voices
+            if (typeof GumpVoiceManager !== 'undefined') {
+                GumpVoiceManager.setMaxVoices?.(Math.max(4, GumpVoiceManager.activeCount - 2));
+            }
+
+            this.emit('intensity.reduced', { dynamics: this.musicalState.dynamics });
+            return { success: true, dynamics: this.musicalState.dynamics };
+        }
+
+        // Complete fade to silence
+        executeFadeToSilence() {
+            this.musicalState.dynamics = 0;
+            this.musicalState.tension = 0;
+            this.musicalState.targetDynamics = 0;
+
+            // Fade all remaining voices
+            if (typeof GumpVoiceManager !== 'undefined') {
+                GumpVoiceManager.fadeOutAll?.(0.5);
+            }
+
+            // Notify agents to stop
+            this.broadcastToAgents('silence', {});
+
+            this.emit('silence.complete', {});
+            return { success: true };
         }
 
         executeTransitionSection() {
@@ -1016,9 +1169,66 @@ const GumpConductor = (function() {
                     this.handleSuggestion(message);
                     break;
 
+                case 'phrase.learned':
+                    // User played a phrase - respond to it!
+                    this.handleLearnedPhrase(message.data?.phrase);
+                    break;
+
                 default:
                     this.log('Unhandled message type:', message.type);
             }
+        }
+
+        // Handle user-played phrases with call-and-response
+        handleLearnedPhrase(phrase) {
+            if (!phrase || !phrase.notes || phrase.notes.length === 0) return;
+
+            this.log('Learned phrase:', phrase.id, 'with', phrase.notes.length, 'notes');
+
+            // Generate a response after a short delay (call-and-response)
+            const responseDelay = 500 + Math.random() * 1000; // 0.5-1.5s delay
+
+            setTimeout(() => {
+                // Choose response type based on musical context
+                const responseTypes = ['echo', 'invert', 'augment', 'harmonize'];
+                const responseType = responseTypes[Math.floor(Math.random() * responseTypes.length)];
+
+                // Generate response phrase using phrase library
+                if (typeof GumpPhraseLibrary !== 'undefined') {
+                    const response = GumpPhraseLibrary.generateResponse?.(phrase, responseType);
+                    if (response) {
+                        this.playResponsePhrase(response);
+                    }
+                }
+            }, responseDelay);
+        }
+
+        // Play a response phrase
+        playResponsePhrase(phrase) {
+            if (!phrase || !phrase.notes) return;
+
+            const root = this.musicalState.root || 220;
+
+            // Play each note with timing
+            phrase.notes.forEach((note, i) => {
+                const delay = note.time * 1000; // Convert to ms
+                setTimeout(() => {
+                    const freq = root * Math.pow(2, note.pitch / 12);
+                    const velocity = note.velocity || 0.6;
+
+                    if (typeof GumpAudio !== 'undefined' && GumpAudio.playTone) {
+                        GumpAudio.playTone(freq, note.duration || 0.3, {
+                            volume: velocity * 0.4,
+                            attack: 0.01,
+                            decay: 0.1,
+                            sustain: 0.3,
+                            release: 0.2
+                        });
+                    }
+                }, delay);
+            });
+
+            this.log('Playing response phrase');
         }
 
         handlePermissionRequest(message) {

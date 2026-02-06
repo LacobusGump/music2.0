@@ -167,6 +167,41 @@ const GUMP = (function() {
                 if (audioInitialized) {
                     GumpDrums.init(GumpAudio.context, GumpAudio.channels.drums);
                     GumpBass.init(GumpAudio.context, GumpAudio.channels.bass);
+
+                    // Initialize voice manager for interruption control
+                    if (typeof GumpVoiceManager !== 'undefined') {
+                        GumpVoiceManager.init(GumpAudio.context);
+                    }
+
+                    // Initialize recording system
+                    if (typeof GumpRecorder !== 'undefined') {
+                        GumpRecorder.init();
+                    }
+
+                    // Initialize audio capture
+                    if (typeof GumpAudioCapture !== 'undefined' && GumpAudio.masterGain) {
+                        GumpAudioCapture.init(GumpAudio.context, GumpAudio.masterGain);
+                    }
+
+                    // Load saved phrases
+                    if (typeof GumpPhraseLibrary !== 'undefined') {
+                        GumpPhraseLibrary.loadFromPersistence();
+
+                        // Connect phrase library to conductor for call-and-response
+                        GumpPhraseLibrary.onPhraseAdded((phrase) => {
+                            // Notify conductor of new learned phrase
+                            if (typeof aiMusicians !== 'undefined' && aiMusicians.conductor) {
+                                aiMusicians.conductor.handleMessage({
+                                    type: 'phrase.learned',
+                                    data: { phrase }
+                                });
+                            }
+
+                            console.log('[GUMP] Phrase learned:', phrase.id);
+                        });
+                    }
+
+                    console.log('[GUMP] Recording & voice systems initialized');
                 }
             } catch (audioError) {
                 console.error('Audio init failed:', audioError);
@@ -254,6 +289,10 @@ const GUMP = (function() {
     }
 
     function setupEventListeners() {
+        // Gesture events - zone-based routing
+        GumpEvents.on('gesture.start', onGestureStart);
+        GumpEvents.on('gesture.end', onGestureEnd);
+
         // Pattern detected
         GumpEvents.on('pattern.detected', onPatternDetected);
 
@@ -284,20 +323,35 @@ const GUMP = (function() {
     }
 
     function onMouseDown(e) {
-        // Could trigger special actions
+        app.gestureActive = true;
+        const x = e.clientX / app.width;
+        const y = e.clientY / app.height;
+        const zone = GumpGrid.getZoneFromPosition?.(x, y) || 'center';
+
+        GumpEvents.emit('gesture.start', { x, y, zone, inputMode: 'mouse' });
     }
 
     function onMouseUp(e) {
-        // Could trigger special actions
+        app.gestureActive = false;
+        GumpEvents.emit('gesture.end', { inputMode: 'mouse' });
     }
 
     function onTouchStart(e) {
         e.preventDefault();
         app.inputMode = 'touch';
+        app.gestureActive = true;
 
         if (e.touches.length > 0) {
             app.targetX = e.touches[0].clientX / app.width;
             app.targetY = e.touches[0].clientY / app.height;
+
+            const zone = GumpGrid.getZoneFromPosition?.(app.targetX, app.targetY) || 'center';
+            GumpEvents.emit('gesture.start', {
+                x: app.targetX,
+                y: app.targetY,
+                zone,
+                inputMode: 'touch'
+            });
         }
 
         // Request motion permission on first touch (iOS)
@@ -317,6 +371,8 @@ const GUMP = (function() {
 
     function onTouchEnd(e) {
         e.preventDefault();
+        app.gestureActive = false;
+        GumpEvents.emit('gesture.end', { inputMode: 'touch' });
     }
 
     function onDeviceMotion(e) {
@@ -338,6 +394,159 @@ const GUMP = (function() {
     // ═══════════════════════════════════════════════════════════════════════
     // EVENT HANDLERS
     // ═══════════════════════════════════════════════════════════════════════
+
+    // Zone-based gesture handling for PLAY vs CONDUCT zones
+    function onGestureStart(data) {
+        const { x, y, zone } = data;
+
+        // Get zone mode configuration
+        const zoneMode = GumpGrid.getZoneMode?.(zone);
+        if (!zoneMode) return;
+
+        if (zoneMode.mode === 'play') {
+            // PLAY zones trigger sounds directly
+            handlePlayZone(zone, zoneMode.instrument, x, y);
+        } else if (zoneMode.mode === 'conduct') {
+            // CONDUCT zones adjust parameters
+            handleConductZone(zone, zoneMode.param, x, y);
+        }
+    }
+
+    function onGestureEnd(data) {
+        // Gesture ended - voice manager handles fading (via its own listener)
+        // Reset any conduct parameters if needed
+    }
+
+    // Handle PLAY zone - trigger direct sounds and emit note events
+    function handlePlayZone(zone, instrument, x, y) {
+        const root = GumpMusicalWorlds?.getRoot?.() || 110;
+        const scale = GumpMusicalWorlds?.getScale?.() || [0, 2, 4, 5, 7, 9, 11];
+
+        // Map position to note
+        const scaleIndex = Math.floor(y * scale.length);
+        const octave = Math.floor((1 - x) * 2) + 1;
+        const semitone = scale[Math.min(scaleIndex, scale.length - 1)];
+        const freq = root * octave * Math.pow(2, semitone / 12);
+        const velocity = 0.5 + x * 0.4;
+
+        switch (instrument) {
+            case 'melody':
+                // Play melodic note
+                GumpAudio.playTone?.(freq, 0.4, {
+                    volume: velocity * 0.5,
+                    attack: 0.01,
+                    decay: 0.1,
+                    sustain: 0.3,
+                    release: 0.2
+                });
+
+                // Emit note event for recording
+                GumpEvents.emit('note.played', {
+                    note: semitone + (octave * 12),
+                    velocity,
+                    position: { x, y, zone },
+                    freq,
+                    instrument: 'melody'
+                });
+                break;
+
+            case 'drums':
+                // Trigger drums based on Y position
+                const drumVel = 0.5 + y * 0.3;
+                if (y < 0.33) {
+                    GumpDrums.playHat?.('closed', drumVel);
+                } else if (y < 0.66) {
+                    GumpDrums.playSnare?.('808', drumVel);
+                } else {
+                    GumpDrums.playKick?.('808', drumVel);
+                }
+
+                // Emit drum event for recording
+                GumpEvents.emit('note.played', {
+                    note: y < 0.33 ? 42 : (y < 0.66 ? 38 : 36), // GM drum map
+                    velocity: drumVel,
+                    position: { x, y, zone },
+                    instrument: 'drums'
+                });
+                break;
+
+            case 'rhythm':
+                // Tap rhythms - wood block / click sounds
+                const rhythmVel = 0.4 + y * 0.3;
+                if (x < 0.5) {
+                    GumpDrums.playWoodBlock?.({ volume: rhythmVel });
+                } else {
+                    GumpDrums.playClick?.({ volume: rhythmVel });
+                }
+
+                // Emit rhythm event
+                GumpEvents.emit('note.played', {
+                    note: x < 0.5 ? 76 : 77, // Wood blocks in GM
+                    velocity: rhythmVel,
+                    position: { x, y, zone },
+                    instrument: 'rhythm'
+                });
+                break;
+        }
+    }
+
+    // Handle CONDUCT zone - adjust AI/effect parameters
+    function handleConductZone(zone, param, x, y) {
+        // Value based on position (y=0 is top = max, y=1 is bottom = min)
+        const value = 1 - y;
+
+        switch (param) {
+            case 'brightness':
+                // Adjust filter brightness/cutoff
+                if (GumpAudio.setFilterCutoff) {
+                    GumpAudio.setFilterCutoff(200 + value * 8000);
+                }
+                break;
+
+            case 'bass':
+                // Adjust bass intensity
+                if (GumpMusicalWorlds?.adjustParameter) {
+                    GumpMusicalWorlds.adjustParameter('bassIntensity', value);
+                }
+                break;
+
+            case 'release':
+                // Adjust decay/reverb
+                if (GumpAudio.setReverbMix) {
+                    GumpAudio.setReverbMix(value * 0.8);
+                }
+                break;
+
+            case 'modulation':
+                // Adjust LFO depth
+                if (GumpAudio.setLFODepth) {
+                    GumpAudio.setLFODepth(value);
+                }
+                break;
+
+            case 'arpeggio':
+                // Adjust arpeggio rate/density
+                if (GumpMusicalWorlds?.adjustParameter) {
+                    GumpMusicalWorlds.adjustParameter('arpeggioRate', value);
+                }
+                break;
+
+            case 'sub':
+                // Adjust sub bass presence
+                if (GumpMusicalWorlds?.adjustParameter) {
+                    GumpMusicalWorlds.adjustParameter('subBass', value);
+                }
+                break;
+        }
+
+        // Emit conduct event for the AI to respond to
+        GumpEvents.emit('conduct.gesture', {
+            zone,
+            param,
+            value,
+            position: { x, y }
+        });
+    }
 
     function onPatternDetected(data) {
         const { pattern, confidence } = data;
@@ -3614,6 +3823,12 @@ const GUMP = (function() {
 
         // Play sound on zone entry (immediate feedback)
         if (gridResult.transition) {
+            // Emit zone change event for voice manager
+            GumpEvents.emit('zone.change', {
+                from: gridResult.transition.from,
+                to: gridResult.transition.to
+            });
+
             playZoneEntrySound(gridResult.transition.to, gridResult.localX, gridResult.localY);
 
             // COMBO SYSTEM: Track zone visits for combo detection

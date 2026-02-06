@@ -27,6 +27,19 @@ const GumpGrid = (function() {
         se: { x: [0.666, 1], y: [0.666, 1] },
     };
 
+    // Zone interaction modes: PLAY (direct control) vs CONDUCT (shape AI)
+    const ZONE_MODES = {
+        center: { mode: 'play', instrument: 'melody', description: 'Play melodic notes directly' },
+        e:      { mode: 'play', instrument: 'drums', description: 'Trigger drums on tap' },
+        se:     { mode: 'play', instrument: 'rhythm', description: 'Tap rhythms for system to learn' },
+        n:      { mode: 'conduct', param: 'brightness', description: 'Control filter/brightness' },
+        s:      { mode: 'conduct', param: 'bass', description: 'Control bass intensity' },
+        w:      { mode: 'conduct', param: 'release', description: 'Control decay/reverb' },
+        nw:     { mode: 'conduct', param: 'modulation', description: 'Control LFO/modulation' },
+        ne:     { mode: 'conduct', param: 'arpeggio', description: 'Control arpeggio density' },
+        sw:     { mode: 'conduct', param: 'sub', description: 'Control sub bass/808' },
+    };
+
     // Zone musical properties
     const ZONE_PROPERTIES = {
         center: {
@@ -854,6 +867,12 @@ const GumpGrid = (function() {
         ZONE_PROPERTIES,
         ZONE_ADJACENCY,
         ZONE_TRANSITIONS,
+        ZONE_MODES,
+
+        // Helper to get zone mode
+        getZoneMode: (zone) => ZONE_MODES[zone] || { mode: 'conduct', param: 'default' },
+        isPlayZone: (zone) => ZONE_MODES[zone]?.mode === 'play',
+        isConductZone: (zone) => ZONE_MODES[zone]?.mode === 'conduct',
 
         // Core functions
         update,

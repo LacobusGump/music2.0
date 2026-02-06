@@ -1538,6 +1538,83 @@ const GumpDrums = (function() {
     }
 
     // ═══════════════════════════════════════════════════════════════════════
+    // WRAPPER METHODS (for DrumMind compatibility)
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function playKick(type = '808', velocity = 0.8) {
+        const opts = { volume: velocity };
+        switch (type) {
+            case '808':
+            case '808_deep':
+                return play808Deep(opts);
+            case '808_short':
+                return play808Short(opts);
+            case '808_dist':
+            case '808_distorted':
+                return play808Distorted(opts);
+            case '808_sub':
+                return play808Sub(opts);
+            case 'tribal':
+                return playTribalKick(opts);
+            case 'organic':
+                return playOrganicKick(opts);
+            default:
+                return play808Kick(opts);
+        }
+    }
+
+    function playSnare(type = '808', velocity = 0.7) {
+        const opts = { volume: velocity };
+        switch (type) {
+            case '808':
+                return playSnare808(opts);
+            case 'clap':
+                return playClap(opts);
+            case 'rim':
+            case 'rimshot':
+                return playRimshot(opts);
+            default:
+                return playSnare808(opts);
+        }
+    }
+
+    function playHat(type = 'closed', velocity = 0.6) {
+        const opts = { volume: velocity };
+        switch (type) {
+            case 'closed':
+                return playHiHat({ ...opts, decay: 0.05 });
+            case 'open':
+                return playHiHat({ ...opts, decay: 0.3 });
+            case 'pedal':
+                return playHiHat({ ...opts, decay: 0.1 });
+            case 'trap':
+                return playTrapHat(opts);
+            default:
+                return playHiHat(opts);
+        }
+    }
+
+    function playPerc(type = 'click', velocity = 0.5) {
+        const opts = { volume: velocity };
+        switch (type) {
+            case 'click':
+                return playClick(opts);
+            case 'wood':
+                return playWoodBlock(opts);
+            case 'shaker':
+                return playShaker(opts);
+            case 'conga':
+                return playConga(opts);
+            case 'tom_high':
+                return playTom({ ...opts, freq: 150 });
+            case 'tom_low':
+                return playTom({ ...opts, freq: 80 });
+            default:
+                return playClick(opts);
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
     // PUBLIC API
     // ═══════════════════════════════════════════════════════════════════════
 
@@ -1577,6 +1654,13 @@ const GumpDrums = (function() {
 
         // Unified
         play,
+
+        // Wrapper methods (for DrumMind)
+        playKick,
+        playSnare,
+        playHat,
+        playPerc,
+        playPercussion: playPerc,  // Alias
 
         // Patterns
         createPattern,
