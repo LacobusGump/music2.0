@@ -201,17 +201,20 @@ const GUMP = (function() {
                         });
                     }
 
-                    // Initialize Journey System (the conducting experience)
-                    if (typeof GumpJourney !== 'undefined') {
-                        GumpJourney.init(GumpAudio.context);
-                        console.log('[GUMP] Journey system ready - music will dance to you');
+                    // === THE ONE TRUE CONDUCTOR ===
+                    // All old systems disabled. This is the clean restart.
+                    if (typeof GumpConductor !== 'undefined') {
+                        GumpConductor.init(GumpAudio.context);
+                        console.log('[GUMP] CONDUCTOR READY - Touch to conduct, tilt to express.');
                     }
 
-                    // Initialize Grid Instrument (tap, hold, conduct)
-                    if (typeof GumpGridInstrument !== 'undefined') {
-                        GumpGridInstrument.init(GumpAudio.context);
-                        console.log('[GUMP] Grid instrument ready - tap to trigger, hold to edit');
-                    }
+                    // OLD JOURNEY SYSTEMS DISABLED FOR CLEAN START
+                    // if (typeof GumpJourney !== 'undefined') {
+                    //     GumpJourney.init(GumpAudio.context);
+                    // }
+                    // if (typeof GumpGridInstrument !== 'undefined') {
+                    //     GumpGridInstrument.init(GumpAudio.context);
+                    // }
 
                     console.log('[GUMP] Recording & voice systems initialized');
                 }
