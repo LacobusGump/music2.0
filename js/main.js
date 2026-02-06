@@ -3717,23 +3717,28 @@ const GUMP = (function() {
     }
 
     function drawGrid(ctx, w, h) {
+        const gridCols = GumpGrid.GRID_CONFIG?.cols || 6;
+        const gridRows = GumpGrid.GRID_CONFIG?.rows || 6;
+
         ctx.strokeStyle = 'rgba(255, 255, 255, 0.03)';
         ctx.lineWidth = 1;
 
-        // Vertical lines (thirds)
+        // Vertical lines
         ctx.beginPath();
-        ctx.moveTo(w * 0.333, 0);
-        ctx.lineTo(w * 0.333, h);
-        ctx.moveTo(w * 0.666, 0);
-        ctx.lineTo(w * 0.666, h);
+        for (let i = 1; i < gridCols; i++) {
+            const x = w * (i / gridCols);
+            ctx.moveTo(x, 0);
+            ctx.lineTo(x, h);
+        }
         ctx.stroke();
 
-        // Horizontal lines (thirds)
+        // Horizontal lines
         ctx.beginPath();
-        ctx.moveTo(0, h * 0.333);
-        ctx.lineTo(w, h * 0.333);
-        ctx.moveTo(0, h * 0.666);
-        ctx.lineTo(w, h * 0.666);
+        for (let i = 1; i < gridRows; i++) {
+            const y = h * (i / gridRows);
+            ctx.moveTo(0, y);
+            ctx.lineTo(w, y);
+        }
         ctx.stroke();
     }
 
@@ -3746,6 +3751,7 @@ const GUMP = (function() {
 
         for (const [zoneId, zoneState] of Object.entries(zones)) {
             const props = GumpGrid.getZoneProperties(zoneId);
+            if (!props || !props.coords) continue;
             const x = props.coords.x * zoneWidth;
             const y = props.coords.y * zoneHeight;
 
@@ -3821,7 +3827,7 @@ const GUMP = (function() {
             const props1 = GumpGrid.getZoneProperties(zone1);
             const props2 = GumpGrid.getZoneProperties(zone2);
 
-            if (!props1 || !props2) continue;
+            if (!props1 || !props2 || !props1.coords || !props2.coords) continue;
 
             const x1 = props1.coords.x * zoneWidth + zoneWidth / 2;
             const y1 = props1.coords.y * zoneHeight + zoneHeight / 2;
