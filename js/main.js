@@ -399,15 +399,24 @@ const GUMP = (function() {
     function onGestureStart(data) {
         const { x, y, zone } = data;
 
+        console.log('[GUMP] Gesture start:', zone, 'at', x.toFixed(2), y.toFixed(2));
+
         // Get zone mode configuration
         const zoneMode = GumpGrid.getZoneMode?.(zone);
-        if (!zoneMode) return;
+        console.log('[GUMP] Zone mode:', zoneMode);
+
+        if (!zoneMode) {
+            console.warn('[GUMP] No zone mode for:', zone);
+            return;
+        }
 
         if (zoneMode.mode === 'play') {
             // PLAY zones trigger sounds directly
+            console.log('[GUMP] PLAY zone:', zoneMode.instrument);
             handlePlayZone(zone, zoneMode.instrument, x, y);
         } else if (zoneMode.mode === 'conduct') {
             // CONDUCT zones adjust parameters
+            console.log('[GUMP] CONDUCT zone:', zoneMode.param);
             handleConductZone(zone, zoneMode.param, x, y);
         }
     }
