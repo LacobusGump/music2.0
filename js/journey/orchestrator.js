@@ -35,12 +35,12 @@ const GumpJourney = (function() {
         release: 0
     };
 
-    // The five acts of every journey
+    // The five acts of every journey - FASTER transitions for responsive feel
     const ACTS = {
         innocence: {
             name: 'innocence',
             threshold: 0,
-            minDuration: 15000,   // At least 15 seconds
+            minDuration: 6000,    // Quick intro - 6 seconds
             scale: [0, 2, 4, 7, 9],  // Pentatonic - pure
             root: 220,
             tempo: null,  // Rubato
@@ -49,42 +49,42 @@ const GumpJourney = (function() {
         },
         ambition: {
             name: 'ambition',
-            threshold: 0.25,
-            minDuration: 20000,
+            threshold: 0.15,      // Lower threshold - easier to progress
+            minDuration: 8000,    // 8 seconds
             scale: [0, 2, 4, 5, 7, 9, 11],  // Major - hopeful
             root: 220,
-            tempo: 80,
-            reverbMix: 0.5,
+            tempo: 82,
+            reverbMix: 0.45,
             description: 'Groove descends, reaching upward'
         },
         hardships: {
             name: 'hardships',
-            threshold: 0.5,
-            minDuration: 25000,
+            threshold: 0.35,      // Lower threshold
+            minDuration: 12000,   // 12 seconds - longest struggle
             scale: [0, 2, 3, 5, 7, 8, 10],  // Natural minor - struggle
             root: 196,  // G - darker
             tempo: 88,
-            reverbMix: 0.4,
+            reverbMix: 0.35,
             description: 'Tension rises, the struggle'
         },
         prevail: {
             name: 'prevail',
-            threshold: 0.75,
-            minDuration: 20000,
+            threshold: 0.55,      // More achievable peak
+            minDuration: 10000,   // 10 seconds
             scale: [0, 2, 4, 5, 7, 9, 11],  // Major - triumph
             root: 247,  // B - bright
-            tempo: 95,
-            reverbMix: 0.45,
+            tempo: 94,
+            reverbMix: 0.4,
             description: 'Breakthrough, full power'
         },
         fade: {
             name: 'fade',
             threshold: 0,  // Triggered by energy drop after prevail
-            minDuration: 15000,
+            minDuration: 8000,    // 8 seconds
             scale: [0, 2, 4, 7, 9],  // Back to pentatonic
             root: 220,
-            tempo: 70,
-            reverbMix: 0.8,
+            tempo: 72,
+            reverbMix: 0.75,
             description: 'Resolution, return to peace'
         }
     };
@@ -159,21 +159,26 @@ const GumpJourney = (function() {
         const now = timestamp || performance.now();
         const actDuration = now - state.actStartTime;
 
-        // Energy decay when not conducting
+        // Energy decay when not conducting - SLOWER decay to maintain momentum
         if (!state.lastConducting) {
-            state.gestureEnergy *= 0.98;
-            state.sustainedEnergy *= 0.99;
+            state.gestureEnergy *= 0.985;    // Slower decay
+            state.sustainedEnergy *= 0.992;  // Much slower
         }
 
-        // Momentum energy decays slowly
-        state.momentumEnergy *= 0.995;
+        // Momentum energy decays very slowly - keeps the groove alive
+        state.momentumEnergy *= 0.997;
 
-        // Total energy
+        // Total energy - weight towards accumulated energy
         state.energy = Math.min(1,
-            state.gestureEnergy * 0.4 +
-            state.sustainedEnergy * 0.3 +
+            state.gestureEnergy * 0.35 +
+            state.sustainedEnergy * 0.35 +
             state.momentumEnergy * 0.3
         );
+
+        // Minimum energy floor when playing - never fully silent
+        if (state.energy > 0.05) {
+            state.energy = Math.max(0.1, state.energy);
+        }
 
         // Check for act transitions
         checkActTransition(actDuration);
@@ -325,21 +330,26 @@ const GumpJourney = (function() {
 
         const { velocity, expression } = data;
 
-        // Accumulate energy from movement
-        const movementEnergy = Math.min(1, velocity * 0.5);
-        state.gestureEnergy = Math.min(1, state.gestureEnergy + movementEnergy * 0.02);
+        // Accumulate energy from movement - FASTER buildup
+        const movementEnergy = Math.min(1, velocity * 0.6);
+        state.gestureEnergy = Math.min(1, state.gestureEnergy + movementEnergy * 0.04);
 
-        // Articulation affects energy gain rate
-        if (expression.articulation > 0.5) {
-            state.gestureEnergy = Math.min(1, state.gestureEnergy + 0.01);
+        // Articulation affects energy gain rate - more responsive
+        if (expression.articulation > 0.3) {
+            state.gestureEnergy = Math.min(1, state.gestureEnergy + 0.02);
+        }
+
+        // Dynamics boost energy significantly
+        if (expression.dynamics > 0.6) {
+            state.gestureEnergy = Math.min(1, state.gestureEnergy + 0.015);
         }
     }
 
     function onConductingUpdate(data) {
         state.lastConducting = data;
 
-        // Sustained conducting builds energy
-        state.sustainedEnergy = Math.min(1, state.sustainedEnergy + 0.002);
+        // Sustained conducting builds energy - faster accumulation
+        state.sustainedEnergy = Math.min(1, state.sustainedEnergy + 0.004);
     }
 
     function onConductingEnd(data) {

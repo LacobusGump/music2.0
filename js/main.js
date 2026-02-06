@@ -329,8 +329,26 @@ const GUMP = (function() {
 
     function onMouseMove(e) {
         app.inputMode = 'mouse';
+        const prevX = app.targetX;
+        const prevY = app.targetY;
         app.targetX = e.clientX / app.width;
         app.targetY = e.clientY / app.height;
+
+        // Emit gesture.move when actively dragging
+        if (app.gestureActive) {
+            const velocityX = (app.targetX - prevX) * 60;
+            const velocityY = (app.targetY - prevY) * 60;
+            const zone = GumpGrid.getZoneFromPosition?.(app.targetX, app.targetY) || 'center';
+
+            GumpEvents.emit('gesture.move', {
+                x: app.targetX,
+                y: app.targetY,
+                zone,
+                velocityX,
+                velocityY,
+                inputMode: 'mouse'
+            });
+        }
     }
 
     function onMouseDown(e) {
@@ -375,8 +393,27 @@ const GUMP = (function() {
         e.preventDefault();
 
         if (e.touches.length > 0) {
+            const prevX = app.targetX;
+            const prevY = app.targetY;
             app.targetX = e.touches[0].clientX / app.width;
             app.targetY = e.touches[0].clientY / app.height;
+
+            // Calculate velocity
+            const velocityX = (app.targetX - prevX) * 60;  // Approximate per-frame
+            const velocityY = (app.targetY - prevY) * 60;
+
+            // Emit gesture.move for grid instrument and conducting
+            if (app.gestureActive) {
+                const zone = GumpGrid.getZoneFromPosition?.(app.targetX, app.targetY) || 'center';
+                GumpEvents.emit('gesture.move', {
+                    x: app.targetX,
+                    y: app.targetY,
+                    zone,
+                    velocityX,
+                    velocityY,
+                    inputMode: 'touch'
+                });
+            }
         }
     }
 

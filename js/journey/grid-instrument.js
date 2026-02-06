@@ -18,6 +18,7 @@ const GumpGridInstrument = (function() {
     'use strict';
 
     let ctx = null;
+    let masterGain = null;  // Proper audio output
 
     const state = {
         // Current interaction
@@ -62,6 +63,17 @@ const GumpGridInstrument = (function() {
 
     function init(audioContext) {
         ctx = audioContext;
+
+        // Create master gain for proper routing
+        masterGain = ctx.createGain();
+        masterGain.gain.value = 0.8;
+
+        // Route through GumpAudio if available, otherwise direct
+        if (typeof GumpAudio !== 'undefined' && GumpAudio.masterGain) {
+            masterGain.connect(GumpAudio.masterGain);
+        } else {
+            masterGain.connect(ctx.destination);
+        }
 
         // Subscribe to grid events
         if (typeof GumpEvents !== 'undefined') {
@@ -279,24 +291,39 @@ const GumpGridInstrument = (function() {
     function triggerDrumSound(sound, velocity) {
         if (!ctx) return;
 
+        // Use GumpGroove's heavy sounds if available
+        const useGroove = typeof GumpGroove !== 'undefined';
+
         switch (sound) {
             case 'kick':
-                playKick(velocity);
+                if (useGroove) {
+                    GumpGroove.play808Kick(ctx.currentTime, velocity);
+                } else {
+                    playKick(velocity);
+                }
                 break;
             case 'snare':
-                playSnare(velocity);
+                if (useGroove) {
+                    GumpGroove.play808Snare(ctx.currentTime, velocity);
+                } else {
+                    playSnare(velocity);
+                }
                 break;
             case 'hihat':
-                playHiHat(velocity, 'closed');
+                if (useGroove) {
+                    GumpGroove.playHiHat(ctx.currentTime, velocity * 0.7, 'closed');
+                } else {
+                    playHiHat(velocity, 'closed');
+                }
                 break;
             case 'clap':
-                playClap(velocity);
+                playClap(velocity);  // Keep our clap
                 break;
             case 'perc':
-                playPerc(velocity);
+                playPerc(velocity);  // Keep our perc
                 break;
             case 'sub':
-                playSub(velocity);
+                playSub(velocity);  // Our dedicated sub
                 break;
         }
     }
@@ -316,38 +343,40 @@ const GumpGridInstrument = (function() {
         if (!ctx) return;
 
         const now = ctx.currentTime;
+        const output = masterGain || ctx.destination;
 
-        // Create oscillators
-        const osc1 = ctx.createOscillator();
-        const osc2 = ctx.createOscillator();
-        osc1.type = 'sawtooth';
-        osc2.type = 'sawtooth';
-        osc1.frequency.value = freq;
-        osc2.frequency.value = freq * 1.005;  // Slight detune
+        // Create oscillators - 4 for thick unison
+        const oscs = [];
+        for (let i = 0; i < 4; i++) {
+            const osc = ctx.createOscillator();
+            osc.type = i % 2 === 0 ? 'sawtooth' : 'square';
+            osc.frequency.value = freq;
+            osc.detune.value = (i - 1.5) * 8;  // Spread detune
+            oscs.push(osc);
+        }
 
         // Filter for modulation
         const filter = ctx.createBiquadFilter();
         filter.type = 'lowpass';
-        filter.frequency.value = 2000;
-        filter.Q.value = 2;
+        filter.frequency.value = 1800;
+        filter.Q.value = 2.5;
 
         // Gain
         const gain = ctx.createGain();
         gain.gain.value = 0;
-        gain.gain.linearRampToValueAtTime(0.3, now + 0.1);
+        gain.gain.linearRampToValueAtTime(0.25, now + 0.08);
 
-        // Connect
-        osc1.connect(filter);
-        osc2.connect(filter);
+        // Connect all oscillators to filter
+        oscs.forEach(osc => osc.connect(filter));
         filter.connect(gain);
-        gain.connect(ctx.destination);
+        gain.connect(output);
 
-        osc1.start(now);
-        osc2.start(now);
+        // Start all
+        oscs.forEach(osc => osc.start(now));
 
         // Store for modulation
         state.activeSounds.set(zone, {
-            oscs: [osc1, osc2],
+            oscs,
             filter,
             gain,
             baseFreq: freq
@@ -390,6 +419,7 @@ const GumpGridInstrument = (function() {
 
     function playKick(velocity = 0.8) {
         const now = ctx.currentTime;
+        const output = masterGain || ctx.destination;
 
         // Sub
         const osc = ctx.createOscillator();
@@ -411,8 +441,8 @@ const GumpGridInstrument = (function() {
 
         osc.connect(gain);
         click.connect(clickGain);
-        gain.connect(ctx.destination);
-        clickGain.connect(ctx.destination);
+        gain.connect(output);
+        clickGain.connect(output);
 
         osc.start(now);
         osc.stop(now + 0.5);
@@ -422,6 +452,7 @@ const GumpGridInstrument = (function() {
 
     function playSnare(velocity = 0.7) {
         const now = ctx.currentTime;
+        const output = masterGain || ctx.destination;
 
         // Body
         const osc = ctx.createOscillator();
@@ -451,8 +482,8 @@ const GumpGridInstrument = (function() {
         osc.connect(oscGain);
         noise.connect(noiseFilter);
         noiseFilter.connect(noiseGain);
-        oscGain.connect(ctx.destination);
-        noiseGain.connect(ctx.destination);
+        oscGain.connect(output);
+        noiseGain.connect(output);
 
         osc.start(now);
         osc.stop(now + 0.15);
@@ -462,6 +493,7 @@ const GumpGridInstrument = (function() {
 
     function playHiHat(velocity = 0.5, type = 'closed') {
         const now = ctx.currentTime;
+        const output = masterGain || ctx.destination;
         const decay = type === 'open' ? 0.3 : 0.05;
 
         const noise = ctx.createBufferSource();
@@ -481,7 +513,7 @@ const GumpGridInstrument = (function() {
 
         noise.connect(filter);
         filter.connect(gain);
-        gain.connect(ctx.destination);
+        gain.connect(output);
 
         noise.start(now);
         noise.stop(now + decay);
@@ -489,35 +521,37 @@ const GumpGridInstrument = (function() {
 
     function playClap(velocity = 0.6) {
         const now = ctx.currentTime;
+        const output = masterGain || ctx.destination;
 
-        // Multiple noise bursts
-        for (let i = 0; i < 3; i++) {
+        // Multiple noise bursts for realistic clap
+        for (let i = 0; i < 4; i++) {
             const noise = ctx.createBufferSource();
-            const noiseBuffer = ctx.createBuffer(1, ctx.sampleRate * 0.02, ctx.sampleRate);
+            const noiseBuffer = ctx.createBuffer(1, ctx.sampleRate * 0.025, ctx.sampleRate);
             const data = noiseBuffer.getChannelData(0);
             for (let j = 0; j < data.length; j++) data[j] = Math.random() * 2 - 1;
             noise.buffer = noiseBuffer;
 
             const filter = ctx.createBiquadFilter();
             filter.type = 'bandpass';
-            filter.frequency.value = 1500;
-            filter.Q.value = 0.5;
+            filter.frequency.value = 1200 + i * 200;
+            filter.Q.value = 0.8;
 
             const gain = ctx.createGain();
-            gain.gain.setValueAtTime(velocity * 0.4, now + i * 0.015);
-            gain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.015 + 0.1);
+            gain.gain.setValueAtTime(velocity * 0.35, now + i * 0.012);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.012 + 0.12);
 
             noise.connect(filter);
             filter.connect(gain);
-            gain.connect(ctx.destination);
+            gain.connect(output);
 
-            noise.start(now + i * 0.015);
-            noise.stop(now + i * 0.015 + 0.1);
+            noise.start(now + i * 0.012);
+            noise.stop(now + i * 0.012 + 0.12);
         }
     }
 
     function playPerc(velocity = 0.5) {
         const now = ctx.currentTime;
+        const output = masterGain || ctx.destination;
 
         const osc = ctx.createOscillator();
         osc.type = 'sine';
@@ -529,7 +563,7 @@ const GumpGridInstrument = (function() {
         gain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
 
         osc.connect(gain);
-        gain.connect(ctx.destination);
+        gain.connect(output);
 
         osc.start(now);
         osc.stop(now + 0.1);
@@ -537,44 +571,69 @@ const GumpGridInstrument = (function() {
 
     function playSub(velocity = 0.8) {
         const now = ctx.currentTime;
+        const output = masterGain || ctx.destination;
 
+        // Deep sub with second harmonic
         const osc = ctx.createOscillator();
         osc.type = 'sine';
-        osc.frequency.setValueAtTime(40, now);
+        osc.frequency.setValueAtTime(38, now);
+
+        const osc2 = ctx.createOscillator();
+        osc2.type = 'sine';
+        osc2.frequency.setValueAtTime(76, now);  // Octave up
 
         const gain = ctx.createGain();
-        gain.gain.setValueAtTime(velocity * 0.7, now);
-        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.8);
+        gain.gain.setValueAtTime(velocity * 0.8, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 1.0);
+
+        const gain2 = ctx.createGain();
+        gain2.gain.setValueAtTime(velocity * 0.25, now);
+        gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.6);
 
         osc.connect(gain);
-        gain.connect(ctx.destination);
+        osc2.connect(gain2);
+        gain.connect(output);
+        gain2.connect(output);
 
         osc.start(now);
-        osc.stop(now + 0.8);
+        osc.stop(now + 1.0);
+        osc2.start(now);
+        osc2.stop(now + 0.6);
     }
 
     function playMelodicNote(freq, velocity, type) {
         const now = ctx.currentTime;
+        const output = masterGain || ctx.destination;
 
+        // Richer melodic sound with detune
         const osc = ctx.createOscillator();
+        const osc2 = ctx.createOscillator();
         osc.type = type === 'bass' ? 'sawtooth' : 'triangle';
+        osc2.type = 'sawtooth';
         osc.frequency.value = freq;
+        osc2.frequency.value = freq * 1.003;  // Slight detune
+        osc2.detune.value = 7;
 
         const filter = ctx.createBiquadFilter();
         filter.type = 'lowpass';
-        filter.frequency.value = 2000 + velocity * 3000;
+        filter.frequency.value = 1500 + velocity * 3500;
+        filter.Q.value = 1;
 
         const gain = ctx.createGain();
         gain.gain.setValueAtTime(0, now);
-        gain.gain.linearRampToValueAtTime(velocity * 0.3, now + 0.02);
-        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+        gain.gain.linearRampToValueAtTime(velocity * 0.25, now + 0.015);
+        gain.gain.setValueAtTime(velocity * 0.2, now + 0.1);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.6);
 
         osc.connect(filter);
+        osc2.connect(filter);
         filter.connect(gain);
-        gain.connect(ctx.destination);
+        gain.connect(output);
 
         osc.start(now);
-        osc.stop(now + 0.6);
+        osc.stop(now + 0.7);
+        osc2.start(now);
+        osc2.stop(now + 0.7);
     }
 
     // ═══════════════════════════════════════════════════════════════════════

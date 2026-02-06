@@ -12,6 +12,9 @@ const GumpGroove = (function() {
     let ctx = null;
     let masterGain = null;
     let compressor = null;
+    let lofiFilter = null;    // Lo-fi warmth
+    let bitCrusher = null;    // Subtle grit
+    let subBoost = null;      // Extra weight
 
     const state = {
         playing: false,
@@ -21,6 +24,7 @@ const GumpGroove = (function() {
         intensity: 0,
         nextStepTime: 0,
         timerID: null,
+        lofiAmount: 0.3,  // How much lo-fi character
 
         // Active sounds for cleanup
         activeSounds: new Set()
@@ -58,21 +62,58 @@ const GumpGroove = (function() {
     function init(audioContext, destination) {
         ctx = audioContext;
 
-        // Compressor for punch
-        compressor = ctx.createDynamicsCompressor();
-        compressor.threshold.value = -12;
-        compressor.knee.value = 6;
-        compressor.ratio.value = 4;
-        compressor.attack.value = 0.003;
-        compressor.release.value = 0.15;
+        // === LO-FI PROCESSING CHAIN ===
 
+        // 1. Sub boost - weight at the bottom
+        subBoost = ctx.createBiquadFilter();
+        subBoost.type = 'lowshelf';
+        subBoost.frequency.value = 80;
+        subBoost.gain.value = 6;  // +6dB sub boost
+
+        // 2. Lo-fi warmth filter - roll off harsh highs
+        lofiFilter = ctx.createBiquadFilter();
+        lofiFilter.type = 'lowpass';
+        lofiFilter.frequency.value = 8000;  // Soft highs
+        lofiFilter.Q.value = 0.5;
+
+        // 3. Saturation for warmth
+        bitCrusher = ctx.createWaveShaper();
+        bitCrusher.curve = makeLofiCurve(3);  // Subtle saturation
+        bitCrusher.oversample = '2x';
+
+        // 4. Compressor for punch
+        compressor = ctx.createDynamicsCompressor();
+        compressor.threshold.value = -14;
+        compressor.knee.value = 4;
+        compressor.ratio.value = 5;
+        compressor.attack.value = 0.002;
+        compressor.release.value = 0.12;
+
+        // 5. Master output
         masterGain = ctx.createGain();
         masterGain.gain.value = 0;
 
-        masterGain.connect(compressor);
+        // === ROUTING ===
+        // masterGain → subBoost → lofiFilter → bitCrusher → compressor → destination
+        masterGain.connect(subBoost);
+        subBoost.connect(lofiFilter);
+        lofiFilter.connect(bitCrusher);
+        bitCrusher.connect(compressor);
         compressor.connect(destination || ctx.destination);
 
-        console.log('[Groove] Ready to drop');
+        console.log('[Groove] Lo-fi engine ready');
+    }
+
+    // Warm lo-fi saturation curve
+    function makeLofiCurve(amount) {
+        const samples = 44100;
+        const curve = new Float32Array(samples);
+        for (let i = 0; i < samples; i++) {
+            const x = (i * 2) / samples - 1;
+            // Soft clipping with tube-like character
+            curve[i] = (Math.PI * amount * x) / (Math.PI + amount * Math.abs(x));
+        }
+        return curve;
     }
 
     function start(tempo = 85) {
@@ -179,59 +220,73 @@ const GumpGroove = (function() {
     function play808Kick(time, velocity = 0.8) {
         const now = time || ctx.currentTime;
 
-        // === SUB OSCILLATOR (the weight) ===
+        // === DEEP SUB OSCILLATOR (the WEIGHT) ===
         const sub = ctx.createOscillator();
         sub.type = 'sine';
-        sub.frequency.setValueAtTime(150, now);
-        sub.frequency.exponentialRampToValueAtTime(32, now + 0.12);
+        sub.frequency.setValueAtTime(120, now);  // Start lower
+        sub.frequency.exponentialRampToValueAtTime(28, now + 0.18);  // Deeper, longer sweep
 
         const subGain = ctx.createGain();
-        subGain.gain.setValueAtTime(velocity * 0.95, now);
-        subGain.gain.setValueAtTime(velocity * 0.9, now + 0.02);
-        subGain.gain.exponentialRampToValueAtTime(0.001, now + 0.6);
+        subGain.gain.setValueAtTime(velocity * 1.1, now);  // Louder sub
+        subGain.gain.setValueAtTime(velocity * 1.0, now + 0.03);
+        subGain.gain.exponentialRampToValueAtTime(0.001, now + 0.8);  // Longer tail
+
+        // === SECOND SUB (octave reinforcement) ===
+        const sub2 = ctx.createOscillator();
+        sub2.type = 'sine';
+        sub2.frequency.setValueAtTime(60, now);  // Octave below
+        sub2.frequency.exponentialRampToValueAtTime(14, now + 0.2);
+
+        const sub2Gain = ctx.createGain();
+        sub2Gain.gain.setValueAtTime(velocity * 0.5, now);
+        sub2Gain.gain.exponentialRampToValueAtTime(0.001, now + 0.6);
 
         // === CLICK (attack transient) ===
         const click = ctx.createOscillator();
         click.type = 'triangle';
-        click.frequency.setValueAtTime(800, now);
-        click.frequency.exponentialRampToValueAtTime(100, now + 0.015);
+        click.frequency.setValueAtTime(900, now);
+        click.frequency.exponentialRampToValueAtTime(80, now + 0.012);
 
         const clickGain = ctx.createGain();
-        clickGain.gain.setValueAtTime(velocity * 0.6, now);
-        clickGain.gain.exponentialRampToValueAtTime(0.001, now + 0.025);
+        clickGain.gain.setValueAtTime(velocity * 0.55, now);
+        clickGain.gain.exponentialRampToValueAtTime(0.001, now + 0.02);
 
-        // === HARMONIC (body) ===
+        // === HARMONIC BODY ===
         const body = ctx.createOscillator();
         body.type = 'sine';
-        body.frequency.setValueAtTime(80, now);
-        body.frequency.exponentialRampToValueAtTime(45, now + 0.08);
+        body.frequency.setValueAtTime(70, now);
+        body.frequency.exponentialRampToValueAtTime(38, now + 0.1);
 
         const bodyGain = ctx.createGain();
-        bodyGain.gain.setValueAtTime(velocity * 0.3, now);
-        bodyGain.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+        bodyGain.gain.setValueAtTime(velocity * 0.35, now);
+        bodyGain.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
 
-        // === SATURATION ===
+        // === SATURATION (more drive) ===
         const saturator = ctx.createWaveShaper();
-        saturator.curve = makeSaturationCurve(8);
-        saturator.oversample = '2x';
+        saturator.curve = makeSaturationCurve(10);  // More saturation
+        saturator.oversample = '4x';
 
         // === ROUTING ===
         sub.connect(subGain);
+        sub2.connect(sub2Gain);
         click.connect(clickGain);
         body.connect(bodyGain);
 
         subGain.connect(saturator);
+        sub2Gain.connect(saturator);
         clickGain.connect(saturator);
         bodyGain.connect(saturator);
         saturator.connect(masterGain);
 
         // === START/STOP ===
         sub.start(now);
-        sub.stop(now + 0.7);
+        sub.stop(now + 0.9);
+        sub2.start(now);
+        sub2.stop(now + 0.7);
         click.start(now);
-        click.stop(now + 0.03);
+        click.stop(now + 0.025);
         body.start(now);
-        body.stop(now + 0.25);
+        body.stop(now + 0.3);
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -345,42 +400,62 @@ const GumpGroove = (function() {
             const freq = 220 * Math.pow(2, note / 12);
 
             // Multiple detuned voices per note (unison heaven)
-            const voiceCount = 6;
+            const voiceCount = 8;  // More voices for thicker sound
             for (let v = 0; v < voiceCount; v++) {
                 const osc = ctx.createOscillator();
-                osc.type = 'sawtooth';
+                // Mix of saw and square for character
+                osc.type = v % 3 === 0 ? 'square' : 'sawtooth';
                 osc.frequency.value = freq;
 
-                // Spread detune for width
-                const detuneSpread = 20;
+                // Wider detune spread for that thick unison
+                const detuneSpread = 28;
                 osc.detune.value = (v - (voiceCount - 1) / 2) * (detuneSpread / voiceCount);
-                osc.detune.value += (Math.random() - 0.5) * 5;  // Random drift
+                osc.detune.value += (Math.random() - 0.5) * 8;  // More random drift
 
-                // Filter for warmth
+                // Slow random LFO for movement
+                const lfo = ctx.createOscillator();
+                lfo.type = 'sine';
+                lfo.frequency.value = 0.1 + Math.random() * 0.3;
+                const lfoGain = ctx.createGain();
+                lfoGain.gain.value = 3 + Math.random() * 4;
+                lfo.connect(lfoGain);
+                lfoGain.connect(osc.detune);
+                lfo.start(now);
+                lfo.stop(now + duration + 0.2);
+
+                // Warmer filter - lo-fi character
                 const filter = ctx.createBiquadFilter();
                 filter.type = 'lowpass';
-                filter.frequency.value = 1800 + noteIdx * 300;
-                filter.Q.value = 0.5;
+                filter.frequency.value = 1200 + noteIdx * 200;  // Lower cutoff = warmer
+                filter.Q.value = 0.7;
 
-                // Envelope
+                // Add subtle resonance for character
+                const resonance = ctx.createBiquadFilter();
+                resonance.type = 'peaking';
+                resonance.frequency.value = 800;
+                resonance.Q.value = 2;
+                resonance.gain.value = 2;
+
+                // Envelope - slower attack for pads
                 const gain = ctx.createGain();
                 gain.gain.value = 0;
-                gain.gain.linearRampToValueAtTime(0.06 * state.intensity / voiceCount, now + 1.5);
-                gain.gain.setValueAtTime(0.06 * state.intensity / voiceCount, now + duration - 2);
+                gain.gain.linearRampToValueAtTime(0.055 * state.intensity / voiceCount, now + 2);
+                gain.gain.setValueAtTime(0.055 * state.intensity / voiceCount, now + duration - 2.5);
                 gain.gain.linearRampToValueAtTime(0, now + duration);
 
                 // Pan for stereo width
                 const panner = ctx.createStereoPanner();
-                panner.pan.value = (v / (voiceCount - 1)) * 1.4 - 0.7;  // Spread across stereo
+                panner.pan.value = (v / (voiceCount - 1)) * 1.6 - 0.8;  // Wider spread
 
                 // Route
                 osc.connect(filter);
-                filter.connect(gain);
+                filter.connect(resonance);
+                resonance.connect(gain);
                 gain.connect(panner);
                 panner.connect(masterGain);
 
                 osc.start(now);
-                osc.stop(now + duration + 0.1);
+                osc.stop(now + duration + 0.2);
             }
         });
     }
@@ -417,6 +492,18 @@ const GumpGroove = (function() {
         state.swing = Math.max(0, Math.min(0.3, amount));
     }
 
+    function setLofi(amount) {
+        state.lofiAmount = Math.max(0, Math.min(1, amount));
+        if (lofiFilter) {
+            // Lower cutoff = more lo-fi
+            lofiFilter.frequency.value = 12000 - (amount * 6000);
+        }
+        if (subBoost) {
+            // More sub boost with lo-fi
+            subBoost.gain.value = 4 + (amount * 4);
+        }
+    }
+
     return Object.freeze({
         init,
         start,
@@ -424,6 +511,7 @@ const GumpGroove = (function() {
         setIntensity,
         setTempo,
         setSwing,
+        setLofi,
         playHeavenGates,
         play808Kick,
         play808Snare,
@@ -431,7 +519,8 @@ const GumpGroove = (function() {
 
         get isPlaying() { return state.playing; },
         get tempo() { return state.tempo; },
-        get intensity() { return state.intensity; }
+        get intensity() { return state.intensity; },
+        get lofiAmount() { return state.lofiAmount; }
     });
 
 })();
