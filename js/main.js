@@ -213,14 +213,13 @@ const GUMP = (function() {
                 console.error('Audio init failed:', audioError);
             }
 
-            // Initialize AI musicians
-            initializeAIMusicians();
+            // OLD SYSTEMS DISABLED - Journey system replaces them
+            // initializeAIMusicians();
+            // initializeMagentaAI();
+            // initializeMusicalWorlds();
 
-            // Initialize Magenta AI Engine (async, non-blocking)
-            initializeMagentaAI();
-
-            // Initialize Musical Worlds system
-            initializeMusicalWorlds();
+            // Journey system is initialized in the audio block above
+            console.log('[GUMP] Using Journey system (old AI musicians disabled)');
 
             app.isInitialized = true;
             console.log('GUMP initialized');
