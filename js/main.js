@@ -3739,8 +3739,10 @@ const GUMP = (function() {
 
     function drawZones(ctx, w, h) {
         const zones = GumpGrid.state.zones;
-        const zoneWidth = w / 3;
-        const zoneHeight = h / 3;
+        const gridCols = GumpGrid.GRID_CONFIG?.cols || 6;
+        const gridRows = GumpGrid.GRID_CONFIG?.rows || 6;
+        const zoneWidth = w / gridCols;
+        const zoneHeight = h / gridRows;
 
         for (const [zoneId, zoneState] of Object.entries(zones)) {
             const props = GumpGrid.getZoneProperties(zoneId);
@@ -3807,8 +3809,10 @@ const GUMP = (function() {
 
     function drawConnections(ctx, w, h) {
         const connections = GumpGrid.state.connections;
-        const zoneWidth = w / 3;
-        const zoneHeight = h / 3;
+        const gridCols = GumpGrid.GRID_CONFIG?.cols || 6;
+        const gridRows = GumpGrid.GRID_CONFIG?.rows || 6;
+        const zoneWidth = w / gridCols;
+        const zoneHeight = h / gridRows;
 
         ctx.lineWidth = 2;
 
