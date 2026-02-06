@@ -400,35 +400,15 @@ const GUMP = (function() {
     // EVENT HANDLERS
     // ═══════════════════════════════════════════════════════════════════════
 
-    // Zone-based gesture handling for PLAY vs CONDUCT zones
+    // === JOURNEY MODE: Gesture handling disabled here ===
+    // The Journey system (conductor-input.js + orchestrator.js) handles all gestures
     function onGestureStart(data) {
-        const { x, y, zone } = data;
-
-        console.log('[GUMP] Gesture start:', zone, 'at', x.toFixed(2), y.toFixed(2));
-
-        // Get zone mode configuration
-        const zoneMode = GumpGrid.getZoneMode?.(zone);
-        console.log('[GUMP] Zone mode:', zoneMode);
-
-        if (!zoneMode) {
-            console.warn('[GUMP] No zone mode for:', zone);
-            return;
-        }
-
-        if (zoneMode.mode === 'play') {
-            // PLAY zones trigger sounds directly
-            console.log('[GUMP] PLAY zone:', zoneMode.instrument);
-            handlePlayZone(zone, zoneMode.instrument, x, y);
-        } else if (zoneMode.mode === 'conduct') {
-            // CONDUCT zones adjust parameters
-            console.log('[GUMP] CONDUCT zone:', zoneMode.param);
-            handleConductZone(zone, zoneMode.param, x, y);
-        }
+        // Just log - Journey system handles the actual audio
+        console.log('[GUMP] Gesture → Journey system');
     }
 
     function onGestureEnd(data) {
-        // Gesture ended - voice manager handles fading (via its own listener)
-        // Reset any conduct parameters if needed
+        // Journey system handles this
     }
 
     // Handle PLAY zone - trigger direct sounds and emit note events
@@ -3835,54 +3815,22 @@ const GUMP = (function() {
         // Update grid
         const gridResult = GumpGrid.update(app.x, app.y, dt, GumpState);
 
-        // Play sound on zone entry (immediate feedback)
+        // === JOURNEY MODE: All old sound systems disabled ===
+        // The Journey system (js/journey/*) handles all audio now
+        // Zone change events still emitted for Journey to use
         if (gridResult.transition) {
-            // Emit zone change event for voice manager
             GumpEvents.emit('zone.change', {
                 from: gridResult.transition.from,
                 to: gridResult.transition.to
             });
-
-            playZoneEntrySound(gridResult.transition.to, gridResult.localX, gridResult.localY);
-
-            // COMBO SYSTEM: Track zone visits for combo detection
-            onZoneVisit(gridResult.transition.to);
-
-            // PATTERN LEARNING: Record zone transitions
-            const speed = Math.sqrt((app.vx || 0) * (app.vx || 0) + (app.vy || 0) * (app.vy || 0));
-            if (speed > 0.1) {
-                // Start recording if not already
-                if (!patternMemory.recording.active) {
-                    startPatternRecording();
-                }
-                recordPatternStep(gridResult.transition.to, speed);
-            }
-        } else if (patternMemory.recording.active && Date.now() - patternMemory.recording.startTime > 1000) {
-            // If we stop transitioning for 1 second, finish recording
-            const timeSinceLastStep = Date.now() - (patternMemory.recording.timestamps[patternMemory.recording.timestamps.length - 1] || 0) - patternMemory.recording.startTime;
-            if (timeSinceLastStep > 1000) {
-                finishPatternRecording();
-            }
         }
 
-        // Continuous sound while moving
-        updateContinuousSound(app.x, app.y, app.vx, app.vy);
-
-        // Check for fast movements
-        checkVelocitySounds(app.vx, app.vy, app.x, app.y);
-
-        // === MUSICAL EVOLUTION SYSTEMS ===
-        try {
-            // Update the evolution engine (phases, intensity, breathing, harmony)
-            if (gridResult && gridResult.zone) {
-                updateEvolution(dt, app.x, app.y, app.vx || 0, app.vy || 0, gridResult.zone);
-                checkEasterEggs(gridResult.zone, app.x, app.y, app.vx || 0, app.vy || 0, dt);
-            }
-            // Detect gestures and play phrases
-            detectAndPlayGesture(app.x, app.y, app.vx || 0, app.vy || 0, dt);
-        } catch (e) {
-            console.error('Evolution system error:', e);
-        }
+        // OLD SYSTEMS DISABLED:
+        // - playZoneEntrySound (droning)
+        // - updateContinuousSound (droning)
+        // - checkVelocitySounds (old velocity sounds)
+        // - updateEvolution (old evolution engine)
+        // - detectAndPlayGesture (old gesture system)
 
         // Add pattern data
         GumpPatterns.addPosition(app.x, app.y, app.vx, app.vy, Date.now());
