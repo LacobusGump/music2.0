@@ -207,6 +207,12 @@ const GUMP = (function() {
                         console.log('[GUMP] Journey system ready - music will dance to you');
                     }
 
+                    // Initialize Grid Instrument (tap, hold, conduct)
+                    if (typeof GumpGridInstrument !== 'undefined') {
+                        GumpGridInstrument.init(GumpAudio.context);
+                        console.log('[GUMP] Grid instrument ready - tap to trigger, hold to edit');
+                    }
+
                     console.log('[GUMP] Recording & voice systems initialized');
                 }
             } catch (audioError) {
