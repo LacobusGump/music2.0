@@ -175,6 +175,12 @@ const GUMP = (function() {
             // Initialize AI musicians
             initializeAIMusicians();
 
+            // Initialize Magenta AI Engine (async, non-blocking)
+            initializeMagentaAI();
+
+            // Initialize Musical Worlds system
+            initializeMusicalWorlds();
+
             app.isInitialized = true;
             console.log('GUMP initialized');
             return true;
@@ -472,6 +478,90 @@ const GUMP = (function() {
         }
     }
 
+    // ═══════════════════════════════════════════════════════════════════════
+    // MAGENTA AI INITIALIZATION
+    // ═══════════════════════════════════════════════════════════════════════
+
+    async function initializeMagentaAI() {
+        if (typeof GumpMagentaEngine === 'undefined') {
+            console.log('[GUMP] Magenta engine not available');
+            return;
+        }
+
+        try {
+            // Initialize async - don't block
+            GumpMagentaEngine.init().then(success => {
+                if (success) {
+                    console.log('[GUMP] Magenta AI engine ready');
+                    // Pre-generate some patterns for the current world
+                    if (typeof GumpMusicalWorlds !== 'undefined') {
+                        const world = GumpMusicalWorlds.currentWorld || 'genesis';
+                        GumpMusicalWorlds.generateWorldDrumPattern(world);
+                    }
+                }
+            });
+        } catch (e) {
+            console.warn('[GUMP] Magenta init error:', e);
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // MUSICAL WORLDS INITIALIZATION
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function initializeMusicalWorlds() {
+        if (typeof GumpMusicalWorlds === 'undefined') {
+            console.log('[GUMP] Musical Worlds not available');
+            return;
+        }
+
+        console.log('[GUMP] Musical Worlds system ready');
+
+        // Listen for world change events
+        if (typeof GumpEvents !== 'undefined') {
+            GumpEvents.on('world.change', onWorldChange);
+            GumpEvents.on('world.colors', onWorldColorsChange);
+            GumpEvents.on('drums.pattern', onDrumsPatternChange);
+        }
+
+        // Start in genesis world
+        GumpMusicalWorlds.applyWorld('genesis');
+    }
+
+    function onWorldChange(data) {
+        const { from, to, world } = data;
+        console.log(`[GUMP] World changed: ${from} → ${to}`);
+
+        // Update visual theme
+        if (world.colors) {
+            updateVisualTheme(world.colors);
+        }
+
+        // Update phase display text
+        const eraDisplay = document.getElementById('era-display');
+        if (eraDisplay) {
+            eraDisplay.textContent = world.name;
+            eraDisplay.style.color = world.colors?.accent || 'rgba(255,255,255,0.3)';
+        }
+    }
+
+    function onWorldColorsChange(colors) {
+        updateVisualTheme(colors);
+    }
+
+    function onDrumsPatternChange(data) {
+        // Store the new pattern for playback
+        aiMusicians.currentAIPattern = data.pattern;
+        console.log(`[GUMP] New drum pattern for ${data.world}: ${data.style}`);
+    }
+
+    function updateVisualTheme(colors) {
+        // Update CSS custom properties or canvas rendering
+        if (colors.primary) {
+            document.body.style.background = colors.primary;
+        }
+    }
+
     function startAIRhythm() {
         if (aiMusicians.clock.interval) return;
 
@@ -511,12 +601,89 @@ const GUMP = (function() {
         const mood = PHASE_MOOD[phaseName] || PHASE_MOOD.awakening;
         const phaseConfig = aiMusicians.phasePatterns[phaseName] || aiMusicians.phasePatterns.awakening;
 
-        // Send to AI drum mind if available
+        // ═══════════════════════════════════════════════════════════════
+        // PRIORITY: AI-GENERATED PATTERNS FROM MUSICAL WORLDS
+        // ═══════════════════════════════════════════════════════════════
+        if (aiMusicians.currentAIPattern) {
+            playAIGeneratedDrums(step, bar, aiMusicians.currentAIPattern, mood);
+            return;
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        // FALLBACK: AI DRUM MIND AGENT
+        // ═══════════════════════════════════════════════════════════════
         if (aiMusicians.drumMind) {
             GumpEvents?.emit?.('step', { step, bar, mood, phaseConfig });
-        } else {
-            // Fallback: play drums directly based on phase
-            playPhaseBasedDrums(step, bar, phaseName, mood, phaseConfig);
+            return;
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        // FINAL FALLBACK: Phase-based procedural drums
+        // ═══════════════════════════════════════════════════════════════
+        playPhaseBasedDrums(step, bar, phaseName, mood, phaseConfig);
+    }
+
+    /**
+     * Play drums from AI-generated pattern
+     * This is where the magic happens - patterns that actually GROOVE
+     */
+    function playAIGeneratedDrums(step, bar, pattern, mood) {
+        const volume = 0.4 + mood.tension * 0.3;
+        const totalSteps = pattern.kick?.length || 32;
+        const patternStep = (bar * 16 + step) % totalSteps;
+
+        // Play each instrument if it has a hit on this step
+        if (pattern.kick && pattern.kick[patternStep] > 0) {
+            const vel = pattern.kick[patternStep] === 2 ? 1.0 : 0.7;
+            // Choose kick type based on current world
+            const world = GumpMusicalWorlds?.currentWorld || 'genesis';
+            switch (world) {
+                case 'trap':
+                    GumpDrums.play808Deep?.({ volume: volume * vel });
+                    break;
+                case 'tribal':
+                    GumpDrums.playTribalKick?.({ volume: volume * vel });
+                    break;
+                case 'electronic':
+                    GumpDrums.play808Short?.({ volume: volume * vel });
+                    break;
+                case 'jazz':
+                    GumpDrums.playOrganicKick?.({ volume: volume * vel * 0.8 });
+                    break;
+                case 'cinematic':
+                    GumpDrums.play808Deep?.({ volume: volume * vel });
+                    break;
+                case 'chaos':
+                    GumpDrums.play808Distorted?.({ volume: volume * vel });
+                    break;
+                default:
+                    GumpDrums.play808Kick?.({ volume: volume * vel });
+            }
+        }
+
+        if (pattern.snare && pattern.snare[patternStep] > 0) {
+            const vel = pattern.snare[patternStep] === 2 ? 1.0 : 0.7;
+            GumpDrums.playSnare808?.({ volume: volume * vel });
+        }
+
+        if (pattern.hihat && pattern.hihat[patternStep] > 0) {
+            const vel = pattern.hihat[patternStep] === 2 ? 0.5 : 0.35;
+            GumpDrums.playHiHat?.({ type: 'closed', volume: volume * vel });
+        }
+
+        if (pattern.openHat && pattern.openHat[patternStep] > 0) {
+            const vel = pattern.openHat[patternStep] === 2 ? 0.6 : 0.4;
+            GumpDrums.playHiHat?.({ type: 'open', volume: volume * vel });
+        }
+
+        if (pattern.perc && pattern.perc[patternStep] > 0) {
+            const vel = pattern.perc[patternStep] === 2 ? 0.5 : 0.35;
+            const world = GumpMusicalWorlds?.currentWorld || 'genesis';
+            if (world === 'tribal') {
+                GumpDrums.playConga?.({ volume: volume * vel });
+            } else {
+                GumpDrums.playWoodBlock?.({ volume: volume * vel });
+            }
         }
     }
 
@@ -934,11 +1101,22 @@ const GUMP = (function() {
             comboSystem.zoneGlow[zone] = 1.0;
         });
 
-        // Play combo unlock sound
-        playComboUnlockSound(combo);
-
-        // Apply the music preset
-        applyMusicPreset(combo);
+        // ═══════════════════════════════════════════════════════════════
+        // MUSICAL WORLDS INTEGRATION - Dramatic style shifts!
+        // ═══════════════════════════════════════════════════════════════
+        if (typeof GumpMusicalWorlds !== 'undefined') {
+            // Let Musical Worlds handle the transition (includes sound)
+            const worldTriggered = GumpMusicalWorlds.handleComboUnlock(comboId);
+            if (!worldTriggered) {
+                // Fallback if no world mapping
+                playComboUnlockSound(combo);
+                applyMusicPreset(combo);
+            }
+        } else {
+            // Fallback to old behavior
+            playComboUnlockSound(combo);
+            applyMusicPreset(combo);
+        }
 
         // Clear for next combo
         setTimeout(() => {
@@ -2502,7 +2680,30 @@ const GUMP = (function() {
             evolution.layers.orchestral = true;
         }
 
-        // Play transition sound based on where we're going
+        // ═══════════════════════════════════════════════════════════════
+        // MUSICAL WORLDS - Auto-transition based on Hero's Journey phase
+        // This creates DRAMATIC shifts as time progresses!
+        // ═══════════════════════════════════════════════════════════════
+        if (typeof GumpMusicalWorlds !== 'undefined') {
+            const phaseToWorld = {
+                'awakening': 'genesis',
+                'discovery': 'primordial',
+                'descent': 'tribal',
+                'struggle': 'chaos',
+                'rise': 'cinematic',
+                'transcendence': 'transcendence',
+            };
+
+            const targetWorld = phaseToWorld[toName];
+            if (targetWorld && GumpMusicalWorlds.currentWorld !== targetWorld) {
+                console.log(`[Hero's Journey] Phase ${toName} → World ${targetWorld}`);
+                GumpMusicalWorlds.transitionToWorld(targetWorld);
+                // Musical Worlds handles its own transition sounds, skip legacy
+                return;
+            }
+        }
+
+        // Fallback: Play transition sound based on where we're going
         playPhaseTransition(toName, mood);
     }
 
@@ -3928,10 +4129,20 @@ const GUMP = (function() {
 
         // Start AI rhythm after cinematic entrance settles (6 seconds)
         setTimeout(() => {
+            // Generate initial drum pattern for genesis world
+            if (typeof GumpMusicalWorlds !== 'undefined') {
+                GumpMusicalWorlds.generateWorldDrumPattern('genesis').then(pattern => {
+                    if (pattern) {
+                        aiMusicians.currentAIPattern = pattern;
+                        console.log('[GUMP] Genesis drum pattern ready');
+                    }
+                });
+            }
+
             startAIRhythm();
         }, 6000);
 
-        console.log('GUMP started');
+        console.log('GUMP started - v16 Musical Worlds');
     }
 
     // ═══════════════════════════════════════════════════════════════════════

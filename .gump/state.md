@@ -4,192 +4,152 @@
 
 ---
 
-## MUSIC 2.0 - THE HERO'S JOURNEY (v13)
+## MUSIC 2.0 - MUSICAL WORLDS (v16)
 
-**The Vision Realized:** Music that mirrors life. It gets dark before it gets brighter. Stay through the struggle, and transcendence awaits.
+**The Vision Realized:** Music that mirrors life. It gets dark before it gets brighter. Each zone combo unlocks a completely different SONIC UNIVERSE. The AI generates patterns that actually GROOVE.
 
 ---
 
-## THE JOURNEY (v13)
+## WHAT'S NEW (February 5 - v16-WORLDS)
+
+### MUSICAL WORLDS SYSTEM - Dramatic Style Shifts!
+
+Each phase of the Hero's Journey AND each zone combo now triggers a completely different SONIC UNIVERSE:
+
+| World | Style | BPM | Character |
+|-------|-------|-----|-----------|
+| **Genesis** | Minimal | 60 | The void before creation. Sparse. Breathing. |
+| **Primordial** | Organic | 72 | The first pulse. Heartbeat. Alive. |
+| **Tribal** | Polyrhythmic | 90 | Ancient rituals. 3-against-4. Ceremony. |
+| **Cinematic** | Epic Orchestral | 85 | Hans Zimmer territory. THE BWAAAM lives here. |
+| **Electronic** | Future Synths | 128 | Four on the floor. Precise. Driving. |
+| **Trap** | Heavy 808s | 140 | Rolling hats. Sub bass that hits your chest. |
+| **Jazz** | Smooth Swing | 95 | Sophistication. Walking bass. Brush work. |
+| **Ambient** | Floating | 60 | Ethereal. Endless reverb. Lydian mode. |
+| **Chaos** | Dissonant | 110 | The struggle phase. Locrian mode. Unpredictable. |
+| **Transcendence** | Victory | 108 | Everything at once. Major keys. Full catharsis. |
+
+### Hero's Journey → Musical Worlds Auto-Transition
+
+As time passes, the music AUTOMATICALLY morphs between worlds:
+
+| Phase | Time | World | Feel |
+|-------|------|-------|------|
+| Awakening | 0-30s | Genesis | Sparse, beautiful |
+| Discovery | 30-90s | Primordial | Organic, building |
+| Descent | 90s-3min | Tribal | Darker, ritualistic |
+| **Struggle** | 3-5min | **Chaos** | Dissonant, intense |
+| Rise | 5-7min | Cinematic | Epic, building hope |
+| **Transcendence** | 7min+ | **Transcendence** | FULL VICTORY |
+
+### Zone Combo → World Unlocks
+
+Zone combos now trigger INSTANT world transitions:
+
+| Combo | Zones | World Unlocked |
+|-------|-------|----------------|
+| The Cross | N, S, E, W | Ambient |
+| Four Corners | NW, NE, SW, SE | Cinematic |
+| Northwest Hook | N, W, SW | Jazz |
+| Northeast Hook | N, E, SE | Electronic |
+| Southwest Hook | S, W, NW | Tribal |
+| Southeast Hook | S, E, NE | Trap |
+| Rising Triangle | SW, N, SE | Electronic |
+| Falling Triangle | NW, S, NE | Ambient |
+| Diagonal Down | NW, Center, SE | Chaos |
+| Diagonal Up | SW, Center, NE | Transcendence |
+| Complete Unity | All 9 zones | **TRANSCENDENCE** |
+
+### MAGENTA AI DRUM ENGINE
+
+Integrated Google's Magenta.js for AI-powered drum generation:
+
+- **Style-Specific Patterns**: Each world has unique drum patterns
+  - Tribal: 3-against-4 polyrhythms, conga accents
+  - Trap: Rolling hi-hats, syncopated 808s
+  - Jazz: Swing feel, brush work, walking patterns
+  - Chaos: Unpredictable hits, random ghost notes
+
+- **Procedural Generation with Soul**:
+  - Temperature-based variation
+  - Humanization (subtle timing offsets)
+  - Swing on offbeats
+  - Ghost notes and dynamics
+
+- **No More "2 and 4 Trash"**:
+  - Complex polyrhythmic patterns
+  - Phase-appropriate density
+  - Builds and drops
+  - Fills at musical boundaries
+
+### World Transition Sounds
+
+Each world has a unique entrance:
+
+- **BWAAAM** (Cinematic): Inception-style brass stabs + sub bass
+- **Drop** (Trap): 808 impact with screen shake
+- **Riser** (Electronic): Building noise sweep
+- **Crash** (Chaos): Dissonant cluster chord
+- **Full Orchestra** (Transcendence): Major chord stack + BWAAAM
+
+### Visual Theming
+
+Each world has its own color palette that morphs during transitions:
+
+- **Genesis**: Dark void with cream accents
+- **Tribal**: Earth tones, amber glow
+- **Cinematic**: Navy with silver
+- **Trap**: Deep purple with hot pink
+- **Chaos**: Blood red, aggressive
+- **Transcendence**: Bright cream, golden glow
+
+---
+
+## THE JOURNEY (v16)
 
 ### The Arc of Life in Sound
 
 | Phase | Time | Mood | What Happens |
 |-------|------|------|--------------|
-| **Awakening** | 0-30s | Hope, wonder | Simple, beautiful tones. The beginning. |
-| **Discovery** | 30s-90s | Curiosity | Exploring, building. Things feel possible. |
-| **Descent** | 90s-3min | Creeping darkness | Minor keys, tension, filter closes. Something's coming. |
-| **Struggle** | 3-5min | The low point | Dissonance, chaos, tritones. Screen darkens. This is the test. |
-| **Rise** | 5-7min | Hope returns | Fighting back. Ascending melodies. Filter opens. |
-| **Transcendence** | 7min+ | Brighter than ever | Full catharsis. THE BWAAAM. Major keys. Victory. |
-
-### Musical Characteristics by Phase
-
-- **Root note shifts** - Descends during darkness (down a 5th at lowest), rises during transcendence (up a 4th)
-- **Filter** - Closes during struggle (muffled, distant), opens wide during transcendence
-- **Breathing rate** - Faster and more erratic during tension
-- **Random elements**:
-  - **Struggle**: Occasional dissonant tones (minor 2nds, tritones), rumbling sub bass
-  - **Hope phases**: Occasional sparkles and bright tones
-- **Visual feedback**:
-  - Phase name color reflects mood (golden=bright, red=dark)
-  - Ring color shifts with hope/tension
-  - Darkness overlay during struggle phase
-  - Chaos rings during high-tension moments
-
-### Phase Transitions
-
-Each transition has its own sound:
-- **→ Descent**: Diminished chord, low rumble, filter sweep down, subtle vibration
-- **→ Struggle**: Dissonant cluster, tritone, chaos drums, intense vibration, screen darkens
-- **→ Rise**: Ascending chord sequence, building drums, filter opens, hope returns
-- **→ Transcendence**: THE BWAAAM + full orchestral major chord stack, screen flash
+| **Awakening** | 0-30s | Hope, wonder | Simple, beautiful tones. Genesis world. |
+| **Discovery** | 30s-90s | Curiosity | Exploring, building. Primordial heartbeats. |
+| **Descent** | 90s-3min | Creeping darkness | Tribal rituals. Something's coming. |
+| **Struggle** | 3-5min | The low point | CHAOS WORLD. Dissonance. This is the test. |
+| **Rise** | 5-7min | Hope returns | Cinematic world. Epic builds. |
+| **Transcendence** | 7min+ | Brighter than ever | TRANSCENDENCE. Full catharsis. Victory. |
 
 ---
 
-## WHAT'S NEW (February 5 - v11-BWAAAM)
-
-### THE BWAAAM (Inception-Style Cinematic Hit)
-- **Cinematic Entrance**: 5-second orchestral swell when you first tap the screen
-  - Deep sub bass emerges from silence
-  - Harmonic tension builds with detuned saws
-  - Culminates in THE BWAAAM
-- **THE BWAAAM triggers**:
-  - Draw a square (4 corners) → BWAAAM + Chord Progression unlocked
-  - Draw a star pattern → BWAAAM + Starburst unlocked
-  - Visit all 4 corners → BWAAAM + Full Pad unlocked
-  - Visit all 4 edges → BWAAAM + Full Rhythm unlocked
-  - Visit ALL 9 zones → TRANSCENDENCE (ultimate Hans Zimmer moment)
-- **BWAAAM Components**:
-  - Massive sub-bass 808 hit
-  - Triple-detuned brass stabs (Inception horns)
-  - High brass for cut
-  - Deep 808 thump
-  - Screen flash
-  - Haptic feedback
-  - 5 second cooldown prevents spam
-
-### Shape-Based Layer Unlocks
-Shapes you draw with your movement unlock PERSISTENT music layers:
-
-| Shape | Layer Unlocked |
-|-------|----------------|
-| Horizontal swipe | Filter Pad |
-| Vertical swipe | Pitch Pad |
-| Swipe up | Rising Arpeggiator |
-| Swipe down | Falling Arpeggiator |
-| Triangle up | Triad harmony |
-| Triangle down | Inverted triad |
-| Square | Chord Progression + **BWAAAM** |
-| Plus cross | Rhythm layer |
-| X cross | Counter rhythm |
-| Circle CW | Build tension |
-| Circle CCW | Release |
-| Figure-8 | Infinity drone |
-| Star | Starburst + **BWAAAM** |
-| All corners | Full Pad + **BWAAAM** |
-| All edges | Full Rhythm + **BWAAAM** |
-| All 9 zones | **TRANSCENDENCE** |
-
----
-
-## WHAT'S ALREADY WORKING (From Earlier)
-
-### Musical Evolution System
-- **4-phase progression**: awakening → discovery → journey → transcendence
-- Music starts sparse (simple tones) and builds to cinematic (full orchestral)
-- Phase thresholds: 0s, 30s, 2min, 5min
-- Layers unlock over time:
-  - Phase 1: melody + harmony
-  - Phase 2: bass + rhythm
-  - Phase 3: full orchestral
-
-### Intensity System (Hans Zimmer)
-- Tracks activity level (0-100%)
-- Builds with movement, decays slowly
-- Affects:
-  - Master volume
-  - Number of simultaneous voices
-  - Harmonic richness
-- At max intensity → THE DROP
-
-### THE DROP
-- Triggers when intensity stays high (>95%) after building
-- Brief silence for anticipation
-- Then: massive 808 + orchestral chord resolution
-- 30 second cooldown between drops
-- The cathartic payoff for sustained engagement
-
-### Breathing System
-- Subtle ±5% volume swell (like breathing)
-- Makes the music feel alive and organic
-- 0.15 Hz rate (about 9 breaths per minute)
-
-### Harmonic Intelligence
-- Chord progression: i - IV - v - I (Am - D - Em - A)
-- Zones map to chord degrees:
-  - center/sw: i (home)
-  - e/w/nw: IV
-  - n/s/se: v
-  - ne: I
-- Movement creates actual chord progressions
-
-### Easter Eggs
-
-| Easter Egg | Trigger | Reward |
-|------------|---------|--------|
-| **Journey Complete** | Visit all 9 zones in 15s | Triumphant fanfare |
-| **Meditation Mode** | Stay still in center 10s+ | Peaceful drone |
-| **Earthquake** | Rapid shaking | Massive sub bass chaos |
-| **Ritual** | Clockwise corners (nw→ne→se→sw) | Mystical chord progression |
-| **Orbit Mode** | Trace circles for 2s | Continuous arpeggiator |
-
-### Gesture → Phrase System
-- **Swipe right**: ascending scale run (C D E F G A B C)
-- **Swipe left**: descending scale run
-- **Swipe up**: rising arpeggio (C E G C E)
-- **Swipe down**: falling arpeggio
-- **Hold still**: sustained chord
-- **Fast movement**: energetic burst
-
-### Call and Response
-- System occasionally "calls" with a melodic phrase
-- If you respond (move within 3 seconds), it develops
-- Creates actual musical dialogue
-- Rewards repeat interactions
-
----
-
-## HOW IT ALL WORKS TOGETHER
+## ARCHITECTURE (v16)
 
 ```
 Your Movement ─┬─> Evolution Engine ─┬─> Phase progression
+               │                     ├─> Musical Worlds transition
                │                     ├─> Intensity tracking
-               │                     ├─> Breathing modulation
-               │                     └─> Chord progression
+               │                     └─> Breathing modulation
+               │
+               ├─> Zone Combo System ─> World unlocks (DRAMATIC shifts)
+               │
+               ├─> Magenta AI Engine ─┬─> Drum pattern generation
+               │                      ├─> Style-specific grooves
+               │                      └─> Humanization
                │
                ├─> Gesture Detection ─> Musical phrases
                │
-               ├─> Easter Egg Detection ─> Special sounds
-               │
-               └─> Zone System ─┬─> Entry sounds (pentatonic)
-                                ├─> Dwell sounds (thresholds)
-                                └─> Continuous movement sounds
+               └─> Pattern Learning ─> Remembers your sick moves
 
-Time + Activity + Exploration = Musical Evolution
+Time + Activity + Exploration = Musical Evolution Across Worlds
 ```
 
 ---
 
-## VISUAL FEEDBACK
+## FILES ADDED (v16)
 
-- **Top center**: Current phase (awakening/discovery/journey/transcendence)
-- **Top right**: Session timer
-- **Top bar**: Intensity meter (red when near drop)
-- **Center ring**: Intensity glow (breathes with music)
-- **Bottom left**: Journey progress (X/9 zones)
-- **Bottom bar**: Dwell progress
-- **Center ?**: Call and response indicator
+```
+js/ai/
+  magenta-engine.js    ← AI drum generation + humanization
+  musical-worlds.js    ← World definitions + transitions
+```
 
 ---
 
@@ -206,31 +166,35 @@ Time + Activity + Exploration = Musical Evolution
 - [x] **Shape-based layer unlocks**
 - [x] **Screen flash + haptic feedback**
 - [x] **Transcendence mode for ultimate players**
+- [x] **MUSICAL WORLDS - Dramatic style shifts**
+- [x] **AI DRUM GENERATION - No more basic patterns**
+- [x] **Zone combos trigger world transitions**
+- [x] **Auto-transition through Hero's Journey phases**
 - [ ] Test on mobile with motion sensors
-- [ ] Fine-tune thresholds and timings
-- [ ] Add microphone input integration
+- [ ] Magenta.js CDN loading (optional enhancement)
+- [ ] Microphone input integration
 
 ---
 
 ## KNOWN CONSIDERATIONS
 
-1. **Phase timing**: May need adjustment based on user testing
-2. **Intensity decay**: Currently 0.02/s, may need tuning
-3. **Easter egg detection**: Circle detection uses variance threshold of 0.01
-4. **THE DROP cooldown**: 30 seconds, prevents spam
+1. **Magenta.js Loading**: Currently procedural fallback if CDN fails
+2. **World Transitions**: 1-4 second morph duration
+3. **Pattern Caching**: AI patterns cached per world
+4. **Phase timing**: May need adjustment based on user testing
 
 ---
 
 ## NEXT STEPS IF NEEDED
 
-1. **Microphone input** - Claps/sounds trigger musical events
-2. **Gesture memory** - Remember your favorite gestures, make them richer
-3. **Session persistence** - Remember progress between sessions
-4. **More easter eggs** - Figure-8 (infinity), specific zone patterns
-5. **AI agents** - Integrate the drum/bass/pad minds for reactive patterns
+1. **Magenta.js Full Integration** - Load models from CDN for true AI generation
+2. **Google Lyria API** - Real-time AI music streaming (needs API key)
+3. **Mubert Integration** - Infinite generative background music
+4. **Microphone Input** - Claps/sounds trigger events
+5. **Pattern Persistence** - Save learned patterns between sessions
 
 ---
 
-*"The music evolves with you. Start with nothing. End with everything."*
+*"Each world is a universe. Explore them all. Transcend."*
 
 **Live at:** lacobusgump.github.io/music2.0/
