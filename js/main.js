@@ -4318,54 +4318,31 @@ const GUMP = (function() {
             await init();
         }
 
-        // Start audio (don't let failure stop the app)
+        // Start audio
         try {
             if (GumpAudio.isInitialized) {
                 await GumpAudio.start();
 
-                // === THE CINEMATIC ENTRANCE ===
-                // This is the moment that hooks people
-                playCinematicEntrance();
-
-                // Activate unlocked sounds
-                for (const id of GumpUnlocks.state.unlocked) {
-                    const unlock = GumpUnlocks.getUnlock(id);
-                    if (unlock && unlock.sound) {
-                        GumpUnlocks.activateUnlock(id);
-                        try {
-                            activateUnlockSound(id, unlock);
-                        } catch (e) {
-                            console.error('Sound activation failed:', id, e);
-                        }
-                    }
-                }
+                // === v27: ONLY THE CONDUCTOR ===
+                // All old systems disabled. GumpConductor handles everything.
+                console.log('[GUMP] Audio started - Conductor takes over');
             }
         } catch (audioError) {
             console.error('Audio start failed:', audioError);
         }
 
-        // ALWAYS start the render loop
+        // Start the render loop
         app.isRunning = true;
         app.lastTime = 0;
-
         requestAnimationFrame(frame);
 
-        // Start AI rhythm after cinematic entrance settles (6 seconds)
-        setTimeout(() => {
-            // Generate initial drum pattern for genesis world
-            if (typeof GumpMusicalWorlds !== 'undefined') {
-                GumpMusicalWorlds.generateWorldDrumPattern('genesis').then(pattern => {
-                    if (pattern) {
-                        aiMusicians.currentAIPattern = pattern;
-                        console.log('[GUMP] Genesis drum pattern ready');
-                    }
-                });
-            }
+        console.log('[GUMP] v27-CLEAN - Only the Conductor');
 
-            startAIRhythm();
-        }, 6000);
-
-        console.log('GUMP started - v16 Musical Worlds');
+        // OLD SYSTEMS DISABLED:
+        // - playCinematicEntrance() (was playing harp/pad sounds)
+        // - GumpMusicalWorlds (BWAAAM, world transitions)
+        // - startAIRhythm() (old AI drum patterns)
+        // - activateUnlockSound() (unlock sounds)
     }
 
     // ═══════════════════════════════════════════════════════════════════════
