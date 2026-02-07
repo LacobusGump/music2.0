@@ -1,0 +1,721 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>GUMP - Presence</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body {
+            width: 100%; height: 100%;
+            background: #000;
+            overflow: hidden;
+            touch-action: none;
+            font-family: -apple-system, sans-serif;
+        }
+        #start {
+            position: fixed; inset: 0;
+            display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
+            z-index: 100;
+        }
+        #start.hidden { display: none; }
+        #start p {
+            font-size: 11px;
+            color: rgba(255,255,255,0.3);
+            text-align: center;
+            line-height: 2;
+            max-width: 280px;
+            margin-bottom: 40px;
+        }
+        #start button {
+            width: 100px; height: 100px;
+            border-radius: 50%;
+            background: transparent;
+            border: 1px solid rgba(255,255,255,0.1);
+            color: rgba(255,255,255,0.2);
+            font-size: 9px; letter-spacing: 2px;
+            cursor: pointer;
+        }
+        #start .hint {
+            margin-top: 40px;
+            font-size: 9px;
+            color: rgba(255,255,255,0.15);
+        }
+        canvas { position: fixed; inset: 0; }
+        #state {
+            position: fixed;
+            bottom: 30px; left: 0; right: 0;
+            text-align: center;
+            font-size: 9px;
+            letter-spacing: 3px;
+            color: rgba(255,255,255,0.2);
+            pointer-events: none;
+        }
+        #breath-guide {
+            position: fixed;
+            top: 30px; left: 0; right: 0;
+            text-align: center;
+            font-size: 10px;
+            letter-spacing: 2px;
+            color: rgba(255,255,255,0.15);
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 1s;
+        }
+        #breath-guide.show { opacity: 1; }
+    </style>
+</head>
+<body>
+<div id="start">
+    <p>
+        place the phone on your chest<br><br>
+        breathe<br><br>
+        the music follows your breath<br>
+        stillness reveals clarity<br>
+        presence unlocks depth
+    </p>
+    <button id="go">BEGIN</button>
+    <div class="hint">requires motion sensors</div>
+</div>
+<canvas id="c"></canvas>
+<div id="state"></div>
+<div id="breath-guide"></div>
+
+<script>
+/**
+ * GUMP - Presence
+ *
+ * Music from conscious presence, not automatic motion.
+ *
+ * The phone on your chest detects breath.
+ * Stillness = clarity. Tremor = texture.
+ * Gravity orientation = harmonic weight.
+ * Sustained attention = depth.
+ *
+ * Mappings are not arbitrary - they're honed perceptions:
+ * - Down feels heavy (bass)
+ * - Up feels light (treble)
+ * - Inhale feels like building
+ * - Exhale feels like release
+ * - Stillness feels like clarity
+ * - Tremor feels like life
+ */
+
+(function() {
+    'use strict';
+
+    const TAU = Math.PI * 2;
+
+    // Frequencies tuned to A=432Hz for warmth
+    const A = 432;
+    const HARMONICS = [
+        A / 8,      // Deep sub
+        A / 4,      // Sub
+        A / 2,      // Bass
+        A,          // Root
+        A * 1.5,    // Fifth
+        A * 2,      // Octave
+        A * 2.5,    // Tenth
+        A * 3,      // Twelfth
+        A * 4,      // Double octave
+    ];
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // STATE
+    // ═══════════════════════════════════════════════════════════════════════
+
+    let ctx = null;
+    let masterGain = null;
+
+    const state = {
+        active: false,
+
+        // Raw sensor data
+        alpha: 0,       // compass
+        beta: 0,        // front-back tilt (-180 to 180)
+        gamma: 0,       // left-right tilt (-90 to 90)
+
+        accelX: 0,
+        accelY: 0,
+        accelZ: 0,
+
+        // Derived perceptions
+        gravity: 0,         // -1 (face down) to 1 (face up)
+        breathPhase: 0,     // 0 to 1 (inhale to exhale)
+        breathRate: 0,      // breaths per minute detected
+        stillness: 0,       // 0 (chaotic) to 1 (perfectly still)
+        tremor: 0,          // micro-movement intensity
+        presence: 0,        // sustained attention over time
+
+        // Breath detection
+        breathHistory: [],
+        lastBreathPeak: 0,
+        lastBreathValley: 0,
+        breathDirection: 'unknown', // 'inhale', 'exhale', 'hold'
+        breathDepth: 0,
+
+        // Stillness detection
+        motionHistory: [],
+
+        // Time
+        startTime: 0,
+        lastTime: 0,
+
+        // Audio layers
+        layers: [],
+
+        // Breath guide
+        guidePhase: 0,
+        showGuide: false
+    };
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // AUDIO
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function initAudio() {
+        ctx = new (window.AudioContext || window.webkitAudioContext)();
+
+        // Master with gentle compression
+        const compressor = ctx.createDynamicsCompressor();
+        compressor.threshold.value = -24;
+        compressor.ratio.value = 3;
+        compressor.attack.value = 0.01;
+        compressor.release.value = 0.3;
+        compressor.connect(ctx.destination);
+
+        masterGain = ctx.createGain();
+        masterGain.gain.value = 0.6;
+        masterGain.connect(compressor);
+
+        // Create harmonic layers - each unlocked by presence
+        HARMONICS.forEach((freq, i) => {
+            const layer = createLayer(freq, i);
+            state.layers.push(layer);
+        });
+
+        state.startTime = ctx.currentTime;
+    }
+
+    function createLayer(freq, index) {
+        // Each layer: sine + subtle harmonics
+        const gain = ctx.createGain();
+        gain.gain.value = 0;
+
+        // Gentle filter
+        const filter = ctx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.value = freq * 4;
+        filter.Q.value = 0.5;
+        filter.connect(gain);
+
+        // Main tone
+        const osc1 = ctx.createOscillator();
+        osc1.type = 'sine';
+        osc1.frequency.value = freq;
+        osc1.connect(filter);
+        osc1.start();
+
+        // Subtle second harmonic for warmth
+        const osc2 = ctx.createOscillator();
+        osc2.type = 'sine';
+        osc2.frequency.value = freq * 2;
+        const osc2Gain = ctx.createGain();
+        osc2Gain.gain.value = 0.1;
+        osc2.connect(osc2Gain);
+        osc2Gain.connect(filter);
+        osc2.start();
+
+        gain.connect(masterGain);
+
+        return {
+            freq,
+            index,
+            gain,
+            filter,
+            oscs: [osc1, osc2],
+            target: 0,      // target amplitude
+            current: 0,     // current amplitude
+            unlocked: false
+        };
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // BREATH DETECTION
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function updateBreath() {
+        // Use Z acceleration (perpendicular to phone face)
+        // When phone is on chest, Z changes with breath
+        const z = state.accelZ;
+
+        // Add to history
+        state.breathHistory.push({
+            z: z,
+            time: performance.now()
+        });
+
+        // Keep 5 seconds of history
+        const cutoff = performance.now() - 5000;
+        state.breathHistory = state.breathHistory.filter(h => h.time > cutoff);
+
+        if (state.breathHistory.length < 20) return;
+
+        // Smooth the signal
+        const smoothed = [];
+        const windowSize = 5;
+        for (let i = windowSize; i < state.breathHistory.length; i++) {
+            let sum = 0;
+            for (let j = 0; j < windowSize; j++) {
+                sum += state.breathHistory[i - j].z;
+            }
+            smoothed.push({
+                z: sum / windowSize,
+                time: state.breathHistory[i].time
+            });
+        }
+
+        if (smoothed.length < 10) return;
+
+        // Find current trend (derivative)
+        const recent = smoothed.slice(-10);
+        let trend = 0;
+        for (let i = 1; i < recent.length; i++) {
+            trend += recent[i].z - recent[i-1].z;
+        }
+        trend /= recent.length;
+
+        // Determine breath direction
+        const trendThreshold = 0.01;
+        if (trend > trendThreshold) {
+            state.breathDirection = 'inhale';
+        } else if (trend < -trendThreshold) {
+            state.breathDirection = 'exhale';
+        } else {
+            state.breathDirection = 'hold';
+        }
+
+        // Find min/max in recent history for breath depth
+        const zValues = smoothed.map(s => s.z);
+        const minZ = Math.min(...zValues);
+        const maxZ = Math.max(...zValues);
+        state.breathDepth = Math.min(1, (maxZ - minZ) * 2);
+
+        // Breath phase: 0 = bottom of exhale, 1 = top of inhale
+        if (maxZ - minZ > 0.05) {
+            const currentZ = smoothed[smoothed.length - 1].z;
+            state.breathPhase = (currentZ - minZ) / (maxZ - minZ);
+        }
+
+        // Detect breath rate from peaks
+        // (simplified - just estimate from depth changes)
+        const lastSecond = smoothed.filter(s => s.time > performance.now() - 1000);
+        let crossings = 0;
+        const midZ = (minZ + maxZ) / 2;
+        for (let i = 1; i < lastSecond.length; i++) {
+            if ((lastSecond[i-1].z < midZ && lastSecond[i].z >= midZ) ||
+                (lastSecond[i-1].z >= midZ && lastSecond[i].z < midZ)) {
+                crossings++;
+            }
+        }
+        state.breathRate = crossings * 30; // rough BPM estimate
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // STILLNESS & TREMOR DETECTION
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function updateStillness() {
+        // Calculate total motion magnitude
+        const motion = Math.sqrt(
+            state.accelX * state.accelX +
+            state.accelY * state.accelY +
+            state.accelZ * state.accelZ
+        );
+
+        // Subtract gravity (roughly 9.8 when still)
+        const deviation = Math.abs(motion - 9.8);
+
+        state.motionHistory.push({
+            deviation,
+            time: performance.now()
+        });
+
+        // Keep 2 seconds
+        const cutoff = performance.now() - 2000;
+        state.motionHistory = state.motionHistory.filter(h => h.time > cutoff);
+
+        if (state.motionHistory.length < 10) return;
+
+        // Tremor: high frequency micro-movements
+        // Stillness: low overall deviation
+
+        const deviations = state.motionHistory.map(h => h.deviation);
+        const avgDeviation = deviations.reduce((a, b) => a + b, 0) / deviations.length;
+        const maxDeviation = Math.max(...deviations);
+
+        // Stillness: inverse of average deviation
+        // Perfect stillness when deviation is near 0
+        state.stillness = Math.max(0, 1 - avgDeviation * 2);
+
+        // Tremor: variance in deviation (micro-shakes)
+        let variance = 0;
+        for (const d of deviations) {
+            variance += (d - avgDeviation) ** 2;
+        }
+        variance /= deviations.length;
+        state.tremor = Math.min(1, Math.sqrt(variance) * 5);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // GRAVITY PERCEPTION
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function updateGravity() {
+        // Beta: -180 to 180, 0 = vertical, 90 = face up, -90 = face down
+        // Map to -1 (heavy/down) to 1 (light/up)
+
+        // When phone is flat on chest face up: beta ≈ 0-30
+        // Sitting up: beta ≈ 45-90
+        // Lying flat: beta ≈ 0
+
+        // Normalize beta to gravity feeling
+        // Lower beta = more "down"/heavy
+        const beta = state.beta;
+
+        // Lying flat (beta near 0) feels grounded
+        // Tilting back (beta toward 90) feels like rising
+        state.gravity = Math.max(-1, Math.min(1, beta / 90));
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // PRESENCE - Sustained Attention
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function updatePresence(dt) {
+        // Presence builds when:
+        // - Stillness is high
+        // - Breath is detected and steady
+        // - Orientation is stable
+
+        // Presence decays when:
+        // - Chaotic movement
+        // - No breath pattern detected
+
+        const breathQuality = state.breathDepth > 0.1 ? 1 : 0.5;
+        const stillnessBonus = state.stillness;
+
+        const presenceGain = stillnessBonus * breathQuality * 0.3;
+        const presenceDecay = (1 - state.stillness) * 0.5;
+
+        state.presence += (presenceGain - presenceDecay) * dt;
+        state.presence = Math.max(0, Math.min(1, state.presence));
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // SOUND MAPPING - Honed Perceptions
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function updateSound() {
+        const now = ctx.currentTime;
+
+        // Which layers are active based on presence
+        // More presence = more harmonics unlocked
+        const unlockedLayers = Math.floor(state.presence * state.layers.length);
+
+        state.layers.forEach((layer, i) => {
+            // Unlock based on presence
+            if (i < unlockedLayers && !layer.unlocked) {
+                layer.unlocked = true;
+            }
+
+            if (!layer.unlocked) {
+                layer.target = 0;
+            } else {
+                // Base amplitude from presence
+                let amp = 0.15 * state.presence;
+
+                // Breath modulates amplitude
+                // Inhale = building, louder
+                // Exhale = release, softer
+                const breathMod = 0.7 + state.breathPhase * 0.6;
+                amp *= breathMod;
+
+                // Gravity affects which harmonics dominate
+                // Low gravity (face down) = bass frequencies louder
+                // High gravity (face up) = treble frequencies louder
+                const gravityMod = state.gravity; // -1 to 1
+                const isLowFreq = i < state.layers.length / 2;
+
+                if (isLowFreq) {
+                    // Bass frequencies: louder when gravity is low (face down)
+                    amp *= 1 - gravityMod * 0.3;
+                } else {
+                    // Treble frequencies: louder when gravity is high (face up)
+                    amp *= 1 + gravityMod * 0.3;
+                }
+
+                // Stillness = clarity (less filtering)
+                // Tremor = texture (more harmonics, slight detuning)
+                const clarity = state.stillness;
+                layer.filter.frequency.setTargetAtTime(
+                    layer.freq * (2 + clarity * 6),
+                    now, 0.1
+                );
+
+                // Tremor adds subtle pitch wobble
+                if (state.tremor > 0.1) {
+                    const wobble = Math.sin(now * 20) * state.tremor * 3;
+                    layer.oscs[0].detune.setTargetAtTime(wobble, now, 0.05);
+                } else {
+                    layer.oscs[0].detune.setTargetAtTime(0, now, 0.1);
+                }
+
+                layer.target = Math.max(0, amp);
+            }
+
+            // Smooth amplitude changes (breath-rate smoothing)
+            const smoothing = 0.1;
+            layer.current += (layer.target - layer.current) * smoothing;
+            layer.gain.gain.setTargetAtTime(layer.current, now, 0.05);
+        });
+
+        // Master volume follows breath depth
+        // Deeper breath = fuller sound
+        const masterVol = 0.3 + state.breathDepth * 0.4;
+        masterGain.gain.setTargetAtTime(masterVol, now, 0.2);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // INPUT HANDLERS
+    // ═══════════════════════════════════════════════════════════════════════
+
+    async function requestSensors() {
+        // Request orientation
+        if (typeof DeviceOrientationEvent !== 'undefined') {
+            if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+                try {
+                    const response = await DeviceOrientationEvent.requestPermission();
+                    if (response === 'granted') {
+                        window.addEventListener('deviceorientation', onOrientation);
+                    }
+                } catch (e) {
+                    console.log('Orientation permission denied');
+                }
+            } else {
+                window.addEventListener('deviceorientation', onOrientation);
+            }
+        }
+
+        // Request motion
+        if (typeof DeviceMotionEvent !== 'undefined') {
+            if (typeof DeviceMotionEvent.requestPermission === 'function') {
+                try {
+                    const response = await DeviceMotionEvent.requestPermission();
+                    if (response === 'granted') {
+                        window.addEventListener('devicemotion', onMotion);
+                    }
+                } catch (e) {
+                    console.log('Motion permission denied');
+                }
+            } else {
+                window.addEventListener('devicemotion', onMotion);
+            }
+        }
+    }
+
+    function onOrientation(e) {
+        state.alpha = e.alpha || 0;
+        state.beta = e.beta || 0;
+        state.gamma = e.gamma || 0;
+    }
+
+    function onMotion(e) {
+        const a = e.accelerationIncludingGravity;
+        if (a) {
+            state.accelX = a.x || 0;
+            state.accelY = a.y || 0;
+            state.accelZ = a.z || 0;
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // VISUALIZATION
+    // ═══════════════════════════════════════════════════════════════════════
+
+    let canvas, vc;
+
+    function initCanvas() {
+        canvas = document.getElementById('c');
+        vc = canvas.getContext('2d');
+        resize();
+        window.addEventListener('resize', resize);
+    }
+
+    function resize() {
+        const dpr = window.devicePixelRatio || 1;
+        canvas.width = window.innerWidth * dpr;
+        canvas.height = window.innerHeight * dpr;
+        canvas.style.width = window.innerWidth + 'px';
+        canvas.style.height = window.innerHeight + 'px';
+        vc.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+
+    function draw() {
+        const w = window.innerWidth;
+        const h = window.innerHeight;
+
+        // Slow fade
+        vc.fillStyle = 'rgba(0, 0, 0, 0.03)';
+        vc.fillRect(0, 0, w, h);
+
+        const cx = w / 2;
+        const cy = h / 2;
+
+        // Draw breath circle - expands on inhale, contracts on exhale
+        const breathRadius = 50 + state.breathPhase * 100 + state.breathDepth * 50;
+        const breathAlpha = 0.1 + state.presence * 0.2;
+
+        vc.beginPath();
+        vc.arc(cx, cy, breathRadius, 0, TAU);
+        vc.strokeStyle = `rgba(255, 255, 255, ${breathAlpha})`;
+        vc.lineWidth = 1 + state.breathDepth * 2;
+        vc.stroke();
+
+        // Draw harmonic rings - one per unlocked layer
+        state.layers.forEach((layer, i) => {
+            if (!layer.unlocked || layer.current < 0.01) return;
+
+            const r = 30 + i * 25;
+            const alpha = layer.current * 2;
+
+            // Color based on frequency (low = warm, high = cool)
+            const hue = 200 + (i / state.layers.length) * 60;
+
+            vc.beginPath();
+            vc.arc(cx, cy, r, 0, TAU);
+            vc.strokeStyle = `hsla(${hue}, 40%, 60%, ${alpha})`;
+            vc.lineWidth = 1 + layer.current * 3;
+            vc.stroke();
+        });
+
+        // Stillness indicator - center dot clarity
+        const stillnessRadius = 5 + state.stillness * 10;
+        const stillnessAlpha = 0.3 + state.stillness * 0.5;
+
+        vc.beginPath();
+        vc.arc(cx, cy, stillnessRadius, 0, TAU);
+        vc.fillStyle = `rgba(255, 255, 255, ${stillnessAlpha})`;
+        vc.fill();
+
+        // Tremor visualization - jitter in the rings
+        if (state.tremor > 0.1) {
+            const jitter = state.tremor * 5;
+            for (let i = 0; i < 5; i++) {
+                const angle = Math.random() * TAU;
+                const dist = 50 + Math.random() * 100;
+                const x = cx + Math.cos(angle) * dist + (Math.random() - 0.5) * jitter;
+                const y = cy + Math.sin(angle) * dist + (Math.random() - 0.5) * jitter;
+
+                vc.beginPath();
+                vc.arc(x, y, 1, 0, TAU);
+                vc.fillStyle = `rgba(255, 255, 255, ${state.tremor * 0.3})`;
+                vc.fill();
+            }
+        }
+
+        // Update state display
+        updateStateDisplay();
+    }
+
+    function updateStateDisplay() {
+        const stateEl = document.getElementById('state');
+
+        let text = '';
+        if (state.presence < 0.1) {
+            text = 'BREATHE';
+        } else if (state.presence < 0.3) {
+            text = 'SETTLING';
+        } else if (state.presence < 0.5) {
+            text = 'PRESENT';
+        } else if (state.presence < 0.7) {
+            text = 'DEEP';
+        } else if (state.presence < 0.9) {
+            text = 'IMMERSED';
+        } else {
+            text = 'ONE';
+        }
+
+        stateEl.textContent = text;
+
+        // Breath guide
+        const guideEl = document.getElementById('breath-guide');
+        if (state.showGuide && state.breathDepth < 0.15) {
+            guideEl.classList.add('show');
+            guideEl.textContent = state.breathDirection === 'inhale' ? '↑ INHALE' :
+                                   state.breathDirection === 'exhale' ? '↓ EXHALE' :
+                                   '· HOLD';
+        } else {
+            guideEl.classList.remove('show');
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // MAIN LOOP
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function update() {
+        if (!state.active) {
+            requestAnimationFrame(update);
+            return;
+        }
+
+        const now = performance.now();
+        const dt = Math.min(0.1, (now - state.lastTime) / 1000);
+        state.lastTime = now;
+
+        // Update perceptions
+        updateBreath();
+        updateStillness();
+        updateGravity();
+        updatePresence(dt);
+
+        // Update sound
+        updateSound();
+
+        // Draw
+        draw();
+
+        requestAnimationFrame(update);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // INITIALIZATION
+    // ═══════════════════════════════════════════════════════════════════════
+
+    async function start() {
+        document.getElementById('start').classList.add('hidden');
+
+        await requestSensors();
+        initAudio();
+        initCanvas();
+
+        state.active = true;
+        state.lastTime = performance.now();
+        state.showGuide = true;
+
+        // Hide breath guide after 10 seconds
+        setTimeout(() => { state.showGuide = false; }, 10000);
+
+        update();
+
+        console.log('[GUMP Presence] Ready - place phone on chest and breathe');
+    }
+
+    document.getElementById('go').addEventListener('click', start);
+
+})();
+</script>
+</body>
+</html>
