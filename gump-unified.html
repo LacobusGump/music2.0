@@ -1,0 +1,1124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>GUMP - Grand Unified Music Project</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body {
+            width: 100%; height: 100%;
+            background: #050505;
+            overflow: hidden;
+            touch-action: none;
+            font-family: -apple-system, sans-serif;
+        }
+        #start {
+            position: fixed; inset: 0;
+            display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
+            z-index: 100;
+        }
+        #start.hidden { display: none; }
+        #start h1 {
+            font-size: 10px; font-weight: 300;
+            letter-spacing: 8px; color: rgba(255,255,255,0.2);
+            margin-bottom: 50px;
+        }
+        #start button {
+            width: 120px; height: 120px;
+            border-radius: 50%;
+            background: transparent;
+            border: 1px solid rgba(255,255,255,0.1);
+            color: rgba(255,255,255,0.3);
+            font-size: 9px; letter-spacing: 3px;
+            cursor: pointer;
+            transition: all 0.5s;
+        }
+        #start button:hover {
+            border-color: rgba(255,255,255,0.3);
+            color: rgba(255,255,255,0.5);
+        }
+        #start p {
+            margin-top: 50px;
+            font-size: 9px; letter-spacing: 2px;
+            color: rgba(255,255,255,0.1);
+            text-align: center;
+        }
+        canvas {
+            position: fixed; inset: 0;
+            width: 100%; height: 100%;
+        }
+        #hud {
+            position: fixed; top: 20px; left: 20px;
+            font-size: 9px; letter-spacing: 1px;
+            color: rgba(255,255,255,0.15);
+            pointer-events: none;
+        }
+        #tier { margin-top: 8px; font-size: 11px; color: rgba(255,255,255,0.25); }
+        #msg {
+            position: fixed;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 10px; letter-spacing: 4px;
+            color: rgba(255,255,255,0.6);
+            opacity: 0;
+            transition: opacity 0.3s;
+            pointer-events: none;
+        }
+        #msg.show { opacity: 1; }
+    </style>
+</head>
+<body>
+<div id="start">
+    <h1>GUMP</h1>
+    <button id="go">AWAKEN</button>
+    <p>move to conduct<br>tilt for expression<br>stillness for breath</p>
+</div>
+<canvas id="c"></canvas>
+<div id="hud">
+    <div id="stage">SILENCE</div>
+    <div id="tier"></div>
+</div>
+<div id="msg"></div>
+
+<script>
+/**
+ * GUMP - Grand Unified Music Project
+ *
+ * The synthesis of G7 Flywheel + Dew Waz + Lowfiye
+ *
+ * Core equation: gesture -> phrase -> resolution
+ *
+ * Movement accumulates energy.
+ * Energy unlocks tiers.
+ * Tiers reveal layers of the orchestra.
+ * Stillness creates breath.
+ * Gestures trigger phrases.
+ *
+ * From silence to climax to silence again.
+ */
+
+(function() {
+    'use strict';
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // CONSTANTS
+    // ═══════════════════════════════════════════════════════════════════════
+
+    const TAU = Math.PI * 2;
+    const BASE = 55; // A1
+
+    // Pentatonic scale - always sounds good
+    const SCALE = [0, 2, 4, 7, 9, 12, 14, 16, 19, 21];
+
+    // Tier thresholds - energy needed to unlock each layer
+    const TIERS = {
+        SILENCE: 0,
+        AWAKENING: 0.05,
+        PULSE: 0.15,
+        BREATH: 0.30,
+        SWELL: 0.50,
+        SURGE: 0.70,
+        CLIMAX: 0.90
+    };
+
+    // Journey timing (seconds since start)
+    const JOURNEY = {
+        SILENCE_END: 3,
+        AWAKENING_END: 30,
+        BUILDING_END: 90,
+        CLIMAX_START: 120,
+        RESOLUTION: 180
+    };
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // STATE
+    // ═══════════════════════════════════════════════════════════════════════
+
+    let ctx = null;
+    let masterGain = null;
+    let compressor = null;
+    let lofiFilter = null;
+    let warmth = null;
+    let reverbSend = null;
+
+    const state = {
+        active: false,
+        startTime: 0,
+
+        // Motion
+        tiltX: 0,           // -1 to 1 (gamma)
+        tiltY: 0,           // -1 to 1 (beta centered)
+        tiltGranted: false,
+
+        accelX: 0,
+        accelY: 0,
+        accelZ: 0,
+
+        // Touch fallback
+        touchX: 0.5,
+        touchY: 0.5,
+        touching: false,
+
+        // Derived motion
+        speed: 0,
+        energy: 0,
+        peakEnergy: 0,
+        stillness: 0,       // How long since significant movement
+
+        // Gesture detection
+        gestureBuffer: [],
+        lastGesture: null,
+        gestureCooldown: 0,
+
+        // Musical state
+        tier: 'SILENCE',
+        tierNum: 0,
+
+        // Groove
+        groovePlaying: false,
+        grooveStep: 0,
+        nextStepTime: 0,
+        bpm: 85,
+        swing: 0.18,
+
+        // Layers (unlocked by tiers)
+        layers: {
+            sub: { gain: null, osc: null, active: false },
+            pad: { gain: null, oscs: [], active: false },
+            strings: { gain: null, oscs: [], active: false },
+            brass: { gain: null, oscs: [], active: false },
+            choir: { gain: null, oscs: [], active: false }
+        },
+
+        // Phrase system
+        currentPhrase: null,
+        phraseNotes: [],
+        phraseIndex: 0,
+        phraseTime: 0
+    };
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // AUDIO INITIALIZATION
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function initAudio() {
+        ctx = new (window.AudioContext || window.webkitAudioContext)();
+
+        // Master compressor
+        compressor = ctx.createDynamicsCompressor();
+        compressor.threshold.value = -24;
+        compressor.ratio.value = 4;
+        compressor.attack.value = 0.003;
+        compressor.release.value = 0.15;
+        compressor.connect(ctx.destination);
+
+        // Master gain
+        masterGain = ctx.createGain();
+        masterGain.gain.value = 0.7;
+        masterGain.connect(compressor);
+
+        // Lo-fi chain: warmth -> dust filter -> saturation
+        warmth = ctx.createBiquadFilter();
+        warmth.type = 'lowshelf';
+        warmth.frequency.value = 300;
+        warmth.gain.value = 4;
+
+        lofiFilter = ctx.createBiquadFilter();
+        lofiFilter.type = 'lowpass';
+        lofiFilter.frequency.value = 6000;
+        lofiFilter.Q.value = 0.5;
+
+        warmth.connect(lofiFilter);
+        lofiFilter.connect(masterGain);
+
+        // Reverb send
+        reverbSend = createReverb();
+        reverbSend.connect(masterGain);
+
+        // Initialize layers
+        initLayers();
+
+        state.startTime = ctx.currentTime;
+    }
+
+    function createReverb() {
+        const input = ctx.createGain();
+        input.gain.value = 0.25;
+
+        const output = ctx.createGain();
+        output.gain.value = 0.4;
+
+        // Simple delay-based reverb
+        const times = [0.03, 0.07, 0.11, 0.17, 0.23, 0.31];
+        const gains = [0.5, 0.4, 0.35, 0.3, 0.25, 0.2];
+
+        times.forEach((t, i) => {
+            const delay = ctx.createDelay(1);
+            delay.delayTime.value = t;
+
+            const g = ctx.createGain();
+            g.gain.value = gains[i];
+
+            const filt = ctx.createBiquadFilter();
+            filt.type = 'lowpass';
+            filt.frequency.value = 3500 - i * 400;
+
+            input.connect(delay);
+            delay.connect(filt);
+            filt.connect(g);
+            g.connect(output);
+        });
+
+        return input;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // LAYER SYSTEM - Unlocked by tiers
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function initLayers() {
+        // Sub bass drone - tier 1
+        const subGain = ctx.createGain();
+        subGain.gain.value = 0;
+        subGain.connect(warmth);
+
+        const sub1 = ctx.createOscillator();
+        const sub2 = ctx.createOscillator();
+        sub1.type = 'sine';
+        sub2.type = 'sine';
+        sub1.frequency.value = BASE / 2;
+        sub2.frequency.value = BASE / 2 * 1.003; // Slight detune for warmth
+        sub1.connect(subGain);
+        sub2.connect(subGain);
+        sub1.start();
+        sub2.start();
+
+        state.layers.sub = { gain: subGain, oscs: [sub1, sub2], active: false };
+
+        // Pad - tier 2 (detuned triangles)
+        const padGain = ctx.createGain();
+        padGain.gain.value = 0;
+        padGain.connect(warmth);
+        padGain.connect(reverbSend);
+
+        const padFreqs = [BASE, BASE * 1.5, BASE * 2];
+        const padOscs = [];
+        padFreqs.forEach(f => {
+            for (let d = -8; d <= 8; d += 8) {
+                const osc = ctx.createOscillator();
+                osc.type = 'triangle';
+                osc.frequency.value = f;
+                osc.detune.value = d + Math.random() * 3;
+                osc.connect(padGain);
+                osc.start();
+                padOscs.push(osc);
+            }
+        });
+
+        state.layers.pad = { gain: padGain, oscs: padOscs, active: false };
+
+        // Strings - tier 3 (supersaws)
+        const stringsGain = ctx.createGain();
+        stringsGain.gain.value = 0;
+
+        const stringsFilter = ctx.createBiquadFilter();
+        stringsFilter.type = 'lowpass';
+        stringsFilter.frequency.value = 2000;
+        stringsFilter.Q.value = 0.5;
+
+        stringsGain.connect(stringsFilter);
+        stringsFilter.connect(warmth);
+        stringsFilter.connect(reverbSend);
+
+        const stringFreqs = [BASE * 2, BASE * 2.5, BASE * 3];
+        const stringOscs = [];
+        stringFreqs.forEach(f => {
+            for (let d = -20; d <= 20; d += 10) {
+                const osc = ctx.createOscillator();
+                osc.type = 'sawtooth';
+                osc.frequency.value = f;
+                osc.detune.value = d + Math.random() * 5;
+                osc.connect(stringsGain);
+                osc.start();
+                stringOscs.push(osc);
+            }
+        });
+
+        state.layers.strings = { gain: stringsGain, oscs: stringOscs, filter: stringsFilter, active: false };
+
+        // Brass - tier 4 (filtered saws, slow attack)
+        const brassGain = ctx.createGain();
+        brassGain.gain.value = 0;
+
+        const brassFilter = ctx.createBiquadFilter();
+        brassFilter.type = 'lowpass';
+        brassFilter.frequency.value = 800;
+
+        brassGain.connect(brassFilter);
+        brassFilter.connect(warmth);
+        brassFilter.connect(reverbSend);
+
+        const brassFreqs = [BASE * 4, BASE * 5, BASE * 6];
+        const brassOscs = [];
+        brassFreqs.forEach(f => {
+            for (let d = -15; d <= 15; d += 15) {
+                const osc = ctx.createOscillator();
+                osc.type = 'sawtooth';
+                osc.frequency.value = f;
+                osc.detune.value = d;
+                osc.connect(brassGain);
+                osc.start();
+                brassOscs.push(osc);
+            }
+        });
+
+        state.layers.brass = { gain: brassGain, oscs: brassOscs, filter: brassFilter, active: false };
+
+        // Choir - tier 5 (high harmonics)
+        const choirGain = ctx.createGain();
+        choirGain.gain.value = 0;
+        choirGain.connect(warmth);
+        choirGain.connect(reverbSend);
+
+        const choirFreqs = [BASE * 8, BASE * 10, BASE * 12];
+        const choirOscs = [];
+        choirFreqs.forEach(f => {
+            const osc = ctx.createOscillator();
+            osc.type = 'sine';
+            osc.frequency.value = f;
+            osc.connect(choirGain);
+            osc.start();
+            choirOscs.push(osc);
+        });
+
+        state.layers.choir = { gain: choirGain, oscs: choirOscs, active: false };
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // DRUMS - Purdie shuffle 808s
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function playKick(time, vel = 0.9) {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+
+        osc.frequency.setValueAtTime(150, time);
+        osc.frequency.exponentialRampToValueAtTime(35, time + 0.08);
+
+        gain.gain.setValueAtTime(vel * 0.8, time);
+        gain.gain.exponentialRampToValueAtTime(0.001, time + 0.4);
+
+        osc.connect(gain);
+        gain.connect(warmth);
+
+        osc.start(time);
+        osc.stop(time + 0.5);
+
+        // Trigger pump on all layers
+        triggerPump(time);
+    }
+
+    function playSnare(time, vel = 0.7) {
+        // Body
+        const body = ctx.createOscillator();
+        body.type = 'triangle';
+        body.frequency.setValueAtTime(200, time);
+        body.frequency.exponentialRampToValueAtTime(100, time + 0.02);
+
+        const bodyGain = ctx.createGain();
+        bodyGain.gain.setValueAtTime(vel * 0.4, time);
+        bodyGain.gain.exponentialRampToValueAtTime(0.001, time + 0.1);
+
+        body.connect(bodyGain);
+        bodyGain.connect(warmth);
+
+        body.start(time);
+        body.stop(time + 0.15);
+
+        // Noise
+        const bufferSize = ctx.sampleRate * 0.08;
+        const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) {
+            data[i] = Math.random() * 2 - 1;
+        }
+
+        const noise = ctx.createBufferSource();
+        noise.buffer = buffer;
+
+        const noiseFilter = ctx.createBiquadFilter();
+        noiseFilter.type = 'highpass';
+        noiseFilter.frequency.value = 2500;
+
+        const noiseGain = ctx.createGain();
+        noiseGain.gain.setValueAtTime(vel * 0.5, time);
+        noiseGain.gain.exponentialRampToValueAtTime(0.001, time + 0.12);
+
+        noise.connect(noiseFilter);
+        noiseFilter.connect(noiseGain);
+        noiseGain.connect(warmth);
+
+        noise.start(time);
+        noise.stop(time + 0.15);
+    }
+
+    function playHat(time, vel = 0.4) {
+        const bufferSize = ctx.sampleRate * 0.025;
+        const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) {
+            data[i] = Math.random() * 2 - 1;
+        }
+
+        const noise = ctx.createBufferSource();
+        noise.buffer = buffer;
+
+        const filter = ctx.createBiquadFilter();
+        filter.type = 'bandpass';
+        filter.frequency.value = 9000;
+        filter.Q.value = 1;
+
+        const gain = ctx.createGain();
+        gain.gain.setValueAtTime(vel * 0.3, time);
+        gain.gain.exponentialRampToValueAtTime(0.001, time + 0.025);
+
+        noise.connect(filter);
+        filter.connect(gain);
+        gain.connect(warmth);
+
+        noise.start(time);
+        noise.stop(time + 0.03);
+    }
+
+    function triggerPump(time) {
+        // Duck all layer gains briefly for sidechain effect
+        const layers = ['pad', 'strings', 'brass', 'choir'];
+        layers.forEach(name => {
+            const layer = state.layers[name];
+            if (layer.active && layer.gain) {
+                const current = layer.gain.gain.value;
+                layer.gain.gain.setValueAtTime(current, time);
+                layer.gain.gain.linearRampToValueAtTime(current * 0.3, time + 0.01);
+                layer.gain.gain.linearRampToValueAtTime(current, time + 0.12);
+            }
+        });
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // GROOVE ENGINE - Purdie shuffle
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function startGroove() {
+        if (state.groovePlaying) return;
+        state.groovePlaying = true;
+        state.nextStepTime = ctx.currentTime + 0.1;
+        state.grooveStep = 0;
+        showMsg('PULSE');
+    }
+
+    function runGroove() {
+        if (!state.groovePlaying) return;
+
+        const lookAhead = 0.1;
+
+        while (state.nextStepTime < ctx.currentTime + lookAhead) {
+            const step = state.grooveStep;
+            const time = state.nextStepTime;
+
+            // Intensity based on energy
+            const intensity = 0.5 + state.energy * 0.5;
+
+            // Purdie shuffle kick pattern
+            const kicks = [1, 0, 0, 0, 0, 0, 0.6, 0, 1, 0, 0, 0, 0, 0, 0, 0];
+            if (kicks[step]) playKick(time, kicks[step] * intensity);
+
+            // Snare with ghost notes
+            const snares = [0, 0, 0, 0, 1, 0, 0.2, 0.3, 0, 0, 0.2, 0, 1, 0, 0.3, 0.2];
+            if (snares[step]) playSnare(time, snares[step] * intensity);
+
+            // Hats
+            const hats = [1, 0.3, 0.6, 0.3, 1, 0.3, 0.6, 0.4, 1, 0.3, 0.6, 0.3, 1, 0.3, 0.6, 0.5];
+            if (hats[step] && state.tierNum >= 2) {
+                playHat(time, hats[step] * intensity * 0.5);
+            }
+
+            // Calculate next step with swing
+            const stepDur = (60 / state.bpm) / 4;
+            const swingAmount = step % 2 === 0 ? 1 + state.swing : 1 - state.swing;
+            state.nextStepTime += stepDur * swingAmount;
+            state.grooveStep = (step + 1) % 16;
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // PHRASE SYSTEM - Gesture triggers musical phrases
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function triggerPhrase(type) {
+        const now = ctx.currentTime;
+
+        // Base frequency from tilt position
+        const octave = 2 + Math.floor((1 + state.tiltX) * 1.5);
+        const scaleIndex = Math.floor((1 - state.tiltY) * 0.5 * SCALE.length);
+        const note = SCALE[Math.max(0, Math.min(scaleIndex, SCALE.length - 1))];
+        const baseFreq = BASE * Math.pow(2, (note + octave * 12) / 12);
+
+        if (type === 'SHAKE') {
+            // Trill - rapid alternation
+            for (let i = 0; i < 6; i++) {
+                const freq = baseFreq * (i % 2 === 0 ? 1 : 1.125);
+                playPhraseNote(now + i * 0.08, freq, 0.08, 0.5);
+            }
+            showMsg('TRILL');
+        } else if (type === 'SWIPE_UP') {
+            // Ascending arpeggio
+            for (let i = 0; i < 4; i++) {
+                const freq = baseFreq * Math.pow(2, i * 0.25);
+                playPhraseNote(now + i * 0.12, freq, 0.15, 0.6 - i * 0.1);
+            }
+            showMsg('RISE');
+        } else if (type === 'SWIPE_DOWN') {
+            // Descending arpeggio
+            for (let i = 0; i < 4; i++) {
+                const freq = baseFreq / Math.pow(2, i * 0.2);
+                playPhraseNote(now + i * 0.12, freq, 0.15, 0.6 - i * 0.1);
+            }
+            showMsg('FALL');
+        } else if (type === 'HOLD') {
+            // Sustained swell
+            playPhraseSwell(now, baseFreq, 2.0);
+            showMsg('SWELL');
+        }
+    }
+
+    function playPhraseNote(time, freq, duration, vel) {
+        const osc1 = ctx.createOscillator();
+        const osc2 = ctx.createOscillator();
+        const gain = ctx.createGain();
+
+        osc1.type = 'sawtooth';
+        osc2.type = 'sawtooth';
+        osc1.frequency.value = freq;
+        osc2.frequency.value = freq * 1.005;
+
+        gain.gain.setValueAtTime(0, time);
+        gain.gain.linearRampToValueAtTime(vel * 0.15, time + 0.01);
+        gain.gain.exponentialRampToValueAtTime(0.001, time + duration);
+
+        const filter = ctx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.value = 2000 + state.energy * 3000;
+
+        osc1.connect(gain);
+        osc2.connect(gain);
+        gain.connect(filter);
+        filter.connect(warmth);
+        filter.connect(reverbSend);
+
+        osc1.start(time);
+        osc2.start(time);
+        osc1.stop(time + duration + 0.1);
+        osc2.stop(time + duration + 0.1);
+    }
+
+    function playPhraseSwell(time, freq, duration) {
+        const oscs = [];
+        const gain = ctx.createGain();
+
+        // Create detuned chord
+        const ratios = [1, 1.5, 2, 2.5];
+        ratios.forEach(r => {
+            for (let d = -10; d <= 10; d += 10) {
+                const osc = ctx.createOscillator();
+                osc.type = 'sawtooth';
+                osc.frequency.value = freq * r;
+                osc.detune.value = d;
+                osc.connect(gain);
+                oscs.push(osc);
+            }
+        });
+
+        const filter = ctx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(500, time);
+        filter.frequency.linearRampToValueAtTime(4000, time + duration * 0.6);
+        filter.frequency.linearRampToValueAtTime(800, time + duration);
+
+        gain.gain.setValueAtTime(0, time);
+        gain.gain.linearRampToValueAtTime(0.1, time + duration * 0.5);
+        gain.gain.exponentialRampToValueAtTime(0.001, time + duration);
+
+        gain.connect(filter);
+        filter.connect(warmth);
+        filter.connect(reverbSend);
+
+        oscs.forEach(o => {
+            o.start(time);
+            o.stop(time + duration + 0.1);
+        });
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // GESTURE DETECTION
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function detectGesture() {
+        if (state.gestureCooldown > 0) {
+            state.gestureCooldown--;
+            return;
+        }
+
+        const buffer = state.gestureBuffer;
+        if (buffer.length < 10) return;
+
+        // Calculate recent motion characteristics
+        let totalSpeed = 0;
+        let directionChanges = 0;
+        let netX = 0, netY = 0;
+
+        for (let i = 1; i < buffer.length; i++) {
+            const prev = buffer[i - 1];
+            const curr = buffer[i];
+
+            const dx = curr.x - prev.x;
+            const dy = curr.y - prev.y;
+            totalSpeed += Math.sqrt(dx * dx + dy * dy);
+
+            netX += dx;
+            netY += dy;
+
+            // Check for direction reversal
+            if (i > 1) {
+                const prevDx = prev.x - buffer[i - 2].x;
+                const prevDy = prev.y - buffer[i - 2].y;
+                if (dx * prevDx < 0 || dy * prevDy < 0) {
+                    directionChanges++;
+                }
+            }
+        }
+
+        const avgSpeed = totalSpeed / buffer.length;
+
+        // Detect gesture types
+        if (avgSpeed > 0.03 && directionChanges >= 4) {
+            triggerPhrase('SHAKE');
+            state.gestureCooldown = 30;
+            state.lastGesture = 'SHAKE';
+        } else if (avgSpeed > 0.02 && Math.abs(netY) > 0.2) {
+            if (netY < 0) {
+                triggerPhrase('SWIPE_UP');
+            } else {
+                triggerPhrase('SWIPE_DOWN');
+            }
+            state.gestureCooldown = 20;
+            state.lastGesture = netY < 0 ? 'SWIPE_UP' : 'SWIPE_DOWN';
+        } else if (avgSpeed < 0.005 && state.stillness > 60) {
+            triggerPhrase('HOLD');
+            state.gestureCooldown = 120;
+            state.lastGesture = 'HOLD';
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // TIER SYSTEM - Energy unlocks layers
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function updateTiers() {
+        const energy = state.energy;
+        let newTier = 'SILENCE';
+        let newTierNum = 0;
+
+        if (energy >= TIERS.CLIMAX) {
+            newTier = 'CLIMAX';
+            newTierNum = 6;
+        } else if (energy >= TIERS.SURGE) {
+            newTier = 'SURGE';
+            newTierNum = 5;
+        } else if (energy >= TIERS.SWELL) {
+            newTier = 'SWELL';
+            newTierNum = 4;
+        } else if (energy >= TIERS.BREATH) {
+            newTier = 'BREATH';
+            newTierNum = 3;
+        } else if (energy >= TIERS.PULSE) {
+            newTier = 'PULSE';
+            newTierNum = 2;
+        } else if (energy >= TIERS.AWAKENING) {
+            newTier = 'AWAKENING';
+            newTierNum = 1;
+        }
+
+        if (newTier !== state.tier) {
+            state.tier = newTier;
+            state.tierNum = newTierNum;
+            onTierChange(newTier, newTierNum);
+        }
+
+        // Update layer volumes based on tier
+        updateLayerVolumes();
+    }
+
+    function onTierChange(tier, num) {
+        showMsg(tier);
+        document.getElementById('stage').textContent = tier;
+        document.getElementById('tier').textContent = num > 0 ? 'TIER ' + num : '';
+
+        // Start groove at tier 2
+        if (num >= 2 && !state.groovePlaying) {
+            startGroove();
+        }
+    }
+
+    function updateLayerVolumes() {
+        const now = ctx.currentTime;
+        const energy = state.energy;
+        const tier = state.tierNum;
+
+        // Tilt modulates filter brightness
+        const brightness = (1 + state.tiltY) * 0.5;
+        lofiFilter.frequency.setTargetAtTime(3000 + brightness * 5000, now, 0.1);
+
+        // Sub bass - tier 1+
+        if (tier >= 1 && !state.layers.sub.active) {
+            state.layers.sub.active = true;
+        }
+        const subVol = tier >= 1 ? 0.15 * (0.5 + energy * 0.5) : 0;
+        state.layers.sub.gain.gain.setTargetAtTime(subVol, now, 0.3);
+
+        // Pad - tier 2+
+        if (tier >= 2 && !state.layers.pad.active) {
+            state.layers.pad.active = true;
+        }
+        const padVol = tier >= 2 ? 0.08 * energy : 0;
+        state.layers.pad.gain.gain.setTargetAtTime(padVol, now, 0.3);
+
+        // Strings - tier 3+
+        if (tier >= 3 && !state.layers.strings.active) {
+            state.layers.strings.active = true;
+        }
+        const stringsVol = tier >= 3 ? 0.06 * energy : 0;
+        state.layers.strings.gain.gain.setTargetAtTime(stringsVol, now, 0.3);
+        state.layers.strings.filter?.frequency.setTargetAtTime(1500 + brightness * 3000, now, 0.1);
+
+        // Brass - tier 4+
+        if (tier >= 4 && !state.layers.brass.active) {
+            state.layers.brass.active = true;
+        }
+        const brassVol = tier >= 4 ? 0.05 * energy : 0;
+        state.layers.brass.gain.gain.setTargetAtTime(brassVol, now, 0.3);
+        state.layers.brass.filter?.frequency.setTargetAtTime(600 + brightness * 2000, now, 0.1);
+
+        // Choir - tier 5+
+        if (tier >= 5 && !state.layers.choir.active) {
+            state.layers.choir.active = true;
+        }
+        const choirVol = tier >= 5 ? 0.03 * energy : 0;
+        state.layers.choir.gain.gain.setTargetAtTime(choirVol, now, 0.3);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // INPUT HANDLERS
+    // ═══════════════════════════════════════════════════════════════════════
+
+    async function requestTilt() {
+        if (state.tiltGranted) return;
+
+        if (typeof DeviceOrientationEvent !== 'undefined' &&
+            typeof DeviceOrientationEvent.requestPermission === 'function') {
+            try {
+                const response = await DeviceOrientationEvent.requestPermission();
+                if (response === 'granted') {
+                    state.tiltGranted = true;
+                    window.addEventListener('deviceorientation', onTilt);
+                    showMsg('TILT ON');
+                }
+            } catch (e) {
+                console.log('Tilt permission denied');
+            }
+        } else if ('DeviceOrientationEvent' in window) {
+            state.tiltGranted = true;
+            window.addEventListener('deviceorientation', onTilt);
+        }
+
+        if (typeof DeviceMotionEvent !== 'undefined') {
+            if (typeof DeviceMotionEvent.requestPermission === 'function') {
+                try {
+                    const response = await DeviceMotionEvent.requestPermission();
+                    if (response === 'granted') {
+                        window.addEventListener('devicemotion', onMotion);
+                    }
+                } catch (e) {}
+            } else {
+                window.addEventListener('devicemotion', onMotion);
+            }
+        }
+    }
+
+    function onTilt(e) {
+        state.tiltX = Math.max(-1, Math.min(1, (e.gamma || 0) / 45));
+        state.tiltY = Math.max(-1, Math.min(1, ((e.beta || 45) - 45) / 45));
+    }
+
+    function onMotion(e) {
+        const a = e.accelerationIncludingGravity;
+        if (!a) return;
+
+        state.accelX = a.x || 0;
+        state.accelY = a.y || 0;
+        state.accelZ = a.z || 0;
+
+        const motion = Math.sqrt(
+            state.accelX * state.accelX +
+            state.accelY * state.accelY +
+            state.accelZ * state.accelZ
+        ) / 10;
+
+        state.speed = state.speed * 0.8 + Math.min(1, motion * 0.5) * 0.2;
+    }
+
+    function onTouchStart(e) {
+        // Request tilt BEFORE preventDefault
+        requestTilt();
+
+        e.preventDefault();
+        state.touching = true;
+        const t = e.touches[0];
+        state.touchX = t.clientX / window.innerWidth;
+        state.touchY = t.clientY / window.innerHeight;
+
+        // Use touch as tilt fallback
+        state.tiltX = (state.touchX - 0.5) * 2;
+        state.tiltY = (state.touchY - 0.5) * 2;
+    }
+
+    function onTouchMove(e) {
+        e.preventDefault();
+        if (!state.touching) return;
+
+        const t = e.touches[0];
+        const newX = t.clientX / window.innerWidth;
+        const newY = t.clientY / window.innerHeight;
+
+        const dx = newX - state.touchX;
+        const dy = newY - state.touchY;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+
+        state.touchX = newX;
+        state.touchY = newY;
+        state.tiltX = (newX - 0.5) * 2;
+        state.tiltY = (newY - 0.5) * 2;
+
+        state.speed = state.speed * 0.7 + dist * 10 * 0.3;
+    }
+
+    function onTouchEnd(e) {
+        e.preventDefault();
+        state.touching = false;
+    }
+
+    function onMouseDown(e) {
+        state.touching = true;
+        state.touchX = e.clientX / window.innerWidth;
+        state.touchY = e.clientY / window.innerHeight;
+        state.tiltX = (state.touchX - 0.5) * 2;
+        state.tiltY = (state.touchY - 0.5) * 2;
+    }
+
+    function onMouseMove(e) {
+        if (!state.touching) return;
+
+        const newX = e.clientX / window.innerWidth;
+        const newY = e.clientY / window.innerHeight;
+
+        const dx = newX - state.touchX;
+        const dy = newY - state.touchY;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+
+        state.touchX = newX;
+        state.touchY = newY;
+        state.tiltX = (newX - 0.5) * 2;
+        state.tiltY = (newY - 0.5) * 2;
+
+        state.speed = state.speed * 0.7 + dist * 10 * 0.3;
+    }
+
+    function onMouseUp() {
+        state.touching = false;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // MAIN UPDATE LOOP
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function update() {
+        if (!state.active) {
+            requestAnimationFrame(update);
+            return;
+        }
+
+        // Update energy based on speed
+        if (state.speed > 0.02) {
+            state.energy = Math.min(1, state.energy + state.speed * 0.02);
+            state.stillness = 0;
+        } else {
+            state.energy *= 0.997;
+            state.stillness++;
+        }
+
+        // Track peak energy
+        state.peakEnergy = Math.max(state.peakEnergy, state.energy);
+
+        // Update gesture buffer
+        state.gestureBuffer.push({
+            x: state.tiltX,
+            y: state.tiltY,
+            speed: state.speed,
+            time: performance.now()
+        });
+        if (state.gestureBuffer.length > 30) {
+            state.gestureBuffer.shift();
+        }
+
+        // Detect gestures
+        detectGesture();
+
+        // Update tiers
+        updateTiers();
+
+        // Run groove
+        if (state.groovePlaying) {
+            runGroove();
+        }
+
+        // Draw
+        draw();
+
+        requestAnimationFrame(update);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // VISUALIZATION
+    // ═══════════════════════════════════════════════════════════════════════
+
+    let canvas, vc;
+
+    function initCanvas() {
+        canvas = document.getElementById('c');
+        vc = canvas.getContext('2d');
+        resize();
+        window.addEventListener('resize', resize);
+    }
+
+    function resize() {
+        const dpr = window.devicePixelRatio || 1;
+        canvas.width = window.innerWidth * dpr;
+        canvas.height = window.innerHeight * dpr;
+        canvas.style.width = window.innerWidth + 'px';
+        canvas.style.height = window.innerHeight + 'px';
+        vc.scale(dpr, dpr);
+    }
+
+    function draw() {
+        const w = window.innerWidth;
+        const h = window.innerHeight;
+
+        // Clear with fade
+        vc.fillStyle = 'rgba(5, 5, 5, 0.1)';
+        vc.fillRect(0, 0, w, h);
+
+        const cx = w / 2 + state.tiltX * w * 0.2;
+        const cy = h / 2 + state.tiltY * h * 0.2;
+
+        // Energy rings
+        const numRings = Math.floor(state.tierNum);
+        for (let i = 0; i < numRings; i++) {
+            const r = 50 + i * 40 + state.energy * 30;
+            const alpha = 0.1 + state.energy * 0.2;
+
+            vc.beginPath();
+            vc.arc(cx, cy, r, 0, TAU);
+            vc.strokeStyle = `hsla(${200 + i * 30}, 50%, 50%, ${alpha})`;
+            vc.lineWidth = 2;
+            vc.stroke();
+        }
+
+        // Core orb
+        const coreR = 15 + state.energy * 25 + state.speed * 20;
+        const gradient = vc.createRadialGradient(cx, cy, 0, cx, cy, coreR);
+        gradient.addColorStop(0, `hsla(200, 60%, 70%, ${0.6 + state.energy * 0.4})`);
+        gradient.addColorStop(0.5, `hsla(200, 50%, 50%, ${0.3 + state.energy * 0.3})`);
+        gradient.addColorStop(1, 'transparent');
+
+        vc.fillStyle = gradient;
+        vc.beginPath();
+        vc.arc(cx, cy, coreR, 0, TAU);
+        vc.fill();
+
+        // Speed trail
+        if (state.speed > 0.05) {
+            const trailLength = state.speed * 100;
+            vc.beginPath();
+            vc.moveTo(cx, cy);
+            vc.lineTo(cx - state.tiltX * trailLength, cy - state.tiltY * trailLength);
+            vc.strokeStyle = `rgba(100, 150, 200, ${state.speed * 0.5})`;
+            vc.lineWidth = 3;
+            vc.stroke();
+        }
+
+        // Tier glow at edges during climax
+        if (state.tierNum >= 5) {
+            const edgeGlow = vc.createRadialGradient(w/2, h/2, Math.min(w, h) * 0.3, w/2, h/2, Math.min(w, h) * 0.7);
+            edgeGlow.addColorStop(0, 'transparent');
+            edgeGlow.addColorStop(1, `rgba(255, 200, 100, ${(state.energy - 0.7) * 0.3})`);
+            vc.fillStyle = edgeGlow;
+            vc.fillRect(0, 0, w, h);
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // UI
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function showMsg(text) {
+        const msg = document.getElementById('msg');
+        msg.textContent = text;
+        msg.classList.add('show');
+        setTimeout(() => msg.classList.remove('show'), 1500);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // INITIALIZATION
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function start() {
+        document.getElementById('start').classList.add('hidden');
+
+        initAudio();
+        initCanvas();
+
+        // Input handlers
+        document.addEventListener('touchstart', onTouchStart, { passive: false });
+        document.addEventListener('touchmove', onTouchMove, { passive: false });
+        document.addEventListener('touchend', onTouchEnd, { passive: false });
+        document.addEventListener('mousedown', onMouseDown);
+        document.addEventListener('mousemove', onMouseMove);
+        document.addEventListener('mouseup', onMouseUp);
+
+        state.active = true;
+        update();
+
+        console.log('[GUMP] Unified instrument ready');
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // ENTRY POINT
+    // ═══════════════════════════════════════════════════════════════════════
+
+    document.getElementById('go').addEventListener('click', start);
+
+})();
+</script>
+</body>
+</html>
