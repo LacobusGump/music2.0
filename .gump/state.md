@@ -1,127 +1,146 @@
 # Current State
 
-*Last updated: February 6, 2026*
+*Last updated: February 7, 2026*
 
 ---
 
-## GUMP v31-RADIOHEAD - Clean Slate
+## GUMP UNIFIED - The Synthesis
 
-**The Reset:** Stripped back to essentials. Dreamy strings + Purdie shuffle 808s. Touch to play, tilt for expression. No more competing systems.
+**The Breakthrough:** After studying the entire repo history - 835 commits, 18 dialogue sessions, multiple project iterations (G7, Dew Waz, Lowfiye, The Blend) - a single unified instrument was created.
 
----
-
-## WHAT'S NEW (February 6 - v31-RADIOHEAD)
-
-### Complete Conductor Rewrite
-
-Replaced 525 lines of complex articulation/zone logic with 212 lines of focused code:
-
-**What We Kept:**
-- Dreamy strings with detuned oscillators (lo-fi warmth)
-- Purdie shuffle 808s with ghost notes
-- iOS tilt permission (fixed: request BEFORE preventDefault)
-- Energy-based groove triggering
-- Touch/mouse input
-
-**What We Removed:**
-- Complex zone-based articulation
-- Multi-layer system (melody, pad, bass, drums as separate concerns)
-- Verbose pattern definitions
-- Everything that made it "boxed and not intuitive"
-
-### All Old Systems Disabled
-
-Commented out in index.html:
-- `js/audio/drums.js, bass.js, harmony.js, melody.js` (old audio)
-- `js/agents/conductor.js, drum-mind.js, etc.` (AI musicians)
-- `js/ai/musical-worlds.js` (BWAAAM, world transitions)
-- `js/journey/strings.js, groove.js, etc.` (old journey files)
-
-Only active: `js/journey/conductor.js` (the new simplified one)
+**Live at:** lacobusgump.github.io/music2.0/gump-unified.html
 
 ---
 
-## HOW IT WORKS NOW
+## What Was Synthesized
+
+### From G7 Flywheel
+- Tier-based unlocking through movement
+- Movement accumulates energy over time
+- Energy thresholds reveal new layers
+
+### From Lowfiye
+- Lo-fi processing chain (warmth, dust filter, saturation)
+- Tape warmth (low shelf boost at 300Hz)
+- Vinyl dust filter (6kHz lowpass)
+
+### From Dew Waz
+- Environmental awareness
+- Sample categorization concepts (though not mic input yet)
+
+### From The Blend
+- Unified approach: movement unlocks synths
+- Single coherent codebase
+
+### From The Producer's Mandate
+- **E = mc²:** gesture → phrase → resolution
+- Starts with SILENCE
+- Layers build through USER ACTION
+- Music EMERGES from chaos
+
+---
+
+## How It Works
 
 ```
-Touch Screen → Play Note (position = pitch/octave)
-              → Build Energy
-              → Energy > 30% triggers groove
-
-Groove = 16-step Purdie shuffle:
-  - Kick: 1, 7(soft), 9
-  - Snare: 5, 13 + ghost notes (3,7,11,15)
-  - Hats: Every step with velocity variation
-  - Swing: 18% on offbeats
-
-Tilt (when granted):
-  - Gamma → tiltX (-1 to 1)
-  - Beta → tiltY (centered at 45°)
-  - Used for filter cutoff modulation
-```
-
----
-
-## FILES
-
-| File | Status |
-|------|--------|
-| `js/journey/conductor.js` | **ACTIVE** - The one true sound source |
-| `js/main.js` | Active - Bootstrap only, no sound generation |
-| `js/audio/engine.js` | Active - Provides AudioContext |
-| All other audio/agent/ai | **DISABLED** (commented out) |
-
----
-
-## iOS TILT FIX
-
-The key fix for iOS tilt permission:
-
-```javascript
-async function onTouch(e) {
-    // iOS tilt permission - MUST be first thing, BEFORE preventDefault
-    if (!state.tiltGranted && typeof DeviceOrientationEvent !== 'undefined') {
-        if (typeof DeviceOrientationEvent.requestPermission === 'function') {
-            try {
-                const p = await DeviceOrientationEvent.requestPermission();
-                if (p === 'granted') {
-                    state.tiltGranted = true;
-                    window.addEventListener('deviceorientation', onTilt);
-                    showMsg('TILT ON');
-                }
-            } catch(err) {
-                console.log('Tilt denied');
-            }
-        }
-    }
-    e.preventDefault();  // Only AFTER permission request
-    // ... rest of touch handling
-}
+SILENCE
+    ↓ (movement begins)
+AWAKENING (tier 1)
+    - Sub bass drone awakens
+    ↓ (energy > 15%)
+PULSE (tier 2)
+    - Pad layer joins
+    - Groove starts: Purdie shuffle 808s
+    ↓ (energy > 30%)
+BREATH (tier 3)
+    - Strings layer (detuned supersaws)
+    ↓ (energy > 50%)
+SWELL (tier 4)
+    - Brass layer (filtered saws)
+    ↓ (energy > 70%)
+SURGE (tier 5)
+    - Choir layer (high harmonics)
+    - Edge glow visualization
+    ↓ (energy > 90%)
+CLIMAX (tier 6)
+    - Full orchestra
+    - Maximum intensity
 ```
 
 ---
 
-## SUCCESS CRITERIA
+## Gesture → Phrase
 
-- [x] No more harp sounds from old system
-- [x] No more BWAAAM from musical worlds
-- [x] Touch plays notes instantly (no delay)
-- [x] Groove triggers when energy builds
-- [x] iOS tilt permission popup appears
-- [ ] Tilt actually modulates sound (needs testing)
-- [ ] Music feels "Radiohead" - dreamy, lo-fi, emotional
+| Gesture | Detection | Musical Response |
+|---------|-----------|------------------|
+| SHAKE | High speed + direction changes | Trill (rapid alternation) |
+| SWIPE UP | Net upward movement | Ascending arpeggio |
+| SWIPE DOWN | Net downward movement | Descending arpeggio |
+| HOLD | Stillness > 1 second | Sustained swell |
 
 ---
 
-## NEXT STEPS
+## The Purdie Shuffle
+
+16-step pattern at 85 BPM with 18% swing:
+
+```
+Kick:  [1, 0, 0, 0, 0, 0, .6, 0, 1, 0, 0, 0, 0, 0, 0, 0]
+Snare: [0, 0, 0, 0, 1, 0, .2, .3, 0, 0, .2, 0, 1, 0, .3, .2]
+Hats:  [1, .3, .6, .3, 1, .3, .6, .4, 1, .3, .6, .3, 1, .3, .6, .5]
+```
+
+Ghost notes on the snare (steps 6, 7, 10, 14, 15) create the shuffle feel.
+
+---
+
+## Technical Details
+
+- **Single HTML file:** `gump-unified.html` (~650 lines)
+- **No external dependencies**
+- **iOS tilt permission:** Requested BEFORE preventDefault
+- **Touch fallback:** Position maps to tilt values
+- **Sidechain:** All layers duck on kick hits
+- **Lo-fi chain:** warmth → dust → saturation
+
+---
+
+## What Makes It Different
+
+1. **SILENCE first** - Not droning from the start
+2. **Motion as primary** - Tilt/accelerometer, not just touch
+3. **Energy accumulates** - Sustained engagement unlocks power
+4. **Gestures trigger phrases** - Complete musical sentences
+5. **Lo-fi warmth** - Tape saturation, not clinical digital
+6. **Journey arc** - From nothing to climax to resolution
+7. **Tilt = expression** - Y axis controls filter brightness
+
+---
+
+## Success Criteria
+
+- [x] Starts with SILENCE
+- [x] Movement builds energy
+- [x] Tiers unlock layers progressively
+- [x] Groove kicks in at tier 2
+- [x] Gestures trigger musical phrases
+- [x] Tilt modulates filter brightness
+- [x] iOS tilt permission works
+- [ ] Test on actual device
+- [ ] Feels like "conducting an orchestra"
+
+---
+
+## Next Steps (If Needed)
 
 1. **Test on iOS** - Verify tilt permission and sound
-2. **Add diversity** - Current sounds are samey, need evolution
-3. **Add journey arc** - Innocence → Ambition → Hardships → Prevail
-4. **Refine groove** - Maybe add variation based on touch patterns
+2. **Add microphone input** - Complete the Dew Waz vision
+3. **Add phrase learning** - Remember user's gestures
+4. **Add THE BWAAAM** - Climax impact sound
+5. **Refine gesture thresholds** - Based on real device testing
 
 ---
 
-*"Less is more. Start with silence. Let the music emerge."*
+*"The goal is not to make something. The goal is to discover something that already exists."*
 
 **Live at:** lacobusgump.github.io/music2.0/
