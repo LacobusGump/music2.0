@@ -1,0 +1,741 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>GUMP - Breath</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body {
+            width: 100%; height: 100%;
+            background: #030305;
+            overflow: hidden;
+            touch-action: none;
+            font-family: -apple-system, sans-serif;
+        }
+        #start {
+            position: fixed; inset: 0;
+            display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
+            z-index: 100;
+            padding: 40px;
+        }
+        #start.hidden { display: none; }
+        #start h1 {
+            font-size: 11px;
+            font-weight: 300;
+            letter-spacing: 6px;
+            color: rgba(255,255,255,0.2);
+            margin-bottom: 60px;
+        }
+        #start p {
+            font-size: 12px;
+            color: rgba(255,255,255,0.35);
+            text-align: center;
+            line-height: 2.2;
+            max-width: 300px;
+            margin-bottom: 50px;
+        }
+        #start button {
+            width: 90px; height: 90px;
+            border-radius: 50%;
+            background: transparent;
+            border: 1px solid rgba(255,255,255,0.15);
+            color: rgba(255,255,255,0.25);
+            font-size: 9px; letter-spacing: 2px;
+            cursor: pointer;
+            transition: all 0.8s;
+        }
+        #start button:hover {
+            border-color: rgba(255,255,255,0.3);
+            transform: scale(1.05);
+        }
+        canvas { position: fixed; inset: 0; }
+        #phase {
+            position: fixed;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 11px;
+            letter-spacing: 4px;
+            color: rgba(255,255,255,0.2);
+            pointer-events: none;
+            transition: opacity 0.5s;
+        }
+        #breathCount {
+            position: fixed;
+            bottom: 30px; right: 30px;
+            font-size: 9px;
+            letter-spacing: 2px;
+            color: rgba(255,255,255,0.1);
+            pointer-events: none;
+        }
+        #journey {
+            position: fixed;
+            top: 30px; left: 30px;
+            font-size: 9px;
+            letter-spacing: 2px;
+            color: rgba(255,255,255,0.15);
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+<div id="start">
+    <h1>BREATH</h1>
+    <p>
+        lie down<br>
+        place the phone on your chest<br>
+        close your eyes<br>
+        breathe naturally<br><br>
+        each breath becomes a phrase<br>
+        each phrase builds the journey
+    </p>
+    <button id="go">BEGIN</button>
+</div>
+<canvas id="c"></canvas>
+<div id="phase"></div>
+<div id="breathCount"></div>
+<div id="journey"></div>
+
+<script>
+/**
+ * GUMP - Breath
+ *
+ * One breath = one musical phrase.
+ *
+ * Inhale: tension builds, ascending, reaching
+ * Peak: suspension, the held moment
+ * Exhale: resolution, descending, release
+ * Valley: silence, the space between
+ *
+ * The breath IS the structure of the music.
+ * Not modulation. Architecture.
+ *
+ * Over many breaths, a journey unfolds:
+ * - First breaths: single voice
+ * - Building: harmonies join
+ * - Deep: full orchestra of voices
+ * - Resolution: return to simplicity
+ */
+
+(function() {
+    'use strict';
+
+    const TAU = Math.PI * 2;
+
+    // Tuning: A432 for warmth
+    const A = 432;
+
+    // Scale degrees (major scale ratios for resolution, minor for tension)
+    const RESOLVE = [1, 5/4, 3/2, 2];           // Major triad + octave
+    const TENSION = [1, 9/8, 4/3, 8/5, 15/8];   // Suspended, unresolved
+
+    // Journey phases based on breath count
+    const JOURNEY = {
+        AWAKENING: { breaths: 0, voices: 1, description: 'AWAKENING' },
+        OPENING: { breaths: 3, voices: 2, description: 'OPENING' },
+        BUILDING: { breaths: 7, voices: 3, description: 'BUILDING' },
+        DEEPENING: { breaths: 12, voices: 4, description: 'DEEPENING' },
+        FULLNESS: { breaths: 20, voices: 5, description: 'FULLNESS' },
+        PEAK: { breaths: 30, voices: 6, description: 'PEAK' },
+        SETTLING: { breaths: 40, voices: 4, description: 'SETTLING' },
+        RESOLVING: { breaths: 50, voices: 2, description: 'RESOLVING' },
+        STILLNESS: { breaths: 60, voices: 1, description: 'STILLNESS' }
+    };
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // STATE
+    // ═══════════════════════════════════════════════════════════════════════
+
+    let ctx = null;
+    let masterGain = null;
+    let reverbGain = null;
+    let convolver = null;
+
+    const state = {
+        active: false,
+
+        // Sensor data
+        accelZ: 0,
+        accelZSmooth: 0,
+        accelZHistory: [],
+
+        // Breath detection
+        breathPhase: 'waiting',  // 'waiting', 'inhale', 'peak', 'exhale', 'valley'
+        breathStart: 0,
+        breathDuration: 4000,    // Estimated breath duration (adapts)
+        breathDepth: 0,
+        lastPeakTime: 0,
+        lastValleyTime: 0,
+        lastValleyZ: 0,
+        lastPeakZ: 0,
+
+        // Breath counting
+        breathCount: 0,
+        breathDurations: [],
+
+        // Current phrase
+        phraseActive: false,
+        phraseVoices: [],
+        phraseStartTime: 0,
+
+        // Journey
+        journeyPhase: 'AWAKENING',
+        activeVoices: 1,
+
+        // Visualization
+        rings: [],
+        particles: []
+    };
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // AUDIO SETUP
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function initAudio() {
+        ctx = new (window.AudioContext || window.webkitAudioContext)();
+
+        // Master chain
+        const compressor = ctx.createDynamicsCompressor();
+        compressor.threshold.value = -20;
+        compressor.ratio.value = 4;
+        compressor.attack.value = 0.005;
+        compressor.release.value = 0.2;
+        compressor.connect(ctx.destination);
+
+        masterGain = ctx.createGain();
+        masterGain.gain.value = 0.7;
+        masterGain.connect(compressor);
+
+        // Reverb for space
+        reverbGain = ctx.createGain();
+        reverbGain.gain.value = 0.3;
+        reverbGain.connect(masterGain);
+
+        // Simple algorithmic reverb
+        createReverb();
+    }
+
+    function createReverb() {
+        const times = [0.02, 0.04, 0.08, 0.12, 0.2, 0.3, 0.5, 0.8];
+        const gains = [0.7, 0.6, 0.5, 0.4, 0.35, 0.3, 0.2, 0.1];
+
+        times.forEach((time, i) => {
+            const delay = ctx.createDelay(2);
+            delay.delayTime.value = time;
+
+            const gain = ctx.createGain();
+            gain.gain.value = gains[i] * 0.15;
+
+            const filter = ctx.createBiquadFilter();
+            filter.type = 'lowpass';
+            filter.frequency.value = 4000 - i * 400;
+
+            reverbGain.connect(delay);
+            delay.connect(filter);
+            filter.connect(gain);
+            gain.connect(masterGain);
+        });
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // PHRASE GENERATION - One breath = one phrase
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function startPhrase() {
+        if (state.phraseActive) return;
+
+        state.phraseActive = true;
+        state.phraseStartTime = ctx.currentTime;
+        state.phraseVoices = [];
+
+        // Determine how many voices based on journey phase
+        const numVoices = state.activeVoices;
+
+        // Base frequency - rises slightly with breath count for journey
+        const baseFreq = A * (1 + (state.breathCount % 12) * 0.02);
+
+        // Create voices for this phrase
+        for (let i = 0; i < numVoices; i++) {
+            const voice = createPhraseVoice(baseFreq, i, numVoices);
+            state.phraseVoices.push(voice);
+        }
+    }
+
+    function createPhraseVoice(baseFreq, voiceIndex, totalVoices) {
+        // Each voice gets a different harmonic relationship
+        const harmonicOffset = voiceIndex * 0.5; // 0, 0.5, 1, 1.5, 2...
+        const freq = baseFreq * Math.pow(2, harmonicOffset);
+
+        // Create oscillator group for richness
+        const voiceGain = ctx.createGain();
+        voiceGain.gain.value = 0;
+        voiceGain.connect(masterGain);
+        voiceGain.connect(reverbGain);
+
+        // Filter for expression
+        const filter = ctx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.value = 500;
+        filter.Q.value = 1;
+        filter.connect(voiceGain);
+
+        // Primary oscillator
+        const osc1 = ctx.createOscillator();
+        osc1.type = voiceIndex === 0 ? 'sine' : 'triangle';
+        osc1.frequency.value = freq;
+        osc1.connect(filter);
+        osc1.start();
+
+        // Detuned oscillator for warmth
+        const osc2 = ctx.createOscillator();
+        osc2.type = 'sine';
+        osc2.frequency.value = freq * 1.003;
+        const osc2Gain = ctx.createGain();
+        osc2Gain.gain.value = 0.3;
+        osc2.connect(osc2Gain);
+        osc2Gain.connect(filter);
+        osc2.start();
+
+        // Sub oscillator for depth (only on first voice)
+        let subOsc = null;
+        if (voiceIndex === 0) {
+            subOsc = ctx.createOscillator();
+            subOsc.type = 'sine';
+            subOsc.frequency.value = freq / 2;
+            const subGain = ctx.createGain();
+            subGain.gain.value = 0.2;
+            subOsc.connect(subGain);
+            subGain.connect(filter);
+            subOsc.start();
+        }
+
+        return {
+            baseFreq: freq,
+            voiceGain,
+            filter,
+            oscs: subOsc ? [osc1, osc2, subOsc] : [osc1, osc2],
+            voiceIndex,
+            phase: 'inhale'
+        };
+    }
+
+    function updatePhrase(breathProgress, breathPhase) {
+        if (!state.phraseActive || state.phraseVoices.length === 0) return;
+
+        const now = ctx.currentTime;
+
+        state.phraseVoices.forEach((voice, i) => {
+            // Amplitude envelope follows breath
+            let targetAmp = 0;
+            let filterTarget = 500;
+
+            if (breathPhase === 'inhale') {
+                // Building - amplitude rises with breath
+                targetAmp = 0.08 + breathProgress * 0.12;
+                // Filter opens as we inhale
+                filterTarget = 600 + breathProgress * 2500;
+                // Pitch bends slightly up (tension)
+                const tensionBend = breathProgress * 30;
+                voice.oscs[0].detune.setTargetAtTime(tensionBend, now, 0.1);
+
+            } else if (breathPhase === 'peak') {
+                // Held moment - maximum expression
+                targetAmp = 0.2;
+                filterTarget = 3000;
+                // Hold the tension
+                voice.oscs[0].detune.setTargetAtTime(30, now, 0.1);
+
+            } else if (breathPhase === 'exhale') {
+                // Resolving - amplitude falls with breath
+                targetAmp = 0.15 * (1 - breathProgress);
+                // Filter closes as we exhale
+                filterTarget = 2500 - breathProgress * 2000;
+                // Pitch bends back down (resolution)
+                const resolveBend = 30 * (1 - breathProgress);
+                voice.oscs[0].detune.setTargetAtTime(resolveBend, now, 0.1);
+
+            } else if (breathPhase === 'valley') {
+                // Silence between breaths
+                targetAmp = 0;
+                filterTarget = 400;
+                voice.oscs[0].detune.setTargetAtTime(0, now, 0.2);
+            }
+
+            // Stagger voices slightly for richness
+            const voiceOffset = i * 0.02;
+            targetAmp *= (1 - voiceOffset);
+
+            // Apply with smoothing that matches breath pace
+            const smoothing = state.breathDuration / 4000; // Slower breath = slower envelope
+            voice.voiceGain.gain.setTargetAtTime(targetAmp, now, 0.1 * smoothing);
+            voice.filter.frequency.setTargetAtTime(filterTarget, now, 0.15 * smoothing);
+        });
+    }
+
+    function endPhrase() {
+        if (!state.phraseActive) return;
+
+        const now = ctx.currentTime;
+
+        // Fade out all voices
+        state.phraseVoices.forEach(voice => {
+            voice.voiceGain.gain.setTargetAtTime(0, now, 0.3);
+
+            // Stop oscillators after fade
+            setTimeout(() => {
+                voice.oscs.forEach(osc => {
+                    try { osc.stop(); } catch(e) {}
+                });
+            }, 1000);
+        });
+
+        state.phraseActive = false;
+        state.phraseVoices = [];
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // BREATH DETECTION
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function updateBreathDetection() {
+        const z = state.accelZ;
+        const now = performance.now();
+
+        // Smooth the signal
+        state.accelZSmooth = state.accelZSmooth * 0.85 + z * 0.15;
+
+        // Add to history
+        state.accelZHistory.push({
+            z: state.accelZSmooth,
+            time: now
+        });
+
+        // Keep 8 seconds of history
+        const historyWindow = 8000;
+        state.accelZHistory = state.accelZHistory.filter(h => h.time > now - historyWindow);
+
+        if (state.accelZHistory.length < 30) return;
+
+        // Find recent min/max for breath detection
+        const recent = state.accelZHistory.slice(-60);
+        const zValues = recent.map(h => h.z);
+        const minZ = Math.min(...zValues);
+        const maxZ = Math.max(...zValues);
+        const range = maxZ - minZ;
+
+        // Need enough range to detect breath
+        if (range < 0.08) {
+            // Not enough movement for breath detection
+            return;
+        }
+
+        const midZ = (minZ + maxZ) / 2;
+        const currentZ = state.accelZSmooth;
+
+        // Determine breath phase based on position and direction
+        const recentTrend = state.accelZHistory.slice(-10);
+        let trend = 0;
+        for (let i = 1; i < recentTrend.length; i++) {
+            trend += recentTrend[i].z - recentTrend[i-1].z;
+        }
+
+        const risingThreshold = 0.003;
+        const fallingThreshold = -0.003;
+
+        const previousPhase = state.breathPhase;
+
+        // State machine for breath phases
+        if (state.breathPhase === 'waiting' || state.breathPhase === 'valley') {
+            if (trend > risingThreshold && currentZ > minZ + range * 0.2) {
+                state.breathPhase = 'inhale';
+                state.lastValleyTime = now;
+                state.lastValleyZ = currentZ;
+                state.breathStart = now;
+                startPhrase();
+            }
+        } else if (state.breathPhase === 'inhale') {
+            if (trend < risingThreshold && currentZ > midZ + range * 0.3) {
+                state.breathPhase = 'peak';
+                state.lastPeakTime = now;
+                state.lastPeakZ = currentZ;
+            }
+        } else if (state.breathPhase === 'peak') {
+            if (trend < fallingThreshold) {
+                state.breathPhase = 'exhale';
+            }
+        } else if (state.breathPhase === 'exhale') {
+            if (currentZ < midZ - range * 0.2 && trend > fallingThreshold) {
+                state.breathPhase = 'valley';
+
+                // Breath complete - update stats
+                state.breathCount++;
+                const duration = now - state.breathStart;
+                state.breathDurations.push(duration);
+                if (state.breathDurations.length > 10) {
+                    state.breathDurations.shift();
+                }
+                // Update estimated breath duration
+                state.breathDuration = state.breathDurations.reduce((a,b) => a+b, 0) / state.breathDurations.length;
+
+                updateJourneyPhase();
+                addBreathRing();
+
+                // End the current phrase
+                endPhrase();
+            }
+        }
+
+        // Calculate breath progress within current phase
+        let breathProgress = 0;
+        if (state.breathPhase === 'inhale') {
+            // Progress from valley to peak
+            const elapsed = now - state.breathStart;
+            breathProgress = Math.min(1, elapsed / (state.breathDuration * 0.4));
+        } else if (state.breathPhase === 'exhale') {
+            // Progress from peak to valley
+            const elapsed = now - state.lastPeakTime;
+            breathProgress = Math.min(1, elapsed / (state.breathDuration * 0.5));
+        }
+
+        state.breathDepth = range;
+
+        // Update the phrase based on breath
+        updatePhrase(breathProgress, state.breathPhase);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // JOURNEY SYSTEM
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function updateJourneyPhase() {
+        const count = state.breathCount;
+
+        let newPhase = 'AWAKENING';
+        let newVoices = 1;
+
+        for (const [phase, config] of Object.entries(JOURNEY)) {
+            if (count >= config.breaths) {
+                newPhase = phase;
+                newVoices = config.voices;
+            }
+        }
+
+        if (newPhase !== state.journeyPhase) {
+            state.journeyPhase = newPhase;
+            state.activeVoices = newVoices;
+            document.getElementById('journey').textContent = JOURNEY[newPhase].description;
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // INPUT HANDLERS
+    // ═══════════════════════════════════════════════════════════════════════
+
+    async function requestSensors() {
+        if (typeof DeviceMotionEvent !== 'undefined') {
+            if (typeof DeviceMotionEvent.requestPermission === 'function') {
+                try {
+                    const response = await DeviceMotionEvent.requestPermission();
+                    if (response === 'granted') {
+                        window.addEventListener('devicemotion', onMotion);
+                        return true;
+                    }
+                } catch (e) {
+                    console.log('Motion permission denied');
+                    return false;
+                }
+            } else {
+                window.addEventListener('devicemotion', onMotion);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    function onMotion(e) {
+        const a = e.accelerationIncludingGravity;
+        if (a) {
+            state.accelZ = a.z || 0;
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // VISUALIZATION
+    // ═══════════════════════════════════════════════════════════════════════
+
+    let canvas, vc;
+
+    function initCanvas() {
+        canvas = document.getElementById('c');
+        vc = canvas.getContext('2d');
+        resize();
+        window.addEventListener('resize', resize);
+    }
+
+    function resize() {
+        const dpr = window.devicePixelRatio || 1;
+        canvas.width = window.innerWidth * dpr;
+        canvas.height = window.innerHeight * dpr;
+        canvas.style.width = window.innerWidth + 'px';
+        canvas.style.height = window.innerHeight + 'px';
+        vc.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+
+    function addBreathRing() {
+        state.rings.push({
+            birth: performance.now(),
+            duration: state.breathDuration,
+            depth: state.breathDepth
+        });
+
+        // Limit rings
+        if (state.rings.length > 30) {
+            state.rings.shift();
+        }
+    }
+
+    function draw() {
+        const w = window.innerWidth;
+        const h = window.innerHeight;
+        const now = performance.now();
+
+        // Very slow fade for trails
+        vc.fillStyle = 'rgba(3, 3, 5, 0.04)';
+        vc.fillRect(0, 0, w, h);
+
+        const cx = w / 2;
+        const cy = h / 2;
+
+        // Draw breath rings - each represents a completed breath
+        state.rings.forEach((ring, i) => {
+            const age = now - ring.birth;
+            const maxAge = 30000; // Rings last 30 seconds
+
+            if (age > maxAge) return;
+
+            const progress = age / maxAge;
+            const r = 50 + progress * Math.min(w, h) * 0.4;
+            const alpha = (1 - progress) * 0.15;
+
+            vc.beginPath();
+            vc.arc(cx, cy, r, 0, TAU);
+            vc.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
+            vc.lineWidth = 1;
+            vc.stroke();
+        });
+
+        // Current breath visualization
+        if (state.breathPhase !== 'waiting' && state.breathPhase !== 'valley') {
+            let breathProgress = 0;
+            let breathRadius = 40;
+
+            if (state.breathPhase === 'inhale') {
+                const elapsed = now - state.breathStart;
+                breathProgress = Math.min(1, elapsed / (state.breathDuration * 0.4));
+                breathRadius = 40 + breathProgress * 80;
+            } else if (state.breathPhase === 'peak') {
+                breathRadius = 120;
+                breathProgress = 1;
+            } else if (state.breathPhase === 'exhale') {
+                const elapsed = now - state.lastPeakTime;
+                breathProgress = Math.min(1, elapsed / (state.breathDuration * 0.5));
+                breathRadius = 120 - breathProgress * 80;
+            }
+
+            // Breath circle
+            const breathAlpha = 0.1 + (1 - Math.abs(breathProgress - 0.5) * 2) * 0.2;
+            vc.beginPath();
+            vc.arc(cx, cy, breathRadius, 0, TAU);
+            vc.strokeStyle = `rgba(255, 255, 255, ${breathAlpha})`;
+            vc.lineWidth = 2 + breathProgress * 2;
+            vc.stroke();
+
+            // Voice indicators - small circles around the main breath
+            for (let i = 0; i < state.activeVoices; i++) {
+                const angle = (i / state.activeVoices) * TAU - Math.PI / 2;
+                const voiceRadius = breathRadius + 20;
+                const vx = cx + Math.cos(angle) * voiceRadius;
+                const vy = cy + Math.sin(angle) * voiceRadius;
+
+                vc.beginPath();
+                vc.arc(vx, vy, 3 + breathProgress * 3, 0, TAU);
+                vc.fillStyle = `rgba(255, 255, 255, ${breathAlpha * 0.8})`;
+                vc.fill();
+            }
+        }
+
+        // Center point - stillness indicator
+        const centerAlpha = state.breathPhase === 'valley' ? 0.4 : 0.15;
+        vc.beginPath();
+        vc.arc(cx, cy, 4, 0, TAU);
+        vc.fillStyle = `rgba(255, 255, 255, ${centerAlpha})`;
+        vc.fill();
+
+        // Update phase display
+        updatePhaseDisplay();
+    }
+
+    function updatePhaseDisplay() {
+        const phaseEl = document.getElementById('phase');
+        const countEl = document.getElementById('breathCount');
+
+        let phaseText = '';
+        switch (state.breathPhase) {
+            case 'waiting': phaseText = 'PLACE PHONE ON CHEST'; break;
+            case 'inhale': phaseText = '↑'; break;
+            case 'peak': phaseText = '·'; break;
+            case 'exhale': phaseText = '↓'; break;
+            case 'valley': phaseText = ''; break;
+        }
+
+        phaseEl.textContent = phaseText;
+        countEl.textContent = state.breathCount > 0 ? state.breathCount : '';
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // MAIN LOOP
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function update() {
+        if (!state.active) {
+            requestAnimationFrame(update);
+            return;
+        }
+
+        updateBreathDetection();
+        draw();
+
+        requestAnimationFrame(update);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // INITIALIZATION
+    // ═══════════════════════════════════════════════════════════════════════
+
+    async function start() {
+        document.getElementById('start').classList.add('hidden');
+
+        const hasSensors = await requestSensors();
+        if (!hasSensors) {
+            document.getElementById('phase').textContent = 'MOTION SENSORS REQUIRED';
+            return;
+        }
+
+        initAudio();
+        initCanvas();
+
+        state.active = true;
+        document.getElementById('journey').textContent = 'AWAKENING';
+
+        update();
+
+        console.log('[GUMP Breath] Ready - lie down, phone on chest, breathe');
+    }
+
+    document.getElementById('go').addEventListener('click', start);
+
+})();
+</script>
+</body>
+</html>
