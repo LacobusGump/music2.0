@@ -1,0 +1,747 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>GUMP</title>
+    <style>
+        *{margin:0;padding:0;box-sizing:border-box}
+        html,body{width:100%;height:100%;background:#020204;overflow:hidden;touch-action:none;font-family:-apple-system,sans-serif}
+        #entry{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:100}
+        #entry.gone{display:none}
+        #entry h1{font-size:10px;font-weight:300;letter-spacing:8px;color:rgba(255,255,255,.15);margin-bottom:60px}
+        #entry p{font-size:11px;color:rgba(255,255,255,.25);text-align:center;line-height:2.4;max-width:260px;margin-bottom:50px}
+        #entry button{width:90px;height:90px;border-radius:50%;background:0;border:1px solid rgba(255,255,255,.08);color:rgba(255,255,255,.2);font-size:9px;letter-spacing:3px;cursor:pointer;transition:.6s}
+        #entry button:hover{border-color:rgba(255,255,255,.2)}
+        canvas{position:fixed;inset:0}
+        .hud{position:fixed;pointer-events:none;font-size:9px;letter-spacing:2px;color:rgba(255,255,255,.12);z-index:5}
+        #breathNum{bottom:24px;right:24px}
+        #phaseName{top:50%;left:50%;transform:translate(-50%,-50%);font-size:12px;letter-spacing:5px;color:rgba(255,255,255,.18);transition:opacity .4s}
+        #journeyName{top:24px;left:24px}
+    </style>
+</head>
+<body>
+<div id="entry">
+    <h1>GUMP</h1>
+    <p>lie down<br>phone on your chest<br>close your eyes<br><br>breathe</p>
+    <button id="begin">BEGIN</button>
+</div>
+<canvas id="c"></canvas>
+<div class="hud" id="breathNum"></div>
+<div class="hud" id="phaseName"></div>
+<div class="hud" id="journeyName"></div>
+
+<script>
+/*
+ * GUMP — Grand Unified Music Project
+ *
+ * The instrument you play by breathing.
+ *
+ * Your breath is the conductor's baton.
+ * Each inhale is a question. Each exhale is an answer.
+ * Between breaths: silence. The space that makes music possible.
+ *
+ * Over many breaths, an orchestra assembles.
+ * At the peak, it plays for you.
+ * Then, one by one, the voices leave.
+ * Until it's just you, breathing, in silence.
+ *
+ * ─── THE JOURNEY ───
+ *
+ * Breath 1-4    SOLITUDE      One voice. Yours.
+ * Breath 5-10   AWAKENING     A bass note finds you.
+ * Breath 11-18  UNFOLDING     Chords form. Warmth.
+ * Breath 19-28  SWELLING      Strings enter. A pulse appears.
+ * Breath 29-40  FULLNESS      The orchestra plays. Drums sync to you.
+ * Breath 41-52  RADIANCE      Everything. Brass. Choir. The peak.
+ * Breath 53-62  LETTING GO    Layers peel away.
+ * Breath 63-70  RETURN        Back to one voice.
+ * Breath 71+    SILENCE       You don't need the music anymore.
+ */
+
+(function(){
+'use strict';
+
+const TAU = Math.PI * 2;
+const A = 432;
+
+// ═══════════════════════════════════════════════════════════════════════════
+// MUSICAL DNA
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Chord progression: i → VI → III → VII (Am → F → C → G in A minor)
+// Each breath cycles to the next chord
+const CHORDS = [
+    [0, 3, 7],       // Am  (home)
+    [5, 9, 12],      // F   (warmth)
+    [0, 4, 7],       // C   (hope)  — note the major third, not minor
+    [7, 11, 14],     // G   (reaching)
+    [0, 3, 7],       // Am  (return)
+    [3, 7, 10],      // Cm  (shadow)
+    [5, 8, 12],      // Fm  (ache)
+    [7, 10, 14],     // Gm  (tension)
+];
+
+// Journey phases
+const PHASES = [
+    { name: 'SOLITUDE',    start: 0,  voices: 1, drums: false, brass: false, choir: false },
+    { name: 'AWAKENING',   start: 5,  voices: 2, drums: false, brass: false, choir: false },
+    { name: 'UNFOLDING',   start: 11, voices: 3, drums: false, brass: false, choir: false },
+    { name: 'SWELLING',    start: 19, voices: 4, drums: true,  brass: false, choir: false },
+    { name: 'FULLNESS',    start: 29, voices: 5, drums: true,  brass: true,  choir: false },
+    { name: 'RADIANCE',    start: 41, voices: 6, drums: true,  brass: true,  choir: true  },
+    { name: 'LETTING GO',  start: 53, voices: 4, drums: true,  brass: false, choir: false },
+    { name: 'RETURN',      start: 63, voices: 2, drums: false, brass: false, choir: false },
+    { name: 'SILENCE',     start: 71, voices: 0, drums: false, brass: false, choir: false },
+];
+
+// ═══════════════════════════════════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════════════════════════════════
+
+let ctx, master, comp, warmthNode, dustNode, reverbBus;
+
+const S = {
+    active: false,
+
+    // Breath detection
+    az: 0,
+    azSmooth: 0,
+    azHist: [],
+    phase: 'waiting',    // waiting | inhale | peak | exhale | valley
+    breathStart: 0,
+    breathDur: 4000,
+    breathDurs: [],
+    breathCount: 0,
+    breathProgress: 0,   // 0→1 within current inhale or exhale
+    breathDepth: 0,
+    lastPeakTime: 0,
+
+    // Journey
+    journey: PHASES[0],
+    chordIndex: 0,
+
+    // Active sounds (managed per-breath)
+    voices: [],
+
+    // Drum scheduling
+    drumStep: 0,
+    nextDrumTime: 0,
+    drumsActive: false,
+    drumGainNode: null,
+
+    // Visualization
+    rings: [],
+    breathRadius: 50,
+};
+
+// ═══════════════════════════════════════════════════════════════════════════
+// AUDIO INIT
+// ═══════════════════════════════════════════════════════════════════════════
+
+function initAudio() {
+    ctx = new (window.AudioContext || window.webkitAudioContext)();
+
+    comp = ctx.createDynamicsCompressor();
+    comp.threshold.value = -18;
+    comp.ratio.value = 4;
+    comp.attack.value = 0.005;
+    comp.release.value = 0.2;
+    comp.connect(ctx.destination);
+
+    master = ctx.createGain();
+    master.gain.value = 0.65;
+    master.connect(comp);
+
+    // Lo-fi chain
+    warmthNode = ctx.createBiquadFilter();
+    warmthNode.type = 'lowshelf';
+    warmthNode.frequency.value = 300;
+    warmthNode.gain.value = 4;
+
+    dustNode = ctx.createBiquadFilter();
+    dustNode.type = 'lowpass';
+    dustNode.frequency.value = 7000;
+    dustNode.Q.value = 0.4;
+
+    // Saturation via waveshaper
+    const sat = ctx.createWaveShaper();
+    const curve = new Float32Array(256);
+    for (let i = 0; i < 256; i++) {
+        const x = (i / 128) - 1;
+        curve[i] = Math.tanh(x * 1.4);
+    }
+    sat.curve = curve;
+    sat.oversample = '2x';
+
+    warmthNode.connect(dustNode);
+    dustNode.connect(sat);
+    sat.connect(master);
+
+    // Reverb
+    reverbBus = ctx.createGain();
+    reverbBus.gain.value = 0.2;
+    buildReverb(reverbBus, master);
+
+    // Drum bus
+    S.drumGainNode = ctx.createGain();
+    S.drumGainNode.gain.value = 0;
+    S.drumGainNode.connect(warmthNode);
+}
+
+function buildReverb(input, output) {
+    [0.03, 0.07, 0.13, 0.21, 0.34, 0.55, 0.89].forEach((t, i) => {
+        const d = ctx.createDelay(2);
+        d.delayTime.value = t;
+        const g = ctx.createGain();
+        g.gain.value = 0.18 * Math.pow(0.7, i);
+        const f = ctx.createBiquadFilter();
+        f.type = 'lowpass';
+        f.frequency.value = 4000 - i * 400;
+        input.connect(d);
+        d.connect(f);
+        f.connect(g);
+        g.connect(output);
+    });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// VOICE CREATION — Musical phrases, not raw oscillators
+// ═══════════════════════════════════════════════════════════════════════════
+
+function noteFreq(semitones) {
+    return A * Math.pow(2, semitones / 12);
+}
+
+function buildVoice(semitone, type, detune, vol) {
+    const freq = noteFreq(semitone);
+    const g = ctx.createGain();
+    g.gain.value = 0;
+    g.connect(warmthNode);
+    g.connect(reverbBus);
+
+    const filt = ctx.createBiquadFilter();
+    filt.type = 'lowpass';
+    filt.frequency.value = 400;
+    filt.Q.value = 0.7;
+    filt.connect(g);
+
+    const oscs = [];
+    const spread = detune || 0;
+
+    // Main oscillator
+    const o1 = ctx.createOscillator();
+    o1.type = type || 'sine';
+    o1.frequency.value = freq;
+    o1.connect(filt);
+    o1.start();
+    oscs.push(o1);
+
+    // Warmth oscillator (detuned)
+    if (spread > 0) {
+        const o2 = ctx.createOscillator();
+        o2.type = type || 'sine';
+        o2.frequency.value = freq;
+        o2.detune.value = spread;
+        o2.connect(filt);
+        o2.start();
+        oscs.push(o2);
+
+        const o3 = ctx.createOscillator();
+        o3.type = type || 'sine';
+        o3.frequency.value = freq;
+        o3.detune.value = -spread;
+        o3.connect(filt);
+        o3.start();
+        oscs.push(o3);
+    }
+
+    return { gain: g, filter: filt, oscs, freq, vol: vol || 0.12, semitone };
+}
+
+// Build the ensemble for a single breath
+function buildBreathEnsemble() {
+    const chord = CHORDS[S.chordIndex % CHORDS.length];
+    const phase = S.journey;
+    const voices = [];
+
+    // Voice 1: Lead — always present. Pure tone. The "you" voice.
+    voices.push(buildVoice(chord[0], 'sine', 0, 0.14));
+
+    if (phase.voices >= 2) {
+        // Voice 2: Sub bass — octave below root
+        voices.push(buildVoice(chord[0] - 12, 'sine', 3, 0.18));
+    }
+
+    if (phase.voices >= 3) {
+        // Voice 3: Pad — full triad, detuned triangles
+        chord.forEach(note => {
+            voices.push(buildVoice(note, 'triangle', 8, 0.06));
+        });
+    }
+
+    if (phase.voices >= 4) {
+        // Voice 4: Strings — sawtooth triad, higher octave
+        chord.forEach(note => {
+            voices.push(buildVoice(note + 12, 'sawtooth', 15, 0.04));
+        });
+    }
+
+    if (phase.voices >= 5 && phase.brass) {
+        // Voice 5: Brass — filtered saws, root + fifth
+        voices.push(buildVoice(chord[0] + 12, 'sawtooth', 20, 0.05));
+        voices.push(buildVoice(chord[2] + 12, 'sawtooth', 20, 0.04));
+    }
+
+    if (phase.voices >= 6 && phase.choir) {
+        // Voice 6: Choir — high sine harmonics
+        voices.push(buildVoice(chord[0] + 24, 'sine', 5, 0.03));
+        voices.push(buildVoice(chord[1] + 24, 'sine', 5, 0.025));
+        voices.push(buildVoice(chord[2] + 24, 'sine', 5, 0.02));
+    }
+
+    return voices;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// BREATH ENVELOPE — Shapes the voices within one breath
+// ═══════════════════════════════════════════════════════════════════════════
+
+function shapeVoices(phase, progress) {
+    const now = ctx.currentTime;
+    const smoothing = Math.max(0.05, S.breathDur / 8000);
+
+    S.voices.forEach(v => {
+        let amp = 0;
+        let cutoff = 400;
+
+        if (phase === 'inhale') {
+            // Build: amplitude and brightness rise together
+            amp = v.vol * (0.2 + progress * 0.8);
+            cutoff = 400 + progress * 3500;
+            // Subtle pitch bend up (tension)
+            v.oscs[0].detune.setTargetAtTime(progress * 20, now, smoothing);
+
+        } else if (phase === 'peak') {
+            // Maximum: full amplitude, open filter, held tension
+            amp = v.vol;
+            cutoff = 4000;
+
+        } else if (phase === 'exhale') {
+            // Resolve: amplitude and brightness fall
+            const ease = 1 - progress * progress; // Quadratic ease-out (holds then drops)
+            amp = v.vol * ease;
+            cutoff = 4000 - progress * 3200;
+            // Pitch bends back (resolution)
+            v.oscs[0].detune.setTargetAtTime(20 * (1 - progress), now, smoothing);
+
+        } else {
+            // Valley: silence
+            amp = 0;
+            cutoff = 300;
+            v.oscs[0].detune.setTargetAtTime(0, now, 0.1);
+        }
+
+        v.gain.gain.setTargetAtTime(amp, now, smoothing);
+        v.filter.frequency.setTargetAtTime(cutoff, now, smoothing);
+    });
+}
+
+function killVoices() {
+    const now = ctx.currentTime;
+    S.voices.forEach(v => {
+        v.gain.gain.setTargetAtTime(0, now, 0.15);
+        setTimeout(() => {
+            v.oscs.forEach(o => { try { o.stop(); } catch(e) {} });
+        }, 600);
+    });
+    S.voices = [];
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// DRUMS — Purdie shuffle synced to breath
+// ═══════════════════════════════════════════════════════════════════════════
+
+function kick(time, vel) {
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.frequency.setValueAtTime(120, time);
+    o.frequency.exponentialRampToValueAtTime(30, time + 0.1);
+    g.gain.setValueAtTime(vel * 0.7, time);
+    g.gain.exponentialRampToValueAtTime(0.001, time + 0.35);
+    o.connect(g);
+    g.connect(S.drumGainNode);
+    o.start(time);
+    o.stop(time + 0.4);
+
+    // Sidechain pump on all voice gains
+    S.voices.forEach(v => {
+        const cur = v.gain.gain.value;
+        v.gain.gain.setValueAtTime(cur, time);
+        v.gain.gain.linearRampToValueAtTime(cur * 0.25, time + 0.01);
+        v.gain.gain.linearRampToValueAtTime(cur, time + 0.1);
+    });
+}
+
+function snare(time, vel) {
+    // Body
+    const o = ctx.createOscillator();
+    o.type = 'triangle';
+    o.frequency.setValueAtTime(185, time);
+    o.frequency.exponentialRampToValueAtTime(90, time + 0.03);
+    const og = ctx.createGain();
+    og.gain.setValueAtTime(vel * 0.35, time);
+    og.gain.exponentialRampToValueAtTime(0.001, time + 0.08);
+    o.connect(og);
+    og.connect(S.drumGainNode);
+    o.start(time);
+    o.stop(time + 0.12);
+
+    // Noise
+    const len = ctx.sampleRate * 0.07;
+    const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    const n = ctx.createBufferSource();
+    n.buffer = buf;
+    const nf = ctx.createBiquadFilter();
+    nf.type = 'highpass';
+    nf.frequency.value = 3000;
+    const ng = ctx.createGain();
+    ng.gain.setValueAtTime(vel * 0.4, time);
+    ng.gain.exponentialRampToValueAtTime(0.001, time + 0.1);
+    n.connect(nf);
+    nf.connect(ng);
+    ng.connect(S.drumGainNode);
+    n.start(time);
+    n.stop(time + 0.12);
+}
+
+function hat(time, vel) {
+    const len = ctx.sampleRate * 0.02;
+    const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    const n = ctx.createBufferSource();
+    n.buffer = buf;
+    const f = ctx.createBiquadFilter();
+    f.type = 'bandpass';
+    f.frequency.value = 9000;
+    f.Q.value = 0.8;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(vel * 0.2, time);
+    g.gain.exponentialRampToValueAtTime(0.001, time + 0.02);
+    n.connect(f);
+    f.connect(g);
+    g.connect(S.drumGainNode);
+    n.start(time);
+    n.stop(time + 0.025);
+}
+
+// The Purdie shuffle pattern mapped to a breath cycle
+// 16 steps across one breath. Swing built in.
+const K = [1,0,0,0, 0,0,.5,0, .8,0,0,0, 0,0,0,0];
+const SN= [0,0,0,0, 1,0,.15,.2, 0,0,.15,0, 1,0,.2,.15];
+const HH= [.7,.25,.5,.25, .7,.3,.5,.3, .7,.25,.5,.25, .7,.3,.5,.3];
+const SWING = 0.17;
+
+function scheduleDrums() {
+    if (!S.journey.drums || S.phase === 'valley' || S.phase === 'waiting') {
+        return;
+    }
+
+    // Derive step duration from breath duration
+    // 16 steps per breath cycle (~4 seconds = 240BPM 16ths ≈ 60BPM quarter)
+    const breathSec = S.breathDur / 1000;
+    const stepBase = breathSec / 16;
+
+    const lookAhead = 0.08;
+    while (S.nextDrumTime < ctx.currentTime + lookAhead) {
+        const step = S.drumStep;
+        const t = S.nextDrumTime;
+
+        const intensity = 0.6 + S.breathDepth * 0.4;
+
+        if (K[step])  kick(t, K[step] * intensity);
+        if (SN[step]) snare(t, SN[step] * intensity);
+        if (HH[step]) hat(t, HH[step] * intensity);
+
+        // Swing: even steps slightly longer, odd steps shorter
+        const swing = step % 2 === 0 ? 1 + SWING : 1 - SWING;
+        S.nextDrumTime += stepBase * swing;
+        S.drumStep = (step + 1) % 16;
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// BREATH DETECTION
+// ═══════════════════════════════════════════════════════════════════════════
+
+function detect() {
+    const z = S.az;
+    const now = performance.now();
+
+    S.azSmooth = S.azSmooth * 0.82 + z * 0.18;
+
+    S.azHist.push({ z: S.azSmooth, t: now });
+    if (S.azHist.length > 300) S.azHist = S.azHist.slice(-200);
+
+    if (S.azHist.length < 30) return;
+
+    // Find range in recent history
+    const window = S.azHist.slice(-80);
+    const vals = window.map(h => h.z);
+    const lo = Math.min(...vals);
+    const hi = Math.max(...vals);
+    const range = hi - lo;
+    const mid = (lo + hi) / 2;
+
+    S.breathDepth = Math.min(1, range * 2.5);
+
+    if (range < 0.06) return; // Too still for breath
+
+    // Trend (derivative)
+    const tail = S.azHist.slice(-12);
+    let trend = 0;
+    for (let i = 1; i < tail.length; i++) trend += tail[i].z - tail[i-1].z;
+    trend /= tail.length;
+
+    const prev = S.phase;
+
+    // State machine
+    if (S.phase === 'waiting' || S.phase === 'valley') {
+        if (trend > 0.004 && S.azSmooth > lo + range * 0.25) {
+            S.phase = 'inhale';
+            S.breathStart = now;
+            onInhaleStart();
+        }
+    } else if (S.phase === 'inhale') {
+        S.breathProgress = Math.min(1, (now - S.breathStart) / (S.breathDur * 0.4));
+        if (trend < 0.001 && S.azSmooth > mid + range * 0.2) {
+            S.phase = 'peak';
+            S.lastPeakTime = now;
+        }
+    } else if (S.phase === 'peak') {
+        if (trend < -0.003) {
+            S.phase = 'exhale';
+        }
+    } else if (S.phase === 'exhale') {
+        S.breathProgress = Math.min(1, (now - S.lastPeakTime) / (S.breathDur * 0.5));
+        if (S.azSmooth < mid - range * 0.15 && trend > -0.002) {
+            S.phase = 'valley';
+            onBreathComplete(now);
+        }
+    }
+
+    // Shape voices based on current phase
+    shapeVoices(S.phase, S.breathProgress);
+
+    // Schedule drums within breath
+    if (S.drumsActive) {
+        scheduleDrums();
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// BREATH EVENTS
+// ═══════════════════════════════════════════════════════════════════════════
+
+function onInhaleStart() {
+    // New breath begins — build the ensemble
+    killVoices();
+    S.voices = buildBreathEnsemble();
+
+    // Start drums at beginning of breath
+    if (S.journey.drums) {
+        S.drumsActive = true;
+        S.drumStep = 0;
+        S.nextDrumTime = ctx.currentTime + 0.05;
+        S.drumGainNode.gain.setTargetAtTime(0.7, ctx.currentTime, 0.1);
+    }
+}
+
+function onBreathComplete(now) {
+    S.breathCount++;
+    S.chordIndex = (S.chordIndex + 1);
+
+    // Learn breath duration
+    const dur = now - S.breathStart;
+    if (dur > 1500 && dur < 12000) {
+        S.breathDurs.push(dur);
+        if (S.breathDurs.length > 8) S.breathDurs.shift();
+        S.breathDur = S.breathDurs.reduce((a, b) => a + b) / S.breathDurs.length;
+    }
+
+    // Fade drums during valley
+    if (S.drumsActive) {
+        S.drumGainNode.gain.setTargetAtTime(0, ctx.currentTime, 0.2);
+        S.drumsActive = false;
+    }
+
+    // Update journey phase
+    let newPhase = PHASES[0];
+    for (const p of PHASES) {
+        if (S.breathCount >= p.start) newPhase = p;
+    }
+    if (newPhase.name !== S.journey.name) {
+        S.journey = newPhase;
+        document.getElementById('journeyName').textContent = newPhase.name;
+    }
+
+    // Visual ring
+    S.rings.push({ birth: performance.now(), depth: S.breathDepth });
+    if (S.rings.length > 40) S.rings.shift();
+
+    // UI
+    document.getElementById('breathNum').textContent = S.breathCount;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SENSORS
+// ═══════════════════════════════════════════════════════════════════════════
+
+async function requestSensors() {
+    if (typeof DeviceMotionEvent !== 'undefined') {
+        if (typeof DeviceMotionEvent.requestPermission === 'function') {
+            try {
+                const r = await DeviceMotionEvent.requestPermission();
+                if (r === 'granted') {
+                    window.addEventListener('devicemotion', onMotion);
+                    return true;
+                }
+            } catch(e) {}
+        } else {
+            window.addEventListener('devicemotion', onMotion);
+            return true;
+        }
+    }
+    return false;
+}
+
+function onMotion(e) {
+    const a = e.accelerationIncludingGravity;
+    if (a) S.az = a.z || 0;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// VISUALIZATION
+// ═══════════════════════════════════════════════════════════════════════════
+
+let canvas, vc;
+
+function initViz() {
+    canvas = document.getElementById('c');
+    vc = canvas.getContext('2d');
+    onResize();
+    window.addEventListener('resize', onResize);
+}
+
+function onResize() {
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = window.innerWidth * dpr;
+    canvas.height = window.innerHeight * dpr;
+    canvas.style.width = window.innerWidth + 'px';
+    canvas.style.height = window.innerHeight + 'px';
+    vc.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+
+function draw() {
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    const now = performance.now();
+    const cx = w / 2;
+    const cy = h / 2;
+
+    // Slow trail fade
+    vc.fillStyle = 'rgba(2, 2, 4, 0.06)';
+    vc.fillRect(0, 0, w, h);
+
+    // Completed breath rings — expanding ripples
+    S.rings.forEach(ring => {
+        const age = (now - ring.birth) / 1000;
+        if (age > 25) return;
+        const r = 40 + age * 15;
+        const alpha = Math.max(0, 0.12 - age * 0.005) * ring.depth;
+        vc.beginPath();
+        vc.arc(cx, cy, r, 0, TAU);
+        vc.strokeStyle = `rgba(255,255,255,${alpha})`;
+        vc.lineWidth = 1;
+        vc.stroke();
+    });
+
+    // Current breath — expanding/contracting circle
+    let targetR = 40;
+    if (S.phase === 'inhale') {
+        targetR = 40 + S.breathProgress * 80;
+    } else if (S.phase === 'peak') {
+        targetR = 120 + Math.sin(now * 0.008) * 5;
+    } else if (S.phase === 'exhale') {
+        targetR = 120 - S.breathProgress * 80;
+    }
+    S.breathRadius += (targetR - S.breathRadius) * 0.08;
+
+    const bAlpha = S.phase === 'valley' || S.phase === 'waiting' ? 0.04 : 0.15 + S.breathDepth * 0.15;
+    vc.beginPath();
+    vc.arc(cx, cy, S.breathRadius, 0, TAU);
+    vc.strokeStyle = `rgba(255,255,255,${bAlpha})`;
+    vc.lineWidth = 1.5;
+    vc.stroke();
+
+    // Voice dots orbiting the breath circle
+    const nv = S.journey.voices;
+    for (let i = 0; i < nv; i++) {
+        const angle = (i / nv) * TAU + now * 0.0005;
+        const dist = S.breathRadius + 15;
+        const vx = cx + Math.cos(angle) * dist;
+        const vy = cy + Math.sin(angle) * dist;
+        const dotAlpha = S.phase === 'valley' ? 0.05 : 0.2;
+        vc.beginPath();
+        vc.arc(vx, vy, 2.5, 0, TAU);
+        vc.fillStyle = `rgba(255,255,255,${dotAlpha})`;
+        vc.fill();
+    }
+
+    // Center dot
+    const cAlpha = S.phase === 'peak' ? 0.5 : 0.1;
+    vc.beginPath();
+    vc.arc(cx, cy, 3, 0, TAU);
+    vc.fillStyle = `rgba(255,255,255,${cAlpha})`;
+    vc.fill();
+
+    // Phase indicator
+    const phaseEl = document.getElementById('phaseName');
+    if (S.phase === 'inhale') phaseEl.textContent = '↑';
+    else if (S.phase === 'peak') phaseEl.textContent = '·';
+    else if (S.phase === 'exhale') phaseEl.textContent = '↓';
+    else phaseEl.textContent = '';
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// MAIN LOOP
+// ═══════════════════════════════════════════════════════════════════════════
+
+function loop() {
+    if (!S.active) { requestAnimationFrame(loop); return; }
+    detect();
+    draw();
+    requestAnimationFrame(loop);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════════════════════════
+
+document.getElementById('begin').addEventListener('click', async function() {
+    document.getElementById('entry').classList.add('gone');
+    await requestSensors();
+    initAudio();
+    initViz();
+    S.active = true;
+    document.getElementById('journeyName').textContent = 'SOLITUDE';
+    loop();
+});
+
+})();
+</script>
+</body>
+</html>
