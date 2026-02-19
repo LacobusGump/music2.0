@@ -14,37 +14,39 @@
         html,body{width:100%;height:100%;background:#020204;overflow:hidden;touch-action:none;user-select:none;-webkit-user-select:none;font-family:-apple-system,sans-serif}
         #entry{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:100}
         #entry.gone{display:none}
+        #entry h1{font-size:10px;font-weight:300;letter-spacing:8px;color:rgba(255,255,255,.15);margin-bottom:40px}
         #entry p{font-size:11px;color:rgba(255,255,255,.25);text-align:center;line-height:2.4;max-width:260px;margin-bottom:50px}
         #entry button{width:90px;height:90px;border-radius:50%;background:0;border:1px solid rgba(255,255,255,.08);color:rgba(255,255,255,.2);font-size:9px;letter-spacing:3px;cursor:pointer;transition:.6s}
         #entry button:hover{border-color:rgba(255,255,255,.2)}
-        #entry .sub{margin-top:40px;font-size:8px;color:rgba(255,255,255,.08);letter-spacing:1px}
         canvas{position:fixed;inset:0}
         .hud{position:fixed;pointer-events:none;font-size:9px;letter-spacing:2px;color:rgba(255,255,255,.12);z-index:5}
-        #breathCount{bottom:24px;right:24px}
-        #phaseName{top:50%;left:50%;transform:translate(-50%,-50%);font-size:12px;letter-spacing:5px;color:rgba(255,255,255,.18);transition:opacity .5s}
-        #journeyName{top:24px;left:24px}
+        #stageName{top:24px;left:24px}
+        #energyBar{bottom:0;left:0;right:0;height:2px;z-index:5}
+        #energyFill{height:100%;width:0%;background:rgba(255,255,255,.2);transition:width .15s linear}
+        #notif{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);font-size:11px;letter-spacing:5px;color:rgba(255,255,255,.5);opacity:0;transition:opacity .3s;pointer-events:none;z-index:10}
+        #notif.show{opacity:1}
         #weatherInfo{top:24px;right:24px;font-size:8px;color:rgba(255,255,255,.06)}
-        #micBtn{position:fixed;bottom:24px;left:24px;width:36px;height:36px;border-radius:50%;border:1px solid rgba(255,255,255,.1);background:0;color:rgba(255,255,255,.15);font-size:8px;letter-spacing:1px;cursor:pointer;z-index:10;display:none}
+        #micBtn{position:fixed;bottom:20px;left:20px;width:36px;height:36px;border-radius:50%;border:1px solid rgba(255,255,255,.08);background:0;color:rgba(255,255,255,.12);font-size:8px;cursor:pointer;z-index:10;display:none}
         #micBtn.on{border-color:rgba(200,100,100,.3);color:rgba(200,100,100,.3)}
         #err{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:#000;color:rgba(255,255,255,.3);font-size:11px;text-align:center;z-index:999;flex-direction:column}
     </style>
 </head>
 <body>
 <div id="entry">
+    <h1>GUMP</h1>
     <p>
-        lie down<br>
-        phone on your chest<br>
-        close your eyes<br><br>
-        breathe
+        move to conduct<br>
+        tilt for expression<br>
+        touch to play<br>
+        stillness to breathe
     </p>
-    <button id="begin">BEGIN</button>
-    <div class="sub">or touch to play</div>
+    <button id="begin">AWAKEN</button>
 </div>
 <canvas id="c"></canvas>
-<div class="hud" id="breathCount"></div>
-<div class="hud" id="phaseName"></div>
-<div class="hud" id="journeyName"></div>
+<div class="hud" id="stageName"></div>
 <div class="hud" id="weatherInfo"></div>
+<div id="energyBar"><div id="energyFill"></div></div>
+<div id="notif"></div>
 <button id="micBtn">MIC</button>
 <div id="err">Failed to load audio engine.<br>Check connection and reload.</div>
 
@@ -52,45 +54,25 @@
 (function() {
 'use strict';
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// CONSTANTS
-// ═══════════════════════════════════════════════════════════════════════════════
-
 const TAU = Math.PI * 2;
-const A = 432; // A=432Hz tuning
+const A = 432;
 
-// Chord progression: Am - F - C - G - Am - Cm - Fm - Gm (semitones from A)
+// ═══════════════════════════════════════════════════════════════════════════════
+// MUSICAL DNA
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// Chord progression (semitones from A)
 const CHORDS = [
-    [0, 3, 7],      // Am  (home)
-    [5, 9, 12],     // F   (warmth)
-    [0, 4, 7],      // C   (hope - major third)
-    [7, 11, 14],    // G   (reaching)
-    [0, 3, 7],      // Am  (return)
-    [3, 7, 10],     // Cm  (shadow)
-    [5, 8, 12],     // Fm  (ache)
-    [7, 10, 14],    // Gm  (tension)
+    [0, 3, 7],      // Am
+    [5, 9, 12],     // F
+    [0, 4, 7],      // C (major third — hope)
+    [7, 11, 14],    // G
+    [0, 3, 7],      // Am
+    [3, 7, 10],     // Cm
+    [5, 8, 12],     // Fm
+    [7, 10, 14],    // Gm
 ];
 
-// Journey phases - breath count unlocks layers
-const PHASES = [
-    { name: 'SOLITUDE',    start: 0,  voices: 1, drums: false },
-    { name: 'AWAKENING',   start: 5,  voices: 2, drums: false },
-    { name: 'UNFOLDING',   start: 11, voices: 3, drums: false },
-    { name: 'SWELLING',    start: 19, voices: 4, drums: true  },
-    { name: 'FULLNESS',    start: 29, voices: 5, drums: true  },
-    { name: 'RADIANCE',    start: 41, voices: 6, drums: true  },
-    { name: 'LETTING GO',  start: 53, voices: 4, drums: true  },
-    { name: 'RETURN',      start: 63, voices: 2, drums: false },
-    { name: 'SILENCE',     start: 71, voices: 0, drums: false },
-];
-
-// Purdie shuffle pattern (16 steps)
-const KICK   = [1,0,0,0, 0,0,.5,0, .8,0,0,0, 0,0,0,0];
-const SNARE  = [0,0,0,0, 1,0,.15,.2, 0,0,.15,0, 1,0,.2,.15];
-const HATS   = [.7,.25,.5,.25, .7,.3,.5,.3, .7,.25,.5,.25, .7,.3,.5,.3];
-const SWING  = 0.18;
-
-// Scales for weather-driven melody
 const SCALES = {
     minor:      [0, 2, 3, 5, 7, 8, 10],
     major:      [0, 2, 4, 5, 7, 9, 11],
@@ -99,9 +81,26 @@ const SCALES = {
     phrygian:   [0, 1, 3, 5, 7, 8, 10],
 };
 
-function noteFreq(semitones) {
-    return A * Math.pow(2, semitones / 12);
-}
+// Purdie shuffle
+const K  = [1,0,0,0, 0,0,.5,0, .8,0,0,0, 0,0,0,0];
+const SN = [0,0,0,0, 1,0,.15,.2, 0,0,.15,0, 1,0,.2,.15];
+const HH = [.7,.25,.5,.25, .7,.3,.5,.3, .7,.25,.5,.25, .7,.3,.5,.3];
+const SWING = 0.18;
+
+// Tiers — energy unlocks layers
+const TIERS = [
+    { name: 'SILENCE',    e: 0,    voices: 0, drums: false },
+    { name: 'AWAKENING',  e: 0.02, voices: 1, drums: false },
+    { name: 'PULSE',      e: 0.08, voices: 2, drums: false },
+    { name: 'WARMTH',     e: 0.18, voices: 3, drums: false },
+    { name: 'GROOVE',     e: 0.30, voices: 3, drums: true  },
+    { name: 'SWELL',      e: 0.45, voices: 4, drums: true  },
+    { name: 'SURGE',      e: 0.60, voices: 5, drums: true  },
+    { name: 'RADIANCE',   e: 0.78, voices: 6, drums: true  },
+    { name: 'BEYOND',     e: 0.92, voices: 6, drums: true  },
+];
+
+function noteFreq(semi) { return A * Math.pow(2, semi / 12); }
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // STATE
@@ -110,155 +109,134 @@ function noteFreq(semitones) {
 const S = {
     active: false,
 
-    // Breath detection
-    az: 0,
-    azSmooth: 0,
-    azHist: [],
-    breathPhase: 'waiting',  // waiting | inhale | peak | exhale | valley
-    breathStart: 0,
-    breathDur: 4000,
-    breathDurs: [],
-    breathCount: 0,
-    breathProgress: 0,
-    breathDepth: 0,
-    lastPeakTime: 0,
-    hasSensors: false,
-
-    // Orientation
-    tiltX: 0,
-    tiltY: 0,
-    beta: 0,
-    gamma: 0,
+    // Motion
+    tiltX: 0, tiltY: 0,
+    accelX: 0, accelY: 0, accelZ: 0,
+    speed: 0,
+    energy: 0,
+    peakEnergy: 0,
+    stillness: 0,
 
     // Touch
     touching: false,
-    touchX: 0.5,
-    touchY: 0.5,
+    touchX: 0.5, touchY: 0.5,
 
-    // Derived perception
-    speed: 0,
-    energy: 0,
-    stillness: 0,
-    motionHist: [],
+    // Breath (bonus layer — detected from Z when phone is on chest)
+    azSmooth: 0, azHist: [],
+    breathPhase: 'none', breathProgress: 0, breathDepth: 0,
+    breathStart: 0, breathDur: 4000, breathDurs: [], lastPeakTime: 0,
 
     // Gesture
-    gestureBuffer: [],
-    gestureCooldown: 0,
+    gestureBuffer: [], gestureCooldown: 0,
 
-    // Journey
-    journey: PHASES[0],
+    // Musical
+    tier: TIERS[0],
     chordIndex: 0,
+    chordTimer: 0,
+    bpm: 85,
 
     // Drums
-    drumStep: 0,
-    nextDrumTime: 0,
-    drumsActive: false,
+    groovePlaying: false,
+    grooveStep: 0,
+    nextStepTime: 0,
 
     // Environment
     weatherScale: 'minor',
-    weatherTempo: 85,
     weatherReverb: 0.25,
-    micActive: false,
-    micLevel: 0,
-    micCentroid: 0,
-    ambientLight: -1,
+    micActive: false, micLevel: 0, micCentroid: 0,
 
-    // Visualization
+    // Viz
+    particles: [],
     rings: [],
-    breathRadius: 50,
+    orbs: [],
 };
 
-// Audio references
-let FX = {};   // Effects chain
-let V = {};    // Voice layers
-let DRUMS = {};
-let MELODY = null;
-let MIC = null;
+let FX = {}, V = {}, DRUMS = {}, MELODY = null, MIC = null;
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// AUDIO INITIALIZATION
+// AUDIO INIT — Tone.js effects chain
 // ═══════════════════════════════════════════════════════════════════════════════
 
 async function initAudio() {
-    // Effects chain: voices → chorus → warmth → saturation → dust → reverb → comp → master
-    const master = new Tone.Gain(0.65).toDestination();
-    const comp = new Tone.Compressor({ threshold: -18, ratio: 4, attack: 0.003, release: 0.15 }).connect(master);
+    // Chain from destination backward
+    const master = new Tone.Gain(0.7).toDestination();
 
-    const reverb = new Tone.Reverb({ decay: 3.5, wet: S.weatherReverb });
+    const limiter = new Tone.Limiter(-3).connect(master);
+
+    const comp = new Tone.Compressor({
+        threshold: -20, ratio: 4, attack: 0.003, release: 0.15
+    }).connect(limiter);
+
+    const reverb = new Tone.Reverb({ decay: 3.5, wet: 0.25 });
     reverb.connect(comp);
-    try { await reverb.generate(); } catch(e) { console.warn('Reverb generation:', e); }
+    try { await reverb.generate(); } catch(e) { console.warn('Reverb:', e); }
 
-    const dust = new Tone.Filter({ frequency: 7000, type: 'lowpass' }).connect(reverb);
+    const dust = new Tone.Filter({ frequency: 7000, type: 'lowpass', Q: 0.5 }).connect(reverb);
+
     const sat = new Tone.Distortion({ distortion: 0.12, wet: 0.15, oversample: '2x' }).connect(dust);
-    const warmth = new Tone.EQ3({ low: 4, mid: 0, high: -2 }).connect(sat);
+
+    const warmth = new Tone.EQ3({ low: 4, mid: 0, high: -2, lowFrequency: 300, highFrequency: 5000 }).connect(sat);
+
     const chorus = new Tone.Chorus({ frequency: 1.5, delayTime: 3.5, depth: 0.4, wet: 0.3 }).connect(warmth);
     chorus.start();
 
-    // Sidechain bus — all voices route through here, kick ducks it
+    // Sidechain bus for voice ducking
     const sidechain = new Tone.Gain(1).connect(chorus);
 
-    // Drum bus — bypasses chorus (drums don't need width), goes to warmth
-    const drumBus = new Tone.Gain(0).connect(warmth);
+    // Drum bus (bypasses chorus)
+    const drumBus = new Tone.Gain(0.6).connect(warmth);
 
-    FX = { master, comp, reverb, dust, sat, warmth, chorus, sidechain, drumBus };
+    // Reverb send for melody (wetter)
+    const melodySend = new Tone.Gain(0.8).connect(chorus);
 
-    // Create voices
+    FX = { master, limiter, comp, reverb, dust, sat, warmth, chorus, sidechain, drumBus, melodySend };
+
     createVoices();
-
-    // Create drums
     createDrums();
-
-    // Create melody synth
-    MELODY = new Tone.PolySynth(Tone.FMSynth);
-    MELODY.maxPolyphony = 8;
-    MELODY.set({
-        modulationIndex: 3,
-        harmonicity: 2,
-        oscillator: { type: 'sine' },
-        modulation: { type: 'triangle' },
-        envelope: { attack: 0.08, decay: 0.4, sustain: 0.15, release: 0.8 },
-        modulationEnvelope: { attack: 0.1, decay: 0.3, sustain: 0.3, release: 0.5 },
-        volume: -12
-    });
-    MELODY.connect(FX.sidechain);
+    createMelody();
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// VOICE LAYERS — FM/AM/Fat oscillators for rich, warm tones
+// VOICES — 6 layers of FM/AM/Fat synthesis
 // ═══════════════════════════════════════════════════════════════════════════════
 
-function createLayer(oscConfigs, filterFreq) {
-    const filter = new Tone.Filter({ frequency: filterFreq, type: 'lowpass', rolloff: -12 });
+function makeOsc(cfg) {
+    let osc;
+    if (cfg.type === 'fm') {
+        osc = new Tone.FMOscillator({
+            frequency: cfg.freq,
+            type: cfg.carrier || 'sine',
+            modulationType: cfg.modType || 'sine',
+            modulationIndex: cfg.modIndex || 2,
+            harmonicity: cfg.harmonicity || 1.5
+        });
+    } else if (cfg.type === 'fat') {
+        osc = new Tone.FatOscillator({
+            frequency: cfg.freq,
+            type: cfg.waveform || 'sawtooth',
+            count: cfg.count || 3,
+            spread: cfg.spread || 20
+        });
+    } else if (cfg.type === 'am') {
+        osc = new Tone.AMOscillator({
+            frequency: cfg.freq,
+            type: cfg.carrier || 'sine',
+            modulationType: cfg.modType || 'sine',
+            harmonicity: cfg.harmonicity || 2
+        });
+    }
+    if (cfg.detune) osc.detune.value = cfg.detune;
+    return osc;
+}
+
+function createLayer(configs, filterFreq, dest) {
+    const filter = new Tone.Filter({ frequency: filterFreq, type: 'lowpass', rolloff: -12, Q: 0.7 });
     const gain = new Tone.Gain(0);
     filter.connect(gain);
-    gain.connect(FX.sidechain);
+    gain.connect(dest || FX.sidechain);
 
-    const oscs = oscConfigs.map(cfg => {
-        let osc;
-        if (cfg.type === 'fm') {
-            osc = new Tone.FMOscillator({
-                frequency: cfg.freq,
-                type: cfg.carrier || 'sine',
-                modulationType: cfg.modType || 'sine',
-                modulationIndex: cfg.modIndex || 2,
-                harmonicity: cfg.harmonicity || 1.5
-            });
-        } else if (cfg.type === 'fat') {
-            osc = new Tone.FatOscillator({
-                frequency: cfg.freq,
-                type: cfg.waveform || 'sawtooth',
-                count: cfg.count || 3,
-                spread: cfg.spread || 20
-            });
-        } else if (cfg.type === 'am') {
-            osc = new Tone.AMOscillator({
-                frequency: cfg.freq,
-                type: 'sine',
-                modulationType: 'sine',
-                harmonicity: cfg.harmonicity || 2
-            });
-        }
-        if (cfg.detune) osc.detune.value = cfg.detune;
+    const oscs = configs.map(cfg => {
+        const osc = makeOsc(cfg);
         osc.connect(filter);
         osc.start();
         return osc;
@@ -268,151 +246,317 @@ function createLayer(oscConfigs, filterFreq) {
 }
 
 function createVoices() {
-    const chord = CHORDS[0];
+    const ch = CHORDS[0];
 
-    // Lead — pure FM tone, intimate, "your voice"
+    // 1. Lead — FM, warm and present
     V.lead = createLayer([
-        { type: 'fm', freq: noteFreq(chord[0]), modIndex: 0.8, harmonicity: 1.5 }
-    ], 500);
+        { type: 'fm', freq: noteFreq(ch[0]), modIndex: 1.2, harmonicity: 1.5 },
+        { type: 'fm', freq: noteFreq(ch[0]), modIndex: 0.8, harmonicity: 2, detune: 6 }
+    ], 600);
 
-    // Sub bass — deep foundation, subtle FM warmth
+    // 2. Sub — deep sine with subtle FM
     V.sub = createLayer([
-        { type: 'fm', freq: noteFreq(chord[0] - 24), modIndex: 0.3, harmonicity: 1 }
-    ], 250);
+        { type: 'fm', freq: noteFreq(ch[0] - 24), modIndex: 0.3, harmonicity: 1 },
+        { type: 'fm', freq: noteFreq(ch[0] - 24), modIndex: 0.2, harmonicity: 1, detune: 3 }
+    ], 300);
 
-    // Pad — warm FM triad, mid register, slightly detuned
-    V.pad = createLayer(chord.map((note, i) => ({
-        type: 'fm', freq: noteFreq(note - 12), carrier: 'triangle',
-        modIndex: 1.5, harmonicity: 2, detune: (i - 1) * 8
-    })), 900);
+    // 3. Pad — FM triangle triad, lush
+    V.pad = createLayer(ch.map((n, i) => ({
+        type: 'fm', freq: noteFreq(n - 12), carrier: 'triangle',
+        modType: 'sine', modIndex: 1.8, harmonicity: 2, detune: (i - 1) * 10
+    })), 1200);
 
-    // Strings — fat detuned sawtooths, upper register
-    V.strings = createLayer(chord.map(note => ({
-        type: 'fat', freq: noteFreq(note + 12), waveform: 'sawtooth', count: 3, spread: 20
-    })), 2000);
+    // 4. Strings — fat detuned saws, dreamy
+    V.strings = createLayer(ch.map(n => ({
+        type: 'fat', freq: noteFreq(n + 12), waveform: 'sawtooth', count: 3, spread: 25
+    })), 2500);
 
-    // Brass — aggressive FM, filtered
+    // 5. Brass — aggressive FM, power
     V.brass = createLayer([
-        { type: 'fm', freq: noteFreq(chord[0] + 12), carrier: 'sawtooth', modType: 'square', modIndex: 5, harmonicity: 3 },
-        { type: 'fm', freq: noteFreq(chord[2] + 12), carrier: 'sawtooth', modType: 'square', modIndex: 5, harmonicity: 3 }
-    ], 900);
+        { type: 'fm', freq: noteFreq(ch[0] + 12), carrier: 'sawtooth', modType: 'square', modIndex: 5, harmonicity: 3 },
+        { type: 'fm', freq: noteFreq(ch[2] + 12), carrier: 'sawtooth', modType: 'square', modIndex: 4, harmonicity: 3 }
+    ], 1000);
 
-    // Choir — AM oscillators for shimmer, high register
-    V.choir = createLayer(chord.map(note => ({
-        type: 'am', freq: noteFreq(note + 24), harmonicity: 2.5
+    // 6. Choir — AM shimmer, ethereal
+    V.choir = createLayer(ch.map(n => ({
+        type: 'am', freq: noteFreq(n + 24), carrier: 'sine', modType: 'sine', harmonicity: 2.5
     })), 6000);
 }
 
-function updateChordFreqs(chord) {
-    const gl = 0.5; // half-second portamento between chords
-    V.lead.oscs[0].frequency.rampTo(noteFreq(chord[0]), gl);
-    V.sub.oscs[0].frequency.rampTo(noteFreq(chord[0] - 24), gl);
-    chord.forEach((note, i) => {
-        if (V.pad.oscs[i]) V.pad.oscs[i].frequency.rampTo(noteFreq(note - 12), gl);
-        if (V.strings.oscs[i]) V.strings.oscs[i].frequency.rampTo(noteFreq(note + 12), gl);
-        if (V.choir.oscs[i]) V.choir.oscs[i].frequency.rampTo(noteFreq(note + 24), gl);
+function glideChord(chord) {
+    const t = 0.6;
+    V.lead.oscs[0].frequency.rampTo(noteFreq(chord[0]), t);
+    V.lead.oscs[1].frequency.rampTo(noteFreq(chord[0]), t);
+    V.sub.oscs[0].frequency.rampTo(noteFreq(chord[0] - 24), t);
+    V.sub.oscs[1].frequency.rampTo(noteFreq(chord[0] - 24), t);
+    chord.forEach((n, i) => {
+        if (V.pad.oscs[i]) V.pad.oscs[i].frequency.rampTo(noteFreq(n - 12), t);
+        if (V.strings.oscs[i]) V.strings.oscs[i].frequency.rampTo(noteFreq(n + 12), t);
+        if (V.choir.oscs[i]) V.choir.oscs[i].frequency.rampTo(noteFreq(n + 24), t);
     });
-    if (V.brass.oscs[0]) V.brass.oscs[0].frequency.rampTo(noteFreq(chord[0] + 12), gl);
-    if (V.brass.oscs[1]) V.brass.oscs[1].frequency.rampTo(noteFreq(chord[2] + 12), gl);
+    if (V.brass.oscs[0]) V.brass.oscs[0].frequency.rampTo(noteFreq(chord[0] + 12), t);
+    if (V.brass.oscs[1]) V.brass.oscs[1].frequency.rampTo(noteFreq(chord[2] + 12), t);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// DRUM ENGINE — Purdie shuffle with Tone.js synths
+// DRUMS — Purdie shuffle with real synth drums
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function createDrums() {
     DRUMS.kick = new Tone.MembraneSynth({
-        pitchDecay: 0.05,
-        octaves: 6,
+        pitchDecay: 0.05, octaves: 6,
         oscillator: { type: 'sine' },
-        envelope: { attack: 0.001, decay: 0.4, sustain: 0, release: 0.4 },
-        volume: -6
+        envelope: { attack: 0.001, decay: 0.45, sustain: 0, release: 0.3 },
+        volume: -4
     }).connect(FX.drumBus);
 
     DRUMS.snareBody = new Tone.MembraneSynth({
-        pitchDecay: 0.008,
-        octaves: 3,
+        pitchDecay: 0.008, octaves: 3,
         oscillator: { type: 'triangle' },
         envelope: { attack: 0.001, decay: 0.08, sustain: 0, release: 0.04 },
-        volume: -10
+        volume: -8
     }).connect(FX.drumBus);
 
-    const snareFilter = new Tone.Filter({ frequency: 3000, type: 'highpass' }).connect(FX.drumBus);
+    const sf = new Tone.Filter({ frequency: 3500, type: 'highpass' }).connect(FX.drumBus);
     DRUMS.snareNoise = new Tone.NoiseSynth({
         noise: { type: 'white' },
-        envelope: { attack: 0.001, decay: 0.12, sustain: 0, release: 0.03 },
-        volume: -8
-    }).connect(snareFilter);
+        envelope: { attack: 0.001, decay: 0.13, sustain: 0, release: 0.03 },
+        volume: -6
+    }).connect(sf);
 
     DRUMS.hat = new Tone.MetalSynth({
         frequency: 400,
         envelope: { attack: 0.001, decay: 0.04, release: 0.01 },
-        harmonicity: 5.1,
-        modulationIndex: 32,
-        resonance: 5000,
-        octaves: 1.5,
-        volume: -18
+        harmonicity: 5.1, modulationIndex: 32,
+        resonance: 5000, octaves: 1.5,
+        volume: -16
     }).connect(FX.drumBus);
 }
 
-function scheduleDrums() {
-    if (!S.journey.drums || S.breathPhase === 'valley' || S.breathPhase === 'waiting') return;
+function runGroove() {
+    if (!S.groovePlaying) return;
 
-    const breathSec = S.breathDur / 1000;
-    const stepBase = breathSec / 16;
-    const lookAhead = 0.08;
-    const intensity = 0.5 + S.breathDepth * 0.5;
-    const humanize = 0.005;
+    const stepDur = (60 / S.bpm) / 4;
+    const lookAhead = 0.1;
+    const intensity = 0.5 + S.energy * 0.5;
 
-    while (S.nextDrumTime < Tone.now() + lookAhead) {
-        const step = S.drumStep;
-        const jitter = (Math.random() - 0.5) * humanize;
-        const t = S.nextDrumTime + jitter;
+    while (S.nextStepTime < Tone.now() + lookAhead) {
+        const step = S.grooveStep;
+        const jitter = (Math.random() - 0.5) * 0.006;
+        const t = Math.max(Tone.now(), S.nextStepTime + jitter);
 
-        if (KICK[step]) {
-            DRUMS.kick.triggerAttackRelease('C1', '8n', t, KICK[step] * intensity);
-            triggerSidechain(t);
+        if (K[step]) {
+            DRUMS.kick.triggerAttackRelease('C1', '8n', t, K[step] * intensity);
+            // Sidechain pump
+            FX.sidechain.gain.cancelScheduledValues(t);
+            FX.sidechain.gain.setValueAtTime(1, t);
+            FX.sidechain.gain.linearRampToValueAtTime(0.3, t + 0.012);
+            FX.sidechain.gain.linearRampToValueAtTime(1, t + 0.12);
         }
-        if (SNARE[step]) {
-            DRUMS.snareBody.triggerAttackRelease('D3', '16n', t, SNARE[step] * intensity);
-            DRUMS.snareNoise.triggerAttackRelease('16n', t, SNARE[step] * intensity);
+        if (SN[step]) {
+            DRUMS.snareBody.triggerAttackRelease('D3', '16n', t, SN[step] * intensity);
+            DRUMS.snareNoise.triggerAttackRelease('16n', t, SN[step] * intensity);
         }
-        if (HATS[step]) {
-            DRUMS.hat.triggerAttackRelease('32n', t, HATS[step] * intensity * 0.5);
+        if (HH[step]) {
+            DRUMS.hat.triggerAttackRelease('32n', t, HH[step] * intensity * 0.6);
         }
 
-        const swing = step % 2 === 0 ? 1 + SWING : 1 - SWING;
-        S.nextDrumTime += stepBase * swing;
-        S.drumStep = (step + 1) % 16;
+        const sw = step % 2 === 0 ? 1 + SWING : 1 - SWING;
+        S.nextStepTime += stepDur * sw;
+        S.grooveStep = (step + 1) % 16;
     }
 }
 
-function triggerSidechain(time) {
-    const g = FX.sidechain.gain;
-    g.cancelScheduledValues(time);
-    g.setValueAtTime(1, time);
-    g.linearRampToValueAtTime(0.3, time + 0.012);
-    g.linearRampToValueAtTime(1, time + 0.12);
+function startGroove() {
+    if (S.groovePlaying) return;
+    S.groovePlaying = true;
+    S.nextStepTime = Tone.now() + 0.05;
+    S.grooveStep = 0;
+    notify('GROOVE');
+}
+
+function stopGroove() {
+    S.groovePlaying = false;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// BREATH DETECTION — Z-axis accelerometer state machine
+// MELODY — Touch-triggered FM notes
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function createMelody() {
+    MELODY = new Tone.PolySynth(Tone.FMSynth);
+    MELODY.maxPolyphony = 8;
+    MELODY.set({
+        modulationIndex: 3, harmonicity: 2,
+        oscillator: { type: 'sine' },
+        modulation: { type: 'triangle' },
+        envelope: { attack: 0.06, decay: 0.35, sustain: 0.12, release: 0.7 },
+        modulationEnvelope: { attack: 0.08, decay: 0.2, sustain: 0.3, release: 0.4 },
+        volume: -10
+    });
+    MELODY.connect(FX.melodySend);
+}
+
+function playNote(x, y, vel) {
+    if (!MELODY) return;
+    const scale = SCALES[S.weatherScale] || SCALES.minor;
+    const chord = CHORDS[S.chordIndex % CHORDS.length];
+    // Build playable notes from chord + scale across 3 octaves
+    const notes = [];
+    for (let oct = -1; oct <= 2; oct++) {
+        scale.forEach(s => notes.push(s + oct * 12));
+    }
+    notes.sort((a, b) => a - b);
+
+    const idx = Math.floor((1 - y) * notes.length);
+    const note = notes[Math.max(0, Math.min(idx, notes.length - 1))];
+    const freq = noteFreq(note);
+    MELODY.triggerAttackRelease(freq, 0.25 + vel * 0.2, Tone.now(), Math.min(1, vel * 0.8));
+
+    // Spawn particle
+    S.particles.push({ x: x * window.innerWidth, y: y * window.innerHeight, birth: performance.now(), vel });
+}
+
+function triggerPhrase(type) {
+    if (!MELODY) return;
+    const chord = CHORDS[S.chordIndex % CHORDS.length];
+    const base = chord[0];
+    const now = Tone.now();
+
+    if (type === 'SHAKE') {
+        for (let i = 0; i < 8; i++) {
+            const semi = i % 2 === 0 ? base : base + 3;
+            MELODY.triggerAttackRelease(noteFreq(semi + (i < 4 ? 0 : 12)), 0.05, now + i * 0.06, 0.5);
+        }
+        notify('TRILL');
+    } else if (type === 'SWIPE_UP') {
+        chord.forEach((n, i) => {
+            MELODY.triggerAttackRelease(noteFreq(n + 12), 0.2, now + i * 0.1, 0.6 - i * 0.1);
+        });
+        // Extra octave note
+        MELODY.triggerAttackRelease(noteFreq(chord[0] + 24), 0.3, now + chord.length * 0.1, 0.4);
+        notify('RISE');
+    } else if (type === 'SWIPE_DOWN') {
+        const reversed = [...chord].reverse();
+        reversed.forEach((n, i) => {
+            MELODY.triggerAttackRelease(noteFreq(n + 12), 0.2, now + i * 0.1, 0.6 - i * 0.1);
+        });
+        MELODY.triggerAttackRelease(noteFreq(chord[0] - 12), 0.4, now + reversed.length * 0.1, 0.4);
+        notify('FALL');
+    } else if (type === 'HOLD') {
+        // Full chord swell
+        chord.forEach((n, i) => {
+            MELODY.triggerAttackRelease(noteFreq(n), 2.5, now + i * 0.04, 0.3);
+            MELODY.triggerAttackRelease(noteFreq(n + 12), 2.5, now + i * 0.04 + 0.02, 0.2);
+        });
+        notify('SWELL');
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// VOICE SHAPING — Energy drives layers, tilt drives expression
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function shapeVoices() {
+    const e = S.energy;
+    const tier = S.tier;
+    const brightness = (S.tiltY + 1) * 0.5; // 0 to 1
+
+    // Each layer: target volume, filter cutoff
+    const layers = [
+        { name: 'lead',    minVoices: 1, vol: 0.13, baseCut: 600,  maxCut: 4000 },
+        { name: 'sub',     minVoices: 2, vol: 0.16, baseCut: 200,  maxCut: 600  },
+        { name: 'pad',     minVoices: 3, vol: 0.07, baseCut: 400,  maxCut: 2500 },
+        { name: 'strings', minVoices: 4, vol: 0.05, baseCut: 600,  maxCut: 4000 },
+        { name: 'brass',   minVoices: 5, vol: 0.04, baseCut: 400,  maxCut: 2500 },
+        { name: 'choir',   minVoices: 6, vol: 0.03, baseCut: 1000, maxCut: 7000 },
+    ];
+
+    layers.forEach(({ name, minVoices, vol, baseCut, maxCut }) => {
+        const layer = V[name];
+        if (!layer) return;
+
+        let amp, cutoff;
+        if (tier.voices < minVoices) {
+            amp = 0;
+            cutoff = baseCut;
+        } else {
+            // Smooth entry: ramp from 0 to full over the transition zone
+            const headroom = Math.min(1, (e - (tier.e || 0)) * 5);
+            amp = vol * headroom;
+            cutoff = baseCut + (maxCut - baseCut) * brightness * headroom;
+
+            // Breath modulation if detected
+            if (S.breathPhase === 'inhale') {
+                amp *= 0.3 + S.breathProgress * 0.7;
+                cutoff *= 0.5 + S.breathProgress * 0.5;
+            } else if (S.breathPhase === 'exhale') {
+                const ease = 1 - S.breathProgress * S.breathProgress;
+                amp *= Math.max(0.2, ease);
+                cutoff *= Math.max(0.3, ease);
+            } else if (S.breathPhase === 'peak') {
+                // Full open
+            }
+        }
+
+        // Mic influence
+        if (S.micActive && S.micCentroid > 0.1) {
+            cutoff += S.micCentroid * 600;
+        }
+
+        cutoff = Math.max(150, Math.min(8000, cutoff));
+        layer.gain.gain.rampTo(amp, 0.12);
+        layer.filter.frequency.rampTo(cutoff, 0.12);
+    });
+
+    // Lead pitch expression: tilt X bends pitch subtly
+    if (V.lead && V.lead.oscs[0]) {
+        V.lead.oscs[0].detune.rampTo(S.tiltX * 30, 0.15);
+    }
+
+    // Reverb evolves with energy
+    const reverbWet = S.weatherReverb + e * 0.15;
+    FX.reverb.wet.rampTo(Math.min(0.5, reverbWet), 0.3);
+
+    // Dust filter opens with energy
+    FX.dust.frequency.rampTo(5000 + e * 3000 + brightness * 2000, 0.2);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// TIER SYSTEM — Energy unlocks layers and groove
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function updateTier() {
+    let newTier = TIERS[0];
+    for (const t of TIERS) {
+        if (S.energy >= t.e) newTier = t;
+    }
+
+    if (newTier.name !== S.tier.name) {
+        S.tier = newTier;
+        document.getElementById('stageName').textContent = newTier.name;
+        if (newTier.name !== 'SILENCE') notify(newTier.name);
+
+        if (newTier.drums && !S.groovePlaying) startGroove();
+        if (!newTier.drums && S.groovePlaying) stopGroove();
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// CHORD PROGRESSION — Auto-advances with time/energy
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function advanceChord() {
+    S.chordIndex++;
+    glideChord(CHORDS[S.chordIndex % CHORDS.length]);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// BREATH DETECTION — Bonus layer from accelerometer Z
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function detectBreath() {
-    if (!S.hasSensors) {
-        // Desktop fallback: energy-based progression
-        if (S.touching) {
-            S.energy = Math.min(1, S.energy + 0.003);
-        } else {
-            S.energy *= 0.998;
-        }
-        updateJourneyByEnergy();
-        shapeVoicesByEnergy();
-        return;
-    }
-
-    const z = S.az;
+    const z = S.accelZ;
     const now = performance.now();
 
     S.azSmooth = S.azSmooth * 0.82 + z * 0.18;
@@ -420,7 +564,6 @@ function detectBreath() {
     if (S.azHist.length > 300) S.azHist = S.azHist.slice(-200);
     if (S.azHist.length < 30) return;
 
-    // Range in recent window
     const win = S.azHist.slice(-80);
     const vals = win.map(h => h.z);
     const lo = Math.min(...vals);
@@ -429,20 +572,17 @@ function detectBreath() {
     const mid = (lo + hi) / 2;
     S.breathDepth = Math.min(1, range * 2.5);
 
-    if (range < 0.06) return;
+    if (range < 0.08) { S.breathPhase = 'none'; return; }
 
-    // Trend (derivative)
     const tail = S.azHist.slice(-12);
     let trend = 0;
     for (let i = 1; i < tail.length; i++) trend += tail[i].z - tail[i - 1].z;
     trend /= tail.length;
 
-    // State machine
-    if (S.breathPhase === 'waiting' || S.breathPhase === 'valley') {
+    if (S.breathPhase === 'none' || S.breathPhase === 'valley') {
         if (trend > 0.004 && S.azSmooth > lo + range * 0.25) {
             S.breathPhase = 'inhale';
             S.breathStart = now;
-            onInhaleStart();
         }
     } else if (S.breathPhase === 'inhale') {
         S.breathProgress = Math.min(1, (now - S.breathStart) / (S.breathDur * 0.4));
@@ -451,204 +591,31 @@ function detectBreath() {
             S.lastPeakTime = now;
         }
     } else if (S.breathPhase === 'peak') {
-        if (trend < -0.003) {
-            S.breathPhase = 'exhale';
-        }
+        if (trend < -0.003) S.breathPhase = 'exhale';
     } else if (S.breathPhase === 'exhale') {
         S.breathProgress = Math.min(1, (now - S.lastPeakTime) / (S.breathDur * 0.5));
         if (S.azSmooth < mid - range * 0.15 && trend > -0.002) {
             S.breathPhase = 'valley';
-            onBreathComplete(now);
+            // Learn duration
+            const dur = now - S.breathStart;
+            if (dur > 1500 && dur < 12000) {
+                S.breathDurs.push(dur);
+                if (S.breathDurs.length > 8) S.breathDurs.shift();
+                S.breathDur = S.breathDurs.reduce((a, b) => a + b) / S.breathDurs.length;
+            }
+            // Breath also adds energy
+            S.energy = Math.min(1, S.energy + 0.03 + S.breathDepth * 0.04);
+            // Advance chord on deep breaths
+            if (S.breathDepth > 0.3) advanceChord();
+            // Ring
+            S.rings.push({ birth: performance.now(), depth: S.breathDepth });
+            if (S.rings.length > 40) S.rings.shift();
         }
     }
-
-    shapeVoices();
-    if (S.drumsActive) scheduleDrums();
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// BREATH EVENTS
-// ═══════════════════════════════════════════════════════════════════════════════
-
-function onInhaleStart() {
-    if (S.journey.drums) {
-        S.drumsActive = true;
-        S.drumStep = 0;
-        S.nextDrumTime = Tone.now() + 0.05;
-        FX.drumBus.gain.rampTo(0.7, 0.1);
-    }
-}
-
-function onBreathComplete(now) {
-    S.breathCount++;
-    S.chordIndex++;
-    S.breathProgress = 0;
-
-    // Learn breath duration
-    const dur = now - S.breathStart;
-    if (dur > 1500 && dur < 12000) {
-        S.breathDurs.push(dur);
-        if (S.breathDurs.length > 8) S.breathDurs.shift();
-        S.breathDur = S.breathDurs.reduce((a, b) => a + b) / S.breathDurs.length;
-    }
-
-    // Fade drums during valley
-    if (S.drumsActive) {
-        FX.drumBus.gain.rampTo(0, 0.3);
-        S.drumsActive = false;
-    }
-
-    // Update chord (smooth portamento)
-    const newChord = CHORDS[S.chordIndex % CHORDS.length];
-    updateChordFreqs(newChord);
-
-    // Update journey phase
-    let newPhase = PHASES[0];
-    for (const p of PHASES) {
-        if (S.breathCount >= p.start) newPhase = p;
-    }
-    if (newPhase.name !== S.journey.name) {
-        S.journey = newPhase;
-        document.getElementById('journeyName').textContent = newPhase.name;
-        // Evolve reverb with journey
-        const reverbWet = newPhase.voices >= 5 ? 0.35 : newPhase.voices >= 3 ? 0.28 : 0.2;
-        FX.reverb.wet.rampTo(reverbWet, 1);
-    }
-
-    // Visual ring
-    S.rings.push({ birth: performance.now(), depth: S.breathDepth });
-    if (S.rings.length > 40) S.rings.shift();
-
-    document.getElementById('breathCount').textContent = S.breathCount;
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// VOICE SHAPING — Breath envelope controls all layers
-// ═══════════════════════════════════════════════════════════════════════════════
-
-function shapeVoices() {
-    const phase = S.breathPhase;
-    const prog = S.breathProgress;
-    const jPhase = S.journey;
-
-    // Target volumes per layer based on journey phase
-    const targets = {
-        lead:    jPhase.voices >= 1 ? 0.14 : 0,
-        sub:     jPhase.voices >= 2 ? 0.18 : 0,
-        pad:     jPhase.voices >= 3 ? 0.07 : 0,
-        strings: jPhase.voices >= 4 ? 0.05 : 0,
-        brass:   jPhase.voices >= 5 ? 0.04 : 0,
-        choir:   jPhase.voices >= 6 ? 0.03 : 0,
-    };
-
-    // Tilt expression: orientation modulates brightness
-    const brightness = S.tiltY * 0.5 + 0.5; // 0 to 1
-
-    Object.entries(targets).forEach(([name, vol]) => {
-        const layer = V[name];
-        if (!layer) return;
-
-        let amp = 0;
-        let cutoff = 400;
-
-        if (vol === 0) {
-            amp = 0;
-            cutoff = 300;
-        } else if (phase === 'inhale') {
-            // Build: amplitude and brightness rise
-            amp = vol * (0.15 + prog * 0.85);
-            cutoff = 400 + prog * 3500;
-        } else if (phase === 'peak') {
-            // Full expression
-            amp = vol;
-            cutoff = 4000;
-        } else if (phase === 'exhale') {
-            // Resolve: quadratic ease-out
-            const ease = 1 - prog * prog;
-            amp = vol * Math.max(0.05, ease);
-            cutoff = 4000 - prog * 3200;
-        } else {
-            // Valley/waiting: quiet hum
-            amp = vol * 0.04;
-            cutoff = 350;
-        }
-
-        // Tilt opens filter
-        cutoff *= (0.7 + brightness * 0.6);
-        cutoff = Math.max(200, Math.min(8000, cutoff));
-
-        // Mic influence: ambient sound opens resonance slightly
-        if (S.micActive && S.micCentroid > 0) {
-            cutoff += S.micCentroid * 500;
-        }
-
-        layer.gain.gain.rampTo(amp, 0.08);
-        layer.filter.frequency.rampTo(cutoff, 0.08);
-    });
-
-    // Pitch bend on lead: tension on inhale, resolve on exhale
-    if (V.lead && V.lead.oscs[0]) {
-        let detune = 0;
-        if (phase === 'inhale') detune = prog * 20;
-        else if (phase === 'exhale') detune = 20 * (1 - prog);
-        V.lead.oscs[0].detune.rampTo(detune, 0.1);
-    }
-}
-
-// Desktop fallback: energy drives voices instead of breath
-function shapeVoicesByEnergy() {
-    const e = S.energy;
-    // Map energy to journey-like progression
-    const brightness = S.tiltY * 0.5 + 0.5;
-
-    const layers = [
-        { name: 'lead',    threshold: 0,    vol: 0.14 },
-        { name: 'sub',     threshold: 0.05, vol: 0.18 },
-        { name: 'pad',     threshold: 0.15, vol: 0.07 },
-        { name: 'strings', threshold: 0.30, vol: 0.05 },
-        { name: 'brass',   threshold: 0.50, vol: 0.04 },
-        { name: 'choir',   threshold: 0.70, vol: 0.03 },
-    ];
-
-    layers.forEach(({ name, threshold, vol }) => {
-        const layer = V[name];
-        if (!layer) return;
-        const amp = e >= threshold ? vol * Math.min(1, (e - threshold) * 4) : 0;
-        const cutoff = 400 + e * 4000 * (0.7 + brightness * 0.6);
-        layer.gain.gain.rampTo(amp, 0.15);
-        layer.filter.frequency.rampTo(Math.max(200, Math.min(8000, cutoff)), 0.15);
-    });
-
-    // Start groove at energy > 0.3
-    if (e > 0.3 && !S.drumsActive) {
-        S.drumsActive = true;
-        S.drumStep = 0;
-        S.nextDrumTime = Tone.now() + 0.05;
-        FX.drumBus.gain.rampTo(0.7, 0.3);
-        S.journey = PHASES.find(p => p.drums) || S.journey;
-    }
-    if (e < 0.1 && S.drumsActive) {
-        S.drumsActive = false;
-        FX.drumBus.gain.rampTo(0, 0.5);
-    }
-    if (S.drumsActive) scheduleDrums();
-}
-
-function updateJourneyByEnergy() {
-    const e = S.energy;
-    let best = PHASES[0];
-    const thresholds = [0, 0.05, 0.15, 0.30, 0.50, 0.70, 0.90, 0.95, 1.1];
-    for (let i = 0; i < PHASES.length; i++) {
-        if (e >= (thresholds[i] || 0)) best = PHASES[i];
-    }
-    if (best.name !== S.journey.name) {
-        S.journey = best;
-        document.getElementById('journeyName').textContent = best.name;
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// GESTURE DETECTION — Touch triggers musical phrases
+// GESTURE DETECTION
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function detectGesture() {
@@ -658,14 +625,11 @@ function detectGesture() {
 
     let totalSpeed = 0, dirChanges = 0, netX = 0, netY = 0;
     for (let i = 1; i < buf.length; i++) {
-        const dx = buf[i].x - buf[i-1].x;
-        const dy = buf[i].y - buf[i-1].y;
+        const dx = buf[i].x - buf[i-1].x, dy = buf[i].y - buf[i-1].y;
         totalSpeed += Math.sqrt(dx*dx + dy*dy);
         netX += dx; netY += dy;
         if (i > 1) {
-            const pdx = buf[i-1].x - buf[i-2].x;
-            const pdy = buf[i-1].y - buf[i-2].y;
-            if (dx * pdx < 0 || dy * pdy < 0) dirChanges++;
+            if (dx * (buf[i-1].x - buf[i-2].x) < 0 || dy * (buf[i-1].y - buf[i-2].y) < 0) dirChanges++;
         }
     }
     const avg = totalSpeed / buf.length;
@@ -674,183 +638,125 @@ function detectGesture() {
         triggerPhrase('SHAKE'); S.gestureCooldown = 30;
     } else if (avg > 0.02 && Math.abs(netY) > 0.2) {
         triggerPhrase(netY < 0 ? 'SWIPE_UP' : 'SWIPE_DOWN'); S.gestureCooldown = 20;
-    } else if (avg < 0.005 && S.stillness > 60) {
-        triggerPhrase('HOLD'); S.gestureCooldown = 120;
+    } else if (avg < 0.003 && S.stillness > 80 && S.energy > 0.1) {
+        triggerPhrase('HOLD'); S.gestureCooldown = 150;
     }
-}
-
-function triggerPhrase(type) {
-    if (!MELODY) return;
-    const scale = SCALES[S.weatherScale] || SCALES.minor;
-    const chord = CHORDS[S.chordIndex % CHORDS.length];
-    const baseNote = chord[0];
-    const baseFreq = noteFreq(baseNote);
-    const now = Tone.now();
-
-    if (type === 'SHAKE') {
-        for (let i = 0; i < 6; i++) {
-            const f = baseFreq * (i % 2 === 0 ? 1 : Math.pow(2, scale[2]/12));
-            MELODY.triggerAttackRelease(f, 0.06, now + i * 0.08, 0.5);
-        }
-    } else if (type === 'SWIPE_UP') {
-        for (let i = 0; i < 4; i++) {
-            const note = scale[Math.min(i * 2, scale.length - 1)];
-            MELODY.triggerAttackRelease(noteFreq(baseNote + note), 0.15, now + i * 0.12, 0.55 - i * 0.08);
-        }
-    } else if (type === 'SWIPE_DOWN') {
-        for (let i = 0; i < 4; i++) {
-            const note = scale[Math.min(i * 2, scale.length - 1)];
-            MELODY.triggerAttackRelease(noteFreq(baseNote + 12 - note), 0.15, now + i * 0.12, 0.55 - i * 0.08);
-        }
-    } else if (type === 'HOLD') {
-        chord.forEach((semitone, i) => {
-            MELODY.triggerAttackRelease(noteFreq(semitone + 12), 2.0, now + i * 0.05, 0.3);
-        });
-    }
-}
-
-function playTouchNote(x, y, vel) {
-    if (!MELODY) return;
-    const scale = SCALES[S.weatherScale] || SCALES.minor;
-    const octave = 1 + Math.floor(x * 3);
-    const idx = Math.floor((1 - y) * scale.length);
-    const note = scale[Math.max(0, Math.min(idx, scale.length - 1))];
-    const freq = noteFreq(note + octave * 12);
-    MELODY.triggerAttackRelease(freq, 0.25, Tone.now(), Math.min(1, vel));
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// INPUT HANDLERS — Sensors, touch, mouse
+// INPUT HANDLERS
 // ═══════════════════════════════════════════════════════════════════════════════
 
 async function requestSensors() {
-    let granted = false;
-    // Motion (accelerometer)
     if (typeof DeviceMotionEvent !== 'undefined') {
         if (typeof DeviceMotionEvent.requestPermission === 'function') {
             try {
                 const r = await DeviceMotionEvent.requestPermission();
-                if (r === 'granted') {
-                    window.addEventListener('devicemotion', onMotion);
-                    granted = true;
-                }
+                if (r === 'granted') window.addEventListener('devicemotion', onMotion);
             } catch(e) {}
-        } else {
-            window.addEventListener('devicemotion', onMotion);
-            granted = true;
-        }
+        } else { window.addEventListener('devicemotion', onMotion); }
     }
-    // Orientation
     if (typeof DeviceOrientationEvent !== 'undefined') {
         if (typeof DeviceOrientationEvent.requestPermission === 'function') {
             try {
                 const r = await DeviceOrientationEvent.requestPermission();
                 if (r === 'granted') window.addEventListener('deviceorientation', onOrientation);
             } catch(e) {}
-        } else {
-            window.addEventListener('deviceorientation', onOrientation);
-        }
+        } else { window.addEventListener('deviceorientation', onOrientation); }
     }
-    S.hasSensors = granted;
 }
 
 function onMotion(e) {
     const a = e.accelerationIncludingGravity;
-    if (a) {
-        S.az = a.z || 0;
-        const motion = Math.sqrt((a.x||0)**2 + (a.y||0)**2 + (a.z||0)**2) / 10;
-        S.speed = S.speed * 0.8 + Math.min(1, motion * 0.5) * 0.2;
-    }
+    if (!a) return;
+    S.accelX = a.x || 0; S.accelY = a.y || 0; S.accelZ = a.z || 0;
+    const motion = Math.sqrt(S.accelX**2 + S.accelY**2 + S.accelZ**2);
+    const deviation = Math.abs(motion - 9.8);
+    S.speed = S.speed * 0.75 + Math.min(1, deviation * 0.4) * 0.25;
 }
 
 function onOrientation(e) {
-    S.beta = e.beta || 0;
-    S.gamma = e.gamma || 0;
     S.tiltX = Math.max(-1, Math.min(1, (e.gamma || 0) / 45));
     S.tiltY = Math.max(-1, Math.min(1, ((e.beta || 45) - 45) / 45));
 }
 
 function setupTouch() {
+    const onDown = (x, y) => {
+        S.touching = true;
+        S.touchX = x; S.touchY = y;
+        S.tiltX = (x - 0.5) * 2;
+        S.tiltY = (y - 0.5) * 2;
+        playNote(x, y, 0.65);
+        S.energy = Math.min(1, S.energy + 0.05);
+    };
+
+    const onMove = (x, y) => {
+        if (!S.touching) return;
+        const dist = Math.sqrt((x - S.touchX)**2 + (y - S.touchY)**2);
+        if (dist > 0.012) {
+            playNote(x, y, 0.3 + Math.min(1, dist * 5));
+            S.energy = Math.min(1, S.energy + dist * 0.8);
+            S.speed = S.speed * 0.6 + dist * 15 * 0.4;
+        }
+        S.touchX = x; S.touchY = y;
+        S.tiltX = (x - 0.5) * 2;
+        S.tiltY = (y - 0.5) * 2;
+    };
+
     document.addEventListener('touchstart', (e) => {
         e.preventDefault();
-        S.touching = true;
         const t = e.touches[0];
-        S.touchX = t.clientX / window.innerWidth;
-        S.touchY = t.clientY / window.innerHeight;
-        if (!S.hasSensors) {
-            S.tiltX = (S.touchX - 0.5) * 2;
-            S.tiltY = (S.touchY - 0.5) * 2;
-        }
-        playTouchNote(S.touchX, S.touchY, 0.6);
-        S.energy = Math.min(1, S.energy + 0.04);
+        onDown(t.clientX / window.innerWidth, t.clientY / window.innerHeight);
     }, { passive: false });
 
     document.addEventListener('touchmove', (e) => {
         e.preventDefault();
-        if (!S.touching) return;
         const t = e.touches[0];
-        const nx = t.clientX / window.innerWidth;
-        const ny = t.clientY / window.innerHeight;
-        const dist = Math.sqrt((nx-S.touchX)**2 + (ny-S.touchY)**2);
-        if (dist > 0.015) {
-            playTouchNote(nx, ny, 0.3 + dist * 3);
-            S.energy = Math.min(1, S.energy + dist * 0.5);
-        }
-        S.touchX = nx; S.touchY = ny;
-        if (!S.hasSensors) {
-            S.tiltX = (nx - 0.5) * 2;
-            S.tiltY = (ny - 0.5) * 2;
-        }
+        onMove(t.clientX / window.innerWidth, t.clientY / window.innerHeight);
     }, { passive: false });
 
-    document.addEventListener('touchend', (e) => {
-        e.preventDefault();
-        S.touching = false;
-    }, { passive: false });
+    document.addEventListener('touchend', (e) => { e.preventDefault(); S.touching = false; }, { passive: false });
 
-    // Mouse fallback
     document.addEventListener('mousedown', (e) => {
-        S.touching = true;
-        S.touchX = e.clientX / window.innerWidth;
-        S.touchY = e.clientY / window.innerHeight;
-        S.tiltX = (S.touchX - 0.5) * 2;
-        S.tiltY = (S.touchY - 0.5) * 2;
-        playTouchNote(S.touchX, S.touchY, 0.6);
-        S.energy = Math.min(1, S.energy + 0.04);
+        onDown(e.clientX / window.innerWidth, e.clientY / window.innerHeight);
     });
     document.addEventListener('mousemove', (e) => {
-        if (!S.touching) return;
-        const nx = e.clientX / window.innerWidth;
-        const ny = e.clientY / window.innerHeight;
-        const dist = Math.sqrt((nx-S.touchX)**2 + (ny-S.touchY)**2);
-        if (dist > 0.01) {
-            playTouchNote(nx, ny, 0.3 + dist * 3);
-            S.energy = Math.min(1, S.energy + dist * 0.5);
-        }
-        S.touchX = nx; S.touchY = ny;
-        S.tiltX = (nx - 0.5) * 2;
-        S.tiltY = (ny - 0.5) * 2;
-        S.speed = S.speed * 0.7 + dist * 10 * 0.3;
+        onMove(e.clientX / window.innerWidth, e.clientY / window.innerHeight);
     });
     document.addEventListener('mouseup', () => { S.touching = false; });
-
-    // Gesture buffer
-    setInterval(() => {
-        S.gestureBuffer.push({ x: S.tiltX, y: S.tiltY, speed: S.speed, time: performance.now() });
-        if (S.gestureBuffer.length > 30) S.gestureBuffer.shift();
-        detectGesture();
-    }, 50);
-
-    // Stillness counter
-    setInterval(() => {
-        if (S.speed < 0.02) S.stillness++;
-        else S.stillness = 0;
-    }, 100);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// ENVIRONMENT — Microphone, weather, ambient light
+// ENVIRONMENT — Weather, Microphone, Light
 // ═══════════════════════════════════════════════════════════════════════════════
+
+function fetchWeather() {
+    if (!navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(async (pos) => {
+        try {
+            const { latitude, longitude } = pos.coords;
+            const resp = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=temperature_2m,weathercode`);
+            const data = await resp.json();
+            const temp = data.current.temperature_2m;
+            const code = data.current.weathercode;
+
+            if (temp < 10) { S.weatherScale = 'minor'; S.bpm = 75; }
+            else if (temp < 25) { S.weatherScale = 'mixolydian'; S.bpm = 85; }
+            else { S.weatherScale = 'major'; S.bpm = 95; }
+
+            if (code >= 51 && code <= 82) { S.weatherReverb = 0.35; S.weatherScale = 'minor'; }
+            else if (code >= 71 && code <= 77) { S.weatherReverb = 0.4; S.weatherScale = 'dorian'; }
+            else if (code >= 95) { S.weatherScale = 'phrygian'; }
+            else if (code >= 45 && code <= 48) { S.weatherReverb = 0.38; S.weatherScale = 'dorian'; }
+
+            FX.reverb.wet.rampTo(S.weatherReverb, 2);
+
+            const cond = code === 0 ? 'clear' : code <= 3 ? 'cloudy' :
+                code <= 48 ? 'fog' : code <= 67 ? 'rain' : code <= 77 ? 'snow' : 'storm';
+            document.getElementById('weatherInfo').textContent = `${Math.round(temp)}° ${cond}`;
+        } catch(e) {}
+    }, () => {}, { timeout: 5000 });
+}
 
 async function initMicrophone() {
     if (S.micActive) return;
@@ -862,96 +768,18 @@ async function initMicrophone() {
         S.micActive = true;
         document.getElementById('micBtn').classList.add('on');
 
-        // Periodically read mic spectrum
         setInterval(() => {
             if (!S.micActive) return;
-            const spectrum = analyser.getValue();
-            // Calculate amplitude
-            let sum = 0, weightedSum = 0, totalPower = 0;
-            for (let i = 0; i < spectrum.length; i++) {
-                const power = Math.pow(10, spectrum[i] / 20);
-                sum += power;
-                weightedSum += power * i;
-                totalPower += power;
+            const sp = analyser.getValue();
+            let sum = 0, wSum = 0, tPow = 0;
+            for (let i = 0; i < sp.length; i++) {
+                const p = Math.pow(10, sp[i] / 20);
+                sum += p; wSum += p * i; tPow += p;
             }
-            S.micLevel = Math.min(1, sum / spectrum.length * 10);
-            S.micCentroid = totalPower > 0 ? (weightedSum / totalPower) / spectrum.length : 0;
-
-            // Mic level influences reverb wetness
-            const targetWet = S.weatherReverb + S.micLevel * 0.15;
-            FX.reverb.wet.rampTo(Math.min(0.5, targetWet), 0.5);
+            S.micLevel = Math.min(1, sum / sp.length * 10);
+            S.micCentroid = tPow > 0 ? (wSum / tPow) / sp.length : 0;
         }, 100);
-    } catch(e) {
-        console.log('Mic access denied');
-    }
-}
-
-function fetchWeather() {
-    if (!navigator.geolocation) return;
-    navigator.geolocation.getCurrentPosition(async (pos) => {
-        try {
-            const { latitude, longitude } = pos.coords;
-            const url = `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=temperature_2m,weathercode`;
-            const resp = await fetch(url);
-            const data = await resp.json();
-            const temp = data.current.temperature_2m;
-            const code = data.current.weathercode;
-
-            // Temperature -> tempo and scale
-            if (temp < 10) {
-                S.weatherScale = 'minor';
-                S.weatherTempo = 75;
-            } else if (temp < 25) {
-                S.weatherScale = 'mixolydian';
-                S.weatherTempo = 85;
-            } else {
-                S.weatherScale = 'major';
-                S.weatherTempo = 95;
-            }
-
-            // Weather code -> reverb and character
-            if (code >= 51 && code <= 82) {
-                // Rain/drizzle: more reverb, softer
-                S.weatherReverb = 0.35;
-                S.weatherScale = 'minor';
-            } else if (code >= 71 && code <= 77) {
-                // Snow: ethereal
-                S.weatherReverb = 0.4;
-                S.weatherScale = 'dorian';
-            } else if (code >= 95) {
-                // Thunderstorm: dramatic
-                S.weatherScale = 'phrygian';
-                S.weatherReverb = 0.3;
-            } else if (code >= 45 && code <= 48) {
-                // Fog: mysterious
-                S.weatherReverb = 0.38;
-                S.weatherScale = 'dorian';
-            } else if (code === 0) {
-                // Clear
-                S.weatherReverb = 0.22;
-            }
-
-            FX.reverb.wet.rampTo(S.weatherReverb, 2);
-
-            const conditions = code === 0 ? 'clear' : code <= 3 ? 'cloudy' :
-                code <= 48 ? 'fog' : code <= 67 ? 'rain' : code <= 77 ? 'snow' : 'storm';
-            document.getElementById('weatherInfo').textContent = `${Math.round(temp)}° ${conditions}`;
-        } catch(e) {
-            console.log('Weather fetch failed:', e);
-        }
-    }, () => {}, { timeout: 5000 });
-}
-
-function initAmbientLight() {
-    try {
-        if ('AmbientLightSensor' in window) {
-            const sensor = new AmbientLightSensor();
-            sensor.addEventListener('reading', () => {
-                S.ambientLight = Math.min(1, sensor.illuminance / 500);
-            });
-            sensor.start();
-        }
-    } catch(e) {}
+    } catch(e) { console.log('Mic denied'); }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -977,113 +805,165 @@ function onResize() {
 }
 
 function draw() {
-    const w = window.innerWidth;
-    const h = window.innerHeight;
+    const w = window.innerWidth, h = window.innerHeight;
     const now = performance.now();
-    const cx = w / 2;
-    const cy = h / 2;
+    const cx = w / 2 + S.tiltX * w * 0.15;
+    const cy = h / 2 + S.tiltY * h * 0.15;
+    const e = S.energy;
+    const tierIdx = TIERS.indexOf(S.tier);
+    const hue = 210 + tierIdx * 12;
 
-    // Slow trail fade
-    vc.fillStyle = 'rgba(2, 2, 4, 0.06)';
+    // Fade
+    vc.fillStyle = `rgba(2, 2, 4, ${0.08 + (1 - e) * 0.04})`;
     vc.fillRect(0, 0, w, h);
 
-    // Journey phase color
-    const phaseIdx = PHASES.indexOf(S.journey);
-    const hue = 200 + phaseIdx * 15; // Cool blue → warm gold at radiance
-    const sat = S.journey.voices >= 5 ? 40 : 20;
-
-    // Completed breath rings
+    // Breath rings
     S.rings.forEach(ring => {
         const age = (now - ring.birth) / 1000;
-        if (age > 25) return;
-        const r = 40 + age * 15;
-        const alpha = Math.max(0, 0.12 - age * 0.005) * ring.depth;
+        if (age > 20) return;
+        const r = 30 + age * 18;
+        const alpha = Math.max(0, 0.15 - age * 0.008) * ring.depth;
         vc.beginPath();
         vc.arc(cx, cy, r, 0, TAU);
-        vc.strokeStyle = `hsla(${hue}, ${sat}%, 60%, ${alpha})`;
+        vc.strokeStyle = `hsla(${hue}, 30%, 55%, ${alpha})`;
         vc.lineWidth = 1;
         vc.stroke();
     });
 
-    // Current breath circle
-    let targetR = 40;
-    if (S.breathPhase === 'inhale') targetR = 40 + S.breathProgress * 80;
-    else if (S.breathPhase === 'peak') targetR = 120 + Math.sin(now * 0.008) * 5;
-    else if (S.breathPhase === 'exhale') targetR = 120 - S.breathProgress * 80;
+    // Energy rings
+    const numRings = Math.min(6, S.tier.voices);
+    for (let i = 0; i < numRings; i++) {
+        const r = 35 + i * 35 + Math.sin(now * 0.001 + i) * 5;
+        const alpha = 0.04 + e * 0.12;
+        vc.beginPath();
+        vc.arc(cx, cy, r, 0, TAU);
+        vc.strokeStyle = `hsla(${hue + i * 18}, ${25 + e * 30}%, ${45 + e * 15}%, ${alpha})`;
+        vc.lineWidth = 1 + e;
+        vc.stroke();
+    }
 
-    // Desktop: energy-based radius
-    if (!S.hasSensors) targetR = 40 + S.energy * 100;
-
-    S.breathRadius += (targetR - S.breathRadius) * 0.08;
-
-    const bAlpha = (S.breathPhase === 'valley' || S.breathPhase === 'waiting') && S.hasSensors
-        ? 0.04 : 0.12 + S.breathDepth * 0.15;
+    // Core orb
+    const coreR = 12 + e * 25 + S.speed * 30;
+    const grad = vc.createRadialGradient(cx, cy, 0, cx, cy, coreR);
+    grad.addColorStop(0, `hsla(${hue}, 50%, 65%, ${0.4 + e * 0.5})`);
+    grad.addColorStop(0.6, `hsla(${hue}, 40%, 45%, ${0.15 + e * 0.2})`);
+    grad.addColorStop(1, 'transparent');
+    vc.fillStyle = grad;
     vc.beginPath();
-    vc.arc(cx, cy, S.breathRadius, 0, TAU);
-    vc.strokeStyle = `hsla(${hue}, ${sat}%, 65%, ${bAlpha})`;
-    vc.lineWidth = 1.5;
-    vc.stroke();
+    vc.arc(cx, cy, coreR, 0, TAU);
+    vc.fill();
 
     // Voice orbit dots
-    const nv = S.journey.voices;
-    for (let i = 0; i < nv; i++) {
-        const angle = (i / Math.max(1, nv)) * TAU + now * 0.0005;
-        const dist = S.breathRadius + 18;
+    for (let i = 0; i < numRings; i++) {
+        const angle = (i / Math.max(1, numRings)) * TAU + now * 0.0006;
+        const dist = 35 + i * 35;
         const vx = cx + Math.cos(angle) * dist;
         const vy = cy + Math.sin(angle) * dist;
-        const dotAlpha = S.breathPhase === 'valley' ? 0.05 : 0.2;
         vc.beginPath();
-        vc.arc(vx, vy, 2.5, 0, TAU);
-        vc.fillStyle = `hsla(${hue + i * 20}, 50%, 70%, ${dotAlpha})`;
+        vc.arc(vx, vy, 2, 0, TAU);
+        vc.fillStyle = `hsla(${hue + i * 18}, 50%, 70%, ${0.15 + e * 0.25})`;
         vc.fill();
     }
 
-    // Center dot (stillness indicator)
-    const cAlpha = S.breathPhase === 'peak' ? 0.5 : 0.08 + S.stillness * 0.002;
-    vc.beginPath();
-    vc.arc(cx, cy, 3, 0, TAU);
-    vc.fillStyle = `rgba(255,255,255,${Math.min(0.6, cAlpha)})`;
-    vc.fill();
+    // Touch particles
+    S.particles = S.particles.filter(p => {
+        const age = (now - p.birth) / 1000;
+        if (age > 1.5) return false;
+        const alpha = Math.max(0, 0.6 - age * 0.4) * p.vel;
+        const r = 3 + age * 20;
+        vc.beginPath();
+        vc.arc(p.x, p.y, r, 0, TAU);
+        vc.strokeStyle = `hsla(${hue + 40}, 50%, 70%, ${alpha})`;
+        vc.lineWidth = 1;
+        vc.stroke();
+        return true;
+    });
 
-    // Phase indicator
-    const phaseEl = document.getElementById('phaseName');
-    if (S.hasSensors) {
-        if (S.breathPhase === 'inhale') phaseEl.textContent = String.fromCharCode(8593); // up arrow
-        else if (S.breathPhase === 'peak') phaseEl.textContent = String.fromCharCode(183); // dot
-        else if (S.breathPhase === 'exhale') phaseEl.textContent = String.fromCharCode(8595); // down arrow
-        else phaseEl.textContent = '';
+    // Speed trail
+    if (S.speed > 0.06) {
+        const len = S.speed * 80;
+        vc.beginPath();
+        vc.moveTo(cx, cy);
+        vc.lineTo(cx - S.tiltX * len, cy - S.tiltY * len);
+        vc.strokeStyle = `hsla(${hue}, 40%, 60%, ${S.speed * 0.4})`;
+        vc.lineWidth = 2;
+        vc.stroke();
     }
 
-    // Radiance glow at peak journey
-    if (S.journey.voices >= 5) {
-        const glowIntensity = (S.journey.voices - 4) * 0.05;
-        const grad = vc.createRadialGradient(cx, cy, S.breathRadius, cx, cy, Math.min(w, h) * 0.6);
-        grad.addColorStop(0, `hsla(${hue}, ${sat + 20}%, 50%, ${glowIntensity})`);
-        grad.addColorStop(1, 'transparent');
-        vc.fillStyle = grad;
+    // Edge glow at high tiers
+    if (tierIdx >= 6) {
+        const glow = vc.createRadialGradient(w/2, h/2, Math.min(w,h)*0.25, w/2, h/2, Math.min(w,h)*0.65);
+        glow.addColorStop(0, 'transparent');
+        glow.addColorStop(1, `hsla(${hue + 30}, 50%, 50%, ${(e - 0.6) * 0.15})`);
+        vc.fillStyle = glow;
         vc.fillRect(0, 0, w, h);
     }
 
-    // Mic level indicator
-    if (S.micActive && S.micLevel > 0.01) {
-        const micR = S.breathRadius + 30 + S.micLevel * 40;
-        vc.beginPath();
-        vc.arc(cx, cy, micR, 0, TAU);
-        vc.strokeStyle = `rgba(200,120,120,${S.micLevel * 0.15})`;
-        vc.lineWidth = 1;
-        vc.stroke();
-    }
+    // Energy bar
+    document.getElementById('energyFill').style.width = (e * 100) + '%';
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // MAIN LOOP
 // ═══════════════════════════════════════════════════════════════════════════════
 
-function loop() {
+let lastFrame = 0;
+
+function loop(ts) {
     if (!S.active) { requestAnimationFrame(loop); return; }
+
+    const dt = Math.min(50, ts - lastFrame) / 1000;
+    lastFrame = ts;
+
+    // Energy: movement adds, time decays
+    if (S.speed > 0.015) {
+        S.energy = Math.min(1, S.energy + S.speed * 0.025);
+        S.stillness = 0;
+    } else {
+        S.energy *= (1 - dt * 0.12); // Slow decay
+        S.stillness += dt * 10;
+    }
+
+    // Touch adds energy
+    if (S.touching) {
+        S.energy = Math.min(1, S.energy + dt * 0.08);
+    }
+
+    S.peakEnergy = Math.max(S.peakEnergy, S.energy);
+
+    // Chord auto-advance every ~8 seconds of activity
+    S.chordTimer += dt * S.energy;
+    if (S.chordTimer > 8) {
+        S.chordTimer = 0;
+        advanceChord();
+    }
+
+    // Gesture buffer
+    S.gestureBuffer.push({ x: S.tiltX, y: S.tiltY, speed: S.speed, time: performance.now() });
+    if (S.gestureBuffer.length > 30) S.gestureBuffer.shift();
+
+    // Systems
     detectBreath();
+    detectGesture();
+    updateTier();
+    shapeVoices();
+    if (S.groovePlaying) runGroove();
     draw();
+
     requestAnimationFrame(loop);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// UTILITIES
+// ═══════════════════════════════════════════════════════════════════════════════
+
+let notifTimer = null;
+function notify(text) {
+    const el = document.getElementById('notif');
+    el.textContent = text;
+    el.classList.add('show');
+    if (notifTimer) clearTimeout(notifTimer);
+    notifTimer = setTimeout(() => el.classList.remove('show'), 1800);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1099,42 +979,24 @@ async function begin() {
         setupTouch();
 
         document.getElementById('entry').classList.add('gone');
-        document.getElementById('journeyName').textContent = 'SOLITUDE';
+        document.getElementById('stageName').textContent = 'AWAKENING';
 
-        // Show mic button after 5 seconds
-        setTimeout(() => {
-            document.getElementById('micBtn').style.display = 'block';
-        }, 5000);
-
-        // Fetch weather (non-blocking)
+        setTimeout(() => { document.getElementById('micBtn').style.display = 'block'; }, 3000);
         fetchWeather();
 
-        // Try ambient light
-        initAmbientLight();
-
         S.active = true;
-        loop();
+        lastFrame = performance.now();
+        requestAnimationFrame(loop);
     } catch(e) {
         console.error('Start failed:', e);
-        document.getElementById('err').style.display = 'flex';
         document.getElementById('err').textContent = 'Error: ' + e.message;
+        document.getElementById('err').style.display = 'flex';
     }
 }
 
-// Mic button
-document.getElementById('micBtn').addEventListener('click', (e) => {
-    e.stopPropagation();
-    initMicrophone();
-});
-
-// Start button
+document.getElementById('micBtn').addEventListener('click', (e) => { e.stopPropagation(); initMicrophone(); });
 document.getElementById('begin').addEventListener('click', begin);
-document.getElementById('begin').addEventListener('touchstart', (e) => {
-    e.preventDefault();
-    begin();
-}, { passive: false });
-
-// Prevent context menu
+document.getElementById('begin').addEventListener('touchstart', (e) => { e.preventDefault(); begin(); }, { passive: false });
 document.addEventListener('contextmenu', (e) => e.preventDefault());
 
 })();
