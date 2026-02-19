@@ -21,6 +21,7 @@
         canvas{position:fixed;inset:0}
         .hud{position:fixed;pointer-events:none;font-size:9px;letter-spacing:2px;color:rgba(255,255,255,.12);z-index:5}
         #stageName{top:24px;left:24px}
+        #sectionName{bottom:24px;right:24px;font-size:8px;letter-spacing:3px;color:rgba(255,255,255,.06)}
         #energyBar{bottom:0;left:0;right:0;height:2px;z-index:5}
         #energyFill{height:100%;width:0%;background:rgba(255,255,255,.2);transition:width .15s linear}
         #notif{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);font-size:11px;letter-spacing:5px;color:rgba(255,255,255,.5);opacity:0;transition:opacity .3s;pointer-events:none;z-index:10}
@@ -44,6 +45,7 @@
 </div>
 <canvas id="c"></canvas>
 <div class="hud" id="stageName"></div>
+<div class="hud" id="sectionName"></div>
 <div class="hud" id="weatherInfo"></div>
 <div id="energyBar"><div id="energyFill"></div></div>
 <div id="notif"></div>
@@ -61,17 +63,28 @@ const A = 432;
 // MUSICAL DNA
 // ═══════════════════════════════════════════════════════════════════════════════
 
-// Chord progression (semitones from A)
-const CHORDS = [
-    [0, 3, 7],      // Am
-    [5, 9, 12],     // F
-    [0, 4, 7],      // C (major third — hope)
-    [7, 11, 14],    // G
-    [0, 3, 7],      // Am
-    [3, 7, 10],     // Cm
-    [5, 8, 12],     // Fm
-    [7, 10, 14],    // Gm
-];
+// Semitones from A=432: A=0 Bb=1 B=2 C=3 C#=4 D=5 Eb=6 E=7 F=8 F#=9 G=10 Ab=11
+const PROGRESSIONS = {
+    drift: [
+        [0, 3, 7],     [7, 10, 14],   [5, 8, 12],    [0, 3, 7],
+    ],
+    wander: [
+        [0, 3, 7],     [5, 9, 12],    [3, 7, 10],    [7, 11, 14],
+        [0, 3, 7],     [8, 12, 15],   [3, 7, 10],    [10, 14, 17],
+    ],
+    ascend: [
+        [3, 7, 10],    [10, 14, 17],  [0, 4, 7],     [5, 9, 12],
+        [8, 12, 15],   [3, 7, 10],
+    ],
+    summit: [
+        [3, 7, 10],    [10, 14, 17],  [0, 3, 7],     [8, 12, 15],
+        [5, 9, 12],    [0, 4, 7],     [7, 11, 14],   [3, 6, 10],
+    ],
+    descend: [
+        [5, 8, 12],    [10, 14, 17],  [3, 7, 10],    [8, 12, 15],
+        [0, 3, 7],     [7, 11, 14],   [0, 3, 7],
+    ],
+};
 
 const SCALES = {
     minor:      [0, 2, 3, 5, 7, 8, 10],
@@ -81,24 +94,93 @@ const SCALES = {
     phrygian:   [0, 1, 3, 5, 7, 8, 10],
 };
 
-// Purdie shuffle
-const K  = [1,0,0,0, 0,0,.5,0, .8,0,0,0, 0,0,0,0];
-const SN = [0,0,0,0, 1,0,.15,.2, 0,0,.15,0, 1,0,.2,.15];
-const HH = [.7,.25,.5,.25, .7,.3,.5,.3, .7,.25,.5,.25, .7,.3,.5,.3];
+// Drum patterns: 16 steps — multiple patterns for variety
+const DRUM_PATTERNS = {
+    minimal: {
+        K:  [1,0,0,0, 0,0,0,0, .6,0,0,0, 0,0,0,0],
+        SN: [0,0,0,0, 1,0,0,0, 0,0,0,0, .8,0,0,0],
+        HH: [.4,0,.2,0, .4,0,.2,0, .4,0,.2,0, .4,0,.2,0],
+        OH: [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
+        RD: [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
+    },
+    groove: {
+        K:  [1,0,0,0, 0,0,.4,0, .8,0,0,0, 0,0,0,0],
+        SN: [0,0,0,0, 1,0,.1,.15, 0,0,.1,0, 1,0,.15,.1],
+        HH: [.6,.2,.4,.2, .6,.25,.4,.25, .6,.2,.4,.2, .6,.25,.4,.25],
+        OH: [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,.3,0],
+        RD: [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
+    },
+    drive: {
+        K:  [1,0,.2,0, 0,0,.5,0, .9,0,0,.2, 0,0,.4,0],
+        SN: [0,0,0,0, 1,0,.2,.1, 0,0,.1,0, 1,.1,.2,.15],
+        HH: [.7,.3,.5,.3, .7,.35,.5,.35, .7,.3,.5,.3, .7,.35,.5,.35],
+        OH: [0,0,0,0, 0,0,0,.25, 0,0,0,0, 0,0,0,.3],
+        RD: [.3,0,.2,0, .3,0,.2,0, .3,0,.2,0, .3,0,.2,0],
+    },
+    peak: {
+        K:  [1,0,.3,0, 0,.2,.6,0, 1,0,.2,.15, 0,.2,.5,0],
+        SN: [0,0,.1,0, 1,0,.25,.15, 0,.1,.15,0, 1,.1,.3,.2],
+        HH: [.8,.4,.6,.4, .8,.45,.6,.45, .8,.4,.6,.4, .8,.45,.6,.45],
+        OH: [0,0,0,.2, 0,0,0,.3, 0,0,0,.2, 0,0,0,.35],
+        RD: [.4,.15,.3,.15, .4,.15,.3,.15, .4,.15,.3,.15, .4,.15,.3,.15],
+    },
+    fill: {
+        K:  [1,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
+        SN: [0,.4,.4,.5, .6,.6,.7,.7, .8,.8,.9,.85, 1,.9,1,1],
+        HH: [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
+        OH: [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
+        RD: [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
+    },
+};
+
+const ARP_PATTERNS = {
+    up:      [0,1,2,3,4,5],
+    down:    [5,4,3,2,1,0],
+    updown:  [0,1,2,3,4,5,4,3,2,1],
+    cascade: [0,2,1,3,2,4,3,5],
+    pulse:   [0,0,2,2,4,4,5,5],
+};
+
+const BASS_PATTERNS = [
+    [0, 7, 0, 7],
+    [0, 3, 7, 5],
+    [0, 7, 5, 3],
+    [0, 5, 7, 10],
+    [0, 0, 7, 6],
+    [0, 3, 5, 7],
+];
+
 const SWING = 0.18;
+
+// Sections — the musical journey
+const SECTIONS = [
+    { name: 'DRIFT',   scale: 'minor',      transpose: 0,  tempoMul: 0.9,  threshold: 0,    holdTime: 0  },
+    { name: 'WANDER',  scale: 'dorian',     transpose: 0,  tempoMul: 1.0,  threshold: 0.30, holdTime: 15 },
+    { name: 'ASCEND',  scale: 'mixolydian', transpose: 2,  tempoMul: 1.05, threshold: 0.50, holdTime: 20 },
+    { name: 'SUMMIT',  scale: 'major',      transpose: 5,  tempoMul: 1.1,  threshold: 0.75, holdTime: 25 },
+    { name: 'DESCEND', scale: 'minor',      transpose: 0,  tempoMul: 0.85, threshold: -1,   holdTime: 15 },
+];
 
 // Tiers — energy unlocks layers
 const TIERS = [
-    { name: 'SILENCE',    e: 0,    voices: 0, drums: false },
-    { name: 'AWAKENING',  e: 0.02, voices: 1, drums: false },
-    { name: 'PULSE',      e: 0.08, voices: 2, drums: false },
-    { name: 'WARMTH',     e: 0.18, voices: 3, drums: false },
-    { name: 'GROOVE',     e: 0.30, voices: 3, drums: true  },
-    { name: 'SWELL',      e: 0.45, voices: 4, drums: true  },
-    { name: 'SURGE',      e: 0.60, voices: 5, drums: true  },
-    { name: 'RADIANCE',   e: 0.78, voices: 6, drums: true  },
-    { name: 'BEYOND',     e: 0.92, voices: 6, drums: true  },
+    { name: 'SILENCE',    e: 0,    voices: 0, drums: false, pat: 'minimal' },
+    { name: 'AWAKENING',  e: 0.02, voices: 1, drums: false, pat: 'minimal' },
+    { name: 'PULSE',      e: 0.08, voices: 2, drums: false, pat: 'minimal' },
+    { name: 'WARMTH',     e: 0.18, voices: 3, drums: false, pat: 'groove'  },
+    { name: 'GROOVE',     e: 0.30, voices: 3, drums: true,  pat: 'groove'  },
+    { name: 'SWELL',      e: 0.45, voices: 4, drums: true,  pat: 'groove'  },
+    { name: 'SURGE',      e: 0.60, voices: 5, drums: true,  pat: 'drive'   },
+    { name: 'RADIANCE',   e: 0.78, voices: 6, drums: true,  pat: 'peak'    },
+    { name: 'BEYOND',     e: 0.92, voices: 6, drums: true,  pat: 'peak'    },
 ];
+
+const PALETTES = {
+    DRIFT:   { h: 220, s: 25, l: 45 },
+    WANDER:  { h: 200, s: 30, l: 50 },
+    ASCEND:  { h: 170, s: 35, l: 55 },
+    SUMMIT:  { h: 35,  s: 45, l: 60 },
+    DESCEND: { h: 260, s: 30, l: 45 },
+};
 
 function noteFreq(semi) { return A * Math.pow(2, semi / 12); }
 
@@ -112,16 +194,15 @@ const S = {
     // Motion
     tiltX: 0, tiltY: 0,
     accelX: 0, accelY: 0, accelZ: 0,
-    speed: 0,
-    energy: 0,
-    peakEnergy: 0,
+    speed: 0, smoothSpeed: 0,
+    energy: 0, peakEnergy: 0,
     stillness: 0,
 
     // Touch
     touching: false,
     touchX: 0.5, touchY: 0.5,
 
-    // Breath (bonus layer — detected from Z when phone is on chest)
+    // Breath
     azSmooth: 0, azHist: [],
     breathPhase: 'none', breathProgress: 0, breathDepth: 0,
     breathStart: 0, breathDur: 4000, breathDurs: [], lastPeakTime: 0,
@@ -130,70 +211,112 @@ const S = {
     gestureBuffer: [], gestureCooldown: 0,
 
     // Musical
-    tier: TIERS[0],
-    chordIndex: 0,
-    chordTimer: 0,
-    bpm: 85,
+    tier: TIERS[0], prevTier: TIERS[0],
+    section: SECTIONS[0], sectionIndex: 0,
+    sectionHoldTimer: 0,
+    chordIndex: 0, chordTimer: 0,
+    transpose: 0,
+    bpm: 85, baseBpm: 85,
+    activeScale: 'minor',
 
-    // Drums
+    // Groove
     groovePlaying: false,
     grooveStep: 0,
     nextStepTime: 0,
+    fillCountdown: 0,
+
+    // Bass
+    bassEnabled: false,
+    bassPatIdx: 0,
+
+    // Arp
+    arpEnabled: false,
+    arpStep: 0,
+    arpPattern: 'up',
 
     // Environment
-    weatherScale: 'minor',
+    weatherScale: null,
     weatherReverb: 0.25,
+    weatherTempo: 0,
     micActive: false, micLevel: 0, micCentroid: 0,
 
     // Viz
     particles: [],
     rings: [],
-    orbs: [],
 };
 
-let FX = {}, V = {}, DRUMS = {}, MELODY = null, MIC = null;
+let FX = {}, V = {}, DRUMS = {}, MELODY = null, BASS = null, ARP = null, MIC = null;
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// AUDIO INIT — Tone.js effects chain
+// AUDIO INIT
 // ═══════════════════════════════════════════════════════════════════════════════
 
 async function initAudio() {
-    // Chain from destination backward
-    const master = new Tone.Gain(0.7).toDestination();
-
-    const limiter = new Tone.Limiter(-3).connect(master);
+    const master = new Tone.Gain(0.6).toDestination();
+    const limiter = new Tone.Limiter(-2).connect(master);
 
     const comp = new Tone.Compressor({
-        threshold: -20, ratio: 4, attack: 0.003, release: 0.15
+        threshold: -18, ratio: 4, attack: 0.003, release: 0.15
     }).connect(limiter);
 
-    const reverb = new Tone.Reverb({ decay: 3.5, wet: 0.25 });
+    const reverb = new Tone.Reverb({ decay: 4, wet: 0.22 });
     reverb.connect(comp);
-    try { await reverb.generate(); } catch(e) { console.warn('Reverb:', e); }
+    try { await reverb.generate(); } catch(e) {}
 
-    const dust = new Tone.Filter({ frequency: 7000, type: 'lowpass', Q: 0.5 }).connect(reverb);
+    // BPM-synced ping-pong delay
+    const delay = new Tone.PingPongDelay({
+        delayTime: 60 / S.bpm / 2,
+        feedback: 0.22, wet: 0.10, maxDelay: 2
+    }).connect(reverb);
 
-    const sat = new Tone.Distortion({ distortion: 0.12, wet: 0.15, oversample: '2x' }).connect(dust);
-
-    const warmth = new Tone.EQ3({ low: 4, mid: 0, high: -2, lowFrequency: 300, highFrequency: 5000 }).connect(sat);
-
-    const chorus = new Tone.Chorus({ frequency: 1.5, delayTime: 3.5, depth: 0.4, wet: 0.3 }).connect(warmth);
+    const dust = new Tone.Filter({ frequency: 7500, type: 'lowpass', Q: 0.5 }).connect(delay);
+    const sat = new Tone.Distortion({ distortion: 0.1, wet: 0.12, oversample: '2x' }).connect(dust);
+    const warmth = new Tone.EQ3({ low: 4, mid: -1, high: -3, lowFrequency: 300, highFrequency: 5000 }).connect(sat);
+    const chorus = new Tone.Chorus({ frequency: 1.2, delayTime: 4, depth: 0.35, wet: 0.25 }).connect(warmth);
     chorus.start();
 
-    // Sidechain bus for voice ducking
+    // Stereo movement for pads
+    const panner = new Tone.AutoPanner({ frequency: 0.07, depth: 0.3 }).connect(chorus);
+    panner.start();
+
+    // Sidechain bus
     const sidechain = new Tone.Gain(1).connect(chorus);
 
-    // Drum bus (bypasses chorus)
-    const drumBus = new Tone.Gain(0.6).connect(warmth);
+    // Pad bus through panner
+    const padBus = new Tone.Gain(1).connect(panner);
 
-    // Reverb send for melody (wetter)
-    const melodySend = new Tone.Gain(0.8).connect(chorus);
+    // Drum bus — own warmth + compression, skips chorus/delay
+    const drumComp = new Tone.Compressor({
+        threshold: -14, ratio: 6, attack: 0.001, release: 0.08
+    }).connect(comp);
+    const drumWarmth = new Tone.EQ3({ low: 3, mid: -2, high: -4, lowFrequency: 200, highFrequency: 6000 }).connect(drumComp);
+    const drumSat = new Tone.Distortion({ distortion: 0.06, wet: 0.1 }).connect(drumWarmth);
+    const drumBus = new Tone.Gain(0.55).connect(drumSat);
 
-    FX = { master, limiter, comp, reverb, dust, sat, warmth, chorus, sidechain, drumBus, melodySend };
+    // Drum room (short verb)
+    const drumRoom = new Tone.Reverb({ decay: 0.8, wet: 0.06 });
+    drumRoom.connect(drumComp);
+    try { await drumRoom.generate(); } catch(e) {}
+    const drumRoomSend = new Tone.Gain(0.4).connect(drumRoom);
+
+    // Melody send
+    const melodySend = new Tone.Gain(0.75).connect(chorus);
+
+    // Bass bus — direct, warm, no delay
+    const bassBus = new Tone.Gain(0.85).connect(warmth);
+
+    // Arp bus — through delay for shimmer
+    const arpBus = new Tone.Gain(0.65).connect(delay);
+
+    FX = { master, limiter, comp, reverb, delay, dust, sat, warmth, chorus,
+           panner, sidechain, padBus, drumBus, drumSat, drumComp, drumWarmth,
+           drumRoom, drumRoomSend, melodySend, bassBus, arpBus };
 
     createVoices();
     createDrums();
     createMelody();
+    createBass();
+    createArp();
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -234,133 +357,279 @@ function createLayer(configs, filterFreq, dest) {
     const gain = new Tone.Gain(0);
     filter.connect(gain);
     gain.connect(dest || FX.sidechain);
-
     const oscs = configs.map(cfg => {
         const osc = makeOsc(cfg);
         osc.connect(filter);
         osc.start();
         return osc;
     });
-
     return { oscs, filter, gain };
 }
 
 function createVoices() {
-    const ch = CHORDS[0];
+    const ch = getChord();
 
-    // 1. Lead — FM, warm and present
     V.lead = createLayer([
         { type: 'fm', freq: noteFreq(ch[0]), modIndex: 1.2, harmonicity: 1.5 },
-        { type: 'fm', freq: noteFreq(ch[0]), modIndex: 0.8, harmonicity: 2, detune: 6 }
+        { type: 'fm', freq: noteFreq(ch[0]), modIndex: 0.8, harmonicity: 2, detune: 7 }
     ], 600);
 
-    // 2. Sub — deep sine with subtle FM
     V.sub = createLayer([
         { type: 'fm', freq: noteFreq(ch[0] - 24), modIndex: 0.3, harmonicity: 1 },
         { type: 'fm', freq: noteFreq(ch[0] - 24), modIndex: 0.2, harmonicity: 1, detune: 3 }
     ], 300);
 
-    // 3. Pad — FM triangle triad, lush
     V.pad = createLayer(ch.map((n, i) => ({
         type: 'fm', freq: noteFreq(n - 12), carrier: 'triangle',
         modType: 'sine', modIndex: 1.8, harmonicity: 2, detune: (i - 1) * 10
-    })), 1200);
+    })), 1200, FX.padBus);
 
-    // 4. Strings — fat detuned saws, dreamy
     V.strings = createLayer(ch.map(n => ({
         type: 'fat', freq: noteFreq(n + 12), waveform: 'sawtooth', count: 3, spread: 25
     })), 2500);
 
-    // 5. Brass — aggressive FM, power
     V.brass = createLayer([
         { type: 'fm', freq: noteFreq(ch[0] + 12), carrier: 'sawtooth', modType: 'square', modIndex: 5, harmonicity: 3 },
         { type: 'fm', freq: noteFreq(ch[2] + 12), carrier: 'sawtooth', modType: 'square', modIndex: 4, harmonicity: 3 }
     ], 1000);
 
-    // 6. Choir — AM shimmer, ethereal
     V.choir = createLayer(ch.map(n => ({
         type: 'am', freq: noteFreq(n + 24), carrier: 'sine', modType: 'sine', harmonicity: 2.5
     })), 6000);
 }
 
-function glideChord(chord) {
-    const t = 0.6;
-    V.lead.oscs[0].frequency.rampTo(noteFreq(chord[0]), t);
-    V.lead.oscs[1].frequency.rampTo(noteFreq(chord[0]), t);
-    V.sub.oscs[0].frequency.rampTo(noteFreq(chord[0] - 24), t);
-    V.sub.oscs[1].frequency.rampTo(noteFreq(chord[0] - 24), t);
+function glideChord(chord, dur) {
+    const t = dur || 0.6;
+    const tr = S.transpose;
+    V.lead.oscs[0].frequency.rampTo(noteFreq(chord[0] + tr), t);
+    V.lead.oscs[1].frequency.rampTo(noteFreq(chord[0] + tr), t);
+    V.sub.oscs[0].frequency.rampTo(noteFreq(chord[0] + tr - 24), t);
+    V.sub.oscs[1].frequency.rampTo(noteFreq(chord[0] + tr - 24), t);
     chord.forEach((n, i) => {
-        if (V.pad.oscs[i]) V.pad.oscs[i].frequency.rampTo(noteFreq(n - 12), t);
-        if (V.strings.oscs[i]) V.strings.oscs[i].frequency.rampTo(noteFreq(n + 12), t);
-        if (V.choir.oscs[i]) V.choir.oscs[i].frequency.rampTo(noteFreq(n + 24), t);
+        if (V.pad.oscs[i]) V.pad.oscs[i].frequency.rampTo(noteFreq(n + tr - 12), t);
+        if (V.strings.oscs[i]) V.strings.oscs[i].frequency.rampTo(noteFreq(n + tr + 12), t);
+        if (V.choir.oscs[i]) V.choir.oscs[i].frequency.rampTo(noteFreq(n + tr + 24), t);
     });
-    if (V.brass.oscs[0]) V.brass.oscs[0].frequency.rampTo(noteFreq(chord[0] + 12), t);
-    if (V.brass.oscs[1]) V.brass.oscs[1].frequency.rampTo(noteFreq(chord[2] + 12), t);
+    if (V.brass.oscs[0]) V.brass.oscs[0].frequency.rampTo(noteFreq(chord[0] + tr + 12), t);
+    if (V.brass.oscs[1]) V.brass.oscs[1].frequency.rampTo(noteFreq(chord[2] + tr + 12), t);
+}
+
+function getChord() {
+    const progName = S.section.name.toLowerCase();
+    const prog = PROGRESSIONS[progName] || PROGRESSIONS.drift;
+    return prog[S.chordIndex % prog.length];
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// DRUMS — Purdie shuffle with real synth drums
+// DRUMS — Layered synthesis, multiple patterns, fills
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function createDrums() {
-    DRUMS.kick = new Tone.MembraneSynth({
-        pitchDecay: 0.05, octaves: 6,
+    // KICK: layered — membrane thump + sine sub + noise click
+    DRUMS.kickBody = new Tone.MembraneSynth({
+        pitchDecay: 0.07, octaves: 8,
         oscillator: { type: 'sine' },
-        envelope: { attack: 0.001, decay: 0.45, sustain: 0, release: 0.3 },
-        volume: -4
-    }).connect(FX.drumBus);
-
-    DRUMS.snareBody = new Tone.MembraneSynth({
-        pitchDecay: 0.008, octaves: 3,
-        oscillator: { type: 'triangle' },
-        envelope: { attack: 0.001, decay: 0.08, sustain: 0, release: 0.04 },
-        volume: -8
-    }).connect(FX.drumBus);
-
-    const sf = new Tone.Filter({ frequency: 3500, type: 'highpass' }).connect(FX.drumBus);
-    DRUMS.snareNoise = new Tone.NoiseSynth({
-        noise: { type: 'white' },
-        envelope: { attack: 0.001, decay: 0.13, sustain: 0, release: 0.03 },
+        envelope: { attack: 0.002, decay: 0.5, sustain: 0, release: 0.35 },
         volume: -6
-    }).connect(sf);
-
-    DRUMS.hat = new Tone.MetalSynth({
-        frequency: 400,
-        envelope: { attack: 0.001, decay: 0.04, release: 0.01 },
-        harmonicity: 5.1, modulationIndex: 32,
-        resonance: 5000, octaves: 1.5,
-        volume: -16
     }).connect(FX.drumBus);
+
+    DRUMS.kickSub = new Tone.Oscillator({ frequency: 50, type: 'sine' });
+    DRUMS.kickSubGain = new Tone.Gain(0).connect(FX.drumBus);
+    DRUMS.kickSub.connect(DRUMS.kickSubGain);
+    DRUMS.kickSub.start();
+
+    const kickClickFilter = new Tone.Filter({ frequency: 3000, type: 'bandpass', Q: 2 }).connect(FX.drumBus);
+    DRUMS.kickClick = new Tone.NoiseSynth({
+        noise: { type: 'white' },
+        envelope: { attack: 0.001, decay: 0.015, sustain: 0, release: 0.008 },
+        volume: -14
+    }).connect(kickClickFilter);
+
+    // SNARE: layered — body membrane + noise crack + noise tail
+    DRUMS.snareBody = new Tone.MembraneSynth({
+        pitchDecay: 0.01, octaves: 3.5,
+        oscillator: { type: 'triangle' },
+        envelope: { attack: 0.001, decay: 0.1, sustain: 0, release: 0.06 },
+        volume: -9
+    }).connect(FX.drumBus);
+
+    const snareCrackFilter = new Tone.Filter({ frequency: 3500, type: 'highpass' }).connect(FX.drumBus);
+    DRUMS.snareCrack = new Tone.NoiseSynth({
+        noise: { type: 'white' },
+        envelope: { attack: 0.001, decay: 0.08, sustain: 0, release: 0.03 },
+        volume: -8
+    }).connect(snareCrackFilter);
+
+    const snareTailFilter = new Tone.Filter({ frequency: 2000, type: 'bandpass', Q: 1.5 }).connect(FX.drumBus);
+    DRUMS.snareTail = new Tone.NoiseSynth({
+        noise: { type: 'pink' },
+        envelope: { attack: 0.001, decay: 0.18, sustain: 0, release: 0.06 },
+        volume: -12
+    }).connect(snareTailFilter);
+    DRUMS.snareTail.connect(FX.drumRoomSend);
+
+    // HI-HAT: filtered noise (NOT MetalSynth — more natural)
+    const hatFilter = new Tone.Filter({ frequency: 9000, type: 'highpass' }).connect(FX.drumBus);
+    const hatBP = new Tone.Filter({ frequency: 10000, type: 'bandpass', Q: 0.8 }).connect(hatFilter);
+    DRUMS.hat = new Tone.NoiseSynth({
+        noise: { type: 'white' },
+        envelope: { attack: 0.001, decay: 0.035, sustain: 0, release: 0.01 },
+        volume: -14
+    }).connect(hatBP);
+
+    // OPEN HAT: longer decay
+    const openHatFilter = new Tone.Filter({ frequency: 7000, type: 'highpass' }).connect(FX.drumBus);
+    DRUMS.openHat = new Tone.NoiseSynth({
+        noise: { type: 'white' },
+        envelope: { attack: 0.001, decay: 0.22, sustain: 0.02, release: 0.08 },
+        volume: -16
+    }).connect(openHatFilter);
+
+    // RIDE: filtered noise + subtle tone
+    const rideFilter = new Tone.Filter({ frequency: 6000, type: 'highpass' }).connect(FX.drumBus);
+    const rideBP = new Tone.Filter({ frequency: 8000, type: 'bandpass', Q: 0.5 }).connect(rideFilter);
+    DRUMS.ride = new Tone.NoiseSynth({
+        noise: { type: 'white' },
+        envelope: { attack: 0.001, decay: 0.5, sustain: 0.01, release: 0.15 },
+        volume: -20
+    }).connect(rideBP);
+    DRUMS.ride.connect(FX.drumRoomSend);
+
+    // CRASH: long noise wash
+    const crashFilter = new Tone.Filter({ frequency: 4000, type: 'highpass' }).connect(FX.drumBus);
+    DRUMS.crash = new Tone.NoiseSynth({
+        noise: { type: 'white' },
+        envelope: { attack: 0.005, decay: 1.8, sustain: 0.01, release: 0.4 },
+        volume: -18
+    }).connect(crashFilter);
+    DRUMS.crash.connect(FX.drumRoomSend);
+
+    // TOM: membrane
+    DRUMS.tom = new Tone.MembraneSynth({
+        pitchDecay: 0.06, octaves: 4,
+        oscillator: { type: 'sine' },
+        envelope: { attack: 0.001, decay: 0.25, sustain: 0, release: 0.15 },
+        volume: -10
+    }).connect(FX.drumBus);
+    DRUMS.tom.connect(FX.drumRoomSend);
 }
+
+function triggerKick(t, vel) {
+    DRUMS.kickBody.triggerAttackRelease('C1', '8n', t, vel);
+    DRUMS.kickClick.triggerAttackRelease('32n', t, vel * 0.7);
+    // Sub thump envelope
+    DRUMS.kickSubGain.gain.cancelScheduledValues(t);
+    DRUMS.kickSubGain.gain.setValueAtTime(vel * 0.12, t);
+    DRUMS.kickSubGain.gain.exponentialRampToValueAtTime(0.001, t + 0.25);
+}
+
+function triggerSnare(t, vel) {
+    DRUMS.snareBody.triggerAttackRelease('E3', '16n', t, vel);
+    DRUMS.snareCrack.triggerAttackRelease('16n', t, vel * 0.9);
+    DRUMS.snareTail.triggerAttackRelease('16n', t, vel * 0.5);
+}
+
+function triggerHat(t, vel) {
+    DRUMS.hat.triggerAttackRelease('32n', t, vel);
+}
+
+function triggerOpenHat(t, vel) {
+    DRUMS.openHat.triggerAttackRelease('8n', t, vel);
+}
+
+function triggerRide(t, vel) {
+    DRUMS.ride.triggerAttackRelease('8n', t, vel);
+}
+
+function triggerCrash(t, vel) {
+    DRUMS.crash.triggerAttackRelease('2n', t, vel);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// GROOVE ENGINE — Unified scheduler for drums, bass, arp
+// ═══════════════════════════════════════════════════════════════════════════════
 
 function runGroove() {
     if (!S.groovePlaying) return;
 
     const stepDur = (60 / S.bpm) / 4;
     const lookAhead = 0.1;
-    const intensity = 0.5 + S.energy * 0.5;
+    const e = S.energy;
+    const intensity = 0.4 + e * 0.6;
+    const chord = getChord();
+    const tierIdx = TIERS.indexOf(S.tier);
 
     while (S.nextStepTime < Tone.now() + lookAhead) {
         const step = S.grooveStep;
-        const jitter = (Math.random() - 0.5) * 0.006;
-        const t = Math.max(Tone.now(), S.nextStepTime + jitter);
+        const now = Math.max(Tone.now(), S.nextStepTime);
 
-        if (K[step]) {
-            DRUMS.kick.triggerAttackRelease('C1', '8n', t, K[step] * intensity);
+        // Select pattern
+        const isFill = S.fillCountdown > 0;
+        const patName = isFill ? 'fill' : (S.tier.pat || 'groove');
+        const pat = DRUM_PATTERNS[patName] || DRUM_PATTERNS.groove;
+
+        // Humanize: timing jitter + velocity variation
+        const jit = (Math.random() - 0.5) * 0.005;
+        const vVar = 0.9 + Math.random() * 0.2;
+        const t = now + jit;
+
+        // ── DRUMS ──
+        if (pat.K[step]) {
+            triggerKick(t, pat.K[step] * intensity * vVar);
             // Sidechain pump
             FX.sidechain.gain.cancelScheduledValues(t);
             FX.sidechain.gain.setValueAtTime(1, t);
-            FX.sidechain.gain.linearRampToValueAtTime(0.3, t + 0.012);
+            FX.sidechain.gain.linearRampToValueAtTime(0.25, t + 0.015);
             FX.sidechain.gain.linearRampToValueAtTime(1, t + 0.12);
         }
-        if (SN[step]) {
-            DRUMS.snareBody.triggerAttackRelease('D3', '16n', t, SN[step] * intensity);
-            DRUMS.snareNoise.triggerAttackRelease('16n', t, SN[step] * intensity);
+        if (pat.SN[step]) {
+            triggerSnare(t, pat.SN[step] * intensity * vVar);
         }
-        if (HH[step]) {
-            DRUMS.hat.triggerAttackRelease('32n', t, HH[step] * intensity * 0.6);
+        if (pat.HH[step]) {
+            triggerHat(t, pat.HH[step] * intensity * vVar * 0.7);
+        }
+        if (pat.OH[step]) {
+            triggerOpenHat(t, pat.OH[step] * intensity * vVar);
+        }
+        if (pat.RD[step]) {
+            triggerRide(t, pat.RD[step] * intensity * vVar);
         }
 
+        // Tom fills during fill countdown
+        if (isFill && step >= 8 && step % 2 === 0) {
+            const tomNotes = ['G2', 'D2', 'A1', 'E1'];
+            const ti = Math.floor((step - 8) / 2) % tomNotes.length;
+            DRUMS.tom.triggerAttackRelease(tomNotes[ti], '16n', t, 0.5 + Math.random() * 0.35);
+        }
+
+        if (isFill) S.fillCountdown--;
+
+        // ── WALKING BASS ── (quarter notes: steps 0, 4, 8, 12)
+        if (S.bassEnabled && BASS && step % 4 === 0) {
+            const beatIdx = step / 4;
+            const bassPat = BASS_PATTERNS[S.bassPatIdx % BASS_PATTERNS.length];
+            const bassNote = chord[0] + S.transpose + bassPat[beatIdx % bassPat.length] - 24;
+            BASS.triggerAttackRelease(noteFreq(bassNote), '4n', t, 0.55 + e * 0.35);
+        }
+
+        // ── ARPEGGIATOR ── (8ths normally, 16ths at peak tiers)
+        if (S.arpEnabled && ARP) {
+            const arpRate = tierIdx >= 7 ? 1 : 2;
+            if (step % arpRate === 0) {
+                const patArr = ARP_PATTERNS[S.arpPattern] || ARP_PATTERNS.up;
+                const spread = [];
+                chord.forEach(n => { spread.push(n); spread.push(n + 12); });
+                spread.sort((a, b) => a - b);
+
+                const idx = patArr[S.arpStep % patArr.length] % spread.length;
+                const arpNote = spread[idx] + S.transpose + 12;
+                const accent = (S.arpStep % patArr.length === 0) ? 0.45 : 0.28;
+                ARP.triggerAttackRelease(noteFreq(arpNote), arpRate === 1 ? '16n' : '8n', t, accent);
+                S.arpStep++;
+            }
+        }
+
+        // Advance step with swing
         const sw = step % 2 === 0 ? 1 + SWING : 1 - SWING;
         S.nextStepTime += stepDur * sw;
         S.grooveStep = (step + 1) % 16;
@@ -377,6 +646,44 @@ function startGroove() {
 
 function stopGroove() {
     S.groovePlaying = false;
+}
+
+function triggerFill() {
+    S.fillCountdown = 16;
+    triggerCrash(Tone.now(), 0.35);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// BASS — Walking bass synth
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function createBass() {
+    BASS = new Tone.FMSynth({
+        harmonicity: 1, modulationIndex: 0.5,
+        oscillator: { type: 'triangle' },
+        modulation: { type: 'sine' },
+        envelope: { attack: 0.01, decay: 0.3, sustain: 0.4, release: 0.12 },
+        modulationEnvelope: { attack: 0.01, decay: 0.2, sustain: 0.3, release: 0.1 },
+        volume: -10
+    }).connect(FX.bassBus);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ARPEGGIATOR
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function createArp() {
+    ARP = new Tone.PolySynth(Tone.FMSynth);
+    ARP.maxPolyphony = 4;
+    ARP.set({
+        modulationIndex: 2.5, harmonicity: 3,
+        oscillator: { type: 'sine' },
+        modulation: { type: 'triangle' },
+        envelope: { attack: 0.005, decay: 0.12, sustain: 0.04, release: 0.25 },
+        modulationEnvelope: { attack: 0.01, decay: 0.08, sustain: 0.15, release: 0.15 },
+        volume: -16
+    });
+    ARP.connect(FX.arpBus);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -399,28 +706,26 @@ function createMelody() {
 
 function playNote(x, y, vel) {
     if (!MELODY) return;
-    const scale = SCALES[S.weatherScale] || SCALES.minor;
-    const chord = CHORDS[S.chordIndex % CHORDS.length];
-    // Build playable notes from chord + scale across 3 octaves
+    const scale = SCALES[S.activeScale] || SCALES.minor;
+    const chord = getChord();
+    const tr = S.transpose;
     const notes = [];
     for (let oct = -1; oct <= 2; oct++) {
-        scale.forEach(s => notes.push(s + oct * 12));
+        scale.forEach(s => notes.push(s + tr + oct * 12));
     }
     notes.sort((a, b) => a - b);
 
     const idx = Math.floor((1 - y) * notes.length);
     const note = notes[Math.max(0, Math.min(idx, notes.length - 1))];
-    const freq = noteFreq(note);
-    MELODY.triggerAttackRelease(freq, 0.25 + vel * 0.2, Tone.now(), Math.min(1, vel * 0.8));
+    MELODY.triggerAttackRelease(noteFreq(note), 0.25 + vel * 0.2, Tone.now(), Math.min(1, vel * 0.8));
 
-    // Spawn particle
     S.particles.push({ x: x * window.innerWidth, y: y * window.innerHeight, birth: performance.now(), vel });
 }
 
 function triggerPhrase(type) {
     if (!MELODY) return;
-    const chord = CHORDS[S.chordIndex % CHORDS.length];
-    const base = chord[0];
+    const chord = getChord();
+    const base = chord[0] + S.transpose;
     const now = Tone.now();
 
     if (type === 'SHAKE') {
@@ -431,62 +736,127 @@ function triggerPhrase(type) {
         notify('TRILL');
     } else if (type === 'SWIPE_UP') {
         chord.forEach((n, i) => {
-            MELODY.triggerAttackRelease(noteFreq(n + 12), 0.2, now + i * 0.1, 0.6 - i * 0.1);
+            MELODY.triggerAttackRelease(noteFreq(n + S.transpose + 12), 0.2, now + i * 0.1, 0.6 - i * 0.1);
         });
-        // Extra octave note
-        MELODY.triggerAttackRelease(noteFreq(chord[0] + 24), 0.3, now + chord.length * 0.1, 0.4);
+        MELODY.triggerAttackRelease(noteFreq(chord[0] + S.transpose + 24), 0.3, now + chord.length * 0.1, 0.4);
         notify('RISE');
     } else if (type === 'SWIPE_DOWN') {
-        const reversed = [...chord].reverse();
-        reversed.forEach((n, i) => {
-            MELODY.triggerAttackRelease(noteFreq(n + 12), 0.2, now + i * 0.1, 0.6 - i * 0.1);
+        const rev = [...chord].reverse();
+        rev.forEach((n, i) => {
+            MELODY.triggerAttackRelease(noteFreq(n + S.transpose + 12), 0.2, now + i * 0.1, 0.6 - i * 0.1);
         });
-        MELODY.triggerAttackRelease(noteFreq(chord[0] - 12), 0.4, now + reversed.length * 0.1, 0.4);
+        MELODY.triggerAttackRelease(noteFreq(chord[0] + S.transpose - 12), 0.4, now + rev.length * 0.1, 0.4);
         notify('FALL');
     } else if (type === 'HOLD') {
-        // Full chord swell
         chord.forEach((n, i) => {
-            MELODY.triggerAttackRelease(noteFreq(n), 2.5, now + i * 0.04, 0.3);
-            MELODY.triggerAttackRelease(noteFreq(n + 12), 2.5, now + i * 0.04 + 0.02, 0.2);
+            MELODY.triggerAttackRelease(noteFreq(n + S.transpose), 2.5, now + i * 0.04, 0.3);
+            MELODY.triggerAttackRelease(noteFreq(n + S.transpose + 12), 2.5, now + i * 0.04 + 0.02, 0.2);
         });
         notify('SWELL');
     }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// VOICE SHAPING — Energy drives layers, tilt drives expression
+// SECTIONS — Musical direction / journey arc
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function updateSection(dt) {
+    const e = S.energy;
+    const idx = S.sectionIndex;
+    const sec = S.section;
+
+    if (sec.name === 'SUMMIT' && e < 0.3) {
+        S.sectionHoldTimer += dt;
+        if (S.sectionHoldTimer > 15) changeSection(4);
+    } else if (sec.name === 'DESCEND' && e < 0.1) {
+        S.sectionHoldTimer += dt;
+        if (S.sectionHoldTimer > 10) changeSection(0);
+    } else if (idx < 3) {
+        const next = SECTIONS[idx + 1];
+        if (e >= next.threshold) {
+            S.sectionHoldTimer += dt;
+            if (S.sectionHoldTimer > next.holdTime) changeSection(idx + 1);
+        } else {
+            S.sectionHoldTimer = Math.max(0, S.sectionHoldTimer - dt * 2);
+        }
+    } else {
+        S.sectionHoldTimer = Math.max(0, S.sectionHoldTimer - dt);
+    }
+}
+
+function changeSection(idx) {
+    if (idx === S.sectionIndex) return;
+    S.sectionIndex = idx;
+    S.section = SECTIONS[idx];
+    S.sectionHoldTimer = 0;
+    S.transpose = S.section.transpose;
+    S.chordIndex = 0;
+
+    // Scale: weather overrides if set
+    if (!S.weatherScale) S.activeScale = S.section.scale;
+
+    // Tempo
+    S.bpm = Math.round(S.baseBpm * S.section.tempoMul + S.weatherTempo);
+    // Update delay time to stay synced
+    FX.delay.delayTime.rampTo(60 / S.bpm / 2, 2);
+
+    // Fill + crash on section transitions
+    if (S.groovePlaying) triggerFill();
+
+    // Glide to first chord of new section
+    glideChord(getChord(), 1.2);
+
+    // Enable bass and arp based on section depth
+    S.bassEnabled = idx >= 1;
+    S.arpEnabled = idx >= 2;
+
+    // Rotate patterns for variety
+    const arpKeys = Object.keys(ARP_PATTERNS);
+    S.arpPattern = arpKeys[idx % arpKeys.length];
+    S.bassPatIdx = idx;
+    S.arpStep = 0;
+
+    notify(S.section.name);
+    document.getElementById('sectionName').textContent = S.section.name;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// VOICE SHAPING — Energy + tilt + breath + section = expression
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function shapeVoices() {
     const e = S.energy;
     const tier = S.tier;
-    const brightness = (S.tiltY + 1) * 0.5; // 0 to 1
+    const brightness = (S.tiltY + 1) * 0.5;
+    const now = performance.now();
 
-    // Each layer: target volume, filter cutoff
+    // Organic slow oscillations
+    const breathe1 = Math.sin(now * 0.0008) * 0.5 + 0.5;
+    const breathe2 = Math.sin(now * 0.0012 + 1.2) * 0.5 + 0.5;
+    const breathe3 = Math.sin(now * 0.0005 + 2.4) * 0.5 + 0.5;
+
     const layers = [
-        { name: 'lead',    minVoices: 1, vol: 0.13, baseCut: 600,  maxCut: 4000 },
-        { name: 'sub',     minVoices: 2, vol: 0.16, baseCut: 200,  maxCut: 600  },
-        { name: 'pad',     minVoices: 3, vol: 0.07, baseCut: 400,  maxCut: 2500 },
-        { name: 'strings', minVoices: 4, vol: 0.05, baseCut: 600,  maxCut: 4000 },
-        { name: 'brass',   minVoices: 5, vol: 0.04, baseCut: 400,  maxCut: 2500 },
-        { name: 'choir',   minVoices: 6, vol: 0.03, baseCut: 1000, maxCut: 7000 },
+        { name: 'lead',    minV: 1, vol: 0.13, bCut: 600,  mCut: 4200, mod: breathe1 * 0.12 },
+        { name: 'sub',     minV: 2, vol: S.bassEnabled ? 0.05 : 0.14, bCut: 200, mCut: 600, mod: 0 },
+        { name: 'pad',     minV: 3, vol: 0.07, bCut: 400,  mCut: 2800, mod: breathe2 * 0.15 },
+        { name: 'strings', minV: 4, vol: 0.05, bCut: 600,  mCut: 4500, mod: breathe3 * 0.12 },
+        { name: 'brass',   minV: 5, vol: 0.04, bCut: 400,  mCut: 2500, mod: breathe1 * 0.08 },
+        { name: 'choir',   minV: 6, vol: 0.03, bCut: 1000, mCut: 7000, mod: breathe2 * 0.08 },
     ];
 
-    layers.forEach(({ name, minVoices, vol, baseCut, maxCut }) => {
+    layers.forEach(({ name, minV, vol, bCut, mCut, mod }) => {
         const layer = V[name];
         if (!layer) return;
 
         let amp, cutoff;
-        if (tier.voices < minVoices) {
+        if (tier.voices < minV) {
             amp = 0;
-            cutoff = baseCut;
+            cutoff = bCut;
         } else {
-            // Smooth entry: ramp from 0 to full over the transition zone
             const headroom = Math.min(1, (e - (tier.e || 0)) * 5);
-            amp = vol * headroom;
-            cutoff = baseCut + (maxCut - baseCut) * brightness * headroom;
+            amp = (vol + mod) * headroom;
+            cutoff = bCut + (mCut - bCut) * brightness * headroom;
 
-            // Breath modulation if detected
             if (S.breathPhase === 'inhale') {
                 amp *= 0.3 + S.breathProgress * 0.7;
                 cutoff *= 0.5 + S.breathProgress * 0.5;
@@ -494,36 +864,39 @@ function shapeVoices() {
                 const ease = 1 - S.breathProgress * S.breathProgress;
                 amp *= Math.max(0.2, ease);
                 cutoff *= Math.max(0.3, ease);
-            } else if (S.breathPhase === 'peak') {
-                // Full open
             }
         }
 
-        // Mic influence
-        if (S.micActive && S.micCentroid > 0.1) {
-            cutoff += S.micCentroid * 600;
-        }
+        if (S.micActive && S.micCentroid > 0.1) cutoff += S.micCentroid * 600;
 
-        cutoff = Math.max(150, Math.min(8000, cutoff));
+        cutoff = Math.max(150, Math.min(9000, cutoff));
         layer.gain.gain.rampTo(amp, 0.12);
         layer.filter.frequency.rampTo(cutoff, 0.12);
     });
 
-    // Lead pitch expression: tilt X bends pitch subtly
+    // Lead vibrato: increases with energy
     if (V.lead && V.lead.oscs[0]) {
-        V.lead.oscs[0].detune.rampTo(S.tiltX * 30, 0.15);
+        const vibrato = Math.sin(now * 0.028) * (2 + e * 12);
+        V.lead.oscs[0].detune.rampTo(S.tiltX * 30 + vibrato, 0.05);
     }
 
-    // Reverb evolves with energy
-    const reverbWet = S.weatherReverb + e * 0.15;
-    FX.reverb.wet.rampTo(Math.min(0.5, reverbWet), 0.3);
+    // Pad detuning widens with energy
+    if (V.pad) {
+        V.pad.oscs.forEach((osc, i) => {
+            if (i > 0) osc.detune.rampTo((i - 1) * 10 + e * 8, 0.3);
+        });
+    }
 
-    // Dust filter opens with energy
+    // Effects evolve
+    const revWet = S.weatherReverb + e * 0.1 + (S.sectionIndex >= 3 ? 0.06 : 0);
+    FX.reverb.wet.rampTo(Math.min(0.45, revWet), 0.3);
+    FX.delay.wet.rampTo(0.06 + S.sectionIndex * 0.025 + e * 0.04, 0.3);
     FX.dust.frequency.rampTo(5000 + e * 3000 + brightness * 2000, 0.2);
+    FX.chorus.depth = 0.25 + brightness * 0.25;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// TIER SYSTEM — Energy unlocks layers and groove
+// TIER + CHORD SYSTEMS
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function updateTier() {
@@ -533,26 +906,37 @@ function updateTier() {
     }
 
     if (newTier.name !== S.tier.name) {
+        const prevIdx = TIERS.indexOf(S.tier);
+        const newIdx = TIERS.indexOf(newTier);
+        S.prevTier = S.tier;
         S.tier = newTier;
         document.getElementById('stageName').textContent = newTier.name;
         if (newTier.name !== 'SILENCE') notify(newTier.name);
 
         if (newTier.drums && !S.groovePlaying) startGroove();
         if (!newTier.drums && S.groovePlaying) stopGroove();
+
+        // Fill on tier upgrade at higher levels
+        if (newIdx > prevIdx && S.groovePlaying && newIdx >= 5) triggerFill();
+        // Crash on big jumps
+        if (newIdx - prevIdx >= 2 && newIdx >= 4) triggerCrash(Tone.now(), 0.3);
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// CHORD PROGRESSION — Auto-advances with time/energy
-// ═══════════════════════════════════════════════════════════════════════════════
-
 function advanceChord() {
     S.chordIndex++;
-    glideChord(CHORDS[S.chordIndex % CHORDS.length]);
+    glideChord(getChord());
+
+    // Rotate bass pattern every few chords
+    if (S.chordIndex % 4 === 0) {
+        S.bassPatIdx = (S.bassPatIdx + 1) % BASS_PATTERNS.length;
+    }
+    // Occasional fill at chord changes
+    if (S.groovePlaying && S.chordIndex % 3 === 0 && S.energy > 0.45) triggerFill();
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// BREATH DETECTION — Bonus layer from accelerometer Z
+// BREATH DETECTION
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function detectBreath() {
@@ -596,20 +980,15 @@ function detectBreath() {
         S.breathProgress = Math.min(1, (now - S.lastPeakTime) / (S.breathDur * 0.5));
         if (S.azSmooth < mid - range * 0.15 && trend > -0.002) {
             S.breathPhase = 'valley';
-            // Learn duration
             const dur = now - S.breathStart;
             if (dur > 1500 && dur < 12000) {
                 S.breathDurs.push(dur);
                 if (S.breathDurs.length > 8) S.breathDurs.shift();
                 S.breathDur = S.breathDurs.reduce((a, b) => a + b) / S.breathDurs.length;
             }
-            // Breath also adds energy
             S.energy = Math.min(1, S.energy + 0.03 + S.breathDepth * 0.04);
-            // Advance chord on deep breaths
             if (S.breathDepth > 0.3) advanceChord();
-            // Ring
             S.rings.push({ birth: performance.now(), depth: S.breathDepth });
-            if (S.rings.length > 40) S.rings.shift();
         }
     }
 }
@@ -727,7 +1106,7 @@ function setupTouch() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// ENVIRONMENT — Weather, Microphone, Light
+// ENVIRONMENT — Weather, Microphone
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function fetchWeather() {
@@ -740,15 +1119,20 @@ function fetchWeather() {
             const temp = data.current.temperature_2m;
             const code = data.current.weathercode;
 
-            if (temp < 10) { S.weatherScale = 'minor'; S.bpm = 75; }
-            else if (temp < 25) { S.weatherScale = 'mixolydian'; S.bpm = 85; }
-            else { S.weatherScale = 'major'; S.bpm = 95; }
+            if (temp < 10) { S.weatherTempo = -10; S.baseBpm = 75; }
+            else if (temp < 25) { S.weatherTempo = 0; S.baseBpm = 85; }
+            else { S.weatherTempo = 10; S.baseBpm = 95; }
 
-            if (code >= 51 && code <= 82) { S.weatherReverb = 0.35; S.weatherScale = 'minor'; }
+            S.bpm = Math.round(S.baseBpm * S.section.tempoMul + S.weatherTempo);
+            FX.delay.delayTime.rampTo(60 / S.bpm / 2, 1);
+
+            if (code >= 51 && code <= 67) { S.weatherReverb = 0.35; S.weatherScale = 'minor'; }
             else if (code >= 71 && code <= 77) { S.weatherReverb = 0.4; S.weatherScale = 'dorian'; }
-            else if (code >= 95) { S.weatherScale = 'phrygian'; }
+            else if (code >= 95) { S.weatherScale = 'phrygian'; S.weatherReverb = 0.3; }
             else if (code >= 45 && code <= 48) { S.weatherReverb = 0.38; S.weatherScale = 'dorian'; }
+            else { S.weatherScale = null; }
 
+            if (S.weatherScale) S.activeScale = S.weatherScale;
             FX.reverb.wet.rampTo(S.weatherReverb, 2);
 
             const cond = code === 0 ? 'clear' : code <= 3 ? 'cloudy' :
@@ -779,7 +1163,7 @@ async function initMicrophone() {
             S.micLevel = Math.min(1, sum / sp.length * 10);
             S.micCentroid = tPow > 0 ? (wSum / tPow) / sp.length : 0;
         }, 100);
-    } catch(e) { console.log('Mic denied'); }
+    } catch(e) {}
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -811,42 +1195,55 @@ function draw() {
     const cy = h / 2 + S.tiltY * h * 0.15;
     const e = S.energy;
     const tierIdx = TIERS.indexOf(S.tier);
-    const hue = 210 + tierIdx * 12;
+    const pal = PALETTES[S.section.name] || PALETTES.DRIFT;
+    const hue = pal.h + tierIdx * 6;
+    const sat = pal.s;
+    const lit = pal.l;
 
     // Fade
-    vc.fillStyle = `rgba(2, 2, 4, ${0.08 + (1 - e) * 0.04})`;
+    vc.fillStyle = `rgba(2, 2, 4, ${0.07 + (1 - e) * 0.04})`;
     vc.fillRect(0, 0, w, h);
 
+    // Section mood glow
+    if (e > 0.1) {
+        const bg = vc.createRadialGradient(cx, cy, 0, cx, cy, Math.min(w, h) * 0.6);
+        bg.addColorStop(0, `hsla(${hue}, ${sat}%, ${lit * 0.3}%, ${e * 0.025})`);
+        bg.addColorStop(1, 'transparent');
+        vc.fillStyle = bg;
+        vc.fillRect(0, 0, w, h);
+    }
+
     // Breath rings
-    S.rings.forEach(ring => {
+    for (let i = S.rings.length - 1; i >= 0; i--) {
+        const ring = S.rings[i];
         const age = (now - ring.birth) / 1000;
-        if (age > 20) return;
+        if (age > 20) { S.rings.splice(i, 1); continue; }
         const r = 30 + age * 18;
         const alpha = Math.max(0, 0.15 - age * 0.008) * ring.depth;
         vc.beginPath();
         vc.arc(cx, cy, r, 0, TAU);
-        vc.strokeStyle = `hsla(${hue}, 30%, 55%, ${alpha})`;
+        vc.strokeStyle = `hsla(${hue}, ${sat}%, ${lit + 10}%, ${alpha})`;
         vc.lineWidth = 1;
         vc.stroke();
-    });
+    }
 
-    // Energy rings
+    // Energy rings (one per active voice)
     const numRings = Math.min(6, S.tier.voices);
     for (let i = 0; i < numRings; i++) {
         const r = 35 + i * 35 + Math.sin(now * 0.001 + i) * 5;
-        const alpha = 0.04 + e * 0.12;
+        const alpha = 0.04 + e * 0.1;
         vc.beginPath();
         vc.arc(cx, cy, r, 0, TAU);
-        vc.strokeStyle = `hsla(${hue + i * 18}, ${25 + e * 30}%, ${45 + e * 15}%, ${alpha})`;
+        vc.strokeStyle = `hsla(${hue + i * 15}, ${sat + e * 20}%, ${lit + e * 10}%, ${alpha})`;
         vc.lineWidth = 1 + e;
         vc.stroke();
     }
 
     // Core orb
-    const coreR = 12 + e * 25 + S.speed * 30;
+    const coreR = 12 + e * 25 + S.smoothSpeed * 30;
     const grad = vc.createRadialGradient(cx, cy, 0, cx, cy, coreR);
-    grad.addColorStop(0, `hsla(${hue}, 50%, 65%, ${0.4 + e * 0.5})`);
-    grad.addColorStop(0.6, `hsla(${hue}, 40%, 45%, ${0.15 + e * 0.2})`);
+    grad.addColorStop(0, `hsla(${hue}, ${sat + 20}%, ${lit + 15}%, ${0.4 + e * 0.5})`);
+    grad.addColorStop(0.6, `hsla(${hue}, ${sat}%, ${lit - 5}%, ${0.12 + e * 0.18})`);
     grad.addColorStop(1, 'transparent');
     vc.fillStyle = grad;
     vc.beginPath();
@@ -857,35 +1254,42 @@ function draw() {
     for (let i = 0; i < numRings; i++) {
         const angle = (i / Math.max(1, numRings)) * TAU + now * 0.0006;
         const dist = 35 + i * 35;
-        const vx = cx + Math.cos(angle) * dist;
-        const vy = cy + Math.sin(angle) * dist;
         vc.beginPath();
-        vc.arc(vx, vy, 2, 0, TAU);
-        vc.fillStyle = `hsla(${hue + i * 18}, 50%, 70%, ${0.15 + e * 0.25})`;
+        vc.arc(cx + Math.cos(angle) * dist, cy + Math.sin(angle) * dist, 2 + e, 0, TAU);
+        vc.fillStyle = `hsla(${hue + i * 15}, ${sat + 10}%, ${lit + 15}%, ${0.12 + e * 0.2})`;
+        vc.fill();
+    }
+
+    // Arp trail
+    if (S.arpEnabled && e > 0.3) {
+        const arpAngle = S.arpStep * 0.4 + now * 0.002;
+        const arpDist = 80 + Math.sin(now * 0.003) * 20;
+        vc.beginPath();
+        vc.arc(cx + Math.cos(arpAngle) * arpDist, cy + Math.sin(arpAngle) * arpDist, 1.5, 0, TAU);
+        vc.fillStyle = `hsla(${hue + 60}, ${sat + 20}%, ${lit + 20}%, ${0.2 + e * 0.25})`;
         vc.fill();
     }
 
     // Touch particles
-    S.particles = S.particles.filter(p => {
+    for (let i = S.particles.length - 1; i >= 0; i--) {
+        const p = S.particles[i];
         const age = (now - p.birth) / 1000;
-        if (age > 1.5) return false;
+        if (age > 1.5) { S.particles.splice(i, 1); continue; }
         const alpha = Math.max(0, 0.6 - age * 0.4) * p.vel;
-        const r = 3 + age * 20;
         vc.beginPath();
-        vc.arc(p.x, p.y, r, 0, TAU);
-        vc.strokeStyle = `hsla(${hue + 40}, 50%, 70%, ${alpha})`;
+        vc.arc(p.x, p.y, 3 + age * 20, 0, TAU);
+        vc.strokeStyle = `hsla(${hue + 40}, ${sat + 15}%, ${lit + 15}%, ${alpha})`;
         vc.lineWidth = 1;
         vc.stroke();
-        return true;
-    });
+    }
 
     // Speed trail
-    if (S.speed > 0.06) {
-        const len = S.speed * 80;
+    if (S.smoothSpeed > 0.06) {
+        const len = S.smoothSpeed * 80;
         vc.beginPath();
         vc.moveTo(cx, cy);
         vc.lineTo(cx - S.tiltX * len, cy - S.tiltY * len);
-        vc.strokeStyle = `hsla(${hue}, 40%, 60%, ${S.speed * 0.4})`;
+        vc.strokeStyle = `hsla(${hue}, ${sat}%, ${lit + 10}%, ${S.smoothSpeed * 0.35})`;
         vc.lineWidth = 2;
         vc.stroke();
     }
@@ -894,12 +1298,11 @@ function draw() {
     if (tierIdx >= 6) {
         const glow = vc.createRadialGradient(w/2, h/2, Math.min(w,h)*0.25, w/2, h/2, Math.min(w,h)*0.65);
         glow.addColorStop(0, 'transparent');
-        glow.addColorStop(1, `hsla(${hue + 30}, 50%, 50%, ${(e - 0.6) * 0.15})`);
+        glow.addColorStop(1, `hsla(${hue + 30}, ${sat + 10}%, ${lit}%, ${(e - 0.6) * 0.1})`);
         vc.fillStyle = glow;
         vc.fillRect(0, 0, w, h);
     }
 
-    // Energy bar
     document.getElementById('energyFill').style.width = (e * 100) + '%';
 }
 
@@ -915,25 +1318,22 @@ function loop(ts) {
     const dt = Math.min(50, ts - lastFrame) / 1000;
     lastFrame = ts;
 
-    // Energy: movement adds, time decays
+    // Energy
     if (S.speed > 0.015) {
         S.energy = Math.min(1, S.energy + S.speed * 0.025);
         S.stillness = 0;
     } else {
-        S.energy *= (1 - dt * 0.12); // Slow decay
+        S.energy *= (1 - dt * 0.10);
         S.stillness += dt * 10;
     }
-
-    // Touch adds energy
-    if (S.touching) {
-        S.energy = Math.min(1, S.energy + dt * 0.08);
-    }
-
+    if (S.touching) S.energy = Math.min(1, S.energy + dt * 0.08);
+    S.smoothSpeed = S.smoothSpeed * 0.9 + S.speed * 0.1;
     S.peakEnergy = Math.max(S.peakEnergy, S.energy);
 
-    // Chord auto-advance every ~8 seconds of activity
-    S.chordTimer += dt * S.energy;
-    if (S.chordTimer > 8) {
+    // Chord auto-advance
+    S.chordTimer += dt * Math.max(0.3, S.energy);
+    const chordInterval = S.sectionIndex >= 3 ? 6 : 8;
+    if (S.chordTimer > chordInterval) {
         S.chordTimer = 0;
         advanceChord();
     }
@@ -946,6 +1346,7 @@ function loop(ts) {
     detectBreath();
     detectGesture();
     updateTier();
+    updateSection(dt);
     shapeVoices();
     if (S.groovePlaying) runGroove();
     draw();
@@ -954,7 +1355,7 @@ function loop(ts) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// UTILITIES
+// UTILITIES + BOOTSTRAP
 // ═══════════════════════════════════════════════════════════════════════════════
 
 let notifTimer = null;
@@ -966,10 +1367,6 @@ function notify(text) {
     notifTimer = setTimeout(() => el.classList.remove('show'), 1800);
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// BOOTSTRAP
-// ═══════════════════════════════════════════════════════════════════════════════
-
 async function begin() {
     try {
         await Tone.start();
@@ -979,7 +1376,7 @@ async function begin() {
         setupTouch();
 
         document.getElementById('entry').classList.add('gone');
-        document.getElementById('stageName').textContent = 'AWAKENING';
+        document.getElementById('sectionName').textContent = 'DRIFT';
 
         setTimeout(() => { document.getElementById('micBtn').style.display = 'block'; }, 3000);
         fetchWeather();
