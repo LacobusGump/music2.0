@@ -419,6 +419,36 @@ const GumpNeuromorphicMemory = (function() {
     }
 
     // ═══════════════════════════════════════════════════════════════════════
+    // STDP PREDICTION — Expose learned gesture associations
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function getPrediction(lastGestureName) {
+        const idx = NEURON_NAMES.indexOf(lastGestureName);
+        if (idx === -1) return { gesture: null, confidence: 0 };
+
+        // Scan the STDP weight row for lastGesture: weights[idx][j]
+        // The strongest positive weight indicates the most likely next gesture
+        let bestIdx = -1;
+        let bestWeight = 0;
+
+        for (let j = 0; j < N; j++) {
+            if (j === idx) continue; // skip self-connection
+            if (weights[idx][j] > bestWeight) {
+                bestWeight = weights[idx][j];
+                bestIdx = j;
+            }
+        }
+
+        if (bestIdx === -1 || bestWeight < 0.01) {
+            return { gesture: null, confidence: 0 };
+        }
+
+        // Confidence = weight normalized to maxWeight
+        const confidence = Math.min(1, bestWeight / STDP.maxWeight);
+        return { gesture: NEURON_NAMES[bestIdx], confidence: confidence };
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
     // PUBLIC API
     // ═══════════════════════════════════════════════════════════════════════
 
@@ -428,6 +458,7 @@ const GumpNeuromorphicMemory = (function() {
 
         // STDP
         updateSTDP,
+        getPrediction,
 
         // ESN
         stepESN,
@@ -445,6 +476,7 @@ const GumpNeuromorphicMemory = (function() {
         get isReturningUser() { return personalProfile.lifetimeSessions > 1; },
         get newGesturesThisSession() { return sessionMemory.newGesturesDiscovered; },
         get weights() { return weights; },
+        get neuronNames() { return NEURON_NAMES.slice(); },
     });
 
 })();

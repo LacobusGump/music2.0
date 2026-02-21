@@ -343,6 +343,8 @@ const GumpMotionBrain = (function() {
                     firingRate: neuron.firingRate,
                     energy: shortEnergy,
                     magnitude: magnitude,
+                    timestamp: timestamp,
+                    shortVariance: shortVar,
                 });
             }
         }
