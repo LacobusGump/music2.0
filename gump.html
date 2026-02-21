@@ -995,8 +995,12 @@ function onOrientation(e) {
 
 function setupTouch() {
     const onDown = (x, y) => {
-        // Request sensors on first touch (iOS user gesture requirement)
+        // Request sensors on first touch (iOS needs fresh user gesture context)
         requestSensors();
+        // Safety: resume AudioContext if it got suspended
+        if (Tone.context.state !== 'running') {
+            Tone.context.resume();
+        }
 
         S.touching = true;
         S.touchActive = true;
@@ -1005,16 +1009,16 @@ function setupTouch() {
         S.tiltX = (x - 0.5) * 2;
         S.tiltY = (y - 0.5) * 2;
         playNote(x, y, 0.65);
-        S.energy = Math.min(1, S.energy + 0.02);
+        S.energy = Math.min(1, S.energy + 0.008);
     };
 
     const onMove = (x, y) => {
         if (!S.touching) return;
         const dist = Math.sqrt((x - S.touchX)**2 + (y - S.touchY)**2);
-        if (dist > 0.012) {
-            playNote(x, y, 0.3 + Math.min(1, dist * 5));
-            S.energy = Math.min(1, S.energy + dist * 0.3);
-            S.speed = S.speed * 0.6 + dist * 12 * 0.4;
+        if (dist > 0.015) {
+            playNote(x, y, 0.3 + Math.min(1, dist * 4));
+            S.energy = Math.min(1, S.energy + dist * 0.08);
+            S.speed = S.speed * 0.7 + dist * 5 * 0.3;
         }
         S.touchX = x; S.touchY = y;
         S.tiltX = (x - 0.5) * 2;
@@ -1254,18 +1258,18 @@ function loop(ts) {
     // ── ENERGY — slow build, slow decay, the journey is EARNED ──
     if (S.speed > 0.02) {
         // Movement adds energy — slowly
-        S.energy = Math.min(1, S.energy + S.speed * 0.015);
+        S.energy = Math.min(1, S.energy + S.speed * 0.008);
         S.stillness = 0;
     } else {
-        // Slow decay — music fades gently without input
-        // ~0.997 per frame at 60fps ≈ takes ~40 seconds to go from 1 to 0.1
-        S.energy *= (1 - dt * 0.05);
+        // Slow decay per frame — matches gump-unified's 0.997 per-frame decay
+        // At 60fps this takes ~40 seconds to go from 1.0 to 0.1
+        S.energy *= 0.997;
         S.stillness += dt * 10;
     }
 
-    // Touch adds energy — gently
+    // Touch adds energy — very gently
     if (S.touching) {
-        S.energy = Math.min(1, S.energy + dt * 0.03);
+        S.energy = Math.min(1, S.energy + dt * 0.012);
     }
 
     S.smoothSpeed = S.smoothSpeed * 0.92 + S.speed * 0.08;
@@ -1304,8 +1308,9 @@ function notify(text) {
 
 async function begin() {
     try {
-        // Request sensors FIRST while we still have user gesture context
-        await requestSensors();
+        // Tone.start() MUST be first — it needs the user gesture context on iOS
+        // Do NOT call requestSensors() here — it shows permission dialogs that
+        // consume the gesture context. Sensors are requested on first touch instead.
         await Tone.start();
         await initAudio();
         initCanvas();
