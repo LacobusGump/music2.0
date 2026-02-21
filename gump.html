@@ -22,12 +22,14 @@
         .hud{position:fixed;pointer-events:none;font-size:9px;letter-spacing:2px;color:rgba(255,255,255,.12);z-index:5}
         #stageName{top:24px;left:24px}
         #sectionName{bottom:24px;right:24px;font-size:8px;letter-spacing:3px;color:rgba(255,255,255,.06)}
+        #sensorStatus{bottom:24px;left:24px;font-size:7px;letter-spacing:1px;color:rgba(255,255,255,.08)}
+        #sensorStatus .on{color:rgba(120,200,120,.25)}
         #energyBar{bottom:0;left:0;right:0;height:2px;z-index:5}
         #energyFill{height:100%;width:0%;background:rgba(255,255,255,.15);transition:width .3s linear}
         #notif{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);font-size:11px;letter-spacing:5px;color:rgba(255,255,255,.5);opacity:0;transition:opacity .3s;pointer-events:none;z-index:10}
         #notif.show{opacity:1}
         #weatherInfo{top:24px;right:24px;font-size:8px;color:rgba(255,255,255,.06)}
-        #micBtn{position:fixed;bottom:20px;left:20px;width:36px;height:36px;border-radius:50%;border:1px solid rgba(255,255,255,.08);background:0;color:rgba(255,255,255,.12);font-size:8px;cursor:pointer;z-index:10;display:none}
+        #micBtn{position:fixed;bottom:20px;left:80px;width:36px;height:36px;border-radius:50%;border:1px solid rgba(255,255,255,.08);background:0;color:rgba(255,255,255,.12);font-size:8px;cursor:pointer;z-index:10;display:none}
         #micBtn.on{border-color:rgba(200,100,100,.3);color:rgba(200,100,100,.3)}
         #err{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:#000;color:rgba(255,255,255,.3);font-size:11px;text-align:center;z-index:999;flex-direction:column}
     </style>
@@ -47,6 +49,7 @@
 <div class="hud" id="stageName"></div>
 <div class="hud" id="sectionName"></div>
 <div class="hud" id="weatherInfo"></div>
+<div class="hud" id="sensorStatus"></div>
 <div id="energyBar"><div id="energyFill"></div></div>
 <div id="notif"></div>
 <button id="micBtn">MIC</button>
@@ -93,7 +96,6 @@ const SCALES = {
     phrygian:   [0, 1, 3, 5, 7, 8, 10],
 };
 
-// Drum patterns
 const DRUM_PATTERNS = {
     minimal: {
         K:  [1,0,0,0, 0,0,0,0, .6,0,0,0, 0,0,0,0],
@@ -141,7 +143,6 @@ const ARP_PATTERNS = {
 
 const SWING = 0.18;
 
-// Sections
 const SECTIONS = [
     { name: 'DRIFT',   scale: 'minor',      tr: 0,  tempoMul: 0.9,  threshold: 0,    holdTime: 0  },
     { name: 'WANDER',  scale: 'dorian',     tr: 0,  tempoMul: 1.0,  threshold: 0.35, holdTime: 30 },
@@ -150,7 +151,6 @@ const SECTIONS = [
     { name: 'DESCEND', scale: 'minor',      tr: 0,  tempoMul: 0.85, threshold: -1,   holdTime: 25 },
 ];
 
-// Tiers
 const TIERS = [
     { name: 'SILENCE',    e: 0,    voices: 0, drums: false, pat: 'minimal' },
     { name: 'AWAKENING',  e: 0.05, voices: 1, drums: false, pat: 'minimal' },
@@ -174,70 +174,147 @@ const PALETTES = {
 function noteFreq(semi) { return A * Math.pow(2, semi / 12); }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// STATE
+// NEUROMORPHIC SENSORY MODULES
+// Each module: receptor → local memory → compute → output signal
+// Memory is LOCAL to the compute. Compute happens AFTER inputs register.
 // ═══════════════════════════════════════════════════════════════════════════════
 
+const SENSE = {
+    // ── MOTION (accelerometer) ──
+    motion: {
+        // Receptor: raw accelerometer data
+        raw: { x: 0, y: 0, z: 0 },
+        prev: { x: 0, y: 0, z: 0 },
+
+        // Local memory: history buffer (G7 flywheel pattern)
+        buffer: [],          // last 150 deviation samples
+        totalAccumulated: 0, // G7's flywheel — total motion ever
+        lastDataTime: 0,     // when we last received data
+        requestTime: 0,      // when we requested permission
+
+        // Computed features
+        magnitude: 0,        // |acceleration|
+        deviation: 0,        // deviation from gravity
+        speed: 0,            // smoothed normalized speed [0,1]
+        smoothSpeed: 0,      // very smooth speed for audio modulation
+        avgMotion: 0,        // average of buffer
+        variance: 0,         // variance of buffer
+        pattern: 'still',    // still / gentle / rhythmic / vigorous / chaotic
+        direction: { x: 0, y: 0 },
+
+        // Output signal
+        energyContrib: 0,    // how much energy this sense contributes per frame
+
+        // Status
+        listening: false,    // event listener attached?
+        receiving: false,    // actually getting data?
+        permitted: false,    // permission requested and not denied?
+    },
+
+    // ── ORIENTATION (gyroscope/compass) ──
+    orientation: {
+        // Receptor
+        raw: { alpha: 0, beta: 45, gamma: 0 },
+
+        // Computed
+        tiltX: 0,            // left/right roll [-1, 1]
+        tiltY: 0,            // forward/back tilt [-1, 1]
+        brightness: 0.5,     // derived from tiltY [0, 1]
+        stereoField: 0,      // derived from tiltX [-1, 1]
+
+        // Status
+        listening: false,
+        receiving: false,
+        permitted: false,
+    },
+
+    // ── TOUCH ──
+    touch: {
+        // Receptor
+        raw: { x: 0.5, y: 0.5 },
+        pressing: false,
+        pressActive: false,  // for arp: sustained press
+
+        // Local memory
+        buffer: [],          // last 30 positions for gesture detection
+        prevX: 0.5, prevY: 0.5,
+
+        // Computed
+        velocity: 0,         // movement speed of touch
+        gestureType: null,   // detected gesture (SHAKE, SWIPE_UP, etc.)
+        gestureCooldown: 0,
+
+        // Output signal
+        energyContrib: 0,
+
+        // Status
+        active: false,
+    },
+
+    // ── BREATH (derived from accelZ) ──
+    breath: {
+        // Local memory
+        azSmooth: 0,
+        azHist: [],
+
+        // Computed
+        phase: 'none',       // none / inhale / peak / exhale / valley
+        progress: 0,
+        depth: 0,
+        breathStart: 0,
+        breathDur: 4000,
+        breathDurs: [],
+        lastPeakTime: 0,
+
+        // Output signal
+        energyContrib: 0,
+
+        // Status
+        active: false,
+    },
+
+    // ── MICROPHONE ──
+    mic: {
+        centroid: 0,
+        amplitude: 0,
+        filterMod: 0,
+        active: false,
+    },
+
+    // ── ENVIRONMENT ──
+    env: {
+        temperature: null,
+        weatherCode: null,
+        tempoMod: 0,
+        reverbMod: 0.25,
+        scaleMod: null,
+        active: false,
+    },
+};
+
+// ── CONDUCTOR STATE (synthesized from all senses) ──
 const S = {
     active: false,
-
-    // Motion
-    tiltX: 0, tiltY: 0,
-    accelX: 0, accelY: 0, accelZ: 0,
-    sensorsGranted: false,
-    speed: 0, smoothSpeed: 0,
-    energy: 0, peakEnergy: 0,
-    stillness: 0,
-
-    // Touch
-    touching: false,
-    touchX: 0.5, touchY: 0.5,
-    touchActive: false,
-
-    // Breath
-    azSmooth: 0, azHist: [],
-    breathPhase: 'none', breathProgress: 0, breathDepth: 0,
-    breathStart: 0, breathDur: 4000, breathDurs: [], lastPeakTime: 0,
-
-    // Gesture
-    gestureBuffer: [], gestureCooldown: 0,
+    energy: 0, peakEnergy: 0, stillness: 0,
 
     // Musical
     tier: TIERS[0], prevTier: TIERS[0],
-    section: SECTIONS[0], sectionIndex: 0,
-    sectionHoldTimer: 0,
-    chordIndex: 0,
-    transpose: 0,
-    bpm: 85, baseBpm: 85,
-    activeScale: 'minor',
+    section: SECTIONS[0], sectionIndex: 0, sectionHoldTimer: 0,
+    chordIndex: 0, transpose: 0,
+    bpm: 85, baseBpm: 85, activeScale: 'minor',
 
     // Groove
-    groovePlaying: false,
-    grooveStep: 0,
-    nextStepTime: 0,
-    fillCountdown: 0,
-
-    // Bass — only plays when user is active
-    bassPatIdx: 0,
-
-    // Arp — driven by sustained touch
-    arpStep: 0,
-    arpPattern: 'up',
-
-    // Environment
-    weatherScale: null,
-    weatherReverb: 0.25,
-    weatherTempo: 0,
-    micActive: false, micLevel: 0, micCentroid: 0,
+    groovePlaying: false, grooveStep: 0, nextStepTime: 0, fillCountdown: 0,
+    bassPatIdx: 0, arpStep: 0, arpPattern: 'up',
 
     // Viz
-    particles: [],
-    rings: [],
+    particles: [], rings: [],
 };
 
 let FX = {}, V = {}, DRUMS = {}, MELODY = null, BASS = null, ARP = null, MIC = null;
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// AUDIO INIT
+// AUDIO INIT (unchanged — this code works)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 async function initAudio() {
@@ -257,9 +334,7 @@ async function initAudio() {
         feedback: 0.22, wet: 0.08, maxDelay: 2
     }).connect(reverb);
 
-    // DUST FILTER — tilt Y directly controls this (the key to expression)
     const dust = new Tone.Filter({ frequency: 4000, type: 'lowpass', Q: 0.5 }).connect(delay);
-
     const sat = new Tone.Distortion({ distortion: 0.1, wet: 0.12, oversample: '2x' }).connect(dust);
     const warmth = new Tone.EQ3({ low: 4, mid: -1, high: -3, lowFrequency: 300, highFrequency: 5000 }).connect(sat);
     const chorus = new Tone.Chorus({ frequency: 1.2, delayTime: 4, depth: 0.35, wet: 0.25 }).connect(warmth);
@@ -271,7 +346,6 @@ async function initAudio() {
     const sidechain = new Tone.Gain(1).connect(chorus);
     const padBus = new Tone.Gain(1).connect(panner);
 
-    // Drum chain — own compression + warmth
     const drumComp = new Tone.Compressor({
         threshold: -14, ratio: 6, attack: 0.001, release: 0.08
     }).connect(comp);
@@ -300,7 +374,7 @@ async function initAudio() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// VOICES
+// VOICES (unchanged)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function makeOsc(cfg) {
@@ -401,7 +475,7 @@ function getChord() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// DRUMS — Layered, noise-based
+// DRUMS (unchanged)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function createDrums() {
@@ -493,7 +567,7 @@ function triggerSnare(t, vel) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// GROOVE ENGINE — Drums + bass + arp, all user-responsive
+// GROOVE ENGINE (reads from SENSE modules)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function runGroove() {
@@ -502,12 +576,11 @@ function runGroove() {
     const stepDur = (60 / S.bpm) / 4;
     const lookAhead = 0.1;
     const e = S.energy;
-    // Intensity scales with energy — less energy = quieter drums
     const intensity = 0.3 + e * 0.7;
     const chord = getChord();
     const tierIdx = TIERS.indexOf(S.tier);
-    // Movement flag — bass/arp only play when user is actually moving or touching
-    const userActive = S.speed > 0.02 || S.touching;
+    // User active = motion OR touch (reads from sensory modules)
+    const userActive = SENSE.motion.speed > 0.02 || SENSE.touch.pressing;
 
     while (S.nextStepTime < Tone.now() + lookAhead) {
         const step = S.grooveStep;
@@ -517,12 +590,10 @@ function runGroove() {
         const patName = isFill ? 'fill' : (S.tier.pat || 'groove');
         const pat = DRUM_PATTERNS[patName] || DRUM_PATTERNS.groove;
 
-        // Humanize
         const jit = (Math.random() - 0.5) * 0.005;
         const vVar = 0.88 + Math.random() * 0.24;
         const t = now + jit;
 
-        // ── DRUMS ──
         if (pat.K[step]) {
             triggerKick(t, pat.K[step] * intensity * vVar);
             FX.sidechain.gain.cancelScheduledValues(t);
@@ -540,14 +611,13 @@ function runGroove() {
             DRUMS.openHat.triggerAttackRelease('8n', t, pat.OH[step] * intensity * vVar);
         }
 
-        // Tom fills
         if (isFill && step >= 8 && step % 2 === 0) {
             const tomNotes = ['G2', 'D2', 'A1', 'E1'];
             DRUMS.tom.triggerAttackRelease(tomNotes[Math.floor((step-8)/2) % 4], '16n', t, 0.5 + Math.random() * 0.3);
         }
         if (isFill) S.fillCountdown--;
 
-        // ── WALKING BASS — only when user is active ──
+        // Walking bass — only when user is active
         if (userActive && BASS && tierIdx >= 4 && step % 4 === 0) {
             const beatIdx = step / 4;
             const bassPat = BASS_PATTERNS[S.bassPatIdx % BASS_PATTERNS.length];
@@ -555,8 +625,8 @@ function runGroove() {
             BASS.triggerAttackRelease(noteFreq(bassNote), '4n', t, 0.45 + e * 0.35);
         }
 
-        // ── ARP — only during sustained touch ──
-        if (S.touchActive && ARP && tierIdx >= 5) {
+        // Arp — only during sustained touch
+        if (SENSE.touch.pressActive && ARP && tierIdx >= 5) {
             const arpRate = tierIdx >= 7 ? 1 : 2;
             if (step % arpRate === 0) {
                 const patArr = ARP_PATTERNS[S.arpPattern] || ARP_PATTERNS.up;
@@ -564,8 +634,7 @@ function runGroove() {
                 chord.forEach(n => { spread.push(n); spread.push(n + 12); });
                 spread.sort((a, b) => a - b);
                 const idx = patArr[S.arpStep % patArr.length] % spread.length;
-                // Arp note pitch influenced by touch Y position
-                const octShift = Math.floor((1 - S.touchY) * 2) * 12;
+                const octShift = Math.floor((1 - SENSE.touch.raw.y) * 2) * 12;
                 const arpNote = spread[idx] + S.transpose + octShift;
                 const accent = (S.arpStep % patArr.length === 0) ? 0.4 : 0.25;
                 ARP.triggerAttackRelease(noteFreq(arpNote), arpRate === 1 ? '16n' : '8n', t, accent);
@@ -595,7 +664,7 @@ function triggerFill() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// BASS + ARP SYNTHS
+// BASS + ARP SYNTHS (unchanged)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function createBass() {
@@ -624,7 +693,7 @@ function createArp() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// MELODY — Touch-triggered
+// MELODY (unchanged)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function createMelody() {
@@ -674,7 +743,6 @@ function triggerPhrase(type) {
             MELODY.triggerAttackRelease(noteFreq(n + S.transpose + 12), 0.2, now + i * 0.1, 0.6 - i * 0.1);
         });
         MELODY.triggerAttackRelease(noteFreq(chord[0] + S.transpose + 24), 0.3, now + chord.length * 0.1, 0.4);
-        // Swipe up advances chord
         advanceChord();
         notify('RISE');
     } else if (type === 'SWIPE_DOWN') {
@@ -696,7 +764,7 @@ function triggerPhrase(type) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// SECTIONS
+// SECTIONS (unchanged)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function updateSection(dt) {
@@ -715,7 +783,6 @@ function updateSection(dt) {
             S.sectionHoldTimer += dt;
             if (S.sectionHoldTimer > next.holdTime) changeSection(idx + 1);
         } else {
-            // Decay the timer — you have to SUSTAIN the energy
             S.sectionHoldTimer = Math.max(0, S.sectionHoldTimer - dt * 3);
         }
     } else {
@@ -731,9 +798,9 @@ function changeSection(idx) {
     S.transpose = S.section.tr;
     S.chordIndex = 0;
 
-    if (!S.weatherScale) S.activeScale = S.section.scale;
+    if (!SENSE.env.scaleMod) S.activeScale = S.section.scale;
 
-    S.bpm = Math.round(S.baseBpm * S.section.tempoMul + S.weatherTempo);
+    S.bpm = Math.round(S.baseBpm * S.section.tempoMul + SENSE.env.tempoMod);
     FX.delay.delayTime.rampTo(60 / S.bpm / 2, 2);
 
     if (S.groovePlaying) triggerFill();
@@ -749,94 +816,7 @@ function changeSection(idx) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// VOICE SHAPING — Tilt = direct sonic control
-// ═══════════════════════════════════════════════════════════════════════════════
-
-function shapeVoices() {
-    const e = S.energy;
-    const tier = S.tier;
-    // Tilt Y = brightness (0 to 1) — DIRECTLY controls the main filter
-    const brightness = (S.tiltY + 1) * 0.5;
-    const now = performance.now();
-
-    // ── TILT = MASTER FILTER (the key relationship) ──
-    // Tilt Y sweeps dust filter from 2000Hz (dark) to 12000Hz (bright)
-    const dustFreq = 2000 + brightness * 10000 * (0.3 + e * 0.7);
-    FX.dust.frequency.rampTo(Math.min(14000, dustFreq), 0.08);
-
-    // Slow organic oscillations
-    const breathe1 = Math.sin(now * 0.0008) * 0.5 + 0.5;
-    const breathe2 = Math.sin(now * 0.0012 + 1.2) * 0.5 + 0.5;
-    const breathe3 = Math.sin(now * 0.0005 + 2.4) * 0.5 + 0.5;
-
-    const layers = [
-        { name: 'lead',    minV: 1, vol: 0.13, bCut: 500,  mCut: 4500, mod: breathe1 * 0.1 },
-        { name: 'sub',     minV: 2, vol: 0.14, bCut: 200,  mCut: 600,  mod: 0 },
-        { name: 'pad',     minV: 3, vol: 0.07, bCut: 400,  mCut: 3000, mod: breathe2 * 0.12 },
-        { name: 'strings', minV: 4, vol: 0.05, bCut: 600,  mCut: 5000, mod: breathe3 * 0.1 },
-        { name: 'brass',   minV: 5, vol: 0.04, bCut: 400,  mCut: 3000, mod: breathe1 * 0.06 },
-        { name: 'choir',   minV: 6, vol: 0.03, bCut: 1000, mCut: 7000, mod: breathe2 * 0.06 },
-    ];
-
-    layers.forEach(({ name, minV, vol, bCut, mCut, mod }) => {
-        const layer = V[name];
-        if (!layer) return;
-
-        let amp, cutoff;
-        if (tier.voices < minV) {
-            amp = 0;
-            cutoff = bCut;
-        } else {
-            const headroom = Math.min(1, (e - (tier.e || 0)) * 4);
-            amp = (vol + mod) * headroom;
-            // Per-voice filter also follows brightness
-            cutoff = bCut + (mCut - bCut) * brightness * headroom;
-
-            if (S.breathPhase === 'inhale') {
-                amp *= 0.3 + S.breathProgress * 0.7;
-                cutoff *= 0.5 + S.breathProgress * 0.5;
-            } else if (S.breathPhase === 'exhale') {
-                const ease = 1 - S.breathProgress * S.breathProgress;
-                amp *= Math.max(0.2, ease);
-                cutoff *= Math.max(0.3, ease);
-            }
-        }
-
-        if (S.micActive && S.micCentroid > 0.1) cutoff += S.micCentroid * 800;
-
-        cutoff = Math.max(150, Math.min(9000, cutoff));
-        layer.gain.gain.rampTo(amp, 0.15);
-        layer.filter.frequency.rampTo(cutoff, 0.15);
-    });
-
-    // Lead expression: tilt X = pitch bend + vibrato deepens with energy
-    if (V.lead && V.lead.oscs[0]) {
-        const vibrato = Math.sin(now * 0.028) * (2 + e * 10);
-        V.lead.oscs[0].detune.rampTo(S.tiltX * 40 + vibrato, 0.05);
-    }
-
-    // Speed modulates FM modulation index — faster = more harmonic complexity
-    if (V.lead && V.lead.oscs[0].modulationIndex) {
-        const targetMod = 1.2 + S.smoothSpeed * 8;
-        try { V.lead.oscs[0].modulationIndex.rampTo(targetMod, 0.2); } catch(e) {}
-    }
-
-    // Pad detuning widens with energy
-    if (V.pad) {
-        V.pad.oscs.forEach((osc, i) => {
-            if (i > 0) osc.detune.rampTo((i - 1) * 10 + e * 8, 0.3);
-        });
-    }
-
-    // Effects follow energy + section
-    const revWet = S.weatherReverb + e * 0.08 + (S.sectionIndex >= 3 ? 0.05 : 0);
-    FX.reverb.wet.rampTo(Math.min(0.4, revWet), 0.3);
-    FX.delay.wet.rampTo(0.05 + S.sectionIndex * 0.02 + e * 0.03, 0.3);
-    FX.chorus.depth = 0.2 + brightness * 0.3;
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// TIER + CHORD
+// TIER + CHORD (unchanged)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function updateTier() {
@@ -871,185 +851,379 @@ function advanceChord() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// BREATH DETECTION
+// SENSORY MODULE: MOTION RECEPTOR + COMPUTE
+// G7 Flywheel pattern: buffer → pattern classification → energy signal
 // ═══════════════════════════════════════════════════════════════════════════════
 
-function detectBreath() {
-    const z = S.accelZ;
+function onMotionData(e) {
+    const a = e.accelerationIncludingGravity;
+    if (!a) return;
+
+    const m = SENSE.motion;
+    m.prev.x = m.raw.x; m.prev.y = m.raw.y; m.prev.z = m.raw.z;
+    m.raw.x = a.x || 0;
+    m.raw.y = a.y || 0;
+    m.raw.z = a.z || 0;
+
+    // Mark as actually receiving data
+    m.receiving = true;
+    m.lastDataTime = performance.now();
+
+    // Compute deviation from gravity (G7 pattern)
+    const dx = Math.abs(m.raw.x - m.prev.x);
+    const dy = Math.abs(m.raw.y - m.prev.y);
+    const dz = Math.abs(m.raw.z - m.prev.z);
+    m.deviation = Math.sqrt(dx * dx + dy * dy + dz * dz) * 0.6;
+
+    // Speed: smoothed, normalized
+    m.speed = m.speed * 0.8 + Math.min(1, m.deviation * 0.4) * 0.2;
+
+    // Direction from velocity integration (G7)
+    m.direction.x += m.raw.x * 0.01;
+    m.direction.y += m.raw.y * 0.01;
+    // Decay direction
+    m.direction.x *= 0.95;
+    m.direction.y *= 0.95;
+}
+
+function computeMotion(dt) {
+    const m = SENSE.motion;
+
+    // Push to history buffer (G7's 150-sample flywheel)
+    m.buffer.push(m.deviation);
+    if (m.buffer.length > 150) m.buffer.shift();
+
+    // Accumulate total motion (flywheel never resets)
+    m.totalAccumulated += m.deviation * dt;
+
+    // Running statistics from buffer
+    if (m.buffer.length >= 10) {
+        let sum = 0, sqSum = 0;
+        for (let i = 0; i < m.buffer.length; i++) {
+            sum += m.buffer[i];
+            sqSum += m.buffer[i] * m.buffer[i];
+        }
+        m.avgMotion = sum / m.buffer.length;
+        m.variance = (sqSum / m.buffer.length) - (m.avgMotion * m.avgMotion);
+
+        // Pattern classification (G7)
+        if (m.avgMotion < 0.3) m.pattern = 'still';
+        else if (m.avgMotion < 0.8 && m.variance < 0.5) m.pattern = 'gentle';
+        else if (m.variance < 1.5 && m.avgMotion >= 0.8) m.pattern = 'rhythmic';
+        else if (m.avgMotion > 1.5 && m.variance < 3) m.pattern = 'vigorous';
+        else if (m.variance >= 3) m.pattern = 'chaotic';
+    }
+
+    // Smooth speed for audio modulation
+    m.smoothSpeed = m.smoothSpeed * 0.92 + m.speed * 0.08;
+
+    // Energy signal: speed drives energy contribution
+    m.energyContrib = m.speed > 0.02 ? m.speed * 0.008 : 0;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SENSORY MODULE: ORIENTATION RECEPTOR + COMPUTE
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function onOrientationData(e) {
+    const o = SENSE.orientation;
+
+    if (e.gamma !== null || e.beta !== null) {
+        o.raw.alpha = e.alpha || 0;
+        o.raw.beta = e.beta || 45;
+        o.raw.gamma = e.gamma || 0;
+
+        // Mark as receiving
+        o.receiving = true;
+    }
+}
+
+function computeOrientation() {
+    const o = SENSE.orientation;
+
+    // Normalize tilt values (same as before)
+    o.tiltX = Math.max(-1, Math.min(1, o.raw.gamma / 45));
+    o.tiltY = Math.max(-1, Math.min(1, (o.raw.beta - 45) / 45));
+
+    // Derived signals
+    o.brightness = (o.tiltY + 1) * 0.5;   // 0=dark, 1=bright
+    o.stereoField = o.tiltX;               // -1=left, 1=right
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SENSORY MODULE: TOUCH RECEPTOR + COMPUTE
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function computeTouch(dt) {
+    const t = SENSE.touch;
+
+    // Gesture detection from buffer
+    if (t.gestureCooldown > 0) { t.gestureCooldown--; return; }
+    if (t.buffer.length < 10) return;
+
+    let totalSpeed = 0, dirChanges = 0, netX = 0, netY = 0;
+    for (let i = 1; i < t.buffer.length; i++) {
+        const dx = t.buffer[i].x - t.buffer[i-1].x;
+        const dy = t.buffer[i].y - t.buffer[i-1].y;
+        totalSpeed += Math.sqrt(dx*dx + dy*dy);
+        netX += dx; netY += dy;
+        if (i > 1) {
+            const pdx = t.buffer[i-1].x - t.buffer[i-2].x;
+            const pdy = t.buffer[i-1].y - t.buffer[i-2].y;
+            if (dx * pdx < 0 || dy * pdy < 0) dirChanges++;
+        }
+    }
+    const avg = totalSpeed / t.buffer.length;
+
+    t.gestureType = null;
+    if (avg > 0.03 && dirChanges >= 4) {
+        t.gestureType = 'SHAKE'; t.gestureCooldown = 30;
+    } else if (avg > 0.02 && Math.abs(netY) > 0.2) {
+        t.gestureType = netY < 0 ? 'SWIPE_UP' : 'SWIPE_DOWN'; t.gestureCooldown = 20;
+    } else if (avg < 0.003 && S.stillness > 80 && S.energy > 0.1) {
+        t.gestureType = 'HOLD'; t.gestureCooldown = 150;
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SENSORY MODULE: BREATH COMPUTE (reads from motion.raw.z)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function computeBreath() {
+    const b = SENSE.breath;
+    const z = SENSE.motion.raw.z;
     const now = performance.now();
 
-    S.azSmooth = S.azSmooth * 0.82 + z * 0.18;
-    S.azHist.push({ z: S.azSmooth, t: now });
-    if (S.azHist.length > 300) S.azHist = S.azHist.slice(-200);
-    if (S.azHist.length < 30) return;
+    // Only active if motion sensor is receiving
+    if (!SENSE.motion.receiving) return;
 
-    const win = S.azHist.slice(-80);
+    b.azSmooth = b.azSmooth * 0.82 + z * 0.18;
+    b.azHist.push({ z: b.azSmooth, t: now });
+    if (b.azHist.length > 300) b.azHist = b.azHist.slice(-200);
+    if (b.azHist.length < 30) return;
+
+    const win = b.azHist.slice(-80);
     const vals = win.map(h => h.z);
     const lo = Math.min(...vals), hi = Math.max(...vals);
     const range = hi - lo, mid = (lo + hi) / 2;
-    S.breathDepth = Math.min(1, range * 2.5);
+    b.depth = Math.min(1, range * 2.5);
 
-    if (range < 0.08) { S.breathPhase = 'none'; return; }
+    if (range < 0.08) { b.phase = 'none'; b.active = false; return; }
+    b.active = true;
 
-    const tail = S.azHist.slice(-12);
+    const tail = b.azHist.slice(-12);
     let trend = 0;
     for (let i = 1; i < tail.length; i++) trend += tail[i].z - tail[i - 1].z;
     trend /= tail.length;
 
-    if (S.breathPhase === 'none' || S.breathPhase === 'valley') {
-        if (trend > 0.004 && S.azSmooth > lo + range * 0.25) {
-            S.breathPhase = 'inhale';
-            S.breathStart = now;
+    if (b.phase === 'none' || b.phase === 'valley') {
+        if (trend > 0.004 && b.azSmooth > lo + range * 0.25) {
+            b.phase = 'inhale';
+            b.breathStart = now;
         }
-    } else if (S.breathPhase === 'inhale') {
-        S.breathProgress = Math.min(1, (now - S.breathStart) / (S.breathDur * 0.4));
-        if (trend < 0.001 && S.azSmooth > mid + range * 0.2) {
-            S.breathPhase = 'peak';
-            S.lastPeakTime = now;
+    } else if (b.phase === 'inhale') {
+        b.progress = Math.min(1, (now - b.breathStart) / (b.breathDur * 0.4));
+        if (trend < 0.001 && b.azSmooth > mid + range * 0.2) {
+            b.phase = 'peak';
+            b.lastPeakTime = now;
         }
-    } else if (S.breathPhase === 'peak') {
-        if (trend < -0.003) S.breathPhase = 'exhale';
-    } else if (S.breathPhase === 'exhale') {
-        S.breathProgress = Math.min(1, (now - S.lastPeakTime) / (S.breathDur * 0.5));
-        if (S.azSmooth < mid - range * 0.15 && trend > -0.002) {
-            S.breathPhase = 'valley';
-            const dur = now - S.breathStart;
+    } else if (b.phase === 'peak') {
+        if (trend < -0.003) b.phase = 'exhale';
+    } else if (b.phase === 'exhale') {
+        b.progress = Math.min(1, (now - b.lastPeakTime) / (b.breathDur * 0.5));
+        if (b.azSmooth < mid - range * 0.15 && trend > -0.002) {
+            b.phase = 'valley';
+            const dur = now - b.breathStart;
             if (dur > 1500 && dur < 12000) {
-                S.breathDurs.push(dur);
-                if (S.breathDurs.length > 8) S.breathDurs.shift();
-                S.breathDur = S.breathDurs.reduce((a, b) => a + b) / S.breathDurs.length;
+                b.breathDurs.push(dur);
+                if (b.breathDurs.length > 8) b.breathDurs.shift();
+                b.breathDur = b.breathDurs.reduce((a, c) => a + c) / b.breathDurs.length;
             }
-            S.energy = Math.min(1, S.energy + 0.02 + S.breathDepth * 0.03);
-            if (S.breathDepth > 0.3) advanceChord();
-            S.rings.push({ birth: performance.now(), depth: S.breathDepth });
+            b.energyContrib = 0.02 + b.depth * 0.03;
+            if (b.depth > 0.3) advanceChord();
+            S.rings.push({ birth: performance.now(), depth: b.depth });
         }
     }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// GESTURE DETECTION
+// SENSOR PERMISSION SYSTEM (Radiohead + G7 pattern)
+// Critical: permissions must be requested IN a user gesture handler
+// Critical: requestPermission() must be called BEFORE e.preventDefault()
 // ═══════════════════════════════════════════════════════════════════════════════
 
-function detectGesture() {
-    if (S.gestureCooldown > 0) { S.gestureCooldown--; return; }
-    const buf = S.gestureBuffer;
-    if (buf.length < 10) return;
+let permissionRequested = false;
 
-    let totalSpeed = 0, dirChanges = 0, netX = 0, netY = 0;
-    for (let i = 1; i < buf.length; i++) {
-        const dx = buf[i].x - buf[i-1].x, dy = buf[i].y - buf[i-1].y;
-        totalSpeed += Math.sqrt(dx*dx + dy*dy);
-        netX += dx; netY += dy;
-        if (i > 1 && (dx * (buf[i-1].x - buf[i-2].x) < 0 || dy * (buf[i-1].y - buf[i-2].y) < 0)) dirChanges++;
-    }
-    const avg = totalSpeed / buf.length;
+async function requestSensorPermissions() {
+    if (permissionRequested) return;
+    permissionRequested = true;
 
-    if (avg > 0.03 && dirChanges >= 4) {
-        triggerPhrase('SHAKE'); S.gestureCooldown = 30;
-    } else if (avg > 0.02 && Math.abs(netY) > 0.2) {
-        triggerPhrase(netY < 0 ? 'SWIPE_UP' : 'SWIPE_DOWN'); S.gestureCooldown = 20;
-    } else if (avg < 0.003 && S.stillness > 80 && S.energy > 0.1) {
-        triggerPhrase('HOLD'); S.gestureCooldown = 150;
-    }
-}
+    const m = SENSE.motion;
+    const o = SENSE.orientation;
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// INPUT — Sensor permissions requested on FIRST TOUCH (iOS fix)
-// ═══════════════════════════════════════════════════════════════════════════════
-
-async function requestSensors() {
-    if (S.sensorsGranted) return;
-    S.sensorsGranted = true;
-
+    // ── DeviceMotion (accelerometer) ──
     if (typeof DeviceMotionEvent !== 'undefined') {
         if (typeof DeviceMotionEvent.requestPermission === 'function') {
+            // iOS 13+ — needs user gesture
             try {
-                const r = await DeviceMotionEvent.requestPermission();
-                if (r === 'granted') window.addEventListener('devicemotion', onMotion);
-            } catch(e) {}
-        } else { window.addEventListener('devicemotion', onMotion); }
+                const result = await DeviceMotionEvent.requestPermission();
+                if (result === 'granted') {
+                    m.permitted = true;
+                    m.listening = true;
+                    m.requestTime = performance.now();
+                    window.addEventListener('devicemotion', onMotionData);
+                } else {
+                    notify('MOTION DENIED');
+                    m.permitted = false;
+                }
+            } catch(e) {
+                notify('MOTION FAILED');
+                m.permitted = false;
+                permissionRequested = false; // allow retry
+            }
+        } else {
+            // Android / desktop — no permission needed
+            m.permitted = true;
+            m.listening = true;
+            m.requestTime = performance.now();
+            window.addEventListener('devicemotion', onMotionData);
+        }
     }
+
+    // ── DeviceOrientation (gyroscope/tilt) ──
     if (typeof DeviceOrientationEvent !== 'undefined') {
         if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+            // iOS 13+ — on iOS, motion+orientation share the same permission
             try {
-                const r = await DeviceOrientationEvent.requestPermission();
-                if (r === 'granted') window.addEventListener('deviceorientation', onOrientation);
-            } catch(e) {}
-        } else { window.addEventListener('deviceorientation', onOrientation); }
+                const result = await DeviceOrientationEvent.requestPermission();
+                if (result === 'granted') {
+                    o.permitted = true;
+                    o.listening = true;
+                    window.addEventListener('deviceorientation', onOrientationData);
+                    notify('TILT ON');
+                } else {
+                    notify('TILT DENIED');
+                    o.permitted = false;
+                }
+            } catch(e) {
+                o.permitted = false;
+                permissionRequested = false; // allow retry
+            }
+        } else {
+            // Android / desktop — no permission needed
+            o.permitted = true;
+            o.listening = true;
+            window.addEventListener('deviceorientation', onOrientationData);
+        }
     }
 }
 
-function onMotion(e) {
-    const a = e.accelerationIncludingGravity;
-    if (!a) return;
-    S.accelX = a.x || 0; S.accelY = a.y || 0; S.accelZ = a.z || 0;
-    const motion = Math.sqrt(S.accelX**2 + S.accelY**2 + S.accelZ**2);
-    const deviation = Math.abs(motion - 9.8);
-    S.speed = S.speed * 0.8 + Math.min(1, deviation * 0.4) * 0.2;
-}
-
-function onOrientation(e) {
-    S.tiltX = Math.max(-1, Math.min(1, (e.gamma || 0) / 45));
-    S.tiltY = Math.max(-1, Math.min(1, ((e.beta || 45) - 45) / 45));
-}
+// ═══════════════════════════════════════════════════════════════════════════════
+// TOUCH SYSTEM (Radiohead pattern: permission BEFORE preventDefault)
+// ═══════════════════════════════════════════════════════════════════════════════
 
 function setupTouch() {
-    const onDown = (x, y) => {
-        // Request sensors on first touch (iOS needs fresh user gesture context)
-        requestSensors();
-        // Safety: resume AudioContext if it got suspended
+    // ── Touch handlers ──
+    document.addEventListener('touchstart', async function(e) {
+        // CRITICAL: Request sensor permissions FIRST, BEFORE preventDefault
+        // On iOS, calling preventDefault first can invalidate the gesture context
+        // needed for DeviceMotionEvent.requestPermission()
+        if (!permissionRequested) {
+            await requestSensorPermissions();
+        }
+
+        // Resume AudioContext if suspended (safety net)
         if (Tone.context.state !== 'running') {
             Tone.context.resume();
         }
 
-        S.touching = true;
-        S.touchActive = true;
-        S.touchX = x; S.touchY = y;
-        // Touch serves as tilt fallback
-        S.tiltX = (x - 0.5) * 2;
-        S.tiltY = (y - 0.5) * 2;
-        playNote(x, y, 0.65);
-        S.energy = Math.min(1, S.energy + 0.008);
-    };
+        e.preventDefault();
 
-    const onMove = (x, y) => {
-        if (!S.touching) return;
-        const dist = Math.sqrt((x - S.touchX)**2 + (y - S.touchY)**2);
-        if (dist > 0.015) {
-            playNote(x, y, 0.3 + Math.min(1, dist * 4));
-            S.energy = Math.min(1, S.energy + dist * 0.08);
-            S.speed = S.speed * 0.7 + dist * 5 * 0.3;
+        const t = e.touches[0];
+        const x = t.clientX / window.innerWidth;
+        const y = t.clientY / window.innerHeight;
+        touchDown(x, y);
+    }, { passive: false });
+
+    document.addEventListener('touchmove', function(e) {
+        e.preventDefault();
+        const t = e.touches[0];
+        const x = t.clientX / window.innerWidth;
+        const y = t.clientY / window.innerHeight;
+        touchMove(x, y);
+    }, { passive: false });
+
+    document.addEventListener('touchend', function(e) {
+        e.preventDefault();
+        SENSE.touch.pressing = false;
+        SENSE.touch.pressActive = false;
+    }, { passive: false });
+
+    // ── Mouse handlers (desktop fallback) ──
+    document.addEventListener('mousedown', function(e) {
+        const x = e.clientX / window.innerWidth;
+        const y = e.clientY / window.innerHeight;
+        touchDown(x, y);
+    });
+    document.addEventListener('mousemove', function(e) {
+        const x = e.clientX / window.innerWidth;
+        const y = e.clientY / window.innerHeight;
+        touchMove(x, y);
+    });
+    document.addEventListener('mouseup', function() {
+        SENSE.touch.pressing = false;
+        SENSE.touch.pressActive = false;
+    });
+}
+
+function touchDown(x, y) {
+    const t = SENSE.touch;
+    t.pressing = true;
+    t.pressActive = true;
+    t.active = true;
+    t.raw.x = x;
+    t.raw.y = y;
+    t.prevX = x;
+    t.prevY = y;
+
+    // Touch provides tilt fallback when orientation isn't available
+    if (!SENSE.orientation.receiving) {
+        SENSE.orientation.tiltX = (x - 0.5) * 2;
+        SENSE.orientation.tiltY = (y - 0.5) * 2;
+        SENSE.orientation.brightness = y; // top=0(dark), bottom=1(bright)
+    }
+
+    playNote(x, y, 0.65);
+    t.energyContrib = 0.008;
+}
+
+function touchMove(x, y) {
+    const t = SENSE.touch;
+    if (!t.pressing) return;
+
+    const dist = Math.sqrt((x - t.prevX)**2 + (y - t.prevY)**2);
+    if (dist > 0.015) {
+        playNote(x, y, 0.3 + Math.min(1, dist * 4));
+        t.energyContrib = dist * 0.08;
+        t.velocity = t.velocity * 0.7 + dist * 5 * 0.3;
+
+        // Feed touch speed into motion speed (when no accelerometer)
+        if (!SENSE.motion.receiving) {
+            SENSE.motion.speed = SENSE.motion.speed * 0.7 + dist * 5 * 0.3;
         }
-        S.touchX = x; S.touchY = y;
-        S.tiltX = (x - 0.5) * 2;
-        S.tiltY = (y - 0.5) * 2;
-    };
+    }
 
-    document.addEventListener('touchstart', (e) => {
-        e.preventDefault();
-        const t = e.touches[0];
-        onDown(t.clientX / window.innerWidth, t.clientY / window.innerHeight);
-    }, { passive: false });
+    t.raw.x = x;
+    t.raw.y = y;
+    t.prevX = x;
+    t.prevY = y;
 
-    document.addEventListener('touchmove', (e) => {
-        e.preventDefault();
-        const t = e.touches[0];
-        onMove(t.clientX / window.innerWidth, t.clientY / window.innerHeight);
-    }, { passive: false });
-
-    document.addEventListener('touchend', (e) => {
-        e.preventDefault();
-        S.touching = false;
-        S.touchActive = false;
-    }, { passive: false });
-
-    document.addEventListener('mousedown', (e) => {
-        onDown(e.clientX / window.innerWidth, e.clientY / window.innerHeight);
-    });
-    document.addEventListener('mousemove', (e) => {
-        onMove(e.clientX / window.innerWidth, e.clientY / window.innerHeight);
-    });
-    document.addEventListener('mouseup', () => { S.touching = false; S.touchActive = false; });
+    // Touch fallback for tilt
+    if (!SENSE.orientation.receiving) {
+        SENSE.orientation.tiltX = (x - 0.5) * 2;
+        SENSE.orientation.tiltY = (y - 0.5) * 2;
+        SENSE.orientation.brightness = y;
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1066,21 +1240,22 @@ function fetchWeather() {
             const temp = data.current.temperature_2m;
             const code = data.current.weathercode;
 
-            if (temp < 10) { S.weatherTempo = -10; S.baseBpm = 75; }
-            else if (temp < 25) { S.weatherTempo = 0; S.baseBpm = 85; }
-            else { S.weatherTempo = 10; S.baseBpm = 95; }
+            if (temp < 10) { SENSE.env.tempoMod = -10; S.baseBpm = 75; }
+            else if (temp < 25) { SENSE.env.tempoMod = 0; S.baseBpm = 85; }
+            else { SENSE.env.tempoMod = 10; S.baseBpm = 95; }
 
-            S.bpm = Math.round(S.baseBpm * S.section.tempoMul + S.weatherTempo);
+            S.bpm = Math.round(S.baseBpm * S.section.tempoMul + SENSE.env.tempoMod);
             FX.delay.delayTime.rampTo(60 / S.bpm / 2, 1);
 
-            if (code >= 51 && code <= 67) { S.weatherReverb = 0.35; S.weatherScale = 'minor'; }
-            else if (code >= 71 && code <= 77) { S.weatherReverb = 0.4; S.weatherScale = 'dorian'; }
-            else if (code >= 95) { S.weatherScale = 'phrygian'; S.weatherReverb = 0.3; }
-            else if (code >= 45 && code <= 48) { S.weatherReverb = 0.38; S.weatherScale = 'dorian'; }
-            else { S.weatherScale = null; }
+            if (code >= 51 && code <= 67) { SENSE.env.reverbMod = 0.35; SENSE.env.scaleMod = 'minor'; }
+            else if (code >= 71 && code <= 77) { SENSE.env.reverbMod = 0.4; SENSE.env.scaleMod = 'dorian'; }
+            else if (code >= 95) { SENSE.env.scaleMod = 'phrygian'; SENSE.env.reverbMod = 0.3; }
+            else if (code >= 45 && code <= 48) { SENSE.env.reverbMod = 0.38; SENSE.env.scaleMod = 'dorian'; }
+            else { SENSE.env.scaleMod = null; }
 
-            if (S.weatherScale) S.activeScale = S.weatherScale;
-            FX.reverb.wet.rampTo(S.weatherReverb, 2);
+            if (SENSE.env.scaleMod) S.activeScale = SENSE.env.scaleMod;
+            FX.reverb.wet.rampTo(SENSE.env.reverbMod, 2);
+            SENSE.env.active = true;
 
             const cond = code === 0 ? 'clear' : code <= 3 ? 'cloudy' :
                 code <= 48 ? 'fog' : code <= 67 ? 'rain' : code <= 77 ? 'snow' : 'storm';
@@ -1090,25 +1265,26 @@ function fetchWeather() {
 }
 
 async function initMicrophone() {
-    if (S.micActive) return;
+    if (SENSE.mic.active) return;
     try {
         MIC = new Tone.UserMedia();
         await MIC.open();
         const analyser = new Tone.Analyser('fft', 256);
         MIC.connect(analyser);
-        S.micActive = true;
+        SENSE.mic.active = true;
         document.getElementById('micBtn').classList.add('on');
+        notify('MIC ON');
 
         setInterval(() => {
-            if (!S.micActive) return;
+            if (!SENSE.mic.active) return;
             const sp = analyser.getValue();
             let sum = 0, wSum = 0, tPow = 0;
             for (let i = 0; i < sp.length; i++) {
                 const p = Math.pow(10, sp[i] / 20);
                 sum += p; wSum += p * i; tPow += p;
             }
-            S.micLevel = Math.min(1, sum / sp.length * 10);
-            S.micCentroid = tPow > 0 ? (wSum / tPow) / sp.length : 0;
+            SENSE.mic.amplitude = Math.min(1, sum / sp.length * 10);
+            SENSE.mic.centroid = tPow > 0 ? (wSum / tPow) / sp.length : 0;
         }, 100);
     } catch(e) {
         notify('MIC DENIED');
@@ -1116,7 +1292,123 @@ async function initMicrophone() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// VISUALIZATION
+// CONDUCTOR — Synthesizes all sensory modules into musical decisions
+// This is the "brain" that reads from all local memories
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function conduct(dt) {
+    const m = SENSE.motion;
+    const o = SENSE.orientation;
+    const t = SENSE.touch;
+    const b = SENSE.breath;
+    const mic = SENSE.mic;
+    const e = S.energy;
+
+    // ── BRIGHTNESS: orientation (primary) → touch fallback ──
+    const brightness = o.receiving ? o.brightness : (t.pressing ? t.raw.y : 0.5);
+    const tiltX = o.receiving ? o.tiltX : (t.pressing ? (t.raw.x - 0.5) * 2 : 0);
+    const tiltY = o.receiving ? o.tiltY : (t.pressing ? (t.raw.y - 0.5) * 2 : 0);
+
+    // ── DUST FILTER — tilt Y = master expression ──
+    const dustFreq = 2000 + brightness * 10000 * (0.3 + e * 0.7);
+    FX.dust.frequency.rampTo(Math.min(14000, dustFreq), 0.08);
+
+    // ── VOICE SHAPING ──
+    const now = performance.now();
+    const breathe1 = Math.sin(now * 0.0008) * 0.5 + 0.5;
+    const breathe2 = Math.sin(now * 0.0012 + 1.2) * 0.5 + 0.5;
+    const breathe3 = Math.sin(now * 0.0005 + 2.4) * 0.5 + 0.5;
+
+    const layers = [
+        { name: 'lead',    minV: 1, vol: 0.13, bCut: 500,  mCut: 4500, mod: breathe1 * 0.1 },
+        { name: 'sub',     minV: 2, vol: 0.14, bCut: 200,  mCut: 600,  mod: 0 },
+        { name: 'pad',     minV: 3, vol: 0.07, bCut: 400,  mCut: 3000, mod: breathe2 * 0.12 },
+        { name: 'strings', minV: 4, vol: 0.05, bCut: 600,  mCut: 5000, mod: breathe3 * 0.1 },
+        { name: 'brass',   minV: 5, vol: 0.04, bCut: 400,  mCut: 3000, mod: breathe1 * 0.06 },
+        { name: 'choir',   minV: 6, vol: 0.03, bCut: 1000, mCut: 7000, mod: breathe2 * 0.06 },
+    ];
+
+    const tier = S.tier;
+    layers.forEach(({ name, minV, vol, bCut, mCut, mod }) => {
+        const layer = V[name];
+        if (!layer) return;
+
+        let amp, cutoff;
+        if (tier.voices < minV) {
+            amp = 0;
+            cutoff = bCut;
+        } else {
+            const headroom = Math.min(1, (e - (tier.e || 0)) * 4);
+            amp = (vol + mod) * headroom;
+            cutoff = bCut + (mCut - bCut) * brightness * headroom;
+
+            // Breath modulation
+            if (b.phase === 'inhale') {
+                amp *= 0.3 + b.progress * 0.7;
+                cutoff *= 0.5 + b.progress * 0.5;
+            } else if (b.phase === 'exhale') {
+                const ease = 1 - b.progress * b.progress;
+                amp *= Math.max(0.2, ease);
+                cutoff *= Math.max(0.3, ease);
+            }
+        }
+
+        // Mic modulation
+        if (mic.active && mic.centroid > 0.1) cutoff += mic.centroid * 800;
+
+        cutoff = Math.max(150, Math.min(9000, cutoff));
+        layer.gain.gain.rampTo(amp, 0.15);
+        layer.filter.frequency.rampTo(cutoff, 0.15);
+    });
+
+    // Lead expression: tiltX = pitch bend, speed = FM depth
+    if (V.lead && V.lead.oscs[0]) {
+        const vibrato = Math.sin(now * 0.028) * (2 + e * 10);
+        V.lead.oscs[0].detune.rampTo(tiltX * 40 + vibrato, 0.05);
+    }
+
+    // Motion speed modulates FM modulation index (G7 pattern)
+    const spd = m.receiving ? m.smoothSpeed : t.velocity;
+    if (V.lead && V.lead.oscs[0].modulationIndex) {
+        const targetMod = 1.2 + spd * 8;
+        try { V.lead.oscs[0].modulationIndex.rampTo(targetMod, 0.2); } catch(ex) {}
+    }
+
+    // Pad detuning widens with energy
+    if (V.pad) {
+        V.pad.oscs.forEach((osc, i) => {
+            if (i > 0) osc.detune.rampTo((i - 1) * 10 + e * 8, 0.3);
+        });
+    }
+
+    // Effects follow energy + section
+    const revWet = SENSE.env.reverbMod + e * 0.08 + (S.sectionIndex >= 3 ? 0.05 : 0);
+    FX.reverb.wet.rampTo(Math.min(0.4, revWet), 0.3);
+    FX.delay.wet.rampTo(0.05 + S.sectionIndex * 0.02 + e * 0.03, 0.3);
+    FX.chorus.depth = 0.2 + brightness * 0.3;
+
+    // ── PROCESS GESTURES ──
+    if (t.gestureType) {
+        triggerPhrase(t.gestureType);
+        t.gestureType = null;
+    }
+
+    // ── PROCESS BREATH ──
+    if (b.energyContrib > 0) {
+        S.energy = Math.min(1, S.energy + b.energyContrib);
+        b.energyContrib = 0;
+    }
+
+    // ── TIER / SECTION / GROOVE ──
+    updateTier();
+    updateSection(dt);
+    if (S.groovePlaying) runGroove();
+
+    S.peakEnergy = Math.max(S.peakEnergy, S.energy);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// VISUALIZATION (reads from SENSE modules)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 let canvas, vc;
@@ -1140,18 +1432,19 @@ function onResize() {
 function draw() {
     const w = window.innerWidth, h = window.innerHeight;
     const now = performance.now();
-    const cx = w / 2 + S.tiltX * w * 0.2;
-    const cy = h / 2 + S.tiltY * h * 0.2;
+    const o = SENSE.orientation;
+    const tiltX = o.receiving ? o.tiltX : (SENSE.touch.pressing ? (SENSE.touch.raw.x - 0.5) * 2 : 0);
+    const tiltY = o.receiving ? o.tiltY : (SENSE.touch.pressing ? (SENSE.touch.raw.y - 0.5) * 2 : 0);
+    const cx = w / 2 + tiltX * w * 0.2;
+    const cy = h / 2 + tiltY * h * 0.2;
     const e = S.energy;
     const tierIdx = TIERS.indexOf(S.tier);
     const pal = PALETTES[S.section.name] || PALETTES.DRIFT;
     const hue = pal.h + tierIdx * 6;
 
-    // Fade — slower clear = more trails at high energy
     vc.fillStyle = `rgba(5, 5, 5, ${0.08 + (1 - e) * 0.05})`;
     vc.fillRect(0, 0, w, h);
 
-    // Section mood glow
     if (e > 0.15) {
         const bg = vc.createRadialGradient(cx, cy, 0, cx, cy, Math.min(w, h) * 0.6);
         bg.addColorStop(0, `hsla(${hue}, ${pal.s}%, ${pal.l * 0.3}%, ${e * 0.02})`);
@@ -1187,7 +1480,8 @@ function draw() {
     }
 
     // Core orb
-    const coreR = 15 + e * 25 + S.smoothSpeed * 25;
+    const smoothSpd = SENSE.motion.smoothSpeed;
+    const coreR = 15 + e * 25 + smoothSpd * 25;
     const grad = vc.createRadialGradient(cx, cy, 0, cx, cy, coreR);
     grad.addColorStop(0, `hsla(${hue}, ${pal.s + 20}%, ${pal.l + 15}%, ${0.5 + e * 0.5})`);
     grad.addColorStop(0.5, `hsla(${hue}, ${pal.s}%, ${pal.l}%, ${0.2 + e * 0.25})`);
@@ -1221,12 +1515,12 @@ function draw() {
     }
 
     // Speed trail
-    if (S.smoothSpeed > 0.05) {
-        const len = S.smoothSpeed * 100;
+    if (smoothSpd > 0.05) {
+        const len = smoothSpd * 100;
         vc.beginPath();
         vc.moveTo(cx, cy);
-        vc.lineTo(cx - S.tiltX * len, cy - S.tiltY * len);
-        vc.strokeStyle = `hsla(${hue}, ${pal.s}%, ${pal.l + 10}%, ${S.smoothSpeed * 0.4})`;
+        vc.lineTo(cx - tiltX * len, cy - tiltY * len);
+        vc.strokeStyle = `hsla(${hue}, ${pal.s}%, ${pal.l + 10}%, ${smoothSpd * 0.4})`;
         vc.lineWidth = 2;
         vc.stroke();
     }
@@ -1244,7 +1538,49 @@ function draw() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// MAIN LOOP
+// SENSOR STATUS — shows what's actually working
+// ═══════════════════════════════════════════════════════════════════════════════
+
+let statusTimer = 0;
+function updateSensorStatus() {
+    statusTimer++;
+    if (statusTimer % 60 !== 0) return; // Update once per second
+
+    const parts = [];
+    const m = SENSE.motion;
+    const o = SENSE.orientation;
+    const mic = SENSE.mic;
+
+    if (m.receiving) parts.push('<span class="on">MOT</span>');
+    else if (m.listening) parts.push('MOT?');
+
+    if (o.receiving) parts.push('<span class="on">TILT</span>');
+    else if (o.listening) parts.push('TILT?');
+
+    if (mic.active) parts.push('<span class="on">MIC</span>');
+
+    if (SENSE.breath.active) parts.push('<span class="on">BRE</span>');
+
+    // Show motion pattern if receiving
+    if (m.receiving && m.pattern !== 'still') {
+        parts.push(m.pattern.toUpperCase());
+    }
+
+    document.getElementById('sensorStatus').innerHTML = parts.join(' · ');
+
+    // Check for sensors that were requested but never received data (timeout)
+    const now = performance.now();
+    if (m.listening && !m.receiving && m.requestTime > 0 && now - m.requestTime > 5000) {
+        // 5 seconds with no data — sensors aren't working
+        if (!m._warned) {
+            notify('NO MOTION DATA');
+            m._warned = true;
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// MAIN LOOP — Neuromorphic pipeline: register → compute → conduct → render
 // ═══════════════════════════════════════════════════════════════════════════════
 
 let lastFrame = 0;
@@ -1255,46 +1591,57 @@ function loop(ts) {
     const dt = Math.min(50, ts - lastFrame) / 1000;
     lastFrame = ts;
 
-    // ── ENERGY — slow build, slow decay, the journey is EARNED ──
-    if (S.speed > 0.02) {
-        // Movement adds energy — slowly
-        S.energy = Math.min(1, S.energy + S.speed * 0.008);
+    // ── PHASE 1: COMPUTE — each module processes its local memory ──
+    computeMotion(dt);
+    computeOrientation();
+    computeTouch(dt);
+    computeBreath();
+
+    // ── PHASE 2: ENERGY SYNTHESIS — combine all sensory signals ──
+    const m = SENSE.motion;
+    const t = SENSE.touch;
+
+    const motionActive = m.speed > 0.02;
+    const touchActive = t.pressing;
+    const anyActive = motionActive || touchActive;
+
+    if (anyActive) {
         S.stillness = 0;
+        // Motion energy (from accelerometer OR touch-derived)
+        if (motionActive) {
+            S.energy = Math.min(1, S.energy + m.energyContrib);
+        }
+        // Touch energy
+        if (touchActive) {
+            S.energy = Math.min(1, S.energy + dt * 0.012 + t.energyContrib);
+            t.energyContrib = 0; // consumed
+        }
     } else {
-        // Slow decay per frame — matches gump-unified's 0.997 per-frame decay
-        // At 60fps this takes ~40 seconds to go from 1.0 to 0.1
+        // Slow decay: 0.997 per frame ≈ 40 seconds from 1.0 to 0.1
         S.energy *= 0.997;
         S.stillness += dt * 10;
     }
 
-    // Touch adds energy — very gently
-    if (S.touching) {
-        S.energy = Math.min(1, S.energy + dt * 0.012);
-    }
+    // Gesture buffer (reads from whichever tilt source is active)
+    const tiltX = SENSE.orientation.receiving ? SENSE.orientation.tiltX :
+                  (t.pressing ? (t.raw.x - 0.5) * 2 : 0);
+    const tiltY = SENSE.orientation.receiving ? SENSE.orientation.tiltY :
+                  (t.pressing ? (t.raw.y - 0.5) * 2 : 0);
+    t.buffer.push({ x: tiltX, y: tiltY, speed: m.speed, time: performance.now() });
+    if (t.buffer.length > 30) t.buffer.shift();
 
-    S.smoothSpeed = S.smoothSpeed * 0.92 + S.speed * 0.08;
-    S.peakEnergy = Math.max(S.peakEnergy, S.energy);
+    // ── PHASE 3: CONDUCT — synthesize into musical decisions ──
+    conduct(dt);
 
-    // NO auto chord timer — chords only advance via gestures, breath, or phrases
-
-    // Gesture buffer
-    S.gestureBuffer.push({ x: S.tiltX, y: S.tiltY, speed: S.speed, time: performance.now() });
-    if (S.gestureBuffer.length > 30) S.gestureBuffer.shift();
-
-    // Systems
-    detectBreath();
-    detectGesture();
-    updateTier();
-    updateSection(dt);
-    shapeVoices();
-    if (S.groovePlaying) runGroove();
+    // ── PHASE 4: RENDER ──
     draw();
+    updateSensorStatus();
 
     requestAnimationFrame(loop);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// BOOTSTRAP
+// NOTIFICATIONS
 // ═══════════════════════════════════════════════════════════════════════════════
 
 let notifTimer = null;
@@ -1306,13 +1653,23 @@ function notify(text) {
     notifTimer = setTimeout(() => el.classList.remove('show'), 1800);
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// BEGIN — Proper startup sequence
+// ═══════════════════════════════════════════════════════════════════════════════
+
 async function begin() {
     try {
-        // Tone.start() MUST be first — it needs the user gesture context on iOS
-        // Do NOT call requestSensors() here — it shows permission dialogs that
-        // consume the gesture context. Sensors are requested on first touch instead.
+        // 1. AudioContext FIRST — needs the user gesture context
         await Tone.start();
+
+        // 2. Request sensor permissions IMMEDIATELY after Tone.start
+        //    Still within the user gesture context from the click
+        await requestSensorPermissions();
+
+        // 3. Init audio engine
         await initAudio();
+
+        // 4. Setup canvas and input
         initCanvas();
         setupTouch();
 
@@ -1332,6 +1689,7 @@ async function begin() {
     }
 }
 
+// Event listeners
 document.getElementById('micBtn').addEventListener('click', (e) => { e.stopPropagation(); initMicrophone(); });
 document.getElementById('begin').addEventListener('click', begin);
 document.getElementById('begin').addEventListener('touchstart', (e) => { e.preventDefault(); begin(); }, { passive: false });
