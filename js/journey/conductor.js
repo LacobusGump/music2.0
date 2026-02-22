@@ -1,23 +1,17 @@
 /**
- * GUMP CONDUCTOR - Musical Intelligence + Massive Drums + Compound Reactivity
+ * GUMP CONDUCTOR - Lo-Fi Kanye Drums + Musical Intelligence
  *
- * Dreamy strings + Purdie shuffle 808s + lo-fi warmth
+ * Dreamy strings + warm 808 subs + lo-fi tape warmth + sidechain pump
  * Touch to play, tilt for expression, MOTION drives the flywheel
  *
  * G7 Flywheel: accelerometer → motion buffer → pattern classification
  *   → energy/BPM/layer modulation. The more you move, the more unfolds.
  *
- * v32: GumpMotionBrain feeds spiking neuron data, void states, and motion
- * signatures. GumpNeuromorphicMemory learns patterns and predicts surprise.
- *
- * v33: Musical context connects every gesture. STDP predictions are READ.
- * ESN surprise is USED. Tilt drives harmonic tension + expression depth.
- * Drums are massive (4-layer kick, 3-layer snare, metallic hats).
- * Sidechain ducking. Compound reactive gestures change based on history.
- *
- * v35: MusicalDNA integration — traits bias every musical parameter.
- * Scale, tempo, filter, groove threshold, drum intensity, pad volume,
- * and gesture response amplitudes all shaped by your character.
+ * v36: Strip the drums, find the soul.
+ * Warm 808 sub kick (rings out), dark lo-fi snare, subtle noise hats.
+ * Simple patterns (kick on 1, clap on 2+4), gentle swing.
+ * Tape saturation, glue compression, vinyl crackle texture.
+ * Deep sidechain pump — classic Kanye/College Dropout feel.
  */
 
 const GumpConductor = (function() {
@@ -33,6 +27,12 @@ const GumpConductor = (function() {
     let drumSaturator = null;
     let drumCompressor = null;
     let sidechainGain = null;  // All non-drum audio routes through this; kick ducks it
+
+    // v36: Vinyl crackle nodes — created/destroyed with groove
+    let crackleSource = null;
+    let crackleGain = null;
+    let crackleLFO = null;
+    let crackleLFOGain = null;
 
     const state = {
         initialized: false,
@@ -183,24 +183,24 @@ const GumpConductor = (function() {
         masterGain.gain.value = 0.7;
         masterGain.connect(lofiFilter);
 
-        // v33: Drum bus — drumBus -> drumSaturator -> drumCompressor -> masterGain
+        // v36: Drum bus — warm tape saturation + glue compression
         drumBus = ctx.createGain();
-        drumBus.gain.value = 1.2;
+        drumBus.gain.value = 1.0;
 
         drumSaturator = ctx.createWaveShaper();
         const drumCurve = new Float32Array(256);
         for (let i = 0; i < 256; i++) {
             const x = (i / 128) - 1;
-            drumCurve[i] = Math.tanh(x * 3.0);
+            drumCurve[i] = Math.tanh(x * 1.5);
         }
         drumSaturator.curve = drumCurve;
         drumSaturator.oversample = '4x';
 
         drumCompressor = ctx.createDynamicsCompressor();
-        drumCompressor.threshold.value = -12;
-        drumCompressor.ratio.value = 8;
+        drumCompressor.threshold.value = -18;
+        drumCompressor.ratio.value = 4;
         drumCompressor.attack.value = 0.003;
-        drumCompressor.release.value = 0.1;
+        drumCompressor.release.value = 0.15;
         drumCompressor.knee.value = 3;
 
         drumBus.connect(drumSaturator);
@@ -244,7 +244,7 @@ const GumpConductor = (function() {
         // Start update loop
         update();
 
-        console.log('[Conductor] v33-MUSICAL-INTELLIGENCE Ready — tap for motion + tilt permission');
+        console.log('[Conductor] v36-LOFI-KANYE Ready — warm 808s, dark texture, sidechain pump');
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -608,7 +608,7 @@ const GumpConductor = (function() {
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    // GROOVE — Purdie shuffle 808s
+    // GROOVE — Lo-fi 808s + vinyl crackle
     // ═══════════════════════════════════════════════════════════════════════
 
     function startGroove() {
@@ -616,10 +616,77 @@ const GumpConductor = (function() {
         state.groovePlaying = true;
         state.nextStepTime = ctx.currentTime + 0.1;
         showMsg('GROOVE');
+
+        // v36: Vinyl crackle — brown noise through BP 800Hz + LP 2kHz
+        if (ctx && sidechainGain && !crackleSource) {
+            const bufLen = ctx.sampleRate * 4; // 4 seconds, looped
+            const crackleBuf = ctx.createBuffer(1, bufLen, ctx.sampleRate);
+            const data = crackleBuf.getChannelData(0);
+            // Brown noise: integrated white noise
+            let last = 0;
+            for (let i = 0; i < bufLen; i++) {
+                const white = Math.random() * 2 - 1;
+                last = (last + (0.02 * white)) / 1.02;
+                data[i] = last * 3.5;
+            }
+
+            crackleSource = ctx.createBufferSource();
+            crackleSource.buffer = crackleBuf;
+            crackleSource.loop = true;
+
+            const crackleBP = ctx.createBiquadFilter();
+            crackleBP.type = 'bandpass';
+            crackleBP.frequency.value = 800;
+            crackleBP.Q.value = 0.5;
+
+            const crackleLP = ctx.createBiquadFilter();
+            crackleLP.type = 'lowpass';
+            crackleLP.frequency.value = 2000;
+
+            crackleGain = ctx.createGain();
+            crackleGain.gain.value = 0.015;
+
+            // Random amplitude modulation for occasional pops
+            crackleLFO = ctx.createOscillator();
+            crackleLFO.type = 'sine';
+            crackleLFO.frequency.value = 0.3 + Math.random() * 0.7; // slow random wobble
+            crackleLFOGain = ctx.createGain();
+            crackleLFOGain.gain.value = 0.008;
+            crackleLFO.connect(crackleLFOGain);
+            crackleLFOGain.connect(crackleGain.gain);
+
+            crackleSource.connect(crackleBP);
+            crackleBP.connect(crackleLP);
+            crackleLP.connect(crackleGain);
+            crackleGain.connect(sidechainGain); // ducks with kick
+
+            crackleSource.start();
+            crackleLFO.start();
+        }
     }
 
     function stopGroove() {
         state.groovePlaying = false;
+
+        // v36: Destroy vinyl crackle
+        if (crackleSource) {
+            try { crackleSource.stop(); } catch(e) {}
+            try { crackleSource.disconnect(); } catch(e) {}
+            crackleSource = null;
+        }
+        if (crackleLFO) {
+            try { crackleLFO.stop(); } catch(e) {}
+            try { crackleLFO.disconnect(); } catch(e) {}
+            crackleLFO = null;
+        }
+        if (crackleLFOGain) {
+            try { crackleLFOGain.disconnect(); } catch(e) {}
+            crackleLFOGain = null;
+        }
+        if (crackleGain) {
+            try { crackleGain.disconnect(); } catch(e) {}
+            crackleGain = null;
+        }
     }
 
     function runGroove() {
@@ -633,215 +700,135 @@ const GumpConductor = (function() {
                 GumpMusicalDNA.getBias().drumVelocity : 1.0;
             const intensity = (0.4 + state.energy * 0.5) * dnaVel;
 
-            // Kick
-            const kicks = [1,0,0,0, 0,0,0.6,0, 1,0,0,0, 0,0,0,0];
+            // Kick — 1 + ghost on &3
+            const kicks  = [1,0,0,0, 0,0,0.4,0, 0.9,0,0,0, 0,0,0,0];
             if (kicks[step]) playKick(t, kicks[step] * intensity);
 
-            // Snare with ghosts (Purdie shuffle)
-            const snares = [0,0,0,0, 1,0,0.2,0.3, 0,0,0.2,0, 1,0,0.3,0.2];
+            // Snare — clap on 2+4
+            const snares = [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0];
             if (snares[step]) playSnare(t, snares[step] * intensity);
 
-            // Hats
-            const hats = [1,0.4,0.7,0.3, 1,0.4,0.7,0.3, 1,0.4,0.7,0.3, 1,0.4,0.7,0.5];
-            if (hats[step]) playHat(t, hats[step] * intensity * 0.4);
+            // Hats — sparse 8ths
+            const hats = [0.5,0,0.3,0, 0.5,0,0.3,0, 0.5,0,0.3,0, 0.5,0,0.3,0];
+            if (hats[step]) playHat(t, hats[step] * intensity);
 
-            // Golden ratio swing — φ/(1+φ) : 1/(1+φ) = 0.618 : 0.382
+            // Subtle swing — barely perceptible bounce
             const stepDur = (60 / state.tempo) / 4;
-            const swing = step % 2 === 0 ? 1.236 : 0.764;
+            const swing = step % 2 === 0 ? 1.08 : 0.92;
             state.nextStepTime += stepDur * swing;
             state.grooveStep = (step + 1) % 16;
         }
     }
 
     function playKick(time, vel) {
-        // v33: 4-layer massive kick — Sub + Body + Click + Distortion
+        // v36: Warm 808 kick — long sine sub + soft sine body through lowpass
 
-        // Layer 1: Sub — sine 60→28Hz, 0.5s decay (weight)
+        // Layer 1: Sub — sine 50→28Hz, long 808 sustain (the sub IS the bass)
         const sub = ctx.createOscillator();
         sub.type = 'sine';
-        sub.frequency.setValueAtTime(60, time);
-        sub.frequency.exponentialRampToValueAtTime(28, time + 0.5);
+        sub.frequency.setValueAtTime(50, time);
+        sub.frequency.exponentialRampToValueAtTime(28, time + 0.8);
         const subGain = ctx.createGain();
         subGain.gain.setValueAtTime(vel * 0.8, time);
-        subGain.gain.exponentialRampToValueAtTime(0.001, time + 0.5);
+        subGain.gain.exponentialRampToValueAtTime(0.001, time + 1.2);
         sub.connect(subGain);
         subGain.connect(drumBus);
         sub.start(time);
-        sub.stop(time + 0.6);
+        sub.stop(time + 1.3);
 
-        // Layer 2: Body — triangle 150→50Hz, 0.15s decay (punch)
+        // Layer 2: Body — sine 80→40Hz through lowpass 200Hz, 0.12s (warm punch)
         const body = ctx.createOscillator();
-        body.type = 'triangle';
-        body.frequency.setValueAtTime(150, time);
-        body.frequency.exponentialRampToValueAtTime(50, time + 0.15);
+        body.type = 'sine';
+        body.frequency.setValueAtTime(80, time);
+        body.frequency.exponentialRampToValueAtTime(40, time + 0.12);
+        const bodyLP = ctx.createBiquadFilter();
+        bodyLP.type = 'lowpass';
+        bodyLP.frequency.value = 200;
         const bodyGain = ctx.createGain();
         bodyGain.gain.setValueAtTime(vel * 0.5, time);
-        bodyGain.gain.exponentialRampToValueAtTime(0.001, time + 0.15);
-        body.connect(bodyGain);
+        bodyGain.gain.exponentialRampToValueAtTime(0.001, time + 0.12);
+        body.connect(bodyLP);
+        bodyLP.connect(bodyGain);
         bodyGain.connect(drumBus);
         body.start(time);
         body.stop(time + 0.25);
 
-        // Layer 3: Click — noise burst through highpass 3kHz, 15ms (transient)
-        const clickBuf = ctx.createBuffer(1, ctx.sampleRate * 0.015, ctx.sampleRate);
-        const clickData = clickBuf.getChannelData(0);
-        for (let i = 0; i < clickData.length; i++) {
-            clickData[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * 0.003));
-        }
-        const click = ctx.createBufferSource();
-        click.buffer = clickBuf;
-        const clickHP = ctx.createBiquadFilter();
-        clickHP.type = 'highpass';
-        clickHP.frequency.value = 3000;
-        const clickGain = ctx.createGain();
-        clickGain.gain.setValueAtTime(vel * 0.6, time);
-        clickGain.gain.exponentialRampToValueAtTime(0.001, time + 0.015);
-        click.connect(clickHP);
-        clickHP.connect(clickGain);
-        clickGain.connect(drumBus);
-        click.start(time);
-        click.stop(time + 0.02);
-
-        // Layer 4: Distortion body — square 80→35Hz, 60ms (harmonics)
-        const dist = ctx.createOscillator();
-        dist.type = 'square';
-        dist.frequency.setValueAtTime(80, time);
-        dist.frequency.exponentialRampToValueAtTime(35, time + 0.06);
-        const distGain = ctx.createGain();
-        distGain.gain.setValueAtTime(vel * 0.15, time);
-        distGain.gain.exponentialRampToValueAtTime(0.001, time + 0.06);
-        dist.connect(distGain);
-        distGain.connect(drumBus);
-        dist.start(time);
-        dist.stop(time + 0.1);
-
-        // Sidechain duck: drop sidechainGain to 0.3, recover over 120ms
+        // Sidechain duck: deep pump (0.15 gain), slow recovery (0.25s)
         if (sidechainGain) {
-            sidechainGain.gain.setValueAtTime(0.3, time);
-            sidechainGain.gain.linearRampToValueAtTime(1.0, time + 0.12);
+            sidechainGain.gain.setValueAtTime(0.15, time);
+            sidechainGain.gain.linearRampToValueAtTime(1.0, time + 0.25);
         }
     }
 
     function playSnare(time, vel) {
-        // v33: 3-layer massive snare — Body + Noise Wire + Clap
+        // v36: Lo-fi snare — warm sine body + dark short noise
 
-        // Layer 1: Body — TWO detuned triangles at 180Hz + 220Hz (resonance)
-        const body1 = ctx.createOscillator();
-        body1.type = 'triangle';
-        body1.frequency.setValueAtTime(180, time);
-        body1.frequency.exponentialRampToValueAtTime(100, time + 0.05);
-        const body2 = ctx.createOscillator();
-        body2.type = 'triangle';
-        body2.frequency.setValueAtTime(220, time);
-        body2.frequency.exponentialRampToValueAtTime(120, time + 0.05);
+        // Layer 1: Body — single sine at 200Hz, 80ms decay
+        const body = ctx.createOscillator();
+        body.type = 'sine';
+        body.frequency.setValueAtTime(200, time);
+        body.frequency.exponentialRampToValueAtTime(120, time + 0.05);
         const bodyGain = ctx.createGain();
-        bodyGain.gain.setValueAtTime(vel * 0.35, time);
-        bodyGain.gain.exponentialRampToValueAtTime(0.001, time + 0.1);
-        body1.connect(bodyGain);
-        body2.connect(bodyGain);
+        bodyGain.gain.setValueAtTime(vel * 0.45, time);
+        bodyGain.gain.exponentialRampToValueAtTime(0.001, time + 0.08);
+        body.connect(bodyGain);
         bodyGain.connect(drumBus);
-        body1.start(time);
-        body1.stop(time + 0.12);
-        body2.start(time);
-        body2.stop(time + 0.12);
+        body.start(time);
+        body.stop(time + 0.1);
 
-        // Layer 2: Noise wire — white noise through bandpass 3.5kHz + highpass 1.5kHz, 180ms
-        const noiseBuf = ctx.createBuffer(1, ctx.sampleRate * 0.2, ctx.sampleRate);
+        // Layer 2: Dark noise — bandpass 2500Hz Q=0.8 + lowpass 4000Hz, 120ms
+        const noiseBuf = ctx.createBuffer(1, ctx.sampleRate * 0.15, ctx.sampleRate);
         const noiseData = noiseBuf.getChannelData(0);
         for (let i = 0; i < noiseData.length; i++) noiseData[i] = Math.random() * 2 - 1;
         const noise = ctx.createBufferSource();
         noise.buffer = noiseBuf;
         const noiseBP = ctx.createBiquadFilter();
         noiseBP.type = 'bandpass';
-        noiseBP.frequency.value = 3500;
-        noiseBP.Q.value = 1.2;
-        const noiseHP = ctx.createBiquadFilter();
-        noiseHP.type = 'highpass';
-        noiseHP.frequency.value = 1500;
+        noiseBP.frequency.value = 2500;
+        noiseBP.Q.value = 0.8;
+        const noiseLP = ctx.createBiquadFilter();
+        noiseLP.type = 'lowpass';
+        noiseLP.frequency.value = 4000;
         const noiseGain = ctx.createGain();
-        noiseGain.gain.setValueAtTime(vel * 0.45, time);
-        noiseGain.gain.exponentialRampToValueAtTime(0.001, time + 0.18);
+        noiseGain.gain.setValueAtTime(vel * 0.35, time);
+        noiseGain.gain.exponentialRampToValueAtTime(0.001, time + 0.12);
         noise.connect(noiseBP);
-        noiseBP.connect(noiseHP);
-        noiseHP.connect(noiseGain);
+        noiseBP.connect(noiseLP);
+        noiseLP.connect(noiseGain);
         noiseGain.connect(drumBus);
         noise.start(time);
-        noise.stop(time + 0.2);
-
-        // Layer 3: Clap — 3 micro-bursts (hand feel), 10ms delayed, bandpass 2kHz
-        const clapBuf = ctx.createBuffer(1, ctx.sampleRate * 0.08, ctx.sampleRate);
-        const clapData = clapBuf.getChannelData(0);
-        for (let i = 0; i < clapData.length; i++) {
-            // 3 micro-bursts at 0ms, 12ms, 25ms
-            const t = i / ctx.sampleRate;
-            const burst1 = t < 0.008 ? 1 : 0;
-            const burst2 = (t > 0.012 && t < 0.020) ? 0.8 : 0;
-            const burst3 = (t > 0.025 && t < 0.035) ? 0.6 : 0;
-            clapData[i] = (Math.random() * 2 - 1) * (burst1 + burst2 + burst3);
-        }
-        const clap = ctx.createBufferSource();
-        clap.buffer = clapBuf;
-        const clapBP = ctx.createBiquadFilter();
-        clapBP.type = 'bandpass';
-        clapBP.frequency.value = 2000;
-        clapBP.Q.value = 0.8;
-        const clapGain = ctx.createGain();
-        clapGain.gain.setValueAtTime(vel * 0.4, time + 0.01);
-        clapGain.gain.exponentialRampToValueAtTime(0.001, time + 0.12);
-        clap.connect(clapBP);
-        clapBP.connect(clapGain);
-        clapGain.connect(drumBus);
-        clap.start(time + 0.01);
-        clap.stop(time + 0.1);
+        noise.stop(time + 0.15);
     }
 
     function playHat(time, vel) {
-        // v33: Metallic hat — 6 detuned squares at inharmonic ratios + noise air
+        // v36: Dark filtered noise hat — subtle tick, sits in the back
 
-        const hatGain = ctx.createGain();
-        hatGain.gain.setValueAtTime(vel * 0.2, time);
-        hatGain.gain.exponentialRampToValueAtTime(0.001, time + 0.06);
-
-        const hatBP = ctx.createBiquadFilter();
-        hatBP.type = 'bandpass';
-        hatBP.frequency.value = 9000;
-        hatBP.Q.value = 1.0;
-
-        const hatHP = ctx.createBiquadFilter();
-        hatHP.type = 'highpass';
-        hatHP.frequency.value = 6000;
-
-        hatBP.connect(hatHP);
-        hatHP.connect(hatGain);
-        hatGain.connect(drumBus);
-
-        // 6 detuned square waves at inharmonic ratios
-        const baseFreq = 400;
-        const ratios = [1.0, Math.SQRT2, Math.sqrt(3), 2.0, Math.sqrt(5), 2 * Math.SQRT2];
-        for (let i = 0; i < ratios.length; i++) {
-            const osc = ctx.createOscillator();
-            osc.type = 'square';
-            osc.frequency.value = baseFreq * ratios[i];
-            const oscGain = ctx.createGain();
-            oscGain.gain.value = 0.08;
-            osc.connect(oscGain);
-            oscGain.connect(hatBP);
-            osc.start(time);
-            osc.stop(time + 0.07);
-        }
-
-        // Noise layer for air
         const noiseBuf = ctx.createBuffer(1, ctx.sampleRate * 0.05, ctx.sampleRate);
         const noiseData = noiseBuf.getChannelData(0);
         for (let i = 0; i < noiseData.length; i++) noiseData[i] = Math.random() * 2 - 1;
         const noise = ctx.createBufferSource();
         noise.buffer = noiseBuf;
-        const noiseGain = ctx.createGain();
-        noiseGain.gain.setValueAtTime(vel * 0.15, time);
-        noiseGain.gain.exponentialRampToValueAtTime(0.001, time + 0.04);
-        noise.connect(hatHP);
+
+        const hatBP = ctx.createBiquadFilter();
+        hatBP.type = 'bandpass';
+        hatBP.frequency.value = 3500;
+        hatBP.Q.value = 1.0;
+
+        const hatLP = ctx.createBiquadFilter();
+        hatLP.type = 'lowpass';
+        hatLP.frequency.value = 5000;
+
+        const hatGain = ctx.createGain();
+        hatGain.gain.setValueAtTime(vel * 0.12, time);
+        hatGain.gain.exponentialRampToValueAtTime(0.001, time + 0.04);
+
+        noise.connect(hatBP);
+        hatBP.connect(hatLP);
+        hatLP.connect(hatGain);
+        hatGain.connect(drumBus);
+
         noise.start(time);
-        noise.stop(time + 0.06);
+        noise.stop(time + 0.05);
     }
 
     // ═══════════════════════════════════════════════════════════════════════

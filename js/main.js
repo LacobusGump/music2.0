@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════════════════
-// GUMP - THE EMERGENCE (v35 — Musical DNA)
+// GUMP - THE EMERGENCE (v36 — Lo-Fi Kanye)
 // ═══════════════════════════════════════════════════════════════════════════
 //
 // Canvas + Grid + Patterns + Unlocks + Render.
@@ -430,7 +430,7 @@ const GUMP = (function() {
         app.isRunning = true;
         app.lastTime = 0;
         requestAnimationFrame(frame);
-        console.log('[GUMP] v35-MUSICAL-DNA — RPG Character Build + Music Evolution');
+        console.log('[GUMP] v36-LOFI-KANYE — Strip the drums, find the soul');
     }
 
     return Object.freeze({
