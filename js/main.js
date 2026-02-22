@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════════════════
-// GUMP - THE EMERGENCE (v36 — Lo-Fi Kanye)
+// GUMP - THE EMERGENCE (v37 — Musical Lens)
 // ═══════════════════════════════════════════════════════════════════════════
 //
 // Canvas + Grid + Patterns + Unlocks + Render.
@@ -388,6 +388,9 @@ const GUMP = (function() {
                 ' E' + t.exploration.toFixed(2));
             lines.push('Archetype: ' + (GumpMusicalDNA.archetype || 'forming(' +
                 Math.floor(GumpMusicalDNA.formativeProgress * 100) + '%)'));
+            if (GumpMusicalDNA.activeLens) {
+                lines.push('Lens: ' + (GumpMusicalDNA.activeLens.name || 'custom'));
+            }
         }
 
         lines.forEach(function(line, i) {
@@ -430,7 +433,12 @@ const GUMP = (function() {
         app.isRunning = true;
         app.lastTime = 0;
         requestAnimationFrame(frame);
-        console.log('[GUMP] v36-LOFI-KANYE — Strip the drums, find the soul');
+        console.log('[GUMP] v37-MUSICAL-LENS — Your movement, their personality');
+
+        // Initialize lens system
+        if (typeof GumpLens !== 'undefined') {
+            GumpLens.init();
+        }
     }
 
     return Object.freeze({

@@ -75,6 +75,11 @@ const GumpMusicalDNA = (function() {
     let cachedBias = null;
     let biasFrameId = -1;
 
+    // Lens state
+    var activeLensData = null;
+    var activeLensOverrides = null;
+    var activeLensTraitBounds = null;
+
     const FORMATIVE_DURATION = 60;
     const STORAGE_KEY = 'gump_musical_dna';
 
@@ -100,6 +105,12 @@ const GumpMusicalDNA = (function() {
                     formativeTime = FORMATIVE_DURATION;
                     console.log('[MusicalDNA] Restored archetype: ' + archetype);
                 }
+                if (data.lensData) {
+                    activeLensData = data.lensData;
+                    activeLensOverrides = data.lensData.overrides || null;
+                    activeLensTraitBounds = data.lensData.traitBounds || null;
+                    console.log('[MusicalDNA] Restored lens: ' + (data.lensData.name || 'custom'));
+                }
             }
         } catch (e) {
             console.log('[MusicalDNA] No saved DNA found, starting fresh');
@@ -112,6 +123,7 @@ const GumpMusicalDNA = (function() {
                 traits: { ...traits },
                 archetype: archetype,
                 crystallized: crystallized,
+                lensData: activeLensData || null,
             }));
         } catch (e) {}
     }
@@ -125,6 +137,12 @@ const GumpMusicalDNA = (function() {
     function pushTrait(name, amount) {
         var rate = crystallized ? 0.2 : 1.0;
         traits[name] = Math.min(1, Math.max(0, traits[name] + amount * rate));
+        // Lens trait bounds — clamp after normal update
+        if (activeLensTraitBounds && activeLensTraitBounds[name]) {
+            var b = activeLensTraitBounds[name];
+            if (b.floor !== undefined) traits[name] = Math.max(b.floor, traits[name]);
+            if (b.ceiling !== undefined) traits[name] = Math.min(b.ceiling, traits[name]);
+        }
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -472,7 +490,86 @@ const GumpMusicalDNA = (function() {
             scale: getScaleForContext(),
         };
 
+        // Lens overrides — applied post-computation, before return
+        if (activeLensOverrides) {
+            for (var key in activeLensOverrides) {
+                var ov = activeLensOverrides[key];
+                if (key === 'scale' && Array.isArray(ov)) {
+                    cachedBias.scale = extendScale(ov);
+                } else if (typeof ov === 'number') {
+                    cachedBias[key] = ov;
+                } else if (ov && typeof ov === 'object') {
+                    if (ov.min !== undefined) cachedBias[key] = Math.max(ov.min, cachedBias[key]);
+                    if (ov.max !== undefined) cachedBias[key] = Math.min(ov.max, cachedBias[key]);
+                }
+            }
+        }
+
         return cachedBias;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // LENS INTEGRATION
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function applyLens(lensData) {
+        if (!lensData || !lensData.traits) return;
+
+        // Seed traits from lens (only specified keys)
+        for (var key in lensData.traits) {
+            if (traits.hasOwnProperty(key)) {
+                traits[key] = lensData.traits[key];
+            }
+        }
+
+        // Normalize traits to sum ≈ 1.0
+        var sum = 0;
+        for (var k in traits) sum += traits[k];
+        if (sum > 0) {
+            for (var k in traits) traits[k] /= sum;
+        }
+
+        // Force crystallization
+        crystallized = true;
+        formativeTime = FORMATIVE_DURATION;
+
+        // Determine archetype from dominant seeded trait
+        var maxVal = 0;
+        var maxTrait = 'exploration';
+        for (var name in traits) {
+            if (traits[name] > maxVal) {
+                maxVal = traits[name];
+                maxTrait = name;
+            }
+        }
+        archetype = maxTrait;
+
+        // Store lens overrides and bounds
+        activeLensData = lensData;
+        activeLensOverrides = lensData.overrides || null;
+        activeLensTraitBounds = lensData.traitBounds || null;
+
+        // Invalidate cached bias
+        cachedBias = null;
+
+        saveToStorage();
+
+        console.log('[MusicalDNA] Lens applied: ' + (lensData.name || 'custom') +
+            ' | archetype=' + archetype);
+    }
+
+    function clearLens() {
+        activeLensData = null;
+        activeLensOverrides = null;
+        activeLensTraitBounds = null;
+
+        // Invalidate cached bias
+        cachedBias = null;
+
+        // Traits stay as-is (residue from lens — natural transition)
+        saveToStorage();
+
+        console.log('[MusicalDNA] Lens cleared — traits retain residue');
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -483,12 +580,15 @@ const GumpMusicalDNA = (function() {
         update: update,
         getBias: getBias,
         getScaleForContext: getScaleForContext,
+        applyLens: applyLens,
+        clearLens: clearLens,
 
         get traits() { return { aggression: traits.aggression, fluidity: traits.fluidity, rhythm: traits.rhythm, contemplation: traits.contemplation, exploration: traits.exploration }; },
         get archetype() { return archetype; },
         get crystallized() { return crystallized; },
         get formativeTime() { return formativeTime; },
         get formativeProgress() { return Math.min(1, formativeTime / FORMATIVE_DURATION); },
+        get activeLens() { return activeLensData; },
     });
 
 })();
