@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════════════════
-// GUMP - THE EMERGENCE (v32 — Minimal Core)
+// GUMP - THE EMERGENCE (v34 — Living Organism)
 // ═══════════════════════════════════════════════════════════════════════════
 //
 // Canvas + Grid + Patterns + Unlocks + Render.
@@ -193,6 +193,9 @@ const GUMP = (function() {
             activePatterns: GumpPatterns.getActivePatterns(),
             currentEra: GumpUnlocks.currentEra,
         });
+
+        // Organism evolution
+        if (typeof GumpOrganism !== 'undefined') GumpOrganism.update(app.deltaTime, app);
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -216,6 +219,7 @@ const GUMP = (function() {
     }
 
     function drawGrid(c, w, h) {
+        if (typeof GumpOrganism !== 'undefined') { GumpOrganism.drawGrid(c, w, h, app.x, app.y); return; }
         c.strokeStyle = 'rgba(255, 255, 255, 0.03)';
         c.lineWidth = 1;
         c.beginPath();
@@ -279,6 +283,7 @@ const GUMP = (function() {
     }
 
     function drawCursor(c, w, h) {
+        if (typeof GumpOrganism !== 'undefined') { GumpOrganism.drawOrganism(c, app.x * w, app.y * h, w, h, app); return; }
         const x = app.x * w, y = app.y * h;
         const energy = typeof GumpConductor !== 'undefined' ? GumpConductor.energy : 0;
         const zone = GumpState.get('grid.currentZone');
@@ -412,7 +417,7 @@ const GUMP = (function() {
         app.isRunning = true;
         app.lastTime = 0;
         requestAnimationFrame(frame);
-        console.log('[GUMP] v32-NEUROMORPHIC — Conductor + MotionBrain + Memory');
+        console.log('[GUMP] v34-LIVING-ORGANISM — Evolving Cursor + Warping Grid');
     }
 
     return Object.freeze({
