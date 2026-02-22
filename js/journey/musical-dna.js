@@ -3,14 +3,17 @@
  *
  * v35: Your first movements build a "character" that dictates how music
  * unravels. Aggressive shaking -> one musical world. Slow circles ->
- * completely different world. The ORDER and CHAINING of gestures matters.
+ * completely different world.
  *
  * 5 Traits (0-1 each):
- *   aggression  - shake, toss, chaotic motion, high energy
- *   fluidity    - sweep, circle, gentle motion
- *   rhythm      - pendulum, rock, rhythmic patterns
- *   contemplation - stillness, void states, long dwells
- *   exploration - gesture variety, zone changes, surprise
+ *   aggression    - fast movement, rapid tapping, high velocity, shaking
+ *   fluidity      - slow sweeping, smooth curves, gentle arcs
+ *   rhythm        - regular intervals, consistent timing, pendulum
+ *   contemplation - stillness, dwelling, not touching, void states
+ *   exploration   - zone changes, gesture variety, surprise events
+ *
+ * WORKS ON DESKTOP: Reads touch/mouse velocity, position, timing, and
+ * dwell patterns directly. No accelerometer needed.
  *
  * Formative window (~60s) -> crystallization -> archetype locks in.
  * Cross-session persistence via localStorage.
@@ -46,17 +49,33 @@ const GumpMusicalDNA = (function() {
         exploration: 0,
     };
 
-    let archetype = null;          // Set at crystallization
-    let formativeTime = 0;         // Seconds accumulated
+    let archetype = null;
+    let formativeTime = 0;
     let crystallized = false;
-    let gestureHistory = [];       // Last 20 gestures with timestamps
-    let lastScaleChoice = null;    // Cache current scale
-    let scaleChangeTimer = 0;     // Throttle scale changes
-    let uniqueGesturesThisWindow = new Set(); // For exploration trait
+    let lastScaleChoice = null;
+    let scaleChangeTimer = 0;
     let lastZone = null;
     let zoneChangeCount = 0;
 
-    const FORMATIVE_DURATION = 60; // seconds
+    // Touch/mouse analysis state
+    let lastTouchX = -1;
+    let lastTouchY = -1;
+    let lastTouchTime = 0;
+    let touchVelocities = [];     // last 30 velocities
+    let touchIntervals = [];      // last 20 intervals between touches
+    let noTouchTime = 0;          // seconds without touching
+    let touchActiveLastFrame = false;
+    let touchStartTimes = [];     // timestamps of touch-starts for rhythm detection
+    let uniqueZonesVisited = new Set();
+    let directionChanges = 0;     // how often cursor reverses
+    let lastVx = 0;
+    let lastVy = 0;
+
+    // Cached bias (computed once per frame)
+    let cachedBias = null;
+    let biasFrameId = -1;
+
+    const FORMATIVE_DURATION = 60;
     const STORAGE_KEY = 'gump_musical_dna';
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -97,147 +116,192 @@ const GumpMusicalDNA = (function() {
         } catch (e) {}
     }
 
-    // Load on module init
     loadFromStorage();
 
     // ═══════════════════════════════════════════════════════════════════════
-    // TRAIT ACCUMULATION — Fed by gestures, motion, void state
+    // TRAIT ACCUMULATION
     // ═══════════════════════════════════════════════════════════════════════
 
     function pushTrait(name, amount) {
-        // Learning rate: fast pre-crystal, slow post-crystal
-        const rate = crystallized ? 0.2 : 1.0;
+        var rate = crystallized ? 0.2 : 1.0;
         traits[name] = Math.min(1, Math.max(0, traits[name] + amount * rate));
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    // UPDATE — Called every frame from main.js
+    // UPDATE — Called every frame. Reads app state directly.
     // ═══════════════════════════════════════════════════════════════════════
 
     function update(dt, app) {
         if (!dt || dt <= 0) return;
 
-        // Accumulate formative time
+        // Invalidate cached bias
+        cachedBias = null;
+
         if (!crystallized) {
             formativeTime += dt;
         }
 
-        // Read neuron firing rates -> push trait targets
-        if (typeof GumpMotionBrain !== 'undefined') {
-            const neurons = GumpMotionBrain.neurons;
-            if (neurons) {
-                // Shake/toss -> aggression
-                if (neurons.shake && neurons.shake.firing) {
-                    pushTrait('aggression', dt * 0.15 * (neurons.shake.firingRate || 1));
-                }
-                if (neurons.toss && neurons.toss.firing) {
-                    pushTrait('aggression', dt * 0.12 * (neurons.toss.firingRate || 1));
-                }
+        // ── PRIMARY INPUT: Touch/mouse velocity and behavior ──
+        // This works on desktop AND mobile — no accelerometer needed.
 
-                // Sweep/circle -> fluidity
-                if (neurons.sweep && neurons.sweep.firing) {
-                    pushTrait('fluidity', dt * 0.15 * (neurons.sweep.firingRate || 1));
-                }
-                if (neurons.circle && neurons.circle.firing) {
-                    pushTrait('fluidity', dt * 0.12 * (neurons.circle.firingRate || 1));
-                }
+        var touching = app.gestureActive;
+        var vx = app.vx || 0;
+        var vy = app.vy || 0;
+        var speed = Math.sqrt(vx * vx + vy * vy);
+        var now = Date.now();
 
-                // Pendulum/rock -> rhythm
-                if (neurons.pendulum && neurons.pendulum.firing) {
-                    pushTrait('rhythm', dt * 0.15 * (neurons.pendulum.firingRate || 1));
-                }
-                if (neurons.rock && neurons.rock.firing) {
-                    pushTrait('rhythm', dt * 0.10 * (neurons.rock.firingRate || 1));
-                }
+        if (touching) {
+            noTouchTime = 0;
 
-                // Stillness -> contemplation
-                if (neurons.stillness && neurons.stillness.firing) {
-                    pushTrait('contemplation', dt * 0.10 * (neurons.stillness.firingRate || 1));
+            // Track velocity
+            touchVelocities.push(speed);
+            if (touchVelocities.length > 30) touchVelocities.shift();
+
+            // ── AGGRESSION: Fast movement, rapid direction changes ──
+            if (speed > 3.0) {
+                pushTrait('aggression', dt * 0.5 * Math.min(speed / 5, 2));
+            }
+            if (speed > 6.0) {
+                pushTrait('aggression', dt * 0.8); // extra for really fast
+            }
+
+            // Direction reversal detection → aggression (jerky motion)
+            if ((vx * lastVx < -0.5) || (vy * lastVy < -0.5)) {
+                directionChanges++;
+                pushTrait('aggression', 0.02);
+            }
+
+            // ── FLUIDITY: Slow, smooth, consistent motion ──
+            if (speed > 0.3 && speed < 2.5) {
+                pushTrait('fluidity', dt * 0.4);
+            }
+            // Smooth = low velocity variance
+            if (touchVelocities.length > 10) {
+                var mean = 0;
+                for (var i = 0; i < touchVelocities.length; i++) mean += touchVelocities[i];
+                mean /= touchVelocities.length;
+                var variance = 0;
+                for (var i = 0; i < touchVelocities.length; i++) {
+                    variance += (touchVelocities[i] - mean) * (touchVelocities[i] - mean);
+                }
+                variance /= touchVelocities.length;
+                if (variance < 1.0 && mean > 0.5) {
+                    pushTrait('fluidity', dt * 0.3); // consistent gentle movement
                 }
             }
 
-            // Void depth -> contemplation (strong signal)
-            const voidDepth = GumpMotionBrain.voidDepth || 0;
-            if (voidDepth > 0.2) {
-                pushTrait('contemplation', dt * 0.08 * voidDepth);
+            // ── RHYTHM: Regular touch intervals ──
+            if (!touchActiveLastFrame) {
+                // New touch-start
+                touchStartTimes.push(now);
+                if (touchStartTimes.length > 20) touchStartTimes.shift();
+
+                if (touchStartTimes.length >= 3) {
+                    // Check regularity of last few intervals
+                    var intervals = [];
+                    for (var i = 1; i < Math.min(touchStartTimes.length, 8); i++) {
+                        intervals.push(touchStartTimes[i] - touchStartTimes[i - 1]);
+                    }
+                    if (intervals.length >= 2) {
+                        var iMean = 0;
+                        for (var i = 0; i < intervals.length; i++) iMean += intervals[i];
+                        iMean /= intervals.length;
+                        var iVar = 0;
+                        for (var i = 0; i < intervals.length; i++) {
+                            iVar += (intervals[i] - iMean) * (intervals[i] - iMean);
+                        }
+                        iVar /= intervals.length;
+                        var cv = iMean > 0 ? Math.sqrt(iVar) / iMean : 1;
+                        if (cv < 0.35 && iMean > 150 && iMean < 3000) {
+                            // Regular tapping detected!
+                            pushTrait('rhythm', 0.06);
+                        }
+                    }
+                }
             }
 
-            // Chaotic motion -> aggression
-            const shortEnergy = GumpMotionBrain.short ? GumpMotionBrain.short.energy : 0;
-            if (shortEnergy > 0.7) {
-                pushTrait('aggression', dt * 0.05 * shortEnergy);
+            lastVx = vx;
+            lastVy = vy;
+
+        } else {
+            // ── CONTEMPLATION: Not touching = dwelling in stillness ──
+            noTouchTime += dt;
+            if (noTouchTime > 1.0) {
+                // The longer you wait, the more contemplation builds
+                pushTrait('contemplation', dt * 0.25 * Math.min(noTouchTime / 5, 1.5));
             }
 
-            // Gentle motion -> fluidity
-            if (shortEnergy > 0.1 && shortEnergy < 0.4) {
-                pushTrait('fluidity', dt * 0.04);
-            }
+            // Reset velocity tracking
+            touchVelocities = [];
+            lastVx = 0;
+            lastVy = 0;
         }
+        touchActiveLastFrame = touching;
 
-        // Conductor energy -> aggression when high
-        if (typeof GumpConductor !== 'undefined') {
-            const energy = GumpConductor.energy || 0;
-            if (energy > 0.6) {
-                pushTrait('aggression', dt * 0.03 * energy);
-            }
-
-            // Motion pattern -> traits
-            const pattern = GumpConductor.motionPattern;
-            if (pattern === 'chaotic') pushTrait('aggression', dt * 0.06);
-            else if (pattern === 'vigorous') pushTrait('aggression', dt * 0.03);
-            else if (pattern === 'gentle') pushTrait('fluidity', dt * 0.04);
-            else if (pattern === 'rhythmic') pushTrait('rhythm', dt * 0.06);
-            else if (pattern === 'still') pushTrait('contemplation', dt * 0.03);
-        }
-
-        // STDP novelty -> exploration
-        if (typeof GumpNeuromorphicMemory !== 'undefined') {
-            const surprise = GumpNeuromorphicMemory.surprise || 0;
-            if (surprise > 0.3) {
-                pushTrait('exploration', dt * 0.06 * surprise);
-            }
-
-            // Track gesture variety for exploration
-            const seq = GumpNeuromorphicMemory.sessionMemory ?
-                GumpNeuromorphicMemory.sessionMemory.gestureSequence : [];
-            if (seq.length > 0) {
-                const latest = seq[seq.length - 1];
-                if (!uniqueGesturesThisWindow.has(latest)) {
-                    uniqueGesturesThisWindow.add(latest);
-                    pushTrait('exploration', 0.03);
-                }
-            }
-        }
-
-        // Zone changes -> exploration
+        // ── EXPLORATION: Zone changes, position variety ──
         if (typeof GumpState !== 'undefined') {
-            const currentZone = GumpState.get('grid.currentZone');
+            var currentZone = GumpState.get('grid.currentZone');
             if (currentZone && currentZone !== lastZone) {
                 if (lastZone !== null) {
                     zoneChangeCount++;
-                    pushTrait('exploration', 0.02);
+                    pushTrait('exploration', 0.04);
+                    if (!uniqueZonesVisited.has(currentZone)) {
+                        uniqueZonesVisited.add(currentZone);
+                        pushTrait('exploration', 0.06); // bonus for NEW zones
+                    }
                 }
                 lastZone = currentZone;
             }
         }
 
-        // Crystallization check
+        // ── BONUS: Accelerometer neurons (when available) ──
+        if (typeof GumpMotionBrain !== 'undefined') {
+            var neurons = GumpMotionBrain.neurons;
+            if (neurons) {
+                if (neurons.shake && neurons.shake.firing)
+                    pushTrait('aggression', dt * 0.6);
+                if (neurons.toss && neurons.toss.firing)
+                    pushTrait('aggression', dt * 0.5);
+                if (neurons.sweep && neurons.sweep.firing)
+                    pushTrait('fluidity', dt * 0.6);
+                if (neurons.circle && neurons.circle.firing)
+                    pushTrait('fluidity', dt * 0.5);
+                if (neurons.pendulum && neurons.pendulum.firing)
+                    pushTrait('rhythm', dt * 0.6);
+                if (neurons.rock && neurons.rock.firing)
+                    pushTrait('rhythm', dt * 0.4);
+                if (neurons.stillness && neurons.stillness.firing)
+                    pushTrait('contemplation', dt * 0.4);
+            }
+            var voidDepth = GumpMotionBrain.voidDepth || 0;
+            if (voidDepth > 0.2) {
+                pushTrait('contemplation', dt * 0.3 * voidDepth);
+            }
+        }
+
+        // ── BONUS: ESN surprise → exploration ──
+        if (typeof GumpNeuromorphicMemory !== 'undefined') {
+            var surprise = GumpNeuromorphicMemory.surprise || 0;
+            if (surprise > 0.2) {
+                pushTrait('exploration', dt * 0.2 * surprise);
+            }
+        }
+
+        // ── Crystallization ──
         if (formativeTime >= FORMATIVE_DURATION && !crystallized) {
             crystallize();
         }
 
-        // Throttled scale updates
         scaleChangeTimer -= dt;
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    // CRYSTALLIZATION — Lock traits into ratios, pick archetype
+    // CRYSTALLIZATION
     // ═══════════════════════════════════════════════════════════════════════
 
     function crystallize() {
-        // Normalize traits to sum=1
-        const sum = traits.aggression + traits.fluidity + traits.rhythm +
-                    traits.contemplation + traits.exploration;
+        var sum = traits.aggression + traits.fluidity + traits.rhythm +
+                  traits.contemplation + traits.exploration;
 
         if (sum > 0) {
             traits.aggression /= sum;
@@ -246,7 +310,6 @@ const GumpMusicalDNA = (function() {
             traits.contemplation /= sum;
             traits.exploration /= sum;
         } else {
-            // No data — default balanced
             traits.aggression = 0.2;
             traits.fluidity = 0.2;
             traits.rhythm = 0.2;
@@ -254,23 +317,20 @@ const GumpMusicalDNA = (function() {
             traits.exploration = 0.2;
         }
 
-        // Pick archetype = highest trait
-        let maxVal = 0;
-        let maxTrait = 'exploration';
-        for (const [name, val] of Object.entries(traits)) {
-            if (val > maxVal) {
-                maxVal = val;
+        var maxVal = 0;
+        var maxTrait = 'exploration';
+        for (var name in traits) {
+            if (traits[name] > maxVal) {
+                maxVal = traits[name];
                 maxTrait = name;
             }
         }
         archetype = maxTrait;
         crystallized = true;
 
-        // Save to localStorage
         saveToStorage();
 
-        // Show notification
-        const archetypeNames = {
+        var archetypeNames = {
             aggression: 'THE WARRIOR',
             fluidity: 'THE DANCER',
             rhythm: 'THE DRUMMER',
@@ -278,7 +338,7 @@ const GumpMusicalDNA = (function() {
             exploration: 'THE EXPLORER',
         };
 
-        const el = document.getElementById('notification');
+        var el = document.getElementById('notification');
         if (el) {
             el.textContent = archetypeNames[archetype] || archetype.toUpperCase();
             el.classList.add('visible');
@@ -286,22 +346,21 @@ const GumpMusicalDNA = (function() {
         }
 
         console.log('[MusicalDNA] Crystallized as ' + archetypeNames[archetype] +
-            ' | agg=' + traits.aggression.toFixed(2) +
-            ' flu=' + traits.fluidity.toFixed(2) +
-            ' rhy=' + traits.rhythm.toFixed(2) +
-            ' con=' + traits.contemplation.toFixed(2) +
-            ' exp=' + traits.exploration.toFixed(2));
+            ' | A=' + traits.aggression.toFixed(2) +
+            ' F=' + traits.fluidity.toFixed(2) +
+            ' R=' + traits.rhythm.toFixed(2) +
+            ' C=' + traits.contemplation.toFixed(2) +
+            ' E=' + traits.exploration.toFixed(2));
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    // SCALE SELECTION — Blended from trait weights
+    // SCALE SELECTION
     // ═══════════════════════════════════════════════════════════════════════
 
     function extendScale(baseScale) {
-        // Extend a single-octave scale to ~2 octaves for playNote compatibility
-        const extended = [];
-        for (let oct = 0; oct < 3; oct++) {
-            for (let i = 0; i < baseScale.length; i++) {
+        var extended = [];
+        for (var oct = 0; oct < 3; oct++) {
+            for (var i = 0; i < baseScale.length; i++) {
                 extended.push(baseScale[i] + oct * 12);
             }
         }
@@ -309,31 +368,29 @@ const GumpMusicalDNA = (function() {
     }
 
     function getScaleForContext() {
-        // If no trait data yet, return default
-        const sum = traits.aggression + traits.fluidity + traits.rhythm +
-                    traits.contemplation + traits.exploration;
-        if (sum < 0.01) return DEFAULT_SCALE;
+        var sum = traits.aggression + traits.fluidity + traits.rhythm +
+                  traits.contemplation + traits.exploration;
+        if (sum < 0.05) return DEFAULT_SCALE;
 
-        // Throttle: only recalculate every 2 seconds
         if (lastScaleChoice && scaleChangeTimer > 0) return lastScaleChoice;
         scaleChangeTimer = 2.0;
 
-        // Find dominant and secondary traits
-        const sorted = Object.entries(traits).sort(function(a, b) { return b[1] - a[1]; });
-        const dominant = sorted[0];
-        const secondary = sorted[1];
+        // Sort traits to find dominant + secondary
+        var sorted = [];
+        for (var name in traits) {
+            sorted.push([name, traits[name]]);
+        }
+        sorted.sort(function(a, b) { return b[1] - a[1]; });
 
-        // 60% dominant, 30% secondary, 10% exploration mutation
-        const roll = Math.random();
-        let chosenPalette;
+        var roll = Math.random();
+        var chosenPalette;
 
         if (roll < 0.6) {
-            chosenPalette = SCALE_PALETTES[dominant[0]];
+            chosenPalette = SCALE_PALETTES[sorted[0][0]];
         } else if (roll < 0.9) {
-            chosenPalette = SCALE_PALETTES[secondary[0]];
+            chosenPalette = SCALE_PALETTES[sorted[1][0]];
         } else {
-            // Exploration mutation — pick a random scale
-            const keys = Object.keys(SCALE_PALETTES);
+            var keys = Object.keys(SCALE_PALETTES);
             chosenPalette = SCALE_PALETTES[keys[Math.floor(Math.random() * keys.length)]];
         }
 
@@ -342,64 +399,67 @@ const GumpMusicalDNA = (function() {
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    // BIAS COMPUTATION — All parameters the conductor reads
+    // BIAS COMPUTATION — Cached once per frame
     // ═══════════════════════════════════════════════════════════════════════
 
     function getBias() {
-        const a = traits.aggression;
-        const f = traits.fluidity;
-        const r = traits.rhythm;
-        const c = traits.contemplation;
-        const e = traits.exploration;
+        // Return cached if already computed this frame
+        if (cachedBias) return cachedBias;
 
-        // Tempo: 75 + aggression*30 - contemplation*20 + rhythm*10
-        const tempo = Math.max(55, Math.min(140,
-            75 + a * 30 - c * 20 + r * 10
+        var a = traits.aggression;
+        var f = traits.fluidity;
+        var r = traits.rhythm;
+        var c = traits.contemplation;
+        var e = traits.exploration;
+
+        // Tempo: 75 + aggression*45 - contemplation*30 + rhythm*15
+        var tempo = Math.max(50, Math.min(150,
+            75 + a * 45 - c * 30 + r * 15
         ));
 
-        // Filter base: 800 + fluidity*2000 + aggression*1500 - contemplation*1000
-        const filterBase = Math.max(400, Math.min(8000,
-            800 + f * 2000 + a * 1500 - c * 1000
+        // Filter base: 800 + fluidity*3000 + aggression*2500 - contemplation*1500
+        var filterBase = Math.max(300, Math.min(10000,
+            800 + f * 3000 + a * 2500 - c * 1500
         ));
 
-        // Filter Q: 0.7 + aggression*4
-        const filterQ = 0.7 + a * 4;
+        // Filter Q: 0.7 + aggression*6 (really acidic for warriors)
+        var filterQ = 0.7 + a * 6;
 
-        // Drum velocity: 0.3 + aggression*0.6 + rhythm*0.3 - contemplation*0.4
-        const drumVelocity = Math.max(0.1, Math.min(1.5,
-            0.3 + a * 0.6 + r * 0.3 - c * 0.4
+        // Drum velocity: 0.3 + aggression*0.9 + rhythm*0.5 - contemplation*0.5
+        var drumVelocity = Math.max(0.1, Math.min(2.0,
+            0.3 + a * 0.9 + r * 0.5 - c * 0.5
         ));
 
-        // Groove entry threshold: lower for rhythm-heavy, higher for contemplation
-        const grooveThreshold = Math.max(0.1, Math.min(0.6,
-            0.3 - r * 0.15 + c * 0.2
+        // Groove entry threshold: much lower for rhythm (0.08), much higher for contemplation (0.7)
+        var grooveThreshold = Math.max(0.05, Math.min(0.7,
+            0.3 - r * 0.22 + c * 0.4
         ));
 
-        // Pad volume: 0.5 + contemplation*0.4 + fluidity*0.3 - aggression*0.2
-        const padVolume = Math.max(0.1, Math.min(1.0,
-            0.5 + c * 0.4 + f * 0.3 - a * 0.2
+        // Pad volume: contemplation makes pads LOUD, aggression kills them
+        var padVolume = Math.max(0.05, Math.min(1.5,
+            0.5 + c * 0.8 + f * 0.5 - a * 0.4
         ));
 
-        // Drum bus gain: 0.6 + aggression*0.6 + rhythm*0.4 - contemplation*0.3
-        const drumGain = Math.max(0.3, Math.min(2.0,
-            0.6 + a * 0.6 + r * 0.4 - c * 0.3
+        // Drum bus gain: aggression cranks drums way up
+        var drumGain = Math.max(0.3, Math.min(2.5,
+            0.6 + a * 1.0 + r * 0.6 - c * 0.4
         ));
 
-        // Base tension: aggression*0.3 + exploration*0.2 - contemplation*0.15
-        const baseTension = Math.max(0, Math.min(0.5,
-            a * 0.3 + e * 0.2 - c * 0.15
+        // Base tension: aggression + exploration push tension
+        var baseTension = Math.max(0, Math.min(0.6,
+            a * 0.4 + e * 0.3 - c * 0.2
         ));
 
-        // Gesture response amplifiers
-        const gestureAmplifiers = {
-            shake:    1 + a,      // shake trill volume
-            sweep:    1 + f,      // sweep glissando range
-            pendulum: 1 + r,      // pendulum pulse sync precision
-            void:     1 + c,      // void drone depth
-            surprise: 1 + e,      // surprise harmonic shift
+        // Gesture response amplifiers (up to 2x)
+        var gestureAmplifiers = {
+            shake:    1 + a * 1.5,
+            sweep:    1 + f * 1.5,
+            pendulum: 1 + r * 1.5,
+            void:     1 + c * 1.5,
+            surprise: 1 + e * 1.5,
         };
 
-        return {
+        cachedBias = {
             tempo: tempo,
             filterBase: filterBase,
             filterQ: filterQ,
@@ -411,6 +471,8 @@ const GumpMusicalDNA = (function() {
             gestureAmplifiers: gestureAmplifiers,
             scale: getScaleForContext(),
         };
+
+        return cachedBias;
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -422,7 +484,7 @@ const GumpMusicalDNA = (function() {
         getBias: getBias,
         getScaleForContext: getScaleForContext,
 
-        get traits() { return { ...traits }; },
+        get traits() { return { aggression: traits.aggression, fluidity: traits.fluidity, rhythm: traits.rhythm, contemplation: traits.contemplation, exploration: traits.exploration }; },
         get archetype() { return archetype; },
         get crystallized() { return crystallized; },
         get formativeTime() { return formativeTime; },
