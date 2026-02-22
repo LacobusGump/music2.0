@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════════════════
-// GUMP - THE EMERGENCE (v34 — Living Organism)
+// GUMP - THE EMERGENCE (v35 — Musical DNA)
 // ═══════════════════════════════════════════════════════════════════════════
 //
 // Canvas + Grid + Patterns + Unlocks + Render.
@@ -196,6 +196,9 @@ const GUMP = (function() {
 
         // Organism evolution
         if (typeof GumpOrganism !== 'undefined') GumpOrganism.update(app.deltaTime, app);
+
+        // v35: Musical DNA evolution
+        if (typeof GumpMusicalDNA !== 'undefined') GumpMusicalDNA.update(app.deltaTime, app);
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -376,6 +379,16 @@ const GUMP = (function() {
             lines.push('Surprise: ' + GumpNeuromorphicMemory.surprise.toFixed(2));
             lines.push('Sessions: ' + GumpNeuromorphicMemory.personalProfile.lifetimeSessions);
         }
+        if (typeof GumpMusicalDNA !== 'undefined') {
+            const t = GumpMusicalDNA.traits;
+            lines.push('DNA: A' + t.aggression.toFixed(2) +
+                ' F' + t.fluidity.toFixed(2) +
+                ' R' + t.rhythm.toFixed(2) +
+                ' C' + t.contemplation.toFixed(2) +
+                ' E' + t.exploration.toFixed(2));
+            lines.push('Archetype: ' + (GumpMusicalDNA.archetype || 'forming(' +
+                Math.floor(GumpMusicalDNA.formativeProgress * 100) + '%)'));
+        }
 
         lines.forEach(function(line, i) {
             c.fillText(line, 10, 20 + i * 14);
@@ -417,7 +430,7 @@ const GUMP = (function() {
         app.isRunning = true;
         app.lastTime = 0;
         requestAnimationFrame(frame);
-        console.log('[GUMP] v34-LIVING-ORGANISM — Evolving Cursor + Warping Grid');
+        console.log('[GUMP] v35-MUSICAL-DNA — RPG Character Build + Music Evolution');
     }
 
     return Object.freeze({

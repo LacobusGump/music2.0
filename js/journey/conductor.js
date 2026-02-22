@@ -14,6 +14,10 @@
  * ESN surprise is USED. Tilt drives harmonic tension + expression depth.
  * Drums are massive (4-layer kick, 3-layer snare, metallic hats).
  * Sidechain ducking. Compound reactive gestures change based on history.
+ *
+ * v35: MusicalDNA integration — traits bias every musical parameter.
+ * Scale, tempo, filter, groove threshold, drum intensity, pad volume,
+ * and gesture response amplitudes all shaped by your character.
  */
 
 const GumpConductor = (function() {
@@ -98,7 +102,8 @@ const GumpConductor = (function() {
     };
 
     // Maj7 pentatonic — pushing 3rds, 5ths, 7ths for heaven-tier harmony
-    const scale = [0, 2, 4, 7, 9, 11, 12, 14, 16, 19, 23, 24];
+    // v35: Mutable — MusicalDNA overrides based on trait archetype
+    let scale = [0, 2, 4, 7, 9, 11, 12, 14, 16, 19, 23, 24];
 
     // ═══════════════════════════════════════════════════════════════════════
     // v32 THRESHOLD CONSTANTS — Clear thresholds for open-ended results
@@ -573,13 +578,16 @@ const GumpConductor = (function() {
         // Shared filter for pad warmth
         const padFilter = ctx.createBiquadFilter();
         padFilter.type = 'lowpass';
-        padFilter.frequency.value = 500;
+        // v35: DNA pad filter + volume bias
+        const dnaPadBias = (typeof GumpMusicalDNA !== 'undefined') ? GumpMusicalDNA.getBias() : null;
+        padFilter.frequency.value = 500 + (dnaPadBias ? dnaPadBias.filterBase * 0.15 : 0);
         padFilter.Q.value = 0.6;
         padFilter.connect(sidechainGain || masterGain);
 
         const padGain = ctx.createGain();
+        const padVol = dnaPadBias ? 0.035 * dnaPadBias.padVolume / 0.5 : 0.035;
         padGain.gain.setValueAtTime(0, now);
-        padGain.gain.linearRampToValueAtTime(0.035, now + 5);
+        padGain.gain.linearRampToValueAtTime(Math.min(0.08, padVol), now + 5);
         padGain.connect(padFilter);
 
         padVoices.forEach(function(f) {
@@ -620,7 +628,10 @@ const GumpConductor = (function() {
         while (state.nextStepTime < ctx.currentTime + 0.1) {
             const step = state.grooveStep;
             const t = state.nextStepTime;
-            const intensity = 0.4 + state.energy * 0.5;
+            // v35: DNA drum velocity multiplier
+            const dnaVel = (typeof GumpMusicalDNA !== 'undefined') ?
+                GumpMusicalDNA.getBias().drumVelocity : 1.0;
+            const intensity = (0.4 + state.energy * 0.5) * dnaVel;
 
             // Kick
             const kicks = [1,0,0,0, 0,0,0.6,0, 1,0,0,0, 0,0,0,0];
@@ -893,8 +904,11 @@ const GumpConductor = (function() {
         const now = ctx.currentTime;
 
         // Depth modulates volume (deeper = slightly louder, more present)
+        // v35: DNA contemplation trait amplifies void drone depth
+        const voidAmp = (typeof GumpMusicalDNA !== 'undefined') ?
+            GumpMusicalDNA.getBias().gestureAmplifiers.void : 1;
         if (voidAudio.masterGainNode) {
-            const targetVol = 0.03 + depth * 0.04; // 0.03 to 0.07
+            const targetVol = (0.03 + depth * 0.04) * voidAmp; // amplified by contemplation
             voidAudio.masterGainNode.gain.setTargetAtTime(targetVol, now, 0.5);
         }
 
@@ -1012,48 +1026,53 @@ const GumpConductor = (function() {
         const predicted = musicalContext.wasPredicted;
         const resolving = musicalContext.momentumDirection === 'resolving';
 
+        // v35: DNA gesture amplifiers — each gesture scaled by its trait
+        const dnaAmps = (typeof GumpMusicalDNA !== 'undefined') ?
+            GumpMusicalDNA.getBias().gestureAmplifiers :
+            { shake: 1, sweep: 1, pendulum: 1, void: 1, surprise: 1 };
+
         switch (data.neuron) {
             case 'shake':
                 if (predicted) {
-                    playHarmonicContinuation(data.firingRate);
+                    playHarmonicContinuation(data.firingRate * dnaAmps.shake);
                 } else if (highTension) {
-                    playTrill(data.firingRate, true); // dissonant
+                    playTrill(data.firingRate * dnaAmps.shake, true); // dissonant
                 } else if (afterStillness) {
-                    playTrill(data.firingRate * 0.5, false); // gentle awakening
+                    playTrill(data.firingRate * 0.5 * dnaAmps.shake, false); // gentle awakening
                 } else {
-                    playTrill(data.firingRate, false);
+                    playTrill(data.firingRate * dnaAmps.shake, false);
                 }
                 break;
             case 'circle':
                 if (resolving) {
-                    playArpeggio(data.energy, 'resolving');
+                    playArpeggio(data.energy * dnaAmps.sweep, 'resolving');
                 } else if (predicted) {
-                    playArpeggio(data.energy, 'continuation');
+                    playArpeggio(data.energy * dnaAmps.sweep, 'continuation');
                 } else {
-                    playArpeggio(data.energy, 'normal');
+                    playArpeggio(data.energy * dnaAmps.sweep, 'normal');
                 }
                 break;
             case 'sweep':
                 if (afterStillness || musicalContext.momentumDirection === 'building') {
-                    playGlissando(data.magnitude, 'ascending');
+                    playGlissando(data.magnitude * dnaAmps.sweep, 'ascending');
                 } else if (resolving) {
-                    playGlissando(data.magnitude, 'descending');
+                    playGlissando(data.magnitude * dnaAmps.sweep, 'descending');
                 } else {
-                    playGlissando(data.magnitude, 'normal');
+                    playGlissando(data.magnitude * dnaAmps.sweep, 'normal');
                 }
                 break;
             case 'pendulum':
                 if (musicalContext.detectedUserBPM > 0) {
-                    playSyncedPulse(data.firingRate, musicalContext.detectedUserBPM);
+                    playSyncedPulse(data.firingRate * dnaAmps.pendulum, musicalContext.detectedUserBPM);
                 } else {
-                    playPendulumPulse(data.firingRate);
+                    playPendulumPulse(data.firingRate * dnaAmps.pendulum);
                 }
                 break;
             case 'rock':
-                applyVibratoModulation(data.firingRate, musicalContext.tensionLevel);
+                applyVibratoModulation(data.firingRate * dnaAmps.pendulum, musicalContext.tensionLevel);
                 break;
             case 'toss':
-                playTossImpact(data.energy, musicalContext.emotionalArc);
+                playTossImpact(data.energy * dnaAmps.surprise, musicalContext.emotionalArc);
                 break;
         }
     }
@@ -1625,6 +1644,10 @@ const GumpConductor = (function() {
             const conf = musicalContext.predictionConfidence;
             // High surprise = high tension, high confidence = moderate tension (anticipation)
             targetTension = surprise * 0.6 + conf * 0.3 + musicalContext.harmonicTension * 0.1;
+            // v35: DNA base tension offset
+            if (typeof GumpMusicalDNA !== 'undefined') {
+                targetTension += GumpMusicalDNA.getBias().baseTension;
+            }
         }
         musicalContext.tensionLevel += (targetTension - musicalContext.tensionLevel) * 0.05;
 
@@ -1688,13 +1711,16 @@ const GumpConductor = (function() {
         const absTiltX = Math.abs(state.tiltX);
         musicalContext.harmonicTension = Math.min(1, absTiltX);
         // Drive filter resonance: more tilt = more acidic, up to Q=8
+        // v35: DNA filterQ as floor
+        const dnaQFloor = (typeof GumpMusicalDNA !== 'undefined') ?
+            GumpMusicalDNA.getBias().filterQ : 0.7;
         if (absTiltX > 0.2) {
             lofiFilter.Q.setTargetAtTime(
-                0.7 + absTiltX * 7.3,  // 0.7 to 8.0
+                Math.max(dnaQFloor, 0.7 + absTiltX * 7.3),  // DNA floor or tilt-driven
                 ctx.currentTime, 0.1
             );
         } else {
-            lofiFilter.Q.setTargetAtTime(0.7, ctx.currentTime, 0.3);
+            lofiFilter.Q.setTargetAtTime(dnaQFloor, ctx.currentTime, 0.3);
         }
 
         // ── tiltY → Multi-Dimensional Expression ──
@@ -1703,7 +1729,10 @@ const GumpConductor = (function() {
         musicalContext.rhythmicDensity = 0.2 + brightness * 0.8; // 0.2 to 1.0
 
         // Filter frequency: enhanced range with energy contribution
-        const target = 1500 + brightness * 7000 + state.energy * 3500;
+        // v35: DNA filter bias blended in
+        const dnaFilterBias = (typeof GumpMusicalDNA !== 'undefined') ?
+            GumpMusicalDNA.getBias().filterBase : 0;
+        const target = 1500 + brightness * 7000 + state.energy * 3500 + dnaFilterBias * 0.3;
         state.filterFreq += (target - state.filterFreq) * 0.08;
         lofiFilter.frequency.setValueAtTime(
             Math.min(14000, Math.max(600, state.filterFreq)),
@@ -1725,7 +1754,10 @@ const GumpConductor = (function() {
         }
 
         // Start/stop groove based on energy
-        if (state.energy > 0.3 && !state.groovePlaying) {
+        // v35: DNA groove threshold (lower for rhythm-heavy characters)
+        const grooveThresh = (typeof GumpMusicalDNA !== 'undefined') ?
+            GumpMusicalDNA.getBias().grooveThreshold : 0.3;
+        if (state.energy > grooveThresh && !state.groovePlaying) {
             startGroove();
         }
         if (state.energy < 0.05 && state.groovePlaying) {
@@ -1734,7 +1766,9 @@ const GumpConductor = (function() {
 
         // BPM adapts to motion (G7 pattern)
         if (state.motionHistory.length > 20) {
-            let baseBPM = 80 + state.avgMotion * 8 + state.intensity * 5;
+            // v35: DNA tempo bias replaces fixed base
+            const dnaBias = (typeof GumpMusicalDNA !== 'undefined') ? GumpMusicalDNA.getBias() : null;
+            let baseBPM = (dnaBias ? dnaBias.tempo : 80) + state.avgMotion * 8 + state.intensity * 5;
             // Motion pattern shifts BPM
             if (state.motionPattern === 'rhythmic') baseBPM += 5;
             else if (state.motionPattern === 'vigorous') baseBPM += 10;
@@ -1742,6 +1776,19 @@ const GumpConductor = (function() {
             // Smooth transition
             state.tempo = state.tempo * 0.95 + baseBPM * 0.05;
             state.tempo = Math.max(60, Math.min(140, state.tempo));
+        }
+
+        // v35: DNA-driven drum bus gain + scale update
+        if (typeof GumpMusicalDNA !== 'undefined') {
+            const dnaBiasUpdate = GumpMusicalDNA.getBias();
+            if (drumBus) {
+                drumBus.gain.setTargetAtTime(
+                    dnaBiasUpdate.drumGain,
+                    ctx.currentTime, 0.5
+                );
+            }
+            // Update active scale from DNA
+            scale = dnaBiasUpdate.scale;
         }
 
         // v33: Tilt expression (replaces simple filter sweep)
