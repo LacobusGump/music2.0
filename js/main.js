@@ -319,7 +319,7 @@ const GUMP = (function() {
         app.isRunning = true;
         app.lastTime = 0;
         requestAnimationFrame(frame);
-        console.log('[GUMP] v38 — fixing motion');
+        console.log('[GUMP] v39 — G7 motion pattern');
 
         // Initialize lens system
         if (typeof GumpLens !== 'undefined') {

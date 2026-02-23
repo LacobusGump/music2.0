@@ -208,13 +208,30 @@ const GumpConductor = (function() {
         sidechainGain.gain.value = 1.0;
         sidechainGain.connect(masterGain);
 
-        // Touch handlers — capture: true so permissions fire BEFORE main.js preventDefault
+        // Touch handlers
         document.addEventListener('touchstart', onTouch, { passive: false, capture: true });
         document.addEventListener('touchmove', onTouchMove, { passive: false });
         document.addEventListener('touchend', onTouchEnd, { passive: false });
         document.addEventListener('mousedown', onMouse);
         document.addEventListener('mousemove', onMouseMove);
         document.addEventListener('mouseup', onMouseUp);
+
+        // G7 PATTERN: Attach motion/tilt listeners IMMEDIATELY at init
+        // (permissions already granted by bootstrap before GUMP.start())
+        if (window._motionGranted) {
+            state.motionGranted = true;
+            window.addEventListener('devicemotion', onDeviceMotion);
+            console.log('[Conductor] devicemotion attached at init');
+        }
+        if (window._orientationGranted) {
+            state.tiltGranted = true;
+            window.addEventListener('deviceorientation', onTilt);
+            console.log('[Conductor] deviceorientation attached at init');
+        }
+
+        // G7 PATTERN: Mouse feeds motion pipeline (desktop fallback)
+        // Mouse movement generates motion data so the whole system works on desktop
+        setupMouseMotionFallback();
 
         state.initialized = true;
         state.lastMotionTime = Date.now();
@@ -240,7 +257,7 @@ const GumpConductor = (function() {
         // Start update loop
         update();
 
-        console.log('[Conductor] v38-REBIRTH Ready — the instrument responds immediately');
+        console.log('[Conductor] v39 Ready — G7 motion pattern');
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -249,20 +266,17 @@ const GumpConductor = (function() {
     // ═══════════════════════════════════════════════════════════════════════
 
     function onTouch(e) {
-        // Permissions already granted by bootstrap (G7 pattern)
-        // Just attach listeners if not yet attached
+        // Fallback: if listeners weren't attached at init (race condition),
+        // attach them now on first touch
         if (!state.motionGranted && window._motionGranted) {
             state.motionGranted = true;
             window.addEventListener('devicemotion', onDeviceMotion);
-            showMsg('MOTION ON');
-            console.log('[Conductor] devicemotion listener attached');
+            console.log('[Conductor] devicemotion attached (touch fallback)');
         }
-
         if (!state.tiltGranted && window._orientationGranted) {
             state.tiltGranted = true;
             window.addEventListener('deviceorientation', onTilt);
-            showMsg('TILT ON');
-            console.log('[Conductor] deviceorientation listener attached');
+            console.log('[Conductor] deviceorientation attached (touch fallback)');
         }
 
         e.preventDefault();
@@ -331,6 +345,62 @@ const GumpConductor = (function() {
             beta: e.beta || 0,
             gamma: e.gamma || 0,
         };
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // G7 PATTERN: Mouse → Motion Pipeline (desktop fallback)
+    // Mouse movement generates motion data identical to accelerometer.
+    // Mouse position also simulates tilt (orientation).
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function setupMouseMotionFallback() {
+        let lastMM = { x: 0, y: 0, time: 0 };
+
+        window.addEventListener('mousemove', function(e) {
+            if (!state.initialized) return;
+
+            const now = Date.now();
+            const dt = Math.max(1, now - lastMM.time);
+
+            const newX = e.clientX;
+            const newY = e.clientY;
+
+            const vx = (newX - lastMM.x) / dt * 100;
+            const vy = (newY - lastMM.y) / dt * 100;
+
+            const mouseMotion = Math.sqrt(vx * vx + vy * vy) * 0.3;
+
+            // Feed into same motion pipeline as accelerometer
+            state.motion = state.motion * 0.8 + mouseMotion * 0.2;
+            state.motionHistory.push(state.motion);
+            if (state.motionHistory.length > 150) state.motionHistory.shift();
+            state.totalMotion += state.motion * 0.016;
+
+            if (state.motion > 0.3) {
+                state.lastMotionTime = now;
+            }
+            if (state.motion > 0.5) {
+                state.energy = Math.min(1, state.energy + state.motion * 0.003);
+            }
+
+            // Simulate tilt from mouse position (G7 pattern)
+            // Only if real tilt not available
+            if (!state.tiltGranted || !window._orientationGranted) {
+                state.tiltX = ((newX / window.innerWidth) - 0.5) * 2;
+                state.tiltY = ((newY / window.innerHeight) - 0.5) * 2;
+            }
+
+            // Feed MotionBrain if available (simulated accelerometer)
+            if (typeof GumpMotionBrain !== 'undefined' && mouseMotion > 0.1) {
+                GumpMotionBrain.process(
+                    { x: vx * 0.01, y: vy * 0.01, z: 9.8 },
+                    state.lastOrientation || { alpha: 0, beta: 0, gamma: 0 },
+                    now
+                );
+            }
+
+            lastMM = { x: newX, y: newY, time: now };
+        });
     }
 
     // ═══════════════════════════════════════════════════════════════════════
