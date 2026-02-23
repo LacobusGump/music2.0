@@ -248,47 +248,21 @@ const GumpConductor = (function() {
     // iOS: must request BEFORE preventDefault (Radiohead fix)
     // ═══════════════════════════════════════════════════════════════════════
 
-    async function onTouch(e) {
-        // Request BOTH motion AND orientation on first touch — BEFORE preventDefault
-        if (!state.motionGranted) {
-            if (typeof DeviceMotionEvent !== 'undefined') {
-                if (typeof DeviceMotionEvent.requestPermission === 'function') {
-                    try {
-                        const p = await DeviceMotionEvent.requestPermission();
-                        if (p === 'granted') {
-                            state.motionGranted = true;
-                            window.addEventListener('devicemotion', onDeviceMotion);
-                            showMsg('MOTION ON');
-                        }
-                    } catch(err) {
-                        console.log('Motion denied');
-                    }
-                } else {
-                    // Android / desktop — just listen
-                    state.motionGranted = true;
-                    window.addEventListener('devicemotion', onDeviceMotion);
-                }
-            }
+    function onTouch(e) {
+        // Permissions already granted by bootstrap (G7 pattern)
+        // Just attach listeners if not yet attached
+        if (!state.motionGranted && window._motionGranted) {
+            state.motionGranted = true;
+            window.addEventListener('devicemotion', onDeviceMotion);
+            showMsg('MOTION ON');
+            console.log('[Conductor] devicemotion listener attached');
         }
 
-        if (!state.tiltGranted) {
-            if (typeof DeviceOrientationEvent !== 'undefined') {
-                if (typeof DeviceOrientationEvent.requestPermission === 'function') {
-                    try {
-                        const p = await DeviceOrientationEvent.requestPermission();
-                        if (p === 'granted') {
-                            state.tiltGranted = true;
-                            window.addEventListener('deviceorientation', onTilt);
-                            showMsg('TILT ON');
-                        }
-                    } catch(err) {
-                        console.log('Tilt denied');
-                    }
-                } else {
-                    state.tiltGranted = true;
-                    window.addEventListener('deviceorientation', onTilt);
-                }
-            }
+        if (!state.tiltGranted && window._orientationGranted) {
+            state.tiltGranted = true;
+            window.addEventListener('deviceorientation', onTilt);
+            showMsg('TILT ON');
+            console.log('[Conductor] deviceorientation listener attached');
         }
 
         e.preventDefault();
