@@ -208,8 +208,8 @@ const GumpConductor = (function() {
         sidechainGain.gain.value = 1.0;
         sidechainGain.connect(masterGain);
 
-        // Touch handlers
-        document.addEventListener('touchstart', onTouch, { passive: false });
+        // Touch handlers — capture: true so permissions fire BEFORE main.js preventDefault
+        document.addEventListener('touchstart', onTouch, { passive: false, capture: true });
         document.addEventListener('touchmove', onTouchMove, { passive: false });
         document.addEventListener('touchend', onTouchEnd, { passive: false });
         document.addEventListener('mousedown', onMouse);
@@ -1757,12 +1757,14 @@ const GumpConductor = (function() {
             state.energy *= 0.995;
         }
 
-        // v38: Groove responds to motion rhythmicity × touch, not energy thresholds
+        // Groove: motion rhythmicity OR touch activity OR energy
         const neurons = typeof GumpMotionBrain !== 'undefined' ? GumpMotionBrain.neurons : null;
         const rhythmicity = (neurons && neurons.pendulum && neurons.pendulum.firing) ? 0.8 : state.smoothSpeed * 0.5;
         const touchBoost = state.touching ? 1.5 : 0.5;
-        const grooveIntensity = Math.min(1, rhythmicity * touchBoost);
-        if (grooveIntensity > 0.1 && !state.groovePlaying) {
+        const grooveIntensity = Math.min(1, Math.max(rhythmicity * touchBoost, state.energy));
+        const dnaBias = (typeof GumpMusicalDNA !== 'undefined') ? GumpMusicalDNA.getBias() : null;
+        const grooveThresh = dnaBias ? dnaBias.grooveThreshold : 0.3;
+        if (grooveIntensity > grooveThresh && !state.groovePlaying) {
             startGroove();
         }
         if (grooveIntensity < 0.05 && state.groovePlaying) {

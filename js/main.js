@@ -73,12 +73,7 @@ const GUMP = (function() {
         c.addEventListener('touchmove', onTouchMove, { passive: false });
         c.addEventListener('touchend', onTouchEnd, { passive: false });
 
-        // Motion for position (non-iOS auto-listen)
-        if (window.DeviceMotionEvent) {
-            if (typeof DeviceMotionEvent.requestPermission !== 'function') {
-                window.addEventListener('devicemotion', onDeviceMotion);
-            }
-        }
+        // Motion/tilt permissions handled by conductor.js exclusively
     }
 
     function onMouseMove(e) {
@@ -95,15 +90,8 @@ const GUMP = (function() {
             app.targetX = e.touches[0].clientX / app.width;
             app.targetY = e.touches[0].clientY / app.height;
         }
-        // iOS motion permission on first touch
-        if (typeof DeviceMotionEvent !== 'undefined' &&
-            typeof DeviceMotionEvent.requestPermission === 'function') {
-            DeviceMotionEvent.requestPermission().then(function(p) {
-                if (p === 'granted') {
-                    window.addEventListener('devicemotion', onDeviceMotion);
-                }
-            }).catch(function() {});
-        }
+        // NOTE: Motion/tilt permissions handled EXCLUSIVELY by conductor.js
+        // (must request before preventDefault — Radiohead fix)
     }
     function onTouchMove(e) {
         e.preventDefault();
@@ -117,12 +105,7 @@ const GUMP = (function() {
         app.gestureActive = false;
     }
 
-    function onDeviceMotion(e) {
-        var a = e.accelerationIncludingGravity;
-        if (!a) return;
-        app.targetX = Math.max(0, Math.min(1, 0.5 + (a.x || 0) / 12.5));
-        app.targetY = Math.max(0, Math.min(1, 0.5 - (a.y || 0) / 12.5));
-    }
+    // devicemotion handled by conductor.js — feeds G7 flywheel + MotionBrain
 
     // ═══════════════════════════════════════════════════════════════════════
     // INIT
@@ -336,7 +319,7 @@ const GUMP = (function() {
         app.isRunning = true;
         app.lastTime = 0;
         requestAnimationFrame(frame);
-        console.log('[GUMP] v38-REBIRTH — Pick up. Tilt. Play.');
+        console.log('[GUMP] v38 — fixing motion');
 
         // Initialize lens system
         if (typeof GumpLens !== 'undefined') {
