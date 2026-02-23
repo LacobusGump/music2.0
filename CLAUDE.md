@@ -139,3 +139,43 @@ Everything else serves this core loop.
 ---
 
 *"The goal is not to make something. The goal is to discover something that already exists."* — The Producer
+
+---
+
+## About James
+
+- Drummer and drum teacher. Music is deeply personal, not a side project.
+- Tests on **iPhone 15** — motion/tilt is the primary input, touch is secondary.
+- **Two dev machines**:
+  - HP Laptop 14-cf2xxx (Windows, 64GB eMMC — tight on space, has a microSD slot for overflow)
+  - 2013 MacBook Air (Intel SSD, freshly reinstalled macOS as of Feb 2023)
+- GitHub: LacobusGump
+- Prefers humble naming — no "REBIRTH" or grandiose titles. Just version numbers.
+- Has been at this for months. Gets frustrated when sessions produce code cleanup instead of musical transformation. The sound must actually CHANGE, not just the code structure.
+- The Producer's veto is real: "Does this make you FEEL something?" If moving the phone doesn't feel like playing an instrument, we've failed.
+
+## Current State (v39)
+
+- **v38 gutted ~5000 lines** of game mechanics (grid, zones, unlocks, patterns, state store). Good.
+- **v39 fixed motion** — G7 Flywheel pattern: devicemotion/deviceorientation listeners attached at init, mouse-to-motion fallback for desktop testing.
+- **The persistent problem**: the SOUND hasn't evolved. It still feels like the same bland instrument from months ago. Touch traces finger with pitch differences but it's not musical. No journey, no evolution, no creativity. The synthesis engine needs real transformation, not parameter tweaks.
+- **Reference**: commit `88d4c32` (G7 Fly) had great motion. Study it.
+- **Read `.gump/` FIRST** — especially `producer.md` and `dialogue.md`. 19 sessions of vision are captured there.
+
+## Code Structure (v39)
+
+The codebase is now modular (not one HTML file):
+
+```
+index.html              — Entry point, bootstrap, permissions (G7 pattern)
+js/main.js              — Minimal loop: canvas + input + organism + conductor
+js/audio/engine.js      — AudioContext + music theory
+js/core/events.js       — Event bus (motion.spike)
+js/core/motion.js       — Kalman filter, 7 spiking neurons, void state (GOLD)
+js/core/memory.js       — STDP learning, ESN prediction (the brain)
+js/core/context.js      — Weather API + time of day
+js/journey/conductor.js — THE instrument engine: synthesis, tilt expression, groove, gestures
+js/journey/musical-dna.js — 5 personality traits + lens integration
+js/journey/lens.js      — Artist presets (College Dropout, Ambient Sunday, etc.)
+js/visuals/organism.js  — The visual: harmonic polar organism on black canvas
+```
