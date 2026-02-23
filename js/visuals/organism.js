@@ -1,13 +1,13 @@
 /**
- * GUMP ORGANISM — Evolving Cursor + Warping Grid
+ * GUMP ORGANISM — The Living Visual
  *
  * The cursor is alive. It evolves from a spore into a complex organism
  * shaped by HOW you interact. Each gesture neuron drives a different
- * harmonic of the polar shape. The grid warps around it.
+ * harmonic of the polar shape. Floats on black — no grid.
  *
  * Stages: Spore → Tendril → Bloom → Entity → Abyss
  *
- * v34-LIVING-ORGANISM
+ * v38-REBIRTH: Grid removed. Organism is the only visual.
  */
 
 const GumpOrganism = (function() {
@@ -401,94 +401,12 @@ const GumpOrganism = (function() {
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    // DRAW GRID — Warped by organism
-    // ═══════════════════════════════════════════════════════════════════════
-
-    function drawGrid(ctx, w, h, cursorX, cursorY) {
-        const stage = getStage();
-        const cx = cursorX * w;
-        const cy = cursorY * h;
-        const pullStrength = 15 + stage * 10;
-        const pullRadius = 150 + stage * 50;
-        const pullRadiusSq = pullRadius * pullRadius;
-        const segments = 16;
-
-        // Base grid positions (4 lines: 2 vertical, 2 horizontal)
-        const lines = [
-            { x0: w * 0.333, y0: 0, x1: w * 0.333, y1: h, horiz: false },
-            { x0: w * 0.666, y0: 0, x1: w * 0.666, y1: h, horiz: false },
-            { x0: 0, y0: h * 0.333, x1: w, y1: h * 0.333, horiz: true },
-            { x0: 0, y0: h * 0.666, x1: w, y1: h * 0.666, horiz: true },
-        ];
-
-        // Abyss: extra subdivision lines
-        if (stage >= 4) {
-            lines.push(
-                { x0: w * 0.167, y0: 0, x1: w * 0.167, y1: h, horiz: false },
-                { x0: w * 0.5,   y0: 0, x1: w * 0.5,   y1: h, horiz: false },
-                { x0: w * 0.833, y0: 0, x1: w * 0.833, y1: h, horiz: false },
-                { x0: 0, y0: h * 0.167, x1: w, y1: h * 0.167, horiz: true },
-                { x0: 0, y0: h * 0.5,   x1: w, y1: h * 0.5,   horiz: true },
-                { x0: 0, y0: h * 0.833, x1: w, y1: h * 0.833, horiz: true },
-            );
-        }
-
-        const baseAlpha = stage >= 4 ? 0.02 : 0.03;
-
-        for (let li = 0; li < lines.length; li++) {
-            const line = lines[li];
-            // Extra subdivision lines are dimmer
-            const isExtra = li >= 4;
-            const alpha = isExtra ? baseAlpha * 0.6 : baseAlpha;
-
-            ctx.strokeStyle = `rgba(255,255,255,${alpha})`;
-            ctx.lineWidth = 1;
-            ctx.beginPath();
-
-            for (let s = 0; s <= segments; s++) {
-                const t = s / segments;
-                let px = line.x0 + (line.x1 - line.x0) * t;
-                let py = line.y0 + (line.y1 - line.y0) * t;
-
-                // Gravitational pull toward cursor
-                const dx = cx - px;
-                const dy = cy - py;
-                const distSq = dx * dx + dy * dy;
-
-                if (distSq < pullRadiusSq && distSq > 1) {
-                    const dist = Math.sqrt(distSq);
-                    const force = pullStrength * (1 - dist / pullRadius);
-                    const forceNorm = force / dist;
-                    px += dx * forceNorm;
-                    py += dy * forceNorm;
-                }
-
-                // Entity+ organic waviness
-                if (stage >= 3) {
-                    const waveAmp = 2 + dna.intensity * 4;
-                    if (line.horiz) {
-                        py += Math.sin(px * 0.02 + time * 1.5) * waveAmp;
-                    } else {
-                        px += Math.sin(py * 0.02 + time * 1.5) * waveAmp;
-                    }
-                }
-
-                if (s === 0) ctx.moveTo(px, py);
-                else ctx.lineTo(px, py);
-            }
-
-            ctx.stroke();
-        }
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════
     // PUBLIC API
     // ═══════════════════════════════════════════════════════════════════════
 
     return {
         update,
         drawOrganism,
-        drawGrid,
         get stage() { return STAGES[getStage()].name; },
         get stageIndex() { return getStage(); },
         get lifeForce() { return lifeForce; },

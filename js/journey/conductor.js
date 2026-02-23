@@ -1,15 +1,11 @@
 /**
- * GUMP CONDUCTOR - Lo-Fi Kanye Drums + Musical Intelligence
+ * GUMP CONDUCTOR - The Instrument Engine
  *
- * Dreamy strings + warm 808 subs + lo-fi tape warmth + sidechain pump
- * Touch to play, tilt for expression, MOTION drives the flywheel
+ * v38-REBIRTH: No tier gates, no energy thresholds.
+ * Pad plays from first frame. Groove responds to motion rhythmicity.
+ * Tilt × touch = cross-product instrument.
  *
- * G7 Flywheel: accelerometer → motion buffer → pattern classification
- *   → energy/BPM/layer modulation. The more you move, the more unfolds.
- *
- * v36: Strip the drums, find the soul.
- * Warm 808 sub kick (rings out), dark lo-fi snare, subtle noise hats.
- * Simple patterns (kick on 1, clap on 2+4), gentle swing.
+ * Warm 808 sub kick, dark lo-fi snare, subtle noise hats.
  * Tape saturation, glue compression, vinyl crackle texture.
  * Deep sidechain pump — classic Kanye/College Dropout feel.
  */
@@ -244,7 +240,7 @@ const GumpConductor = (function() {
         // Start update loop
         update();
 
-        console.log('[Conductor] v36-LOFI-KANYE Ready — warm 808s, dark texture, sidechain pump');
+        console.log('[Conductor] v38-REBIRTH Ready — the instrument responds immediately');
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -483,23 +479,35 @@ const GumpConductor = (function() {
 
     function playNote(x, y, velocity) {
         const now = ctx.currentTime;
-        const dest = sidechainGain || masterGain; // v33: route through sidechain
+        const dest = sidechainGain || masterGain;
 
-        // v33: Octave range from expressionDepth (tiltY): 2-4 octaves
-        const maxOctaves = 2 + Math.floor(musicalContext.expressionDepth * 2);
-        const octave = 2 + Math.floor(x * maxOctaves);
-        const noteIndex = Math.floor((1 - y) * scale.length);
-        let note = scale[Math.min(noteIndex, scale.length - 1)];
+        // v38 CROSS-PRODUCT: tilt shifts which part of scale we play
+        const bias = (typeof GumpMusicalDNA !== 'undefined') ? GumpMusicalDNA.getBias() : null;
+        const activeScale = bias ? bias.scale : scale;
 
-        // v33: Chromatic tension — when harmonicTension > 0.4, chance to sharpen/flatten
+        const tiltShift = Math.floor(musicalContext.harmonicTension * activeScale.length * 0.25);
+        let noteIdx = Math.floor((1 - y) * activeScale.length) + tiltShift;
+        noteIdx = Math.max(0, Math.min(activeScale.length - 1, noteIdx));
+        let note = activeScale[noteIdx];
+
+        // Chromatic tension — when harmonicTension > 0.4, chance to sharpen/flatten
         if (musicalContext.harmonicTension > 0.4 && Math.random() < 0.5) {
-            note += (Math.random() < 0.5) ? 1 : -1; // ±1 semitone
+            note += (Math.random() < 0.5) ? 1 : -1;
         }
 
-        // v33: Root follows musicalContext.harmonicRoot (not fixed 110Hz)
-        const rootFreq = musicalContext.harmonicRoot / 4; // harmonicRoot is ~432, /4 gives ~108
+        // v38 CROSS-PRODUCT: tiltY × touchX = register
+        const baseOctave = 3;
+        const tiltOctave = Math.floor(musicalContext.expressionDepth * 2); // 0-2 from tilt
+        const touchOctave = Math.floor(x * 2); // 0-2 from touch position
+        const octave = baseOctave + Math.floor((tiltOctave + touchOctave) / 2);
+
+        const rootFreq = musicalContext.harmonicRoot / 4;
         const freq = rootFreq * Math.pow(2, (note + octave * 12) / 12);
-        const dur = 0.3 + (1 - velocity) * 0.5;
+
+        // v38 CROSS-PRODUCT: motion speed × touch velocity = articulation
+        const attack = 0.005 + (1 - velocity) * 0.05 * (1 - state.smoothSpeed);
+        const release = 0.1 + (1 - state.smoothSpeed) * 0.3;
+        const dur = attack + release + 0.2;
 
         // Per-note filter: position + tilt + energy
         const filter = ctx.createBiquadFilter();
@@ -1064,7 +1072,7 @@ const GumpConductor = (function() {
         }
     }
 
-    // ── SHAKE → Trill (with optional dissonance) ──
+    // ── SHAKE → Trill (tilt-colored: dark tilt = dissonant, bright = consonant) ──
     function playTrill(firingRate, dissonant) {
         const now = ctx.currentTime;
         const dest = sidechainGain || masterGain;
@@ -1072,9 +1080,18 @@ const GumpConductor = (function() {
         const interval = 1 / rate;
         const baseFreq = musicalContext.harmonicRoot;
 
-        // Dissonant mode: minor 2nd (1 semitone) or tritone (6 semitones)
-        const trillInterval = dissonant ?
-            (Math.random() < 0.5 ? 1 : 6) : 2; // major 2nd normally
+        // v38: Tilt colors the trill interval
+        // Dark tilt (low expressionDepth) → dissonant intervals
+        // Bright tilt (high expressionDepth) → consonant intervals
+        const tiltBrightness = musicalContext.expressionDepth;
+        let trillInterval;
+        if (dissonant || tiltBrightness < 0.3) {
+            trillInterval = (Math.random() < 0.5) ? 1 : 6; // minor 2nd or tritone
+        } else if (tiltBrightness > 0.7) {
+            trillInterval = (Math.random() < 0.5) ? 7 : 5; // perfect 5th or 4th
+        } else {
+            trillInterval = 2; // major 2nd (neutral)
+        }
 
         const filter = ctx.createBiquadFilter();
         filter.type = 'lowpass';
@@ -1740,14 +1757,15 @@ const GumpConductor = (function() {
             state.energy *= 0.995;
         }
 
-        // Start/stop groove based on energy
-        // v35: DNA groove threshold (lower for rhythm-heavy characters)
-        const grooveThresh = (typeof GumpMusicalDNA !== 'undefined') ?
-            GumpMusicalDNA.getBias().grooveThreshold : 0.3;
-        if (state.energy > grooveThresh && !state.groovePlaying) {
+        // v38: Groove responds to motion rhythmicity × touch, not energy thresholds
+        const neurons = typeof GumpMotionBrain !== 'undefined' ? GumpMotionBrain.neurons : null;
+        const rhythmicity = (neurons && neurons.pendulum && neurons.pendulum.firing) ? 0.8 : state.smoothSpeed * 0.5;
+        const touchBoost = state.touching ? 1.5 : 0.5;
+        const grooveIntensity = Math.min(1, rhythmicity * touchBoost);
+        if (grooveIntensity > 0.1 && !state.groovePlaying) {
             startGroove();
         }
-        if (state.energy < 0.05 && state.groovePlaying) {
+        if (grooveIntensity < 0.05 && state.groovePlaying) {
             stopGroove();
         }
 
@@ -1778,7 +1796,25 @@ const GumpConductor = (function() {
             scale = dnaBiasUpdate.scale;
         }
 
-        // v33: Tilt expression (replaces simple filter sweep)
+        // v38: Context integration — weather/time modulate base warmth
+        if (typeof GumpContext !== 'undefined') {
+            const ctxData = GumpContext.get();
+            // Weather modulates base filter warmth
+            if (ctxData.warmth !== undefined && lofiFilter) {
+                const weatherBias = (ctxData.warmth - 0.5) * 600; // ±300Hz
+                state.filterFreq += weatherBias * 0.001; // very slow blend
+            }
+            // Storminess adds subtle Q modulation
+            if (ctxData.storminess > 0.3 && lofiFilter) {
+                const stormQ = ctxData.storminess * 2;
+                lofiFilter.Q.setTargetAtTime(
+                    Math.max(lofiFilter.Q.value, stormQ),
+                    ctx.currentTime, 1.0
+                );
+            }
+        }
+
+        // Tilt expression
         applyTiltExpression();
 
         // v33: Update musical context (reads brain, shapes every response)
