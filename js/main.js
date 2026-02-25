@@ -246,8 +246,8 @@ const GUMP = (function() {
             if (ly) {
                 var layerStates = [];
                 for (var k in ly) {
-                    if (ly[k].gainNode) {
-                        var g = ly[k].gainNode.gain.value;
+                    if (ly[k].gain) {
+                        var g = ly[k].gain.gain.value;
                         if (g > 0.001) layerStates.push(k.substr(0,3).toUpperCase());
                     }
                 }

@@ -1,60 +1,67 @@
 /**
- * GUMP CONDUCTOR - The Instrument Engine
+ * GUMP CONDUCTOR — The Instrument Engine
  *
- * v40: BRING BACK THE ORCHESTRA
- * Layered audio: pad, bass, atmosphere, strings, shimmer, choir.
- * Convolver reverb + delay line for real space.
- * Evolution stages: EMERGING → FLOWING → SURGING → TRANSCENDENT.
- * Motion pattern drives which layers are active.
- * Tilt × touch = cross-product instrument.
+ * A layered orchestra that responds to your body, evolves over time,
+ * and sounds like a real space.
  *
- * Warm 808 sub kick, dark lo-fi snare, subtle noise hats.
- * Tape saturation, glue compression, vinyl crackle texture.
- * Deep sidechain pump — classic Kanye/College Dropout feel.
+ * LAYERS: pad, atmosphere, bass, strings, shimmer, choir
+ * EFFECTS: convolver reverb, dotted-eighth delay, tape saturation, sidechain pump
+ * EVOLUTION: EMERGING → FLOWING → SURGING → TRANSCENDENT
+ * EXPRESSION: tilt = filter + reverb, touch = notes, motion = layers
  */
 
 const GumpConductor = (function() {
     'use strict';
 
+    // ═══════════════════════════════════════════════════════════════════════
+    // AUDIO NODES
+    // ═══════════════════════════════════════════════════════════════════════
+
     let ctx = null;
+
+    // Master chain: masterGain → lofiFilter → waveshaper → compressor → destination
     let masterGain = null;
     let compressor = null;
-    let lofiFilter = null;  // Master lo-fi filter — tilt controls this
+    let lofiFilter = null;
 
-    // v33 Drum bus — persistent nodes, created once in init
+    // Sidechain: all non-drum audio ducks on kick
+    let sidechainGain = null;
+
+    // Drum bus: drumBus → saturator → drumComp → masterGain
     let drumBus = null;
     let drumSaturator = null;
     let drumCompressor = null;
-    let sidechainGain = null;  // All non-drum audio routes through this; kick ducks it
-    let drumReverbSend = null; // v40: small reverb send for drums
 
-    // v40: Convolver reverb
+    // Convolver reverb
     let convolver = null;
-    let reverbSend = null;     // gain node controlling wet amount
-    let dryGain = null;        // dry path gain
+    let reverbSend = null;
 
-    // v40: Delay line
+    // Delay line (dotted-eighth, LP in feedback loop)
     let delayNode = null;
     let delayFeedback = null;
+    let delayFilter = null;
     let delayMix = null;
-    let delaySend = null;      // gain node to send into delay
+    let delaySend = null;
 
-    // v40: Orchestra layers — persistent audio voices
-    const layers = {
-        // Each layer: { gainNode, reverbAmount, active, oscillators[], filter }
-        pad:        { gainNode: null, reverbAmount: 0.35, active: false, nodes: [] },
-        bass:       { gainNode: null, reverbAmount: 0.15, active: false, nodes: [] },
-        atmosphere: { gainNode: null, reverbAmount: 0.20, active: false, nodes: [] },
-        strings:    { gainNode: null, reverbAmount: 0.40, active: false, nodes: [] },
-        shimmer:    { gainNode: null, reverbAmount: 0.50, active: false, nodes: [] },
-        choir:      { gainNode: null, reverbAmount: 0.45, active: false, nodes: [] },
-    };
-
-    // v36: Vinyl crackle nodes — created/destroyed with groove
+    // Vinyl crackle (created/destroyed with groove)
     let crackleSource = null;
     let crackleGain = null;
     let crackleLFO = null;
     let crackleLFOGain = null;
+
+    // Orchestra layers
+    const layers = {
+        pad:        { gain: null, wet: 0.40, nodes: [] },
+        atmosphere: { gain: null, wet: 0.30, nodes: [] },
+        bass:       { gain: null, wet: 0.10, nodes: [], oscs: [], filter: null },
+        strings:    { gain: null, wet: 0.45, nodes: [] },
+        shimmer:    { gain: null, wet: 0.55, nodes: [] },
+        choir:      { gain: null, wet: 0.50, nodes: [] },
+    };
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // STATE
+    // ═══════════════════════════════════════════════════════════════════════
 
     const state = {
         initialized: false,
@@ -71,96 +78,112 @@ const GumpConductor = (function() {
         nextStepTime: 0,
         tempo: 85,
 
-        // G7 Flywheel — motion memory
-        motion: 0,              // smoothed current motion
-        motionHistory: [],      // 150-sample ring buffer
-        totalMotion: 0,         // accumulated (never resets)
-        lastMotionTime: 0,      // for void detection
+        // G7 Flywheel
+        motion: 0,
+        motionHistory: [],
+        totalMotion: 0,
+        lastMotionTime: 0,
         lastAccel: { x: 0, y: 0, z: 0 },
-        motionPattern: 'still', // still/gentle/rhythmic/vigorous/chaotic
+        motionPattern: 'still',
         avgMotion: 0,
-        intensity: 0,           // variance of motion
+        intensity: 0,
         smoothSpeed: 0,
 
-        // Lo-fi filter state
-        filterFreq: 3000,
+        // Filter
+        filterFreq: 2000,
 
-        // v40: Evolution stage
-        evolutionStage: 'EMERGING',  // EMERGING/FLOWING/SURGING/TRANSCENDENT
+        // Evolution
+        evolutionStage: 'EMERGING',
         lastStage: 'EMERGING',
-        stageHarmonicShift: 0,       // semitones shifted per stage (5ths)
+        stageHarmonicShift: 0,
 
-        // v32 Neuromorphic state
+        // Neuromorphic
         lastOrientation: null,
         frameCount: 0,
-        voidAudioActive: false,
-        lastAppreciationCheck: 0,
         welcomeBackPlayed: false,
         lastDiscoveryTime: 0,
         lastConsistencyTime: 0,
     };
 
     // ═══════════════════════════════════════════════════════════════════════
-    // v33 MUSICAL CONTEXT — The connective tissue between gestures
+    // MUSICAL CONTEXT
     // ═══════════════════════════════════════════════════════════════════════
 
     const musicalContext = {
         lastGesture: null,
         lastGestureTime: 0,
         gesturesSinceStillness: 0,
-
-        harmonicRoot: 432,          // drifts with tension
-        rootSemitoneOffset: 0,      // up to tritone at max tension
-        tensionLevel: 0,            // STDP prediction + ESN surprise
-        rhythmicPhase: 0,           // position in 4-bar phrase (0-63)
-
-        userIntervalHistory: [],    // last 16 intervals between events
-        detectedUserBPM: 0,         // if user taps rhythmically
-        rhythmicDensity: 0.5,       // driven by tiltY
-        harmonicTension: 0,         // driven by tiltX
-
-        expressionDepth: 0.5,       // driven by tiltY
-        predictedNextGesture: null, // from STDP weights
+        harmonicRoot: 432,
+        rootSemitoneOffset: 0,
+        tensionLevel: 0,
+        rhythmicPhase: 0,
+        userIntervalHistory: [],
+        detectedUserBPM: 0,
+        rhythmicDensity: 0.5,
+        harmonicTension: 0,
+        expressionDepth: 0.5,
+        predictedNextGesture: null,
         predictionConfidence: 0,
-        wasPredicted: false,        // did current gesture match prediction?
-
-        momentumDirection: 'still', // building/sustaining/resolving/still
-        emotionalArc: 0.5,         // blends energy + tension + tilt
+        wasPredicted: false,
+        momentumDirection: 'still',
+        emotionalArc: 0.5,
     };
 
-    // Maj7 pentatonic — pushing 3rds, 5ths, 7ths for heaven-tier harmony
-    // v35: Mutable — MusicalDNA overrides based on trait archetype
+    // Mutable scale — DNA overrides
     let scale = [0, 2, 4, 7, 9, 11, 12, 14, 16, 19, 23, 24];
 
+    const SAW_DETUNE = [-8, -3, 0, 3, 8];
+
     // ═══════════════════════════════════════════════════════════════════════
-    // v32 THRESHOLD CONSTANTS — Clear thresholds for open-ended results
+    // CONSTANTS
     // ═══════════════════════════════════════════════════════════════════════
 
     const THRESHOLDS = {
-        // Energy tiers
         ENERGY_SILENT:  0.00,
         ENERGY_WHISPER: 0.10,
         ENERGY_BREATHE: 0.25,
         ENERGY_FLOW:    0.45,
         ENERGY_SURGE:   0.65,
         ENERGY_PEAK:    0.85,
-
-        // Void depth thresholds
         VOID_SETTLE:    0.2,
         VOID_DEEP:      0.5,
         VOID_SACRED:    0.8,
         VOID_TRANSCEND: 1.0,
+        SHAKE_TRILL_RATE: 12,
+        CIRCLE_ARP_SPEED: 0.5,
+        SWEEP_GLISS_RANGE: 24,
+        ROCK_VIBRATO_DEPTH: 15,
+        TOSS_REVERB_TAIL: 3.0,
+    };
 
-        // Gesture-to-music parameters
-        SHAKE_TRILL_RATE: 12,       // alternations per second
-        CIRCLE_ARP_SPEED: 0.5,     // seconds per arpeggio cycle
-        SWEEP_GLISS_RANGE: 24,     // semitones
-        ROCK_VIBRATO_DEPTH: 15,    // cents
-        TOSS_REVERB_TAIL: 3.0,     // seconds
+    const STAGES = {
+        EMERGING:     { threshold: 0,   bpmBoost: 0,  shift: 0 },
+        FLOWING:      { threshold: 100, bpmBoost: 3,  shift: 7 },
+        SURGING:      { threshold: 400, bpmBoost: 8,  shift: 14 },
+        TRANSCENDENT: { threshold: 800, bpmBoost: 12, shift: 19 },
+    };
+
+    // Stage-dependent drum patterns (16 steps)
+    const DRUM_PATTERNS = {
+        FLOWING: {
+            kick:  [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
+            snare: [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
+            hat:   [0.3,0,0,0, 0.3,0,0,0, 0.3,0,0,0, 0.3,0,0,0],
+        },
+        SURGING: {
+            kick:  [1,0,0,0, 0,0,0.4,0, 0.9,0,0,0, 0,0,0,0],
+            snare: [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
+            hat:   [0.5,0,0.3,0, 0.5,0,0.3,0, 0.5,0,0.3,0, 0.5,0,0.3,0],
+        },
+        TRANSCENDENT: {
+            kick:  [1,0,0,0, 0,0,0.4,0, 0.9,0,0,0, 0,0,0.3,0],
+            snare: [0,0,0,0, 1,0,0,0.15, 0,0,0,0, 1,0,0,0.2],
+            hat:   [0.5,0.15,0.3,0.15, 0.5,0.15,0.3,0.15, 0.5,0.15,0.3,0.15, 0.5,0.15,0.3,0.15],
+        },
     };
 
     // ═══════════════════════════════════════════════════════════════════════
-    // v32 VOID AUDIO STATE — Nodes managed across enter/update/exit
+    // VOID AUDIO STATE
     // ═══════════════════════════════════════════════════════════════════════
 
     const voidAudio = {
@@ -175,20 +198,67 @@ const GumpConductor = (function() {
     };
 
     // ═══════════════════════════════════════════════════════════════════════
-    // INIT
+    // HELPERS
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function createReverbBuffer(time) {
+        const len = ctx.sampleRate * time;
+        const buf = ctx.createBuffer(2, len, ctx.sampleRate);
+        for (let c = 0; c < 2; c++) {
+            const data = buf.getChannelData(c);
+            for (let i = 0; i < len; i++) {
+                const t = i / len;
+                // Early reflections: burst in first 30ms
+                const early = (i < ctx.sampleRate * 0.03) ? 0.5 : 0;
+                // Late reverb: cubic decay
+                const late = Math.pow(1 - t, 3) * 0.3;
+                data[i] = (Math.random() * 2 - 1) * (early + late);
+            }
+        }
+        return buf;
+    }
+
+    function connectLayerToMix(layer) {
+        // Route layer gain → sidechain (dry) + reverb (wet)
+        const dry = ctx.createGain();
+        dry.gain.value = 1.0 - layer.wet;
+        const wet = ctx.createGain();
+        wet.gain.value = layer.wet;
+        layer.gain.connect(dry);
+        layer.gain.connect(wet);
+        dry.connect(sidechainGain);
+        wet.connect(reverbSend);
+        layer._dry = dry;
+        layer._wet = wet;
+    }
+
+    function dest() {
+        return sidechainGain || masterGain;
+    }
+
+    function showMsg(txt) {
+        const el = document.getElementById('notification');
+        if (el) {
+            el.textContent = txt;
+            el.classList.add('visible');
+            setTimeout(function() { el.classList.remove('visible'); }, 2000);
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // INIT — Build the complete audio graph
     // ═══════════════════════════════════════════════════════════════════════
 
     function init(audioContext) {
         if (state.initialized) return;
         ctx = audioContext;
 
-        // Compressor for glue
+        // ── Master chain ──
         compressor = ctx.createDynamicsCompressor();
         compressor.threshold.value = -20;
         compressor.ratio.value = 4;
         compressor.connect(ctx.destination);
 
-        // Tape warmth waveshaper — subtle saturation adds harmonics
         const waveshaper = ctx.createWaveShaper();
         const curve = new Float32Array(256);
         for (let i = 0; i < 256; i++) {
@@ -199,10 +269,9 @@ const GumpConductor = (function() {
         waveshaper.oversample = '2x';
         waveshaper.connect(compressor);
 
-        // Master lo-fi filter — tilt Y sweeps this
         lofiFilter = ctx.createBiquadFilter();
         lofiFilter.type = 'lowpass';
-        lofiFilter.frequency.value = 3000;
+        lofiFilter.frequency.value = 2000;
         lofiFilter.Q.value = 0.7;
         lofiFilter.connect(waveshaper);
 
@@ -210,7 +279,12 @@ const GumpConductor = (function() {
         masterGain.gain.value = 0.7;
         masterGain.connect(lofiFilter);
 
-        // v36: Drum bus — warm tape saturation + glue compression
+        // ── Sidechain ──
+        sidechainGain = ctx.createGain();
+        sidechainGain.gain.value = 1.0;
+        sidechainGain.connect(masterGain);
+
+        // ── Drum bus ──
         drumBus = ctx.createGain();
         drumBus.gain.value = 1.0;
 
@@ -234,134 +308,520 @@ const GumpConductor = (function() {
         drumSaturator.connect(drumCompressor);
         drumCompressor.connect(masterGain);
 
-        // v40: Drums get a small reverb send (less than melodic layers)
-        // drumReverbSend connected to reverbSend after convolver is created below
-        drumReverbSend = ctx.createGain();
-        drumReverbSend.gain.value = 0.08;
-        drumCompressor.connect(drumReverbSend);
-
-        // v33: Sidechain gain — all non-drum audio routes through here; kick ducks it
-        sidechainGain = ctx.createGain();
-        sidechainGain.gain.value = 1.0;
-        sidechainGain.connect(masterGain);
-
-        // ── v40: CONVOLVER REVERB — Real space ──
+        // ── Convolver reverb (3s tail, big space) ──
         convolver = ctx.createConvolver();
-        convolver.buffer = createReverbBuffer(2.5);
+        convolver.buffer = createReverbBuffer(3.0);
 
         reverbSend = ctx.createGain();
-        reverbSend.gain.value = 0.25;
-
-        dryGain = ctx.createGain();
-        dryGain.gain.value = 0.75;
+        reverbSend.gain.value = 0.20; // starts intimate (EMERGING)
 
         reverbSend.connect(convolver);
         convolver.connect(masterGain);
-        dryGain.connect(masterGain);
 
-        // Connect drum reverb send (created earlier, convolver ready now)
-        if (drumReverbSend) drumReverbSend.connect(reverbSend);
+        // Drums: small reverb send
+        const drumWet = ctx.createGain();
+        drumWet.gain.value = 0.08;
+        drumCompressor.connect(drumWet);
+        drumWet.connect(reverbSend);
 
-        // ── v40: DELAY LINE — Rhythmic echo ──
-        delayNode = ctx.createDelay(1.0);
-        delayNode.delayTime.value = 60 / state.tempo / 2; // 8th note
+        // ── Delay line (dotted-eighth, LP in feedback for darkening repeats) ──
+        delayNode = ctx.createDelay(1.5);
+        delayNode.delayTime.value = (60 / state.tempo) * 0.75; // dotted-eighth
+
+        delayFilter = ctx.createBiquadFilter();
+        delayFilter.type = 'lowpass';
+        delayFilter.frequency.value = 3000;
 
         delayFeedback = ctx.createGain();
         delayFeedback.gain.value = 0.35;
 
         delayMix = ctx.createGain();
-        delayMix.gain.value = 0.2;
+        delayMix.gain.value = 0.22;
 
         delaySend = ctx.createGain();
-        delaySend.gain.value = 0.3;
+        delaySend.gain.value = 0.25;
 
-        // Delay feedback loop
+        // Delay routing: send → delay → filter → feedback → delay (loop)
+        //                                      → mix → masterGain
         delaySend.connect(delayNode);
-        delayNode.connect(delayFeedback);
+        delayNode.connect(delayFilter);
+        delayFilter.connect(delayFeedback);
         delayFeedback.connect(delayNode);
-        delayNode.connect(delayMix);
+        delayFilter.connect(delayMix);
         delayMix.connect(masterGain);
+        // Delay also feeds reverb for cascading echoes
+        const delayToReverb = ctx.createGain();
+        delayToReverb.gain.value = 0.15;
+        delayMix.connect(delayToReverb);
+        delayToReverb.connect(reverbSend);
 
-        // ── v40: CREATE ORCHESTRA LAYERS ──
-        createLayers();
+        // ── Create all orchestra layers ──
+        buildPadLayer();
+        buildAtmosphereLayer();
+        buildBassLayer();
+        buildStringsLayer();
+        buildShimmerLayer();
+        buildChoirLayer();
 
-        // Touch handlers
+        // ── Input listeners ──
         document.addEventListener('touchstart', onTouch, { passive: false, capture: true });
         document.addEventListener('touchmove', onTouchMove, { passive: false });
         document.addEventListener('touchend', onTouchEnd, { passive: false });
         document.addEventListener('mousedown', onMouse);
-        document.addEventListener('mousemove', onMouseMove);
+        document.addEventListener('mousemove', onMouseDrag);
         document.addEventListener('mouseup', onMouseUp);
 
-        // G7 PATTERN: Attach motion/tilt listeners IMMEDIATELY at init
-        // (permissions already granted by bootstrap before GUMP.start())
+        // Motion/tilt: attach immediately (permissions granted by bootstrap)
         if (window._motionGranted) {
             state.motionGranted = true;
             window.addEventListener('devicemotion', onDeviceMotion);
-            console.log('[Conductor] devicemotion attached at init');
         }
         if (window._orientationGranted) {
             state.tiltGranted = true;
             window.addEventListener('deviceorientation', onTilt);
-            console.log('[Conductor] deviceorientation attached at init');
         }
-
-        // G7 PATTERN: Mouse feeds motion pipeline (desktop fallback)
-        // Mouse movement generates motion data so the whole system works on desktop
         setupMouseMotionFallback();
 
-        state.initialized = true;
-        state.lastMotionTime = Date.now();
-
-        // Start ambient pad
-        playAmbientPad();
-
-        // v32: Initialize neuromorphic modules (guarded)
+        // Neuromorphic modules
         if (typeof GumpMotionBrain !== 'undefined') {
             GumpMotionBrain.init();
-            console.log('[Conductor] MotionBrain connected');
         }
         if (typeof GumpNeuromorphicMemory !== 'undefined') {
             GumpNeuromorphicMemory.init();
-            console.log('[Conductor] NeuromorphicMemory connected');
         }
-
-        // v32: Register spike listener for gesture-to-music
         if (typeof GumpEvents !== 'undefined') {
             GumpEvents.on('motion.spike', onMotionSpike);
         }
 
-        // Start update loop
-        update();
+        state.initialized = true;
+        state.lastMotionTime = Date.now();
 
-        console.log('[Conductor] v40 Ready — Orchestra + Reverb + Delay + Evolution');
+        // Start the update loop
+        update();
+        console.log('[Conductor] v40 — Orchestra ready');
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    // TOUCH + TILT + MOTION PERMISSIONS
-    // iOS: must request BEFORE preventDefault (Radiohead fix)
+    // LAYER BUILDERS — Each creates persistent oscillators routed through
+    //                   the reverb/dry mix. Gain starts at 0; activation
+    //                   crossfades via setTargetAtTime.
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function buildPadLayer() {
+        const L = layers.pad;
+        L.gain = ctx.createGain();
+        L.gain.gain.value = 0;
+        connectLayerToMix(L);
+
+        const now = ctx.currentTime;
+
+        // Pad filter: warm LP, starts low, evolution opens it
+        const filter = ctx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.value = 800;
+        filter.Q.value = 0.6;
+        filter.connect(L.gain);
+        L.filter = filter;
+
+        // 5 voices: A1(sub), A2, E3, G#3(maj7th), B3(9th)
+        // 432Hz tuning
+        const voices = [54, 108, 162, 204.1, 242.7];
+        voices.forEach(function(freq) {
+            // 5 detuned saws per voice = 25 total oscillators
+            SAW_DETUNE.forEach(function(det) {
+                const osc = ctx.createOscillator();
+                osc.type = 'sawtooth';
+                osc.frequency.value = freq;
+                osc.detune.value = det + (Math.random() - 0.5) * 2;
+                const g = ctx.createGain();
+                g.gain.value = (freq < 80) ? 0.04 : 0.06; // sub quieter
+                osc.connect(g);
+                g.connect(filter);
+                osc.start(now);
+                L.nodes.push(osc);
+            });
+        });
+
+        // Pad fades in over 5 seconds
+        L.gain.gain.setValueAtTime(0, now);
+        L.gain.gain.linearRampToValueAtTime(0.06, now + 5);
+    }
+
+    function buildAtmosphereLayer() {
+        const L = layers.atmosphere;
+        L.gain = ctx.createGain();
+        L.gain.gain.value = 0;
+        connectLayerToMix(L);
+
+        // Two noise bands for depth: low rumble + high air
+
+        // Band 1: Low rumble — brown noise → BP 300Hz
+        const lowBuf = ctx.createBuffer(1, ctx.sampleRate * 4, ctx.sampleRate);
+        const lowData = lowBuf.getChannelData(0);
+        let prev = 0;
+        for (let i = 0; i < lowData.length; i++) {
+            prev = (prev + (Math.random() * 2 - 1) * 0.02) / 1.02;
+            lowData[i] = prev * 3.5;
+        }
+        const lowSrc = ctx.createBufferSource();
+        lowSrc.buffer = lowBuf;
+        lowSrc.loop = true;
+        const lowBP = ctx.createBiquadFilter();
+        lowBP.type = 'bandpass';
+        lowBP.frequency.value = 300;
+        lowBP.Q.value = 0.6;
+        const lowGain = ctx.createGain();
+        lowGain.gain.value = 0.7;
+        lowSrc.connect(lowBP);
+        lowBP.connect(lowGain);
+        lowGain.connect(L.gain);
+        lowSrc.start();
+
+        // Slow LFO on low band filter
+        const lowLFO = ctx.createOscillator();
+        lowLFO.type = 'sine';
+        lowLFO.frequency.value = 0.07 + Math.random() * 0.08;
+        const lowLFOG = ctx.createGain();
+        lowLFOG.gain.value = 100;
+        lowLFO.connect(lowLFOG);
+        lowLFOG.connect(lowBP.frequency);
+        lowLFO.start();
+
+        // Band 2: High air — white noise → BP 5000Hz
+        const hiBuf = ctx.createBuffer(1, ctx.sampleRate * 4, ctx.sampleRate);
+        const hiData = hiBuf.getChannelData(0);
+        for (let i = 0; i < hiData.length; i++) hiData[i] = Math.random() * 2 - 1;
+        const hiSrc = ctx.createBufferSource();
+        hiSrc.buffer = hiBuf;
+        hiSrc.loop = true;
+        const hiBP = ctx.createBiquadFilter();
+        hiBP.type = 'bandpass';
+        hiBP.frequency.value = 5000;
+        hiBP.Q.value = 0.4;
+        const hiGain = ctx.createGain();
+        hiGain.gain.value = 0.3;
+        hiSrc.connect(hiBP);
+        hiBP.connect(hiGain);
+        hiGain.connect(L.gain);
+        hiSrc.start();
+
+        // Slow LFO on high band
+        const hiLFO = ctx.createOscillator();
+        hiLFO.type = 'sine';
+        hiLFO.frequency.value = 0.12 + Math.random() * 0.1;
+        const hiLFOG = ctx.createGain();
+        hiLFOG.gain.value = 1500;
+        hiLFO.connect(hiLFOG);
+        hiLFOG.connect(hiBP.frequency);
+        hiLFO.start();
+
+        L.nodes.push(lowSrc, lowLFO, hiSrc, hiLFO);
+
+        // Atmosphere: always on, very quiet
+        L.gain.gain.setValueAtTime(0, ctx.currentTime);
+        L.gain.gain.linearRampToValueAtTime(0.03, ctx.currentTime + 3);
+    }
+
+    function buildBassLayer() {
+        const L = layers.bass;
+        L.gain = ctx.createGain();
+        L.gain.gain.value = 0;
+        connectLayerToMix(L);
+
+        // Sub sine pair with slight detune for warm beating
+        const bassFilter = ctx.createBiquadFilter();
+        bassFilter.type = 'lowpass';
+        bassFilter.frequency.value = 120;
+        bassFilter.Q.value = 1.5;
+        bassFilter.connect(L.gain);
+        L.filter = bassFilter;
+
+        const osc1 = ctx.createOscillator();
+        osc1.type = 'sine';
+        osc1.frequency.value = 54; // A1
+        osc1.connect(bassFilter);
+        osc1.start();
+
+        const osc2 = ctx.createOscillator();
+        osc2.type = 'sine';
+        osc2.frequency.value = 54.12; // slight detune
+        osc2.connect(bassFilter);
+        osc2.start();
+
+        // Third oscillator: triangle one octave up for presence
+        const osc3 = ctx.createOscillator();
+        osc3.type = 'triangle';
+        osc3.frequency.value = 108;
+        const triGain = ctx.createGain();
+        triGain.gain.value = 0.15;
+        osc3.connect(triGain);
+        triGain.connect(bassFilter);
+        osc3.start();
+
+        // Slow filter LFO for movement
+        const lfo = ctx.createOscillator();
+        lfo.type = 'sine';
+        lfo.frequency.value = 0.06;
+        const lfoG = ctx.createGain();
+        lfoG.gain.value = 35;
+        lfo.connect(lfoG);
+        lfoG.connect(bassFilter.frequency);
+        lfo.start();
+
+        L.oscs = [osc1, osc2, osc3];
+        L.nodes.push(osc1, osc2, osc3, lfo);
+    }
+
+    function buildStringsLayer() {
+        const L = layers.strings;
+        L.gain = ctx.createGain();
+        L.gain.gain.value = 0;
+        connectLayerToMix(L);
+
+        // Filter: brighter than typical strings, evolution will open further
+        const filter = ctx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.value = 1800;
+        filter.Q.value = 0.4;
+        filter.connect(L.gain);
+        L.filter = filter;
+
+        // 3 voices: root A3, 3rd C#4, 5th E4
+        const voices = [216, 272.54, 324];
+        voices.forEach(function(freq) {
+            // 5 detuned saws per voice
+            SAW_DETUNE.forEach(function(det) {
+                const osc = ctx.createOscillator();
+                osc.type = 'sawtooth';
+                osc.frequency.value = freq;
+                osc.detune.value = det + (Math.random() - 0.5) * 4;
+                const g = ctx.createGain();
+                g.gain.value = 0.035;
+                osc.connect(g);
+                g.connect(filter);
+                osc.start();
+                L.nodes.push(osc);
+            });
+        });
+    }
+
+    function buildShimmerLayer() {
+        const L = layers.shimmer;
+        L.gain = ctx.createGain();
+        L.gain.gain.value = 0;
+        connectLayerToMix(L);
+
+        const filter = ctx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.value = 8000;
+        filter.Q.value = 0.3;
+        filter.connect(L.gain);
+
+        // High triangles: A5, E6, A6 — the sparkle
+        [864, 1296, 1728].forEach(function(freq, idx) {
+            const osc = ctx.createOscillator();
+            osc.type = 'triangle';
+            osc.frequency.value = freq;
+            osc.detune.value = (Math.random() - 0.5) * 10;
+
+            // Amplitude tremolo: sine LFO modulating per-voice gain
+            const voiceGain = ctx.createGain();
+            voiceGain.gain.value = 0.025;
+            const trem = ctx.createOscillator();
+            trem.type = 'sine';
+            trem.frequency.value = 2.5 + idx * 0.7; // 2.5, 3.2, 3.9 Hz
+            const tremG = ctx.createGain();
+            tremG.gain.value = 0.012;
+            trem.connect(tremG);
+            tremG.connect(voiceGain.gain);
+            trem.start();
+
+            osc.connect(voiceGain);
+            voiceGain.connect(filter);
+            osc.start();
+            L.nodes.push(osc, trem);
+        });
+    }
+
+    function buildChoirLayer() {
+        const L = layers.choir;
+        L.gain = ctx.createGain();
+        L.gain.gain.value = 0;
+        connectLayerToMix(L);
+
+        const filter = ctx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.value = 2500;
+        filter.Q.value = 0.4;
+        filter.connect(L.gain);
+
+        // 3 sines: root A3, major 3rd C#4, 5th E4 — human-like vibrato each
+        [216, 272.54, 324].forEach(function(freq) {
+            const osc = ctx.createOscillator();
+            osc.type = 'sine';
+            osc.frequency.value = freq;
+
+            // Per-voice vibrato: slightly different rate+depth for organic feel
+            const vib = ctx.createOscillator();
+            vib.type = 'sine';
+            vib.frequency.value = 4.5 + Math.random() * 1.5;
+            const vibG = ctx.createGain();
+            vibG.gain.value = 4 + Math.random() * 4; // 4-8 cents
+            vib.connect(vibG);
+            vibG.connect(osc.detune);
+            vib.start();
+
+            const voiceGain = ctx.createGain();
+            voiceGain.gain.value = 0.04;
+            osc.connect(voiceGain);
+            voiceGain.connect(filter);
+            osc.start();
+            L.nodes.push(osc, vib);
+        });
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // EVOLUTION — totalMotion thresholds change the character of everything
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function updateEvolution() {
+        const total = state.totalMotion;
+        let newStage = 'EMERGING';
+
+        if (total >= STAGES.TRANSCENDENT.threshold) newStage = 'TRANSCENDENT';
+        else if (total >= STAGES.SURGING.threshold) newStage = 'SURGING';
+        else if (total >= STAGES.FLOWING.threshold) newStage = 'FLOWING';
+
+        if (newStage !== state.evolutionStage) {
+            state.lastStage = state.evolutionStage;
+            state.evolutionStage = newStage;
+            state.stageHarmonicShift = STAGES[newStage].shift;
+            showMsg(newStage);
+            console.log('[Conductor] Stage → ' + newStage + ' (totalMotion: ' + total.toFixed(0) + ')');
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // LAYER ACTIVATION — Motion pattern + evolution stage → what you hear
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function updateLayers() {
+        if (!ctx) return;
+        const now = ctx.currentTime;
+        const p = state.motionPattern;
+        const s = state.evolutionStage;
+
+        // Target gains for each layer
+        const t = {
+            pad: 0.06,        // always on
+            atmosphere: 0.03, // always on
+            bass: 0,
+            strings: 0,
+            shimmer: 0,
+            choir: 0,
+        };
+
+        // Motion pattern activates layers
+        var moving = (p === 'gentle' || p === 'rhythmic' || p === 'vigorous' || p === 'chaotic');
+        var intense = (p === 'rhythmic' || p === 'vigorous' || p === 'chaotic');
+        var wild = (p === 'vigorous' || p === 'chaotic');
+
+        if (moving) t.bass = 0.14;
+        if (intense) t.strings = 0.07;
+        if (wild) t.shimmer = 0.05;
+
+        // Evolution stage boosts layers (even without motion)
+        if (s === 'FLOWING' || s === 'SURGING' || s === 'TRANSCENDENT') {
+            t.bass = Math.max(t.bass, 0.10);
+            t.strings = Math.max(t.strings, 0.03);
+            t.atmosphere = 0.04;
+        }
+        if (s === 'SURGING' || s === 'TRANSCENDENT') {
+            t.strings = Math.max(t.strings, 0.08);
+            t.shimmer = Math.max(t.shimmer, 0.04);
+            t.pad = 0.07;
+        }
+        if (s === 'TRANSCENDENT') {
+            t.choir = 0.06;
+            t.shimmer = Math.max(t.shimmer, 0.06);
+            t.pad = 0.08;
+            t.atmosphere = 0.05;
+        }
+
+        // Void override: everything fades except atmosphere whisper
+        if (voidAudio.active) {
+            t.pad = 0.02;
+            t.bass = 0;
+            t.strings = 0;
+            t.shimmer = 0;
+            t.choir = 0;
+            t.atmosphere = 0.015;
+        }
+
+        // Smooth crossfade (longer for stage transitions, shorter for motion)
+        var tc = (state.lastStage !== state.evolutionStage) ? 2.0 : 0.5;
+        for (var name in t) {
+            if (layers[name] && layers[name].gain) {
+                layers[name].gain.gain.setTargetAtTime(t[name], now, tc);
+            }
+        }
+
+        // Reverb amount rises with evolution
+        var reverbTargets = {
+            EMERGING: 0.20,
+            FLOWING: 0.28,
+            SURGING: 0.33,
+            TRANSCENDENT: 0.38,
+        };
+        if (reverbSend && !voidAudio.active) {
+            // Base from stage, modulated by tilt later in applyTiltExpression
+            reverbSend.gain.setTargetAtTime(reverbTargets[s] || 0.20, now, 1.0);
+        }
+
+        // Pad filter opens with evolution
+        if (layers.pad.filter) {
+            var padFilterTargets = {
+                EMERGING: 800,
+                FLOWING: 1500,
+                SURGING: 2500,
+                TRANSCENDENT: 4000,
+            };
+            layers.pad.filter.frequency.setTargetAtTime(
+                padFilterTargets[s] || 800, now, 2.0
+            );
+        }
+
+        // Bass tracks harmonic root + stage shift
+        if (layers.bass.oscs && layers.bass.oscs.length > 0) {
+            var rootFreq = musicalContext.harmonicRoot / 8;
+            var bassFreq = Math.max(25, Math.min(80, rootFreq));
+            layers.bass.oscs[0].frequency.setTargetAtTime(bassFreq, now, 0.3);
+            layers.bass.oscs[1].frequency.setTargetAtTime(bassFreq * 1.002, now, 0.3);
+            if (layers.bass.oscs[2]) {
+                layers.bass.oscs[2].frequency.setTargetAtTime(bassFreq * 2, now, 0.3);
+            }
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // INPUT — Touch, mouse, tilt, devicemotion
     // ═══════════════════════════════════════════════════════════════════════
 
     function onTouch(e) {
-        // Fallback: if listeners weren't attached at init (race condition),
-        // attach them now on first touch
+        // Fallback permission attachment
         if (!state.motionGranted && window._motionGranted) {
             state.motionGranted = true;
             window.addEventListener('devicemotion', onDeviceMotion);
-            console.log('[Conductor] devicemotion attached (touch fallback)');
         }
         if (!state.tiltGranted && window._orientationGranted) {
             state.tiltGranted = true;
             window.addEventListener('deviceorientation', onTilt);
-            console.log('[Conductor] deviceorientation attached (touch fallback)');
         }
-
         e.preventDefault();
         state.touching = true;
-        const t = e.touches[0];
+        var t = e.touches[0];
         state.touchX = t.clientX / window.innerWidth;
         state.touchY = t.clientY / window.innerHeight;
-
         playNote(state.touchX, state.touchY, 0.7);
         state.energy = Math.min(1, state.energy + 0.05);
     }
@@ -369,11 +829,10 @@ const GumpConductor = (function() {
     function onTouchMove(e) {
         e.preventDefault();
         if (!state.touching) return;
-        const t = e.touches[0];
-        const x = t.clientX / window.innerWidth;
-        const y = t.clientY / window.innerHeight;
-
-        const dist = Math.sqrt((x - state.touchX) ** 2 + (y - state.touchY) ** 2);
+        var t = e.touches[0];
+        var x = t.clientX / window.innerWidth;
+        var y = t.clientY / window.innerHeight;
+        var dist = Math.sqrt((x - state.touchX) ** 2 + (y - state.touchY) ** 2);
         if (dist > 0.01) {
             playNote(x, y, 0.4 + dist * 3);
             state.touchX = x;
@@ -395,11 +854,11 @@ const GumpConductor = (function() {
         state.energy = Math.min(1, state.energy + 0.05);
     }
 
-    function onMouseMove(e) {
+    function onMouseDrag(e) {
         if (!state.touching) return;
-        const x = e.clientX / window.innerWidth;
-        const y = e.clientY / window.innerHeight;
-        const dist = Math.sqrt((x - state.touchX) ** 2 + (y - state.touchY) ** 2);
+        var x = e.clientX / window.innerWidth;
+        var y = e.clientY / window.innerHeight;
+        var dist = Math.sqrt((x - state.touchX) ** 2 + (y - state.touchY) ** 2);
         if (dist > 0.01) {
             playNote(x, y, 0.4 + dist * 3);
             state.touchX = x;
@@ -408,15 +867,11 @@ const GumpConductor = (function() {
         }
     }
 
-    function onMouseUp() {
-        state.touching = false;
-    }
+    function onMouseUp() { state.touching = false; }
 
     function onTilt(e) {
-        state.tiltX = (e.gamma || 0) / 45;  // -1 to 1
+        state.tiltX = (e.gamma || 0) / 45;
         state.tiltY = ((e.beta || 45) - 45) / 45;
-
-        // v32: Capture orientation for MotionBrain
         state.lastOrientation = {
             alpha: e.alpha || 0,
             beta: e.beta || 0,
@@ -425,99 +880,31 @@ const GumpConductor = (function() {
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    // G7 PATTERN: Mouse → Motion Pipeline (desktop fallback)
-    // Mouse movement generates motion data identical to accelerometer.
-    // Mouse position also simulates tilt (orientation).
-    // ═══════════════════════════════════════════════════════════════════════
-
-    function setupMouseMotionFallback() {
-        let lastMM = { x: 0, y: 0, time: 0 };
-
-        window.addEventListener('mousemove', function(e) {
-            if (!state.initialized) return;
-
-            const now = Date.now();
-            const dt = Math.max(1, now - lastMM.time);
-
-            const newX = e.clientX;
-            const newY = e.clientY;
-
-            const vx = (newX - lastMM.x) / dt * 100;
-            const vy = (newY - lastMM.y) / dt * 100;
-
-            const mouseMotion = Math.sqrt(vx * vx + vy * vy) * 0.3;
-
-            // Feed into same motion pipeline as accelerometer
-            state.motion = state.motion * 0.8 + mouseMotion * 0.2;
-            state.motionHistory.push(state.motion);
-            if (state.motionHistory.length > 150) state.motionHistory.shift();
-            state.totalMotion += state.motion * 0.016;
-
-            if (state.motion > 0.3) {
-                state.lastMotionTime = now;
-            }
-            if (state.motion > 0.5) {
-                state.energy = Math.min(1, state.energy + state.motion * 0.003);
-            }
-
-            // Simulate tilt from mouse position (G7 pattern)
-            // Only if real tilt not available
-            if (!state.tiltGranted || !window._orientationGranted) {
-                state.tiltX = ((newX / window.innerWidth) - 0.5) * 2;
-                state.tiltY = ((newY / window.innerHeight) - 0.5) * 2;
-            }
-
-            // Feed MotionBrain if available (simulated accelerometer)
-            if (typeof GumpMotionBrain !== 'undefined' && mouseMotion > 0.1) {
-                GumpMotionBrain.process(
-                    { x: vx * 0.01, y: vy * 0.01, z: 9.8 },
-                    state.lastOrientation || { alpha: 0, beta: 0, gamma: 0 },
-                    now
-                );
-            }
-
-            lastMM = { x: newX, y: newY, time: now };
-        });
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════
-    // G7 FLYWHEEL — Device Motion → Buffer → Pattern → Energy
+    // G7 FLYWHEEL — Device motion → buffer → pattern → energy
     // ═══════════════════════════════════════════════════════════════════════
 
     function onDeviceMotion(e) {
-        const acc = e.accelerationIncludingGravity;
+        var acc = e.accelerationIncludingGravity;
         if (!acc || acc.x === null) return;
 
-        // Delta acceleration (G7 pattern)
-        const dx = Math.abs((acc.x || 0) - state.lastAccel.x);
-        const dy = Math.abs((acc.y || 0) - state.lastAccel.y);
-        const dz = Math.abs((acc.z || 0) - state.lastAccel.z);
+        var dx = Math.abs((acc.x || 0) - state.lastAccel.x);
+        var dy = Math.abs((acc.y || 0) - state.lastAccel.y);
+        var dz = Math.abs((acc.z || 0) - state.lastAccel.z);
+        var newMotion = Math.sqrt(dx * dx + dy * dy + dz * dz) * 0.6;
 
-        const newMotion = Math.sqrt(dx * dx + dy * dy + dz * dz) * 0.6;
-
-        // EMA smoothing (G7: 80/20)
         state.motion = state.motion * 0.8 + newMotion * 0.2;
-
-        // Push to history buffer
         state.motionHistory.push(state.motion);
         if (state.motionHistory.length > 150) state.motionHistory.shift();
+        state.totalMotion += state.motion * 0.016;
 
-        // Accumulate total (the flywheel never resets)
-        state.totalMotion += state.motion * 0.016; // ~60fps
-
-        // Track activity
-        if (state.motion > 0.3) {
-            state.lastMotionTime = Date.now();
-        }
-
-        // Motion feeds energy (the core flywheel linkage)
+        if (state.motion > 0.3) state.lastMotionTime = Date.now();
         if (state.motion > 0.5) {
             state.energy = Math.min(1, state.energy + state.motion * 0.003);
         }
 
         state.lastAccel = { x: acc.x || 0, y: acc.y || 0, z: acc.z || 0 };
 
-        // v32: Feed raw sensor data to MotionBrain for neuromorphic processing
+        // Feed neuromorphic brain
         if (typeof GumpMotionBrain !== 'undefined') {
             GumpMotionBrain.process(
                 { x: acc.x || 0, y: acc.y || 0, z: acc.z || 0 },
@@ -526,436 +913,152 @@ const GumpConductor = (function() {
             );
         }
 
-        // v32: Step ESN with current state vector
+        // Step ESN
         if (typeof GumpNeuromorphicMemory !== 'undefined') {
-            const brainAvailable = typeof GumpMotionBrain !== 'undefined';
-            const linearMag = brainAvailable ?
+            var brainOk = typeof GumpMotionBrain !== 'undefined';
+            var linearMag = brainOk ?
                 Math.sqrt(
                     GumpMotionBrain.linearAccel.x ** 2 +
                     GumpMotionBrain.linearAccel.y ** 2 +
                     GumpMotionBrain.linearAccel.z ** 2
                 ) : state.motion;
-            const shortEnergy = brainAvailable ? GumpMotionBrain.short.energy : state.avgMotion;
-            const voidDepth = brainAvailable ? GumpMotionBrain.voidDepth : 0;
-            const tiltMag = Math.sqrt(state.tiltX * state.tiltX + state.tiltY * state.tiltY);
+            var shortEnergy = brainOk ? GumpMotionBrain.short.energy : state.avgMotion;
+            var voidDepth = brainOk ? GumpMotionBrain.voidDepth : 0;
+            var tiltMag = Math.sqrt(state.tiltX * state.tiltX + state.tiltY * state.tiltY);
 
-            // Find dominant neuron (highest membrane potential)
-            let dominantNeuron = 0;
-            if (brainAvailable) {
-                const neurons = GumpMotionBrain.neurons;
-                let maxMembrane = 0;
-                let idx = 0;
-                for (const n of Object.values(neurons)) {
-                    if (n.membrane > maxMembrane) {
-                        maxMembrane = n.membrane;
-                        dominantNeuron = idx;
-                    }
+            var dominantNeuron = 0;
+            if (brainOk) {
+                var neurons = GumpMotionBrain.neurons;
+                var maxM = 0, idx = 0;
+                for (var n of Object.values(neurons)) {
+                    if (n.membrane > maxM) { maxM = n.membrane; dominantNeuron = idx; }
                     idx++;
                 }
-                dominantNeuron = dominantNeuron / 7; // normalize to 0-1
+                dominantNeuron /= 7;
             }
 
-            GumpNeuromorphicMemory.stepESN([
-                linearMag, shortEnergy, voidDepth, dominantNeuron, tiltMag
-            ]);
+            GumpNeuromorphicMemory.stepESN([linearMag, shortEnergy, voidDepth, dominantNeuron, tiltMag]);
             GumpNeuromorphicMemory.trainESN(shortEnergy);
         }
     }
 
     function classifyMotion() {
-        const hist = state.motionHistory;
+        var hist = state.motionHistory;
         if (hist.length < 20) return;
 
-        // Running statistics
-        let sum = 0;
-        for (let i = 0; i < hist.length; i++) sum += hist[i];
+        var sum = 0;
+        for (var i = 0; i < hist.length; i++) sum += hist[i];
         state.avgMotion = sum / hist.length;
 
-        let varSum = 0;
-        for (let i = 0; i < hist.length; i++) {
-            varSum += Math.abs(hist[i] - state.avgMotion);
-        }
+        var varSum = 0;
+        for (var i = 0; i < hist.length; i++) varSum += Math.abs(hist[i] - state.avgMotion);
         state.intensity = varSum / hist.length;
 
-        const avg = state.avgMotion;
-        const v = state.intensity;
-
-        // G7 pattern classification
+        var avg = state.avgMotion, v = state.intensity;
         if (avg < 0.3) state.motionPattern = 'still';
         else if (avg < 0.8 && v < 0.5) state.motionPattern = 'gentle';
         else if (v < 1.5 && avg >= 0.8) state.motionPattern = 'rhythmic';
         else if (avg > 1.5 && v < 3) state.motionPattern = 'vigorous';
         else if (v >= 3) state.motionPattern = 'chaotic';
 
-        // Smooth speed for external reads
         state.smoothSpeed = state.smoothSpeed * 0.9 + Math.min(1, avg * 0.3) * 0.1;
     }
 
-    // ═══════════════════════════════════════════════════════════════════════
-    // v40 CONVOLVER REVERB BUFFER — Algorithmic impulse response
-    // ═══════════════════════════════════════════════════════════════════════
+    function setupMouseMotionFallback() {
+        var last = { x: 0, y: 0, time: 0 };
+        window.addEventListener('mousemove', function(e) {
+            if (!state.initialized) return;
+            var now = Date.now();
+            var dt = Math.max(1, now - last.time);
+            var vx = (e.clientX - last.x) / dt * 100;
+            var vy = (e.clientY - last.y) / dt * 100;
+            var mm = Math.sqrt(vx * vx + vy * vy) * 0.3;
 
-    function createReverbBuffer(time) {
-        const length = ctx.sampleRate * time;
-        const buffer = ctx.createBuffer(2, length, ctx.sampleRate);
-        for (let c = 0; c < 2; c++) {
-            const data = buffer.getChannelData(c);
-            for (let i = 0; i < length; i++) {
-                const decay = Math.pow(1 - i / length, 3);
-                data[i] = (Math.random() * 2 - 1) * decay * 0.3;
+            state.motion = state.motion * 0.8 + mm * 0.2;
+            state.motionHistory.push(state.motion);
+            if (state.motionHistory.length > 150) state.motionHistory.shift();
+            state.totalMotion += state.motion * 0.016;
+
+            if (state.motion > 0.3) state.lastMotionTime = now;
+            if (state.motion > 0.5) {
+                state.energy = Math.min(1, state.energy + state.motion * 0.003);
             }
-        }
-        return buffer;
-    }
 
-    // ═══════════════════════════════════════════════════════════════════════
-    // v40 ORCHESTRA LAYERS — Multiple persistent audio voices
-    // ═══════════════════════════════════════════════════════════════════════
-
-    function connectLayer(layer, extraReverbAmount) {
-        // Each layer routes to both dry and reverb send
-        const amount = extraReverbAmount || layer.reverbAmount;
-        const layerDry = ctx.createGain();
-        layerDry.gain.value = 1 - amount;
-        const layerWet = ctx.createGain();
-        layerWet.gain.value = amount;
-
-        layer.gainNode.connect(layerDry);
-        layer.gainNode.connect(layerWet);
-        layerDry.connect(sidechainGain);
-        layerWet.connect(reverbSend);
-
-        layer._dryNode = layerDry;
-        layer._wetNode = layerWet;
-    }
-
-    function createLayers() {
-        // ── ATMOSPHERE: Filtered noise, always very quiet ──
-        layers.atmosphere.gainNode = ctx.createGain();
-        layers.atmosphere.gainNode.gain.value = 0;
-        connectLayer(layers.atmosphere);
-
-        const atmBufLen = ctx.sampleRate * 4;
-        const atmBuf = ctx.createBuffer(1, atmBufLen, ctx.sampleRate);
-        const atmData = atmBuf.getChannelData(0);
-        for (let i = 0; i < atmBufLen; i++) {
-            atmData[i] = (Math.random() * 2 - 1);
-        }
-        const atmSource = ctx.createBufferSource();
-        atmSource.buffer = atmBuf;
-        atmSource.loop = true;
-
-        const atmBP = ctx.createBiquadFilter();
-        atmBP.type = 'bandpass';
-        atmBP.frequency.value = 800;
-        atmBP.Q.value = 0.8;
-
-        // Slow random LFO on filter frequency
-        const atmLFO = ctx.createOscillator();
-        atmLFO.type = 'sine';
-        atmLFO.frequency.value = 0.1 + Math.random() * 0.15;
-        const atmLFOGain = ctx.createGain();
-        atmLFOGain.gain.value = 300;
-        atmLFO.connect(atmLFOGain);
-        atmLFOGain.connect(atmBP.frequency);
-
-        atmSource.connect(atmBP);
-        atmBP.connect(layers.atmosphere.gainNode);
-        atmSource.start();
-        atmLFO.start();
-        layers.atmosphere.nodes.push(atmSource, atmLFO);
-        layers.atmosphere.active = true;
-
-        // ── BASS: Sub sine following chord root, slow filter LFO ──
-        layers.bass.gainNode = ctx.createGain();
-        layers.bass.gainNode.gain.value = 0;
-        connectLayer(layers.bass);
-
-        const bassOsc = ctx.createOscillator();
-        bassOsc.type = 'sine';
-        bassOsc.frequency.value = 54; // A1 sub (432/8)
-
-        const bassOsc2 = ctx.createOscillator();
-        bassOsc2.type = 'sine';
-        bassOsc2.frequency.value = 54.1; // slight detune for beating
-
-        const bassFilter = ctx.createBiquadFilter();
-        bassFilter.type = 'lowpass';
-        bassFilter.frequency.value = 120;
-        bassFilter.Q.value = 1.2;
-
-        // Slow filter LFO
-        const bassLFO = ctx.createOscillator();
-        bassLFO.type = 'sine';
-        bassLFO.frequency.value = 0.08;
-        const bassLFOGain = ctx.createGain();
-        bassLFOGain.gain.value = 40;
-        bassLFO.connect(bassLFOGain);
-        bassLFOGain.connect(bassFilter.frequency);
-
-        bassOsc.connect(bassFilter);
-        bassOsc2.connect(bassFilter);
-        bassFilter.connect(layers.bass.gainNode);
-        bassOsc.start();
-        bassOsc2.start();
-        bassLFO.start();
-        layers.bass.nodes.push(bassOsc, bassOsc2, bassLFO);
-        layers.bass._filter = bassFilter;
-        layers.bass._oscs = [bassOsc, bassOsc2];
-
-        // ── STRINGS: Slow-attack detuned saws, 2 voices, LPF 1200Hz ──
-        layers.strings.gainNode = ctx.createGain();
-        layers.strings.gainNode.gain.value = 0;
-        connectLayer(layers.strings);
-
-        const strFilter = ctx.createBiquadFilter();
-        strFilter.type = 'lowpass';
-        strFilter.frequency.value = 1200;
-        strFilter.Q.value = 0.5;
-        strFilter.connect(layers.strings.gainNode);
-
-        // Two string voices: root (A3) and fifth (E4) in 432Hz tuning
-        const strFreqs = [216, 324]; // A3, E4
-        strFreqs.forEach(function(f) {
-            [-10, -4, 0, 4, 10].forEach(function(detune) {
-                const osc = ctx.createOscillator();
-                osc.type = 'sawtooth';
-                osc.frequency.value = f;
-                osc.detune.value = detune + (Math.random() - 0.5) * 3;
-                const voiceGain = ctx.createGain();
-                voiceGain.gain.value = 0.04;
-                osc.connect(voiceGain);
-                voiceGain.connect(strFilter);
-                osc.start();
-                layers.strings.nodes.push(osc);
-            });
-        });
-
-        // ── SHIMMER: High octave triangles with long release ──
-        layers.shimmer.gainNode = ctx.createGain();
-        layers.shimmer.gainNode.gain.value = 0;
-        connectLayer(layers.shimmer);
-
-        const shimFilter = ctx.createBiquadFilter();
-        shimFilter.type = 'lowpass';
-        shimFilter.frequency.value = 6000;
-        shimFilter.Q.value = 0.3;
-        shimFilter.connect(layers.shimmer.gainNode);
-
-        // High triangles: A5, E6, A6
-        [864, 1296, 1728].forEach(function(f) {
-            const osc = ctx.createOscillator();
-            osc.type = 'triangle';
-            osc.frequency.value = f;
-            osc.detune.value = (Math.random() - 0.5) * 8;
-            const voiceGain = ctx.createGain();
-            voiceGain.gain.value = 0.02;
-            osc.connect(voiceGain);
-            voiceGain.connect(shimFilter);
-            osc.start();
-            layers.shimmer.nodes.push(osc);
-        });
-
-        // ── CHOIR: 3 sine voices (root + 3rd + 5th) with slow vibrato ──
-        layers.choir.gainNode = ctx.createGain();
-        layers.choir.gainNode.gain.value = 0;
-        connectLayer(layers.choir);
-
-        const choirFilter = ctx.createBiquadFilter();
-        choirFilter.type = 'lowpass';
-        choirFilter.frequency.value = 2000;
-        choirFilter.Q.value = 0.4;
-        choirFilter.connect(layers.choir.gainNode);
-
-        // Choir: root (A3=216), major 3rd (C#4=272.5), fifth (E4=324)
-        [216, 272.54, 324].forEach(function(f) {
-            const osc = ctx.createOscillator();
-            osc.type = 'sine';
-            osc.frequency.value = f;
-
-            // Slow vibrato LFO per voice
-            const vib = ctx.createOscillator();
-            vib.type = 'sine';
-            vib.frequency.value = 4.5 + Math.random() * 1.5; // 4.5-6Hz
-            const vibGain = ctx.createGain();
-            vibGain.gain.value = 3 + Math.random() * 2; // 3-5 cents
-            vib.connect(vibGain);
-            vibGain.connect(osc.detune);
-            vib.start();
-
-            const voiceGain = ctx.createGain();
-            voiceGain.gain.value = 0.035;
-            osc.connect(voiceGain);
-            voiceGain.connect(choirFilter);
-            osc.start();
-            layers.choir.nodes.push(osc, vib);
-        });
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════
-    // v40 LAYER ACTIVATION — Motion pattern drives which layers play
-    // ═══════════════════════════════════════════════════════════════════════
-
-    function updateLayerActivation() {
-        if (!ctx) return;
-        const now = ctx.currentTime;
-        const pattern = state.motionPattern;
-        const stage = state.evolutionStage;
-
-        // Target gains based on motion pattern + evolution stage
-        let targets = {
-            atmosphere: 0.025,  // always on, very quiet
-            bass: 0,
-            strings: 0,
-            shimmer: 0,
-            choir: 0,
-        };
-
-        // Motion pattern drives base activation
-        if (pattern === 'gentle' || pattern === 'rhythmic' || pattern === 'vigorous' || pattern === 'chaotic') {
-            targets.bass = 0.12;
-        }
-        if (pattern === 'rhythmic' || pattern === 'vigorous' || pattern === 'chaotic') {
-            targets.strings = 0.06;
-        }
-        if (pattern === 'vigorous' || pattern === 'chaotic') {
-            targets.shimmer = 0.04;
-        }
-
-        // Evolution stage can boost or enable layers
-        if (stage === 'FLOWING' || stage === 'SURGING' || stage === 'TRANSCENDENT') {
-            targets.bass = Math.max(targets.bass, 0.10);
-            targets.strings = Math.max(targets.strings, 0.03);
-        }
-        if (stage === 'SURGING' || stage === 'TRANSCENDENT') {
-            targets.shimmer = Math.max(targets.shimmer, 0.035);
-            targets.strings = Math.max(targets.strings, 0.07);
-        }
-        if (stage === 'TRANSCENDENT') {
-            targets.choir = 0.05;
-            targets.shimmer = Math.max(targets.shimmer, 0.05);
-            targets.atmosphere = 0.04;
-        }
-
-        // Void override — fade everything down except atmosphere
-        if (voidAudio.active) {
-            targets.bass = 0;
-            targets.strings = 0;
-            targets.shimmer = 0;
-            targets.choir = 0;
-            targets.atmosphere = 0.015;
-        }
-
-        // Smooth crossfade each layer (4-second time constant for stage transitions)
-        const fadeTime = (state.lastStage !== state.evolutionStage) ? 2.0 : 0.5;
-        for (const name in targets) {
-            if (layers[name] && layers[name].gainNode) {
-                layers[name].gainNode.gain.setTargetAtTime(targets[name], now, fadeTime);
+            // Simulate tilt from mouse if no real tilt
+            if (!state.tiltGranted || !window._orientationGranted) {
+                state.tiltX = ((e.clientX / window.innerWidth) - 0.5) * 2;
+                state.tiltY = ((e.clientY / window.innerHeight) - 0.5) * 2;
             }
-        }
+
+            if (typeof GumpMotionBrain !== 'undefined' && mm > 0.1) {
+                GumpMotionBrain.process(
+                    { x: vx * 0.01, y: vy * 0.01, z: 9.8 },
+                    state.lastOrientation || { alpha: 0, beta: 0, gamma: 0 },
+                    now
+                );
+            }
+
+            last = { x: e.clientX, y: e.clientY, time: now };
+        });
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    // v40 EVOLUTION STAGES — The journey, driven by totalMotion
+    // PLAY NOTE — The cross-product instrument (tilt × touch × motion)
     // ═══════════════════════════════════════════════════════════════════════
-
-    const STAGES = {
-        EMERGING:     { threshold: 0,   bpmBoost: 0,  harmonicShift: 0 },
-        FLOWING:      { threshold: 100, bpmBoost: 3,  harmonicShift: 7 },  // up a 5th
-        SURGING:      { threshold: 400, bpmBoost: 8,  harmonicShift: 14 }, // up another 5th
-        TRANSCENDENT: { threshold: 800, bpmBoost: 12, harmonicShift: 19 }, // up another 5th (almost 2 oct)
-    };
-
-    function updateEvolutionStage() {
-        const total = state.totalMotion;
-        let newStage = 'EMERGING';
-
-        if (total >= STAGES.TRANSCENDENT.threshold) newStage = 'TRANSCENDENT';
-        else if (total >= STAGES.SURGING.threshold) newStage = 'SURGING';
-        else if (total >= STAGES.FLOWING.threshold) newStage = 'FLOWING';
-
-        if (newStage !== state.evolutionStage) {
-            state.lastStage = state.evolutionStage;
-            state.evolutionStage = newStage;
-            state.stageHarmonicShift = STAGES[newStage].harmonicShift;
-
-            showMsg(newStage);
-            console.log('[Conductor] Stage → ' + newStage + ' (totalMotion: ' + total.toFixed(0) + ')');
-        }
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════
-    // v40 BASS TRACKING — Keep bass following the harmonic root
-    // ═══════════════════════════════════════════════════════════════════════
-
-    function updateBassFrequency() {
-        if (!layers.bass._oscs) return;
-        // Bass follows harmonicRoot, shifted by evolution stage
-        const rootFreq = musicalContext.harmonicRoot / 8; // sub octave
-        const shifted = rootFreq * Math.pow(2, state.stageHarmonicShift / 12);
-        const bassFreq = Math.max(20, Math.min(80, shifted));
-        layers.bass._oscs[0].frequency.setTargetAtTime(bassFreq, ctx.currentTime, 0.3);
-        layers.bass._oscs[1].frequency.setTargetAtTime(bassFreq * 1.002, ctx.currentTime, 0.3);
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════
-    // SOUNDS — Dreamy strings with lo-fi warmth
-    // ═══════════════════════════════════════════════════════════════════════
-
-    // Fibonacci detune spread (cents) — 5 voices: -8, -3, 0, +3, +8
-    const SAW_DETUNE = [-8, -3, 0, 3, 8];
 
     function playNote(x, y, velocity) {
-        const now = ctx.currentTime;
-        const dest = sidechainGain || masterGain;
+        var now = ctx.currentTime;
+        var output = dest();
 
-        // v38 CROSS-PRODUCT: tilt shifts which part of scale we play
-        const bias = (typeof GumpMusicalDNA !== 'undefined') ? GumpMusicalDNA.getBias() : null;
-        const activeScale = bias ? bias.scale : scale;
+        // Scale from DNA or default
+        var bias = (typeof GumpMusicalDNA !== 'undefined') ? GumpMusicalDNA.getBias() : null;
+        var activeScale = bias ? bias.scale : scale;
 
-        const tiltShift = Math.floor(musicalContext.harmonicTension * activeScale.length * 0.25);
-        let noteIdx = Math.floor((1 - y) * activeScale.length) + tiltShift;
+        // Tilt shifts scale position
+        var tiltShift = Math.floor(musicalContext.harmonicTension * activeScale.length * 0.25);
+        var noteIdx = Math.floor((1 - y) * activeScale.length) + tiltShift;
         noteIdx = Math.max(0, Math.min(activeScale.length - 1, noteIdx));
-        let note = activeScale[noteIdx];
+        var note = activeScale[noteIdx];
 
-        // Chromatic tension — when harmonicTension > 0.4, chance to sharpen/flatten
+        // Chromatic tension
         if (musicalContext.harmonicTension > 0.4 && Math.random() < 0.5) {
             note += (Math.random() < 0.5) ? 1 : -1;
         }
 
-        // v38 CROSS-PRODUCT: tiltY × touchX = register
-        const baseOctave = 3;
-        const tiltOctave = Math.floor(musicalContext.expressionDepth * 2); // 0-2 from tilt
-        const touchOctave = Math.floor(x * 2); // 0-2 from touch position
-        const octave = baseOctave + Math.floor((tiltOctave + touchOctave) / 2);
+        // Register: tiltY × touchX
+        var baseOctave = 3;
+        var tiltOctave = Math.floor(musicalContext.expressionDepth * 2);
+        var touchOctave = Math.floor(x * 2);
+        var octave = baseOctave + Math.floor((tiltOctave + touchOctave) / 2);
 
-        const rootFreq = musicalContext.harmonicRoot / 4;
-        const freq = rootFreq * Math.pow(2, (note + octave * 12) / 12);
+        var rootFreq = musicalContext.harmonicRoot / 4;
+        var freq = rootFreq * Math.pow(2, (note + octave * 12) / 12);
 
-        // v38 CROSS-PRODUCT: motion speed × touch velocity = articulation
-        const attack = 0.005 + (1 - velocity) * 0.05 * (1 - state.smoothSpeed);
-        const release = 0.1 + (1 - state.smoothSpeed) * 0.3;
-        const dur = attack + release + 0.2;
+        // Articulation: motion speed × touch velocity
+        var attack = 0.005 + (1 - velocity) * 0.05 * (1 - state.smoothSpeed);
+        var release = 0.1 + (1 - state.smoothSpeed) * 0.3;
+        var dur = attack + release + 0.2;
 
-        // Per-note filter: position + tilt + energy
-        const filter = ctx.createBiquadFilter();
+        // Per-note filter
+        var filter = ctx.createBiquadFilter();
         filter.type = 'lowpass';
         filter.frequency.value = 600 + x * 3000 + Math.max(0, state.tiltY) * 2000 + state.energy * 1500;
         filter.Q.value = 0.8 + velocity * 0.5 + musicalContext.harmonicTension * 2;
 
-        const noteGain = ctx.createGain();
+        var noteGain = ctx.createGain();
         noteGain.gain.setValueAtTime(velocity * 0.12, now);
         noteGain.gain.exponentialRampToValueAtTime(0.001, now + dur);
 
         filter.connect(noteGain);
-        noteGain.connect(dest);
-        // v40: Send notes to delay + reverb for space
-        if (delaySend) noteGain.connect(delaySend);
-        if (reverbSend) noteGain.connect(reverbSend);
+        noteGain.connect(output);
 
-        // 5-saw detuned supersaw — heaven-tier unison
-        for (let i = 0; i < 5; i++) {
-            const osc = ctx.createOscillator();
+        // Route to reverb + delay for space and echo
+        if (reverbSend) noteGain.connect(reverbSend);
+        if (delaySend) noteGain.connect(delaySend);
+
+        // 5-saw detuned supersaw
+        for (var i = 0; i < 5; i++) {
+            var osc = ctx.createOscillator();
             osc.type = 'sawtooth';
             osc.frequency.value = freq;
             osc.detune.value = SAW_DETUNE[i] + (Math.random() - 0.5) * 2;
@@ -964,217 +1067,54 @@ const GumpConductor = (function() {
             osc.stop(now + dur + 0.1);
         }
 
-        // Sub sine one octave down for body
-        const sub = ctx.createOscillator();
+        // Sub sine one octave down
+        var sub = ctx.createOscillator();
         sub.type = 'sine';
         sub.frequency.value = freq * 0.5;
-        const subGain = ctx.createGain();
+        var subGain = ctx.createGain();
         subGain.gain.setValueAtTime(velocity * 0.04, now);
         subGain.gain.exponentialRampToValueAtTime(0.001, now + dur * 0.8);
         sub.connect(subGain);
-        subGain.connect(dest);
+        subGain.connect(output);
         sub.start(now);
         sub.stop(now + dur);
 
-        // v33: Stochastic harmony — probability increases with tension
-        const tension = musicalContext.tensionLevel;
-        const fifthChance = 0.3 + tension * 0.3;  // 30%-60%
-        const seventhChance = 0.2 + tension * 0.4; // 20%-60%
-
-        if (Math.random() < fifthChance) {
-            const fifth = ctx.createOscillator();
+        // Stochastic harmony
+        var tension = musicalContext.tensionLevel;
+        if (Math.random() < 0.3 + tension * 0.3) {
+            var fifth = ctx.createOscillator();
             fifth.type = 'triangle';
-            fifth.frequency.value = freq * 1.498; // just 5th (slightly flat for warmth)
-            const fGain = ctx.createGain();
-            fGain.gain.setValueAtTime(velocity * 0.025, now);
-            fGain.gain.exponentialRampToValueAtTime(0.001, now + dur * 0.7);
+            fifth.frequency.value = freq * 1.498;
+            var fG = ctx.createGain();
+            fG.gain.setValueAtTime(velocity * 0.025, now);
+            fG.gain.exponentialRampToValueAtTime(0.001, now + dur * 0.7);
             fifth.connect(filter);
             fifth.start(now);
             fifth.stop(now + dur);
         }
-        if (Math.random() < seventhChance) {
-            const seventh = ctx.createOscillator();
+        if (Math.random() < 0.2 + tension * 0.4) {
+            var seventh = ctx.createOscillator();
             seventh.type = 'triangle';
-            // v33: Use b7 (1.778) when tense, maj7 (1.888) when relaxed
             seventh.frequency.value = freq * (tension > 0.4 ? 1.778 : 1.888);
-            const sGain = ctx.createGain();
-            sGain.gain.setValueAtTime(velocity * 0.018, now);
-            sGain.gain.exponentialRampToValueAtTime(0.001, now + dur * 0.5);
+            var sG = ctx.createGain();
+            sG.gain.setValueAtTime(velocity * 0.018, now);
+            sG.gain.exponentialRampToValueAtTime(0.001, now + dur * 0.5);
             seventh.connect(filter);
             seventh.start(now);
             seventh.stop(now + dur);
         }
     }
 
-    function playAmbientPad() {
-        if (!ctx) return;
-        const now = ctx.currentTime;
-
-        // Lush pad: A2 root + E3 fifth + G#3 major 7th + B3 add9
-        // A=432Hz tuning: A2=108, E3=162, G#3=204.1, B3=242.7
-        const padVoices = [108, 162, 204.1, 242.7];
-
-        // Shared filter for pad warmth
-        const padFilter = ctx.createBiquadFilter();
-        padFilter.type = 'lowpass';
-        // v35: DNA pad filter + volume bias
-        const dnaPadBias = (typeof GumpMusicalDNA !== 'undefined') ? GumpMusicalDNA.getBias() : null;
-        padFilter.frequency.value = 500 + (dnaPadBias ? dnaPadBias.filterBase * 0.15 : 0);
-        padFilter.Q.value = 0.6;
-        padFilter.connect(sidechainGain || masterGain);
-        // v40: Pad gets reverb send for space
-        if (reverbSend) {
-            const padReverbSend = ctx.createGain();
-            padReverbSend.gain.value = 0.35;
-            padFilter.connect(padReverbSend);
-            padReverbSend.connect(reverbSend);
-        }
-
-        const padGain = ctx.createGain();
-        const padVol = dnaPadBias ? 0.035 * dnaPadBias.padVolume / 0.5 : 0.035;
-        padGain.gain.setValueAtTime(0, now);
-        padGain.gain.linearRampToValueAtTime(Math.min(0.08, padVol), now + 5);
-        padGain.connect(padFilter);
-
-        padVoices.forEach(function(f) {
-            // 3 detuned saws per voice for shimmer
-            for (let d = -1; d <= 1; d++) {
-                const osc = ctx.createOscillator();
-                osc.type = 'sawtooth';
-                osc.frequency.value = f;
-                osc.detune.value = d * 5 + (Math.random() - 0.5) * 2;
-
-                const voiceGain = ctx.createGain();
-                voiceGain.gain.value = 0.08; // quiet per-voice
-                osc.connect(voiceGain);
-                voiceGain.connect(padGain);
-                osc.start(now);
-            }
-        });
-    }
-
     // ═══════════════════════════════════════════════════════════════════════
-    // GROOVE — Lo-fi 808s + vinyl crackle
+    // DRUMS — Warm 808 kick, lo-fi snare, dark hat
     // ═══════════════════════════════════════════════════════════════════════
-
-    function startGroove() {
-        if (state.groovePlaying) return;
-        state.groovePlaying = true;
-        state.nextStepTime = ctx.currentTime + 0.1;
-        showMsg('GROOVE');
-
-        // v36: Vinyl crackle — brown noise through BP 800Hz + LP 2kHz
-        if (ctx && sidechainGain && !crackleSource) {
-            const bufLen = ctx.sampleRate * 4; // 4 seconds, looped
-            const crackleBuf = ctx.createBuffer(1, bufLen, ctx.sampleRate);
-            const data = crackleBuf.getChannelData(0);
-            // Brown noise: integrated white noise
-            let last = 0;
-            for (let i = 0; i < bufLen; i++) {
-                const white = Math.random() * 2 - 1;
-                last = (last + (0.02 * white)) / 1.02;
-                data[i] = last * 3.5;
-            }
-
-            crackleSource = ctx.createBufferSource();
-            crackleSource.buffer = crackleBuf;
-            crackleSource.loop = true;
-
-            const crackleBP = ctx.createBiquadFilter();
-            crackleBP.type = 'bandpass';
-            crackleBP.frequency.value = 800;
-            crackleBP.Q.value = 0.5;
-
-            const crackleLP = ctx.createBiquadFilter();
-            crackleLP.type = 'lowpass';
-            crackleLP.frequency.value = 2000;
-
-            crackleGain = ctx.createGain();
-            crackleGain.gain.value = 0.015;
-
-            // Random amplitude modulation for occasional pops
-            crackleLFO = ctx.createOscillator();
-            crackleLFO.type = 'sine';
-            crackleLFO.frequency.value = 0.3 + Math.random() * 0.7; // slow random wobble
-            crackleLFOGain = ctx.createGain();
-            crackleLFOGain.gain.value = 0.008;
-            crackleLFO.connect(crackleLFOGain);
-            crackleLFOGain.connect(crackleGain.gain);
-
-            crackleSource.connect(crackleBP);
-            crackleBP.connect(crackleLP);
-            crackleLP.connect(crackleGain);
-            crackleGain.connect(sidechainGain); // ducks with kick
-
-            crackleSource.start();
-            crackleLFO.start();
-        }
-    }
-
-    function stopGroove() {
-        state.groovePlaying = false;
-
-        // v36: Destroy vinyl crackle
-        if (crackleSource) {
-            try { crackleSource.stop(); } catch(e) {}
-            try { crackleSource.disconnect(); } catch(e) {}
-            crackleSource = null;
-        }
-        if (crackleLFO) {
-            try { crackleLFO.stop(); } catch(e) {}
-            try { crackleLFO.disconnect(); } catch(e) {}
-            crackleLFO = null;
-        }
-        if (crackleLFOGain) {
-            try { crackleLFOGain.disconnect(); } catch(e) {}
-            crackleLFOGain = null;
-        }
-        if (crackleGain) {
-            try { crackleGain.disconnect(); } catch(e) {}
-            crackleGain = null;
-        }
-    }
-
-    function runGroove() {
-        if (!state.groovePlaying) return;
-
-        while (state.nextStepTime < ctx.currentTime + 0.1) {
-            const step = state.grooveStep;
-            const t = state.nextStepTime;
-            // v35: DNA drum velocity multiplier
-            const dnaVel = (typeof GumpMusicalDNA !== 'undefined') ?
-                GumpMusicalDNA.getBias().drumVelocity : 1.0;
-            const intensity = (0.4 + state.energy * 0.5) * dnaVel;
-
-            // Kick — 1 + ghost on &3
-            const kicks  = [1,0,0,0, 0,0,0.4,0, 0.9,0,0,0, 0,0,0,0];
-            if (kicks[step]) playKick(t, kicks[step] * intensity);
-
-            // Snare — clap on 2+4
-            const snares = [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0];
-            if (snares[step]) playSnare(t, snares[step] * intensity);
-
-            // Hats — sparse 8ths
-            const hats = [0.5,0,0.3,0, 0.5,0,0.3,0, 0.5,0,0.3,0, 0.5,0,0.3,0];
-            if (hats[step]) playHat(t, hats[step] * intensity);
-
-            // Subtle swing — barely perceptible bounce
-            const stepDur = (60 / state.tempo) / 4;
-            const swing = step % 2 === 0 ? 1.08 : 0.92;
-            state.nextStepTime += stepDur * swing;
-            state.grooveStep = (step + 1) % 16;
-        }
-    }
 
     function playKick(time, vel) {
-        // v36: Warm 808 kick — long sine sub + soft sine body through lowpass
-
-        // Layer 1: Sub — sine 50→28Hz, long 808 sustain (the sub IS the bass)
-        const sub = ctx.createOscillator();
+        var sub = ctx.createOscillator();
         sub.type = 'sine';
         sub.frequency.setValueAtTime(50, time);
         sub.frequency.exponentialRampToValueAtTime(28, time + 0.8);
-        const subGain = ctx.createGain();
+        var subGain = ctx.createGain();
         subGain.gain.setValueAtTime(vel * 0.8, time);
         subGain.gain.exponentialRampToValueAtTime(0.001, time + 1.2);
         sub.connect(subGain);
@@ -1182,15 +1122,14 @@ const GumpConductor = (function() {
         sub.start(time);
         sub.stop(time + 1.3);
 
-        // Layer 2: Body — sine 80→40Hz through lowpass 200Hz, 0.12s (warm punch)
-        const body = ctx.createOscillator();
+        var body = ctx.createOscillator();
         body.type = 'sine';
         body.frequency.setValueAtTime(80, time);
         body.frequency.exponentialRampToValueAtTime(40, time + 0.12);
-        const bodyLP = ctx.createBiquadFilter();
+        var bodyLP = ctx.createBiquadFilter();
         bodyLP.type = 'lowpass';
         bodyLP.frequency.value = 200;
-        const bodyGain = ctx.createGain();
+        var bodyGain = ctx.createGain();
         bodyGain.gain.setValueAtTime(vel * 0.5, time);
         bodyGain.gain.exponentialRampToValueAtTime(0.001, time + 0.12);
         body.connect(bodyLP);
@@ -1199,7 +1138,7 @@ const GumpConductor = (function() {
         body.start(time);
         body.stop(time + 0.25);
 
-        // Sidechain duck: deep pump (0.15 gain), slow recovery (0.25s)
+        // Sidechain duck
         if (sidechainGain) {
             sidechainGain.gain.setValueAtTime(0.15, time);
             sidechainGain.gain.linearRampToValueAtTime(1.0, time + 0.25);
@@ -1207,14 +1146,11 @@ const GumpConductor = (function() {
     }
 
     function playSnare(time, vel) {
-        // v36: Lo-fi snare — warm sine body + dark short noise
-
-        // Layer 1: Body — single sine at 200Hz, 80ms decay
-        const body = ctx.createOscillator();
+        var body = ctx.createOscillator();
         body.type = 'sine';
         body.frequency.setValueAtTime(200, time);
         body.frequency.exponentialRampToValueAtTime(120, time + 0.05);
-        const bodyGain = ctx.createGain();
+        var bodyGain = ctx.createGain();
         bodyGain.gain.setValueAtTime(vel * 0.45, time);
         bodyGain.gain.exponentialRampToValueAtTime(0.001, time + 0.08);
         body.connect(bodyGain);
@@ -1222,157 +1158,207 @@ const GumpConductor = (function() {
         body.start(time);
         body.stop(time + 0.1);
 
-        // Layer 2: Dark noise — bandpass 2500Hz Q=0.8 + lowpass 4000Hz, 120ms
-        const noiseBuf = ctx.createBuffer(1, ctx.sampleRate * 0.15, ctx.sampleRate);
-        const noiseData = noiseBuf.getChannelData(0);
-        for (let i = 0; i < noiseData.length; i++) noiseData[i] = Math.random() * 2 - 1;
-        const noise = ctx.createBufferSource();
+        var noiseBuf = ctx.createBuffer(1, ctx.sampleRate * 0.15, ctx.sampleRate);
+        var noiseData = noiseBuf.getChannelData(0);
+        for (var i = 0; i < noiseData.length; i++) noiseData[i] = Math.random() * 2 - 1;
+        var noise = ctx.createBufferSource();
         noise.buffer = noiseBuf;
-        const noiseBP = ctx.createBiquadFilter();
-        noiseBP.type = 'bandpass';
-        noiseBP.frequency.value = 2500;
-        noiseBP.Q.value = 0.8;
-        const noiseLP = ctx.createBiquadFilter();
-        noiseLP.type = 'lowpass';
-        noiseLP.frequency.value = 4000;
-        const noiseGain = ctx.createGain();
-        noiseGain.gain.setValueAtTime(vel * 0.35, time);
-        noiseGain.gain.exponentialRampToValueAtTime(0.001, time + 0.12);
-        noise.connect(noiseBP);
-        noiseBP.connect(noiseLP);
-        noiseLP.connect(noiseGain);
-        noiseGain.connect(drumBus);
+        var bp = ctx.createBiquadFilter();
+        bp.type = 'bandpass';
+        bp.frequency.value = 2500;
+        bp.Q.value = 0.8;
+        var lp = ctx.createBiquadFilter();
+        lp.type = 'lowpass';
+        lp.frequency.value = 4000;
+        var nG = ctx.createGain();
+        nG.gain.setValueAtTime(vel * 0.35, time);
+        nG.gain.exponentialRampToValueAtTime(0.001, time + 0.12);
+        noise.connect(bp);
+        bp.connect(lp);
+        lp.connect(nG);
+        nG.connect(drumBus);
         noise.start(time);
         noise.stop(time + 0.15);
     }
 
     function playHat(time, vel) {
-        // v36: Dark filtered noise hat — subtle tick, sits in the back
-
-        const noiseBuf = ctx.createBuffer(1, ctx.sampleRate * 0.05, ctx.sampleRate);
-        const noiseData = noiseBuf.getChannelData(0);
-        for (let i = 0; i < noiseData.length; i++) noiseData[i] = Math.random() * 2 - 1;
-        const noise = ctx.createBufferSource();
+        var noiseBuf = ctx.createBuffer(1, ctx.sampleRate * 0.05, ctx.sampleRate);
+        var noiseData = noiseBuf.getChannelData(0);
+        for (var i = 0; i < noiseData.length; i++) noiseData[i] = Math.random() * 2 - 1;
+        var noise = ctx.createBufferSource();
         noise.buffer = noiseBuf;
-
-        const hatBP = ctx.createBiquadFilter();
-        hatBP.type = 'bandpass';
-        hatBP.frequency.value = 3500;
-        hatBP.Q.value = 1.0;
-
-        const hatLP = ctx.createBiquadFilter();
-        hatLP.type = 'lowpass';
-        hatLP.frequency.value = 5000;
-
-        const hatGain = ctx.createGain();
-        hatGain.gain.setValueAtTime(vel * 0.12, time);
-        hatGain.gain.exponentialRampToValueAtTime(0.001, time + 0.04);
-
-        noise.connect(hatBP);
-        hatBP.connect(hatLP);
-        hatLP.connect(hatGain);
-        hatGain.connect(drumBus);
-
+        var bp = ctx.createBiquadFilter();
+        bp.type = 'bandpass';
+        bp.frequency.value = 3500;
+        bp.Q.value = 1.0;
+        var lp = ctx.createBiquadFilter();
+        lp.type = 'lowpass';
+        lp.frequency.value = 5000;
+        var g = ctx.createGain();
+        g.gain.setValueAtTime(vel * 0.12, time);
+        g.gain.exponentialRampToValueAtTime(0.001, time + 0.04);
+        noise.connect(bp);
+        bp.connect(lp);
+        lp.connect(g);
+        g.connect(drumBus);
         noise.start(time);
         noise.stop(time + 0.05);
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    // v32 VOID AUDIO SYSTEM — 432Hz Healing Drone
-    // Stillness is not silence. Stillness is the void.
+    // GROOVE — Stage-dependent drum patterns + vinyl crackle
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function startGroove() {
+        if (state.groovePlaying) return;
+        state.groovePlaying = true;
+        state.nextStepTime = ctx.currentTime + 0.1;
+
+        // Vinyl crackle
+        if (ctx && sidechainGain && !crackleSource) {
+            var bufLen = ctx.sampleRate * 4;
+            var buf = ctx.createBuffer(1, bufLen, ctx.sampleRate);
+            var data = buf.getChannelData(0);
+            var last = 0;
+            for (var i = 0; i < bufLen; i++) {
+                last = (last + (Math.random() * 2 - 1) * 0.02) / 1.02;
+                data[i] = last * 3.5;
+            }
+            crackleSource = ctx.createBufferSource();
+            crackleSource.buffer = buf;
+            crackleSource.loop = true;
+            var bp = ctx.createBiquadFilter();
+            bp.type = 'bandpass'; bp.frequency.value = 800; bp.Q.value = 0.5;
+            var lp = ctx.createBiquadFilter();
+            lp.type = 'lowpass'; lp.frequency.value = 2000;
+            crackleGain = ctx.createGain();
+            crackleGain.gain.value = 0.015;
+            crackleLFO = ctx.createOscillator();
+            crackleLFO.type = 'sine';
+            crackleLFO.frequency.value = 0.3 + Math.random() * 0.7;
+            crackleLFOGain = ctx.createGain();
+            crackleLFOGain.gain.value = 0.008;
+            crackleLFO.connect(crackleLFOGain);
+            crackleLFOGain.connect(crackleGain.gain);
+            crackleSource.connect(bp);
+            bp.connect(lp);
+            lp.connect(crackleGain);
+            crackleGain.connect(sidechainGain);
+            crackleSource.start();
+            crackleLFO.start();
+        }
+    }
+
+    function stopGroove() {
+        state.groovePlaying = false;
+        if (crackleSource) { try { crackleSource.stop(); } catch(e) {} crackleSource = null; }
+        if (crackleLFO) { try { crackleLFO.stop(); } catch(e) {} crackleLFO = null; }
+        if (crackleLFOGain) { try { crackleLFOGain.disconnect(); } catch(e) {} crackleLFOGain = null; }
+        if (crackleGain) { try { crackleGain.disconnect(); } catch(e) {} crackleGain = null; }
+    }
+
+    function runGroove() {
+        if (!state.groovePlaying) return;
+
+        // Pick the right pattern for the current stage
+        var pattern = DRUM_PATTERNS[state.evolutionStage];
+        if (!pattern) return; // EMERGING = no drums
+
+        while (state.nextStepTime < ctx.currentTime + 0.1) {
+            var step = state.grooveStep;
+            var t = state.nextStepTime;
+            var dnaVel = (typeof GumpMusicalDNA !== 'undefined') ?
+                GumpMusicalDNA.getBias().drumVelocity : 1.0;
+            var intensity = (0.4 + state.energy * 0.5) * dnaVel;
+
+            if (pattern.kick[step]) playKick(t, pattern.kick[step] * intensity);
+            if (pattern.snare[step]) playSnare(t, pattern.snare[step] * intensity);
+            if (pattern.hat[step]) playHat(t, pattern.hat[step] * intensity);
+
+            // Swing
+            var stepDur = (60 / state.tempo) / 4;
+            var swing = (step % 2 === 0) ? 1.08 : 0.92;
+            state.nextStepTime += stepDur * swing;
+            state.grooveStep = (step + 1) % 16;
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // VOID AUDIO — 432Hz healing drone (stillness is not silence)
     // ═══════════════════════════════════════════════════════════════════════
 
     function enterVoidAudio() {
         if (voidAudio.active || !ctx) return;
+        var now = ctx.currentTime;
 
-        const now = ctx.currentTime;
-
-        // Master gain for void layer
         voidAudio.masterGainNode = ctx.createGain();
         voidAudio.masterGainNode.gain.setValueAtTime(0, now);
-        voidAudio.masterGainNode.gain.linearRampToValueAtTime(0.06, now + 4); // slow 4s fade
+        voidAudio.masterGainNode.gain.linearRampToValueAtTime(0.06, now + 4);
         voidAudio.masterGainNode.connect(masterGain);
 
-        // Lowpass filter for breath modulation
         voidAudio.filter = ctx.createBiquadFilter();
         voidAudio.filter.type = 'lowpass';
         voidAudio.filter.frequency.value = 400;
         voidAudio.filter.Q.value = 1.0;
         voidAudio.filter.connect(voidAudio.masterGainNode);
 
-        // Three frequency centers: sub-octave, fundamental, perfect fifth
-        // A=432Hz tuning — each with ±3 cent detuned pair for lush unison
-        const voidFreqs = [
-            { freq: 216, vol: 0.4 },   // sub-octave
-            { freq: 432, vol: 1.0 },   // fundamental
-            { freq: 648, vol: 0.35 },  // perfect fifth
+        // Three freq centers: sub-octave, fundamental, fifth
+        var voidFreqs = [
+            { freq: 216, vol: 0.4 },
+            { freq: 432, vol: 1.0 },
+            { freq: 648, vol: 0.35 },
         ];
         voidFreqs.forEach(function(v) {
-            // Detuned pair: -3 cents, center, +3 cents
             [-3, 0, 3].forEach(function(detune) {
-                const osc = ctx.createOscillator();
+                var osc = ctx.createOscillator();
                 osc.type = 'sine';
                 osc.frequency.value = v.freq;
                 osc.detune.value = detune;
-
-                const gain = ctx.createGain();
-                gain.gain.value = v.vol * 0.35;
-
-                osc.connect(gain);
-                gain.connect(voidAudio.filter);
-
+                var g = ctx.createGain();
+                g.gain.value = v.vol * 0.35;
+                osc.connect(g);
+                g.connect(voidAudio.filter);
                 osc.start(now);
                 voidAudio.oscillators.push(osc);
-                voidAudio.gains.push(gain);
+                voidAudio.gains.push(g);
             });
         });
 
         voidAudio.active = true;
-        console.log('[Conductor] Void audio entered — 432Hz drone');
     }
 
     function updateVoidAudio(depth, breathPhase) {
         if (!voidAudio.active || !ctx) return;
+        var now = ctx.currentTime;
 
-        const now = ctx.currentTime;
-
-        // Depth modulates volume (deeper = slightly louder, more present)
-        // v35: DNA contemplation trait amplifies void drone depth
-        const voidAmp = (typeof GumpMusicalDNA !== 'undefined') ?
+        var voidAmp = (typeof GumpMusicalDNA !== 'undefined') ?
             GumpMusicalDNA.getBias().gestureAmplifiers.void : 1;
         if (voidAudio.masterGainNode) {
-            const targetVol = (0.03 + depth * 0.04) * voidAmp; // amplified by contemplation
-            voidAudio.masterGainNode.gain.setTargetAtTime(targetVol, now, 0.5);
+            voidAudio.masterGainNode.gain.setTargetAtTime(
+                (0.03 + depth * 0.04) * voidAmp, now, 0.5
+            );
         }
-
-        // Breath phase modulates filter: 400-1200Hz sweep (like slow breathing)
         if (voidAudio.filter) {
-            const breathVal = (Math.sin(breathPhase) + 1) * 0.5; // 0-1
-            const filterTarget = 400 + breathVal * 800;
-            voidAudio.filter.frequency.setTargetAtTime(filterTarget, now, 0.3);
+            var breathVal = (Math.sin(breathPhase) + 1) * 0.5;
+            voidAudio.filter.frequency.setTargetAtTime(400 + breathVal * 800, now, 0.3);
         }
 
-        // At depth > 0.9 (TRANSCENDENT), add higher overtone
         if (depth > 0.9 && !voidAudio.overtoneOsc) {
             voidAudio.overtoneOsc = ctx.createOscillator();
             voidAudio.overtoneOsc.type = 'sine';
-            voidAudio.overtoneOsc.frequency.value = 864; // 432 * 2
-
+            voidAudio.overtoneOsc.frequency.value = 864;
             voidAudio.overtoneGain = ctx.createGain();
             voidAudio.overtoneGain.gain.setValueAtTime(0, now);
             voidAudio.overtoneGain.gain.linearRampToValueAtTime(0.3, now + 3);
-
             voidAudio.overtoneOsc.connect(voidAudio.overtoneGain);
             voidAudio.overtoneGain.connect(voidAudio.filter);
             voidAudio.overtoneOsc.start(now);
         }
-
-        // Remove overtone if depth drops below 0.8
         if (depth < 0.8 && voidAudio.overtoneOsc) {
             try {
                 voidAudio.overtoneGain.gain.setTargetAtTime(0, now, 0.5);
-                const oscRef = voidAudio.overtoneOsc;
-                setTimeout(function() { try { oscRef.stop(); } catch(e) {} }, 2000);
+                var ref = voidAudio.overtoneOsc;
+                setTimeout(function() { try { ref.stop(); } catch(e) {} }, 2000);
             } catch(e) {}
             voidAudio.overtoneOsc = null;
             voidAudio.overtoneGain = null;
@@ -1383,27 +1369,18 @@ const GumpConductor = (function() {
 
     function exitVoidAudio() {
         if (!voidAudio.active || !ctx) return;
-
-        const now = ctx.currentTime;
-
-        // Slow fade out (1.5s time constant)
+        var now = ctx.currentTime;
         if (voidAudio.masterGainNode) {
             voidAudio.masterGainNode.gain.setTargetAtTime(0, now, 1.5);
         }
-
-        // Cleanup after 4s fade
-        const oscs = voidAudio.oscillators.slice();
-        const overtone = voidAudio.overtoneOsc;
-        const nodes = [voidAudio.masterGainNode, voidAudio.filter,
-                       voidAudio.overtoneGain].filter(Boolean);
-
+        var oscs = voidAudio.oscillators.slice();
+        var overtone = voidAudio.overtoneOsc;
+        var nodes = [voidAudio.masterGainNode, voidAudio.filter, voidAudio.overtoneGain].filter(Boolean);
         setTimeout(function() {
             oscs.forEach(function(o) { try { o.stop(); } catch(e) {} });
-            if (overtone) { try { overtone.stop(); } catch(e) {} }
+            if (overtone) try { overtone.stop(); } catch(e) {}
             nodes.forEach(function(n) { try { n.disconnect(); } catch(e) {} });
         }, 4000);
-
-        // Reset state
         voidAudio.oscillators = [];
         voidAudio.gains = [];
         voidAudio.filter = null;
@@ -1412,94 +1389,71 @@ const GumpConductor = (function() {
         voidAudio.overtoneGain = null;
         voidAudio.active = false;
         voidAudio.currentDepth = 0;
-
-        console.log('[Conductor] Void audio exiting — fade out');
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    // v33 GESTURE-TO-MUSIC — Context-Aware Compound Reactivity
-    // Each gesture reads musicalContext to shape its response differently.
+    // GESTURE-TO-MUSIC — Context-aware compound reactivity
     // ═══════════════════════════════════════════════════════════════════════
 
     function onMotionSpike(data) {
         if (!ctx || !masterGain) return;
+        var now = Date.now();
 
-        const now = Date.now();
-        const dest = sidechainGain || masterGain;
-
-        // 1. Track interval between gestures → push to userIntervalHistory
         if (musicalContext.lastGestureTime > 0) {
-            const interval = now - musicalContext.lastGestureTime;
+            var interval = now - musicalContext.lastGestureTime;
             musicalContext.userIntervalHistory.push(interval);
             if (musicalContext.userIntervalHistory.length > 16) {
                 musicalContext.userIntervalHistory.shift();
             }
         }
 
-        // 2. Check if gesture was predicted by STDP
         musicalContext.wasPredicted = (
             musicalContext.predictedNextGesture === data.neuron &&
             musicalContext.predictionConfidence > 0.3
         );
-
-        // 3. Update gesture counters
         musicalContext.gesturesSinceStillness++;
         musicalContext.lastGesture = data.neuron;
         musicalContext.lastGestureTime = now;
 
-        // Reset gesturesSinceStillness on stillness
         if (data.neuron === 'stillness') {
             musicalContext.gesturesSinceStillness = 0;
-            return; // stillness handled by void system
+            return;
         }
 
-        // 4. Context-aware dispatch
-        const afterStillness = musicalContext.gesturesSinceStillness <= 1;
-        const highTension = musicalContext.tensionLevel > 0.4;
-        const predicted = musicalContext.wasPredicted;
-        const resolving = musicalContext.momentumDirection === 'resolving';
+        var afterStillness = musicalContext.gesturesSinceStillness <= 1;
+        var highTension = musicalContext.tensionLevel > 0.4;
+        var predicted = musicalContext.wasPredicted;
+        var resolving = musicalContext.momentumDirection === 'resolving';
 
-        // v35: DNA gesture amplifiers — each gesture scaled by its trait
-        const dnaAmps = (typeof GumpMusicalDNA !== 'undefined') ?
+        var dnaAmps = (typeof GumpMusicalDNA !== 'undefined') ?
             GumpMusicalDNA.getBias().gestureAmplifiers :
             { shake: 1, sweep: 1, pendulum: 1, void: 1, surprise: 1 };
 
         switch (data.neuron) {
             case 'shake':
-                if (predicted) {
-                    playHarmonicContinuation(data.firingRate * dnaAmps.shake);
-                } else if (highTension) {
-                    playTrill(data.firingRate * dnaAmps.shake, true); // dissonant
-                } else if (afterStillness) {
-                    playTrill(data.firingRate * 0.5 * dnaAmps.shake, false); // gentle awakening
-                } else {
-                    playTrill(data.firingRate * dnaAmps.shake, false);
-                }
+                if (predicted) playHarmonicContinuation(data.firingRate * dnaAmps.shake);
+                else if (highTension) playTrill(data.firingRate * dnaAmps.shake, true);
+                else if (afterStillness) playTrill(data.firingRate * 0.5 * dnaAmps.shake, false);
+                else playTrill(data.firingRate * dnaAmps.shake, false);
                 break;
             case 'circle':
-                if (resolving) {
-                    playArpeggio(data.energy * dnaAmps.sweep, 'resolving');
-                } else if (predicted) {
-                    playArpeggio(data.energy * dnaAmps.sweep, 'continuation');
-                } else {
-                    playArpeggio(data.energy * dnaAmps.sweep, 'normal');
-                }
+                if (resolving) playArpeggio(data.energy * dnaAmps.sweep, 'resolving');
+                else if (predicted) playArpeggio(data.energy * dnaAmps.sweep, 'continuation');
+                else playArpeggio(data.energy * dnaAmps.sweep, 'normal');
                 break;
             case 'sweep':
-                if (afterStillness || musicalContext.momentumDirection === 'building') {
+                if (afterStillness || musicalContext.momentumDirection === 'building')
                     playGlissando(data.magnitude * dnaAmps.sweep, 'ascending');
-                } else if (resolving) {
+                else if (resolving)
                     playGlissando(data.magnitude * dnaAmps.sweep, 'descending');
-                } else {
+                else
                     playGlissando(data.magnitude * dnaAmps.sweep, 'normal');
-                }
                 break;
             case 'pendulum':
-                if (musicalContext.detectedUserBPM > 0) {
+                if (musicalContext.detectedUserBPM > 0)
                     playSyncedPulse(data.firingRate * dnaAmps.pendulum, musicalContext.detectedUserBPM);
-                } else {
+                else
                     playPendulumPulse(data.firingRate * dnaAmps.pendulum);
-                }
                 break;
             case 'rock':
                 applyVibratoModulation(data.firingRate * dnaAmps.pendulum, musicalContext.tensionLevel);
@@ -1510,118 +1464,95 @@ const GumpConductor = (function() {
         }
     }
 
-    // ── SHAKE → Trill (tilt-colored: dark tilt = dissonant, bright = consonant) ──
+    // ── SHAKE → Trill ──
     function playTrill(firingRate, dissonant) {
-        const now = ctx.currentTime;
-        const dest = sidechainGain || masterGain;
-        const rate = Math.min(THRESHOLDS.SHAKE_TRILL_RATE, 6 + firingRate * 4);
-        const interval = 1 / rate;
-        const baseFreq = musicalContext.harmonicRoot;
+        var now = ctx.currentTime;
+        var output = dest();
+        var rate = Math.min(THRESHOLDS.SHAKE_TRILL_RATE, 6 + firingRate * 4);
+        var interval = 1 / rate;
+        var baseFreq = musicalContext.harmonicRoot;
+        var brightness = musicalContext.expressionDepth;
 
-        // v38: Tilt colors the trill interval
-        // Dark tilt (low expressionDepth) → dissonant intervals
-        // Bright tilt (high expressionDepth) → consonant intervals
-        const tiltBrightness = musicalContext.expressionDepth;
-        let trillInterval;
-        if (dissonant || tiltBrightness < 0.3) {
-            trillInterval = (Math.random() < 0.5) ? 1 : 6; // minor 2nd or tritone
-        } else if (tiltBrightness > 0.7) {
-            trillInterval = (Math.random() < 0.5) ? 7 : 5; // perfect 5th or 4th
-        } else {
-            trillInterval = 2; // major 2nd (neutral)
-        }
+        var trillInterval;
+        if (dissonant || brightness < 0.3) trillInterval = (Math.random() < 0.5) ? 1 : 6;
+        else if (brightness > 0.7) trillInterval = (Math.random() < 0.5) ? 7 : 5;
+        else trillInterval = 2;
 
-        const filter = ctx.createBiquadFilter();
+        var filter = ctx.createBiquadFilter();
         filter.type = 'lowpass';
-        filter.frequency.value = 4000 + musicalContext.expressionDepth * 3000;
+        filter.frequency.value = 4000 + brightness * 3000;
         filter.Q.value = dissonant ? 3 : 1;
-        filter.connect(dest);
-        // v40: Trills through delay for echoing trill effect
+        filter.connect(output);
         if (delaySend) filter.connect(delaySend);
 
-        for (let i = 0; i < 8; i++) {
-            const t = now + i * interval;
-            const freq = baseFreq * Math.pow(2, ((i % 2) * trillInterval) / 12);
-
+        for (var i = 0; i < 8; i++) {
+            var t = now + i * interval;
+            var freq = baseFreq * Math.pow(2, ((i % 2) * trillInterval) / 12);
             [-5, 0, 5].forEach(function(detune) {
-                const osc = ctx.createOscillator();
+                var osc = ctx.createOscillator();
                 osc.type = 'sawtooth';
                 osc.frequency.value = freq;
                 osc.detune.value = detune;
-
-                const gain = ctx.createGain();
-                const vol = 0.02 * (1 - i * 0.1);
-                gain.gain.setValueAtTime(Math.max(0.002, vol), t);
-                gain.gain.exponentialRampToValueAtTime(0.001, t + interval * 0.9);
-
-                osc.connect(gain);
-                gain.connect(filter);
+                var g = ctx.createGain();
+                var vol = 0.02 * (1 - i * 0.1);
+                g.gain.setValueAtTime(Math.max(0.002, vol), t);
+                g.gain.exponentialRampToValueAtTime(0.001, t + interval * 0.9);
+                osc.connect(g);
+                g.connect(filter);
                 osc.start(t);
                 osc.stop(t + interval);
             });
         }
     }
 
-    // ── CIRCLE → Arpeggio (normal / continuation / resolving) ──
+    // ── CIRCLE → Arpeggio ──
     function playArpeggio(energy, mode) {
-        const now = ctx.currentTime;
-        const dest = sidechainGain || masterGain;
-        const baseFreq = musicalContext.harmonicRoot / 2;
-        const speed = THRESHOLDS.CIRCLE_ARP_SPEED;
+        var now = ctx.currentTime;
+        var output = dest();
+        var baseFreq = musicalContext.harmonicRoot / 2;
+        var speed = THRESHOLDS.CIRCLE_ARP_SPEED;
 
-        // Mode determines interval pattern
-        let intervals;
-        if (mode === 'continuation') {
-            // Extend upward: root, 3rd, 5th, 7th, 9th, 11th, 13th
-            intervals = [0, 4, 7, 11, 14, 17, 21, 24];
-        } else if (mode === 'resolving') {
-            // Descend to root: oct, 7th, 5th, 3rd, root, root-5th, root-oct
-            intervals = [24, 21, 19, 16, 12, 7, 4, 0];
-        } else {
-            // Normal: root, 3rd, 5th, 7th, oct, 7th, 5th, 3rd
-            intervals = [0, 4, 7, 11, 12, 11, 7, 4];
-        }
+        var intervals;
+        if (mode === 'continuation') intervals = [0, 4, 7, 11, 14, 17, 21, 24];
+        else if (mode === 'resolving') intervals = [24, 21, 19, 16, 12, 7, 4, 0];
+        else intervals = [0, 4, 7, 11, 12, 11, 7, 4];
 
-        const noteDur = speed / intervals.length;
+        var noteDur = speed / intervals.length;
 
-        const arpFilter = ctx.createBiquadFilter();
-        arpFilter.type = 'lowpass';
-        arpFilter.frequency.value = 3500 + musicalContext.expressionDepth * 3000;
-        arpFilter.connect(dest);
-        // v40: Arpeggios through delay
-        if (delaySend) arpFilter.connect(delaySend);
+        var filter = ctx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.value = 3500 + musicalContext.expressionDepth * 3000;
+        filter.connect(output);
+        if (delaySend) filter.connect(delaySend);
 
         intervals.forEach(function(semitone, i) {
-            const t = now + i * noteDur;
-            const freq = baseFreq * Math.pow(2, semitone / 12);
-
+            var t = now + i * noteDur;
+            var freq = baseFreq * Math.pow(2, semitone / 12);
             [-5, 0, 5].forEach(function(detune) {
-                const osc = ctx.createOscillator();
+                var osc = ctx.createOscillator();
                 osc.type = 'sawtooth';
                 osc.frequency.value = freq;
                 osc.detune.value = detune;
-
-                const gain = ctx.createGain();
-                gain.gain.setValueAtTime(0.018 * Math.min(1, (energy || 0.3) + 0.3), t);
-                gain.gain.exponentialRampToValueAtTime(0.001, t + noteDur * 1.5);
-
-                osc.connect(gain);
-                gain.connect(arpFilter);
+                var g = ctx.createGain();
+                g.gain.setValueAtTime(0.018 * Math.min(1, (energy || 0.3) + 0.3), t);
+                g.gain.exponentialRampToValueAtTime(0.001, t + noteDur * 1.5);
+                osc.connect(g);
+                g.connect(filter);
                 osc.start(t);
                 osc.stop(t + noteDur * 2);
             });
         });
     }
 
-    // ── SWEEP → Glissando (ascending / descending / normal) ──
+    // ── SWEEP → Glissando ──
     function playGlissando(magnitude, direction) {
-        const now = ctx.currentTime;
-        const dest = sidechainGain || masterGain;
-        const range = THRESHOLDS.SWEEP_GLISS_RANGE;
-        const baseFreq = musicalContext.harmonicRoot;
-        const duration = 0.4 + (magnitude || 0) * 0.1;
+        var now = ctx.currentTime;
+        var output = dest();
+        var range = THRESHOLDS.SWEEP_GLISS_RANGE;
+        var baseFreq = musicalContext.harmonicRoot;
+        var duration = 0.4 + (magnitude || 0) * 0.1;
 
-        let startFreq, endFreq;
+        var startFreq, endFreq;
         if (direction === 'ascending') {
             startFreq = baseFreq * Math.pow(2, -range / 24);
             endFreq = baseFreq * Math.pow(2, range / 12);
@@ -1633,24 +1564,22 @@ const GumpConductor = (function() {
             endFreq = baseFreq * Math.pow(2, range / 24);
         }
 
-        const filter = ctx.createBiquadFilter();
+        var filter = ctx.createBiquadFilter();
         filter.type = 'lowpass';
         filter.frequency.setValueAtTime(1500, now);
         filter.frequency.linearRampToValueAtTime(4000, now + duration * 0.5);
         filter.frequency.linearRampToValueAtTime(1500, now + duration);
         filter.Q.value = 1.5 + musicalContext.harmonicTension * 3;
 
-        const gain = ctx.createGain();
-        gain.gain.setValueAtTime(0.05, now);
-        gain.gain.exponentialRampToValueAtTime(0.001, now + duration + 0.1);
-
-        filter.connect(gain);
-        gain.connect(dest);
-        // v40: Glissandi through delay
-        if (delaySend) gain.connect(delaySend);
+        var g = ctx.createGain();
+        g.gain.setValueAtTime(0.05, now);
+        g.gain.exponentialRampToValueAtTime(0.001, now + duration + 0.1);
+        filter.connect(g);
+        g.connect(output);
+        if (delaySend) g.connect(delaySend);
 
         SAW_DETUNE.forEach(function(detune) {
-            const osc = ctx.createOscillator();
+            var osc = ctx.createOscillator();
             osc.type = 'sawtooth';
             osc.frequency.setValueAtTime(startFreq, now);
             osc.frequency.exponentialRampToValueAtTime(Math.max(20, endFreq), now + duration);
@@ -1661,231 +1590,186 @@ const GumpConductor = (function() {
         });
     }
 
-    // ── PENDULUM → Pulse (basic, non-synced) ──
+    // ── PENDULUM → Pulse ──
     function playPendulumPulse(firingRate) {
-        const now = ctx.currentTime;
-        const dest = sidechainGain || masterGain;
-        const pulseRate = Math.max(0.5, Math.min(3, firingRate || 1));
-        const interval = 1 / pulseRate;
-        const rootFreq = musicalContext.harmonicRoot / 2;
+        var now = ctx.currentTime;
+        var output = dest();
+        var pulseRate = Math.max(0.5, Math.min(3, firingRate || 1));
+        var interval = 1 / pulseRate;
+        var rootFreq = musicalContext.harmonicRoot / 2;
 
-        for (let i = 0; i < 4; i++) {
-            const t = now + i * interval;
-
-            const osc = ctx.createOscillator();
+        for (var i = 0; i < 4; i++) {
+            var t = now + i * interval;
+            var osc = ctx.createOscillator();
             osc.type = 'sine';
             osc.frequency.value = rootFreq;
-
-            const gain = ctx.createGain();
-            gain.gain.setValueAtTime(0.1, t);
-            gain.gain.exponentialRampToValueAtTime(0.001, t + interval * 0.5);
-
-            osc.connect(gain);
-            gain.connect(dest);
+            var g = ctx.createGain();
+            g.gain.setValueAtTime(0.1, t);
+            g.gain.exponentialRampToValueAtTime(0.001, t + interval * 0.5);
+            osc.connect(g);
+            g.connect(output);
             osc.start(t);
             osc.stop(t + interval);
         }
     }
 
-    // ── v33 NEW: Synced Pulse — locks to detected user tempo ──
+    // ── PENDULUM → Synced Pulse ──
     function playSyncedPulse(firingRate, userBPM) {
-        const now = ctx.currentTime;
-        const dest = sidechainGain || masterGain;
-        const beatInterval = 60 / userBPM;
-        const rootFreq = musicalContext.harmonicRoot / 2;
-        const fifthFreq = rootFreq * 1.498;
-        const tension = musicalContext.tensionLevel;
+        var now = ctx.currentTime;
+        var output = dest();
+        var beatInterval = 60 / userBPM;
+        var rootFreq = musicalContext.harmonicRoot / 2;
+        var fifthFreq = rootFreq * 1.498;
+        var tension = musicalContext.tensionLevel;
 
-        const pulseFilter = ctx.createBiquadFilter();
-        pulseFilter.type = 'lowpass';
-        pulseFilter.frequency.value = 2000 + musicalContext.expressionDepth * 3000;
-        pulseFilter.connect(dest);
+        var filter = ctx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.value = 2000 + musicalContext.expressionDepth * 3000;
+        filter.connect(output);
 
-        // 4 beats: root on 1/3, fifth on 2/4
-        for (let i = 0; i < 4; i++) {
-            const t = now + i * beatInterval;
-            const freq = (i % 2 === 0) ? rootFreq : fifthFreq;
-
+        for (var i = 0; i < 4; i++) {
+            var t = now + i * beatInterval;
+            var freq = (i % 2 === 0) ? rootFreq : fifthFreq;
             [-3, 0, 3].forEach(function(detune) {
-                const osc = ctx.createOscillator();
+                var osc = ctx.createOscillator();
                 osc.type = 'sawtooth';
                 osc.frequency.value = freq;
                 osc.detune.value = detune;
-
-                const gain = ctx.createGain();
-                gain.gain.setValueAtTime(0.025, t);
-                gain.gain.exponentialRampToValueAtTime(0.001, t + beatInterval * 0.4);
-
-                osc.connect(gain);
-                gain.connect(pulseFilter);
+                var g = ctx.createGain();
+                g.gain.setValueAtTime(0.025, t);
+                g.gain.exponentialRampToValueAtTime(0.001, t + beatInterval * 0.4);
+                osc.connect(g);
+                g.connect(filter);
                 osc.start(t);
                 osc.stop(t + beatInterval * 0.5);
             });
 
-            // At tension > 0.3: syncopated off-beat echoes
             if (tension > 0.3) {
-                const offT = t + beatInterval * 0.5;
-                const echoOsc = ctx.createOscillator();
-                echoOsc.type = 'triangle';
-                echoOsc.frequency.value = freq * 2; // octave up echo
-
-                const echoGain = ctx.createGain();
-                echoGain.gain.setValueAtTime(0.012 * tension, offT);
-                echoGain.gain.exponentialRampToValueAtTime(0.001, offT + beatInterval * 0.2);
-
-                echoOsc.connect(echoGain);
-                echoGain.connect(pulseFilter);
-                echoOsc.start(offT);
-                echoOsc.stop(offT + beatInterval * 0.3);
+                var offT = t + beatInterval * 0.5;
+                var echo = ctx.createOscillator();
+                echo.type = 'triangle';
+                echo.frequency.value = freq * 2;
+                var eG = ctx.createGain();
+                eG.gain.setValueAtTime(0.012 * tension, offT);
+                eG.gain.exponentialRampToValueAtTime(0.001, offT + beatInterval * 0.2);
+                echo.connect(eG);
+                eG.connect(filter);
+                echo.start(offT);
+                echo.stop(offT + beatInterval * 0.3);
             }
         }
     }
 
-    // ── ROCK → Vibrato (depth scales with tension) ──
+    // ── ROCK → Vibrato ──
     function applyVibratoModulation(firingRate, tension) {
         if (!lofiFilter || !ctx) return;
+        var now = ctx.currentTime;
+        var output = dest();
+        var depth = THRESHOLDS.ROCK_VIBRATO_DEPTH + (tension || 0) * 30;
+        var duration = 2.0;
+        var vibratoRate = 3 + (firingRate || 0) * 2;
 
-        const now = ctx.currentTime;
-        const dest = sidechainGain || masterGain;
-        // Depth scales with tension: 15-45 cents
-        const depth = THRESHOLDS.ROCK_VIBRATO_DEPTH + (tension || 0) * 30;
-        const duration = 2.0;
-        const vibratoRate = 3 + (firingRate || 0) * 2;
-
-        const osc = ctx.createOscillator();
+        var osc = ctx.createOscillator();
         osc.type = 'sine';
         osc.frequency.value = musicalContext.harmonicRoot;
-
-        const lfo = ctx.createOscillator();
+        var lfo = ctx.createOscillator();
         lfo.type = 'sine';
         lfo.frequency.value = vibratoRate;
+        var lfoG = ctx.createGain();
+        lfoG.gain.value = depth;
+        lfo.connect(lfoG);
+        lfoG.connect(osc.detune);
 
-        const lfoGain = ctx.createGain();
-        lfoGain.gain.value = depth;
-
-        lfo.connect(lfoGain);
-        lfoGain.connect(osc.detune);
-
-        const gain = ctx.createGain();
-        gain.gain.setValueAtTime(0.04, now);
-        gain.gain.setTargetAtTime(0.001, now + duration * 0.5, duration * 0.3);
-
-        osc.connect(gain);
-        gain.connect(dest);
-
-        osc.start(now);
-        lfo.start(now);
-        osc.stop(now + duration);
-        lfo.stop(now + duration);
+        var g = ctx.createGain();
+        g.gain.setValueAtTime(0.04, now);
+        g.gain.setTargetAtTime(0.001, now + duration * 0.5, duration * 0.3);
+        osc.connect(g);
+        g.connect(output);
+        osc.start(now); lfo.start(now);
+        osc.stop(now + duration); lfo.stop(now + duration);
     }
 
-    // ── TOSS → Impact (brightness scales with emotional arc) ──
+    // ── TOSS → Impact ──
     function playTossImpact(energy, emotionalArc) {
-        const now = ctx.currentTime;
-        const dest = sidechainGain || masterGain;
-        const tailTime = THRESHOLDS.TOSS_REVERB_TAIL;
-        const arc = emotionalArc || 0.5;
+        var now = ctx.currentTime;
+        var output = dest();
+        var tailTime = THRESHOLDS.TOSS_REVERB_TAIL;
+        var arc = emotionalArc || 0.5;
 
-        // Impact: noise burst — brightness from arc
-        const buf = ctx.createBuffer(1, ctx.sampleRate * 0.15, ctx.sampleRate);
-        const bufData = buf.getChannelData(0);
-        for (let i = 0; i < bufData.length; i++) {
+        var buf = ctx.createBuffer(1, ctx.sampleRate * 0.15, ctx.sampleRate);
+        var bufData = buf.getChannelData(0);
+        for (var i = 0; i < bufData.length; i++) {
             bufData[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * 0.02));
         }
-
-        const noise = ctx.createBufferSource();
+        var noise = ctx.createBufferSource();
         noise.buffer = buf;
+        var impFilt = ctx.createBiquadFilter();
+        impFilt.type = 'lowpass';
+        impFilt.frequency.value = 2000 + arc * 6000;
+        impFilt.Q.value = 1 + arc * 2;
+        var nG = ctx.createGain();
+        nG.gain.setValueAtTime(0.2 * Math.min(1, (energy || 0.5) + 0.3), now);
+        nG.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
 
-        // Brightness filter on impact
-        const impactFilter = ctx.createBiquadFilter();
-        impactFilter.type = 'lowpass';
-        impactFilter.frequency.value = 2000 + arc * 6000; // brighter with higher arc
-        impactFilter.Q.value = 1 + arc * 2;
-
-        const noiseGain = ctx.createGain();
-        noiseGain.gain.setValueAtTime(0.2 * Math.min(1, (energy || 0.5) + 0.3), now);
-        noiseGain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
-
-        // Resonant body
-        const body = ctx.createOscillator();
+        var body = ctx.createOscillator();
         body.type = 'sine';
         body.frequency.setValueAtTime(200 + arc * 100, now);
         body.frequency.exponentialRampToValueAtTime(60, now + 0.2);
+        var bG = ctx.createGain();
+        bG.gain.setValueAtTime(0.15, now);
+        bG.gain.exponentialRampToValueAtTime(0.001, now + tailTime);
 
-        const bodyGain = ctx.createGain();
-        bodyGain.gain.setValueAtTime(0.15, now);
-        bodyGain.gain.exponentialRampToValueAtTime(0.001, now + tailTime);
-
-        // Tail: long sine decay at harmonic root
-        const tail = ctx.createOscillator();
+        var tail = ctx.createOscillator();
         tail.type = 'sine';
         tail.frequency.value = musicalContext.harmonicRoot;
+        var tG = ctx.createGain();
+        tG.gain.setValueAtTime(0, now);
+        tG.gain.linearRampToValueAtTime(0.04, now + 0.05);
+        tG.gain.exponentialRampToValueAtTime(0.001, now + tailTime);
+        var tF = ctx.createBiquadFilter();
+        tF.type = 'lowpass';
+        tF.frequency.setValueAtTime(3000 + arc * 3000, now);
+        tF.frequency.exponentialRampToValueAtTime(200, now + tailTime);
 
-        const tailGain = ctx.createGain();
-        tailGain.gain.setValueAtTime(0, now);
-        tailGain.gain.linearRampToValueAtTime(0.04, now + 0.05);
-        tailGain.gain.exponentialRampToValueAtTime(0.001, now + tailTime);
+        noise.connect(impFilt); impFilt.connect(nG); nG.connect(output);
+        body.connect(bG); bG.connect(output);
+        tail.connect(tF); tF.connect(tG); tG.connect(output);
+        // Impact through reverb for drama
+        if (reverbSend) { nG.connect(reverbSend); tG.connect(reverbSend); }
 
-        const tailFilter = ctx.createBiquadFilter();
-        tailFilter.type = 'lowpass';
-        tailFilter.frequency.setValueAtTime(3000 + arc * 3000, now);
-        tailFilter.frequency.exponentialRampToValueAtTime(200, now + tailTime);
-
-        noise.connect(impactFilter);
-        impactFilter.connect(noiseGain);
-        noiseGain.connect(dest);
-        body.connect(bodyGain);
-        bodyGain.connect(dest);
-        tail.connect(tailFilter);
-        tailFilter.connect(tailGain);
-        tailGain.connect(dest);
-
-        noise.start(now);
-        noise.stop(now + 0.15);
-        body.start(now);
-        body.stop(now + tailTime + 0.1);
-        tail.start(now);
-        tail.stop(now + tailTime + 0.1);
+        noise.start(now); noise.stop(now + 0.15);
+        body.start(now); body.stop(now + tailTime + 0.1);
+        tail.start(now); tail.stop(now + tailTime + 0.1);
     }
 
-    // ── v33 NEW: Harmonic Continuation — system agrees with predicted gesture ──
+    // ── Harmonic Continuation (predicted gesture) ──
     function playHarmonicContinuation(firingRate) {
-        const now = ctx.currentTime;
-        const dest = sidechainGain || masterGain;
-        const rootFreq = musicalContext.harmonicRoot / 2;
-        const tension = musicalContext.tensionLevel;
+        var now = ctx.currentTime;
+        var output = dest();
+        var rootFreq = musicalContext.harmonicRoot / 2;
+        var tension = musicalContext.tensionLevel;
 
-        // Sustained chord: root + 3rd + 5th, add b7 if tense
-        const chordFreqs = [
-            rootFreq,                          // root
-            rootFreq * Math.pow(2, 4/12),      // major 3rd
-            rootFreq * 1.498,                  // just 5th
-        ];
-        if (tension > 0.3) {
-            chordFreqs.push(rootFreq * Math.pow(2, 10/12)); // b7
-        }
+        var chordFreqs = [rootFreq, rootFreq * Math.pow(2, 4/12), rootFreq * 1.498];
+        if (tension > 0.3) chordFreqs.push(rootFreq * Math.pow(2, 10/12));
 
-        const chordFilter = ctx.createBiquadFilter();
-        chordFilter.type = 'lowpass';
-        chordFilter.frequency.setValueAtTime(1500, now);
-        chordFilter.frequency.linearRampToValueAtTime(3500, now + 0.5);
-        chordFilter.connect(dest);
+        var filter = ctx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(1500, now);
+        filter.frequency.linearRampToValueAtTime(3500, now + 0.5);
+        filter.connect(output);
 
         chordFreqs.forEach(function(freq) {
             [-4, 0, 4].forEach(function(detune) {
-                const osc = ctx.createOscillator();
+                var osc = ctx.createOscillator();
                 osc.type = 'sawtooth';
                 osc.frequency.value = freq;
                 osc.detune.value = detune;
-
-                const gain = ctx.createGain();
-                // Gentle attack — the system AGREES with you
-                gain.gain.setValueAtTime(0, now);
-                gain.gain.linearRampToValueAtTime(0.015, now + 0.3);
-                gain.gain.setTargetAtTime(0.001, now + 1.5, 0.5);
-
-                osc.connect(gain);
-                gain.connect(chordFilter);
+                var g = ctx.createGain();
+                g.gain.setValueAtTime(0, now);
+                g.gain.linearRampToValueAtTime(0.015, now + 0.3);
+                g.gain.setTargetAtTime(0.001, now + 1.5, 0.5);
+                osc.connect(g);
+                g.connect(filter);
                 osc.start(now);
                 osc.stop(now + 3);
             });
@@ -1893,27 +1777,25 @@ const GumpConductor = (function() {
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    // v32 PERSONAL APPRECIATION — The Machine Recognizes You
+    // APPRECIATION — The machine recognizes you
     // ═══════════════════════════════════════════════════════════════════════
 
     function checkAppreciation() {
         if (!ctx || !masterGain) return;
-        const now = ctx.currentTime;
+        var now = ctx.currentTime;
 
-        // ── RETURNING USER: Welcome back harmonic (iv→I resolution) ──
+        // Returning user: iv→I resolution
         if (!state.welcomeBackPlayed &&
             typeof GumpNeuromorphicMemory !== 'undefined' &&
             GumpNeuromorphicMemory.isReturningUser) {
-
             state.welcomeBackPlayed = true;
             playWelcomeBack(now);
             showMsg('WELCOME BACK');
-            console.log('[Conductor] Welcome back — playing harmonic resolution');
         }
 
-        // ── NEW GESTURE DISCOVERED: Ascending arpeggio ──
+        // New gesture discovered
         if (typeof GumpNeuromorphicMemory !== 'undefined') {
-            const newGestures = GumpNeuromorphicMemory.newGesturesThisSession;
+            var newGestures = GumpNeuromorphicMemory.newGesturesThisSession;
             if (newGestures.length > 0 && (now - state.lastDiscoveryTime) > 10) {
                 state.lastDiscoveryTime = now;
                 playDiscoveryArpeggio(now);
@@ -1921,33 +1803,31 @@ const GumpConductor = (function() {
             }
         }
 
-        // ── PATTERN CONSISTENCY: Layer in a new voice ──
+        // Pattern consistency
         if (typeof GumpNeuromorphicMemory !== 'undefined' &&
             (now - state.lastConsistencyTime) > 60) {
-            const seq = GumpNeuromorphicMemory.sessionMemory.gestureSequence;
+            var seq = GumpNeuromorphicMemory.sessionMemory.gestureSequence;
             if (seq.length >= 10) {
-                const last5 = seq.slice(-5);
-                const prev5 = seq.slice(-10, -5);
-                const last5Set = new Set(last5);
-                const prev5Set = new Set(prev5);
-                let overlap = 0;
-                for (const g of last5) {
-                    if (prev5Set.has(g)) overlap++;
+                var last5 = seq.slice(-5);
+                var prev5 = seq.slice(-10, -5);
+                var prev5Set = new Set(prev5);
+                var overlap = 0;
+                for (var i = 0; i < last5.length; i++) {
+                    if (prev5Set.has(last5[i])) overlap++;
                 }
-                if (overlap >= 4) { // 80%+ consistency
+                if (overlap >= 4) {
                     state.lastConsistencyTime = now;
                     playConsistencyVoice(now);
                 }
             }
         }
 
-        // ── PATTERN BREAK: Surprise filter burst ──
+        // Pattern break: surprise filter burst
         if (typeof GumpNeuromorphicMemory !== 'undefined' &&
             GumpNeuromorphicMemory.detectPatternBreak()) {
-            const surprise = GumpNeuromorphicMemory.surprise;
+            var surprise = GumpNeuromorphicMemory.surprise;
             if (surprise > 0.3 && lofiFilter) {
-                // Brief filter sweep — surprise!
-                const freq = lofiFilter.frequency.value;
+                var freq = lofiFilter.frequency.value;
                 lofiFilter.frequency.setValueAtTime(freq, now);
                 lofiFilter.frequency.linearRampToValueAtTime(
                     Math.min(12000, freq + surprise * 6000), now + 0.1
@@ -1958,406 +1838,322 @@ const GumpConductor = (function() {
     }
 
     function playWelcomeBack(now) {
-        // iv→I harmonic resolution: Dm7 → Amaj7 (432Hz tuning)
-        // Dm7: D, F, A, C → Amaj7: A, C#, E, G# — pushing 7ths
-        const ivChord = [288.33, 343.17, 432, 513.74]; // D, F, A, C
-        const IChord = [216, 272.54, 324, 408.24];      // A, C#, E, G#
+        var ivChord = [288.33, 343.17, 432, 513.74];
+        var IChord = [216, 272.54, 324, 408.24];
+        var output = dest();
 
-        const welcomeFilter = ctx.createBiquadFilter();
-        welcomeFilter.type = 'lowpass';
-        welcomeFilter.frequency.setValueAtTime(800, now);
-        welcomeFilter.frequency.linearRampToValueAtTime(3000, now + 2);
-        welcomeFilter.connect(sidechainGain || masterGain);
+        var filter = ctx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(800, now);
+        filter.frequency.linearRampToValueAtTime(3000, now + 2);
+        filter.connect(output);
+        if (reverbSend) filter.connect(reverbSend);
 
-        // Play iv7 chord — detuned saws for lush entry
         ivChord.forEach(function(f) {
-            [-3, 0, 3].forEach(function(detune) {
-                const osc = ctx.createOscillator();
-                osc.type = 'sawtooth';
-                osc.frequency.value = f;
-                osc.detune.value = detune;
-                const gain = ctx.createGain();
-                gain.gain.setValueAtTime(0, now);
-                gain.gain.linearRampToValueAtTime(0.015, now + 0.5);
-                gain.gain.setTargetAtTime(0.001, now + 1.5, 0.3);
-                osc.connect(gain);
-                gain.connect(welcomeFilter);
-                osc.start(now);
-                osc.stop(now + 3);
+            [-3, 0, 3].forEach(function(det) {
+                var osc = ctx.createOscillator();
+                osc.type = 'sawtooth'; osc.frequency.value = f; osc.detune.value = det;
+                var g = ctx.createGain();
+                g.gain.setValueAtTime(0, now);
+                g.gain.linearRampToValueAtTime(0.015, now + 0.5);
+                g.gain.setTargetAtTime(0.001, now + 1.5, 0.3);
+                osc.connect(g); g.connect(filter);
+                osc.start(now); osc.stop(now + 3);
             });
         });
 
-        // Resolve to Imaj7 chord after 1.5s
         IChord.forEach(function(f) {
-            [-3, 0, 3].forEach(function(detune) {
-                const osc = ctx.createOscillator();
-                osc.type = 'sawtooth';
-                osc.frequency.value = f;
-                osc.detune.value = detune;
-                const gain = ctx.createGain();
-                gain.gain.setValueAtTime(0, now + 1.5);
-                gain.gain.linearRampToValueAtTime(0.018, now + 2.0);
-                gain.gain.exponentialRampToValueAtTime(0.001, now + 5);
-                osc.connect(gain);
-                gain.connect(welcomeFilter);
-                osc.start(now + 1.5);
-                osc.stop(now + 5.5);
+            [-3, 0, 3].forEach(function(det) {
+                var osc = ctx.createOscillator();
+                osc.type = 'sawtooth'; osc.frequency.value = f; osc.detune.value = det;
+                var g = ctx.createGain();
+                g.gain.setValueAtTime(0, now + 1.5);
+                g.gain.linearRampToValueAtTime(0.018, now + 2.0);
+                g.gain.exponentialRampToValueAtTime(0.001, now + 5);
+                osc.connect(g); g.connect(filter);
+                osc.start(now + 1.5); osc.stop(now + 5.5);
             });
         });
     }
 
     function playDiscoveryArpeggio(now) {
-        // Ascending arpeggio — Fibonacci timing: 0.08, 0.13, 0.21, 0.34s gaps
-        const baseFreq = 432;
-        const intervals = [0, 7, 12, 19, 24]; // unison, 5th, oct, oct+5th, 2oct
-        const fibGaps = [0, 0.08, 0.21, 0.42, 0.76]; // cumulative Fibonacci-ish
+        var baseFreq = 432;
+        var intervals = [0, 7, 12, 19, 24];
+        var fibGaps = [0, 0.08, 0.21, 0.42, 0.76];
+        var output = dest();
 
-        const filter = ctx.createBiquadFilter();
+        var filter = ctx.createBiquadFilter();
         filter.type = 'lowpass';
         filter.frequency.value = 5000;
-        filter.connect(sidechainGain || masterGain);
+        filter.connect(output);
+        if (delaySend) filter.connect(delaySend);
 
         intervals.forEach(function(semitone, i) {
-            const t = now + fibGaps[i];
-            const freq = baseFreq * Math.pow(2, semitone / 12);
-
-            // Detuned saw pair for shimmer
-            [-4, 0, 4].forEach(function(detune) {
-                const osc = ctx.createOscillator();
-                osc.type = 'sawtooth';
-                osc.frequency.value = freq;
-                osc.detune.value = detune;
-
-                const gain = ctx.createGain();
-                gain.gain.setValueAtTime(0.02, t);
-                gain.gain.exponentialRampToValueAtTime(0.001, t + 0.5);
-
-                osc.connect(gain);
-                gain.connect(filter);
-                osc.start(t);
-                osc.stop(t + 0.7);
+            var t = now + fibGaps[i];
+            var freq = baseFreq * Math.pow(2, semitone / 12);
+            [-4, 0, 4].forEach(function(det) {
+                var osc = ctx.createOscillator();
+                osc.type = 'sawtooth'; osc.frequency.value = freq; osc.detune.value = det;
+                var g = ctx.createGain();
+                g.gain.setValueAtTime(0.02, t);
+                g.gain.exponentialRampToValueAtTime(0.001, t + 0.5);
+                osc.connect(g); g.connect(filter);
+                osc.start(t); osc.stop(t + 0.7);
             });
         });
     }
 
     function playConsistencyVoice(now) {
-        // Warm sustained chord — the machine notices your consistency
-        // E + B (5th) at A=432 for open voicing
-        const freqs = [324, 486]; // E3 + B3
-
-        const filter = ctx.createBiquadFilter();
+        var freqs = [324, 486];
+        var output = dest();
+        var filter = ctx.createBiquadFilter();
         filter.type = 'lowpass';
         filter.frequency.value = 900;
-        filter.connect(sidechainGain || masterGain);
+        filter.connect(output);
+        if (reverbSend) filter.connect(reverbSend);
 
         freqs.forEach(function(f) {
-            [-4, 0, 4].forEach(function(detune) {
-                const osc = ctx.createOscillator();
-                osc.type = 'sawtooth';
-                osc.frequency.value = f;
-                osc.detune.value = detune;
-
-                const gain = ctx.createGain();
-                gain.gain.setValueAtTime(0, now);
-                gain.gain.linearRampToValueAtTime(0.008, now + 2);
-                gain.gain.setTargetAtTime(0.001, now + 8, 2);
-
-                osc.connect(gain);
-                gain.connect(filter);
-                osc.start(now);
-                osc.stop(now + 14);
+            [-4, 0, 4].forEach(function(det) {
+                var osc = ctx.createOscillator();
+                osc.type = 'sawtooth'; osc.frequency.value = f; osc.detune.value = det;
+                var g = ctx.createGain();
+                g.gain.setValueAtTime(0, now);
+                g.gain.linearRampToValueAtTime(0.008, now + 2);
+                g.gain.setTargetAtTime(0.001, now + 8, 2);
+                osc.connect(g); g.connect(filter);
+                osc.start(now); osc.stop(now + 14);
             });
         });
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    // v33 MUSICAL CONTEXT UPDATE — Reads the brain, shapes every response
+    // MUSICAL CONTEXT UPDATE
     // ═══════════════════════════════════════════════════════════════════════
 
     function updateMusicalContext() {
-        const now = Date.now();
-
-        // Read STDP prediction for last gesture
-        if (musicalContext.lastGesture &&
-            typeof GumpNeuromorphicMemory !== 'undefined') {
-            const pred = GumpNeuromorphicMemory.getPrediction(musicalContext.lastGesture);
+        // STDP prediction
+        if (musicalContext.lastGesture && typeof GumpNeuromorphicMemory !== 'undefined') {
+            var pred = GumpNeuromorphicMemory.getPrediction(musicalContext.lastGesture);
             musicalContext.predictedNextGesture = pred.gesture;
             musicalContext.predictionConfidence = pred.confidence;
         }
 
-        // Blend ESN surprise + prediction confidence into tension
-        let targetTension = 0;
+        // Tension from surprise + prediction
+        var targetTension = 0;
         if (typeof GumpNeuromorphicMemory !== 'undefined') {
-            const surprise = GumpNeuromorphicMemory.surprise;
-            const conf = musicalContext.predictionConfidence;
-            // High surprise = high tension, high confidence = moderate tension (anticipation)
+            var surprise = GumpNeuromorphicMemory.surprise;
+            var conf = musicalContext.predictionConfidence;
             targetTension = surprise * 0.6 + conf * 0.3 + musicalContext.harmonicTension * 0.1;
-            // v35: DNA base tension offset
             if (typeof GumpMusicalDNA !== 'undefined') {
                 targetTension += GumpMusicalDNA.getBias().baseTension;
             }
         }
         musicalContext.tensionLevel += (targetTension - musicalContext.tensionLevel) * 0.05;
 
-        // Drift harmonicRoot based on tension (high tension = up to tritone shift)
-        // Tritone = 6 semitones above base 432Hz
-        musicalContext.rootSemitoneOffset += (musicalContext.tensionLevel * 6 - musicalContext.rootSemitoneOffset) * 0.02;
-        // v40: Evolution stage shifts root up by 5ths (emotional lift)
-        const totalShift = musicalContext.rootSemitoneOffset + state.stageHarmonicShift;
+        // Harmonic root drifts with tension + evolution stage shift
+        musicalContext.rootSemitoneOffset +=
+            (musicalContext.tensionLevel * 6 - musicalContext.rootSemitoneOffset) * 0.02;
+        var totalShift = musicalContext.rootSemitoneOffset + state.stageHarmonicShift;
         musicalContext.harmonicRoot = 432 * Math.pow(2, totalShift / 12);
 
-        // Detect user BPM from interval history
-        const intervals = musicalContext.userIntervalHistory;
+        // Detect user BPM
+        var intervals = musicalContext.userIntervalHistory;
         if (intervals.length >= 4) {
-            const recentIntervals = intervals.slice(-8);
-            const mean = recentIntervals.reduce(function(a, b) { return a + b; }, 0) / recentIntervals.length;
-            let variance = 0;
-            for (let i = 0; i < recentIntervals.length; i++) {
-                variance += (recentIntervals[i] - mean) * (recentIntervals[i] - mean);
+            var recent = intervals.slice(-8);
+            var mean = recent.reduce(function(a, b) { return a + b; }, 0) / recent.length;
+            var variance = 0;
+            for (var i = 0; i < recent.length; i++) {
+                variance += (recent[i] - mean) * (recent[i] - mean);
             }
-            variance /= recentIntervals.length;
-            const stddev = Math.sqrt(variance);
-            const cv = mean > 0 ? stddev / mean : 1; // coefficient of variation
-
+            variance /= recent.length;
+            var cv = mean > 0 ? Math.sqrt(variance) / mean : 1;
             if (cv < 0.3 && mean > 200 && mean < 2000) {
-                // Rhythmic tapping detected
                 musicalContext.detectedUserBPM = 60000 / mean;
             } else {
-                musicalContext.detectedUserBPM *= 0.95; // decay toward 0
+                musicalContext.detectedUserBPM *= 0.95;
             }
         }
 
-        // Compute momentum direction from energy + tension + gesture count
-        const gestures = musicalContext.gesturesSinceStillness;
-        if (gestures === 0) {
-            musicalContext.momentumDirection = 'still';
-        } else if (state.energy > 0.5 && musicalContext.tensionLevel > 0.3) {
-            musicalContext.momentumDirection = 'building';
-        } else if (state.energy > 0.3 && musicalContext.tensionLevel < 0.2) {
-            musicalContext.momentumDirection = 'sustaining';
-        } else if (state.energy < 0.2) {
-            musicalContext.momentumDirection = 'resolving';
-        }
+        // Momentum direction
+        var gestures = musicalContext.gesturesSinceStillness;
+        if (gestures === 0) musicalContext.momentumDirection = 'still';
+        else if (state.energy > 0.5 && musicalContext.tensionLevel > 0.3) musicalContext.momentumDirection = 'building';
+        else if (state.energy > 0.3 && musicalContext.tensionLevel < 0.2) musicalContext.momentumDirection = 'sustaining';
+        else if (state.energy < 0.2) musicalContext.momentumDirection = 'resolving';
 
-        // Smooth emotional arc: blend energy + tension + tilt influence
-        const targetArc = (state.energy * 0.4 + musicalContext.tensionLevel * 0.3 +
-            (musicalContext.expressionDepth) * 0.3);
+        // Emotional arc
+        var targetArc = state.energy * 0.4 + musicalContext.tensionLevel * 0.3 +
+            musicalContext.expressionDepth * 0.3;
         musicalContext.emotionalArc += (targetArc - musicalContext.emotionalArc) * 0.03;
 
-        // Advance rhythmic phase (position in 4-bar = 64 steps)
-        if (state.groovePlaying) {
-            musicalContext.rhythmicPhase = state.grooveStep;
-        }
+        if (state.groovePlaying) musicalContext.rhythmicPhase = state.grooveStep;
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    // v33 TILT EXPRESSION — Musical expression from phone orientation
+    // TILT EXPRESSION — Stage-aware filter + reverb modulation
     // ═══════════════════════════════════════════════════════════════════════
 
     function applyTiltExpression() {
         if (!lofiFilter || !ctx) return;
 
-        // ── tiltX → Harmonic Tension ──
-        const absTiltX = Math.abs(state.tiltX);
+        // tiltX → harmonic tension + filter resonance
+        var absTiltX = Math.abs(state.tiltX);
         musicalContext.harmonicTension = Math.min(1, absTiltX);
-        // Drive filter resonance: more tilt = more acidic, up to Q=8
-        // v35: DNA filterQ as floor
-        const dnaQFloor = (typeof GumpMusicalDNA !== 'undefined') ?
+        var dnaQFloor = (typeof GumpMusicalDNA !== 'undefined') ?
             GumpMusicalDNA.getBias().filterQ : 0.7;
         if (absTiltX > 0.2) {
             lofiFilter.Q.setTargetAtTime(
-                Math.max(dnaQFloor, 0.7 + absTiltX * 7.3),  // DNA floor or tilt-driven
-                ctx.currentTime, 0.1
+                Math.max(dnaQFloor, 0.7 + absTiltX * 7.3), ctx.currentTime, 0.1
             );
         } else {
             lofiFilter.Q.setTargetAtTime(dnaQFloor, ctx.currentTime, 0.3);
         }
 
-        // ── tiltY → Multi-Dimensional Expression ──
-        const brightness = (state.tiltY + 1) * 0.5; // 0=dark, 1=bright
+        // tiltY → expression depth + filter frequency
+        var brightness = (state.tiltY + 1) * 0.5;
         musicalContext.expressionDepth = Math.max(0, Math.min(1, brightness));
-        musicalContext.rhythmicDensity = 0.2 + brightness * 0.8; // 0.2 to 1.0
+        musicalContext.rhythmicDensity = 0.2 + brightness * 0.8;
 
-        // v40: tiltY → reverb send (tilt back = more reverb = dreamier)
+        // tiltY → reverb send modulation (on top of stage base)
         if (reverbSend) {
-            const reverbTarget = 0.15 + brightness * 0.25; // 0.15 dark → 0.40 bright
+            var stageBase = { EMERGING: 0.20, FLOWING: 0.28, SURGING: 0.33, TRANSCENDENT: 0.38 };
+            var base = stageBase[state.evolutionStage] || 0.20;
+            var reverbTarget = base + (1 - brightness) * 0.12; // tilt back = more reverb
             reverbSend.gain.setTargetAtTime(reverbTarget, ctx.currentTime, 0.3);
         }
 
-        // Filter frequency: enhanced range with energy contribution
-        // v35: DNA filter bias blended in
-        const dnaFilterBias = (typeof GumpMusicalDNA !== 'undefined') ?
+        // Filter: range expands with evolution stage
+        var stageFilterCeiling = {
+            EMERGING: 4000,
+            FLOWING: 7000,
+            SURGING: 10000,
+            TRANSCENDENT: 14000,
+        };
+        var ceiling = stageFilterCeiling[state.evolutionStage] || 4000;
+        var dnaFilterBias = (typeof GumpMusicalDNA !== 'undefined') ?
             GumpMusicalDNA.getBias().filterBase : 0;
-        const target = 1500 + brightness * 7000 + state.energy * 3500 + dnaFilterBias * 0.3;
+        var target = 800 + brightness * ceiling + state.energy * 2000 + dnaFilterBias * 0.3;
         state.filterFreq += (target - state.filterFreq) * 0.08;
         lofiFilter.frequency.setValueAtTime(
-            Math.min(14000, Math.max(600, state.filterFreq)),
-            ctx.currentTime
+            Math.min(14000, Math.max(400, state.filterFreq)), ctx.currentTime
         );
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    // UPDATE LOOP — Flywheel + expression + neuromorphic integration
+    // UPDATE LOOP
     // ═══════════════════════════════════════════════════════════════════════
 
     function update() {
-        // Classify motion pattern from buffer
         classifyMotion();
 
-        // Energy decay — gentle
+        // Energy decay
         if (!state.touching && state.motion < 0.3) {
             state.energy *= 0.995;
         }
 
-        // Groove: motion rhythmicity OR touch activity OR energy
-        const neurons = typeof GumpMotionBrain !== 'undefined' ? GumpMotionBrain.neurons : null;
-        const rhythmicity = (neurons && neurons.pendulum && neurons.pendulum.firing) ? 0.8 : state.smoothSpeed * 0.5;
-        const touchBoost = state.touching ? 1.5 : 0.5;
-        const grooveIntensity = Math.min(1, Math.max(rhythmicity * touchBoost, state.energy));
-        const dnaBias = (typeof GumpMusicalDNA !== 'undefined') ? GumpMusicalDNA.getBias() : null;
-        const grooveThresh = dnaBias ? dnaBias.grooveThreshold : 0.3;
-        if (grooveIntensity > grooveThresh && !state.groovePlaying) {
-            startGroove();
-        }
-        if (grooveIntensity < 0.05 && state.groovePlaying) {
-            stopGroove();
-        }
-
-        // BPM adapts to motion (G7 pattern)
+        // BPM adapts to motion + evolution stage
         if (state.motionHistory.length > 20) {
-            // v35: DNA tempo bias replaces fixed base
-            const dnaBias = (typeof GumpMusicalDNA !== 'undefined') ? GumpMusicalDNA.getBias() : null;
-            let baseBPM = (dnaBias ? dnaBias.tempo : 80) + state.avgMotion * 8 + state.intensity * 5;
-            // Motion pattern shifts BPM
+            var dnaBias = (typeof GumpMusicalDNA !== 'undefined') ? GumpMusicalDNA.getBias() : null;
+            var baseBPM = (dnaBias ? dnaBias.tempo : 80) + state.avgMotion * 8 + state.intensity * 5;
             if (state.motionPattern === 'rhythmic') baseBPM += 5;
             else if (state.motionPattern === 'vigorous') baseBPM += 10;
             else if (state.motionPattern === 'chaotic') baseBPM += 15;
-            // v40: Evolution stage boosts BPM
             baseBPM += (STAGES[state.evolutionStage] || STAGES.EMERGING).bpmBoost;
-            // Smooth transition
             state.tempo = state.tempo * 0.95 + baseBPM * 0.05;
             state.tempo = Math.max(60, Math.min(140, state.tempo));
         }
 
-        // v35: DNA-driven drum bus gain + scale update
+        // Groove: starts from FLOWING stage, driven by motion/touch/energy
+        var neurons = typeof GumpMotionBrain !== 'undefined' ? GumpMotionBrain.neurons : null;
+        var rhythmicity = (neurons && neurons.pendulum && neurons.pendulum.firing) ? 0.8 : state.smoothSpeed * 0.5;
+        var touchBoost = state.touching ? 1.5 : 0.5;
+        var grooveIntensity = Math.min(1, Math.max(rhythmicity * touchBoost, state.energy));
+        var dnaBiasG = (typeof GumpMusicalDNA !== 'undefined') ? GumpMusicalDNA.getBias() : null;
+        var grooveThresh = dnaBiasG ? dnaBiasG.grooveThreshold : 0.3;
+
+        // Only allow groove from FLOWING stage onwards
+        var stageAllowsGroove = (state.evolutionStage !== 'EMERGING');
+        if (stageAllowsGroove && grooveIntensity > grooveThresh && !state.groovePlaying) {
+            startGroove();
+        }
+        if ((!stageAllowsGroove || grooveIntensity < 0.05) && state.groovePlaying) {
+            stopGroove();
+        }
+
+        // DNA-driven drum bus gain + scale
         if (typeof GumpMusicalDNA !== 'undefined') {
-            const dnaBiasUpdate = GumpMusicalDNA.getBias();
-            if (drumBus) {
-                drumBus.gain.setTargetAtTime(
-                    dnaBiasUpdate.drumGain,
-                    ctx.currentTime, 0.5
-                );
-            }
-            // Update active scale from DNA
-            scale = dnaBiasUpdate.scale;
+            var dnaBiasU = GumpMusicalDNA.getBias();
+            if (drumBus) drumBus.gain.setTargetAtTime(dnaBiasU.drumGain, ctx.currentTime, 0.5);
+            scale = dnaBiasU.scale;
         }
 
-        // v38: Context integration — weather/time modulate base warmth
+        // Weather/context
         if (typeof GumpContext !== 'undefined') {
-            const ctxData = GumpContext.get();
-            // Weather modulates base filter warmth
+            var ctxData = GumpContext.get();
             if (ctxData.warmth !== undefined && lofiFilter) {
-                const weatherBias = (ctxData.warmth - 0.5) * 600; // ±300Hz
-                state.filterFreq += weatherBias * 0.001; // very slow blend
+                state.filterFreq += (ctxData.warmth - 0.5) * 0.6;
             }
-            // Storminess adds subtle Q modulation
             if (ctxData.storminess > 0.3 && lofiFilter) {
-                const stormQ = ctxData.storminess * 2;
                 lofiFilter.Q.setTargetAtTime(
-                    Math.max(lofiFilter.Q.value, stormQ),
-                    ctx.currentTime, 1.0
+                    Math.max(lofiFilter.Q.value, ctxData.storminess * 2), ctx.currentTime, 1.0
                 );
             }
         }
 
-        // Tilt expression
+        // Expression + musical context
         applyTiltExpression();
-
-        // v33: Update musical context (reads brain, shapes every response)
         updateMusicalContext();
 
-        // v40: Evolution stage (driven by totalMotion flywheel)
-        updateEvolutionStage();
+        // Evolution + layer activation
+        updateEvolution();
+        updateLayers();
 
-        // v40: Layer activation (driven by motion pattern + stage)
-        updateLayerActivation();
-
-        // v40: Bass tracks harmonic root
-        updateBassFrequency();
-
-        // v40: Delay time syncs to current BPM
+        // Delay syncs to BPM (dotted-eighth)
         if (delayNode) {
-            const eighthNote = 60 / state.tempo / 2;
+            var dottedEighth = (60 / state.tempo) * 0.75;
             delayNode.delayTime.setTargetAtTime(
-                Math.max(0.05, Math.min(0.8, eighthNote)),
-                ctx.currentTime, 0.1
+                Math.max(0.05, Math.min(1.2, dottedEighth)), ctx.currentTime, 0.1
             );
         }
 
-        // Run groove
-        if (state.groovePlaying) {
-            runGroove();
-        }
+        // Groove
+        if (state.groovePlaying) runGroove();
 
-        // ═══════════════════════════════════════════════════════════════
-        // v32: NEUROMORPHIC UPDATE — Void audio, surprise, appreciation
-        // ═══════════════════════════════════════════════════════════════
-
+        // ── Neuromorphic: void, surprise, appreciation ──
         state.frameCount++;
 
-        // Void audio management (driven by MotionBrain void state)
         if (typeof GumpMotionBrain !== 'undefined') {
-            const brainVoidState = GumpMotionBrain.voidState;
-            const voidDepth = GumpMotionBrain.voidDepth;
-            const breathPhase = GumpMotionBrain.voidBreathPhase;
-
-            // Enter void when settling begins (state >= SETTLING)
+            var brainVoidState = GumpMotionBrain.voidState;
+            var voidDepth = GumpMotionBrain.voidDepth;
+            var breathPhase = GumpMotionBrain.voidBreathPhase;
             if (brainVoidState >= GumpMotionBrain.VOID_STATES.SETTLING) {
-                if (!voidAudio.active) {
-                    enterVoidAudio();
-                }
+                if (!voidAudio.active) enterVoidAudio();
                 updateVoidAudio(voidDepth, breathPhase);
             } else {
-                // Exit void when back to PRESENT
-                if (voidAudio.active) {
-                    exitVoidAudio();
-                }
+                if (voidAudio.active) exitVoidAudio();
             }
         }
 
-        // ESN surprise → filter modulation (high surprise = brief brightness)
         if (typeof GumpNeuromorphicMemory !== 'undefined' && lofiFilter) {
-            const surprise = GumpNeuromorphicMemory.surprise;
+            var surprise = GumpNeuromorphicMemory.surprise;
             if (surprise > 0.5) {
-                // Add a sparkle of brightness proportional to surprise
-                const boost = surprise * 1500;
-                state.filterFreq = Math.min(12000, state.filterFreq + boost * 0.02);
+                state.filterFreq = Math.min(12000, state.filterFreq + surprise * 30);
             }
-
-            // Periodic tick for memory maintenance
             GumpNeuromorphicMemory.tick(Date.now());
         }
 
-        // Personal appreciation check (every ~120 frames ≈ 2 seconds)
-        if (state.frameCount % 120 === 0) {
-            checkAppreciation();
-        }
+        if (state.frameCount % 120 === 0) checkAppreciation();
 
         requestAnimationFrame(update);
     }
 
-    function showMsg(txt) {
-        const el = document.getElementById('notification');
-        if (el) {
-            el.textContent = txt;
-            el.classList.add('visible');
-            setTimeout(() => el.classList.remove('visible'), 1500);
-        }
-    }
+    // ═══════════════════════════════════════════════════════════════════════
+    // EXPORTS
+    // ═══════════════════════════════════════════════════════════════════════
 
     return Object.freeze({
-        init,
-        THRESHOLDS,
+        init: init,
+        THRESHOLDS: THRESHOLDS,
         get energy() { return state.energy; },
         get tiltGranted() { return state.tiltGranted; },
         get motionGranted() { return state.motionGranted; },
@@ -2365,7 +2161,6 @@ const GumpConductor = (function() {
         get smoothSpeed() { return state.smoothSpeed; },
         get voidActive() { return voidAudio.active; },
         get musicalContext() { return musicalContext; },
-        // v40 exposed state
         get evolutionStage() { return state.evolutionStage; },
         get totalMotion() { return state.totalMotion; },
         get layers() { return layers; },
