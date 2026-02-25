@@ -1,8 +1,11 @@
 /**
  * GUMP CONDUCTOR - The Instrument Engine
  *
- * v38-REBIRTH: No tier gates, no energy thresholds.
- * Pad plays from first frame. Groove responds to motion rhythmicity.
+ * v40: BRING BACK THE ORCHESTRA
+ * Layered audio: pad, bass, atmosphere, strings, shimmer, choir.
+ * Convolver reverb + delay line for real space.
+ * Evolution stages: EMERGING → FLOWING → SURGING → TRANSCENDENT.
+ * Motion pattern drives which layers are active.
  * Tilt × touch = cross-product instrument.
  *
  * Warm 808 sub kick, dark lo-fi snare, subtle noise hats.
@@ -23,6 +26,29 @@ const GumpConductor = (function() {
     let drumSaturator = null;
     let drumCompressor = null;
     let sidechainGain = null;  // All non-drum audio routes through this; kick ducks it
+    let drumReverbSend = null; // v40: small reverb send for drums
+
+    // v40: Convolver reverb
+    let convolver = null;
+    let reverbSend = null;     // gain node controlling wet amount
+    let dryGain = null;        // dry path gain
+
+    // v40: Delay line
+    let delayNode = null;
+    let delayFeedback = null;
+    let delayMix = null;
+    let delaySend = null;      // gain node to send into delay
+
+    // v40: Orchestra layers — persistent audio voices
+    const layers = {
+        // Each layer: { gainNode, reverbAmount, active, oscillators[], filter }
+        pad:        { gainNode: null, reverbAmount: 0.35, active: false, nodes: [] },
+        bass:       { gainNode: null, reverbAmount: 0.15, active: false, nodes: [] },
+        atmosphere: { gainNode: null, reverbAmount: 0.20, active: false, nodes: [] },
+        strings:    { gainNode: null, reverbAmount: 0.40, active: false, nodes: [] },
+        shimmer:    { gainNode: null, reverbAmount: 0.50, active: false, nodes: [] },
+        choir:      { gainNode: null, reverbAmount: 0.45, active: false, nodes: [] },
+    };
 
     // v36: Vinyl crackle nodes — created/destroyed with groove
     let crackleSource = null;
@@ -58,6 +84,11 @@ const GumpConductor = (function() {
 
         // Lo-fi filter state
         filterFreq: 3000,
+
+        // v40: Evolution stage
+        evolutionStage: 'EMERGING',  // EMERGING/FLOWING/SURGING/TRANSCENDENT
+        lastStage: 'EMERGING',
+        stageHarmonicShift: 0,       // semitones shifted per stage (5ths)
 
         // v32 Neuromorphic state
         lastOrientation: null,
@@ -203,10 +234,56 @@ const GumpConductor = (function() {
         drumSaturator.connect(drumCompressor);
         drumCompressor.connect(masterGain);
 
+        // v40: Drums get a small reverb send (less than melodic layers)
+        // drumReverbSend connected to reverbSend after convolver is created below
+        drumReverbSend = ctx.createGain();
+        drumReverbSend.gain.value = 0.08;
+        drumCompressor.connect(drumReverbSend);
+
         // v33: Sidechain gain — all non-drum audio routes through here; kick ducks it
         sidechainGain = ctx.createGain();
         sidechainGain.gain.value = 1.0;
         sidechainGain.connect(masterGain);
+
+        // ── v40: CONVOLVER REVERB — Real space ──
+        convolver = ctx.createConvolver();
+        convolver.buffer = createReverbBuffer(2.5);
+
+        reverbSend = ctx.createGain();
+        reverbSend.gain.value = 0.25;
+
+        dryGain = ctx.createGain();
+        dryGain.gain.value = 0.75;
+
+        reverbSend.connect(convolver);
+        convolver.connect(masterGain);
+        dryGain.connect(masterGain);
+
+        // Connect drum reverb send (created earlier, convolver ready now)
+        if (drumReverbSend) drumReverbSend.connect(reverbSend);
+
+        // ── v40: DELAY LINE — Rhythmic echo ──
+        delayNode = ctx.createDelay(1.0);
+        delayNode.delayTime.value = 60 / state.tempo / 2; // 8th note
+
+        delayFeedback = ctx.createGain();
+        delayFeedback.gain.value = 0.35;
+
+        delayMix = ctx.createGain();
+        delayMix.gain.value = 0.2;
+
+        delaySend = ctx.createGain();
+        delaySend.gain.value = 0.3;
+
+        // Delay feedback loop
+        delaySend.connect(delayNode);
+        delayNode.connect(delayFeedback);
+        delayFeedback.connect(delayNode);
+        delayNode.connect(delayMix);
+        delayMix.connect(masterGain);
+
+        // ── v40: CREATE ORCHESTRA LAYERS ──
+        createLayers();
 
         // Touch handlers
         document.addEventListener('touchstart', onTouch, { passive: false, capture: true });
@@ -257,7 +334,7 @@ const GumpConductor = (function() {
         // Start update loop
         update();
 
-        console.log('[Conductor] v39 Ready — G7 motion pattern');
+        console.log('[Conductor] v40 Ready — Orchestra + Reverb + Delay + Evolution');
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -515,6 +592,313 @@ const GumpConductor = (function() {
     }
 
     // ═══════════════════════════════════════════════════════════════════════
+    // v40 CONVOLVER REVERB BUFFER — Algorithmic impulse response
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function createReverbBuffer(time) {
+        const length = ctx.sampleRate * time;
+        const buffer = ctx.createBuffer(2, length, ctx.sampleRate);
+        for (let c = 0; c < 2; c++) {
+            const data = buffer.getChannelData(c);
+            for (let i = 0; i < length; i++) {
+                const decay = Math.pow(1 - i / length, 3);
+                data[i] = (Math.random() * 2 - 1) * decay * 0.3;
+            }
+        }
+        return buffer;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // v40 ORCHESTRA LAYERS — Multiple persistent audio voices
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function connectLayer(layer, extraReverbAmount) {
+        // Each layer routes to both dry and reverb send
+        const amount = extraReverbAmount || layer.reverbAmount;
+        const layerDry = ctx.createGain();
+        layerDry.gain.value = 1 - amount;
+        const layerWet = ctx.createGain();
+        layerWet.gain.value = amount;
+
+        layer.gainNode.connect(layerDry);
+        layer.gainNode.connect(layerWet);
+        layerDry.connect(sidechainGain);
+        layerWet.connect(reverbSend);
+
+        layer._dryNode = layerDry;
+        layer._wetNode = layerWet;
+    }
+
+    function createLayers() {
+        // ── ATMOSPHERE: Filtered noise, always very quiet ──
+        layers.atmosphere.gainNode = ctx.createGain();
+        layers.atmosphere.gainNode.gain.value = 0;
+        connectLayer(layers.atmosphere);
+
+        const atmBufLen = ctx.sampleRate * 4;
+        const atmBuf = ctx.createBuffer(1, atmBufLen, ctx.sampleRate);
+        const atmData = atmBuf.getChannelData(0);
+        for (let i = 0; i < atmBufLen; i++) {
+            atmData[i] = (Math.random() * 2 - 1);
+        }
+        const atmSource = ctx.createBufferSource();
+        atmSource.buffer = atmBuf;
+        atmSource.loop = true;
+
+        const atmBP = ctx.createBiquadFilter();
+        atmBP.type = 'bandpass';
+        atmBP.frequency.value = 800;
+        atmBP.Q.value = 0.8;
+
+        // Slow random LFO on filter frequency
+        const atmLFO = ctx.createOscillator();
+        atmLFO.type = 'sine';
+        atmLFO.frequency.value = 0.1 + Math.random() * 0.15;
+        const atmLFOGain = ctx.createGain();
+        atmLFOGain.gain.value = 300;
+        atmLFO.connect(atmLFOGain);
+        atmLFOGain.connect(atmBP.frequency);
+
+        atmSource.connect(atmBP);
+        atmBP.connect(layers.atmosphere.gainNode);
+        atmSource.start();
+        atmLFO.start();
+        layers.atmosphere.nodes.push(atmSource, atmLFO);
+        layers.atmosphere.active = true;
+
+        // ── BASS: Sub sine following chord root, slow filter LFO ──
+        layers.bass.gainNode = ctx.createGain();
+        layers.bass.gainNode.gain.value = 0;
+        connectLayer(layers.bass);
+
+        const bassOsc = ctx.createOscillator();
+        bassOsc.type = 'sine';
+        bassOsc.frequency.value = 54; // A1 sub (432/8)
+
+        const bassOsc2 = ctx.createOscillator();
+        bassOsc2.type = 'sine';
+        bassOsc2.frequency.value = 54.1; // slight detune for beating
+
+        const bassFilter = ctx.createBiquadFilter();
+        bassFilter.type = 'lowpass';
+        bassFilter.frequency.value = 120;
+        bassFilter.Q.value = 1.2;
+
+        // Slow filter LFO
+        const bassLFO = ctx.createOscillator();
+        bassLFO.type = 'sine';
+        bassLFO.frequency.value = 0.08;
+        const bassLFOGain = ctx.createGain();
+        bassLFOGain.gain.value = 40;
+        bassLFO.connect(bassLFOGain);
+        bassLFOGain.connect(bassFilter.frequency);
+
+        bassOsc.connect(bassFilter);
+        bassOsc2.connect(bassFilter);
+        bassFilter.connect(layers.bass.gainNode);
+        bassOsc.start();
+        bassOsc2.start();
+        bassLFO.start();
+        layers.bass.nodes.push(bassOsc, bassOsc2, bassLFO);
+        layers.bass._filter = bassFilter;
+        layers.bass._oscs = [bassOsc, bassOsc2];
+
+        // ── STRINGS: Slow-attack detuned saws, 2 voices, LPF 1200Hz ──
+        layers.strings.gainNode = ctx.createGain();
+        layers.strings.gainNode.gain.value = 0;
+        connectLayer(layers.strings);
+
+        const strFilter = ctx.createBiquadFilter();
+        strFilter.type = 'lowpass';
+        strFilter.frequency.value = 1200;
+        strFilter.Q.value = 0.5;
+        strFilter.connect(layers.strings.gainNode);
+
+        // Two string voices: root (A3) and fifth (E4) in 432Hz tuning
+        const strFreqs = [216, 324]; // A3, E4
+        strFreqs.forEach(function(f) {
+            [-10, -4, 0, 4, 10].forEach(function(detune) {
+                const osc = ctx.createOscillator();
+                osc.type = 'sawtooth';
+                osc.frequency.value = f;
+                osc.detune.value = detune + (Math.random() - 0.5) * 3;
+                const voiceGain = ctx.createGain();
+                voiceGain.gain.value = 0.04;
+                osc.connect(voiceGain);
+                voiceGain.connect(strFilter);
+                osc.start();
+                layers.strings.nodes.push(osc);
+            });
+        });
+
+        // ── SHIMMER: High octave triangles with long release ──
+        layers.shimmer.gainNode = ctx.createGain();
+        layers.shimmer.gainNode.gain.value = 0;
+        connectLayer(layers.shimmer);
+
+        const shimFilter = ctx.createBiquadFilter();
+        shimFilter.type = 'lowpass';
+        shimFilter.frequency.value = 6000;
+        shimFilter.Q.value = 0.3;
+        shimFilter.connect(layers.shimmer.gainNode);
+
+        // High triangles: A5, E6, A6
+        [864, 1296, 1728].forEach(function(f) {
+            const osc = ctx.createOscillator();
+            osc.type = 'triangle';
+            osc.frequency.value = f;
+            osc.detune.value = (Math.random() - 0.5) * 8;
+            const voiceGain = ctx.createGain();
+            voiceGain.gain.value = 0.02;
+            osc.connect(voiceGain);
+            voiceGain.connect(shimFilter);
+            osc.start();
+            layers.shimmer.nodes.push(osc);
+        });
+
+        // ── CHOIR: 3 sine voices (root + 3rd + 5th) with slow vibrato ──
+        layers.choir.gainNode = ctx.createGain();
+        layers.choir.gainNode.gain.value = 0;
+        connectLayer(layers.choir);
+
+        const choirFilter = ctx.createBiquadFilter();
+        choirFilter.type = 'lowpass';
+        choirFilter.frequency.value = 2000;
+        choirFilter.Q.value = 0.4;
+        choirFilter.connect(layers.choir.gainNode);
+
+        // Choir: root (A3=216), major 3rd (C#4=272.5), fifth (E4=324)
+        [216, 272.54, 324].forEach(function(f) {
+            const osc = ctx.createOscillator();
+            osc.type = 'sine';
+            osc.frequency.value = f;
+
+            // Slow vibrato LFO per voice
+            const vib = ctx.createOscillator();
+            vib.type = 'sine';
+            vib.frequency.value = 4.5 + Math.random() * 1.5; // 4.5-6Hz
+            const vibGain = ctx.createGain();
+            vibGain.gain.value = 3 + Math.random() * 2; // 3-5 cents
+            vib.connect(vibGain);
+            vibGain.connect(osc.detune);
+            vib.start();
+
+            const voiceGain = ctx.createGain();
+            voiceGain.gain.value = 0.035;
+            osc.connect(voiceGain);
+            voiceGain.connect(choirFilter);
+            osc.start();
+            layers.choir.nodes.push(osc, vib);
+        });
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // v40 LAYER ACTIVATION — Motion pattern drives which layers play
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function updateLayerActivation() {
+        if (!ctx) return;
+        const now = ctx.currentTime;
+        const pattern = state.motionPattern;
+        const stage = state.evolutionStage;
+
+        // Target gains based on motion pattern + evolution stage
+        let targets = {
+            atmosphere: 0.025,  // always on, very quiet
+            bass: 0,
+            strings: 0,
+            shimmer: 0,
+            choir: 0,
+        };
+
+        // Motion pattern drives base activation
+        if (pattern === 'gentle' || pattern === 'rhythmic' || pattern === 'vigorous' || pattern === 'chaotic') {
+            targets.bass = 0.12;
+        }
+        if (pattern === 'rhythmic' || pattern === 'vigorous' || pattern === 'chaotic') {
+            targets.strings = 0.06;
+        }
+        if (pattern === 'vigorous' || pattern === 'chaotic') {
+            targets.shimmer = 0.04;
+        }
+
+        // Evolution stage can boost or enable layers
+        if (stage === 'FLOWING' || stage === 'SURGING' || stage === 'TRANSCENDENT') {
+            targets.bass = Math.max(targets.bass, 0.10);
+            targets.strings = Math.max(targets.strings, 0.03);
+        }
+        if (stage === 'SURGING' || stage === 'TRANSCENDENT') {
+            targets.shimmer = Math.max(targets.shimmer, 0.035);
+            targets.strings = Math.max(targets.strings, 0.07);
+        }
+        if (stage === 'TRANSCENDENT') {
+            targets.choir = 0.05;
+            targets.shimmer = Math.max(targets.shimmer, 0.05);
+            targets.atmosphere = 0.04;
+        }
+
+        // Void override — fade everything down except atmosphere
+        if (voidAudio.active) {
+            targets.bass = 0;
+            targets.strings = 0;
+            targets.shimmer = 0;
+            targets.choir = 0;
+            targets.atmosphere = 0.015;
+        }
+
+        // Smooth crossfade each layer (4-second time constant for stage transitions)
+        const fadeTime = (state.lastStage !== state.evolutionStage) ? 2.0 : 0.5;
+        for (const name in targets) {
+            if (layers[name] && layers[name].gainNode) {
+                layers[name].gainNode.gain.setTargetAtTime(targets[name], now, fadeTime);
+            }
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // v40 EVOLUTION STAGES — The journey, driven by totalMotion
+    // ═══════════════════════════════════════════════════════════════════════
+
+    const STAGES = {
+        EMERGING:     { threshold: 0,   bpmBoost: 0,  harmonicShift: 0 },
+        FLOWING:      { threshold: 100, bpmBoost: 3,  harmonicShift: 7 },  // up a 5th
+        SURGING:      { threshold: 400, bpmBoost: 8,  harmonicShift: 14 }, // up another 5th
+        TRANSCENDENT: { threshold: 800, bpmBoost: 12, harmonicShift: 19 }, // up another 5th (almost 2 oct)
+    };
+
+    function updateEvolutionStage() {
+        const total = state.totalMotion;
+        let newStage = 'EMERGING';
+
+        if (total >= STAGES.TRANSCENDENT.threshold) newStage = 'TRANSCENDENT';
+        else if (total >= STAGES.SURGING.threshold) newStage = 'SURGING';
+        else if (total >= STAGES.FLOWING.threshold) newStage = 'FLOWING';
+
+        if (newStage !== state.evolutionStage) {
+            state.lastStage = state.evolutionStage;
+            state.evolutionStage = newStage;
+            state.stageHarmonicShift = STAGES[newStage].harmonicShift;
+
+            showMsg(newStage);
+            console.log('[Conductor] Stage → ' + newStage + ' (totalMotion: ' + total.toFixed(0) + ')');
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // v40 BASS TRACKING — Keep bass following the harmonic root
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function updateBassFrequency() {
+        if (!layers.bass._oscs) return;
+        // Bass follows harmonicRoot, shifted by evolution stage
+        const rootFreq = musicalContext.harmonicRoot / 8; // sub octave
+        const shifted = rootFreq * Math.pow(2, state.stageHarmonicShift / 12);
+        const bassFreq = Math.max(20, Math.min(80, shifted));
+        layers.bass._oscs[0].frequency.setTargetAtTime(bassFreq, ctx.currentTime, 0.3);
+        layers.bass._oscs[1].frequency.setTargetAtTime(bassFreq * 1.002, ctx.currentTime, 0.3);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
     // SOUNDS — Dreamy strings with lo-fi warmth
     // ═══════════════════════════════════════════════════════════════════════
 
@@ -565,6 +949,9 @@ const GumpConductor = (function() {
 
         filter.connect(noteGain);
         noteGain.connect(dest);
+        // v40: Send notes to delay + reverb for space
+        if (delaySend) noteGain.connect(delaySend);
+        if (reverbSend) noteGain.connect(reverbSend);
 
         // 5-saw detuned supersaw — heaven-tier unison
         for (let i = 0; i < 5; i++) {
@@ -635,6 +1022,13 @@ const GumpConductor = (function() {
         padFilter.frequency.value = 500 + (dnaPadBias ? dnaPadBias.filterBase * 0.15 : 0);
         padFilter.Q.value = 0.6;
         padFilter.connect(sidechainGain || masterGain);
+        // v40: Pad gets reverb send for space
+        if (reverbSend) {
+            const padReverbSend = ctx.createGain();
+            padReverbSend.gain.value = 0.35;
+            padFilter.connect(padReverbSend);
+            padReverbSend.connect(reverbSend);
+        }
 
         const padGain = ctx.createGain();
         const padVol = dnaPadBias ? 0.035 * dnaPadBias.padVolume / 0.5 : 0.035;
@@ -1142,6 +1536,8 @@ const GumpConductor = (function() {
         filter.frequency.value = 4000 + musicalContext.expressionDepth * 3000;
         filter.Q.value = dissonant ? 3 : 1;
         filter.connect(dest);
+        // v40: Trills through delay for echoing trill effect
+        if (delaySend) filter.connect(delaySend);
 
         for (let i = 0; i < 8; i++) {
             const t = now + i * interval;
@@ -1192,6 +1588,8 @@ const GumpConductor = (function() {
         arpFilter.type = 'lowpass';
         arpFilter.frequency.value = 3500 + musicalContext.expressionDepth * 3000;
         arpFilter.connect(dest);
+        // v40: Arpeggios through delay
+        if (delaySend) arpFilter.connect(delaySend);
 
         intervals.forEach(function(semitone, i) {
             const t = now + i * noteDur;
@@ -1248,6 +1646,8 @@ const GumpConductor = (function() {
 
         filter.connect(gain);
         gain.connect(dest);
+        // v40: Glissandi through delay
+        if (delaySend) gain.connect(delaySend);
 
         SAW_DETUNE.forEach(function(detune) {
             const osc = ctx.createOscillator();
@@ -1702,7 +2102,9 @@ const GumpConductor = (function() {
         // Drift harmonicRoot based on tension (high tension = up to tritone shift)
         // Tritone = 6 semitones above base 432Hz
         musicalContext.rootSemitoneOffset += (musicalContext.tensionLevel * 6 - musicalContext.rootSemitoneOffset) * 0.02;
-        musicalContext.harmonicRoot = 432 * Math.pow(2, musicalContext.rootSemitoneOffset / 12);
+        // v40: Evolution stage shifts root up by 5ths (emotional lift)
+        const totalShift = musicalContext.rootSemitoneOffset + state.stageHarmonicShift;
+        musicalContext.harmonicRoot = 432 * Math.pow(2, totalShift / 12);
 
         // Detect user BPM from interval history
         const intervals = musicalContext.userIntervalHistory;
@@ -1776,6 +2178,12 @@ const GumpConductor = (function() {
         musicalContext.expressionDepth = Math.max(0, Math.min(1, brightness));
         musicalContext.rhythmicDensity = 0.2 + brightness * 0.8; // 0.2 to 1.0
 
+        // v40: tiltY → reverb send (tilt back = more reverb = dreamier)
+        if (reverbSend) {
+            const reverbTarget = 0.15 + brightness * 0.25; // 0.15 dark → 0.40 bright
+            reverbSend.gain.setTargetAtTime(reverbTarget, ctx.currentTime, 0.3);
+        }
+
         // Filter frequency: enhanced range with energy contribution
         // v35: DNA filter bias blended in
         const dnaFilterBias = (typeof GumpMusicalDNA !== 'undefined') ?
@@ -1824,6 +2232,8 @@ const GumpConductor = (function() {
             if (state.motionPattern === 'rhythmic') baseBPM += 5;
             else if (state.motionPattern === 'vigorous') baseBPM += 10;
             else if (state.motionPattern === 'chaotic') baseBPM += 15;
+            // v40: Evolution stage boosts BPM
+            baseBPM += (STAGES[state.evolutionStage] || STAGES.EMERGING).bpmBoost;
             // Smooth transition
             state.tempo = state.tempo * 0.95 + baseBPM * 0.05;
             state.tempo = Math.max(60, Math.min(140, state.tempo));
@@ -1865,6 +2275,24 @@ const GumpConductor = (function() {
 
         // v33: Update musical context (reads brain, shapes every response)
         updateMusicalContext();
+
+        // v40: Evolution stage (driven by totalMotion flywheel)
+        updateEvolutionStage();
+
+        // v40: Layer activation (driven by motion pattern + stage)
+        updateLayerActivation();
+
+        // v40: Bass tracks harmonic root
+        updateBassFrequency();
+
+        // v40: Delay time syncs to current BPM
+        if (delayNode) {
+            const eighthNote = 60 / state.tempo / 2;
+            delayNode.delayTime.setTargetAtTime(
+                Math.max(0.05, Math.min(0.8, eighthNote)),
+                ctx.currentTime, 0.1
+            );
+        }
 
         // Run groove
         if (state.groovePlaying) {
@@ -1937,6 +2365,10 @@ const GumpConductor = (function() {
         get smoothSpeed() { return state.smoothSpeed; },
         get voidActive() { return voidAudio.active; },
         get musicalContext() { return musicalContext; },
+        // v40 exposed state
+        get evolutionStage() { return state.evolutionStage; },
+        get totalMotion() { return state.totalMotion; },
+        get layers() { return layers; },
     });
 
 })();

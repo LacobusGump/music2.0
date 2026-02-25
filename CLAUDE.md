@@ -154,11 +154,14 @@ Everything else serves this core loop.
 - Has been at this for months. Gets frustrated when sessions produce code cleanup instead of musical transformation. The sound must actually CHANGE, not just the code structure.
 - The Producer's veto is real: "Does this make you FEEL something?" If moving the phone doesn't feel like playing an instrument, we've failed.
 
-## Current State (v39)
+## Current State (v40)
 
-- **v38 gutted ~5000 lines** of game mechanics (grid, zones, unlocks, patterns, state store). Good.
-- **v39 fixed motion** — G7 Flywheel pattern: devicemotion/deviceorientation listeners attached at init, mouse-to-motion fallback for desktop testing.
-- **The persistent problem**: the SOUND hasn't evolved. It still feels like the same bland instrument from months ago. Touch traces finger with pitch differences but it's not musical. No journey, no evolution, no creativity. The synthesis engine needs real transformation, not parameter tweaks.
+- **v40 brought back the orchestra** — 6 audio layers (pad, bass, atmosphere, strings, shimmer, choir), convolver reverb, delay line with feedback, evolution stages (EMERGING → FLOWING → SURGING → TRANSCENDENT).
+- **Motion drives layers**: still = pad + atmosphere; gentle = +bass; rhythmic = +strings +drums; vigorous = +shimmer; transcendent = +choir.
+- **Evolution stages** driven by totalMotion flywheel — the more you move over time, the more the sound opens up. Each stage shifts harmonic root up by a 5th.
+- **Convolver reverb** gives real space. Delay line syncs to BPM. TiltY modulates reverb send.
+- **Notes and gestures** route through delay for echoing trills, arpeggios, etc.
+- **v39 fixed motion** — G7 Flywheel pattern still intact.
 - **Reference**: commit `88d4c32` (G7 Fly) had great motion. Study it.
 - **Read `.gump/` FIRST** — especially `producer.md` and `dialogue.md`. 19 sessions of vision are captured there.
 

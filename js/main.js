@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════════════════
-// GUMP - THE INSTRUMENT (v38 — REBIRTH)
+// GUMP - THE INSTRUMENT (v40 — ORCHESTRA)
 // ═══════════════════════════════════════════════════════════════════════════
 //
 // Minimal loop: canvas + input + organism + conductor.
@@ -239,6 +239,20 @@ const GUMP = (function() {
             lines.push('Depth: ' + (mc.expressionDepth || 0).toFixed(2));
             lines.push('Arc: ' + (mc.emotionalArc || 0).toFixed(2));
             lines.push('Pattern: ' + (GumpConductor.motionPattern || 'none'));
+            // v40 orchestra debug
+            lines.push('Stage: ' + (GumpConductor.evolutionStage || 'EMERGING'));
+            lines.push('TotalMotion: ' + (GumpConductor.totalMotion || 0).toFixed(0));
+            var ly = GumpConductor.layers;
+            if (ly) {
+                var layerStates = [];
+                for (var k in ly) {
+                    if (ly[k].gainNode) {
+                        var g = ly[k].gainNode.gain.value;
+                        if (g > 0.001) layerStates.push(k.substr(0,3).toUpperCase());
+                    }
+                }
+                lines.push('Layers: ' + (layerStates.length > 0 ? layerStates.join(' ') : 'none'));
+            }
         }
 
         // Tilt
@@ -319,7 +333,7 @@ const GUMP = (function() {
         app.isRunning = true;
         app.lastTime = 0;
         requestAnimationFrame(frame);
-        console.log('[GUMP] v39 — G7 motion pattern');
+        console.log('[GUMP] v40 — Orchestra');
 
         // Initialize lens system
         if (typeof GumpLens !== 'undefined') {
