@@ -138,6 +138,8 @@ Hats:  [.5, 0, .3, 0, .5, 0, .3, 0, .5, 0, .3, 0, .5, 0, .3, 0] // sparse 8ths
 
 ## Version History (Recent)
 
+- **v40-ORCHESTRA-REWRITE** — Complete conductor.js rewrite from scratch. 6 persistent audio layers (pad, atmosphere, bass, strings, shimmer, choir), convolver reverb with early reflections, dotted-eighth delay with LP-filtered feedback, tape saturation, sidechain compression from kick. Evolution stages (EMERGING → FLOWING → SURGING → TRANSCENDENT) driven by totalMotion flywheel. Stage-dependent drum patterns. Fibonacci detune spread on supersaw voices. 432Hz tuning. ~1900 lines of clean architecture.
+- **v39** — G7 Flywheel motion, neuromorphic brain, modular codebase.
 - **v36-LOFI-KANYE** — Strip the drums, find the soul. Warm 808s, simple patterns, tape saturation, vinyl crackle, deep sidechain pump.
 - **v35-MUSICAL-DNA** — RPG character build. Movement shapes 5 personality traits that bias every musical parameter.
 - **v34-LIVING-ORGANISM** — Evolving visual cursor + warping grid.

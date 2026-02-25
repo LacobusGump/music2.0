@@ -2100,3 +2100,104 @@ Stripped the over-engineered drums to find the soul:
 ---
 
 *End of Session 19*
+
+---
+
+## Session 20 — February 24, 2026
+
+### The Complete Conductor Rewrite
+
+**JAMES**: "I want you to basically make everything different. You see what I want, the vision. You just throw it all away and you recode it in how you think it should be."
+
+**ENGINEER**: Done. 2350 lines of accumulated v32-v40 edits — thrown away. Rebuilt conductor.js from scratch. ~1900 lines of clean architecture. Here's what the new engine has:
+
+**The Audio Graph:**
+```
+layers → dry path → sidechainGain → masterGain → compressor → destination
+layers → wet path → reverbSend → convolver → sidechainGain
+notes/gestures → delaySend → delay → delayFilter → delayFeedback (loop)
+                                    → delayMix → reverbSend (cascading echoes)
+drums → drumBus → drumSaturator → drumCompressor → masterGain
+kick → sidechainGain.gain (duck everything on hit)
+```
+
+**The 6 Layers:**
+
+| Layer | Voices | Sound | Reverb Wet |
+|-------|--------|-------|------------|
+| Pad | 5 saws × 5 detune each (25 osc) | Warm supersaw, Fibonacci detune [-8,-3,0,3,8] cents | 40% |
+| Atmosphere | 2 noise sources | Low rumble (bandpass 200Hz) + high air (bandpass 3kHz) | 30% |
+| Bass | 3 oscillators | 2 sines + triangle for presence, slow filter LFO | 10% |
+| Strings | 3 voices × 5 saws each | Root + 3rd + 5th, slow attack, LPF 1200Hz | 45% |
+| Shimmer | 3 high triangles | Octave + 5th + 3rd up high, per-voice amplitude tremolo | 55% |
+| Choir | 3 sines | Root + 3rd + 5th with human-like vibrato (4-8 cent depth) | 50% |
+
+**The Evolution:**
+
+| Stage | totalMotion | What Happens |
+|-------|------------|--------------|
+| EMERGING | 0-100 | Pad + atmosphere only. Master filter at 2000Hz. Dark, sparse, waiting. |
+| FLOWING | 100-400 | Bass activates. Hats-only drums begin. Strings fade in. Filter opens to 7kHz. |
+| SURGING | 400-800 | Full drum pattern. All layers louder. Shimmer appears. BPM rises. Filter to 10kHz. |
+| TRANSCENDENT | 800+ | Choir. Maximum layers. 16th-note hats with ghost notes. Filter to 14kHz. |
+
+Each stage shifts harmonic root up by a 5th (modulation = emotional lift).
+
+**The Effects:**
+- Convolver reverb: 3-second tail with early reflections, cubic decay
+- Delay: dotted-eighth note, LP filter in feedback (darkening repeats), feeds INTO reverb for cascading echoes
+- Tape saturation: tanh waveshaper on drum bus
+- Sidechain: kick ducks all non-drum audio to 0.15 gain, 0.25s recovery
+- Vinyl crackle: brown noise through bandpass, routes through sidechain
+
+**MUSICIAN**: The key insight is LAYERS BUILD THROUGH MOTION. Still phone = pad + atmosphere. Start moving = bass fades in. Keep moving = drums and strings. Go wild = full orchestra. Stop = void drone, everything fades, 432Hz healing.
+
+**PRODUCER**: Does it make you FEEL something?
+
+**ENGINEER**: It should. The EMERGING stage starts dark and sparse — master filter at 2000Hz, just the pad breathing in reverb space. As you move, bass appears BELOW you, strings swell AROUND you, drums give you a GROOVE. The evolution is the journey. You're not just playing an instrument — you're conducting an orchestra that grows with your energy.
+
+**PHYSICIST**: The math supports it. Fibonacci detune spread on the pad gives maximum beating complexity without dissonance. The dotted-eighth delay creates polyrhythmic interest against straight beats. The delay feeding into reverb means echoes get progressively more diffuse — they decay into space rather than repeating mechanically.
+
+**PRODUCER**: The void state. When you stop moving for 5 seconds, everything fades and a 432Hz drone enters. That's the breath. That's the silence between movements. The orchestra doesn't just play — it BREATHES.
+
+---
+
+### What Was Kept vs. Thrown Away
+
+**KEPT:**
+- G7 Flywheel motion pipeline (accelerometer → EMA → ring buffer → pattern classification)
+- All drum synthesis (kick, snare, hat) — improved with stage-dependent patterns
+- Gesture-to-music (trills, arpeggios, glissandi)
+- Musical DNA / lens integration
+- Neuromorphic brain integration
+- Void audio system
+- Cross-product playNote
+- Tilt expression (enhanced: filter ceiling expands per evolution stage)
+- Mouse-to-motion fallback
+- 432Hz tuning
+
+**THROWN AWAY:**
+- Accumulated dead code from v32-v38
+- Redundant audio routing
+- Inconsistent state management
+- 6 sessions of incremental patches layered on top of each other
+
+---
+
+### Honest Assessment
+
+**ENGINEER**: The architecture is clean. The routing makes sense. Every layer has a clear purpose. But I can't hear it from here. James needs to test it.
+
+**MUSICIAN**: The progression from EMERGING to TRANSCENDENT should feel like a journey — from meditation to symphony. If the stages don't feel distinct enough, we need bigger parameter jumps between them.
+
+**PHYSICIST**: The totalMotion flywheel thresholds (100, 400, 800) are guesses. They may need tuning based on actual iPhone accelerometer data.
+
+**PRODUCER**: The question isn't "does the code work." It's "when James picks up his phone, tilts it, and starts moving — does he feel like he's conducting an orchestra?" If yes, we shipped. If no, we iterate.
+
+---
+
+*"The orchestra was always there. We just needed to stop building walls and start building windows."*
+
+---
+
+*End of Session 20*
