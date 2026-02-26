@@ -118,6 +118,9 @@
     var lens = Lens.getSelected();
     if (!lens) return;
 
+    // Ensure AudioContext is alive (iOS can suspend between screens)
+    if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+
     Voice.applyLens(lens);
     Organism.applyLens(lens);
 
@@ -128,6 +131,9 @@
   // ── PLAY SCREEN ──────────────────────────────────────────────────────
 
   function startPlayScreen() {
+    // Double-check AudioContext is running
+    if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+
     Lens.updateIndicator();
 
     // Wire brain events → voice + organism

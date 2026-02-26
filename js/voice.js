@@ -52,7 +52,7 @@ const Voice = (function () {
 
   const state = {
     ready: false,
-    lens: null,       // active lens object
+    lens: null,
     stage: 'EMERGING',
     stageIndex: 0,
     tempo: 80,
@@ -63,15 +63,12 @@ const Voice = (function () {
     harmonicRoot: 432,
     rootOffset: 0,
     energy: 0,
-    intensity: 0,
     sidechainValue: 1,
     lastNoteTime: 0,
   };
 
-  // Scale intervals (will be overridden by lens)
   let scale = [0, 2, 4, 7, 9, 11, 12, 14, 16, 19, 23, 24];
 
-  // Stage thresholds + shifts (overridden by lens)
   const STAGES = [
     { name: 'EMERGING',     threshold: 0,   bpmBoost: 0,  shift: 0 },
     { name: 'FLOWING',      threshold: 100, bpmBoost: 3,  shift: 7 },
@@ -79,62 +76,43 @@ const Voice = (function () {
     { name: 'TRANSCENDENT', threshold: 800, bpmBoost: 12, shift: 19 },
   ];
 
-  // ── DRUM PATTERNS ────────────────────────────────────────────────────
+  // ── MODES ────────────────────────────────────────────────────────────
 
-  const PATTERNS = {
-    EMERGING: null,
-    FLOWING: {
-      kick:  [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
-      snare: [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
-      hat:   [0.3,0,0,0,0.3,0,0,0,0.3,0,0,0,0.3,0,0,0],
-    },
-    SURGING: {
-      kick:  [1,0,0,0,0,0,0.4,0,0.9,0,0,0,0,0,0,0],
-      snare: [0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0],
-      hat:   [0.5,0,0.3,0,0.5,0,0.3,0,0.5,0,0.3,0,0.5,0,0.3,0],
-    },
-    TRANSCENDENT: {
-      kick:  [1,0,0,0,0,0,0.4,0,0.9,0,0,0,0,0,0.3,0],
-      snare: [0,0,0,0,1,0,0,0.15,0,0,0,0,1,0,0,0.2],
-      hat:   [0.5,0.15,0.3,0.15,0.5,0.15,0.3,0.15,0.5,0.15,0.3,0.15,0.5,0.15,0.3,0.15],
-    },
+  const MODES = {
+    major:              [0,2,4,5,7,9,11,12,14,16,17,19,21,23,24],
+    dorian:             [0,2,3,5,7,9,10,12,14,15,17,19,21,22,24],
+    'pentatonic-major': [0,2,4,7,9,12,14,16,19,21,24],
+    'whole-tone':       [0,2,4,6,8,10,12,14,16,18,20,22,24],
+    blues:              [0,3,5,6,7,10,12,15,17,18,19,22,24],
+    chromatic:          [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24],
+    mixolydian:         [0,2,4,5,7,9,10,12,14,16,17,19,21,22,24],
+    phrygian:           [0,1,3,5,7,8,10,12,13,15,17,19,20,22,24],
   };
 
-  // ── MUSIC THEORY HELPERS ─────────────────────────────────────────────
+  // ── MUSIC THEORY ─────────────────────────────────────────────────────
 
-  function semitoneToFreq(root, semitones) {
-    return root * Math.pow(2, semitones / 12);
+  function semi2freq(root, semi) {
+    return root * Math.pow(2, semi / 12);
   }
 
   function scaleNote(index) {
-    const oct = Math.floor(index / scale.length);
-    const deg = index % scale.length;
-    return scale[deg < 0 ? deg + scale.length : deg] + oct * 12;
+    if (scale.length === 0) return index;
+    const len = scale.length;
+    const oct = Math.floor(index / len);
+    let deg = index % len;
+    if (deg < 0) deg += len;
+    return scale[deg] + oct * 12;
   }
 
   function noteFreq(index) {
-    return semitoneToFreq(state.harmonicRoot, scaleNote(index) + state.rootOffset);
+    return semi2freq(state.harmonicRoot, scaleNote(index) + state.rootOffset);
   }
 
-  // ── MODES → SCALE INTERVALS ──────────────────────────────────────────
-
-  const MODES = {
-    major:            [0,2,4,5,7,9,11,12,14,16,17,19,21,23,24],
-    dorian:           [0,2,3,5,7,9,10,12,14,15,17,19,21,22,24],
-    'pentatonic-major': [0,2,4,7,9,12,14,16,19,21,24],
-    'whole-tone':     [0,2,4,6,8,10,12,14,16,18,20,22,24],
-    blues:            [0,3,5,6,7,10,12,15,17,18,19,22,24],
-    chromatic:        [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24],
-    mixolydian:       [0,2,4,5,7,9,10,12,14,16,17,19,21,22,24],
-    phrygian:         [0,1,3,5,7,8,10,12,13,15,17,19,20,22,24],
-  };
-
-  // ── INIT AUDIO ───────────────────────────────────────────────────────
+  // ── INIT ─────────────────────────────────────────────────────────────
 
   function init(audioCtx) {
     ctx = audioCtx;
 
-    // Master chain: sidechainGain → saturator → compressor → masterGain → dest
     masterGain = ctx.createGain();
     masterGain.gain.value = 0.8;
     masterGain.connect(ctx.destination);
@@ -147,17 +125,14 @@ const Voice = (function () {
     compressor.release.value = 0.15;
     compressor.connect(masterGain);
 
-    // Waveshaper for tape saturation
     saturator = ctx.createWaveShaper();
-    saturator.curve = makeSaturationCurve(0.3);
+    saturator.curve = makeSatCurve(0.3);
     saturator.oversample = '2x';
     saturator.connect(compressor);
 
     sidechainGain = ctx.createGain();
-    sidechainGain.gain.value = 1;
     sidechainGain.connect(saturator);
 
-    // Drum bus: drumComp → masterGain (bypasses sidechain)
     drumBus = ctx.createGain();
     drumBus.gain.value = 1;
     drumComp = ctx.createDynamicsCompressor();
@@ -168,19 +143,18 @@ const Voice = (function () {
     drumBus.connect(drumComp);
     drumComp.connect(masterGain);
 
-    // Convolver reverb
-    buildConvolver();
+    // Reverb — will be rebuilt per lens
+    buildReverb(3.0, 0.4);
 
-    // Delay line
+    // Delay — params will be set per lens
     buildDelay();
 
-    // Layer gain nodes
+    // Layer gain nodes (persistent — never recreated)
     for (const name in layers) {
       const L = layers[name];
       L.gain = ctx.createGain();
       L.gain.gain.value = 0;
       L.gain.connect(sidechainGain);
-      // Also send to reverb
       const send = ctx.createGain();
       send.gain.value = 0.3;
       L.gain.connect(send);
@@ -190,22 +164,35 @@ const Voice = (function () {
     state.ready = true;
   }
 
-  // ── CONVOLVER REVERB ─────────────────────────────────────────────────
+  // ── REVERB — lens-specific IR ────────────────────────────────────────
 
-  function buildConvolver() {
+  function buildReverb(decayTime, damping) {
+    // Disconnect old if exists
+    if (convolver) { try { convolver.disconnect(); } catch (e) {} }
+    if (reverbGain) { try { reverbGain.disconnect(); } catch (e) {} }
+
     convolver = ctx.createConvolver();
-    const len = ctx.sampleRate * 3;
+    const len = Math.floor(ctx.sampleRate * decayTime);
     const buf = ctx.createBuffer(2, len, ctx.sampleRate);
     for (let ch = 0; ch < 2; ch++) {
       const d = buf.getChannelData(ch);
       for (let i = 0; i < len; i++) {
-        d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2.5);
+        const t = i / len;
+        // Power decay — lower exponent = longer tail
+        const exponent = 1.5 + damping * 3; // damping 0 → exp 1.5 (long), damping 1 → exp 4.5 (short)
+        const envelope = Math.pow(1 - t, exponent);
+        // High frequency damping: multiply by lowpass-like rolloff over time
+        const hfDamp = 1 - damping * t;
+        const noise = Math.random() * 2 - 1;
+        d[i] = noise * envelope * Math.max(0.05, hfDamp);
       }
     }
     convolver.buffer = buf;
 
-    reverbSend = ctx.createGain();
-    reverbSend.gain.value = 0.3;
+    if (!reverbSend) {
+      reverbSend = ctx.createGain();
+      reverbSend.gain.value = 0.3;
+    }
 
     reverbGain = ctx.createGain();
     reverbGain.gain.value = 0.5;
@@ -215,11 +202,11 @@ const Voice = (function () {
     reverbGain.connect(masterGain);
   }
 
-  // ── DELAY LINE ───────────────────────────────────────────────────────
+  // ── DELAY ────────────────────────────────────────────────────────────
 
   function buildDelay() {
-    delayNode = ctx.createDelay(2);
-    delayNode.delayTime.value = 0.375; // dotted eighth at ~80bpm
+    delayNode = ctx.createDelay(4);
+    delayNode.delayTime.value = 0.375;
 
     delayFeedback = ctx.createGain();
     delayFeedback.gain.value = 0.35;
@@ -242,226 +229,151 @@ const Voice = (function () {
     delayMix.connect(masterGain);
   }
 
-  // ── SATURATION CURVE ─────────────────────────────────────────────────
-
-  function makeSaturationCurve(amount) {
-    const n = 256;
-    const curve = new Float32Array(n);
+  function makeSatCurve(amount) {
+    const n = 256, c = new Float32Array(n);
     for (let i = 0; i < n; i++) {
       const x = (i * 2) / n - 1;
-      curve[i] = (1 + amount) * x / (1 + amount * Math.abs(x));
+      c[i] = (1 + amount) * x / (1 + amount * Math.abs(x));
     }
-    return curve;
+    return c;
   }
 
   // ── APPLY LENS ───────────────────────────────────────────────────────
 
   function applyLens(lens) {
     state.lens = lens;
-    if (!lens) return;
+    if (!lens || !ctx) return;
+
+    // Kill crackle from previous lens
+    stopCrackle();
+
+    // Reset groove state
+    state.grooveStep = 0;
+    state.nextStepTime = 0;
+    state.groovePlaying = false;
 
     // Harmony
     if (lens.harmony) {
       state.harmonicRoot = lens.harmony.root || 432;
-      const mode = MODES[lens.harmony.mode] || MODES.major;
-      scale = mode;
+      scale = MODES[lens.harmony.mode] || MODES.major;
     }
 
     // Rhythm
     if (lens.rhythm) {
-      const bpmArr = lens.rhythm.bpm;
-      state.tempo = Array.isArray(bpmArr) ? bpmArr[0] : (bpmArr || 80);
+      const bpm = lens.rhythm.bpm;
+      state.tempo = Array.isArray(bpm) ? bpm[0] : (bpm || 80);
     }
 
-    // Voice: saturation
-    if (lens.voice && saturator) {
-      saturator.curve = makeSaturationCurve(lens.voice.saturation || 0.3);
+    // Saturation
+    if (saturator) {
+      saturator.curve = makeSatCurve(v(lens, 'voice.saturation', 0.3));
     }
 
-    // Voice: space → reverb character
-    if (lens.voice && reverbGain) {
-      const spaces = { intimate: 0.2, room: 0.35, cathedral: 0.5, infinite: 0.7 };
-      reverbGain.gain.value = spaces[lens.voice.space] || 0.4;
+    // Rebuild reverb with lens-specific IR
+    var decayTime = v(lens, 'voice.reverbDecay', 3.0);
+    var damping = v(lens, 'voice.reverbDamping', 0.4);
+    buildReverb(decayTime, damping);
+
+    // Reverb level from space
+    var spaces = { intimate: 0.2, room: 0.35, cathedral: 0.5, infinite: 0.7 };
+    if (reverbGain) reverbGain.gain.value = spaces[v(lens, 'voice.space', 'cathedral')] || 0.4;
+
+    // Delay
+    if (delayFeedback) delayFeedback.gain.value = v(lens, 'voice.delayFeedback', 0.35);
+    if (delayFilter) delayFilter.frequency.value = v(lens, 'voice.delayFilterFreq', 3000);
+    var delType = v(lens, 'voice.delay', 'dotted-eighth');
+    if (delayNode) {
+      var de = (60 / state.tempo) * 0.75;
+      delayNode.delayTime.value = delType === 'quarter' ? 60 / state.tempo :
+                                   delType === 'eighth' ? 30 / state.tempo : de;
     }
 
-    // Voice: delay type
-    if (lens.voice && delayNode) {
-      const dottedEighth = (60 / state.tempo) * 0.75;
-      delayNode.delayTime.value = lens.voice.delay === 'dotted-eighth' ? dottedEighth :
-                                  lens.voice.delay === 'quarter' ? 60 / state.tempo :
-                                  lens.voice.delay === 'eighth' ? 30 / state.tempo : dottedEighth;
-    }
+    // Drum bus gain
+    if (drumBus) drumBus.gain.value = v(lens, 'voice.drumGain', 1.0);
 
-    // Stages thresholds from lens
+    // Stage thresholds
     if (lens.stages && lens.stages.thresholds) {
-      const t = lens.stages.thresholds;
+      var t = lens.stages.thresholds;
       if (t[0] !== undefined) STAGES[1].threshold = t[0];
       if (t[1] !== undefined) STAGES[2].threshold = t[1];
       if (t[2] !== undefined) STAGES[3].threshold = t[2];
     }
 
-    // Rebuild layers with new lens character
+    // Rebuild all layers
     rebuildLayers();
   }
 
-  // ── BUILD / REBUILD LAYERS ───────────────────────────────────────────
+  // Helper: deep property access
+  function v(obj, path, def) {
+    var parts = path.split('.');
+    var cur = obj;
+    for (var i = 0; i < parts.length; i++) {
+      if (!cur || cur[parts[i]] === undefined) return def;
+      cur = cur[parts[i]];
+    }
+    return cur;
+  }
+
+  // ── REBUILD LAYERS ───────────────────────────────────────────────────
 
   function rebuildLayers() {
     if (!ctx || !state.lens) return;
+    var lens = state.lens;
 
-    // Kill existing oscillators
-    for (const name in layers) {
-      const L = layers[name];
-      for (let i = 0; i < L.oscs.length; i++) {
-        try { L.oscs[i].stop(); } catch (e) { /* ok */ }
+    // Kill all existing oscillators
+    for (var name in layers) {
+      var L = layers[name];
+      for (var i = 0; i < L.oscs.length; i++) {
+        try { L.oscs[i].stop(); } catch (e) {}
+        try { L.oscs[i].disconnect(); } catch (e) {}
       }
       L.oscs = [];
-      if (L.filter) { try { L.filter.disconnect(); } catch (e) { /* ok */ } L.filter = null; }
+      if (L.filter) { try { L.filter.disconnect(); } catch (e) {} L.filter = null; }
+      L.active = false;
+      // Start at a small audible volume so sound is immediate
+      L.vol = 0.05;
     }
 
-    const root = state.harmonicRoot;
-    const lens = state.lens;
-    const lensLayers = (lens.voice && lens.voice.layers) || ['pad', 'bass', 'strings', 'shimmer', 'choir'];
-    const timbre = (lens.voice && lens.voice.timbre) || 'warm';
-    const isWarm = timbre === 'warm' || timbre === 'dark';
+    var root = state.harmonicRoot;
+    var ll = v(lens, 'voice.layers', ['pad', 'bass', 'strings', 'shimmer', 'choir']);
 
-    // PAD — wide detuned saw/sine cluster
-    if (lensLayers.indexOf('pad') >= 0) {
-      buildPad(root, isWarm);
-    }
-
-    // ATMOSPHERE — noise through bandpass, breathes
-    if (lensLayers.indexOf('atmosphere') >= 0) {
-      buildAtmosphere();
-    }
-
-    // BASS — sub sine + harmonic
-    if (lensLayers.indexOf('bass') >= 0) {
-      buildBass(root);
-    }
-
-    // STRINGS — detuned saws through lowpass
-    if (lensLayers.indexOf('strings') >= 0) {
-      buildStrings(root);
-    }
-
-    // SHIMMER — high sine harmonics with vibrato
-    if (lensLayers.indexOf('shimmer') >= 0) {
-      buildShimmer(root);
-    }
-
-    // CHOIR — breathy filtered sines at octave + fifth
-    if (lensLayers.indexOf('choir') >= 0) {
-      buildChoir(root);
-    }
+    if (ll.indexOf('pad') >= 0) buildPad(root, lens);
+    if (ll.indexOf('atmosphere') >= 0) buildAtmosphere(lens);
+    if (ll.indexOf('bass') >= 0) buildBass(root, lens);
+    if (ll.indexOf('strings') >= 0) buildStrings(root, lens);
+    if (ll.indexOf('shimmer') >= 0) buildShimmer(root, lens);
+    if (ll.indexOf('choir') >= 0) buildChoir(root, lens);
   }
 
-  function buildPad(root, warm) {
-    const L = layers.pad;
+  // ── PAD — lens-aware ─────────────────────────────────────────────────
+
+  function buildPad(root, lens) {
+    var L = layers.pad;
+    var wave = v(lens, 'voice.padWaveform', 'sawtooth');
+    var octave = v(lens, 'voice.padOctave', -1);
+    var detune = v(lens, 'voice.padDetune', 8);
+    var chord = v(lens, 'voice.padChord', [0, 7, 12]);
+    var timbre = v(lens, 'voice.timbre', 'warm');
+
     L.filter = ctx.createBiquadFilter();
     L.filter.type = 'lowpass';
-    L.filter.frequency.value = warm ? 1200 : 2400;
+    L.filter.frequency.value = timbre === 'bright' ? 3000 : timbre === 'dark' ? 800 : 1400;
     L.filter.Q.value = 0.7;
     L.filter.connect(L.gain);
 
-    const detunes = [-8, -3, 0, 3, 8];
-    for (let i = 0; i < detunes.length; i++) {
-      const o = ctx.createOscillator();
-      o.type = warm ? 'sawtooth' : 'triangle';
-      o.frequency.value = root / 2;
-      o.detune.value = detunes[i];
-      o.connect(L.filter);
-      o.start();
-      L.oscs.push(o);
-    }
-    L.active = true;
-  }
+    var baseFreq = root * Math.pow(2, octave);
+    var detunes = [-detune, -detune/3, 0, detune/3, detune];
 
-  function buildAtmosphere() {
-    const L = layers.atmosphere;
-    // Pink-ish noise through a bandpass
-    const bufLen = ctx.sampleRate * 2;
-    const noiseBuf = ctx.createBuffer(1, bufLen, ctx.sampleRate);
-    const d = noiseBuf.getChannelData(0);
-    let b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0;
-    for (let i = 0; i < bufLen; i++) {
-      const white = Math.random() * 2 - 1;
-      b0 = 0.99886 * b0 + white * 0.0555179;
-      b1 = 0.99332 * b1 + white * 0.0750759;
-      b2 = 0.96900 * b2 + white * 0.1538520;
-      b3 = 0.86650 * b3 + white * 0.3104856;
-      b4 = 0.55000 * b4 + white * 0.5329522;
-      b5 = -0.7616 * b5 - white * 0.0168980;
-      d[i] = (b0 + b1 + b2 + b3 + b4 + b5 + b6 + white * 0.5362) * 0.11;
-      b6 = white * 0.115926;
-    }
-
-    const src = ctx.createBufferSource();
-    src.buffer = noiseBuf;
-    src.loop = true;
-
-    L.filter = ctx.createBiquadFilter();
-    L.filter.type = 'bandpass';
-    L.filter.frequency.value = 800;
-    L.filter.Q.value = 0.5;
-
-    src.connect(L.filter);
-    L.filter.connect(L.gain);
-    src.start();
-    L.oscs.push(src);
-    L.active = true;
-  }
-
-  function buildBass(root) {
-    const L = layers.bass;
-    L.filter = ctx.createBiquadFilter();
-    L.filter.type = 'lowpass';
-    L.filter.frequency.value = 250;
-    L.filter.Q.value = 1.5;
-    L.filter.connect(L.gain);
-
-    // Sub sine
-    const sub = ctx.createOscillator();
-    sub.type = 'sine';
-    sub.frequency.value = root / 4;
-    sub.connect(L.filter);
-    sub.start();
-    L.oscs.push(sub);
-
-    // Harmonic triangle
-    const harm = ctx.createOscillator();
-    harm.type = 'triangle';
-    harm.frequency.value = root / 4;
-    harm.detune.value = 5;
-
-    const hGain = ctx.createGain();
-    hGain.gain.value = 0.3;
-    harm.connect(hGain);
-    hGain.connect(L.filter);
-    harm.start();
-    L.oscs.push(harm);
-    L.active = true;
-  }
-
-  function buildStrings(root) {
-    const L = layers.strings;
-    L.filter = ctx.createBiquadFilter();
-    L.filter.type = 'lowpass';
-    L.filter.frequency.value = 3500;
-    L.filter.Q.value = 0.5;
-    L.filter.connect(L.gain);
-
-    // Ensemble: detuned saws at root, fifth, octave
-    const freqs = [root, root * 1.5, root * 2];
-    const detunes = [-5, 0, 5];
-    for (let f = 0; f < freqs.length; f++) {
-      for (let d = 0; d < detunes.length; d++) {
-        const o = ctx.createOscillator();
-        o.type = 'sawtooth';
-        o.frequency.value = freqs[f];
-        o.detune.value = detunes[d];
-        const g = ctx.createGain();
-        g.gain.value = 0.12;
+    for (var c = 0; c < chord.length; c++) {
+      var chordFreq = baseFreq * Math.pow(2, chord[c] / 12);
+      // 2 oscillators per chord tone (detuned pair for width)
+      for (var d = 0; d < 2; d++) {
+        var o = ctx.createOscillator();
+        o.type = wave;
+        o.frequency.value = chordFreq;
+        o.detune.value = d === 0 ? -detune : detune;
+        var g = ctx.createGain();
+        g.gain.value = 0.08 / chord.length;  // normalize by chord size
         o.connect(g);
         g.connect(L.filter);
         o.start();
@@ -471,27 +383,208 @@ const Voice = (function () {
     L.active = true;
   }
 
-  function buildShimmer(root) {
-    const L = layers.shimmer;
-    // High harmonics with slow vibrato
-    const freqs = [root * 4, root * 5, root * 6];
-    for (let i = 0; i < freqs.length; i++) {
-      const o = ctx.createOscillator();
+  // ── ATMOSPHERE — lens-aware ──────────────────────────────────────────
+
+  function buildAtmosphere(lens) {
+    var L = layers.atmosphere;
+    var freq = v(lens, 'voice.atmosphereFreq', 800);
+    var q = v(lens, 'voice.atmosphereQ', 0.5);
+
+    // Pink noise
+    var bufLen = ctx.sampleRate * 2;
+    var noiseBuf = ctx.createBuffer(1, bufLen, ctx.sampleRate);
+    var d = noiseBuf.getChannelData(0);
+    var b0=0,b1=0,b2=0,b3=0,b4=0,b5=0,b6=0;
+    for (var i = 0; i < bufLen; i++) {
+      var w = Math.random() * 2 - 1;
+      b0 = 0.99886*b0 + w*0.0555179;
+      b1 = 0.99332*b1 + w*0.0750759;
+      b2 = 0.96900*b2 + w*0.1538520;
+      b3 = 0.86650*b3 + w*0.3104856;
+      b4 = 0.55000*b4 + w*0.5329522;
+      b5 = -0.7616*b5 - w*0.0168980;
+      d[i] = (b0+b1+b2+b3+b4+b5+b6+w*0.5362) * 0.11;
+      b6 = w * 0.115926;
+    }
+
+    var src = ctx.createBufferSource();
+    src.buffer = noiseBuf;
+    src.loop = true;
+
+    L.filter = ctx.createBiquadFilter();
+    L.filter.type = 'bandpass';
+    L.filter.frequency.value = freq;
+    L.filter.Q.value = q;
+
+    src.connect(L.filter);
+    L.filter.connect(L.gain);
+    src.start();
+    L.oscs.push(src);
+    L.active = true;
+  }
+
+  // ── BASS — lens-aware ────────────────────────────────────────────────
+
+  function buildBass(root, lens) {
+    var L = layers.bass;
+    var bassType = v(lens, 'voice.bassType', 'sub');
+
+    L.filter = ctx.createBiquadFilter();
+    L.filter.type = 'lowpass';
+    L.filter.connect(L.gain);
+
+    if (bassType === '808') {
+      // 808: deep sub sine, resonant filter
+      L.filter.frequency.value = 180;
+      L.filter.Q.value = 3;
+      var o = ctx.createOscillator();
+      o.type = 'sine';
+      o.frequency.value = root / 4;
+      o.connect(L.filter);
+      o.start();
+      L.oscs.push(o);
+      // Sub harmonic
+      var sub = ctx.createOscillator();
+      sub.type = 'sine';
+      sub.frequency.value = root / 8;
+      var sg = ctx.createGain();
+      sg.gain.value = 0.5;
+      sub.connect(sg);
+      sg.connect(L.filter);
+      sub.start();
+      L.oscs.push(sub);
+    } else if (bassType === 'upright') {
+      // Upright: triangle with formant, higher register
+      L.filter.frequency.value = 600;
+      L.filter.Q.value = 2;
+      var o = ctx.createOscillator();
+      o.type = 'triangle';
+      o.frequency.value = root / 2;
+      o.connect(L.filter);
+      o.start();
+      L.oscs.push(o);
+      // Formant resonance
+      var formant = ctx.createBiquadFilter();
+      formant.type = 'peaking';
+      formant.frequency.value = 800;
+      formant.Q.value = 3;
+      formant.gain.value = 6;
+      L.filter.connect(formant);
+      formant.connect(L.gain);
+    } else if (bassType === 'growl') {
+      // Growl: square wave, aggressive resonant filter
+      L.filter.frequency.value = 350;
+      L.filter.Q.value = 5;
+      var o = ctx.createOscillator();
+      o.type = 'square';
+      o.frequency.value = root / 4;
+      var g = ctx.createGain();
+      g.gain.value = 0.4;
+      o.connect(g);
+      g.connect(L.filter);
+      o.start();
+      L.oscs.push(o);
+      // Sub layer
+      var sub = ctx.createOscillator();
+      sub.type = 'sine';
+      sub.frequency.value = root / 4;
+      sub.connect(L.filter);
+      sub.start();
+      L.oscs.push(sub);
+    } else {
+      // Sub: clean sine + triangle
+      L.filter.frequency.value = 250;
+      L.filter.Q.value = 1.5;
+      var o = ctx.createOscillator();
+      o.type = 'sine';
+      o.frequency.value = root / 4;
+      o.connect(L.filter);
+      o.start();
+      L.oscs.push(o);
+      var h = ctx.createOscillator();
+      h.type = 'triangle';
+      h.frequency.value = root / 4;
+      h.detune.value = 5;
+      var hg = ctx.createGain();
+      hg.gain.value = 0.3;
+      h.connect(hg);
+      hg.connect(L.filter);
+      h.start();
+      L.oscs.push(h);
+    }
+    L.active = true;
+  }
+
+  // ── STRINGS — lens-aware ─────────────────────────────────────────────
+
+  function buildStrings(root, lens) {
+    var L = layers.strings;
+    var voicing = v(lens, 'voice.stringVoicing', [0, 4, 7, 12]);
+    var timbre = v(lens, 'voice.timbre', 'warm');
+
+    L.filter = ctx.createBiquadFilter();
+    L.filter.type = 'lowpass';
+    L.filter.frequency.value = timbre === 'bright' ? 5000 : timbre === 'dark' ? 2000 : 3500;
+    L.filter.Q.value = 0.5;
+    L.filter.connect(L.gain);
+
+    for (var i = 0; i < voicing.length; i++) {
+      var freq = root * Math.pow(2, voicing[i] / 12);
+      var detunes = [-5, 0, 5];
+      for (var d = 0; d < detunes.length; d++) {
+        var o = ctx.createOscillator();
+        o.type = 'sawtooth';
+        o.frequency.value = freq;
+        o.detune.value = detunes[d];
+        var g = ctx.createGain();
+        g.gain.value = 0.06 / voicing.length;
+        o.connect(g);
+        g.connect(L.filter);
+        o.start();
+        L.oscs.push(o);
+      }
+    }
+    L.active = true;
+  }
+
+  // ── SHIMMER — lens-aware ─────────────────────────────────────────────
+
+  function buildShimmer(root, lens) {
+    var L = layers.shimmer;
+    var ringMod = v(lens, 'voice.shimmerRingMod', false);
+    var freqs = [root * 4, root * 5, root * 6];
+
+    for (var i = 0; i < freqs.length; i++) {
+      var o = ctx.createOscillator();
       o.type = 'sine';
       o.frequency.value = freqs[i];
 
       // Vibrato LFO
-      const lfo = ctx.createOscillator();
+      var lfo = ctx.createOscillator();
       lfo.type = 'sine';
       lfo.frequency.value = 0.3 + i * 0.2;
-      const lfoGain = ctx.createGain();
-      lfoGain.gain.value = freqs[i] * 0.008;
-      lfo.connect(lfoGain);
-      lfoGain.connect(o.frequency);
+      var lfoG = ctx.createGain();
+      lfoG.gain.value = freqs[i] * 0.008;
+      lfo.connect(lfoG);
+      lfoG.connect(o.frequency);
       lfo.start();
 
-      const g = ctx.createGain();
-      g.gain.value = 0.1;
+      var g = ctx.createGain();
+      g.gain.value = 0.08;
+
+      if (ringMod) {
+        // Ring modulation for metallic texture
+        var modOsc = ctx.createOscillator();
+        modOsc.type = 'sine';
+        modOsc.frequency.value = freqs[i] * 1.414; // irrational ratio = inharmonic
+        var modGain = ctx.createGain();
+        modGain.gain.value = 0.5;
+        modOsc.connect(modGain);
+        modGain.connect(g.gain); // AM modulation
+        modOsc.start();
+        L.oscs.push(modOsc);
+      }
+
       o.connect(g);
       g.connect(L.gain);
       o.start();
@@ -500,24 +593,25 @@ const Voice = (function () {
     L.active = true;
   }
 
-  function buildChoir(root) {
-    const L = layers.choir;
+  // ── CHOIR ────────────────────────────────────────────────────────────
+
+  function buildChoir(root, lens) {
+    var L = layers.choir;
     L.filter = ctx.createBiquadFilter();
     L.filter.type = 'bandpass';
     L.filter.frequency.value = 1200;
     L.filter.Q.value = 2;
     L.filter.connect(L.gain);
 
-    // Breathy formant cluster
-    const intervals = [0, 7, 12, 19]; // root, fifth, octave, octave+fifth
-    for (let i = 0; i < intervals.length; i++) {
-      const freq = root * Math.pow(2, intervals[i] / 12);
-      const o = ctx.createOscillator();
+    var intervals = [0, 7, 12, 19];
+    for (var i = 0; i < intervals.length; i++) {
+      var freq = root * Math.pow(2, intervals[i] / 12);
+      var o = ctx.createOscillator();
       o.type = 'sawtooth';
       o.frequency.value = freq;
       o.detune.value = (Math.random() - 0.5) * 12;
-      const g = ctx.createGain();
-      g.gain.value = 0.08;
+      var g = ctx.createGain();
+      g.gain.value = 0.06;
       o.connect(g);
       g.connect(L.filter);
       o.start();
@@ -526,23 +620,23 @@ const Voice = (function () {
     L.active = true;
   }
 
-  // ── UPDATE (called every frame from app.js) ──────────────────────────
+  // ── UPDATE ───────────────────────────────────────────────────────────
 
   function update(brainState, sensorState, dt) {
     if (!state.ready || !state.lens) return;
 
-    const lens = state.lens;
-    const totalMotion = brainState.totalMotion;
-    const energy = brainState.energy;
-    const pattern = brainState.pattern;
-    const voidDepth = brainState.voidDepth;
-    const tiltY = sensorState.beta;
+    var lens = state.lens;
+    var totalMotion = brainState.totalMotion;
+    var energy = brainState.energy;
+    var pattern = brainState.pattern;
+    var voidDepth = brainState.voidDepth;
+    var tiltY = (sensorState.beta || 0);
 
     state.energy = energy;
 
-    // ── EVOLUTION STAGE ──
-    let newStage = 0;
-    for (let i = STAGES.length - 1; i >= 0; i--) {
+    // ── EVOLUTION STAGE
+    var newStage = 0;
+    for (var i = STAGES.length - 1; i >= 0; i--) {
       if (totalMotion >= STAGES[i].threshold) { newStage = i; break; }
     }
     if (newStage !== state.stageIndex) {
@@ -552,19 +646,16 @@ const Voice = (function () {
       updateLayerRoots();
     }
 
-    // ── TEMPO ──
-    const bpmArr = (lens.rhythm && lens.rhythm.bpm) || [80];
-    const baseBPM = Array.isArray(bpmArr) ? bpmArr[Math.min(newStage, bpmArr.length - 1)] : bpmArr;
+    // ── TEMPO
+    var bpmArr = v(lens, 'rhythm.bpm', [80]);
+    var baseBPM = Array.isArray(bpmArr) ? bpmArr[Math.min(newStage, bpmArr.length - 1)] : bpmArr;
     state.tempo = baseBPM + STAGES[newStage].bpmBoost;
 
     // Context mods
     if (lens.context) {
-      const tod = sensorState.timeOfDay;
-      const cmod = lens.context[tod];
-      if (cmod) {
-        if (cmod.bpm_mod) state.tempo += cmod.bpm_mod;
-      }
-      const wmod = lens.context[sensorState.weather];
+      var cmod = lens.context[sensorState.timeOfDay];
+      if (cmod && cmod.bpm_mod) state.tempo += cmod.bpm_mod;
+      var wmod = lens.context[sensorState.weather];
       if (wmod && wmod.reverb && reverbGain) {
         reverbGain.gain.value = Math.max(reverbGain.gain.value, wmod.reverb);
       }
@@ -572,110 +663,109 @@ const Voice = (function () {
 
     // Delay time follows tempo
     if (delayNode) {
-      const dottedEighth = (60 / state.tempo) * 0.75;
-      delayNode.delayTime.value = dottedEighth;
+      delayNode.delayTime.value = (60 / state.tempo) * 0.75;
     }
 
-    // ── LAYER VOLUMES based on motion pattern + lens mapping ──
-    const motionMap = (lens.motion && lens.motion[pattern]) || pattern;
-    const lensLayers = (lens.voice && lens.voice.layers) || ['pad', 'bass', 'strings', 'shimmer', 'choir'];
+    // ── LAYER VOLUMES
+    var ll = v(lens, 'voice.layers', ['pad', 'bass', 'strings', 'shimmer', 'choir']);
+    var targets = { pad: 0, atmosphere: 0, bass: 0, strings: 0, shimmer: 0, choir: 0 };
 
-    // Determine target volumes
-    const targets = { pad: 0, atmosphere: 0, bass: 0, strings: 0, shimmer: 0, choir: 0 };
+    // Base layers always on
+    if (ll.indexOf('pad') >= 0) targets.pad = 0.25;
+    if (ll.indexOf('atmosphere') >= 0) targets.atmosphere = 0.15;
 
-    // Base: pad + atmosphere always on (if in lens)
-    if (lensLayers.indexOf('pad') >= 0) targets.pad = 0.25;
-    if (lensLayers.indexOf('atmosphere') >= 0) targets.atmosphere = 0.15;
-
-    // Motion drives layers
-    if (pattern === 'gentle' || pattern === 'rhythmic' || pattern === 'vigorous' || pattern === 'chaotic') {
-      if (lensLayers.indexOf('bass') >= 0) targets.bass = 0.3;
+    // Motion drives additional layers
+    if (pattern !== 'still') {
+      if (ll.indexOf('bass') >= 0) targets.bass = 0.3;
     }
     if (pattern === 'rhythmic' || pattern === 'vigorous' || pattern === 'chaotic') {
-      if (lensLayers.indexOf('strings') >= 0) targets.strings = 0.25;
+      if (ll.indexOf('strings') >= 0) targets.strings = 0.25;
     }
     if (pattern === 'vigorous' || pattern === 'chaotic') {
-      if (lensLayers.indexOf('shimmer') >= 0) targets.shimmer = 0.2;
+      if (ll.indexOf('shimmer') >= 0) targets.shimmer = 0.2;
     }
     if (state.stage === 'TRANSCENDENT') {
-      if (lensLayers.indexOf('choir') >= 0) targets.choir = 0.18;
+      if (ll.indexOf('choir') >= 0) targets.choir = 0.18;
     }
 
     // Stage amplifies
-    const stageAmp = 1 + newStage * 0.15;
-    for (const name in targets) targets[name] *= stageAmp;
+    var stageAmp = 1 + newStage * 0.15;
+    for (var n in targets) targets[n] *= stageAmp;
 
-    // Void fades everything
+    // Void fades
     if (voidDepth > 0.1) {
-      const voidFade = 1 - voidDepth * 0.8;
-      for (const name in targets) targets[name] *= voidFade;
+      var fade = 1 - voidDepth * 0.8;
+      for (var n in targets) targets[n] *= fade;
     }
 
-    // Smooth layer gains
-    for (const name in layers) {
-      const L = layers[name];
+    // Smooth layer gains (faster smoothing for responsiveness)
+    for (var n in layers) {
+      var L = layers[n];
       if (!L.gain) continue;
-      const target = targets[name] || 0;
-      L.vol += (target - L.vol) * 0.03;
+      var target = targets[n] || 0;
+      L.vol += (target - L.vol) * 0.06;
       L.gain.gain.value = L.vol;
     }
 
-    // ── TILT EXPRESSION ──
-    // TiltY (beta: 0-180) maps to filter open + reverb send
-    const tiltNorm = Math.max(0, Math.min(1, (tiltY - 20) / 70));
-    const targetFilterFreq = 400 + tiltNorm * 6000;
-    state.filterFreq += (targetFilterFreq - state.filterFreq) * 0.08;
+    // ── TILT EXPRESSION
+    var filterRange = v(lens, 'voice.filterRange', [400, 6000]);
+    var tiltNorm = Math.max(0, Math.min(1, (tiltY - 20) / 70));
+    var targetFreq = filterRange[0] + tiltNorm * (filterRange[1] - filterRange[0]);
+    state.filterFreq += (targetFreq - state.filterFreq) * 0.08;
 
-    // Apply filter to pad and strings
     if (layers.pad.filter) layers.pad.filter.frequency.value = state.filterFreq;
     if (layers.strings.filter) layers.strings.filter.frequency.value = state.filterFreq * 1.2;
 
-    // Reverb send from tilt
-    if (reverbSend) {
-      reverbSend.gain.value = 0.15 + tiltNorm * 0.5;
-    }
+    if (reverbSend) reverbSend.gain.value = 0.15 + tiltNorm * 0.5;
 
-    // ── SIDECHAIN RECOVERY ──
+    // ── SIDECHAIN
     state.sidechainValue += (1 - state.sidechainValue) * 0.15;
     if (sidechainGain) sidechainGain.gain.value = state.sidechainValue;
 
-    // ── GROOVE ──
+    // ── GROOVE
     updateGroove();
 
-    // ── VOID DRONE ──
+    // ── VOID DRONE
     updateVoidDrone(voidDepth);
   }
 
-  // ── UPDATE LAYER ROOTS ON STAGE CHANGE ───────────────────────────────
+  // ── UPDATE ROOTS ON STAGE CHANGE ─────────────────────────────────────
 
   function updateLayerRoots() {
     if (!ctx || !state.lens) return;
-    const root = semitoneToFreq(state.harmonicRoot, state.rootOffset);
+    var root = semi2freq(state.harmonicRoot, state.rootOffset);
+    var now = ctx.currentTime;
 
-    // Pad
-    if (layers.pad.oscs.length) {
-      for (let i = 0; i < layers.pad.oscs.length; i++) {
-        if (layers.pad.oscs[i].frequency) {
-          layers.pad.oscs[i].frequency.setTargetAtTime(root / 2, ctx.currentTime, 0.5);
+    // Update pad chord tones
+    var chord = v(state.lens, 'voice.padChord', [0, 7, 12]);
+    var padOct = v(state.lens, 'voice.padOctave', -1);
+    var baseFreq = root * Math.pow(2, padOct);
+    var pi = 0;
+    for (var c = 0; c < chord.length && pi < layers.pad.oscs.length; c++) {
+      var cf = baseFreq * Math.pow(2, chord[c] / 12);
+      for (var d = 0; d < 2 && pi < layers.pad.oscs.length; d++) {
+        if (layers.pad.oscs[pi].frequency) {
+          layers.pad.oscs[pi].frequency.setTargetAtTime(cf, now, 0.5);
         }
+        pi++;
       }
     }
+
     // Bass
-    if (layers.bass.oscs.length) {
-      for (let i = 0; i < layers.bass.oscs.length; i++) {
-        if (layers.bass.oscs[i].frequency) {
-          layers.bass.oscs[i].frequency.setTargetAtTime(root / 4, ctx.currentTime, 0.3);
-        }
+    for (var i = 0; i < layers.bass.oscs.length; i++) {
+      if (layers.bass.oscs[i].frequency) {
+        layers.bass.oscs[i].frequency.setTargetAtTime(root / 4, now, 0.3);
       }
     }
-    // Strings: root, fifth, octave
-    const strFreqs = [root, root * 1.5, root * 2];
-    const strOscs = layers.strings.oscs;
-    let si = 0;
-    for (let f = 0; f < strFreqs.length && si < strOscs.length; f++) {
-      for (let d = 0; d < 3 && si < strOscs.length; d++) {
-        if (strOscs[si].frequency) {
-          strOscs[si].frequency.setTargetAtTime(strFreqs[f], ctx.currentTime, 0.5);
+
+    // Strings
+    var sv = v(state.lens, 'voice.stringVoicing', [0, 4, 7, 12]);
+    var si = 0;
+    for (var s = 0; s < sv.length && si < layers.strings.oscs.length; s++) {
+      var sf = root * Math.pow(2, sv[s] / 12);
+      for (var d = 0; d < 3 && si < layers.strings.oscs.length; d++) {
+        if (layers.strings.oscs[si].frequency) {
+          layers.strings.oscs[si].frequency.setTargetAtTime(sf, now, 0.5);
         }
         si++;
       }
@@ -685,169 +775,206 @@ const Voice = (function () {
   // ── GROOVE / DRUM SEQUENCER ──────────────────────────────────────────
 
   function updateGroove() {
-    if (!ctx) return;
+    if (!ctx || !state.lens) return;
 
-    const pat = PATTERNS[state.stage];
-    const lens = state.lens;
-    const feel = (lens && lens.rhythm && lens.rhythm.feel) || 'straight';
+    var lens = state.lens;
+    var kit = v(lens, 'voice.drumKit', 'acoustic');
+    var feel = v(lens, 'rhythm.feel', 'straight');
 
-    // Lens says no drums ever?
-    if (lens && lens.rhythm && lens.rhythm.density === 'none') {
+    // No drums?
+    if (kit === 'none' || v(lens, 'rhythm.density', 'full') === 'none') {
       state.groovePlaying = false;
       return;
     }
 
-    // Need at least FLOWING for drums (unless lens overrides)
-    const grooveThresh = (lens && lens.rhythm && lens.rhythm.groove_threshold) || 0.3;
-    if (!pat || state.energy < grooveThresh) {
+    // Get per-lens patterns for current stage
+    var patterns = v(lens, 'rhythm.patterns', {});
+    var pat = patterns[state.stage];
+
+    if (!pat) { state.groovePlaying = false; return; }
+
+    // Energy threshold
+    var thresh = v(lens, 'rhythm.groove_threshold', 0.3);
+    if (state.energy < thresh && state.stage === 'EMERGING') {
       state.groovePlaying = false;
       return;
     }
 
     state.groovePlaying = true;
-    const now = ctx.currentTime;
-
-    // Step timing
-    const stepDur = (60 / state.tempo) / 4; // 16th notes
-    if (now < state.nextStepTime) return;
+    var now = ctx.currentTime;
+    var stepDur = (60 / state.tempo) / 4;
 
     if (state.nextStepTime === 0) state.nextStepTime = now;
+    if (now < state.nextStepTime - 0.05) return;
 
-    // Schedule ahead slightly
     while (state.nextStepTime <= now + 0.05) {
-      const step = state.grooveStep % 16;
+      var step = state.grooveStep % 16;
 
-      // Swing feel
-      let swingOffset = 0;
+      var swingOff = 0;
       if ((feel === 'swing' || feel === 'shuffle') && step % 2 === 1) {
-        swingOffset = stepDur * (feel === 'shuffle' ? 0.25 : 0.18);
+        swingOff = stepDur * (feel === 'shuffle' ? 0.25 : 0.18);
       }
 
-      const t = state.nextStepTime + swingOffset;
+      var t = state.nextStepTime + swingOff;
 
-      // Kick
-      if (pat.kick[step] > 0) {
-        playKick(t, pat.kick[step]);
-      }
-      // Snare
-      if (pat.snare[step] > 0) {
-        playSnare(t, pat.snare[step]);
-      }
-      // Hat
-      if (pat.hat[step] > 0) {
-        playHat(t, pat.hat[step]);
-      }
+      if (pat.kick && pat.kick[step] > 0) playKick(t, pat.kick[step], kit);
+      if (pat.snare && pat.snare[step] > 0) playSnare(t, pat.snare[step], kit);
+      if (pat.hat && pat.hat[step] > 0) playHat(t, pat.hat[step], kit);
 
       state.grooveStep++;
       state.nextStepTime += stepDur;
     }
   }
 
-  // ── DRUM SYNTHESIS ───────────────────────────────────────────────────
+  // ── DRUM SYNTHESIS — per-kit ─────────────────────────────────────────
 
-  function playKick(time, vel) {
-    if (!ctx) return;
-    const o = ctx.createOscillator();
+  function playKick(time, vel, kit) {
+    var o = ctx.createOscillator();
     o.type = 'sine';
-    o.frequency.setValueAtTime(160 * vel, time);
-    o.frequency.exponentialRampToValueAtTime(40, time + 0.08);
 
-    const g = ctx.createGain();
-    g.gain.setValueAtTime(0.8 * vel, time);
-    g.gain.exponentialRampToValueAtTime(0.001, time + 0.35);
-
-    o.connect(g);
-    g.connect(drumBus);
-    o.start(time);
-    o.stop(time + 0.4);
+    if (kit === '808') {
+      // 808: deeper pitch sweep, longer sustain
+      o.frequency.setValueAtTime(120, time);
+      o.frequency.exponentialRampToValueAtTime(30, time + 0.15);
+      var g = ctx.createGain();
+      g.gain.setValueAtTime(0.9 * vel, time);
+      g.gain.exponentialRampToValueAtTime(0.001, time + 0.5);
+      o.connect(g); g.connect(drumBus);
+      o.start(time); o.stop(time + 0.55);
+    } else if (kit === 'brushes') {
+      // Brushes: soft thump
+      o.frequency.setValueAtTime(80, time);
+      o.frequency.exponentialRampToValueAtTime(40, time + 0.04);
+      var g = ctx.createGain();
+      g.gain.setValueAtTime(0.2 * vel, time);
+      g.gain.exponentialRampToValueAtTime(0.001, time + 0.15);
+      o.connect(g); g.connect(drumBus);
+      o.start(time); o.stop(time + 0.2);
+    } else if (kit === 'glitch') {
+      // Glitch: short click + pitched
+      o.frequency.setValueAtTime(200 + Math.random() * 100, time);
+      o.frequency.exponentialRampToValueAtTime(30, time + 0.03);
+      var g = ctx.createGain();
+      g.gain.setValueAtTime(0.6 * vel, time);
+      g.gain.exponentialRampToValueAtTime(0.001, time + 0.12);
+      o.connect(g); g.connect(drumBus);
+      o.start(time); o.stop(time + 0.15);
+    } else {
+      // Acoustic: standard
+      o.frequency.setValueAtTime(160 * vel, time);
+      o.frequency.exponentialRampToValueAtTime(40, time + 0.08);
+      var g = ctx.createGain();
+      g.gain.setValueAtTime(0.8 * vel, time);
+      g.gain.exponentialRampToValueAtTime(0.001, time + 0.35);
+      o.connect(g); g.connect(drumBus);
+      o.start(time); o.stop(time + 0.4);
+    }
 
     // Sidechain pump
-    const depth = (state.lens && state.lens.voice && state.lens.voice.sidechain) || 0.3;
+    var depth = v(state.lens, 'voice.sidechain', 0.3);
     state.sidechainValue = 1 - depth * vel;
 
-    // Crackle with vinyl feel
-    if (state.lens && state.lens.voice && state.lens.voice.crackle) {
-      ensureCrackle();
+    // Crackle
+    if (v(state.lens, 'voice.crackle', false)) ensureCrackle();
+  }
+
+  function playSnare(time, vel, kit) {
+    if (kit === '808') {
+      // 808 clap: layered noise bursts
+      for (var c = 0; c < 3; c++) {
+        var t = time + c * 0.015;
+        var len = ctx.sampleRate * 0.08;
+        var buf = ctx.createBuffer(1, len, ctx.sampleRate);
+        var d = buf.getChannelData(0);
+        for (var i = 0; i < len; i++) d[i] = (Math.random()*2-1) * Math.pow(1-i/len, 2);
+        var src = ctx.createBufferSource(); src.buffer = buf;
+        var bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1500; bp.Q.value = 1;
+        var g = ctx.createGain();
+        g.gain.setValueAtTime(0.35 * vel, t);
+        g.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
+        src.connect(bp); bp.connect(g); g.connect(drumBus);
+        src.start(t); src.stop(t + 0.15);
+      }
+    } else if (kit === 'brushes') {
+      // Brushes: soft swish
+      var len = ctx.sampleRate * 0.2;
+      var buf = ctx.createBuffer(1, len, ctx.sampleRate);
+      var d = buf.getChannelData(0);
+      for (var i = 0; i < len; i++) d[i] = (Math.random()*2-1) * Math.pow(1-i/len, 1.5) * 0.3;
+      var src = ctx.createBufferSource(); src.buffer = buf;
+      var bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 3000; bp.Q.value = 0.5;
+      var g = ctx.createGain();
+      g.gain.setValueAtTime(0.15 * vel, time);
+      g.gain.exponentialRampToValueAtTime(0.001, time + 0.2);
+      src.connect(bp); bp.connect(g); g.connect(drumBus);
+      src.start(time); src.stop(time + 0.25);
+    } else if (kit === 'glitch') {
+      // Glitch: short digital noise
+      var len = ctx.sampleRate * 0.06;
+      var buf = ctx.createBuffer(1, len, ctx.sampleRate);
+      var d = buf.getChannelData(0);
+      for (var i = 0; i < len; i++) d[i] = Math.random() > 0.5 ? 0.5 : -0.5; // bit-crushed
+      var src = ctx.createBufferSource(); src.buffer = buf;
+      var g = ctx.createGain();
+      g.gain.setValueAtTime(0.3 * vel, time);
+      g.gain.exponentialRampToValueAtTime(0.001, time + 0.06);
+      src.connect(g); g.connect(drumBus);
+      src.start(time); src.stop(time + 0.08);
+    } else {
+      // Acoustic
+      var len = ctx.sampleRate * 0.15;
+      var buf = ctx.createBuffer(1, len, ctx.sampleRate);
+      var d = buf.getChannelData(0);
+      for (var i = 0; i < len; i++) d[i] = (Math.random()*2-1) * (1-i/len);
+      var src = ctx.createBufferSource(); src.buffer = buf;
+      var hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 1200;
+      var g = ctx.createGain();
+      g.gain.setValueAtTime(0.5 * vel, time);
+      g.gain.exponentialRampToValueAtTime(0.001, time + 0.15);
+      src.connect(hp); hp.connect(g); g.connect(drumBus);
+      src.start(time); src.stop(time + 0.2);
+      // Body
+      var o = ctx.createOscillator(); o.type = 'triangle'; o.frequency.value = 200;
+      var og = ctx.createGain();
+      og.gain.setValueAtTime(0.3*vel, time);
+      og.gain.exponentialRampToValueAtTime(0.001, time + 0.08);
+      o.connect(og); og.connect(drumBus);
+      o.start(time); o.stop(time + 0.1);
     }
   }
 
-  function playSnare(time, vel) {
-    if (!ctx) return;
-    // Noise burst
-    const len = ctx.sampleRate * 0.15;
-    const buf = ctx.createBuffer(1, len, ctx.sampleRate);
-    const d = buf.getChannelData(0);
-    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
+  function playHat(time, vel, kit) {
+    var dur, hpFreq;
+    if (kit === '808') { dur = 0.06; hpFreq = 6000; }
+    else if (kit === 'brushes') { dur = 0.1; hpFreq = 4000; }
+    else if (kit === 'glitch') { dur = 0.03; hpFreq = 9000; }
+    else { dur = 0.05; hpFreq = 7000; }
 
-    const src = ctx.createBufferSource();
-    src.buffer = buf;
+    var len = Math.floor(ctx.sampleRate * dur);
+    var buf = ctx.createBuffer(1, len, ctx.sampleRate);
+    var d = buf.getChannelData(0);
+    for (var i = 0; i < len; i++) d[i] = (Math.random()*2-1) * (1-i/len);
 
-    const filt = ctx.createBiquadFilter();
-    filt.type = 'highpass';
-    filt.frequency.value = 1200;
-
-    const g = ctx.createGain();
-    g.gain.setValueAtTime(0.5 * vel, time);
-    g.gain.exponentialRampToValueAtTime(0.001, time + 0.15);
-
-    src.connect(filt);
-    filt.connect(g);
-    g.connect(drumBus);
-    src.start(time);
-    src.stop(time + 0.2);
-
-    // Body tone
-    const o = ctx.createOscillator();
-    o.type = 'triangle';
-    o.frequency.value = 200;
-    const og = ctx.createGain();
-    og.gain.setValueAtTime(0.3 * vel, time);
-    og.gain.exponentialRampToValueAtTime(0.001, time + 0.08);
-    o.connect(og);
-    og.connect(drumBus);
-    o.start(time);
-    o.stop(time + 0.1);
+    var src = ctx.createBufferSource(); src.buffer = buf;
+    var hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = hpFreq;
+    var g = ctx.createGain();
+    g.gain.setValueAtTime((kit === 'brushes' ? 0.12 : 0.25) * vel, time);
+    g.gain.exponentialRampToValueAtTime(0.001, time + dur);
+    src.connect(hp); hp.connect(g); g.connect(drumBus);
+    src.start(time); src.stop(time + dur + 0.01);
   }
 
-  function playHat(time, vel) {
-    if (!ctx) return;
-    const len = ctx.sampleRate * 0.05;
-    const buf = ctx.createBuffer(1, len, ctx.sampleRate);
-    const d = buf.getChannelData(0);
-    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
-
-    const src = ctx.createBufferSource();
-    src.buffer = buf;
-
-    const hp = ctx.createBiquadFilter();
-    hp.type = 'highpass';
-    hp.frequency.value = 7000;
-
-    const g = ctx.createGain();
-    g.gain.setValueAtTime(0.25 * vel, time);
-    g.gain.exponentialRampToValueAtTime(0.001, time + 0.05);
-
-    src.connect(hp);
-    hp.connect(g);
-    g.connect(drumBus);
-    src.start(time);
-    src.stop(time + 0.06);
-  }
-
-  // ── CRACKLE (vinyl texture) ──────────────────────────────────────────
+  // ── CRACKLE ──────────────────────────────────────────────────────────
 
   function ensureCrackle() {
     if (crackleNode) return;
-    const len = ctx.sampleRate * 4;
-    const buf = ctx.createBuffer(1, len, ctx.sampleRate);
-    const d = buf.getChannelData(0);
-    for (let i = 0; i < len; i++) {
-      d[i] = Math.random() > 0.997 ? (Math.random() * 2 - 1) * 0.3 : 0;
-    }
+    var len = ctx.sampleRate * 4;
+    var buf = ctx.createBuffer(1, len, ctx.sampleRate);
+    var d = buf.getChannelData(0);
+    for (var i = 0; i < len; i++) d[i] = Math.random() > 0.997 ? (Math.random()*2-1)*0.3 : 0;
     crackleNode = ctx.createBufferSource();
     crackleNode.buffer = buf;
     crackleNode.loop = true;
-
     crackleGainNode = ctx.createGain();
     crackleGainNode.gain.value = 0.04;
     crackleNode.connect(crackleGainNode);
@@ -855,60 +982,65 @@ const Voice = (function () {
     crackleNode.start();
   }
 
-  // ── TOUCH NOTES ──────────────────────────────────────────────────────
+  function stopCrackle() {
+    if (crackleNode) {
+      try { crackleNode.stop(); } catch (e) {}
+      try { crackleNode.disconnect(); } catch (e) {}
+      crackleNode = null;
+    }
+    if (crackleGainNode) {
+      try { crackleGainNode.disconnect(); } catch (e) {}
+      crackleGainNode = null;
+    }
+  }
+
+  // ── TOUCH NOTES — lens-aware ─────────────────────────────────────────
 
   function playTouchNote(tx, ty) {
-    if (!ctx || !state.ready) return;
-    const now = ctx.currentTime;
-
-    // Rate limit
+    if (!ctx || !state.ready || !state.lens) return;
+    var now = ctx.currentTime;
     if (now - state.lastNoteTime < 0.08) return;
     state.lastNoteTime = now;
 
-    // X position → scale degree, Y position → octave
-    const degree = Math.floor(tx * scale.length);
-    const octaveShift = Math.floor((1 - ty) * 3); // top of screen = higher
-    const semitones = scaleNote(degree) + octaveShift * 12 + state.rootOffset;
-    const freq = semitoneToFreq(state.harmonicRoot, semitones);
+    var lens = state.lens;
+    var degree = Math.floor(tx * scale.length);
+    var octShift = Math.floor((1 - ty) * 3);
+    var semi = scaleNote(degree) + octShift * 12 + state.rootOffset;
+    var freq = semi2freq(state.harmonicRoot, semi);
 
-    // Oscillator
-    const o = ctx.createOscillator();
-    const lens = state.lens;
-    const timbre = (lens && lens.voice && lens.voice.timbre) || 'warm';
-    o.type = timbre === 'warm' ? 'triangle' : timbre === 'bright' ? 'sawtooth' : 'sine';
+    var wave = v(lens, 'voice.noteWave', 'triangle');
+    var decay = v(lens, 'voice.noteDecay', 1.2);
+    var detune = v(lens, 'voice.noteDetune', 0);
+
+    var o = ctx.createOscillator();
+    o.type = wave;
     o.frequency.value = freq;
+    if (detune > 0) o.detune.value = (Math.random() - 0.5) * detune;
 
-    // Gain envelope
-    const g = ctx.createGain();
+    var g = ctx.createGain();
     g.gain.setValueAtTime(0, now);
     g.gain.linearRampToValueAtTime(0.2, now + 0.01);
-    g.gain.exponentialRampToValueAtTime(0.001, now + 1.2);
+    g.gain.exponentialRampToValueAtTime(0.001, now + decay);
 
     o.connect(g);
     g.connect(sidechainGain);
 
-    // Send to reverb + delay
-    const rSend = ctx.createGain();
-    rSend.gain.value = 0.35;
-    g.connect(rSend);
-    rSend.connect(reverbSend);
+    var rs = ctx.createGain(); rs.gain.value = 0.35;
+    g.connect(rs); rs.connect(reverbSend);
 
-    const dSend = ctx.createGain();
-    dSend.gain.value = 0.25;
-    g.connect(dSend);
-    dSend.connect(delaySend);
+    var ds = ctx.createGain(); ds.gain.value = 0.25;
+    g.connect(ds); ds.connect(delaySend);
 
     o.start(now);
-    o.stop(now + 1.5);
+    o.stop(now + decay + 0.1);
   }
 
   // ── GESTURE RESPONSES ────────────────────────────────────────────────
 
   function onSpike(data) {
     if (!ctx || !state.ready) return;
-    const now = ctx.currentTime;
-    const n = data.neuron;
-
+    var now = ctx.currentTime;
+    var n = data.neuron;
     if (n === 'shake') playTrill(now, data.rate);
     else if (n === 'sweep') playGliss(now, data.magnitude);
     else if (n === 'circle') playArp(now);
@@ -917,148 +1049,93 @@ const Voice = (function () {
   }
 
   function playTrill(time, rate) {
-    const baseFreq = noteFreq(Math.floor(Math.random() * 5) + 3);
-    const count = Math.min(8, Math.ceil(rate * 3));
-    const interval = 0.06;
-
-    for (let i = 0; i < count; i++) {
-      const t = time + i * interval;
-      const freq = baseFreq * (i % 2 === 0 ? 1 : 1.06);
-      const o = ctx.createOscillator();
-      o.type = 'triangle';
-      o.frequency.value = freq;
-      const g = ctx.createGain();
+    var baseFreq = noteFreq(Math.floor(Math.random() * 5) + 3);
+    var count = Math.min(8, Math.ceil(rate * 3));
+    var wave = v(state.lens, 'voice.noteWave', 'triangle');
+    for (var i = 0; i < count; i++) {
+      var t = time + i * 0.06;
+      var o = ctx.createOscillator();
+      o.type = wave;
+      o.frequency.value = baseFreq * (i % 2 === 0 ? 1 : 1.06);
+      var g = ctx.createGain();
       g.gain.setValueAtTime(0, t);
       g.gain.linearRampToValueAtTime(0.12, t + 0.01);
       g.gain.exponentialRampToValueAtTime(0.001, t + 0.08);
-      o.connect(g);
-      g.connect(sidechainGain);
-      // Delay send
-      const ds = ctx.createGain();
-      ds.gain.value = 0.3;
-      g.connect(ds);
-      ds.connect(delaySend);
-      o.start(t);
-      o.stop(t + 0.1);
+      o.connect(g); g.connect(sidechainGain);
+      var ds = ctx.createGain(); ds.gain.value = 0.3; g.connect(ds); ds.connect(delaySend);
+      o.start(t); o.stop(t + 0.1);
     }
   }
 
-  function playGliss(time, magnitude) {
-    const startSemi = state.rootOffset;
-    const range = Math.min(24, magnitude * 8);
-    const o = ctx.createOscillator();
-    o.type = 'sine';
-    o.frequency.setValueAtTime(semitoneToFreq(state.harmonicRoot, startSemi), time);
-    o.frequency.exponentialRampToValueAtTime(
-      semitoneToFreq(state.harmonicRoot, startSemi + range), time + 0.4
-    );
-    const g = ctx.createGain();
+  function playGliss(time, mag) {
+    var range = Math.min(24, mag * 8);
+    var o = ctx.createOscillator(); o.type = 'sine';
+    o.frequency.setValueAtTime(semi2freq(state.harmonicRoot, state.rootOffset), time);
+    o.frequency.exponentialRampToValueAtTime(semi2freq(state.harmonicRoot, state.rootOffset + range), time + 0.4);
+    var g = ctx.createGain();
     g.gain.setValueAtTime(0.15, time);
     g.gain.exponentialRampToValueAtTime(0.001, time + 0.6);
-    o.connect(g);
-    g.connect(sidechainGain);
-    const rs = ctx.createGain();
-    rs.gain.value = 0.4;
-    g.connect(rs);
-    rs.connect(reverbSend);
-    o.start(time);
-    o.stop(time + 0.7);
+    o.connect(g); g.connect(sidechainGain);
+    var rs = ctx.createGain(); rs.gain.value = 0.4; g.connect(rs); rs.connect(reverbSend);
+    o.start(time); o.stop(time + 0.7);
   }
 
   function playArp(time) {
-    const degrees = [0, 2, 4, 6, 8, 10];
-    const interval = 0.1;
-    for (let i = 0; i < degrees.length; i++) {
-      const t = time + i * interval;
-      const freq = noteFreq(degrees[i]);
-      const o = ctx.createOscillator();
-      o.type = 'sine';
-      o.frequency.value = freq;
-      const g = ctx.createGain();
+    var degrees = [0, 2, 4, 6, 8, 10];
+    var wave = v(state.lens, 'voice.noteWave', 'sine');
+    for (var i = 0; i < degrees.length; i++) {
+      var t = time + i * 0.1;
+      var o = ctx.createOscillator(); o.type = wave;
+      o.frequency.value = noteFreq(degrees[i]);
+      var g = ctx.createGain();
       g.gain.setValueAtTime(0, t);
       g.gain.linearRampToValueAtTime(0.1, t + 0.01);
       g.gain.exponentialRampToValueAtTime(0.001, t + 0.25);
-      o.connect(g);
-      g.connect(sidechainGain);
-      const ds = ctx.createGain();
-      ds.gain.value = 0.35;
-      g.connect(ds);
-      ds.connect(delaySend);
-      o.start(t);
-      o.stop(t + 0.3);
+      o.connect(g); g.connect(sidechainGain);
+      var ds = ctx.createGain(); ds.gain.value = 0.35; g.connect(ds); ds.connect(delaySend);
+      o.start(t); o.stop(t + 0.3);
     }
   }
 
-  function playImpact(time, magnitude) {
-    // Low boom + reverb wash
-    const o = ctx.createOscillator();
-    o.type = 'sine';
+  function playImpact(time, mag) {
+    var o = ctx.createOscillator(); o.type = 'sine';
     o.frequency.setValueAtTime(80, time);
     o.frequency.exponentialRampToValueAtTime(30, time + 0.5);
-    const g = ctx.createGain();
-    g.gain.setValueAtTime(Math.min(0.5, magnitude * 0.15), time);
+    var g = ctx.createGain();
+    g.gain.setValueAtTime(Math.min(0.5, mag * 0.15), time);
     g.gain.exponentialRampToValueAtTime(0.001, time + 0.8);
-    o.connect(g);
-    g.connect(masterGain);
-    // Heavy reverb send
-    const rs = ctx.createGain();
-    rs.gain.value = 0.7;
-    g.connect(rs);
-    rs.connect(reverbSend);
-    o.start(time);
-    o.stop(time + 1);
+    o.connect(g); g.connect(masterGain);
+    var rs = ctx.createGain(); rs.gain.value = 0.7; g.connect(rs); rs.connect(reverbSend);
+    o.start(time); o.stop(time + 1);
   }
 
   function playVibrato(time) {
-    const freq = noteFreq(4);
-    const o = ctx.createOscillator();
-    o.type = 'triangle';
-    o.frequency.value = freq;
-
-    const lfo = ctx.createOscillator();
-    lfo.type = 'sine';
-    lfo.frequency.value = 5.5;
-    const lfoG = ctx.createGain();
-    lfoG.gain.value = freq * 0.025;
-    lfo.connect(lfoG);
-    lfoG.connect(o.frequency);
-    lfo.start(time);
-
-    const g = ctx.createGain();
+    var freq = noteFreq(4);
+    var wave = v(state.lens, 'voice.noteWave', 'triangle');
+    var o = ctx.createOscillator(); o.type = wave; o.frequency.value = freq;
+    var lfo = ctx.createOscillator(); lfo.type = 'sine'; lfo.frequency.value = 5.5;
+    var lfoG = ctx.createGain(); lfoG.gain.value = freq * 0.025;
+    lfo.connect(lfoG); lfoG.connect(o.frequency); lfo.start(time);
+    var g = ctx.createGain();
     g.gain.setValueAtTime(0.12, time);
     g.gain.exponentialRampToValueAtTime(0.001, time + 0.8);
-    o.connect(g);
-    g.connect(sidechainGain);
-    const rs = ctx.createGain();
-    rs.gain.value = 0.3;
-    g.connect(rs);
-    rs.connect(reverbSend);
-    o.start(time);
-    o.stop(time + 0.9);
-    lfo.stop(time + 0.9);
+    o.connect(g); g.connect(sidechainGain);
+    var rs = ctx.createGain(); rs.gain.value = 0.3; g.connect(rs); rs.connect(reverbSend);
+    o.start(time); o.stop(time + 0.9); lfo.stop(time + 0.9);
   }
 
   // ── VOID DRONE ───────────────────────────────────────────────────────
 
-  let voidOsc = null;
-  let voidGain = null;
-  let voidOvertone = null;
-  let voidOvertoneGain = null;
-  let voidFilter = null;
+  var voidOsc = null, voidGain = null, voidOvertone = null, voidOvertoneGain = null, voidFilter = null;
 
   function updateVoidDrone(depth) {
     if (!ctx) return;
-
     if (depth > 0.15) {
       if (!voidOsc) startVoidDrone();
-      const targetVol = depth * 0.25;
-      voidGain.gain.value += (targetVol - voidGain.gain.value) * 0.02;
-
-      // Breath modulation
-      const breath = Brain.breathPhase;
-      if (voidFilter) {
-        voidFilter.frequency.value = 300 + Math.sin(breath) * 150;
-      }
+      var target = depth * 0.25;
+      voidGain.gain.value += (target - voidGain.gain.value) * 0.02;
+      var breath = Brain.breathPhase;
+      if (voidFilter) voidFilter.frequency.value = 300 + Math.sin(breath) * 150;
       if (voidOvertone && depth > 0.5) {
         voidOvertoneGain.gain.value += ((depth - 0.5) * 0.1 - voidOvertoneGain.gain.value) * 0.02;
       }
@@ -1068,47 +1145,22 @@ const Voice = (function () {
   }
 
   function startVoidDrone() {
-    voidFilter = ctx.createBiquadFilter();
-    voidFilter.type = 'lowpass';
-    voidFilter.frequency.value = 400;
-    voidFilter.Q.value = 1;
-
-    voidGain = ctx.createGain();
-    voidGain.gain.value = 0;
-
-    voidOsc = ctx.createOscillator();
-    voidOsc.type = 'sine';
-    voidOsc.frequency.value = 432;
-
-    voidOsc.connect(voidFilter);
-    voidFilter.connect(voidGain);
-    voidGain.connect(reverbGain);
-    voidOsc.start();
-
-    // Overtone
-    voidOvertone = ctx.createOscillator();
-    voidOvertone.type = 'sine';
-    voidOvertone.frequency.value = 432 * 1.5; // fifth
-    voidOvertoneGain = ctx.createGain();
-    voidOvertoneGain.gain.value = 0;
-    voidOvertone.connect(voidOvertoneGain);
-    voidOvertoneGain.connect(voidFilter);
-    voidOvertone.start();
+    voidFilter = ctx.createBiquadFilter(); voidFilter.type = 'lowpass'; voidFilter.frequency.value = 400; voidFilter.Q.value = 1;
+    voidGain = ctx.createGain(); voidGain.gain.value = 0;
+    voidOsc = ctx.createOscillator(); voidOsc.type = 'sine'; voidOsc.frequency.value = 432;
+    voidOsc.connect(voidFilter); voidFilter.connect(voidGain); voidGain.connect(reverbGain); voidOsc.start();
+    voidOvertone = ctx.createOscillator(); voidOvertone.type = 'sine'; voidOvertone.frequency.value = 432 * 1.5;
+    voidOvertoneGain = ctx.createGain(); voidOvertoneGain.gain.value = 0;
+    voidOvertone.connect(voidOvertoneGain); voidOvertoneGain.connect(voidFilter); voidOvertone.start();
   }
 
   function stopVoidDrone() {
-    try {
-      if (voidOsc) { voidOsc.stop(); voidOsc.disconnect(); }
-      if (voidOvertone) { voidOvertone.stop(); voidOvertone.disconnect(); }
-      if (voidGain) voidGain.disconnect();
-      if (voidFilter) voidFilter.disconnect();
-      if (voidOvertoneGain) voidOvertoneGain.disconnect();
-    } catch (e) { /* ok */ }
-    voidOsc = null;
-    voidGain = null;
-    voidOvertone = null;
-    voidOvertoneGain = null;
-    voidFilter = null;
+    try { if (voidOsc) { voidOsc.stop(); voidOsc.disconnect(); } } catch (e) {}
+    try { if (voidOvertone) { voidOvertone.stop(); voidOvertone.disconnect(); } } catch (e) {}
+    try { if (voidGain) voidGain.disconnect(); } catch (e) {}
+    try { if (voidFilter) voidFilter.disconnect(); } catch (e) {}
+    try { if (voidOvertoneGain) voidOvertoneGain.disconnect(); } catch (e) {}
+    voidOsc = voidGain = voidOvertone = voidOvertoneGain = voidFilter = null;
   }
 
   // ── PUBLIC ───────────────────────────────────────────────────────────
@@ -1119,7 +1171,6 @@ const Voice = (function () {
     update: update,
     playTouchNote: playTouchNote,
     onSpike: onSpike,
-
     get stage() { return state.stage; },
     get tempo() { return state.tempo; },
     get energy() { return state.energy; },
@@ -1127,9 +1178,9 @@ const Voice = (function () {
     get groovePlaying() { return state.groovePlaying; },
     get ready() { return state.ready; },
     get layerVolumes() {
-      const v = {};
-      for (const name in layers) v[name] = layers[name].vol.toFixed(2);
-      return v;
+      var r = {};
+      for (var n in layers) r[n] = layers[n].vol.toFixed(2);
+      return r;
     },
   });
 })();
