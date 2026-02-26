@@ -70,6 +70,8 @@ const Voice = (function () {
     chordIndex: 0,
     nextChordTime: 0,
     chordOffset: 0,
+    walkDeg: 0,
+    arpIndex: 0,
   };
 
   let scale = [0, 2, 4, 7, 9, 11, 12, 14, 16, 19, 23, 24];
@@ -261,6 +263,8 @@ const Voice = (function () {
     state.nextChordTime = 0;
     state.autoStep = 0;
     state.nextAutoTime = 0;
+    state.walkDeg = 0;
+    state.arpIndex = 0;
 
     // Harmony
     if (lens.harmony) {
@@ -340,8 +344,7 @@ const Voice = (function () {
       L.oscs = [];
       if (L.filter) { try { L.filter.disconnect(); } catch (e) {} L.filter = null; }
       L.active = false;
-      // Start at a small audible volume so sound is immediate
-      L.vol = 0.05;
+      L.vol = 0;
     }
 
     var root = state.harmonicRoot;
@@ -353,6 +356,21 @@ const Voice = (function () {
     if (ll.indexOf('strings') >= 0) buildStrings(root, lens);
     if (ll.indexOf('shimmer') >= 0) buildShimmer(root, lens);
     if (ll.indexOf('choir') >= 0) buildChoir(root, lens);
+
+    // Set initial volumes — immediate sound for 'always' layers
+    var iGates = {
+      pad: 'always', atmosphere: 'always', bass: 'moving',
+      strings: 'rhythmic', shimmer: 'intense', choir: 'transcendent'
+    };
+    for (var n in layers) {
+      if (ll.indexOf(n) < 0) continue;
+      var gate = v(lens, 'voice.' + n + 'Unlock', iGates[n] || 'always');
+      if (gate === 'always') {
+        var iv = v(lens, 'voice.' + n + 'Vol', 0.15);
+        layers[n].vol = iv;
+        if (layers[n].gain) layers[n].gain.gain.value = iv;
+      }
+    }
   }
 
   // ── PAD — lens-aware ─────────────────────────────────────────────────
@@ -722,7 +740,7 @@ const Voice = (function () {
       var L = layers[n];
       if (!L.gain) continue;
       var target = targets[n] || 0;
-      L.vol += (target - L.vol) * 0.06;
+      L.vol += (target - L.vol) * 0.15;
       L.gain.gain.value = L.vol;
     }
 
@@ -1169,29 +1187,47 @@ const Voice = (function () {
     updateLayerRoots();
   }
 
-  // ── AUTOPLAY MELODY ───────────────────────────────────────────────────
+  // ── AUTOPLAY MELODY — style-aware per lens ───────────────────────────
 
   function updateAutoplay() {
     if (!ctx || !state.lens) return;
     var density = v(state.lens, 'voice.autoplay', 0.4);
     if (density <= 0) return;
 
+    var style = v(state.lens, 'voice.autoplayStyle', 'random');
     var now = ctx.currentTime;
-    var stepDur = (60 / state.tempo) / 4;
+
+    // Different step sizes per style
+    var stepDur;
+    if (style === 'walking') stepDur = 60 / state.tempo; // quarter notes
+    else if (style === 'sparse') stepDur = (60 / state.tempo) * 2; // half notes
+    else stepDur = (60 / state.tempo) / 4; // 16th notes
 
     if (state.nextAutoTime === 0) state.nextAutoTime = now;
     if (now < state.nextAutoTime - 0.05) return;
 
     while (state.nextAutoTime <= now + 0.05) {
       var step = state.autoStep % 16;
+      var prob;
 
-      // Downbeats more likely to play a note
-      var strength = (step === 0) ? 1.0 : (step === 8) ? 0.7 : (step % 4 === 0) ? 0.5 : (step % 2 === 0) ? 0.25 : 0.1;
-
-      var prob = density * strength * (0.5 + Math.min(1, state.energy) * 0.5);
+      if (style === 'walking') {
+        // Walking bass: nearly every beat
+        prob = density * (0.85 + Math.min(1, state.energy) * 0.15);
+      } else if (style === 'sparse') {
+        // Sparse bells: rare, ethereal
+        prob = density * (0.3 + Math.min(1, state.energy) * 0.3);
+      } else if (style === 'arpeggio') {
+        // Arpeggio: notes on strong beats
+        var str = (step % 4 === 0) ? 1.0 : (step % 2 === 0) ? 0.4 : 0.1;
+        prob = density * str * (0.5 + Math.min(1, state.energy) * 0.5);
+      } else {
+        // Random: scattered across beats
+        var str = (step === 0) ? 1.0 : (step === 8) ? 0.7 : (step % 4 === 0) ? 0.5 : (step % 2 === 0) ? 0.25 : 0.1;
+        prob = density * str * (0.5 + Math.min(1, state.energy) * 0.5);
+      }
 
       if (Math.random() < prob) {
-        playAutoNote(state.nextAutoTime);
+        playAutoNote(state.nextAutoTime, style);
       }
 
       state.autoStep++;
@@ -1199,23 +1235,46 @@ const Voice = (function () {
     }
   }
 
-  function playAutoNote(time) {
+  function playAutoNote(time, style) {
     var lens = state.lens;
     var wave = v(lens, 'voice.noteWave', 'triangle');
     var decay = v(lens, 'voice.noteDecay', 1.2) * 0.5;
     var octave = v(lens, 'voice.autoplayOctave', 0);
+    var semi;
 
-    // Scale degree — wider range at higher energy
-    var range = Math.max(3, Math.floor(3 + state.energy * 4));
-    var degree = Math.floor(Math.random() * range);
-    var semi = scaleNote(degree) + state.rootOffset + state.chordOffset + octave * 12;
+    if (style === 'walking') {
+      // Walking bass: sequential scale steps, one octave below
+      semi = scaleNote(state.walkDeg) + state.rootOffset + state.chordOffset - 12;
+      if (Math.random() > 0.25) {
+        state.walkDeg = (state.walkDeg + 1) % 7;
+      } else {
+        state.walkDeg = (state.walkDeg + 6) % 7;
+      }
+      wave = 'triangle';
+      decay = 0.4;
+    } else if (style === 'arpeggio') {
+      // Cycle through chord tones
+      var chord = v(lens, 'voice.padChord', [0, 4, 7, 12]);
+      semi = chord[state.arpIndex] + state.rootOffset + state.chordOffset + octave * 12;
+      state.arpIndex = (state.arpIndex + 1) % chord.length;
+    } else if (style === 'sparse') {
+      // Wide intervals, high register, long bell decay
+      var degree = Math.floor(Math.random() * 8);
+      semi = scaleNote(degree) + state.rootOffset + state.chordOffset + (octave + 1) * 12;
+      decay = v(lens, 'voice.noteDecay', 3.0) * 0.7;
+    } else {
+      // Random scale degrees
+      var range = Math.max(3, Math.floor(3 + state.energy * 4));
+      var degree = Math.floor(Math.random() * range);
+      semi = scaleNote(degree) + state.rootOffset + state.chordOffset + octave * 12;
+    }
+
     var freq = semi2freq(state.harmonicRoot, semi);
-
     var o = ctx.createOscillator();
     o.type = wave;
     o.frequency.value = freq;
 
-    var vel = 0.07 + Math.min(0.07, state.energy * 0.04);
+    var vel = 0.15 + Math.min(0.1, state.energy * 0.06);
     var g = ctx.createGain();
     g.gain.setValueAtTime(0, time);
     g.gain.linearRampToValueAtTime(vel, time + 0.008);
@@ -1224,7 +1283,6 @@ const Voice = (function () {
     o.connect(g);
     g.connect(sidechainGain);
 
-    // Heavy reverb — these notes should float in space
     var rs = ctx.createGain(); rs.gain.value = 0.4;
     g.connect(rs); rs.connect(reverbSend);
 

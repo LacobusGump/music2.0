@@ -53,12 +53,13 @@ const Lens = (function () {
         padVol: 0.35, atmosphereVol: 0.15, bassVol: 0.3, stringsVol: 0.25, shimmerVol: 0.2, choirVol: 0.2,
         bassUnlock: 'moving', stringsUnlock: 'rhythmic', shimmerUnlock: 'intense', choirUnlock: 'transcendent',
         reverbMix: 0.45,
-        autoplay: 0.5, chordBars: 4, autoplayOctave: 0,
+        autoplay: 0.5, chordBars: 4, autoplayOctave: 0, autoplayStyle: 'random',
       },
       harmony: { root: 432, mode: 'major', gravity: 0.8, evolution: 'ascending-fifths', progression: [0, 5, 7, 0] },
       rhythm: {
         bpm: [72, 80, 90, 100], feel: 'straight', density: 'full', groove_threshold: 0.3,
         patterns: {
+          EMERGING:     { kick: [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0], snare: [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0], hat: [0.2,0,0,0,0.2,0,0,0,0.2,0,0,0,0.2,0,0,0] },
           FLOWING:      { kick: [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0], snare: [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0], hat: [0.3,0,0,0,0.3,0,0,0,0.3,0,0,0,0.3,0,0,0] },
           SURGING:      { kick: [1,0,0,0,0,0,0.4,0,0.9,0,0,0,0,0,0,0], snare: [0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0], hat: [0.5,0,0.3,0,0.5,0,0.3,0,0.5,0,0.3,0,0.5,0,0.3,0] },
           TRANSCENDENT: { kick: [1,0,0,0,0,0,0.4,0,0.9,0,0,0,0,0,0.3,0], snare: [0,0,0,0,1,0,0,0.15,0,0,0,0,1,0,0,0.2], hat: [0.5,0.15,0.3,0.15,0.5,0.15,0.3,0.15,0.5,0.15,0.3,0.15,0.5,0.15,0.3,0.15] },
@@ -96,11 +97,11 @@ const Lens = (function () {
         reverbDecay: 4.0,
         reverbDamping: 0.3,
         filterRange: [300, 4000],
-        // Mix — bass walks from beat one, harmony sparse
-        padVol: 0.15, bassVol: 0.4, stringsVol: 0.1,
+        // Mix — walking bass dominates, pad barely whispers, wide reverb
+        padVol: 0.04, bassVol: 0.5, stringsVol: 0.1,
         bassUnlock: 'always', stringsUnlock: 'transcendent',
         reverbMix: 0.55,
-        autoplay: 0.3, chordBars: 2, autoplayOctave: 0,
+        autoplay: 0.6, chordBars: 2, autoplayOctave: 0, autoplayStyle: 'walking',
       },
       harmony: { root: 432, mode: 'dorian', gravity: 0.6, evolution: 'ascending-fifths', progression: [0, 5, 7, 3, 10, 5, 7, 0] },
       rhythm: {
@@ -149,11 +150,11 @@ const Lens = (function () {
         padVol: 0.25, bassVol: 0.5, stringsVol: 0.18, choirVol: 0.35,
         bassUnlock: 'always', stringsUnlock: 'moving', choirUnlock: 'rhythmic',
         reverbMix: 0.2,
-        autoplay: 0.45, chordBars: 4, autoplayOctave: 0,
+        autoplay: 0.45, chordBars: 4, autoplayOctave: 0, autoplayStyle: 'arpeggio',
       },
       harmony: { root: 432, mode: 'pentatonic-major', gravity: 0.9, evolution: 'ascending-fifths', progression: [0, 5, 7, 0] },
       rhythm: {
-        bpm: [80, 85, 90, 95], feel: 'shuffle', density: 'full', groove_threshold: 0.2,
+        bpm: [80, 85, 90, 95], feel: 'shuffle', density: 'full', groove_threshold: 0,
         patterns: {
           EMERGING:     { kick: [0.8,0,0,0,0,0,0,0,0.8,0,0,0,0,0,0,0], snare: [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0], hat: [0.3,0,0.15,0,0.3,0,0.15,0,0.3,0,0.15,0,0.3,0,0.15,0] },
           FLOWING:      { kick: [1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0], snare: [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0], hat: [0.4,0,0.2,0,0.4,0,0.2,0,0.4,0,0.2,0,0.4,0,0.2,0] },
@@ -197,7 +198,7 @@ const Lens = (function () {
         // Mix — all space, everything always on, drowning in reverb
         padVol: 0.5, atmosphereVol: 0.3, shimmerVol: 0.25,
         reverbMix: 0.85,
-        autoplay: 0.15, chordBars: 8, autoplayOctave: 1,
+        autoplay: 0.04, chordBars: 8, autoplayOctave: 1, autoplayStyle: 'sparse',
       },
       harmony: { root: 432, mode: 'whole-tone', gravity: 0.3, evolution: 'static', progression: [0, 2, 4, 2] },
       rhythm: {
@@ -241,11 +242,11 @@ const Lens = (function () {
         padVol: 0.08, bassVol: 0.45,
         bassUnlock: 'always',
         reverbMix: 0.08,
-        autoplay: 0.2, chordBars: 4, autoplayOctave: -1,
+        autoplay: 0.2, chordBars: 4, autoplayOctave: -1, autoplayStyle: 'random',
       },
       harmony: { root: 432, mode: 'blues', gravity: 0.7, evolution: 'static', progression: [0, 7, 5, 0] },
       rhythm: {
-        bpm: [85, 88, 90, 95], feel: 'swing', density: 'full', groove_threshold: 0.1,
+        bpm: [85, 88, 90, 95], feel: 'swing', density: 'full', groove_threshold: 0,
         patterns: {
           EMERGING:     { kick: [1,0,0,0,0,0,0,0,0.9,0,0,0,0,0,0,0], snare: [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0], hat: [0.4,0,0.2,0,0.4,0,0.2,0,0.4,0,0.2,0,0.4,0,0.2,0] },
           FLOWING:      { kick: [1,0,0,0,0,0,0.6,0,0.9,0,0,0,0,0,0.3,0], snare: [0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0], hat: [0.5,0,0.3,0,0.5,0,0.3,0,0.5,0,0.3,0,0.5,0,0.3,0] },
@@ -293,12 +294,13 @@ const Lens = (function () {
         padVol: 0.25, atmosphereVol: 0.3, stringsVol: 0.18, shimmerVol: 0.18,
         stringsUnlock: 'moving', shimmerUnlock: 'moving',
         reverbMix: 0.35,
-        autoplay: 0.3, chordBars: 3, autoplayOctave: 0,
+        autoplay: 0.3, chordBars: 3, autoplayOctave: 0, autoplayStyle: 'random',
       },
       harmony: { root: 432, mode: 'chromatic', gravity: 0.2, evolution: 'ascending-fifths', progression: [0, 6, 1, 7] },
       rhythm: {
         bpm: [60, 75, 90, 110], feel: 'straight', density: 'sparse', groove_threshold: 0.5,
         patterns: {
+          EMERGING:     { kick: [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0], snare: [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0], hat: [0.15,0,0,0,0,0,0,0,0,0,0.1,0,0,0,0,0] },
           FLOWING:      { kick: [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0], snare: [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0], hat: [0.2,0,0,0,0,0,0.15,0,0,0,0.2,0,0,0,0,0.1] },
           SURGING:      { kick: [0.8,0,0,0,0,0,0,0,0,0,0.5,0,0,0,0,0], snare: [0,0,0,0,0.6,0,0,0,0,0,0,0,0,0,0.3,0], hat: [0.3,0,0.15,0,0,0.2,0,0.15,0.3,0,0,0.2,0,0.15,0,0] },
           TRANSCENDENT: { kick: [0.9,0,0,0.3,0,0,0,0.2,0,0,0.6,0,0,0,0,0.2], snare: [0,0,0,0,0.7,0,0,0,0,0.2,0,0,0,0,0.4,0], hat: [0.3,0.1,0.2,0,0.15,0.2,0.1,0.2,0.3,0.1,0.2,0,0.15,0.2,0.1,0.15] },
