@@ -53,8 +53,9 @@ const Lens = (function () {
         padVol: 0.35, atmosphereVol: 0.15, bassVol: 0.3, stringsVol: 0.25, shimmerVol: 0.2, choirVol: 0.2,
         bassUnlock: 'moving', stringsUnlock: 'rhythmic', shimmerUnlock: 'intense', choirUnlock: 'transcendent',
         reverbMix: 0.45,
+        autoplay: 0.5, chordBars: 4, autoplayOctave: 0,
       },
-      harmony: { root: 432, mode: 'major', gravity: 0.8, evolution: 'ascending-fifths' },
+      harmony: { root: 432, mode: 'major', gravity: 0.8, evolution: 'ascending-fifths', progression: [0, 5, 7, 0] },
       rhythm: {
         bpm: [72, 80, 90, 100], feel: 'straight', density: 'full', groove_threshold: 0.3,
         patterns: {
@@ -99,8 +100,9 @@ const Lens = (function () {
         padVol: 0.15, bassVol: 0.4, stringsVol: 0.1,
         bassUnlock: 'always', stringsUnlock: 'transcendent',
         reverbMix: 0.55,
+        autoplay: 0.3, chordBars: 2, autoplayOctave: 0,
       },
-      harmony: { root: 432, mode: 'dorian', gravity: 0.6, evolution: 'ascending-fifths' },
+      harmony: { root: 432, mode: 'dorian', gravity: 0.6, evolution: 'ascending-fifths', progression: [0, 5, 7, 3, 10, 5, 7, 0] },
       rhythm: {
         bpm: [65, 72, 78, 85], feel: 'swing', density: 'sparse', groove_threshold: 0.45,
         patterns: {
@@ -147,8 +149,9 @@ const Lens = (function () {
         padVol: 0.25, bassVol: 0.5, stringsVol: 0.18, choirVol: 0.35,
         bassUnlock: 'always', stringsUnlock: 'moving', choirUnlock: 'rhythmic',
         reverbMix: 0.2,
+        autoplay: 0.45, chordBars: 4, autoplayOctave: 0,
       },
-      harmony: { root: 432, mode: 'pentatonic-major', gravity: 0.9, evolution: 'ascending-fifths' },
+      harmony: { root: 432, mode: 'pentatonic-major', gravity: 0.9, evolution: 'ascending-fifths', progression: [0, 5, 7, 0] },
       rhythm: {
         bpm: [80, 85, 90, 95], feel: 'shuffle', density: 'full', groove_threshold: 0.2,
         patterns: {
@@ -194,8 +197,9 @@ const Lens = (function () {
         // Mix — all space, everything always on, drowning in reverb
         padVol: 0.5, atmosphereVol: 0.3, shimmerVol: 0.25,
         reverbMix: 0.85,
+        autoplay: 0.15, chordBars: 8, autoplayOctave: 1,
       },
-      harmony: { root: 432, mode: 'whole-tone', gravity: 0.3, evolution: 'static' },
+      harmony: { root: 432, mode: 'whole-tone', gravity: 0.3, evolution: 'static', progression: [0, 2, 4, 2] },
       rhythm: {
         bpm: [40, 42, 45, 50], feel: 'rubato', density: 'none', groove_threshold: 1.0,
         patterns: {},
@@ -237,8 +241,9 @@ const Lens = (function () {
         padVol: 0.08, bassVol: 0.45,
         bassUnlock: 'always',
         reverbMix: 0.08,
+        autoplay: 0.2, chordBars: 4, autoplayOctave: -1,
       },
-      harmony: { root: 432, mode: 'blues', gravity: 0.7, evolution: 'static' },
+      harmony: { root: 432, mode: 'blues', gravity: 0.7, evolution: 'static', progression: [0, 7, 5, 0] },
       rhythm: {
         bpm: [85, 88, 90, 95], feel: 'swing', density: 'full', groove_threshold: 0.1,
         patterns: {
@@ -288,8 +293,9 @@ const Lens = (function () {
         padVol: 0.25, atmosphereVol: 0.3, stringsVol: 0.18, shimmerVol: 0.18,
         stringsUnlock: 'moving', shimmerUnlock: 'moving',
         reverbMix: 0.35,
+        autoplay: 0.3, chordBars: 3, autoplayOctave: 0,
       },
-      harmony: { root: 432, mode: 'chromatic', gravity: 0.2, evolution: 'ascending-fifths' },
+      harmony: { root: 432, mode: 'chromatic', gravity: 0.2, evolution: 'ascending-fifths', progression: [0, 6, 1, 7] },
       rhythm: {
         bpm: [60, 75, 90, 110], feel: 'straight', density: 'sparse', groove_threshold: 0.5,
         patterns: {

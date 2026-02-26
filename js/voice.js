@@ -65,6 +65,11 @@ const Voice = (function () {
     energy: 0,
     sidechainValue: 1,
     lastNoteTime: 0,
+    autoStep: 0,
+    nextAutoTime: 0,
+    chordIndex: 0,
+    nextChordTime: 0,
+    chordOffset: 0,
   };
 
   let scale = [0, 2, 4, 7, 9, 11, 12, 14, 16, 19, 23, 24];
@@ -251,6 +256,11 @@ const Voice = (function () {
     state.grooveStep = 0;
     state.nextStepTime = 0;
     state.groovePlaying = false;
+    state.chordIndex = 0;
+    state.chordOffset = 0;
+    state.nextChordTime = 0;
+    state.autoStep = 0;
+    state.nextAutoTime = 0;
 
     // Harmony
     if (lens.harmony) {
@@ -735,6 +745,12 @@ const Voice = (function () {
     // ── GROOVE
     updateGroove();
 
+    // ── CHORD PROGRESSION
+    updateChords();
+
+    // ── AUTOPLAY MELODY
+    updateAutoplay();
+
     // ── VOID DRONE
     updateVoidDrone(voidDepth);
   }
@@ -743,7 +759,7 @@ const Voice = (function () {
 
   function updateLayerRoots() {
     if (!ctx || !state.lens) return;
-    var root = semi2freq(state.harmonicRoot, state.rootOffset);
+    var root = semi2freq(state.harmonicRoot, state.rootOffset + state.chordOffset);
     var now = ctx.currentTime;
 
     // Update pad chord tones
@@ -1132,6 +1148,91 @@ const Voice = (function () {
     o.connect(g); g.connect(sidechainGain);
     var rs = ctx.createGain(); rs.gain.value = 0.3; g.connect(rs); rs.connect(reverbSend);
     o.start(time); o.stop(time + 0.9); lfo.stop(time + 0.9);
+  }
+
+  // ── CHORD PROGRESSION ─────────────────────────────────────────────────
+
+  function updateChords() {
+    if (!ctx || !state.lens) return;
+    var now = ctx.currentTime;
+    var barDur = (60 / state.tempo) * 4;
+    var changeBars = v(state.lens, 'voice.chordBars', 4);
+
+    if (state.nextChordTime === 0) state.nextChordTime = now + barDur * changeBars;
+    if (now < state.nextChordTime) return;
+
+    var prog = v(state.lens, 'harmony.progression', [0, 5, 7, 0]);
+    state.chordIndex = (state.chordIndex + 1) % prog.length;
+    state.chordOffset = prog[state.chordIndex];
+    state.nextChordTime = now + barDur * changeBars;
+
+    updateLayerRoots();
+  }
+
+  // ── AUTOPLAY MELODY ───────────────────────────────────────────────────
+
+  function updateAutoplay() {
+    if (!ctx || !state.lens) return;
+    var density = v(state.lens, 'voice.autoplay', 0.4);
+    if (density <= 0) return;
+
+    var now = ctx.currentTime;
+    var stepDur = (60 / state.tempo) / 4;
+
+    if (state.nextAutoTime === 0) state.nextAutoTime = now;
+    if (now < state.nextAutoTime - 0.05) return;
+
+    while (state.nextAutoTime <= now + 0.05) {
+      var step = state.autoStep % 16;
+
+      // Downbeats more likely to play a note
+      var strength = (step === 0) ? 1.0 : (step === 8) ? 0.7 : (step % 4 === 0) ? 0.5 : (step % 2 === 0) ? 0.25 : 0.1;
+
+      var prob = density * strength * (0.3 + Math.min(1, state.energy) * 0.7);
+
+      if (Math.random() < prob) {
+        playAutoNote(state.nextAutoTime);
+      }
+
+      state.autoStep++;
+      state.nextAutoTime += stepDur;
+    }
+  }
+
+  function playAutoNote(time) {
+    var lens = state.lens;
+    var wave = v(lens, 'voice.noteWave', 'triangle');
+    var decay = v(lens, 'voice.noteDecay', 1.2) * 0.5;
+    var octave = v(lens, 'voice.autoplayOctave', 0);
+
+    // Scale degree — wider range at higher energy
+    var range = Math.max(3, Math.floor(3 + state.energy * 4));
+    var degree = Math.floor(Math.random() * range);
+    var semi = scaleNote(degree) + state.rootOffset + state.chordOffset + octave * 12;
+    var freq = semi2freq(state.harmonicRoot, semi);
+
+    var o = ctx.createOscillator();
+    o.type = wave;
+    o.frequency.value = freq;
+
+    var vel = 0.07 + Math.min(0.07, state.energy * 0.04);
+    var g = ctx.createGain();
+    g.gain.setValueAtTime(0, time);
+    g.gain.linearRampToValueAtTime(vel, time + 0.008);
+    g.gain.exponentialRampToValueAtTime(0.001, time + decay);
+
+    o.connect(g);
+    g.connect(sidechainGain);
+
+    // Heavy reverb — these notes should float in space
+    var rs = ctx.createGain(); rs.gain.value = 0.4;
+    g.connect(rs); rs.connect(reverbSend);
+
+    var ds = ctx.createGain(); ds.gain.value = 0.25;
+    g.connect(ds); ds.connect(delaySend);
+
+    o.start(time);
+    o.stop(time + decay + 0.1);
   }
 
   // ── VOID DRONE ───────────────────────────────────────────────────────
