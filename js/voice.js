@@ -1188,7 +1188,7 @@ const Voice = (function () {
       // Downbeats more likely to play a note
       var strength = (step === 0) ? 1.0 : (step === 8) ? 0.7 : (step % 4 === 0) ? 0.5 : (step % 2 === 0) ? 0.25 : 0.1;
 
-      var prob = density * strength * (0.3 + Math.min(1, state.energy) * 0.7);
+      var prob = density * strength * (0.5 + Math.min(1, state.energy) * 0.5);
 
       if (Math.random() < prob) {
         playAutoNote(state.nextAutoTime);

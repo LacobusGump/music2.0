@@ -181,6 +181,7 @@ const Brain = (function () {
   let prevVec = { x: 0, y: 0, z: 0 };
   let tiltAmp = 0;
   let lastOrient = { beta: 0, gamma: 0 };
+  let prevTouch = { x: 0.5, y: 0.5, active: false };
 
   const DEADZONE = 0.15;
 
@@ -339,6 +340,27 @@ const Brain = (function () {
 
     // 2. Subtract gravity
     subtractGravity(fx, fy, fz);
+
+    // 2b. Touch velocity → motion (the screen IS the instrument)
+    if (s.touching) {
+      if (prevTouch.active) {
+        lin.x += (s.tx - prevTouch.x) * 25;
+        lin.y += (s.ty - prevTouch.y) * 25;
+      }
+      prevTouch.x = s.tx;
+      prevTouch.y = s.ty;
+      prevTouch.active = true;
+    } else {
+      prevTouch.active = false;
+    }
+
+    // 2c. Tilt rate → motion (works even without accelerometer)
+    var dbeta = s.beta - lastOrient.beta;
+    var dgamma = s.gamma - lastOrient.gamma;
+    if (Math.abs(dbeta) < 10 && Math.abs(dgamma) < 10) {
+      lin.x += dgamma * 0.15;
+      lin.y += dbeta * 0.15;
+    }
 
     // 3. Magnitude
     const mag = Math.sqrt(lin.x * lin.x + lin.y * lin.y + lin.z * lin.z);
