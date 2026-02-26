@@ -3,14 +3,18 @@
  *
  * Every frame: accelerometer + gyroscope + touch + weather + time
  * → one clean SensorState object. Nothing else reads hardware directly.
+ *
+ * iOS PERMISSION HANDLING:
+ * - requestPermission() MUST fire in direct user gesture (touch/click)
+ * - fetchWeather (geolocation) is deferred to AFTER motion permission
+ * - Permission is retried on every significant user gesture via retryPermissions()
+ * - If denied, a visible help message tells user how to fix it in Safari settings
  */
 
 const Sensor = (function () {
   'use strict';
 
   // ── RAW ACCUMULATOR ──────────────────────────────────────────────────
-  // DeviceMotion fires at its own rate. We latch the latest values
-  // and let the main loop consume them each frame.
 
   const raw = {
     accel: { x: 0, y: 0, z: 0 },
@@ -19,14 +23,20 @@ const Sensor = (function () {
     touch: { active: false, x: 0.5, y: 0.5, startX: 0, startY: 0, startTime: 0 },
     motionGranted: false,
     orientGranted: false,
+    motionEventCount: 0,
   };
+
+  // Permission tracking
+  var permState = 'unknown'; // 'unknown' | 'granted' | 'denied' | 'unavailable'
+  var listenersAdded = false;
+  var helpShown = false;
 
   // ── WEATHER + TIME ───────────────────────────────────────────────────
 
   const env = {
     hour: new Date().getHours(),
-    timeOfDay: 'day',       // morning | day | evening | night
-    weather: 'clear',       // clear | rain | snow | cloud
+    timeOfDay: 'day',
+    weather: 'clear',
     temperature: null,
     weatherLoaded: false,
   };
@@ -70,7 +80,6 @@ const Sensor = (function () {
   // ── TOUCH / POINTER ──────────────────────────────────────────────────
 
   function onTouchStart(e) {
-    // Don't preventDefault here — let app.js handle that per-screen
     const t = e.touches[0];
     raw.touch.active = true;
     raw.touch.x = t.clientX / window.innerWidth;
@@ -106,12 +115,12 @@ const Sensor = (function () {
       raw.accel.y = b.y || 0;
       raw.accel.z = b.z || 0;
     } else if (a) {
-      // Fallback: use accelGravity when pure accel unavailable
       raw.accel.x = a.x || 0;
       raw.accel.y = a.y || 0;
       raw.accel.z = a.z || 0;
     }
     raw.motionGranted = true;
+    raw.motionEventCount++;
   }
 
   function onOrientation(e) {
@@ -121,38 +130,156 @@ const Sensor = (function () {
     raw.orientGranted = true;
   }
 
-  // ── iOS PERMISSION DANCE ─────────────────────────────────────────────
+  function addListeners() {
+    if (listenersAdded) return;
+    window.addEventListener('devicemotion', onMotion);
+    window.addEventListener('deviceorientation', onOrientation);
+    listenersAdded = true;
+  }
 
+  // ── iOS PERMISSION — AGGRESSIVE ────────────────────────────────────
+
+  /**
+   * MUST be called from a direct user gesture (touchstart / click).
+   * Uses Promise.all to request both permissions simultaneously —
+   * on iOS 16+ they share a single dialog, on older iOS the second
+   * one piggybacks on the gesture context.
+   */
   function requestPermissions() {
     return new Promise(function (resolve) {
-      if (typeof DeviceMotionEvent !== 'undefined' &&
-          typeof DeviceMotionEvent.requestPermission === 'function') {
-        DeviceMotionEvent.requestPermission()
-          .then(function (perm) {
-            if (perm === 'granted') {
-              window.addEventListener('devicemotion', onMotion);
-            }
-            return DeviceOrientationEvent.requestPermission();
-          })
-          .then(function (perm) {
-            if (perm === 'granted') {
-              window.addEventListener('deviceorientation', onOrientation);
-            }
-            resolve();
-          })
-          .catch(function () { resolve(); });
-      } else {
-        window.addEventListener('devicemotion', onMotion);
-        window.addEventListener('deviceorientation', onOrientation);
+      // Already granted? Just make sure listeners are active.
+      if (permState === 'granted') {
+        addListeners();
         resolve();
+        return;
       }
+
+      // Does this browser need explicit permission? (iOS 13+)
+      var needsRequest = typeof DeviceMotionEvent !== 'undefined' &&
+        typeof DeviceMotionEvent.requestPermission === 'function';
+
+      if (!needsRequest) {
+        // Android / desktop / older iOS — just add listeners
+        addListeners();
+        permState = 'granted';
+        resolve();
+        return;
+      }
+
+      // iOS: request BOTH permissions simultaneously via Promise.all
+      // Each has its own .catch so one failing doesn't kill the other
+      var motionP = DeviceMotionEvent.requestPermission()
+        .catch(function () { return 'error'; });
+
+      var orientP;
+      if (typeof DeviceOrientationEvent !== 'undefined' &&
+          typeof DeviceOrientationEvent.requestPermission === 'function') {
+        orientP = DeviceOrientationEvent.requestPermission()
+          .catch(function () { return 'error'; });
+      } else {
+        orientP = Promise.resolve('granted');
+      }
+
+      Promise.all([motionP, orientP]).then(function (results) {
+        var motionResult = results[0];
+        var orientResult = results[1];
+
+        if (motionResult === 'granted' || orientResult === 'granted') {
+          // Got at least one — add listeners for both
+          addListeners();
+          permState = 'granted';
+          dismissHelp();
+
+          // Verify events actually fire (iOS edge case)
+          var countBefore = raw.motionEventCount;
+          setTimeout(function () {
+            if (raw.motionEventCount === countBefore && !raw.motionGranted) {
+              // Permission said 'granted' but no events arriving
+              // Still OK — touch + tilt fallback in brain.js handles this
+              console.warn('[Sensor] Motion granted but no events received');
+            }
+          }, 2000);
+        } else {
+          // Both denied or errored
+          permState = 'denied';
+          showHelp();
+        }
+
+        resolve();
+      });
     });
+  }
+
+  /**
+   * Call from ANY user gesture to retry permission.
+   * Costs nothing if already granted (returns immediately).
+   * On iOS, this re-shows the dialog if the previous denial was
+   * per-page-session (cleared by reload).
+   */
+  function retryPermissions() {
+    if (permState === 'granted' && listenersAdded) return Promise.resolve();
+
+    // Needs explicit permission? Try again from this gesture.
+    var needsRequest = typeof DeviceMotionEvent !== 'undefined' &&
+      typeof DeviceMotionEvent.requestPermission === 'function';
+
+    if (!needsRequest) {
+      addListeners();
+      permState = 'granted';
+      return Promise.resolve();
+    }
+
+    return DeviceMotionEvent.requestPermission()
+      .then(function (perm) {
+        if (perm === 'granted') {
+          addListeners();
+          permState = 'granted';
+          dismissHelp();
+        }
+      })
+      .catch(function () { /* silent — don't spam errors */ });
+  }
+
+  // ── HELP MESSAGE ─────────────────────────────────────────────────────
+
+  function showHelp() {
+    if (helpShown) return;
+    helpShown = true;
+
+    var el = document.createElement('div');
+    el.id = 'sensor-help';
+    el.style.cssText =
+      'position:fixed;bottom:20px;left:8%;right:8%;' +
+      'background:rgba(200,60,60,0.95);color:#fff;' +
+      'padding:16px 20px;border-radius:14px;' +
+      'font:14px/1.5 -apple-system,sans-serif;z-index:9999;' +
+      'text-align:center;backdrop-filter:blur(8px);';
+    el.innerHTML =
+      '<b>Motion access needed</b><br>' +
+      'In Safari: tap <b>aA</b> in the address bar<br>' +
+      '→ <b>Website Settings</b> → <b>Motion & Orientation</b> → Allow<br>' +
+      'Then reload the page.<br><br>' +
+      '<span style="opacity:0.7;font-size:12px">Tap here to retry</span>';
+    el.addEventListener('click', function () {
+      retryPermissions();
+    });
+    el.addEventListener('touchstart', function (e) {
+      e.stopPropagation();
+      retryPermissions();
+    }, { passive: true });
+    document.body.appendChild(el);
+  }
+
+  function dismissHelp() {
+    var el = document.getElementById('sensor-help');
+    if (el) el.remove();
+    helpShown = false;
   }
 
   // ── INIT / READ ──────────────────────────────────────────────────────
 
   function init() {
-    // Capture phase so sensor always gets touch data even if app.js stopPropagation
+    // Touch listeners first (always work, no permission needed)
     document.addEventListener('touchstart', onTouchStart, { passive: true, capture: true });
     document.addEventListener('touchmove', onTouchMove, { passive: true, capture: true });
     document.addEventListener('touchend', onTouchEnd, { capture: true });
@@ -160,10 +287,14 @@ const Sensor = (function () {
 
     computeTimeOfDay();
     setInterval(computeTimeOfDay, 60000);
-    fetchWeather();
-    setInterval(fetchWeather, 600000);
 
-    return requestPermissions();
+    // Request motion/orientation FIRST — weather waits
+    // (geolocation dialog can preempt motion permission dialog on iOS)
+    return requestPermissions().then(function () {
+      // Only fetch weather AFTER sensor permissions are resolved
+      fetchWeather();
+      setInterval(fetchWeather, 600000);
+    });
   }
 
   /** Call once per frame. Returns a snapshot. */
@@ -193,5 +324,10 @@ const Sensor = (function () {
     };
   }
 
-  return Object.freeze({ init: init, read: read });
+  return Object.freeze({
+    init: init,
+    read: read,
+    retryPermissions: retryPermissions,
+    get permissionState() { return permState; },
+  });
 })();

@@ -121,6 +121,9 @@
     // Ensure AudioContext is alive (iOS can suspend between screens)
     if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
 
+    // Retry motion permissions on this user gesture (iOS may re-prompt)
+    Sensor.retryPermissions();
+
     Voice.applyLens(lens);
     Organism.applyLens(lens);
 
@@ -160,6 +163,9 @@
     playEl.addEventListener('touchstart', function (e) {
       if (screen !== SCREENS.PLAY) return;
       e.preventDefault();
+
+      // Retry motion permission on every touch (iOS user gesture requirement)
+      Sensor.retryPermissions();
 
       var t = e.touches[0];
       swipeStartX = t.clientX;
@@ -337,7 +343,7 @@
       'FILTER: ' + Voice.filterFreq.toFixed(0) + 'Hz',
       'ORGANISM: ' + Organism.stage + ' | LIFE: ' + Organism.lifeForce.toFixed(0),
       'POS: ' + posX.toFixed(2) + ',' + posY.toFixed(2),
-      'MOTION: ' + (sensor.hasMotion ? 'YES' : 'NO') + ' | ORIENT: ' + (sensor.hasOrientation ? 'YES' : 'NO'),
+      'MOTION: ' + (sensor.hasMotion ? 'YES' : 'NO') + ' | ORIENT: ' + (sensor.hasOrientation ? 'YES' : 'NO') + ' | PERM: ' + Sensor.permissionState,
       'TIME: ' + sensor.timeOfDay + ' | WEATHER: ' + sensor.weather,
     ];
 
