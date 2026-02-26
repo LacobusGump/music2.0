@@ -373,7 +373,7 @@ const Voice = (function () {
         o.frequency.value = chordFreq;
         o.detune.value = d === 0 ? -detune : detune;
         var g = ctx.createGain();
-        g.gain.value = 0.08 / chord.length;  // normalize by chord size
+        g.gain.value = 0.15 / chord.length;
         o.connect(g);
         g.connect(L.filter);
         o.start();
@@ -537,7 +537,7 @@ const Voice = (function () {
         o.frequency.value = freq;
         o.detune.value = detunes[d];
         var g = ctx.createGain();
-        g.gain.value = 0.06 / voicing.length;
+        g.gain.value = 0.1 / voicing.length;
         o.connect(g);
         g.connect(L.filter);
         o.start();
@@ -570,7 +570,7 @@ const Voice = (function () {
       lfo.start();
 
       var g = ctx.createGain();
-      g.gain.value = 0.08;
+      g.gain.value = 0.12;
 
       if (ringMod) {
         // Ring modulation for metallic texture
@@ -611,7 +611,7 @@ const Voice = (function () {
       o.frequency.value = freq;
       o.detune.value = (Math.random() - 0.5) * 12;
       var g = ctx.createGain();
-      g.gain.value = 0.06;
+      g.gain.value = 0.1;
       o.connect(g);
       g.connect(L.filter);
       o.start();
@@ -666,26 +666,35 @@ const Voice = (function () {
       delayNode.delayTime.value = (60 / state.tempo) * 0.75;
     }
 
-    // ── LAYER VOLUMES
+    // ── LAYER VOLUMES — per-lens mix profile
     var ll = v(lens, 'voice.layers', ['pad', 'bass', 'strings', 'shimmer', 'choir']);
     var targets = { pad: 0, atmosphere: 0, bass: 0, strings: 0, shimmer: 0, choir: 0 };
 
-    // Base layers always on
-    if (ll.indexOf('pad') >= 0) targets.pad = 0.25;
-    if (ll.indexOf('atmosphere') >= 0) targets.atmosphere = 0.15;
+    // Unlock conditions — each lens chooses when layers appear
+    var unlocked = {
+      always: true,
+      moving: pattern !== 'still',
+      gentle: pattern !== 'still',
+      rhythmic: pattern === 'rhythmic' || pattern === 'vigorous' || pattern === 'chaotic',
+      intense: pattern === 'vigorous' || pattern === 'chaotic',
+      transcendent: state.stage === 'TRANSCENDENT',
+    };
 
-    // Motion drives additional layers
-    if (pattern !== 'still') {
-      if (ll.indexOf('bass') >= 0) targets.bass = 0.3;
-    }
-    if (pattern === 'rhythmic' || pattern === 'vigorous' || pattern === 'chaotic') {
-      if (ll.indexOf('strings') >= 0) targets.strings = 0.25;
-    }
-    if (pattern === 'vigorous' || pattern === 'chaotic') {
-      if (ll.indexOf('shimmer') >= 0) targets.shimmer = 0.2;
-    }
-    if (state.stage === 'TRANSCENDENT') {
-      if (ll.indexOf('choir') >= 0) targets.choir = 0.18;
+    // Defaults (used if lens doesn't specify)
+    var defs = {
+      pad:        { vol: 0.25, gate: 'always' },
+      atmosphere: { vol: 0.15, gate: 'always' },
+      bass:       { vol: 0.30, gate: 'moving' },
+      strings:    { vol: 0.25, gate: 'rhythmic' },
+      shimmer:    { vol: 0.20, gate: 'intense' },
+      choir:      { vol: 0.18, gate: 'transcendent' },
+    };
+
+    for (var n in targets) {
+      if (ll.indexOf(n) < 0) continue;
+      var vol = v(lens, 'voice.' + n + 'Vol', defs[n].vol);
+      var gate = v(lens, 'voice.' + n + 'Unlock', defs[n].gate);
+      if (unlocked[gate]) targets[n] = vol;
     }
 
     // Stage amplifies
@@ -698,7 +707,7 @@ const Voice = (function () {
       for (var n in targets) targets[n] *= fade;
     }
 
-    // Smooth layer gains (faster smoothing for responsiveness)
+    // Smooth layer gains
     for (var n in layers) {
       var L = layers[n];
       if (!L.gain) continue;
@@ -716,7 +725,8 @@ const Voice = (function () {
     if (layers.pad.filter) layers.pad.filter.frequency.value = state.filterFreq;
     if (layers.strings.filter) layers.strings.filter.frequency.value = state.filterFreq * 1.2;
 
-    if (reverbSend) reverbSend.gain.value = 0.15 + tiltNorm * 0.5;
+    var rm = v(lens, 'voice.reverbMix', 0.4);
+    if (reverbSend) reverbSend.gain.value = rm * (0.3 + tiltNorm * 0.7);
 
     // ── SIDECHAIN
     state.sidechainValue += (1 - state.sidechainValue) * 0.15;
