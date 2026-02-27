@@ -38,7 +38,8 @@ const Lens = (function () {
         // Drums: acoustic kit, moderate volume
         drumKit: 'acoustic',
         drumGain: 1.0,
-        // Touch notes
+        // Notes: simple orchestral triangle
+        noteType: 'simple',
         noteWave: 'triangle',
         noteDecay: 1.2,
         // Delay
@@ -90,7 +91,9 @@ const Lens = (function () {
         stringVoicing: [0, 3, 7, 10, 14],  // m7(9) voicing
         drumKit: 'brushes',
         drumGain: 0.5,
-        noteWave: 'triangle',
+        crackle: true,             // old school record hiss
+        // Notes: jazz piano for touch, walking bass for autoplay
+        noteType: 'piano',
         noteDecay: 0.8,
         delayFeedback: 0.4,
         delayFilterFreq: 1500,     // dark tape delay
@@ -139,7 +142,8 @@ const Lens = (function () {
         stringVoicing: [0, 4, 7, 12],
         drumKit: '808',
         drumGain: 1.4,
-        noteWave: 'sine',          // organ-like
+        // Notes: gospel organ — drawbar harmonics, Leslie vibrato
+        noteType: 'organ',
         noteDecay: 1.5,
         delayFeedback: 0.25,
         delayFilterFreq: 2500,
@@ -186,7 +190,8 @@ const Lens = (function () {
         bassType: 'none',
         drumKit: 'none',
         drumGain: 0,
-        noteWave: 'sine',        // bell-like
+        // Notes: crystalline bells — inharmonic partials, infinite shimmer
+        noteType: 'bell',
         noteDecay: 3.0,          // long ring
         delayFeedback: 0.55,     // long cascading echoes
         delayFilterFreq: 5000,   // bright echoes
@@ -231,7 +236,8 @@ const Lens = (function () {
         bassType: 'growl',
         drumKit: '808',
         drumGain: 1.8,           // LOUD — drums dominate
-        noteWave: 'square',      // muted character
+        // Notes: DnB stabs — resonant filter sweep, punchy, dry
+        noteType: 'stab',
         noteDecay: 0.3,          // very short
         delayFeedback: 0.2,      // tight, not washy
         delayFilterFreq: 1800,   // dark
@@ -248,10 +254,11 @@ const Lens = (function () {
       rhythm: {
         bpm: [85, 88, 90, 95], feel: 'swing', density: 'full', groove_threshold: 0,
         patterns: {
-          EMERGING:     { kick: [1,0,0,0,0,0,0,0,0.9,0,0,0,0,0,0,0], snare: [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0], hat: [0.4,0,0.2,0,0.4,0,0.2,0,0.4,0,0.2,0,0.4,0,0.2,0] },
-          FLOWING:      { kick: [1,0,0,0,0,0,0.6,0,0.9,0,0,0,0,0,0.3,0], snare: [0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0], hat: [0.5,0,0.3,0,0.5,0,0.3,0,0.5,0,0.3,0,0.5,0,0.3,0] },
-          SURGING:      { kick: [1,0,0,0.2,0,0,0.6,0,0.9,0,0,0.15,0,0,0.4,0], snare: [0,0,0,0,1,0,0,0.2,0,0,0,0,1,0,0,0.15], hat: [0.5,0.2,0.3,0.15,0.5,0.2,0.3,0.15,0.5,0.2,0.3,0.15,0.5,0.2,0.3,0.15] },
-          TRANSCENDENT: { kick: [1,0,0.15,0.2,0,0,0.6,0.1,0.9,0,0.15,0.15,0,0,0.4,0.1], snare: [0,0,0,0,1,0,0.1,0.2,0,0,0,0,1,0,0.1,0.2], hat: [0.6,0.2,0.4,0.2,0.6,0.2,0.4,0.2,0.6,0.2,0.4,0.2,0.6,0.2,0.4,0.2] },
+          // DnB breakbeat: syncopated kick, snare on 3, rolling hats
+          EMERGING:     { kick: [1,0,0,0,0,0,0.5,0,0,0,0.7,0,0,0,0,0], snare: [0,0,0,0,0,0,0,0,1,0,0,0,0,0,0.2,0], hat: [0.6,0.2,0.4,0.2,0.6,0.2,0.4,0.2,0.6,0.2,0.4,0.2,0.6,0.2,0.4,0.2] },
+          FLOWING:      { kick: [1,0,0,0,0,0,0.6,0,0,0,0.8,0,0,0,0,0.3], snare: [0,0,0,0,0,0,0,0,1,0,0,0,0,0,0.3,0], hat: [0.6,0.25,0.4,0.25,0.6,0.25,0.4,0.25,0.6,0.25,0.4,0.25,0.6,0.25,0.4,0.25] },
+          SURGING:      { kick: [1,0,0,0.2,0,0,0.7,0,0,0,0.8,0,0,0.15,0,0.3], snare: [0,0,0,0,0,0,0,0.15,1,0,0,0,0,0,0.3,0], hat: [0.6,0.3,0.4,0.3,0.6,0.3,0.4,0.3,0.6,0.3,0.4,0.3,0.6,0.3,0.4,0.3] },
+          TRANSCENDENT: { kick: [1,0,0,0.25,0,0,0.7,0,0.2,0,0.8,0,0,0.15,0,0.4], snare: [0,0,0.1,0,0,0,0,0.2,1,0,0,0.1,0,0,0.35,0], hat: [0.7,0.3,0.5,0.3,0.7,0.3,0.5,0.3,0.7,0.3,0.5,0.3,0.7,0.3,0.5,0.3] },
         },
       },
       motion: { still: 'contemplative', gentle: 'groove', rhythmic: 'groove', vigorous: 'full', void: 'healing' },
@@ -279,9 +286,9 @@ const Lens = (function () {
         stringVoicing: [0, 1, 5, 6, 11],  // chromatic cluster + tritone
         drumKit: 'glitch',
         drumGain: 0.7,
-        noteWave: 'sawtooth',
+        // Notes: glitch — random waveform, pitch drift, distorted
+        noteType: 'glitch',
         noteDecay: 0.6,
-        noteDetune: 25,          // unstable pitch
         delayFeedback: 0.45,
         delayFilterFreq: 2200,
         reverbDecay: 1.8,

@@ -313,6 +313,9 @@ const Voice = (function () {
       if (t[2] !== undefined) STAGES[3].threshold = t[2];
     }
 
+    // Start crackle immediately if lens wants it (vinyl / old record)
+    if (v(lens, 'voice.crackle', false)) ensureCrackle();
+
     // Rebuild all layers
     rebuildLayers();
   }
@@ -1046,37 +1049,14 @@ const Voice = (function () {
     if (now - state.lastNoteTime < 0.08) return;
     state.lastNoteTime = now;
 
-    var lens = state.lens;
     var degree = Math.floor(tx * scale.length);
     var octShift = Math.floor((1 - ty) * 3);
-    var semi = scaleNote(degree) + octShift * 12 + state.rootOffset;
+    var semi = scaleNote(degree) + octShift * 12 + state.rootOffset + state.chordOffset;
     var freq = semi2freq(state.harmonicRoot, semi);
+    var decay = v(state.lens, 'voice.noteDecay', 1.2);
+    var vel = 0.18 + ty * 0.07; // harder at top of screen
 
-    var wave = v(lens, 'voice.noteWave', 'triangle');
-    var decay = v(lens, 'voice.noteDecay', 1.2);
-    var detune = v(lens, 'voice.noteDetune', 0);
-
-    var o = ctx.createOscillator();
-    o.type = wave;
-    o.frequency.value = freq;
-    if (detune > 0) o.detune.value = (Math.random() - 0.5) * detune;
-
-    var g = ctx.createGain();
-    g.gain.setValueAtTime(0, now);
-    g.gain.linearRampToValueAtTime(0.2, now + 0.01);
-    g.gain.exponentialRampToValueAtTime(0.001, now + decay);
-
-    o.connect(g);
-    g.connect(sidechainGain);
-
-    var rs = ctx.createGain(); rs.gain.value = 0.35;
-    g.connect(rs); rs.connect(reverbSend);
-
-    var ds = ctx.createGain(); ds.gain.value = 0.25;
-    g.connect(ds); ds.connect(delaySend);
-
-    o.start(now);
-    o.stop(now + decay + 0.1);
+    synthesizeNote(now, freq, vel, decay);
   }
 
   // ── GESTURE RESPONSES ────────────────────────────────────────────────
@@ -1195,6 +1175,7 @@ const Voice = (function () {
     if (density <= 0) return;
 
     var style = v(state.lens, 'voice.autoplayStyle', 'random');
+    var feel = v(state.lens, 'rhythm.feel', 'straight');
     var now = ctx.currentTime;
 
     // Different step sizes per style
@@ -1211,23 +1192,26 @@ const Voice = (function () {
       var prob;
 
       if (style === 'walking') {
-        // Walking bass: nearly every beat
         prob = density * (0.85 + Math.min(1, state.energy) * 0.15);
       } else if (style === 'sparse') {
-        // Sparse bells: rare, ethereal
         prob = density * (0.3 + Math.min(1, state.energy) * 0.3);
       } else if (style === 'arpeggio') {
-        // Arpeggio: notes on strong beats
         var str = (step % 4 === 0) ? 1.0 : (step % 2 === 0) ? 0.4 : 0.1;
         prob = density * str * (0.5 + Math.min(1, state.energy) * 0.5);
       } else {
-        // Random: scattered across beats
         var str = (step === 0) ? 1.0 : (step === 8) ? 0.7 : (step % 4 === 0) ? 0.5 : (step % 2 === 0) ? 0.25 : 0.1;
         prob = density * str * (0.5 + Math.min(1, state.energy) * 0.5);
       }
 
+      // Swing timing — offbeats arrive late for jazz/shuffle feel
+      var swingOff = 0;
+      if ((feel === 'swing' || feel === 'shuffle') && step % 2 === 1) {
+        var stepDur16 = (60 / state.tempo) / 4;
+        swingOff = stepDur16 * (feel === 'shuffle' ? 0.25 : 0.18);
+      }
+
       if (Math.random() < prob) {
-        playAutoNote(state.nextAutoTime, style);
+        playAutoNote(state.nextAutoTime + swingOff, style);
       }
 
       state.autoStep++;
@@ -1237,60 +1221,261 @@ const Voice = (function () {
 
   function playAutoNote(time, style) {
     var lens = state.lens;
-    var wave = v(lens, 'voice.noteWave', 'triangle');
     var decay = v(lens, 'voice.noteDecay', 1.2) * 0.5;
     var octave = v(lens, 'voice.autoplayOctave', 0);
     var semi;
 
     if (style === 'walking') {
-      // Walking bass: sequential scale steps, one octave below
       semi = scaleNote(state.walkDeg) + state.rootOffset + state.chordOffset - 12;
-      if (Math.random() > 0.25) {
-        state.walkDeg = (state.walkDeg + 1) % 7;
-      } else {
-        state.walkDeg = (state.walkDeg + 6) % 7;
-      }
-      wave = 'triangle';
-      decay = 0.4;
+      if (Math.random() > 0.25) state.walkDeg = (state.walkDeg + 1) % 7;
+      else state.walkDeg = (state.walkDeg + 6) % 7;
+      // Walking bass always uses upright synthesis
+      var freq = semi2freq(state.harmonicRoot, semi);
+      var vel = (0.15 + Math.min(0.1, state.energy * 0.06)) * (state.autoStep % 2 === 0 ? 1.0 : 0.7);
+      synthUpright(time, freq, vel);
+      return;
     } else if (style === 'arpeggio') {
-      // Cycle through chord tones
       var chord = v(lens, 'voice.padChord', [0, 4, 7, 12]);
       semi = chord[state.arpIndex] + state.rootOffset + state.chordOffset + octave * 12;
       state.arpIndex = (state.arpIndex + 1) % chord.length;
     } else if (style === 'sparse') {
-      // Wide intervals, high register, long bell decay
       var degree = Math.floor(Math.random() * 8);
       semi = scaleNote(degree) + state.rootOffset + state.chordOffset + (octave + 1) * 12;
       decay = v(lens, 'voice.noteDecay', 3.0) * 0.7;
     } else {
-      // Random scale degrees
       var range = Math.max(3, Math.floor(3 + state.energy * 4));
       var degree = Math.floor(Math.random() * range);
       semi = scaleNote(degree) + state.rootOffset + state.chordOffset + octave * 12;
     }
 
     var freq = semi2freq(state.harmonicRoot, semi);
+    var vel = (0.12 + Math.min(0.1, state.energy * 0.06)) * (0.7 + Math.random() * 0.3);
+    synthesizeNote(time, freq, vel, decay);
+  }
+
+  // ── NOTE SYNTHESIS — per lens instrument ───────────────────────────
+
+  function synthesizeNote(time, freq, vel, decay) {
+    var noteType = v(state.lens, 'voice.noteType', 'simple');
+    switch (noteType) {
+      case 'piano': synthPiano(time, freq, vel, decay); break;
+      case 'organ': synthOrgan(time, freq, vel, decay); break;
+      case 'bell': synthBell(time, freq, vel, decay); break;
+      case 'stab': synthStab(time, freq, vel); break;
+      case 'glitch': synthGlitch(time, freq, vel); break;
+      default: synthSimple(time, freq, vel, decay); break;
+    }
+  }
+
+  // ── PIANO — jazz piano: hammer attack, layered harmonics, warm ─────
+
+  function synthPiano(time, freq, vel, decay) {
+    var filt = ctx.createBiquadFilter();
+    filt.type = 'lowpass';
+    filt.frequency.setValueAtTime(2500 + vel * 4000, time);
+    filt.frequency.setTargetAtTime(1800, time + 0.01, 0.2);
+    filt.Q.value = 0.7;
+
+    var env = ctx.createGain();
+    env.gain.setValueAtTime(0, time);
+    env.gain.linearRampToValueAtTime(vel, time + 0.003);
+    env.gain.setTargetAtTime(vel * 0.45, time + 0.003, 0.12);
+    env.gain.setTargetAtTime(0.001, time + decay * 0.4, decay * 0.4);
+
+    // Body: detuned triangle pair
+    var o1 = ctx.createOscillator(); o1.type = 'triangle'; o1.frequency.value = freq;
+    var o2 = ctx.createOscillator(); o2.type = 'triangle'; o2.frequency.value = freq; o2.detune.value = 4;
+    // Brightness: quiet harmonic at 2x
+    var o3 = ctx.createOscillator(); o3.type = 'sine'; o3.frequency.value = freq * 2;
+    var hG = ctx.createGain(); hG.gain.value = 0.12; o3.connect(hG);
+
+    // Hammer click — brief noise transient
+    var cLen = Math.floor(ctx.sampleRate * 0.012);
+    var cBuf = ctx.createBuffer(1, cLen, ctx.sampleRate);
+    var cd = cBuf.getChannelData(0);
+    for (var i = 0; i < cLen; i++) cd[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / cLen, 4);
+    var cSrc = ctx.createBufferSource(); cSrc.buffer = cBuf;
+    var cG = ctx.createGain(); cG.gain.value = vel * 0.3; cSrc.connect(cG);
+
+    o1.connect(filt); o2.connect(filt); hG.connect(filt); cG.connect(filt);
+    filt.connect(env); env.connect(sidechainGain);
+
+    var rs = ctx.createGain(); rs.gain.value = 0.45; env.connect(rs); rs.connect(reverbSend);
+    var ds = ctx.createGain(); ds.gain.value = 0.2; env.connect(ds); ds.connect(delaySend);
+
+    var end = time + decay + 0.5;
+    o1.start(time); o1.stop(end); o2.start(time); o2.stop(end);
+    o3.start(time); o3.stop(end); cSrc.start(time); cSrc.stop(time + 0.015);
+  }
+
+  // ── UPRIGHT BASS — walking bass: formant, string buzz, warm ────────
+
+  function synthUpright(time, freq, vel) {
+    var formant = ctx.createBiquadFilter();
+    formant.type = 'peaking'; formant.frequency.value = 700; formant.Q.value = 2; formant.gain.value = 5;
+    var lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass'; lp.frequency.value = 1100; lp.Q.value = 0.8;
+
+    var env = ctx.createGain();
+    env.gain.setValueAtTime(0, time);
+    env.gain.linearRampToValueAtTime(vel, time + 0.005);
+    env.gain.setTargetAtTime(vel * 0.35, time + 0.005, 0.08);
+    env.gain.exponentialRampToValueAtTime(0.001, time + 0.5);
+
+    // Body: triangle fundamental
+    var o1 = ctx.createOscillator(); o1.type = 'triangle'; o1.frequency.value = freq;
+    // Sub: sine for weight
+    var o2 = ctx.createOscillator(); o2.type = 'sine'; o2.frequency.value = freq;
+    var subG = ctx.createGain(); subG.gain.value = 0.5; o2.connect(subG);
+
+    // String buzz — very short noise
+    var bLen = Math.floor(ctx.sampleRate * 0.008);
+    var bBuf = ctx.createBuffer(1, bLen, ctx.sampleRate);
+    var bd = bBuf.getChannelData(0);
+    for (var i = 0; i < bLen; i++) bd[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / bLen, 5);
+    var bSrc = ctx.createBufferSource(); bSrc.buffer = bBuf;
+    var bG = ctx.createGain(); bG.gain.value = vel * 0.2; bSrc.connect(bG);
+
+    o1.connect(formant); subG.connect(formant); bG.connect(formant);
+    formant.connect(lp); lp.connect(env); env.connect(sidechainGain);
+
+    var rs = ctx.createGain(); rs.gain.value = 0.2; env.connect(rs); rs.connect(reverbSend);
+
+    o1.start(time); o1.stop(time + 0.55); o2.start(time); o2.stop(time + 0.55);
+    bSrc.start(time); bSrc.stop(time + 0.012);
+  }
+
+  // ── ORGAN — gospel: drawbar harmonics, vibrato, sustained ──────────
+
+  function synthOrgan(time, freq, vel, decay) {
+    var filt = ctx.createBiquadFilter();
+    filt.type = 'lowpass'; filt.frequency.value = 3500; filt.Q.value = 0.5;
+
+    var env = ctx.createGain();
+    env.gain.setValueAtTime(0, time);
+    env.gain.linearRampToValueAtTime(vel, time + 0.015);
+    env.gain.setTargetAtTime(vel * 0.7, time + 0.015, 0.3);
+    env.gain.setTargetAtTime(0.001, time + decay, decay * 0.3);
+
+    // Leslie-like vibrato
+    var lfo = ctx.createOscillator(); lfo.type = 'sine'; lfo.frequency.value = 5.8;
+
+    // Drawbar harmonics: 1x, 2x, 3x, 4x
+    var harmonics = [1, 2, 3, 4];
+    var hGains = [0.5, 0.35, 0.2, 0.1];
+    for (var i = 0; i < harmonics.length; i++) {
+      var o = ctx.createOscillator(); o.type = 'sine'; o.frequency.value = freq * harmonics[i];
+      var lG = ctx.createGain(); lG.gain.value = freq * harmonics[i] * 0.004;
+      lfo.connect(lG); lG.connect(o.frequency);
+      var g = ctx.createGain(); g.gain.value = hGains[i];
+      o.connect(g); g.connect(filt);
+      o.start(time); o.stop(time + decay + 1);
+    }
+
+    lfo.start(time); lfo.stop(time + decay + 1);
+    filt.connect(env); env.connect(sidechainGain);
+
+    var rs = ctx.createGain(); rs.gain.value = 0.25; env.connect(rs); rs.connect(reverbSend);
+  }
+
+  // ── BELL — tundra: inharmonic partials, long shimmer ───────────────
+
+  function synthBell(time, freq, vel, decay) {
+    var env = ctx.createGain();
+    env.gain.setValueAtTime(0, time);
+    env.gain.linearRampToValueAtTime(vel, time + 0.001);
+    env.gain.exponentialRampToValueAtTime(0.001, time + decay);
+
+    // Inharmonic partials — bell character
+    var partials = [1, 2.4, 5.3, 6.7];
+    var pGains = [0.5, 0.22, 0.1, 0.06];
+    for (var i = 0; i < partials.length; i++) {
+      var o = ctx.createOscillator(); o.type = 'sine'; o.frequency.value = freq * partials[i];
+      var g = ctx.createGain(); g.gain.value = pGains[i];
+      o.connect(g); g.connect(env);
+      o.start(time); o.stop(time + decay + 0.5);
+    }
+
+    env.connect(sidechainGain);
+    // Heavy reverb — bells should ring forever
+    var rs = ctx.createGain(); rs.gain.value = 0.6; env.connect(rs); rs.connect(reverbSend);
+    var ds = ctx.createGain(); ds.gain.value = 0.4; env.connect(ds); ds.connect(delaySend);
+  }
+
+  // ── STAB — DnB: resonant filter sweep, punchy, dry ────────────────
+
+  function synthStab(time, freq, vel) {
+    var filt = ctx.createBiquadFilter();
+    filt.type = 'lowpass';
+    filt.frequency.setValueAtTime(5000, time);
+    filt.frequency.exponentialRampToValueAtTime(350, time + 0.12);
+    filt.Q.value = 5; // resonant sweep
+
+    var env = ctx.createGain();
+    env.gain.setValueAtTime(0, time);
+    env.gain.linearRampToValueAtTime(vel, time + 0.002);
+    env.gain.exponentialRampToValueAtTime(0.001, time + 0.18);
+
+    // Square wave body
+    var o = ctx.createOscillator(); o.type = 'square'; o.frequency.value = freq;
+    var oG = ctx.createGain(); oG.gain.value = 0.5; o.connect(oG);
+    // Sub sine for weight
+    var sub = ctx.createOscillator(); sub.type = 'sine'; sub.frequency.value = freq;
+
+    oG.connect(filt); sub.connect(filt); filt.connect(env);
+    env.connect(sidechainGain);
+
+    // Dry — barely any reverb
+    var rs = ctx.createGain(); rs.gain.value = 0.08; env.connect(rs); rs.connect(reverbSend);
+
+    o.start(time); o.stop(time + 0.2); sub.start(time); sub.stop(time + 0.2);
+  }
+
+  // ── GLITCH — dark matter: unstable pitch, distorted, alien ─────────
+
+  function synthGlitch(time, freq, vel) {
+    var waves = ['sawtooth', 'square', 'triangle'];
     var o = ctx.createOscillator();
-    o.type = wave;
+    o.type = waves[Math.floor(Math.random() * waves.length)];
     o.frequency.value = freq;
 
-    var vel = 0.15 + Math.min(0.1, state.energy * 0.06);
+    // Pitch drift LFO
+    var lfo = ctx.createOscillator(); lfo.type = 'sine'; lfo.frequency.value = 2 + Math.random() * 8;
+    var lG = ctx.createGain(); lG.gain.value = freq * (0.02 + Math.random() * 0.05);
+    lfo.connect(lG); lG.connect(o.frequency);
+
+    // Distortion
+    var dist = ctx.createWaveShaper();
+    var n = 64, curve = new Float32Array(n);
+    for (var i = 0; i < n; i++) { var x = (i * 2) / n - 1; curve[i] = Math.tanh(x * 3); }
+    dist.curve = curve;
+
+    var env = ctx.createGain();
+    env.gain.setValueAtTime(0, time);
+    env.gain.linearRampToValueAtTime(vel * 0.6, time + 0.004);
+    env.gain.exponentialRampToValueAtTime(0.001, time + 0.35);
+
+    o.connect(dist); dist.connect(env); env.connect(sidechainGain);
+    var rs = ctx.createGain(); rs.gain.value = 0.3; env.connect(rs); rs.connect(reverbSend);
+
+    o.start(time); o.stop(time + 0.4); lfo.start(time); lfo.stop(time + 0.4);
+  }
+
+  // ── SIMPLE — fallback: single oscillator (Conductor) ───────────────
+
+  function synthSimple(time, freq, vel, decay) {
+    var wave = v(state.lens, 'voice.noteWave', 'triangle');
+    var o = ctx.createOscillator(); o.type = wave; o.frequency.value = freq;
+
     var g = ctx.createGain();
     g.gain.setValueAtTime(0, time);
     g.gain.linearRampToValueAtTime(vel, time + 0.008);
     g.gain.exponentialRampToValueAtTime(0.001, time + decay);
 
-    o.connect(g);
-    g.connect(sidechainGain);
-
-    var rs = ctx.createGain(); rs.gain.value = 0.4;
-    g.connect(rs); rs.connect(reverbSend);
-
-    var ds = ctx.createGain(); ds.gain.value = 0.25;
-    g.connect(ds); ds.connect(delaySend);
-
-    o.start(time);
-    o.stop(time + decay + 0.1);
+    o.connect(g); g.connect(sidechainGain);
+    var rs = ctx.createGain(); rs.gain.value = 0.35; g.connect(rs); rs.connect(reverbSend);
+    var ds = ctx.createGain(); ds.gain.value = 0.2; g.connect(ds); ds.connect(delaySend);
+    o.start(time); o.stop(time + decay + 0.1);
   }
 
   // ── VOID DRONE ───────────────────────────────────────────────────────
