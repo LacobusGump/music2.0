@@ -400,32 +400,55 @@ const Voice = (function () {
     var detune = v(lens, 'voice.padDetune', 8);
     var chord = v(lens, 'voice.padChord', [0, 7, 12]);
     var timbre = v(lens, 'voice.timbre', 'warm');
+    var voiceCount = v(lens, 'voice.padVoiceCount', 2);
+    var filterFreq = v(lens, 'voice.padFilterFreq', 0);
 
     L.filter = ctx.createBiquadFilter();
     L.filter.type = 'lowpass';
-    L.filter.frequency.value = timbre === 'bright' ? 3000 : timbre === 'dark' ? 800 : 1400;
+    L.filter.frequency.value = filterFreq > 0 ? filterFreq :
+      (timbre === 'bright' ? 3000 : timbre === 'dark' ? 800 : 1400);
     L.filter.Q.value = 0.7;
     L.filter.connect(L.gain);
 
     var baseFreq = root * Math.pow(2, octave);
-    var detunes = [-detune, -detune/3, 0, detune/3, detune];
 
     for (var c = 0; c < chord.length; c++) {
       var chordFreq = baseFreq * Math.pow(2, chord[c] / 12);
-      // 2 oscillators per chord tone (detuned pair for width)
-      for (var d = 0; d < 2; d++) {
+      for (var d = 0; d < voiceCount; d++) {
         var o = ctx.createOscillator();
         o.type = wave;
         o.frequency.value = chordFreq;
-        o.detune.value = d === 0 ? -detune : detune;
+        // Spread detune evenly across voices
+        var detuneVal = voiceCount > 1 ? detune * (2 * d / (voiceCount - 1) - 1) : 0;
+        o.detune.value = detuneVal;
         var g = ctx.createGain();
-        g.gain.value = 0.15 / chord.length;
+        g.gain.value = 0.15 / (chord.length * voiceCount / 2);
         o.connect(g);
         g.connect(L.filter);
         o.start();
         L.oscs.push(o);
       }
     }
+
+    // Pad vibrato — string ensemble effect (frequency modulation on all voices)
+    var vibRate = v(lens, 'voice.padVibratoRate', 0);
+    var vibDepth = v(lens, 'voice.padVibratoDepth', 0);
+    if (vibRate > 0 && vibDepth > 0) {
+      var vibLfo = ctx.createOscillator();
+      vibLfo.type = 'sine';
+      vibLfo.frequency.value = vibRate;
+      vibLfo.start();
+      for (var i = 0; i < L.oscs.length; i++) {
+        if (L.oscs[i].frequency) {
+          var vg = ctx.createGain();
+          vg.gain.value = L.oscs[i].frequency.value * vibDepth;
+          vibLfo.connect(vg);
+          vg.connect(L.oscs[i].frequency);
+        }
+      }
+      L.oscs.push(vibLfo);
+    }
+
     L.active = true;
   }
 
@@ -824,15 +847,16 @@ const Voice = (function () {
     var root = semi2freq(state.harmonicRoot, state.rootOffset + state.chordOffset);
     var now = ctx.currentTime;
 
-    // Update pad chord tones
+    // Update pad chord tones (handle variable voice count)
     var chord = v(state.lens, 'voice.padChord', [0, 7, 12]);
     var padOct = v(state.lens, 'voice.padOctave', -1);
+    var voiceCount = v(state.lens, 'voice.padVoiceCount', 2);
     var baseFreq = root * Math.pow(2, padOct);
     var pi = 0;
     for (var c = 0; c < chord.length && pi < layers.pad.oscs.length; c++) {
       var cf = baseFreq * Math.pow(2, chord[c] / 12);
-      for (var d = 0; d < 2 && pi < layers.pad.oscs.length; d++) {
-        if (layers.pad.oscs[pi].frequency) {
+      for (var d = 0; d < voiceCount && pi < layers.pad.oscs.length; d++) {
+        if (layers.pad.oscs[pi] && layers.pad.oscs[pi].frequency) {
           layers.pad.oscs[pi].frequency.setTargetAtTime(cf, now, 0.5);
         }
         pi++;
@@ -908,6 +932,8 @@ const Voice = (function () {
       if (pat.kick && pat.kick[step] > 0) playKick(t, pat.kick[step], kit);
       if (pat.snare && pat.snare[step] > 0) playSnare(t, pat.snare[step], kit);
       if (pat.hat && pat.hat[step] > 0) playHat(t, pat.hat[step], kit);
+      if (pat.ride && pat.ride[step] > 0) playRide(t, pat.ride[step]);
+      if (pat.timpani && pat.timpani[step] > 0) playTimpani(t, pat.timpani[step]);
 
       state.grooveStep++;
       state.nextStepTime += stepDur;
@@ -1050,6 +1076,80 @@ const Voice = (function () {
     g.gain.exponentialRampToValueAtTime(0.001, time + dur);
     src.connect(hp); hp.connect(g); g.connect(drumBus);
     src.start(time); src.stop(time + dur + 0.01);
+  }
+
+  // ── RIDE CYMBAL — jazz: metallic bell + shimmer wash ─────────────────
+
+  function playRide(time, vel) {
+    // Bell: resonant metallic ping
+    var bell = ctx.createOscillator();
+    bell.type = 'square';
+    bell.frequency.value = 800;
+    var bellFilt = ctx.createBiquadFilter();
+    bellFilt.type = 'bandpass'; bellFilt.frequency.value = 3000; bellFilt.Q.value = 2;
+    var bellG = ctx.createGain();
+    bellG.gain.setValueAtTime(0.12 * vel, time);
+    bellG.gain.exponentialRampToValueAtTime(0.001, time + 0.6);
+    bell.connect(bellFilt); bellFilt.connect(bellG); bellG.connect(drumBus);
+    bell.start(time); bell.stop(time + 0.65);
+
+    // Shimmer wash: filtered noise with long decay
+    var shimLen = Math.floor(ctx.sampleRate * 0.5);
+    var shimBuf = ctx.createBuffer(1, shimLen, ctx.sampleRate);
+    var sd = shimBuf.getChannelData(0);
+    for (var i = 0; i < shimLen; i++) sd[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / shimLen, 0.4);
+    var shimSrc = ctx.createBufferSource(); shimSrc.buffer = shimBuf;
+    var hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 6000;
+    var shimG = ctx.createGain();
+    shimG.gain.setValueAtTime(0.18 * vel, time);
+    shimG.gain.exponentialRampToValueAtTime(0.001, time + 0.7);
+    shimSrc.connect(hp); hp.connect(shimG); shimG.connect(drumBus);
+    shimSrc.start(time); shimSrc.stop(time + 0.75);
+
+    // Stick click
+    var cLen = Math.floor(ctx.sampleRate * 0.004);
+    var cBuf = ctx.createBuffer(1, cLen, ctx.sampleRate);
+    var cd = cBuf.getChannelData(0);
+    for (var i = 0; i < cLen; i++) cd[i] = (Math.random() * 2 - 1) * (1 - i / cLen);
+    var cSrc = ctx.createBufferSource(); cSrc.buffer = cBuf;
+    var cG = ctx.createGain(); cG.gain.value = 0.25 * vel;
+    cSrc.connect(cG); cG.connect(drumBus);
+    cSrc.start(time); cSrc.stop(time + 0.006);
+  }
+
+  // ── TIMPANI — orchestral: resonant deep drum with long sustain ──────
+
+  function playTimpani(time, vel) {
+    // Resonant body
+    var o = ctx.createOscillator(); o.type = 'sine';
+    o.frequency.setValueAtTime(85, time);
+    o.frequency.exponentialRampToValueAtTime(55, time + 0.12);
+    var g = ctx.createGain();
+    g.gain.setValueAtTime(0.5 * vel, time);
+    g.gain.exponentialRampToValueAtTime(0.001, time + 1.8);
+    o.connect(g); g.connect(drumBus);
+    o.start(time); o.stop(time + 1.9);
+
+    // Second harmonic for fullness
+    var o2 = ctx.createOscillator(); o2.type = 'sine';
+    o2.frequency.setValueAtTime(170, time);
+    o2.frequency.exponentialRampToValueAtTime(110, time + 0.08);
+    var g2 = ctx.createGain();
+    g2.gain.setValueAtTime(0.2 * vel, time);
+    g2.gain.exponentialRampToValueAtTime(0.001, time + 1.0);
+    o2.connect(g2); g2.connect(drumBus);
+    o2.start(time); o2.stop(time + 1.1);
+
+    // Membrane attack (noise burst)
+    var mLen = Math.floor(ctx.sampleRate * 0.02);
+    var mBuf = ctx.createBuffer(1, mLen, ctx.sampleRate);
+    var md = mBuf.getChannelData(0);
+    for (var i = 0; i < mLen; i++) md[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / mLen, 4);
+    var mSrc = ctx.createBufferSource(); mSrc.buffer = mBuf;
+    var mLP = ctx.createBiquadFilter(); mLP.type = 'lowpass'; mLP.frequency.value = 250;
+    var mG = ctx.createGain(); mG.gain.value = 0.35 * vel;
+    mSrc.connect(mLP); mLP.connect(mG); mG.connect(drumBus);
+    mSrc.start(time); mSrc.stop(time + 0.03);
   }
 
   // ── CRACKLE ──────────────────────────────────────────────────────────
@@ -1529,7 +1629,19 @@ const Voice = (function () {
         // Use motif-specific noteType if provided, else default (passed as parameter, never mutate preset)
         var origNoteType = v(state.lens, 'voice.noteType', 'simple');
         var motifNoteType = v(state.lens, 'voice.motifNoteType', origNoteType);
-        synthesizeNote(state.nextMelodyTime + swingOff, freq, vel, decay, motifNoteType);
+        var schedTime = state.nextMelodyTime + swingOff;
+        synthesizeNote(schedTime, freq, vel, decay, motifNoteType);
+
+        // Jazz chord voicing: add harmony note (3rd + 7th shell voicing)
+        var chordVoicing = v(state.lens, 'voice.motifChord', false);
+        if (chordVoicing && deg >= 0) {
+          // Add 3rd above (2 scale steps up)
+          var thirdSemi = scaleNote(deg + 2) + state.rootOffset + state.chordOffset + octave * 12;
+          synthesizeNote(schedTime + 0.008, semi2freq(state.harmonicRoot, thirdSemi), vel * 0.55, decay, motifNoteType);
+          // Add 7th above (6 scale steps up)
+          var sevSemi = scaleNote(deg + 6) + state.rootOffset + state.chordOffset + octave * 12;
+          synthesizeNote(schedTime + 0.012, semi2freq(state.harmonicRoot, sevSemi), vel * 0.4, decay, motifNoteType);
+        }
       }
 
       state.melodyPos++;
