@@ -176,12 +176,15 @@ const Voice = (function () {
   // ── REVERB — lens-specific IR ────────────────────────────────────────
 
   function buildReverb(decayTime, damping) {
-    // Disconnect old if exists
+    // Disconnect old reverb chain completely (prevents dead convolver accumulation)
+    if (reverbSend) { try { reverbSend.disconnect(); } catch (e) {} }
     if (convolver) { try { convolver.disconnect(); } catch (e) {} }
     if (reverbGain) { try { reverbGain.disconnect(); } catch (e) {} }
 
+    // Cap reverb buffer at 6 seconds (prevents huge allocations on constrained devices)
+    var cappedDecay = Math.min(decayTime, 6);
     convolver = ctx.createConvolver();
-    const len = Math.floor(ctx.sampleRate * decayTime);
+    const len = Math.floor(ctx.sampleRate * cappedDecay);
     const buf = ctx.createBuffer(2, len, ctx.sampleRate);
     for (let ch = 0; ch < 2; ch++) {
       const d = buf.getChannelData(ch);
@@ -253,6 +256,14 @@ const Voice = (function () {
     state.lens = lens;
     if (!lens || !ctx) return;
 
+    try { _applyLensInner(lens); } catch (e) {
+      console.error('VOICE applyLens failed:', e);
+      // Emergency fallback: try to at least get pad + atmosphere running
+      try { rebuildLayers(); } catch (e2) { console.error('VOICE fallback failed:', e2); }
+    }
+  }
+
+  function _applyLensInner(lens) {
     // Kill crackle from previous lens
     stopCrackle();
 
@@ -657,14 +668,21 @@ const Voice = (function () {
 
   // ── UPDATE ───────────────────────────────────────────────────────────
 
+  var _errors = 0;
+
   function update(brainState, sensorState, dt) {
     if (!state.ready || !state.lens) return;
 
+    // Auto-resume AudioContext if iOS suspended it (lock/unlock, background, interrupts)
+    if (ctx && ctx.state === 'suspended') {
+      try { ctx.resume(); } catch (e) {}
+    }
+
     var lens = state.lens;
-    var totalMotion = brainState.totalMotion;
-    var energy = brainState.energy;
-    var pattern = brainState.pattern;
-    var voidDepth = brainState.voidDepth;
+    var totalMotion = brainState.totalMotion || 0;
+    var energy = brainState.energy || 0;
+    var pattern = brainState.pattern || 'still';
+    var voidDepth = brainState.voidDepth || 0;
     var tiltY = (sensorState.beta || 0);
 
     state.energy = energy;
@@ -784,19 +802,19 @@ const Voice = (function () {
     if (sidechainGain) sidechainGain.gain.value = state.sidechainValue;
 
     // ── GROOVE
-    updateGroove();
+    try { updateGroove(); } catch (e) { if (_errors++ < 3) console.error('VOICE groove:', e); }
 
     // ── CHORD PROGRESSION
-    updateChords();
+    try { updateChords(); } catch (e) { if (_errors++ < 3) console.error('VOICE chords:', e); }
 
     // ── AUTOPLAY MELODY
-    updateAutoplay();
+    try { updateAutoplay(); } catch (e) { if (_errors++ < 3) console.error('VOICE autoplay:', e); }
 
     // ── MOTIF MELODY (independent melodic phrases per lens)
-    updateMelody();
+    try { updateMelody(); } catch (e) { if (_errors++ < 3) console.error('VOICE melody:', e); }
 
     // ── VOID DRONE
-    updateVoidDrone(voidDepth);
+    try { updateVoidDrone(voidDepth); } catch (e) { if (_errors++ < 3) console.error('VOICE void:', e); }
   }
 
   // ── UPDATE ROOTS ON STAGE CHANGE ─────────────────────────────────────
@@ -1248,8 +1266,8 @@ const Voice = (function () {
 
   // ── NOTE SYNTHESIS — per lens instrument ───────────────────────────
 
-  function synthesizeNote(time, freq, vel, decay) {
-    var noteType = v(state.lens, 'voice.noteType', 'simple');
+  function synthesizeNote(time, freq, vel, decay, noteTypeOverride) {
+    var noteType = noteTypeOverride || v(state.lens, 'voice.noteType', 'simple');
     switch (noteType) {
       case 'piano': synthPiano(time, freq, vel, decay); break;
       case 'organ': synthOrgan(time, freq, vel, decay); break;
@@ -1508,13 +1526,10 @@ const Voice = (function () {
           swingOff = stepDur * (feel === 'shuffle' ? 0.25 : 0.18);
         }
 
-        // Use motif-specific noteType if provided, else default
+        // Use motif-specific noteType if provided, else default (passed as parameter, never mutate preset)
         var origNoteType = v(state.lens, 'voice.noteType', 'simple');
         var motifNoteType = v(state.lens, 'voice.motifNoteType', origNoteType);
-        var savedNoteType = state.lens.voice.noteType;
-        state.lens.voice.noteType = motifNoteType;
-        synthesizeNote(state.nextMelodyTime + swingOff, freq, vel, decay);
-        state.lens.voice.noteType = savedNoteType;
+        synthesizeNote(state.nextMelodyTime + swingOff, freq, vel, decay, motifNoteType);
       }
 
       state.melodyPos++;
@@ -1580,5 +1595,7 @@ const Voice = (function () {
       for (var n in layers) r[n] = layers[n].vol.toFixed(2);
       return r;
     },
+    get errors() { return _errors; },
+    get ctxState() { return ctx ? ctx.state : 'none'; },
   });
 })();

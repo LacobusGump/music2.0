@@ -124,8 +124,12 @@
     // Retry motion permissions on this user gesture (iOS may re-prompt)
     Sensor.retryPermissions();
 
-    Voice.applyLens(lens);
-    Organism.applyLens(lens);
+    try {
+      Voice.applyLens(lens);
+      Organism.applyLens(lens);
+    } catch (e) {
+      console.error('applyLens:', e);
+    }
 
     showScreen(SCREENS.PLAY);
     startPlayScreen();
@@ -133,19 +137,26 @@
 
   // ── PLAY SCREEN ──────────────────────────────────────────────────────
 
+  var spikeWired = false;
+
   function startPlayScreen() {
     // Double-check AudioContext is running
     if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
 
     Lens.updateIndicator();
 
-    // Wire brain events → voice + organism
-    Brain.on('spike', function (data) {
-      Voice.onSpike(data);
-      if (data.neuron === 'toss' || data.neuron === 'shake') {
-        Organism.addMutation(data.energy);
-      }
-    });
+    // Wire brain events → voice + organism (ONCE — prevents handler accumulation)
+    if (!spikeWired) {
+      Brain.on('spike', function (data) {
+        try {
+          Voice.onSpike(data);
+          if (data.neuron === 'toss' || data.neuron === 'shake') {
+            Organism.addMutation(data.energy);
+          }
+        } catch (e) { console.error('spike handler:', e); }
+      });
+      spikeWired = true;
+    }
 
     swipeHintTimer = 0;
 
@@ -178,7 +189,7 @@
       }, 1200);
 
       // Play touch note
-      Voice.playTouchNote(t.clientX / W, t.clientY / H);
+      try { Voice.playTouchNote(t.clientX / W, t.clientY / H); } catch (e) { console.error('touch note:', e); }
     }, { passive: false });
 
     playEl.addEventListener('touchmove', function (e) {
@@ -196,7 +207,7 @@
 
       // Continuous touch notes while dragging
       if (!swiping) {
-        Voice.playTouchNote(t.clientX / W, t.clientY / H);
+        try { Voice.playTouchNote(t.clientX / W, t.clientY / H); } catch (e) {}
       }
     }, { passive: false });
 
@@ -242,48 +253,60 @@
 
   // ── MAIN LOOP ────────────────────────────────────────────────────────
 
+  var loopErrors = 0;
+
   function loop(timestamp) {
     if (screen !== SCREENS.PLAY) return;
 
-    var dt = Math.min(0.05, (timestamp - lastFrame) / 1000);
-    lastFrame = timestamp;
+    // ALWAYS schedule next frame first — loop must never die
+    requestAnimationFrame(loop);
 
-    // 1. Read sensors
-    var sensor = Sensor.read();
-
-    // 2. Process brain
-    Brain.process(sensor, timestamp);
-
-    // 3. Update position
-    updatePosition(sensor);
-
-    // 4. Update voice
-    Voice.update(
-      { totalMotion: Brain.totalMotion, energy: Brain.energy, pattern: Brain.pattern, voidDepth: Brain.voidDepth, neurons: Brain.neurons },
-      sensor,
-      dt
-    );
-
-    // 5. Update organism
-    Organism.update(dt, posX, posY, W, H,
-      { energy: Brain.energy, neurons: Brain.neurons },
-      sensor.touching
-    );
-
-    // 6. Render
-    render(dt);
-
-    // 7. Debug
-    if (debugVisible) updateDebug(sensor);
-
-    // 8. Swipe hint fades after 5s
-    swipeHintTimer += dt;
-    if (swipeHintTimer > 5) {
-      var hint = document.getElementById('swipe-hint');
-      if (hint) hint.style.opacity = '0';
+    // Auto-resume AudioContext on every frame (iOS suspend recovery)
+    if (audioCtx && audioCtx.state === 'suspended') {
+      try { audioCtx.resume(); } catch (e) {}
     }
 
-    requestAnimationFrame(loop);
+    try {
+      var dt = Math.min(0.05, (timestamp - lastFrame) / 1000);
+      lastFrame = timestamp;
+
+      // 1. Read sensors
+      var sensor = Sensor.read();
+
+      // 2. Process brain
+      Brain.process(sensor, timestamp);
+
+      // 3. Update position
+      updatePosition(sensor);
+
+      // 4. Update voice
+      Voice.update(
+        { totalMotion: Brain.totalMotion, energy: Brain.energy, pattern: Brain.pattern, voidDepth: Brain.voidDepth, neurons: Brain.neurons },
+        sensor,
+        dt
+      );
+
+      // 5. Update organism
+      Organism.update(dt, posX, posY, W, H,
+        { energy: Brain.energy, neurons: Brain.neurons },
+        sensor.touching
+      );
+
+      // 6. Render
+      render(dt);
+
+      // 7. Debug
+      if (debugVisible) updateDebug(sensor);
+
+      // 8. Swipe hint fades after 5s
+      swipeHintTimer += dt;
+      if (swipeHintTimer > 5) {
+        var hint = document.getElementById('swipe-hint');
+        if (hint) hint.style.opacity = '0';
+      }
+    } catch (e) {
+      if (loopErrors++ < 5) console.error('LOOP ERROR:', e);
+    }
   }
 
   // ── RENDER ───────────────────────────────────────────────────────────
@@ -351,6 +374,9 @@
     var layerLine = 'LAYERS:';
     for (var k in vols) layerLine += ' ' + k + ':' + vols[k];
     lines.push(layerLine);
+
+    // Audio health diagnostics
+    lines.push('AUDIO: ' + Voice.ctxState + ' | ERRORS: ' + Voice.errors + '+' + loopErrors);
 
     el.textContent = lines.join('\n');
   }
