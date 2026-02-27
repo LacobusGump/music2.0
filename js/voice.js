@@ -72,6 +72,8 @@ const Voice = (function () {
     chordOffset: 0,
     walkDeg: 0,
     arpIndex: 0,
+    melodyPos: 0,
+    nextMelodyTime: 0,
   };
 
   let scale = [0, 2, 4, 7, 9, 11, 12, 14, 16, 19, 23, 24];
@@ -265,6 +267,8 @@ const Voice = (function () {
     state.nextAutoTime = 0;
     state.walkDeg = 0;
     state.arpIndex = 0;
+    state.melodyPos = 0;
+    state.nextMelodyTime = 0;
 
     // Harmony
     if (lens.harmony) {
@@ -747,6 +751,22 @@ const Voice = (function () {
       L.gain.gain.value = L.vol;
     }
 
+    // ── BREATHING — prevent static hum on continuous layers
+    var breathRate = v(lens, 'voice.padBreathRate', 0.12);
+    var t = ctx.currentTime;
+    if (layers.pad.gain && layers.pad.vol > 0) {
+      var pb = 0.65 + 0.35 * Math.sin(t * breathRate * Math.PI * 2);
+      layers.pad.gain.gain.value = layers.pad.vol * pb;
+    }
+    if (layers.atmosphere.gain && layers.atmosphere.vol > 0) {
+      var ab = 0.75 + 0.25 * Math.sin(t * breathRate * 0.6 * Math.PI * 2);
+      layers.atmosphere.gain.gain.value = layers.atmosphere.vol * ab;
+    }
+    if (layers.bass.gain && layers.bass.vol > 0) {
+      var bb = 0.8 + 0.2 * Math.sin(t * breathRate * 0.4 * Math.PI * 2);
+      layers.bass.gain.gain.value = layers.bass.vol * bb;
+    }
+
     // ── TILT EXPRESSION
     var filterRange = v(lens, 'voice.filterRange', [400, 6000]);
     var tiltNorm = Math.max(0, Math.min(1, (tiltY - 20) / 70));
@@ -771,6 +791,9 @@ const Voice = (function () {
 
     // ── AUTOPLAY MELODY
     updateAutoplay();
+
+    // ── MOTIF MELODY (independent melodic phrases per lens)
+    updateMelody();
 
     // ── VOID DRONE
     updateVoidDrone(voidDepth);
@@ -1188,12 +1211,20 @@ const Voice = (function () {
     var semi;
 
     if (style === 'walking') {
-      semi = scaleNote(state.walkDeg) + state.rootOffset + state.chordOffset - 12;
-      if (Math.random() > 0.25) state.walkDeg = (state.walkDeg + 1) % 7;
-      else state.walkDeg = (state.walkDeg + 6) % 7;
-      // Walking bass always uses upright synthesis — needs presence
+      // Beat 4: chromatic approach note (half step below next target)
+      if (state.autoStep % 4 === 3) {
+        var nextDeg = (state.walkDeg + 1) % 7;
+        semi = scaleNote(nextDeg) + state.rootOffset + state.chordOffset - 12 - 1;
+      } else {
+        semi = scaleNote(state.walkDeg) + state.rootOffset + state.chordOffset - 12;
+      }
+      // Step through scale (mostly ascending, occasional skip back)
+      if (state.autoStep % 4 === 3) { /* approach note, don't advance */ }
+      else if (Math.random() > 0.2) state.walkDeg = (state.walkDeg + 1) % 7;
+      else state.walkDeg = (state.walkDeg + Math.floor(Math.random() * 3) + 5) % 7;
+      // Walking bass always uses upright synthesis
       var freq = semi2freq(state.harmonicRoot, semi);
-      var vel = (0.25 + Math.min(0.1, state.energy * 0.06)) * (state.autoStep % 2 === 0 ? 1.0 : 0.8);
+      var vel = (0.28 + Math.min(0.1, state.energy * 0.06)) * (state.autoStep % 4 === 0 ? 1.0 : 0.75);
       synthUpright(time, freq, vel);
       return;
     } else if (style === 'arpeggio') {
@@ -1438,6 +1469,57 @@ const Voice = (function () {
     var rs = ctx.createGain(); rs.gain.value = 0.35; g.connect(rs); rs.connect(reverbSend);
     var ds = ctx.createGain(); ds.gain.value = 0.2; g.connect(ds); ds.connect(delaySend);
     o.start(time); o.stop(time + decay + 0.1);
+  }
+
+  // ── MOTIF MELODY — plays actual phrases, not random notes ───────────
+
+  function updateMelody() {
+    if (!ctx || !state.lens) return;
+    var motif = v(state.lens, 'voice.motif', null);
+    if (!motif || motif.length === 0) return;
+
+    var now = ctx.currentTime;
+    var beatDur = 60 / state.tempo;
+    var noteDur = v(state.lens, 'voice.motifNoteDur', 1);
+    var stepDur = beatDur * noteDur;
+    var feel = v(state.lens, 'rhythm.feel', 'straight');
+
+    if (state.nextMelodyTime === 0) state.nextMelodyTime = now + beatDur * 2;
+    if (now < state.nextMelodyTime - 0.05) return;
+
+    while (state.nextMelodyTime <= now + 0.05) {
+      var idx = state.melodyPos % motif.length;
+      var deg = motif[idx];
+
+      if (deg !== -1) {
+        var octave = v(state.lens, 'voice.motifOctave', 0);
+        var semi = scaleNote(deg) + state.rootOffset + state.chordOffset + octave * 12;
+        var freq = semi2freq(state.harmonicRoot, semi);
+        var decay = v(state.lens, 'voice.noteDecay', 1.2) * 0.6;
+        var vel = v(state.lens, 'voice.motifVel', 0.2);
+
+        // Accent after silence (phrase beginnings)
+        if (idx > 0 && motif[idx - 1] === -1) vel *= 1.25;
+        else if (idx === 0 && motif[motif.length - 1] === -1) vel *= 1.25;
+
+        // Swing timing
+        var swingOff = 0;
+        if ((feel === 'swing' || feel === 'shuffle') && state.melodyPos % 2 === 1) {
+          swingOff = stepDur * (feel === 'shuffle' ? 0.25 : 0.18);
+        }
+
+        // Use motif-specific noteType if provided, else default
+        var origNoteType = v(state.lens, 'voice.noteType', 'simple');
+        var motifNoteType = v(state.lens, 'voice.motifNoteType', origNoteType);
+        var savedNoteType = state.lens.voice.noteType;
+        state.lens.voice.noteType = motifNoteType;
+        synthesizeNote(state.nextMelodyTime + swingOff, freq, vel, decay);
+        state.lens.voice.noteType = savedNoteType;
+      }
+
+      state.melodyPos++;
+      state.nextMelodyTime += stepDur;
+    }
   }
 
   // ── VOID DRONE ───────────────────────────────────────────────────────

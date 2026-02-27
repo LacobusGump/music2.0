@@ -15,55 +15,61 @@ const Lens = (function () {
   const PRESETS = [
 
     // ─── 1. THE CONDUCTOR ────────────────────────────────────────────
-    // Full orchestral evolution. The original vision.
+    // Massive organ swells, ascending lines that reach. Cathedral space.
+    // Musical DNA: sustained organ, ascending melodies, dynamic builds.
     {
       name: 'The Conductor',
-      description: 'Full orchestral evolution. Silence to transcendence.',
+      description: 'Massive organ swells. Cathedral space. Reaching.',
       color: '#ffffff',
       voice: {
         timbre: 'warm',
         layers: ['pad', 'atmosphere', 'bass', 'strings', 'shimmer', 'choir'],
         space: 'cathedral',
         delay: 'dotted-eighth',
-        saturation: 0.2,
-        // Pad: warm detuned saws, mid octave
-        padWaveform: 'sawtooth',
-        padOctave: -1,        // root / 2
-        padDetune: 8,         // cents spread
-        padChord: [0, 7, 12], // root, fifth, octave
-        // Bass: clean sub
+        saturation: 0.15,
+        padWaveform: 'sine',          // organ-like pure tones
+        padOctave: -1,
+        padDetune: 4,                 // tight, organ-like
+        padChord: [0, 7, 12],
+        padBreathRate: 0.06,          // very slow breathing — majestic
         bassType: 'sub',
-        // Strings: full ensemble
-        stringVoicing: [0, 4, 7, 12],   // root, 3rd, 5th, octave
-        // Drums: acoustic kit, moderate volume
+        stringVoicing: [0, 4, 7, 12],
         drumKit: 'acoustic',
-        drumGain: 1.0,
-        // Notes: simple orchestral triangle
-        noteType: 'simple',
-        noteWave: 'triangle',
-        noteDecay: 1.2,
-        // Delay
-        delayFeedback: 0.35,
-        delayFilterFreq: 3000,
-        // Reverb
-        reverbDecay: 3.0,
-        reverbDamping: 0.4,
-        // Filter range for tilt expression
+        drumGain: 0.7,                // drums supportive, not dominant
+        // Notes: organ — sustained, rich harmonics
+        noteType: 'organ',
+        noteDecay: 2.0,               // sustained organ tones
+        delayFeedback: 0.4,
+        delayFilterFreq: 2500,
+        reverbDecay: 4.5,             // massive cathedral
+        reverbDamping: 0.25,
         filterRange: [400, 6000],
-        // Mix — balanced orchestral build
-        padVol: 0.35, atmosphereVol: 0.15, bassVol: 0.3, stringsVol: 0.25, shimmerVol: 0.2, choirVol: 0.2,
+        padVol: 0.2, atmosphereVol: 0.12, bassVol: 0.2, stringsVol: 0.25, shimmerVol: 0.2, choirVol: 0.25,
         bassUnlock: 'moving', stringsUnlock: 'rhythmic', shimmerUnlock: 'intense', choirUnlock: 'transcendent',
-        reverbMix: 0.45,
-        autoplay: 0.5, chordBars: 4, autoplayOctave: 0, autoplayStyle: 'random',
+        reverbMix: 0.55,
+        autoplay: 0, chordBars: 4, autoplayOctave: 0,
+        // Organ melody — ascending lines that reach, then resolve
+        // -1 = rest. Scale degrees in major mode.
+        motif: [
+          0,-1, 2,-1, 4,-1, 5,-1, 7,-1,-1,-1,      // first ascent: reaching up
+          5,-1, 4,-1, 2,-1, 0,-1,-1,-1,-1,-1,        // descent: resolve
+          0,-1, 2,-1, 4,-1, 5,-1, 7,-1, 9,-1,        // second ascent: goes higher
+          11,-1, 12,-1,-1,-1,-1,-1,                    // reaches the octave
+          9,-1, 7,-1, 5,-1, 4,-1, 2,-1, 0,-1,        // long descent home
+          -1,-1,-1,-1,-1,-1,-1,-1                      // rest before cycle
+        ],
+        motifNoteDur: 1,              // quarter notes — majestic pace
+        motifOctave: 0,
+        motifVel: 0.22,
       },
       harmony: { root: 432, mode: 'major', gravity: 0.8, evolution: 'ascending-fifths', progression: [0, 5, 7, 0] },
       rhythm: {
-        bpm: [72, 80, 90, 100], feel: 'straight', density: 'full', groove_threshold: 0.3,
+        bpm: [66, 72, 80, 88], feel: 'straight', density: 'full', groove_threshold: 0.4,
         patterns: {
-          EMERGING:     { kick: [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0], snare: [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0], hat: [0.2,0,0,0,0.2,0,0,0,0.2,0,0,0,0.2,0,0,0] },
-          FLOWING:      { kick: [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0], snare: [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0], hat: [0.3,0,0,0,0.3,0,0,0,0.3,0,0,0,0.3,0,0,0] },
-          SURGING:      { kick: [1,0,0,0,0,0,0.4,0,0.9,0,0,0,0,0,0,0], snare: [0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0], hat: [0.5,0,0.3,0,0.5,0,0.3,0,0.5,0,0.3,0,0.5,0,0.3,0] },
-          TRANSCENDENT: { kick: [1,0,0,0,0,0,0.4,0,0.9,0,0,0,0,0,0.3,0], snare: [0,0,0,0,1,0,0,0.15,0,0,0,0,1,0,0,0.2], hat: [0.5,0.15,0.3,0.15,0.5,0.15,0.3,0.15,0.5,0.15,0.3,0.15,0.5,0.15,0.3,0.15] },
+          EMERGING:     { kick: [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0], snare: [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0], hat: [0.15,0,0,0,0.15,0,0,0,0.15,0,0,0,0.15,0,0,0] },
+          FLOWING:      { kick: [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0], snare: [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0], hat: [0.2,0,0,0,0.2,0,0,0,0.2,0,0,0,0.2,0,0,0] },
+          SURGING:      { kick: [1,0,0,0,0,0,0.4,0,0.9,0,0,0,0,0,0,0], snare: [0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0], hat: [0.4,0,0.25,0,0.4,0,0.25,0,0.4,0,0.25,0,0.4,0,0.25,0] },
+          TRANSCENDENT: { kick: [1,0,0,0,0,0,0.4,0,0.9,0,0,0,0,0,0.3,0], snare: [0,0,0,0,1,0,0,0.15,0,0,0,0,1,0,0,0.2], hat: [0.4,0.12,0.25,0.12,0.4,0.12,0.25,0.12,0.4,0.12,0.25,0.12,0.4,0.12,0.25,0.12] },
         },
       },
       motion: { still: 'contemplative', gentle: 'breathing', rhythmic: 'groove', vigorous: 'full', void: 'healing' },
@@ -71,53 +77,68 @@ const Lens = (function () {
       stages: { thresholds: [100, 400, 800], pace: 'patient' },
     },
 
-    // ─── 2. CHARLIE PARKER IN PARIS ──────────────────────────────────
-    // Bebop vocabulary, Debussy space. Wide and sparse.
+    // ─── 2. THE BLUE HOUR ─────────────────────────────────────────────
+    // Modal jazz. Walking bass, sparse trumpet phrases, space.
+    // Musical DNA: So What voicings, modal melodies, SPACE is the instrument.
     {
-      name: 'Charlie Parker in Paris',
-      description: 'Bebop vocabulary, Debussy space. Sparse and wide.',
-      color: '#b8860b',
+      name: 'The Blue Hour',
+      description: 'Modal jazz. Walking bass. Space is the instrument.',
+      color: '#4169e1',
       voice: {
         timbre: 'warm',
-        layers: ['pad', 'bass', 'strings'],
+        layers: ['pad', 'atmosphere'],      // NO continuous bass — walking bass IS the bass
         space: 'cathedral',
         delay: 'dotted-eighth',
-        saturation: 0.1,
+        saturation: 0.08,
         padWaveform: 'triangle',
-        padOctave: 0,          // root register
-        padDetune: 5,
-        padChord: [0, 3, 10, 14],  // root, minor 3rd, 7th, 9th — jazz voicing
-        bassType: 'upright',
-        stringVoicing: [0, 3, 7, 10, 14],  // m7(9) voicing
+        padOctave: 0,
+        padDetune: 3,                        // tight voicing
+        padChord: [0, 5, 10, 15],            // quartal voicing (stacked 4ths) — So What
+        padBreathRate: 0.08,                 // slow, meditative breathing
         drumKit: 'brushes',
-        drumGain: 0.5,
-        crackle: true,             // old school record hiss
-        // Notes: jazz piano for touch, walking bass for autoplay
+        drumGain: 0.4,
+        crackle: true,
+        // Touch: jazz piano. Autoplay: walking bass.
         noteType: 'piano',
-        noteDecay: 0.8,
+        noteDecay: 1.0,
         delayFeedback: 0.4,
-        delayFilterFreq: 1500,     // dark tape delay
-        reverbDecay: 4.0,
-        reverbDamping: 0.3,
-        filterRange: [300, 4000],
-        // Mix — walking notes are the real bass, drone layer just adds warmth
-        padVol: 0.04, bassVol: 0.10, stringsVol: 0.1,
-        bassUnlock: 'always', stringsUnlock: 'transcendent',
-        reverbMix: 0.55,
-        autoplay: 0.85, chordBars: 2, autoplayOctave: 0, autoplayStyle: 'walking',
+        delayFilterFreq: 1200,               // very dark delay — tape echo
+        reverbDecay: 5.0,                    // massive space for the notes to float in
+        reverbDamping: 0.2,
+        filterRange: [300, 3500],
+        atmosphereFreq: 600,                 // warm low ambiance
+        atmosphereQ: 0.3,
+        // Mix — almost nothing but the walking bass and space
+        padVol: 0.03, atmosphereVol: 0.06,
+        reverbMix: 0.6,
+        autoplay: 0.9, chordBars: 4, autoplayOctave: 0, autoplayStyle: 'walking',
+        // Modal trumpet melody — sparse phrases, mostly SILENCE
+        // Captures the essence: a few notes outlining the mode, then long breathing space
+        motif: [
+          0,-1,-1,-1,-1,-1, 2, 3,-1, 5,-1,-1,-1,-1,-1,-1,   // 3-note phrase... silence
+          -1,-1,-1,-1,-1,-1,-1,-1,                             // breathe
+          7,-1, 5,-1, 3,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,     // descending answer
+          0, 2,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,     // 2-note hook... long rest
+          -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,    // extended silence
+          5,-1, 7,-1,-1,-1,-1,-1, 5, 3, 2,-1, 0,-1,-1,-1,    // call and response
+          -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,    // silence — the space IS the music
+        ],
+        motifNoteDur: 0.5,                   // eighth notes (rests create the space)
+        motifOctave: 1,                      // melody register — above the walking bass
+        motifVel: 0.2,
+        motifNoteType: 'piano',              // trumpet-like piano voicing
       },
       harmony: { root: 432, mode: 'dorian', gravity: 0.6, evolution: 'ascending-fifths', progression: [0, 5, 7, 3, 10, 5, 7, 0] },
       rhythm: {
-        bpm: [65, 72, 78, 85], feel: 'swing', density: 'sparse', groove_threshold: 0.45,
+        bpm: [62, 68, 75, 82], feel: 'swing', density: 'sparse', groove_threshold: 0.5,
         patterns: {
-          FLOWING:      { kick: [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0], snare: [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0], hat: [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0] },
-          SURGING:      { kick: [0.3,0,0,0,0,0,0,0,0.3,0,0,0,0,0,0,0], snare: [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0], hat: [0.2,0,0.15,0,0.2,0,0.15,0,0.2,0,0.15,0,0.2,0,0.15,0] },
-          TRANSCENDENT: { kick: [0.4,0,0,0,0,0,0.2,0,0.4,0,0,0,0,0,0,0], snare: [0,0,0,0,0.2,0,0,0,0,0,0,0,0.15,0,0,0], hat: [0.25,0,0.15,0.1,0.25,0,0.15,0.1,0.25,0,0.15,0.1,0.25,0,0.15,0.1] },
+          SURGING:      { kick: [0.2,0,0,0,0,0,0,0,0.2,0,0,0,0,0,0,0], snare: [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0], hat: [0.2,0,0.12,0,0.2,0,0.12,0,0.2,0,0.12,0,0.2,0,0.12,0] },
+          TRANSCENDENT: { kick: [0.3,0,0,0,0,0,0.15,0,0.3,0,0,0,0,0,0,0], snare: [0,0,0,0,0.15,0,0,0,0,0,0,0,0.1,0,0,0], hat: [0.2,0,0.12,0.08,0.2,0,0.12,0.08,0.2,0,0.12,0.08,0.2,0,0.12,0.08] },
         },
       },
       motion: { still: 'contemplative', gentle: 'breathing', rhythmic: 'groove', vigorous: 'full', void: 'healing' },
-      context: { night: { reverb: 0.6 }, rain: { reverb: 0.5 } },
-      stages: { thresholds: [120, 500, 1000], pace: 'patient' },
+      context: { night: { reverb: 0.7 }, rain: { reverb: 0.6 } },
+      stages: { thresholds: [150, 600, 1200], pace: 'patient' },
     },
 
     // ─── 3. GOSPEL SUNDAY ────────────────────────────────────────────
@@ -150,11 +171,28 @@ const Lens = (function () {
         reverbDecay: 1.5,
         reverbDamping: 0.5,
         filterRange: [500, 5000],
+        padBreathRate: 0.15,              // gospel breathes with the spirit
         // Mix — 808 sub dominates, choir swells early
         padVol: 0.25, bassVol: 0.5, stringsVol: 0.18, choirVol: 0.35,
         bassUnlock: 'always', stringsUnlock: 'moving', choirUnlock: 'rhythmic',
         reverbMix: 0.2,
         autoplay: 0.45, chordBars: 4, autoplayOctave: 0, autoplayStyle: 'arpeggio',
+        // Gospel call-and-response — pentatonic organ phrases
+        // Call (ascending) → response (descending) → space → higher call → resolution
+        motif: [
+          0, 2, 4,-1, 7, 4,-1,-1,           // call: rise up
+          4, 2, 0,-1,-1,-1,-1,-1,            // response: come down
+          0, 4, 7,-1, 9, 7,-1,-1,            // call: reach higher
+          7, 4, 2, 0,-1,-1,-1,-1,            // response: resolve
+          -1,-1,-1,-1,-1,-1,-1,-1,           // rest — let the spirit move
+          9, 7, 9, 12,-1,-1,-1,-1,           // high call — the peak
+          9, 7, 4, 2, 0,-1,-1,-1,            // long descent — release
+          -1,-1,-1,-1,-1,-1,-1,-1,           // rest before cycle
+        ],
+        motifNoteDur: 0.5,
+        motifOctave: 1,
+        motifVel: 0.18,
+        motifNoteType: 'organ',
       },
       harmony: { root: 432, mode: 'pentatonic-major', gravity: 0.9, evolution: 'ascending-fifths', progression: [0, 5, 7, 0] },
       rhythm: {
@@ -200,10 +238,27 @@ const Lens = (function () {
         filterRange: [800, 8000],
         atmosphereFreq: 3000,    // icy high noise
         atmosphereQ: 1.5,
+        padBreathRate: 0.04,               // glacially slow breathing
         // Mix — all space, everything always on, drowning in reverb
         padVol: 0.5, atmosphereVol: 0.3, shimmerVol: 0.25,
         reverbMix: 0.85,
         autoplay: 0.04, chordBars: 8, autoplayOctave: 1, autoplayStyle: 'sparse',
+        // Frozen bell melody — single notes with vast silence between them
+        // Each note is a tiny event in an infinite landscape
+        motif: [
+          0,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,    // one note... endless space
+          -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+          4,-1,-1,-1,-1,-1,-1,-1, 2,-1,-1,-1,-1,-1,-1,-1,    // two distant notes
+          -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+          8,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,    // a single high note
+          -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+          6,-1,-1,-1, 4,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,    // two notes closer together
+          -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+        ],
+        motifNoteDur: 1,                 // quarter notes — but mostly rests
+        motifOctave: 1,                  // high register — crystalline
+        motifVel: 0.18,
+        motifNoteType: 'bell',
       },
       harmony: { root: 432, mode: 'whole-tone', gravity: 0.3, evolution: 'static', progression: [0, 2, 4, 2] },
       rhythm: {
@@ -244,11 +299,28 @@ const Lens = (function () {
         reverbDecay: 0.8,        // tiny room
         reverbDamping: 0.7,      // very damped
         filterRange: [200, 3500],
+        padBreathRate: 0.2,                // faster breathing — lo-fi pump
         // Mix — drums dominate, barely any harmony, bone dry
         padVol: 0.08, bassVol: 0.45,
         bassUnlock: 'always',
         reverbMix: 0.08,
         autoplay: 0.2, chordBars: 4, autoplayOctave: -1, autoplayStyle: 'random',
+        // Blues stab riff — short punchy phrases between drum hits
+        // The drums are the star; this just adds color
+        motif: [
+          0,-1, 3,-1, 4, 3, 0,-1,            // blues lick: root, b3, 4, b3, root
+          -1,-1,-1,-1,-1,-1,-1,-1,            // drums breathe
+          5,-1, 4,-1, 3,-1, 0,-1,             // descending blues
+          -1,-1,-1,-1,-1,-1,-1,-1,            // space
+          0,-1,-1,-1, 7,-1, 5,-1,             // root... jump to 5th
+          3, 0,-1,-1,-1,-1,-1,-1,             // resolve
+          -1,-1,-1,-1,-1,-1,-1,-1,            // rest
+          -1,-1,-1,-1,-1,-1,-1,-1,            // more rest — let the drums talk
+        ],
+        motifNoteDur: 0.25,              // 16th notes — tight, punchy
+        motifOctave: 0,
+        motifVel: 0.12,                  // quiet — supporting the groove
+        motifNoteType: 'stab',
       },
       harmony: { root: 432, mode: 'blues', gravity: 0.7, evolution: 'static', progression: [0, 7, 5, 0] },
       rhythm: {
@@ -267,55 +339,69 @@ const Lens = (function () {
     },
 
     // ─── 6. DARK MATTER ──────────────────────────────────────────────
-    // Radiohead Kid A. Chromatic tension, alien textures.
+    // Cascading arpeggios, interlocking delays, warm strangeness.
+    // Musical DNA: yearning broken chords, delay textures, the ache between major and minor.
     {
       name: 'Dark Matter',
-      description: 'Chromatic tension. Alien textures. Anxious beauty.',
+      description: 'Cascading arpeggios. Interlocking delays. Warm strangeness.',
       color: '#5a3a6f',
       voice: {
-        timbre: 'bright',
+        timbre: 'warm',
         layers: ['pad', 'atmosphere', 'shimmer', 'strings'],
-        space: 'room',
+        space: 'cathedral',
         delay: 'dotted-eighth',
-        saturation: 0.4,
-        padWaveform: 'sawtooth',
+        saturation: 0.2,
+        padWaveform: 'triangle',          // softer, warmer
         padOctave: 0,
-        padDetune: 12,
-        padChord: [0, 1, 6, 7],  // root, minor2nd, tritone, fifth — dissonance
+        padDetune: 8,
+        padChord: [0, 2, 7, 14],          // add9 — yearning, open voicing
+        padBreathRate: 0.1,
         bassType: 'sub',
-        stringVoicing: [0, 1, 5, 6, 11],  // chromatic cluster + tritone
-        drumKit: 'glitch',
-        drumGain: 0.7,
-        // Notes: glitch — random waveform, pitch drift, distorted
-        noteType: 'glitch',
-        noteDecay: 0.6,
-        delayFeedback: 0.45,
-        delayFilterFreq: 2200,
-        reverbDecay: 1.8,
-        reverbDamping: 0.5,
-        filterRange: [300, 7000],
-        atmosphereFreq: 400,     // dark rumble
-        atmosphereQ: 0.8,
-        shimmerRingMod: true,    // metallic texture
-        // Mix — atmosphere dominates, dissonance unlocks early
-        padVol: 0.25, atmosphereVol: 0.3, stringsVol: 0.18, shimmerVol: 0.18,
+        stringVoicing: [0, 4, 7, 11],     // major 7th — beautiful tension
+        drumKit: 'acoustic',
+        drumGain: 0.5,
+        // Notes: piano — warm arpeggios that cascade through heavy delay
+        noteType: 'piano',
+        noteDecay: 1.8,                   // notes ring into each other
+        delayFeedback: 0.52,              // HIGH — cascading echoes are the signature
+        delayFilterFreq: 3500,            // bright delay — echoes shimmer
+        reverbDecay: 4.0,
+        reverbDamping: 0.3,
+        filterRange: [500, 6000],
+        atmosphereFreq: 1200,
+        atmosphereQ: 0.6,
+        shimmerRingMod: false,
+        padVol: 0.15, atmosphereVol: 0.12, stringsVol: 0.15, shimmerVol: 0.12,
         stringsUnlock: 'moving', shimmerUnlock: 'moving',
-        reverbMix: 0.35,
-        autoplay: 0.3, chordBars: 3, autoplayOctave: 0, autoplayStyle: 'random',
+        reverbMix: 0.55,
+        autoplay: 0, chordBars: 4, autoplayOctave: 0, autoplayStyle: 'arpeggio',
+        // Cascading arpeggio — broken chords that interlock through delay
+        // Quiet notes fed through high-feedback delay create the layered texture
+        motif: [
+          0, 2, 4, 7,  0, 2, 4, 7,         // ascending broken chord x2
+          9, 7, 4, 2,  9, 7, 4, 2,          // descending answer x2
+          0, 4, 7, 11, 0, 4, 7, 11,         // maj7 arpeggio — reaches up
+          12, 9, 7, 4, -1,-1,-1,-1,          // descent to rest
+          2, 4, 7, 9,  2, 4, 7, 9,          // shifted up — second voice
+          11, 9, 7, 4, 2, 0,-1,-1,           // long descent home
+          -1,-1,-1,-1, -1,-1,-1,-1,          // breathing space
+        ],
+        motifNoteDur: 0.5,                // eighth notes — steady cascade
+        motifOctave: 0,
+        motifVel: 0.15,                   // quiet — delay builds the volume
+        motifNoteType: 'piano',
       },
-      harmony: { root: 432, mode: 'chromatic', gravity: 0.2, evolution: 'ascending-fifths', progression: [0, 6, 1, 7] },
+      harmony: { root: 432, mode: 'mixolydian', gravity: 0.5, evolution: 'ascending-fifths', progression: [0, 5, 7, 0] },
       rhythm: {
-        bpm: [60, 75, 90, 110], feel: 'straight', density: 'sparse', groove_threshold: 0.5,
+        bpm: [72, 78, 84, 90], feel: 'straight', density: 'sparse', groove_threshold: 0.4,
         patterns: {
-          EMERGING:     { kick: [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0], snare: [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0], hat: [0.15,0,0,0,0,0,0,0,0,0,0.1,0,0,0,0,0] },
-          FLOWING:      { kick: [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0], snare: [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0], hat: [0.2,0,0,0,0,0,0.15,0,0,0,0.2,0,0,0,0,0.1] },
-          SURGING:      { kick: [0.8,0,0,0,0,0,0,0,0,0,0.5,0,0,0,0,0], snare: [0,0,0,0,0.6,0,0,0,0,0,0,0,0,0,0.3,0], hat: [0.3,0,0.15,0,0,0.2,0,0.15,0.3,0,0,0.2,0,0.15,0,0] },
-          TRANSCENDENT: { kick: [0.9,0,0,0.3,0,0,0,0.2,0,0,0.6,0,0,0,0,0.2], snare: [0,0,0,0,0.7,0,0,0,0,0.2,0,0,0,0,0.4,0], hat: [0.3,0.1,0.2,0,0.15,0.2,0.1,0.2,0.3,0.1,0.2,0,0.15,0.2,0.1,0.15] },
+          SURGING:      { kick: [0.6,0,0,0,0,0,0,0,0.5,0,0,0,0,0,0,0], snare: [0,0,0,0,0.4,0,0,0,0,0,0,0,0.3,0,0,0], hat: [0.2,0,0.12,0,0.2,0,0.12,0,0.2,0,0.12,0,0.2,0,0.12,0] },
+          TRANSCENDENT: { kick: [0.7,0,0,0,0,0,0.3,0,0.6,0,0,0,0,0,0,0], snare: [0,0,0,0,0.5,0,0,0.1,0,0,0,0,0.4,0,0,0.1], hat: [0.25,0.08,0.15,0.08,0.25,0.08,0.15,0.08,0.25,0.08,0.15,0.08,0.25,0.08,0.15,0.08] },
         },
       },
-      motion: { still: 'anxious', gentle: 'breathing', rhythmic: 'groove', vigorous: 'full', void: 'anxious' },
+      motion: { still: 'contemplative', gentle: 'breathing', rhythmic: 'groove', vigorous: 'full', void: 'expansive' },
       context: { night: { space: 'infinite' } },
-      stages: { thresholds: [80, 350, 700], pace: 'volatile' },
+      stages: { thresholds: [120, 450, 900], pace: 'patient' },
     },
   ];
 
