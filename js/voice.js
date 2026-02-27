@@ -1059,93 +1059,55 @@ const Voice = (function () {
     synthesizeNote(now, freq, vel, decay);
   }
 
-  // ── GESTURE RESPONSES ────────────────────────────────────────────────
+  // ── GESTURE RESPONSES — use per-lens synthesis, with cooldown ────────
+
+  var lastGestureTime = 0;
 
   function onSpike(data) {
     if (!ctx || !state.ready) return;
     var now = ctx.currentTime;
+
+    // Global cooldown: 400ms between gesture sounds (prevents blinko spam)
+    if (now - lastGestureTime < 0.4) return;
+    lastGestureTime = now;
+
     var n = data.neuron;
-    if (n === 'shake') playTrill(now, data.rate);
-    else if (n === 'sweep') playGliss(now, data.magnitude);
-    else if (n === 'circle') playArp(now);
-    else if (n === 'toss') playImpact(now, data.magnitude);
-    else if (n === 'rock') playVibrato(now);
+    if (n === 'shake') gestureFlourish(now, data.rate);
+    else if (n === 'sweep') gestureSweep(now, data.magnitude);
+    else if (n === 'toss') gestureImpact(now, data.magnitude);
   }
 
-  function playTrill(time, rate) {
-    var baseFreq = noteFreq(Math.floor(Math.random() * 5) + 3);
-    var count = Math.min(8, Math.ceil(rate * 3));
-    var wave = v(state.lens, 'voice.noteWave', 'triangle');
+  function gestureFlourish(time, rate) {
+    // 2-3 notes using per-lens synthesis, not 8 bare oscillators
+    var count = Math.min(3, Math.ceil(rate));
+    var decay = v(state.lens, 'voice.noteDecay', 0.8) * 0.4;
     for (var i = 0; i < count; i++) {
-      var t = time + i * 0.06;
-      var o = ctx.createOscillator();
-      o.type = wave;
-      o.frequency.value = baseFreq * (i % 2 === 0 ? 1 : 1.06);
-      var g = ctx.createGain();
-      g.gain.setValueAtTime(0, t);
-      g.gain.linearRampToValueAtTime(0.12, t + 0.01);
-      g.gain.exponentialRampToValueAtTime(0.001, t + 0.08);
-      o.connect(g); g.connect(sidechainGain);
-      var ds = ctx.createGain(); ds.gain.value = 0.3; g.connect(ds); ds.connect(delaySend);
-      o.start(t); o.stop(t + 0.1);
+      var deg = Math.floor(Math.random() * 5) + 2;
+      var semi = scaleNote(deg + i) + state.rootOffset + state.chordOffset;
+      var freq = semi2freq(state.harmonicRoot, semi);
+      var vel = 0.08 * (1 - i * 0.2); // quieter each note
+      synthesizeNote(time + i * 0.12, freq, vel, decay);
     }
   }
 
-  function playGliss(time, mag) {
-    var range = Math.min(24, mag * 8);
+  function gestureSweep(time, mag) {
+    // Single note with pitch bend — uses per-lens synthesis
+    var semi = scaleNote(0) + state.rootOffset + state.chordOffset;
+    var freq = semi2freq(state.harmonicRoot, semi);
+    synthesizeNote(time, freq, 0.08, 0.5);
+  }
+
+  function gestureImpact(time, mag) {
+    // Low thump — subtle
     var o = ctx.createOscillator(); o.type = 'sine';
-    o.frequency.setValueAtTime(semi2freq(state.harmonicRoot, state.rootOffset), time);
-    o.frequency.exponentialRampToValueAtTime(semi2freq(state.harmonicRoot, state.rootOffset + range), time + 0.4);
+    o.frequency.setValueAtTime(60, time);
+    o.frequency.exponentialRampToValueAtTime(25, time + 0.3);
     var g = ctx.createGain();
-    g.gain.setValueAtTime(0.15, time);
-    g.gain.exponentialRampToValueAtTime(0.001, time + 0.6);
+    g.gain.setValueAtTime(Math.min(0.2, mag * 0.06), time);
+    g.gain.exponentialRampToValueAtTime(0.001, time + 0.5);
     o.connect(g); g.connect(sidechainGain);
-    var rs = ctx.createGain(); rs.gain.value = 0.4; g.connect(rs); rs.connect(reverbSend);
-    o.start(time); o.stop(time + 0.7);
-  }
-
-  function playArp(time) {
-    var degrees = [0, 2, 4, 6, 8, 10];
-    var wave = v(state.lens, 'voice.noteWave', 'sine');
-    for (var i = 0; i < degrees.length; i++) {
-      var t = time + i * 0.1;
-      var o = ctx.createOscillator(); o.type = wave;
-      o.frequency.value = noteFreq(degrees[i]);
-      var g = ctx.createGain();
-      g.gain.setValueAtTime(0, t);
-      g.gain.linearRampToValueAtTime(0.1, t + 0.01);
-      g.gain.exponentialRampToValueAtTime(0.001, t + 0.25);
-      o.connect(g); g.connect(sidechainGain);
-      var ds = ctx.createGain(); ds.gain.value = 0.35; g.connect(ds); ds.connect(delaySend);
-      o.start(t); o.stop(t + 0.3);
-    }
-  }
-
-  function playImpact(time, mag) {
-    var o = ctx.createOscillator(); o.type = 'sine';
-    o.frequency.setValueAtTime(80, time);
-    o.frequency.exponentialRampToValueAtTime(30, time + 0.5);
-    var g = ctx.createGain();
-    g.gain.setValueAtTime(Math.min(0.5, mag * 0.15), time);
-    g.gain.exponentialRampToValueAtTime(0.001, time + 0.8);
-    o.connect(g); g.connect(masterGain);
-    var rs = ctx.createGain(); rs.gain.value = 0.7; g.connect(rs); rs.connect(reverbSend);
-    o.start(time); o.stop(time + 1);
-  }
-
-  function playVibrato(time) {
-    var freq = noteFreq(4);
-    var wave = v(state.lens, 'voice.noteWave', 'triangle');
-    var o = ctx.createOscillator(); o.type = wave; o.frequency.value = freq;
-    var lfo = ctx.createOscillator(); lfo.type = 'sine'; lfo.frequency.value = 5.5;
-    var lfoG = ctx.createGain(); lfoG.gain.value = freq * 0.025;
-    lfo.connect(lfoG); lfoG.connect(o.frequency); lfo.start(time);
-    var g = ctx.createGain();
-    g.gain.setValueAtTime(0.12, time);
-    g.gain.exponentialRampToValueAtTime(0.001, time + 0.8);
-    o.connect(g); g.connect(sidechainGain);
-    var rs = ctx.createGain(); rs.gain.value = 0.3; g.connect(rs); rs.connect(reverbSend);
-    o.start(time); o.stop(time + 0.9); lfo.stop(time + 0.9);
+    var rs = ctx.createGain(); rs.gain.value = 0.2; g.connect(rs); rs.connect(reverbSend);
+    o.start(time); o.stop(time + 0.6);
   }
 
   // ── CHORD PROGRESSION ─────────────────────────────────────────────────
