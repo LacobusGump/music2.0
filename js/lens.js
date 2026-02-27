@@ -100,11 +100,11 @@ const Lens = (function () {
         reverbDecay: 4.0,
         reverbDamping: 0.3,
         filterRange: [300, 4000],
-        // Mix — walking bass dominates, pad barely whispers, wide reverb
-        padVol: 0.04, bassVol: 0.5, stringsVol: 0.1,
+        // Mix — walking notes are the real bass, drone layer just adds warmth
+        padVol: 0.04, bassVol: 0.10, stringsVol: 0.1,
         bassUnlock: 'always', stringsUnlock: 'transcendent',
         reverbMix: 0.55,
-        autoplay: 0.6, chordBars: 2, autoplayOctave: 0, autoplayStyle: 'walking',
+        autoplay: 0.85, chordBars: 2, autoplayOctave: 0, autoplayStyle: 'walking',
       },
       harmony: { root: 432, mode: 'dorian', gravity: 0.6, evolution: 'ascending-fifths', progression: [0, 5, 7, 3, 10, 5, 7, 0] },
       rhythm: {
