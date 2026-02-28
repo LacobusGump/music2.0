@@ -50,6 +50,7 @@ const Lens = (function () {
         reverbDecay: 5.0,             // massive concert hall
         reverbDamping: 0.2,           // bright reverb — orchestral sparkle
         filterRange: [400, 6000],
+        dynamicFloor: 0.35,           // pianissimo when still — conductor controls dynamics
         // Mix — strings dominate, everything builds with motion
         padVol: 0.3, atmosphereVol: 0.1, bassVol: 0.2, stringsVol: 0.3, shimmerVol: 0.2, choirVol: 0.3,
         bassUnlock: 'moving', stringsUnlock: 'moving', shimmerUnlock: 'rhythmic', choirUnlock: 'intense',
@@ -119,6 +120,7 @@ const Lens = (function () {
         filterRange: [300, 3500],
         atmosphereFreq: 500,                 // warm low haze — smoke in the club
         atmosphereQ: 0.3,
+        dynamicFloor: 0.4,             // smoky club — always a presence
         // Mix — walking bass dominates, pad barely there
         padVol: 0.04, atmosphereVol: 0.05,
         reverbMix: 0.5,
@@ -168,8 +170,8 @@ const Lens = (function () {
         layers: ['pad', 'bass', 'strings', 'choir'],
         space: 'room',
         delay: 'quarter',
-        saturation: 0.6,
-        sidechain: 0.5,
+        saturation: 0.4,              // was 0.6 — less harsh
+        sidechain: 0.35,             // was 0.5 — gentler pump
         crackle: true,
         // Pad: warm organ-like bed
         padWaveform: 'sawtooth',
@@ -182,7 +184,7 @@ const Lens = (function () {
         bassType: '808',
         stringVoicing: [0, 4, 7, 12],
         drumKit: '808',
-        drumGain: 1.4,
+        drumGain: 0.9,                // was 1.4 — pulled back, let the warmth breathe
         // Notes: gospel organ — drawbar harmonics, Leslie vibrato
         noteType: 'organ',
         noteDecay: 1.5,
@@ -191,8 +193,9 @@ const Lens = (function () {
         reverbDecay: 1.8,
         reverbDamping: 0.45,
         filterRange: [500, 5000],
-        // Mix — 808 sub dominates, choir swells early, strings add warmth
-        padVol: 0.25, bassVol: 0.5, stringsVol: 0.2, choirVol: 0.35,
+        dynamicFloor: 0.35,           // quiet when still — intimate prayer
+        // Mix — pulled back overall, 808 warm not loud, choir adds not dominates
+        padVol: 0.18, bassVol: 0.35, stringsVol: 0.15, choirVol: 0.25,
         bassUnlock: 'always', stringsUnlock: 'moving', choirUnlock: 'moving',
         reverbMix: 0.2,
         autoplay: 0.45, chordBars: 4, autoplayOctave: 0, autoplayStyle: 'arpeggio',
@@ -263,6 +266,7 @@ const Lens = (function () {
         // Atmosphere: higher frequency, icier — contrast to warm pad
         atmosphereFreq: 4000,       // icy high shimmer
         atmosphereQ: 2.0,           // narrow, crystalline
+        dynamicFloor: 0.6,             // always present — you're immersed in the landscape
         // Mix — warm pad dominates, atmosphere adds frost on top
         padVol: 0.45, atmosphereVol: 0.15, shimmerVol: 0.2,
         reverbMix: 0.85,
@@ -327,6 +331,7 @@ const Lens = (function () {
         reverbDecay: 1.0,             // tight room
         reverbDamping: 0.6,
         filterRange: [300, 4000],
+        dynamicFloor: 0.3,             // quiet when still, then HITS
         // Mix — almost ALL drums, bass and pad just support
         padVol: 0.06, bassVol: 0.35,
         bassUnlock: 'always',
@@ -414,6 +419,7 @@ const Lens = (function () {
         atmosphereFreq: 1800,           // brighter, more present
         atmosphereQ: 1.2,               // narrower = more focused, electric
         shimmerRingMod: false,
+        dynamicFloor: 0.35,            // builds from nothing to massive
         // Mix — 808 bass is massive, pad supports, atmosphere adds electricity
         padVol: 0.15, atmosphereVol: 0.15, bassVol: 0.45, stringsVol: 0.15, shimmerVol: 0.12,
         stringsUnlock: 'rhythmic', shimmerUnlock: 'moving',

@@ -74,6 +74,9 @@ const Voice = (function () {
     arpIndex: 0,
     melodyPos: 0,
     nextMelodyTime: 0,
+    masterLevel: 0.8,
+    tension: 0,
+    touchResonance: 0,
   };
 
   let scale = [0, 2, 4, 7, 9, 11, 12, 14, 16, 19, 23, 24];
@@ -742,6 +745,19 @@ const Voice = (function () {
       delayNode.delayTime.value = (60 / state.tempo) * 0.75;
     }
 
+    // ── DYNAMICS — whisper to roar (Zimmer principle)
+    // Still = intimate whisper. Moving = building power. Vigorous = FULL roar.
+    var motionLevel = Math.min(1, totalMotion / 500);
+    var dynamicFloor = v(lens, 'voice.dynamicFloor', 0.45);
+    var masterTarget = dynamicFloor + (1 - dynamicFloor) * motionLevel;
+    state.masterLevel += (masterTarget - state.masterLevel) * 0.03;
+    if (masterGain) masterGain.gain.value = 0.85 * state.masterLevel;
+
+    // ── TENSION ARC — sustained energy compresses, stillness releases
+    // High energy → filter narrows (claustrophobic). Stillness → opens (relief).
+    var tensionTarget = energy > 0.4 ? (energy - 0.4) * 0.5 : -state.tension * 0.3;
+    state.tension = Math.max(0, Math.min(0.6, state.tension + tensionTarget * 0.008));
+
     // ── LAYER VOLUMES — per-lens mix profile
     var ll = v(lens, 'voice.layers', ['pad', 'bass', 'strings', 'shimmer', 'choir']);
     var targets = { pad: 0, atmosphere: 0, bass: 0, strings: 0, shimmer: 0, choir: 0 };
@@ -792,19 +808,22 @@ const Voice = (function () {
       L.gain.gain.value = L.vol;
     }
 
-    // ── BREATHING — prevent static hum on continuous layers
+    // ── BREATHING — organic, never-repeating (two irrational-ratio LFOs)
+    // Real breathing is irregular. Golden ratio offset ensures no exact repetition.
     var breathRate = v(lens, 'voice.padBreathRate', 0.12);
     var t = ctx.currentTime;
+    var breath1 = Math.sin(t * breathRate * Math.PI * 2);
+    var breath2 = Math.sin(t * breathRate * 0.618 * Math.PI * 2); // golden ratio
     if (layers.pad.gain && layers.pad.vol > 0) {
-      var pb = 0.65 + 0.35 * Math.sin(t * breathRate * Math.PI * 2);
+      var pb = 0.65 + 0.25 * breath1 + 0.1 * breath2;
       layers.pad.gain.gain.value = layers.pad.vol * pb;
     }
     if (layers.atmosphere.gain && layers.atmosphere.vol > 0) {
-      var ab = 0.75 + 0.25 * Math.sin(t * breathRate * 0.6 * Math.PI * 2);
+      var ab = 0.75 + 0.18 * Math.sin(t * breathRate * 0.6 * Math.PI * 2) + 0.07 * Math.sin(t * breathRate * 0.37 * Math.PI * 2);
       layers.atmosphere.gain.gain.value = layers.atmosphere.vol * ab;
     }
     if (layers.bass.gain && layers.bass.vol > 0) {
-      var bb = 0.8 + 0.2 * Math.sin(t * breathRate * 0.4 * Math.PI * 2);
+      var bb = 0.82 + 0.13 * Math.sin(t * breathRate * 0.4 * Math.PI * 2) + 0.05 * Math.sin(t * breathRate * 0.25 * Math.PI * 2);
       layers.bass.gain.gain.value = layers.bass.vol * bb;
     }
 
@@ -814,8 +833,14 @@ const Voice = (function () {
     var targetFreq = filterRange[0] + tiltNorm * (filterRange[1] - filterRange[0]);
     state.filterFreq += (targetFreq - state.filterFreq) * 0.08;
 
-    if (layers.pad.filter) layers.pad.filter.frequency.value = state.filterFreq;
-    if (layers.strings.filter) layers.strings.filter.frequency.value = state.filterFreq * 1.2;
+    // Apply tension: compresses filter during sustained energy, opens on stillness
+    var tensionFilter = 1 - state.tension * 0.4;
+    // Touch resonance bloom: briefly opens filter when a note is played
+    state.touchResonance *= 0.92; // decay quickly
+    var resonanceBoost = 1 + state.touchResonance * 0.5;
+    var finalFilter = state.filterFreq * tensionFilter * resonanceBoost;
+    if (layers.pad.filter) layers.pad.filter.frequency.value = finalFilter;
+    if (layers.strings.filter) layers.strings.filter.frequency.value = finalFilter * 1.2;
 
     var rm = v(lens, 'voice.reverbMix', 0.4);
     if (reverbSend) reverbSend.gain.value = rm * (0.3 + tiltNorm * 0.7);
@@ -884,6 +909,11 @@ const Voice = (function () {
     }
   }
 
+  // ── HUMANIZE — drums should breathe, not click ─────────────────────
+
+  function hTime(t) { return t + (Math.random() - 0.5) * 0.007; }
+  function hVel(vel) { return vel * (0.87 + Math.random() * 0.26); }
+
   // ── GROOVE / DRUM SEQUENCER ──────────────────────────────────────────
 
   function updateGroove() {
@@ -929,11 +959,12 @@ const Voice = (function () {
 
       var t = state.nextStepTime + swingOff;
 
-      if (pat.kick && pat.kick[step] > 0) playKick(t, pat.kick[step], kit);
-      if (pat.snare && pat.snare[step] > 0) playSnare(t, pat.snare[step], kit);
-      if (pat.hat && pat.hat[step] > 0) playHat(t, pat.hat[step], kit);
-      if (pat.ride && pat.ride[step] > 0) playRide(t, pat.ride[step]);
-      if (pat.timpani && pat.timpani[step] > 0) playTimpani(t, pat.timpani[step]);
+      // Humanize: micro-timing offsets + velocity variation (no two hits identical)
+      if (pat.kick && pat.kick[step] > 0) playKick(hTime(t), hVel(pat.kick[step]), kit);
+      if (pat.snare && pat.snare[step] > 0) playSnare(hTime(t), hVel(pat.snare[step]), kit);
+      if (pat.hat && pat.hat[step] > 0) playHat(hTime(t), hVel(pat.hat[step]), kit);
+      if (pat.ride && pat.ride[step] > 0) playRide(hTime(t), hVel(pat.ride[step]));
+      if (pat.timpani && pat.timpani[step] > 0) playTimpani(hTime(t), hVel(pat.timpani[step]));
 
       state.grooveStep++;
       state.nextStepTime += stepDur;
@@ -1198,6 +1229,10 @@ const Voice = (function () {
     var vel = 0.25 + ty * 0.1; // harder at top of screen
 
     synthesizeNote(now, freq, vel, decay);
+
+    // Resonance bloom: pad filter briefly opens toward the played note's register
+    // The instrument responds sympathetically — like a piano's strings ringing
+    state.touchResonance = Math.min(1, state.touchResonance + 0.4);
   }
 
   // ── GESTURE RESPONSES — use per-lens synthesis, with cooldown ────────
@@ -1615,6 +1650,15 @@ const Voice = (function () {
         var freq = semi2freq(state.harmonicRoot, semi);
         var decay = v(state.lens, 'voice.noteDecay', 1.2) * 0.6;
         var vel = v(state.lens, 'voice.motifVel', 0.2);
+        var motifEnergy = state.energy || 0;
+
+        // ── LIVING MELODY — responds to energy, never the same twice
+        // Low energy: skip some notes — let it breathe (the silence IS the music)
+        if (motifEnergy < 0.15 && Math.random() > 0.55) {
+          deg = -1; // skip — more space
+        }
+        // High energy: velocity rises with intensity
+        if (motifEnergy > 0.5) vel *= 1 + (motifEnergy - 0.5) * 0.6;
 
         // Accent after silence (phrase beginnings)
         if (idx > 0 && motif[idx - 1] === -1) vel *= 1.25;
@@ -1630,7 +1674,16 @@ const Voice = (function () {
         var origNoteType = v(state.lens, 'voice.noteType', 'simple');
         var motifNoteType = v(state.lens, 'voice.motifNoteType', origNoteType);
         var schedTime = state.nextMelodyTime + swingOff;
+
+        // Skip if living melody silenced this note
+        if (deg === -1) { state.melodyPos++; state.nextMelodyTime += stepDur; continue; }
+
         synthesizeNote(schedTime, freq, vel, decay, motifNoteType);
+
+        // Transcendent: occasional octave doubling — the melody shimmers above
+        if (state.stage === 'TRANSCENDENT' && Math.random() > 0.65) {
+          synthesizeNote(schedTime + 0.015, freq * 2, vel * 0.3, decay * 0.6, motifNoteType);
+        }
 
         // Jazz chord voicing: add harmony note (3rd + 7th shell voicing)
         var chordVoicing = v(state.lens, 'voice.motifChord', false);
