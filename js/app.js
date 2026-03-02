@@ -39,6 +39,10 @@
   // Long press to return to lens picker
   let longPressTimer = null;
 
+  // Touch velocity tracking (for phrase generation)
+  let prevTouchX = 0, prevTouchY = 0, prevTouchTime = 0;
+  let touchVX = 0, touchVY = 0;
+
   // ── SCREEN TRANSITIONS ───────────────────────────────────────────────
 
   function showScreen(name) {
@@ -188,8 +192,10 @@
         showScreen(SCREENS.LENS);
       }, 1200);
 
-      // Play touch note
-      try { Voice.playTouchNote(t.clientX / W, t.clientY / H); } catch (e) { console.error('touch note:', e); }
+      // Play touch note (with velocity tracking for phrase generation)
+      prevTouchX = t.clientX / W; prevTouchY = t.clientY / H; prevTouchTime = performance.now();
+      touchVX = 0; touchVY = 0;
+      try { Voice.playTouchPhrase(prevTouchX, prevTouchY, 0, 0); } catch (e) { console.error('touch note:', e); }
     }, { passive: false });
 
     playEl.addEventListener('touchmove', function (e) {
@@ -205,9 +211,17 @@
 
       if (Math.abs(dx) > 60) swiping = true;
 
-      // Continuous touch notes while dragging
+      // Continuous touch notes with velocity for phrase generation
       if (!swiping) {
-        try { Voice.playTouchNote(t.clientX / W, t.clientY / H); } catch (e) {}
+        var nowMs = performance.now();
+        var dtMs = nowMs - prevTouchTime;
+        if (dtMs > 0) {
+          var curX = t.clientX / W, curY = t.clientY / H;
+          touchVX = (curX - prevTouchX) / (dtMs / 1000);
+          touchVY = (curY - prevTouchY) / (dtMs / 1000);
+          prevTouchX = curX; prevTouchY = curY; prevTouchTime = nowMs;
+          try { Voice.playTouchPhrase(curX, curY, touchVX, touchVY); } catch (e) {}
+        }
       }
     }, { passive: false });
 

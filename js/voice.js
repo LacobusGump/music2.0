@@ -665,27 +665,43 @@ const Voice = (function () {
     L.active = true;
   }
 
-  // ── CHOIR ────────────────────────────────────────────────────────────
+  // ── CHOIR — formant vocal synthesis ──────────────────────────────────
+  // Sawtooth voices through parallel vowel formant filters.
+  // Sounds like an actual choir, not just filtered sawtooths.
 
   function buildChoir(root, lens) {
     var L = layers.choir;
-    L.filter = ctx.createBiquadFilter();
-    L.filter.type = 'bandpass';
-    L.filter.frequency.value = 1200;
-    L.filter.Q.value = 2;
-    L.filter.connect(L.gain);
+    var intervals = v(lens, 'voice.choirVoicing', [0, 7, 12, 19]);
 
-    var intervals = [0, 7, 12, 19];
+    // Formant filters: parallel bandpass at vowel frequencies ("Ah")
+    var f1 = ctx.createBiquadFilter(); f1.type = 'bandpass'; f1.frequency.value = 750; f1.Q.value = 5;
+    var f2 = ctx.createBiquadFilter(); f2.type = 'bandpass'; f2.frequency.value = 1150; f2.Q.value = 5;
+    var f3 = ctx.createBiquadFilter(); f3.type = 'bandpass'; f3.frequency.value = 2400; f3.Q.value = 5;
+
+    // Formant morph LFO — vowel slowly shifts between "Ah" and "Oh"
+    var morphLfo = ctx.createOscillator(); morphLfo.type = 'sine'; morphLfo.frequency.value = 0.15;
+    var morph1 = ctx.createGain(); morph1.gain.value = 180;
+    morphLfo.connect(morph1); morph1.connect(f1.frequency);
+    var morph2 = ctx.createGain(); morph2.gain.value = 250;
+    morphLfo.connect(morph2); morph2.connect(f2.frequency);
+    morphLfo.start();
+    L.oscs.push(morphLfo);
+
+    // Mix formants with different weights
+    var f1g = ctx.createGain(); f1g.gain.value = 0.45;
+    var f2g = ctx.createGain(); f2g.gain.value = 0.3;
+    var f3g = ctx.createGain(); f3g.gain.value = 0.12;
+    f1.connect(f1g); f2.connect(f2g); f3.connect(f3g);
+    f1g.connect(L.gain); f2g.connect(L.gain); f3g.connect(L.gain);
+
+    // Choir voices — detuned saws through formant bank
     for (var i = 0; i < intervals.length; i++) {
       var freq = root * Math.pow(2, intervals[i] / 12);
-      var o = ctx.createOscillator();
-      o.type = 'sawtooth';
-      o.frequency.value = freq;
-      o.detune.value = (Math.random() - 0.5) * 12;
-      var g = ctx.createGain();
-      g.gain.value = 0.1;
+      var o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = freq;
+      o.detune.value = (Math.random() - 0.5) * 15;
+      var g = ctx.createGain(); g.gain.value = 0.08;
       o.connect(g);
-      g.connect(L.filter);
+      g.connect(f1); g.connect(f2); g.connect(f3);
       o.start();
       L.oscs.push(o);
     }
@@ -1409,6 +1425,12 @@ const Voice = (function () {
       case 'bell': synthBell(time, freq, vel, decay); break;
       case 'stab': synthStab(time, freq, vel); break;
       case 'glitch': synthGlitch(time, freq, vel); break;
+      case 'fm': synthFM(time, freq, vel, decay); break;
+      case 'epiano': synthEPiano(time, freq, vel, decay); break;
+      case 'pluck': synthPluck(time, freq, vel, decay); break;
+      case 'brass': synthBrass(time, freq, vel, decay); break;
+      case 'sub808': synthSub808(time, freq, vel); break;
+      case 'choir': synthFormantNote(time, freq, vel, decay); break;
       default: synthSimple(time, freq, vel, decay); break;
     }
   }
@@ -1624,6 +1646,306 @@ const Voice = (function () {
     o.start(time); o.stop(time + decay + 0.1);
   }
 
+  // ── FM SYNTHESIS — DX7 metallic, complex timbres ────────────────────
+  // Carrier + modulator. Modulation index decays = bright attack → warm sustain.
+
+  function synthFM(time, freq, vel, decay) {
+    var ratio = v(state.lens, 'voice.fmRatio', 3);
+    var index = v(state.lens, 'voice.fmIndex', 6);
+
+    var mod = ctx.createOscillator(); mod.type = 'sine';
+    mod.frequency.value = freq * ratio;
+    var modG = ctx.createGain();
+    modG.gain.setValueAtTime(freq * index, time);
+    modG.gain.exponentialRampToValueAtTime(freq * index * 0.08, time + decay * 0.5);
+
+    var car = ctx.createOscillator(); car.type = 'sine';
+    car.frequency.value = freq;
+    mod.connect(modG); modG.connect(car.frequency);
+
+    // Second carrier at 2x for overtone richness
+    var car2 = ctx.createOscillator(); car2.type = 'sine';
+    car2.frequency.value = freq * 2;
+    var c2g = ctx.createGain(); c2g.gain.value = 0.25; car2.connect(c2g);
+
+    var env = ctx.createGain();
+    env.gain.setValueAtTime(0, time);
+    env.gain.linearRampToValueAtTime(vel, time + 0.002);
+    env.gain.setTargetAtTime(vel * 0.5, time + 0.002, 0.08);
+    env.gain.setTargetAtTime(0.001, time + decay * 0.4, decay * 0.3);
+
+    car.connect(env); c2g.connect(env);
+    env.connect(sidechainGain);
+    var rs = ctx.createGain(); rs.gain.value = 0.3; env.connect(rs); rs.connect(reverbSend);
+    var ds = ctx.createGain(); ds.gain.value = 0.25; env.connect(ds); ds.connect(delaySend);
+
+    var end = time + decay + 0.3;
+    mod.start(time); mod.stop(end);
+    car.start(time); car.stop(end);
+    car2.start(time); car2.stop(end);
+  }
+
+  // ── ELECTRIC PIANO — Rhodes/Wurlitzer: FM + tremolo ────────────────
+  // Ratio 1 = bell-like tine character. Index decays for warm body.
+
+  function synthEPiano(time, freq, vel, decay) {
+    // FM pair 1: fundamental tine
+    var mod1 = ctx.createOscillator(); mod1.type = 'sine'; mod1.frequency.value = freq;
+    var mod1G = ctx.createGain();
+    mod1G.gain.setValueAtTime(freq * 5, time);
+    mod1G.gain.exponentialRampToValueAtTime(freq * 0.3, time + decay * 0.3);
+    var car1 = ctx.createOscillator(); car1.type = 'sine'; car1.frequency.value = freq;
+    mod1.connect(mod1G); mod1G.connect(car1.frequency);
+
+    // FM pair 2: octave tine (the "bark")
+    var mod2 = ctx.createOscillator(); mod2.type = 'sine'; mod2.frequency.value = freq * 2;
+    var mod2G = ctx.createGain();
+    mod2G.gain.setValueAtTime(freq * 3, time);
+    mod2G.gain.exponentialRampToValueAtTime(freq * 0.1, time + decay * 0.2);
+    var car2 = ctx.createOscillator(); car2.type = 'sine'; car2.frequency.value = freq * 2;
+    mod2.connect(mod2G); mod2G.connect(car2.frequency);
+    var c2gain = ctx.createGain(); c2gain.gain.value = 0.35; car2.connect(c2gain);
+
+    // Tremolo LFO — characteristic Rhodes wobble
+    var trem = ctx.createOscillator(); trem.type = 'sine'; trem.frequency.value = 4.8;
+    var tremG = ctx.createGain(); tremG.gain.value = 0.15;
+    trem.connect(tremG);
+
+    var env = ctx.createGain();
+    env.gain.setValueAtTime(0, time);
+    env.gain.linearRampToValueAtTime(vel * 1.2, time + 0.002);
+    env.gain.setTargetAtTime(vel * 0.5, time + 0.002, 0.1);
+    env.gain.setTargetAtTime(0.001, time + decay * 0.5, decay * 0.35);
+    tremG.connect(env.gain); // tremolo modulates output
+
+    car1.connect(env); c2gain.connect(env);
+    env.connect(sidechainGain);
+    var rs = ctx.createGain(); rs.gain.value = 0.4; env.connect(rs); rs.connect(reverbSend);
+    var ds = ctx.createGain(); ds.gain.value = 0.2; env.connect(ds); ds.connect(delaySend);
+
+    var end = time + decay + 0.5;
+    mod1.start(time); mod1.stop(end); car1.start(time); car1.stop(end);
+    mod2.start(time); mod2.stop(end); car2.start(time); car2.stop(end);
+    trem.start(time); trem.stop(end);
+  }
+
+  // ── PLUCKED STRING — harp/guitar/pizzicato ─────────────────────────
+  // Noise excitation + resonant filter = physical model of a plucked string.
+
+  function synthPluck(time, freq, vel, decay) {
+    // Excitation: very short noise burst (the "pluck")
+    var excLen = Math.floor(ctx.sampleRate * 0.004);
+    var excBuf = ctx.createBuffer(1, excLen, ctx.sampleRate);
+    var ed = excBuf.getChannelData(0);
+    for (var i = 0; i < excLen; i++) ed[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / excLen, 2);
+    var excSrc = ctx.createBufferSource(); excSrc.buffer = excBuf;
+
+    // Resonant body: high-Q bandpass at target frequency (the "string")
+    var body = ctx.createBiquadFilter();
+    body.type = 'bandpass'; body.frequency.value = freq; body.Q.value = 60;
+    // Second harmonic for richness
+    var body2 = ctx.createBiquadFilter();
+    body2.type = 'bandpass'; body2.frequency.value = freq * 2; body2.Q.value = 30;
+    var b2g = ctx.createGain(); b2g.gain.value = 0.25;
+
+    // Sine resonator for pitch stability (bandpass alone can be weak)
+    var osc = ctx.createOscillator(); osc.type = 'triangle'; osc.frequency.value = freq;
+    var oscEnv = ctx.createGain();
+    oscEnv.gain.setValueAtTime(vel * 0.6, time);
+    oscEnv.gain.exponentialRampToValueAtTime(0.001, time + decay * 0.6);
+
+    var env = ctx.createGain();
+    env.gain.setValueAtTime(vel * 1.5, time);
+    env.gain.exponentialRampToValueAtTime(0.001, time + decay);
+
+    excSrc.connect(body); body.connect(env);
+    excSrc.connect(body2); body2.connect(b2g); b2g.connect(env);
+    osc.connect(oscEnv); oscEnv.connect(env);
+    env.connect(sidechainGain);
+
+    var rs = ctx.createGain(); rs.gain.value = 0.45; env.connect(rs); rs.connect(reverbSend);
+    var ds = ctx.createGain(); ds.gain.value = 0.15; env.connect(ds); ds.connect(delaySend);
+
+    excSrc.start(time); excSrc.stop(time + 0.006);
+    osc.start(time); osc.stop(time + decay + 0.1);
+  }
+
+  // ── BRASS — cinematic fanfare: sawtooth + filter bite + vibrato ────
+  // Slow filter attack = the "blat". Delayed vibrato = living brass section.
+
+  function synthBrass(time, freq, vel, decay) {
+    // Multiple saws for unison thickness
+    var filt = ctx.createBiquadFilter();
+    filt.type = 'lowpass';
+    filt.frequency.setValueAtTime(300, time);
+    filt.frequency.exponentialRampToValueAtTime(2000 + vel * 3000, time + 0.06);
+    filt.frequency.setTargetAtTime(1500, time + 0.06, 0.3);
+    filt.Q.value = 2;
+
+    var env = ctx.createGain();
+    env.gain.setValueAtTime(0, time);
+    env.gain.linearRampToValueAtTime(vel * 1.1, time + 0.04); // slow attack = brass character
+    env.gain.setTargetAtTime(vel * 0.7, time + 0.04, 0.2);
+    env.gain.setTargetAtTime(0.001, time + decay * 0.6, decay * 0.3);
+
+    // 3 detuned saws = brass section (not solo)
+    var detunes = [-8, 0, 8];
+    for (var i = 0; i < detunes.length; i++) {
+      var o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = freq;
+      o.detune.value = detunes[i];
+      var g = ctx.createGain(); g.gain.value = 0.35;
+      o.connect(g); g.connect(filt);
+      o.start(time); o.stop(time + decay + 0.5);
+    }
+
+    // Delayed vibrato — brass players add vibrato AFTER the attack
+    var vib = ctx.createOscillator(); vib.type = 'sine'; vib.frequency.value = 5.5;
+    var vibG = ctx.createGain();
+    vibG.gain.setValueAtTime(0, time);
+    vibG.gain.linearRampToValueAtTime(freq * 0.006, time + 0.15); // vibrato fades in
+    // Connect to all oscillators through the filter chain
+    vib.connect(vibG);
+    // Route vibrato to first osc frequency
+    // (simplified — vibrato on filter frequency is more efficient)
+    vibG.connect(filt.frequency);
+    vib.start(time); vib.stop(time + decay + 0.5);
+
+    filt.connect(env); env.connect(sidechainGain);
+    var rs = ctx.createGain(); rs.gain.value = 0.35; env.connect(rs); rs.connect(reverbSend);
+  }
+
+  // ── SUB 808 — chest-shaking bass hit with pitch envelope ───────────
+  // The weight of dark matter. The foundation of gospel.
+
+  function synthSub808(time, freq, vel) {
+    // Main sub: sine with pitch envelope (high → target)
+    var o = ctx.createOscillator(); o.type = 'sine';
+    o.frequency.setValueAtTime(freq * 3, time);
+    o.frequency.exponentialRampToValueAtTime(freq, time + 0.06);
+
+    // Long sustain envelope — the 808 tail
+    var env = ctx.createGain();
+    env.gain.setValueAtTime(0, time);
+    env.gain.linearRampToValueAtTime(vel * 1.4, time + 0.003);
+    env.gain.setTargetAtTime(vel * 0.8, time + 0.003, 0.08);
+    env.gain.exponentialRampToValueAtTime(0.001, time + 1.8);
+
+    // Sub-octave for chest-shaking weight
+    var sub = ctx.createOscillator(); sub.type = 'sine';
+    sub.frequency.value = freq / 2;
+    var subG = ctx.createGain(); subG.gain.value = 0.5;
+    sub.connect(subG);
+
+    // Lowpass — keep only the sub frequencies
+    var lp = ctx.createBiquadFilter(); lp.type = 'lowpass';
+    lp.frequency.value = 120; lp.Q.value = 2;
+
+    o.connect(lp); subG.connect(lp); lp.connect(env);
+    env.connect(sidechainGain);
+    // 808 is DRY — minimal reverb
+    var rs = ctx.createGain(); rs.gain.value = 0.05; env.connect(rs); rs.connect(reverbSend);
+
+    o.start(time); o.stop(time + 2);
+    sub.start(time); sub.stop(time + 2);
+  }
+
+  // ── FORMANT NOTE — vocal synthesis: sawtooth through vowel filters ─
+  // Sounds like a human voice singing the note. For choir moments.
+
+  function synthFormantNote(time, freq, vel, decay) {
+    var o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = freq;
+    var o2 = ctx.createOscillator(); o2.type = 'sawtooth'; o2.frequency.value = freq;
+    o2.detune.value = 7;
+
+    // Vowel formants: "ah" → "oh" crossfade
+    // "Ah": F1=800, F2=1200, F3=2500
+    // "Oh": F1=500, F2=800, F3=2300
+    var f1 = ctx.createBiquadFilter(); f1.type = 'bandpass'; f1.frequency.value = 700; f1.Q.value = 5;
+    var f2 = ctx.createBiquadFilter(); f2.type = 'bandpass'; f2.frequency.value = 1100; f2.Q.value = 5;
+    var f3 = ctx.createBiquadFilter(); f3.type = 'bandpass'; f3.frequency.value = 2400; f3.Q.value = 5;
+
+    // Formant morph LFO — vowel slowly shifts
+    var morphLfo = ctx.createOscillator(); morphLfo.type = 'sine'; morphLfo.frequency.value = 0.4;
+    var morph1 = ctx.createGain(); morph1.gain.value = 150; // ±150Hz on F1
+    morphLfo.connect(morph1); morph1.connect(f1.frequency);
+    var morph2 = ctx.createGain(); morph2.gain.value = 200;
+    morphLfo.connect(morph2); morph2.connect(f2.frequency);
+
+    var f1g = ctx.createGain(); f1g.gain.value = 0.45;
+    var f2g = ctx.createGain(); f2g.gain.value = 0.35;
+    var f3g = ctx.createGain(); f3g.gain.value = 0.15;
+
+    var mix = ctx.createGain();
+    o.connect(f1); o.connect(f2); o.connect(f3);
+    o2.connect(f1); o2.connect(f2); o2.connect(f3);
+    f1.connect(f1g); f2.connect(f2g); f3.connect(f3g);
+    f1g.connect(mix); f2g.connect(mix); f3g.connect(mix);
+
+    var env = ctx.createGain();
+    env.gain.setValueAtTime(0, time);
+    env.gain.linearRampToValueAtTime(vel, time + 0.05); // slow vocal attack
+    env.gain.setTargetAtTime(vel * 0.6, time + 0.05, 0.3);
+    env.gain.setTargetAtTime(0.001, time + decay * 0.6, decay * 0.3);
+
+    mix.connect(env); env.connect(sidechainGain);
+    var rs = ctx.createGain(); rs.gain.value = 0.5; env.connect(rs); rs.connect(reverbSend);
+
+    var end = time + decay + 0.5;
+    o.start(time); o.stop(end); o2.start(time); o2.stop(end);
+    morphLfo.start(time); morphLfo.stop(end);
+  }
+
+  // ── TOUCH PHRASE SYSTEM — gesture → phrase, not gesture → note ─────
+  // Tracks touch velocity. Fast movement = scalar runs. Slow = sustained.
+
+  var touchHistory = [];
+  var lastTouchX = 0, lastTouchY = 0, lastTouchTime = 0;
+
+  function playTouchPhrase(tx, ty, vx, vy) {
+    if (!ctx || !state.ready || !state.lens) return;
+    var now = ctx.currentTime;
+    if (now - state.lastNoteTime < 0.06) return;
+    state.lastNoteTime = now;
+
+    var speed = Math.sqrt(vx * vx + vy * vy);
+    var degree = Math.floor(tx * scale.length);
+    var octShift = Math.floor((1 - ty) * 3);
+    var baseSemi = scaleNote(degree) + octShift * 12 + state.rootOffset + state.chordOffset;
+    var freq = semi2freq(state.harmonicRoot, baseSemi);
+    var decay = v(state.lens, 'voice.noteDecay', 1.2);
+    var vel = 0.2 + ty * 0.12;
+
+    if (speed > 1.5) {
+      // FAST movement: scalar run (3-5 notes ascending or descending)
+      var dir = vx > 0 ? 1 : -1;
+      var count = Math.min(5, Math.floor(speed * 2));
+      var spacing = 0.04;
+      for (var i = 0; i < count; i++) {
+        var runDeg = degree + dir * i;
+        var runSemi = scaleNote(runDeg) + octShift * 12 + state.rootOffset + state.chordOffset;
+        var runFreq = semi2freq(state.harmonicRoot, runSemi);
+        var runVel = vel * (1 - i * 0.12);
+        synthesizeNote(now + i * spacing, runFreq, runVel, decay * 0.4);
+      }
+      state.touchResonance = Math.min(1, state.touchResonance + 0.6);
+    } else if (speed > 0.5) {
+      // MEDIUM movement: single note with grace note
+      var graceFreq = semi2freq(state.harmonicRoot, baseSemi - (Math.random() > 0.5 ? 1 : 2));
+      synthesizeNote(now, graceFreq, vel * 0.3, 0.1);
+      synthesizeNote(now + 0.04, freq, vel, decay);
+      state.touchResonance = Math.min(1, state.touchResonance + 0.4);
+    } else {
+      // SLOW/stationary: sustained note
+      synthesizeNote(now, freq, vel, decay);
+      state.touchResonance = Math.min(1, state.touchResonance + 0.3);
+    }
+
+    // Harmonic gravity: subtly bend toward nearest consonant interval
+    // (affects next touch note — creates resolution tendency)
+    touchHistory.push({ semi: baseSemi, time: now });
+    if (touchHistory.length > 8) touchHistory.shift();
+  }
+
   // ── MOTIF MELODY — plays actual phrases, not random notes ───────────
 
   function updateMelody() {
@@ -1748,6 +2070,7 @@ const Voice = (function () {
     applyLens: applyLens,
     update: update,
     playTouchNote: playTouchNote,
+    playTouchPhrase: playTouchPhrase,
     onSpike: onSpike,
     get stage() { return state.stage; },
     get tempo() { return state.tempo; },

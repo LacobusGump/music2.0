@@ -42,18 +42,18 @@ const Lens = (function () {
         stringVoicing: [0, 7, 12, 16, 19],  // full orchestral voicing — root, 5th, oct, 3rd, 5th
         drumKit: 'acoustic',
         drumGain: 0.5,                // percussion supportive
-        // Notes: organ — sustained, rich (brass-like sustain)
-        noteType: 'organ',
-        noteDecay: 2.5,               // long sustain — orchestral phrasing
+        // Notes: BRASS — cinematic fanfare, slow filter attack, vibrato
+        noteType: 'brass',
+        noteDecay: 2.5,               // long sustain — brass phrasing
         delayFeedback: 0.3,
         delayFilterFreq: 2000,
         reverbDecay: 5.0,             // massive concert hall
         reverbDamping: 0.2,           // bright reverb — orchestral sparkle
         filterRange: [400, 6000],
-        dynamicFloor: 0.35,           // pianissimo when still — conductor controls dynamics
+        dynamicFloor: 0.3,            // pianissimo when still — conductor controls dynamics
         // Mix — strings dominate, everything builds with motion
         padVol: 0.3, atmosphereVol: 0.1, bassVol: 0.2, stringsVol: 0.3, shimmerVol: 0.2, choirVol: 0.3,
-        bassUnlock: 'moving', stringsUnlock: 'moving', shimmerUnlock: 'rhythmic', choirUnlock: 'intense',
+        bassUnlock: 'moving', stringsUnlock: 'moving', shimmerUnlock: 'moving', choirUnlock: 'rhythmic',
         reverbMix: 0.55,
         autoplay: 0, chordBars: 4, autoplayOctave: 0,
         // Ascending orchestral melody — strings reaching upward
@@ -68,7 +68,7 @@ const Lens = (function () {
         motifNoteDur: 1,              // quarter notes — majestic pace
         motifOctave: 0,
         motifVel: 0.22,
-        motifNoteType: 'organ',
+        motifNoteType: 'brass',       // the melody IS the brass section
       },
       harmony: { root: 432, mode: 'major', gravity: 0.8, evolution: 'ascending-fifths', progression: [0, 5, 7, 0] },
       rhythm: {
@@ -110,8 +110,8 @@ const Lens = (function () {
         drumKit: 'brushes',
         drumGain: 0.6,                       // drums more present — ride is essential
         crackle: true,
-        // Touch: jazz piano with chord voicings
-        noteType: 'piano',
+        // Touch: ELECTRIC PIANO — Rhodes tine character, FM synthesis
+        noteType: 'epiano',
         noteDecay: 1.2,
         delayFeedback: 0.38,
         delayFilterFreq: 1200,               // dark tape echo
@@ -139,8 +139,8 @@ const Lens = (function () {
         ],
         motifNoteDur: 0.5,
         motifOctave: 1,
-        motifVel: 0.22,                      // slightly louder — jazz piano should speak
-        motifNoteType: 'piano',
+        motifVel: 0.22,                      // jazz piano speaks with authority
+        motifNoteType: 'epiano',             // FM electric piano — Rhodes character
       },
       harmony: { root: 432, mode: 'dorian', gravity: 0.6, evolution: 'ascending-fifths', progression: [0, 5, 7, 3, 10, 5, 7, 0] },
       rhythm: {
@@ -185,7 +185,7 @@ const Lens = (function () {
         stringVoicing: [0, 4, 7, 12],
         drumKit: '808',
         drumGain: 0.9,                // was 1.4 — pulled back, let the warmth breathe
-        // Notes: gospel organ — drawbar harmonics, Leslie vibrato
+        // Touch: organ — drawbar harmonics, Leslie vibrato (the "call")
         noteType: 'organ',
         noteDecay: 1.5,
         delayFeedback: 0.25,
@@ -213,7 +213,7 @@ const Lens = (function () {
         motifNoteDur: 0.5,
         motifOctave: 1,
         motifVel: 0.2,
-        motifNoteType: 'organ',
+        motifNoteType: 'choir',       // vocal formant melody = the "response" (call-and-response)
       },
       harmony: { root: 432, mode: 'pentatonic-major', gravity: 0.9, evolution: 'ascending-fifths', progression: [0, 5, 7, 0] },
       rhythm: {
@@ -255,9 +255,9 @@ const Lens = (function () {
         bassType: 'none',
         drumKit: 'none',
         drumGain: 0,
-        // Notes: CRISP crystalline bells — contrast against the warm bed
-        noteType: 'bell',
-        noteDecay: 3.5,             // very long ring — bells echo forever
+        // Notes: PLUCKED HARP — frozen strings, crisp attack against warm bed
+        noteType: 'pluck',
+        noteDecay: 2.5,             // long ring — harp strings echo
         delayFeedback: 0.55,        // long cascading echoes
         delayFilterFreq: 4500,      // bright delay — bells shimmer through
         reverbDecay: 6.0,           // enormous space
@@ -323,12 +323,14 @@ const Lens = (function () {
         bassType: '808',              // clean 808 sub, not growl
         drumKit: '808',
         drumGain: 2.2,                // VERY LOUD — drums are everything
-        // Notes: PIANO — clean, polished, NOT stab/glitch
-        noteType: 'piano',
-        noteDecay: 0.6,               // medium — broken melodies linger slightly
-        delayFeedback: 0.3,           // moderate — echoes add complexity
-        delayFilterFreq: 2500,        // cleaner delay than before
-        reverbDecay: 1.0,             // tight room
+        // Notes: FM SYNTHESIS — metallic DnB stabs, DX7 character
+        noteType: 'fm',
+        fmRatio: 5,                    // high ratio = metallic, bell-like harmonics
+        fmIndex: 8,                    // high index = bright, aggressive attack
+        noteDecay: 0.5,                // short — DnB stabs don't linger
+        delayFeedback: 0.35,           // moderate — echoes add complexity
+        delayFilterFreq: 2500,
+        reverbDecay: 1.0,              // tight room
         reverbDamping: 0.6,
         filterRange: [300, 4000],
         dynamicFloor: 0.3,             // quiet when still, then HITS
@@ -337,7 +339,7 @@ const Lens = (function () {
         bassUnlock: 'always',
         reverbMix: 0.1,
         autoplay: 0, chordBars: 4, autoplayOctave: 0,
-        // Broken piano melody — fragments that the user shapes
+        // Broken metallic melody — fragments that the user shapes
         // Syncopated, unexpected, leaves space for the drums
         motif: [
           0,-1,-1, 3, -1,-1, 5,-1,           // fragmented: root... b3... 5...
@@ -350,9 +352,9 @@ const Lens = (function () {
           -1,-1,-1,-1,-1,-1,-1,-1,            // breathe
         ],
         motifNoteDur: 0.25,              // 16th notes — tight, rhythmic
-        motifOctave: 1,                  // mid register — clean piano
+        motifOctave: 1,                  // mid register
         motifVel: 0.15,                  // supporting, not competing
-        motifNoteType: 'piano',          // CLEAN piano, not stab
+        motifNoteType: 'fm',             // metallic FM stabs
       },
       harmony: { root: 432, mode: 'blues', gravity: 0.7, evolution: 'static', progression: [0, 7, 5, 0] },
       rhythm: {
@@ -407,8 +409,8 @@ const Lens = (function () {
         stringVoicing: [0, 4, 7, 11],
         drumKit: 'acoustic',
         drumGain: 0.5,
-        // Notes: piano — warm arpeggios through heavy delay
-        noteType: 'piano',
+        // Notes: ELECTRIC PIANO — warm FM arpeggios through cascading delay
+        noteType: 'epiano',
         noteDecay: 1.8,
         delayFeedback: 0.52,            // HIGH — cascading echoes
         delayFilterFreq: 3500,          // bright shimmering delay
@@ -425,7 +427,7 @@ const Lens = (function () {
         stringsUnlock: 'rhythmic', shimmerUnlock: 'moving',
         reverbMix: 0.5,
         autoplay: 0, chordBars: 4, autoplayOctave: 0, autoplayStyle: 'arpeggio',
-        // Cascading arpeggio — same beautiful pattern
+        // Cascading arpeggio — Rhodes through heavy delay = In Rainbows texture
         motif: [
           0, 2, 4, 7,  0, 2, 4, 7,
           9, 7, 4, 2,  9, 7, 4, 2,
@@ -438,7 +440,7 @@ const Lens = (function () {
         motifNoteDur: 0.5,
         motifOctave: 0,
         motifVel: 0.16,
-        motifNoteType: 'piano',
+        motifNoteType: 'epiano',        // FM electric piano through 52% delay = cascading shimmer
       },
       harmony: { root: 432, mode: 'mixolydian', gravity: 0.5, evolution: 'ascending-fifths', progression: [0, 5, 7, 0] },
       rhythm: {
