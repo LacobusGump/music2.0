@@ -82,7 +82,8 @@
     Sensor.init().then(function () {
       // Init subsystems
       Brain.init();
-      Voice.init(audioCtx);
+      Audio.init(audioCtx);
+      Score.init();
 
       // Build lens picker
       Lens.buildPicker();
@@ -90,7 +91,8 @@
       // Check for shared lens in URL
       var urlLens = Lens.loadFromURL();
       if (urlLens) {
-        Voice.applyLens(urlLens);
+        Audio.configure(urlLens);
+        Score.applyLens(urlLens);
         Organism.applyLens(urlLens);
         showScreen(SCREENS.PLAY);
         startPlayScreen();
@@ -129,7 +131,8 @@
     Sensor.retryPermissions();
 
     try {
-      Voice.applyLens(lens);
+      Audio.configure(lens);
+      Score.applyLens(lens);
       Organism.applyLens(lens);
     } catch (e) {
       console.error('applyLens:', e);
@@ -153,7 +156,7 @@
     if (!spikeWired) {
       Brain.on('spike', function (data) {
         try {
-          Voice.onSpike(data);
+          Score.onSpike(data);
           if (data.neuron === 'toss' || data.neuron === 'shake') {
             Organism.addMutation(data.energy);
           }
@@ -195,7 +198,7 @@
       // Play touch note (with velocity tracking for phrase generation)
       prevTouchX = t.clientX / W; prevTouchY = t.clientY / H; prevTouchTime = performance.now();
       touchVX = 0; touchVY = 0;
-      try { Voice.playTouchPhrase(prevTouchX, prevTouchY, 0, 0); } catch (e) { console.error('touch note:', e); }
+      try { Score.touch(prevTouchX, prevTouchY, 0, 0); } catch (e) { console.error('touch note:', e); }
     }, { passive: false });
 
     playEl.addEventListener('touchmove', function (e) {
@@ -220,7 +223,7 @@
           touchVX = (curX - prevTouchX) / (dtMs / 1000);
           touchVY = (curY - prevTouchY) / (dtMs / 1000);
           prevTouchX = curX; prevTouchY = curY; prevTouchTime = nowMs;
-          try { Voice.playTouchPhrase(curX, curY, touchVX, touchVY); } catch (e) {}
+          try { Score.touch(curX, curY, touchVX, touchVY); } catch (e) {}
         }
       }
     }, { passive: false });
@@ -293,8 +296,8 @@
       // 3. Update position
       updatePosition(sensor);
 
-      // 4. Update voice
-      Voice.update(
+      // 4. Update score (musical intelligence)
+      Score.update(
         { totalMotion: Brain.totalMotion, energy: Brain.energy, pattern: Brain.pattern, voidDepth: Brain.voidDepth, neurons: Brain.neurons },
         sensor,
         dt
@@ -374,23 +377,22 @@
     var lens = Lens.active;
     var lines = [
       'LENS: ' + (lens ? lens.name : 'none'),
-      'STAGE: ' + Voice.stage + ' | TEMPO: ' + Voice.tempo.toFixed(0),
+      'SCENE: ' + Score.scene + ' | STAGE: ' + Score.stage + ' | TEMPO: ' + Score.tempo.toFixed(0),
+      'BEAT: ' + Score.beat + ' | BAR: ' + Score.bar + ' | PHRASE: ' + Score.phrase,
       'PATTERN: ' + Brain.pattern + ' | TOTAL: ' + Brain.totalMotion.toFixed(0),
       'ENERGY: ' + Brain.energy.toFixed(2) + ' | VOID: ' + Brain.voidDepth.toFixed(2),
-      'FILTER: ' + Voice.filterFreq.toFixed(0) + 'Hz',
+      'FILTER: ' + Score.filterFreq.toFixed(0) + 'Hz',
       'ORGANISM: ' + Organism.stage + ' | LIFE: ' + Organism.lifeForce.toFixed(0),
       'POS: ' + posX.toFixed(2) + ',' + posY.toFixed(2),
       'MOTION: ' + (sensor.hasMotion ? 'YES' : 'NO') + ' | ORIENT: ' + (sensor.hasOrientation ? 'YES' : 'NO') + ' | PERM: ' + Sensor.permissionState,
       'TIME: ' + sensor.timeOfDay + ' | WEATHER: ' + sensor.weather,
     ];
 
-    var vols = Voice.layerVolumes;
-    var layerLine = 'LAYERS:';
-    for (var k in vols) layerLine += ' ' + k + ':' + vols[k];
-    lines.push(layerLine);
+    // Active behaviors
+    lines.push('BEHAVIORS: ' + Score.activeBehaviors);
 
     // Audio health diagnostics
-    lines.push('AUDIO: ' + Voice.ctxState + ' | ERRORS: ' + Voice.errors + '+' + loopErrors);
+    lines.push('AUDIO: ' + Score.ctxState + ' | ERRORS: ' + Score.errors + '+' + loopErrors);
 
     el.textContent = lines.join('\n');
   }
