@@ -27,10 +27,10 @@ const Lens = (function () {
 
       space: {
         reverb: { decay: 5.0, damping: 0.2 },
-        delay: { feedback: 0.3, filter: 2000, sync: 'dotted-eighth' },
+        delay: { feedback: 0.3, filter: 1400, sync: 'dotted-eighth' },
         saturation: 0.12,
         type: 'cathedral',
-        filterRange: [400, 6000],
+        filterRange: [350, 3500],
         reverbMix: 0.55,
       },
 
@@ -38,7 +38,7 @@ const Lens = (function () {
         drone: {
           voices: [
             { wave: 'sawtooth', chord: [0, 4, 7, 12], octave: 0, detune: 10, voiceCount: 3,
-              filter: 2800, vibrato: { rate: 5.2, depth: 0.003 } },
+              filter: 1800, vibrato: { rate: 5.2, depth: 0.003 } },
           ],
           breathRate: 0.06,
           vol: 0.3,
@@ -109,10 +109,10 @@ const Lens = (function () {
 
       space: {
         reverb: { decay: 4.5, damping: 0.25 },
-        delay: { feedback: 0.38, filter: 1200, sync: 'dotted-eighth' },
+        delay: { feedback: 0.38, filter: 1000, sync: 'dotted-eighth' },
         saturation: 0.08,
         type: 'cathedral',
-        filterRange: [300, 3500],
+        filterRange: [280, 2800],
         reverbMix: 0.5,
       },
 
@@ -192,18 +192,18 @@ const Lens = (function () {
 
       space: {
         reverb: { decay: 1.8, damping: 0.45 },
-        delay: { feedback: 0.25, filter: 2500, sync: 'quarter' },
+        delay: { feedback: 0.25, filter: 1600, sync: 'quarter' },
         saturation: 0.4,
         sidechain: 0.35,
         type: 'room',
-        filterRange: [500, 5000],
+        filterRange: [400, 3200],
         reverbMix: 0.2,
       },
 
       behaviors: {
         drone: {
           voices: [
-            { wave: 'sawtooth', chord: [0, 4, 7, 11], octave: 0, detune: 6, voiceCount: 2, filter: 2200 },
+            { wave: 'sawtooth', chord: [0, 4, 7, 11], octave: 0, detune: 6, voiceCount: 2, filter: 1600 },
           ],
           breathRate: 0.15,
           vol: 0.18,
@@ -277,10 +277,10 @@ const Lens = (function () {
 
       space: {
         reverb: { decay: 6.0, damping: 0.1 },
-        delay: { feedback: 0.55, filter: 4500, sync: 'dotted-eighth' },
+        delay: { feedback: 0.55, filter: 2200, sync: 'dotted-eighth' },
         saturation: 0.05,
         type: 'infinite',
-        filterRange: [400, 6000],
+        filterRange: [350, 3500],
         reverbMix: 0.85,
       },
 
@@ -339,11 +339,11 @@ const Lens = (function () {
 
       space: {
         reverb: { decay: 1.0, damping: 0.6 },
-        delay: { feedback: 0.35, filter: 2500, sync: 'eighth' },
+        delay: { feedback: 0.35, filter: 1600, sync: 'eighth' },
         saturation: 0.45,
         sidechain: 0.5,
         type: 'intimate',
-        filterRange: [300, 4000],
+        filterRange: [250, 3000],
         reverbMix: 0.1,
       },
 
@@ -424,17 +424,17 @@ const Lens = (function () {
 
       space: {
         reverb: { decay: 4.0, damping: 0.3 },
-        delay: { feedback: 0.52, filter: 3500, sync: 'dotted-eighth' },
+        delay: { feedback: 0.52, filter: 2000, sync: 'dotted-eighth' },
         saturation: 0.4,
         type: 'cathedral',
-        filterRange: [500, 6000],
+        filterRange: [400, 3500],
         reverbMix: 0.5,
       },
 
       behaviors: {
         drone: {
           voices: [
-            { wave: 'triangle', chord: [0, 2, 7, 14], octave: 0, detune: 10, voiceCount: 2, filter: 1800 },
+            { wave: 'triangle', chord: [0, 2, 7, 14], octave: 0, detune: 10, voiceCount: 2, filter: 1200 },
           ],
           breathRate: 0.1,
           vol: 0.15,

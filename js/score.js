@@ -1014,7 +1014,7 @@ const Score = (function () {
     _tension = Math.max(0, Math.min(0.6, _tension + tensionTarget * 0.008));
 
     // ── TILT EXPRESSION
-    var filterRange = (lens.space && lens.space.filterRange) || [400, 6000];
+    var filterRange = (lens.space && lens.space.filterRange) || [350, 3500];
     var tiltNorm = Math.max(0, Math.min(1, (tiltY - 20) / 70));
     var targetFreq = filterRange[0] + tiltNorm * (filterRange[1] - filterRange[0]);
     _filterFreq += (targetFreq - _filterFreq) * 0.08;

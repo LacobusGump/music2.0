@@ -13,6 +13,7 @@ const Audio = (function () {
 
   let ctx = null;
   let masterGain = null;
+  let warmthLP = null;       // Global warmth: tames ALL high-end (Fred Again: sine bass is king)
   let compressor = null;
   let sidechainGain = null;
   let saturator = null;
@@ -21,6 +22,7 @@ const Audio = (function () {
   let convolver = null;
   let reverbSend = null;
   let reverbGain = null;
+  let reverbLP = null;       // Dark reverb: kills brightness in reverb tail
   let delayNode = null;
   let delayFeedback = null;
   let delayFilter = null;
@@ -42,9 +44,17 @@ const Audio = (function () {
   function init(audioCtx) {
     ctx = audioCtx;
 
+    // Global warmth LP: everything rolls off above ~5.5kHz
+    // Fred Again: "nothing purer than a sine wave" — keep it warm, rounded, bass-forward
+    warmthLP = ctx.createBiquadFilter();
+    warmthLP.type = 'lowpass';
+    warmthLP.frequency.value = 5500;
+    warmthLP.Q.value = 0.4;  // gentle rolloff, not resonant
+    warmthLP.connect(ctx.destination);
+
     masterGain = ctx.createGain();
     masterGain.gain.value = 0.8;
-    masterGain.connect(ctx.destination);
+    masterGain.connect(warmthLP);
 
     compressor = ctx.createDynamicsCompressor();
     compressor.threshold.value = -18;
@@ -97,7 +107,7 @@ const Audio = (function () {
 
     // Delay
     if (delayFeedback) delayFeedback.gain.value = del.feedback || 0.35;
-    if (delayFilter) delayFilter.frequency.value = del.filter || 3000;
+    if (delayFilter) delayFilter.frequency.value = del.filter || 2000;
 
     // Initial delay sync
     var bpm = lens.rhythm && lens.rhythm.bpm;
@@ -144,8 +154,15 @@ const Audio = (function () {
     reverbGain = ctx.createGain();
     reverbGain.gain.value = 0.5;
 
+    // Dark reverb LP: kill brightness in reverb tail (~3kHz)
+    reverbLP = ctx.createBiquadFilter();
+    reverbLP.type = 'lowpass';
+    reverbLP.frequency.value = 3000;
+    reverbLP.Q.value = 0.5;
+
     reverbSend.connect(convolver);
-    convolver.connect(reverbGain);
+    convolver.connect(reverbLP);
+    reverbLP.connect(reverbGain);
     reverbGain.connect(masterGain);
   }
 
@@ -160,7 +177,7 @@ const Audio = (function () {
 
     delayFilter = ctx.createBiquadFilter();
     delayFilter.type = 'lowpass';
-    delayFilter.frequency.value = 3000;
+    delayFilter.frequency.value = 2000;
 
     delayMix = ctx.createGain();
     delayMix.gain.value = 0.3;
@@ -464,7 +481,7 @@ const Audio = (function () {
         var d = buf.getChannelData(0);
         for (var i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2);
         var src = ctx.createBufferSource(); src.buffer = buf;
-        var bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1500; bp.Q.value = 1;
+        var bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1000; bp.Q.value = 1;
         var g = ctx.createGain();
         g.gain.setValueAtTime(0.35 * vel, t);
         g.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
@@ -477,7 +494,7 @@ const Audio = (function () {
       var d = buf.getChannelData(0);
       for (var i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 1.5) * 0.3;
       var src = ctx.createBufferSource(); src.buffer = buf;
-      var bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 3000; bp.Q.value = 0.5;
+      var bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 2000; bp.Q.value = 0.5;
       var g = ctx.createGain();
       g.gain.setValueAtTime(0.15 * vel, time);
       g.gain.exponentialRampToValueAtTime(0.001, time + 0.2);
@@ -500,14 +517,14 @@ const Audio = (function () {
       var d = buf.getChannelData(0);
       for (var i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
       var src = ctx.createBufferSource(); src.buffer = buf;
-      var hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 1200;
+      var hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 800;
       var g = ctx.createGain();
-      g.gain.setValueAtTime(0.5 * vel, time);
+      g.gain.setValueAtTime(0.4 * vel, time);
       g.gain.exponentialRampToValueAtTime(0.001, time + 0.15);
       src.connect(hp); hp.connect(g); g.connect(drumBus);
       src.start(time); src.stop(time + 0.2);
-      // Body
-      var o = ctx.createOscillator(); o.type = 'triangle'; o.frequency.value = 200;
+      // Body (more prominent for warmth)
+      var o = ctx.createOscillator(); o.type = 'triangle'; o.frequency.value = 180;
       var og = ctx.createGain();
       og.gain.setValueAtTime(0.3 * vel, time);
       og.gain.exponentialRampToValueAtTime(0.001, time + 0.08);
@@ -518,10 +535,10 @@ const Audio = (function () {
 
   function playHat(time, vel, kit) {
     var dur, hpFreq;
-    if (kit === '808') { dur = 0.06; hpFreq = 6000; }
-    else if (kit === 'brushes') { dur = 0.1; hpFreq = 4000; }
-    else if (kit === 'glitch') { dur = 0.03; hpFreq = 9000; }
-    else { dur = 0.05; hpFreq = 7000; }
+    if (kit === '808') { dur = 0.06; hpFreq = 3800; }
+    else if (kit === 'brushes') { dur = 0.1; hpFreq = 2500; }
+    else if (kit === 'glitch') { dur = 0.03; hpFreq = 5000; }
+    else { dur = 0.05; hpFreq = 4500; }
 
     var len = Math.floor(ctx.sampleRate * dur);
     var buf = ctx.createBuffer(1, len, ctx.sampleRate);
@@ -538,25 +555,25 @@ const Audio = (function () {
   }
 
   function playRide(time, vel) {
-    // Bell: resonant metallic ping
+    // Bell: warm resonant ping (darkened)
     var bell = ctx.createOscillator(); bell.type = 'square'; bell.frequency.value = 800;
     var bellFilt = ctx.createBiquadFilter();
-    bellFilt.type = 'bandpass'; bellFilt.frequency.value = 3000; bellFilt.Q.value = 2;
+    bellFilt.type = 'bandpass'; bellFilt.frequency.value = 1800; bellFilt.Q.value = 1.5;
     var bellG = ctx.createGain();
-    bellG.gain.setValueAtTime(0.12 * vel, time);
+    bellG.gain.setValueAtTime(0.10 * vel, time);
     bellG.gain.exponentialRampToValueAtTime(0.001, time + 0.6);
     bell.connect(bellFilt); bellFilt.connect(bellG); bellG.connect(drumBus);
     bell.start(time); bell.stop(time + 0.65);
 
-    // Shimmer wash
+    // Shimmer wash (darker — scrunched, not crispy)
     var shimLen = Math.floor(ctx.sampleRate * 0.5);
     var shimBuf = ctx.createBuffer(1, shimLen, ctx.sampleRate);
     var sd = shimBuf.getChannelData(0);
     for (var i = 0; i < shimLen; i++) sd[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / shimLen, 0.4);
     var shimSrc = ctx.createBufferSource(); shimSrc.buffer = shimBuf;
-    var hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 6000;
+    var hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 3200;
     var shimG = ctx.createGain();
-    shimG.gain.setValueAtTime(0.18 * vel, time);
+    shimG.gain.setValueAtTime(0.10 * vel, time);
     shimG.gain.exponentialRampToValueAtTime(0.001, time + 0.7);
     shimSrc.connect(hp); hp.connect(shimG); shimG.connect(drumBus);
     shimSrc.start(time); shimSrc.stop(time + 0.75);
@@ -627,8 +644,8 @@ const Audio = (function () {
   function synthPiano(time, freq, vel, decay) {
     var filt = ctx.createBiquadFilter();
     filt.type = 'lowpass';
-    filt.frequency.setValueAtTime(2500 + vel * 4000, time);
-    filt.frequency.setTargetAtTime(1800, time + 0.01, 0.2);
+    filt.frequency.setValueAtTime(1800 + vel * 2000, time);
+    filt.frequency.setTargetAtTime(1400, time + 0.01, 0.2);
     filt.Q.value = 0.7;
 
     var env = ctx.createGain();
@@ -698,7 +715,7 @@ const Audio = (function () {
 
   function synthOrgan(time, freq, vel, decay) {
     var filt = ctx.createBiquadFilter();
-    filt.type = 'lowpass'; filt.frequency.value = 5000; filt.Q.value = 0.5;
+    filt.type = 'lowpass'; filt.frequency.value = 2800; filt.Q.value = 0.5;
 
     var env = ctx.createGain();
     env.gain.setValueAtTime(0, time);
@@ -751,9 +768,9 @@ const Audio = (function () {
   function synthStab(time, freq, vel) {
     var filt = ctx.createBiquadFilter();
     filt.type = 'lowpass';
-    filt.frequency.setValueAtTime(6000, time);
+    filt.frequency.setValueAtTime(3500, time);
     filt.frequency.exponentialRampToValueAtTime(250, time + 0.08);
-    filt.Q.value = 8;
+    filt.Q.value = 6;
 
     var env = ctx.createGain();
     env.gain.setValueAtTime(0, time);
@@ -823,8 +840,8 @@ const Audio = (function () {
     var mod = ctx.createOscillator(); mod.type = 'sine';
     mod.frequency.value = freq * ratio;
     var modG = ctx.createGain();
-    modG.gain.setValueAtTime(freq * index, time);
-    modG.gain.exponentialRampToValueAtTime(freq * index * 0.08, time + decay * 0.5);
+    modG.gain.setValueAtTime(freq * index * 0.6, time);
+    modG.gain.exponentialRampToValueAtTime(freq * index * 0.04, time + decay * 0.4);
 
     var car = ctx.createOscillator(); car.type = 'sine';
     car.frequency.value = freq;
@@ -856,15 +873,15 @@ const Audio = (function () {
   function synthEPiano(time, freq, vel, decay) {
     var mod1 = ctx.createOscillator(); mod1.type = 'sine'; mod1.frequency.value = freq;
     var mod1G = ctx.createGain();
-    mod1G.gain.setValueAtTime(freq * 5, time);
-    mod1G.gain.exponentialRampToValueAtTime(freq * 0.3, time + decay * 0.3);
+    mod1G.gain.setValueAtTime(freq * 3, time);
+    mod1G.gain.exponentialRampToValueAtTime(freq * 0.2, time + decay * 0.3);
     var car1 = ctx.createOscillator(); car1.type = 'sine'; car1.frequency.value = freq;
     mod1.connect(mod1G); mod1G.connect(car1.frequency);
 
     var mod2 = ctx.createOscillator(); mod2.type = 'sine'; mod2.frequency.value = freq * 2;
     var mod2G = ctx.createGain();
-    mod2G.gain.setValueAtTime(freq * 3, time);
-    mod2G.gain.exponentialRampToValueAtTime(freq * 0.1, time + decay * 0.2);
+    mod2G.gain.setValueAtTime(freq * 1.8, time);
+    mod2G.gain.exponentialRampToValueAtTime(freq * 0.06, time + decay * 0.2);
     var car2 = ctx.createOscillator(); car2.type = 'sine'; car2.frequency.value = freq * 2;
     mod2.connect(mod2G); mod2G.connect(car2.frequency);
     var c2gain = ctx.createGain(); c2gain.gain.value = 0.35; car2.connect(c2gain);
@@ -933,8 +950,8 @@ const Audio = (function () {
     var filt = ctx.createBiquadFilter();
     filt.type = 'lowpass';
     filt.frequency.setValueAtTime(300, time);
-    filt.frequency.exponentialRampToValueAtTime(2000 + vel * 3000, time + 0.06);
-    filt.frequency.setTargetAtTime(1500, time + 0.06, 0.3);
+    filt.frequency.exponentialRampToValueAtTime(1500 + vel * 1500, time + 0.06);
+    filt.frequency.setTargetAtTime(1200, time + 0.06, 0.3);
     filt.Q.value = 2;
 
     var env = ctx.createGain();
