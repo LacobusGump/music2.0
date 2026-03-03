@@ -25,12 +25,19 @@ const Lens = (function () {
       harmony: { root: 432, mode: 'major', progression: [0, 5, 7, 0], chordBars: 4 },
       rhythm: { bpm: [60, 66, 76, 88], feel: 'straight' },
 
+      tone: {
+        bassFreq: 80, bassGain: 4,
+        midFreq: 1000, midQ: 0.8, midGain: 2,
+        highFreq: 2800, highGain: -8,
+        ceiling: 3200,
+      },
+
       space: {
         reverb: { decay: 5.0, damping: 0.2 },
         delay: { feedback: 0.3, filter: 1400, sync: 'dotted-eighth' },
         saturation: 0.12,
         type: 'cathedral',
-        filterRange: [350, 3500],
+        filterRange: [250, 2800],
         reverbMix: 0.55,
       },
 
@@ -107,12 +114,19 @@ const Lens = (function () {
       harmony: { root: 432, mode: 'dorian', progression: [0, 5, 7, 3, 10, 5, 7, 0], chordBars: 4 },
       rhythm: { bpm: [62, 68, 75, 82], feel: 'swing' },
 
+      tone: {
+        bassFreq: 100, bassGain: 6,
+        midFreq: 600, midQ: 0.7, midGain: 1,
+        highFreq: 2200, highGain: -12,
+        ceiling: 2800,
+      },
+
       space: {
         reverb: { decay: 4.5, damping: 0.25 },
         delay: { feedback: 0.38, filter: 1000, sync: 'dotted-eighth' },
         saturation: 0.08,
         type: 'cathedral',
-        filterRange: [280, 2800],
+        filterRange: [200, 2200],
         reverbMix: 0.5,
       },
 
@@ -190,13 +204,20 @@ const Lens = (function () {
       harmony: { root: 432, mode: 'pentatonic-major', progression: [0, 5, 7, 0], chordBars: 4 },
       rhythm: { bpm: [78, 84, 90, 96], feel: 'shuffle' },
 
+      tone: {
+        bassFreq: 60, bassGain: 8,
+        midFreq: 800, midQ: 0.9, midGain: 3,
+        highFreq: 3000, highGain: -6,
+        ceiling: 3500,
+      },
+
       space: {
         reverb: { decay: 1.8, damping: 0.45 },
         delay: { feedback: 0.25, filter: 1600, sync: 'quarter' },
         saturation: 0.4,
         sidechain: 0.35,
         type: 'room',
-        filterRange: [400, 3200],
+        filterRange: [300, 2800],
         reverbMix: 0.2,
       },
 
@@ -275,12 +296,19 @@ const Lens = (function () {
       harmony: { root: 432, mode: 'whole-tone', progression: [0, 2, 4, 2], chordBars: 8 },
       rhythm: { bpm: [40, 42, 45, 50], feel: 'rubato' },
 
+      tone: {
+        bassFreq: 80, bassGain: 5,
+        midFreq: 500, midQ: 0.6, midGain: -1,
+        highFreq: 3500, highGain: -10,
+        ceiling: 3800,
+      },
+
       space: {
         reverb: { decay: 6.0, damping: 0.1 },
         delay: { feedback: 0.55, filter: 2200, sync: 'dotted-eighth' },
         saturation: 0.05,
         type: 'infinite',
-        filterRange: [350, 3500],
+        filterRange: [250, 3000],
         reverbMix: 0.85,
       },
 
@@ -337,13 +365,20 @@ const Lens = (function () {
       harmony: { root: 432, mode: 'blues', progression: [0, 7, 5, 0], chordBars: 4 },
       rhythm: { bpm: [86, 90, 95, 100], feel: 'straight' },
 
+      tone: {
+        bassFreq: 50, bassGain: 8,
+        midFreq: 400, midQ: 1.0, midGain: -3,
+        highFreq: 2500, highGain: -10,
+        ceiling: 3000,
+      },
+
       space: {
         reverb: { decay: 1.0, damping: 0.6 },
         delay: { feedback: 0.35, filter: 1600, sync: 'eighth' },
         saturation: 0.45,
         sidechain: 0.5,
         type: 'intimate',
-        filterRange: [250, 3000],
+        filterRange: [200, 2500],
         reverbMix: 0.1,
       },
 
@@ -422,12 +457,19 @@ const Lens = (function () {
       harmony: { root: 432, mode: 'mixolydian', progression: [0, 5, 7, 0], chordBars: 4 },
       rhythm: { bpm: [72, 78, 84, 90], feel: 'straight' },
 
+      tone: {
+        bassFreq: 60, bassGain: 7,
+        midFreq: 700, midQ: 0.8, midGain: 1,
+        highFreq: 2500, highGain: -12,
+        ceiling: 3000,
+      },
+
       space: {
         reverb: { decay: 4.0, damping: 0.3 },
         delay: { feedback: 0.52, filter: 2000, sync: 'dotted-eighth' },
         saturation: 0.4,
         type: 'cathedral',
-        filterRange: [400, 3500],
+        filterRange: [300, 2800],
         reverbMix: 0.5,
       },
 
