@@ -4,7 +4,7 @@
 
 ---
 
-## Architecture (Behavior-Based Rewrite — v9)
+## Architecture (Behavior-Based Rewrite — v10)
 
 8-file modular codebase. voice.js replaced by audio.js + score.js:
 
@@ -84,13 +84,40 @@ Plus 5 drum voices: kick, snare, hat, ride, timpani (each with per-kit variants:
 ## Audio Pipeline (audio.js)
 
 ```
-Synth engines → Sidechain gain → Saturator → Compressor → Master → Output
+Synth engines → LP filter → Sidechain gain → Saturator (asymmetric tube) → Compressor → 4-Band EQ → Output
 Named layers → Per-layer filter → Per-layer gain → Sidechain gain
-                                                 ↘ Reverb send → Convolver → Master
+                                                 ↘ Reverb send → Convolver (LP 3000) → Master
                                                  ↘ Delay send → Delay → LP Filter → Feedback → Master
-Drum bus (kick/snare/hat/ride/timpani) → Drum compressor → Master
-Crackle → Master
+Drum bus (kick/snare/hat/ride/timpani) → Drum compressor → Drum LP (3500) → Master
+
+4-Band Per-Lens EQ: lowShelf (bass boost) → midPeak (mid shape) → highShelf (high cut) → masterLP (ceiling)
+Each lens configures these 4 nodes differently via tone{} object → unique tonal character per lens.
 ```
+
+---
+
+## Warmth Overhaul (v10)
+
+Fred Again-inspired bass-forward warmth. Every sound source now has a LP ceiling:
+
+- **6 synth engines** got output LP filters (bell 2800, glitch 2500, simple 3000, FM 3000, epiano 3200, formant 2800)
+- **Hats** redesigned: highpass → bandpass (stops BOOSTING brightness)
+- **Snare** redesigned: HP 800 → BP 1200 Q=0.8 (body, not ice)
+- **Ride** stick click LP 2000, shimmer HP → BP 2000
+- **Drum bus LP** at 3500Hz catches all drum output
+- **Saturation** asymmetric tube-like curve (even harmonics = warm, not harsh odd harmonics)
+- **Drum compressor** attack 0.001 → 0.004 (punch not click)
+
+Per-lens tone objects make each lens sound FUNDAMENTALLY different:
+
+| Lens | Bass | High Cut | Ceiling | Character |
+|------|------|----------|---------|-----------|
+| Conductor | 80Hz +4dB | 2800Hz -8dB | 3200Hz | Warm orchestra, mid-forward |
+| Blue Hour | 100Hz +6dB | 2200Hz -12dB | 2800Hz | Smoky dark jazz, heavy LP |
+| Gospel | 60Hz +8dB | 3000Hz -6dB | 3500Hz | Church warmth, present bass |
+| Tundra | 80Hz +5dB | 3500Hz -10dB | 3800Hz | Vast, sub emphasis |
+| Pocket Drummer | 50Hz +8dB | 2500Hz -10dB | 3000Hz | Punchy, tight, bass heavy |
+| Dark Matter | 60Hz +7dB | 2500Hz -12dB | 3000Hz | Deep atmospheric, massive sub |
 
 ---
 
