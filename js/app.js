@@ -1,10 +1,10 @@
 /**
- * APP — The Conductor of Conductors
+ * APP — Music 2.0
  *
  * State machine: LISTEN → LENS → PLAY
- * Bootstrap: permissions, AudioContext on first touch
  * Main loop: requestAnimationFrame
- * Debug panel: press D on desktop, three-finger tap on mobile
+ *
+ * The music follows YOUR body. There is no clock.
  */
 
 (function () {
@@ -33,13 +33,12 @@
   // Swipe detection for live lens switching
   let swipeStartX = 0;
   let swipeLastX = 0;
-  let swipeStartTime = 0;
   let swiping = false;
 
   // Long press to return to lens picker
   let longPressTimer = null;
 
-  // Touch velocity tracking (for phrase generation)
+  // Touch velocity tracking
   let prevTouchX = 0, prevTouchY = 0, prevTouchTime = 0;
   let touchVX = 0, touchVY = 0;
 
@@ -83,7 +82,7 @@
       // Init subsystems
       Brain.init();
       Audio.init(audioCtx);
-      Score.init();
+      Follow.init();
 
       // Build lens picker
       Lens.buildPicker();
@@ -92,7 +91,7 @@
       var urlLens = Lens.loadFromURL();
       if (urlLens) {
         Audio.configure(urlLens);
-        Score.applyLens(urlLens);
+        Follow.applyLens(urlLens);
         Organism.applyLens(urlLens);
         showScreen(SCREENS.PLAY);
         startPlayScreen();
@@ -124,15 +123,15 @@
     var lens = Lens.getSelected();
     if (!lens) return;
 
-    // Ensure AudioContext is alive (iOS can suspend between screens)
+    // Ensure AudioContext is alive
     if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
 
-    // Retry motion permissions on this user gesture (iOS may re-prompt)
+    // Retry motion permissions on this user gesture
     Sensor.retryPermissions();
 
     try {
       Audio.configure(lens);
-      Score.applyLens(lens);
+      Follow.applyLens(lens);
       Organism.applyLens(lens);
     } catch (e) {
       console.error('applyLens:', e);
@@ -152,11 +151,11 @@
 
     Lens.updateIndicator();
 
-    // Wire brain events → voice + organism (ONCE — prevents handler accumulation)
+    // Wire brain events → follow engine + organism (ONCE)
     if (!spikeWired) {
       Brain.on('spike', function (data) {
         try {
-          Score.onSpike(data);
+          Follow.onSpike(data);
           if (data.neuron === 'toss' || data.neuron === 'shake') {
             Organism.addMutation(data.energy);
           }
@@ -182,12 +181,11 @@
       if (screen !== SCREENS.PLAY) return;
       e.preventDefault();
 
-      // Retry motion permission on every touch (iOS user gesture requirement)
+      // Retry motion permission on every touch
       Sensor.retryPermissions();
 
       var t = e.touches[0];
       swipeStartX = t.clientX;
-      swipeStartTime = performance.now();
       swiping = false;
 
       // Long press: return to lens picker
@@ -195,10 +193,10 @@
         showScreen(SCREENS.LENS);
       }, 1200);
 
-      // Play touch note (with velocity tracking for phrase generation)
+      // Play touch note
       prevTouchX = t.clientX / W; prevTouchY = t.clientY / H; prevTouchTime = performance.now();
       touchVX = 0; touchVY = 0;
-      try { Score.touch(prevTouchX, prevTouchY, 0, 0); } catch (e) { console.error('touch note:', e); }
+      try { Follow.touch(prevTouchX, prevTouchY, 0, 0); } catch (e) { console.error('touch note:', e); }
     }, { passive: false });
 
     playEl.addEventListener('touchmove', function (e) {
@@ -214,7 +212,7 @@
 
       if (Math.abs(dx) > 60) swiping = true;
 
-      // Continuous touch notes with velocity for phrase generation
+      // Continuous touch notes with velocity
       if (!swiping) {
         var nowMs = performance.now();
         var dtMs = nowMs - prevTouchTime;
@@ -223,7 +221,7 @@
           touchVX = (curX - prevTouchX) / (dtMs / 1000);
           touchVY = (curY - prevTouchY) / (dtMs / 1000);
           prevTouchX = curX; prevTouchY = curY; prevTouchTime = nowMs;
-          try { Score.touch(curX, curY, touchVX, touchVY); } catch (e) {}
+          try { Follow.touch(curX, curY, touchVX, touchVY); } catch (e) {}
         }
       }
     }, { passive: false });
@@ -234,11 +232,9 @@
       if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
 
       if (swiping) {
-        // Determine swipe direction from last tracked position
         var dx = swipeLastX - swipeStartX;
         if (dx > 60) Lens.prevLens();
         else if (dx < -60) Lens.nextLens();
-        // Re-apply to organism
         Organism.applyLens(Lens.active);
       }
 
@@ -255,12 +251,9 @@
 
   function updatePosition(sensor) {
     if (sensor.touching) {
-      // Touch drives position directly
       posX += (sensor.tx - posX) * POS_SMOOTH;
       posY += (sensor.ty - posY) * POS_SMOOTH;
     } else if (sensor.hasOrientation) {
-      // Tilt drives position
-      // gamma: -90 to 90 (left/right), beta: 0 to 180 (front/back)
       var nx = Math.max(0, Math.min(1, (sensor.gamma + 45) / 90));
       var ny = Math.max(0, Math.min(1, (sensor.beta - 20) / 80));
       posX += (nx - posX) * POS_SMOOTH * 0.5;
@@ -275,10 +268,10 @@
   function loop(timestamp) {
     if (screen !== SCREENS.PLAY) return;
 
-    // ALWAYS schedule next frame first — loop must never die
+    // ALWAYS schedule next frame first
     requestAnimationFrame(loop);
 
-    // Auto-resume AudioContext on every frame (iOS suspend recovery)
+    // Auto-resume AudioContext
     if (audioCtx && audioCtx.state === 'suspended') {
       try { audioCtx.resume(); } catch (e) {}
     }
@@ -296,8 +289,8 @@
       // 3. Update position
       updatePosition(sensor);
 
-      // 4. Update score (musical intelligence)
-      Score.update(
+      // 4. Music follows your body (NOT a clock — your body drives this)
+      Follow.update(
         { totalMotion: Brain.totalMotion, energy: Brain.energy, pattern: Brain.pattern, voidDepth: Brain.voidDepth, neurons: Brain.neurons },
         sensor,
         dt
@@ -331,11 +324,9 @@
   function render(dt) {
     if (!ctx2d) return;
 
-    // Fade trail (not full clear — leaves ghost)
     ctx2d.fillStyle = 'rgba(0,0,0,0.15)';
     ctx2d.fillRect(0, 0, W, H);
 
-    // Draw organism at smoothed position
     var ox = posX * W;
     var oy = posY * H;
     Organism.draw(ctx2d, ox, oy, W, H);
@@ -376,23 +367,20 @@
 
     var lens = Lens.active;
     var lines = [
+      'MUSIC 2.0 — YOUR BODY IS THE INSTRUMENT',
       'LENS: ' + (lens ? lens.name : 'none'),
-      'SCENE: ' + Score.scene + ' | STAGE: ' + Score.stage + ' | TEMPO: ' + Score.tempo.toFixed(0),
-      'BEAT: ' + Score.beat + ' | BAR: ' + Score.bar + ' | PHRASE: ' + Score.phrase,
+      'SILENT: ' + (Follow.silent ? 'YES' : 'no') + ' | FADE: ' + Follow.fade.toFixed(2),
+      'YOUR TEMPO: ' + Follow.tempo.toFixed(0) + ' BPM | CONFIDENCE: ' + Follow.confidence.toFixed(2),
+      'DENSITY: ' + Follow.density.toFixed(1) + ' | ENERGY: ' + Follow.energy.toFixed(2),
+      'PITCH DEGREE: ' + Follow.degree + ' | FILTER: ' + Follow.filterFreq.toFixed(0) + 'Hz',
+      'PEAKS: ' + Follow.peaks + ' | NOTES: ' + Follow.notes,
       'PATTERN: ' + Brain.pattern + ' | TOTAL: ' + Brain.totalMotion.toFixed(0),
-      'ENERGY: ' + Brain.energy.toFixed(2) + ' | VOID: ' + Brain.voidDepth.toFixed(2),
-      'FILTER: ' + Score.filterFreq.toFixed(0) + 'Hz',
+      'BRAIN ENERGY: ' + Brain.energy.toFixed(2) + ' | VOID: ' + Brain.voidDepth.toFixed(2),
       'ORGANISM: ' + Organism.stage + ' | LIFE: ' + Organism.lifeForce.toFixed(0),
       'POS: ' + posX.toFixed(2) + ',' + posY.toFixed(2),
       'MOTION: ' + (sensor.hasMotion ? 'YES' : 'NO') + ' | ORIENT: ' + (sensor.hasOrientation ? 'YES' : 'NO') + ' | PERM: ' + Sensor.permissionState,
-      'TIME: ' + sensor.timeOfDay + ' | WEATHER: ' + sensor.weather,
+      'AUDIO: ' + Follow.ctxState + ' | ERRORS: ' + Follow.errors + '+' + loopErrors,
     ];
-
-    // Active behaviors
-    lines.push('BEHAVIORS: ' + Score.activeBehaviors);
-
-    // Audio health diagnostics
-    lines.push('AUDIO: ' + Score.ctxState + ' | ERRORS: ' + Score.errors + '+' + loopErrors);
 
     el.textContent = lines.join('\n');
   }

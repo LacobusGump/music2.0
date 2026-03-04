@@ -1,29 +1,31 @@
 /**
- * LENS — Musical Personalities
+ * LENS — Timbral Palettes
  *
- * A lens defines behaviors + scenes, not 50 parameters.
- * Different lenses create fundamentally different musical EXPERIENCES.
+ * A lens defines WHAT sounds respond to your body.
+ * Not WHEN or HOW — that comes from YOU.
  *
- * 6 built-in presets. Picker UI. Sharing via URL.
+ * No patterns. No motifs. No clock. No BPM.
+ * Your body provides the rhythm, melody, and structure.
+ * The lens provides the sonic palette.
  */
 
 const Lens = (function () {
   'use strict';
 
-  // ── THE 6 PRESETS ────────────────────────────────────────────────────
+  // ── THE 6 PALETTES ────────────────────────────────────────────────────
 
   const PRESETS = [
 
     // ─── 1. THE CONDUCTOR ────────────────────────────────────────────
-    // You are conducting a symphony orchestra. Pianissimo → fortissimo.
-    // Strings, brass, woodwinds. Motion controls dynamics.
+    // Your movement conducts an orchestra.
+    // Strings follow your tilt. Brass accents your peaks.
+    // Timpani responds to your strongest gestures.
     {
       name: 'The Conductor',
       color: '#ffffff',
-      description: 'Conduct a symphony. Strings, brass, woodwinds.',
+      description: 'Your body conducts. Strings follow your hands.',
 
-      harmony: { root: 432, mode: 'major', progression: [0, 5, 7, 0], chordBars: 4 },
-      rhythm: { bpm: [60, 66, 76, 88], feel: 'straight' },
+      harmony: { root: 432, mode: 'major' },
 
       tone: {
         bassFreq: 80, bassGain: 4,
@@ -37,82 +39,50 @@ const Lens = (function () {
         delay: { feedback: 0.3, filter: 1400, sync: 'dotted-eighth' },
         saturation: 0.12,
         type: 'cathedral',
-        filterRange: [250, 2800],
         reverbMix: 0.55,
       },
 
-      behaviors: {
-        drone: {
-          voices: [
-            { wave: 'sawtooth', chord: [0, 4, 7, 12], octave: 0, detune: 10, voiceCount: 3,
-              filter: 1800, vibrato: { rate: 5.2, depth: 0.003 } },
-          ],
-          breathRate: 0.06,
-          vol: 0.3,
-        },
-        pulse: {
-          kit: 'acoustic',
-          gain: 0.5,
-          unlockAt: 'flowing',
-          patterns: {
-            flowing:      { timpani: [0.3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0] },
-            surging:      { timpani: [0.7,0,0,0,0,0,0,0,0.5,0,0,0,0,0,0,0], snare: [0,0,0,0,0.3,0,0,0,0,0,0,0,0.3,0,0,0] },
-            transcendent: { timpani: [0.9,0,0,0.2,0,0,0,0,0.7,0,0,0.15,0,0,0.3,0], kick: [0.5,0,0,0,0,0,0,0,0.4,0,0,0,0,0,0,0], snare: [0,0,0,0,0.6,0,0,0.1,0,0,0,0,0.5,0,0,0.1] },
-          },
-          fills: [
-            { type: 'snare-roll', bars: 0.5 },
-          ],
-        },
-        melodist: {
-          voice: 'brass',
-          motif: [
-            0,-1, 2,-1, 4,-1, 5,-1, 7,-1,-1,-1,
-            5,-1, 4,-1, 2,-1, 0,-1,-1,-1,-1,-1,
-            0,-1, 2,-1, 4,-1, 5,-1, 7,-1, 9,-1,
-            11,-1, 12,-1,-1,-1,-1,-1,
-            9,-1, 7,-1, 5,-1, 4,-1, 2,-1, 0,-1,
-            -1,-1,-1,-1,-1,-1,-1,-1
-          ],
-          noteDur: 1,
-          octave: 0,
-          vel: 0.22,
-          decay: 2.5,
-          restAfterPhrase: 2,
-          unlockAt: 'flowing',
-        },
-        accompanist: {
-          voice: 'piano',
-          chord: [0, 4, 7, 12],
-          density: 0.3,
-          vol: 0.12,
-          decay: 1.5,
-          unlockAt: 'surging',
-        },
-        responder: {
-          voice: 'brass',
-          decay: 2.5,
-        },
-        texturer: {
-          crackle: false,
-          voidDrone: true,
-        },
+      palette: {
+        // Your motion peaks → orchestral accents
+        peak: { voice: 'brass', octave: -1, decay: 1.2 },
+        // Your tilt → string melody following your hand
+        continuous: { voice: 'organ', octave: 0, decay: 1.0 },
+        // Between your peaks → gentle subdivision
+        subdivision: { voice: 'hat', kit: 'brushes', divisions: 2, vel: 0.15 },
+        // Harmonic color on strong peaks
+        harmonic: { voice: 'piano', octave: 0, decay: 1.5 },
+        // Your strongest gestures → full accent
+        drum: { kit: 'acoustic' },
+        // Burst on shake
+        burst: { voice: 'bell', octave: 1 },
+        // Warm bed that breathes with you
+        texture: { wave: 'sawtooth', chord: [0, 4, 7], octave: 0, detune: 10, vol: 0.08, reverbSend: 0.5 },
+        // Touch response
+        touch: { voice: 'piano', octave: 0, decay: 1.2 },
       },
 
-      dynamics: { floor: 0.3, motionCeiling: 500 },
-      stages: { thresholds: [80, 300, 700] },
-      context: { morning: { bpm_mod: -5 }, night: { space: 'infinite' } },
+      response: {
+        peakThreshold: 2.0,
+        tiltRange: 50,
+        noteInterval: 150,
+        stillnessThreshold: 0.2,
+        stillnessTimeout: 2.5,
+        fadeTime: 4.0,
+        filterRange: [250, 2800],
+        densityThresholds: [0.3, 1.0, 2.5],
+      },
     },
 
-    // ─── 2. THE BLUE HOUR ─────────────────────────────────────────────
-    // Late-night jazz club. Walking bass, jazz ride, piano comping.
-    // Swing, space, the notes between the notes.
+    // ─── 2. BLUE HOUR ────────────────────────────────────────────────
+    // Smoky jazz club. Your walk IS the bass line.
+    // Upright bass follows your steps. Brushes follow your rhythm.
+    // Rhodes follows your tilt. Space everywhere.
     {
-      name: 'The Blue Hour',
-      color: '#4169e1',
-      description: 'Late-night jazz. Walking bass. Ride cymbal. Space.',
+      name: 'Blue Hour',
+      color: '#2a4a7f',
+      description: 'Your walk is the bass line. Smoky jazz.',
 
-      harmony: { root: 432, mode: 'dorian', progression: [0, 5, 7, 3, 10, 5, 7, 0], chordBars: 4 },
-      rhythm: { bpm: [62, 68, 75, 82], feel: 'swing' },
+      harmony: { root: 432, mode: 'dorian' },
 
       tone: {
         bassFreq: 100, bassGain: 6,
@@ -122,87 +92,54 @@ const Lens = (function () {
       },
 
       space: {
-        reverb: { decay: 4.5, damping: 0.25 },
-        delay: { feedback: 0.38, filter: 1000, sync: 'dotted-eighth' },
-        saturation: 0.08,
-        type: 'cathedral',
+        reverb: { decay: 3.5, damping: 0.3 },
+        delay: { feedback: 0.45, filter: 1800, sync: 'dotted-eighth' },
+        saturation: 0.15,
+        type: 'room',
+        reverbMix: 0.4,
+      },
+
+      palette: {
+        // Your steps → walking bass
+        peak: { voice: 'upright', octave: -1, decay: 0.8 },
+        // Your tilt → Rhodes melody
+        continuous: { voice: 'epiano', octave: 0, decay: 0.8 },
+        // Brush patterns between your steps
+        subdivision: { voice: 'hat', kit: 'brushes', divisions: 3, vel: 0.12 },
+        // Chord color
+        harmonic: { voice: 'epiano', octave: 0, decay: 1.2 },
+        // Brush drums
+        drum: { kit: 'brushes' },
+        // Shake → quick grace notes
+        burst: { voice: 'pluck', octave: 1 },
+        // Quiet warm triangle pad
+        texture: { wave: 'triangle', chord: [0, 7], octave: -1, detune: 6, vol: 0.06, reverbSend: 0.5 },
+        // Touch = piano notes
+        touch: { voice: 'epiano', octave: 0, decay: 0.8 },
+      },
+
+      response: {
+        peakThreshold: 1.5,
+        tiltRange: 40,
+        noteInterval: 180,
+        stillnessThreshold: 0.15,
+        stillnessTimeout: 2.0,
+        fadeTime: 3.5,
         filterRange: [200, 2200],
-        reverbMix: 0.5,
+        densityThresholds: [0.2, 0.8, 2.0],
       },
-
-      behaviors: {
-        drone: {
-          voices: [
-            { wave: 'triangle', chord: [0, 5, 10, 15], octave: 0, detune: 3, voiceCount: 2, filter: 1200 },
-          ],
-          breathRate: 0.08,
-          vol: 0.04,
-        },
-        walker: {
-          voice: 'upright',
-          vol: 0.28,
-          style: 'walking',
-          unlockAt: 'gentle',
-        },
-        pulse: {
-          kit: 'brushes',
-          gain: 0.6,
-          unlockAt: 'gentle',
-          patterns: {
-            gentle:       { ride: [0.4,0,0.25,0,0.4,0,0.25,0,0.4,0,0.25,0,0.4,0,0.25,0] },
-            flowing:      { ride: [0.5,0,0.3,0,0.5,0,0.3,0,0.5,0,0.3,0,0.5,0,0.3,0], kick: [0.15,0,0,0,0,0,0,0,0.15,0,0,0,0,0,0,0] },
-            surging:      { ride: [0.5,0,0.3,0.12,0.5,0,0.3,0.12,0.5,0,0.3,0.12,0.5,0,0.3,0.12], kick: [0.25,0,0,0,0,0,0.1,0,0.25,0,0,0,0,0,0,0], snare: [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0.08] },
-            transcendent: { ride: [0.6,0,0.35,0.15,0.6,0,0.35,0.15,0.6,0,0.35,0.15,0.6,0,0.35,0.15], kick: [0.3,0,0,0,0,0,0.15,0,0.3,0,0,0,0,0,0,0], snare: [0,0,0,0,0.15,0,0,0,0,0,0,0,0.1,0,0,0] },
-          },
-          fills: [
-            { type: 'ride-roll', bars: 0.5 },
-            { type: 'kick-accent', bars: 0.25 },
-          ],
-        },
-        melodist: {
-          voice: 'epiano',
-          motif: [
-            0,-1,-1,-1,-1,-1, 2, 3,-1, 5,-1,-1,-1,-1,-1,-1,
-            -1,-1,-1,-1,-1,-1,-1,-1,
-            7,-1, 5,-1, 3,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
-            0, 2,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
-            -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
-            5,-1, 7,-1,-1,-1,-1,-1, 5, 3, 2,-1, 0,-1,-1,-1,
-            -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
-          ],
-          noteDur: 0.5,
-          octave: 1,
-          vel: 0.22,
-          decay: 1.2,
-          chordVoicing: true,
-          restAfterPhrase: 2,
-          unlockAt: 'flowing',
-        },
-        responder: {
-          voice: 'epiano',
-          decay: 1.2,
-        },
-        texturer: {
-          crackle: true,
-          voidDrone: true,
-        },
-      },
-
-      dynamics: { floor: 0.4, motionCeiling: 500 },
-      stages: { thresholds: [120, 500, 1000] },
-      context: { night: { reverb: 0.7 }, rain: { reverb: 0.6 } },
     },
 
     // ─── 3. GOSPEL SUNDAY ────────────────────────────────────────────
-    // Sunday morning gospel. 808 sub, warm organ, choir swells.
-    // Call-and-response: organ touch + choir melody. Building praise.
+    // Church warmth. Your voice is the choir.
+    // Organ follows your tilt. 808 sub follows your steps.
+    // Formant choir on strong gestures. Building praise.
     {
       name: 'Gospel Sunday',
-      color: '#d4a574',
-      description: 'Sunday gospel. 808 sub, organ, choir. Building praise.',
+      color: '#d4a24e',
+      description: 'Church organ follows you. Building praise.',
 
-      harmony: { root: 432, mode: 'pentatonic-major', progression: [0, 5, 7, 0], chordBars: 4 },
-      rhythm: { bpm: [78, 84, 90, 96], feel: 'shuffle' },
+      harmony: { root: 432, mode: 'major' },
 
       tone: {
         bassFreq: 60, bassGain: 8,
@@ -212,89 +149,54 @@ const Lens = (function () {
       },
 
       space: {
-        reverb: { decay: 1.8, damping: 0.45 },
-        delay: { feedback: 0.25, filter: 1600, sync: 'quarter' },
-        saturation: 0.4,
-        sidechain: 0.35,
-        type: 'room',
+        reverb: { decay: 4.5, damping: 0.15 },
+        delay: { feedback: 0.25, filter: 1200, sync: 'quarter' },
+        saturation: 0.2,
+        type: 'cathedral',
+        reverbMix: 0.6,
+      },
+
+      palette: {
+        // Your steps → 808 sub bass foundation
+        peak: { voice: 'sub808', octave: -2, decay: 0.6 },
+        // Your tilt → organ following your hands
+        continuous: { voice: 'organ', octave: 0, decay: 0.6 },
+        // Shuffle between your steps
+        subdivision: { voice: 'hat', kit: '808', divisions: 2, vel: 0.2 },
+        // Strong peaks → choir formant
+        harmonic: { voice: 'formant', octave: 0, decay: 1.5 },
+        // 808 drum kit
+        drum: { kit: '808' },
+        // Shake → choir burst
+        burst: { voice: 'formant', octave: 1 },
+        // Organ drone
+        texture: { wave: 'sine', chord: [0, 4, 7, 12], octave: -1, detune: 3, vol: 0.1, reverbSend: 0.6 },
+        // Touch = organ response
+        touch: { voice: 'organ', octave: 0, decay: 0.8 },
+      },
+
+      response: {
+        peakThreshold: 1.8,
+        tiltRange: 45,
+        noteInterval: 130,
+        stillnessThreshold: 0.2,
+        stillnessTimeout: 2.0,
+        fadeTime: 3.0,
         filterRange: [300, 2800],
-        reverbMix: 0.2,
+        densityThresholds: [0.3, 1.2, 3.0],
       },
-
-      behaviors: {
-        drone: {
-          voices: [
-            { wave: 'sawtooth', chord: [0, 4, 7, 11], octave: 0, detune: 6, voiceCount: 2, filter: 1600 },
-          ],
-          breathRate: 0.15,
-          vol: 0.18,
-        },
-        walker: {
-          voice: 'sub808',
-          vol: 0.35,
-          style: 'arpeggio',
-          unlockAt: 'always',
-        },
-        pulse: {
-          kit: '808',
-          gain: 0.9,
-          unlockAt: 'stillness',
-          patterns: {
-            stillness:    { kick: [0.8,0,0,0,0,0,0,0,0.8,0,0,0,0,0,0,0], hat: [0.3,0,0.15,0,0.3,0,0.15,0,0.3,0,0.15,0,0.3,0,0.15,0] },
-            gentle:       { kick: [1,0,0,0,0,0,0.3,0,1,0,0,0,0,0,0,0], snare: [0,0,0,0,0.7,0,0,0,0,0,0,0,0.7,0,0,0], hat: [0.4,0,0.2,0,0.4,0,0.2,0,0.4,0,0.2,0,0.4,0,0.2,0] },
-            flowing:      { kick: [1,0,0,0,0,0,0.5,0,1,0,0,0,0,0,0.3,0], snare: [0,0,0,0,1,0,0,0.15,0,0,0,0,1,0,0,0.15], hat: [0.5,0,0.3,0,0.5,0,0.3,0,0.5,0,0.3,0,0.5,0,0.3,0] },
-            surging:      { kick: [1,0,0,0.2,0,0,0.5,0,1,0,0,0.2,0,0,0.4,0], snare: [0,0,0,0,1,0,0,0.25,0,0,0,0,1,0,0,0.2], hat: [0.5,0.2,0.3,0.2,0.5,0.2,0.3,0.2,0.5,0.2,0.3,0.2,0.5,0.2,0.3,0.2] },
-            transcendent: { kick: [1,0,0,0.2,0,0,0.5,0,1,0,0,0.2,0,0,0.4,0], snare: [0,0,0,0,1,0,0,0.25,0,0,0,0,1,0,0,0.2], hat: [0.5,0.2,0.3,0.2,0.5,0.2,0.3,0.2,0.5,0.2,0.3,0.2,0.5,0.2,0.3,0.2] },
-          },
-          fills: [
-            { type: 'kick-accent', bars: 0.25 },
-            { type: 'snare-roll', bars: 0.5 },
-          ],
-        },
-        melodist: {
-          voice: 'choir',
-          motif: [
-            0, 2, 4,-1, 7, 4,-1,-1,
-            4, 2, 0,-1,-1,-1,-1,-1,
-            0, 4, 7,-1, 9, 7,-1,-1,
-            7, 4, 2, 0,-1,-1,-1,-1,
-            -1,-1,-1,-1,-1,-1,-1,-1,
-            9, 7, 9, 12,-1,-1,-1,-1,
-            9, 7, 4, 2, 0,-1,-1,-1,
-            -1,-1,-1,-1,-1,-1,-1,-1,
-          ],
-          noteDur: 0.5,
-          octave: 1,
-          vel: 0.2,
-          decay: 1.5,
-          restAfterPhrase: 1,
-          unlockAt: 'gentle',
-        },
-        responder: {
-          voice: 'organ',
-          decay: 1.5,
-        },
-        texturer: {
-          crackle: true,
-          voidDrone: true,
-        },
-      },
-
-      dynamics: { floor: 0.35, motionCeiling: 400 },
-      stages: { thresholds: [60, 250, 500] },
-      context: { morning: { bpm_mod: -5 } },
     },
 
     // ─── 4. TUNDRA ───────────────────────────────────────────────────
-    // Frozen landscape. Counterintuitively WARM — like a fire in the snow.
-    // NO drums, NO bass. Vast silence. Single notes in infinite space.
+    // Vast silence. Single notes in infinite space.
+    // No drums. No bass. Just your breathing and sparse bells.
+    // The most minimal palette — silence is the instrument.
     {
       name: 'Tundra',
-      color: '#4a7c8f',
-      description: 'Frozen warmth. Crisp bells over deep warmth. Infinite.',
+      color: '#88aacc',
+      description: 'Vast silence. Single notes in infinite space.',
 
-      harmony: { root: 432, mode: 'whole-tone', progression: [0, 2, 4, 2], chordBars: 8 },
-      rhythm: { bpm: [40, 42, 45, 50], feel: 'rubato' },
+      harmony: { root: 432, mode: 'pentatonic' },
 
       tone: {
         bassFreq: 80, bassGain: 5,
@@ -308,62 +210,46 @@ const Lens = (function () {
         delay: { feedback: 0.55, filter: 2200, sync: 'dotted-eighth' },
         saturation: 0.05,
         type: 'infinite',
-        filterRange: [250, 3000],
         reverbMix: 0.85,
       },
 
-      behaviors: {
-        drone: {
-          voices: [
-            { wave: 'sine', chord: [0, 7, 12], octave: -1, detune: 12, voiceCount: 3, filter: 600 },
-          ],
-          breathRate: 0.035,
-          vol: 0.45,
-        },
-        melodist: {
-          voice: 'bell',
-          motif: [
-            0,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
-            -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
-            4,-1,-1,-1,-1,-1,-1,-1, 2,-1,-1,-1,-1,-1,-1,-1,
-            -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
-            8,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
-            -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
-            6,-1,-1,-1, 4,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
-            -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
-          ],
-          noteDur: 1,
-          octave: 2,
-          vel: 0.2,
-          decay: 2.5,
-          restAfterPhrase: 4,
-          unlockAt: 'gentle',
-        },
-        responder: {
-          voice: 'pluck',
-          decay: 2.5,
-        },
-        texturer: {
-          crackle: false,
-          voidDrone: true,
-        },
+      palette: {
+        // Your motion peaks → single bell in vast space
+        peak: { voice: 'bell', octave: 1, decay: 2.5 },
+        // Your tilt → sparse pluck melody
+        continuous: { voice: 'pluck', octave: 1, decay: 2.0 },
+        // NO subdivisions — silence between your gestures
+        // NO drums — just you and space
+        // NO harmonic fills — each note is precious
+        // Warmth
+        texture: { wave: 'sine', chord: [0, 7], octave: -1, detune: 12, vol: 0.04, reverbSend: 0.8 },
+        // Touch = crystalline bell
+        touch: { voice: 'bell', octave: 1, decay: 2.5 },
       },
 
-      dynamics: { floor: 0.6, motionCeiling: 800 },
-      stages: { thresholds: [200, 800, 2000] },
-      context: { night: { space: 'infinite' }, rain: { reverb: 0.8 } },
+      response: {
+        peakThreshold: 1.0,
+        tiltRange: 60,
+        noteInterval: 400,       // very slow — one note at a time
+        stillnessThreshold: 0.1,
+        stillnessTimeout: 1.5,
+        fadeTime: 5.0,           // long fade — sound lingers
+        filterRange: [250, 3000],
+        densityThresholds: [0.2, 0.6, 1.5],
+      },
     },
 
     // ─── 5. POCKET DRUMMER ───────────────────────────────────────────
-    // DnB polyrhythms. Drums DOMINATE. Metallic FM fragments.
-    // Every stage has a DIFFERENT rhythm — not just louder.
+    // Your body IS the drum machine.
+    // Every step, bounce, shake = a drum hit.
+    // 808 sub on your peaks. Metallic FM fragments.
+    // The most rhythmic palette — drums dominate.
     {
       name: 'Pocket Drummer',
       color: '#c45c3e',
-      description: 'Polished DnB. Polyrhythms dominate. Broken melodies.',
+      description: 'Your body IS the drum machine. 808 dominance.',
 
-      harmony: { root: 432, mode: 'blues', progression: [0, 7, 5, 0], chordBars: 4 },
-      rhythm: { bpm: [86, 90, 95, 100], feel: 'straight' },
+      harmony: { root: 432, mode: 'blues' },
 
       tone: {
         bassFreq: 50, bassGain: 8,
@@ -378,84 +264,50 @@ const Lens = (function () {
         saturation: 0.45,
         sidechain: 0.5,
         type: 'intimate',
-        filterRange: [200, 2500],
         reverbMix: 0.1,
       },
 
-      behaviors: {
-        drone: {
-          voices: [
-            { wave: 'triangle', chord: [0, 7], octave: -1, detune: 4, voiceCount: 2, filter: 500 },
-          ],
-          breathRate: 0.18,
-          vol: 0.06,
-        },
-        walker: {
-          voice: 'sub808',
-          vol: 0.35,
-          style: 'arpeggio',
-          unlockAt: 'always',
-        },
-        pulse: {
-          kit: '808',
-          gain: 2.2,
-          unlockAt: 'stillness',
-          patterns: {
-            stillness:    { kick: [1,0,0,0,0,0,0.6,0,0,0,0.8,0,0,0,0,0], snare: [0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0], hat: [0.5,0.15,0.3,0.15,0.5,0.15,0.3,0.15,0.5,0.15,0.3,0.15,0.5,0.15,0.3,0.15] },
-            gentle:       { kick: [1,0,0,0,0,0.3,0.6,0,0,0,0.8,0,0,0.2,0,0.3], snare: [0,0,0,0,0,0,0,0.1,1,0,0,0,0,0,0.2,0], hat: [0.6,0.2,0.4,0.2,0.6,0.2,0.4,0.2,0.6,0.2,0.4,0.2,0.6,0.2,0.4,0.2] },
-            flowing:      { kick: [1,0,0,0.3,0,0.5,0,0,0.8,0,0,0.3,0,0.5,0,0], snare: [0,0,0,0,0,0,0.15,0,1,0,0,0.1,0,0,0.3,0], hat: [0.7,0.25,0.4,0.25,0.7,0.25,0.4,0.25,0.7,0.25,0.4,0.25,0.7,0.25,0.4,0.25] },
-            surging:      { kick: [1,0,0.15,0.3,0,0.5,0,0.15,0.8,0,0.15,0.3,0,0.5,0,0.2], snare: [0,0,0.1,0,0,0,0.2,0,1,0,0.1,0,0,0,0.35,0.1], hat: [0.8,0.3,0.5,0.3,0.8,0.3,0.5,0.3,0.8,0.3,0.5,0.3,0.8,0.3,0.5,0.3] },
-            transcendent: { kick: [1,0,0.15,0.3,0,0.5,0,0.15,0.8,0,0.15,0.3,0,0.5,0,0.2], snare: [0,0,0.1,0,0,0,0.2,0,1,0,0.1,0,0,0,0.35,0.1], hat: [0.8,0.3,0.5,0.3,0.8,0.3,0.5,0.3,0.8,0.3,0.5,0.3,0.8,0.3,0.5,0.3] },
-          },
-          fills: [
-            { type: 'snare-roll', bars: 0.5 },
-            { type: 'kick-accent', bars: 0.25 },
-          ],
-        },
-        melodist: {
-          voice: 'fm',
-          synthOpts: { ratio: 5, index: 8 },
-          motif: [
-            0,-1,-1, 3, -1,-1, 5,-1,
-            -1,-1,-1,-1, 7,-1,-1,-1,
-            -1,-1, 5, 3, 0,-1,-1,-1,
-            -1,-1,-1,-1,-1,-1,-1,-1,
-            3,-1, 5,-1, 7,-1, 5,-1,
-            3, 0,-1,-1,-1,-1,-1,-1,
-            -1,-1,-1,-1, 0,-1,-1, 3,
-            -1,-1,-1,-1,-1,-1,-1,-1,
-          ],
-          noteDur: 0.25,
-          octave: 1,
-          vel: 0.15,
-          decay: 0.5,
-          restAfterPhrase: 1,
-          unlockAt: 'gentle',
-        },
-        responder: {
-          voice: 'fm',
-          decay: 0.5,
-        },
-        texturer: {
-          crackle: true,
-          voidDrone: true,
-        },
+      palette: {
+        // Your peaks → 808 sub HIT
+        peak: { voice: 'sub808', octave: -2, decay: 0.4 },
+        // Your tilt → FM stabs (metallic, broken)
+        continuous: { voice: 'fm', octave: 1, decay: 0.3 },
+        // Between your peaks → rapid hi-hats at YOUR tempo
+        subdivision: { voice: 'hat', kit: '808', divisions: 4, vel: 0.35 },
+        // FM fragments on strong peaks
+        harmonic: { voice: 'fm', octave: 1, decay: 0.4 },
+        // 808 kit — drums are king
+        drum: { kit: '808' },
+        // Shake → glitch burst
+        burst: { voice: 'glitch', octave: 0 },
+        // Minimal dark drone
+        texture: { wave: 'triangle', chord: [0, 7], octave: -2, detune: 4, vol: 0.04, reverbSend: 0.1 },
+        // Touch = stab
+        touch: { voice: 'stab', octave: 0, decay: 0.3 },
       },
 
-      dynamics: { floor: 0.3, motionCeiling: 400 },
-      stages: { thresholds: [40, 150, 400] },
+      response: {
+        peakThreshold: 1.2,
+        tiltRange: 35,
+        noteInterval: 80,        // fast — responsive to every twitch
+        stillnessThreshold: 0.15,
+        stillnessTimeout: 1.0,
+        fadeTime: 1.5,           // quick fade — drums don't linger
+        filterRange: [200, 2500],
+        densityThresholds: [0.15, 0.5, 1.5],
+      },
     },
 
     // ─── 6. DARK MATTER ──────────────────────────────────────────────
-    // Massive 808 sub + cascading piano arpeggios + electric atmosphere.
-    // In Rainbows scale: beauty and weight, 52% delay = cascading shimmer.
+    // Massive 808 sub + cascading Rhodes.
+    // Your movement creates weight. Your tilt creates shimmer.
+    // 52% delay feedback = everything cascades.
     {
       name: 'Dark Matter',
       color: '#5a3a6f',
-      description: 'Massive 808 sub. Cascading arpeggios. Electric energy.',
+      description: 'Massive 808 weight. Cascading shimmer.',
 
-      harmony: { root: 432, mode: 'mixolydian', progression: [0, 5, 7, 0], chordBars: 4 },
-      rhythm: { bpm: [72, 78, 84, 90], feel: 'straight' },
+      harmony: { root: 432, mode: 'mixolydian' },
 
       tone: {
         bassFreq: 60, bassGain: 7,
@@ -469,73 +321,38 @@ const Lens = (function () {
         delay: { feedback: 0.52, filter: 2000, sync: 'dotted-eighth' },
         saturation: 0.4,
         type: 'cathedral',
-        filterRange: [300, 2800],
         reverbMix: 0.5,
       },
 
-      behaviors: {
-        drone: {
-          voices: [
-            { wave: 'triangle', chord: [0, 2, 7, 14], octave: 0, detune: 10, voiceCount: 2, filter: 1200 },
-          ],
-          breathRate: 0.1,
-          vol: 0.15,
-        },
-        walker: {
-          voice: 'sub808',
-          vol: 0.45,
-          style: 'arpeggio',
-          unlockAt: 'gentle',
-        },
-        pulse: {
-          kit: 'acoustic',
-          gain: 0.5,
-          unlockAt: 'flowing',
-          patterns: {
-            flowing:      { kick: [0.3,0,0,0,0,0,0,0,0.25,0,0,0,0,0,0,0] },
-            surging:      { kick: [0.6,0,0,0,0,0,0,0,0.5,0,0,0,0,0,0,0], snare: [0,0,0,0,0.4,0,0,0,0,0,0,0,0.3,0,0,0], hat: [0.2,0,0.12,0,0.2,0,0.12,0,0.2,0,0.12,0,0.2,0,0.12,0] },
-            transcendent: { kick: [0.7,0,0,0,0,0,0.3,0,0.6,0,0,0,0,0,0,0], snare: [0,0,0,0,0.5,0,0,0.1,0,0,0,0,0.4,0,0,0.1], hat: [0.25,0.08,0.15,0.08,0.25,0.08,0.15,0.08,0.25,0.08,0.15,0.08,0.25,0.08,0.15,0.08] },
-          },
-        },
-        melodist: {
-          voice: 'epiano',
-          motif: [
-            0, 2, 4, 7,  0, 2, 4, 7,
-            9, 7, 4, 2,  9, 7, 4, 2,
-            0, 4, 7, 11, 0, 4, 7, 11,
-            12, 9, 7, 4, -1,-1,-1,-1,
-            2, 4, 7, 9,  2, 4, 7, 9,
-            11, 9, 7, 4, 2, 0,-1,-1,
-            -1,-1,-1,-1, -1,-1,-1,-1,
-          ],
-          noteDur: 0.5,
-          octave: 0,
-          vel: 0.16,
-          decay: 1.8,
-          restAfterPhrase: 2,
-          unlockAt: 'gentle',
-        },
-        accompanist: {
-          voice: 'epiano',
-          chord: [0, 2, 7, 14],
-          density: 0.5,
-          vol: 0.12,
-          decay: 1.5,
-          unlockAt: 'flowing',
-        },
-        responder: {
-          voice: 'epiano',
-          decay: 1.8,
-        },
-        texturer: {
-          crackle: false,
-          voidDrone: true,
-        },
+      palette: {
+        // Your peaks → massive 808 sub
+        peak: { voice: 'sub808', octave: -2, decay: 0.6 },
+        // Your tilt → cascading Rhodes through delay
+        continuous: { voice: 'epiano', octave: 0, decay: 1.5 },
+        // Sparse subdivisions
+        subdivision: { voice: 'hat', kit: 'acoustic', divisions: 2, vel: 0.15 },
+        // Rhodes arpeggio color
+        harmonic: { voice: 'epiano', octave: 1, decay: 1.8 },
+        // Acoustic drums (sparse)
+        drum: { kit: 'acoustic' },
+        // Shake → cascading bell
+        burst: { voice: 'bell', octave: 1 },
+        // Add9 pad that breathes
+        texture: { wave: 'triangle', chord: [0, 2, 7, 14], octave: -1, detune: 10, vol: 0.06, reverbSend: 0.6 },
+        // Touch = Rhodes cascading through delay
+        touch: { voice: 'epiano', octave: 0, decay: 1.8 },
       },
 
-      dynamics: { floor: 0.35, motionCeiling: 500 },
-      stages: { thresholds: [100, 400, 800] },
-      context: { night: { space: 'infinite' } },
+      response: {
+        peakThreshold: 1.5,
+        tiltRange: 45,
+        noteInterval: 140,
+        stillnessThreshold: 0.15,
+        stillnessTimeout: 2.0,
+        fadeTime: 4.0,           // long fade — delay tails linger
+        filterRange: [300, 2800],
+        densityThresholds: [0.2, 0.8, 2.0],
+      },
     },
   ];
 
@@ -604,7 +421,7 @@ const Lens = (function () {
     activeIndex = (activeIndex + 1) % PRESETS.length;
     activeLens = PRESETS[activeIndex];
     Audio.configure(activeLens);
-    Score.applyLens(activeLens);
+    Follow.applyLens(activeLens);
     updateIndicator();
     saveToStorage();
     return activeLens;
@@ -614,7 +431,7 @@ const Lens = (function () {
     activeIndex = (activeIndex - 1 + PRESETS.length) % PRESETS.length;
     activeLens = PRESETS[activeIndex];
     Audio.configure(activeLens);
-    Score.applyLens(activeLens);
+    Follow.applyLens(activeLens);
     updateIndicator();
     saveToStorage();
     return activeLens;
