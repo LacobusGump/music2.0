@@ -369,16 +369,15 @@
     var lines = [
       'MUSIC 2.0 — YOUR BODY IS THE INSTRUMENT',
       'LENS: ' + (lens ? lens.name : 'none'),
+      'ARCHETYPE: ' + Follow.archetype + ' | PHRASE: ' + Follow.phrase,
       'SILENT: ' + (Follow.silent ? 'YES' : 'no') + ' | FADE: ' + Follow.fade.toFixed(2),
-      'YOUR TEMPO: ' + Follow.tempo.toFixed(0) + ' BPM | CONFIDENCE: ' + Follow.confidence.toFixed(2),
+      'YOUR TEMPO: ' + Follow.tempo.toFixed(0) + ' BPM | LOCKED: ' + (Follow.locked ? 'YES(' + Follow.lockStr.toFixed(2) + ')' : 'no'),
+      'CONFIDENCE: ' + Follow.confidence.toFixed(2) + ' | MOMENTUM: ' + (Follow.momentum ? 'YES' : 'no'),
       'DENSITY: ' + Follow.density.toFixed(1) + ' | ENERGY: ' + Follow.energy.toFixed(2),
-      'PITCH DEGREE: ' + Follow.degree + ' | FILTER: ' + Follow.filterFreq.toFixed(0) + 'Hz',
+      'PITCH: ' + Follow.degree + ' | FILTER: ' + Follow.filterFreq.toFixed(0) + 'Hz',
       'PEAKS: ' + Follow.peaks + ' | NOTES: ' + Follow.notes,
       'PATTERN: ' + Brain.pattern + ' | TOTAL: ' + Brain.totalMotion.toFixed(0),
-      'BRAIN ENERGY: ' + Brain.energy.toFixed(2) + ' | VOID: ' + Brain.voidDepth.toFixed(2),
-      'ORGANISM: ' + Organism.stage + ' | LIFE: ' + Organism.lifeForce.toFixed(0),
-      'POS: ' + posX.toFixed(2) + ',' + posY.toFixed(2),
-      'MOTION: ' + (sensor.hasMotion ? 'YES' : 'NO') + ' | ORIENT: ' + (sensor.hasOrientation ? 'YES' : 'NO') + ' | PERM: ' + Sensor.permissionState,
+      'MOTION: ' + (sensor.hasMotion ? 'YES' : 'NO') + ' | ORIENT: ' + (sensor.hasOrientation ? 'YES' : 'NO'),
       'AUDIO: ' + Follow.ctxState + ' | ERRORS: ' + Follow.errors + '+' + loopErrors,
     ];
 

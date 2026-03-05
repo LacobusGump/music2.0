@@ -6,13 +6,10 @@
  * There is NO clock. There are NO pre-written patterns.
  * Your body IS the composition.
  *
- * - Motion peaks → rhythm (your walk IS the beat)
- * - Tilt → pitch (your hand IS the melody)
- * - Stillness → silence (real silence, not quiet drone)
- * - Energy → density (more movement = more voices)
- * - Gyro → timbre (twist = filter expression)
+ * v2: Tempo Lock, Musical Momentum, Phrase Arcs, Movement Archetypes
  *
- * The music DANCES TO YOU. You don't dance to it.
+ * The music doesn't just react — it CATCHES your groove,
+ * anticipates your next move, and keeps the pocket alive.
  */
 
 const Follow = (function () {
@@ -54,26 +51,23 @@ const Follow = (function () {
   var peakIntervals = new Float32Array(16);
   var piHead = 0;
   var piLen = 0;
-  var derivedTempo = 0;       // BPM derived from YOUR body
-  var rhythmConfidence = 0;   // 0-1: how periodic your motion is
+  var derivedTempo = 0;
+  var rhythmConfidence = 0;
   var lastMag = 0;
   var lastLastMag = 0;
   var peakCooldown = 0;
 
   // Continuous pitch voice (tilt → melody)
-  var continuousLayer = null;
   var currentDegree = 0;
   var targetDegree = 0;
   var lastNoteTime = 0;
-  var continuousActive = false;
 
   // Harmonic state
-  var harmonyDegree = 0;      // current scale degree center
-  var harmonyGlide = 0;
+  var harmonyDegree = 0;
 
   // Energy / density
   var energySmooth = 0;
-  var densityLevel = 0;       // 0-3: how many voices are active
+  var densityLevel = 0;
   var densityTarget = 0;
 
   // Drone layer
@@ -84,26 +78,372 @@ const Follow = (function () {
   // Stillness → silence
   var stillnessTimer = 0;
   var isSilent = true;
-  var fadeGain = 0;           // master envelope: 0 = silent, 1 = full
+  var fadeGain = 0;
   var lastUpdateTime = 0;
 
   // Subdivision scheduling
-  var subdivEvents = [];      // scheduled future events between peaks
-  var lastSubdivPeak = 0;
+  var subdivEvents = [];
 
   // Filter (expression from gyro)
   var filterFreq = 800;
   var filterTarget = 800;
 
-  // Touch state
-  var touchActive = false;
-  var lastTouchX = 0;
-  var lastTouchY = 0;
-
   // Stats for debug
   var peakCount = 0;
   var noteCount = 0;
   var errorCount = 0;
+
+  // ── TEMPO LOCK SYSTEM ─────────────────────────────────────────────────
+  // Like a musician who catches your groove and plays WITH you.
+  // Once your motion has a pattern, the music LOCKS to your rhythm
+  // and starts anticipating your next move.
+
+  var tempoLocked = false;
+  var lockedInterval = 500;     // ms between locked beats
+  var nextGridBeat = 0;         // when the next anticipated beat should fire
+  var gridBeatCount = 0;        // how many grid beats since lock
+  var lockStrength = 0;         // 0-1: how strongly we're locked
+  var lastUserPeakOnGrid = 0;   // when the user last confirmed the grid
+
+  function updateTempoLock(now) {
+    // Need enough data to lock
+    if (piLen < 4) { tempoLocked = false; lockStrength = 0; return; }
+
+    // Calculate average interval
+    var sum = 0;
+    for (var i = 0; i < piLen; i++) sum += peakIntervals[i];
+    var avgInterval = sum / piLen;
+
+    if (rhythmConfidence > 0.35) {
+      if (!tempoLocked) {
+        // LOCK — we caught your groove
+        tempoLocked = true;
+        lockedInterval = avgInterval;
+        nextGridBeat = now + lockedInterval;
+        gridBeatCount = 0;
+      } else {
+        // Already locked — drift toward user's current tempo
+        lockedInterval += (avgInterval - lockedInterval) * 0.15;
+      }
+      lockStrength = Math.min(1, lockStrength + 0.05);
+    } else {
+      // Losing confidence — start releasing the lock
+      lockStrength *= 0.97;
+      if (lockStrength < 0.1) {
+        tempoLocked = false;
+        lockStrength = 0;
+      }
+    }
+  }
+
+  function processGridBeats(now) {
+    if (!tempoLocked || isSilent || !lens || !Audio.ctx) return;
+
+    // Fire anticipated grid beats
+    while (nextGridBeat <= now) {
+      gridBeatCount++;
+      var timeSinceUserPeak = now - lastPeakTime;
+
+      // Only play grid beats that the user DIDN'T already trigger
+      // (if user peaked within 80ms of this grid beat, skip — they got it)
+      if (timeSinceUserPeak > 80) {
+        fireGridBeat(now);
+      }
+
+      nextGridBeat += lockedInterval;
+    }
+  }
+
+  function fireGridBeat(now) {
+    if (!Audio.ctx) return;
+
+    try {
+      var time = Audio.ctx.currentTime;
+      var palette = lens.palette || {};
+      // Grid beats are quieter than user-triggered beats
+      // They're the band keeping time, not the soloist
+      var gridVel = 0.25 * lockStrength * fadeGain;
+
+      // Subdivision between grid beats
+      if (palette.subdivision) {
+        var sub = palette.subdivision;
+        var divisions = sub.divisions || 2;
+        var subInterval = lockedInterval / divisions;
+        for (var d = 1; d < divisions; d++) {
+          var subTime = time + (d * subInterval / 1000);
+          if (sub.voice === 'hat' || !sub.voice) {
+            scheduleGridSub(now + d * subInterval, subTime, gridVel * (sub.vel || 0.3), sub.kit || 'acoustic');
+          }
+        }
+      }
+
+      // Light kick on strong grid beats (every other)
+      if (palette.drum && gridBeatCount % 2 === 0) {
+        Audio.drum.kick(time, gridVel * 0.5, palette.drum.kit || 'acoustic');
+      }
+      // Hat on every grid beat
+      if (palette.drum) {
+        Audio.drum.hat(time, gridVel * 0.3, palette.drum.kit || 'acoustic');
+      }
+    } catch (e) { errorCount++; }
+  }
+
+  // Grid subdivision scheduling
+  var gridSubEvents = [];
+
+  function scheduleGridSub(wallTime, audioTime, vel, kit) {
+    gridSubEvents.push({ time: wallTime, audioTime: audioTime, vel: vel, kit: kit, fired: false });
+  }
+
+  function processGridSubs(now) {
+    for (var i = gridSubEvents.length - 1; i >= 0; i--) {
+      var ev = gridSubEvents[i];
+      if (ev.fired) { gridSubEvents.splice(i, 1); continue; }
+      if (now >= ev.time) {
+        ev.fired = true;
+        try { Audio.drum.hat(Audio.ctx.currentTime, ev.vel, ev.kit); } catch (e) {}
+        gridSubEvents.splice(i, 1);
+      }
+    }
+    // Clean stale events
+    if (gridSubEvents.length > 32) gridSubEvents.splice(0, gridSubEvents.length - 16);
+  }
+
+  // ── MUSICAL MOMENTUM ──────────────────────────────────────────────────
+  // When you briefly pause, the groove keeps going for a few beats.
+  // Like a real musician holding the pocket when the soloist breathes.
+
+  var momentumActive = false;
+  var momentumBeatsLeft = 0;
+  var momentumInterval = 500;
+  var momentumNextBeat = 0;
+  var momentumVelocity = 0.4;
+  var momentumDecay = 0.7;       // each beat is 70% of the previous
+
+  function startMomentum(now) {
+    if (!tempoLocked || piLen < 4) return;
+    momentumActive = true;
+    momentumBeatsLeft = Math.min(8, Math.round(lockStrength * 6)); // up to 6 beats
+    momentumInterval = lockedInterval;
+    momentumNextBeat = now + momentumInterval;
+    momentumVelocity = 0.3 * lockStrength;
+  }
+
+  function processMomentum(now) {
+    if (!momentumActive || isSilent || !lens || !Audio.ctx) return;
+
+    if (now >= momentumNextBeat && momentumBeatsLeft > 0) {
+      momentumBeatsLeft--;
+      momentumVelocity *= momentumDecay;
+
+      if (momentumVelocity > 0.03) {
+        try {
+          var time = Audio.ctx.currentTime;
+          var palette = lens.palette || {};
+
+          // Momentum keeps the rhythm alive with quiet hits
+          if (palette.drum) {
+            var kit = palette.drum.kit || 'acoustic';
+            Audio.drum.hat(time, momentumVelocity * 0.5, kit);
+            if (momentumBeatsLeft % 2 === 0) {
+              Audio.drum.kick(time, momentumVelocity * 0.4, kit);
+            }
+          }
+
+          // Subdivisions during momentum too
+          if (palette.subdivision) {
+            var sub = palette.subdivision;
+            var divisions = sub.divisions || 2;
+            for (var d = 1; d < divisions; d++) {
+              var subTime = time + (d * momentumInterval / divisions / 1000);
+              scheduleGridSub(now + d * momentumInterval / divisions, subTime, momentumVelocity * 0.2, sub.kit || 'acoustic');
+            }
+          }
+        } catch (e) { errorCount++; }
+      }
+
+      momentumNextBeat += momentumInterval;
+
+      // Resolution on last momentum beat
+      if (momentumBeatsLeft === 0) {
+        momentumActive = false;
+        // Play a soft resolution
+        if (lens.palette && lens.palette.continuous) {
+          try {
+            var freq = scaleFreq(0, lens.palette.continuous.octave || 0);
+            Audio.synth.play(lens.palette.continuous.voice || 'epiano',
+              Audio.ctx.currentTime, freq, momentumVelocity, 1.5);
+          } catch (e) {}
+        }
+      }
+    }
+  }
+
+  // ── PHRASE SYSTEM ─────────────────────────────────────────────────────
+  // Groups of peaks become musical phrases with a shape:
+  //   approach → build → climax → resolve
+  // Not isolated hits — connected musical ideas.
+
+  var phraseActive = false;
+  var phrasePeakCount = 0;
+  var phraseStartTime = 0;
+  var phraseMaxMag = 0;
+  var phraseEnergyArc = 0;       // 0-1: where we are in the phrase arc
+  var phraseCooldown = 0;        // time before next phrase can start
+
+  function updatePhrase(mag, now, dt) {
+    if (phraseCooldown > 0) phraseCooldown -= dt;
+
+    if (!phraseActive) {
+      // Start a new phrase when we get a peak after silence/rest
+      if (mag > 0.5 && phraseCooldown <= 0) {
+        phraseActive = true;
+        phrasePeakCount = 0;
+        phraseStartTime = now;
+        phraseMaxMag = mag;
+        phraseEnergyArc = 0;
+      }
+    } else {
+      // Track the phrase arc
+      var phraseDuration = now - phraseStartTime;
+      if (mag > phraseMaxMag) phraseMaxMag = mag;
+
+      // Phrase position: rises in first half, falls in second
+      // Natural phrases last 2-8 seconds
+      var phraseLen = Math.min(8000, Math.max(2000, piLen > 2 ? lockedInterval * 8 : 4000));
+      phraseEnergyArc = Math.min(1, phraseDuration / phraseLen);
+
+      // Musical intensity follows a bell curve within the phrase
+      // First 40%: building, last 20%: resolving, middle 40%: peak
+      var phraseIntensity;
+      if (phraseEnergyArc < 0.4) {
+        phraseIntensity = phraseEnergyArc / 0.4; // ramp up
+      } else if (phraseEnergyArc < 0.8) {
+        phraseIntensity = 1.0; // sustain peak
+      } else {
+        phraseIntensity = 1.0 - (phraseEnergyArc - 0.8) / 0.2; // ramp down
+      }
+
+      // Apply phrase intensity to the system
+      phraseIntensityFactor = phraseIntensity;
+
+      // End phrase on stillness or after max duration
+      if (mag < 0.15 && phraseDuration > 1000) {
+        endPhrase(now);
+      } else if (phraseDuration > phraseLen) {
+        endPhrase(now);
+      }
+    }
+  }
+
+  var phraseIntensityFactor = 1.0;
+
+  function endPhrase(now) {
+    phraseActive = false;
+    phraseCooldown = 0.5; // half second before next phrase
+    phraseIntensityFactor = 1.0;
+
+    // Harmonic shift at phrase boundary — music breathes
+    harmonyDegree = (harmonyDegree + 4) % scale.length; // up a 4th
+
+    // Phrase-ending harmonic note
+    if (lens && lens.palette && lens.palette.harmonic && Audio.ctx) {
+      try {
+        var h = lens.palette.harmonic;
+        var freq = scaleFreq(harmonyDegree, h.octave || 0);
+        Audio.synth.play(h.voice || 'epiano', Audio.ctx.currentTime, freq, 0.2, 1.5);
+        noteCount++;
+      } catch (e) {}
+    }
+  }
+
+  // ── MOVEMENT ARCHETYPE DETECTION ──────────────────────────────────────
+  // Walking ≠ waving ≠ bouncing ≠ exploring.
+  // Each feels different, so the music responds differently.
+
+  var archetype = 'exploring'; // 'walking', 'waving', 'bouncing', 'exploring'
+  var archetypeConfidence = 0;
+  var archetypeSmoothEnergy = 0;
+
+  function classifyArchetype(brainState) {
+    var pattern = brainState.pattern || 'still';
+    var neurons = brainState.neurons || {};
+    var energy = brainState.energy || 0;
+    archetypeSmoothEnergy += (energy - archetypeSmoothEnergy) * 0.05;
+
+    // Use neuron firing rates to distinguish movement types
+    var pendRate = neurons.pendulum ? neurons.pendulum.rate() : 0;
+    var sweepRate = neurons.sweep ? neurons.sweep.rate() : 0;
+    var shakeRate = neurons.shake ? neurons.shake.rate() : 0;
+    var rockRate = neurons.rock ? neurons.rock.rate() : 0;
+
+    var prev = archetype;
+
+    if (pattern === 'still' || archetypeSmoothEnergy < 0.15) {
+      archetype = 'exploring';
+    } else if (pendRate > 1.5 && rhythmConfidence > 0.4) {
+      // Regular back-and-forth with periodicity → walking
+      archetype = 'walking';
+    } else if (shakeRate > 1.0 && archetypeSmoothEnergy > 1.5) {
+      // Vigorous + shaking → bouncing
+      archetype = 'bouncing';
+    } else if (sweepRate > 0.8) {
+      // Smooth arcs → waving
+      archetype = 'waving';
+    } else if (rockRate > 0.5 && archetypeSmoothEnergy < 0.8) {
+      // Gentle rocking → exploring
+      archetype = 'exploring';
+    } else if (rhythmConfidence > 0.3) {
+      archetype = 'walking'; // periodic = probably walking
+    } else {
+      archetype = 'waving'; // default for non-periodic movement
+    }
+
+    if (archetype !== prev) {
+      archetypeConfidence = 0;
+    } else {
+      archetypeConfidence = Math.min(1, archetypeConfidence + 0.02);
+    }
+  }
+
+  // Archetype-specific musical response modifiers
+  function archetypeModifiers() {
+    switch (archetype) {
+      case 'walking':
+        return {
+          peakVoiceBoost: 1.2,  // stronger bass on peaks (footsteps)
+          drumBoost: 1.0,       // full drum response
+          subdivBoost: 1.0,     // regular subdivisions
+          melodyRate: 0.8,      // slightly less melodic (walking, not playing)
+          lockBias: 0.3,        // stronger tendency to lock
+        };
+      case 'bouncing':
+        return {
+          peakVoiceBoost: 0.8,  // less bass (drums take over)
+          drumBoost: 1.5,       // DRUMS DOMINATE
+          subdivBoost: 1.3,     // more subdivisions
+          melodyRate: 0.5,      // less melody
+          lockBias: 0.4,        // strong lock tendency
+        };
+      case 'waving':
+        return {
+          peakVoiceBoost: 0.6,  // softer peaks
+          drumBoost: 0.4,       // minimal drums
+          subdivBoost: 0.3,     // few subdivisions
+          melodyRate: 1.5,      // MORE melodic (arm = melody)
+          lockBias: 0.0,        // don't try to lock (fluid)
+        };
+      case 'exploring':
+      default:
+        return {
+          peakVoiceBoost: 0.7,
+          drumBoost: 0.5,
+          subdivBoost: 0.5,
+          melodyRate: 1.0,
+          lockBias: 0.0,
+        };
+    }
+  }
 
   // ── INIT ──────────────────────────────────────────────────────────────
 
@@ -115,6 +455,12 @@ const Follow = (function () {
     peakCount = 0;
     noteCount = 0;
     errorCount = 0;
+    tempoLocked = false;
+    lockStrength = 0;
+    momentumActive = false;
+    phraseActive = false;
+    archetype = 'exploring';
+    archetypeConfidence = 0;
   }
 
   // ── CONFIGURE (apply lens) ────────────────────────────────────────────
@@ -128,17 +474,21 @@ const Follow = (function () {
 
     // Kill existing layers for fresh start
     if (droneLayer) { Audio.layer.destroy('follow-drone'); droneLayer = null; droneActive = false; }
-    if (continuousLayer) { Audio.layer.destroy('follow-cont'); continuousLayer = null; continuousActive = false; }
 
     active = true;
     isSilent = true;
     fadeGain = 0;
     stillnessTimer = 0;
+    tempoLocked = false;
+    lockStrength = 0;
+    momentumActive = false;
+    piLen = 0;
+    piHead = 0;
+    harmonyDegree = 0;
+    phraseActive = false;
   }
 
   // ── PEAK DETECTION ────────────────────────────────────────────────────
-  // Find rhythmic impulses in the user's motion.
-  // Each peak = their body "asked" for a musical event.
 
   function pushAccel(mag) {
     accelBuf[accelHead] = mag;
@@ -147,15 +497,12 @@ const Follow = (function () {
   }
 
   function detectPeak(mag, now) {
-    // Simple peak: previous sample was higher than its neighbors
-    // Plus cooldown to prevent double-triggers
     if (peakCooldown > 0) { peakCooldown--; return false; }
 
     var threshold = lens && lens.response ? (lens.response.peakThreshold || 1.5) : 1.5;
 
     if (lastMag > threshold && lastMag > lastLastMag && lastMag > mag) {
-      // We have a peak at the previous sample
-      peakCooldown = 8; // ~130ms at 60fps cooldown
+      peakCooldown = 8;
       return true;
     }
     return false;
@@ -164,12 +511,11 @@ const Follow = (function () {
   function recordPeakInterval(now) {
     if (lastPeakTime > 0) {
       var interval = now - lastPeakTime;
-      if (interval > 150 && interval < 2000) { // between 30 and 400 BPM
+      if (interval > 150 && interval < 2000) {
         peakIntervals[piHead] = interval;
         piHead = (piHead + 1) & 15;
         if (piLen < 16) piLen++;
 
-        // Derive tempo from average interval
         var sum = 0, count = 0;
         for (var i = 0; i < piLen; i++) {
           sum += peakIntervals[i];
@@ -178,15 +524,12 @@ const Follow = (function () {
         var avgInterval = sum / count;
         derivedTempo = 60000 / avgInterval;
 
-        // Calculate periodicity (how regular are the peaks?)
-        // Low variance relative to mean = high confidence
         var variance = 0;
         for (var i = 0; i < piLen; i++) {
           var diff = peakIntervals[i] - avgInterval;
           variance += diff * diff;
         }
         variance = Math.sqrt(variance / count);
-        // Normalize: coefficient of variation < 0.15 = very rhythmic
         var cv = variance / avgInterval;
         rhythmConfidence = Math.max(0, Math.min(1, 1 - cv * 4));
       }
@@ -196,53 +539,77 @@ const Follow = (function () {
   }
 
   // ── BODY PEAK → MUSICAL EVENT ─────────────────────────────────────────
-  // This is the core of Music 2.0:
-  // Your body moves → music responds. Not the other way around.
+  // Modified by phrase position and archetype.
 
   function onPeak(magnitude, now) {
     if (!lens || !Audio.ctx) return;
 
     try {
       var time = Audio.ctx.currentTime;
-      var vel = Math.min(1, magnitude / 12); // normalize to 0-1
+      var vel = Math.min(1, magnitude / 12);
       var palette = lens.palette || {};
+      var mods = archetypeModifiers();
 
-      // ── 1. RHYTHMIC HIT (your step/bounce/gesture = the beat) ──
+      // Phrase intensity shapes the response
+      vel *= phraseIntensityFactor;
+
+      // ── 1. RHYTHMIC HIT ──
       if (palette.peak) {
         var p = palette.peak;
         var freq = scaleFreq(harmonyDegree, p.octave || -1);
-        Audio.synth.play(p.voice || 'sub808', time, freq, vel * 0.7, p.decay || 0.8);
+        Audio.synth.play(p.voice || 'sub808', time, freq, vel * 0.7 * mods.peakVoiceBoost, p.decay || 0.8);
         noteCount++;
       }
 
-      // ── 2. DRUM from your body ──
-      if (palette.drum && vel > 0.3) {
+      // ── 2. DRUMS (modified by archetype) ──
+      if (palette.drum && vel > 0.2) {
         var d = palette.drum;
         var kit = d.kit || 'acoustic';
-        // Kick on strong peaks, hat on weak peaks
-        if (vel > 0.6) {
-          Audio.drum.kick(time, vel * 0.8, kit);
+        var drumVel = vel * mods.drumBoost;
+
+        if (drumVel > 0.5) {
+          Audio.drum.kick(time, drumVel * 0.8, kit);
         }
-        // Snare on alternating strong peaks
-        if (vel > 0.5 && peakCount % 2 === 0) {
-          Audio.drum.snare(time, vel * 0.6, kit);
+        if (drumVel > 0.4 && peakCount % 2 === 0) {
+          Audio.drum.snare(time, drumVel * 0.6, kit);
         }
-        // Hat on every peak
-        Audio.drum.hat(time, vel * 0.4, kit);
+        if (drumVel > 0.15) {
+          Audio.drum.hat(time, drumVel * 0.4, kit);
+        }
       }
 
-      // ── 3. SUBDIVISIONS (fill between YOUR peaks, at YOUR tempo) ──
-      if (palette.subdivision && rhythmConfidence > 0.4 && piLen >= 3) {
-        scheduleSubdivisions(now, vel, time);
+      // ── 3. SUBDIVISIONS ──
+      if (palette.subdivision && rhythmConfidence > 0.3 && piLen >= 3) {
+        scheduleSubdivisions(now, vel * mods.subdivBoost, time);
       }
 
-      // ── 4. HARMONIC NOTE on peak ──
-      if (palette.harmonic && vel > 0.4) {
+      // ── 4. HARMONIC NOTE (phrase-aware) ──
+      if (palette.harmonic && vel > 0.35) {
         var h = palette.harmonic;
-        var deg = harmonyDegree + (Math.random() > 0.5 ? 2 : 4); // 3rd or 5th above
+        // During phrase climax, add more harmonic color
+        var chordTone = phraseEnergyArc > 0.3 && phraseEnergyArc < 0.8 ? 4 : 2;
+        var deg = harmonyDegree + chordTone;
         var freq = scaleFreq(deg, h.octave || 0);
         Audio.synth.play(h.voice || 'epiano', time + 0.02, freq, vel * 0.3, h.decay || 1.0);
         noteCount++;
+      }
+
+      // ── 5. PHRASE TRACKING ──
+      phrasePeakCount++;
+      if (magnitude > phraseMaxMag) phraseMaxMag = magnitude;
+
+      // Kill momentum if user is back
+      if (momentumActive) {
+        momentumActive = false;
+      }
+
+      // Confirm grid position for tempo lock
+      if (tempoLocked) {
+        lastUserPeakOnGrid = now;
+        // Nudge grid toward user's actual peak timing
+        var gridError = (now - nextGridBeat + lockedInterval) % lockedInterval;
+        if (gridError > lockedInterval / 2) gridError -= lockedInterval;
+        nextGridBeat += gridError * 0.2; // gentle correction
       }
 
     } catch (e) {
@@ -251,25 +618,20 @@ const Follow = (function () {
   }
 
   // ── SUBDIVISIONS ──────────────────────────────────────────────────────
-  // When your motion is rhythmic, add musical texture BETWEEN your peaks
-  // at YOUR tempo, not a pre-set BPM
 
   function scheduleSubdivisions(peakNow, vel, audioTime) {
     if (!lens || piLen < 3) return;
 
-    // Clear old scheduled events
     subdivEvents = [];
 
-    // Average interval between YOUR peaks
     var sum = 0;
     for (var i = 0; i < piLen; i++) sum += peakIntervals[i];
     var interval = sum / piLen;
 
     var sub = lens.palette.subdivision;
-    var divisions = sub.divisions || 2; // default: eighth notes between your beats
+    var divisions = sub.divisions || 2;
     var subInterval = interval / divisions;
 
-    // Schedule subdivision hits between now and the expected next peak
     for (var d = 1; d < divisions; d++) {
       var eventTime = peakNow + d * subInterval;
       subdivEvents.push({
@@ -281,7 +643,6 @@ const Follow = (function () {
         fired: false,
       });
     }
-    lastSubdivPeak = peakNow;
   }
 
   function processSubdivisions(now) {
@@ -304,27 +665,22 @@ const Follow = (function () {
     }
   }
 
-  // ── TILT → PITCH (your hand IS the melody) ───────────────────────────
-  // Not a filter sweep. Actual NOTES that follow your body.
+  // ── TILT → PITCH ──────────────────────────────────────────────────────
+  // Modified by archetype: waving = MORE melodic, walking = less
 
   function updateTiltPitch(sensor, now) {
     if (!lens || !Audio.ctx) return;
 
-    // Map tilt to scale degrees
-    // beta: phone tilt forward/back (0=flat, 90=vertical)
-    // We map ~30-80° range to scale degrees
     var tiltRange = (lens.response && lens.response.tiltRange) || 50;
     var beta = sensor.beta || 0;
 
-    // Center around 45° (natural phone holding angle)
     var tiltOffset = (beta - 45) / (tiltRange / 2);
-    // Map to scale degree range (±7 = one octave in 7-note scale)
     targetDegree = Math.round(tiltOffset * 7);
 
-    // Only play a note when the degree CHANGES (not continuous spam)
     if (targetDegree !== currentDegree && !isSilent && fadeGain > 0.3) {
+      var mods = archetypeModifiers();
+      var minInterval = ((lens.response && lens.response.noteInterval) || 120) / mods.melodyRate;
       var timeSinceNote = now - lastNoteTime;
-      var minInterval = (lens.response && lens.response.noteInterval) || 120; // ms
 
       if (timeSinceNote > minInterval) {
         currentDegree = targetDegree;
@@ -333,7 +689,7 @@ const Follow = (function () {
         var cont = lens.palette && lens.palette.continuous;
         if (cont) {
           var freq = scaleFreq(currentDegree, cont.octave || 0);
-          var vel = 0.2 + fadeGain * 0.3; // louder when more active
+          var vel = (0.2 + fadeGain * 0.3) * phraseIntensityFactor;
           try {
             Audio.synth.play(cont.voice || 'epiano', Audio.ctx.currentTime, freq, vel, cont.decay || 0.8);
             noteCount++;
@@ -343,12 +699,11 @@ const Follow = (function () {
     }
   }
 
-  // ── GYRO → FILTER (twist = expression) ────────────────────────────────
+  // ── GYRO → FILTER ─────────────────────────────────────────────────────
 
   function updateGyroFilter(sensor) {
     if (!lens) return;
 
-    // Gyro magnitude → filter openness
     var gyroMag = 0;
     if (sensor.hasOrientation) {
       var dbeta = Math.abs(sensor.beta - (sensor._prevBeta || sensor.beta));
@@ -359,37 +714,32 @@ const Follow = (function () {
     }
 
     var range = (lens.response && lens.response.filterRange) || [200, 2800];
-    var norm = Math.min(1, gyroMag / 8); // 8 degrees/frame = fully open
+    var norm = Math.min(1, gyroMag / 8);
     filterTarget = range[0] + norm * (range[1] - range[0]);
     filterFreq += (filterTarget - filterFreq) * 0.08;
 
-    // Apply to drone layer
     if (droneLayer) {
       Audio.layer.setFilter('follow-drone', filterFreq, 0.05);
     }
   }
 
   // ── ENERGY → DENSITY ──────────────────────────────────────────────────
-  // More movement = more voices. Less movement = fewer voices.
 
   function updateDensity(energy, dt) {
     energySmooth += (energy - energySmooth) * 0.03;
 
-    // Map energy to density level
     var thresholds = (lens && lens.response && lens.response.densityThresholds) || [0.3, 1.0, 2.5];
     if (energySmooth < thresholds[0]) densityTarget = 0;
     else if (energySmooth < thresholds[1]) densityTarget = 1;
     else if (energySmooth < thresholds[2]) densityTarget = 2;
     else densityTarget = 3;
 
-    // Smooth density transitions
     densityLevel += (densityTarget - densityLevel) * 0.02;
 
-    // Manage drone layer based on density
     manageDrone(dt);
   }
 
-  // ── DRONE (warm bed that breathes with you) ───────────────────────────
+  // ── DRONE ─────────────────────────────────────────────────────────────
 
   function manageDrone(dt) {
     if (!lens || !Audio.ctx) return;
@@ -397,11 +747,9 @@ const Follow = (function () {
     var tex = lens.palette && lens.palette.texture;
     if (!tex) return;
 
-    // Drone fades in when you're moving, fades with you
     var targetGain = isSilent ? 0 : fadeGain * (tex.vol || 0.15) * Math.min(1, densityLevel);
 
     if (targetGain > 0.01 && !droneActive) {
-      // Build drone
       var oscs = [];
       var chord = tex.chord || [0, 7];
       for (var i = 0; i < chord.length; i++) {
@@ -437,8 +785,6 @@ const Follow = (function () {
   }
 
   // ── STILLNESS → SILENCE ───────────────────────────────────────────────
-  // When you stop, the music resolves and goes silent.
-  // REAL silence. Not a quiet drone. SILENCE.
 
   function updateStillness(mag, dt, now) {
     var threshold = (lens && lens.response && lens.response.stillnessThreshold) || 0.2;
@@ -448,11 +794,14 @@ const Follow = (function () {
     if (mag < threshold) {
       stillnessTimer += dt;
 
+      // Start momentum when we first detect stillness (groove keeps going)
+      if (stillnessTimer > 0.3 && stillnessTimer < 0.5 && !momentumActive && tempoLocked) {
+        startMomentum(now);
+      }
+
       if (stillnessTimer > timeout && !isSilent) {
-        // Begin fade to silence
         isSilent = true;
 
-        // Play a resolution note — the music "knows" you stopped
         if (lens.palette && lens.palette.continuous) {
           try {
             var freq = scaleFreq(0, (lens.palette.continuous.octave || 0));
@@ -462,21 +811,20 @@ const Follow = (function () {
             );
           } catch (e) {}
         }
+
+        if (phraseActive) endPhrase(now);
       }
 
       if (isSilent) {
-        // Fade to zero
         fadeGain *= (1 - dt / fadeTime);
         if (fadeGain < 0.005) fadeGain = 0;
       }
     } else {
-      // Movement detected
       if (isSilent && mag > threshold * 2) {
-        // AWAKEN — music enters from silence
         isSilent = false;
         stillnessTimer = 0;
+        momentumActive = false;
 
-        // First note is gentle, inviting — "oh, you're here"
         if (lens.palette && lens.palette.continuous) {
           try {
             var freq = scaleFreq(0, (lens.palette.continuous.octave || 0));
@@ -490,7 +838,6 @@ const Follow = (function () {
       }
       stillnessTimer = 0;
 
-      // Fade IN when moving
       if (!isSilent) {
         var targetFade = Math.min(1, mag / 2);
         fadeGain += (targetFade - fadeGain) * 0.05;
@@ -498,7 +845,7 @@ const Follow = (function () {
     }
   }
 
-  // ── TOUCH (the screen IS an instrument too) ───────────────────────────
+  // ── TOUCH ─────────────────────────────────────────────────────────────
 
   function touch(x, y, vx, vy) {
     if (!lens || !Audio.ctx || !active) return;
@@ -507,11 +854,9 @@ const Follow = (function () {
     var palette = lens.palette || {};
     var resp = palette.touch || palette.continuous || {};
 
-    // Map Y position to scale degree (top = high, bottom = low)
-    var degree = Math.round((1 - y) * 14) - 7; // -7 to +7
+    var degree = Math.round((1 - y) * 14) - 7;
     var freq = scaleFreq(degree, resp.octave || 0);
 
-    // Velocity from touch speed + position
     var speed = Math.sqrt(vx * vx + vy * vy);
     var vel = Math.min(1, 0.3 + speed * 0.1);
 
@@ -519,14 +864,12 @@ const Follow = (function () {
       Audio.synth.play(resp.voice || 'epiano', time, freq, vel, resp.decay || 0.6);
       noteCount++;
 
-      // Grace notes from fast movement
       if (speed > 3 && Math.random() > 0.5) {
         var graceFreq = scaleFreq(degree + (Math.random() > 0.5 ? 1 : -1), resp.octave || 0);
         Audio.synth.play(resp.voice || 'epiano', time + 0.03, graceFreq, vel * 0.4, 0.3);
       }
     } catch (e) { errorCount++; }
 
-    // Touch also breaks silence
     if (isSilent) {
       isSilent = false;
       stillnessTimer = 0;
@@ -534,8 +877,7 @@ const Follow = (function () {
     }
   }
 
-  // ── MAIN UPDATE (called every frame from app.js) ──────────────────────
-  // This is NOT a clock. It reads your body and responds.
+  // ── MAIN UPDATE ───────────────────────────────────────────────────────
 
   function update(brainState, sensor, dt) {
     if (!active || !lens) return;
@@ -543,35 +885,49 @@ const Follow = (function () {
     var now = performance.now();
     var mag = brainState.energy || 0;
 
-    // ── Push to peak detection buffer ──
     pushAccel(mag);
 
-    // ── Stillness check (silence when you stop) ──
+    // ── Classify how you're moving ──
+    classifyArchetype(brainState);
+
+    // ── Phrase tracking (groups peaks into musical ideas) ──
+    updatePhrase(mag, now, dt);
+
+    // ── Stillness → silence (or momentum) ──
     updateStillness(mag, dt, now);
 
-    // ── Peak detection (your body's rhythm) ──
+    // ── Peak detection ──
     if (detectPeak(mag, now)) {
       recordPeakInterval(now);
-      onPeak(lastMag, now); // fire on the peak value
+      onPeak(lastMag, now);
     }
 
-    // Update magnitude history for peak detection
     lastLastMag = lastMag;
     lastMag = mag;
 
-    // ── Process any scheduled subdivisions ──
+    // ── Tempo lock (catch the groove) ──
+    updateTempoLock(now);
+
+    // ── Grid beats (anticipated beats when locked) ──
+    processGridBeats(now);
+    processGridSubs(now);
+
+    // ── Momentum (groove continues briefly when you pause) ──
+    processMomentum(now);
+
+    // ── User-triggered subdivisions ──
     processSubdivisions(now);
 
-    // ── Tilt → pitch (your hand is the melody) ──
+    // ── Tilt → pitch ──
     updateTiltPitch(sensor, now);
 
-    // ── Gyro → filter (twist = expression) ──
+    // ── Gyro → filter ──
     updateGyroFilter(sensor);
 
-    // ── Energy → density (movement = more voices) ──
+    // ── Energy → density ──
     updateDensity(mag, dt);
 
-    // ── Master gain follows fade state ──
+    // ── Master gain ──
     if (Audio.ctx) {
       Audio.setMasterGain(0.8 * fadeGain);
     }
@@ -579,8 +935,7 @@ const Follow = (function () {
     lastUpdateTime = now;
   }
 
-  // ── SPIKE HANDLER (from brain neurons) ────────────────────────────────
-  // Brain's spiking neurons give us richer gesture info
+  // ── SPIKE HANDLER ─────────────────────────────────────────────────────
 
   function onSpike(data) {
     if (!active || !lens || !Audio.ctx || isSilent) return;
@@ -591,7 +946,6 @@ const Follow = (function () {
 
       switch (data.neuron) {
         case 'shake':
-          // Shake = burst of energy → rapid notes
           if (palette.burst) {
             var b = palette.burst;
             for (var i = 0; i < 3; i++) {
@@ -604,7 +958,6 @@ const Follow = (function () {
           break;
 
         case 'sweep':
-          // Sweep = smooth arc → glissando
           if (palette.continuous) {
             var c = palette.continuous;
             var startDeg = currentDegree;
@@ -618,10 +971,9 @@ const Follow = (function () {
           break;
 
         case 'circle':
-          // Circle motion = arpeggiated chord
           if (palette.harmonic) {
             var h = palette.harmonic;
-            var arpDegrees = [0, 2, 4, 7]; // root, 3rd, 5th, octave
+            var arpDegrees = [0, 2, 4, 7];
             for (var i = 0; i < arpDegrees.length; i++) {
               var freq = scaleFreq(harmonyDegree + arpDegrees[i], h.octave || 0);
               Audio.synth.play(h.voice || 'epiano', time + i * 0.08, freq, 0.25, 0.6);
@@ -631,7 +983,6 @@ const Follow = (function () {
           break;
 
         case 'toss':
-          // Toss = dramatic peak → accent
           if (palette.drum) {
             Audio.drum.kick(time, 0.9, palette.drum.kit || 'acoustic');
             Audio.drum.snare(time + 0.01, 0.7, palette.drum.kit || 'acoustic');
@@ -643,8 +994,6 @@ const Follow = (function () {
           break;
 
         case 'pendulum':
-          // Pendulum = regular back-and-forth → reinforce rhythm
-          // Already handled by peak detection, but we can add color
           if (palette.harmonic && data.rate > 1) {
             var freq = scaleFreq(harmonyDegree + 4, (palette.harmonic.octave || 0));
             Audio.synth.play(palette.harmonic.voice || 'epiano', time, 0.15, 0.5);
@@ -652,8 +1001,7 @@ const Follow = (function () {
           break;
 
         case 'rock':
-          // Gentle rocking = harmonic shift
-          harmonyDegree = (harmonyDegree + 5) % scale.length; // move up a 4th
+          harmonyDegree = (harmonyDegree + 5) % scale.length;
           break;
       }
     } catch (e) { errorCount++; }
@@ -668,7 +1016,6 @@ const Follow = (function () {
     touch: touch,
     onSpike: onSpike,
 
-    // Debug info
     get tempo() { return derivedTempo; },
     get confidence() { return rhythmConfidence; },
     get density() { return densityLevel; },
@@ -681,5 +1028,10 @@ const Follow = (function () {
     get degree() { return currentDegree; },
     get energy() { return energySmooth; },
     get ctxState() { return Audio.ctx ? Audio.ctx.state : 'none'; },
+    get locked() { return tempoLocked; },
+    get lockStr() { return lockStrength; },
+    get archetype() { return archetype; },
+    get phrase() { return phraseActive ? phraseEnergyArc.toFixed(2) : 'none'; },
+    get momentum() { return momentumActive; },
   });
 })();
