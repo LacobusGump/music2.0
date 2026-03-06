@@ -77,6 +77,15 @@
     }
     if (audioCtx.state === 'suspended') audioCtx.resume();
 
+    // iOS silent buffer unlock: must play audio during the gesture or iOS won't open the pipeline
+    try {
+      var silentBuf = audioCtx.createBuffer(1, 1, audioCtx.sampleRate);
+      var silentSrc = audioCtx.createBufferSource();
+      silentSrc.buffer = silentBuf;
+      silentSrc.connect(audioCtx.destination);
+      silentSrc.start(0);
+    } catch (e) {}
+
     // Init sensor permissions
     Sensor.init().then(function () {
       // Init subsystems
@@ -180,6 +189,9 @@
     playEl.addEventListener('touchstart', function (e) {
       if (screen !== SCREENS.PLAY) return;
       e.preventDefault();
+
+      // iOS: resume AudioContext from within a gesture (loop-based resume is ignored by iOS)
+      if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
 
       // Retry motion permission on every touch
       Sensor.retryPermissions();
