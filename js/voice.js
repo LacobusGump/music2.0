@@ -184,15 +184,13 @@ const Voice = (function () {
 
   // ── PUBLIC TRIGGERS ───────────────────────────────────────────────────
 
-  function boot() {
+  function boot(onEnd) {
     sessionStart = Date.now();
     discoveryFired = false;
     userName = '';
     awaitingName = false;
 
-    // iOS: speak a silent utterance NOW (gesture context) to open the audio pipeline.
-    // Then wait 350ms — gives iOS time to actually start the utterance and commit
-    // the audio session to speech synthesis BEFORE Audio.configure() can grab it.
+    // iOS: silent utterance in gesture context opens the speech pipeline.
     var unlock = new SpeechSynthesisUtterance('');
     unlock.volume = 0;
     synth.speak(unlock);
@@ -205,7 +203,27 @@ const Voice = (function () {
         }
       }
       synth.cancel();
-      speak(LINES.boot, { force: true });
+
+      var u = new SpeechSynthesisUtterance(LINES.boot);
+      u.pitch  = 0.16;
+      u.rate   = 0.62;
+      u.volume = 0.88;
+      if (selectedVoice) u.voice = selectedVoice;
+      lastSpoke = Date.now();
+
+      // onEnd fires when boot speech finishes — caller uses this to start music
+      // Fallback timeout in case iOS never fires onend (known iOS bug)
+      var done = false;
+      function finish() {
+        if (done) return;
+        done = true;
+        if (onEnd) onEnd();
+      }
+      u.onend  = finish;
+      u.onerror = finish;
+      setTimeout(finish, 4000); // give up waiting after 4s
+
+      synth.speak(u);
     }, 350);
   }
 
