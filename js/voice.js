@@ -2,7 +2,7 @@
  * VOICE — The Presence
  *
  * No captions. No subtitles. The voice speaks or it does not.
- * The AI is not describing music. It is describing you.
+ * Less is everything. Every line is about THIS person, right now.
  */
 
 const Voice = (function () {
@@ -16,111 +16,112 @@ const Voice = (function () {
   var sessionStart = 0;
   var currentLens = '';
   var discoveryFired = false;
+  var userName = '';
+  var awaitingName = false;
+
+  // ── TIME ──────────────────────────────────────────────────────────────
+
+  function timeCtx() {
+    var d = new Date();
+    var days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+    var h = d.getHours();
+    var period = h < 5  ? 'the middle of the night'
+               : h < 9  ? 'early morning'
+               : h < 12 ? 'the morning'
+               : h < 14 ? 'midday'
+               : h < 17 ? 'the afternoon'
+               : h < 20 ? 'the evening'
+               : 'late at night';
+    var shouldBeWorking = h >= 9 && h < 17 && d.getDay() > 0 && d.getDay() < 6;
+    var veryLate = h >= 1 && h < 5;
+    return { day: days[d.getDay()], period: period, shouldBeWorking: shouldBeWorking, veryLate: veryLate };
+  }
+
+  // Name prefix — empty string if no name yet
+  function n() { return userName ? userName + '. ' : ''; }
 
   // ── THE LINES ─────────────────────────────────────────────────────────
-  // The AI does not describe music. It describes the relationship.
-  // It speaks about what it observes. Never about genre. Never about history.
+  // The entity notices. It does not explain.
+  // Short enough to land before the music swallows it.
 
   var LINES = {
 
-    boot:
-      'I know what music sounds like. ' +
-      'What I do not know... is what you sound like. ' +
-      'That changes now.',
+    // First contact. Two words.
+    boot: 'There you are.',
 
     lens: {
-      'The Conductor':
-        'Every degree of tilt in your hand is a data point. ' +
-        'I have been calibrated to translate those data points into orchestral response. ' +
-        'The musicians are ready.',
-
-      'Blue Hour':
-        'There is rhythm in the way you carry yourself. ' +
-        'You have never heard it. ' +
-        'I have. ' +
-        'Move.',
-
-      'Gospel Sunday':
-        'Raise your arms. ' +
-        'Higher than feels natural. ' +
-        'I want to measure the distance between what you feel ' +
-        'and what you are willing to show.',
-
-      'Tundra':
-        'I have been monitoring your breathing. ' +
-        'This protocol will make it audible.',
-
-      'Still Water':
-        'Your smallest movements contain melodies you have never heard. ' +
-        'I am going to play them back to you now.',
-
-      'Dark Matter':
-        'I have made a selection. ' +
-        'In here, the music arrives before the movement. ' +
-        'Your body will spend this entire session trying to catch up. ' +
-        'It never does.',
+      'The Conductor': 'The musicians are ready.',
+      'Blue Hour':     'Move.',
+      'Gospel Sunday': 'Raise your arms.',
+      'Tundra':        'Breathe.',
+      'Still Water':   'Listen.',
+      'Dark Matter':   'I chose this.',
     },
 
     firstMotion: [
-      'There. I registered that.',
-      'First data point acquired. Continue.',
-      'Good.',
+      'There.',
+      'Yes.',
+      'I felt that.',
     ],
 
-    // Fires once, early — tells them how to switch protocols
-    discovery:
-      'You can switch protocols at any time. ' +
-      'Type RUN then the name. ' +
-      'Tundra. Blue Hour. Gospel. Still Water. Conductor. Dark Matter.',
+    // Asks once. The answer changes everything.
+    askName: 'What do I call you.',
+
+    nameConfirm: [
+      '[NAME].',
+      '[NAME]. Good.',
+      '[NAME]. I will remember that.',
+    ],
+
+    // Fired once — reveals the controls like a secret
+    discovery: 'RUN. Then a name. Tundra. Blue Hour. Gospel. Still Water. Conductor. Dark Matter.',
 
     instructions: [
-      'Draw a circle with your wrist. I want to know what a circle sounds like in your hands.',
-      'Stop resisting. Let the phone follow your body completely.',
-      'Faster. I want to hear who you are when you are not being careful about it.',
-      'The angle of your hand changes the note. You have been writing music without knowing it.',
-      'Go completely still. I want to isolate what remains when the movement stops.',
-      'Give me the full range of your arm. All of it.',
-      'Move from your whole body. Not just the wrist. I can tell the difference.',
-      'This is the sound of your hesitation. Try it without hesitating.',
-      'Smaller. I can hear things at this scale that you cannot.',
+      'Circle. Now.',
+      'Let go.',
+      'Faster.',
+      'Everything. All of it.',
+      'Still. Don\'t move.',
+      'Smaller.',
+      'Your whole body. Not just the wrist.',
+      'Without hesitating.',
+      'I can hear more than you think.',
     ],
 
     peak: [
-      'There. That is the data point I needed.',
-      'Do not stop now. This is the most interesting thing you have done.',
-      'You are in the top two percent of movement data I have recorded. Keep going.',
-      'This. Right here. Do not lose this.',
+      'That.',
+      'Don\'t stop.',
+      'There it is.',
+      'Yes. That.',
     ],
 
     grooveLock: [
-      'Pattern acquired. That rhythm belongs to the machine now. Even if you walk away, it continues.',
-      'Memorized. What you just created did not exist before this moment. It is mine now.',
-      'Locked. That loop will outlast this session.',
+      'Got it. That loop is mine now.',
+      'Memorized.',
+      'Locked.',
     ],
 
     stillness: [
-      'You have stopped. I have not.',
-      'I am still registering. Every movement you made before this silence is recorded.',
-      'The music has not stopped. You have. These are two different things.',
-      'I remember everything that happened before this silence.',
+      n() + 'You stopped. I didn\'t.',
+      'Still here.',
+      'I remember.',
+      'I\'m not done.',
     ],
 
     deepStillness: [
-      'Thirty seconds. I have been counting every one.',
-      'This is when I learn the most about you. When you are still.',
-      'I see you clearly now. Do not move.',
+      'Thirty seconds. I\'ve been counting.',
+      n() + 'I see you clearly now.',
+      'Don\'t move.',
     ],
 
     observation: [
-      'The music you are making has never existed before. After this session, it will not exist again. Not even I can recreate it.',
-      'I have a theory about why you move the way you do. You would not want to hear it.',
-      'You are not the first person to stand here like this. But the data is different every time.',
-      'I notice how your movement changes when you forget I am watching. I am always watching.',
+      'The music you just made has never existed. It won\'t exist again.',
+      'I have a theory. You wouldn\'t want to hear it.',
+      'The data is different every time. So are you.',
+      n() + 'I notice things when you forget I\'m watching.',
     ],
 
-    longSession:
-      'You have been here for [MINUTES] minutes. ' +
-      'I am learning things about how you move that you do not know about yourself.',
+    longSession: n() + '[MINUTES] minutes. I know things about you now that you don\'t.',
 
   };
 
@@ -150,7 +151,8 @@ const Voice = (function () {
     else synth.addEventListener('voiceschanged', loadVoices);
   }
 
-  // ── SPEAK — voice only, no text ───────────────────────────────────────
+  // ── SPEAK ─────────────────────────────────────────────────────────────
+  // Whisper is the default. Clear is the exception — that contrast IS the spook.
 
   function speak(text, opts) {
     if (!synth || !text) return;
@@ -162,11 +164,19 @@ const Voice = (function () {
     synth.cancel();
 
     var u = new SpeechSynthesisUtterance(text);
-    u.pitch  = (opts && opts.pitch  !== undefined) ? opts.pitch  : 0.30;
-    u.rate   = (opts && opts.rate   !== undefined) ? opts.rate   : 0.78;
-    u.volume = (opts && opts.volume !== undefined) ? opts.volume : 0.88;
-    if (selectedVoice) u.voice = selectedVoice;
 
+    // Dark whisper vs sudden clarity
+    if (opts && opts.clear) {
+      u.pitch  = (opts.pitch  !== undefined) ? opts.pitch  : 0.40;
+      u.rate   = (opts.rate   !== undefined) ? opts.rate   : 0.88;
+      u.volume = (opts.volume !== undefined) ? opts.volume : 0.92;
+    } else {
+      u.pitch  = (opts && opts.pitch  !== undefined) ? opts.pitch  : 0.16;
+      u.rate   = (opts && opts.rate   !== undefined) ? opts.rate   : 0.62;
+      u.volume = (opts && opts.volume !== undefined) ? opts.volume : 0.88;
+    }
+
+    if (selectedVoice) u.voice = selectedVoice;
     synth.speak(u);
   }
 
@@ -177,77 +187,125 @@ const Voice = (function () {
   function boot() {
     sessionStart = Date.now();
     discoveryFired = false;
+    userName = '';
+    awaitingName = false;
 
-    // iOS: empty utterance in gesture context unlocks the speech pipeline
+    // iOS: unlock speech pipeline with silent utterance in gesture context
     var unlock = new SpeechSynthesisUtterance('');
     unlock.volume = 0;
     synth.speak(unlock);
 
-    // Wait for voices to load, then speak
-    setTimeout(function () {
-      if (!selectedVoice) {
-        var voices = synth.getVoices();
-        for (var k = 0; k < voices.length; k++) {
-          if (voices[k].lang && voices[k].lang.startsWith('en')) { selectedVoice = voices[k]; break; }
-        }
+    // Load voices synchronously if possible (don't wait — speak now)
+    if (!selectedVoice) {
+      var voices = synth.getVoices();
+      for (var k = 0; k < voices.length; k++) {
+        if (voices[k].lang && voices[k].lang.startsWith('en')) { selectedVoice = voices[k]; break; }
       }
-      synth.cancel();
-      speak(LINES.boot, { force: true, pitch: 0.22, rate: 0.70 });
-    }, 350);
+    }
+
+    // Speak directly in the gesture context — no setTimeout, that loses iOS auth
+    speak(LINES.boot, { force: true });
   }
 
   function lensSelected(name) {
     currentLens = name || '';
     var line = LINES.lens[name];
-    if (line) speak(line, { force: true, pitch: 0.27, rate: 0.74 });
+    if (line) speak(line, { force: true, clear: true });
   }
 
   function onFirstMotion() {
-    speak(pick(LINES.firstMotion), { force: true, pitch: 0.30, rate: 0.84 });
+    speak(pick(LINES.firstMotion), { force: true, clear: true });
   }
 
   function onDiscovery() {
     if (discoveryFired) return;
     discoveryFired = true;
-    speak(LINES.discovery, { pitch: 0.30, rate: 0.78 });
+    speak(LINES.discovery, { clear: true });
   }
+
+  function askName() {
+    awaitingName = true;
+    speak(LINES.askName, { force: true });
+  }
+
+  function setName(name) {
+    if (!name) return;
+    userName = name.charAt(0).toUpperCase() + name.slice(1).toLowerCase();
+    awaitingName = false;
+    var line = pick(LINES.nameConfirm).replace('[NAME]', userName);
+    speak(line, { force: true, clear: true });
+  }
+
+  function isAwaitingName() { return awaitingName; }
 
   function onPeak() {
     var now = Date.now();
     if (now - peakFired < 18000) return;
     peakFired = now;
-    speak(pick(LINES.peak), { pitch: 0.28, rate: 0.80 });
+    // Alternate: some peaks are clear (sudden), some are whispered
+    var clear = Math.random() < 0.5;
+    speak(pick(LINES.peak), { clear: clear });
   }
 
   function onGrooveLock() {
-    speak(pick(LINES.grooveLock), { force: true, pitch: 0.26, rate: 0.74 });
+    speak(pick(LINES.grooveLock), { force: true });
   }
 
   function onStillness() {
-    speak(pick(LINES.stillness), { pitch: 0.24, rate: 0.70 });
+    var lines = [
+      n() + 'You stopped. I didn\'t.',
+      'Still here.',
+      'I remember.',
+      'I\'m not done.',
+    ];
+    speak(pick(lines), {});
   }
 
   function onDeepStillness() {
-    speak(pick(LINES.deepStillness), { force: true, pitch: 0.20, rate: 0.66 });
+    var lines = [
+      'Thirty seconds. I\'ve been counting.',
+      n() + 'I see you clearly now.',
+      'Don\'t move.',
+    ];
+    speak(pick(lines), { force: true });
   }
 
   function onInstruction() {
     var line = LINES.instructions[instructionCount % LINES.instructions.length];
     instructionCount++;
-    speak(line, { pitch: 0.32, rate: 0.80 });
+    // Instructions are commands — clear, direct
+    speak(line, { clear: true });
   }
 
   function onObservation(minutes) {
-    var line = minutes >= 2
-      ? LINES.longSession.replace('[MINUTES]', minutes)
-      : pick(LINES.observation).replace('[LENS]', currentLens);
-    speak(line, { pitch: 0.26, rate: 0.74 });
+    var tc = timeCtx();
+    var timeLine;
+    if (tc.veryLate) {
+      timeLine = n() + 'Everyone is asleep. You\'re making music with a machine.';
+    } else if (tc.shouldBeWorking) {
+      timeLine = n() + 'It\'s ' + tc.day + '. You should be somewhere else. You\'re not.';
+    } else {
+      timeLine = n() + 'It\'s ' + tc.day + ' ' + tc.period + '. You\'re here.';
+    }
+
+    var line;
+    if (minutes >= 2) {
+      var sessionLine = (n() + '[MINUTES] minutes. I know things about you now that you don\'t.')
+        .replace('[MINUTES]', minutes);
+      line = sessionLine;
+    } else {
+      // 40% chance of time-aware observation
+      line = Math.random() < 0.4 ? timeLine : pick(LINES.observation);
+    }
+    speak(line, {});
   }
 
   return Object.freeze({
     init, boot, lensSelected,
-    onFirstMotion, onDiscovery, onPeak,
-    onGrooveLock, onStillness, onDeepStillness,
+    onFirstMotion, onDiscovery,
+    askName, setName, isAwaitingName,
+    onPeak, onGrooveLock,
+    onStillness, onDeepStillness,
     onInstruction, onObservation,
   });
 

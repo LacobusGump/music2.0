@@ -46,6 +46,7 @@
   let voicePlayStart = 0;
   let voiceFirstMotion = false;
   let voiceDiscoveryDone = false;
+  let voiceNameAsked = false;
   let voiceLastInstruction = 0;
   let voiceLastObservation = 0;
   let voiceStillnessStart = 0;
@@ -113,24 +114,32 @@
     resizeBoot();
     window.addEventListener('resize', resizeBoot);
 
+    // Single pulsing dot — the entity, watching, waiting
     var t = 0;
     function drawBoot() {
-      bctx.fillStyle = 'rgba(0,0,0,0.14)';
+      bctx.fillStyle = 'rgba(0,0,0,0.10)';
       bctx.fillRect(0, 0, bw, bh);
 
-      var amp = bh * 0.032 * (0.55 + 0.45 * Math.sin(t * 0.42));
+      var cx = bw / 2, cy = bh / 2;
+      var pulse = 0.5 + 0.5 * Math.sin(t * 0.7); // slow breath
+
+      // Outer glow
+      var glowR = 28 + pulse * 18;
+      var grad = bctx.createRadialGradient(cx, cy, 0, cx, cy, glowR);
+      grad.addColorStop(0, 'rgba(0,255,65,' + (0.08 + pulse * 0.06) + ')');
+      grad.addColorStop(1, 'rgba(0,255,65,0)');
       bctx.beginPath();
-      bctx.strokeStyle = 'rgba(0,255,65,0.28)';
-      bctx.lineWidth = 1;
-      for (var i = 0; i <= 320; i++) {
-        var x = (i / 320) * bw;
-        var y = bh / 2
-          + Math.sin((i / 320) * Math.PI * 10 + t * 1.9) * amp
-          + Math.sin((i / 320) * Math.PI * 4  + t * 0.85) * amp * 0.28;
-        if (i === 0) bctx.moveTo(x, y);
-        else bctx.lineTo(x, y);
-      }
-      bctx.stroke();
+      bctx.arc(cx, cy, glowR, 0, Math.PI * 2);
+      bctx.fillStyle = grad;
+      bctx.fill();
+
+      // Core dot
+      var dotR = 3 + pulse * 2.5;
+      bctx.beginPath();
+      bctx.arc(cx, cy, dotR, 0, Math.PI * 2);
+      bctx.fillStyle = 'rgba(0,255,65,' + (0.55 + pulse * 0.40) + ')';
+      bctx.fill();
+
       t += 0.016;
       bootAnimId = requestAnimationFrame(drawBoot);
     }
@@ -318,6 +327,12 @@
       return;
     }
 
+    // Name capture — if the entity asked and this isn't a command, it's a name
+    if (Voice.isAwaitingName() && cmd.indexOf('RUN ') !== 0 && cmd.length < 32) {
+      Voice.setName(cmd.toLowerCase());
+      return;
+    }
+
     if (cmd.indexOf('RUN ') === 0) {
       var query = cmd.slice(4).trim();
       var presets = Lens.PRESETS;
@@ -391,6 +406,7 @@
     voicePlayStart = performance.now();
     voiceFirstMotion = false;
     voiceDiscoveryDone = false;
+    voiceNameAsked = false;
     voiceLastInstruction = 0;
     voiceLastObservation = 0;
     voiceStillnessStart = 0;
@@ -550,6 +566,12 @@
       if (!voiceFirstMotion && vPlaySecs > 4 && vEnergy > 0.3) {
         voiceFirstMotion = true;
         Voice.onFirstMotion();
+      }
+
+      // Name ask — once, ~8s in, after first motion
+      if (voiceFirstMotion && !voiceNameAsked && vPlaySecs > 8) {
+        voiceNameAsked = true;
+        Voice.askName();
       }
 
       // Discovery — once, after ~10s of movement, tells user about RUN commands
