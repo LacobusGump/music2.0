@@ -379,25 +379,28 @@ const Lens = (function () {
 
     for (var i = 0; i < PRESETS.length; i++) {
       var p = PRESETS[i];
-      var card = document.createElement('div');
-      card.className = 'lens-card';
-      card.setAttribute('data-index', i);
-      card.style.setProperty('--accent', p.color);
+      var item = document.createElement('div');
+      item.className = 'protocol-item';
+      item.setAttribute('data-index', i);
 
-      card.innerHTML =
-        '<div class="lens-card-name" style="color:' + p.color + '">' + p.name + '</div>' +
-        '<div class="lens-card-desc">' + p.description + '</div>' +
-        '<div class="lens-card-accent" style="background:' + p.color + '"></div>';
+      var num = (i + 1 < 10 ? '0' : '') + (i + 1);
+      item.innerHTML =
+        '<span class="p-cursor">&#9658;</span>' +
+        '<span class="p-num">' + num + '</span>' +
+        '<div class="p-body">' +
+          '<div class="p-name">' + p.name.toUpperCase() + '</div>' +
+          '<div class="p-desc">' + p.description + '</div>' +
+        '</div>';
 
-      card.addEventListener('touchstart', (function (idx) {
+      item.addEventListener('touchstart', (function (idx) {
         return function (e) { e.stopPropagation(); selectCard(idx); };
       })(i), { passive: true });
 
-      card.addEventListener('click', (function (idx) {
+      item.addEventListener('click', (function (idx) {
         return function (e) { e.stopPropagation(); selectCard(idx); };
       })(i));
 
-      container.appendChild(card);
+      container.appendChild(item);
     }
 
     pickerBuilt = true;
@@ -408,13 +411,16 @@ const Lens = (function () {
     activeIndex = index;
     activeLens = PRESETS[index];
 
-    var cards = document.querySelectorAll('.lens-card');
-    for (var i = 0; i < cards.length; i++) {
-      cards[i].classList.toggle('selected', i === index);
+    var items = document.querySelectorAll('.protocol-item');
+    for (var i = 0; i < items.length; i++) {
+      items[i].classList.toggle('selected', i === index);
     }
 
-    var goBtn = document.getElementById('lens-go');
-    if (goBtn) goBtn.classList.add('visible');
+    // Populate command input
+    var cmdIn = document.getElementById('cmd-input');
+    if (cmdIn) {
+      cmdIn.value = 'RUN ' + activeLens.name.toUpperCase();
+    }
 
     saveToStorage();
   }
@@ -448,10 +454,7 @@ const Lens = (function () {
   function updateIndicator() {
     var el = document.getElementById('lens-indicator');
     if (el && activeLens) {
-      el.textContent = activeLens.name;
-      el.style.color = activeLens.color;
-      el.style.opacity = '1';
-      setTimeout(function () { el.style.opacity = '0.2'; }, 2000);
+      el.textContent = 'PROTOCOL // ' + activeLens.name.toUpperCase();
     }
   }
 
@@ -468,10 +471,6 @@ const Lens = (function () {
         var d = JSON.parse(s);
         if (d.index >= 0 && d.index < PRESETS.length) {
           selectCard(d.index);
-          setTimeout(function () {
-            var cards = document.querySelectorAll('.lens-card');
-            if (cards[d.index]) cards[d.index].scrollIntoView({ behavior: 'smooth', inline: 'center' });
-          }, 100);
         }
       }
     } catch (e) {}

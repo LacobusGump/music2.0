@@ -91,6 +91,55 @@
     window.addEventListener('focus', function () { iosAudioUnlock(); });
   }
 
+  // ── BOOT CANVAS ───────────────────────────────────────────────────────
+  // Pulsing sine wave on the black screen before first tap
+
+  var bootAnimId = null;
+
+  function initBootCanvas() {
+    var bc = document.getElementById('boot-canvas');
+    if (!bc) return;
+    var bctx = bc.getContext('2d');
+    var bw = 0, bh = 0;
+
+    function resizeBoot() {
+      var dpr = window.devicePixelRatio || 1;
+      bw = window.innerWidth; bh = window.innerHeight;
+      bc.width = bw * dpr; bc.height = bh * dpr;
+      bc.style.width = bw + 'px'; bc.style.height = bh + 'px';
+      bctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+    resizeBoot();
+    window.addEventListener('resize', resizeBoot);
+
+    var t = 0;
+    function drawBoot() {
+      bctx.fillStyle = 'rgba(0,0,0,0.14)';
+      bctx.fillRect(0, 0, bw, bh);
+
+      var amp = bh * 0.032 * (0.55 + 0.45 * Math.sin(t * 0.42));
+      bctx.beginPath();
+      bctx.strokeStyle = 'rgba(0,255,65,0.28)';
+      bctx.lineWidth = 1;
+      for (var i = 0; i <= 320; i++) {
+        var x = (i / 320) * bw;
+        var y = bh / 2
+          + Math.sin((i / 320) * Math.PI * 10 + t * 1.9) * amp
+          + Math.sin((i / 320) * Math.PI * 4  + t * 0.85) * amp * 0.28;
+        if (i === 0) bctx.moveTo(x, y);
+        else bctx.lineTo(x, y);
+      }
+      bctx.stroke();
+      t += 0.016;
+      bootAnimId = requestAnimationFrame(drawBoot);
+    }
+    drawBoot();
+  }
+
+  function stopBootCanvas() {
+    if (bootAnimId) { cancelAnimationFrame(bootAnimId); bootAnimId = null; }
+  }
+
   // ── SCREEN TRANSITIONS ───────────────────────────────────────────────
 
   function showScreen(name) {
@@ -135,6 +184,8 @@
       silentSrc.start(0);
     } catch (e) {}
 
+    stopBootCanvas();
+
     // Init Voice in gesture context (iOS requires first speak() inside a user gesture)
     Voice.init();
     Voice.boot();
@@ -166,19 +217,40 @@
   // ── LENS SCREEN ──────────────────────────────────────────────────────
 
   function initLens() {
+    // Command input on the protocol select screen
+    var cmdInput = document.getElementById('cmd-input');
+    if (cmdInput) {
+      cmdInput.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' || e.keyCode === 13) {
+          e.preventDefault();
+          var cmd = this.value.trim().toUpperCase();
+          // Auto-select lens from RUN command if not already selected
+          if (cmd.indexOf('RUN ') === 0) {
+            var query = cmd.slice(4).trim();
+            var presets = Lens.PRESETS;
+            for (var i = 0; i < presets.length; i++) {
+              if (presets[i].name.toUpperCase().indexOf(query) !== -1 ||
+                  query.indexOf(presets[i].name.toUpperCase().split(' ')[0]) !== -1) {
+                Lens.selectCard(i);
+                break;
+              }
+            }
+          }
+          if (Lens.getSelected()) onLensGo();
+        }
+      });
+    }
+
+    // Also wire hidden go button in case something still references it
     var goBtn = document.getElementById('lens-go');
-    if (!goBtn) return;
-
-    goBtn.addEventListener('touchstart', function (e) {
-      e.preventDefault();
-      e.stopPropagation();
-      onLensGo();
-    }, { passive: false });
-
-    goBtn.addEventListener('click', function (e) {
-      e.stopPropagation();
-      onLensGo();
-    });
+    if (goBtn) {
+      goBtn.addEventListener('touchstart', function (e) {
+        e.preventDefault(); e.stopPropagation(); onLensGo();
+      }, { passive: false });
+      goBtn.addEventListener('click', function (e) {
+        e.stopPropagation(); onLensGo();
+      });
+    }
   }
 
   function onLensGo() {
@@ -204,6 +276,80 @@
 
     showScreen(SCREENS.PLAY);
     startPlayScreen();
+  }
+
+  // ── FLASH ─────────────────────────────────────────────────────────────
+
+  function flashScreen(color) {
+    var el = document.getElementById('flash');
+    if (!el) return;
+    el.style.background = color;
+    el.style.opacity = '0.5';
+    setTimeout(function () { el.style.transition = 'opacity 0.6s'; el.style.opacity = '0'; }, 80);
+    setTimeout(function () { el.style.transition = ''; }, 700);
+  }
+
+  // ── PLAY COMMAND INTERFACE ────────────────────────────────────────────
+
+  function initPlayCmd() {
+    var input = document.getElementById('play-cmd-input');
+    if (!input) return;
+    input.addEventListener('keydown', function (e) {
+      if (e.key !== 'Enter' && e.keyCode !== 13) return;
+      e.preventDefault();
+      var cmd = this.value.trim().toUpperCase();
+      this.value = '';
+      this.blur();
+      handlePlayCommand(cmd);
+    });
+  }
+
+  function handlePlayCommand(cmd) {
+    if (cmd === 'STOP') {
+      showScreen(SCREENS.LENS);
+      return;
+    }
+
+    if (cmd.indexOf('RUN ') === 0) {
+      var query = cmd.slice(4).trim();
+      var presets = Lens.PRESETS;
+      var found = null;
+
+      // Exact match first
+      for (var i = 0; i < presets.length; i++) {
+        if (presets[i].name.toUpperCase() === query) { found = i; break; }
+      }
+      // Partial match
+      if (found === null) {
+        for (var j = 0; j < presets.length; j++) {
+          if (presets[j].name.toUpperCase().indexOf(query) !== -1 ||
+              query.indexOf(presets[j].name.toUpperCase().split(' ')[0]) !== -1) {
+            found = j; break;
+          }
+        }
+      }
+
+      if (found !== null) {
+        Lens.selectCard(found);
+        var lens = Lens.getSelected();
+        Audio.configure(lens);
+        Follow.applyLens(lens);
+        Organism.applyLens(lens);
+        Voice.lensSelected(lens.name);
+        Lens.updateIndicator();
+
+        // Flash color: Tundra/Still Water/Conductor = blue-white, Dark Matter = red, Gospel = gold
+        var flashColors = {
+          'The Conductor':  '#ffffff',
+          'Blue Hour':      '#0033ff',
+          'Gospel Sunday':  '#ff9900',
+          'Tundra':         '#aaddff',
+          'Still Water':    '#00ffaa',
+          'Dark Matter':    '#ff0000',
+        };
+        flashScreen(flashColors[lens.name] || '#00FF41');
+      }
+    }
   }
 
   // ── PLAY SCREEN ──────────────────────────────────────────────────────
@@ -518,9 +664,11 @@
 
   function boot() {
     initAudioWatchdog();
+    initBootCanvas();
     initCanvas();
     initListen();
     initLens();
+    initPlayCmd();
     initPlayTouch();
   }
 
