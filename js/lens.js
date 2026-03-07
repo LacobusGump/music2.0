@@ -71,6 +71,13 @@ const Lens = (function () {
         filterRange: [250, 2800],
         densityThresholds: [0.3, 1.0, 2.5],
       },
+
+      // How your body drives the music — makes this lens feel physically unique
+      motion: {
+        primary: 'tilt_rate',  // waving motion rate — like a conductor's baton
+        melodic: 'gamma',      // tilt phone left/right = pitch (horizontal conducting)
+        sensitivity: 1.0,
+      },
     },
 
     // ─── 2. BLUE HOUR ────────────────────────────────────────────────
@@ -127,6 +134,12 @@ const Lens = (function () {
         fadeTime: 3.5,
         filterRange: [200, 2200],
         densityThresholds: [0.2, 0.8, 2.0],
+      },
+
+      motion: {
+        primary: 'bounce',     // vertical Z-axis bounce — your walk IS the bass
+        melodic: 'beta',       // lean forward/back = walking bass note
+        sensitivity: 1.2,
       },
     },
 
@@ -185,6 +198,12 @@ const Lens = (function () {
         filterRange: [300, 2800],
         densityThresholds: [0.3, 1.2, 3.0],
       },
+
+      motion: {
+        primary: 'sustained',  // medium-term energy — holding builds the choir
+        melodic: 'beta',       // raise the phone = raise the choir (arms up = higher)
+        sensitivity: 0.9,
+      },
     },
 
     // ─── 4. TUNDRA ───────────────────────────────────────────────────
@@ -236,6 +255,12 @@ const Lens = (function () {
         fadeTime: 5.0,           // long fade — sound lingers
         filterRange: [250, 3000],
         densityThresholds: [0.2, 0.6, 1.5],
+      },
+
+      motion: {
+        primary: 'magnitude',  // standard — but very sparse, silence matters
+        melodic: 'gamma',      // point the phone = choose your note (compass)
+        sensitivity: 0.7,
       },
     },
 
@@ -296,6 +321,12 @@ const Lens = (function () {
         filterRange: [200, 2500],
         densityThresholds: [0.15, 0.5, 1.5],
       },
+
+      motion: {
+        primary: 'impulse',    // instantaneous micro peaks — react to every hit
+        melodic: 'speed',      // faster movement = higher FM pitch
+        sensitivity: 1.5,
+      },
     },
 
     // ─── 6. DARK MATTER ──────────────────────────────────────────────
@@ -352,6 +383,12 @@ const Lens = (function () {
         fadeTime: 4.0,           // long fade — delay tails linger
         filterRange: [300, 2800],
         densityThresholds: [0.2, 0.8, 2.0],
+      },
+
+      motion: {
+        primary: 'flow',       // blended smooth energy — no sudden spikes
+        melodic: 'gamma',      // wide sweeping tilt = cascading pitch changes
+        sensitivity: 1.0,
       },
     },
   ];

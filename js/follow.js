@@ -93,6 +93,16 @@ const Follow = (function () {
   var noteCount = 0;
   var errorCount = 0;
 
+  // GROOVE CRYSTALLIZATION STATE
+  var grooveBuf = [];
+  var grooveLoop = null;
+  var grooveBarLen = 2000;
+  var grooveStart = 0;
+  var grooveIteration = -1;
+  var grooveStrength = 0;
+  var groovePlaying = false;
+  var grooveIsPlayback = false;
+
   // ── TEMPO LOCK SYSTEM ─────────────────────────────────────────────────
   // Like a musician who catches your groove and plays WITH you.
   // Once your motion has a pattern, the music LOCKS to your rhythm
@@ -445,6 +455,91 @@ const Follow = (function () {
     }
   }
 
+  // PER-LENS MOTION DRIVER: each lens uses a different sensor signal as its primary mag
+  function getLensMag(brainState, sensor) {
+    if (!lens || !lens.motion) return brainState.energy;
+    var s = lens.motion.sensitivity || 1.0;
+    switch (lens.motion.primary) {
+      case "tilt_rate": return Brain.short.energy() * s;
+      case "bounce":    return Math.min(3, Math.abs(Brain.linearAccel.z) * 0.65) * s;
+      case "sustained": return Brain.medium.energy() * s;
+      case "impulse":   return Math.min(3, Brain.micro.peak() * 0.55) * s;
+      case "flow":      return (Brain.short.energy() * 0.35 + Brain.medium.energy() * 0.65) * s;
+      default:          return brainState.energy * s;
+    }
+  }
+
+  // GROOVE CRYSTALLIZATION
+  function grooveRecord(type, data) {
+    if (!tempoLocked || isSilent || grooveIsPlayback || grooveBarLen < 200) return;
+    var now = performance.now();
+    var pos = ((now - grooveStart) % grooveBarLen) / grooveBarLen;
+    grooveBuf.push({ t: now, pos: pos, type: type, data: data });
+    var cutoff = now - grooveBarLen * 2.1; var i = 0;
+    while (i < grooveBuf.length && grooveBuf[i].t < cutoff) i++;
+    if (i > 0) grooveBuf.splice(0, i);
+  }
+
+  function grooveConsistency() {
+    if (grooveBuf.length < 4 || grooveBarLen < 200) return 0;
+    var now = performance.now(); var bar1 = [], bar2 = [];
+    for (var i = 0; i < grooveBuf.length; i++) {
+      var age = now - grooveBuf[i].t;
+      if (age < grooveBarLen) bar1.push(grooveBuf[i].pos);
+      else if (age < grooveBarLen * 2) bar2.push(grooveBuf[i].pos);
+    }
+    if (bar1.length < 2 || bar2.length < 2) return 0;
+    var matched = 0;
+    for (var a = 0; a < bar1.length; a++)
+      for (var b = 0; b < bar2.length; b++)
+        if (Math.abs(bar1[a] - bar2[b]) < 0.12) { matched++; break; }
+    return matched / Math.max(bar1.length, bar2.length);
+  }
+
+  function grooveUpdate(now) {
+    if (!tempoLocked) {
+      grooveStrength *= 0.97;
+      if (grooveStrength < 0.05) { groovePlaying = false; grooveLoop = null; grooveStrength = 0; grooveBuf = []; }
+      return;
+    }
+    grooveBarLen = lockedInterval * 4;
+    if (grooveStart === 0) grooveStart = now;
+    var consistency = grooveConsistency();
+    grooveStrength += consistency > 0.55 ? 0.005 : -0.008;
+    grooveStrength = Math.max(0, Math.min(1, grooveStrength));
+    if (grooveStrength > 0.75 && !groovePlaying) {
+      var cutoff = now - grooveBarLen; grooveLoop = [];
+      for (var i = 0; i < grooveBuf.length; i++)
+        if (grooveBuf[i].t > cutoff) grooveLoop.push({ pos: grooveBuf[i].pos, type: grooveBuf[i].type, data: grooveBuf[i].data, played: false });
+      grooveIteration = Math.floor((now - grooveStart) / grooveBarLen);
+      groovePlaying = true;
+      console.log("[Groove] Crystallized " + grooveLoop.length + " events");
+    }
+    if (grooveStrength < 0.15 && groovePlaying) { groovePlaying = false; grooveLoop = null; }
+    if (!groovePlaying || !grooveLoop || isSilent || fadeGain < 0.15) return;
+    var iter = Math.floor((now - grooveStart) / grooveBarLen);
+    if (iter > grooveIteration) { for (var j = 0; j < grooveLoop.length; j++) grooveLoop[j].played = false; grooveIteration = iter; }
+    var barPos = ((now - grooveStart) % grooveBarLen) / grooveBarLen;
+    for (var k = 0; k < grooveLoop.length; k++) {
+      var ev = grooveLoop[k];
+      if (!ev.played && barPos >= ev.pos - 0.025 && barPos < ev.pos + 0.065) { ev.played = true; groovePlay(ev); }
+    }
+  }
+
+  function groovePlay(ev) {
+    if (!Audio.ctx) return;
+    var time = Audio.ctx.currentTime;
+    var vel = Math.min(1, (ev.data.vel || 0.3) * Math.min(1, fadeGain) * 0.72);
+    grooveIsPlayback = true;
+    try {
+      if      (ev.type === "note")  Audio.synth.play(ev.data.voice, time, ev.data.freq, vel, ev.data.decay || 0.5);
+      else if (ev.type === "kick")  Audio.drum.kick(time, vel, ev.data.kit || "acoustic");
+      else if (ev.type === "snare") Audio.drum.snare(time, vel, ev.data.kit || "acoustic");
+      else if (ev.type === "hat")   Audio.drum.hat(time, vel, ev.data.kit || "acoustic");
+    } catch(e) {}
+    grooveIsPlayback = false;
+  }
+
   // ── INIT ──────────────────────────────────────────────────────────────
 
   function init() {
@@ -569,12 +664,15 @@ const Follow = (function () {
 
         if (drumVel > 0.5) {
           Audio.drum.kick(time, drumVel * 0.8, kit);
+          grooveRecord("kick", { vel: drumVel * 0.8, kit: kit });
         }
         if (drumVel > 0.4 && peakCount % 2 === 0) {
           Audio.drum.snare(time, drumVel * 0.6, kit);
+          grooveRecord("snare", { vel: drumVel * 0.6, kit: kit });
         }
         if (drumVel > 0.15) {
           Audio.drum.hat(time, drumVel * 0.4, kit);
+          grooveRecord("hat", { vel: drumVel * 0.4, kit: kit });
         }
       }
 
@@ -672,9 +770,19 @@ const Follow = (function () {
     if (!lens || !Audio.ctx) return;
 
     var tiltRange = (lens.response && lens.response.tiltRange) || 50;
-    var beta = sensor.beta || 0;
+    var melodicDriver = (lens.motion && lens.motion.melodic) || "beta";
+    var tiltVal;
+    if (melodicDriver === "gamma") {
+      tiltVal = (sensor.gamma || 0);
+    } else if (melodicDriver === "speed") {
+      // Pocket Drummer: movement speed = pitch (faster = higher)
+      var spd = Math.sqrt(Math.pow(Brain.linearAccel.x||0,2) + Math.pow(Brain.linearAccel.y||0,2));
+      tiltVal = Math.min(45, spd * 20) - 22; // center around 0
+    } else {
+      tiltVal = (sensor.beta || 45) - 45; // default: beta centered
+    }
 
-    var tiltOffset = (beta - 45) / (tiltRange / 2);
+    var tiltOffset = tiltVal / (tiltRange / 2);
     targetDegree = Math.round(tiltOffset * 7);
 
     if (targetDegree !== currentDegree && !isSilent && fadeGain > 0.3) {
@@ -693,6 +801,7 @@ const Follow = (function () {
           try {
             Audio.synth.play(cont.voice || 'epiano', Audio.ctx.currentTime, freq, vel, cont.decay || 0.8);
             noteCount++;
+            grooveRecord("note", { voice: cont.voice || "epiano", freq: freq, vel: vel, decay: cont.decay || 0.8 });
           } catch (e) { errorCount++; }
         }
       }
@@ -883,7 +992,7 @@ const Follow = (function () {
     if (!active || !lens) return;
 
     var now = performance.now();
-    var mag = brainState.energy || 0;
+    var mag = getLensMag(brainState, sensor);
 
     pushAccel(mag);
 
@@ -931,6 +1040,9 @@ const Follow = (function () {
     if (Audio.ctx) {
       Audio.setMasterGain(0.8 * fadeGain);
     }
+
+    // Groove crystallization — detect repeating patterns, lock as autonomous loop
+    grooveUpdate(now);
 
     lastUpdateTime = now;
   }
@@ -1028,6 +1140,8 @@ const Follow = (function () {
     get degree() { return currentDegree; },
     get energy() { return energySmooth; },
     get ctxState() { return Audio.ctx ? Audio.ctx.state : 'none'; },
+    get groovePlaying() { return groovePlaying; },
+    get grooveStrength() { return grooveStrength; },
     get locked() { return tempoLocked; },
     get lockStr() { return lockStrength; },
     get archetype() { return archetype; },

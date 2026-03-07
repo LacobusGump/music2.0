@@ -431,6 +431,7 @@
       'PATTERN: ' + Brain.pattern + ' | TOTAL: ' + Brain.totalMotion.toFixed(0),
       'MOTION: ' + (sensor.hasMotion ? 'YES' : 'NO') + ' | ORIENT: ' + (sensor.hasOrientation ? 'YES' : 'NO'),
       'AUDIO: ' + Follow.ctxState + ' | ERRORS: ' + Follow.errors + '+' + loopErrors,
+      'GROOVE: ' + (Follow.groovePlaying ? 'LOCKED' : 'listening (' + (Follow.grooveStrength * 100).toFixed(0) + '%)'),
     ];
 
     el.textContent = lines.join('\n');
