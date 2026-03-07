@@ -42,6 +42,15 @@
   let prevTouchX = 0, prevTouchY = 0, prevTouchTime = 0;
   let touchVX = 0, touchVY = 0;
 
+  // Voice state
+  let voicePlayStart = 0;
+  let voiceFirstMotion = false;
+  let voiceLastInstruction = 0;
+  let voiceLastObservation = 0;
+  let voiceStillnessStart = 0;
+  let voiceDeepStillnessFired = false;
+  let voicePrevGroove = false;
+
   // ── iOS AUDIO WATCHDOG ────────────────────────────────────────────────
   // iOS kills AudioContext whenever the app loses focus: lock screen, background,
   // phone call, notification center, control center, etc.
@@ -126,6 +135,10 @@
       silentSrc.start(0);
     } catch (e) {}
 
+    // Init Voice in gesture context (iOS requires first speak() inside a user gesture)
+    Voice.init();
+    Voice.boot();
+
     // Init sensor permissions
     Sensor.init().then(function () {
       // Init subsystems
@@ -186,6 +199,9 @@
       console.error('applyLens:', e);
     }
 
+    // Voice speaks the lens intro as you enter play
+    Voice.lensSelected(lens.name);
+
     showScreen(SCREENS.PLAY);
     startPlayScreen();
   }
@@ -208,12 +224,23 @@
           if (data.neuron === 'toss' || data.neuron === 'shake') {
             Organism.addMutation(data.energy);
           }
+          // Voice reacts to high-energy peaks
+          if (data.energy > 1.8) Voice.onPeak();
         } catch (e) { console.error('spike handler:', e); }
       });
       spikeWired = true;
     }
 
     swipeHintTimer = 0;
+
+    // Reset voice state for this session
+    voicePlayStart = performance.now();
+    voiceFirstMotion = false;
+    voiceLastInstruction = 0;
+    voiceLastObservation = 0;
+    voiceStillnessStart = 0;
+    voiceDeepStillnessFired = false;
+    voicePrevGroove = false;
 
     // Start the main loop
     lastFrame = performance.now();
@@ -288,6 +315,8 @@
         if (dx > 60) Lens.prevLens();
         else if (dx < -60) Lens.nextLens();
         Organism.applyLens(Lens.active);
+        // Voice announces the new lens
+        if (Lens.active) Voice.lensSelected(Lens.active.name);
       }
 
       swiping = false;
@@ -357,10 +386,53 @@
       // 6. Render
       render(dt);
 
-      // 7. Debug
+      // 7. Voice — the presence monitors everything
+      var vNow = performance.now();
+      var vPlaySecs = (vNow - voicePlayStart) / 1000;
+      var vEnergy = Brain.energy;
+
+      // First motion detected
+      if (!voiceFirstMotion && vPlaySecs > 4 && vEnergy > 0.3) {
+        voiceFirstMotion = true;
+        Voice.onFirstMotion();
+      }
+
+      // Groove lock transition
+      var vGrooving = Follow.groovePlaying;
+      if (vGrooving && !voicePrevGroove) Voice.onGrooveLock();
+      voicePrevGroove = vGrooving;
+
+      // Stillness tracking
+      if (Follow.silent && voiceFirstMotion) {
+        if (!voiceStillnessStart) voiceStillnessStart = vNow;
+        var vStillSecs = (vNow - voiceStillnessStart) / 1000;
+        if (vStillSecs > 30 && !voiceDeepStillnessFired) {
+          voiceDeepStillnessFired = true;
+          Voice.onDeepStillness();
+        } else if (vStillSecs > 13 && vStillSecs < 15) {
+          Voice.onStillness();
+        }
+      } else {
+        voiceStillnessStart = 0;
+        voiceDeepStillnessFired = false;
+      }
+
+      // Instruction prompts — every 45 seconds during activity
+      if (voiceFirstMotion && vPlaySecs - voiceLastInstruction > 45 && !Follow.silent) {
+        voiceLastInstruction = vPlaySecs;
+        Voice.onInstruction();
+      }
+
+      // Late-session observations — after 90s, every 2 minutes
+      if (vPlaySecs > 90 && vPlaySecs - voiceLastObservation > 120) {
+        voiceLastObservation = vPlaySecs;
+        Voice.onObservation(Math.floor(vPlaySecs / 60));
+      }
+
+      // 8. Debug
       if (debugVisible) updateDebug(sensor);
 
-      // 8. Swipe hint fades after 5s
+      // 10. Swipe hint fades after 5s
       swipeHintTimer += dt;
       if (swipeHintTimer > 5) {
         var hint = document.getElementById('swipe-hint');
