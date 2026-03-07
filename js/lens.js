@@ -35,11 +35,11 @@ const Lens = (function () {
       },
 
       space: {
-        reverb: { decay: 5.0, damping: 0.2 },
-        delay: { feedback: 0.3, filter: 1400, sync: 'dotted-eighth' },
+        reverb: { decay: 7.0, damping: 0.1 },
+        delay: { feedback: 0.25, filter: 1400, sync: 'dotted-eighth' },
         saturation: 0.12,
         type: 'cathedral',
-        reverbMix: 0.55,
+        reverbMix: 0.65,
       },
 
       palette: {
@@ -62,21 +62,21 @@ const Lens = (function () {
       },
 
       response: {
-        peakThreshold: 2.0,
-        tiltRange: 50,
-        noteInterval: 150,
+        peakThreshold: 2.5,      // needs a real conductor gesture
+        tiltRange: 55,
+        noteInterval: 280,       // slow — every note counts
         stillnessThreshold: 0.2,
-        stillnessTimeout: 2.5,
-        fadeTime: 4.0,
+        stillnessTimeout: 5.0,   // orchestra sustains after you stop
+        fadeTime: 7.0,           // long fade — hall reverb lingers,
         filterRange: [250, 2800],
         densityThresholds: [0.3, 1.0, 2.5],
       },
 
       // How your body drives the music — makes this lens feel physically unique
       motion: {
-        primary: 'tilt_rate',  // waving motion rate — like a conductor's baton
-        melodic: 'gamma',      // tilt phone left/right = pitch (horizontal conducting)
-        sensitivity: 1.0,
+        primary: 'tilt_rate',
+        melodic: 'gamma',
+        sensitivity: 1.2,
       },
     },
 
@@ -126,12 +126,12 @@ const Lens = (function () {
       },
 
       response: {
-        peakThreshold: 1.5,
+        peakThreshold: 1.0,      // sensitive — picks up footsteps
         tiltRange: 40,
-        noteInterval: 180,
-        stillnessThreshold: 0.15,
-        stillnessTimeout: 2.0,
-        fadeTime: 3.5,
+        noteInterval: 220,       // conversational jazz pace
+        stillnessThreshold: 0.12,
+        stillnessTimeout: 3.5,   // jazz breathes, doesnt rush to silence
+        fadeTime: 5.0,
         filterRange: [200, 2200],
         densityThresholds: [0.2, 0.8, 2.0],
       },
@@ -162,11 +162,11 @@ const Lens = (function () {
       },
 
       space: {
-        reverb: { decay: 4.5, damping: 0.15 },
-        delay: { feedback: 0.25, filter: 1200, sync: 'quarter' },
+        reverb: { decay: 6.0, damping: 0.1 },
+        delay: { feedback: 0.2, filter: 1200, sync: 'quarter' },
         saturation: 0.2,
         type: 'cathedral',
-        reverbMix: 0.6,
+        reverbMix: 0.7,
       },
 
       palette: {
@@ -189,12 +189,12 @@ const Lens = (function () {
       },
 
       response: {
-        peakThreshold: 1.8,
+        peakThreshold: 1.5,
         tiltRange: 45,
-        noteInterval: 130,
-        stillnessThreshold: 0.2,
-        stillnessTimeout: 2.0,
-        fadeTime: 3.0,
+        noteInterval: 100,       // eager, responsive
+        stillnessThreshold: 0.18,
+        stillnessTimeout: 5.0,   // spirit sustains long after you stop
+        fadeTime: 6.0,           // choir fades slowly,
         filterRange: [300, 2800],
         densityThresholds: [0.3, 1.2, 3.0],
       },
@@ -225,11 +225,11 @@ const Lens = (function () {
       },
 
       space: {
-        reverb: { decay: 6.0, damping: 0.1 },
-        delay: { feedback: 0.55, filter: 2200, sync: 'dotted-eighth' },
-        saturation: 0.05,
+        reverb: { decay: 9.0, damping: 0.05 },
+        delay: { feedback: 0.6, filter: 2400, sync: 'dotted-eighth' },
+        saturation: 0.02,
         type: 'infinite',
-        reverbMix: 0.85,
+        reverbMix: 0.95,
       },
 
       palette: {
@@ -247,20 +247,20 @@ const Lens = (function () {
       },
 
       response: {
-        peakThreshold: 1.0,
-        tiltRange: 60,
-        noteInterval: 400,       // very slow — one note at a time
-        stillnessThreshold: 0.1,
-        stillnessTimeout: 1.5,
-        fadeTime: 5.0,           // long fade — sound lingers
+        peakThreshold: 0.55,     // whisper sensitive — tiny moves make sound
+        tiltRange: 70,
+        noteInterval: 800,       // one note per breath
+        stillnessThreshold: 0.07,
+        stillnessTimeout: 0.5,   // silence comes quickly — silence IS music
+        fadeTime: 12.0,          // notes ring forever in the vast space
         filterRange: [250, 3000],
         densityThresholds: [0.2, 0.6, 1.5],
       },
 
       motion: {
-        primary: 'magnitude',  // standard — but very sparse, silence matters
-        melodic: 'gamma',      // point the phone = choose your note (compass)
-        sensitivity: 0.7,
+        primary: 'magnitude',
+        melodic: 'gamma',
+        sensitivity: 0.5,        // subtle movements — no need to thrash
       },
     },
 
@@ -284,12 +284,12 @@ const Lens = (function () {
       },
 
       space: {
-        reverb: { decay: 1.0, damping: 0.6 },
-        delay: { feedback: 0.35, filter: 1600, sync: 'eighth' },
-        saturation: 0.45,
-        sidechain: 0.5,
+        reverb: { decay: 0.2, damping: 0.9 },
+        delay: { feedback: 0.1, filter: 1600, sync: 'eighth' },
+        saturation: 0.6,
+        sidechain: 0.7,
         type: 'intimate',
-        reverbMix: 0.1,
+        reverbMix: 0.03,         // almost totally dry — punchy
       },
 
       palette: {
@@ -312,20 +312,20 @@ const Lens = (function () {
       },
 
       response: {
-        peakThreshold: 1.2,
+        peakThreshold: 0.55,     // hair trigger — every flick counts
         tiltRange: 35,
-        noteInterval: 80,        // fast — responsive to every twitch
-        stillnessThreshold: 0.15,
-        stillnessTimeout: 1.0,
-        fadeTime: 1.5,           // quick fade — drums don't linger
+        noteInterval: 35,        // instant — this is a drum pad
+        stillnessThreshold: 0.12,
+        stillnessTimeout: 0.4,   // silence is immediate
+        fadeTime: 0.7,           // drums stop hard
         filterRange: [200, 2500],
         densityThresholds: [0.15, 0.5, 1.5],
       },
 
       motion: {
-        primary: 'impulse',    // instantaneous micro peaks — react to every hit
-        melodic: 'speed',      // faster movement = higher FM pitch
-        sensitivity: 1.5,
+        primary: 'impulse',
+        melodic: 'speed',
+        sensitivity: 2.0,        // double reactive — you are the drum machine
       },
     },
 
@@ -349,7 +349,7 @@ const Lens = (function () {
 
       space: {
         reverb: { decay: 4.0, damping: 0.3 },
-        delay: { feedback: 0.52, filter: 2000, sync: 'dotted-eighth' },
+        delay: { feedback: 0.64, filter: 2000, sync: 'dotted-eighth' },
         saturation: 0.4,
         type: 'cathedral',
         reverbMix: 0.5,
@@ -375,12 +375,12 @@ const Lens = (function () {
       },
 
       response: {
-        peakThreshold: 1.5,
-        tiltRange: 45,
-        noteInterval: 140,
-        stillnessThreshold: 0.15,
-        stillnessTimeout: 2.0,
-        fadeTime: 4.0,           // long fade — delay tails linger
+        peakThreshold: 1.2,
+        tiltRange: 50,
+        noteInterval: 160,
+        stillnessThreshold: 0.12,
+        stillnessTimeout: 3.0,
+        fadeTime: 6.0,           // dark tails linger and cascade
         filterRange: [300, 2800],
         densityThresholds: [0.2, 0.8, 2.0],
       },
