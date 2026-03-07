@@ -190,12 +190,7 @@ const Voice = (function () {
     userName = '';
     awaitingName = false;
 
-    // iOS: unlock speech pipeline with silent utterance in gesture context
-    var unlock = new SpeechSynthesisUtterance('');
-    unlock.volume = 0;
-    synth.speak(unlock);
-
-    // Load voices synchronously if possible (don't wait — speak now)
+    // Try to load voices now
     if (!selectedVoice) {
       var voices = synth.getVoices();
       for (var k = 0; k < voices.length; k++) {
@@ -203,8 +198,23 @@ const Voice = (function () {
       }
     }
 
-    // Speak directly in the gesture context — no setTimeout, that loses iOS auth
-    speak(LINES.boot, { force: true });
+    // iOS requires the FIRST speak() call in a gesture context.
+    // Queue a silent unlock utterance here (we are in the gesture handler).
+    // When it ends (near-instantly), the pipeline is open — then speak for real.
+    // Do NOT call synth.cancel() before this fires or we kill ourselves.
+    var unlock = new SpeechSynthesisUtterance('');
+    unlock.volume = 0;
+    unlock.onend = function () {
+      // Pipeline confirmed open — speak the boot line
+      var u = new SpeechSynthesisUtterance(LINES.boot);
+      u.pitch  = 0.16;
+      u.rate   = 0.62;
+      u.volume = 0.88;
+      if (selectedVoice) u.voice = selectedVoice;
+      lastSpoke = Date.now();
+      synth.speak(u);
+    };
+    synth.speak(unlock);
   }
 
   function lensSelected(name) {
