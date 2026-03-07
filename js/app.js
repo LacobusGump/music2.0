@@ -45,6 +45,7 @@
   // Voice state
   let voicePlayStart = 0;
   let voiceFirstMotion = false;
+  let voiceDiscoveryDone = false;
   let voiceLastInstruction = 0;
   let voiceLastObservation = 0;
   let voiceStillnessStart = 0;
@@ -209,7 +210,14 @@
         showScreen(SCREENS.PLAY);
         startPlayScreen();
       } else {
-        showScreen(SCREENS.LENS);
+        // The AI has made a selection — go directly to Dark Matter
+        Lens.selectCard(5);
+        var defaultLens = Lens.getSelected();
+        Audio.configure(defaultLens);
+        Follow.applyLens(defaultLens);
+        Organism.applyLens(defaultLens);
+        showScreen(SCREENS.PLAY);
+        startPlayScreen();
       }
     });
   }
@@ -382,6 +390,7 @@
     // Reset voice state for this session
     voicePlayStart = performance.now();
     voiceFirstMotion = false;
+    voiceDiscoveryDone = false;
     voiceLastInstruction = 0;
     voiceLastObservation = 0;
     voiceStillnessStart = 0;
@@ -541,6 +550,12 @@
       if (!voiceFirstMotion && vPlaySecs > 4 && vEnergy > 0.3) {
         voiceFirstMotion = true;
         Voice.onFirstMotion();
+      }
+
+      // Discovery — once, after ~10s of movement, tells user about RUN commands
+      if (voiceFirstMotion && !voiceDiscoveryDone && vPlaySecs > 10) {
+        voiceDiscoveryDone = true;
+        Voice.onDiscovery();
       }
 
       // Groove lock transition
