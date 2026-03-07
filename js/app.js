@@ -42,6 +42,46 @@
   let prevTouchX = 0, prevTouchY = 0, prevTouchTime = 0;
   let touchVX = 0, touchVY = 0;
 
+  // ── iOS AUDIO WATCHDOG ────────────────────────────────────────────────
+  // iOS kills AudioContext whenever the app loses focus: lock screen, background,
+  // phone call, notification center, control center, etc.
+  // Strategy: intercept EVERY touch at the document level (capture phase, before
+  // anything else) and replay the silent buffer trick. This runs in a real iOS
+  // gesture context, so resume() cannot be blocked.
+  // Also hooks visibilitychange + pageshow + focus for lock-screen recovery.
+
+  function iosAudioUnlock() {
+    if (!audioCtx) return;
+    if (audioCtx.state === 'suspended') {
+      audioCtx.resume().catch(function () {});
+    }
+    // Silent buffer is the real unlock — resume() alone isn't enough on older iOS
+    try {
+      var buf = audioCtx.createBuffer(1, 1, audioCtx.sampleRate);
+      var src = audioCtx.createBufferSource();
+      src.buffer = buf;
+      src.connect(audioCtx.destination);
+      src.start(0);
+    } catch (e) {}
+  }
+
+  function initAudioWatchdog() {
+    // Capture phase = fires before any other handler = guaranteed gesture context
+    document.addEventListener('touchstart', iosAudioUnlock, { passive: true, capture: true });
+    document.addEventListener('touchend',   iosAudioUnlock, { passive: true, capture: true });
+
+    // Coming back from lock screen / background
+    document.addEventListener('visibilitychange', function () {
+      if (document.visibilityState === 'visible') iosAudioUnlock();
+    });
+
+    // Page shown after navigation or app switcher
+    window.addEventListener('pageshow', function () { iosAudioUnlock(); });
+
+    // Window focus (desktop + some iOS cases)
+    window.addEventListener('focus', function () { iosAudioUnlock(); });
+  }
+
   // ── SCREEN TRANSITIONS ───────────────────────────────────────────────
 
   function showScreen(name) {
@@ -404,6 +444,7 @@
   // ── BOOT ─────────────────────────────────────────────────────────────
 
   function boot() {
+    initAudioWatchdog();
     initCanvas();
     initListen();
     initLens();
