@@ -688,6 +688,7 @@ const Audio = (function () {
       case 'sub808': synthSub808(time, freq, vel); break;
       case 'choir': synthChoir(time, freq, vel, decay); break;
       case 'formant': synthFormantNote(time, freq, vel, decay); break;
+      case 'vibe': synthVibe(time, freq, vel, decay); break;
       case 'strings': synthStrings(time, freq, vel, decay); break;
       case 'reverse': synthReverse(time, freq, vel, decay); break;
       case 'upright': synthUpright(time, freq, vel); break;
@@ -1111,6 +1112,45 @@ const Audio = (function () {
     var end = time + decay + 0.5;
     o.start(time); o.stop(end); o2.start(time); o2.stop(end);
     morphLfo.start(time); morphLfo.stop(end);
+  }
+
+  // ── VIBRAPHONE — motor tremolo, felt mallet, resonator bars ──────────
+
+  function synthVibe(time, freq, vel, decay) {
+    // Motor tremolo — the spinning discs inside a real vibraphone
+    var motor = ctx.createOscillator();
+    motor.type = 'sine'; motor.frequency.value = 5.8;
+    var motorDepth = ctx.createGain();
+    motorDepth.gain.value = 0.22 * vel;
+    motor.connect(motorDepth);
+
+    // Bar partials: these ratios are specific to metal bar geometry
+    var partials = [1, 3.93, 9.9];
+    var pGains   = [0.6, 0.18, 0.06];
+    var end = time + decay + 0.6;
+
+    var sumGain = ctx.createGain(); sumGain.gain.value = 1;
+    for (var i = 0; i < partials.length; i++) {
+      var o = ctx.createOscillator(); o.type = 'sine';
+      o.frequency.value = freq * partials[i];
+      var g = ctx.createGain(); g.gain.value = pGains[i];
+      o.connect(g); g.connect(sumGain);
+      o.start(time); o.stop(end);
+    }
+
+    // Soft felt mallet attack — not a hard bell strike
+    var env = ctx.createGain();
+    env.gain.setValueAtTime(0, time);
+    env.gain.linearRampToValueAtTime(vel * 1.0, time + 0.014);
+    env.gain.setTargetAtTime(vel * 0.55, time + 0.014, decay * 0.3);
+    env.gain.setTargetAtTime(0.001, time + decay * 0.65, decay * 0.3);
+    motorDepth.connect(env.gain); // motor modulates the envelope amplitude
+
+    var lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 5000; lp.Q.value = 0.3;
+    sumGain.connect(env); env.connect(lp); lp.connect(sidechainGain);
+    var rs = ctx.createGain(); rs.gain.value = 0.55; lp.connect(rs); rs.connect(reverbSend);
+    var ds = ctx.createGain(); ds.gain.value = 0.28; lp.connect(ds); ds.connect(delaySend);
+    motor.start(time); motor.stop(end);
   }
 
   // ── STRINGS — bowed section: slow bow attack, detuned saws ──────────

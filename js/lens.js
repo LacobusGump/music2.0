@@ -73,209 +73,231 @@ const Lens = (function () {
 
     // ─── 2. BLUE HOUR ────────────────────────────────────────────────
     // Kind of Blue. Miles Davis, 1959.
-    // Your walk IS the bass line. Your tilt is the Rhodes.
-    // Brushed snare. Muted trumpet. Space between every note.
+    // Your walk IS the bass line. Rhodes answers. Vibes shimmer between.
+    // Intimate jazz club — dry, warm, and full of space.
+    // The conversation happens in the silences.
     {
       name: 'Blue Hour',
       color: '#1a3a6f',
-      description: "Kind of Blue. Your walk is the bass.",
+      description: "Kind of Blue. Vibes and bass in conversation.",
 
       harmony: { root: 440, mode: 'dorian' },
 
       tone: {
-        bassFreq: 100, bassGain: 5,
-        midFreq: 600, midQ: 0.7, midGain: 0,
-        highFreq: 2000, highGain: -14,
-        ceiling: 2500,
+        bassFreq: 100, bassGain: 7,    // strong bass body
+        midFreq: 500, midQ: 0.7, midGain: 2,   // warm 500Hz bump = upright resonance
+        highFreq: 1800, highGain: -18,   // roll off the top hard — jazz is warm, not bright
+        ceiling: 2200,
       },
 
       space: {
-        reverb: { decay: 3.5, damping: 0.4 },
-        delay: { feedback: 0.38, filter: 1600, sync: 'dotted-eighth' },
-        saturation: 0.12,
+        reverb: { decay: 2.5, damping: 0.5 },   // small intimate room, not a hall
+        delay: { feedback: 0.28, filter: 1200, sync: 'dotted-eighth' },
+        saturation: 0.07,   // very clean — jazz is clean
         type: 'room',
-        reverbMix: 0.35,
+        reverbMix: 0.22,    // drier — you can hear the wood in the room
       },
 
       palette: {
-        peak: { voice: 'upright', octave: -1, decay: 0.7 },
-        continuous: { voice: 'epiano', octave: 0, decay: 1.0 },
-        subdivision: { voice: 'hat', kit: 'brushes', divisions: 3, vel: 0.10 },
-        harmonic: { voice: 'brass', octave: 0, decay: 1.4 },
+        // Your steps → walking bass — the spine of jazz
+        peak: { voice: 'upright', octave: -1, decay: 0.65 },
+        // Your tilt → Rhodes melody — the answer to the bass's question
+        continuous: { voice: 'epiano', octave: 0, decay: 1.3 },
+        // The lightest possible brushes — whisper of rhythm
+        subdivision: { voice: 'hat', kit: 'brushes', divisions: 3, vel: 0.08 },
+        // Vibraphone color — the jazz shimmer that no synth sound has
+        harmonic: { voice: 'vibe', octave: 0, decay: 2.5 },
         drum: { kit: 'brushes' },
+        // Pluck = pizzicato grace note
         burst: { voice: 'pluck', octave: 1 },
-        texture: { wave: 'triangle', chord: [0, 7, 10], octave: -1, detune: 4, vol: 0.05, reverbSend: 0.4 },
-        touch: { voice: 'epiano', octave: 0, decay: 0.9 },
+        // Barely there warmth — Dm7 color
+        texture: { wave: 'triangle', chord: [0, 7, 10], octave: -1, detune: 3, vol: 0.04, reverbSend: 0.3 },
+        touch: { voice: 'epiano', octave: 0, decay: 1.0 },
       },
 
       response: {
-        peakThreshold: 0.9,
-        tiltRange: 40,
-        noteInterval: 240,
-        stillnessThreshold: 0.1,
-        stillnessTimeout: 4.0,
-        fadeTime: 5.5,
-        filterRange: [200, 2200],
-        densityThresholds: [0.2, 0.7, 1.8],
+        peakThreshold: 0.85,
+        tiltRange: 38,
+        noteInterval: 340,   // jazz conversations breathe — not rapid fire
+        stillnessThreshold: 0.08,
+        stillnessTimeout: 4.5,   // jazz never rushes to silence
+        fadeTime: 6.0,
+        filterRange: [200, 2000],
+        densityThresholds: [0.15, 0.6, 1.5],
       },
 
       motion: {
         primary: 'bounce',
         melodic: 'beta',
-        sensitivity: 1.1,
+        sensitivity: 1.0,
       },
     },
 
     // ─── 3. GOSPEL SUNDAY ────────────────────────────────────────────
-    // The choir answers your body.
-    // Raise your arms — the voices rise. Three layered voices in unison.
-    // 808 sub foundation. Cathedral space. Building praise.
+    // "Ohhh loooow" — the bass drops and the choir lifts.
+    // Vibraphone warmth underneath the voices — classic Black church shimmer.
+    // Arms up = voices rise. Hold the gesture = the praise builds.
     {
       name: 'Gospel Sunday',
       color: '#d4921e',
-      description: 'Raise your arms. The choir responds.',
+      description: 'Arms up. Bass drops. Choir and vibes lift.',
 
       harmony: { root: 440, mode: 'major' },
 
       tone: {
-        bassFreq: 60, bassGain: 8,
-        midFreq: 900, midQ: 0.9, midGain: 3,
-        highFreq: 3200, highGain: -5,
-        ceiling: 4000,
+        bassFreq: 55, bassGain: 10,   // deeper sub — the "ohhh loooow" foundation
+        midFreq: 1000, midQ: 1.0, midGain: 4,   // presence cut — clarity in the choir
+        highFreq: 3500, highGain: -4,
+        ceiling: 4500,
       },
 
       space: {
-        reverb: { decay: 6.5, damping: 0.08 },
-        delay: { feedback: 0.18, filter: 1400, sync: 'quarter' },
-        saturation: 0.18,
+        reverb: { decay: 7.0, damping: 0.06 },   // massive cathedral — the building amplifies
+        delay: { feedback: 0.15, filter: 1600, sync: 'quarter' },
+        saturation: 0.22,
         type: 'cathedral',
-        reverbMix: 0.72,
+        reverbMix: 0.75,
       },
 
       palette: {
-        peak: { voice: 'choir', octave: 0, decay: 2.2 },
+        // Strong gesture → choir erupts — the moment of praise
+        peak: { voice: 'choir', octave: 0, decay: 2.5 },
+        // Your tilt → organ follows — the musician responding to you
         continuous: { voice: 'organ', octave: 0, decay: 0.9 },
-        subdivision: { voice: 'hat', kit: '808', divisions: 2, vel: 0.18 },
-        harmonic: { voice: 'choir', octave: 1, decay: 1.8 },
+        // 808 shuffle — Black church drive
+        subdivision: { voice: 'hat', kit: '808', divisions: 2, vel: 0.2 },
+        // Vibraphone harmonic shimmer — that warm metallic church bell sound
+        harmonic: { voice: 'vibe', octave: 0, decay: 3.0 },
         drum: { kit: '808' },
+        // Shout chorus — choir an octave above
         burst: { voice: 'choir', octave: 1 },
-        texture: { wave: 'sine', chord: [0, 4, 7, 12], octave: -1, detune: 3, vol: 0.1, reverbSend: 0.7 },
+        // Organ drone foundation
+        texture: { wave: 'sine', chord: [0, 4, 7, 12], octave: -1, detune: 3, vol: 0.1, reverbSend: 0.78 },
         touch: { voice: 'organ', octave: 0, decay: 0.9 },
       },
 
       response: {
-        peakThreshold: 1.2,
-        tiltRange: 50,
-        noteInterval: 120,
-        stillnessThreshold: 0.15,
-        stillnessTimeout: 5.5,
-        fadeTime: 7.0,
-        filterRange: [300, 3500],
-        densityThresholds: [0.25, 1.0, 2.5],
+        peakThreshold: 1.0,
+        tiltRange: 55,   // wider — raising arms is a big gesture
+        noteInterval: 110,
+        stillnessThreshold: 0.12,
+        stillnessTimeout: 6.0,   // the spirit sustains long
+        fadeTime: 8.0,
+        filterRange: [200, 4000],
+        densityThresholds: [0.2, 0.9, 2.2],
       },
 
       motion: {
         primary: 'sustained',
-        melodic: 'beta',
-        sensitivity: 0.9,
+        melodic: 'beta',   // raise arms = raise pitch — the physical prayer
+        sensitivity: 0.85,
       },
     },
 
     // ─── 4. TUNDRA ───────────────────────────────────────────────────
-    // Fred Again. Radiohead. Tender frost.
-    // A single piano note in infinite white space.
-    // Strings breathe slowly. Silence is the melody.
-    // No drums. No fills. Just breath.
+    // Fred Again. Arvo Pärt. The Picardy third grammar.
+    // Minor scale with a major 3rd available = "it's hard, but there's hope."
+    // One note drops. It rings for 14 seconds. Then silence. Then hope.
+    // This is restraint as a musical principle.
     {
       name: 'Tundra',
       color: '#aaccee',
-      description: 'Tender frost. One note. Infinite space.',
+      description: "It's hard. But there's hope. One note at a time.",
 
-      harmony: { root: 432, mode: 'minor' },
+      // Picardy mode = natural minor + major 3rd alongside minor 3rd.
+      // The scale randomly offers you both. Minor moments of grief.
+      // Major moments of light. This is the Picardy grammar.
+      harmony: { root: 432, mode: 'picardy' },
 
       tone: {
-        bassFreq: 120, bassGain: 2,
-        midFreq: 400, midQ: 0.5, midGain: -2,
-        highFreq: 4000, highGain: -12,
-        ceiling: 5000,
+        bassFreq: 120, bassGain: 1,   // barely any bass — only the note
+        midFreq: 350, midQ: 0.4, midGain: -3,
+        highFreq: 5000, highGain: -9,
+        ceiling: 7000,   // open ceiling — let the harmonics breathe
       },
 
       space: {
-        reverb: { decay: 9.0, damping: 0.03 },
-        delay: { feedback: 0.55, filter: 2800, sync: 'dotted-eighth' },
-        saturation: 0.01,
-        type: 'infinite',
-        reverbMix: 0.95,
+        reverb: { decay: 6.5, damping: 0.1 },   // spacious but not drowning
+        delay: { feedback: 0.4, filter: 3200, sync: 'dotted-eighth' },
+        saturation: 0.005,   // pure, uncolored
+        type: 'cathedral',
+        reverbMix: 0.62,   // was 0.95 — taste over scale
       },
 
       palette: {
-        peak: { voice: 'piano', octave: 1, decay: 3.5 },
-        continuous: { voice: 'strings', octave: 0, decay: 4.0 },
-        texture: { wave: 'sine', chord: [0, 7], octave: -2, detune: 10, vol: 0.03, reverbSend: 0.9 },
-        touch: { voice: 'piano', octave: 1, decay: 3.0 },
+        // Your gesture → single piano note — the drop of water in the cave
+        peak: { voice: 'piano', octave: 1, decay: 4.0 },
+        // Your tilt → tiny bell — not strings, not mass, just a crystal ping
+        continuous: { voice: 'bell', octave: 2, decay: 2.5 },
+        // Barely perceptible sine drone — like breath fogging in cold air
+        texture: { wave: 'sine', chord: [0, 7], octave: -2, detune: 8, vol: 0.018, reverbSend: 0.88 },
+        touch: { voice: 'piano', octave: 1, decay: 3.5 },
       },
 
       response: {
-        peakThreshold: 0.45,
+        peakThreshold: 0.5,
         tiltRange: 70,
-        noteInterval: 1200,
-        stillnessThreshold: 0.06,
-        stillnessTimeout: 0.4,
+        noteInterval: 2000,   // one note every 2 seconds — this IS the tempo
+        stillnessThreshold: 0.05,
+        stillnessTimeout: 0.3,   // go quiet immediately — silence IS music here
         fadeTime: 14.0,
-        filterRange: [200, 4500],
-        densityThresholds: [0.15, 0.5, 1.2],
+        filterRange: [200, 6000],
+        densityThresholds: [0.1, 0.4, 1.0],
       },
 
       motion: {
         primary: 'magnitude',
         melodic: 'gamma',
-        sensitivity: 0.4,
+        sensitivity: 0.35,   // breathe on the phone — that's enough
       },
     },
 
     // ─── 5. STILL WATER ──────────────────────────────────────────────
-    // Nils Frahm. Jon Hopkins. Quiet electricity.
-    // Piano + pluck + shimmer. Lydian mode — floating, unresolved.
-    // Strong delay feedback loops your gesture back to you.
+    // Nils Frahm. Jon Hopkins. The space between electronic and acoustic.
+    // Lydian mode = wonder, floating, unresolved optimism (the raised 4th).
+    // DISTINCT from Tundra: faster, rhythmic pulse, flows with you.
+    // Tundra = frozen solitude. Still Water = motion through calm.
     {
       name: 'Still Water',
       color: '#2a6f6f',
-      description: 'Piano and pluck. Your gesture echoes back.',
+      description: 'Lydian wonder. Your motion flows and echoes.',
 
       harmony: { root: 440, mode: 'lydian' },
 
       tone: {
-        bassFreq: 100, bassGain: 3,
+        bassFreq: 90, bassGain: 3,
         midFreq: 700, midQ: 0.6, midGain: -1,
-        highFreq: 3000, highGain: -8,
-        ceiling: 4000,
+        highFreq: 3200, highGain: -7,
+        ceiling: 4500,
       },
 
       space: {
-        reverb: { decay: 5.5, damping: 0.15 },
-        delay: { feedback: 0.52, filter: 2200, sync: 'dotted-eighth' },
-        saturation: 0.05,
+        reverb: { decay: 4.5, damping: 0.2 },
+        delay: { feedback: 0.55, filter: 2400, sync: 'dotted-eighth' },   // longer delay = gesture echoes back
+        saturation: 0.04,
         type: 'cathedral',
-        reverbMix: 0.6,
+        reverbMix: 0.5,
       },
 
       palette: {
         peak: { voice: 'piano', octave: 0, decay: 2.5 },
-        continuous: { voice: 'pluck', octave: 1, decay: 1.8 },
-        harmonic: { voice: 'bell', octave: 1, decay: 2.2 },
-        texture: { wave: 'sine', chord: [0, 4, 7, 11], octave: -1, detune: 6, vol: 0.05, reverbSend: 0.65 },
+        continuous: { voice: 'pluck', octave: 1, decay: 1.6 },
+        // Soft rhythmic pulse — this is what separates it from Tundra's silence
+        subdivision: { voice: 'hat', kit: 'brushes', divisions: 2, vel: 0.07 },
+        harmonic: { voice: 'bell', octave: 2, decay: 2.2 },
+        texture: { wave: 'sine', chord: [0, 4, 7, 11], octave: -1, detune: 5, vol: 0.05, reverbSend: 0.62 },
         touch: { voice: 'piano', octave: 0, decay: 2.0 },
       },
 
       response: {
-        peakThreshold: 0.8,
+        peakThreshold: 0.75,
         tiltRange: 50,
-        noteInterval: 500,
+        noteInterval: 380,   // 5x faster than Tundra — you're moving, not meditating
         stillnessThreshold: 0.1,
-        stillnessTimeout: 2.0,
+        stillnessTimeout: 1.8,   // faster to silence than Tundra too
         fadeTime: 9.0,
-        filterRange: [250, 3500],
-        densityThresholds: [0.2, 0.7, 1.8],
+        filterRange: [250, 4000],
+        densityThresholds: [0.2, 0.6, 1.6],
       },
 
       motion: {

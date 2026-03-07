@@ -25,6 +25,7 @@ const Follow = (function () {
     mixolydian: [0, 2, 4, 5, 7, 9, 10],
     phrygian:   [0, 1, 3, 5, 7, 8, 10],
     lydian:     [0, 2, 4, 6, 7, 9, 11],
+    picardy:    [0, 2, 3, 4, 5, 7, 8, 10],
     minor:      [0, 2, 3, 5, 7, 8, 10],
   };
 
