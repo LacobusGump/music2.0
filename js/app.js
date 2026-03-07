@@ -45,6 +45,8 @@
   // Voice state
   let voicePlayStart = 0;
   let voiceFirstMotion = false;
+  let voiceDiscoveryDone = false;
+  let voiceNameAsked = false;
   let voiceLastInstruction = 0;
   let voiceLastObservation = 0;
   let voiceStillnessStart = 0;
@@ -184,32 +186,39 @@
       silentSrc.start(0);
     } catch (e) {}
 
-    stopBootCanvas();
-
-    // Init Voice in gesture context (iOS requires first speak() inside a user gesture)
+    // Voice speaks FIRST — boot canvas stays alive as the entity's voice fills the dark.
+    // Audio.configure() is delayed 3s so it cannot steal the iOS audio session from speech.
+    // "There you are." fires at 350ms. Music begins at 3000ms. The silence between is intentional.
     Voice.init();
     Voice.boot();
 
-    // Init sensor permissions
     Sensor.init().then(function () {
-      // Init subsystems
       Brain.init();
       Audio.init(audioCtx);
       Follow.init();
-
-      // Build lens picker
       Lens.buildPicker();
 
-      // Check for shared lens in URL
       var urlLens = Lens.loadFromURL();
       if (urlLens) {
+        // Shared URL lens — skip the 3s intro
         Audio.configure(urlLens);
         Follow.applyLens(urlLens);
         Organism.applyLens(urlLens);
+        stopBootCanvas();
         showScreen(SCREENS.PLAY);
         startPlayScreen();
       } else {
-        showScreen(SCREENS.LENS);
+        // Let voice finish before music starts
+        setTimeout(function () {
+          Lens.selectCard(5); // Dark Matter — the AI has made a selection
+          var lens = Lens.getSelected();
+          Audio.configure(lens);
+          Follow.applyLens(lens);
+          Organism.applyLens(lens);
+          stopBootCanvas();
+          showScreen(SCREENS.PLAY);
+          startPlayScreen();
+        }, 3000);
       }
     });
   }
@@ -310,6 +319,12 @@
       return;
     }
 
+    // Name capture — entity asked, user answered
+    if (Voice.isAwaitingName() && cmd.indexOf('RUN ') !== 0 && cmd.length < 32) {
+      Voice.setName(cmd.toLowerCase());
+      return;
+    }
+
     if (cmd.indexOf('RUN ') === 0) {
       var query = cmd.slice(4).trim();
       var presets = Lens.PRESETS;
@@ -382,6 +397,8 @@
     // Reset voice state for this session
     voicePlayStart = performance.now();
     voiceFirstMotion = false;
+    voiceDiscoveryDone = false;
+    voiceNameAsked = false;
     voiceLastInstruction = 0;
     voiceLastObservation = 0;
     voiceStillnessStart = 0;
@@ -541,6 +558,18 @@
       if (!voiceFirstMotion && vPlaySecs > 4 && vEnergy > 0.3) {
         voiceFirstMotion = true;
         Voice.onFirstMotion();
+      }
+
+      // Discovery — once at ~10s, reveals RUN commands
+      if (voiceFirstMotion && !voiceDiscoveryDone && vPlaySecs > 10) {
+        voiceDiscoveryDone = true;
+        Voice.onDiscovery();
+      }
+
+      // Name ask — once at ~20s
+      if (voiceFirstMotion && !voiceNameAsked && vPlaySecs > 20) {
+        voiceNameAsked = true;
+        Voice.askName();
       }
 
       // Groove lock transition
