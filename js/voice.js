@@ -190,31 +190,23 @@ const Voice = (function () {
     userName = '';
     awaitingName = false;
 
-    // Try to load voices now
-    if (!selectedVoice) {
-      var voices = synth.getVoices();
-      for (var k = 0; k < voices.length; k++) {
-        if (voices[k].lang && voices[k].lang.startsWith('en')) { selectedVoice = voices[k]; break; }
-      }
-    }
-
-    // iOS requires the FIRST speak() call in a gesture context.
-    // Queue a silent unlock utterance here (we are in the gesture handler).
-    // When it ends (near-instantly), the pipeline is open — then speak for real.
-    // Do NOT call synth.cancel() before this fires or we kill ourselves.
+    // iOS: speak a silent utterance NOW (gesture context) to open the audio pipeline.
+    // Then wait 350ms — gives iOS time to actually start the utterance and commit
+    // the audio session to speech synthesis BEFORE Audio.configure() can grab it.
     var unlock = new SpeechSynthesisUtterance('');
     unlock.volume = 0;
-    unlock.onend = function () {
-      // Pipeline confirmed open — speak the boot line
-      var u = new SpeechSynthesisUtterance(LINES.boot);
-      u.pitch  = 0.16;
-      u.rate   = 0.62;
-      u.volume = 0.88;
-      if (selectedVoice) u.voice = selectedVoice;
-      lastSpoke = Date.now();
-      synth.speak(u);
-    };
     synth.speak(unlock);
+
+    setTimeout(function () {
+      if (!selectedVoice) {
+        var voices = synth.getVoices();
+        for (var k = 0; k < voices.length; k++) {
+          if (voices[k].lang && voices[k].lang.startsWith('en')) { selectedVoice = voices[k]; break; }
+        }
+      }
+      synth.cancel();
+      speak(LINES.boot, { force: true });
+    }, 350);
   }
 
   function lensSelected(name) {

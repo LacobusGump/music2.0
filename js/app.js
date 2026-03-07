@@ -202,32 +202,33 @@
 
     // Init sensor permissions
     Sensor.init().then(function () {
-      // Init subsystems
       Brain.init();
-      Audio.init(audioCtx);
-      Follow.init();
-
-      // Build lens picker
       Lens.buildPicker();
 
-      // Check for shared lens in URL
-      var urlLens = Lens.loadFromURL();
-      if (urlLens) {
-        Audio.configure(urlLens);
-        Follow.applyLens(urlLens);
-        Organism.applyLens(urlLens);
-        showScreen(SCREENS.PLAY);
-        startPlayScreen();
-      } else {
-        // The AI has made a selection — go directly to Dark Matter
-        Lens.selectCard(5);
-        var defaultLens = Lens.getSelected();
-        Audio.configure(defaultLens);
-        Follow.applyLens(defaultLens);
-        Organism.applyLens(defaultLens);
-        showScreen(SCREENS.PLAY);
-        startPlayScreen();
-      }
+      // Delay audio setup 650ms — speech synthesis fires at 350ms (inside Voice.boot),
+      // and on iOS, Audio.configure() grabs the audio session. Speech must win that race.
+      setTimeout(function () {
+        Audio.init(audioCtx);
+        Follow.init();
+
+        var urlLens = Lens.loadFromURL();
+        if (urlLens) {
+          Audio.configure(urlLens);
+          Follow.applyLens(urlLens);
+          Organism.applyLens(urlLens);
+          showScreen(SCREENS.PLAY);
+          startPlayScreen();
+        } else {
+          // The AI has made a selection — go directly to Dark Matter
+          Lens.selectCard(5);
+          var defaultLens = Lens.getSelected();
+          Audio.configure(defaultLens);
+          Follow.applyLens(defaultLens);
+          Organism.applyLens(defaultLens);
+          showScreen(SCREENS.PLAY);
+          startPlayScreen();
+        }
+      }, 650);
     });
   }
 
