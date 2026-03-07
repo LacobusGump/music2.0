@@ -17,62 +17,53 @@ const Lens = (function () {
   const PRESETS = [
 
     // ─── 1. THE CONDUCTOR ────────────────────────────────────────────
-    // Your movement conducts an orchestra.
-    // Strings follow your tilt. Brass accents your peaks.
-    // Timpani responds to your strongest gestures.
+    // A full orchestra locked onto your soul.
+    // Strings breathe with your tilt. Brass punches on your peaks.
+    // Grand hall reverb. Every gesture summons sound.
     {
       name: 'The Conductor',
-      color: '#ffffff',
-      description: 'Your body conducts. Strings follow your hands.',
+      color: '#f0e8d8',
+      description: 'An orchestra follows your soul.',
 
-      harmony: { root: 432, mode: 'major' },
+      harmony: { root: 440, mode: 'major' },
 
       tone: {
-        bassFreq: 80, bassGain: 4,
-        midFreq: 1000, midQ: 0.8, midGain: 2,
-        highFreq: 2800, highGain: -8,
-        ceiling: 3200,
+        bassFreq: 80, bassGain: 3,
+        midFreq: 1200, midQ: 0.7, midGain: 1,
+        highFreq: 3500, highGain: -6,
+        ceiling: 4500,
       },
 
       space: {
-        reverb: { decay: 7.0, damping: 0.1 },
-        delay: { feedback: 0.25, filter: 1400, sync: 'dotted-eighth' },
-        saturation: 0.12,
+        reverb: { decay: 7.0, damping: 0.05 },
+        delay: { feedback: 0.2, filter: 2000, sync: 'dotted-eighth' },
+        saturation: 0.08,
         type: 'cathedral',
-        reverbMix: 0.65,
+        reverbMix: 0.7,
       },
 
       palette: {
-        // Your motion peaks → orchestral accents
-        peak: { voice: 'brass', octave: -1, decay: 1.2 },
-        // Your tilt → string melody following your hand
-        continuous: { voice: 'organ', octave: 0, decay: 1.0 },
-        // Between your peaks → gentle subdivision
-        subdivision: { voice: 'hat', kit: 'brushes', divisions: 2, vel: 0.15 },
-        // Harmonic color on strong peaks
-        harmonic: { voice: 'piano', octave: 0, decay: 1.5 },
-        // Your strongest gestures → full accent
+        peak: { voice: 'brass', octave: -1, decay: 1.8 },
+        continuous: { voice: 'strings', octave: 0, decay: 2.2 },
+        subdivision: { voice: 'hat', kit: 'brushes', divisions: 2, vel: 0.12 },
+        harmonic: { voice: 'piano', octave: 0, decay: 1.6 },
         drum: { kit: 'acoustic' },
-        // Burst on shake
         burst: { voice: 'bell', octave: 1 },
-        // Warm bed that breathes with you
-        texture: { wave: 'sawtooth', chord: [0, 4, 7], octave: 0, detune: 10, vol: 0.08, reverbSend: 0.5 },
-        // Touch response
-        touch: { voice: 'piano', octave: 0, decay: 1.2 },
+        texture: { wave: 'sine', chord: [0, 4, 7], octave: -1, detune: 8, vol: 0.07, reverbSend: 0.65 },
+        touch: { voice: 'piano', octave: 0, decay: 1.5 },
       },
 
       response: {
-        peakThreshold: 2.5,      // needs a real conductor gesture
+        peakThreshold: 2.2,
         tiltRange: 55,
-        noteInterval: 280,       // slow — every note counts
+        noteInterval: 320,
         stillnessThreshold: 0.2,
-        stillnessTimeout: 5.0,   // orchestra sustains after you stop
-        fadeTime: 7.0,           // long fade — hall reverb lingers,
-        filterRange: [250, 2800],
+        stillnessTimeout: 6.0,
+        fadeTime: 8.0,
+        filterRange: [250, 3500],
         densityThresholds: [0.3, 1.0, 2.5],
       },
 
-      // How your body drives the music — makes this lens feel physically unique
       motion: {
         primary: 'tilt_rate',
         melodic: 'gamma',
@@ -81,314 +72,272 @@ const Lens = (function () {
     },
 
     // ─── 2. BLUE HOUR ────────────────────────────────────────────────
-    // Smoky jazz club. Your walk IS the bass line.
-    // Upright bass follows your steps. Brushes follow your rhythm.
-    // Rhodes follows your tilt. Space everywhere.
+    // Kind of Blue. Miles Davis, 1959.
+    // Your walk IS the bass line. Your tilt is the Rhodes.
+    // Brushed snare. Muted trumpet. Space between every note.
     {
       name: 'Blue Hour',
-      color: '#2a4a7f',
-      description: 'Your walk is the bass line. Smoky jazz.',
+      color: '#1a3a6f',
+      description: "Kind of Blue. Your walk is the bass.",
 
-      harmony: { root: 432, mode: 'dorian' },
+      harmony: { root: 440, mode: 'dorian' },
 
       tone: {
-        bassFreq: 100, bassGain: 6,
-        midFreq: 600, midQ: 0.7, midGain: 1,
-        highFreq: 2200, highGain: -12,
-        ceiling: 2800,
+        bassFreq: 100, bassGain: 5,
+        midFreq: 600, midQ: 0.7, midGain: 0,
+        highFreq: 2000, highGain: -14,
+        ceiling: 2500,
       },
 
       space: {
-        reverb: { decay: 3.5, damping: 0.3 },
-        delay: { feedback: 0.45, filter: 1800, sync: 'dotted-eighth' },
-        saturation: 0.15,
+        reverb: { decay: 3.5, damping: 0.4 },
+        delay: { feedback: 0.38, filter: 1600, sync: 'dotted-eighth' },
+        saturation: 0.12,
         type: 'room',
-        reverbMix: 0.4,
+        reverbMix: 0.35,
       },
 
       palette: {
-        // Your steps → walking bass
-        peak: { voice: 'upright', octave: -1, decay: 0.8 },
-        // Your tilt → Rhodes melody
-        continuous: { voice: 'epiano', octave: 0, decay: 0.8 },
-        // Brush patterns between your steps
-        subdivision: { voice: 'hat', kit: 'brushes', divisions: 3, vel: 0.12 },
-        // Chord color
-        harmonic: { voice: 'epiano', octave: 0, decay: 1.2 },
-        // Brush drums
+        peak: { voice: 'upright', octave: -1, decay: 0.7 },
+        continuous: { voice: 'epiano', octave: 0, decay: 1.0 },
+        subdivision: { voice: 'hat', kit: 'brushes', divisions: 3, vel: 0.10 },
+        harmonic: { voice: 'brass', octave: 0, decay: 1.4 },
         drum: { kit: 'brushes' },
-        // Shake → quick grace notes
         burst: { voice: 'pluck', octave: 1 },
-        // Quiet warm triangle pad
-        texture: { wave: 'triangle', chord: [0, 7], octave: -1, detune: 6, vol: 0.06, reverbSend: 0.5 },
-        // Touch = piano notes
-        touch: { voice: 'epiano', octave: 0, decay: 0.8 },
+        texture: { wave: 'triangle', chord: [0, 7, 10], octave: -1, detune: 4, vol: 0.05, reverbSend: 0.4 },
+        touch: { voice: 'epiano', octave: 0, decay: 0.9 },
       },
 
       response: {
-        peakThreshold: 1.0,      // sensitive — picks up footsteps
+        peakThreshold: 0.9,
         tiltRange: 40,
-        noteInterval: 220,       // conversational jazz pace
-        stillnessThreshold: 0.12,
-        stillnessTimeout: 3.5,   // jazz breathes, doesnt rush to silence
-        fadeTime: 5.0,
+        noteInterval: 240,
+        stillnessThreshold: 0.1,
+        stillnessTimeout: 4.0,
+        fadeTime: 5.5,
         filterRange: [200, 2200],
-        densityThresholds: [0.2, 0.8, 2.0],
+        densityThresholds: [0.2, 0.7, 1.8],
       },
 
       motion: {
-        primary: 'bounce',     // vertical Z-axis bounce — your walk IS the bass
-        melodic: 'beta',       // lean forward/back = walking bass note
-        sensitivity: 1.2,
+        primary: 'bounce',
+        melodic: 'beta',
+        sensitivity: 1.1,
       },
     },
 
     // ─── 3. GOSPEL SUNDAY ────────────────────────────────────────────
-    // Church warmth. Your voice is the choir.
-    // Organ follows your tilt. 808 sub follows your steps.
-    // Formant choir on strong gestures. Building praise.
+    // The choir answers your body.
+    // Raise your arms — the voices rise. Three layered voices in unison.
+    // 808 sub foundation. Cathedral space. Building praise.
     {
       name: 'Gospel Sunday',
-      color: '#d4a24e',
-      description: 'Church organ follows you. Building praise.',
+      color: '#d4921e',
+      description: 'Raise your arms. The choir responds.',
 
-      harmony: { root: 432, mode: 'major' },
+      harmony: { root: 440, mode: 'major' },
 
       tone: {
         bassFreq: 60, bassGain: 8,
-        midFreq: 800, midQ: 0.9, midGain: 3,
-        highFreq: 3000, highGain: -6,
-        ceiling: 3500,
+        midFreq: 900, midQ: 0.9, midGain: 3,
+        highFreq: 3200, highGain: -5,
+        ceiling: 4000,
       },
 
       space: {
-        reverb: { decay: 6.0, damping: 0.1 },
-        delay: { feedback: 0.2, filter: 1200, sync: 'quarter' },
-        saturation: 0.2,
+        reverb: { decay: 6.5, damping: 0.08 },
+        delay: { feedback: 0.18, filter: 1400, sync: 'quarter' },
+        saturation: 0.18,
         type: 'cathedral',
-        reverbMix: 0.7,
+        reverbMix: 0.72,
       },
 
       palette: {
-        // Your steps → 808 sub bass foundation
-        peak: { voice: 'sub808', octave: -2, decay: 0.6 },
-        // Your tilt → organ following your hands
-        continuous: { voice: 'organ', octave: 0, decay: 0.6 },
-        // Shuffle between your steps
-        subdivision: { voice: 'hat', kit: '808', divisions: 2, vel: 0.2 },
-        // Strong peaks → choir formant
-        harmonic: { voice: 'formant', octave: 0, decay: 1.5 },
-        // 808 drum kit
+        peak: { voice: 'choir', octave: 0, decay: 2.2 },
+        continuous: { voice: 'organ', octave: 0, decay: 0.9 },
+        subdivision: { voice: 'hat', kit: '808', divisions: 2, vel: 0.18 },
+        harmonic: { voice: 'choir', octave: 1, decay: 1.8 },
         drum: { kit: '808' },
-        // Shake → choir burst
-        burst: { voice: 'formant', octave: 1 },
-        // Organ drone
-        texture: { wave: 'sine', chord: [0, 4, 7, 12], octave: -1, detune: 3, vol: 0.1, reverbSend: 0.6 },
-        // Touch = organ response
-        touch: { voice: 'organ', octave: 0, decay: 0.8 },
-      },
-
-      response: {
-        peakThreshold: 1.5,
-        tiltRange: 45,
-        noteInterval: 100,       // eager, responsive
-        stillnessThreshold: 0.18,
-        stillnessTimeout: 5.0,   // spirit sustains long after you stop
-        fadeTime: 6.0,           // choir fades slowly,
-        filterRange: [300, 2800],
-        densityThresholds: [0.3, 1.2, 3.0],
-      },
-
-      motion: {
-        primary: 'sustained',  // medium-term energy — holding builds the choir
-        melodic: 'beta',       // raise the phone = raise the choir (arms up = higher)
-        sensitivity: 0.9,
-      },
-    },
-
-    // ─── 4. TUNDRA ───────────────────────────────────────────────────
-    // Vast silence. Single notes in infinite space.
-    // No drums. No bass. Just your breathing and sparse bells.
-    // The most minimal palette — silence is the instrument.
-    {
-      name: 'Tundra',
-      color: '#88aacc',
-      description: 'Vast silence. Single notes in infinite space.',
-
-      harmony: { root: 432, mode: 'pentatonic' },
-
-      tone: {
-        bassFreq: 80, bassGain: 5,
-        midFreq: 500, midQ: 0.6, midGain: -1,
-        highFreq: 3500, highGain: -10,
-        ceiling: 3800,
-      },
-
-      space: {
-        reverb: { decay: 9.0, damping: 0.05 },
-        delay: { feedback: 0.6, filter: 2400, sync: 'dotted-eighth' },
-        saturation: 0.02,
-        type: 'infinite',
-        reverbMix: 0.95,
-      },
-
-      palette: {
-        // Your motion peaks → single bell in vast space
-        peak: { voice: 'bell', octave: 1, decay: 2.5 },
-        // Your tilt → sparse pluck melody
-        continuous: { voice: 'pluck', octave: 1, decay: 2.0 },
-        // NO subdivisions — silence between your gestures
-        // NO drums — just you and space
-        // NO harmonic fills — each note is precious
-        // Warmth
-        texture: { wave: 'sine', chord: [0, 7], octave: -1, detune: 12, vol: 0.04, reverbSend: 0.8 },
-        // Touch = crystalline bell
-        touch: { voice: 'bell', octave: 1, decay: 2.5 },
-      },
-
-      response: {
-        peakThreshold: 0.55,     // whisper sensitive — tiny moves make sound
-        tiltRange: 70,
-        noteInterval: 800,       // one note per breath
-        stillnessThreshold: 0.07,
-        stillnessTimeout: 0.5,   // silence comes quickly — silence IS music
-        fadeTime: 12.0,          // notes ring forever in the vast space
-        filterRange: [250, 3000],
-        densityThresholds: [0.2, 0.6, 1.5],
-      },
-
-      motion: {
-        primary: 'magnitude',
-        melodic: 'gamma',
-        sensitivity: 0.5,        // subtle movements — no need to thrash
-      },
-    },
-
-    // ─── 5. POCKET DRUMMER ───────────────────────────────────────────
-    // Your body IS the drum machine.
-    // Every step, bounce, shake = a drum hit.
-    // 808 sub on your peaks. Metallic FM fragments.
-    // The most rhythmic palette — drums dominate.
-    {
-      name: 'Pocket Drummer',
-      color: '#c45c3e',
-      description: 'Your body IS the drum machine. 808 dominance.',
-
-      harmony: { root: 432, mode: 'blues' },
-
-      tone: {
-        bassFreq: 50, bassGain: 8,
-        midFreq: 400, midQ: 1.0, midGain: -3,
-        highFreq: 2500, highGain: -10,
-        ceiling: 3000,
-      },
-
-      space: {
-        reverb: { decay: 0.2, damping: 0.9 },
-        delay: { feedback: 0.1, filter: 1600, sync: 'eighth' },
-        saturation: 0.6,
-        sidechain: 0.7,
-        type: 'intimate',
-        reverbMix: 0.03,         // almost totally dry — punchy
-      },
-
-      palette: {
-        // Your peaks → 808 sub HIT
-        peak: { voice: 'sub808', octave: -2, decay: 0.4 },
-        // Your tilt → FM stabs (metallic, broken)
-        continuous: { voice: 'fm', octave: 1, decay: 0.3 },
-        // Between your peaks → rapid hi-hats at YOUR tempo
-        subdivision: { voice: 'hat', kit: '808', divisions: 4, vel: 0.35 },
-        // FM fragments on strong peaks
-        harmonic: { voice: 'fm', octave: 1, decay: 0.4 },
-        // 808 kit — drums are king
-        drum: { kit: '808' },
-        // Shake → glitch burst
-        burst: { voice: 'glitch', octave: 0 },
-        // Minimal dark drone
-        texture: { wave: 'triangle', chord: [0, 7], octave: -2, detune: 4, vol: 0.04, reverbSend: 0.1 },
-        // Touch = stab
-        touch: { voice: 'stab', octave: 0, decay: 0.3 },
-      },
-
-      response: {
-        peakThreshold: 0.55,     // hair trigger — every flick counts
-        tiltRange: 35,
-        noteInterval: 35,        // instant — this is a drum pad
-        stillnessThreshold: 0.12,
-        stillnessTimeout: 0.4,   // silence is immediate
-        fadeTime: 0.7,           // drums stop hard
-        filterRange: [200, 2500],
-        densityThresholds: [0.15, 0.5, 1.5],
-      },
-
-      motion: {
-        primary: 'impulse',
-        melodic: 'speed',
-        sensitivity: 2.0,        // double reactive — you are the drum machine
-      },
-    },
-
-    // ─── 6. DARK MATTER ──────────────────────────────────────────────
-    // Massive 808 sub + cascading Rhodes.
-    // Your movement creates weight. Your tilt creates shimmer.
-    // 52% delay feedback = everything cascades.
-    {
-      name: 'Dark Matter',
-      color: '#5a3a6f',
-      description: 'Massive 808 weight. Cascading shimmer.',
-
-      harmony: { root: 432, mode: 'mixolydian' },
-
-      tone: {
-        bassFreq: 60, bassGain: 7,
-        midFreq: 700, midQ: 0.8, midGain: 1,
-        highFreq: 2500, highGain: -12,
-        ceiling: 3000,
-      },
-
-      space: {
-        reverb: { decay: 4.0, damping: 0.3 },
-        delay: { feedback: 0.64, filter: 2000, sync: 'dotted-eighth' },
-        saturation: 0.4,
-        type: 'cathedral',
-        reverbMix: 0.5,
-      },
-
-      palette: {
-        // Your peaks → massive 808 sub
-        peak: { voice: 'sub808', octave: -2, decay: 0.6 },
-        // Your tilt → cascading Rhodes through delay
-        continuous: { voice: 'epiano', octave: 0, decay: 1.5 },
-        // Sparse subdivisions
-        subdivision: { voice: 'hat', kit: 'acoustic', divisions: 2, vel: 0.15 },
-        // Rhodes arpeggio color
-        harmonic: { voice: 'epiano', octave: 1, decay: 1.8 },
-        // Acoustic drums (sparse)
-        drum: { kit: 'acoustic' },
-        // Shake → cascading bell
-        burst: { voice: 'bell', octave: 1 },
-        // Add9 pad that breathes
-        texture: { wave: 'triangle', chord: [0, 2, 7, 14], octave: -1, detune: 10, vol: 0.06, reverbSend: 0.6 },
-        // Touch = Rhodes cascading through delay
-        touch: { voice: 'epiano', octave: 0, decay: 1.8 },
+        burst: { voice: 'choir', octave: 1 },
+        texture: { wave: 'sine', chord: [0, 4, 7, 12], octave: -1, detune: 3, vol: 0.1, reverbSend: 0.7 },
+        touch: { voice: 'organ', octave: 0, decay: 0.9 },
       },
 
       response: {
         peakThreshold: 1.2,
         tiltRange: 50,
-        noteInterval: 160,
-        stillnessThreshold: 0.12,
-        stillnessTimeout: 3.0,
-        fadeTime: 6.0,           // dark tails linger and cascade
-        filterRange: [300, 2800],
+        noteInterval: 120,
+        stillnessThreshold: 0.15,
+        stillnessTimeout: 5.5,
+        fadeTime: 7.0,
+        filterRange: [300, 3500],
+        densityThresholds: [0.25, 1.0, 2.5],
+      },
+
+      motion: {
+        primary: 'sustained',
+        melodic: 'beta',
+        sensitivity: 0.9,
+      },
+    },
+
+    // ─── 4. TUNDRA ───────────────────────────────────────────────────
+    // Fred Again. Radiohead. Tender frost.
+    // A single piano note in infinite white space.
+    // Strings breathe slowly. Silence is the melody.
+    // No drums. No fills. Just breath.
+    {
+      name: 'Tundra',
+      color: '#aaccee',
+      description: 'Tender frost. One note. Infinite space.',
+
+      harmony: { root: 432, mode: 'minor' },
+
+      tone: {
+        bassFreq: 120, bassGain: 2,
+        midFreq: 400, midQ: 0.5, midGain: -2,
+        highFreq: 4000, highGain: -12,
+        ceiling: 5000,
+      },
+
+      space: {
+        reverb: { decay: 9.0, damping: 0.03 },
+        delay: { feedback: 0.55, filter: 2800, sync: 'dotted-eighth' },
+        saturation: 0.01,
+        type: 'infinite',
+        reverbMix: 0.95,
+      },
+
+      palette: {
+        peak: { voice: 'piano', octave: 1, decay: 3.5 },
+        continuous: { voice: 'strings', octave: 0, decay: 4.0 },
+        texture: { wave: 'sine', chord: [0, 7], octave: -2, detune: 10, vol: 0.03, reverbSend: 0.9 },
+        touch: { voice: 'piano', octave: 1, decay: 3.0 },
+      },
+
+      response: {
+        peakThreshold: 0.45,
+        tiltRange: 70,
+        noteInterval: 1200,
+        stillnessThreshold: 0.06,
+        stillnessTimeout: 0.4,
+        fadeTime: 14.0,
+        filterRange: [200, 4500],
+        densityThresholds: [0.15, 0.5, 1.2],
+      },
+
+      motion: {
+        primary: 'magnitude',
+        melodic: 'gamma',
+        sensitivity: 0.4,
+      },
+    },
+
+    // ─── 5. STILL WATER ──────────────────────────────────────────────
+    // Nils Frahm. Jon Hopkins. Quiet electricity.
+    // Piano + pluck + shimmer. Lydian mode — floating, unresolved.
+    // Strong delay feedback loops your gesture back to you.
+    {
+      name: 'Still Water',
+      color: '#2a6f6f',
+      description: 'Piano and pluck. Your gesture echoes back.',
+
+      harmony: { root: 440, mode: 'lydian' },
+
+      tone: {
+        bassFreq: 100, bassGain: 3,
+        midFreq: 700, midQ: 0.6, midGain: -1,
+        highFreq: 3000, highGain: -8,
+        ceiling: 4000,
+      },
+
+      space: {
+        reverb: { decay: 5.5, damping: 0.15 },
+        delay: { feedback: 0.52, filter: 2200, sync: 'dotted-eighth' },
+        saturation: 0.05,
+        type: 'cathedral',
+        reverbMix: 0.6,
+      },
+
+      palette: {
+        peak: { voice: 'piano', octave: 0, decay: 2.5 },
+        continuous: { voice: 'pluck', octave: 1, decay: 1.8 },
+        harmonic: { voice: 'bell', octave: 1, decay: 2.2 },
+        texture: { wave: 'sine', chord: [0, 4, 7, 11], octave: -1, detune: 6, vol: 0.05, reverbSend: 0.65 },
+        touch: { voice: 'piano', octave: 0, decay: 2.0 },
+      },
+
+      response: {
+        peakThreshold: 0.8,
+        tiltRange: 50,
+        noteInterval: 500,
+        stillnessThreshold: 0.1,
+        stillnessTimeout: 2.0,
+        fadeTime: 9.0,
+        filterRange: [250, 3500],
+        densityThresholds: [0.2, 0.7, 1.8],
+      },
+
+      motion: {
+        primary: 'flow',
+        melodic: 'beta',
+        sensitivity: 0.7,
+      },
+    },
+
+    // ─── 6. DARK MATTER ──────────────────────────────────────────────
+    // Inverted. Backwards. Through the tunnel.
+    // Sound builds in reverse — silence at the start, explosion at the peak.
+    // Phrygian darkness. Heavy sidechain pumping. 72% delay feedback loop.
+    // The music plays you. Not the other way around.
+    {
+      name: 'Dark Matter',
+      color: '#3d1a5f',
+      description: 'Backwards. Inverted. Through the tunnel.',
+
+      harmony: { root: 432, mode: 'phrygian' },
+
+      tone: {
+        bassFreq: 55, bassGain: 9,
+        midFreq: 500, midQ: 1.2, midGain: -4,
+        highFreq: 2000, highGain: -16,
+        ceiling: 2500,
+      },
+
+      space: {
+        reverb: { decay: 5.0, damping: 0.2 },
+        delay: { feedback: 0.72, filter: 1800, sync: 'dotted-eighth' },
+        saturation: 0.5,
+        sidechain: 0.7,
+        type: 'cathedral',
+        reverbMix: 0.55,
+      },
+
+      palette: {
+        peak: { voice: 'reverse', octave: 0, decay: 2.5 },
+        continuous: { voice: 'fm', octave: 0, decay: 1.5 },
+        harmonic: { voice: 'reverse', octave: -1, decay: 3.0 },
+        drum: { kit: 'acoustic' },
+        burst: { voice: 'glitch', octave: 0 },
+        texture: { wave: 'sawtooth', chord: [0, 1, 7], octave: -2, detune: 20, vol: 0.07, reverbSend: 0.65 },
+        touch: { voice: 'reverse', octave: 0, decay: 2.0 },
+      },
+
+      response: {
+        peakThreshold: 1.0,
+        tiltRange: 60,
+        noteInterval: 200,
+        stillnessThreshold: 0.1,
+        stillnessTimeout: 2.5,
+        fadeTime: 8.0,
+        filterRange: [150, 2000],
         densityThresholds: [0.2, 0.8, 2.0],
       },
 
       motion: {
-        primary: 'flow',       // blended smooth energy — no sudden spikes
-        melodic: 'gamma',      // wide sweeping tilt = cascading pitch changes
-        sensitivity: 1.0,
+        primary: 'flow',
+        melodic: 'gamma',
+        sensitivity: 1.1,
       },
     },
   ];

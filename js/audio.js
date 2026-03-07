@@ -686,7 +686,10 @@ const Audio = (function () {
       case 'pluck': synthPluck(time, freq, vel, decay); break;
       case 'brass': synthBrass(time, freq, vel, decay); break;
       case 'sub808': synthSub808(time, freq, vel); break;
-      case 'choir': case 'formant': synthFormantNote(time, freq, vel, decay); break;
+      case 'choir': synthChoir(time, freq, vel, decay); break;
+      case 'formant': synthFormantNote(time, freq, vel, decay); break;
+      case 'strings': synthStrings(time, freq, vel, decay); break;
+      case 'reverse': synthReverse(time, freq, vel, decay); break;
       case 'upright': synthUpright(time, freq, vel); break;
       default: synthSimple(time, freq, vel, decay, opts); break;
     }
@@ -1108,6 +1111,124 @@ const Audio = (function () {
     var end = time + decay + 0.5;
     o.start(time); o.stop(end); o2.start(time); o2.stop(end);
     morphLfo.start(time); morphLfo.stop(end);
+  }
+
+  // ── STRINGS — bowed section: slow bow attack, detuned saws ──────────
+
+  function synthStrings(time, freq, vel, decay) {
+    var lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass'; lp.frequency.value = 2200; lp.Q.value = 0.4;
+
+    var detunes = [-14, -5, 0, 5, 14];
+    var gains   = [0.18, 0.28, 0.32, 0.28, 0.18];
+    var end = time + decay + 1.5;
+    for (var i = 0; i < detunes.length; i++) {
+      var o = ctx.createOscillator(); o.type = 'sawtooth';
+      o.frequency.value = freq; o.detune.value = detunes[i];
+      var g = ctx.createGain(); g.gain.value = gains[i];
+      o.connect(g); g.connect(lp);
+      o.start(time); o.stop(end);
+    }
+
+    // Vibrato — bowing character, fades in after attack
+    var vib = ctx.createOscillator(); vib.type = 'sine'; vib.frequency.value = 5.2;
+    var vibG = ctx.createGain();
+    vibG.gain.setValueAtTime(0, time);
+    vibG.gain.linearRampToValueAtTime(freq * 0.004, time + 0.4);
+    vib.connect(vibG); vibG.connect(lp.frequency);
+    vib.start(time); vib.stop(end);
+
+    // Slow bow attack: 0.35s ramp — this IS the bow hitting the string
+    var env = ctx.createGain();
+    env.gain.setValueAtTime(0, time);
+    env.gain.linearRampToValueAtTime(vel * 0.9, time + 0.35);
+    env.gain.setTargetAtTime(vel * 0.7, time + 0.35, 0.5);
+    env.gain.setTargetAtTime(0.001, time + decay * 0.7, decay * 0.4);
+
+    lp.connect(env); env.connect(sidechainGain);
+    var rs = ctx.createGain(); rs.gain.value = 0.65; env.connect(rs); rs.connect(reverbSend);
+    var ds = ctx.createGain(); ds.gain.value = 0.08; env.connect(ds); ds.connect(delaySend);
+  }
+
+  // ── CHOIR — 3-voice layered vocal synthesis with breathing attack ──────
+
+  function synthChoir(time, freq, vel, decay) {
+    var freqs   = [freq, freq * 1.5, freq * 2];   // unison, 5th, octave
+    var vGains  = [0.55, 0.3, 0.2];
+    var end = time + decay + 0.8;
+
+    var mix = ctx.createGain(); mix.gain.value = 1;
+
+    for (var v = 0; v < freqs.length; v++) {
+      var vf = freqs[v];
+      var o1 = ctx.createOscillator(); o1.type = 'sawtooth'; o1.frequency.value = vf;
+      var o2 = ctx.createOscillator(); o2.type = 'sawtooth'; o2.frequency.value = vf;
+      o2.detune.value = 9; // choir width
+
+      // Vowel formant filters — open 'ah' character
+      var f1 = ctx.createBiquadFilter(); f1.type = 'bandpass'; f1.frequency.value = 800;  f1.Q.value = 4;
+      var f2 = ctx.createBiquadFilter(); f2.type = 'bandpass'; f2.frequency.value = 1200; f2.Q.value = 5;
+      var f3 = ctx.createBiquadFilter(); f3.type = 'bandpass'; f3.frequency.value = 2500; f3.Q.value = 6;
+      var f1g = ctx.createGain(); f1g.gain.value = 0.5;
+      var f2g = ctx.createGain(); f2g.gain.value = 0.35;
+      var f3g = ctx.createGain(); f3g.gain.value = 0.12;
+      var vg  = ctx.createGain(); vg.gain.value = vGains[v];
+
+      o1.connect(f1); o1.connect(f2); o1.connect(f3);
+      o2.connect(f1); o2.connect(f2); o2.connect(f3);
+      f1.connect(f1g); f2.connect(f2g); f3.connect(f3g);
+      f1g.connect(vg); f2g.connect(vg); f3g.connect(vg);
+      vg.connect(mix);
+
+      o1.start(time); o1.stop(end);
+      o2.start(time); o2.stop(end);
+    }
+
+    // Breathing attack — the inhale before the note
+    var env = ctx.createGain();
+    env.gain.setValueAtTime(0, time);
+    env.gain.linearRampToValueAtTime(vel * 0.85, time + 0.18);
+    env.gain.setTargetAtTime(vel * 0.65, time + 0.18, 0.5);
+    env.gain.setTargetAtTime(0.001, time + decay * 0.65, decay * 0.35);
+
+    var lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 3000; lp.Q.value = 0.5;
+    mix.connect(env); env.connect(lp); lp.connect(sidechainGain);
+    var rs = ctx.createGain(); rs.gain.value = 0.7; lp.connect(rs); rs.connect(reverbSend);
+    var ds = ctx.createGain(); ds.gain.value = 0.1; lp.connect(ds); ds.connect(delaySend);
+  }
+
+  // ── REVERSE — inverted envelope + downward glide = psychedelic tunnel ─
+
+  function synthReverse(time, freq, vel, decay) {
+    var lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.setValueAtTime(3500, time);
+    lp.frequency.exponentialRampToValueAtTime(500, time + decay * 0.85);
+    lp.Q.value = 1.2;
+
+    // Downward pitch glide: starts high, falls — the reversed-tape feel
+    var detunes = [-12, 0, 12];
+    var end = time + decay + 0.4;
+    for (var i = 0; i < detunes.length; i++) {
+      var o = ctx.createOscillator(); o.type = 'sawtooth';
+      o.frequency.setValueAtTime(freq * 1.3, time);
+      o.frequency.exponentialRampToValueAtTime(freq * 0.72, time + decay * 0.9);
+      o.detune.value = detunes[i];
+      var g = ctx.createGain(); g.gain.value = 0.33;
+      o.connect(g); g.connect(lp);
+      o.start(time); o.stop(end);
+    }
+
+    // Reverse envelope: swell IN, then abrupt silence — the backwards ghost
+    var env = ctx.createGain();
+    env.gain.setValueAtTime(0, time);
+    env.gain.linearRampToValueAtTime(vel * 0.08, time + decay * 0.25);
+    env.gain.linearRampToValueAtTime(vel * 1.1, time + decay * 0.88);
+    env.gain.linearRampToValueAtTime(0.001, time + decay);
+
+    lp.connect(env); env.connect(sidechainGain);
+    var rs = ctx.createGain(); rs.gain.value = 0.5; env.connect(rs); rs.connect(reverbSend);
+    var ds = ctx.createGain(); ds.gain.value = 0.75; env.connect(ds); ds.connect(delaySend);
   }
 
   // ── CRACKLE ────────────────────────────────────────────────────────────
