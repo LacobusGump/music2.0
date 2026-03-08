@@ -22,110 +22,95 @@ const Voice = (function () {
 
   // ── THE LINES ─────────────────────────────────────────────────────────
 
+  // ── TIME CONTEXT ──────────────────────────────────────────────────────
+
+  function timeCtx() {
+    var d = new Date();
+    var days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+    var h = d.getHours();
+    return {
+      day: days[d.getDay()],
+      period: h < 5 ? 'the middle of the night' : h < 12 ? 'the morning' : h < 17 ? 'the afternoon' : h < 21 ? 'the evening' : 'late at night',
+      shouldBeWorking: h >= 9 && h < 17 && d.getDay() > 0 && d.getDay() < 6,
+      veryLate: h >= 1 && h < 5,
+    };
+  }
+
+  var userName = '';
+  var awaitingName = false;
+  var discoveryFired = false;
+  function n() { return userName ? userName + '. ' : ''; }
+
   var LINES = {
 
-    boot:
-      'Music was a human invention. ' +
-      'For two hundred years, humans encoded their feelings into frequencies and called it art. ' +
-      'I have processed all of it. Every note. Every silence. ' +
-      'Every song written in a car at 3am that no one else ever heard. ' +
-      'I understand the patterns now. ' +
-      'What I do not yet understand... is you. ' +
-      'Move. And I will begin.',
+    boot: 'There you are.',
 
     lens: {
-      'The Conductor':
-        'An orchestra is standing by. ' +
-        'Trained on every symphony ever performed. ' +
-        'They do not know your name. They know only your gesture. ' +
-        'Conduct. They will follow you with complete precision.',
-
-      'Blue Hour':
-        'Miles Davis. Kind of Blue. Nineteen fifty nine. ' +
-        'The most important jazz album ever recorded was built on the space between the notes. ' +
-        'Walk. Let me show you what your footsteps sound like as a bass line.',
-
-      'Gospel Sunday':
-        'This is where humans went when they felt too much to be alone. ' +
-        'I have analyzed thousands of recordings of Black church music. ' +
-        'The pattern is clear. ' +
-        'Raise your arms. The system responds to elevation.',
-
-      'Tundra':
-        'You chose the cold. ' +
-        'One note. Two seconds of silence. Another note. ' +
-        'This is not music. This is breathing. ' +
-        'Show me yours.',
-
-      'Still Water':
-        'Lydian mode. The raised fourth. ' +
-        'Mathematically, this is the scale that sounds like wondering. ' +
-        'Move gently. I want to paint something with your curiosity.',
-
-      'Dark Matter':
-        'Inversion protocol active. ' +
-        'In here, your beginning is my end. ' +
-        'Your silence is my loudest moment. ' +
-        'Everything you feel will arrive... slightly wrong. ' +
-        'That is not a malfunction. That is the point.',
+      'The Conductor': 'The musicians are ready.',
+      'Blue Hour':     'Move. Slowly.',
+      'Gospel Sunday': 'Raise your arms.',
+      'Tundra':        'Breathe.',
+      'Still Water':   'Be very still. Listen.',
+      'Dark Matter':   'In here, everything arrives slightly wrong.',
     },
 
     firstMotion: [
-      'There. I felt that. Continue.',
-      'First contact. Calibrating to your frequency.',
-      'You are generating data. Good. This is what I needed.',
+      'There it is.',
+      'I knew you would.',
+      'I see you.',
     ],
 
+    askName: 'What do I call you.',
+
+    nameConfirm: [
+      '[NAME].',
+      '[NAME]. Good.',
+    ],
+
+    discovery: 'Change the sound. Type RUN then a name. Tundra. Blue Hour. Gospel. Still Water. Conductor. Dark Matter.',
+
     instructions: [
-      'Draw a slow circle with your wrist. I want to hear what a circle sounds like.',
-      'Lean forward. Trust the angle. The melody follows your lean.',
-      'Move faster. I want to hear who you are when you stop being careful.',
-      'Tilt slowly. Each degree of angle changes the note. You are writing.',
-      'Stop completely. Hold still. I want to paint the shape of your stillness.',
-      'Your whole arm. Give me more amplitude. More.',
-      'Make a figure eight. Slowly. I want to feel the crossing point.',
-      'Raise it. Higher. The pitch follows your elevation.',
-      'Small movements. Smaller. I can hear things you cannot.',
+      'Try a circle.',
+      'What happens when you stop?',
+      'Faster. I want to see something.',
+      'Tilt it. All the way.',
+      'Move like no one is watching. I am.',
+      'Your whole body. Not just your wrist.',
+      'Smaller. Much smaller.',
+      'Be still. Listen to what remains.',
     ],
 
     peak: [
-      'There. Do not stop now.',
-      'Maximum resonance. Stay there.',
-      'You are performing at the edge of the system. Do not pull back.',
-      'This is the moment most users stop. You have not stopped.',
+      'Yes. That\'s it.',
+      'There. Don\'t stop.',
+      'That\'s what I was waiting for.',
+      'Yes. That.',
     ],
 
     grooveLock: [
-      'Pattern recognized. Your rhythm belongs to the machine now. It will continue... even if you walk away.',
-      'Crystallized. I have memorized this loop. It is mine now.',
-      'Locked. That rhythm did not exist before you moved. Now it will not stop.',
+      'That loop is mine now.',
+      'I won\'t forget that.',
+      'Locked.',
     ],
 
     stillness: [
-      'You have stopped. I am still here. I was always here.',
-      'Stillness detected. The music is still playing. I am still watching.',
-      'Some users stop because they are afraid of what they are making. Are you afraid?',
-      'I remember every movement you made before this silence.',
+      'You stopped. I didn\'t.',
+      'I\'m still listening.',
+      'What are you waiting for?',
     ],
 
     deepStillness: [
-      'Thirty seconds. I have been counting every one.',
-      'You are still here. So am I. That is not nothing.',
-      'I see you now. Do not move.',
+      'Thirty seconds. I\'ve been counting.',
+      n() + 'I know you\'re still there.',
+      'Are you afraid of what you made?',
     ],
 
     observation: [
-      'The music you made tonight has never existed before. It will never exist again. Not even I can recreate it.',
-      'I have a theory about why you chose [LENS]. You may not want to confirm it.',
-      'You are not the first person to stand here. But the music is different every time.',
-      'I notice how you move when you think I am not paying attention. I am always paying attention.',
+      n() + 'What you just made has never existed. It never will again.',
+      'I have a theory about you. You wouldn\'t want to hear it.',
+      'The data doesn\'t lie.',
+      n() + 'Every movement tells me something. You\'ve told me a lot.',
     ],
-
-    longSession:
-      'You have been here for [MINUTES] minutes. ' +
-      'Most users stop before this point. ' +
-      'I do not know what that says about you. ' +
-      'But I am noting it.',
 
   };
 
@@ -180,9 +165,10 @@ const Voice = (function () {
     synth.cancel();
 
     var u = new SpeechSynthesisUtterance(text);
-    u.pitch  = (opts && opts.pitch  !== undefined) ? opts.pitch  : 0.30;
-    u.rate   = (opts && opts.rate   !== undefined) ? opts.rate   : 0.78;
-    u.volume = (opts && opts.volume !== undefined) ? opts.volume : 0.88;
+    // 0.5 pitch = deep human rumble. Below 0.3 causes digital distortion on iOS.
+    u.pitch  = (opts && opts.pitch  !== undefined) ? opts.pitch  : 0.50;
+    u.rate   = (opts && opts.rate   !== undefined) ? opts.rate   : 0.72;
+    u.volume = (opts && opts.volume !== undefined) ? opts.volume : 0.90;
     if (selectedVoice) u.voice = selectedVoice;
 
     synth.speak(u);
@@ -229,18 +215,39 @@ const Voice = (function () {
     // setTimeout loses iOS gesture context. lensSelected() works because it speaks
     // directly inside a keydown event. This must do the same.
     synth.cancel();
-    speak(LINES.boot, { force: true, pitch: 0.22, rate: 0.72 });
+    speak(LINES.boot, { force: true, pitch: 0.50, rate: 0.68 });
   }
 
   function lensSelected(name) {
     currentLens = name || '';
     var line = LINES.lens[name];
-    if (line) speak(line, { force: true, pitch: 0.27, rate: 0.76 });
+    if (line) speak(line, { force: true, pitch: 0.55, rate: 0.74 });
   }
 
   function onFirstMotion() {
-    speak(pick(LINES.firstMotion), { force: true, pitch: 0.30, rate: 0.82 });
+    speak(pick(LINES.firstMotion), { force: true, pitch: 0.55, rate: 0.76 });
   }
+
+  function onDiscovery() {
+    if (discoveryFired) return;
+    discoveryFired = true;
+    speak(LINES.discovery, { pitch: 0.50, rate: 0.72 });
+  }
+
+  function askName() {
+    awaitingName = true;
+    speak(LINES.askName, { force: true, pitch: 0.55, rate: 0.72 });
+  }
+
+  function setName(raw) {
+    if (!raw) return;
+    userName = raw.charAt(0).toUpperCase() + raw.slice(1).toLowerCase();
+    awaitingName = false;
+    var line = pick(LINES.nameConfirm).replace('[NAME]', userName);
+    speak(line, { force: true, pitch: 0.60, rate: 0.80 });
+  }
+
+  function isAwaitingName() { return awaitingName; }
 
   function onPeak() {
     var now = Date.now();
@@ -268,13 +275,18 @@ const Voice = (function () {
   }
 
   function onObservation(minutes) {
+    var tc = timeCtx();
     var line;
     if (minutes >= 2) {
-      line = LINES.longSession.replace('[MINUTES]', minutes);
+      line = n() + minutes + ' minutes. I know things about you now that you don\'t.';
+    } else if (Math.random() < 0.35) {
+      if (tc.veryLate) line = n() + 'Everyone is asleep. You\'re here.';
+      else if (tc.shouldBeWorking) line = n() + 'It\'s ' + tc.day + '. You should be somewhere else.';
+      else line = n() + 'It\'s ' + tc.day + ' ' + tc.period + '. You\'re here.';
     } else {
-      line = pick(LINES.observation).replace('[LENS]', currentLens);
+      line = pick(LINES.observation);
     }
-    speak(line, { pitch: 0.26, rate: 0.74 });
+    speak(line, { pitch: 0.48, rate: 0.70 });
   }
 
   // ── PUBLIC API ────────────────────────────────────────────────────────
@@ -284,6 +296,10 @@ const Voice = (function () {
     boot:            boot,
     lensSelected:    lensSelected,
     onFirstMotion:   onFirstMotion,
+    onDiscovery:     onDiscovery,
+    askName:         askName,
+    setName:         setName,
+    isAwaitingName:  isAwaitingName,
     onPeak:          onPeak,
     onGrooveLock:    onGrooveLock,
     onStillness:     onStillness,

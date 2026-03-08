@@ -227,8 +227,8 @@ const Lens = (function () {
       palette: {
         // Your gesture → single piano note — the drop of water in the cave
         peak: { voice: 'piano', octave: 1, decay: 4.0 },
-        // Your tilt → tiny bell — not strings, not mass, just a crystal ping
-        continuous: { voice: 'bell', octave: 2, decay: 2.5 },
+        // Your tilt → piano melody — same voice as peak, quieter, carries the tune
+        continuous: { voice: 'piano', octave: 0, decay: 3.2 },
         // Barely perceptible sine drone — like breath fogging in cold air
         texture: { wave: 'sine', chord: [0, 7], octave: -2, detune: 8, vol: 0.018, reverbSend: 0.88 },
         touch: { voice: 'piano', octave: 1, decay: 3.5 },
@@ -281,10 +281,10 @@ const Lens = (function () {
 
       palette: {
         peak: { voice: 'piano', octave: 0, decay: 2.5 },
-        continuous: { voice: 'pluck', octave: 1, decay: 1.6 },
+        continuous: { voice: 'strings', octave: 0, decay: 2.8 },
         // Soft rhythmic pulse — this is what separates it from Tundra's silence
         subdivision: { voice: 'hat', kit: 'brushes', divisions: 2, vel: 0.07 },
-        harmonic: { voice: 'bell', octave: 2, decay: 2.2 },
+        harmonic: { voice: 'piano', octave: 1, decay: 2.0 },
         texture: { wave: 'sine', chord: [0, 4, 7, 11], octave: -1, detune: 5, vol: 0.05, reverbSend: 0.62 },
         touch: { voice: 'piano', octave: 0, decay: 2.0 },
       },
@@ -338,7 +338,7 @@ const Lens = (function () {
       palette: {
         peak: { voice: 'reverse', octave: 0, decay: 2.5 },
         continuous: { voice: 'fm', octave: 0, decay: 1.5 },
-        harmonic: { voice: 'reverse', octave: -1, decay: 3.0 },
+        harmonic: { voice: 'strings', octave: -1, decay: 3.5 },
         drum: { kit: 'acoustic' },
         burst: { voice: 'glitch', octave: 0 },
         texture: { wave: 'sawtooth', chord: [0, 1, 7], octave: -2, detune: 20, vol: 0.07, reverbSend: 0.65 },
