@@ -120,13 +120,19 @@ const Voice = (function () {
     function loadVoices() {
       var voices = synth.getVoices();
       var preferred = [
+        // Neural voices (Windows/Chrome — sound dramatically better)
+        'Microsoft Guy Online (Natural) - English (United States)',
+        'Microsoft Davis Natural - English (United States)',
+        'Microsoft George Online (Natural) - English (United Kingdom)',
+        'Microsoft Ryan Online (Natural) - English (United Kingdom)',
         'Google UK English Male',
+        // iOS Enhanced voices (must be downloaded in Settings > Accessibility > Spoken Content)
+        'Daniel (Enhanced)',
+        'Alex (Enhanced)',
+        // iOS standard fallbacks
         'Microsoft George - English (United Kingdom)',
         'Microsoft David - English (United States)',
-        'Daniel',
-        'Alex',
-        'Fred',
-        'Thomas',
+        'Daniel', 'Alex', 'Fred', 'Thomas',
       ];
       for (var i = 0; i < preferred.length; i++) {
         for (var j = 0; j < voices.length; j++) {
