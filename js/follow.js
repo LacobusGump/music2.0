@@ -95,6 +95,16 @@ const Follow = (function () {
   var noteCount = 0;
   var errorCount = 0;
 
+  // ── SESSION ARC ───────────────────────────────────────────────────────
+  // The music opens up as the user earns it through engagement.
+  // Phase 0 EMERGENCE  (0–45s): tilt melody only, sparse, quiet — discover the instrument
+  // Phase 1 LISTENING  (45–90s): peak voices + harmonics appear — music wakes up
+  // Phase 2 ALIVE      (90s+):  drums, groove, everything — fully alive
+  var sessionEngagedTime = 0;   // seconds of active (non-silent) play
+  var sessionPhase = 0;
+  var PHASE_LISTENING = 45;
+  var PHASE_ALIVE = 90;
+
   // GROOVE CRYSTALLIZATION STATE
   var grooveBuf = [];
   var grooveLoop = null;
@@ -149,7 +159,7 @@ const Follow = (function () {
   }
 
   function processGridBeats(now) {
-    if (!tempoLocked || isSilent || !lens || !Audio.ctx) return;
+    if (!tempoLocked || isSilent || !lens || !Audio.ctx || sessionPhase < 2) return;
 
     // Fire anticipated grid beats
     while (nextGridBeat <= now) {
@@ -242,7 +252,7 @@ const Follow = (function () {
   }
 
   function processMomentum(now) {
-    if (!momentumActive || isSilent || !lens || !Audio.ctx) return;
+    if (!momentumActive || isSilent || !lens || !Audio.ctx || sessionPhase < 1) return;
 
     if (now >= momentumNextBeat && momentumBeatsLeft > 0) {
       momentumBeatsLeft--;
@@ -355,8 +365,10 @@ const Follow = (function () {
     phraseCooldown = 0.5; // half second before next phrase
     phraseIntensityFactor = 1.0;
 
-    // Harmonic shift at phrase boundary — music breathes
-    harmonyDegree = (harmonyDegree + 4) % scale.length; // up a 4th
+    // Harmonic shift at phrase boundary — only when music is developed enough
+    if (sessionPhase >= 1) {
+      harmonyDegree = (harmonyDegree + 4) % scale.length; // up a 4th
+    }
 
     // Phrase-ending harmonic note
     if (lens && lens.palette && lens.palette.harmonic && Audio.ctx) {
@@ -473,7 +485,7 @@ const Follow = (function () {
 
   // GROOVE CRYSTALLIZATION
   function grooveRecord(type, data) {
-    if (!tempoLocked || isSilent || grooveIsPlayback || grooveBarLen < 200) return;
+    if (!tempoLocked || isSilent || grooveIsPlayback || grooveBarLen < 200 || sessionPhase < 2) return;
     var now = performance.now();
     var pos = ((now - grooveStart) % grooveBarLen) / grooveBarLen;
     grooveBuf.push({ t: now, pos: pos, type: type, data: data });
@@ -558,6 +570,8 @@ const Follow = (function () {
     phraseActive = false;
     archetype = 'exploring';
     archetypeConfidence = 0;
+    sessionEngagedTime = 0;
+    sessionPhase = 0;
   }
 
   // ── CONFIGURE (apply lens) ────────────────────────────────────────────
@@ -583,6 +597,8 @@ const Follow = (function () {
     piHead = 0;
     harmonyDegree = 0;
     phraseActive = false;
+    sessionEngagedTime = 0;
+    sessionPhase = 0;
   }
 
   // ── PEAK DETECTION ────────────────────────────────────────────────────
@@ -640,6 +656,8 @@ const Follow = (function () {
 
   function onPeak(magnitude, now) {
     if (!lens || !Audio.ctx) return;
+    // Phase 0: peaks are silent — the body moves but only tilt melody speaks
+    if (sessionPhase === 0) return;
 
     try {
       var time = Audio.ctx.currentTime;
@@ -650,16 +668,17 @@ const Follow = (function () {
       // Phrase intensity shapes the response
       vel *= phraseIntensityFactor;
 
-      // ── 1. RHYTHMIC HIT ──
+      // ── 1. RHYTHMIC HIT (phase 1+) ──
       if (palette.peak) {
         var p = palette.peak;
         var freq = scaleFreq(harmonyDegree, p.octave || -1);
-        Audio.synth.play(p.voice || 'sub808', time, freq, vel * 0.7 * mods.peakVoiceBoost, p.decay || 0.8);
+        var peakVel = vel * 0.7 * mods.peakVoiceBoost * (sessionPhase === 1 ? 0.55 : 1.0);
+        Audio.synth.play(p.voice || 'sub808', time, freq, peakVel, p.decay || 0.8);
         noteCount++;
       }
 
-      // ── 2. DRUMS (modified by archetype) ──
-      if (palette.drum && vel > 0.2) {
+      // ── 2. DRUMS (phase 2 only) ──
+      if (palette.drum && vel > 0.2 && sessionPhase >= 2) {
         var d = palette.drum;
         var kit = d.kit || 'acoustic';
         var drumVel = vel * mods.drumBoost;
@@ -678,13 +697,13 @@ const Follow = (function () {
         }
       }
 
-      // ── 3. SUBDIVISIONS ──
-      if (palette.subdivision && rhythmConfidence > 0.3 && piLen >= 3) {
+      // ── 3. SUBDIVISIONS (phase 2 only) ──
+      if (palette.subdivision && rhythmConfidence > 0.3 && piLen >= 3 && sessionPhase >= 2) {
         scheduleSubdivisions(now, vel * mods.subdivBoost, time);
       }
 
-      // ── 4. HARMONIC NOTE (phrase-aware) ──
-      if (palette.harmonic && vel > 0.35) {
+      // ── 4. HARMONIC NOTE (phase 1+, phrase-aware) ──
+      if (palette.harmonic && vel > 0.35 && sessionPhase >= 1) {
         var h = palette.harmonic;
         // During phrase climax, add more harmonic color
         var chordTone = phraseEnergyArc > 0.3 && phraseEnergyArc < 0.8 ? 4 : 2;
@@ -786,6 +805,11 @@ const Follow = (function () {
 
     var tiltOffset = tiltVal / (tiltRange / 2);
     targetDegree = Math.round(tiltOffset * 7);
+
+    // Harmonic arc: phase 0 = consonant only (root/3rd/5th), opens up with each phase
+    var degreeLimit = sessionPhase === 0 ? 3 : sessionPhase === 1 ? 5 : 10;
+    if (targetDegree > degreeLimit) targetDegree = degreeLimit;
+    if (targetDegree < -degreeLimit) targetDegree = -degreeLimit;
 
     if (targetDegree !== currentDegree && !isSilent && fadeGain > 0.3) {
       var mods = archetypeModifiers();
@@ -950,7 +974,15 @@ const Follow = (function () {
       stillnessTimer = 0;
 
       if (!isSilent) {
-        var targetFade = Math.min(1, mag / 2);
+        // Track engagement time and advance session phase
+        sessionEngagedTime += dt;
+        sessionPhase = sessionEngagedTime < PHASE_LISTENING ? 0
+                     : sessionEngagedTime < PHASE_ALIVE     ? 1
+                     : 2;
+
+        // Fade ceiling rises with each phase — music literally gets louder as you engage
+        var fadeCeiling = sessionPhase === 0 ? 0.45 : sessionPhase === 1 ? 0.72 : 1.0;
+        var targetFade = Math.min(fadeCeiling, mag / 2);
         fadeGain += (targetFade - fadeGain) * 0.05;
       }
     }
@@ -1052,7 +1084,7 @@ const Follow = (function () {
   // ── SPIKE HANDLER ─────────────────────────────────────────────────────
 
   function onSpike(data) {
-    if (!active || !lens || !Audio.ctx || isSilent) return;
+    if (!active || !lens || !Audio.ctx || isSilent || sessionPhase < 1) return;
 
     try {
       var time = Audio.ctx.currentTime;
@@ -1149,5 +1181,7 @@ const Follow = (function () {
     get archetype() { return archetype; },
     get phrase() { return phraseActive ? phraseEnergyArc.toFixed(2) : 'none'; },
     get momentum() { return momentumActive; },
+    get phase() { return sessionPhase; },
+    get sessionTime() { return Math.round(sessionEngagedTime); },
   });
 })();
