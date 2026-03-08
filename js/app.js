@@ -554,8 +554,8 @@
       var vPlaySecs = (vNow - voicePlayStart) / 1000;
       var vEnergy = Brain.energy;
 
-      // First motion — the only guaranteed second line
-      if (!voiceFirstMotion && vPlaySecs > 3 && vEnergy > 0.3) {
+      // First motion — fires after user has had time to explore
+      if (!voiceFirstMotion && vPlaySecs > 18 && vEnergy > 0.3) {
         voiceFirstMotion = true;
         Voice.onFirstMotion();
       }
