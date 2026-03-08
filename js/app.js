@@ -385,8 +385,8 @@
           if (data.neuron === 'toss' || data.neuron === 'shake') {
             Organism.addMutation(data.energy);
           }
-          // Voice reacts to high-energy peaks
-          if (data.energy > 1.8) Voice.onPeak();
+          // Voice reacts to extreme peaks — rare, only the biggest moments
+          if (data.energy > 2.2) Voice.onPeak();
         } catch (e) { console.error('spike handler:', e); }
       });
       spikeWired = true;
@@ -400,7 +400,7 @@
     voiceDiscoveryDone = false;
     voiceNameAsked = false;
     voiceLastInstruction = 0;
-    voiceLastObservation = 0;
+    voiceLastObservation = 0; // 0 = not yet fired this session
     voiceStillnessStart = 0;
     voiceDeepStillnessFired = false;
     voicePrevGroove = false;
@@ -554,52 +554,27 @@
       var vPlaySecs = (vNow - voicePlayStart) / 1000;
       var vEnergy = Brain.energy;
 
-      // First motion detected
-      if (!voiceFirstMotion && vPlaySecs > 4 && vEnergy > 0.3) {
+      // First motion — the only guaranteed second line
+      if (!voiceFirstMotion && vPlaySecs > 3 && vEnergy > 0.3) {
         voiceFirstMotion = true;
         Voice.onFirstMotion();
       }
 
-      // Discovery — once at ~10s, reveals RUN commands
-      if (voiceFirstMotion && !voiceDiscoveryDone && vPlaySecs > 10) {
-        voiceDiscoveryDone = true;
-        Voice.onDiscovery();
-      }
-
-      // Name ask — once at ~20s
-      if (voiceFirstMotion && !voiceNameAsked && vPlaySecs > 20) {
-        voiceNameAsked = true;
-        Voice.askName();
-      }
-
-      // Groove lock transition
-      var vGrooving = Follow.groovePlaying;
-      if (vGrooving && !voicePrevGroove) Voice.onGrooveLock();
-      voicePrevGroove = vGrooving;
-
-      // Stillness tracking
+      // Deep stillness — earned after 30s of nothing
       if (Follow.silent && voiceFirstMotion) {
         if (!voiceStillnessStart) voiceStillnessStart = vNow;
         var vStillSecs = (vNow - voiceStillnessStart) / 1000;
         if (vStillSecs > 30 && !voiceDeepStillnessFired) {
           voiceDeepStillnessFired = true;
           Voice.onDeepStillness();
-        } else if (vStillSecs > 13 && vStillSecs < 15) {
-          Voice.onStillness();
         }
       } else {
         voiceStillnessStart = 0;
         voiceDeepStillnessFired = false;
       }
 
-      // Instruction prompts — every 45 seconds during activity
-      if (voiceFirstMotion && vPlaySecs - voiceLastInstruction > 45 && !Follow.silent) {
-        voiceLastInstruction = vPlaySecs;
-        Voice.onInstruction();
-      }
-
-      // Late-session observations — after 90s, every 2 minutes
-      if (vPlaySecs > 90 && vPlaySecs - voiceLastObservation > 120) {
+      // One rare moment — after 4 minutes, once per session
+      if (voiceFirstMotion && vPlaySecs > 240 && voiceLastObservation === 0) {
         voiceLastObservation = vPlaySecs;
         Voice.onObservation(Math.floor(vPlaySecs / 60));
       }

@@ -232,84 +232,54 @@ const Voice = (function () {
     playFile(pick(FILES.firstMotion), true);
   }
 
-  function onDiscovery() {
-    // Intentionally empty
-  }
-
-  function askName() {
-    awaitingName = true;
-    playFile(FILES.askName, true);
-  }
-
-  function setName(raw) {
-    if (!raw) return;
-    userName     = raw.charAt(0).toUpperCase() + raw.slice(1).toLowerCase();
-    awaitingName = false;
-    speak(userName + '.', { force: true, pitch: 0.60, rate: 0.76 });
-  }
-
-  function isAwaitingName() { return awaitingName; }
+  function onDiscovery() {}
 
   function onPeak() {
     var now = Date.now();
-    if (now - peakFired < 18000) return;
+    if (now - peakFired < 30000) return; // max once per 30s
     peakFired = now;
     playFile(pick(FILES.peak));
-  }
-
-  function onGrooveLock() {
-    playFile(pick(FILES.grooveLock), true);
-  }
-
-  function onStillness() {
-    playFile(pick(FILES.stillness));
   }
 
   function onDeepStillness() {
     playFile(pick(FILES.deepStillness), true);
   }
 
-  function onInstruction() {
-    var file = FILES.instruction[instructionCount % FILES.instruction.length];
-    instructionCount++;
-    playFile(file);
-  }
-
+  // Called once per session after 4 minutes
   function onObservation(minutes) {
     var tc = timeCtx();
 
-    // Scary — once, random, after 3+ minutes
-    if (minutes >= 3 && !scaryFired && Math.random() < 0.2) {
+    // Scary plays once if it exists
+    if (!scaryFired) {
       scaryFired = true;
       playFile(FILES.scary);
       return;
     }
 
-    // Emotional — each line once, scattered through long sessions
+    // One emotional line, or a time-aware line
     var unused = FILES.emotional.filter(function (f) { return emotionalUsed.indexOf(f) === -1; });
-    if (unused.length > 0 && Math.random() < 0.4) {
+    if (unused.length > 0) {
       var chosen = pick(unused);
       emotionalUsed.push(chosen);
       playFile(chosen);
       return;
     }
 
-    // Time-aware dynamic lines (Web Speech — use real name/time)
-    if (minutes >= 2 && Math.random() < 0.45) {
-      speak(n() + minutes + ' minutes. I know things about you now that you don\'t.', { pitch: 0.48, rate: 0.70 });
-      return;
+    if (tc.veryLate) {
+      speak('Everyone is asleep. You\'re here.', { pitch: 0.48, rate: 0.70 });
+    } else if (tc.shouldBeWorking) {
+      speak('It\'s ' + tc.day + '. You should be somewhere else.', { pitch: 0.48, rate: 0.70 });
+    } else {
+      playFile(pick(FILES.observation));
     }
-    if (tc.veryLate && Math.random() < 0.5) {
-      speak(n() + 'Everyone is asleep. You\'re here.', { pitch: 0.48, rate: 0.70 });
-      return;
-    }
-    if (tc.shouldBeWorking && Math.random() < 0.5) {
-      speak(n() + 'It\'s ' + tc.day + '. You should be somewhere else.', { pitch: 0.48, rate: 0.70 });
-      return;
-    }
-
-    playFile(pick(FILES.observation));
   }
+
+  function askName() {}
+  function setName() {}
+  function isAwaitingName() { return false; }
+  function onGrooveLock() {}
+  function onStillness() {}
+  function onInstruction() {}
 
   // ── PUBLIC API ────────────────────────────────────────────────────────
 
