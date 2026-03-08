@@ -190,7 +190,7 @@
     // Voice speaks FIRST — boot canvas stays alive as the entity's voice fills the dark.
     // Audio.configure() is delayed 3s so it cannot steal the iOS audio session from speech.
     // "There you are." fires at 350ms. Music begins at 3000ms. The silence between is intentional.
-    Voice.init();
+    Voice.init(audioCtx);
     Voice.boot();
 
     Sensor.init().then(function () {
