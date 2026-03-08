@@ -158,7 +158,8 @@
     var el = document.getElementById('screen-listen');
     if (!el) return;
 
-    el.addEventListener('touchstart', function (e) {
+    // touchend = iOS speech synthesis trusted gesture (touchstart is not reliable for speak())
+    el.addEventListener('touchend', function (e) {
       e.preventDefault();
       onListenTap();
     }, { passive: false });
