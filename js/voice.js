@@ -216,25 +216,20 @@ const Voice = (function () {
 
   function boot() {
     sessionStart = Date.now();
-    // iOS requires an empty utterance spoken first in the gesture context
-    // to unlock the speech pipeline. Then we speak the real content.
-    var unlock = new SpeechSynthesisUtterance('');
-    unlock.volume = 0;
-    synth.speak(unlock);
-    // Voices may not be loaded yet — wait briefly then speak
-    setTimeout(function () {
-      // Try to select a voice now if we haven't
-      if (!selectedVoice) {
-        var voices = synth.getVoices();
-        for (var k = 0; k < voices.length; k++) {
-          if (voices[k].lang && voices[k].lang.startsWith('en')) {
-            selectedVoice = voices[k]; break;
-          }
-        }
+
+    // Load whatever voices are available right now
+    if (!selectedVoice) {
+      var voices = synth.getVoices();
+      for (var k = 0; k < voices.length; k++) {
+        if (voices[k].lang && voices[k].lang.startsWith('en')) { selectedVoice = voices[k]; break; }
       }
-      synth.cancel();
-      speak(LINES.boot, { force: true, pitch: 0.22, rate: 0.72 });
-    }, 350);
+    }
+
+    // Speak DIRECTLY — we are inside the touchstart gesture right now.
+    // setTimeout loses iOS gesture context. lensSelected() works because it speaks
+    // directly inside a keydown event. This must do the same.
+    synth.cancel();
+    speak(LINES.boot, { force: true, pitch: 0.22, rate: 0.72 });
   }
 
   function lensSelected(name) {
