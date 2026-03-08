@@ -13,8 +13,8 @@ const Voice = (function () {
   var BASE = 'voice/';
 
   var FILES = {
-    boot:          'there-you-are.mp3',
-    firstMotion:   ['first-motion-1.mp3', 'first-motion-2.mp3', 'first-motion-3.mp3'],
+    boot:          'intro.mp3',           // record: "Your body is the instrument. I'll do the rest."
+    firstMotion:   ['there-you-are.mp3', 'first-motion-1.mp3', 'first-motion-2.mp3', 'first-motion-3.mp3'],
     askName:       'ask-name.mp3',
     peak:          ['peak-1.mp3', 'peak-2.mp3', 'peak-3.mp3', 'peak-4.mp3'],
     grooveLock:    ['groove-1.mp3', 'groove-2.mp3', 'groove-3.mp3'],
@@ -183,7 +183,36 @@ const Voice = (function () {
 
   function boot() {
     sessionStart = Date.now();
-    playFile(FILES.boot, true);
+    var bootText = 'Your body is the instrument. I\'ll do the rest.';
+
+    if (!voiceCtx) {
+      speak(bootText, { force: true, pitch: 0.50, rate: 0.68 });
+      return;
+    }
+
+    // Try the pre-rendered file; fall back to Web Speech if it 404s
+    lastSpoke = Date.now();
+    fetch(BASE + FILES.boot)
+      .then(function (r) {
+        if (!r.ok) throw new Error('not found');
+        return r.arrayBuffer();
+      })
+      .then(function (buf) { return voiceCtx.decodeAudioData(buf); })
+      .then(function (decoded) {
+        var src  = voiceCtx.createBufferSource();
+        var gain = voiceCtx.createGain();
+        gain.gain.value = 0.88;
+        src.buffer = decoded;
+        src.connect(gain);
+        gain.connect(voiceCtx.destination);
+        src.start(0);
+        currentSource = src;
+      })
+      .catch(function () {
+        // File not recorded yet — Web Speech fallback
+        lastSpoke = 0;
+        speak(bootText, { force: true, pitch: 0.50, rate: 0.68 });
+      });
   }
 
   function lensSelected(name) {

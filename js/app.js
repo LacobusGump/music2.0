@@ -154,11 +154,12 @@
 
   // ── LISTEN SCREEN ────────────────────────────────────────────────────
 
+  var listenTapped = false; // guard against double-fire (touchend + click both firing)
+
   function initListen() {
     var el = document.getElementById('screen-listen');
     if (!el) return;
 
-    // touchend = iOS speech synthesis trusted gesture (touchstart is not reliable for speak())
     el.addEventListener('touchend', function (e) {
       e.preventDefault();
       onListenTap();
@@ -170,7 +171,12 @@
   }
 
   function onListenTap() {
-    if (screen !== SCREENS.LISTEN) return;
+    if (listenTapped) return;
+    listenTapped = true;
+
+    // Move off boot screen immediately — no second tap possible
+    showScreen(SCREENS.PLAY);
+    stopBootCanvas();
 
     // Create AudioContext on user gesture (iOS requirement)
     if (!audioCtx) {
@@ -178,7 +184,7 @@
     }
     if (audioCtx.state === 'suspended') audioCtx.resume();
 
-    // iOS silent buffer unlock: must play audio during the gesture or iOS won't open the pipeline
+    // iOS silent buffer unlock
     try {
       var silentBuf = audioCtx.createBuffer(1, 1, audioCtx.sampleRate);
       var silentSrc = audioCtx.createBufferSource();
@@ -187,9 +193,7 @@
       silentSrc.start(0);
     } catch (e) {}
 
-    // Voice speaks FIRST — boot canvas stays alive as the entity's voice fills the dark.
-    // Audio.configure() is delayed 3s so it cannot steal the iOS audio session from speech.
-    // "There you are." fires at 350ms. Music begins at 3000ms. The silence between is intentional.
+    // Voice init + boot greeting — we are inside the gesture right now
     Voice.init(audioCtx);
     Voice.boot();
 
@@ -201,25 +205,20 @@
 
       var urlLens = Lens.loadFromURL();
       if (urlLens) {
-        // Shared URL lens — skip the 3s intro
         Audio.configure(urlLens);
         Follow.applyLens(urlLens);
         Organism.applyLens(urlLens);
-        stopBootCanvas();
-        showScreen(SCREENS.PLAY);
         startPlayScreen();
       } else {
-        // Let voice finish before music starts
+        // Music fades in after the boot voice has a moment to breathe
         setTimeout(function () {
-          Lens.selectCard(5); // Dark Matter — the AI has made a selection
+          Lens.selectCard(5); // Dark Matter
           var lens = Lens.getSelected();
           Audio.configure(lens);
           Follow.applyLens(lens);
           Organism.applyLens(lens);
-          stopBootCanvas();
-          showScreen(SCREENS.PLAY);
           startPlayScreen();
-        }, 3000);
+        }, 2500);
       }
     });
   }
