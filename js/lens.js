@@ -148,63 +148,61 @@ const Lens = (function () {
     },
 
     // ─── 3. DRIFT ─────────────────────────────────────────────────────
-    // Boards of Canada. Tape hiss and warm memory.
-    // A detuned piano in a room that smells like 1983.
-    // Your motion becomes a half-remembered melody — slightly wrong, deeply right.
+    // One piano. Two hands. Your tilt is the right hand (melody).
+    // Your motion energy is the left hand (bass). They speak to each other.
+    // Boards of Canada — dorian warmth, minimal reverb, notes breathe.
+    // No texture competing. No voices fighting. Piano and space.
     {
       name: 'Drift',
       color: '#3d3550',
-      description: 'Tape memory. Warm and slightly wrong.',
+      description: 'One piano. Two hands. Memory and motion.',
 
-      harmony: { root: 432, mode: 'minor' },
+      harmony: { root: 432, mode: 'dorian' },
 
       tone: {
-        bassFreq: 100, bassGain: 3,
-        midFreq: 600, midQ: 0.6, midGain: 2,
-        highFreq: 3000, highGain: -10,   // warm, muted — tape rolled off the top
-        ceiling: 4000,
+        bassFreq: 110, bassGain: 5,
+        midFreq: 700, midQ: 0.5, midGain: 1,
+        highFreq: 2800, highGain: -12,   // tape: highs rolled off
+        ceiling: 3500,
       },
 
       space: {
-        reverb: { decay: 6.0, damping: 0.12 },
-        delay: { feedback: 0.45, filter: 1800, sync: 'dotted-eighth' },
-        saturation: 0.08,   // slight tape warmth
+        reverb: { decay: 5.0, damping: 0.18 },
+        delay: { feedback: 0.32, filter: 1600, sync: 'dotted-eighth' },
+        saturation: 0.05,
         type: 'cathedral',
-        reverbMix: 0.68,    // wet, dreamlike
-        spatial: { sweepRate: 0.05, sweepDepth: 0.35 },
+        reverbMix: 0.44,   // drier — notes need room to exist before they blend
+        spatial: { sweepRate: 0.04, sweepDepth: 0.28 },
       },
 
       palette: {
-        // Your gesture → piano note through the dream
-        peak: { voice: 'piano', octave: 0, decay: 3.5 },
-        // Your tilt → warm electric piano — the melody you half-remember
-        continuous: { voice: 'epiano', octave: 0, decay: 2.2 },
-        // String wash harmonic — like a warm memory surfacing
-        harmonic: { voice: 'strings', octave: -1, decay: 4.0 },
-        burst: { voice: 'piano', octave: 1 },
-        // Detuned drone — the "slightly wrong" that makes BoC feel haunted
-        texture: { wave: 'triangle', chord: [0, 3, 7], octave: -1, detune: 28, vol: 0.045, reverbSend: 0.75 },
-        touch: { voice: 'epiano', octave: 0, decay: 2.5 },
+        // Your tilt → right hand melody (middle register)
+        continuous: { voice: 'piano', octave: 0, decay: 3.5 },
+        // Your motion → left hand bass (different octave = no frequency clash)
+        peak: { voice: 'piano', octave: -1, decay: 2.5 },
+        // Strong peaks only: a high note answers 320ms later (see harmonic delay in follow.js)
+        harmonic: { voice: 'piano', octave: 1, decay: 2.0 },
+        touch: { voice: 'piano', octave: 0, decay: 3.0 },
+        // No texture, no burst — silence IS the arrangement
       },
 
-      // No percussion — the drift is all texture and melody
       groove: null,
 
       response: {
-        peakThreshold: 0.8,
+        peakThreshold: 0.75,
         tiltRange: 55,
-        noteInterval: 600,   // slow, deliberate — one thought at a time
-        stillnessThreshold: 0.08,
+        noteInterval: 750,
+        stillnessThreshold: 0.07,
         stillnessTimeout: 2.5,
-        fadeTime: 10.0,
-        filterRange: [200, 3000],
-        densityThresholds: [0.15, 0.6, 1.5],
+        fadeTime: 11.0,
+        filterRange: [200, 2800],
+        densityThresholds: [0.12, 0.55, 1.3],
       },
 
       motion: {
         primary: 'flow',
         melodic: 'beta',
-        sensitivity: 0.7,
+        sensitivity: 0.6,
       },
     },
 

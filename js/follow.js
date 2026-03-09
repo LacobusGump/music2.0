@@ -74,13 +74,12 @@ const Follow = (function () {
       return best;
     }
 
-    // Low tension: free movement
-    if (harmonicTension < 0.35) return rawDeg;
+    // Gentle suggestion — not a force, a lean
+    if (harmonicTension < 0.45) return rawDeg;
 
-    // High tension: pull toward tonic (very tense) or dominant (medium-high)
-    var pull = Math.min(1, (harmonicTension - 0.35) / 0.55);
-    var target = harmonicTension > 0.70 ? 0 : 4;
-    return Math.round(rawDeg * (1 - pull * 0.55) + target * pull * 0.55);
+    var pull = Math.min(1, (harmonicTension - 0.45) / 0.55);
+    var target = harmonicTension > 0.75 ? 0 : 4;
+    return Math.round(rawDeg * (1 - pull * 0.40) + target * pull * 0.40);
   }
 
   // ── STATE ─────────────────────────────────────────────────────────────
@@ -776,14 +775,14 @@ const Follow = (function () {
         scheduleSubdivisions(now, vel * mods.subdivBoost, time);
       }
 
-      // ── 4. HARMONIC NOTE (phase 1+, phrase-aware) ──
-      if (palette.harmonic && vel > 0.35 && sessionPhase >= 1) {
+      // ── 4. HARMONIC NOTE (phase 1+, delayed — it answers, doesn't layer) ──
+      if (palette.harmonic && vel > 0.42 && sessionPhase >= 1) {
         var h = palette.harmonic;
-        // During phrase climax, add more harmonic color
         var chordTone = phraseEnergyArc > 0.3 && phraseEnergyArc < 0.8 ? 4 : 2;
         var deg = harmonyDegree + chordTone;
         var freq = scaleFreq(deg, h.octave || 0);
-        Audio.synth.play(h.voice || 'epiano', time + 0.02, freq, vel * 0.3, h.decay || 1.0);
+        // 320ms after the peak — the harmonic responds, not competes
+        Audio.synth.play(h.voice || 'epiano', time + 0.32, freq, vel * 0.25, h.decay || 1.0);
         noteCount++;
       }
 
@@ -885,8 +884,9 @@ const Follow = (function () {
     if (targetDegree > degreeLimit) targetDegree = degreeLimit;
     if (targetDegree < -degreeLimit) targetDegree = -degreeLimit;
 
-    // Step-motion: melodies move by steps, not random leaps — singable, human
-    var maxJump = sessionPhase >= 2 ? 3 : 2;
+    // Step limit adapts to lens tempo: fast = tight steps, slow = freer leaps
+    var noteIntervalMs = (lens.response && lens.response.noteInterval) || 320;
+    var maxJump = Math.min(7, Math.max(1, Math.round(noteIntervalMs / 180)));
     var stepped = Math.max(currentDegree - maxJump, Math.min(currentDegree + maxJump, targetDegree));
 
     // Harmonic gravity: high tension pulls toward tonic or dominant

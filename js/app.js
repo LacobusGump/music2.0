@@ -268,7 +268,7 @@
       } else {
         // Music fades in after the boot voice has a moment to breathe
         setTimeout(function () {
-          Lens.selectCard(3); // Tundra — restraint first, earn the chaos
+          Lens.selectCard(2); // Drift
           var lens = Lens.getSelected();
           Audio.configure(lens);
           Follow.applyLens(lens);
