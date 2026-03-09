@@ -40,6 +40,11 @@ const Audio = (function () {
   let voidOsc = null, voidGain = null, voidOvertone = null;
   let voidOvertoneGain = null, voidFilter = null;
 
+  // Descent bass — Vangelis/Tron sub-bass world
+  let desOsc1 = null, desOsc2 = null, desOsc3 = null;
+  let desGain = null, desFilter = null, desRvbSend = null;
+  let desLFO = null, desLFOGain = null;
+
   // 8D Spatial stage
   let spatialPanner  = null;
   let spatialLFO     = null;
@@ -1465,6 +1470,90 @@ const Audio = (function () {
     }
   }
 
+  // ── DESCENT BASS — the sub-bass world ─────────────────────────────────
+  // Vangelis / Giorgio Moroder / Tron: sine foundation, slow LFO pulse,
+  // filter that opens as the user earns the ascent back to full spectrum.
+  // Three oscillators: root (heavy) + fifth (body) + octave (air).
+
+  function startDescentBass(freq) {
+    if (desOsc1) return;
+    var f = freq || 54;
+
+    desFilter = ctx.createBiquadFilter();
+    desFilter.type = 'lowpass';
+    desFilter.frequency.value = 140;
+    desFilter.Q.value = 1.4;
+
+    desGain = ctx.createGain();
+    desGain.gain.value = 0;
+
+    // 0.35 Hz LFO — the Tron pulse, the slow breath of the machine
+    desLFO = ctx.createOscillator();
+    desLFO.type = 'sine';
+    desLFO.frequency.value = 0.35;
+    desLFOGain = ctx.createGain();
+    desLFOGain.gain.value = 0.20;
+    desLFO.connect(desLFOGain);
+    desLFOGain.connect(desGain.gain);
+    desLFO.start();
+
+    desOsc1 = ctx.createOscillator(); desOsc1.type = 'sine'; desOsc1.frequency.value = f;
+    desOsc2 = ctx.createOscillator(); desOsc2.type = 'sine'; desOsc2.frequency.value = f * 1.5;
+    desOsc3 = ctx.createOscillator(); desOsc3.type = 'sine'; desOsc3.frequency.value = f * 2;
+
+    var g1 = ctx.createGain(); g1.gain.value = 0.62;
+    var g2 = ctx.createGain(); g2.gain.value = 0.22;
+    var g3 = ctx.createGain(); g3.gain.value = 0.10;
+
+    desOsc1.connect(g1); g1.connect(desFilter);
+    desOsc2.connect(g2); g2.connect(desFilter);
+    desOsc3.connect(g3); g3.connect(desFilter);
+
+    desFilter.connect(desGain);
+    desGain.connect(masterGain);
+
+    desRvbSend = ctx.createGain();
+    desRvbSend.gain.value = 0.55;
+    desGain.connect(desRvbSend);
+    if (reverbSend) desRvbSend.connect(reverbSend);
+
+    desOsc1.start(); desOsc2.start(); desOsc3.start();
+  }
+
+  function stopDescentBass() {
+    try { if (desLFO)      { desLFO.stop();  desLFO.disconnect(); }      } catch (e) {}
+    try { if (desOsc1)     { desOsc1.stop(); desOsc1.disconnect(); }     } catch (e) {}
+    try { if (desOsc2)     { desOsc2.stop(); desOsc2.disconnect(); }     } catch (e) {}
+    try { if (desOsc3)     { desOsc3.stop(); desOsc3.disconnect(); }     } catch (e) {}
+    try { if (desLFOGain)  desLFOGain.disconnect();  } catch (e) {}
+    try { if (desFilter)   desFilter.disconnect();   } catch (e) {}
+    try { if (desGain)     desGain.disconnect();     } catch (e) {}
+    try { if (desRvbSend)  desRvbSend.disconnect();  } catch (e) {}
+    desOsc1 = desOsc2 = desOsc3 = null;
+    desGain = desFilter = desLFO = desLFOGain = desRvbSend = null;
+  }
+
+  function updateDescentBass(vol, filterHz, freq) {
+    if (!ctx) return;
+    if (!desOsc1 && vol > 0.01) startDescentBass(freq);
+    if (!desOsc1) return;
+
+    // Smooth gain — LFO rides on top of this base value
+    desGain.gain.value += (Math.max(0, vol) - desGain.gain.value) * 0.018;
+
+    // Filter sweep — the 80s drama: tight sine → harmonic wash
+    if (desFilter) desFilter.frequency.value += (filterHz - desFilter.frequency.value) * 0.03;
+
+    // Portamento — bass pitch glides, never jumps. Tilt wobble is glacial.
+    if (freq) {
+      desOsc1.frequency.value += (freq       - desOsc1.frequency.value) * 0.008;
+      desOsc2.frequency.value += (freq * 1.5 - desOsc2.frequency.value) * 0.008;
+      desOsc3.frequency.value += (freq * 2   - desOsc3.frequency.value) * 0.008;
+    }
+
+    if (vol < 0.005 && Math.abs(desGain.gain.value) < 0.005) stopDescentBass();
+  }
+
   // ── PUBLIC API ─────────────────────────────────────────────────────────
 
   return Object.freeze({
@@ -1509,6 +1598,7 @@ const Audio = (function () {
 
     crackle: Object.freeze({ start: startCrackle, stop: stopCrackle }),
     voidDrone: Object.freeze({ start: startVoidDrone, stop: stopVoidDrone, update: updateVoidDrone }),
+    descentBass: Object.freeze({ start: startDescentBass, stop: stopDescentBass, update: updateDescentBass }),
 
     spatial: Object.freeze({ update: updateSpatial, setTouchPan: setTouchPan }),
 

@@ -155,6 +155,19 @@ const Follow = (function () {
   var PHASE_LISTENING = 12;
   var PHASE_ALIVE = 28;
 
+  // ── DESCENT ARC ───────────────────────────────────────────────────────
+  // The music earns its structural arc. Build enough energy and the world
+  // collapses to pure sub-bass — then rebuilds as you keep moving.
+  // Seeds, not script. The threshold is a condition, not a clock.
+  var sessionEnergyAccum = 0;   // only accumulates at phase 2 — earns the event
+  var DESCENT_THRESHOLD  = 38;  // ~60-80s of engaged moderate motion to trigger
+  var descentState  = 'off';    // 'off' | 'falling' | 'floor' | 'rising'
+  var descentMix    = 0;        // 0=full music, 1=pure bass world
+  var descentFired  = false;    // once per lens session
+  var floorMotion   = 0;        // motion on the floor earns the ascent
+  var ASCENT_THRESHOLD = 18;    // floor motion units before rebuild begins
+  var descentBassLive = false;  // whether the bass layer is running
+
   // GROOVE CRYSTALLIZATION STATE
   var grooveBuf = [];
   var grooveLoop = null;
@@ -210,6 +223,7 @@ const Follow = (function () {
 
   function processGridBeats(now) {
     if (!tempoLocked || isSilent || !lens || !Audio.ctx || sessionPhase < 2) return;
+    if (descentState === 'floor') return; // bass world has its own pulse
 
     // Fire anticipated grid beats
     while (nextGridBeat <= now) {
@@ -303,6 +317,7 @@ const Follow = (function () {
 
   function processMomentum(now) {
     if (!momentumActive || isSilent || !lens || !Audio.ctx || sessionPhase < 1) return;
+    if (descentState === 'floor') return;
 
     if (now >= momentumNextBeat && momentumBeatsLeft > 0) {
       momentumBeatsLeft--;
@@ -605,6 +620,90 @@ const Follow = (function () {
     grooveIsPlayback = false;
   }
 
+  // ── DESCENT / ASCENT ──────────────────────────────────────────────────
+  // Quincy Jones: "The arrangement must breathe. The drop is only as
+  //   powerful as the build before it."
+  // Rick Rubin: "Remove everything. The bass is the truth."
+  // Thom Yorke: "Let it fall apart. Then let it transform."
+  // Viral music science: the moment of near-silence before the sub-bass
+  //   hits is the most physiologically arousing moment in music.
+  //   Anticipation + contrast = emotional memory.
+
+  var FALL_RATE = 1 / 4.5;   // 4.5s to descend into the bass world
+  var RISE_RATE = 1 / 6.0;   // 6s to rise back to full spectrum
+
+  function startDescent() {
+    if (descentFired || descentState !== 'off' || !Audio.ctx || !lens) return;
+    descentState   = 'falling';
+    descentMix     = 0;
+    floorMotion    = 0;
+
+    // The signal: one massive sub hit — the floor announces itself
+    try {
+      Audio.synth.play('sub808', Audio.ctx.currentTime, root / 4, 1.0, 5.5);
+    } catch (e) {}
+
+    // 1.1s silence — the held breath — then the bass world arrives
+    setTimeout(function () {
+      if (descentState !== 'off') {
+        try { Audio.descentBass.start(root / 8); descentBassLive = true; } catch (e) {}
+      }
+    }, 1100);
+  }
+
+  function updateDescent(mag, sensor, dt) {
+    // Trigger check: earned energy + currently at a peak (contrast maximized)
+    if (descentState === 'off' && !descentFired) {
+      if (sessionPhase >= 2 && sessionEnergyAccum >= DESCENT_THRESHOLD && energySmooth > 0.75) {
+        startDescent();
+        return;
+      }
+      return;
+    }
+    if (descentState === 'off') return;
+
+    var gamma = sensor ? (sensor.gamma || 0) : 0;
+
+    // FALLING: upper voices fade to silence
+    if (descentState === 'falling') {
+      descentMix = Math.min(1, descentMix + dt * FALL_RATE);
+      if (descentMix >= 0.99) { descentMix = 1; descentState = 'floor'; }
+    }
+
+    // FLOOR: pure bass world — motion here earns the way back up
+    if (descentState === 'floor') {
+      if (!isSilent) floorMotion += mag * dt;
+      if (floorMotion >= ASCENT_THRESHOLD) descentState = 'rising';
+    }
+
+    // RISING: bass fades, spectrum opens, music returns transformed
+    if (descentState === 'rising') {
+      descentMix = Math.max(0, descentMix - dt * RISE_RATE);
+      if (descentMix <= 0.01) {
+        descentMix = 0;
+        descentState = 'off';
+        descentFired = true;
+        try { Audio.descentBass.stop(); descentBassLive = false; } catch (e) {}
+        return;
+      }
+    }
+
+    // Drive the bass: frequency, filter, volume — all respond to motion and tilt
+    if (descentBassLive) {
+      var ascentProg = descentState === 'floor'  ? Math.min(1, floorMotion / ASCENT_THRESHOLD)
+                     : descentState === 'rising' ? 1.0 : 0;
+      // Bass pitch: starts at deep sub (root/8 ≈ 54Hz), rises a tritone as ascent builds
+      // Tilt adds ±quarter-tone wobble — your body is still the instrument
+      var baseHz   = root / 8;
+      var bassFreq = baseHz * Math.pow(2, ascentProg * 0.5 + (gamma / 90) * 0.25);
+      // Volume: scales with descentMix, swells with motion
+      var bassVol  = descentMix * (0.48 + mag * 0.30);
+      // Filter: starts sealed (pure sine = 80s analog weight), opens with ascent
+      var bassFilter = 140 + ascentProg * 580 + mag * 230;
+      try { Audio.descentBass.update(bassVol, bassFilter, bassFreq); } catch (e) {}
+    }
+  }
+
   // ── INIT ──────────────────────────────────────────────────────────────
 
   function init() {
@@ -653,6 +752,13 @@ const Follow = (function () {
     melodicHistory = [];
     harmonicTension = 0;
     lastHistoryDeg = null;
+    sessionEnergyAccum = 0;
+    descentState = 'off';
+    descentMix = 0;
+    descentFired = false;
+    floorMotion = 0;
+    descentBassLive = false;
+    try { Audio.descentBass.stop(); } catch (e) {}
   }
 
   // ── PEAK DETECTION ────────────────────────────────────────────────────
@@ -719,8 +825,8 @@ const Follow = (function () {
       var palette = lens.palette || {};
       var mods = archetypeModifiers();
 
-      // Phrase intensity shapes the response
-      vel *= phraseIntensityFactor;
+      // Phrase intensity and descent mix shape the response
+      vel *= phraseIntensityFactor * (1 - descentMix * 0.94);
 
       // ── 1. RHYTHMIC HIT (phase 1+) ──
       if (palette.peak) {
@@ -905,7 +1011,7 @@ const Follow = (function () {
         var cont = lens.palette && lens.palette.continuous;
         if (cont) {
           var freq = scaleFreq(currentDegree, cont.octave || 0);
-          var vel = (0.2 + fadeGain * 0.3) * phraseIntensityFactor;
+          var vel = (0.2 + fadeGain * 0.3) * phraseIntensityFactor * (1 - descentMix * 0.94);
           try {
             Audio.synth.play(cont.voice || 'epiano', Audio.ctx.currentTime, freq, vel, cont.decay || 0.8);
             noteCount++;
@@ -1250,6 +1356,12 @@ const Follow = (function () {
     // ── Energy → density ──
     updateDensity(mag, dt);
 
+    // ── Accumulate energy that earns the descent ──
+    if (!isSilent && sessionPhase >= 2) sessionEnergyAccum += energySmooth * dt;
+
+    // ── Descent arc (earned, not timed) ──
+    updateDescent(mag, sensor, dt);
+
     // ── Master gain ──
     if (Audio.ctx) {
       Audio.setMasterGain(0.8 * fadeGain);
@@ -1374,6 +1486,8 @@ const Follow = (function () {
     get momentum() { return momentumActive; },
     get phase() { return sessionPhase; },
     get sessionTime() { return Math.round(sessionEngagedTime); },
+    get descent() { return descentState; },
+    get descentEnergy() { return Math.round(sessionEnergyAccum); },
     scaleFreq: scaleFreq,  // exposed for pattern.js
   });
 })();
