@@ -500,13 +500,16 @@
       if (playCanvas) {
         Gesture.attach(playCanvas, 52);   // 52px = cmd bar height
         Gesture.on('figure8', function () {
-          // "I can work with this" — the machine has been watching
+          // "I can work with this" — the machine evolves, you never leave
           Voice.iCanWorkWithThis();
-          // Flash white then open the lens picker
-          flashScreen('rgba(0,255,65,0.15)');
+          flashScreen('rgba(0,255,65,0.18)');
+          // Cycle to the next lens — music transforms, no picker, no break
           setTimeout(function () {
-            showScreen(SCREENS.LENS);
-          }, 600);
+            var next = Lens.nextLens();
+            Pattern.setLens(next);
+            Lens.updateIndicator();
+            flashScreen('rgba(0,255,65,0.08)');
+          }, 800);
         });
         gestureWired = true;
       }
