@@ -87,10 +87,8 @@
   }
 
   // ── BOOT CANVAS ───────────────────────────────────────────────────────
-  // Lissajous figure driven by irrational frequency ratios — never repeats,
-  // always alive. Three-pass bloom: off-canvas → blur → screen composite.
-  // Core line approaches near-white at speed. Outer glow has cyan shift.
-  // Reacts to tilt before tap via deviceorientation (no permission needed).
+  // Lissajous figure. Multi-pass stacked strokes for bloom (no filter API).
+  // Irrational frequency drivers at audible speeds — alive, never repeating.
 
   var bootAnimId = null;
 
@@ -100,166 +98,94 @@
     var bctx = bc.getContext('2d');
     var bw = 0, bh = 0;
 
-    // Off-canvas for bloom rendering
-    var glowCanvas = document.createElement('canvas');
-    var glowCtx    = glowCanvas.getContext('2d');
-
     function resizeBoot() {
       var dpr = window.devicePixelRatio || 1;
       bw = window.innerWidth; bh = window.innerHeight;
       bc.width  = bw * dpr; bc.height  = bh * dpr;
       bc.style.width = bw + 'px'; bc.style.height = bh + 'px';
       bctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      glowCanvas.width  = bc.width;
-      glowCanvas.height = bc.height;
-      glowCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
     }
     resizeBoot();
     window.addEventListener('resize', resizeBoot);
 
-    // Tilt — spring physics so it feels physical not digital
+    // Tilt — spring damped
     var tiltRawX = 0, tiltRawY = 0, tiltX = 0, tiltY = 0;
     window.addEventListener('deviceorientation', function (e) {
       tiltRawX = (e.gamma || 0) / 45;
       tiltRawY = (e.beta  || 0) / 90;
     }, { passive: true });
 
-    // Irrational constants — frequencies that never synchronise
-    var PHI = 1.6180339887;   // golden ratio
-    var SQ2 = 1.4142135624;   // √2
-    var EU  = 2.7182818285;   // e
-    var t   = 0;
+    // Irrational constants for organic, never-repeating motion
+    var PHI = 1.6180339887;
+    var SQ2 = 1.4142135624;
+    var t = 0;
 
-    var STEPS = 360;
+    // Bloom layers: outermost (widest, most transparent) → innermost (crisp, bright)
+    var PASSES = [
+      { lw: 22, r: 0,   g: 200, b: 80,  a: 0.012 },  // wide outer haze
+      { lw: 12, r: 0,   g: 230, b: 90,  a: 0.035 },  // mid bloom
+      { lw:  6, r: 0,   g: 255, b: 100, a: 0.09  },  // inner glow
+      { lw:  2.5, r: 60,  g: 255, b: 140, a: 0.55  },  // bright ring
+      { lw:  1,   r: 210, g: 255, b: 225, a: 0.90  },  // near-white core
+    ];
 
-    function buildPath(cx, cy, Rx, Ry, rA, rB, delta) {
+    function drawBoot() {
+      // Spring physics on tilt
+      tiltX += (tiltRawX * 0.08 - tiltX) * 0.07;
+      tiltY += (tiltRawY * 0.06 - tiltY) * 0.07;
+
+      var cx = bw * (0.5 + tiltX * 0.04);
+      var cy = bh * (0.5 + tiltY * 0.035);
+      var R  = Math.min(bw, bh) * 0.33;
+
+      // ── ORGANIC MOTION — irrational frequencies at perceptible speeds ──
+      // PHI * 1.4 ≈ 2.27 rad/s, SQ2 * 2.3 ≈ 3.25 rad/s: clearly visible oscillation
+      var delta  = 0.38 * Math.sin(t * 1.4  * PHI)
+                 + 0.16 * Math.sin(t * 2.3  * SQ2)
+                 + 0.07 * Math.sin(t * 4.9);
+
+      var breath = 0.82 + 0.11 * Math.sin(t * 0.9  * PHI)
+                        + 0.04 * Math.sin(t * 2.1  * SQ2)
+                        + 0.02 * Math.sin(t * 3.7);
+
+      // Ratio breathes slightly — figure loosens and tightens
+      var rA = 1.0 + 0.018 * Math.sin(t * 0.6 * PHI);
+      var rB = 2.0 + 0.035 * Math.sin(t * 0.4 * SQ2);
+
+      var Rx = R * breath;
+      var Ry = R * breath * 0.84;
+
+      // ── FADE — slow enough that trails ghost beautifully ──
+      bctx.fillStyle = 'rgba(0,0,0,0.05)';
+      bctx.fillRect(0, 0, bw, bh);
+
+      // ── BUILD PATH ──
+      var STEPS = 360;
       var pts = new Array(STEPS + 1);
       for (var i = 0; i <= STEPS; i++) {
         var a = (i / STEPS) * Math.PI * 2;
-        // Micro-tremor — contained life, not noise
-        var jitter = Rx * 0.007 * Math.sin(a * 5.3 + t * 0.038) * Math.sin(a * 2.7 + t * 0.021);
+        // Micro-tremor: product of two irrational-frequency sines = contained aliveness
+        var jitter = R * 0.006
+          * Math.sin(a * 5.3 + t * 2.8)
+          * Math.sin(a * 2.7 + t * 1.9);
         pts[i] = {
           x: cx + (Rx + jitter)       * Math.sin(rA * a + delta),
           y: cy + (Ry + jitter * 0.5) * Math.sin(rB * a),
         };
       }
-      return pts;
-    }
 
-    function tracePath(ctx, pts) {
-      ctx.beginPath();
-      ctx.moveTo(pts[0].x, pts[0].y);
-      for (var i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
-      ctx.stroke();
-    }
+      // ── MULTI-PASS BLOOM — wide to narrow, transparent to opaque ──
+      bctx.lineJoin = 'round';
+      bctx.lineCap  = 'round';
 
-    function drawBoot() {
-      // Spring physics on tilt — the figure breathes toward your hand
-      tiltX += (tiltRawX * 0.09 - tiltX) * 0.065;
-      tiltY += (tiltRawY * 0.07 - tiltY) * 0.065;
-
-      var cx = bw * (0.5 + tiltX * 0.035);
-      var cy = bh * (0.5 + tiltY * 0.030);
-      var R  = Math.min(bw, bh) * 0.33;
-
-      // Organic motion — layered irrationals, never repeats
-      var delta  = 0.24 * Math.sin(t * 0.009  * PHI)
-                 + 0.11 * Math.sin(t * 0.014  * SQ2)
-                 + 0.05 * Math.sin(t * 0.0038 * Math.PI);
-
-      var breath = 0.80 + 0.13 * Math.sin(t * 0.008  * PHI)
-                        + 0.05 * Math.sin(t * 0.016  * SQ2)
-                        + 0.02 * Math.sin(t * 0.004  * EU);
-
-      // Ratio drifts microtonally around 1:2 — never perfectly static
-      var rA = 1.0 + 0.011 * Math.sin(t * 0.002  * PHI);
-      var rB = 2.0 + 0.022 * Math.sin(t * 0.0015 * SQ2);
-
-      var Rx = R * breath;
-      var Ry = R * breath * 0.84;
-
-      var pts = buildPath(cx, cy, Rx, Ry, rA, rB, delta);
-
-      // ── FADE main canvas (trails linger, ghost of where it's been) ──
-      bctx.fillStyle = 'rgba(0,0,0,0.055)';
-      bctx.fillRect(0, 0, bw, bh);
-
-      // ── BLOOM — draw to glow canvas, composite back with blur ──
-      glowCtx.clearRect(0, 0, bw, bh);
-      glowCtx.lineWidth   = 9;
-      glowCtx.strokeStyle = 'rgba(0,230,85,1)';
-      glowCtx.lineJoin    = 'round';
-      glowCtx.lineCap     = 'round';
-      tracePath(glowCtx, pts);
-
-      // Wide outer bloom — blur 18px, screen, subtle cyan shift
-      bctx.save();
-      bctx.filter = 'blur(18px)';
-      bctx.globalCompositeOperation = 'screen';
-      bctx.globalAlpha = 0.28;
-      // Cyan tint on outer glow: draw image with a color matrix effect
-      // (approximate via two draws: green + faint blue offset)
-      bctx.drawImage(glowCanvas, 0, 0);
-      bctx.restore();
-
-      // Inner tight glow — blur 5px, screen
-      bctx.save();
-      bctx.filter = 'blur(5px)';
-      bctx.globalCompositeOperation = 'screen';
-      bctx.globalAlpha = 0.55;
-      bctx.drawImage(glowCanvas, 0, 0);
-      bctx.restore();
-
-      // ── GHOST LAYER — smaller figure behind, offset in phase (depth) ──
-      var ghostPts = buildPath(cx, cy, Rx * 0.68, Ry * 0.68, rA, rB, delta - 0.22);
-      bctx.save();
-      bctx.lineWidth   = 0.8;
-      bctx.strokeStyle = 'rgba(0,255,90,0.08)';
-      bctx.lineJoin    = 'round';
-      tracePath(bctx, ghostPts);
-      bctx.restore();
-
-      // ── CRISP CORE — near-white at speed, green at rest ──
-      // Compute per-point velocity for color/width mapping
-      var vels = new Array(pts.length);
-      var maxV = 0.001;
-      for (var i = 1; i < pts.length; i++) {
-        var dx = pts[i].x - pts[i-1].x, dy = pts[i].y - pts[i-1].y;
-        vels[i] = Math.sqrt(dx*dx + dy*dy);
-        if (vels[i] > maxV) maxV = vels[i];
-      }
-      vels[0] = vels[1];
-
-      // Batch into 10 velocity buckets — 10 draw calls instead of 360
-      var BUCKETS = 10;
-      var buckets = [];
-      for (var b = 0; b < BUCKETS; b++) buckets.push([]);
-      for (var i = 1; i < pts.length; i++) {
-        var b = Math.min(BUCKETS - 1, Math.floor((vels[i] / maxV) * BUCKETS));
-        buckets[b].push(i);
-      }
-
-      for (var b = 0; b < BUCKETS; b++) {
-        if (!buckets[b].length) continue;
-        var nv  = (b + 0.5) / BUCKETS;           // normalised velocity 0-1
-        // Color: slow=pure green, fast=near-white-green (hot = bright)
-        var r   = Math.round(40  + nv * 190);    // 40→230
-        var g   = 255;
-        var bl  = Math.round(80  + nv * 155);    // 80→235
-        var alpha = 0.30 + nv * 0.55;            // fast = brighter
-        var lw    = Math.max(0.5, 2.0 - nv * 1.3); // fast = thinner (calligraphic)
-
-        bctx.strokeStyle = 'rgba(' + r + ',' + g + ',' + bl + ',' + alpha + ')';
-        bctx.lineWidth   = lw;
-        bctx.lineCap     = 'round';
-
-        for (var j = 0; j < buckets[b].length; j++) {
-          var i = buckets[b][j];
-          bctx.beginPath();
-          bctx.moveTo(pts[i-1].x, pts[i-1].y);
-          bctx.lineTo(pts[i].x,   pts[i].y);
-          bctx.stroke();
-        }
+      for (var p = 0; p < PASSES.length; p++) {
+        var pass = PASSES[p];
+        bctx.lineWidth   = pass.lw;
+        bctx.strokeStyle = 'rgba(' + pass.r + ',' + pass.g + ',' + pass.b + ',' + pass.a + ')';
+        bctx.beginPath();
+        bctx.moveTo(pts[0].x, pts[0].y);
+        for (var i = 1; i < pts.length; i++) bctx.lineTo(pts[i].x, pts[i].y);
+        bctx.stroke();
       }
 
       t += 0.016;
