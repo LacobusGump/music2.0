@@ -87,7 +87,9 @@
   }
 
   // ── BOOT CANVAS ───────────────────────────────────────────────────────
-  // Event horizon. A black hole consuming everything.
+  // A Lissajous figure — pure mathematical light drawing itself.
+  // No metaphor. No reference. Just a shape that already knows your body.
+  // Reacts to device tilt before you touch it — the machine is already watching.
 
   var bootAnimId = null;
 
@@ -107,127 +109,91 @@
     resizeBoot();
     window.addEventListener('resize', resizeBoot);
 
-    // Stars being consumed
-    var stars = [];
-    for (var s = 0; s < 220; s++) {
-      stars.push(spawnStar(true));
-    }
-
-    function spawnStar(anyDist) {
-      var angle = Math.random() * Math.PI * 2;
-      var dist  = anyDist ? 0.12 + Math.random() * 0.55 : 0.35 + Math.random() * 0.45;
-      return {
-        angle:  angle,
-        dist:   dist,           // normalised, 0=singularity, 1=screen edge
-        infall: 0.00006 + Math.random() * 0.00012,
-        speed:  (0.0005 + Math.random() * 0.001) * (Math.random() > 0.5 ? 1 : -1),
-        size:   0.4 + Math.random() * 1.4,
-        bright: 0.25 + Math.random() * 0.75,
-        warm:   Math.random() > 0.72,
-      };
-    }
+    // Tilt offset — device tells us it's alive before tap
+    var tiltX = 0, tiltY = 0;
+    window.addEventListener('deviceorientation', function (e) {
+      tiltX = ((e.gamma || 0) / 45) * 0.12;   // -1..1 normalised, subtle
+      tiltY = ((e.beta  || 0) / 90) * 0.08;
+    }, { passive: true });
 
     var t = 0;
 
-    function drawBoot() {
-      var cx = bw / 2;
-      var cy = bh / 2;
-      var R  = Math.min(bw, bh) * 0.21;   // event horizon radius
+    // Lissajous parameters — slowly morph between figures
+    // a:b ratio determines the shape: 1:2 = figure-8, 1:1 = circle, 2:3 = trifolium
+    var ratioA = 1.0, ratioB = 2.0;   // start at figure-8
+    var targetA = 1.0, targetB = 2.0;
+    var morphTimer = 0;
+    var MORPH_EVERY = 420;  // frames
 
-      // Slow fade — lets trails accumulate into ghostly streaks
-      bctx.fillStyle = 'rgba(0,0,0,0.11)';
+    var RATIOS = [
+      [1, 2],   // figure-8 — this is the gesture
+      [1, 2],   // weight it twice — come back to it
+      [2, 3],   // trifolium
+      [3, 4],   // butterfly
+      [1, 2],   // return home
+    ];
+    var ratioIdx = 0;
+
+    function drawBoot() {
+      var cx = bw / 2 + tiltX * bw * 0.04;
+      var cy = bh / 2 + tiltY * bh * 0.04;
+      var R  = Math.min(bw, bh) * 0.34;
+
+      // Very slow fade — trails ghost and linger
+      bctx.fillStyle = 'rgba(0,0,0,0.045)';
       bctx.fillRect(0, 0, bw, bh);
 
-      var maxR = Math.min(bw, bh) * 0.56;
+      // Morph between Lissajous ratios
+      morphTimer++;
+      if (morphTimer >= MORPH_EVERY) {
+        morphTimer = 0;
+        ratioIdx = (ratioIdx + 1) % RATIOS.length;
+        targetA = RATIOS[ratioIdx][0];
+        targetB = RATIOS[ratioIdx][1];
+      }
+      ratioA += (targetA - ratioA) * 0.003;
+      ratioB += (targetB - ratioB) * 0.003;
 
-      // ── ACCRETION DISK (squashed ellipse = viewed at ~25°) ──
-      for (var ring = 3; ring >= 0; ring--) {
-        var rR    = R * (1.5 + ring * 0.55);
-        var alpha = (0.055 - ring * 0.01) * (0.7 + 0.3 * Math.sin(t * 0.4 + ring));
-        bctx.save();
-        bctx.translate(cx, cy);
-        bctx.scale(1, 0.28);   // disk tilt
+      // Breathing — amplitude swells and contracts
+      var breath = 0.72 + 0.28 * Math.sin(t * 0.35);
+      var Rx = R * breath;
+      var Ry = R * breath * 0.88;
+
+      // Phase offset drifts slowly — figure rotates organically
+      var delta = t * 0.008;
+
+      // Draw the Lissajous as a continuous glowing line
+      var STEPS = 420;
+      var prevX, prevY;
+      for (var i = 0; i <= STEPS; i++) {
+        var angle = (i / STEPS) * Math.PI * 2;
+        var px = cx + Rx * Math.sin(ratioA * angle + delta);
+        var py = cy + Ry * Math.sin(ratioB * angle);
+
+        if (i === 0) { prevX = px; prevY = py; continue; }
+
+        // Velocity along the curve → brightness (faster = brighter)
+        var speed = Math.abs(Math.cos(ratioA * angle + delta)) + 0.1;
+        var alpha = Math.min(0.55, speed * 0.28) * breath;
+
         bctx.beginPath();
-        bctx.arc(0, 0, rR, 0, Math.PI * 2);
+        bctx.moveTo(prevX, prevY);
+        bctx.lineTo(px, py);
         bctx.strokeStyle = 'rgba(0,255,65,' + alpha + ')';
-        bctx.lineWidth = R * 0.14;
+        bctx.lineWidth = 1.2;
         bctx.stroke();
-        bctx.restore();
+
+        prevX = px; prevY = py;
       }
 
-      // ── GRAVITATIONAL LENSING CORONA ──
-      var coronaAlpha = 0.10 + 0.05 * Math.sin(t * 0.8);
-      var cg = bctx.createRadialGradient(cx, cy, R * 0.82, cx, cy, R * 1.4);
-      cg.addColorStop(0, 'rgba(0,255,65,0)');
-      cg.addColorStop(0.45, 'rgba(0,255,65,' + coronaAlpha + ')');
-      cg.addColorStop(1,   'rgba(0,0,0,0)');
+      // Soft glow at the center — the eye of the figure
+      var pulse = 0.04 + 0.025 * Math.sin(t * 0.9);
+      var grd = bctx.createRadialGradient(cx, cy, 0, cx, cy, R * 0.18);
+      grd.addColorStop(0,   'rgba(0,255,65,' + pulse + ')');
+      grd.addColorStop(1,   'rgba(0,0,0,0)');
       bctx.beginPath();
-      bctx.arc(cx, cy, R * 1.4, 0, Math.PI * 2);
-      bctx.fillStyle = cg;
-      bctx.fill();
-
-      // ── INFALLING STARS ──
-      for (var i = 0; i < stars.length; i++) {
-        var p = stars[i];
-
-        // Orbital mechanics: closer → faster spin and faster infall
-        var df = Math.max(0.08, p.dist);
-        p.angle  += p.speed / (df * df * 1.8);
-        p.infall += p.infall * 0.004;
-        p.dist   -= p.infall;
-
-        if (p.dist < 0.09) { stars[i] = spawnStar(false); continue; }
-
-        var px = cx + Math.cos(p.angle) * p.dist * maxR;
-        var py = cy + Math.sin(p.angle) * p.dist * maxR * 0.30;  // disk squash
-
-        // Doppler: approaching side brighter (left side if spinning CW)
-        var doppler = 0.35 + 0.65 * (0.5 + 0.5 * Math.cos(p.angle));
-        var alpha = p.bright * doppler * Math.min(1, p.dist * 4.5);
-
-        bctx.beginPath();
-        bctx.arc(px, py, p.size, 0, Math.PI * 2);
-        bctx.fillStyle = p.warm
-          ? 'rgba(255,140,30,' + (alpha * 0.55) + ')'
-          : 'rgba(0,255,65,'   + alpha + ')';
-        bctx.fill();
-      }
-
-      // ── EVENT HORIZON — pure black void ──
-      bctx.beginPath();
-      bctx.arc(cx, cy, R, 0, Math.PI * 2);
-      bctx.fillStyle = '#000000';
-      bctx.fill();
-
-      // Photon ring — the last light that will ever escape
-      var photonAlpha = 0.18 + 0.10 * Math.sin(t * 1.1);
-      bctx.beginPath();
-      bctx.arc(cx, cy, R, 0, Math.PI * 2);
-      bctx.strokeStyle = 'rgba(0,255,65,' + photonAlpha + ')';
-      bctx.lineWidth = 1.8;
-      bctx.stroke();
-
-      // ── RELATIVISTIC JET (polar axis) ──
-      var jetA = 0.035 + 0.025 * Math.sin(t * 0.55);
-      var jg = bctx.createLinearGradient(cx, cy - R, cx, cy - R * 6);
-      jg.addColorStop(0, 'rgba(0,255,65,' + jetA + ')');
-      jg.addColorStop(1, 'rgba(0,0,0,0)');
-      bctx.beginPath();
-      bctx.moveTo(cx - R * 0.06, cy - R);
-      bctx.lineTo(cx,             cy - R * 6);
-      bctx.lineTo(cx + R * 0.06, cy - R);
-      bctx.fillStyle = jg;
-      bctx.fill();
-
-      // Downward jet (dimmer)
-      var jg2 = bctx.createLinearGradient(cx, cy + R, cx, cy + R * 4);
-      jg2.addColorStop(0, 'rgba(0,255,65,' + (jetA * 0.4) + ')');
-      jg2.addColorStop(1, 'rgba(0,0,0,0)');
-      bctx.beginPath();
-      bctx.moveTo(cx - R * 0.06, cy + R);
-      bctx.lineTo(cx,             cy + R * 4);
-      bctx.lineTo(cx + R * 0.06, cy + R);
-      bctx.fillStyle = jg2;
+      bctx.arc(cx, cy, R * 0.18, 0, Math.PI * 2);
+      bctx.fillStyle = grd;
       bctx.fill();
 
       t += 0.016;
