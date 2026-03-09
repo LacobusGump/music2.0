@@ -40,6 +40,49 @@ const Follow = (function () {
     return root * Math.pow(2, semi / 12);
   }
 
+  // ── HARMONIC GRAVITY ──────────────────────────────────────────────────
+  // After playing tense scale degrees, the next note is pulled toward rest.
+  // This creates the feeling of anticipation and resolution — music with memory.
+
+  function recordNote(deg) {
+    var scaleDeg = ((deg % scale.length) + scale.length) % scale.length;
+    melodicHistory.push(scaleDeg);
+    if (melodicHistory.length > 8) melodicHistory.shift();
+    lastHistoryDeg = scaleDeg;
+
+    // Tension = weighted average (recent notes count more)
+    if (melodicHistory.length > 0) {
+      var sum = 0, w = 0;
+      for (var i = 0; i < melodicHistory.length; i++) {
+        var wi = (i + 1) / melodicHistory.length;
+        sum += (DEGREE_TENSION[melodicHistory[i]] || 0.35) * wi;
+        w += wi;
+      }
+      harmonicTension = sum / w;
+    }
+  }
+
+  function gravitateDegree(rawDeg) {
+    // Phase 0: only root/3rd/5th — consonant gate so first notes always sound good
+    if (sessionPhase === 0) {
+      var cons = [0, 2, 4];
+      var best = 0, bestD = 999;
+      for (var c = 0; c < cons.length; c++) {
+        var d = Math.abs(rawDeg - cons[c]);
+        if (d < bestD) { bestD = d; best = cons[c]; }
+      }
+      return best;
+    }
+
+    // Low tension: free movement
+    if (harmonicTension < 0.35) return rawDeg;
+
+    // High tension: pull toward tonic (very tense) or dominant (medium-high)
+    var pull = Math.min(1, (harmonicTension - 0.35) / 0.55);
+    var target = harmonicTension > 0.70 ? 0 : 4;
+    return Math.round(rawDeg * (1 - pull * 0.55) + target * pull * 0.55);
+  }
+
   // ── STATE ─────────────────────────────────────────────────────────────
 
   var active = false;
@@ -66,6 +109,14 @@ const Follow = (function () {
 
   // Harmonic state
   var harmonyDegree = 0;
+
+  // ── MELODIC MEMORY ────────────────────────────────────────────────────
+  // Tracks what we've played recently. High tension → pull toward resolution.
+  var melodicHistory  = [];     // last 8 scale degrees played
+  var harmonicTension = 0;      // 0=resolved, 1=tense
+  var lastHistoryDeg  = null;
+  // Tension by scale position: tonic/5th = rest; leading tone = maximum tension
+  var DEGREE_TENSION  = [0.0, 0.45, 0.25, 0.55, 0.15, 0.65, 0.90];
 
   // Energy / density
   var energySmooth = 0;
@@ -600,6 +651,9 @@ const Follow = (function () {
     phraseActive = false;
     sessionEngagedTime = 0;
     sessionPhase = 0;
+    melodicHistory = [];
+    harmonicTension = 0;
+    lastHistoryDeg = null;
   }
 
   // ── PEAK DETECTION ────────────────────────────────────────────────────
@@ -831,13 +885,21 @@ const Follow = (function () {
     if (targetDegree > degreeLimit) targetDegree = degreeLimit;
     if (targetDegree < -degreeLimit) targetDegree = -degreeLimit;
 
-    if (targetDegree !== currentDegree && !isSilent && fadeGain > 0.3) {
+    // Step-motion: melodies move by steps, not random leaps — singable, human
+    var maxJump = sessionPhase >= 2 ? 3 : 2;
+    var stepped = Math.max(currentDegree - maxJump, Math.min(currentDegree + maxJump, targetDegree));
+
+    // Harmonic gravity: high tension pulls toward tonic or dominant
+    var gravitated = gravitateDegree(stepped);
+
+    if (gravitated !== currentDegree && !isSilent && fadeGain > 0.3) {
       var mods = archetypeModifiers();
       var minInterval = ((lens.response && lens.response.noteInterval) || 120) / mods.melodyRate;
       var timeSinceNote = now - lastNoteTime;
 
       if (timeSinceNote > minInterval) {
-        currentDegree = targetDegree;
+        currentDegree = gravitated;
+        recordNote(currentDegree);
         lastNoteTime = now;
 
         var cont = lens.palette && lens.palette.continuous;

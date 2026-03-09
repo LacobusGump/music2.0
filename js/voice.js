@@ -220,7 +220,7 @@ const Voice = (function () {
     var lines = {
       'The Conductor': 'The musicians are ready.',
       'Blue Hour':     'Move. Slowly.',
-      'Gospel Sunday': 'Raise your arms.',
+      'Drift':         'Float. Let go.',
       'Tundra':        'Breathe.',
       'Still Water':   'Be very still. Listen.',
       'Dark Matter':   'In here, everything arrives slightly wrong.',

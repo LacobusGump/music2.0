@@ -147,75 +147,64 @@ const Lens = (function () {
       },
     },
 
-    // ─── 3. GOSPEL SUNDAY ────────────────────────────────────────────
-    // "Ohhh loooow" — the bass drops and the choir lifts.
-    // Vibraphone warmth underneath the voices — classic Black church shimmer.
-    // Arms up = voices rise. Hold the gesture = the praise builds.
+    // ─── 3. DRIFT ─────────────────────────────────────────────────────
+    // Boards of Canada. Tape hiss and warm memory.
+    // A detuned piano in a room that smells like 1983.
+    // Your motion becomes a half-remembered melody — slightly wrong, deeply right.
     {
-      name: 'Gospel Sunday',
-      color: '#d4921e',
-      description: 'Arms up. Bass drops. Choir and vibes lift.',
+      name: 'Drift',
+      color: '#3d3550',
+      description: 'Tape memory. Warm and slightly wrong.',
 
-      harmony: { root: 440, mode: 'major' },
+      harmony: { root: 432, mode: 'minor' },
 
       tone: {
-        bassFreq: 55, bassGain: 10,   // deeper sub — the "ohhh loooow" foundation
-        midFreq: 1000, midQ: 1.0, midGain: 4,   // presence cut — clarity in the choir
-        highFreq: 3500, highGain: -4,
-        ceiling: 4500,
+        bassFreq: 100, bassGain: 3,
+        midFreq: 600, midQ: 0.6, midGain: 2,
+        highFreq: 3000, highGain: -10,   // warm, muted — tape rolled off the top
+        ceiling: 4000,
       },
 
       space: {
-        reverb: { decay: 7.0, damping: 0.06 },   // massive cathedral — the building amplifies
-        delay: { feedback: 0.15, filter: 1600, sync: 'quarter' },
-        saturation: 0.22,
+        reverb: { decay: 6.0, damping: 0.12 },
+        delay: { feedback: 0.45, filter: 1800, sync: 'dotted-eighth' },
+        saturation: 0.08,   // slight tape warmth
         type: 'cathedral',
-        reverbMix: 0.75,
-        spatial: { sweepRate: 0.09, sweepDepth: 0.68 }, // big church — praise fills the whole room
+        reverbMix: 0.68,    // wet, dreamlike
+        spatial: { sweepRate: 0.05, sweepDepth: 0.35 },
       },
 
       palette: {
-        // Strong gesture → choir erupts — the moment of praise
-        peak: { voice: 'choir', octave: 0, decay: 2.5 },
-        // Your tilt → organ follows — the musician responding to you
-        continuous: { voice: 'organ', octave: 0, decay: 0.9 },
-        // 808 shuffle — Black church drive
-        subdivision: { voice: 'hat', kit: '808', divisions: 2, vel: 0.2 },
-        // Vibraphone harmonic shimmer — that warm metallic church bell sound
-        harmonic: { voice: 'vibe', octave: 0, decay: 3.0 },
-        // Shout chorus — choir an octave above
-        burst: { voice: 'choir', octave: 1 },
-        // Organ drone foundation
-        texture: { wave: 'sine', chord: [0, 4, 7, 12], octave: -1, detune: 3, vol: 0.1, reverbSend: 0.78 },
-        touch: { voice: 'organ', octave: 0, decay: 0.9 },
+        // Your gesture → piano note through the dream
+        peak: { voice: 'piano', octave: 0, decay: 3.5 },
+        // Your tilt → warm electric piano — the melody you half-remember
+        continuous: { voice: 'epiano', octave: 0, decay: 2.2 },
+        // String wash harmonic — like a warm memory surfacing
+        harmonic: { voice: 'strings', octave: -1, decay: 4.0 },
+        burst: { voice: 'piano', octave: 1 },
+        // Detuned drone — the "slightly wrong" that makes BoC feel haunted
+        texture: { wave: 'triangle', chord: [0, 3, 7], octave: -1, detune: 28, vol: 0.045, reverbSend: 0.75 },
+        touch: { voice: 'epiano', octave: 0, decay: 2.5 },
       },
 
-      // Strong 4/4 backbeat — the deacon's hand on the 2 and 4
-      groove: {
-        kit: '808',
-        microTiming: { kick: 0, hat: 0, snare: 0 },
-        ghosts: 0,
-        backbeat: true,
-        maxVel: 1.0,
-        broken: false,
-        dropRate: 0,
-      },
+      // No percussion — the drift is all texture and melody
+      groove: null,
 
       response: {
-        peakThreshold: 1.0,
-        tiltRange: 55,   // wider — raising arms is a big gesture
-        noteInterval: 110,
-        stillnessThreshold: 0.12,
-        stillnessTimeout: 6.0,   // the spirit sustains long
-        fadeTime: 8.0,
-        filterRange: [200, 4000],
-        densityThresholds: [0.2, 0.9, 2.2],
+        peakThreshold: 0.8,
+        tiltRange: 55,
+        noteInterval: 600,   // slow, deliberate — one thought at a time
+        stillnessThreshold: 0.08,
+        stillnessTimeout: 2.5,
+        fadeTime: 10.0,
+        filterRange: [200, 3000],
+        densityThresholds: [0.15, 0.6, 1.5],
       },
 
       motion: {
-        primary: 'sustained',
-        melodic: 'beta',   // raise arms = raise pitch — the physical prayer
-        sensitivity: 0.85,
+        primary: 'flow',
+        melodic: 'beta',
+        sensitivity: 0.7,
       },
     },
 
