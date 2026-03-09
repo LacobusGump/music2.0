@@ -87,9 +87,10 @@
   }
 
   // ── BOOT CANVAS ───────────────────────────────────────────────────────
-  // A Lissajous figure — pure mathematical light drawing itself.
-  // No metaphor. No reference. Just a shape that already knows your body.
-  // Reacts to device tilt before you touch it — the machine is already watching.
+  // Lissajous figure driven by irrational frequency ratios — never repeats,
+  // always alive. Three-pass bloom: off-canvas → blur → screen composite.
+  // Core line approaches near-white at speed. Outer glow has cyan shift.
+  // Reacts to tilt before tap via deviceorientation (no permission needed).
 
   var bootAnimId = null;
 
@@ -99,102 +100,167 @@
     var bctx = bc.getContext('2d');
     var bw = 0, bh = 0;
 
+    // Off-canvas for bloom rendering
+    var glowCanvas = document.createElement('canvas');
+    var glowCtx    = glowCanvas.getContext('2d');
+
     function resizeBoot() {
       var dpr = window.devicePixelRatio || 1;
       bw = window.innerWidth; bh = window.innerHeight;
-      bc.width = bw * dpr; bc.height = bh * dpr;
+      bc.width  = bw * dpr; bc.height  = bh * dpr;
       bc.style.width = bw + 'px'; bc.style.height = bh + 'px';
       bctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      glowCanvas.width  = bc.width;
+      glowCanvas.height = bc.height;
+      glowCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
     }
     resizeBoot();
     window.addEventListener('resize', resizeBoot);
 
-    // Tilt offset — device tells us it's alive before tap
-    var tiltX = 0, tiltY = 0;
+    // Tilt — spring physics so it feels physical not digital
+    var tiltRawX = 0, tiltRawY = 0, tiltX = 0, tiltY = 0;
     window.addEventListener('deviceorientation', function (e) {
-      tiltX = ((e.gamma || 0) / 45) * 0.12;   // -1..1 normalised, subtle
-      tiltY = ((e.beta  || 0) / 90) * 0.08;
+      tiltRawX = (e.gamma || 0) / 45;
+      tiltRawY = (e.beta  || 0) / 90;
     }, { passive: true });
 
-    var t = 0;
+    // Irrational constants — frequencies that never synchronise
+    var PHI = 1.6180339887;   // golden ratio
+    var SQ2 = 1.4142135624;   // √2
+    var EU  = 2.7182818285;   // e
+    var t   = 0;
 
-    // Lissajous parameters — slowly morph between figures
-    // a:b ratio determines the shape: 1:2 = figure-8, 1:1 = circle, 2:3 = trifolium
-    var ratioA = 1.0, ratioB = 2.0;   // start at figure-8
-    var targetA = 1.0, targetB = 2.0;
-    var morphTimer = 0;
-    var MORPH_EVERY = 420;  // frames
+    var STEPS = 360;
 
-    var RATIOS = [
-      [1, 2],   // figure-8 — this is the gesture
-      [1, 2],   // weight it twice — come back to it
-      [2, 3],   // trifolium
-      [3, 4],   // butterfly
-      [1, 2],   // return home
-    ];
-    var ratioIdx = 0;
+    function buildPath(cx, cy, Rx, Ry, rA, rB, delta) {
+      var pts = new Array(STEPS + 1);
+      for (var i = 0; i <= STEPS; i++) {
+        var a = (i / STEPS) * Math.PI * 2;
+        // Micro-tremor — contained life, not noise
+        var jitter = Rx * 0.007 * Math.sin(a * 5.3 + t * 0.038) * Math.sin(a * 2.7 + t * 0.021);
+        pts[i] = {
+          x: cx + (Rx + jitter)       * Math.sin(rA * a + delta),
+          y: cy + (Ry + jitter * 0.5) * Math.sin(rB * a),
+        };
+      }
+      return pts;
+    }
+
+    function tracePath(ctx, pts) {
+      ctx.beginPath();
+      ctx.moveTo(pts[0].x, pts[0].y);
+      for (var i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+      ctx.stroke();
+    }
 
     function drawBoot() {
-      var cx = bw / 2 + tiltX * bw * 0.04;
-      var cy = bh / 2 + tiltY * bh * 0.04;
-      var R  = Math.min(bw, bh) * 0.34;
+      // Spring physics on tilt — the figure breathes toward your hand
+      tiltX += (tiltRawX * 0.09 - tiltX) * 0.065;
+      tiltY += (tiltRawY * 0.07 - tiltY) * 0.065;
 
-      // Very slow fade — trails ghost and linger
-      bctx.fillStyle = 'rgba(0,0,0,0.045)';
+      var cx = bw * (0.5 + tiltX * 0.035);
+      var cy = bh * (0.5 + tiltY * 0.030);
+      var R  = Math.min(bw, bh) * 0.33;
+
+      // Organic motion — layered irrationals, never repeats
+      var delta  = 0.24 * Math.sin(t * 0.009  * PHI)
+                 + 0.11 * Math.sin(t * 0.014  * SQ2)
+                 + 0.05 * Math.sin(t * 0.0038 * Math.PI);
+
+      var breath = 0.80 + 0.13 * Math.sin(t * 0.008  * PHI)
+                        + 0.05 * Math.sin(t * 0.016  * SQ2)
+                        + 0.02 * Math.sin(t * 0.004  * EU);
+
+      // Ratio drifts microtonally around 1:2 — never perfectly static
+      var rA = 1.0 + 0.011 * Math.sin(t * 0.002  * PHI);
+      var rB = 2.0 + 0.022 * Math.sin(t * 0.0015 * SQ2);
+
+      var Rx = R * breath;
+      var Ry = R * breath * 0.84;
+
+      var pts = buildPath(cx, cy, Rx, Ry, rA, rB, delta);
+
+      // ── FADE main canvas (trails linger, ghost of where it's been) ──
+      bctx.fillStyle = 'rgba(0,0,0,0.055)';
       bctx.fillRect(0, 0, bw, bh);
 
-      // Morph between Lissajous ratios
-      morphTimer++;
-      if (morphTimer >= MORPH_EVERY) {
-        morphTimer = 0;
-        ratioIdx = (ratioIdx + 1) % RATIOS.length;
-        targetA = RATIOS[ratioIdx][0];
-        targetB = RATIOS[ratioIdx][1];
+      // ── BLOOM — draw to glow canvas, composite back with blur ──
+      glowCtx.clearRect(0, 0, bw, bh);
+      glowCtx.lineWidth   = 9;
+      glowCtx.strokeStyle = 'rgba(0,230,85,1)';
+      glowCtx.lineJoin    = 'round';
+      glowCtx.lineCap     = 'round';
+      tracePath(glowCtx, pts);
+
+      // Wide outer bloom — blur 18px, screen, subtle cyan shift
+      bctx.save();
+      bctx.filter = 'blur(18px)';
+      bctx.globalCompositeOperation = 'screen';
+      bctx.globalAlpha = 0.28;
+      // Cyan tint on outer glow: draw image with a color matrix effect
+      // (approximate via two draws: green + faint blue offset)
+      bctx.drawImage(glowCanvas, 0, 0);
+      bctx.restore();
+
+      // Inner tight glow — blur 5px, screen
+      bctx.save();
+      bctx.filter = 'blur(5px)';
+      bctx.globalCompositeOperation = 'screen';
+      bctx.globalAlpha = 0.55;
+      bctx.drawImage(glowCanvas, 0, 0);
+      bctx.restore();
+
+      // ── GHOST LAYER — smaller figure behind, offset in phase (depth) ──
+      var ghostPts = buildPath(cx, cy, Rx * 0.68, Ry * 0.68, rA, rB, delta - 0.22);
+      bctx.save();
+      bctx.lineWidth   = 0.8;
+      bctx.strokeStyle = 'rgba(0,255,90,0.08)';
+      bctx.lineJoin    = 'round';
+      tracePath(bctx, ghostPts);
+      bctx.restore();
+
+      // ── CRISP CORE — near-white at speed, green at rest ──
+      // Compute per-point velocity for color/width mapping
+      var vels = new Array(pts.length);
+      var maxV = 0.001;
+      for (var i = 1; i < pts.length; i++) {
+        var dx = pts[i].x - pts[i-1].x, dy = pts[i].y - pts[i-1].y;
+        vels[i] = Math.sqrt(dx*dx + dy*dy);
+        if (vels[i] > maxV) maxV = vels[i];
       }
-      ratioA += (targetA - ratioA) * 0.003;
-      ratioB += (targetB - ratioB) * 0.003;
+      vels[0] = vels[1];
 
-      // Breathing — amplitude swells and contracts
-      var breath = 0.72 + 0.28 * Math.sin(t * 0.35);
-      var Rx = R * breath;
-      var Ry = R * breath * 0.88;
-
-      // Phase offset drifts slowly — figure rotates organically
-      var delta = t * 0.008;
-
-      // Draw the Lissajous as a continuous glowing line
-      var STEPS = 420;
-      var prevX, prevY;
-      for (var i = 0; i <= STEPS; i++) {
-        var angle = (i / STEPS) * Math.PI * 2;
-        var px = cx + Rx * Math.sin(ratioA * angle + delta);
-        var py = cy + Ry * Math.sin(ratioB * angle);
-
-        if (i === 0) { prevX = px; prevY = py; continue; }
-
-        // Velocity along the curve → brightness (faster = brighter)
-        var speed = Math.abs(Math.cos(ratioA * angle + delta)) + 0.1;
-        var alpha = Math.min(0.55, speed * 0.28) * breath;
-
-        bctx.beginPath();
-        bctx.moveTo(prevX, prevY);
-        bctx.lineTo(px, py);
-        bctx.strokeStyle = 'rgba(0,255,65,' + alpha + ')';
-        bctx.lineWidth = 1.2;
-        bctx.stroke();
-
-        prevX = px; prevY = py;
+      // Batch into 10 velocity buckets — 10 draw calls instead of 360
+      var BUCKETS = 10;
+      var buckets = [];
+      for (var b = 0; b < BUCKETS; b++) buckets.push([]);
+      for (var i = 1; i < pts.length; i++) {
+        var b = Math.min(BUCKETS - 1, Math.floor((vels[i] / maxV) * BUCKETS));
+        buckets[b].push(i);
       }
 
-      // Soft glow at the center — the eye of the figure
-      var pulse = 0.04 + 0.025 * Math.sin(t * 0.9);
-      var grd = bctx.createRadialGradient(cx, cy, 0, cx, cy, R * 0.18);
-      grd.addColorStop(0,   'rgba(0,255,65,' + pulse + ')');
-      grd.addColorStop(1,   'rgba(0,0,0,0)');
-      bctx.beginPath();
-      bctx.arc(cx, cy, R * 0.18, 0, Math.PI * 2);
-      bctx.fillStyle = grd;
-      bctx.fill();
+      for (var b = 0; b < BUCKETS; b++) {
+        if (!buckets[b].length) continue;
+        var nv  = (b + 0.5) / BUCKETS;           // normalised velocity 0-1
+        // Color: slow=pure green, fast=near-white-green (hot = bright)
+        var r   = Math.round(40  + nv * 190);    // 40→230
+        var g   = 255;
+        var bl  = Math.round(80  + nv * 155);    // 80→235
+        var alpha = 0.30 + nv * 0.55;            // fast = brighter
+        var lw    = Math.max(0.5, 2.0 - nv * 1.3); // fast = thinner (calligraphic)
+
+        bctx.strokeStyle = 'rgba(' + r + ',' + g + ',' + bl + ',' + alpha + ')';
+        bctx.lineWidth   = lw;
+        bctx.lineCap     = 'round';
+
+        for (var j = 0; j < buckets[b].length; j++) {
+          var i = buckets[b][j];
+          bctx.beginPath();
+          bctx.moveTo(pts[i-1].x, pts[i-1].y);
+          bctx.lineTo(pts[i].x,   pts[i].y);
+          bctx.stroke();
+        }
+      }
 
       t += 0.016;
       bootAnimId = requestAnimationFrame(drawBoot);
