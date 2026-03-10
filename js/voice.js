@@ -84,7 +84,7 @@ const Voice = (function () {
       return false;
     }
 
-    var url = BASE + filename;
+    var url = BASE + filename + '?v=2';
     fetch(url)
       .then(function (r) {
         if (!r.ok) throw new Error(r.status + ' ' + url);
