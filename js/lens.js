@@ -497,15 +497,16 @@ const Lens = (function () {
   }
 
   function restoreFromStorage() {
+    // Always pick a random lens — no two sessions the same.
+    // Read last index so we can avoid repeating it.
+    var lastIndex = 0;
     try {
       var s = localStorage.getItem('m2_lens');
-      if (s) {
-        var d = JSON.parse(s);
-        if (d.index >= 0 && d.index < PRESETS.length) {
-          selectCard(d.index);
-        }
-      }
+      if (s) { var d = JSON.parse(s); lastIndex = d.index || 0; }
     } catch (e) {}
+    var idx;
+    do { idx = Math.floor(Math.random() * PRESETS.length); } while (idx === lastIndex && PRESETS.length > 1);
+    selectCard(idx);
   }
 
   // ── SHARING ──────────────────────────────────────────────────────────
