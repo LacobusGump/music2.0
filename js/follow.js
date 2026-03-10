@@ -1050,7 +1050,9 @@ const Follow = (function () {
     // sparse: only respond to genuinely strong peaks
     if (dna.sparse && vel < 0.45) return;
 
-    var drumVel = vel * (mods.drumBoost || 1.0) * Math.min(1.0, fadeGain + 0.25);
+    // drumVel is NOT multiplied by fadeGain — master gain already handles that.
+    // Double-attenuation was the bug: kv ended up 0.12 and failed the threshold.
+    var drumVel = vel * (mods.drumBoost || 1.0);
 
     var currentStep = Math.floor(barPhase * STEP_COUNT);
     var sync = goldilocksSync(currentStep, dna);
@@ -1066,10 +1068,10 @@ const Follow = (function () {
 
       if (nearest.type === 'kick') {
         var kv = nearest.vel * drumVel;
-        // Half-time: kick can't fire faster than ~1.8 beats apart
+        // Half-time: kick can't fire faster than ~1.6 beats apart
         var minKickGap = lockedInterval * (dna.halftime ? 1.6 : 0.85);
-        if (kv > 0.18 && now - lastKickTime > minKickGap) {
-          Audio.drum.kick(drumTime, kv, kit);
+        if (kv > 0.08 && now - lastKickTime > minKickGap) {
+          Audio.drum.kick(drumTime, Math.min(0.9, kv), kit);
           lastKickTime = now;
           grooveRecord("kick", { vel: kv, kit: kit });
           // Dark Matter broken: random double kick
@@ -1079,13 +1081,13 @@ const Follow = (function () {
         }
       } else if (nearest.type === 'snare') {
         var sv = nearest.vel * drumVel * 0.85;
-        // Half-time: snare only fires once per ~3.5 beats minimum
+        // Half-time: snare only fires once per ~3.2 beats minimum
         var minSnareGap = lockedInterval * (dna.halftime ? 3.2 : 1.6);
-        if (sv > 0.15 && now - lastSnareTime > minSnareGap) {
+        if (sv > 0.06 && now - lastSnareTime > minSnareGap) {
           // Dark Matter broken: random drop
           var dropped = lens.groove && lens.groove.broken && Math.random() < (lens.groove.dropRate || 0);
           if (!dropped) {
-            Audio.drum.snare(drumTime, sv, kit);
+            Audio.drum.snare(drumTime, Math.min(0.85, sv), kit);
             lastSnareTime = now;
             grooveRecord("snare", { vel: sv, kit: kit });
           }
@@ -1094,13 +1096,13 @@ const Follow = (function () {
 
       // Ghost snare from lens groove config (Dilla whisper)
       var grvGhosts = lens.groove && lens.groove.ghosts;
-      if (grvGhosts && Math.random() < grvGhosts && drumVel > 0.2) {
+      if (grvGhosts && Math.random() < grvGhosts && drumVel > 0.15) {
         Audio.drum.snare(time + 0.04, drumVel * 0.08, kit);
       }
 
     } else if (sync.nearest && sync.dist <= snapTol + 2 && !dna.sparse) {
       // ── POLYRHYTHM ZONE: close but off-beat — ghost hat acknowledges it ──
-      if (drumVel > 0.22 && now - lastHatTime >= 80) {
+      if (drumVel > 0.15 && now - lastHatTime >= 80) {
         lastHatTime = now;
         Audio.drum.hat(time, drumVel * 0.10, kit);
       }
@@ -1299,7 +1301,7 @@ const Follow = (function () {
       // Body peaks near a DNA hot beat → quantized hit.
       // Off-beat → ghost or silence. Hats are autonomous (processGrooveHats).
       // All 6 lenses now have drum DNA — no more groove:null dead ends.
-      if (sessionPhase >= 2 && vel > 0.15) {
+      if (sessionPhase >= 2 && vel > 0.08) {
         fireGoldilocks(magnitude, now, vel, mods);
       }
 
@@ -1841,7 +1843,8 @@ const Follow = (function () {
     // giving the touch voice space to breathe — recovers to 1.0 over ~0.5s
     touchDuck = Math.min(1.0, touchDuck + dt * 2.0);
     if (Audio.ctx) {
-      Audio.setMasterGain(0.8 * fadeGain * touchDuck);
+      // 0.62 instead of 0.8 — multiple voices summing was hitting the ceiling
+      Audio.setMasterGain(0.62 * fadeGain * touchDuck);
     }
 
     // ── 8D Spatial — tilt biases, LFO sweeps, touch takes direct control ──

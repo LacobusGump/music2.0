@@ -234,15 +234,11 @@ const Voice = (function () {
   function onObservation() {}   // silenced
   function iCanWorkWithThis() {} // silenced
 
-  // Discovery voice — emotional MP3s for earned moments
+  // Discovery voice — silenced. Only intro + deep stillness speak now.
   var discoveryUsed = [];
 
   function onDiscovery(type) {
-    var unused = FILES.emotional.filter(function (f) { return discoveryUsed.indexOf(f) === -1; });
-    if (unused.length === 0) { discoveryUsed = []; unused = FILES.emotional.slice(); }
-    var chosen = pick(unused);
-    discoveryUsed.push(chosen);
-    playFile(chosen, true);
+    // Silenced — voice speaks twice per session: boot intro and void stillness only.
   }
 
   // Only the void speaks now — deep stillness is sacred
