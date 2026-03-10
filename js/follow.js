@@ -29,6 +29,66 @@ const Follow = (function () {
     minor:      [0, 2, 3, 5, 7, 8, 10],
   };
 
+  // ── GROOVE DNA TABLE ──────────────────────────────────────────────────
+  // 16-step patterns (one 4/4 bar). Values 0-1 = hit strength.
+  // Steps: 0=beat1, 4=beat2, 8=beat3(half-time snare), 12=beat4.
+  // All lenses get drum DNA — 4 had groove:null and never produced drums.
+  // kit: which Audio.drum kit to use
+  // snap: goldilocks tolerance in 16th-note steps (1=tight, 3=forgiving)
+  // feel: drunk offset 0=straight, 0.12=Dilla
+  // halftime: true = snare only on beat 3 (the heavy, slow feel)
+  // sparse: only fires on high-velocity peaks
+  // barDivisor: only fires every N bars (Tundra heartbeat)
+
+  var GROOVE_DNA = {
+    'The Conductor': {
+      kick:  [0.8,0,0,0, 0,0,0,0, 0.28,0,0,0, 0,0,0,0],
+      snare: [0,0,0,0,   0,0,0,0, 0,0,0,0,    0,0,0,0],   // no snare — orchestra
+      hat:   [0,0,0,0,   0.10,0,0,0, 0,0,0,0, 0.10,0,0,0], // light cymbal on 2+4
+      feel: 0, kit: 'acoustic', snap: 3, halftime: true,
+    },
+    'Blue Hour': {
+      kick:  [0.74,0,0,0, 0,0.13,0,0, 0,0,0,0, 0.30,0,0,0],  // 1, ghost 2-and, pickup 4
+      snare: [0,0,0,0,    0,0,0,0,    0.76,0,0,0.08, 0,0,0,0.04], // half-time backbeat + ghosts
+      hat:   [0,0.22,0.58,0.22, 0.58,0.22,0.58,0.22, 0.58,0.22,0.58,0.22, 0.58,0.22,0.58,0.22], // ride
+      feel: 0.12, kit: 'brushes', snap: 2, halftime: true,
+    },
+    'Drift': {
+      kick:  [0.40,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0], // one per bar
+      snare: [0,0,0,0,    0,0,0,0, 0,0,0,0, 0,0,0,0],
+      hat:   [0,0,0,0,    0,0,0,0, 0,0,0,0, 0,0,0,0],
+      feel: 0, kit: 'acoustic', snap: 2, halftime: true, sparse: true,
+    },
+    'Tundra': {
+      kick:  [0.52,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0], // heartbeat
+      snare: [0,0,0,0,    0,0,0,0, 0,0,0,0, 0,0,0,0],
+      hat:   [0,0,0,0,    0,0,0,0, 0,0,0,0, 0,0,0,0],
+      feel: 0, kit: 'acoustic', snap: 2, halftime: true, sparse: true, barDivisor: 4,
+    },
+    'Still Water': {
+      kick:  [0.48,0,0,0, 0,0,0,0, 0.22,0,0,0, 0,0,0,0],
+      snare: [0,0,0,0,    0,0,0,0, 0.26,0,0,0, 0,0,0,0],
+      hat:   [0,0,0,0,    0.08,0,0,0, 0,0,0,0, 0.08,0,0,0], // barely there
+      feel: 0.05, kit: 'brushes', snap: 3, halftime: true,
+    },
+    'Dark Matter': {
+      kick:  [1.0,0,0,0.18, 0,0,0.28,0, 0.72,0,0.18,0, 0,0.32,0,0],
+      snare: [0,0,0,0,      0.80,0,0,0.11, 0,0.26,0,0, 0.60,0,0.09,0],
+      hat:   [1.0,0.36,1.0,0.36, 1.0,0.36,1.0,0.36, 1.0,0.36,1.0,0.36, 1.0,0.36,1.0,0.36],
+      feel: 0, kit: 'glitch', snap: 1, halftime: false,
+    },
+  };
+
+  var GROOVE_DNA_DEFAULT = {
+    kick:  [0.7,0,0,0, 0,0,0,0, 0.3,0,0,0, 0,0,0,0],
+    snare: [0,0,0,0,   0,0,0,0, 0.6,0,0,0, 0,0,0,0],
+    hat:   [0,0,0,0,   0.09,0,0,0, 0,0,0,0, 0.09,0,0,0],
+    feel: 0, kit: 'acoustic', snap: 2, halftime: true,
+  };
+
+  var BAR_BEATS  = 4;
+  var STEP_COUNT = 16;
+
   var root = 432;
   var scale = MODES.major;
 
@@ -126,6 +186,16 @@ const Follow = (function () {
   // Hat deduplication — prevents triple subdivision hits when all three
   // schedulers (user-triggered, grid-anticipated, momentum) fire at once.
   var lastHatTime = 0;
+
+  // ── BAR PHASE (Goldilocks drum sync) ──────────────────────────────────
+  // Continuously tracks position within the 4-beat bar (0.0–1.0).
+  // Derived from locked tempo. Drums snap to bar-phase hot zones.
+  var barPhase    = 0;    // 0.0-1.0 — where we are in the bar
+  var barOrigin   = 0;    // wall time of the last detected beat 1
+  var barCount    = 0;    // how many complete bars since lock
+  var lastBarStep = -1;   // last 16th-note step processed (hat dedup)
+  var lastKickTime  = 0;  // wall ms of last kick hit (rate limit)
+  var lastSnareTime = 0;  // wall ms of last snare hit (rate limit)
 
   // Energy / density
   var energySmooth = 0;
@@ -300,13 +370,13 @@ const Follow = (function () {
         }
       }
 
-      // Light kick + hat on grid beats
+      // Light kick on grid beats — hats are now handled by processGrooveHats
       if (lens.groove) {
         var gKit = lens.groove.kit || 'acoustic';
-        if (gridBeatCount % 2 === 0) {
+        if (gridBeatCount % 2 === 0 && now - lastKickTime > lockedInterval * 0.8) {
           Audio.drum.kick(time, gridVel * 0.5, gKit);
+          lastKickTime = now;
         }
-        Audio.drum.hat(time, gridVel * 0.3, gKit);
       }
     } catch (e) { errorCount++; }
   }
@@ -378,16 +448,7 @@ const Follow = (function () {
             }
           }
 
-          // Subdivisions during momentum too
-          if (palette.subdivision) {
-            var sub = palette.subdivision;
-            var divisions = sub.divisions || 2;
-            var subKit = lens.groove ? lens.groove.kit : (sub.kit || 'acoustic');
-            for (var d = 1; d < divisions; d++) {
-              var subTime = time + (d * momentumInterval / divisions / 1000);
-              scheduleGridSub(now + d * momentumInterval / divisions, subTime, momentumVelocity * 0.2, subKit);
-            }
-          }
+          // Subdivisions removed from momentum — processGrooveHats handles all hats
         } catch (e) { errorCount++; }
       }
 
@@ -932,6 +993,154 @@ const Follow = (function () {
     return invertedDuration > 0.5; // true when meaningfully inverted
   }
 
+  // ── GOLDILOCKS DRUM ENGINE ────────────────────────────────────────────
+  // The user's body IS the clock. But bodies aren't metronomes.
+  // Goldilocks: when a user peak falls within 'snap' steps of a DNA hot zone,
+  // quantize it to that zone and fire. Off-beat → ghost or silence.
+  // Half-time feel: snare only on beat 3 (step 8). Heavy. Slow. Godlike.
+
+  function updateBarPhase(now) {
+    if (!tempoLocked || lockedInterval <= 0) {
+      barPhase = 0; barOrigin = 0; barCount = 0; lastBarStep = -1;
+      return;
+    }
+    if (barOrigin === 0) {
+      // Align bar origin to the most recent user peak — musically grounded
+      barOrigin = lastPeakTime > 0 ? lastPeakTime : now;
+      barCount = 0;
+    }
+    var barLenMs = lockedInterval * BAR_BEATS;
+    var elapsed  = now - barOrigin;
+    barPhase     = (elapsed % barLenMs) / barLenMs;
+    var newBars  = Math.floor(elapsed / barLenMs);
+    if (newBars > barCount) { barCount = newBars; lastBarStep = -1; }
+  }
+
+  function getGrooveDNA() {
+    var name = lens && lens.name || '';
+    return GROOVE_DNA[name] || GROOVE_DNA_DEFAULT;
+  }
+
+  function goldilocksSync(currentStep, dna) {
+    // Find the nearest kick or snare hot zone in the 16-step pattern.
+    var nearest = null, nearestDist = STEP_COUNT;
+    for (var i = 0; i < STEP_COUNT; i++) {
+      var kv = dna.kick[i] || 0;
+      var sv = dna.snare[i] || 0;
+      if (kv < 0.08 && sv < 0.08) continue;
+      var dist = Math.abs(i - currentStep);
+      dist = Math.min(dist, STEP_COUNT - dist); // wrap around bar boundary
+      if (dist < nearestDist) {
+        nearestDist = dist;
+        nearest = { step: i, vel: Math.max(kv, sv), type: kv >= sv ? 'kick' : 'snare' };
+      }
+    }
+    return { nearest: nearest, dist: nearestDist };
+  }
+
+  function fireGoldilocks(magnitude, now, vel, mods) {
+    if (!lens || !Audio.ctx || isSilent) return;
+    var dna = getGrooveDNA();
+    var kit = (lens.groove && lens.groove.kit) || dna.kit || 'acoustic';
+    var time = Audio.ctx.currentTime;
+
+    // barDivisor: Tundra only fires every 4 bars (heartbeat, not metronome)
+    if (dna.barDivisor && (barCount % dna.barDivisor) !== 0) return;
+
+    // sparse: only respond to genuinely strong peaks
+    if (dna.sparse && vel < 0.45) return;
+
+    var drumVel = vel * (mods.drumBoost || 1.0) * Math.min(1.0, fadeGain + 0.25);
+
+    var currentStep = Math.floor(barPhase * STEP_COUNT);
+    var sync = goldilocksSync(currentStep, dna);
+    var snapTol = tempoLocked ? (dna.snap || 2) : 3; // more forgiving pre-lock
+
+    // Humanizing drunk offset (Dilla feel for Blue Hour)
+    var drunkS = dna.feel > 0 ? (Math.random() - 0.5) * dna.feel * lockedInterval * 0.5 / 1000 : 0;
+    var drumTime = time + Math.max(-0.005, drunkS);
+
+    if (sync.nearest && sync.dist <= snapTol) {
+      // ── SNAP ZONE: user peaked near a hot beat — quantized hit ──
+      var nearest = sync.nearest;
+
+      if (nearest.type === 'kick') {
+        var kv = nearest.vel * drumVel;
+        // Half-time: kick can't fire faster than ~1.8 beats apart
+        var minKickGap = lockedInterval * (dna.halftime ? 1.6 : 0.85);
+        if (kv > 0.18 && now - lastKickTime > minKickGap) {
+          Audio.drum.kick(drumTime, kv, kit);
+          lastKickTime = now;
+          grooveRecord("kick", { vel: kv, kit: kit });
+          // Dark Matter broken: random double kick
+          if (lens.groove && lens.groove.broken && Math.random() < (lens.groove.doubleRate || 0)) {
+            Audio.drum.kick(drumTime + 0.08, kv * 0.45, kit);
+          }
+        }
+      } else if (nearest.type === 'snare') {
+        var sv = nearest.vel * drumVel * 0.85;
+        // Half-time: snare only fires once per ~3.5 beats minimum
+        var minSnareGap = lockedInterval * (dna.halftime ? 3.2 : 1.6);
+        if (sv > 0.15 && now - lastSnareTime > minSnareGap) {
+          // Dark Matter broken: random drop
+          var dropped = lens.groove && lens.groove.broken && Math.random() < (lens.groove.dropRate || 0);
+          if (!dropped) {
+            Audio.drum.snare(drumTime, sv, kit);
+            lastSnareTime = now;
+            grooveRecord("snare", { vel: sv, kit: kit });
+          }
+        }
+      }
+
+      // Ghost snare from lens groove config (Dilla whisper)
+      var grvGhosts = lens.groove && lens.groove.ghosts;
+      if (grvGhosts && Math.random() < grvGhosts && drumVel > 0.2) {
+        Audio.drum.snare(time + 0.04, drumVel * 0.08, kit);
+      }
+
+    } else if (sync.nearest && sync.dist <= snapTol + 2 && !dna.sparse) {
+      // ── POLYRHYTHM ZONE: close but off-beat — ghost hat acknowledges it ──
+      if (drumVel > 0.22 && now - lastHatTime >= 80) {
+        lastHatTime = now;
+        Audio.drum.hat(time, drumVel * 0.10, kit);
+      }
+    }
+    // Far from grid: body movement is melody here, not drums. Silence is right.
+  }
+
+  // ── AUTONOMOUS HAT GRID ───────────────────────────────────────────────
+  // Hats fire from bar phase position, not from user peaks.
+  // This replaces the three subdivision systems (user-sub, grid-sub, momentum-sub)
+  // with a single DNA-driven source of truth.
+
+  function processGrooveHats(now) {
+    if (!tempoLocked || isSilent || sessionPhase < 2 || !lens || !Audio.ctx) return;
+    if (descentMix > 0.55) return; // bass world — hats belong to silence now
+    var dna = getGrooveDNA();
+    if (!dna.hat) return;
+
+    var currentStep = Math.floor(barPhase * STEP_COUNT);
+    if (currentStep === lastBarStep) return; // step hasn't changed this frame
+    lastBarStep = currentStep;
+
+    var hatVel = dna.hat[currentStep] || 0;
+    if (hatVel < 0.04) return;
+
+    // Drunk offset
+    var drunkS = dna.feel > 0 ? (Math.random() - 0.5) * dna.feel * lockedInterval * 0.25 / 1000 : 0;
+    var hatTime = Audio.ctx.currentTime + Math.max(0, drunkS);
+
+    var kit = (lens.groove && lens.groove.kit) || dna.kit || 'acoustic';
+    var mods = archetypeModifiers();
+    var vel = hatVel * fadeGain * (mods.subdivBoost || 1.0) * 0.55 * (1 - descentMix * 0.8);
+
+    if (vel > 0.025 && now - lastHatTime >= 35) {
+      lastHatTime = now;
+      Audio.drum.hat(hatTime, vel, kit);
+      grooveRecord("hat", { vel: vel, kit: kit });
+    }
+  }
+
   // ── INIT ──────────────────────────────────────────────────────────────
 
   function init() {
@@ -999,6 +1208,12 @@ const Follow = (function () {
     touchDuck = 1.0;
     melodicCentroid = 0;
     lastHatTime = 0;
+    barPhase    = 0;
+    barOrigin   = 0;
+    barCount    = 0;
+    lastBarStep = -1;
+    lastKickTime  = 0;
+    lastSnareTime = 0;
     try { Audio.descentBass.stop(); } catch (e) {}
   }
 
@@ -1080,43 +1295,12 @@ const Follow = (function () {
         noteCount++;
       }
 
-      // ── 2. DRUMS (phase 2 only) ──
-      var groove = lens.groove;
-      if (groove && vel > 0.2 && sessionPhase >= 2) {
-        var kit = groove.kit || 'acoustic';
-        var maxV = groove.maxVel || 1.0;
-        var drumVel = Math.min(maxV, vel * mods.drumBoost);
-        var mt = groove.microTiming || {};
-
-        // Broken kit: random drop chance (Dark Matter)
-        var dropped = groove.broken && Math.random() < (groove.dropRate || 0);
-        if (!dropped) {
-          // Chaos offset: ±50ms random smear for broken kits
-          var chaosS = groove.broken ? (Math.random() - 0.5) * 0.10 : 0;
-          var doubleHit = groove.broken && Math.random() < (groove.doubleRate || 0);
-
-          if (drumVel > 0.25) {
-            var kickT = time + (mt.kick || 0) / 1000 + chaosS;
-            Audio.drum.kick(Math.max(time, kickT), drumVel * 0.8, kit);
-            if (doubleHit) Audio.drum.kick(Math.max(time, kickT) + 0.08, drumVel * 0.45, kit);
-            grooveRecord("kick", { vel: drumVel * 0.8, kit: kit });
-          }
-          // backbeat: snare only on 2 and 4 (even peaks)
-          if (drumVel > 0.20 && (!groove.backbeat || peakCount % 2 === 0)) {
-            var snareT = time + (mt.snare || 0) / 1000 + chaosS;
-            Audio.drum.snare(Math.max(time, snareT), drumVel * 0.6, kit);
-            grooveRecord("snare", { vel: drumVel * 0.6, kit: kit });
-          }
-          if (drumVel > 0.08) {
-            var hatT = time + (mt.hat || 0) / 1000;
-            Audio.drum.hat(Math.max(time, hatT), drumVel * 0.4, kit);
-            grooveRecord("hat", { vel: drumVel * 0.4, kit: kit });
-          }
-          // Ghost snare — quiet upbeat whisper (Dilla feel)
-          if ((groove.ghosts || 0) > 0 && Math.random() < groove.ghosts && drumVel > 0.2) {
-            Audio.drum.snare(time + 0.04, drumVel * 0.10, kit);
-          }
-        }
+      // ── 2. GOLDILOCKS HALF-TIME GROOVE (phase 2 only) ──
+      // Body peaks near a DNA hot beat → quantized hit.
+      // Off-beat → ghost or silence. Hats are autonomous (processGrooveHats).
+      // All 6 lenses now have drum DNA — no more groove:null dead ends.
+      if (sessionPhase >= 2 && vel > 0.15) {
+        fireGoldilocks(magnitude, now, vel, mods);
       }
 
       // ── 3. SUBDIVISIONS (phase 2 only) ──
@@ -1194,11 +1378,8 @@ const Follow = (function () {
         ev.fired = true;
         try {
           if (ev.voice === 'hat') {
-            // Deduplication: skip if a hat already fired within 35ms (grid/momentum may also fire)
-            if (now - lastHatTime >= 35) {
-              lastHatTime = now;
-              Audio.drum.hat(Audio.ctx.currentTime, ev.vel, ev.kit);
-            }
+            // Hat is now handled by processGrooveHats (DNA-driven, phase-locked)
+            // Skip hat subdivisions here to prevent fighting with the grid.
           } else if (ev.voice === 'ride') {
             Audio.drum.ride(Audio.ctx.currentTime, ev.vel);
           } else {
@@ -1624,6 +1805,9 @@ const Follow = (function () {
     // ── Tempo lock (catch the groove) ──
     updateTempoLock(now);
 
+    // ── Bar phase (continuous 0–1 position within the 4-beat bar) ──
+    updateBarPhase(now);
+
     // ── Grid beats (anticipated beats when locked) ──
     processGridBeats(now);
     processGridSubs(now);
@@ -1631,8 +1815,11 @@ const Follow = (function () {
     // ── Momentum (groove continues briefly when you pause) ──
     processMomentum(now);
 
-    // ── User-triggered subdivisions ──
+    // ── User-triggered subdivisions (non-hat only — hats are autonomous) ──
     processSubdivisions(now);
+
+    // ── Autonomous hat grid (DNA-driven, phase-locked to bar) ──
+    processGrooveHats(now);
 
     // ── Tilt → pitch ──
     updateTiltPitch(sensor, now);
