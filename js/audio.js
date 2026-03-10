@@ -155,9 +155,10 @@ const Audio = (function () {
     // Rebuild reverb with lens-specific IR
     buildReverb(rev.decay || 3.0, rev.damping || 0.4);
 
-    // Reverb level from space type
+    // Reverb level: use reverbMix if defined, otherwise fall back to space type lookup
     var spaces = { intimate: 0.2, room: 0.35, cathedral: 0.5, infinite: 0.7 };
-    if (reverbGain) reverbGain.gain.value = spaces[space.type || 'cathedral'] || 0.4;
+    var reverbLevel = space.reverbMix !== undefined ? space.reverbMix : (spaces[space.type || 'cathedral'] || 0.4);
+    if (reverbGain) reverbGain.gain.value = reverbLevel;
 
     // Delay
     if (delayFeedback) delayFeedback.gain.value = del.feedback || 0.35;

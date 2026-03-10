@@ -152,8 +152,8 @@ const Follow = (function () {
   // Phase 2 ALIVE      (28s+):  drums, groove, everything — fully alive
   var sessionEngagedTime = 0;   // seconds of active (non-silent) play
   var sessionPhase = 0;
-  var PHASE_LISTENING = 12;
-  var PHASE_ALIVE = 28;
+  var PHASE_LISTENING = 8;
+  var PHASE_ALIVE = 16;
 
   // ── DESCENT ARC ───────────────────────────────────────────────────────
   // The music earns its structural arc. Build enough energy and the world
@@ -821,7 +821,7 @@ const Follow = (function () {
 
     try {
       var time = Audio.ctx.currentTime;
-      var vel = Math.min(1, magnitude / 12);
+      var vel = Math.min(1, magnitude / 4);
       var palette = lens.palette || {};
       var mods = archetypeModifiers();
 
@@ -852,19 +852,19 @@ const Follow = (function () {
           var chaosS = groove.broken ? (Math.random() - 0.5) * 0.10 : 0;
           var doubleHit = groove.broken && Math.random() < (groove.doubleRate || 0);
 
-          if (drumVel > 0.5) {
+          if (drumVel > 0.25) {
             var kickT = time + (mt.kick || 0) / 1000 + chaosS;
             Audio.drum.kick(Math.max(time, kickT), drumVel * 0.8, kit);
             if (doubleHit) Audio.drum.kick(Math.max(time, kickT) + 0.08, drumVel * 0.45, kit);
             grooveRecord("kick", { vel: drumVel * 0.8, kit: kit });
           }
           // backbeat: snare only on 2 and 4 (even peaks)
-          if (drumVel > 0.4 && (!groove.backbeat || peakCount % 2 === 0)) {
+          if (drumVel > 0.20 && (!groove.backbeat || peakCount % 2 === 0)) {
             var snareT = time + (mt.snare || 0) / 1000 + chaosS;
             Audio.drum.snare(Math.max(time, snareT), drumVel * 0.6, kit);
             grooveRecord("snare", { vel: drumVel * 0.6, kit: kit });
           }
-          if (drumVel > 0.15) {
+          if (drumVel > 0.08) {
             var hatT = time + (mt.hat || 0) / 1000;
             Audio.drum.hat(Math.max(time, hatT), drumVel * 0.4, kit);
             grooveRecord("hat", { vel: drumVel * 0.4, kit: kit });
@@ -877,7 +877,7 @@ const Follow = (function () {
       }
 
       // ── 3. SUBDIVISIONS (phase 2 only) ──
-      if (lens.groove && palette.subdivision && rhythmConfidence > 0.3 && piLen >= 3 && sessionPhase >= 2) {
+      if (palette.subdivision && rhythmConfidence > 0.3 && piLen >= 3 && sessionPhase >= 2) {
         scheduleSubdivisions(now, vel * mods.subdivBoost, time);
       }
 
