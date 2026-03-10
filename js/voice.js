@@ -229,74 +229,25 @@ const Voice = (function () {
     if (line) speak(line, { force: true, pitch: 0.55, rate: 0.74 });
   }
 
-  function onFirstMotion() {
-    playFile(pick(FILES.firstMotion), true);
-  }
+  function onFirstMotion() {}   // silenced
+  function onPeak() {}          // silenced
+  function onObservation() {}   // silenced
+  function iCanWorkWithThis() {} // silenced
 
-  // Called when the user earns a genuine discovery — upside down, tremolo, drop.
-  // Uses the emotional MP3s. These are the moments the instrument speaks.
+  // Discovery voice — emotional MP3s for earned moments
   var discoveryUsed = [];
 
   function onDiscovery(type) {
-    // Pick an unused emotional file — each discovery gets a fresh line
     var unused = FILES.emotional.filter(function (f) { return discoveryUsed.indexOf(f) === -1; });
-    if (unused.length === 0) {
-      // All used — reset so the instrument can speak again
-      discoveryUsed = [];
-      unused = FILES.emotional.slice();
-    }
+    if (unused.length === 0) { discoveryUsed = []; unused = FILES.emotional.slice(); }
     var chosen = pick(unused);
     discoveryUsed.push(chosen);
     playFile(chosen, true);
   }
 
-  function onPeak() {
-    var now = Date.now();
-    if (now - peakFired < 30000) return; // max once per 30s
-    peakFired = now;
-    playFile(pick(FILES.peak));
-  }
-
+  // Only the void speaks now — deep stillness is sacred
   function onDeepStillness() {
     playFile(pick(FILES.deepStillness), true);
-  }
-
-  function iCanWorkWithThis() {
-    var played = playFile(FILES.iCanWorkWithThis, true);
-    if (!played) {
-      // File not recorded yet — Web Speech fallback
-      lastSpoke = Date.now();
-      speak("I can work with this.", { force: true, pitch: 0.50, rate: 0.72 });
-    }
-  }
-
-  // Called once per session after 4 minutes
-  function onObservation(minutes) {
-    var tc = timeCtx();
-
-    // Scary plays once if it exists
-    if (!scaryFired) {
-      scaryFired = true;
-      playFile(FILES.scary);
-      return;
-    }
-
-    // One emotional line, or a time-aware line
-    var unused = FILES.emotional.filter(function (f) { return emotionalUsed.indexOf(f) === -1; });
-    if (unused.length > 0) {
-      var chosen = pick(unused);
-      emotionalUsed.push(chosen);
-      playFile(chosen);
-      return;
-    }
-
-    if (tc.veryLate) {
-      speak('Everyone is asleep. You\'re here.', { pitch: 0.48, rate: 0.70 });
-    } else if (tc.shouldBeWorking) {
-      speak('It\'s ' + tc.day + '. You should be somewhere else.', { pitch: 0.48, rate: 0.70 });
-    } else {
-      playFile(pick(FILES.observation));
-    }
   }
 
   function askName() {}
