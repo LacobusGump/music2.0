@@ -87,8 +87,9 @@
   }
 
   // ── BOOT CANVAS ───────────────────────────────────────────────────────
-  // Lissajous figure. Multi-pass stacked strokes for bloom (no filter API).
-  // Irrational frequency drivers at audible speeds — alive, never repeating.
+  // Horizon unfolding. A line that glares into existence and pushes.
+  // Natural phasing: Fibonacci wave frequencies, never repeating.
+  // Tilt shifts the horizon. Glare builds slowly. Corona pushes outward.
 
   var bootAnimId = null;
 
@@ -115,63 +116,72 @@
       tiltRawY = (e.beta  || 0) / 90;
     }, { passive: true });
 
-    // Irrational constants for organic, never-repeating motion
+    // Irrational constants — organic, never-repeating phase
     var PHI = 1.6180339887;
     var SQ2 = 1.4142135624;
     var t = 0;
+    var glare = 0; // 0→1 over ~5 seconds — the horizon glares in slowly
 
-    // Bloom layers: outermost (widest, most transparent) → innermost (crisp, bright)
+    // Bloom passes: wide corona → crisp white core
+    // Warm white/gold — light crossing from the other side
     var PASSES = [
-      { lw: 22, r: 0,   g: 200, b: 80,  a: 0.012 },  // wide outer haze
-      { lw: 12, r: 0,   g: 230, b: 90,  a: 0.035 },  // mid bloom
-      { lw:  6, r: 0,   g: 255, b: 100, a: 0.09  },  // inner glow
-      { lw:  2.5, r: 60,  g: 255, b: 140, a: 0.55  },  // bright ring
-      { lw:  1,   r: 210, g: 255, b: 225, a: 0.90  },  // near-white core
+      { lw: 32, r: 255, g: 210, b: 120, a: 0.007 }, // far corona haze
+      { lw: 16, r: 255, g: 230, b: 160, a: 0.022 }, // mid glow
+      { lw:  7, r: 255, g: 248, b: 200, a: 0.07  }, // inner glow
+      { lw:  2.5, r: 255, g: 255, b: 230, a: 0.55 }, // bright ring
+      { lw:  1,   r: 255, g: 255, b: 255, a: 0.95 }, // white core
     ];
 
     function drawBoot() {
       // Spring physics on tilt
-      tiltX += (tiltRawX * 0.08 - tiltX) * 0.07;
-      tiltY += (tiltRawY * 0.06 - tiltY) * 0.07;
+      tiltX += (tiltRawX * 0.1  - tiltX) * 0.06;
+      tiltY += (tiltRawY * 0.08 - tiltY) * 0.06;
 
-      var cx = bw * (0.5 + tiltX * 0.04);
-      var cy = bh * (0.5 + tiltY * 0.035);
-      var R  = Math.min(bw, bh) * 0.33;
+      // Glare builds — the horizon emerges slowly, then holds
+      glare = Math.min(1, glare + 0.003);
 
-      // ── ORGANIC MOTION — irrational frequencies at perceptible speeds ──
-      // PHI * 1.4 ≈ 2.27 rad/s, SQ2 * 2.3 ≈ 3.25 rad/s: clearly visible oscillation
-      var delta  = 0.38 * Math.sin(t * 1.4  * PHI)
-                 + 0.16 * Math.sin(t * 2.3  * SQ2)
-                 + 0.07 * Math.sin(t * 4.9);
+      // Horizon sits at vertical center, shifted by tilt
+      var cy = bh * (0.5 + tiltY * 0.07);
 
-      var breath = 0.82 + 0.11 * Math.sin(t * 0.9  * PHI)
-                        + 0.04 * Math.sin(t * 2.1  * SQ2)
-                        + 0.02 * Math.sin(t * 3.7);
+      // Push: corona expands outward from the line as glare builds
+      // Like light being lensed — the horizon is pushing through you
+      var push = bh * 0.18 * glare * (1 + 0.12 * Math.sin(t * 0.6 * PHI));
 
-      // Ratio breathes slightly — figure loosens and tightens
-      var rA = 1.0 + 0.018 * Math.sin(t * 0.6 * PHI);
-      var rB = 2.0 + 0.035 * Math.sin(t * 0.4 * SQ2);
+      // Wave amplitude: breathes with irrational frequencies
+      var amp = bh * 0.055 * glare
+        * (0.85 + 0.10 * Math.sin(t * 0.7 * PHI)
+                + 0.05 * Math.sin(t * 1.1 * SQ2));
 
-      var Rx = R * breath;
-      var Ry = R * breath * 0.84;
-
-      // ── FADE — slow enough that trails ghost beautifully ──
-      bctx.fillStyle = 'rgba(0,0,0,0.05)';
+      // ── FADE — slow trail so the wave ghosts behind itself ──
+      bctx.fillStyle = 'rgba(0,0,0,0.045)';
       bctx.fillRect(0, 0, bw, bh);
 
-      // ── BUILD PATH ──
-      var STEPS = 360;
+      // ── CORONA PUSH — vertical gradient radiating from the horizon ──
+      // This is the "push" — light pressing through from behind the line
+      var grad = bctx.createLinearGradient(0, cy - push, 0, cy + push);
+      grad.addColorStop(0,    'rgba(0,0,0,0)');
+      grad.addColorStop(0.25, 'rgba(255,180,60,' + (glare * 0.03) + ')');
+      grad.addColorStop(0.5,  'rgba(255,230,140,' + (glare * 0.07) + ')');
+      grad.addColorStop(0.75, 'rgba(255,180,60,' + (glare * 0.03) + ')');
+      grad.addColorStop(1,    'rgba(0,0,0,0)');
+      bctx.fillStyle = grad;
+      bctx.fillRect(0, cy - push, bw, push * 2);
+
+      // ── HORIZON WAVE — Fibonacci frequencies, natural phasing ──
+      // 8:13:21:34 spatial ratios = golden ratio harmonics, never lock
+      // Time drivers at PHI/SQ2 ratios = phase drift that never repeats
+      var STEPS = 220;
       var pts = new Array(STEPS + 1);
       for (var i = 0; i <= STEPS; i++) {
-        var a = (i / STEPS) * Math.PI * 2;
-        // Micro-tremor: product of two irrational-frequency sines = contained aliveness
-        var jitter = R * 0.006
-          * Math.sin(a * 5.3 + t * 2.8)
-          * Math.sin(a * 2.7 + t * 1.9);
-        pts[i] = {
-          x: cx + (Rx + jitter)       * Math.sin(rA * a + delta),
-          y: cy + (Ry + jitter * 0.5) * Math.sin(rB * a),
-        };
+        var nx = i / STEPS;
+        var wave =
+          Math.sin(nx * 8  * Math.PI + t * PHI * 1.3) * 0.50 +
+          Math.sin(nx * 13 * Math.PI + t * SQ2 * 0.9) * 0.28 +
+          Math.sin(nx * 21 * Math.PI + t * PHI * 0.5) * 0.14 +
+          Math.sin(nx * 34 * Math.PI + t * SQ2 * 2.1) * 0.08;
+        // Tilt warps the wave — you're not level with the horizon
+        wave += tiltX * 0.25 * Math.sin(nx * Math.PI);
+        pts[i] = { x: nx * bw, y: cy + wave * amp };
       }
 
       // ── MULTI-PASS BLOOM — wide to narrow, transparent to opaque ──
@@ -181,7 +191,7 @@
       for (var p = 0; p < PASSES.length; p++) {
         var pass = PASSES[p];
         bctx.lineWidth   = pass.lw;
-        bctx.strokeStyle = 'rgba(' + pass.r + ',' + pass.g + ',' + pass.b + ',' + pass.a + ')';
+        bctx.strokeStyle = 'rgba(' + pass.r + ',' + pass.g + ',' + pass.b + ',' + (pass.a * glare) + ')';
         bctx.beginPath();
         bctx.moveTo(pts[0].x, pts[0].y);
         for (var i = 1; i < pts.length; i++) bctx.lineTo(pts[i].x, pts[i].y);
