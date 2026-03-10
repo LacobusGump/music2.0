@@ -191,6 +191,10 @@ const Follow = (function () {
   var invertedDuration = 0;
   var wasInverted      = false;
 
+  // Touch onset control
+  var lastTouchNote = 0;   // ms — rate limiting
+  var touchDuck     = 1.0; // 0-1 multiplier applied to master gain when touch begins
+
   // GROOVE CRYSTALLIZATION STATE
   var grooveBuf = [];
   var grooveLoop = null;
@@ -972,6 +976,8 @@ const Follow = (function () {
     invertedDuration = 0;
     wasInverted = false;
     sessionDiscoveries = {};
+    lastTouchNote = 0;
+    touchDuck = 1.0;
     try { Audio.descentBass.stop(); } catch (e) {}
   }
 
@@ -1497,24 +1503,46 @@ const Follow = (function () {
   function touch(x, y, vx, vy) {
     if (!lens || !Audio.ctx || !active) return;
 
+    // ── Rate limit: one touch note per noteInterval ──
+    var now = Date.now();
+    var noteIntervalMs = (lens.response && lens.response.noteInterval) || 200;
+    if (now - lastTouchNote < noteIntervalMs) return;
+
     var time = Audio.ctx.currentTime;
     var palette = lens.palette || {};
     var resp = palette.touch || palette.continuous || {};
 
-    var degree = Math.round((1 - y) * 14) - 7;
+    // ── Harmonic gravity: pull touch degree toward chord tones of current harmony ──
+    var rawDegree = Math.round((1 - y) * 14) - 7;
+    var chordOffsets = [0, 2, 4, 7, -3, -5];  // root, 3rd, 5th, 7th relative to harmonyDegree
+    var nearest = rawDegree;
+    var minDist = 99;
+    for (var ci = 0; ci < chordOffsets.length; ci++) {
+      for (var oct = -1; oct <= 1; oct++) {
+        var candidate = harmonyDegree + chordOffsets[ci] + oct * 7;
+        var d = Math.abs(rawDegree - candidate);
+        if (d < minDist) { minDist = d; nearest = candidate; }
+      }
+    }
+    // Snap to chord tone if within 2 scale steps; otherwise partial pull
+    var degree = minDist <= 2 ? nearest : rawDegree + Math.round((nearest - rawDegree) * 0.4);
     var freq = scaleFreq(degree, resp.octave || 0);
 
     var speed = Math.sqrt(vx * vx + vy * vy);
-    var vel = Math.min(1, 0.3 + speed * 0.1);
+
+    // ── Velocity headroom: touch backs off when motion is already loud ──
+    var vel = Math.min(1, 0.3 + speed * 0.08);
+    vel *= Math.max(0.3, 1 - energySmooth * 0.35);
+
+    // ── Fresh touch onset: duck motion voices so touch becomes the lead ──
+    var isFreshTouch = now - lastTouchNote > 400;
+    if (isFreshTouch) touchDuck = 0.55;
+
+    lastTouchNote = now;
 
     try {
       Audio.synth.play(resp.voice || 'epiano', time, freq, vel, resp.decay || 0.6);
       noteCount++;
-
-      if (speed > 3 && Math.random() > 0.5) {
-        var graceFreq = scaleFreq(degree + (Math.random() > 0.5 ? 1 : -1), resp.octave || 0);
-        Audio.synth.play(resp.voice || 'epiano', time + 0.03, graceFreq, vel * 0.4, 0.3);
-      }
     } catch (e) { errorCount++; }
 
     if (isSilent) {
@@ -1585,8 +1613,11 @@ const Follow = (function () {
     updateDescent(mag, sensor, dt);
 
     // ── Master gain ──
+    // touchDuck briefly pulls motion voices back when finger first lands,
+    // giving the touch voice space to breathe — recovers to 1.0 over ~0.5s
+    touchDuck = Math.min(1.0, touchDuck + dt * 2.0);
     if (Audio.ctx) {
-      Audio.setMasterGain(0.8 * fadeGain);
+      Audio.setMasterGain(0.8 * fadeGain * touchDuck);
     }
 
     // ── 8D Spatial — tilt biases, LFO sweeps, touch takes direct control ──
