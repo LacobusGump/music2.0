@@ -366,16 +366,9 @@ const Pattern = (function () {
     try { Audio.drum.snare(time,      0.85, kit); } catch (e) {}
     try { Audio.drum.hat(time + 0.02, 0.7,  kit); } catch (e) {}
 
-    // Ascending arpeggio on current harmony (quick, dramatic)
-    if (peak) {
-      var arpDegs = [0, 2, 4, 7];
-      for (var i = 0; i < arpDegs.length; i++) {
-        var freq = Follow.scaleFreq(arpDegs[i], (peak.octave || 0));
-        try {
-          Audio.synth.play(peak.voice || 'brass', time + i * 0.06, freq, 0.7, 0.4);
-        } catch (e) {}
-      }
-    }
+    // Beat drop is a rhythmic statement — the drums say it, not the notes.
+    // Adding an arpeggio on top was the "gimmick" — every session floods
+    // into the same ascending run at the same moment. Silence is stronger.
 
     // After the drop, temperature resets — settle into the groove
     loopTemperature = 0.08;
@@ -401,7 +394,7 @@ const Pattern = (function () {
   var genNoteIdx     = 0;
 
   var silenceMs      = 0;
-  var GEN_SILENCE_MS = 2800;  // longer threshold — let the sporadic sounds breathe
+  var GEN_SILENCE_MS = 9000;  // long threshold — oracle reflects, doesn't interject
   var phraseCount    = 0;
   var loopTemperature = 0.10;
   var genThisEpisode = false; // only one phrase per silence episode
@@ -409,7 +402,7 @@ const Pattern = (function () {
   // ── GENERATION ────────────────────────────────────────────────────────
 
   function buildPhrase() {
-    if (!lens || oLen < 18 || confirmedMotifs.length === 0) return false;
+    if (!lens || oLen < 40 || confirmedMotifs.length === 0) return false;
 
     // Try up to 4 times to find a non-repeating phrase
     for (var attempt = 0; attempt < 4; attempt++) {

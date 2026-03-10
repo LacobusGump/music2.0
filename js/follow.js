@@ -92,6 +92,17 @@ const Follow = (function () {
   var root = 432;
   var scale = MODES.major;
 
+  // ── HARMONIC ARC ───────────────────────────────────────────────────────
+  // The key travels a circle-of-fifths journey over the session, then resolves.
+  // I → IV → V → home. Every listener feels this arc without knowing why.
+  var originalRoot   = 432;
+  var rootSemiOffset = 0;     // current smoothed semitone offset from originalRoot
+  var rootSemiTarget = 0;     // destination semitone offset
+  var arcStep        = 0;     // how far along the journey we are
+  // Semitone offsets: home → up a 4th → up a 5th → home (I–IV–V–I at the key level)
+  var ARC_JOURNEY    = [0, 5, 7, 0];
+  var ARC_STEP_ENERGY = 50;   // sessionEnergyAccum units per step (~4-5 min active play)
+
   function scaleFreq(degree, octave) {
     var len = scale.length;
     var oct = Math.floor(degree / len);
@@ -1163,14 +1174,37 @@ const Follow = (function () {
     sessionPhase = 0;
   }
 
+  // ── HARMONIC ARC UPDATE ───────────────────────────────────────────────
+
+  function updateHarmonicArc(dt) {
+    if (sessionPhase < 2) return; // arc only after music is properly established
+
+    // Advance journey step when user has played enough (earned through movement)
+    var nextThreshold = (arcStep + 1) * ARC_STEP_ENERGY;
+    if (arcStep < ARC_JOURNEY.length - 1 && sessionEnergyAccum >= nextThreshold) {
+      arcStep++;
+      rootSemiTarget = ARC_JOURNEY[arcStep];
+    }
+
+    // Smooth glide — takes ~15s to fully complete a key shift (imperceptible jump, felt as drift)
+    rootSemiOffset += (rootSemiTarget - rootSemiOffset) * dt * 0.06;
+
+    // Apply to root — all scaleFreq() calls pick this up automatically
+    root = originalRoot * Math.pow(2, rootSemiOffset / 12);
+  }
+
   // ── CONFIGURE (apply lens) ────────────────────────────────────────────
 
   function applyLens(lensConfig) {
     lens = lensConfig;
     if (!lens) return;
 
-    root = (lens.harmony && lens.harmony.root) || 432;
-    scale = MODES[(lens.harmony && lens.harmony.mode) || 'major'] || MODES.major;
+    originalRoot   = (lens.harmony && lens.harmony.root) || 432;
+    root           = originalRoot;
+    scale          = MODES[(lens.harmony && lens.harmony.mode) || 'major'] || MODES.major;
+    rootSemiOffset = 0;
+    rootSemiTarget = 0;
+    arcStep        = 0;
 
     // Kill existing layers for fresh start
     if (droneLayer) { Audio.layer.destroy('follow-drone'); droneLayer = null; droneActive = false; }
@@ -1432,7 +1466,11 @@ const Follow = (function () {
 
     if (gravitated !== currentDegree && !isSilent && fadeGain > 0.3) {
       var mods = archetypeModifiers();
-      var minInterval = ((lens.response && lens.response.noteInterval) || 120) / mods.melodyRate;
+      var baseInterval = (lens.response && lens.response.noteInterval) || 120;
+      // Dynamic interval: fast movement → denser notes, slow movement → sparser
+      var speed = (typeof Brain !== 'undefined') ? Brain.short.energy() : 0.5;
+      var speedMult = 1 + (1 - Math.min(1, speed / 2.5)) * 1.2; // slow=2.2x, fast=1.0x
+      var minInterval = baseInterval * speedMult / mods.melodyRate;
       var timeSinceNote = now - lastNoteTime;
 
       if (timeSinceNote > minInterval) {
@@ -1444,10 +1482,16 @@ const Follow = (function () {
         if (cont) {
           var freq = scaleFreq(currentDegree, cont.octave || 0);
           var vel = (0.2 + fadeGain * 0.3) * phraseIntensityFactor * (1 - descentMix * 0.94);
+
+          // Dynamic decay: fast movement = staccato, slow movement = legato
+          var speed = (typeof Brain !== 'undefined') ? Brain.short.energy() : 0.5;
+          var speedNorm = Math.min(1, speed / 2.5);          // 0=still, 1=fast
+          var dynamicDecay = (cont.decay || 0.8) * (1 - speedNorm * 0.55); // fast → 45% shorter
+
           try {
-            Audio.synth.play(cont.voice || 'epiano', Audio.ctx.currentTime, freq, vel, cont.decay || 0.8);
+            Audio.synth.play(cont.voice || 'epiano', Audio.ctx.currentTime, freq, vel, dynamicDecay);
             noteCount++;
-            grooveRecord("note", { voice: cont.voice || "epiano", freq: freq, vel: vel, decay: cont.decay || 0.8 });
+            grooveRecord("note", { voice: cont.voice || "epiano", freq: freq, vel: vel, decay: dynamicDecay });
             if (typeof Pattern !== 'undefined') Pattern.onNote(currentDegree);
           } catch (e) { errorCount++; }
         }
@@ -1835,6 +1879,9 @@ const Follow = (function () {
     // ── Accumulate energy that earns the descent ──
     if (!isSilent && sessionPhase >= 2) sessionEnergyAccum += energySmooth * dt;
 
+    // ── Harmonic arc — key drifts I→IV→V→I over the session ──
+    updateHarmonicArc(dt);
+
     // ── Descent arc (earned, not timed) ──
     updateDescent(mag, sensor, dt);
 
@@ -1875,50 +1922,24 @@ const Follow = (function () {
 
       switch (data.neuron) {
         case 'shake':
-          if (palette.burst) {
-            var b = palette.burst;
-            for (var i = 0; i < 3; i++) {
-              var deg = harmonyDegree + Math.floor(Math.random() * 5);
-              var freq = scaleFreq(deg, b.octave || 1);
-              Audio.synth.play(b.voice || 'bell', time + i * 0.06, freq, 0.2, 0.4);
-            }
-            noteCount += 3;
-          }
+          // Silenced — shaking is already expressed through tilt melody density
+          // The burst was competing with (not adding to) the user's voice
           break;
 
         case 'sweep':
-          if (palette.continuous) {
-            var c = palette.continuous;
-            var startDeg = currentDegree;
-            for (var i = 0; i < 4; i++) {
-              var deg = startDeg + i;
-              var freq = scaleFreq(deg, c.octave || 0);
-              Audio.synth.play(c.voice || 'epiano', time + i * 0.1, freq, 0.2 - i * 0.04, 0.5);
-            }
-            noteCount += 4;
-          }
+          // Silenced — directional movement already drives the tilt melody line
+          // Adding a second sweep run on top was the main source of "run gimmick"
           break;
 
         case 'circle':
-          if (palette.harmonic) {
-            var h = palette.harmonic;
-            var arpDegrees = [0, 2, 4, 7];
-            for (var i = 0; i < arpDegrees.length; i++) {
-              var freq = scaleFreq(harmonyDegree + arpDegrees[i], h.octave || 0);
-              Audio.synth.play(h.voice || 'epiano', time + i * 0.08, freq, 0.25, 0.6);
-            }
-            noteCount += 4;
-          }
+          // Silenced — rotation already modulates filter/spatial; arpeggio on top was redundant
           break;
 
         case 'toss':
+          // Drums only — a throw is a physical statement, not a melodic one
           if (lens.groove) {
             Audio.drum.kick(time, 0.9, lens.groove.kit || 'acoustic');
             Audio.drum.snare(time + 0.01, 0.7, lens.groove.kit || 'acoustic');
-          }
-          if (palette.peak) {
-            var freq = scaleFreq(harmonyDegree, (palette.peak.octave || -1) + 1);
-            Audio.synth.play(palette.peak.voice || 'sub808', time, 0.8, palette.peak.decay || 0.5);
           }
           break;
 
@@ -1980,5 +2001,6 @@ const Follow = (function () {
     get descentEnergy() { return Math.round(sessionEnergyAccum); },
     scaleFreq: scaleFreq,  // exposed for pattern.js
     triggerCompression: triggerCompression,
+    get melodicVocab() { return melodicHistory.slice(); },
   });
 })();

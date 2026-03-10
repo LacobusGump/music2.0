@@ -13,7 +13,7 @@ const Voice = (function () {
   var BASE = 'voice/';
 
   var FILES = {
-    boot:            'intro.mp3',           // record: "Your body is the instrument. I'll do the rest."
+    boot:            'intro-4.mp3',
     iCanWorkWithThis:'i-can-work-with-this.mp3',
     firstMotion:   ['there-you-are.mp3', 'first-motion-1.mp3', 'first-motion-2.mp3', 'first-motion-3.mp3'],
     askName:       'ask-name.mp3',
