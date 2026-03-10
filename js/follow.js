@@ -49,6 +49,8 @@ const Follow = (function () {
     melodicHistory.push(scaleDeg);
     if (melodicHistory.length > 8) melodicHistory.shift();
     lastHistoryDeg = scaleDeg;
+    // Centroid drifts slowly toward recent notes — harmonyDegree follows this
+    melodicCentroid += (scaleDeg - melodicCentroid) * 0.06;
 
     // Tension = weighted average (recent notes count more)
     if (melodicHistory.length > 0) {
@@ -116,6 +118,14 @@ const Follow = (function () {
   var lastHistoryDeg  = null;
   // Tension by scale position: tonic/5th = rest; leading tone = maximum tension
   var DEGREE_TENSION  = [0.0, 0.45, 0.25, 0.55, 0.15, 0.65, 0.90];
+
+  // Slow-moving centroid of recent scale degrees — harmonyDegree follows this
+  // so chord tones always land near where the player has been playing.
+  var melodicCentroid = 0;
+
+  // Hat deduplication — prevents triple subdivision hits when all three
+  // schedulers (user-triggered, grid-anticipated, momentum) fire at once.
+  var lastHatTime = 0;
 
   // Energy / density
   var energySmooth = 0;
@@ -314,7 +324,11 @@ const Follow = (function () {
       if (ev.fired) { gridSubEvents.splice(i, 1); continue; }
       if (now >= ev.time) {
         ev.fired = true;
-        try { Audio.drum.hat(Audio.ctx.currentTime, ev.vel, ev.kit); } catch (e) {}
+        // Deduplication: skip if user-triggered sub already fired a hat within 35ms
+        if (now - lastHatTime >= 35) {
+          lastHatTime = now;
+          try { Audio.drum.hat(Audio.ctx.currentTime, ev.vel, ev.kit); } catch (e) {}
+        }
         gridSubEvents.splice(i, 1);
       }
     }
@@ -458,9 +472,11 @@ const Follow = (function () {
     phraseCooldown = 0.5; // half second before next phrase
     phraseIntensityFactor = 1.0;
 
-    // Harmonic shift at phrase boundary — only when music is developed enough
+    // Harmonic shift at phrase boundary — chord tones follow where the player has been playing.
+    // melodicCentroid is a slow weighted average of actual scale degrees played,
+    // so harmonyDegree earns its position from the user's melodic history.
     if (sessionPhase >= 1) {
-      harmonyDegree = (harmonyDegree + 4) % scale.length; // up a 4th
+      harmonyDegree = Math.round(melodicCentroid);
     }
 
     // Phrase-ending harmonic note
@@ -635,8 +651,11 @@ const Follow = (function () {
 
   function groovePlay(ev) {
     if (!Audio.ctx) return;
+    // Groove loop respects the descent — during the bass world drop, the loop
+    // fades with the rest of the music so sub-bass has space.
+    if (descentMix > 0.92) return;
     var time = Audio.ctx.currentTime;
-    var vel = Math.min(1, (ev.data.vel || 0.3) * Math.min(1, fadeGain) * 0.72);
+    var vel = Math.min(1, (ev.data.vel || 0.3) * Math.min(1, fadeGain) * 0.72 * (1 - descentMix * 0.9));
     grooveIsPlayback = true;
     try {
       if      (ev.type === "note")  Audio.synth.play(ev.data.voice, time, ev.data.freq, vel, ev.data.decay || 0.5);
@@ -978,6 +997,8 @@ const Follow = (function () {
     sessionDiscoveries = {};
     lastTouchNote = 0;
     touchDuck = 1.0;
+    melodicCentroid = 0;
+    lastHatTime = 0;
     try { Audio.descentBass.stop(); } catch (e) {}
   }
 
@@ -1173,7 +1194,11 @@ const Follow = (function () {
         ev.fired = true;
         try {
           if (ev.voice === 'hat') {
-            Audio.drum.hat(Audio.ctx.currentTime, ev.vel, ev.kit);
+            // Deduplication: skip if a hat already fired within 35ms (grid/momentum may also fire)
+            if (now - lastHatTime >= 35) {
+              lastHatTime = now;
+              Audio.drum.hat(Audio.ctx.currentTime, ev.vel, ev.kit);
+            }
           } else if (ev.voice === 'ride') {
             Audio.drum.ride(Audio.ctx.currentTime, ev.vel);
           } else {
@@ -1543,6 +1568,8 @@ const Follow = (function () {
     try {
       Audio.synth.play(resp.voice || 'epiano', time, freq, vel, resp.decay || 0.6);
       noteCount++;
+      // Touch feeds the oracle: finger movement teaches Pattern what you like to play
+      if (typeof Pattern !== 'undefined') Pattern.onNote(degree);
     } catch (e) { errorCount++; }
 
     if (isSilent) {
@@ -1574,6 +1601,16 @@ const Follow = (function () {
 
     // ── Stillness → silence (or momentum) ──
     updateStillness(mag, dt, now);
+
+    // ── Brain void override: Brain's multi-state void machine is more robust.
+    //    When Brain confirms void (5s+ still), don't wait for Follow's own timer.
+    if ((brainState.voidState || 0) >= 2 && !isSilent) {
+      var vThresh = (lens.response && lens.response.stillnessThreshold) || 0.2;
+      if (mag < vThresh * 3) {
+        isSilent = true;
+        if (phraseActive) endPhrase(now);
+      }
+    }
 
     // ── Peak detection ──
     if (detectPeak(mag, now)) {
@@ -1703,10 +1740,20 @@ const Follow = (function () {
           break;
 
         case 'rock':
-          harmonyDegree = (harmonyDegree + 5) % scale.length;
+          // harmonyDegree now follows melodicCentroid (player's played notes),
+          // no longer gets a random +5 jump from rocking motion.
           break;
       }
     } catch (e) { errorCount++; }
+  }
+
+  // ── COMPRESSION TRIGGER (called by Pattern when groove is found) ──────
+
+  function triggerCompression() {
+    // Pattern detected "user found groove" (4 similar phrases).
+    // If the musical constellation is also aligned, fire the descent arc.
+    // This unifies two independent "drop" detectors into one dramatic arc.
+    if (assessDropReadiness()) startCompression();
   }
 
   // ── PUBLIC API ────────────────────────────────────────────────────────
@@ -1742,5 +1789,6 @@ const Follow = (function () {
     get descent() { return descentState; },
     get descentEnergy() { return Math.round(sessionEnergyAccum); },
     scaleFreq: scaleFreq,  // exposed for pattern.js
+    triggerCompression: triggerCompression,
   });
 })();

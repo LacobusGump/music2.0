@@ -379,6 +379,13 @@ const Pattern = (function () {
 
     // After the drop, temperature resets — settle into the groove
     loopTemperature = 0.08;
+
+    // Unify with Follow's descent arc: Pattern detecting "groove found" is the
+    // same musical moment as the constellation aligning for the drop.
+    // Follow.triggerCompression() checks its own conditions (tension, energy, phase)
+    // so it won't fire unless the music is actually ready — Pattern is the fuse,
+    // Follow decides if the powder is dry.
+    if (typeof Follow !== 'undefined') Follow.triggerCompression();
   }
 
   // ── STATE ─────────────────────────────────────────────────────────────
@@ -615,8 +622,11 @@ const Pattern = (function () {
 
     // ── Level 1: Note-oracle generation ──────────────────────────────────
     // One phrase per silence episode, only when not in crystal cooldown.
+    // Suppressed during groove playback — the groove loop IS the AI voice.
+    // Two simultaneous autonomous voices create clutter, not conversation.
     if (isSilent && silenceMs >= GEN_SILENCE_MS && !genActive
-        && !genThisEpisode && crystalCooldownMs <= 0) {
+        && !genThisEpisode && crystalCooldownMs <= 0
+        && !(typeof Follow !== 'undefined' && Follow.groovePlaying)) {
       buildPhrase();
     }
 
