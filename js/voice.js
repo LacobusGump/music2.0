@@ -233,7 +233,22 @@ const Voice = (function () {
     playFile(pick(FILES.firstMotion), true);
   }
 
-  function onDiscovery() {}
+  // Called when the user earns a genuine discovery — upside down, tremolo, drop.
+  // Uses the emotional MP3s. These are the moments the instrument speaks.
+  var discoveryUsed = [];
+
+  function onDiscovery(type) {
+    // Pick an unused emotional file — each discovery gets a fresh line
+    var unused = FILES.emotional.filter(function (f) { return discoveryUsed.indexOf(f) === -1; });
+    if (unused.length === 0) {
+      // All used — reset so the instrument can speak again
+      discoveryUsed = [];
+      unused = FILES.emotional.slice();
+    }
+    var chosen = pick(unused);
+    discoveryUsed.push(chosen);
+    playFile(chosen, true);
+  }
 
   function onPeak() {
     var now = Date.now();
@@ -299,6 +314,7 @@ const Voice = (function () {
     lensSelected:    lensSelected,
     onFirstMotion:   onFirstMotion,
     onDiscovery:     onDiscovery,
+    // exposed so follow.js can call Voice.onDiscovery('type')
     askName:         askName,
     setName:         setName,
     isAwaitingName:  isAwaitingName,

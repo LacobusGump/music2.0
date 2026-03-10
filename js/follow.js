@@ -158,15 +158,38 @@ const Follow = (function () {
   // ── DESCENT ARC ───────────────────────────────────────────────────────
   // The music earns its structural arc. Build enough energy and the world
   // collapses to pure sub-bass — then rebuilds as you keep moving.
-  // Seeds, not script. The threshold is a condition, not a clock.
+  // Seeds, not script. The threshold is a CONSTELLATION of conditions, not a clock.
   var sessionEnergyAccum = 0;   // only accumulates at phase 2 — earns the event
-  var DESCENT_THRESHOLD  = 38;  // ~60-80s of engaged moderate motion to trigger
-  var descentState  = 'off';    // 'off' | 'falling' | 'floor' | 'rising'
+  var descentState  = 'off';    // 'off' | 'compressing' | 'falling' | 'floor' | 'rising'
   var descentMix    = 0;        // 0=full music, 1=pure bass world
   var descentFired  = false;    // once per lens session
   var floorMotion   = 0;        // motion on the floor earns the ascent
   var ASCENT_THRESHOLD = 18;    // floor motion units before rebuild begins
   var descentBassLive = false;  // whether the bass layer is running
+
+  // Compression phase — the build before the breath
+  var compressionBeatCount = 0;
+  var compressionNextBeat  = 0;
+  var COMPRESSION_BEATS    = 8; // beats of building tension before the drop
+
+  // Drop 2 — fires once inside the floor world
+  var drop2Fired = false;
+
+  // ── GESTURE DISCOVERY ─────────────────────────────────────────────────
+  // Tracks what the user has discovered this session.
+  // Drives the emotional voice — the instrument speaks when you earn it.
+  var sessionDiscoveries = {};
+
+  // Rapid oscillation (tremolo) — detect C's rapid back-and-forth
+  var rapidPeakTimes  = [];    // rolling timestamps of recent peaks
+  var TREMOLO_WINDOW  = 1200;  // ms window to check
+  var TREMOLO_MIN     = 5;     // peaks needed = "tremolo gesture"
+  var tremoloState    = false;
+  var tremoloTimer    = 0;
+
+  // Upside down detection
+  var invertedDuration = 0;
+  var wasInverted      = false;
 
   // GROOVE CRYSTALLIZATION STATE
   var grooveBuf = [];
@@ -632,11 +655,90 @@ const Follow = (function () {
   var FALL_RATE = 1 / 4.5;   // 4.5s to descend into the bass world
   var RISE_RATE = 1 / 6.0;   // 6s to rise back to full spectrum
 
+  // ── DROP ASSESSMENT ───────────────────────────────────────────────────
+  // The drop is not timed. It reads the constellation of what the user built.
+  // All conditions must align. Rhythm, tension, energy, engagement — all earned.
+
+  function assessDropReadiness() {
+    if (descentFired || descentState !== 'off') return false;
+    if (sessionPhase < 2) return false;
+    if (isSilent) return false;
+    if (rhythmConfidence < 0.35) return false;   // need a real pulse
+    if (harmonicTension < 0.42) return false;    // need tension — somewhere to fall to
+    if (sessionEnergyAccum < 24) return false;   // earned through play, not waiting
+    if (energySmooth < 0.5) return false;        // drop fires at a peak, not a lull
+    return true;
+  }
+
+  // ── COMPRESSION PHASE ─────────────────────────────────────────────────
+  // Before the drop, the music compresses. Subdivisions double.
+  // A creeping sub rises from below. The familiar voice fades.
+  // The user feels something gathering.
+
+  function startCompression() {
+    if (descentFired || descentState !== 'off') return;
+    descentState = 'compressing';
+    compressionBeatCount = 0;
+    var beatMs = tempoLocked ? lockedInterval : 550;
+    compressionNextBeat = performance.now() + beatMs;
+  }
+
+  // ── DROP 2 ────────────────────────────────────────────────────────────
+  // Fires mid-floor when the user has earned half the ascent.
+  // Archetype determines what kind of dark they fall into.
+
+  function fireDropTwo() {
+    if (!Audio.ctx || !lens) return;
+    drop2Fired = true;
+    var time = Audio.ctx.currentTime;
+
+    switch (archetype) {
+      case 'walking':
+      case 'bouncing':
+        // Rhythm dominates — drums slam in from a new angle
+        if (lens.groove) {
+          var kit = lens.groove.kit || 'acoustic';
+          Audio.drum.kick(time,        1.0, kit);
+          Audio.drum.snare(time + 0.04, 0.8, kit);
+          Audio.drum.hat(time + 0.08,  0.6, kit);
+          Audio.drum.kick(time + 0.14, 0.9, kit);
+          Audio.drum.hat(time + 0.18,  0.5, kit);
+        }
+        try { Audio.synth.play('dirty', time + 0.25, root / 4, 0.80, 7.0); } catch(e) {}
+        break;
+
+      case 'waving':
+        // Harmony leads — dark chord cluster, the tonal world shifts
+        var waveDeg = [0, 3, 6]; // minor-flavoured in the sub-register
+        for (var wi = 0; wi < waveDeg.length; wi++) {
+          try {
+            Audio.synth.play('dirty', time + wi * 0.18,
+              scaleFreq(waveDeg[wi], -2), 0.62, 6.0);
+          } catch(e) {}
+        }
+        break;
+
+      case 'exploring':
+      default:
+        // Textural — the space itself transforms, a low mass arrives
+        try { Audio.synth.play('dirty', time, root / 4, 0.72, 9.0); } catch(e) {}
+        try { Audio.synth.play('dirty', time + 0.3, root / 3, 0.55, 7.0); } catch(e) {}
+        break;
+    }
+
+    // The instrument acknowledges the moment — voice fires 2s later, after the music lands
+    if (typeof Voice !== 'undefined' && !sessionDiscoveries.drop) {
+      sessionDiscoveries.drop = true;
+      setTimeout(function () { Voice.onDiscovery('drop'); }, 2000);
+    }
+  }
+
   function startDescent() {
-    if (descentFired || descentState !== 'off' || !Audio.ctx || !lens) return;
+    if (descentFired || (descentState !== 'off' && descentState !== 'compressing') || !Audio.ctx || !lens) return;
     descentState   = 'falling';
     descentMix     = 0;
     floorMotion    = 0;
+    drop2Fired     = false;
 
     // The signal: one massive sub hit — the floor announces itself
     try {
@@ -652,15 +754,48 @@ const Follow = (function () {
   }
 
   function updateDescent(mag, sensor, dt) {
-    // Trigger check: earned energy + currently at a peak (contrast maximized)
+    // Assessment: when the constellation aligns, begin compression
     if (descentState === 'off' && !descentFired) {
-      if (sessionPhase >= 2 && sessionEnergyAccum >= DESCENT_THRESHOLD && energySmooth > 0.75) {
-        startDescent();
-        return;
-      }
+      if (assessDropReadiness()) startCompression();
       return;
     }
     if (descentState === 'off') return;
+
+    // ── COMPRESSING — the build before the breath ──────────────────────
+    if (descentState === 'compressing') {
+      var nowMs = performance.now();
+      var beatMs = tempoLocked ? lockedInterval : 550;
+
+      if (nowMs >= compressionNextBeat) {
+        compressionBeatCount++;
+        compressionNextBeat += beatMs;
+        var prog = compressionBeatCount / COMPRESSION_BEATS;
+
+        // Double-time subdivision pressure — the beat tightens
+        if (Audio.ctx && lens && lens.palette && lens.palette.subdivision) {
+          var sub  = lens.palette.subdivision;
+          var kit  = (lens.groove && lens.groove.kit) || sub.kit || 'acoustic';
+          var cVel = 0.12 + prog * 0.38;
+          var ct   = Audio.ctx.currentTime;
+          Audio.drum.hat(ct, cVel, kit);
+          Audio.drum.hat(ct + beatMs / 2000, cVel * 0.65, kit); // upbeat ghost
+        }
+
+        // Creeping sub from beat 4 onward — something is rising from below
+        if (compressionBeatCount >= 4 && Audio.ctx) {
+          try {
+            Audio.synth.play('sub808', Audio.ctx.currentTime,
+              root / 5, prog * 0.28, 1.0 + prog);
+          } catch(e) {}
+        }
+
+        // Compression complete — THE BREATH begins
+        if (compressionBeatCount >= COMPRESSION_BEATS) {
+          startDescent();
+        }
+      }
+      return;
+    }
 
     var gamma = sensor ? (sensor.gamma || 0) : 0;
 
@@ -673,6 +808,12 @@ const Follow = (function () {
     // FLOOR: pure bass world — motion here earns the way back up
     if (descentState === 'floor') {
       if (!isSilent) floorMotion += mag * dt;
+
+      // DROP 2: fires at the midpoint — hits from a different angle
+      if (!drop2Fired && floorMotion >= ASCENT_THRESHOLD * 0.45) {
+        fireDropTwo();
+      }
+
       if (floorMotion >= ASCENT_THRESHOLD) descentState = 'rising';
     }
 
@@ -702,6 +843,70 @@ const Follow = (function () {
       var bassFilter = 140 + ascentProg * 580 + mag * 230;
       try { Audio.descentBass.update(bassVol, bassFilter, bassFreq); } catch (e) {}
     }
+  }
+
+  // ── RAPID OSCILLATION (TREMOLO) ───────────────────────────────────────
+  // C's back-and-forth: 5+ peaks in 1.2 seconds = intentional tremolo gesture.
+  // The instrument answers with a trill and acknowledges the discovery.
+
+  function updateRapidOscillation(now, dt) {
+    // Clean old entries
+    var cutoff = now - TREMOLO_WINDOW;
+    while (rapidPeakTimes.length > 0 && rapidPeakTimes[0] < cutoff) rapidPeakTimes.shift();
+
+    if (rapidPeakTimes.length >= TREMOLO_MIN) {
+      if (!tremoloState) {
+        tremoloState = true;
+        // Discovery voice — first time only
+        if (!sessionDiscoveries.tremolo && typeof Voice !== 'undefined') {
+          sessionDiscoveries.tremolo = true;
+          Voice.onDiscovery('tremolo');
+        }
+        // Fire a trill — rapid alternating notes answering the gesture
+        if (!isSilent && fadeGain > 0.2 && lens && lens.palette && lens.palette.continuous && Audio.ctx) {
+          try {
+            var cont = lens.palette.continuous;
+            var time = Audio.ctx.currentTime;
+            var f1 = scaleFreq(currentDegree, cont.octave || 0);
+            var f2 = scaleFreq(currentDegree + 1, cont.octave || 0);
+            var tv = fadeGain * 0.45;
+            Audio.synth.play(cont.voice || 'epiano', time,        f1, tv,        0.10);
+            Audio.synth.play(cont.voice || 'epiano', time + 0.07, f2, tv * 0.85, 0.09);
+            Audio.synth.play(cont.voice || 'epiano', time + 0.14, f1, tv * 0.70, 0.09);
+            Audio.synth.play(cont.voice || 'epiano', time + 0.21, f2, tv * 0.55, 0.10);
+            Audio.synth.play(cont.voice || 'epiano', time + 0.28, f1, tv * 0.40, 0.12);
+          } catch(e) {}
+        }
+      }
+      tremoloTimer = 0.9;
+    } else {
+      if (tremoloState) {
+        tremoloTimer -= dt;
+        if (tremoloTimer <= 0) tremoloState = false;
+      }
+    }
+  }
+
+  // ── UPSIDE DOWN DETECTION ─────────────────────────────────────────────
+  // beta > 145: phone is clearly inverted. First time = discovery.
+  // Inverted: tilt mapping flips. Low becomes high. High becomes low.
+  // The instrument reflects your inversion back at you.
+
+  function updateInversion(sensor, dt) {
+    var beta = sensor.beta || 0;
+    var isInverted = Math.abs(beta) > 145;
+
+    if (isInverted) {
+      invertedDuration += dt;
+      if (invertedDuration > 1.2 && !sessionDiscoveries.inversion && typeof Voice !== 'undefined') {
+        sessionDiscoveries.inversion = true;
+        Voice.onDiscovery('inversion');
+      }
+    } else {
+      invertedDuration = Math.max(0, invertedDuration - dt * 2);
+    }
+    wasInverted = isInverted;
+    return invertedDuration > 0.5; // true when meaningfully inverted
   }
 
   // ── INIT ──────────────────────────────────────────────────────────────
@@ -758,6 +963,15 @@ const Follow = (function () {
     descentFired = false;
     floorMotion = 0;
     descentBassLive = false;
+    compressionBeatCount = 0;
+    compressionNextBeat  = 0;
+    drop2Fired = false;
+    rapidPeakTimes = [];
+    tremoloState = false;
+    tremoloTimer = 0;
+    invertedDuration = 0;
+    wasInverted = false;
+    sessionDiscoveries = {};
     try { Audio.descentBass.stop(); } catch (e) {}
   }
 
@@ -816,6 +1030,8 @@ const Follow = (function () {
 
   function onPeak(magnitude, now) {
     if (!lens || !Audio.ctx) return;
+    // Always track peak times for tremolo detection regardless of phase
+    rapidPeakTimes.push(now);
     // Phase 0: peaks are silent — the body moves but only tilt melody speaks
     if (sessionPhase === 0) return;
 
@@ -983,6 +1199,8 @@ const Follow = (function () {
     }
 
     var tiltOffset = tiltVal / (tiltRange / 2);
+    // Inversion: phone upside down flips the pitch mapping — high becomes low
+    if (wasInverted) tiltOffset = -tiltOffset;
     targetDegree = Math.round(tiltOffset * 7);
 
     // Harmonic arc: phase 0 = consonant only (root/3rd/5th), opens up with each phase
@@ -1318,6 +1536,10 @@ const Follow = (function () {
 
     // ── Classify how you're moving ──
     classifyArchetype(brainState);
+
+    // ── Gesture discovery: tremolo + inversion ──
+    updateRapidOscillation(now, dt);
+    updateInversion(sensor, dt);
 
     // ── Phrase tracking (groups peaks into musical ideas) ──
     updatePhrase(mag, now, dt);

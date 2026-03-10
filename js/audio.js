@@ -819,8 +819,91 @@ const Audio = (function () {
       case 'strings': synthStrings(time, freq, vel, decay); break;
       case 'reverse': synthReverse(time, freq, vel, decay); break;
       case 'upright': synthUpright(time, freq, vel); break;
+      case 'dirty':   synthDirtyWorld(time, freq, vel, decay); break;
       default: synthSimple(time, freq, vel, decay, opts); break;
     }
+  }
+
+  // ── DIRTY WORLD — Fred Again underworld: detuned saws, fuzz, sub ──────
+  // This is the sound of falling through the floor.
+  // Three detuned saws through heavy distortion. A sine sub underneath.
+  // Slow LFO on the filter — it breathes. It's alive and dark.
+
+  function synthDirtyWorld(time, freq, vel, decay) {
+    var dur = decay || 7.0;
+
+    // Heavy distortion waveshaper — the filth
+    var dist = ctx.createWaveShaper();
+    var n = 256, curve = new Float32Array(n);
+    for (var i = 0; i < n; i++) {
+      var x = (i * 2) / n - 1;
+      curve[i] = Math.sign(x) * Math.pow(Math.abs(x), 0.28); // aggressive asymmetric clip
+    }
+    dist.curve = curve;
+    dist.oversample = '4x';
+
+    // Dark LP filter — starts sealed, LFO slowly opens it
+    var filt = ctx.createBiquadFilter();
+    filt.type = 'lowpass';
+    filt.frequency.setValueAtTime(160, time);
+    filt.frequency.linearRampToValueAtTime(420, time + dur * 0.6);
+    filt.Q.value = 3.2;
+
+    // Slow LFO — the filter breathes at 0.15Hz
+    var lfo = ctx.createOscillator();
+    lfo.type = 'sine';
+    lfo.frequency.value = 0.15;
+    var lfoG = ctx.createGain();
+    lfoG.gain.value = 140;
+    lfo.connect(lfoG);
+    lfoG.connect(filt.frequency);
+    lfo.start(time);
+    lfo.stop(time + dur + 1);
+
+    // Master envelope — slow attack, very long sustain
+    var env = ctx.createGain();
+    env.gain.setValueAtTime(0, time);
+    env.gain.linearRampToValueAtTime(vel * 0.75, time + 0.06);
+    env.gain.setTargetAtTime(vel * 0.55, time + 0.06, 1.2);
+    env.gain.setTargetAtTime(0.001, time + dur * 0.65, dur * 0.45);
+
+    // Three detuned saws — the mass
+    var detunes = [-34, 0, 29];
+    for (var d = 0; d < detunes.length; d++) {
+      var o = ctx.createOscillator();
+      o.type = 'sawtooth';
+      o.frequency.value = freq;
+      o.detune.value = detunes[d];
+      var og = ctx.createGain();
+      og.gain.value = 0.32;
+      o.connect(og);
+      og.connect(filt);
+      o.start(time);
+      o.stop(time + dur + 1);
+    }
+
+    filt.connect(dist);
+    dist.connect(env);
+    env.connect(sidechainGain);
+
+    // Sub sine underneath — felt more than heard
+    var sub = ctx.createOscillator();
+    sub.type = 'sine';
+    sub.frequency.value = freq / 2;
+    var subG = ctx.createGain();
+    subG.gain.setValueAtTime(0, time);
+    subG.gain.linearRampToValueAtTime(vel * 0.65, time + 0.12);
+    subG.gain.setTargetAtTime(0.001, time + dur * 0.7, dur * 0.4);
+    sub.connect(subG);
+    subG.connect(sidechainGain);
+    sub.start(time);
+    sub.stop(time + dur + 1);
+
+    // Heavy reverb send — the darkness has space
+    var rs = ctx.createGain();
+    rs.gain.value = 0.62;
+    env.connect(rs);
+    rs.connect(reverbSend);
   }
 
   // ── PIANO — jazz piano: hammer attack, layered harmonics ──────────────

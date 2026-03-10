@@ -468,8 +468,9 @@
       if (playCanvas) {
         Gesture.attach(playCanvas, 52);   // 52px = cmd bar height
         Gesture.on('figure8', function () {
-          // "I can work with this" — the machine evolves, you never leave
+          // Figure 8 discovered — the machine speaks, then transforms
           Voice.iCanWorkWithThis();
+          Voice.onDiscovery('figure8');
           flashScreen('rgba(0,255,65,0.18)');
           // Cycle to the next lens — music transforms, no picker, no break
           setTimeout(function () {
