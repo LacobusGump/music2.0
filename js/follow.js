@@ -77,6 +77,15 @@ const Follow = (function () {
       hat:   [1.0,0.36,1.0,0.36, 1.0,0.36,1.0,0.36, 1.0,0.36,1.0,0.36, 1.0,0.36,1.0,0.36],
       feel: 0, kit: 'glitch', snap: 1, halftime: false,
     },
+    'Grid': {
+      // 4-on-the-floor kick — the heartbeat of every warehouse
+      kick:  [1.0,0,0,0, 1.0,0,0,0, 1.0,0,0,0, 1.0,0,0,0],
+      // Snare on 2+4 + syncopated ghost on the 'and' of 3
+      snare: [0,0,0,0, 0.90,0,0,0.15, 0,0,0.20,0, 0.90,0,0,0.10],
+      // Straight 8th-note hats — the grid that locks everything
+      hat:   [0.80,0,0.80,0, 0.80,0,0.80,0, 0.80,0,0.80,0, 0.80,0,0.80,0],
+      feel: 0, kit: '808', snap: 1, halftime: false,
+    },
   };
 
   var GROOVE_DNA_DEFAULT = {

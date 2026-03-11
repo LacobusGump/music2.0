@@ -74,76 +74,76 @@ const Lens = (function () {
       },
     },
 
-    // ─── 2. BLUE HOUR ────────────────────────────────────────────────
-    // Kind of Blue. Miles Davis, 1959.
-    // Your walk IS the bass line. Rhodes answers. Vibes shimmer between.
-    // Intimate jazz club — dry, warm, and full of space.
-    // The conversation happens in the silences.
+    // ─── 2. GRID ──────────────────────────────────────────────────────
+    // Fred Again. Four Tet. The warehouse at 4AM.
+    // 808 hits FIRST — every motion is a sub-bass event.
+    // Phrygian: the ♭2 interval is unease, tension, dystopia.
+    // The melody is FM grit crawling over the top.
+    // Your body IS the drop.
     {
-      name: 'Blue Hour',
-      color: '#1a3a6f',
-      description: "Kind of Blue. Vibes and bass in conversation.",
+      name: 'Grid',
+      color: '#ff3300',
+      description: '808 first. Phrygian dystopia. Your body drops.',
 
-      harmony: { root: 440, mode: 'dorian' },
+      harmony: { root: 440, mode: 'phrygian' },
 
       tone: {
-        bassFreq: 100, bassGain: 7,    // strong bass body
-        midFreq: 500, midQ: 0.7, midGain: 2,   // warm 500Hz bump = upright resonance
-        highFreq: 1800, highGain: -18,   // roll off the top hard — jazz is warm, not bright
-        ceiling: 2200,
+        bassFreq: 60,  bassGain: 9,          // huge sub shelf — chest-shaking
+        midFreq: 900,  midQ: 1.2, midGain: 3, // presence for the FM lead
+        highFreq: 6000, highGain: -8,         // roll off harshness, keep air
+        ceiling: 8000,
       },
 
       space: {
-        reverb: { decay: 2.5, damping: 0.5 },   // small intimate room, not a hall
-        delay: { feedback: 0.28, filter: 1200, sync: 'dotted-eighth' },
-        saturation: 0.07,   // very clean — jazz is clean
+        reverb: { decay: 1.8, damping: 0.55 },       // tight warehouse — not a hall
+        delay: { feedback: 0.58, filter: 3200, sync: 'dotted-eighth' }, // Fred Again echo trail
+        saturation: 0.22,                              // tape crunch, warm distortion
         type: 'room',
-        reverbMix: 0.22,    // drier — you can hear the wood in the room
-        spatial: { sweepRate: 0.06, sweepDepth: 0.32 }, // intimate, narrow — jazz club not a stadium
+        reverbMix: 0.28,                               // mostly dry — the sub needs room
+        spatial: { sweepRate: 0.08, sweepDepth: 0.55 },
       },
 
       palette: {
-        // Your steps → walking bass — the spine of jazz
-        peak: { voice: 'upright', octave: -1, decay: 0.65 },
-        // Your tilt → Rhodes melody — the answer to the bass's question
-        continuous: { voice: 'epiano', octave: 0, decay: 1.3 },
-        // The lightest possible brushes — whisper of rhythm
-        subdivision: { voice: 'hat', kit: 'brushes', divisions: 3, vel: 0.08 },
-        // Vibraphone color — the jazz shimmer that no synth sound has
-        harmonic: { voice: 'vibe', octave: 0, decay: 2.5 },
-        // Pluck = pizzicato grace note
-        burst: { voice: 'pluck', octave: 1 },
-        // Barely there warmth — Dm7 color
-        texture: { wave: 'triangle', chord: [0, 7, 10], octave: -1, detune: 3, vol: 0.04, reverbSend: 0.3 },
-        touch: { voice: 'epiano', octave: 0, decay: 1.0 },
+        // Every motion peak = 808 sub hit. This is the instrument.
+        peak: { voice: 'sub808', octave: -1, decay: 1.6 },
+        // FM lead — gritty, compressed, dystopian melody over the top
+        continuous: { voice: 'fm', octave: 0, decay: 0.55 },
+        // 8th-note hat subdivision — the grid locking everything
+        subdivision: { voice: 'hat', kit: '808', divisions: 2, vel: 0.18 },
+        // Stab answers the melody — sharp, percussive
+        harmonic: { voice: 'stab', octave: 0, decay: 0.35 },
+        // Glitch burst on rapid gestures
+        burst: { voice: 'glitch', octave: 1 },
+        // Sawtooth pad under everything — dark phrygian color
+        texture: { wave: 'sawtooth', chord: [0, 5, 8], octave: -2, detune: 14, vol: 0.06, reverbSend: 0.5 },
+        touch: { voice: 'stab', octave: 0, decay: 0.4 },
       },
 
-      // Dilla pocket — kick lands late, hat floats ahead, ghost snares whisper
       groove: {
-        kit: 'brushes',
-        microTiming: { kick: 22, hat: 0, snare: 10 },  // ms after beat detection
-        ghosts: 0.18,    // 18% chance of a ghost snare on the upbeat
-        backbeat: true,  // snare only on 2 and 4
-        maxVel: 0.65,
+        kit: '808',
+        microTiming: { kick: 0, hat: 0, snare: 0 },  // quantized — EDM is on the grid
+        ghosts: 0.08,
+        backbeat: false,   // snare on 2+4 AND syncopated hits
+        maxVel: 0.95,
         broken: false,
         dropRate: 0,
       },
 
       response: {
-        peakThreshold: 0.85,
-        tiltRange: 38,
-        noteInterval: 340,   // jazz conversations breathe — not rapid fire
-        stillnessThreshold: 0.08,
-        stillnessTimeout: 4.5,   // jazz never rushes to silence
-        fadeTime: 6.0,
-        filterRange: [200, 2000],
-        densityThresholds: [0.15, 0.6, 1.5],
+        peakThreshold: 0.75,         // sensitive — 808s fire on most movements
+        tiltRange: 45,
+        noteInterval: 140,           // dense melodic firing — the relentless grid
+        stillnessThreshold: 0.12,
+        stillnessTimeout: 3.0,
+        fadeTime: 4.0,
+        filterRange: [200, 8000],
+        densityThresholds: [0.2, 0.7, 1.8],
       },
 
       motion: {
-        primary: 'bounce',
+        primary: 'bounce',     // vertical drops = 808 hits
         melodic: 'beta',
-        sensitivity: 1.0,
+        sensitivity: 1.4,      // more responsive than anything else
       },
     },
 
