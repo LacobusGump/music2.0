@@ -368,14 +368,14 @@ const Follow = (function () {
 
   function updateTempoLock(now) {
     // Need enough data to lock
-    if (piLen < 4) { tempoLocked = false; lockStrength = 0; return; }
+    if (piLen < 3) { tempoLocked = false; lockStrength = 0; return; }
 
     // Calculate average interval
     var sum = 0;
     for (var i = 0; i < piLen; i++) sum += peakIntervals[i];
     var avgInterval = sum / piLen;
 
-    if (rhythmConfidence > 0.35) {
+    if (rhythmConfidence > 0.22) {
       if (!tempoLocked) {
         // LOCK — we caught your groove
         tempoLocked = true;
@@ -487,7 +487,7 @@ const Follow = (function () {
   var momentumDecay = 0.7;       // each beat is 70% of the previous
 
   function startMomentum(now) {
-    if (!tempoLocked || piLen < 4) return;
+    if (!tempoLocked || piLen < 3) return;
     momentumActive = true;
     momentumBeatsLeft = Math.min(8, Math.round(lockStrength * 6)); // up to 6 beats
     momentumInterval = lockedInterval;
@@ -1401,7 +1401,9 @@ const Follow = (function () {
         }
         variance = Math.sqrt(variance / count);
         var cv = variance / avgInterval;
-        rhythmConfidence = Math.max(0, Math.min(1, 1 - cv * 4));
+        // cv*2.5 instead of cv*4: human movement has ~25% natural timing variance
+        // Old formula gave confidence=0 at cv=0.25 (normal dancing). Now need cv>0.4 to fail.
+        rhythmConfidence = Math.max(0, Math.min(1, 1 - cv * 2.5));
       }
     }
     lastPeakTime = now;

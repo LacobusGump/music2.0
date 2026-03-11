@@ -128,7 +128,7 @@ const Lens = (function () {
       },
 
       response: {
-        peakThreshold: 0.70,
+        peakThreshold: 0.28,
         tiltRange: 48,
         noteInterval: 520,  // massive needs room — let each note sustain before next fires
         stillnessThreshold: 0.14,
