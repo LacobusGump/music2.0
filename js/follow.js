@@ -194,6 +194,24 @@ const Follow = (function () {
   // so chord tones always land near where the player has been playing.
   var melodicCentroid = 0;
 
+  // ── VERTICAL ARC TRACKING ─────────────────────────────────────────────
+  // The arm swings make Olympic arcs in space. We track the phone's true
+  // vertical position in the world regardless of phone angle — by projecting
+  // linear acceleration onto the world-up vector from the gravity reading.
+  // The arc peak = top of musical phrase. Arc valley = bottom. The path = melody.
+  // Position memory: when the user returns to the same height, same note plays.
+  // Anticipation: as they approach a remembered position, whisper the note.
+  var vertVelocity  = 0;     // world-space vertical velocity (leaky integral)
+  var vertPosition  = 0;     // relative vertical position, -1 to +1
+  var vertPhase     = 0;     // 1=rising, -1=falling
+  var arcPeak       = 0;     // vertPosition at last arc peak
+  var arcValley     = 0;     // vertPosition at last arc valley
+  var arcAmplitude  = 0.4;   // adapts to how big the user's sweeps actually are
+  var posMemory     = [];    // [{pos, degree, count}] — the invisible keyboard
+  var POS_BUCKET    = 0.18;  // positions within this range = "same place in space"
+  var POS_MAX       = 8;     // max remembered positions
+  var lastAnticTime = 0;
+
   // Hat deduplication — prevents triple subdivision hits when all three
   // schedulers (user-triggered, grid-anticipated, momentum) fire at once.
   var lastHatTime = 0;
@@ -1235,6 +1253,14 @@ const Follow = (function () {
     compressionNextBeat  = 0;
     drop2Fired = false;
     rapidPeakTimes = [];
+    vertVelocity  = 0;
+    vertPosition  = 0;
+    vertPhase     = 0;
+    arcPeak       = 0;
+    arcValley     = 0;
+    arcAmplitude  = 0.4;
+    posMemory     = [];
+    lastAnticTime = 0;
     tremoloState = false;
     tremoloTimer = 0;
     invertedDuration = 0;
@@ -1449,7 +1475,19 @@ const Follow = (function () {
     var tiltOffset = tiltVal / (tiltRange / 2);
     // Inversion: phone upside down flips the pitch mapping — high becomes low
     if (wasInverted) tiltOffset = -tiltOffset;
-    targetDegree = Math.round(tiltOffset * 7);
+    var tiltDegree = Math.round(tiltOffset * 7);
+
+    // Vertical arc degree: maps the arm-swing arc to scale degrees.
+    // The arc peak = top of phrase range. Valley = bottom. The journey = melody.
+    // Normalize by actual swing amplitude so small or large arcs both use full range.
+    var arcRange = Math.max(0.25, arcAmplitude);
+    var vertNorm = Math.max(-1, Math.min(1, vertPosition / arcRange));
+    var vertDegree = Math.round(vertNorm * 5);
+
+    // Blend: more vertical when the user is actively swinging (arc detected),
+    // more tilt when movement is subtle. Both are always present.
+    var arcWeight = Math.min(0.65, arcAmplitude * 0.9);
+    targetDegree = Math.round(vertDegree * arcWeight + tiltDegree * (1 - arcWeight));
 
     // Harmonic arc: phase 0 = consonant only (root/3rd/5th), opens up with each phase
     var degreeLimit = sessionPhase === 0 ? 3 : sessionPhase === 1 ? 5 : 10;
@@ -1476,6 +1514,7 @@ const Follow = (function () {
       if (timeSinceNote > minInterval) {
         currentDegree = gravitated;
         recordNote(currentDegree);
+        posMemRecord(vertPosition, currentDegree); // build the invisible keyboard
         lastNoteTime = now;
 
         var cont = lens.palette && lens.palette.continuous;
@@ -1495,6 +1534,89 @@ const Follow = (function () {
             if (typeof Pattern !== 'undefined') Pattern.onNote(currentDegree);
           } catch (e) { errorCount++; }
         }
+      }
+    }
+  }
+
+  // ── VERTICAL ARC ENGINE ───────────────────────────────────────────────
+
+  function updateVertical(sensor, dt) {
+    // Extract world-up direction from gravity vector
+    var gx = sensor.gx || 0, gy = sensor.gy || 0, gz = sensor.gz || 0;
+    var gMag = Math.sqrt(gx*gx + gy*gy + gz*gz);
+    if (gMag < 0.5) return;
+    var upX = -gx/gMag, upY = -gy/gMag, upZ = -gz/gMag;
+
+    // Project linear accel (no gravity) onto world-up = true vertical acceleration
+    var ax = sensor.ax || 0, ay = sensor.ay || 0, az = sensor.az || 0;
+    var va = ax*upX + ay*upY + az*upZ;
+    if (Math.abs(va) < 0.35) va = 0; // dead zone
+
+    // Leaky integration: accel → velocity → position
+    vertVelocity = vertVelocity * 0.88 + va * dt;
+    vertPosition = Math.max(-2, Math.min(2, vertPosition * 0.97 + vertVelocity * dt));
+
+    // Arc phase: detect peaks (rising→falling) and valleys (falling→rising)
+    var newPhase = vertVelocity > 0.07 ? 1 : vertVelocity < -0.07 ? -1 : vertPhase;
+    if (newPhase !== 0 && newPhase !== vertPhase) {
+      if (newPhase === -1) arcPeak   = vertPosition; // topped out
+      else                 arcValley = vertPosition; // bottomed out
+      // Adapt amplitude to the user's actual swing size
+      var swing = Math.abs(arcPeak - arcValley);
+      if (swing > 0.1) arcAmplitude = arcAmplitude * 0.75 + swing * 0.25;
+      vertPhase = newPhase;
+    }
+  }
+
+  function posMemLookup(pos) {
+    var best = null, bestD = POS_BUCKET;
+    for (var i = 0; i < posMemory.length; i++) {
+      var d = Math.abs(posMemory[i].pos - pos);
+      if (d < bestD) { bestD = d; best = posMemory[i]; }
+    }
+    return best;
+  }
+
+  function posMemRecord(pos, degree) {
+    var m = posMemLookup(pos);
+    if (m) {
+      // Reinforce — blend toward new note so user can refine over time
+      m.degree = Math.round(m.degree * 0.7 + degree * 0.3);
+      m.count++;
+    } else {
+      if (posMemory.length >= POS_MAX) {
+        // Evict least-visited
+        var weakest = 0;
+        for (var i = 1; i < posMemory.length; i++) {
+          if (posMemory[i].count < posMemory[weakest].count) weakest = i;
+        }
+        posMemory.splice(weakest, 1);
+      }
+      posMemory.push({ pos: pos, degree: degree, count: 1 });
+    }
+  }
+
+  function checkAnticipation(now) {
+    if (!Audio.ctx || !lens || isSilent || fadeGain < 0.25) return;
+    if (now - lastAnticTime < 550) return;
+    if (Math.abs(vertVelocity) < 0.05) return; // not moving toward anything
+    var cont = lens.palette && lens.palette.continuous;
+    if (!cont) return;
+    for (var i = 0; i < posMemory.length; i++) {
+      var m = posMemory[i];
+      if (m.count < 2) continue; // only established positions
+      var dist = Math.abs(m.pos - vertPosition);
+      // Moving toward this position?
+      var movingToward = (m.pos - vertPosition) * vertVelocity > 0;
+      if (movingToward && dist < 0.30 && dist > 0.05) {
+        // Whisper the note — soft, brief, like a suggestion
+        var whisperVel = fadeGain * 0.08 * (1 - dist / 0.30);
+        try {
+          Audio.synth.play(cont.voice, Audio.ctx.currentTime,
+            scaleFreq(m.degree, cont.octave || 0), whisperVel, (cont.decay || 0.8) * 0.2);
+          lastAnticTime = now;
+        } catch(e) {}
+        break;
       }
     }
   }
@@ -1867,8 +1989,14 @@ const Follow = (function () {
     // ── Autonomous hat grid (DNA-driven, phase-locked to bar) ──
     processGrooveHats(now);
 
-    // ── Tilt → pitch ──
+    // ── Vertical arc tracking ──
+    updateVertical(sensor, dt);
+
+    // ── Tilt → pitch (blended with vertical arc) ──
     updateTiltPitch(sensor, now);
+
+    // ── Anticipation — whisper notes the user is approaching ──
+    checkAnticipation(now);
 
     // ── Gyro → filter ──
     updateGyroFilter(sensor);
