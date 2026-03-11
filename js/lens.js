@@ -46,7 +46,6 @@ const Lens = (function () {
       palette: {
         peak: { voice: 'brass', octave: -1, decay: 1.8 },
         continuous: { voice: 'strings', octave: 0, decay: 2.2 },
-        subdivision: { voice: 'hat', kit: 'brushes', divisions: 2, vel: 0.12 },
         harmonic: { voice: 'piano', octave: 0, decay: 1.6 },
         burst: { voice: 'brass', octave: 0 },
         texture: { wave: 'sine', chord: [0, 4, 7], octave: -1, detune: 8, vol: 0.07, reverbSend: 0.65 },
@@ -187,7 +186,7 @@ const Lens = (function () {
       groove: null,
 
       response: {
-        peakThreshold: 0.75,
+        peakThreshold: 0.35,
         tiltRange: 55,
         noteInterval: 750,
         stillnessThreshold: 0.07,
@@ -198,9 +197,9 @@ const Lens = (function () {
       },
 
       motion: {
-        primary: 'flow',
+        primary: 'tilt_rate',
         melodic: 'beta',
-        sensitivity: 0.6,
+        sensitivity: 0.8,
       },
     },
 
@@ -297,8 +296,6 @@ const Lens = (function () {
       palette: {
         peak: { voice: 'piano', octave: 0, decay: 2.5 },
         continuous: { voice: 'strings', octave: 0, decay: 2.8 },
-        // Soft rhythmic pulse — this is what separates it from Tundra's silence
-        subdivision: { voice: 'hat', kit: 'brushes', divisions: 2, vel: 0.07 },
         harmonic: { voice: 'piano', octave: 1, decay: 2.0 },
         texture: { wave: 'sine', chord: [0, 4, 7, 11], octave: -1, detune: 5, vol: 0.05, reverbSend: 0.62 },
         touch: { voice: 'piano', octave: 0, decay: 2.0 },

@@ -1221,6 +1221,7 @@ const Follow = (function () {
 
   function processGrooveHats(now) {
     if (!tempoLocked || isSilent || sessionPhase < 2 || !lens || !Audio.ctx) return;
+    if (!lens.groove) return;  // groove:null = no autonomous drums
     if (descentMix > 0.55) return; // bass world — hats belong to silence now
     var dna = getGrooveDNA();
     if (!dna.hat) return;
@@ -1252,6 +1253,7 @@ const Follow = (function () {
 
   function processGrooveKickSnare(now) {
     if (!tempoLocked || isSilent || sessionPhase < 2 || !lens || !Audio.ctx) return;
+    if (!lens.groove) return;  // groove:null = no autonomous drums
     if (descentMix > 0.55) return;
 
     var dna = getGrooveDNA();
