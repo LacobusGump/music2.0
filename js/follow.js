@@ -203,7 +203,7 @@ const Follow = (function () {
   var accelHead = 0;
   var accelLen = 0;
   var lastPeakTime = 0;
-  var peakIntervals = new Float32Array(16);
+  var peakIntervals = new Float32Array(8);
   var piHead = 0;
   var piLen = 0;
   var derivedTempo = 0;
@@ -1382,28 +1382,35 @@ const Follow = (function () {
     if (lastPeakTime > 0) {
       var interval = now - lastPeakTime;
       if (interval > 150 && interval < 2000) {
-        peakIntervals[piHead] = interval;
-        piHead = (piHead + 1) & 15;
-        if (piLen < 16) piLen++;
-
-        var sum = 0, count = 0;
-        for (var i = 0; i < piLen; i++) {
-          sum += peakIntervals[i];
-          count++;
+        // Outlier rejection: if we have a running average and this interval
+        // is >70% off it, skip it — stray movements shouldn't kill confidence
+        var skip = false;
+        if (piLen >= 2) {
+          var runSum = 0;
+          for (var j = 0; j < piLen; j++) runSum += peakIntervals[j];
+          var runAvg = runSum / piLen;
+          if (Math.abs(interval - runAvg) / runAvg > 0.70) skip = true;
         }
-        var avgInterval = sum / count;
-        derivedTempo = 60000 / avgInterval;
 
-        var variance = 0;
-        for (var i = 0; i < piLen; i++) {
-          var diff = peakIntervals[i] - avgInterval;
-          variance += diff * diff;
+        if (!skip) {
+          peakIntervals[piHead] = interval;
+          piHead = (piHead + 1) & 7;   // buffer size 8 — recent data dominates
+          if (piLen < 8) piLen++;
+
+          var sum = 0;
+          for (var i = 0; i < piLen; i++) sum += peakIntervals[i];
+          var avgInterval = sum / piLen;
+          derivedTempo = 60000 / avgInterval;
+
+          var variance = 0;
+          for (var i = 0; i < piLen; i++) {
+            var diff = peakIntervals[i] - avgInterval;
+            variance += diff * diff;
+          }
+          variance = Math.sqrt(variance / piLen);
+          var cv = variance / avgInterval;
+          rhythmConfidence = Math.max(0, Math.min(1, 1 - cv * 2.5));
         }
-        variance = Math.sqrt(variance / count);
-        var cv = variance / avgInterval;
-        // cv*2.5 instead of cv*4: human movement has ~25% natural timing variance
-        // Old formula gave confidence=0 at cv=0.25 (normal dancing). Now need cv>0.4 to fail.
-        rhythmConfidence = Math.max(0, Math.min(1, 1 - cv * 2.5));
       }
     }
     lastPeakTime = now;
