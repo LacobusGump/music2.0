@@ -929,59 +929,88 @@ const Audio = (function () {
     rs.connect(reverbSend);
   }
 
-  // ── MASSIVE — detuned unison: same note, 4 copies, spread across pitch ──
-  // This is the RFTN808 technique: duplicate a synth, detune each copy slightly.
-  // Tight pair ±2 cents: subtle thickening (the "main synth" layer)
-  // Wide pair ±13 cents: obvious chorus width (the "arp" layer)
-  // The slight beating between copies creates movement without any LFO.
-  // 4 oscillators only — mobile safe.
+  // ── MASSIVE — RFTN808 detuned unison build ────────────────────────────
+  // Phase 0: naked saw — raw, thin, honest
+  // Phase 1: + octave below (0.5x) — weight and foundation
+  // Phase 2: + perfect fifth (1.5x) — fullness without dissonance
+  // Phase 3: + ±2 cent chorus pair — the whisper of width, barely perceptible
+  // Phase 4: + ±13 cent arp voices — THE DROP. Shimmer locks in. Portamento starts.
+  // Each phase earned by user engagement. The drop is the release.
+
+  var massivePhase    = 0;  // 0-4, set externally via setMassivePhase()
+  var massiveLastFreq = 0;  // portamento memory
+
+  function setMassivePhase(p) { massivePhase = p; }
 
   function synthMassive(time, freq, vel, decay) {
     var dur = decay || 1.0;
 
-    // Same frequency, 4 copies — detune only (NOT harmonic ratios)
-    var detunes = [-13, -2,   2,   13 ];
-    var gains   = [0.20, 0.25, 0.25, 0.20]; // wide pair quieter than tight core
+    // Build voice list for current phase
+    // Each voice: { ratio (relative to freq), detune (cents), gain }
+    var voices = [
+      { r: 1.0,  d: 0,  g: 0.38 },   // always: naked root
+    ];
+    if (massivePhase >= 1) {
+      voices.push({ r: 0.5,  d: 0,  g: 0.28 }); // octave below
+      voices.push({ r: 1.5,  d: 0,  g: 0.20 }); // perfect fifth
+    }
+    if (massivePhase >= 3) {
+      voices.push({ r: 1.0,  d: -2, g: 0.16 }); // ±2 chorus
+      voices.push({ r: 1.0,  d:  2, g: 0.16 });
+    }
+    if (massivePhase >= 4) {
+      voices.push({ r: 1.0,  d: -13, g: 0.13 }); // ±13 DROP
+      voices.push({ r: 1.0,  d:  13, g: 0.13 });
+    }
 
-    // Warm LP — not bright, not sealed. The width lives in the mids.
+    // Scale all gains so the sum stays under 0.90 regardless of phase
+    var gainSum = 0;
+    for (var vi = 0; vi < voices.length; vi++) gainSum += voices[vi].g;
+    var normK = Math.min(1.0, 0.82 / gainSum);
+
+    // LP filter — warm, mids-forward
     var lp = ctx.createBiquadFilter();
     lp.type = 'lowpass';
-    lp.frequency.value = 2400;
-    lp.Q.value = 1.0;
-
-    // Light saturation — warmth without dirt
-    var sat = ctx.createWaveShaper();
-    var n = 128, sc = new Float32Array(n);
-    for (var j = 0; j < n; j++) {
-      var x = (j * 2) / n - 1;
-      sc[j] = x * (1 - Math.abs(x) * 0.18); // very gentle soft clip
-    }
-    sat.curve = sc;
+    lp.frequency.value = 2600;
+    lp.Q.value = 1.2;
 
     // Envelope
     var env = ctx.createGain();
     env.gain.setValueAtTime(0.001, time);
-    env.gain.linearRampToValueAtTime(Math.min(0.78, vel * 0.70), time + 0.014);
-    env.gain.setTargetAtTime(vel * 0.38, time + 0.045, dur * 0.32);
+    env.gain.linearRampToValueAtTime(Math.min(0.82, vel * 0.74), time + 0.013);
+    env.gain.setTargetAtTime(vel * 0.40, time + 0.042, dur * 0.30);
     env.gain.linearRampToValueAtTime(0.001, time + dur);
 
-    for (var i = 0; i < detunes.length; i++) {
+    // Portamento: at phase 4, notes slide from the previous pitch
+    var prevF = (massivePhase >= 4 && massiveLastFreq > 20) ? massiveLastFreq : 0;
+    massiveLastFreq = freq;
+
+    for (var i = 0; i < voices.length; i++) {
+      var v = voices[i];
       var o = ctx.createOscillator();
       o.type = 'sawtooth';
-      o.frequency.value = freq;
-      o.detune.value = detunes[i];
+      var targetF = freq * v.r;
+
+      if (prevF > 0) {
+        // Slide from previous note's frequency at this ratio
+        o.frequency.setValueAtTime(prevF * v.r, time);
+        o.frequency.linearRampToValueAtTime(targetF, time + 0.14);
+      } else {
+        o.frequency.value = targetF;
+      }
+
+      o.detune.value = v.d;
       var g = ctx.createGain();
-      g.gain.value = gains[i];
+      g.gain.value = v.g * normK;
       o.connect(g);
       g.connect(lp);
       o.start(time);
       o.stop(time + dur + 0.12);
     }
 
-    lp.connect(sat);
-    sat.connect(env);
+    lp.connect(env);
     env.connect(sidechainGain);
-    var rs = ctx.createGain(); rs.gain.value = 0.30; env.connect(rs); rs.connect(reverbSend);
+    var rs = ctx.createGain(); rs.gain.value = 0.28; env.connect(rs); rs.connect(reverbSend);
     var ds = ctx.createGain(); ds.gain.value = 0.44; env.connect(ds); ds.connect(delaySend);
   }
 
@@ -1779,6 +1808,7 @@ const Audio = (function () {
     hVel: hVel,
     pumpSidechain: pumpSidechain,
 
+    setMassivePhase: setMassivePhase,
     setMasterGain: function (v) { if (masterGain) masterGain.gain.value = v; },
     setReverbMix: function (v) { if (reverbSend) reverbSend.gain.value = v; },
 

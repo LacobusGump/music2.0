@@ -924,7 +924,7 @@ const Follow = (function () {
     // FALLING: upper voices fade to silence
     if (descentState === 'falling') {
       descentMix = Math.min(1, descentMix + dt * FALL_RATE);
-      if (descentMix >= 0.99) { descentMix = 1; descentState = 'floor'; }
+      if (descentMix >= 0.99) { descentMix = 1; descentState = 'floor'; Audio.setMassivePhase(4); }
     }
 
     // FLOOR: pure bass world — motion here earns the way back up
@@ -1257,6 +1257,7 @@ const Follow = (function () {
     descentMix = 0;
     descentFired = false;
     floorMotion = 0;
+    try { Audio.setMassivePhase(0); } catch(e) {}
     descentBassLive = false;
     compressionBeatCount = 0;
     compressionNextBeat  = 0;
@@ -1775,6 +1776,11 @@ const Follow = (function () {
         sessionPhase = sessionEngagedTime < PHASE_LISTENING ? 0
                      : sessionEngagedTime < PHASE_ALIVE     ? 1
                      : 2;
+
+        // Grid's detuned-unison build: naked → octave+fifth → ±2 chorus → (drop = phase 4)
+        if (descentState !== 'floor') {
+          Audio.setMassivePhase(sessionPhase === 0 ? 0 : sessionPhase === 1 ? 1 : 3);
+        }
 
         // Fade ceiling rises with each phase — music literally gets louder as you engage
         var fadeCeiling = sessionPhase === 0 ? 0.45 : sessionPhase === 1 ? 0.72 : 1.0;
