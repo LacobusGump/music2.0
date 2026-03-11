@@ -736,7 +736,7 @@ const Follow = (function () {
 
   // GROOVE CRYSTALLIZATION
   function grooveRecord(type, data) {
-    if (!tempoLocked || isSilent || grooveIsPlayback || grooveBarLen < 200 || sessionPhase < 2) return;
+    if (!tempoLocked || isSilent || grooveIsPlayback || grooveBarLen < 200 || sessionPhase < 1) return;
     var now = performance.now();
     var pos = ((now - grooveStart) % grooveBarLen) / grooveBarLen;
     grooveBuf.push({ t: now, pos: pos, type: type, data: data });
@@ -1448,7 +1448,11 @@ const Follow = (function () {
           }
           variance = Math.sqrt(variance / piLen);
           var cv = variance / avgInterval;
-          rhythmConfidence = Math.max(0, Math.min(1, 1 - cv * 2.5));
+          var rawConf = Math.max(0, Math.min(1, 1 - cv * 2.5));
+          // Smooth: confidence rises fast (×0.25) but falls slow (×0.06)
+          // One bad measurement can't instantly wipe what was earned
+          var rate = rawConf > rhythmConfidence ? 0.25 : 0.06;
+          rhythmConfidence += (rawConf - rhythmConfidence) * rate;
         }
       }
     }
