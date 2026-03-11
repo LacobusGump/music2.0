@@ -107,7 +107,7 @@ const Lens = (function () {
         // Massive: detuned unison (±2 + ±13 cents) — same note, 4 copies, chorus width.
         // Dirty hit on hard peaks — the crunch underneath the beauty.
         peak:       { voice: 'dirty',   octave: 0,  decay: 0.8 },
-        continuous: { voice: 'massive', octave: 0,  decay: 1.1 },
+        continuous: { voice: 'massive', octave: 0,  decay: 2.0, sustained: true, velBoost: 1.6 },
         // Hats only after groove locks — no subdivision storm from the start
         subdivision: { voice: 'hat', kit: '808', divisions: 2, vel: 0.16 },
         // Stab answer — sharp, cuts through
@@ -131,7 +131,7 @@ const Lens = (function () {
       response: {
         peakThreshold: 0.70,
         tiltRange: 48,
-        noteInterval: 240,  // slower firing — massive needs room to breathe
+        noteInterval: 520,  // massive needs room — let each note sustain before next fires
         stillnessThreshold: 0.14,
         stillnessTimeout: 2.8,
         fadeTime: 3.5,

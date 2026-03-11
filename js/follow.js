@@ -1530,12 +1530,15 @@ const Follow = (function () {
         var cont = lens.palette && lens.palette.continuous;
         if (cont) {
           var freq = scaleFreq(currentDegree, cont.octave || 0);
-          var vel = (0.2 + fadeGain * 0.3) * phraseIntensityFactor * (1 - descentMix * 0.94);
+          var vel = (0.2 + fadeGain * 0.3) * phraseIntensityFactor * (1 - descentMix * 0.94) * (cont.velBoost || 1.0);
 
           // Dynamic decay: fast movement = staccato, slow movement = legato
+          // sustained:true bypasses shortening — the voice is a wall, not a pluck
           var speed = (typeof Brain !== 'undefined') ? Brain.short.energy() : 0.5;
           var speedNorm = Math.min(1, speed / 2.5);          // 0=still, 1=fast
-          var dynamicDecay = (cont.decay || 0.8) * (1 - speedNorm * 0.55); // fast → 45% shorter
+          var dynamicDecay = cont.sustained
+            ? (cont.decay || 0.8)
+            : (cont.decay || 0.8) * (1 - speedNorm * 0.55); // fast → 45% shorter
 
           try {
             Audio.synth.play(cont.voice || 'epiano', Audio.ctx.currentTime, freq, vel, dynamicDecay);
