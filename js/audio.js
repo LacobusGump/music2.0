@@ -929,50 +929,60 @@ const Audio = (function () {
     rs.connect(reverbSend);
   }
 
-  // ── MASSIVE — harmonic stack: root + 7th harmonic + octave ──────────────
-  // 3 oscillators only — mobile-safe. The 7th harmonic (7/4 = 1.75) is the
-  // dark magic: 31 cents flat of equal temperament's minor 7th. Sounds wrong
-  // in the right way. Each layer slightly detuned for natural chorus width.
-  // Filter opens on attack — the "drop" feel without portamento CPU cost.
+  // ── MASSIVE — detuned unison: same note, 4 copies, spread across pitch ──
+  // This is the RFTN808 technique: duplicate a synth, detune each copy slightly.
+  // Tight pair ±2 cents: subtle thickening (the "main synth" layer)
+  // Wide pair ±13 cents: obvious chorus width (the "arp" layer)
+  // The slight beating between copies creates movement without any LFO.
+  // 4 oscillators only — mobile safe.
 
   function synthMassive(time, freq, vel, decay) {
-    var dur = decay || 0.9;
+    var dur = decay || 1.0;
 
-    // Root, 7th harmonic (the dark one), octave — 3 oscillators max
-    var ratios  = [1.0,  7/4,  2.0];
-    var detunes = [-8,   0,    9  ];  // spread for width
-    var gains   = [0.30, 0.22, 0.18];
+    // Same frequency, 4 copies — detune only (NOT harmonic ratios)
+    var detunes = [-13, -2,   2,   13 ];
+    var gains   = [0.20, 0.25, 0.25, 0.20]; // wide pair quieter than tight core
 
-    // Filter: already open, slight Q bump for body — no dramatic sweep (causes glitch on mobile)
+    // Warm LP — not bright, not sealed. The width lives in the mids.
     var lp = ctx.createBiquadFilter();
     lp.type = 'lowpass';
-    lp.frequency.value = 2800;
-    lp.Q.value = 1.8;
+    lp.frequency.value = 2400;
+    lp.Q.value = 1.0;
 
-    // Envelope: punchy attack, clean decay
+    // Light saturation — warmth without dirt
+    var sat = ctx.createWaveShaper();
+    var n = 128, sc = new Float32Array(n);
+    for (var j = 0; j < n; j++) {
+      var x = (j * 2) / n - 1;
+      sc[j] = x * (1 - Math.abs(x) * 0.18); // very gentle soft clip
+    }
+    sat.curve = sc;
+
+    // Envelope
     var env = ctx.createGain();
     env.gain.setValueAtTime(0.001, time);
-    env.gain.linearRampToValueAtTime(Math.min(0.75, vel * 0.68), time + 0.012);
-    env.gain.setTargetAtTime(vel * 0.32, time + 0.040, dur * 0.28);
+    env.gain.linearRampToValueAtTime(Math.min(0.78, vel * 0.70), time + 0.014);
+    env.gain.setTargetAtTime(vel * 0.38, time + 0.045, dur * 0.32);
     env.gain.linearRampToValueAtTime(0.001, time + dur);
 
-    for (var i = 0; i < ratios.length; i++) {
+    for (var i = 0; i < detunes.length; i++) {
       var o = ctx.createOscillator();
       o.type = 'sawtooth';
-      o.frequency.value = freq * ratios[i];
+      o.frequency.value = freq;
       o.detune.value = detunes[i];
       var g = ctx.createGain();
       g.gain.value = gains[i];
       o.connect(g);
       g.connect(lp);
       o.start(time);
-      o.stop(time + dur + 0.1);
+      o.stop(time + dur + 0.12);
     }
 
-    lp.connect(env);
+    lp.connect(sat);
+    sat.connect(env);
     env.connect(sidechainGain);
-    var rs = ctx.createGain(); rs.gain.value = 0.18; env.connect(rs); rs.connect(reverbSend);
-    var ds = ctx.createGain(); ds.gain.value = 0.42; env.connect(ds); ds.connect(delaySend);
+    var rs = ctx.createGain(); rs.gain.value = 0.30; env.connect(rs); rs.connect(reverbSend);
+    var ds = ctx.createGain(); ds.gain.value = 0.44; env.connect(ds); ds.connect(delaySend);
   }
 
   // ── PIANO — jazz piano: hammer attack, layered harmonics ──────────────

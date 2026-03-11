@@ -104,11 +104,10 @@ const Lens = (function () {
       },
 
       palette: {
-        // Massive: 4:5:6:7:8 harmonic stack + portamento + unison detune.
-        // The harmonic 7th (7/4) is 31 cents flat of equal temperament — dark magic.
-        // Stab punches on motion peaks — the accent that makes the massive breathe.
-        peak:       { voice: 'stab',    octave: 0,  decay: 0.4 },
-        continuous: { voice: 'massive', octave: 0,  decay: 0.9 },
+        // Massive: detuned unison (±2 + ±13 cents) — same note, 4 copies, chorus width.
+        // Dirty hit on hard peaks — the crunch underneath the beauty.
+        peak:       { voice: 'dirty',   octave: 0,  decay: 0.8 },
+        continuous: { voice: 'massive', octave: 0,  decay: 1.1 },
         // Hats only after groove locks — no subdivision storm from the start
         subdivision: { voice: 'hat', kit: '808', divisions: 2, vel: 0.16 },
         // Stab answer — sharp, cuts through
