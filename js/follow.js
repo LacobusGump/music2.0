@@ -311,10 +311,22 @@ const Follow = (function () {
   var sessionEnergyAccum = 0;   // only accumulates at phase 2 — earns the event
   var descentState  = 'off';    // 'off' | 'compressing' | 'falling' | 'floor' | 'rising'
   var descentMix    = 0;        // 0=full music, 1=pure bass world
-  var descentFired  = false;    // once per lens session
   var floorMotion   = 0;        // motion on the floor earns the ascent
   var ASCENT_THRESHOLD = 18;    // floor motion units before rebuild begins
   var descentBassLive = false;  // whether the bass layer is running
+
+  // ── EPIGENETIC STATE ───────────────────────────────────────────────────
+  // Each descent cycle completes a generation. The DNA (lens) stays the same.
+  // But the environment of what was played accumulates and changes expression.
+  // Same genome, different phenotype. Cells building a heart — each pass richer.
+  var generation    = 0;        // how many full descent cycles completed
+  var epi = {
+    rootDrift:    0,   // semitone shift added each generation (music climbs)
+    spaceMix:     0,   // extra reverb depth (0→0.4 over 4 generations)
+    massiveFloor: 0,   // massivePhase minimum for next generation (pre-built)
+    energyGate:   24,  // sessionEnergyAccum needed to earn next descent (rises each gen)
+    harmonyCarry: 0,   // melodicCentroid value carried through the floor
+  };
 
   // Compression phase — the build before the breath
   var compressionBeatCount = 0;
@@ -813,12 +825,12 @@ const Follow = (function () {
   // All conditions must align. Rhythm, tension, energy, engagement — all earned.
 
   function assessDropReadiness() {
-    if (descentFired || descentState !== 'off') return false;
+    if (descentState !== 'off') return false;
     if (sessionPhase < 2) return false;
     if (isSilent) return false;
     if (rhythmConfidence < 0.35) return false;   // need a real pulse
     if (harmonicTension < 0.42) return false;    // need tension — somewhere to fall to
-    if (sessionEnergyAccum < 24) return false;   // earned through play, not waiting
+    if (sessionEnergyAccum < epi.energyGate) return false;   // earned through play, not waiting
     if (energySmooth < 0.5) return false;        // drop fires at a peak, not a lull
     return true;
   }
@@ -829,7 +841,7 @@ const Follow = (function () {
   // The user feels something gathering.
 
   function startCompression() {
-    if (descentFired || descentState !== 'off') return;
+    if (descentState !== 'off') return;
     descentState = 'compressing';
     compressionBeatCount = 0;
     var beatMs = tempoLocked ? lockedInterval : 550;
@@ -887,7 +899,7 @@ const Follow = (function () {
   }
 
   function startDescent() {
-    if (descentFired || (descentState !== 'off' && descentState !== 'compressing') || !Audio.ctx || !lens) return;
+    if ((descentState !== 'off' && descentState !== 'compressing') || !Audio.ctx || !lens) return;
     descentState   = 'falling';
     descentMix     = 0;
     floorMotion    = 0;
@@ -908,11 +920,10 @@ const Follow = (function () {
 
   function updateDescent(mag, sensor, dt) {
     // Assessment: when the constellation aligns, begin compression
-    if (descentState === 'off' && !descentFired) {
+    if (descentState === 'off') {
       if (assessDropReadiness()) startCompression();
       return;
     }
-    if (descentState === 'off') return;
 
     // ── COMPRESSING — the build before the breath ──────────────────────
     if (descentState === 'compressing') {
@@ -976,8 +987,32 @@ const Follow = (function () {
       if (descentMix <= 0.01) {
         descentMix = 0;
         descentState = 'off';
-        descentFired = true;
         try { Audio.descentBass.stop(); descentBassLive = false; } catch (e) {}
+
+        // ── GENERATION COMPLETE — epigenetic evolution ──────────────────
+        generation++;
+        epi.harmonyCarry  = melodicCentroid;           // memory carries through
+        epi.rootDrift     += 2;                        // climb a whole step each gen
+        epi.spaceMix      = Math.min(0.40, generation * 0.10); // room grows
+        epi.massiveFloor  = Math.min(3, generation);   // next gen starts pre-built
+        epi.energyGate    = 24 + generation * 8;       // harder to earn each time
+
+        // Apply root drift immediately
+        rootSemiTarget += 2;
+
+        // Restore melodic memory from before the floor
+        melodicCentroid = epi.harmonyCarry;
+
+        // Start massivePhase at floor (already earned those voices)
+        try { Audio.setMassivePhase(epi.massiveFloor); } catch(e) {}
+
+        // Space opens: push reverb mix wider
+        try { Audio.setReverbMix(
+          ((lens.space && lens.space.reverbMix) || 0.25) + epi.spaceMix
+        ); } catch(e) {}
+
+        // Reset energy accumulator for next generation
+        sessionEnergyAccum = 0;
         return;
       }
     }
@@ -1324,8 +1359,10 @@ const Follow = (function () {
     sessionEnergyAccum = 0;
     descentState = 'off';
     descentMix = 0;
-    descentFired = false;
     floorMotion = 0;
+    generation = 0;
+    epi.rootDrift = 0; epi.spaceMix = 0; epi.massiveFloor = 0;
+    epi.energyGate = 24; epi.harmonyCarry = 0;
     try { Audio.setMassivePhase(0); } catch(e) {}
     descentBassLive = false;
     compressionBeatCount = 0;
