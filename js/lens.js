@@ -141,7 +141,7 @@ const Lens = (function () {
       },
 
       motion: {
-        primary: 'bounce',
+        primary: 'tilt_rate',
         melodic: 'beta',
         sensitivity: 1.5,
       },
