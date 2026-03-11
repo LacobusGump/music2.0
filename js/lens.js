@@ -108,8 +108,7 @@ const Lens = (function () {
         // Dirty hit on hard peaks — the crunch underneath the beauty.
         peak:       { voice: 'dirty',   octave: 0,  decay: 0.8 },
         continuous: { voice: 'massive', octave: 0,  decay: 2.0, sustained: true, velBoost: 1.6 },
-        // Hats only after groove locks — no subdivision storm from the start
-        subdivision: { voice: 'hat', kit: '808', divisions: 2, vel: 0.16 },
+        // No subdivision — hats come from GROOVE_DNA, not a metronome click
         // Stab answer — sharp, cuts through
         harmonic:   { voice: 'stab', octave: 0,  decay: 0.35 },
         // Glitch burst on big gestures

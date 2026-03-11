@@ -83,8 +83,8 @@ const Follow = (function () {
       // HALFTIME snare — snare only on beat 3 (bar midpoint). This IS dubstep.
       snare: [0,0,0,0, 0,0,0,0, 0.98,0,0,0, 0,0,0.18,0],
       // 8th-note hats — the grid
-      hat:   [0.72,0,0.72,0, 0.72,0,0.72,0, 0.72,0,0.72,0, 0.72,0,0.72,0],
-      feel: 0, kit: '808', snap: 1, halftime: true,
+      hat:   [0.82,0,0.58,0, 0.82,0,0.58,0, 0.82,0,0.58,0, 0.82,0,0.58,0],
+      feel: 0.04, kit: '808', snap: 1, halftime: true,
     },
   };
 
@@ -260,9 +260,11 @@ const Follow = (function () {
   var barPhase    = 0;    // 0.0-1.0 — where we are in the bar
   var barOrigin   = 0;    // wall time of the last detected beat 1
   var barCount    = 0;    // how many complete bars since lock
-  var lastBarStep = -1;   // last 16th-note step processed (hat dedup)
-  var lastKickTime  = 0;  // wall ms of last kick hit (rate limit)
-  var lastSnareTime = 0;  // wall ms of last snare hit (rate limit)
+  var lastBarStep   = -1;  // last 16th-note step processed (hat dedup)
+  var lastKickStep  = -1;  // last step kick was evaluated
+  var lastSnareStep = -1;  // last step snare was evaluated
+  var lastKickTime  = 0;   // wall ms of last kick hit (rate limit)
+  var lastSnareTime = 0;   // wall ms of last snare hit (rate limit)
 
   // Energy / density
   var energySmooth = 0;
@@ -1080,7 +1082,7 @@ const Follow = (function () {
     var elapsed  = now - barOrigin;
     barPhase     = (elapsed % barLenMs) / barLenMs;
     var newBars  = Math.floor(elapsed / barLenMs);
-    if (newBars > barCount) { barCount = newBars; lastBarStep = -1; }
+    if (newBars > barCount) { barCount = newBars; lastBarStep = -1; lastKickStep = -1; lastSnareStep = -1; }
   }
 
   function getGrooveDNA() {
@@ -1207,6 +1209,42 @@ const Follow = (function () {
       lastHatTime = now;
       Audio.drum.hat(hatTime, vel, kit);
       grooveRecord("hat", { vel: vel, kit: kit });
+    }
+  }
+
+  // ── AUTONOMOUS KICK + SNARE (DNA-driven, same as hats) ────────────────
+  // Hats had this — kick and snare were silent unless user peaked. Fixed.
+
+  function processGrooveKickSnare(now) {
+    if (!tempoLocked || isSilent || sessionPhase < 2 || !lens || !Audio.ctx) return;
+    if (descentMix > 0.55) return;
+
+    var dna = getGrooveDNA();
+    var currentStep = Math.floor(barPhase * STEP_COUNT);
+    var kit  = (lens.groove && lens.groove.kit) || dna.kit || 'acoustic';
+    var mods = archetypeModifiers();
+    var time = Audio.ctx.currentTime;
+
+    // KICK
+    if (currentStep !== lastKickStep) {
+      lastKickStep = currentStep;
+      var kv = dna.kick[currentStep] || 0;
+      if (kv >= 0.08 && now - lastKickTime > 80) {
+        lastKickTime = now;
+        var kVel = kv * fadeGain * (mods.drumBoost || 1.0) * Math.min(1, lockStrength + 0.4);
+        if (kVel > 0.04) Audio.drum.kick(time, kVel, kit);
+      }
+    }
+
+    // SNARE
+    if (currentStep !== lastSnareStep) {
+      lastSnareStep = currentStep;
+      var sv = dna.snare[currentStep] || 0;
+      if (sv >= 0.08 && now - lastSnareTime > 80) {
+        lastSnareTime = now;
+        var sVel = sv * fadeGain * (mods.drumBoost || 1.0) * Math.min(1, lockStrength + 0.4);
+        if (sVel > 0.04) Audio.drum.snare(time, sVel, kit);
+      }
     }
   }
 
@@ -2035,8 +2073,9 @@ const Follow = (function () {
     // ── User-triggered subdivisions (non-hat only — hats are autonomous) ──
     processSubdivisions(now);
 
-    // ── Autonomous hat grid (DNA-driven, phase-locked to bar) ──
+    // ── Autonomous drum grid (DNA-driven, phase-locked to bar) ──
     processGrooveHats(now);
+    processGrooveKickSnare(now);
 
     // ── Vertical arc tracking ──
     updateVertical(sensor, dt);
