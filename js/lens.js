@@ -109,15 +109,14 @@ const Lens = (function () {
         // Stab punches on motion peaks — the accent that makes the massive breathe.
         peak:       { voice: 'stab',    octave: 0,  decay: 0.4 },
         continuous: { voice: 'massive', octave: 0,  decay: 0.9 },
-        // 8th-note hats — the grid
-        subdivision: { voice: 'hat', kit: '808', divisions: 2, vel: 0.22 },
-        // Stab answer — sharp, punchy
-        harmonic:   { voice: 'stab', octave: 0,  decay: 0.4 },
+        // Hats only after groove locks — no subdivision storm from the start
+        subdivision: { voice: 'hat', kit: '808', divisions: 2, vel: 0.16 },
+        // Stab answer — sharp, cuts through
+        harmonic:   { voice: 'stab', octave: 0,  decay: 0.35 },
         // Glitch burst on big gestures
         burst:      { voice: 'glitch', octave: 0 },
-        // Sawtooth pad — the dark phrygian texture underneath
-        texture: { wave: 'sawtooth', chord: [0, 5, 8], octave: -1, detune: 18, vol: 0.09, reverbSend: 0.55 },
-        touch:      { voice: 'dirty', octave: 0,  decay: 0.7 },
+        // No texture pad — the massive voice IS the texture, don't stack
+        touch:      { voice: 'stab', octave: 0,  decay: 0.4 },
       },
 
       groove: {
@@ -133,7 +132,7 @@ const Lens = (function () {
       response: {
         peakThreshold: 0.70,
         tiltRange: 48,
-        noteInterval: 160,
+        noteInterval: 240,  // slower firing — massive needs room to breathe
         stillnessThreshold: 0.14,
         stillnessTimeout: 2.8,
         fadeTime: 3.5,
