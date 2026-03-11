@@ -129,6 +129,17 @@ const Follow = (function () {
     melodicHistory.push(scaleDeg);
     if (melodicHistory.length > 8) melodicHistory.shift();
     lastHistoryDeg = scaleDeg;
+
+    // Rule of threes: count toward resolution
+    var isConsonant = (scaleDeg === 0 || scaleDeg === 2 || scaleDeg === 4 || scaleDeg === 7);
+    if (phraseNoteCount >= 2 && isConsonant) {
+      // Resolution landed — breathe, reset
+      phraseNoteCount = 0;
+      phraseBreathing = true;
+      setTimeout(function () { phraseBreathing = false; }, 480); // quarter-note breath
+    } else {
+      phraseNoteCount++;
+    }
     // Centroid drifts slowly toward recent notes — harmonyDegree follows this
     melodicCentroid += (scaleDeg - melodicCentroid) * 0.06;
 
@@ -144,6 +155,11 @@ const Follow = (function () {
     }
   }
 
+  // ── RULE OF THREES ────────────────────────────────────────────────────
+  // Two notes set up tension. The third resolves. How you resolve is the art.
+  var phraseNoteCount = 0;   // notes played since last resolution
+  var phraseBreathing = false; // brief silence after resolution
+
   function gravitateDegree(rawDeg) {
     // Phase 0: only root/3rd/5th — consonant gate so first notes always sound good
     if (sessionPhase === 0) {
@@ -154,6 +170,19 @@ const Follow = (function () {
         if (d < bestD) { bestD = d; best = cons[c]; }
       }
       return best;
+    }
+
+    // Rule of threes: after 2 setup notes, pull hard toward resolution
+    if (phraseNoteCount >= 2) {
+      // Resolve toward nearest consonant — root, 3rd, or 5th
+      var resolve = [0, 2, 4, 7];
+      var best = 0, bestD = 999;
+      for (var ri = 0; ri < resolve.length; ri++) {
+        var d = Math.abs(rawDeg - resolve[ri]);
+        if (d < bestD) { bestD = d; best = resolve[ri]; }
+      }
+      // Strong pull — 70% toward resolution, 30% user position
+      return Math.round(rawDeg * 0.30 + best * 0.70);
     }
 
     // Gentle suggestion — not a force, a lean
@@ -1252,6 +1281,8 @@ const Follow = (function () {
     melodicHistory = [];
     harmonicTension = 0;
     lastHistoryDeg = null;
+    phraseNoteCount = 0;
+    phraseBreathing = false;
     sessionEnergyAccum = 0;
     descentState = 'off';
     descentMix = 0;
@@ -1512,7 +1543,7 @@ const Follow = (function () {
     // Harmonic gravity: high tension pulls toward tonic or dominant
     var gravitated = gravitateDegree(stepped);
 
-    if (gravitated !== currentDegree && !isSilent && fadeGain > 0.3) {
+    if (gravitated !== currentDegree && !isSilent && fadeGain > 0.3 && !phraseBreathing) {
       var mods = archetypeModifiers();
       var baseInterval = (lens.response && lens.response.noteInterval) || 120;
       // Dynamic interval: fast movement → denser notes, slow movement → sparser
