@@ -215,6 +215,7 @@ const Follow = (function () {
   // Continuous pitch voice (tilt → melody)
   var currentDegree = 0;
   var targetDegree = 0;
+  var tiltOffset = 0;    // module-level so processBeatMelody can read it
   var lastNoteTime = 0;
 
   // Harmonic state
@@ -1248,6 +1249,75 @@ const Follow = (function () {
     }
   }
 
+  // ── BEAT MELODY — structured melodic cells, beat-locked ──────────────
+  // For lenses with palette.continuous.beatLocked = true.
+  // Replaces random tilt-firing with musical phrase cells that advance
+  // on the beat. Tilt transposes the cell ±2 degrees. Cells cycle with
+  // variation so no two passes sound identical.
+
+  var bm = {
+    // Phrygian cells — each 8 steps. Degrees in scale (0=root, 1=♭2, 2=♭3…)
+    // Cell 0: Fred descend — the classic phrygian fall
+    // Cell 1: Tension loop — ♭2 keeps circling root
+    // Cell 2: Spanish push — root climbs then crashes
+    // Cell 3: Dark build — ascends into the drop
+    cells: [
+      [5, 3, 1, 0,  0, 1, 0, 0],
+      [1, 0, 1, 3,  1, 0, 1, 0],
+      [0, 3, 5, 3,  1, 0, 1, 0],
+      [0, 1, 3, 5,  7, 5, 3, 1],
+    ],
+    cellIdx:    0,
+    stepIdx:    0,
+    lastStep:  -1,
+    cyclesDone: 0,
+  };
+
+  function pickNextCell() {
+    // Use melodicCentroid + massivePhase to pick next cell — not random
+    var centroidBias = Math.round(melodicCentroid / 2) % 2;  // 0 or 1
+    var phaseBias    = massivePhase >= 3 ? 1 : 0;            // prefer intense cells at high phase
+    bm.cellIdx = (bm.cyclesDone % 2 === 0)
+      ? (2 + phaseBias + centroidBias) % 4   // odd generations: cells 2-3
+      : centroidBias;                         // even generations: cells 0-1
+  }
+
+  function processBeatMelody(now) {
+    if (!tempoLocked || !lens || !Audio.ctx) return;
+    var cont = lens.palette && lens.palette.continuous;
+    if (!cont || !cont.beatLocked) return;
+    if (isSilent || sessionPhase < 1 || descentMix > 0.6) return;
+
+    // Advance on every 2 of 16 steps = 8th-note grid
+    var step16 = Math.floor(barPhase * 16);
+    var step8  = Math.floor(step16 / 2);
+    if (step8 === bm.lastStep) return;
+    bm.lastStep = step8;
+
+    var cell = bm.cells[bm.cellIdx];
+    var degree = cell[bm.stepIdx % cell.length];
+
+    // Tilt nudges the phrase up or down — user still has a hand in it
+    var tiltShift = Math.max(-2, Math.min(2, Math.round(tiltOffset * 1.5)));
+    degree = Math.max(0, Math.min(7, degree + tiltShift));
+
+    bm.stepIdx++;
+    // After 2 full cell cycles, pick the next cell
+    if (bm.stepIdx > 0 && bm.stepIdx % (cell.length * 2) === 0) {
+      bm.cyclesDone++;
+      pickNextCell();
+    }
+
+    currentDegree = degree;
+    recordNote(degree);
+
+    var freq  = scaleFreq(degree, cont.octave || 0);
+    var vel   = Math.min(0.85, (0.28 + fadeGain * 0.45) * (cont.velBoost || 1.0) * (1 - descentMix * 0.9));
+    try {
+      Audio.synth.play(cont.voice || 'epiano', Audio.ctx.currentTime, freq, vel, cont.decay || 1.0);
+    } catch(e) {}
+  }
+
   // ── AUTONOMOUS KICK + SNARE (DNA-driven, same as hats) ────────────────
   // Hats had this — kick and snare were silent unless user peaked. Fixed.
 
@@ -1387,6 +1457,7 @@ const Follow = (function () {
     lastTouchNote = 0;
     touchDuck = 1.0;
     melodicCentroid = 0;
+    bm.cellIdx = 0; bm.stepIdx = 0; bm.lastStep = -1; bm.cyclesDone = 0;
     lastHatTime = 0;
     barPhase    = 0;
     barOrigin   = 0;
@@ -1603,7 +1674,7 @@ const Follow = (function () {
       tiltVal = (sensor.beta || 45) - 45; // default: beta centered
     }
 
-    var tiltOffset = tiltVal / (tiltRange / 2);
+    tiltOffset = tiltVal / (tiltRange / 2);
     // Inversion: phone upside down flips the pitch mapping — high becomes low
     if (wasInverted) tiltOffset = -tiltOffset;
     var tiltDegree = Math.round(tiltOffset * 7);
@@ -1632,6 +1703,10 @@ const Follow = (function () {
 
     // Harmonic gravity: high tension pulls toward tonic or dominant
     var gravitated = gravitateDegree(stepped);
+
+    // Beat-locked lenses handle their own melody via processBeatMelody
+    var contPalette = lens.palette && lens.palette.continuous;
+    if (contPalette && contPalette.beatLocked) return;
 
     if (gravitated !== currentDegree && !isSilent && fadeGain > 0.3 && !phraseBreathing) {
       var mods = archetypeModifiers();
@@ -2124,6 +2199,9 @@ const Follow = (function () {
 
     // ── User-triggered subdivisions (non-hat only — hats are autonomous) ──
     processSubdivisions(now);
+
+    // ── Beat melody (structured cells for beat-locked lenses) ──
+    processBeatMelody(now);
 
     // ── Autonomous drum grid (DNA-driven, phase-locked to bar) ──
     processGrooveHats(now);

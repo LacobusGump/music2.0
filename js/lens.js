@@ -106,7 +106,7 @@ const Lens = (function () {
         // Massive: detuned unison (±2 + ±13 cents) — same note, 4 copies, chorus width.
         // Dirty hit on hard peaks — the crunch underneath the beauty.
         peak:       { voice: 'dirty',   octave: 0,  decay: 0.8 },
-        continuous: { voice: 'massive', octave: 0,  decay: 2.0, sustained: true, velBoost: 1.6 },
+        continuous: { voice: 'massive', octave: 0,  decay: 2.0, sustained: true, velBoost: 1.6, beatLocked: true },
         // No subdivision — hats come from GROOVE_DNA, not a metronome click
         // Stab answer — sharp, cuts through
         harmonic:   { voice: 'stab', octave: 0,  decay: 0.35 },
