@@ -78,13 +78,13 @@ const Follow = (function () {
       feel: 0, kit: 'glitch', snap: 1, halftime: false,
     },
     'Grid': {
-      // 4-on-the-floor kick — the heartbeat of every warehouse
-      kick:  [1.0,0,0,0, 1.0,0,0,0, 1.0,0,0,0, 1.0,0,0,0],
-      // Snare on 2+4 + syncopated ghost on the 'and' of 3
-      snare: [0,0,0,0, 0.90,0,0,0.15, 0,0,0.20,0, 0.90,0,0,0.10],
-      // Straight 8th-note hats — the grid that locks everything
-      hat:   [0.80,0,0.80,0, 0.80,0,0.80,0, 0.80,0,0.80,0, 0.80,0,0.80,0],
-      feel: 0, kit: '808', snap: 1, halftime: false,
+      // 4-on-the-floor kick with syncopated hits — the warehouse heartbeat
+      kick:  [1.0,0,0,0.28, 0,0,0.55,0, 1.0,0,0,0.28, 0,0,0,0],
+      // HALFTIME snare — snare only on beat 3 (bar midpoint). This IS dubstep.
+      snare: [0,0,0,0, 0,0,0,0, 0.98,0,0,0, 0,0,0.18,0],
+      // 8th-note hats — the grid
+      hat:   [0.72,0,0.72,0, 0.72,0,0.72,0, 0.72,0,0.72,0, 0.72,0,0.72,0],
+      feel: 0, kit: '808', snap: 1, halftime: true,
     },
   };
 

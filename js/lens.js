@@ -48,7 +48,7 @@ const Lens = (function () {
         continuous: { voice: 'strings', octave: 0, decay: 2.2 },
         subdivision: { voice: 'hat', kit: 'brushes', divisions: 2, vel: 0.12 },
         harmonic: { voice: 'piano', octave: 0, decay: 1.6 },
-        burst: { voice: 'bell', octave: 1 },
+        burst: { voice: 'brass', octave: 0 },
         texture: { wave: 'sine', chord: [0, 4, 7], octave: -1, detune: 8, vol: 0.07, reverbSend: 0.65 },
         touch: { voice: 'piano', octave: 0, decay: 1.5 },
       },
@@ -76,74 +76,74 @@ const Lens = (function () {
 
     // ─── 2. GRID ──────────────────────────────────────────────────────
     // Fred Again. Four Tet. The warehouse at 4AM.
-    // 808 hits FIRST — every motion is a sub-bass event.
-    // Phrygian: the ♭2 interval is unease, tension, dystopia.
-    // The melody is FM grit crawling over the top.
-    // Your body IS the drop.
+    // Dirty World detuned saws — the filth that falls through the floor.
+    // Phrygian ♭2: unease, tension, no resolution, only more darkness.
+    // Halftime snare. The drop IS the silence before the kick.
+    // Your body drops.
     {
       name: 'Grid',
       color: '#ff3300',
-      description: '808 first. Phrygian dystopia. Your body drops.',
+      description: 'Dirty saws. Phrygian dystopia. Your body drops.',
 
-      harmony: { root: 440, mode: 'phrygian' },
+      harmony: { root: 220, mode: 'phrygian' }, // A3 — dark but phone-audible
 
       tone: {
-        bassFreq: 60,  bassGain: 9,          // huge sub shelf — chest-shaking
-        midFreq: 900,  midQ: 1.2, midGain: 3, // presence for the FM lead
-        highFreq: 6000, highGain: -8,         // roll off harshness, keep air
-        ceiling: 8000,
+        bassFreq: 160, bassGain: 8,          // 160Hz = phone speakers can hit this
+        midFreq: 1000, midQ: 1.4, midGain: 5, // gritty mid presence
+        highFreq: 5000, highGain: -5,         // tame harshness
+        ceiling: 7000,
       },
 
       space: {
-        reverb: { decay: 1.8, damping: 0.55 },       // tight warehouse — not a hall
-        delay: { feedback: 0.58, filter: 3200, sync: 'dotted-eighth' }, // Fred Again echo trail
-        saturation: 0.22,                              // tape crunch, warm distortion
+        reverb: { decay: 2.2, damping: 0.45 },        // warehouse — bigger than a room
+        delay: { feedback: 0.62, filter: 4000, sync: 'dotted-eighth' }, // Fred Again echo trail
+        saturation: 0.15,                               // warm tape crunch
         type: 'room',
-        reverbMix: 0.28,                               // mostly dry — the sub needs room
-        spatial: { sweepRate: 0.08, sweepDepth: 0.55 },
+        reverbMix: 0.32,
+        spatial: { sweepRate: 0.09, sweepDepth: 0.6 },
       },
 
       palette: {
-        // Every motion peak = 808 sub hit. This is the instrument.
-        peak: { voice: 'sub808', octave: -1, decay: 1.6 },
-        // FM lead — gritty, compressed, dystopian melody over the top
-        continuous: { voice: 'fm', octave: 0, decay: 0.55 },
-        // 8th-note hat subdivision — the grid locking everything
-        subdivision: { voice: 'hat', kit: '808', divisions: 2, vel: 0.18 },
-        // Stab answers the melody — sharp, percussive
-        harmonic: { voice: 'stab', octave: 0, decay: 0.35 },
-        // Glitch burst on rapid gestures
-        burst: { voice: 'glitch', octave: 1 },
-        // Sawtooth pad under everything — dark phrygian color
-        texture: { wave: 'sawtooth', chord: [0, 5, 8], octave: -2, detune: 14, vol: 0.06, reverbSend: 0.5 },
-        touch: { voice: 'stab', octave: 0, decay: 0.4 },
+        // Dirty World: three detuned saws through heavy distortion — the filth
+        // Falls through the floor. Stays audible on phone speakers.
+        peak:       { voice: 'dirty', octave: 0,  decay: 1.8 },
+        continuous: { voice: 'dirty', octave: 0,  decay: 1.2 },
+        // 8th-note hats — the grid
+        subdivision: { voice: 'hat', kit: '808', divisions: 2, vel: 0.22 },
+        // Stab answer — sharp, punchy
+        harmonic:   { voice: 'stab', octave: 0,  decay: 0.4 },
+        // Glitch burst on big gestures
+        burst:      { voice: 'glitch', octave: 0 },
+        // Sawtooth pad — the dark phrygian texture underneath
+        texture: { wave: 'sawtooth', chord: [0, 5, 8], octave: -1, detune: 18, vol: 0.09, reverbSend: 0.55 },
+        touch:      { voice: 'dirty', octave: 0,  decay: 0.7 },
       },
 
       groove: {
         kit: '808',
-        microTiming: { kick: 0, hat: 0, snare: 0 },  // quantized — EDM is on the grid
-        ghosts: 0.08,
-        backbeat: false,   // snare on 2+4 AND syncopated hits
-        maxVel: 0.95,
+        microTiming: { kick: 0, hat: 0, snare: 0 }, // quantized — the machine is perfect
+        ghosts: 0.06,
+        backbeat: false,
+        maxVel: 0.98,
         broken: false,
         dropRate: 0,
       },
 
       response: {
-        peakThreshold: 0.75,         // sensitive — 808s fire on most movements
-        tiltRange: 45,
-        noteInterval: 140,           // dense melodic firing — the relentless grid
-        stillnessThreshold: 0.12,
-        stillnessTimeout: 3.0,
-        fadeTime: 4.0,
-        filterRange: [200, 8000],
-        densityThresholds: [0.2, 0.7, 1.8],
+        peakThreshold: 0.70,
+        tiltRange: 48,
+        noteInterval: 160,
+        stillnessThreshold: 0.14,
+        stillnessTimeout: 2.8,
+        fadeTime: 3.5,
+        filterRange: [200, 7000],
+        densityThresholds: [0.18, 0.65, 1.6],
       },
 
       motion: {
-        primary: 'bounce',     // vertical drops = 808 hits
+        primary: 'bounce',
         melodic: 'beta',
-        sensitivity: 1.4,      // more responsive than anything else
+        sensitivity: 1.5,
       },
     },
 
