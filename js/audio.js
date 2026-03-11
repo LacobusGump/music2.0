@@ -842,6 +842,7 @@ const Audio = (function () {
       case 'reverse': synthReverse(time, freq, vel, decay); break;
       case 'upright': synthUpright(time, freq, vel); break;
       case 'dirty':   synthDirtyWorld(time, freq, vel, decay); break;
+      case 'massive': synthMassive(time, freq, vel, decay); break;
       default: synthSimple(time, freq, vel, decay, opts); break;
     }
   }
@@ -867,9 +868,9 @@ const Audio = (function () {
     // Dark LP filter — starts sealed, LFO slowly opens it
     var filt = ctx.createBiquadFilter();
     filt.type = 'lowpass';
-    filt.frequency.setValueAtTime(160, time);
-    filt.frequency.linearRampToValueAtTime(420, time + dur * 0.6);
-    filt.Q.value = 3.2;
+    filt.frequency.setValueAtTime(500, time);
+    filt.frequency.linearRampToValueAtTime(2200, time + dur * 0.5);
+    filt.Q.value = 2.4;
 
     // Slow LFO — the filter breathes at 0.15Hz
     var lfo = ctx.createOscillator();
@@ -926,6 +927,69 @@ const Audio = (function () {
     rs.gain.value = 0.62;
     env.connect(rs);
     rs.connect(reverbSend);
+  }
+
+  // ── MASSIVE — 4:5:6:7:8 harmonic stacking + portamento + unison detune ──
+  // The TikTok layering technique. Five oscillators at pure integer harmonic
+  // ratios (not equal temperament). The 7th harmonic (7/4 = 1.75) is the key —
+  // 31 cents flatter than equal temperament's minor 7th. That's the dark magic.
+  // Each oscillator glides (portamento) from the previous note's frequency.
+  // Alternating ±9 cent detune per harmonic = natural chorus without doubling.
+
+  var massiveLastFreq = 0; // portamento memory
+
+  function synthMassive(time, freq, vel, decay) {
+    var dur = decay || 0.9;
+
+    // The 4:5:6:7:8 series — pure integer harmonics, not tempered
+    // Normalized to 4 as root: 4/4=1.0, 5/4=1.25, 6/4=1.5, 7/4=1.75, 8/4=2.0
+    var ratios  = [1.0,   5/4,  6/4,  7/4,  2.0];
+    var rGains  = [0.22,  0.16, 0.14, 0.12, 0.10]; // diminish up the series
+    var detunes = [-9,    7,   -5,    8,   -6];     // alternating for chorus width
+
+    // Filter sweeps OPEN — the drop effect (sealed → wide open → settle)
+    var lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.setValueAtTime(350, time);
+    lp.frequency.exponentialRampToValueAtTime(5000, time + 0.055); // snap open
+    lp.frequency.exponentialRampToValueAtTime(2200, time + dur * 0.35); // settle
+    lp.Q.value = 2.8;
+
+    // Master envelope — immediate attack, controlled decay
+    var env = ctx.createGain();
+    env.gain.setValueAtTime(0.0001, time);
+    env.gain.exponentialRampToValueAtTime(Math.min(0.88, vel * 0.72), time + 0.010);
+    env.gain.setTargetAtTime(vel * 0.38, time + 0.035, dur * 0.30);
+    env.gain.exponentialRampToValueAtTime(0.0001, time + dur);
+
+    var prevF = massiveLastFreq > 20 ? massiveLastFreq : freq;
+
+    for (var ri = 0; ri < ratios.length; ri++) {
+      var o = ctx.createOscillator();
+      o.type = 'sawtooth';
+
+      // Portamento: each harmonic glides from where the previous note left off
+      var prevHF = prevF * ratios[ri];
+      var nextHF = freq  * ratios[ri];
+      o.frequency.setValueAtTime(prevHF, time);
+      o.frequency.exponentialRampToValueAtTime(nextHF, time + 0.10); // 100ms slide
+
+      o.detune.value = detunes[ri];
+
+      var g = ctx.createGain();
+      g.gain.value = rGains[ri];
+      o.connect(g);
+      g.connect(lp);
+      o.start(time);
+      o.stop(time + dur + 0.2);
+    }
+
+    massiveLastFreq = freq;
+
+    lp.connect(env);
+    env.connect(sidechainGain);
+    var rs = ctx.createGain(); rs.gain.value = 0.22; env.connect(rs); rs.connect(reverbSend);
+    var ds = ctx.createGain(); ds.gain.value = 0.48; env.connect(ds); ds.connect(delaySend);
   }
 
   // ── PIANO — jazz piano: hammer attack, layered harmonics ──────────────
@@ -1690,6 +1754,7 @@ const Audio = (function () {
       formant: synthFormantNote,
       stab: synthStab,
       glitch: synthGlitch,
+      massive: synthMassive,
       play: synthesize,
     }),
 

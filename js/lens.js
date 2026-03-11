@@ -96,7 +96,7 @@ const Lens = (function () {
 
       space: {
         reverb: { decay: 2.2, damping: 0.45 },        // warehouse — bigger than a room
-        delay: { feedback: 0.62, filter: 4000, sync: 'dotted-eighth' }, // Fred Again echo trail
+        delay: { feedback: 0.48, filter: 4000, sync: 'dotted-eighth' }, // Fred Again echo trail
         saturation: 0.15,                               // warm tape crunch
         type: 'room',
         reverbMix: 0.32,
@@ -104,10 +104,11 @@ const Lens = (function () {
       },
 
       palette: {
-        // Dirty World: three detuned saws through heavy distortion — the filth
-        // Falls through the floor. Stays audible on phone speakers.
-        peak:       { voice: 'dirty', octave: 0,  decay: 1.8 },
-        continuous: { voice: 'dirty', octave: 0,  decay: 1.2 },
+        // Massive: 4:5:6:7:8 harmonic stack + portamento + unison detune.
+        // The harmonic 7th (7/4) is 31 cents flat of equal temperament — dark magic.
+        // Stab punches on motion peaks — the accent that makes the massive breathe.
+        peak:       { voice: 'stab',    octave: 0,  decay: 0.4 },
+        continuous: { voice: 'massive', octave: 0,  decay: 0.9 },
         // 8th-note hats — the grid
         subdivision: { voice: 'hat', kit: '808', divisions: 2, vel: 0.22 },
         // Stab answer — sharp, punchy
