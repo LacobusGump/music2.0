@@ -244,7 +244,7 @@ const Follow = (function () {
   var sessionEngagedTime = 0;   // seconds of active (non-silent) play
   var sessionPhase = 0;
   var PHASE_LISTENING = 8;
-  var PHASE_ALIVE = 16;
+  var PHASE_ALIVE = 20;
 
   // ── DESCENT ARC ───────────────────────────────────────────────────────
   // The music earns its structural arc. Build enough energy and the world

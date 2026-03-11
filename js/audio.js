@@ -13,6 +13,8 @@ const Audio = (function () {
 
   let ctx = null;
   let masterGain = null;
+  let masterHPF = null;       // high-pass at 55Hz — kills sub-bass phone can't reproduce
+  let masterLimiter = null;   // brick wall limiter, last node before destination
   let eqLowShelf = null;
   let eqMidPeak = null;
   let eqHighShelf = null;
@@ -75,12 +77,23 @@ const Audio = (function () {
     spatialLFO.start();
     spatialPanner.connect(ctx.destination);
 
-    // 4-band per-lens parametric EQ → spatialPanner
+    // ── Master limiter — brick wall before spatialPanner ─────────────────
+    // Last defence against clipping. All streams (synth + drums + reverb + delay)
+    // sum at masterGain; this catches anything that peaks past -1dBFS.
+    masterLimiter = ctx.createDynamicsCompressor();
+    masterLimiter.threshold.value = -1;
+    masterLimiter.knee.value = 0;
+    masterLimiter.ratio.value = 20;
+    masterLimiter.attack.value = 0.001;
+    masterLimiter.release.value = 0.05;
+    masterLimiter.connect(spatialPanner);
+
+    // 4-band per-lens parametric EQ → limiter → spatialPanner
     masterLP = ctx.createBiquadFilter();
     masterLP.type = 'lowpass';
     masterLP.frequency.value = 3200;
     masterLP.Q.value = 0.3;
-    masterLP.connect(spatialPanner);
+    masterLP.connect(masterLimiter);
 
     eqHighShelf = ctx.createBiquadFilter();
     eqHighShelf.type = 'highshelf';
@@ -97,25 +110,32 @@ const Audio = (function () {
 
     eqLowShelf = ctx.createBiquadFilter();
     eqLowShelf.type = 'lowshelf';
-    eqLowShelf.frequency.value = 80;
-    eqLowShelf.gain.value = 5;
+    eqLowShelf.frequency.value = 120;
+    eqLowShelf.gain.value = 1;    // was 5dB — phone speakers can't reproduce 80Hz, boost = mud
     eqLowShelf.connect(eqMidPeak);
+
+    // High-pass at 55Hz: removes sub-bass the phone speaker converts to distortion
+    masterHPF = ctx.createBiquadFilter();
+    masterHPF.type = 'highpass';
+    masterHPF.frequency.value = 55;
+    masterHPF.Q.value = 0.5;
+    masterHPF.connect(eqLowShelf);
 
     masterGain = ctx.createGain();
     masterGain.gain.value = 0.8;
-    masterGain.connect(eqLowShelf);
+    masterGain.connect(masterHPF);
 
     compressor = ctx.createDynamicsCompressor();
-    compressor.threshold.value = -18;
-    compressor.knee.value = 12;
+    compressor.threshold.value = -16;
+    compressor.knee.value = 6;    // was 12 — tighter, more transparent
     compressor.ratio.value = 4;
     compressor.attack.value = 0.003;
-    compressor.release.value = 0.15;
+    compressor.release.value = 0.10; // was 0.15 — faster recovery, less pumping
     compressor.connect(masterGain);
 
     saturator = ctx.createWaveShaper();
-    saturator.curve = makeSatCurve(0.3);
-    saturator.oversample = '2x';
+    saturator.curve = makeSatCurve(0.08); // was 0.3 — subtle warmth, not grit
+    saturator.oversample = '4x';          // higher oversample = less aliasing
     saturator.connect(compressor);
 
     sidechainGain = ctx.createGain();
@@ -150,7 +170,9 @@ const Audio = (function () {
     var del = space.delay || {};
 
     // Saturation
-    if (saturator) saturator.curve = makeSatCurve(space.saturation !== undefined ? space.saturation : 0.3);
+    // Cap saturation at 0.15 — phone speakers distort badly above this
+    var satAmt = space.saturation !== undefined ? Math.min(0.15, space.saturation) : 0.08;
+    if (saturator) saturator.curve = makeSatCurve(satAmt);
 
     // Rebuild reverb with lens-specific IR
     buildReverb(rev.decay || 3.0, rev.damping || 0.4);
@@ -338,7 +360,7 @@ const Audio = (function () {
   // ── HUMANIZE ───────────────────────────────────────────────────────────
 
   function hTime(t) { return t + (Math.random() - 0.5) * 0.007; }
-  function hVel(vel) { return vel * (0.87 + Math.random() * 0.26); }
+  function hVel(vel) { return Math.min(0.95, vel * (0.87 + Math.random() * 0.26)); }
 
   // ── SIDECHAIN ──────────────────────────────────────────────────────────
 
@@ -860,11 +882,11 @@ const Audio = (function () {
     lfo.start(time);
     lfo.stop(time + dur + 1);
 
-    // Master envelope — slow attack, very long sustain
+    // Master envelope — slow organic attack, very long sustain
     var env = ctx.createGain();
-    env.gain.setValueAtTime(0, time);
-    env.gain.linearRampToValueAtTime(vel * 0.75, time + 0.06);
-    env.gain.setTargetAtTime(vel * 0.55, time + 0.06, 1.2);
+    env.gain.setValueAtTime(0.0001, time);
+    env.gain.setTargetAtTime(vel * 0.68, time, 0.025);
+    env.gain.setTargetAtTime(vel * 0.50, time + 0.08, 1.2);
     env.gain.setTargetAtTime(0.001, time + dur * 0.65, dur * 0.45);
 
     // Three detuned saws — the mass
@@ -891,9 +913,9 @@ const Audio = (function () {
     sub.type = 'sine';
     sub.frequency.value = freq / 2;
     var subG = ctx.createGain();
-    subG.gain.setValueAtTime(0, time);
-    subG.gain.linearRampToValueAtTime(vel * 0.65, time + 0.12);
-    subG.gain.setTargetAtTime(0.001, time + dur * 0.7, dur * 0.4);
+    subG.gain.setValueAtTime(0.0001, time);
+    subG.gain.setTargetAtTime(vel * 0.55, time, 0.05);
+    subG.gain.setTargetAtTime(0.0001, time + dur * 0.7, dur * 0.4);
     sub.connect(subG);
     subG.connect(sidechainGain);
     sub.start(time);
@@ -916,10 +938,10 @@ const Audio = (function () {
     filt.Q.value = 0.7;
 
     var env = ctx.createGain();
-    env.gain.setValueAtTime(0, time);
-    env.gain.linearRampToValueAtTime(vel * 1.5, time + 0.003);
-    env.gain.setTargetAtTime(vel * 0.6, time + 0.003, 0.15);
-    env.gain.setTargetAtTime(0.001, time + decay * 0.5, decay * 0.35);
+    env.gain.setValueAtTime(0.0001, time);
+    env.gain.exponentialRampToValueAtTime(Math.min(0.92, vel * 0.88), time + 0.004);
+    env.gain.setTargetAtTime(vel * 0.52, time + 0.004, 0.14);
+    env.gain.setTargetAtTime(0.0001, time + decay * 0.5, decay * 0.35);
 
     var o1 = ctx.createOscillator(); o1.type = 'triangle'; o1.frequency.value = freq;
     var o2 = ctx.createOscillator(); o2.type = 'triangle'; o2.frequency.value = freq; o2.detune.value = 6;
@@ -985,10 +1007,10 @@ const Audio = (function () {
     filt.type = 'lowpass'; filt.frequency.value = 2800; filt.Q.value = 0.5;
 
     var env = ctx.createGain();
-    env.gain.setValueAtTime(0, time);
-    env.gain.linearRampToValueAtTime(vel * 1.2, time + 0.008);
-    env.gain.setTargetAtTime(vel * 0.8, time + 0.008, 0.25);
-    env.gain.setTargetAtTime(0.001, time + decay, decay * 0.3);
+    env.gain.setValueAtTime(0.0001, time);
+    env.gain.exponentialRampToValueAtTime(Math.min(0.92, vel * 0.85), time + 0.010);
+    env.gain.setTargetAtTime(vel * 0.72, time + 0.010, 0.22);
+    env.gain.setTargetAtTime(0.0001, time + decay, decay * 0.3);
 
     var lfo = ctx.createOscillator(); lfo.type = 'sine'; lfo.frequency.value = 6.5;
 
@@ -1012,9 +1034,9 @@ const Audio = (function () {
 
   function synthBell(time, freq, vel, decay) {
     var env = ctx.createGain();
-    env.gain.setValueAtTime(0, time);
-    env.gain.linearRampToValueAtTime(vel * 1.3, time + 0.001);
-    env.gain.setTargetAtTime(vel * 0.3, time + 0.001, decay * 0.4);
+    env.gain.setValueAtTime(0.0001, time);
+    env.gain.exponentialRampToValueAtTime(Math.min(0.92, vel * 0.85), time + 0.001);
+    env.gain.setTargetAtTime(vel * 0.28, time + 0.001, decay * 0.4);
 
     var partials = [1, 2.4, 4.1, 5.3, 6.7];
     var pGains = [0.5, 0.25, 0.15, 0.1, 0.06];
@@ -1041,8 +1063,8 @@ const Audio = (function () {
     filt.Q.value = 6;
 
     var env = ctx.createGain();
-    env.gain.setValueAtTime(0, time);
-    env.gain.linearRampToValueAtTime(vel * 1.4, time + 0.001);
+    env.gain.setValueAtTime(0.0001, time);
+    env.gain.exponentialRampToValueAtTime(Math.min(0.92, vel * 0.88), time + 0.001);
     env.gain.exponentialRampToValueAtTime(0.001, time + 0.15);
 
     var o = ctx.createOscillator(); o.type = 'square'; o.frequency.value = freq;
@@ -1122,10 +1144,10 @@ const Audio = (function () {
     var c2g = ctx.createGain(); c2g.gain.value = 0.25; car2.connect(c2g);
 
     var env = ctx.createGain();
-    env.gain.setValueAtTime(0, time);
-    env.gain.linearRampToValueAtTime(vel, time + 0.002);
-    env.gain.setTargetAtTime(vel * 0.5, time + 0.002, 0.08);
-    env.gain.setTargetAtTime(0.001, time + decay * 0.4, decay * 0.3);
+    env.gain.setValueAtTime(0.0001, time);
+    env.gain.exponentialRampToValueAtTime(Math.min(0.92, vel * 0.88), time + 0.003);
+    env.gain.setTargetAtTime(vel * 0.46, time + 0.003, 0.07);
+    env.gain.setTargetAtTime(0.0001, time + decay * 0.4, decay * 0.3);
 
     var lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 3000; lp.Q.value = 0.5;
     car.connect(env); c2g.connect(env);
@@ -1139,42 +1161,50 @@ const Audio = (function () {
     car2.start(time); car2.stop(end);
   }
 
-  // ── ELECTRIC PIANO — Rhodes/Wurlitzer: FM + tremolo ───────────────────
+  // ── ELECTRIC PIANO — Rhodes: FM tine model, proper AM tremolo ─────────
+  // The tine is an FM pair. Velocity drives modulation index (brightness).
+  // Tremolo is AM (multiply after envelope) not additive — the original bug.
 
   function synthEPiano(time, freq, vel, decay) {
+    var end = time + decay + 0.5;
+
+    // FM pair 1: fundamental tine (vel drives modulation depth → brightness)
     var mod1 = ctx.createOscillator(); mod1.type = 'sine'; mod1.frequency.value = freq;
     var mod1G = ctx.createGain();
-    mod1G.gain.setValueAtTime(freq * 3, time);
-    mod1G.gain.exponentialRampToValueAtTime(freq * 0.2, time + decay * 0.3);
+    var modIdx = 2.5 + vel * 1.8;  // soft touch = 2.5, hard = 4.3
+    mod1G.gain.setValueAtTime(freq * modIdx, time);
+    mod1G.gain.exponentialRampToValueAtTime(freq * 0.12, time + decay * 0.35);
     var car1 = ctx.createOscillator(); car1.type = 'sine'; car1.frequency.value = freq;
     mod1.connect(mod1G); mod1G.connect(car1.frequency);
 
-    var mod2 = ctx.createOscillator(); mod2.type = 'sine'; mod2.frequency.value = freq * 2;
+    // FM pair 2: upper harmonic (softens toward silence)
+    var mod2 = ctx.createOscillator(); mod2.type = 'sine'; mod2.frequency.value = freq * 2.01;
     var mod2G = ctx.createGain();
-    mod2G.gain.setValueAtTime(freq * 1.8, time);
-    mod2G.gain.exponentialRampToValueAtTime(freq * 0.06, time + decay * 0.2);
-    var car2 = ctx.createOscillator(); car2.type = 'sine'; car2.frequency.value = freq * 2;
+    mod2G.gain.setValueAtTime(freq * 1.2, time);
+    mod2G.gain.exponentialRampToValueAtTime(freq * 0.04, time + decay * 0.2);
+    var car2 = ctx.createOscillator(); car2.type = 'sine'; car2.frequency.value = freq * 2.01;
     mod2.connect(mod2G); mod2G.connect(car2.frequency);
-    var c2gain = ctx.createGain(); c2gain.gain.value = 0.35; car2.connect(c2gain);
+    var c2gain = ctx.createGain(); c2gain.gain.value = 0.28; car2.connect(c2gain);
 
-    var trem = ctx.createOscillator(); trem.type = 'sine'; trem.frequency.value = 4.8;
-    var tremG = ctx.createGain(); tremG.gain.value = 0.15;
-    trem.connect(tremG);
-
+    // Envelope: exponential attack (no clicks), natural decay tail
     var env = ctx.createGain();
-    env.gain.setValueAtTime(0, time);
-    env.gain.linearRampToValueAtTime(vel * 1.2, time + 0.002);
-    env.gain.setTargetAtTime(vel * 0.5, time + 0.002, 0.1);
-    env.gain.setTargetAtTime(0.001, time + decay * 0.5, decay * 0.35);
-    tremG.connect(env.gain);
+    env.gain.setValueAtTime(0.0001, time);
+    env.gain.exponentialRampToValueAtTime(Math.min(0.92, vel * 0.88), time + 0.004);
+    env.gain.setTargetAtTime(vel * 0.44, time + 0.004, 0.09);
+    env.gain.setTargetAtTime(0.0001, time + decay * 0.5, decay * 0.38);
 
-    var lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 3200; lp.Q.value = 0.5;
+    // Tremolo: AM multiplication AFTER envelope, not LFO-into-envelope (was a bug)
+    var tremoloGain = ctx.createGain(); tremoloGain.gain.value = 1;
+    var trem = ctx.createOscillator(); trem.type = 'sine'; trem.frequency.value = 4.8;
+    var tremDepth = ctx.createGain(); tremDepth.gain.value = 0.11 * vel; // velocity-sensitive tremolo depth
+    trem.connect(tremDepth); tremDepth.connect(tremoloGain.gain);
+
+    var lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 4200; lp.Q.value = 0.4;
     car1.connect(env); c2gain.connect(env);
-    env.connect(lp); lp.connect(sidechainGain);
-    var rs = ctx.createGain(); rs.gain.value = 0.4; lp.connect(rs); rs.connect(reverbSend);
-    var ds = ctx.createGain(); ds.gain.value = 0.2; lp.connect(ds); ds.connect(delaySend);
+    env.connect(tremoloGain); tremoloGain.connect(lp); lp.connect(sidechainGain);
+    var rs = ctx.createGain(); rs.gain.value = 0.38; lp.connect(rs); rs.connect(reverbSend);
+    var ds = ctx.createGain(); ds.gain.value = 0.18; lp.connect(ds); ds.connect(delaySend);
 
-    var end = time + decay + 0.5;
     mod1.start(time); mod1.stop(end); car1.start(time); car1.stop(end);
     mod2.start(time); mod2.stop(end); car2.start(time); car2.stop(end);
     trem.start(time); trem.stop(end);
@@ -1201,8 +1231,8 @@ const Audio = (function () {
     oscEnv.gain.exponentialRampToValueAtTime(0.001, time + decay * 0.6);
 
     var env = ctx.createGain();
-    env.gain.setValueAtTime(vel * 1.5, time);
-    env.gain.exponentialRampToValueAtTime(0.001, time + decay);
+    env.gain.setValueAtTime(Math.min(0.92, vel * 0.88), time);
+    env.gain.exponentialRampToValueAtTime(0.0001, time + decay);
 
     excSrc.connect(body); body.connect(env);
     excSrc.connect(body2); body2.connect(b2g); b2g.connect(env);
@@ -1227,10 +1257,10 @@ const Audio = (function () {
     filt.Q.value = 2;
 
     var env = ctx.createGain();
-    env.gain.setValueAtTime(0, time);
-    env.gain.linearRampToValueAtTime(vel * 1.1, time + 0.04);
-    env.gain.setTargetAtTime(vel * 0.7, time + 0.04, 0.2);
-    env.gain.setTargetAtTime(0.001, time + decay * 0.6, decay * 0.3);
+    env.gain.setValueAtTime(0.0001, time);
+    env.gain.setTargetAtTime(Math.min(0.92, vel * 0.82), time, 0.018);
+    env.gain.setTargetAtTime(vel * 0.62, time + 0.06, 0.2);
+    env.gain.setTargetAtTime(0.0001, time + decay * 0.6, decay * 0.3);
 
     var detunes = [-8, 0, 8];
     for (var i = 0; i < detunes.length; i++) {
@@ -1261,18 +1291,18 @@ const Audio = (function () {
     o.frequency.exponentialRampToValueAtTime(freq, time + 0.06);
 
     var env = ctx.createGain();
-    env.gain.setValueAtTime(0, time);
-    env.gain.linearRampToValueAtTime(vel * 1.4, time + 0.003);
-    env.gain.setTargetAtTime(vel * 0.8, time + 0.003, 0.08);
-    env.gain.exponentialRampToValueAtTime(0.001, time + 1.8);
+    env.gain.setValueAtTime(0.0001, time);
+    env.gain.exponentialRampToValueAtTime(Math.min(0.92, vel * 0.85), time + 0.004);
+    env.gain.setTargetAtTime(vel * 0.65, time + 0.004, 0.09);
+    env.gain.exponentialRampToValueAtTime(0.0001, time + 1.8);
 
     var sub = ctx.createOscillator(); sub.type = 'sine';
     sub.frequency.value = freq / 2;
-    var subG = ctx.createGain(); subG.gain.value = 0.5;
+    var subG = ctx.createGain(); subG.gain.value = 0.45;
     sub.connect(subG);
 
     var lp = ctx.createBiquadFilter(); lp.type = 'lowpass';
-    lp.frequency.value = 120; lp.Q.value = 2;
+    lp.frequency.value = 600; lp.Q.value = 1.2;  // was 120Hz — nearly inaudible on headphones
 
     o.connect(lp); subG.connect(lp); lp.connect(env);
     env.connect(sidechainGain);
@@ -1310,10 +1340,10 @@ const Audio = (function () {
     f1g.connect(mix); f2g.connect(mix); f3g.connect(mix);
 
     var env = ctx.createGain();
-    env.gain.setValueAtTime(0, time);
-    env.gain.linearRampToValueAtTime(vel, time + 0.05);
-    env.gain.setTargetAtTime(vel * 0.6, time + 0.05, 0.3);
-    env.gain.setTargetAtTime(0.001, time + decay * 0.6, decay * 0.3);
+    env.gain.setValueAtTime(0.0001, time);
+    env.gain.setTargetAtTime(vel * 0.82, time, 0.022);
+    env.gain.setTargetAtTime(vel * 0.52, time + 0.07, 0.28);
+    env.gain.setTargetAtTime(0.0001, time + decay * 0.6, decay * 0.3);
 
     var lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 2800; lp.Q.value = 0.5;
     mix.connect(env); env.connect(lp); lp.connect(sidechainGain);
@@ -1350,10 +1380,10 @@ const Audio = (function () {
 
     // Soft felt mallet attack — not a hard bell strike
     var env = ctx.createGain();
-    env.gain.setValueAtTime(0, time);
-    env.gain.linearRampToValueAtTime(vel * 1.0, time + 0.014);
-    env.gain.setTargetAtTime(vel * 0.55, time + 0.014, decay * 0.3);
-    env.gain.setTargetAtTime(0.001, time + decay * 0.65, decay * 0.3);
+    env.gain.setValueAtTime(0.0001, time);
+    env.gain.exponentialRampToValueAtTime(Math.min(0.92, vel * 0.82), time + 0.016);
+    env.gain.setTargetAtTime(vel * 0.50, time + 0.016, decay * 0.28);
+    env.gain.setTargetAtTime(0.0001, time + decay * 0.65, decay * 0.3);
     motorDepth.connect(env.gain); // motor modulates the envelope amplitude
 
     var lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 5000; lp.Q.value = 0.3;
@@ -1388,12 +1418,13 @@ const Audio = (function () {
     vib.connect(vibG); vibG.connect(lp.frequency);
     vib.start(time); vib.stop(end);
 
-    // Slow bow attack: 0.35s ramp — this IS the bow hitting the string
+    // Slow bow attack: setTargetAtTime gives the organic "bow catching the string" swell
+    // Linear was the tell — this is the change that makes strings stop sounding synthetic
     var env = ctx.createGain();
-    env.gain.setValueAtTime(0, time);
-    env.gain.linearRampToValueAtTime(vel * 0.9, time + 0.35);
-    env.gain.setTargetAtTime(vel * 0.7, time + 0.35, 0.5);
-    env.gain.setTargetAtTime(0.001, time + decay * 0.7, decay * 0.4);
+    env.gain.setValueAtTime(0.0001, time);
+    env.gain.setTargetAtTime(vel * 0.88, time, 0.12);  // τ=120ms: reaches ~86% at 360ms, sounds natural
+    env.gain.setTargetAtTime(vel * 0.68, time + 0.45, 0.5);
+    env.gain.setTargetAtTime(0.0001, time + decay * 0.7, decay * 0.4);
 
     lp.connect(env); env.connect(sidechainGain);
     var rs = ctx.createGain(); rs.gain.value = 0.65; env.connect(rs); rs.connect(reverbSend);
