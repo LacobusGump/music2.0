@@ -686,6 +686,9 @@
     var ox = posX * W;
     var oy = posY * H;
     Organism.draw(ctx2d, ox, oy, W, H);
+
+    // Weather visual layer — on top of organism, under UI
+    Wx.render(ctx2d, W, H, Brain.energy || 0);
   }
 
   // ── CANVAS SETUP ─────────────────────────────────────────────────────
@@ -759,6 +762,7 @@
     initLens();
     initPlayCmd();
     initPlayTouch();
+    Weather.init();   // fetch conditions — visual + audio adjust when data arrives
   }
 
   if (document.readyState === 'loading') {

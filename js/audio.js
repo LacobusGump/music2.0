@@ -1755,6 +1755,70 @@ const Audio = (function () {
     if (vol < 0.005 && Math.abs(desGain.gain.value) < 0.005) stopDescentBass();
   }
 
+  // ── WEATHER AUDIO — ambient rain/weather noise layer ───────────────────
+
+  var wxNoiseSource = null;
+  var wxNoiseGain   = null;
+
+  function setWeather(condition, intensity) {
+    if (!ctx) return;
+    var base = (condition || 'clear').split('_')[0];
+    var isWet = (base === 'rain' || base === 'storm');
+    var vol   = isWet ? (0.018 + (intensity || 0.5) * 0.022) : 0;
+
+    if (!isWet) {
+      if (wxNoiseSource) {
+        try { wxNoiseSource.stop(); } catch(e) {}
+        wxNoiseSource = null; wxNoiseGain = null;
+      }
+      return;
+    }
+
+    if (wxNoiseSource) {
+      // Already running — just adjust volume
+      if (wxNoiseGain) wxNoiseGain.gain.setTargetAtTime(vol, ctx.currentTime, 1.5);
+      return;
+    }
+
+    // Build pink noise (Voss-McCartney)
+    var len  = ctx.sampleRate * 3;
+    var buf  = ctx.createBuffer(1, len, ctx.sampleRate);
+    var data = buf.getChannelData(0);
+    var b0=0,b1=0,b2=0,b3=0,b4=0,b5=0,b6=0;
+    for (var i = 0; i < len; i++) {
+      var w = Math.random() * 2 - 1;
+      b0 = 0.99886*b0 + w*0.0555179; b1 = 0.99332*b1 + w*0.0750759;
+      b2 = 0.96900*b2 + w*0.1538520; b3 = 0.86650*b3 + w*0.3104856;
+      b4 = 0.55000*b4 + w*0.5329522; b5 = -0.7616*b5 - w*0.0168980;
+      data[i] = (b0+b1+b2+b3+b4+b5+b6+w*0.5362) / 9;
+      b6 = w * 0.115926;
+    }
+
+    // Shape noise into rain character
+    var hp = ctx.createBiquadFilter(); hp.type = 'highpass';  hp.frequency.value = 300;
+    var lp = ctx.createBiquadFilter(); lp.type = 'lowpass';   lp.frequency.value = 2200; lp.Q.value = 0.4;
+    var bp = ctx.createBiquadFilter(); bp.type = 'peaking';   bp.frequency.value = 800;
+    bp.gain.value = 4; bp.Q.value = 0.7;
+
+    wxNoiseGain = ctx.createGain();
+    wxNoiseGain.gain.setValueAtTime(0.001, ctx.currentTime);
+    wxNoiseGain.gain.setTargetAtTime(vol, ctx.currentTime, 2.0);  // fade in over 2s
+
+    wxNoiseSource = ctx.createBufferSource();
+    wxNoiseSource.buffer = buf;
+    wxNoiseSource.loop   = true;
+
+    wxNoiseSource.connect(hp); hp.connect(bp); bp.connect(lp);
+    lp.connect(wxNoiseGain);
+    wxNoiseGain.connect(masterGain);
+
+    // Also bleed into reverb for spatial rain feel
+    var rvSend = ctx.createGain(); rvSend.gain.value = vol * 1.8;
+    lp.connect(rvSend); rvSend.connect(reverbSend);
+
+    wxNoiseSource.start();
+  }
+
   // ── PUBLIC API ─────────────────────────────────────────────────────────
 
   return Object.freeze({
@@ -1811,6 +1875,7 @@ const Audio = (function () {
     setMassivePhase: setMassivePhase,
     setMasterGain: function (v) { if (masterGain) masterGain.gain.value = v; },
     setReverbMix: function (v) { if (reverbSend) reverbSend.gain.value = v; },
+    setWeather: setWeather,
 
     get ctx() { return ctx; },
     get master() { return masterGain; },

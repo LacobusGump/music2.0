@@ -2236,8 +2236,14 @@ const Follow = (function () {
     // giving the touch voice space to breathe — recovers to 1.0 over ~0.5s
     touchDuck = Math.min(1.0, touchDuck + dt * 2.0);
     if (Audio.ctx) {
-      // 0.62 instead of 0.8 — multiple voices summing was hitting the ceiling
       Audio.setMasterGain(0.62 * fadeGain * touchDuck);
+
+      // Weather music mods — apply reverb and filter adjustments each frame
+      if (typeof Weather !== 'undefined' && Weather.loaded && lens) {
+        var wxm = Weather.mods;
+        var baseRv = (lens.space && lens.space.reverbMix) || 0.25;
+        Audio.setReverbMix(Math.min(0.85, baseRv + epi.spaceMix + wxm.reverbBoost));
+      }
     }
 
     // ── 8D Spatial — tilt biases, LFO sweeps, touch takes direct control ──
