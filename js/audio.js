@@ -93,14 +93,14 @@ const Audio = (function () {
     // 4-band per-lens parametric EQ → limiter → spatialPanner
     masterLP = ctx.createBiquadFilter();
     masterLP.type = 'lowpass';
-    masterLP.frequency.value = 3200;
+    masterLP.frequency.value = 2800;  // was 3200 — tame shrillness at the master level
     masterLP.Q.value = 0.3;
     masterLP.connect(masterLimiter);
 
     eqHighShelf = ctx.createBiquadFilter();
     eqHighShelf.type = 'highshelf';
-    eqHighShelf.frequency.value = 2800;
-    eqHighShelf.gain.value = -8;
+    eqHighShelf.frequency.value = 2400;  // was 2800 — start rolling earlier
+    eqHighShelf.gain.value = -12;        // was -8 — stronger cut for headphone listening
     eqHighShelf.connect(masterLP);
 
     eqMidPeak = ctx.createBiquadFilter();
@@ -131,7 +131,7 @@ const Audio = (function () {
     compressor.threshold.value = -16;
     compressor.knee.value = 6;    // was 12 — tighter, more transparent
     compressor.ratio.value = 4;
-    compressor.attack.value = 0.015;  // was 0.003 — let transients breathe through
+    compressor.attack.value = 0.006;  // 6ms: fast enough to catch transients, loose enough for punch
     compressor.release.value = 0.10; // was 0.15 — faster recovery, less pumping
     compressor.connect(masterGain);
 
@@ -280,32 +280,20 @@ const Audio = (function () {
     var len = Math.floor(sr * cappedDecay);
     var buf = ctx.createBuffer(2, len, sr);
 
-    // Asymmetric early reflections — defines room geometry, gives stereo depth.
-    // L and R have different tap timings: your ears triangulate a real space.
-    var erTapsL = [0.003, 0.009, 0.015, 0.022]; // seconds
-    var erTapsR = [0.005, 0.011, 0.018, 0.026];
-    var erGains = [0.70, 0.50, 0.30, 0.15];
+    // Smooth diffuse tail — each channel gets independent random noise for stereo width.
+    // Fade-in for first 50ms: the room "blooms" open rather than snapping on.
+    // (Pre-delay node already provides the acoustic distance perception.)
+    var fadeInSamples = Math.floor(0.050 * sr);
 
     for (var ch = 0; ch < 2; ch++) {
       var d = buf.getChannelData(ch);
-      var taps = ch === 0 ? erTapsL : erTapsR;
-
-      // Sparse early reflection impulses
-      for (var tap = 0; tap < taps.length; tap++) {
-        var tapSamp = Math.floor(taps[tap] * sr);
-        if (tapSamp < len) {
-          d[tapSamp] = (Math.random() * 2 - 1) * erGains[tap];
-        }
-      }
-
-      // Late diffuse tail: starts after ER cluster clears (~30ms)
-      var tailStart = Math.floor(0.030 * sr);
-      for (var i = tailStart; i < len; i++) {
+      for (var i = 0; i < len; i++) {
         var t = i / len;
+        var fadeIn  = Math.min(1, i / fadeInSamples);
         var exponent = 1.5 + damping * 3;
         var envelope = Math.pow(1 - t, exponent);
-        var hfDamp = 1 - damping * t;
-        d[i] += (Math.random() * 2 - 1) * envelope * Math.max(0.05, hfDamp) * 0.82;
+        var hfDamp  = 1 - damping * t;
+        d[i] = (Math.random() * 2 - 1) * envelope * Math.max(0.05, hfDamp) * fadeIn;
       }
     }
     convolver.buffer = buf;
@@ -324,17 +312,17 @@ const Audio = (function () {
     reverbGain = ctx.createGain();
     reverbGain.gain.value = 0.5;
 
-    // HPF on reverb return: removes bass mud — the single biggest quality upgrade.
-    // Bass in reverb = boomy wash that competes with the dry kick and bass notes.
+    // HPF on reverb return: kills sub-bass mud (below 120Hz) without removing warmth.
+    // Keeps the bloom and body of the reverb while cleaning up the low end.
     reverbHPF = ctx.createBiquadFilter();
     reverbHPF.type = 'highpass';
-    reverbHPF.frequency.value = 200;
+    reverbHPF.frequency.value = 120;
     reverbHPF.Q.value = 0.5;
 
-    // Reverb LP: raised from 3000 → 5000Hz — room breathes, less like a blanket
+    // Reverb LP: 4000Hz — air in the tails without harshness on headphones
     reverbLP = ctx.createBiquadFilter();
     reverbLP.type = 'lowpass';
-    reverbLP.frequency.value = 5000;
+    reverbLP.frequency.value = 4000;
     reverbLP.Q.value = 0.5;
 
     // Signal chain: send → preDelay → convolver → HPF → LP → gain → master
