@@ -109,15 +109,15 @@ const Lens = (function () {
       },
 
       palette: {
-        // Dirty: 3 detuned saws + aggressive waveshaper — the constant industrial filth.
-        // This IS the texture. Tilt moves through a wall of grit, not clean notes.
-        continuous: { voice: 'dirty',   octave: 0,  decay: 6.0 },
-        // Massive: unison drop — earned impact when your body peaks.
-        // At massiveStart=2 it already has sub + fifth from the first gesture.
-        peak:       { voice: 'massive', octave: 0,  decay: 1.2 },
-        harmonic:   { voice: 'stab',   octave: 0,  decay: 0.35 },
-        burst:      { voice: 'glitch', octave: 0 },
-        touch:      { voice: 'stab',   octave: 0,  decay: 0.4 },
+        // gridstack: root + minor 3rd + 5th + minor 7th + octave, each with unison detune.
+        // Resonant filter sweeps open on every hit — the "viral whoop" character.
+        // 7ms attack punch + 450ms decay = tactile snap on every tilt gesture.
+        continuous: { voice: 'gridstack', octave: 0, decay: 0.45 },
+        // Massive unison drop — big impact when body peaks hard
+        peak:       { voice: 'massive',   octave: 0, decay: 1.2  },
+        harmonic:   { voice: 'stab',      octave: 0, decay: 0.35 },
+        burst:      { voice: 'glitch',    octave: 0 },
+        touch:      { voice: 'gridstack', octave: 0, decay: 0.35 },
       },
 
       groove: {
@@ -131,9 +131,9 @@ const Lens = (function () {
       },
 
       response: {
-        peakThreshold: 0.28,
+        peakThreshold: 0.20,
         tiltRange: 48,
-        noteInterval: 520,  // massive needs room — let each note sustain before next fires
+        noteInterval: 140,  // gridstack is punchy/short — fast response = tactile feedback
         stillnessThreshold: 0.14,
         stillnessTimeout: 2.8,
         fadeTime: 3.5,

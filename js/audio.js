@@ -634,36 +634,36 @@ const Audio = (function () {
       o.connect(g); g.connect(drumBus);
       o.start(time); o.stop(time + 0.15);
     } else {
-      // Layer 1: Click transient — 4kHz noise burst, 4ms attack
-      var clickLen = Math.floor(ctx.sampleRate * 0.004);
+      // Layer 1: Click transient — beater impact, punchy 4kHz pop
+      var clickLen = Math.floor(ctx.sampleRate * 0.005);
       var clickBuf = ctx.createBuffer(1, clickLen, ctx.sampleRate);
       var cd = clickBuf.getChannelData(0);
-      for (var ci = 0; ci < clickLen; ci++) cd[ci] = (Math.random() * 2 - 1) * (1 - ci / clickLen);
+      for (var ci = 0; ci < clickLen; ci++) cd[ci] = (Math.random() * 2 - 1) * Math.pow(1 - ci / clickLen, 0.5);
       var clickSrc = ctx.createBufferSource(); clickSrc.buffer = clickBuf;
-      var clickHP = ctx.createBiquadFilter(); clickHP.type = 'highpass'; clickHP.frequency.value = 3500;
+      var clickHP = ctx.createBiquadFilter(); clickHP.type = 'highpass'; clickHP.frequency.value = 3000;
       var clickG = ctx.createGain();
-      clickG.gain.setValueAtTime(0.65 * vel, time);
-      clickG.gain.exponentialRampToValueAtTime(0.001, time + 0.005);
+      clickG.gain.setValueAtTime(0.88 * vel, time);
+      clickG.gain.exponentialRampToValueAtTime(0.001, time + 0.006);
       clickSrc.connect(clickHP); clickHP.connect(clickG); clickG.connect(drumBus);
-      clickSrc.start(time); clickSrc.stop(time + 0.006);
+      clickSrc.start(time); clickSrc.stop(time + 0.007);
 
-      // Layer 2: Body sweep — 150→38Hz over 280ms
-      o.frequency.setValueAtTime(150 + 30 * vel, time);
-      o.frequency.exponentialRampToValueAtTime(38, time + 0.28);
+      // Layer 2: Body sweep — tight 180ms, punch not boom
+      o.frequency.setValueAtTime(155 + 25 * vel, time);
+      o.frequency.exponentialRampToValueAtTime(45, time + 0.18);
       var g = ctx.createGain();
-      g.gain.setValueAtTime(0.85 * vel, time);
-      g.gain.exponentialRampToValueAtTime(0.001, time + 0.30);
+      g.gain.setValueAtTime(0.90 * vel, time);
+      g.gain.exponentialRampToValueAtTime(0.001, time + 0.22);
       o.connect(g); g.connect(drumBus);
-      o.start(time); o.stop(time + 0.32);
+      o.start(time); o.stop(time + 0.25);
 
-      // Layer 3: Sub tail — 40Hz sine, 550ms sustain
+      // Layer 3: Sub tail — 45Hz, tighter 380ms sustain
       var subO = ctx.createOscillator(); subO.type = 'sine';
-      subO.frequency.value = 40;
+      subO.frequency.value = 45;
       var subG = ctx.createGain();
-      subG.gain.setValueAtTime(0.50 * vel, time + 0.01);
-      subG.gain.exponentialRampToValueAtTime(0.001, time + 0.55);
+      subG.gain.setValueAtTime(0.55 * vel, time + 0.008);
+      subG.gain.exponentialRampToValueAtTime(0.001, time + 0.38);
       subO.connect(subG); subG.connect(drumBus);
-      subO.start(time + 0.01); subO.stop(time + 0.58);
+      subO.start(time + 0.008); subO.stop(time + 0.40);
     }
     pumpSidechain(vel);
   }
@@ -708,43 +708,43 @@ const Audio = (function () {
       src.connect(g); g.connect(drumBus);
       src.start(time); src.stop(time + 0.08);
     } else {
-      // Layer 1: Crack — HP noise swept 800→2800Hz over 70ms
-      var crackLen = Math.floor(ctx.sampleRate * 0.07);
+      // Layer 1: Crack — the initial stick impact, bright and sharp
+      var crackLen = Math.floor(ctx.sampleRate * 0.08);
       var crackBuf = ctx.createBuffer(1, crackLen, ctx.sampleRate);
       var crd = crackBuf.getChannelData(0);
-      for (var ci = 0; ci < crackLen; ci++) crd[ci] = (Math.random() * 2 - 1) * Math.pow(1 - ci / crackLen, 0.5);
+      for (var ci = 0; ci < crackLen; ci++) crd[ci] = (Math.random() * 2 - 1) * Math.pow(1 - ci / crackLen, 0.4);
       var crackSrc = ctx.createBufferSource(); crackSrc.buffer = crackBuf;
       var crackHP = ctx.createBiquadFilter(); crackHP.type = 'highpass';
-      crackHP.frequency.setValueAtTime(800, time);
-      crackHP.frequency.exponentialRampToValueAtTime(2800, time + 0.07);
+      crackHP.frequency.setValueAtTime(600, time);
+      crackHP.frequency.exponentialRampToValueAtTime(3200, time + 0.07);
       var crackG = ctx.createGain();
-      crackG.gain.setValueAtTime(0.55 * vel, time);
-      crackG.gain.exponentialRampToValueAtTime(0.001, time + 0.12);
+      crackG.gain.setValueAtTime(0.72 * vel, time);
+      crackG.gain.exponentialRampToValueAtTime(0.001, time + 0.16);
       crackSrc.connect(crackHP); crackHP.connect(crackG); crackG.connect(drumBus);
-      crackSrc.start(time); crackSrc.stop(time + 0.15);
+      crackSrc.start(time); crackSrc.stop(time + 0.18);
 
-      // Layer 2: Body — oscillator 200→130Hz
+      // Layer 2: Body — shell tone, more presence
       var bodyO = ctx.createOscillator(); bodyO.type = 'triangle';
-      bodyO.frequency.setValueAtTime(200, time);
-      bodyO.frequency.exponentialRampToValueAtTime(130, time + 0.08);
+      bodyO.frequency.setValueAtTime(220, time);
+      bodyO.frequency.exponentialRampToValueAtTime(140, time + 0.08);
       var bodyG = ctx.createGain();
-      bodyG.gain.setValueAtTime(0.4 * vel, time);
-      bodyG.gain.exponentialRampToValueAtTime(0.001, time + 0.10);
+      bodyG.gain.setValueAtTime(0.55 * vel, time);
+      bodyG.gain.exponentialRampToValueAtTime(0.001, time + 0.12);
       bodyO.connect(bodyG); bodyG.connect(drumBus);
-      bodyO.start(time); bodyO.stop(time + 0.12);
+      bodyO.start(time); bodyO.stop(time + 0.14);
 
-      // Layer 3: Wire noise — bandpass 3kHz, snare rattle character
-      var wireLen = Math.floor(ctx.sampleRate * 0.15);
+      // Layer 3: Wire rattle — snare wires buzzing, longer tail
+      var wireLen = Math.floor(ctx.sampleRate * 0.22);
       var wireBuf = ctx.createBuffer(1, wireLen, ctx.sampleRate);
       var wrd = wireBuf.getChannelData(0);
-      for (var wi = 0; wi < wireLen; wi++) wrd[wi] = (Math.random() * 2 - 1) * Math.pow(1 - wi / wireLen, 1.2);
+      for (var wi = 0; wi < wireLen; wi++) wrd[wi] = (Math.random() * 2 - 1) * Math.pow(1 - wi / wireLen, 1.0);
       var wireSrc = ctx.createBufferSource(); wireSrc.buffer = wireBuf;
-      var wireBP = ctx.createBiquadFilter(); wireBP.type = 'bandpass'; wireBP.frequency.value = 3000; wireBP.Q.value = 0.7;
+      var wireBP = ctx.createBiquadFilter(); wireBP.type = 'bandpass'; wireBP.frequency.value = 3500; wireBP.Q.value = 0.6;
       var wireG = ctx.createGain();
-      wireG.gain.setValueAtTime(0.30 * vel, time);
-      wireG.gain.exponentialRampToValueAtTime(0.001, time + 0.18);
+      wireG.gain.setValueAtTime(0.45 * vel, time);
+      wireG.gain.exponentialRampToValueAtTime(0.001, time + 0.24);
       wireSrc.connect(wireBP); wireBP.connect(wireG); wireG.connect(drumBus);
-      wireSrc.start(time); wireSrc.stop(time + 0.20);
+      wireSrc.start(time); wireSrc.stop(time + 0.26);
     }
   }
 
@@ -873,8 +873,74 @@ const Audio = (function () {
       case 'massive':    synthMassive(time, freq, vel, decay); break;
       case 'mono':       synthMono(time, freq, vel, decay); break;
       case 'cinematic':  synthCinematic(time, freq, vel, decay); break;
+      case 'gridstack':  synthGridStack(time, freq, vel, decay); break;
       default: synthSimple(time, freq, vel, decay, opts); break;
     }
+  }
+
+  // ── GRID STACK — TikTok supersaw: stacked intervals + unison detune ───
+  // Root + minor 3rd + perfect 5th + minor 7th + octave.
+  // Each interval has 2-3 detuned copies. Resonant filter sweeps open on attack.
+  // Q=3.0 peak = the "viral whoop." Fast decay = tactile punch on every gesture.
+
+  function synthGridStack(time, freq, vel, decay) {
+    var dur = decay || 0.45;
+
+    // 5 harmonic layers, each with unison detune spread
+    var stack = [
+      { ratio: 1.0,    det: [0, -10,  10], wt: [0.40, 0.24, 0.24] }, // root (3 voices)
+      { ratio: 1.1892, det: [0,  +8     ], wt: [0.26, 0.16       ] }, // minor 3rd
+      { ratio: 1.4983, det: [0,  -8     ], wt: [0.28, 0.18       ] }, // perfect 5th
+      { ratio: 1.7818, det: [0,  +6     ], wt: [0.18, 0.12       ] }, // minor 7th
+      { ratio: 2.0,    det: [0,  -5     ], wt: [0.22, 0.14       ] }, // octave
+    ];
+
+    // Resonant sweep: sealed → rips open = the viral "whoop"
+    var lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.setValueAtTime(180, time);
+    lp.frequency.linearRampToValueAtTime(3800 + vel * 2200, time + 0.05);
+    lp.frequency.setTargetAtTime(2000, time + 0.05, dur * 0.35);
+    lp.Q.value = 3.0;
+
+    var hp = ctx.createBiquadFilter();
+    hp.type = 'highpass';
+    hp.frequency.value = 65;
+    hp.Q.value = 0.5;
+
+    for (var si = 0; si < stack.length; si++) {
+      var s = stack[si];
+      var iFreq = freq * s.ratio;
+      for (var di = 0; di < s.det.length; di++) {
+        var o = ctx.createOscillator(); o.type = 'sawtooth';
+        o.frequency.value = iFreq;
+        o.detune.value = s.det[di];
+        var dg = ctx.createGain(); dg.gain.value = s.wt[di];
+        o.connect(dg); dg.connect(hp);
+        o.start(time); o.stop(time + dur + 0.2);
+      }
+    }
+
+    // Sub octave sine — physical presence, chest resonance
+    var sub = ctx.createOscillator(); sub.type = 'sine';
+    sub.frequency.value = freq * 0.5;
+    var subG = ctx.createGain();
+    subG.gain.setValueAtTime(0.001, time);
+    subG.gain.linearRampToValueAtTime(vel * 0.44, time + 0.010);
+    subG.gain.setTargetAtTime(0.001, time + dur * 0.28, dur * 0.38);
+    sub.connect(subG); subG.connect(sidechainGain);
+    sub.start(time); sub.stop(time + dur + 0.2);
+
+    // Punchy envelope: 7ms snap, fast clean decay
+    var env = ctx.createGain();
+    env.gain.setValueAtTime(0.001, time);
+    env.gain.linearRampToValueAtTime(vel * 0.64, time + 0.007);
+    env.gain.setTargetAtTime(vel * 0.32, time + 0.030, dur * 0.18);
+    env.gain.linearRampToValueAtTime(0.001, time + dur);
+
+    hp.connect(lp); lp.connect(env); env.connect(sidechainGain);
+    var rs = ctx.createGain(); rs.gain.value = 0.22; env.connect(rs); rs.connect(reverbSend);
+    var ds = ctx.createGain(); ds.gain.value = 0.58; env.connect(ds); ds.connect(delaySend);
   }
 
   // ── DIRTY WORLD — Fred Again underworld: detuned saws, fuzz, sub ──────
@@ -1801,7 +1867,7 @@ const Audio = (function () {
     voidGain.gain.value = 0;
     voidFilter.connect(voidGain);
     voidGain.connect(reverbGain);
-    voidGain.connect(masterGain);   // small direct signal for presence
+    voidGain.connect(masterHPF);    // bypass masterGain (which goes to 0 during silence)
 
     // 5 harmonic partials — deep sub + sus4 fourth for medicinal/suspended healing quality
     // r/4 = 108Hz (felt in chest on headphones), r*(4/3) = perfect fourth = suspension
