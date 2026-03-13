@@ -28,7 +28,7 @@ const Lens = (function () {
       harmony: { root: 440, mode: 'major' },
 
       tone: {
-        bassFreq: 80, bassGain: 3,
+        bassFreq: 80, bassGain: 5,
         midFreq: 1200, midQ: 0.7, midGain: 1,
         highFreq: 3500, highGain: -6,
         ceiling: 4500,
@@ -234,14 +234,14 @@ const Lens = (function () {
       harmony: { root: 432, mode: 'picardy' },
 
       tone: {
-        bassFreq: 120, bassGain: 1,   // barely any bass — only the note
+        bassFreq: 120, bassGain: 3,   // subtle foundation — space needs ground
         midFreq: 350, midQ: 0.4, midGain: -3,
         highFreq: 5000, highGain: -9,
         ceiling: 7000,   // open ceiling — let the harmonics breathe
       },
 
       space: {
-        reverb: { decay: 6.5, damping: 0.08, preDelay: 55 },  // ECM cathedral — most distant, brightest tail
+        reverb: { decay: 6.5, damping: 0.08, preDelay: 18 },  // ECM cathedral — clear onset, long bright tail
         delay: { feedback: 0.4, filter: 3200, sync: 'dotted-eighth' },
         saturation: 0.005,   // pure, uncolored
         type: 'cathedral',
@@ -297,7 +297,7 @@ const Lens = (function () {
       harmony: { root: 440, mode: 'lydian' },
 
       tone: {
-        bassFreq: 90, bassGain: 3,
+        bassFreq: 90, bassGain: 5,
         midFreq: 700, midQ: 0.6, midGain: -1,
         highFreq: 3200, highGain: -7,
         ceiling: 4500,
@@ -359,7 +359,7 @@ const Lens = (function () {
       harmony: { root: 432, mode: 'phrygian' },
 
       tone: {
-        bassFreq: 55, bassGain: 4,
+        bassFreq: 55, bassGain: 6,
         midFreq: 500, midQ: 1.2, midGain: -1,
         highFreq: 2000, highGain: -16,
         ceiling: 2500,

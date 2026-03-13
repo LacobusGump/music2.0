@@ -1527,7 +1527,7 @@ const Follow = (function () {
 
     // Foundation is always present (not density-gated) — it's the harmonic ground
     // More present than before: base volume * 2.5 so it can actually be felt
-    var foundationVol = (tex.vol || 0.06) * 2.5;
+    var foundationVol = (tex.vol || 0.06) * 3.5;
     var targetGain = isSilent ? 0 : fadeGain * foundationVol;
 
     if (targetGain > 0.01 && !droneActive) {
@@ -1634,21 +1634,13 @@ const Follow = (function () {
 
   // ── THE VOID ──────────────────────────────────────────────────────────
 
-  var VOID_FIFTHS   = [0, 7, 2, 9, 4, 11, 6, 1, 8, 3, 10, 5];
-  var voidEngaged   = false;
-  var voidSmooth    = 0;
-  var voidFifthMs   = 0;
-  var voidFifthIdx  = 0;
-  var voidAscend    = 0;
-  var VOID_FIFTH_MS = 8000;
+  var voidEngaged = false;
+  var voidSmooth  = 0;
 
   function enterVoid() {
     if (voidEngaged) return;
-    voidEngaged  = true;
-    voidSmooth   = 0;
-    voidFifthMs  = VOID_FIFTH_MS * 0.6;
-    voidFifthIdx = 0;
-    voidAscend   = 0;
+    voidEngaged = true;
+    voidSmooth  = 0;
 
     if (Audio.ctx) {
       try {
@@ -1668,22 +1660,6 @@ const Follow = (function () {
     try { Audio.layer.setGain('void-wind', 0, 3.0); } catch (e) {}
     setTimeout(function () { try { Audio.layer.destroy('void-wind'); } catch (e) {} }, 3500);
     try { Audio.voidDrone.stop(); } catch (e) {}
-    voidAscend = 0;
-  }
-
-  function playVoidChord() {
-    if (!Audio.ctx) return;
-    var time = Audio.ctx.currentTime;
-    var semi = VOID_FIFTHS[voidFifthIdx];
-    var freqRoot  = root * Math.pow(2, (semi - 12) / 12);
-    var freqFifth = freqRoot * Math.pow(2, 7 / 12);
-    var freqOct   = freqRoot * 2;
-    var voices = [freqRoot, freqFifth, freqOct];
-    for (var i = 0; i < voices.length; i++) {
-      (function (f, offset) {
-        try { Audio.synth.play('epiano', time + offset, f, 0.06, 9.0); } catch (e) {}
-      })(voices[i], i * 0.7);
-    }
   }
 
   function updateVoid(vState, vDepth, breathPhase, dt) {
@@ -1701,21 +1677,8 @@ const Follow = (function () {
     var windVol = Math.min(0.18, voidSmooth * 0.24);
     try { Audio.layer.setGain('void-wind', windVol, 4.0); } catch (e) {}
 
-    var sweepFreq = 500 + Math.sin(breathPhase) * 340 + voidAscend * 1600;
+    var sweepFreq = 500 + Math.sin(breathPhase) * 340;
     try { Audio.layer.setFilter('void-wind', Math.max(150, sweepFreq), 1.8); } catch (e) {}
-
-    if (voidSmooth > 0.32) {
-      voidFifthMs += dt * 1000;
-      if (voidFifthMs >= VOID_FIFTH_MS) {
-        voidFifthMs = 0;
-        playVoidChord();
-        voidFifthIdx = (voidFifthIdx + 1) % VOID_FIFTHS.length;
-      }
-    }
-
-    if (vState >= 3) {
-      voidAscend = Math.min(1.0, voidAscend + dt * 0.010);
-    }
   }
 
   // ── TOUCH ─────────────────────────────────────────────────────────────
@@ -1849,10 +1812,10 @@ const Follow = (function () {
     // ── 8D Spatial ──
     try { Audio.spatial.update(sensor.gamma || 0, isSilent, sensor.touching); } catch (e) {}
 
-    // ── The Void ──
+    // ── The Void — entered when the user is fully still ──
     updateVoid(
-      brainState.voidState  || 0,
-      brainState.voidDepth  || 0,
+      isSilent ? 1 : 0,
+      Math.min(1, stillnessTimer / 5.0),
       brainState.breathPhase || 0,
       dt
     );

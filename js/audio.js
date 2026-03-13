@@ -41,8 +41,9 @@ const Audio = (function () {
   let sidechainDepth = 0.3;
 
   // Void drone
-  let voidOsc = null, voidGain = null, voidOvertone = null;
-  let voidOvertoneGain = null, voidFilter = null;
+  let voidOscs = [], voidOscGains = [];
+  let voidGain = null, voidFilter = null;
+  let voidLFO = null, voidLFOGain = null;
 
   // Descent bass — Vangelis/Tron sub-bass world
   let desOsc1 = null, desOsc2 = null, desOsc3 = null;
@@ -974,31 +975,40 @@ const Audio = (function () {
     var prevF = monoLastFreq > 20 ? monoLastFreq : freq;
     monoLastFreq = freq;
 
-    // Portamento: scales with interval size (large jump = more glide time)
+    // Portamento: scales with interval size
     var semitones = Math.abs(Math.log2(Math.max(0.01, freq / prevF)) * 12);
     var glide = Math.min(0.22, 0.025 + semitones * 0.006);
 
-    // LP filter: velocity → brightness (whisper = dark, shout = bright)
-    var baseCut = 480 + vel * 2600;
+    // LP filter: warm, minimal resonance — whispers and leads, never demands
+    var baseCut = 600 + vel * 1200;   // narrow sweep: stays musical at all velocities
     var lp = ctx.createBiquadFilter();
     lp.type = 'lowpass';
-    lp.frequency.setValueAtTime(baseCut * 0.30, time);       // dark at onset
-    lp.frequency.linearRampToValueAtTime(baseCut, time + glide + 0.018); // opens as note arrives
-    lp.Q.value = 1.8;
+    lp.frequency.setValueAtTime(baseCut * 0.40, time);
+    lp.frequency.linearRampToValueAtTime(baseCut, time + glide + 0.025);
+    lp.Q.value = 0.5;   // no nasal resonance — just shaping
 
-    // Envelope: fast attack, sustain, slow release
+    // Envelope
     var env = ctx.createGain();
     env.gain.setValueAtTime(0.001, time);
-    env.gain.linearRampToValueAtTime(vel * 0.58, time + 0.011);
-    env.gain.setTargetAtTime(vel * 0.30, time + 0.05, dur * 0.42);
+    env.gain.linearRampToValueAtTime(vel * 0.52, time + 0.018);
+    env.gain.setTargetAtTime(vel * 0.28, time + 0.06, dur * 0.45);
     env.gain.linearRampToValueAtTime(0.001, time + dur);
 
-    // Two saws: 9 cents apart — warmth, not width
-    var detunes = [0, 9];
-    var gains   = [0.62, 0.42];
+    // Sub-octave sine: depth and warmth without harshness
+    var sub = ctx.createOscillator();
+    sub.type = 'sine';
+    sub.frequency.setValueAtTime(prevF / 2, time);
+    sub.frequency.exponentialRampToValueAtTime(freq / 2, time + glide);
+    var subG = ctx.createGain(); subG.gain.value = 0.28;
+    sub.connect(subG); subG.connect(lp);
+    sub.start(time); sub.stop(time + dur + 0.08);
+
+    // Two triangles: 5 cents apart — gentle, smooth, pleasing
+    var detunes = [0, 5];
+    var gains   = [0.55, 0.35];
     for (var d = 0; d < detunes.length; d++) {
       var o = ctx.createOscillator();
-      o.type = 'sawtooth';
+      o.type = 'triangle';
       o.frequency.setValueAtTime(prevF, time);
       o.frequency.exponentialRampToValueAtTime(freq, time + glide);
       o.detune.value = detunes[d];
@@ -1780,43 +1790,75 @@ const Audio = (function () {
   // ── VOID DRONE ─────────────────────────────────────────────────────────
 
   function startVoidDrone(root) {
-    if (voidOsc) return;
+    if (voidOscs.length) return;
     var r = root || 432;
-    voidFilter = ctx.createBiquadFilter(); voidFilter.type = 'lowpass';
-    voidFilter.frequency.value = 400; voidFilter.Q.value = 1;
-    voidGain = ctx.createGain(); voidGain.gain.value = 0;
-    voidOsc = ctx.createOscillator(); voidOsc.type = 'sine'; voidOsc.frequency.value = r;
-    voidOsc.connect(voidFilter); voidFilter.connect(voidGain);
+
+    // Output chain: filter → master gain → reverb (heavy send for immersion)
+    voidFilter = ctx.createBiquadFilter();
+    voidFilter.type = 'lowpass';
+    voidFilter.frequency.value = 600;
+    voidFilter.Q.value = 0.5;
+
+    voidGain = ctx.createGain();
+    voidGain.gain.value = 0;
+    voidFilter.connect(voidGain);
     voidGain.connect(reverbGain);
-    voidOsc.start();
-    voidOvertone = ctx.createOscillator(); voidOvertone.type = 'sine';
-    voidOvertone.frequency.value = r * 1.5;
-    voidOvertoneGain = ctx.createGain(); voidOvertoneGain.gain.value = 0;
-    voidOvertone.connect(voidOvertoneGain); voidOvertoneGain.connect(voidFilter);
-    voidOvertone.start();
+    voidGain.connect(masterGain);   // small direct signal for presence
+
+    // 5 harmonic partials using pure ratios: sub, root, fifth, octave, octave+fifth
+    // Pure sine waves — healing, not musical. No sharpness, no attack.
+    var freqs   = [r / 2,  r,    r * 1.5,  r * 2,  r * 3  ];
+    var oGains  = [0.32,  0.50,   0.26,    0.16,   0.09   ];
+    var detunes = [0,      1,     -1,        2,      -2     ];   // 1-2 cents per partial — shimmer
+
+    for (var i = 0; i < freqs.length; i++) {
+      var osc = ctx.createOscillator();
+      osc.type = 'sine';
+      osc.frequency.value = freqs[i];
+      osc.detune.value = detunes[i];
+      var g = ctx.createGain();
+      g.gain.value = oGains[i];
+      osc.connect(g);
+      g.connect(voidFilter);
+      osc.start();
+      voidOscs.push(osc);
+      voidOscGains.push(g);
+    }
+
+    // Breathing LFO at 0.05Hz (~20s period) — modulates filter for slow dreamlike movement
+    voidLFO = ctx.createOscillator();
+    voidLFO.type = 'sine';
+    voidLFO.frequency.value = 0.05;
+    voidLFOGain = ctx.createGain();
+    voidLFOGain.gain.value = 200;   // ±200Hz sweep around filter center
+    voidLFO.connect(voidLFOGain);
+    voidLFOGain.connect(voidFilter.frequency);
+    voidLFO.start();
   }
 
   function stopVoidDrone() {
-    try { if (voidOsc) { voidOsc.stop(); voidOsc.disconnect(); } } catch (e) {}
-    try { if (voidOvertone) { voidOvertone.stop(); voidOvertone.disconnect(); } } catch (e) {}
+    for (var i = 0; i < voidOscs.length; i++) {
+      try { voidOscs[i].stop(); voidOscs[i].disconnect(); } catch (e) {}
+      try { voidOscGains[i].disconnect(); } catch (e) {}
+    }
+    voidOscs = []; voidOscGains = [];
+    try { if (voidLFO) { voidLFO.stop(); voidLFO.disconnect(); } } catch (e) {}
+    try { if (voidLFOGain) voidLFOGain.disconnect(); } catch (e) {}
     try { if (voidGain) voidGain.disconnect(); } catch (e) {}
     try { if (voidFilter) voidFilter.disconnect(); } catch (e) {}
-    try { if (voidOvertoneGain) voidOvertoneGain.disconnect(); } catch (e) {}
-    voidOsc = voidGain = voidOvertone = voidOvertoneGain = voidFilter = null;
+    voidGain = voidFilter = voidLFO = voidLFOGain = null;
   }
 
   function updateVoidDrone(depth, breathPhase) {
     if (!ctx) return;
-    if (depth > 0.15) {
-      if (!voidOsc) startVoidDrone();
-      var target = depth * 0.25;
-      voidGain.gain.value += (target - voidGain.gain.value) * 0.02;
-      if (voidFilter) voidFilter.frequency.value = 300 + Math.sin(breathPhase || 0) * 150;
-      if (voidOvertone && depth > 0.5) {
-        voidOvertoneGain.gain.value += ((depth - 0.5) * 0.1 - voidOvertoneGain.gain.value) * 0.02;
-      }
-    } else if (voidOsc) {
-      stopVoidDrone();
+    if (depth > 0.05) {
+      if (!voidOscs.length) startVoidDrone();
+      var target = depth * 0.28;
+      voidGain.gain.value += (target - voidGain.gain.value) * 0.015;
+    } else if (voidOscs.length) {
+      // Gentle fade out before stopping
+      voidGain.gain.value *= 0.97;
+      if (voidGain.gain.value < 0.003) stopVoidDrone();
     }
   }
 
