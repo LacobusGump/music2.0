@@ -45,7 +45,7 @@ const Lens = (function () {
 
       palette: {
         peak: { voice: 'brass', octave: -1, decay: 1.8 },
-        continuous: { voice: 'strings', octave: 0, decay: 2.2 },
+        continuous: { voice: 'cinematic', octave: 0, decay: 3.5 },
         harmonic: { voice: 'piano', octave: 0, decay: 1.6 },
         burst: { voice: 'brass', octave: 0 },
         texture: { wave: 'sine', chord: [0, 4, 7], octave: -1, detune: 8, vol: 0.07, reverbSend: 0.65 },
@@ -65,6 +65,11 @@ const Lens = (function () {
         filterRange: [250, 3500],
         densityThresholds: [0.3, 1.0, 2.5],
       },
+
+      // colorDeg: the scale degree that IS this emotion.
+      // In major, degree 4 = the perfect 5th. The triumph note. Melodies orbit it.
+      // phraseShape: how sentences in this world tend to end.
+      emotion: { colorDeg: 4, phraseShape: 'arch' },
 
       motion: {
         primary: 'tilt_rate',
@@ -87,8 +92,8 @@ const Lens = (function () {
       harmony: { root: 220, mode: 'phrygian' }, // A3 — dark but phone-audible
 
       tone: {
-        bassFreq: 160, bassGain: 8,          // 160Hz = phone speakers can hit this
-        midFreq: 1000, midQ: 1.4, midGain: 5, // gritty mid presence
+        bassFreq: 160, bassGain: 4,          // 160Hz — present but not slamming the compressor
+        midFreq: 1000, midQ: 1.0, midGain: 2, // grit without crunch
         highFreq: 5000, highGain: -5,         // tame harshness
         ceiling: 7000,
       },
@@ -106,7 +111,7 @@ const Lens = (function () {
         // Massive: detuned unison (±2 + ±13 cents) — same note, 4 copies, chorus width.
         // Dirty hit on hard peaks — the crunch underneath the beauty.
         peak:       { voice: 'dirty',   octave: 0,  decay: 0.8 },
-        continuous: { voice: 'massive', octave: 0,  decay: 2.0, sustained: true, velBoost: 1.6, beatLocked: true },
+        continuous: { voice: 'massive', octave: 0,  decay: 5.0, sustained: true, velBoost: 1.7 },
         // No subdivision — hats come from GROOVE_DNA, not a metronome click
         // Stab answer — sharp, cuts through
         harmonic:   { voice: 'stab', octave: 0,  decay: 0.35 },
@@ -136,6 +141,11 @@ const Lens = (function () {
         filterRange: [200, 7000],
         densityThresholds: [0.18, 0.65, 1.6],
       },
+
+      // Phrygian's soul is the ♭2 (degree 1 = 1 semitone from root).
+      // That note is why Phrygian sounds ancient and dark — not just "minor."
+      // Melodies lean into it. The darkness has a specific address.
+      emotion: { colorDeg: 1, phraseShape: 'falling' },
 
       motion: {
         primary: 'tilt_rate',
@@ -174,7 +184,7 @@ const Lens = (function () {
 
       palette: {
         // Your tilt → right hand melody (middle register)
-        continuous: { voice: 'piano', octave: 0, decay: 3.5 },
+        continuous: { voice: 'mono', octave: 0, decay: 2.5 },
         // Your motion → left hand bass (different octave = no frequency clash)
         peak: { voice: 'piano', octave: -1, decay: 2.5 },
         // Strong peaks only: a high note answers 320ms later (see harmonic delay in follow.js)
@@ -195,6 +205,11 @@ const Lens = (function () {
         filterRange: [200, 2800],
         densityThresholds: [0.12, 0.55, 1.3],
       },
+
+      // Dorian's soul is the natural 6th (degree 5 = 9 semitones from root).
+      // That note is why Dorian sounds like beautiful sadness, not just sadness.
+      // Minor with one beam of light. Boards of Canada lives here.
+      emotion: { colorDeg: 5, phraseShape: 'falling' },
 
       motion: {
         primary: 'tilt_rate',
@@ -263,6 +278,10 @@ const Lens = (function () {
         melodic: 'gamma',
         sensitivity: 0.35,   // breathe on the phone — that's enough
       },
+      // Picardy's soul is the tension between minor 3rd (grief) and major 3rd (hope).
+      // Degree 2 = the minor 3rd. When the picardy major 3rd (degree 3) appears,
+      // the minor becomes briefly major — grief resolving to a moment of light.
+      emotion: { colorDeg: 2, phraseShape: 'answer' },
     },
 
     // ─── 5. STILL WATER ──────────────────────────────────────────────
@@ -295,7 +314,7 @@ const Lens = (function () {
 
       palette: {
         peak: { voice: 'piano', octave: 0, decay: 2.5 },
-        continuous: { voice: 'strings', octave: 0, decay: 2.8 },
+        continuous: { voice: 'mono', octave: 0, decay: 2.8 },
         harmonic: { voice: 'piano', octave: 1, decay: 2.0 },
         texture: { wave: 'sine', chord: [0, 4, 7, 11], octave: -1, detune: 5, vol: 0.05, reverbSend: 0.62 },
         touch: { voice: 'piano', octave: 0, decay: 2.0 },
@@ -315,8 +334,13 @@ const Lens = (function () {
         densityThresholds: [0.2, 0.6, 1.6],
       },
 
+      // Lydian's soul is the raised 4th (degree 3 = tritone from root = 6 semitones).
+      // That one note is why Lydian sounds like wonder — it floats and never fully lands.
+      // "Somewhere Over the Rainbow." The raised 4th is the door to another world.
+      emotion: { colorDeg: 3, phraseShape: 'question' },
+
       motion: {
-        primary: 'flow',
+        primary: 'tilt_rate',
         melodic: 'beta',
         sensitivity: 0.7,
       },
@@ -335,8 +359,8 @@ const Lens = (function () {
       harmony: { root: 432, mode: 'phrygian' },
 
       tone: {
-        bassFreq: 55, bassGain: 9,
-        midFreq: 500, midQ: 1.2, midGain: -4,
+        bassFreq: 55, bassGain: 4,
+        midFreq: 500, midQ: 1.2, midGain: -1,
         highFreq: 2000, highGain: -16,
         ceiling: 2500,
       },
@@ -344,7 +368,7 @@ const Lens = (function () {
       space: {
         reverb: { decay: 5.0, damping: 0.2 },
         delay: { feedback: 0.72, filter: 1800, sync: 'dotted-eighth' },
-        saturation: 0.5,
+        saturation: 0.12,
         sidechain: 0.7,
         type: 'cathedral',
         reverbMix: 0.55,
@@ -382,6 +406,10 @@ const Lens = (function () {
         filterRange: [150, 2000],
         densityThresholds: [0.2, 0.8, 2.0],
       },
+
+      // Same Phrygian ♭2 as Grid, but deeper.
+      // Dark Matter has no interest in resolution. The ♭2 is the destination.
+      emotion: { colorDeg: 1, phraseShape: 'falling' },
 
       motion: {
         primary: 'flow',
