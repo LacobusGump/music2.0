@@ -243,19 +243,15 @@ const Audio = (function () {
   function updateSpatial(gamma, isSilent, touching) {
     if (!spatialPanner || !ctx) return;
 
-    if (touching) {
-      // Finger is on screen — suppress LFO, let setTouchPan() drive
-      spatialLFOGain.gain.setTargetAtTime(0.02, ctx.currentTime, 0.08);
-      return;
-    }
+    // Kill LFO entirely — it causes random jumping that fights the user's sense of space
+    spatialLFOGain.gain.setTargetAtTime(0, ctx.currentTime, 0.5);
 
-    // Tilt → center pan: tilting left biases sounds left, right biases right
-    var tiltPan = Math.max(-0.55, Math.min(0.55, (gamma || 0) / 48));
-    spatialPanner.pan.setTargetAtTime(tiltPan, ctx.currentTime, 0.18);
+    if (touching) return;
 
-    // LFO depth: full rotation when still, whisper when body is active
-    var depth = isSilent ? spatialSweepDepth : spatialSweepDepth * 0.22;
-    spatialLFOGain.gain.setTargetAtTime(depth, ctx.currentTime, 1.4);
+    // Tilt → gentle pan: like tilting your head toward a sound source.
+    // ±0.22 max — audible lean without slamming everything to one ear.
+    var tiltPan = Math.max(-0.22, Math.min(0.22, (gamma || 0) / 120));
+    spatialPanner.pan.setTargetAtTime(tiltPan, ctx.currentTime, 0.4);
   }
 
   // Called from app.js touchmove — finger directly spatializes in real time.

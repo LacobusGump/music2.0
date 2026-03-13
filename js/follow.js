@@ -172,7 +172,7 @@ const Follow = (function () {
   var rootSemiOffset = 0;
   var rootSemiTarget = 0;
   var arcStep        = 0;
-  var ARC_JOURNEY    = [0, 5, 7, 0];
+  var ARC_JOURNEY    = [0, 0, 0, 0];
   var ARC_STEP_ENERGY = 50;
 
   function scaleFreq(degree, octave) {
@@ -440,7 +440,7 @@ const Follow = (function () {
       if (Audio.ctx && lens && lens.palette) {
         try {
           Audio.synth.play('piano', Audio.ctx.currentTime,
-            scaleFreq(hrDegOffset, -2), 0.14, 3.5);
+            scaleFreq(hrDegOffset, -1), 0.26, 3.5);
         } catch(e) {}
       }
     } else {
@@ -453,7 +453,7 @@ const Follow = (function () {
       if (Audio.ctx && lens && lens.palette) {
         try {
           Audio.synth.play('piano', Audio.ctx.currentTime,
-            scaleFreq(0, -2), 0.18, 4.0);
+            scaleFreq(0, -1), 0.30, 4.0);
         } catch(e) {}
       }
     }
@@ -883,7 +883,7 @@ const Follow = (function () {
     epi.massiveFloor  = Math.min(3, generation);
     epi.energyGate    = 24 + generation * 8;
 
-    rootSemiTarget   += 2;
+    // rootSemiTarget drift disabled — was causing melody to chase upward indefinitely
     melodicCentroid   = epi.harmonyCarry;
     sessionEnergyAccum = 0;
 
@@ -1347,6 +1347,18 @@ const Follow = (function () {
       // ── ROLE 3 PULSE: goldilocks drums ──
       if (sessionPhase >= 2 && vel > 0.08) {
         fireGoldilocks(magnitude, now, vel);
+      }
+
+      // ── PEAK KICK: fire on every significant peak, no tempo lock needed ──
+      // James moves by tilt, not rhythmic bouncing — tempoLocked may never trigger.
+      // Give the body a kick to feel the gesture land.
+      if (sessionPhase >= 1 && !isSilent && lens && lens.groove && Audio.drum && vel > 0.15) {
+        var ktime = Audio.ctx.currentTime;
+        if (now - lastKickTime > 180) {
+          lastKickTime = now;
+          var pkVel = Math.min(0.78, vel * 0.65);
+          Audio.drum.kick(ktime, pkVel, (lens.groove && lens.groove.kit) || 'acoustic');
+        }
       }
 
       // ── CALL & RESPONSE ──
