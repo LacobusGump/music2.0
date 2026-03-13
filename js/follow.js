@@ -948,6 +948,147 @@ const Follow = (function () {
     }
   }
 
+  // ── DECEPTIVE CADENCE TENSION ARC ─────────────────────────────────────
+  // The Hans Zimmer / Interstellar docking technique.
+  // Music approaches V→I resolution. At the last moment, sidesteps to VI (deceptive).
+  // Each miss primes expectation higher. After 3 misses: the real V→I lands.
+  // Works for Tundra and Still Water where the emotional payoff matters most.
+  //
+  // Sequence:
+  //   IDLE → BUILDING (10-12s active play, phase 2)
+  //   BUILDING → NEAR-MISS: V bass note → 2.2s → VI bass (not I) = "almost"
+  //   NEAR-MISS → BUILDING: tension++ reverb tightens, cycle repeats (2-3×)
+  //   BUILDING → RESOLVE: V bass → 1.5s → I bass + I melody simultaneously = BOOM
+  //   RESOLVE → COOLDOWN (35s before next arc)
+  //
+  // Harmonic ratios (mode-independent, pure intervals):
+  //   V  = root × 1.498 (perfect 5th)
+  //   VI = root × 1.682 (major 6th — deceptive target)
+  //   I  = root (home)
+
+  var tensionArc = {
+    phase:     'idle',   // 'idle', 'building', 'near-miss', 'resolving', 'cooldown'
+    timer:     0,
+    level:     0,        // 0-3, misses accumulated
+    buildTime: 12,       // seconds until next phase event (randomized)
+    maxMisses: 3,
+    fired:     false,    // single-fire guard per phase tick
+  };
+
+  function hasTensionArc() {
+    return lens && lens.emotion && lens.emotion.tensionArc;
+  }
+
+  function _tensionPlayNote(type) {
+    if (!Audio.ctx || !lens) return;
+    var now = Audio.ctx.currentTime;
+    var base = originalRoot * 0.25;   // 2 octaves below root — the bass register
+
+    if (type === 'dominant') {
+      // V — the setup note. Listener hears: "something's about to happen"
+      try { Audio.synth.play('piano', now, base * 1.498, 0.20, 5.0); } catch(e) {}
+
+    } else if (type === 'deceptive') {
+      // VI instead of I — "almost... but no"
+      // The sidestep to the major 6th is the oldest trick in Western music.
+      try { Audio.synth.play('piano', now, base * 1.682, 0.16, 4.0); } catch(e) {}
+      // Tundra: flicker the Picardy major 3rd — grief glimpsing hope, then not getting it
+      if (lens.name === 'Tundra') {
+        try { Audio.synth.play('piano', now + 1.0, scaleFreq(3, 0), 0.09, 3.5); } catch(e) {}
+      }
+
+    } else if (type === 'resolve') {
+      // The BOOM. Everything lands at once. Root in three registers simultaneously.
+      try { Audio.synth.play('piano', now,       base,            0.42, 6.0); } catch(e) {}  // deep root
+      try { Audio.synth.play('piano', now + 0.08, base * 2,       0.30, 5.0); } catch(e) {}  // root up one
+      try { Audio.synth.play('piano', now + 0.18, originalRoot,   0.22, 4.0); } catch(e) {}  // top root
+      // Tundra: Picardy major 3rd in the resolution = the final "light" moment
+      if (lens.name === 'Tundra') {
+        try { Audio.synth.play('piano', now + 0.6, scaleFreq(3, 0), 0.16, 4.5); } catch(e) {}
+      }
+      // Still Water: lydian #4 grace note — floats just before settling
+      if (lens.name === 'Still Water') {
+        try { Audio.synth.play('strings', now + 0.4, scaleFreq(3, 0), 0.14, 3.5); } catch(e) {}
+      }
+    }
+  }
+
+  function updateTensionArc(dt) {
+    if (!hasTensionArc() || sessionPhase < 2 || !Audio.ctx) return;
+
+    tensionArc.timer += dt;
+
+    if (tensionArc.phase === 'idle') {
+      // Start building after 20s of engaged play in phase 2
+      if (sessionEngagedTime > 20 && tensionArc.timer > 8) {
+        tensionArc.phase = 'building';
+        tensionArc.timer = 0;
+        tensionArc.buildTime = 10 + Math.random() * 6;
+        tensionArc.fired = false;
+      }
+
+    } else if (tensionArc.phase === 'building') {
+      if (isSilent) { tensionArc.timer -= dt * 1.5; return; } // pause during silence
+      if (tensionArc.timer >= tensionArc.buildTime) {
+        tensionArc.phase = (tensionArc.level >= tensionArc.maxMisses) ? 'resolving' : 'near-miss';
+        tensionArc.timer = 0;
+        tensionArc.fired = false;
+      }
+
+    } else if (tensionArc.phase === 'near-miss') {
+      if (!tensionArc.fired && tensionArc.timer > 0.1) {
+        tensionArc.fired = true;
+        _tensionPlayNote('dominant');  // "here it comes..."
+      }
+      if (tensionArc.timer > 2.2 && tensionArc.timer < 2.4) {
+        if (!tensionArc._deceptiveFired) {
+          tensionArc._deceptiveFired = true;
+          _tensionPlayNote('deceptive');   // sidestep to VI — "NOT YET"
+          tensionArc.level++;
+          // Each miss tightens reverb — space closes in as tension builds
+          var baseRv = (lens.space && lens.space.reverbMix) || 0.45;
+          try { Audio.setReverbMix(Math.min(0.88, baseRv + 0.08 * tensionArc.level + epi.spaceMix)); } catch(e) {}
+        }
+      }
+      if (tensionArc.timer > 4.0) {
+        tensionArc.phase = 'building';
+        tensionArc.timer = 0;
+        tensionArc._deceptiveFired = false;
+        tensionArc.fired = false;
+        // Shorten build time as tension rises — misses come faster
+        tensionArc.buildTime = Math.max(5, 10 - tensionArc.level * 1.5 + Math.random() * 3);
+      }
+
+    } else if (tensionArc.phase === 'resolving') {
+      if (!tensionArc.fired && tensionArc.timer > 0.1) {
+        tensionArc.fired = true;
+        _tensionPlayNote('dominant');    // "okay... NOW"
+      }
+      if (tensionArc.timer > 1.8 && !tensionArc._resolveFired) {
+        tensionArc._resolveFired = true;
+        _tensionPlayNote('resolve');     // THE BOOM
+        // Reverb opens wide — the space expands as the tension releases
+        var baseRv2 = (lens.space && lens.space.reverbMix) || 0.45;
+        try { Audio.setReverbMix(Math.min(0.94, baseRv2 + 0.40)); } catch(e) {}
+      }
+      if (tensionArc.timer > 6.0) {
+        tensionArc.phase = 'cooldown';
+        tensionArc.timer = 0;
+        tensionArc.level = 0;
+        tensionArc._resolveFired = false;
+        // Reverb settles back to lens default over ~8s
+        try { Audio.setReverbMix((lens.space && lens.space.reverbMix) || 0.45); } catch(e) {}
+      }
+
+    } else if (tensionArc.phase === 'cooldown') {
+      // Long pause before the arc can repeat — the resolution needs space to breathe
+      if (tensionArc.timer > 40) {
+        tensionArc.phase = 'idle';
+        tensionArc.timer = 0;
+      }
+    }
+  }
+
   // ── RAPID OSCILLATION (TREMOLO) ───────────────────────────────────────
 
   function updateRapidOscillation(now, dt) {
@@ -1180,6 +1321,8 @@ const Follow = (function () {
     sessionAct = 0;
     voidPresence = 0;
     voidEngaged = false;
+    tensionArc.phase = 'idle'; tensionArc.timer = 0; tensionArc.level = 0;
+    tensionArc.fired = false; tensionArc._deceptiveFired = false; tensionArc._resolveFired = false;
   }
 
   // ── HARMONIC ARC UPDATE ───────────────────────────────────────────────
@@ -1934,6 +2077,7 @@ const Follow = (function () {
     updateHarmonicArc(dt);
     checkEpigeneticAdvance(now);
     checkActAdvance();
+    updateTensionArc(dt);
 
     // ── Master gain ──
     touchDuck = Math.min(1.0, touchDuck + dt * 2.0);

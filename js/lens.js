@@ -278,9 +278,8 @@ const Lens = (function () {
         sensitivity: 0.35,   // breathe on the phone — that's enough
       },
       // Picardy's soul is the tension between minor 3rd (grief) and major 3rd (hope).
-      // Degree 2 = the minor 3rd. When the picardy major 3rd (degree 3) appears,
-      // the minor becomes briefly major — grief resolving to a moment of light.
-      emotion: { colorDeg: 2, phraseShape: 'answer' },
+      // tensionArc: deceptive cadences build toward the Picardy resolution (the "light").
+      emotion: { colorDeg: 2, phraseShape: 'answer', tensionArc: true },
     },
 
     // ─── 5. STILL WATER ──────────────────────────────────────────────
@@ -336,10 +335,9 @@ const Lens = (function () {
         densityThresholds: [0.2, 0.6, 1.6],
       },
 
-      // Lydian's soul is the raised 4th (degree 3 = tritone from root = 6 semitones).
-      // That one note is why Lydian sounds like wonder — it floats and never fully lands.
-      // "Somewhere Over the Rainbow." The raised 4th is the door to another world.
-      emotion: { colorDeg: 3, phraseShape: 'question' },
+      // Lydian's soul is the raised 4th — wonder, floating, unresolved optimism.
+      // tensionArc: deceptive cadences + lydian #4 grace note at resolution.
+      emotion: { colorDeg: 3, phraseShape: 'question', tensionArc: true },
 
       motion: {
         primary: 'tilt_rate',
