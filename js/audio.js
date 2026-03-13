@@ -29,6 +29,8 @@ const Audio = (function () {
   let reverbSend = null;
   let reverbGain = null;
   let reverbLP = null;
+  let reverbHPF = null;
+  let reverbPreDelay = null;
   let delayNode = null;
   let delayFeedback = null;
   let delayFilter = null;
@@ -129,7 +131,7 @@ const Audio = (function () {
     compressor.threshold.value = -16;
     compressor.knee.value = 6;    // was 12 — tighter, more transparent
     compressor.ratio.value = 4;
-    compressor.attack.value = 0.003;
+    compressor.attack.value = 0.015;  // was 0.003 — let transients breathe through
     compressor.release.value = 0.10; // was 0.15 — faster recovery, less pumping
     compressor.connect(masterGain);
 
@@ -175,7 +177,7 @@ const Audio = (function () {
     if (saturator) saturator.curve = makeSatCurve(satAmt);
 
     // Rebuild reverb with lens-specific IR
-    buildReverb(rev.decay || 3.0, rev.damping || 0.4);
+    buildReverb(rev.decay || 3.0, rev.damping || 0.4, rev.preDelay || 20);
 
     // Reverb level: use reverbMix if defined, otherwise fall back to space type lookup
     var spaces = { intimate: 0.2, room: 0.35, cathedral: 0.5, infinite: 0.7 };
@@ -264,23 +266,46 @@ const Audio = (function () {
 
   // ── REVERB ─────────────────────────────────────────────────────────────
 
-  function buildReverb(decayTime, damping) {
-    if (reverbSend) { try { reverbSend.disconnect(); } catch (e) {} }
-    if (convolver) { try { convolver.disconnect(); } catch (e) {} }
-    if (reverbGain) { try { reverbGain.disconnect(); } catch (e) {} }
+  function buildReverb(decayTime, damping, preDelayMs) {
+    if (reverbSend)      { try { reverbSend.disconnect();      } catch (e) {} }
+    if (reverbPreDelay)  { try { reverbPreDelay.disconnect();  } catch (e) {} }
+    if (convolver)       { try { convolver.disconnect();       } catch (e) {} }
+    if (reverbHPF)       { try { reverbHPF.disconnect();       } catch (e) {} }
+    if (reverbLP)        { try { reverbLP.disconnect();        } catch (e) {} }
+    if (reverbGain)      { try { reverbGain.disconnect();      } catch (e) {} }
 
+    var sr = ctx.sampleRate;
     var cappedDecay = Math.min(decayTime, 6);
     convolver = ctx.createConvolver();
-    var len = Math.floor(ctx.sampleRate * cappedDecay);
-    var buf = ctx.createBuffer(2, len, ctx.sampleRate);
+    var len = Math.floor(sr * cappedDecay);
+    var buf = ctx.createBuffer(2, len, sr);
+
+    // Asymmetric early reflections — defines room geometry, gives stereo depth.
+    // L and R have different tap timings: your ears triangulate a real space.
+    var erTapsL = [0.003, 0.009, 0.015, 0.022]; // seconds
+    var erTapsR = [0.005, 0.011, 0.018, 0.026];
+    var erGains = [0.70, 0.50, 0.30, 0.15];
+
     for (var ch = 0; ch < 2; ch++) {
       var d = buf.getChannelData(ch);
-      for (var i = 0; i < len; i++) {
+      var taps = ch === 0 ? erTapsL : erTapsR;
+
+      // Sparse early reflection impulses
+      for (var tap = 0; tap < taps.length; tap++) {
+        var tapSamp = Math.floor(taps[tap] * sr);
+        if (tapSamp < len) {
+          d[tapSamp] = (Math.random() * 2 - 1) * erGains[tap];
+        }
+      }
+
+      // Late diffuse tail: starts after ER cluster clears (~30ms)
+      var tailStart = Math.floor(0.030 * sr);
+      for (var i = tailStart; i < len; i++) {
         var t = i / len;
         var exponent = 1.5 + damping * 3;
         var envelope = Math.pow(1 - t, exponent);
         var hfDamp = 1 - damping * t;
-        d[i] = (Math.random() * 2 - 1) * envelope * Math.max(0.05, hfDamp);
+        d[i] += (Math.random() * 2 - 1) * envelope * Math.max(0.05, hfDamp) * 0.82;
       }
     }
     convolver.buffer = buf;
@@ -290,17 +315,33 @@ const Audio = (function () {
       reverbSend.gain.value = 0.3;
     }
 
+    // Pre-delay: acoustic distance from source to first reflection.
+    // 1ms ≈ 34cm. 30ms = instrument is ~10m away. Gives reverb "space" without
+    // smearing the attack — the note lands dry, then the room arrives.
+    reverbPreDelay = ctx.createDelay(0.12);
+    reverbPreDelay.delayTime.value = Math.min((preDelayMs || 20), 100) / 1000;
+
     reverbGain = ctx.createGain();
     reverbGain.gain.value = 0.5;
 
-    // Dark reverb LP: kill brightness in reverb tail (~3kHz)
+    // HPF on reverb return: removes bass mud — the single biggest quality upgrade.
+    // Bass in reverb = boomy wash that competes with the dry kick and bass notes.
+    reverbHPF = ctx.createBiquadFilter();
+    reverbHPF.type = 'highpass';
+    reverbHPF.frequency.value = 200;
+    reverbHPF.Q.value = 0.5;
+
+    // Reverb LP: raised from 3000 → 5000Hz — room breathes, less like a blanket
     reverbLP = ctx.createBiquadFilter();
     reverbLP.type = 'lowpass';
-    reverbLP.frequency.value = 3000;
+    reverbLP.frequency.value = 5000;
     reverbLP.Q.value = 0.5;
 
-    reverbSend.connect(convolver);
-    convolver.connect(reverbLP);
+    // Signal chain: send → preDelay → convolver → HPF → LP → gain → master
+    reverbSend.connect(reverbPreDelay);
+    reverbPreDelay.connect(convolver);
+    convolver.connect(reverbHPF);
+    reverbHPF.connect(reverbLP);
     reverbLP.connect(reverbGain);
     reverbGain.connect(masterGain);
   }
@@ -841,8 +882,10 @@ const Audio = (function () {
       case 'strings': synthStrings(time, freq, vel, decay); break;
       case 'reverse': synthReverse(time, freq, vel, decay); break;
       case 'upright': synthUpright(time, freq, vel); break;
-      case 'dirty':   synthDirtyWorld(time, freq, vel, decay); break;
-      case 'massive': synthMassive(time, freq, vel, decay); break;
+      case 'dirty':      synthDirtyWorld(time, freq, vel, decay); break;
+      case 'massive':    synthMassive(time, freq, vel, decay); break;
+      case 'mono':       synthMono(time, freq, vel, decay); break;
+      case 'cinematic':  synthCinematic(time, freq, vel, decay); break;
       default: synthSimple(time, freq, vel, decay, opts); break;
     }
   }
@@ -927,6 +970,124 @@ const Audio = (function () {
     rs.gain.value = 0.62;
     env.connect(rs);
     rs.connect(reverbSend);
+  }
+
+  // ── MONO — portamento lead voice ─────────────────────────────────────
+  // A monophonic sawtooth lead that slides between pitches.
+  // This is the voice that makes the melody feel CONNECTED — not choppy note events
+  // but a living line that glides where your hand goes.
+  // Velocity controls filter brightness: soft touch = dark and intimate,
+  // hard push = bright and forward.
+
+  var monoLastFreq = 0;
+
+  function synthMono(time, freq, vel, decay) {
+    var dur = decay || 2.0;
+    var prevF = monoLastFreq > 20 ? monoLastFreq : freq;
+    monoLastFreq = freq;
+
+    // Portamento: scales with interval size (large jump = more glide time)
+    var semitones = Math.abs(Math.log2(Math.max(0.01, freq / prevF)) * 12);
+    var glide = Math.min(0.22, 0.025 + semitones * 0.006);
+
+    // LP filter: velocity → brightness (whisper = dark, shout = bright)
+    var baseCut = 480 + vel * 2600;
+    var lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.setValueAtTime(baseCut * 0.30, time);       // dark at onset
+    lp.frequency.linearRampToValueAtTime(baseCut, time + glide + 0.018); // opens as note arrives
+    lp.Q.value = 1.8;
+
+    // Envelope: fast attack, sustain, slow release
+    var env = ctx.createGain();
+    env.gain.setValueAtTime(0.001, time);
+    env.gain.linearRampToValueAtTime(vel * 0.58, time + 0.011);
+    env.gain.setTargetAtTime(vel * 0.30, time + 0.05, dur * 0.42);
+    env.gain.linearRampToValueAtTime(0.001, time + dur);
+
+    // Two saws: 9 cents apart — warmth, not width
+    var detunes = [0, 9];
+    var gains   = [0.62, 0.42];
+    for (var d = 0; d < detunes.length; d++) {
+      var o = ctx.createOscillator();
+      o.type = 'sawtooth';
+      o.frequency.setValueAtTime(prevF, time);
+      o.frequency.exponentialRampToValueAtTime(freq, time + glide);
+      o.detune.value = detunes[d];
+      var g = ctx.createGain(); g.gain.value = gains[d];
+      o.connect(g); g.connect(lp);
+      o.start(time); o.stop(time + dur + 0.08);
+    }
+
+    lp.connect(env);
+    env.connect(sidechainGain);
+    var rs = ctx.createGain(); rs.gain.value = 0.50; env.connect(rs); rs.connect(reverbSend);
+    var ds = ctx.createGain(); ds.gain.value = 0.22; env.connect(ds); ds.connect(delaySend);
+  }
+
+  // ── CINEMATIC — Hans Zimmer swell: swelling brass-string hybrid ───────
+  // The Conductor's voice. Slow attack, portamento, saturated warmth.
+  // When you raise your arm, an orchestra swells. When you drop it, it falls.
+  // This is the sound of conducting — not playing notes, summoning them.
+
+  var cinematicLastFreq = 0;
+
+  function synthCinematic(time, freq, vel, decay) {
+    var dur = decay || 4.0;
+    var prevF = cinematicLastFreq > 20 ? cinematicLastFreq : freq;
+    cinematicLastFreq = freq;
+
+    var semitones = Math.abs(Math.log2(Math.max(0.01, freq / prevF)) * 12);
+    var glide = Math.min(0.45, 0.10 + semitones * 0.012);
+
+    // Warmth saturator — simulates brass/string harmonic density
+    var sat = ctx.createWaveShaper();
+    var sc = new Float32Array(256);
+    for (var i = 0; i < 256; i++) {
+      var x = (i * 2) / 256 - 1;
+      sc[i] = Math.tanh(x * 2.0) / Math.tanh(2.0);
+    }
+    sat.curve = sc;
+
+    // LP filter: sealed at first, swells open — the cinematic reveal
+    var lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.setValueAtTime(280, time);
+    lp.frequency.linearRampToValueAtTime(2800 + vel * 500, time + dur * 0.52);
+    lp.Q.value = 0.7;
+
+    // Slow swell envelope — the conductor's gesture shapes the attack
+    var attackT = 0.14 + (1 - vel) * 0.22; // soft touch = longer swell
+    var env = ctx.createGain();
+    env.gain.setValueAtTime(0.001, time);
+    env.gain.linearRampToValueAtTime(vel * 0.50, time + attackT);
+    env.gain.setTargetAtTime(vel * 0.36, time + attackT + 0.08, dur * 0.48);
+    env.gain.linearRampToValueAtTime(0.001, time + dur);
+
+    // Three voices: detuned pair at root + whisper octave above
+    var voices = [
+      { detune: -5, gain: 0.54, ratio: 1.0 },
+      { detune:  5, gain: 0.46, ratio: 1.0 },
+      { detune:  0, gain: 0.20, ratio: 2.0 }, // octave above — shimmer
+    ];
+    for (var vi = 0; vi < voices.length; vi++) {
+      var v = voices[vi];
+      var ov = ctx.createOscillator();
+      ov.type = 'sawtooth';
+      var tF = freq * v.ratio, sF = prevF * v.ratio;
+      ov.frequency.setValueAtTime(sF, time);
+      ov.frequency.exponentialRampToValueAtTime(tF, time + glide);
+      ov.detune.value = v.detune;
+      var gv = ctx.createGain(); gv.gain.value = v.gain;
+      ov.connect(gv); gv.connect(lp);
+      ov.start(time); ov.stop(time + dur + 0.15);
+    }
+
+    lp.connect(sat);
+    sat.connect(env);
+    env.connect(sidechainGain);
+    // Heavy reverb — the orchestra lives in the room
+    var rs = ctx.createGain(); rs.gain.value = 0.72; env.connect(rs); rs.connect(reverbSend);
   }
 
   // ── MASSIVE — RFTN808 detuned unison build ────────────────────────────
@@ -1873,6 +2034,7 @@ const Audio = (function () {
     pumpSidechain: pumpSidechain,
 
     setMassivePhase: setMassivePhase,
+    resetPortamento: function () { monoLastFreq = 0; cinematicLastFreq = 0; massiveLastFreq = 0; },
     setMasterGain: function (v) { if (masterGain) masterGain.gain.value = v; },
     setReverbMix: function (v) { if (reverbSend) reverbSend.gain.value = v; },
     setWeather: setWeather,

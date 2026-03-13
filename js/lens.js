@@ -35,7 +35,7 @@ const Lens = (function () {
       },
 
       space: {
-        reverb: { decay: 7.0, damping: 0.05 },
+        reverb: { decay: 7.0, damping: 0.05, preDelay: 45 },  // scoring stage — 45ms = ~15m distance
         delay: { feedback: 0.2, filter: 2000, sync: 'dotted-eighth' },
         saturation: 0.08,
         type: 'cathedral',
@@ -99,7 +99,7 @@ const Lens = (function () {
       },
 
       space: {
-        reverb: { decay: 2.2, damping: 0.45 },        // warehouse — bigger than a room
+        reverb: { decay: 2.2, damping: 0.50, preDelay: 32 },  // London warehouse — concrete walls, dead ceiling
         delay: { feedback: 0.48, filter: 4000, sync: 'dotted-eighth' }, // Fred Again echo trail
         saturation: 0.15,                               // warm tape crunch
         type: 'room',
@@ -174,7 +174,7 @@ const Lens = (function () {
       },
 
       space: {
-        reverb: { decay: 5.0, damping: 0.18 },
+        reverb: { decay: 5.0, damping: 0.18, preDelay: 12 },  // intimate — close room, warm tape
         delay: { feedback: 0.32, filter: 1600, sync: 'dotted-eighth' },
         saturation: 0.05,
         type: 'cathedral',
@@ -241,7 +241,7 @@ const Lens = (function () {
       },
 
       space: {
-        reverb: { decay: 6.5, damping: 0.1 },   // spacious but not drowning
+        reverb: { decay: 6.5, damping: 0.08, preDelay: 55 },  // ECM cathedral — most distant, brightest tail
         delay: { feedback: 0.4, filter: 3200, sync: 'dotted-eighth' },
         saturation: 0.005,   // pure, uncolored
         type: 'cathedral',
@@ -304,7 +304,7 @@ const Lens = (function () {
       },
 
       space: {
-        reverb: { decay: 4.5, damping: 0.2 },
+        reverb: { decay: 4.5, damping: 0.20, preDelay: 28 },  // converted church — medium distance, clear
         delay: { feedback: 0.55, filter: 2400, sync: 'dotted-eighth' },   // longer delay = gesture echoes back
         saturation: 0.04,
         type: 'cathedral',
@@ -366,7 +366,7 @@ const Lens = (function () {
       },
 
       space: {
-        reverb: { decay: 5.0, damping: 0.2 },
+        reverb: { decay: 5.0, damping: 0.20, preDelay: 6 },   // close, wrong, invasive — the room is too small
         delay: { feedback: 0.72, filter: 1800, sync: 'dotted-eighth' },
         saturation: 0.12,
         sidechain: 0.7,
