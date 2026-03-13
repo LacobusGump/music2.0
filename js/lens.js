@@ -28,7 +28,7 @@ const Lens = (function () {
       harmony: { root: 440, mode: 'major' },
 
       tone: {
-        bassFreq: 80, bassGain: 5,
+        bassFreq: 80, bassGain: 3,
         midFreq: 1200, midQ: 0.7, midGain: 1,
         highFreq: 3500, highGain: -6,
         ceiling: 4500,
@@ -234,7 +234,7 @@ const Lens = (function () {
       harmony: { root: 432, mode: 'picardy' },
 
       tone: {
-        bassFreq: 120, bassGain: 3,   // subtle foundation — space needs ground
+        bassFreq: 120, bassGain: 1,   // barely any bass — only the note
         midFreq: 350, midQ: 0.4, midGain: -3,
         highFreq: 5000, highGain: -9,
         ceiling: 7000,   // open ceiling — let the harmonics breathe
@@ -297,7 +297,7 @@ const Lens = (function () {
       harmony: { root: 440, mode: 'lydian' },
 
       tone: {
-        bassFreq: 90, bassGain: 5,
+        bassFreq: 90, bassGain: 3,
         midFreq: 700, midQ: 0.6, midGain: -1,
         highFreq: 3200, highGain: -7,
         ceiling: 4500,
@@ -359,7 +359,7 @@ const Lens = (function () {
       harmony: { root: 432, mode: 'phrygian' },
 
       tone: {
-        bassFreq: 55, bassGain: 6,
+        bassFreq: 55, bassGain: 4,
         midFreq: 500, midQ: 1.2, midGain: -1,
         highFreq: 2000, highGain: -16,
         ceiling: 2500,

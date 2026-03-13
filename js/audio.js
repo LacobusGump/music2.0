@@ -80,15 +80,15 @@ const Audio = (function () {
     spatialLFO.start();
     spatialPanner.connect(ctx.destination);
 
-    // ── Master limiter — brick wall before spatialPanner ─────────────────
-    // Last defence against clipping. All streams (synth + drums + reverb + delay)
-    // sum at masterGain; this catches anything that peaks past -1dBFS.
+    // ── Master limiter — safety ceiling before spatialPanner ─────────────
+    // Catches anything over -3dBFS. Ratio 10:1 with soft knee — transparent,
+    // not a brick wall. The compressor upstream should handle most levelling.
     masterLimiter = ctx.createDynamicsCompressor();
-    masterLimiter.threshold.value = -1;
-    masterLimiter.knee.value = 0;
-    masterLimiter.ratio.value = 20;
-    masterLimiter.attack.value = 0.001;
-    masterLimiter.release.value = 0.05;
+    masterLimiter.threshold.value = -3;
+    masterLimiter.knee.value = 2;
+    masterLimiter.ratio.value = 10;
+    masterLimiter.attack.value = 0.002;
+    masterLimiter.release.value = 0.10;
     masterLimiter.connect(spatialPanner);
 
     // 4-band per-lens parametric EQ → limiter → spatialPanner
@@ -125,24 +125,26 @@ const Audio = (function () {
     masterHPF.connect(eqLowShelf);
 
     masterGain = ctx.createGain();
-    masterGain.gain.value = 0.8;
+    masterGain.gain.value = 0.8;  // runtime value set by follow.js setMasterGain
     masterGain.connect(masterHPF);
 
     compressor = ctx.createDynamicsCompressor();
-    compressor.threshold.value = -16;
-    compressor.knee.value = 6;    // was 12 — tighter, more transparent
-    compressor.ratio.value = 4;
-    compressor.attack.value = 0.006;  // 6ms: fast enough to catch transients, loose enough for punch
-    compressor.release.value = 0.10; // was 0.15 — faster recovery, less pumping
+    compressor.threshold.value = -22;   // gentler threshold — more headroom before gain reduction
+    compressor.knee.value = 10;         // soft knee — transparent, not grabby
+    compressor.ratio.value = 3;         // subtle ratio — levelling, not crushing
+    compressor.attack.value = 0.010;    // 10ms: transients pass through cleanly
+    compressor.release.value = 0.25;    // slow release — no pumping artifacts
     compressor.connect(masterGain);
 
-    saturator = ctx.createWaveShaper();
-    saturator.curve = makeSatCurve(0.08); // was 0.3 — subtle warmth, not grit
-    saturator.oversample = '4x';          // higher oversample = less aliasing
-    saturator.connect(compressor);
+    // Saturator bypassed — WaveShaper adds harmonic distortion that compounds
+    // with phone speaker distortion. Route sidechainGain directly to compressor.
+    saturator = ctx.createWaveShaper();  // kept for compatibility, disconnected from path
+    saturator.curve = makeSatCurve(0.08);
+    saturator.oversample = '4x';
+    // (saturator is NOT connected — sidechainGain → compressor directly)
 
     sidechainGain = ctx.createGain();
-    sidechainGain.connect(saturator);
+    sidechainGain.connect(compressor);   // bypass saturator
 
     drumBus = ctx.createGain();
     drumBus.gain.value = 1;
@@ -200,7 +202,7 @@ const Audio = (function () {
     }
 
     // Sidechain depth
-    sidechainDepth = space.sidechain || 0.3;
+    sidechainDepth = space.sidechain !== undefined ? space.sidechain : 0;  // 0 unless lens explicitly enables pumping
 
     // Per-lens master EQ (the "lensing filter")
     var tone = lens.tone || {};

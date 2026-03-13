@@ -348,36 +348,32 @@ const Follow = (function () {
   var droneGain = 0;
 
   // ── V→I HARMONIC GRAVITY ─────────────────────────────────────────────
-  // The single most powerful mechanism in tonal music.
-  // Tension builds toward the dominant (V), then ACHES for resolution.
-  // The moment V resolves to I is the whole point — the reward the brain waited for.
+  // Bass cadence only — no melodic transposition.
+  // The bass walks to V (dominant), then resolves home to I (tonic).
+  // The melody keeps playing in the tonic key the whole time.
+  // Tension comes from the bass, resolution is the payoff.
   //
-  //   tonic (18-26s of playing) → dominant (8-12s ache) → resolution → tonic
+  //   tonic (18-26s of playing) → V bass note → dominant hold (8-12s) → V→I cadence → tonic
   //
   // Triggered by: timer expiry, or user going silent (silence IS the resolution)
-  var gravitySemi       = 0;        // semitone offset applied to root (0=tonic, 7=dominant)
-  var gravitySemiTarget = 0;
-  var gravityState      = 'tonic';  // 'tonic', 'dominant', 'resolving'
-  var gravityTimer      = 0;        // seconds in current state
-  var gravityTonicDur   = 20;       // seconds on tonic before tension (re-randomized each cycle)
-  var gravityDomDur     = 0;        // seconds to hold dominant (set on entry)
-  var gravityDidResolve = false;    // prevent double-resolution on same silence
+  var gravityState      = 'tonic';
+  var gravityTimer      = 0;
+  var gravityTonicDur   = 20;
+  var gravityDomDur     = 0;
+  var gravityDidResolve = false;
 
   function _resolveToTonic() {
-    gravityState      = 'resolving';
-    gravityTimer      = 0;
-    gravitySemiTarget = 0;
-    // Play the V→I cadence: V bass note, then tonic bass 0.4s later.
-    // This is the most satisfying moment GUMP can create.
+    gravityState = 'resolving';
+    gravityTimer = 0;
+    // V→I cadence: V bass then tonic bass 0.45s later — the payoff
     if (Audio.ctx && lens) {
       var now  = Audio.ctx.currentTime;
       var base = originalRoot * 0.25;   // two octaves below original tonic
       try {
-        Audio.synth.play('piano', now,       base * 1.498, 0.18, 3.0);  // V — the ache
-        Audio.synth.play('piano', now + 0.45, base,        0.22, 4.5);  // I — the relief
+        Audio.synth.play('piano', now,        base * 1.498, 0.18, 3.0);  // V — the ache
+        Audio.synth.play('piano', now + 0.45, base,         0.22, 4.5);  // I — the relief
       } catch(e) {}
     }
-    // Bring the foundation drone home
     hrState = 'root'; hrDegOffset = 0;
     try { updateFoundationPitch(); } catch(e) {}
   }
@@ -385,24 +381,16 @@ const Follow = (function () {
   function updateHarmonicGravity(dt) {
     if (sessionPhase < 1 || !lens) return;
 
-    // Smooth the semitone interpolation — faster entering dominant, slower resolving
-    var diff  = gravitySemiTarget - gravitySemi;
-    var speed = diff > 0 ? 3.5 : 1.8;
-    gravitySemi += diff * Math.min(1, dt * speed);
-
     gravityTimer += dt;
 
     if (gravityState === 'tonic') {
-      // Reset timer whenever user is silent — tension only builds while playing
       if (isSilent) { gravityTimer = 0; gravityDidResolve = false; return; }
 
       if (gravityTimer >= gravityTonicDur) {
-        // Pivot to dominant — tension begins
-        gravityState      = 'dominant';
-        gravityTimer      = 0;
-        gravitySemiTarget = 7;
-        gravityDomDur     = 8 + Math.random() * 5;
-        // Announce the shift: a quiet bass note on the V
+        gravityState  = 'dominant';
+        gravityTimer  = 0;
+        gravityDomDur = 8 + Math.random() * 5;
+        // Announce the V with a quiet bass note — listener feels the ground shift
         if (Audio.ctx && lens) {
           try {
             Audio.synth.play('piano', Audio.ctx.currentTime,
@@ -419,12 +407,10 @@ const Follow = (function () {
       }
 
     } else if (gravityState === 'resolving') {
-      if (Math.abs(diff) < 0.12) {
-        gravitySemi       = 0;
-        gravitySemiTarget = 0;
-        gravityState      = 'tonic';
-        gravityTimer      = 0;
-        gravityTonicDur   = 18 + Math.random() * 10;
+      if (gravityTimer > 1.2) {
+        gravityState    = 'tonic';
+        gravityTimer    = 0;
+        gravityTonicDur = 18 + Math.random() * 10;
       }
     }
   }
@@ -1160,11 +1146,7 @@ const Follow = (function () {
   function updateHarmonicArc(dt) {
     updateHarmonicGravity(dt);
 
-    if (sessionPhase < 2) {
-      // Before deep evolution: root = original + gravity shift only
-      root = originalRoot * Math.pow(2, gravitySemi / 12);
-      return;
-    }
+    if (sessionPhase < 2) return;
 
     var nextThreshold = (arcStep + 1) * ARC_STEP_ENERGY;
     if (arcStep < ARC_JOURNEY.length - 1 && sessionEnergyAccum >= nextThreshold) {
@@ -1173,8 +1155,7 @@ const Follow = (function () {
     }
 
     rootSemiOffset += (rootSemiTarget - rootSemiOffset) * dt * 0.06;
-    // Gravity stacks on top of epigenetic drift
-    root = originalRoot * Math.pow(2, (rootSemiOffset + gravitySemi) / 12);
+    root = originalRoot * Math.pow(2, rootSemiOffset / 12);
   }
 
   // ── CONFIGURE (apply lens) ────────────────────────────────────────────
@@ -1250,7 +1231,6 @@ const Follow = (function () {
     hrTarget = 10000 + Math.random() * 4000;
     hrState = 'root';
     hrDegOffset = 0;
-    gravitySemi = 0; gravitySemiTarget = 0;
     gravityState = 'tonic'; gravityTimer = 0;
     gravityTonicDur = 18 + Math.random() * 8;
     gravityDomDur = 0; gravityDidResolve = false;
@@ -1893,7 +1873,7 @@ const Follow = (function () {
     // ── Master gain ──
     touchDuck = Math.min(1.0, touchDuck + dt * 2.0);
     if (Audio.ctx) {
-      Audio.setMasterGain(0.62 * fadeGain * touchDuck);
+      Audio.setMasterGain(0.48 * fadeGain * touchDuck);
 
       if (typeof Weather !== 'undefined' && Weather.loaded && lens) {
         var wxm = Weather.mods;
