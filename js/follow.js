@@ -89,6 +89,78 @@ const Follow = (function () {
     feel: 0, kit: 'acoustic', snap: 2, halftime: true,
   };
 
+  // ── MOTION PROFILE — Cross-session learning ────────────────────────────
+  // Watches how YOU move. After 2+ sessions, adapts thresholds to your body.
+  // Like GPS: the more you play, the more it knows you.
+  var motionProfile = (function () {
+    var KEY = 'm2_profile_v1';
+    var data = { n: 0, peakMag: null, stillRate: null, archetype: null };
+    try { var raw = localStorage.getItem(KEY); if (raw) data = JSON.parse(raw); } catch (e) {}
+    var sess = { peaks: [], stillMs: 0, totalMs: 0, t0: Date.now() };
+    var saved = false;
+    var handlersRegistered = false;
+
+    function lerp(a, b, t) { return a + (b - a) * t; }
+    function alpha() { return Math.max(0.08, 1 / Math.sqrt(data.n + 1)); }
+
+    var api = {
+      recordPeak: function (mag) { sess.peaks.push(mag); },
+
+      tick: function (dtMs, silent) {
+        sess.totalMs += dtMs;
+        if (silent) sess.stillMs += dtMs;
+      },
+
+      // Returns response object with thresholds calibrated to this user's body.
+      // Session 1: 0% influence. Session 5: ~48%. Session 10+: 75%.
+      adapt: function (r) {
+        if (!r || data.n < 2 || data.peakMag === null) return r;
+        var weight = Math.min(0.75, (data.n - 1) * 0.12);
+        var adapted = {};
+        for (var k in r) adapted[k] = r[k];
+        // Trigger at 65% of their observed peak — feels responsive without false hits
+        var personalThresh = data.peakMag * 0.65;
+        adapted.peakThreshold = lerp(r.peakThreshold, personalThresh, weight);
+        adapted.peakThreshold = Math.max(0.12, Math.min(3.5, adapted.peakThreshold));
+        // Restless movers (< 20% still) get a raised stillness threshold — real silence = real pause
+        if (data.stillRate !== null && data.stillRate < 0.20) {
+          adapted.stillnessThreshold = Math.min((r.stillnessThreshold || 0.2) * 1.5, 0.45);
+        }
+        return adapted;
+      },
+
+      endSession: function () {
+        if (saved || sess.peaks.length < 3) return;
+        saved = true;
+        var avgPeak = sess.peaks.reduce(function (x, y) { return x + y; }, 0) / sess.peaks.length;
+        var a = alpha();
+        data.n++;
+        data.peakMag    = data.peakMag === null ? avgPeak : lerp(data.peakMag, avgPeak, a);
+        data.stillRate  = sess.stillMs / Math.max(1, sess.totalMs);
+        var per60 = sess.peaks.length / (Math.max(1, sess.totalMs) / 60000);
+        if      (per60 > 10 && data.peakMag > 1.8) data.archetype = 'surge';
+        else if (per60 > 6  && data.peakMag > 1.2) data.archetype = 'pulse';
+        else if (data.stillRate > 0.50)             data.archetype = 'meditator';
+        else                                        data.archetype = 'flow';
+        try { localStorage.setItem(KEY, JSON.stringify(data)); } catch (e) {}
+      },
+
+      registerHandlers: function () {
+        if (handlersRegistered) return;
+        handlersRegistered = true;
+        document.addEventListener('visibilitychange', function () {
+          if (document.hidden) api.endSession();
+        });
+        window.addEventListener('beforeunload', function () { api.endSession(); });
+      },
+
+      get sessions()  { return data.n; },
+      get archetype() { return data.archetype || 'new'; },
+      get peakMag()   { return data.peakMag !== null ? +data.peakMag.toFixed(2) : null; },
+    };
+    return api;
+  })();
+
   var BAR_BEATS  = 4;
   var STEP_COUNT = 16;
 
@@ -221,6 +293,8 @@ const Follow = (function () {
   var lastMag = 0;
   var lastLastMag = 0;
   var peakCooldown = 0;
+  var adaptedPeakThresh = null;
+  var adaptedStillThresh = null;
 
   // LEAD voice (tilt → melody)
   var currentDegree = 0;
@@ -982,6 +1056,7 @@ const Follow = (function () {
   // ── INIT ──────────────────────────────────────────────────────────────
 
   function init() {
+    motionProfile.registerHandlers();
     active = false;
     isSilent = true;
     fadeGain = 0;
@@ -1020,6 +1095,10 @@ const Follow = (function () {
     if (!lens) return;
 
     try { Audio.resetPortamento(); } catch(e) {}
+
+    var adaptedResp = motionProfile.adapt(lens.response || {});
+    adaptedPeakThresh  = adaptedResp.peakThreshold || null;
+    adaptedStillThresh = adaptedResp.stillnessThreshold || null;
 
     originalRoot   = (lens.harmony && lens.harmony.root) || 432;
     root           = originalRoot;
@@ -1096,7 +1175,7 @@ const Follow = (function () {
   function detectPeak(mag, now) {
     if (peakCooldown > 0) { peakCooldown--; return false; }
 
-    var threshold = lens && lens.response ? (lens.response.peakThreshold || 1.5) : 1.5;
+    var threshold = adaptedPeakThresh || (lens && lens.response ? (lens.response.peakThreshold || 1.5) : 1.5);
 
     if (lastMag > threshold && lastMag > lastLastMag && lastMag > mag) {
       peakCooldown = 8;
@@ -1484,7 +1563,7 @@ const Follow = (function () {
   // ── STILLNESS → SILENCE ───────────────────────────────────────────────
 
   function updateStillness(mag, dt, now) {
-    var threshold = (lens && lens.response && lens.response.stillnessThreshold) || 0.2;
+    var threshold = adaptedStillThresh || (lens && lens.response && lens.response.stillnessThreshold) || 0.2;
     var timeout = (lens && lens.response && lens.response.stillnessTimeout) || 2.0;
     var fadeTime = (lens && lens.response && lens.response.fadeTime) || 3.0;
 
@@ -1717,10 +1796,14 @@ const Follow = (function () {
       }
     }
 
+    // ── Motion profile tick ──
+    motionProfile.tick(dt * 1000, isSilent);
+
     // ── Peak detection ──
     if (detectPeak(mag, now)) {
       recordPeakInterval(now);
       onPeak(lastMag, now);
+      motionProfile.recordPeak(lastMag);
     }
 
     lastLastMag = lastMag;
@@ -1848,6 +1931,9 @@ const Follow = (function () {
     get generation() { return generation; },
     get sessionEnergy() { return Math.round(sessionEnergyAccum) + '/' + epi.energyGate; },
     get hrState() { return hrState; },
+    get profileSessions() { return motionProfile.sessions; },
+    get profileArchetype() { return motionProfile.archetype; },
+    get profilePeakMag() { return motionProfile.peakMag; },
     scaleFreq: scaleFreq,
     triggerCompression: triggerCompression,
     get melodicVocab() { return melodicHistory.slice(); },
