@@ -653,20 +653,7 @@
       // 6. Render
       render(dt);
 
-      // 7. Voice — two moments only: intro (boot) + void prompting
-      // The boot line fires in onListenTap via Voice.boot().
-      // Deep stillness fires here once per void entry — the presence speaks into absence.
-      if (Follow.silent) {
-        if (!voiceStillnessStart) voiceStillnessStart = performance.now();
-        var vStillSecs = (performance.now() - voiceStillnessStart) / 1000;
-        if (vStillSecs > 28 && !voiceDeepStillnessFired) {
-          voiceDeepStillnessFired = true;
-          Voice.onDeepStillness();
-        }
-      } else {
-        voiceStillnessStart    = 0;
-        voiceDeepStillnessFired = false;
-      }
+      // 7. Voice — boot intro only. The void is silence + healing tones, no speech.
 
       // 8. Pattern engine (AI Producer — silent)
       Pattern.update(dt, Follow.silent);
@@ -959,6 +946,10 @@
   // ── BOOT ─────────────────────────────────────────────────────────────
 
   function boot() {
+    // Version badge — always visible so you know exactly what build is running
+    var badge = document.getElementById('version-badge');
+    if (badge) badge.textContent = 'v' + (window.GUMP_BUILD || '?');
+
     initAudioWatchdog();
     initBootCanvas();
     initCanvas();
