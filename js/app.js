@@ -42,6 +42,13 @@
   let prevTouchX = 0, prevTouchY = 0, prevTouchTime = 0;
   let touchVX = 0, touchVY = 0;
 
+  // Outfit — partner state tracking
+  let outfitLibsLoaded  = false;
+  let outfitPendingJoin = null;
+  let lastPeakCount     = 0;
+  let lastLocalPeakTime = 0;
+  let lastPartnerPeak   = 0;
+
   // Voice state — two moments only: boot + void stillness
   let voiceStillnessStart    = 0;
   let voiceDeepStillnessFired = false;
@@ -445,6 +452,9 @@
     // Double-check AudioContext is running
     if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
 
+    // Auto-join a dance room if the page was opened via QR link
+    processAutoJoin();
+
     Lens.updateIndicator();
 
     // Wire brain events → follow engine + organism (ONCE)
@@ -661,6 +671,41 @@
       // 8. Pattern engine (AI Producer — silent)
       Pattern.update(dt, Follow.silent);
 
+      // 11. Outfit — sync with dance partner
+      if (Outfit.connected) {
+        // Track local peaks so we can timestamp them in the broadcast
+        if (Follow.peaks > lastPeakCount) {
+          lastPeakCount     = Follow.peaks;
+          lastLocalPeakTime = Date.now();
+        }
+        // Broadcast our music state ~12Hz
+        Outfit.broadcast({
+          energy:    Follow.energy,
+          lens:      Lens.active ? Lens.active.name : '',
+          phrase:    Follow.phrase,
+          archetype: Follow.profileArchetype,
+          peakTime:  lastLocalPeakTime,
+        });
+        // Respond to partner's peaks — call & response across bodies
+        var ps = Outfit.partnerState;
+        if (ps && ps.peakTime && ps.peakTime > lastPartnerPeak) {
+          lastPartnerPeak = ps.peakTime;
+          try {
+            var aLens = Lens.active;
+            if (aLens && aLens.palette && aLens.palette.harmonic && Audio.ctx) {
+              var deg = [0, 2, 4][Math.floor(Math.random() * 3)];
+              Audio.synth.play(
+                aLens.palette.harmonic.voice || 'piano',
+                Audio.ctx.currentTime + 0.28, // slight delay — you're responding, not unison
+                Follow.scaleFreq(deg, 1),
+                0.18 * Math.min(1, ps.energy || 0.5),
+                (aLens.palette.harmonic.decay || 1.5) * 0.75
+              );
+            }
+          } catch (e) {}
+        }
+      }
+
       // 9. Debug
       if (debugVisible) updateDebug(sensor);
 
@@ -753,6 +798,157 @@
     if (e.key === 'd' || e.key === 'D') toggleDebug();
   });
 
+  // ── OUTFIT UI ────────────────────────────────────────────────────────
+  // Lazy-loads PeerJS + QRCode CDN libs on first tap (keeps page load clean).
+
+  function loadOutfitLibs(cb) {
+    if (outfitLibsLoaded) { cb(); return; }
+    var pending = 2;
+    function done() { if (--pending === 0) { outfitLibsLoaded = true; cb(); } }
+    var s1 = document.createElement('script');
+    s1.src = 'https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js';
+    s1.onload = done; s1.onerror = done;
+    document.head.appendChild(s1);
+    var s2 = document.createElement('script');
+    s2.src = 'https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js';
+    s2.onload = done; s2.onerror = done;
+    document.head.appendChild(s2);
+  }
+
+  function initOutfit() {
+    var askBtn      = document.getElementById('ask-dance-btn');
+    var overlay     = document.getElementById('outfit-overlay');
+    var closeBtn    = document.getElementById('outfit-close');
+    var qrView      = document.getElementById('outfit-qr-view');
+    var qrCanvas    = document.getElementById('outfit-qr-canvas');
+    var roomCodeEl  = document.getElementById('outfit-room-code');
+    var waitingEl   = document.getElementById('outfit-waiting');
+    var connView    = document.getElementById('outfit-conn-view');
+    var connGlyph   = document.getElementById('outfit-conn-glyph');
+    var connPartner = document.getElementById('outfit-conn-partner');
+    var flashEl     = document.getElementById('flash');
+    if (!askBtn || !overlay) return;
+
+    function showOverlay() { overlay.classList.add('active'); }
+    function hideOverlay()  { overlay.classList.remove('active'); }
+
+    function doFlash() {
+      if (!flashEl) return;
+      flashEl.style.background = '#00FF41';
+      flashEl.style.opacity = '0.09';
+      setTimeout(function () { flashEl.style.opacity = '0'; }, 200);
+    }
+
+    function onConnected() {
+      waitingEl.textContent = 'PARTNER FOUND';
+      // Brief pause, then swap QR for ceremony
+      setTimeout(function () {
+        qrView.style.opacity = '0';
+        setTimeout(function () {
+          qrView.style.display = 'none';
+          var pLens = (Outfit.partnerState && Outfit.partnerState.lens) || '';
+          connPartner.textContent = pLens.toUpperCase();
+          connView.classList.add('show');
+          // Stagger the glyph in — feels alive
+          requestAnimationFrame(function () {
+            connGlyph.classList.add('show');
+          });
+          doFlash();
+          // Auto-close after ceremony — get out of the way
+          setTimeout(function () {
+            hideOverlay();
+            // Reset internal state for next open
+            qrView.style.opacity = '';
+            qrView.style.display = '';
+            connView.classList.remove('show');
+            connGlyph.classList.remove('show');
+            // The button becomes the live indicator
+            askBtn.textContent = '∿ PARTNER';
+            askBtn.classList.add('connected');
+          }, 2600);
+        }, 380);
+      }, 700);
+    }
+
+    function onDisconnected() {
+      askBtn.textContent = 'DANCE';
+      askBtn.classList.remove('connected');
+    }
+
+    function openDance() {
+      if (Outfit.connected) return; // already paired
+      loadOutfitLibs(function () {
+        // Fresh state
+        Outfit.destroy();
+        var code = Outfit.generateCode();
+        roomCodeEl.textContent = code;
+        waitingEl.textContent  = 'AWAITING PARTNER';
+        qrView.style.opacity   = '';
+        qrView.style.display   = '';
+        connView.classList.remove('show');
+        connGlyph.classList.remove('show');
+        showOverlay();
+        // Render the QR — green on black, it belongs here
+        var url = Outfit.buildJoinURL(code);
+        if (window.QRCode) {
+          window.QRCode.toCanvas(qrCanvas, url, {
+            width: 200, margin: 1,
+            color: { dark: '#00FF41', light: '#000000' },
+          }, function (err) { if (err) console.warn('[Outfit QR]', err); });
+        }
+        Outfit.createRoom(code, onConnected, null, onDisconnected);
+      });
+    }
+
+    // Tap handler — touchend fires before click on iOS, use that
+    askBtn.addEventListener('touchend', function (e) {
+      e.preventDefault(); e.stopPropagation();
+      openDance();
+    }, { passive: false });
+    askBtn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      openDance();
+    });
+
+    closeBtn.addEventListener('touchend', function (e) {
+      e.preventDefault();
+      hideOverlay();
+    }, { passive: false });
+    closeBtn.addEventListener('click', hideOverlay);
+
+    // Auto-join if this page was opened via a dance QR link
+    outfitPendingJoin = Outfit.checkAutoJoin();
+  }
+
+  // Called once audio context is ready (needs user gesture before connecting)
+  function processAutoJoin() {
+    if (!outfitPendingJoin) return;
+    var code = outfitPendingJoin;
+    outfitPendingJoin = null;
+    loadOutfitLibs(function () {
+      Outfit.joinRoom(code,
+        function onConnect() {
+          var askBtn  = document.getElementById('ask-dance-btn');
+          var flashEl = document.getElementById('flash');
+          if (flashEl) {
+            flashEl.style.background = '#00FF41';
+            flashEl.style.opacity = '0.09';
+            setTimeout(function () { flashEl.style.opacity = '0'; }, 200);
+          }
+          if (askBtn) {
+            askBtn.textContent = '∿ PARTNER';
+            askBtn.classList.add('connected');
+          }
+        },
+        null,
+        function onDisconnect() {
+          var askBtn = document.getElementById('ask-dance-btn');
+          if (askBtn) { askBtn.textContent = 'DANCE'; askBtn.classList.remove('connected'); }
+        }
+      );
+    });
+  }
+
   // ── BOOT ─────────────────────────────────────────────────────────────
 
   function boot() {
@@ -763,6 +959,7 @@
     initLens();
     initPlayCmd();
     initPlayTouch();
+    initOutfit();
     Weather.init();   // fetch conditions — visual + audio adjust when data arrives
   }
 
