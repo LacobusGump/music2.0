@@ -166,6 +166,8 @@ const Follow = (function () {
 
   var root = 432;
   var scale = MODES.major;
+  var baseScale  = null;   // original mode snapshot — restored in Act III
+  var sessionAct = 0;      // 0=Emergence, 1=Journey(sus4), 2=Homecoming(+voices)
 
   // ── HARMONIC ARC ───────────────────────────────────────────────────────
   var originalRoot   = 432;
@@ -436,12 +438,11 @@ const Follow = (function () {
       hrDegOffset = hrState === 'v' ? 4 : 3;  // scale degrees: 5th or 4th
       hrTarget = 2500 + Math.random() * 2500;  // away for 2.5-5s
 
-      // Announce the color shift with a quiet bass note
+      // Announce the color shift — two octaves for depth
       if (Audio.ctx && lens && lens.palette) {
-        try {
-          Audio.synth.play('piano', Audio.ctx.currentTime,
-            scaleFreq(hrDegOffset, -1), 0.26, 3.5);
-        } catch(e) {}
+        var t = Audio.ctx.currentTime;
+        try { Audio.synth.play('piano', t, scaleFreq(hrDegOffset, -1), 0.26, 3.5); } catch(e) {}
+        try { Audio.synth.play('piano', t, scaleFreq(hrDegOffset, -2), 0.18, 4.0); } catch(e) {}
       }
     } else {
       // Return home — the resolution is the satisfying moment
@@ -449,12 +450,11 @@ const Follow = (function () {
       hrDegOffset = 0;
       hrTarget = 8000 + Math.random() * 8000; // home for 8-16s
 
-      // Resolution landing note — the most important moment
+      // Resolution landing — two octaves, sub gives it physical weight
       if (Audio.ctx && lens && lens.palette) {
-        try {
-          Audio.synth.play('piano', Audio.ctx.currentTime,
-            scaleFreq(0, -1), 0.30, 4.0);
-        } catch(e) {}
+        var t2 = Audio.ctx.currentTime;
+        try { Audio.synth.play('piano', t2, scaleFreq(0, -1), 0.30, 4.0); } catch(e) {}
+        try { Audio.synth.play('piano', t2, scaleFreq(0, -2), 0.22, 5.0); } catch(e) {}
       }
     }
 
@@ -910,6 +910,44 @@ const Follow = (function () {
     }
   }
 
+  // ── THREE-ACT MUSICAL ARC ─────────────────────────────────────────────
+  // Act I  (0-90s engaged)  — Emergence: original mode, sparse, space
+  // Act II (90-300s)        — Journey: suspended 4th replaces 3rd (open, floating)
+  // Act III (300s+)         — Homecoming: mode returns home, + parallel sub voice
+  //
+  // This is the Inception trick: ONE note changes in the scale (the 3rd → 4th)
+  // and the entire emotional color lifts into suspension.
+  //
+  function checkActAdvance() {
+    if (!lens || !baseScale || sessionPhase < 1) return;
+
+    if (sessionAct === 0 && sessionEngagedTime >= 90) {
+      sessionAct = 1;
+      // Sus4: replace the 3rd degree with the 4th — open, floating, unresolved
+      scale = baseScale.slice();
+      scale[2] = scale[3];  // major:4→5, dorian:3→5, phrygian:3→5, all modes work
+      // Announce: two quiet notes ascending into the new color
+      if (Audio.ctx && lens && lens.palette && lens.palette.continuous) {
+        var vc = lens.palette.continuous.voice || 'epiano';
+        var t = Audio.ctx.currentTime;
+        try { Audio.synth.play(vc, t,       scaleFreq(3, -1), 0.18, 2.5); } catch(e) {}
+        try { Audio.synth.play(vc, t + 0.9, scaleFreq(3,  0), 0.14, 3.0); } catch(e) {}
+      }
+
+    } else if (sessionAct === 1 && sessionEngagedTime >= 300) {
+      sessionAct = 2;
+      // Homecoming: restore original mode — same home, but now feels transformed
+      scale = baseScale.slice();
+      // Announce: descending resolution (4→1 = falling into place)
+      if (Audio.ctx && lens && lens.palette && lens.palette.continuous) {
+        var vc2 = lens.palette.continuous.voice || 'epiano';
+        var t2 = Audio.ctx.currentTime;
+        try { Audio.synth.play(vc2, t2,       scaleFreq(4, 0), 0.16, 2.0); } catch(e) {}
+        try { Audio.synth.play(vc2, t2 + 0.7, scaleFreq(0, 0), 0.22, 4.5); } catch(e) {}
+      }
+    }
+  }
+
   // ── RAPID OSCILLATION (TREMOLO) ───────────────────────────────────────
 
   function updateRapidOscillation(now, dt) {
@@ -1139,6 +1177,9 @@ const Follow = (function () {
     archetypeConfidence = 0;
     sessionEngagedTime = 0;
     sessionPhase = 0;
+    sessionAct = 0;
+    voidPresence = 0;
+    voidEngaged = false;
   }
 
   // ── HARMONIC ARC UPDATE ───────────────────────────────────────────────
@@ -1173,6 +1214,8 @@ const Follow = (function () {
     originalRoot   = (lens.harmony && lens.harmony.root) || 432;
     root           = originalRoot;
     scale          = MODES[(lens.harmony && lens.harmony.mode) || 'major'] || MODES.major;
+    baseScale      = scale.slice();
+    sessionAct     = 0;
     rootSemiOffset = 0;
     rootSemiTarget = 0;
     arcStep        = 0;
@@ -1199,9 +1242,10 @@ const Follow = (function () {
     sessionEnergyAccum = 0;
     generation = 0;
     epiAdvancePending = false;
-    epi.rootDrift = 0; epi.spaceMix = 0; epi.massiveFloor = 0;
+    epi.rootDrift = 0; epi.spaceMix = 0;
+    epi.massiveFloor = (lens.space && lens.space.massiveStart) || 0;
     epi.energyGate = 24; epi.harmonyCarry = 0;
-    try { Audio.setMassivePhase(0); } catch(e) {}
+    try { Audio.setMassivePhase(epi.massiveFloor); } catch(e) {}
     rapidPeakTimes = [];
     vertVelocity  = 0;
     vertPosition  = 0;
@@ -1326,6 +1370,11 @@ const Follow = (function () {
         var peakVel = Math.min(0.92, vel * 0.82 * (sessionPhase === 1 ? 0.55 : 1.0));
         Audio.synth.play(p.voice || 'sub808', time, freq, peakVel, p.decay || 0.8);
         noteCount++;
+        // Act III: parallel sub-octave voice — more voices, not chords
+        if (sessionAct >= 2 && peakVel > 0.12) {
+          var subFreq = scaleFreq(peakDeg, (p.octave || -1) - 1);
+          Audio.synth.play('piano', time + 0.04, subFreq, peakVel * 0.42, (p.decay || 0.8) + 0.6);
+        }
       }
 
       // ── DELAYED HARMONIC ANSWER (tension-aware) ──
@@ -1719,8 +1768,8 @@ const Follow = (function () {
 
   // ── THE VOID ──────────────────────────────────────────────────────────
 
-  var voidEngaged = false;
-  var voidSmooth  = 0;
+  var voidEngaged  = false;
+  var voidPresence = 0;   // 0=fully out, 1=fully in — smooth, not binary
 
   function enterVoid() {
     if (voidEngaged) return;
@@ -1747,23 +1796,26 @@ const Follow = (function () {
     try { Audio.voidDrone.stop(); } catch (e) {}
   }
 
-  function updateVoid(vState, vDepth, breathPhase, dt) {
+  function updateVoid(dt) {
     if (!Audio.ctx) return;
 
-    if (vState === 0) {
-      if (voidEngaged) exitVoid();
-      return;
+    // Build presence while still (8s to full), decay slowly when moving (~10s to exit).
+    // This creates smooth fade-in and a lingering fade-out — no abrupt cuts.
+    var targetPresence = isSilent ? Math.min(1, stillnessTimer / 8.0) : 0;
+    var rate = isSilent ? 0.025 : 0.005;
+    voidPresence += (targetPresence - voidPresence) * rate;
+
+    if (voidPresence > 0.04) {
+      if (!voidEngaged) enterVoid();
+      var breathPhase = (typeof brainState !== 'undefined' && brainState.breathPhase) || 0;
+      try { Audio.voidDrone.update(voidPresence, breathPhase); } catch (e) {}
+      var windVol = Math.min(0.18, voidPresence * 0.24);
+      try { Audio.layer.setGain('void-wind', windVol, 4.0); } catch (e) {}
+      var sweepFreq = 500 + Math.sin(breathPhase) * 340;
+      try { Audio.layer.setFilter('void-wind', Math.max(150, sweepFreq), 1.8); } catch (e) {}
+    } else if (voidEngaged) {
+      exitVoid();
     }
-    if (!voidEngaged) enterVoid();
-
-    voidSmooth += (vDepth - voidSmooth) * 0.03;
-    try { Audio.voidDrone.update(voidSmooth, breathPhase); } catch (e) {}
-
-    var windVol = Math.min(0.18, voidSmooth * 0.24);
-    try { Audio.layer.setGain('void-wind', windVol, 4.0); } catch (e) {}
-
-    var sweepFreq = 500 + Math.sin(breathPhase) * 340;
-    try { Audio.layer.setFilter('void-wind', Math.max(150, sweepFreq), 1.8); } catch (e) {}
   }
 
   // ── TOUCH ─────────────────────────────────────────────────────────────
@@ -1881,6 +1933,7 @@ const Follow = (function () {
     if (!isSilent && sessionPhase >= 2) sessionEnergyAccum += energySmooth * dt;
     updateHarmonicArc(dt);
     checkEpigeneticAdvance(now);
+    checkActAdvance();
 
     // ── Master gain ──
     touchDuck = Math.min(1.0, touchDuck + dt * 2.0);
@@ -1898,12 +1951,7 @@ const Follow = (function () {
     try { Audio.spatial.update(sensor.gamma || 0, isSilent, sensor.touching); } catch (e) {}
 
     // ── The Void — entered when the user is fully still ──
-    updateVoid(
-      isSilent ? 1 : 0,
-      Math.min(1, stillnessTimer / 5.0),
-      brainState.breathPhase || 0,
-      dt
-    );
+    updateVoid(dt);
 
     lastUpdateTime = now;
   }

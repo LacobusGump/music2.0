@@ -104,21 +104,20 @@ const Lens = (function () {
         saturation: 0.15,                               // warm tape crunch
         type: 'room',
         reverbMix: 0.32,
+        massiveStart: 2,        // grid starts with sub + fifth already — no warmup needed
         spatial: { sweepRate: 0.09, sweepDepth: 0.6 },
       },
 
       palette: {
-        // Massive: detuned unison (±2 + ±13 cents) — same note, 4 copies, chorus width.
-        // Dirty hit on hard peaks — the crunch underneath the beauty.
-        peak:       { voice: 'dirty',   octave: 0,  decay: 0.8 },
-        continuous: { voice: 'massive', octave: 0,  decay: 5.0, sustained: true, velBoost: 1.7 },
-        // No subdivision — hats come from GROOVE_DNA, not a metronome click
-        // Stab answer — sharp, cuts through
-        harmonic:   { voice: 'stab', octave: 0,  decay: 0.35 },
-        // Glitch burst on big gestures
+        // Dirty: 3 detuned saws + aggressive waveshaper — the constant industrial filth.
+        // This IS the texture. Tilt moves through a wall of grit, not clean notes.
+        continuous: { voice: 'dirty',   octave: 0,  decay: 6.0 },
+        // Massive: unison drop — earned impact when your body peaks.
+        // At massiveStart=2 it already has sub + fifth from the first gesture.
+        peak:       { voice: 'massive', octave: 0,  decay: 1.2 },
+        harmonic:   { voice: 'stab',   octave: 0,  decay: 0.35 },
         burst:      { voice: 'glitch', octave: 0 },
-        // No texture pad — the massive voice IS the texture, don't stack
-        touch:      { voice: 'stab', octave: 0,  decay: 0.4 },
+        touch:      { voice: 'stab',   octave: 0,  decay: 0.4 },
       },
 
       groove: {
@@ -314,7 +313,10 @@ const Lens = (function () {
 
       palette: {
         peak: { voice: 'piano', octave: 0, decay: 2.5 },
-        continuous: { voice: 'mono', octave: 0, decay: 2.8 },
+        // strings: 5 detuned voices + vibrato at 5.2Hz + slow bow swell.
+        // Completely distinct from Drift (mono/triangle) and Conductor (cinematic/saw).
+        // Tilt through Still Water = sustained bowed strings following your motion.
+        continuous: { voice: 'strings', octave: 0, decay: 3.5 },
         harmonic: { voice: 'piano', octave: 1, decay: 2.0 },
         texture: { wave: 'sine', chord: [0, 4, 7, 11], octave: -1, detune: 5, vol: 0.05, reverbSend: 0.62 },
         touch: { voice: 'piano', octave: 0, decay: 2.0 },

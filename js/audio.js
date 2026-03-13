@@ -1794,8 +1794,8 @@ const Audio = (function () {
     // Output chain: filter → master gain → reverb (heavy send for immersion)
     voidFilter = ctx.createBiquadFilter();
     voidFilter.type = 'lowpass';
-    voidFilter.frequency.value = 600;
-    voidFilter.Q.value = 0.5;
+    voidFilter.frequency.value = 450;   // lower center — lets sub through
+    voidFilter.Q.value = 0.4;
 
     voidGain = ctx.createGain();
     voidGain.gain.value = 0;
@@ -1803,11 +1803,12 @@ const Audio = (function () {
     voidGain.connect(reverbGain);
     voidGain.connect(masterGain);   // small direct signal for presence
 
-    // 5 harmonic partials using pure ratios: sub, root, fifth, octave, octave+fifth
-    // Pure sine waves — healing, not musical. No sharpness, no attack.
-    var freqs   = [r / 2,  r,    r * 1.5,  r * 2,  r * 3  ];
-    var oGains  = [0.32,  0.50,   0.26,    0.16,   0.09   ];
-    var detunes = [0,      1,     -1,        2,      -2     ];   // 1-2 cents per partial — shimmer
+    // 5 harmonic partials — deep sub + sus4 fourth for medicinal/suspended healing quality
+    // r/4 = 108Hz (felt in chest on headphones), r*(4/3) = perfect fourth = suspension
+    // Pure sine waves. No sharpness. No attack.
+    var freqs   = [r / 4,  r / 2,  r,      r*(4/3),  r * 1.5 ];
+    var oGains  = [0.45,   0.38,  0.32,     0.20,      0.12   ];
+    var detunes = [0,       1,    -1,         2,         -2    ];   // 1-2 cents per partial — shimmer
 
     for (var i = 0; i < freqs.length; i++) {
       var osc = ctx.createOscillator();
@@ -1828,7 +1829,7 @@ const Audio = (function () {
     voidLFO.type = 'sine';
     voidLFO.frequency.value = 0.05;
     voidLFOGain = ctx.createGain();
-    voidLFOGain.gain.value = 200;   // ±200Hz sweep around filter center
+    voidLFOGain.gain.value = 130;   // ±130Hz sweep — meditative, not dramatic
     voidLFO.connect(voidLFOGain);
     voidLFOGain.connect(voidFilter.frequency);
     voidLFO.start();
@@ -1851,7 +1852,7 @@ const Audio = (function () {
     if (!ctx) return;
     if (depth > 0.05) {
       if (!voidOscs.length) startVoidDrone();
-      var target = depth * 0.28;
+      var target = depth * 0.42;
       voidGain.gain.value += (target - voidGain.gain.value) * 0.015;
     } else if (voidOscs.length) {
       // Gentle fade out before stopping
