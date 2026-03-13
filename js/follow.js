@@ -362,9 +362,6 @@ const Follow = (function () {
     if (hrTimer < hrTarget) return;
     hrTimer = 0;
 
-    // Use the lens's own bass voice — not hardcoded piano
-    var hrVoice = (lens && lens.palette && lens.palette.peak && lens.palette.peak.voice) || 'piano';
-
     if (hrState === 'root') {
       // Move away from root — IV or V depending on phrase energy
       hrState = (phraseEnergyArc > 0.45 || rhythmConfidence > 0.5) ? 'v' : 'iv';
@@ -374,7 +371,7 @@ const Follow = (function () {
       // Announce the color shift with a quiet bass note
       if (Audio.ctx && lens && lens.palette) {
         try {
-          Audio.synth.play(hrVoice, Audio.ctx.currentTime,
+          Audio.synth.play('piano', Audio.ctx.currentTime,
             scaleFreq(hrDegOffset, -2), 0.14, 3.5);
         } catch(e) {}
       }
@@ -387,7 +384,7 @@ const Follow = (function () {
       // Resolution landing note — the most important moment
       if (Audio.ctx && lens && lens.palette) {
         try {
-          Audio.synth.play(hrVoice, Audio.ctx.currentTime,
+          Audio.synth.play('piano', Audio.ctx.currentTime,
             scaleFreq(0, -2), 0.18, 4.0);
         } catch(e) {}
       }
@@ -1601,10 +1598,9 @@ const Follow = (function () {
         // Every entry into the music starts with a clear tonal center.
         // Root in the bass + opening melody note = instant orientation.
         if (lens && lens.palette && Audio.ctx) {
-          // Bass root (one octave below) — the foundation, in the lens's own voice
+          // Bass root (one octave below) — the foundation
           try {
-            var wakeVoice = (lens.palette.peak && lens.palette.peak.voice) || 'piano';
-            Audio.synth.play(wakeVoice, Audio.ctx.currentTime,
+            Audio.synth.play('piano', Audio.ctx.currentTime,
               scaleFreq(0, -1), 0.32, 2.2);
           } catch(e) {}
 

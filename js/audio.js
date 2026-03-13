@@ -93,14 +93,14 @@ const Audio = (function () {
     // 4-band per-lens parametric EQ → limiter → spatialPanner
     masterLP = ctx.createBiquadFilter();
     masterLP.type = 'lowpass';
-    masterLP.frequency.value = 2800;  // was 3200 — tame shrillness at the master level
+    masterLP.frequency.value = 3200;
     masterLP.Q.value = 0.3;
     masterLP.connect(masterLimiter);
 
     eqHighShelf = ctx.createBiquadFilter();
     eqHighShelf.type = 'highshelf';
-    eqHighShelf.frequency.value = 2400;  // was 2800 — start rolling earlier
-    eqHighShelf.gain.value = -12;        // was -8 — stronger cut for headphone listening
+    eqHighShelf.frequency.value = 2800;
+    eqHighShelf.gain.value = -8;
     eqHighShelf.connect(masterLP);
 
     eqMidPeak = ctx.createBiquadFilter();

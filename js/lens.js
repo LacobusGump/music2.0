@@ -46,7 +46,7 @@ const Lens = (function () {
       palette: {
         peak: { voice: 'brass', octave: -1, decay: 1.8 },
         continuous: { voice: 'cinematic', octave: 0, decay: 3.5 },
-        harmonic: { voice: 'strings', octave: 0, decay: 2.2 },  // orchestra resolves in strings
+        harmonic: { voice: 'piano', octave: 0, decay: 1.6 },
         burst: { voice: 'brass', octave: 0 },
         texture: { wave: 'sine', chord: [0, 4, 7], octave: -1, detune: 8, vol: 0.07, reverbSend: 0.65 },
         touch: { voice: 'piano', octave: 0, decay: 1.5 },
@@ -186,10 +186,10 @@ const Lens = (function () {
         // Your tilt → right hand melody (middle register)
         continuous: { voice: 'mono', octave: 0, decay: 2.5 },
         // Your motion → left hand bass (different octave = no frequency clash)
-        peak: { voice: 'epiano', octave: -1, decay: 2.5 },      // warm Rhodes bass, not concert piano
+        peak: { voice: 'piano', octave: -1, decay: 2.5 },
         // Strong peaks only: a high note answers 320ms later (see harmonic delay in follow.js)
-        harmonic: { voice: 'epiano', octave: 0, decay: 2.2 },   // resolution in Rhodes warmth
-        touch: { voice: 'epiano', octave: 0, decay: 3.0 },
+        harmonic: { voice: 'piano', octave: 1, decay: 2.0 },
+        touch: { voice: 'piano', octave: 0, decay: 3.0 },
         // No texture, no burst — silence IS the arrangement
       },
 
@@ -251,14 +251,12 @@ const Lens = (function () {
 
       palette: {
         // Your gesture → single piano note — the drop of water in the cave
-        peak: { voice: 'piano', octave: 0, decay: 4.0 },        // was octave 1 — too shrill
-        // Your tilt → piano melody — one octave lower than before, warmer register
-        continuous: { voice: 'piano', octave: -1, decay: 3.2 }, // was octave 0 — felt too exposed
-        // Bell answer — a resonant overtone after silence, marks the space
-        harmonic: { voice: 'bell', octave: 0, decay: 3.5 },
+        peak: { voice: 'piano', octave: 1, decay: 4.0 },
+        // Your tilt → piano melody — same voice as peak, quieter, carries the tune
+        continuous: { voice: 'piano', octave: 0, decay: 3.2 },
         // Barely perceptible sine drone — like breath fogging in cold air
         texture: { wave: 'sine', chord: [0, 7], octave: -2, detune: 8, vol: 0.018, reverbSend: 0.88 },
-        touch: { voice: 'piano', octave: 0, decay: 3.5 },
+        touch: { voice: 'piano', octave: 1, decay: 3.5 },
       },
 
       // Silence IS the percussion here — no kit
@@ -315,11 +313,11 @@ const Lens = (function () {
       },
 
       palette: {
-        peak: { voice: 'vibe', octave: 0, decay: 2.5 },          // vibraphone — Nils Frahm shimmer
-        continuous: { voice: 'vibe', octave: 0, decay: 2.8 },    // distinct from Drift's mono lead
-        harmonic: { voice: 'vibe', octave: 0, decay: 2.2 },      // vibraphone resolution chord
+        peak: { voice: 'piano', octave: 0, decay: 2.5 },
+        continuous: { voice: 'mono', octave: 0, decay: 2.8 },
+        harmonic: { voice: 'piano', octave: 1, decay: 2.0 },
         texture: { wave: 'sine', chord: [0, 4, 7, 11], octave: -1, detune: 5, vol: 0.05, reverbSend: 0.62 },
-        touch: { voice: 'vibe', octave: 0, decay: 2.0 },
+        touch: { voice: 'piano', octave: 0, decay: 2.0 },
       },
 
       // No percussion — the flow is melodic, not rhythmic
