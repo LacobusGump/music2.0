@@ -900,9 +900,16 @@
       });
     }
 
+    // Block touchstart from bubbling to the play screen's long-press handler
+    askBtn.addEventListener('touchstart', function (e) {
+      e.stopPropagation();
+    }, { passive: true });
+
     // Tap handler — touchend fires before click on iOS, use that
     askBtn.addEventListener('touchend', function (e) {
       e.preventDefault(); e.stopPropagation();
+      // Defensively clear the play-screen long-press timer — belt and suspenders
+      if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
       openDance();
     }, { passive: false });
     askBtn.addEventListener('click', function (e) {

@@ -217,16 +217,7 @@ const Voice = (function () {
   }
 
   function lensSelected(name) {
-    var lines = {
-      'The Conductor': 'The musicians are ready.',
-      'Blue Hour':     'Move. Slowly.',
-      'Drift':         'Float. Let go.',
-      'Tundra':        'Breathe.',
-      'Still Water':   'Be very still. Listen.',
-      'Dark Matter':   'In here, everything arrives slightly wrong.',
-    };
-    var line = lines[name];
-    if (line) speak(line, { force: true, pitch: 0.55, rate: 0.74 });
+    // Silenced — lens swipe is a musical gesture, not a verbal announcement
   }
 
   function onFirstMotion() {}   // silenced
