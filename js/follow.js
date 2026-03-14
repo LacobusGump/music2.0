@@ -1200,31 +1200,31 @@ const Follow = (function () {
   // First ~90s: silence. Then ghost hits emerge. By 5 min: full Afro-Cuban.
   //
   // drumPresence build curve:
-  //   0-90s engaged:    0.0  (pure ethereal dreamscape)
-  //   90-180s:          0→0.15  (first ghost shaker, barely there)
-  //   180-300s:         0.15→0.5  (frame drum heartbeat emerges)
-  //   300-480s:         0.5→0.85  (clave pattern, slaps arrive)
-  //   480s+:            0.85→1.0  (full Afro-Cuban intricacies)
+  //   0-20s engaged:    0.0  (pure ethereal dreamscape, earn the drums)
+  //   20-60s:           0→0.20  (first ghost shaker, barely there)
+  //   60-120s:          0.20→0.50  (frame drum heartbeat emerges)
+  //   120-240s:         0.50→0.85  (clave pattern, slaps arrive)
+  //   240s+:            0.85→1.0  (full Afro-Cuban intricacies)
 
   function updateTribalPulse(dt) {
     if (!lens || lens.name === 'Grid' || !Audio.ctx || !Audio.drum) return;
 
-    // Only count engaged (non-silent) time
-    if (!isSilent && fadeGain > 0.1) {
+    // Count engaged (non-silent) time
+    if (!isSilent) {
       tribalPulse.engagedTime += dt;
     }
 
     // Build drumPresence along the curve
     var t = tribalPulse.engagedTime;
     var target;
-    if (t < 90)       target = 0;
-    else if (t < 180) target = 0.15 * ((t - 90) / 90);
-    else if (t < 300) target = 0.15 + 0.35 * ((t - 180) / 120);
-    else if (t < 480) target = 0.50 + 0.35 * ((t - 300) / 180);
-    else              target = Math.min(1.0, 0.85 + 0.15 * ((t - 480) / 120));
+    if (t < 20)       target = 0;
+    else if (t < 60)  target = 0.20 * ((t - 20) / 40);
+    else if (t < 120) target = 0.20 + 0.30 * ((t - 60) / 60);
+    else if (t < 240) target = 0.50 + 0.35 * ((t - 120) / 120);
+    else              target = Math.min(1.0, 0.85 + 0.15 * ((t - 240) / 60));
 
     // Smooth approach (no sudden jumps)
-    tribalPulse.drumPresence += (target - tribalPulse.drumPresence) * dt * 0.5;
+    tribalPulse.drumPresence += (target - tribalPulse.drumPresence) * dt * 0.8;
 
     // Nothing to play yet
     if (tribalPulse.drumPresence < 0.01) return;
@@ -1249,26 +1249,26 @@ const Follow = (function () {
     // Shaker: first to appear (dp > 0.05), quiet and organic
     var shVel = TRIBAL_SHAKER[bar][currentStep];
     if (shVel > 0 && dp > 0.05) {
-      var sv = shVel * dp * fadeGain;
-      if (sv > 0.008) {
-        Audio.drum.shaker(time, sv, 0.04 + Math.random() * 0.02);
+      var sv = shVel * dp * 3.0; // boost so ghost hits are audible
+      if (sv > 0.005) {
+        Audio.drum.shaker(time, Math.min(0.35, sv), 0.04 + Math.random() * 0.02);
       }
     }
 
-    // Frame drum kick: appears around dp > 0.25
+    // Frame drum kick: appears around dp > 0.20
     var kickVel = TRIBAL_KICK[bar][currentStep];
-    if (kickVel > 0 && dp > 0.25) {
-      var kv = kickVel * (dp - 0.15) * fadeGain;
-      if (kv > 0.02) {
+    if (kickVel > 0 && dp > 0.20) {
+      var kv = kickVel * dp * 1.5;
+      if (kv > 0.01) {
         Audio.drum.kick(time, Math.min(0.65, kv), 'tribal');
       }
     }
 
-    // Hand slap: last to arrive, dp > 0.45 — the clave pattern
+    // Hand slap: last to arrive, dp > 0.40 — the clave pattern
     var slapVel = TRIBAL_SLAP[bar][currentStep];
-    if (slapVel > 0 && dp > 0.45) {
-      var slv = slapVel * (dp - 0.35) * fadeGain;
-      if (slv > 0.02) {
+    if (slapVel > 0 && dp > 0.40) {
+      var slv = slapVel * (dp - 0.25) * 1.8;
+      if (slv > 0.01) {
         Audio.drum.snare(time, Math.min(0.55, slv), 'tribal');
       }
     }
@@ -3550,7 +3550,10 @@ const Follow = (function () {
     // ── Master gain ──
     touchDuck = Math.min(1.0, touchDuck + dt * 2.0);
     if (Audio.ctx) {
-      Audio.setMasterGain(0.48 * fadeGain * touchDuck);
+      // Tribal pulse needs a gain floor so drums are audible even during quiet passages
+      var tribalFloor = tribalPulse.drumPresence * 0.35;
+      var effectiveGain = Math.max(fadeGain, tribalFloor);
+      Audio.setMasterGain(0.48 * effectiveGain * touchDuck);
 
       if (typeof Weather !== 'undefined' && Weather.loaded && lens) {
         var wxm = Weather.mods;
