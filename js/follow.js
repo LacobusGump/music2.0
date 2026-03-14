@@ -2080,28 +2080,32 @@ const Follow = (function () {
     // Energy
     intensity: 0,
     djGain: 0,
-    lastIntensity: 0,         // for spike detection
+    lastIntensity: 0,
+
+    // Tilt zone system
+    tiltZone: 1,           // 0=low, 1=mid, 2=high — smoothed
+    tiltZoneSmooth: 1,     // float version for interpolation
+    tiltNorm: 0.5,         // smoothed tilt position 0-1
+    rollNorm: 0,           // smoothed roll position -1 to 1 (left/right)
 
     // Wobble
     wobblePhase: 0,
-    wobbleShape: 0,    // 0=sine, 1=saw-down, 2=square — rotates each drop
-    wobbleRate: 1,     // user-controlled via roll (gamma)
+    wobbleShape: 0,
 
     // Sub
     subPulseStep: -1,
 
     // Stabs
-    stabPattern: 0,    // which stab rhythm this drop cycle uses
+    stabPattern: 0,
     lastStabStep: -1,
 
     // Filter
-    filterSmooth: 300,
+    filterSmooth: 800,
 
     // Kill switch (touch)
     killActive: false,
-    killFilterTarget: 0,
 
-    // Lead (tilt-as-pitch theremin during drop)
+    // Lead (tilt-as-pitch during drop)
     leadActive: false,
 
     // Stab fill burst (peak during drop)
@@ -2110,11 +2114,14 @@ const Follow = (function () {
     // Cut-then-slam (peak during breakdown)
     cutUntil: 0,
 
-    // Vocal chop counter (sustained high energy unlocks chops)
+    // Vocal chops
     highEnergyTime: 0,
     chopStep: -1,
 
-    // Cycle count — each build/drop is slightly different
+    // Pump style: how the user is moving (smooth vs hard)
+    pumpIntensity: 0,      // 0-1 smoothed from peak frequency/strength
+
+    // Cycle count
     cycle: 0,
 
     // Breakdown melody
@@ -2159,20 +2166,23 @@ const Follow = (function () {
     grid.intensity = 0;
     grid.djGain = 0;
     grid.lastIntensity = 0;
+    grid.tiltZone = 1;
+    grid.tiltZoneSmooth = 1;
+    grid.tiltNorm = 0.5;
+    grid.rollNorm = 0;
     grid.wobblePhase = 0;
     grid.wobbleShape = 0;
-    grid.wobbleRate = 1;
     grid.subPulseStep = -1;
     grid.stabPattern = 0;
     grid.lastStabStep = -1;
-    grid.filterSmooth = 300;
+    grid.filterSmooth = 800;
     grid.killActive = false;
-    grid.killFilterTarget = 0;
     grid.leadActive = false;
     grid.stabFillUntil = 0;
     grid.cutUntil = 0;
     grid.highEnergyTime = 0;
     grid.chopStep = -1;
+    grid.pumpIntensity = 0;
     grid.cycle = 0;
     grid.breakdownMelodyFired = false;
 
@@ -2221,12 +2231,8 @@ const Follow = (function () {
         grid.phaseTimer = 0;
         isSilent = false;
         fadeGain = 0.5;
-
-        // Dark pad swells in
         try { Audio.layer.setGain('edm-pad', 0.08, 3.0); } catch(e) {}
-        // Sub bass starts as quiet rumble
         try { Audio.layer.setGain('edm-sub', 0.02, 4.0); } catch(e) {}
-        // Intro melody: phrygian motif → glitch → darkness
         try { Audio.synth.introMelody(time + 0.5, originalRoot); } catch(e) {}
       } else {
         if (Audio.ctx) Audio.setMasterGain(0);
@@ -2240,129 +2246,145 @@ const Follow = (function () {
     var newStep = Math.floor(grid.clock / grid.stepDur) % 16;
     var newBar = Math.floor(grid.clock / barDur);
     var isNewBar = false;
-
     if (newBar > grid.lastBar) {
       grid.lastBar = newBar;
       grid.totalBars++;
       isNewBar = true;
     }
 
-    // ── 3. INTENSITY: smoothed motion → 0-1 ──
+    // ── 3. INTENSITY + PUMP STYLE ──
     grid.lastIntensity = grid.intensity;
     var targetIntensity = Math.min(1, mediumEnergy * 0.8);
-    var riseRate = targetIntensity > grid.intensity ? 0.07 : 0.012;
-    grid.intensity += (targetIntensity - grid.intensity) * riseRate;
+    var iRise = targetIntensity > grid.intensity ? 0.06 : 0.015;
+    grid.intensity += (targetIntensity - grid.intensity) * iRise;
 
-    // ENERGY SPIKE DETECTION: sudden jump = user just started moving hard
-    var energySpike = (grid.intensity - grid.lastIntensity) > 0.015;
+    // Pump intensity from peaks — how hard the user is hitting
+    var peakNow = lastMag > lastLastMag && lastMag > (adaptedPeakThresh || 0.3);
+    if (peakNow) {
+      grid.pumpIntensity = Math.min(1, grid.pumpIntensity + 0.25);
+    } else {
+      grid.pumpIntensity *= 0.985;  // slow decay
+    }
 
-    // djGain: never fully zero once started. The beat persists.
-    var minGain = 0.12;
-    var targetGain = Math.max(minGain, 0.22 + grid.intensity * 0.58);
-    grid.djGain += (targetGain - grid.djGain) * 0.035;
+    // djGain: never fully zero once started
+    var targetGain = Math.max(0.12, 0.22 + grid.intensity * 0.58);
+    grid.djGain += (targetGain - grid.djGain) * 0.03;
 
-    // ── 4. TILT → FILTER + WOBBLE ──
-    // Beta: phone angle → master LP + wobble filter base
+    // ── 4. TILT ZONES — the heart of DJ manipulation ──
+    // Smooth the raw tilt (beta) — MUCH smoother than before
     var beta = (sensor.beta || 45) - 45;
-    var tiltNorm = Math.max(0, Math.min(1, (beta + 30) / 60));
-    var filterRange = edm.filterRange || [200, 6000];
+    var rawTilt = Math.max(0, Math.min(1, (beta + 30) / 60));
+    grid.tiltNorm += (rawTilt - grid.tiltNorm) * 0.035;  // very smooth — no jumps
 
-    // Gamma (roll): phone side-tilt → wobble LFO rate
-    // Level = 1x, tilted = up to 4x speed. THE second DJ knob.
-    var gamma = Math.abs(sensor.gamma || 0);
-    var rollNorm = Math.min(1, gamma / 45);  // 0-1 over 0-45 degrees
-    var userWobbleRate = 0.5 + rollNorm * 3.5;  // 0.5x → 4x wobble speed
-    grid.wobbleRate += (userWobbleRate - grid.wobbleRate) * 0.08;  // smooth
+    // Roll (gamma) — smoothed, signed: negative=left, positive=right
+    var rawRoll = Math.max(-1, Math.min(1, (sensor.gamma || 0) / 40));
+    grid.rollNorm += (rawRoll - grid.rollNorm) * 0.04;
+
+    // Tilt zone: 0=low (dark), 1=mid (groove), 2=high (bright)
+    var rawZone;
+    if (grid.tiltNorm < 0.33)      rawZone = 0;
+    else if (grid.tiltNorm < 0.66) rawZone = 1;
+    else                            rawZone = 2;
+    grid.tiltZoneSmooth += (rawZone - grid.tiltZoneSmooth) * 0.025;
+    grid.tiltZone = Math.round(grid.tiltZoneSmooth);
+
+    // ── ZONE-BASED PARAMETER SHAPING ──
+    // Each zone is a different DJ VIBE, not just a filter position
+    var filterRange = edm.filterRange || [200, 6000];
+    var zoneFilter, zoneWobbleCenter, zoneWobbleRange, zoneWobbleRate;
+    var zoneSubMix, zoneHatMix, zonePadFilter, zoneLeadMix, zoneQ;
+
+    // LOW ZONE: deep sub world. Slow wobble, heavy bass, minimal highs.
+    // This is the "holding it down" vibe.
+    if (grid.tiltZoneSmooth < 0.8) {
+      var lowBlend = Math.max(0, 1 - grid.tiltZoneSmooth / 0.8);  // 1 at 0, 0 at 0.8
+      zoneFilter = 200 + grid.tiltNorm * 1800;  // 200-600 range in low zone
+      zoneWobbleCenter = 120 + grid.tiltNorm * 200;
+      zoneWobbleRange = 400 + lowBlend * 200;
+      zoneWobbleRate = 0.4 + grid.tiltNorm * 0.6;  // slow in low zone
+      zoneSubMix = 0.8 + lowBlend * 0.2;    // sub is LOUD down here
+      zoneHatMix = 0.15 + grid.tiltNorm * 0.35;  // hats barely there
+      zonePadFilter = 250 + grid.tiltNorm * 300;
+      zoneLeadMix = 0.1;  // lead is quiet and dark
+      zoneQ = 3 + lowBlend * 2;  // moderate resonance — warm, not screamy
+    }
+
+    // MID ZONE: the pocket. Everything balanced. The groove zone.
+    if (grid.tiltZoneSmooth >= 0.8 && grid.tiltZoneSmooth < 1.5) {
+      var midT = (grid.tiltNorm - 0.33) / 0.33;  // 0-1 within mid range
+      zoneFilter = 800 + midT * 1500;
+      zoneWobbleCenter = 300 + midT * 500;
+      zoneWobbleRange = 800 + midT * 600;
+      zoneWobbleRate = 1.0 + midT * 0.5;
+      zoneSubMix = 0.6;
+      zoneHatMix = 0.5 + midT * 0.3;
+      zonePadFilter = 500 + midT * 600;
+      zoneLeadMix = 0.3 + midT * 0.3;
+      zoneQ = 3.5;  // moderate
+    }
+
+    // HIGH ZONE: energy. Everything opens up. But MUSICAL, not a drill.
+    if (grid.tiltZoneSmooth >= 1.5) {
+      var hiBlend = Math.min(1, (grid.tiltZoneSmooth - 1.5) / 0.5);
+      zoneFilter = 2000 + hiBlend * 3000;
+      zoneWobbleCenter = 600 + hiBlend * 800;
+      zoneWobbleRange = 1200 + hiBlend * 600;
+      zoneWobbleRate = 1.5 + hiBlend * 1.5;  // faster but capped — no drill
+      zoneSubMix = 0.4 + hiBlend * 0.1;  // sub pulls back slightly
+      zoneHatMix = 0.8 + hiBlend * 0.2;  // hats come alive
+      zonePadFilter = 1000 + hiBlend * 800;
+      zoneLeadMix = 0.6 + hiBlend * 0.4;  // lead is prominent
+      zoneQ = 2.5 - hiBlend * 1.0;  // Q DROPS as frequency rises — no screech!
+    }
+
+    // Default safety (in case zone math didn't fire)
+    if (zoneFilter === undefined) {
+      zoneFilter = 800; zoneWobbleCenter = 300; zoneWobbleRange = 800;
+      zoneWobbleRate = 1; zoneSubMix = 0.6; zoneHatMix = 0.5;
+      zonePadFilter = 500; zoneLeadMix = 0.3; zoneQ = 3.5;
+    }
+
+    // ── ROLL = EQ ISOLATION ──
+    // Left tilt: bass emphasis (sub up, hats down)
+    // Right tilt: treble emphasis (hats up, sub down)
+    // Neutral: balanced
+    var rollBass = 1.0, rollTreble = 1.0;
+    if (grid.rollNorm < -0.15) {
+      // Left tilt = bass isolation
+      var leftAmt = Math.min(1, (-grid.rollNorm - 0.15) / 0.6);
+      rollBass = 1.0 + leftAmt * 0.4;     // bass boosted
+      rollTreble = 1.0 - leftAmt * 0.6;   // treble cut
+    } else if (grid.rollNorm > 0.15) {
+      // Right tilt = treble isolation
+      var rightAmt = Math.min(1, (grid.rollNorm - 0.15) / 0.6);
+      rollBass = 1.0 - rightAmt * 0.5;    // bass cut
+      rollTreble = 1.0 + rightAmt * 0.3;  // treble boosted
+    }
 
     // ── 5. TOUCH = KILL SWITCH ──
-    // Finger down: slam filter to minimum (everything goes dark). Release: slam open.
-    // Also fires a stab on touch-down. This is the DJ's kill switch.
     var touching = sensor.touching || false;
     if (touching && !grid.killActive) {
-      // TOUCH DOWN: kill!
       grid.killActive = true;
-      grid.killFilterTarget = filterRange[0] * 0.5;  // even darker than min
-      // Fire a stab on the kill
-      try {
-        var stabF = scaleFreq(0, 0);
-        Audio.synth.edmStab(time, stabF, 0.5);
-      } catch(e) {}
     } else if (!touching && grid.killActive) {
-      // TOUCH UP: slam back open!
       grid.killActive = false;
-      grid.killFilterTarget = 0;  // 0 = use tilt-based filter
-      // Crash on release = dramatic
-      try { Audio.synth.crashFill(time, 0.4); } catch(e) {}
+      try { Audio.synth.crashFill(time, 0.35); } catch(e) {}
     }
 
-    // Compute final filter target
-    var filterTarget;
-    if (grid.killActive) {
-      filterTarget = grid.killFilterTarget;
-    } else {
-      filterTarget = filterRange[0] + tiltNorm * (filterRange[1] - filterRange[0]);
-    }
-    grid.filterSmooth += (filterTarget - grid.filterSmooth) * 0.08;
+    // Apply filter: kill switch overrides zone filter
+    var filterTarget = grid.killActive ? filterRange[0] * 0.4 : zoneFilter;
+    grid.filterSmooth += (filterTarget - grid.filterSmooth) * 0.04;
     try { Audio.setMasterFilter(grid.filterSmooth); } catch(e) {}
 
-    // ── 6. PEAK DETECTION — CONTEXT-DEPENDENT ──
-    var peakNow = lastMag > lastLastMag && lastMag > (adaptedPeakThresh || 0.3);
-    var kit = '808';
-
-    if (peakNow) {
-      switch (grid.phase) {
-        case 'intro':
-          // Peak during intro: skip ahead to build
-          if (grid.phaseTimer > 3) {
-            grid.phase = 'build';
-            grid.phaseTimer = 0;
-            grid.buildLevel = 0.15;  // start with some build momentum
-            grid.riserFired = false;
-            grid.snareRollFired = false;
-            try { Audio.layer.setGain('edm-wobble', 0.05, 1.0); } catch(e) {}
-            try { Audio.layer.setGain('edm-sub', 0.06, 1.0); } catch(e) {}
-            try { Audio.synth.crashFill(time, 0.35); } catch(e) {}
-          }
-          break;
-
-        case 'drop':
-          // Peak during drop: STAB FILL BURST — rapid stabs for 1 bar
-          grid.stabFillUntil = grid.clock + barDur;
-          try { Audio.synth.crashFill(time, 0.3); } catch(e) {}
-          break;
-
-        case 'breakdown':
-          // Peak during breakdown: CUT-THEN-SLAM
-          // Kill everything for 2 beats, then crash back in
-          grid.cutUntil = grid.clock + grid.stepDur * 8;
-          try { Audio.setMasterGain(0); } catch(e) {}
-          break;
-      }
-    }
-
-    // ── 7. CUT-THEN-SLAM: breakdown peak effect ──
-    if (grid.cutUntil > 0) {
-      if (grid.clock < grid.cutUntil) {
-        // During cut: silence
-        try { Audio.setMasterGain(0.02); } catch(e) {}
-      } else {
-        // SLAM back in
-        grid.cutUntil = 0;
-        try { Audio.synth.crashFill(time, 0.55); } catch(e) {}
-        try { Audio.synth.impact(time, 0.5); } catch(e) {}
-      }
-    }
-
-    // ── 8. PHASE MACHINE ──
+    // ── 6. PHASE MACHINE ──
     grid.phaseTimer += dt;
+    var kit = '808';
 
     switch (grid.phase) {
       case 'intro':
-        // Atmosphere: pad + sub rumble + filtered kick. Melody plays and glitches out.
-        if (grid.phaseTimer > 8) {
+        if (grid.phaseTimer > 8 || (peakNow && grid.phaseTimer > 3)) {
           grid.phase = 'build';
           grid.phaseTimer = 0;
-          grid.buildLevel = 0;
+          grid.buildLevel = (peakNow && grid.phaseTimer < 8) ? 0.15 : 0;
           grid.riserFired = false;
           grid.snareRollFired = false;
           try { Audio.layer.setGain('edm-wobble', 0.03, 2.0); } catch(e) {}
@@ -2371,123 +2393,105 @@ const Follow = (function () {
         break;
 
       case 'build':
-        // ── BUILD: the anticipation. Everything grows toward the drop. ──
-        // Build rate scales with user intensity — pump harder = build faster
-        grid.buildLevel += grid.intensity * dt * 0.055;
-        // Slow auto-build even when still (so it doesn't stall forever)
-        grid.buildLevel += dt * 0.008;
+        // Build rate = user pumping intensity. Pump harder = build faster.
+        // NO auto-build — the USER drives this.
+        grid.buildLevel += grid.pumpIntensity * dt * 0.08;
+        grid.buildLevel += grid.intensity * dt * 0.03;
+        // Tiny auto-build so it doesn't stall completely if user just tilts
+        grid.buildLevel += dt * 0.005;
         grid.buildLevel = Math.min(1, grid.buildLevel);
 
-        // Wobble volume tracks build
-        var wobbleVol = 0.03 + grid.buildLevel * 0.16;
-        try { Audio.layer.setGain('edm-wobble', wobbleVol, 0.4); } catch(e) {}
+        // Layer volumes track build, modulated by zone
+        var wobbleVol = (0.03 + grid.buildLevel * 0.14) * zoneSubMix * rollBass;
+        try { Audio.layer.setGain('edm-wobble', wobbleVol, 0.5); } catch(e) {}
 
-        // Sub grows with build
-        var subVol = 0.06 + grid.buildLevel * 0.10;
-        try { Audio.layer.setGain('edm-sub', subVol, 0.4); } catch(e) {}
+        var subVol = (0.06 + grid.buildLevel * 0.10) * zoneSubMix * rollBass;
+        try { Audio.layer.setGain('edm-sub', subVol, 0.5); } catch(e) {}
 
-        // Pad filter opens with build (darker → brighter = tension)
-        var padFilter = 350 + grid.buildLevel * 1000;
-        try { Audio.layer.setFilter('edm-pad', padFilter, 0.3); } catch(e) {}
+        try { Audio.layer.setFilter('edm-pad', zonePadFilter, 0.4); } catch(e) {}
 
-        // Sidechain intensity scales with both build AND motion
-        var scDepth = 0.3 + grid.buildLevel * 0.2 + grid.intensity * 0.15;
+        // Sidechain scales with build + pump (user-driven intensity)
+        var scDepth = 0.25 + grid.buildLevel * 0.2 + grid.pumpIntensity * 0.2;
         try { Audio.setSidechainDepth(Math.min(0.75, scDepth)); } catch(e) {}
 
-        // Riser at 45%
+        // Riser at 45% build
         if (!grid.riserFired && grid.buildLevel > 0.45) {
           grid.riserFired = true;
           var riserDur = Math.max(3, (1 - grid.buildLevel) * 18);
           try { Audio.synth.riser(time, riserDur); } catch(e) {}
         }
 
-        // Snare roll at 75%
-        if (!grid.snareRollFired && grid.buildLevel > 0.75) {
+        // Snare roll at 80% — only when pumping hard (not auto)
+        if (!grid.snareRollFired && grid.buildLevel > 0.80 && grid.pumpIntensity > 0.3) {
           grid.snareRollFired = true;
-          var rollDur = Math.max(2, (1 - grid.buildLevel) * 10);
+          var rollDur = Math.max(2, (1 - grid.buildLevel) * 8);
           try { Audio.synth.snareRoll(time, rollDur, kit); } catch(e) {}
         }
 
-        // Energy spike during build: crash fill + buildLevel jump
-        if (energySpike && grid.buildLevel > 0.2) {
-          grid.buildLevel = Math.min(1, grid.buildLevel + 0.08);
-          try { Audio.synth.crashFill(time, 0.25); } catch(e) {}
-        }
-
-        // DROP TRIGGER: user peak when armed OR auto-drop
+        // DROP: user peak when armed. Auto-drop only after very long wait.
         var armed = grid.buildLevel > (edm.buildArmLevel || 0.65);
-
-        if ((armed && peakNow) || grid.phaseTimer > 28) {
-          // ── THE DROP ──
+        if ((armed && peakNow) || grid.phaseTimer > 35) {
           grid.phase = 'drop';
           grid.phaseTimer = 0;
           grid.buildLevel = 0;
           grid.riserFired = false;
           grid.snareRollFired = false;
           grid.highEnergyTime = 0;
-
-          // Evolve: each drop cycle gets a different wobble shape and stab pattern
           grid.wobbleShape = grid.cycle % 3;
-          grid.stabPattern = grid.cycle % GRID_STABS.length;
-          grid.lastStabStep = -1;
           grid.cycle++;
 
-          // Impact + slam everything open
           try { Audio.synth.impact(time, 0.85); } catch(e) {}
           try { Audio.setSidechainDepth(0.65); } catch(e) {}
-          try { Audio.layer.setGain('edm-wobble', 0.22, 0.08); } catch(e) {}
-          try { Audio.layer.setGain('edm-sub', 0.16, 0.08); } catch(e) {}
+          try { Audio.layer.setGain('edm-wobble', 0.20, 0.08); } catch(e) {}
+          try { Audio.layer.setGain('edm-sub', 0.14, 0.08); } catch(e) {}
           try { Audio.layer.setGain('edm-pad', 0.10, 0.15); } catch(e) {}
           try { Audio.layer.setFilter('edm-pad', 1400, 0.1); } catch(e) {}
 
-          // Lead layer activates during drop — the theremin
+          // Lead activates — user shapes it with tilt
           grid.leadActive = true;
-          try { Audio.layer.setGain('edm-lead', 0.10, 0.3); } catch(e) {}
-
-          // Filter slams open
-          grid.filterSmooth = filterRange[1];
-          try { Audio.setMasterFilter(filterRange[1]); } catch(e) {}
+          try { Audio.layer.setGain('edm-lead', 0.08, 0.3); } catch(e) {}
         }
         break;
 
       case 'drop':
-        // ── THE DROP: everything maxed. User is the DJ. ──
+        // ── THE DROP: user IS the DJ. Everything responds to position. ──
 
-        // Sustained high energy → unlocks vocal chops
-        if (grid.intensity > 0.45) {
-          grid.highEnergyTime += dt;
-        } else {
-          grid.highEnergyTime = Math.max(0, grid.highEnergyTime - dt * 0.5);
-        }
+        // Sustained high energy for chops
+        if (grid.intensity > 0.45) grid.highEnergyTime += dt;
+        else grid.highEnergyTime = Math.max(0, grid.highEnergyTime - dt * 0.5);
 
-        // Stillness accumulation → breakdown
-        var lowEnergy = grid.intensity < 0.12;
-        if (lowEnergy && grid.phaseTimer > 5) {
-          grid.buildLevel += dt * 0.18;
-        } else {
-          grid.buildLevel = Math.max(0, grid.buildLevel - dt * 0.4);
-        }
+        // Stillness → breakdown
+        var lowE = grid.intensity < 0.12;
+        if (lowE && grid.phaseTimer > 5) grid.buildLevel += dt * 0.18;
+        else grid.buildLevel = Math.max(0, grid.buildLevel - dt * 0.4);
 
-        // Motion intensity → sidechain depth (harder = more aggressive pump)
-        var dropSC = 0.45 + grid.intensity * 0.35;
+        // Zone-shaped layer volumes — tilt position shapes the MIX
+        var dropWobble = 0.12 + grid.intensity * 0.12;
+        try { Audio.layer.setGain('edm-wobble', dropWobble * zoneSubMix * rollBass, 0.3); } catch(e) {}
+
+        var dropSub = 0.10 + grid.intensity * 0.08;
+        try { Audio.layer.setGain('edm-sub', dropSub * zoneSubMix * rollBass, 0.3); } catch(e) {}
+
+        // Sidechain from user pump intensity (not just flat)
+        var dropSC = 0.45 + grid.pumpIntensity * 0.3 + grid.intensity * 0.1;
         try { Audio.setSidechainDepth(Math.min(0.85, dropSC)); } catch(e) {}
 
-        // Lead: wobble filter tracks intensity — harder motion = brighter lead
+        // Lead: zone-shaped volume + filter
         if (grid.leadActive) {
-          var leadFilter = 600 + grid.intensity * 2500;
+          var leadVol = 0.02 + zoneLeadMix * 0.12 * grid.intensity * rollTreble;
+          try { Audio.layer.setGain('edm-lead', leadVol, 0.2); } catch(e) {}
+          var leadFilter = 400 + zoneLeadMix * 1800;
           try { Audio.edm.setLeadFilter(leadFilter); } catch(e) {}
-          // Lead volume responds to intensity
-          var leadVol = 0.04 + grid.intensity * 0.14;
-          try { Audio.layer.setGain('edm-lead', leadVol, 0.15); } catch(e) {}
         }
 
-        // Energy spike during drop: crash + brief sidechain slam
-        if (energySpike) {
-          try { Audio.synth.crashFill(time, 0.3); } catch(e) {}
+        // Peak during drop: crash + sidechain slam (user-triggered, not auto)
+        if (peakNow) {
+          try { Audio.synth.crashFill(time, 0.25); } catch(e) {}
           try { Audio.pumpSidechain(0.9); } catch(e) {}
+          grid.stabFillUntil = grid.clock + grid.stepDur * 4;  // brief stab burst
         }
 
-        // Max drop: 35s or stillness accumulation
+        // Max drop → breakdown
         if (grid.buildLevel > 1.8 || grid.phaseTimer > 35) {
           grid.phase = 'breakdown';
           grid.phaseTimer = 0;
@@ -2495,35 +2499,30 @@ const Follow = (function () {
           grid.breakdownMelodyFired = false;
           grid.leadActive = false;
 
-          // Strip back — everything retreats
           try { Audio.setSidechainDepth(0.15); } catch(e) {}
           try { Audio.layer.setGain('edm-wobble', 0.02, 2.5); } catch(e) {}
           try { Audio.layer.setGain('edm-sub', 0.04, 2.0); } catch(e) {}
           try { Audio.layer.setGain('edm-pad', 0.09, 1.5); } catch(e) {}
           try { Audio.layer.setFilter('edm-pad', 400, 1.5); } catch(e) {}
-          // Lead fades out
           try { Audio.layer.setGain('edm-lead', 0, 1.5); } catch(e) {}
         }
         break;
 
       case 'breakdown':
-        // ── BREAKDOWN: breathing space. Pad + kick + melody. ──
-
-        // Breakdown melody fires once, ~2s in
+        // Breakdown melody fires once
         if (!grid.breakdownMelodyFired && grid.phaseTimer > 2) {
           grid.breakdownMelodyFired = true;
           try { Audio.synth.breakdownMelody(time, originalRoot, barDur); } catch(e) {}
         }
 
-        // Energy spike during breakdown: crash (building anticipation)
-        if (energySpike) {
-          try { Audio.synth.crashFill(time, 0.2); } catch(e) {}
+        // Peak during breakdown: cut-then-slam
+        if (peakNow && grid.phaseTimer > 3) {
+          grid.cutUntil = grid.clock + grid.stepDur * 8;
         }
 
-        // Transition back: user moves again or after ~14s
+        // User moves = back to build
         var breakdownDone = grid.phaseTimer > 14;
         var userReady = grid.intensity > 0.25 && grid.phaseTimer > 5;
-
         if (breakdownDone || userReady) {
           grid.phase = 'build';
           grid.phaseTimer = 0;
@@ -2537,44 +2536,43 @@ const Follow = (function () {
         break;
     }
 
-    // ── 9. LEAD: tilt-as-pitch theremin during drop ──
-    // Beta angle → pitch within phrygian scale. Direct, immediate, expressive.
+    // ── 7. CUT-THEN-SLAM (breakdown peak effect) ──
+    if (grid.cutUntil > 0) {
+      if (grid.clock < grid.cutUntil) {
+        try { Audio.setMasterGain(0.02); } catch(e) {}
+      } else {
+        grid.cutUntil = 0;
+        try { Audio.synth.crashFill(time, 0.5); } catch(e) {}
+        try { Audio.synth.impact(time, 0.45); } catch(e) {}
+      }
+    }
+
+    // ── 8. LEAD: tilt-as-pitch during drop ──
     if (grid.leadActive && grid.phase === 'drop') {
-      // Map tilt to scale degrees — 5 octave range mapped to phone angle
-      var leadTilt = Math.max(0, Math.min(1, tiltNorm));
-      var leadDeg = Math.floor(leadTilt * 14);  // 2 octaves of phrygian
+      var leadDeg = Math.floor(grid.tiltNorm * 14);
       var leadOct = Math.floor(leadDeg / 7);
       var leadNote = leadDeg % 7;
       var leadFreq = scaleFreq(leadNote, leadOct);
-      try { Audio.edm.setLeadPitch(leadFreq, 0.06); } catch(e) {}  // fast glide = responsive
+      try { Audio.edm.setLeadPitch(leadFreq, 0.08); } catch(e) {}
     }
 
-    // ── 10. WOBBLE: user-controlled rate via roll + phase-modified shape ──
-    // Base rate from phase, then MULTIPLIED by user roll control
-    var phaseWobbleBase;
-    if (grid.phase === 'drop') {
-      phaseWobbleBase = grid.phaseTimer > 16 ? 2 : 1;
-    } else if (grid.phase === 'build') {
-      phaseWobbleBase = grid.buildLevel > 0.6 ? 1.5 : 0.8;
-    } else {
-      phaseWobbleBase = 0.5;
-    }
-    // User roll modulates rate — they control the wobble speed!
-    var finalWobbleRate = phaseWobbleBase * grid.wobbleRate;
-    grid.wobblePhase += dt * (grid.bpm / 60) * finalWobbleRate;
+    // ── 9. WOBBLE: zone-shaped, roll-influenced ──
+    // Rate comes from zone (not phase-locked formula) — user's tilt position controls feel
+    var wobbleR = zoneWobbleRate || 1;
+    // Roll adds asymmetric rate boost — tilting right speeds up slightly
+    if (grid.rollNorm > 0.2) wobbleR *= (1 + (grid.rollNorm - 0.2) * 0.8);
+    grid.wobblePhase += dt * (grid.bpm / 60) * wobbleR;
     var wobbleLFO = getWobbleLFO(grid.wobblePhase, grid.wobbleShape);
 
-    // Wobble range scales with BOTH phase AND user intensity
-    // Harder motion = wider wobble sweep = more dramatic sound
-    var wobbleBase = grid.phase === 'drop' ? 400 : 150;
-    var wobbleRange = grid.phase === 'drop' ? 3200 : 1200;
-    var wobbleInt = Math.max(0.15, grid.intensity);
-    // Tilt also shapes wobble base — phone angle = where the wobble centers
-    var tiltWobbleShift = tiltNorm * 600;  // tilt forward adds brightness to wobble center
-    var wobbleFreq = wobbleBase + tiltWobbleShift + (wobbleLFO * 0.5 + 0.5) * wobbleRange * wobbleInt;
+    // Wobble filter from zone, shaped by intensity
+    var wobbleInt = Math.max(0.2, grid.intensity);
+    var wobbleFreq = (zoneWobbleCenter || 300) + (wobbleLFO * 0.5 + 0.5) * (zoneWobbleRange || 800) * wobbleInt;
     try { Audio.edm.setWobbleFilter(wobbleFreq); } catch(e) {}
 
-    // ── 11. DRUMS ON CLOCK ──
+    // Wobble Q from zone — LOW = warm resonance, HIGH = reduced Q (no drill!)
+    try { Audio.edm.setWobbleQ(zoneQ || 3.5); } catch(e) {}
+
+    // ── 10. DRUMS ON CLOCK ──
     if (newStep !== grid.lastStep) {
       grid.lastStep = newStep;
 
@@ -2582,31 +2580,35 @@ const Follow = (function () {
       var isDrop = grid.phase === 'drop';
       var isBuild = grid.phase === 'build';
       var isBreakdown = grid.phase === 'breakdown';
+      var isCut = grid.cutUntil > 0 && grid.clock < grid.cutUntil;
 
-      // HAT pattern changes by phase
+      // HAT pattern: zone-influenced during drop
       var hatPat;
-      if (isDrop) hatPat = GRID_HAT_DROP;
-      else if (isBuild && grid.buildLevel > 0.4) hatPat = GRID_HAT_BUILD;
-      else hatPat = GRID_HAT;
+      if (isDrop) {
+        // High zone: full 8th hats. Low zone: sparse offbeats only.
+        hatPat = grid.tiltZone >= 2 ? GRID_HAT_DROP : GRID_HAT;
+      } else if (isBuild && grid.buildLevel > 0.4) {
+        hatPat = GRID_HAT_BUILD;
+      } else {
+        hatPat = GRID_HAT;
+      }
 
-      // ── KICK: the heartbeat. Always. ──
+      // ── KICK ──
       var kv = GRID_KICK[newStep] || 0;
-      if (kv > 0) {
-        var kickVel = kv * grid.djGain;
+      if (kv > 0 && !isCut) {
+        var kickVel = kv * grid.djGain * rollBass;
         if (isIntro) kickVel *= 0.35;
-        // During cut: silence
-        if (grid.cutUntil > 0 && grid.clock < grid.cutUntil) kickVel = 0;
         if (kickVel > 0.03) {
           Audio.drum.kick(time, Math.min(0.92, kickVel), kit);
           Audio.pumpSidechain(kickVel);
         }
       }
 
-      // ── SNARE: layers in with build, full in drop ──
+      // ── SNARE: pump intensity shapes presence ──
       var sv = GRID_SNARE[newStep] || 0;
-      if (sv > 0 && !isIntro && !(grid.cutUntil > 0 && grid.clock < grid.cutUntil)) {
+      if (sv > 0 && !isIntro && !isCut) {
         var snareLevel;
-        if (isDrop)  snareLevel = 1.0;
+        if (isDrop)  snareLevel = 0.7 + grid.pumpIntensity * 0.3;  // pump shapes snare!
         else if (isBuild) snareLevel = Math.max(0, grid.buildLevel - 0.2);
         else snareLevel = 0;
         var snareVel = sv * grid.djGain * snareLevel;
@@ -2615,79 +2617,59 @@ const Follow = (function () {
         }
       }
 
-      // ── HATS: intensity-responsive ──
+      // ── HATS: zone + roll shaped ──
       var hv = hatPat[newStep] || 0;
-      if (hv > 0 && !isIntro && !isBreakdown && !(grid.cutUntil > 0 && grid.clock < grid.cutUntil)) {
+      if (hv > 0 && !isIntro && !isBreakdown && !isCut) {
         var hatLevel;
-        if (isDrop) hatLevel = 0.65 + grid.intensity * 0.35;  // hats respond to motion!
-        else hatLevel = Math.max(0, grid.intensity - 0.1);
-        var hatVel = hv * grid.djGain * hatLevel * 0.5;
+        if (isDrop) hatLevel = zoneHatMix * (0.5 + grid.intensity * 0.5);
+        else hatLevel = Math.max(0, grid.intensity - 0.1) * zoneHatMix;
+        var hatVel = hv * grid.djGain * hatLevel * rollTreble * 0.5;
         if (hatVel > 0.02) {
           Audio.drum.hat(time, hatVel, kit);
         }
       }
 
-      // ── STABS: during drop — standard pattern + fill bursts from peaks ──
-      if (isDrop && newStep !== grid.lastStabStep) {
-        grid.lastStabStep = newStep;
-        var stabPat = GRID_STABS[grid.stabPattern] || GRID_STABS[0];
-        var stabV = stabPat[newStep] || 0;
-
-        // STAB FILL BURST: after peak during drop, every step fires stabs for 1 bar
-        if (grid.stabFillUntil > grid.clock) {
-          stabV = Math.max(stabV, 0.5 + Math.random() * 0.3);  // every step!
-        }
-
-        if (stabV > 0) {
-          var stabFreq = scaleFreq(0, 0);
-          try { Audio.synth.edmStab(time, stabFreq, stabV * grid.djGain * 0.35); } catch(e) {}
-        }
+      // ── STABS: ONLY from user peaks (no auto-patterns) ──
+      if (isDrop && grid.stabFillUntil > grid.clock) {
+        var stabFreq = scaleFreq(newStep % 7, 0);  // walk the scale = melodic stabs
+        try { Audio.synth.edmStab(time, stabFreq, 0.3 * grid.djGain * rollTreble); } catch(e) {}
       }
 
-      // ── VOCAL CHOPS: unlock after sustained high energy during drop ──
-      if (isDrop && grid.highEnergyTime > 4 && newStep !== grid.chopStep) {
-        // Every 4th step = occasional "ah" chops
-        if (newStep % 4 === 2) {
-          grid.chopStep = newStep;
-          var chopFreq = scaleFreq(Math.floor(Math.random() * 5), 1);
-          try { Audio.synth.vocalChop(time, chopFreq, 0.25 * grid.djGain); } catch(e) {}
-        }
+      // ── VOCAL CHOPS: user-driven (sustained high energy + high zone) ──
+      if (isDrop && grid.highEnergyTime > 4 && grid.tiltZone >= 2 && newStep % 4 === 2 && newStep !== grid.chopStep) {
+        grid.chopStep = newStep;
+        var chopFreq = scaleFreq(Math.floor(Math.random() * 5), 1);
+        try { Audio.synth.vocalChop(time, chopFreq, 0.2 * grid.djGain * rollTreble); } catch(e) {}
       }
 
-      // ── SUB PULSE: on kick beats, adds weight ──
+      // ── SUB PULSE: on kick beats, zone-shaped ──
       if (!isIntro && (newStep === 0 || newStep === 8) && grid.subPulseStep !== newStep) {
         grid.subPulseStep = newStep;
         var subF = edm.subFreq || 55;
-        var subV = isDrop ? 0.35 : (isBuild ? 0.15 + grid.buildLevel * 0.15 : 0.1);
-        subV *= grid.djGain;
+        var subV = isDrop ? 0.30 : (isBuild ? 0.12 + grid.buildLevel * 0.15 : 0.08);
+        subV *= grid.djGain * zoneSubMix * rollBass;
         if (subV > 0.03) {
           try { Audio.synth.subPulse(time + 0.005, subF, subV, grid.stepDur * 3); } catch(e) {}
         }
       }
-
-      // ── FILLS: crash on bar 1 of drop, kick fill on last bar of build ──
-      if (isNewBar) {
-        if (isBuild && grid.buildLevel > 0.9 && (newStep >= 12)) {
-          Audio.drum.kick(time, 0.5 * grid.djGain, kit);
-        }
-      }
     }
 
-    // ── 12. PAD: continuous, breathes with phase + motion ──
+    // ── 11. PAD: zone-shaped ──
     var padTarget;
     if (grid.phase === 'intro')          padTarget = 0.05 + Math.min(0.06, grid.phaseTimer * 0.008);
-    else if (grid.phase === 'build')     padTarget = 0.04 + grid.buildLevel * 0.05;
-    else if (grid.phase === 'drop')      padTarget = 0.06 + grid.intensity * 0.06;  // pad breathes with motion!
+    else if (grid.phase === 'build')     padTarget = 0.04 + grid.buildLevel * 0.04;
+    else if (grid.phase === 'drop')      padTarget = 0.05 + grid.intensity * 0.05;
     else if (grid.phase === 'breakdown') padTarget = 0.10;
     else padTarget = 0;
-    try { Audio.layer.setGain('edm-pad', padTarget * grid.djGain, 0.4); } catch(e) {}
+    try { Audio.layer.setGain('edm-pad', padTarget * grid.djGain, 0.5); } catch(e) {}
+    try { Audio.layer.setFilter('edm-pad', zonePadFilter || 500, 0.4); } catch(e) {}
 
-    // ── 13. MASTER GAIN ──
+    // ── 12. MASTER GAIN ──
     if (Audio.ctx && !(grid.cutUntil > 0 && grid.clock < grid.cutUntil)) {
       Audio.setMasterGain(0.55 * grid.djGain);
     }
 
-    // ── 14. Spatial: roll controls panning ──
+    // ── 13. Spatial ──
     try { Audio.spatial.update(sensor.gamma || 0, false, sensor.touching); } catch(e) {}
   }
 

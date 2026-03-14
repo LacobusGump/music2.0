@@ -2210,8 +2210,18 @@ const Audio = (function () {
   }
 
   // Wobble bass filter LFO — driven by follow.js grid clock so it syncs to tempo
+  // Cap at 2200Hz — above that it becomes a screeching drill, not music.
   function setWobbleFilter(freq) {
-    setLayerFilter('edm-wobble', Math.max(80, Math.min(4000, freq)), 0.03);
+    var f = Math.max(80, Math.min(2200, freq));
+    setLayerFilter('edm-wobble', f, 0.03);
+  }
+
+  // Wobble Q control — reduce resonance at high frequencies to prevent drill screech
+  function setWobbleQ(q) {
+    var L = layers['edm-wobble'];
+    if (L && L.filter) {
+      L.filter.Q.setTargetAtTime(Math.max(0.5, Math.min(8, q)), ctx.currentTime, 0.05);
+    }
   }
 
   // Riser: filtered noise sweep + pitch sweep — builds tension before drop
@@ -2575,6 +2585,7 @@ const Audio = (function () {
       buildSub: buildSubLayer,
       buildLead: buildLeadLayer,
       setWobbleFilter: setWobbleFilter,
+      setWobbleQ: setWobbleQ,
       setLeadPitch: setLeadPitch,
       setLeadFilter: setLeadFilter,
       destroyAll: destroyEDMLayers,
