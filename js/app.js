@@ -712,7 +712,7 @@
   function render(dt) {
     if (!ctx2d) return;
 
-    ctx2d.fillStyle = 'rgba(0,0,0,0.15)';
+    ctx2d.fillStyle = 'rgba(5,5,5,0.15)';
     ctx2d.fillRect(0, 0, W, H);
 
     var ox = posX * W;

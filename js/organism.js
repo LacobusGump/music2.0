@@ -1,71 +1,68 @@
 /**
- * ORGANISM — The Living Visual
+ * ORGANISM — Golden Spiral Field
  *
- * Polar harmonic shape that evolves from spore to entity.
- * Lens-influenced: color palette comes from the active lens.
- * Trail rendered with Catmull-Rom splines.
+ * Not a dot. Not an orb. A living field of particles
+ * arranged along Fibonacci spiral arms. The math IS the beauty —
+ * golden angle spacing means no two particles align the same way.
  *
- * Stages: Spore → Tendril → Bloom → Entity → Abyss
+ * Still = tight constellation, barely breathing.
+ * Moving = particles expand along spiral paths, trailing light.
+ * Touch = ripple perturbation through the field.
+ *
+ * The field follows your body position but it's not centered on you —
+ * it radiates FROM you. You are the origin, not the subject.
  */
 
 const Organism = (function () {
   'use strict';
 
   const TWO_PI = Math.PI * 2;
-  const ANGULAR_STEPS = 100;
-  const TRAIL_MAX = 120;
+  const PHI = 1.6180339887;
+  const GOLDEN_ANGLE = Math.PI * 2 * (1 - 1 / PHI);  // ~137.5° — the sunflower angle
+  const PARTICLE_COUNT = 89;  // Fibonacci number
+  const TRAIL_MAX = 80;
 
-  const STAGES = [
-    { name: 'spore',   threshold: 0,   trailLen: 8,   glowAlpha: 0 },
-    { name: 'tendril', threshold: 5,   trailLen: 30,  glowAlpha: 0.08 },
-    { name: 'bloom',   threshold: 20,  trailLen: 60,  glowAlpha: 0.12 },
-    { name: 'entity',  threshold: 60,  trailLen: 100, glowAlpha: 0.18 },
-    { name: 'abyss',   threshold: 180, trailLen: 120, glowAlpha: 0.25 },
-  ];
-
-  // ── STATE ────────────────────────────────────────────────────────────
+  // ── STATE ──────────────────────────────────────────────────────────
 
   let time = 0;
   let lifeForce = 0;
   let touchTime = 0;
   const seenGestures = new Set();
   const trail = [];
-  const mutations = [];
 
-  // DNA — organism genome, shaped by neurons
-  const dna = {
-    numArms: 3, armLength: 0.2, spikiness: 0, flowiness: 0,
-    spiralness: 0, symmetry: 0, breathDepth: 0.3, intensity: 0,
-    hue: 0, saturation: 0,
-  };
-  const dnaTarget = { ...dna };
+  // Smooth values
+  let smoothEnergy = 0;
+  let smoothSpread = 0.15;   // how far particles extend from origin
+  let smoothBreath = 0;      // breathing phase
+  let smoothRotation = 0;    // slow rotation of the whole field
+  let touchRipple = 0;       // ripple from touch
+  let touchRipplePhase = 0;
 
-  // Lens color parsed to HSL
+  // Lens color
   let lensHue = 0;
   let lensSat = 0;
   let lensLight = 50;
 
-  // ── HELPERS ──────────────────────────────────────────────────────────
-
-  function getStage() {
-    for (let i = STAGES.length - 1; i >= 0; i--) {
-      if (lifeForce >= STAGES[i].threshold) return i;
-    }
-    return 0;
+  // Per-particle persistent state (so they feel alive, not computed)
+  const particles = [];
+  for (let i = 0; i < PARTICLE_COUNT; i++) {
+    const fi = i * GOLDEN_ANGLE;  // golden angle position
+    const fRadius = Math.sqrt(i / PARTICLE_COUNT);  // sunflower disk distribution
+    particles.push({
+      baseAngle: fi,
+      baseRadius: fRadius,
+      phase: Math.random() * TWO_PI,   // individual breathing offset
+      drift: (Math.random() - 0.5) * 0.3,  // slight angular drift
+      size: 0.5 + Math.random() * 1.0,
+      brightness: 0.3 + Math.random() * 0.7,
+      // Wander: each particle has a slow individual wander
+      wanderX: 0, wanderY: 0,
+      wanderVX: (Math.random() - 0.5) * 0.15,
+      wanderVY: (Math.random() - 0.5) * 0.15,
+    });
   }
 
-  function stageProgress() {
-    const s = getStage();
-    if (s >= STAGES.length - 1) return 1;
-    const lo = STAGES[s].threshold;
-    const hi = STAGES[s + 1].threshold;
-    return Math.min(1, (lifeForce - lo) / (hi - lo));
-  }
-
-  function smoothDna(dt) {
-    const rate = 1 - Math.exp(-2.5 * dt);
-    for (const k in dna) dna[k] += (dnaTarget[k] - dna[k]) * rate;
-  }
+  // ── HELPERS ────────────────────────────────────────────────────────
 
   function hsl(h, s, l, a) {
     s /= 100; l /= 100;
@@ -96,227 +93,199 @@ const Organism = (function () {
     lensLight = l * 100;
   }
 
-  // ── APPLY LENS ───────────────────────────────────────────────────────
+  // ── APPLY LENS ─────────────────────────────────────────────────────
 
   function applyLens(lens) {
     if (lens && lens.color) hexToHSL(lens.color);
   }
 
-  // ── UPDATE ───────────────────────────────────────────────────────────
+  // ── UPDATE ─────────────────────────────────────────────────────────
 
   function update(dt, posX, posY, width, height, brainState, touching) {
     time += dt;
-
     if (touching) touchTime += dt;
 
-    const energy = brainState.energy;
+    const energy = brainState.energy || 0;
     lifeForce = touchTime + energy * 2 + seenGestures.size * 3;
 
-    // Read neuron rates
+    // Gesture tracking (for visual evolution)
     const neurons = brainState.neurons;
     if (neurons) {
-      const shake    = neurons.shake    ? neurons.shake.rate()    : 0;
-      const sweep    = neurons.sweep    ? neurons.sweep.rate()    : 0;
-      const circle   = neurons.circle   ? neurons.circle.rate()   : 0;
-      const pendulum = neurons.pendulum ? neurons.pendulum.rate() : 0;
-      const stillness= neurons.stillness? neurons.stillness.rate(): 0;
-
-      if (shake > 0.5)    seenGestures.add('shake');
-      if (sweep > 0.5)    seenGestures.add('sweep');
-      if (circle > 0.5)   seenGestures.add('circle');
-      if (pendulum > 0.5) seenGestures.add('pendulum');
-      if (stillness > 0.5) seenGestures.add('stillness');
-
-      dnaTarget.spikiness  = shake * 0.8;
-      dnaTarget.flowiness  = sweep * 0.7;
-      dnaTarget.spiralness = circle * 0.6;
-      dnaTarget.symmetry   = pendulum * 0.5;
-      dnaTarget.breathDepth= 0.3 + stillness * 0.5;
-      dnaTarget.numArms    = 3 + shake * 4 + sweep * 2 + circle * 3;
-      dnaTarget.armLength  = 0.2 + energy * 0.6 + (shake + sweep) * 0.15;
+      if (neurons.shake    && neurons.shake.rate()    > 0.5) seenGestures.add('shake');
+      if (neurons.sweep    && neurons.sweep.rate()    > 0.5) seenGestures.add('sweep');
+      if (neurons.circle   && neurons.circle.rate()   > 0.5) seenGestures.add('circle');
+      if (neurons.pendulum && neurons.pendulum.rate() > 0.5) seenGestures.add('pendulum');
+      if (neurons.stillness&& neurons.stillness.rate()> 0.5) seenGestures.add('stillness');
     }
 
-    dnaTarget.intensity = Math.min(1, energy * 2);
+    // Smooth energy — controls spread, brightness, particle size
+    smoothEnergy += (energy - smoothEnergy) * (1 - Math.exp(-3 * dt));
 
-    // Color: lens hue + drift from gesture variety
-    const stage = getStage();
-    dnaTarget.hue = lensHue + seenGestures.size * 20 + time * 2;
-    dnaTarget.saturation = Math.max(lensSat, Math.min(70, 15 + stage * 12));
+    // Spread: still = tight cluster, energy = expanding field
+    const targetSpread = 0.06 + Math.min(0.5, smoothEnergy * 0.35) + seenGestures.size * 0.02;
+    smoothSpread += (targetSpread - smoothSpread) * (1 - Math.exp(-1.5 * dt));
 
-    // Mutations from brain spikes (called externally via addMutation)
+    // Breathing: φ-driven frequencies that NEVER exactly loop
+    // Two oscillators at ratio φ:1 = infinite variation
+    const breathRate = 0.4 + smoothEnergy * 0.8;
+    smoothBreath += dt * breathRate;
+
+    // Field rotation: φ speed ratio — the spiral itself turns at golden time
+    smoothRotation += dt * (0.03 + smoothEnergy * 0.12) * (1 / PHI);
+
+    // Touch ripple
+    if (touching && touchRipple < 0.5) {
+      touchRipple = Math.min(1, touchRipple + dt * 3);
+    } else {
+      touchRipple *= Math.exp(-2 * dt);
+    }
+    touchRipplePhase += dt * 8;
+
+    // Particle wander (slow brownian drift so they feel alive)
+    for (let i = 0; i < PARTICLE_COUNT; i++) {
+      const p = particles[i];
+      p.wanderX += p.wanderVX * dt;
+      p.wanderY += p.wanderVY * dt;
+      // Gentle spring back so they don't wander too far
+      p.wanderVX -= p.wanderX * 0.5 * dt;
+      p.wanderVY -= p.wanderY * 0.5 * dt;
+      // Slight random perturbation
+      p.wanderVX += (Math.random() - 0.5) * 0.4 * dt;
+      p.wanderVY += (Math.random() - 0.5) * 0.4 * dt;
+    }
 
     // Trail
     const px = posX * width;
     const py = posY * height;
     trail.push({ x: px, y: py, t: time });
     if (trail.length > TRAIL_MAX) trail.shift();
-
-    smoothDna(dt);
   }
 
   function addMutation(surprise) {
-    if (surprise < 0.5) return;
-    mutations.push({
-      time: time, freq: 5 + Math.random() * 10,
-      amp: surprise * 0.3, decay: 3 + Math.random() * 4,
-      phase: Math.random() * TWO_PI,
-    });
-    dnaTarget.hue += (Math.random() - 0.5) * 30;
-  }
-
-  // ── POLAR RADIUS ─────────────────────────────────────────────────────
-
-  function polarRadius(theta, baseSize, t) {
-    const stage = getStage();
-    const prog = stageProgress();
-    let r = baseSize;
-
-    if (stage < 1 && prog < 0.3) {
-      r += baseSize * 0.05 * Math.sin(t * 3);
-      return r;
+    if (surprise < 0.3) return;
+    // Mutations perturb all particles outward briefly
+    for (let i = 0; i < PARTICLE_COUNT; i++) {
+      const p = particles[i];
+      const angle = p.baseAngle + smoothRotation;
+      p.wanderVX += Math.cos(angle) * surprise * 0.8;
+      p.wanderVY += Math.sin(angle) * surprise * 0.8;
     }
-
-    const gate = stage < 1 ? prog * 3 : 1;
-
-    // 6 harmonics
-    r += baseSize * dna.spikiness  * 0.4  * gate * Math.cos(dna.numArms * theta + t * 2);
-    r += baseSize * dna.flowiness  * 0.35 * gate * Math.sin(2.3 * theta + t * 0.7);
-    r += baseSize * dna.spiralness * 0.3  * gate * Math.cos(Math.PI * theta + t * 1.3);
-    r += baseSize * dna.symmetry   * 0.25 * gate * Math.sin(1.5 * theta + 0.7 * t);
-    r += baseSize * dna.breathDepth* 0.15 * Math.sin(t * 1.8);
-    r += baseSize * dna.intensity  * 0.2  * Math.cos(3 * theta - t * 4);
-
-    // Mutation ripples
-    for (let i = mutations.length - 1; i >= 0; i--) {
-      const m = mutations[i];
-      const age = t - m.time;
-      if (age > m.decay * 2) { mutations.splice(i, 1); continue; }
-      r += baseSize * m.amp * Math.exp(-age / m.decay) * Math.sin(m.freq * theta + m.phase + t * 6);
-    }
-
-    return Math.max(baseSize * 0.3, r);
   }
 
-  // ── CATMULL-ROM TRAIL ────────────────────────────────────────────────
-
-  function catmull(p0, p1, p2, p3, t) {
-    const t2 = t * t, t3 = t2 * t;
-    return 0.5 * ((2 * p1) + (-p0 + p2) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 + (-p0 + 3 * p1 - 3 * p2 + p3) * t3);
-  }
-
-  function drawTrail(ctx, stage) {
-    const len = Math.min(trail.length, STAGES[stage].trailLen);
-    if (len < 4) return;
-    const start = trail.length - len;
-
-    ctx.beginPath();
-    for (let i = 0; i < len - 1; i++) {
-      const idx = start + i;
-      const p0 = trail[Math.max(start, idx - 1)];
-      const p1 = trail[idx];
-      const p2 = trail[Math.min(trail.length - 1, idx + 1)];
-      const p3 = trail[Math.min(trail.length - 1, idx + 2)];
-
-      for (let s = 0; s < 4; s++) {
-        const t = s / 4;
-        const x = catmull(p0.x, p1.x, p2.x, p3.x, t);
-        const y = catmull(p0.y, p1.y, p2.y, p3.y, t);
-        if (i === 0 && s === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-      }
-    }
-
-    const alpha = 0.08 + stage * 0.04;
-    ctx.strokeStyle = stage >= 1 ? hsl(dna.hue % 360, dna.saturation, 60, alpha) : 'rgba(255,255,255,' + alpha + ')';
-    ctx.lineWidth = 1.5;
-    ctx.stroke();
-  }
-
-  // ── DRAW ─────────────────────────────────────────────────────────────
+  // ── DRAW ───────────────────────────────────────────────────────────
 
   function draw(canvasCtx, x, y, w, h) {
-    const stage = getStage();
-    const energy = dna.intensity;
-    const baseSize = 6 + energy * 20 + stage * 4;
+    const minDim = Math.min(w, h);
+    const fieldScale = minDim * smoothSpread;
+
+    // Evolving hue: lens base + slow drift from gesture variety
+    const hueBase = lensHue + seenGestures.size * 15 + time * 1.5;
 
     canvasCtx.save();
 
-    // Trail
-    drawTrail(canvasCtx, stage);
-
-    // Glow
-    if (stage >= 1) {
-      const glowR = baseSize * (2.5 + energy * 2);
-      const g = canvasCtx.createRadialGradient(x, y, 0, x, y, glowR);
-      g.addColorStop(0, hsl(dna.hue % 360, dna.saturation, 55, STAGES[stage].glowAlpha));
-      g.addColorStop(1, 'rgba(0,0,0,0)');
-      canvasCtx.fillStyle = g;
+    // ── TRAIL: thin, fading path showing where you've been ──
+    if (trail.length > 3) {
+      const tLen = Math.min(trail.length, 40 + Math.floor(smoothEnergy * 40));
+      const tStart = trail.length - tLen;
       canvasCtx.beginPath();
-      canvasCtx.arc(x, y, glowR, 0, TWO_PI);
+      canvasCtx.moveTo(trail[tStart].x, trail[tStart].y);
+      for (let i = tStart + 1; i < trail.length; i++) {
+        canvasCtx.lineTo(trail[i].x, trail[i].y);
+      }
+      const trailAlpha = 0.04 + smoothEnergy * 0.06;
+      canvasCtx.strokeStyle = hsl(hueBase % 360, Math.max(lensSat, 20), 60, trailAlpha);
+      canvasCtx.lineWidth = 1;
+      canvasCtx.stroke();
+    }
+
+    // ── PARTICLES: golden spiral field ──
+    for (let i = 0; i < PARTICLE_COUNT; i++) {
+      const p = particles[i];
+
+      // Golden spiral position
+      const angle = p.baseAngle + smoothRotation + p.drift * smoothEnergy;
+      const baseR = p.baseRadius * fieldScale;
+
+      // Breathing: TWO φ-ratio oscillators per particle = never repeats
+      const breath = Math.sin(smoothBreath * TWO_PI + p.phase) * 0.08
+                   + Math.sin(smoothBreath * TWO_PI * PHI + p.phase * PHI) * 0.06;
+
+      // Touch ripple: concentric wave radiating outward
+      const rippleOffset = touchRipple * 8 * Math.sin(
+        touchRipplePhase - p.baseRadius * 12
+      ) * (1 - p.baseRadius);  // stronger near center
+
+      const r = baseR * (1 + breath) + rippleOffset + p.wanderX * 3;
+
+      const px = x + Math.cos(angle) * r + p.wanderX * fieldScale * 0.3;
+      const py = y + Math.sin(angle) * r + p.wanderY * fieldScale * 0.3;
+
+      // Size: inner particles smaller (tighter), outer bigger
+      // Energy makes everything grow
+      const baseSize = p.size * (0.4 + p.baseRadius * 0.8);
+      const sz = baseSize * (1 + smoothEnergy * 1.5);
+
+      // Alpha: inner particles brighter, outer particles dimmer
+      // Energy brings outer particles to life
+      const innerBright = 1 - p.baseRadius * 0.6;
+      const energyBright = smoothEnergy * p.baseRadius;
+      let alpha = (innerBright + energyBright) * p.brightness;
+      alpha *= 0.15 + smoothEnergy * 0.35;  // globally dimmer when still
+      alpha = Math.max(0.02, Math.min(0.6, alpha));
+
+      // Hue shifts along the spiral — golden angle in color space too
+      const hue = (hueBase + i * 2.5) % 360;
+      const sat = Math.max(lensSat, 15 + smoothEnergy * 25);
+      const light = 55 + p.brightness * 15;
+
+      // Draw particle
+      canvasCtx.fillStyle = hsl(hue, sat, light, alpha);
+      canvasCtx.beginPath();
+      canvasCtx.arc(px, py, sz, 0, TWO_PI);
       canvasCtx.fill();
-    }
 
-    // Polar body
-    canvasCtx.beginPath();
-    for (let i = 0; i <= ANGULAR_STEPS; i++) {
-      const theta = (i / ANGULAR_STEPS) * TWO_PI;
-      const r = polarRadius(theta, baseSize, time);
-      const px = x + Math.cos(theta) * r;
-      const py = y + Math.sin(theta) * r;
-      if (i === 0) canvasCtx.moveTo(px, py); else canvasCtx.lineTo(px, py);
-    }
-    canvasCtx.closePath();
-
-    // Fill
-    if (stage >= 1) {
-      canvasCtx.fillStyle = hsl(dna.hue % 360, dna.saturation, 50, 0.06 + energy * 0.08);
-    } else {
-      canvasCtx.fillStyle = 'rgba(255,255,255,0.04)';
-    }
-    canvasCtx.fill();
-
-    // Stroke
-    const strokeA = 0.3 + energy * 0.4;
-    canvasCtx.strokeStyle = stage >= 1 ? hsl(dna.hue % 360, dna.saturation, 70, strokeA) : 'rgba(255,255,255,' + strokeA + ')';
-    canvasCtx.lineWidth = 1.5;
-    canvasCtx.stroke();
-
-    // Inner nodes (stage >= 2)
-    if (stage >= 2) {
-      const count = Math.min(7, 2 + stage);
-      for (let i = 0; i < count; i++) {
-        const angle = (i / count) * TWO_PI + time * (0.5 + i * 0.13);
-        const dist = baseSize * (0.4 + 0.2 * Math.sin(time * 1.7 + i));
-        const nx = x + Math.cos(angle) * dist;
-        const ny = y + Math.sin(angle) * dist;
-        const ns = 1.5 + energy * 2;
-        const na = 0.3 + 0.2 * Math.sin(time * 2.3 + i * 1.4);
-
-        canvasCtx.fillStyle = hsl((dna.hue + i * 40) % 360, dna.saturation, 70, na);
+      // Glow on brighter particles (inner ones, or during high energy)
+      if (alpha > 0.2 && sz > 1.2) {
+        const glowR = sz * 3;
+        const g = canvasCtx.createRadialGradient(px, py, 0, px, py, glowR);
+        g.addColorStop(0, hsl(hue, sat, light, alpha * 0.3));
+        g.addColorStop(1, 'rgba(0,0,0,0)');
+        canvasCtx.fillStyle = g;
         canvasCtx.beginPath();
-        canvasCtx.arc(nx, ny, ns, 0, TWO_PI);
+        canvasCtx.arc(px, py, glowR, 0, TWO_PI);
         canvasCtx.fill();
       }
     }
 
-    // Core dot
-    const coreSize = 2 + energy * 4;
-    const coreAlpha = 0.5 + energy * 0.4 + 0.1 * Math.sin(time * 3);
-    canvasCtx.fillStyle = 'rgba(255,255,255,' + coreAlpha + ')';
+    // ── ORIGIN POINT: barely-there, almost invisible ──
+    // Not a "dot" — a faint warmth at the center of the field
+    const originAlpha = 0.08 + smoothEnergy * 0.15;
+    const originR = 2 + smoothEnergy * 3;
+    const og = canvasCtx.createRadialGradient(x, y, 0, x, y, originR * 4);
+    og.addColorStop(0, hsl(hueBase % 360, Math.max(lensSat, 20), 70, originAlpha));
+    og.addColorStop(1, 'rgba(0,0,0,0)');
+    canvasCtx.fillStyle = og;
     canvasCtx.beginPath();
-    canvasCtx.arc(x, y, coreSize, 0, TWO_PI);
+    canvasCtx.arc(x, y, originR * 4, 0, TWO_PI);
     canvasCtx.fill();
 
     canvasCtx.restore();
   }
 
-  // ── PUBLIC ───────────────────────────────────────────────────────────
+  // ── PUBLIC ─────────────────────────────────────────────────────────
 
   return Object.freeze({
     update: update,
     draw: draw,
     applyLens: applyLens,
     addMutation: addMutation,
-    get stage() { return STAGES[getStage()].name; },
+    get stage() {
+      if (lifeForce > 180) return 'abyss';
+      if (lifeForce > 60) return 'entity';
+      if (lifeForce > 20) return 'bloom';
+      if (lifeForce > 5) return 'tendril';
+      return 'spore';
+    },
     get lifeForce() { return lifeForce; },
   });
 })();
