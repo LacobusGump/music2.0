@@ -154,11 +154,13 @@ Everything else serves this core loop.
 - Has been at this for months. Gets frustrated when sessions produce code cleanup instead of musical transformation. The sound must actually CHANGE, not just the code structure.
 - The Producer's veto is real: "Does this make you FEEL something?" If moving the phone doesn't feel like playing an instrument, we've failed.
 
-## Current State (BUILD 81 — March 13, 2026)
+## Current State (BUILD 82 — March 13, 2026)
 
-- **BUILD 81** — follow.js v79, audio.js v47, lens.js v58
+- **BUILD 82** — follow.js v80, audio.js v48, lens.js v59
 - **7 lenses**: The Conductor, Blue Hour, Drift, Tundra, Still Water, Dark Matter, Grid
-- **Three-act arc**: 0-90s sparse → 90-300s sus4 floating → 300s+ home + sub voices
+- **Grid EDM Engine**: BYPASSES organic pipeline. Fixed 128bpm clock, layer stacking, filter sweeps, user-triggered drops. Phase machine: intro→build→drop→breakdown cycle.
+- **New 808 kick**: 4-layer (click + body + sub tail + saturation). Sub tail IS the bass.
+- **Three-act arc**: 0-90s sparse → 90-300s sus4 floating → 300s+ home + sub voices (other 6 lenses)
 - **Deceptive cadence tension arc** (Tundra + Still Water): V→VI near-misses, then BOOM V→I
 - **Autonomy gates**: harmonic rhythm/gravity/call-response all wait for Brain.short.energy()
 - **Melodic energy gate**: per-lens minimum motion to fire tilt melody — lenses are now distinct
@@ -169,15 +171,15 @@ Everything else serves this core loop.
 - **Reference**: commit `88d4c32` (G7 Fly) had great motion feel — study if motion goes dead
 - **Read `.gump/` FIRST** — especially `state.md`, `musician.md`, `dialogue.md`
 
-## Code Structure (BUILD 81)
+## Code Structure (BUILD 82)
 
 ```
 index.html          — Bootstrap, HTML/CSS, BUILD number (must match follow.js version)
 js/sensor.js        — DeviceMotion, DeviceOrientation, touch
 js/brain.js         — Kalman filter, 7 LIF neurons, Brain.short/medium/long.energy()
-js/audio.js         — v47: 13 synth voices, drums, void drone, effects chain
-js/follow.js        — v79: THE ENGINE. All musical logic. Body → music.
-js/lens.js          — v58: 7 lens configs
+js/audio.js         — v48: 13 synth voices + EDM synths, 808 rewrite, drums, void drone, effects chain
+js/follow.js        — v80: THE ENGINE. Grid EDM state machine + organic pipeline for other 6 lenses.
+js/lens.js          — v59: 7 lens configs (Grid now has edm{} sub-object)
 js/organism.js      — Visual: harmonic polar creature on canvas
 js/app.js           — Main loop, state machine
 ```

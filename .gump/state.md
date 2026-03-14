@@ -1,6 +1,6 @@
 # Current State
 
-*Last updated: March 13, 2026 — BUILD 81*
+*Last updated: March 13, 2026 — BUILD 82*
 
 ---
 
@@ -18,9 +18,9 @@ A modular, phone-based musical instrument. Tilt = melody. Motion = rhythm. Still
 index.html          — Bootstrap, screens, HTML/CSS. BUILD number lives here.
 js/sensor.js        — Accelerometer, gyroscope, touch
 js/brain.js         — Kalman filter, 7 LIF spiking neurons, void state, energy
-js/audio.js         — v47: 13 synth engines, drums, void drone, EQ, effects chain
-js/follow.js        — v79: THE ENGINE. Body → music. All musical logic lives here.
-js/lens.js          — v58: 7 timbral palettes (The Conductor, Blue Hour, Drift,
+js/audio.js         — v48: 13 synth engines + EDM synths, 808 kick rewrite, drums, void drone, EQ, effects chain
+js/follow.js        — v80: THE ENGINE. Body → music. Grid EDM state machine bypasses organic pipeline.
+js/lens.js          — v59: 7 timbral palettes (The Conductor, Blue Hour, Drift,
                            Tundra, Still Water, Dark Matter, Grid)
 js/organism.js      — Visual: harmonic polar creature on black canvas
 js/app.js           — State machine, main loop, wires sensors → Follow
@@ -131,6 +131,11 @@ Peak kick fires on every significant motion peak without requiring tempo lock.
 - Spatial: gentle tilt pan ±0.22, no LFO, left=left right=right
 - Foundation bass: doubled at -1 and -2 octaves
 - Voice files in gump/voice/ (ElevenLabs) — see CLAUDE.md for full list
+- **Grid EDM Engine (BUILD 82)**: Full bypass of organic pipeline. Fixed 128bpm clock.
+  Tilt = LP filter cutoff (DJ knob). Motion energy = layer stacking. Peak = trigger drop.
+  Phase machine: intro → build → drop → breakdown → build cycle.
+  New 808 kick: 4-layer (click + body + sub tail + saturation).
+  New synths: riser, impact, edmSub, edmPad. API: setMasterFilter, setSidechainDepth.
 
 ---
 

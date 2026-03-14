@@ -1343,6 +1343,7 @@ const Follow = (function () {
     voidEngaged = false;
     tensionArc.phase = 'idle'; tensionArc.timer = 0; tensionArc.level = 0;
     tensionArc.fired = false; tensionArc._deceptiveFired = false; tensionArc._resolveFired = false;
+    if (grid.active) teardownGrid();
   }
 
   // ── HARMONIC ARC UPDATE ───────────────────────────────────────────────
@@ -1442,6 +1443,12 @@ const Follow = (function () {
     gravityTonicDur = 18 + Math.random() * 8;
     gravityDomDur = 0; gravityDidResolve = false;
     try { Audio.descentBass.stop(); } catch (e) {}
+
+    // Grid EDM engine: init if this is the Grid lens, teardown otherwise
+    if (grid.active) teardownGrid();
+    if (lens.name === 'Grid' && lens.edm) {
+      initGrid();
+    }
   }
 
   // ── PEAK DETECTION ────────────────────────────────────────────────────
@@ -2043,6 +2050,336 @@ const Follow = (function () {
     }
   }
 
+  // ── GRID EDM ENGINE ──────────────────────────────────────────────────
+  // A DJ set built from your body movement.
+  //
+  // Key principles:
+  // 1. Clock NEVER stops once started — only intensity fades
+  // 2. Persistent layers (wobble, pad) run continuously, controlled by volume/filter
+  // 3. Motion = intensity within the set, not on/off
+  // 4. Tilt = filter cutoff (the DJ knob)
+  // 5. Peaks during build = trigger the DROP (the money moment)
+  //
+  // Experience flow:
+  //   User selects Grid → dark pad swells → filtered kick fades in
+  //   → intro melody plays (phrygian motif, glitches out into darkness)
+  //   → wobble bass + hats layer in as user moves harder
+  //   → build accumulates → riser screams → user's peak triggers THE DROP
+  //   → everything slams, full wobble, sidechain pumps
+  //   → energy fades → breakdown (pad + kick breathe)
+  //   → cycle repeats
+
+  var grid = {
+    active: false,
+    started: false,   // true once first motion detected — clock begins
+    bpm: 128,
+    stepDur: 0,
+    clock: 0,
+    lastStep: -1,
+    totalBars: 0,
+    lastBar: -1,
+
+    // Phase: 'waiting', 'intro', 'build', 'drop', 'breakdown'
+    phase: 'waiting',
+    phaseTimer: 0,     // seconds in current phase
+    introMelodyFired: false,
+
+    // Build state
+    buildLevel: 0,     // 0→1 accumulated energy toward drop
+    riserFired: false,
+
+    // Intensity: smoothed user energy → controls everything
+    intensity: 0,      // 0→1 overall set intensity
+    djGain: 0,         // master volume for the set
+
+    // Wobble bass LFO state (driven by clock, not by Audio LFO)
+    wobblePhase: 0,
+
+    // Filter
+    filterSmooth: 300,
+  };
+
+  // Drum patterns — 16th notes, values = velocity
+  var GRID_KICK  = [1.0, 0, 0, 0,  1.0, 0, 0, 0,  1.0, 0, 0, 0,  1.0, 0, 0, 0];  // four on the floor
+  var GRID_SNARE = [0, 0, 0, 0,    1.0, 0, 0, 0,   0, 0, 0, 0,    1.0, 0, 0, 0.2]; // backbeat
+  var GRID_HAT   = [0, 0, 0.6, 0,  0, 0, 0.6, 0,   0, 0, 0.6, 0,  0, 0, 0.6, 0];  // offbeat hats
+  var GRID_HAT_DROP = [0.7, 0.3, 0.6, 0.3, 0.7, 0.3, 0.6, 0.3, 0.7, 0.3, 0.6, 0.3, 0.7, 0.3, 0.6, 0.3];
+
+  function initGrid() {
+    if (!lens || !lens.edm) return;
+    var edm = lens.edm;
+    grid.active = true;
+    grid.started = false;
+    grid.bpm = edm.bpm || 128;
+    grid.stepDur = 60 / grid.bpm / 4;
+    grid.clock = 0;
+    grid.lastStep = -1;
+    grid.totalBars = 0;
+    grid.lastBar = -1;
+    grid.phase = 'waiting';
+    grid.phaseTimer = 0;
+    grid.introMelodyFired = false;
+    grid.buildLevel = 0;
+    grid.riserFired = false;
+    grid.intensity = 0;
+    grid.djGain = 0;
+    grid.wobblePhase = 0;
+    grid.filterSmooth = 300;
+
+    try { Audio.set808SubFreq(edm.subFreq || 55); } catch(e) {}
+    try { Audio.setSidechainDepth(0.3); } catch(e) {}
+
+    // Build persistent layers immediately (silent — will fade in)
+    try { Audio.edm.buildPad(originalRoot); } catch(e) {}
+    try { Audio.edm.buildWobble(edm.subFreq || 55, 3.5); } catch(e) {}
+  }
+
+  function teardownGrid() {
+    grid.active = false;
+    grid.started = false;
+    try { Audio.edm.destroyAll(); } catch(e) {}
+    // Restore master filter to lens ceiling
+    if (lens && lens.tone) {
+      try { Audio.setMasterFilter(lens.tone.ceiling || 7000); } catch(e) {}
+    }
+  }
+
+  function updateGrid(brainState, sensor, dt) {
+    if (!lens || !lens.edm || !Audio.ctx) return;
+    var edm = lens.edm;
+    var time = Audio.ctx.currentTime;
+
+    var motionEnergy = (typeof Brain !== 'undefined') ? Brain.short.energy() : 0;
+    var mediumEnergy = (typeof Brain !== 'undefined') ? Brain.medium.energy() : 0;
+
+    // ── 1. START: first motion starts the DJ set ──
+    if (!grid.started) {
+      if (motionEnergy > 0.12) {
+        grid.started = true;
+        grid.phase = 'intro';
+        grid.phaseTimer = 0;
+        isSilent = false;
+        fadeGain = 0.5;
+
+        // Dark pad swells in
+        try { Audio.layer.setGain('edm-pad', 0.08, 3.0); } catch(e) {}
+        // Intro melody: phrygian motif that glitches into darkness
+        try { Audio.synth.introMelody(time + 0.5, originalRoot); } catch(e) {}
+        grid.introMelodyFired = true;
+      } else {
+        // Still waiting — keep everything silent
+        if (Audio.ctx) Audio.setMasterGain(0);
+        return;
+      }
+    }
+
+    // ── 2. CLOCK: ALWAYS runs once started. Never stops. ──
+    grid.clock += dt;
+    var barDur = grid.stepDur * 16;
+    var newStep = Math.floor(grid.clock / grid.stepDur) % 16;
+    var newBar = Math.floor(grid.clock / barDur);
+
+    if (newBar > grid.lastBar) {
+      grid.lastBar = newBar;
+      grid.totalBars++;
+    }
+
+    // ── 3. INTENSITY: smoothed motion → 0-1 DJ energy ──
+    // Uses medium energy for smoother response — DJ sets don't jerk around
+    var targetIntensity = Math.min(1, mediumEnergy * 0.8);
+    // Intensity rises faster than it falls — the set holds energy
+    var riseRate = targetIntensity > grid.intensity ? 0.06 : 0.015;
+    grid.intensity += (targetIntensity - grid.intensity) * riseRate;
+
+    // djGain: the master volume of the set. Fades to minimum, never zero.
+    // Even when still, the beat keeps going at low volume.
+    var minGain = grid.phase === 'waiting' ? 0 : 0.15;
+    var targetGain = Math.max(minGain, 0.25 + grid.intensity * 0.55);
+    grid.djGain += (targetGain - grid.djGain) * 0.04;
+
+    // ── 4. TILT → FILTER: the DJ knob ──
+    var beta = (sensor.beta || 45) - 45;
+    var tiltNorm = Math.max(0, Math.min(1, (beta + 30) / 60));
+    var filterRange = edm.filterRange || [200, 6000];
+    var filterTarget = filterRange[0] + tiltNorm * (filterRange[1] - filterRange[0]);
+    grid.filterSmooth += (filterTarget - grid.filterSmooth) * 0.06;
+    try { Audio.setMasterFilter(grid.filterSmooth); } catch(e) {}
+
+    // ── 5. PHASE MACHINE ──
+    grid.phaseTimer += dt;
+
+    switch (grid.phase) {
+      case 'intro':
+        // Dark atmosphere: pad swells, filtered kick fades in
+        // Melody plays, glitches out, then we transition to build
+        // Duration: ~6 seconds (melody is ~4s + 2s of atmosphere)
+        if (grid.phaseTimer > 6) {
+          grid.phase = 'build';
+          grid.phaseTimer = 0;
+          grid.buildLevel = 0;
+          grid.riserFired = false;
+          // Wobble bass starts coming in
+          try { Audio.layer.setGain('edm-wobble', 0.04, 2.0); } catch(e) {}
+        }
+        break;
+
+      case 'build':
+        // Energy accumulates from motion. Layers stack. Filter opens.
+        // The user is pumping, the set is building toward THE DROP.
+        grid.buildLevel += grid.intensity * dt * 0.06;
+        grid.buildLevel = Math.min(1, grid.buildLevel);
+
+        // Wobble bass grows with build level
+        var wobbleVol = 0.04 + grid.buildLevel * 0.18;
+        try { Audio.layer.setGain('edm-wobble', wobbleVol, 0.5); } catch(e) {}
+
+        // Pad gets brighter as build progresses
+        var padFilter = 350 + grid.buildLevel * 800;
+        try { Audio.layer.setFilter('edm-pad', padFilter, 0.3); } catch(e) {}
+
+        // Riser starts at 50% build
+        if (!grid.riserFired && grid.buildLevel > 0.5) {
+          grid.riserFired = true;
+          var remainingBars = Math.max(4, 12 - grid.phaseTimer / (barDur));
+          try { Audio.synth.riser(time, remainingBars * barDur); } catch(e) {}
+        }
+
+        // DROP TRIGGER:
+        // Option A: User's peak during armed build (they CAUSED it)
+        // Option B: Auto-drop after enough build (~24s)
+        var armed = grid.buildLevel > (edm.buildArmLevel || 0.65);
+        var peakNow = lastMag > lastLastMag && lastMag > (adaptedPeakThresh || 0.3);
+        var autoTrigger = grid.phaseTimer > 24;
+
+        if ((armed && peakNow) || autoTrigger) {
+          grid.phase = 'drop';
+          grid.phaseTimer = 0;
+          grid.buildLevel = 0;
+          grid.riserFired = false;
+
+          // THE DROP — impact + everything slams
+          try { Audio.synth.impact(time, 0.85); } catch(e) {}
+          try { Audio.setSidechainDepth(0.65); } catch(e) {}
+          try { Audio.layer.setGain('edm-wobble', 0.22, 0.1); } catch(e) {}
+          try { Audio.layer.setGain('edm-pad', 0.12, 0.2); } catch(e) {}
+          try { Audio.layer.setFilter('edm-pad', 1200, 0.1); } catch(e) {}
+          // Open master filter wide for the drop
+          grid.filterSmooth = filterRange[1];
+          try { Audio.setMasterFilter(filterRange[1]); } catch(e) {}
+        }
+        break;
+
+      case 'drop':
+        // EVERYTHING is on. Sidechain pumps. Full wobble. Maximum energy.
+        // Stays in drop while user keeps moving.
+        // Transitions to breakdown when energy drops or after max duration.
+        var dropFade = grid.intensity < 0.15 ? (grid.phaseTimer > 4 ? dt * 0.15 : 0) : 0;
+        grid.buildLevel += dropFade;  // reuse as stillness accumulator
+
+        var dropTimeout = grid.phaseTimer > 30;  // max 30s drop
+
+        if (grid.buildLevel > 1.5 || dropTimeout) {
+          grid.phase = 'breakdown';
+          grid.phaseTimer = 0;
+          grid.buildLevel = 0;
+          // Strip back — quiet wobble, pad comes forward
+          try { Audio.setSidechainDepth(0.2); } catch(e) {}
+          try { Audio.layer.setGain('edm-wobble', 0.03, 2.0); } catch(e) {}
+          try { Audio.layer.setGain('edm-pad', 0.10, 1.0); } catch(e) {}
+          try { Audio.layer.setFilter('edm-pad', 500, 1.0); } catch(e) {}
+        }
+        break;
+
+      case 'breakdown':
+        // Breathing space. Just kick + pad. Quiet. Contemplative.
+        // Transitions back to build when user moves again or after ~12s.
+        var breakdownDone = grid.phaseTimer > 12;
+        var userReady = grid.intensity > 0.3 && grid.phaseTimer > 4;
+
+        if (breakdownDone || userReady) {
+          grid.phase = 'build';
+          grid.phaseTimer = 0;
+          grid.buildLevel = 0;
+          grid.riserFired = false;
+          try { Audio.setSidechainDepth(0.3); } catch(e) {}
+          try { Audio.layer.setGain('edm-wobble', 0.04, 2.0); } catch(e) {}
+        }
+        break;
+    }
+
+    // ── 6. WOBBLE BASS: filter LFO synced to clock ──
+    // The "wub wub" — LP filter on the wobble layer oscillates with the beat.
+    // Rate: half note during build, quarter note during drop (faster = more energy)
+    var wobbleRate = grid.phase === 'drop' ? 2 : 1;  // cycles per beat
+    grid.wobblePhase += dt * (grid.bpm / 60) * wobbleRate;
+    var wobbleLFO = Math.sin(grid.wobblePhase * Math.PI * 2);
+    // Map -1..1 to filter range. More open during drop.
+    var wobbleBase = grid.phase === 'drop' ? 600 : 200;
+    var wobbleRange = grid.phase === 'drop' ? 2500 : 1200;
+    var wobbleFreq = wobbleBase + (wobbleLFO * 0.5 + 0.5) * wobbleRange * grid.intensity;
+    try { Audio.edm.setWobbleFilter(wobbleFreq); } catch(e) {}
+
+    // ── 7. FIRE DRUMS ON CLOCK ──
+    if (newStep !== grid.lastStep) {
+      grid.lastStep = newStep;
+
+      var kit = '808';
+      var kickVel, snareVel, hatVel;
+      var isIntro = grid.phase === 'intro';
+      var isDrop = grid.phase === 'drop';
+      var isBreakdown = grid.phase === 'breakdown';
+      var hatPat = isDrop ? GRID_HAT_DROP : GRID_HAT;
+
+      // Kick: always on once started (the heartbeat of the set)
+      // During intro: quiet, filtered. During drop: full blast.
+      var kv = GRID_KICK[newStep] || 0;
+      if (kv > 0) {
+        kickVel = kv * grid.djGain * (isIntro ? 0.4 : 1.0);
+        if (kickVel > 0.03) {
+          Audio.drum.kick(time, Math.min(0.92, kickVel), kit);
+          Audio.pumpSidechain(kickVel);
+        }
+      }
+
+      // Snare: fades in with intensity, full during drop
+      var sv = GRID_SNARE[newStep] || 0;
+      if (sv > 0 && !isIntro) {
+        var snareLevel = isDrop ? 1.0 : Math.max(0, grid.intensity - 0.2);
+        snareVel = sv * grid.djGain * snareLevel;
+        if (snareVel > 0.04 && !isBreakdown) {
+          Audio.drum.snare(time, Math.min(0.85, snareVel), kit);
+        }
+      }
+
+      // Hats: layer in with energy
+      var hv = hatPat[newStep] || 0;
+      if (hv > 0 && !isIntro) {
+        var hatLevel = isDrop ? 0.8 : Math.max(0, grid.intensity - 0.15);
+        hatVel = hv * grid.djGain * hatLevel * 0.5;
+        if (hatVel > 0.02 && !isBreakdown) {
+          Audio.drum.hat(time, hatVel, kit);
+        }
+      }
+    }
+
+    // ── 8. PAD: continuous, volume follows phase ──
+    var padTarget;
+    if (grid.phase === 'intro')     padTarget = 0.06 + grid.phaseTimer * 0.005;
+    else if (grid.phase === 'build')     padTarget = 0.05 + grid.buildLevel * 0.06;
+    else if (grid.phase === 'drop')      padTarget = 0.10;
+    else if (grid.phase === 'breakdown') padTarget = 0.10;
+    else padTarget = 0;
+    try { Audio.layer.setGain('edm-pad', padTarget * grid.djGain, 0.5); } catch(e) {}
+
+    // ── 9. MASTER GAIN ──
+    if (Audio.ctx) {
+      Audio.setMasterGain(0.55 * grid.djGain);
+    }
+
+    // ── 10. Spatial ──
+    try { Audio.spatial.update(sensor.gamma || 0, false, sensor.touching); } catch(e) {}
+  }
+
   // ── MAIN UPDATE ───────────────────────────────────────────────────────
   // 12 calls. Each one clear. Each one purposeful.
   // LEAD → PULSE → ANSWER → SPACE — in that order.
@@ -2059,9 +2396,25 @@ const Follow = (function () {
     classifyArchetype(brainState);
     updateRapidOscillation(now, dt);
     updateInversion(sensor, dt);
+    // ── GRID BYPASS: EDM engine runs instead of organic pipeline ──
+    // Grid manages its own gain, stillness, and clock — skip organic systems entirely.
+    if (lens.name === 'Grid' && grid.active) {
+      if (detectPeak(mag, now)) {
+        recordPeakInterval(now);
+        motionProfile.recordPeak(lastMag);
+        peakCount++;
+      }
+      lastLastMag = lastMag;
+      lastMag = mag;
+      motionProfile.tick(dt * 1000, false);  // Grid is never "silent" once started
+      updateGrid(brainState, sensor, dt);
+      lastUpdateTime = now;
+      return;  // SKIP all organic systems
+    }
+
+    updateStillness(mag, dt, now);
     updatePhrase(mag, now, dt);
     parseIntent(mag, now);
-    updateStillness(mag, dt, now);
 
     // Brain void override
     if ((brainState.voidState || 0) >= 2 && !isSilent) {
@@ -2210,5 +2563,14 @@ const Follow = (function () {
     scaleFreq: scaleFreq,
     triggerCompression: triggerCompression,
     get melodicVocab() { return melodicHistory.slice(); },
+    get gridPhase() { return grid.active ? grid.phase : '-'; },
+    get gridBuild() { return grid.active ? grid.buildLevel.toFixed(2) : '-'; },
+    get gridLayers() {
+      if (!grid.active) return '-';
+      return 'K' + grid.layers.kick.toFixed(1) +
+        ' H' + grid.layers.hat.toFixed(1) +
+        ' Sn' + grid.layers.snare.toFixed(1) +
+        ' Su' + grid.layers.sub.toFixed(1);
+    },
   });
 })();

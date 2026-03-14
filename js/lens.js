@@ -80,41 +80,36 @@ const Lens = (function () {
     },
 
     // ─── 2. GRID ──────────────────────────────────────────────────────
-    // Fred Again. Four Tet. The warehouse at 4AM.
-    // Dirty World detuned saws — the filth that falls through the floor.
-    // Phrygian ♭2: unease, tension, no resolution, only more darkness.
-    // Halftime snare. The drop IS the silence before the kick.
-    // Your body drops.
+    // EDM ENGINE. Fixed 128bpm clock. Layer stacking. Filter sweeps. Drops.
+    // This lens BYPASSES the organic pipeline entirely.
+    // Your tilt = filter cutoff (DJ knob). Your peaks = trigger the DROP.
+    // Fred Again. deadmau5. Four Tet. The warehouse at 4AM.
     {
       name: 'Grid',
       color: '#ff3300',
-      description: 'Dirty saws. Phrygian dystopia. Your body drops.',
+      description: 'EDM engine. Tilt the filter. Trigger the drop.',
 
       harmony: { root: 220, mode: 'phrygian' }, // A3 — dark but phone-audible
 
       tone: {
-        bassFreq: 160, bassGain: 4,          // 160Hz — present but not slamming the compressor
-        midFreq: 1000, midQ: 1.0, midGain: 2, // grit without crunch
-        highFreq: 5000, highGain: -5,         // tame harshness
+        bassFreq: 160, bassGain: 4,
+        midFreq: 1000, midQ: 1.0, midGain: 2,
+        highFreq: 5000, highGain: -5,
         ceiling: 7000,
       },
 
       space: {
-        reverb: { decay: 2.2, damping: 0.50, preDelay: 32 },  // London warehouse — concrete walls, dead ceiling
-        delay: { feedback: 0.48, filter: 4000, sync: 'dotted-eighth' }, // Fred Again echo trail
-        saturation: 0.15,                               // warm tape crunch
+        reverb: { decay: 1.8, damping: 0.55, preDelay: 12 },  // tight warehouse — dry, in your face
+        delay: { feedback: 0.38, filter: 4000, sync: 'dotted-eighth' },
+        saturation: 0.12,
         type: 'room',
-        reverbMix: 0.32,
-        massiveStart: 2,        // grid starts with sub + fifth already — no warmup needed
-        spatial: { sweepRate: 0.09, sweepDepth: 0.6 },
+        reverbMix: 0.15,   // EDM is DRY — no cathedral, pure punch
+        massiveStart: 2,
+        spatial: { sweepRate: 0.09, sweepDepth: 0.4 },
       },
 
       palette: {
-        // gridstack: root + minor 3rd + 5th + minor 7th + octave, each with unison detune.
-        // Resonant filter sweeps open on every hit — the "viral whoop" character.
-        // 7ms attack punch + 450ms decay = tactile snap on every tilt gesture.
         continuous: { voice: 'gridstack', octave: 0, decay: 0.45 },
-        // Massive unison drop — big impact when body peaks hard
         peak:       { voice: 'massive',   octave: 0, decay: 1.2  },
         harmonic:   { voice: 'stab',      octave: 0, decay: 0.35 },
         burst:      { voice: 'glitch',    octave: 0 },
@@ -123,7 +118,7 @@ const Lens = (function () {
 
       groove: {
         kit: '808',
-        microTiming: { kick: 0, hat: 0, snare: 0 }, // quantized — the machine is perfect
+        microTiming: { kick: 0, hat: 0, snare: 0 },
         ghosts: 0.06,
         backbeat: false,
         maxVel: 0.98,
@@ -131,21 +126,26 @@ const Lens = (function () {
         dropRate: 0,
       },
 
+      // EDM engine config — the Grid state machine reads this
+      edm: {
+        bpm: 128,
+        subFreq: 55,              // A1 — 808 sub-bass root
+        filterRange: [200, 6000], // tilt maps to this LP range (6k max = no phone harshness)
+        buildArmLevel: 0.65,      // buildLevel must exceed this for peak-triggered drop
+      },
+
       response: {
         peakThreshold: 0.20,
         tiltRange: 48,
-        noteInterval: 140,  // gridstack is punchy/short — fast response = tactile feedback
-        melodicEnergy: 0.45,   // stabs need intentional motion, not micro-drift
+        noteInterval: 140,
+        melodicEnergy: 0.45,
         stillnessThreshold: 0.14,
         stillnessTimeout: 2.8,
         fadeTime: 3.5,
-        filterRange: [200, 7000],
+        filterRange: [200, 8000],
         densityThresholds: [0.18, 0.65, 1.6],
       },
 
-      // Phrygian's soul is the ♭2 (degree 1 = 1 semitone from root).
-      // That note is why Phrygian sounds ancient and dark — not just "minor."
-      // Melodies lean into it. The darkness has a specific address.
       emotion: { colorDeg: 1, phraseShape: 'falling' },
 
       motion: {

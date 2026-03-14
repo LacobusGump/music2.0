@@ -39,6 +39,7 @@ const Audio = (function () {
   let crackleNode = null;
   let crackleGainNode = null;
   let sidechainDepth = 0.3;
+  var _edm808SubFreq = 55;  // overrideable by Grid EDM engine
 
   // Void drone
   let voidOscs = [], voidOscGains = [];
@@ -610,13 +611,53 @@ const Audio = (function () {
     var o = ctx.createOscillator();
     o.type = 'sine';
     if (kit === '808') {
-      o.frequency.setValueAtTime(120, time);
-      o.frequency.exponentialRampToValueAtTime(30, time + 0.15);
+      // 4-layer 808 kick: click + body + sub tail + saturation
+      // The sub tail IS the bass in EDM — long sustain at root freq
+
+      // Layer 1: Click — noise burst HP 3500Hz, 4ms snap
+      var clickLen = Math.floor(ctx.sampleRate * 0.004);
+      var clickBuf = ctx.createBuffer(1, clickLen, ctx.sampleRate);
+      var cd = clickBuf.getChannelData(0);
+      for (var ci = 0; ci < clickLen; ci++) cd[ci] = (Math.random() * 2 - 1) * Math.pow(1 - ci / clickLen, 0.3);
+      var clickSrc = ctx.createBufferSource(); clickSrc.buffer = clickBuf;
+      var clickHP = ctx.createBiquadFilter(); clickHP.type = 'highpass'; clickHP.frequency.value = 3500;
+
+      // Layer 2: Body — sine 180→55Hz over 30ms
+      var bodyO = ctx.createOscillator(); bodyO.type = 'sine';
+      bodyO.frequency.setValueAtTime(180, time);
+      bodyO.frequency.exponentialRampToValueAtTime(55, time + 0.03);
+      var bodyG = ctx.createGain();
+      bodyG.gain.setValueAtTime(0.85 * vel, time);
+      bodyG.gain.exponentialRampToValueAtTime(0.001, time + 0.15);
+
+      // Saturation on click+body only (not sub) — tanh(x*2.5) warmth
+      var sat808 = ctx.createWaveShaper();
+      var satN = 256, satCurve = new Float32Array(satN);
+      for (var si = 0; si < satN; si++) {
+        var sx = (si * 2) / satN - 1;
+        satCurve[si] = Math.tanh(sx * 2.5);
+      }
+      sat808.curve = satCurve;
+      sat808.oversample = '2x';
+
+      var clickG = ctx.createGain();
+      clickG.gain.setValueAtTime(0.7 * vel, time);
+      clickG.gain.exponentialRampToValueAtTime(0.001, time + 0.005);
+      clickSrc.connect(clickHP); clickHP.connect(clickG); clickG.connect(sat808);
+      bodyO.connect(bodyG); bodyG.connect(sat808);
+      sat808.connect(drumBus);
+      clickSrc.start(time); clickSrc.stop(time + 0.006);
+      bodyO.start(time); bodyO.stop(time + 0.18);
+
+      // Layer 3: Sub tail — sine at root freq, 500ms sustain = THIS IS THE BASS
+      var subFreq = _edm808SubFreq || 55;  // A1, overrideable by Grid engine
+      o.frequency.value = subFreq;
       var g = ctx.createGain();
-      g.gain.setValueAtTime(0.9 * vel, time);
-      g.gain.exponentialRampToValueAtTime(0.001, time + 0.5);
+      g.gain.setValueAtTime(0.001, time);
+      g.gain.linearRampToValueAtTime(0.75 * vel, time + 0.008);
+      g.gain.setTargetAtTime(0.001, time + 0.12, 0.18);
       o.connect(g); g.connect(drumBus);
-      o.start(time); o.stop(time + 0.55);
+      o.start(time); o.stop(time + 0.6);
     } else if (kit === 'brushes') {
       o.frequency.setValueAtTime(80, time);
       o.frequency.exponentialRampToValueAtTime(40, time + 0.04);
@@ -2122,6 +2163,202 @@ const Audio = (function () {
 
   // ── PUBLIC API ─────────────────────────────────────────────────────────
 
+  // ── EDM ENGINE — Persistent layers for DJ set ──────────────────────
+  //
+  // Unlike fire-and-forget synths, these are Audio.layer objects that
+  // persist and can be faded/filtered in real time. This is how a DJ
+  // set works: layers are always running, you control their volume
+  // and filter, not re-triggering notes.
+
+  // Wobble bass layer: saw through resonant LP with LFO.
+  // THE signature dubstep/EDM sound. LFO rate controls the "wub wub."
+  function buildWobbleLayer(freq, lfoRate) {
+    destroyLayer('edm-wobble');
+    var f = freq || 55;
+    var oscs = [
+      { wave: 'sawtooth', freq: f,        gain: 0.22, detune: 0   },
+      { wave: 'sawtooth', freq: f,        gain: 0.18, detune: -12 },
+      { wave: 'sawtooth', freq: f,        gain: 0.18, detune: 12  },
+      { wave: 'sawtooth', freq: f * 2,    gain: 0.08, detune: 7   },  // octave adds body
+    ];
+    return buildLayer('edm-wobble', {
+      oscillators: oscs,
+      filter: { type: 'lowpass', freq: 200, Q: 6 },  // starts closed, LFO opens it
+      gain: 0,
+      vibrato: { rate: lfoRate || 3.5, depth: 0.008 },  // subtle pitch wobble
+    });
+  }
+
+  // Dark pad layer: heavily filtered saws = warm dark wash, not harsh buzz.
+  // Cutoff at 350Hz = only warmth gets through. No harshness on phone speakers.
+  function buildDarkPad(freq) {
+    destroyLayer('edm-pad');
+    var f = freq || 220;
+    var oscs = [
+      { wave: 'sawtooth', freq: f,          gain: 0.10, detune: -15 },
+      { wave: 'sawtooth', freq: f,          gain: 0.10, detune: 0   },
+      { wave: 'sawtooth', freq: f,          gain: 0.10, detune: 15  },
+      { wave: 'sawtooth', freq: f * 1.498,  gain: 0.06, detune: -8  },  // fifth
+      { wave: 'sine',     freq: f * 0.5,    gain: 0.12, detune: 0   },  // sub octave warmth
+    ];
+    return buildLayer('edm-pad', {
+      oscillators: oscs,
+      filter: { type: 'lowpass', freq: 350, Q: 1.2 },  // DARK — only warmth, no buzz
+      gain: 0,
+      reverbSend: 0.25,
+    });
+  }
+
+  // Wobble bass filter LFO — driven by follow.js grid clock so it syncs to tempo
+  function setWobbleFilter(freq) {
+    setLayerFilter('edm-wobble', Math.max(80, Math.min(4000, freq)), 0.03);
+  }
+
+  // Riser: filtered noise sweep + pitch sweep — builds tension before drop
+  function synthRiser(time, duration) {
+    var dur = duration || 8;
+
+    // Noise sweep: LP opens from 200→6000Hz over duration
+    var noiseLen = Math.floor(ctx.sampleRate * Math.min(dur, 12));
+    var noiseBuf = ctx.createBuffer(1, noiseLen, ctx.sampleRate);
+    var nd = noiseBuf.getChannelData(0);
+    for (var i = 0; i < noiseLen; i++) nd[i] = (Math.random() * 2 - 1) * 0.5;
+    var noiseSrc = ctx.createBufferSource(); noiseSrc.buffer = noiseBuf;
+    var nLP = ctx.createBiquadFilter(); nLP.type = 'lowpass';
+    nLP.frequency.setValueAtTime(200, time);
+    nLP.frequency.exponentialRampToValueAtTime(6000, time + dur);
+    nLP.Q.value = 5;  // resonant peak = the "building" scream
+    var nG = ctx.createGain();
+    nG.gain.setValueAtTime(0.001, time);
+    nG.gain.linearRampToValueAtTime(0.28, time + dur * 0.85);
+    nG.gain.linearRampToValueAtTime(0.001, time + dur);
+    noiseSrc.connect(nLP); nLP.connect(nG); nG.connect(sidechainGain);
+    noiseSrc.start(time); noiseSrc.stop(time + dur + 0.1);
+
+    // Sine sweep: 100→1500Hz — rising pitch builds tension
+    var sweepO = ctx.createOscillator(); sweepO.type = 'sine';
+    sweepO.frequency.setValueAtTime(100, time);
+    sweepO.frequency.exponentialRampToValueAtTime(1500, time + dur);
+    var sweepG = ctx.createGain();
+    sweepG.gain.setValueAtTime(0.001, time);
+    sweepG.gain.linearRampToValueAtTime(0.15, time + dur * 0.8);
+    sweepG.gain.linearRampToValueAtTime(0.001, time + dur);
+    sweepO.connect(sweepG); sweepG.connect(sidechainGain);
+    sweepO.start(time); sweepO.stop(time + dur + 0.1);
+  }
+
+  // Impact: crash + sub thud — marks THE DROP moment
+  function synthImpact(time, vel) {
+    var v = vel || 0.8;
+
+    // Crash: noise burst with fast attack, medium decay
+    var impLen = Math.floor(ctx.sampleRate * 0.8);
+    var impBuf = ctx.createBuffer(1, impLen, ctx.sampleRate);
+    var id = impBuf.getChannelData(0);
+    for (var i = 0; i < impLen; i++) {
+      id[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / impLen, 0.6);
+    }
+    var impSrc = ctx.createBufferSource(); impSrc.buffer = impBuf;
+    var impLP = ctx.createBiquadFilter(); impLP.type = 'lowpass';
+    impLP.frequency.value = 5000;  // not too harsh
+    var impG = ctx.createGain(); impG.gain.value = 0.4 * v;
+    impSrc.connect(impLP); impLP.connect(impG); impG.connect(drumBus);
+    impSrc.start(time); impSrc.stop(time + 0.85);
+
+    // Sub thud — physical impact, 50Hz sine
+    var thud = ctx.createOscillator(); thud.type = 'sine';
+    thud.frequency.setValueAtTime(50, time);
+    thud.frequency.exponentialRampToValueAtTime(30, time + 0.2);
+    var thudG = ctx.createGain();
+    thudG.gain.setValueAtTime(0.65 * v, time);
+    thudG.gain.exponentialRampToValueAtTime(0.001, time + 0.5);
+    thud.connect(thudG); thudG.connect(drumBus);
+    thud.start(time); thud.stop(time + 0.55);
+  }
+
+  // Intro melody: a dark phrygian motif played through heavy LP filter,
+  // then glitches out (stutter effect via rapid gain chops)
+  function synthIntroMelody(time, rootFreq) {
+    var r = rootFreq || 220;
+    // Phrygian melody: root, b2, b3, root — dark and memorable
+    var notes = [
+      { f: r,           t: 0,    dur: 0.8 },
+      { f: r * 1.0595,  t: 0.9,  dur: 0.6 },  // b2
+      { f: r * 1.1892,  t: 1.6,  dur: 0.5 },  // b3
+      { f: r,           t: 2.2,  dur: 1.2 },   // home
+    ];
+
+    var lp = ctx.createBiquadFilter(); lp.type = 'lowpass';
+    lp.frequency.setValueAtTime(1800, time);
+    // Filter closes as melody progresses — getting darker
+    lp.frequency.setTargetAtTime(400, time + 2.0, 0.8);
+    lp.Q.value = 2;
+
+    for (var ni = 0; ni < notes.length; ni++) {
+      var n = notes[ni];
+      // 3 detuned saws for each note = thick but LP kills the harshness
+      var detunes = [-8, 0, 8];
+      for (var di = 0; di < detunes.length; di++) {
+        var o = ctx.createOscillator(); o.type = 'sawtooth';
+        o.frequency.value = n.f;
+        o.detune.value = detunes[di];
+        var g = ctx.createGain();
+        g.gain.setValueAtTime(0.001, time + n.t);
+        g.gain.linearRampToValueAtTime(0.12, time + n.t + 0.02);
+        g.gain.setTargetAtTime(0.001, time + n.t + n.dur * 0.7, n.dur * 0.25);
+        o.connect(g); g.connect(lp);
+        o.start(time + n.t); o.stop(time + n.t + n.dur + 0.3);
+      }
+    }
+
+    lp.connect(sidechainGain);
+
+    // Glitch stutter: rapid gain chops after the melody
+    var stutterStart = time + 3.5;
+    var stutterEnv = ctx.createGain();
+    var stutterO = ctx.createOscillator(); stutterO.type = 'sawtooth';
+    stutterO.frequency.value = r;
+    var stutterLP = ctx.createBiquadFilter(); stutterLP.type = 'lowpass';
+    stutterLP.frequency.value = 600; stutterLP.Q.value = 3;
+
+    // 8 rapid chops getting faster (stutter into silence)
+    for (var si = 0; si < 8; si++) {
+      var chopT = stutterStart + si * (0.12 - si * 0.008);
+      var chopVol = 0.15 * (1 - si / 8);
+      stutterEnv.gain.setValueAtTime(chopVol, chopT);
+      stutterEnv.gain.setValueAtTime(0.001, chopT + 0.04);
+    }
+    stutterO.connect(stutterLP); stutterLP.connect(stutterEnv);
+    stutterEnv.connect(sidechainGain);
+    stutterO.start(stutterStart); stutterO.stop(stutterStart + 1.5);
+
+    // Send to delay for echo trail
+    var ds = ctx.createGain(); ds.gain.value = 0.4;
+    lp.connect(ds); ds.connect(delaySend);
+  }
+
+  // Teardown all EDM layers
+  function destroyEDMLayers() {
+    destroyLayer('edm-wobble');
+    destroyLayer('edm-pad');
+  }
+
+  // ── EDM FILTER & SIDECHAIN API ──────────────────────────────────────
+
+  function setMasterFilter(freq) {
+    if (masterLP) masterLP.frequency.setTargetAtTime(
+      Math.max(80, Math.min(12000, freq)), ctx.currentTime, 0.05
+    );
+  }
+
+  function setSidechainDepth(depth) {
+    sidechainDepth = Math.max(0, Math.min(1, depth));
+  }
+
+  function set808SubFreq(freq) {
+    _edm808SubFreq = freq || 55;
+  }
+
   return Object.freeze({
     init: init,
     configure: configure,
@@ -2142,6 +2379,9 @@ const Audio = (function () {
       stab: synthStab,
       glitch: synthGlitch,
       massive: synthMassive,
+      riser: synthRiser,
+      impact: synthImpact,
+      introMelody: synthIntroMelody,
       play: synthesize,
     }),
 
@@ -2177,6 +2417,15 @@ const Audio = (function () {
     resetPortamento: function () { monoLastFreq = 0; cinematicLastFreq = 0; massiveLastFreq = 0; },
     setMasterGain: function (v) { if (masterGain) masterGain.gain.value = v; },
     setReverbMix: function (v) { if (reverbSend) reverbSend.gain.value = v; },
+    setMasterFilter: setMasterFilter,
+    setSidechainDepth: setSidechainDepth,
+    set808SubFreq: set808SubFreq,
+    edm: Object.freeze({
+      buildWobble: buildWobbleLayer,
+      buildPad: buildDarkPad,
+      setWobbleFilter: setWobbleFilter,
+      destroyAll: destroyEDMLayers,
+    }),
     setWeather: setWeather,
 
     get ctx() { return ctx; },
