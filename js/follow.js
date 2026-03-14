@@ -2390,7 +2390,6 @@ const Follow = (function () {
       grid.killActive = true;
     } else if (!touching && grid.killActive) {
       grid.killActive = false;
-      try { Audio.synth.crashFill(time, 0.35); } catch(e) {}
     }
 
     // Apply filter: kill switch overrides zone filter
@@ -2416,59 +2415,42 @@ const Follow = (function () {
         break;
 
       case 'build':
-        // Build rate = user pumping intensity. Pump harder = build faster.
+        // Build rate = user pumping. Harder = faster.
         grid.buildLevel += grid.pumpIntensity * dt * 0.08;
         grid.buildLevel += grid.intensity * dt * 0.03;
-        grid.buildLevel += dt * 0.005;  // tiny auto so it doesn't stall forever
+        grid.buildLevel += dt * 0.005;
+        grid.buildLevel = Math.min(1, grid.buildLevel);
 
-        // ── VOCAL DROP SEQUENCE ──
-        // On 2nd+ build cycle, vocals build the tension:
-        // "freedom is" → "what you do with" → "what is done" → triplet "to" → DROP on "you"
+        // ── VOCAL DROP: USER PEAKS TRIGGER EACH CLIP ──
+        // Each peak during build = next vocal. YOU are performing the build.
+        // Peak 1: "what is done"
+        // Peak 2: "to" triplet stutter (build holds)
+        // Peak 3: DROP — "you" + "you-deep" double drop
         var hasVocals = grid.vocalsLoaded && Audio.vocal && Audio.vocal.buffers;
         var doVocalBuild = hasVocals && grid.cycle >= 1 && !grid.vocalDropFired;
 
-        if (doVocalBuild) {
-          // Vocal cues tied to build level — music builds WITH the voice
-          if (grid.vocalPhase === 0 && grid.buildLevel > 0.25) {
+        if (doVocalBuild && peakNow && grid.buildLevel > 0.25) {
+          if (grid.vocalPhase === 0) {
+            // Peak 1: "what is done"
             grid.vocalPhase = 1;
-            grid.vocalTimer = 0;
-            try { Audio.vocal.play('freedom-is', time + 0.05, {
-              vol: 0.7, reverb: 0.2, delay: 0.15
+            try { Audio.vocal.play('what-is-done', time, {
+              vol: 0.8, reverb: 0.15, delay: 0.12
             }); } catch(e) {}
-          }
 
-          if (grid.vocalPhase === 1 && grid.buildLevel > 0.42) {
+          } else if (grid.vocalPhase === 1) {
+            // Peak 2: "to" triplet stutter — build HOLDS here
             grid.vocalPhase = 2;
-            grid.vocalTimer = 0;
-            try { Audio.vocal.play('what-you-do-with', time + 0.05, {
-              vol: 0.75, reverb: 0.15, delay: 0.1
-            }); } catch(e) {}
-          }
-
-          if (grid.vocalPhase === 2 && grid.buildLevel > 0.58) {
-            grid.vocalPhase = 3;
-            grid.vocalTimer = 0;
-            try { Audio.vocal.play('what-is-done', time + 0.05, {
-              vol: 0.8, reverb: 0.12
-            }); } catch(e) {}
-          }
-
-          if (grid.vocalPhase === 3 && grid.buildLevel > 0.75) {
-            // "to" as triplet stutter — decelerating chops
-            grid.vocalPhase = 4;
-            grid.vocalTimer = 0;
-            grid.vocalDropReady = true;  // NOW the drop is armed
-            try { Audio.vocal.triplet('to-you', time + 0.05, {
+            grid.vocalDropReady = true;
+            try { Audio.vocal.triplet('to-you', time, {
               vol: 0.85
             }); } catch(e) {}
           }
+          // Peak 3 (vocalPhase 2 + vocalDropReady) handled below in drop trigger
         }
 
-        // Cap build at 0.85 during vocal sequence — hold tension until user drops it
+        // Hold build at 88% during vocal tension — user MUST peak to drop
         if (grid.vocalDropReady) {
           grid.buildLevel = Math.min(0.88, grid.buildLevel);
-        } else {
-          grid.buildLevel = Math.min(1, grid.buildLevel);
         }
 
         // Layer volumes track build, modulated by zone
@@ -2484,49 +2466,32 @@ const Follow = (function () {
         var scDepth = 0.25 + grid.buildLevel * 0.2 + grid.pumpIntensity * 0.2;
         try { Audio.setSidechainDepth(Math.min(0.75, scDepth)); } catch(e) {}
 
-        // Riser at 45% build
-        if (!grid.riserFired && grid.buildLevel > 0.45) {
-          grid.riserFired = true;
-          var riserDur = Math.max(3, (1 - grid.buildLevel) * 18);
-          try { Audio.synth.riser(time, riserDur); } catch(e) {}
-        }
-
-        // Snare roll at 80% — only when pumping hard
-        if (!grid.snareRollFired && grid.buildLevel > 0.80 && grid.pumpIntensity > 0.3) {
-          grid.snareRollFired = true;
-          var rollDur = Math.max(2, (1 - grid.buildLevel) * 8);
-          try { Audio.synth.snareRoll(time, rollDur, kit); } catch(e) {}
-        }
-
         // ── DROP TRIGGER ──
-        var armed = grid.buildLevel > (edm.buildArmLevel || 0.65);
-        var autoTrigger = grid.phaseTimer > 35;
+        // If vocal drop is ready: next peak IS the drop (peak 3 = "you")
+        // Otherwise: standard armed drop
+        var armed = grid.vocalDropReady || grid.buildLevel > (edm.buildArmLevel || 0.65);
+        var autoTrigger = grid.phaseTimer > 40;
 
-        if ((armed && peakNow) || autoTrigger) {
+        if ((armed && peakNow && grid.vocalPhase >= 2) || (armed && peakNow && !doVocalBuild) || autoTrigger) {
           grid.phase = 'drop';
           grid.phaseTimer = 0;
           grid.buildLevel = 0;
-          grid.riserFired = false;
-          grid.snareRollFired = false;
           grid.highEnergyTime = 0;
           grid.wobbleShape = grid.cycle % 3;
           grid.cycle++;
 
           // ── VOCAL DOUBLE DROP ──
-          // If vocal sequence was building, "you" IS the drop.
-          // Fred Again style: "you" normal + "you-deep" layered = DOUBLE DROP
           if (grid.vocalDropReady) {
             grid.vocalDropFired = true;
             grid.vocalDropReady = false;
-            grid.vocalPhase = 5;
+            grid.vocalPhase = 3;
 
-            // "to-you" at normal speed — the word "you" lands ON the drop
+            // "to-you" full clip — "you" lands ON the drop
             try { Audio.vocal.play('to-you', time, {
               vol: 0.9, reverb: 0.08
             }); } catch(e) {}
 
-            // "you-deep" layered — the deep version hits simultaneously
-            // Slightly delayed for that Fred Again double-hit
+            // "you-deep" layered — the deep version hits 40ms later
             try { Audio.vocal.play('you-deep', time + 0.04, {
               vol: 0.85, reverb: 0.12, delay: 0.2
             }); } catch(e) {}
@@ -2577,11 +2542,9 @@ const Follow = (function () {
           try { Audio.edm.setLeadFilter(leadFilter); } catch(e) {}
         }
 
-        // Peak during drop: crash + sidechain slam (user-triggered, not auto)
+        // Peak during drop: hard sidechain pump (user feels the hit)
         if (peakNow) {
-          try { Audio.synth.crashFill(time, 0.25); } catch(e) {}
           try { Audio.pumpSidechain(0.9); } catch(e) {}
-          grid.stabFillUntil = grid.clock + grid.stepDur * 4;  // brief stab burst
         }
 
         // Max drop → breakdown
@@ -2640,8 +2603,8 @@ const Follow = (function () {
         try { Audio.setMasterGain(0.02); } catch(e) {}
       } else {
         grid.cutUntil = 0;
-        try { Audio.synth.crashFill(time, 0.5); } catch(e) {}
-        try { Audio.synth.impact(time, 0.45); } catch(e) {}
+        // Slam back — just sidechain pump, no noise
+        try { Audio.pumpSidechain(0.85); } catch(e) {}
       }
     }
 
@@ -2727,18 +2690,7 @@ const Follow = (function () {
         }
       }
 
-      // ── STABS: ONLY from user peaks (no auto-patterns) ──
-      if (isDrop && grid.stabFillUntil > grid.clock) {
-        var stabFreq = scaleFreq(newStep % 7, 0);  // walk the scale = melodic stabs
-        try { Audio.synth.edmStab(time, stabFreq, 0.3 * grid.djGain * rollTreble); } catch(e) {}
-      }
-
-      // ── VOCAL CHOPS: user-driven (sustained high energy + high zone) ──
-      if (isDrop && grid.highEnergyTime > 4 && grid.tiltZone >= 2 && newStep % 4 === 2 && newStep !== grid.chopStep) {
-        grid.chopStep = newStep;
-        var chopFreq = scaleFreq(Math.floor(Math.random() * 5), 1);
-        try { Audio.synth.vocalChop(time, chopFreq, 0.2 * grid.djGain * rollTreble); } catch(e) {}
-      }
+      // (stabs and vocal chops removed — user manipulates, system doesn't auto-trigger)
 
       // ── SUB PULSE: on kick beats, zone-shaped ──
       if (!isIntro && (newStep === 0 || newStep === 8) && grid.subPulseStep !== newStep) {
