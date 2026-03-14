@@ -3898,12 +3898,19 @@ const Follow = (function () {
     get melodicVocab() { return melodicHistory.slice(); },
     get gridPhase() { return grid.active ? grid.phase : '-'; },
     get gridBuild() { return grid.active ? grid.buildLevel.toFixed(2) : '-'; },
+    get gridIntensity() { return grid.active ? grid.intensity.toFixed(2) : '-'; },
+    get gridDjGain() { return grid.active ? grid.djGain.toFixed(2) : '-'; },
+    get gridSegment() { return grid.active ? grid.segment : '-'; },
+    get gridDepth() { return grid.active ? getDepth(grid.segment) : '-'; },
+    get gridBars() { return grid.active ? grid.totalBars : '-'; },
     get gridLayers() {
       if (!grid.active) return '-';
-      return 'K' + grid.layers.kick.toFixed(1) +
-        ' H' + grid.layers.hat.toFixed(1) +
-        ' Sn' + grid.layers.snare.toFixed(1) +
-        ' Su' + grid.layers.sub.toFixed(1);
+      var a = grid.arr;
+      return 'K' + a.kickPat + ' H' + a.hatPat + ' Sn' + a.snarePat +
+        ' P' + a.percPat + ' B' + a.bassWalk +
+        (a.ride ? ' Rd' : '') + (a.clap ? ' Cl' : '') +
+        (a.halftime ? ' HT' : '') + (a.delayThrow ? ' DT' : '') +
+        (a.reverbWash ? ' RW' : '');
     },
   });
 })();
