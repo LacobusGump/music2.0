@@ -1,16 +1,11 @@
 /**
  * ORGANISM — Golden Spiral Field
  *
- * Not a dot. Not an orb. A living field of particles
- * arranged along Fibonacci spiral arms. The math IS the beauty —
- * golden angle spacing means no two particles align the same way.
- *
- * Still = tight constellation, barely breathing.
- * Moving = particles expand along spiral paths, trailing light.
- * Touch = ripple perturbation through the field.
- *
- * The field follows your body position but it's not centered on you —
- * it radiates FROM you. You are the origin, not the subject.
+ * 55 particles (Fibonacci) at golden angle spacing.
+ * Not dots — soft radial wisps. Essence, not objects.
+ * Constant orbital motion like DNA helices — they orbit even when still.
+ * Energy controls spread + speed, not existence.
+ * Colors are muted, desaturated, nearly monochrome.
  */
 
 const Organism = (function () {
@@ -18,9 +13,9 @@ const Organism = (function () {
 
   const TWO_PI = Math.PI * 2;
   const PHI = 1.6180339887;
-  const GOLDEN_ANGLE = Math.PI * 2 * (1 - 1 / PHI);  // ~137.5° — the sunflower angle
-  const PARTICLE_COUNT = 89;  // Fibonacci number
-  const TRAIL_MAX = 80;
+  const GOLDEN_ANGLE = TWO_PI * (1 - 1 / PHI);
+  const PARTICLE_COUNT = 55;  // Fibonacci
+  const TRAIL_MAX = 60;
 
   // ── STATE ──────────────────────────────────────────────────────────
 
@@ -30,35 +25,37 @@ const Organism = (function () {
   const seenGestures = new Set();
   const trail = [];
 
-  // Smooth values
   let smoothEnergy = 0;
-  let smoothSpread = 0.15;   // how far particles extend from origin
-  let smoothBreath = 0;      // breathing phase
-  let smoothRotation = 0;    // slow rotation of the whole field
-  let touchRipple = 0;       // ripple from touch
+  let smoothSpread = 0.08;
+  let smoothBreath = 0;
+  let smoothRotation = 0;
+  let touchRipple = 0;
   let touchRipplePhase = 0;
 
-  // Lens color
   let lensHue = 0;
   let lensSat = 0;
   let lensLight = 50;
 
-  // Per-particle persistent state (so they feel alive, not computed)
+  // Per-particle state
   const particles = [];
   for (let i = 0; i < PARTICLE_COUNT; i++) {
-    const fi = i * GOLDEN_ANGLE;  // golden angle position
-    const fRadius = Math.sqrt(i / PARTICLE_COUNT);  // sunflower disk distribution
+    const fi = i * GOLDEN_ANGLE;
+    const fRadius = Math.sqrt(i / PARTICLE_COUNT);
     particles.push({
       baseAngle: fi,
       baseRadius: fRadius,
-      phase: Math.random() * TWO_PI,   // individual breathing offset
-      drift: (Math.random() - 0.5) * 0.3,  // slight angular drift
-      size: 0.5 + Math.random() * 1.0,
-      brightness: 0.3 + Math.random() * 0.7,
-      // Wander: each particle has a slow individual wander
+      phase: i * GOLDEN_ANGLE * 0.7,  // φ-spaced phase offsets
+      // Orbital: each particle has its own orbit speed + direction
+      orbitSpeed: 0.3 + (i % 8) * 0.08,  // varied speeds
+      orbitDir: (i % 3 === 0) ? -1 : 1,  // some orbit counter
+      orbitEcc: 0.15 + Math.random() * 0.2, // elliptical eccentricity
+      // DNA helix: particles oscillate perpendicular to their radius
+      helixPhase: i * GOLDEN_ANGLE * 1.3,
+      helixAmp: 0.3 + (i % 5) * 0.12,
+      // Wander
       wanderX: 0, wanderY: 0,
-      wanderVX: (Math.random() - 0.5) * 0.15,
-      wanderVY: (Math.random() - 0.5) * 0.15,
+      wanderVX: (Math.random() - 0.5) * 0.08,
+      wanderVY: (Math.random() - 0.5) * 0.08,
     });
   }
 
@@ -93,8 +90,6 @@ const Organism = (function () {
     lensLight = l * 100;
   }
 
-  // ── APPLY LENS ─────────────────────────────────────────────────────
-
   function applyLens(lens) {
     if (lens && lens.color) hexToHSL(lens.color);
   }
@@ -108,7 +103,6 @@ const Organism = (function () {
     const energy = brainState.energy || 0;
     lifeForce = touchTime + energy * 2 + seenGestures.size * 3;
 
-    // Gesture tracking (for visual evolution)
     const neurons = brainState.neurons;
     if (neurons) {
       if (neurons.shake    && neurons.shake.rate()    > 0.5) seenGestures.add('shake');
@@ -118,57 +112,50 @@ const Organism = (function () {
       if (neurons.stillness&& neurons.stillness.rate()> 0.5) seenGestures.add('stillness');
     }
 
-    // Smooth energy — controls spread, brightness, particle size
     smoothEnergy += (energy - smoothEnergy) * (1 - Math.exp(-3 * dt));
 
-    // Spread: still = tight cluster, energy = expanding field
-    const targetSpread = 0.06 + Math.min(0.5, smoothEnergy * 0.35) + seenGestures.size * 0.02;
+    // Spread: tight when still, opens with energy — but stays small
+    const targetSpread = 0.04 + Math.min(0.22, smoothEnergy * 0.18) + seenGestures.size * 0.01;
     smoothSpread += (targetSpread - smoothSpread) * (1 - Math.exp(-1.5 * dt));
 
-    // Breathing: φ-driven frequencies that NEVER exactly loop
-    // Two oscillators at ratio φ:1 = infinite variation
-    const breathRate = 0.4 + smoothEnergy * 0.8;
+    // φ-driven breath
+    const breathRate = 0.3 + smoothEnergy * 0.6;
     smoothBreath += dt * breathRate;
 
-    // Field rotation: φ speed ratio — the spiral itself turns at golden time
-    smoothRotation += dt * (0.03 + smoothEnergy * 0.12) * (1 / PHI);
+    // Global rotation — always moving, energy just speeds it up
+    smoothRotation += dt * (0.06 + smoothEnergy * 0.15) * (1 / PHI);
 
     // Touch ripple
     if (touching && touchRipple < 0.5) {
       touchRipple = Math.min(1, touchRipple + dt * 3);
     } else {
-      touchRipple *= Math.exp(-2 * dt);
+      touchRipple *= Math.exp(-2.5 * dt);
     }
-    touchRipplePhase += dt * 8;
+    touchRipplePhase += dt * 6;
 
-    // Particle wander (slow brownian drift so they feel alive)
+    // Particle wander (very gentle)
     for (let i = 0; i < PARTICLE_COUNT; i++) {
       const p = particles[i];
       p.wanderX += p.wanderVX * dt;
       p.wanderY += p.wanderVY * dt;
-      // Gentle spring back so they don't wander too far
-      p.wanderVX -= p.wanderX * 0.5 * dt;
-      p.wanderVY -= p.wanderY * 0.5 * dt;
-      // Slight random perturbation
-      p.wanderVX += (Math.random() - 0.5) * 0.4 * dt;
-      p.wanderVY += (Math.random() - 0.5) * 0.4 * dt;
+      p.wanderVX -= p.wanderX * 0.6 * dt;
+      p.wanderVY -= p.wanderY * 0.6 * dt;
+      p.wanderVX += (Math.random() - 0.5) * 0.2 * dt;
+      p.wanderVY += (Math.random() - 0.5) * 0.2 * dt;
     }
 
     // Trail
-    const px = posX * width;
-    const py = posY * height;
-    trail.push({ x: px, y: py, t: time });
+    trail.push({ x: posX * width, y: posY * height, t: time });
     if (trail.length > TRAIL_MAX) trail.shift();
   }
 
   function addMutation(surprise) {
     if (surprise < 0.3) return;
-    // Mutations perturb all particles outward briefly
     for (let i = 0; i < PARTICLE_COUNT; i++) {
       const p = particles[i];
       const angle = p.baseAngle + smoothRotation;
-      p.wanderVX += Math.cos(angle) * surprise * 0.8;
-      p.wanderVY += Math.sin(angle) * surprise * 0.8;
+      p.wanderVX += Math.cos(angle) * surprise * 0.5;
+      p.wanderVY += Math.sin(angle) * surprise * 0.5;
     }
   }
 
@@ -178,96 +165,121 @@ const Organism = (function () {
     const minDim = Math.min(w, h);
     const fieldScale = minDim * smoothSpread;
 
-    // Evolving hue: lens base + slow drift from gesture variety
-    const hueBase = lensHue + seenGestures.size * 15 + time * 1.5;
+    // Muted hue: barely shifts, mostly desaturated
+    const hueBase = lensHue + seenGestures.size * 8 + time * 0.5;
 
     canvasCtx.save();
 
-    // ── TRAIL: thin, fading path showing where you've been ──
+    // ── TRAIL: hair-thin whisper ──
     if (trail.length > 3) {
-      const tLen = Math.min(trail.length, 40 + Math.floor(smoothEnergy * 40));
+      const tLen = Math.min(trail.length, 20 + Math.floor(smoothEnergy * 20));
       const tStart = trail.length - tLen;
       canvasCtx.beginPath();
       canvasCtx.moveTo(trail[tStart].x, trail[tStart].y);
       for (let i = tStart + 1; i < trail.length; i++) {
         canvasCtx.lineTo(trail[i].x, trail[i].y);
       }
-      const trailAlpha = 0.04 + smoothEnergy * 0.06;
-      canvasCtx.strokeStyle = hsl(hueBase % 360, Math.max(lensSat, 20), 60, trailAlpha);
-      canvasCtx.lineWidth = 1;
+      const trailAlpha = 0.02 + smoothEnergy * 0.04;
+      canvasCtx.strokeStyle = 'rgba(255,255,255,' + trailAlpha + ')';
+      canvasCtx.lineWidth = 0.5;
       canvasCtx.stroke();
     }
 
-    // ── PARTICLES: golden spiral field ──
+    // ── PARTICLES: orbiting wisps ──
     for (let i = 0; i < PARTICLE_COUNT; i++) {
       const p = particles[i];
 
-      // Golden spiral position
-      const angle = p.baseAngle + smoothRotation + p.drift * smoothEnergy;
+      // ── ORBIT: always rotating, even at rest ──
+      // Each particle orbits at its own speed/direction
+      const orbitAngle = p.baseAngle + smoothRotation * p.orbitSpeed * p.orbitDir;
+
+      // ── DNA HELIX: perpendicular oscillation ──
+      // Particles weave in and out like a double helix strand
+      const helixT = time * (0.8 + p.orbitSpeed * 0.5) + p.helixPhase;
+      const helixOffset = Math.sin(helixT * PHI) * p.helixAmp * fieldScale * 0.15;
+
+      // Base spiral radius
       const baseR = p.baseRadius * fieldScale;
 
-      // Breathing: TWO φ-ratio oscillators per particle = never repeats
-      const breath = Math.sin(smoothBreath * TWO_PI + p.phase) * 0.08
-                   + Math.sin(smoothBreath * TWO_PI * PHI + p.phase * PHI) * 0.06;
+      // Breathing: dual φ oscillators
+      const breath = Math.sin(smoothBreath * TWO_PI + p.phase) * 0.06
+                   + Math.sin(smoothBreath * TWO_PI * PHI + p.phase * PHI) * 0.04;
 
-      // Touch ripple: concentric wave radiating outward
-      const rippleOffset = touchRipple * 8 * Math.sin(
-        touchRipplePhase - p.baseRadius * 12
-      ) * (1 - p.baseRadius);  // stronger near center
+      // Elliptical orbit (not circular — more organic)
+      const eccAngle = orbitAngle * 2 + p.phase;
+      const eccR = 1 + Math.sin(eccAngle) * p.orbitEcc;
 
-      const r = baseR * (1 + breath) + rippleOffset + p.wanderX * 3;
+      // Touch ripple
+      const ripple = touchRipple * 4 * Math.sin(
+        touchRipplePhase - p.baseRadius * 10
+      ) * (1 - p.baseRadius * 0.7);
 
-      const px = x + Math.cos(angle) * r + p.wanderX * fieldScale * 0.3;
-      const py = y + Math.sin(angle) * r + p.wanderY * fieldScale * 0.3;
+      const r = baseR * eccR * (1 + breath) + ripple;
 
-      // Size: inner particles smaller (tighter), outer bigger
-      // Energy makes everything grow
-      const baseSize = p.size * (0.4 + p.baseRadius * 0.8);
-      const sz = baseSize * (1 + smoothEnergy * 1.5);
+      // Helix adds perpendicular displacement
+      const perpAngle = orbitAngle + Math.PI * 0.5;
+      const px = x + Math.cos(orbitAngle) * r + Math.cos(perpAngle) * helixOffset
+               + p.wanderX * fieldScale * 0.15;
+      const py = y + Math.sin(orbitAngle) * r + Math.sin(perpAngle) * helixOffset
+               + p.wanderY * fieldScale * 0.15;
 
-      // Alpha: inner particles brighter, outer particles dimmer
-      // Energy brings outer particles to life
-      const innerBright = 1 - p.baseRadius * 0.6;
-      const energyBright = smoothEnergy * p.baseRadius;
-      let alpha = (innerBright + energyBright) * p.brightness;
-      alpha *= 0.15 + smoothEnergy * 0.35;  // globally dimmer when still
-      alpha = Math.max(0.02, Math.min(0.6, alpha));
+      // ── SIZE: small. Essence, not objects. ──
+      const sz = (0.3 + p.baseRadius * 0.4) * (0.8 + smoothEnergy * 0.6);
 
-      // Hue shifts along the spiral — golden angle in color space too
-      const hue = (hueBase + i * 2.5) % 360;
-      const sat = Math.max(lensSat, 15 + smoothEnergy * 25);
-      const light = 55 + p.brightness * 15;
+      // ── ALPHA: muted, ghostly ──
+      const innerFade = 1 - p.baseRadius * 0.5;
+      const energyFade = smoothEnergy * p.baseRadius * 0.6;
+      let alpha = (innerFade + energyFade) * 0.5;
+      alpha *= 0.08 + smoothEnergy * 0.18;  // very dim when still
+      alpha = Math.max(0.01, Math.min(0.25, alpha));
 
-      // Draw particle
-      canvasCtx.fillStyle = hsl(hue, sat, light, alpha);
+      // ── COLOR: desaturated, muted ──
+      // Low saturation, high lightness = fog/essence, not neon
+      const hue = (hueBase + i * 1.5) % 360;
+      const sat = Math.min(12, lensSat * 0.3 + smoothEnergy * 8);
+      const light = 65 + (1 - p.baseRadius) * 15;
+
+      // Draw as soft radial gradient — NOT a hard dot
+      const glowR = sz * 4;
+      const g = canvasCtx.createRadialGradient(px, py, 0, px, py, glowR);
+      g.addColorStop(0, hsl(hue, sat, light, alpha));
+      g.addColorStop(0.4, hsl(hue, sat, light, alpha * 0.4));
+      g.addColorStop(1, 'rgba(0,0,0,0)');
+      canvasCtx.fillStyle = g;
       canvasCtx.beginPath();
-      canvasCtx.arc(px, py, sz, 0, TWO_PI);
+      canvasCtx.arc(px, py, glowR, 0, TWO_PI);
       canvasCtx.fill();
-
-      // Glow on brighter particles (inner ones, or during high energy)
-      if (alpha > 0.2 && sz > 1.2) {
-        const glowR = sz * 3;
-        const g = canvasCtx.createRadialGradient(px, py, 0, px, py, glowR);
-        g.addColorStop(0, hsl(hue, sat, light, alpha * 0.3));
-        g.addColorStop(1, 'rgba(0,0,0,0)');
-        canvasCtx.fillStyle = g;
-        canvasCtx.beginPath();
-        canvasCtx.arc(px, py, glowR, 0, TWO_PI);
-        canvasCtx.fill();
-      }
     }
 
-    // ── ORIGIN POINT: barely-there, almost invisible ──
-    // Not a "dot" — a faint warmth at the center of the field
-    const originAlpha = 0.08 + smoothEnergy * 0.15;
-    const originR = 2 + smoothEnergy * 3;
-    const og = canvasCtx.createRadialGradient(x, y, 0, x, y, originR * 4);
-    og.addColorStop(0, hsl(hueBase % 360, Math.max(lensSat, 20), 70, originAlpha));
-    og.addColorStop(1, 'rgba(0,0,0,0)');
-    canvasCtx.fillStyle = og;
-    canvasCtx.beginPath();
-    canvasCtx.arc(x, y, originR * 4, 0, TWO_PI);
-    canvasCtx.fill();
+    // ── CONNECTIVE THREADS: faint lines between nearby particles ──
+    // Like the bonds in a molecule — shows structure without drawing attention
+    if (smoothEnergy > 0.05) {
+      canvasCtx.strokeStyle = 'rgba(255,255,255,' + Math.min(0.03, smoothEnergy * 0.02) + ')';
+      canvasCtx.lineWidth = 0.3;
+      // Only draw between sequential spiral neighbors (not all pairs)
+      for (let i = 1; i < PARTICLE_COUNT; i += 2) {
+        const p0 = particles[i - 1];
+        const p1 = particles[i];
+
+        const a0 = p0.baseAngle + smoothRotation * p0.orbitSpeed * p0.orbitDir;
+        const a1 = p1.baseAngle + smoothRotation * p1.orbitSpeed * p1.orbitDir;
+        const r0 = p0.baseRadius * fieldScale;
+        const r1 = p1.baseRadius * fieldScale;
+
+        const x0 = x + Math.cos(a0) * r0;
+        const y0 = y + Math.sin(a0) * r0;
+        const x1 = x + Math.cos(a1) * r1;
+        const y1 = y + Math.sin(a1) * r1;
+
+        const dist = Math.sqrt((x1-x0)*(x1-x0) + (y1-y0)*(y1-y0));
+        if (dist < fieldScale * 0.5) {
+          canvasCtx.beginPath();
+          canvasCtx.moveTo(x0, y0);
+          canvasCtx.lineTo(x1, y1);
+          canvasCtx.stroke();
+        }
+      }
+    }
 
     canvasCtx.restore();
   }
