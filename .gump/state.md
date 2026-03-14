@@ -1,6 +1,6 @@
 # Current State
 
-*Last updated: March 14, 2026 — BUILD 92*
+*Last updated: March 14, 2026 — BUILD 93*
 
 ---
 
@@ -19,7 +19,7 @@ index.html          — Bootstrap, screens, HTML/CSS. BUILD number lives here.
 js/sensor.js        — Accelerometer, gyroscope, touch
 js/brain.js         — Kalman filter, 7 LIF spiking neurons, void state, energy
 js/audio.js         — v53: 13 synth engines + EDM synths, 808 kick rewrite, drums, void drone, EQ, effects chain
-js/follow.js        — v87: THE ENGINE. Body → music. Grid EDM with 15s DJ-move evolution.
+js/follow.js        — v88: THE ENGINE. Body → music. Journey (organic stage evolution) + Grid (EDM).
 js/lens.js          — v59: 7 timbral palettes (The Conductor, Blue Hour, Drift,
                            Tundra, Still Water, Dark Matter, Grid)
 js/organism.js      — Visual: harmonic polar creature on black canvas
@@ -51,13 +51,14 @@ Each lens: harmony (root + mode), palette (voice assignments), space (reverb/del
 
 | Lens | Mode | Continuous Voice | Peak Voice | Feel |
 |------|------|-----------------|------------|------|
-| The Conductor | major | organ (hi melodicEnergy=0.9, near-silent tilt melody) | massive | Orchestra |
-| Blue Hour | dorian | Rhodes | brass | Jazz club |
-| Drift | major | mono triangle | epiano | Ambient |
-| Tundra | picardy | piano | piano | Vast silence, picardy grammar |
-| Still Water | lydian | strings (5-voice detuned + vibrato) | strings | Nils Frahm |
-| Dark Matter | phrygian | reverse/FM/glitch | massive | Default boot lens |
-| Grid | phrygian | gridstack (supersaw TikTok) | massive | Electronic/tactile |
+| Journey | evolves | mono→strings→piano→fm | piano→reverse | Organic, evolving |
+| Grid | phrygian | gridstack (supersaw) | massive | EDM/tactile |
+
+**Journey stages** (each ~2.5min, 30s crossfade):
+1. Drift: dorian, mono triangle, intimate piano
+2. Still Water: lydian, strings (vibrato), flowing
+3. Tundra: picardy, sparse piano, vast silence
+4. Dark Matter: phrygian, reverse/FM, glitch groove
 
 **melodicEnergy per lens** — minimum Brain.short.energy() to fire tilt melody:
 - Conductor: 0.9 (almost disabled — peaks only)

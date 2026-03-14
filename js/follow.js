@@ -8,9 +8,10 @@
  * ANSWER: The music responds. Rare. Deliberate. Completes your thought.
  * SPACE:  The room. Foundation drone + reverb. The harmonic ground.
  *
- * v87: Grid 15-second evolution — DJ move every 8 bars. Arrangement layers
- *       (ride, clap, snare roll, sub octave, pad open) brought in like mixer faders.
- *       32 moves in sequence then cycles. Harmonic shifts, filter sweeps, pattern swaps.
+ * v88: Big merge — 6 organic lenses → Journey (Drift→Still Water→Tundra→Dark Matter).
+ *       Organic stage evolution: crossfades tone/space over 30s, swaps palette/mode at 50%.
+ *       2.5min per stage. Three-act arc runs independently on top.
+ * v87: Grid 15-second DJ-move evolution.
  * v86: Grid DJ set evolution — vocal cooldown fix.
  * v79: Music waits for you. Autonomy gates on Brain.short.energy().
  * v67: Clean rebuild.
@@ -56,6 +57,12 @@ const Follow = (function () {
       feel: 0.12, kit: 'brushes', snap: 2, halftime: true,
     },
     'Drift': {
+      kick:  [0.40,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
+      snare: [0,0,0,0,    0,0,0,0, 0,0,0,0, 0,0,0,0],
+      hat:   [0,0,0,0,    0,0,0,0, 0,0,0,0, 0,0,0,0],
+      feel: 0, kit: 'acoustic', snap: 2, halftime: true, sparse: true,
+    },
+    'Journey': {
       kick:  [0.40,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
       snare: [0,0,0,0,    0,0,0,0, 0,0,0,0, 0,0,0,0],
       hat:   [0,0,0,0,    0,0,0,0, 0,0,0,0, 0,0,0,0],
@@ -1016,8 +1023,8 @@ const Follow = (function () {
       // VI instead of I — "almost... but no"
       // The sidestep to the major 6th is the oldest trick in Western music.
       try { Audio.synth.play('piano', now, base * 1.682, 0.16, 4.0); } catch(e) {}
-      // Tundra: flicker the Picardy major 3rd — grief glimpsing hope, then not getting it
-      if (lens.name === 'Tundra') {
+      // Picardy mode: flicker the major 3rd — grief glimpsing hope, then not getting it
+      if (lens.harmony && lens.harmony.mode === 'picardy') {
         try { Audio.synth.play('piano', now + 1.0, scaleFreq(3, 0), 0.09, 3.5); } catch(e) {}
       }
 
@@ -1026,12 +1033,12 @@ const Follow = (function () {
       try { Audio.synth.play('piano', now,       base,            0.42, 6.0); } catch(e) {}  // deep root
       try { Audio.synth.play('piano', now + 0.08, base * 2,       0.30, 5.0); } catch(e) {}  // root up one
       try { Audio.synth.play('piano', now + 0.18, originalRoot,   0.22, 4.0); } catch(e) {}  // top root
-      // Tundra: Picardy major 3rd in the resolution = the final "light" moment
-      if (lens.name === 'Tundra') {
+      // Picardy mode: major 3rd in the resolution = the final "light" moment
+      if (lens.harmony && lens.harmony.mode === 'picardy') {
         try { Audio.synth.play('piano', now + 0.6, scaleFreq(3, 0), 0.16, 4.5); } catch(e) {}
       }
-      // Still Water: lydian #4 grace note — floats just before settling
-      if (lens.name === 'Still Water') {
+      // Lydian mode: #4 grace note — floats just before settling
+      if (lens.harmony && lens.harmony.mode === 'lydian') {
         try { Audio.synth.play('strings', now + 0.4, scaleFreq(3, 0), 0.14, 3.5); } catch(e) {}
       }
     }
@@ -1453,6 +1460,9 @@ const Follow = (function () {
     if (lens.name === 'Grid' && lens.edm) {
       initGrid();
     }
+
+    // Organic stage evolution: reset for Journey lens
+    resetOrganicStage();
   }
 
   // ── PEAK DETECTION ────────────────────────────────────────────────────
@@ -3103,6 +3113,183 @@ const Follow = (function () {
     try { Audio.spatial.update(sensor.gamma || 0, false, sensor.touching); } catch(e) {}
   }
 
+  // ── ORGANIC STAGE EVOLUTION ──────────────────────────────────────────
+  // Journey lens evolves through 4 stages: Drift → Still Water → Tundra → Dark Matter
+  // Each stage ~2.5 minutes. Crossfades tone, space, palette, mode over ~30s.
+  // The three-act harmonic arc (sus4) runs independently on top.
+
+  var organicStage = {
+    current: 0,         // 0=drift, 1=still water, 2=tundra, 3=dark matter
+    timer: 0,           // time in current stage
+    transitioning: false,
+    transitionProgress: 0,  // 0-1 during crossfade
+    stageDuration: 150,     // 2.5 minutes per stage
+    crossfadeDuration: 30,  // 30 second crossfade
+    lastApplied: -1,        // which stage config was last fully applied
+  };
+
+  function resetOrganicStage() {
+    organicStage.current = 0;
+    organicStage.timer = 0;
+    organicStage.transitioning = false;
+    organicStage.transitionProgress = 0;
+    organicStage.lastApplied = -1;
+  }
+
+  // Interpolate a number between two values
+  function lerpN(a, b, t) { return a + (b - a) * t; }
+
+  // Build a blended lens config between two stages
+  function blendStageConfig(stageA, stageB, t) {
+    var blended = {};
+
+    // Tone: interpolate all EQ values
+    blended.tone = {
+      bassFreq: lerpN(stageA.tone.bassFreq, stageB.tone.bassFreq, t),
+      bassGain: lerpN(stageA.tone.bassGain, stageB.tone.bassGain, t),
+      midFreq: lerpN(stageA.tone.midFreq, stageB.tone.midFreq, t),
+      midQ: lerpN(stageA.tone.midQ, stageB.tone.midQ, t),
+      midGain: lerpN(stageA.tone.midGain, stageB.tone.midGain, t),
+      highFreq: lerpN(stageA.tone.highFreq, stageB.tone.highFreq, t),
+      highGain: lerpN(stageA.tone.highGain, stageB.tone.highGain, t),
+      ceiling: lerpN(stageA.tone.ceiling, stageB.tone.ceiling, t),
+    };
+
+    // Space: interpolate reverb, delay, saturation
+    var revA = stageA.space.reverb, revB = stageB.space.reverb;
+    var delA = stageA.space.delay, delB = stageB.space.delay;
+    blended.space = {
+      reverb: {
+        decay: lerpN(revA.decay, revB.decay, t),
+        damping: lerpN(revA.damping, revB.damping, t),
+        preDelay: lerpN(revA.preDelay, revB.preDelay, t),
+      },
+      delay: {
+        feedback: lerpN(delA.feedback, delB.feedback, t),
+        filter: lerpN(delA.filter, delB.filter, t),
+        sync: t < 0.5 ? delA.sync : delB.sync,
+      },
+      saturation: lerpN(stageA.space.saturation, stageB.space.saturation, t),
+      type: t < 0.5 ? stageA.space.type : stageB.space.type,
+      reverbMix: lerpN(stageA.space.reverbMix, stageB.space.reverbMix, t),
+      sidechain: lerpN(stageA.space.sidechain || 0, stageB.space.sidechain || 0, t),
+      spatial: {
+        sweepRate: lerpN(
+          (stageA.space.spatial || {}).sweepRate || 0.04,
+          (stageB.space.spatial || {}).sweepRate || 0.04, t),
+        sweepDepth: lerpN(
+          (stageA.space.spatial || {}).sweepDepth || 0.28,
+          (stageB.space.spatial || {}).sweepDepth || 0.28, t),
+      },
+    };
+
+    return blended;
+  }
+
+  function applyStageConfig(stage) {
+    if (!lens || !stage) return;
+
+    // Update palette (voice assignments) — takes effect on next note
+    lens.palette = stage.palette;
+
+    // Update response thresholds
+    lens.response = stage.response;
+    var adaptedResp = motionProfile.adapt(lens.response);
+    adaptedPeakThresh  = adaptedResp.peakThreshold || null;
+    adaptedStillThresh = adaptedResp.stillnessThreshold || null;
+
+    // Update emotion
+    lens.emotion = stage.emotion;
+
+    // Update motion
+    lens.motion = stage.motion;
+
+    // Update groove
+    lens.groove = stage.groove;
+
+    // Update harmony: mode and root
+    var newRoot = stage.harmony.root || 432;
+    var newMode = stage.harmony.mode || 'major';
+    originalRoot = newRoot;
+    root = newRoot;
+    scale = MODES[newMode] || MODES.major;
+    baseScale = scale.slice();
+    // Reset act so the three-act arc runs fresh on the new mode
+    sessionAct = 0;
+  }
+
+  function updateOrganicStage(dt) {
+    // Only for Journey lens (has stages)
+    if (!lens || !lens.stages || lens.name === 'Grid') return;
+
+    var stages = lens.stages;
+    if (!stages || stages.length === 0) return;
+
+    organicStage.timer += dt;
+
+    // Check if it's time to advance
+    if (organicStage.current < stages.length - 1 &&
+        organicStage.timer >= organicStage.stageDuration &&
+        !organicStage.transitioning) {
+      organicStage.transitioning = true;
+      organicStage.transitionProgress = 0;
+    }
+
+    // Run crossfade
+    if (organicStage.transitioning) {
+      organicStage.transitionProgress += dt / organicStage.crossfadeDuration;
+
+      if (organicStage.transitionProgress >= 1) {
+        // Transition complete — fully in new stage
+        organicStage.transitionProgress = 1;
+        organicStage.transitioning = false;
+        organicStage.current++;
+        organicStage.timer = 0;
+
+        // Apply the new stage config fully
+        var newStage = stages[organicStage.current];
+        applyStageConfig(newStage);
+        organicStage.lastApplied = organicStage.current;
+
+        // Reconfigure audio with new stage's tone/space
+        lens.tone = newStage.tone;
+        lens.space = newStage.space;
+        lens.harmony = newStage.harmony;
+        try { Audio.configure(lens); } catch(e) {}
+
+        // Update the lens indicator to show current stage
+        var el = document.getElementById('lens-indicator');
+        if (el) el.textContent = newStage.name;
+      } else {
+        // Mid-transition: blend tone/space and apply
+        var fromIdx = organicStage.current;
+        var toIdx = fromIdx + 1;
+        if (toIdx < stages.length) {
+          var blended = blendStageConfig(stages[fromIdx], stages[toIdx], organicStage.transitionProgress);
+          lens.tone = blended.tone;
+          lens.space = blended.space;
+          try { Audio.configure(lens); } catch(e) {}
+
+          // At 50% through, swap the palette/mode (discrete, not blendable)
+          if (organicStage.transitionProgress >= 0.5 && organicStage.lastApplied !== toIdx) {
+            applyStageConfig(stages[toIdx]);
+            organicStage.lastApplied = toIdx;
+
+            // Update indicator mid-transition
+            var el2 = document.getElementById('lens-indicator');
+            if (el2) el2.textContent = stages[toIdx].name;
+          }
+        }
+      }
+    }
+
+    // Apply initial stage if not yet applied
+    if (organicStage.lastApplied === -1 && stages.length > 0) {
+      applyStageConfig(stages[0]);
+      organicStage.lastApplied = 0;
+    }
+  }
+
   // ── MAIN UPDATE ───────────────────────────────────────────────────────
   // 12 calls. Each one clear. Each one purposeful.
   // LEAD → PULSE → ANSWER → SPACE — in that order.
@@ -3186,6 +3373,7 @@ const Follow = (function () {
     updateHarmonicArc(dt);
     checkEpigeneticAdvance(now);
     checkActAdvance();
+    updateOrganicStage(dt);
     updateTensionArc(dt);
 
     // ── Master gain ──

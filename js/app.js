@@ -285,7 +285,7 @@
       } else {
         // Music fades in after the boot voice has a moment to breathe
         setTimeout(function () {
-          Lens.selectCard(2); // Drift
+          Lens.selectCard(0); // Journey (starts as Drift)
           var lens = Lens.getSelected();
           Audio.configure(lens);
           Follow.applyLens(lens);
@@ -429,14 +429,10 @@
         Voice.lensSelected(lens.name);
         Lens.updateIndicator();
 
-        // Flash color: Tundra/Still Water/Conductor = blue-white, Dark Matter = red, Gospel = gold
+        // Flash color on lens switch
         var flashColors = {
-          'The Conductor':  '#ffffff',
-          'Blue Hour':      '#0033ff',
-          'Drift':          '#3d3550',
-          'Tundra':         '#aaddff',
-          'Still Water':    '#00ffaa',
-          'Dark Matter':    '#ff0000',
+          'Journey':        '#3d3550',
+          'Grid':           '#ff3300',
         };
         flashScreen(flashColors[lens.name] || '#ffffff');
       }
