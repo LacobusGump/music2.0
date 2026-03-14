@@ -164,12 +164,12 @@ const Lens = (function () {
         spatial: { sweepRate: 0.17, sweepDepth: 0.80 },
       },
       palette: {
-        peak: { voice: 'reverse', octave: 0, decay: 2.5 },
-        continuous: { voice: 'fm', octave: 0, decay: 1.5 },
+        peak: { voice: 'guitar', octave: 0, decay: 2.8 },
+        continuous: { voice: 'guitar', octave: 0, decay: 2.0 },
         harmonic: { voice: 'strings', octave: -1, decay: 3.5 },
         burst: { voice: 'glitch', octave: 0 },
         texture: { wave: 'sawtooth', chord: [0, 1, 7], octave: -2, detune: 20, vol: 0.07, reverbSend: 0.65 },
-        touch: { voice: 'reverse', octave: 0, decay: 2.0 },
+        touch: { voice: 'guitar', octave: 0, decay: 2.5 },
       },
       response: {
         peakThreshold: 1.0,

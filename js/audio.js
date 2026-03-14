@@ -997,6 +997,7 @@ const Audio = (function () {
       case 'vibe': synthVibe(time, freq, vel, decay); break;
       case 'strings': synthStrings(time, freq, vel, decay); break;
       case 'reverse': synthReverse(time, freq, vel, decay); break;
+      case 'guitar': synthGuitar(time, freq, vel, decay); break;
       case 'upright': synthUpright(time, freq, vel); break;
       case 'dirty':      synthDirtyWorld(time, freq, vel, decay); break;
       case 'massive':    synthMassive(time, freq, vel, decay); break;
@@ -1682,6 +1683,80 @@ const Audio = (function () {
 
     excSrc.start(time); excSrc.stop(time + 0.006);
     osc.start(time); osc.stop(time + decay + 0.1);
+  }
+
+  // ── SPANISH GUITAR — nylon string, warm pluck, resonant body ──────────
+  // Think street corner in Mexico City. Warm, intimate, slightly buzzy.
+
+  function synthGuitar(time, freq, vel, decay) {
+    decay = decay || 2.0;
+
+    // Pluck transient — softer than steel, nylon "thumb" sound
+    var pluckLen = Math.floor(ctx.sampleRate * 0.008);
+    var pluckBuf = ctx.createBuffer(1, pluckLen, ctx.sampleRate);
+    var pd = pluckBuf.getChannelData(0);
+    for (var i = 0; i < pluckLen; i++) pd[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / pluckLen, 1.5);
+    var pluckSrc = ctx.createBufferSource(); pluckSrc.buffer = pluckBuf;
+    // LP filter the pluck — nylon is warmer than steel
+    var pluckLP = ctx.createBiquadFilter(); pluckLP.type = 'lowpass'; pluckLP.frequency.value = 3000;
+    var pluckG = ctx.createGain();
+    pluckG.gain.setValueAtTime(0.55 * vel, time);
+    pluckG.gain.exponentialRampToValueAtTime(0.001, time + 0.025);
+
+    // Fundamental — triangle wave (warmer than sine, softer than sawtooth)
+    var fund = ctx.createOscillator(); fund.type = 'triangle'; fund.frequency.value = freq;
+    var fundG = ctx.createGain();
+    fundG.gain.setValueAtTime(vel * 0.52, time);
+    fundG.gain.setTargetAtTime(0.001, time + 0.05, decay * 0.25);
+
+    // 2nd harmonic — octave, quieter (nylon is fundamental-heavy)
+    var h2 = ctx.createOscillator(); h2.type = 'sine'; h2.frequency.value = freq * 2 + 0.7; // slight detune
+    var h2G = ctx.createGain();
+    h2G.gain.setValueAtTime(vel * 0.22, time);
+    h2G.gain.setTargetAtTime(0.001, time + 0.03, decay * 0.18);
+
+    // 3rd harmonic — adds the "nylon" character
+    var h3 = ctx.createOscillator(); h3.type = 'sine'; h3.frequency.value = freq * 3 - 0.5;
+    var h3G = ctx.createGain();
+    h3G.gain.setValueAtTime(vel * 0.10, time);
+    h3G.gain.setTargetAtTime(0.001, time + 0.02, decay * 0.12);
+
+    // 5th harmonic — faint, adds brightness without harshness
+    var h5 = ctx.createOscillator(); h5.type = 'sine'; h5.frequency.value = freq * 5 + 1.2;
+    var h5G = ctx.createGain();
+    h5G.gain.setValueAtTime(vel * 0.04, time);
+    h5G.gain.setTargetAtTime(0.001, time + 0.01, decay * 0.08);
+
+    // Body resonance filter — LP that closes over time (string losing energy)
+    var bodyLP = ctx.createBiquadFilter();
+    bodyLP.type = 'lowpass';
+    bodyLP.frequency.setValueAtTime(Math.min(freq * 8, 5000), time);
+    bodyLP.frequency.exponentialRampToValueAtTime(Math.max(freq * 1.5, 300), time + decay * 0.6);
+    bodyLP.Q.value = 1.2; // slight resonance = body ring
+
+    // Master envelope
+    var env = ctx.createGain();
+    env.gain.setValueAtTime(Math.min(0.85, vel * 0.75), time);
+    env.gain.setTargetAtTime(0.001, time + 0.1, decay * 0.28);
+
+    // Wire it up
+    pluckSrc.connect(pluckLP); pluckLP.connect(pluckG); pluckG.connect(bodyLP);
+    fund.connect(fundG); fundG.connect(bodyLP);
+    h2.connect(h2G); h2G.connect(bodyLP);
+    h3.connect(h3G); h3G.connect(bodyLP);
+    h5.connect(h5G); h5G.connect(bodyLP);
+    bodyLP.connect(env); env.connect(sidechainGain);
+
+    // Heavy reverb send — street guitar has space and echo
+    var rs = ctx.createGain(); rs.gain.value = 0.55; env.connect(rs); rs.connect(reverbSend);
+    var ds = ctx.createGain(); ds.gain.value = 0.30; env.connect(ds); ds.connect(delaySend);
+
+    pluckSrc.start(time); pluckSrc.stop(time + 0.012);
+    var endTime = time + decay + 0.2;
+    fund.start(time); fund.stop(endTime);
+    h2.start(time); h2.stop(endTime);
+    h3.start(time); h3.stop(endTime);
+    h5.start(time); h5.stop(endTime);
   }
 
   // ── BRASS — cinematic: sawtooth + filter bite + vibrato ───────────────

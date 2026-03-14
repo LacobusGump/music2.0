@@ -43,44 +43,9 @@ const Follow = (function () {
 
   // ── GROOVE DNA TABLE ──────────────────────────────────────────────────
   // 16-step patterns (one 4/4 bar). Values 0-1 = hit strength.
+  // Journey uses the tribal pulse system instead — these are for Grid only.
 
   var GROOVE_DNA = {
-    // ── Stage-specific tribal grooves (used by Journey stage evolution) ──
-    'drift': {
-      // Intimate. Just a soft frame drum heartbeat.
-      kick:  [0.35,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
-      snare: [0,0,0,0,    0,0,0,0, 0,0,0,0, 0,0,0,0],
-      hat:   [0,0,0,0,    0,0,0,0, 0,0,0,0, 0,0,0,0],
-      feel: 0.08, kit: 'tribal', snap: 3, halftime: true, sparse: true,
-    },
-    'still water': {
-      // Flowing. Soft shaker 8ths, gentle frame drum on 1 and 3.
-      kick:  [0.42,0,0,0, 0,0,0,0, 0.25,0,0,0, 0,0,0,0],
-      snare: [0,0,0,0,    0,0,0,0, 0,0,0,0,    0,0,0,0],
-      hat:   [0.10,0,0.08,0, 0.10,0,0.08,0, 0.10,0,0.08,0, 0.10,0,0.08,0],
-      feel: 0.06, kit: 'tribal', snap: 3, halftime: true,
-    },
-    'tundra': {
-      // Vast silence. Frame drum beat 1 only, every other bar.
-      kick:  [0.38,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
-      snare: [0,0,0,0,    0,0,0,0, 0,0,0,0, 0,0,0,0],
-      hat:   [0,0,0,0,    0,0,0,0, 0,0,0,0, 0,0,0,0],
-      feel: 0, kit: 'tribal', snap: 3, halftime: true, sparse: true, barDivisor: 2,
-    },
-    'dark matter': {
-      // Intensity. Cross-rhythms, hand slaps, busy shakers.
-      kick:  [0.75,0,0,0.18, 0,0,0.30,0, 0.60,0,0,0, 0,0.22,0,0],
-      snare: [0,0,0,0,       0.55,0,0,0, 0,0.18,0,0, 0.40,0,0,0.12],
-      hat:   [0.15,0.08,0.12,0.08, 0.15,0.08,0.12,0.08, 0.15,0.08,0.12,0.08, 0.15,0.08,0.12,0.08],
-      feel: 0.04, kit: 'tribal', snap: 2, halftime: false,
-    },
-    // ── Default Journey (used before first stage applies) ──
-    'Journey': {
-      kick:  [0.35,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
-      snare: [0,0,0,0,    0,0,0,0, 0,0,0,0, 0,0,0,0],
-      hat:   [0,0,0,0,    0,0,0,0, 0,0,0,0, 0,0,0,0],
-      feel: 0.08, kit: 'tribal', snap: 3, halftime: true, sparse: true,
-    },
     'Grid': {
       kick:  [1.0,0,0,0.28, 0,0,0.55,0, 1.0,0,0,0.28, 0,0,0,0],
       snare: [0,0,0,0, 0,0,0,0, 0.98,0,0,0, 0,0,0.18,0],
@@ -95,6 +60,44 @@ const Follow = (function () {
     hat:   [0,0,0,0,   0.09,0,0,0, 0,0,0,0, 0.09,0,0,0],
     feel: 0, kit: 'acoustic', snap: 2, halftime: true,
   };
+
+  // ── TRIBAL PULSE ─────────────────────────────────────────────────────
+  // Internal 107 BPM clock for Afro-Cuban rhythms in Journey.
+  // Drums do NOT exist at the start. They creep in over minutes.
+  // The ethereal dreamscape comes first. Drums are earned.
+
+  var tribalPulse = {
+    bpm: 107,
+    phase: 0,         // 0-1 within current bar
+    bar: 0,           // 0 or 1 (2-bar cycle)
+    lastStep: -1,
+    drumPresence: 0,  // 0-1: how much drums have "arrived"
+    engagedTime: 0,   // total engaged seconds (only counts active play)
+  };
+
+  // 2-bar Afro-Cuban patterns at 107 BPM (16 steps per bar)
+  // Inspired by son clave, tumbao, cascara — but simplified for synthesis
+  // Each row: [bar0 pattern, bar1 pattern]
+
+  var TRIBAL_KICK = [
+    // Bar 1: anchor on beat 1, ghost "&" of 3
+    [0.50,0,0,0, 0,0,0,0, 0,0,0.22,0, 0,0,0,0],
+    // Bar 2: syncopated — beat 3, light "&" of 4
+    [0,0,0,0, 0,0,0,0, 0.38,0,0,0, 0,0,0.20,0],
+  ];
+
+  var TRIBAL_SLAP = [
+    // Bar 1: son clave 3-side feel — positions 3, 6
+    [0,0,0,0.32, 0,0,0.42,0, 0,0,0,0, 0,0,0,0],
+    // Bar 2: clave 2-side — positions 2, 6, 11
+    [0,0,0.28,0, 0,0,0.35,0, 0,0,0,0.25, 0,0,0,0],
+  ];
+
+  var TRIBAL_SHAKER = [
+    // Gentle pulse — 8th notes with "&" accents
+    [0.05,0,0.09,0, 0.05,0,0.09,0, 0.05,0,0.09,0, 0.05,0,0.09,0],
+    [0.05,0,0.09,0, 0.05,0,0.09,0, 0.05,0,0.09,0, 0.05,0,0.11,0],
+  ];
 
   // ── MOTION PROFILE — Cross-session learning ────────────────────────────
   // Watches how YOU move. After 2+ sessions, adapts thresholds to your body.
@@ -1192,6 +1195,93 @@ const Follow = (function () {
     }
   }
 
+  // ── TRIBAL PULSE ENGINE ──────────────────────────────────────────────
+  // Internal 107 BPM clock for Journey. Drums creep in over time.
+  // First ~90s: silence. Then ghost hits emerge. By 5 min: full Afro-Cuban.
+  //
+  // drumPresence build curve:
+  //   0-90s engaged:    0.0  (pure ethereal dreamscape)
+  //   90-180s:          0→0.15  (first ghost shaker, barely there)
+  //   180-300s:         0.15→0.5  (frame drum heartbeat emerges)
+  //   300-480s:         0.5→0.85  (clave pattern, slaps arrive)
+  //   480s+:            0.85→1.0  (full Afro-Cuban intricacies)
+
+  function updateTribalPulse(dt) {
+    if (!lens || lens.name === 'Grid' || !Audio.ctx || !Audio.drum) return;
+
+    // Only count engaged (non-silent) time
+    if (!isSilent && fadeGain > 0.1) {
+      tribalPulse.engagedTime += dt;
+    }
+
+    // Build drumPresence along the curve
+    var t = tribalPulse.engagedTime;
+    var target;
+    if (t < 90)       target = 0;
+    else if (t < 180) target = 0.15 * ((t - 90) / 90);
+    else if (t < 300) target = 0.15 + 0.35 * ((t - 180) / 120);
+    else if (t < 480) target = 0.50 + 0.35 * ((t - 300) / 180);
+    else              target = Math.min(1.0, 0.85 + 0.15 * ((t - 480) / 120));
+
+    // Smooth approach (no sudden jumps)
+    tribalPulse.drumPresence += (target - tribalPulse.drumPresence) * dt * 0.5;
+
+    // Nothing to play yet
+    if (tribalPulse.drumPresence < 0.01) return;
+
+    // Advance internal clock at 107 BPM
+    var stepDur = 60 / (tribalPulse.bpm * 4); // duration of one 16th note
+    tribalPulse.phase += dt / (stepDur * 16);  // phase is 0-1 across one bar
+    if (tribalPulse.phase >= 1) {
+      tribalPulse.phase -= 1;
+      tribalPulse.bar = 1 - tribalPulse.bar; // toggle 0/1
+      tribalPulse.lastStep = -1;
+    }
+
+    var currentStep = Math.floor(tribalPulse.phase * 16);
+    if (currentStep === tribalPulse.lastStep) return;
+    tribalPulse.lastStep = currentStep;
+
+    var time = Audio.ctx.currentTime;
+    var dp = tribalPulse.drumPresence;
+    var bar = tribalPulse.bar;
+
+    // Shaker: first to appear (dp > 0.05), quiet and organic
+    var shVel = TRIBAL_SHAKER[bar][currentStep];
+    if (shVel > 0 && dp > 0.05) {
+      var sv = shVel * dp * fadeGain;
+      if (sv > 0.008) {
+        Audio.drum.shaker(time, sv, 0.04 + Math.random() * 0.02);
+      }
+    }
+
+    // Frame drum kick: appears around dp > 0.25
+    var kickVel = TRIBAL_KICK[bar][currentStep];
+    if (kickVel > 0 && dp > 0.25) {
+      var kv = kickVel * (dp - 0.15) * fadeGain;
+      if (kv > 0.02) {
+        Audio.drum.kick(time, Math.min(0.65, kv), 'tribal');
+      }
+    }
+
+    // Hand slap: last to arrive, dp > 0.45 — the clave pattern
+    var slapVel = TRIBAL_SLAP[bar][currentStep];
+    if (slapVel > 0 && dp > 0.45) {
+      var slv = slapVel * (dp - 0.35) * fadeGain;
+      if (slv > 0.02) {
+        Audio.drum.snare(time, Math.min(0.55, slv), 'tribal');
+      }
+    }
+  }
+
+  function resetTribalPulse() {
+    tribalPulse.phase = 0;
+    tribalPulse.bar = 0;
+    tribalPulse.lastStep = -1;
+    tribalPulse.drumPresence = 0;
+    tribalPulse.engagedTime = 0;
+  }
+
   // ── UPSIDE DOWN DETECTION ─────────────────────────────────────────────
 
   function updateInversion(sensor, dt) {
@@ -1230,14 +1320,6 @@ const Follow = (function () {
   }
 
   function getGrooveDNA() {
-    // If in Journey with active stage, use the stage-specific groove
-    if (lens && lens.stages && organicStage.lastApplied >= 0) {
-      var stageOrder = organicStage.order || lens.stages;
-      var stage = stageOrder[organicStage.lastApplied];
-      if (stage && stage.name && GROOVE_DNA[stage.name]) {
-        return GROOVE_DNA[stage.name];
-      }
-    }
     var name = lens && lens.name || '';
     return GROOVE_DNA[name] || GROOVE_DNA_DEFAULT;
   }
@@ -1317,6 +1399,7 @@ const Follow = (function () {
   function processGrooveHats(now) {
     if (!tempoLocked || isSilent || sessionPhase < 2 || !lens || !Audio.ctx) return;
     if (!lens.groove) return;
+    if (lens.stages) return; // Journey uses tribal pulse
     var dna = getGrooveDNA();
     if (!dna.hat) return;
 
@@ -1344,6 +1427,7 @@ const Follow = (function () {
   function processGrooveKickSnare(now) {
     if (!tempoLocked || isSilent || sessionPhase < 2 || !lens || !Audio.ctx) return;
     if (!lens.groove) return;
+    if (lens.stages) return; // Journey uses tribal pulse
 
     var dna = getGrooveDNA();
     var currentStep = Math.floor(barPhase * STEP_COUNT);
@@ -1506,6 +1590,7 @@ const Follow = (function () {
 
     // Organic stage evolution: reset for Journey lens
     resetOrganicStage();
+    resetTribalPulse();
   }
 
   // ── PEAK DETECTION ────────────────────────────────────────────────────
@@ -1621,14 +1706,16 @@ const Follow = (function () {
       }
 
       // ── ROLE 3 PULSE: goldilocks drums ──
-      if (sessionPhase >= 2 && vel > 0.08) {
+      // Journey uses the tribal pulse system — skip peak-based drums
+      if (sessionPhase >= 2 && vel > 0.08 && !(lens && lens.stages)) {
         fireGoldilocks(magnitude, now, vel);
       }
 
       // ── PEAK KICK: fire on every significant peak, no tempo lock needed ──
       // James moves by tilt, not rhythmic bouncing — tempoLocked may never trigger.
-      // Give the body a kick to feel the gesture land.
-      if (sessionPhase >= 1 && !isSilent && lens && lens.groove && Audio.drum && vel > 0.15) {
+      // Journey uses tribal pulse instead — peak kicks break the ethereal feel.
+      if (sessionPhase >= 1 && !isSilent && lens && lens.groove && Audio.drum && vel > 0.15
+          && !(lens && lens.stages)) {
         var ktime = Audio.ctx.currentTime;
         if (now - lastKickTime > 180) {
           lastKickTime = now;
@@ -3436,6 +3523,7 @@ const Follow = (function () {
     processGrooveHats(now);
     processGrooveKickSnare(now);
     updateShaker(mag, now, dt);
+    updateTribalPulse(dt);
 
     // ── ROLE 1 LEAD: melody ──
     updateVertical(sensor, dt);

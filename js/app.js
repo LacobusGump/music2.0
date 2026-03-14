@@ -511,8 +511,17 @@
       if (screen !== SCREENS.PLAY) return;
       e.preventDefault();
 
-      // Multi-touch: handled separately below — don't start long press or notes
-      if (e.touches.length > 1) return;
+      // Two-finger touch: start lens swipe tracking
+      if (e.touches.length === 2) {
+        swiping = false;
+        swipeStartX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+        swipeLastX = swipeStartX;
+        if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
+        return;
+      }
+
+      // Multi-touch beyond 2: ignore
+      if (e.touches.length > 2) return;
 
       // iOS: resume AudioContext from within a gesture (loop-based resume is ignored by iOS)
       if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
@@ -520,16 +529,13 @@
       // Retry motion permission on every touch
       Sensor.retryPermissions();
 
-      var t = e.touches[0];
-      swipeStartX = t.clientX;
-      swiping = false;
-
       // Long press: return to lens picker (single finger only)
       longPressTimer = setTimeout(function () {
         showScreen(SCREENS.LENS);
       }, 1200);
 
       // Play touch note
+      var t = e.touches[0];
       prevTouchX = t.clientX / W; prevTouchY = t.clientY / H; prevTouchTime = performance.now();
       touchVX = 0; touchVY = 0;
       try { Follow.touch(prevTouchX, prevTouchY, 0, 0); } catch (e) { console.error('touch note:', e); }
@@ -539,17 +545,20 @@
       if (screen !== SCREENS.PLAY) return;
       e.preventDefault();
 
-      // Cancel long press on move
+      // Cancel long press on any move
       if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
 
-      var t = e.touches[0];
-      swipeLastX = t.clientX;
-      var dx = t.clientX - swipeStartX;
+      // Two-finger move: track for lens swipe
+      if (e.touches.length === 2) {
+        swipeLastX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+        var dx = swipeLastX - swipeStartX;
+        if (Math.abs(dx) > 60) swiping = true;
+        return;
+      }
 
-      if (Math.abs(dx) > 60) swiping = true;
-
-      // Continuous touch notes with velocity
-      if (!swiping) {
+      // Single-finger: continuous touch notes with velocity
+      if (e.touches.length === 1) {
+        var t = e.touches[0];
         var nowMs = performance.now();
         var dtMs = nowMs - prevTouchTime;
         if (dtMs > 0) {
@@ -568,6 +577,7 @@
 
       if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
 
+      // Two-finger swipe completed (one finger lifted, was swiping)
       if (swiping) {
         var dx = swipeLastX - swipeStartX;
         if (dx > 60) Lens.prevLens();
