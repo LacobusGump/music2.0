@@ -2372,63 +2372,134 @@ const Audio = (function () {
     });
   }
 
-  // ── LEVITATION LAYER — Unison detune supersaw ───────────────────────
-  // The TikTok sound. 7 sawtooths at the same pitch, each detuned slightly.
-  // The beating frequencies between voices create a shimmering, floating,
-  // "levitation" effect. Wide stereo via the spatial panner. Heavy reverb.
+  // ── LEVITATION LAYER — Ascension music ──────────────────────────────
+  // The viral TikTok "ascension" sound. NOT just unison detune at root —
+  // it's a HARMONIC STACK: root + major 3rd + perfect 5th + octave,
+  // EACH with unison detune voices. This creates the massive wall of
+  // sound that feels like heaven / levitation.
   //
-  // Detune spread is the key parameter:
-  //   Narrow (±8ct) = tight chorus, focused
-  //   Medium (±20ct) = classic supersaw, full
-  //   Wide (±35ct) = ethereal, dreamy, levitation
+  // Signal chain (per Love Eli / prodloveeli):
+  //   Harmonic stack (root+M3+P5+oct, each with detuned unison voices)
+  //   → LP filter (tilt controls cutoff — the "rising" feel)
+  //   → OTT compression (multiband squash — brings up shimmer, glues wall)
+  //   → LFO on filter cutoff (breathing movement)
+  //   → reverb + delay send (space)
   //
-  // The layer filter controls brightness — tilt opens it for that "rising" feel.
+  // The beating frequencies between the detuned voices at each harmonic
+  // create independent shimmer rates. The M3 and P5 shimmer at different
+  // speeds than the root — this is what makes it sound "alive."
+
   function buildLevitationLayer(freq, spread) {
     destroyLayer('edm-levitation');
     var f = freq || 220;
-    var sp = spread || 30;  // cents spread — total width is ±sp
+    var sp = spread || 25;  // cents spread per harmonic
 
-    // 7 voices: center + 3 pairs symmetrically detuned
-    // Gains taper toward edges (center loudest, outer voices = shimmer)
+    // ── HARMONIC STACK with unison detune per layer ──
+    // Root: 5 voices (loudest — the foundation)
+    // Major 3rd (+4 semitones): 3 voices (the "heaven" interval)
+    // Perfect 5th (+7 semitones): 3 voices (the "power")
+    // Octave (+12 semitones): 3 voices (air/shimmer up top)
+    // = 14 oscillators total
+
+    var M3 = f * Math.pow(2, 4/12);   // major 3rd
+    var P5 = f * Math.pow(2, 7/12);   // perfect 5th
+    var OCT = f * 2;                    // octave
+
     var oscs = [
-      { wave: 'sawtooth', freq: f, gain: 0.09, detune: 0       },  // center — the anchor
-      { wave: 'sawtooth', freq: f, gain: 0.08, detune: sp * 0.33  },  // +10ct
-      { wave: 'sawtooth', freq: f, gain: 0.08, detune: -sp * 0.33 },  // -10ct
-      { wave: 'sawtooth', freq: f, gain: 0.07, detune: sp * 0.66  },  // +20ct
-      { wave: 'sawtooth', freq: f, gain: 0.07, detune: -sp * 0.66 },  // -20ct
-      { wave: 'sawtooth', freq: f, gain: 0.05, detune: sp         },  // +30ct — outer shimmer
-      { wave: 'sawtooth', freq: f, gain: 0.05, detune: -sp        },  // -30ct — outer shimmer
+      // Root — 5 voices, widest spread (this is the anchor)
+      { wave: 'sawtooth', freq: f,   gain: 0.07, detune: 0           },
+      { wave: 'sawtooth', freq: f,   gain: 0.06, detune: sp * 0.5    },
+      { wave: 'sawtooth', freq: f,   gain: 0.06, detune: -sp * 0.5   },
+      { wave: 'sawtooth', freq: f,   gain: 0.04, detune: sp          },
+      { wave: 'sawtooth', freq: f,   gain: 0.04, detune: -sp         },
+
+      // Major 3rd — 3 voices (the heaven interval — this is what makes it "ascension")
+      { wave: 'sawtooth', freq: M3,  gain: 0.05, detune: 0           },
+      { wave: 'sawtooth', freq: M3,  gain: 0.04, detune: sp * 0.6    },
+      { wave: 'sawtooth', freq: M3,  gain: 0.04, detune: -sp * 0.6   },
+
+      // Perfect 5th — 3 voices (power, width)
+      { wave: 'sawtooth', freq: P5,  gain: 0.05, detune: 0           },
+      { wave: 'sawtooth', freq: P5,  gain: 0.04, detune: sp * 0.7    },
+      { wave: 'sawtooth', freq: P5,  gain: 0.04, detune: -sp * 0.7   },
+
+      // Octave — 3 voices (air, shimmer — tighter detune so it doesn't get harsh)
+      { wave: 'sawtooth', freq: OCT, gain: 0.035, detune: 0          },
+      { wave: 'sawtooth', freq: OCT, gain: 0.025, detune: sp * 0.4   },
+      { wave: 'sawtooth', freq: OCT, gain: 0.025, detune: -sp * 0.4  },
     ];
 
-    return buildLayer('edm-levitation', {
+    // Build the layer through the standard system (filter + gain + sidechain)
+    var L = buildLayer('edm-levitation', {
       oscillators: oscs,
-      filter: { type: 'lowpass', freq: 400, Q: 0.8 },  // starts dark — tilt opens it
+      filter: { type: 'lowpass', freq: 400, Q: 0.8 },  // starts dark — LFO + tilt open it
       gain: 0,
-      reverbSend: 0.40,  // reverb is essential for the floating feel
-      vibrato: { rate: 0.15, depth: 0.002 },  // glacial pitch drift — adds life without wobble
+      reverbSend: 0.40,
+      vibrato: { rate: 0.12, depth: 0.0015 },  // glacial drift — all voices slightly wander
     });
+
+    // ── OTT COMPRESSION ──
+    // Insert a compressor between the layer's filter and gain output.
+    // OTT = aggressive compression that brings up quiet shimmer details
+    // and glues the wall of sound into one massive block.
+    if (L && L.filter && L.gain && ctx) {
+      var comp = ctx.createDynamicsCompressor();
+      comp.threshold.value = -28;   // catch everything
+      comp.knee.value = 2;          // hard knee — OTT style
+      comp.ratio.value = 8;         // heavy squash
+      comp.attack.value = 0.003;    // fast attack — catch transients
+      comp.release.value = 0.08;    // fast release — pumping shimmer
+      // Re-wire: filter → comp → gain (was filter → gain)
+      L.filter.disconnect();
+      L.filter.connect(comp);
+      // Makeup gain to compensate for compression
+      var makeup = ctx.createGain();
+      makeup.gain.value = 2.2;      // OTT boost — brings up the shimmer
+      comp.connect(makeup);
+      makeup.connect(L.gain);
+      L.allNodes.push(comp, makeup);
+      L.comp = comp;  // store ref for potential runtime tweaks
+    }
+
+    // ── DELAY SEND for depth ──
+    if (L && L.gain && delaySend) {
+      var ds = ctx.createGain();
+      ds.gain.value = 0.20;  // moderate delay — adds depth without mud
+      L.gain.connect(ds);
+      ds.connect(delaySend);
+      L.allNodes.push(ds);
+    }
+
+    return L;
   }
 
-  // Levitation filter control — follow.js drives this from tilt
+  // Levitation filter control — follow.js drives this from tilt + LFO
   function setLevitationFilter(freq) {
-    var f = Math.max(200, Math.min(4000, freq));
-    setLayerFilter('edm-levitation', f, 0.08);  // slow ramp = smooth dreamy sweep
+    var f = Math.max(200, Math.min(5000, freq));
+    setLayerFilter('edm-levitation', f, 0.06);
   }
 
   // Levitation detune spread — morph the width in real time
   // Narrow = focused energy, Wide = ethereal float
   function setLevitationSpread(spread) {
     var L = layers['edm-levitation'];
-    if (!L || L.pitchOscs.length < 7) return;
+    if (!L || L.pitchOscs.length < 14) return;
     var sp = Math.max(5, Math.min(50, spread));
     var now = ctx.currentTime;
-    // Voices: [center, +33%, -33%, +66%, -66%, +100%, -100%]
-    L.pitchOscs[1].detune.setTargetAtTime(sp * 0.33, now, 0.3);
-    L.pitchOscs[2].detune.setTargetAtTime(-sp * 0.33, now, 0.3);
-    L.pitchOscs[3].detune.setTargetAtTime(sp * 0.66, now, 0.3);
-    L.pitchOscs[4].detune.setTargetAtTime(-sp * 0.66, now, 0.3);
-    L.pitchOscs[5].detune.setTargetAtTime(sp, now, 0.3);
-    L.pitchOscs[6].detune.setTargetAtTime(-sp, now, 0.3);
+    // Root voices (indices 0-4): center, +50%, -50%, +100%, -100%
+    L.pitchOscs[1].detune.setTargetAtTime(sp * 0.5, now, 0.3);
+    L.pitchOscs[2].detune.setTargetAtTime(-sp * 0.5, now, 0.3);
+    L.pitchOscs[3].detune.setTargetAtTime(sp, now, 0.3);
+    L.pitchOscs[4].detune.setTargetAtTime(-sp, now, 0.3);
+    // M3 voices (indices 5-7): center, +60%, -60%
+    L.pitchOscs[6].detune.setTargetAtTime(sp * 0.6, now, 0.3);
+    L.pitchOscs[7].detune.setTargetAtTime(-sp * 0.6, now, 0.3);
+    // P5 voices (indices 8-10): center, +70%, -70%
+    L.pitchOscs[9].detune.setTargetAtTime(sp * 0.7, now, 0.3);
+    L.pitchOscs[10].detune.setTargetAtTime(-sp * 0.7, now, 0.3);
+    // Octave voices (indices 11-13): center, +40%, -40%
+    L.pitchOscs[12].detune.setTargetAtTime(sp * 0.4, now, 0.3);
+    L.pitchOscs[13].detune.setTargetAtTime(-sp * 0.4, now, 0.3);
   }
 
   // Wobble bass filter LFO — driven by follow.js grid clock so it syncs to tempo

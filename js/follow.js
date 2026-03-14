@@ -3499,9 +3499,10 @@ const Follow = (function () {
     try { Audio.layer.setGain('edm-pad', padTarget * grid.djGain, 0.5); } catch(e) {}
     try { Audio.layer.setFilter('edm-pad', zonePadFilter || 500, 0.4); } catch(e) {}
 
-    // ── 11b. LEVITATION: unison detune supersaw — the floating sound ──
+    // ── 11b. LEVITATION: ascension music — harmonic stack + OTT + LFO ──
+    // Root + Major 3rd + Perfect 5th + Octave, each with unison detune.
+    // OTT compression glues the wall. LFO on filter = breathing movement.
     // Activated by DJ move or automatically during deep drops.
-    // Tilt = filter brightness. Motion = detune spread (wider = more ethereal).
     var levActive = grid.arr.levitation;
     // Auto-activate during sustained drops (depth 3+)
     if (!levActive && grid.phase === 'drop' && getDepth(grid.segment) >= 3 && grid.phaseTimer > 4) {
@@ -3512,21 +3513,35 @@ const Follow = (function () {
       var levGainTarget;
       if (grid.phase === 'drop')           levGainTarget = 0.06 + grid.intensity * 0.06;
       else if (grid.phase === 'build')     levGainTarget = 0.02 + grid.buildLevel * 0.04;
-      else if (grid.phase === 'breakdown') levGainTarget = 0.08;  // levitation shines in breakdowns
+      else if (grid.phase === 'breakdown') levGainTarget = 0.10;  // ascension shines in breakdowns
       else                                  levGainTarget = 0.01;
       levGainTarget *= grid.djGain;
       try { Audio.layer.setGain('edm-levitation', levGainTarget, 0.8); } catch(e) {}
 
-      // Tilt drives filter: phone up = bright/open, phone flat = dark/muffled
-      var levFilter = 400 + grid.tiltNorm * 2800;  // 400-3200Hz range
-      try { Audio.edm.setLevitationFilter(levFilter); } catch(e) {}
+      // ── LFO AUTOMATION on filter — the breathing movement ──
+      // Slow sine LFO modulates the filter cutoff. Tilt sets the CENTER,
+      // LFO sweeps ±600Hz around it. This is what makes the wall "breathe."
+      // Rate synced loosely to tempo: ~0.25Hz (one breath per 4 seconds)
+      if (!grid.levLfoPhase) grid.levLfoPhase = 0;
+      grid.levLfoPhase += dt * 0.25;  // 0.25Hz = one cycle per 4s
+      var lfoMod = Math.sin(grid.levLfoPhase * Math.PI * 2);  // -1 to +1
+
+      // Tilt sets base filter (phone up = bright), LFO breathes around it
+      var levFilterBase = 500 + grid.tiltNorm * 3000;  // 500-3500Hz
+      var levFilterLFO = levFilterBase + lfoMod * 600;  // ±600Hz sweep
+      // During build: filter opens progressively (the "rising" feel)
+      if (grid.phase === 'build') {
+        levFilterLFO += grid.buildLevel * 800;  // opens as build rises
+      }
+      try { Audio.edm.setLevitationFilter(levFilterLFO); } catch(e) {}
 
       // Motion drives spread: still = tight chorus (12ct), moving = wide ethereal (42ct)
       var levSpread = 12 + grid.intensity * 30;
-      if (grid.arr.levitationSpread !== 30) levSpread = grid.arr.levitationSpread;  // DJ move override
+      if (grid.arr.levitationSpread !== 25) levSpread = grid.arr.levitationSpread;  // DJ move override
       try { Audio.edm.setLevitationSpread(levSpread); } catch(e) {}
     } else {
       try { Audio.layer.setGain('edm-levitation', 0, 1.5); } catch(e) {}  // slow fade out
+      grid.levLfoPhase = 0;
     }
 
     // ── 12. MASTER GAIN ──
