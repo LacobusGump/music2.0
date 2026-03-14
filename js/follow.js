@@ -8,6 +8,7 @@
  * ANSWER: The music responds. Rare. Deliberate. Completes your thought.
  * SPACE:  The room. Foundation drone + reverb. The harmonic ground.
  *
+ * v79: Music waits for you. Autonomy gates on Brain.short.energy().
  * v67: Clean rebuild.
  *  - LEAD voice is now 2× louder — the melody is the boss
  *  - Phrase endings have real resolution chords (3 notes, I chord)
@@ -383,6 +384,11 @@ const Follow = (function () {
   function updateHarmonicGravity(dt) {
     if (sessionPhase < 1 || !lens) return;
 
+    // Only advance toward dominant when user is playing.
+    // Low energy = gravity timer freezes. The bass walk is YOUR move, not the clock's.
+    var motionNow = (typeof Brain !== 'undefined') ? Brain.short.energy() : 1.0;
+    if (motionNow < 0.10) return;
+
     gravityTimer += dt;
 
     if (gravityState === 'tonic') {
@@ -428,6 +434,10 @@ const Follow = (function () {
 
   function updateHarmonicRhythm(dt) {
     if (isSilent || sessionPhase < 1) return;
+    // Timer only advances when the user is actively moving.
+    // If you stop, the harmonic rhythm pauses — music waits for you.
+    var motionNow = (typeof Brain !== 'undefined') ? Brain.short.energy() : 1.0;
+    if (motionNow < 0.12) return;
     hrTimer += dt * 1000;
     if (hrTimer < hrTarget) return;
     hrTimer = 0;
@@ -744,6 +754,9 @@ const Follow = (function () {
     if (callResponseCooldown > now) return;
     if (currentIntent === INTENT.GROOVE) return;
     if (answerPending) return;
+    // Only call & respond when user is genuinely active — not drifting passively.
+    var motionNow = (typeof Brain !== 'undefined') ? Brain.short.energy() : 1.0;
+    if (motionNow < 0.25) return;
 
     answerNotes = buildAnswer(deg, harmonicTension, phraseEnergyArc, magnitude);
     answerFireTime = now + 1500 + Math.random() * 2000;
@@ -786,6 +799,13 @@ const Follow = (function () {
     if (!answerPending || !lens || !Audio.ctx) return;
 
     if (currentIntent === INTENT.STATEMENT || currentIntent === INTENT.GROOVE) {
+      answerPending = false;
+      return;
+    }
+
+    // If user went still before the answer fired, cancel it — the conversation is over.
+    var motionNow = (typeof Brain !== 'undefined') ? Brain.short.energy() : 1.0;
+    if (isSilent || motionNow < 0.08) {
       answerPending = false;
       return;
     }
