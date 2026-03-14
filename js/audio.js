@@ -2412,11 +2412,78 @@ const Audio = (function () {
     });
   }
 
+  // Lead layer: mono saw with portamento for tilt-as-pitch during drop.
+  // This is a theremin — user tilts phone, pitch follows. Immediate and expressive.
+  function buildLeadLayer(freq) {
+    destroyLayer('edm-lead');
+    var f = freq || 220;
+    return buildLayer('edm-lead', {
+      oscillators: [
+        { wave: 'sawtooth', freq: f, gain: 0.18, detune: 0 },
+        { wave: 'sawtooth', freq: f, gain: 0.14, detune: -8 },
+        { wave: 'sawtooth', freq: f, gain: 0.14, detune: 8 },
+      ],
+      filter: { type: 'lowpass', freq: 1200, Q: 3.5 },
+      gain: 0,
+      reverbSend: 0.12,
+    });
+  }
+
+  // Set lead layer pitch with portamento (glide)
+  function setLeadPitch(freq, glideTime) {
+    var L = layers['edm-lead'];
+    if (!L) return;
+    var t = glideTime || 0.08;
+    for (var i = 0; i < L.pitchOscs.length; i++) {
+      L.pitchOscs[i].frequency.setTargetAtTime(freq, ctx.currentTime, t);
+    }
+  }
+
+  // Set lead filter cutoff
+  function setLeadFilter(freq) {
+    setLayerFilter('edm-lead', Math.max(200, Math.min(5000, freq)), 0.04);
+  }
+
+  // Crash fill: short bright noise burst for transitions
+  function synthCrashFill(time, vel) {
+    var v = vel || 0.5;
+    var len = Math.floor(ctx.sampleRate * 0.35);
+    var buf = ctx.createBuffer(1, len, ctx.sampleRate);
+    var d = buf.getChannelData(0);
+    for (var i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 0.4);
+    var src = ctx.createBufferSource(); src.buffer = buf;
+    var hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 3000;
+    var g = ctx.createGain(); g.gain.value = 0.35 * v;
+    src.connect(hp); hp.connect(g); g.connect(drumBus);
+    src.start(time); src.stop(time + 0.4);
+  }
+
+  // Vocal chop: formant-like burst (adds human texture to drops)
+  function synthVocalChop(time, freq, vel) {
+    var f = freq || 440;
+    var v = vel || 0.3;
+    // Two formant bandpasses on a saw — sounds like a short "ah"
+    var o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = f;
+    var bp1 = ctx.createBiquadFilter(); bp1.type = 'bandpass'; bp1.frequency.value = 700; bp1.Q.value = 8;
+    var bp2 = ctx.createBiquadFilter(); bp2.type = 'bandpass'; bp2.frequency.value = 1200; bp2.Q.value = 6;
+    var g1 = ctx.createGain(); g1.gain.value = 0.25 * v;
+    var g2 = ctx.createGain(); g2.gain.value = 0.18 * v;
+    var env = ctx.createGain();
+    env.gain.setValueAtTime(0.001, time);
+    env.gain.linearRampToValueAtTime(1, time + 0.008);
+    env.gain.setTargetAtTime(0.001, time + 0.06, 0.04);
+    o.connect(bp1); bp1.connect(g1); g1.connect(env);
+    o.connect(bp2); bp2.connect(g2); g2.connect(env);
+    env.connect(sidechainGain);
+    o.start(time); o.stop(time + 0.25);
+  }
+
   // Teardown all EDM layers
   function destroyEDMLayers() {
     destroyLayer('edm-wobble');
     destroyLayer('edm-pad');
     destroyLayer('edm-sub');
+    destroyLayer('edm-lead');
   }
 
   // ── EDM FILTER & SIDECHAIN API ──────────────────────────────────────
@@ -2462,6 +2529,8 @@ const Audio = (function () {
       breakdownMelody: synthBreakdownMelody,
       edmStab: synthEDMStab,
       subPulse: synthSubPulse,
+      crashFill: synthCrashFill,
+      vocalChop: synthVocalChop,
       play: synthesize,
     }),
 
@@ -2504,7 +2573,10 @@ const Audio = (function () {
       buildWobble: buildWobbleLayer,
       buildPad: buildDarkPad,
       buildSub: buildSubLayer,
+      buildLead: buildLeadLayer,
       setWobbleFilter: setWobbleFilter,
+      setLeadPitch: setLeadPitch,
+      setLeadFilter: setLeadFilter,
       destroyAll: destroyEDMLayers,
     }),
     setWeather: setWeather,
