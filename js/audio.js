@@ -2587,13 +2587,9 @@ const Audio = (function () {
       });
   }
 
-  // Play a PRODUCED vocal clip — not raw playback but actual DJ production:
-  // - HP at 180Hz (keep out of sub)
-  // - LP that sweeps open (vocal emerges from dark)
-  // - Mid-range presence boost (vocal cuts through mix)
-  // - Gain envelope (fade in, sustain, fade out — no harsh edges)
-  // - Sidechain routed (pumps with kick)
-  // - Optional reverb/delay sends
+  // Play a vocal clip — clean, simple, reliable.
+  // Routes through its own gain → masterHPF (bypasses sidechain to avoid pump artifacts).
+  // Production is in the mix position and reverb/delay sends, not complex filter chains.
   function playVocal(name, time, opts) {
     var buf = vocalBuffers[name];
     if (!buf || !ctx) return null;
@@ -2602,70 +2598,41 @@ const Audio = (function () {
     var rate = o.rate !== undefined ? o.rate : 1.0;
     var offset = o.offset || 0;
     var duration = o.duration || 0;
-    var dur = duration > 0 ? duration : buf.duration / rate;
 
     var src = ctx.createBufferSource();
     src.buffer = buf;
     src.playbackRate.value = rate;
 
-    // ── PRODUCTION CHAIN ──
-    // HP: keep vocals out of sub range
+    // Simple chain: HP (keep out of sub) → gain → master chain
     var hp = ctx.createBiquadFilter();
     hp.type = 'highpass';
-    hp.frequency.value = 180;
-    hp.Q.value = 0.7;
+    hp.frequency.value = 150;
 
-    // LP: vocal emerges from dark — sweeps from 800→4500Hz over first 30%
-    var lp = ctx.createBiquadFilter();
-    lp.type = 'lowpass';
-    var lpStart = o.lpStart || 800;
-    var lpEnd = o.lpEnd || 4500;
-    lp.frequency.setValueAtTime(lpStart, time);
-    lp.frequency.exponentialRampToValueAtTime(lpEnd, time + dur * 0.3);
-    lp.Q.value = 1.2;  // slight resonance at cutoff = presence
-
-    // Mid presence boost: bandpass at 2.5kHz adds vocal clarity
-    var mid = ctx.createBiquadFilter();
-    mid.type = 'peaking';
-    mid.frequency.value = 2500;
-    mid.Q.value = 1.5;
-    mid.gain.value = 3;  // +3dB in vocal presence range
-
-    // Gain envelope: smooth fade in/out (no harsh click edges)
     var g = ctx.createGain();
-    var fadeIn = o.fadeIn !== undefined ? o.fadeIn : 0.015;
-    var fadeOut = o.fadeOut !== undefined ? o.fadeOut : 0.08;
-    g.gain.setValueAtTime(0.001, time);
-    g.gain.linearRampToValueAtTime(vol, time + fadeIn);
-    if (dur > fadeOut * 2) {
-      g.gain.setValueAtTime(vol, time + dur - fadeOut);
-      g.gain.linearRampToValueAtTime(0.001, time + dur);
+    g.gain.setValueAtTime(vol, time);
+
+    src.connect(hp);
+    hp.connect(g);
+
+    // Route to masterHPF directly (bypasses sidechain — vocal shouldn't pump)
+    if (masterHPF) {
+      g.connect(masterHPF);
+    } else {
+      g.connect(sidechainGain);
     }
 
-    // Chain: src → hp → lp → mid → gain → sidechain
-    src.connect(hp);
-    hp.connect(lp);
-    lp.connect(mid);
-    mid.connect(g);
-    g.connect(sidechainGain);
-
-    // Reverb send
-    var reverbAmt = o.reverb !== undefined ? o.reverb : 0.12;
-    if (reverbAmt > 0 && reverbSend) {
+    // Reverb send for space
+    if (o.reverb && reverbSend) {
       var rs = ctx.createGain();
-      rs.gain.value = reverbAmt;
+      rs.gain.value = o.reverb;
       g.connect(rs);
       rs.connect(reverbSend);
     }
 
-    // Delay send (delay throw on tail)
-    var delayAmt = o.delay || 0;
-    if (delayAmt > 0 && delaySend) {
+    // Delay send for echo
+    if (o.delay && delaySend) {
       var ds = ctx.createGain();
-      // Delay throw: ramps up at end of clip for echo tail
-      ds.gain.setValueAtTime(0, time);
-      ds.gain.setValueAtTime(0, time + dur * 0.5);
-      ds.gain.linearRampToValueAtTime(delayAmt, time + dur * 0.85);
+      ds.gain.value = o.delay;
       g.connect(ds);
       ds.connect(delaySend);
     }
@@ -2682,11 +2649,10 @@ const Audio = (function () {
       if (idx >= 0) vocalSources.splice(idx, 1);
     };
 
-    return { source: src, gain: g, lp: lp };
+    return { source: src, gain: g };
   }
 
-  // Triplet stutter: 3 chops decelerating with production on each
-  // Each chop gets darker LP, lower pitch, more reverb = slowing down feeling
+  // Triplet stutter: 3 chops decelerating
   function playVocalTriplet(name, time, opts) {
     var buf = vocalBuffers[name];
     if (!buf || !ctx) return;
@@ -2705,13 +2671,9 @@ const Audio = (function () {
       playVocal(name, t, {
         vol: chopVol,
         duration: chopLen,
-        rate: 1.0 - i * 0.1,       // pitch drops more each chop
-        lpStart: 3000 - i * 800,    // each chop darker
-        lpEnd: 3000 - i * 800,      // no sweep within chop — instant character
-        fadeIn: 0.003,              // tight attack
-        fadeOut: 0.02,
-        reverb: 0.1 + i * 0.15,    // more reverb each chop = fading away
-        delay: i === 2 ? 0.35 : 0, // last chop gets heavy delay tail
+        rate: 1.0 - i * 0.1,
+        reverb: 0.1 + i * 0.15,
+        delay: i === 2 ? 0.3 : 0,
       });
 
       t += chopLen + (gaps[i] || 0);

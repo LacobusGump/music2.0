@@ -2548,7 +2548,7 @@ const Follow = (function () {
           try { Audio.pumpSidechain(0.9); } catch(e) {}
         }
 
-        // Max drop → breakdown
+        // Max drop → halftime dub breakdown
         if (grid.buildLevel > 1.8 || grid.phaseTimer > 35) {
           grid.phase = 'breakdown';
           grid.phaseTimer = 0;
@@ -2556,37 +2556,33 @@ const Follow = (function () {
           grid.breakdownMelodyFired = false;
           grid.leadActive = false;
 
-          try { Audio.setSidechainDepth(0.15); } catch(e) {}
-          try { Audio.layer.setGain('edm-wobble', 0.02, 2.5); } catch(e) {}
-          try { Audio.layer.setGain('edm-sub', 0.04, 2.0); } catch(e) {}
-          try { Audio.layer.setGain('edm-pad', 0.09, 1.5); } catch(e) {}
-          try { Audio.layer.setFilter('edm-pad', 400, 1.5); } catch(e) {}
+          // DUB: sub gets HEAVY, wobble goes slow and deep, pad opens with reverb
+          try { Audio.setSidechainDepth(0.25); } catch(e) {}
+          try { Audio.layer.setGain('edm-wobble', 0.06, 2.0); } catch(e) {}
+          try { Audio.layer.setGain('edm-sub', 0.12, 1.5); } catch(e) {}  // sub UP — dub = bass
+          try { Audio.layer.setGain('edm-pad', 0.08, 2.0); } catch(e) {}
+          try { Audio.layer.setFilter('edm-pad', 600, 1.5); } catch(e) {}
           try { Audio.layer.setGain('edm-lead', 0, 1.5); } catch(e) {}
+          // Set reverb higher for dub space
+          try { Audio.setReverbMix(0.35); } catch(e) {}
         }
         break;
 
       case 'breakdown':
-        // Breakdown melody fires once
-        if (!grid.breakdownMelodyFired && grid.phaseTimer > 2) {
-          grid.breakdownMelodyFired = true;
-          try { Audio.synth.breakdownMelody(time, originalRoot, barDur); } catch(e) {}
-        }
-
-        // Peak during breakdown: cut-then-slam
-        if (peakNow && grid.phaseTimer > 3) {
-          grid.cutUntil = grid.clock + grid.stepDur * 8;
-        }
+        // ── HALFTIME DUB BREAKDOWN ──
+        // No auto-melody. Just the beat at half speed, deep sub, heavy space.
+        // This is the dub set moment — everything breathes.
+        // grid.halftime flag is used in drum section to fire every other kick/snare.
 
         // User moves = back to build
         var breakdownDone = grid.phaseTimer > 14;
-        var userReady = grid.intensity > 0.25 && grid.phaseTimer > 5;
+        var userReady = grid.intensity > 0.35 && grid.phaseTimer > 5;
         if (breakdownDone || userReady) {
           grid.phase = 'build';
           grid.phaseTimer = 0;
           grid.buildLevel = 0;
           grid.riserFired = false;
           grid.snareRollFired = false;
-          // Reset vocal drop for next cycle
           grid.vocalDropFired = false;
           grid.vocalPhase = 0;
           grid.vocalTimer = 0;
@@ -2594,20 +2590,14 @@ const Follow = (function () {
           try { Audio.setSidechainDepth(0.3); } catch(e) {}
           try { Audio.layer.setGain('edm-wobble', 0.03, 2.0); } catch(e) {}
           try { Audio.layer.setGain('edm-sub', 0.06, 1.5); } catch(e) {}
+          try { Audio.layer.setGain('edm-lead', 0, 1.0); } catch(e) {}
+          // Restore dry reverb (coming out of dub space)
+          try { Audio.setReverbMix(0.15); } catch(e) {}
         }
         break;
     }
 
-    // ── 7. CUT-THEN-SLAM (breakdown peak effect) ──
-    if (grid.cutUntil > 0) {
-      if (grid.clock < grid.cutUntil) {
-        try { Audio.setMasterGain(0.02); } catch(e) {}
-      } else {
-        grid.cutUntil = 0;
-        // Slam back — just sidechain pump, no noise
-        try { Audio.pumpSidechain(0.85); } catch(e) {}
-      }
-    }
+    // (cut-then-slam removed — was muting everything while keyboard played through)
 
     // ── 8. LEAD: tilt-as-pitch during drop ──
     if (grid.leadActive && grid.phase === 'drop') {
@@ -2642,7 +2632,7 @@ const Follow = (function () {
       var isDrop = grid.phase === 'drop';
       var isBuild = grid.phase === 'build';
       var isBreakdown = grid.phase === 'breakdown';
-      var isCut = grid.cutUntil > 0 && grid.clock < grid.cutUntil;
+      // (isCut removed — cut-then-slam was the muting glitch)
 
       // HAT pattern: zone-influenced during drop
       var hatPat;
@@ -2656,32 +2646,52 @@ const Follow = (function () {
       }
 
       // ── KICK ──
-      var kv = GRID_KICK[newStep] || 0;
-      if (kv > 0 && !isCut) {
-        var kickVel = kv * grid.djGain * rollBass;
-        if (isIntro) kickVel *= 0.35;
-        if (kickVel > 0.03) {
-          Audio.drum.kick(time, Math.min(0.92, kickVel), kit);
-          Audio.pumpSidechain(kickVel);
+      // Breakdown = HALFTIME: kick only on 1 (step 0). Half speed = dub feel.
+      if (isBreakdown) {
+        // Halftime kick: only on step 0 (beat 1 of the bar)
+        if (newStep === 0) {
+          var htKick = 0.7 * grid.djGain * rollBass;
+          if (htKick > 0.03) {
+            Audio.drum.kick(time, Math.min(0.85, htKick), kit);
+            Audio.pumpSidechain(htKick);
+          }
+        }
+      } else {
+        var kv = GRID_KICK[newStep] || 0;
+        if (kv > 0) {
+          var kickVel = kv * grid.djGain * rollBass;
+          if (isIntro) kickVel *= 0.35;
+          if (kickVel > 0.03) {
+            Audio.drum.kick(time, Math.min(0.92, kickVel), kit);
+            Audio.pumpSidechain(kickVel);
+          }
         }
       }
 
-      // ── SNARE: pump intensity shapes presence ──
-      var sv = GRID_SNARE[newStep] || 0;
-      if (sv > 0 && !isIntro && !isCut) {
-        var snareLevel;
-        if (isDrop)  snareLevel = 0.7 + grid.pumpIntensity * 0.3;  // pump shapes snare!
-        else if (isBuild) snareLevel = Math.max(0, grid.buildLevel - 0.2);
-        else snareLevel = 0;
-        var snareVel = sv * grid.djGain * snareLevel;
-        if (snareVel > 0.04) {
-          Audio.drum.snare(time, Math.min(0.85, snareVel), kit);
+      // ── SNARE ──
+      // Breakdown halftime: snare on step 8 only (beat 3 = the heavy halftime crack)
+      if (isBreakdown) {
+        if (newStep === 8) {
+          var htSnare = 0.75 * grid.djGain;
+          Audio.drum.snare(time, htSnare, kit);
+        }
+      } else {
+        var sv = GRID_SNARE[newStep] || 0;
+        if (sv > 0 && !isIntro) {
+          var snareLevel;
+          if (isDrop)  snareLevel = 0.7 + grid.pumpIntensity * 0.3;
+          else if (isBuild) snareLevel = Math.max(0, grid.buildLevel - 0.2);
+          else snareLevel = 0;
+          var snareVel = sv * grid.djGain * snareLevel;
+          if (snareVel > 0.04) {
+            Audio.drum.snare(time, Math.min(0.85, snareVel), kit);
+          }
         }
       }
 
-      // ── HATS: zone + roll shaped ──
+      // ── HATS: off during breakdown (halftime = space) ──
       var hv = hatPat[newStep] || 0;
-      if (hv > 0 && !isIntro && !isBreakdown && !isCut) {
+      if (hv > 0 && !isIntro && !isBreakdown) {
         var hatLevel;
         if (isDrop) hatLevel = zoneHatMix * (0.5 + grid.intensity * 0.5);
         else hatLevel = Math.max(0, grid.intensity - 0.1) * zoneHatMix;
@@ -2695,7 +2705,7 @@ const Follow = (function () {
       // High zone: arp fires on 16th notes walking the scale.
       // Mid zone: sparser (every 4th step). Low zone: silent.
       // Arp pitch follows tilt — higher angle = higher notes = user plays melody.
-      if (!isIntro && !isBreakdown && !isCut && grid.tiltZone >= 1) {
+      if (!isIntro && !isBreakdown && grid.tiltZone >= 1) {
         var arpFire = false;
         if (grid.tiltZone >= 2) {
           // High zone: every other 16th note
@@ -2721,11 +2731,20 @@ const Follow = (function () {
       }
 
       // ── WALKING BASS: phrygian bass line on beat ──
-      // Not just a static sub — the bass WALKS through the scale.
-      // Tilt zone shapes which notes: low zone gets root/5th, high zone gets more movement.
-      if (!isIntro && (newStep === 0 || newStep === 8)) {
+      // Breakdown halftime: bass only on step 0, long decay, dub weight.
+      // Normal: walks through phrygian intervals on every half-bar.
+      if (isBreakdown) {
+        // Dub bass: one deep note per bar, long sustain
+        if (newStep === 0) {
+          var dubBassPatterns = [0, 4, 0, 1, 0, 3, 0, 6];  // simple dub walk
+          var dubNote = dubBassPatterns[grid.totalBars % dubBassPatterns.length];
+          var dubFreq = scaleFreq(dubNote, -2);
+          var dubV = 0.35 * grid.djGain * rollBass;
+          try { Audio.synth.bassPluck(time + 0.005, dubFreq, dubV, grid.stepDur * 8); } catch(e) {}
+          try { Audio.synth.subPulse(time + 0.005, dubFreq, dubV * 0.7, grid.stepDur * 8); } catch(e) {}
+        }
+      } else if (!isIntro && (newStep === 0 || newStep === 8)) {
         grid.subPulseStep = newStep;
-        var bassRoot = edm.subFreq || 55;
 
         // Bass note selection: walks through phrygian intervals
         var bassPatterns = [
@@ -2744,9 +2763,7 @@ const Follow = (function () {
         bassV *= grid.djGain * zoneSubMix * rollBass;
 
         if (bassV > 0.03) {
-          // Walking bass pluck — has character, not just sine
           try { Audio.synth.bassPluck(time + 0.005, bassFreq, bassV, grid.stepDur * 3); } catch(e) {}
-          // Sub layer still reinforces the root
           try { Audio.synth.subPulse(time + 0.005, bassFreq, bassV * 0.6, grid.stepDur * 3); } catch(e) {}
         }
       }
@@ -2763,7 +2780,7 @@ const Follow = (function () {
     try { Audio.layer.setFilter('edm-pad', zonePadFilter || 500, 0.4); } catch(e) {}
 
     // ── 12. MASTER GAIN ──
-    if (Audio.ctx && !(grid.cutUntil > 0 && grid.clock < grid.cutUntil)) {
+    if (Audio.ctx) {
       Audio.setMasterGain(0.55 * grid.djGain);
     }
 
