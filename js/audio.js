@@ -2276,71 +2276,147 @@ const Audio = (function () {
     thud.start(time); thud.stop(time + 0.55);
   }
 
-  // Intro melody: a dark phrygian motif played through heavy LP filter,
-  // then glitches out (stutter effect via rapid gain chops)
+  // Intro melody: a dark phrygian motif through heavy LP, then glitches out.
+  // Each note is its own self-contained chain to avoid shared-node timing crashes.
   function synthIntroMelody(time, rootFreq) {
     var r = rootFreq || 220;
-    // Phrygian melody: root, b2, b3, root — dark and memorable
+    // Phrygian: root → b2 → b3 → root (descending back home = dark, inevitable)
     var notes = [
-      { f: r,           t: 0,    dur: 0.8 },
-      { f: r * 1.0595,  t: 0.9,  dur: 0.6 },  // b2
-      { f: r * 1.1892,  t: 1.6,  dur: 0.5 },  // b3
-      { f: r,           t: 2.2,  dur: 1.2 },   // home
+      { f: r,           t: 0,    dur: 0.7  },
+      { f: r * 1.0595,  t: 0.85, dur: 0.55 },  // b2
+      { f: r * 1.1892,  t: 1.5,  dur: 0.45 },  // b3
+      { f: r,           t: 2.1,  dur: 1.0  },   // home — longer, lets it ring
     ];
-
-    var lp = ctx.createBiquadFilter(); lp.type = 'lowpass';
-    lp.frequency.setValueAtTime(1800, time);
-    // Filter closes as melody progresses — getting darker
-    lp.frequency.setTargetAtTime(400, time + 2.0, 0.8);
-    lp.Q.value = 2;
 
     for (var ni = 0; ni < notes.length; ni++) {
       var n = notes[ni];
-      // 3 detuned saws for each note = thick but LP kills the harshness
-      var detunes = [-8, 0, 8];
+      var noteT = time + n.t;
+      var endT = noteT + n.dur;
+      // Each note: its own LP + gain chain (no shared nodes = no crash)
+      var lp = ctx.createBiquadFilter(); lp.type = 'lowpass';
+      // Filter closes as melody progresses — each note darker
+      lp.frequency.value = 2000 - ni * 400;
+      lp.Q.value = 2.5;
+      var env = ctx.createGain();
+      env.gain.setValueAtTime(0.001, noteT);
+      env.gain.linearRampToValueAtTime(0.14, noteT + 0.015);
+      env.gain.setTargetAtTime(0.08, noteT + 0.05, 0.12);
+      env.gain.setTargetAtTime(0.001, endT - 0.1, 0.08);
+
+      // 3 detuned saws per note
+      var detunes = [-10, 0, 10];
       for (var di = 0; di < detunes.length; di++) {
         var o = ctx.createOscillator(); o.type = 'sawtooth';
         o.frequency.value = n.f;
         o.detune.value = detunes[di];
-        var g = ctx.createGain();
-        g.gain.setValueAtTime(0.001, time + n.t);
-        g.gain.linearRampToValueAtTime(0.12, time + n.t + 0.02);
-        g.gain.setTargetAtTime(0.001, time + n.t + n.dur * 0.7, n.dur * 0.25);
-        o.connect(g); g.connect(lp);
-        o.start(time + n.t); o.stop(time + n.t + n.dur + 0.3);
+        o.connect(lp);
+        o.start(noteT); o.stop(endT + 0.15);
       }
+      lp.connect(env); env.connect(sidechainGain);
+      // Delay send for echo trail
+      var ds = ctx.createGain(); ds.gain.value = 0.35;
+      env.connect(ds); ds.connect(delaySend);
     }
 
-    lp.connect(sidechainGain);
+    // Glitch stutter: separate chain. Last note repeats and fragments.
+    // Each chop is its own oscillator+gain — no rapid setValueAtTime on shared nodes.
+    var chopStart = time + 3.3;
+    for (var si = 0; si < 10; si++) {
+      var chopT = chopStart + si * (0.09 - si * 0.005);
+      if (chopT < chopStart) break;
+      var chopDur = 0.035 - si * 0.002;
+      if (chopDur < 0.008) chopDur = 0.008;
+      var chopVol = 0.12 * (1 - si / 10);
 
-    // Glitch stutter: rapid gain chops after the melody
-    var stutterStart = time + 3.5;
-    var stutterEnv = ctx.createGain();
-    var stutterO = ctx.createOscillator(); stutterO.type = 'sawtooth';
-    stutterO.frequency.value = r;
-    var stutterLP = ctx.createBiquadFilter(); stutterLP.type = 'lowpass';
-    stutterLP.frequency.value = 600; stutterLP.Q.value = 3;
-
-    // 8 rapid chops getting faster (stutter into silence)
-    for (var si = 0; si < 8; si++) {
-      var chopT = stutterStart + si * (0.12 - si * 0.008);
-      var chopVol = 0.15 * (1 - si / 8);
-      stutterEnv.gain.setValueAtTime(chopVol, chopT);
-      stutterEnv.gain.setValueAtTime(0.001, chopT + 0.04);
+      var co = ctx.createOscillator(); co.type = 'sawtooth';
+      co.frequency.value = r * (1 + si * 0.02);  // pitch drifts up = disintegrating
+      var cLP = ctx.createBiquadFilter(); cLP.type = 'lowpass';
+      cLP.frequency.value = 800 - si * 60;  // darker each chop
+      cLP.Q.value = 3;
+      var cG = ctx.createGain();
+      cG.gain.setValueAtTime(chopVol, chopT);
+      cG.gain.setTargetAtTime(0.001, chopT + chopDur * 0.6, chopDur * 0.3);
+      co.connect(cLP); cLP.connect(cG); cG.connect(sidechainGain);
+      co.start(chopT); co.stop(chopT + chopDur + 0.05);
     }
-    stutterO.connect(stutterLP); stutterLP.connect(stutterEnv);
-    stutterEnv.connect(sidechainGain);
-    stutterO.start(stutterStart); stutterO.stop(stutterStart + 1.5);
+  }
 
-    // Send to delay for echo trail
-    var ds = ctx.createGain(); ds.gain.value = 0.4;
-    lp.connect(ds); ds.connect(delaySend);
+  // Snare roll: accelerating snare hits leading into the drop.
+  // 8th notes → 16th notes → 32nd notes over `duration` seconds.
+  function synthSnareRoll(time, duration, kit) {
+    var dur = duration || 4;
+    var k = kit || '808';
+    // Phase 1 (0-40%): 8th notes
+    // Phase 2 (40-70%): 16th notes
+    // Phase 3 (70-100%): 32nd notes
+    var stepDur, t = 0;
+    var baseBeat = dur / 8;  // 8th note duration
+
+    while (t < dur) {
+      var progress = t / dur;
+      if (progress < 0.4)       stepDur = baseBeat;
+      else if (progress < 0.7)  stepDur = baseBeat * 0.5;
+      else                       stepDur = baseBeat * 0.25;
+
+      var vel = 0.15 + progress * 0.65;  // velocity crescendo
+      playSnare(time + t, Math.min(0.88, vel), k);
+      t += stepDur;
+    }
+  }
+
+  // Breakdown melody: filtered piano-like notes, sparse, contemplative.
+  // 4 notes over ~4 bars — breathing space between intensity.
+  function synthBreakdownMelody(time, rootFreq, barDur) {
+    var r = rootFreq || 220;
+    var bd = barDur || 1.875;
+    // Phrygian descent: 5th → b3 → b2 → root (falling into silence)
+    var notes = [
+      { f: r * 1.498,  t: 0,          vel: 0.10 },  // 5th
+      { f: r * 1.1892, t: bd * 1.2,   vel: 0.08 },  // b3
+      { f: r * 1.0595, t: bd * 2.5,   vel: 0.07 },  // b2
+      { f: r,          t: bd * 3.8,   vel: 0.09 },  // root — home
+    ];
+    for (var ni = 0; ni < notes.length; ni++) {
+      var n = notes[ni];
+      // Use piano voice — warm, not aggressive
+      try { synthPiano(time + n.t, n.f, n.vel, 3.5); } catch(e) {}
+    }
+  }
+
+  // EDM stab: short gridstack hit for rhythmic texture during drops
+  function synthEDMStab(time, freq, vel) {
+    synthGridStack(time, freq, vel || 0.3, 0.2);
+  }
+
+  // Sub bass pulse: pure sine at root, short, sidechained
+  function synthSubPulse(time, freq, vel, dur) {
+    var o = ctx.createOscillator(); o.type = 'sine';
+    o.frequency.value = freq || 55;
+    var g = ctx.createGain();
+    g.gain.setValueAtTime(0.001, time);
+    g.gain.linearRampToValueAtTime((vel || 0.4) * 0.55, time + 0.01);
+    g.gain.setTargetAtTime(0.001, time + (dur || 0.3) * 0.5, (dur || 0.3) * 0.3);
+    o.connect(g); g.connect(sidechainGain);
+    o.start(time); o.stop(time + (dur || 0.3) + 0.15);
+  }
+
+  // Build sub layer: persistent sine sub that can be gain-controlled
+  function buildSubLayer(freq) {
+    destroyLayer('edm-sub');
+    return buildLayer('edm-sub', {
+      oscillators: [
+        { wave: 'sine', freq: freq || 55, gain: 0.45 },
+        { wave: 'sine', freq: (freq || 55) * 2, gain: 0.08 },  // octave for presence
+      ],
+      gain: 0,
+    });
   }
 
   // Teardown all EDM layers
   function destroyEDMLayers() {
     destroyLayer('edm-wobble');
     destroyLayer('edm-pad');
+    destroyLayer('edm-sub');
   }
 
   // ── EDM FILTER & SIDECHAIN API ──────────────────────────────────────
@@ -2382,6 +2458,10 @@ const Audio = (function () {
       riser: synthRiser,
       impact: synthImpact,
       introMelody: synthIntroMelody,
+      snareRoll: synthSnareRoll,
+      breakdownMelody: synthBreakdownMelody,
+      edmStab: synthEDMStab,
+      subPulse: synthSubPulse,
       play: synthesize,
     }),
 
@@ -2423,6 +2503,7 @@ const Audio = (function () {
     edm: Object.freeze({
       buildWobble: buildWobbleLayer,
       buildPad: buildDarkPad,
+      buildSub: buildSubLayer,
       setWobbleFilter: setWobbleFilter,
       destroyAll: destroyEDMLayers,
     }),
