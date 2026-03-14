@@ -2126,6 +2126,13 @@ const Follow = (function () {
 
     // Breakdown melody
     breakdownMelodyFired: false,
+
+    // Vocal drop system
+    vocalsLoaded: false,
+    vocalDropFired: false,     // has the vocal sequence played this cycle?
+    vocalPhase: 0,             // 0=waiting, 1=freedom-is, 2=what-you-do-with, 3=what-is-done, 4=to(triplet), 5=drop(you-deep)
+    vocalTimer: 0,             // time within current vocal phase
+    vocalDropReady: false,     // waiting for user peak to trigger "to you" drop
   };
 
   // ── DRUM PATTERNS ──
@@ -2185,6 +2192,10 @@ const Follow = (function () {
     grid.pumpIntensity = 0;
     grid.cycle = 0;
     grid.breakdownMelodyFired = false;
+    grid.vocalDropFired = false;
+    grid.vocalPhase = 0;
+    grid.vocalTimer = 0;
+    grid.vocalDropReady = false;
 
     try { Audio.set808SubFreq(edm.subFreq || 55); } catch(e) {}
     try { Audio.setSidechainDepth(0.3); } catch(e) {}
@@ -2194,6 +2205,18 @@ const Follow = (function () {
     try { Audio.edm.buildWobble(edm.subFreq || 55, 3.5); } catch(e) {}
     try { Audio.edm.buildSub(edm.subFreq || 55); } catch(e) {}
     try { Audio.edm.buildLead(originalRoot); } catch(e) {}
+
+    // Preload vocal clips for the drop sequence
+    if (!grid.vocalsLoaded) {
+      grid.vocalsLoaded = true;
+      try {
+        Audio.vocal.preload('freedom-is', 'voice/freedom-is.mp3?v=1');
+        Audio.vocal.preload('what-you-do-with', 'voice/what-you-do-with.mp3?v=1');
+        Audio.vocal.preload('what-is-done', 'voice/what-is-done.mp3?v=1');
+        Audio.vocal.preload('to-you', 'voice/to-you.mp3?v=1');
+        Audio.vocal.preload('you-deep', 'voice/you-deep.mp3?v=1');
+      } catch(e) {}
+    }
   }
 
   function teardownGrid() {
@@ -2394,12 +2417,59 @@ const Follow = (function () {
 
       case 'build':
         // Build rate = user pumping intensity. Pump harder = build faster.
-        // NO auto-build — the USER drives this.
         grid.buildLevel += grid.pumpIntensity * dt * 0.08;
         grid.buildLevel += grid.intensity * dt * 0.03;
-        // Tiny auto-build so it doesn't stall completely if user just tilts
-        grid.buildLevel += dt * 0.005;
-        grid.buildLevel = Math.min(1, grid.buildLevel);
+        grid.buildLevel += dt * 0.005;  // tiny auto so it doesn't stall forever
+
+        // ── VOCAL DROP SEQUENCE ──
+        // On 2nd+ build cycle, vocals build the tension:
+        // "freedom is" → "what you do with" → "what is done" → triplet "to" → DROP on "you"
+        var hasVocals = grid.vocalsLoaded && Audio.vocal && Audio.vocal.buffers;
+        var doVocalBuild = hasVocals && grid.cycle >= 1 && !grid.vocalDropFired;
+
+        if (doVocalBuild) {
+          // Vocal cues tied to build level — music builds WITH the voice
+          if (grid.vocalPhase === 0 && grid.buildLevel > 0.25) {
+            grid.vocalPhase = 1;
+            grid.vocalTimer = 0;
+            try { Audio.vocal.play('freedom-is', time + 0.05, {
+              vol: 0.7, reverb: 0.2, delay: 0.15
+            }); } catch(e) {}
+          }
+
+          if (grid.vocalPhase === 1 && grid.buildLevel > 0.42) {
+            grid.vocalPhase = 2;
+            grid.vocalTimer = 0;
+            try { Audio.vocal.play('what-you-do-with', time + 0.05, {
+              vol: 0.75, reverb: 0.15, delay: 0.1
+            }); } catch(e) {}
+          }
+
+          if (grid.vocalPhase === 2 && grid.buildLevel > 0.58) {
+            grid.vocalPhase = 3;
+            grid.vocalTimer = 0;
+            try { Audio.vocal.play('what-is-done', time + 0.05, {
+              vol: 0.8, reverb: 0.12
+            }); } catch(e) {}
+          }
+
+          if (grid.vocalPhase === 3 && grid.buildLevel > 0.75) {
+            // "to" as triplet stutter — decelerating chops
+            grid.vocalPhase = 4;
+            grid.vocalTimer = 0;
+            grid.vocalDropReady = true;  // NOW the drop is armed
+            try { Audio.vocal.triplet('to-you', time + 0.05, {
+              vol: 0.85
+            }); } catch(e) {}
+          }
+        }
+
+        // Cap build at 0.85 during vocal sequence — hold tension until user drops it
+        if (grid.vocalDropReady) {
+          grid.buildLevel = Math.min(0.88, grid.buildLevel);
+        } else {
+          grid.buildLevel = Math.min(1, grid.buildLevel);
+        }
 
         // Layer volumes track build, modulated by zone
         var wobbleVol = (0.03 + grid.buildLevel * 0.14) * zoneSubMix * rollBass;
@@ -2410,7 +2480,7 @@ const Follow = (function () {
 
         try { Audio.layer.setFilter('edm-pad', zonePadFilter, 0.4); } catch(e) {}
 
-        // Sidechain scales with build + pump (user-driven intensity)
+        // Sidechain scales with build + pump
         var scDepth = 0.25 + grid.buildLevel * 0.2 + grid.pumpIntensity * 0.2;
         try { Audio.setSidechainDepth(Math.min(0.75, scDepth)); } catch(e) {}
 
@@ -2421,16 +2491,18 @@ const Follow = (function () {
           try { Audio.synth.riser(time, riserDur); } catch(e) {}
         }
 
-        // Snare roll at 80% — only when pumping hard (not auto)
+        // Snare roll at 80% — only when pumping hard
         if (!grid.snareRollFired && grid.buildLevel > 0.80 && grid.pumpIntensity > 0.3) {
           grid.snareRollFired = true;
           var rollDur = Math.max(2, (1 - grid.buildLevel) * 8);
           try { Audio.synth.snareRoll(time, rollDur, kit); } catch(e) {}
         }
 
-        // DROP: user peak when armed. Auto-drop only after very long wait.
+        // ── DROP TRIGGER ──
         var armed = grid.buildLevel > (edm.buildArmLevel || 0.65);
-        if ((armed && peakNow) || grid.phaseTimer > 35) {
+        var autoTrigger = grid.phaseTimer > 35;
+
+        if ((armed && peakNow) || autoTrigger) {
           grid.phase = 'drop';
           grid.phaseTimer = 0;
           grid.buildLevel = 0;
@@ -2440,6 +2512,27 @@ const Follow = (function () {
           grid.wobbleShape = grid.cycle % 3;
           grid.cycle++;
 
+          // ── VOCAL DOUBLE DROP ──
+          // If vocal sequence was building, "you" IS the drop.
+          // Fred Again style: "you" normal + "you-deep" layered = DOUBLE DROP
+          if (grid.vocalDropReady) {
+            grid.vocalDropFired = true;
+            grid.vocalDropReady = false;
+            grid.vocalPhase = 5;
+
+            // "to-you" at normal speed — the word "you" lands ON the drop
+            try { Audio.vocal.play('to-you', time, {
+              vol: 0.9, reverb: 0.08
+            }); } catch(e) {}
+
+            // "you-deep" layered — the deep version hits simultaneously
+            // Slightly delayed for that Fred Again double-hit
+            try { Audio.vocal.play('you-deep', time + 0.04, {
+              vol: 0.85, reverb: 0.12, delay: 0.2
+            }); } catch(e) {}
+          }
+
+          // Impact + slam everything open
           try { Audio.synth.impact(time, 0.85); } catch(e) {}
           try { Audio.setSidechainDepth(0.65); } catch(e) {}
           try { Audio.layer.setGain('edm-wobble', 0.20, 0.08); } catch(e) {}
@@ -2447,7 +2540,7 @@ const Follow = (function () {
           try { Audio.layer.setGain('edm-pad', 0.10, 0.15); } catch(e) {}
           try { Audio.layer.setFilter('edm-pad', 1400, 0.1); } catch(e) {}
 
-          // Lead activates — user shapes it with tilt
+          // Lead activates
           grid.leadActive = true;
           try { Audio.layer.setGain('edm-lead', 0.08, 0.3); } catch(e) {}
         }
@@ -2529,6 +2622,11 @@ const Follow = (function () {
           grid.buildLevel = 0;
           grid.riserFired = false;
           grid.snareRollFired = false;
+          // Reset vocal drop for next cycle
+          grid.vocalDropFired = false;
+          grid.vocalPhase = 0;
+          grid.vocalTimer = 0;
+          grid.vocalDropReady = false;
           try { Audio.setSidechainDepth(0.3); } catch(e) {}
           try { Audio.layer.setGain('edm-wobble', 0.03, 2.0); } catch(e) {}
           try { Audio.layer.setGain('edm-sub', 0.06, 1.5); } catch(e) {}

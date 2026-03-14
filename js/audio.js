@@ -2496,6 +2496,131 @@ const Audio = (function () {
     destroyLayer('edm-lead');
   }
 
+  // ── VOCAL SAMPLE ENGINE ─────────────────────────────────────────────
+  // Preloads mp3 clips and plays them through the main audio chain
+  // (sidechained + filtered) so vocals sit IN the mix like a real DJ set.
+
+  var vocalBuffers = {};   // name → AudioBuffer
+  var vocalSources = [];   // active sources (for cleanup)
+
+  // Preload a vocal clip by name
+  function preloadVocal(name, url) {
+    if (!ctx) return Promise.resolve(null);
+    return fetch(url)
+      .then(function (r) {
+        if (!r.ok) throw new Error(r.status);
+        return r.arrayBuffer();
+      })
+      .then(function (buf) { return ctx.decodeAudioData(buf); })
+      .then(function (decoded) {
+        vocalBuffers[name] = decoded;
+        return decoded;
+      })
+      .catch(function (e) {
+        console.warn('Vocal preload failed:', name, e.message);
+        return null;
+      });
+  }
+
+  // Play a preloaded vocal clip at a specific time
+  // Returns the source node for scheduling control
+  function playVocal(name, time, opts) {
+    var buf = vocalBuffers[name];
+    if (!buf || !ctx) return null;
+    var o = opts || {};
+    var vol = o.vol !== undefined ? o.vol : 0.75;
+    var rate = o.rate !== undefined ? o.rate : 1.0;
+    var offset = o.offset || 0;
+    var duration = o.duration || 0;  // 0 = full clip
+
+    var src = ctx.createBufferSource();
+    src.buffer = buf;
+    src.playbackRate.value = rate;
+
+    // HP filter to keep vocals out of sub range
+    var hp = ctx.createBiquadFilter();
+    hp.type = 'highpass';
+    hp.frequency.value = 120;
+
+    var g = ctx.createGain();
+    g.gain.value = vol;
+
+    // Vocal goes through sidechain so it pumps with the kick
+    src.connect(hp);
+    hp.connect(g);
+    g.connect(sidechainGain);
+
+    // Optional reverb send for space
+    if (o.reverb && reverbSend) {
+      var rs = ctx.createGain();
+      rs.gain.value = o.reverb;
+      g.connect(rs);
+      rs.connect(reverbSend);
+    }
+
+    // Optional delay send for echo
+    if (o.delay && delaySend) {
+      var ds = ctx.createGain();
+      ds.gain.value = o.delay;
+      g.connect(ds);
+      ds.connect(delaySend);
+    }
+
+    if (duration > 0) {
+      src.start(time, offset, duration);
+    } else {
+      src.start(time, offset);
+    }
+
+    vocalSources.push(src);
+    // Cleanup ref after done
+    src.onended = function () {
+      var idx = vocalSources.indexOf(src);
+      if (idx >= 0) vocalSources.splice(idx, 1);
+    };
+
+    return { source: src, gain: g };
+  }
+
+  // Play a vocal clip as a triplet stutter (3 rapid chops, slowing down)
+  function playVocalTriplet(name, time, opts) {
+    var buf = vocalBuffers[name];
+    if (!buf || !ctx) return;
+    var o = opts || {};
+    var vol = o.vol !== undefined ? o.vol : 0.7;
+    var dur = buf.duration;
+
+    // 3 chops: fast, medium, slow (decelerating triplet)
+    var chopDurs = [0.12, 0.18, 0.28];
+    var gaps = [0.04, 0.06];
+    var t = time;
+
+    for (var i = 0; i < 3; i++) {
+      var chopLen = Math.min(chopDurs[i], dur);
+      var chopVol = vol * (0.6 + i * 0.2);  // gets louder = building
+
+      playVocal(name, t, {
+        vol: chopVol,
+        duration: chopLen,
+        rate: 1.0 - i * 0.08,  // pitch drops slightly each chop = slowing down
+        reverb: 0.15 + i * 0.1,
+        delay: i === 2 ? 0.25 : 0,  // last chop gets delay tail
+      });
+
+      t += chopLen + (gaps[i] || 0);
+    }
+
+    return t;  // return end time so caller knows when triplet finishes
+  }
+
+  // Stop all playing vocals
+  function stopAllVocals() {
+    for (var i = 0; i < vocalSources.length; i++) {
+      try { vocalSources[i].stop(); } catch (e) {}
+    }
+    vocalSources = [];
+  }
+
   // ── EDM FILTER & SIDECHAIN API ──────────────────────────────────────
 
   function setMasterFilter(freq) {
@@ -2589,6 +2714,13 @@ const Audio = (function () {
       setLeadPitch: setLeadPitch,
       setLeadFilter: setLeadFilter,
       destroyAll: destroyEDMLayers,
+    }),
+    vocal: Object.freeze({
+      preload: preloadVocal,
+      play: playVocal,
+      triplet: playVocalTriplet,
+      stopAll: stopAllVocals,
+      buffers: vocalBuffers,
     }),
     setWeather: setWeather,
 
