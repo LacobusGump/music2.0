@@ -1857,48 +1857,93 @@ const Audio = (function () {
     if (voidOscs.length) return;
     var r = root || 432;
 
-    // Output chain: filter → master gain → reverb (heavy send for immersion)
-    voidFilter = ctx.createBiquadFilter();
-    voidFilter.type = 'lowpass';
-    voidFilter.frequency.value = 450;   // lower center — lets sub through
-    voidFilter.Q.value = 0.4;
-
     voidGain = ctx.createGain();
     voidGain.gain.value = 0;
-    voidFilter.connect(voidGain);
     voidGain.connect(reverbGain);
-    voidGain.connect(masterHPF);    // bypass masterGain (which goes to 0 during silence)
+    voidGain.connect(masterHPF);
 
-    // 5 harmonic partials — deep sub + sus4 fourth for medicinal/suspended healing quality
-    // r/4 = 108Hz (felt in chest on headphones), r*(4/3) = perfect fourth = suspension
-    // Pure sine waves. No sharpness. No attack.
-    var freqs   = [r / 4,  r / 2,  r,      r*(4/3),  r * 1.5 ];
-    var oGains  = [0.45,   0.38,  0.32,     0.20,      0.12   ];
-    var detunes = [0,       1,    -1,         2,         -2    ];   // 1-2 cents per partial — shimmer
+    var end = ctx.currentTime + 999;
 
-    for (var i = 0; i < freqs.length; i++) {
+    // ── HARMONIC PARTIALS — each breathes and drifts independently ────────
+    var partials = [
+      { freq: r / 4,   gain: 0.42, ampRate: 0.031, ampDepth: 0.18, pitchRate: 0.018, pitchHz: 3 },
+      { freq: r / 2,   gain: 0.36, ampRate: 0.047, ampDepth: 0.14, pitchRate: 0.027, pitchHz: 4 },
+      { freq: r,       gain: 0.28, ampRate: 0.019, ampDepth: 0.10, pitchRate: 0.041, pitchHz: 5 },
+      { freq: r * 4/3, gain: 0.18, ampRate: 0.063, ampDepth: 0.12, pitchRate: 0.022, pitchHz: 6 },
+      { freq: r * 3/2, gain: 0.12, ampRate: 0.038, ampDepth: 0.08, pitchRate: 0.055, pitchHz: 4 },
+      { freq: r * 2,   gain: 0.08, ampRate: 0.052, ampDepth: 0.06, pitchRate: 0.033, pitchHz: 3 },
+    ];
+
+    for (var i = 0; i < partials.length; i++) {
+      var p = partials[i];
+
       var osc = ctx.createOscillator();
       osc.type = 'sine';
-      osc.frequency.value = freqs[i];
-      osc.detune.value = detunes[i];
-      var g = ctx.createGain();
-      g.gain.value = oGains[i];
-      osc.connect(g);
-      g.connect(voidFilter);
-      osc.start();
+      osc.frequency.value = p.freq;
+      osc.detune.value = (i % 3) - 1;
+
+      // Pitch drift LFO — each partial wanders slightly in pitch
+      var pLFO = ctx.createOscillator(); pLFO.type = 'sine';
+      pLFO.frequency.value = p.pitchRate;
+      var pLFOG = ctx.createGain(); pLFOG.gain.value = p.pitchHz;
+      pLFO.connect(pLFOG); pLFOG.connect(osc.frequency);
+
+      // Amplitude LFO — this partial swells and recedes on its own rhythm
+      var aLFO = ctx.createOscillator(); aLFO.type = 'sine';
+      aLFO.frequency.value = p.ampRate;
+      var aLFOG = ctx.createGain(); aLFOG.gain.value = p.gain * p.ampDepth;
+      aLFO.connect(aLFOG);
+
+      var g = ctx.createGain(); g.gain.value = p.gain;
+      aLFOG.connect(g.gain);
+      osc.connect(g); g.connect(voidGain);
+
+      osc.start(); osc.stop(end);
+      pLFO.start(); pLFO.stop(end);
+      aLFO.start(); aLFO.stop(end);
+
       voidOscs.push(osc);
       voidOscGains.push(g);
     }
 
-    // Breathing LFO at 0.05Hz (~20s period) — modulates filter for slow dreamlike movement
-    voidLFO = ctx.createOscillator();
-    voidLFO.type = 'sine';
-    voidLFO.frequency.value = 0.05;
-    voidLFOGain = ctx.createGain();
-    voidLFOGain.gain.value = 130;   // ±130Hz sweep — meditative, not dramatic
-    voidLFO.connect(voidLFOGain);
-    voidLFOGain.connect(voidFilter.frequency);
-    voidLFO.start();
+    // ── COSMIC WIND — noise bands at low / mid / high ────────────────────
+    var noiseLen = ctx.sampleRate * 4;
+    var noiseBuf = ctx.createBuffer(1, noiseLen, ctx.sampleRate);
+    var nd = noiseBuf.getChannelData(0);
+    var b0=0,b1=0,b2=0,b3=0,b4=0,b5=0;
+    for (var ni = 0; ni < noiseLen; ni++) {
+      var w = Math.random() * 2 - 1;
+      b0=0.99886*b0+w*0.0555179; b1=0.99332*b1+w*0.0750759;
+      b2=0.96900*b2+w*0.1538520; b3=0.86650*b3+w*0.3104856;
+      b4=0.55000*b4+w*0.5329522; b5=-0.7616*b5-w*0.0168980;
+      nd[ni]=(b0+b1+b2+b3+b4+b5+w*0.5362)*0.11;
+    }
+
+    var windBands = [
+      { center: 160,  Q: 2.5, g: 0.20, lfoRate: 0.041 },
+      { center: 600,  Q: 1.8, g: 0.14, lfoRate: 0.027 },
+      { center: 2200, Q: 2.2, g: 0.09, lfoRate: 0.058 },
+    ];
+    for (var wi = 0; wi < windBands.length; wi++) {
+      var wb = windBands[wi];
+      var ns = ctx.createBufferSource(); ns.buffer = noiseBuf; ns.loop = true;
+      var bp = ctx.createBiquadFilter(); bp.type = 'bandpass';
+      bp.frequency.value = wb.center; bp.Q.value = wb.Q;
+      var wg = ctx.createGain(); wg.gain.value = wb.g;
+      var wLFO = ctx.createOscillator(); wLFO.type = 'sine';
+      wLFO.frequency.value = wb.lfoRate;
+      var wLFOG = ctx.createGain(); wLFOG.gain.value = wb.g * 0.35;
+      wLFO.connect(wLFOG); wLFOG.connect(wg.gain);
+      ns.connect(bp); bp.connect(wg); wg.connect(voidGain);
+      ns.start(); ns.stop(end);
+      wLFO.start(); wLFO.stop(end);
+      voidOscs.push(ns);
+      voidOscGains.push(wg);
+    }
+
+    voidFilter = null;
+    voidLFO = null;
+    voidLFOGain = null;
   }
 
   function stopVoidDrone() {
@@ -1907,23 +1952,23 @@ const Audio = (function () {
       try { voidOscGains[i].disconnect(); } catch (e) {}
     }
     voidOscs = []; voidOscGains = [];
-    try { if (voidLFO) { voidLFO.stop(); voidLFO.disconnect(); } } catch (e) {}
-    try { if (voidLFOGain) voidLFOGain.disconnect(); } catch (e) {}
     try { if (voidGain) voidGain.disconnect(); } catch (e) {}
-    try { if (voidFilter) voidFilter.disconnect(); } catch (e) {}
-    voidGain = voidFilter = voidLFO = voidLFOGain = null;
+    voidGain = null; voidFilter = null; voidLFO = null; voidLFOGain = null;
   }
 
   function updateVoidDrone(depth, breathPhase) {
     if (!ctx) return;
     if (depth > 0.05) {
       if (!voidOscs.length) startVoidDrone();
-      var target = depth * 0.42;
-      voidGain.gain.value += (target - voidGain.gain.value) * 0.015;
+      if (voidGain) {
+        var target = depth * 0.42;
+        voidGain.gain.value += (target - voidGain.gain.value) * 0.015;
+      }
     } else if (voidOscs.length) {
-      // Gentle fade out before stopping
-      voidGain.gain.value *= 0.97;
-      if (voidGain.gain.value < 0.003) stopVoidDrone();
+      if (voidGain) {
+        voidGain.gain.value *= 0.97;
+        if (voidGain.gain.value < 0.003) stopVoidDrone();
+      }
     }
   }
 

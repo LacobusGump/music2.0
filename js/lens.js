@@ -59,6 +59,7 @@ const Lens = (function () {
         peakThreshold: 2.2,
         tiltRange: 55,
         noteInterval: 320,
+        melodicEnergy: 0.9,    // conductor = peaks drive music, not ambient tilt
         stillnessThreshold: 0.2,
         stillnessTimeout: 6.0,
         fadeTime: 8.0,
@@ -134,6 +135,7 @@ const Lens = (function () {
         peakThreshold: 0.20,
         tiltRange: 48,
         noteInterval: 140,  // gridstack is punchy/short — fast response = tactile feedback
+        melodicEnergy: 0.45,   // stabs need intentional motion, not micro-drift
         stillnessThreshold: 0.14,
         stillnessTimeout: 2.8,
         fadeTime: 3.5,
@@ -198,6 +200,7 @@ const Lens = (function () {
         peakThreshold: 0.35,
         tiltRange: 55,
         noteInterval: 750,
+        melodicEnergy: 0.12,   // piano is intimate — responds to gentle intentional tilt
         stillnessThreshold: 0.07,
         stillnessTimeout: 2.5,
         fadeTime: 11.0,
@@ -265,6 +268,8 @@ const Lens = (function () {
         peakThreshold: 0.5,
         tiltRange: 70,
         noteInterval: 2000,   // one note every 2 seconds — this IS the tempo
+        melodicEnergy: 0.38,   // tundra requires deliberate gesture — restraint is the principle
+        melodicMinDelta: 2,    // must cross 2 scale degrees — no micro-drift notes
         stillnessThreshold: 0.05,
         stillnessTimeout: 0.3,   // go quiet immediately — silence IS music here
         fadeTime: 14.0,
@@ -328,8 +333,9 @@ const Lens = (function () {
         peakThreshold: 0.75,
         tiltRange: 50,
         noteInterval: 380,   // 5x faster than Tundra — you're moving, not meditating
+        melodicEnergy: 0.18,   // strings respond to flowing tilt, not micro-jitter
         stillnessThreshold: 0.1,
-        stillnessTimeout: 1.8,   // faster to silence than Tundra too
+        stillnessTimeout: 1.8,
         fadeTime: 9.0,
         filterRange: [250, 4000],
         densityThresholds: [0.2, 0.6, 1.6],
@@ -400,6 +406,7 @@ const Lens = (function () {
         peakThreshold: 1.0,
         tiltRange: 60,
         noteInterval: 200,
+        melodicEnergy: 0.55,   // fm/reverse only on decisive motion — dark matter is unforgiving
         stillnessThreshold: 0.1,
         stillnessTimeout: 2.5,
         fadeTime: 8.0,

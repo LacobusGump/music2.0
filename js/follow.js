@@ -1630,9 +1630,18 @@ const Follow = (function () {
     var contPalette = lens.palette && lens.palette.continuous;
     if (contPalette && contPalette.beatLocked) return;
 
-    if (gravitated !== currentDegree && !isSilent && fadeGain > 0.15 && !phraseBreathing) {
+    // Per-lens melodic energy gate — stops notes firing from micro-drift or accidental movement.
+    // Each lens declares the minimum motion energy required to generate melody.
+    var melodicEnergy = (lens.response && lens.response.melodicEnergy) || 0;
+    var melodicMinDelta = (lens.response && lens.response.melodicMinDelta) || 1;
+    var motionNow = (typeof Brain !== 'undefined') ? Brain.short.energy() : 1.0;
+
+    if (gravitated !== currentDegree
+        && Math.abs(gravitated - currentDegree) >= melodicMinDelta
+        && !isSilent && fadeGain > 0.15 && !phraseBreathing
+        && motionNow >= melodicEnergy) {
       var baseInterval = noteIntervalMs;
-      var speed = (typeof Brain !== 'undefined') ? Brain.short.energy() : 0.5;
+      var speed = motionNow;
       var speedMult = 1 + (1 - Math.min(1, speed / 2.5)) * 1.2;
       var minInterval = baseInterval * speedMult;
       var timeSinceNote = now - lastNoteTime;
@@ -1941,11 +1950,15 @@ const Follow = (function () {
 
   function updateVoid(dt) {
     if (!Audio.ctx) return;
+    var motionNow = (typeof Brain !== 'undefined') ? Brain.short.energy() : 0;
 
     // Build presence while still (8s to full), decay slowly when moving (~10s to exit).
     // This creates smooth fade-in and a lingering fade-out — no abrupt cuts.
     var targetPresence = isSilent ? Math.min(1, stillnessTimer / 8.0) : 0;
-    var rate = isSilent ? 0.025 : 0.005;
+    // Fast out (0.018) when user moves strongly — blend is snappier.
+    // Slow out (0.005) for gentle re-entry — avoids jarring cut.
+    var exitRate = motionNow > 0.6 ? 0.018 : 0.007;
+    var rate = isSilent ? 0.025 : exitRate;
     voidPresence += (targetPresence - voidPresence) * rate;
 
     if (voidPresence > 0.04) {
