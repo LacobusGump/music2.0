@@ -8,6 +8,7 @@
  * ANSWER: The music responds. Rare. Deliberate. Completes your thought.
  * SPACE:  The room. Foundation drone + reverb. The harmonic ground.
  *
+ * v89: Tribal drums + shaker gestures. Random stage order. Stage groove DNA fix.
  * v88: Big merge — 6 organic lenses → Journey (Drift→Still Water→Tundra→Dark Matter).
  *       Organic stage evolution: crossfades tone/space over 30s, swaps palette/mode at 50%.
  *       2.5min per stage. Three-act arc runs independently on top.
@@ -44,47 +45,41 @@ const Follow = (function () {
   // 16-step patterns (one 4/4 bar). Values 0-1 = hit strength.
 
   var GROOVE_DNA = {
-    'The Conductor': {
-      kick:  [0.8,0,0,0, 0,0,0,0, 0.28,0,0,0, 0,0,0,0],
-      snare: [0,0,0,0,   0,0,0,0, 0,0,0,0,    0,0,0,0],
-      hat:   [0,0,0,0,   0.10,0,0,0, 0,0,0,0, 0.10,0,0,0],
-      feel: 0, kit: 'acoustic', snap: 3, halftime: true,
-    },
-    'Blue Hour': {
-      kick:  [0.74,0,0,0, 0,0.13,0,0, 0,0,0,0, 0.30,0,0,0],
-      snare: [0,0,0,0,    0,0,0,0,    0.76,0,0,0.08, 0,0,0,0.04],
-      hat:   [0,0.22,0.58,0.22, 0.58,0.22,0.58,0.22, 0.58,0.22,0.58,0.22, 0.58,0.22,0.58,0.22],
-      feel: 0.12, kit: 'brushes', snap: 2, halftime: true,
-    },
-    'Drift': {
-      kick:  [0.40,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
+    // ── Stage-specific tribal grooves (used by Journey stage evolution) ──
+    'drift': {
+      // Intimate. Just a soft frame drum heartbeat.
+      kick:  [0.35,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
       snare: [0,0,0,0,    0,0,0,0, 0,0,0,0, 0,0,0,0],
       hat:   [0,0,0,0,    0,0,0,0, 0,0,0,0, 0,0,0,0],
-      feel: 0, kit: 'acoustic', snap: 2, halftime: true, sparse: true,
+      feel: 0.08, kit: 'tribal', snap: 3, halftime: true, sparse: true,
     },
+    'still water': {
+      // Flowing. Soft shaker 8ths, gentle frame drum on 1 and 3.
+      kick:  [0.42,0,0,0, 0,0,0,0, 0.25,0,0,0, 0,0,0,0],
+      snare: [0,0,0,0,    0,0,0,0, 0,0,0,0,    0,0,0,0],
+      hat:   [0.10,0,0.08,0, 0.10,0,0.08,0, 0.10,0,0.08,0, 0.10,0,0.08,0],
+      feel: 0.06, kit: 'tribal', snap: 3, halftime: true,
+    },
+    'tundra': {
+      // Vast silence. Frame drum beat 1 only, every other bar.
+      kick:  [0.38,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
+      snare: [0,0,0,0,    0,0,0,0, 0,0,0,0, 0,0,0,0],
+      hat:   [0,0,0,0,    0,0,0,0, 0,0,0,0, 0,0,0,0],
+      feel: 0, kit: 'tribal', snap: 3, halftime: true, sparse: true, barDivisor: 2,
+    },
+    'dark matter': {
+      // Intensity. Cross-rhythms, hand slaps, busy shakers.
+      kick:  [0.75,0,0,0.18, 0,0,0.30,0, 0.60,0,0,0, 0,0.22,0,0],
+      snare: [0,0,0,0,       0.55,0,0,0, 0,0.18,0,0, 0.40,0,0,0.12],
+      hat:   [0.15,0.08,0.12,0.08, 0.15,0.08,0.12,0.08, 0.15,0.08,0.12,0.08, 0.15,0.08,0.12,0.08],
+      feel: 0.04, kit: 'tribal', snap: 2, halftime: false,
+    },
+    // ── Default Journey (used before first stage applies) ──
     'Journey': {
-      kick:  [0.40,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
+      kick:  [0.35,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
       snare: [0,0,0,0,    0,0,0,0, 0,0,0,0, 0,0,0,0],
       hat:   [0,0,0,0,    0,0,0,0, 0,0,0,0, 0,0,0,0],
-      feel: 0, kit: 'acoustic', snap: 2, halftime: true, sparse: true,
-    },
-    'Tundra': {
-      kick:  [0.52,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
-      snare: [0,0,0,0,    0,0,0,0, 0,0,0,0, 0,0,0,0],
-      hat:   [0,0,0,0,    0,0,0,0, 0,0,0,0, 0,0,0,0],
-      feel: 0, kit: 'acoustic', snap: 2, halftime: true, sparse: true, barDivisor: 4,
-    },
-    'Still Water': {
-      kick:  [0.48,0,0,0, 0,0,0,0, 0.22,0,0,0, 0,0,0,0],
-      snare: [0,0,0,0,    0,0,0,0, 0.26,0,0,0, 0,0,0,0],
-      hat:   [0,0,0,0,    0.08,0,0,0, 0,0,0,0, 0.08,0,0,0],
-      feel: 0.05, kit: 'brushes', snap: 3, halftime: true,
-    },
-    'Dark Matter': {
-      kick:  [1.0,0,0,0.18, 0,0,0.28,0, 0.72,0,0.18,0, 0,0.32,0,0],
-      snare: [0,0,0,0,      0.80,0,0,0.11, 0,0.26,0,0, 0.60,0,0.09,0],
-      hat:   [1.0,0.36,1.0,0.36, 1.0,0.36,1.0,0.36, 1.0,0.36,1.0,0.36, 1.0,0.36,1.0,0.36],
-      feel: 0, kit: 'glitch', snap: 1, halftime: false,
+      feel: 0.08, kit: 'tribal', snap: 3, halftime: true, sparse: true,
     },
     'Grid': {
       kick:  [1.0,0,0,0.28, 0,0,0.55,0, 1.0,0,0,0.28, 0,0,0,0],
@@ -532,6 +527,15 @@ const Follow = (function () {
   var TREMOLO_MIN     = 5;
   var tremoloState    = false;
   var tremoloTimer    = 0;
+
+  // ── GESTURE-DRIVEN SHAKER ─────────────────────────────────────────────
+  // Shaking the phone = shaker instrument. The machine assigns your gesture as a part.
+  var shakerState = {
+    active: false,      // currently producing shaker hits
+    lastHitTime: 0,     // prevent machine-gunning
+    intensity: 0,       // 0-1, builds with shaking, decays on stop
+    pattern: null,      // generated rhythm pattern from user's motion
+  };
 
   var invertedDuration = 0;
   var wasInverted      = false;
@@ -1157,6 +1161,37 @@ const Follow = (function () {
     }
   }
 
+  // ── GESTURE-DRIVEN SHAKER ──────────────────────────────────────────────
+  // When the user shakes, trigger shaker hits synced to their motion peaks.
+  // The faster they shake, the denser the shaker pattern.
+
+  function updateShaker(mag, now, dt) {
+    if (!Audio.ctx || !Audio.drum.shaker || isSilent || lens.name === 'Grid') return;
+
+    // Build intensity when shaking (bouncing archetype or tremolo)
+    var isShaking = tremoloState || (archetype === 'bouncing' && mag > 0.8);
+
+    if (isShaking) {
+      shakerState.intensity = Math.min(1, shakerState.intensity + dt * 2.5);
+      shakerState.active = true;
+
+      // Fire shaker on peaks — the user's shake rhythm IS the shaker rhythm
+      var minGap = 40; // ~25 hits/sec max
+      if (now - shakerState.lastHitTime > minGap && mag > 0.5) {
+        var vel = Math.min(1, mag * 0.4) * shakerState.intensity;
+        var dur = 0.04 + Math.random() * 0.03; // slight variation
+        Audio.drum.shaker(Audio.ctx.currentTime, vel * fadeGain, dur);
+        shakerState.lastHitTime = now;
+      }
+    } else {
+      // Decay intensity
+      shakerState.intensity = Math.max(0, shakerState.intensity - dt * 1.5);
+      if (shakerState.intensity < 0.02) {
+        shakerState.active = false;
+      }
+    }
+  }
+
   // ── UPSIDE DOWN DETECTION ─────────────────────────────────────────────
 
   function updateInversion(sensor, dt) {
@@ -1195,6 +1230,14 @@ const Follow = (function () {
   }
 
   function getGrooveDNA() {
+    // If in Journey with active stage, use the stage-specific groove
+    if (lens && lens.stages && organicStage.lastApplied >= 0) {
+      var stageOrder = organicStage.order || lens.stages;
+      var stage = stageOrder[organicStage.lastApplied];
+      if (stage && stage.name && GROOVE_DNA[stage.name]) {
+        return GROOVE_DNA[stage.name];
+      }
+    }
     var name = lens && lens.name || '';
     return GROOVE_DNA[name] || GROOVE_DNA_DEFAULT;
   }
@@ -3119,14 +3162,25 @@ const Follow = (function () {
   // The three-act harmonic arc (sus4) runs independently on top.
 
   var organicStage = {
-    current: 0,         // 0=drift, 1=still water, 2=tundra, 3=dark matter
+    current: 0,         // index into order[]
     timer: 0,           // time in current stage
     transitioning: false,
     transitionProgress: 0,  // 0-1 during crossfade
     stageDuration: 150,     // 2.5 minutes per stage
     crossfadeDuration: 30,  // 30 second crossfade
     lastApplied: -1,        // which stage config was last fully applied
+    order: null,            // shuffled stage array — different every session
   };
+
+  // Fisher-Yates shuffle (returns new array)
+  function shuffleArray(arr) {
+    var a = arr.slice();
+    for (var i = a.length - 1; i > 0; i--) {
+      var j = Math.floor(Math.random() * (i + 1));
+      var tmp = a[i]; a[i] = a[j]; a[j] = tmp;
+    }
+    return a;
+  }
 
   function resetOrganicStage() {
     organicStage.current = 0;
@@ -3134,6 +3188,12 @@ const Follow = (function () {
     organicStage.transitioning = false;
     organicStage.transitionProgress = 0;
     organicStage.lastApplied = -1;
+    // Shuffle stages for a unique journey every session
+    if (lens && lens.stages) {
+      organicStage.order = shuffleArray(lens.stages);
+    } else {
+      organicStage.order = null;
+    }
   }
 
   // Interpolate a number between two values
@@ -3204,8 +3264,22 @@ const Follow = (function () {
     // Update motion
     lens.motion = stage.motion;
 
-    // Update groove
-    lens.groove = stage.groove;
+    // Update groove — use stage groove, or build one from GROOVE_DNA table
+    if (stage.groove) {
+      lens.groove = stage.groove;
+    } else {
+      // Every stage gets a tribal groove so drums actually fire
+      var dna = GROOVE_DNA[stage.name];
+      lens.groove = {
+        kit: dna ? dna.kit : 'tribal',
+        microTiming: { kick: 0, hat: 0, snare: 0 },
+        ghosts: 0,
+        backbeat: false,
+        maxVel: 0.8,
+        broken: false,
+        dropRate: 0,
+      };
+    }
 
     // Update harmony: mode and root
     var newRoot = stage.harmony.root || 432;
@@ -3222,7 +3296,7 @@ const Follow = (function () {
     // Only for Journey lens (has stages)
     if (!lens || !lens.stages || lens.name === 'Grid') return;
 
-    var stages = lens.stages;
+    var stages = organicStage.order || lens.stages;
     if (!stages || stages.length === 0) return;
 
     organicStage.timer += dt;
@@ -3285,8 +3359,16 @@ const Follow = (function () {
 
     // Apply initial stage if not yet applied
     if (organicStage.lastApplied === -1 && stages.length > 0) {
-      applyStageConfig(stages[0]);
+      var initStage = stages[0];
+      applyStageConfig(initStage);
       organicStage.lastApplied = 0;
+      // Also set tone/space/harmony from the shuffled first stage
+      lens.tone = initStage.tone;
+      lens.space = initStage.space;
+      lens.harmony = initStage.harmony;
+      try { Audio.configure(lens); } catch(e) {}
+      var el3 = document.getElementById('lens-indicator');
+      if (el3) el3.textContent = initStage.name;
     }
   }
 
@@ -3353,6 +3435,7 @@ const Follow = (function () {
     updateBarPhase(now);
     processGrooveHats(now);
     processGrooveKickSnare(now);
+    updateShaker(mag, now, dt);
 
     // ── ROLE 1 LEAD: melody ──
     updateVertical(sensor, dt);

@@ -658,6 +658,29 @@ const Audio = (function () {
       g.gain.setTargetAtTime(0.001, time + 0.12, 0.18);
       o.connect(g); g.connect(drumBus);
       o.start(time); o.stop(time + 0.6);
+    } else if (kit === 'tribal') {
+      // Djembe / frame drum — warm body, NO click transient, long resonance
+      // Body: triangle wave 120→55Hz, warmer than sine, 300ms sustain
+      o.type = 'triangle';
+      o.frequency.setValueAtTime(120 + 20 * vel, time);
+      o.frequency.exponentialRampToValueAtTime(55, time + 0.06);
+      var g = ctx.createGain();
+      g.gain.setValueAtTime(0.001, time);
+      g.gain.linearRampToValueAtTime(0.80 * vel, time + 0.003);
+      g.gain.setTargetAtTime(0.001, time + 0.06, 0.12);
+      // LP filter to keep it round — no highs
+      var lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 400;
+      o.connect(lp); lp.connect(g); g.connect(drumBus);
+      o.start(time); o.stop(time + 0.5);
+
+      // Sub resonance — the body of the drum sings
+      var subO = ctx.createOscillator(); subO.type = 'sine';
+      subO.frequency.value = 65;
+      var subG = ctx.createGain();
+      subG.gain.setValueAtTime(0.45 * vel, time + 0.005);
+      subG.gain.setTargetAtTime(0.001, time + 0.08, 0.10);
+      subO.connect(subG); subG.connect(drumBus);
+      subO.start(time); subO.stop(time + 0.45);
     } else if (kit === 'brushes') {
       o.frequency.setValueAtTime(80, time);
       o.frequency.exponentialRampToValueAtTime(40, time + 0.04);
@@ -725,6 +748,30 @@ const Audio = (function () {
         src.connect(bp); bp.connect(g); g.connect(drumBus);
         src.start(t); src.stop(t + 0.15);
       }
+    } else if (kit === 'tribal') {
+      // Hand slap — open tone, warm body, short bright transient
+      // Transient: short noise slap, bandpassed around 1200Hz
+      var slapLen = Math.floor(ctx.sampleRate * 0.015);
+      var slapBuf = ctx.createBuffer(1, slapLen, ctx.sampleRate);
+      var sd = slapBuf.getChannelData(0);
+      for (var si = 0; si < slapLen; si++) sd[si] = (Math.random() * 2 - 1) * Math.pow(1 - si / slapLen, 0.6);
+      var slapSrc = ctx.createBufferSource(); slapSrc.buffer = slapBuf;
+      var slapBP = ctx.createBiquadFilter(); slapBP.type = 'bandpass'; slapBP.frequency.value = 1200; slapBP.Q.value = 1.2;
+      var slapG = ctx.createGain();
+      slapG.gain.setValueAtTime(0.40 * vel, time);
+      slapG.gain.exponentialRampToValueAtTime(0.001, time + 0.06);
+      slapSrc.connect(slapBP); slapBP.connect(slapG); slapG.connect(drumBus);
+      slapSrc.start(time); slapSrc.stop(time + 0.08);
+
+      // Body tone — sine at 280Hz, warm ring
+      var toneO = ctx.createOscillator(); toneO.type = 'sine';
+      toneO.frequency.setValueAtTime(280, time);
+      toneO.frequency.exponentialRampToValueAtTime(180, time + 0.05);
+      var toneG = ctx.createGain();
+      toneG.gain.setValueAtTime(0.30 * vel, time);
+      toneG.gain.exponentialRampToValueAtTime(0.001, time + 0.18);
+      toneO.connect(toneG); toneG.connect(drumBus);
+      toneO.start(time); toneO.stop(time + 0.22);
     } else if (kit === 'brushes') {
       var len = ctx.sampleRate * 0.2;
       var buf = ctx.createBuffer(1, len, ctx.sampleRate);
@@ -794,6 +841,21 @@ const Audio = (function () {
     // Ratios from physical modeling of struck metal plates
     var ratios = [1.0, 1.483, 1.932, 2.546, 3.111, 3.637];
     var baseFreq, dur, masterVol;
+    if (kit === 'tribal') {
+      // Shaker hit — just filtered noise, warm and organic
+      var shLen = Math.floor(ctx.sampleRate * 0.035);
+      var shBuf = ctx.createBuffer(1, shLen, ctx.sampleRate);
+      var shd = shBuf.getChannelData(0);
+      for (var i = 0; i < shLen; i++) shd[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / shLen, 1.2);
+      var shSrc = ctx.createBufferSource(); shSrc.buffer = shBuf;
+      var shBP = ctx.createBiquadFilter(); shBP.type = 'bandpass'; shBP.frequency.value = 4000; shBP.Q.value = 0.4;
+      var shG = ctx.createGain();
+      shG.gain.setValueAtTime(0.12 * vel, time);
+      shG.gain.exponentialRampToValueAtTime(0.001, time + 0.035);
+      shSrc.connect(shBP); shBP.connect(shG); shG.connect(drumBus);
+      shSrc.start(time); shSrc.stop(time + 0.04);
+      return;
+    }
     if (kit === '808')    { baseFreq = 400; dur = 0.055; masterVol = 0.22; }
     else if (kit === 'brushes') { baseFreq = 320; dur = 0.095; masterVol = 0.11; }
     else if (kit === 'glitch')  { baseFreq = 600; dur = 0.022; masterVol = 0.28; }
@@ -822,6 +884,32 @@ const Audio = (function () {
     noiseG.gain.exponentialRampToValueAtTime(0.001, time + dur);
     noiseSrc.connect(noiseHP); noiseHP.connect(noiseG); noiseG.connect(drumBus);
     noiseSrc.start(time); noiseSrc.stop(time + dur + 0.005);
+  }
+
+  function playShaker(time, vel, dur) {
+    // Standalone shaker — triggered by shaking gesture
+    // Longer than hat-shaker, more body, sounds like seeds in a gourd
+    if (!ctx) return;
+    var duration = dur || 0.06;
+    var len = Math.floor(ctx.sampleRate * duration);
+    var buf = ctx.createBuffer(1, len, ctx.sampleRate);
+    var d = buf.getChannelData(0);
+    // Two-phase envelope: sharp attack then gentle rattle decay
+    for (var i = 0; i < len; i++) {
+      var t = i / len;
+      var env = t < 0.1 ? t / 0.1 : Math.pow(1 - (t - 0.1) / 0.9, 0.8);
+      d[i] = (Math.random() * 2 - 1) * env;
+    }
+    var src = ctx.createBufferSource(); src.buffer = buf;
+    // BP filter: 3-5kHz range gives that seed/bead rattle
+    var bp = ctx.createBiquadFilter(); bp.type = 'bandpass';
+    bp.frequency.value = 3500 + Math.random() * 1500; // slight variation each hit
+    bp.Q.value = 0.6;
+    var g = ctx.createGain();
+    g.gain.setValueAtTime(0.18 * vel, time);
+    g.gain.exponentialRampToValueAtTime(0.001, time + duration);
+    src.connect(bp); bp.connect(g); g.connect(drumBus);
+    src.start(time); src.stop(time + duration + 0.005);
   }
 
   function playRide(time, vel) {
@@ -2765,6 +2853,7 @@ const Audio = (function () {
       hat: playHat,
       ride: playRide,
       timpani: playTimpani,
+      shaker: playShaker,
     }),
 
     layer: Object.freeze({
