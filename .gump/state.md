@@ -1,6 +1,6 @@
 # Current State
 
-*Last updated: March 14, 2026 — BUILD 91*
+*Last updated: March 14, 2026 — BUILD 92*
 
 ---
 
@@ -19,7 +19,7 @@ index.html          — Bootstrap, screens, HTML/CSS. BUILD number lives here.
 js/sensor.js        — Accelerometer, gyroscope, touch
 js/brain.js         — Kalman filter, 7 LIF spiking neurons, void state, energy
 js/audio.js         — v53: 13 synth engines + EDM synths, 808 kick rewrite, drums, void drone, EQ, effects chain
-js/follow.js        — v86: THE ENGINE. Body → music. Grid EDM state machine with DJ set evolution.
+js/follow.js        — v87: THE ENGINE. Body → music. Grid EDM with 15s DJ-move evolution.
 js/lens.js          — v59: 7 timbral palettes (The Conductor, Blue Hour, Drift,
                            Tundra, Still Water, Dark Matter, Grid)
 js/organism.js      — Visual: harmonic polar creature on black canvas

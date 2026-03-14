@@ -8,8 +8,10 @@
  * ANSWER: The music responds. Rare. Deliberate. Completes your thought.
  * SPACE:  The room. Foundation drone + reverb. The harmonic ground.
  *
- * v86: Grid DJ set evolution — 10-20min depth. Harmonic movement, drum/pattern
- *       evolution per cycle, breakdown variation, rising intensity, vocal cooldown fix.
+ * v87: Grid 15-second evolution — DJ move every 8 bars. Arrangement layers
+ *       (ride, clap, snare roll, sub octave, pad open) brought in like mixer faders.
+ *       32 moves in sequence then cycles. Harmonic shifts, filter sweeps, pattern swaps.
+ * v86: Grid DJ set evolution — vocal cooldown fix.
  * v79: Music waits for you. Autonomy gates on Brain.short.energy().
  * v67: Clean rebuild.
  *  - LEAD voice is now 2× louder — the melody is the boss
@@ -2125,21 +2127,43 @@ const Follow = (function () {
     // Pump style: how the user is moving (smooth vs hard)
     pumpIntensity: 0,      // 0-1 smoothed from peak frequency/strength
 
-    // Cycle count & set evolution
+    // Cycle count
     cycle: 0,
-    setTime: 0,                // total time since first motion (the whole "set")
-    rootShift: 0,              // semitones from original root (harmonic movement)
-    nextRootShift: 0,          // target for next cycle
-    currentRootFreq: 0,       // actual shifted root frequency
 
-    // Per-cycle variation seeds
-    kickVariant: 0,            // which kick pattern variation
-    hatStyle: 0,               // hat pattern style
-    breakdownStyle: 0,         // breakdown character (0=pad, 1=vocal, 2=sub, 3=rhythmic)
-    dropCharacter: 0,          // drop intensity profile
-    rideActive: false,         // ride cymbal introduced yet?
-    filterAutoPhase: 0,        // long-term filter automation
-    filterAutoRate: 0,         // automation speed (bars)
+    // ── DJ SET EVOLUTION ──
+    // Every 8 bars (~15s at 128bpm), one thing changes. Like a DJ bringing up a fader.
+    segment: 0,                // which 8-bar segment we're in (0, 1, 2, 3, ...)
+    lastSegment: -1,           // detect segment boundaries
+    setTime: 0,                // total time since first motion
+
+    // Harmonic movement
+    rootShift: 0,              // current semitone offset (smoothed)
+    nextRootShift: 0,          // target
+    currentRootFreq: 0,
+
+    // Active arrangement layers — each can be on/off, like mixer channels
+    arr: {
+      kickPat: 0,              // which kick pattern (index into GRID_KICK_VARIANTS)
+      hatPat: 0,               // which hat pattern
+      ride: false,             // ride cymbal on/off
+      ridePattern: 0,          // ride rhythm variation
+      clap: false,             // clap layer on/off
+      wobbleShape: 0,          // current wobble LFO shape
+      wobbleRate: 1.0,         // wobble rate multiplier
+      subOctave: false,        // double sub at -1 octave
+      stabStyle: 0,            // stab pattern index
+      bassWalk: 0,             // bass walk complexity level
+      filterSweepDir: 0,       // 0=static, 1=opening, -1=closing
+      filterSweepPhase: 0,     // phase of current sweep
+      reverbLevel: 0.15,       // current reverb
+      padOpen: false,          // pad filter wide open
+      snareRoll: false,        // 16th snare rolls on beats 2&4
+      percLoop: 0,             // additional percussion loop type (0=none)
+    },
+
+    // Breakdown state
+    breakdownStyle: 0,
+    breakdownMelodyFired: false,
 
     // Breakdown state
     breakdownMelodyFired: false,
@@ -2190,11 +2214,7 @@ const Follow = (function () {
     [0.8, 0.3, 0.5, 0.3,  0.8, 0.3, 0.5, 0.3,  0.8, 0.3, 0.5, 0.3,  0.8, 0.5, 0.6, 0.5],   // 4: driving 16ths
   ];
 
-  // ── HARMONIC MOVEMENT — phrygian root shifts per cycle ──
-  // Each value is semitones from original root. Stays in phrygian-compatible territory.
-  var ROOT_SHIFTS = [0, 0, 5, 5, 3, 3, 7, 7, 1, 1, 0, 0];  // root, 4th, b3, 5th, b2, home
-
-  // ── BASS WALK EVOLUTION — more complex patterns in later cycles ──
+  // ── BASS WALK EVOLUTION — more complex patterns in later segments ──
   var BASS_WALKS = [
     // Cycle 0-1: simple
     [[0, 0], [0, 4], [0, 3], [0, 6]],
@@ -2241,18 +2261,21 @@ const Follow = (function () {
     grid.chopStep = -1;
     grid.pumpIntensity = 0;
     grid.cycle = 0;
+    grid.segment = 0;
+    grid.lastSegment = -1;
     grid.setTime = 0;
     grid.rootShift = 0;
     grid.nextRootShift = 0;
     grid.currentRootFreq = originalRoot;
-    grid.kickVariant = 0;
-    grid.hatStyle = 0;
     grid.breakdownStyle = 0;
-    grid.dropCharacter = 0;
-    grid.rideActive = false;
-    grid.filterAutoPhase = 0;
-    grid.filterAutoRate = 0;
     grid.breakdownMelodyFired = false;
+    // Reset arrangement
+    grid.arr = {
+      kickPat: 0, hatPat: 0, ride: false, ridePattern: 0, clap: false,
+      wobbleShape: 0, wobbleRate: 1.0, subOctave: false, stabStyle: 0,
+      bassWalk: 0, filterSweepDir: 0, filterSweepPhase: 0,
+      reverbLevel: 0.15, padOpen: false, snareRoll: false, percLoop: 0,
+    };
     grid.lastArchetype = 'exploring';
     grid.archetypeTimer = 0;
     grid.chordStabCooldown = 0;
@@ -2305,6 +2328,99 @@ const Follow = (function () {
     }
   }
 
+  // ── DJ MOVES — the heart of set evolution ──
+  // Each move is something a real DJ would do: bring in a new element,
+  // change a pattern, sweep a filter, shift the key. ONE change per 8 bars.
+  // The move pool is phase-aware: drops get energy moves, builds get tension moves.
+  //
+  // Moves are ordered like a real set: start simple, add complexity,
+  // then strip back and rebuild with new elements.
+
+  var DJ_MOVE_SEQUENCE = [
+    // Segment 0-1: just started, keep it minimal (intro/first build handle this)
+    null,
+    null,
+    // Segment 2: first real change — hats open up
+    function(g, t) { g.arr.hatPat = 1; },
+    // Segment 3: bass walk gets phrygian color
+    function(g, t) { g.arr.bassWalk = 1; },
+    // Segment 4: wobble shape changes (saw-down = more aggressive)
+    function(g, t) { g.arr.wobbleShape = 1; },
+    // Segment 5: filter sweep opens
+    function(g, t) { g.arr.filterSweepDir = 1; g.arr.filterSweepPhase = 0; },
+    // Segment 6: kick pattern evolves
+    function(g, t) { g.arr.kickPat = 1; },
+    // Segment 7: ride comes in
+    function(g, t) { g.arr.ride = true; },
+    // Segment 8: harmonic shift — move to the 4th
+    function(g, t) { g.nextRootShift = 5; rebuildGridLayers(g, t); },
+    // Segment 9: hat pattern gets complex
+    function(g, t) { g.arr.hatPat = 3; },
+    // Segment 10: clap layer adds punch
+    function(g, t) { g.arr.clap = true; },
+    // Segment 11: wobble goes square (choppy gate)
+    function(g, t) { g.arr.wobbleShape = 2; },
+    // Segment 12: bass walk starts really moving
+    function(g, t) { g.arr.bassWalk = 2; },
+    // Segment 13: filter sweep closes (tension)
+    function(g, t) { g.arr.filterSweepDir = -1; g.arr.filterSweepPhase = 1; },
+    // Segment 14: kick gets broken
+    function(g, t) { g.arr.kickPat = 2; },
+    // Segment 15: pad opens wide
+    function(g, t) { g.arr.padOpen = true; try { Audio.layer.setFilter('edm-pad', 2200, 2.0); } catch(e) {} },
+    // Segment 16: harmonic shift — move to b3 (darker)
+    function(g, t) { g.nextRootShift = 3; rebuildGridLayers(g, t); },
+    // Segment 17: sub gets doubled octave
+    function(g, t) { g.arr.subOctave = true; },
+    // Segment 18: hat pattern driving 16ths
+    function(g, t) { g.arr.hatPat = 4; },
+    // Segment 19: wobble back to sine (contrast after square)
+    function(g, t) { g.arr.wobbleShape = 0; g.arr.wobbleRate = 1.5; },
+    // Segment 20: garage kick
+    function(g, t) { g.arr.kickPat = 3; },
+    // Segment 21: filter sweep opens again
+    function(g, t) { g.arr.filterSweepDir = 1; g.arr.filterSweepPhase = 0; },
+    // Segment 22: harmonic shift — 5th (bright tension)
+    function(g, t) { g.nextRootShift = 7; rebuildGridLayers(g, t); },
+    // Segment 23: bass walk chromatic
+    function(g, t) { g.arr.bassWalk = 3; },
+    // Segment 24: snare rolls on 2&4
+    function(g, t) { g.arr.snareRoll = true; },
+    // Segment 25: ride pattern variation
+    function(g, t) { g.arr.ridePattern = 1; },
+    // Segment 26: strip back — remove ride & clap (contrast)
+    function(g, t) { g.arr.ride = false; g.arr.clap = false; g.arr.hatPat = 0; },
+    // Segment 27: rebuild with new kick
+    function(g, t) { g.arr.kickPat = 4; g.arr.hatPat = 2; },
+    // Segment 28: harmonic home — back to root
+    function(g, t) { g.nextRootShift = 0; rebuildGridLayers(g, t); },
+    // Segment 29: everything back, ride returns
+    function(g, t) { g.arr.ride = true; g.arr.clap = true; },
+    // Segment 30: wobble saw at higher rate
+    function(g, t) { g.arr.wobbleShape = 1; g.arr.wobbleRate = 2.0; },
+    // Segment 31: bass walk back to phrygian
+    function(g, t) { g.arr.bassWalk = 1; },
+    // After 32 segments (~8 min), cycle through a condensed version
+  ];
+
+  function applyDJMove(seg, time) {
+    var moveIdx = seg;
+    // After the sequence ends, cycle through segments 8-31 (the interesting part)
+    if (moveIdx >= DJ_MOVE_SEQUENCE.length) {
+      moveIdx = 8 + ((moveIdx - DJ_MOVE_SEQUENCE.length) % 24);
+    }
+    var move = DJ_MOVE_SEQUENCE[moveIdx];
+    if (move) move(grid, time);
+  }
+
+  function rebuildGridLayers(g, time) {
+    var edm = lens.edm || {};
+    var newSubFreq = (edm.subFreq || 55) * Math.pow(2, g.nextRootShift / 12);
+    try { Audio.set808SubFreq(newSubFreq); } catch(e) {}
+    try { Audio.edm.buildWobble(newSubFreq, 3.5); } catch(e) {}
+    try { Audio.edm.buildSub(newSubFreq); } catch(e) {}
+  }
+
   function updateGrid(brainState, sensor, dt) {
     if (!lens || !lens.edm || !Audio.ctx) return;
     var edm = lens.edm;
@@ -2323,8 +2439,7 @@ const Follow = (function () {
     // Apply shifted root so scaleFreq() picks it up for bass walks, stabs, etc.
     root = grid.currentRootFreq;
 
-    // Long-term filter automation (independent of tilt — adds slow movement)
-    grid.filterAutoPhase += dt * 0.15;  // very slow sweep
+    // (filter sweeps handled by DJ move system via grid.arr.filterSweepPhase)
 
     // ── 1. START: first motion starts the DJ set ──
     if (!grid.started) {
@@ -2354,6 +2469,22 @@ const Follow = (function () {
       grid.lastBar = newBar;
       grid.totalBars++;
       isNewBar = true;
+    }
+
+    // ── 2b. DJ SET EVOLUTION — every 8 bars (~15s), one thing changes ──
+    // Like a DJ bringing up a fader. Never jarring. Always fresh.
+    grid.segment = Math.floor(grid.totalBars / 8);
+    if (grid.segment > grid.lastSegment && grid.phase !== 'waiting' && grid.phase !== 'intro') {
+      grid.lastSegment = grid.segment;
+      applyDJMove(grid.segment, time);
+    }
+    // Filter sweep automation (smooth, continuous)
+    if (grid.arr.filterSweepDir !== 0) {
+      grid.arr.filterSweepPhase += dt * grid.arr.filterSweepDir * 0.25;
+      grid.arr.filterSweepPhase = Math.max(0, Math.min(1, grid.arr.filterSweepPhase));
+      if (grid.arr.filterSweepPhase >= 1 || grid.arr.filterSweepPhase <= 0) {
+        grid.arr.filterSweepDir = 0;  // sweep complete
+      }
     }
 
     // ── 3. INTENSITY + PUMP STYLE ──
@@ -2471,9 +2602,9 @@ const Follow = (function () {
     }
 
     // Apply filter: kill switch overrides zone filter
-    // Long-term auto-modulation adds subtle movement independent of tilt
-    var filterAuto = Math.sin(grid.filterAutoPhase) * 0.08 * zoneFilter;
-    var filterTarget = grid.killActive ? filterRange[0] * 0.4 : (zoneFilter + filterAuto);
+    // DJ move sweep adds smooth long-term movement (0-1 phase → filter range)
+    var sweepOffset = grid.arr.filterSweepPhase * (filterRange[1] - filterRange[0]) * 0.3;
+    var filterTarget = grid.killActive ? filterRange[0] * 0.4 : (zoneFilter + sweepOffset);
     grid.filterSmooth += (filterTarget - grid.filterSmooth) * 0.04;
     try { Audio.setMasterFilter(grid.filterSmooth); } catch(e) {}
 
@@ -2562,21 +2693,8 @@ const Follow = (function () {
           grid.phaseTimer = 0;
           grid.buildLevel = 0;
           grid.highEnergyTime = 0;
-          grid.wobbleShape = grid.cycle % 3;
           grid.cycle++;
-
-          // ── SET EVOLUTION: each cycle brings new elements ──
-          grid.kickVariant = Math.min(grid.cycle, GRID_KICK_VARIANTS.length - 1);
-          grid.hatStyle = Math.min(grid.cycle, GRID_HAT_VARIANTS.length - 1);
           grid.breakdownStyle = grid.cycle % 4;
-          grid.dropCharacter = grid.cycle;  // intensity escalates
-          // Ride cymbal: introduced from cycle 3+
-          if (grid.cycle >= 3) grid.rideActive = true;
-          // Harmonic shift: moves every 2 cycles
-          var shiftIdx = Math.min(grid.cycle, ROOT_SHIFTS.length - 1);
-          grid.nextRootShift = ROOT_SHIFTS[shiftIdx];
-          // Filter automation rate varies per cycle
-          grid.filterAutoRate = 0.08 + (grid.cycle % 3) * 0.04;
 
           // ── VOCAL DOUBLE DROP ──
           if (grid.vocalDropReady) {
@@ -2621,8 +2739,8 @@ const Follow = (function () {
         if (lowE && grid.phaseTimer > 5) grid.buildLevel += dt * 0.18;
         else grid.buildLevel = Math.max(0, grid.buildLevel - dt * 0.4);
 
-        // Escalation: later cycles hit harder (more wobble, more sub, tighter sidechain)
-        var cycleBoost = Math.min(0.15, grid.cycle * 0.025);  // +2.5% per cycle, cap at 15%
+        // Escalation: later segments hit harder (more wobble, more sub, tighter sidechain)
+        var cycleBoost = Math.min(0.15, grid.segment * 0.008);  // gradual ramp over the set
 
         // Zone-shaped layer volumes — tilt position shapes the MIX
         var dropWobble = (0.12 + grid.intensity * 0.12 + cycleBoost);
@@ -2630,10 +2748,6 @@ const Follow = (function () {
 
         var dropSub = (0.10 + grid.intensity * 0.08 + cycleBoost * 0.6);
         try { Audio.layer.setGain('edm-sub', dropSub * zoneSubMix * rollBass, 0.3); } catch(e) {}
-
-        // Filter automation: slow sweep adds movement even when user is steady
-        var filterAuto = Math.sin(grid.filterAutoPhase) * 0.12;
-        var autoFilterOffset = filterAuto * zoneFilter;
 
         // Sidechain from archetype — bouncing = HARD pump, waving = lighter
         var dropSC = 0.45 + grid.pumpIntensity * 0.3 + cycleBoost;
@@ -2647,9 +2761,8 @@ const Follow = (function () {
           try { Audio.pumpSidechain(0.9); } catch(e) {}
         }
 
-        // Max drop → breakdown (later cycles sustain longer drops)
-        var dropMaxTime = 35 + Math.min(20, grid.cycle * 5);  // 35s → 55s max
-        if (grid.buildLevel > 1.8 || grid.phaseTimer > dropMaxTime) {
+        // Max drop → breakdown
+        if (grid.buildLevel > 1.8 || grid.phaseTimer > 35) {
           grid.phase = 'breakdown';
           grid.phaseTimer = 0;
           grid.buildLevel = 0;
@@ -2715,17 +2828,6 @@ const Follow = (function () {
           try { Audio.layer.setGain('edm-sub', 0.06, 1.5); } catch(e) {}
           // Restore dry reverb (coming out of breakdown space)
           try { Audio.setReverbMix(0.15); } catch(e) {}
-
-          // Harmonic shift happens on re-entering build — next cycle's root
-          var shiftIdx = Math.min(grid.cycle, ROOT_SHIFTS.length - 1);
-          grid.nextRootShift = ROOT_SHIFTS[shiftIdx];
-          // Rebuild layers at new root if shifted
-          if (Math.abs(grid.rootShift - grid.nextRootShift) > 0.5) {
-            var newSubFreq = (edm.subFreq || 55) * Math.pow(2, grid.nextRootShift / 12);
-            try { Audio.set808SubFreq(newSubFreq); } catch(e) {}
-            try { Audio.edm.buildWobble(newSubFreq, 3.5); } catch(e) {}
-            try { Audio.edm.buildSub(newSubFreq); } catch(e) {}
-          }
         }
         break;
     }
@@ -2741,18 +2843,13 @@ const Follow = (function () {
     grid.chordStabCooldown = Math.max(0, grid.chordStabCooldown - dt);
     grid.tensionSwellTimer = Math.max(0, grid.tensionSwellTimer - dt);
 
-    // Archetype shapes wobble character
-    if (archetype === 'bouncing' && archetypeConfidence > 0.3) {
-      // Fist pumping: square wobble for choppy gate feel, wobble follows pump rhythm
-      grid.wobbleShape = 2;  // square
-    } else if (archetype === 'waving' && archetypeConfidence > 0.3) {
-      // Hand swap: smooth sine wobble, slower, more melodic
-      grid.wobbleShape = 0;  // sine
-    } else if (archetype === 'walking') {
-      // Steady rhythm: saw-down for aggressive drive
-      grid.wobbleShape = 1;  // saw-down
+    // Wobble shape: DJ move sets the base, archetype modulates it
+    grid.wobbleShape = grid.arr.wobbleShape;
+    if (archetype === 'bouncing' && archetypeConfidence > 0.4) {
+      grid.wobbleShape = 2;  // square overrides during strong bouncing
+    } else if (archetype === 'waving' && archetypeConfidence > 0.4) {
+      grid.wobbleShape = 0;  // sine overrides during strong waving
     }
-    // else: keep current shape (exploring = don't override)
 
     // Tension swell: exploring archetype triggers slow evolving pad texture
     if (archetype === 'exploring' && grid.tensionSwellTimer <= 0 &&
@@ -2764,9 +2861,8 @@ const Follow = (function () {
       grid.tensionSwellTimer = 4 + Math.random() * 3;  // 4-7s cooldown
     }
 
-    // ── 9. WOBBLE: zone-shaped, roll-influenced ──
-    // Rate comes from zone (not phase-locked formula) — user's tilt position controls feel
-    var wobbleR = zoneWobbleRate || 1;
+    // ── 9. WOBBLE: zone-shaped, roll-influenced, DJ-move modulated ──
+    var wobbleR = (zoneWobbleRate || 1) * grid.arr.wobbleRate;
     // Roll adds asymmetric rate boost — tilting right speeds up slightly
     if (grid.rollNorm > 0.2) wobbleR *= (1 + (grid.rollNorm - 0.2) * 0.8);
     grid.wobblePhase += dt * (grid.bpm / 60) * wobbleR;
@@ -2790,22 +2886,24 @@ const Follow = (function () {
       var isBreakdown = grid.phase === 'breakdown';
       // (isCut removed — cut-then-slam was the muting glitch)
 
-      // HAT pattern: evolves per cycle + zone-influenced during drop
+      // HAT pattern: evolves via DJ moves + zone-influenced during drop
       var hatPat;
-      var evolvedHat = GRID_HAT_VARIANTS[grid.hatStyle] || GRID_HAT;
-      if (isDrop) {
-        // High zone: driving pattern from cycle. Low zone: sparse offbeats.
-        hatPat = grid.tiltZone >= 2 ? (grid.cycle >= 2 ? GRID_HAT_VARIANTS[Math.min(4, grid.hatStyle + 1)] || GRID_HAT_DROP : GRID_HAT_DROP) : evolvedHat;
+      var arrHat = GRID_HAT_VARIANTS[grid.arr.hatPat] || GRID_HAT;
+      if (isDrop && grid.tiltZone >= 2) {
+        // High zone during drop: one step more driving than current
+        var dropHatIdx = Math.min(4, grid.arr.hatPat + 1);
+        hatPat = GRID_HAT_VARIANTS[dropHatIdx] || GRID_HAT_DROP;
+      } else if (isDrop) {
+        hatPat = arrHat;
       } else if (isBuild && grid.buildLevel > 0.4) {
         hatPat = GRID_HAT_BUILD;
       } else {
-        hatPat = evolvedHat;
+        hatPat = arrHat;
       }
 
       // ── KICK ──
-      // Pattern evolves per cycle — each drop brings a different groove.
-      // Breakdown: softer kicks, sparser pattern — but still grooving.
-      var kickPat = GRID_KICK_VARIANTS[grid.kickVariant] || GRID_KICK;
+      // Pattern evolves via DJ moves — like a DJ switching between kick patterns.
+      var kickPat = GRID_KICK_VARIANTS[grid.arr.kickPat] || GRID_KICK;
       var kv = kickPat[newStep] || 0;
 
       // ── KICK FILLS: every 4th or 8th bar, replace straight pattern ──
@@ -2858,8 +2956,19 @@ const Follow = (function () {
         }
       }
 
+      // ── SNARE ROLL: DJ move adds 16th ghost snares around beats 2&4 ──
+      if (grid.arr.snareRoll && isDrop && !isIntro) {
+        // Steps 3,5 and 11,13 = ghost 16ths flanking the main snare
+        if (newStep === 3 || newStep === 5 || newStep === 11 || newStep === 13) {
+          var rollVel = 0.15 * grid.djGain;
+          if (rollVel > 0.03) {
+            try { Audio.drum.snare(time, rollVel, kit); } catch(e) {}
+          }
+        }
+      }
+
       // ── HATS ──
-      // Evolved per cycle. Breakdown: sparse. Drop: driving.
+      // Evolved via DJ moves. Breakdown: sparse. Drop: driving.
       var hv = hatPat[newStep] || 0;
       if (hv > 0 && !isIntro) {
         var hatLevel;
@@ -2873,12 +2982,32 @@ const Follow = (function () {
         }
       }
 
-      // ── RIDE: introduced from cycle 3+, adds shimmer on every other beat ──
-      if (grid.rideActive && isDrop && (newStep === 0 || newStep === 8)) {
-        var rideVel = 0.15 + grid.intensity * 0.1;
-        rideVel *= grid.djGain * rollTreble;
-        if (rideVel > 0.03) {
-          try { Audio.drum.ride(time, rideVel, kit); } catch(e) {}
+      // ── RIDE: brought in by DJ move, adds shimmer ──
+      if (grid.arr.ride && !isIntro && !isBreakdown) {
+        var rideHit = false;
+        if (grid.arr.ridePattern === 0) {
+          rideHit = (newStep === 0 || newStep === 8);  // half notes
+        } else {
+          rideHit = (newStep % 4 === 0);  // quarter notes — busier
+        }
+        if (rideHit) {
+          var rideVel = 0.12 + grid.intensity * 0.1;
+          rideVel *= grid.djGain * rollTreble;
+          if (isDrop) rideVel *= 1.2;
+          if (rideVel > 0.03) {
+            try { Audio.drum.ride(time, Math.min(0.4, rideVel), kit); } catch(e) {}
+          }
+        }
+      }
+
+      // ── CLAP: brought in by DJ move, layers on snare beats ──
+      if (grid.arr.clap && !isIntro && (isDrop || isBuild) && (newStep === 4 || newStep === 12)) {
+        var clapVel = 0.2 + grid.intensity * 0.15;
+        clapVel *= grid.djGain;
+        if (isBuild) clapVel *= grid.buildLevel;
+        if (clapVel > 0.04) {
+          // Clap = snare with slightly different timing (layered 5ms late)
+          try { Audio.drum.snare(time + 0.005, clapVel * 0.5, kit); } catch(e) {}
         }
       }
 
@@ -2924,13 +3053,11 @@ const Follow = (function () {
       }
 
       // ── WALKING BASS: phrygian bass line on beat ──
-      // Evolves per cycle — simple roots early, chromatic walks later.
-      // Breakdown: longer decay, simpler pattern.
+      // Evolves via DJ moves — simple roots early, chromatic walks later.
       if (!isIntro && (newStep === 0 || newStep === 8)) {
         grid.subPulseStep = newStep;
 
-        // Bass patterns evolve: more complex walking in later cycles
-        var walkIdx = Math.min(Math.floor(grid.cycle / 2), BASS_WALKS.length - 1);
+        var walkIdx = Math.min(grid.arr.bassWalk, BASS_WALKS.length - 1);
         var bassPatterns = BASS_WALKS[walkIdx];
         var bassPat = bassPatterns[grid.totalBars % bassPatterns.length];
         var bassNote = newStep === 0 ? bassPat[0] : bassPat[1];
@@ -2947,17 +3074,23 @@ const Follow = (function () {
         if (bassV > 0.03) {
           try { Audio.synth.bassPluck(time + 0.005, bassFreq, bassV, bassDur); } catch(e) {}
           try { Audio.synth.subPulse(time + 0.005, bassFreq, bassV * 0.6, bassDur); } catch(e) {}
+          // Sub octave doubling: deeper layer when DJ move activates it
+          if (grid.arr.subOctave) {
+            try { Audio.synth.subPulse(time + 0.005, bassFreq * 0.5, bassV * 0.35, bassDur * 1.5); } catch(e) {}
+          }
         }
       }
     }
 
-    // ── 11. PAD: zone-shaped ──
+    // ── 11. PAD: zone-shaped, DJ-move modulated ──
     var padTarget;
     if (grid.phase === 'intro')          padTarget = 0.05 + Math.min(0.06, grid.phaseTimer * 0.008);
     else if (grid.phase === 'build')     padTarget = 0.04 + grid.buildLevel * 0.04;
     else if (grid.phase === 'drop')      padTarget = 0.05 + grid.intensity * 0.05;
     else if (grid.phase === 'breakdown') padTarget = 0.10;
     else padTarget = 0;
+    // Pad open: DJ move widens the filter for texture
+    if (grid.arr.padOpen && grid.phase !== 'intro') padTarget *= 1.3;
     try { Audio.layer.setGain('edm-pad', padTarget * grid.djGain, 0.5); } catch(e) {}
     try { Audio.layer.setFilter('edm-pad', zonePadFilter || 500, 0.4); } catch(e) {}
 
