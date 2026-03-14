@@ -154,31 +154,34 @@ Everything else serves this core loop.
 - Has been at this for months. Gets frustrated when sessions produce code cleanup instead of musical transformation. The sound must actually CHANGE, not just the code structure.
 - The Producer's veto is real: "Does this make you FEEL something?" If moving the phone doesn't feel like playing an instrument, we've failed.
 
-## Current State (v40)
+## Current State (BUILD 81 — March 13, 2026)
 
-- **v40 brought back the orchestra** — 6 audio layers (pad, bass, atmosphere, strings, shimmer, choir), convolver reverb, delay line with feedback, evolution stages (EMERGING → FLOWING → SURGING → TRANSCENDENT).
-- **Motion drives layers**: still = pad + atmosphere; gentle = +bass; rhythmic = +strings +drums; vigorous = +shimmer; transcendent = +choir.
-- **Evolution stages** driven by totalMotion flywheel — the more you move over time, the more the sound opens up. Each stage shifts harmonic root up by a 5th.
-- **Convolver reverb** gives real space. Delay line syncs to BPM. TiltY modulates reverb send.
-- **Notes and gestures** route through delay for echoing trills, arpeggios, etc.
-- **v39 fixed motion** — G7 Flywheel pattern still intact.
-- **Reference**: commit `88d4c32` (G7 Fly) had great motion. Study it.
-- **Read `.gump/` FIRST** — especially `producer.md` and `dialogue.md`. 19 sessions of vision are captured there.
+- **BUILD 81** — follow.js v79, audio.js v47, lens.js v58
+- **7 lenses**: The Conductor, Blue Hour, Drift, Tundra, Still Water, Dark Matter, Grid
+- **Three-act arc**: 0-90s sparse → 90-300s sus4 floating → 300s+ home + sub voices
+- **Deceptive cadence tension arc** (Tundra + Still Water): V→VI near-misses, then BOOM V→I
+- **Autonomy gates**: harmonic rhythm/gravity/call-response all wait for Brain.short.energy()
+- **Melodic energy gate**: per-lens minimum motion to fire tilt melody — lenses are now distinct
+- **Grid supersaw**: TikTok harmonic stacking (root + m3 + P5 + m7 + oct), resonant sweep
+- **Still Water**: strings voice with vibrato (was mono triangle = same as Drift)
+- **Void**: 6 cosmic partials + 3 wind bands, smooth voidPresence, routes to masterHPF
+- **Kick on peaks**: fires without tempoLocked (James tilts, doesn't bounce)
+- **Reference**: commit `88d4c32` (G7 Fly) had great motion feel — study if motion goes dead
+- **Read `.gump/` FIRST** — especially `state.md`, `musician.md`, `dialogue.md`
 
-## Code Structure (v39)
-
-The codebase is now modular (not one HTML file):
+## Code Structure (BUILD 81)
 
 ```
-index.html              — Entry point, bootstrap, permissions (G7 pattern)
-js/main.js              — Minimal loop: canvas + input + organism + conductor
-js/audio/engine.js      — AudioContext + music theory
-js/core/events.js       — Event bus (motion.spike)
-js/core/motion.js       — Kalman filter, 7 spiking neurons, void state (GOLD)
-js/core/memory.js       — STDP learning, ESN prediction (the brain)
-js/core/context.js      — Weather API + time of day
-js/journey/conductor.js — THE instrument engine: synthesis, tilt expression, groove, gestures
-js/journey/musical-dna.js — 5 personality traits + lens integration
-js/journey/lens.js      — Artist presets (College Dropout, Ambient Sunday, etc.)
-js/visuals/organism.js  — The visual: harmonic polar organism on black canvas
+index.html          — Bootstrap, HTML/CSS, BUILD number (must match follow.js version)
+js/sensor.js        — DeviceMotion, DeviceOrientation, touch
+js/brain.js         — Kalman filter, 7 LIF neurons, Brain.short/medium/long.energy()
+js/audio.js         — v47: 13 synth voices, drums, void drone, effects chain
+js/follow.js        — v79: THE ENGINE. All musical logic. Body → music.
+js/lens.js          — v58: 7 lens configs
+js/organism.js      — Visual: harmonic polar creature on canvas
+js/app.js           — Main loop, state machine
 ```
+
+**CRITICAL routing**: `voidGain.connect(masterHPF)` not `masterGain`. masterGain → 0 during silence. Void must bypass it.
+
+**DO NOT re-introduce**: root drift via ARC_JOURNEY or epigenetic rootSemiTarget — caused melody to chase upward indefinitely.

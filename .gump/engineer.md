@@ -4,80 +4,115 @@
 
 ---
 
-## Current Assessment
+## Current Architecture (BUILD 81)
 
-### What's Working
-- Web Audio API synthesis runs smooth on mobile
-- Device motion/orientation events captured
-- Touch input mapped to field position
-- Visual feedback via canvas at 60fps
-- Reverb + delay effects chain
+Fully modular. No monolithic index.html — that was three versions ago.
 
-### Technical Debt
-- No microphone input yet - critical for "music from experience"
-- No gesture recognition - just raw position
-- No memory between sessions - every load starts fresh
-- Single-file architecture (index.html) getting unwieldy at 700 lines
-
-### Performance Observations
-- `requestAnimationFrame` loop handles audio + visuals
-- Audio runs at browser's native sample rate (usually 44.1kHz or 48kHz)
-- Device motion events fire at ~60Hz
-- No Web Workers yet - everything on main thread
-
----
-
-## Architecture Ideas
-
-### Modular Rewrite
 ```
-/src
-  /input      - sensor capture, gesture detection
-  /audio      - synthesis, effects, mixing
-  /theory     - scales, chords, rhythm rules
-  /memory     - session state, learned patterns
-  /visual     - canvas rendering
-  main.js     - orchestration
+index.html          — Bootstrap only. BUILD=81. Script tags with ?v=N cache busting.
+js/sensor.js        — DeviceMotion, DeviceOrientation, touch events
+js/brain.js         — Kalman filter, 7 LIF spiking neurons, ring buffers,
+                       void state detection, Brain.short/medium/long energy APIs
+js/audio.js         — v47: Web Audio graph, 13 synth voices, drum engines,
+                       void drone (6 partials + 3 wind bands), spatial pan,
+                       effects chain (reverb, delay, EQ, limiter)
+js/follow.js        — v79: THE ENGINE. All musical logic.
+js/lens.js          — v58: 7 lens configs (palette, harmony, space, response, motion, emotion)
+js/organism.js      — Canvas visual: harmonic polar creature
+js/app.js           — Main loop, state machine, wires Brain → Follow
 ```
 
-### For Real-Time Microphone
-- `getUserMedia()` for mic access
-- `AnalyserNode` for frequency data
-- Pitch detection: autocorrelation or FFT peak finding
-- Onset detection for rhythm extraction
-- CRITICAL: Keep latency under 20ms or it feels broken
+### Web Audio Signal Chain
+```
+synths → sidechainGain → compressor → masterGain → masterHPF →
+  eqLowShelf → eqMidPeak → eqHighShelf → masterLP → masterLimiter →
+  spatialPanner → destination
 
-### For Gesture Recognition
-- Sliding window over accelerometer data
-- Pattern matching against known gestures
-- Or: train a small model, export to TensorFlow.js
-- Simpler: detect "shake", "tilt", "tap", "hold", "swipe"
+voidGain → masterHPF    (CRITICAL: void bypasses masterGain — stays audible during silence)
+drumCompressor → drumLP → masterHPF
+```
 
----
-
-## Questions for the Team
-
-1. **Musician**: What's the minimum musical response time that feels "live"?
-2. **Physicist**: Is there a transform that maps 3D acceleration to a musical parameter space more naturally than linear mapping?
-3. **Both**: Should gestures trigger discrete events (like MIDI notes) or continuous modulation?
+### iOS Audio Rules (hard-won)
+- AudioContext must be unlocked via user gesture (silent buffer on first tap)
+- HTMLAudioElement.play() outside gesture handler = blocked on iOS
+- Use fetch + decodeAudioData through existing AudioContext for voice files
+- touchend (not touchstart) for gesture-triggered audio
 
 ---
 
-## Next Technical Priorities
+## What's Working Well
 
-1. Add microphone input with pitch detection
-2. Implement gesture vocabulary (5-7 basic gestures)
-3. Create session memory (localStorage for now, maybe IndexedDB later)
-4. Profile and optimize - find the bottlenecks
+- 60fps rAF loop handles everything on main thread — no Web Workers needed yet
+- Device motion at ~60Hz, Kalman-filtered for smooth derivatives
+- Brain.short.energy() / Brain.medium.energy() = key motion APIs used everywhere
+- Per-lens groove DNA table drives drums independently from synth
+- Cache busting: bump ?v=N on any JS file change, bump BUILD in index.html together
 
 ---
 
-## Notes
+## Key Decisions Made This Session (March 2026)
 
-*Real-time audio on mobile web is hard. We're fighting against:*
-- *Garbage collection pauses*
-- *Browser audio policies (user gesture required)*
-- *Variable device motion event rates*
-- *Battery throttling*
+### Autonomy Gates
+All autonomous timer-based systems now check `Brain.short.energy()` before advancing:
+- `updateHarmonicRhythm`: timer pauses when energy < 0.12
+- `updateHarmonicGravity`: timer pauses when energy < 0.10
+- `triggerCallResponse`: only fires when energy > 0.25
+- `processAnswer`: cancels if user goes still (energy < 0.08 or isSilent)
 
-*But it's not impossible. Tone.js, pizzicato.js, and many music apps prove it can be done.*
+**Why**: "music is finishing and playing more than I'm instigating" — music should only move when the body moves.
+
+### Void Routing Fix
+`voidGain.connect(masterHPF)` not `masterGain`. During silence, masterGain.gain fades to ~0 via `fadeGain`, which killed void audio. masterHPF is post-masterGain in the chain.
+
+### Root Drift Killed
+`ARC_JOURNEY = [0,0,0,0]` — was causing melody to chase upward by +7 semitones.
+Epigenetic `rootSemiTarget` drift also disabled — same problem.
+Do NOT re-enable these without careful thought.
+
+### Melodic Energy Gate
+Per-lens `melodicEnergy` (float) and `melodicMinDelta` (int) in lens.js response object.
+`updateTiltPitch` checks `Brain.short.energy() >= melodicEnergy` before firing any note.
+This is what makes lenses distinct — different minimum motion required.
+
+### Grid Voice (synthGridStack in audio.js)
+TikTok supersaw: root + minor 3rd + perfect 5th + minor 7th + octave.
+Each interval has 2-3 detuned sawtooth copies. Resonant LP sweep 180→3800Hz over 50ms, Q=3.
+7ms attack, 450ms decay. `noteInterval: 140` for tactile feel.
+
+### Still Water Voice ('strings')
+5-voice detuned oscillators + 5.2Hz vibrato LFO + slow bow swell.
+Was 'mono' (triangle) before — sounded the same as Drift.
+
+---
+
+## Technical Debt / Pending
+
+### Kick Drum Redesign
+James flagged as "gross" and "makes or breaks every song." Currently deferred.
+When we address this, need to understand WHAT is gross:
+- Too clicky? (the click oscillator at 0.88 vel)
+- No body? (the swept sine)
+- Wrong per-lens kit? (acoustic/808/brushes/glitch all use similar synthesis)
+This needs a dedicated session, not a parameter tweak.
+
+### No Microphone Input
+Long-term goal. Requires getUserMedia + onset detection.
+Keep latency under 20ms or it breaks immersion.
+
+---
+
+## Performance Notes
+
+- Everything on main thread — GC pauses are a real risk on mobile
+- No setTimeout chains for audio — use AudioContext.currentTime scheduling
+- NEVER use setInterval for audio — drift is audible
+- Battery throttling on iPhone can reduce DeviceMotion rate — Brain adapts
+
+---
+
+## Deploy Checklist
+
+1. Change JS file → bump `?v=N` on that script tag in index.html
+2. Bump `BUILD` number in index.html
+3. `git add -A && git commit -m "BUILD N: description"`
+4. `git push` → GitHub Pages serves automatically

@@ -4,6 +4,78 @@
 
 ---
 
+## Session ~19 — March 13, 2026 (BUILD 78→81)
+
+### The Autonomy Problem
+
+**JAMES**: "Music is finishing and playing more than I'm instigating."
+
+**MUSICIAN**: This is the core tension. We built autonomous systems — harmonic rhythm, harmonic gravity, call & response — because music needs motion. But they were running on CLOCKS, not on the user's body. The clock doesn't care if you're playing or standing still.
+
+**ENGINEER**: The fix is simple in principle: every timer-based system checks `Brain.short.energy()` before advancing. Below a threshold, the timer freezes. Music pauses mid-sentence. The moment you move, it picks up exactly where it left off.
+
+**PRODUCER**: This is right. The music should feel like it's FOLLOWING you, not running alongside you. If you stop, it stops. Your body is the conductor. The conductor's arms down = orchestra holds.
+
+---
+
+### The Lens Sameness Problem
+
+**JAMES**: "Everyone one of them have a like keyboard lead that kinda plugs around... the lenses can not be similar in any way."
+
+**MUSICIAN**: The problem was `updateTiltPitch` — it fired notes on ANY degree change, even micro-drift from holding the phone. Every lens was just "different synth voice, same constant melodic chatter." It sounded like different instruments playing the same part.
+
+**ENGINEER**: Solution: `melodicEnergy` per lens. Each lens declares the minimum `Brain.short.energy()` to fire a note. Conductor = 0.9 (near-silent on tilt, peaks only). Tundra = 0.38 with `melodicMinDelta:2` (must jump 2+ degrees). Still Water = 0.18 (flows easily). Grid = 0.45 (needs real movement).
+
+**PRODUCER**: Now the Conductor is an ORCHESTRA you're conducting — not a keyboard lead you're accidentally playing. Tundra has RESTRAINT. Still Water FLOWS. These are different instruments now, not different colors of the same thing.
+
+---
+
+### The Three-Act Arc
+
+**JAMES**: "My epigenetic idea needs to be imagined. The music must evolve much like any classical has its moments."
+
+**MUSICIAN**: Classical music is a journey. Sonata form: exposition (Act I), development (Act II), recapitulation (Act III). We mapped this to engagement time: sparse emergence → floating suspension → return home.
+
+The sus4 substitution for Act II is the Inception trick. ONE note changes in the scale — the 3rd becomes the 4th — and the entire emotional color lifts. Major becomes open. Dorian becomes floating. Phrygian becomes suspended. No key change. Just one note.
+
+**PRODUCER**: `scale[2] = scale[3]`. That's it. That's Inception. Hans Zimmer would approve.
+
+---
+
+### The Deceptive Cadence
+
+**JAMES**: "Like that Hans Zimmer thing in Interstellar docking scene where the melody dances around almost resolving but never does until BOOM it does and he lets everything unfold."
+
+**MUSICIAN**: V→I is the oldest promise in Western music. Zimmer's trick: make the promise, then break it. V → VI (not I) = "almost... but no." Each near-miss raises tension. The listener ACHES for resolution. When it finally lands, the contrast is overwhelming.
+
+**ENGINEER**: State machine: building → near-miss (V→VI) → building (shorter) → near-miss → building (shorter) → resolving (V→I in THREE registers simultaneously). Reverb closes in during near-misses, EXPLODES open on resolution.
+
+**PRODUCER**: Tundra's Picardy major 3rd appears in the near-misses (flicker of light, then taken away) and then solidly in the BOOM (grief finally finding hope). Still Water's lydian #4 grace note floats just before settling. Each lens' resolution has its own voice.
+
+---
+
+### The Void
+
+**JAMES**: "A sea of sound that rolls around. Maybe even some wind like cosmic void."
+
+**PRODUCER**: The void is not silence. It's the UNIVERSE breathing. Six harmonic partials, each with its own slow amplitude pulse and pitch drift — like different stars vibrating at different rates. Plus three bands of wind noise (low rumble, mid whoosh, high shimmer) each independently breathing.
+
+**ENGINEER**: `voidGain.connect(masterHPF)` — the routing fix that made void actually audible during silence. masterGain fades to zero during silence (that's how silence works), so void HAD to bypass it. masterHPF is downstream, always open.
+
+`voidPresence` (0→1) replaces the old binary on/off. Builds in 8s, decays slowly based on how hard the user is moving. Smooth re-entry blends with the music, not a hard cut.
+
+---
+
+### The Grid
+
+**JAMES**: "This is supposed to be the viral TikTok trend with 3rds, 5ths, 7ths, 8ths with unison detune."
+
+**ENGINEER**: `synthGridStack`: root + minor 3rd (×1.1892) + perfect 5th (×1.4983) + minor 7th (×1.7818) + octave (×2.0). Each interval has 2-3 detuned sawtooth copies. Resonant LP filter sweeps 180Hz→3800Hz in 50ms at Q=3.0 — the whoop. 7ms attack, 450ms decay.
+
+**MUSICIAN**: `noteInterval: 140ms` — every 140ms is the maximum rate. Fast enough to feel tactile, slow enough to be musical. The harmonic stacking means you're playing a minor 7th chord on every tap, but it feels like one big sound.
+
+---
+
 ## Session 1 - January 21, 2026
 
 ### Opening the Conversation

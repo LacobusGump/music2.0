@@ -1,112 +1,171 @@
 # Current State
 
-*Last updated: March 2, 2026*
+*Last updated: March 13, 2026 — BUILD 81*
 
 ---
 
-## THIS IS MUSIC 2.0 (v11)
+## What GUMP Is Right Now
 
-**The fundamental inversion**: Music dances to the user. The user does not dance to the music.
+A modular, phone-based musical instrument. Tilt = melody. Motion = rhythm. Stillness = silence. The body IS the composition.
 
-There is NO clock. There are NO pre-written patterns. No BPM. No motifs. No chord progressions.
-Your body IS the composition. The music FOLLOWS you.
+**Live:** lacobusgump.github.io/music2.0/
 
 ---
 
 ## Architecture
 
 ```
-index.html          — Bootstrap, screens, HTML/CSS
-js/sensor.js        — Accelerometer, gyroscope, touch, weather, time
-js/brain.js         — Kalman filter, Fibonacci ring buffers, 7 LIF spiking neurons, void state
-js/audio.js         — Pure sound: 13 synth engines, 5 drum voices, 4-band per-lens EQ, effects
-js/follow.js        — THE ENGINE: body → music. Peak detection, tilt→pitch, stillness→silence
-js/lens.js          — 6 timbral palettes (not behavior configs — just WHAT sounds respond)
-js/organism.js      — Visual creature on canvas
-js/app.js           — State machine, main loop, wires body data → Follow engine
+index.html          — Bootstrap, screens, HTML/CSS. BUILD number lives here.
+js/sensor.js        — Accelerometer, gyroscope, touch
+js/brain.js         — Kalman filter, 7 LIF spiking neurons, void state, energy
+js/audio.js         — v47: 13 synth engines, drums, void drone, EQ, effects chain
+js/follow.js        — v79: THE ENGINE. Body → music. All musical logic lives here.
+js/lens.js          — v58: 7 timbral palettes (The Conductor, Blue Hour, Drift,
+                           Tundra, Still Water, Dark Matter, Grid)
+js/organism.js      — Visual: harmonic polar creature on black canvas
+js/app.js           — State machine, main loop, wires sensors → Follow
 ```
 
-**Key difference from every previous version**: follow.js has no `setInterval`, no beat counter, no autonomous clock. It reads your body on every animation frame and responds.
+**Script versions in index.html must match actual files. When deploying, bump ?v=N on the changed file AND bump BUILD in index.html.**
 
 ---
 
-## How It Works
-
-### Your Body → Music
-
-| Your Body | → | Music Response |
-|-----------|---|----------------|
-| **Motion peaks** (steps, bounces, gestures) | → | Rhythmic hits at YOUR tempo |
-| **Tilt** (phone angle) | → | Pitch follows your hand (actual notes, not filter) |
-| **Twist** (gyro rotation) | → | Filter/timbre expression |
-| **Energy** (how much you move) | → | Density (more movement = more voices) |
-| **Stillness** (you stop) | → | REAL SILENCE (not quiet drone — actual silence) |
-| **Gesture type** (shake/sweep/circle/toss) | → | Musical response matched to gesture |
-| **Touch** (screen tap/drag) | → | Direct note playing |
-
-### Peak-Derived Rhythm
-- Brain's spiking neurons detect motion peaks
-- Inter-peak intervals = YOUR tempo (derived, not set)
-- Subdivisions play BETWEEN your peaks at YOUR tempo
-- When peaks are periodic → rhythmic response
-- When peaks are irregular → textural response
-- When no peaks → silence
-
-### Tilt → Pitch
-- Phone tilt (beta angle) maps to scale degrees
-- Not a filter sweep — actual NOTES following your hand
-- Center position (45°) = root note
-- Tilt forward = ascending, tilt back = descending
-- Only fires when degree changes (not continuous spam)
-
-### Stillness → Silence
-- Real silence, not quiet drone
-- After 1.5-2.5 seconds of stillness (per lens), music resolves and fades
-- Resolution note plays when silence begins ("the music knows you stopped")
-- First note when you start again is gentle ("oh, you're here")
-
----
-
-## The 6 Timbral Palettes
-
-Each lens defines WHAT sounds respond to your body. Not WHEN or HOW.
-
-| Lens | Your Peaks → | Your Tilt → | Feel |
-|------|-------------|------------|------|
-| **Conductor** | Brass accents | Organ melody | Orchestra following your hands |
-| **Blue Hour** | Walking bass | Rhodes melody | Smoky jazz, your walk is the bass |
-| **Gospel Sunday** | 808 sub | Organ | Church warmth, building praise |
-| **Tundra** | Single bell | Sparse pluck | Vast silence, each note precious |
-| **Pocket Drummer** | 808 kick | FM stabs | Your body IS the drum machine |
-| **Dark Matter** | Massive 808 | Cascading Rhodes | Weight and shimmer through delay |
-
----
-
-## Audio Pipeline (audio.js)
+## Signal Chain (audio.js)
 
 ```
-Synth engines → LP filter → Sidechain gain → Saturator (asymmetric tube) → Compressor → 4-Band EQ → Output
-Drum bus → Drum compressor → Drum LP (3500) → Master
-4-Band Per-Lens EQ: lowShelf → midPeak → highShelf → masterLP (per-lens tone object)
+synths → sidechainGain → compressor → masterGain → masterHPF →
+  eqLowShelf → eqMidPeak → eqHighShelf → masterLP → masterLimiter →
+  spatialPanner → destination
+
+drums → drumCompressor → drumLP → masterHPF (merges here)
+
+void drone → voidGain → masterHPF   ← IMPORTANT: bypasses masterGain
+                                       so void plays during silence
 ```
 
 ---
 
-## What's Next
+## The 7 Lenses
 
-### Immediate
-1. **Test on iPhone** — Does your walk create a walking bass? Does stopping create silence?
-2. **Tune response sensitivity** — peakThreshold, tiltRange, noteInterval per lens
-3. **The moment test** — Stop your phone. Does the music resolve? Start again. Does it feel alive?
+Each lens: harmony (root + mode), palette (voice assignments), space (reverb/delay), response (thresholds), motion (primary driver), emotion (tension arc, phrase shape), groove (drum DNA).
 
-### Medium-term
-4. **Microphone input** — Your voice enters the music
-5. **Movement-only mode** — No screen, just body to sound
-6. **Harmonic gravity** — Touch notes bend toward consonance
-7. **Natural language lens creation** — Describe a sound, AI builds the palette
+| Lens | Mode | Continuous Voice | Peak Voice | Feel |
+|------|------|-----------------|------------|------|
+| The Conductor | major | organ (hi melodicEnergy=0.9, near-silent tilt melody) | massive | Orchestra |
+| Blue Hour | dorian | Rhodes | brass | Jazz club |
+| Drift | major | mono triangle | epiano | Ambient |
+| Tundra | picardy | piano | piano | Vast silence, picardy grammar |
+| Still Water | lydian | strings (5-voice detuned + vibrato) | strings | Nils Frahm |
+| Dark Matter | phrygian | reverse/FM/glitch | massive | Default boot lens |
+| Grid | phrygian | gridstack (supersaw TikTok) | massive | Electronic/tactile |
+
+**melodicEnergy per lens** — minimum Brain.short.energy() to fire tilt melody:
+- Conductor: 0.9 (almost disabled — peaks only)
+- Grid: 0.45
+- Drift: 0.12
+- Tundra: 0.38 + melodicMinDelta:2
+- Still Water: 0.18
+- Dark Matter: 0.55
+
+**tensionArc: true** on Tundra and Still Water — deceptive cadence Zimmer technique.
 
 ---
 
-*"MUSIC 2.0: Music dances to the user. The user does not dance to the music."*
+## Key Systems in follow.js
 
-**Live at:** lacobusgump.github.io/music2.0/
+### Three-Act Musical Arc (checkActAdvance)
+- Act I (0-90s engaged): Original mode, sparse
+- Act II (90-300s): Sus4 — scale[2] = scale[3], the 3rd replaced by 4th → floating/unresolved
+- Act III (300s+): Home mode restored + parallel sub-octave peak voice
+
+`sessionEngagedTime` only counts active (non-silent) play.
+
+### Deceptive Cadence Tension Arc (updateTensionArc)
+Tundra + Still Water only. State machine: idle → building → near-miss → resolving → cooldown.
+- Near-miss: V bass note → 2.2s → VI (not I) = "almost"
+- Each miss tightens reverb. After 3 misses: V → I in three registers simultaneously = BOOM
+- Cooldown: 40s before repeating
+
+### Harmonic Gravity (updateHarmonicGravity)
+Bass-only V→I cadence. Timer advances ONLY when Brain.short.energy() > 0.10.
+After 18-26s of active play: V bass note announced → 8-12s → V→I resolution.
+
+### Harmonic Rhythm (updateHarmonicRhythm)
+Foundation bass walks I→IV/V→I every 8-16s. Timer only advances when energy > 0.12.
+Fires double bass notes (octave -1 AND -2) for physical depth.
+
+### Melodic Energy Gate (updateTiltPitch)
+Per-lens minimum motion required to fire tilt melody. Stops the "continuous keyboard lead"
+that made all lenses sound the same. Each lens has distinct melodic behavior.
+
+### Void System (updateVoid)
+`voidPresence` (0→1) builds during stillness (8s to full), decays on motion.
+- Fast exit (rate 0.018) when energy > 0.6, slow exit (0.007) for gentle re-entry.
+- 6 cosmic partials with independent amp + pitch LFOs (rolling sea effect)
+- 3 wind bands (160/600/2200Hz) with amplitude LFOs
+- Void routes to masterHPF, NOT masterGain — plays during silence.
+
+### Autonomy Gates (BUILD 81)
+Music waits for YOU. All autonomous timer systems check Brain.short.energy():
+- harmonic rhythm: pauses at < 0.12
+- harmonic gravity: pauses at < 0.10
+- call & response: only triggers at > 0.25, cancels if user goes still
+
+### Peak Kick (no tempo lock required)
+James tilts, doesn't bounce — tempoLocked may never fire for him.
+Peak kick fires on every significant motion peak without requiring tempo lock.
+
+---
+
+## What's Working
+
+- Tilt → melody with per-lens character
+- Motion → rhythm with per-lens groove DNA
+- Stillness → real silence (not quiet drone)
+- Void: cosmic sea of sound during deep stillness
+- Three-act arc evolving over session
+- Deceptive cadence tension build for Tundra + Still Water
+- 7 lenses each feel distinct (different voices, melodic energy, groove)
+- Grid: TikTok supersaw with resonant sweep (360ms decay)
+- Still Water: strings voice with vibrato (confirmed by James: "much better")
+- Spatial: gentle tilt pan ±0.22, no LFO, left=left right=right
+- Foundation bass: doubled at -1 and -2 octaves
+- Voice files in gump/voice/ (ElevenLabs) — see CLAUDE.md for full list
+
+---
+
+## Open / Pending
+
+### Kick Drum (HIGH PRIORITY — deferred)
+James said "kick is gross and makes or breaks every song." Explicitly deferred to a dedicated
+session. DO NOT just tweak parameters — this needs a proper redesign conversation.
+Reference: what specifically is "gross" (too clicky? no body? wrong kit per lens?).
+
+### Lens Distinctiveness (ongoing)
+Melodic energy gate was the primary fix for "all lenses have the same keyboard lead."
+May need deeper pass — Conductor should NEVER do tilt melody (only peaks), Blue Hour
+conversations should happen in silences, Tundra restraint is the entire point.
+
+### Music Too Autonomous (partially fixed BUILD 81)
+Energy gates help. But harmonic rhythm and gravity still fire on timers even if light movement.
+If still feels too autonomous: consider raising minimum energy thresholds or adding
+`phraseActive` check so chord walks only happen mid-phrase.
+
+---
+
+## Testing
+
+Open index.html in browser. On mobile: needs HTTPS (GitHub Pages works).
+Local dev: `npx serve .` then access via local IP on phone.
+
+Primary test device: iPhone 15 (James). Tilt is primary input, touch secondary.
+
+---
+
+## Key Historical Context
+
+- Commit `88d4c32` (G7 Fly) had great motion feel — study if motion ever feels dead
+- DO NOT re-introduce root drift (ARC_JOURNEY) — was causing melody to chase up indefinitely
+- DO NOT re-enable epigenetic rootSemiTarget drift — same problem
+- Spatial LFO was killed — was causing random pan jumps. Tilt-only pan now.
+- voidGain MUST connect to masterHPF not masterGain (masterGain → 0 during silence)

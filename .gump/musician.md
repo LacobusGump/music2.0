@@ -4,108 +4,150 @@
 
 ---
 
-## Current Musical System
+## Current Musical System (BUILD 81)
+
+### Body → Music Mapping
+
+| Body | → | Music |
+|------|---|-------|
+| Tilt (beta angle) | → | Melody: scale degree follows hand |
+| Motion peaks | → | Rhythm: kick/snare at YOUR tempo |
+| Energy level | → | Density: more voices as you move more |
+| Stillness | → | Real silence (not quiet drone) |
+| Deep stillness | → | The Void: cosmic harmonic sea |
+| Touch (screen) | → | Direct note playing, gravity-pulled to chord tones |
 
 ### Harmony
-- Base frequency: A2 (110 Hz)
-- Scale: Major (Ionian mode)
-- X-axis maps to scale degree (7 positions)
-- Y-axis maps to chord quality:
-  - Low: minor7
-  - Mid-low: dominant7
-  - Center: major7
-  - Mid-high: sus4
-  - High: major7
+- Root: 432 Hz (A) by default, per-lens
+- Modes: major, dorian, phrygian, lydian, picardy, minor — per lens
+- Tilt → scale degrees 0-6 (per lens melodicAxis)
+- Harmonic gravity: pitch bends toward consonance (not snapping, leaning)
+
+### Phrase Grammar
+- `phraseActive`: begins on motion > 0.5, ends on stillness or time limit
+- Resolution chord at phrase end: 3-note I chord spread 120ms apart
+- Phrase breathing: 480ms silence after landing on consonant note
+- Call & response: system answers after 2+ peaks, 1.5-3.5s delay
 
 ### Rhythm
-- 72 BPM, 4/4 time
-- Purdie shuffle pattern (48 subdivisions per bar)
-- Ghost notes on snare create the groove
-- Drums fade in with stillness, fade with movement
-
-### Melody
-- Continuous sawtooth oscillator
-- Pitch follows field position through scale
-- Filter opens with Y position and energy
-- Volume tied to movement energy
-
-### Blooming Notes
-- Spawn when still (stillness > 0.3)
-- Random chord tones from current harmony
-- Die when movement returns
-- Create the "breathing" harmonic texture
+- No fixed BPM — tempo DERIVED from YOUR peaks
+- 16-step groove DNA per lens (kick/snare/hat patterns, feel, kit)
+- `tempoLocked` when rhythmic confidence > 0.22 (3+ consistent peaks)
+- Peak kick fires WITHOUT tempo lock (James tilts, doesn't bounce)
+- Autonomous hats/kick/snare only when tempo locked AND energy sufficient
 
 ---
 
-## What's Missing Musically
+## Three-Act Musical Arc
 
-### No Phrase Structure
-Currently: continuous parameter mapping
-Need: musical phrases with beginning, middle, end
+Each session is a journey:
 
-### No Tension/Resolution
-Currently: harmony is static based on position
-Need: sense of journey - tension building, release, cadence
+**Act I (0-90s engaged)**: Emergence
+- Original mode, sparse, space to breathe
+- Music is learning you
 
-### No Call and Response
-Currently: system only reacts
-Need: system proposes, human responds (or vice versa)
+**Act II (90-300s)**: Journey — Sus4
+- `scale[2] = scale[3]` — the 3rd degree replaced by the 4th
+- All modes: major→open, dorian→floating, phrygian→suspended
+- "The Inception trick" — ONE note change lifts the whole emotional color
+- Announced by two quiet ascending notes
 
-### No Rhythmic Intelligence
-Currently: fixed drum pattern modulated by energy
-Need: rhythm that adapts to user's natural timing
+**Act III (300s+)**: Homecoming
+- Original mode restored — same home, but transformed by the journey
+- Parallel sub-octave voice added to peaks (more voices, not chords)
 
----
-
-## New Musical Directions
-
-### Idea 1: Gesture as Motif
-- A swipe becomes a melodic fragment
-- Repeat the gesture = develop the motif
-- Different gesture = new contrasting idea
-- The piece emerges from gesture vocabulary
-
-### Idea 2: Harmonic Gravity
-- Define "home" (tonic)
-- Movement away = increasing tension
-- Return = resolution
-- Let physics model (Physicist?) define the "gravity well"
-
-### Idea 3: Rhythmic Entrainment
-- Detect user's natural pulse from their movement
-- Nudge tempo toward their rhythm
-- Over time, sync perfectly
-- Their body becomes the clock
-
-### Idea 4: Modal Color
-- Different modes for different "moods"
-- Lydian (bright) ↔ Locrian (dark)
-- Y-axis could sweep through modes instead of chord types
-- More emotional range
+`sessionEngagedTime` counts only active (non-silent) play — the arc is YOUR time, not clock time.
 
 ---
 
-## Questions for the Team
+## Deceptive Cadence Tension Arc (Tundra + Still Water)
 
-1. **Engineer**: What's the fastest we can detect pitch from microphone input?
-2. **Physicist**: Is there a mathematical model for "musical tension" we could implement?
-3. **Both**: Should we aim for Western tonality or explore microtonal/non-Western scales?
+The Hans Zimmer / Interstellar docking technique:
+
+1. **Building** (10-12s of active play): tension accumulates silently
+2. **Near-miss**: V bass note → 2.2s → VI bass (not I) = "almost..."
+   - Reverb tightens (space closes in)
+   - Tundra: Picardy major 3rd flickers — grief glimpsing hope
+3. Repeat 2-3 times, build time shortens each miss
+4. **BOOM**: V bass → 1.8s → I in THREE registers simultaneously
+   - Reverb opens wide (space expands)
+   - Still Water: lydian #4 grace note floats before settling
+5. **Cooldown**: 40s before it can repeat
 
 ---
 
-## Listening References
+## The 7 Lenses — Musical Character
 
-- Brian Eno's generative systems (Music for Airports)
-- Laurie Spiegel's "Music Mouse" - early computer instrument
-- Imogen Heap's Mi.Mu gloves - gesture to music
-- Kanye's use of pitch-shifted samples (relevant to Lowfiye heritage)
+### The Conductor
+- Orchestra following your hands. Peaks = brass. Tilt barely fires (melodicEnergy=0.9).
+- Major mode. You're conducting, not playing lead.
+
+### Blue Hour
+- Jazz club. Dorian. Conversations happen in the SILENCES.
+- Brushes kit. Rhodes melody. Dry, warm.
+
+### Drift
+- Ambient float. Major. Continuous mono triangle. Low melodicEnergy (0.12).
+- Everything is gentle. The body barely moves.
+
+### Tundra
+- **Picardy grammar**: minor scale but major 3rd in certain resolutions.
+- This is grief + hope. Each note is PRECIOUS. Long silence between.
+- melodicEnergy 0.38, melodicMinDelta 2 (jumps of 2+ degrees only, no drift).
+- Restraint IS the principle. Fewer notes = more meaning.
+- Tension arc: enabled. The Picardy major 3rd appears in near-misses and BOOM.
+
+### Still Water
+- Nils Frahm / Jon Hopkins. Lydian (bright, hopeful).
+- Strings voice: 5-voice detuned + vibrato. Slow bow swell.
+- Tension arc: enabled. Lydian #4 grace note in resolution.
+- Flow-driven motion (sustained energy, not bouncing).
+
+### Dark Matter
+- Phrygian (dark, unstable). Default boot lens.
+- Reverse/FM/glitch voice. 72% delay feedback. Heavy.
+- Most users' first experience — phrygian chaos is the opening statement.
+
+### Grid
+- Electronic. Also phrygian.
+- gridstack: supersaw with harmonic stacking (root + m3 + P5 + m7 + oct).
+- Resonant LP sweep = "viral TikTok whoop." 450ms decay, 140ms noteInterval.
+- Tactile. Immediate. Every gesture snaps.
 
 ---
 
-## Notes
+## What's Solved
 
-*The goal isn't to make a synthesizer. Synthesizers are tools for musicians.*
+- Phrase structure: beginning/middle/end with resolution chords ✓
+- Tension/resolution: V→I gravity, deceptive cadences ✓
+- Rhythmic intelligence: peak-derived tempo, grooveDNA per lens ✓
+- Call & response: system answers your phrases ✓
+- Lens distinctiveness: melodicEnergy gate prevents "same keyboard lead" ✓
+- Three-act arc: session evolves like classical music ✓
+- Music autonomy: timer systems wait for YOUR energy ✓
 
-*The goal is to make an instrument that turns anyone into a musician.*
+## What's Open
 
-*The difference: an instrument has OPINIONS about what sounds good. It guides you toward music, not just sound.*
+### Kick Drum (BIG)
+James: "gross and makes or breaks every song." Needs dedicated session.
+What IS the right kick? Per lens: acoustic for Conductor, 808 sub for Grid,
+brushes ghost for Blue Hour, single deep thud for Tundra, ...?
+
+### Lens Melody Distinctiveness (ongoing)
+The melodicEnergy gate helps. But deeper question:
+- Should Conductor NEVER do tilt melody? (peaks-only instrument)
+- Blue Hour: should tilt melody feel like a conversation, with rests?
+- Could lenses have different melodic SHAPES (not just thresholds)?
+
+---
+
+## The Core Equation
+
+```
+gesture → phrase → resolution
+```
+
+Everything serves this. The body creates a gesture. The gesture becomes a phrase.
+The phrase finds its resolution. Then silence — until the next gesture.
+
+*"The goal is not to make something. The goal is to discover something that already exists."*
