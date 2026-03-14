@@ -438,7 +438,7 @@
           'Still Water':    '#00ffaa',
           'Dark Matter':    '#ff0000',
         };
-        flashScreen(flashColors[lens.name] || '#00FF41');
+        flashScreen(flashColors[lens.name] || '#ffffff');
       }
     }
   }
@@ -481,13 +481,13 @@
           // Figure 8 discovered — the machine speaks, then transforms
           Voice.iCanWorkWithThis();
           Voice.onDiscovery('figure8');
-          flashScreen('rgba(0,255,65,0.18)');
+          flashScreen('rgba(255,255,255,0.12)');
           // Cycle to the next lens — music transforms, no picker, no break
           setTimeout(function () {
             var next = Lens.nextLens();
             Pattern.setLens(next);
             Lens.updateIndicator();
-            flashScreen('rgba(0,255,65,0.08)');
+            flashScreen('rgba(255,255,255,0.06)');
           }, 800);
         });
         gestureWired = true;
@@ -821,20 +821,20 @@
 
     function doFlash() {
       if (!flashEl) return;
-      flashEl.style.background = '#00FF41';
+      flashEl.style.background = '#ffffff';
       flashEl.style.opacity = '0.09';
       setTimeout(function () { flashEl.style.opacity = '0'; }, 200);
     }
 
     function onConnected() {
-      waitingEl.textContent = 'PARTNER FOUND';
+      waitingEl.textContent = 'connected';
       // Brief pause, then swap QR for ceremony
       setTimeout(function () {
         qrView.style.opacity = '0';
         setTimeout(function () {
           qrView.style.display = 'none';
           var pLens = (Outfit.partnerState && Outfit.partnerState.lens) || '';
-          connPartner.textContent = pLens.toUpperCase();
+          connPartner.textContent = pLens;
           connView.classList.add('show');
           // Stagger the glyph in — feels alive
           requestAnimationFrame(function () {
@@ -850,7 +850,7 @@
             connView.classList.remove('show');
             connGlyph.classList.remove('show');
             // The button becomes the live indicator
-            askBtn.textContent = '∿ PARTNER';
+            askBtn.textContent = 'partner';
             askBtn.classList.add('connected');
           }, 2600);
         }, 380);
@@ -858,7 +858,7 @@
     }
 
     function onDisconnected() {
-      askBtn.textContent = 'DANCE';
+      askBtn.textContent = 'dance';
       askBtn.classList.remove('connected');
     }
 
@@ -880,7 +880,7 @@
         if (window.QRCode) {
           window.QRCode.toCanvas(qrCanvas, url, {
             width: 200, margin: 1,
-            color: { dark: '#00FF41', light: '#000000' },
+            color: { dark: '#ffffff', light: '#050505' },
           }, function (err) { if (err) console.warn('[Outfit QR]', err); });
         }
         Outfit.createRoom(code, onConnected, null, onDisconnected);
@@ -925,19 +925,19 @@
           var askBtn  = document.getElementById('ask-dance-btn');
           var flashEl = document.getElementById('flash');
           if (flashEl) {
-            flashEl.style.background = '#00FF41';
+            flashEl.style.background = '#ffffff';
             flashEl.style.opacity = '0.09';
             setTimeout(function () { flashEl.style.opacity = '0'; }, 200);
           }
           if (askBtn) {
-            askBtn.textContent = '∿ PARTNER';
+            askBtn.textContent = 'partner';
             askBtn.classList.add('connected');
           }
         },
         null,
         function onDisconnect() {
           var askBtn = document.getElementById('ask-dance-btn');
-          if (askBtn) { askBtn.textContent = 'DANCE'; askBtn.classList.remove('connected'); }
+          if (askBtn) { askBtn.textContent = 'dance'; askBtn.classList.remove('connected'); }
         }
       );
     });

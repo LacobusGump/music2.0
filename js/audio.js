@@ -2422,36 +2422,77 @@ const Audio = (function () {
     });
   }
 
-  // Lead layer: mono saw with portamento for tilt-as-pitch during drop.
-  // This is a theremin — user tilts phone, pitch follows. Immediate and expressive.
-  function buildLeadLayer(freq) {
-    destroyLayer('edm-lead');
-    var f = freq || 220;
-    return buildLayer('edm-lead', {
-      oscillators: [
-        { wave: 'sawtooth', freq: f, gain: 0.18, detune: 0 },
-        { wave: 'sawtooth', freq: f, gain: 0.14, detune: -8 },
-        { wave: 'sawtooth', freq: f, gain: 0.14, detune: 8 },
-      ],
-      filter: { type: 'lowpass', freq: 1200, Q: 3.5 },
-      gain: 0,
-      reverbSend: 0.12,
-    });
-  }
+  // ── CHORD STAB: short punchy chord that responds to archetype ──
+  // Bouncing = tight staccato stab. Waving = longer sustained chord. Walking = offbeat skank.
+  function synthChordStab(time, freqs, vel, sustain) {
+    var v = vel || 0.3;
+    var s = sustain || 0.08;  // short by default
 
-  // Set lead layer pitch with portamento (glide)
-  function setLeadPitch(freq, glideTime) {
-    var L = layers['edm-lead'];
-    if (!L) return;
-    var t = glideTime || 0.08;
-    for (var i = 0; i < L.pitchOscs.length; i++) {
-      L.pitchOscs[i].frequency.setTargetAtTime(freq, ctx.currentTime, t);
+    var lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.setValueAtTime(2800, time);
+    lp.frequency.exponentialRampToValueAtTime(600, time + s * 1.5);
+    lp.Q.value = 2;
+
+    var env = ctx.createGain();
+    env.gain.setValueAtTime(0.001, time);
+    env.gain.linearRampToValueAtTime(v * 0.3, time + 0.003);
+    env.gain.setTargetAtTime(0.001, time + s, s * 0.4);
+
+    // Stack chord tones — each frequency is a voice in the chord
+    for (var i = 0; i < freqs.length; i++) {
+      var o = ctx.createOscillator();
+      o.type = 'sawtooth';
+      o.frequency.value = freqs[i];
+      o.detune.value = (Math.random() - 0.5) * 12;  // slight detuning for width
+      var og = ctx.createGain();
+      og.gain.value = 0.15 / freqs.length;
+      o.connect(og); og.connect(lp);
+      o.start(time); o.stop(time + s + 0.15);
+    }
+
+    lp.connect(env);
+    env.connect(sidechainGain);
+    if (reverbSend) {
+      var rs = ctx.createGain(); rs.gain.value = 0.08;
+      env.connect(rs); rs.connect(reverbSend);
     }
   }
 
-  // Set lead filter cutoff
-  function setLeadFilter(freq) {
-    setLayerFilter('edm-lead', Math.max(200, Math.min(5000, freq)), 0.04);
+  // ── TENSION PAD: slow evolving texture that tracks archetype ──
+  // Exploring = airy, bright. Walking = warm mid. Bouncing = barely there (drums dominate).
+  function synthTensionSwell(time, freq, vel, dur) {
+    var v = vel || 0.15;
+    var d = dur || 2.0;
+
+    var lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.setValueAtTime(400, time);
+    lp.frequency.linearRampToValueAtTime(1800, time + d * 0.6);
+    lp.frequency.linearRampToValueAtTime(600, time + d);
+    lp.Q.value = 1.5;
+
+    var env = ctx.createGain();
+    env.gain.setValueAtTime(0.001, time);
+    env.gain.linearRampToValueAtTime(v * 0.25, time + d * 0.3);
+    env.gain.setTargetAtTime(0.001, time + d * 0.7, d * 0.2);
+
+    // 3 detuned saws for thickness
+    for (var i = 0; i < 3; i++) {
+      var o = ctx.createOscillator();
+      o.type = 'sawtooth';
+      o.frequency.value = freq;
+      o.detune.value = [-15, 0, 15][i];
+      o.connect(lp);
+      o.start(time); o.stop(time + d + 0.2);
+    }
+
+    lp.connect(env);
+    env.connect(sidechainGain);
+    if (reverbSend) {
+      var rs = ctx.createGain(); rs.gain.value = 0.2;
+      env.connect(rs); rs.connect(reverbSend);
+    }
   }
 
   // Crash fill: short bright noise burst for transitions
@@ -2488,38 +2529,15 @@ const Audio = (function () {
     o.start(time); o.stop(time + 0.25);
   }
 
-  // Arp layer: filtered pluck-like sound that follow.js triggers on clock steps.
-  // Short decay, resonant LP — the modern EDM arp sound.
-  function synthArpNote(time, freq, vel, decay) {
-    var v = vel || 0.3;
-    var d = decay || 0.15;
-
-    // 2 detuned saws through resonant LP for that pluck character
-    var lp = ctx.createBiquadFilter();
-    lp.type = 'lowpass';
-    lp.frequency.setValueAtTime(3500, time);
-    lp.frequency.exponentialRampToValueAtTime(400, time + d);
-    lp.Q.value = 4;
-
-    var env = ctx.createGain();
-    env.gain.setValueAtTime(v * 0.4, time);
-    env.gain.exponentialRampToValueAtTime(0.001, time + d);
-
-    var o1 = ctx.createOscillator(); o1.type = 'sawtooth'; o1.frequency.value = freq; o1.detune.value = -6;
-    var o2 = ctx.createOscillator(); o2.type = 'sawtooth'; o2.frequency.value = freq; o2.detune.value = 6;
-
-    o1.connect(lp); o2.connect(lp);
-    lp.connect(env);
-    env.connect(sidechainGain);
-
-    // Light reverb send
-    if (reverbSend) {
-      var rs = ctx.createGain(); rs.gain.value = 0.15;
-      env.connect(rs); rs.connect(reverbSend);
+  // ── KICK FILL: rapid 32nd note kick roll for transitions ──
+  function synthKickRoll(time, steps, vel) {
+    var v = vel || 0.5;
+    var stepLen = 60 / 128 / 8;  // 32nd note at 128bpm
+    for (var i = 0; i < steps; i++) {
+      var t = time + i * stepLen;
+      var vol = v * (0.5 + 0.5 * (i / steps));  // crescendo
+      playKick(t, Math.min(0.8, vol), '808');
     }
-
-    o1.start(time); o1.stop(time + d + 0.05);
-    o2.start(time); o2.stop(time + d + 0.05);
   }
 
   // Bass pluck: short sine with pitch bend for walking bass lines
@@ -2558,7 +2576,6 @@ const Audio = (function () {
     destroyLayer('edm-wobble');
     destroyLayer('edm-pad');
     destroyLayer('edm-sub');
-    destroyLayer('edm-lead');
   }
 
   // ── VOCAL SAMPLE ENGINE ─────────────────────────────────────────────
@@ -2735,7 +2752,9 @@ const Audio = (function () {
       subPulse: synthSubPulse,
       crashFill: synthCrashFill,
       vocalChop: synthVocalChop,
-      arpNote: synthArpNote,
+      chordStab: synthChordStab,
+      tensionSwell: synthTensionSwell,
+      kickRoll: synthKickRoll,
       bassPluck: synthBassPluck,
       play: synthesize,
     }),
@@ -2779,11 +2798,8 @@ const Audio = (function () {
       buildWobble: buildWobbleLayer,
       buildPad: buildDarkPad,
       buildSub: buildSubLayer,
-      buildLead: buildLeadLayer,
       setWobbleFilter: setWobbleFilter,
       setWobbleQ: setWobbleQ,
-      setLeadPitch: setLeadPitch,
-      setLeadFilter: setLeadFilter,
       destroyAll: destroyEDMLayers,
     }),
     vocal: Object.freeze({

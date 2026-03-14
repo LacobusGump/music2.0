@@ -59,7 +59,7 @@ const Gesture = (function () {
     // Don't clear the main canvas — draw on top, trail fades naturally
     trailCtx.save();
     trailCtx.globalAlpha = 0.55;
-    trailCtx.strokeStyle = 'rgba(0,255,65,0.7)';
+    trailCtx.strokeStyle = 'rgba(255,255,255,0.35)';
     trailCtx.lineWidth   = 1.5;
     trailCtx.lineJoin    = 'round';
     trailCtx.lineCap     = 'round';
@@ -77,9 +77,9 @@ const Gesture = (function () {
     if (!trailCtx || pts.length < 2) return;
     trailCtx.save();
     trailCtx.globalAlpha = 0.9;
-    trailCtx.strokeStyle = '#00FF41';
+    trailCtx.strokeStyle = '#ffffff';
     trailCtx.lineWidth   = 2.5;
-    trailCtx.shadowColor = '#00FF41';
+    trailCtx.shadowColor = '#ffffff';
     trailCtx.shadowBlur  = 12;
     trailCtx.lineJoin    = 'round';
     trailCtx.beginPath();

@@ -447,10 +447,10 @@ const Lens = (function () {
 
       var num = (i + 1 < 10 ? '0' : '') + (i + 1);
       item.innerHTML =
-        '<span class="p-cursor">&#9658;</span>' +
+        '<span class="p-cursor">&ndash;</span>' +
         '<span class="p-num">' + num + '</span>' +
         '<div class="p-body">' +
-          '<div class="p-name">' + p.name.toUpperCase() + '</div>' +
+          '<div class="p-name">' + p.name + '</div>' +
           '<div class="p-desc">' + p.description + '</div>' +
         '</div>';
 
@@ -481,7 +481,7 @@ const Lens = (function () {
     // Populate command input
     var cmdIn = document.getElementById('cmd-input');
     if (cmdIn) {
-      cmdIn.value = 'RUN ' + activeLens.name.toUpperCase();
+      cmdIn.value = 'run ' + activeLens.name.toLowerCase();
     }
 
     saveToStorage();
@@ -516,7 +516,7 @@ const Lens = (function () {
   function updateIndicator() {
     var el = document.getElementById('lens-indicator');
     if (el && activeLens) {
-      el.textContent = 'PROTOCOL // ' + activeLens.name.toUpperCase();
+      el.textContent = activeLens.name;
     }
   }
 

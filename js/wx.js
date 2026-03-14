@@ -7,7 +7,7 @@
  * Night: vignette + star-pulse to music energy.
  * Time of day: thin horizon light at screen edge.
  *
- * The aesthetic is always GUMP: phosphor green on black.
+ * The aesthetic is always GUMP: subtle white on black.
  * These effects live ON the glass, not in the world.
  */
 
@@ -72,9 +72,9 @@ var Wx = (function () {
       if (d.falling && d.trailLen > 0) {
         // Rivulet trail — gradient from dim at top to bright just behind drop
         var grad = ctx.createLinearGradient(d.x, d.trailY, d.x, d.trailY + d.trailLen);
-        grad.addColorStop(0,   'rgba(0,255,65,0)');
-        grad.addColorStop(0.6, 'rgba(0,255,65,' + (alpha * 0.08) + ')');
-        grad.addColorStop(1,   'rgba(0,255,65,' + (alpha * 0.22) + ')');
+        grad.addColorStop(0,   'rgba(200,200,200,0)');
+        grad.addColorStop(0.6, 'rgba(200,200,200,' + (alpha * 0.08) + ')');
+        grad.addColorStop(1,   'rgba(200,200,200,' + (alpha * 0.22) + ')');
         ctx.beginPath();
         ctx.moveTo(d.x, d.trailY);
         ctx.lineTo(d.x, d.trailY + d.trailLen);
@@ -87,11 +87,11 @@ var Wx = (function () {
       // Drop body — dark fill (glass lens effect)
       ctx.beginPath();
       ctx.arc(d.x, d.y, d.r, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(0,8,2,' + (alpha * 0.18) + ')';
+      ctx.fillStyle = 'rgba(5,5,5,' + (alpha * 0.18) + ')';
       ctx.fill();
 
       // Drop rim — phosphor green ring (surface tension)
-      ctx.strokeStyle = 'rgba(0,255,65,' + (alpha * 0.42) + ')';
+      ctx.strokeStyle = 'rgba(200,200,200,' + (alpha * 0.42) + ')';
       ctx.lineWidth   = 0.7;
       ctx.stroke();
 
@@ -101,13 +101,13 @@ var Wx = (function () {
       var hr = d.r * 0.28;
       ctx.beginPath();
       ctx.arc(hx, hy, hr, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(0,255,65,' + (alpha * 0.55) + ')';
+      ctx.fillStyle = 'rgba(200,200,200,' + (alpha * 0.55) + ')';
       ctx.fill();
 
       // Inner refraction glow (the display showing through)
       var igr = ctx.createRadialGradient(d.x, d.y, 0, d.x, d.y, d.r * 0.8);
-      igr.addColorStop(0,   'rgba(0,255,65,' + (alpha * 0.12) + ')');
-      igr.addColorStop(1,   'rgba(0,255,65,0)');
+      igr.addColorStop(0,   'rgba(200,200,200,' + (alpha * 0.12) + ')');
+      igr.addColorStop(1,   'rgba(200,200,200,0)');
       ctx.beginPath();
       ctx.arc(d.x, d.y, d.r * 0.8, 0, Math.PI * 2);
       ctx.fillStyle = igr;
@@ -119,7 +119,7 @@ var Wx = (function () {
   function drawRainAtmosphere(ctx, W, H, intensity) {
     // Very subtle moisture haze — more rain = slightly more diffuse
     var haze = intensity * 0.035;
-    ctx.fillStyle = 'rgba(0,12,4,' + haze + ')';
+    ctx.fillStyle = 'rgba(5,5,5,' + haze + ')';
     ctx.fillRect(0, 0, W, H);
 
     // Running water streaks on glass surface (very thin, fast)
@@ -127,7 +127,7 @@ var Wx = (function () {
     // Drawn as very faint vertical lines of varying length
     ctx.save();
     ctx.globalAlpha = 0.07 * intensity;
-    ctx.strokeStyle = '#00FF41';
+    ctx.strokeStyle = '#cccccc';
     ctx.lineWidth = 0.4;
     for (var s = 0; s < 6; s++) {
       var sx = (W * 0.1 * s + W * 0.05 + Math.sin(Date.now() * 0.0001 + s) * 20);
@@ -175,9 +175,9 @@ var Wx = (function () {
       var a = 0.4 + intensity * 0.3;
       // Soft crystal dot with glow
       var gr = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.r * 2.5);
-      gr.addColorStop(0,   'rgba(160,255,200,' + a + ')');
-      gr.addColorStop(0.4, 'rgba(0,255,65,'   + (a * 0.5) + ')');
-      gr.addColorStop(1,   'rgba(0,255,65,0)');
+      gr.addColorStop(0,   'rgba(230,230,240,' + a + ')');
+      gr.addColorStop(0.4, 'rgba(200,200,200,'   + (a * 0.5) + ')');
+      gr.addColorStop(1,   'rgba(200,200,200,0)');
       ctx.beginPath();
       ctx.arc(p.x, p.y, p.r * 2.5, 0, Math.PI * 2);
       ctx.fillStyle = gr;
