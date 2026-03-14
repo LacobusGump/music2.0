@@ -2688,11 +2688,13 @@ const Follow = (function () {
   var poolUsed = [[], [], [], [], [], []];
 
   function getDepth(segment) {
-    if (segment < 4)  return 0;
-    if (segment < 8)  return 1;
-    if (segment < 16) return 2;
-    if (segment < 24) return 3;
-    if (segment < 32) return 4;
+    // At 4 bars/segment (~8s each): depth 0=0-16s, 1=16-32s, 2=32-64s,
+    // 3=64-96s, 4=96-128s, 5=128s+ (~2 min to transcendence)
+    if (segment < 2)  return 0;
+    if (segment < 4)  return 1;
+    if (segment < 8)  return 2;
+    if (segment < 12) return 3;
+    if (segment < 16) return 4;
     return 5;
   }
 
@@ -2707,7 +2709,7 @@ const Follow = (function () {
   }
 
   function applyDJMove(seg, time) {
-    if (seg < 2) return; // first 2 segments: let intro breathe
+    if (seg < 1) return; // first segment: let intro breathe
 
     var depth = getDepth(seg);
     var pool = DJ_POOLS[depth];
@@ -2816,9 +2818,9 @@ const Follow = (function () {
       isNewBar = true;
     }
 
-    // ── 2b. DJ SET EVOLUTION — every 8 bars (~15s), one thing changes ──
+    // ── 2b. DJ SET EVOLUTION — every 4 bars (~8s), one thing changes ──
     // Like a DJ bringing up a fader. Never jarring. Always fresh.
-    grid.segment = Math.floor(grid.totalBars / 8);
+    grid.segment = Math.floor(grid.totalBars / 4);
     if (grid.segment > grid.lastSegment && grid.phase !== 'waiting' && grid.phase !== 'intro') {
       grid.lastSegment = grid.segment;
       applyDJMove(grid.segment, time);
@@ -2968,7 +2970,7 @@ const Follow = (function () {
 
     switch (grid.phase) {
       case 'intro':
-        if (grid.phaseTimer > 5 || (peakNow && grid.phaseTimer > 2)) {
+        if (grid.phaseTimer > 3 || (peakNow && grid.phaseTimer > 1)) {
           grid.phase = 'build';
           grid.phaseTimer = 0;
           grid.buildLevel = (peakNow && grid.phaseTimer < 8) ? 0.15 : 0;
