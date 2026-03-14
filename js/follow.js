@@ -8,6 +8,9 @@
  * ANSWER: The music responds. Rare. Deliberate. Completes your thought.
  * SPACE:  The room. Foundation drone + reverb. The harmonic ground.
  *
+ * v93: Grid complexity expansion — wire all arr properties. Snare/perc variants,
+ *       halftime, swing, delay throw, reverb wash, filterQ override, stab voicings.
+ *       6 depth tiers. Texture bias for exploring archetype.
  * v89: Tribal drums + shaker gestures. Random stage order. Stage groove DNA fix.
  * v88: Big merge — 6 organic lenses → Journey (Drift→Still Water→Tundra→Dark Matter).
  *       Organic stage evolution: crossfades tone/space over 30s, swaps palette/mode at 50%.
@@ -2338,32 +2341,60 @@ const Follow = (function () {
 
   // ── KICK VARIANTS — evolve across cycles ──
   var GRID_KICK_VARIANTS = [
-    [1.0, 0, 0, 0,  1.0, 0, 0, 0,  1.0, 0, 0, 0,  1.0, 0, 0, 0],           // 0: four on the floor (classic)
-    [1.0, 0, 0, 0,  1.0, 0, 0, 0.3,  1.0, 0, 0, 0,  1.0, 0, 0.4, 0],       // 1: ghost kicks add shuffle
-    [1.0, 0, 0, 0.5,  0, 0, 1.0, 0,  1.0, 0, 0, 0.5,  0, 0, 1.0, 0],       // 2: broken — skips beat 2
-    [1.0, 0, 0, 0,  0, 0, 0.8, 0,  1.0, 0, 0, 0,  0.6, 0, 0.9, 0],         // 3: garage-style off-kick
-    [1.0, 0, 0.4, 0,  1.0, 0, 0, 0,  1.0, 0, 0, 0.4,  1.0, 0, 0, 0],       // 4: subtle 16th accents
+    [1.0,0,0,0, 1.0,0,0,0, 1.0,0,0,0, 1.0,0,0,0],             // 0: four on the floor
+    [1.0,0,0,0, 1.0,0,0,0.3, 1.0,0,0,0, 1.0,0,0.4,0],         // 1: ghost kicks
+    [1.0,0,0,0.5, 0,0,1.0,0, 1.0,0,0,0.5, 0,0,1.0,0],         // 2: broken
+    [1.0,0,0,0, 0,0,0.8,0, 1.0,0,0,0, 0.6,0,0.9,0],           // 3: garage off-kick
+    [1.0,0,0.4,0, 1.0,0,0,0, 1.0,0,0,0.4, 1.0,0,0,0],         // 4: 16th accents
+    [1.0,0,0,0, 0,0,0,0, 1.0,0,0,0, 0,0,0,0],                 // 5: half-time (1 & 3 only)
+    [1.0,0,0,0.3, 0,0.5,0,0, 1.0,0,0,0, 0,0,0.6,0.3],         // 6: syncopated latin
+    [1.0,0,0,0, 1.0,0,0.3,0, 0,0,0.5,0, 1.0,0,0,0.4],         // 7: displaced groove
+    [0.8,0,0.6,0, 0.8,0,0.6,0, 0.8,0,0.6,0, 0.8,0,0.6,0],     // 8: double-time pummel
+    [1.0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,1.0,0],                 // 9: minimal (1 and "&" of 4)
   ];
 
   // ── HAT VARIANTS — evolve across cycles ──
   var GRID_HAT_VARIANTS = [
-    [0, 0, 0.6, 0,  0, 0, 0.6, 0,  0, 0, 0.6, 0,  0, 0, 0.6, 0],           // 0: basic offbeats
-    [0.5, 0, 0.7, 0,  0, 0, 0.7, 0,  0.5, 0, 0.7, 0,  0, 0, 0.7, 0.3],     // 1: add downbeats
-    [0.4, 0.2, 0.6, 0.2,  0.4, 0.2, 0.6, 0.2,  0.4, 0.2, 0.6, 0.2,  0.4, 0.2, 0.6, 0.2],  // 2: straight 8ths
-    [0.7, 0, 0.5, 0.3,  0, 0.4, 0.6, 0,  0.7, 0, 0.5, 0.3,  0, 0.4, 0.6, 0.3],             // 3: complex groove
-    [0.8, 0.3, 0.5, 0.3,  0.8, 0.3, 0.5, 0.3,  0.8, 0.3, 0.5, 0.3,  0.8, 0.5, 0.6, 0.5],   // 4: driving 16ths
+    [0,0,0.6,0, 0,0,0.6,0, 0,0,0.6,0, 0,0,0.6,0],             // 0: basic offbeats
+    [0.5,0,0.7,0, 0,0,0.7,0, 0.5,0,0.7,0, 0,0,0.7,0.3],       // 1: add downbeats
+    [0.4,0.2,0.6,0.2, 0.4,0.2,0.6,0.2, 0.4,0.2,0.6,0.2, 0.4,0.2,0.6,0.2],  // 2: straight 8ths
+    [0.7,0,0.5,0.3, 0,0.4,0.6,0, 0.7,0,0.5,0.3, 0,0.4,0.6,0.3],             // 3: complex groove
+    [0.8,0.3,0.5,0.3, 0.8,0.3,0.5,0.3, 0.8,0.3,0.5,0.3, 0.8,0.5,0.6,0.5],   // 4: driving 16ths
+    [0,0.6,0,0.6, 0,0.6,0,0.6, 0,0.6,0,0.6, 0,0.6,0,0.6],     // 5: pure offbeats (house)
+    [0.9,0,0,0.4, 0,0,0.9,0, 0,0.4,0,0, 0.9,0,0,0.4],         // 6: tribal/broken
+    [0.3,0.3,0.3,0.3, 0.3,0.3,0.3,0.3, 0.3,0.3,0.3,0.3, 0.3,0.8,0.8,0.8],  // 7: fill → crash
+    [0,0,0,0, 0,0,0.8,0, 0,0,0,0, 0,0,0.8,0.4],               // 8: minimal offbeat 2&4
+    [0.6,0.2,0.4,0.2, 0.6,0.2,0.4,0.6, 0.6,0.2,0.4,0.2, 0.6,0.4,0.6,0.4],  // 9: shuffled swing
   ];
 
-  // ── BASS WALK EVOLUTION — more complex patterns in later segments ──
+  // ── SNARE VARIANTS ──
+  var GRID_SNARE_VARIANTS = [
+    [0,0,0,0, 1.0,0,0,0, 0,0,0,0, 1.0,0,0,0.2],               // 0: classic backbeat
+    [0,0,0,0, 1.0,0,0,0.15, 0,0,0,0, 1.0,0,0.3,0],             // 1: ghost note shuffle
+    [0,0,0,0, 0,0,0,0, 1.0,0,0,0, 0,0,0,0],                   // 2: half-time (3 only)
+    [0,0,0,0.4, 1.0,0,0,0, 0,0,0,0.4, 1.0,0,0,0],             // 3: anticipated backbeat
+    [0,0,0,0, 0.8,0,0.3,0, 0,0,0,0, 0.8,0,0,0.5],             // 4: syncopated with ghosts
+    [0,0,0,0.6, 0,0,0.6,0, 0,0,0,0.6, 0,0,0.6,0],             // 5: offbeat clap feel
+  ];
+
+  // ── BASS WALK EVOLUTION ──
   var BASS_WALKS = [
-    // Cycle 0-1: simple
-    [[0, 0], [0, 4], [0, 3], [0, 6]],
-    // Cycle 2-3: phrygian color
-    [[0, 1], [0, 4], [4, 3], [0, 6], [3, 1], [0, 0]],
-    // Cycle 4-5: walking
-    [[0, 1], [1, 3], [3, 4], [4, 6], [6, 4], [3, 0]],
-    // Cycle 6+: dark chromatic moves
-    [[0, 1], [1, 0], [0, 6], [6, 4], [4, 3], [3, 1], [1, 6], [6, 0]],
+    [[0,0], [0,4], [0,3], [0,6]],                               // 0: simple roots
+    [[0,1], [0,4], [4,3], [0,6], [3,1], [0,0]],                 // 1: phrygian color
+    [[0,1], [1,3], [3,4], [4,6], [6,4], [3,0]],                 // 2: walking
+    [[0,1], [1,0], [0,6], [6,4], [4,3], [3,1], [1,6], [6,0]],   // 3: dark chromatic
+    [[0,0], [4,4], [3,3], [6,1], [0,4], [1,3]],                 // 4: pedal tone (stays low)
+    [[0,6], [6,0], [3,6], [6,3], [4,0], [0,4], [1,6], [6,1]],   // 5: wide intervals
+    [[0,1], [1,2], [2,3], [3,4], [4,3], [3,2], [2,1], [1,0]],   // 6: chromatic ascent/descent
+  ];
+
+  // ── PERC PATTERNS — shaker/ride textures on the clock ──
+  var GRID_PERC_VARIANTS = [
+    [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],                     // 0: off
+    [0.12,0,0.08,0, 0.12,0,0.08,0, 0.12,0,0.08,0, 0.12,0,0.08,0],   // 1: soft shaker 8ths
+    [0.15,0.06,0.10,0.06, 0.15,0.06,0.10,0.06, 0.15,0.06,0.10,0.06, 0.15,0.06,0.10,0.06],  // 2: shaker 16ths
+    [0.18,0,0,0.08, 0,0.08,0.18,0, 0,0.08,0,0, 0.18,0,0,0.08],  // 3: clave-ish shaker
+    [0,0,0,0, 0.15,0,0,0, 0,0,0,0, 0.15,0,0,0.10],             // 4: sparse perc hits
   ];
 
   function initGrid() {
@@ -2411,17 +2442,19 @@ const Follow = (function () {
     grid.breakdownMelodyFired = false;
     // Reset arrangement
     grid.arr = {
-      kickPat: 0, hatPat: 0, ride: false, ridePattern: 0, clap: false,
+      kickPat: 0, hatPat: 0, snarePat: 0, ride: false, ridePattern: 0, clap: false,
       wobbleShape: 0, wobbleRate: 1.0, subOctave: false, stabStyle: 0,
       bassWalk: 0, filterSweepDir: 0, filterSweepPhase: 0,
-      reverbLevel: 0.15, padOpen: false, snareRoll: false, percLoop: 0,
+      reverbLevel: 0.15, padOpen: false, snareRoll: false, percPat: 0,
+      halftime: false, delayThrow: false, reverbWash: false,
+      stabVoicing: 0, filterQ: 3.5, swing: 0,
     };
     grid.lastArchetype = 'exploring';
     grid.archetypeTimer = 0;
     grid.chordStabCooldown = 0;
     grid.tensionSwellTimer = 0;
     // Reset DJ evolution pools
-    poolUsed = [[], [], [], [], []];
+    poolUsed = [[], [], [], [], [], []];
     grid.kickFillBar = -1;
     grid.dropVariation = 0;
     grid.vocalDropFired = false;
@@ -2482,106 +2515,179 @@ const Follow = (function () {
   // Depth 4 (seg 24+):   The Deep End — compound moves, polyrhythm hints,
   //                       elements that ONLY exist if you've gone this far.
 
-  // Move pools per depth. Each move has a bias: 'energy', 'filter', 'rhythm'.
+  // Move pools per depth. Each move has a bias: 'energy', 'filter', 'rhythm', 'texture'.
   // User's dominant behavior weights which moves fire.
   var DJ_POOLS = [
-    // ── DEPTH 0: Foundation ──
+    // ── DEPTH 0: Foundation (seg 0-3) ──
+    // The bones. Just enough to feel the groove.
     [
       { bias: 'rhythm',  fn: function(g,t) { g.arr.hatPat = 1; } },
       { bias: 'filter',  fn: function(g,t) { g.arr.wobbleShape = 1; } },
       { bias: 'energy',  fn: function(g,t) { g.arr.bassWalk = 1; } },
+      { bias: 'texture', fn: function(g,t) { g.arr.percPat = 1; } },
     ],
-    // ── DEPTH 1: Rhythm ──
+    // ── DEPTH 1: Rhythm (seg 4-7) ──
+    // Patterns emerge. The groove gets character.
     [
       { bias: 'rhythm',  fn: function(g,t) { g.arr.kickPat = 1; } },
       { bias: 'rhythm',  fn: function(g,t) { g.arr.ride = true; } },
       { bias: 'filter',  fn: function(g,t) { g.arr.filterSweepDir = 1; g.arr.filterSweepPhase = 0; } },
       { bias: 'energy',  fn: function(g,t) { g.arr.clap = true; } },
       { bias: 'rhythm',  fn: function(g,t) { g.arr.hatPat = 2; } },
+      { bias: 'texture', fn: function(g,t) { g.arr.snarePat = 1; } },
+      { bias: 'filter',  fn: function(g,t) { g.arr.swing = 0.08; } },
     ],
-    // ── DEPTH 2: Harmony ──
+    // ── DEPTH 2: Harmony (seg 8-15) ──
+    // The music starts to move harmonically. New colors.
     [
-      { bias: 'filter',  fn: function(g,t) { g.nextRootShift = 5; rebuildGridLayers(g, t); } },  // to the 4th
+      { bias: 'filter',  fn: function(g,t) { g.nextRootShift = 5; rebuildGridLayers(g,t); } },  // 4th
       { bias: 'energy',  fn: function(g,t) { g.arr.bassWalk = 2; } },
       { bias: 'rhythm',  fn: function(g,t) { g.arr.hatPat = 3; } },
       { bias: 'filter',  fn: function(g,t) { g.arr.wobbleShape = 2; g.arr.wobbleRate = 1.2; } },
       { bias: 'energy',  fn: function(g,t) { g.arr.kickPat = 2; } },
-      { bias: 'filter',  fn: function(g,t) { g.nextRootShift = 3; rebuildGridLayers(g, t); } },  // b3 darker
+      { bias: 'filter',  fn: function(g,t) { g.nextRootShift = 3; rebuildGridLayers(g,t); } },  // b3
       { bias: 'energy',  fn: function(g,t) { g.arr.padOpen = true; try { Audio.layer.setFilter('edm-pad', 2200, 2.0); } catch(e) {} } },
       { bias: 'rhythm',  fn: function(g,t) { g.arr.subOctave = true; } },
+      { bias: 'texture', fn: function(g,t) { g.arr.percPat = 2; g.arr.snarePat = 3; } },
+      { bias: 'filter',  fn: function(g,t) { g.arr.delayThrow = true; } },
+      { bias: 'rhythm',  fn: function(g,t) { g.arr.kickPat = 6; } },  // syncopated latin
+      { bias: 'energy',  fn: function(g,t) { g.arr.hatPat = 5; g.arr.swing = 0.12; } },  // house offbeats
     ],
-    // ── DEPTH 3: Texture ──
+    // ── DEPTH 3: Texture (seg 16-23) ──
+    // Sonic detail. Filter Q sweeps. Delay throws. Complex patterns.
     [
       { bias: 'rhythm',  fn: function(g,t) { g.arr.hatPat = 4; g.arr.snareRoll = true; } },
       { bias: 'filter',  fn: function(g,t) { g.arr.filterSweepDir = -1; g.arr.filterSweepPhase = 1; g.arr.wobbleRate = 1.8; } },
       { bias: 'energy',  fn: function(g,t) { g.arr.kickPat = 3; g.arr.bassWalk = 3; } },
-      { bias: 'filter',  fn: function(g,t) { g.nextRootShift = 7; rebuildGridLayers(g, t); } },  // 5th — bright tension
-      { bias: 'rhythm',  fn: function(g,t) { g.arr.ridePattern = 1; g.arr.clap = true; } },
+      { bias: 'filter',  fn: function(g,t) { g.nextRootShift = 7; rebuildGridLayers(g,t); } },  // 5th
+      { bias: 'rhythm',  fn: function(g,t) { g.arr.ridePattern = 1; g.arr.clap = true; g.arr.stabVoicing = 1; } },
       { bias: 'energy',  fn: function(g,t) { g.arr.wobbleShape = 1; g.arr.wobbleRate = 2.0; } },
+      { bias: 'texture', fn: function(g,t) { g.arr.reverbWash = true; g.arr.percPat = 3; } },
+      { bias: 'filter',  fn: function(g,t) { g.arr.filterQ = 6.0; g.arr.wobbleRate = 0.6; } },  // resonant slow sweep
+      { bias: 'rhythm',  fn: function(g,t) { g.arr.snarePat = 4; g.arr.hatPat = 6; } },  // tribal broken
+      { bias: 'energy',  fn: function(g,t) { g.arr.kickPat = 7; g.arr.bassWalk = 4; } },  // displaced + pedal
+      { bias: 'texture', fn: function(g,t) { g.arr.halftime = true; g.arr.hatPat = 8; } },  // half-time section
+      { bias: 'filter',  fn: function(g,t) { g.nextRootShift = 10; rebuildGridLayers(g,t); g.arr.wobbleShape = 0; } },  // b7
     ],
-    // ── DEPTH 4: The Deep End ──
-    // Compound moves. Multiple things change. You've earned this.
-    // These ONLY exist if you've been playing for 5+ minutes.
+    // ── DEPTH 4: The Deep End (seg 24-31) ──
+    // Compound moves. Strip + rebuild. Harmonic adventure.
     [
-      // Strip & rebuild: contrast creates depth
       { bias: 'energy',  fn: function(g,t) {
         g.arr.ride = false; g.arr.clap = false; g.arr.hatPat = 0; g.arr.snareRoll = false;
+        g.arr.percPat = 0; // total strip — silence is powerful
       }},
-      // Full rebuild: everything comes back at once — the "reward"
       { bias: 'energy',  fn: function(g,t) {
         g.arr.ride = true; g.arr.clap = true; g.arr.hatPat = 3; g.arr.kickPat = 4;
+        g.arr.percPat = 2; g.arr.stabVoicing = 2; // everything floods back — 7th chords
       }},
-      // Harmonic home with maximum texture
       { bias: 'filter',  fn: function(g,t) {
-        g.nextRootShift = 0; rebuildGridLayers(g, t);
+        g.nextRootShift = 0; rebuildGridLayers(g,t);
         g.arr.padOpen = true; g.arr.subOctave = true;
+        g.arr.reverbWash = true;
         try { Audio.layer.setFilter('edm-pad', 3000, 1.5); } catch(e) {}
       }},
-      // Dark chromatic descent — the rabbit hole
       { bias: 'filter',  fn: function(g,t) {
-        g.nextRootShift = 1; rebuildGridLayers(g, t);  // b2 — phrygian darkness
-        g.arr.wobbleShape = 2; g.arr.wobbleRate = 0.8;  // slow choppy = tension
+        g.nextRootShift = 1; rebuildGridLayers(g,t);  // b2 — phrygian abyss
+        g.arr.wobbleShape = 2; g.arr.wobbleRate = 0.8;
         g.arr.filterSweepDir = -1; g.arr.filterSweepPhase = 1;
       }},
-      // Polyrhythmic hint: garage kick + ride quarter notes + busy hats = 3 against 4 feel
       { bias: 'rhythm',  fn: function(g,t) {
         g.arr.kickPat = 3; g.arr.ridePattern = 1; g.arr.hatPat = 4;
+        g.arr.snarePat = 5; // polyrhythmic complexity
       }},
-      // Sub-bass solo: strip highs, let the low end sing
       { bias: 'filter',  fn: function(g,t) {
         g.arr.hatPat = 0; g.arr.ride = false; g.arr.subOctave = true;
-        g.arr.bassWalk = 3; g.arr.wobbleRate = 0.5;
+        g.arr.bassWalk = 5; g.arr.wobbleRate = 0.5;  // sub-bass solo
       }},
-      // Rebuild from sub-bass solo: everything floods back
       { bias: 'energy',  fn: function(g,t) {
         g.arr.hatPat = 3; g.arr.ride = true; g.arr.kickPat = 2;
         g.arr.wobbleRate = 1.5; g.arr.wobbleShape = 1;
-        g.nextRootShift = 5; rebuildGridLayers(g, t);
+        g.nextRootShift = 5; rebuildGridLayers(g,t);  // rebuild + key change
       }},
-      // Maximum density with new key
       { bias: 'rhythm',  fn: function(g,t) {
-        g.arr.snareRoll = true; g.arr.clap = true; g.arr.hatPat = 4;
-        g.nextRootShift = 8; rebuildGridLayers(g, t);  // minor 6th — emotional
+        g.arr.snareRoll = true; g.arr.clap = true; g.arr.hatPat = 9; // shuffled
+        g.nextRootShift = 8; rebuildGridLayers(g,t);  // minor 6th
+      }},
+      { bias: 'texture', fn: function(g,t) {
+        g.arr.halftime = true; g.arr.kickPat = 5; g.arr.snarePat = 2;
+        g.arr.hatPat = 8; g.arr.reverbWash = true;  // half-time breakdown
+      }},
+      { bias: 'filter',  fn: function(g,t) {
+        g.arr.halftime = false; g.arr.kickPat = 8; g.arr.hatPat = 7; // double-time slam
+        g.arr.wobbleShape = 1; g.arr.wobbleRate = 2.5;
+        g.arr.filterQ = 2.0;  // wide open filter
+      }},
+    ],
+    // ── DEPTH 5: Transcendence (seg 32+) ──
+    // The set has fully arrived. Maximum palette. Every move is a journey.
+    [
+      { bias: 'filter',  fn: function(g,t) {
+        g.nextRootShift = 6; rebuildGridLayers(g,t);  // tritone — maximum tension
+        g.arr.wobbleShape = 2; g.arr.wobbleRate = 0.4;
+        g.arr.filterQ = 8.0;  // screaming resonance (briefly)
+      }},
+      { bias: 'energy',  fn: function(g,t) {
+        g.nextRootShift = 0; rebuildGridLayers(g,t);  // release from tritone
+        g.arr.kickPat = 0; g.arr.hatPat = 4; g.arr.clap = true;
+        g.arr.snareRoll = true; g.arr.ride = true;
+        g.arr.filterQ = 3.5; g.arr.wobbleRate = 1.5;
+      }},
+      { bias: 'rhythm',  fn: function(g,t) {
+        g.arr.kickPat = 9; g.arr.snarePat = 5; g.arr.hatPat = 6;
+        g.arr.percPat = 3; g.arr.swing = 0.15;  // maximum groove complexity
+      }},
+      { bias: 'texture', fn: function(g,t) {
+        // Everything off except kick and sub — the "breath before the storm"
+        g.arr.hatPat = 0; g.arr.ride = false; g.arr.clap = false;
+        g.arr.snareRoll = false; g.arr.percPat = 0;
+        g.arr.kickPat = 5; g.arr.halftime = true;
+        g.arr.bassWalk = 6; // chromatic ascent
+      }},
+      { bias: 'energy',  fn: function(g,t) {
+        // The storm — maximum everything
+        g.arr.halftime = false; g.arr.kickPat = 8; g.arr.hatPat = 4;
+        g.arr.ride = true; g.arr.clap = true; g.arr.snareRoll = true;
+        g.arr.percPat = 2; g.arr.subOctave = true;
+        g.arr.bassWalk = 3; g.arr.swing = 0;
+        g.nextRootShift = 5; rebuildGridLayers(g,t);
+      }},
+      { bias: 'filter',  fn: function(g,t) {
+        g.nextRootShift = 11; rebuildGridLayers(g,t);  // major 7th — shimmering
+        g.arr.wobbleShape = 0; g.arr.wobbleRate = 0.3;  // glacial sine wobble
+        g.arr.reverbWash = true; g.arr.padOpen = true;
+        g.arr.hatPat = 5; g.arr.kickPat = 0;
+      }},
+      { bias: 'rhythm',  fn: function(g,t) {
+        g.arr.kickPat = 6; g.arr.snarePat = 3; g.arr.hatPat = 9;
+        g.arr.percPat = 4; g.arr.bassWalk = 5; // latin-influenced maximum groove
+      }},
+      { bias: 'texture', fn: function(g,t) {
+        g.nextRootShift = 0; rebuildGridLayers(g,t);  // home
+        g.arr.delayThrow = true; g.arr.reverbWash = true;
+        g.arr.wobbleShape = 1; g.arr.wobbleRate = 1.0;
+        g.arr.filterQ = 4.0;
       }},
     ],
   ];
 
   // Track which moves have been used in each pool (don't repeat)
-  var poolUsed = [[], [], [], [], []];
+  var poolUsed = [[], [], [], [], [], []];
 
   function getDepth(segment) {
     if (segment < 4)  return 0;
     if (segment < 8)  return 1;
     if (segment < 16) return 2;
     if (segment < 24) return 3;
-    return 4;
+    if (segment < 32) return 4;
+    return 5;
   }
 
   // User tendency: what type of moves does their behavior suggest?
   function getUserBias() {
-    // Bouncing/walking = rhythm. Waving = filter. High energy = energy. Exploring = filter.
+    // Bouncing/walking = rhythm. Waving = filter. High energy = energy. Exploring = texture.
     if (archetype === 'bouncing' || archetype === 'walking') return 'rhythm';
     if (archetype === 'waving') return 'filter';
+    if (archetype === 'exploring') return 'texture';
     if (grid.intensity > 0.6) return 'energy';
     return 'filter';
   }
@@ -2674,9 +2780,17 @@ const Follow = (function () {
     }
 
     // ── 2. CLOCK: ALWAYS runs. NEVER stops. ──
+    var effectiveStepDur = grid.arr.halftime ? grid.stepDur * 2 : grid.stepDur;
     grid.clock += dt;
-    var barDur = grid.stepDur * 16;
-    var newStep = Math.floor(grid.clock / grid.stepDur) % 16;
+    var barDur = effectiveStepDur * 16;
+    // Swing: offset even-numbered 16th steps (the "e" and "a") by a fraction
+    var rawStep = grid.clock / effectiveStepDur;
+    var newStep = Math.floor(rawStep) % 16;
+    if (grid.arr.swing > 0 && (newStep % 2 === 1)) {
+      // Delay odd steps (offbeats) — creates shuffle feel
+      var swungPos = (rawStep - grid.arr.swing * 0.5);
+      newStep = Math.floor(swungPos) % 16;
+    }
     var newBar = Math.floor(grid.clock / barDur);
     var isNewBar = false;
     if (newBar > grid.lastBar) {
@@ -3098,7 +3212,24 @@ const Follow = (function () {
     try { Audio.edm.setWobbleFilter(wobbleFreq); } catch(e) {}
 
     // Wobble Q from zone — LOW = warm resonance, HIGH = reduced Q (no drill!)
-    try { Audio.edm.setWobbleQ(zoneQ || 3.5); } catch(e) {}
+    // DJ move can override the zone Q for resonant sweeps or wide-open filter
+    var effectiveQ = (grid.arr.filterQ !== 3.5) ? grid.arr.filterQ : (zoneQ || 3.5);
+    try { Audio.edm.setWobbleQ(effectiveQ); } catch(e) {}
+
+    // ── 9b. DELAY THROW + REVERB WASH — DJ move effects ──
+    // Delay throw: boosts delay send for echoing snares/stabs
+    if (grid.arr.delayThrow) {
+      try { Audio.setDelayMix(0.45); } catch(e) {}
+    } else {
+      try { Audio.setDelayMix(0.25); } catch(e) {}  // default level
+    }
+    // Reverb wash: opens reverb send wide — creates space/atmosphere
+    if (grid.arr.reverbWash) {
+      var washLevel = grid.phase === 'breakdown' ? 0.55 : 0.35;
+      try { Audio.setReverbMix(washLevel); } catch(e) {}
+    } else if (grid.phase !== 'breakdown') {
+      try { Audio.setReverbMix(grid.arr.reverbLevel); } catch(e) {}
+    }
 
     // ── 10. DRUMS ON CLOCK ──
     if (newStep !== grid.lastStep) {
@@ -3166,8 +3297,9 @@ const Follow = (function () {
         }
       }
 
-      // ── SNARE ──
-      var sv = GRID_SNARE[newStep] || 0;
+      // ── SNARE ── (pattern evolves via DJ moves like kick/hats)
+      var snarePat = GRID_SNARE_VARIANTS[grid.arr.snarePat] || GRID_SNARE;
+      var sv = snarePat[newStep] || 0;
       if (sv > 0 && !isIntro) {
         var snareLevel;
         if (isDrop) snareLevel = 0.7 + grid.pumpIntensity * 0.3;
@@ -3237,6 +3369,23 @@ const Follow = (function () {
         }
       }
 
+      // ── PERC: shaker/percussion layer, brought in by DJ moves ──
+      if (grid.arr.percPat > 0 && !isIntro) {
+        var percPat = GRID_PERC_VARIANTS[grid.arr.percPat] || GRID_PERC_VARIANTS[0];
+        var pv = percPat[newStep] || 0;
+        if (pv > 0) {
+          var percLevel;
+          if (isDrop) percLevel = 0.6 + grid.intensity * 0.4;
+          else if (isBuild) percLevel = Math.max(0.2, grid.buildLevel * 0.6);
+          else if (isBreakdown) percLevel = 0.15;
+          else percLevel = 0.3;
+          var percVel = pv * grid.djGain * percLevel * rollTreble;
+          if (percVel > 0.02) {
+            try { Audio.drum.shaker(time, Math.min(0.5, percVel), 0.04); } catch(e) {}
+          }
+        }
+      }
+
       // ── CHORD STABS: archetype-driven melodic texture ──
       // Replaces arp. Bouncing = tight punchy stabs. Waving = sustained chords.
       // Walking = offbeat skanks. Exploring = nothing (pad handles it).
@@ -3245,20 +3394,33 @@ const Follow = (function () {
         var stabSustain = 0.08;
         var stabVoicing = [];
 
+        // DJ move stabVoicing shapes the chord color
+        var voicingStyle = grid.arr.stabVoicing || 0;
+
         if (archetype === 'bouncing' && archetypeConfidence > 0.25) {
           // Fist pump: tight stabs on offbeats — syncopated energy
           stabFire = (newStep === 3 || newStep === 7 || newStep === 11 || newStep === 15);
           stabSustain = 0.06;  // very tight
-          // Minor chord voicing (dark phrygian)
-          var stabRoot = scaleFreq(0, 1);
-          stabVoicing = [stabRoot, scaleFreq(2, 1), scaleFreq(4, 1)];
+          // Voicing evolves via DJ moves
+          if (voicingStyle === 0) {
+            stabVoicing = [scaleFreq(0, 1), scaleFreq(2, 1), scaleFreq(4, 1)];  // minor triad
+          } else if (voicingStyle === 1) {
+            stabVoicing = [scaleFreq(0, 1), scaleFreq(3, 1), scaleFreq(4, 1)];  // sus4 stab
+          } else {
+            stabVoicing = [scaleFreq(0, 1), scaleFreq(2, 1), scaleFreq(4, 1), scaleFreq(6, 1)];  // 7th chord
+          }
         } else if (archetype === 'waving' && archetypeConfidence > 0.25 && isDrop) {
           // Hand swap: longer sustained chord on beat 1 and 3 — emotional
           stabFire = (newStep === 0 || newStep === 8);
           stabSustain = grid.stepDur * 3;  // sustained across 3 steps
-          // Wider voicing — root, 5th, octave
-          var waveRoot = scaleFreq(0, 0);
-          stabVoicing = [waveRoot, scaleFreq(4, 0), scaleFreq(0, 1), scaleFreq(2, 1)];
+          // Wider voicing — DJ move shapes color
+          if (voicingStyle === 0) {
+            stabVoicing = [scaleFreq(0, 0), scaleFreq(4, 0), scaleFreq(0, 1), scaleFreq(2, 1)];  // open
+          } else if (voicingStyle === 1) {
+            stabVoicing = [scaleFreq(0, 0), scaleFreq(2, 0), scaleFreq(4, 0), scaleFreq(0, 1)];  // close-voiced
+          } else {
+            stabVoicing = [scaleFreq(0, 0), scaleFreq(4, 0), scaleFreq(6, 0), scaleFreq(2, 1)];  // add9
+          }
         } else if (archetype === 'walking' && isDrop) {
           // Steady rhythm: offbeat skank every other bar (reggae influence)
           stabFire = (grid.totalBars % 2 === 0) && (newStep === 4 || newStep === 12);

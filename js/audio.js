@@ -2955,6 +2955,7 @@ const Audio = (function () {
     resetPortamento: function () { monoLastFreq = 0; cinematicLastFreq = 0; massiveLastFreq = 0; },
     setMasterGain: function (v) { if (masterGain) masterGain.gain.value = v; },
     setReverbMix: function (v) { if (reverbSend) reverbSend.gain.value = v; },
+    setDelayMix: function (v) { if (delaySend) delaySend.gain.value = v; },
     setMasterFilter: setMasterFilter,
     setSidechainDepth: setSidechainDepth,
     set808SubFreq: set808SubFreq,
