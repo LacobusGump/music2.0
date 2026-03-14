@@ -2420,6 +2420,8 @@ const Follow = (function () {
     grid.archetypeTimer = 0;
     grid.chordStabCooldown = 0;
     grid.tensionSwellTimer = 0;
+    // Reset DJ evolution pools
+    poolUsed = [[], [], [], [], []];
     grid.kickFillBar = -1;
     grid.dropVariation = 0;
     grid.vocalDropFired = false;
@@ -2468,89 +2470,148 @@ const Follow = (function () {
     }
   }
 
-  // ── DJ MOVES — the heart of set evolution ──
-  // Each move is something a real DJ would do: bring in a new element,
-  // change a pattern, sweep a filter, shift the key. ONE change per 8 bars.
-  // The move pool is phase-aware: drops get energy moves, builds get tension moves.
+  // ── DJ EVOLUTION — depth-layered rabbit hole ──
+  // Not a flat sequence. A depth system. Each tier unlocks new types of
+  // sound that weren't possible before. User behavior shapes WHICH direction
+  // the music evolves. The longer you stay, the deeper it goes.
   //
-  // Moves are ordered like a real set: start simple, add complexity,
-  // then strip back and rebuild with new elements.
+  // Depth 0 (seg 0-3):   Foundation — kick, sub, basic filter. Just bones.
+  // Depth 1 (seg 4-7):   Rhythm — hats, rides, pattern variation.
+  // Depth 2 (seg 8-15):  Harmony — key changes, bass walks, chord movement.
+  // Depth 3 (seg 16-23): Texture — filter sweeps, wobble shapes, snare rolls.
+  // Depth 4 (seg 24+):   The Deep End — compound moves, polyrhythm hints,
+  //                       elements that ONLY exist if you've gone this far.
 
-  var DJ_MOVE_SEQUENCE = [
-    // Segment 0-1: just started, keep it minimal (intro/first build handle this)
-    null,
-    null,
-    // Segment 2: first real change — hats open up
-    function(g, t) { g.arr.hatPat = 1; },
-    // Segment 3: bass walk gets phrygian color
-    function(g, t) { g.arr.bassWalk = 1; },
-    // Segment 4: wobble shape changes (saw-down = more aggressive)
-    function(g, t) { g.arr.wobbleShape = 1; },
-    // Segment 5: filter sweep opens
-    function(g, t) { g.arr.filterSweepDir = 1; g.arr.filterSweepPhase = 0; },
-    // Segment 6: kick pattern evolves
-    function(g, t) { g.arr.kickPat = 1; },
-    // Segment 7: ride comes in
-    function(g, t) { g.arr.ride = true; },
-    // Segment 8: harmonic shift — move to the 4th
-    function(g, t) { g.nextRootShift = 5; rebuildGridLayers(g, t); },
-    // Segment 9: hat pattern gets complex
-    function(g, t) { g.arr.hatPat = 3; },
-    // Segment 10: clap layer adds punch
-    function(g, t) { g.arr.clap = true; },
-    // Segment 11: wobble goes square (choppy gate)
-    function(g, t) { g.arr.wobbleShape = 2; },
-    // Segment 12: bass walk starts really moving
-    function(g, t) { g.arr.bassWalk = 2; },
-    // Segment 13: filter sweep closes (tension)
-    function(g, t) { g.arr.filterSweepDir = -1; g.arr.filterSweepPhase = 1; },
-    // Segment 14: kick gets broken
-    function(g, t) { g.arr.kickPat = 2; },
-    // Segment 15: pad opens wide
-    function(g, t) { g.arr.padOpen = true; try { Audio.layer.setFilter('edm-pad', 2200, 2.0); } catch(e) {} },
-    // Segment 16: harmonic shift — move to b3 (darker)
-    function(g, t) { g.nextRootShift = 3; rebuildGridLayers(g, t); },
-    // Segment 17: sub gets doubled octave
-    function(g, t) { g.arr.subOctave = true; },
-    // Segment 18: hat pattern driving 16ths
-    function(g, t) { g.arr.hatPat = 4; },
-    // Segment 19: wobble back to sine (contrast after square)
-    function(g, t) { g.arr.wobbleShape = 0; g.arr.wobbleRate = 1.5; },
-    // Segment 20: garage kick
-    function(g, t) { g.arr.kickPat = 3; },
-    // Segment 21: filter sweep opens again
-    function(g, t) { g.arr.filterSweepDir = 1; g.arr.filterSweepPhase = 0; },
-    // Segment 22: harmonic shift — 5th (bright tension)
-    function(g, t) { g.nextRootShift = 7; rebuildGridLayers(g, t); },
-    // Segment 23: bass walk chromatic
-    function(g, t) { g.arr.bassWalk = 3; },
-    // Segment 24: snare rolls on 2&4
-    function(g, t) { g.arr.snareRoll = true; },
-    // Segment 25: ride pattern variation
-    function(g, t) { g.arr.ridePattern = 1; },
-    // Segment 26: strip back — remove ride & clap (contrast)
-    function(g, t) { g.arr.ride = false; g.arr.clap = false; g.arr.hatPat = 0; },
-    // Segment 27: rebuild with new kick
-    function(g, t) { g.arr.kickPat = 4; g.arr.hatPat = 2; },
-    // Segment 28: harmonic home — back to root
-    function(g, t) { g.nextRootShift = 0; rebuildGridLayers(g, t); },
-    // Segment 29: everything back, ride returns
-    function(g, t) { g.arr.ride = true; g.arr.clap = true; },
-    // Segment 30: wobble saw at higher rate
-    function(g, t) { g.arr.wobbleShape = 1; g.arr.wobbleRate = 2.0; },
-    // Segment 31: bass walk back to phrygian
-    function(g, t) { g.arr.bassWalk = 1; },
-    // After 32 segments (~8 min), cycle through a condensed version
+  // Move pools per depth. Each move has a bias: 'energy', 'filter', 'rhythm'.
+  // User's dominant behavior weights which moves fire.
+  var DJ_POOLS = [
+    // ── DEPTH 0: Foundation ──
+    [
+      { bias: 'rhythm',  fn: function(g,t) { g.arr.hatPat = 1; } },
+      { bias: 'filter',  fn: function(g,t) { g.arr.wobbleShape = 1; } },
+      { bias: 'energy',  fn: function(g,t) { g.arr.bassWalk = 1; } },
+    ],
+    // ── DEPTH 1: Rhythm ──
+    [
+      { bias: 'rhythm',  fn: function(g,t) { g.arr.kickPat = 1; } },
+      { bias: 'rhythm',  fn: function(g,t) { g.arr.ride = true; } },
+      { bias: 'filter',  fn: function(g,t) { g.arr.filterSweepDir = 1; g.arr.filterSweepPhase = 0; } },
+      { bias: 'energy',  fn: function(g,t) { g.arr.clap = true; } },
+      { bias: 'rhythm',  fn: function(g,t) { g.arr.hatPat = 2; } },
+    ],
+    // ── DEPTH 2: Harmony ──
+    [
+      { bias: 'filter',  fn: function(g,t) { g.nextRootShift = 5; rebuildGridLayers(g, t); } },  // to the 4th
+      { bias: 'energy',  fn: function(g,t) { g.arr.bassWalk = 2; } },
+      { bias: 'rhythm',  fn: function(g,t) { g.arr.hatPat = 3; } },
+      { bias: 'filter',  fn: function(g,t) { g.arr.wobbleShape = 2; g.arr.wobbleRate = 1.2; } },
+      { bias: 'energy',  fn: function(g,t) { g.arr.kickPat = 2; } },
+      { bias: 'filter',  fn: function(g,t) { g.nextRootShift = 3; rebuildGridLayers(g, t); } },  // b3 darker
+      { bias: 'energy',  fn: function(g,t) { g.arr.padOpen = true; try { Audio.layer.setFilter('edm-pad', 2200, 2.0); } catch(e) {} } },
+      { bias: 'rhythm',  fn: function(g,t) { g.arr.subOctave = true; } },
+    ],
+    // ── DEPTH 3: Texture ──
+    [
+      { bias: 'rhythm',  fn: function(g,t) { g.arr.hatPat = 4; g.arr.snareRoll = true; } },
+      { bias: 'filter',  fn: function(g,t) { g.arr.filterSweepDir = -1; g.arr.filterSweepPhase = 1; g.arr.wobbleRate = 1.8; } },
+      { bias: 'energy',  fn: function(g,t) { g.arr.kickPat = 3; g.arr.bassWalk = 3; } },
+      { bias: 'filter',  fn: function(g,t) { g.nextRootShift = 7; rebuildGridLayers(g, t); } },  // 5th — bright tension
+      { bias: 'rhythm',  fn: function(g,t) { g.arr.ridePattern = 1; g.arr.clap = true; } },
+      { bias: 'energy',  fn: function(g,t) { g.arr.wobbleShape = 1; g.arr.wobbleRate = 2.0; } },
+    ],
+    // ── DEPTH 4: The Deep End ──
+    // Compound moves. Multiple things change. You've earned this.
+    // These ONLY exist if you've been playing for 5+ minutes.
+    [
+      // Strip & rebuild: contrast creates depth
+      { bias: 'energy',  fn: function(g,t) {
+        g.arr.ride = false; g.arr.clap = false; g.arr.hatPat = 0; g.arr.snareRoll = false;
+      }},
+      // Full rebuild: everything comes back at once — the "reward"
+      { bias: 'energy',  fn: function(g,t) {
+        g.arr.ride = true; g.arr.clap = true; g.arr.hatPat = 3; g.arr.kickPat = 4;
+      }},
+      // Harmonic home with maximum texture
+      { bias: 'filter',  fn: function(g,t) {
+        g.nextRootShift = 0; rebuildGridLayers(g, t);
+        g.arr.padOpen = true; g.arr.subOctave = true;
+        try { Audio.layer.setFilter('edm-pad', 3000, 1.5); } catch(e) {}
+      }},
+      // Dark chromatic descent — the rabbit hole
+      { bias: 'filter',  fn: function(g,t) {
+        g.nextRootShift = 1; rebuildGridLayers(g, t);  // b2 — phrygian darkness
+        g.arr.wobbleShape = 2; g.arr.wobbleRate = 0.8;  // slow choppy = tension
+        g.arr.filterSweepDir = -1; g.arr.filterSweepPhase = 1;
+      }},
+      // Polyrhythmic hint: garage kick + ride quarter notes + busy hats = 3 against 4 feel
+      { bias: 'rhythm',  fn: function(g,t) {
+        g.arr.kickPat = 3; g.arr.ridePattern = 1; g.arr.hatPat = 4;
+      }},
+      // Sub-bass solo: strip highs, let the low end sing
+      { bias: 'filter',  fn: function(g,t) {
+        g.arr.hatPat = 0; g.arr.ride = false; g.arr.subOctave = true;
+        g.arr.bassWalk = 3; g.arr.wobbleRate = 0.5;
+      }},
+      // Rebuild from sub-bass solo: everything floods back
+      { bias: 'energy',  fn: function(g,t) {
+        g.arr.hatPat = 3; g.arr.ride = true; g.arr.kickPat = 2;
+        g.arr.wobbleRate = 1.5; g.arr.wobbleShape = 1;
+        g.nextRootShift = 5; rebuildGridLayers(g, t);
+      }},
+      // Maximum density with new key
+      { bias: 'rhythm',  fn: function(g,t) {
+        g.arr.snareRoll = true; g.arr.clap = true; g.arr.hatPat = 4;
+        g.nextRootShift = 8; rebuildGridLayers(g, t);  // minor 6th — emotional
+      }},
+    ],
   ];
 
+  // Track which moves have been used in each pool (don't repeat)
+  var poolUsed = [[], [], [], [], []];
+
+  function getDepth(segment) {
+    if (segment < 4)  return 0;
+    if (segment < 8)  return 1;
+    if (segment < 16) return 2;
+    if (segment < 24) return 3;
+    return 4;
+  }
+
+  // User tendency: what type of moves does their behavior suggest?
+  function getUserBias() {
+    // Bouncing/walking = rhythm. Waving = filter. High energy = energy. Exploring = filter.
+    if (archetype === 'bouncing' || archetype === 'walking') return 'rhythm';
+    if (archetype === 'waving') return 'filter';
+    if (grid.intensity > 0.6) return 'energy';
+    return 'filter';
+  }
+
   function applyDJMove(seg, time) {
-    var moveIdx = seg;
-    // After the sequence ends, cycle through segments 8-31 (the interesting part)
-    if (moveIdx >= DJ_MOVE_SEQUENCE.length) {
-      moveIdx = 8 + ((moveIdx - DJ_MOVE_SEQUENCE.length) % 24);
+    if (seg < 2) return; // first 2 segments: let intro breathe
+
+    var depth = getDepth(seg);
+    var pool = DJ_POOLS[depth];
+    if (!pool || pool.length === 0) return;
+
+    // If all moves in this pool are used, reset and re-shuffle
+    if (poolUsed[depth].length >= pool.length) {
+      poolUsed[depth] = [];
     }
-    var move = DJ_MOVE_SEQUENCE[moveIdx];
-    if (move) move(grid, time);
+
+    // Score each unused move: bias match = higher score + randomness
+    var userBias = getUserBias();
+    var best = null, bestScore = -1;
+    for (var i = 0; i < pool.length; i++) {
+      if (poolUsed[depth].indexOf(i) >= 0) continue;
+      var score = Math.random() * 0.5; // base randomness
+      if (pool[i].bias === userBias) score += 0.5; // bias match
+      if (score > bestScore) { bestScore = score; best = i; }
+    }
+
+    if (best !== null) {
+      poolUsed[depth].push(best);
+      pool[best].fn(grid, time);
+    }
   }
 
   function rebuildGridLayers(g, time) {

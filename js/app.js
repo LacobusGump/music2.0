@@ -285,7 +285,7 @@
       } else {
         // Music fades in after the boot voice has a moment to breathe
         setTimeout(function () {
-          Lens.selectCard(0); // Journey (starts as Drift)
+          Lens.selectCard(1); // Grid (EDM engine)
           var lens = Lens.getSelected();
           Audio.configure(lens);
           Follow.applyLens(lens);
