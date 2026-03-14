@@ -2611,6 +2611,19 @@ const Follow = (function () {
     if (best !== null) {
       poolUsed[depth].push(best);
       pool[best].fn(grid, time);
+
+      // Sonic marker: brief filter sweep to signal "something changed"
+      // Deeper depths get more dramatic markers
+      if (depth >= 2) {
+        // Quick filter dip then return — the "DJ moving a fader" feel
+        var curFilter = grid.filterSmooth || 800;
+        try {
+          Audio.setMasterFilter(curFilter * 0.4);  // brief dip
+          setTimeout(function() {
+            try { Audio.setMasterFilter(curFilter); } catch(e) {}
+          }, 180);  // snap back in 180ms
+        } catch(e) {}
+      }
     }
   }
 
@@ -2689,8 +2702,16 @@ const Follow = (function () {
     }
 
     // ── 3. INTENSITY + PUMP STYLE ──
+    // Intensity has TWO sources: user motion AND set maturity.
+    // The longer the set runs, the higher the floor. The DJ set grows on its own.
+    // User motion adds ENERGY on top. Tilt = you're present = the set evolves.
     grid.lastIntensity = grid.intensity;
-    var targetIntensity = Math.min(1, mediumEnergy * 0.8);
+
+    // Time-based floor: set builds intensity over first 3 minutes
+    // Even gentle tilt = the set is alive and growing
+    var timeFloor = Math.min(0.55, grid.setTime * 0.003); // 0→0.55 over ~3min
+
+    var targetIntensity = Math.max(timeFloor, Math.min(1, mediumEnergy * 0.8));
     var iRise = targetIntensity > grid.intensity ? 0.06 : 0.015;
     grid.intensity += (targetIntensity - grid.intensity) * iRise;
 
@@ -2702,8 +2723,9 @@ const Follow = (function () {
       grid.pumpIntensity *= 0.985;  // slow decay
     }
 
-    // djGain: never fully zero once started
-    var targetGain = Math.max(0.12, 0.22 + grid.intensity * 0.58);
+    // djGain: grows with the set. Your presence is enough.
+    var gainFloor = Math.min(0.65, 0.30 + grid.setTime * 0.002); // 0.30→0.65 over ~3min
+    var targetGain = Math.max(gainFloor, 0.22 + grid.intensity * 0.58);
     grid.djGain += (targetGain - grid.djGain) * 0.03;
 
     // ── 4. TILT ZONES — the heart of DJ manipulation ──
@@ -2815,7 +2837,7 @@ const Follow = (function () {
 
     switch (grid.phase) {
       case 'intro':
-        if (grid.phaseTimer > 8 || (peakNow && grid.phaseTimer > 3)) {
+        if (grid.phaseTimer > 5 || (peakNow && grid.phaseTimer > 2)) {
           grid.phase = 'build';
           grid.phaseTimer = 0;
           grid.buildLevel = (peakNow && grid.phaseTimer < 8) ? 0.15 : 0;
@@ -2827,10 +2849,11 @@ const Follow = (function () {
         break;
 
       case 'build':
-        // Build rate = user pumping. Harder = faster.
+        // Build rate: user motion accelerates, but it ALWAYS advances.
+        // Even gentle tilt = build progresses. You don't have to pump hard.
         grid.buildLevel += grid.pumpIntensity * dt * 0.08;
-        grid.buildLevel += grid.intensity * dt * 0.03;
-        grid.buildLevel += dt * 0.005;
+        grid.buildLevel += grid.intensity * dt * 0.04;
+        grid.buildLevel += dt * 0.015;  // passive build — drop comes within ~45s regardless
         grid.buildLevel = Math.min(1, grid.buildLevel);
 
         // ── VOCAL DROP: USER PEAKS TRIGGER EACH CLIP ──
@@ -2886,7 +2909,7 @@ const Follow = (function () {
         // If vocal drop is ready: next peak IS the drop (peak 3 = "you")
         // Otherwise: standard armed drop
         var armed = grid.vocalDropReady || grid.buildLevel > (edm.buildArmLevel || 0.65);
-        var autoTrigger = grid.phaseTimer > 40;
+        var autoTrigger = grid.phaseTimer > 28;  // auto-drop within ~28s if no peak trigger
         var vocalReady = grid.vocalDropReady && grid.vocalCooldown <= 0;
 
         if ((vocalReady && peakNow && grid.vocalPhase >= 2) || (armed && peakNow && !doVocalBuild && grid.phaseTimer > 8) || autoTrigger) {
@@ -3148,9 +3171,9 @@ const Follow = (function () {
       if (sv > 0 && !isIntro) {
         var snareLevel;
         if (isDrop) snareLevel = 0.7 + grid.pumpIntensity * 0.3;
-        else if (isBuild) snareLevel = Math.max(0, grid.buildLevel - 0.2);
-        else if (isBreakdown) snareLevel = 0.3;  // light snare in breakdown
-        else snareLevel = 0;
+        else if (isBuild) snareLevel = Math.max(0.15, grid.buildLevel * 0.8);  // always present in build
+        else if (isBreakdown) snareLevel = 0.3;
+        else snareLevel = 0.2;  // always a bit of snare once past intro
         var snareVel = sv * grid.djGain * snareLevel;
         if (snareVel > 0.04) {
           Audio.drum.snare(time, Math.min(0.85, snareVel), kit);
@@ -3169,14 +3192,16 @@ const Follow = (function () {
       }
 
       // ── HATS ──
-      // Evolved via DJ moves. Breakdown: sparse. Drop: driving.
+      // If DJ move activated hats (hatPat > 0), they should be AUDIBLE.
+      // Intensity shapes how loud, but there's always a floor once enabled.
       var hv = hatPat[newStep] || 0;
       if (hv > 0 && !isIntro) {
         var hatLevel;
+        var hatFloor = grid.arr.hatPat > 0 ? 0.25 : 0; // DJ move = hats are IN
         if (isDrop) hatLevel = zoneHatMix * (0.5 + grid.intensity * 0.5);
         else if (isBreakdown && grid.breakdownStyle !== 3) hatLevel = 0.15 * zoneHatMix;
-        else if (isBreakdown && grid.breakdownStyle === 3) hatLevel = 0.4 * zoneHatMix;  // rhythmic breakdown keeps hats
-        else hatLevel = Math.max(0, grid.intensity - 0.1) * zoneHatMix;
+        else if (isBreakdown && grid.breakdownStyle === 3) hatLevel = 0.4 * zoneHatMix;
+        else hatLevel = Math.max(hatFloor, grid.intensity * 0.7) * zoneHatMix;
         var hatVel = hv * grid.djGain * hatLevel * rollTreble * 0.5;
         if (hatVel > 0.02) {
           Audio.drum.hat(time, hatVel, kit);
@@ -3243,8 +3268,8 @@ const Follow = (function () {
         }
 
         if (stabFire && stabVoicing.length > 0) {
-          var stabVel = grid.intensity * grid.djGain * rollTreble;
-          if (isBuild) stabVel *= grid.buildLevel;
+          var stabVel = Math.max(0.25, grid.intensity) * grid.djGain * rollTreble;
+          if (isBuild) stabVel *= Math.max(0.3, grid.buildLevel);
           if (isBreakdown) stabVel *= 0.3;
           if (stabVel > 0.04) {
             try { Audio.synth.chordStab(time, stabVoicing, stabVel * 0.4, stabSustain); } catch(e) {}
@@ -3266,9 +3291,9 @@ const Follow = (function () {
 
         var bassV;
         if (isDrop) bassV = 0.30;
-        else if (isBuild) bassV = 0.10 + grid.buildLevel * 0.18;
-        else if (isBreakdown) bassV = 0.25;  // bass stays present in breakdown
-        else bassV = 0.08;
+        else if (isBuild) bassV = 0.15 + grid.buildLevel * 0.15;
+        else if (isBreakdown) bassV = 0.25;
+        else bassV = 0.15;  // bass always present once activated
         bassV *= grid.djGain * zoneSubMix * rollBass;
         var bassDur = isBreakdown ? grid.stepDur * 6 : grid.stepDur * 3;
 
