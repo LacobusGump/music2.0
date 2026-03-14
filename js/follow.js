@@ -2254,9 +2254,10 @@ const Follow = (function () {
         grid.phaseTimer = 0;
         isSilent = false;
         fadeGain = 0.5;
+        // Intro: just the layers fading in. No melody — it was crashing.
         try { Audio.layer.setGain('edm-pad', 0.08, 3.0); } catch(e) {}
-        try { Audio.layer.setGain('edm-sub', 0.02, 4.0); } catch(e) {}
-        try { Audio.synth.introMelody(time + 0.5, originalRoot); } catch(e) {}
+        try { Audio.layer.setGain('edm-sub', 0.03, 3.0); } catch(e) {}
+        try { Audio.layer.setGain('edm-wobble', 0.02, 4.0); } catch(e) {}
       } else {
         if (Audio.ctx) Audio.setMasterGain(0);
         return;
@@ -2427,7 +2428,7 @@ const Follow = (function () {
         // Peak 2: "to" triplet stutter (build holds)
         // Peak 3: DROP — "you" + "you-deep" double drop
         var hasVocals = grid.vocalsLoaded && Audio.vocal && Audio.vocal.buffers;
-        var doVocalBuild = hasVocals && grid.cycle >= 1 && !grid.vocalDropFired;
+        var doVocalBuild = hasVocals && !grid.vocalDropFired;
 
         if (doVocalBuild && peakNow && grid.buildLevel > 0.25) {
           if (grid.vocalPhase === 0) {
@@ -2690,16 +2691,63 @@ const Follow = (function () {
         }
       }
 
-      // (stabs and vocal chops removed — user manipulates, system doesn't auto-trigger)
+      // ── ARP: tilt-shaped melodic texture ──
+      // High zone: arp fires on 16th notes walking the scale.
+      // Mid zone: sparser (every 4th step). Low zone: silent.
+      // Arp pitch follows tilt — higher angle = higher notes = user plays melody.
+      if (!isIntro && !isBreakdown && !isCut && grid.tiltZone >= 1) {
+        var arpFire = false;
+        if (grid.tiltZone >= 2) {
+          // High zone: every other 16th note
+          arpFire = (newStep % 2 === 0);
+        } else {
+          // Mid zone: every 4th step, only during drop
+          arpFire = isDrop && (newStep % 4 === 0);
+        }
+        if (arpFire) {
+          // Tilt maps to scale degree — user's angle picks the note
+          var arpDeg = Math.floor(grid.tiltNorm * 10);  // 0-10 across 1.5 octaves
+          var arpOct = Math.floor(arpDeg / 7) + 1;      // start at octave 1 (higher)
+          var arpNote = arpDeg % 7;
+          var arpFreq = scaleFreq(arpNote, arpOct);
+          var arpVel = grid.intensity * rollTreble * grid.djGain;
+          // During build: arp velocity tracks build level
+          if (isBuild) arpVel *= grid.buildLevel;
+          if (arpVel > 0.04) {
+            var arpDecay = isDrop ? 0.12 : 0.08;
+            try { Audio.synth.arpNote(time, arpFreq, arpVel * 0.35, arpDecay); } catch(e) {}
+          }
+        }
+      }
 
-      // ── SUB PULSE: on kick beats, zone-shaped ──
-      if (!isIntro && (newStep === 0 || newStep === 8) && grid.subPulseStep !== newStep) {
+      // ── WALKING BASS: phrygian bass line on beat ──
+      // Not just a static sub — the bass WALKS through the scale.
+      // Tilt zone shapes which notes: low zone gets root/5th, high zone gets more movement.
+      if (!isIntro && (newStep === 0 || newStep === 8)) {
         grid.subPulseStep = newStep;
-        var subF = edm.subFreq || 55;
-        var subV = isDrop ? 0.30 : (isBuild ? 0.12 + grid.buildLevel * 0.15 : 0.08);
-        subV *= grid.djGain * zoneSubMix * rollBass;
-        if (subV > 0.03) {
-          try { Audio.synth.subPulse(time + 0.005, subF, subV, grid.stepDur * 3); } catch(e) {}
+        var bassRoot = edm.subFreq || 55;
+
+        // Bass note selection: walks through phrygian intervals
+        var bassPatterns = [
+          [0, 0],       // root, root (simple)
+          [0, 4],       // root, 5th
+          [0, 3],       // root, 4th
+          [0, 6],       // root, b7
+          [4, 3],       // 5th, 4th
+          [0, 1],       // root, b2 (dark phrygian move)
+        ];
+        var bassPat = bassPatterns[grid.totalBars % bassPatterns.length];
+        var bassNote = newStep === 0 ? bassPat[0] : bassPat[1];
+        var bassFreq = scaleFreq(bassNote, -2);  // low octave
+
+        var bassV = isDrop ? 0.30 : (isBuild ? 0.10 + grid.buildLevel * 0.18 : 0.08);
+        bassV *= grid.djGain * zoneSubMix * rollBass;
+
+        if (bassV > 0.03) {
+          // Walking bass pluck — has character, not just sine
+          try { Audio.synth.bassPluck(time + 0.005, bassFreq, bassV, grid.stepDur * 3); } catch(e) {}
+          // Sub layer still reinforces the root
+          try { Audio.synth.subPulse(time + 0.005, bassFreq, bassV * 0.6, grid.stepDur * 3); } catch(e) {}
         }
       }
     }

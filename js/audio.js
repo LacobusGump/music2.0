@@ -2488,6 +2488,71 @@ const Audio = (function () {
     o.start(time); o.stop(time + 0.25);
   }
 
+  // Arp layer: filtered pluck-like sound that follow.js triggers on clock steps.
+  // Short decay, resonant LP — the modern EDM arp sound.
+  function synthArpNote(time, freq, vel, decay) {
+    var v = vel || 0.3;
+    var d = decay || 0.15;
+
+    // 2 detuned saws through resonant LP for that pluck character
+    var lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.setValueAtTime(3500, time);
+    lp.frequency.exponentialRampToValueAtTime(400, time + d);
+    lp.Q.value = 4;
+
+    var env = ctx.createGain();
+    env.gain.setValueAtTime(v * 0.4, time);
+    env.gain.exponentialRampToValueAtTime(0.001, time + d);
+
+    var o1 = ctx.createOscillator(); o1.type = 'sawtooth'; o1.frequency.value = freq; o1.detune.value = -6;
+    var o2 = ctx.createOscillator(); o2.type = 'sawtooth'; o2.frequency.value = freq; o2.detune.value = 6;
+
+    o1.connect(lp); o2.connect(lp);
+    lp.connect(env);
+    env.connect(sidechainGain);
+
+    // Light reverb send
+    if (reverbSend) {
+      var rs = ctx.createGain(); rs.gain.value = 0.15;
+      env.connect(rs); rs.connect(reverbSend);
+    }
+
+    o1.start(time); o1.stop(time + d + 0.05);
+    o2.start(time); o2.stop(time + d + 0.05);
+  }
+
+  // Bass pluck: short sine with pitch bend for walking bass lines
+  function synthBassPluck(time, freq, vel, decay) {
+    var v = vel || 0.4;
+    var d = decay || 0.25;
+
+    var o = ctx.createOscillator(); o.type = 'sine';
+    // Slight pitch bend down for that bass "thwack"
+    o.frequency.setValueAtTime(freq * 1.08, time);
+    o.frequency.exponentialRampToValueAtTime(freq, time + 0.03);
+
+    // Add a subtle saw harmonic for grit
+    var o2 = ctx.createOscillator(); o2.type = 'sawtooth'; o2.frequency.value = freq;
+    var o2g = ctx.createGain(); o2g.gain.value = 0.06;
+    o2.connect(o2g);
+
+    var lp = ctx.createBiquadFilter(); lp.type = 'lowpass';
+    lp.frequency.setValueAtTime(1200, time);
+    lp.frequency.exponentialRampToValueAtTime(200, time + d * 0.6);
+
+    var env = ctx.createGain();
+    env.gain.setValueAtTime(v * 0.5, time);
+    env.gain.setTargetAtTime(0.001, time + d * 0.4, d * 0.3);
+
+    o.connect(lp); o2g.connect(lp);
+    lp.connect(env);
+    env.connect(sidechainGain);
+
+    o.start(time); o.stop(time + d + 0.1);
+    o2.start(time); o2.stop(time + d + 0.1);
+  }
+
   // Teardown all EDM layers
   function destroyEDMLayers() {
     destroyLayer('edm-wobble');
@@ -2522,8 +2587,13 @@ const Audio = (function () {
       });
   }
 
-  // Play a preloaded vocal clip at a specific time
-  // Returns the source node for scheduling control
+  // Play a PRODUCED vocal clip — not raw playback but actual DJ production:
+  // - HP at 180Hz (keep out of sub)
+  // - LP that sweeps open (vocal emerges from dark)
+  // - Mid-range presence boost (vocal cuts through mix)
+  // - Gain envelope (fade in, sustain, fade out — no harsh edges)
+  // - Sidechain routed (pumps with kick)
+  // - Optional reverb/delay sends
   function playVocal(name, time, opts) {
     var buf = vocalBuffers[name];
     if (!buf || !ctx) return null;
@@ -2531,37 +2601,71 @@ const Audio = (function () {
     var vol = o.vol !== undefined ? o.vol : 0.75;
     var rate = o.rate !== undefined ? o.rate : 1.0;
     var offset = o.offset || 0;
-    var duration = o.duration || 0;  // 0 = full clip
+    var duration = o.duration || 0;
+    var dur = duration > 0 ? duration : buf.duration / rate;
 
     var src = ctx.createBufferSource();
     src.buffer = buf;
     src.playbackRate.value = rate;
 
-    // HP filter to keep vocals out of sub range
+    // ── PRODUCTION CHAIN ──
+    // HP: keep vocals out of sub range
     var hp = ctx.createBiquadFilter();
     hp.type = 'highpass';
-    hp.frequency.value = 120;
+    hp.frequency.value = 180;
+    hp.Q.value = 0.7;
 
+    // LP: vocal emerges from dark — sweeps from 800→4500Hz over first 30%
+    var lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    var lpStart = o.lpStart || 800;
+    var lpEnd = o.lpEnd || 4500;
+    lp.frequency.setValueAtTime(lpStart, time);
+    lp.frequency.exponentialRampToValueAtTime(lpEnd, time + dur * 0.3);
+    lp.Q.value = 1.2;  // slight resonance at cutoff = presence
+
+    // Mid presence boost: bandpass at 2.5kHz adds vocal clarity
+    var mid = ctx.createBiquadFilter();
+    mid.type = 'peaking';
+    mid.frequency.value = 2500;
+    mid.Q.value = 1.5;
+    mid.gain.value = 3;  // +3dB in vocal presence range
+
+    // Gain envelope: smooth fade in/out (no harsh click edges)
     var g = ctx.createGain();
-    g.gain.value = vol;
+    var fadeIn = o.fadeIn !== undefined ? o.fadeIn : 0.015;
+    var fadeOut = o.fadeOut !== undefined ? o.fadeOut : 0.08;
+    g.gain.setValueAtTime(0.001, time);
+    g.gain.linearRampToValueAtTime(vol, time + fadeIn);
+    if (dur > fadeOut * 2) {
+      g.gain.setValueAtTime(vol, time + dur - fadeOut);
+      g.gain.linearRampToValueAtTime(0.001, time + dur);
+    }
 
-    // Vocal goes through sidechain so it pumps with the kick
+    // Chain: src → hp → lp → mid → gain → sidechain
     src.connect(hp);
-    hp.connect(g);
+    hp.connect(lp);
+    lp.connect(mid);
+    mid.connect(g);
     g.connect(sidechainGain);
 
-    // Optional reverb send for space
-    if (o.reverb && reverbSend) {
+    // Reverb send
+    var reverbAmt = o.reverb !== undefined ? o.reverb : 0.12;
+    if (reverbAmt > 0 && reverbSend) {
       var rs = ctx.createGain();
-      rs.gain.value = o.reverb;
+      rs.gain.value = reverbAmt;
       g.connect(rs);
       rs.connect(reverbSend);
     }
 
-    // Optional delay send for echo
-    if (o.delay && delaySend) {
+    // Delay send (delay throw on tail)
+    var delayAmt = o.delay || 0;
+    if (delayAmt > 0 && delaySend) {
       var ds = ctx.createGain();
-      ds.gain.value = o.delay;
+      // Delay throw: ramps up at end of clip for echo tail
+      ds.gain.setValueAtTime(0, time);
+      ds.gain.setValueAtTime(0, time + dur * 0.5);
+      ds.gain.linearRampToValueAtTime(delayAmt, time + dur * 0.85);
       g.connect(ds);
       ds.connect(delaySend);
     }
@@ -2573,16 +2677,16 @@ const Audio = (function () {
     }
 
     vocalSources.push(src);
-    // Cleanup ref after done
     src.onended = function () {
       var idx = vocalSources.indexOf(src);
       if (idx >= 0) vocalSources.splice(idx, 1);
     };
 
-    return { source: src, gain: g };
+    return { source: src, gain: g, lp: lp };
   }
 
-  // Play a vocal clip as a triplet stutter (3 rapid chops, slowing down)
+  // Triplet stutter: 3 chops decelerating with production on each
+  // Each chop gets darker LP, lower pitch, more reverb = slowing down feeling
   function playVocalTriplet(name, time, opts) {
     var buf = vocalBuffers[name];
     if (!buf || !ctx) return;
@@ -2590,27 +2694,30 @@ const Audio = (function () {
     var vol = o.vol !== undefined ? o.vol : 0.7;
     var dur = buf.duration;
 
-    // 3 chops: fast, medium, slow (decelerating triplet)
     var chopDurs = [0.12, 0.18, 0.28];
     var gaps = [0.04, 0.06];
     var t = time;
 
     for (var i = 0; i < 3; i++) {
       var chopLen = Math.min(chopDurs[i], dur);
-      var chopVol = vol * (0.6 + i * 0.2);  // gets louder = building
+      var chopVol = vol * (0.6 + i * 0.2);
 
       playVocal(name, t, {
         vol: chopVol,
         duration: chopLen,
-        rate: 1.0 - i * 0.08,  // pitch drops slightly each chop = slowing down
-        reverb: 0.15 + i * 0.1,
-        delay: i === 2 ? 0.25 : 0,  // last chop gets delay tail
+        rate: 1.0 - i * 0.1,       // pitch drops more each chop
+        lpStart: 3000 - i * 800,    // each chop darker
+        lpEnd: 3000 - i * 800,      // no sweep within chop — instant character
+        fadeIn: 0.003,              // tight attack
+        fadeOut: 0.02,
+        reverb: 0.1 + i * 0.15,    // more reverb each chop = fading away
+        delay: i === 2 ? 0.35 : 0, // last chop gets heavy delay tail
       });
 
       t += chopLen + (gaps[i] || 0);
     }
 
-    return t;  // return end time so caller knows when triplet finishes
+    return t;
   }
 
   // Stop all playing vocals
@@ -2666,6 +2773,8 @@ const Audio = (function () {
       subPulse: synthSubPulse,
       crashFill: synthCrashFill,
       vocalChop: synthVocalChop,
+      arpNote: synthArpNote,
+      bassPluck: synthBassPluck,
       play: synthesize,
     }),
 
