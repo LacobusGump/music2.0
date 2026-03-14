@@ -8,6 +8,8 @@
  * ANSWER: The music responds. Rare. Deliberate. Completes your thought.
  * SPACE:  The room. Foundation drone + reverb. The harmonic ground.
  *
+ * v86: Grid DJ set evolution — 10-20min depth. Harmonic movement, drum/pattern
+ *       evolution per cycle, breakdown variation, rising intensity, vocal cooldown fix.
  * v79: Music waits for you. Autonomy gates on Brain.short.energy().
  * v67: Clean rebuild.
  *  - LEAD voice is now 2× louder — the melody is the boss
@@ -2123,8 +2125,21 @@ const Follow = (function () {
     // Pump style: how the user is moving (smooth vs hard)
     pumpIntensity: 0,      // 0-1 smoothed from peak frequency/strength
 
-    // Cycle count
+    // Cycle count & set evolution
     cycle: 0,
+    setTime: 0,                // total time since first motion (the whole "set")
+    rootShift: 0,              // semitones from original root (harmonic movement)
+    nextRootShift: 0,          // target for next cycle
+    currentRootFreq: 0,       // actual shifted root frequency
+
+    // Per-cycle variation seeds
+    kickVariant: 0,            // which kick pattern variation
+    hatStyle: 0,               // hat pattern style
+    breakdownStyle: 0,         // breakdown character (0=pad, 1=vocal, 2=sub, 3=rhythmic)
+    dropCharacter: 0,          // drop intensity profile
+    rideActive: false,         // ride cymbal introduced yet?
+    filterAutoPhase: 0,        // long-term filter automation
+    filterAutoRate: 0,         // automation speed (bars)
 
     // Breakdown state
     breakdownMelodyFired: false,
@@ -2132,9 +2147,10 @@ const Follow = (function () {
     // Vocal drop system
     vocalsLoaded: false,
     vocalDropFired: false,     // has the vocal sequence played this cycle?
-    vocalPhase: 0,             // 0=waiting, 1=freedom-is, 2=what-you-do-with, 3=what-is-done, 4=to(triplet), 5=drop(you-deep)
+    vocalPhase: 0,             // 0=waiting, 1=what-is-done, 2=to(triplet), 3=drop(you+you-deep)
     vocalTimer: 0,             // time within current vocal phase
     vocalDropReady: false,     // waiting for user peak to trigger "to you" drop
+    vocalCooldown: 0,          // minimum time between vocal phase advances (prevents double-trigger)
   };
 
   // ── DRUM PATTERNS ──
@@ -2154,6 +2170,40 @@ const Follow = (function () {
     [0, 0, 0, 0.7,  0, 0, 0, 0,  0, 0, 0, 0.7,  0, 0, 0, 0],     // minimal: off-beat 4ths
     [0, 0, 0.6, 0,  0, 0, 0, 0.5,  0, 0, 0.6, 0,  0, 0, 0, 0.5],  // syncopated
     [0.8, 0, 0, 0,  0, 0, 0.5, 0,  0, 0, 0, 0,  0.6, 0, 0, 0],    // sparse punchy
+  ];
+
+  // ── KICK VARIANTS — evolve across cycles ──
+  var GRID_KICK_VARIANTS = [
+    [1.0, 0, 0, 0,  1.0, 0, 0, 0,  1.0, 0, 0, 0,  1.0, 0, 0, 0],           // 0: four on the floor (classic)
+    [1.0, 0, 0, 0,  1.0, 0, 0, 0.3,  1.0, 0, 0, 0,  1.0, 0, 0.4, 0],       // 1: ghost kicks add shuffle
+    [1.0, 0, 0, 0.5,  0, 0, 1.0, 0,  1.0, 0, 0, 0.5,  0, 0, 1.0, 0],       // 2: broken — skips beat 2
+    [1.0, 0, 0, 0,  0, 0, 0.8, 0,  1.0, 0, 0, 0,  0.6, 0, 0.9, 0],         // 3: garage-style off-kick
+    [1.0, 0, 0.4, 0,  1.0, 0, 0, 0,  1.0, 0, 0, 0.4,  1.0, 0, 0, 0],       // 4: subtle 16th accents
+  ];
+
+  // ── HAT VARIANTS — evolve across cycles ──
+  var GRID_HAT_VARIANTS = [
+    [0, 0, 0.6, 0,  0, 0, 0.6, 0,  0, 0, 0.6, 0,  0, 0, 0.6, 0],           // 0: basic offbeats
+    [0.5, 0, 0.7, 0,  0, 0, 0.7, 0,  0.5, 0, 0.7, 0,  0, 0, 0.7, 0.3],     // 1: add downbeats
+    [0.4, 0.2, 0.6, 0.2,  0.4, 0.2, 0.6, 0.2,  0.4, 0.2, 0.6, 0.2,  0.4, 0.2, 0.6, 0.2],  // 2: straight 8ths
+    [0.7, 0, 0.5, 0.3,  0, 0.4, 0.6, 0,  0.7, 0, 0.5, 0.3,  0, 0.4, 0.6, 0.3],             // 3: complex groove
+    [0.8, 0.3, 0.5, 0.3,  0.8, 0.3, 0.5, 0.3,  0.8, 0.3, 0.5, 0.3,  0.8, 0.5, 0.6, 0.5],   // 4: driving 16ths
+  ];
+
+  // ── HARMONIC MOVEMENT — phrygian root shifts per cycle ──
+  // Each value is semitones from original root. Stays in phrygian-compatible territory.
+  var ROOT_SHIFTS = [0, 0, 5, 5, 3, 3, 7, 7, 1, 1, 0, 0];  // root, 4th, b3, 5th, b2, home
+
+  // ── BASS WALK EVOLUTION — more complex patterns in later cycles ──
+  var BASS_WALKS = [
+    // Cycle 0-1: simple
+    [[0, 0], [0, 4], [0, 3], [0, 6]],
+    // Cycle 2-3: phrygian color
+    [[0, 1], [0, 4], [4, 3], [0, 6], [3, 1], [0, 0]],
+    // Cycle 4-5: walking
+    [[0, 1], [1, 3], [3, 4], [4, 6], [6, 4], [3, 0]],
+    // Cycle 6+: dark chromatic moves
+    [[0, 1], [1, 0], [0, 6], [6, 4], [4, 3], [3, 1], [1, 6], [6, 0]],
   ];
 
   function initGrid() {
@@ -2191,6 +2241,17 @@ const Follow = (function () {
     grid.chopStep = -1;
     grid.pumpIntensity = 0;
     grid.cycle = 0;
+    grid.setTime = 0;
+    grid.rootShift = 0;
+    grid.nextRootShift = 0;
+    grid.currentRootFreq = originalRoot;
+    grid.kickVariant = 0;
+    grid.hatStyle = 0;
+    grid.breakdownStyle = 0;
+    grid.dropCharacter = 0;
+    grid.rideActive = false;
+    grid.filterAutoPhase = 0;
+    grid.filterAutoRate = 0;
     grid.breakdownMelodyFired = false;
     grid.lastArchetype = 'exploring';
     grid.archetypeTimer = 0;
@@ -2202,6 +2263,7 @@ const Follow = (function () {
     grid.vocalPhase = 0;
     grid.vocalTimer = 0;
     grid.vocalDropReady = false;
+    grid.vocalCooldown = 0;
 
     try { Audio.set808SubFreq(edm.subFreq || 55); } catch(e) {}
     try { Audio.setSidechainDepth(0.3); } catch(e) {}
@@ -2250,6 +2312,19 @@ const Follow = (function () {
 
     var motionEnergy = (typeof Brain !== 'undefined') ? Brain.short.energy() : 0;
     var mediumEnergy = (typeof Brain !== 'undefined') ? Brain.medium.energy() : 0;
+
+    // Track total set time for long-arc evolution
+    grid.setTime += dt;
+    grid.vocalCooldown = Math.max(0, grid.vocalCooldown - dt);
+
+    // Harmonic movement: smoothly shift root frequency across cycles
+    grid.rootShift += (grid.nextRootShift - grid.rootShift) * dt * 0.5;
+    grid.currentRootFreq = originalRoot * Math.pow(2, grid.rootShift / 12);
+    // Apply shifted root so scaleFreq() picks it up for bass walks, stabs, etc.
+    root = grid.currentRootFreq;
+
+    // Long-term filter automation (independent of tilt — adds slow movement)
+    grid.filterAutoPhase += dt * 0.15;  // very slow sweep
 
     // ── 1. START: first motion starts the DJ set ──
     if (!grid.started) {
@@ -2396,7 +2471,9 @@ const Follow = (function () {
     }
 
     // Apply filter: kill switch overrides zone filter
-    var filterTarget = grid.killActive ? filterRange[0] * 0.4 : zoneFilter;
+    // Long-term auto-modulation adds subtle movement independent of tilt
+    var filterAuto = Math.sin(grid.filterAutoPhase) * 0.08 * zoneFilter;
+    var filterTarget = grid.killActive ? filterRange[0] * 0.4 : (zoneFilter + filterAuto);
     grid.filterSmooth += (filterTarget - grid.filterSmooth) * 0.04;
     try { Audio.setMasterFilter(grid.filterSmooth); } catch(e) {}
 
@@ -2426,16 +2503,19 @@ const Follow = (function () {
 
         // ── VOCAL DROP: USER PEAKS TRIGGER EACH CLIP ──
         // Each peak during build = next vocal. YOU are performing the build.
-        // Peak 1: "what is done"
-        // Peak 2: "to" triplet stutter (build holds)
+        // Peak 1: "what is done" (after 6s of building — prevents double-trigger on load)
+        // Peak 2: "to" triplet stutter (build holds, 4s after peak 1)
         // Peak 3: DROP — "you" + "you-deep" double drop
         var hasVocals = grid.vocalsLoaded && Audio.vocal && Audio.vocal.buffers;
         var doVocalBuild = hasVocals && !grid.vocalDropFired;
 
-        if (doVocalBuild && peakNow && grid.buildLevel > 0.25) {
+        // FIX: minimum build time before vocals + cooldown between advances
+        if (doVocalBuild && peakNow && grid.buildLevel > 0.25 &&
+            grid.phaseTimer > 6 && grid.vocalCooldown <= 0) {
           if (grid.vocalPhase === 0) {
             // Peak 1: "what is done"
             grid.vocalPhase = 1;
+            grid.vocalCooldown = 4;  // minimum 4s before next vocal advance
             try { Audio.vocal.play('what-is-done', time, {
               vol: 0.8, reverb: 0.15, delay: 0.12
             }); } catch(e) {}
@@ -2444,6 +2524,7 @@ const Follow = (function () {
             // Peak 2: "to" triplet stutter — build HOLDS here
             grid.vocalPhase = 2;
             grid.vocalDropReady = true;
+            grid.vocalCooldown = 3;  // 3s before drop can fire
             try { Audio.vocal.triplet('to-you', time, {
               vol: 0.85
             }); } catch(e) {}
@@ -2474,14 +2555,28 @@ const Follow = (function () {
         // Otherwise: standard armed drop
         var armed = grid.vocalDropReady || grid.buildLevel > (edm.buildArmLevel || 0.65);
         var autoTrigger = grid.phaseTimer > 40;
+        var vocalReady = grid.vocalDropReady && grid.vocalCooldown <= 0;
 
-        if ((armed && peakNow && grid.vocalPhase >= 2) || (armed && peakNow && !doVocalBuild) || autoTrigger) {
+        if ((vocalReady && peakNow && grid.vocalPhase >= 2) || (armed && peakNow && !doVocalBuild && grid.phaseTimer > 8) || autoTrigger) {
           grid.phase = 'drop';
           grid.phaseTimer = 0;
           grid.buildLevel = 0;
           grid.highEnergyTime = 0;
           grid.wobbleShape = grid.cycle % 3;
           grid.cycle++;
+
+          // ── SET EVOLUTION: each cycle brings new elements ──
+          grid.kickVariant = Math.min(grid.cycle, GRID_KICK_VARIANTS.length - 1);
+          grid.hatStyle = Math.min(grid.cycle, GRID_HAT_VARIANTS.length - 1);
+          grid.breakdownStyle = grid.cycle % 4;
+          grid.dropCharacter = grid.cycle;  // intensity escalates
+          // Ride cymbal: introduced from cycle 3+
+          if (grid.cycle >= 3) grid.rideActive = true;
+          // Harmonic shift: moves every 2 cycles
+          var shiftIdx = Math.min(grid.cycle, ROOT_SHIFTS.length - 1);
+          grid.nextRootShift = ROOT_SHIFTS[shiftIdx];
+          // Filter automation rate varies per cycle
+          grid.filterAutoRate = 0.08 + (grid.cycle % 3) * 0.04;
 
           // ── VOCAL DOUBLE DROP ──
           if (grid.vocalDropReady) {
@@ -2515,6 +2610,7 @@ const Follow = (function () {
 
       case 'drop':
         // ── THE DROP: user IS the DJ. Archetype shapes the vibe. ──
+        // Each cycle's drop hits harder and has different character.
 
         // Sustained high energy for chops
         if (grid.intensity > 0.45) grid.highEnergyTime += dt;
@@ -2525,27 +2621,35 @@ const Follow = (function () {
         if (lowE && grid.phaseTimer > 5) grid.buildLevel += dt * 0.18;
         else grid.buildLevel = Math.max(0, grid.buildLevel - dt * 0.4);
 
+        // Escalation: later cycles hit harder (more wobble, more sub, tighter sidechain)
+        var cycleBoost = Math.min(0.15, grid.cycle * 0.025);  // +2.5% per cycle, cap at 15%
+
         // Zone-shaped layer volumes — tilt position shapes the MIX
-        var dropWobble = 0.12 + grid.intensity * 0.12;
+        var dropWobble = (0.12 + grid.intensity * 0.12 + cycleBoost);
         try { Audio.layer.setGain('edm-wobble', dropWobble * zoneSubMix * rollBass, 0.3); } catch(e) {}
 
-        var dropSub = 0.10 + grid.intensity * 0.08;
+        var dropSub = (0.10 + grid.intensity * 0.08 + cycleBoost * 0.6);
         try { Audio.layer.setGain('edm-sub', dropSub * zoneSubMix * rollBass, 0.3); } catch(e) {}
 
+        // Filter automation: slow sweep adds movement even when user is steady
+        var filterAuto = Math.sin(grid.filterAutoPhase) * 0.12;
+        var autoFilterOffset = filterAuto * zoneFilter;
+
         // Sidechain from archetype — bouncing = HARD pump, waving = lighter
-        var dropSC = 0.45 + grid.pumpIntensity * 0.3;
+        var dropSC = 0.45 + grid.pumpIntensity * 0.3 + cycleBoost;
         if (archetype === 'bouncing') dropSC += 0.2;
         else if (archetype === 'waving') dropSC += 0.05;
         else dropSC += grid.intensity * 0.1;
-        try { Audio.setSidechainDepth(Math.min(0.85, dropSC)); } catch(e) {}
+        try { Audio.setSidechainDepth(Math.min(0.90, dropSC)); } catch(e) {}
 
         // Peak during drop: hard sidechain pump (user feels the hit)
         if (peakNow) {
           try { Audio.pumpSidechain(0.9); } catch(e) {}
         }
 
-        // Max drop → breakdown (normal tempo, not halftime)
-        if (grid.buildLevel > 1.8 || grid.phaseTimer > 35) {
+        // Max drop → breakdown (later cycles sustain longer drops)
+        var dropMaxTime = 35 + Math.min(20, grid.cycle * 5);  // 35s → 55s max
+        if (grid.buildLevel > 1.8 || grid.phaseTimer > dropMaxTime) {
           grid.phase = 'breakdown';
           grid.phaseTimer = 0;
           grid.buildLevel = 0;
@@ -2564,7 +2668,33 @@ const Follow = (function () {
 
       case 'breakdown':
         // ── BREAKDOWN: stripped-back, normal tempo, space to breathe ──
-        // Kick + pad + sub. Minimal but grooving. The contrast makes the next drop hit harder.
+        // Each cycle's breakdown is different — keeps the set feeling alive.
+        // Style 0: pad swell (classic). Style 1: vocal atmosphere. Style 2: sub focus. Style 3: rhythmic.
+
+        // Breakdown-specific character
+        if (!grid.breakdownMelodyFired && grid.phaseTimer > 2) {
+          grid.breakdownMelodyFired = true;
+          var bdStyle = grid.breakdownStyle;
+          var bdHasVocals = grid.vocalsLoaded && Audio.vocal && Audio.vocal.buffers;
+          if (bdStyle === 0) {
+            // Pad swell: open pad filter wide, let it breathe
+            try { Audio.layer.setGain('edm-pad', 0.15, 3.0); } catch(e) {}
+            try { Audio.layer.setFilter('edm-pad', 2000, 2.0); } catch(e) {}
+          } else if (bdStyle === 1 && bdHasVocals) {
+            // Vocal atmosphere: play a vocal clip with heavy reverb
+            try { Audio.vocal.play('what-is-done', time, {
+              vol: 0.4, reverb: 0.5, delay: 0.3
+            }); } catch(e) {}
+          } else if (bdStyle === 2) {
+            // Sub focus: deep sub pulse, everything else almost silent
+            try { Audio.layer.setGain('edm-sub', 0.16, 1.5); } catch(e) {}
+            try { Audio.layer.setGain('edm-pad', 0.03, 1.5); } catch(e) {}
+          } else {
+            // Rhythmic: hats keep going, minimal everything else
+            try { Audio.layer.setGain('edm-wobble', 0.01, 1.5); } catch(e) {}
+            try { Audio.layer.setGain('edm-sub', 0.08, 1.5); } catch(e) {}
+          }
+        }
 
         // User moves = back to build
         var breakdownDone = grid.phaseTimer > 14;
@@ -2579,11 +2709,23 @@ const Follow = (function () {
           grid.vocalPhase = 0;
           grid.vocalTimer = 0;
           grid.vocalDropReady = false;
+          grid.vocalCooldown = 6;  // don't let vocals fire immediately when returning to build
           try { Audio.setSidechainDepth(0.3); } catch(e) {}
           try { Audio.layer.setGain('edm-wobble', 0.03, 2.0); } catch(e) {}
           try { Audio.layer.setGain('edm-sub', 0.06, 1.5); } catch(e) {}
           // Restore dry reverb (coming out of breakdown space)
           try { Audio.setReverbMix(0.15); } catch(e) {}
+
+          // Harmonic shift happens on re-entering build — next cycle's root
+          var shiftIdx = Math.min(grid.cycle, ROOT_SHIFTS.length - 1);
+          grid.nextRootShift = ROOT_SHIFTS[shiftIdx];
+          // Rebuild layers at new root if shifted
+          if (Math.abs(grid.rootShift - grid.nextRootShift) > 0.5) {
+            var newSubFreq = (edm.subFreq || 55) * Math.pow(2, grid.nextRootShift / 12);
+            try { Audio.set808SubFreq(newSubFreq); } catch(e) {}
+            try { Audio.edm.buildWobble(newSubFreq, 3.5); } catch(e) {}
+            try { Audio.edm.buildSub(newSubFreq); } catch(e) {}
+          }
         }
         break;
     }
@@ -2648,21 +2790,23 @@ const Follow = (function () {
       var isBreakdown = grid.phase === 'breakdown';
       // (isCut removed — cut-then-slam was the muting glitch)
 
-      // HAT pattern: zone-influenced during drop
+      // HAT pattern: evolves per cycle + zone-influenced during drop
       var hatPat;
+      var evolvedHat = GRID_HAT_VARIANTS[grid.hatStyle] || GRID_HAT;
       if (isDrop) {
-        // High zone: full 8th hats. Low zone: sparse offbeats only.
-        hatPat = grid.tiltZone >= 2 ? GRID_HAT_DROP : GRID_HAT;
+        // High zone: driving pattern from cycle. Low zone: sparse offbeats.
+        hatPat = grid.tiltZone >= 2 ? (grid.cycle >= 2 ? GRID_HAT_VARIANTS[Math.min(4, grid.hatStyle + 1)] || GRID_HAT_DROP : GRID_HAT_DROP) : evolvedHat;
       } else if (isBuild && grid.buildLevel > 0.4) {
         hatPat = GRID_HAT_BUILD;
       } else {
-        hatPat = GRID_HAT;
+        hatPat = evolvedHat;
       }
 
       // ── KICK ──
-      // Normal tempo in all phases. Fills add variety every few bars.
-      // Breakdown: softer kicks, sparser pattern — but still 4-on-the-floor.
-      var kv = GRID_KICK[newStep] || 0;
+      // Pattern evolves per cycle — each drop brings a different groove.
+      // Breakdown: softer kicks, sparser pattern — but still grooving.
+      var kickPat = GRID_KICK_VARIANTS[grid.kickVariant] || GRID_KICK;
+      var kv = kickPat[newStep] || 0;
 
       // ── KICK FILLS: every 4th or 8th bar, replace straight pattern ──
       // On the bar BEFORE a fill-interval boundary, last beat gets a fill
@@ -2715,16 +2859,26 @@ const Follow = (function () {
       }
 
       // ── HATS ──
-      // Breakdown: very sparse hats — just enough to keep time
+      // Evolved per cycle. Breakdown: sparse. Drop: driving.
       var hv = hatPat[newStep] || 0;
       if (hv > 0 && !isIntro) {
         var hatLevel;
         if (isDrop) hatLevel = zoneHatMix * (0.5 + grid.intensity * 0.5);
-        else if (isBreakdown) hatLevel = 0.15 * zoneHatMix;  // barely there
+        else if (isBreakdown && grid.breakdownStyle !== 3) hatLevel = 0.15 * zoneHatMix;
+        else if (isBreakdown && grid.breakdownStyle === 3) hatLevel = 0.4 * zoneHatMix;  // rhythmic breakdown keeps hats
         else hatLevel = Math.max(0, grid.intensity - 0.1) * zoneHatMix;
         var hatVel = hv * grid.djGain * hatLevel * rollTreble * 0.5;
         if (hatVel > 0.02) {
           Audio.drum.hat(time, hatVel, kit);
+        }
+      }
+
+      // ── RIDE: introduced from cycle 3+, adds shimmer on every other beat ──
+      if (grid.rideActive && isDrop && (newStep === 0 || newStep === 8)) {
+        var rideVel = 0.15 + grid.intensity * 0.1;
+        rideVel *= grid.djGain * rollTreble;
+        if (rideVel > 0.03) {
+          try { Audio.drum.ride(time, rideVel, kit); } catch(e) {}
         }
       }
 
@@ -2770,20 +2924,14 @@ const Follow = (function () {
       }
 
       // ── WALKING BASS: phrygian bass line on beat ──
-      // All phases (except intro): walks through phrygian intervals on every half-bar.
+      // Evolves per cycle — simple roots early, chromatic walks later.
       // Breakdown: longer decay, simpler pattern.
       if (!isIntro && (newStep === 0 || newStep === 8)) {
         grid.subPulseStep = newStep;
 
-        // Bass note selection: walks through phrygian intervals
-        var bassPatterns = [
-          [0, 0],       // root, root (simple)
-          [0, 4],       // root, 5th
-          [0, 3],       // root, 4th
-          [0, 6],       // root, b7
-          [4, 3],       // 5th, 4th
-          [0, 1],       // root, b2 (dark phrygian move)
-        ];
+        // Bass patterns evolve: more complex walking in later cycles
+        var walkIdx = Math.min(Math.floor(grid.cycle / 2), BASS_WALKS.length - 1);
+        var bassPatterns = BASS_WALKS[walkIdx];
         var bassPat = bassPatterns[grid.totalBars % bassPatterns.length];
         var bassNote = newStep === 0 ? bassPat[0] : bassPat[1];
         var bassFreq = scaleFreq(bassNote, -2);  // low octave
