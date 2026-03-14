@@ -2372,6 +2372,65 @@ const Audio = (function () {
     });
   }
 
+  // ── LEVITATION LAYER — Unison detune supersaw ───────────────────────
+  // The TikTok sound. 7 sawtooths at the same pitch, each detuned slightly.
+  // The beating frequencies between voices create a shimmering, floating,
+  // "levitation" effect. Wide stereo via the spatial panner. Heavy reverb.
+  //
+  // Detune spread is the key parameter:
+  //   Narrow (±8ct) = tight chorus, focused
+  //   Medium (±20ct) = classic supersaw, full
+  //   Wide (±35ct) = ethereal, dreamy, levitation
+  //
+  // The layer filter controls brightness — tilt opens it for that "rising" feel.
+  function buildLevitationLayer(freq, spread) {
+    destroyLayer('edm-levitation');
+    var f = freq || 220;
+    var sp = spread || 30;  // cents spread — total width is ±sp
+
+    // 7 voices: center + 3 pairs symmetrically detuned
+    // Gains taper toward edges (center loudest, outer voices = shimmer)
+    var oscs = [
+      { wave: 'sawtooth', freq: f, gain: 0.09, detune: 0       },  // center — the anchor
+      { wave: 'sawtooth', freq: f, gain: 0.08, detune: sp * 0.33  },  // +10ct
+      { wave: 'sawtooth', freq: f, gain: 0.08, detune: -sp * 0.33 },  // -10ct
+      { wave: 'sawtooth', freq: f, gain: 0.07, detune: sp * 0.66  },  // +20ct
+      { wave: 'sawtooth', freq: f, gain: 0.07, detune: -sp * 0.66 },  // -20ct
+      { wave: 'sawtooth', freq: f, gain: 0.05, detune: sp         },  // +30ct — outer shimmer
+      { wave: 'sawtooth', freq: f, gain: 0.05, detune: -sp        },  // -30ct — outer shimmer
+    ];
+
+    return buildLayer('edm-levitation', {
+      oscillators: oscs,
+      filter: { type: 'lowpass', freq: 400, Q: 0.8 },  // starts dark — tilt opens it
+      gain: 0,
+      reverbSend: 0.40,  // reverb is essential for the floating feel
+      vibrato: { rate: 0.15, depth: 0.002 },  // glacial pitch drift — adds life without wobble
+    });
+  }
+
+  // Levitation filter control — follow.js drives this from tilt
+  function setLevitationFilter(freq) {
+    var f = Math.max(200, Math.min(4000, freq));
+    setLayerFilter('edm-levitation', f, 0.08);  // slow ramp = smooth dreamy sweep
+  }
+
+  // Levitation detune spread — morph the width in real time
+  // Narrow = focused energy, Wide = ethereal float
+  function setLevitationSpread(spread) {
+    var L = layers['edm-levitation'];
+    if (!L || L.pitchOscs.length < 7) return;
+    var sp = Math.max(5, Math.min(50, spread));
+    var now = ctx.currentTime;
+    // Voices: [center, +33%, -33%, +66%, -66%, +100%, -100%]
+    L.pitchOscs[1].detune.setTargetAtTime(sp * 0.33, now, 0.3);
+    L.pitchOscs[2].detune.setTargetAtTime(-sp * 0.33, now, 0.3);
+    L.pitchOscs[3].detune.setTargetAtTime(sp * 0.66, now, 0.3);
+    L.pitchOscs[4].detune.setTargetAtTime(-sp * 0.66, now, 0.3);
+    L.pitchOscs[5].detune.setTargetAtTime(sp, now, 0.3);
+    L.pitchOscs[6].detune.setTargetAtTime(-sp, now, 0.3);
+  }
+
   // Wobble bass filter LFO — driven by follow.js grid clock so it syncs to tempo
   // Cap at 2200Hz — above that it becomes a screeching drill, not music.
   function setWobbleFilter(freq) {
@@ -2739,6 +2798,7 @@ const Audio = (function () {
     destroyLayer('edm-wobble');
     destroyLayer('edm-pad');
     destroyLayer('edm-sub');
+    destroyLayer('edm-levitation');
   }
 
   // ── VOCAL SAMPLE ENGINE ─────────────────────────────────────────────
@@ -2963,8 +3023,11 @@ const Audio = (function () {
       buildWobble: buildWobbleLayer,
       buildPad: buildDarkPad,
       buildSub: buildSubLayer,
+      buildLevitation: buildLevitationLayer,
       setWobbleFilter: setWobbleFilter,
       setWobbleQ: setWobbleQ,
+      setLevitationFilter: setLevitationFilter,
+      setLevitationSpread: setLevitationSpread,
       destroyAll: destroyEDMLayers,
     }),
     vocal: Object.freeze({

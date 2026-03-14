@@ -2448,6 +2448,7 @@ const Follow = (function () {
       reverbLevel: 0.15, padOpen: false, snareRoll: false, percPat: 0,
       halftime: false, delayThrow: false, reverbWash: false,
       stabVoicing: 0, filterQ: 3.5, swing: 0,
+      levitation: false, levitationSpread: 30,
     };
     grid.lastArchetype = 'exploring';
     grid.archetypeTimer = 0;
@@ -2470,6 +2471,9 @@ const Follow = (function () {
     try { Audio.edm.buildPad(originalRoot); } catch(e) {}
     try { Audio.edm.buildWobble(edm.subFreq || 55, 3.5); } catch(e) {}
     try { Audio.edm.buildSub(edm.subFreq || 55); } catch(e) {}
+    // Levitation: unison detune supersaw — the TikTok sound
+    // Built at the root's octave (220Hz for A) — sweet spot for saw shimmer
+    try { Audio.edm.buildLevitation(originalRoot, 30); } catch(e) {}
 
     // Preload vocal clips for the drop sequence
     if (!grid.vocalsLoaded) {
@@ -2549,6 +2553,7 @@ const Follow = (function () {
       { bias: 'energy',  fn: function(g,t) { g.arr.padOpen = true; try { Audio.layer.setFilter('edm-pad', 2200, 2.0); } catch(e) {} } },
       { bias: 'rhythm',  fn: function(g,t) { g.arr.subOctave = true; } },
       { bias: 'texture', fn: function(g,t) { g.arr.percPat = 2; g.arr.snarePat = 3; } },
+      { bias: 'texture', fn: function(g,t) { g.arr.levitation = true; g.arr.levitationSpread = 20; } },  // tight unison — first taste
       { bias: 'filter',  fn: function(g,t) { g.arr.delayThrow = true; } },
       { bias: 'rhythm',  fn: function(g,t) { g.arr.kickPat = 6; } },  // syncopated latin
       { bias: 'energy',  fn: function(g,t) { g.arr.hatPat = 5; g.arr.swing = 0.12; } },  // house offbeats
@@ -2563,6 +2568,7 @@ const Follow = (function () {
       { bias: 'rhythm',  fn: function(g,t) { g.arr.ridePattern = 1; g.arr.clap = true; g.arr.stabVoicing = 1; } },
       { bias: 'energy',  fn: function(g,t) { g.arr.wobbleShape = 1; g.arr.wobbleRate = 2.0; } },
       { bias: 'texture', fn: function(g,t) { g.arr.reverbWash = true; g.arr.percPat = 3; } },
+      { bias: 'texture', fn: function(g,t) { g.arr.levitation = true; g.arr.levitationSpread = 35; g.arr.reverbWash = true; } },  // full levitation — wide + reverb wash
       { bias: 'filter',  fn: function(g,t) { g.arr.filterQ = 6.0; g.arr.wobbleRate = 0.6; } },  // resonant slow sweep
       { bias: 'rhythm',  fn: function(g,t) { g.arr.snarePat = 4; g.arr.hatPat = 6; } },  // tribal broken
       { bias: 'energy',  fn: function(g,t) { g.arr.kickPat = 7; g.arr.bassWalk = 4; } },  // displaced + pedal
@@ -2667,6 +2673,14 @@ const Follow = (function () {
         g.arr.wobbleShape = 1; g.arr.wobbleRate = 1.0;
         g.arr.filterQ = 4.0;
       }},
+      { bias: 'texture', fn: function(g,t) {
+        // Maximum levitation — strip drums, pure floating supersaw
+        g.arr.levitation = true; g.arr.levitationSpread = 45;
+        g.arr.halftime = true; g.arr.kickPat = 5;
+        g.arr.hatPat = 0; g.arr.ride = false; g.arr.percPat = 0;
+        g.arr.reverbWash = true; g.arr.delayThrow = true;
+        g.nextRootShift = 7; rebuildGridLayers(g,t);  // 5th — the most "floating" interval
+      }},
     ],
   ];
 
@@ -2736,9 +2750,12 @@ const Follow = (function () {
   function rebuildGridLayers(g, time) {
     var edm = lens.edm || {};
     var newSubFreq = (edm.subFreq || 55) * Math.pow(2, g.nextRootShift / 12);
+    var newRoot = originalRoot * Math.pow(2, g.nextRootShift / 12);
     try { Audio.set808SubFreq(newSubFreq); } catch(e) {}
     try { Audio.edm.buildWobble(newSubFreq, 3.5); } catch(e) {}
     try { Audio.edm.buildSub(newSubFreq); } catch(e) {}
+    // Rebuild levitation at new root — keeps unison in key
+    try { Audio.edm.buildLevitation(newRoot, g.arr.levitationSpread || 30); } catch(e) {}
   }
 
   function updateGrid(brainState, sensor, dt) {
@@ -3482,6 +3499,36 @@ const Follow = (function () {
     try { Audio.layer.setGain('edm-pad', padTarget * grid.djGain, 0.5); } catch(e) {}
     try { Audio.layer.setFilter('edm-pad', zonePadFilter || 500, 0.4); } catch(e) {}
 
+    // ── 11b. LEVITATION: unison detune supersaw — the floating sound ──
+    // Activated by DJ move or automatically during deep drops.
+    // Tilt = filter brightness. Motion = detune spread (wider = more ethereal).
+    var levActive = grid.arr.levitation;
+    // Auto-activate during sustained drops (depth 3+)
+    if (!levActive && grid.phase === 'drop' && getDepth(grid.segment) >= 3 && grid.phaseTimer > 4) {
+      levActive = true;
+    }
+
+    if (levActive) {
+      var levGainTarget;
+      if (grid.phase === 'drop')           levGainTarget = 0.06 + grid.intensity * 0.06;
+      else if (grid.phase === 'build')     levGainTarget = 0.02 + grid.buildLevel * 0.04;
+      else if (grid.phase === 'breakdown') levGainTarget = 0.08;  // levitation shines in breakdowns
+      else                                  levGainTarget = 0.01;
+      levGainTarget *= grid.djGain;
+      try { Audio.layer.setGain('edm-levitation', levGainTarget, 0.8); } catch(e) {}
+
+      // Tilt drives filter: phone up = bright/open, phone flat = dark/muffled
+      var levFilter = 400 + grid.tiltNorm * 2800;  // 400-3200Hz range
+      try { Audio.edm.setLevitationFilter(levFilter); } catch(e) {}
+
+      // Motion drives spread: still = tight chorus (12ct), moving = wide ethereal (42ct)
+      var levSpread = 12 + grid.intensity * 30;
+      if (grid.arr.levitationSpread !== 30) levSpread = grid.arr.levitationSpread;  // DJ move override
+      try { Audio.edm.setLevitationSpread(levSpread); } catch(e) {}
+    } else {
+      try { Audio.layer.setGain('edm-levitation', 0, 1.5); } catch(e) {}  // slow fade out
+    }
+
     // ── 12. MASTER GAIN ──
     if (Audio.ctx) {
       Audio.setMasterGain(0.55 * grid.djGain);
@@ -3910,7 +3957,7 @@ const Follow = (function () {
         ' P' + a.percPat + ' B' + a.bassWalk +
         (a.ride ? ' Rd' : '') + (a.clap ? ' Cl' : '') +
         (a.halftime ? ' HT' : '') + (a.delayThrow ? ' DT' : '') +
-        (a.reverbWash ? ' RW' : '');
+        (a.reverbWash ? ' RW' : '') + (a.levitation ? ' LEV' : '');
     },
   });
 })();
