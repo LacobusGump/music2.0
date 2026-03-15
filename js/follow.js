@@ -2165,6 +2165,21 @@ const Follow = (function () {
     var noteIntervalMs = (lens.response && lens.response.noteInterval) || 200;
     if (now - lastTouchNote < noteIntervalMs) return;
 
+    // Ascension: touch cycles chord voicing (same as updateAscension section 9)
+    if (lens.name === 'Ascension' && asc.active && lens.ascension) {
+      lastTouchNote = now;
+      if (asc.chordCooldown <= 0) {
+        var cfg = lens.ascension;
+        asc.chordIndex = (asc.chordIndex + 1) % cfg.chordVoicings.length;
+        var v = cfg.chordVoicings[asc.chordIndex];
+        try { Audio.ascension.setWallChord(cfg.wallRoot, v); } catch(e) {}
+        var sf = v.map(function(s) { return cfg.wallRoot * Math.pow(2, s / 12); });
+        try { Audio.synth.ascStab(0, sf, 0.6); } catch(e) {}
+        asc.chordCooldown = 0.8;
+      }
+      return;
+    }
+
     var time = Audio.ctx.currentTime;
     var palette = lens.palette || {};
     var resp = palette.touch || palette.continuous || {};
@@ -2631,6 +2646,12 @@ const Follow = (function () {
     asc.masterGain = Math.max(0, Math.min(1, asc.masterGain));
     try { Audio.setMasterGain(asc.masterGain * 0.7); } catch(e) {}
 
+    // Drive layer gains — these were built at 0, engine must open them
+    var wallGain = asc.masterGain * 0.8;    // wall is the star
+    var subGain  = asc.masterGain * 0.35;   // sub underneath
+    try { Audio.layer.setGain('asc-wall', wallGain, 0.3); } catch(e) {}
+    try { Audio.layer.setGain('asc-sub', subGain, 0.3); } catch(e) {}
+
     // ── 3. STILLNESS TRACKING ──
     if (energy < 0.06) {
       asc.stillTime += dt;
@@ -2742,6 +2763,7 @@ const Follow = (function () {
     // ── 11. NOISE LAYER — presence/air ──
     var noiseTarget = asc.phase === 'full' ? cfg.noiseLevel : cfg.noiseLevel * 0.3;
     asc.noiseGain += (noiseTarget - asc.noiseGain) * 2.0 * dt;
+    try { Audio.layer.setGain('asc-noise', asc.noiseGain, 0.5); } catch(e) {}
 
     // ── 12. REVERB MIX — more during breathing ──
     var reverbTarget = asc.breathActive ? 0.65 : (lens.space.reverbMix || 0.45);
