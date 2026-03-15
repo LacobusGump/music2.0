@@ -2507,49 +2507,33 @@ const Audio = (function () {
   // Reese sub, white noise air, OTT compression. The body IS the synth.
 
   // The Wall: 18 detuned saws in a major chord stack + OTT compression
-  function buildAscWall(freq, spread) {
-    destroyLayer('asc-wall');
-    var f = freq || 220;
-    var sp = spread || 25;
-    var M3 = f * Math.pow(2, 4/12);
-    var P5 = f * Math.pow(2, 7/12);
-    var OCT = f * 2;
+  // ── ASCENSION WALL: 4 independent harmonic layers ──
+  // Split into root/third/fifth/octave so follow.js can bloom them independently.
+  // Single saw → full god-tier wall is a 25-second journey.
 
-    // 18 oscillators: root(5) + M3(5) + P5(5) + oct(3)
-    var oscs = [
-      // Root — 5 voices (the anchor)
-      { wave: 'sawtooth', freq: f,   gain: 0.06, detune: 0 },
-      { wave: 'sawtooth', freq: f,   gain: 0.05, detune: sp * 0.5 },
-      { wave: 'sawtooth', freq: f,   gain: 0.05, detune: -sp * 0.5 },
-      { wave: 'sawtooth', freq: f,   gain: 0.04, detune: sp },
-      { wave: 'sawtooth', freq: f,   gain: 0.04, detune: -sp },
-      // Major 3rd — 5 voices (the heaven interval)
-      { wave: 'sawtooth', freq: M3,  gain: 0.05, detune: 0 },
-      { wave: 'sawtooth', freq: M3,  gain: 0.04, detune: sp * 0.6 },
-      { wave: 'sawtooth', freq: M3,  gain: 0.04, detune: -sp * 0.6 },
-      { wave: 'sawtooth', freq: M3,  gain: 0.035, detune: sp },
-      { wave: 'sawtooth', freq: M3,  gain: 0.035, detune: -sp },
-      // Perfect 5th — 5 voices (power, width)
-      { wave: 'sawtooth', freq: P5,  gain: 0.05, detune: 0 },
-      { wave: 'sawtooth', freq: P5,  gain: 0.04, detune: sp * 0.7 },
-      { wave: 'sawtooth', freq: P5,  gain: 0.04, detune: -sp * 0.7 },
-      { wave: 'sawtooth', freq: P5,  gain: 0.035, detune: sp },
-      { wave: 'sawtooth', freq: P5,  gain: 0.035, detune: -sp },
-      // Octave — 3 voices (air, shimmer — tighter to avoid harshness)
-      { wave: 'sawtooth', freq: OCT, gain: 0.03, detune: 0 },
-      { wave: 'sawtooth', freq: OCT, gain: 0.025, detune: sp * 0.4 },
-      { wave: 'sawtooth', freq: OCT, gain: 0.025, detune: -sp * 0.4 },
-    ];
+  var ASC_LAYERS = ['asc-root', 'asc-third', 'asc-fifth', 'asc-oct'];
+  var ASC_DETUNE_COEFFS = {
+    'asc-root':  [0, 0.5, -0.5, 1.0, -1.0],
+    'asc-third': [0, 0.6, -0.6, 1.0, -1.0],
+    'asc-fifth': [0, 0.7, -0.7, 1.0, -1.0],
+    'asc-oct':   [0, 0.4, -0.4],
+  };
 
-    var L = buildLayer('asc-wall', {
+  function buildAscHarmonic(name, freq, spread, coeffs, reverbAmt) {
+    destroyLayer(name);
+    var oscs = [];
+    for (var i = 0; i < coeffs.length; i++) {
+      var g = i === 0 ? 0.06 : 0.05 - i * 0.005;
+      oscs.push({ wave: 'sawtooth', freq: freq, gain: Math.max(0.025, g), detune: spread * coeffs[i] });
+    }
+    var L = buildLayer(name, {
       oscillators: oscs,
       filter: { type: 'lowpass', freq: 400, Q: 0.7 },
       gain: 0,
-      reverbSend: 0.45,
+      reverbSend: reverbAmt,
       vibrato: { rate: 0.10, depth: 0.001 },
     });
-
-    // OTT compression: squash + bring up shimmer
+    // OTT compression per harmonic group
     if (L && L.filter && L.gain && ctx) {
       var comp = ctx.createDynamicsCompressor();
       comp.threshold.value = -30;
@@ -2566,8 +2550,7 @@ const Audio = (function () {
       L.allNodes.push(comp, makeup);
       L.comp = comp;
     }
-
-    // Delay send for depth
+    // Delay send
     if (L && L.gain && delaySend) {
       var ds = ctx.createGain();
       ds.gain.value = 0.22;
@@ -2575,8 +2558,16 @@ const Audio = (function () {
       ds.connect(delaySend);
       L.allNodes.push(ds);
     }
-
     return L;
+  }
+
+  function buildAscWall(freq, spread) {
+    var f = freq || 220;
+    var sp = spread || 25;
+    buildAscHarmonic('asc-root',  f,                       sp, ASC_DETUNE_COEFFS['asc-root'],  0.35);
+    buildAscHarmonic('asc-third', f * Math.pow(2, 4/12),   sp, ASC_DETUNE_COEFFS['asc-third'], 0.40);
+    buildAscHarmonic('asc-fifth', f * Math.pow(2, 7/12),   sp, ASC_DETUNE_COEFFS['asc-fifth'], 0.40);
+    buildAscHarmonic('asc-oct',   f * 2,                   sp, ASC_DETUNE_COEFFS['asc-oct'],   0.50);
   }
 
   // Reese sub: two detuned saws — the beating creates physical depth
@@ -2604,85 +2595,68 @@ const Audio = (function () {
     });
   }
 
-  // Wall filter control
+  // Wall filter control — sets all 4 harmonic layers
   function setAscWallFilter(freq) {
     var f = Math.max(200, Math.min(6000, freq));
-    setLayerFilter('asc-wall', f, 0.06);
+    for (var i = 0; i < ASC_LAYERS.length; i++) {
+      setLayerFilter(ASC_LAYERS[i], f, 0.06);
+    }
   }
 
-  // Wall detune spread — morph width in real time
+  // Wall detune spread — morph width in real time across all layers
   function setAscWallSpread(spread) {
-    var L = layers['asc-wall'];
-    if (!L || L.pitchOscs.length < 18) return;
     var sp = Math.max(5, Math.min(50, spread));
     var now = ctx.currentTime;
-    // Root (0-4): center stays, pairs at 50%/100% of spread
-    L.pitchOscs[1].detune.setTargetAtTime(sp * 0.5, now, 0.3);
-    L.pitchOscs[2].detune.setTargetAtTime(-sp * 0.5, now, 0.3);
-    L.pitchOscs[3].detune.setTargetAtTime(sp, now, 0.3);
-    L.pitchOscs[4].detune.setTargetAtTime(-sp, now, 0.3);
-    // M3 (5-9)
-    L.pitchOscs[6].detune.setTargetAtTime(sp * 0.6, now, 0.3);
-    L.pitchOscs[7].detune.setTargetAtTime(-sp * 0.6, now, 0.3);
-    L.pitchOscs[8].detune.setTargetAtTime(sp, now, 0.3);
-    L.pitchOscs[9].detune.setTargetAtTime(-sp, now, 0.3);
-    // P5 (10-14)
-    L.pitchOscs[11].detune.setTargetAtTime(sp * 0.7, now, 0.3);
-    L.pitchOscs[12].detune.setTargetAtTime(-sp * 0.7, now, 0.3);
-    L.pitchOscs[13].detune.setTargetAtTime(sp, now, 0.3);
-    L.pitchOscs[14].detune.setTargetAtTime(-sp, now, 0.3);
-    // Oct (15-17)
-    L.pitchOscs[16].detune.setTargetAtTime(sp * 0.4, now, 0.3);
-    L.pitchOscs[17].detune.setTargetAtTime(-sp * 0.4, now, 0.3);
+    for (var i = 0; i < ASC_LAYERS.length; i++) {
+      var name = ASC_LAYERS[i];
+      var L = layers[name];
+      if (!L) continue;
+      var coeffs = ASC_DETUNE_COEFFS[name];
+      for (var j = 1; j < L.pitchOscs.length && j < coeffs.length; j++) {
+        L.pitchOscs[j].detune.setTargetAtTime(sp * coeffs[j], now, 0.3);
+      }
+    }
   }
 
   // Master pitch shift — shift all wall oscillators by semitones
   function setAscMasterPitch(semitones) {
-    var L = layers['asc-wall'];
-    if (!L) return;
     var ratio = Math.pow(2, semitones / 12);
     var now = ctx.currentTime;
-    for (var i = 0; i < L.pitchOscs.length; i++) {
-      var baseFreq = L.pitchOscs[i]._baseFreq || L.pitchOscs[i].frequency.value;
-      if (!L.pitchOscs[i]._baseFreq) L.pitchOscs[i]._baseFreq = baseFreq;
-      L.pitchOscs[i].frequency.setTargetAtTime(baseFreq * ratio, now, 0.15);
+    for (var i = 0; i < ASC_LAYERS.length; i++) {
+      var L = layers[ASC_LAYERS[i]];
+      if (!L) continue;
+      for (var j = 0; j < L.pitchOscs.length; j++) {
+        var baseFreq = L.pitchOscs[j]._baseFreq || L.pitchOscs[j].frequency.value;
+        if (!L.pitchOscs[j]._baseFreq) L.pitchOscs[j]._baseFreq = baseFreq;
+        L.pitchOscs[j].frequency.setTargetAtTime(baseFreq * ratio, now, 0.15);
+      }
     }
   }
 
-  // Rebuild wall chord voicing — glide all oscillators to new intervals
+  // Rebuild wall chord voicing — glide each harmonic group to new interval
   function setAscWallChord(wallRoot, voicing) {
-    var L = layers['asc-wall'];
-    if (!L || L.pitchOscs.length < 18) return;
     var now = ctx.currentTime;
     var glide = 0.3;
-    var freqs = [];
-    for (var v = 0; v < voicing.length; v++) {
-      freqs.push(wallRoot * Math.pow(2, voicing[v] / 12));
-    }
-    // Root group (0-4)
-    for (var i = 0; i < 5; i++) {
-      L.pitchOscs[i].frequency.setTargetAtTime(freqs[0] || wallRoot, now, glide);
-      L.pitchOscs[i]._baseFreq = freqs[0] || wallRoot;
-    }
-    // M3 group (5-9)
-    for (var i = 5; i < 10; i++) {
-      L.pitchOscs[i].frequency.setTargetAtTime(freqs[1] || freqs[0], now, glide);
-      L.pitchOscs[i]._baseFreq = freqs[1] || freqs[0];
-    }
-    // P5 group (10-14)
-    for (var i = 10; i < 15; i++) {
-      L.pitchOscs[i].frequency.setTargetAtTime(freqs[2] || freqs[0], now, glide);
-      L.pitchOscs[i]._baseFreq = freqs[2] || freqs[0];
-    }
-    // Oct group (15-17)
-    for (var i = 15; i < 18; i++) {
-      L.pitchOscs[i].frequency.setTargetAtTime(freqs[3] || freqs[0] * 2, now, glide);
-      L.pitchOscs[i]._baseFreq = freqs[3] || freqs[0] * 2;
+    // voicing = [root_semi, third_semi, fifth_semi, oct_semi]
+    var targets = [
+      wallRoot * Math.pow(2, (voicing[0] || 0) / 12),
+      wallRoot * Math.pow(2, (voicing[1] || 4) / 12),
+      wallRoot * Math.pow(2, (voicing[2] || 7) / 12),
+      wallRoot * Math.pow(2, (voicing[3] || 12) / 12),
+    ];
+    for (var i = 0; i < ASC_LAYERS.length; i++) {
+      var L = layers[ASC_LAYERS[i]];
+      if (!L) continue;
+      var f = targets[i];
+      for (var j = 0; j < L.pitchOscs.length; j++) {
+        L.pitchOscs[j].frequency.setTargetAtTime(f, now, glide);
+        L.pitchOscs[j]._baseFreq = f;
+      }
     }
   }
 
   function destroyAscLayers() {
-    destroyLayer('asc-wall');
+    for (var i = 0; i < ASC_LAYERS.length; i++) destroyLayer(ASC_LAYERS[i]);
     destroyLayer('asc-sub');
     destroyLayer('asc-noise');
   }
