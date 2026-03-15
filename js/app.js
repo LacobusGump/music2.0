@@ -767,17 +767,23 @@
       'MUSIC 2.0 — YOUR BODY IS THE INSTRUMENT',
       'LENS: ' + (lens ? lens.name : 'none'),
       'ARCHETYPE: ' + Follow.archetype + ' | INTENT: ' + Follow.intent,
-      Follow.gridPhase !== '-'
+      Follow.ascPhase !== '-'
+        ? 'ASC: ' + Follow.ascPhase + ' | FILTER: ' + Follow.ascFilter + 'Hz | DETUNE: ' + Follow.ascDetune + 'ct'
+        : Follow.gridPhase !== '-'
         ? 'PHASE: ' + Follow.gridPhase + ' | FILTER: ' + Follow.filterFreq.toFixed(0) + 'Hz'
         : 'PHRASE: ' + Follow.phrase + ' | ANSWER: ' + Follow.answer,
       'SILENT: ' + (Follow.silent ? 'YES' : 'no') + ' | FADE: ' + Follow.fade.toFixed(2),
       'YOUR TEMPO: ' + Follow.tempo.toFixed(0) + ' BPM | LOCKED: ' + (Follow.locked ? 'YES(' + Follow.lockStr.toFixed(2) + ')' : 'no'),
       'CONFIDENCE: ' + Follow.confidence.toFixed(2) + ' | HR: ' + Follow.hrState,
       'PROFILE: ' + Follow.profileSessions + ' sessions | ' + Follow.profileArchetype + (Follow.profilePeakMag ? ' | peak avg ' + Follow.profilePeakMag : ''),
-      Follow.gridPhase !== '-'
+      Follow.ascPhase !== '-'
+        ? 'CHORD: ' + Follow.ascChord + ' | GAIN: ' + Follow.ascGain + ' | BREATH: ' + Follow.ascBreathing
+        : Follow.gridPhase !== '-'
         ? 'GRID: ' + Follow.gridPhase + ' | BUILD: ' + Follow.gridBuild + ' | INT: ' + Follow.gridIntensity + ' | GAIN: ' + Follow.gridDjGain
         : 'DENSITY: ' + Follow.density.toFixed(1) + ' | ENERGY: ' + Follow.energy.toFixed(2),
-      Follow.gridPhase !== '-'
+      Follow.ascPhase !== '-'
+        ? 'ASC PHASE: ' + Follow.ascPhase
+        : Follow.gridPhase !== '-'
         ? 'DEPTH: ' + Follow.gridDepth + ' | SEG: ' + Follow.gridSegment + ' | BARS: ' + Follow.gridBars + ' | ' + Follow.gridLayers
         : 'PITCH: ' + Follow.degree + ' | FILTER: ' + Follow.filterFreq.toFixed(0) + 'Hz',
       'PEAKS: ' + Follow.peaks + ' | NOTES: ' + Follow.notes,

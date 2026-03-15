@@ -8,6 +8,8 @@
  * ANSWER: The music responds. Rare. Deliberate. Completes your thought.
  * SPACE:  The room. Foundation drone + reverb. The harmonic ground.
  *
+ * v94: Ascension engine — wall of sound lens. Tilt=filter, motion=detune spread,
+ *       roll=pitch shift, peaks=plucks, touch=chord cycling. LFO breathing on stillness.
  * v93: Grid complexity expansion — wire all arr properties. Snare/perc variants,
  *       halftime, swing, delay throw, reverb wash, filterQ override, stab voicings.
  *       6 depth tiers. Texture bias for exploring archetype.
@@ -1591,6 +1593,12 @@ const Follow = (function () {
       initGrid();
     }
 
+    // Ascension engine: init if this is the Ascension lens, teardown otherwise
+    if (asc.active) teardownAscension();
+    if (lens.name === 'Ascension' && lens.ascension) {
+      initAscension();
+    }
+
     // Organic stage evolution: reset for Journey lens
     resetOrganicStage();
     resetTribalPulse();
@@ -2320,6 +2328,53 @@ const Follow = (function () {
     vocalCooldown: 0,          // minimum time between vocal phase advances (prevents double-trigger)
   };
 
+  // ── ASCENSION ENGINE ──────────────────────────────────────────────────
+  // Wall of sound. Detune unison. The TikTok "ascension music" trend.
+  //
+  // No clock. No drums. Just a massive harmonic wall that breathes.
+  // Tilt = filter. Motion = detune spread. Roll = harmonic mix.
+  // Peaks = plucks/stabs. Touch = chord voicing changes.
+  // Stillness = LFO breathing takes over.
+
+  var asc = {
+    active: false,
+    started: false,
+    time: 0,
+
+    // Filter
+    filterSmooth: 800,
+
+    // Detune spread
+    spreadSmooth: 20,
+
+    // LFO breathing
+    breathPhase: 0,
+    breathActive: false,   // true when stillness lets LFO take over filter
+
+    // Chord state
+    chordIndex: 0,
+    chordCooldown: 0,
+
+    // Lead melody
+    leadCooldown: 0,
+    lastLeadDeg: -1,
+
+    // Gain
+    masterGain: 0,         // 0→1 fade in
+
+    // Noise
+    noiseGain: 0,
+
+    // Stillness
+    stillTime: 0,
+
+    // Peak pluck cooldown
+    pluckCooldown: 0,
+
+    // Phase: 'waiting' → 'rising' → 'full' → 'breathing'
+    phase: 'waiting',
+  };
+
   // ── DRUM PATTERNS ──
   // Four on the floor. The heartbeat of EDM.
   var GRID_KICK  = [1.0, 0, 0, 0,  1.0, 0, 0, 0,  1.0, 0, 0, 0,  1.0, 0, 0, 0];
@@ -2495,6 +2550,206 @@ const Follow = (function () {
     if (lens && lens.tone) {
       try { Audio.setMasterFilter(lens.tone.ceiling || 7000); } catch(e) {}
     }
+  }
+
+  // ── ASCENSION INIT / TEARDOWN ──
+
+  function initAscension() {
+    if (!lens || !lens.ascension) return;
+    var cfg = lens.ascension;
+    asc.active = true;
+    asc.started = false;
+    asc.time = 0;
+    asc.filterSmooth = cfg.filterRange[0];
+    asc.spreadSmooth = cfg.detuneRange[0];
+    asc.breathPhase = 0;
+    asc.breathActive = false;
+    asc.chordIndex = 0;
+    asc.chordCooldown = 0;
+    asc.leadCooldown = 0;
+    asc.lastLeadDeg = -1;
+    asc.masterGain = 0;
+    asc.noiseGain = 0;
+    asc.stillTime = 0;
+    asc.pluckCooldown = 0;
+    asc.phase = 'waiting';
+
+    // Build persistent layers (silent — fade in on first motion)
+    try { Audio.ascension.buildWall(cfg.wallRoot, cfg.detuneRange[0]); } catch(e) {}
+    try { Audio.ascension.buildSub(cfg.subFreq); } catch(e) {}
+    try { Audio.ascension.buildNoise(); } catch(e) {}
+    // Start with filter closed
+    try { Audio.ascension.setWallFilter(cfg.filterRange[0]); } catch(e) {}
+    try { Audio.setMasterFilter(cfg.filterRange[1]); } catch(e) {}
+  }
+
+  function teardownAscension() {
+    asc.active = false;
+    asc.started = false;
+    try { Audio.ascension.destroyAll(); } catch(e) {}
+    if (lens && lens.tone) {
+      try { Audio.setMasterFilter(lens.tone.ceiling || 7000); } catch(e) {}
+    }
+  }
+
+  // ── ASCENSION UPDATE ENGINE ──
+  // The body IS the synthesizer. No clock. No drums. Just a wall of harmonic light.
+  //
+  // Tilt (beta)    → filter cutoff (200-6000Hz). Phone flat = dark. Tilted = bright.
+  // Motion energy  → detune spread (10-45ct). More motion = wider = more shimmer.
+  // Roll (gamma)   → harmonic balance. Left lean = sub/root. Right lean = thirds/fifths.
+  // Stillness      → LFO breathing takes over filter. The wall breathes for you.
+  // Peaks          → fire pluck notes (snappy analog attacks).
+  // Touch          → cycle chord voicing (I → IV → Imaj7 → Isus2 → Isus4 → Iadd9).
+  // Continuous motion → lead melody with portamento glide.
+
+  function updateAscension(brainState, sensor, dt) {
+    var cfg = lens.ascension;
+    if (!cfg) return;
+
+    var energy = brainState.short ? brainState.short.energy() : 0;
+    var beta   = sensor.beta  || 0;   // tilt forward/back (-180 to 180)
+    var gamma  = sensor.gamma || 0;   // roll left/right (-90 to 90)
+    var touch  = sensor.touch || false;
+
+    asc.time += dt;
+
+    // ── 1. STARTUP: wait for first motion ──
+    if (!asc.started) {
+      if (energy > 0.08) {
+        asc.started = true;
+        asc.phase = 'rising';
+      } else {
+        return;
+      }
+    }
+
+    // ── 2. MASTER GAIN — fade in over 3s, fade out on stillness ──
+    var gainTarget = energy > 0.05 ? 1.0 : 0.0;
+    var gainRate = gainTarget > asc.masterGain ? 0.33 : 0.15;  // fast in, slow out
+    asc.masterGain += (gainTarget - asc.masterGain) * gainRate * dt;
+    asc.masterGain = Math.max(0, Math.min(1, asc.masterGain));
+    try { Audio.setMasterGain(asc.masterGain * 0.7); } catch(e) {}
+
+    // ── 3. STILLNESS TRACKING ──
+    if (energy < 0.06) {
+      asc.stillTime += dt;
+    } else {
+      asc.stillTime = 0;
+    }
+
+    // Phase transitions
+    if (asc.phase === 'rising' && asc.masterGain > 0.8) {
+      asc.phase = 'full';
+    }
+    if (asc.phase === 'full' && asc.stillTime > 3.0) {
+      asc.phase = 'breathing';
+    }
+    if (asc.phase === 'breathing' && energy > 0.15) {
+      asc.phase = 'full';
+    }
+
+    // ── 4. TILT → FILTER CUTOFF ──
+    // beta ~30-80° is typical playing range. Map to filter range.
+    var tiltNorm = Math.max(0, Math.min(1, (beta - 20) / 60));  // 20°=closed, 80°=open
+    var filterTarget = cfg.filterRange[0] + tiltNorm * (cfg.filterRange[1] - cfg.filterRange[0]);
+
+    // ── 5. LFO BREATHING — takes over filter during stillness ──
+    asc.breathPhase += cfg.breathRate * dt;
+    if (asc.breathPhase > 1) asc.breathPhase -= 1;
+    asc.breathActive = asc.stillTime > 2.0;
+
+    if (asc.breathActive) {
+      // Sine LFO modulates filter around current position
+      var breathLFO = Math.sin(asc.breathPhase * Math.PI * 2);
+      filterTarget = filterTarget + breathLFO * cfg.breathDepth;
+      filterTarget = Math.max(cfg.filterRange[0], Math.min(cfg.filterRange[1], filterTarget));
+    }
+
+    // Smooth filter
+    asc.filterSmooth += (filterTarget - asc.filterSmooth) * 4.0 * dt;
+    asc.filterSmooth = Math.max(cfg.filterRange[0], Math.min(cfg.filterRange[1], asc.filterSmooth));
+    try { Audio.ascension.setWallFilter(asc.filterSmooth); } catch(e) {}
+
+    // ── 6. MOTION → DETUNE SPREAD ──
+    // More motion = wider detune = more shimmer/chorus
+    var spreadTarget = cfg.detuneRange[0] + energy * (cfg.detuneRange[1] - cfg.detuneRange[0]);
+    spreadTarget = Math.max(cfg.detuneRange[0], Math.min(cfg.detuneRange[1], spreadTarget));
+    asc.spreadSmooth += (spreadTarget - asc.spreadSmooth) * 3.0 * dt;
+    try { Audio.ascension.setWallSpread(asc.spreadSmooth); } catch(e) {}
+
+    // ── 7. ROLL → HARMONIC MIX (master pitch shift) ──
+    // Subtle: left lean = -2 semitones (darker), right lean = +2 (brighter)
+    var rollNorm = Math.max(-1, Math.min(1, gamma / 30));  // ±30° = full range
+    var pitchShift = rollNorm * 2;  // ±2 semitones
+    try { Audio.ascension.setMasterPitch(pitchShift); } catch(e) {}
+
+    // ── 8. PEAKS → PLUCK NOTES ──
+    if (asc.pluckCooldown > 0) asc.pluckCooldown -= dt;
+    if (peakCount > 0 && asc.pluckCooldown <= 0) {
+      var voicing = cfg.chordVoicings[asc.chordIndex];
+      // Pick a note from the current voicing
+      var degIdx = Math.floor(Math.random() * voicing.length);
+      var semi = voicing[degIdx];
+      var pluckFreq = cfg.wallRoot * Math.pow(2, semi / 12);
+      // Fire in a musically useful octave
+      if (pluckFreq < 200) pluckFreq *= 2;
+      if (pluckFreq > 2000) pluckFreq /= 2;
+      var vel = Math.min(1, energy * 1.5 + 0.3);
+      try { Audio.synth.ascPluck(0, pluckFreq, vel, 0.8); } catch(e) {}
+      asc.pluckCooldown = 0.15;
+    }
+
+    // ── 9. TOUCH → CYCLE CHORD VOICING ──
+    if (asc.chordCooldown > 0) asc.chordCooldown -= dt;
+    if (touch && asc.chordCooldown <= 0) {
+      asc.chordIndex = (asc.chordIndex + 1) % cfg.chordVoicings.length;
+      var newVoicing = cfg.chordVoicings[asc.chordIndex];
+      try { Audio.ascension.setWallChord(cfg.wallRoot, newVoicing); } catch(e) {}
+      // Fire a stab on chord change for impact
+      var stabFreqs = newVoicing.map(function(s) {
+        return cfg.wallRoot * Math.pow(2, s / 12);
+      });
+      try { Audio.synth.ascStab(0, stabFreqs, 0.6); } catch(e) {}
+      asc.chordCooldown = 0.8;
+    }
+
+    // ── 10. CONTINUOUS MOTION → LEAD MELODY ──
+    if (asc.leadCooldown > 0) asc.leadCooldown -= dt;
+    var melodicEnergy = lens.response.melodicEnergy || 0.18;
+    if (energy > melodicEnergy && asc.leadCooldown <= 0 && !asc.breathActive) {
+      var voicing2 = cfg.chordVoicings[asc.chordIndex];
+      // Use tilt to pick scale degree — higher tilt = higher pitch
+      var degCount = voicing2.length;
+      var tiltDeg = Math.floor(tiltNorm * degCount);
+      tiltDeg = Math.max(0, Math.min(degCount - 1, tiltDeg));
+      // Avoid repeating the same degree
+      if (tiltDeg === asc.lastLeadDeg && degCount > 1) {
+        tiltDeg = (tiltDeg + 1) % degCount;
+      }
+      asc.lastLeadDeg = tiltDeg;
+      var leadSemi = voicing2[tiltDeg];
+      var leadFreq = cfg.wallRoot * Math.pow(2, leadSemi / 12);
+      // Put lead in a singing octave
+      if (leadFreq < 300) leadFreq *= 2;
+      if (leadFreq > 1200) leadFreq /= 2;
+      var leadVel = Math.min(1, energy * 1.2);
+      var portTime = cfg.portamento;
+      try { Audio.synth.ascLead(0, leadFreq, leadVel, 1.5, portTime); } catch(e) {}
+      asc.leadCooldown = 0.25 + (1.0 - energy) * 0.3;  // faster at higher energy
+    }
+
+    // ── 11. NOISE LAYER — presence/air ──
+    var noiseTarget = asc.phase === 'full' ? cfg.noiseLevel : cfg.noiseLevel * 0.3;
+    asc.noiseGain += (noiseTarget - asc.noiseGain) * 2.0 * dt;
+
+    // ── 12. REVERB MIX — more during breathing ──
+    var reverbTarget = asc.breathActive ? 0.65 : (lens.space.reverbMix || 0.45);
+    try { Audio.setReverbMix(reverbTarget); } catch(e) {}
+
+    // ── 13. DELAY — subtle during motion, more during stillness ──
+    var delayTarget = asc.breathActive ? 0.35 : 0.18;
+    try { Audio.setDelayMix(delayTarget); } catch(e) {}
   }
 
   // Wobble LFO shapes — different each drop cycle
@@ -3803,6 +4058,22 @@ const Follow = (function () {
       return;  // SKIP all organic systems
     }
 
+    // ── ASCENSION BYPASS: Wall of sound engine ──
+    // No clock, no drums. Just a massive harmonic wall shaped by your body.
+    if (lens.name === 'Ascension' && asc.active) {
+      if (detectPeak(mag, now)) {
+        recordPeakInterval(now);
+        motionProfile.recordPeak(lastMag);
+        peakCount++;
+      }
+      lastLastMag = lastMag;
+      lastMag = mag;
+      motionProfile.tick(dt * 1000, false);
+      updateAscension(brainState, sensor, dt);
+      lastUpdateTime = now;
+      return;  // SKIP all organic systems
+    }
+
     updateStillness(mag, dt, now);
     updatePhrase(mag, now, dt);
     parseIntent(mag, now);
@@ -3976,5 +4247,12 @@ const Follow = (function () {
         (a.halftime ? ' HT' : '') + (a.delayThrow ? ' DT' : '') +
         (a.reverbWash ? ' RW' : '') + (a.levitation ? ' LEV' : '');
     },
+    // Ascension debug
+    get ascPhase() { return asc.active ? asc.phase : '-'; },
+    get ascFilter() { return asc.active ? Math.round(asc.filterSmooth) : '-'; },
+    get ascDetune() { return asc.active ? asc.spreadSmooth.toFixed(1) : '-'; },
+    get ascChord() { return asc.active ? asc.chordIndex : '-'; },
+    get ascGain() { return asc.active ? asc.masterGain.toFixed(2) : '-'; },
+    get ascBreathing() { return asc.active ? (asc.breathActive ? 'YES' : 'no') : '-'; },
   });
 })();

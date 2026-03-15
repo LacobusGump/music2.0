@@ -2502,6 +2502,362 @@ const Audio = (function () {
     L.pitchOscs[13].detune.setTargetAtTime(-sp * 0.4, now, 0.3);
   }
 
+  // ── ASCENSION ENGINE ─────────────────────────────────────────────────
+  // Wall of sound: root + M3 + P5 + octave, each with unison detune.
+  // Reese sub, white noise air, OTT compression. The body IS the synth.
+
+  // The Wall: 18 detuned saws in a major chord stack + OTT compression
+  function buildAscWall(freq, spread) {
+    destroyLayer('asc-wall');
+    var f = freq || 220;
+    var sp = spread || 25;
+    var M3 = f * Math.pow(2, 4/12);
+    var P5 = f * Math.pow(2, 7/12);
+    var OCT = f * 2;
+
+    // 18 oscillators: root(5) + M3(5) + P5(5) + oct(3)
+    var oscs = [
+      // Root — 5 voices (the anchor)
+      { wave: 'sawtooth', freq: f,   gain: 0.06, detune: 0 },
+      { wave: 'sawtooth', freq: f,   gain: 0.05, detune: sp * 0.5 },
+      { wave: 'sawtooth', freq: f,   gain: 0.05, detune: -sp * 0.5 },
+      { wave: 'sawtooth', freq: f,   gain: 0.04, detune: sp },
+      { wave: 'sawtooth', freq: f,   gain: 0.04, detune: -sp },
+      // Major 3rd — 5 voices (the heaven interval)
+      { wave: 'sawtooth', freq: M3,  gain: 0.05, detune: 0 },
+      { wave: 'sawtooth', freq: M3,  gain: 0.04, detune: sp * 0.6 },
+      { wave: 'sawtooth', freq: M3,  gain: 0.04, detune: -sp * 0.6 },
+      { wave: 'sawtooth', freq: M3,  gain: 0.035, detune: sp },
+      { wave: 'sawtooth', freq: M3,  gain: 0.035, detune: -sp },
+      // Perfect 5th — 5 voices (power, width)
+      { wave: 'sawtooth', freq: P5,  gain: 0.05, detune: 0 },
+      { wave: 'sawtooth', freq: P5,  gain: 0.04, detune: sp * 0.7 },
+      { wave: 'sawtooth', freq: P5,  gain: 0.04, detune: -sp * 0.7 },
+      { wave: 'sawtooth', freq: P5,  gain: 0.035, detune: sp },
+      { wave: 'sawtooth', freq: P5,  gain: 0.035, detune: -sp },
+      // Octave — 3 voices (air, shimmer — tighter to avoid harshness)
+      { wave: 'sawtooth', freq: OCT, gain: 0.03, detune: 0 },
+      { wave: 'sawtooth', freq: OCT, gain: 0.025, detune: sp * 0.4 },
+      { wave: 'sawtooth', freq: OCT, gain: 0.025, detune: -sp * 0.4 },
+    ];
+
+    var L = buildLayer('asc-wall', {
+      oscillators: oscs,
+      filter: { type: 'lowpass', freq: 400, Q: 0.7 },
+      gain: 0,
+      reverbSend: 0.45,
+      vibrato: { rate: 0.10, depth: 0.001 },
+    });
+
+    // OTT compression: squash + bring up shimmer
+    if (L && L.filter && L.gain && ctx) {
+      var comp = ctx.createDynamicsCompressor();
+      comp.threshold.value = -30;
+      comp.knee.value = 2;
+      comp.ratio.value = 10;
+      comp.attack.value = 0.003;
+      comp.release.value = 0.06;
+      L.filter.disconnect();
+      L.filter.connect(comp);
+      var makeup = ctx.createGain();
+      makeup.gain.value = 2.5;
+      comp.connect(makeup);
+      makeup.connect(L.gain);
+      L.allNodes.push(comp, makeup);
+      L.comp = comp;
+    }
+
+    // Delay send for depth
+    if (L && L.gain && delaySend) {
+      var ds = ctx.createGain();
+      ds.gain.value = 0.22;
+      L.gain.connect(ds);
+      ds.connect(delaySend);
+      L.allNodes.push(ds);
+    }
+
+    return L;
+  }
+
+  // Reese sub: two detuned saws — the beating creates physical depth
+  function buildAscSub(freq) {
+    destroyLayer('asc-sub');
+    var f = freq || 55;
+    return buildLayer('asc-sub', {
+      oscillators: [
+        { wave: 'sawtooth', freq: f, gain: 0.22, detune: 7 },
+        { wave: 'sawtooth', freq: f, gain: 0.22, detune: -7 },
+      ],
+      filter: { type: 'lowpass', freq: 120, Q: 1.2 },
+      gain: 0,
+    });
+  }
+
+  // White noise air layer — adds presence and "air" to the wall
+  function buildAscNoise() {
+    destroyLayer('asc-noise');
+    return buildLayer('asc-noise', {
+      noise: 'white',
+      filter: { type: 'bandpass', freq: 6000, Q: 0.5 },
+      gain: 0,
+      reverbSend: 0.30,
+    });
+  }
+
+  // Wall filter control
+  function setAscWallFilter(freq) {
+    var f = Math.max(200, Math.min(6000, freq));
+    setLayerFilter('asc-wall', f, 0.06);
+  }
+
+  // Wall detune spread — morph width in real time
+  function setAscWallSpread(spread) {
+    var L = layers['asc-wall'];
+    if (!L || L.pitchOscs.length < 18) return;
+    var sp = Math.max(5, Math.min(50, spread));
+    var now = ctx.currentTime;
+    // Root (0-4): center stays, pairs at 50%/100% of spread
+    L.pitchOscs[1].detune.setTargetAtTime(sp * 0.5, now, 0.3);
+    L.pitchOscs[2].detune.setTargetAtTime(-sp * 0.5, now, 0.3);
+    L.pitchOscs[3].detune.setTargetAtTime(sp, now, 0.3);
+    L.pitchOscs[4].detune.setTargetAtTime(-sp, now, 0.3);
+    // M3 (5-9)
+    L.pitchOscs[6].detune.setTargetAtTime(sp * 0.6, now, 0.3);
+    L.pitchOscs[7].detune.setTargetAtTime(-sp * 0.6, now, 0.3);
+    L.pitchOscs[8].detune.setTargetAtTime(sp, now, 0.3);
+    L.pitchOscs[9].detune.setTargetAtTime(-sp, now, 0.3);
+    // P5 (10-14)
+    L.pitchOscs[11].detune.setTargetAtTime(sp * 0.7, now, 0.3);
+    L.pitchOscs[12].detune.setTargetAtTime(-sp * 0.7, now, 0.3);
+    L.pitchOscs[13].detune.setTargetAtTime(sp, now, 0.3);
+    L.pitchOscs[14].detune.setTargetAtTime(-sp, now, 0.3);
+    // Oct (15-17)
+    L.pitchOscs[16].detune.setTargetAtTime(sp * 0.4, now, 0.3);
+    L.pitchOscs[17].detune.setTargetAtTime(-sp * 0.4, now, 0.3);
+  }
+
+  // Master pitch shift — shift all wall oscillators by semitones
+  function setAscMasterPitch(semitones) {
+    var L = layers['asc-wall'];
+    if (!L) return;
+    var ratio = Math.pow(2, semitones / 12);
+    var now = ctx.currentTime;
+    for (var i = 0; i < L.pitchOscs.length; i++) {
+      var baseFreq = L.pitchOscs[i]._baseFreq || L.pitchOscs[i].frequency.value;
+      if (!L.pitchOscs[i]._baseFreq) L.pitchOscs[i]._baseFreq = baseFreq;
+      L.pitchOscs[i].frequency.setTargetAtTime(baseFreq * ratio, now, 0.15);
+    }
+  }
+
+  // Rebuild wall chord voicing — glide all oscillators to new intervals
+  function setAscWallChord(wallRoot, voicing) {
+    var L = layers['asc-wall'];
+    if (!L || L.pitchOscs.length < 18) return;
+    var now = ctx.currentTime;
+    var glide = 0.3;
+    var freqs = [];
+    for (var v = 0; v < voicing.length; v++) {
+      freqs.push(wallRoot * Math.pow(2, voicing[v] / 12));
+    }
+    // Root group (0-4)
+    for (var i = 0; i < 5; i++) {
+      L.pitchOscs[i].frequency.setTargetAtTime(freqs[0] || wallRoot, now, glide);
+      L.pitchOscs[i]._baseFreq = freqs[0] || wallRoot;
+    }
+    // M3 group (5-9)
+    for (var i = 5; i < 10; i++) {
+      L.pitchOscs[i].frequency.setTargetAtTime(freqs[1] || freqs[0], now, glide);
+      L.pitchOscs[i]._baseFreq = freqs[1] || freqs[0];
+    }
+    // P5 group (10-14)
+    for (var i = 10; i < 15; i++) {
+      L.pitchOscs[i].frequency.setTargetAtTime(freqs[2] || freqs[0], now, glide);
+      L.pitchOscs[i]._baseFreq = freqs[2] || freqs[0];
+    }
+    // Oct group (15-17)
+    for (var i = 15; i < 18; i++) {
+      L.pitchOscs[i].frequency.setTargetAtTime(freqs[3] || freqs[0] * 2, now, glide);
+      L.pitchOscs[i]._baseFreq = freqs[3] || freqs[0] * 2;
+    }
+  }
+
+  function destroyAscLayers() {
+    destroyLayer('asc-wall');
+    destroyLayer('asc-sub');
+    destroyLayer('asc-noise');
+  }
+
+  // ── ASCENSION FIRE-AND-FORGET SYNTHS ──
+
+  // Analog pluck: saw+square, fast LP envelope, percussive snap
+  var ascLeadLastFreq = 0;
+
+  function synthAscPluck(time, freq, vel, decay) {
+    if (!ctx) return;
+    var t = time || ctx.currentTime;
+    var f = freq || 440;
+    var v = vel || 0.3;
+    var d = decay || 0.8;
+
+    // Saw fundamental
+    var saw = ctx.createOscillator();
+    saw.type = 'sawtooth';
+    saw.frequency.value = f;
+
+    // Square one octave below for body
+    var sq = ctx.createOscillator();
+    sq.type = 'square';
+    sq.frequency.value = f * 0.5;
+
+    // Mix
+    var sawG = ctx.createGain(); sawG.gain.value = v * 0.4;
+    var sqG = ctx.createGain(); sqG.gain.value = v * 0.2;
+
+    // Fast LP envelope (snap open → close)
+    var lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.Q.value = 3;
+    lp.frequency.setValueAtTime(3000, t);
+    lp.frequency.exponentialRampToValueAtTime(250, t + 0.15);
+
+    // Amp envelope
+    var env = ctx.createGain();
+    env.gain.setValueAtTime(v * 0.35, t);
+    env.gain.exponentialRampToValueAtTime(0.001, t + d);
+
+    saw.connect(sawG); sawG.connect(lp);
+    sq.connect(sqG); sqG.connect(lp);
+    lp.connect(env);
+    env.connect(sidechainGain);
+
+    // Reverb send
+    if (reverbSend) {
+      var rs = ctx.createGain(); rs.gain.value = 0.35;
+      env.connect(rs); rs.connect(reverbSend);
+    }
+    // Delay send
+    if (delaySend) {
+      var ds = ctx.createGain(); ds.gain.value = 0.25;
+      env.connect(ds); ds.connect(delaySend);
+    }
+
+    saw.start(t); sq.start(t);
+    saw.stop(t + d + 0.1); sq.stop(t + d + 0.1);
+  }
+
+  // Chord stab: multiple saws with tremolo LFO — cuts through the wall
+  function synthAscStab(time, freqs, vel) {
+    if (!ctx || !freqs || freqs.length === 0) return;
+    var t = time || ctx.currentTime;
+    var v = vel || 0.3;
+
+    // LP filter for the whole stab
+    var lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.setValueAtTime(2200, t);
+    lp.frequency.exponentialRampToValueAtTime(400, t + 0.5);
+    lp.Q.value = 2;
+
+    // Tremolo LFO — the rhythmic pulse
+    var lfo = ctx.createOscillator();
+    lfo.type = 'sine';
+    lfo.frequency.value = 4;
+    var lfoG = ctx.createGain();
+    lfoG.gain.value = 0.3;
+    lfo.connect(lfoG);
+
+    // Amp envelope
+    var env = ctx.createGain();
+    env.gain.setValueAtTime(v * 0.25, t);
+    env.gain.exponentialRampToValueAtTime(0.001, t + 0.5);
+
+    // Tremolo modulation
+    lfoG.connect(env.gain);
+
+    lp.connect(env);
+    env.connect(sidechainGain);
+
+    // Reverb send
+    if (reverbSend) {
+      var rs = ctx.createGain(); rs.gain.value = 0.40;
+      env.connect(rs); rs.connect(reverbSend);
+    }
+
+    // One saw per chord tone
+    for (var i = 0; i < freqs.length && i < 4; i++) {
+      var o = ctx.createOscillator();
+      o.type = 'sawtooth';
+      o.frequency.value = freqs[i];
+      o.detune.value = (Math.random() - 0.5) * 15;
+      var g = ctx.createGain();
+      g.gain.value = v * 0.12;
+      o.connect(g); g.connect(lp);
+      o.start(t); o.stop(t + 0.6);
+    }
+
+    lfo.start(t); lfo.stop(t + 0.6);
+  }
+
+  // Continuous saw lead with portamento — the melody voice
+  function synthAscLead(time, freq, vel, decay, portTime) {
+    if (!ctx) return;
+    var t = time || ctx.currentTime;
+    var f = freq || 440;
+    var v = vel || 0.15;
+    var d = decay || 2.0;
+    var port = portTime || 0.12;
+
+    var o = ctx.createOscillator();
+    o.type = 'sawtooth';
+    // Portamento: glide from last frequency
+    if (ascLeadLastFreq > 0) {
+      o.frequency.setValueAtTime(ascLeadLastFreq, t);
+      o.frequency.exponentialRampToValueAtTime(f, t + port);
+    } else {
+      o.frequency.value = f;
+    }
+    ascLeadLastFreq = f;
+
+    // Unison pair — slight detune for width
+    var o2 = ctx.createOscillator();
+    o2.type = 'sawtooth';
+    if (ascLeadLastFreq > 0) {
+      o2.frequency.setValueAtTime(ascLeadLastFreq, t);
+      o2.frequency.exponentialRampToValueAtTime(f, t + port);
+    } else {
+      o2.frequency.value = f;
+    }
+    o2.detune.value = 12;
+
+    var lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = 2400;
+    lp.Q.value = 0.8;
+
+    var env = ctx.createGain();
+    env.gain.setValueAtTime(v * 0.18, t);
+    env.gain.exponentialRampToValueAtTime(0.001, t + d);
+
+    var g1 = ctx.createGain(); g1.gain.value = 0.5;
+    var g2 = ctx.createGain(); g2.gain.value = 0.4;
+    o.connect(g1); g1.connect(lp);
+    o2.connect(g2); g2.connect(lp);
+    lp.connect(env);
+    env.connect(sidechainGain);
+
+    if (reverbSend) {
+      var rs = ctx.createGain(); rs.gain.value = 0.30;
+      env.connect(rs); rs.connect(reverbSend);
+    }
+    if (delaySend) {
+      var ds = ctx.createGain(); ds.gain.value = 0.18;
+      env.connect(ds); ds.connect(delaySend);
+    }
+
+    o.start(t); o2.start(t);
+    o.stop(t + d + 0.1); o2.stop(t + d + 0.1);
+  }
+
   // Wobble bass filter LFO — driven by follow.js grid clock so it syncs to tempo
   // Cap at 2200Hz — above that it becomes a screeching drill, not music.
   function setWobbleFilter(freq) {
@@ -3050,6 +3406,9 @@ const Audio = (function () {
       tensionSwell: synthTensionSwell,
       kickRoll: synthKickRoll,
       bassPluck: synthBassPluck,
+      ascPluck: synthAscPluck,
+      ascStab: synthAscStab,
+      ascLead: synthAscLead,
       play: synthesize,
     }),
 
@@ -3090,6 +3449,16 @@ const Audio = (function () {
     setMasterFilter: setMasterFilter,
     setSidechainDepth: setSidechainDepth,
     set808SubFreq: set808SubFreq,
+    ascension: Object.freeze({
+      buildWall: buildAscWall,
+      buildSub: buildAscSub,
+      buildNoise: buildAscNoise,
+      setWallFilter: setAscWallFilter,
+      setWallSpread: setAscWallSpread,
+      setWallChord: setAscWallChord,
+      setMasterPitch: setAscMasterPitch,
+      destroyAll: destroyAscLayers,
+    }),
     edm: Object.freeze({
       buildWobble: buildWobbleLayer,
       buildPad: buildDarkPad,

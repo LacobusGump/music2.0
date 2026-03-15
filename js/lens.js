@@ -335,6 +335,82 @@ const Lens = (function () {
         sensitivity: 1.5,
       },
     },
+
+    // ─── ASCENSION ──────────────────────────────────────────────────────
+    // Viral "detune unison" wall of sound. Your body IS the synthesizer.
+    // Root + Major 3rd + Perfect 5th + Octave, each with unison detune.
+    // OTT compression, LFO breathing, white noise air. Bypasses organic pipeline.
+    {
+      name: 'Ascension',
+      color: '#8844ff',
+      description: 'Wall of sound. Tilt the filter. You are the synth.',
+
+      harmony: { root: 220, mode: 'major' },
+
+      tone: {
+        bassFreq: 88, bassGain: 3,
+        midFreq: 1200, midQ: 0.6, midGain: 1,
+        highFreq: 4000, highGain: -3,
+        ceiling: 6000,
+      },
+
+      space: {
+        reverb: { decay: 4.5, damping: 0.12, preDelay: 20 },
+        delay: { feedback: 0.45, filter: 3200, sync: 'dotted-eighth' },
+        saturation: 0.06,
+        type: 'cathedral',
+        reverbMix: 0.45,
+        spatial: { sweepRate: 0.06, sweepDepth: 0.3 },
+      },
+
+      palette: {
+        continuous: { voice: 'ascLead', octave: 0, decay: 2.0 },
+        peak:       { voice: 'ascPluck', octave: 0, decay: 0.8 },
+        harmonic:   { voice: 'ascStab',  octave: 0, decay: 0.4 },
+        touch:      { voice: 'ascStab',  octave: 0, decay: 0.5 },
+      },
+
+      groove: null,
+
+      ascension: {
+        wallRoot: 220,
+        subFreq: 55,
+        filterRange: [200, 6000],
+        detuneRange: [10, 45],
+        portamento: 0.12,
+        breathRate: 0.08,
+        breathDepth: 1800,
+        noiseLevel: 0.06,
+        chordVoicings: [
+          [0, 4, 7, 12],    // I major
+          [0, 5, 9, 12],    // IV
+          [0, 4, 7, 11],    // Imaj7
+          [0, 2, 7, 12],    // Isus2
+          [0, 5, 7, 12],    // Isus4
+          [0, 4, 7, 14],    // I add9
+        ],
+      },
+
+      response: {
+        peakThreshold: 0.28,
+        tiltRange: 50,
+        noteInterval: 300,
+        melodicEnergy: 0.18,
+        stillnessThreshold: 0.10,
+        stillnessTimeout: 2.0,
+        fadeTime: 6.0,
+        filterRange: [200, 6000],
+        densityThresholds: [0.15, 0.5, 1.2],
+      },
+
+      emotion: { colorDeg: 3, phraseShape: 'rising' },
+
+      motion: {
+        primary: 'tilt_rate',
+        melodic: 'beta',
+        sensitivity: 1.0,
+      },
+    },
   ];
 
   // ── STATE ──────────────────────────────────────────────────────────
