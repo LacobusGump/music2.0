@@ -2620,12 +2620,12 @@ const Follow = (function () {
 
   function updateAscension(brainState, sensor, dt) {
     var cfg = lens.ascension;
-    if (!cfg) return;
+    if (!cfg || !Audio.ctx) return;
 
-    var energy = brainState.short ? brainState.short.energy() : 0;
+    var energy = (typeof Brain !== 'undefined') ? Brain.short.energy() : 0;
     var beta   = sensor.beta  || 0;   // tilt forward/back (-180 to 180)
     var gamma  = sensor.gamma || 0;   // roll left/right (-90 to 90)
-    var touch  = sensor.touch || false;
+    var touch  = sensor.touching || false;
 
     asc.time += dt;
 
