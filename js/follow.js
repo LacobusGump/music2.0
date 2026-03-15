@@ -2351,6 +2351,19 @@ const Follow = (function () {
   // Peaks = plucks/stabs. Touch = chord voicing changes.
   // Stillness = LFO breathing takes over.
 
+  // ── LEAD PHRASES — the human elevating the wall ──
+  // Semitone offsets from root. Each phrase has musical contour.
+  var ASC_LEAD_PHRASES = [
+    { notes: [0, 4, 7, 12],                durs: [0.5, 0.4, 0.4, 0.8] },           // I arpeggio up
+    { notes: [12, 11, 9, 7],               durs: [0.4, 0.3, 0.3, 0.7] },           // step down from oct
+    { notes: [0, 2, 4, 7, 4, 2],           durs: [0.3, 0.3, 0.3, 0.4, 0.3, 0.5] },// run up and back
+    { notes: [7, 12, 16, 12],              durs: [0.4, 0.4, 0.6, 0.5] },           // high soar
+    { notes: [4, 7, 12, 11, 7],            durs: [0.3, 0.3, 0.5, 0.3, 0.6] },      // 3rd to oct to 7th
+    { notes: [0, 7, 0, 12, 7, 0],          durs: [0.3, 0.4, 0.3, 0.5, 0.3, 0.5] }, // pedal root
+    { notes: [12, 7, 4, 0, -5, 0],         durs: [0.3, 0.3, 0.3, 0.4, 0.5, 0.7] }, // descending majesty
+    { notes: [4, 5, 7, 9, 12, 11, 7],      durs: [0.25, 0.25, 0.3, 0.3, 0.5, 0.3, 0.6] }, // scalar run
+  ];
+
   var asc = {
     active: false,
     started: false,
@@ -2360,7 +2373,7 @@ const Follow = (function () {
     filterSmooth: 800,
 
     // Detune spread
-    spreadSmooth: 10,
+    spreadSmooth: 5,
 
     // LFO breathing
     breathPhase: 0,
@@ -2370,15 +2383,8 @@ const Follow = (function () {
     chordIndex: 0,
     chordCooldown: 0,
 
-    // Lead melody
-    leadCooldown: 0,
-    lastLeadDeg: -1,
-
     // Gain
     masterGain: 0,
-
-    // Noise
-    noiseGain: 0,
 
     // Stillness
     stillTime: 0,
@@ -2386,19 +2392,34 @@ const Follow = (function () {
     // Peak pluck cooldown
     pluckCooldown: 0,
 
-    // ── BLOOM: layers stack over time with sustained motion ──
-    // 0 = single saw. 1 = full god-tier wall.
-    bloom: 0,
-    bloomTarget: 0,
+    // ── STAGE SYSTEM — each harmonic is earned ──
+    // 0: ember (one saw)
+    // 1: found M3 (root + major 3rd)
+    // 2: found P5 (root + M3 + perfect 5th)
+    // 3: found oct (root + M3 + P5 + octave)
+    // 4: sub + bass arrived
+    // 5: full bloom (noise, max detune, drop system active)
+    stage: 0,
+    stagePhase: 'play',    // play | search | lock | suck | slam
+    stageTimer: 0,         // time in current stage+phase
+    searchFreq: 0,         // current search voice frequency (Hz)
+    searchSemi: 0,         // current search semitones from root
+    searchLockTime: 0,     // time spent near target
 
-    // ── DROP: suck the music out, then slam it back ──
-    // none → armed → sucking → impact → rebuilding → armed
-    dropState: 'none',
+    // ── DROP: suck → slam, only when fully ascended ──
+    dropState: 'none',     // none | armed | sucking | impact | rebuilding
     dropTimer: 0,
     dropCount: 0,
-    armedTime: 0,        // how long bloom has been > 0.85
+    armedTime: 0,
 
-    // Phase: 'waiting' → 'bloom' → 'full' → 'breathing'
+    // ── LEAD SOLO — phrase-based melody ──
+    leadPhrase: 0,
+    leadStep: 0,
+    leadNoteTimer: 0,
+    leadPausing: false,
+    leadPauseTimer: 0,
+
+    // Phase for display: 'waiting' → 'ember' → 'ascending' → 'full' → 'breathing'
     phase: 'waiting',
   };
 
@@ -2593,24 +2614,39 @@ const Follow = (function () {
     asc.breathActive = false;
     asc.chordIndex = 0;
     asc.chordCooldown = 0;
-    asc.leadCooldown = 0;
-    asc.lastLeadDeg = -1;
     asc.masterGain = 0;
-    asc.noiseGain = 0;
     asc.stillTime = 0;
     asc.pluckCooldown = 0;
-    asc.bloom = 0;
-    asc.bloomTarget = 0;
+    asc.stage = 0;
+    asc.stagePhase = 'play';
+    asc.stageTimer = 0;
+    asc.searchFreq = 0;
+    asc.searchSemi = 0;
+    asc.searchLockTime = 0;
     asc.dropState = 'none';
     asc.dropTimer = 0;
     asc.dropCount = 0;
     asc.armedTime = 0;
+    asc.leadPhrase = Math.floor(Math.random() * ASC_LEAD_PHRASES.length);
+    asc.leadStep = 0;
+    asc.leadNoteTimer = 0;
+    asc.leadPausing = false;
+    asc.leadPauseTimer = 0;
     asc.phase = 'waiting';
 
-    // Build all layers silent — bloom system will open them one by one
+    // Build all harmonic layers silent — stage system opens them one by one
     try { Audio.ascension.buildWall(cfg.wallRoot, cfg.detuneRange[0]); } catch(e) {}
     try { Audio.ascension.buildSub(cfg.subFreq); } catch(e) {}
     try { Audio.ascension.buildNoise(); } catch(e) {}
+    // Bass layer: sine at 110Hz for warmth phones can reproduce
+    try { Audio.layer.build('asc-bass', {
+      oscillators: [
+        { wave: 'sine', freq: cfg.bassFreq, gain: 0.25 },
+        { wave: 'triangle', freq: cfg.bassFreq, gain: 0.10 },
+      ],
+      filter: { type: 'lowpass', freq: 300, Q: 0.6 },
+      gain: 0,
+    }); } catch(e) {}
     try { Audio.ascension.setWallFilter(cfg.filterRange[0]); } catch(e) {}
     try { Audio.setMasterFilter(cfg.filterRange[1]); } catch(e) {}
   }
@@ -2618,24 +2654,24 @@ const Follow = (function () {
   function teardownAscension() {
     asc.active = false;
     asc.started = false;
-    try { Audio.ascension.destroyAll(); } catch(e) {}
+    try { Audio.ascension.destroyAll(); } catch(e) {}  // destroys wall layers + sub + noise + search + bass
     if (lens && lens.tone) {
       try { Audio.setMasterFilter(lens.tone.ceiling || 7000); } catch(e) {}
     }
   }
 
   // ── ASCENSION UPDATE ENGINE ──
-  // The body IS the synthesizer. No clock. No drums. Just a wall of harmonic light.
+  // The body IS the synthesizer. An ember that ascends into a wall of light.
   //
-  // BLOOM: single saw → layers stack → full god-tier wall (~25s of motion)
-  // DROP: once bloomed, strong peak → suck everything out → SLAM it back
+  // STAGES: one saw → search for M3 → SNAP → suck → SLAM → search for P5 → ...
+  // Each harmonic is EARNED. The user FINDS the interval with their tilt.
+  // Contrast: every new layer arrives through silence → impact.
   //
-  // Tilt    → filter cutoff. Phone flat = dark. Tilted = bright.
-  // Motion  → bloom (layers stack) + detune spread (shimmer).
-  // Roll    → pitch shift ±2 semitones.
-  // Peaks   → plucks during bloom, DROP trigger when armed.
+  // Tilt    → filter (always) + search voice pitch (during search).
+  // Motion  → detune spread + stage progression.
+  // Peaks   → pluck accents. Drop trigger when fully ascended.
   // Touch   → cycle chord voicing.
-  // Stillness → LFO breathing takes over filter.
+  // Lead    → phrase-based solo that elevates the wall with human lines.
 
   function updateAscension(brainState, sensor, dt) {
     var cfg = lens.ascension;
@@ -2644,218 +2680,321 @@ const Follow = (function () {
     var energy = (typeof Brain !== 'undefined') ? Brain.short.energy() : 0;
     var beta   = sensor.beta  || 0;
     var gamma  = sensor.gamma || 0;
+    var tiltNorm = Math.max(0, Math.min(1, (beta - 20) / 60));
 
     asc.time += dt;
+    asc.stageTimer += dt;
 
     // ── 1. STARTUP: wait for first motion ──
     if (!asc.started) {
       if (energy > 0.08) {
         asc.started = true;
-        asc.phase = 'bloom';
+        asc.phase = 'ember';
+        asc.stageTimer = 0;
       } else {
         return;
       }
     }
 
-    // ── 2. BLOOM SYSTEM — layers stack with sustained motion ──
-    // Bloom rate scales with energy: gentle motion = slow build, hard motion = faster
-    if (asc.dropState === 'none' || asc.dropState === 'armed' || asc.dropState === 'rebuilding') {
-      if (energy > 0.10) {
-        // Blooming: 0.035/s base + up to 0.025/s more at high energy → full in ~20-28s
-        var bloomRate = 0.035 + energy * 0.025;
-        if (asc.dropState === 'rebuilding') bloomRate = 0.15;  // fast rebuild after drop
-        asc.bloomTarget = Math.min(1, asc.bloomTarget + bloomRate * dt);
-      } else if (energy < 0.04) {
-        // Decay: slow when near full (preserve the wall), faster when low
-        var decayRate = asc.bloom > 0.7 ? 0.008 : 0.025;
-        asc.bloomTarget = Math.max(0, asc.bloomTarget - decayRate * dt);
-      }
-    }
-    // Smooth bloom transitions
-    var bloomSmooth = asc.dropState === 'sucking' ? 2.5 : 1.5;
-    asc.bloom += (asc.bloomTarget - asc.bloom) * bloomSmooth * dt;
-    asc.bloom = Math.max(0, Math.min(1, asc.bloom));
-
-    // ── 3. LAYER GAINS FROM BLOOM ──
-    // bloom 0.0-0.15: single saw fading in (root only, center voice)
-    // bloom 0.15-0.35: root detune widens (voices spread), filter opens
-    // bloom 0.35-0.55: major 3rd layer fades in (suddenly: a chord)
-    // bloom 0.55-0.75: perfect 5th layer (power, width)
-    // bloom 0.75-0.90: octave + sub + noise (the full stack)
-    // bloom 0.90+: max detune, everything cranked — GOD TIER
-    var rootGain  = Math.min(1, asc.bloom / 0.15) * 0.7;
-    var thirdGain = Math.max(0, Math.min(1, (asc.bloom - 0.30) / 0.20)) * 0.55;
-    var fifthGain = Math.max(0, Math.min(1, (asc.bloom - 0.50) / 0.20)) * 0.55;
-    var octGain   = Math.max(0, Math.min(1, (asc.bloom - 0.70) / 0.15)) * 0.40;
-    var subGain   = Math.max(0, Math.min(1, (asc.bloom - 0.65) / 0.20)) * 0.35;
-    var noiseGain = Math.max(0, Math.min(1, (asc.bloom - 0.75) / 0.15)) * cfg.noiseLevel;
-
-    try { Audio.layer.setGain('asc-root',  rootGain,  0.3); } catch(e) {}
-    try { Audio.layer.setGain('asc-third', thirdGain, 0.5); } catch(e) {}
-    try { Audio.layer.setGain('asc-fifth', fifthGain, 0.5); } catch(e) {}
-    try { Audio.layer.setGain('asc-oct',   octGain,   0.5); } catch(e) {}
-    try { Audio.layer.setGain('asc-sub',   subGain,   0.5); } catch(e) {}
-    try { Audio.layer.setGain('asc-noise', noiseGain, 0.5); } catch(e) {}
-
-    // ── 4. MASTER GAIN — overall envelope ──
-    var gainTarget = energy > 0.04 ? 0.75 : (asc.bloom > 0.1 ? 0.3 : 0);
-    var gainRate = gainTarget > asc.masterGain ? 0.4 : 0.12;
+    // ── 2. MASTER GAIN ──
+    var gainTarget = energy > 0.04 ? 0.75 : (asc.stage > 0 ? 0.3 : 0.1);
+    if (asc.stagePhase === 'suck') gainTarget = 0.08;  // near silence during suck
+    var gainRate = gainTarget > asc.masterGain ? 0.5 : 0.15;
     asc.masterGain += (gainTarget - asc.masterGain) * gainRate * dt;
     asc.masterGain = Math.max(0, Math.min(1, asc.masterGain));
     try { Audio.setMasterGain(asc.masterGain); } catch(e) {}
 
-    // ── 5. STILLNESS ──
+    // ── 3. STILLNESS ──
     if (energy < 0.06) { asc.stillTime += dt; } else { asc.stillTime = 0; }
+    asc.breathPhase += cfg.breathRate * dt;
+    if (asc.breathPhase > 1) asc.breathPhase -= 1;
+    asc.breathActive = asc.stillTime > 2.5 && asc.stagePhase === 'play';
 
-    // Phase transitions
-    if (asc.phase === 'bloom' && asc.bloom > 0.85) asc.phase = 'full';
-    if (asc.phase === 'full' && asc.bloom < 0.50) asc.phase = 'bloom';
-    if (asc.phase === 'full' && asc.stillTime > 3.0) asc.phase = 'breathing';
-    if (asc.phase === 'breathing' && energy > 0.15) asc.phase = asc.bloom > 0.85 ? 'full' : 'bloom';
+    // ── 4. STAGE SYSTEM — the ascension ──
+    // Stage 0 (ember): just root saw. After 4s of playing, activate search for M3.
+    // Stage 1-3: play with current layers. After 5s, search for next interval.
+    // Stage 4: sub + bass arrive (auto, no search).
+    // Stage 5: full bloom — noise, max detune, drop system activates.
 
-    // ── 6. DROP SYSTEM ──
-    // Armed when bloom > 0.85 for 3+ seconds. Peak triggers the drop.
-    if (asc.dropState === 'none' && asc.bloom > 0.85) {
-      asc.armedTime += dt;
-      if (asc.armedTime > 3.0) asc.dropState = 'armed';
-    } else if (asc.bloom <= 0.85) {
-      asc.armedTime = 0;
+    var targets = cfg.stageTargets;  // [4, 7, 12] = M3, P5, oct
+
+    // ── 4a. PLAY phase: enjoy current sound, then start searching ──
+    if (asc.stagePhase === 'play') {
+      var settleTime = asc.stage === 0 ? 4.0 : 5.0;
+      if (asc.stage < targets.length && asc.stageTimer > settleTime && energy > 0.10) {
+        // Activate search voice
+        asc.stagePhase = 'search';
+        asc.searchLockTime = 0;
+        asc.searchSemi = tiltNorm * 16;
+        var searchStartFreq = cfg.wallRoot * Math.pow(2, asc.searchSemi / 12);
+        asc.searchFreq = searchStartFreq;
+        try { Audio.layer.build('asc-search', {
+          oscillators: [{ wave: 'triangle', freq: searchStartFreq, gain: 0.12 }],
+          filter: { type: 'lowpass', freq: 2200, Q: 0.5 },
+          gain: 0,
+          reverbSend: 0.40,
+        }); } catch(e) {}
+        try { Audio.layer.setGain('asc-search', 0.25, 1.0); } catch(e) {}
+      }
+      // Stage 3→4 (sub+bass): auto after sustained energy
+      if (asc.stage === 3 && asc.stageTimer > 6.0 && energy > 0.12) {
+        asc.stagePhase = 'suck';
+        asc.stageTimer = 0;
+      }
+      // Stage 4→5 (full bloom): auto after sustained energy
+      if (asc.stage === 4 && asc.stageTimer > 5.0 && energy > 0.10) {
+        asc.stagePhase = 'suck';
+        asc.stageTimer = 0;
+      }
     }
 
-    // Armed: next strong peak triggers drop
-    if (asc.dropState === 'armed' && peakCount > 0 && energy > 0.3) {
-      asc.dropState = 'sucking';
-      asc.dropTimer = 0;
-      asc.bloomTarget = 0.05;  // suck bloom down to almost nothing
+    // ── 4b. SEARCH phase: tilt moves the search voice, gravity pulls to target ──
+    if (asc.stagePhase === 'search' && asc.stage < targets.length) {
+      var target = targets[asc.stage];  // semitones from root
+      var snapRadius = cfg.snapRadius || 1.5;
+
+      // Map tilt to semitone range (sweep above root)
+      asc.searchSemi = tiltNorm * 16;
+
+      // Gravitational pull — gets stronger as you get closer
+      var dist = Math.abs(asc.searchSemi - target);
+      if (dist < snapRadius) {
+        var pull = 1 - (dist / snapRadius);
+        pull = pull * pull;  // quadratic — snappy near target
+        asc.searchSemi += (target - asc.searchSemi) * pull * 0.6;
+      }
+
+      // Update search voice frequency
+      asc.searchFreq = cfg.wallRoot * Math.pow(2, asc.searchSemi / 12);
+      try { Audio.layer.setFreqs('asc-search', [asc.searchFreq], 0.05); } catch(e) {}
+
+      // Lock detection: within 0.5 semitones
+      if (dist < 0.5) {
+        asc.searchLockTime += dt;
+      } else {
+        asc.searchLockTime = Math.max(0, asc.searchLockTime - dt * 0.5);
+      }
+
+      // SNAP! Found the interval.
+      var snapTime = cfg.snapLockTime || 1.5;
+      if (asc.searchLockTime >= snapTime) {
+        // Jump search voice to exact target
+        var snapFreq = cfg.wallRoot * Math.pow(2, target / 12);
+        try { Audio.layer.setFreqs('asc-search', [snapFreq], 0.02); } catch(e) {}
+        // Snap confirmation sound
+        try { Audio.synth.ascPluck(0, snapFreq, 0.7, 0.6); } catch(e) {}
+        try { Audio.synth.ascPluck(0, snapFreq * 2, 0.4, 0.4); } catch(e) {}
+        // Brief lock phase before suck
+        asc.stagePhase = 'lock';
+        asc.stageTimer = 0;
+      }
     }
 
-    // Sucking: layers strip away, filter slams shut (2s)
-    if (asc.dropState === 'sucking') {
-      asc.dropTimer += dt;
-      // Force filter down
+    // ── 4c. LOCK phase: brief moment of recognition (0.5s), then suck ──
+    if (asc.stagePhase === 'lock') {
+      if (asc.stageTimer > 0.5) {
+        // Kill search voice
+        try { Audio.layer.setGain('asc-search', 0, 0.3); } catch(e) {}
+        setTimeout(function() { try { Audio.layer.destroy('asc-search'); } catch(e) {} }, 400);
+        asc.stagePhase = 'suck';
+        asc.stageTimer = 0;
+      }
+    }
+
+    // ── 4d. SUCK phase: pull everything out. Silence before the storm. ──
+    if (asc.stagePhase === 'suck') {
+      var suckDur = cfg.suckDuration || 2.0;
+      // Filter slams shut
       asc.filterSmooth = Math.max(cfg.filterRange[0], asc.filterSmooth - 3000 * dt);
       try { Audio.ascension.setWallFilter(asc.filterSmooth); } catch(e) {}
 
-      if (asc.dropTimer > 2.0) {
-        // IMPACT — everything slams back
-        asc.dropState = 'impact';
-        asc.dropTimer = 0;
-        asc.dropCount++;
-        // Fire impact sounds
+      if (asc.stageTimer >= suckDur) {
+        // SLAM — advance stage
+        asc.stagePhase = 'slam';
+        asc.stageTimer = 0;
+        asc.stage++;
+        asc.phase = asc.stage >= 5 ? 'full' : 'ascending';
+
+        // Impact: chord stab + pluck at root
         var voicing = cfg.chordVoicings[asc.chordIndex];
         var impactFreqs = voicing.map(function(s) { return cfg.wallRoot * Math.pow(2, s / 12); });
         try { Audio.synth.ascStab(0, impactFreqs, 0.9); } catch(e) {}
         try { Audio.synth.ascPluck(0, cfg.wallRoot, 0.8, 1.5); } catch(e) {}
-        try { Audio.synth.ascPluck(0, cfg.wallRoot * 2, 0.6, 1.2); } catch(e) {}
       }
     }
 
-    // Impact: slam everything to full instantly (0.3s)
-    if (asc.dropState === 'impact') {
-      asc.dropTimer += dt;
-      asc.bloomTarget = 1.0;
-      asc.bloom = Math.min(1, asc.bloom + 3.0 * dt);  // fast snap to full
-      if (asc.dropTimer > 0.3) {
-        asc.dropState = 'rebuilding';
+    // ── 4e. SLAM phase: everything opens up at the new level (0.5s) ──
+    if (asc.stagePhase === 'slam') {
+      if (asc.stageTimer > 0.5) {
+        asc.stagePhase = 'play';
+        asc.stageTimer = 0;
+      }
+    }
+
+    // ── 5. LAYER GAINS FROM STAGE ──
+    // Each stage unlocks its layer. Suck drops all gains. Slam brings them back.
+    var suckMult = 1.0;
+    if (asc.stagePhase === 'suck') suckMult = Math.max(0.02, 1.0 - asc.stageTimer / (cfg.suckDuration || 2.0));
+    if (asc.stagePhase === 'slam') suckMult = Math.min(1.0, asc.stageTimer / 0.3);  // fast open
+
+    var rootGain  = (asc.stage >= 0 ? 0.70 : 0) * suckMult;
+    var thirdGain = (asc.stage >= 1 ? 0.55 : 0) * suckMult;
+    var fifthGain = (asc.stage >= 2 ? 0.55 : 0) * suckMult;
+    var octGain   = (asc.stage >= 3 ? 0.40 : 0) * suckMult;
+    var subGain   = (asc.stage >= 4 ? 0.55 : 0) * suckMult;  // beefier sub
+    var bassGain  = (asc.stage >= 1 ? 0.30 : 0) * suckMult;  // warm bass from stage 1
+    var noiseGain = (asc.stage >= 5 ? cfg.noiseLevel : 0) * suckMult;
+
+    try { Audio.layer.setGain('asc-root',  rootGain,  0.15); } catch(e) {}
+    try { Audio.layer.setGain('asc-third', thirdGain, 0.15); } catch(e) {}
+    try { Audio.layer.setGain('asc-fifth', fifthGain, 0.15); } catch(e) {}
+    try { Audio.layer.setGain('asc-oct',   octGain,   0.15); } catch(e) {}
+    try { Audio.layer.setGain('asc-sub',   subGain,   0.3); } catch(e) {}
+    try { Audio.layer.setGain('asc-bass',  bassGain,  0.3); } catch(e) {}
+    try { Audio.layer.setGain('asc-noise', noiseGain, 0.5); } catch(e) {}
+
+    // ── 6. DROP SYSTEM — only when fully ascended (stage 5) ──
+    if (asc.stage >= 5 && asc.stagePhase === 'play') {
+      if (asc.dropState === 'none') {
+        asc.armedTime += dt;
+        if (asc.armedTime > 3.0) asc.dropState = 'armed';
+      }
+      if (asc.dropState === 'armed' && peakCount > 0 && energy > 0.3) {
+        asc.dropState = 'sucking';
         asc.dropTimer = 0;
       }
-    }
-
-    // Rebuilding: cascade back to full over 3s, then re-arm
-    if (asc.dropState === 'rebuilding') {
-      asc.dropTimer += dt;
-      if (asc.dropTimer > 3.0 && asc.bloom > 0.80) {
-        asc.dropState = 'none';
-        asc.armedTime = 0;
+      if (asc.dropState === 'sucking') {
+        asc.dropTimer += dt;
+        asc.filterSmooth = Math.max(cfg.filterRange[0], asc.filterSmooth - 3000 * dt);
+        try { Audio.ascension.setWallFilter(asc.filterSmooth); } catch(e) {}
+        if (asc.dropTimer > 2.0) {
+          asc.dropState = 'impact';
+          asc.dropTimer = 0;
+          asc.dropCount++;
+          var dv = cfg.chordVoicings[asc.chordIndex];
+          var df = dv.map(function(s) { return cfg.wallRoot * Math.pow(2, s / 12); });
+          try { Audio.synth.ascStab(0, df, 0.95); } catch(e) {}
+          try { Audio.synth.ascPluck(0, cfg.wallRoot, 0.9, 1.5); } catch(e) {}
+          try { Audio.synth.ascPluck(0, cfg.wallRoot * 2, 0.7, 1.0); } catch(e) {}
+        }
+      }
+      if (asc.dropState === 'impact') {
+        asc.dropTimer += dt;
+        if (asc.dropTimer > 0.3) {
+          asc.dropState = 'rebuilding';
+          asc.dropTimer = 0;
+        }
+      }
+      if (asc.dropState === 'rebuilding') {
+        asc.dropTimer += dt;
+        if (asc.dropTimer > 3.0) {
+          asc.dropState = 'none';
+          asc.armedTime = 0;
+        }
       }
     }
 
     // ── 7. TILT → FILTER CUTOFF ──
-    var tiltNorm = Math.max(0, Math.min(1, (beta - 20) / 60));
     var filterTarget = cfg.filterRange[0] + tiltNorm * (cfg.filterRange[1] - cfg.filterRange[0]);
-    // Filter also opens with bloom — you can't have god tier at 200Hz
-    var bloomFilter = cfg.filterRange[0] + asc.bloom * (cfg.filterRange[1] * 0.5 - cfg.filterRange[0]);
-    filterTarget = Math.max(filterTarget, bloomFilter);
+    // Floor rises with stage — you earn brightness
+    var stageFloor = cfg.filterRange[0] + (asc.stage / 5) * (cfg.filterRange[1] * 0.4 - cfg.filterRange[0]);
+    filterTarget = Math.max(filterTarget, stageFloor);
 
-    // ── 8. LFO BREATHING — takes over filter during stillness ──
-    asc.breathPhase += cfg.breathRate * dt;
-    if (asc.breathPhase > 1) asc.breathPhase -= 1;
-    asc.breathActive = asc.stillTime > 2.0;
-
+    // LFO breathing during stillness
     if (asc.breathActive) {
       var breathLFO = Math.sin(asc.breathPhase * Math.PI * 2);
-      filterTarget = filterTarget + breathLFO * cfg.breathDepth;
+      filterTarget += breathLFO * cfg.breathDepth;
       filterTarget = Math.max(cfg.filterRange[0], Math.min(cfg.filterRange[1], filterTarget));
     }
 
-    // Smooth filter (skip during suck — that's handled above)
-    if (asc.dropState !== 'sucking') {
+    // Skip filter smooth during suck (handled in section 4d)
+    if (asc.stagePhase !== 'suck' && asc.dropState !== 'sucking') {
       asc.filterSmooth += (filterTarget - asc.filterSmooth) * 4.0 * dt;
       asc.filterSmooth = Math.max(cfg.filterRange[0], Math.min(cfg.filterRange[1], asc.filterSmooth));
       try { Audio.ascension.setWallFilter(asc.filterSmooth); } catch(e) {}
     }
 
-    // ── 9. DETUNE SPREAD — widens with bloom ──
-    // Early bloom = tight (almost mono). Full bloom = maximum shimmer.
-    var bloomSpread = cfg.detuneRange[0] + asc.bloom * (cfg.detuneRange[1] - cfg.detuneRange[0]);
-    // Motion adds a little extra shimmer on top
+    // ── 8. DETUNE SPREAD — widens with stage ──
+    var stageSpread = cfg.detuneRange[0] + (asc.stage / 5) * (cfg.detuneRange[1] - cfg.detuneRange[0]);
     var motionSpread = energy * 5;
-    var spreadTarget = Math.min(cfg.detuneRange[1], bloomSpread + motionSpread);
+    var spreadTarget = Math.min(cfg.detuneRange[1], stageSpread + motionSpread);
     asc.spreadSmooth += (spreadTarget - asc.spreadSmooth) * 3.0 * dt;
     try { Audio.ascension.setWallSpread(asc.spreadSmooth); } catch(e) {}
 
-    // ── 10. ROLL → PITCH SHIFT ──
+    // ── 9. ROLL → PITCH SHIFT ──
     var rollNorm = Math.max(-1, Math.min(1, gamma / 30));
-    var pitchShift = rollNorm * 2;
-    try { Audio.ascension.setMasterPitch(pitchShift); } catch(e) {}
+    try { Audio.ascension.setMasterPitch(rollNorm * 2); } catch(e) {}
 
-    // ── 11. PEAKS → PLUCK NOTES (only during bloom, not during drop) ──
+    // ── 10. PEAK PLUCKS — accents, not melody ──
     if (asc.pluckCooldown > 0) asc.pluckCooldown -= dt;
-    if (peakCount > 0 && asc.pluckCooldown <= 0 && asc.dropState !== 'armed') {
-      var voicing2 = cfg.chordVoicings[asc.chordIndex];
-      var degIdx = Math.floor(Math.random() * voicing2.length);
-      var semi = voicing2[degIdx];
-      var pluckFreq = cfg.wallRoot * Math.pow(2, semi / 12);
-      if (pluckFreq < 200) pluckFreq *= 2;
-      if (pluckFreq > 2000) pluckFreq /= 2;
-      var vel = Math.min(1, energy * 1.5 + 0.3);
-      try { Audio.synth.ascPluck(0, pluckFreq, vel, 0.8); } catch(e) {}
-      asc.pluckCooldown = 0.15;
+    if (peakCount > 0 && asc.pluckCooldown <= 0 && asc.dropState !== 'armed' && asc.stagePhase === 'play') {
+      var pv = cfg.chordVoicings[asc.chordIndex];
+      var pi = Math.floor(Math.random() * pv.length);
+      var pf = cfg.wallRoot * Math.pow(2, pv[pi] / 12);
+      if (pf < 200) pf *= 2;
+      if (pf > 2000) pf /= 2;
+      try { Audio.synth.ascPluck(0, pf, Math.min(1, energy * 1.5 + 0.3), 0.8); } catch(e) {}
+      asc.pluckCooldown = 0.2;
     }
 
-    // ── 12. TOUCH → CYCLE CHORD VOICING ──
+    // ── 11. TOUCH → CYCLE CHORD VOICING ──
     if (asc.chordCooldown > 0) asc.chordCooldown -= dt;
 
-    // ── 13. LEAD MELODY — only once bloom > 0.4 (you've earned it) ──
-    if (asc.leadCooldown > 0) asc.leadCooldown -= dt;
-    var melodicEnergy = lens.response.melodicEnergy || 0.18;
-    if (asc.bloom > 0.4 && energy > melodicEnergy && asc.leadCooldown <= 0 && !asc.breathActive) {
-      var voicing3 = cfg.chordVoicings[asc.chordIndex];
-      var degCount = voicing3.length;
-      var tiltDeg = Math.floor(tiltNorm * degCount);
-      tiltDeg = Math.max(0, Math.min(degCount - 1, tiltDeg));
-      if (tiltDeg === asc.lastLeadDeg && degCount > 1) {
-        tiltDeg = (tiltDeg + 1) % degCount;
+    // ── 12. LEAD SOLO — phrase-based melody, the human elevating the wall ──
+    // Only once stage >= 2 (you have a chord to play over) and actively playing
+    if (asc.stage >= 2 && asc.stagePhase === 'play' && energy > 0.12 && !asc.breathActive) {
+      if (asc.leadPausing) {
+        asc.leadPauseTimer -= dt;
+        if (asc.leadPauseTimer <= 0) asc.leadPausing = false;
+      } else {
+        asc.leadNoteTimer -= dt;
+        if (asc.leadNoteTimer <= 0) {
+          var phrase = ASC_LEAD_PHRASES[asc.leadPhrase];
+          var semi = phrase.notes[asc.leadStep];
+          var dur = phrase.durs[asc.leadStep];
+
+          var leadFreq = cfg.wallRoot * Math.pow(2, semi / 12);
+          // Keep lead in singing octave
+          while (leadFreq < 300) leadFreq *= 2;
+          while (leadFreq > 1200) leadFreq /= 2;
+
+          var leadVel = 0.35 + (semi > 7 ? 0.15 : 0);  // louder on high notes
+          try { Audio.synth.ascLead(0, leadFreq, leadVel, dur + 0.5, cfg.portamento); } catch(e) {}
+
+          asc.leadStep++;
+          asc.leadNoteTimer = dur;
+
+          // Phrase complete — pause, then next phrase
+          if (asc.leadStep >= phrase.notes.length) {
+            asc.leadPausing = true;
+            asc.leadPauseTimer = 2.0 + Math.random() * 2.5;  // 2-4.5s pause
+            asc.leadStep = 0;
+            var next;
+            do { next = Math.floor(Math.random() * ASC_LEAD_PHRASES.length); }
+            while (next === asc.leadPhrase && ASC_LEAD_PHRASES.length > 1);
+            asc.leadPhrase = next;
+          }
+        }
       }
-      asc.lastLeadDeg = tiltDeg;
-      var leadSemi = voicing3[tiltDeg];
-      var leadFreq = cfg.wallRoot * Math.pow(2, leadSemi / 12);
-      if (leadFreq < 300) leadFreq *= 2;
-      if (leadFreq > 1200) leadFreq /= 2;
-      var leadVel = Math.min(1, energy * 1.2);
-      try { Audio.synth.ascLead(0, leadFreq, leadVel, 1.5, cfg.portamento); } catch(e) {}
-      asc.leadCooldown = 0.25 + (1.0 - energy) * 0.3;
+    } else {
+      // Reset lead when not playing (so it starts fresh)
+      asc.leadNoteTimer = 0;
     }
 
-    // ── 14. REVERB — opens with bloom, wider during breathing ──
-    var reverbTarget = 0.15 + asc.bloom * 0.30;
+    // ── 13. REVERB — grows with stage ──
+    var reverbTarget = 0.15 + (asc.stage / 5) * 0.30;
     if (asc.breathActive) reverbTarget = 0.65;
     try { Audio.setReverbMix(reverbTarget); } catch(e) {}
 
-    // ── 15. DELAY — subtle early, more with bloom ──
-    var delayTarget = 0.05 + asc.bloom * 0.15;
+    // ── 14. DELAY ──
+    var delayTarget = 0.05 + (asc.stage / 5) * 0.15;
     if (asc.breathActive) delayTarget = 0.35;
     try { Audio.setDelayMix(delayTarget); } catch(e) {}
+
+    // ── 15. PHASE for display ──
+    if (asc.stage >= 5) asc.phase = asc.breathActive ? 'breathing' : 'full';
+    else if (asc.stage > 0) asc.phase = 'ascending';
+    else asc.phase = 'ember';
   }
 
   // Wobble LFO shapes — different each drop cycle
@@ -4360,7 +4499,8 @@ const Follow = (function () {
     get ascChord() { return asc.active ? asc.chordIndex : '-'; },
     get ascGain() { return asc.active ? asc.masterGain.toFixed(2) : '-'; },
     get ascBreathing() { return asc.active ? (asc.breathActive ? 'YES' : 'no') : '-'; },
-    get ascBloom() { return asc.active ? (asc.bloom * 100).toFixed(0) + '%' : '-'; },
+    get ascStage() { return asc.active ? asc.stage + '/' + asc.stagePhase : '-'; },
     get ascDrop() { return asc.active ? asc.dropState + (asc.dropCount ? ' x' + asc.dropCount : '') : '-'; },
+    get ascSearch() { return asc.active && asc.stagePhase === 'search' ? asc.searchSemi.toFixed(1) + 'st lock:' + asc.searchLockTime.toFixed(1) : '-'; },
   });
 })();

@@ -2659,6 +2659,8 @@ const Audio = (function () {
     for (var i = 0; i < ASC_LAYERS.length; i++) destroyLayer(ASC_LAYERS[i]);
     destroyLayer('asc-sub');
     destroyLayer('asc-noise');
+    destroyLayer('asc-search');
+    destroyLayer('asc-bass');
   }
 
   // ── ASCENSION FIRE-AND-FORGET SYNTHS ──

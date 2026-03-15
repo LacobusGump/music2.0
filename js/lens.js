@@ -375,12 +375,17 @@ const Lens = (function () {
       ascension: {
         wallRoot: 220,
         subFreq: 55,
+        bassFreq: 110,
         filterRange: [200, 6000],
-        detuneRange: [10, 45],
+        detuneRange: [5, 45],
         portamento: 0.12,
         breathRate: 0.08,
         breathDepth: 1800,
         noiseLevel: 0.06,
+        stageTargets: [4, 7, 12],   // M3, P5, octave — semitones to find
+        snapRadius: 1.5,            // semitones — gravitational pull starts
+        snapLockTime: 1.5,          // seconds near target to snap
+        suckDuration: 2.0,          // seconds of suck before slam
         chordVoicings: [
           [0, 4, 7, 12],    // I major
           [0, 5, 9, 12],    // IV
