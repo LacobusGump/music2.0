@@ -13,7 +13,7 @@ const Voice = (function () {
   var BASE = 'voice/';
 
   var FILES = {
-    boot:            'intro-4.mp3',
+    boot:            'intro.mp3',
     iCanWorkWithThis:'i-can-work-with-this.mp3',
     firstMotion:   ['there-you-are.mp3', 'first-motion-1.mp3', 'first-motion-2.mp3', 'first-motion-3.mp3'],
     askName:       'ask-name.mp3',
@@ -184,14 +184,16 @@ const Voice = (function () {
 
   function boot() {
     sessionStart = Date.now();
-    var bootText = 'Your body is the instrument. I\'ll do the rest.';
 
-    if (!voiceCtx) {
-      speak(bootText, { force: true, pitch: 0.50, rate: 0.68 });
-      return;
-    }
+    // Only play the full intro on first-ever visit. After that, just start.
+    try {
+      if (localStorage.getItem('gump_intro_played')) return;
+      localStorage.setItem('gump_intro_played', '1');
+    } catch (e) {}
 
-    // Try the pre-rendered file; fall back to Web Speech if it 404s
+    if (!voiceCtx) return;
+
+    // Play the intro audio file
     lastSpoke = Date.now();
     fetch(BASE + FILES.boot)
       .then(function (r) {
