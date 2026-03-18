@@ -1297,6 +1297,124 @@ const Follow = (function () {
     }
   }
 
+  // ── PRODIGY — Musical Intelligence Engine ──────────────────────────────
+  //
+  // Watches the user's movement over rolling windows. Makes mix decisions
+  // based on music theory + the user's patterns. Faster than the human mind.
+  //
+  // What it tracks:
+  //   - Energy arc: rising, falling, plateau, volatile
+  //   - Melodic tendency: which degrees the user gravitates toward
+  //   - Rhythmic consistency: steady pulse vs. chaotic
+  //   - Phrase shape: ascending, descending, static
+  //
+  // What it controls:
+  //   - Filter envelope (opens during builds, closes during descents)
+  //   - Reverb depth (more space during calm, tighter during intensity)
+  //   - Harmonic choices (next chord should be... V? IV? vi?)
+  //   - Dynamic range (compress during chaos, expand during clarity)
+
+  var prodigy = {
+    // Rolling energy window (last 4 seconds, sampled every 0.25s)
+    energyHistory: new Float32Array(16),
+    energyHead: 0,
+    sampleTimer: 0,
+
+    // Derived arc state
+    arc: 'neutral',       // rising | falling | plateau | volatile
+    arcStrength: 0,       // 0-1: how confident we are in the arc
+
+    // Degree tracking: which notes the user plays most
+    degreeHeat: new Float32Array(15),  // -7 to +7, index = degree+7
+    degreeDecay: 0.98,
+
+    // Mix state (smoothed targets the prodigy sets)
+    reverbTarget: 0.25,
+    filterBias: 0,        // added to the gyro filter: positive = brighter, negative = darker
+    dynamicRange: 1.0,    // 0.5 = compressed, 1.5 = expanded
+  };
+
+  function updateProdigy(sensor, dt, mag) {
+    if (!lens || !Audio.ctx || isSilent) return;
+    var energy = (typeof Brain !== 'undefined') ? Brain.short.energy() : 0;
+
+    // ── Sample energy into rolling window ──
+    prodigy.sampleTimer += dt;
+    if (prodigy.sampleTimer >= 0.25) {
+      prodigy.sampleTimer = 0;
+      prodigy.energyHistory[prodigy.energyHead] = energy;
+      prodigy.energyHead = (prodigy.energyHead + 1) & 15;
+    }
+
+    // ── Track degree usage ──
+    var di = Math.max(0, Math.min(14, currentDegree + 7));
+    prodigy.degreeHeat[di] += 0.1;
+    for (var i = 0; i < 15; i++) prodigy.degreeHeat[i] *= prodigy.degreeDecay;
+
+    // ── Classify energy arc ──
+    var recent4 = 0, older4 = 0;
+    for (var j = 0; j < 4; j++) {
+      recent4 += prodigy.energyHistory[(prodigy.energyHead - 1 - j + 16) & 15];
+      older4 += prodigy.energyHistory[(prodigy.energyHead - 5 - j + 16) & 15];
+    }
+    recent4 /= 4; older4 /= 4;
+
+    var diff = recent4 - older4;
+    if (diff > 1.5) { prodigy.arc = 'rising'; prodigy.arcStrength = Math.min(1, diff / 4); }
+    else if (diff < -1.5) { prodigy.arc = 'falling'; prodigy.arcStrength = Math.min(1, -diff / 4); }
+    else if (recent4 > 3 && Math.abs(diff) < 1) { prodigy.arc = 'plateau'; prodigy.arcStrength = 0.5; }
+    else { prodigy.arc = 'neutral'; prodigy.arcStrength = 0; }
+
+    // ── DECISIONS ──
+
+    // 1. REVERB: calm = spacious cathedral. Intense = tight room.
+    var calmness = Math.max(0, 1.0 - energy * 0.08);
+    prodigy.reverbTarget = 0.15 + calmness * 0.35;
+    if (prodigy.arc === 'falling') prodigy.reverbTarget += 0.15;  // descending = more space
+    var currentReverb = 0.25;
+    try { currentReverb = prodigy.reverbTarget; Audio.setReverbMix(prodigy.reverbTarget); } catch(e) {}
+
+    // 2. FILTER BIAS: rising energy = brighter. Falling = darker.
+    if (prodigy.arc === 'rising') {
+      prodigy.filterBias += (400 - prodigy.filterBias) * 2.0 * dt;  // open up
+    } else if (prodigy.arc === 'falling') {
+      prodigy.filterBias += (-300 - prodigy.filterBias) * 1.5 * dt;  // close down
+    } else {
+      prodigy.filterBias += (0 - prodigy.filterBias) * 1.0 * dt;  // neutral
+    }
+
+    // Apply filter bias to the gyro filter
+    filterFreq += prodigy.filterBias;
+    filterFreq = Math.max(120, Math.min(4000, filterFreq));
+    if (droneLayer) {
+      try { Audio.layer.setFilter('follow-drone', filterFreq, 0.05); } catch(e) {}
+    }
+
+    // 3. HARMONIC GRAVITY: find the user's "home" degree and pull toward it
+    var hottest = 0, hottestDeg = 0;
+    for (var k = 0; k < 15; k++) {
+      if (prodigy.degreeHeat[k] > hottest) { hottest = prodigy.degreeHeat[k]; hottestDeg = k - 7; }
+    }
+    // If the user gravitates toward a specific degree, the harmonic system should
+    // make that degree feel like home — this feeds into harmonic rhythm choices.
+    // For now, this data is tracked. Future: drive chord selection from this.
+
+    // 4. DYNAMIC RANGE: volatile energy = compress. Steady = expand.
+    var volatility = 0;
+    for (var m = 1; m < 8; m++) {
+      var e1 = prodigy.energyHistory[(prodigy.energyHead - m + 16) & 15];
+      var e2 = prodigy.energyHistory[(prodigy.energyHead - m - 1 + 16) & 15];
+      volatility += Math.abs(e1 - e2);
+    }
+    volatility /= 7;
+    // High volatility = compress the master gain range so it doesn't feel chaotic
+    if (volatility > 3) {
+      prodigy.dynamicRange += (0.7 - prodigy.dynamicRange) * 1.0 * dt;
+    } else {
+      prodigy.dynamicRange += (1.0 - prodigy.dynamicRange) * 0.5 * dt;
+    }
+  }
+
   function resetTribalPulse() {
     tribalPulse.phase = 0;
     tribalPulse.bar = 0;
@@ -4242,6 +4360,9 @@ const Follow = (function () {
     updateOrganicStage(dt);
     updateTensionArc(dt);
 
+    // ── PRODIGY — real-time musical intelligence ──
+    updateProdigy(sensor, dt, mag);
+
     // Journey state snapshot every 0.5s
     jrnWallClock += dt;
     jrnLogInterval += dt;
@@ -4257,6 +4378,7 @@ const Follow = (function () {
         stage: organicStage.current, stageTimer: Math.round(organicStage.timer),
         tribal: +tribalPulse.drumPresence.toFixed(2), tEngaged: Math.round(tribalPulse.engagedTime), rConf: +rhythmConfidence.toFixed(2),
         void: +voidPresence.toFixed(2),
+        pArc: prodigy.arc, pFilter: Math.round(prodigy.filterBias), pDyn: +prodigy.dynamicRange.toFixed(2),
       });
     }
 
@@ -4266,7 +4388,7 @@ const Follow = (function () {
       // Tribal pulse needs a gain floor so drums are audible even during quiet passages
       var tribalFloor = tribalPulse.drumPresence * 0.35;
       var effectiveGain = Math.max(fadeGain, tribalFloor);
-      Audio.setMasterGain(0.48 * effectiveGain * touchDuck);
+      Audio.setMasterGain(0.48 * effectiveGain * touchDuck * prodigy.dynamicRange);
 
       if (typeof Weather !== 'undefined' && Weather.loaded && lens) {
         var wxm = Weather.mods;
