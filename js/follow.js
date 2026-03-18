@@ -3608,20 +3608,14 @@ const Follow = (function () {
           // The machine doesn't shout — the drop IS the user's peak.
           try { Audio.setSidechainDepth(0.55); } catch(e) {}
 
-          // ── THE DESCENT — each cycle goes deeper underground ──
-          // Root shifts down: cycle 1 = home, cycle 2 = minor 3rd down, cycle 3 = tritone...
-          // The music gets darker, more haunting, more post-apocalyptic.
-          var descentIntervals = [0, -3, -6, -5, -8, -1, -7, -10, -2, -11];
-          var descentIdx = Math.min(grid.cycle - 1, descentIntervals.length - 1);
-          grid.nextRootShift = descentIntervals[descentIdx];
-          try { rebuildGridLayers(grid, time); } catch(e) {}
-
+          // ── THE DESCENT — root shifts at breakdowns, not mid-drop ──
           // Darker pad with each cycle — filter closes, sub grows
-          var darkness = Math.min(1.0, grid.cycle * 0.15);
-          var padFilter = Math.max(400, 1400 - darkness * 800);  // 1400 → 600
-          try { Audio.layer.setGain('edm-wobble', 0.18 + darkness * 0.08, 0.08); } catch(e) {}  // wobble grows
-          try { Audio.layer.setGain('edm-sub', 0.14 + darkness * 0.10, 0.08); } catch(e) {}     // sub deepens
-          try { Audio.layer.setGain('edm-pad', 0.08, 0.15); } catch(e) {}
+          var darkness = Math.min(1.0, grid.cycle * 0.12);
+          var padFilter = Math.max(600, 1400 - darkness * 600);
+          try { Audio.setSidechainDepth(0.55 + darkness * 0.10); } catch(e) {}
+          try { Audio.layer.setGain('edm-wobble', 0.18 + darkness * 0.06, 0.08); } catch(e) {}
+          try { Audio.layer.setGain('edm-sub', 0.14 + darkness * 0.08, 0.08); } catch(e) {}
+          try { Audio.layer.setGain('edm-pad', 0.10, 0.15); } catch(e) {}
           try { Audio.layer.setFilter('edm-pad', padFilter, 0.1); } catch(e) {}
 
           grid.dropVariation = grid.cycle % 4;
@@ -3689,24 +3683,31 @@ const Follow = (function () {
 
         if (!grid.breakdownMelodyFired && grid.phaseTimer > 2) {
           grid.breakdownMelodyFired = true;
-          var bdDarkness = Math.min(1.0, grid.cycle * 0.2);
+          var bdDarkness = Math.min(1.0, grid.cycle * 0.15);
 
-          // Pad: bright early, almost gone later
-          var bdPadGain = Math.max(0.02, 0.15 - bdDarkness * 0.12);
-          var bdPadFilter = Math.max(300, 2000 - bdDarkness * 1500);
+          // ── ROOT DESCENT happens here — the natural place for a key change ──
+          var descentIntervals = [0, -5, -3, -7, -5, -1, -3, -8];
+          var descentIdx = Math.min(grid.cycle, descentIntervals.length - 1);
+          grid.nextRootShift = descentIntervals[descentIdx];
+          try { rebuildGridLayers(grid, Audio.ctx.currentTime); } catch(e) {}
+
+          // Pad: bright early, darker later
+          var bdPadGain = Math.max(0.03, 0.15 - bdDarkness * 0.10);
+          var bdPadFilter = Math.max(400, 2000 - bdDarkness * 1200);
           try { Audio.layer.setGain('edm-pad', bdPadGain, 3.0); } catch(e) {}
           try { Audio.layer.setFilter('edm-pad', bdPadFilter, 2.0); } catch(e) {}
 
-          // Sub: grows with darkness — the underground hum
-          var bdSubGain = 0.10 + bdDarkness * 0.12;
+          // Sub: grows with darkness
+          var bdSubGain = 0.10 + bdDarkness * 0.10;
           try { Audio.layer.setGain('edm-sub', bdSubGain, 1.5); } catch(e) {}
 
-          // Wobble: menacing growl emerges in later cycles
-          var bdWobbleGain = bdDarkness * 0.08;
-          try { Audio.layer.setGain('edm-wobble', bdWobbleGain, 1.5); } catch(e) {}
+          // Wobble: menacing growl in later cycles
+          try { Audio.layer.setGain('edm-wobble', bdDarkness * 0.06, 1.5); } catch(e) {}
 
-          // More reverb — the space gets cavernous
-          try { Audio.setReverbMix(0.30 + bdDarkness * 0.20); } catch(e) {}
+          // More reverb — cavernous
+          try { Audio.setReverbMix(0.25 + bdDarkness * 0.15); } catch(e) {}
+
+          gridRecord('DESCENT', { cycle: grid.cycle, shift: descentIntervals[descentIdx], darkness: +bdDarkness.toFixed(2) });
         }
 
         // User moves = back to build
@@ -4003,22 +4004,18 @@ const Follow = (function () {
         }
       }
 
-      // ── WALKING BASS — reflects the descent. Goes deeper underground. ──
-      // More notes per bar as cycles increase. Chromatic, dark, haunting.
-      if (!isIntro && (newStep === 0 || newStep === 4 || newStep === 8 || newStep === 12)) {
+      // ── WALKING BASS — beats 1 and 3 only. Solid foundation. ──
+      if (!isIntro && (newStep === 0 || newStep === 8)) {
         grid.subPulseStep = newStep;
 
-        // Bass walks get more complex with each cycle
-        var walkIdx = Math.min(grid.arr.bassWalk + Math.floor(grid.cycle * 0.5), BASS_WALKS.length - 1);
+        var walkIdx = Math.min(grid.arr.bassWalk, BASS_WALKS.length - 1);
         var bassPatterns = BASS_WALKS[walkIdx];
         var bassPat = bassPatterns[grid.totalBars % bassPatterns.length];
-        // Pick bass note based on which quarter note we're on
-        var quarterIdx = newStep / 4;
-        var bassNote = bassPat[quarterIdx % bassPat.length];
-        var bassFreq = scaleFreq(bassNote, -2);  // low octave
+        var bassNote = newStep === 0 ? bassPat[0] : bassPat[1];
+        var bassFreq = scaleFreq(bassNote, -2);
 
         var bassV;
-        if (isDrop) bassV = 0.30 + Math.min(0.15, grid.cycle * 0.03);  // louder with depth
+        if (isDrop) bassV = 0.30;
         else if (isBuild) bassV = 0.15 + grid.buildLevel * 0.15;
         else if (isBreakdown) bassV = 0.25;
         else bassV = 0.15;
