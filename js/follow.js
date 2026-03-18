@@ -967,6 +967,7 @@ const Follow = (function () {
 
     if (sessionAct === 0 && sessionEngagedTime >= 90) {
       sessionAct = 1;
+      jrnRecord('ACT', { to: 1, name: 'sus4 — floating/unresolved', engaged: Math.round(sessionEngagedTime) });
       // Sus4: replace the 3rd degree with the 4th — open, floating, unresolved
       scale = baseScale.slice();
       scale[2] = scale[3];  // major:4→5, dorian:3→5, phrygian:3→5, all modes work
@@ -980,6 +981,7 @@ const Follow = (function () {
 
     } else if (sessionAct === 1 && sessionEngagedTime >= 300) {
       sessionAct = 2;
+      jrnRecord('ACT', { to: 2, name: 'homecoming — mode restored', engaged: Math.round(sessionEngagedTime) });
       // Homecoming: restore original mode — same home, but now feels transformed
       scale = baseScale.slice();
       // Announce: descending resolution (4→1 = falling into place)
@@ -2699,29 +2701,45 @@ const Follow = (function () {
   }
 
   // ── SESSION RECORDER — captures everything for debugging ──
-  var ascLog = [];
-  var ascLogInterval = 0;  // throttle state snapshots to every 0.5s
+  // Three independent logs: asc (Ascension), grid (Grid), jrn (Journey/organic)
+  var ascLog = [], gridLog = [], jrnLog = [];
+  var ascLogInterval = 0, gridLogInterval = 0, jrnLogInterval = 0;
 
   function ascRecord(type, data) {
     ascLog.push({ t: asc.time.toFixed(2), type: type, data: data });
   }
+  function gridRecord(type, data) {
+    gridLog.push({ t: grid.setTime.toFixed(2), type: type, data: data });
+  }
+  function jrnRecord(type, data) {
+    var t = (typeof sessionEngagedTime !== 'undefined') ? sessionEngagedTime.toFixed(2) : '0.00';
+    jrnLog.push({ t: t, type: type, data: data });
+  }
 
-  // Call window.ascDump() in Safari console to get the full session
-  window.ascDump = function() {
-    if (!ascLog.length) { console.log('No Ascension session recorded yet.'); return; }
-    var lines = ascLog.map(function(e) {
+  function formatLog(log, name) {
+    if (!log.length) return 'No ' + name + ' session recorded yet.';
+    return log.map(function(e) {
       return '[' + e.t + 's] ' + e.type + ': ' + (typeof e.data === 'object' ? JSON.stringify(e.data) : e.data);
-    });
-    var output = lines.join('\n');
+    }).join('\n');
+  }
+
+  // Call window.dump() in Safari console — auto-detects which engine ran
+  window.dump = function() {
+    var output = '';
+    if (ascLog.length) output += '=== ASCENSION ===\n' + formatLog(ascLog, 'Ascension') + '\n\n';
+    if (gridLog.length) output += '=== GRID ===\n' + formatLog(gridLog, 'Grid') + '\n\n';
+    if (jrnLog.length) output += '=== JOURNEY ===\n' + formatLog(jrnLog, 'Journey') + '\n\n';
+    if (!output) { console.log('No session recorded yet.'); return; }
     console.log(output);
-    // Also copy to clipboard if possible
     try { navigator.clipboard.writeText(output); console.log('--- COPIED TO CLIPBOARD ---'); } catch(e) {
       console.log('--- Paste the above. Clipboard copy failed. ---');
     }
     return output;
   };
-
-  window.ascClear = function() { ascLog = []; console.log('Session log cleared.'); };
+  // Legacy aliases
+  window.ascDump = function() { return window.dump(); };
+  window.ascClear = function() { ascLog = []; gridLog = []; jrnLog = []; ascLogInterval = 0; gridLogInterval = 0; jrnLogInterval = 0; console.log('All session logs cleared.'); };
+  window.clearLog = window.ascClear;
 
   // ── ASCENSION UPDATE ENGINE v2 — THE HIDDEN SONGWRITER ──
   //
@@ -3288,6 +3306,7 @@ const Follow = (function () {
     if (best !== null) {
       poolUsed[depth].push(best);
       pool[best].fn(grid, time);
+      gridRecord('DJ_MOVE', { seg: seg, depth: depth, move: best, bias: pool[best].bias, userBias: userBias });
 
       // Sonic marker: brief filter sweep to signal "something changed"
       // Deeper depths get more dramatic markers
@@ -3335,6 +3354,20 @@ const Follow = (function () {
 
     // (filter sweeps handled by DJ move system via grid.arr.filterSweepPhase)
 
+    // State snapshot every 0.5s
+    gridLogInterval += dt;
+    if (gridLogInterval >= 0.5 && grid.started) {
+      gridLogInterval = 0;
+      gridRecord('STATE', {
+        phase: grid.phase, energy: +motionEnergy.toFixed(2), medEnergy: +mediumEnergy.toFixed(2),
+        tilt: +grid.tiltNorm.toFixed(2), zone: grid.tiltZone, roll: +grid.rollNorm.toFixed(2),
+        intensity: +grid.intensity.toFixed(2), djGain: +grid.djGain.toFixed(2),
+        pump: +grid.pumpIntensity.toFixed(2), filter: Math.round(grid.filterSmooth),
+        seg: grid.segment, bars: grid.totalBars, cycle: grid.cycle,
+        depth: Math.floor(grid.segment / 4),
+      });
+    }
+
     // ── 1. START: first motion starts the DJ set ──
     if (!grid.started) {
       if (motionEnergy > 0.12) {
@@ -3343,6 +3376,7 @@ const Follow = (function () {
         grid.phaseTimer = 0;
         isSilent = false;
         fadeGain = 0.5;
+        gridRecord('START', 'DJ set started');
         // Intro: just the layers fading in. No melody — it was crashing.
         try { Audio.layer.setGain('edm-pad', 0.08, 3.0); } catch(e) {}
         try { Audio.layer.setGain('edm-sub', 0.03, 3.0); } catch(e) {}
@@ -3527,6 +3561,7 @@ const Follow = (function () {
       case 'intro':
         if (grid.phaseTimer > 3 || (peakNow && grid.phaseTimer > 1)) {
           grid.phase = 'build';
+          gridRecord('PHASE', 'intro → build');
           grid.phaseTimer = 0;
           grid.buildLevel = (peakNow && grid.phaseTimer < 8) ? 0.15 : 0;
           grid.riserFired = false;
@@ -3602,6 +3637,7 @@ const Follow = (function () {
 
         if ((vocalReady && peakNow && grid.vocalPhase >= 2) || (armed && peakNow && !doVocalBuild && grid.phaseTimer > 8) || autoTrigger) {
           grid.phase = 'drop';
+          gridRecord('PHASE', { to: 'drop', cycle: grid.cycle + 1, trigger: autoTrigger ? 'auto' : (vocalReady ? 'vocal' : 'peak'), buildLevel: +grid.buildLevel.toFixed(2) });
           grid.phaseTimer = 0;
           grid.buildLevel = 0;
           grid.highEnergyTime = 0;
@@ -3676,6 +3712,7 @@ const Follow = (function () {
         // Max drop → breakdown
         if (grid.buildLevel > 1.8 || grid.phaseTimer > 35) {
           grid.phase = 'breakdown';
+          gridRecord('PHASE', 'drop → breakdown');
           grid.phaseTimer = 0;
           grid.buildLevel = 0;
           grid.breakdownMelodyFired = false;
@@ -3726,6 +3763,7 @@ const Follow = (function () {
         var userReady = grid.intensity > 0.35 && grid.phaseTimer > 5;
         if (breakdownDone || userReady) {
           grid.phase = 'build';
+          gridRecord('PHASE', { to: 'build', trigger: breakdownDone ? 'auto' : 'userReady' });
           grid.phaseTimer = 0;
           grid.buildLevel = 0;
           grid.riserFired = false;
@@ -4261,6 +4299,8 @@ const Follow = (function () {
         !organicStage.transitioning) {
       organicStage.transitioning = true;
       organicStage.transitionProgress = 0;
+      var nextStage = stages[organicStage.current + 1];
+      jrnRecord('STAGE_TRANSITION', { from: organicStage.current, to: organicStage.current + 1, name: nextStage ? nextStage.name : '?' });
     }
 
     // Run crossfade
@@ -4429,6 +4469,23 @@ const Follow = (function () {
     checkActAdvance();
     updateOrganicStage(dt);
     updateTensionArc(dt);
+
+    // Journey state snapshot every 0.5s
+    jrnLogInterval += dt;
+    if (jrnLogInterval >= 0.5 && lens && lens.name !== 'Grid' && lens.name !== 'Ascension') {
+      jrnLogInterval = 0;
+      var brainEnergy = (typeof Brain !== 'undefined') ? Brain.short.energy() : 0;
+      jrnRecord('STATE', {
+        lens: lens.name, silent: isSilent, phrase: phraseActive,
+        energy: +brainEnergy.toFixed(2), mag: +mag.toFixed(2), fade: +fadeGain.toFixed(2),
+        degree: currentDegree, filter: Math.round(filterFreq),
+        tempo: Math.round(derivedTempo), locked: tempoLocked,
+        density: +densityLevel.toFixed(1), act: currentAct,
+        stage: organicStage.current, stageTimer: Math.round(organicStage.timer),
+        tribal: +tribalPulse.drumPresence.toFixed(2),
+        void: +voidPresence.toFixed(2),
+      });
+    }
 
     // ── Master gain ──
     touchDuck = Math.min(1.0, touchDuck + dt * 2.0);
