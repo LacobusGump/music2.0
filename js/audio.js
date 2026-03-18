@@ -1463,13 +1463,14 @@ const Audio = (function () {
     env.gain.setTargetAtTime(vel * 0.72, time + 0.010, 0.22);
     env.gain.setTargetAtTime(0.0001, time + decay, decay * 0.3);
 
-    var lfo = ctx.createOscillator(); lfo.type = 'sine'; lfo.frequency.value = 6.5;
+    // Very slow vibrato — cathedral pipe organ
+    var lfo = ctx.createOscillator(); lfo.type = 'sine'; lfo.frequency.value = 2.0;
 
     var harmonics = [1, 2, 3, 4, 5.333];
-    var hGains = [0.5, 0.4, 0.25, 0.15, 0.08];
+    var hGains = [0.40, 0.25, 0.15, 0.08, 0.04];
     for (var i = 0; i < harmonics.length; i++) {
       var o = ctx.createOscillator(); o.type = 'sine'; o.frequency.value = freq * harmonics[i];
-      var lG = ctx.createGain(); lG.gain.value = freq * harmonics[i] * 0.004;
+      var lG = ctx.createGain(); lG.gain.value = freq * harmonics[i] * 0.001;  // very subtle vibrato
       lfo.connect(lG); lG.connect(o.frequency);
       var g = ctx.createGain(); g.gain.value = hGains[i];
       o.connect(g); g.connect(filt);
