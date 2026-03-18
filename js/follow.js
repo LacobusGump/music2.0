@@ -2557,9 +2557,18 @@ const Follow = (function () {
     grid.lastChopStep = -1;
     grid.samplerStutterCooldown = 0;
 
-    // Sampler: NOT auto-init — getUserMedia kills Bluetooth on iOS.
-    // Will be opt-in via UI. Grid runs without sampling until then.
-    grid.samplerReady = false;
+    // Try to init the sampler (async, may fail if no mic permission)
+    try {
+      Audio.sampler.init().then(function () {
+        grid.samplerReady = true;
+        gridRecord('SAMPLER', 'mic initialized');
+      }).catch(function (e) {
+        grid.samplerReady = false;
+        // No error — graceful degradation. Grid runs without sampling.
+      });
+    } catch (e) {
+      grid.samplerReady = false;
+    }
   }
 
   function teardownGrid() {

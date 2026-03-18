@@ -273,8 +273,9 @@
     Sensor.init().then(function () {
       Brain.init();
       Audio.init(audioCtx);
-      // Sampler: do NOT auto-init — getUserMedia kills Bluetooth on iOS.
-      // Sampler will be opt-in via a future UI button.
+      // Try mic sampler init on this user gesture (iOS requires gesture context).
+      // If denied, Grid runs without sampling — no error, just no samples.
+      try { Audio.sampler.init().catch(function () {}); } catch (e) {}
       Follow.init();
       Lens.buildPicker();
 
