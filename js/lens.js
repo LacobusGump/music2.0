@@ -147,44 +147,49 @@ const Lens = (function () {
     // Inverted. Backwards. Through the tunnel. Phrygian darkness.
     {
       name: 'dark matter',
+      // Interstellar docking scene: organ swells, relentless tick,
+      // dissonance building until you can't breathe. Zimmer.
       harmony: { root: 432, mode: 'phrygian' },
       tone: {
-        bassFreq: 55, bassGain: 4,
-        midFreq: 500, midQ: 1.2, midGain: -1,
-        highFreq: 2000, highGain: -16,
-        ceiling: 2500,
+        bassFreq: 55, bassGain: 6,          // massive organ sub
+        midFreq: 400, midQ: 0.8, midGain: 2, // organ body — mids present
+        highFreq: 1800, highGain: -10,       // dark but not muffled
+        ceiling: 3000,
       },
       space: {
-        reverb: { decay: 5.0, damping: 0.20, preDelay: 6 },
-        delay: { feedback: 0.72, filter: 1800, sync: 'dotted-eighth' },
-        saturation: 0.12,
-        sidechain: 0.7,
+        reverb: { decay: 7.0, damping: 0.15, preDelay: 20 },  // cathedral organ space
+        delay: { feedback: 0.55, filter: 1200, sync: 'eighth' },  // ticking echo
+        saturation: 0.08,
+        sidechain: 0.6,
         type: 'cathedral',
-        reverbMix: 0.55,
-        spatial: { sweepRate: 0.17, sweepDepth: 0.80 },
+        reverbMix: 0.60,
+        spatial: { sweepRate: 0.08, sweepDepth: 0.60 },
       },
       palette: {
-        peak: { voice: 'guitar', octave: 0, decay: 2.8 },
-        continuous: { voice: 'guitar', octave: 0, decay: 2.0 },
-        harmonic: { voice: 'strings', octave: -1, decay: 3.5 },
+        // Organ-like voices: sustained, swelling, massive
+        peak: { voice: 'organ', octave: 0, decay: 4.0 },
+        continuous: { voice: 'organ', octave: 0, decay: 3.5 },
+        harmonic: { voice: 'strings', octave: -1, decay: 5.0 },  // string swells underneath
         burst: { voice: 'glitch', octave: 0 },
-        texture: { wave: 'sawtooth', chord: [0, 1, 7], octave: -2, detune: 20, vol: 0.07, reverbSend: 0.65 },
-        touch: { voice: 'guitar', octave: 0, decay: 2.5 },
+        // Foundation: dissonant organ cluster — root + minor 2nd + fifth
+        texture: { wave: 'sawtooth', chord: [0, 1, 7], octave: -2, detune: 15, vol: 0.09, reverbSend: 0.70 },
+        touch: { voice: 'organ', octave: -1, decay: 4.0 },
       },
       response: {
-        peakThreshold: 1.0,
+        peakThreshold: 0.80,
         tiltRange: 60,
         noteInterval: 200,
-        melodicEnergy: 0.55,
+        melodicEnergy: 0.45,
         stillnessThreshold: 0.1,
         stillnessTimeout: 2.5,
         fadeTime: 8.0,
-        filterRange: [150, 2000],
+        filterRange: [150, 3000],  // wider — let the organ breathe
         densityThresholds: [2.0, 5.0, 10.0],
       },
       emotion: { colorDeg: 1, phraseShape: 'falling' },
       motion: { primary: 'flow', melodic: 'gamma', sensitivity: 1.1 },
       groove: {
+        // The relentless tick — not a beat, a clock
         kit: 'glitch',
         microTiming: { kick: 0, hat: 0, snare: 0 },
         ghosts: 0,

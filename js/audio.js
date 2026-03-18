@@ -1478,7 +1478,9 @@ const Audio = (function () {
 
     lfo.start(time); lfo.stop(time + decay + 1);
     filt.connect(env); env.connect(sidechainGain);
-    var rs = ctx.createGain(); rs.gain.value = 0.25; env.connect(rs); rs.connect(reverbSend);
+    // Heavy reverb — organ lives in a cathedral
+    if (reverbSend) { var rs = ctx.createGain(); rs.gain.value = 0.45; env.connect(rs); rs.connect(reverbSend); }
+    if (delaySend) { var ds = ctx.createGain(); ds.gain.value = 0.20; env.connect(ds); ds.connect(delaySend); }
   }
 
   // ── BELL — inharmonic partials, long shimmer ──────────────────────────
