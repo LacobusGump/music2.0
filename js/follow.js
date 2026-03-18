@@ -3320,11 +3320,29 @@ const Follow = (function () {
         grid.phaseTimer = 0;
         isSilent = false;
         fadeGain = 0.5;
-        gridRecord('START', 'DJ set started');
-        // Intro: just the layers fading in. No melody — it was crashing.
-        try { Audio.layer.setGain('edm-pad', 0.08, 3.0); } catch(e) {}
-        try { Audio.layer.setGain('edm-sub', 0.03, 3.0); } catch(e) {}
-        try { Audio.layer.setGain('edm-wobble', 0.02, 4.0); } catch(e) {}
+        // Randomize the intro — never the same twice
+        var introStyle = Math.floor(Math.random() * 4);
+        gridRecord('START', { style: introStyle });
+        if (introStyle === 0) {
+          // Sub-first: deep rumble, pad creeps in
+          try { Audio.layer.setGain('edm-sub', 0.08, 2.0); } catch(e) {}
+          try { Audio.layer.setGain('edm-pad', 0.03, 4.0); } catch(e) {}
+          try { Audio.layer.setGain('edm-wobble', 0.01, 5.0); } catch(e) {}
+        } else if (introStyle === 1) {
+          // Pad-first: atmospheric, wobble joins
+          try { Audio.layer.setGain('edm-pad', 0.10, 2.0); } catch(e) {}
+          try { Audio.layer.setGain('edm-wobble', 0.04, 3.0); } catch(e) {}
+          try { Audio.layer.setGain('edm-sub', 0.02, 4.0); } catch(e) {}
+        } else if (introStyle === 2) {
+          // Wobble-first: menacing, sub underneath
+          try { Audio.layer.setGain('edm-wobble', 0.06, 2.0); } catch(e) {}
+          try { Audio.layer.setGain('edm-sub', 0.05, 3.0); } catch(e) {}
+          try { Audio.layer.setGain('edm-pad', 0.02, 5.0); } catch(e) {}
+        } else {
+          // Minimal: almost nothing, just sub whisper — the void before the storm
+          try { Audio.layer.setGain('edm-sub', 0.04, 3.0); } catch(e) {}
+          try { Audio.layer.setGain('edm-pad', 0.01, 6.0); } catch(e) {}
+        }
       } else {
         if (Audio.ctx) Audio.setMasterGain(0);
         return;
@@ -3445,16 +3463,16 @@ const Follow = (function () {
       zoneQ = 3.5;  // moderate
     }
 
-    // HIGH ZONE: energy. Everything opens up. But MUSICAL, not a drill.
+    // HIGH ZONE: bright but not harsh. Cap at 3800 — never a drill.
     if (grid.tiltZoneSmooth >= 1.5) {
       var hiBlend = Math.min(1, (grid.tiltZoneSmooth - 1.5) / 0.5);
-      zoneFilter = 2000 + hiBlend * 3000;
-      zoneWobbleCenter = 600 + hiBlend * 800;
-      zoneWobbleRange = 1200 + hiBlend * 600;
-      zoneWobbleRate = 1.5 + hiBlend * 1.5;  // faster but capped — no drill
-      zoneSubMix = 0.4 + hiBlend * 0.1;  // sub pulls back slightly
-      zoneHatMix = 0.8 + hiBlend * 0.2;  // hats come alive
-      zonePadFilter = 1000 + hiBlend * 800;
+      zoneFilter = 2000 + hiBlend * 1800;  // max 3800 not 5000
+      zoneWobbleCenter = 600 + hiBlend * 600;
+      zoneWobbleRange = 1200 + hiBlend * 400;
+      zoneWobbleRate = 1.5 + hiBlend * 1.0;
+      zoneSubMix = 0.45 + hiBlend * 0.05;
+      zoneHatMix = 0.75 + hiBlend * 0.15;
+      zonePadFilter = 1000 + hiBlend * 600;
       zoneQ = 2.5 - hiBlend * 1.0;  // Q DROPS as frequency rises — no screech!
     }
 
