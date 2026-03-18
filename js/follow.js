@@ -2152,13 +2152,15 @@ const Follow = (function () {
       var base = harmonyDegree + hrDegOffset;
       var oct = tex.octave || -1;
       var oscs = [
-        { wave: tex.wave || 'sine', freq: scaleFreq(base, oct),     gain: 0.20 },
-        { wave: tex.wave || 'sine', freq: scaleFreq(base + 7, oct), detune: tex.detune || 8, gain: 0.15 },
+        { wave: tex.wave || 'sine', freq: scaleFreq(base, oct),     gain: 0.22 },
+        { wave: 'triangle',         freq: scaleFreq(base, oct),     gain: 0.12, detune: 6 },   // warmth
+        { wave: tex.wave || 'sine', freq: scaleFreq(base, oct - 1), gain: 0.18 },               // sub octave
+        { wave: tex.wave || 'sine', freq: scaleFreq(base + 7, oct), detune: tex.detune || 8, gain: 0.12 },
       ];
       try {
         droneLayer = Audio.layer.build('follow-drone', {
           oscillators: oscs,
-          filter: { type: 'lowpass', freq: 800, Q: 0.7 },
+          filter: { type: 'lowpass', freq: 1200, Q: 0.5 },  // wider filter to let more warmth through
           reverbSend: tex.reverbSend || 0.4,
         });
         droneActive = true;
