@@ -1207,12 +1207,12 @@ const Follow = (function () {
   // Internal 107 BPM clock for Journey. Drums creep in over time.
   // First ~90s: silence. Then ghost hits emerge. By 5 min: full Afro-Cuban.
   //
-  // drumPresence build curve:
-  //   0-20s engaged:    0.0  (pure ethereal dreamscape, earn the drums)
-  //   20-60s:           0→0.20  (first ghost shaker, barely there)
-  //   60-120s:          0.20→0.50  (frame drum heartbeat emerges)
-  //   120-240s:         0.50→0.85  (clave pattern, slaps arrive)
-  //   240s+:            0.85→1.0  (full Afro-Cuban intricacies)
+  // drumPresence build curve — earned through play, not time:
+  //   0-5s engaged:     0.0  (brief intro, earn the drums)
+  //   5-15s:            0→0.25  (ghost shaker appears)
+  //   15-30s:           0.25→0.55  (heartbeat emerges)
+  //   30-60s:           0.55→0.85  (clave pattern, slaps arrive)
+  //   60s+:             0.85→1.0  (full groove)
 
   function updateTribalPulse(dt) {
     if (!lens || lens.name === 'Grid' || !Audio.ctx || !Audio.drum) return;
@@ -1225,11 +1225,11 @@ const Follow = (function () {
     // Build drumPresence along the curve
     var t = tribalPulse.engagedTime;
     var target;
-    if (t < 20)       target = 0;
-    else if (t < 60)  target = 0.20 * ((t - 20) / 40);
-    else if (t < 120) target = 0.20 + 0.30 * ((t - 60) / 60);
-    else if (t < 240) target = 0.50 + 0.35 * ((t - 120) / 120);
-    else              target = Math.min(1.0, 0.85 + 0.15 * ((t - 240) / 60));
+    if (t < 5)        target = 0;
+    else if (t < 15)  target = 0.25 * ((t - 5) / 10);
+    else if (t < 30)  target = 0.25 + 0.30 * ((t - 15) / 15);
+    else if (t < 60)  target = 0.55 + 0.30 * ((t - 30) / 30);
+    else              target = Math.min(1.0, 0.85 + 0.15 * ((t - 60) / 30));
 
     // Smooth approach (no sudden jumps)
     tribalPulse.drumPresence += (target - tribalPulse.drumPresence) * dt * 0.8;
@@ -1776,7 +1776,9 @@ const Follow = (function () {
       var spd = Math.sqrt(Math.pow(Brain.linearAccel.x||0,2) + Math.pow(Brain.linearAccel.y||0,2));
       tiltVal = Math.min(45, spd * 20) - 22;
     } else {
-      tiltVal = (sensor.beta || 45) - 45;
+      // Clamp beta to -90..90 — prevents wrap-around jump when phone tilts past vertical
+      var safeBeta = Math.max(-90, Math.min(90, sensor.beta || 45));
+      tiltVal = safeBeta - 45;
     }
 
     tiltOffset = tiltVal / (tiltRange / 2);
@@ -1951,25 +1953,30 @@ const Follow = (function () {
   // ── GYRO → FILTER ─────────────────────────────────────────────────────
 
   var gyroMagSmooth = 0;  // smoothed gyro magnitude for filter
+  var gyroPrevBeta = null;
+  var gyroPrevGamma = null;
 
   function updateGyroFilter(sensor) {
     if (!lens) return;
 
     var gyroMag = 0;
     if (sensor.hasOrientation) {
-      var dbeta = Math.abs(sensor.beta - (sensor._prevBeta || sensor.beta));
-      var dgamma = Math.abs(sensor.gamma - (sensor._prevGamma || sensor.gamma));
-      gyroMag = dbeta + dgamma;
-      sensor._prevBeta = sensor.beta;
-      sensor._prevGamma = sensor.gamma;
+      if (gyroPrevBeta !== null) {
+        var dbeta = Math.abs(sensor.beta - gyroPrevBeta);
+        var dgamma = Math.abs(sensor.gamma - gyroPrevGamma);
+        // Clamp large jumps from beta wrapping (e.g., 170° → -170° = 340° delta, not real)
+        if (dbeta > 90) dbeta = 0;
+        if (dgamma > 90) dgamma = 0;
+        gyroMag = dbeta + dgamma;
+      }
+      gyroPrevBeta = sensor.beta;
+      gyroPrevGamma = sensor.gamma;
     }
 
-    // Smooth the gyro magnitude — per-frame deltas are tiny, need accumulation
+    // Smooth the gyro magnitude
     gyroMagSmooth += (gyroMag - gyroMagSmooth) * 0.15;
 
     var range = (lens.response && lens.response.filterRange) || [200, 2800];
-    // At 60fps, active tilting gives gyroMag ~1-4 per frame.
-    // Smoothed value of ~1.5 should open the filter significantly.
     var norm = Math.min(1, gyroMagSmooth / 3);
     filterTarget = range[0] + norm * (range[1] - range[0]);
     filterFreq += (filterTarget - filterFreq) * 0.08;
@@ -4217,7 +4224,7 @@ const Follow = (function () {
       jrnRecord('STATE', {
         lens: lens.name, silent: isSilent, phrase: phraseActive,
         energy: +brainEnergy.toFixed(2), mag: +mag.toFixed(2), fade: +fadeGain.toFixed(2),
-        degree: currentDegree, filter: Math.round(filterFreq), gyro: +gyroMagSmooth.toFixed(2),
+        degree: currentDegree, filter: Math.round(filterFreq), gyro: +gyroMagSmooth.toFixed(2), hasOr: !!sensor.hasOrientation,
         tempo: Math.round(derivedTempo), locked: tempoLocked,
         density: +densityLevel.toFixed(1), act: sessionAct,
         stage: organicStage.current, stageTimer: Math.round(organicStage.timer),
