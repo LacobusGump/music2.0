@@ -382,10 +382,17 @@ const Lens = (function () {
         breathRate: 0.08,
         breathDepth: 1800,
         noiseLevel: 0.06,
-        suckDuration: 0.8,          // seconds of suck before slam (shorter = punchier)
-        // Energy thresholds for layer bloom (replaces search/snap)
-        bloomThresholds: [2.0, 4.5, 8.0, 12.0, 18.0],  // M3, P5, oct, sub+bass, full bloom
-        // Chord progressions — touch cycles which one is active
+        suckDuration: 0.8,           // seconds of suck before slam (the reveal)
+        swellCycle: 12.5,             // seconds per breathing swell
+        swellDepth: 0.15,             // gain variation (0.15 = ±15%)
+        // Hidden songwriter
+        bpm: 107,                     // internal grid tempo
+        acclimateTime: 5.0,           // seconds of raw exploration before grid lock
+        minPitchSamples: 3,           // minimum peaks before analysis can run
+        magnetismMax: 0.6,            // max pitch pull strength toward chord tones
+        enrichBars: 8,                // bars to full enrichment (~18s at 107)
+        reanalyzeBars: 8,             // re-check progression fit every N bars
+        // Chord progressions — system picks the one that fits your playing
         progressions: [
           // I → V → vi → IV  (the axis — the prodloveeli sound)
           [[0, 4, 7, 12], [-5, 0, 4, 7], [-3, 0, 4, 9], [-5, 0, 5, 9]],
@@ -396,11 +403,6 @@ const Lens = (function () {
           // I → vi → ii → V  (jazz-inflected)
           [[0, 4, 7, 12], [-3, 0, 4, 9], [-5, 2, 5, 9], [-5, -1, 4, 7]],
         ],
-        chordDuration: [6.0, 4.0],   // [start, fastest] — shortens as energy builds
-        dropBuildTime: 4.0,           // seconds of riser before impact
-        dropDischarge: 0.6,           // energy multiplier after drop (0.4 = lose 60%)
-        swellCycle: 12.5,             // seconds per breathing swell
-        swellDepth: 0.15,             // gain variation (0.15 = ±15%)
       },
 
       response: {

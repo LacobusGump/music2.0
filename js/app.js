@@ -768,7 +768,7 @@
       'LENS: ' + (lens ? lens.name : 'none'),
       'ARCHETYPE: ' + Follow.archetype + ' | INTENT: ' + Follow.intent,
       Follow.ascPhase !== '-'
-        ? 'STAGE: ' + Follow.ascStage + ' | FILTER: ' + Follow.ascFilter + 'Hz | DETUNE: ' + Follow.ascDetune + 'ct'
+        ? 'ENRICH: ' + Follow.ascEnrich + ' | FILTER: ' + Follow.ascFilter + 'Hz | DETUNE: ' + Follow.ascDetune + 'ct'
         : Follow.gridPhase !== '-'
         ? 'PHASE: ' + Follow.gridPhase + ' | FILTER: ' + Follow.filterFreq.toFixed(0) + 'Hz'
         : 'PHRASE: ' + Follow.phrase + ' | ANSWER: ' + Follow.answer,
@@ -777,7 +777,7 @@
       'CONFIDENCE: ' + Follow.confidence.toFixed(2) + ' | HR: ' + Follow.hrState,
       'PROFILE: ' + Follow.profileSessions + ' sessions | ' + Follow.profileArchetype + (Follow.profilePeakMag ? ' | peak avg ' + Follow.profilePeakMag : ''),
       Follow.ascPhase !== '-'
-        ? 'DROP: ' + Follow.ascDrop + ' | NRG: ' + Follow.ascEnergy + ' | PUMP: ' + Follow.ascPump + ' | GAIN: ' + Follow.ascGain
+        ? 'PITCHES: ' + Follow.ascPitches + ' | NRG: ' + Follow.ascEnergy + ' | GAIN: ' + Follow.ascGain
         : Follow.gridPhase !== '-'
         ? 'GRID: ' + Follow.gridPhase + ' | BUILD: ' + Follow.gridBuild + ' | INT: ' + Follow.gridIntensity + ' | GAIN: ' + Follow.gridDjGain
         : 'DENSITY: ' + Follow.density.toFixed(1) + ' | ENERGY: ' + Follow.energy.toFixed(2),
