@@ -348,10 +348,10 @@ const Lens = (function () {
       harmony: { root: 220, mode: 'major' },
 
       tone: {
-        bassFreq: 88, bassGain: 4,          // warmer bass
-        midFreq: 900, midQ: 0.5, midGain: 0, // less mid presence
-        highFreq: 3000, highGain: -6,        // cut highs harder — warmth
-        ceiling: 3500,                       // hard ceiling to prevent harshness
+        bassFreq: 88, bassGain: 3,
+        midFreq: 800, midQ: 0.6, midGain: 2,  // boost mids — fill the gap
+        highFreq: 3500, highGain: -3,          // gentle high cut, not muted
+        ceiling: 4000,
       },
 
       space: {
@@ -376,14 +376,13 @@ const Lens = (function () {
         wallRoot: 220,
         subFreq: 55,
         bassFreq: 110,
-        filterRange: [200, 3500],    // cap at 3500 — warm, not harsh
-        detuneRange: [3, 22],        // warm shimmer, not chorus
-        breathRate: 0.06,            // meditative breathing
-        breathDepth: 1200,           // gentle filter sweep
-        noiseLevel: 0.03,            // clean
-        swellCycle: 14.0,            // slow ocean swell
-        // Layer bloom timing
-        bloomTime: 5.0,              // seconds of engaged time per layer
+        filterRange: [120, 4000],    // 120Hz = deep rumble start. 4000 = heaven ceiling
+        detuneRange: [5, 25],        // shimmer grows with presence
+        breathRate: 0.05,            // slow meditative
+        breathDepth: 800,            // gentle filter sweep during breath
+        noiseLevel: 0.03,
+        swellCycle: 14.0,
+        bloomTime: 8.0,              // seconds of engaged time to full bloom
       },
 
       response: {

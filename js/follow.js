@@ -2661,11 +2661,12 @@ const Follow = (function () {
   window.ascClear = function() { ascLog = []; gridLog = []; jrnLog = []; ascLogInterval = 0; gridLogInterval = 0; jrnLogInterval = 0; console.log('All session logs cleared.'); };
   window.clearLog = window.ascClear;
 
-  // ── ASCENSION v3 — ONE VOICE THAT GROWS ──
+  // ── ASCENSION v4 — THE FILTER IS THE INSTRUMENT ──
   //
-  // One godlike detuned unison sound. Lean determines major vs minor.
-  // Tilt opens the filter. Presence earns layers. Stillness holds.
-  // The body sculpts which chord you're inside of.
+  // The full chord stack is ALWAYS playing behind a low filter.
+  // Your movement opens the filter — revealing what's already there.
+  // Low = deep warm rumble. High = heaven opens up.
+  // Lean left/right shifts major/minor. That's it. Simple. Powerful.
 
   function updateAscension(brainState, sensor, dt) {
     var cfg = lens.ascension;
@@ -2675,11 +2676,11 @@ const Follow = (function () {
     var beta   = sensor.beta  || 0;
     var gamma  = sensor.gamma || 0;
 
-    // Smooth sensors — no jumps, flowing curves
+    // Smooth sensors
     var rawTilt = Math.max(0, Math.min(1, (beta + 30) / 180));
     asc.tiltSmooth += (rawTilt - asc.tiltSmooth) * 0.10;
     var rawLean = Math.max(0, Math.min(1, (gamma + 90) / 180));
-    asc.leanSmooth += (rawLean - asc.leanSmooth) * 0.015;  // very slow — lean is a DELIBERATE choice
+    asc.leanSmooth += (rawLean - asc.leanSmooth) * 0.015;
 
     asc.time += dt;
 
@@ -2699,19 +2700,19 @@ const Follow = (function () {
       });
     }
 
-    // ── 1. STARTUP: wait for first motion ──
+    // ── 1. STARTUP ──
     if (!asc.started) {
       if (energy > 0.08) {
         asc.started = true;
-        asc.phase = 'bloom';
+        asc.phase = 'rising';
         asc.time = 0;
-        ascRecord('START', 'one voice — lean to sculpt');
+        ascRecord('START', 'filter reveals — move to open');
       } else {
         return;
       }
     }
 
-    // ── 2. ENGAGED TIME — only counts active motion ──
+    // ── 2. ENGAGED TIME ──
     if (energy > 0.30) asc.engagedTime += dt;
 
     // ── 3. STILLNESS ──
@@ -2720,85 +2721,69 @@ const Follow = (function () {
     if (asc.breathPhase > 1) asc.breathPhase -= 1;
     asc.breathActive = asc.stillTime > 3.0;
 
-    // ── 4. HARMONIC COLOR — lean determines major vs minor ──
-    // Right lean (leanSmooth > 0.6) → major: bright, euphoric
-    // Left lean (leanSmooth < 0.4) → minor: deep, emotional
-    // Center → suspended/neutral
+    // ── 4. COLOR — lean shifts major/minor ──
     var colorTarget;
-    if (asc.leanSmooth > 0.6) colorTarget = 1.0;       // major
-    else if (asc.leanSmooth < 0.4) colorTarget = 0.0;   // minor
-    else colorTarget = 0.5;                               // neutral
+    if (asc.leanSmooth > 0.6) colorTarget = 1.0;
+    else if (asc.leanSmooth < 0.4) colorTarget = 0.0;
+    else colorTarget = 0.5;
     asc.colorSmooth += (colorTarget - asc.colorSmooth) * 0.5 * dt;
 
-    // Build the voicing from color
-    // Major: [0, 4, 7, 12]  Minor: [0, 3, 7, 12]  Neutral: [0, 5, 7, 12] (sus4)
     var third;
-    if (asc.colorSmooth > 0.65) third = 4;        // major 3rd
-    else if (asc.colorSmooth < 0.35) third = 3;   // minor 3rd
-    else third = 5;                                 // sus4 — floating, unresolved
-    var currentVoicing = [0, third, 7, 12];
+    if (asc.colorSmooth > 0.65) third = 4;
+    else if (asc.colorSmooth < 0.35) third = 3;
+    else third = 5;
+    try { Audio.ascension.setWallChord(cfg.wallRoot, [0, third, 7, 12]); } catch(e) {}
 
-    // Update wall chord when color changes significantly
-    try { Audio.ascension.setWallChord(cfg.wallRoot, currentVoicing); } catch(e) {}
+    // ── 5. BLOOM — slow gain ramp over engaged time ──
+    var bloomTime = cfg.bloomTime || 8.0;
+    asc.bloomTarget = Math.min(1.0, asc.engagedTime / bloomTime);
+    if (asc.stillTime > 8.0) asc.bloomTarget = Math.max(0.3, asc.bloom - 0.05 * dt);
+    asc.bloom += (asc.bloomTarget - asc.bloom) * 0.6 * dt;
+    asc.bloom = Math.max(0, Math.min(1, asc.bloom));
 
-    // ── 5. BLOOM — layers earned through presence ──
-    // Each ~5s of engaged time earns a new layer
-    var bloomTime = cfg.bloomTime || 5.0;
-    asc.bloomTarget = Math.min(4, asc.engagedTime / bloomTime);
-    // Bloom grows toward target, but can also decay during long stillness
-    if (asc.stillTime > 8.0) {
-      asc.bloomTarget = Math.max(0, asc.bloom - 0.3 * dt);
-    }
-    asc.bloom += (asc.bloomTarget - asc.bloom) * 0.8 * dt;
-    asc.bloom = Math.max(0, Math.min(4, asc.bloom));
-
-    if (Math.floor(asc.bloom) !== Math.floor(asc.bloom - 0.8 * dt * (asc.bloomTarget - asc.bloom + 0.001)) && asc.bloom > 0.5) {
-      var layerNames = ['root', '+3rd', '+5th', '+octave', '+sub/air'];
-      var bl = Math.floor(asc.bloom);
-      if (bl >= 0 && bl < layerNames.length) {
-        ascRecord('BLOOM', { layer: bl, name: layerNames[bl], engaged: +asc.engagedTime.toFixed(1) });
-      }
-    }
-
-    // ── 6. MASTER GAIN — breathes with motion ──
-    var gainTarget = energy > 0.30 ? 0.55 : (asc.bloom > 1 ? 0.20 : 0.08);
-    // Swell
-    var swellPhase = (asc.time / (cfg.swellCycle || 12.5)) % 1.0;
-    var swellEnv = 1.0 - 0.12 + 0.12 * 2 * (0.5 + 0.5 * Math.sin(swellPhase * Math.PI * 2));
+    // ── 6. MASTER GAIN ──
+    var gainTarget = energy > 0.30 ? 0.55 : 0.25;
+    var swellPhase = (asc.time / (cfg.swellCycle || 14.0)) % 1.0;
+    var swellEnv = 1.0 + 0.10 * Math.sin(swellPhase * Math.PI * 2);
     gainTarget *= swellEnv;
-    asc.masterGain += (gainTarget - asc.masterGain) * (gainTarget > asc.masterGain ? 0.4 : 0.12) * dt;
+    asc.masterGain += (gainTarget - asc.masterGain) * (gainTarget > asc.masterGain ? 0.3 : 0.10) * dt;
     asc.masterGain = Math.max(0, Math.min(1, asc.masterGain));
     try { Audio.setMasterGain(asc.masterGain); } catch(e) {}
 
-    // ── 7. LAYER GAINS FROM BLOOM ──
-    var energyPresence = Math.min(1.0, energy * 0.12 + 0.12);
+    // ── 7. ALL LAYERS ON — gains scale with bloom ──
+    // Everything plays from the start. The filter hides it. Bloom grows the gain.
+    var b = asc.bloom;
+    var rootGain  = 0.40 + b * 0.15;
+    var thirdGain = 0.25 + b * 0.15;
+    var fifthGain = 0.25 + b * 0.15;
+    var octGain   = 0.15 + b * 0.15;
+    var subGain   = 0.35 + b * 0.10;
+    var bassGain  = 0.20 + b * 0.10;
+    var noiseGain = b * 0.025;
 
-    var rootGain  = 0.45 * energyPresence;
-    var thirdGain = Math.min(0.35, Math.max(0, asc.bloom - 0.8) * 0.45) * energyPresence;
-    var fifthGain = Math.min(0.35, Math.max(0, asc.bloom - 1.8) * 0.45) * energyPresence;
-    var octGain   = Math.min(0.25, Math.max(0, asc.bloom - 2.8) * 0.35) * energyPresence;
-    var subGain   = Math.min(0.35, Math.max(0, asc.bloom - 3.5) * 0.50);  // sub stays
-    var bassGain  = Math.min(0.20, Math.max(0, asc.bloom - 1.5) * 0.25);  // bass stays
-    var noiseGain = Math.min(0.02, Math.max(0, asc.bloom - 3.8) * 0.08) * energyPresence;
-
-    try { Audio.layer.setGain('asc-root',  rootGain,  0.12); } catch(e) {}
-    try { Audio.layer.setGain('asc-third', thirdGain, 0.12); } catch(e) {}
-    try { Audio.layer.setGain('asc-fifth', fifthGain, 0.12); } catch(e) {}
-    try { Audio.layer.setGain('asc-oct',   octGain,   0.12); } catch(e) {}
+    try { Audio.layer.setGain('asc-root',  rootGain,  0.15); } catch(e) {}
+    try { Audio.layer.setGain('asc-third', thirdGain, 0.15); } catch(e) {}
+    try { Audio.layer.setGain('asc-fifth', fifthGain, 0.15); } catch(e) {}
+    try { Audio.layer.setGain('asc-oct',   octGain,   0.15); } catch(e) {}
     try { Audio.layer.setGain('asc-sub',   subGain,   0.4); } catch(e) {}
     try { Audio.layer.setGain('asc-bass',  bassGain,  0.4); } catch(e) {}
     try { Audio.layer.setGain('asc-noise', noiseGain, 0.5); } catch(e) {}
 
-    // ── 8. TILT → FILTER — up opens, down closes ──
-    var filterTarget = cfg.filterRange[0] + asc.tiltSmooth * (cfg.filterRange[1] - cfg.filterRange[0]);
-    // Bloom floor — more layers = more open even at low tilt
-    var bloomFloor = cfg.filterRange[0] + (asc.bloom / 4) * (cfg.filterRange[1] * 0.3 - cfg.filterRange[0]);
+    // ── 8. THE FILTER — this IS the instrument ──
+    // Tilt opens the filter. More energy = higher floor.
+    // The filter reveals what's already there.
+    var energyFloor = Math.min(800, energy * 80);  // active motion lifts the floor
+    var tiltFilter = cfg.filterRange[0] + asc.tiltSmooth * (cfg.filterRange[1] - cfg.filterRange[0]);
+    var filterTarget = Math.max(tiltFilter, energyFloor + cfg.filterRange[0]);
+
+    // Bloom raises the base — longer you play, more you hear even at rest
+    var bloomFloor = cfg.filterRange[0] + asc.bloom * 400;
     filterTarget = Math.max(filterTarget, bloomFloor);
 
-    // Breathing LFO during stillness
+    // Breathing during stillness
     if (asc.breathActive) {
       var breathLFO = Math.sin(asc.breathPhase * Math.PI * 2);
-      filterTarget += breathLFO * (cfg.breathDepth || 1200);
+      filterTarget += breathLFO * (cfg.breathDepth || 800);
       filterTarget = Math.max(cfg.filterRange[0], Math.min(cfg.filterRange[1], filterTarget));
     }
 
@@ -2806,31 +2791,30 @@ const Follow = (function () {
     asc.filterSmooth = Math.max(cfg.filterRange[0], Math.min(cfg.filterRange[1], asc.filterSmooth));
     try { Audio.ascension.setWallFilter(asc.filterSmooth); } catch(e) {}
 
-    // ── 9. DETUNE SPREAD — widens with bloom. Motion adds shimmer. ──
-    var bloomSpread = cfg.detuneRange[0] + (asc.bloom / 4) * (cfg.detuneRange[1] - cfg.detuneRange[0]);
-    var motionSpread = Math.min(3, energy * 0.4);  // subtle motion shimmer
-    var spreadTarget = Math.min(cfg.detuneRange[1], bloomSpread + motionSpread);
-    asc.spreadSmooth += (spreadTarget - asc.spreadSmooth) * 1.0 * dt;  // slower spread changes
+    // ── 9. DETUNE — grows with bloom ──
+    var spreadTarget = cfg.detuneRange[0] + asc.bloom * (cfg.detuneRange[1] - cfg.detuneRange[0]);
+    spreadTarget += Math.min(2, energy * 0.3);
+    asc.spreadSmooth += (spreadTarget - asc.spreadSmooth) * 1.0 * dt;
     try { Audio.ascension.setWallSpread(asc.spreadSmooth); } catch(e) {}
 
-    // ── 10. ROLL → subtle pitch shift ──
+    // ── 10. ROLL → pitch shift ──
     var rollNorm = Math.max(-1, Math.min(1, gamma / 45));
     try { Audio.ascension.setMasterPitch(rollNorm * 1.5); } catch(e) {}
 
-    // ── 11. REVERB — cathedral. More bloom = more space. ──
-    var reverbTarget = 0.40 + (asc.bloom / 4) * 0.25;
+    // ── 11. REVERB ──
+    var reverbTarget = 0.45 + asc.bloom * 0.20;
     if (asc.breathActive) reverbTarget = 0.80;
     try { Audio.setReverbMix(reverbTarget); } catch(e) {}
 
     // ── 12. DELAY ──
-    var delayTarget = 0.15 + (asc.bloom / 4) * 0.20;
+    var delayTarget = 0.18 + asc.bloom * 0.15;
     if (asc.breathActive) delayTarget = 0.50;
     try { Audio.setDelayMix(delayTarget); } catch(e) {}
 
-    // ── 13. PHASE for display ──
-    if (asc.bloom >= 3.5) asc.phase = asc.breathActive ? 'breathing' : 'full';
-    else if (asc.bloom >= 0.5) asc.phase = 'bloom';
-    else asc.phase = 'ember';
+    // ── 13. PHASE ──
+    if (asc.breathActive) asc.phase = 'breathing';
+    else if (asc.bloom > 0.7) asc.phase = 'full';
+    else asc.phase = 'rising';
   }
 
   // Wobble LFO shapes — different each drop cycle

@@ -2597,7 +2597,7 @@ const Audio = (function () {
 
   // Wall filter control — sets all 4 harmonic layers
   function setAscWallFilter(freq) {
-    var f = Math.max(200, Math.min(3500, freq));  // cap at 3500 — saws are harsh above this
+    var f = Math.max(120, Math.min(4000, freq));
     for (var i = 0; i < ASC_LAYERS.length; i++) {
       setLayerFilter(ASC_LAYERS[i], f, 0.06);
     }
