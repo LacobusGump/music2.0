@@ -1207,12 +1207,17 @@ const Follow = (function () {
   // Internal 107 BPM clock for Journey. Drums creep in over time.
   // First ~90s: silence. Then ghost hits emerge. By 5 min: full Afro-Cuban.
   //
-  // drumPresence: the drummer LISTENS first, then joins.
-  // Drums only emerge after the melody has a clear rhythm:
-  //   - Tempo must be locked (user has a consistent pulse)
-  //   - At least 30s of engaged time (the song has established itself)
-  //   - Then drums creep in slowly, accenting what's already there
-  //   - If tempo unlocks, drums fade back
+  // ── EMERGENT DRUMS — the user's rhythm becomes the drum pattern ──
+  //
+  // The drums don't play a preset. They listen to when the user peaks,
+  // build a rhythmic map from those peaks, and play it back as percussion.
+  // The user's melody rhythm IS the kick pattern. The gaps become ghost notes.
+  // Polyrhythmic math makes "wrong" moments fit.
+  //
+  // A drummer listens first. Then shapes around what's there.
+
+  var peakRhythm = new Float32Array(16);  // 16-step grid: velocity at each step
+  var peakRhythmDecay = 0.92;             // how fast old peak positions fade
 
   function updateTribalPulse(dt) {
     if (!lens || lens.name === 'Grid' || !Audio.ctx || !Audio.drum) return;
@@ -1222,66 +1227,72 @@ const Follow = (function () {
       tribalPulse.engagedTime += dt;
     }
 
-    // Drums wait for the music to establish itself
+    // Drums only emerge when there's a locked rhythm AND the song has body
     var target = 0;
-    if (tempoLocked && tribalPulse.engagedTime > 30) {
-      // Melody has rhythm, song has body — drums can join
-      var timeSinceReady = tribalPulse.engagedTime - 30;
-      if (timeSinceReady < 30)       target = 0.25 * (timeSinceReady / 30);       // ghost shaker
-      else if (timeSinceReady < 60)  target = 0.25 + 0.30 * ((timeSinceReady - 30) / 30);  // heartbeat
-      else if (timeSinceReady < 120) target = 0.55 + 0.30 * ((timeSinceReady - 60) / 60);  // clave + slaps
-      else                           target = Math.min(1.0, 0.85 + 0.15 * ((timeSinceReady - 120) / 60));
+    if (tempoLocked && tribalPulse.engagedTime > 20 && rhythmConfidence > 0.30) {
+      var readyTime = Math.max(0, tribalPulse.engagedTime - 20);
+      target = Math.min(0.85, readyTime * 0.012);  // slow ramp: ~70s to full
     }
-    // If tempo unlocks, drums should fade — the rhythm broke
-    if (!tempoLocked) target = Math.min(target, 0.10);
+    if (!tempoLocked) target = 0;  // no rhythm = no drums, period
 
-    // Smooth approach
-    tribalPulse.drumPresence += (target - tribalPulse.drumPresence) * dt * 0.5;
+    tribalPulse.drumPresence += (target - tribalPulse.drumPresence) * dt * 0.4;
 
-    // Nothing to play yet
     if (tribalPulse.drumPresence < 0.01) return;
 
-    // Advance internal clock at 107 BPM
-    var stepDur = 60 / (tribalPulse.bpm * 4); // duration of one 16th note
-    tribalPulse.phase += dt / (stepDur * 16);  // phase is 0-1 across one bar
+    // Use the USER'S tempo, not a fixed 107 BPM
+    var bpm = tempoLocked ? derivedTempo : tribalPulse.bpm;
+    bpm = Math.max(50, Math.min(180, bpm));
+    var stepDur = 60 / (bpm * 4);
+    tribalPulse.phase += dt / (stepDur * 16);
     if (tribalPulse.phase >= 1) {
       tribalPulse.phase -= 1;
-      tribalPulse.bar = 1 - tribalPulse.bar; // toggle 0/1
+      tribalPulse.bar = 1 - tribalPulse.bar;
       tribalPulse.lastStep = -1;
+      // Decay the peak rhythm grid each bar — old peaks fade
+      for (var di = 0; di < 16; di++) peakRhythm[di] *= peakRhythmDecay;
     }
 
     var currentStep = Math.floor(tribalPulse.phase * 16);
     if (currentStep === tribalPulse.lastStep) return;
     tribalPulse.lastStep = currentStep;
 
+    // Record user's peaks into the rhythm grid
+    // When the user peaks, stamp the current step position
+    if (peakCount > 0 && lastMag > (adaptedPeakThresh || 0.3)) {
+      peakRhythm[currentStep] = Math.min(1.0, peakRhythm[currentStep] + 0.5);
+      // Also stamp complementary positions (polyrhythm: 3 steps away = dotted feel)
+      var poly3 = (currentStep + 6) % 16;
+      peakRhythm[poly3] = Math.min(0.4, peakRhythm[poly3] + 0.15);
+    }
+
     var time = Audio.ctx.currentTime;
     var dp = tribalPulse.drumPresence;
-    var bar = tribalPulse.bar;
 
-    // Shaker: first to appear (dp > 0.05), quiet and organic
-    var shVel = TRIBAL_SHAKER[bar][currentStep];
-    if (shVel > 0 && dp > 0.05) {
-      var sv = shVel * dp * 3.0; // boost so ghost hits are audible
-      if (sv > 0.005) {
-        Audio.drum.shaker(time, Math.min(0.35, sv), 0.04 + Math.random() * 0.02);
+    // ── THE DRUMS MIRROR THE USER'S RHYTHM ──
+
+    var userVel = peakRhythm[currentStep];
+
+    // Kick: plays where the user's rhythm is strongest
+    if (userVel > 0.25 && dp > 0.15) {
+      var kv = userVel * dp * 0.8;
+      Audio.drum.kick(time, Math.min(0.55, kv), 'tribal');
+    }
+
+    // Shaker: fills the gaps between user peaks — the connective tissue
+    if (userVel < 0.15 && dp > 0.10) {
+      // Ghost shaker on non-peak steps
+      var sv = (0.12 - userVel) * dp * 1.5;
+      if (sv > 0.01) {
+        Audio.drum.shaker(time, Math.min(0.25, sv), 0.03 + Math.random() * 0.02);
       }
     }
 
-    // Frame drum kick: appears around dp > 0.20
-    var kickVel = TRIBAL_KICK[bar][currentStep];
-    if (kickVel > 0 && dp > 0.20) {
-      var kv = kickVel * dp * 1.5;
-      if (kv > 0.01) {
-        Audio.drum.kick(time, Math.min(0.65, kv), 'tribal');
-      }
-    }
-
-    // Hand slap: last to arrive, dp > 0.40 — the clave pattern
-    var slapVel = TRIBAL_SLAP[bar][currentStep];
-    if (slapVel > 0 && dp > 0.40) {
-      var slv = slapVel * (dp - 0.25) * 1.8;
+    // Slap/snare: on the polyrhythmic complement positions
+    var polyVel = peakRhythm[(currentStep + 8) % 16];  // opposite side of the bar
+    if (polyVel > 0.15 && dp > 0.30 && userVel < 0.20) {
+      var slv = polyVel * (dp - 0.15) * 1.0;
       if (slv > 0.01) {
-        Audio.drum.snare(time, Math.min(0.55, slv), 'tribal');
+        Audio.drum.snare(time, Math.min(0.40, slv), 'tribal');
       }
     }
   }
