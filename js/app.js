@@ -880,7 +880,7 @@
 
     function doFlash() {
       if (!flashEl) return;
-      flashEl.style.background = '#ffffff';
+      flashEl.style.background = 'rgba(255,220,170,0.8)';
       flashEl.style.opacity = '0.09';
       setTimeout(function () { flashEl.style.opacity = '0'; }, 200);
     }
@@ -984,7 +984,7 @@
           var askBtn  = document.getElementById('ask-dance-btn');
           var flashEl = document.getElementById('flash');
           if (flashEl) {
-            flashEl.style.background = '#ffffff';
+            flashEl.style.background = 'rgba(255,220,170,0.8)';
             flashEl.style.opacity = '0.09';
             setTimeout(function () { flashEl.style.opacity = '0'; }, 200);
           }
