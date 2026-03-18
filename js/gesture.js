@@ -185,6 +185,7 @@ const Gesture = (function () {
   function onMove(x, y) {
     if (!recording) return;
     var last = pts[pts.length - 1];
+    if (!last) return;
     var dx = x - last.x, dy = y - last.y;
     if (dx*dx + dy*dy > 16) {   // at least 4px between samples
       pts.push({ x: x, y: y });
