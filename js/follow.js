@@ -2814,7 +2814,7 @@ const Follow = (function () {
     asc.ascEnergy = Math.min(30, asc.ascEnergy);
 
     // ── 3. MASTER GAIN + BREATHING SWELL ──
-    var gainTarget = energy > 0.04 ? 0.75 : (asc.enrichment > 0.2 ? 0.3 : 0.1);
+    var gainTarget = energy > 0.04 ? 0.60 : (asc.enrichment > 0.2 ? 0.25 : 0.08);
     if (asc.stagePhase === 'suck') gainTarget = 0.08;
     var swellPhase = (asc.time / (cfg.swellCycle || 12.5)) % 1.0;
     var swellEnv = 1.0 - (cfg.swellDepth || 0.15) + (cfg.swellDepth || 0.15) * 2 * (0.5 + 0.5 * Math.sin(swellPhase * Math.PI * 2));
@@ -2844,9 +2844,9 @@ const Follow = (function () {
         // Fire raw lead — no magnetism, no chord quantization
         while (rawFreq < 300) rawFreq *= 2;
         while (rawFreq > 1200) rawFreq /= 2;
-        var leadVel = Math.min(1.0, 0.30 + energy * 0.06);
-        try { Audio.synth.ascLead(0, rawFreq, leadVel, 1.5, cfg.portamento); } catch(e) {}
-        try { Audio.synth.ascPluck(0, rawFreq, Math.min(1, energy * 0.15 + 0.2), 0.8); } catch(e) {}
+        var leadVel = Math.min(0.5, 0.12 + energy * 0.04);  // gentle during acclimate
+        try { Audio.synth.ascLead(0, rawFreq, leadVel, 2.5, cfg.portamento); } catch(e) {}
+        try { Audio.synth.ascPluck(0, rawFreq, Math.min(0.35, energy * 0.05 + 0.08), 1.2); } catch(e) {}
         asc.pluckCooldown = 0.2;
       }
       if (asc.pluckCooldown > 0) asc.pluckCooldown -= dt;
@@ -2945,11 +2945,14 @@ const Follow = (function () {
     var barDur = stepDur * 16;   // ~2.243s per bar
     var prog = cfg.progressions[asc.progIndex];
 
-    // ── 7. CLOCK — 16 steps per bar ──
-    asc.clockPhase += dt / barDur;
-    if (asc.clockPhase >= 1.0) {
-      asc.clockPhase -= 1.0;
-      asc.barCount++;
+    // ── 7. CLOCK — 16 steps per bar. FREEZES when user pauses. ──
+    // The songwriter waits for you. If you stop, it stops.
+    if (energy > 0.40) {
+      asc.clockPhase += dt / barDur;
+      if (asc.clockPhase >= 1.0) {
+        asc.clockPhase -= 1.0;
+        asc.barCount++;
+      }
     }
     var currentStep = Math.floor(asc.clockPhase * 16);
 
@@ -2985,13 +2988,16 @@ const Follow = (function () {
     if (asc.stagePhase === 'suck') suckMult = Math.max(0.02, 1.0 - asc.stageTimer / (cfg.suckDuration || 0.8));
     if (asc.stagePhase === 'slam') suckMult = Math.min(1.0, asc.stageTimer / 0.3);
 
-    var rootGain  = 0.70 * suckMult;
-    var thirdGain = Math.min(0.55, asc.enrichment * 0.7) * suckMult;
-    var fifthGain = Math.min(0.55, asc.enrichment * 0.7) * suckMult;
-    var octGain   = Math.min(0.40, Math.max(0, asc.enrichment - 0.25) * 0.6) * suckMult;
-    var subGain   = Math.min(0.55, Math.max(0, asc.enrichment - 0.3) * 0.85) * suckMult;
-    var bassGain  = Math.min(0.30, Math.max(0, asc.enrichment - 0.15) * 0.45) * suckMult;
-    var noiseGain = Math.min(cfg.noiseLevel, Math.max(0, asc.enrichment - 0.6) * cfg.noiseLevel * 2.5) * suckMult;
+    // Energy presence: wall breathes with your motion. Stillness = soft, not silent.
+    var energyPresence = Math.min(1.0, energy * 0.15 + 0.15);  // floor 0.15, full at energy ~5.7
+
+    var rootGain  = 0.50 * suckMult * energyPresence;
+    var thirdGain = Math.min(0.40, asc.enrichment * 0.5) * suckMult * energyPresence;
+    var fifthGain = Math.min(0.40, asc.enrichment * 0.5) * suckMult * energyPresence;
+    var octGain   = Math.min(0.30, Math.max(0, asc.enrichment - 0.25) * 0.45) * suckMult * energyPresence;
+    var subGain   = Math.min(0.40, Math.max(0, asc.enrichment - 0.3) * 0.6) * suckMult;  // sub stays — feel it
+    var bassGain  = Math.min(0.25, Math.max(0, asc.enrichment - 0.15) * 0.35) * suckMult;
+    var noiseGain = Math.min(cfg.noiseLevel * 0.5, Math.max(0, asc.enrichment - 0.6) * cfg.noiseLevel * 1.5) * suckMult * energyPresence;
 
     try { Audio.layer.setGain('asc-root',  rootGain,  0.08); } catch(e) {}
     try { Audio.layer.setGain('asc-third', thirdGain, 0.08); } catch(e) {}
@@ -3014,18 +3020,18 @@ const Follow = (function () {
       while (magFreq < 300) magFreq *= 2;
       while (magFreq > 1200) magFreq /= 2;
 
-      var leadVel = Math.min(1.0, 0.30 + energy * 0.06);
+      var leadVel = Math.min(0.6, 0.15 + energy * 0.04);  // softer — the wall is the star
       ascRecord('LEAD', { rawSemi: +rawSemi.toFixed(1), rawHz: Math.round(rawFreq), magHz: Math.round(magFreq), pull: +(magFreq - rawFreq).toFixed(0), mag: +asc.magnetism.toFixed(2), chord: asc.chordStep, vel: +leadVel.toFixed(2) });
-      try { Audio.synth.ascLead(0, magFreq, leadVel, 1.5, cfg.portamento); } catch(e) {}
+      try { Audio.synth.ascLead(0, magFreq, leadVel, 2.5, cfg.portamento); } catch(e) {}
 
-      // Pluck from chord voicing
+      // Pluck from chord voicing — gentle, not percussive
       var pi = Math.floor(Math.random() * voicing.length);
       var pf = cfg.wallRoot * Math.pow(2, voicing[pi] / 12);
       if (pf < 200) pf *= 2;
       if (pf > 2000) pf /= 2;
-      try { Audio.synth.ascPluck(0, pf, Math.min(1, energy * 0.15 + 0.2), 0.8); } catch(e) {}
+      try { Audio.synth.ascPluck(0, pf, Math.min(0.5, energy * 0.06 + 0.1), 1.2); } catch(e) {}
 
-      asc.pluckCooldown = 0.2;
+      asc.pluckCooldown = 0.4;  // less frequent — let notes breathe
 
       // Still record to pitch buffer for re-analysis
       asc.pitchBuffer.push({ semi: rawSemi, time: asc.time });
@@ -3075,14 +3081,14 @@ const Follow = (function () {
     var rollNorm = Math.max(-1, Math.min(1, gamma / 30));
     try { Audio.ascension.setMasterPitch(rollNorm * 2); } catch(e) {}
 
-    // ── 16. REVERB — grows with enrichment ──
-    var reverbTarget = 0.15 + asc.enrichment * 0.30;
-    if (asc.breathActive) reverbTarget = 0.65;
+    // ── 16. REVERB — ascension LIVES in reverb. Cathedral of sound. ──
+    var reverbTarget = 0.35 + asc.enrichment * 0.25;
+    if (asc.breathActive) reverbTarget = 0.75;
     try { Audio.setReverbMix(reverbTarget); } catch(e) {}
 
-    // ── 17. DELAY ──
-    var delayTarget = 0.05 + asc.enrichment * 0.15;
-    if (asc.breathActive) delayTarget = 0.35;
+    // ── 17. DELAY — dotted eighth echo. Spacious. ──
+    var delayTarget = 0.15 + asc.enrichment * 0.20;
+    if (asc.breathActive) delayTarget = 0.45;
     try { Audio.setDelayMix(delayTarget); } catch(e) {}
   }
 

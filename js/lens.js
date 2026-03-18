@@ -348,19 +348,19 @@ const Lens = (function () {
       harmony: { root: 220, mode: 'major' },
 
       tone: {
-        bassFreq: 88, bassGain: 3,
-        midFreq: 1200, midQ: 0.6, midGain: 1,
-        highFreq: 4000, highGain: -3,
-        ceiling: 6000,
+        bassFreq: 88, bassGain: 4,          // warmer bass
+        midFreq: 900, midQ: 0.5, midGain: 0, // less mid presence
+        highFreq: 3000, highGain: -6,        // cut highs harder — warmth
+        ceiling: 3500,                       // hard ceiling to prevent harshness
       },
 
       space: {
-        reverb: { decay: 4.5, damping: 0.12, preDelay: 20 },
-        delay: { feedback: 0.45, filter: 3200, sync: 'dotted-eighth' },
-        saturation: 0.06,
+        reverb: { decay: 6.0, damping: 0.25, preDelay: 30 },  // longer, darker reverb
+        delay: { feedback: 0.50, filter: 2400, sync: 'dotted-eighth' },  // darker delay
+        saturation: 0.03,         // less saturation — cleaner
         type: 'cathedral',
-        reverbMix: 0.45,
-        spatial: { sweepRate: 0.06, sweepDepth: 0.3 },
+        reverbMix: 0.55,          // more wet — swimming in space
+        spatial: { sweepRate: 0.04, sweepDepth: 0.2 },
       },
 
       palette: {
@@ -376,12 +376,12 @@ const Lens = (function () {
         wallRoot: 220,
         subFreq: 55,
         bassFreq: 110,
-        filterRange: [200, 6000],
-        detuneRange: [5, 45],
-        portamento: 0.12,
-        breathRate: 0.08,
-        breathDepth: 1800,
-        noiseLevel: 0.06,
+        filterRange: [200, 3500],   // cap at 3500 — saws are brutal above this
+        detuneRange: [3, 22],      // tighter — warm shimmer, not harsh chorus
+        portamento: 0.18,          // slower glide — more legato, less percussive
+        breathRate: 0.06,          // slower breathing — more meditative
+        breathDepth: 1200,         // gentler filter sweep during breath
+        noiseLevel: 0.03,          // less noise — cleaner ascension sound
         suckDuration: 0.8,           // seconds of suck before slam (the reveal)
         swellCycle: 12.5,             // seconds per breathing swell
         swellDepth: 0.15,             // gain variation (0.15 = ±15%)
