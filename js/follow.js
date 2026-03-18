@@ -4480,7 +4480,7 @@ const Follow = (function () {
         energy: +brainEnergy.toFixed(2), mag: +mag.toFixed(2), fade: +fadeGain.toFixed(2),
         degree: currentDegree, filter: Math.round(filterFreq),
         tempo: Math.round(derivedTempo), locked: tempoLocked,
-        density: +densityLevel.toFixed(1), act: currentAct,
+        density: +densityLevel.toFixed(1), act: sessionAct,
         stage: organicStage.current, stageTimer: Math.round(organicStage.timer),
         tribal: +tribalPulse.drumPresence.toFixed(2),
         void: +voidPresence.toFixed(2),
