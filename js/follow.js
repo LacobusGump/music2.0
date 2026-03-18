@@ -1207,12 +1207,12 @@ const Follow = (function () {
   // Internal 107 BPM clock for Journey. Drums creep in over time.
   // First ~90s: silence. Then ghost hits emerge. By 5 min: full Afro-Cuban.
   //
-  // drumPresence build curve — earned through play, not time:
-  //   0-5s engaged:     0.0  (brief intro, earn the drums)
-  //   5-15s:            0→0.25  (ghost shaker appears)
-  //   15-30s:           0.25→0.55  (heartbeat emerges)
-  //   30-60s:           0.55→0.85  (clave pattern, slaps arrive)
-  //   60s+:             0.85→1.0  (full groove)
+  // drumPresence: the drummer LISTENS first, then joins.
+  // Drums only emerge after the melody has a clear rhythm:
+  //   - Tempo must be locked (user has a consistent pulse)
+  //   - At least 30s of engaged time (the song has established itself)
+  //   - Then drums creep in slowly, accenting what's already there
+  //   - If tempo unlocks, drums fade back
 
   function updateTribalPulse(dt) {
     if (!lens || lens.name === 'Grid' || !Audio.ctx || !Audio.drum) return;
@@ -1222,17 +1222,21 @@ const Follow = (function () {
       tribalPulse.engagedTime += dt;
     }
 
-    // Build drumPresence along the curve
-    var t = tribalPulse.engagedTime;
-    var target;
-    if (t < 5)        target = 0;
-    else if (t < 15)  target = 0.25 * ((t - 5) / 10);
-    else if (t < 30)  target = 0.25 + 0.30 * ((t - 15) / 15);
-    else if (t < 60)  target = 0.55 + 0.30 * ((t - 30) / 30);
-    else              target = Math.min(1.0, 0.85 + 0.15 * ((t - 60) / 30));
+    // Drums wait for the music to establish itself
+    var target = 0;
+    if (tempoLocked && tribalPulse.engagedTime > 30) {
+      // Melody has rhythm, song has body — drums can join
+      var timeSinceReady = tribalPulse.engagedTime - 30;
+      if (timeSinceReady < 30)       target = 0.25 * (timeSinceReady / 30);       // ghost shaker
+      else if (timeSinceReady < 60)  target = 0.25 + 0.30 * ((timeSinceReady - 30) / 30);  // heartbeat
+      else if (timeSinceReady < 120) target = 0.55 + 0.30 * ((timeSinceReady - 60) / 60);  // clave + slaps
+      else                           target = Math.min(1.0, 0.85 + 0.15 * ((timeSinceReady - 120) / 60));
+    }
+    // If tempo unlocks, drums should fade — the rhythm broke
+    if (!tempoLocked) target = Math.min(target, 0.10);
 
-    // Smooth approach (no sudden jumps)
-    tribalPulse.drumPresence += (target - tribalPulse.drumPresence) * dt * 0.8;
+    // Smooth approach
+    tribalPulse.drumPresence += (target - tribalPulse.drumPresence) * dt * 0.5;
 
     // Nothing to play yet
     if (tribalPulse.drumPresence < 0.01) return;
