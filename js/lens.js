@@ -507,9 +507,8 @@ const Lens = (function () {
   }
 
   function restoreFromStorage() {
-    // With only 2 lenses, start on Journey (0) by default
-    // unless the user explicitly chose Grid last time
-    var lastIndex = 0;
+    // Default to Grid (index 5) — strongest first impression
+    var lastIndex = 5;
     try {
       var s = localStorage.getItem('m2_lens');
       if (s) { var d = JSON.parse(s); lastIndex = d.index || 0; }
