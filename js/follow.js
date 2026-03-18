@@ -3421,15 +3421,25 @@ const Follow = (function () {
             }); } catch(e) {}
           }
 
-          // Impact + slam everything open
-          try { Audio.synth.impact(time, 0.85); } catch(e) {}
-          try { Audio.setSidechainDepth(0.65); } catch(e) {}
-          try { Audio.layer.setGain('edm-wobble', 0.20, 0.08); } catch(e) {}
-          try { Audio.layer.setGain('edm-sub', 0.14, 0.08); } catch(e) {}
-          try { Audio.layer.setGain('edm-pad', 0.10, 0.15); } catch(e) {}
-          try { Audio.layer.setFilter('edm-pad', 1400, 0.1); } catch(e) {}
+          // The machine doesn't shout — the drop IS the user's peak.
+          try { Audio.setSidechainDepth(0.55); } catch(e) {}
 
-          // Variation: each drop feels different
+          // ── THE DESCENT — each cycle goes deeper underground ──
+          // Root shifts down: cycle 1 = home, cycle 2 = minor 3rd down, cycle 3 = tritone...
+          // The music gets darker, more haunting, more post-apocalyptic.
+          var descentIntervals = [0, -3, -6, -5, -8, -1, -7, -10, -2, -11];
+          var descentIdx = Math.min(grid.cycle - 1, descentIntervals.length - 1);
+          grid.nextRootShift = descentIntervals[descentIdx];
+          try { rebuildGridLayers(grid, time); } catch(e) {}
+
+          // Darker pad with each cycle — filter closes, sub grows
+          var darkness = Math.min(1.0, grid.cycle * 0.15);
+          var padFilter = Math.max(400, 1400 - darkness * 800);  // 1400 → 600
+          try { Audio.layer.setGain('edm-wobble', 0.18 + darkness * 0.08, 0.08); } catch(e) {}  // wobble grows
+          try { Audio.layer.setGain('edm-sub', 0.14 + darkness * 0.10, 0.08); } catch(e) {}     // sub deepens
+          try { Audio.layer.setGain('edm-pad', 0.08, 0.15); } catch(e) {}
+          try { Audio.layer.setFilter('edm-pad', padFilter, 0.1); } catch(e) {}
+
           grid.dropVariation = grid.cycle % 4;
         }
         break;
@@ -3489,33 +3499,30 @@ const Follow = (function () {
         break;
 
       case 'breakdown':
-        // ── BREAKDOWN: stripped-back, normal tempo, space to breathe ──
-        // Each cycle's breakdown is different — keeps the set feeling alive.
-        // Style 0: pad swell (classic). Style 1: vocal atmosphere. Style 2: sub focus. Style 3: rhythmic.
+        // ── BREAKDOWN: the deeper you go, the darker it gets ──
+        // Early cycles: pad swell, breathing space.
+        // Later cycles: sub growls, pad nearly gone, haunting.
 
-        // Breakdown-specific character
         if (!grid.breakdownMelodyFired && grid.phaseTimer > 2) {
           grid.breakdownMelodyFired = true;
-          var bdStyle = grid.breakdownStyle;
-          var bdHasVocals = grid.vocalsLoaded && Audio.vocal && Audio.vocal.buffers;
-          if (bdStyle === 0) {
-            // Pad swell: open pad filter wide, let it breathe
-            try { Audio.layer.setGain('edm-pad', 0.15, 3.0); } catch(e) {}
-            try { Audio.layer.setFilter('edm-pad', 2000, 2.0); } catch(e) {}
-          } else if (bdStyle === 1 && bdHasVocals) {
-            // Vocal atmosphere: play a vocal clip with heavy reverb
-            try { Audio.vocal.play('what-is-done', time, {
-              vol: 0.4, reverb: 0.5, delay: 0.3
-            }); } catch(e) {}
-          } else if (bdStyle === 2) {
-            // Sub focus: deep sub pulse, everything else almost silent
-            try { Audio.layer.setGain('edm-sub', 0.16, 1.5); } catch(e) {}
-            try { Audio.layer.setGain('edm-pad', 0.03, 1.5); } catch(e) {}
-          } else {
-            // Rhythmic: hats keep going, minimal everything else
-            try { Audio.layer.setGain('edm-wobble', 0.01, 1.5); } catch(e) {}
-            try { Audio.layer.setGain('edm-sub', 0.08, 1.5); } catch(e) {}
-          }
+          var bdDarkness = Math.min(1.0, grid.cycle * 0.2);
+
+          // Pad: bright early, almost gone later
+          var bdPadGain = Math.max(0.02, 0.15 - bdDarkness * 0.12);
+          var bdPadFilter = Math.max(300, 2000 - bdDarkness * 1500);
+          try { Audio.layer.setGain('edm-pad', bdPadGain, 3.0); } catch(e) {}
+          try { Audio.layer.setFilter('edm-pad', bdPadFilter, 2.0); } catch(e) {}
+
+          // Sub: grows with darkness — the underground hum
+          var bdSubGain = 0.10 + bdDarkness * 0.12;
+          try { Audio.layer.setGain('edm-sub', bdSubGain, 1.5); } catch(e) {}
+
+          // Wobble: menacing growl emerges in later cycles
+          var bdWobbleGain = bdDarkness * 0.08;
+          try { Audio.layer.setGain('edm-wobble', bdWobbleGain, 1.5); } catch(e) {}
+
+          // More reverb — the space gets cavernous
+          try { Audio.setReverbMix(0.30 + bdDarkness * 0.20); } catch(e) {}
         }
 
         // User moves = back to build
@@ -3812,22 +3819,25 @@ const Follow = (function () {
         }
       }
 
-      // ── WALKING BASS: phrygian bass line on beat ──
-      // Evolves via DJ moves — simple roots early, chromatic walks later.
-      if (!isIntro && (newStep === 0 || newStep === 8)) {
+      // ── WALKING BASS — reflects the descent. Goes deeper underground. ──
+      // More notes per bar as cycles increase. Chromatic, dark, haunting.
+      if (!isIntro && (newStep === 0 || newStep === 4 || newStep === 8 || newStep === 12)) {
         grid.subPulseStep = newStep;
 
-        var walkIdx = Math.min(grid.arr.bassWalk, BASS_WALKS.length - 1);
+        // Bass walks get more complex with each cycle
+        var walkIdx = Math.min(grid.arr.bassWalk + Math.floor(grid.cycle * 0.5), BASS_WALKS.length - 1);
         var bassPatterns = BASS_WALKS[walkIdx];
         var bassPat = bassPatterns[grid.totalBars % bassPatterns.length];
-        var bassNote = newStep === 0 ? bassPat[0] : bassPat[1];
+        // Pick bass note based on which quarter note we're on
+        var quarterIdx = newStep / 4;
+        var bassNote = bassPat[quarterIdx % bassPat.length];
         var bassFreq = scaleFreq(bassNote, -2);  // low octave
 
         var bassV;
-        if (isDrop) bassV = 0.30;
+        if (isDrop) bassV = 0.30 + Math.min(0.15, grid.cycle * 0.03);  // louder with depth
         else if (isBuild) bassV = 0.15 + grid.buildLevel * 0.15;
         else if (isBreakdown) bassV = 0.25;
-        else bassV = 0.15;  // bass always present once activated
+        else bassV = 0.15;
         bassV *= grid.djGain * zoneSubMix * rollBass;
         var bassDur = isBreakdown ? grid.stepDur * 6 : grid.stepDur * 3;
 
