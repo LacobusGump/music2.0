@@ -615,6 +615,46 @@
     }
   }
 
+  // ── HOURLY ODE — Mt. Holly, High Street ──
+  // Each hour, the music rings the time. Each lens has its own voice.
+
+  var lastChimeHour = -1;
+  var chimeRingsLeft = 0;
+  var chimeTimer = 0;
+  var chimeVoice = 'bell';
+
+  function checkHourlyChime(sensor) {
+    var h = sensor.hour || new Date().getHours();
+    var m = new Date().getMinutes();
+
+    // Trigger at the top of the hour (minute 0), once per hour
+    if (m === 0 && h !== lastChimeHour) {
+      lastChimeHour = h;
+      // 12-hour format for chime count
+      chimeRingsLeft = h % 12 || 12;
+      chimeTimer = 0;
+
+      // Each lens has its own voice
+      var lens = Lens.active;
+      if (lens) {
+        if (lens.name === 'Grid') chimeVoice = 'impact';
+        else if (lens.name === 'Ascension') chimeVoice = 'harmonic';
+        else if (lens.name === 'Journey') chimeVoice = 'bell';
+        else chimeVoice = 'tone';
+      }
+    }
+
+    // Ring the chimes — spaced 2.5 seconds apart
+    if (chimeRingsLeft > 0) {
+      chimeTimer += 1/60;  // approximate dt
+      if (chimeTimer >= 2.5) {
+        chimeTimer = 0;
+        chimeRingsLeft--;
+        try { Audio.synth.hourlyChime(0, chimeVoice, 0.30); } catch(e) {}
+      }
+    }
+  }
+
   // ── MAIN LOOP ────────────────────────────────────────────────────────
 
   var loopErrors = 0;
@@ -659,7 +699,8 @@
       // 6. Render
       render(dt);
 
-      // 7. Voice — boot intro only. The void is silence + healing tones, no speech.
+      // 7. Hourly ode — Mt. Holly, High Street
+      checkHourlyChime(sensor);
 
       // 8. Pattern engine (AI Producer — silent)
       Pattern.update(dt, Follow.silent);

@@ -2663,6 +2663,75 @@ const Audio = (function () {
     destroyLayer('asc-bass');
   }
 
+  // ── HOURLY ODE — each lens honors the hour in its own way ──
+  // Mt. Holly, High Street. The hour rings through the music.
+
+  function synthHourlyChime(time, voice, vel) {
+    if (!ctx) return;
+    var t = time || ctx.currentTime;
+    var v = vel || 0.35;
+
+    // Voice determines the timbre. Each lens chooses its own.
+    // 'bell'     — warm sine partials, classic bell
+    // 'tone'     — pure sine with reverb tail, ethereal
+    // 'impact'   — sub thump + filtered noise, EDM
+    // 'harmonic' — fifth interval, choir-like
+
+    var voice = voice || 'bell';
+
+    if (voice === 'bell') {
+      // Warm bell: sine fundamental + minor third partial + octave
+      var partials = [
+        { freq: 220, amp: 0.7, decay: 5.0 },
+        { freq: 220 * 1.183, amp: 0.3, decay: 3.0 },
+        { freq: 440, amp: 0.25, decay: 2.5 },
+      ];
+      for (var i = 0; i < partials.length; i++) {
+        var o = ctx.createOscillator(); o.type = 'sine';
+        o.frequency.value = partials[i].freq;
+        var g = ctx.createGain();
+        g.gain.setValueAtTime(partials[i].amp * v, t);
+        g.gain.exponentialRampToValueAtTime(0.001, t + partials[i].decay);
+        o.connect(g); g.connect(sidechainGain);
+        if (reverbSend) { var rs = ctx.createGain(); rs.gain.value = 0.5; g.connect(rs); rs.connect(reverbSend); }
+        o.start(t); o.stop(t + partials[i].decay + 0.1);
+      }
+    } else if (voice === 'tone') {
+      // Pure ethereal tone with long reverb
+      var o = ctx.createOscillator(); o.type = 'sine';
+      o.frequency.value = 330;  // E4
+      var g = ctx.createGain();
+      g.gain.setValueAtTime(v * 0.5, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 6.0);
+      o.connect(g); g.connect(sidechainGain);
+      if (reverbSend) { var rs = ctx.createGain(); rs.gain.value = 0.7; g.connect(rs); rs.connect(reverbSend); }
+      o.start(t); o.stop(t + 6.1);
+    } else if (voice === 'impact') {
+      // Sub thump + noise burst
+      var sub = ctx.createOscillator(); sub.type = 'sine';
+      sub.frequency.setValueAtTime(80, t);
+      sub.frequency.exponentialRampToValueAtTime(40, t + 0.5);
+      var sg = ctx.createGain();
+      sg.gain.setValueAtTime(v * 0.8, t);
+      sg.gain.exponentialRampToValueAtTime(0.001, t + 1.5);
+      sub.connect(sg); sg.connect(sidechainGain);
+      sub.start(t); sub.stop(t + 1.6);
+    } else if (voice === 'harmonic') {
+      // Fifth interval — root + fifth, choir-like
+      var freqs = [220, 330];
+      for (var j = 0; j < freqs.length; j++) {
+        var o2 = ctx.createOscillator(); o2.type = 'sine';
+        o2.frequency.value = freqs[j];
+        var g2 = ctx.createGain();
+        g2.gain.setValueAtTime(v * 0.4, t);
+        g2.gain.exponentialRampToValueAtTime(0.001, t + 5.0);
+        o2.connect(g2); g2.connect(sidechainGain);
+        if (reverbSend) { var rs2 = ctx.createGain(); rs2.gain.value = 0.6; g2.connect(rs2); rs2.connect(reverbSend); }
+        o2.start(t); o2.stop(t + 5.1);
+      }
+    }
+  }
+
   // ── ASCENSION FIRE-AND-FORGET SYNTHS ──
 
   // Analog pluck: saw+square, fast LP envelope, percussive snap
@@ -3385,6 +3454,7 @@ const Audio = (function () {
       ascPluck: synthAscPluck,
       ascStab: synthAscStab,
       ascLead: synthAscLead,
+      hourlyChime: synthHourlyChime,
       play: synthesize,
     }),
 
