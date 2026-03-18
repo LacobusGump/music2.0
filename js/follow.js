@@ -1853,14 +1853,12 @@ const Follow = (function () {
       }
 
       // ── ROLE 3 PULSE: goldilocks drums ──
-      // Journey uses the tribal pulse system — skip peak-based drums
-      if (sessionPhase >= 2 && vel > 0.08 && !(lens && lens.stages)) {
+      // Only for lenses WITH groove DNA. Drift/Still Water/Tundra = no drums here.
+      if (sessionPhase >= 2 && vel > 0.08 && lens && lens.groove && !(lens && lens.stages)) {
         fireGoldilocks(magnitude, now, vel);
       }
 
-      // ── PEAK KICK: fire on every significant peak, no tempo lock needed ──
-      // James moves by tilt, not rhythmic bouncing — tempoLocked may never trigger.
-      // Journey uses tribal pulse instead — peak kicks break the ethereal feel.
+      // ── PEAK KICK: only for lenses with groove ──
       if (sessionPhase >= 1 && !isSilent && lens && lens.groove && Audio.drum && vel > 0.15
           && !(lens && lens.stages)) {
         var ktime = Audio.ctx.currentTime;
