@@ -2523,28 +2523,28 @@ const Audio = (function () {
     destroyLayer(name);
     var oscs = [];
     for (var i = 0; i < coeffs.length; i++) {
-      var g = i === 0 ? 0.06 : 0.05 - i * 0.005;
-      oscs.push({ wave: 'sawtooth', freq: freq, gain: Math.max(0.025, g), detune: spread * coeffs[i] });
+      var g = i === 0 ? 0.07 : 0.055 - i * 0.005;
+      oscs.push({ wave: 'sawtooth', freq: freq, gain: Math.max(0.03, g), detune: spread * coeffs[i] });
     }
     var L = buildLayer(name, {
       oscillators: oscs,
-      filter: { type: 'lowpass', freq: 400, Q: 0.7 },
+      filter: { type: 'lowpass', freq: 600, Q: 0.5 },  // warmer starting point, less resonant
       gain: 0,
       reverbSend: reverbAmt,
       vibrato: { rate: 0.10, depth: 0.001 },
     });
-    // OTT compression per harmonic group
+    // Gentle compression — glue, not OTT crush
     if (L && L.filter && L.gain && ctx) {
       var comp = ctx.createDynamicsCompressor();
-      comp.threshold.value = -30;
-      comp.knee.value = 2;
-      comp.ratio.value = 10;
-      comp.attack.value = 0.003;
-      comp.release.value = 0.06;
+      comp.threshold.value = -24;
+      comp.knee.value = 6;
+      comp.ratio.value = 4;
+      comp.attack.value = 0.010;
+      comp.release.value = 0.12;
       L.filter.disconnect();
       L.filter.connect(comp);
       var makeup = ctx.createGain();
-      makeup.gain.value = 2.5;
+      makeup.gain.value = 1.8;
       comp.connect(makeup);
       makeup.connect(L.gain);
       L.allNodes.push(comp, makeup);
@@ -2564,10 +2564,10 @@ const Audio = (function () {
   function buildAscWall(freq, spread) {
     var f = freq || 220;
     var sp = spread || 25;
-    buildAscHarmonic('asc-root',  f,                       sp, ASC_DETUNE_COEFFS['asc-root'],  0.35);
-    buildAscHarmonic('asc-third', f * Math.pow(2, 4/12),   sp, ASC_DETUNE_COEFFS['asc-third'], 0.40);
-    buildAscHarmonic('asc-fifth', f * Math.pow(2, 7/12),   sp, ASC_DETUNE_COEFFS['asc-fifth'], 0.40);
-    buildAscHarmonic('asc-oct',   f * 2,                   sp, ASC_DETUNE_COEFFS['asc-oct'],   0.50);
+    buildAscHarmonic('asc-root',  f,                       sp, ASC_DETUNE_COEFFS['asc-root'],  0.45);
+    buildAscHarmonic('asc-third', f * Math.pow(2, 4/12),   sp, ASC_DETUNE_COEFFS['asc-third'], 0.50);
+    buildAscHarmonic('asc-fifth', f * Math.pow(2, 7/12),   sp, ASC_DETUNE_COEFFS['asc-fifth'], 0.50);
+    buildAscHarmonic('asc-oct',   f * 2,                   sp, ASC_DETUNE_COEFFS['asc-oct'],   0.55);
   }
 
   // Reese sub: two detuned saws — the beating creates physical depth
@@ -2588,16 +2588,16 @@ const Audio = (function () {
   function buildAscNoise() {
     destroyLayer('asc-noise');
     return buildLayer('asc-noise', {
-      noise: 'white',
-      filter: { type: 'bandpass', freq: 6000, Q: 0.5 },
+      noise: 'pink',  // pink noise — warmer, fills mids
+      filter: { type: 'bandpass', freq: 2000, Q: 0.4 },  // lower center, wider band
       gain: 0,
-      reverbSend: 0.30,
+      reverbSend: 0.40,
     });
   }
 
   // Wall filter control — sets all 4 harmonic layers
   function setAscWallFilter(freq) {
-    var f = Math.max(200, Math.min(6000, freq));
+    var f = Math.max(200, Math.min(3500, freq));  // cap at 3500 — saws are harsh above this
     for (var i = 0; i < ASC_LAYERS.length; i++) {
       setLayerFilter(ASC_LAYERS[i], f, 0.06);
     }

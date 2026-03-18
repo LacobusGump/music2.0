@@ -2599,9 +2599,10 @@ const Follow = (function () {
     try { Audio.layer.build('asc-bass', {
       oscillators: [
         { wave: 'sine', freq: cfg.bassFreq, gain: 0.25 },
-        { wave: 'triangle', freq: cfg.bassFreq, gain: 0.10 },
+        { wave: 'triangle', freq: cfg.bassFreq, gain: 0.12 },
+        { wave: 'sine', freq: cfg.bassFreq * 2, gain: 0.08 },  // octave harmonic fills mids
       ],
-      filter: { type: 'lowpass', freq: 300, Q: 0.6 },
+      filter: { type: 'lowpass', freq: 500, Q: 0.5 },  // wider — let mids through
       gain: 0,
     }); } catch(e) {}
     try { Audio.ascension.setWallFilter(cfg.filterRange[0]); } catch(e) {}
@@ -2678,7 +2679,7 @@ const Follow = (function () {
     var rawTilt = Math.max(0, Math.min(1, (beta + 30) / 180));
     asc.tiltSmooth += (rawTilt - asc.tiltSmooth) * 0.10;
     var rawLean = Math.max(0, Math.min(1, (gamma + 90) / 180));
-    asc.leanSmooth += (rawLean - asc.leanSmooth) * 0.08;  // lean is slower — deliberate choice
+    asc.leanSmooth += (rawLean - asc.leanSmooth) * 0.015;  // very slow — lean is a DELIBERATE choice
 
     asc.time += dt;
 
@@ -2805,11 +2806,11 @@ const Follow = (function () {
     asc.filterSmooth = Math.max(cfg.filterRange[0], Math.min(cfg.filterRange[1], asc.filterSmooth));
     try { Audio.ascension.setWallFilter(asc.filterSmooth); } catch(e) {}
 
-    // ── 9. DETUNE SPREAD — widens with bloom + motion ──
+    // ── 9. DETUNE SPREAD — widens with bloom. Motion adds shimmer. ──
     var bloomSpread = cfg.detuneRange[0] + (asc.bloom / 4) * (cfg.detuneRange[1] - cfg.detuneRange[0]);
-    var motionSpread = energy * 2;
+    var motionSpread = Math.min(3, energy * 0.4);  // subtle motion shimmer
     var spreadTarget = Math.min(cfg.detuneRange[1], bloomSpread + motionSpread);
-    asc.spreadSmooth += (spreadTarget - asc.spreadSmooth) * 2.0 * dt;
+    asc.spreadSmooth += (spreadTarget - asc.spreadSmooth) * 1.0 * dt;  // slower spread changes
     try { Audio.ascension.setWallSpread(asc.spreadSmooth); } catch(e) {}
 
     // ── 10. ROLL → subtle pitch shift ──
