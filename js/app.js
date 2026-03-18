@@ -273,6 +273,9 @@
     Sensor.init().then(function () {
       Brain.init();
       Audio.init(audioCtx);
+      // Try mic sampler init on this user gesture (iOS requires gesture context).
+      // If denied, Grid runs without sampling — no error, just no samples.
+      try { Audio.sampler.init().catch(function () {}); } catch (e) {}
       Follow.init();
       Lens.buildPicker();
 

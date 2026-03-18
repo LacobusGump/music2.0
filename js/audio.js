@@ -3349,6 +3349,281 @@ const Audio = (function () {
     _edm808SubFreq = freq || 55;
   }
 
+  // ── LIVE MIC SAMPLER ──────────────────────────────────────────────────
+  // Records ambient audio from the mic into a circular buffer.
+  // Captured slices become playable samples — chopped, pitched, stuttered.
+  // Graceful degradation: if mic is denied, everything else still works.
+
+  var _samp = {
+    stream: null,
+    source: null,
+    analyser: null,
+    processor: null,
+    ring: null,          // circular Float32Array
+    ringSize: 0,
+    ringPos: 0,
+    captured: null,      // AudioBuffer of last capture
+    active: false,
+    sources: [],         // playing BufferSourceNodes (for cleanup)
+  };
+
+  var SAMP_RING_SECONDS = 4;  // circular buffer length
+
+  function samplerInit() {
+    if (_samp.active) return Promise.resolve(true);
+    if (!ctx) return Promise.reject('no audio context');
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      return Promise.reject('getUserMedia not available');
+    }
+
+    return navigator.mediaDevices.getUserMedia({ audio: true })
+      .then(function (stream) {
+        _samp.stream = stream;
+        _samp.source = ctx.createMediaStreamSource(stream);
+
+        // Analyser for level metering
+        _samp.analyser = ctx.createAnalyser();
+        _samp.analyser.fftSize = 2048;
+        _samp.source.connect(_samp.analyser);
+
+        // Circular buffer
+        var sampleRate = ctx.sampleRate || 44100;
+        _samp.ringSize = Math.ceil(sampleRate * SAMP_RING_SECONDS);
+        _samp.ring = new Float32Array(_samp.ringSize);
+        _samp.ringPos = 0;
+
+        // ScriptProcessor captures raw PCM into circular buffer
+        // Using ScriptProcessor (not AudioWorklet) for iOS Safari compat
+        _samp.processor = ctx.createScriptProcessor(4096, 1, 1);
+        _samp.processor.onaudioprocess = function (e) {
+          var input = e.inputBuffer.getChannelData(0);
+          var ring = _samp.ring;
+          var pos = _samp.ringPos;
+          var len = ring.length;
+          for (var i = 0; i < input.length; i++) {
+            ring[pos] = input[i];
+            pos = (pos + 1) % len;
+          }
+          _samp.ringPos = pos;
+          // Copy to output to keep the node alive (output is silent — not connected to dest)
+          var output = e.outputBuffer.getChannelData(0);
+          for (var j = 0; j < output.length; j++) output[j] = 0;
+        };
+        _samp.source.connect(_samp.processor);
+        // Connect processor to ctx.destination with zero gain to keep it alive on iOS
+        var silentGain = ctx.createGain();
+        silentGain.gain.value = 0;
+        _samp.processor.connect(silentGain);
+        silentGain.connect(ctx.destination);
+
+        _samp.active = true;
+        return true;
+      });
+  }
+
+  function samplerGetLevel() {
+    if (!_samp.active || !_samp.analyser) return 0;
+    var buf = new Uint8Array(_samp.analyser.fftSize);
+    _samp.analyser.getByteTimeDomainData(buf);
+    var sum = 0;
+    for (var i = 0; i < buf.length; i++) {
+      var v = (buf[i] - 128) / 128;
+      sum += v * v;
+    }
+    return Math.sqrt(sum / buf.length);
+  }
+
+  function samplerCapture(seconds) {
+    if (!_samp.active || !_samp.ring || !ctx) return null;
+    var sampleRate = ctx.sampleRate || 44100;
+    var sampleCount = Math.min(Math.ceil(seconds * sampleRate), _samp.ringSize);
+
+    var buf = ctx.createBuffer(1, sampleCount, sampleRate);
+    var data = buf.getChannelData(0);
+    var ring = _samp.ring;
+    var len = ring.length;
+
+    // Read backwards from current write position
+    var readStart = (_samp.ringPos - sampleCount + len) % len;
+    for (var i = 0; i < sampleCount; i++) {
+      data[i] = ring[(readStart + i) % len];
+    }
+
+    // Fade in/out to prevent clicks (5ms each end)
+    var fadeSamples = Math.min(Math.floor(sampleRate * 0.005), Math.floor(sampleCount / 4));
+    for (var f = 0; f < fadeSamples; f++) {
+      var env = f / fadeSamples;
+      data[f] *= env;
+      data[sampleCount - 1 - f] *= env;
+    }
+
+    _samp.captured = buf;
+    return buf;
+  }
+
+  function samplerPlay(time, opts) {
+    if (!_samp.captured || !ctx) return null;
+    var o = opts || {};
+    var rate = o.rate !== undefined ? o.rate : 1.0;
+    var vol = o.vol !== undefined ? o.vol : 0.5;
+    var startOffset = o.start || 0;
+    var duration = o.duration || null;
+    var loop = o.loop || false;
+    var reverse = o.reverse || false;
+
+    var buffer = _samp.captured;
+
+    // If reverse, create a reversed copy
+    if (reverse) {
+      var revBuf = ctx.createBuffer(1, buffer.length, buffer.sampleRate);
+      var srcData = buffer.getChannelData(0);
+      var revData = revBuf.getChannelData(0);
+      for (var i = 0; i < srcData.length; i++) {
+        revData[i] = srcData[srcData.length - 1 - i];
+      }
+      buffer = revBuf;
+      // Flip start offset for reversed playback
+      if (startOffset > 0 && duration) {
+        startOffset = Math.max(0, buffer.duration - startOffset - duration);
+      }
+    }
+
+    var src = ctx.createBufferSource();
+    src.buffer = buffer;
+    src.playbackRate.value = rate;
+    src.loop = loop;
+
+    // Filter — zone-shaped, follows the Grid filter
+    var filter = ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.value = o.filterFreq || 3000;
+    filter.Q.value = o.filterQ || 1.0;
+
+    // Gain
+    var gain = ctx.createGain();
+    gain.gain.value = vol;
+
+    // Connect: src → filter → gain → sidechainGain (pumps with kick)
+    src.connect(filter);
+    filter.connect(gain);
+    if (sidechainGain) {
+      gain.connect(sidechainGain);
+    } else if (masterGain) {
+      gain.connect(masterGain);
+    }
+
+    // Reverb send
+    if (reverbSend && o.reverb) {
+      var rvbGain = ctx.createGain();
+      rvbGain.gain.value = o.reverb;
+      gain.connect(rvbGain);
+      rvbGain.connect(reverbSend);
+    }
+
+    // Delay send
+    if (delaySend && o.delay) {
+      var dlGain = ctx.createGain();
+      dlGain.gain.value = o.delay;
+      gain.connect(dlGain);
+      dlGain.connect(delaySend);
+    }
+
+    // Schedule playback
+    if (duration) {
+      src.start(time, startOffset, duration);
+    } else {
+      src.start(time, startOffset);
+    }
+
+    // Cleanup
+    _samp.sources.push(src);
+    src.onended = function () {
+      try { src.disconnect(); } catch (e) {}
+      try { filter.disconnect(); } catch (e) {}
+      try { gain.disconnect(); } catch (e) {}
+      var idx = _samp.sources.indexOf(src);
+      if (idx >= 0) _samp.sources.splice(idx, 1);
+    };
+
+    return { source: src, gain: gain, filter: filter };
+  }
+
+  function samplerChop(time, totalChops, chopIndex, opts) {
+    if (!_samp.captured || !ctx) return null;
+    var dur = _samp.captured.duration;
+    var chopDur = dur / totalChops;
+    var startOffset = chopIndex * chopDur;
+    var o = opts || {};
+    o.start = startOffset;
+    o.duration = chopDur;
+    return samplerPlay(time, o);
+  }
+
+  function samplerStutter(time, sliceDuration, repeats, opts) {
+    if (!_samp.captured || !ctx) return;
+    var o = opts || {};
+    // Pick a slice from the middle of the buffer for interesting content
+    var mid = _samp.captured.duration * 0.4;
+    var sliceDur = sliceDuration || 0.06;
+    for (var i = 0; i < repeats; i++) {
+      var t = time + i * sliceDur;
+      var vol = (o.vol || 0.5) * (1 - i * 0.08);  // slight decay per repeat
+      samplerPlay(t, {
+        rate: o.rate || 1.0,
+        vol: Math.max(0.1, vol),
+        start: mid,
+        duration: sliceDur,
+        filterFreq: o.filterFreq || 3000,
+        filterQ: o.filterQ || 1.0,
+        reverb: o.reverb || 0,
+        delay: o.delay || 0,
+      });
+    }
+  }
+
+  function samplerHasSample() {
+    return !!_samp.captured;
+  }
+
+  function samplerDestroy() {
+    // Stop all playing sources
+    for (var i = 0; i < _samp.sources.length; i++) {
+      try { _samp.sources[i].stop(); } catch (e) {}
+    }
+    _samp.sources = [];
+
+    // Disconnect processor
+    if (_samp.processor) {
+      try { _samp.processor.disconnect(); } catch (e) {}
+      _samp.processor.onaudioprocess = null;
+      _samp.processor = null;
+    }
+
+    // Disconnect analyser and source
+    if (_samp.analyser) {
+      try { _samp.analyser.disconnect(); } catch (e) {}
+      _samp.analyser = null;
+    }
+    if (_samp.source) {
+      try { _samp.source.disconnect(); } catch (e) {}
+      _samp.source = null;
+    }
+
+    // Stop mic stream
+    if (_samp.stream) {
+      var tracks = _samp.stream.getTracks();
+      for (var t = 0; t < tracks.length; t++) {
+        tracks[t].stop();
+      }
+      _samp.stream = null;
+    }
+
+    _samp.ring = null;
+    _samp.ringPos = 0;
+    _samp.captured = null;
+    _samp.active = false;
+  }
+
   return Object.freeze({
     init: init,
     configure: configure,
@@ -3454,6 +3729,17 @@ const Audio = (function () {
       buffers: vocalBuffers,
     }),
     setWeather: setWeather,
+
+    sampler: Object.freeze({
+      init: samplerInit,
+      level: samplerGetLevel,
+      capture: samplerCapture,
+      play: samplerPlay,
+      chop: samplerChop,
+      stutter: samplerStutter,
+      hasSample: samplerHasSample,
+      destroy: samplerDestroy,
+    }),
 
     get ctx() { return ctx; },
     get master() { return masterGain; },
