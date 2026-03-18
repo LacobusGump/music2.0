@@ -195,7 +195,7 @@ const Voice = (function () {
 
     // Play the intro audio file
     lastSpoke = Date.now();
-    fetch(BASE + FILES.boot)
+    fetch(BASE + FILES.boot + '?v=2')
       .then(function (r) {
         if (!r.ok) throw new Error('not found');
         return r.arrayBuffer();
