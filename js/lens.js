@@ -382,18 +382,25 @@ const Lens = (function () {
         breathRate: 0.08,
         breathDepth: 1800,
         noiseLevel: 0.06,
-        stageTargets: [4, 7, 12],   // M3, P5, octave — semitones to find
-        snapRadius: 1.5,            // semitones — gravitational pull starts
-        snapLockTime: 1.5,          // seconds near target to snap
-        suckDuration: 2.0,          // seconds of suck before slam
-        chordVoicings: [
-          [0, 4, 7, 12],    // I major
-          [0, 5, 9, 12],    // IV
-          [0, 4, 7, 11],    // Imaj7
-          [0, 2, 7, 12],    // Isus2
-          [0, 5, 7, 12],    // Isus4
-          [0, 4, 7, 14],    // I add9
+        suckDuration: 0.8,          // seconds of suck before slam (shorter = punchier)
+        // Energy thresholds for layer bloom (replaces search/snap)
+        bloomThresholds: [2.0, 4.5, 8.0, 12.0, 18.0],  // M3, P5, oct, sub+bass, full bloom
+        // Chord progressions — touch cycles which one is active
+        progressions: [
+          // I → V → vi → IV  (the axis — the prodloveeli sound)
+          [[0, 4, 7, 12], [-5, 0, 4, 7], [-3, 0, 4, 9], [-5, 0, 5, 9]],
+          // I → IV → V → vi  (pop canon)
+          [[0, 4, 7, 12], [0, 5, 9, 12], [-5, 0, 4, 7], [-3, 0, 4, 9]],
+          // vi → IV → I → V  (emotional minor start)
+          [[-3, 0, 4, 9], [-5, 0, 5, 9], [0, 4, 7, 12], [-5, 0, 4, 7]],
+          // I → vi → ii → V  (jazz-inflected)
+          [[0, 4, 7, 12], [-3, 0, 4, 9], [-5, 2, 5, 9], [-5, -1, 4, 7]],
         ],
+        chordDuration: [6.0, 4.0],   // [start, fastest] — shortens as energy builds
+        dropBuildTime: 4.0,           // seconds of riser before impact
+        dropDischarge: 0.6,           // energy multiplier after drop (0.4 = lose 60%)
+        swellCycle: 12.5,             // seconds per breathing swell
+        swellDepth: 0.15,             // gain variation (0.15 = ±15%)
       },
 
       response: {
