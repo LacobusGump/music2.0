@@ -2443,6 +2443,9 @@ const Follow = (function () {
     // Peak pluck cooldown
     pluckCooldown: 0,
 
+    // ── SMOOTHED TILT — figure-8s become flowing pitch curves ──
+    tiltSmooth: 0.5,
+
     // ── ENERGY CAPACITOR — still drives filter floor + spread width ──
     ascEnergy: 0,
 
@@ -2665,6 +2668,7 @@ const Follow = (function () {
     asc.masterGain = 0;
     asc.stillTime = 0;
     asc.pluckCooldown = 0;
+    asc.tiltSmooth = 0.5;
     asc.ascEnergy = 0;
     asc.pitchBuffer = [];
     asc.clockPhase = 0;
@@ -2766,7 +2770,12 @@ const Follow = (function () {
     var energy = (typeof Brain !== 'undefined') ? Brain.short.energy() : 0;
     var beta   = sensor.beta  || 0;
     var gamma  = sensor.gamma || 0;
-    var tiltNorm = Math.max(0, Math.min(1, (beta - 20) / 60));
+
+    // Tilt mapping: wide range (-30 to 150°) so figure-8s sweep the full scale
+    // Heavy smoothing so rapid arm movements become flowing pitch curves
+    var rawTilt = Math.max(0, Math.min(1, (beta + 30) / 180));
+    asc.tiltSmooth += (rawTilt - asc.tiltSmooth) * 0.12;  // smooth — no jumps
+    var tiltNorm = asc.tiltSmooth;
 
     asc.time += dt;
     asc.stageTimer += dt;
@@ -2776,7 +2785,7 @@ const Follow = (function () {
     if (ascLogInterval >= 0.5 && asc.started) {
       ascLogInterval = 0;
       ascRecord('STATE', {
-        phase: asc.phase, energy: +energy.toFixed(2), tilt: +tiltNorm.toFixed(2),
+        phase: asc.phase, energy: +energy.toFixed(2), tilt: +tiltNorm.toFixed(2), rawTilt: +rawTilt.toFixed(2),
         beta: Math.round(beta), gamma: Math.round(gamma),
         filter: Math.round(asc.filterSmooth), spread: +asc.spreadSmooth.toFixed(1),
         gain: +asc.masterGain.toFixed(2), ascNrg: +asc.ascEnergy.toFixed(1),
@@ -2824,7 +2833,7 @@ const Follow = (function () {
     // ── 5. ACCLIMATE PHASE — raw expression, silent analysis ──
     if (asc.phase === 'acclimate') {
       // Raw tilt → free pitch (chromatic, full range around root)
-      var rawSemi = tiltNorm * 24 - 12;
+      var rawSemi = tiltNorm * 14 - 5;  // -5 to +9 semitones — one musical octave
       var rawFreq = cfg.wallRoot * Math.pow(2, rawSemi / 12);
 
       // Record and fire on peaks — require REAL motion, not sensor noise
@@ -2996,7 +3005,7 @@ const Follow = (function () {
     if (asc.pluckCooldown > 0) asc.pluckCooldown -= dt;
 
     if (peakCount > 0 && asc.pluckCooldown <= 0 && asc.stagePhase === 'play' && !asc.breathActive && energy > 0.80) {
-      var rawSemi = tiltNorm * 24 - 12;
+      var rawSemi = tiltNorm * 14 - 5;  // -5 to +9 semitones — one musical octave
       var rawFreq = cfg.wallRoot * Math.pow(2, rawSemi / 12);
       var voicing = prog[asc.chordStep];
 

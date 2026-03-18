@@ -389,7 +389,7 @@ const Lens = (function () {
         bpm: 107,                     // internal grid tempo
         acclimateTime: 8.0,           // seconds of raw exploration before grid lock
         minPitchSamples: 5,           // minimum peaks before analysis can run
-        magnetismMax: 0.6,            // max pitch pull strength toward chord tones
+        magnetismMax: 0.35,           // gentle pull — keep pitch variety, don't collapse
         enrichBars: 8,                // bars to full enrichment (~18s at 107)
         reanalyzeBars: 8,             // re-check progression fit every N bars
         // Chord progressions — system picks the one that fits your playing
