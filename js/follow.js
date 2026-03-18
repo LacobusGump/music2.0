@@ -2547,17 +2547,8 @@ const Follow = (function () {
     // Built at the root's octave (220Hz for A) — sweet spot for saw shimmer
     try { Audio.edm.buildLevitation(originalRoot, 30); } catch(e) {}
 
-    // Preload vocal clips for the drop sequence
-    if (!grid.vocalsLoaded) {
-      grid.vocalsLoaded = true;
-      try {
-        Audio.vocal.preload('freedom-is', 'voice/freedom-is.mp3?v=1');
-        Audio.vocal.preload('what-you-do-with', 'voice/what-you-do-with.mp3?v=1');
-        Audio.vocal.preload('what-is-done', 'voice/what-is-done.mp3?v=1');
-        Audio.vocal.preload('to-you', 'voice/to-you.mp3?v=1');
-        Audio.vocal.preload('you-deep', 'voice/you-deep.mp3?v=1');
-      } catch(e) {}
-    }
+    // Vocals disabled — future: live mic sampling
+    grid.vocalsLoaded = false;
   }
 
   function teardownGrid() {
