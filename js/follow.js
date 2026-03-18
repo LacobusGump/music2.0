@@ -1950,6 +1950,8 @@ const Follow = (function () {
 
   // ── GYRO → FILTER ─────────────────────────────────────────────────────
 
+  var gyroMagSmooth = 0;  // smoothed gyro magnitude for filter
+
   function updateGyroFilter(sensor) {
     if (!lens) return;
 
@@ -1962,8 +1964,13 @@ const Follow = (function () {
       sensor._prevGamma = sensor.gamma;
     }
 
+    // Smooth the gyro magnitude — per-frame deltas are tiny, need accumulation
+    gyroMagSmooth += (gyroMag - gyroMagSmooth) * 0.15;
+
     var range = (lens.response && lens.response.filterRange) || [200, 2800];
-    var norm = Math.min(1, gyroMag / 8);
+    // At 60fps, active tilting gives gyroMag ~1-4 per frame.
+    // Smoothed value of ~1.5 should open the filter significantly.
+    var norm = Math.min(1, gyroMagSmooth / 3);
     filterTarget = range[0] + norm * (range[1] - range[0]);
     filterFreq += (filterTarget - filterFreq) * 0.08;
 
@@ -2711,9 +2718,9 @@ const Follow = (function () {
   function gridRecord(type, data) {
     gridLog.push({ t: grid.setTime.toFixed(2), type: type, data: data });
   }
+  var jrnWallClock = 0;  // real elapsed time for Journey logs
   function jrnRecord(type, data) {
-    var t = (typeof sessionEngagedTime !== 'undefined') ? sessionEngagedTime.toFixed(2) : '0.00';
-    jrnLog.push({ t: t, type: type, data: data });
+    jrnLog.push({ t: jrnWallClock.toFixed(2), type: type, data: data });
   }
 
   function formatLog(log, name) {
@@ -4471,6 +4478,7 @@ const Follow = (function () {
     updateTensionArc(dt);
 
     // Journey state snapshot every 0.5s
+    jrnWallClock += dt;
     jrnLogInterval += dt;
     if (jrnLogInterval >= 0.5 && lens && lens.name !== 'Grid' && lens.name !== 'Ascension') {
       jrnLogInterval = 0;
@@ -4478,7 +4486,7 @@ const Follow = (function () {
       jrnRecord('STATE', {
         lens: lens.name, silent: isSilent, phrase: phraseActive,
         energy: +brainEnergy.toFixed(2), mag: +mag.toFixed(2), fade: +fadeGain.toFixed(2),
-        degree: currentDegree, filter: Math.round(filterFreq),
+        degree: currentDegree, filter: Math.round(filterFreq), gyro: +gyroMagSmooth.toFixed(2),
         tempo: Math.round(derivedTempo), locked: tempoLocked,
         density: +densityLevel.toFixed(1), act: sessionAct,
         stage: organicStage.current, stageTimer: Math.round(organicStage.timer),
