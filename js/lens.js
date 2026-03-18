@@ -387,8 +387,8 @@ const Lens = (function () {
         swellDepth: 0.15,             // gain variation (0.15 = ±15%)
         // Hidden songwriter
         bpm: 107,                     // internal grid tempo
-        acclimateTime: 5.0,           // seconds of raw exploration before grid lock
-        minPitchSamples: 3,           // minimum peaks before analysis can run
+        acclimateTime: 8.0,           // seconds of raw exploration before grid lock
+        minPitchSamples: 5,           // minimum peaks before analysis can run
         magnetismMax: 0.6,            // max pitch pull strength toward chord tones
         enrichBars: 8,                // bars to full enrichment (~18s at 107)
         reanalyzeBars: 8,             // re-check progression fit every N bars

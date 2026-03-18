@@ -2773,9 +2773,11 @@ const Follow = (function () {
     }
 
     // ── 2. ENERGY CAPACITOR — still drives filter floor + spread width ──
-    asc.ascEnergy += energy * dt * 0.8;
-    asc.ascEnergy *= (1.0 - 0.003 * dt);
-    if (asc.stillTime > 5.0) asc.ascEnergy *= (1.0 - 0.08 * dt);
+    // Capped at 30. Leaks faster so it actually responds to stillness.
+    asc.ascEnergy += energy * dt * 0.5;
+    asc.ascEnergy *= (1.0 - 0.02 * dt);  // meaningful leak
+    if (asc.stillTime > 3.0) asc.ascEnergy *= (1.0 - 0.15 * dt);
+    asc.ascEnergy = Math.min(30, asc.ascEnergy);
 
     // ── 3. MASTER GAIN + BREATHING SWELL ──
     var gainTarget = energy > 0.04 ? 0.75 : (asc.enrichment > 0.2 ? 0.3 : 0.1);
@@ -2800,16 +2802,17 @@ const Follow = (function () {
       var rawSemi = tiltNorm * 24 - 12;
       var rawFreq = cfg.wallRoot * Math.pow(2, rawSemi / 12);
 
-      // Record and fire on peaks
-      if (peakCount > 0 && asc.pluckCooldown <= 0 && energy > 0.10) {
+      // Record and fire on peaks — require REAL motion, not sensor noise
+      if (peakCount > 0 && asc.pluckCooldown <= 0 && energy > 0.80) {
         asc.pitchBuffer.push({ semi: rawSemi, time: asc.time });
         if (asc.pitchBuffer.length > asc.pitchBufferMax) asc.pitchBuffer.shift();
         ascRecord('PITCH', { semi: +rawSemi.toFixed(1), freq: Math.round(rawFreq), energy: +energy.toFixed(2), beta: Math.round(beta), buf: asc.pitchBuffer.length });
         // Fire raw lead — no magnetism, no chord quantization
         while (rawFreq < 300) rawFreq *= 2;
         while (rawFreq > 1200) rawFreq /= 2;
-        try { Audio.synth.ascLead(0, rawFreq, 0.30 + energy * 0.20, 1.5, cfg.portamento); } catch(e) {}
-        try { Audio.synth.ascPluck(0, rawFreq, Math.min(1, energy * 1.2 + 0.2), 0.8); } catch(e) {}
+        var leadVel = Math.min(1.0, 0.30 + energy * 0.06);
+        try { Audio.synth.ascLead(0, rawFreq, leadVel, 1.5, cfg.portamento); } catch(e) {}
+        try { Audio.synth.ascPluck(0, rawFreq, Math.min(1, energy * 0.15 + 0.2), 0.8); } catch(e) {}
         asc.pluckCooldown = 0.2;
       }
       if (asc.pluckCooldown > 0) asc.pluckCooldown -= dt;
@@ -2826,7 +2829,7 @@ const Follow = (function () {
       // Transition to grid lock: enough time AND enough pitch samples
       var acclimateTime = cfg.acclimateTime || 5.0;
       var minSamples = cfg.minPitchSamples || 3;
-      if (asc.time >= acclimateTime && asc.pitchBuffer.length >= minSamples && energy > 0.06) {
+      if (asc.time >= acclimateTime && asc.pitchBuffer.length >= minSamples && energy > 0.50) {
         // Analyze what they played and pick the best progression
         asc.progIndex = analyzePitchBuffer(asc.pitchBuffer, cfg.progressions, cfg.wallRoot);
         var progNames = ['I-V-vi-IV (axis)', 'I-IV-V-vi (pop)', 'vi-IV-I-V (emotional)', 'I-vi-ii-V (jazz)'];
@@ -2967,7 +2970,7 @@ const Follow = (function () {
     // ── 11. MAGNETIZED LEAD — peaks fire notes pulled toward chord tones ──
     if (asc.pluckCooldown > 0) asc.pluckCooldown -= dt;
 
-    if (peakCount > 0 && asc.pluckCooldown <= 0 && asc.stagePhase === 'play' && !asc.breathActive && energy > 0.10) {
+    if (peakCount > 0 && asc.pluckCooldown <= 0 && asc.stagePhase === 'play' && !asc.breathActive && energy > 0.80) {
       var rawSemi = tiltNorm * 24 - 12;
       var rawFreq = cfg.wallRoot * Math.pow(2, rawSemi / 12);
       var voicing = prog[asc.chordStep];
@@ -2977,7 +2980,7 @@ const Follow = (function () {
       while (magFreq < 300) magFreq *= 2;
       while (magFreq > 1200) magFreq /= 2;
 
-      var leadVel = 0.30 + energy * 0.25;
+      var leadVel = Math.min(1.0, 0.30 + energy * 0.06);
       ascRecord('LEAD', { rawSemi: +rawSemi.toFixed(1), rawHz: Math.round(rawFreq), magHz: Math.round(magFreq), pull: +(magFreq - rawFreq).toFixed(0), mag: +asc.magnetism.toFixed(2), chord: asc.chordStep, vel: +leadVel.toFixed(2) });
       try { Audio.synth.ascLead(0, magFreq, leadVel, 1.5, cfg.portamento); } catch(e) {}
 
@@ -2986,7 +2989,7 @@ const Follow = (function () {
       var pf = cfg.wallRoot * Math.pow(2, voicing[pi] / 12);
       if (pf < 200) pf *= 2;
       if (pf > 2000) pf /= 2;
-      try { Audio.synth.ascPluck(0, pf, Math.min(1, energy * 1.2 + 0.3), 0.8); } catch(e) {}
+      try { Audio.synth.ascPluck(0, pf, Math.min(1, energy * 0.15 + 0.2), 0.8); } catch(e) {}
 
       asc.pluckCooldown = 0.2;
 
