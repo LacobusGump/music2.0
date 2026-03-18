@@ -406,80 +406,6 @@ const Lens = (function () {
         sensitivity: 1.0,
       },
     },
-
-    // ─── 4. WILD ──────────────────────────────────────────────────────
-    // Born to be Wild. Steppenwolf. 1969 motorcycle rock.
-    // Rev the engine with tilt. Kick into the riff. E→G→A power chords.
-    // BYPASSES the organic pipeline entirely — like Grid and Ascension.
-    {
-      name: 'Wild',
-      color: '#ff4400',  // hot rod orange
-      description: 'Rev it up. Born to ride.',
-
-      harmony: { root: 82.41, mode: 'major' },  // E2
-
-      tone: {
-        bassFreq: 80, bassGain: 5,
-        midFreq: 1200, midQ: 0.8, midGain: 2,
-        highFreq: 3500, highGain: -4,
-        ceiling: 5000,
-      },
-
-      space: {
-        reverb: { decay: 1.5, damping: 0.45, preDelay: 8 },
-        delay: { feedback: 0.22, filter: 2800, sync: 'eighth' },
-        saturation: 0.10,
-        type: 'room',
-        reverbMix: 0.15,
-        spatial: { sweepRate: 0.06, sweepDepth: 0.25 },
-      },
-
-      palette: {
-        continuous: { voice: 'rockguitar', octave: 0, decay: 0.35 },
-        peak:       { voice: 'rockguitar', octave: 0, decay: 0.4  },
-        harmonic:   { voice: 'rockguitar', octave: 1, decay: 0.3  },
-        touch:      { voice: 'rockguitar', octave: 0, decay: 0.35 },
-      },
-
-      groove: {
-        kit: 'rock',
-        microTiming: { kick: 0, hat: 0, snare: 0 },
-        ghosts: 0,
-        backbeat: true,
-        maxVel: 0.95,
-        broken: false,
-        dropRate: 0,
-      },
-
-      wild: {
-        bpm: 146,
-        root: 82.41,       // E2
-        // The riff: E→G→A power chords (semitone offsets from E)
-        riff: [0, 3, 5],   // E, G, A
-        riffPattern: [1,0,1,0, 1,0,1,0, 1,0,1,0, 1,0,1,0],  // 8th note chugs
-        revThreshold: 3.0,  // energy needed to "kick in"
-      },
-
-      response: {
-        peakThreshold: 0.30,
-        tiltRange: 55,
-        noteInterval: 180,
-        melodicEnergy: 0.25,
-        stillnessThreshold: 0.12,
-        stillnessTimeout: 2.5,
-        fadeTime: 4.0,
-        filterRange: [300, 5000],
-        densityThresholds: [2.0, 5.0, 10.0],
-      },
-
-      emotion: { colorDeg: 2, phraseShape: 'rising' },
-
-      motion: {
-        primary: 'tilt_rate',
-        melodic: 'beta',
-        sensitivity: 1.2,
-      },
-    },
   ];
 
   // ── STATE ──────────────────────────────────────────────────────────
@@ -582,8 +508,8 @@ const Lens = (function () {
   }
 
   function restoreFromStorage() {
-    // Start on Journey (0) by default
-    // unless the user explicitly chose another lens last time
+    // With only 2 lenses, start on Journey (0) by default
+    // unless the user explicitly chose Grid last time
     var lastIndex = 0;
     try {
       var s = localStorage.getItem('m2_lens');

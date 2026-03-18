@@ -767,9 +767,7 @@
       'MUSIC 2.0 — YOUR BODY IS THE INSTRUMENT',
       'LENS: ' + (lens ? lens.name : 'none'),
       'ARCHETYPE: ' + Follow.archetype + ' | INTENT: ' + Follow.intent,
-      Follow.wildPhase !== '-'
-        ? 'WILD: ' + Follow.wildPhase + ' | REV: ' + Follow.wildRev + ' | CHORD: ' + Follow.wildRiffChord + ' | BARS: ' + Follow.wildBars
-        : Follow.ascPhase !== '-'
+      Follow.ascPhase !== '-'
         ? 'ENRICH: ' + Follow.ascEnrich + ' | FILTER: ' + Follow.ascFilter + 'Hz | DETUNE: ' + Follow.ascDetune + 'ct'
         : Follow.gridPhase !== '-'
         ? 'PHASE: ' + Follow.gridPhase + ' | FILTER: ' + Follow.filterFreq.toFixed(0) + 'Hz'
@@ -778,16 +776,12 @@
       'YOUR TEMPO: ' + Follow.tempo.toFixed(0) + ' BPM | LOCKED: ' + (Follow.locked ? 'YES(' + Follow.lockStr.toFixed(2) + ')' : 'no'),
       'CONFIDENCE: ' + Follow.confidence.toFixed(2) + ' | HR: ' + Follow.hrState,
       'PROFILE: ' + Follow.profileSessions + ' sessions | ' + Follow.profileArchetype + (Follow.profilePeakMag ? ' | peak avg ' + Follow.profilePeakMag : ''),
-      Follow.wildPhase !== '-'
-        ? 'WILD INT: ' + Follow.wildIntensity + ' | RIFF: ' + Follow.wildRiffStep
-        : Follow.ascPhase !== '-'
+      Follow.ascPhase !== '-'
         ? 'PITCHES: ' + Follow.ascPitches + ' | NRG: ' + Follow.ascEnergy + ' | GAIN: ' + Follow.ascGain
         : Follow.gridPhase !== '-'
         ? 'GRID: ' + Follow.gridPhase + ' | BUILD: ' + Follow.gridBuild + ' | INT: ' + Follow.gridIntensity + ' | GAIN: ' + Follow.gridDjGain
         : 'DENSITY: ' + Follow.density.toFixed(1) + ' | ENERGY: ' + Follow.energy.toFixed(2),
-      Follow.wildPhase !== '-'
-        ? 'WILD PHASE: ' + Follow.wildPhase + ' | CHORD: ' + Follow.wildRiffChord
-        : Follow.ascPhase !== '-'
+      Follow.ascPhase !== '-'
         ? 'ASC: ' + Follow.ascPhase + ' | CHORD: ' + Follow.ascChord + (Follow.ascBreathing === 'YES' ? ' BREATHING' : '')
         : Follow.gridPhase !== '-'
         ? 'DEPTH: ' + Follow.gridDepth + ' | SEG: ' + Follow.gridSegment + ' | BARS: ' + Follow.gridBars + ' | ' + Follow.gridLayers

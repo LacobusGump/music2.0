@@ -1004,7 +1004,6 @@ const Audio = (function () {
       case 'mono':       synthMono(time, freq, vel, decay); break;
       case 'cinematic':  synthCinematic(time, freq, vel, decay); break;
       case 'gridstack':  synthGridStack(time, freq, vel, decay); break;
-      case 'rockguitar': synthRockGuitar(time, freq, vel, decay); break;
       default: synthSimple(time, freq, vel, decay, opts); break;
     }
   }
@@ -3205,114 +3204,6 @@ const Audio = (function () {
     destroyLayer('edm-levitation');
   }
 
-  // ── WILD ENGINE SYNTHS — Rock guitar + motorcycle rev ──────────────────
-
-  // ── ROCK GUITAR — distorted power chord: square + detuned saw through WaveShaper ──
-  // Fire-and-forget. Root + fifth (7 semitones up). That raw 1969 overdriven tone.
-  function synthRockGuitar(time, freq, vel, decay) {
-    decay = decay || 0.35;
-    var v = Math.min(0.9, vel || 0.6);
-    var fifthFreq = freq * Math.pow(2, 7 / 12);  // power chord: root + perfect fifth
-
-    // Distortion curve — hard tanh clipping
-    var distCurve = new Float32Array(256);
-    for (var i = 0; i < 256; i++) {
-      var x = (i * 2) / 256 - 1;
-      distCurve[i] = Math.tanh(x * 3.5);  // hard clip
-    }
-    var dist = ctx.createWaveShaper();
-    dist.curve = distCurve;
-    dist.oversample = '2x';
-
-    // Cabinet sim — bandpass 800-2000Hz
-    var cab = ctx.createBiquadFilter();
-    cab.type = 'bandpass';
-    cab.frequency.value = 1200;
-    cab.Q.value = 0.8;
-
-    // Envelope
-    var env = ctx.createGain();
-    env.gain.setValueAtTime(v * 0.55, time);
-    env.gain.setValueAtTime(v * 0.5, time + 0.01);
-    env.gain.setTargetAtTime(0.001, time + decay * 0.5, decay * 0.35);
-
-    // Root: square wave
-    var oRoot = ctx.createOscillator(); oRoot.type = 'square'; oRoot.frequency.value = freq;
-    var gRoot = ctx.createGain(); gRoot.gain.value = 0.35;
-    oRoot.connect(gRoot);
-
-    // Root: detuned saw for thickness
-    var oRootSaw = ctx.createOscillator(); oRootSaw.type = 'sawtooth'; oRootSaw.frequency.value = freq;
-    oRootSaw.detune.value = 6;
-    var gRootSaw = ctx.createGain(); gRootSaw.gain.value = 0.25;
-    oRootSaw.connect(gRootSaw);
-
-    // Fifth: square
-    var oFifth = ctx.createOscillator(); oFifth.type = 'square'; oFifth.frequency.value = fifthFreq;
-    var gFifth = ctx.createGain(); gFifth.gain.value = 0.30;
-    oFifth.connect(gFifth);
-
-    // Fifth: detuned saw
-    var oFifthSaw = ctx.createOscillator(); oFifthSaw.type = 'sawtooth'; oFifthSaw.frequency.value = fifthFreq;
-    oFifthSaw.detune.value = -8;
-    var gFifthSaw = ctx.createGain(); gFifthSaw.gain.value = 0.20;
-    oFifthSaw.connect(gFifthSaw);
-
-    // Wire: oscs → distortion → cabinet → envelope → sidechain
-    gRoot.connect(dist); gRootSaw.connect(dist); gFifth.connect(dist); gFifthSaw.connect(dist);
-    dist.connect(cab);
-    cab.connect(env);
-    env.connect(sidechainGain);
-
-    // Light reverb send — room, not cathedral
-    if (reverbSend) {
-      var rs = ctx.createGain(); rs.gain.value = 0.18;
-      env.connect(rs); rs.connect(reverbSend);
-    }
-
-    var endTime = time + decay + 0.2;
-    oRoot.start(time); oRoot.stop(endTime);
-    oRootSaw.start(time); oRootSaw.stop(endTime);
-    oFifth.start(time); oFifth.stop(endTime);
-    oFifthSaw.start(time); oFifthSaw.stop(endTime);
-  }
-
-  // ── MOTORCYCLE REV LAYER — continuous, builds with throttle ──
-  // Low sawtooth (40-200Hz) + filtered noise. Pitch rises with throttle amount.
-  // Uses the layer system — NOT fire-and-forget.
-  function buildRevLayer(baseFreq) {
-    destroyLayer('wild-rev');
-    return buildLayer('wild-rev', {
-      oscillators: [
-        { wave: 'sawtooth', freq: baseFreq || 50, gain: 0.20 },
-        { wave: 'sawtooth', freq: (baseFreq || 50) * 1.01, gain: 0.15, detune: 3 },  // slight detune = engine rumble
-        { wave: 'square', freq: (baseFreq || 50) * 0.5, gain: 0.10 },  // sub-harmonic throb
-      ],
-      noise: 'white',
-      filter: { type: 'lowpass', freq: 200, Q: 2.5 },
-      gain: 0,
-      reverbSend: 0.08,
-    });
-  }
-
-  // Set rev throttle: 0-1 controls pitch (40-200Hz) and filter (200-1800Hz) and volume
-  function setRevThrottle(amount) {
-    var t = Math.max(0, Math.min(1, amount));
-    var baseFreq = 40 + t * 160;  // 40Hz idle → 200Hz redline
-    var filterFreq = 200 + t * 1600;
-    var vol = 0.02 + t * 0.22;
-    try {
-      setLayerFreqs('wild-rev', [baseFreq, baseFreq * 1.01, baseFreq * 0.5], 0.08);
-      setLayerFilter('wild-rev', filterFreq, 0.06);
-      setLayerGain('wild-rev', vol, 0.04);
-    } catch(e) {}
-  }
-
-  // Teardown all Wild layers
-  function destroyWildLayers() {
-    destroyLayer('wild-rev');
-  }
-
   // ── VOCAL SAMPLE ENGINE ─────────────────────────────────────────────
   // Preloads mp3 clips and plays them through the main audio chain
   // (sidechained + filtered) so vocals sit IN the mix like a real DJ set.
@@ -3494,7 +3385,6 @@ const Audio = (function () {
       ascPluck: synthAscPluck,
       ascStab: synthAscStab,
       ascLead: synthAscLead,
-      rockGuitar: synthRockGuitar,
       play: synthesize,
     }),
 
@@ -3544,11 +3434,6 @@ const Audio = (function () {
       setWallChord: setAscWallChord,
       setMasterPitch: setAscMasterPitch,
       destroyAll: destroyAscLayers,
-    }),
-    wild: Object.freeze({
-      buildRev: buildRevLayer,
-      setRevThrottle: setRevThrottle,
-      destroyAll: destroyWildLayers,
     }),
     edm: Object.freeze({
       buildWobble: buildWobbleLayer,

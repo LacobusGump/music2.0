@@ -1602,12 +1602,6 @@ const Follow = (function () {
       initAscension();
     }
 
-    // Wild engine: init if this is the Wild lens, teardown otherwise
-    if (wild.active) teardownWild();
-    if (lens.name === 'Wild' && lens.wild) {
-      initWild();
-    }
-
     // Organic stage evolution: reset for Journey lens
     resetOrganicStage();
     resetTribalPulse();
@@ -2187,11 +2181,6 @@ const Follow = (function () {
       return;
     }
 
-    // Wild: touch reserved for future use
-    if (lens.name === 'Wild' && wild.active) {
-      return;
-    }
-
     var time = Audio.ctx.currentTime;
     var palette = lens.palette || {};
     var resp = palette.touch || palette.continuous || {};
@@ -2354,214 +2343,6 @@ const Follow = (function () {
     vocalDropReady: false,     // waiting for user peak to trigger "to you" drop
     vocalCooldown: 0,          // minimum time between vocal phase advances (prevents double-trigger)
   };
-
-  // ── WILD ENGINE ─────────────────────────────────────────────────────
-  // Born to be Wild. Steppenwolf 1969. Motorcycle rev → rock riff.
-  // Phase 1 (REV): Tilt = throttle. Build the rev. Cross threshold → Phase 2.
-  // Phase 2 (RIDE): 146 BPM clock, E→G→A power chord chugs, driving rock drums.
-
-  var wild = {
-    active: false,
-    started: false,
-    phase: 'waiting',     // waiting → rev → ride
-    revAmount: 0,         // 0-1, how much they've revved
-    clock: 0,
-    stepDur: 0,
-    lastStep: -1,
-    totalBars: 0,
-    lastBar: -1,
-    riffStep: 0,          // which chord in the E-G-A riff (index into riff array)
-    riffBarCount: 0,      // bars on current chord before advancing
-    intensity: 0,
-    tiltSmooth: 0.5,
-    filterSmooth: 1200,
-    revPeakAccum: 0,      // accumulated energy during rev phase
-  };
-
-  // Wild drum patterns — straight rock, 16 steps per bar
-  // Kick on 1 and 3 (steps 0, 8)
-  var WILD_KICK  = [1.0,0,0,0, 0,0,0,0, 1.0,0,0,0, 0,0,0,0];
-  // Snare on 2 and 4 (steps 4, 12) — the backbeat
-  var WILD_SNARE = [0,0,0,0, 1.0,0,0,0, 0,0,0,0, 1.0,0,0,0];
-  // Hats on every even step — driving 8th notes
-  var WILD_HAT   = [0.7,0,0.5,0, 0.7,0,0.5,0, 0.7,0,0.5,0, 0.7,0,0.5,0];
-
-  function initWild() {
-    if (!lens || !lens.wild) return;
-    var cfg = lens.wild;
-    wild.active = true;
-    wild.started = false;
-    wild.phase = 'waiting';
-    wild.revAmount = 0;
-    wild.clock = 0;
-    wild.stepDur = 60 / cfg.bpm / 4;  // 16th note duration
-    wild.lastStep = -1;
-    wild.totalBars = 0;
-    wild.lastBar = -1;
-    wild.riffStep = 0;
-    wild.riffBarCount = 0;
-    wild.intensity = 0;
-    wild.tiltSmooth = 0.5;
-    wild.filterSmooth = 1200;
-    wild.revPeakAccum = 0;
-
-    // Build the motorcycle rev layer (starts silent)
-    try { Audio.wild.buildRev(cfg.root || 82.41); } catch(e) {}
-    try { Audio.setSidechainDepth(0.25); } catch(e) {}
-    try { Audio.setMasterFilter(lens.tone.ceiling || 5000); } catch(e) {}
-  }
-
-  function teardownWild() {
-    wild.active = false;
-    wild.started = false;
-    try { Audio.wild.destroyAll(); } catch(e) {}
-    if (lens && lens.tone) {
-      try { Audio.setMasterFilter(lens.tone.ceiling || 7000); } catch(e) {}
-    }
-  }
-
-  function updateWild(brainState, sensor, dt) {
-    if (!lens || !lens.wild || !Audio.ctx) return;
-    var cfg = lens.wild;
-    var time = Audio.ctx.currentTime;
-
-    var energy = (typeof Brain !== 'undefined') ? Brain.short.energy() : 0;
-    var beta = sensor.beta || 0;
-
-    // Smooth tilt: 0=flat, 1=forward
-    var rawTilt = Math.max(0, Math.min(1, (beta + 10) / 120));
-    wild.tiltSmooth += (rawTilt - wild.tiltSmooth) * Math.min(1, dt * 4);
-
-    // Smooth intensity from energy
-    wild.intensity += (Math.min(1, energy / 4) - wild.intensity) * Math.min(1, dt * 3);
-
-    // ── STATE LOGGING ──
-    wildLogInterval += dt;
-    if (wildLogInterval >= 0.5 && wild.started) {
-      wildLogInterval = 0;
-      wildRecord('STATE', {
-        phase: wild.phase, rev: +wild.revAmount.toFixed(2), energy: +energy.toFixed(2),
-        tilt: +wild.tiltSmooth.toFixed(2), intensity: +wild.intensity.toFixed(2),
-        bar: wild.totalBars, riffStep: wild.riffStep,
-      });
-    }
-
-    // ── PHASE: WAITING — first motion starts the rev ──
-    if (!wild.started) {
-      if (energy > 0.10) {
-        wild.started = true;
-        wild.phase = 'rev';
-        isSilent = false;
-        fadeGain = 0.4;
-        wildRecord('START', 'rev phase — tilt forward to rev');
-      } else {
-        if (Audio.ctx) Audio.setMasterGain(0);
-        return;
-      }
-    }
-
-    // ── PHASE 1: REV — tilt = throttle, build up to threshold ──
-    if (wild.phase === 'rev') {
-      // Tilt forward = throttle
-      var throttle = wild.tiltSmooth;
-      wild.revAmount += throttle * dt * 0.8;
-      wild.revPeakAccum += energy * dt;
-
-      // Set rev sound based on throttle
-      try { Audio.wild.setRevThrottle(throttle); } catch(e) {}
-
-      // Master gain ramps up with rev
-      var revGain = 0.3 + wild.revAmount * 0.4;
-      try { Audio.setMasterGain(Math.min(0.85, revGain)); } catch(e) {}
-
-      // Check if we've revved enough to kick into ride
-      if (wild.revPeakAccum >= (cfg.revThreshold || 3.0)) {
-        wild.phase = 'ride';
-        wild.clock = 0;
-        wild.lastStep = -1;
-        wild.totalBars = 0;
-        wild.lastBar = -1;
-        wild.riffStep = 0;
-        wild.riffBarCount = 0;
-        wildRecord('PHASE', 'rev → ride');
-
-        // Kill the rev, bring in the band
-        try { Audio.layer.setGain('wild-rev', 0.04, 0.5); } catch(e) {}
-        try { Audio.setMasterGain(0.82); } catch(e) {}
-      }
-      return;
-    }
-
-    // ── PHASE 2: RIDE — the song ──
-    if (wild.phase !== 'ride') return;
-
-    // Master gain based on intensity
-    var masterVol = 0.55 + wild.intensity * 0.30;
-    try { Audio.setMasterGain(Math.min(0.88, masterVol)); } catch(e) {}
-
-    // Tilt controls filter sweep (like other engines)
-    var filterTarget = 600 + wild.tiltSmooth * 4000;
-    wild.filterSmooth += (filterTarget - wild.filterSmooth) * Math.min(1, dt * 5);
-    try { Audio.setMasterFilter(wild.filterSmooth); } catch(e) {}
-
-    // Rev idles underneath during ride — subtle engine purr
-    try { Audio.wild.setRevThrottle(0.08 + wild.intensity * 0.15); } catch(e) {}
-
-    // ── CLOCK: 146 BPM, 16 steps per bar ──
-    wild.clock += dt;
-    var barDur = wild.stepDur * 16;
-    var newStep = Math.floor(wild.clock / wild.stepDur) % 16;
-    var newBar = Math.floor(wild.clock / barDur);
-
-    if (newBar !== wild.lastBar) {
-      wild.lastBar = newBar;
-      wild.totalBars++;
-
-      // Advance riff chord every 2 bars: E(2) → G(2) → A(2) → repeat
-      wild.riffBarCount++;
-      if (wild.riffBarCount >= 2) {
-        wild.riffBarCount = 0;
-        wild.riffStep = (wild.riffStep + 1) % cfg.riff.length;
-      }
-    }
-
-    if (newStep !== wild.lastStep) {
-      wild.lastStep = newStep;
-
-      // Current chord root frequency
-      var riffSemitone = cfg.riff[wild.riffStep];
-      var chordRoot = (cfg.root || 82.41) * Math.pow(2, riffSemitone / 12);
-
-      var vel = 0.45 + wild.intensity * 0.40;
-
-      // ── GUITAR RIFF: 8th note chugs on the pattern ──
-      var riffHit = cfg.riffPattern[newStep];
-      if (riffHit > 0) {
-        // Alternate between octaves for interest
-        var octaveShift = (newStep % 4 === 0) ? 2 : 1;  // downbeats get bass octave
-        var guitarFreq = chordRoot * octaveShift;
-        var guitarVel = vel * riffHit * (0.85 + Math.random() * 0.15);  // humanize
-        try { Audio.synth.rockGuitar(time, guitarFreq, guitarVel, 0.30 + wild.intensity * 0.1); } catch(e) {}
-      }
-
-      // ── DRUMS: straight rock ──
-      var kickVel = WILD_KICK[newStep];
-      if (kickVel > 0) {
-        try { Audio.drum.kick(time, kickVel * vel, 'acoustic'); } catch(e) {}
-        try { Audio.pumpSidechain(0.25); } catch(e) {}
-      }
-
-      var snareVel = WILD_SNARE[newStep];
-      if (snareVel > 0) {
-        try { Audio.drum.snare(time, snareVel * vel, 'acoustic'); } catch(e) {}
-      }
-
-      var hatVel = WILD_HAT[newStep];
-      if (hatVel > 0) {
-        try { Audio.drum.hat(time, hatVel * vel * 0.7, false); } catch(e) {}
-      }
-    }
-  }
 
   // ── ASCENSION ENGINE ──────────────────────────────────────────────────
   // Wall of sound. Detune unison. The TikTok "ascension music" trend.
@@ -2841,8 +2622,8 @@ const Follow = (function () {
 
   // ── SESSION RECORDER — captures everything for debugging ──
   // Three independent logs: asc (Ascension), grid (Grid), jrn (Journey/organic)
-  var ascLog = [], gridLog = [], jrnLog = [], wildLog = [];
-  var ascLogInterval = 0, gridLogInterval = 0, jrnLogInterval = 0, wildLogInterval = 0;
+  var ascLog = [], gridLog = [], jrnLog = [];
+  var ascLogInterval = 0, gridLogInterval = 0, jrnLogInterval = 0;
 
   function ascRecord(type, data) {
     ascLog.push({ t: asc.time.toFixed(2), type: type, data: data });
@@ -2853,9 +2634,6 @@ const Follow = (function () {
   var jrnWallClock = 0;  // real elapsed time for Journey logs
   function jrnRecord(type, data) {
     jrnLog.push({ t: jrnWallClock.toFixed(2), type: type, data: data });
-  }
-  function wildRecord(type, data) {
-    wildLog.push({ t: wild.clock.toFixed(2), type: type, data: data });
   }
 
   function formatLog(log, name) {
@@ -2870,7 +2648,6 @@ const Follow = (function () {
     var output = '';
     if (ascLog.length) output += '=== ASCENSION ===\n' + formatLog(ascLog, 'Ascension') + '\n\n';
     if (gridLog.length) output += '=== GRID ===\n' + formatLog(gridLog, 'Grid') + '\n\n';
-    if (wildLog.length) output += '=== WILD ===\n' + formatLog(wildLog, 'Wild') + '\n\n';
     if (jrnLog.length) output += '=== JOURNEY ===\n' + formatLog(jrnLog, 'Journey') + '\n\n';
     if (!output) { console.log('No session recorded yet.'); return; }
     console.log(output);
@@ -2881,7 +2658,7 @@ const Follow = (function () {
   };
   // Legacy aliases
   window.ascDump = function() { return window.dump(); };
-  window.ascClear = function() { ascLog = []; gridLog = []; jrnLog = []; wildLog = []; ascLogInterval = 0; gridLogInterval = 0; jrnLogInterval = 0; wildLogInterval = 0; console.log('All session logs cleared.'); };
+  window.ascClear = function() { ascLog = []; gridLog = []; jrnLog = []; ascLogInterval = 0; gridLogInterval = 0; jrnLogInterval = 0; console.log('All session logs cleared.'); };
   window.clearLog = window.ascClear;
 
   // ── ASCENSION v3 — ONE VOICE THAT GROWS ──
@@ -4400,21 +4177,6 @@ const Follow = (function () {
       return;  // SKIP all organic systems
     }
 
-    // ── WILD BYPASS: Rock engine — motorcycle rev → riff ──
-    if (lens.name === 'Wild' && wild.active) {
-      if (detectPeak(mag, now)) {
-        recordPeakInterval(now);
-        motionProfile.recordPeak(lastMag);
-        peakCount++;
-      }
-      lastLastMag = lastMag;
-      lastMag = mag;
-      motionProfile.tick(dt * 1000, false);
-      updateWild(brainState, sensor, dt);
-      lastUpdateTime = now;
-      return;  // SKIP all organic systems
-    }
-
     updateStillness(mag, dt, now);
     updatePhrase(mag, now, dt);
     parseIntent(mag, now);
@@ -4616,17 +4378,5 @@ const Follow = (function () {
     get ascEnrich() { return asc.active ? 'bloom ' + asc.bloom.toFixed(1) + ' color ' + asc.colorSmooth.toFixed(2) : '-'; },
     get ascEnergy() { return asc.active ? asc.engagedTime.toFixed(0) + 's' : '-'; },
     get ascPitches() { return '-'; },
-    // Wild debug — Born to be Wild
-    get wildPhase() { return wild.active ? wild.phase : '-'; },
-    get wildRev() { return wild.active ? wild.revAmount.toFixed(2) : '-'; },
-    get wildIntensity() { return wild.active ? wild.intensity.toFixed(2) : '-'; },
-    get wildBars() { return wild.active ? wild.totalBars : '-'; },
-    get wildRiffStep() { return wild.active ? wild.riffStep : '-'; },
-    get wildRiffChord() {
-      if (!wild.active || !lens || !lens.wild) return '-';
-      var names = ['E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B', 'C', 'C#', 'D', 'D#'];
-      var semi = lens.wild.riff[wild.riffStep] || 0;
-      return names[semi % 12] + '5';
-    },
   });
 })();
