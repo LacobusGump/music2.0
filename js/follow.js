@@ -313,6 +313,7 @@ const Follow = (function () {
   var peakCooldown = 0;
   var adaptedPeakThresh = null;
   var adaptedStillThresh = null;
+  var peakedThisFrame = false;  // set true when detectPeak fires, cleared each frame
 
   // LEAD voice (tilt → melody)
   var currentDegree = 0;
@@ -1256,11 +1257,10 @@ const Follow = (function () {
     if (currentStep === tribalPulse.lastStep) return;
     tribalPulse.lastStep = currentStep;
 
-    // Record user's peaks into the rhythm grid
-    // When the user peaks, stamp the current step position
-    if (peakCount > 0 && lastMag > (adaptedPeakThresh || 0.3)) {
+    // Record user's peaks into the rhythm grid — ONLY when a real peak fires this frame
+    if (peakedThisFrame) {
       peakRhythm[currentStep] = Math.min(1.0, peakRhythm[currentStep] + 0.5);
-      // Also stamp complementary positions (polyrhythm: 3 steps away = dotted feel)
+      // Complementary positions (polyrhythm: 6 steps away = dotted feel)
       var poly3 = (currentStep + 6) % 16;
       peakRhythm[poly3] = Math.min(0.4, peakRhythm[poly3] + 0.15);
     }
@@ -4135,6 +4135,7 @@ const Follow = (function () {
 
     var now = performance.now();
     var mag = getLensMag(brainState, sensor);
+    peakedThisFrame = false;  // reset each frame
 
     pushAccel(mag);
 
@@ -4195,6 +4196,7 @@ const Follow = (function () {
       recordPeakInterval(now);
       onPeak(lastMag, now);
       motionProfile.recordPeak(lastMag);
+      peakedThisFrame = true;
     }
 
     lastLastMag = lastMag;
@@ -4243,7 +4245,7 @@ const Follow = (function () {
         tempo: Math.round(derivedTempo), locked: tempoLocked,
         density: +densityLevel.toFixed(1), act: sessionAct,
         stage: organicStage.current, stageTimer: Math.round(organicStage.timer),
-        tribal: +tribalPulse.drumPresence.toFixed(2),
+        tribal: +tribalPulse.drumPresence.toFixed(2), tEngaged: Math.round(tribalPulse.engagedTime), rConf: +rhythmConfidence.toFixed(2),
         void: +voidPresence.toFixed(2),
       });
     }
