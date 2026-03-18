@@ -2549,35 +2549,12 @@ const Follow = (function () {
 
     // Vocals disabled — future: live mic sampling
     grid.vocalsLoaded = false;
-
-    // ── LIVE MIC SAMPLER STATE ──
-    grid.samplerReady = false;
-    grid.sampleCaptured = false;
-    grid.chopIndex = 0;
-    grid.lastChopStep = -1;
-    grid.samplerStutterCooldown = 0;
-
-    // Try to init the sampler (async, may fail if no mic permission)
-    try {
-      Audio.sampler.init().then(function () {
-        grid.samplerReady = true;
-        gridRecord('SAMPLER', 'mic initialized');
-      }).catch(function (e) {
-        grid.samplerReady = false;
-        // No error — graceful degradation. Grid runs without sampling.
-      });
-    } catch (e) {
-      grid.samplerReady = false;
-    }
   }
 
   function teardownGrid() {
     grid.active = false;
     grid.started = false;
     try { Audio.edm.destroyAll(); } catch(e) {}
-    try { Audio.sampler.destroy(); } catch(e) {}
-    grid.samplerReady = false;
-    grid.sampleCaptured = false;
     if (lens && lens.tone) {
       try { Audio.setMasterFilter(lens.tone.ceiling || 7000); } catch(e) {}
     }
@@ -3541,97 +3518,6 @@ const Follow = (function () {
           try { Audio.setReverbMix(0.15); } catch(e) {}
         }
         break;
-    }
-
-    // ── 7b. LIVE MIC SAMPLER ──────────────────────────────────────────
-    // Records ambient audio and chops it into the Grid beat.
-    // Auto-capture during breakdowns. Chop playback during drops. Stutter on peaks during build.
-    grid.samplerStutterCooldown = Math.max(0, (grid.samplerStutterCooldown || 0) - dt);
-
-    if (grid.samplerReady) {
-      var isDrop_s = grid.phase === 'drop';
-      var isBuild_s = grid.phase === 'build';
-      var isBreakdown_s = grid.phase === 'breakdown';
-      var depth_s = getDepth(grid.segment);
-
-      // ── AUTO-CAPTURE during breakdowns ──
-      // When breakdown starts, capture the last 2 beats of ambient audio
-      if (isBreakdown_s && !grid.sampleCaptured && grid.phaseTimer > 0.5 && grid.phaseTimer < 2.0) {
-        try {
-          // Capture last 2 beats at current BPM
-          var beatDur = 60 / grid.bpm;
-          var captureLen = Math.min(beatDur * 2, 2.0);  // 2 beats, max 2 seconds
-          var captured = Audio.sampler.capture(captureLen);
-          if (captured) {
-            grid.sampleCaptured = true;
-            grid.chopIndex = 0;
-            gridRecord('SAMPLE_CAPTURE', { seconds: +captureLen.toFixed(2), bpm: grid.bpm });
-          }
-        } catch (e) {}
-      }
-
-      // ── CHOP PLAYBACK during drops ──
-      // On every 4th step (quarter notes), play a chop from the captured sample
-      if (isDrop_s && grid.sampleCaptured && depth_s >= 2 && Audio.sampler.hasSample()) {
-        if (newStep !== grid.lastChopStep && (newStep % 4 === 0)) {
-          grid.lastChopStep = newStep;
-          var totalChops = 8;
-          var chopIdx = grid.chopIndex % totalChops;
-          grid.chopIndex++;
-
-          // Filter chops to match current zone
-          var chopFilter = grid.filterSmooth || 2000;
-          var chopVol = 0.35 * grid.djGain;
-          var chopRate = 1.0;
-
-          // Zone-shape the chops: low zone = pitched down, high zone = pitched up
-          if (grid.tiltZone === 0) {
-            chopRate = 0.7;
-            chopFilter = Math.min(chopFilter, 1200);
-          } else if (grid.tiltZone === 2) {
-            chopRate = 1.3;
-            chopFilter = Math.max(chopFilter, 2500);
-          }
-
-          try {
-            Audio.sampler.chop(time, totalChops, chopIdx, {
-              rate: chopRate,
-              vol: chopVol,
-              filterFreq: chopFilter,
-              filterQ: 1.5,
-              reverb: 0.15,
-              delay: (chopIdx % 3 === 2) ? 0.2 : 0,  // every 3rd chop gets delay
-            });
-            gridRecord('SAMPLE_CHOP', { chop: chopIdx, rate: +chopRate.toFixed(2), filter: Math.round(chopFilter) });
-          } catch (e) {}
-        }
-      }
-
-      // ── STUTTER on peaks during build ──
-      // If user peaks hard and we have a sample, do a quick stutter
-      if (isBuild_s && grid.sampleCaptured && Audio.sampler.hasSample() &&
-          motionEnergy > 8 && grid.samplerStutterCooldown <= 0) {
-        grid.samplerStutterCooldown = 4;  // cooldown: max once per 4 seconds
-        var stutterSlice = grid.stepDur;  // one 16th note
-        var stutterRepeats = 6;
-        try {
-          Audio.sampler.stutter(time, stutterSlice, stutterRepeats, {
-            rate: 1.0 + grid.buildLevel * 0.3,
-            vol: 0.4 * grid.djGain,
-            filterFreq: grid.filterSmooth || 2000,
-            filterQ: 2.0,
-            reverb: 0.1,
-            delay: 0.15,
-          });
-          gridRecord('SAMPLE_STUTTER', { repeats: stutterRepeats, buildLevel: +grid.buildLevel.toFixed(2) });
-        } catch (e) {}
-      }
-
-      // ── Re-capture on new cycle ──
-      // Each breakdown captures fresh audio — your environment changes, so should the sample
-      if (isBreakdown_s && grid.phaseTimer < 0.2) {
-        grid.sampleCaptured = false;
-      }
     }
 
     // ── 8. ARCHETYPE-DRIVEN MUSICAL LAYER ──
