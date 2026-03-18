@@ -2176,17 +2176,8 @@ const Follow = (function () {
     var noteIntervalMs = (lens.response && lens.response.noteInterval) || 200;
     if (now - lastTouchNote < noteIntervalMs) return;
 
-    // Ascension: touch forces progression change (override the songwriter)
-    if (lens.name === 'Ascension' && asc.active && lens.ascension && asc.phase === 'gridlock') {
-      lastTouchNote = now;
-      var cfg = lens.ascension;
-      asc.progIndex = (asc.progIndex + 1) % cfg.progressions.length;
-      asc.chordStep = 0;
-      asc.barCount = 0;  // reset bar count so enrichment stays
-      var prog = cfg.progressions[asc.progIndex];
-      try { Audio.ascension.setWallChord(cfg.wallRoot, prog[0]); } catch(e) {}
-      var sf = prog[0].map(function(s) { return cfg.wallRoot * Math.pow(2, s / 12); });
-      try { Audio.synth.ascStab(0, sf, 0.6); } catch(e) {}
+    // Ascension: touch reserved for future use
+    if (lens.name === 'Ascension' && asc.active) {
       return;
     }
 
@@ -2361,78 +2352,17 @@ const Follow = (function () {
   // Peaks = plucks/stabs. Touch = chord voicing changes.
   // Stillness = LFO breathing takes over.
 
-  // ── PITCH ANALYSIS — find the progression that fits what the user plays ──
-  function analyzePitchBuffer(buffer, progressions, wallRoot) {
-    if (!buffer.length || !progressions.length) return 0;
-    // Extract pitch classes (semitone mod 12) from buffer
-    var pitchClasses = [];
-    for (var i = 0; i < buffer.length; i++) {
-      var pc = ((Math.round(buffer[i].semi) % 12) + 12) % 12;
-      pitchClasses.push(pc);
-    }
-    var bestIndex = 0, bestScore = -1;
-    for (var pi = 0; pi < progressions.length; pi++) {
-      var prog = progressions[pi];
-      // Collect all unique pitch classes in this progression
-      var progPCs = {};
-      for (var ci = 0; ci < prog.length; ci++) {
-        for (var ni = 0; ni < prog[ci].length; ni++) {
-          var pc = ((prog[ci][ni] % 12) + 12) % 12;
-          progPCs[pc] = true;
-        }
-      }
-      // Score: how many of the user's pitch classes land on a chord tone?
-      var score = 0;
-      for (var ui = 0; ui < pitchClasses.length; ui++) {
-        // Weight recent samples higher
-        var weight = 0.5 + 0.5 * (ui / pitchClasses.length);
-        if (progPCs[pitchClasses[ui]]) {
-          score += weight;
-        } else {
-          // Partial credit for being 1 semitone away
-          if (progPCs[((pitchClasses[ui] - 1) + 12) % 12] || progPCs[(pitchClasses[ui] + 1) % 12]) {
-            score += weight * 0.3;
-          }
-        }
-      }
-      if (score > bestScore) { bestScore = score; bestIndex = pi; }
-    }
-    return bestIndex;
-  }
-
-  // ── PITCH MAGNETISM — pull raw frequency toward nearest chord tone ──
-  function magnetize(rawFreq, wallRoot, voicing, strength) {
-    if (strength < 0.01 || !voicing || !voicing.length) return rawFreq;
-    var bestDist = Infinity, bestFreq = rawFreq;
-    for (var i = 0; i < voicing.length; i++) {
-      // Check multiple octaves of this chord tone
-      var base = wallRoot * Math.pow(2, voicing[i] / 12);
-      for (var oct = -2; oct <= 3; oct++) {
-        var f = base * Math.pow(2, oct);
-        var dist = Math.abs(f - rawFreq);
-        if (dist < bestDist) { bestDist = dist; bestFreq = f; }
-      }
-    }
-    return rawFreq + (bestFreq - rawFreq) * strength;
-  }
-
   var asc = {
     active: false,
     started: false,
     time: 0,
-
-    // Phase: 'waiting' → 'acclimate' → 'gridlock'
-    phase: 'waiting',
+    engagedTime: 0,       // only counts active motion
 
     // Filter
-    filterSmooth: 800,
+    filterSmooth: 400,
 
     // Detune spread
-    spreadSmooth: 5,
-
-    // LFO breathing
-    breathPhase: 0,
-    breathActive: false,
+    spreadSmooth: 3,
 
     // Gain
     masterGain: 0,
@@ -2440,39 +2370,26 @@ const Follow = (function () {
     // Stillness
     stillTime: 0,
 
-    // Peak pluck cooldown
-    pluckCooldown: 0,
+    // ── SMOOTHED SENSORS ──
+    tiltSmooth: 0.5,       // beta: up/down
+    leanSmooth: 0.5,       // gamma: left/right — determines major vs minor
 
-    // ── SMOOTHED TILT — figure-8s become flowing pitch curves ──
-    tiltSmooth: 0.5,
+    // ── LAYER BLOOM — earned through presence ──
+    // 0: root only  1: +3rd  2: +5th  3: +octave  4: +sub+air = full bloom
+    bloom: 0,              // 0-4, fractional (smooth bloom)
+    bloomTarget: 0,
 
-    // ── ENERGY CAPACITOR — still drives filter floor + spread width ──
-    ascEnergy: 0,
+    // ── HARMONIC COLOR — determined by lean direction ──
+    // 0.0 = pure minor, 1.0 = pure major, 0.5 = neutral
+    color: 0.5,
+    colorSmooth: 0.5,
 
-    // ── PITCH BUFFER — records what user plays naturally ──
-    pitchBuffer: [],         // circular buffer of { semi, time }
-    pitchBufferMax: 24,
+    // ── BREATHING ──
+    breathPhase: 0,
+    breathActive: false,
 
-    // ── SONGWRITER CLOCK — 107 BPM, 16 steps/bar ──
-    clockPhase: 0,           // 0-1 within current bar
-    lastClockStep: -1,
-    barCount: 0,
-
-    // ── CHOSEN PROGRESSION ──
-    progIndex: 0,
-    chordStep: 0,
-
-    // ── ENRICHMENT — ramps over bars ──
-    enrichment: 0,           // 0-1, grows over ~8 bars after grid lock
-    magnetism: 0,            // 0-1, pitch pull strength
-
-    // ── REVEAL — one-shot suck/slam at the transition ──
-    revealFired: false,
-    stagePhase: 'play',      // play | suck | slam
-    stageTimer: 0,
-
-    // Re-analysis tracking
-    lastAnalysisBar: -1,
+    // Phase for display
+    phase: 'waiting',
   };
 
   // ── DRUM PATTERNS ──
@@ -2660,34 +2577,25 @@ const Follow = (function () {
     asc.active = true;
     asc.started = false;
     asc.time = 0;
+    asc.engagedTime = 0;
     asc.phase = 'waiting';
     asc.filterSmooth = cfg.filterRange[0];
     asc.spreadSmooth = cfg.detuneRange[0];
-    asc.breathPhase = 0;
-    asc.breathActive = false;
     asc.masterGain = 0;
     asc.stillTime = 0;
-    asc.pluckCooldown = 0;
     asc.tiltSmooth = 0.5;
-    asc.ascEnergy = 0;
-    asc.pitchBuffer = [];
-    asc.clockPhase = 0;
-    asc.lastClockStep = -1;
-    asc.barCount = 0;
-    asc.progIndex = 0;
-    asc.chordStep = 0;
-    asc.enrichment = 0;
-    asc.magnetism = 0;
-    asc.revealFired = false;
-    asc.stagePhase = 'play';
-    asc.stageTimer = 0;
-    asc.lastAnalysisBar = -1;
+    asc.leanSmooth = 0.5;
+    asc.bloom = 0;
+    asc.bloomTarget = 0;
+    asc.color = 0.5;
+    asc.colorSmooth = 0.5;
+    asc.breathPhase = 0;
+    asc.breathActive = false;
 
-    // Build all harmonic layers silent — enrichment system opens them
+    // Build all harmonic layers silent — bloom system opens them
     try { Audio.ascension.buildWall(cfg.wallRoot, cfg.detuneRange[0]); } catch(e) {}
     try { Audio.ascension.buildSub(cfg.subFreq); } catch(e) {}
     try { Audio.ascension.buildNoise(); } catch(e) {}
-    // Bass layer: sine at 110Hz for warmth phones can reproduce
     try { Audio.layer.build('asc-bass', {
       oscillators: [
         { wave: 'sine', freq: cfg.bassFreq, gain: 0.25 },
@@ -2698,8 +2606,8 @@ const Follow = (function () {
     }); } catch(e) {}
     try { Audio.ascension.setWallFilter(cfg.filterRange[0]); } catch(e) {}
     try { Audio.setMasterFilter(cfg.filterRange[1]); } catch(e) {}
-    // Set initial chord from first progression
-    try { Audio.ascension.setWallChord(cfg.wallRoot, cfg.progressions[0][0]); } catch(e) {}
+    // Start with root only — major I chord, will shift based on lean
+    try { Audio.ascension.setWallChord(cfg.wallRoot, [0, 4, 7, 12]); } catch(e) {}
   }
 
   function teardownAscension() {
@@ -2752,16 +2660,11 @@ const Follow = (function () {
   window.ascClear = function() { ascLog = []; gridLog = []; jrnLog = []; ascLogInterval = 0; gridLogInterval = 0; jrnLogInterval = 0; console.log('All session logs cleared.'); };
   window.clearLog = window.ascClear;
 
-  // ── ASCENSION UPDATE ENGINE v2 — THE HIDDEN SONGWRITER ──
+  // ── ASCENSION v3 — ONE VOICE THAT GROWS ──
   //
-  // Phase 1: ACCLIMATE — raw tilt sounds, no grid. User explores.
-  //          Silently recording their pitch choices.
-  //
-  // Phase 2: GRID LOCK — hidden 4/4 at 107 BPM. System analyzes what the
-  //          user played, picks the chord progression that fits THEIR notes.
-  //          Enrichment ramps: bass on beat 1, pitch magnetism toward chord
-  //          tones, harmonic layers bloom. The user was always making music.
-  //          They just didn't know it yet.
+  // One godlike detuned unison sound. Lean determines major vs minor.
+  // Tilt opens the filter. Presence earns layers. Stillness holds.
+  // The body sculpts which chord you're inside of.
 
   function updateAscension(brainState, sensor, dt) {
     var cfg = lens.ascension;
@@ -2771,26 +2674,27 @@ const Follow = (function () {
     var beta   = sensor.beta  || 0;
     var gamma  = sensor.gamma || 0;
 
-    // Tilt mapping: wide range (-30 to 150°) so figure-8s sweep the full scale
-    // Heavy smoothing so rapid arm movements become flowing pitch curves
+    // Smooth sensors — no jumps, flowing curves
     var rawTilt = Math.max(0, Math.min(1, (beta + 30) / 180));
-    asc.tiltSmooth += (rawTilt - asc.tiltSmooth) * 0.12;  // smooth — no jumps
-    var tiltNorm = asc.tiltSmooth;
+    asc.tiltSmooth += (rawTilt - asc.tiltSmooth) * 0.10;
+    var rawLean = Math.max(0, Math.min(1, (gamma + 90) / 180));
+    asc.leanSmooth += (rawLean - asc.leanSmooth) * 0.08;  // lean is slower — deliberate choice
 
     asc.time += dt;
-    asc.stageTimer += dt;
 
     // State snapshot every 0.5s
     ascLogInterval += dt;
     if (ascLogInterval >= 0.5 && asc.started) {
       ascLogInterval = 0;
       ascRecord('STATE', {
-        phase: asc.phase, energy: +energy.toFixed(2), tilt: +tiltNorm.toFixed(2), rawTilt: +rawTilt.toFixed(2),
+        phase: asc.phase, energy: +energy.toFixed(2),
+        tilt: +asc.tiltSmooth.toFixed(2), lean: +asc.leanSmooth.toFixed(2),
         beta: Math.round(beta), gamma: Math.round(gamma),
         filter: Math.round(asc.filterSmooth), spread: +asc.spreadSmooth.toFixed(1),
-        gain: +asc.masterGain.toFixed(2), ascNrg: +asc.ascEnergy.toFixed(1),
+        gain: +asc.masterGain.toFixed(2), bloom: +asc.bloom.toFixed(2),
+        color: +asc.colorSmooth.toFixed(2),
         still: +asc.stillTime.toFixed(1), breath: asc.breathActive,
-        enrich: +asc.enrichment.toFixed(2), mag: +asc.magnetism.toFixed(2),
+        engaged: +asc.engagedTime.toFixed(1),
       });
     }
 
@@ -2798,298 +2702,134 @@ const Follow = (function () {
     if (!asc.started) {
       if (energy > 0.08) {
         asc.started = true;
-        asc.phase = 'acclimate';
-        asc.time = 0;  // reset clock so acclimate timing starts now
-        ascRecord('START', 'acclimate phase — recording pitches');
+        asc.phase = 'bloom';
+        asc.time = 0;
+        ascRecord('START', 'one voice — lean to sculpt');
       } else {
         return;
       }
     }
 
-    // ── 2. ENERGY CAPACITOR — still drives filter floor + spread width ──
-    // Capped at 30. Leaks faster so it actually responds to stillness.
-    asc.ascEnergy += energy * dt * 0.5;
-    asc.ascEnergy *= (1.0 - 0.02 * dt);  // meaningful leak
-    if (asc.stillTime > 3.0) asc.ascEnergy *= (1.0 - 0.15 * dt);
-    asc.ascEnergy = Math.min(30, asc.ascEnergy);
+    // ── 2. ENGAGED TIME — only counts active motion ──
+    if (energy > 0.30) asc.engagedTime += dt;
 
-    // ── 3. MASTER GAIN + BREATHING SWELL ──
-    var gainTarget = energy > 0.04 ? 0.60 : (asc.enrichment > 0.2 ? 0.25 : 0.08);
-    if (asc.stagePhase === 'suck') gainTarget = 0.08;
+    // ── 3. STILLNESS ──
+    if (energy < 0.06) { asc.stillTime += dt; } else { asc.stillTime = 0; }
+    asc.breathPhase += (cfg.breathRate || 0.06) * dt;
+    if (asc.breathPhase > 1) asc.breathPhase -= 1;
+    asc.breathActive = asc.stillTime > 3.0;
+
+    // ── 4. HARMONIC COLOR — lean determines major vs minor ──
+    // Right lean (leanSmooth > 0.6) → major: bright, euphoric
+    // Left lean (leanSmooth < 0.4) → minor: deep, emotional
+    // Center → suspended/neutral
+    var colorTarget;
+    if (asc.leanSmooth > 0.6) colorTarget = 1.0;       // major
+    else if (asc.leanSmooth < 0.4) colorTarget = 0.0;   // minor
+    else colorTarget = 0.5;                               // neutral
+    asc.colorSmooth += (colorTarget - asc.colorSmooth) * 0.5 * dt;
+
+    // Build the voicing from color
+    // Major: [0, 4, 7, 12]  Minor: [0, 3, 7, 12]  Neutral: [0, 5, 7, 12] (sus4)
+    var third;
+    if (asc.colorSmooth > 0.65) third = 4;        // major 3rd
+    else if (asc.colorSmooth < 0.35) third = 3;   // minor 3rd
+    else third = 5;                                 // sus4 — floating, unresolved
+    var currentVoicing = [0, third, 7, 12];
+
+    // Update wall chord when color changes significantly
+    try { Audio.ascension.setWallChord(cfg.wallRoot, currentVoicing); } catch(e) {}
+
+    // ── 5. BLOOM — layers earned through presence ──
+    // Each ~5s of engaged time earns a new layer
+    var bloomTime = cfg.bloomTime || 5.0;
+    asc.bloomTarget = Math.min(4, asc.engagedTime / bloomTime);
+    // Bloom grows toward target, but can also decay during long stillness
+    if (asc.stillTime > 8.0) {
+      asc.bloomTarget = Math.max(0, asc.bloom - 0.3 * dt);
+    }
+    asc.bloom += (asc.bloomTarget - asc.bloom) * 0.8 * dt;
+    asc.bloom = Math.max(0, Math.min(4, asc.bloom));
+
+    if (Math.floor(asc.bloom) !== Math.floor(asc.bloom - 0.8 * dt * (asc.bloomTarget - asc.bloom + 0.001)) && asc.bloom > 0.5) {
+      var layerNames = ['root', '+3rd', '+5th', '+octave', '+sub/air'];
+      var bl = Math.floor(asc.bloom);
+      if (bl >= 0 && bl < layerNames.length) {
+        ascRecord('BLOOM', { layer: bl, name: layerNames[bl], engaged: +asc.engagedTime.toFixed(1) });
+      }
+    }
+
+    // ── 6. MASTER GAIN — breathes with motion ──
+    var gainTarget = energy > 0.30 ? 0.55 : (asc.bloom > 1 ? 0.20 : 0.08);
+    // Swell
     var swellPhase = (asc.time / (cfg.swellCycle || 12.5)) % 1.0;
-    var swellEnv = 1.0 - (cfg.swellDepth || 0.15) + (cfg.swellDepth || 0.15) * 2 * (0.5 + 0.5 * Math.sin(swellPhase * Math.PI * 2));
+    var swellEnv = 1.0 - 0.12 + 0.12 * 2 * (0.5 + 0.5 * Math.sin(swellPhase * Math.PI * 2));
     gainTarget *= swellEnv;
-    var gainRate = gainTarget > asc.masterGain ? 0.5 : 0.15;
-    asc.masterGain += (gainTarget - asc.masterGain) * gainRate * dt;
+    asc.masterGain += (gainTarget - asc.masterGain) * (gainTarget > asc.masterGain ? 0.4 : 0.12) * dt;
     asc.masterGain = Math.max(0, Math.min(1, asc.masterGain));
     try { Audio.setMasterGain(asc.masterGain); } catch(e) {}
 
-    // ── 4. STILLNESS + BREATHING ──
-    if (energy < 0.06) { asc.stillTime += dt; } else { asc.stillTime = 0; }
-    asc.breathPhase += cfg.breathRate * dt;
-    if (asc.breathPhase > 1) asc.breathPhase -= 1;
-    asc.breathActive = asc.stillTime > 2.5 && asc.stagePhase === 'play';
+    // ── 7. LAYER GAINS FROM BLOOM ──
+    var energyPresence = Math.min(1.0, energy * 0.12 + 0.12);
 
-    // ── 5. ACCLIMATE PHASE — raw expression, silent analysis ──
-    if (asc.phase === 'acclimate') {
-      // Raw tilt → free pitch (chromatic, full range around root)
-      var rawSemi = tiltNorm * 14 - 5;  // -5 to +9 semitones — one musical octave
-      var rawFreq = cfg.wallRoot * Math.pow(2, rawSemi / 12);
+    var rootGain  = 0.45 * energyPresence;
+    var thirdGain = Math.min(0.35, Math.max(0, asc.bloom - 0.8) * 0.45) * energyPresence;
+    var fifthGain = Math.min(0.35, Math.max(0, asc.bloom - 1.8) * 0.45) * energyPresence;
+    var octGain   = Math.min(0.25, Math.max(0, asc.bloom - 2.8) * 0.35) * energyPresence;
+    var subGain   = Math.min(0.35, Math.max(0, asc.bloom - 3.5) * 0.50);  // sub stays
+    var bassGain  = Math.min(0.20, Math.max(0, asc.bloom - 1.5) * 0.25);  // bass stays
+    var noiseGain = Math.min(0.02, Math.max(0, asc.bloom - 3.8) * 0.08) * energyPresence;
 
-      // Record and fire on peaks — require REAL motion, not sensor noise
-      if (peakCount > 0 && asc.pluckCooldown <= 0 && energy > 0.80) {
-        asc.pitchBuffer.push({ semi: rawSemi, time: asc.time });
-        if (asc.pitchBuffer.length > asc.pitchBufferMax) asc.pitchBuffer.shift();
-        ascRecord('PITCH', { semi: +rawSemi.toFixed(1), freq: Math.round(rawFreq), energy: +energy.toFixed(2), beta: Math.round(beta), buf: asc.pitchBuffer.length });
-        // Fire raw lead — no magnetism, no chord quantization
-        while (rawFreq < 300) rawFreq *= 2;
-        while (rawFreq > 1200) rawFreq /= 2;
-        var leadVel = Math.min(0.5, 0.12 + energy * 0.04);  // gentle during acclimate
-        try { Audio.synth.ascLead(0, rawFreq, leadVel, 2.5, cfg.portamento); } catch(e) {}
-        try { Audio.synth.ascPluck(0, rawFreq, Math.min(0.35, energy * 0.05 + 0.08), 1.2); } catch(e) {}
-        asc.pluckCooldown = 0.2;
-      }
-      if (asc.pluckCooldown > 0) asc.pluckCooldown -= dt;
-
-      // Root layer only during acclimate — the ember
-      try { Audio.layer.setGain('asc-root', 0.50, 0.08); } catch(e) {}
-      try { Audio.layer.setGain('asc-third', 0, 0.08); } catch(e) {}
-      try { Audio.layer.setGain('asc-fifth', 0, 0.08); } catch(e) {}
-      try { Audio.layer.setGain('asc-oct',   0, 0.08); } catch(e) {}
-      try { Audio.layer.setGain('asc-sub',   0, 0.3); } catch(e) {}
-      try { Audio.layer.setGain('asc-bass',  0, 0.3); } catch(e) {}
-      try { Audio.layer.setGain('asc-noise', 0, 0.5); } catch(e) {}
-
-      // Transition to grid lock: enough time AND enough pitch samples
-      var acclimateTime = cfg.acclimateTime || 5.0;
-      var minSamples = cfg.minPitchSamples || 3;
-      if (asc.time >= acclimateTime && asc.pitchBuffer.length >= minSamples && energy > 0.50) {
-        // Analyze what they played and pick the best progression
-        asc.progIndex = analyzePitchBuffer(asc.pitchBuffer, cfg.progressions, cfg.wallRoot);
-        var progNames = ['I-V-vi-IV (axis)', 'I-IV-V-vi (pop)', 'vi-IV-I-V (emotional)', 'I-vi-ii-V (jazz)'];
-        ascRecord('GRIDLOCK', { prog: asc.progIndex, name: progNames[asc.progIndex], pitches: asc.pitchBuffer.map(function(p) { return +p.semi.toFixed(1); }) });
-        asc.chordStep = 0;
-        asc.barCount = 0;
-        asc.clockPhase = 0;
-        asc.lastClockStep = -1;
-        asc.phase = 'gridlock';
-
-        // THE REVEAL: suck/slam to announce the songwriter
-        asc.stagePhase = 'suck';
-        asc.stageTimer = 0;
-        asc.revealFired = true;
-
-        // Set the wall to the chosen progression's first chord
-        var prog = cfg.progressions[asc.progIndex];
-        try { Audio.ascension.setWallChord(cfg.wallRoot, prog[0]); } catch(e) {}
-      }
-    }
-
-    // ── 6. REVEAL SUCK/SLAM — the songwriter announces itself ──
-    if (asc.stagePhase === 'suck') {
-      var suckDur = cfg.suckDuration || 0.8;
-      asc.filterSmooth = Math.max(cfg.filterRange[0], asc.filterSmooth - 4000 * dt);
-      try { Audio.ascension.setWallFilter(asc.filterSmooth); } catch(e) {}
-
-      if (asc.stageTimer >= suckDur) {
-        asc.stagePhase = 'slam';
-        asc.stageTimer = 0;
-        // IMPACT: stab the chosen chord
-        var prog = cfg.progressions[asc.progIndex];
-        var voicing = prog[asc.chordStep];
-        var impactFreqs = voicing.map(function(s) { return cfg.wallRoot * Math.pow(2, s / 12); });
-        try { Audio.synth.ascStab(0, impactFreqs, 0.9); } catch(e) {}
-        try { Audio.synth.ascPluck(0, cfg.wallRoot, 0.8, 1.5); } catch(e) {}
-        // Blow filter open
-        asc.filterSmooth = cfg.filterRange[1] * 0.7;
-        asc.spreadSmooth = cfg.detuneRange[0] + (cfg.detuneRange[1] - cfg.detuneRange[0]) * 0.4;
-      }
-    }
-
-    if (asc.stagePhase === 'slam') {
-      if (asc.stageTimer > 0.5) {
-        asc.stagePhase = 'play';
-        asc.stageTimer = 0;
-      }
-    }
-
-    // Everything below only runs in grid lock
-    if (asc.phase !== 'gridlock') {
-      // Filter/spread/pitch still run during acclimate
-      var filterTarget = cfg.filterRange[0] + tiltNorm * (cfg.filterRange[1] - cfg.filterRange[0]);
-      if (asc.breathActive) {
-        var breathLFO = Math.sin(asc.breathPhase * Math.PI * 2);
-        filterTarget += breathLFO * cfg.breathDepth;
-        filterTarget = Math.max(cfg.filterRange[0], Math.min(cfg.filterRange[1], filterTarget));
-      }
-      if (asc.stagePhase === 'play') {
-        asc.filterSmooth += (filterTarget - asc.filterSmooth) * 4.0 * dt;
-        asc.filterSmooth = Math.max(cfg.filterRange[0], Math.min(cfg.filterRange[1], asc.filterSmooth));
-        try { Audio.ascension.setWallFilter(asc.filterSmooth); } catch(e) {}
-      }
-      var rollNorm = Math.max(-1, Math.min(1, gamma / 30));
-      try { Audio.ascension.setMasterPitch(rollNorm * 2); } catch(e) {}
-
-      // Reverb + delay — minimal during acclimate
-      try { Audio.setReverbMix(0.20); } catch(e) {}
-      try { Audio.setDelayMix(0.08); } catch(e) {}
-      return;
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════
-    // ── GRID LOCK PHASE — the hidden songwriter is running ──
-    // ═══════════════════════════════════════════════════════════════════════
-
-    var bpm = cfg.bpm || 107;
-    var stepDur = 60 / bpm / 4;  // ~0.1402s per 16th note at 107
-    var barDur = stepDur * 16;   // ~2.243s per bar
-    var prog = cfg.progressions[asc.progIndex];
-
-    // ── 7. CLOCK — 16 steps per bar. FREEZES when user pauses. ──
-    // The songwriter waits for you. If you stop, it stops.
-    if (energy > 0.40) {
-      asc.clockPhase += dt / barDur;
-      if (asc.clockPhase >= 1.0) {
-        asc.clockPhase -= 1.0;
-        asc.barCount++;
-      }
-    }
-    var currentStep = Math.floor(asc.clockPhase * 16);
-
-    // ── 8. BAR EVENTS — chord changes + bass ──
-    if (currentStep !== asc.lastClockStep) {
-      asc.lastClockStep = currentStep;
-
-      // Beat 1 (step 0): advance chord, fire bass
-      if (currentStep === 0) {
-        asc.chordStep = asc.barCount % prog.length;
-        ascRecord('BAR', { bar: asc.barCount, chord: asc.chordStep, enrich: +asc.enrichment.toFixed(2), mag: +asc.magnetism.toFixed(2), energy: +asc.ascEnergy.toFixed(1) });
-        try { Audio.ascension.setWallChord(cfg.wallRoot, prog[asc.chordStep]); } catch(e) {}
-
-        // Bass on downbeat — only after enrichment starts coming in
-        if (asc.enrichment > 0.15) {
-          var voicing = prog[asc.chordStep];
-          var bassFreq = cfg.wallRoot * Math.pow(2, voicing[0] / 12);
-          while (bassFreq < 80) bassFreq *= 2;
-          while (bassFreq > 200) bassFreq /= 2;
-          try { Audio.layer.setFreqs('asc-bass', [bassFreq, bassFreq], 0.15); } catch(e) {}
-        }
-      }
-    }
-
-    // ── 9. ENRICHMENT RAMP — layers bloom over bars ──
-    var enrichBars = cfg.enrichBars || 8;
-    var enrichTarget = Math.min(1.0, asc.barCount / enrichBars);
-    asc.enrichment += (enrichTarget - asc.enrichment) * 1.5 * dt;
-    asc.magnetism = Math.min(cfg.magnetismMax || 0.6, asc.enrichment * 0.75);
-
-    // ── 10. LAYER GAINS FROM ENRICHMENT ──
-    var suckMult = 1.0;
-    if (asc.stagePhase === 'suck') suckMult = Math.max(0.02, 1.0 - asc.stageTimer / (cfg.suckDuration || 0.8));
-    if (asc.stagePhase === 'slam') suckMult = Math.min(1.0, asc.stageTimer / 0.3);
-
-    // Energy presence: wall breathes with your motion. Stillness = soft, not silent.
-    var energyPresence = Math.min(1.0, energy * 0.15 + 0.15);  // floor 0.15, full at energy ~5.7
-
-    var rootGain  = 0.50 * suckMult * energyPresence;
-    var thirdGain = Math.min(0.40, asc.enrichment * 0.5) * suckMult * energyPresence;
-    var fifthGain = Math.min(0.40, asc.enrichment * 0.5) * suckMult * energyPresence;
-    var octGain   = Math.min(0.30, Math.max(0, asc.enrichment - 0.25) * 0.45) * suckMult * energyPresence;
-    var subGain   = Math.min(0.40, Math.max(0, asc.enrichment - 0.3) * 0.6) * suckMult;  // sub stays — feel it
-    var bassGain  = Math.min(0.25, Math.max(0, asc.enrichment - 0.15) * 0.35) * suckMult;
-    var noiseGain = Math.min(cfg.noiseLevel * 0.5, Math.max(0, asc.enrichment - 0.6) * cfg.noiseLevel * 1.5) * suckMult * energyPresence;
-
-    try { Audio.layer.setGain('asc-root',  rootGain,  0.08); } catch(e) {}
-    try { Audio.layer.setGain('asc-third', thirdGain, 0.08); } catch(e) {}
-    try { Audio.layer.setGain('asc-fifth', fifthGain, 0.08); } catch(e) {}
-    try { Audio.layer.setGain('asc-oct',   octGain,   0.08); } catch(e) {}
-    try { Audio.layer.setGain('asc-sub',   subGain,   0.3); } catch(e) {}
-    try { Audio.layer.setGain('asc-bass',  bassGain,  0.3); } catch(e) {}
+    try { Audio.layer.setGain('asc-root',  rootGain,  0.12); } catch(e) {}
+    try { Audio.layer.setGain('asc-third', thirdGain, 0.12); } catch(e) {}
+    try { Audio.layer.setGain('asc-fifth', fifthGain, 0.12); } catch(e) {}
+    try { Audio.layer.setGain('asc-oct',   octGain,   0.12); } catch(e) {}
+    try { Audio.layer.setGain('asc-sub',   subGain,   0.4); } catch(e) {}
+    try { Audio.layer.setGain('asc-bass',  bassGain,  0.4); } catch(e) {}
     try { Audio.layer.setGain('asc-noise', noiseGain, 0.5); } catch(e) {}
 
-    // ── 11. MAGNETIZED LEAD — peaks fire notes pulled toward chord tones ──
-    if (asc.pluckCooldown > 0) asc.pluckCooldown -= dt;
+    // ── 8. TILT → FILTER — up opens, down closes ──
+    var filterTarget = cfg.filterRange[0] + asc.tiltSmooth * (cfg.filterRange[1] - cfg.filterRange[0]);
+    // Bloom floor — more layers = more open even at low tilt
+    var bloomFloor = cfg.filterRange[0] + (asc.bloom / 4) * (cfg.filterRange[1] * 0.3 - cfg.filterRange[0]);
+    filterTarget = Math.max(filterTarget, bloomFloor);
 
-    if (peakCount > 0 && asc.pluckCooldown <= 0 && asc.stagePhase === 'play' && !asc.breathActive && energy > 0.80) {
-      var rawSemi = tiltNorm * 14 - 5;  // -5 to +9 semitones — one musical octave
-      var rawFreq = cfg.wallRoot * Math.pow(2, rawSemi / 12);
-      var voicing = prog[asc.chordStep];
-
-      // Magnetize: pull toward nearest chord tone
-      var magFreq = magnetize(rawFreq, cfg.wallRoot, voicing, asc.magnetism);
-      while (magFreq < 300) magFreq *= 2;
-      while (magFreq > 1200) magFreq /= 2;
-
-      var leadVel = Math.min(0.6, 0.15 + energy * 0.04);  // softer — the wall is the star
-      ascRecord('LEAD', { rawSemi: +rawSemi.toFixed(1), rawHz: Math.round(rawFreq), magHz: Math.round(magFreq), pull: +(magFreq - rawFreq).toFixed(0), mag: +asc.magnetism.toFixed(2), chord: asc.chordStep, vel: +leadVel.toFixed(2) });
-      try { Audio.synth.ascLead(0, magFreq, leadVel, 2.5, cfg.portamento); } catch(e) {}
-
-      // Pluck from chord voicing — gentle, not percussive
-      var pi = Math.floor(Math.random() * voicing.length);
-      var pf = cfg.wallRoot * Math.pow(2, voicing[pi] / 12);
-      if (pf < 200) pf *= 2;
-      if (pf > 2000) pf /= 2;
-      try { Audio.synth.ascPluck(0, pf, Math.min(0.5, energy * 0.06 + 0.1), 1.2); } catch(e) {}
-
-      asc.pluckCooldown = 0.4;  // less frequent — let notes breathe
-
-      // Still record to pitch buffer for re-analysis
-      asc.pitchBuffer.push({ semi: rawSemi, time: asc.time });
-      if (asc.pitchBuffer.length > asc.pitchBufferMax) asc.pitchBuffer.shift();
-    }
-
-    // ── 12. RE-ANALYSIS — every N bars, check if user's playing has shifted ──
-    var reanalyzeBars = cfg.reanalyzeBars || 8;
-    if (asc.barCount > 0 && asc.barCount % reanalyzeBars === 0 && asc.barCount !== asc.lastAnalysisBar && asc.pitchBuffer.length >= 4) {
-      asc.lastAnalysisBar = asc.barCount;
-      var newProg = analyzePitchBuffer(asc.pitchBuffer, cfg.progressions, cfg.wallRoot);
-      var progNames = ['I-V-vi-IV (axis)', 'I-IV-V-vi (pop)', 'vi-IV-I-V (emotional)', 'I-vi-ii-V (jazz)'];
-      if (newProg !== asc.progIndex) {
-        ascRecord('REANALYSIS', { from: asc.progIndex, to: newProg, name: progNames[newProg] });
-        asc.progIndex = newProg;
-        prog = cfg.progressions[asc.progIndex];
-      } else {
-        ascRecord('REANALYSIS', { kept: asc.progIndex, name: progNames[asc.progIndex] });
-      }
-    }
-
-    // ── 13. TILT → FILTER CUTOFF ──
-    var filterTarget = cfg.filterRange[0] + tiltNorm * (cfg.filterRange[1] - cfg.filterRange[0]);
-    var enrichFloor = cfg.filterRange[0] + asc.enrichment * (cfg.filterRange[1] * 0.4 - cfg.filterRange[0]);
-    filterTarget = Math.max(filterTarget, enrichFloor);
-
+    // Breathing LFO during stillness
     if (asc.breathActive) {
       var breathLFO = Math.sin(asc.breathPhase * Math.PI * 2);
-      filterTarget += breathLFO * cfg.breathDepth;
+      filterTarget += breathLFO * (cfg.breathDepth || 1200);
       filterTarget = Math.max(cfg.filterRange[0], Math.min(cfg.filterRange[1], filterTarget));
     }
 
-    if (asc.stagePhase !== 'suck') {
-      asc.filterSmooth += (filterTarget - asc.filterSmooth) * 4.0 * dt;
-      asc.filterSmooth = Math.max(cfg.filterRange[0], Math.min(cfg.filterRange[1], asc.filterSmooth));
-      try { Audio.ascension.setWallFilter(asc.filterSmooth); } catch(e) {}
-    }
+    asc.filterSmooth += (filterTarget - asc.filterSmooth) * 3.0 * dt;
+    asc.filterSmooth = Math.max(cfg.filterRange[0], Math.min(cfg.filterRange[1], asc.filterSmooth));
+    try { Audio.ascension.setWallFilter(asc.filterSmooth); } catch(e) {}
 
-    // ── 14. DETUNE SPREAD — widens with enrichment + motion ──
-    var enrichSpread = cfg.detuneRange[0] + asc.enrichment * (cfg.detuneRange[1] - cfg.detuneRange[0]);
-    var motionSpread = energy * 5;
-    var spreadTarget = Math.min(cfg.detuneRange[1], enrichSpread + motionSpread);
-    asc.spreadSmooth += (spreadTarget - asc.spreadSmooth) * 3.0 * dt;
+    // ── 9. DETUNE SPREAD — widens with bloom + motion ──
+    var bloomSpread = cfg.detuneRange[0] + (asc.bloom / 4) * (cfg.detuneRange[1] - cfg.detuneRange[0]);
+    var motionSpread = energy * 2;
+    var spreadTarget = Math.min(cfg.detuneRange[1], bloomSpread + motionSpread);
+    asc.spreadSmooth += (spreadTarget - asc.spreadSmooth) * 2.0 * dt;
     try { Audio.ascension.setWallSpread(asc.spreadSmooth); } catch(e) {}
 
-    // ── 15. ROLL → PITCH SHIFT ──
-    var rollNorm = Math.max(-1, Math.min(1, gamma / 30));
-    try { Audio.ascension.setMasterPitch(rollNorm * 2); } catch(e) {}
+    // ── 10. ROLL → subtle pitch shift ──
+    var rollNorm = Math.max(-1, Math.min(1, gamma / 45));
+    try { Audio.ascension.setMasterPitch(rollNorm * 1.5); } catch(e) {}
 
-    // ── 16. REVERB — ascension LIVES in reverb. Cathedral of sound. ──
-    var reverbTarget = 0.35 + asc.enrichment * 0.25;
-    if (asc.breathActive) reverbTarget = 0.75;
+    // ── 11. REVERB — cathedral. More bloom = more space. ──
+    var reverbTarget = 0.40 + (asc.bloom / 4) * 0.25;
+    if (asc.breathActive) reverbTarget = 0.80;
     try { Audio.setReverbMix(reverbTarget); } catch(e) {}
 
-    // ── 17. DELAY — dotted eighth echo. Spacious. ──
-    var delayTarget = 0.15 + asc.enrichment * 0.20;
-    if (asc.breathActive) delayTarget = 0.45;
+    // ── 12. DELAY ──
+    var delayTarget = 0.15 + (asc.bloom / 4) * 0.20;
+    if (asc.breathActive) delayTarget = 0.50;
     try { Audio.setDelayMix(delayTarget); } catch(e) {}
+
+    // ── 13. PHASE for display ──
+    if (asc.bloom >= 3.5) asc.phase = asc.breathActive ? 'breathing' : 'full';
+    else if (asc.bloom >= 0.5) asc.phase = 'bloom';
+    else asc.phase = 'ember';
   }
 
   // Wobble LFO shapes — different each drop cycle
@@ -4627,15 +4367,15 @@ const Follow = (function () {
         (a.halftime ? ' HT' : '') + (a.delayThrow ? ' DT' : '') +
         (a.reverbWash ? ' RW' : '') + (a.levitation ? ' LEV' : '');
     },
-    // Ascension debug — Hidden Songwriter
+    // Ascension debug — One Voice That Grows
     get ascPhase() { return asc.active ? asc.phase : '-'; },
     get ascFilter() { return asc.active ? Math.round(asc.filterSmooth) : '-'; },
     get ascDetune() { return asc.active ? asc.spreadSmooth.toFixed(1) : '-'; },
-    get ascChord() { return asc.active ? 'P' + asc.progIndex + ' C' + asc.chordStep + ' bar' + asc.barCount : '-'; },
+    get ascChord() { return asc.active ? (asc.colorSmooth > 0.65 ? 'MAJ' : asc.colorSmooth < 0.35 ? 'MIN' : 'SUS') : '-'; },
     get ascGain() { return asc.active ? asc.masterGain.toFixed(2) : '-'; },
     get ascBreathing() { return asc.active ? (asc.breathActive ? 'YES' : 'no') : '-'; },
-    get ascEnrich() { return asc.active ? asc.enrichment.toFixed(2) + ' mag' + asc.magnetism.toFixed(2) : '-'; },
-    get ascEnergy() { return asc.active ? asc.ascEnergy.toFixed(1) : '-'; },
-    get ascPitches() { return asc.active ? asc.pitchBuffer.length + '/' + asc.pitchBufferMax : '-'; },
+    get ascEnrich() { return asc.active ? 'bloom ' + asc.bloom.toFixed(1) + ' color ' + asc.colorSmooth.toFixed(2) : '-'; },
+    get ascEnergy() { return asc.active ? asc.engagedTime.toFixed(0) + 's' : '-'; },
+    get ascPitches() { return '-'; },
   });
 })();

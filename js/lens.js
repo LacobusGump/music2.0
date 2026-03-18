@@ -376,33 +376,14 @@ const Lens = (function () {
         wallRoot: 220,
         subFreq: 55,
         bassFreq: 110,
-        filterRange: [200, 3500],   // cap at 3500 — saws are brutal above this
-        detuneRange: [3, 22],      // tighter — warm shimmer, not harsh chorus
-        portamento: 0.18,          // slower glide — more legato, less percussive
-        breathRate: 0.06,          // slower breathing — more meditative
-        breathDepth: 1200,         // gentler filter sweep during breath
-        noiseLevel: 0.03,          // less noise — cleaner ascension sound
-        suckDuration: 0.8,           // seconds of suck before slam (the reveal)
-        swellCycle: 12.5,             // seconds per breathing swell
-        swellDepth: 0.15,             // gain variation (0.15 = ±15%)
-        // Hidden songwriter
-        bpm: 107,                     // internal grid tempo
-        acclimateTime: 8.0,           // seconds of raw exploration before grid lock
-        minPitchSamples: 5,           // minimum peaks before analysis can run
-        magnetismMax: 0.35,           // gentle pull — keep pitch variety, don't collapse
-        enrichBars: 8,                // bars to full enrichment (~18s at 107)
-        reanalyzeBars: 8,             // re-check progression fit every N bars
-        // Chord progressions — system picks the one that fits your playing
-        progressions: [
-          // I → V → vi → IV  (the axis — the prodloveeli sound)
-          [[0, 4, 7, 12], [-5, 0, 4, 7], [-3, 0, 4, 9], [-5, 0, 5, 9]],
-          // I → IV → V → vi  (pop canon)
-          [[0, 4, 7, 12], [0, 5, 9, 12], [-5, 0, 4, 7], [-3, 0, 4, 9]],
-          // vi → IV → I → V  (emotional minor start)
-          [[-3, 0, 4, 9], [-5, 0, 5, 9], [0, 4, 7, 12], [-5, 0, 4, 7]],
-          // I → vi → ii → V  (jazz-inflected)
-          [[0, 4, 7, 12], [-3, 0, 4, 9], [-5, 2, 5, 9], [-5, -1, 4, 7]],
-        ],
+        filterRange: [200, 3500],    // cap at 3500 — warm, not harsh
+        detuneRange: [3, 22],        // warm shimmer, not chorus
+        breathRate: 0.06,            // meditative breathing
+        breathDepth: 1200,           // gentle filter sweep
+        noiseLevel: 0.03,            // clean
+        swellCycle: 14.0,            // slow ocean swell
+        // Layer bloom timing
+        bloomTime: 5.0,              // seconds of engaged time per layer
       },
 
       response: {
