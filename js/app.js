@@ -305,7 +305,7 @@
         blog(introPlayed ? 'Returning user — instant start' : 'First visit — waiting for voice');
         setTimeout(function () {
           blog('Selecting default lens...');
-          Lens.selectCard(1); // Grid — strongest first impression (index 1 of 3 presets)
+          Lens.selectCard(5); // Grid — strongest first impression (PRESETS: 0-3=stages, 4=Journey, 5=Grid, 6=Ascension)
           var lens = Lens.getSelected();
           blog('Lens: ' + (lens ? lens.name : 'NULL'));
           Audio.configure(lens);

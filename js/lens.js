@@ -22,6 +22,8 @@ const Lens = (function () {
     // Boards of Canada. One piano. Two hands. Dorian warmth.
     {
       name: 'drift',
+      description: 'Boards of Canada. Two hands on piano. Dorian warmth.',
+      color: '#6b5b4f',
       harmony: { root: 432, mode: 'dorian' },
       tone: {
         bassFreq: 110, bassGain: 5,
@@ -63,6 +65,8 @@ const Lens = (function () {
     // Nils Frahm. Jon Hopkins. Lydian wonder. Strings with vibrato.
     {
       name: 'still water',
+      description: 'Nils Frahm. Strings and wonder. Lydian light.',
+      color: '#4a6670',
       harmony: { root: 440, mode: 'lydian' },
       tone: {
         bassFreq: 90, bassGain: 3,
@@ -105,6 +109,8 @@ const Lens = (function () {
     // Arvo Pärt. Fred Again. Picardy third. One note at a time.
     {
       name: 'tundra',
+      description: 'Arvo Part. One note. Vast silence. Picardy resolve.',
+      color: '#8a9ba8',
       harmony: { root: 432, mode: 'picardy' },
       tone: {
         bassFreq: 120, bassGain: 1,
@@ -147,6 +153,8 @@ const Lens = (function () {
     // Inverted. Backwards. Through the tunnel. Phrygian darkness.
     {
       name: 'dark matter',
+      description: 'Zimmer. Organ swells. Phrygian darkness.',
+      color: '#2a1f3d',
       // Interstellar docking scene: organ swells, relentless tick,
       // dissonance building until you can't breathe. Zimmer.
       harmony: { root: 432, mode: 'phrygian' },
@@ -515,8 +523,8 @@ const Lens = (function () {
   }
 
   function restoreFromStorage() {
-    // Default to Grid (index 1) — strongest first impression
-    var lastIndex = 1;
+    // Default to Grid (index 5) — strongest first impression
+    var lastIndex = 5;
     try {
       var s = localStorage.getItem('m2_lens');
       if (s) { var d = JSON.parse(s); lastIndex = d.index || 0; }

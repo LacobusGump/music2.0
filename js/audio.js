@@ -1017,6 +1017,9 @@ const Audio = (function () {
       case 'mono':       synthMono(time, freq, vel, decay); break;
       case 'cinematic':  synthCinematic(time, freq, vel, decay); break;
       case 'gridstack':  synthGridStack(time, freq, vel, decay); break;
+      case 'ascLead':    synthAscLead(time, freq, vel, decay); break;
+      case 'ascPluck':   synthAscPluck(time, freq, vel, decay); break;
+      case 'ascStab':    synthAscStab(time, freq, vel); break;
       default: synthSimple(time, freq, vel, decay, opts); break;
     }
   }
