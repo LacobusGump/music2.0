@@ -786,7 +786,9 @@
   function render(dt) {
     if (!ctx2d) return;
 
-    ctx2d.fillStyle = canvasBgColor;
+    // FULL CLEAR — no ghosting, no old frames bleeding through
+    ctx2d.clearRect(0, 0, W, H);
+    ctx2d.fillStyle = '#000000';
     ctx2d.fillRect(0, 0, W, H);
 
     var ox = posX * W;
