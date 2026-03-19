@@ -158,17 +158,37 @@ const Sensor = (function () {
       var needsRequest = typeof DeviceMotionEvent !== 'undefined' &&
         typeof DeviceMotionEvent.requestPermission === 'function';
 
-      if (!needsRequest) {
-        // Android / desktop / older iOS — just add listeners
+      // Chrome iOS: requestPermission exists (WKWebView exposes it) but
+      // Chrome doesn't show the dialog properly. Skip it — just add listeners
+      // and check if events arrive. Chrome often grants motion by default.
+      var isChrome = /CriOS/.test(navigator.userAgent || '');
+
+      if (!needsRequest || isChrome) {
         addListeners();
-        permState = 'granted';
+        // Give it 2s to see if motion events actually arrive
+        var countBefore = raw.motionEventCount;
+        setTimeout(function () {
+          if (raw.motionEventCount > countBefore || raw.motionGranted) {
+            permState = 'granted';
+            dismissHelp();
+          } else if (isChrome && needsRequest) {
+            // Chrome has requestPermission but we skipped it — events not arriving
+            // Try calling it now as a fallback
+            DeviceMotionEvent.requestPermission()
+              .then(function (perm) {
+                if (perm === 'granted') { addListeners(); permState = 'granted'; dismissHelp(); }
+                else { permState = 'denied'; showHelp(); }
+              })
+              .catch(function () { permState = 'denied'; showHelp(); });
+          } else {
+            permState = 'granted'; // desktop/Android — no events but that's fine
+          }
+        }, 2000);
         resolve();
         return;
       }
 
-      // iOS: request BOTH permissions simultaneously via Promise.all
-      // Each has its own .catch so one failing doesn't kill the other
-      // Timeout after 5s — Chrome on iOS can hang forever
+      // Safari iOS: requestPermission works properly — use it
       function withTimeout(promise, ms) {
         return Promise.race([
           promise,
@@ -197,22 +217,10 @@ const Sensor = (function () {
         var orientResult = results[1];
 
         if (motionResult === 'granted' || orientResult === 'granted') {
-          // Got at least one — add listeners for both
           addListeners();
           permState = 'granted';
           dismissHelp();
-
-          // Verify events actually fire (iOS edge case)
-          var countBefore = raw.motionEventCount;
-          setTimeout(function () {
-            if (raw.motionEventCount === countBefore && !raw.motionGranted) {
-              // Permission said 'granted' but no events arriving
-              // Still OK — touch + tilt fallback in brain.js handles this
-              console.warn('[Sensor] Motion granted but no events received');
-            }
-          }, 2000);
         } else {
-          // Both denied or errored
           permState = 'denied';
           showHelp();
         }
