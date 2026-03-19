@@ -212,9 +212,8 @@ const Voice = (function () {
         currentSource = src;
       })
       .catch(function () {
-        // File not recorded yet — Web Speech fallback
+        // File not found — silent fallback (bootText was removed)
         lastSpoke = 0;
-        speak(bootText, { force: true, pitch: 0.50, rate: 0.68 });
       });
   }
 

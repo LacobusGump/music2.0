@@ -190,7 +190,9 @@ const Follow = (function () {
   var rootSemiOffset = 0;
   var rootSemiTarget = 0;
   var arcStep        = 0;
-  var ARC_JOURNEY    = [0, 0, 0, 0];
+  // ARC_JOURNEY disabled — all zeros, runs every frame doing nothing.
+  // Was causing root drift upward. Kept for reference if harmonic arc is revisited.
+  // var ARC_JOURNEY    = [0, 0, 0, 0];
   var ARC_STEP_ENERGY = 50;
 
   function scaleFreq(degree, octave) {
@@ -923,7 +925,7 @@ const Follow = (function () {
 
     generation++;
     epi.harmonyCarry  = melodicCentroid;
-    epi.rootDrift     += 2;
+    // epi.rootDrift += 2;  // dead accumulation — value is never read
     epi.spaceMix      = Math.min(0.40, generation * 0.10);
     epi.massiveFloor  = Math.min(3, generation);
     epi.energyGate    = 24 + generation * 8;
@@ -1632,12 +1634,8 @@ const Follow = (function () {
 
     if (sessionPhase < 2) return;
 
-    var nextThreshold = (arcStep + 1) * ARC_STEP_ENERGY;
-    if (arcStep < ARC_JOURNEY.length - 1 && sessionEnergyAccum >= nextThreshold) {
-      arcStep++;
-      rootSemiTarget = ARC_JOURNEY[arcStep];
-    }
-
+    // ARC_JOURNEY disabled — was all zeros, did nothing but cost cycles.
+    // rootSemiTarget stays at 0, so this lerp is a no-op when offset is already 0.
     rootSemiOffset += (rootSemiTarget - rootSemiOffset) * dt * 0.06;
     root = originalRoot * Math.pow(2, rootSemiOffset / 12);
   }
@@ -1907,9 +1905,8 @@ const Follow = (function () {
       var spd = Math.sqrt(Math.pow(Brain.linearAccel.x||0,2) + Math.pow(Brain.linearAccel.y||0,2));
       tiltVal = Math.min(45, spd * 20) - 22;
     } else {
-      // Clamp beta to -90..90 — prevents wrap-around jump when phone tilts past vertical
-      var safeBeta = Math.max(-90, Math.min(90, sensor.beta || 45));
-      tiltVal = safeBeta - 45;
+      // sensor.js already normalizes beta to [-90, 90] — no clamping needed here
+      tiltVal = (sensor.beta || 45) - 45;
     }
 
     tiltOffset = tiltVal / (tiltRange / 2);
@@ -2470,9 +2467,6 @@ const Follow = (function () {
 
     // Breakdown state
     breakdownStyle: 0,
-    breakdownMelodyFired: false,
-
-    // Breakdown state
     breakdownMelodyFired: false,
 
     // Vocal drop system

@@ -30,6 +30,25 @@
   let debugVisible = false;
   let swipeHintTimer = 0;
 
+  // Canvas background color — synced to time-of-day CSS custom properties
+  var canvasBgColor = 'rgba(5,5,5,0.15)';
+  (function() {
+    function updateCanvasBg() {
+      var s = getComputedStyle(document.documentElement);
+      var h = s.getPropertyValue('--bg-h').trim() || '240';
+      var sat = s.getPropertyValue('--bg-s').trim() || '8';
+      var l = s.getPropertyValue('--bg-l').trim() || '3';
+      canvasBgColor = 'hsla(' + h + ',' + sat + '%,' + l + '%,0.15)';
+    }
+    // Run once on load, then every 60s (same cadence as time-of-day system)
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', updateCanvasBg);
+    } else {
+      updateCanvasBg();
+    }
+    setInterval(updateCanvasBg, 60000);
+  })();
+
   // Swipe detection for live lens switching
   let swipeStartX = 0;
   let swipeLastX = 0;
@@ -433,6 +452,7 @@
         var flashColors = {
           'Journey':        '#3d3550',
           'Grid':           '#ff3300',
+          'Ascension':      '#8844ff',
         };
         flashScreen(flashColors[lens.name] || '#ffffff');
       }
@@ -623,7 +643,7 @@
   var chimeTimer = 0;
   var chimeVoice = 'bell';
 
-  function checkHourlyChime(sensor) {
+  function checkHourlyChime(sensor, dt) {
     var h = sensor.hour || new Date().getHours();
     var m = new Date().getMinutes();
 
@@ -646,7 +666,7 @@
 
     // Ring the chimes — spaced 2.5 seconds apart
     if (chimeRingsLeft > 0) {
-      chimeTimer += 1/60;  // approximate dt
+      chimeTimer += dt;
       if (chimeTimer >= 2.5) {
         chimeTimer = 0;
         chimeRingsLeft--;
@@ -700,7 +720,7 @@
       render(dt);
 
       // 7. Hourly ode — Mt. Holly, High Street
-      checkHourlyChime(sensor);
+      checkHourlyChime(sensor, dt);
 
       // 8. Pattern engine (AI Producer — silent)
       Pattern.update(dt, Follow.silent);
@@ -759,7 +779,7 @@
   function render(dt) {
     if (!ctx2d) return;
 
-    ctx2d.fillStyle = 'rgba(5,5,5,0.15)';
+    ctx2d.fillStyle = canvasBgColor;
     ctx2d.fillRect(0, 0, W, H);
 
     var ox = posX * W;
