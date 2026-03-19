@@ -284,7 +284,11 @@
         startPlayScreen();
         blog('PLAY — url lens');
       } else {
-        blog('Waiting 2.5s for voice...');
+        // Only wait for voice on first visit — otherwise instant
+        var introPlayed = false;
+        try { introPlayed = !!localStorage.getItem('gump_intro_played'); } catch(e) {}
+        var waitTime = introPlayed ? 0 : 2500;
+        blog(introPlayed ? 'Returning user — instant start' : 'First visit — waiting for voice');
         setTimeout(function () {
           blog('Selecting default lens...');
           Lens.selectCard(1); // Grid — strongest first impression
@@ -297,7 +301,7 @@
           Pattern.setLens(lens);
           startPlayScreen();
           blog('PLAY — default lens');
-        }, 2500);
+        }, waitTime);
       }
     }).catch(function(e) {
       blog('Sensor.init() FAILED: ' + e);
