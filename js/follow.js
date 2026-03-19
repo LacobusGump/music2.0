@@ -43,7 +43,7 @@ const Follow = (function () {
     mixolydian: [0, 2, 4, 5, 7, 9, 10],
     phrygian:   [0, 1, 3, 5, 7, 8, 10],
     lydian:     [0, 2, 4, 6, 7, 9, 11],
-    picardy:    [0, 2, 3, 4, 5, 7, 8, 10],
+    picardy:    [0, 2, 3, 5, 7, 8, 11],  // harmonic minor — Picardy resolves to major at cadence
     minor:      [0, 2, 3, 5, 7, 8, 10],
   };
 
@@ -323,6 +323,12 @@ const Follow = (function () {
   var tiltOffset = 0;
   var lastNoteTime = 0;
 
+  // Water bottle dynamics — physical response to tilt
+  // Pitch: responsive, moderate slosh
+  var pitchWater = null;  // created in init() after Brain is available
+  // Filter: more slosh, sweeps feel liquid
+  var filterWater = null;
+
   // Harmonic state
   var harmonyDegree = 0;
 
@@ -517,8 +523,8 @@ const Follow = (function () {
   // ── SESSION ARC ───────────────────────────────────────────────────────
   var sessionEngagedTime = 0;
   var sessionPhase = 0;
-  var PHASE_LISTENING = 8;
-  var PHASE_ALIVE = 20;
+  var PHASE_LISTENING = 3;   // was 8 — too long, user's first impression was dead
+  var PHASE_ALIVE = 12;
 
   // ── EPIGENETIC EVOLUTION ──────────────────────────────────────────────
   var sessionEnergyAccum = 0;
@@ -717,7 +723,7 @@ const Follow = (function () {
     if (lens && lens.palette && lens.palette.harmonic && Audio.ctx && !isSilent && fadeGain > 0.15) {
       var h = lens.palette.harmonic;
       var resVel = 0.32 * fadeGain;
-      var chord = [harmonyDegree, harmonyDegree + 2, harmonyDegree + 4];
+      var chord = [0, 2, 4];  // always resolve to I chord (tonic) — the actual full stop
       for (var ci = 0; ci < chord.length; ci++) {
         (function (deg, delay, idx) {
           setTimeout(function () {
@@ -1385,12 +1391,10 @@ const Follow = (function () {
       prodigy.filterBias += (0 - prodigy.filterBias) * 1.0 * dt;  // neutral
     }
 
-    // Apply filter bias to the gyro filter
-    filterFreq += prodigy.filterBias;
-    filterFreq = Math.max(120, Math.min(4000, filterFreq));
-    if (droneLayer) {
-      try { Audio.layer.setFilter('follow-drone', filterFreq, 0.05); } catch(e) {}
-    }
+    // Apply filter bias to the TARGET, not the current value — prevents jitter
+    // from bias fighting the gyro lerp every frame
+    filterTarget += prodigy.filterBias;
+    filterTarget = Math.max(120, Math.min(4000, filterTarget));
 
     // 3. HARMONIC GRAVITY: find the user's "home" degree and pull toward it
     var hottest = 0, hottestDeg = 0;
@@ -1604,6 +1608,10 @@ const Follow = (function () {
   // ── INIT ──────────────────────────────────────────────────────────────
 
   function init() {
+    // Water bottle dynamics — physical tilt response
+    pitchWater = new Brain.WaterDynamic(3.0, 0.90, 0.35);   // responsive, moderate bounce
+    filterWater = new Brain.WaterDynamic(2.0, 0.88, 0.25);  // more slosh, liquid sweeps
+
     motionProfile.registerHandlers();
     active = false;
     isSilent = true;
@@ -1893,7 +1901,7 @@ const Follow = (function () {
   // ── ROLE 1: LEAD — TILT → PITCH ───────────────────────────────────────
   // The melody is the dominant voice. Everything else serves it.
 
-  function updateTiltPitch(sensor, now) {
+  function updateTiltPitch(sensor, now, dt) {
     if (!lens || !Audio.ctx) return;
 
     var tiltRange = (lens.response && lens.response.tiltRange) || 50;
@@ -1905,12 +1913,22 @@ const Follow = (function () {
       var spd = Math.sqrt(Math.pow(Brain.linearAccel.x||0,2) + Math.pow(Brain.linearAccel.y||0,2));
       tiltVal = Math.min(45, spd * 20) - 22;
     } else {
-      // sensor.js already normalizes beta to [-90, 90] — no clamping needed here
-      tiltVal = (sensor.beta || 45) - 45;
+      // Natural iPhone hold is ~62°. Center the instrument there.
+      tiltVal = (sensor.beta || 62) - 62;
     }
 
-    tiltOffset = tiltVal / (tiltRange / 2);
-    if (wasInverted) tiltOffset = -tiltOffset;
+    // Water bottle physics: tilt drives the water, water level drives pitch
+    var tiltNorm = tiltVal / (tiltRange / 2);
+    if (wasInverted) tiltNorm = -tiltNorm;
+    tiltNorm = Math.max(-1, Math.min(1, tiltNorm));
+
+    if (pitchWater) {
+      pitchWater.update(tiltNorm, dt || 0.016);
+      // Water level 0-1 → pitch offset -1 to 1
+      tiltOffset = pitchWater.level * 2 - 1;
+    } else {
+      tiltOffset = tiltNorm;
+    }
     var tiltDegree = Math.round(tiltOffset * 7);
 
     var arcRange = Math.max(0.25, arcAmplitude);
@@ -1925,7 +1943,7 @@ const Follow = (function () {
     if (targetDegree < -degreeLimit) targetDegree = -degreeLimit;
 
     var noteIntervalMs = (lens.response && lens.response.noteInterval) || 320;
-    var maxJump = Math.min(7, Math.max(1, Math.round(noteIntervalMs / 180)));
+    var maxJump = Math.min(7, Math.max(2, Math.round(noteIntervalMs / 150)));  // floor 2 — always allow leaps, organ needs them
     var stepped = Math.max(currentDegree - maxJump, Math.min(currentDegree + maxJump, targetDegree));
 
     // Contour blend + harmonic gravity
@@ -1936,7 +1954,7 @@ const Follow = (function () {
     // Emotional color note: the soul of this mode
     var colorDeg = (lens.emotion && lens.emotion.colorDeg != null) ? lens.emotion.colorDeg : -1;
     if (colorDeg >= 0 && phraseActive && phraseEnergyArc > 0.2 && phraseEnergyArc < 0.78) {
-      blended = Math.round(blended * 0.88 + colorDeg * 0.12);
+      blended = Math.round(blended * 0.72 + colorDeg * 0.28);  // stronger modal color — this IS the soul
     }
 
     var gravitated = gravitateDegree(blended);
@@ -2105,7 +2123,15 @@ const Follow = (function () {
     gyroMagSmooth += (gyroMag - gyroMagSmooth) * 0.15;
 
     var range = (lens.response && lens.response.filterRange) || [200, 2800];
-    var norm = Math.min(1, gyroMagSmooth / 3);
+
+    // Water bottle filter: gyro magnitude drives the water, water level drives filter
+    if (filterWater) {
+      var filterTilt = Math.min(1, gyroMagSmooth / 3) * 2 - 1;  // map to -1..1
+      filterWater.update(filterTilt, 0.016);
+      var norm = filterWater.level;
+    } else {
+      var norm = Math.min(1, gyroMagSmooth / 3);
+    }
     filterTarget = range[0] + norm * (range[1] - range[0]);
     filterFreq += (filterTarget - filterFreq) * 0.08;
 
@@ -2842,7 +2868,7 @@ const Follow = (function () {
     var rawTilt = Math.max(0, Math.min(1, (beta + 30) / 180));
     asc.tiltSmooth += (rawTilt - asc.tiltSmooth) * 0.10;
     var rawLean = Math.max(0, Math.min(1, (gamma + 90) / 180));
-    asc.leanSmooth += (rawLean - asc.leanSmooth) * 0.015;
+    asc.leanSmooth += (rawLean - asc.leanSmooth) * 0.06;  // was 0.015 — 4x faster, user felt nothing
 
     asc.time += dt;
 
@@ -3351,8 +3377,8 @@ const Follow = (function () {
     var rawStep = grid.clock / effectiveStepDur;
     var newStep = Math.floor(rawStep) % 16;
     if (grid.arr.swing > 0 && (newStep % 2 === 1)) {
-      // Delay odd steps (offbeats) — creates shuffle feel
-      var swungPos = (rawStep - grid.arr.swing * 0.5);
+      // Delay odd steps (offbeats) — creates shuffle/groove feel
+      var swungPos = (rawStep + grid.arr.swing * 0.5);
       newStep = Math.floor(swungPos) % 16;
     }
     var newBar = Math.floor(grid.clock / barDur);
@@ -3408,7 +3434,7 @@ const Follow = (function () {
 
     // ── 4. TILT ZONES — the heart of DJ manipulation ──
     // Smooth the raw tilt (beta) — MUCH smoother than before
-    var beta = (sensor.beta || 45) - 45;
+    var beta = (sensor.beta || 62) - 62;
     var rawTilt = Math.max(0, Math.min(1, (beta + 30) / 60));
     grid.tiltNorm += (rawTilt - grid.tiltNorm) * 0.035;  // very smooth — no jumps
 
@@ -4243,8 +4269,8 @@ const Follow = (function () {
     root = newRoot;
     scale = MODES[newMode] || MODES.major;
     baseScale = scale.slice();
-    // Reset act so the three-act arc runs fresh on the new mode
-    sessionAct = 0;
+    // DON'T reset sessionAct — the three-act arc should persist across stages.
+    // Resetting made Act III (Homecoming at 300s) unreachable since stages change every 2.5min.
   }
 
   function updateOrganicStage(dt) {
@@ -4415,7 +4441,7 @@ const Follow = (function () {
 
     // ── ROLE 1 LEAD: melody ──
     updateVertical(sensor, dt);
-    updateTiltPitch(sensor, now);
+    updateTiltPitch(sensor, now, dt);
     processBeatMelody(now);
     checkAnticipation(now);
 

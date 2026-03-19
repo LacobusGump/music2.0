@@ -393,6 +393,54 @@ const Brain = (function () {
     classifyPattern();
   }
 
+  // ── WATER DYNAMICS ───────────────────────────────────────────────────
+  // Half-full bottle held longways. Three regimes:
+  //   Slow tilt → water rises evenly (smooth)
+  //   Fast tilt → water stacks against wall (accumulates)
+  //   Rapid oscillation → water crashes chaotically (turbulence)
+  //
+  // Each instance gives: level (0-1), velocity, turbulence, stacked.
+  // Use for pitch, filter, intensity — anything that should feel physical.
+
+  function WaterDynamic(gravity, damping, wallBounce) {
+    this.level = 0.5;
+    this.velocity = 0;
+    this.gravity = gravity || 2.0;
+    this.damping = damping || 0.92;
+    this.wallBounce = wallBounce || 0.3;
+  }
+
+  WaterDynamic.prototype.update = function (tilt, dt) {
+    // Gravity pulls water in tilt direction
+    this.velocity += tilt * this.gravity * dt;
+    // Viscosity / friction
+    this.velocity *= Math.pow(this.damping, dt * 60);  // frame-rate independent
+    // Move water
+    this.level += this.velocity * dt;
+    // Wall collisions — bounce/splash
+    if (this.level > 1) {
+      this.level = 1;
+      this.velocity *= -this.wallBounce;
+    } else if (this.level < 0) {
+      this.level = 0;
+      this.velocity *= -this.wallBounce;
+    }
+    return this.level;
+  };
+
+  WaterDynamic.prototype.turbulence = function () {
+    return Math.abs(this.velocity);
+  };
+
+  WaterDynamic.prototype.stacked = function () {
+    return this.level > 0.92 || this.level < 0.08;
+  };
+
+  WaterDynamic.prototype.reset = function () {
+    this.level = 0.5;
+    this.velocity = 0;
+  };
+
   // ── PUBLIC ───────────────────────────────────────────────────────────
 
   return Object.freeze({
@@ -417,5 +465,6 @@ const Brain = (function () {
     get linearAccel() { return lin; },
     get isReturning() { return isReturning; },
     get energy() { return short_.energy(); },
+    WaterDynamic: WaterDynamic,
   });
 })();

@@ -79,7 +79,7 @@ const Lens = (function () {
         spatial: { sweepRate: 0.10, sweepDepth: 0.48 },
       },
       palette: {
-        peak: { voice: 'piano', octave: 0, decay: 2.5 },
+        peak: { voice: 'piano', octave: 1, decay: 2.5 },       // octave UP — separate from strings melody
         continuous: { voice: 'strings', octave: 0, decay: 3.5 },
         harmonic: { voice: 'piano', octave: 1, decay: 2.0 },
         texture: { wave: 'sine', chord: [0, 4, 7, 11], octave: -1, detune: 5, vol: 0.05, reverbSend: 0.62 },
@@ -167,7 +167,7 @@ const Lens = (function () {
       },
       palette: {
         // Organ-like voices: sustained, swelling, massive
-        peak: { voice: 'organ', octave: 0, decay: 4.0 },
+        peak: { voice: 'organ', octave: -1, decay: 4.0 },     // pedal register — separate from melody
         continuous: { voice: 'organ', octave: 0, decay: 3.5 },
         harmonic: { voice: 'strings', octave: -1, decay: 5.0 },  // string swells underneath
         burst: { voice: 'glitch', octave: 0 },
@@ -178,7 +178,7 @@ const Lens = (function () {
       response: {
         peakThreshold: 0.80,
         tiltRange: 60,
-        noteInterval: 200,
+        noteInterval: 900,   // organ swells are sustained — don't rapid-fire
         melodicEnergy: 0.45,
         stillnessThreshold: 0.1,
         stillnessTimeout: 2.5,
@@ -196,7 +196,7 @@ const Lens = (function () {
         backbeat: false,
         maxVel: 0.9,
         broken: true,
-        dropRate: 0.25,
+        dropRate: 0,       // relentless tick — a clock doesn't skip beats
         doubleRate: 0.15,
       },
     },
