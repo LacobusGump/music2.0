@@ -133,11 +133,9 @@
       bctx.fillStyle = '#000000';
       bctx.fillRect(0, 0, bw, bh);
 
-      // Center point, shifted slightly by tilt
-      tiltX += (tiltRawX * 0.08 - tiltX) * 0.04;
-      tiltY += (tiltRawY * 0.06 - tiltY) * 0.04;
-      var cx = bw * (0.5 + tiltX * 0.05);
-      var cy = bh * (0.382 + tiltY * 0.03);  // golden ratio position
+      // Center point — static, no tilt (listeners removed for Chrome permission fix)
+      var cx = bw * 0.5;
+      var cy = bh * 0.382;  // golden ratio position
 
       // Breath
       var breath = Math.sin(t * 0.8) * 0.5 + 0.5;
