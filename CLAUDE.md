@@ -85,14 +85,11 @@ void drone → voidGain → masterHPF   ← IMPORTANT: bypasses masterGain
 
 ## Critical Rules
 
-1. **DO NOT re-introduce root drift** via ARC_JOURNEY or epigenetic rootSemiTarget — it's disabled for a reason
-2. **voidGain → masterHPF not masterGain** — void must play during silence
-3. **No spatial LFO** — killed because it caused random pan jumps. Tilt-only pan.
-4. **Beta clamped in sensor.js** — simple `Math.max(-90, Math.min(90, beta))`. No fold-back math.
-5. **Drums only for lenses with `groove` defined** — Drift/Still Water/Tundra have groove:null
-6. **Canvas clear at 15% opacity** for trail effect — never use full clear or you lose the visual trail
-7. **No white flash** — all flashes use warm gold `rgba(255,210,150,...)`
-8. **Organism hue range 340-420°** — magenta→red→orange→gold. Never green.
+1. **Sound over code.** Every change must make an audible difference. No refactoring without musical impact.
+2. **The system follows the human.** Never impose. Stillness = silence. Movement = music. The machine serves.
+3. **No root drift.** ARC_JOURNEY and epigenetic rootSemiTarget are disabled. Don't re-enable.
+4. **Void routes to masterHPF, not masterGain.** masterGain → 0 during silence. Void must bypass it.
+5. **Build, test, iterate.** Don't ask — build it, let James test, fix from his feedback.
 
 ---
 
