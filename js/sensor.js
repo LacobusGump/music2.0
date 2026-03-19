@@ -307,15 +307,8 @@ const Sensor = (function () {
       gy: raw.accelGravity.y,
       gz: raw.accelGravity.z,
       alpha: raw.orient.alpha,
-      // Normalize beta: if phone goes past vertical (|beta| > 90),
-      // clamp to 90 in the same direction. No wrapping, no inversion.
-      beta: (function() {
-        var rawBeta = raw.orient.beta || 0;
-        var safeBeta = rawBeta;
-        if (rawBeta > 90) safeBeta = 180 - rawBeta;    // 91→89, 135→45, 180→0
-        if (rawBeta < -90) safeBeta = -180 - rawBeta;   // -91→-89, -135→-45, -180→0
-        return safeBeta;
-      })(),
+      // Clamp beta to [-90, 90] — past vertical pushes against the edge, never inverts
+      beta: Math.max(-90, Math.min(90, raw.orient.beta || 0)),
       gamma: raw.orient.gamma,
       touching: raw.touch.active,
       tx: raw.touch.x,
