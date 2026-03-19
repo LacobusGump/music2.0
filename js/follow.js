@@ -4270,11 +4270,14 @@ const Follow = (function () {
     // Update motion
     lens.motion = stage.motion;
 
-    // Update groove — use stage groove, or build one from GROOVE_DNA table
+    // Update groove — use stage groove if defined, otherwise respect null (no drums)
     if (stage.groove) {
       lens.groove = stage.groove;
+    } else if (stage.groove === null) {
+      // Explicitly null = no drums. Still Water, Drift, Tundra are meant to be drumless.
+      lens.groove = null;
     } else {
-      // Every stage gets a tribal groove so drums actually fire
+      // Undefined = build a tribal groove
       var dna = GROOVE_DNA[stage.name];
       lens.groove = {
         kit: dna ? dna.kit : 'tribal',
