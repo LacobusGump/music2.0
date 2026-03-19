@@ -266,11 +266,30 @@ const Sensor = (function () {
       'padding:16px 20px;border-radius:14px;' +
       'font:14px/1.5 -apple-system,sans-serif;z-index:9999;' +
       'text-align:center;backdrop-filter:blur(8px);';
+    // Detect browser for correct instructions
+    var ua = navigator.userAgent || '';
+    var isChrome = /CriOS/.test(ua);
+    var isFirefox = /FxiOS/.test(ua);
+    var instructions;
+    if (isChrome) {
+      instructions =
+        'Tap <b>⋯</b> → <b>Settings</b> → <b>Content Settings</b><br>' +
+        '→ <b>Motion Sensors</b> → Allow<br>' +
+        'Then reload the page.';
+    } else if (isFirefox) {
+      instructions =
+        'Tap <b>☰</b> → <b>Settings</b> → <b>Site Permissions</b><br>' +
+        '→ Allow motion access, then reload.';
+    } else {
+      // Safari
+      instructions =
+        'Tap <b>aA</b> in the address bar<br>' +
+        '→ <b>Website Settings</b> → <b>Motion & Orientation</b> → Allow<br>' +
+        'Then reload the page.';
+    }
     el.innerHTML =
       '<b>Motion access needed</b><br>' +
-      'In Safari: tap <b>aA</b> in the address bar<br>' +
-      '→ <b>Website Settings</b> → <b>Motion & Orientation</b> → Allow<br>' +
-      'Then reload the page.<br><br>' +
+      instructions + '<br><br>' +
       '<span style="opacity:0.7;font-size:12px">Tap here to retry</span>';
     el.addEventListener('click', function () {
       retryPermissions();

@@ -116,12 +116,10 @@
     resizeBoot();
     window.addEventListener('resize', resizeBoot);
 
-    // Tilt — spring damped
-    var tiltRawX = 0, tiltRawY = 0, tiltX = 0, tiltY = 0;
-    window.addEventListener('deviceorientation', function (e) {
-      tiltRawX = (e.gamma || 0) / 45;
-      tiltRawY = (e.beta  || 0) / 90;
-    }, { passive: true });
+    // No deviceorientation listener here — adding one before Sensor.init()
+    // requests permission causes Chrome iOS to block/interfere with the
+    // permission dialog. The orb breathes at center; tilt is not needed.
+    var tiltX = 0, tiltY = 0;
 
     // Liquid glass boot — single breathing orb, fades in from black
     var t = 0;
@@ -206,9 +204,14 @@
     if (listenTapped) return;
     listenTapped = true;
 
-    // Move off boot screen immediately — no second tap possible
-    showScreen(SCREENS.PLAY);
+    // Stay on boot screen — don't switch yet.
+    // Chrome iOS needs the permission dialog to be tappable,
+    // and the play screen's touch handlers eat all events.
     stopBootCanvas();
+
+    // Update hint text so user knows something is happening
+    var hint = document.querySelector('.boot-touch-hint');
+    if (hint) hint.textContent = '';
 
     // Create AudioContext on user gesture (iOS requirement)
     if (!audioCtx) {
@@ -263,9 +266,19 @@
     blog('Voice.boot()');
     Voice.boot();
 
+    // Temporarily allow touch-action so Chrome's permission banner is tappable
+    document.body.style.touchAction = 'auto';
+
     blog('Sensor.init() starting...');
     Sensor.init().then(function () {
+      // Restore touch-action for instrument mode
+      document.body.style.touchAction = 'none';
+
       blog('Sensor.init() DONE');
+
+      // NOW move to play screen — permission is resolved
+      showScreen(SCREENS.PLAY);
+
       blog('Brain.init()');
       Brain.init();
       blog('Audio.init()');
@@ -304,6 +317,8 @@
         }, waitTime);
       }
     }).catch(function(e) {
+      document.body.style.touchAction = 'none';
+      showScreen(SCREENS.PLAY);
       blog('Sensor.init() FAILED: ' + e);
     });
   }
