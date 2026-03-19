@@ -165,18 +165,11 @@ const Organism = (function () {
   // ── DRAW ───────────────────────────────────────────────────────────
 
   function draw(canvasCtx, x, y, w, h) {
-    // STRIPPED — black with a single warm dot. Proving the file loads.
-    canvasCtx.fillStyle = 'rgba(255,200,100,0.8)';
-    canvasCtx.beginPath();
-    canvasCtx.arc(x, y, 6, 0, Math.PI * 2);
-    canvasCtx.fill();
-    return;
-
     const minDim = Math.min(w, h);
     const fieldScale = minDim * smoothSpread;
 
-    // Warm hue only — golden amber to rose, never green
-    var hueBase = (lensHue + time * 0.3) % 60 + 10;  // range 10-70: gold→amber→rose
+    // Warm hue: slow drift, stays in amber-gold-rose range (never green)
+    const hueBase = ((lensHue + time * 0.4) % 80) + 340;  // 340-420 (wraps: magenta→red→orange→gold)
 
     canvasCtx.save();
 
@@ -236,10 +229,10 @@ const Organism = (function () {
       alpha *= 0.12 + smoothEnergy * 0.25;
       alpha = Math.max(0.015, Math.min(0.35, alpha));
 
-      // Color: warm amber-gold range, never cold
-      const hue = (hueBase + i * 0.8) % 70 + 10;
-      const sat = Math.min(25, 8 + smoothEnergy * 14);
-      const light = 55 + p.brightness * 15;
+      // Color: desaturated, soft
+      const hue = (hueBase + i * 1.8) % 360;
+      const sat = Math.min(20, lensSat * 0.4 + smoothEnergy * 12);
+      const light = 60 + p.brightness * 12;
 
       // Draw particle
       canvasCtx.fillStyle = hsl(hue, sat, light, alpha);
@@ -264,7 +257,7 @@ const Organism = (function () {
     const originAlpha = 0.06 + smoothEnergy * 0.1;
     const originR = 1.5 + smoothEnergy * 2;
     const og = canvasCtx.createRadialGradient(x, y, 0, x, y, originR * 4);
-    og.addColorStop(0, hsl(hueBase, Math.min(15, 6), 70, originAlpha));
+    og.addColorStop(0, hsl(hueBase % 360, Math.min(15, lensSat * 0.3), 70, originAlpha));
     og.addColorStop(1, 'rgba(0,0,0,0)');
     canvasCtx.fillStyle = og;
     canvasCtx.beginPath();

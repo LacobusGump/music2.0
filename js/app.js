@@ -30,25 +30,6 @@
   let debugVisible = false;
   let swipeHintTimer = 0;
 
-  // Canvas background color — synced to time-of-day CSS custom properties
-  var canvasBgColor = 'rgba(5,5,5,0.15)';
-  (function() {
-    function updateCanvasBg() {
-      var s = getComputedStyle(document.documentElement);
-      var h = s.getPropertyValue('--bg-h').trim() || '240';
-      var sat = s.getPropertyValue('--bg-s').trim() || '8';
-      var l = s.getPropertyValue('--bg-l').trim() || '3';
-      canvasBgColor = 'hsla(' + h + ',' + sat + '%,' + l + '%,0.15)';
-    }
-    // Run once on load, then every 60s (same cadence as time-of-day system)
-    if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', updateCanvasBg);
-    } else {
-      updateCanvasBg();
-    }
-    setInterval(updateCanvasBg, 60000);
-  })();
-
   // Swipe detection for live lens switching
   let swipeStartX = 0;
   let swipeLastX = 0;
@@ -159,17 +140,6 @@
     ];
 
     function drawBoot() {
-      // STRIPPED — pure black + small warm dot at center
-      bctx.fillStyle = '#000000';
-      bctx.fillRect(0, 0, bw, bh);
-      bctx.fillStyle = 'rgba(255,200,100,0.5)';
-      bctx.beginPath();
-      bctx.arc(bw/2, bh * 0.382, 4, 0, Math.PI * 2);
-      bctx.fill();
-      t += 0.016;
-      bootAnimId = requestAnimationFrame(drawBoot);
-      return;
-
       // Spring physics on tilt
       tiltX += (tiltRawX * 0.1  - tiltX) * 0.06;
       tiltY += (tiltRawY * 0.08 - tiltY) * 0.06;
@@ -190,7 +160,7 @@
                 + 0.05 * Math.sin(t * 1.1 * SQ2));
 
       // ── FADE — slow trail so the wave ghosts behind itself ──
-      bctx.fillStyle = canvasBgColor.replace('0.15', '0.045');
+      bctx.fillStyle = 'rgba(0,0,0,0.045)';
       bctx.fillRect(0, 0, bw, bh);
 
       // ── CORONA PUSH — vertical gradient radiating from the horizon ──
@@ -395,8 +365,12 @@
   // ── FLASH ─────────────────────────────────────────────────────────────
 
   function flashScreen(color) {
-    // KILLED — no flash at all
-    return;
+    var el = document.getElementById('flash');
+    if (!el) return;
+    el.style.background = color;
+    el.style.opacity = '0.12';
+    setTimeout(function () { el.style.transition = 'opacity 0.6s'; el.style.opacity = '0'; }, 80);
+    setTimeout(function () { el.style.transition = ''; }, 700);
   }
 
   // ── PLAY COMMAND INTERFACE ────────────────────────────────────────────
@@ -461,7 +435,7 @@
           'Grid':           '#ff3300',
           'Ascension':      '#8844ff',
         };
-        flashScreen(flashColors[lens.name] || 'rgba(255,210,150,0.6)');
+        flashScreen(flashColors[lens.name] || 'rgba(255,210,150,0.4)');
       }
     }
   }
@@ -504,13 +478,13 @@
           // Figure 8 discovered — the machine speaks, then transforms
           Voice.iCanWorkWithThis();
           Voice.onDiscovery('figure8');
-          flashScreen('rgba(255,255,255,0.12)');
+          flashScreen('rgba(255,210,150,0.12)');
           // Cycle to the next lens — music transforms, no picker, no break
           setTimeout(function () {
             var next = Lens.nextLens();
             Pattern.setLens(next);
             Lens.updateIndicator();
-            flashScreen('rgba(255,255,255,0.06)');
+            flashScreen('rgba(255,210,150,0.06)');
           }, 800);
         });
         gestureWired = true;
@@ -786,9 +760,7 @@
   function render(dt) {
     if (!ctx2d) return;
 
-    // FULL CLEAR — no ghosting, no old frames bleeding through
-    ctx2d.clearRect(0, 0, W, H);
-    ctx2d.fillStyle = '#000000';
+    ctx2d.fillStyle = 'rgba(3,3,5,0.15)';
     ctx2d.fillRect(0, 0, W, H);
 
     var ox = posX * W;
@@ -909,7 +881,7 @@
 
     function doFlash() {
       if (!flashEl) return;
-      flashEl.style.background = 'rgba(255,220,170,0.8)';
+      flashEl.style.background = 'rgba(255,210,150,0.5)';
       flashEl.style.opacity = '0.09';
       setTimeout(function () { flashEl.style.opacity = '0'; }, 200);
     }
@@ -1013,7 +985,7 @@
           var askBtn  = document.getElementById('ask-dance-btn');
           var flashEl = document.getElementById('flash');
           if (flashEl) {
-            flashEl.style.background = 'rgba(255,220,170,0.8)';
+            flashEl.style.background = 'rgba(255,210,150,0.5)';
             flashEl.style.opacity = '0.09';
             setTimeout(function () { flashEl.style.opacity = '0'; }, 200);
           }
