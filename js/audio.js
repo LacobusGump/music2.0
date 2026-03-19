@@ -626,18 +626,18 @@ const Audio = (function () {
       // 4-layer 808 kick: click + body + sub tail + saturation
       // The sub tail IS the bass in EDM — long sustain at root freq
 
-      // Layer 1: Click — noise burst HP 3500Hz, 4ms snap
-      var clickLen = Math.floor(ctx.sampleRate * 0.004);
+      // Layer 1: Click — noise burst HP 3500Hz, 5ms snap
+      var clickLen = Math.floor(ctx.sampleRate * 0.005);
       var clickBuf = ctx.createBuffer(1, clickLen, ctx.sampleRate);
       var cd = clickBuf.getChannelData(0);
       for (var ci = 0; ci < clickLen; ci++) cd[ci] = (Math.random() * 2 - 1) * Math.pow(1 - ci / clickLen, 0.3);
       var clickSrc = ctx.createBufferSource(); clickSrc.buffer = clickBuf;
       var clickHP = ctx.createBiquadFilter(); clickHP.type = 'highpass'; clickHP.frequency.value = 3500;
 
-      // Layer 2: Body — sine 180→55Hz over 30ms
+      // Layer 2: Body — sine 220→subFreq over 35ms (wider sweep = more punch)
       var bodyO = ctx.createOscillator(); bodyO.type = 'sine';
-      bodyO.frequency.setValueAtTime(180, time);
-      bodyO.frequency.exponentialRampToValueAtTime(55, time + 0.03);
+      bodyO.frequency.setValueAtTime(220, time);
+      bodyO.frequency.exponentialRampToValueAtTime(_edm808SubFreq || 55, time + 0.035);
       var bodyG = ctx.createGain();
       bodyG.gain.setValueAtTime(0.85 * vel, time);
       bodyG.gain.exponentialRampToValueAtTime(0.001, time + 0.15);
@@ -661,15 +661,16 @@ const Audio = (function () {
       clickSrc.start(time); clickSrc.stop(time + 0.006);
       bodyO.start(time); bodyO.stop(time + 0.18);
 
-      // Layer 3: Sub tail — sine at root freq, 500ms sustain = THIS IS THE BASS
-      var subFreq = _edm808SubFreq || 55;  // A1, overrideable by Grid engine
+      // Layer 3: Sub tail — sine at root freq, long sustain = THIS IS THE BASS
+      // In 2026 production the kick sub IS the bassline. Let it ring.
+      var subFreq = _edm808SubFreq || 55;
       o.frequency.value = subFreq;
       var g = ctx.createGain();
       g.gain.setValueAtTime(0.001, time);
-      g.gain.linearRampToValueAtTime(0.75 * vel, time + 0.008);
-      g.gain.setTargetAtTime(0.001, time + 0.12, 0.18);
+      g.gain.linearRampToValueAtTime(0.85 * vel, time + 0.006);
+      g.gain.setTargetAtTime(0.001, time + 0.25, 0.22);
       o.connect(g); g.connect(drumBus);
-      o.start(time); o.stop(time + 0.6);
+      o.start(time); o.stop(time + 0.8);
     } else if (kit === 'tribal') {
       // Djembe / frame drum — warm body, NO click transient, long resonance
       // Body: triangle wave 120→55Hz, warmer than sine, 300ms sustain

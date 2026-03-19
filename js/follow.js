@@ -2866,27 +2866,27 @@ const Follow = (function () {
   // The filter has long arcs — musical phrases, not just tilt tracking.
   // The longer you stay, the deeper and richer it becomes.
 
-  // Progressions: major path, minor path, and a dark descent
+  // Progressions with proper voice leading — common tones retained, contrary motion
   var ASC_PROG_MAJOR = [
-    [0, 4, 7, 12],    // I   — home, bright
-    [5, 9, 12, 17],   // IV  — warmth
-    [-5, 0, 4, 7],    // V   — tension
-    [0, 4, 7, 12],    // I   — resolve
-    [5, 9, 12, 17],   // IV  — warmth again
-    [-3, 0, 4, 9],    // vi  — the turn (relative minor)
-    [-5, 0, 4, 7],    // V   — ache
+    [0, 4, 7, 12],    // I   — home
+    [0, 5, 9, 12],    // IV  — bass stays, top voices rise (common tone: 0, 12)
+    [-1, 4, 7, 11],   // V7  — stepwise motion down in bass, 7th adds tension
+    [0, 4, 7, 12],    // I   — resolve (all voices step back home)
+    [0, 5, 9, 12],    // IV  — warmth again
+    [0, 4, 9, 12],    // vi  — one note changes (common tones: 0, 9, 12)
+    [-1, 2, 7, 11],   // V7  — bass steps down, inner voices shift
     [0, 4, 7, 12],    // I   — home
   ];
 
   var ASC_PROG_MINOR = [
-    [0, 3, 7, 12],    // i   — home, deep
-    [-5, 0, 3, 7],    // iv  — darker
-    [-3, 0, 5, 8],    // VI  — lift (major relative)
-    [-5, -1, 4, 7],   // V   — dominant tension
-    [0, 3, 7, 12],    // i   — back to darkness
-    [-7, 0, 3, 8],    // VII — the floating chord
-    [-5, -1, 4, 7],   // V   — ache
-    [0, 3, 7, 12],    // i   — resolve to dark
+    [0, 3, 7, 12],    // i   — home
+    [0, 5, 8, 12],    // iv  — bass holds, inner voices rise (common: 0, 12)
+    [0, 3, 8, 12],    // VI  — one note shifts (common: 0, 3→3, 12)
+    [-1, 4, 7, 11],   // V7  — dominant tension, bass steps down
+    [0, 3, 7, 12],    // i   — resolve
+    [-2, 3, 7, 10],   // VII — bass steps down, 7 retained
+    [-1, 4, 7, 11],   // V7  — tension
+    [0, 3, 7, 12],    // i   — home
   ];
 
   function updateAscension(brainState, sensor, dt) {
@@ -2959,17 +2959,21 @@ const Follow = (function () {
     if (asc.chordTimer >= chordDur) {
       asc.chordTimer = 0;
       asc.chordStep++;
-      var prog = asc.colorSmooth > 0.5 ? ASC_PROG_MAJOR : ASC_PROG_MINOR;
+      // Lock major/minor at cycle start — don't switch mid-progression
+      if (!asc._progLocked) asc._progLocked = asc.colorSmooth > 0.5 ? 'major' : 'minor';
+      var prog = asc._progLocked === 'major' ? ASC_PROG_MAJOR : ASC_PROG_MINOR;
       if (asc.chordStep >= prog.length) {
         asc.chordStep = 0;
         asc.progCycle++;
+        asc._progLocked = null;  // re-evaluate at next cycle start
         ascRecord('PROG_CYCLE', { cycle: asc.progCycle });
       }
-      ascRecord('CHORD', { step: asc.chordStep, cycle: asc.progCycle, color: asc.colorSmooth > 0.5 ? 'major' : 'minor' });
+      ascRecord('CHORD', { step: asc.chordStep, cycle: asc.progCycle, color: asc._progLocked || 'tbd' });
     }
 
     // Apply current chord voicing
-    var prog = asc.colorSmooth > 0.5 ? ASC_PROG_MAJOR : ASC_PROG_MINOR;
+    var activeProg = (asc._progLocked === 'major' || (!asc._progLocked && asc.colorSmooth > 0.5)) ? ASC_PROG_MAJOR : ASC_PROG_MINOR;
+    var prog = activeProg;
     var voicing = prog[asc.chordStep % prog.length];
     try { Audio.ascension.setWallChord(cfg.wallRoot, voicing); } catch(e) {}
 
@@ -3065,6 +3069,51 @@ const Follow = (function () {
     else if (asc.progCycle > 0) asc.phase = 'evolving';
     else if (asc.bloom > 0.7) asc.phase = 'full';
     else asc.phase = 'rising';
+
+    // ── 15. PEAK RESPONSE — your energy shapes the sound ──
+    // Energy peaks trigger ascPluck (melodic) and ascStab (harmonic) from the palette.
+    // Without this, Ascension was a passive wall — now it reacts to YOU.
+    if (!asc._lastEnergy) asc._lastEnergy = 0;
+    if (!asc._peakCooldown) asc._peakCooldown = 0;
+    asc._peakCooldown = Math.max(0, asc._peakCooldown - dt);
+
+    var ePeak = energy > asc._lastEnergy * 1.6 && energy > 0.4 && asc._peakCooldown <= 0;
+    if (ePeak && lens.palette && Audio.ctx) {
+      var time = Audio.ctx.currentTime;
+      var chordRoot = cfg.wallRoot * Math.pow(2, voicing[0] / 12);
+      // Pluck on every peak — melodic accent
+      if (lens.palette.peak && Audio.synth.play) {
+        var pp = lens.palette.peak;
+        try {
+          Audio.synth.play(pp.voice || 'ascPluck', time,
+            chordRoot * Math.pow(2, (pp.octave || 0)), 0.35 * asc.bloom, pp.decay || 0.8);
+        } catch(e) {}
+      }
+      // Stab on hard peaks — harmonic punctuation
+      if (energy > 0.7 && lens.palette.harmonic && Audio.synth.play) {
+        var hs = lens.palette.harmonic;
+        try {
+          Audio.synth.play(hs.voice || 'ascStab', time,
+            chordRoot * Math.pow(2, (hs.octave || 0)), 0.28 * asc.bloom, hs.decay || 0.4);
+        } catch(e) {}
+      }
+      asc._peakCooldown = 0.3;
+      ascRecord('PEAK', { energy: +energy.toFixed(2) });
+    }
+    asc._lastEnergy = energy;
+
+    // ── 16. TOUCH — press through the wall of sound ──
+    // Touch opens the filter wide and boosts gain. Release snaps back.
+    // Touch Y position controls how deep you push.
+    if (sensor.touching) {
+      var pushDepth = 1.0 - (sensor.ty || 0.5);  // top of screen = deeper push
+      var touchFilter = cfg.filterRange[0] + (cfg.filterRange[1] - cfg.filterRange[0]) * (0.7 + pushDepth * 0.3);
+      asc.filterSmooth += (touchFilter - asc.filterSmooth) * 8.0 * dt;
+      try { Audio.ascension.setWallFilter(asc.filterSmooth); } catch(e) {}
+      // Widen detune on touch — the wall opens up
+      var touchSpread = cfg.detuneRange[1] + pushDepth * 8;
+      try { Audio.ascension.setWallSpread(touchSpread); } catch(e) {}
+    }
   }
 
   // Wobble LFO shapes — different each drop cycle
