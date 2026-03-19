@@ -168,14 +168,26 @@ const Sensor = (function () {
 
       // iOS: request BOTH permissions simultaneously via Promise.all
       // Each has its own .catch so one failing doesn't kill the other
-      var motionP = DeviceMotionEvent.requestPermission()
-        .catch(function () { return 'error'; });
+      // Timeout after 5s — Chrome on iOS can hang forever
+      function withTimeout(promise, ms) {
+        return Promise.race([
+          promise,
+          new Promise(function(resolve) { setTimeout(function() { resolve('timeout'); }, ms); })
+        ]);
+      }
+
+      var motionP = withTimeout(
+        DeviceMotionEvent.requestPermission().catch(function () { return 'error'; }),
+        5000
+      );
 
       var orientP;
       if (typeof DeviceOrientationEvent !== 'undefined' &&
           typeof DeviceOrientationEvent.requestPermission === 'function') {
-        orientP = DeviceOrientationEvent.requestPermission()
-          .catch(function () { return 'error'; });
+        orientP = withTimeout(
+          DeviceOrientationEvent.requestPermission().catch(function () { return 'error'; }),
+          5000
+        );
       } else {
         orientP = Promise.resolve('granted');
       }
