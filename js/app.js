@@ -202,20 +202,27 @@
     if (listenTapped) return;
     listenTapped = true;
 
-    // Request motion permission FIRST — before anything else.
-    // Chrome iOS needs this at the very start of the gesture context.
-    // The result is stored so Sensor.init() can skip re-requesting.
-    if (typeof DeviceMotionEvent !== 'undefined' &&
-        typeof DeviceMotionEvent.requestPermission === 'function') {
-      DeviceMotionEvent.requestPermission()
-        .then(function (r) { window._motionPerm = r; })
-        .catch(function () { window._motionPerm = 'error'; });
-    }
-    if (typeof DeviceOrientationEvent !== 'undefined' &&
-        typeof DeviceOrientationEvent.requestPermission === 'function') {
-      DeviceOrientationEvent.requestPermission()
-        .then(function (r) { window._orientPerm = r; })
-        .catch(function () { window._orientPerm = 'error'; });
+    // Request motion permission — Safari only.
+    // Chrome iOS has requestPermission (WKWebView) but silently fails.
+    // For Chrome: skip permission, add listeners directly in Sensor.init().
+    var isChrome = /CriOS/.test(navigator.userAgent || '');
+    if (!isChrome) {
+      if (typeof DeviceMotionEvent !== 'undefined' &&
+          typeof DeviceMotionEvent.requestPermission === 'function') {
+        DeviceMotionEvent.requestPermission()
+          .then(function (r) { window._motionPerm = r; })
+          .catch(function () { window._motionPerm = 'error'; });
+      }
+      if (typeof DeviceOrientationEvent !== 'undefined' &&
+          typeof DeviceOrientationEvent.requestPermission === 'function') {
+        DeviceOrientationEvent.requestPermission()
+          .then(function (r) { window._orientPerm = r; })
+          .catch(function () { window._orientPerm = 'error'; });
+      }
+    } else {
+      // Chrome: mark as granted, Sensor.init() will just add listeners
+      window._motionPerm = 'granted';
+      window._orientPerm = 'granted';
     }
 
     // Move off boot screen immediately — proven stable
