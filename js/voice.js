@@ -2,7 +2,8 @@
  * VOICE — The Presence
  *
  * Pre-rendered ElevenLabs audio played through Web Audio API (already unlocked).
- * Web Speech API fallback only for dynamic lines (name, time context).
+ * No Web Speech API — it triggers iOS audio session changes that kill
+ * Bluetooth A2DP stereo (switches to HFP mono, ducks volume).
  */
 
 const Voice = (function () {
@@ -47,9 +48,7 @@ const Voice = (function () {
   var userName      = '';
   var awaitingName  = false;
 
-  // Web Speech — dynamic lines only (name confirm, time context)
-  var synth         = window.speechSynthesis;
-  var selectedVoice = null;
+  // Web Speech API removed — causes Bluetooth audio session issues on iOS
 
   // ── HELPERS ───────────────────────────────────────────────────────────
 
@@ -113,71 +112,10 @@ const Voice = (function () {
     return true;
   }
 
-  // ── WEB SPEECH FALLBACK (dynamic lines only) ──────────────────────────
-
-  function speak(text, opts) {
-    if (!synth || !text) return;
-    var force = opts && opts.force;
-    if (!canSpeak(force)) return;
-    lastSpoke = Date.now();
-
-    synth.cancel();
-    var u       = new SpeechSynthesisUtterance(text);
-    u.pitch     = (opts && opts.pitch  !== undefined) ? opts.pitch  : 0.50;
-    u.rate      = (opts && opts.rate   !== undefined) ? opts.rate   : 0.72;
-    u.volume    = 0.90;
-    if (selectedVoice) u.voice = selectedVoice;
-    synth.speak(u);
-    setTimeout(function () { if (synth.paused) synth.resume(); }, 50);
-  }
-
-  // ── TIME CONTEXT ──────────────────────────────────────────────────────
-
-  function timeCtx() {
-    var d    = new Date();
-    var days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
-    var h    = d.getHours();
-    return {
-      day:             days[d.getDay()],
-      period:          h < 5  ? 'the middle of the night' :
-                       h < 12 ? 'the morning' :
-                       h < 17 ? 'the afternoon' :
-                       h < 21 ? 'the evening' : 'late at night',
-      shouldBeWorking: h >= 9 && h < 17 && d.getDay() > 0 && d.getDay() < 6,
-      veryLate:        h >= 1 && h < 5,
-    };
-  }
-
-  // ── VOICE SELECTION (Web Speech fallback) ─────────────────────────────
+  // ── INIT ─────────────────────────────────────────────────────────────
 
   function init(ctx) {
     voiceCtx = ctx || null;
-
-    function loadVoices() {
-      var voices    = synth.getVoices();
-      var preferred = [
-        'Microsoft Guy Online (Natural) - English (United States)',
-        'Microsoft Davis Natural - English (United States)',
-        'Microsoft George Online (Natural) - English (United Kingdom)',
-        'Microsoft Ryan Online (Natural) - English (United Kingdom)',
-        'Google UK English Male',
-        'Daniel (Enhanced)', 'Alex (Enhanced)',
-        'Daniel', 'Alex',
-      ];
-      for (var i = 0; i < preferred.length && !selectedVoice; i++) {
-        for (var j = 0; j < voices.length; j++) {
-          if (voices[j].name === preferred[i]) { selectedVoice = voices[j]; break; }
-        }
-      }
-      if (!selectedVoice) {
-        for (var k = 0; k < voices.length; k++) {
-          if (voices[k].lang && voices[k].lang.startsWith('en')) { selectedVoice = voices[k]; break; }
-        }
-      }
-    }
-
-    if (synth && synth.getVoices().length > 0) loadVoices();
-    else if (synth) synth.addEventListener('voiceschanged', loadVoices);
   }
 
   // ── PUBLIC TRIGGERS ───────────────────────────────────────────────────
