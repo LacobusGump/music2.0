@@ -287,7 +287,7 @@
         blog('Waiting 2.5s for voice...');
         setTimeout(function () {
           blog('Selecting default lens...');
-          Lens.selectCard(0);
+          Lens.selectCard(1); // Grid — strongest first impression
           var lens = Lens.getSelected();
           blog('Lens: ' + (lens ? lens.name : 'NULL'));
           Audio.configure(lens);

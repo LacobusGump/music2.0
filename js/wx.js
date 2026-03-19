@@ -302,10 +302,10 @@ var Wx = (function () {
       drawVignette(ctx, W, H, 0.12);
     }
 
-    // 3. Night stars
-    if (isNight && (cond === 'clear' || cond === 'cloudy')) {
-      drawStars(ctx, W, H, _dt, musicEnergy);
-    }
+    // 3. Night stars — DISABLED. Liquid glass aesthetic, no stars.
+    // if (isNight && (cond === 'clear' || cond === 'cloudy')) {
+    //   drawStars(ctx, W, H, _dt, musicEnergy);
+    // }
 
     // 4. Precipitation
     if (cond === 'rain' || cond === 'storm') {
