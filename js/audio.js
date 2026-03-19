@@ -3417,6 +3417,155 @@ const Audio = (function () {
     vocalSources = [];
   }
 
+  // ── SAMPLER — Loops, stems, one-shots from any source ──────────────
+  // Plays pre-generated audio (Suno stems, MusicGen, recordings, etc.)
+  // through the GUMP effects chain. Motion controls filter, rate, gain.
+  //
+  // Bus routing:
+  //   'synth'   → sidechainGain (full chain, pumps with kick)
+  //   'drum'    → drumBus (drum compression)
+  //   'ambient' → masterHPF (bypasses sidechain, stays smooth)
+
+  var sampleBuffers = {};   // name → AudioBuffer
+  var sampleSources = {};   // name → { source, gain, filter }
+
+  function loadSample(name, url) {
+    if (!ctx) return Promise.resolve(null);
+    if (sampleBuffers[name]) return Promise.resolve(sampleBuffers[name]);
+    return fetch(url)
+      .then(function (r) {
+        if (!r.ok) throw new Error(r.status);
+        return r.arrayBuffer();
+      })
+      .then(function (buf) { return ctx.decodeAudioData(buf); })
+      .then(function (decoded) {
+        sampleBuffers[name] = decoded;
+        return decoded;
+      })
+      .catch(function (e) {
+        console.warn('[Sampler] Load failed:', name, e.message);
+        return null;
+      });
+  }
+
+  /**
+   * Play a loaded sample.
+   * opts: { vol, rate, loop, loopStart, loopEnd, bus, filterFreq, filterQ, reverb, delay, fadeIn }
+   */
+  function playSample(name, time, opts) {
+    var buf = sampleBuffers[name];
+    if (!buf || !ctx) return null;
+
+    stopSample(name);
+
+    var o = opts || {};
+    var vol = o.vol !== undefined ? o.vol : 0.7;
+    var rate = o.rate !== undefined ? o.rate : 1.0;
+    var loop = !!o.loop;
+    var bus = o.bus || 'synth';
+    var t = time || ctx.currentTime;
+
+    var src = ctx.createBufferSource();
+    src.buffer = buf;
+    src.playbackRate.value = rate;
+    src.loop = loop;
+    if (loop && o.loopStart !== undefined) src.loopStart = o.loopStart;
+    if (loop && o.loopEnd !== undefined) src.loopEnd = o.loopEnd;
+
+    // Per-sample filter — motion can sweep this in real time
+    var flt = ctx.createBiquadFilter();
+    flt.type = 'lowpass';
+    flt.frequency.value = o.filterFreq || 8000;
+    flt.Q.value = o.filterQ || 0.7;
+
+    var g = ctx.createGain();
+    if (o.fadeIn) {
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(vol, t + o.fadeIn);
+    } else {
+      g.gain.setValueAtTime(vol, t);
+    }
+
+    src.connect(flt);
+    flt.connect(g);
+
+    // Route to appropriate bus
+    if (bus === 'drum' && drumBus) {
+      g.connect(drumBus);
+    } else if (bus === 'ambient' && masterHPF) {
+      g.connect(masterHPF);
+    } else {
+      g.connect(sidechainGain);
+    }
+
+    // Reverb send
+    if (o.reverb && reverbSend) {
+      var rs = ctx.createGain();
+      rs.gain.value = o.reverb;
+      g.connect(rs);
+      rs.connect(reverbSend);
+    }
+
+    // Delay send
+    if (o.delay && delaySend) {
+      var ds = ctx.createGain();
+      ds.gain.value = o.delay;
+      g.connect(ds);
+      ds.connect(delaySend);
+    }
+
+    src.start(t);
+
+    sampleSources[name] = { source: src, gain: g, filter: flt };
+
+    src.onended = function () {
+      delete sampleSources[name];
+    };
+
+    return sampleSources[name];
+  }
+
+  function stopSample(name) {
+    var s = sampleSources[name];
+    if (s) {
+      try {
+        s.gain.gain.setTargetAtTime(0, ctx.currentTime, 0.05);
+        s.source.stop(ctx.currentTime + 0.1);
+      } catch (e) {}
+      delete sampleSources[name];
+    }
+  }
+
+  function stopAllSamples() {
+    var names = Object.keys(sampleSources);
+    for (var i = 0; i < names.length; i++) {
+      stopSample(names[i]);
+    }
+  }
+
+  function setSampleFilter(name, freq) {
+    var s = sampleSources[name];
+    if (s && s.filter) {
+      s.filter.frequency.setTargetAtTime(
+        Math.max(80, Math.min(12000, freq)), ctx.currentTime, 0.05
+      );
+    }
+  }
+
+  function setSampleGain(name, vol) {
+    var s = sampleSources[name];
+    if (s && s.gain) {
+      s.gain.gain.setTargetAtTime(vol, ctx.currentTime, 0.05);
+    }
+  }
+
+  function setSampleRate(name, rate) {
+    var s = sampleSources[name];
+    if (s && s.source) {
+      s.source.playbackRate.setTargetAtTime(rate, ctx.currentTime, 0.05);
+    }
+  }
+
   // ── EDM FILTER & SIDECHAIN API ──────────────────────────────────────
 
   function setMasterFilter(freq) {
@@ -3537,6 +3686,17 @@ const Audio = (function () {
       triplet: playVocalTriplet,
       stopAll: stopAllVocals,
       buffers: vocalBuffers,
+    }),
+    sampler: Object.freeze({
+      load: loadSample,
+      play: playSample,
+      stop: stopSample,
+      stopAll: stopAllSamples,
+      setFilter: setSampleFilter,
+      setGain: setSampleGain,
+      setRate: setSampleRate,
+      buffers: sampleBuffers,
+      get active() { return Object.keys(sampleSources); },
     }),
     setWeather: setWeather,
 
