@@ -25,13 +25,11 @@ A phone-based musical instrument. Tilt = melody. Motion = rhythm. Stillness = si
 
 ## About James
 
-- Drummer and drum teacher — music is deeply personal
+- Drummer and drum teacher
 - Tests on **iPhone 15** — tilt is primary input, touch secondary
 - Dev machine: **Mac Mini M4**
 - GitHub: LacobusGump
-- Makes under $17k/year teaching. Has ~1 month full-time dev budget (March 2026).
-- **Core belief:** Art is discovered, not invented. The artist enables conditions for God to express.
-- Gets frustrated by sessions that produce code cleanup without musical transformation
+- Sound over code. Always. The sound must actually CHANGE.
 - The Producer's veto: "Does this make you FEEL something?"
 
 ---
