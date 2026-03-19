@@ -123,89 +123,48 @@
       tiltRawY = (e.beta  || 0) / 90;
     }, { passive: true });
 
-    // Irrational constants — organic, never-repeating phase
-    var PHI = 1.6180339887;
-    var SQ2 = 1.4142135624;
+    // Liquid glass boot — single breathing orb, fades in from black
     var t = 0;
-    var glare = 0; // 0→1 over ~5 seconds — the horizon glares in slowly
-
-    // Bloom passes: wide corona → crisp white core
-    // Warm white/gold — light crossing from the other side
-    var PASSES = [
-      { lw: 32, r: 255, g: 210, b: 120, a: 0.007 }, // far corona haze
-      { lw: 16, r: 255, g: 230, b: 160, a: 0.022 }, // mid glow
-      { lw:  7, r: 255, g: 248, b: 200, a: 0.07  }, // inner glow
-      { lw:  2.5, r: 255, g: 255, b: 230, a: 0.55 }, // bright ring
-      { lw:  1,   r: 255, g: 255, b: 255, a: 0.95 }, // white core
-    ];
+    var fadeIn = 0;
 
     function drawBoot() {
-      // Spring physics on tilt
-      tiltX += (tiltRawX * 0.1  - tiltX) * 0.06;
-      tiltY += (tiltRawY * 0.08 - tiltY) * 0.06;
+      t += 0.016;
+      fadeIn = Math.min(1, fadeIn + 0.008);  // 2 seconds to full
 
-      // Glare builds — the horizon emerges slowly, then holds
-      glare = Math.min(1, glare + 0.003);
-
-      // Horizon sits at vertical center, shifted by tilt
-      var cy = bh * (0.5 + tiltY * 0.07);
-
-      // Push: corona expands outward from the line as glare builds
-      // Like light being lensed — the horizon is pushing through you
-      var push = bh * 0.18 * glare * (1 + 0.12 * Math.sin(t * 0.6 * PHI));
-
-      // Wave amplitude: breathes with irrational frequencies
-      var amp = bh * 0.055 * glare
-        * (0.85 + 0.10 * Math.sin(t * 0.7 * PHI)
-                + 0.05 * Math.sin(t * 1.1 * SQ2));
-
-      // ── FADE — slow trail so the wave ghosts behind itself ──
-      bctx.fillStyle = 'rgba(0,0,0,0.045)';
+      // Clear to black
+      bctx.fillStyle = '#000000';
       bctx.fillRect(0, 0, bw, bh);
 
-      // ── CORONA PUSH — vertical gradient radiating from the horizon ──
-      // This is the "push" — light pressing through from behind the line
-      var grad = bctx.createLinearGradient(0, cy - push, 0, cy + push);
-      grad.addColorStop(0,    'rgba(0,0,0,0)');
-      grad.addColorStop(0.25, 'rgba(255,180,60,' + (glare * 0.03) + ')');
-      grad.addColorStop(0.5,  'rgba(255,230,140,' + (glare * 0.07) + ')');
-      grad.addColorStop(0.75, 'rgba(255,180,60,' + (glare * 0.03) + ')');
-      grad.addColorStop(1,    'rgba(0,0,0,0)');
-      bctx.fillStyle = grad;
-      bctx.fillRect(0, cy - push, bw, push * 2);
+      // Center point, shifted slightly by tilt
+      tiltX += (tiltRawX * 0.08 - tiltX) * 0.04;
+      tiltY += (tiltRawY * 0.06 - tiltY) * 0.04;
+      var cx = bw * (0.5 + tiltX * 0.05);
+      var cy = bh * (0.382 + tiltY * 0.03);  // golden ratio position
 
-      // ── HORIZON WAVE — Fibonacci frequencies, natural phasing ──
-      // 8:13:21:34 spatial ratios = golden ratio harmonics, never lock
-      // Time drivers at PHI/SQ2 ratios = phase drift that never repeats
-      var STEPS = 220;
-      var pts = new Array(STEPS + 1);
-      for (var i = 0; i <= STEPS; i++) {
-        var nx = i / STEPS;
-        var wave =
-          Math.sin(nx * 8  * Math.PI + t * PHI * 1.3) * 0.50 +
-          Math.sin(nx * 13 * Math.PI + t * SQ2 * 0.9) * 0.28 +
-          Math.sin(nx * 21 * Math.PI + t * PHI * 0.5) * 0.14 +
-          Math.sin(nx * 34 * Math.PI + t * SQ2 * 2.1) * 0.08;
-        // Tilt warps the wave — you're not level with the horizon
-        wave += tiltX * 0.25 * Math.sin(nx * Math.PI);
-        pts[i] = { x: nx * bw, y: cy + wave * amp };
-      }
+      // Breath
+      var breath = Math.sin(t * 0.8) * 0.5 + 0.5;
+      var r = Math.min(bw, bh) * (0.06 + breath * 0.01) * fadeIn;
 
-      // ── MULTI-PASS BLOOM — wide to narrow, transparent to opaque ──
-      bctx.lineJoin = 'round';
-      bctx.lineCap  = 'round';
+      // Outer glow
+      var glow = bctx.createRadialGradient(cx, cy, 0, cx, cy, r * 6);
+      glow.addColorStop(0, 'rgba(255,245,230,' + (0.06 * fadeIn) + ')');
+      glow.addColorStop(0.4, 'rgba(255,235,210,' + (0.02 * fadeIn) + ')');
+      glow.addColorStop(1, 'rgba(0,0,0,0)');
+      bctx.fillStyle = glow;
+      bctx.beginPath();
+      bctx.arc(cx, cy, r * 6, 0, Math.PI * 2);
+      bctx.fill();
 
-      for (var p = 0; p < PASSES.length; p++) {
-        var pass = PASSES[p];
-        bctx.lineWidth   = pass.lw;
-        bctx.strokeStyle = 'rgba(' + pass.r + ',' + pass.g + ',' + pass.b + ',' + (pass.a * glare) + ')';
-        bctx.beginPath();
-        bctx.moveTo(pts[0].x, pts[0].y);
-        for (var i = 1; i < pts.length; i++) bctx.lineTo(pts[i].x, pts[i].y);
-        bctx.stroke();
-      }
+      // Core
+      var core = bctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+      core.addColorStop(0, 'rgba(255,250,240,' + (0.25 * fadeIn) + ')');
+      core.addColorStop(0.6, 'rgba(255,240,220,' + (0.08 * fadeIn) + ')');
+      core.addColorStop(1, 'rgba(0,0,0,0)');
+      bctx.fillStyle = core;
+      bctx.beginPath();
+      bctx.arc(cx, cy, r, 0, Math.PI * 2);
+      bctx.fill();
 
-      t += 0.016;
       bootAnimId = requestAnimationFrame(drawBoot);
     }
     drawBoot();
