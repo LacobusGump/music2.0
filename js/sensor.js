@@ -289,6 +289,17 @@ const Sensor = (function () {
 
   // ── INIT / READ ──────────────────────────────────────────────────────
 
+  // Chrome iOS: register motion listeners at page load, BEFORE any screen.
+  // Chrome shows its permission banner in-browser (not native modal like Safari).
+  // If we wait until the play screen, its touch handlers eat the "Allow" tap.
+  // On the boot screen there's minimal touch handling — user can tap the banner.
+  function earlyInit() {
+    if (/CriOS/.test(navigator.userAgent || '')) {
+      addListeners();
+      permState = 'granted';
+    }
+  }
+
   function init() {
     // Touch listeners first (always work, no permission needed)
     document.addEventListener('touchstart', onTouchStart, { passive: true, capture: true });
@@ -337,6 +348,7 @@ const Sensor = (function () {
   }
 
   return Object.freeze({
+    earlyInit: earlyInit,
     init: init,
     read: read,
     retryPermissions: retryPermissions,
