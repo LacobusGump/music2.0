@@ -179,7 +179,7 @@
                 + 0.05 * Math.sin(t * 1.1 * SQ2));
 
       // ── FADE — slow trail so the wave ghosts behind itself ──
-      bctx.fillStyle = 'rgba(0,0,0,0.045)';
+      bctx.fillStyle = canvasBgColor.replace('0.15', '0.045');
       bctx.fillRect(0, 0, bw, bh);
 
       // ── CORONA PUSH — vertical gradient radiating from the horizon ──
@@ -454,7 +454,7 @@
           'Grid':           '#ff3300',
           'Ascension':      '#8844ff',
         };
-        flashScreen(flashColors[lens.name] || '#ffffff');
+        flashScreen(flashColors[lens.name] || 'rgba(255,210,150,0.6)');
       }
     }
   }

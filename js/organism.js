@@ -168,8 +168,11 @@ const Organism = (function () {
     const minDim = Math.min(w, h);
     const fieldScale = minDim * smoothSpread;
 
-    // Muted hue: slow drift
-    const hueBase = lensHue + seenGestures.size * 10 + time * 0.8;
+    // Muted hue: slow drift — stay warm (avoid green 90-160 range)
+    var rawHue = lensHue + seenGestures.size * 10 + time * 0.5;
+    var hueBase = rawHue % 360;
+    // Skip the green range: remap 90-160 to warm tones
+    if (hueBase > 90 && hueBase < 160) hueBase = 90 - (hueBase - 90) * 0.5 + 280;
 
     canvasCtx.save();
 
