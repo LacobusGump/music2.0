@@ -206,15 +206,18 @@ const Lens = (function () {
 
   const PRESETS = [
 
-    // ─── 1. JOURNEY ──────────────────────────────────────────────────
-    // The organic lens. Evolves through 4 stages.
-    // Starts intimate (Drift), builds texture (Still Water),
-    // strips to essentials (Tundra), then goes dark (Dark Matter).
-    // Your body shapes the music. The stages shape the journey.
+    // ─── INDIVIDUAL LENSES — each a complete world ──────────────────
+    // Drift, Still Water, Tundra, Dark Matter from the old Journey stages
+    STAGES[0],  // 0: Drift
+    STAGES[1],  // 1: Still Water
+    STAGES[2],  // 2: Tundra
+    STAGES[3],  // 3: Dark Matter
+
+    // ─── JOURNEY — evolves through all 4 stages ─────────────────────
     {
       name: 'Journey',
       color: '#3d3550',
-      description: 'Your body shapes the music. It evolves with you.',
+      description: 'Evolves through all four worlds.',
 
       // Starts as Drift — follow.js stage system evolves everything
       harmony: { root: 432, mode: 'dorian' },
@@ -512,8 +515,8 @@ const Lens = (function () {
   }
 
   function restoreFromStorage() {
-    // Default to Grid (index 1) — strongest first impression
-    var lastIndex = 1;
+    // Default to Grid (index 5) — strongest first impression
+    var lastIndex = 5;
     try {
       var s = localStorage.getItem('m2_lens');
       if (s) { var d = JSON.parse(s); lastIndex = d.index || 0; }
