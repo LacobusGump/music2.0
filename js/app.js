@@ -284,6 +284,8 @@
       Audio.init(audioCtx);
       blog('Follow.init()');
       Follow.init();
+      blog('Identity.start()');
+      if (typeof Identity !== 'undefined') Identity.start();
       blog('Lens.buildPicker()');
       Lens.buildPicker();
 

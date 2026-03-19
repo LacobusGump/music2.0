@@ -1619,8 +1619,8 @@ const Follow = (function () {
 
   function init() {
     // Water bottle dynamics — physical tilt response
-    pitchWater = new Brain.WaterDynamic(3.0, 0.90, 0.35);   // responsive, moderate bounce
-    filterWater = new Brain.WaterDynamic(2.0, 0.88, 0.25);  // more slosh, liquid sweeps
+    pitchWater = new Brain.WaterDynamic(1.8, 0.93, 0.35);   // heavier, more physical — real water has lag
+    filterWater = new Brain.WaterDynamic(1.4, 0.91, 0.25);  // slower slosh, liquid sweeps
 
     motionProfile.registerHandlers();
     active = false;
@@ -4694,5 +4694,23 @@ const Follow = (function () {
     get ascEnrich() { return asc.active ? 'bloom ' + asc.bloom.toFixed(1) + ' color ' + asc.colorSmooth.toFixed(2) : '-'; },
     get ascEnergy() { return asc.active ? asc.engagedTime.toFixed(0) + 's' : '-'; },
     get ascPitches() { return '-'; },
+
+    // Identity fingerprint data — raw state for identity.js
+    state: function () {
+      return {
+        tempo: derivedTempo,
+        rhythmConfidence: rhythmConfidence,
+        archetype: archetype,
+        archetypeConfidence: archetypeConfidence,
+        harmonyDegree: harmonyDegree,
+        peakRhythm: peakRhythm.slice ? peakRhythm.slice() : Array.from(peakRhythm),
+        degreeHeat: prodigy.degreeHeat ? Array.from(prodigy.degreeHeat) : [],
+        energyHistory: prodigy.energyHistory ? Array.from(prodigy.energyHistory) : [],
+        engagedTime: sessionEngagedTime,
+        stillnessTime: Brain.stillnessTime || 0,
+        tiltCenter: tiltOffset,
+        tiltRange: Math.abs(tiltOffset),
+      };
+    },
   });
 })();
