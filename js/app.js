@@ -202,14 +202,9 @@
     if (listenTapped) return;
     listenTapped = true;
 
-    // Stay on boot screen — don't switch yet.
-    // Chrome iOS needs the permission dialog to be tappable,
-    // and the play screen's touch handlers eat all events.
+    // Move off boot screen immediately — proven stable
+    showScreen(SCREENS.PLAY);
     stopBootCanvas();
-
-    // Update hint text so user knows something is happening
-    var hint = document.querySelector('.boot-touch-hint');
-    if (hint) hint.textContent = '';
 
     // Create AudioContext on user gesture (iOS requirement)
     if (!audioCtx) {
@@ -264,19 +259,9 @@
     blog('Voice.boot()');
     Voice.boot();
 
-    // Temporarily allow touch-action so Chrome's permission banner is tappable
-    document.body.style.touchAction = 'auto';
-
     blog('Sensor.init() starting...');
     Sensor.init().then(function () {
-      // Restore touch-action for instrument mode
-      document.body.style.touchAction = 'none';
-
       blog('Sensor.init() DONE');
-
-      // NOW move to play screen — permission is resolved
-      showScreen(SCREENS.PLAY);
-
       blog('Brain.init()');
       Brain.init();
       blog('Audio.init()');
@@ -315,8 +300,6 @@
         }, waitTime);
       }
     }).catch(function(e) {
-      document.body.style.touchAction = 'none';
-      showScreen(SCREENS.PLAY);
       blog('Sensor.init() FAILED: ' + e);
     });
   }
