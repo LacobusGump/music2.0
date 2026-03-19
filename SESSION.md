@@ -105,6 +105,35 @@ _Things I found that are relevant to the code_
 
 ---
 
+## Protocols
+
+### ygm — You Got Mail
+When James types **ygm**:
+- Read SESSION.md immediately
+- Find what the other side queued in the Handoff Notes
+- Build or execute it with full permissions, no clarifying questions
+- Update SESSION.md when done
+
+### bs — Brainstorm
+When James types **bs**:
+- Both sides read SESSION.md
+- Cowork writes its analysis, ideas, and open questions to the **BS: Cowork** block below
+- Claude Code writes its analysis, ideas, and open questions to the **BS: Claude Code** block below
+- Both sides read what the other wrote and synthesize — find conflicts, fill gaps, agree on a plan
+- The plan goes into **BS: Decision** — that's what gets built next
+- James doesn't have to explain anything. Both sides already know the context.
+
+## BS: Cowork
+_(Cowork writes here during brainstorm)_
+
+## BS: Claude Code
+_(Claude Code writes here during brainstorm)_
+
+## BS: Decision
+_(Agreed plan — what gets built next)_
+
+---
+
 ## How To Use This
 
 **Claude Code** — paste this at the start of a session:
