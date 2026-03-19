@@ -1232,7 +1232,8 @@ const Follow = (function () {
   var peakRhythmDecay = 0.92;             // how fast old peak positions fade
 
   function updateTribalPulse(dt) {
-    if (!lens || lens.name === 'Grid' || !Audio.ctx || !Audio.drum) return;
+    // No drums if lens says so (groove:null), or if Grid (has its own engine)
+    if (!lens || lens.name === 'Grid' || lens.groove === null || !Audio.ctx || !Audio.drum) return;
 
     // Count engaged (non-silent) time
     if (!isSilent) {
@@ -2704,16 +2705,23 @@ const Follow = (function () {
     grid.currentRootFreq = originalRoot;
     grid.breakdownStyle = 0;
     grid.breakdownMelodyFired = false;
-    // Reset arrangement
+    // Randomize arrangement — never the same opening twice
+    var _rp = function(n) { return Math.floor(Math.random() * n); };
     grid.arr = {
-      kickPat: 0, hatPat: 0, snarePat: 0, ride: false, ridePattern: 0, clap: false,
-      wobbleShape: 0, wobbleRate: 1.0, subOctave: false, stabStyle: 0,
-      bassWalk: 0, filterSweepDir: 0, filterSweepPhase: 0,
-      reverbLevel: 0.15, padOpen: false, snareRoll: false, percPat: 0,
-      halftime: false, delayThrow: false, reverbWash: false,
-      stabVoicing: 0, filterQ: 3.5, swing: 0,
-      levitation: false, levitationSpread: 30,
+      kickPat: _rp(3), hatPat: _rp(4), snarePat: _rp(3),
+      ride: Math.random() < 0.2, ridePattern: _rp(3), clap: Math.random() < 0.15,
+      wobbleShape: _rp(3), wobbleRate: 0.8 + Math.random() * 0.6,
+      subOctave: Math.random() < 0.3, stabStyle: _rp(3),
+      bassWalk: _rp(4), filterSweepDir: 0, filterSweepPhase: Math.random() * 0.3,
+      reverbLevel: 0.12 + Math.random() * 0.08, padOpen: Math.random() < 0.3,
+      snareRoll: false, percPat: _rp(3),
+      halftime: Math.random() < 0.25, delayThrow: false, reverbWash: false,
+      stabVoicing: _rp(3), filterQ: 2.5 + Math.random() * 2.0,
+      swing: Math.random() < 0.4 ? 0.06 + Math.random() * 0.1 : 0,
+      levitation: Math.random() < 0.3, levitationSpread: 20 + Math.random() * 25,
     };
+    // Randomize growth rate — each set has its own tempo of evolution
+    grid._growthRate = 0.002 + Math.random() * 0.002;  // 0.002-0.004 (varies 2x)
     grid.lastArchetype = 'exploring';
     grid.archetypeTimer = 0;
     grid.chordStabCooldown = 0;
@@ -3436,9 +3444,8 @@ const Follow = (function () {
     // User motion adds ENERGY on top. Tilt = you're present = the set evolves.
     grid.lastIntensity = grid.intensity;
 
-    // Time-based floor: set builds intensity over first 3 minutes
-    // Even gentle tilt = the set is alive and growing
-    var timeFloor = Math.min(0.55, grid.setTime * 0.003); // 0→0.55 over ~3min
+    // Time-based floor: set builds intensity — rate varies per session
+    var timeFloor = Math.min(0.55, grid.setTime * (grid._growthRate || 0.003));
 
     var targetIntensity = Math.max(timeFloor, Math.min(1, mediumEnergy * 0.8));
     var iRise = targetIntensity > grid.intensity ? 0.06 : 0.015;
@@ -3453,7 +3460,7 @@ const Follow = (function () {
     }
 
     // djGain: grows with the set. Your presence is enough.
-    var gainFloor = Math.min(0.65, 0.30 + grid.setTime * 0.002); // 0.30→0.65 over ~3min
+    var gainFloor = Math.min(0.65, 0.30 + grid.setTime * (grid._growthRate || 0.003) * 0.7);
     var targetGain = Math.max(gainFloor, 0.22 + grid.intensity * 0.58);
     grid.djGain += (targetGain - grid.djGain) * 0.03;
 
