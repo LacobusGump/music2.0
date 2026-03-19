@@ -158,63 +158,32 @@ const Sensor = (function () {
       var needsRequest = typeof DeviceMotionEvent !== 'undefined' &&
         typeof DeviceMotionEvent.requestPermission === 'function';
 
-      // Chrome iOS: requestPermission exists (WKWebView exposes it) but
-      // Chrome doesn't show the dialog properly. Skip it — just add listeners
-      // and check if events arrive. Chrome often grants motion by default.
-      var isChrome = /CriOS/.test(navigator.userAgent || '');
-
-      if (!needsRequest || isChrome) {
+      if (!needsRequest) {
+        // Android / desktop / older iOS — just add listeners
         addListeners();
-        // Give it 2s to see if motion events actually arrive
-        var countBefore = raw.motionEventCount;
-        setTimeout(function () {
-          if (raw.motionEventCount > countBefore || raw.motionGranted) {
-            permState = 'granted';
-            dismissHelp();
-          } else if (isChrome && needsRequest) {
-            // Chrome has requestPermission but we skipped it — events not arriving
-            // Try calling it now as a fallback
-            DeviceMotionEvent.requestPermission()
-              .then(function (perm) {
-                if (perm === 'granted') { addListeners(); permState = 'granted'; dismissHelp(); }
-                else { permState = 'denied'; showHelp(); }
-              })
-              .catch(function () { permState = 'denied'; showHelp(); });
-          } else {
-            permState = 'granted'; // desktop/Android — no events but that's fine
-          }
-        }, 2000);
+        permState = 'granted';
         resolve();
         return;
       }
 
-      // Safari iOS: requestPermission works properly — use it
-      function withTimeout(promise, ms) {
-        return Promise.race([
-          promise,
-          new Promise(function(resolve) { setTimeout(function() { resolve('timeout'); }, ms); })
-        ]);
-      }
+      // Permission was already requested by app.js onListenTap (first thing in gesture).
+      // Wait briefly for those promises to resolve, then check the result.
+      function checkPermission() {
+        var motionResult = window._motionPerm || 'pending';
+        var orientResult = window._orientPerm || 'pending';
 
-      var motionP = withTimeout(
-        DeviceMotionEvent.requestPermission().catch(function () { return 'error'; }),
-        5000
-      );
-
-      var orientP;
-      if (typeof DeviceOrientationEvent !== 'undefined' &&
-          typeof DeviceOrientationEvent.requestPermission === 'function') {
-        orientP = withTimeout(
-          DeviceOrientationEvent.requestPermission().catch(function () { return 'error'; }),
-          5000
-        );
-      } else {
-        orientP = Promise.resolve('granted');
-      }
-
-      Promise.all([motionP, orientP]).then(function (results) {
-        var motionResult = results[0];
-        var orientResult = results[1];
+        if (motionResult === 'pending' || orientResult === 'pending') {
+          // Still waiting — check again in 100ms (max 5s)
+          if (!checkPermission._attempts) checkPermission._attempts = 0;
+          checkPermission._attempts++;
+          if (checkPermission._attempts < 50) {
+            setTimeout(checkPermission, 100);
+            return;
+          }
+          // Timed out — treat as denied
+          motionResult = 'timeout';
+          orientResult = 'timeout';
+        }
 
         if (motionResult === 'granted' || orientResult === 'granted') {
           addListeners();
@@ -226,7 +195,10 @@ const Sensor = (function () {
         }
 
         resolve();
-      });
+      }
+
+      // Give the permission promises from app.js a moment to settle
+      setTimeout(checkPermission, 200);
     });
   }
 
