@@ -159,6 +159,17 @@
     ];
 
     function drawBoot() {
+      // STRIPPED — pure black + small warm dot at center
+      bctx.fillStyle = '#000000';
+      bctx.fillRect(0, 0, bw, bh);
+      bctx.fillStyle = 'rgba(255,200,100,0.5)';
+      bctx.beginPath();
+      bctx.arc(bw/2, bh * 0.382, 4, 0, Math.PI * 2);
+      bctx.fill();
+      t += 0.016;
+      bootAnimId = requestAnimationFrame(drawBoot);
+      return;
+
       // Spring physics on tilt
       tiltX += (tiltRawX * 0.1  - tiltX) * 0.06;
       tiltY += (tiltRawY * 0.08 - tiltY) * 0.06;
@@ -384,12 +395,8 @@
   // ── FLASH ─────────────────────────────────────────────────────────────
 
   function flashScreen(color) {
-    var el = document.getElementById('flash');
-    if (!el) return;
-    el.style.background = color;
-    el.style.opacity = '0.5';
-    setTimeout(function () { el.style.transition = 'opacity 0.6s'; el.style.opacity = '0'; }, 80);
-    setTimeout(function () { el.style.transition = ''; }, 700);
+    // KILLED — no flash at all
+    return;
   }
 
   // ── PLAY COMMAND INTERFACE ────────────────────────────────────────────

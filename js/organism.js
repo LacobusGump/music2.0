@@ -165,6 +165,13 @@ const Organism = (function () {
   // ── DRAW ───────────────────────────────────────────────────────────
 
   function draw(canvasCtx, x, y, w, h) {
+    // STRIPPED — black with a single warm dot. Proving the file loads.
+    canvasCtx.fillStyle = 'rgba(255,200,100,0.8)';
+    canvasCtx.beginPath();
+    canvasCtx.arc(x, y, 6, 0, Math.PI * 2);
+    canvasCtx.fill();
+    return;
+
     const minDim = Math.min(w, h);
     const fieldScale = minDim * smoothSpread;
 
