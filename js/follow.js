@@ -328,6 +328,9 @@ const Follow = (function () {
   var pitchWater = null;  // created in init() after Brain is available
   // Filter: more slosh, sweeps feel liquid
   var filterWater = null;
+  // Wall bounce state — for rising-edge splash percussion
+  var _waterWasStacked = false;
+  var _waterSplashLast = 0;    // performance.now() of last wall-bounce hit
 
   // Harmonic state
   var harmonyDegree = 0;
@@ -1379,6 +1382,12 @@ const Follow = (function () {
     var calmness = Math.max(0, 1.0 - energy * 0.08);
     prodigy.reverbTarget = 0.15 + calmness * 0.35;
     if (prodigy.arc === 'falling') prodigy.reverbTarget += 0.15;  // descending = more space
+    // Turbulence boost: rapid sloshing (chaotic tilt) opens the space further.
+    // Water turbulence = physical agitation = more wash. Smooth motion = dry presence.
+    if (filterWater) {
+      var _turbBoost = Math.min(0.22, filterWater.turbulence() * 0.14);
+      prodigy.reverbTarget = Math.min(0.88, prodigy.reverbTarget + _turbBoost);
+    }
     var currentReverb = 0.25;
     try { currentReverb = prodigy.reverbTarget; Audio.setReverbMix(prodigy.reverbTarget); } catch(e) {}
 
@@ -1926,6 +1935,22 @@ const Follow = (function () {
       pitchWater.update(tiltNorm, dt || 0.016);
       // Water level 0-1 → pitch offset -1 to 1
       tiltOffset = pitchWater.level * 2 - 1;
+
+      // ── WALL BOUNCE → PERCUSSIVE SPLASH ─────────────────────────────
+      // When the water slams the wall (rising edge only), fire a shaker hit.
+      // Velocity scales with turbulence (impact speed). 180ms cooldown.
+      // Grid excluded — it already has its own percussion engine.
+      var _wStacked = pitchWater.stacked();
+      if (_wStacked && !_waterWasStacked
+          && (now - _waterSplashLast) > 180
+          && !isSilent && fadeGain > 0.15
+          && lens && lens.name !== 'Grid'
+          && Audio.ctx && Audio.drum && Audio.drum.shaker) {
+        var _splashVel = Math.min(0.75, pitchWater.turbulence() * 0.45 + 0.12);
+        Audio.drum.shaker(Audio.hTime(Audio.ctx.currentTime), _splashVel, 0.055);
+        _waterSplashLast = now;
+      }
+      _waterWasStacked = _wStacked;
     } else {
       tiltOffset = tiltNorm;
     }
