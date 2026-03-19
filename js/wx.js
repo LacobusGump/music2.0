@@ -224,7 +224,7 @@ var Wx = (function () {
 
       ctx.beginPath();
       ctx.arc(s.x, s.y, r, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(0,255,100,' + a + ')';
+      ctx.fillStyle = 'rgba(255,240,210,' + a + ')';
       ctx.fill();
     }
   }
@@ -245,11 +245,11 @@ var Wx = (function () {
   function drawTimeLight(ctx, W, H, hour) {
     var color = null, edge = 'bottom', alpha = 0;
 
-    if (hour >= 5  && hour < 7)  { color = '40,180,120';  edge = 'bottom'; alpha = 0.18; } // dawn — cool green-gold
-    if (hour >= 7  && hour < 9)  { color = '20,220,100';  edge = 'bottom'; alpha = 0.10; } // morning — clean
-    if (hour >= 18 && hour < 20) { color = '60,160,80';   edge = 'bottom'; alpha = 0.14; } // dusk — deepening
-    if (hour >= 20 && hour < 22) { color = '0,80,30';     edge = 'bottom'; alpha = 0.20; } // early night
-    if (hour >= 22 || hour < 5)  { color = '0,20,8';      edge = 'bottom'; alpha = 0.30; } // deep night
+    if (hour >= 5  && hour < 7)  { color = '255,200,120'; edge = 'bottom'; alpha = 0.10; } // dawn — warm gold
+    if (hour >= 7  && hour < 9)  { color = '255,230,180'; edge = 'bottom'; alpha = 0.06; } // morning — soft
+    if (hour >= 18 && hour < 20) { color = '255,180,100'; edge = 'bottom'; alpha = 0.08; } // dusk — amber
+    if (hour >= 20 && hour < 22) { color = '200,180,255'; edge = 'bottom'; alpha = 0.06; } // early night — soft violet
+    if (hour >= 22 || hour < 5)  { color = '150,140,200'; edge = 'bottom'; alpha = 0.04; } // deep night — deep violet
 
     if (!color) return;
 
