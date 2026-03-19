@@ -237,8 +237,8 @@
       console.log(entry);
     }
 
-    // window.status() — full diagnostic snapshot
-    window.status = function() {
+    // window.gump() — full diagnostic snapshot
+    window.gump = function() {
       var s = Sensor.read();
       var lens = Lens.active;
       var out = '=== GUMP STATUS ===\n';
