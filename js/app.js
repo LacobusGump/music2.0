@@ -227,33 +227,80 @@
 
     // Voice init + boot greeting — we are inside the gesture right now
     Voice.init(audioCtx);
+    // ── BOOT DIAGNOSTIC — visible log of every step ──
+    var bootLog = [];
+    window.bootLog = bootLog;
+    function blog(msg) {
+      var t = (performance.now() / 1000).toFixed(2);
+      var entry = '[' + t + 's] ' + msg;
+      bootLog.push(entry);
+      console.log(entry);
+    }
+
+    // window.status() — full diagnostic snapshot
+    window.status = function() {
+      var s = Sensor.read();
+      var lens = Lens.active;
+      var out = '=== GUMP STATUS ===\n';
+      out += 'BUILD: ' + window.GUMP_BUILD + '\n';
+      out += 'Screen: ' + screen + '\n';
+      out += 'Lens: ' + (lens ? lens.name : 'none') + '\n';
+      out += 'Audio: ' + (Audio.ctx ? Audio.ctx.state : 'no ctx') + '\n';
+      out += 'Motion: ' + (s.hasMotion ? 'YES' : 'NO') + '\n';
+      out += 'Orient: ' + (s.hasOrientation ? 'YES' : 'NO') + '\n';
+      out += 'Beta: ' + (s.beta || 0).toFixed(1) + ' Gamma: ' + (s.gamma || 0).toFixed(1) + '\n';
+      out += 'Energy: ' + (typeof Brain !== 'undefined' ? Brain.short.energy().toFixed(2) : '?') + '\n';
+      out += 'Silent: ' + Follow.silent + '\n';
+      out += 'Errors: ' + Follow.errors + '\n';
+      out += '\n=== BOOT LOG ===\n';
+      out += bootLog.join('\n') + '\n';
+      console.log(out);
+      try { navigator.clipboard.writeText(out); } catch(e) {}
+      return out;
+    };
+
+    blog('BUILD ' + window.GUMP_BUILD);
+    blog('Voice.boot()');
     Voice.boot();
 
+    blog('Sensor.init() starting...');
     Sensor.init().then(function () {
+      blog('Sensor.init() DONE');
+      blog('Brain.init()');
       Brain.init();
+      blog('Audio.init()');
       Audio.init(audioCtx);
+      blog('Follow.init()');
       Follow.init();
+      blog('Lens.buildPicker()');
       Lens.buildPicker();
 
       var urlLens = Lens.loadFromURL();
       if (urlLens) {
+        blog('URL lens: ' + urlLens.name);
         Audio.configure(urlLens);
         Follow.applyLens(urlLens);
         Organism.applyLens(urlLens);
         startPlayScreen();
+        blog('PLAY — url lens');
       } else {
-        // Music fades in after the boot voice has a moment to breathe
+        blog('Waiting 2.5s for voice...');
         setTimeout(function () {
-          Lens.selectCard(0); // Journey (organic evolution)
+          blog('Selecting default lens...');
+          Lens.selectCard(0);
           var lens = Lens.getSelected();
+          blog('Lens: ' + (lens ? lens.name : 'NULL'));
           Audio.configure(lens);
           Follow.applyLens(lens);
           Organism.applyLens(lens);
           Pattern.init();
           Pattern.setLens(lens);
           startPlayScreen();
+          blog('PLAY — default lens');
         }, 2500);
       }
+    }).catch(function(e) {
+      blog('Sensor.init() FAILED: ' + e);
     });
   }
 
