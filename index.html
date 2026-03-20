@@ -580,5 +580,110 @@ html,body{
   setInterval(updateTimeColor,60000);
 })();
 </script>
+<script>
+// ── DIAGNOSTIC OVERLAY — triple-tap or ?diag in URL ──
+// Shows permission state, motion events, browser info ON SCREEN.
+// Triple-tap anywhere to toggle. Copy text to paste to Claude Code.
+(function(){
+  var tapCount=0, tapTimer=0, diagEl=null, diagInterval=null;
+  var log=[];
+  function dlog(msg){log.push('['+((performance.now()/1000).toFixed(1))+'s] '+msg);if(log.length>30)log.shift();}
+
+  window._dlog=dlog;
+
+  function show(){
+    if(diagEl){hide();return;}
+    diagEl=document.createElement('div');
+    diagEl.id='diag-overlay';
+    diagEl.style.cssText='position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.92);color:#0f0;font:11px/1.6 monospace;padding:20px;z-index:99999;overflow:auto;-webkit-user-select:text;user-select:text;touch-action:auto;';
+    document.body.appendChild(diagEl);
+    diagInterval=setInterval(refresh,500);
+    refresh();
+  }
+  function hide(){
+    if(diagEl){diagEl.remove();diagEl=null;}
+    if(diagInterval){clearInterval(diagInterval);diagInterval=null;}
+  }
+  function refresh(){
+    if(!diagEl)return;
+    var ua=navigator.userAgent||'';
+    var isChrome=/CriOS/.test(ua);
+    var isSafari=/Safari/.test(ua)&&!isChrome;
+    var isFirefox=/FxiOS/.test(ua);
+    var browser=isChrome?'Chrome iOS':isFirefox?'Firefox iOS':isSafari?'Safari':'Unknown';
+
+    var hasDME=typeof DeviceMotionEvent!=='undefined';
+    var hasRP=hasDME&&typeof DeviceMotionEvent.requestPermission==='function';
+    var hasDOE=typeof DeviceOrientationEvent!=='undefined';
+    var hasORP=hasDOE&&typeof DeviceOrientationEvent.requestPermission==='function';
+
+    var sensorState='N/A';
+    if(typeof Sensor!=='undefined'){sensorState=Sensor.permissionState||'unknown';}
+
+    var lines=[
+      '=== GUMP DIAGNOSTIC ===',
+      'BUILD: '+(window.GUMP_BUILD||'?'),
+      'Browser: '+browser,
+      '',
+      '--- PERMISSION ---',
+      'DeviceMotionEvent exists: '+hasDME,
+      'requestPermission exists: '+hasRP,
+      'DeviceOrientationEvent exists: '+hasDOE,
+      'orient requestPermission exists: '+hasORP,
+      'Sensor.permissionState: '+sensorState,
+      '',
+      '--- MOTION DATA ---',
+      'motionEvents: '+(window._diagMotionCount||0),
+      'orientEvents: '+(window._diagOrientCount||0),
+      'lastBeta: '+(window._diagLastBeta||'none'),
+      'lastGamma: '+(window._diagLastGamma||'none'),
+      '',
+      '--- LOG ---',
+      log.join('\n'),
+      '',
+      '(tap to select all + copy)',
+    ];
+    diagEl.textContent=lines.join('\n');
+  }
+
+  // Count motion/orientation events globally
+  window._diagMotionCount=0;
+  window._diagOrientCount=0;
+  window.addEventListener('devicemotion',function(){window._diagMotionCount++;},{passive:true});
+  window.addEventListener('deviceorientation',function(e){
+    window._diagOrientCount++;
+    window._diagLastBeta=(e.beta||0).toFixed(1);
+    window._diagLastGamma=(e.gamma||0).toFixed(1);
+  },{passive:true});
+
+  // Triple-tap to toggle
+  document.addEventListener('touchend',function(){
+    tapCount++;
+    clearTimeout(tapTimer);
+    tapTimer=setTimeout(function(){tapCount=0;},600);
+    if(tapCount>=3){tapCount=0;show();}
+  },{passive:true});
+
+  // URL param ?diag auto-shows
+  if(location.search.indexOf('diag')>=0) setTimeout(show,1000);
+
+  // Log permission attempts
+  if(typeof DeviceMotionEvent!=='undefined'&&typeof DeviceMotionEvent.requestPermission==='function'){
+    var origRP=DeviceMotionEvent.requestPermission;
+    DeviceMotionEvent.requestPermission=function(){
+      dlog('requestPermission() CALLED');
+      return origRP.apply(this,arguments).then(function(r){
+        dlog('requestPermission() RESULT: '+r);
+        return r;
+      }).catch(function(e){
+        dlog('requestPermission() ERROR: '+e);
+        throw e;
+      });
+    };
+  }
+
+  window.gumpDiag=show;
+})();
+</script>
 </body>
 </html>
