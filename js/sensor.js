@@ -228,10 +228,15 @@ const Sensor = (function () {
    * On iOS, this re-shows the dialog if the previous denial was
    * per-page-session (cleared by reload).
    */
+  var retryCount = 0;
+
   function retryPermissions() {
     if (permState === 'granted' && listenersAdded) return Promise.resolve();
 
-    // Needs explicit permission? Try again from this gesture.
+    // Don't retry more than twice — if denied, it's denied. Show instructions.
+    if (retryCount >= 2) return Promise.resolve();
+    retryCount++;
+
     var needsRequest = typeof DeviceMotionEvent !== 'undefined' &&
       typeof DeviceMotionEvent.requestPermission === 'function';
 
@@ -248,8 +253,9 @@ const Sensor = (function () {
           permState = 'granted';
           dismissHelp();
         }
+        // If denied again, don't keep trying
       })
-      .catch(function () { /* silent — don't spam errors */ });
+      .catch(function () { /* silent */ });
   }
 
   // ── HELP MESSAGE ─────────────────────────────────────────────────────
@@ -266,18 +272,31 @@ const Sensor = (function () {
       'padding:16px 20px;border-radius:14px;' +
       'font:14px/1.5 -apple-system,sans-serif;z-index:9999;' +
       'text-align:center;backdrop-filter:blur(8px);';
-    el.innerHTML =
-      '<b>Motion access needed</b><br>' +
-      'In Safari: tap <b>aA</b> in the address bar<br>' +
-      '→ <b>Website Settings</b> → <b>Motion & Orientation</b> → Allow<br>' +
-      'Then reload the page.<br><br>' +
-      '<span style="opacity:0.7;font-size:12px">Tap here to retry</span>';
+    var isChrome = /CriOS/.test(navigator.userAgent || '');
+    if (isChrome) {
+      // Chrome iOS: requestPermission returns denied without dialog.
+      // User must enable in Chrome settings or use Safari instead.
+      el.innerHTML =
+        '<b>Motion access needed</b><br><br>' +
+        'Chrome blocks motion by default.<br>' +
+        'Tap the <b>lock icon</b> in the address bar<br>' +
+        '→ <b>Site Settings</b> → <b>Motion Sensors</b> → Allow<br>' +
+        'Then reload.<br><br>' +
+        '<b>Or open in Safari</b> — it works there.';
+    } else {
+      el.innerHTML =
+        '<b>Motion access needed</b><br>' +
+        'Tap <b>aA</b> in the address bar<br>' +
+        '→ <b>Website Settings</b> → <b>Motion & Orientation</b> → Allow<br>' +
+        'Then reload the page.<br><br>' +
+        '<span style="opacity:0.7;font-size:12px">Tap here to retry</span>';
+    }
     el.addEventListener('click', function () {
-      retryPermissions();
+      if (!isChrome) retryPermissions();  // Only retry on Safari — Chrome can't
     });
     el.addEventListener('touchstart', function (e) {
       e.stopPropagation();
-      retryPermissions();
+      if (!isChrome) retryPermissions();
     }, { passive: true });
     document.body.appendChild(el);
   }
