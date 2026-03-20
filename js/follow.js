@@ -1767,7 +1767,7 @@ const Follow = (function () {
 
     // Grid EDM engine: init if this is the Grid lens, teardown otherwise
     if (grid.active) teardownGrid();
-    if (lens.name === 'Grid' && lens.edm) {
+    if (lens.edm) {
       initGrid();
     }
 
@@ -4500,7 +4500,7 @@ const Follow = (function () {
     updateInversion(sensor, dt);
     // ── GRID BYPASS: EDM engine runs instead of organic pipeline ──
     // Grid manages its own gain, stillness, and clock — skip organic systems entirely.
-    if (lens.name === 'Grid' && grid.active) {
+    if (grid.active && lens.edm) {
       if (detectPeak(mag, now)) {
         recordPeakInterval(now);
         motionProfile.recordPeak(lastMag);
