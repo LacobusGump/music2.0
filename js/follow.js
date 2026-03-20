@@ -1338,7 +1338,7 @@ const Follow = (function () {
 
     // Degree tracking: which notes the user plays most
     degreeHeat: new Float32Array(15),  // -7 to +7, index = degree+7
-    degreeDecay: 0.98,
+    degreeDecay: 0.995,  // was 0.98 — too fast, heat never accumulated. Now ~3s half-life at 60fps
 
     // Mix state (smoothed targets the prodigy sets)
     reverbTarget: 0.25,
@@ -1411,9 +1411,35 @@ const Follow = (function () {
     for (var k = 0; k < 15; k++) {
       if (prodigy.degreeHeat[k] > hottest) { hottest = prodigy.degreeHeat[k]; hottestDeg = k - 7; }
     }
-    // If the user gravitates toward a specific degree, the harmonic system should
-    // make that degree feel like home — this feeds into harmonic rhythm choices.
-    // For now, this data is tracked. Future: drive chord selection from this.
+    // The user's hottest degree drives harmonic rhythm.
+    // If they gravitate toward degree 4 (5th), drone shifts toward V.
+    // If they hover around 0 (root), drone stays on I.
+    // This makes the harmony FOLLOW the human — the fundamental law.
+    if (hottest > 0.04 && droneLayer) {
+      var hrTarget;
+      if (hottestDeg === 0 || hottestDeg === 2 || hottestDeg === 4) {
+        hrTarget = 0;  // root, 3rd, 5th = stay on I
+      } else if (hottestDeg === 3 || hottestDeg === 5) {
+        hrTarget = 3;  // 4th, 6th = shift to IV
+      } else if (hottestDeg === 1 || hottestDeg === 4) {
+        hrTarget = 4;  // 2nd, 5th = shift toward V
+      } else {
+        hrTarget = 0;  // default home
+      }
+      // Smooth transition — drone walks, doesn't jump
+      if (typeof prodigy._hrDegree === 'undefined') prodigy._hrDegree = 0;
+      prodigy._hrDegree += (hrTarget - prodigy._hrDegree) * 0.3 * dt;
+      var hrDeg = Math.round(prodigy._hrDegree);
+      if (hrDeg !== harmonyDegree) {
+        harmonyDegree = hrDeg;
+        try {
+          Audio.layer.setFreqs('follow-drone', [
+            scaleFreq(hrDeg, -1), scaleFreq(hrDeg, -1) * 1.003,
+            scaleFreq(hrDeg + 4, -1), scaleFreq(hrDeg, -2)
+          ], 2.0);
+        } catch(e) {}
+      }
+    }
 
     // 4. DYNAMIC RANGE: volatile energy = compress. Steady = expand.
     var volatility = 0;
