@@ -421,6 +421,203 @@ const Lens = (function () {
         sensitivity: 1.0,
       },
     },
+
+    // ─── MIDNIGHT ───────────────────────────────────────────────────────
+    // Lo-fi hip hop. 2am head-nod. Mixolydian warmth, tape wobble.
+    // Slow, warm, dusty. The b7 gives it that jazzy unresolved feeling.
+    // Rhodes + upright bass + brushes. Tilt = lazy melody. Motion = groove depth.
+    {
+      name: 'Midnight',
+      color: '#4a3728',
+      description: 'Lo-fi. Dusty Rhodes. Head-nod groove.',
+
+      harmony: { root: 392, mode: 'mixolydian' },  // G3 — warm register
+
+      tone: {
+        bassFreq: 100, bassGain: 4,
+        midFreq: 600, midQ: 0.4, midGain: 2,    // warm mids — Rhodes body
+        highFreq: 2200, highGain: -14,           // heavy rolloff — lo-fi
+        ceiling: 2800,                           // nothing sparkles at midnight
+      },
+
+      space: {
+        reverb: { decay: 2.5, damping: 0.45, preDelay: 25 },  // small room, damped
+        delay: { feedback: 0.42, filter: 1400, sync: 'dotted-eighth' },
+        saturation: 0.10,        // tape warmth
+        type: 'room',
+        reverbMix: 0.28,
+        spatial: { sweepRate: 0.02, sweepDepth: 0.15 },  // barely moving
+      },
+
+      palette: {
+        continuous: { voice: 'epiano', octave: 0, decay: 2.8 },
+        peak:       { voice: 'upright', octave: -1, decay: 1.8 },
+        harmonic:   { voice: 'epiano', octave: 1, decay: 2.2 },
+        touch:      { voice: 'bell', octave: 1, decay: 3.5 },
+      },
+
+      groove: {
+        kit: 'brushes',
+        microTiming: { kick: 0.02, hat: 0.01, snare: 0.015 },  // human swing
+        ghosts: 0.12,       // lots of ghost notes — brushes live in ghosts
+        backbeat: true,     // snare on 2 and 4
+        maxVel: 0.55,       // quiet — it's midnight
+        broken: false,
+        dropRate: 0.08,     // occasional dropped hit — human feel
+      },
+
+      response: {
+        peakThreshold: 0.30,
+        tiltRange: 45,
+        noteInterval: 600,       // slow lazy melody
+        melodicEnergy: 0.15,
+        stillnessThreshold: 0.06,
+        stillnessTimeout: 3.0,
+        fadeTime: 8.0,
+        filterRange: [200, 2200],
+        densityThresholds: [1.5, 4.0, 8.0],
+      },
+
+      emotion: { colorDeg: 6, phraseShape: 'falling' },  // b7 = mixolydian soul
+
+      motion: {
+        primary: 'tilt_rate',
+        melodic: 'beta',
+        sensitivity: 0.6,    // gentle — you barely have to move
+      },
+    },
+
+    // ─── CATHEDRAL ──────────────────────────────────────────────────────
+    // Ambient choral. Eyes-closed meditation. Sustained voices, vast space.
+    // No rhythm. No melody unless you move. Pure harmonic texture.
+    // Aeolian minor — natural, ancient, no sharps.
+    {
+      name: 'Cathedral',
+      color: '#2d3a4a',
+      description: 'Choral ambient. Voices in vast space. Stillness.',
+
+      harmony: { root: 220, mode: 'minor' },  // A natural minor — pure
+
+      tone: {
+        bassFreq: 80, bassGain: 2,
+        midFreq: 500, midQ: 0.3, midGain: 0,    // flat mids — space for voices
+        highFreq: 4000, highGain: -6,
+        ceiling: 5000,
+      },
+
+      space: {
+        reverb: { decay: 8.0, damping: 0.10, preDelay: 40 },  // massive cathedral
+        delay: { feedback: 0.60, filter: 2000, sync: 'quarter' },
+        saturation: 0.02,
+        type: 'cathedral',
+        reverbMix: 0.70,         // swimming in reverb
+        spatial: { sweepRate: 0.03, sweepDepth: 0.35 },
+      },
+
+      palette: {
+        continuous: { voice: 'formant', octave: 0, decay: 5.0 },   // voice-like
+        peak:       { voice: 'bell', octave: 1, decay: 4.0 },      // bell strikes
+        harmonic:   { voice: 'organ', octave: -1, decay: 6.0 },    // organ sustain
+        texture: { wave: 'sine', chord: [0, 7, 12], octave: -1, detune: 3, vol: 0.04, reverbSend: 0.85 },
+        touch:      { voice: 'formant', octave: 1, decay: 4.0 },
+      },
+
+      groove: null,  // no drums. silence is sacred.
+
+      response: {
+        peakThreshold: 0.45,
+        tiltRange: 60,
+        noteInterval: 1500,      // very slow — one voice at a time
+        melodicEnergy: 0.25,
+        stillnessThreshold: 0.04,
+        stillnessTimeout: 1.5,   // enters void quickly — stillness is the point
+        fadeTime: 15.0,          // very long fade — voices linger
+        filterRange: [200, 4500],
+        densityThresholds: [1.0, 3.0, 6.0],
+      },
+
+      emotion: { colorDeg: 5, phraseShape: 'question' },  // the 6th degree — Aeolian yearning
+
+      motion: {
+        primary: 'magnitude',
+        melodic: 'beta',
+        sensitivity: 0.5,   // responsive to gentle gestures
+      },
+    },
+
+    // ─── PULSE ──────────────────────────────────────────────────────────
+    // Minimal techno. 118 BPM. Hypnotic. Repetitive. Slowly evolving.
+    // The opposite of Grid's maximalism. Less is more.
+    // Minor mode — dark, driving, relentless. Tilt = filter only.
+    {
+      name: 'Pulse',
+      color: '#1a2a1a',
+      description: 'Minimal techno. Hypnotic. Less is everything.',
+
+      harmony: { root: 196, mode: 'minor' },  // G2 — deep and dark
+
+      tone: {
+        bassFreq: 140, bassGain: 5,
+        midFreq: 900, midQ: 1.2, midGain: 1,
+        highFreq: 4000, highGain: -8,
+        ceiling: 5500,
+      },
+
+      space: {
+        reverb: { decay: 3.5, damping: 0.35, preDelay: 15 },
+        delay: { feedback: 0.55, filter: 1800, sync: 'eighth' },  // tight delay
+        saturation: 0.06,
+        type: 'room',
+        reverbMix: 0.22,
+        sidechain: 0.45,     // constant pump — the heartbeat
+        spatial: { sweepRate: 0.06, sweepDepth: 0.5 },  // wide auto-pan
+      },
+
+      palette: {
+        continuous: { voice: 'pluck', octave: 0, decay: 0.6 },    // short, percussive
+        peak:       { voice: 'stab', octave: 0, decay: 0.3 },
+        harmonic:   { voice: 'fm', octave: -1, decay: 1.5 },
+        burst:      { voice: 'glitch', octave: 0 },
+        touch:      { voice: 'pluck', octave: 1, decay: 0.4 },
+      },
+
+      groove: {
+        kit: '808',
+        microTiming: { kick: 0, hat: 0.005, snare: 0 },
+        ghosts: 0.03,
+        backbeat: false,
+        maxVel: 0.80,
+        broken: false,
+        dropRate: 0,
+      },
+
+      edm: {
+        bpm: 118,
+        subFreq: 49,       // G1
+        filterRange: [150, 5000],
+        buildArmLevel: 0.70,   // longer builds — minimal is patient
+      },
+
+      response: {
+        peakThreshold: 0.25,
+        tiltRange: 50,
+        noteInterval: 200,
+        melodicEnergy: 0.35,
+        stillnessThreshold: 0.12,
+        stillnessTimeout: 3.0,
+        fadeTime: 4.0,
+        filterRange: [150, 5000],
+        densityThresholds: [2.0, 5.0, 10.0],
+      },
+
+      emotion: { colorDeg: 2, phraseShape: 'falling' },  // minor 3rd — dark
+
+      motion: {
+        primary: 'tilt_rate',
+        melodic: 'beta',
+        sensitivity: 1.2,
+      },
+    },
   ];
 
   // ── STATE ──────────────────────────────────────────────────────────

@@ -3691,6 +3691,14 @@ const Follow = (function () {
         var scDepth = 0.25 + grid.buildLevel * 0.2 + grid.pumpIntensity * 0.2;
         try { Audio.setSidechainDepth(Math.min(0.75, scDepth)); } catch(e) {}
 
+        // ── RISER — builds tension before the drop ──
+        if (!grid.riserFired && grid.buildLevel > 0.50 && Audio.synth && Audio.synth.riser) {
+          grid.riserFired = true;
+          var riserDur = Math.max(3, (1 - grid.buildLevel) * 20);  // shorter as build progresses
+          try { Audio.synth.riser(time, riserDur); } catch(e) {}
+          gridRecord('RISER', { dur: +riserDur.toFixed(1) });
+        }
+
         // ── DROP TRIGGER ──
         // If vocal drop is ready: next peak IS the drop (peak 3 = "you")
         // Otherwise: standard armed drop
@@ -3722,6 +3730,14 @@ const Follow = (function () {
             try { Audio.vocal.play('you-deep', time + 0.04, {
               vol: 0.85, reverb: 0.12, delay: 0.2
             }); } catch(e) {}
+          }
+
+          // IMPACT — the moment of the drop. Crash + sub hit.
+          if (Audio.synth && Audio.synth.impact) {
+            try { Audio.synth.impact(time, 0.7 + Math.min(0.2, grid.cycle * 0.05)); } catch(e) {}
+          }
+          if (Audio.synth && Audio.synth.crashFill) {
+            try { Audio.synth.crashFill(time, 0.5); } catch(e) {}
           }
 
           // The machine doesn't shout — the drop IS the user's peak.
