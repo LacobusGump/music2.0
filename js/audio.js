@@ -144,8 +144,16 @@ const Audio = (function () {
     saturator.oversample = '4x';
     // (saturator is NOT connected — sidechainGain → compressor directly)
 
+    // Analog warmth: gentle tanh saturation between sidechain and compressor
+    // Real Moog circuits saturate at every stage (0.1-0.5% THD).
+    // This is subliminal — you should NOT hear it as distortion.
+    saturator = ctx.createWaveShaper();
+    saturator.curve = makeSatCurve(0.04);  // very gentle — warmth, not dirt
+    saturator.oversample = '2x';
+
     sidechainGain = ctx.createGain();
-    sidechainGain.connect(compressor);   // bypass saturator
+    sidechainGain.connect(saturator);
+    saturator.connect(compressor);
 
     drumBus = ctx.createGain();
     drumBus.gain.value = 1;
@@ -615,6 +623,61 @@ const Audio = (function () {
     var d = buf.getChannelData(0);
     for (var i = 0; i < bufLen; i++) d[i] = Math.random() * 2 - 1;
     return buf;
+  }
+
+  // ── ANALOG WARMTH ────────────────────────────────────────────────────
+  // From the research: Moog sounds better because of drift, noise, saturation.
+  // These helpers make any oscillator feel analog.
+
+  /**
+   * Add oscillator drift: ±2-4 cents random LFO, 0.2-0.8 Hz.
+   * Makes digital oscillators feel alive. Call on any OscillatorNode.
+   */
+  function addDrift(osc, cents) {
+    if (!ctx || !osc) return;
+    var c = cents || 3;
+    var lfo = ctx.createOscillator();
+    lfo.type = 'sine';
+    lfo.frequency.value = 0.2 + Math.random() * 0.6;  // 0.2-0.8 Hz
+    var lfoG = ctx.createGain();
+    lfoG.gain.value = osc.frequency.value * (c / 1200);  // cents to Hz
+    lfo.connect(lfoG);
+    lfoG.connect(osc.detune);
+    lfo.start(ctx.currentTime);
+    // Auto-cleanup: stop when the main osc stops (approximate with setTimeout)
+    return lfo;
+  }
+
+  /**
+   * Humanize velocity: ±3 units random variation.
+   * Every note slightly different, like a real instrument.
+   */
+  function humanVel(vel) {
+    return Math.max(0.01, Math.min(1, vel + (Math.random() - 0.5) * 0.04));
+  }
+
+  /**
+   * Add a whisper of noise texture to a synth voice.
+   * -50 to -55 dB relative to signal. Fills the spectrum like analog circuits.
+   */
+  function addBreath(destination, time, duration, level) {
+    if (!ctx) return;
+    var noiseLen = Math.floor(ctx.sampleRate * Math.min(4, duration || 1));
+    var noiseBuf = ctx.createBuffer(1, noiseLen, ctx.sampleRate);
+    var nd = noiseBuf.getChannelData(0);
+    for (var i = 0; i < noiseLen; i++) nd[i] = (Math.random() * 2 - 1);
+    var src = ctx.createBufferSource();
+    src.buffer = noiseBuf;
+    var g = ctx.createGain();
+    g.gain.value = level || 0.004;  // ~-48 dB — subliminal
+    var lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = 4000;  // match the synth's natural rolloff
+    src.connect(g);
+    g.connect(lp);
+    lp.connect(destination);
+    src.start(time);
+    src.stop(time + (duration || 1));
   }
 
   // ── DRUM SYNTHESIS ─────────────────────────────────────────────────────
@@ -1386,11 +1449,13 @@ const Audio = (function () {
   // ── PIANO — jazz piano: hammer attack, layered harmonics ──────────────
 
   function synthPiano(time, freq, vel, decay) {
+    vel = humanVel(vel);  // analog warmth: every note slightly different
+
     var filt = ctx.createBiquadFilter();
     filt.type = 'lowpass';
     filt.frequency.setValueAtTime(1800 + vel * 2000, time);
     filt.frequency.setTargetAtTime(1400, time + 0.01, 0.2);
-    filt.Q.value = 0.7;
+    filt.Q.value = 0.6;  // slightly less resonance — warmer
 
     var env = ctx.createGain();
     env.gain.setValueAtTime(0.0001, time);
@@ -1399,7 +1464,9 @@ const Audio = (function () {
     env.gain.setTargetAtTime(0.0001, time + decay * 0.5, decay * 0.35);
 
     var o1 = ctx.createOscillator(); o1.type = 'triangle'; o1.frequency.value = freq;
-    var o2 = ctx.createOscillator(); o2.type = 'triangle'; o2.frequency.value = freq; o2.detune.value = 6;
+    addDrift(o1, 2);  // subtle pitch drift — analog feel
+    var o2 = ctx.createOscillator(); o2.type = 'triangle'; o2.frequency.value = freq; o2.detune.value = 5;
+    addDrift(o2, 3);  // independent drift on second osc
     var o3 = ctx.createOscillator(); o3.type = 'sine'; o3.frequency.value = freq * 2;
     var hG = ctx.createGain(); hG.gain.value = 0.18; o3.connect(hG);
 

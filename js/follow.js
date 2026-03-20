@@ -342,6 +342,17 @@ const Follow = (function () {
   var DEGREE_TENSION  = [0.0, 0.45, 0.25, 0.55, 0.15, 0.65, 0.90];
   var melodicCentroid = 0;
 
+  // ── MOTIF MEMORY — what makes melody feel composed ──────────────────
+  // Remembers short melodic fragments (intervals, not absolute pitches).
+  // Occasionally the engine replays a motif transposed/varied.
+  // This is the difference between random notes and a SONG.
+  var motifs = [];          // stored motifs: arrays of intervals
+  var motifBuffer = [];     // current fragment being recorded (up to 4 notes)
+  var motifPlayback = null; // { intervals: [...], index: 0, root: degree, transpose: 0 }
+  var motifCooldown = 0;    // seconds until next motif can replay
+  var MOTIF_LENGTH = 4;     // notes per motif
+  var MOTIF_MAX = 6;        // max stored motifs (rolling window)
+
   // Vertical arc
   var vertVelocity  = 0;
   var vertPosition  = 0;
@@ -2064,10 +2075,60 @@ const Follow = (function () {
             phraseDec *= (1 - speedNorm * 0.45);
           }
 
+          // ── MOTIF SYSTEM — remember and replay melodic fragments ──
+          // Record intervals (not absolute degrees) into motifBuffer.
+          // When a motif completes (4 notes), store it.
+          // Occasionally replay a stored motif, transposed to current context.
+          var playDegree = currentDegree;
+
+          // If a motif is playing back, use its next note instead
+          if (motifPlayback && motifPlayback.index < motifPlayback.intervals.length) {
+            var interval = motifPlayback.intervals[motifPlayback.index];
+            playDegree = motifPlayback.root + interval + motifPlayback.transpose;
+            motifPlayback.index++;
+            if (motifPlayback.index >= motifPlayback.intervals.length) {
+              motifPlayback = null;
+              motifCooldown = 6;  // wait 6s before next replay
+            }
+          } else {
+            // Record into motif buffer
+            if (motifBuffer.length > 0) {
+              var lastDeg = motifBuffer[motifBuffer.length - 1];
+              motifBuffer.push(currentDegree);
+            } else {
+              motifBuffer.push(currentDegree);
+            }
+
+            // Motif complete — store as intervals
+            if (motifBuffer.length >= MOTIF_LENGTH) {
+              var intervals = [];
+              for (var mi = 1; mi < motifBuffer.length; mi++) {
+                intervals.push(motifBuffer[mi] - motifBuffer[0]);
+              }
+              motifs.push(intervals);
+              if (motifs.length > MOTIF_MAX) motifs.shift();
+              motifBuffer = [];
+            }
+
+            // Maybe trigger a motif replay (10% chance, cooldown must be 0)
+            if (motifCooldown <= 0 && motifs.length >= 2 && Math.random() < 0.10 && phraseActive) {
+              var pickIdx = Math.floor(Math.random() * motifs.length);
+              var transpose = Math.floor(Math.random() * 5) - 2;  // ±2 degrees
+              motifPlayback = {
+                intervals: motifs[pickIdx],
+                index: 0,
+                root: currentDegree,
+                transpose: transpose,
+              };
+            }
+          }
+
+          var motifFreq = scaleFreq(playDegree, contPalette.octave || 0);
+
           try {
-            Audio.synth.play(contPalette.voice || 'epiano', Audio.ctx.currentTime, freq, vel, phraseDec);
+            Audio.synth.play(contPalette.voice || 'epiano', Audio.ctx.currentTime, motifFreq, vel, phraseDec);
             noteCount++;
-            if (typeof Pattern !== 'undefined') Pattern.onNote(currentDegree);
+            if (typeof Pattern !== 'undefined') Pattern.onNote(playDegree);
           } catch (e) { errorCount++; }
         }
       }
@@ -4589,6 +4650,7 @@ const Follow = (function () {
 
     // ── PRODIGY — real-time musical intelligence ──
     updateProdigy(sensor, dt, mag);
+    if (motifCooldown > 0) motifCooldown -= dt;
 
     // Journey state snapshot every 0.5s
     jrnWallClock += dt;
