@@ -166,39 +166,55 @@ const Sensor = (function () {
         return;
       }
 
-      // Permission was already requested by app.js onListenTap (first thing in gesture).
-      // Wait briefly for those promises to resolve, then check the result.
-      function checkPermission() {
-        var motionResult = window._motionPerm || 'pending';
-        var orientResult = window._orientPerm || 'pending';
+      // iOS: request BOTH permissions simultaneously via Promise.all
+      // Each has its own .catch so one failing doesn't kill the other
+      // Timeout after 5s — Chrome on iOS can hang forever
+      function withTimeout(promise, ms) {
+        return Promise.race([
+          promise,
+          new Promise(function(resolve) { setTimeout(function() { resolve('timeout'); }, ms); })
+        ]);
+      }
 
-        if (motionResult === 'pending' || orientResult === 'pending') {
-          // Still waiting — check again in 100ms (max 5s)
-          if (!checkPermission._attempts) checkPermission._attempts = 0;
-          checkPermission._attempts++;
-          if (checkPermission._attempts < 50) {
-            setTimeout(checkPermission, 100);
-            return;
-          }
-          // Timed out — treat as denied
-          motionResult = 'timeout';
-          orientResult = 'timeout';
-        }
+      var motionP = withTimeout(
+        DeviceMotionEvent.requestPermission().catch(function () { return 'error'; }),
+        5000
+      );
+
+      var orientP;
+      if (typeof DeviceOrientationEvent !== 'undefined' &&
+          typeof DeviceOrientationEvent.requestPermission === 'function') {
+        orientP = withTimeout(
+          DeviceOrientationEvent.requestPermission().catch(function () { return 'error'; }),
+          5000
+        );
+      } else {
+        orientP = Promise.resolve('granted');
+      }
+
+      Promise.all([motionP, orientP]).then(function (results) {
+        var motionResult = results[0];
+        var orientResult = results[1];
 
         if (motionResult === 'granted' || orientResult === 'granted') {
           addListeners();
           permState = 'granted';
           dismissHelp();
+
+          // Verify events actually fire (iOS edge case)
+          var countBefore = raw.motionEventCount;
+          setTimeout(function () {
+            if (raw.motionEventCount === countBefore && !raw.motionGranted) {
+              console.warn('[Sensor] Motion granted but no events received');
+            }
+          }, 2000);
         } else {
           permState = 'denied';
           showHelp();
         }
 
         resolve();
-      }
-
-      // Give the permission promises from app.js a moment to settle
-      setTimeout(checkPermission, 200);
+      });
     });
   }
 
