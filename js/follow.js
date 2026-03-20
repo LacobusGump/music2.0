@@ -732,22 +732,44 @@ const Follow = (function () {
     }
 
     // ── RESOLUTION CHORD — the musical full stop ──
-    // A 3-note I chord spread 120ms apart. The phrase COMPLETES.
-    // This is the single most important moment of musical grammar.
+    // Context-aware: the resolution responds to what preceded it.
+    // Big phrases get emphatic resolution. Quiet phrases get gentle ones.
+    // If we're on V, resolve V→I. If tension was high, add the 7th.
     if (lens && lens.palette && lens.palette.harmonic && Audio.ctx && !isSilent && fadeGain > 0.15) {
       var h = lens.palette.harmonic;
-      var resVel = 0.32 * fadeGain;
-      var chord = [0, 2, 4];  // always resolve to I chord (tonic) — the actual full stop
+
+      // Velocity responds to phrase intensity — big phrase = strong resolution
+      var resVel = Math.min(0.55, 0.20 + fadeGain * 0.30 + (phraseMaxMag || 0) * 0.05);
+
+      // Chord voicing responds to harmonic context
+      var chord;
+      if (harmonicTension > 0.6) {
+        // High tension: add the 7th for richer resolution (maj7 chord)
+        chord = [0, 2, 4, 6];
+      } else if (hrState === 'v' || hrState === 'iv') {
+        // Coming from V or IV: V→I cadence feel (play 4→0 resolution)
+        chord = [4, 2, 0];  // descending — resolves downward
+      } else {
+        chord = [0, 2, 4];  // standard I chord
+      }
+
+      // Timing adapts to tempo — not always 120ms
+      var chordSpacing = tempoLocked && derivedTempo > 0
+        ? Math.max(80, 60000 / derivedTempo / 4)  // 16th note at current tempo
+        : 120;
+
       for (var ci = 0; ci < chord.length; ci++) {
-        (function (deg, delay, idx) {
+        (function (deg, delay, idx, total) {
           setTimeout(function () {
             if (!Audio.ctx || isSilent) return;
             try {
+              // Velocity contour: first note strongest, last note softest
+              var noteVel = resVel * (1 - idx * (0.10 / total));
               Audio.synth.play(h.voice || 'epiano', Audio.ctx.currentTime,
-                scaleFreq(deg, h.octave || 0), resVel * (1 - idx * 0.12), h.decay || 1.8);
+                scaleFreq(deg, h.octave || 0), noteVel, h.decay || 1.8);
             } catch(e) {}
           }, delay);
-        })(chord[ci], ci * 120, ci);
+        })(chord[ci], ci * chordSpacing, ci, chord.length);
       }
       noteCount++;
     }
@@ -806,14 +828,24 @@ const Follow = (function () {
     if (motionNow < 0.25) return;
 
     answerNotes = buildAnswer(deg, harmonicTension, phraseEnergyArc, magnitude);
-    answerFireTime = now + 1500 + Math.random() * 2000;
+
+    // When tempo is locked, answer lands on a beat — not random delay
+    if (tempoLocked && derivedTempo > 0) {
+      var beatMs = 60000 / derivedTempo;
+      // Land on the next downbeat or the one after
+      var beatsAway = Math.random() < 0.5 ? 2 : 4;
+      answerFireTime = now + beatMs * beatsAway;
+    } else {
+      answerFireTime = now + 1500 + Math.random() * 2000;
+    }
     answerIdx = 0;
     answerPending = true;
     callResponseCooldown = now + 10000 + Math.random() * 4000;
   }
 
   function buildAnswer(deg, tension, arc, magnitude) {
-    var sp = 400;
+    // Note spacing: use tempo when locked, otherwise 400ms default
+    var sp = (tempoLocked && derivedTempo > 0) ? (60000 / derivedTempo / 2) : 400;
 
     if (magnitude > 2.8) {
       return [{ deg: 0, delayMs: 0, vel: 0.28 }];
@@ -1423,20 +1455,26 @@ const Follow = (function () {
       if (prodigy.degreeHeat[k] > hottest) { hottest = prodigy.degreeHeat[k]; hottestDeg = k - 7; }
     }
     // The user's hottest degree drives harmonic rhythm.
-    // If they gravitate toward degree 4 (5th), drone shifts toward V.
-    // If they hover around 0 (root), drone stays on I.
-    // This makes the harmony FOLLOW the human — the fundamental law.
-    if (hottest > 0.04 && droneLayer) {
+    // Coordinates with hrState from updateHarmonicRhythm — doesn't fight it.
+    // If hrState already moved the harmony, Prodigy follows that decision.
+    // Only suggests a change if it strongly disagrees (hottest > 0.08).
+    if (hottest > 0.08 && droneLayer) {
       var hrTarget;
       if (hottestDeg === 0 || hottestDeg === 2 || hottestDeg === 4) {
         hrTarget = 0;  // root, 3rd, 5th = stay on I
       } else if (hottestDeg === 3 || hottestDeg === 5) {
         hrTarget = 3;  // 4th, 6th = shift to IV
-      } else if (hottestDeg === 1 || hottestDeg === 4) {
-        hrTarget = 4;  // 2nd, 5th = shift toward V
+      } else if (hottestDeg === 1 || hottestDeg === 6) {
+        hrTarget = 4;  // 2nd, 7th = shift toward V (fixed: was degree 4 duplicated)
       } else {
         hrTarget = 0;  // default home
       }
+
+      // Don't fight the harmonic rhythm timer — only move if aligned or strong signal
+      var hrAgreement = (hrState === 'root' && hrTarget === 0) ||
+                        (hrState === 'iv' && hrTarget === 3) ||
+                        (hrState === 'v' && hrTarget === 4);
+      if (!hrAgreement && hottest < 0.15) hrTarget = harmonyDegree;  // too weak to override — stay put
       // Smooth transition — drone walks, doesn't jump
       if (typeof prodigy._hrDegree === 'undefined') prodigy._hrDegree = 0;
       prodigy._hrDegree += (hrTarget - prodigy._hrDegree) * 0.3 * dt;
@@ -2006,7 +2044,21 @@ const Follow = (function () {
     if (targetDegree < -degreeLimit) targetDegree = -degreeLimit;
 
     var noteIntervalMs = (lens.response && lens.response.noteInterval) || 320;
-    var maxJump = Math.min(7, Math.max(2, Math.round(noteIntervalMs / 150)));  // floor 2 — always allow leaps, organ needs them
+    var maxJump = Math.min(7, Math.max(2, Math.round(noteIntervalMs / 150)));
+
+    // Prodigy arc biases interval direction:
+    // Rising energy = favor upward leaps (wider intervals up, stepwise down)
+    // Falling energy = favor stepwise descent (resolve, close)
+    // Plateau = balanced. Volatile = wider range.
+    var arcBias = 0;
+    if (prodigy.arc === 'rising') arcBias = 1;
+    else if (prodigy.arc === 'falling') arcBias = -1;
+    else if (prodigy.arc === 'volatile') maxJump = Math.min(7, maxJump + 1);
+
+    if (arcBias !== 0) {
+      targetDegree += arcBias;  // gentle nudge in the arc direction
+    }
+
     var stepped = Math.max(currentDegree - maxJump, Math.min(currentDegree + maxJump, targetDegree));
 
     // Contour blend + harmonic gravity
@@ -2040,6 +2092,19 @@ const Follow = (function () {
       var speed = motionNow;
       var speedMult = 1 + (1 - Math.min(1, speed / 2.5)) * 1.2;
       var minInterval = baseInterval * speedMult;
+
+      // When tempo is locked, snap note timing to musical subdivisions.
+      // Notes land on 8th notes or dotted 8ths — they feel rhythmic, not random.
+      if (tempoLocked && derivedTempo > 0) {
+        var beatMs = 60000 / derivedTempo;
+        var eighthMs = beatMs / 2;
+        // Snap minInterval to nearest musical subdivision (8th, dotted 8th, quarter)
+        if (minInterval < eighthMs * 0.75) minInterval = eighthMs;
+        else if (minInterval < eighthMs * 1.3) minInterval = eighthMs;
+        else if (minInterval < beatMs * 0.8) minInterval = eighthMs * 1.5;  // dotted 8th
+        else minInterval = beatMs;  // quarter note
+      }
+
       var timeSinceNote = now - lastNoteTime;
 
       if (timeSinceNote > minInterval) {
@@ -2052,9 +2117,22 @@ const Follow = (function () {
           var freq = scaleFreq(currentDegree, contPalette.octave || 0);
 
           // ── LEAD IS THE DOMINANT VOICE ──
-          // Velocity: 0.38 at quiet, up to 0.83 at full engagement.
-          // This is 2× louder than before — the melody is now audible.
-          var vel = Math.min(0.85, (0.38 + fadeGain * 0.45) * phraseIntensityFactor * (contPalette.velBoost || 1.0));
+          // Velocity is a MUSICAL decision, not just a volume knob.
+          // It considers: phrase arc, Prodigy's energy direction, harmonic
+          // tension (dissonant notes played softer = sophistication),
+          // and the contour of the phrase itself.
+          var baseVel = 0.38 + fadeGain * 0.45;
+
+          // Prodigy arc shapes dynamics: rising = crescendo, falling = diminuendo
+          if (prodigy.arc === 'rising') baseVel *= 1.12;
+          else if (prodigy.arc === 'falling') baseVel *= 0.85;
+
+          // Harmonic tension: dissonant degrees (tritone, 7th) play slightly softer
+          // for sophistication. Consonant degrees (root, 5th) can be full.
+          var degTension = DEGREE_TENSION[Math.abs(currentDegree) % 7] || 0.35;
+          if (degTension > 0.5) baseVel *= (1.0 - degTension * 0.15);  // soften dissonance
+
+          var vel = Math.min(0.85, baseVel * phraseIntensityFactor * (contPalette.velBoost || 1.0));
 
           // Phrase-aware decay:
           //   Start of phrase = staccato (shorter, more space between notes)
