@@ -289,7 +289,7 @@
         blog(introPlayed ? 'Returning user — instant start' : 'First visit — waiting for voice');
         setTimeout(function () {
           blog('Selecting default lens...');
-          Lens.selectCard(5); // Grid — strongest first impression (PRESETS: 0-3=stages, 4=Journey, 5=Grid, 6=Ascension)
+          Lens.selectCard(1); // Still Water — beautiful opener. Album: hook them with beauty, journey through, Ascension is the finale.
           var lens = Lens.getSelected();
           blog('Lens: ' + (lens ? lens.name : 'NULL'));
           Audio.configure(lens);

@@ -720,8 +720,8 @@ const Lens = (function () {
   }
 
   function restoreFromStorage() {
-    // Default to Grid (index 5) — strongest first impression
-    var lastIndex = 5;
+    // Default to Still Water (index 1) — album opener
+    var lastIndex = 1;
     try {
       var s = localStorage.getItem('m2_lens');
       if (s) { var d = JSON.parse(s); lastIndex = d.index || 0; }
