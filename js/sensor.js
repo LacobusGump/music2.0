@@ -197,6 +197,7 @@ const Sensor = (function () {
         var orientResult = results[1];
 
         if (motionResult === 'granted' || orientResult === 'granted') {
+          // Got at least one — add listeners for both
           addListeners();
           permState = 'granted';
           dismissHelp();
@@ -205,10 +206,13 @@ const Sensor = (function () {
           var countBefore = raw.motionEventCount;
           setTimeout(function () {
             if (raw.motionEventCount === countBefore && !raw.motionGranted) {
+              // Permission said 'granted' but no events arriving
+              // Still OK — touch + tilt fallback in brain.js handles this
               console.warn('[Sensor] Motion granted but no events received');
             }
           }, 2000);
         } else {
+          // Both denied or errored
           permState = 'denied';
           showHelp();
         }
@@ -262,30 +266,11 @@ const Sensor = (function () {
       'padding:16px 20px;border-radius:14px;' +
       'font:14px/1.5 -apple-system,sans-serif;z-index:9999;' +
       'text-align:center;backdrop-filter:blur(8px);';
-    // Detect browser for correct instructions
-    var ua = navigator.userAgent || '';
-    var isChrome = /CriOS/.test(ua);
-    var isFirefox = /FxiOS/.test(ua);
-    var instructions;
-    if (isChrome) {
-      instructions =
-        'Tap <b>⋯</b> → <b>Settings</b> → <b>Content Settings</b><br>' +
-        '→ <b>Motion Sensors</b> → Allow<br>' +
-        'Then reload the page.';
-    } else if (isFirefox) {
-      instructions =
-        'Tap <b>☰</b> → <b>Settings</b> → <b>Site Permissions</b><br>' +
-        '→ Allow motion access, then reload.';
-    } else {
-      // Safari
-      instructions =
-        'Tap <b>aA</b> in the address bar<br>' +
-        '→ <b>Website Settings</b> → <b>Motion & Orientation</b> → Allow<br>' +
-        'Then reload the page.';
-    }
     el.innerHTML =
       '<b>Motion access needed</b><br>' +
-      instructions + '<br><br>' +
+      'In Safari: tap <b>aA</b> in the address bar<br>' +
+      '→ <b>Website Settings</b> → <b>Motion & Orientation</b> → Allow<br>' +
+      'Then reload the page.<br><br>' +
       '<span style="opacity:0.7;font-size:12px">Tap here to retry</span>';
     el.addEventListener('click', function () {
       retryPermissions();
@@ -304,17 +289,6 @@ const Sensor = (function () {
   }
 
   // ── INIT / READ ──────────────────────────────────────────────────────
-
-  // Chrome iOS: register motion listeners at page load, BEFORE any screen.
-  // Chrome shows its permission banner in-browser (not native modal like Safari).
-  // If we wait until the play screen, its touch handlers eat the "Allow" tap.
-  // On the boot screen there's minimal touch handling — user can tap the banner.
-  function earlyInit() {
-    if (/CriOS/.test(navigator.userAgent || '')) {
-      addListeners();
-      permState = 'granted';
-    }
-  }
 
   function init() {
     // Touch listeners first (always work, no permission needed)
@@ -364,7 +338,6 @@ const Sensor = (function () {
   }
 
   return Object.freeze({
-    earlyInit: earlyInit,
     init: init,
     read: read,
     retryPermissions: retryPermissions,
