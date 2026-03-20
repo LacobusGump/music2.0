@@ -470,43 +470,64 @@ const Follow = (function () {
   var hrState = 'root';     // 'root', 'iv', 'v'
   var hrDegOffset = 0;      // scale degree offset applied to foundation
 
+  // ── MODE-SPECIFIC CHORD TABLES ──────────────────────────────────────
+  // Each mode has a characteristic chord that defines its sound.
+  // Dorian's magic = major IV. Lydian's magic = major II. Phrygian's = bII.
+  // Generic I-IV-V makes every mode sound the same. These don't.
+  var MODAL_CHORDS = {
+    dorian:     { color: 3, colorName: 'IV',  tension: 4, tensionName: 'v'    },  // major IV = Dorian's soul
+    lydian:     { color: 1, colorName: 'II',  tension: 6, tensionName: 'vii'  },  // major II = Lydian wonder
+    phrygian:   { color: 1, colorName: 'bII', tension: 6, tensionName: 'bVII' },  // bII = Phrygian dread
+    mixolydian: { color: 6, colorName: 'bVII',tension: 4, tensionName: 'v'    },  // bVII = Mixolydian float
+    major:      { color: 3, colorName: 'IV',  tension: 4, tensionName: 'V'    },  // standard
+    minor:      { color: 5, colorName: 'bVI', tension: 4, tensionName: 'v'    },  // bVI = minor's dramatic chord
+    picardy:    { color: 5, colorName: 'bVI', tension: 6, tensionName: 'VII'  },  // harmonic minor drama
+    pentatonic: { color: 3, colorName: 'IV',  tension: 4, tensionName: 'V'    },
+    blues:      { color: 3, colorName: 'IV',  tension: 4, tensionName: 'V'    },
+  };
+
   function updateHarmonicRhythm(dt) {
     if (isSilent || sessionPhase < 1) return;
-    // Timer only advances when the user is actively moving.
-    // If you stop, the harmonic rhythm pauses — music waits for you.
     var motionNow = (typeof Brain !== 'undefined') ? Brain.short.energy() : 1.0;
     if (motionNow < 0.12) return;
     hrTimer += dt * 1000;
     if (hrTimer < hrTarget) return;
     hrTimer = 0;
 
-    if (hrState === 'root') {
-      // Move away from root — IV or V depending on phrase energy
-      hrState = (phraseEnergyArc > 0.45 || rhythmConfidence > 0.5) ? 'v' : 'iv';
-      hrDegOffset = hrState === 'v' ? 4 : 3;  // scale degrees: 5th or 4th
-      hrTarget = 2500 + Math.random() * 2500;  // away for 2.5-5s
+    // Get mode-specific chords — the soul of the mode, not generic IV/V
+    var modeName = (lens && lens.harmony && lens.harmony.mode) || 'major';
+    var modeChords = MODAL_CHORDS[modeName] || MODAL_CHORDS.major;
 
-      // Announce the color shift — two octaves for depth
-      if (Audio.ctx && lens && lens.palette) {
+    if (hrState === 'root') {
+      // Choose the mode's characteristic chord (color) or tension chord
+      // Color chord: the one that DEFINES this mode. Use when energy is moderate.
+      // Tension chord: dominant-function. Use when energy is high and wants resolution.
+      var useTension = (phraseEnergyArc > 0.55 || rhythmConfidence > 0.5);
+      hrState = useTension ? 'tension' : 'color';
+      hrDegOffset = useTension ? modeChords.tension : modeChords.color;
+      hrTarget = 2500 + Math.random() * 2500;
+
+      // Announce with the lens's voice, not always piano
+      var voice = (lens && lens.palette && lens.palette.harmonic && lens.palette.harmonic.voice) || 'piano';
+      if (Audio.ctx) {
         var t = Audio.ctx.currentTime;
-        try { Audio.synth.play('piano', t, scaleFreq(hrDegOffset, -1), 0.26, 3.5); } catch(e) {}
-        try { Audio.synth.play('piano', t, scaleFreq(hrDegOffset, -2), 0.18, 4.0); } catch(e) {}
+        try { Audio.synth.play(voice, t, scaleFreq(hrDegOffset, -1), 0.24, 3.5); } catch(e) {}
+        try { Audio.synth.play(voice, t, scaleFreq(hrDegOffset, -2), 0.16, 4.0); } catch(e) {}
       }
     } else {
-      // Return home — the resolution is the satisfying moment
+      // Return home
       hrState = 'root';
       hrDegOffset = 0;
-      hrTarget = 8000 + Math.random() * 8000; // home for 8-16s
+      hrTarget = 8000 + Math.random() * 8000;
 
-      // Resolution landing — two octaves, sub gives it physical weight
-      if (Audio.ctx && lens && lens.palette) {
+      var voice2 = (lens && lens.palette && lens.palette.harmonic && lens.palette.harmonic.voice) || 'piano';
+      if (Audio.ctx) {
         var t2 = Audio.ctx.currentTime;
-        try { Audio.synth.play('piano', t2, scaleFreq(0, -1), 0.30, 4.0); } catch(e) {}
-        try { Audio.synth.play('piano', t2, scaleFreq(0, -2), 0.22, 5.0); } catch(e) {}
+        try { Audio.synth.play(voice2, t2, scaleFreq(0, -1), 0.28, 4.0); } catch(e) {}
+        try { Audio.synth.play(voice2, t2, scaleFreq(0, -2), 0.20, 5.0); } catch(e) {}
       }
     }
 
-    // Shift foundation drone pitch to follow
     updateFoundationPitch();
   }
 
@@ -524,6 +545,13 @@ const Follow = (function () {
   var isSilent = true;
   var fadeGain = 0;
   var lastUpdateTime = 0;
+
+  // ── SILENCE MEMORY — the conversation continues ────────────────────
+  // The last note before void becomes a seed. The first note after silence
+  // relates to it. Silence isn't emptiness — it's a pause. You come back
+  // and the music remembers where you were.
+  var silenceSeedDegree = 0;    // degree played just before entering silence
+  var silenceSeedSet = false;   // whether we captured a seed
 
   // Filter
   var filterFreq = 800;
@@ -1504,6 +1532,33 @@ const Follow = (function () {
     } else {
       prodigy.dynamicRange += (1.0 - prodigy.dynamicRange) * 0.5 * dt;
     }
+
+    // ── 5. MOMENT RECOGNITION — when everything aligns, the instrument opens ──
+    // Not programmed. RECOGNIZED. When energy is peaking, phrase is at climax,
+    // harmony is at tension, and the user is deeply engaged — everything converges.
+    // Filter opens wide. Reverb blooms. For a breath, the music is transcendent.
+    // Then it settles. These moments are rare and earned.
+    if (!prodigy._momentCooldown) prodigy._momentCooldown = 0;
+    prodigy._momentCooldown = Math.max(0, prodigy._momentCooldown - dt);
+
+    var momentConditions = (
+      prodigy.arc === 'rising' &&
+      energy > 0.6 &&
+      phraseActive && phraseEnergyArc > 0.5 && phraseEnergyArc < 0.85 &&
+      harmonicTension > 0.4 &&
+      sessionPhase >= 2 &&
+      prodigy._momentCooldown <= 0
+    );
+
+    if (momentConditions) {
+      prodigy._momentCooldown = 30;  // at most one moment every 30 seconds
+      // The instrument opens: filter fully open, reverb blooms, gain peaks
+      prodigy.filterBias = 600;  // wide open
+      prodigy.reverbTarget = Math.min(0.85, prodigy.reverbTarget + 0.25);
+      // Brief gain swell
+      try { Audio.setMasterGain(Math.min(0.9, fadeGain + 0.15)); } catch(e) {}
+      // The moment settles naturally over the next few frames as bias decays
+    }
   }
 
   function resetTribalPulse() {
@@ -2030,7 +2085,23 @@ const Follow = (function () {
     } else {
       tiltOffset = tiltNorm;
     }
-    var tiltDegree = Math.round(tiltOffset * 7);
+    // ── SWEET SPOTS — tilt has frets, like a guitar neck ──────────────
+    // Instead of linear mapping (tiltOffset * 7), map through gravitational
+    // wells at each scale degree. Between wells = tension (pitch bends).
+    // Settling into a well = clear note (resolution). The phone becomes
+    // a fretted instrument you feel with your wrist.
+    var rawDegree = tiltOffset * 7;
+    var nearestDeg = Math.round(rawDegree);
+    var distFromNearest = rawDegree - nearestDeg;
+    // Gravity: pull toward nearest degree. Stronger when close (within 0.3).
+    // This creates "sticky" positions — the pitch settles into notes.
+    var sweetSpotPull = 0.45;  // 0 = no frets (slider), 1 = hard frets (piano)
+    if (Math.abs(distFromNearest) < 0.35) {
+      // Within a sweet spot — pull toward the note
+      var pullStrength = (1 - Math.abs(distFromNearest) / 0.35) * sweetSpotPull;
+      rawDegree = rawDegree * (1 - pullStrength) + nearestDeg * pullStrength;
+    }
+    var tiltDegree = Math.round(rawDegree);
 
     var arcRange = Math.max(0.25, arcAmplitude);
     var vertNorm = Math.max(-1, Math.min(1, vertPosition / arcRange));
@@ -2398,6 +2469,9 @@ const Follow = (function () {
       stillnessTimer += dt;
 
       if (stillnessTimer > timeout && !isSilent) {
+        // Capture the seed — remember where the conversation paused
+        silenceSeedDegree = currentDegree;
+        silenceSeedSet = true;
         isSilent = true;
         // A resolving note as the music fades
         if (lens && lens.palette && lens.palette.continuous) {
@@ -2421,22 +2495,33 @@ const Follow = (function () {
         isSilent = false;
         stillnessTimer = 0;
 
-        // ── WAKE-UP ROOT — the harmonic home announces itself ──
-        // Every entry into the music starts with a clear tonal center.
-        // Root in the bass + opening melody note = instant orientation.
+        // ── WAKE-UP — silence has memory ────────────────────────────────
+        // The conversation continues. If we captured a seed before silence,
+        // the first note back relates to it — not always the root.
+        // The music remembers where you were. Silence is a pause, not a reset.
         if (lens && lens.palette && Audio.ctx) {
-          // Bass root (one octave below) — the foundation
+          var wakeUpDeg = 0;  // default: root
+          if (silenceSeedSet) {
+            // Return near where you left off — the 5th above the seed,
+            // or the seed itself, creating continuity
+            wakeUpDeg = Math.random() < 0.5 ? silenceSeedDegree : (silenceSeedDegree + 4) % 7;
+            silenceSeedSet = false;
+          }
+
+          // Bass root still anchors — you need tonal center
+          var voice = (lens.palette.harmonic && lens.palette.harmonic.voice) || 'piano';
           try {
-            Audio.synth.play('piano', Audio.ctx.currentTime,
-              scaleFreq(0, -1), 0.32, 2.2);
+            Audio.synth.play(voice, Audio.ctx.currentTime,
+              scaleFreq(0, -1), 0.28, 2.2);
           } catch(e) {}
 
-          // Opening melody note
+          // Melody picks up from the seed
           if (lens.palette.continuous) {
             try {
               var cont = lens.palette.continuous;
               Audio.synth.play(cont.voice || 'epiano', Audio.ctx.currentTime + 0.05,
-                scaleFreq(0, cont.octave || 0), 0.30, 1.8);
+                scaleFreq(wakeUpDeg, cont.octave || 0), 0.30, 1.8);
+              currentDegree = wakeUpDeg;  // melody starts from here
               noteCount++;
             } catch(e) {}
           }
