@@ -2075,60 +2075,55 @@ const Follow = (function () {
             phraseDec *= (1 - speedNorm * 0.45);
           }
 
-          // ── MOTIF SYSTEM — remember and replay melodic fragments ──
-          // Record intervals (not absolute degrees) into motifBuffer.
-          // When a motif completes (4 notes), store it.
-          // Occasionally replay a stored motif, transposed to current context.
-          var playDegree = currentDegree;
+          // ── MOTIF MEMORY — gravitational, not playback ──────────────
+          // The system remembers what you played as interval patterns.
+          // It NEVER plays for you. Instead, it creates gentle gravity
+          // toward the next note in a recognized motif — like an instrument
+          // with resonances that make your own patterns easier to find again.
+          // You can override it by tilting differently. The music feels
+          // discovered, not generated. Enable the conditions for magic.
 
-          // If a motif is playing back, use its next note instead
-          if (motifPlayback && motifPlayback.index < motifPlayback.intervals.length) {
-            var interval = motifPlayback.intervals[motifPlayback.index];
-            playDegree = motifPlayback.root + interval + motifPlayback.transpose;
-            motifPlayback.index++;
-            if (motifPlayback.index >= motifPlayback.intervals.length) {
-              motifPlayback = null;
-              motifCooldown = 6;  // wait 6s before next replay
-            }
-          } else {
-            // Record into motif buffer
-            if (motifBuffer.length > 0) {
-              var lastDeg = motifBuffer[motifBuffer.length - 1];
-              motifBuffer.push(currentDegree);
-            } else {
-              motifBuffer.push(currentDegree);
-            }
+          // Record into motif buffer
+          motifBuffer.push(currentDegree);
 
-            // Motif complete — store as intervals
-            if (motifBuffer.length >= MOTIF_LENGTH) {
-              var intervals = [];
-              for (var mi = 1; mi < motifBuffer.length; mi++) {
-                intervals.push(motifBuffer[mi] - motifBuffer[0]);
+          // Motif complete — store as intervals from first note
+          if (motifBuffer.length >= MOTIF_LENGTH) {
+            var intervals = [];
+            for (var mi = 1; mi < motifBuffer.length; mi++) {
+              intervals.push(motifBuffer[mi] - motifBuffer[0]);
+            }
+            motifs.push(intervals);
+            if (motifs.length > MOTIF_MAX) motifs.shift();
+            motifBuffer = [];
+          }
+
+          // Motif gravity: check if recent notes match the start of a stored motif.
+          // If so, gently pull toward the next note. The pull is soft (30%) —
+          // the user's tilt always dominates. They discover their own melody.
+          var gravDegree = currentDegree;
+          if (motifs.length > 0 && melodicHistory.length >= 2) {
+            var recent1 = melodicHistory[melodicHistory.length - 1] || 0;
+            var recent2 = melodicHistory[melodicHistory.length - 2] || 0;
+            var recentInterval = recent1 - recent2;
+
+            for (var mj = 0; mj < motifs.length; mj++) {
+              // Does the most recent interval match the start of this motif?
+              if (motifs[mj].length >= 2 && Math.abs(motifs[mj][0] - recentInterval) <= 1) {
+                // Suggest the next interval in the motif
+                var suggestDeg = recent1 + motifs[mj][1];
+                // Gentle pull — 30% gravity, 70% user's actual tilt
+                gravDegree = Math.round(currentDegree * 0.7 + suggestDeg * 0.3);
+                break;  // only one motif pulls at a time
               }
-              motifs.push(intervals);
-              if (motifs.length > MOTIF_MAX) motifs.shift();
-              motifBuffer = [];
-            }
-
-            // Maybe trigger a motif replay (10% chance, cooldown must be 0)
-            if (motifCooldown <= 0 && motifs.length >= 2 && Math.random() < 0.10 && phraseActive) {
-              var pickIdx = Math.floor(Math.random() * motifs.length);
-              var transpose = Math.floor(Math.random() * 5) - 2;  // ±2 degrees
-              motifPlayback = {
-                intervals: motifs[pickIdx],
-                index: 0,
-                root: currentDegree,
-                transpose: transpose,
-              };
             }
           }
 
-          var motifFreq = scaleFreq(playDegree, contPalette.octave || 0);
+          var freq = scaleFreq(gravDegree, contPalette.octave || 0);
 
           try {
-            Audio.synth.play(contPalette.voice || 'epiano', Audio.ctx.currentTime, motifFreq, vel, phraseDec);
+            Audio.synth.play(contPalette.voice || 'epiano', Audio.ctx.currentTime, freq, vel, phraseDec);
             noteCount++;
-            if (typeof Pattern !== 'undefined') Pattern.onNote(playDegree);
+            if (typeof Pattern !== 'undefined') Pattern.onNote(gravDegree);
           } catch (e) { errorCount++; }
         }
       }
