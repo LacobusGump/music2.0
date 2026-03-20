@@ -159,16 +159,56 @@ const Sensor = (function () {
         typeof DeviceMotionEvent.requestPermission === 'function';
 
       if (!needsRequest) {
-        // Android / desktop / older iOS — just add listeners
         addListeners();
         permState = 'granted';
         resolve();
         return;
       }
 
-      // iOS: request BOTH permissions simultaneously via Promise.all
-      // Each has its own .catch so one failing doesn't kill the other
-      // Timeout after 5s — Chrome on iOS can hang forever
+      // Chrome iOS: requestPermission returns 'denied' without showing a dialog.
+      // Calling it may actually BLOCK events that would otherwise flow.
+      // Strategy: add listeners FIRST, check if events arrive. If yes = done.
+      // If no events after 2s = try requestPermission as last resort.
+      // If that also fails = show help.
+      var isChrome = /CriOS/.test(navigator.userAgent || '');
+
+      if (isChrome) {
+        // Add listeners immediately — Chrome may send events without permission
+        addListeners();
+        var countBefore = raw.motionEventCount;
+
+        setTimeout(function () {
+          if (raw.motionEventCount > countBefore || raw.motionGranted) {
+            // Events are flowing! Chrome sent them without the dialog.
+            permState = 'granted';
+            dismissHelp();
+            if (typeof window._dlog === 'function') window._dlog('Chrome: events flowing WITHOUT requestPermission');
+          } else {
+            // No events. Try requestPermission as last resort.
+            if (typeof window._dlog === 'function') window._dlog('Chrome: no events, trying requestPermission...');
+            DeviceMotionEvent.requestPermission()
+              .then(function (r) {
+                if (typeof window._dlog === 'function') window._dlog('Chrome requestPermission: ' + r);
+                if (r === 'granted') {
+                  addListeners();
+                  permState = 'granted';
+                  dismissHelp();
+                } else {
+                  permState = 'denied';
+                  showHelp();
+                }
+              })
+              .catch(function () {
+                permState = 'denied';
+                showHelp();
+              });
+          }
+          resolve();
+        }, 2000);
+        return;
+      }
+
+      // Safari iOS: requestPermission works properly — dialog shows.
       function withTimeout(promise, ms) {
         return Promise.race([
           promise,
@@ -197,22 +237,10 @@ const Sensor = (function () {
         var orientResult = results[1];
 
         if (motionResult === 'granted' || orientResult === 'granted') {
-          // Got at least one — add listeners for both
           addListeners();
           permState = 'granted';
           dismissHelp();
-
-          // Verify events actually fire (iOS edge case)
-          var countBefore = raw.motionEventCount;
-          setTimeout(function () {
-            if (raw.motionEventCount === countBefore && !raw.motionGranted) {
-              // Permission said 'granted' but no events arriving
-              // Still OK — touch + tilt fallback in brain.js handles this
-              console.warn('[Sensor] Motion granted but no events received');
-            }
-          }, 2000);
         } else {
-          // Both denied or errored
           permState = 'denied';
           showHelp();
         }
