@@ -1223,7 +1223,7 @@ const Audio = (function () {
 
     // Heavy reverb send — the darkness has space
     var rs = ctx.createGain();
-    rs.gain.value = 0.62;
+    rs.gain.value = 0.28;
     env.connect(rs);
     rs.connect(reverbSend);
   }
@@ -1524,7 +1524,7 @@ const Audio = (function () {
 
     var env = ctx.createGain();
     env.gain.setValueAtTime(0.0001, time);
-    env.gain.exponentialRampToValueAtTime(Math.min(0.92, vel * 0.85), time + 0.010);
+    env.gain.exponentialRampToValueAtTime(Math.min(0.92, vel * 0.55), time + 0.010);
     env.gain.setTargetAtTime(vel * 0.72, time + 0.010, 0.22);
     env.gain.setTargetAtTime(0.0001, time + decay, decay * 0.3);
 
@@ -1554,7 +1554,7 @@ const Audio = (function () {
   function synthBell(time, freq, vel, decay) {
     var env = ctx.createGain();
     env.gain.setValueAtTime(0.0001, time);
-    env.gain.exponentialRampToValueAtTime(Math.min(0.92, vel * 0.85), time + 0.001);
+    env.gain.exponentialRampToValueAtTime(Math.min(0.92, vel * 0.55), time + 0.001);
     env.gain.setTargetAtTime(vel * 0.28, time + 0.001, decay * 0.4);
 
     var partials = [1, 2.4, 4.1, 5.3, 6.7];
@@ -1568,7 +1568,7 @@ const Audio = (function () {
 
     var lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 2800; lp.Q.value = 0.5;
     env.connect(lp); lp.connect(sidechainGain);
-    var rs = ctx.createGain(); rs.gain.value = 0.6; lp.connect(rs); rs.connect(reverbSend);
+    var rs = ctx.createGain(); rs.gain.value = 0.25; lp.connect(rs); rs.connect(reverbSend);
     var ds = ctx.createGain(); ds.gain.value = 0.4; lp.connect(ds); ds.connect(delaySend);
   }
 
@@ -1885,7 +1885,7 @@ const Audio = (function () {
 
     var env = ctx.createGain();
     env.gain.setValueAtTime(0.0001, time);
-    env.gain.exponentialRampToValueAtTime(Math.min(0.92, vel * 0.85), time + 0.004);
+    env.gain.exponentialRampToValueAtTime(Math.min(0.92, vel * 0.55), time + 0.004);
     env.gain.setTargetAtTime(vel * 0.65, time + 0.004, 0.09);
     env.gain.exponentialRampToValueAtTime(0.0001, time + 1.8);
 
@@ -2020,7 +2020,7 @@ const Audio = (function () {
     env.gain.setTargetAtTime(0.0001, time + decay * 0.7, decay * 0.4);
 
     lp.connect(env); env.connect(sidechainGain);
-    var rs = ctx.createGain(); rs.gain.value = 0.65; env.connect(rs); rs.connect(reverbSend);
+    var rs = ctx.createGain(); rs.gain.value = 0.25; env.connect(rs); rs.connect(reverbSend);
     var ds = ctx.createGain(); ds.gain.value = 0.08; env.connect(ds); ds.connect(delaySend);
   }
 
@@ -2061,7 +2061,7 @@ const Audio = (function () {
     // Breathing attack — the inhale before the note
     var env = ctx.createGain();
     env.gain.setValueAtTime(0, time);
-    env.gain.linearRampToValueAtTime(vel * 0.85, time + 0.18);
+    env.gain.linearRampToValueAtTime(vel * 0.55, time + 0.18);
     env.gain.setTargetAtTime(vel * 0.65, time + 0.18, 0.5);
     env.gain.setTargetAtTime(0.001, time + decay * 0.65, decay * 0.35);
 

@@ -490,41 +490,49 @@ const Follow = (function () {
     if (isSilent || sessionPhase < 1) return;
     var motionNow = (typeof Brain !== 'undefined') ? Brain.short.energy() : 1.0;
     if (motionNow < 0.12) return;
+
+    // Harmonic changes happen on ENERGY SHIFTS, not a clock.
+    // When the user's energy direction changes (rising→falling or vice versa),
+    // THAT is when the harmony should move. The body drives the chord changes.
+    if (!hrTimer) hrTimer = 0;
     hrTimer += dt * 1000;
-    if (hrTimer < hrTarget) return;
+
+    // Minimum 4 seconds between changes (prevent flicker), max 20 seconds (prevent stasis)
+    if (hrTimer < 4000) return;
+
+    // Detect energy shift — did the user's energy arc just change direction?
+    var energyShift = false;
+    if (prodigy.arc === 'rising' && hrState !== 'root') energyShift = true;   // rising energy wants home
+    if (prodigy.arc === 'falling' && hrState === 'root') energyShift = true;  // falling energy wants color
+    if (prodigy.arc === 'volatile' && hrTimer > 6000) energyShift = true;    // volatile = time for change
+    if (hrTimer > 20000) energyShift = true;  // safety — don't stagnate forever
+
+    if (!energyShift) return;
     hrTimer = 0;
 
-    // Get mode-specific chords — the soul of the mode, not generic IV/V
     var modeName = (lens && lens.harmony && lens.harmony.mode) || 'major';
     var modeChords = MODAL_CHORDS[modeName] || MODAL_CHORDS.major;
 
     if (hrState === 'root') {
-      // Choose the mode's characteristic chord (color) or tension chord
-      // Color chord: the one that DEFINES this mode. Use when energy is moderate.
-      // Tension chord: dominant-function. Use when energy is high and wants resolution.
       var useTension = (phraseEnergyArc > 0.55 || rhythmConfidence > 0.5);
       hrState = useTension ? 'tension' : 'color';
       hrDegOffset = useTension ? modeChords.tension : modeChords.color;
-      hrTarget = 2500 + Math.random() * 2500;
 
-      // Announce with the lens's voice, not always piano
       var voice = (lens && lens.palette && lens.palette.harmonic && lens.palette.harmonic.voice) || 'piano';
       if (Audio.ctx) {
         var t = Audio.ctx.currentTime;
-        try { Audio.synth.play(voice, t, scaleFreq(hrDegOffset, -1), 0.24, 3.5); } catch(e) {}
-        try { Audio.synth.play(voice, t, scaleFreq(hrDegOffset, -2), 0.16, 4.0); } catch(e) {}
+        try { Audio.synth.play(voice, t, scaleFreq(hrDegOffset, -1), 0.20, 3.5); } catch(e) {}
+        try { Audio.synth.play(voice, t, scaleFreq(hrDegOffset, -2), 0.14, 4.0); } catch(e) {}
       }
     } else {
-      // Return home
       hrState = 'root';
       hrDegOffset = 0;
-      hrTarget = 8000 + Math.random() * 8000;
 
       var voice2 = (lens && lens.palette && lens.palette.harmonic && lens.palette.harmonic.voice) || 'piano';
       if (Audio.ctx) {
         var t2 = Audio.ctx.currentTime;
-        try { Audio.synth.play(voice2, t2, scaleFreq(0, -1), 0.28, 4.0); } catch(e) {}
-        try { Audio.synth.play(voice2, t2, scaleFreq(0, -2), 0.20, 5.0); } catch(e) {}
+        try { Audio.synth.play(voice2, t2, scaleFreq(0, -1), 0.24, 4.0); } catch(e) {}
+        try { Audio.synth.play(voice2, t2, scaleFreq(0, -2), 0.16, 5.0); } catch(e) {}
       }
     }
 
@@ -3804,11 +3812,10 @@ const Follow = (function () {
     // User motion adds ENERGY on top. Tilt = you're present = the set evolves.
     grid.lastIntensity = grid.intensity;
 
-    // Time-based floor: set builds intensity — rate varies per session
-    var timeFloor = Math.min(0.55, grid.setTime * (grid._growthRate || 0.003));
-
-    var targetIntensity = Math.max(timeFloor, Math.min(1, mediumEnergy * 0.8));
-    var iRise = targetIntensity > grid.intensity ? 0.06 : 0.015;
+    // Intensity comes from the USER, not a clock. No timeFloor.
+    // Your body decides how intense the set gets. Period.
+    var targetIntensity = Math.min(1, mediumEnergy * 0.9);
+    var iRise = targetIntensity > grid.intensity ? 0.06 : 0.02;
     grid.intensity += (targetIntensity - grid.intensity) * iRise;
 
     // Pump intensity from peaks — how hard the user is hitting
@@ -3816,12 +3823,11 @@ const Follow = (function () {
     if (peakNow) {
       grid.pumpIntensity = Math.min(1, grid.pumpIntensity + 0.25);
     } else {
-      grid.pumpIntensity *= 0.985;  // slow decay
+      grid.pumpIntensity *= 0.985;
     }
 
-    // djGain: grows with the set. Your presence is enough.
-    var gainFloor = Math.min(0.65, 0.30 + grid.setTime * (grid._growthRate || 0.003) * 0.7);
-    var targetGain = Math.max(gainFloor, 0.22 + grid.intensity * 0.58);
+    // djGain tracks your energy — no autonomous floor
+    var targetGain = 0.20 + grid.intensity * 0.55 + grid.pumpIntensity * 0.10;
     grid.djGain += (targetGain - grid.djGain) * 0.03;
 
     // ── 4. TILT ZONES — the heart of DJ manipulation ──
@@ -3947,10 +3953,10 @@ const Follow = (function () {
 
       case 'build':
         // Build rate: user motion accelerates, but it ALWAYS advances.
-        // Even gentle tilt = build progresses. You don't have to pump hard.
-        grid.buildLevel += grid.pumpIntensity * dt * 0.08;
-        grid.buildLevel += grid.intensity * dt * 0.04;
-        grid.buildLevel += dt * 0.015;  // passive build — drop comes within ~45s regardless
+        // Build ONLY from user energy. No passive timer. YOU decide when the drop comes.
+        grid.buildLevel += grid.pumpIntensity * dt * 0.10;
+        grid.buildLevel += grid.intensity * dt * 0.06;
+        // No passive dt * 0.015 — the drop is EARNED, not scheduled.
         grid.buildLevel = Math.min(1, grid.buildLevel);
 
         // ── VOCAL DROP: USER PEAKS TRIGGER EACH CLIP ──
@@ -4014,12 +4020,12 @@ const Follow = (function () {
         // If vocal drop is ready: next peak IS the drop (peak 3 = "you")
         // Otherwise: standard armed drop
         var armed = grid.vocalDropReady || grid.buildLevel > (edm.buildArmLevel || 0.65);
-        var autoTrigger = grid.phaseTimer > 28;  // auto-drop within ~28s if no peak trigger
+        // No autoTrigger — the drop is YOUR peak, not a timer.
         var vocalReady = grid.vocalDropReady && grid.vocalCooldown <= 0;
 
-        if ((vocalReady && peakNow && grid.vocalPhase >= 2) || (armed && peakNow && !doVocalBuild && grid.phaseTimer > 8) || autoTrigger) {
+        if ((vocalReady && peakNow && grid.vocalPhase >= 2) || (armed && peakNow && !doVocalBuild && grid.phaseTimer > 6)) {
           grid.phase = 'drop';
-          gridRecord('PHASE', { to: 'drop', cycle: grid.cycle + 1, trigger: autoTrigger ? 'auto' : (vocalReady ? 'vocal' : 'peak'), buildLevel: +grid.buildLevel.toFixed(2) });
+          gridRecord('PHASE', { to: 'drop', cycle: grid.cycle + 1, trigger: vocalReady ? 'vocal' : 'peak', buildLevel: +grid.buildLevel.toFixed(2) });
           grid.phaseTimer = 0;
           grid.buildLevel = 0;
           grid.highEnergyTime = 0;
@@ -4156,12 +4162,11 @@ const Follow = (function () {
           gridRecord('DESCENT', { cycle: grid.cycle, shift: descentIntervals[descentIdx], darkness: +bdDarkness.toFixed(2) });
         }
 
-        // User moves = back to build
-        var breakdownDone = grid.phaseTimer > 14;
-        var userReady = grid.intensity > 0.35 && grid.phaseTimer > 5;
-        if (breakdownDone || userReady) {
+        // User moves = back to build. No timer — YOU decide when to leave the breakdown.
+        var userReady = grid.intensity > 0.30 && peakNow && grid.phaseTimer > 4;
+        if (userReady) {
           grid.phase = 'build';
-          gridRecord('PHASE', { to: 'build', trigger: breakdownDone ? 'auto' : 'userReady' });
+          gridRecord('PHASE', { to: 'build', trigger: 'userPeak' });
           grid.phaseTimer = 0;
           grid.buildLevel = 0;
           grid.riserFired = false;
@@ -4555,7 +4560,7 @@ const Follow = (function () {
     timer: 0,           // time in current stage
     transitioning: false,
     transitionProgress: 0,  // 0-1 during crossfade
-    stageDuration: 150,     // 2.5 minutes per stage
+    stageDuration: 120,     // 2 min base, extends/contracts with engagement
     crossfadeDuration: 30,  // 30 second crossfade
     lastApplied: -1,        // which stage config was last fully applied
     order: null,            // shuffled stage array — different every session
@@ -4691,11 +4696,19 @@ const Follow = (function () {
     var stages = organicStage.order || lens.stages;
     if (!stages || stages.length === 0) return;
 
-    organicStage.timer += dt;
+    // Timer only advances when user is engaged — not a wall clock
+    var motionNow = (typeof Brain !== 'undefined') ? Brain.short.energy() : 0;
+    if (motionNow > 0.10) organicStage.timer += dt;
 
-    // Check if it's time to advance
+    // Advance based on engagement, not fixed 150s.
+    // Base duration 120s but can extend if user is deeply engaged (high energy = no rush)
+    // or shorten if energy is low (user might want a change)
+    var effectiveDuration = organicStage.stageDuration;
+    if (motionNow > 0.4) effectiveDuration *= 1.3;  // deep engagement = stay longer
+    if (motionNow < 0.15 && organicStage.timer > 60) effectiveDuration *= 0.7;  // low energy after 1min = move on
+
     if (organicStage.current < stages.length - 1 &&
-        organicStage.timer >= organicStage.stageDuration &&
+        organicStage.timer >= effectiveDuration &&
         !organicStage.transitioning) {
       organicStage.transitioning = true;
       organicStage.transitionProgress = 0;
