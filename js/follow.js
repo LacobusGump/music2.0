@@ -658,7 +658,7 @@ const Follow = (function () {
     recordNote(degree);
 
     var freq  = scaleFreq(degree, cont.octave || 0);
-    var vel   = Math.min(0.80, (0.35 + fadeGain * 0.42) * (cont.velBoost || 1.0));
+    var vel   = Math.min(0.55, (0.25 + fadeGain * 0.30) * (cont.velBoost || 1.0));
     try {
       Audio.synth.play(cont.voice || 'epiano', Audio.ctx.currentTime, freq, vel, cont.decay || 1.0);
       lastBeatMelodyTime = now;
@@ -2203,7 +2203,7 @@ const Follow = (function () {
           var degTension = DEGREE_TENSION[Math.abs(currentDegree) % 7] || 0.35;
           if (degTension > 0.5) baseVel *= (1.0 - degTension * 0.15);  // soften dissonance
 
-          var vel = Math.min(0.85, baseVel * phraseIntensityFactor * (contPalette.velBoost || 1.0));
+          var vel = Math.min(0.55, baseVel * phraseIntensityFactor * (contPalette.velBoost || 1.0));
 
           // Phrase-aware decay:
           //   Start of phrase = staccato (shorter, more space between notes)

@@ -81,15 +81,15 @@ const Audio = (function () {
     spatialLFO.start();
     spatialPanner.connect(ctx.destination);
 
-    // ── Master limiter — safety ceiling before spatialPanner ─────────────
-    // Catches anything over -3dBFS. Ratio 10:1 with soft knee — transparent,
-    // not a brick wall. The compressor upstream should handle most levelling.
+    // ── Master limiter — transparent safety ceiling ──────────────────────
+    // Sits at -6dBFS with gentle knee. Should RARELY engage.
+    // If it's working hard, the mix is too hot upstream.
     masterLimiter = ctx.createDynamicsCompressor();
-    masterLimiter.threshold.value = -3;
-    masterLimiter.knee.value = 2;
-    masterLimiter.ratio.value = 10;
-    masterLimiter.attack.value = 0.002;
-    masterLimiter.release.value = 0.10;
+    masterLimiter.threshold.value = -6;    // was -3: too aggressive, always clamping
+    masterLimiter.knee.value = 6;          // was 2: softer knee = more transparent
+    masterLimiter.ratio.value = 8;         // was 10: gentler limiting
+    masterLimiter.attack.value = 0.003;
+    masterLimiter.release.value = 0.15;    // was 0.10: slower release = less pumping
     masterLimiter.connect(spatialPanner);
 
     // 4-band per-lens parametric EQ → limiter → spatialPanner
@@ -99,23 +99,25 @@ const Audio = (function () {
     masterLP.Q.value = 0.3;
     masterLP.connect(masterLimiter);
 
+    // Master EQ — tuned for phone speakers + Bluetooth headphones
+    // Goal: warm mids, controlled lows, no harshness in highs
     eqHighShelf = ctx.createBiquadFilter();
     eqHighShelf.type = 'highshelf';
-    eqHighShelf.frequency.value = 2800;
-    eqHighShelf.gain.value = -8;
+    eqHighShelf.frequency.value = 3200;    // was 2800
+    eqHighShelf.gain.value = -10;          // was -8: cut more highs — phone speakers are harsh up here
     eqHighShelf.connect(masterLP);
 
     eqMidPeak = ctx.createBiquadFilter();
     eqMidPeak.type = 'peaking';
-    eqMidPeak.frequency.value = 800;
-    eqMidPeak.Q.value = 0.8;
-    eqMidPeak.gain.value = 1;
+    eqMidPeak.frequency.value = 700;       // warm presence zone
+    eqMidPeak.Q.value = 0.6;              // was 0.8: wider Q = warmer, less nasal
+    eqMidPeak.gain.value = 2.5;           // was 1: boost mids for richness and clarity
     eqMidPeak.connect(eqHighShelf);
 
     eqLowShelf = ctx.createBiquadFilter();
     eqLowShelf.type = 'lowshelf';
-    eqLowShelf.frequency.value = 120;
-    eqLowShelf.gain.value = 1;    // was 5dB — phone speakers can't reproduce 80Hz, boost = mud
+    eqLowShelf.frequency.value = 150;      // was 120
+    eqLowShelf.gain.value = -1;            // was 1: CUT lows — phone speakers turn bass boost into mud
     eqLowShelf.connect(eqMidPeak);
 
     // High-pass at 55Hz: removes sub-bass the phone speaker converts to distortion
@@ -126,42 +128,35 @@ const Audio = (function () {
     masterHPF.connect(eqLowShelf);
 
     masterGain = ctx.createGain();
-    masterGain.gain.value = 0.8;  // runtime value set by follow.js setMasterGain
+    masterGain.gain.value = 0.55;  // was 0.8 — too hot. Leave headroom for the mix.
     masterGain.connect(masterHPF);
 
     compressor = ctx.createDynamicsCompressor();
-    compressor.threshold.value = -22;   // gentler threshold — more headroom before gain reduction
-    compressor.knee.value = 10;         // soft knee — transparent, not grabby
-    compressor.ratio.value = 3;         // subtle ratio — levelling, not crushing
-    compressor.attack.value = 0.010;    // 10ms: transients pass through cleanly
-    compressor.release.value = 0.25;    // slow release — no pumping artifacts
+    compressor.threshold.value = -18;   // was -22: less compression, more dynamics
+    compressor.knee.value = 12;         // very soft knee — transparent levelling
+    compressor.ratio.value = 2.5;      // was 3: gentler, more headroom
+    compressor.attack.value = 0.012;    // let transients through
+    compressor.release.value = 0.30;    // slow release — no pumping
     compressor.connect(masterGain);
 
-    // Saturator bypassed — WaveShaper adds harmonic distortion that compounds
-    // with phone speaker distortion. Route sidechainGain directly to compressor.
-    saturator = ctx.createWaveShaper();  // kept for compatibility, disconnected from path
-    saturator.curve = makeSatCurve(0.08);
-    saturator.oversample = '4x';
-    // (saturator is NOT connected — sidechainGain → compressor directly)
-
-    // Analog warmth: gentle tanh saturation between sidechain and compressor
-    // Real Moog circuits saturate at every stage (0.1-0.5% THD).
-    // This is subliminal — you should NOT hear it as distortion.
+    // Saturator BYPASSED — phone speakers add their own distortion.
+    // Three stages of dynamics processing (saturator + compressor + limiter)
+    // was crushing everything at the ceiling. Keep it clean.
     saturator = ctx.createWaveShaper();
-    saturator.curve = makeSatCurve(0.04);  // very gentle — warmth, not dirt
+    saturator.curve = makeSatCurve(0.04);
     saturator.oversample = '2x';
+    // NOT connected — sidechainGain goes straight to compressor
 
     sidechainGain = ctx.createGain();
-    sidechainGain.connect(saturator);
-    saturator.connect(compressor);
+    sidechainGain.connect(compressor);  // bypass saturator — clean signal path
 
     drumBus = ctx.createGain();
-    drumBus.gain.value = 1;
+    drumBus.gain.value = 0.7;   // was 1.0 — drums were too hot relative to melody
     drumComp = ctx.createDynamicsCompressor();
-    drumComp.threshold.value = -12;
-    drumComp.ratio.value = 6;
-    drumComp.attack.value = 0.004;
-    drumComp.release.value = 0.08;
+    drumComp.threshold.value = -15;  // was -12: more headroom
+    drumComp.ratio.value = 4;        // was 6: less crushed
+    drumComp.attack.value = 0.005;
+    drumComp.release.value = 0.12;   // was 0.08: slower release = less artifacts
     drumBusLP = ctx.createBiquadFilter();
     drumBusLP.type = 'lowpass';
     drumBusLP.frequency.value = 3500;
@@ -724,16 +719,15 @@ const Audio = (function () {
       clickSrc.start(time); clickSrc.stop(time + 0.006);
       bodyO.start(time); bodyO.stop(time + 0.18);
 
-      // Layer 3: Sub tail — sine at root freq, long sustain = THIS IS THE BASS
-      // In 2026 production the kick sub IS the bassline. Let it ring.
+      // Layer 3: Sub tail — sine at root freq, sustained but controlled
       var subFreq = _edm808SubFreq || 55;
       o.frequency.value = subFreq;
       var g = ctx.createGain();
       g.gain.setValueAtTime(0.001, time);
-      g.gain.linearRampToValueAtTime(0.85 * vel, time + 0.006);
-      g.gain.setTargetAtTime(0.001, time + 0.25, 0.22);
+      g.gain.linearRampToValueAtTime(0.55 * vel, time + 0.008);   // was 0.85 — way too hot
+      g.gain.setTargetAtTime(0.001, time + 0.18, 0.18);
       o.connect(g); g.connect(drumBus);
-      o.start(time); o.stop(time + 0.8);
+      o.start(time); o.stop(time + 0.6);
     } else if (kit === 'tribal') {
       // Djembe / frame drum — warm body, NO click transient, long resonance
       // Body: triangle wave 120→55Hz, warmer than sine, 300ms sustain
@@ -1263,7 +1257,7 @@ const Audio = (function () {
     // Envelope
     var env = ctx.createGain();
     env.gain.setValueAtTime(0.001, time);
-    env.gain.linearRampToValueAtTime(vel * 0.52, time + 0.018);
+    env.gain.linearRampToValueAtTime(vel * 0.38, time + 0.018);
     env.gain.setTargetAtTime(vel * 0.28, time + 0.06, dur * 0.45);
     env.gain.linearRampToValueAtTime(0.001, time + dur);
 
@@ -1459,8 +1453,8 @@ const Audio = (function () {
 
     var env = ctx.createGain();
     env.gain.setValueAtTime(0.0001, time);
-    env.gain.exponentialRampToValueAtTime(Math.min(0.92, vel * 0.88), time + 0.004);
-    env.gain.setTargetAtTime(vel * 0.52, time + 0.004, 0.14);
+    env.gain.exponentialRampToValueAtTime(Math.min(0.65, vel * 0.60), time + 0.004);
+    env.gain.setTargetAtTime(vel * 0.38, time + 0.004, 0.14);
     env.gain.setTargetAtTime(0.0001, time + decay * 0.5, decay * 0.35);
 
     var o1 = ctx.createOscillator(); o1.type = 'triangle'; o1.frequency.value = freq;
@@ -1480,7 +1474,7 @@ const Audio = (function () {
     o1.connect(filt); o2.connect(filt); hG.connect(filt); cG.connect(filt);
     filt.connect(env); env.connect(sidechainGain);
 
-    var rs = ctx.createGain(); rs.gain.value = 0.45; env.connect(rs); rs.connect(reverbSend);
+    var rs = ctx.createGain(); rs.gain.value = 0.25; env.connect(rs); rs.connect(reverbSend);
     var ds = ctx.createGain(); ds.gain.value = 0.2; env.connect(ds); ds.connect(delaySend);
 
     var end = time + decay + 0.5;
@@ -1551,7 +1545,7 @@ const Audio = (function () {
     lfo.start(time); lfo.stop(time + decay + 1);
     filt.connect(env); env.connect(sidechainGain);
     // Heavy reverb — organ lives in a cathedral
-    if (reverbSend) { var rs = ctx.createGain(); rs.gain.value = 0.45; env.connect(rs); rs.connect(reverbSend); }
+    if (reverbSend) { var rs = ctx.createGain(); rs.gain.value = 0.25; env.connect(rs); rs.connect(reverbSend); }
     if (delaySend) { var ds = ctx.createGain(); ds.gain.value = 0.20; env.connect(ds); ds.connect(delaySend); }
   }
 
@@ -1589,7 +1583,7 @@ const Audio = (function () {
 
     var env = ctx.createGain();
     env.gain.setValueAtTime(0.0001, time);
-    env.gain.exponentialRampToValueAtTime(Math.min(0.92, vel * 0.88), time + 0.001);
+    env.gain.exponentialRampToValueAtTime(Math.min(0.65, vel * 0.60), time + 0.001);
     env.gain.exponentialRampToValueAtTime(0.001, time + 0.15);
 
     var o = ctx.createOscillator(); o.type = 'square'; o.frequency.value = freq;
@@ -1626,7 +1620,7 @@ const Audio = (function () {
 
     var lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 2500; lp.Q.value = 0.5;
     o.connect(dist); dist.connect(env); env.connect(lp); lp.connect(sidechainGain);
-    var rs = ctx.createGain(); rs.gain.value = 0.3; lp.connect(rs); rs.connect(reverbSend);
+    var rs = ctx.createGain(); rs.gain.value = 0.15; lp.connect(rs); rs.connect(reverbSend);
     o.start(time); o.stop(time + 0.4); lfo.start(time); lfo.stop(time + 0.4);
   }
 
@@ -1643,7 +1637,7 @@ const Audio = (function () {
 
     var lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 3000; lp.Q.value = 0.5;
     o.connect(g); g.connect(lp); lp.connect(sidechainGain);
-    var rs = ctx.createGain(); rs.gain.value = 0.35; lp.connect(rs); rs.connect(reverbSend);
+    var rs = ctx.createGain(); rs.gain.value = 0.18; lp.connect(rs); rs.connect(reverbSend);
     var ds = ctx.createGain(); ds.gain.value = 0.2; lp.connect(ds); ds.connect(delaySend);
     o.start(time); o.stop(time + decay + 0.1);
   }
@@ -1670,14 +1664,14 @@ const Audio = (function () {
 
     var env = ctx.createGain();
     env.gain.setValueAtTime(0.0001, time);
-    env.gain.exponentialRampToValueAtTime(Math.min(0.92, vel * 0.88), time + 0.003);
+    env.gain.exponentialRampToValueAtTime(Math.min(0.65, vel * 0.60), time + 0.003);
     env.gain.setTargetAtTime(vel * 0.46, time + 0.003, 0.07);
     env.gain.setTargetAtTime(0.0001, time + decay * 0.4, decay * 0.3);
 
     var lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 3000; lp.Q.value = 0.5;
     car.connect(env); c2g.connect(env);
     env.connect(lp); lp.connect(sidechainGain);
-    var rs = ctx.createGain(); rs.gain.value = 0.3; lp.connect(rs); rs.connect(reverbSend);
+    var rs = ctx.createGain(); rs.gain.value = 0.15; lp.connect(rs); rs.connect(reverbSend);
     var ds = ctx.createGain(); ds.gain.value = 0.25; lp.connect(ds); ds.connect(delaySend);
 
     var end = time + decay + 0.3;
@@ -1714,7 +1708,7 @@ const Audio = (function () {
     // Envelope: exponential attack (no clicks), natural decay tail
     var env = ctx.createGain();
     env.gain.setValueAtTime(0.0001, time);
-    env.gain.exponentialRampToValueAtTime(Math.min(0.92, vel * 0.88), time + 0.004);
+    env.gain.exponentialRampToValueAtTime(Math.min(0.65, vel * 0.60), time + 0.004);
     env.gain.setTargetAtTime(vel * 0.44, time + 0.004, 0.09);
     env.gain.setTargetAtTime(0.0001, time + decay * 0.5, decay * 0.38);
 
@@ -1727,7 +1721,7 @@ const Audio = (function () {
     var lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 4200; lp.Q.value = 0.4;
     car1.connect(env); c2gain.connect(env);
     env.connect(tremoloGain); tremoloGain.connect(lp); lp.connect(sidechainGain);
-    var rs = ctx.createGain(); rs.gain.value = 0.38; lp.connect(rs); rs.connect(reverbSend);
+    var rs = ctx.createGain(); rs.gain.value = 0.20; lp.connect(rs); rs.connect(reverbSend);
     var ds = ctx.createGain(); ds.gain.value = 0.18; lp.connect(ds); ds.connect(delaySend);
 
     mod1.start(time); mod1.stop(end); car1.start(time); car1.stop(end);
@@ -1756,7 +1750,7 @@ const Audio = (function () {
     oscEnv.gain.exponentialRampToValueAtTime(0.001, time + decay * 0.6);
 
     var env = ctx.createGain();
-    env.gain.setValueAtTime(Math.min(0.92, vel * 0.88), time);
+    env.gain.setValueAtTime(Math.min(0.65, vel * 0.60), time);
     env.gain.exponentialRampToValueAtTime(0.0001, time + decay);
 
     excSrc.connect(body); body.connect(env);
@@ -1764,7 +1758,7 @@ const Audio = (function () {
     osc.connect(oscEnv); oscEnv.connect(env);
     env.connect(sidechainGain);
 
-    var rs = ctx.createGain(); rs.gain.value = 0.45; env.connect(rs); rs.connect(reverbSend);
+    var rs = ctx.createGain(); rs.gain.value = 0.25; env.connect(rs); rs.connect(reverbSend);
     var ds = ctx.createGain(); ds.gain.value = 0.15; env.connect(ds); ds.connect(delaySend);
 
     excSrc.start(time); excSrc.stop(time + 0.006);
@@ -1792,7 +1786,7 @@ const Audio = (function () {
     // Fundamental — triangle wave (warmer than sine, softer than sawtooth)
     var fund = ctx.createOscillator(); fund.type = 'triangle'; fund.frequency.value = freq;
     var fundG = ctx.createGain();
-    fundG.gain.setValueAtTime(vel * 0.52, time);
+    fundG.gain.setValueAtTime(vel * 0.38, time);
     fundG.gain.setTargetAtTime(0.001, time + 0.05, decay * 0.25);
 
     // 2nd harmonic — octave, quieter (nylon is fundamental-heavy)
@@ -1879,7 +1873,7 @@ const Audio = (function () {
     vib.start(time); vib.stop(time + decay + 0.5);
 
     filt.connect(env); env.connect(sidechainGain);
-    var rs = ctx.createGain(); rs.gain.value = 0.35; env.connect(rs); rs.connect(reverbSend);
+    var rs = ctx.createGain(); rs.gain.value = 0.18; env.connect(rs); rs.connect(reverbSend);
   }
 
   // ── SUB 808 — chest-shaking bass hit ──────────────────────────────────
@@ -1941,7 +1935,7 @@ const Audio = (function () {
     var env = ctx.createGain();
     env.gain.setValueAtTime(0.0001, time);
     env.gain.setTargetAtTime(vel * 0.82, time, 0.022);
-    env.gain.setTargetAtTime(vel * 0.52, time + 0.07, 0.28);
+    env.gain.setTargetAtTime(vel * 0.38, time + 0.07, 0.28);
     env.gain.setTargetAtTime(0.0001, time + decay * 0.6, decay * 0.3);
 
     var lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 2800; lp.Q.value = 0.5;
@@ -2863,7 +2857,7 @@ const Audio = (function () {
 
     // Reverb send
     if (reverbSend) {
-      var rs = ctx.createGain(); rs.gain.value = 0.35;
+      var rs = ctx.createGain(); rs.gain.value = 0.18;
       env.connect(rs); rs.connect(reverbSend);
     }
     // Delay send
@@ -2910,7 +2904,7 @@ const Audio = (function () {
 
     // Reverb send
     if (reverbSend) {
-      var rs = ctx.createGain(); rs.gain.value = 0.40;
+      var rs = ctx.createGain(); rs.gain.value = 0.22;
       env.connect(rs); rs.connect(reverbSend);
     }
 
@@ -2977,7 +2971,7 @@ const Audio = (function () {
     env.connect(sidechainGain);
 
     if (reverbSend) {
-      var rs = ctx.createGain(); rs.gain.value = 0.30;
+      var rs = ctx.createGain(); rs.gain.value = 0.150;
       env.connect(rs); rs.connect(reverbSend);
     }
     if (delaySend) {
