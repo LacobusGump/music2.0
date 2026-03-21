@@ -1359,6 +1359,11 @@ const Follow = (function () {
     var time = Audio.ctx.currentTime;
     var dp = tribalPulse.drumPresence;
 
+    // 1/f micro-timing: every hit gets a correlated offset (10-25ms).
+    // This is the signature of life. Heartbeats are 1/f. Great drummers are 1/f.
+    // The ear evolved to recognize this as something alive.
+    var uT = (window._pinkTiming ? window._pinkTiming.timing(20) : 0) / 1000;  // ms → seconds
+
     // ── THE DRUMS MIRROR THE USER'S RHYTHM ──
 
     var userVel = peakRhythm[currentStep];
@@ -1366,24 +1371,23 @@ const Follow = (function () {
     // Kick: plays where the user's rhythm is strongest
     if (userVel > 0.25 && dp > 0.15) {
       var kv = userVel * dp * 0.8;
-      Audio.drum.kick(time, Math.min(0.55, kv), 'tribal');
+      Audio.drum.kick(time + uT, Math.min(0.55, kv), 'tribal');
     }
 
     // Shaker: fills the gaps between user peaks — the connective tissue
     if (userVel < 0.15 && dp > 0.10) {
-      // Ghost shaker on non-peak steps
       var sv = (0.12 - userVel) * dp * 1.5;
       if (sv > 0.01) {
-        Audio.drum.shaker(time, Math.min(0.25, sv), 0.03 + Math.random() * 0.02);
+        Audio.drum.shaker(time + uT * 0.7, Math.min(0.25, sv), 0.03 + Math.random() * 0.02);
       }
     }
 
     // Slap/snare: on the polyrhythmic complement positions
-    var polyVel = peakRhythm[(currentStep + 8) % 16];  // opposite side of the bar
+    var polyVel = peakRhythm[(currentStep + 8) % 16];
     if (polyVel > 0.15 && dp > 0.30 && userVel < 0.20) {
       var slv = polyVel * (dp - 0.15) * 1.0;
       if (slv > 0.01) {
-        Audio.drum.snare(time, Math.min(0.40, slv), 'tribal');
+        Audio.drum.snare(time + uT * 1.2, Math.min(0.40, slv), 'tribal');
       }
     }
   }
@@ -1759,6 +1763,13 @@ const Follow = (function () {
     // Water bottle dynamics — physical tilt response
     pitchWater = new Brain.WaterDynamic(1.8, 0.93, 0.35);   // heavier, more physical — real water has lag
     filterWater = new Brain.WaterDynamic(1.4, 0.91, 0.25);  // slower slosh, liquid sweeps
+
+    // 1/f noise for micro-timing — the signature of life (Hennig 2011)
+    // Every drum hit gets a 10-25ms correlated offset. The difference
+    // between a machine and something alive.
+    if (typeof Brain.PinkNoise === 'function') {
+      window._pinkTiming = new Brain.PinkNoise();
+    }
 
     motionProfile.registerHandlers();
     active = false;
@@ -4309,12 +4320,15 @@ const Follow = (function () {
         }
       }
 
+      // 1/f micro-timing — every hit offset by correlated pink noise (10-20ms)
+      var gT = (window._pinkTiming ? window._pinkTiming.timing(15) : 0) / 1000;
+
       if (kv > 0) {
         var kickVel = kv * grid.djGain * rollBass;
         if (isIntro) kickVel *= 0.35;
-        if (isBreakdown) kickVel *= 0.5;  // softer during breakdown
+        if (isBreakdown) kickVel *= 0.5;
         if (kickVel > 0.03) {
-          Audio.drum.kick(time, Math.min(0.92, kickVel), kit);
+          Audio.drum.kick(time + gT, Math.min(0.92, kickVel), kit);
           Audio.pumpSidechain(kickVel);
         }
       }
@@ -4330,7 +4344,7 @@ const Follow = (function () {
         else snareLevel = 0.2;  // always a bit of snare once past intro
         var snareVel = sv * grid.djGain * snareLevel;
         if (snareVel > 0.04) {
-          Audio.drum.snare(time, Math.min(0.85, snareVel), kit);
+          Audio.drum.snare(time + gT * 1.3, Math.min(0.85, snareVel), kit);  // snare slightly lazier than kick
         }
       }
 
@@ -4358,7 +4372,7 @@ const Follow = (function () {
         else hatLevel = Math.max(hatFloor, grid.intensity * 0.7) * zoneHatMix;
         var hatVel = hv * grid.djGain * hatLevel * rollTreble * 0.5;
         if (hatVel > 0.02) {
-          Audio.drum.hat(time, hatVel, kit);
+          Audio.drum.hat(time + gT * 0.8, hatVel, kit);  // hats slightly ahead of kick — forward feel
         }
       }
 

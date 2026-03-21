@@ -2146,6 +2146,20 @@ const Audio = (function () {
     voidGain.connect(reverbGain);
     voidGain.connect(masterHPF);
 
+    // ── 0.1 Hz BREATHING — the body's resonance frequency ────────────
+    // The cardiovascular system resonates at 0.1 Hz (Lehrer & Gevirtz 2014).
+    // Breathing at this rate strengthens vagal tone and produces calm.
+    // The void drone breathes at this frequency — stillness becomes
+    // the body's own resonance made audible.
+    voidLFO = ctx.createOscillator();
+    voidLFO.type = 'sine';
+    voidLFO.frequency.value = 0.1;  // 10-second cycle = cardiovascular resonance
+    voidLFOGain = ctx.createGain();
+    voidLFOGain.gain.value = 0.15;  // gentle ±15% amplitude modulation
+    voidLFO.connect(voidLFOGain);
+    voidLFOGain.connect(voidGain.gain);
+    voidLFO.start();
+
     var end = ctx.currentTime + 999;
 
     // ── HARMONIC PARTIALS — each breathes and drifts independently ────────

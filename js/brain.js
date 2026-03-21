@@ -441,6 +441,41 @@ const Brain = (function () {
     this.velocity = 0;
   };
 
+  // ── 1/f NOISE — the signature of life ────────────────────────────────
+  // Pink noise in the timing domain. Heartbeats are 1/f. Neural firing
+  // is 1/f. Great musical performances are 1/f (Hennig 2011).
+  // The ear evolved to recognize 1/f as the signature of something alive.
+  //
+  // Used for micro-timing offsets on drum hits (10-30ms correlated
+  // deviations from the grid). The difference between a drum machine
+  // and a drummer.
+
+  function PinkNoise() {
+    // Voss-McCartney algorithm: sum of halved-rate random sources
+    this._sources = [0, 0, 0, 0, 0, 0, 0, 0];
+    this._counter = 0;
+  }
+
+  PinkNoise.prototype.next = function () {
+    this._counter++;
+    // Update each source at halved rates: source 0 every step,
+    // source 1 every 2 steps, source 2 every 4 steps, etc.
+    var sum = 0;
+    for (var i = 0; i < 8; i++) {
+      if ((this._counter & ((1 << i) - 1)) === 0) {
+        this._sources[i] = Math.random() * 2 - 1;
+      }
+      sum += this._sources[i];
+    }
+    return sum / 8;  // normalize to roughly -1..1
+  };
+
+  // Get a micro-timing offset in milliseconds (10-30ms range, 1/f correlated)
+  PinkNoise.prototype.timing = function (maxMs) {
+    var ms = maxMs || 20;
+    return this.next() * ms;
+  };
+
   // ── PUBLIC ───────────────────────────────────────────────────────────
 
   return Object.freeze({
@@ -466,5 +501,6 @@ const Brain = (function () {
     get isReturning() { return isReturning; },
     get energy() { return short_.energy(); },
     WaterDynamic: WaterDynamic,
+    PinkNoise: PinkNoise,
   });
 })();

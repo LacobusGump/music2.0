@@ -16,13 +16,21 @@ var Weather = (function () {
   var _loaded    = false;
   var _hour      = new Date().getHours();
 
-  // Music mods: Follow reads these each frame and applies them
+  // Music mods: Follow reads these each frame and applies them.
+  // Grounded in climate-prosody research (Wang & Wichmann 2023 PNAS Nexus,
+  // Everett 2015 PNAS, Schafer 1977 acoustic ecology):
+  // - Temperature → interval width (warm = wider pitch excursions)
+  // - Humidity → timbral openness (humid = open filter, dry = constricted)
+  // - Precipitation → articulation (rain = legato, clear = staccato)
+  // - Wind → density (still = sparse, windy = layered)
   var _mods = {
-    reverbBoost:  0,    // added to lens reverbMix
-    filterShift:  0,    // Hz added/subtracted from ceiling freq
-    noiseVol:     0,    // ambient weather noise volume (0 = off)
-    tempoScale:   1.0,  // noteInterval multiplier (>1 = slower)
-    shimmerVol:   0,    // high shimmer layer (sunny)
+    reverbBoost:    0,     // added to lens reverbMix
+    filterShift:    0,     // Hz added/subtracted from ceiling freq
+    noiseVol:       0,     // ambient weather noise volume
+    tempoScale:     1.0,   // noteInterval multiplier
+    shimmerVol:     0,     // high shimmer layer
+    intervalScale:  1.0,   // multiplier on pitch interval width (warm = wider)
+    articulationLegato: 0, // 0-1, how much notes connect vs separate
   };
 
   // ── WMO WEATHER CODE → CONDITION ──────────────────────────────────────
@@ -50,49 +58,68 @@ var Weather = (function () {
   }
 
   function buildMods() {
-    _mods = { reverbBoost: 0, filterShift: 0, noiseVol: 0, tempoScale: 1.0, shimmerVol: 0 };
+    _mods = {
+      reverbBoost: 0, filterShift: 0, noiseVol: 0,
+      tempoScale: 1.0, shimmerVol: 0,
+      intervalScale: 1.0, articulationLegato: 0,
+    };
 
+    // ── TEMPERATURE → INTERVAL WIDTH ──────────────────────────────────
+    // Warm climates produce wider pitch excursions in speech (PNAS Nexus 2023).
+    // Cold compresses more than heat expands (asymmetric — Wang & Wichmann).
+    // Range: 0.75 (freezing) to 1.25 (hot). Neutral at ~18°C.
+    var tempNorm = Math.max(-10, Math.min(40, _tempC));
+    _mods.intervalScale = 0.85 + (tempNorm + 10) * 0.008;  // -10°C=0.85, 18°C=1.07, 40°C=1.25
+    // Cold compresses harder — apply asymmetric curve
+    if (_tempC < 10) _mods.intervalScale *= 0.95;
+
+    // ── TEMPERATURE → FILTER ──────────────────────────────────────────
+    // Warm = brighter (open vowels carry more high harmonics). Cold = darker.
+    _mods.filterShift = (_tempC - 18) * 12;  // ±250Hz around 18°C neutral
+
+    // ── PRECIPITATION → ARTICULATION ──────────────────────────────────
+    // Rain = legato (notes connect, portamento between). Clear = staccato.
     switch (_condition) {
       case 'rain':
-        _mods.reverbBoost = 0.12 + _intensity * 0.08;
-        _mods.filterShift = -400;
-        _mods.noiseVol    = 0.018 + _intensity * 0.022;
+        _mods.reverbBoost = 0.10 + _intensity * 0.08;
+        _mods.noiseVol = 0.015 + _intensity * 0.020;
+        _mods.articulationLegato = 0.4 + _intensity * 0.3;  // notes flow into each other
         break;
       case 'storm':
-        _mods.reverbBoost = 0.22;
-        _mods.filterShift = -600;
-        _mods.noiseVol    = 0.045;
+        _mods.reverbBoost = 0.18;
+        _mods.noiseVol = 0.04;
+        _mods.articulationLegato = 0.7;
+        _mods.filterShift -= 300;  // storms compress the spectrum
         break;
       case 'snow':
-        _mods.reverbBoost = 0.20;
-        _mods.filterShift = -200;
-        _mods.tempoScale  = 1.25;   // notes breathe wider apart
+        _mods.reverbBoost = 0.18;
+        _mods.tempoScale = 1.15;
+        _mods.articulationLegato = 0.5;  // snow = gentle legato
         break;
       case 'fog':
-        _mods.reverbBoost = 0.28;
-        _mods.filterShift = -700;
+        _mods.reverbBoost = 0.25;
+        _mods.filterShift -= 400;  // fog = everything muffled
+        _mods.articulationLegato = 0.3;
         break;
       case 'cloudy':
-        _mods.reverbBoost = 0.05;
-        _mods.filterShift = -100;
+        _mods.reverbBoost = 0.04;
+        _mods.filterShift -= 80;
         break;
       case 'clear':
         if (_isDay) {
-          _mods.shimmerVol  = 0.02;
-          _mods.filterShift = 250;
+          _mods.shimmerVol = 0.015;
+          _mods.filterShift += 150;
         }
         break;
     }
 
-    // Night: deeper reverb, darker spectrum
+    // ── NIGHT ─────────────────────────────────────────────────────────
+    // Nighttime soundscapes are lower-frequency dominant (Schafer 1977).
     if (!_isDay) {
-      _mods.reverbBoost += 0.10;
-      _mods.filterShift -= 250;
+      _mods.reverbBoost += 0.08;
+      _mods.filterShift -= 200;
+      _mods.intervalScale *= 0.95;  // night compresses expression slightly
     }
-
-    // Extreme temperature: cold tightens, hot loosens
-    if (_tempC < 2)  { _mods.reverbBoost += 0.08; _mods.filterShift -= 200; }
-    if (_tempC > 32) { _mods.filterShift += 150; }
   }
 
   // ── FETCH ──────────────────────────────────────────────────────────────
