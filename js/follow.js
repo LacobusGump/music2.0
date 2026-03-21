@@ -3812,13 +3812,16 @@ const Follow = (function () {
     // User motion adds ENERGY on top. Tilt = you're present = the set evolves.
     grid.lastIntensity = grid.intensity;
 
-    // Intensity comes from the USER, not a clock. No timeFloor.
-    // Your body decides how intense the set gets. Period.
-    var targetIntensity = Math.min(1, mediumEnergy * 0.9);
+    // Intensity: primarily from the user, with a gentle musical current underneath.
+    // The current keeps the music alive even for gentle users — but it's slow
+    // and proportional to engagement. A gentle user gets gentle progression.
+    // A hard user drives it fast. The music adapts to WHO you are.
+    var presenceFloor = motionEnergy > 0.08 ? Math.min(0.30, grid.setTime * 0.001) : 0;
+    var targetIntensity = Math.max(presenceFloor, Math.min(1, mediumEnergy * 0.85));
     var iRise = targetIntensity > grid.intensity ? 0.06 : 0.02;
     grid.intensity += (targetIntensity - grid.intensity) * iRise;
 
-    // Pump intensity from peaks — how hard the user is hitting
+    // Pump intensity from peaks
     var peakNow = lastMag > lastLastMag && lastMag > (adaptedPeakThresh || 0.3);
     if (peakNow) {
       grid.pumpIntensity = Math.min(1, grid.pumpIntensity + 0.25);
@@ -3826,8 +3829,9 @@ const Follow = (function () {
       grid.pumpIntensity *= 0.985;
     }
 
-    // djGain tracks your energy — no autonomous floor
-    var targetGain = 0.20 + grid.intensity * 0.55 + grid.pumpIntensity * 0.10;
+    // djGain: engagement-scaled. Gentle presence = gentle sound. Hard = loud.
+    var presenceGain = motionEnergy > 0.08 ? Math.min(0.45, 0.25 + grid.setTime * 0.0008) : 0.15;
+    var targetGain = Math.max(presenceGain, 0.20 + grid.intensity * 0.50 + grid.pumpIntensity * 0.10);
     grid.djGain += (targetGain - grid.djGain) * 0.03;
 
     // ── 4. TILT ZONES — the heart of DJ manipulation ──
@@ -3953,10 +3957,13 @@ const Follow = (function () {
 
       case 'build':
         // Build rate: user motion accelerates, but it ALWAYS advances.
-        // Build ONLY from user energy. No passive timer. YOU decide when the drop comes.
+        // Build from user energy + a gentle musical current.
+        // The current is VERY slow — a gentle user reaches drop in ~90s.
+        // A hard user reaches it in ~15s. The music adapts to you.
         grid.buildLevel += grid.pumpIntensity * dt * 0.10;
         grid.buildLevel += grid.intensity * dt * 0.06;
-        // No passive dt * 0.015 — the drop is EARNED, not scheduled.
+        // Gentle current: only flows when you're present (energy > 0.08)
+        if (motionEnergy > 0.08) grid.buildLevel += dt * 0.005;  // ~200s to drop alone
         grid.buildLevel = Math.min(1, grid.buildLevel);
 
         // ── VOCAL DROP: USER PEAKS TRIGGER EACH CLIP ──
