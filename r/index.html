@@ -617,24 +617,70 @@ problem &rarr; insight = prediction error &rarr; dopamine<br>
 (function(){
   var c=document.getElementById('heart-canvas');if(!c)return;
   var ctx=c.getContext('2d'),W=400,H=300,t=0;
-  function drawHeart(cx,cy,size,alpha){
+  function drawHeart(cx,cy,size,alpha,beat){
     ctx.save();ctx.translate(cx,cy);ctx.scale(size,size);
+    // Anatomical heart shape — more organic, asymmetric
     ctx.beginPath();
-    ctx.moveTo(0,8);
-    ctx.bezierCurveTo(0,4,-8,-4,-8,-8);
-    ctx.bezierCurveTo(-8,-14,-2,-16,0,-10);
-    ctx.bezierCurveTo(2,-16,8,-14,8,-8);
-    ctx.bezierCurveTo(8,-4,0,4,0,8);
+    // Left atrium
+    ctx.moveTo(-1,10);
+    ctx.bezierCurveTo(-3,5,-9,-2,-10,-7);
+    ctx.bezierCurveTo(-11,-12,-8,-17,-4,-17);
+    ctx.bezierCurveTo(-1,-17,0,-14,0,-11);
+    // Right atrium
+    ctx.bezierCurveTo(0,-14,2,-17,5,-17);
+    ctx.bezierCurveTo(9,-17,12,-12,11,-7);
+    ctx.bezierCurveTo(10,-2,4,5,1,10);
+    // Bottom — slightly asymmetric
+    ctx.bezierCurveTo(0.5,11,0,12,-0.5,11);
     ctx.closePath();
-    ctx.fillStyle='rgba(255,180,140,'+alpha+')';
+    // Main fill — deep red
+    ctx.fillStyle='rgba(180,50,50,'+alpha*0.7+')';
     ctx.fill();
-    // Glow
-    var g=ctx.createRadialGradient(0,-2,0,0,-2,size*18);
-    g.addColorStop(0,'rgba(255,200,160,'+(alpha*0.15)+')');
-    g.addColorStop(1,'rgba(255,200,160,0)');
-    ctx.fillStyle=g;
-    ctx.beginPath();ctx.arc(0,-2,size*18,0,Math.PI*2);ctx.fill();
+    // Surface highlight — lighter where light catches
+    var hl=ctx.createRadialGradient(-3,-8,0,-3,-8,8);
+    hl.addColorStop(0,'rgba(255,120,100,'+alpha*0.4+')');
+    hl.addColorStop(1,'rgba(180,50,50,0)');
+    ctx.fillStyle=hl;ctx.fill();
+    // Veins — subtle lines
+    ctx.strokeStyle='rgba(140,30,30,'+alpha*0.3+')';
+    ctx.lineWidth=0.4;
+    ctx.beginPath();ctx.moveTo(-2,-8);ctx.bezierCurveTo(-4,-3,-5,2,-1,8);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(1,-10);ctx.bezierCurveTo(3,-5,5,0,2,7);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(-5,-12);ctx.bezierCurveTo(-6,-8,-4,-4,-2,0);ctx.stroke();
+    // Aorta hint at top
+    ctx.beginPath();ctx.moveTo(-1,-14);ctx.bezierCurveTo(-1,-18,2,-19,3,-17);
+    ctx.strokeStyle='rgba(180,60,60,'+alpha*0.4+')';ctx.lineWidth=1.2;ctx.stroke();
+    // Electrical spark — the SA node firing! Flashes with each beat.
+    if(beat>0.3){
+      var sparkAlpha=Math.pow(beat,2)*0.9;
+      // SA node position (top right of heart)
+      var sx=5,sy=-14;
+      // Main spark
+      ctx.beginPath();ctx.arc(sx,sy,1.5,0,Math.PI*2);
+      ctx.fillStyle='rgba(255,255,200,'+sparkAlpha+')';ctx.fill();
+      // Spark glow
+      var sg=ctx.createRadialGradient(sx,sy,0,sx,sy,6+beat*4);
+      sg.addColorStop(0,'rgba(255,255,220,'+sparkAlpha*0.6+')');
+      sg.addColorStop(0.5,'rgba(255,200,150,'+sparkAlpha*0.2+')');
+      sg.addColorStop(1,'rgba(255,200,150,0)');
+      ctx.fillStyle=sg;ctx.beginPath();ctx.arc(sx,sy,6+beat*4,0,Math.PI*2);ctx.fill();
+      // Electrical path — spark travels down through the heart
+      var pathProgress=Math.min(1,(beat-0.3)/0.5);
+      if(pathProgress>0){
+        ctx.beginPath();ctx.moveTo(sx,sy);
+        ctx.bezierCurveTo(3,-10+pathProgress*4,0,-6+pathProgress*6,-1,pathProgress*10-4);
+        ctx.strokeStyle='rgba(255,240,180,'+sparkAlpha*0.4*pathProgress+')';
+        ctx.lineWidth=0.6;ctx.stroke();
+      }
+    }
     ctx.restore();
+    // Outer glow — warm, large
+    var g=ctx.createRadialGradient(cx,cy,0,cx,cy,size*16);
+    g.addColorStop(0,'rgba(200,80,60,'+(alpha*0.08)+')');
+    g.addColorStop(0.5,'rgba(200,80,60,'+(alpha*0.03)+')');
+    g.addColorStop(1,'rgba(200,80,60,0)');
+    ctx.fillStyle=g;
+    ctx.beginPath();ctx.arc(cx,cy,size*16,0,Math.PI*2);ctx.fill();
   }
   function draw(){
     t+=0.016;
@@ -644,12 +690,22 @@ problem &rarr; insight = prediction error &rarr; dopamine<br>
     var beat=Math.pow(Math.max(0,Math.sin(phase*Math.PI*2)),3);
     var scale=2.2+beat*0.8;
     var alpha=0.25+beat*0.4;
-    drawHeart(W/2,H/2-10,scale,alpha);
-    // Rate label
-    ctx.fillStyle='rgba(255,200,160,'+(0.15+beat*0.2)+')';
-    ctx.font='300 22px Georgia,serif';
-    ctx.textAlign='center';
-    ctx.fillText('0.1 Hz',W/2,H-30);
+    drawHeart(W/2,H/2-20,scale,alpha,beat);
+    // Ring that empties like a breath — fills over 10 seconds, resets
+    var ringR=55;
+    ctx.beginPath();
+    ctx.arc(W/2,H/2-20,ringR,0,Math.PI*2);
+    ctx.strokeStyle='rgba(255,180,140,0.06)';ctx.lineWidth=1.5;ctx.stroke();
+    // Fill arc
+    ctx.beginPath();
+    ctx.arc(W/2,H/2-20,ringR,-Math.PI/2,-Math.PI/2+phase*Math.PI*2);
+    ctx.strokeStyle='rgba(255,200,160,'+(0.12+beat*0.15)+')';ctx.lineWidth=2;ctx.stroke();
+    // Small dot at the leading edge of the ring
+    var dotAngle=-Math.PI/2+phase*Math.PI*2;
+    var dotX=W/2+Math.cos(dotAngle)*ringR;
+    var dotY=H/2-20+Math.sin(dotAngle)*ringR;
+    ctx.beginPath();ctx.arc(dotX,dotY,2.5,0,Math.PI*2);
+    ctx.fillStyle='rgba(255,220,170,'+(0.3+beat*0.5)+')';ctx.fill();
     requestAnimationFrame(draw);
   }
   draw();
