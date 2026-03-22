@@ -476,6 +476,165 @@ const Brain = (function () {
     return this.next() * ms;
   };
 
+  // ── EUCLIDEAN RHYTHM — mathematically guaranteed groove ─────────────
+  // Bjorklund algorithm: distributes N hits across K steps as evenly as
+  // possible. Produces the exact rhythms found across ALL human cultures
+  // (Toussaint 2013). 3 in 8 = tresillo. 5 in 16 = West African bell.
+  // 7 in 12 = West African standard pattern.
+  // Map body energy to hit count → the math guarantees groove.
+
+  function euclidean(hits, steps) {
+    if (hits >= steps) {
+      var full = [];
+      for (var f = 0; f < steps; f++) full.push(1);
+      return full;
+    }
+    if (hits === 0) {
+      var empty = [];
+      for (var e = 0; e < steps; e++) empty.push(0);
+      return empty;
+    }
+    // Bjorklund algorithm
+    var pattern = [];
+    var counts = [];
+    var remainders = [];
+    var level = 0;
+    remainders.push(hits);
+    var divisor = steps - hits;
+    while (true) {
+      counts.push(Math.floor(divisor / remainders[level]));
+      var rem = divisor % remainders[level];
+      remainders.push(rem);
+      divisor = remainders[level];
+      level++;
+      if (remainders[level] <= 1) break;
+    }
+    counts.push(divisor);
+
+    function build(lv) {
+      if (lv === -1) { pattern.push(0); return; }
+      if (lv === -2) { pattern.push(1); return; }
+      for (var i = 0; i < counts[lv]; i++) build(lv - 1);
+      if (remainders[lv] !== 0) build(lv - 2);
+    }
+    build(level);
+
+    // Rotate so first element is a hit
+    var first1 = pattern.indexOf(1);
+    if (first1 > 0) pattern = pattern.slice(first1).concat(pattern.slice(0, first1));
+    return pattern;
+  }
+
+  // ── BERLYNE TRACKER — edge between order and chaos ─────────────────
+  // Tracks multiple dimensions of complexity independently.
+  // Each dimension has its own optimal zone (0.3-0.7 on 0-1 scale).
+  // Returns how far the music is from the sweet spot overall.
+  // The inverted-U: too simple = boring, too complex = noise.
+
+  function BerlyneTracker() {
+    this.dimensions = {
+      harmonic: 0.5,    // how surprising the chord/note choices are
+      rhythmic: 0.5,    // how syncopated/varied the rhythm is
+      timbral: 0.5,     // how much the timbre is changing
+      dynamic: 0.5,     // how much the volume varies
+    };
+    this._history = { harmonic: [], rhythmic: [], timbral: [], dynamic: [] };
+    this._maxHistory = 30;  // ~15 seconds at 2 updates/sec
+  }
+
+  BerlyneTracker.prototype.update = function (dim, value) {
+    if (!this.dimensions.hasOwnProperty(dim)) return;
+    // Smooth
+    this.dimensions[dim] += (value - this.dimensions[dim]) * 0.15;
+    this._history[dim].push(this.dimensions[dim]);
+    if (this._history[dim].length > this._maxHistory) this._history[dim].shift();
+  };
+
+  // How far from the sweet spot (0.4-0.6) across all dimensions
+  // 0 = perfectly balanced. 1 = maximally imbalanced.
+  BerlyneTracker.prototype.imbalance = function () {
+    var total = 0, count = 0;
+    for (var dim in this.dimensions) {
+      var v = this.dimensions[dim];
+      // Distance from the sweet zone center (0.5)
+      var dist = Math.abs(v - 0.5);
+      // Anything within 0.15 of center is "in the zone"
+      total += Math.max(0, dist - 0.15) / 0.35;
+      count++;
+    }
+    return count > 0 ? total / count : 0;
+  };
+
+  // Suggestion: which dimension needs adjustment and in which direction
+  BerlyneTracker.prototype.suggest = function () {
+    var worst = null, worstDist = 0;
+    for (var dim in this.dimensions) {
+      var dist = Math.abs(this.dimensions[dim] - 0.5);
+      if (dist > worstDist) { worstDist = dist; worst = dim; }
+    }
+    if (!worst) return null;
+    return {
+      dimension: worst,
+      value: this.dimensions[worst],
+      direction: this.dimensions[worst] > 0.5 ? 'simplify' : 'complexify',
+      urgency: worstDist,
+    };
+  };
+
+  // ── GROKKING DETECTOR — when the user becomes a musician ──────────
+  // Tracks the correlation between user input and musical output.
+  // When correlation suddenly increases (phase transition), the user
+  // has "grokked" the instrument — they understand the mapping.
+  // Same neural pathway as any "aha" moment (Columbia Zuckerman Institute).
+
+  function GrokDetector() {
+    this.inputHistory = [];    // recent motion magnitudes
+    this.outputHistory = [];   // recent note degrees played
+    this.correlation = 0;      // rolling input-output correlation
+    this.grokked = false;      // has the phase transition happened?
+    this.grokTime = 0;         // when it happened
+    this.preGrokCorr = 0;      // correlation before the transition
+    this._windowSize = 20;
+  }
+
+  GrokDetector.prototype.sample = function (input, output) {
+    this.inputHistory.push(input);
+    this.outputHistory.push(output);
+    if (this.inputHistory.length > this._windowSize) this.inputHistory.shift();
+    if (this.outputHistory.length > this._windowSize) this.outputHistory.shift();
+
+    if (this.inputHistory.length < 8) return;
+
+    // Compute correlation between input pattern and output pattern
+    var n = this.inputHistory.length;
+    var sumI = 0, sumO = 0, sumII = 0, sumOO = 0, sumIO = 0;
+    for (var i = 0; i < n; i++) {
+      sumI += this.inputHistory[i];
+      sumO += this.outputHistory[i];
+      sumII += this.inputHistory[i] * this.inputHistory[i];
+      sumOO += this.outputHistory[i] * this.outputHistory[i];
+      sumIO += this.inputHistory[i] * this.outputHistory[i];
+    }
+    var denom = Math.sqrt((n * sumII - sumI * sumI) * (n * sumOO - sumO * sumO));
+    this.correlation = denom > 0 ? (n * sumIO - sumI * sumO) / denom : 0;
+
+    // Detect phase transition: correlation jumps from <0.3 to >0.6
+    if (!this.grokked && this.preGrokCorr < 0.35 && this.correlation > 0.55) {
+      this.grokked = true;
+      this.grokTime = performance.now();
+    }
+    this.preGrokCorr = this.preGrokCorr * 0.95 + this.correlation * 0.05;
+  };
+
+  GrokDetector.prototype.reset = function () {
+    this.inputHistory = [];
+    this.outputHistory = [];
+    this.correlation = 0;
+    this.grokked = false;
+    this.grokTime = 0;
+    this.preGrokCorr = 0;
+  };
+
   // ── PUBLIC ───────────────────────────────────────────────────────────
 
   return Object.freeze({
@@ -502,5 +661,8 @@ const Brain = (function () {
     get energy() { return short_.energy(); },
     WaterDynamic: WaterDynamic,
     PinkNoise: PinkNoise,
+    euclidean: euclidean,
+    BerlyneTracker: BerlyneTracker,
+    GrokDetector: GrokDetector,
   });
 })();

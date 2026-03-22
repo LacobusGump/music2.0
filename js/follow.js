@@ -234,12 +234,20 @@ const Follow = (function () {
 
   // ── PHRASE CONTOURS ────────────────────────────────────────────────────
 
+  // ── MELODIC CONTOURS ─────────────────────────────────────────────────
+  // The "I love you" research found the ARCH (rise-peak-fall) is universal
+  // across 10 of 14 languages. The peak lands on "love" — scale degree 5.
+  // The seed: 3→5→1 (approach, arrive, depart). Same as a breath.
+  // These contours are gravity wells for melody — the user can override
+  // by tilting differently, but the instrument naturally settles into
+  // shapes that every culture's body already knows.
   var CONTOURS = {
     rising:   [0, 1, 2, 3, 4, 5, 6, 7],
     falling:  [7, 6, 5, 4, 3, 2, 1, 0],
-    arch:     [0, 2, 4, 6, 7, 5, 3, 0],
-    question: [0, 2, 3, 5, 7, 7, 5, 5],
+    arch:     [1, 3, 5, 7, 5, 3, 1, 0],   // the "I love you" shape: approach→peak→home
+    question: [1, 3, 5, 5, 7, 7, 5, 5],    // ends suspended — French "je t'aime" (no resolution)
     answer:   [5, 4, 3, 2, 1, 0, 0, 0],
+    love:     [3, 5, 1, 3, 5, 1, 3, 5],    // the universal seed repeating — 3→5→1 cycle
   };
 
   var phraseContour = 'arch';
@@ -1339,6 +1347,22 @@ const Follow = (function () {
     if (tribalPulse.phase >= 1) {
       tribalPulse.phase -= 1;
       tribalPulse.bar = 1 - tribalPulse.bar;
+
+      // ── EUCLIDEAN GROOVE — mathematically guaranteed groove ──────────
+      // Each bar, generate an Euclidean pattern based on current energy.
+      // Low energy = 3 hits in 16 (tresillo). High = 7 in 16 (bell pattern).
+      // Blend with user's peak rhythm so the math serves the human.
+      if (typeof Brain.euclidean === 'function') {
+        var energy = (typeof Brain !== 'undefined') ? Brain.short.energy() : 0;
+        var eucHits = Math.max(2, Math.min(7, Math.round(2 + energy * 5)));
+        var eucPattern = Brain.euclidean(eucHits, 16);
+        // Blend: Euclidean provides the skeleton, user peaks add weight
+        for (var ei = 0; ei < 16; ei++) {
+          if (eucPattern[ei]) {
+            peakRhythm[ei] = Math.max(peakRhythm[ei], 0.15 * tribalPulse.drumPresence);
+          }
+        }
+      }
       tribalPulse.lastStep = -1;
       // Decay the peak rhythm grid each bar — old peaks fade
       for (var di = 0; di < 16; di++) peakRhythm[di] *= peakRhythmDecay;
@@ -1761,14 +1785,23 @@ const Follow = (function () {
 
   function init() {
     // Water bottle dynamics — physical tilt response
-    pitchWater = new Brain.WaterDynamic(1.8, 0.93, 0.35);   // heavier, more physical — real water has lag
-    filterWater = new Brain.WaterDynamic(1.4, 0.91, 0.25);  // slower slosh, liquid sweeps
+    pitchWater = new Brain.WaterDynamic(1.8, 0.93, 0.35);
+    filterWater = new Brain.WaterDynamic(1.4, 0.91, 0.25);
 
     // 1/f noise for micro-timing — the signature of life (Hennig 2011)
-    // Every drum hit gets a 10-25ms correlated offset. The difference
-    // between a machine and something alive.
     if (typeof Brain.PinkNoise === 'function') {
       window._pinkTiming = new Brain.PinkNoise();
+    }
+
+    // Berlyne tracker — keep the music at the edge of order and chaos
+    // Tracks harmonic, rhythmic, timbral, dynamic complexity independently
+    if (typeof Brain.BerlyneTracker === 'function') {
+      window._berlyne = new Brain.BerlyneTracker();
+    }
+
+    // Grokking detector — recognize when the user becomes a musician
+    if (typeof Brain.GrokDetector === 'function') {
+      window._grok = new Brain.GrokDetector();
     }
 
     motionProfile.registerHandlers();
@@ -4909,6 +4942,51 @@ const Follow = (function () {
     // ── PRODIGY — real-time musical intelligence ──
     updateProdigy(sensor, dt, mag);
     if (motifCooldown > 0) motifCooldown -= dt;
+
+    // ── BERLYNE — keep the music at the edge of order and chaos ──
+    // Feed each complexity dimension. Prodigy + Berlyne together guide
+    // the music toward the sweet spot without making choices.
+    if (window._berlyne) {
+      var brainE = (typeof Brain !== 'undefined') ? Brain.short.energy() : 0;
+      // Harmonic: how far from the tonic are we?
+      window._berlyne.update('harmonic', Math.abs(currentDegree) / 7);
+      // Rhythmic: density of notes per second
+      var noteRate = noteCount > 0 ? Math.min(1, (noteCount / Math.max(1, sessionEngagedTime)) / 4) : 0;
+      window._berlyne.update('rhythmic', noteRate);
+      // Timbral: how much the filter is moving
+      window._berlyne.update('timbral', Math.min(1, Math.abs(prodigy.filterBias) / 400));
+      // Dynamic: energy variation
+      window._berlyne.update('dynamic', Math.min(1, brainE));
+
+      // If imbalanced, Berlyne suggests adjustment — enable outcome, don't force
+      var suggestion = window._berlyne.suggest();
+      if (suggestion && suggestion.urgency > 0.3) {
+        // Gently bias Prodigy's decisions toward balance
+        if (suggestion.dimension === 'harmonic' && suggestion.direction === 'simplify') {
+          // Pull melody toward tonic
+          harmonyDegree = Math.round(harmonyDegree * 0.85);
+        }
+        if (suggestion.dimension === 'dynamic' && suggestion.direction === 'simplify') {
+          // Reduce filter bias to calm down
+          prodigy.filterBias *= 0.9;
+        }
+      }
+    }
+
+    // ── GROKKING — detect when the user becomes a musician ──
+    // Sample the correlation between their input (motion) and output (notes)
+    if (window._grok && !isSilent) {
+      var motionInput = (typeof Brain !== 'undefined') ? Brain.short.energy() : 0;
+      window._grok.sample(motionInput, Math.abs(currentDegree) / 7);
+
+      // The moment of grokking: briefly open everything up — a reward.
+      // Filter opens, reverb blooms, a moment of transcendence.
+      // Same dopamine pathway as any "aha" moment.
+      if (window._grok.grokked && performance.now() - window._grok.grokTime < 3000) {
+        prodigy.filterBias = Math.max(prodigy.filterBias, 300);
+        prodigy.reverbTarget = Math.min(0.80, prodigy.reverbTarget + 0.15);
+      }
+    }
 
     // Journey state snapshot every 0.5s
     jrnWallClock += dt;
