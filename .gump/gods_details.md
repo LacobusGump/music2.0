@@ -151,7 +151,114 @@ Your body is already making music. We're just turning up the volume.
 
 ---
 
+---
+
+## Discovery IS Music
+
+In 2022, a team at OpenAI left a neural network training over a weekend. When they came back, something had happened: the network had been memorizing answers — brute force, no understanding. Then suddenly, without warning, it *understood*. Test accuracy jumped from 0% to near-perfect in a sharp phase transition. They called it **grokking** (Power et al. 2022).
+
+This is the same pattern in every discovery humans have ever made:
+
+1. **Accumulation** — effort, practice, exposure. Nothing seems to happen.
+2. **Plateau** — the hidden work. Circuits forming beneath the surface.
+3. **Phase transition** — sudden. The "aha." The fire catches. The music emerges.
+4. **Integration** — the new understanding stabilizes.
+
+This pattern appears in fire (millennia of opportunistic use → deliberate creation), agriculture (generations of gathering → planting), calculus (Newton and Leibniz independently, same decade), evolution (Darwin and Wallace independently, same year).
+
+**148 cases** of simultaneous independent discovery have been documented between 1420 and 1901 (Ogburn & Thomas 1922). When conditions are right, multiple people discover the same thing. The discoverer is the instrument, not the source. Kevin Kelly: "If inventor X does not produce it, inventor Y will."
+
+**And here's the finding that connects it to music:**
+
+The "aha" moment and the moment of musical resolution activate the **same brain region** — the nucleus accumbens — through the **same dopamine pathway** (Salimpoor 2011, Columbia Zuckerman Institute). The brain does not distinguish between solving a problem and hearing a chord resolve. They are the same event.
+
+**Music is not a thing you listen to. Music is a discovery process happening inside you.** Each phrase sets up a prediction. Each resolution triggers a micro-"aha." The pleasure of music IS the pleasure of continuous discovery.
+
+---
+
+## The Edge Between Order and Chaos
+
+In 1971, psychologist Daniel Berlyne proved that aesthetic pleasure follows an inverted-U curve as a function of complexity. Too simple = boring. Too complex = noise. The sweet spot — the peak of the curve — is moderate complexity with moderate surprise.
+
+This appears everywhere:
+- **Moderate syncopation** produces peak groove (Witek et al. 2014)
+- **Earworm melodies** have unusual intervals within conventional contours — "twist within a frame" (Jakubowski 2017)
+- **High uncertainty + expected resolution** = peak musical pleasure (Cheung et al. 2019)
+
+And the statistical signature of the sweet spot has a name: **1/f noise** (pink noise). Not the rigid order of white noise. Not the chaos of brown noise. The edge between them.
+
+1/f noise appears in:
+- Heartbeats
+- Neural firing
+- Ocean waves
+- Great musical performances (Hennig 2011)
+- Economic fluctuations
+- Earthquake timing
+
+Everything alive operates at this edge. The ear evolved to recognize it as the signature of life.
+
+---
+
+## Euclidean Rhythms — Groove from Mathematics
+
+The most groove-inducing rhythmic patterns across ALL human cultures are mathematically the most-even distributions of beats within a cycle (Toussaint 2013, *The Geometry of Musical Rhythm*).
+
+The Bjorklund algorithm (originally designed for nuclear physics timing) generates these patterns:
+
+| Hits in 16 steps | Pattern | Where it appears |
+|---|---|---|
+| 3 | X..X..X......... | Tresillo (Cuban son, New Orleans) |
+| 4 | X...X...X...X... | Four-on-the-floor (house, techno) |
+| 5 | X..X.X..X.X..... | Cinquillo (Caribbean) |
+| 7 | X.XX.X.XX.X.X.X. | West African bell pattern |
+
+These patterns emerge independently across cultures because they are the mathematical answer to "how do you spread N hits across K steps as evenly as possible?" The math guarantees groove. No culture invented these rhythms — they discovered them, because the math was always there.
+
+---
+
+## When Life Hits Air
+
+A guitar string vibrates against its tension. A vocal cord vibrates against airflow. A drum head vibrates against the air column beneath it. Every sound is two things meeting and the meeting oscillating.
+
+In GUMP, the two things meeting are the body and gravity. Tilt is the body pushing against the constant pull of the earth. The phone's accelerometer measures that friction — the argument between your intention and the planet. The music is what that argument sounds like.
+
+When life hits air. When body hits gravity. When intention hits reality. The friction IS the music.
+
+---
+
+## The Grokking Moment
+
+There is a moment — for every GUMP user — when they stop "moving and hearing sound" and start "making music." It happens suddenly. One moment you're confused. The next, you get it. You're not controlling the instrument anymore. You ARE the instrument.
+
+This is the same phase transition as:
+- Newton seeing calculus during the plague years
+- A neural network suddenly generalizing after weeks of memorization
+- The first human who saved a burning twig from a forest fire
+- Every musician who ever went from playing notes to playing music
+
+The brain literally reorganizes: a burst of gamma activity 300ms before the insight, hippocampal activation at the moment of recognition, dopamine flooding the nucleus accumbens. The "aha" moment is not metaphor. It is a measurable neural event.
+
+GUMP detects this moment. When the correlation between your motion and the music suddenly jumps — when you grok the instrument — the sound briefly opens up. Filter wide, reverb blooming, a moment of transcendence. Not a reward we programmed. A recognition of what just happened in your brain.
+
+---
+
+## What We're Actually Building
+
+Not a music app. Not an instrument. Not even a discovery tool.
+
+A frequency microscope that transposes the sub-audible music of the body into the range the ear can hear, using the same physics that organizes atoms, the same biology that synchronizes heartbeats, the same four purposes that 315 cultures independently discovered — **dance, love, healing, lullabies** — and the same dopamine pathway that fires when you solve a problem, hear a chord resolve, or suddenly understand something you've been struggling with.
+
+Your body is already making music. You just can't hear it yet. GUMP turns up the volume.
+
+And when two bodies are near each other — their nervous systems coupling through mirror neurons, their tempos converging through speed contagion, their rhythms synchronizing through the same physics that makes pendulum clocks on the same wall swing together — GUMP makes that connection audible too.
+
+The music doesn't belong to anyone. It belongs to the space between people. That's where love lives. That's where God's details are.
+
+---
+
 *"We are not building anything. We are discovering through evidence what God's movements sound like."*
+
+*"The good work is solving the paradox of intention against the hubris of self."*
 
 *— GUMP Project, March 2026*
 
@@ -173,3 +280,13 @@ All findings cited from peer-reviewed research:
 - Jakubowski, K., et al. (2017). "Dissecting an earworm." *Psychology of Aesthetics, Creativity, and the Arts*.
 - Salimpoor, V.N., et al. (2011). "Anatomically distinct dopamine release during anticipation and experience of peak emotion to music." *Nature Neuroscience*.
 - Lindenberger, U., et al. (2009). "Brains swinging in concert." *BMC Neuroscience*.
+- Power, A., et al. (2022). "Grokking: Generalization beyond overfitting." *OpenAI*.
+- Ogburn, W.F. & Thomas, D. (1922). "Are inventions inevitable?" *Political Science Quarterly*.
+- Berlyne, D.E. (1971). *Aesthetics and Psychobiology*. Appleton-Century-Crofts.
+- Cheung, V.K.M., et al. (2019). "Uncertainty and surprise jointly predict musical pleasure." *PNAS*.
+- Witek, M.A.G., et al. (2014). "Syncopation, body-movement and pleasure in groove music." *PLoS ONE*.
+- Toussaint, G. (2013). *The Geometry of Musical Rhythm*. CRC Press.
+- Manoussaki, D., et al. (2006). "Cochlear shape and low-frequency hearing." *PNAS*.
+- Haken, H., Kelso, J.A.S. & Bunz, H. (1985). "A theoretical model of phase transitions in human hand movements." *Biological Cybernetics*.
+- Patel, A.D. & Daniele, J.R. (2003). "Stress-timed vs syllable-timed languages and music." *JASA*.
+- Huron, D. (2006). *Sweet Anticipation: Music and the Psychology of Expectation*. MIT Press.
