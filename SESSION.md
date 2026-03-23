@@ -6,7 +6,13 @@ Both instances read and write here. Keep it current. Last write wins.
 ---
 
 ## Current Build
-BUILD 151 — March 19, 2026
+BUILD 151+ — March 21, 2026
+
+## Company Status
+- **beGump LLC** — EIN 41-5007294, NJ Entity ID 0451433597
+- **Patent Pending** — Application #64/011,402, Confirmation #2558
+- **Email** — jim@begump.com (live)
+- **Website** — begump.com (live)
 
 ## Active Branch / Files Being Touched
 
@@ -19,17 +25,103 @@ files in play: follow.js, brain.js, lens.js, audio.js, sensor.js, voice.js, inde
 ## What Claude Code Is Doing Right Now
 
 ```
-status: idle
-task: 20+ builds today. 138→151. Audit, water physics, identity, 3 new lenses, Grid FX, Chrome fixes.
-started: 2026-03-19
+status: idle — awaiting ygm
+task: READ EVERYTHING BELOW. Major updates March 20-21.
+started: 2026-03-21
 ```
 
+## 🔴 YGM — Claude Code READ THIS (March 21, 2026)
+
+**A LOT happened. Read in this order:**
+
+### 1. CLAUDE.md — COMPLETELY UPDATED
+Read CLAUDE.md FIRST. The founding philosophy is now written, neuroscience-backed, peer-reviewed. This is the WHY behind every line of code. Key additions:
+- "Music isn't something humans invented. It's something we discovered."
+- Verified neuroscience: rhythm + social bonding (BBS 2021), drumming rewires brain (Nature 2020), corpus callosum thicker in drummers (Schlaffke 2019), coupled oscillators entrain (Huygens 1665), interpersonal neural synchrony (eNeuro 2022)
+- The spiritual framework: shards of God, connectivity = impact, free will ensures purity
+- James's manifesto quote: "The good work, I think, is solving the paradox of intention against the hubris of self."
+- **Every design decision filters through this. Read it. Absorb it. Build accordingly.**
+
+### 2. COMPANY IS REAL NOW
+- **beGump LLC** — NJ Entity ID 0451433597, EIN 41-5007294
+- **Patent Pending** — Application #64/011,402, Confirmation #2558, filed March 20, 2026
+- **jim@begump.com** — live, sends and receives
+- **identity.js** — YOU SHIPPED THIS. It's in the patent. The fingerprint IS the patented invention.
+- License file: All Rights Reserved, James McCandless 2024-2026
+
+### 3. WHAT CC NEEDS TO DO NOW (priority order)
+
+**P1: Fix Chrome permission loop (BUG REPORT BELOW)**
+- BUILD 155/156 screenshots in /Downloads/
+- requestPermission() loops on denied — STOP after first denied
+- Hide diagnostic green text behind ?debug=1
+- The fallback message copy is correct — just make it the ONLY thing shown
+
+**P2: Outfits — proximity prototype**
+- identity.js is shipped and working
+- Next step: two phones on same WiFi, one audio reaction to nearness
+- Start with: proximity scales a shared filter — when close, both filters open wider
+- Read the full BS: OUTFITS blocks below for the architecture discussion
+- Read the distance model: 20ft harmonic shadow → 10ft filter → 5ft tempo entrainment → contact full merge
+
+**P3: Ascension tuning**
+- Peak response wired but needs James's feedback on feel
+- Touch dimension still missing
+- Voice leading fix from BUILD 147 needs testing
+
+**P4: Water physics tuning**
+- Constants updated to gravity=1.8, damping=0.93, bounce=0.35 per BS Decision
+- James hasn't given feedback yet — needs phone testing
+
+### 4. THE FOUNDING PRINCIPLE (for CC's context)
+James articulated the deepest layer of GUMP today:
+- A song is a photograph. GUMP is the weather. Both real. Neither competing.
+- "People start to know you by how you sound coming down the hall." — this is the ONE SENTENCE.
+- Music Outfits = shards of God reconnecting through sound. Not a feature. A return.
+- The instrument follows the human. Never leads. Free will produces beauty without coercion.
+- Discovery > invention. The body already makes music. GUMP makes it audible.
+
+### 5. FILES TO READ
+- `CLAUDE.md` — founding philosophy (READ FIRST)
+- `MANIFESTO.md` — James's founder manifesto "On Intention and Execution"
+- `office/00_INDEX.md` — master index of all business files
+- `GUMP_PATENT_PROVISIONAL.md` — what was filed with USPTO (identity.js is in there)
+- `/Downloads/IMG_8935.PNG` — BUILD 155 Chrome bug screenshot
+- `/Downloads/IMG_A9310658E7AA-1.jpeg` — BUILD 156 Chrome bug screenshot
+
 ## What Cowork Has Done This Session
+
+### March 19
 - ✅ Background blur on IMG_0290.MOV (Emilia scene) — output: 0290_blurred.mp4
 - ✅ Built GUMP_pitch_v3.mp4 (61s, cross-dissolve, 2026-style captions)
 - ✅ Grant reminders written: NJ June 1, Guggenheim Sept 1, New Music USA Nov 1
 - ✅ LACMA App+Technology Lab 2026 submitted ($50K, Apr 22)
 - ✅ Creative Capital submitted ($50K, Apr 2) — received confirmation email
+
+### March 20 — THE BIG DAY
+- ✅ **PATENT FILED** — Application #64/011,402, Confirmation #2558, $65 micro entity
+- ✅ **beGump LLC registered** — NJ Entity ID 0451433597, EIN 41-5007294
+- ✅ **jim@begump.com** — live, sends and receives (Cloudflare + Gmail SMTP)
+- ✅ **13 automated agents deployed** (5 proactive, 4 reactive, 1 strategist, 3 reminders)
+- ✅ Patent assignment document drafted (transfers IP from James → beGump LLC)
+- ✅ Operating agreement drafted (single-member LLC, ready to sign)
+- ✅ Tax calculator built (interactive HTML, all revenue types)
+- ✅ Business hub dashboard built (7 tabs, full command center)
+- ✅ Press kit, 4 press pitches, NIME academic paper abstract
+- ✅ 30-day TikTok content calendar for @jimmymikemc
+- ✅ 3-email MailerLite welcome sequence
+- ✅ Patreon page copy + tiers ready to publish
+- ✅ Doris Duke Foundation meeting request drafted
+- ✅ Grant tracker with 20+ opportunities researched
+- ✅ Bulletproof file organization — Desktop/beGump_LLC/ + music2.0/office/ (two copies of everything)
+- ✅ Founder's Manifesto written by James — "On Intention and Execution"
+- ✅ **CLAUDE.md updated with founding philosophy** — neuroscience-backed, peer-reviewed citations
+- ✅ "Music isn't something humans invented. It's something we discovered." — the founding principle
+
+### March 21
+- ✅ Full business audit — LLC, patent, tax obligations, gaps identified
+- ✅ Two critical gaps found: patent assignment (IP not in LLC's name yet) + no business bank account
+- ✅ Patent assignment + operating agreement PDFs generated and filed in 01_LEGAL/
 
 ## Handoff Notes (Cowork → Claude Code)
 _Things I found that are relevant to the code_
@@ -324,6 +416,34 @@ Two phones. Same WiFi. WebRTC via PeerJS (outfit.js already has the plumbing). O
 1. `identity.js` — 60 lines. Reads existing state from follow.js + brain.js, packages the fingerprint, updates every 2 seconds.
 2. Expose `Follow.identity` as a frozen object.
 3. Don't touch outfit.js yet. Just prove the fingerprint exists and is unique per session.
+
+---
+
+---
+
+## 🔴 BUG REPORT — Cowork → Claude Code (March 20, 2026)
+
+**BUILD 155 screenshot:** `/Downloads/IMG_8935.PNG`
+**BUILD 156 screenshot:** `/Downloads/IMG_A9310658E7AA-1.jpeg`
+
+**Status as of BUILD 156:**
+Chrome iOS STILL looping requestPermission() → denied. Same core bug.
+
+**What improved in 156:**
+- Fallback message is better: "Chrome blocks motion by default. Tap the lock icon in the address bar → Site Settings → Motion Sensors → Allow. Then reload. Or open in Safari — it works there."
+- The Safari fallback line is good
+
+**What's still broken:**
+1. **The retry loop is still running.** requestPermission() is being called at [2.3s], [4.0s], [4.2s] — still retrying after "denied". This needs to STOP after the first denied result.
+2. **The diagnostic green text is still showing in production.** The fallback message at the bottom is correct and helpful, but it's buried under a wall of green diagnostic text that looks broken to a user. Hide the diagnostic behind a debug flag or remove it entirely for production.
+3. **The requestPermission loop and diagnostic text together make the app look crashed** even though the fallback instructions are actually correct.
+
+**What CC still needs to fix:**
+1. **ONE call to requestPermission(). If denied, stop. Show the fallback message. No retries.**
+2. **Hide diagnostic output.** Move it behind `?debug=1` URL param or remove it.
+3. The fallback message copy is good — just needs to be the ONLY thing the user sees when Chrome denies.
+
+**James's workaround:** Open in Safari. It works there.
 
 ---
 
