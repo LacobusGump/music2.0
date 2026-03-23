@@ -822,50 +822,47 @@ function exOctave(){
 
 /* 7/8 rhythm — 2+2+3 pattern */
 function ex78(){
-  var ctx = getExCtx(), t = ctx.currentTime;
-  var unit = 0.14;
-  var hits = [];
-  for(var cyc = 0; cyc < 3; cyc++){
-    for(var sub = 0; sub < 7; sub++){
-      hits.push({pos: cyc * 7 + sub, accent: (sub === 0 || sub === 2 || sub === 4)});
-    }
+  var ctx=getExCtx(), t=ctx.currentTime+0.05;
+  // 7/8 = 2+2+3. ALL 7 eighth notes play.
+  // Accents on group downbeats: positions 0, 2, 4 (within each cycle of 7)
+  // Groups: [0,1] [2,3] [4,5,6] = short short LONG
+  // BOM-bap | BOM-bap | BOM-bap-bap
+  // 4 cycles so the groove LOCKS IN
+  var unit=0.135; // eighth note duration ~135ms, feels natural for 7/8
+  function drum(time,accent){
+    // Warm hand drum: sine body + gentle noise transient
+    // Accent = lower pitch, louder, longer. Ghost = higher, quieter, shorter.
+    var freq=accent?180:260;
+    var vol=accent?0.25:0.07;
+    var decay=accent?0.12:0.05;
+    // Sine body (the tone of the drum)
+    var o=ctx.createOscillator();
+    o.type='sine';
+    o.frequency.setValueAtTime(freq,time);
+    o.frequency.exponentialRampToValueAtTime(freq*0.6,time+decay);
+    var g=ctx.createGain();
+    g.gain.setValueAtTime(vol,time);
+    g.gain.exponentialRampToValueAtTime(0.001,time+decay);
+    o.connect(g);g.connect(ctx.destination);
+    o.start(time);o.stop(time+decay+0.02);
+    // Noise transient (the slap)
+    var bl=Math.floor(ctx.sampleRate*0.015);
+    var nb=ctx.createBuffer(1,bl,ctx.sampleRate);
+    var nd=nb.getChannelData(0);
+    for(var i=0;i<bl;i++) nd[i]=(Math.random()*2-1)*Math.exp(-i/(bl*0.25));
+    var ns=ctx.createBufferSource();ns.buffer=nb;
+    var nf=ctx.createBiquadFilter();nf.type='bandpass';
+    nf.frequency.value=accent?800:1200;nf.Q.value=1.5;
+    var ng=ctx.createGain();ng.gain.value=accent?0.15:0.04;
+    ns.connect(nf);nf.connect(ng);ng.connect(ctx.destination);
+    ns.start(time);ns.stop(time+0.02);
   }
-  for(var i = 0; i < hits.length; i++){
-    (function(h){
-      var hitTime = t + h.pos * unit;
-      var bufLen = Math.floor(ctx.sampleRate * 0.08);
-      var buf = ctx.createBuffer(1, bufLen, ctx.sampleRate);
-      var data = buf.getChannelData(0);
-      for(var s = 0; s < bufLen; s++){
-        var env = Math.exp(-s / (ctx.sampleRate * 0.02));
-        data[s] = (Math.random() * 2 - 1) * env;
-      }
-      var src = ctx.createBufferSource();
-      src.buffer = buf;
-      var bpf = ctx.createBiquadFilter();
-      bpf.type = 'bandpass';
-      bpf.frequency.value = h.accent ? 1200 : 1600;
-      bpf.Q.value = 2.5;
-      var osc = ctx.createOscillator();
-      osc.type = 'sine';
-      osc.frequency.value = h.accent ? 280 : 350;
-      var oscGain = ctx.createGain();
-      oscGain.gain.setValueAtTime(h.accent ? 0.12 : 0.06, hitTime);
-      oscGain.gain.exponentialRampToValueAtTime(0.001, hitTime + 0.06);
-      var nGain = ctx.createGain();
-      nGain.gain.setValueAtTime(h.accent ? 0.3 : 0.18, hitTime);
-      nGain.gain.exponentialRampToValueAtTime(0.001, hitTime + 0.07);
-      var lpf = ctx.createBiquadFilter();
-      lpf.type = 'lowpass';
-      lpf.frequency.value = 3000;
-      lpf.Q.value = 0.5;
-      src.connect(bpf); bpf.connect(nGain);
-      nGain.connect(lpf);
-      osc.connect(oscGain); oscGain.connect(lpf);
-      lpf.connect(ctx.destination);
-      src.start(hitTime); src.stop(hitTime + 0.1);
-      osc.start(hitTime); osc.stop(hitTime + 0.1);
-    })(hits[i]);
+  for(var cyc=0;cyc<4;cyc++){
+    for(var beat=0;beat<7;beat++){
+      var pos=cyc*7+beat;
+      var isAccent=(beat===0||beat===2||beat===4);
+      drum(t+pos*unit,isAccent);
+    }
   }
 }
 
