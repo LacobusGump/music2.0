@@ -106,6 +106,8 @@ const Flow = (function () {
     reverbTarget:  0.25,
     filterBias:    0,
     dynamicRange:  1.0,
+    tensionDetune: 0,
+    prevArc:       '',
     _momentCooldown: 0,
     _hrDegree:     0,
   };
@@ -169,6 +171,35 @@ const Flow = (function () {
   // -- Water wall bounce state --
   var _waterWasStacked = false;
   var _waterSplashLast = 0;
+
+  // -- Narmour implication-realization state --
+  var _lastInterval  = 0; // last melodic interval in scale degrees
+  var _lastDirection = 0; // +1 up, -1 down, 0 unison
+
+  // 1/f timing — the signature of life (Hennig 2011)
+  // Voss-McCartney algorithm: correlated deviations, not random jitter
+  var _pinkTimingSeq = (function() {
+    var numGen = 8, vals = new Array(numGen).fill(0);
+    var seq = new Float32Array(512);
+    for (var i = 0; i < 512; i++) {
+      var mask = i, bit = 0;
+      while (bit < numGen) {
+        if ((mask & 1) === 0 && bit > 0) break;
+        vals[bit] = Math.random() * 2 - 1;
+        mask >>= 1; bit++;
+      }
+      var sum = 0;
+      for (var g = 0; g < numGen; g++) sum += vals[g];
+      seq[i] = sum / numGen * 0.012; // 12ms std dev in seconds
+    }
+    return seq;
+  })();
+  var _pinkTimingIdx = 0;
+
+  function hTime(t) {
+    var offset = _pinkTimingSeq[_pinkTimingIdx++ & 511];
+    return t + offset;
+  }
 
   // -- Session energy / epigenetic --
   var _sessionEnergyAccum = 0;
@@ -496,6 +527,27 @@ const Flow = (function () {
           blended = Math.round(blended * 0.72 + colorDeg * 0.28);
         }
 
+        // Narmour implication-realization: steps continue, leaps reverse
+        var interval = blended - _currentDegree;
+        var absInterval = Math.abs(interval);
+        var direction = interval > 0 ? 1 : interval < 0 ? -1 : 0;
+
+        if (absInterval > 0) {
+          // After a large leap (4+ degrees), gently pull toward reversal
+          if (Math.abs(_lastInterval) >= 4 && direction === _lastDirection) {
+            // The melody wants to reverse but tilt is pushing it further
+            // Apply gentle gravity toward reversal (don't force — enable, don't choose)
+            blended -= direction * Math.min(2, absInterval * 0.3);
+            blended = Math.round(blended);
+          }
+
+          // After small steps in one direction (3+ consecutive), allow larger leap
+          // This creates the natural "step step step LEAP" phrase shape
+
+          _lastInterval = interval;
+          _lastDirection = direction;
+        }
+
         _currentDegree = blended;
         Harmony.recordNote(_currentDegree);
         _lastNoteTime = now;
@@ -510,6 +562,15 @@ const Flow = (function () {
           var baseVel = 0.38 + _fadeGain * 0.45;
           if (_prodigy.arc === 'rising') baseVel *= 1.12;
           else if (_prodigy.arc === 'falling') baseVel *= 0.85;
+
+          // Phrase velocity arch — bell curve peaking at 65% through phrase (Juslin & Laukka 2003)
+          if (_phraseActive && _phraseStartTime > 0) {
+            var phraseDur = now - _phraseStartTime;
+            var expectedLen = Rhythm.tempoLocked ? Rhythm.state.beatInterval * 8 : 6000;
+            var phrasePos = Math.min(1, phraseDur / expectedLen);
+            var archCurve = Math.exp(-Math.pow((phrasePos - 0.65) / 0.35, 2));
+            baseVel *= (0.72 + 0.28 * archCurve); // 72-100% range
+          }
 
           // Harmonic tension: dissonant degrees play softer
           var degTension = Harmony.getDegreeTension(Math.abs(_currentDegree) % 7);
@@ -530,7 +591,7 @@ const Flow = (function () {
           }
 
           try {
-            Sound.play(contPalette.voice || 'epiano', Sound.currentTime, freq, vel, phraseDec);
+            Sound.play(contPalette.voice || 'epiano', hTime(Sound.currentTime), freq, vel, phraseDec);
             _noteCount++;
           } catch (e) { _errorCount++; }
         }
@@ -599,13 +660,34 @@ const Flow = (function () {
       try { Sound.setReverbMix(_prodigy.reverbTarget); } catch (e) {}
     }
 
-    // 2. FILTER BIAS: rising = brighter, falling = darker
+    // 2. FILTER BIAS + ANTICIPATION-RESOLUTION (Salimpoor 2011: two-phase dopamine)
+    //
+    // Anticipation: rising energy = building brightness + space (caudate dopamine)
     if (_prodigy.arc === 'rising') {
-      _prodigy.filterBias += (400 - _prodigy.filterBias) * 2.0 * dt;
+      _prodigy.filterBias += (600 - _prodigy.filterBias) * 2.5 * dt; // brighter
+      _prodigy.reverbTarget = Math.min(0.65, _prodigy.reverbTarget + dt * 0.08); // more space
+
+      // Long rise (>4s) = building tension via subtle pitch detuning
+      if (_prodigy.arcDuration > 4) {
+        _prodigy.tensionDetune = Math.min(8, _prodigy.tensionDetune + dt * 1.5); // cents
+      }
     } else if (_prodigy.arc === 'falling') {
       _prodigy.filterBias += (-300 - _prodigy.filterBias) * 1.5 * dt;
     } else {
       _prodigy.filterBias += (0 - _prodigy.filterBias) * 1.0 * dt;
+    }
+
+    // Resolution: falling after rising = release (nucleus accumbens dopamine)
+    if (_prodigy.arc === 'falling' && _prodigy.prevArc === 'rising') {
+      // Brief filter bloom on the transition moment
+      _prodigy.filterBias = 800; // momentary brightness burst
+      _prodigy.tensionDetune = 0; // snap to unison — resolution
+    }
+
+    // Decay tension detuning when not rising
+    if (_prodigy.arc !== 'rising' && _prodigy.tensionDetune > 0) {
+      _prodigy.tensionDetune *= (1 - dt * 3.0); // quick decay
+      if (_prodigy.tensionDetune < 0.1) _prodigy.tensionDetune = 0;
     }
 
     _filterTarget += _prodigy.filterBias;
@@ -651,6 +733,9 @@ const Flow = (function () {
         try { Sound.setMasterGain(Math.min(0.9, _fadeGain + 0.15)); } catch (e) {}
       }
     }
+
+    // Track arc transitions for anticipation-resolution detection
+    _prodigy.prevArc = _prodigy.arc;
   }
 
 
@@ -747,7 +832,7 @@ const Flow = (function () {
         if (h) {
           var freq = Harmony.freq(note.deg, h.octave || 0);
           try {
-            Sound.play(h.voice || 'epiano', Sound.currentTime,
+            Sound.play(h.voice || 'epiano', hTime(Sound.currentTime),
               freq, note.vel * _fadeGain, h.decay || 1.8);
           } catch (e) { _errorCount++; }
           Harmony.recordNote(note.deg);
@@ -829,7 +914,7 @@ const Flow = (function () {
         ? Math.max(80, 60000 / Rhythm.tempo / 4) : 120;
 
       // Schedule via Web Audio time (no setTimeout — principle: no clocks make musical decisions)
-      var baseTime = (typeof Sound !== 'undefined' && Sound.ctx) ? Sound.currentTime : 0;
+      var baseTime = (typeof Sound !== 'undefined' && Sound.ctx) ? hTime(Sound.currentTime) : 0;
       for (var ci = 0; ci < chord.length; ci++) {
         try {
           var noteVel = resVel * (1 - ci * (0.10 / chord.length));
@@ -1031,7 +1116,7 @@ const Flow = (function () {
     if (_sessionPhase === 0) return;
 
     try {
-      var time = Sound.currentTime;
+      var time = hTime(Sound.currentTime);
       var vel = Math.min(1, magnitude / 4) * _phraseIntensityFactor;
       var palette = _lens.palette || {};
 

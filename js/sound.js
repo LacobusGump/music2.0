@@ -18,8 +18,8 @@
  *
  * Signal chain (v2):
  *   voice → reverbSend/delaySend → sidechainGain → compressor →
- *   masterGain → masterHPF(55Hz) → eqLowShelf → eqMidPeak →
- *   eqHighShelf → masterLP → limiter(-3dBFS) → panner → destination
+ *   warmthShaper(tanh) → masterGain → masterHPF(55Hz) → eqLowShelf →
+ *   eqMidPeak → eqHighShelf → masterLP → limiter(-3dBFS) → panner → destination
  *
  *   drums → drumBus → drumComp → drumBusLP → masterGain
  *   void drone → voidGain → masterHPF (bypasses masterGain!)
@@ -80,6 +80,9 @@ const Sound = (function () {
   var voidOscs = [], voidOscGains = [];
   var voidGain = null;
 
+  // Rich PeriodicWave waveforms (built in init)
+  var WAVES = {};
+
   // Named layer registry
   var layers = {};
 
@@ -112,20 +115,20 @@ const Sound = (function () {
 
   var VOICES = {
     piano: {
-      wave: 'triangle', attack: 0.005, decay: 0.3, sustain: 0.4, release: 0.8,
+      wave: 'triangle', periodicWave: 'warmPad', attack: 0.005, decay: 0.3, sustain: 0.4, release: 0.8,
       filterFreq: 2800, filterQ: 0.8, filterDecay: 0.2,
       breath: 0.003, drift: 2, reverbSend: 0.25, delaySend: 0.20,
       // Hammer click transient, two detuned triangles + sine octave harmonic
       custom: 'piano'
     },
     mono: {
-      wave: 'triangle', attack: 0.018, decay: 0.3, sustain: 0.7, release: 0.5,
+      wave: 'triangle', periodicWave: 'thickSaw', attack: 0.018, decay: 0.3, sustain: 0.7, release: 0.5,
       filterFreq: 1800, filterQ: 0.5, drift: 3, reverbSend: 0.50, delaySend: 0.22,
       // Portamento lead — two triangles + sub sine, glides between pitches
       custom: 'mono'
     },
     strings: {
-      wave: 'sawtooth', voices: 5, detune: [-14, -5, 0, 5, 14],
+      wave: 'sawtooth', periodicWave: 'thickSaw', voices: 5, detune: [-14, -5, 0, 5, 14],
       attack: 0.12, decay: 0.0, sustain: 0.8, release: 1.5,
       filterFreq: 2200, filterQ: 0.4,
       vibrato: { rate: 5.2, depth: 0.004, delay: 0.4 },
@@ -150,7 +153,7 @@ const Sound = (function () {
       custom: 'epiano'
     },
     bell: {
-      wave: 'sine', attack: 0.001, decay: 3.0, sustain: 0.0, release: 0.1,
+      wave: 'sine', periodicWave: 'glassBell', attack: 0.001, decay: 3.0, sustain: 0.0, release: 0.1,
       filterFreq: 2800, filterQ: 0.5,
       // Inharmonic partials — real bell spectrum
       partials: [1, 2.4, 4.1, 5.3, 6.7],
@@ -158,14 +161,14 @@ const Sound = (function () {
       reverbSend: 0.25, delaySend: 0.40
     },
     pluck: {
-      wave: 'triangle', attack: 0.001, decay: 0.15, sustain: 0.0, release: 0.3,
+      wave: 'triangle', periodicWave: 'brightLead', attack: 0.001, decay: 0.15, sustain: 0.0, release: 0.3,
       filterFreq: 4000, filterQ: 0.7, filterDecay: 0.2,
       reverbSend: 0.25, delaySend: 0.15,
       // Noise excitation + resonant bandpass body
       custom: 'pluck'
     },
     stab: {
-      wave: 'sawtooth', voices: 2, attack: 0.001, decay: 0.1, sustain: 0.0, release: 0.2,
+      wave: 'sawtooth', periodicWave: 'thickSaw', voices: 2, attack: 0.001, decay: 0.1, sustain: 0.0, release: 0.2,
       filterFreq: 3500, filterQ: 6, filterDecay: 0.08,
       reverbSend: 0.08, delaySend: 0.0,
       custom: 'stab'
@@ -177,28 +180,28 @@ const Sound = (function () {
       reverbSend: 0.50, delaySend: 0.0
     },
     massive: {
-      wave: 'sawtooth', attack: 0.013, decay: 0.5, sustain: 0.5, release: 0.8,
+      wave: 'sawtooth', periodicWave: 'thickSaw', attack: 0.013, decay: 0.5, sustain: 0.5, release: 0.8,
       filterFreq: 2600, filterQ: 1.2,
       // Phase-dependent unison build (0-4 phases, earned by engagement)
       custom: 'massive',
       reverbSend: 0.28, delaySend: 0.44
     },
     gridstack: {
-      wave: 'sawtooth', attack: 0.007, decay: 0.2, sustain: 0.32, release: 0.3,
+      wave: 'sawtooth', periodicWave: 'brightLead', attack: 0.007, decay: 0.2, sustain: 0.32, release: 0.3,
       // Harmonic stack: root + m3 + P5 + m7 + octave, each with unison detune
       // Resonant filter sweep = the viral "whoop"
       custom: 'gridstack',
       reverbSend: 0.22, delaySend: 0.58
     },
     unisonWall: {
-      wave: 'sawtooth', voices: 8, attack: 0.05, decay: 0.0, sustain: 1.0, release: 3.0,
+      wave: 'sawtooth', periodicWave: 'thickSaw', voices: 8, attack: 0.05, decay: 0.0, sustain: 1.0, release: 3.0,
       filterFreq: 600, filterQ: 0.5,
       // Built via createLayer, not fire-and-forget
       custom: 'unisonWall',
       reverbSend: 0.45, delaySend: 0.22
     },
     upright: {
-      wave: 'triangle', attack: 0.005, decay: 0.6, sustain: 0.2, release: 0.4,
+      wave: 'triangle', periodicWave: 'warmPad', attack: 0.005, decay: 0.6, sustain: 0.2, release: 0.4,
       filterFreq: 1100, filterQ: 0.8,
       // Formant body resonance + string buzz transient
       custom: 'upright',
@@ -308,7 +311,55 @@ const Sound = (function () {
     compressor.ratio.value = 2.5;
     compressor.attack.value = 0.012;
     compressor.release.value = 0.30;
-    compressor.connect(masterGain);
+    // Subtle saturation — tanh soft-clipping for analog warmth
+    var warmthShaper = ctx.createWaveShaper();
+    var warmthCurve = new Float32Array(44100);
+    var drive = 0.06; // subtle: felt, not heard
+    for (var i = 0; i < 44100; i++) {
+      var x = (i * 2 / 44100) - 1;
+      warmthCurve[i] = Math.tanh(x * (1 + drive * 10));
+    }
+    warmthShaper.curve = warmthCurve;
+    warmthShaper.oversample = '4x';
+
+    // Chain: compressor → warmthShaper → masterGain
+    compressor.connect(warmthShaper);
+    warmthShaper.connect(masterGain);
+
+    // ── Rich waveforms via PeriodicWave — harmonics that real instruments have ──
+    WAVES = {};
+
+    // Warm pad: emphasizes odd harmonics, gentle rolloff
+    var padReal = new Float32Array(16); padReal[0] = 0;
+    var padImag = new Float32Array(16);
+    padImag[1]=1.0; padImag[2]=0.5; padImag[3]=0.7; padImag[4]=0.25;
+    padImag[5]=0.4; padImag[6]=0.12; padImag[7]=0.2; padImag[8]=0.06;
+    padImag[9]=0.15; padImag[10]=0.04; padImag[11]=0.08; padImag[12]=0.02;
+    WAVES.warmPad = ctx.createPeriodicWave(padReal, padImag);
+
+    // Bright lead: strong fundamentals + upper harmonics for cut
+    var leadImag = new Float32Array(16);
+    leadImag[1]=1.0; leadImag[2]=0.8; leadImag[3]=0.6; leadImag[4]=0.5;
+    leadImag[5]=0.4; leadImag[6]=0.35; leadImag[7]=0.3; leadImag[8]=0.25;
+    leadImag[9]=0.2; leadImag[10]=0.18; leadImag[11]=0.15; leadImag[12]=0.12;
+    WAVES.brightLead = ctx.createPeriodicWave(padReal, leadImag);
+
+    // Hollow reed: odd harmonics only (clarinet-like)
+    var reedImag = new Float32Array(16);
+    reedImag[1]=1.0; reedImag[3]=0.75; reedImag[5]=0.5; reedImag[7]=0.25;
+    reedImag[9]=0.15; reedImag[11]=0.08; reedImag[13]=0.04;
+    WAVES.hollowReed = ctx.createPeriodicWave(padReal, reedImag);
+
+    // Thick saw: all harmonics, gentle 1/n rolloff (richer than raw sawtooth)
+    var sawImag = new Float32Array(32);
+    for (var h = 1; h < 32; h++) sawImag[h] = 1.0 / h;
+    WAVES.thickSaw = ctx.createPeriodicWave(new Float32Array(32), sawImag);
+
+    // Glass bell: inharmonic partials for shimmer
+    var bellImag = new Float32Array(16);
+    bellImag[1]=1.0; bellImag[2]=0.1; bellImag[3]=0.65; bellImag[4]=0.05;
+    bellImag[5]=0.45; bellImag[6]=0.35; bellImag[7]=0.1; bellImag[8]=0.25;
+    WAVES.glassBell = ctx.createPeriodicWave(padReal, bellImag);
 
     // ── Sidechain gain — duck on kick ────────────────────────────────
     sidechainGain = ctx.createGain();
@@ -421,17 +472,37 @@ const Sound = (function () {
     convolver = ctx.createConvolver();
     var len = Math.floor(sr * cappedDecay);
     var buf = ctx.createBuffer(2, len, sr);
-    var fadeInSamples = Math.floor(0.050 * sr);
+
+    // Early reflection taps at prime-ish spacings (ms)
+    var erTaps   = [5, 11, 17, 23, 31, 37, 43, 53, 67, 79];
+    var erGains  = [0.72, 0.60, 0.50, 0.42, 0.35, 0.28, 0.22, 0.16, 0.11, 0.07];
+    var lateTailStart = Math.floor(0.080 * sr); // late diffuse tail starts at 80ms
+    var lateFadeLen   = Math.floor(0.015 * sr); // 15ms fade-in on late tail
 
     for (var ch = 0; ch < 2; ch++) {
       var d = buf.getChannelData(ch);
-      for (var j = 0; j < len; j++) {
-        var t = j / len;
-        var fadeIn   = Math.min(1, j / fadeInSamples);
+
+      // Early reflections: discrete taps — slightly different timing per channel for stereo width
+      for (var er = 0; er < erTaps.length; er++) {
+        var tapMs = erTaps[er] + (ch === 1 ? 1.3 : 0); // R channel offset for width
+        var tapSample = Math.floor(tapMs * 0.001 * sr);
+        if (tapSample < len) {
+          // Short noise burst at each tap (3 samples wide for diffusion)
+          for (var ts = 0; ts < 3 && (tapSample + ts) < len; ts++) {
+            d[tapSample + ts] += (Math.random() * 2 - 1) * erGains[er] * (1 - ts / 3);
+          }
+        }
+      }
+
+      // Late diffuse tail starting at 80ms: filtered noise with exponential decay and HF damping
+      for (var j = lateTailStart; j < len; j++) {
+        var tNorm = (j - lateTailStart) / (len - lateTailStart); // 0→1 over tail
         var exponent = 1.5 + damping * 3;
-        var envelope = Math.pow(1 - t, exponent);
-        var hfDamp   = 1 - damping * t;
-        d[j] = (Math.random() * 2 - 1) * envelope * Math.max(0.05, hfDamp) * fadeIn;
+        var envelope = Math.pow(1 - tNorm, exponent);
+        var hfDamp   = 1 - damping * tNorm;
+        // Fade-in on late tail to prevent clicking at the seam
+        var lateFade = Math.min(1, (j - lateTailStart) / lateFadeLen);
+        d[j] += (Math.random() * 2 - 1) * envelope * Math.max(0.05, hfDamp) * lateFade;
       }
     }
     convolver.buffer = buf;
@@ -572,6 +643,32 @@ const Sound = (function () {
     lp.connect(destination);
     src.start(time);
     src.stop(time + (duration || 1));
+  }
+
+
+  /**
+   * Add a shaped noise-burst transient to define instrument identity.
+   * The first 10-20ms of a sound is what tells the ear WHAT it is.
+   * dest: AudioNode to connect output to
+   * time: start time (ctx.currentTime based)
+   * durMs: duration in milliseconds
+   * freqLo/freqHi: bandpass range
+   * level: gain multiplier
+   */
+  function _addTransient(dest, time, durMs, freqLo, freqHi, level) {
+    var dur = durMs / 1000;
+    var buf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * dur), ctx.sampleRate);
+    var d = buf.getChannelData(0);
+    for (var i = 0; i < d.length; i++) {
+      d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / d.length, 3);
+    }
+    var src = ctx.createBufferSource(); src.buffer = buf;
+    var bp = ctx.createBiquadFilter(); bp.type = 'bandpass';
+    bp.frequency.value = (freqLo + freqHi) / 2;
+    bp.Q.value = Math.max(0.5, bp.frequency.value / Math.max(1, freqHi - freqLo));
+    var g = ctx.createGain(); g.gain.value = level;
+    src.connect(bp); bp.connect(g); g.connect(dest);
+    src.start(time); src.stop(time + dur);
   }
 
 
@@ -997,7 +1094,11 @@ const Sound = (function () {
       var perVoiceGain = 0.80 / detuneArr.length;
       for (var ui = 0; ui < detuneArr.length; ui++) {
         var uo = ctx.createOscillator();
-        uo.type = reg.wave || 'sawtooth';
+        if (reg.periodicWave && WAVES[reg.periodicWave]) {
+          uo.setPeriodicWave(WAVES[reg.periodicWave]);
+        } else {
+          uo.type = reg.wave || 'sawtooth';
+        }
         uo.frequency.value = freq;
         uo.detune.value = detuneArr[ui];
         var ug = ctx.createGain();
@@ -1028,7 +1129,11 @@ const Sound = (function () {
     } else {
       // Single oscillator voice
       var so = ctx.createOscillator();
-      so.type = reg.wave || 'triangle';
+      if (reg.periodicWave && WAVES[reg.periodicWave]) {
+        so.setPeriodicWave(WAVES[reg.periodicWave]);
+      } else {
+        so.type = reg.wave || 'triangle';
+      }
       so.frequency.value = freq;
       so.connect(filt);
       so.start(time);
@@ -1106,6 +1211,9 @@ const Sound = (function () {
 
     var rs = ctx.createGain(); rs.gain.value = 0.25; env.connect(rs); rs.connect(reverbSend);
     var ds = ctx.createGain(); ds.gain.value = 0.2;  env.connect(ds); ds.connect(delaySend);
+
+    // Attack transient — defines "piano" in the first 12ms
+    _addTransient(sidechainGain, time, 12, 800, 4000, vel * 0.35);
 
     var end = time + decay + 0.5;
     o1.start(time); o1.stop(end);
@@ -1257,6 +1365,9 @@ const Sound = (function () {
     var rs = ctx.createGain(); rs.gain.value = 0.25; env.connect(rs); rs.connect(reverbSend);
     var ds = ctx.createGain(); ds.gain.value = 0.15; env.connect(ds); ds.connect(delaySend);
 
+    // Attack transient — defines "pluck" in the first 6ms
+    _addTransient(sidechainGain, time, 6, 1500, 4000, vel * 0.4);
+
     excSrc.start(time); excSrc.stop(time + 0.006);
     osc.start(time); osc.stop(time + decay + 0.1);
   }
@@ -1285,6 +1396,10 @@ const Sound = (function () {
     oG.connect(filt); sub.connect(filt); filt.connect(env);
     env.connect(sidechainGain);
     var rs = ctx.createGain(); rs.gain.value = 0.08; env.connect(rs); rs.connect(reverbSend);
+
+    // Attack transient — defines "stab" in the first 3ms
+    _addTransient(sidechainGain, time, 3, 1600, 3000, vel * 0.5);
+
     o.start(time); o.stop(time + 0.2); sub.start(time); sub.stop(time + 0.2);
   }
 
