@@ -65,8 +65,8 @@ const App = (function () {
   // v2 architecture defines Flow and Sound. Until those modules exist,
   // bridge to Follow and Audio. When Flow/Sound ship, update these aliases.
 
-  function getFlow()  { return typeof Flow !== 'undefined' ? Flow : Follow; }
-  function getSound() { return typeof Sound !== 'undefined' ? Sound : Audio; }
+  function getFlow()  { return typeof Flow !== 'undefined' ? Flow : (typeof Follow !== 'undefined' ? Follow : null); }
+  function getSound() { return typeof Sound !== 'undefined' ? Sound : (typeof Audio !== 'undefined' ? Audio : null); }
 
   // ── iOS AUDIO WATCHDOG ─────────────────────────────────────────────
   // iOS kills AudioContext whenever the app loses focus: lock screen,
@@ -261,9 +261,9 @@ const App = (function () {
         Brain.init();
       }
 
-      // Sound / Audio
+      // Sound (v2 orchestra)
       var sound = getSound();
-      blog(sound === Audio ? 'Audio.init()' : 'Sound.init()');
+      blog('Sound.init()');
       sound.init(audioCtx);
 
       // Harmony
@@ -290,9 +290,9 @@ const App = (function () {
         Identity.init();
       }
 
-      // Flow / Follow
+      // Flow (v2 conductor)
       var flow = getFlow();
-      blog(flow === Follow ? 'Follow.init()' : 'Flow.init()');
+      blog('Flow.init()');
       flow.init();
 
       // Build lens picker and apply
