@@ -508,7 +508,10 @@ const Body = (function () {
     function alpha() { return Math.max(0.08, 1 / Math.sqrt(data.n + 1)); }
 
     var api = {
-      recordPeak: function (mag) { sess.peaks.push(mag); },
+      recordPeak: function (mag) {
+        sess.peaks.push(mag);
+        if (sess.peaks.length > 256) sess.peaks.shift(); // cap memory
+      },
 
       tick: function (dtMs, silent) {
         sess.totalMs += dtMs;

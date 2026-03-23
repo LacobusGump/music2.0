@@ -225,6 +225,7 @@ var Harmony = (function () {
   var _phraseBreathing = false;      // true during phrase breath pause
   var _breathingTimer = 0;           // ms remaining in breath
   var _phraseContour = 'arch';       // current contour name
+  var _contourBias = null;           // lens-preferred contour (set by configure)
   var _phraseActive = false;         // whether a phrase is in progress
 
   // Harmonic rhythm — energy-driven chord changes (NOT timer-driven)
@@ -1044,6 +1045,18 @@ var Harmony = (function () {
     if (config.mode !== undefined && MODES[config.mode]) {
       _mode = config.mode;
       _scale = MODES[config.mode];
+    }
+    // Gravity strength — how strongly sweet-spot frets pull (0 = free, 1 = strong)
+    if (config.gravityStrength !== undefined) {
+      DEFAULT_SWEET_SPOT_PULL = Math.max(0, Math.min(1, config.gravityStrength));
+    }
+    // Scale override — allows three-act arc to replace scale degrees (e.g., sus4)
+    if (config._scaleOverride && Array.isArray(config._scaleOverride)) {
+      _scale = config._scaleOverride;
+    }
+    // Contour bias — lens-preferred phrase contour
+    if (config.contourBias !== undefined) {
+      _contourBias = config.contourBias;
     }
   }
 

@@ -780,6 +780,7 @@ var Rhythm = (function () {
    * @returns {object} Current rhythm state snapshot
    */
   function update(dt, bodyState) {
+    try {
     if (!bodyState) return getState();
 
     var energy = bodyState.energy || 0;
@@ -858,6 +859,7 @@ var Rhythm = (function () {
     }
 
     return getState();
+    } catch (e) { /* never crash the music */ return getState(); }
   }
 
 

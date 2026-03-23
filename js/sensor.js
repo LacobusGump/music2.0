@@ -1,8 +1,15 @@
 /**
- * SENSOR — The Body's Interface
+ * SENSOR — The Body's Interface (v2)
  *
- * Every frame: accelerometer + gyroscope + touch + weather + time
+ * Every frame: accelerometer + gyroscope + orientation + touch + weather + time
  * → one clean SensorState object. Nothing else reads hardware directly.
+ *
+ * v2 additions over v1:
+ *   - humidity (from weather API alongside temperature)
+ *   - GPS lat/lon (exposed for GPS Music phase)
+ *   - compass heading (alpha, for spatial audio)
+ *   - motion event sample rate (actual Hz)
+ *   - touch velocity (dx/dy per frame, computed here not in brain/body)
  *
  * iOS PERMISSION HANDLING:
  * - requestPermission() MUST fire in direct user gesture (touch/click)
@@ -31,13 +38,31 @@ const Sensor = (function () {
   var listenersAdded = false;
   var helpShown = false;
 
-  // ── WEATHER + TIME ───────────────────────────────────────────────────
+  // ── TOUCH VELOCITY ─────────────────────────────────────────────────
+  // Track previous touch position to compute dx/dy per frame in read()
+
+  var prevTouchX = 0.5;
+  var prevTouchY = 0.5;
+  var touchVelX = 0;
+  var touchVelY = 0;
+
+  // ── MOTION SAMPLE RATE ─────────────────────────────────────────────
+  // Track actual Hz of motion events (varies 30-120Hz across devices)
+
+  var motionTimestamps = [];       // ring buffer of recent event times
+  var motionSampleRate = 0;        // computed Hz
+  var RATE_WINDOW = 60;            // number of events to average over
+
+  // ── WEATHER + TIME + LOCATION ──────────────────────────────────────
 
   const env = {
     hour: new Date().getHours(),
     timeOfDay: 'day',
     weather: 'clear',
     temperature: null,
+    humidity: null,
+    latitude: null,
+    longitude: null,
     weatherLoaded: false,
   };
 
@@ -56,19 +81,29 @@ const Sensor = (function () {
 
     navigator.geolocation.getCurrentPosition(
       function (pos) {
-        const lat = pos.coords.latitude.toFixed(2);
-        const lon = pos.coords.longitude.toFixed(2);
-        const url = 'https://api.open-meteo.com/v1/forecast?latitude=' + lat +
-          '&longitude=' + lon + '&current_weather=true';
+        // Store GPS coordinates for downstream modules (GPS Music, prosodic DNA)
+        env.latitude = pos.coords.latitude;
+        env.longitude = pos.coords.longitude;
+
+        var lat = pos.coords.latitude.toFixed(2);
+        var lon = pos.coords.longitude.toFixed(2);
+
+        // v2: request humidity alongside temperature
+        var url = 'https://api.open-meteo.com/v1/forecast?latitude=' + lat +
+          '&longitude=' + lon +
+          '&current=temperature_2m,relative_humidity_2m,weather_code';
 
         fetch(url).then(function (r) { return r.json(); }).then(function (data) {
-          if (!data.current_weather) return;
-          env.temperature = data.current_weather.temperature;
-          const code = data.current_weather.weathercode;
+          if (!data.current) return;
+          env.temperature = data.current.temperature_2m;
+          env.humidity = data.current.relative_humidity_2m;
+
+          var code = data.current.weather_code;
           if (code >= 61 && code <= 67) env.weather = 'rain';
           else if (code >= 71 && code <= 77) env.weather = 'snow';
           else if (code >= 1 && code <= 3) env.weather = 'cloud';
           else env.weather = 'clear';
+
           env.weatherLoaded = true;
         }).catch(function () { /* silent */ });
       },
@@ -80,31 +115,38 @@ const Sensor = (function () {
   // ── TOUCH / POINTER ──────────────────────────────────────────────────
 
   function onTouchStart(e) {
-    const t = e.touches[0];
+    var t = e.touches[0];
     raw.touch.active = true;
     raw.touch.x = t.clientX / window.innerWidth;
     raw.touch.y = t.clientY / window.innerHeight;
     raw.touch.startX = raw.touch.x;
     raw.touch.startY = raw.touch.y;
     raw.touch.startTime = performance.now();
+    // Reset velocity on new touch — no carryover from previous gesture
+    prevTouchX = raw.touch.x;
+    prevTouchY = raw.touch.y;
+    touchVelX = 0;
+    touchVelY = 0;
   }
 
   function onTouchMove(e) {
     if (!e.touches.length) return;
-    const t = e.touches[0];
+    var t = e.touches[0];
     raw.touch.x = t.clientX / window.innerWidth;
     raw.touch.y = t.clientY / window.innerHeight;
   }
 
   function onTouchEnd() {
     raw.touch.active = false;
+    touchVelX = 0;
+    touchVelY = 0;
   }
 
   // ── DEVICE MOTION / ORIENTATION ──────────────────────────────────────
 
   function onMotion(e) {
-    const a = e.accelerationIncludingGravity;
-    const b = e.acceleration;
+    var a = e.accelerationIncludingGravity;
+    var b = e.acceleration;
     if (a) {
       raw.accelGravity.x = a.x || 0;
       raw.accelGravity.y = a.y || 0;
@@ -121,6 +163,17 @@ const Sensor = (function () {
     }
     raw.motionGranted = true;
     raw.motionEventCount++;
+
+    // Track motion event timestamps for sample rate calculation
+    var now = performance.now();
+    motionTimestamps.push(now);
+    if (motionTimestamps.length > RATE_WINDOW) {
+      motionTimestamps.shift();
+    }
+    if (motionTimestamps.length >= 2) {
+      var elapsed = (now - motionTimestamps[0]) / 1000; // seconds
+      motionSampleRate = (motionTimestamps.length - 1) / elapsed;
+    }
   }
 
   function onOrientation(e) {
@@ -356,31 +409,52 @@ const Sensor = (function () {
     });
   }
 
-  /** Call once per frame. Returns a snapshot. */
+  /** Call once per frame. Returns a SensorState snapshot. */
   function read() {
+    // Compute touch velocity: dx/dy since last read()
+    // Only when actively touching — zero otherwise
+    if (raw.touch.active) {
+      touchVelX = raw.touch.x - prevTouchX;
+      touchVelY = raw.touch.y - prevTouchY;
+      prevTouchX = raw.touch.x;
+      prevTouchY = raw.touch.y;
+    }
+
     return {
-      ax: raw.accel.x,
-      ay: raw.accel.y,
-      az: raw.accel.z,
+      // Accelerometer (with gravity)
       gx: raw.accelGravity.x,
       gy: raw.accelGravity.y,
       gz: raw.accelGravity.z,
-      alpha: raw.orient.alpha,
-      // Clamp beta to [-90, 90] — past vertical pushes against the edge, never inverts
-      beta: Math.max(-90, Math.min(90, raw.orient.beta || 0)),
-      gamma: raw.orient.gamma,
+      // Accelerometer (without gravity, when available)
+      ax: raw.accel.x,
+      ay: raw.accel.y,
+      az: raw.accel.z,
+      // Orientation
+      alpha: raw.orient.alpha,                                    // compass heading 0-360
+      beta: Math.max(-90, Math.min(90, raw.orient.beta || 0)),    // front-back tilt, clamped
+      gamma: raw.orient.gamma,                                    // left-right tilt
+      // Touch
       touching: raw.touch.active,
       tx: raw.touch.x,
       ty: raw.touch.y,
+      touchVelX: touchVelX,
+      touchVelY: touchVelY,
       touchStartX: raw.touch.startX,
       touchStartY: raw.touch.startY,
       touchStartTime: raw.touch.startTime,
+      // Environment
       timeOfDay: env.timeOfDay,
       hour: env.hour,
       weather: env.weather,
       temperature: env.temperature,
+      humidity: env.humidity,
+      latitude: env.latitude,
+      longitude: env.longitude,
+      // Meta
+      weatherLoaded: env.weatherLoaded,
       hasMotion: raw.motionGranted,
       hasOrientation: raw.orientGranted,
+      sampleRate: Math.round(motionSampleRate),
     };
   }
 

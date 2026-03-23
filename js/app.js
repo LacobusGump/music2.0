@@ -1,72 +1,86 @@
 /**
- * APP — Music 2.0
+ * APP v2 — GUMP Boot Sequence, Main Loop, Screen Manager
  *
- * State machine: LISTEN → LENS → PLAY
+ * State machine: BOOT -> PICKER -> PLAY (swipe to) PICKER -> PLAY
  * Main loop: requestAnimationFrame
  *
  * The music follows YOUR body. There is no clock.
+ *
+ * v2 loop order: sensor -> body -> weather -> rhythm -> flow -> identity -> render
+ * Data flows DOWN. No module reaches up.
  */
 
-(function () {
+const App = (function () {
   'use strict';
 
-  // ── STATE ────────────────────────────────────────────────────────────
+  // ── BUILD ──────────────────────────────────────────────────────────
+  var BUILD = 200;
 
-  const SCREENS = { LISTEN: 'listen', LENS: 'lens', PLAY: 'play' };
-  let screen = SCREENS.LISTEN;
-  let audioCtx = null;
+  // ── STATE ──────────────────────────────────────────────────────────
+  var SCREENS = { BOOT: 'boot', PICKER: 'picker', PLAY: 'play' };
+  var screen = SCREENS.BOOT;
+  var audioCtx = null;
 
   // Position (smoothed, 0-1)
-  let posX = 0.5, posY = 0.5;
-  const POS_SMOOTH = 0.12;
+  var posX = 0.5, posY = 0.5;
+  var POS_SMOOTH = 0.12;
 
   // Canvas
-  let canvas = null;
-  let ctx2d = null;
-  let W = 0, H = 0;
+  var canvas = null;
+  var ctx2d = null;
+  var W = 0, H = 0;
 
   // Timing
-  let lastFrame = 0;
-  let debugVisible = false;
-  let swipeHintTimer = 0;
+  var lastFrame = 0;
+  var debugVisible = false;
+  var swipeHintTimer = 0;
 
   // Swipe detection for live lens switching
-  let swipeStartX = 0;
-  let swipeLastX = 0;
-  let swiping = false;
+  var swipeStartX = 0;
+  var swipeLastX = 0;
+  var swiping = false;
 
-  // Long press to return to lens picker
-  let longPressTimer = null;
+  // Long press to return to picker
+  var longPressTimer = null;
 
   // Touch velocity tracking
-  let prevTouchX = 0, prevTouchY = 0, prevTouchTime = 0;
-  let touchVX = 0, touchVY = 0;
+  var prevTouchX = 0, prevTouchY = 0, prevTouchTime = 0;
+  var touchVX = 0, touchVY = 0;
 
-  // Outfit — partner state tracking
-  let outfitLibsLoaded  = false;
-  let outfitPendingJoin = null;
-  let lastPeakCount     = 0;
-  let lastLocalPeakTime = 0;
-  let lastPartnerPeak   = 0;
+  // Outfit -- partner state tracking
+  var outfitLibsLoaded  = false;
+  var outfitPendingJoin = null;
+  var lastPeakCount     = 0;
+  var lastLocalPeakTime = 0;
+  var lastPartnerPeak   = 0;
 
-  // Voice state — two moments only: boot + void stillness
-  let voiceStillnessStart    = 0;
-  let voiceDeepStillnessFired = false;
+  // Voice state -- two moments only: boot + void stillness
+  var voiceStillnessStart    = 0;
+  var voiceDeepStillnessFired = false;
 
-  // ── iOS AUDIO WATCHDOG ────────────────────────────────────────────────
-  // iOS kills AudioContext whenever the app loses focus: lock screen, background,
-  // phone call, notification center, control center, etc.
-  // Strategy: intercept EVERY touch at the document level (capture phase, before
-  // anything else) and replay the silent buffer trick. This runs in a real iOS
-  // gesture context, so resume() cannot be blocked.
-  // Also hooks visibilitychange + pageshow + focus for lock-screen recovery.
+  // Boot diagnostic log
+  var bootLog = [];
+
+  // ── MODULE ALIASES ─────────────────────────────────────────────────
+  // v2 architecture defines Flow and Sound. Until those modules exist,
+  // bridge to Follow and Audio. When Flow/Sound ship, update these aliases.
+
+  function getFlow()  { return typeof Flow !== 'undefined' ? Flow : Follow; }
+  function getSound() { return typeof Sound !== 'undefined' ? Sound : Audio; }
+
+  // ── iOS AUDIO WATCHDOG ─────────────────────────────────────────────
+  // iOS kills AudioContext whenever the app loses focus: lock screen,
+  // background, phone call, notification center, control center, etc.
+  // Strategy: intercept EVERY touch at the document level (capture phase,
+  // before anything else) and replay the silent buffer trick. This runs
+  // in a real iOS gesture context, so resume() cannot be blocked.
 
   function iosAudioUnlock() {
     if (!audioCtx) return;
     if (audioCtx.state === 'suspended') {
       audioCtx.resume().catch(function () {});
     }
-    // Silent buffer is the real unlock — resume() alone isn't enough on older iOS
+    // Silent buffer is the real unlock -- resume() alone isn't enough on older iOS
     try {
       var buf = audioCtx.createBuffer(1, 1, audioCtx.sampleRate);
       var src = audioCtx.createBufferSource();
@@ -93,10 +107,11 @@
     window.addEventListener('focus', function () { iosAudioUnlock(); });
   }
 
-  // ── BOOT CANVAS ───────────────────────────────────────────────────────
-  // Horizon unfolding. A line that glares into existence and pushes.
-  // Natural phasing: Fibonacci wave frequencies, never repeating.
-  // Tilt shifts the horizon. Glare builds slowly. Corona pushes outward.
+  // ── BOOT CANVAS ────────────────────────────────────────────────────
+  // Liquid glass boot -- single breathing orb, fades in from black.
+  // Golden ratio position. Fibonacci wave frequencies, never repeating.
+  // No deviceorientation listener here -- adding one before Sensor.init()
+  // requests permission causes Chrome iOS to block the permission dialog.
 
   var bootAnimId = null;
 
@@ -116,12 +131,6 @@
     resizeBoot();
     window.addEventListener('resize', resizeBoot);
 
-    // No deviceorientation listener here — adding one before Sensor.init()
-    // requests permission causes Chrome iOS to block/interfere with the
-    // permission dialog. The orb breathes at center; tilt is not needed.
-    var tiltX = 0, tiltY = 0;
-
-    // Liquid glass boot — single breathing orb, fades in from black
     var t = 0;
     var fadeIn = 0;
 
@@ -133,9 +142,9 @@
       bctx.fillStyle = '#000000';
       bctx.fillRect(0, 0, bw, bh);
 
-      // Center point — static, no tilt (listeners removed for Chrome permission fix)
+      // Center point -- golden ratio position
       var cx = bw * 0.5;
-      var cy = bh * 0.382;  // golden ratio position
+      var cy = bh * 0.382;
 
       // Breath
       var breath = Math.sin(t * 0.8) * 0.5 + 0.5;
@@ -170,39 +179,47 @@
     if (bootAnimId) { cancelAnimationFrame(bootAnimId); bootAnimId = null; }
   }
 
-  // ── SCREEN TRANSITIONS ───────────────────────────────────────────────
+  // ── SCREEN TRANSITIONS ─────────────────────────────────────────────
 
   function showScreen(name) {
     screen = name;
     var screens = document.querySelectorAll('.screen');
     for (var i = 0; i < screens.length; i++) {
-      screens[i].classList.toggle('active', screens[i].id === 'screen-' + name);
+      // Map screen names to element IDs
+      // v1 used 'listen' and 'lens', v2 uses 'boot' and 'picker'
+      var id = screens[i].id;
+      var active = false;
+      if (name === SCREENS.BOOT)   active = (id === 'screen-listen' || id === 'screen-boot');
+      if (name === SCREENS.PICKER) active = (id === 'screen-lens'   || id === 'screen-picker');
+      if (name === SCREENS.PLAY)   active = (id === 'screen-play');
+      screens[i].classList.toggle('active', active);
     }
   }
 
-  // ── LISTEN SCREEN ────────────────────────────────────────────────────
+  // ── BOOT SCREEN ────────────────────────────────────────────────────
 
-  var listenTapped = false; // guard against double-fire (touchend + click both firing)
+  var bootTapped = false; // guard against double-fire (touchend + click both firing)
 
-  function initListen() {
-    var el = document.getElementById('screen-listen');
+  function initBootScreen() {
+    // Try both v2 ID and v1 ID
+    var el = document.getElementById('screen-boot') || document.getElementById('screen-listen');
     if (!el) return;
 
     el.addEventListener('touchend', function (e) {
       e.preventDefault();
-      onListenTap();
+      onBootTap();
     }, { passive: false });
 
     el.addEventListener('click', function () {
-      onListenTap();
+      onBootTap();
     });
   }
 
-  function onListenTap() {
-    if (listenTapped) return;
-    listenTapped = true;
+  function onBootTap() {
+    if (bootTapped) return;
+    bootTapped = true;
 
-    // Move off boot screen immediately — proven stable
+    // Move off boot screen immediately
     showScreen(SCREENS.PLAY);
     stopBootCanvas();
 
@@ -221,84 +238,91 @@
       silentSrc.start(0);
     } catch (e) {}
 
-    // Voice init + boot greeting — we are inside the gesture right now
-    Voice.init(audioCtx);
-    // ── BOOT DIAGNOSTIC — visible log of every step ──
-    var bootLog = [];
-    window.bootLog = bootLog;
-    function blog(msg) {
-      var t = (performance.now() / 1000).toFixed(2);
-      var entry = '[' + t + 's] ' + msg;
-      bootLog.push(entry);
-      console.log(entry);
+    // Voice init + boot greeting -- inside the gesture
+    if (typeof Voice !== 'undefined') {
+      Voice.init(audioCtx);
+      Voice.boot();
     }
 
-    // window.gump() — full diagnostic snapshot
-    window.gump = function() {
-      var s = Sensor.read();
-      var lens = Lens.active;
-      var out = '=== GUMP STATUS ===\n';
-      out += 'BUILD: ' + window.GUMP_BUILD + '\n';
-      out += 'Screen: ' + screen + '\n';
-      out += 'Lens: ' + (lens ? lens.name : 'none') + '\n';
-      out += 'Audio: ' + (Audio.ctx ? Audio.ctx.state : 'no ctx') + '\n';
-      out += 'Motion: ' + (s.hasMotion ? 'YES' : 'NO') + '\n';
-      out += 'Orient: ' + (s.hasOrientation ? 'YES' : 'NO') + '\n';
-      out += 'Beta: ' + (s.beta || 0).toFixed(1) + ' Gamma: ' + (s.gamma || 0).toFixed(1) + '\n';
-      out += 'Energy: ' + (typeof Brain !== 'undefined' ? Brain.short.energy().toFixed(2) : '?') + '\n';
-      out += 'Silent: ' + Follow.silent + '\n';
-      out += 'Errors: ' + Follow.errors + '\n';
-      out += '\n=== BOOT LOG ===\n';
-      out += bootLog.join('\n') + '\n';
-      console.log(out);
-      try { navigator.clipboard.writeText(out); } catch(e) {}
-      return out;
-    };
-
-    blog('BUILD ' + window.GUMP_BUILD);
-    blog('Voice.boot()');
-    Voice.boot();
+    // ── BOOT DIAGNOSTIC ──
+    blog('BUILD ' + BUILD);
 
     blog('Sensor.init() starting...');
     Sensor.init().then(function () {
       blog('Sensor.init() DONE');
-      blog('Brain.init()');
-      Brain.init();
-      blog('Audio.init()');
-      Audio.init(audioCtx);
-      blog('Follow.init()');
-      Follow.init();
-      blog('Identity.start()');
-      if (typeof Identity !== 'undefined') Identity.start();
+
+      // Initialize processing modules (v2 order)
+      // Body (replaces Brain in v2 -- if Body.init exists use it, else Brain.init)
+      if (typeof Body !== 'undefined' && Body.init) {
+        blog('Body.init()');
+        Body.init();
+      } else if (typeof Brain !== 'undefined' && Brain.init) {
+        blog('Brain.init()');
+        Brain.init();
+      }
+
+      // Sound / Audio
+      var sound = getSound();
+      blog(sound === Audio ? 'Audio.init()' : 'Sound.init()');
+      sound.init(audioCtx);
+
+      // Harmony
+      if (typeof Harmony !== 'undefined' && Harmony.init) {
+        blog('Harmony.init()');
+        Harmony.init();
+      }
+
+      // Rhythm
+      if (typeof Rhythm !== 'undefined' && Rhythm.init) {
+        blog('Rhythm.init()');
+        Rhythm.init();
+      }
+
+      // Weather
+      if (typeof Weather !== 'undefined') {
+        blog('Weather.init()');
+        Weather.init();
+      }
+
+      // Identity
+      if (typeof Identity !== 'undefined') {
+        blog('Identity.init()');
+        Identity.init();
+      }
+
+      // Flow / Follow
+      var flow = getFlow();
+      blog(flow === Follow ? 'Follow.init()' : 'Flow.init()');
+      flow.init();
+
+      // Build lens picker and apply
       blog('Lens.buildPicker()');
       Lens.buildPicker();
 
       var urlLens = Lens.loadFromURL();
       if (urlLens) {
         blog('URL lens: ' + urlLens.name);
-        Audio.configure(urlLens);
-        Follow.applyLens(urlLens);
-        Organism.applyLens(urlLens);
+        applyLens(urlLens);
         startPlayScreen();
-        blog('PLAY — url lens');
+        blog('PLAY -- url lens');
       } else {
-        // Only wait for voice on first visit — otherwise instant
+        // Only wait for voice on first visit -- otherwise instant
         var introPlayed = false;
         try { introPlayed = !!localStorage.getItem('gump_intro_played'); } catch(e) {}
         var waitTime = introPlayed ? 0 : 2500;
-        blog(introPlayed ? 'Returning user — instant start' : 'First visit — waiting for voice');
+        blog(introPlayed ? 'Returning user -- instant start' : 'First visit -- waiting for voice');
         setTimeout(function () {
           blog('Selecting default lens...');
-          Lens.selectCard(1); // Still Water — beautiful opener. Album: hook them with beauty, journey through, Ascension is the finale.
+          Lens.selectCard(1);
           var lens = Lens.getSelected();
           blog('Lens: ' + (lens ? lens.name : 'NULL'));
-          Audio.configure(lens);
-          Follow.applyLens(lens);
-          Organism.applyLens(lens);
-          Pattern.init();
-          Pattern.setLens(lens);
+          applyLens(lens);
+          if (typeof Pattern !== 'undefined') {
+            Pattern.init();
+            Pattern.setLens(lens);
+          }
           startPlayScreen();
-          blog('PLAY — default lens');
+          blog('PLAY -- default lens');
         }, waitTime);
       }
     }).catch(function(e) {
@@ -306,17 +330,48 @@
     });
   }
 
-  // ── LENS SCREEN ──────────────────────────────────────────────────────
+  // ── APPLY LENS ─────────────────────────────────────────────────────
+  // Centralized lens application. Every module that needs lens config
+  // gets it here. One function, one place.
 
-  function initLens() {
-    // Command input on the protocol select screen
+  function applyLens(lens) {
+    if (!lens) return;
+    var sound = getSound();
+    var flow  = getFlow();
+
+    try { sound.configure(lens); } catch (e) { console.error('applyLens sound:', e); }
+    try { flow.applyLens(lens); } catch (e) { console.error('applyLens flow:', e); }
+    try { Organism.applyLens(lens); } catch (e) { console.error('applyLens organism:', e); }
+
+    // v2 modules (when they exist)
+    if (typeof Harmony !== 'undefined' && Harmony.configure) {
+      try { Harmony.configure(lens.harmony || lens); } catch (e) {}
+    }
+    if (typeof Rhythm !== 'undefined' && Rhythm.configure) {
+      try { Rhythm.configure(lens.rhythm || lens); } catch (e) {}
+    }
+  }
+
+  // ── BOOT LOG ───────────────────────────────────────────────────────
+
+  function blog(msg) {
+    var t = (performance.now() / 1000).toFixed(2);
+    var entry = '[' + t + 's] ' + msg;
+    bootLog.push(entry);
+    console.log(entry);
+  }
+
+  // ── PICKER SCREEN ──────────────────────────────────────────────────
+
+  function initPicker() {
+    // Command input on the picker screen
     var cmdInput = document.getElementById('cmd-input');
     if (cmdInput) {
       cmdInput.addEventListener('keydown', function (e) {
         if (e.key === 'Enter' || e.keyCode === 13) {
           e.preventDefault();
           var cmd = this.value.trim().toUpperCase();
-          // Auto-select lens from RUN command if not already selected
+          // Auto-select lens from RUN command
           if (cmd.indexOf('RUN ') === 0) {
             var query = cmd.slice(4).trim();
             var presets = Lens.PRESETS;
@@ -328,24 +383,24 @@
               }
             }
           }
-          if (Lens.getSelected()) onLensGo();
+          if (Lens.getSelected()) onPickerGo();
         }
       });
     }
 
-    // Also wire hidden go button in case something still references it
+    // Go button
     var goBtn = document.getElementById('lens-go');
     if (goBtn) {
       goBtn.addEventListener('touchstart', function (e) {
-        e.preventDefault(); e.stopPropagation(); onLensGo();
+        e.preventDefault(); e.stopPropagation(); onPickerGo();
       }, { passive: false });
       goBtn.addEventListener('click', function (e) {
-        e.stopPropagation(); onLensGo();
+        e.stopPropagation(); onPickerGo();
       });
     }
   }
 
-  function onLensGo() {
+  function onPickerGo() {
     var lens = Lens.getSelected();
     if (!lens) return;
 
@@ -355,22 +410,16 @@
     // Retry motion permissions on this user gesture
     Sensor.retryPermissions();
 
-    try {
-      Audio.configure(lens);
-      Follow.applyLens(lens);
-      Organism.applyLens(lens);
-    } catch (e) {
-      console.error('applyLens:', e);
-    }
+    applyLens(lens);
 
-    // Voice speaks the lens intro as you enter play
-    Voice.lensSelected(lens.name);
+    // Voice speaks the lens intro
+    if (typeof Voice !== 'undefined') Voice.lensSelected(lens.name);
 
     showScreen(SCREENS.PLAY);
     startPlayScreen();
   }
 
-  // ── FLASH ─────────────────────────────────────────────────────────────
+  // ── FLASH ──────────────────────────────────────────────────────────
 
   function flashScreen(color) {
     var el = document.getElementById('flash');
@@ -381,7 +430,7 @@
     setTimeout(function () { el.style.transition = ''; }, 700);
   }
 
-  // ── PLAY COMMAND INTERFACE ────────────────────────────────────────────
+  // ── PLAY COMMAND INTERFACE ─────────────────────────────────────────
 
   function initPlayCmd() {
     var input = document.getElementById('play-cmd-input');
@@ -398,12 +447,13 @@
 
   function handlePlayCommand(cmd) {
     if (cmd === 'STOP') {
-      showScreen(SCREENS.LENS);
+      showScreen(SCREENS.PICKER);
       return;
     }
 
-    // Name capture — entity asked, user answered
-    if (Voice.isAwaitingName() && cmd.indexOf('RUN ') !== 0 && cmd.length < 32) {
+    // Name capture -- entity asked, user answered
+    if (typeof Voice !== 'undefined' && Voice.isAwaitingName && Voice.isAwaitingName() &&
+        cmd.indexOf('RUN ') !== 0 && cmd.length < 32) {
       Voice.setName(cmd.toLowerCase());
       return;
     }
@@ -430,25 +480,23 @@
       if (found !== null) {
         Lens.selectCard(found);
         var lens = Lens.getSelected();
-        Audio.configure(lens);
-        Follow.applyLens(lens);
-        Organism.applyLens(lens);
-        Pattern.setLens(lens);
-        Voice.lensSelected(lens.name);
+        applyLens(lens);
+        if (typeof Pattern !== 'undefined') Pattern.setLens(lens);
+        if (typeof Voice !== 'undefined') Voice.lensSelected(lens.name);
         Lens.updateIndicator();
 
         // Flash color on lens switch
         var flashColors = {
-          'Journey':        '#3d3550',
-          'Grid':           '#ff3300',
-          'Ascension':      '#8844ff',
+          'Journey':   '#3d3550',
+          'Grid':      '#ff3300',
+          'Ascension': '#8844ff',
         };
         flashScreen(flashColors[lens.name] || 'rgba(255,210,150,0.4)');
       }
     }
   }
 
-  // ── PLAY SCREEN ──────────────────────────────────────────────────────
+  // ── PLAY SCREEN ────────────────────────────────────────────────────
 
   var spikeWired   = false;
   var gestureWired = false;
@@ -462,35 +510,37 @@
 
     Lens.updateIndicator();
 
-    // Wire brain events → follow engine + organism (ONCE)
+    // Wire body/brain spike events to flow engine + organism (ONCE)
     if (!spikeWired) {
-      Brain.on('spike', function (data) {
+      var bodyModule = (typeof Body !== 'undefined' && Body.on) ? Body : Brain;
+      bodyModule.on('spike', function (data) {
         try {
-          Follow.onSpike(data);
+          var flow = getFlow();
+          flow.onSpike(data);
           if (data.neuron === 'toss' || data.neuron === 'shake') {
             Organism.addMutation(data.energy);
           }
-          // Voice reacts to extreme peaks — rare, only the biggest moments
-          if (data.energy > 2.2) Voice.onPeak();
+          // Voice reacts to extreme peaks
+          if (data.energy > 2.2 && typeof Voice !== 'undefined') Voice.onPeak();
         } catch (e) { console.error('spike handler:', e); }
       });
       spikeWired = true;
     }
 
     // Wire gesture recogniser to the play canvas (ONCE)
-    if (!gestureWired) {
+    if (!gestureWired && typeof Gesture !== 'undefined') {
       var playCanvas = document.getElementById('canvas');
       if (playCanvas) {
-        Gesture.attach(playCanvas, 52);   // 52px = cmd bar height
+        Gesture.attach(playCanvas, 52);
         Gesture.on('figure8', function () {
-          // Figure 8 discovered — the machine speaks, then transforms
-          Voice.iCanWorkWithThis();
-          Voice.onDiscovery('figure8');
+          if (typeof Voice !== 'undefined') {
+            Voice.iCanWorkWithThis();
+            Voice.onDiscovery('figure8');
+          }
           flashScreen('rgba(255,210,150,0.12)');
-          // Cycle to the next lens — music transforms, no picker, no break
           setTimeout(function () {
             var next = Lens.nextLens();
-            Pattern.setLens(next);
+            if (typeof Pattern !== 'undefined') Pattern.setLens(next);
             Lens.updateIndicator();
             flashScreen('rgba(255,210,150,0.06)');
           }, 800);
@@ -510,7 +560,7 @@
     requestAnimationFrame(loop);
   }
 
-  // ── TOUCH HANDLING IN PLAY SCREEN ────────────────────────────────────
+  // ── TOUCH HANDLING IN PLAY SCREEN ──────────────────────────────────
 
   function initPlayTouch() {
     var playEl = document.getElementById('screen-play');
@@ -532,22 +582,23 @@
       // Multi-touch beyond 2: ignore
       if (e.touches.length > 2) return;
 
-      // iOS: resume AudioContext from within a gesture (loop-based resume is ignored by iOS)
+      // iOS: resume AudioContext from within a gesture
       if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
 
       // Retry motion permission on every touch
       Sensor.retryPermissions();
 
-      // Long press: return to lens picker (single finger only)
+      // Long press: return to picker (single finger only)
       longPressTimer = setTimeout(function () {
-        showScreen(SCREENS.LENS);
+        showScreen(SCREENS.PICKER);
       }, 1200);
 
       // Play touch note
+      var flow = getFlow();
       var t = e.touches[0];
       prevTouchX = t.clientX / W; prevTouchY = t.clientY / H; prevTouchTime = performance.now();
       touchVX = 0; touchVY = 0;
-      try { Follow.touch(prevTouchX, prevTouchY, 0, 0); } catch (e) { console.error('touch note:', e); }
+      try { flow.touch(prevTouchX, prevTouchY, 0, 0); } catch (e) { console.error('touch note:', e); }
     }, { passive: false });
 
     playEl.addEventListener('touchmove', function (e) {
@@ -567,6 +618,7 @@
 
       // Single-finger: continuous touch notes with velocity
       if (e.touches.length === 1) {
+        var flow = getFlow();
         var t = e.touches[0];
         var nowMs = performance.now();
         var dtMs = nowMs - prevTouchTime;
@@ -575,8 +627,8 @@
           touchVX = (curX - prevTouchX) / (dtMs / 1000);
           touchVY = (curY - prevTouchY) / (dtMs / 1000);
           prevTouchX = curX; prevTouchY = curY; prevTouchTime = nowMs;
-          try { Follow.touch(curX, curY, touchVX, touchVY); } catch (e) {}
-          try { Audio.spatial.setTouchPan(curX); } catch (e) {}
+          try { flow.touch(curX, curY, touchVX, touchVY); } catch (e) {}
+          try { getSound().spatial.setTouchPan(curX); } catch (e) {}
         }
       }
     }, { passive: false });
@@ -586,22 +638,22 @@
 
       if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
 
-      // Two-finger swipe completed (one finger lifted, was swiping)
+      // Two-finger swipe completed
       if (swiping) {
         var dx = swipeLastX - swipeStartX;
         if (dx > 60) Lens.prevLens();
         else if (dx < -60) Lens.nextLens();
         Organism.applyLens(Lens.active);
         if (Lens.active) {
-          Pattern.setLens(Lens.active);
-          Voice.lensSelected(Lens.active.name);
+          if (typeof Pattern !== 'undefined') Pattern.setLens(Lens.active);
+          if (typeof Voice !== 'undefined') Voice.lensSelected(Lens.active.name);
         }
       }
 
       swiping = false;
     });
 
-    // Three-finger tap: debug only — cancel long press so lens screen never opens
+    // Three-finger tap: debug
     playEl.addEventListener('touchstart', function (e) {
       if (e.touches.length >= 3) {
         if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
@@ -610,7 +662,7 @@
     }, { passive: true });
   }
 
-  // ── POSITION SMOOTHING ───────────────────────────────────────────────
+  // ── POSITION SMOOTHING ─────────────────────────────────────────────
 
   function updatePosition(sensor) {
     if (sensor.touching) {
@@ -624,7 +676,7 @@
     }
   }
 
-  // ── HOURLY ODE — Mt. Holly, High Street ──
+  // ── HOURLY ODE -- Mt. Holly, High Street ───────────────────────────
   // Each hour, the music rings the time. Each lens has its own voice.
 
   var lastChimeHour = -1;
@@ -637,13 +689,14 @@
     var m = new Date().getMinutes();
 
     // Trigger at the top of the hour (minute 0), once per hour
-    if (m === 0 && h !== lastChimeHour) {
+    // Gate behind body engagement — no clocks make musical decisions without the body
+    var bodyActive = (typeof Body !== 'undefined' && Body.energy > 0.05) ||
+                     (typeof Brain !== 'undefined' && Brain.short && Brain.short.energy() > 0.05);
+    if (m === 0 && h !== lastChimeHour && bodyActive) {
       lastChimeHour = h;
-      // 12-hour format for chime count
       chimeRingsLeft = h % 12 || 12;
       chimeTimer = 0;
 
-      // Each lens has its own voice
       var lens = Lens.active;
       if (lens) {
         if (lens.name === 'Grid') chimeVoice = 'impact';
@@ -653,18 +706,19 @@
       }
     }
 
-    // Ring the chimes — spaced 2.5 seconds apart
+    // Ring the chimes -- spaced 2.5 seconds apart
     if (chimeRingsLeft > 0) {
       chimeTimer += dt;
       if (chimeTimer >= 2.5) {
         chimeTimer = 0;
         chimeRingsLeft--;
-        try { Audio.synth.hourlyChime(0, chimeVoice, 0.30); } catch(e) {}
+        try { getSound().synth.hourlyChime(0, chimeVoice, 0.30); } catch(e) {}
       }
     }
   }
 
-  // ── MAIN LOOP ────────────────────────────────────────────────────────
+  // ── MAIN LOOP ──────────────────────────────────────────────────────
+  // v2 order: sensor -> body -> weather -> rhythm -> flow -> identity -> render
 
   var loopErrors = 0;
 
@@ -680,67 +734,80 @@
     }
 
     try {
+      // Delta time (capped at 50ms to prevent jumps after tab switch)
       var dt = Math.min(0.05, (timestamp - lastFrame) / 1000);
       lastFrame = timestamp;
+
+      var flow = getFlow();
+      var bodyModule = (typeof Body !== 'undefined') ? Body : Brain;
 
       // 1. Read sensors
       var sensor = Sensor.read();
 
-      // 2. Process brain
-      Brain.process(sensor, timestamp);
+      // 2. Process body (Kalman, neurons, void, peaks)
+      bodyModule.process(sensor, timestamp);
 
-      // 3. Update position
+      // 3. Update position (visual tracking)
       updatePosition(sensor);
 
-      // 4. Music follows your body (NOT a clock — your body drives this)
-      Follow.update(
-        { totalMotion: Brain.totalMotion, energy: Brain.energy, pattern: Brain.pattern, voidDepth: Brain.voidDepth, voidState: Brain.voidState, breathPhase: Brain.breathPhase, neurons: Brain.neurons },
-        sensor,
-        dt
-      );
+      // 4. Update weather (infrequent, self-gating)
+      // Weather.init() fetches on its own schedule; no per-frame update needed
+      // If Weather.update exists (v2), call it
+      if (typeof Weather !== 'undefined' && Weather.update) {
+        Weather.update(sensor);
+      }
 
-      // 5. Update organism
+      // 5. Rhythm -- flow.js handles Rhythm.update() to avoid double-ticking
+
+      // 6. THE CONDUCTOR -- flow reads Body directly, just needs sensor + timestamp
+      flow.update(sensor, timestamp);
+
+      // 7. Update identity (infrequent)
+      if (typeof Identity !== 'undefined' && Identity.update) {
+        Identity.update(bodyModule, typeof Harmony !== 'undefined' ? Harmony : null);
+      }
+
+      // 8. Render visuals -- organism stays from v1
       Organism.update(dt, posX, posY, W, H,
-        { energy: Brain.energy, neurons: Brain.neurons },
+        { energy: bodyModule.energy, neurons: bodyModule.neurons },
         sensor.touching
       );
-
-      // 6. Render
       render(dt);
 
-      // 7. Hourly ode — Mt. Holly, High Street
+      // 9. Hourly ode -- Mt. Holly, High Street
       checkHourlyChime(sensor, dt);
 
-      // 8. Pattern engine (AI Producer — silent)
-      Pattern.update(dt, Follow.silent);
+      // 10. Pattern engine (AI Producer)
+      if (typeof Pattern !== 'undefined') {
+        Pattern.update(dt, flow.silent);
+      }
 
-      // 11. Outfit — sync with dance partner
-      if (Outfit.connected) {
-        // Track local peaks so we can timestamp them in the broadcast
-        if (Follow.peaks > lastPeakCount) {
-          lastPeakCount     = Follow.peaks;
+      // 11. Outfit -- sync with dance partner
+      if (typeof Outfit !== 'undefined' && Outfit.connected) {
+        if (flow.peaks > lastPeakCount) {
+          lastPeakCount     = flow.peaks;
           lastLocalPeakTime = Date.now();
         }
-        // Broadcast our music state ~12Hz
         Outfit.broadcast({
-          energy:    Follow.energy,
+          energy:    flow.energy,
           lens:      Lens.active ? Lens.active.name : '',
-          phrase:    Follow.phrase,
-          archetype: Follow.profileArchetype,
+          phrase:    flow.phrase,
+          archetype: flow.profileArchetype,
           peakTime:  lastLocalPeakTime,
         });
-        // Respond to partner's peaks — call & response across bodies
+        // Respond to partner's peaks
         var ps = Outfit.partnerState;
         if (ps && ps.peakTime && ps.peakTime > lastPartnerPeak) {
           lastPartnerPeak = ps.peakTime;
           try {
             var aLens = Lens.active;
-            if (aLens && aLens.palette && aLens.palette.harmonic && Audio.ctx) {
+            var sound = getSound();
+            if (aLens && aLens.palette && aLens.palette.harmonic && sound.ctx) {
               var deg = [0, 2, 4][Math.floor(Math.random() * 3)];
-              Audio.synth.play(
+              sound.synth.play(
                 aLens.palette.harmonic.voice || 'piano',
-                Audio.ctx.currentTime + 0.28, // slight delay — you're responding, not unison
-                Follow.scaleFreq(deg, 1),
+                sound.ctx.currentTime + 0.28,
+                flow.scaleFreq(deg, 1),
                 0.18 * Math.min(1, ps.energy || 0.5),
                 (aLens.palette.harmonic.decay || 1.5) * 0.75
               );
@@ -749,10 +816,10 @@
         }
       }
 
-      // 9. Debug
+      // 12. Debug
       if (debugVisible) updateDebug(sensor);
 
-      // 10. Swipe hint fades after 5s
+      // 13. Swipe hint fades after 5s
       swipeHintTimer += dt;
       if (swipeHintTimer > 5) {
         var hint = document.getElementById('swipe-hint');
@@ -763,7 +830,7 @@
     }
   }
 
-  // ── RENDER ───────────────────────────────────────────────────────────
+  // ── RENDER ─────────────────────────────────────────────────────────
 
   function render(dt) {
     if (!ctx2d) return;
@@ -775,11 +842,14 @@
     var oy = posY * H;
     Organism.draw(ctx2d, ox, oy, W, H);
 
-    // Weather visual layer — on top of organism, under UI
-    Wx.render(ctx2d, W, H, Brain.energy || 0);
+    // Weather visual layer -- on top of organism, under UI
+    if (typeof Wx !== 'undefined') {
+      var bodyModule = (typeof Body !== 'undefined') ? Body : Brain;
+      Wx.render(ctx2d, W, H, bodyModule.energy || 0);
+    }
   }
 
-  // ── CANVAS SETUP ─────────────────────────────────────────────────────
+  // ── CANVAS SETUP ───────────────────────────────────────────────────
 
   function initCanvas() {
     canvas = document.getElementById('canvas');
@@ -800,7 +870,7 @@
     ctx2d.setTransform(dpr, 0, 0, dpr, 0, 0);
   }
 
-  // ── DEBUG ────────────────────────────────────────────────────────────
+  // ── DEBUG ──────────────────────────────────────────────────────────
 
   function toggleDebug() {
     debugVisible = !debugVisible;
@@ -812,38 +882,46 @@
     var el = document.getElementById('debug');
     if (!el) return;
 
+    var flow = getFlow();
+    var bodyModule = (typeof Body !== 'undefined') ? Body : Brain;
     var lens = Lens.active;
+
     var lines = [
-      'MUSIC 2.0 — YOUR BODY IS THE INSTRUMENT',
+      'GUMP v2 -- YOUR BODY IS THE INSTRUMENT',
+      'BUILD: ' + BUILD,
       'LENS: ' + (lens ? lens.name : 'none'),
-      'ARCHETYPE: ' + Follow.archetype + ' | INTENT: ' + Follow.intent,
-      Follow.ascPhase !== '-'
-        ? 'ENRICH: ' + Follow.ascEnrich + ' | FILTER: ' + Follow.ascFilter + 'Hz | DETUNE: ' + Follow.ascDetune + 'ct'
-        : Follow.gridPhase !== '-'
-        ? 'PHASE: ' + Follow.gridPhase + ' | FILTER: ' + Follow.filterFreq.toFixed(0) + 'Hz'
-        : 'PHRASE: ' + Follow.phrase + ' | ANSWER: ' + Follow.answer,
-      'SILENT: ' + (Follow.silent ? 'YES' : 'no') + ' | FADE: ' + Follow.fade.toFixed(2),
-      'YOUR TEMPO: ' + Follow.tempo.toFixed(0) + ' BPM | LOCKED: ' + (Follow.locked ? 'YES(' + Follow.lockStr.toFixed(2) + ')' : 'no'),
-      'CONFIDENCE: ' + Follow.confidence.toFixed(2) + ' | HR: ' + Follow.hrState,
-      'PROFILE: ' + Follow.profileSessions + ' sessions | ' + Follow.profileArchetype + (Follow.profilePeakMag ? ' | peak avg ' + Follow.profilePeakMag : ''),
-      Follow.ascPhase !== '-'
-        ? 'PITCHES: ' + Follow.ascPitches + ' | NRG: ' + Follow.ascEnergy + ' | GAIN: ' + Follow.ascGain
-        : Follow.gridPhase !== '-'
-        ? 'GRID: ' + Follow.gridPhase + ' | BUILD: ' + Follow.gridBuild + ' | INT: ' + Follow.gridIntensity + ' | GAIN: ' + Follow.gridDjGain
-        : 'DENSITY: ' + Follow.density.toFixed(1) + ' | ENERGY: ' + Follow.energy.toFixed(2),
-      Follow.ascPhase !== '-'
-        ? 'ASC: ' + Follow.ascPhase + ' | CHORD: ' + Follow.ascChord + (Follow.ascBreathing === 'YES' ? ' BREATHING' : '')
-        : Follow.gridPhase !== '-'
-        ? 'DEPTH: ' + Follow.gridDepth + ' | SEG: ' + Follow.gridSegment + ' | BARS: ' + Follow.gridBars + ' | ' + Follow.gridLayers
-        : 'PITCH: ' + Follow.degree + ' | FILTER: ' + Follow.filterFreq.toFixed(0) + 'Hz',
-      'PEAKS: ' + Follow.peaks + ' | NOTES: ' + Follow.notes,
-      'PATTERN: ' + Brain.pattern + ' | TOTAL: ' + Brain.totalMotion.toFixed(0),
+      'ARCHETYPE: ' + flow.archetype + ' | INTENT: ' + flow.intent,
+      flow.ascPhase !== '-'
+        ? 'ENRICH: ' + flow.ascEnrich + ' | FILTER: ' + flow.ascFilter + 'Hz | DETUNE: ' + flow.ascDetune + 'ct'
+        : flow.gridPhase !== '-'
+        ? 'PHASE: ' + flow.gridPhase + ' | FILTER: ' + flow.filterFreq.toFixed(0) + 'Hz'
+        : 'PHRASE: ' + flow.phrase + ' | ANSWER: ' + flow.answer,
+      'SILENT: ' + (flow.silent ? 'YES' : 'no') + ' | FADE: ' + flow.fade.toFixed(2),
+      'YOUR TEMPO: ' + flow.tempo.toFixed(0) + ' BPM | LOCKED: ' + (flow.locked ? 'YES(' + flow.lockStr.toFixed(2) + ')' : 'no'),
+      'CONFIDENCE: ' + flow.confidence.toFixed(2) + ' | HR: ' + flow.hrState,
+      'PROFILE: ' + flow.profileSessions + ' sessions | ' + flow.profileArchetype + (flow.profilePeakMag ? ' | peak avg ' + flow.profilePeakMag : ''),
+      flow.ascPhase !== '-'
+        ? 'PITCHES: ' + flow.ascPitches + ' | NRG: ' + flow.ascEnergy + ' | GAIN: ' + flow.ascGain
+        : flow.gridPhase !== '-'
+        ? 'GRID: ' + flow.gridPhase + ' | BUILD: ' + flow.gridBuild + ' | INT: ' + flow.gridIntensity + ' | GAIN: ' + flow.gridDjGain
+        : 'DENSITY: ' + flow.density.toFixed(1) + ' | ENERGY: ' + flow.energy.toFixed(2),
+      flow.ascPhase !== '-'
+        ? 'ASC: ' + flow.ascPhase + ' | CHORD: ' + flow.ascChord + (flow.ascBreathing === 'YES' ? ' BREATHING' : '')
+        : flow.gridPhase !== '-'
+        ? 'DEPTH: ' + flow.gridDepth + ' | SEG: ' + flow.gridSegment + ' | BARS: ' + flow.gridBars + ' | ' + flow.gridLayers
+        : 'PITCH: ' + flow.degree + ' | FILTER: ' + flow.filterFreq.toFixed(0) + 'Hz',
+      'PEAKS: ' + flow.peaks + ' | NOTES: ' + flow.notes,
+      'PATTERN: ' + bodyModule.pattern + ' | TOTAL: ' + bodyModule.totalMotion.toFixed(0),
       'MOTION: ' + (sensor.hasMotion ? 'YES' : 'NO') + ' | ORIENT: ' + (sensor.hasOrientation ? 'YES' : 'NO'),
-      'AUDIO: ' + Follow.ctxState + ' | ERRORS: ' + Follow.errors + '+' + loopErrors,
-      'PHASE: ' + ['EMERGENCE','LISTENING','ALIVE'][Follow.phase] + ' (' + Follow.sessionTime + 's) | GEN: ' + Follow.generation + ' ENERGY: ' + Follow.sessionEnergy,
-      'ORACLE L1: motifs=' + Pattern.motifs + ' notes=' + Pattern.notes + (Pattern.generating ? ' GEN' : ''),
-      'ORACLE L2: forms=' + Pattern.forms + ' sect=' + Pattern.section + ' crystals=' + Pattern.crystals + ' loops=' + Pattern.loops,
+      'AUDIO: ' + flow.ctxState + ' | ERRORS: ' + flow.errors + '+' + loopErrors,
+      'PHASE: ' + ['EMERGENCE','LISTENING','ALIVE'][flow.phase] + ' (' + flow.sessionTime + 's) | GEN: ' + flow.generation + ' ENERGY: ' + flow.sessionEnergy,
     ];
+
+    // Pattern engine debug (if available)
+    if (typeof Pattern !== 'undefined') {
+      lines.push('ORACLE L1: motifs=' + Pattern.motifs + ' notes=' + Pattern.notes + (Pattern.generating ? ' GEN' : ''));
+      lines.push('ORACLE L2: forms=' + Pattern.forms + ' sect=' + Pattern.section + ' crystals=' + Pattern.crystals + ' loops=' + Pattern.loops);
+    }
 
     el.textContent = lines.join('\n');
   }
@@ -853,8 +931,35 @@
     if (e.key === 'd' || e.key === 'D') toggleDebug();
   });
 
-  // ── OUTFIT UI ────────────────────────────────────────────────────────
-  // Lazy-loads PeerJS + QRCode CDN libs on first tap (keeps page load clean).
+  // ── GUMP DIAGNOSTIC SNAPSHOT ───────────────────────────────────────
+  // window.gump() -- full diagnostic, auto-copies to clipboard
+
+  function gumpSnapshot() {
+    var s = Sensor.read();
+    var lens = Lens.active;
+    var flow = getFlow();
+    var bodyModule = (typeof Body !== 'undefined') ? Body : Brain;
+    var sound = getSound();
+    var out = '=== GUMP STATUS ===\n';
+    out += 'BUILD: ' + BUILD + '\n';
+    out += 'Screen: ' + screen + '\n';
+    out += 'Lens: ' + (lens ? lens.name : 'none') + '\n';
+    out += 'Audio: ' + (sound.ctx ? sound.ctx.state : 'no ctx') + '\n';
+    out += 'Motion: ' + (s.hasMotion ? 'YES' : 'NO') + '\n';
+    out += 'Orient: ' + (s.hasOrientation ? 'YES' : 'NO') + '\n';
+    out += 'Beta: ' + (s.beta || 0).toFixed(1) + ' Gamma: ' + (s.gamma || 0).toFixed(1) + '\n';
+    out += 'Energy: ' + (bodyModule.energy || 0).toFixed(2) + '\n';
+    out += 'Silent: ' + flow.silent + '\n';
+    out += 'Errors: ' + flow.errors + '\n';
+    out += '\n=== BOOT LOG ===\n';
+    out += bootLog.join('\n') + '\n';
+    console.log(out);
+    try { navigator.clipboard.writeText(out); } catch(e) {}
+    return out;
+  }
+
+  // ── OUTFIT UI ──────────────────────────────────────────────────────
+  // Lazy-loads PeerJS + QRCode CDN libs on first tap.
 
   function loadOutfitLibs(cb) {
     if (outfitLibsLoaded) { cb(); return; }
@@ -871,6 +976,8 @@
   }
 
   function initOutfit() {
+    if (typeof Outfit === 'undefined') return;
+
     var askBtn      = document.getElementById('ask-dance-btn');
     var overlay     = document.getElementById('outfit-overlay');
     var closeBtn    = document.getElementById('outfit-close');
@@ -896,7 +1003,6 @@
 
     function onConnected() {
       waitingEl.textContent = 'connected';
-      // Brief pause, then swap QR for ceremony
       setTimeout(function () {
         qrView.style.opacity = '0';
         setTimeout(function () {
@@ -904,20 +1010,16 @@
           var pLens = (Outfit.partnerState && Outfit.partnerState.lens) || '';
           connPartner.textContent = pLens;
           connView.classList.add('show');
-          // Stagger the glyph in — feels alive
           requestAnimationFrame(function () {
             connGlyph.classList.add('show');
           });
           doFlash();
-          // Auto-close after ceremony — get out of the way
           setTimeout(function () {
             hideOverlay();
-            // Reset internal state for next open
             qrView.style.opacity = '';
             qrView.style.display = '';
             connView.classList.remove('show');
             connGlyph.classList.remove('show');
-            // The button becomes the live indicator
             askBtn.textContent = 'partner';
             askBtn.classList.add('connected');
           }, 2600);
@@ -931,9 +1033,8 @@
     }
 
     function openDance() {
-      if (Outfit.connected) return; // already paired
+      if (Outfit.connected) return;
       loadOutfitLibs(function () {
-        // Fresh state
         Outfit.destroy();
         var code = Outfit.generateCode();
         roomCodeEl.textContent = code;
@@ -943,7 +1044,6 @@
         connView.classList.remove('show');
         connGlyph.classList.remove('show');
         showOverlay();
-        // Render the QR — green on black, it belongs here
         var url = Outfit.buildJoinURL(code);
         if (window.QRCode) {
           window.QRCode.toCanvas(qrCanvas, url, {
@@ -955,15 +1055,13 @@
       });
     }
 
-    // Block touchstart from bubbling to the play screen's long-press handler
+    // Block touchstart from bubbling to play screen's long-press handler
     askBtn.addEventListener('touchstart', function (e) {
       e.stopPropagation();
     }, { passive: true });
 
-    // Tap handler — touchend fires before click on iOS, use that
     askBtn.addEventListener('touchend', function (e) {
       e.preventDefault(); e.stopPropagation();
-      // Defensively clear the play-screen long-press timer — belt and suspenders
       if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
       openDance();
     }, { passive: false });
@@ -978,11 +1076,10 @@
     }, { passive: false });
     closeBtn.addEventListener('click', hideOverlay);
 
-    // Auto-join if this page was opened via a dance QR link
+    // Auto-join if opened via dance QR link
     outfitPendingJoin = Outfit.checkAutoJoin();
   }
 
-  // Called once audio context is ready (needs user gesture before connecting)
   function processAutoJoin() {
     if (!outfitPendingJoin) return;
     var code = outfitPendingJoin;
@@ -1011,28 +1108,86 @@
     });
   }
 
-  // ── BOOT ─────────────────────────────────────────────────────────────
+  // ── SESSION LOGGING ────────────────────────────────────────────────
+  // clearLog()     -- reset
+  // copy(dump())   -- copy full session to clipboard
+  // GUMP_BUILD     -- check loaded build
+
+  function sessionClearLog() {
+    bootLog = [];
+    // Delegate to follow.js/flow.js clear if available
+    if (typeof window.ascClear === 'function') window.ascClear();
+    console.log('Session logs cleared.');
+  }
+
+  function sessionDump() {
+    // If follow.js has its own dump, use it (it knows the engine logs)
+    if (typeof window.dump === 'function') return window.dump();
+    return 'GUMP BUILD ' + BUILD + '\n' + bootLog.join('\n');
+  }
+
+  // ── BOOT ───────────────────────────────────────────────────────────
 
   function boot() {
-    // Version badge — always visible so you know exactly what build is running
+    // Version badge
     var badge = document.getElementById('version-badge');
-    if (badge) badge.textContent = 'v' + (window.GUMP_BUILD || '?');
+    if (badge) badge.textContent = 'v' + BUILD;
 
     initAudioWatchdog();
     initBootCanvas();
     initCanvas();
-    initListen();
-    initLens();
+    initBootScreen();
+    initPicker();
     initPlayCmd();
     initPlayTouch();
     initOutfit();
-    Weather.init();   // fetch conditions — visual + audio adjust when data arrives
+
+    // Weather can start fetching early (no user gesture needed)
+    if (typeof Weather !== 'undefined') Weather.init();
+
+    showScreen(SCREENS.BOOT);
   }
+
+  // ── GLOBAL NAMESPACE ───────────────────────────────────────────────
+
+  // GUMP_BUILD -- the canonical build check
+  window.GUMP_BUILD = BUILD;
+
+  // Session logging globals
+  window.clearLog = sessionClearLog;
+
+  // Only set window.dump if follow.js hasn't already set it
+  // (follow.js sets window.dump with engine-specific logs)
+  if (typeof window.dump !== 'function') {
+    window.dump = sessionDump;
+  }
+
+  // window.gump() -- full diagnostic snapshot
+  window.gump = gumpSnapshot;
+
+  // Boot log accessible from console
+  window.bootLog = bootLog;
+
+  // ── LAUNCH ─────────────────────────────────────────────────────────
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', boot);
   } else {
     boot();
   }
+
+  // ── PUBLIC API ─────────────────────────────────────────────────────
+
+  return Object.freeze({
+    boot: boot,
+    BUILD: BUILD,
+    getScreen: function () { return screen; },
+    setScreen: function (s) {
+      if (s === 'boot' || s === 'picker' || s === 'play') {
+        showScreen(s);
+        if (s === 'play') startPlayScreen();
+      }
+    },
+  });
 
 })();
