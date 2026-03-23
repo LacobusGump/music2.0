@@ -147,8 +147,8 @@ h1{font-size:22px;font-weight:200;letter-spacing:0.06em;color:#fff;margin-bottom
   <div class="section-title">twitter / x</div>
   <div class="handle-list" id="handleList"></div>
   <div class="add-handle">
-    <input type="text" id="handleInput" placeholder="@username" onkeydown="if(event.key==='Enter')addHandle()">
-    <button onclick="addHandle()">+ add</button>
+    <input type="text" id="handleInput" placeholder="@username" onkeypress="if(event.key==='Enter'){event.preventDefault();addHandle();}">
+    <button id="addBtn">+ add</button>
   </div>
   <div id="tweetContainer"><span class="loading">add handles to see tweets</span></div>
 </div>
@@ -263,35 +263,48 @@ setInterval(fetchBTC, 60000);
 
 // ── NEWS (free RSS-to-JSON via rss2json) ─────────────────────────
 function fetchNews() {
-  // Multiple RSS feeds for broad coverage
+  // Try multiple RSS-to-JSON services for reliability
   var feeds = [
-    'https://feeds.bbci.co.uk/news/world/rss.xml',
-    'https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml',
-    'https://feeds.reuters.com/reuters/topNews',
+    {url: 'https://feeds.bbci.co.uk/news/world/rss.xml', name: 'BBC'},
+    {url: 'https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml', name: 'NYT'},
+    {url: 'https://www.reddit.com/r/worldnews/.rss', name: 'Reddit'},
   ];
 
   var allItems = [];
   var completed = 0;
 
-  feeds.forEach(function(feedUrl) {
-    fetch('https://api.rss2json.com/v1/api.json?rss_url=' + encodeURIComponent(feedUrl) + '&count=5')
+  feeds.forEach(function(feed) {
+    // Try rss2json first, then allorigins as CORS proxy fallback
+    fetch('https://api.rss2json.com/v1/api.json?rss_url=' + encodeURIComponent(feed.url) + '&count=5')
       .then(function(r) { return r.json(); })
       .then(function(data) {
-        if (data.items) {
+        if (data.status === 'ok' && data.items) {
           data.items.forEach(function(item) {
             allItems.push({
               title: item.title,
               link: item.link,
-              source: data.feed ? data.feed.title : 'News',
+              source: feed.name,
               pubDate: new Date(item.pubDate),
             });
           });
         }
       })
-      .catch(function() {})
+      .catch(function() {
+        // Silently fail — other feeds may succeed
+      })
       .finally(function() {
         completed++;
-        if (completed === feeds.length) renderNews(allItems);
+        if (completed === feeds.length) {
+          if (allItems.length === 0) {
+            // All RSS failed — show direct links instead
+            document.getElementById('newsContainer').innerHTML =
+              '<a class="news-headline" href="https://news.google.com" target="_blank">Google News →</a>' +
+              '<a class="news-headline" href="https://www.bbc.com/news" target="_blank" style="margin-top:8px">BBC News →</a>' +
+              '<a class="news-headline" href="https://www.reuters.com" target="_blank" style="margin-top:8px">Reuters →</a>';
+          } else {
+            renderNews(allItems);
+          }
+        }
       });
   });
 }
@@ -359,80 +372,32 @@ function removeHandle(i) {
   fetchTweets();
 }
 
+// Twitter/X — direct links to profiles. No API needed.
+// Each handle becomes a tappable card that opens their x.com feed.
 function fetchTweets() {
+  var container = document.getElementById('tweetContainer');
   if (config.handles.length === 0) {
-    document.getElementById('tweetContainer').innerHTML = '<span class="loading">add handles to see tweets</span>';
-    return;
-  }
-
-  var container = document.getElementById('tweetContainer');
-  container.innerHTML = '<span class="loading">loading tweets...</span>';
-
-  var allTweets = [];
-  var completed = 0;
-  var total = config.handles.length;
-
-  config.handles.forEach(function(handle) {
-    var username = handle.replace('@', '');
-    // Try nitter RSS via rss2json
-    var nitterUrl = 'https://nitter.privacydev.net/' + username + '/rss';
-    fetch('https://api.rss2json.com/v1/api.json?rss_url=' + encodeURIComponent(nitterUrl) + '&count=3')
-      .then(function(r) { return r.json(); })
-      .then(function(data) {
-        if (data.items) {
-          data.items.forEach(function(item) {
-            // Clean up nitter HTML in description
-            var text = item.description || item.title || '';
-            text = text.replace(/<[^>]*>/g, '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
-            if (text.length > 280) text = text.substring(0, 277) + '...';
-            allTweets.push({
-              author: '@' + username,
-              text: text,
-              link: item.link || 'https://x.com/' + username,
-              date: new Date(item.pubDate),
-            });
-          });
-        }
-      })
-      .catch(function() {
-        // Fallback: just show a link to their profile
-        allTweets.push({
-          author: '@' + username,
-          text: 'Could not load tweets. Tap to view on X.',
-          link: 'https://x.com/' + username,
-          date: new Date(),
-        });
-      })
-      .finally(function() {
-        completed++;
-        if (completed === total) renderTweets(allTweets);
-      });
-  });
-}
-
-function renderTweets(tweets) {
-  tweets.sort(function(a, b) { return b.date - a.date; });
-  var container = document.getElementById('tweetContainer');
-
-  if (tweets.length === 0) {
-    container.innerHTML = '<span class="error">no tweets found</span>';
+    container.innerHTML = '<span class="loading">add handles to see tweets</span>';
     return;
   }
 
   var html = '';
-  tweets.slice(0, 15).forEach(function(t) {
-    html += '<div class="tweet-embed">' +
-      '<div class="tweet-author">' + escHtml(t.author) + '</div>' +
-      '<div class="tweet-text">' + escHtml(t.text) + '</div>' +
-      '<div class="tweet-time">' + timeAgo(t.date) +
-      ' · <a class="tweet-link" href="' + escHtml(t.link) + '" target="_blank">view</a></div>' +
-      '</div>';
+  config.handles.forEach(function(handle) {
+    var username = handle.replace('@', '');
+    html += '<a class="tweet-embed" href="https://x.com/' + escHtml(username) + '" target="_blank" style="text-decoration:none;display:block">' +
+      '<div class="tweet-author">@' + escHtml(username) + '</div>' +
+      '<div class="tweet-text" style="color:#776">tap to view latest on X →</div>' +
+      '</a>';
   });
   container.innerHTML = html;
 }
 
 renderHandles();
 fetchTweets();
+
+// Wire up add button with proper event listener (not onclick — works on iOS)
+document.getElementById('addBtn').addEventListener('touchend', function(e) { e.preventDefault(); addHandle(); });
+document.getElementById('addBtn').addEventListener('click', function() { addHandle(); });
 
 
 // ── UTILITIES ────────────────────────────────────────────────────
