@@ -596,13 +596,30 @@ const Body = (function () {
   }
 
   WaterDynamic.prototype.update = function (tilt, dt) {
-    // Gravity pulls water in tilt direction
+    // Pendulum physics — learned from the research page:
+    // 1. Tilt applies force (like shaking the support bar)
+    // 2. Gravity ALWAYS pulls back toward center (0.5) — restoring force
+    // 3. Damping from viscosity
+    // 4. Soft wall bounce at limits
+
+    var center = 0.5;
+    var displacement = this.level - center;
+
+    // Restoring force — gravity pulls toward center (like a pendulum)
+    // Stronger when further from center (sin-like behavior)
+    this.velocity -= displacement * this.gravity * 1.8 * dt;
+
+    // Tilt force — phone movement shakes the system
     this.velocity += tilt * this.gravity * dt;
+
     // Viscosity / friction — frame-rate independent
     this.velocity *= Math.pow(this.damping, dt * 60);
+
     // Move water
     this.level += this.velocity * dt;
-    // Wall collisions — bounce/splash
+
+    // Soft wall bounce — like the pendulums hitting their swing limit
+    // Don't hard clamp — bounce with energy loss
     if (this.level > 1) {
       this.level = 1;
       this.velocity *= -this.wallBounce;

@@ -1984,8 +1984,11 @@ const Flow = (function () {
   function init() {
     try {
       // Water bottle dynamics
-      _pitchWater  = new Body.WaterDynamic(1.8, 0.93, 0.06);
-      _filterWater = new Body.WaterDynamic(1.4, 0.91, 0.04);
+      // Pendulum-tuned: gravity pulls back to center, tilt pushes.
+      // Shake → chaos → hold still → settles. Like the research page pendulums.
+      // gravity=2.0 (responsive), damping=0.94 (settles in ~2s), wallBounce=0.25 (soft thud)
+      _pitchWater  = new Body.WaterDynamic(2.0, 0.94, 0.25);
+      _filterWater = new Body.WaterDynamic(1.6, 0.92, 0.15);
 
       // Berlyne tracker — keep music at edge of order and chaos
       _berlyne = new Body.BerlyneTracker();
