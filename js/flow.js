@@ -229,6 +229,15 @@ const Flow = (function () {
     nextRootShift:  0,
     currentRootFreq: 432,
 
+    // Melodic state for grid pipeline
+    bassActive:      false,
+    lastBassStep:    -1,
+    lastStabStep:    -1,
+    lastLeadStep:    -1,
+    riserFilterFreq: 200,
+    stabPattern:     [0, 0, 3, 5],  // scale degrees for stabs
+    leadDegree:      0,
+
     arr: {
       kickPat: 0, hatPat: 0, snarePat: 0,
       ride: false, ridePattern: 0, clap: false,
@@ -1362,6 +1371,14 @@ const Flow = (function () {
     _grid.nextRootShift = 0;
     _grid.currentRootFreq = Harmony.root;
 
+    // Reset melodic state
+    _grid.bassActive = false;
+    _grid.lastBassStep = -1;
+    _grid.lastStabStep = -1;
+    _grid.lastLeadStep = -1;
+    _grid.riserFilterFreq = 200;
+    _grid.leadDegree = 0;
+
     // Configure rhythm.js for grid mode
     Rhythm.configure({
       mode: 'grid',
@@ -1373,11 +1390,32 @@ const Flow = (function () {
     if (typeof Sound !== 'undefined') {
       try { Sound.configure(_lens); } catch (e) {}
     }
+
+    // Create bass sub layer — continuous bass that follows root
+    if (typeof Sound !== 'undefined' && Sound.ctx) {
+      var bassRoot = Harmony.root;
+      while (bassRoot > 110) bassRoot /= 2;
+      try {
+        Sound.createLayer('grid-bass', {
+          oscillators: [
+            { wave: 'sine', freq: bassRoot, gain: 0.35 },
+            { wave: 'triangle', freq: bassRoot, gain: 0.12 },
+          ],
+          filter: { type: 'lowpass', freq: 250, Q: 0.7 },
+          gain: 0,
+        });
+        _grid.bassActive = true;
+      } catch (e) {}
+    }
   }
 
   function teardownGrid() {
     _grid.active = false;
     _grid.started = false;
+    if (_grid.bassActive && typeof Sound !== 'undefined') {
+      try { Sound.destroyLayer('grid-bass'); } catch (e) {}
+      _grid.bassActive = false;
+    }
     Rhythm.reset();
   }
 
@@ -1493,6 +1531,121 @@ const Flow = (function () {
           _grid.buildLevel = 0;
         }
         break;
+    }
+
+    // ── GRID STEP CLOCK ──────────────────────────────────────────────
+    // Drive melodic events from the BPM clock.
+    // stepDur = duration of one 16th note. 16 steps = 1 bar.
+    _grid.clock += dt;
+    var currentStep = Math.floor(_grid.clock / _grid.stepDur) % 16;
+    var currentBar  = Math.floor(_grid.clock / (_grid.stepDur * 16));
+    var newStep = (currentStep !== _grid.lastStep);
+    var newBar  = (currentBar !== _grid.lastBar);
+    if (newBar) _grid.totalBars = currentBar;
+    _grid.lastStep = currentStep;
+    _grid.lastBar = currentBar;
+
+    var time = Sound.currentTime;
+    var rootFreq = Harmony.root;
+
+    // ── BASS SUB — continuous, pumps with sidechain ────────────────
+    if (_grid.bassActive) {
+      // Bass gain follows phase — louder during drops, present during builds
+      var bassGainTarget = 0;
+      if (_grid.phase === 'intro')     bassGainTarget = 0.08;
+      if (_grid.phase === 'build')     bassGainTarget = 0.12 + _grid.buildLevel * 0.10;
+      if (_grid.phase === 'drop')      bassGainTarget = 0.28;
+      if (_grid.phase === 'breakdown') bassGainTarget = 0.06;
+
+      try { Sound.setLayerGain('grid-bass', bassGainTarget * _grid.djGain, 0.3); } catch (e) {}
+
+      // Update bass pitch to follow root — octave down during drops
+      var bassRoot = rootFreq;
+      while (bassRoot > 110) bassRoot /= 2;
+      if (_grid.phase === 'drop') bassRoot /= 2; // octave down for massive sub
+      try { Sound.setLayerFreqs('grid-bass', [bassRoot, bassRoot * 2], 0.5); } catch (e) {}
+    }
+
+    // ── CHORD STABS — on downbeats, voiced with Harmony ───────────
+    if (newStep) {
+      var doStab = false;
+      var stabVel = 0;
+
+      if (_grid.phase === 'build') {
+        // During build: stab every 4 steps (quarter notes), velocity rises with buildLevel
+        if (currentStep % 4 === 0 && currentStep !== _grid.lastStabStep) {
+          doStab = true;
+          stabVel = 0.12 + _grid.buildLevel * 0.18;
+        }
+      } else if (_grid.phase === 'drop') {
+        // During drop: stabs every 2 steps (eighth notes), punchy
+        if (currentStep % 2 === 0 && currentStep !== _grid.lastStabStep) {
+          doStab = true;
+          stabVel = 0.22 + _grid.intensity * 0.15;
+        }
+      } else if (_grid.phase === 'breakdown') {
+        // Breakdown: sparse stabs, beat 1 only, atmospheric
+        if (currentStep === 0 && currentStep !== _grid.lastStabStep) {
+          doStab = true;
+          stabVel = 0.10;
+        }
+      }
+
+      if (doStab) {
+        _grid.lastStabStep = currentStep;
+        // Play a chord using Harmony — root, 3rd, 5th
+        var stabDeg = _grid.stabPattern[_grid.cycle % _grid.stabPattern.length];
+        var chordDegs = [stabDeg, stabDeg + 2, stabDeg + 4];
+        for (var ci = 0; ci < chordDegs.length; ci++) {
+          try {
+            Sound.play('stab', time + ci * 0.008,
+              Harmony.freq(chordDegs[ci], 0), stabVel * (1 - ci * 0.06), 0.35);
+          } catch (e) {}
+        }
+      }
+
+      // ── LEAD MELODY — tilt-controlled, during drops ──────────────
+      if (_grid.phase === 'drop') {
+        // Lead plays every 2 steps, pitch follows tilt position mapped to scale
+        if (currentStep % 2 === 1 && currentStep !== _grid.lastLeadStep) {
+          _grid.lastLeadStep = currentStep;
+          // Map tilt to scale degree range (0-7 = one octave of scale)
+          var leadDeg = Math.round(_grid.tiltNorm * 7);
+          _grid.leadDegree += (leadDeg - _grid.leadDegree) * 0.4;
+          var leadFreq = Harmony.freq(Math.round(_grid.leadDegree), 1);
+          var leadVel = 0.18 + _grid.intensity * 0.12;
+          try {
+            Sound.play('gridstack', time, leadFreq, leadVel, 0.25);
+          } catch (e) {}
+        }
+      }
+    }
+
+    // ── RISER — rising filter sweep during build phase ─────────────
+    if (_grid.phase === 'build') {
+      // Riser: a noise/filtered sweep that rises with buildLevel
+      _grid.riserFilterFreq = 200 + _grid.buildLevel * 4800;
+      // Play a quiet riser hit at key build thresholds
+      if (_grid.buildLevel > 0.3 && !_grid.riserFired && newStep && currentStep === 0) {
+        _grid.riserFired = true;
+        try {
+          Sound.play('massive', time, rootFreq * 2, 0.08 + _grid.buildLevel * 0.12, 2.0);
+        } catch (e) {}
+      }
+      if (_grid.buildLevel > 0.8 && !_grid.snareRollFired && newStep && currentStep === 0) {
+        _grid.snareRollFired = true;
+        // Snare roll: rapid hits leading into drop
+        for (var ri = 0; ri < 8; ri++) {
+          try {
+            Sound.playDrum('snare', time + ri * _grid.stepDur * 0.5,
+              0.15 + ri * 0.08, _lens.rhythm.kit || '808');
+          } catch (e) {}
+        }
+      }
+    } else {
+      _grid.riserFired = false;
+      _grid.snareRollFired = false;
+      _grid.riserFilterFreq = 200;
     }
 
     // Update Rhythm module with body state for drum generation
@@ -1783,8 +1936,8 @@ const Flow = (function () {
   function init() {
     try {
       // Water bottle dynamics
-      _pitchWater  = new Body.WaterDynamic(1.8, 0.93, 0.35);
-      _filterWater = new Body.WaterDynamic(1.4, 0.91, 0.25);
+      _pitchWater  = new Body.WaterDynamic(1.8, 0.93, 0.06);
+      _filterWater = new Body.WaterDynamic(1.4, 0.91, 0.04);
 
       // Berlyne tracker — keep music at edge of order and chaos
       _berlyne = new Body.BerlyneTracker();
