@@ -1918,6 +1918,7 @@ const Flow = (function () {
       setupDrumCallback();
     } catch (e) {
       _errorCount++;
+      if (typeof console !== 'undefined') console.error('[Flow.applyLens] CRASHED:', e.message, e.stack);
     }
   }
 
@@ -1935,7 +1936,10 @@ const Flow = (function () {
   //   6. Void drone
 
   function update(sensor, timestamp) {
-    if (!_active || !_lens) return;
+    if (!_active || !_lens) {
+      if (typeof console !== 'undefined' && !_active) console.warn('[Flow.update] inactive — _active:', _active, '_lens:', !!_lens);
+      return;
+    }
 
     try {
       var now = performance.now();
@@ -1997,6 +2001,7 @@ const Flow = (function () {
       }
     } catch (e) {
       _errorCount++;
+      if (typeof console !== 'undefined') console.error('[Flow.update] ERROR #' + _errorCount + ':', e.message, e.stack);
     }
   }
 

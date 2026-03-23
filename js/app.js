@@ -339,9 +339,10 @@ const App = (function () {
     var sound = getSound();
     var flow  = getFlow();
 
-    try { sound.configure(lens); } catch (e) { console.error('applyLens sound:', e); }
-    try { flow.applyLens(lens); } catch (e) { console.error('applyLens flow:', e); }
-    try { Organism.applyLens(lens); } catch (e) { console.error('applyLens organism:', e); }
+    try { sound.configure(lens); } catch (e) { console.error('applyLens sound:', e.message, e.stack); }
+    try { flow.applyLens(lens); } catch (e) { console.error('applyLens flow:', e.message, e.stack); }
+    try { Organism.applyLens(lens); } catch (e) { console.error('applyLens organism:', e.message, e.stack); }
+    console.log('[applyLens] done. lens:', lens.name, 'pipeline:', lens.pipeline);
 
     // v2 modules (when they exist)
     if (typeof Harmony !== 'undefined' && Harmony.configure) {
