@@ -649,7 +649,7 @@ const Lens = (function () {
 
   // ── DEFAULT INDEX ──────────────────────────────────────────────────────
   // Grid (index 1) is the default — strongest first impression.
-  var DEFAULT_INDEX = 1;
+  var DEFAULT_INDEX = 4; // Journey — the full arc, best first impression
 
 
   // ── STATE ──────────────────────────────────────────────────────────────

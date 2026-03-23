@@ -313,7 +313,7 @@ const App = (function () {
         blog(introPlayed ? 'Returning user -- instant start' : 'First visit -- waiting for voice');
         setTimeout(function () {
           blog('Selecting default lens...');
-          Lens.selectCard(1);
+          Lens.init(); // uses DEFAULT_INDEX from lens.js (Journey)
           var lens = Lens.getSelected();
           blog('Lens: ' + (lens ? lens.name : 'NULL'));
           applyLens(lens);

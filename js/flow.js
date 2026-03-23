@@ -1651,43 +1651,9 @@ const Flow = (function () {
       try { Sound.setLayerFreqs('grid-bass', [bassRoot, bassRoot * 2], 0.5); } catch (e) {}
     }
 
-    // ── CHORD STABS — on downbeats, voiced with Harmony ───────────
-    if (newStep) {
-      var doStab = false;
-      var stabVel = 0;
-
-      if (_grid.phase === 'build') {
-        // During build: stab every 4 steps (quarter notes), velocity rises with buildLevel
-        if (currentStep % 4 === 0 && currentStep !== _grid.lastStabStep) {
-          doStab = true;
-          stabVel = 0.12 + _grid.buildLevel * 0.18;
-        }
-      } else if (_grid.phase === 'drop') {
-        // During drop: stabs every 2 steps (eighth notes), punchy
-        if (currentStep % 2 === 0 && currentStep !== _grid.lastStabStep) {
-          doStab = true;
-          stabVel = 0.22 + _grid.intensity * 0.15;
-        }
-      } else if (_grid.phase === 'breakdown') {
-        // Breakdown: sparse stabs, beat 1 only, atmospheric
-        if (currentStep === 0 && currentStep !== _grid.lastStabStep) {
-          doStab = true;
-          stabVel = 0.10;
-        }
-      }
-
-      if (doStab) {
-        _grid.lastStabStep = currentStep;
-        // Play a chord using Harmony — root, 3rd, 5th
-        var stabDeg = _grid.stabPattern[_grid.cycle % _grid.stabPattern.length];
-        var chordDegs = [stabDeg, stabDeg + 2, stabDeg + 4];
-        for (var ci = 0; ci < chordDegs.length; ci++) {
-          try {
-            Sound.play('stab', time + ci * 0.008,
-              Harmony.freq(chordDegs[ci], 0), stabVel * (1 - ci * 0.06), 0.35);
-          } catch (e) {}
-        }
-      }
+    // Grid is SIMPLE: kick + bass + filter. No stabs. No lead.
+    // The filter IS the instrument. The sidechain pump IS the music.
+    if (false) { // stabs stripped — less is more
 
       // ── LEAD MELODY — tilt-controlled, during drops ──────────────
       if (_grid.phase === 'drop') {
@@ -1710,12 +1676,9 @@ const Flow = (function () {
     if (_grid.phase === 'build') {
       // Riser: a noise/filtered sweep that rises with buildLevel
       _grid.riserFilterFreq = 200 + _grid.buildLevel * 4800;
-      // Play a quiet riser hit at key build thresholds
-      if (_grid.buildLevel > 0.3 && !_grid.riserFired && newStep && currentStep === 0) {
+      // No riser voice — the filter sweep IS the riser
+      if (_grid.buildLevel > 0.3 && !_grid.riserFired) {
         _grid.riserFired = true;
-        try {
-          Sound.play('massive', time, rootFreq * 2, 0.08 + _grid.buildLevel * 0.12, 2.0);
-        } catch (e) {}
       }
       if (_grid.buildLevel > 0.8 && !_grid.snareRollFired && newStep && currentStep === 0) {
         _grid.snareRollFired = true;
