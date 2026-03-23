@@ -545,7 +545,11 @@ The Tsimane rated them as equally pleasant.
 <div style="text-align:center;margin:24px 0">
   <canvas id="pendCanvas" width="560" height="300" style="width:280px;height:150px;display:inline-block"></canvas>
 </div>
-<div id="pendStat" style="text-align:center;font-size:12px;color:rgba(255,252,245,0.18);letter-spacing:0.06em;margin-bottom:16px">drifting apart</div>
+<div id="pendStat" style="text-align:center;font-size:12px;color:rgba(255,252,245,0.18);letter-spacing:0.06em;margin-bottom:8px">drifting apart</div>
+<div style="text-align:center;margin:8px 0 16px">
+  <span id="pendTryBtn" onclick="startPendulumMotion()" style="cursor:pointer;color:rgba(255,210,150,0.5);font-size:13px;font-weight:300;letter-spacing:0.08em;padding:8px 16px;display:inline-block;border:1px solid rgba(255,210,150,0.15);border-radius:20px">hold your phone still — feel it sync</span>
+</div>
+<div id="pendSyncFlash" style="text-align:center;font-size:16px;color:#ffd6a0;opacity:0;transition:opacity 0.6s;margin-bottom:12px;font-weight:300;letter-spacing:0.06em">you just synchronized</div>
 
 <p>By the time GUMP phones exchange data, the <em>bodies</em> are already coupled. The devices don't create the connection. They make it audible.</p>
 
@@ -1382,49 +1386,100 @@ function exStillness(){
   osc.stop(t+dur+0.1);osc2.stop(t+dur+0.1);osc3.stop(t+dur+0.1);lfo.stop(t+dur+0.1);
 }
 
-/* Coupled oscillator pendulums */
+/* Coupled oscillator pendulums — with motion-driven mode */
+var _pendMotionActive=false;
+var _pendPhoneTilt=0;
+var _pendSynced=false;
+var _pendSyncTime=0;
+
 (function(){
   var c=document.getElementById('pendCanvas');if(!c)return;
-  var ctx=c.getContext('2d'),W=560,H=300;
+  var dpr=window.devicePixelRatio||1;
+  c.width=560*dpr;c.height=300*dpr;
+  var ctx=c.getContext('2d');ctx.scale(dpr,dpr);
+  var W=560,H=300;
   var th1=0.5,th2=-0.3,w1=0,w2=0;
-  var g=9.81,Lm=1.0,coupling=0.012,damp=0.998;
+  var g=9.81,Lm=1.0,coupling=0.015,damp=0.998;
   var L=H*0.54,pivY=14;
   var p1x=W*0.32,p2x=W*0.68;
   var stat=document.getElementById('pendStat');
+  var flash=document.getElementById('pendSyncFlash');
+  var synced=false,syncTimer=0;
 
   function step(){
     var dt=0.016;
-    var a1=-g/Lm*Math.sin(th1)+coupling*(th2-th1);
-    var a2=-g/(Lm*1.05)*Math.sin(th2)+coupling*(th1-th2);
-    w1=(w1+a1*dt)*damp;w2=(w2+a2*dt)*damp;
+    if(_pendMotionActive){
+      // Pendulum 1 driven by phone tilt (the user's body)
+      var target=_pendPhoneTilt*0.6; // scale tilt to pendulum range
+      var a1=15*(target-th1)-w1*8; // spring toward phone tilt with damping
+      // Pendulum 2 runs free but coupled to pendulum 1
+      var a2=-g/(Lm*1.05)*Math.sin(th2)+coupling*2.5*(th1-th2);
+      w1=(w1+a1*dt)*0.96;
+      w2=(w2+a2*dt)*damp;
+    } else {
+      // Default: both free, weakly coupled
+      var a1=-g/Lm*Math.sin(th1)+coupling*(th2-th1);
+      var a2=-g/(Lm*1.05)*Math.sin(th2)+coupling*(th1-th2);
+      w1=(w1+a1*dt)*damp;
+      w2=(w2+a2*dt)*damp;
+    }
     th1+=w1*dt;th2+=w2*dt;
   }
 
   function draw(){
     ctx.clearRect(0,0,W,H);
+    // Support bar
     ctx.strokeStyle='rgba(255,252,245,0.06)';ctx.lineWidth=2;
     ctx.beginPath();ctx.moveTo(W*0.14,pivY);ctx.lineTo(W*0.86,pivY);ctx.stroke();
 
-    [[p1x,th1],[p2x,th2]].forEach(function(pair){
-      var px=pair[0],th=pair[1];
+    var colors=_pendMotionActive?
+      [['rgba(255,180,120,0.5)','rgba(255,180,120,'],['rgba(255,210,150,0.4)','rgba(255,210,150,']]:
+      [['rgba(255,210,150,0.3)','rgba(255,210,150,'],['rgba(255,210,150,0.3)','rgba(255,210,150,']];
+
+    [[p1x,th1,0],[p2x,th2,1]].forEach(function(arr){
+      var px=arr[0],th=arr[1],ci=arr[2];
       var bx=px+Math.sin(th)*L,by=pivY+Math.cos(th)*L;
-      ctx.strokeStyle='rgba(255,210,150,0.3)';ctx.lineWidth=1.5;
+      ctx.strokeStyle=colors[ci][0];ctx.lineWidth=1.5;
       ctx.beginPath();ctx.moveTo(px,pivY);ctx.lineTo(bx,by);ctx.stroke();
       var gr=ctx.createRadialGradient(bx,by,0,bx,by,16);
-      gr.addColorStop(0,'rgba(255,210,150,0.1)');gr.addColorStop(1,'rgba(255,210,150,0)');
+      gr.addColorStop(0,colors[ci][1]+'0.12)');gr.addColorStop(1,colors[ci][1]+'0)');
       ctx.fillStyle=gr;ctx.beginPath();ctx.arc(bx,by,16,0,Math.PI*2);ctx.fill();
-      ctx.fillStyle='rgba(255,210,150,0.45)';
+      ctx.fillStyle=colors[ci][0];
       ctx.beginPath();ctx.arc(bx,by,8,0,Math.PI*2);ctx.fill();
       ctx.fillStyle='rgba(255,252,245,0.1)';
       ctx.beginPath();ctx.arc(px,pivY,2.5,0,Math.PI*2);ctx.fill();
     });
 
+    // Label pendulum 1 as "you" when motion-driven
+    if(_pendMotionActive){
+      ctx.font='11px system-ui';ctx.textAlign='center';
+      ctx.fillStyle='rgba(255,180,120,0.4)';
+      ctx.fillText('you',p1x,H-8);
+      ctx.fillStyle='rgba(255,210,150,0.25)';
+      ctx.fillText('the other',p2x,H-8);
+    }
+
     var pd=Math.abs(th1-th2);
     if(stat){
-      if(pd<0.04){stat.textContent='synchronized';stat.style.color='rgba(255,210,150,0.45)'}
-      else if(pd<0.18){stat.textContent='converging';stat.style.color='rgba(255,210,150,0.3)'}
-      else{stat.textContent='drifting apart';stat.style.color='rgba(255,252,245,0.18)'}
+      if(pd<0.06){
+        stat.textContent='synchronized';stat.style.color='rgba(255,210,150,0.55)';
+        if(!synced){syncTimer+=0.016;if(syncTimer>1.5){synced=true;_pendSynced=true;showSyncFlash();}}
+      } else if(pd<0.22){
+        stat.textContent='converging';stat.style.color='rgba(255,210,150,0.3)';syncTimer=0;
+      } else {
+        stat.textContent=_pendMotionActive?'move gently...':'drifting apart';
+        stat.style.color='rgba(255,252,245,0.18)';syncTimer=0;
+      }
     }
+  }
+
+  function showSyncFlash(){
+    if(!flash)return;
+    flash.style.opacity='1';
+    setTimeout(function(){flash.style.opacity='0'},4000);
+    // Pulse the canvas border
+    c.style.boxShadow='0 0 30px rgba(255,210,150,0.15)';
+    setTimeout(function(){c.style.boxShadow='none'},3000);
   }
 
   function loop(){
@@ -1432,7 +1487,49 @@ function exStillness(){
     draw();requestAnimationFrame(loop);
   }
   loop();
+
+  // Reset when entering motion mode
+  window._pendReset=function(){
+    th1=0;th2=0.4;w1=0;w2=0;synced=false;_pendSynced=false;syncTimer=0;
+    if(flash)flash.style.opacity='0';
+  };
 })();
+
+/* Motion-driven pendulum activation */
+function startPendulumMotion(){
+  var btn=document.getElementById('pendTryBtn');
+  if(_pendMotionActive){
+    // Already active — toggle off
+    _pendMotionActive=false;
+    if(btn)btn.textContent='hold your phone still — feel it sync';
+    return;
+  }
+
+  // Request motion permission (iOS requires user gesture)
+  if(typeof DeviceMotionEvent!=='undefined'&&typeof DeviceMotionEvent.requestPermission==='function'){
+    DeviceMotionEvent.requestPermission().then(function(state){
+      if(state==='granted')enableMotion(btn);
+      else if(btn)btn.textContent='motion access denied';
+    }).catch(function(){if(btn)btn.textContent='motion not available';});
+  } else if('DeviceOrientationEvent' in window){
+    enableMotion(btn);
+  } else {
+    if(btn)btn.textContent='motion not available on this device';
+  }
+}
+
+function enableMotion(btn){
+  _pendMotionActive=true;
+  if(window._pendReset)window._pendReset();
+  if(btn){btn.textContent='syncing... hold still';btn.style.color='rgba(255,180,120,0.7)';btn.style.borderColor='rgba(255,180,120,0.3)';}
+
+  window.addEventListener('deviceorientation',function(e){
+    if(!_pendMotionActive)return;
+    // Map phone tilt (gamma = left-right) to pendulum angle
+    var gamma=e.gamma||0;
+    _pendPhoneTilt=Math.max(-1,Math.min(1,gamma/30)); // ±30° = full range
+  });
+}
 </script>
 
 </body>
