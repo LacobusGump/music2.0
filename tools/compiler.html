@@ -365,6 +365,8 @@ uncompute later (save erasure)? The search finds every point on the frontier.
   <p style="font-size:12px;color:#665;margin-top:8px">Static preview — JS will replace with live results on load.</p>
 </div>
 
+<div class="card" id="phaseCard"></div>
+
 <div class="card" id="scheduleDetail">
 </div>
 
@@ -1697,8 +1699,148 @@ function compile() {
   // Use searched schedules if available, fall back to fixed generation
   _schedules = searched.length >= 2 ? searched : generateSchedules(ir, irrevCount, totalErasure, ambiguity);
 
+  // Compute phase diagram
+  computePhase(ir, ambiguity);
+
   // Rank and display
   rerank();
+}
+
+// =====================================================================
+// PHASE DIAGRAM
+// =====================================================================
+function computePhase(ir, ambiguity) {
+  const liveness = analyzeLiveness(ir);
+  const N = liveness.N;
+  const el = document.getElementById('phaseCard');
+
+  if (N === 0) { el.innerHTML = ''; return; }
+
+  const eager = globalAllocate(liveness, ambiguity, 0, 'greedy').erasure;
+  if (eager === 0) { el.innerHTML = ''; return; }
+
+  // Sweep budget, build normalized curve
+  let area = 0;
+  let prevNorm = 1;
+  const curve = [];
+  const marginals = [];
+
+  for (let b = 0; b <= N; b++) {
+    const r = globalAllocate(liveness, ambiguity, b, 'greedy');
+    const norm = r.erasure / eager;
+    curve.push(norm);
+    if (b > 0) {
+      area += (prevNorm + norm) / 2 * (1/N);
+      marginals.push((curve[b-1] - curve[b]) * (eager / Math.LN2));
+    }
+    prevNorm = norm;
+  }
+
+  const final = curve[N];
+
+  // Phase classification
+  let phase, phaseColor, phaseIcon;
+  if (area < 0.3) {
+    phase = 'GAS'; phaseColor = '#6c6'; phaseIcon = '\u2601'; // cloud
+  } else if (area < 0.7) {
+    phase = 'LIQUID'; phaseColor = '#66ccff'; phaseIcon = '\u224B'; // ≋
+  } else {
+    phase = 'CRYSTAL'; phaseColor = '#f66'; phaseIcon = '\u25C7'; // diamond
+  }
+
+  // Render
+  let html = '<div style="text-align:center;margin-bottom:16px">';
+  html += '<div style="font-size:48px;line-height:1">' + phaseIcon + '</div>';
+  html += '<div style="font-size:24px;font-weight:300;color:' + phaseColor + ';letter-spacing:0.1em;margin:8px 0">' + phase + '</div>';
+  html += '<div style="font-size:15px;color:#e8e4dc">compressibility index: <strong style="color:' + phaseColor + '">' + area.toFixed(3) + '</strong></div>';
+  html += '</div>';
+
+  // Explanation
+  if (phase === 'GAS') {
+    html += '<p style="font-size:14px;color:#998;text-align:center">Operations are largely independent. Most information destruction is premature. Memory buys large savings. <strong style="color:#6c6">Optimize aggressively.</strong></p>';
+  } else if (phase === 'LIQUID') {
+    html += '<p style="font-size:14px;color:#998;text-align:center">Operations have moderate correlation. Some destruction is premature, some is structural. Memory buys diminishing returns. <strong style="color:#66ccff">Optimize selectively.</strong></p>';
+  } else {
+    html += '<p style="font-size:14px;color:#998;text-align:center">Operations are highly entangled. Almost all destruction is structurally required. Memory barely helps. <strong style="color:#f66">The cost is inherent.</strong></p>';
+  }
+
+  // Mini curve visualization
+  html += '<canvas id="phaseCurve" height="120" style="margin-top:12px"></canvas>';
+
+  // Phase context
+  html += '<div style="display:flex;justify-content:center;gap:24px;margin-top:12px;font-size:12px">';
+  html += '<div style="text-align:center"><span style="color:#6c6;font-size:16px">\u2601</span><br><span style="color:#887">GAS &lt;0.3</span><br><span style="color:#665">neural nets</span></div>';
+  html += '<div style="text-align:center"><span style="color:#66ccff;font-size:16px">\u224B</span><br><span style="color:#887">LIQUID 0.3-0.7</span><br><span style="color:#665">search, filter</span></div>';
+  html += '<div style="text-align:center"><span style="color:#f66;font-size:16px">\u25C7</span><br><span style="color:#887">CRYSTAL &gt;0.7</span><br><span style="color:#665">parity, sorting</span></div>';
+  html += '</div>';
+
+  el.innerHTML = html;
+
+  // Draw curve
+  setTimeout(() => drawPhaseCurve(curve, phase, phaseColor, area), 10);
+}
+
+function drawPhaseCurve(curve, phase, phaseColor, area) {
+  const canvas = document.getElementById('phaseCurve');
+  if (!canvas) return;
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  const w = rect.width, h = rect.height;
+  const pad = { top: 10, right: 20, bottom: 25, left: 45 };
+  const cW = w - pad.left - pad.right;
+  const cH = h - pad.top - pad.bottom;
+
+  // Fill under curve (phase color)
+  ctx.beginPath();
+  ctx.moveTo(pad.left, pad.top + cH);
+  curve.forEach((v, i) => {
+    const x = pad.left + (i / (curve.length-1)) * cW;
+    const y = pad.top + cH - v * cH;
+    ctx.lineTo(x, y);
+  });
+  ctx.lineTo(pad.left + cW, pad.top + cH);
+  ctx.closePath();
+  ctx.fillStyle = phaseColor + '15';
+  ctx.fill();
+
+  // Curve line
+  ctx.beginPath();
+  ctx.strokeStyle = phaseColor;
+  ctx.lineWidth = 2;
+  curve.forEach((v, i) => {
+    const x = pad.left + (i / (curve.length-1)) * cW;
+    const y = pad.top + cH - v * cH;
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+
+  // Reference line: linear (area = 0.5)
+  ctx.beginPath();
+  ctx.strokeStyle = '#ffffff15';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([3, 3]);
+  ctx.moveTo(pad.left, pad.top);
+  ctx.lineTo(pad.left + cW, pad.top + cH);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Axes
+  ctx.font = '10px Georgia'; ctx.fillStyle = '#887';
+  ctx.textAlign = 'center';
+  ctx.fillText('memory budget →', pad.left + cW/2, h - 4);
+  ctx.textAlign = 'right';
+  ctx.fillText('100%', pad.left - 4, pad.top + 8);
+  ctx.fillText('0%', pad.left - 4, pad.top + cH + 3);
+
+  // Area label
+  ctx.fillStyle = phaseColor;
+  ctx.font = '11px Georgia';
+  ctx.textAlign = 'center';
+  ctx.fillText('area = ' + area.toFixed(3), pad.left + cW/2, pad.top + cH/2 + 4);
 }
 
 function renderPasses(ir, irrevCount, revCount, totalErasure, ambiguity) {
