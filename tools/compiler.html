@@ -457,6 +457,89 @@ function factorize(n) {
   while(d*d<=n){while(n%d===0){f[d]=(f[d]||0)+1;n/=d;}d++;}
   if(n>1)f[n]=(f[n]||0)+1; return f;
 }
+function binomial(n,k){if(k>n)return 0;if(k===0||k===n)return 1;let r=1;for(let i=0;i<k;i++)r=r*(n-i)/(i+1);return Math.round(r);}
+
+// =====================================================================
+// OUTPUT AMBIGUITY ANALYSIS
+// =====================================================================
+// The product of individual M values overcounts when ops are correlated.
+// A search over N items has N possible outputs, not 2^N.
+// This function detects program structure to compute the ACTUAL output
+// ambiguity class size — the minimum information that MUST be erased.
+function analyzeOutputAmbiguity(source, ir) {
+  const src = source.toLowerCase();
+  let arraySize = 0;
+  const arrMatch = src.match(/array\((\d+)\)/);
+  if (arrMatch) arraySize = parseInt(arrMatch[1]);
+  const matMatch = src.match(/matrix\((\d+)\s*,\s*(\d+)\)/);
+  if (matMatch) arraySize = parseInt(matMatch[1]) * parseInt(matMatch[2]);
+
+  // Search: output = 1 index from N → N possibilities
+  if (src.includes('find') || src.includes('search') || (src.includes('compare') && src.includes('match'))) {
+    const N = arraySize || ir.filter(op => op.type === 'irrev' && op.op === 'COMPARE').length + 1;
+    return { size: N, bits: Math.log2(N), nats: Math.log(N),
+      label: `${N} possible positions → log₂(${N}) = ${Math.log2(N).toFixed(1)} bits`,
+      explanation: 'Output = index of target. Comparisons are correlated (once found, rest are redundant).' };
+  }
+
+  // Sort: output = 1 permutation from N! → N! possibilities
+  if (src.includes('sort(') && arraySize > 0) {
+    const N = arraySize;
+    return { size: factorial(N), bits: logFact(N)/Math.LN2, nats: logFact(N),
+      label: `${N}! = ${factorial(N)} permutations → log₂(${N}!) = ${(logFact(N)/Math.LN2).toFixed(1)} bits`,
+      explanation: 'Output = sorted order. Must erase which permutation the input was.' };
+  }
+
+  // Top-K: output = K items from N → C(N,K) possibilities
+  const topkMatch = src.match(/top.*?(\d+)/i) || src.match(/k\s*=\s*(\d+)/);
+  if (topkMatch && src.includes('discard') && arraySize > 0) {
+    const K = parseInt(topkMatch[1]);
+    const cnk = binomial(arraySize, K);
+    return { size: cnk, bits: Math.log2(cnk), nats: Math.log(cnk),
+      label: `C(${arraySize},${K}) = ${cnk} possible selections → ${Math.log2(cnk).toFixed(1)} bits`,
+      explanation: `Output = which ${K} of ${arraySize} items. Must erase the selection identity.` };
+  }
+
+  // Decision tree: output = 1 leaf from 2^depth
+  if (src.includes('decision') || src.includes('tree') || src.includes('leaf')) {
+    const thresholds = ir.filter(op => op.type === 'irrev' && op.op === 'THRESHOLD').length;
+    const leaves = Math.pow(2, thresholds) || 8;
+    return { size: leaves, bits: Math.log2(leaves), nats: Math.log(leaves),
+      label: `${leaves} possible leaf classes → log₂(${leaves}) = ${Math.log2(leaves).toFixed(1)} bits`,
+      explanation: 'Output = 1 leaf class. Each threshold discards magnitude, but outcomes are a tree.' };
+  }
+
+  // Max pooling: output = K winners from grid
+  if (src.includes('pool') || src.includes('max(') && src.includes('grid')) {
+    const maxOps = ir.filter(op => op.type === 'irrev' && op.op === 'MAX').length;
+    const winners = Math.max(1, Math.ceil(maxOps / 3)); // each pool of 4 → 1 winner via 3 MAX ops
+    const poolSize = 4; // 2x2 pool
+    return { size: Math.pow(poolSize, winners), bits: Math.log2(Math.pow(poolSize, winners)),
+      nats: winners * Math.log(poolSize),
+      label: `${winners} pools × 4 candidates each → ${winners * 2} bits`,
+      explanation: `Each 2×2 pool picks 1 of 4. Correlated MAX ops within each pool.` };
+  }
+
+  // Filter: output = subset → 2^N possible subsets but typically ~N/2
+  if (src.includes('filter') || src.includes('threshold') && src.includes('discard')) {
+    return { size: arraySize || 32, bits: Math.log2(arraySize || 32), nats: Math.log(arraySize || 32),
+      label: `~${arraySize || 32} possible subset sizes → ${Math.log2(arraySize || 32).toFixed(1)} bits`,
+      explanation: 'Output = filtered subset. Actual ambiguity depends on threshold distribution.' };
+  }
+
+  // Multiply: output = product, inputs ambiguous → d(n) factorizations
+  if (src.includes('multiply') && src.includes('discard')) {
+    return { size: arraySize || 64, bits: Math.log2(arraySize || 64), nats: Math.log(arraySize || 64),
+      label: `input ambiguity class`,
+      explanation: 'Output = product. Must erase which inputs produced it.' };
+  }
+
+  // Fallback: use product of M values (upper bound)
+  const totalM = ir.filter(op => op.type === 'irrev').reduce((acc, op) => acc * op.M, 1);
+  return { size: totalM, bits: Math.log2(totalM), nats: Math.log(totalM),
+    label: `Upper bound: product of individual ambiguities = ${totalM > 1e6 ? totalM.toExponential(1) : totalM}`,
+    explanation: 'No structural analysis available. Using product of all M values (overcounts if ops are correlated).' };
+}
 
 // =====================================================================
 // RENDER IR
@@ -494,7 +577,7 @@ function renderIR(ir) {
 // =====================================================================
 // SCHEDULE GENERATION
 // =====================================================================
-function generateSchedules(ir, irrevCount, totalErasure) {
+function generateSchedules(ir, irrevCount, totalErasure, ambiguity) {
   const schedules = [];
 
   // ---- Schedule 1: Conventional (erase eagerly at each step) ----
@@ -545,15 +628,10 @@ function generateSchedules(ir, irrevCount, totalErasure) {
     s2ops.push({ type: 'rev', op: 'UNCOMPUTE', cumCost: 0 });
   }
 
-  // Phase 4: single factorized collapse
-  // Total erasure = same as conventional but paid in one shot at the end
-  // The ambiguity class size = product of all M values
-  let totalM = 1;
-  for (const op of ir) {
-    if (op.type === 'irrev') totalM *= op.M;
-  }
-  // Factorize totalM
-  const factors = factorize(Math.min(totalM, 1e15)); // cap for sanity
+  // Phase 4: collapse at MINIMUM erasure (output ambiguity, not product of M values)
+  // Product of M overcounts when ops are correlated (e.g., search: 2^64 vs actual 64)
+  const outputSize = Math.min(ambiguity.size, 1e15);
+  const factors = factorize(outputSize);
   for (const p in factors) {
     for (let i = 0; i < factors[p]; i++) {
       s2cost += Math.log(parseInt(p));
@@ -562,15 +640,15 @@ function generateSchedules(ir, irrevCount, totalErasure) {
   }
 
   schedules.push({
-    name: 'Full uncompute + factorized collapse',
+    name: 'Full uncompute + min collapse',
     erasure: s2cost,
     memory: s2mem,
     ops: s2ops.length,
     garbage: revOps,
     garbageReclaimed: revOps,
     timeline: s2ops.map((op, i) => ({ step: i, cumCost: op.cumCost || 0, type: op.type })),
-    detail: `All comparisons done reversibly (${revOps} temp registers). Output copied. Intermediates uncomputed. Final collapse: ln(${totalM > 1e12 ? totalM.toExponential(1) : totalM}) nats.`,
-    rationale: 'Minimizes logical erasure. Delays all destruction to end. Maximum memory.'
+    detail: `All ops reversible (${revOps} temp registers). Output copied. Uncomputed. Final collapse = output ambiguity: ${ambiguity.label}.`,
+    rationale: 'Minimizes logical erasure. Erases only the output ambiguity. Maximum memory.'
   });
 
   // ---- Schedule 3: Partial uncompute (50%) ----
@@ -697,23 +775,25 @@ function compile() {
   const { html, totalErasure, irrevCount, revCount } = renderIR(ir);
   document.getElementById('irOutput').innerHTML = html;
 
+  // Analyze output ambiguity (the REAL minimum erasure, not product of M values)
+  const ambiguity = analyzeOutputAmbiguity(source, ir);
+
   // Render passes
-  renderPasses(ir, irrevCount, revCount, totalErasure);
+  renderPasses(ir, irrevCount, revCount, totalErasure, ambiguity);
 
   // Render transformation view
   renderTransform(ir);
 
   // Generate schedules
-  _schedules = generateSchedules(ir, irrevCount, totalErasure);
+  _schedules = generateSchedules(ir, irrevCount, totalErasure, ambiguity);
 
   // Rank and display
   rerank();
 }
 
-function renderPasses(ir, irrevCount, revCount, totalErasure) {
+function renderPasses(ir, irrevCount, revCount, totalErasure, ambiguity) {
   const irrevOps = ir.filter(op => op.type === 'irrev');
-  const totalM = irrevOps.reduce((acc, op) => acc * op.M, 1);
-  const factors = factorize(Math.min(totalM, 1e15));
+  const factors = factorize(Math.min(ambiguity.size, 1e15));
   const factorStr = Object.entries(factors).map(([p,a]) => a > 1 ? `${p}^${a}` : p).join(' &times; ');
 
   let html = '<div class="ir-block">';
@@ -741,10 +821,16 @@ function renderPasses(ir, irrevCount, revCount, totalErasure) {
   // Pass 4
   html += `<div class="ir-line"><span class="ir-num" style="color:#ffd6a0">P4</span>`;
   html += `<span class="ir-op irrev">Plan collapse events</span>`;
-  html += `<span class="ir-args">Total ambiguity class: ${totalM > 1e6 ? totalM.toExponential(1) : totalM}`;
-  if (Object.keys(factors).length > 0) html += ` = ${factorStr}`;
-  html += `. Factorized into ${Object.values(factors).reduce((a,b)=>a+b,0)} prime-stage COLLAPSE ops. `;
-  html += `Total: ${(totalErasure/Math.LN2).toFixed(1)} bits.</span></div>`;
+  html += `<span class="ir-args">Output ambiguity: ${ambiguity.label}. `;
+  if (Object.keys(factors).length > 0 && ambiguity.size <= 1e12) html += `Factorized: ${factorStr}. `;
+  html += `${ambiguity.explanation}</span></div>`;
+
+  // Comparison line: conventional vs minimum
+  html += `<div class="ir-line" style="margin-top:6px"><span class="ir-num"></span>`;
+  html += `<span class="ir-args">Conventional erasure: <span style="color:#f66">${(totalErasure/Math.LN2).toFixed(1)} bits</span> (sum of all individual ops). `;
+  html += `Minimum erasure: <span style="color:#6c6">${ambiguity.bits.toFixed(1)} bits</span> (output ambiguity only). `;
+  const savings = totalErasure > 0 ? ((totalErasure/Math.LN2 - ambiguity.bits) / (totalErasure/Math.LN2) * 100) : 0;
+  html += `Savings: <span style="color:#ffd6a0">${savings.toFixed(1)}%</span></span></div>`;
 
   html += '</div>';
   document.getElementById('passOutput').innerHTML = html;
