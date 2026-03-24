@@ -218,7 +218,45 @@ computation gets restructured.
 </div>
 
 <!-- ============================================================ -->
-<!-- SCHEDULES                                                     -->
+<!-- INFORMATION FLOW                                              -->
+<!-- ============================================================ -->
+
+<h2>Information Flow</h2>
+<p style="font-size:14px;color:#887">
+Every variable has a lifetime: created, read, transformed, destroyed.
+Green = information preserved. Red = information destroyed.
+Width = bits. This is the information landscape of your computation.
+</p>
+
+<div class="card">
+  <canvas id="flowCanvas" height="200"></canvas>
+</div>
+
+<div class="card" id="flowStats"></div>
+
+<!-- ============================================================ -->
+<!-- SCHEDULE SEARCH                                               -->
+<!-- ============================================================ -->
+
+<h2>Schedule Search</h2>
+<p style="font-size:14px;color:#887">
+Given a memory budget, the compiler searches for the best schedule.
+At each destruction point: erase now (save memory) or preserve and
+uncompute later (save erasure)? The search finds every point on the frontier.
+</p>
+
+<div class="controls">
+  <div style="display:flex;flex-direction:column;gap:4px">
+    <span style="font-size:11px;letter-spacing:0.15em;color:#887;text-transform:uppercase">Memory budget (registers)</span>
+    <div style="display:flex;align-items:center;gap:8px">
+      <input type="range" class="slider" id="memBudget" min="0" max="100" value="100" oninput="updateBudget()" style="width:200px">
+      <span class="slider-val" id="memBudgetVal">unlimited</span>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- GENERATED SCHEDULES                                           -->
 <!-- ============================================================ -->
 
 <h2>Generated Schedules</h2>
@@ -611,7 +649,334 @@ function renderIR(ir) {
 }
 
 // =====================================================================
-// SCHEDULE GENERATION
+// INFORMATION FLOW GRAPH
+// =====================================================================
+// The unified data structure. Each IR node gets a flow annotation:
+//   - bits created (new information)
+//   - bits destroyed (for irrev ops)
+//   - bits preserved (passed through)
+//   - lifetime: step created → step last read → step destroyed
+// This is the foundation for all three outputs.
+
+function buildFlowGraph(ir) {
+  const nodes = [];
+  let liveBits = 0;      // total information in flight
+  let peakBits = 0;
+  let totalCreated = 0;
+  let totalDestroyed = 0;
+
+  ir.forEach((op, i) => {
+    const node = {
+      step: i,
+      op: op.op,
+      type: op.type,
+      M: op.M || 0,
+      bitsIn: liveBits,
+      bitsCreated: 0,
+      bitsDestroyed: 0,
+      bitsOut: 0
+    };
+
+    if (op.type === 'irrev') {
+      // Irreversible: destroys ln(M)/ln(2) bits, creates 1 bit of result
+      const destroyed = Math.log2(op.M);
+      node.bitsDestroyed = destroyed;
+      node.bitsCreated = 1; // the comparison/selection result
+      totalDestroyed += destroyed;
+      totalCreated += 1;
+      liveBits = liveBits - destroyed + 1;
+    } else if (op.type === 'rev') {
+      // Reversible: creates output bits without destroying input
+      node.bitsCreated = 1;
+      totalCreated += 1;
+      liveBits += 1;
+    }
+
+    node.bitsOut = Math.max(0, liveBits);
+    if (liveBits > peakBits) peakBits = liveBits;
+    nodes.push(node);
+  });
+
+  return {
+    nodes,
+    totalCreated,
+    totalDestroyed,
+    peakBits,
+    finalBits: Math.max(0, liveBits)
+  };
+}
+
+function renderFlowGraph(flow) {
+  // Stats
+  const stats = document.getElementById('flowStats');
+  let html = '<h3 style="margin-top:0">Flow Summary</h3>';
+  html += `<div class="result-row"><span class="result-label">Information created</span><span class="result-value">${flow.totalCreated.toFixed(0)} bits across ${flow.nodes.length} ops</span></div>`;
+  html += `<div class="result-row"><span class="result-label">Information destroyed (conventional)</span><span class="result-value mismatch">${flow.totalDestroyed.toFixed(1)} bits</span></div>`;
+  html += `<div class="result-row"><span class="result-label">Peak live information</span><span class="result-value">${flow.peakBits.toFixed(1)} bits</span></div>`;
+  html += `<div class="result-row"><span class="result-label">Surviving to output</span><span class="result-value match">${flow.finalBits.toFixed(1)} bits</span></div>`;
+  stats.innerHTML = html;
+
+  // Canvas visualization
+  drawFlowCanvas(flow);
+}
+
+function drawFlowCanvas(flow) {
+  const canvas = document.getElementById('flowCanvas');
+  if (!canvas) return;
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  const w = rect.width, h = rect.height;
+  const pad = { top: 25, right: 20, bottom: 35, left: 55 };
+  const cW = w - pad.left - pad.right;
+  const cH = h - pad.top - pad.bottom;
+
+  ctx.clearRect(0, 0, w, h);
+
+  const nodes = flow.nodes;
+  if (!nodes.length) return;
+  const maxBits = Math.max(flow.peakBits, flow.totalDestroyed, 1);
+  const step = cW / Math.max(nodes.length, 1);
+
+  // Axes
+  ctx.strokeStyle = '#ffffff15'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(pad.left, pad.top); ctx.lineTo(pad.left, pad.top + cH);
+  ctx.lineTo(pad.left + cW, pad.top + cH); ctx.stroke();
+
+  ctx.font = '10px Georgia'; ctx.fillStyle = '#887'; ctx.textAlign = 'center';
+  ctx.fillText('operation', pad.left + cW/2, h - 6);
+  ctx.save(); ctx.translate(10, pad.top + cH/2); ctx.rotate(-Math.PI/2);
+  ctx.fillText('bits', 0, 0); ctx.restore();
+
+  // Live bits area (green fill)
+  ctx.beginPath();
+  ctx.moveTo(pad.left, pad.top + cH);
+  nodes.forEach((n, i) => {
+    const x = pad.left + (i + 0.5) * step;
+    const y = pad.top + cH - (n.bitsOut / maxBits) * cH;
+    ctx.lineTo(x, y);
+  });
+  ctx.lineTo(pad.left + (nodes.length - 0.5) * step, pad.top + cH);
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(102, 204, 136, 0.15)';
+  ctx.fill();
+
+  // Live bits line (green)
+  ctx.beginPath(); ctx.strokeStyle = '#6c6'; ctx.lineWidth = 2;
+  nodes.forEach((n, i) => {
+    const x = pad.left + (i + 0.5) * step;
+    const y = pad.top + cH - (n.bitsOut / maxBits) * cH;
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+
+  // Destruction events (red drops)
+  nodes.forEach((n, i) => {
+    if (n.bitsDestroyed > 0.01) {
+      const x = pad.left + (i + 0.5) * step;
+      const y1 = pad.top + cH - (n.bitsIn / maxBits) * cH;
+      const y2 = pad.top + cH - (n.bitsOut / maxBits) * cH;
+      ctx.beginPath();
+      ctx.strokeStyle = 'rgba(255, 102, 85, 0.6)';
+      ctx.lineWidth = Math.max(1, Math.min(4, n.bitsDestroyed));
+      ctx.moveTo(x, y1); ctx.lineTo(x, y2);
+      ctx.stroke();
+    }
+  });
+
+  // Legend
+  ctx.font = '10px Georgia'; ctx.textAlign = 'left';
+  ctx.fillStyle = '#6c6'; ctx.fillRect(pad.left + 8, 6, 8, 8);
+  ctx.fillStyle = '#e8e4dc'; ctx.fillText('live information', pad.left + 20, 14);
+  ctx.fillStyle = '#f66'; ctx.fillRect(pad.left + 130, 6, 8, 8);
+  ctx.fillStyle = '#e8e4dc'; ctx.fillText('destruction events', pad.left + 142, 14);
+}
+
+// =====================================================================
+// SCHEDULE SEARCH ENGINE
+// =====================================================================
+// Given the IR and a memory budget, search for optimal schedules.
+// Each irreversible op can be: ERASE (cost=ln(M), mem=0) or PRESERVE (cost=0, mem=1).
+// Preserved ops must be uncomputed (LIFO). The search generates points
+// on the Pareto frontier of (erasure, memory).
+
+function searchSchedules(ir, ambiguity, memBudget) {
+  const irrevOps = [];
+  ir.forEach((op, idx) => {
+    if (op.type === 'irrev') irrevOps.push({ ...op, idx, bits: Math.log(op.M) });
+  });
+
+  const N = irrevOps.length;
+  const schedules = [];
+
+  if (N === 0) return schedules;
+
+  // For small N (≤18), enumerate all 2^N bitmasks
+  // For large N, use window-based heuristic
+  if (N <= 18) {
+    const seen = new Map(); // memory → best erasure
+    for (let mask = 0; mask < (1 << N); mask++) {
+      let erasure = 0;
+      let memory = 0;
+      let preserveCount = 0;
+
+      for (let i = 0; i < N; i++) {
+        if (mask & (1 << i)) {
+          // PRESERVE this op
+          memory++;
+          preserveCount++;
+        } else {
+          // ERASE this op
+          erasure += irrevOps[i].bits;
+        }
+      }
+
+      // Add minimum output erasure (the final uncertainty)
+      erasure += ambiguity.nats;
+
+      // Check memory budget
+      if (memBudget < 100 && memory > memBudget) continue;
+
+      // Ops: original + preserved reversible + fork + uncompute + collapse
+      const collapseOps = Object.values(factorize(Math.min(ambiguity.size, 1e15))).reduce((a,b) => a+b, 0);
+      const ops = ir.length + preserveCount + 1 + preserveCount + collapseOps;
+
+      // Pareto filter: only keep if not dominated
+      const key = memory;
+      if (!seen.has(key) || seen.get(key) > erasure) {
+        seen.set(key, erasure);
+      }
+
+      schedules.push({ erasure, memory, ops, preserveCount, mask });
+    }
+  } else {
+    // Window heuristic: try preserving contiguous blocks of size 0, N/4, N/2, 3N/4, N
+    const windowSizes = [0];
+    for (let w = Math.max(1, Math.floor(N/8)); w <= N; w += Math.max(1, Math.floor(N/8))) {
+      windowSizes.push(Math.min(w, N));
+    }
+    if (windowSizes[windowSizes.length-1] !== N) windowSizes.push(N);
+
+    for (const windowSize of windowSizes) {
+      // Try different starting positions
+      const starts = windowSize === 0 ? [0] : windowSize === N ? [0] :
+        Array.from({length: Math.min(8, N - windowSize + 1)}, (_, i) =>
+          Math.round(i * (N - windowSize) / Math.min(7, N - windowSize)));
+
+      for (const start of starts) {
+        let erasure = 0;
+        let memory = 0;
+        let preserveCount = 0;
+        let mask = 0;
+
+        for (let i = 0; i < N; i++) {
+          if (i >= start && i < start + windowSize) {
+            memory++;
+            preserveCount++;
+            mask |= (1 << i);
+          } else {
+            erasure += irrevOps[i].bits;
+          }
+        }
+
+        erasure += ambiguity.nats;
+
+        if (memBudget < 100 && memory > memBudget) continue;
+
+        const collapseOps = Object.values(factorize(Math.min(ambiguity.size, 1e15))).reduce((a,b) => a+b, 0);
+        const ops = ir.length + preserveCount + 1 + preserveCount + collapseOps;
+
+        schedules.push({ erasure, memory, ops, preserveCount, mask });
+      }
+    }
+  }
+
+  // Pareto filter
+  const pareto = [];
+  const sorted = [...schedules].sort((a, b) => a.memory - b.memory || a.erasure - b.erasure);
+  let bestErasure = Infinity;
+  for (const s of sorted) {
+    if (s.erasure < bestErasure - 0.001) {
+      bestErasure = s.erasure;
+      pareto.push(s);
+    }
+  }
+
+  // Build named schedules from Pareto points
+  const named = [];
+  if (pareto.length === 0) return named;
+
+  // Always include the two extremes + interesting middle points
+  const points = [pareto[0]]; // lowest memory
+  if (pareto.length > 2) points.push(pareto[Math.floor(pareto.length / 3)]);
+  if (pareto.length > 3) points.push(pareto[Math.floor(2 * pareto.length / 3)]);
+  points.push(pareto[pareto.length - 1]); // lowest erasure
+
+  // Deduplicate
+  const unique = [];
+  const usedMem = new Set();
+  for (const p of points) {
+    if (!usedMem.has(p.memory)) { unique.push(p); usedMem.add(p.memory); }
+  }
+
+  unique.forEach((pt, i) => {
+    const pct = pt.preserveCount > 0 ? Math.round(pt.preserveCount / N * 100) : 0;
+    let name, rationale;
+    if (pt.memory === 0) {
+      name = 'Eager erase (all conventional)';
+      rationale = 'Zero memory overhead. Maximum logical erasure.';
+    } else if (pt.preserveCount === N) {
+      name = 'Full uncompute (minimum erasure)';
+      rationale = 'Minimum logical erasure. Preserves all intermediates.';
+    } else {
+      name = `Hybrid (${pct}% preserved)`;
+      rationale = `Preserves ${pt.preserveCount} of ${N} ops. Balanced tradeoff.`;
+    }
+
+    // Build timeline
+    const timeline = [];
+    let cumCost = 0;
+    // Forward pass
+    for (let j = 0; j < N; j++) {
+      if (!(pt.mask & (1 << j))) {
+        cumCost += irrevOps[j].bits;
+      }
+      timeline.push({ step: j, cumCost, type: (pt.mask & (1 << j)) ? 'rev' : 'irrev' });
+    }
+    // Uncompute phase
+    for (let j = 0; j < pt.preserveCount; j++) {
+      timeline.push({ step: N + j, cumCost, type: 'rev' });
+    }
+    // Collapse phase
+    cumCost += ambiguity.nats;
+    timeline.push({ step: N + pt.preserveCount, cumCost, type: 'irrev' });
+
+    named.push({
+      name, rationale,
+      erasure: pt.erasure,
+      memory: pt.memory,
+      ops: pt.ops,
+      garbage: pt.preserveCount,
+      garbageReclaimed: pt.preserveCount,
+      timeline,
+      detail: `${pt.preserveCount}/${N} ops preserved, ${N - pt.preserveCount} erased eagerly. Final collapse: ${ambiguity.label}.`
+    });
+  });
+
+  return named;
+}
+
+function updateBudget() {
+  const val = parseInt(document.getElementById('memBudget').value);
+  document.getElementById('memBudgetVal').textContent = val >= 100 ? 'unlimited' : val + ' registers';
+  if (_schedules.length) compile(); // recompile with new budget
+}
+
+// =====================================================================
+// LEGACY SCHEDULE GENERATION (kept as fallback)
 // =====================================================================
 function generateSchedules(ir, irrevCount, totalErasure, ambiguity) {
   const schedules = [];
@@ -829,8 +1194,16 @@ function compile() {
   document.getElementById('heroSavings').textContent = 'same computation \u00b7 ' + savePct.toFixed(1) + '% less information destroyed';
   document.getElementById('heroLine').style.display = 'block';
 
-  // Generate schedules
-  _schedules = generateSchedules(ir, irrevCount, totalErasure, ambiguity);
+  // Build information flow graph (#3: new ways to reason about information flow)
+  const flow = buildFlowGraph(ir);
+  renderFlowGraph(flow);
+
+  // Schedule search (#1: better compilers, #2: memory-constrained scheduling)
+  const memBudget = parseInt(document.getElementById('memBudget').value);
+  const searched = searchSchedules(ir, ambiguity, memBudget);
+
+  // Use searched schedules if available, fall back to fixed generation
+  _schedules = searched.length >= 2 ? searched : generateSchedules(ir, irrevCount, totalErasure, ambiguity);
 
   // Rank and display
   rerank();
