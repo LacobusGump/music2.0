@@ -1335,12 +1335,19 @@ function globalAllocate(liveness, ambiguity, memBudget, policy) {
     timeline.push({ step: N + i, cumCost, type: 'rev' });
   }
 
-  // Final collapse: only add output ambiguity cost for preserved ops
-  // If everything was erased eagerly, the individual costs already cover it.
-  // If some ops were preserved, we need to collapse their deferred uncertainty.
+  // Final collapse for preserved ops.
+  // The collapse cost = min(output ambiguity, sum of preserved ops' individual costs).
+  // Output ambiguity is the minimum when ALL ops are preserved (full correlation).
+  // When only SOME ops are preserved, the collapse cost is the sum of their individual costs
+  // (they're independent of the already-erased ops).
   if (preserveCount > 0) {
-    cumCost += ambiguity.nats;
-    erasure += ambiguity.nats;
+    let preservedBits = 0;
+    for (const p of preserved) preservedBits += p.bits;
+    // If everything was preserved, use output ambiguity (the global minimum).
+    // If partial, use the lesser of ambiguity and preserved individual costs.
+    const collapseCost = (preserveCount >= N) ? ambiguity.nats : Math.min(ambiguity.nats, preservedBits);
+    cumCost += collapseCost;
+    erasure += collapseCost;
     timeline.push({ step: N + preserved.length, cumCost, type: 'irrev' });
   }
 
