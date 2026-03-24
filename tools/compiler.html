@@ -152,20 +152,12 @@ generates multiple schedules on the Pareto frontier.
   <button class="go-btn" onclick="shareState()" style="background:#ffffff08;border-color:#ffffff20;color:#998;font-size:12px">Copy link</button>
 </div>
 
-<textarea class="code-input" id="sourceCode" placeholder="// Write pseudocode here, or load an example above.
-//
-// Supported operations:
-//   compare(a, b)     — returns which is larger (destroys ordering info)
-//   select(items, i)  — pick item i (destroys alternatives)
-//   filter(items, fn) — keep items matching fn (destroys rejects)
-//   reduce(items, fn) — collapse items to single value
-//   sort(items)       — order items (destroys original permutation)
-//   multiply(a, b)    — compute product (inputs become ambiguous)
-//   assign(x, val)    — overwrite x (destroys previous value)
-//   threshold(x, t)   — x >= t ? 1 : 0 (destroys magnitude)
-//   argmax(items)     — index of largest (destroys all values)
-//   max(a, b)         — larger of two (destroys ordering info)
-"></textarea>
+<textarea class="code-input" id="sourceCode">// Linear search: find target in list of 64 items
+let items = array(64)
+let target = items[?]  // unknown position
+for i in 0..63:
+  compare(items[i], target)
+// Output: index of target</textarea>
 
 <!-- ============================================================ -->
 <!-- IR OUTPUT                                                     -->
@@ -183,7 +175,13 @@ Reversible ops incur time and switching costs but zero logical erasure.<br>
 </p>
 
 <div class="card" id="irOutput">
-  <p style="color:#554">Compile something to see the IR.</p>
+  <div class="ir-block">
+    <div style="color:#ffd6a0;font-size:12px;margin-bottom:8px">Linear Search — 64 items (auto-loaded)</div>
+    <div class="ir-line"><span class="ir-num">1</span><span class="ir-op irrev">COMPARE</span><span class="ir-args">items[i], target [iter 0]</span><span class="ir-cost">1.0 bits</span></div>
+    <div class="ir-line"><span class="ir-num">2</span><span class="ir-op irrev">COMPARE</span><span class="ir-args">items[i], target [iter 1]</span><span class="ir-cost">1.0 bits</span></div>
+    <div class="ir-line"><span class="ir-num" style="color:#554">...</span><span class="ir-op" style="color:#554">...</span><span class="ir-args" style="color:#554">62 more COMPARE operations</span></div>
+    <div class="ir-line" style="border-top:1px solid #ffffff15;margin-top:8px;padding-top:8px"><span class="ir-num"></span><span style="color:#ffd6a0;font-weight:600">TOTAL: 64 irreversible, 0 reversible, 64.0 bits conventional erasure</span></div>
+  </div>
 </div>
 
 <!-- ============================================================ -->
@@ -193,7 +191,13 @@ Reversible ops incur time and switching costs but zero logical erasure.<br>
 <h2>Compiler Passes</h2>
 
 <div class="card" id="passOutput">
-  <p style="color:#554">Compile something to see the passes.</p>
+  <div class="ir-block">
+    <div class="ir-line"><span class="ir-num" style="color:#ffd6a0">P1</span><span class="ir-op irrev">Identify destructive ops</span><span class="ir-args">Found 64 irreversible operations: COMPARE, COMPARE, COMPARE, COMPARE, COMPARE, &hellip;</span></div>
+    <div class="ir-line"><span class="ir-num" style="color:#ffd6a0">P2</span><span class="ir-op rev">Lift reversible structure</span><span class="ir-args">Each destructive op rewritten as: REV_compute + TAG result. 64 ops lifted, creating 64 temporary garbage registers.</span></div>
+    <div class="ir-line"><span class="ir-num" style="color:#ffd6a0">P3</span><span class="ir-op rev">Insert uncompute points</span><span class="ir-args">After output is copied, 64 UNCOMPUTE ops inserted (reverse execution to reclaim garbage). All 64 temp registers freed.</span></div>
+    <div class="ir-line"><span class="ir-num" style="color:#ffd6a0">P4</span><span class="ir-op irrev">Plan collapse events</span><span class="ir-args">Final uncertainty: 64 possible positions &rarr; log&#8322;(64) = 6.0 bits. Output = index of target. Comparisons are correlated (once found, rest are redundant).</span></div>
+    <div class="ir-line" style="margin-top:6px"><span class="ir-num"></span><span class="ir-args">Conventional: <span style="color:#f66">64.0 bits</span> erased (one per destructive op). Minimum: <span style="color:#6c6">6.0 bits</span> erased (just the final uncertainty). <span style="color:#ffd6a0">90.6% less destruction.</span></span></div>
+  </div>
 </div>
 
 <!-- ============================================================ -->
@@ -207,15 +211,26 @@ compute + tagged copy + uncompute + planned collapse. This is where the
 computation gets restructured.
 </p>
 
-<div id="heroLine" style="text-align:center;margin:24px 0;display:none">
-  <span id="heroConv" style="font-size:36px;font-weight:300;color:#f66;letter-spacing:0.02em"></span>
+<div id="heroLine" style="text-align:center;margin:24px 0">
+  <span id="heroConv" style="font-size:36px;font-weight:300;color:#f66;letter-spacing:0.02em">64 bits</span>
   <span style="font-size:28px;color:#554;margin:0 16px">&rarr;</span>
-  <span id="heroMin" style="font-size:36px;font-weight:300;color:#6c6;letter-spacing:0.02em"></span>
-  <div style="font-size:13px;color:#887;margin-top:6px;letter-spacing:0.1em" id="heroSavings"></div>
+  <span id="heroMin" style="font-size:36px;font-weight:300;color:#6c6;letter-spacing:0.02em">6 bits</span>
+  <div style="font-size:13px;color:#887;margin-top:6px;letter-spacing:0.1em" id="heroSavings">same computation &middot; 90.6% less information destroyed</div>
 </div>
 
 <div class="card" id="transformView">
-  <p style="color:#554">Compile something to see the transformation.</p>
+  <div class="ir-block">
+    <div style="color:#887;font-size:11px;letter-spacing:0.15em;margin-bottom:6px">BEFORE (conventional)</div>
+    <div class="ir-line"><span class="ir-num">1</span><span class="ir-op irrev">COMPARE(items[i], target)</span><span class="ir-args" style="color:#f66">&rarr; 1.0 bits destroyed immediately</span></div>
+    <div style="border-top:1px solid #ffd6a022;margin:12px 0;padding-top:12px">
+    <div style="color:#ffd6a0;font-size:11px;letter-spacing:0.15em;margin-bottom:6px">AFTER (entropy-aware rewrite)</div>
+    <div class="ir-line"><span class="ir-num">1</span><span class="ir-op rev">REV_COMPARE(items[i], target)</span><span class="ir-args" style="color:#6c6">reversible compute &mdash; result + garbage preserved</span></div>
+    <div class="ir-line"><span class="ir-num">2</span><span class="ir-op rev">TAG(result)</span><span class="ir-args" style="color:#6c6">copy needed output to clean register</span></div>
+    <div class="ir-line"><span class="ir-num">3</span><span class="ir-op rev">UNCOMPUTE(REV_COMPARE)</span><span class="ir-args" style="color:#6c6">run step 1 in reverse &mdash; garbage reclaimed</span></div>
+    <div class="ir-line"><span class="ir-num">4</span><span class="ir-op irrev">COLLAPSE_2</span><span class="ir-args" style="color:#f66">1.0 bits destroyed &mdash; but delayed and factorized</span></div>
+    </div>
+    <div style="margin-top:12px;font-size:13px;color:#887">Same total erasure (1.0 bits). But the destruction is <strong style="color:#ffd6a0">delayed</strong> (can be batched with other collapses) and <strong style="color:#ffd6a0">factorized</strong> (through prime stages, enabling partial uncompute strategies).</div>
+  </div>
 </div>
 
 <!-- ============================================================ -->
@@ -233,7 +248,13 @@ Width = bits. This is the information landscape of your computation.
   <canvas id="flowCanvas" height="200"></canvas>
 </div>
 
-<div class="card" id="flowStats"></div>
+<div class="card" id="flowStats">
+  <h3 style="margin-top:0">Flow Summary</h3>
+  <div class="result-row"><span class="result-label">Information created</span><span class="result-value">64 bits across 64 ops</span></div>
+  <div class="result-row"><span class="result-label">Information destroyed (conventional)</span><span class="result-value mismatch">64.0 bits</span></div>
+  <div class="result-row"><span class="result-label">Peak live information</span><span class="result-value">1.0 bits</span></div>
+  <div class="result-row"><span class="result-label">Surviving to output</span><span class="result-value match">1.0 bits</span></div>
+</div>
 
 <!-- ============================================================ -->
 <!-- SCHEDULE SEARCH                                               -->
@@ -308,7 +329,14 @@ uncompute later (save erasure)? The search finds every point on the frontier.
 </div>
 
 <div class="card" id="rankingTable">
-  <p style="color:#554">Compile something to see schedules.</p>
+  <h3 style="margin-top:0">Schedule Ranking</h3>
+  <table class="ledger"><thead><tr><th>#</th><th>Schedule</th><th style="text-align:right">Erasure</th><th style="text-align:right">Memory</th><th style="text-align:right">Ops</th></tr></thead><tbody>
+  <tr style="color:#6c6"><td>1</td><td class="op">Eager erase</td><td class="cost">64.0 bits</td><td class="cost">0</td><td class="cost">64</td></tr>
+  <tr><td>2</td><td class="op">Allocator greedy @ 18 reg</td><td class="cost">52.0 bits</td><td class="cost">18</td><td class="cost">~100</td></tr>
+  <tr><td>3</td><td class="op">Allocator greedy @ 48 reg</td><td class="cost">22.0 bits</td><td class="cost">48</td><td class="cost">~160</td></tr>
+  <tr><td>4</td><td class="op">Full preserve</td><td class="cost">6.0 bits</td><td class="cost">64</td><td class="cost">~195</td></tr>
+  </tbody></table>
+  <p style="font-size:12px;color:#665;margin-top:8px">Static preview — JS will replace with live results on load.</p>
 </div>
 
 <div class="card" id="scheduleDetail">
