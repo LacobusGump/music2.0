@@ -347,12 +347,11 @@ uncompute later (save erasure)? The search finds every point on the frontier.
 // PRESETS
 // =====================================================================
 const PRESETS = {
-  search: `// Linear search: find target in list of N items
+  search: `// Linear search: find target in list of 64 items
 let items = array(64)
 let target = items[?]  // unknown position
 for i in 0..63:
   compare(items[i], target)
-  if match: select(items, i)
 // Output: index of target`,
 
   topk: `// Top-K: find 3 largest from 16 items
@@ -994,6 +993,14 @@ function globalAllocate(liveness, ambiguity, memBudget, policy) {
     // Check memory
     if (memBudget < 100 && preserved.length >= memBudget) {
       // Memory full — evict or erase current
+      if (memBudget === 0 || preserved.length === 0) {
+        // No memory at all — must erase
+        erasure += op.bits;
+        cumCost += op.bits;
+        decisions.push('erase');
+        timeline.push({ step: i, cumCost, type: 'irrev' });
+        continue;
+      }
       if (policy === 'greedy') {
         // Evict lowest-value preserved state
         let worstIdx = 0;
@@ -1040,10 +1047,14 @@ function globalAllocate(liveness, ambiguity, memBudget, policy) {
     timeline.push({ step: N + i, cumCost, type: 'rev' });
   }
 
-  // Final collapse: output ambiguity
-  cumCost += ambiguity.nats;
-  erasure += ambiguity.nats;
-  timeline.push({ step: N + preserved.length, cumCost, type: 'irrev' });
+  // Final collapse: only add output ambiguity cost for preserved ops
+  // If everything was erased eagerly, the individual costs already cover it.
+  // If some ops were preserved, we need to collapse their deferred uncertainty.
+  if (preserveCount > 0) {
+    cumCost += ambiguity.nats;
+    erasure += ambiguity.nats;
+    timeline.push({ step: N + preserved.length, cumCost, type: 'irrev' });
+  }
 
   const collapseOps = Object.values(factorize(Math.min(ambiguity.size, 1e15))).reduce((a,b)=>a+b, 0) || 1;
   const totalOps = N + preserveCount + 1 + preserveCount + collapseOps;
