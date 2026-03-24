@@ -141,6 +141,25 @@ var Harmony = (function () {
     0.90,   // 6 — 7th. High tension. Tritone adjacent. Demands resolution.
   ];
 
+  // ── PRIME HARMONIC WEIGHT — the 1,3,5,7 structure ────────────────
+  // Each prime in the overtone series opens a new harmonic dimension:
+  //   1 = root (unison), 3 = fifth, 5 = major third, 7 = natural seventh
+  // Same odd-number sequence as electron orbital degeneracy (s=1,p=3,d=5,f=7).
+  // Whether this is coincidence or structure is an open question.
+  // We wire it in and listen. The proof is the sound.
+  //
+  // Weight: how strongly each scale degree pulls when the session is curing.
+  // Degrees aligned with prime harmonics pull hardest.
+  var PRIME_HARMONIC_WEIGHT = [
+    1.00,   // 0 — root. Prime 1. The fundamental.
+    0.20,   // 1 — 2nd. Not a low prime harmonic.
+    0.70,   // 2 — 3rd. Prime 5 (5:4 ratio). Third new color.
+    0.30,   // 3 — 4th. Prime 2² (4:3). Composite, not new.
+    0.85,   // 4 — 5th. Prime 3 (3:2 ratio). Second new color.
+    0.25,   // 5 — 6th. Composite (2×3). No new prime.
+    0.55,   // 6 — 7th. Prime 7 (7:4 ratio). The blue note. Fourth new color.
+  ];
+
   // ════════════════════════════════════════════════════════════════════
   // 4. MELODIC CONTOURS — the "I love you" arch and variants
   // ════════════════════════════════════════════════════════════════════
@@ -453,16 +472,11 @@ var Harmony = (function () {
   function gravitateDegree(rawDeg, sessionPhase) {
     if (sessionPhase === undefined) sessionPhase = 2;
 
-    // Phase 0: constrain to triad — user discovers tonality immediately
-    if (sessionPhase === 0) {
-      var triadTones = [0, 2, 4];
-      var best = 0, bestD = 999;
-      for (var c = 0; c < triadTones.length; c++) {
-        var d = Math.abs(rawDeg - triadTones[c]);
-        if (d < bestD) { bestD = d; best = triadTones[c]; }
-      }
-      return best;
-    }
+    // CURE TIME: Phase 0 is now WIDE OPEN — the wet pour.
+    // Every note is valid. The music hasn't cured yet.
+    // As sessionMaturity grows, prime harmonic tones pull harder.
+    // The 1,3,5,7 structure: root, fifth, third, blue note
+    // get weighted proportional to maturity × their prime weight.
 
     // After 2+ notes: phrase wants to breathe — pull toward resolution
     if (_phraseNoteCount >= 2) {
@@ -475,7 +489,18 @@ var Harmony = (function () {
       return Math.round(rawDeg * 0.30 + best2 * 0.70);
     }
 
-    // Otherwise: tension-proportional pull
+    // Prime harmonic gravity — scales with session maturity (cure time)
+    // As the session cures, notes aligned with prime harmonics (1,3,5,7)
+    // pull harder. The music crystallizes around fundamental intervals.
+    if (_sessionMaturity > 0.1) {
+      var nd = _normalDeg(Math.round(rawDeg));
+      var primeWeight = (nd < PRIME_HARMONIC_WEIGHT.length) ? PRIME_HARMONIC_WEIGHT[nd] : 0.2;
+      var primePull = _sessionMaturity * primeWeight * 0.25;
+      var nearest = Math.round(rawDeg);
+      rawDeg = rawDeg * (1 - primePull) + nearest * primePull;
+    }
+
+    // Tension-proportional pull toward root or fifth
     if (_harmonicTension < 0.45) return rawDeg;
     var pull = Math.min(1, (_harmonicTension - 0.45) / 0.55);
     var target = _harmonicTension > 0.75 ? 0 : 4;
