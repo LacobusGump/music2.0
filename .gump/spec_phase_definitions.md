@@ -95,6 +95,23 @@ The primary measure is R itself (continuous). The labels discretize it
 for communication. A critic may reasonably argue the thresholds should
 be ±0.1 or ±0.2. The core claim does not depend on the exact threshold.
 
+## ADDENDUM (post-blind-test correction, March 24 2026)
+
+The original spec used f > 0.9 as a CRYSTAL override. Blind testing showed
+this caused sorting to cross phase boundaries (quicksort CRYSTAL, bubble
+LIQUID) because f is implementation-sensitive.
+
+CORRECTION: Phase depends ONLY on R. f is efficiency (extrinsic), not
+phase (intrinsic). The f > 0.9 override is REMOVED.
+
+  R < 0.85:          GAS
+  0.85 ≤ R ≤ 1.15:  LIQUID
+  R > 1.15:          CRYSTAL
+
+This separation is cleaner:
+  R → problem structure (universality class, stable across implementations)
+  f → implementation efficiency (distance to irreducible floor, varies)
+
 ## 11. Reconstruction
 
 Given (R, f), reconstruct the full Pareto curve:
