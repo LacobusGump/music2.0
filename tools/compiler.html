@@ -140,7 +140,10 @@ multiple schedules on the Pareto frontier.
   <button class="go-btn" onclick="loadAndCompile('dtree')" style="font-size:12px;padding:6px 14px">Decision Tree</button>
   <button class="go-btn" onclick="loadAndCompile('matmul')" style="font-size:12px;padding:6px 14px">Matrix Multiply</button>
   <button class="go-btn" onclick="loadAndCompile('maxpool')" style="font-size:12px;padding:6px 14px">Max Pooling</button>
-  <button class="go-btn" onclick="loadAndCompile('pipeline')" style="font-size:12px;padding:6px 14px;border-color:#ffd6a066">Pipeline</button>
+  <button class="go-btn" onclick="loadAndCompile('pipeline')" style="font-size:12px;padding:6px 14px">Pipeline</button>
+  <button class="go-btn" onclick="loadAndCompile('neural')" style="font-size:12px;padding:6px 14px;border-color:#ffd6a066">Neural Net</button>
+  <button class="go-btn" onclick="loadAndCompile('query')" style="font-size:12px;padding:6px 14px;border-color:#ffd6a066">SQL Query</button>
+  <button class="go-btn" onclick="loadAndCompile('stream')" style="font-size:12px;padding:6px 14px;border-color:#ffd6a066">Streaming</button>
   <span style="color:#554;font-size:11px;margin:0 4px">|</span>
   <button class="go-btn" onclick="loadAndCompile('parity')" style="font-size:12px;padding:6px 14px;border-color:#f66">Parity</button>
   <button class="go-btn" onclick="loadAndCompile('bsearch')" style="font-size:12px;padding:6px 14px;border-color:#f6644">Binary Search</button>
@@ -516,6 +519,71 @@ discard(a)
 discard(b)
 // Output: product only`,
 
+  neural: `// Neural net inference: conv → relu → pool → dense → softmax
+// Each layer destroys information. How much is structurally required?
+let activations = array(256)  // 16x16 input feature map
+// Conv layer (reversible — weights are known, input recoverable)
+multiply(activations[0], weights[0])
+multiply(activations[1], weights[1])
+multiply(activations[2], weights[2])
+multiply(activations[3], weights[3])
+reduce(products, sum)
+reduce(products, sum)
+reduce(products, sum)
+reduce(products, sum)
+// ReLU: destroys sign information (negative → 0)
+for i in 0..63:
+  threshold(activations[i], 0)
+// Max pooling 2x2: keeps 1 of every 4 (destroys 75%)
+for i in 0..47:
+  max(activations[?], activations[?])
+// Dense layer (reversible with known weights)
+multiply(activations[0], weights[0])
+multiply(activations[1], weights[1])
+reduce(products, sum)
+// Softmax → argmax: collapse to class label
+argmax(activations)
+// Output: 1 of 10 class labels`,
+
+  query: `// Database query: SELECT → WHERE → JOIN → GROUP BY
+// Every clause destroys information. Which destruction is premature?
+let rows = array(1000)
+// WHERE: filter rows by condition (destroys rejects)
+for i in 0..999:
+  threshold(rows[i], 0.5)
+  if below: discard(rows[i])
+// MATERIALIZE — intermediate result, forced collapse
+// JOIN: match against second table (destroys non-matches)
+let joined = array(100)
+for i in 0..99:
+  compare(joined[i], target)
+  if no_match: discard(joined[i])
+// GROUP BY + aggregate: collapse groups to single values
+let groups = array(20)
+for i in 0..19:
+  reduce(groups[i], sum)
+// HAVING: filter aggregated groups
+for i in 0..19:
+  threshold(groups[i], 10)
+// Output: filtered aggregated result`,
+
+  stream: `// Streaming pipeline: ingest → filter → window → aggregate → emit
+// Kafka/Flink-style: each stage is a collapse point
+let events = array(512)
+// Stage 1: filter (discard irrelevant events)
+for i in 0..511:
+  threshold(events[i], 0.3)
+  if below: discard(events[i])
+// MATERIALIZE — window boundary
+// Stage 2: window aggregate (collapse 5-min window to stats)
+let window = array(64)
+for i in 0..63:
+  reduce(window[i], sum)
+// Stage 3: anomaly detection (threshold on aggregates)
+for i in 0..15:
+  threshold(window[i], 100)
+// Output: anomaly flags`,
+
   pipeline: `// Pipeline: filter → select → classify (3 stages)
 // Stage 1: filter 1000 items down to ~30
 let items = array(1000)
@@ -703,6 +771,14 @@ function analyzeOutputAmbiguity(source, ir) {
       explanation: `Output = 1 bit. Each parity value has 2^${N-1} possible inputs. Must erase ${N-1} bits of input identity. Note: a fully reversible XOR circuit could compute parity with ~1 bit of final collapse, but this compiler optimizes within a given program structure — it does not synthesize ideal reversible circuits from scratch.` };
   }
 
+  // Database query: output = filtered aggregated result (check BEFORE search)
+  if (src.includes('database') || src.includes('query') || src.includes('GROUP BY') || src.includes('WHERE') || src.includes('HAVING')) {
+    const groups = 20;
+    return { size: groups, bits: Math.log2(groups), nats: Math.log(groups),
+      label: `~${groups} groups → log₂(${groups}) = ${Math.log2(groups).toFixed(1)} bits`,
+      explanation: `Output = aggregated groups. Each WHERE/HAVING clause filters rows. GROUP BY collapses many rows to few. The savings come from deferring row destruction until after aggregation.` };
+  }
+
   // Binary search: already optimal, ~log₂(N) comparisons
   if (src.includes('binary search') || src.includes('sorted list')) {
     const N = arraySize || 64;
@@ -745,6 +821,22 @@ function analyzeOutputAmbiguity(source, ir) {
     return { size: leaves, bits: Math.log2(leaves), nats: Math.log(leaves),
       label: `${leaves} possible leaf classes → log₂(${leaves}) = ${Math.log2(leaves).toFixed(1)} bits`,
       explanation: 'Output = 1 leaf class. Each threshold discards magnitude, but outcomes are a tree.' };
+  }
+
+  // Neural net: output = 1 of C classes
+  if (src.includes('neural net') || src.includes('softmax') || src.includes('class label')) {
+    const classes = 10; // typical classification
+    return { size: classes, bits: Math.log2(classes), nats: Math.log(classes),
+      label: `${classes} possible classes → log₂(${classes}) = ${Math.log2(classes).toFixed(1)} bits`,
+      explanation: `Output = 1 class label. Conv and dense layers are reversible (known weights). ReLU destroys sign (1 bit per activation). Pooling destroys 75% of spatial info. The question: how much of that destruction was premature?` };
+  }
+
+  // Streaming: output = anomaly flags
+  if (src.includes('streaming') || src.includes('kafka') || src.includes('anomaly')) {
+    const flags = 16;
+    return { size: flags, bits: Math.log2(flags), nats: Math.log(flags),
+      label: `${flags} anomaly flags → log₂(${flags}) = ${Math.log2(flags).toFixed(1)} bits`,
+      explanation: `Output = anomaly flags. Each window boundary forces materialization. Savings come from deferring event filtering within windows.` };
   }
 
   // Max pooling: output = K winners from grid
