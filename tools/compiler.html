@@ -1,0 +1,852 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Entropy-Aware Compiler</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{
+  font-family:'Georgia','Times New Roman',serif;
+  background:#0a0a0a;color:#e8e4dc;
+  max-width:1100px;margin:0 auto;
+  padding:40px 24px 80px;
+  line-height:1.85;font-size:17px;
+}
+h1{font-size:28px;font-weight:300;letter-spacing:0.06em;color:#fff;margin-bottom:6px}
+.subtitle{font-size:13px;letter-spacing:0.25em;color:#887;text-transform:uppercase;margin-bottom:12px}
+h2{font-size:20px;font-weight:400;color:#ffd6a0;letter-spacing:0.04em;margin-top:32px;margin-bottom:16px}
+h3{font-size:15px;font-weight:600;color:#ccc;margin-top:20px;margin-bottom:8px}
+p{margin-bottom:14px}
+a{color:#ffd6a0;text-decoration:none}
+a:hover{text-decoration:underline}
+
+.card{background:#ffffff06;border:1px solid #ffffff0a;border-radius:12px;padding:24px;margin:20px 0}
+.result-row{display:flex;justify-content:space-between;align-items:baseline;padding:8px 0;border-bottom:1px solid #ffffff08}
+.result-row:last-child{border-bottom:none}
+.result-label{font-size:14px;color:#998;flex-shrink:0;margin-right:16px}
+.result-value{font-size:15px;color:#ffd6a0;text-align:right;font-variant-numeric:tabular-nums}
+.result-value.match{color:#6c6}
+.result-value.mismatch{color:#f66}
+
+button.go-btn{
+  background:#ffd6a018;border:1px solid #ffd6a044;
+  color:#ffd6a0;font-family:inherit;font-size:14px;
+  padding:8px 18px;border-radius:8px;cursor:pointer;letter-spacing:0.1em;
+}
+button.go-btn:hover{background:#ffd6a028}
+select.sel{
+  background:#ffffff08;border:1px solid #ffffff15;color:#e8e4dc;
+  font-family:'Georgia',serif;font-size:15px;
+  padding:8px 12px;border-radius:8px;outline:none;
+}
+
+textarea.code-input{
+  width:100%;min-height:200px;
+  background:#0d0d0a;border:1px solid #ffffff15;
+  color:#ffd6a0;font-family:'Menlo','Consolas',monospace;font-size:13px;
+  padding:16px;border-radius:8px;outline:none;
+  line-height:1.7;resize:vertical;
+  tab-size:2;
+}
+textarea.code-input:focus{border-color:#ffd6a044}
+textarea.code-input::placeholder{color:#554}
+
+canvas{display:block;width:100%;border-radius:8px;margin:12px 0}
+.slider{-webkit-appearance:none;appearance:none;height:4px;background:#ffffff15;border-radius:2px;outline:none}
+.slider::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:#ffd6a0;cursor:pointer}
+.slider-val{font-size:13px;color:#ffd6a0;font-variant-numeric:tabular-nums;min-width:40px}
+
+/* Ledger */
+.ledger{width:100%;border-collapse:collapse;margin:12px 0;font-size:13px}
+.ledger th{font-size:11px;letter-spacing:0.12em;color:#887;text-transform:uppercase;text-align:left;padding:6px 10px;border-bottom:1px solid #ffffff15}
+.ledger td{padding:6px 10px;border-bottom:1px solid #ffffff08;color:#e8e4dc}
+.ledger td.op{color:#ffd6a0;font-weight:600;font-family:monospace;font-size:12px}
+.ledger td.rev{color:#6c6}
+.ledger td.irrev{color:#f66}
+.ledger td.cost{text-align:right;color:#ffd6a0}
+.ledger tr.total td{border-top:2px solid #ffd6a044;font-weight:600;color:#ffd6a0}
+
+/* IR display */
+.ir-block{
+  background:#0d0d0a;border:1px solid #ffffff10;border-radius:8px;
+  padding:16px;margin:12px 0;
+  font-family:'Menlo','Consolas',monospace;font-size:12px;
+  line-height:1.8;overflow-x:auto;
+}
+.ir-line{display:flex;gap:12px;align-items:baseline}
+.ir-num{color:#554;min-width:24px;text-align:right;user-select:none}
+.ir-op{font-weight:600}
+.ir-op.rev{color:#6c6}
+.ir-op.irrev{color:#f66}
+.ir-op.meta{color:#887}
+.ir-args{color:#998}
+.ir-cost{color:#ffd6a0;margin-left:auto;font-size:11px}
+
+.controls{display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin:16px 0}
+.badge{display:inline-block;font-size:12px;font-weight:600;padding:2px 8px;border-radius:4px;margin-left:6px}
+.badge.pass{background:#6c62;color:#6c6;border:1px solid #6c64}
+.badge.win{background:#ffd6a018;color:#ffd6a0;border:1px solid #ffd6a044}
+
+.insight{font-size:16px;font-style:italic;color:#ffd6a0;border-left:3px solid #ffd6a033;padding:14px 0 14px 24px;margin:28px 0;line-height:1.6}
+
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:700px){.two-col{grid-template-columns:1fr}}
+
+.footer{margin-top:64px;padding-top:32px;border-top:1px solid #ffffff0a}
+.footer p{font-size:14px;color:#776;line-height:1.8}
+.back-link{display:inline-block;margin-top:24px;font-size:13px;letter-spacing:0.15em;color:#ffd6a0;text-transform:uppercase}
+</style>
+</head>
+<body>
+
+<h1>Entropy-Aware Compiler</h1>
+<p class="subtitle">code &rarr; intermediate representation &rarr; multiple schedules &rarr; pareto frontier</p>
+
+<p>
+Write pseudocode. The compiler identifies every irreversible operation,
+emits an intermediate representation, then generates multiple execution
+schedules with different erasure/memory/latency tradeoffs.
+Same computation. Different information destruction strategies.
+</p>
+
+<!-- ============================================================ -->
+<!-- INPUT                                                         -->
+<!-- ============================================================ -->
+
+<div class="controls">
+  <select class="sel" id="presetSelect" onchange="loadPreset()">
+    <option value="">— load example —</option>
+    <option value="search">Linear search</option>
+    <option value="topk">Top-K selection</option>
+    <option value="filter">Threshold filter</option>
+    <option value="dtree">Decision tree node</option>
+    <option value="matmul">Matrix multiply (2x2)</option>
+    <option value="maxpool">Max pooling (neural net)</option>
+  </select>
+  <button class="go-btn" onclick="compile()">Compile</button>
+</div>
+
+<textarea class="code-input" id="sourceCode" placeholder="// Write pseudocode here, or load an example above.
+//
+// Supported operations:
+//   compare(a, b)     — returns which is larger (destroys ordering info)
+//   select(items, i)  — pick item i (destroys alternatives)
+//   filter(items, fn) — keep items matching fn (destroys rejects)
+//   reduce(items, fn) — collapse items to single value
+//   sort(items)       — order items (destroys original permutation)
+//   multiply(a, b)    — compute product (inputs become ambiguous)
+//   assign(x, val)    — overwrite x (destroys previous value)
+//   threshold(x, t)   — x >= t ? 1 : 0 (destroys magnitude)
+//   argmax(items)     — index of largest (destroys all values)
+//   max(a, b)         — larger of two (destroys ordering info)
+"></textarea>
+
+<!-- ============================================================ -->
+<!-- IR OUTPUT                                                     -->
+<!-- ============================================================ -->
+
+<h2>Intermediate Representation</h2>
+<p style="font-size:14px;color:#887">
+Every operation classified: <span style="color:#6c6">reversible</span> (preserves information) or
+<span style="color:#f66">irreversible</span> (destroys information).
+Reversible ops incur time and switching costs but zero logical erasure.
+</p>
+
+<div class="card" id="irOutput">
+  <p style="color:#554">Compile something to see the IR.</p>
+</div>
+
+<!-- ============================================================ -->
+<!-- SCHEDULES                                                     -->
+<!-- ============================================================ -->
+
+<h2>Generated Schedules</h2>
+
+<div class="controls">
+  <div style="display:flex;flex-direction:column;gap:4px">
+    <span style="font-size:11px;letter-spacing:0.15em;color:#887;text-transform:uppercase">&alpha; erasure</span>
+    <div style="display:flex;align-items:center;gap:8px">
+      <input type="range" class="slider" id="wA" min="0" max="100" value="50" oninput="rerank()" style="width:130px">
+      <span class="slider-val" id="wAv">0.50</span>
+    </div>
+  </div>
+  <div style="display:flex;flex-direction:column;gap:4px">
+    <span style="font-size:11px;letter-spacing:0.15em;color:#887;text-transform:uppercase">&beta; memory</span>
+    <div style="display:flex;align-items:center;gap:8px">
+      <input type="range" class="slider" id="wB" min="0" max="100" value="30" oninput="rerank()" style="width:130px">
+      <span class="slider-val" id="wBv">0.30</span>
+    </div>
+  </div>
+  <div style="display:flex;flex-direction:column;gap:4px">
+    <span style="font-size:11px;letter-spacing:0.15em;color:#887;text-transform:uppercase">&gamma; ops</span>
+    <div style="display:flex;align-items:center;gap:8px">
+      <input type="range" class="slider" id="wC" min="0" max="100" value="20" oninput="rerank()" style="width:130px">
+      <span class="slider-val" id="wCv">0.20</span>
+    </div>
+  </div>
+</div>
+
+<div class="two-col">
+  <div class="card">
+    <h3>Pareto Frontier</h3>
+    <canvas id="paretoCanvas" height="280"></canvas>
+  </div>
+  <div class="card">
+    <h3>Timeline: Cumulative Erasure</h3>
+    <canvas id="timelineCanvas" height="280"></canvas>
+  </div>
+</div>
+
+<div class="card" id="rankingTable">
+  <p style="color:#554">Compile something to see schedules.</p>
+</div>
+
+<div class="card" id="scheduleDetail">
+</div>
+
+<div class="insight">
+  Same source code. The compiler finds the irreversible operations and generates
+  every schedule from &ldquo;erase eagerly&rdquo; to &ldquo;preserve everything,
+  uncompute, collapse at the end.&rdquo; The Pareto frontier shows where the
+  tradeoffs live. You choose.
+</div>
+
+<!-- ============================================================ -->
+<!-- FOOTER                                                        -->
+<!-- ============================================================ -->
+<div class="footer">
+  <p>
+    Code &rarr; IR &rarr; schedules &rarr; frontier. Information destruction as a
+    first-class compilation target.
+  </p>
+  <a href="/tools/simulator.html" class="back-link">&larr; Simulator</a>
+  &nbsp;&nbsp;
+  <a href="/r/" class="back-link">&larr; Research</a>
+</div>
+
+<!-- ============================================================ -->
+<!-- ENGINE                                                        -->
+<!-- ============================================================ -->
+<script>
+// =====================================================================
+// PRESETS
+// =====================================================================
+const PRESETS = {
+  search: `// Linear search: find target in list of N items
+let items = array(64)
+let target = items[?]  // unknown position
+for i in 0..63:
+  compare(items[i], target)
+  if match: select(items, i)
+// Output: index of target`,
+
+  topk: `// Top-K: find 3 largest from 16 items
+let items = array(16)
+let K = 3
+// Compare all pairs to find ordering
+sort(items)
+// Keep top K, discard rest
+for i in 0..12:
+  discard(items[i])
+// Output: top 3 items`,
+
+  filter: `// Threshold filter: keep items above threshold
+let items = array(32)
+let t = 0.5
+for i in 0..31:
+  threshold(items[i], t)
+  if below: discard(items[i])
+// Output: filtered subset`,
+
+  dtree: `// Decision tree: 3 levels, binary splits
+let x = input_features(8)
+// Level 1: split on feature 3
+threshold(x[3], 0.5)
+// Level 2: split on feature 1 or 5
+if left:  threshold(x[1], 0.3)
+if right: threshold(x[5], 0.7)
+// Level 3: split on feature 0 or 7
+if left:  threshold(x[0], 0.2)
+if right: threshold(x[7], 0.8)
+// Output: 1 of 8 leaf classes
+argmax(leaves)`,
+
+  matmul: `// 2x2 matrix multiply: C = A * B
+let A = matrix(2,2)
+let B = matrix(2,2)
+// C[0][0] = A[0][0]*B[0][0] + A[0][1]*B[1][0]
+multiply(A[0][0], B[0][0])
+multiply(A[0][1], B[1][0])
+reduce(products, sum)
+// C[0][1] = A[0][0]*B[0][1] + A[0][1]*B[1][1]
+multiply(A[0][0], B[0][1])
+multiply(A[0][1], B[1][1])
+reduce(products, sum)
+// (repeat for C[1][0], C[1][1])
+multiply(A[1][0], B[0][0])
+multiply(A[1][1], B[1][0])
+reduce(products, sum)
+multiply(A[1][0], B[0][1])
+multiply(A[1][1], B[1][1])
+reduce(products, sum)
+// Output: C (discard A, B)
+discard(A)
+discard(B)`,
+
+  maxpool: `// Max pooling 4x4 -> 2x2 (neural net layer)
+let grid = matrix(4,4)
+// Pool 1: max of grid[0:2][0:2]
+max(grid[0][0], grid[0][1])
+max(grid[1][0], grid[1][1])
+max(winner1, winner2)
+// Pool 2: max of grid[0:2][2:4]
+max(grid[0][2], grid[0][3])
+max(grid[1][2], grid[1][3])
+max(winner1, winner2)
+// Pool 3: max of grid[2:4][0:2]
+max(grid[2][0], grid[2][1])
+max(grid[3][0], grid[3][1])
+max(winner1, winner2)
+// Pool 4: max of grid[2:4][2:4]
+max(grid[2][2], grid[2][3])
+max(grid[3][2], grid[3][3])
+max(winner1, winner2)
+// Output: 2x2 pooled result (discard 12 of 16 values)
+discard(losers)`
+};
+
+function loadPreset() {
+  const sel = document.getElementById('presetSelect');
+  const code = PRESETS[sel.value];
+  if (code) document.getElementById('sourceCode').value = code;
+}
+
+// =====================================================================
+// PARSER: source → IR (list of typed operations)
+// =====================================================================
+function parse(source) {
+  const lines = source.split('\n');
+  const ir = [];
+  let arraySize = 0;
+
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!line || line.startsWith('//')) continue;
+
+    // Detect array/matrix sizes
+    const arrMatch = line.match(/array\((\d+)\)/);
+    if (arrMatch) { arraySize = parseInt(arrMatch[1]); continue; }
+    const matMatch = line.match(/matrix\((\d+)\s*,\s*(\d+)\)/);
+    if (matMatch) { arraySize = parseInt(matMatch[1]) * parseInt(matMatch[2]); continue; }
+
+    // Variable assignments that overwrite
+    if (line.match(/^let\s/)) continue; // declarations are free
+
+    // For loops — detect iteration count
+    const forMatch = line.match(/for\s+\w+\s+in\s+(\d+)\.\.(\d+)/);
+    if (forMatch) {
+      ir.push({ type: 'meta', op: 'LOOP', args: `${parseInt(forMatch[1])}..${parseInt(forMatch[2])}`,
+        loopStart: parseInt(forMatch[1]), loopEnd: parseInt(forMatch[2]) });
+      continue;
+    }
+
+    // Irreversible operations
+    if (line.match(/compare\s*\(/))   ir.push({ type: 'irrev', op: 'COMPARE', M: 2, args: extractArgs(line), detail: 'ordering bit destroyed' });
+    if (line.match(/select\s*\(/))    ir.push({ type: 'irrev', op: 'SELECT', M: arraySize || 2, args: extractArgs(line), detail: `${arraySize||2} alternatives collapsed to 1` });
+    if (line.match(/threshold\s*\(/)) ir.push({ type: 'irrev', op: 'THRESHOLD', M: arraySize || 256, args: extractArgs(line), detail: 'magnitude destroyed, boolean kept' });
+    if (line.match(/argmax\s*\(/))    ir.push({ type: 'irrev', op: 'ARGMAX', M: arraySize || 8, args: extractArgs(line), detail: `${arraySize||8} values → 1 index` });
+    if (line.match(/max\s*\(/))       ir.push({ type: 'irrev', op: 'MAX', M: 2, args: extractArgs(line), detail: 'ordering bit destroyed' });
+    if (line.match(/discard\s*\(/))   ir.push({ type: 'irrev', op: 'DISCARD', M: arraySize || 2, args: extractArgs(line), detail: 'full value erased' });
+    if (line.match(/filter\s*\(/))    ir.push({ type: 'irrev', op: 'FILTER', M: arraySize || 32, args: extractArgs(line), detail: 'rejected items erased' });
+
+    // Reversible operations
+    if (line.match(/multiply\s*\(/))  ir.push({ type: 'rev', op: 'MULTIPLY', args: extractArgs(line), detail: 'Toffoli-style, inputs preserved' });
+    if (line.match(/reduce\s*\(/))    ir.push({ type: 'rev', op: 'REDUCE', args: extractArgs(line), detail: 'accumulate (reversible with history)' });
+    if (line.match(/sort\s*\(/))      ir.push({ type: 'irrev', op: 'SORT', M: factorial(arraySize), args: extractArgs(line), detail: `permutation info: log₂(${arraySize}!)=${(logFact(arraySize)/Math.LN2).toFixed(1)} bits` });
+
+    // Conditionals
+    if (line.match(/^if\s/)) ir.push({ type: 'meta', op: 'BRANCH', args: line.replace(/^if\s+/, ''), detail: 'control flow' });
+  }
+
+  // Expand loops
+  const expanded = [];
+  let loopCtx = null;
+  for (const op of ir) {
+    if (op.op === 'LOOP') {
+      loopCtx = { start: op.loopStart, end: op.loopEnd, body: [] };
+      continue;
+    }
+    if (loopCtx && (op.type === 'irrev' || op.type === 'rev')) {
+      loopCtx.body.push(op);
+      continue;
+    }
+    if (loopCtx) {
+      // End of loop body — expand
+      const count = loopCtx.end - loopCtx.start + 1;
+      for (let i = 0; i < count; i++) {
+        for (const bodyOp of loopCtx.body) {
+          expanded.push({ ...bodyOp, args: bodyOp.args + ` [iter ${i}]` });
+        }
+      }
+      loopCtx = null;
+    }
+    expanded.push(op);
+  }
+  // Flush any remaining loop
+  if (loopCtx) {
+    const count = loopCtx.end - loopCtx.start + 1;
+    for (let i = 0; i < count; i++) {
+      for (const bodyOp of loopCtx.body) {
+        expanded.push({ ...bodyOp, args: bodyOp.args + ` [iter ${i}]` });
+      }
+    }
+  }
+
+  return expanded;
+}
+
+function extractArgs(line) {
+  const m = line.match(/\(([^)]*)\)/);
+  return m ? m[1] : '';
+}
+
+function factorial(n) { let f=1; for(let i=2;i<=n;i++) f*=i; return f; }
+function logFact(n) { let s=0; for(let i=2;i<=n;i++) s+=Math.log(i); return s; }
+function factorize(n) {
+  const f={}; let d=2;
+  while(d*d<=n){while(n%d===0){f[d]=(f[d]||0)+1;n/=d;}d++;}
+  if(n>1)f[n]=(f[n]||0)+1; return f;
+}
+
+// =====================================================================
+// RENDER IR
+// =====================================================================
+function renderIR(ir) {
+  let html = '<div class="ir-block">';
+  let totalErasure = 0;
+  let irrevCount = 0;
+  let revCount = 0;
+
+  ir.forEach((op, i) => {
+    const num = `<span class="ir-num">${i+1}</span>`;
+    let cls = op.type === 'rev' ? 'rev' : op.type === 'irrev' ? 'irrev' : 'meta';
+    let costStr = '';
+    if (op.type === 'irrev' && op.M) {
+      const cost = Math.log(op.M);
+      totalErasure += cost;
+      irrevCount++;
+      costStr = `<span class="ir-cost">${(cost/Math.LN2).toFixed(1)} bits</span>`;
+    }
+    if (op.type === 'rev') revCount++;
+    const args = op.args ? `<span class="ir-args">${op.args}</span>` : '';
+    const detail = op.detail ? `<span class="ir-args" style="color:#665"> // ${op.detail}</span>` : '';
+    html += `<div class="ir-line">${num}<span class="ir-op ${cls}">${op.op}</span>${args}${detail}${costStr}</div>`;
+  });
+
+  html += `<div class="ir-line" style="border-top:1px solid #ffffff15;margin-top:8px;padding-top:8px">`;
+  html += `<span class="ir-num"></span>`;
+  html += `<span style="color:#ffd6a0;font-weight:600">TOTAL: ${irrevCount} irreversible, ${revCount} reversible, ${(totalErasure/Math.LN2).toFixed(1)} bits conventional erasure</span>`;
+  html += `</div></div>`;
+
+  return { html, ir, totalErasure, irrevCount, revCount };
+}
+
+// =====================================================================
+// SCHEDULE GENERATION
+// =====================================================================
+function generateSchedules(ir, irrevCount, totalErasure) {
+  const schedules = [];
+
+  // ---- Schedule 1: Conventional (erase eagerly at each step) ----
+  const s1ops = [];
+  let s1cost = 0, s1mem = 0, s1garbage = 0;
+  for (const op of ir) {
+    if (op.type === 'irrev') {
+      const cost = Math.log(op.M);
+      s1ops.push({ ...op, cumCost: s1cost + cost });
+      s1cost += cost;
+    } else if (op.type === 'rev') {
+      s1ops.push({ ...op, cumCost: s1cost });
+    }
+  }
+  schedules.push({
+    name: 'Conventional (eager erase)',
+    erasure: s1cost,
+    memory: 0,
+    ops: s1ops.length,
+    garbage: 0,
+    garbageReclaimed: 0,
+    timeline: s1ops.map((op, i) => ({ step: i, cumCost: op.cumCost, type: op.type })),
+    detail: 'Every irreversible op erases immediately. No garbage. No uncompute.'
+  });
+
+  // ---- Schedule 2: Full uncompute (reversible compute → copy → uncompute → single collapse) ----
+  const s2ops = [];
+  let s2cost = 0;
+  let s2mem = 0;
+  let revOps = 0;
+  // Phase 1: all ops become reversible (store comparison results)
+  for (const op of ir) {
+    if (op.type === 'irrev') {
+      s2ops.push({ type: 'rev', op: 'REV_' + op.op, cumCost: 0 });
+      s2mem++;
+      revOps++;
+    } else if (op.type === 'rev') {
+      s2ops.push({ ...op, cumCost: 0 });
+    }
+  }
+  // Phase 2: copy output
+  s2ops.push({ type: 'rev', op: 'FORK_OUTPUT', cumCost: 0 });
+  s2mem += Math.ceil(Math.log2(Math.max(2, irrevCount)));
+
+  // Phase 3: uncompute all reversible comparison state
+  for (let i = 0; i < revOps; i++) {
+    s2ops.push({ type: 'rev', op: 'UNCOMPUTE', cumCost: 0 });
+  }
+
+  // Phase 4: single factorized collapse
+  // Total erasure = same as conventional but paid in one shot at the end
+  // The ambiguity class size = product of all M values
+  let totalM = 1;
+  for (const op of ir) {
+    if (op.type === 'irrev') totalM *= op.M;
+  }
+  // Factorize totalM
+  const factors = factorize(Math.min(totalM, 1e15)); // cap for sanity
+  for (const p in factors) {
+    for (let i = 0; i < factors[p]; i++) {
+      s2cost += Math.log(parseInt(p));
+      s2ops.push({ type: 'irrev', op: `COLLAPSE_${p}`, cumCost: s2cost });
+    }
+  }
+
+  schedules.push({
+    name: 'Full uncompute + factorized collapse',
+    erasure: s2cost,
+    memory: s2mem,
+    ops: s2ops.length,
+    garbage: revOps,
+    garbageReclaimed: revOps,
+    timeline: s2ops.map((op, i) => ({ step: i, cumCost: op.cumCost || 0, type: op.type })),
+    detail: `All comparisons done reversibly (${revOps} temp registers). Output copied. Intermediates uncomputed. Final collapse: ln(${totalM > 1e12 ? totalM.toExponential(1) : totalM}) nats.`
+  });
+
+  // ---- Schedule 3: Partial uncompute (50%) ----
+  const halfIrrev = Math.ceil(irrevCount / 2);
+  const s3ops = [];
+  let s3cost = 0, s3mem = 0, s3garbage = 0, s3reclaimed = 0;
+  let irrevSeen = 0;
+
+  for (const op of ir) {
+    if (op.type === 'irrev') {
+      irrevSeen++;
+      if (irrevSeen <= halfIrrev) {
+        // First half: erase eagerly
+        s3cost += Math.log(op.M);
+        s3ops.push({ ...op, cumCost: s3cost });
+      } else {
+        // Second half: reversible
+        s3ops.push({ type: 'rev', op: 'REV_' + op.op, cumCost: s3cost });
+        s3mem++;
+        s3garbage++;
+      }
+    } else if (op.type === 'rev') {
+      s3ops.push({ ...op, cumCost: s3cost });
+    }
+  }
+  // Copy output
+  s3ops.push({ type: 'rev', op: 'FORK_OUTPUT', cumCost: s3cost });
+  // Uncompute second half
+  const toUncompute = irrevCount - halfIrrev;
+  for (let i = 0; i < toUncompute; i++) {
+    s3ops.push({ type: 'rev', op: 'UNCOMPUTE', cumCost: s3cost });
+    s3reclaimed++;
+  }
+  // Collapse remaining ambiguity
+  let partialM = 1;
+  irrevSeen = 0;
+  for (const op of ir) {
+    if (op.type === 'irrev') {
+      irrevSeen++;
+      if (irrevSeen > halfIrrev) partialM *= op.M;
+    }
+  }
+  const pf = factorize(Math.min(partialM, 1e15));
+  for (const p in pf) {
+    for (let i = 0; i < pf[p]; i++) {
+      s3cost += Math.log(parseInt(p));
+      s3ops.push({ type: 'irrev', op: `COLLAPSE_${p}`, cumCost: s3cost });
+    }
+  }
+
+  schedules.push({
+    name: 'Hybrid (50% eager, 50% uncompute)',
+    erasure: s3cost,
+    memory: s3mem,
+    ops: s3ops.length,
+    garbage: s3garbage,
+    garbageReclaimed: s3reclaimed,
+    timeline: s3ops.map((op, i) => ({ step: i, cumCost: op.cumCost || 0, type: op.type })),
+    detail: `First ${halfIrrev} ops erase eagerly. Remaining ${toUncompute} done reversibly, then uncomputed.`
+  });
+
+  // ---- Schedule 4: Batch collapse (group by operation type) ----
+  const s4ops = [];
+  let s4cost = 0, s4mem = 0;
+  const byType = {};
+  for (const op of ir) {
+    if (op.type === 'irrev') {
+      if (!byType[op.op]) byType[op.op] = { count: 0, M: op.M };
+      byType[op.op].count++;
+    }
+  }
+  // All ops reversible first
+  for (const op of ir) {
+    if (op.type === 'irrev') {
+      s4ops.push({ type: 'rev', op: 'REV_' + op.op, cumCost: 0 });
+      s4mem++;
+    } else if (op.type === 'rev') {
+      s4ops.push({ ...op, cumCost: 0 });
+    }
+  }
+  s4ops.push({ type: 'rev', op: 'FORK_OUTPUT', cumCost: 0 });
+  // Batch collapse by type
+  for (const opType in byType) {
+    const { count, M } = byType[opType];
+    const batchM = Math.pow(M, count);
+    const batchFactors = factorize(Math.min(batchM, 1e15));
+    for (const p in batchFactors) {
+      for (let i = 0; i < batchFactors[p]; i++) {
+        s4cost += Math.log(parseInt(p));
+        s4ops.push({ type: 'irrev', op: `COLLAPSE_${p}`, cumCost: s4cost });
+      }
+    }
+  }
+
+  schedules.push({
+    name: 'Batch by operation type',
+    erasure: s4cost,
+    memory: s4mem,
+    ops: s4ops.length,
+    garbage: irrevCount,
+    garbageReclaimed: irrevCount,
+    timeline: s4ops.map((op, i) => ({ step: i, cumCost: op.cumCost || 0, type: op.type })),
+    detail: `All ops reversible. Collapse grouped by type: ${Object.keys(byType).map(k => `${byType[k].count}×${k}`).join(', ')}.`
+  });
+
+  return schedules;
+}
+
+// =====================================================================
+// RANKING + DISPLAY
+// =====================================================================
+let _schedules = [];
+
+function compile() {
+  const source = document.getElementById('sourceCode').value;
+  if (!source.trim()) return;
+
+  // Parse
+  const ir = parse(source);
+
+  // Render IR
+  const { html, totalErasure, irrevCount, revCount } = renderIR(ir);
+  document.getElementById('irOutput').innerHTML = html;
+
+  // Generate schedules
+  _schedules = generateSchedules(ir, irrevCount, totalErasure);
+
+  // Rank and display
+  rerank();
+}
+
+function rerank() {
+  if (!_schedules.length) return;
+
+  const aR = parseInt(document.getElementById('wA').value);
+  const bR = parseInt(document.getElementById('wB').value);
+  const cR = parseInt(document.getElementById('wC').value);
+  const tot = aR + bR + cR || 1;
+  const a = aR/tot, b = bR/tot, c = cR/tot;
+  document.getElementById('wAv').textContent = a.toFixed(2);
+  document.getElementById('wBv').textContent = b.toFixed(2);
+  document.getElementById('wCv').textContent = c.toFixed(2);
+
+  const maxE = Math.max(..._schedules.map(s => s.erasure), 0.001);
+  const maxM = Math.max(..._schedules.map(s => s.memory), 1);
+  const maxO = Math.max(..._schedules.map(s => s.ops), 1);
+
+  _schedules.forEach(s => {
+    s.nE = s.erasure / maxE;
+    s.nM = s.memory / maxM;
+    s.nO = s.ops / maxO;
+    s.score = a * s.nE + b * s.nM + c * s.nO;
+  });
+
+  const sorted = [..._schedules].sort((x, y) => x.score - y.score);
+
+  // Pareto chart
+  drawPareto(_schedules);
+
+  // Timeline chart
+  drawTimelines(_schedules);
+
+  // Ranking table
+  let html = '<h3 style="margin-top:0">Schedule Ranking</h3>';
+  html += '<table class="ledger"><thead><tr><th>#</th><th>Schedule</th><th style="text-align:right">Erasure (bits)</th><th style="text-align:right">Memory</th><th style="text-align:right">Garbage</th><th style="text-align:right">Ops</th><th style="text-align:right">Score</th></tr></thead><tbody>';
+  sorted.forEach((s, i) => {
+    const best = i === 0 ? ' style="color:#6c6"' : '';
+    html += `<tr${best}><td>${i+1}</td><td class="op">${s.name}</td>`;
+    html += `<td class="cost">${(s.erasure/Math.LN2).toFixed(1)}</td>`;
+    html += `<td class="cost">${s.memory}</td>`;
+    html += `<td class="cost">${s.garbage}/${s.garbageReclaimed}r</td>`;
+    html += `<td class="cost">${s.ops}</td>`;
+    html += `<td class="cost">${s.score.toFixed(4)}</td></tr>`;
+  });
+  html += '</tbody></table>';
+  document.getElementById('rankingTable').innerHTML = html;
+
+  // Detail
+  const best = sorted[0], worst = sorted[sorted.length - 1];
+  const save = worst.erasure > 0 ? ((worst.erasure - best.erasure)/worst.erasure*100) : 0;
+  let dh = '<h3 style="margin-top:0">Analysis</h3>';
+  dh += `<div class="result-row"><span class="result-label">Best</span><span class="result-value match">${best.name}</span></div>`;
+  dh += `<div class="result-row"><span class="result-label">Erasure reduction vs worst</span><span class="result-value match">${save.toFixed(1)}%</span></div>`;
+  dh += `<div class="result-row"><span class="result-label">Memory cost</span><span class="result-value">${best.memory} temp registers</span></div>`;
+  sorted.forEach(s => {
+    dh += `<div class="result-row"><span class="result-label" style="font-size:12px">${s.name}</span><span class="result-value" style="font-size:12px;color:#887">${s.detail}</span></div>`;
+  });
+  document.getElementById('scheduleDetail').innerHTML = dh;
+}
+
+// =====================================================================
+// CHARTS
+// =====================================================================
+function getCtx(id, h) {
+  const canvas = document.getElementById(id);
+  if (!canvas) return null;
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = (h || rect.height) * dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  return { ctx, w: rect.width, h: h || rect.height };
+}
+
+const COLORS = ['#ffd6a0','#ff6655','#6c6','#66ccff','#cc66ff','#ff9966'];
+
+function drawPareto(schedules) {
+  const r = getCtx('paretoCanvas');
+  if (!r) return;
+  const { ctx, w, h } = r;
+  const pad = { top: 25, right: 25, bottom: 45, left: 60 };
+  const cW = w - pad.left - pad.right;
+  const cH = h - pad.top - pad.bottom;
+
+  ctx.clearRect(0, 0, w, h);
+
+  const maxM = Math.max(...schedules.map(s => s.memory), 1) * 1.2;
+  const maxE = Math.max(...schedules.map(s => s.erasure/Math.LN2), 1) * 1.2;
+
+  // Grid
+  ctx.font = '10px Georgia'; ctx.fillStyle = '#887';
+  for (let i = 0; i <= 4; i++) {
+    const y = pad.top + cH - cH*i/4;
+    ctx.fillStyle = '#ffffff10'; ctx.fillRect(pad.left, y, cW, 1);
+    ctx.fillStyle = '#887'; ctx.textAlign = 'right';
+    ctx.fillText((maxE*i/4).toFixed(0), pad.left-6, y+3);
+    const x = pad.left + cW*i/4;
+    ctx.fillStyle = '#ffffff10'; ctx.fillRect(x, pad.top, 1, cH);
+    ctx.fillStyle = '#887'; ctx.textAlign = 'center';
+    ctx.fillText(Math.round(maxM*i/4), x, pad.top+cH+16);
+  }
+
+  ctx.fillStyle = '#887'; ctx.font = '11px Georgia'; ctx.textAlign = 'center';
+  ctx.fillText('Peak memory', pad.left+cW/2, h-6);
+  ctx.save(); ctx.translate(12, pad.top+cH/2); ctx.rotate(-Math.PI/2);
+  ctx.fillText('Logical erasure (bits)', 0, 0); ctx.restore();
+
+  // Points
+  schedules.forEach((s, i) => {
+    const x = pad.left + (s.memory/maxM)*cW;
+    const y = pad.top + cH - (s.erasure/Math.LN2/maxE)*cH;
+    ctx.beginPath(); ctx.fillStyle = COLORS[i%COLORS.length];
+    ctx.arc(x, y, 6, 0, Math.PI*2); ctx.fill();
+    ctx.strokeStyle = '#0a0a0a'; ctx.lineWidth = 2; ctx.stroke();
+    ctx.fillStyle = COLORS[i%COLORS.length]; ctx.font = '10px Georgia'; ctx.textAlign = 'left';
+    ctx.fillText(s.name.substring(0, 20), x+9, y+3);
+  });
+
+  // Pareto frontier
+  const pareto = schedules.filter(s => !schedules.some(o =>
+    o.memory <= s.memory && o.erasure <= s.erasure && (o.memory < s.memory || o.erasure < s.erasure)
+  )).sort((a,b) => a.memory - b.memory);
+  if (pareto.length > 1) {
+    ctx.beginPath(); ctx.strokeStyle = '#ffd6a044'; ctx.lineWidth = 1.5; ctx.setLineDash([4,4]);
+    pareto.forEach((s, i) => {
+      const x = pad.left + (s.memory/maxM)*cW;
+      const y = pad.top + cH - (s.erasure/Math.LN2/maxE)*cH;
+      i===0 ? ctx.moveTo(x,y) : ctx.lineTo(x,y);
+    });
+    ctx.stroke(); ctx.setLineDash([]);
+  }
+}
+
+function drawTimelines(schedules) {
+  const r = getCtx('timelineCanvas');
+  if (!r) return;
+  const { ctx, w, h } = r;
+  const pad = { top: 25, right: 20, bottom: 35, left: 55 };
+  const cW = w - pad.left - pad.right;
+  const cH = h - pad.top - pad.bottom;
+
+  ctx.clearRect(0, 0, w, h);
+
+  const maxSteps = Math.max(...schedules.map(s => s.timeline.length), 1);
+  const maxCost = Math.max(...schedules.map(s => s.erasure/Math.LN2), 0.1);
+
+  ctx.strokeStyle = '#ffffff15'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(pad.left, pad.top); ctx.lineTo(pad.left, pad.top+cH);
+  ctx.lineTo(pad.left+cW, pad.top+cH); ctx.stroke();
+
+  ctx.font = '10px Georgia'; ctx.fillStyle = '#887'; ctx.textAlign = 'center';
+  ctx.fillText('step', pad.left+cW/2, h-6);
+  ctx.save(); ctx.translate(10, pad.top+cH/2); ctx.rotate(-Math.PI/2);
+  ctx.fillText('cum. erasure (bits)', 0, 0); ctx.restore();
+
+  schedules.forEach((s, si) => {
+    if (!s.timeline.length) return;
+    ctx.beginPath(); ctx.strokeStyle = COLORS[si%COLORS.length]; ctx.lineWidth = 2;
+    s.timeline.forEach((pt, i) => {
+      const x = pad.left + (i/maxSteps)*cW;
+      const y = pad.top + cH - (pt.cumCost/Math.LN2/maxCost)*cH;
+      i===0 ? ctx.moveTo(x,y) : ctx.lineTo(x,y);
+    });
+    ctx.stroke();
+  });
+
+  // Legend
+  ctx.font = '10px Georgia';
+  schedules.forEach((s, i) => {
+    const lx = pad.left + 8;
+    const ly = pad.top + 6 + i*14;
+    ctx.fillStyle = COLORS[i%COLORS.length];
+    ctx.fillRect(lx, ly, 8, 8);
+    ctx.fillStyle = '#e8e4dc'; ctx.textAlign = 'left';
+    ctx.fillText(s.name.substring(0, 25), lx+12, ly+7);
+  });
+}
+
+// =====================================================================
+// INIT
+// =====================================================================
+window.addEventListener('load', () => {
+  document.getElementById('presetSelect').value = 'search';
+  loadPreset();
+  compile();
+});
+</script>
+</body>
+</html>
