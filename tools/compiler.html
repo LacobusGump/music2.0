@@ -101,14 +101,28 @@ canvas{display:block;width:100%;border-radius:8px;margin:12px 0}
 <body>
 
 <h1>Entropy-Aware Compiler</h1>
-<p class="subtitle">code &rarr; intermediate representation &rarr; multiple schedules &rarr; pareto frontier</p>
+<p class="subtitle">code &rarr; IR &rarr; passes &rarr; schedules &rarr; frontier</p>
 
 <p>
-Write pseudocode. The compiler identifies every irreversible operation,
-emits an intermediate representation, then generates multiple execution
-schedules with different erasure/memory/latency tradeoffs.
-Same computation. Different information destruction strategies.
+This compiler rewrites computations into different schedules that trade off
+information destruction, memory, and operations. Write pseudocode or describe
+what you want. The compiler identifies every destructive operation, lifts
+reversible structure, inserts uncompute points, plans collapse events, and
+generates multiple schedules on the Pareto frontier.
 </p>
+
+<!-- Pipeline visualization -->
+<div style="display:flex;align-items:center;gap:0;margin:20px 0;flex-wrap:wrap;font-family:Menlo,Consolas,monospace;font-size:12px">
+  <div style="background:#ffffff08;border:1px solid #ffffff15;border-radius:6px;padding:8px 14px;color:#e8e4dc">Source</div>
+  <div style="color:#554;padding:0 8px">&rarr;</div>
+  <div style="background:#ffffff08;border:1px solid #ffffff15;border-radius:6px;padding:8px 14px;color:#e8e4dc">IR</div>
+  <div style="color:#554;padding:0 8px">&rarr;</div>
+  <div style="background:#ffd6a010;border:1px solid #ffd6a033;border-radius:6px;padding:8px 14px;color:#ffd6a0">4 Passes</div>
+  <div style="color:#554;padding:0 8px">&rarr;</div>
+  <div style="background:#ffffff08;border:1px solid #ffffff15;border-radius:6px;padding:8px 14px;color:#e8e4dc">Schedules</div>
+  <div style="color:#554;padding:0 8px">&rarr;</div>
+  <div style="background:#6c620;border:1px solid #6c640;border-radius:6px;padding:8px 14px;color:#6c6">Frontier</div>
+</div>
 
 <!-- ============================================================ -->
 <!-- INPUT                                                         -->
@@ -155,6 +169,31 @@ Reversible ops incur time and switching costs but zero logical erasure.
 
 <div class="card" id="irOutput">
   <p style="color:#554">Compile something to see the IR.</p>
+</div>
+
+<!-- ============================================================ -->
+<!-- PASSES                                                        -->
+<!-- ============================================================ -->
+
+<h2>Compiler Passes</h2>
+
+<div class="card" id="passOutput">
+  <p style="color:#554">Compile something to see the passes.</p>
+</div>
+
+<!-- ============================================================ -->
+<!-- TRANSFORMATION VIEW                                           -->
+<!-- ============================================================ -->
+
+<h2>Key Transformation</h2>
+<p style="font-size:14px;color:#887">
+The compiler's core rewrite: each destructive operation becomes a reversible
+compute + tagged copy + uncompute + planned collapse. This is where the
+computation gets restructured.
+</p>
+
+<div class="card" id="transformView">
+  <p style="color:#554">Compile something to see the transformation.</p>
 </div>
 
 <!-- ============================================================ -->
@@ -478,7 +517,8 @@ function generateSchedules(ir, irrevCount, totalErasure) {
     garbage: 0,
     garbageReclaimed: 0,
     timeline: s1ops.map((op, i) => ({ step: i, cumCost: op.cumCost, type: op.type })),
-    detail: 'Every irreversible op erases immediately. No garbage. No uncompute.'
+    detail: 'Every irreversible op erases immediately. No garbage. No uncompute.',
+    rationale: 'Minimizes memory and complexity. Maximum logical erasure.'
   });
 
   // ---- Schedule 2: Full uncompute (reversible compute → copy → uncompute → single collapse) ----
@@ -529,7 +569,8 @@ function generateSchedules(ir, irrevCount, totalErasure) {
     garbage: revOps,
     garbageReclaimed: revOps,
     timeline: s2ops.map((op, i) => ({ step: i, cumCost: op.cumCost || 0, type: op.type })),
-    detail: `All comparisons done reversibly (${revOps} temp registers). Output copied. Intermediates uncomputed. Final collapse: ln(${totalM > 1e12 ? totalM.toExponential(1) : totalM}) nats.`
+    detail: `All comparisons done reversibly (${revOps} temp registers). Output copied. Intermediates uncomputed. Final collapse: ln(${totalM > 1e12 ? totalM.toExponential(1) : totalM}) nats.`,
+    rationale: 'Minimizes logical erasure. Delays all destruction to end. Maximum memory.'
   });
 
   // ---- Schedule 3: Partial uncompute (50%) ----
@@ -588,7 +629,8 @@ function generateSchedules(ir, irrevCount, totalErasure) {
     garbage: s3garbage,
     garbageReclaimed: s3reclaimed,
     timeline: s3ops.map((op, i) => ({ step: i, cumCost: op.cumCost || 0, type: op.type })),
-    detail: `First ${halfIrrev} ops erase eagerly. Remaining ${toUncompute} done reversibly, then uncomputed.`
+    detail: `First ${halfIrrev} ops erase eagerly. Remaining ${toUncompute} done reversibly, then uncomputed.`,
+    rationale: 'Balanced tradeoff. Partial erasure savings with bounded memory.'
   });
 
   // ---- Schedule 4: Batch collapse (group by operation type) ----
@@ -632,7 +674,8 @@ function generateSchedules(ir, irrevCount, totalErasure) {
     garbage: irrevCount,
     garbageReclaimed: irrevCount,
     timeline: s4ops.map((op, i) => ({ step: i, cumCost: op.cumCost || 0, type: op.type })),
-    detail: `All ops reversible. Collapse grouped by type: ${Object.keys(byType).map(k => `${byType[k].count}×${k}`).join(', ')}.`
+    detail: `All ops reversible. Collapse grouped by type: ${Object.keys(byType).map(k => `${byType[k].count}×${k}`).join(', ')}.`,
+    rationale: 'Groups identical collapses for batch processing. Same erasure as full uncompute, different scheduling.'
   });
 
   return schedules;
@@ -654,11 +697,111 @@ function compile() {
   const { html, totalErasure, irrevCount, revCount } = renderIR(ir);
   document.getElementById('irOutput').innerHTML = html;
 
+  // Render passes
+  renderPasses(ir, irrevCount, revCount, totalErasure);
+
+  // Render transformation view
+  renderTransform(ir);
+
   // Generate schedules
   _schedules = generateSchedules(ir, irrevCount, totalErasure);
 
   // Rank and display
   rerank();
+}
+
+function renderPasses(ir, irrevCount, revCount, totalErasure) {
+  const irrevOps = ir.filter(op => op.type === 'irrev');
+  const totalM = irrevOps.reduce((acc, op) => acc * op.M, 1);
+  const factors = factorize(Math.min(totalM, 1e15));
+  const factorStr = Object.entries(factors).map(([p,a]) => a > 1 ? `${p}^${a}` : p).join(' &times; ');
+
+  let html = '<div class="ir-block">';
+
+  // Pass 1
+  html += `<div class="ir-line"><span class="ir-num" style="color:#ffd6a0">P1</span>`;
+  html += `<span class="ir-op irrev">Identify destructive ops</span>`;
+  html += `<span class="ir-args">Found ${irrevCount} irreversible operations: `;
+  html += irrevOps.slice(0, 5).map(op => op.op).join(', ');
+  if (irrevOps.length > 5) html += `, &hellip;+${irrevOps.length - 5} more`;
+  html += `</span></div>`;
+
+  // Pass 2
+  html += `<div class="ir-line"><span class="ir-num" style="color:#ffd6a0">P2</span>`;
+  html += `<span class="ir-op rev">Lift reversible structure</span>`;
+  html += `<span class="ir-args">Each destructive op rewritten as: REV_compute + TAG result. `;
+  html += `${irrevCount} ops lifted, creating ${irrevCount} temporary garbage registers.</span></div>`;
+
+  // Pass 3
+  html += `<div class="ir-line"><span class="ir-num" style="color:#ffd6a0">P3</span>`;
+  html += `<span class="ir-op rev">Insert uncompute points</span>`;
+  html += `<span class="ir-args">After output is copied, ${irrevCount} UNCOMPUTE ops inserted `;
+  html += `(reverse execution to reclaim garbage). All ${irrevCount} temp registers freed.</span></div>`;
+
+  // Pass 4
+  html += `<div class="ir-line"><span class="ir-num" style="color:#ffd6a0">P4</span>`;
+  html += `<span class="ir-op irrev">Plan collapse events</span>`;
+  html += `<span class="ir-args">Total ambiguity class: ${totalM > 1e6 ? totalM.toExponential(1) : totalM}`;
+  if (Object.keys(factors).length > 0) html += ` = ${factorStr}`;
+  html += `. Factorized into ${Object.values(factors).reduce((a,b)=>a+b,0)} prime-stage COLLAPSE ops. `;
+  html += `Total: ${(totalErasure/Math.LN2).toFixed(1)} bits.</span></div>`;
+
+  html += '</div>';
+  document.getElementById('passOutput').innerHTML = html;
+}
+
+function renderTransform(ir) {
+  // Find first irreversible op for the demo
+  const firstIrrev = ir.find(op => op.type === 'irrev');
+  if (!firstIrrev) {
+    document.getElementById('transformView').innerHTML = '<p style="color:#554">No irreversible operations found.</p>';
+    return;
+  }
+
+  const bits = (Math.log(firstIrrev.M) / Math.LN2).toFixed(1);
+
+  let html = '<div class="ir-block">';
+
+  // Before
+  html += `<div style="color:#887;font-size:11px;letter-spacing:0.15em;margin-bottom:6px">BEFORE (conventional)</div>`;
+  html += `<div class="ir-line"><span class="ir-num">1</span>`;
+  html += `<span class="ir-op irrev">${firstIrrev.op}(${firstIrrev.args})</span>`;
+  html += `<span class="ir-args" style="color:#f66">&rarr; ${bits} bits destroyed immediately</span></div>`;
+
+  html += `<div style="border-top:1px solid #ffd6a022;margin:12px 0;padding-top:12px">`;
+  html += `<div style="color:#ffd6a0;font-size:11px;letter-spacing:0.15em;margin-bottom:6px">AFTER (entropy-aware rewrite)</div>`;
+
+  // After — the 4-step transformation
+  html += `<div class="ir-line"><span class="ir-num">1</span>`;
+  html += `<span class="ir-op rev">REV_${firstIrrev.op}(${firstIrrev.args})</span>`;
+  html += `<span class="ir-args" style="color:#6c6">reversible compute &mdash; result + garbage preserved</span></div>`;
+
+  html += `<div class="ir-line"><span class="ir-num">2</span>`;
+  html += `<span class="ir-op rev">TAG(result)</span>`;
+  html += `<span class="ir-args" style="color:#6c6">copy needed output to clean register</span></div>`;
+
+  html += `<div class="ir-line"><span class="ir-num">3</span>`;
+  html += `<span class="ir-op rev">UNCOMPUTE(REV_${firstIrrev.op})</span>`;
+  html += `<span class="ir-args" style="color:#6c6">run step 1 in reverse &mdash; garbage reclaimed</span></div>`;
+
+  const mFactors = factorize(firstIrrev.M);
+  const collapseOps = Object.entries(mFactors).map(([p,a]) => {
+    return Array(a).fill(`COLLAPSE_${p}`).join(' + ');
+  }).join(' + ');
+
+  html += `<div class="ir-line"><span class="ir-num">4</span>`;
+  html += `<span class="ir-op irrev">${collapseOps}</span>`;
+  html += `<span class="ir-args" style="color:#f66">${bits} bits destroyed &mdash; but delayed and factorized</span></div>`;
+
+  html += `</div>`;
+
+  html += `<div style="margin-top:12px;font-size:13px;color:#887">`;
+  html += `Same total erasure (${bits} bits). But the destruction is <strong style="color:#ffd6a0">delayed</strong> `;
+  html += `(can be batched with other collapses) and <strong style="color:#ffd6a0">factorized</strong> `;
+  html += `(through prime stages, enabling partial uncompute strategies).`;
+  html += `</div></div>`;
+
+  document.getElementById('transformView').innerHTML = html;
 }
 
 function rerank() {
@@ -715,7 +858,8 @@ function rerank() {
   dh += `<div class="result-row"><span class="result-label">Erasure reduction vs worst</span><span class="result-value match">${save.toFixed(1)}%</span></div>`;
   dh += `<div class="result-row"><span class="result-label">Memory cost</span><span class="result-value">${best.memory} temp registers</span></div>`;
   sorted.forEach(s => {
-    dh += `<div class="result-row"><span class="result-label" style="font-size:12px">${s.name}</span><span class="result-value" style="font-size:12px;color:#887">${s.detail}</span></div>`;
+    dh += `<div class="result-row"><span class="result-label" style="font-size:12px">${s.name}</span><span class="result-value" style="font-size:12px;color:#ffd6a0">${s.rationale || ''}</span></div>`;
+    dh += `<div class="result-row"><span class="result-label" style="font-size:11px;color:#665"></span><span class="result-value" style="font-size:11px;color:#665">${s.detail}</span></div>`;
   });
   document.getElementById('scheduleDetail').innerHTML = dh;
 }
