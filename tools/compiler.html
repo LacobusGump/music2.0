@@ -141,6 +141,7 @@ multiple schedules on the Pareto frontier.
   <button class="go-btn" onclick="loadAndCompile('matmul')" style="font-size:12px;padding:6px 14px">Matrix Multiply</button>
   <button class="go-btn" onclick="loadAndCompile('maxpool')" style="font-size:12px;padding:6px 14px">Max Pooling</button>
   <button class="go-btn" onclick="loadAndCompile('pipeline')" style="font-size:12px;padding:6px 14px">Pipeline</button>
+  <button class="go-btn" onclick="loadAndCompile('checkpoint')" style="font-size:12px;padding:6px 14px;border-color:#6c6">Checkpointing</button>
   <button class="go-btn" onclick="loadAndCompile('neural')" style="font-size:12px;padding:6px 14px;border-color:#ffd6a066">Neural Net</button>
   <button class="go-btn" onclick="loadAndCompile('query')" style="font-size:12px;padding:6px 14px;border-color:#ffd6a066">SQL Query</button>
   <button class="go-btn" onclick="loadAndCompile('stream')" style="font-size:12px;padding:6px 14px;border-color:#ffd6a066">Streaming</button>
@@ -519,6 +520,57 @@ discard(a)
 discard(b)
 // Output: product only`,
 
+  checkpoint: `// Activation checkpointing: the real-world problem
+// Training a 6-layer neural net. Forward pass produces activations
+// at each layer. Backward pass NEEDS those activations for gradients.
+//
+// The tradeoff everyone faces:
+//   Store all activations = fast but costs GPU memory ($2-4/hr)
+//   Recompute activations = slow but saves memory
+//   PyTorch torch.utils.checkpoint = all-or-nothing
+//   THIS COMPILER = Pareto-optimal checkpoint placement
+//
+// Each "discard" = dropping an activation tensor between forward and backward
+// Each "preserve" = keeping it in GPU memory for the backward pass
+let layers = array(6)
+// Forward pass: 6 layers, each produces activations
+// Layer 1: conv (32 channels, 64x64) = 131K activations
+multiply(input, weights_1)
+reduce(products, sum)
+threshold(activations_1, 0)
+// Layer 2: conv (64 channels, 32x32) = 65K activations
+multiply(activations_1, weights_2)
+reduce(products, sum)
+threshold(activations_2, 0)
+max(pool_2a, pool_2b)
+max(pool_2c, pool_2d)
+// Layer 3: conv (128 channels, 16x16) = 32K activations
+multiply(activations_2, weights_3)
+reduce(products, sum)
+threshold(activations_3, 0)
+// Layer 4: conv (256 channels, 8x8) = 16K activations
+multiply(activations_3, weights_4)
+reduce(products, sum)
+threshold(activations_4, 0)
+max(pool_4a, pool_4b)
+max(pool_4c, pool_4d)
+// Layer 5: dense (1024 units)
+multiply(activations_4, weights_5)
+reduce(products, sum)
+threshold(activations_5, 0)
+// Layer 6: output (10 classes)
+multiply(activations_5, weights_6)
+reduce(products, sum)
+argmax(logits)
+// Backward pass needs activations from layers 1-5
+// What we discard = what we must recompute in backward pass
+discard(activations_1)
+discard(activations_2)
+discard(activations_3)
+discard(activations_4)
+discard(activations_5)
+// Output: loss gradient`,
+
   neural: `// Neural net inference: conv → relu → pool → dense → softmax
 // Each layer destroys information. How much is structurally required?
 let activations = array(256)  // 16x16 input feature map
@@ -821,6 +873,18 @@ function analyzeOutputAmbiguity(source, ir) {
     return { size: leaves, bits: Math.log2(leaves), nats: Math.log(leaves),
       label: `${leaves} possible leaf classes → log₂(${leaves}) = ${Math.log2(leaves).toFixed(1)} bits`,
       explanation: 'Output = 1 leaf class. Each threshold discards magnitude, but outcomes are a tree.' };
+  }
+
+  // Activation checkpointing: the practical ML problem
+  if (src.includes('checkpoint') || src.includes('backward pass') || src.includes('activation')) {
+    const layers = (src.match(/discard\(/g) || []).length || 5;
+    // Output = loss gradient. Input = all layer activations.
+    // Minimum: must recompute layers not stored. The "erasure" here IS the recomputation cost.
+    // With all stored (0 erasure): max memory, min recompute.
+    // With none stored (max erasure): min memory, max recompute.
+    return { size: Math.pow(2, layers), bits: layers, nats: layers * Math.LN2,
+      label: `${layers} layer activations to checkpoint (${layers} bits of recompute decisions)`,
+      explanation: `Each discarded activation = 1 recomputation in the backward pass. Storing all = fast but memory-expensive. Recomputing all = slow but memory-free. This IS the PyTorch checkpointing problem. The Pareto frontier shows the optimal checkpoint placement.` };
   }
 
   // Neural net: output = 1 of C classes
