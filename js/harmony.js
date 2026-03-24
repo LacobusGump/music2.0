@@ -166,6 +166,28 @@ var Harmony = (function () {
     0.55,   // 6 — 7th. Prime 7 (7:4 ratio). The blue note. Fourth new color.
   ];
 
+  // ── COMPOSITE RESOLUTION — hallways pull toward rooms ──────────────
+  // Composite intervals can't hold structure. They resolve toward the
+  // nearest prime interval. The 4th (2²) pulls toward the 5th (prime 3)
+  // or the 3rd (prime 5). The 6th (2×3) pulls toward the 5th or 7th.
+  // The 2nd pulls toward the root or 3rd.
+  //
+  // Each entry: [degree, target_degrees, pull_strength]
+  // Composites are hallways — energy passes through.
+  // Primes are rooms — energy arrives and stays.
+  var COMPOSITE_RESOLVE = [
+    // degree 0 (root): PRIME — no resolution needed
+    // degree 1 (2nd): composite interval, pulls toward root or 3rd
+    { deg: 1, targets: [0, 2], pull: 0.35 },
+    // degree 2 (3rd): PRIME — holds (prime 5)
+    // degree 3 (4th): composite (2²), pulls toward 5th or 3rd
+    { deg: 3, targets: [4, 2], pull: 0.30 },
+    // degree 4 (5th): PRIME — holds (prime 3)
+    // degree 5 (6th): composite (2×3), pulls toward 5th or 7th
+    { deg: 5, targets: [4, 6], pull: 0.30 },
+    // degree 6 (7th): PRIME — holds (prime 7)
+  ];
+
   // ════════════════════════════════════════════════════════════════════
   // 4. MELODIC CONTOURS — the "I love you" arch and variants
   // ════════════════════════════════════════════════════════════════════
@@ -504,6 +526,29 @@ var Harmony = (function () {
       var primePull = _sessionMaturity * primeWeight * 0.25;
       var nearest = Math.round(rawDeg);
       rawDeg = rawDeg * (1 - primePull) + nearest * primePull;
+    }
+
+    // Composite resolution — hallways pull toward rooms
+    // Composite intervals can't hold structure. As the session cures,
+    // they increasingly resolve toward the nearest prime interval.
+    if (_sessionMaturity > 0.15) {
+      var roundedDeg = _normalDeg(Math.round(rawDeg));
+      for (var cr = 0; cr < COMPOSITE_RESOLVE.length; cr++) {
+        var rule = COMPOSITE_RESOLVE[cr];
+        if (roundedDeg === rule.deg) {
+          // Find nearest prime target
+          var bestTarget = rule.targets[0];
+          var bestDist = Math.abs(rawDeg - rule.targets[0]);
+          for (var ct = 1; ct < rule.targets.length; ct++) {
+            var dist = Math.abs(rawDeg - rule.targets[ct]);
+            if (dist < bestDist) { bestDist = dist; bestTarget = rule.targets[ct]; }
+          }
+          // Pull toward the room. Stronger as session cures.
+          var compositePull = rule.pull * _sessionMaturity;
+          rawDeg = rawDeg * (1 - compositePull) + bestTarget * compositePull;
+          break;
+        }
+      }
     }
 
     // Tension-proportional pull toward root or fifth
