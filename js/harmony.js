@@ -266,11 +266,14 @@ var Harmony = (function () {
 
   var MOTIF_LENGTH = 4;              // notes per motif
   var MOTIF_MAX = 6;                 // max stored motifs (rolling window)
-  var MOTIF_PULL = 0.30;             // 30% gravity toward recognized motif
+  var MOTIF_PULL_MIN = 0.05;         // pull on first appearance (wet pour)
+  var MOTIF_PULL_MAX = 0.55;         // pull after 6+ reps (cured foundation)
+  var MOTIF_CURE_REPS = 6;           // Margulis: 6-8 reps = music
 
-  var _motifs = [];                  // stored motifs: arrays of intervals
+  var _motifs = [];                  // stored motifs: { intervals, count }
   var _motifBuffer = [];             // current fragment being recorded
   var _motifCooldown = 0;            // seconds until next motif suggestion
+  var _sessionMaturity = 0;          // 0 (wet) to 1 (cured), builds with repetition
 
   // ════════════════════════════════════════════════════════════════════
   // 10. SWEET SPOTS — gravitational wells for tilt-to-pitch mapping
@@ -285,8 +288,10 @@ var Harmony = (function () {
   //                1 = hard frets (piano keys)
   //                0.45 = default (guitar-like: fretted but bendable)
 
-  var DEFAULT_SWEET_SPOT_PULL = 0.45;
-  var SWEET_SPOT_RADIUS = 0.35;      // how close to a degree before gravity kicks in
+  var DEFAULT_SWEET_SPOT_PULL = 0.45;  // overridden by session maturity below
+  var SWEET_SPOT_PULL_WET = 0.12;     // start open — almost free, barely any frets
+  var SWEET_SPOT_PULL_CURED = 0.55;   // cured — strong frets, the instrument knows you
+  var SWEET_SPOT_RADIUS = 0.35;       // how close to a degree before gravity kicks in
 
   // ════════════════════════════════════════════════════════════════════
   // 3. scaleFreq — convert scale degree to frequency
@@ -379,14 +384,35 @@ var Harmony = (function () {
     _silenceSeedSet = true;
 
     // Motif recording — capture intervals, not absolute pitches
+    // Track repetition count: when a motif repeats, the music cures
     _motifBuffer.push(deg);
     if (_motifBuffer.length >= MOTIF_LENGTH) {
       var intervals = [];
       for (var mi = 1; mi < _motifBuffer.length; mi++) {
         intervals.push(_motifBuffer[mi] - _motifBuffer[0]);
       }
-      _motifs.push(intervals);
-      if (_motifs.length > MOTIF_MAX) _motifs.shift();
+      // Check if this motif already exists (within tolerance)
+      var found = false;
+      for (var mj = 0; mj < _motifs.length; mj++) {
+        var existing = _motifs[mj].intervals;
+        if (existing.length === intervals.length) {
+          var match = true;
+          for (var mk = 0; mk < existing.length; mk++) {
+            if (Math.abs(existing[mk] - intervals[mk]) > 1) { match = false; break; }
+          }
+          if (match) {
+            _motifs[mj].count++;
+            found = true;
+            // Update session maturity — each rep cures the foundation
+            _sessionMaturity = Math.min(1, _sessionMaturity + 0.04);
+            break;
+          }
+        }
+      }
+      if (!found) {
+        _motifs.push({ intervals: intervals, count: 1 });
+        if (_motifs.length > MOTIF_MAX) _motifs.shift();
+      }
       _motifBuffer = [];
     }
   }
@@ -525,12 +551,18 @@ var Harmony = (function () {
     var recentInterval = recent1 - recent2;
 
     for (var mj = 0; mj < _motifs.length; mj++) {
+      var motif = _motifs[mj];
+      var intervals = motif.intervals || motif;
+      var count = motif.count || 1;
       // Does the most recent interval match the start of this motif?
-      if (_motifs[mj].length >= 2 && Math.abs(_motifs[mj][0] - recentInterval) <= 1) {
+      if (intervals.length >= 2 && Math.abs(intervals[0] - recentInterval) <= 1) {
         // Suggest the next interval in the motif
-        var suggestDeg = recent1 + _motifs[mj][1];
-        // 30% gravity, 70% user's actual position
-        return Math.round(currentDeg * (1 - MOTIF_PULL) + suggestDeg * MOTIF_PULL);
+        var suggestDeg = recent1 + intervals[1];
+        // Pull scales with repetition: 5% on first hear → 55% after 6+ reps
+        // The music CURES around your patterns
+        var cureFactor = Math.min(1, (count - 1) / (MOTIF_CURE_REPS - 1));
+        var pull = MOTIF_PULL_MIN + cureFactor * (MOTIF_PULL_MAX - MOTIF_PULL_MIN);
+        return Math.round(currentDeg * (1 - pull) + suggestDeg * pull);
       }
     }
 
@@ -562,7 +594,9 @@ var Harmony = (function () {
    * @returns {number} gravity-adjusted continuous degree
    */
   function applySweetSpot(rawDegree, pullStrength) {
-    var pull = (pullStrength !== undefined) ? pullStrength : DEFAULT_SWEET_SPOT_PULL;
+    // Cure time: pull starts low (wet pour) and increases as session matures
+    var maturityPull = SWEET_SPOT_PULL_WET + _sessionMaturity * (SWEET_SPOT_PULL_CURED - SWEET_SPOT_PULL_WET);
+    var pull = (pullStrength !== undefined) ? pullStrength : maturityPull;
     var nearest = Math.round(rawDegree);
     var dist = rawDegree - nearest;
 
@@ -1069,6 +1103,7 @@ var Harmony = (function () {
     _scale = MODES.major;
     _melodicHistory = [];
     _harmonicTension = 0;
+    _sessionMaturity = 0;  // reset: every session starts as a wet pour
     _melodicCentroid = 0;
     _lastHistoryDeg = null;
     _phraseNoteCount = 0;
@@ -1204,5 +1239,6 @@ var Harmony = (function () {
     get silenceSeed()    { return _silenceSeed; },
     get silenceSeedSet() { return _silenceSeedSet; },
     get motifs()    { return _motifs.slice(); },
+    get maturity()  { return _sessionMaturity; },  // 0=wet pour, 1=cured foundation
   });
 })();

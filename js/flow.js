@@ -102,7 +102,7 @@ const Flow = (function () {
     arcStrength:   0,
     arcDuration:   0,
     degreeHeat:    new Float32Array(15),
-    degreeDecay:   0.995,
+    degreeDecay:   0.9995,  // slowed: half-life ~22s (was 2.2s). Session-level memory.
     reverbTarget:  0.25,
     filterBias:    0,
     dynamicRange:  1.0,
