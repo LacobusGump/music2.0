@@ -141,12 +141,18 @@ var Harmony = (function () {
     0.90,   // 6 — 7th. High tension. Tritone adjacent. Demands resolution.
   ];
 
-  // ── PRIME HARMONIC WEIGHT — the 1,3,5,7 structure ────────────────
-  // Each prime in the overtone series opens a new harmonic dimension:
+  // ── PRIME HARMONIC WEIGHT — the overtone series weighted by prime independence
+  // Each prime in the overtone series opens a harmonic dimension that
+  // can't be reduced to combinations of smaller primes:
   //   1 = root (unison), 3 = fifth, 5 = major third, 7 = natural seventh
-  // Same odd-number sequence as electron orbital degeneracy (s=1,p=3,d=5,f=7).
-  // Whether this is coincidence or structure is an open question.
-  // We wire it in and listen. The proof is the sound.
+  // This is Harry Partch's "limit" system — 7-limit is the richest
+  // harmonic space the ear clearly perceives.
+  // The same values (1,3,5,7) appear as electron orbital degeneracy
+  // (s=1,p=3,d=5,f=7) — but this is a low-number coincidence between
+  // odd numbers and odd primes, not a shared structure. They diverge
+  // at the 5th term (orbitals give 9, primes skip it).
+  // The REAL connection: both are eigenvalue solutions to the wave equation.
+  // Source: Partch "Genesis of a Music" (1949), Xenharmonic Wiki 7-limit.
   //
   // Weight: how strongly each scale degree pulls when the session is curing.
   // Degrees aligned with prime harmonics pull hardest.
