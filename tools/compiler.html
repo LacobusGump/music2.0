@@ -136,6 +136,7 @@ generates multiple schedules on the Pareto frontier.
   <button class="go-btn" onclick="loadAndCompile('dtree')" style="font-size:12px;padding:6px 14px">Decision Tree</button>
   <button class="go-btn" onclick="loadAndCompile('matmul')" style="font-size:12px;padding:6px 14px">Matrix Multiply</button>
   <button class="go-btn" onclick="loadAndCompile('maxpool')" style="font-size:12px;padding:6px 14px">Max Pooling</button>
+  <button class="go-btn" onclick="loadAndCompile('pipeline')" style="font-size:12px;padding:6px 14px;border-color:#ffd6a066">Pipeline</button>
 </div>
 
 <div class="controls">
@@ -407,6 +408,28 @@ reduce(products, sum)
 discard(A)
 discard(B)`,
 
+  pipeline: `// Pipeline: filter → select → classify (3 stages)
+// Stage 1: filter 1000 items down to ~30
+let items = array(1000)
+let t = 0.5
+for i in 0..999:
+  threshold(items[i], t)
+  if below: discard(items[i])
+// MATERIALIZE — forces collapse, output = ~30 items
+// Stage 2: find top 3 from filtered set
+let filtered = array(30)
+sort(filtered)
+for i in 0..26:
+  discard(filtered[i])
+// MATERIALIZE — forces collapse, output = 3 items
+// Stage 3: classify winner
+let candidates = array(3)
+threshold(candidates[0], 0.8)
+threshold(candidates[1], 0.8)
+threshold(candidates[2], 0.8)
+argmax(candidates)
+// Output: 1 class label`,
+
   maxpool: `// Max pooling 4x4 -> 2x2 (neural net layer)
 let grid = matrix(4,4)
 // Pool 1: max of grid[0:2][0:2]
@@ -453,8 +476,21 @@ function parse(source) {
     const matMatch = line.match(/matrix\((\d+)\s*,\s*(\d+)\)/);
     if (matMatch) { arraySize = parseInt(matMatch[1]) * parseInt(matMatch[2]); continue; }
 
-    // Variable assignments that overwrite
-    if (line.match(/^let\s/)) continue; // declarations are free
+    // Variable assignments that overwrite — detect new array sizes
+    if (line.match(/^let\s/)) {
+      const letArr = line.match(/array\((\d+)\)/);
+      if (letArr) arraySize = parseInt(letArr[1]);
+      continue;
+    }
+
+    // MATERIALIZE — forced collapse point (system boundary)
+    // Upstream uncertainty must be erased here; cannot be deferred
+    if (line.match(/MATERIALIZE/i)) {
+      ir.push({ type: 'irrev', op: 'MATERIALIZE', M: arraySize || 2,
+        args: 'system boundary', detail: 'forced collapse — cannot defer past this point',
+        isBoundary: true });
+      continue;
+    }
 
     // For loops — detect iteration count
     const forMatch = line.match(/for\s+\w+\s+in\s+(\d+)\.\.(\d+)/);
@@ -608,6 +644,43 @@ function analyzeOutputAmbiguity(source, ir) {
       explanation: 'Output = product. Must erase which inputs produced it.' };
   }
 
+  // Pipeline: if MATERIALIZE boundaries exist, analyze per-stage
+  const boundaries = ir.filter(op => op.isBoundary);
+  if (boundaries.length > 0) {
+    // Each stage's output is the next stage's input
+    // Cannot double-count savings across stages
+    // Total minimum = sum of per-stage minimums
+    const stages = [];
+    let stageOps = [];
+    let stageSize = arraySize;
+    for (const op of ir) {
+      if (op.isBoundary) {
+        stages.push({ ops: stageOps, size: stageSize });
+        stageOps = [];
+        // After materialization, the effective input size shrinks
+        // Heuristic: filter keeps ~3% of items, sort→take-K keeps K
+        const discards = stageOps.filter(o => o.op === 'DISCARD').length;
+        stageSize = Math.max(2, Math.round(stageSize * 0.03)); // rough
+      } else {
+        stageOps.push(op);
+      }
+    }
+    if (stageOps.length) stages.push({ ops: stageOps, size: stageSize });
+
+    let totalMin = 0;
+    const stageLabels = [];
+    stages.forEach((stage, i) => {
+      const sz = stage.size || 2;
+      const bits = Math.log2(sz);
+      totalMin += bits;
+      stageLabels.push(`stage ${i+1}: ${sz} → ${bits.toFixed(1)} bits`);
+    });
+
+    return { size: Math.pow(2, totalMin), bits: totalMin, nats: totalMin * Math.LN2,
+      label: `${stages.length}-stage pipeline: ${totalMin.toFixed(1)} bits total (${stageLabels.join(', ')})`,
+      explanation: `Each MATERIALIZE forces collapse. Downstream stages see reduced uncertainty from upstream — savings do not double-count across boundaries.` };
+  }
+
   // Fallback: use product of M values (upper bound)
   const totalM = ir.filter(op => op.type === 'irrev').reduce((acc, op) => acc * op.M, 1);
   return { size: totalM, bits: Math.log2(totalM), nats: Math.log(totalM),
@@ -678,13 +751,13 @@ function buildFlowGraph(ir) {
     };
 
     if (op.type === 'irrev') {
-      // Irreversible: destroys ln(M)/ln(2) bits, creates 1 bit of result
       const destroyed = Math.log2(op.M);
       node.bitsDestroyed = destroyed;
-      node.bitsCreated = 1; // the comparison/selection result
+      node.bitsCreated = op.isBoundary ? 0 : 1;
+      node.isBoundary = !!op.isBoundary;
       totalDestroyed += destroyed;
-      totalCreated += 1;
-      liveBits = liveBits - destroyed + 1;
+      totalCreated += node.bitsCreated;
+      liveBits = liveBits - destroyed + node.bitsCreated;
     } else if (op.type === 'rev') {
       // Reversible: creates output bits without destroying input
       node.bitsCreated = 1;
@@ -787,12 +860,30 @@ function drawFlowCanvas(flow) {
     }
   });
 
+  // Boundary markers (forced collapse points)
+  nodes.forEach((n, i) => {
+    if (n.isBoundary) {
+      const x = pad.left + (i + 0.5) * step;
+      ctx.beginPath();
+      ctx.strokeStyle = '#ffd6a066';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([3, 3]);
+      ctx.moveTo(x, pad.top); ctx.lineTo(x, pad.top + cH);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = '#ffd6a0'; ctx.font = '9px Georgia'; ctx.textAlign = 'center';
+      ctx.fillText('MATERIALIZE', x, pad.top - 4);
+    }
+  });
+
   // Legend
   ctx.font = '10px Georgia'; ctx.textAlign = 'left';
   ctx.fillStyle = '#6c6'; ctx.fillRect(pad.left + 8, 6, 8, 8);
   ctx.fillStyle = '#e8e4dc'; ctx.fillText('live information', pad.left + 20, 14);
   ctx.fillStyle = '#f66'; ctx.fillRect(pad.left + 130, 6, 8, 8);
   ctx.fillStyle = '#e8e4dc'; ctx.fillText('destruction events', pad.left + 142, 14);
+  ctx.fillStyle = '#ffd6a0'; ctx.fillRect(pad.left + 270, 6, 8, 8);
+  ctx.fillStyle = '#e8e4dc'; ctx.fillText('forced collapse', pad.left + 282, 14);
 }
 
 // =====================================================================
@@ -805,8 +896,12 @@ function drawFlowCanvas(flow) {
 
 function searchSchedules(ir, ambiguity, memBudget) {
   const irrevOps = [];
+  const boundaryIndices = new Set();
   ir.forEach((op, idx) => {
-    if (op.type === 'irrev') irrevOps.push({ ...op, idx, bits: Math.log(op.M) });
+    if (op.type === 'irrev') {
+      irrevOps.push({ ...op, irrevIdx: irrevOps.length, idx, bits: Math.log(op.M) });
+      if (op.isBoundary) boundaryIndices.add(irrevOps.length - 1);
+    }
   });
 
   const N = irrevOps.length;
@@ -823,9 +918,11 @@ function searchSchedules(ir, ambiguity, memBudget) {
       let memory = 0;
       let preserveCount = 0;
 
+      let valid = true;
       for (let i = 0; i < N; i++) {
         if (mask & (1 << i)) {
-          // PRESERVE this op
+          // PRESERVE this op — but boundaries cannot be deferred
+          if (boundaryIndices.has(i)) { valid = false; break; }
           memory++;
           preserveCount++;
         } else {
@@ -833,6 +930,7 @@ function searchSchedules(ir, ambiguity, memBudget) {
           erasure += irrevOps[i].bits;
         }
       }
+      if (!valid) continue;
 
       // Add minimum output erasure (the final uncertainty)
       erasure += ambiguity.nats;
