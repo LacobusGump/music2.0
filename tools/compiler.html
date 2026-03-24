@@ -216,7 +216,8 @@ computation gets restructured.
   <span style="font-size:28px;color:#554;margin:0 16px">&rarr;</span>
   <span id="heroMin" style="font-size:36px;font-weight:300;color:#6c6;letter-spacing:0.02em">6 bits</span>
   <div style="font-size:13px;color:#887;margin-top:6px;letter-spacing:0.1em" id="heroSavings">same computation &middot; 90.6% less information destroyed</div>
-  <div style="font-size:11px;color:#665;margin-top:4px">logical erasure within this cost model &mdash; not physical energy</div>
+  <div style="font-size:12px;color:#998;margin-top:6px">minimum information to specify the answer: log&#8322;(64) = 6 bits</div>
+  <div style="font-size:11px;color:#665;margin-top:3px">logical erasure within this cost model &mdash; not physical energy</div>
 </div>
 
 <div class="card" id="transformView">
@@ -333,9 +334,9 @@ uncompute later (save erasure)? The search finds every point on the frontier.
   <h3 style="margin-top:0">Schedule Ranking</h3>
   <table class="ledger"><thead><tr><th>#</th><th>Schedule</th><th style="text-align:right">Erasure</th><th style="text-align:right">Memory</th><th style="text-align:right">Ops</th></tr></thead><tbody>
   <tr style="color:#6c6"><td>1</td><td class="op">Eager erase</td><td class="cost">64.0 bits</td><td class="cost">0</td><td class="cost">64</td></tr>
-  <tr><td>2</td><td class="op">Allocator greedy @ 18 reg</td><td class="cost">52.0 bits</td><td class="cost">18</td><td class="cost">~100</td></tr>
-  <tr><td>3</td><td class="op">Allocator greedy @ 48 reg</td><td class="cost">22.0 bits</td><td class="cost">48</td><td class="cost">~160</td></tr>
-  <tr><td>4</td><td class="op">Full preserve</td><td class="cost">6.0 bits</td><td class="cost">64</td><td class="cost">~195</td></tr>
+  <tr><td>2</td><td class="op">Hybrid @ 18 reg (28% preserved)</td><td class="cost">52.0 bits</td><td class="cost">18</td><td class="cost">~100</td></tr>
+  <tr><td>3</td><td class="op">Hybrid @ 48 reg (75% preserved)</td><td class="cost">22.0 bits</td><td class="cost">48</td><td class="cost">~160</td></tr>
+  <tr><td>4</td><td class="op">Full uncompute (reversible)</td><td class="cost">6.0 bits</td><td class="cost">64</td><td class="cost">~195</td></tr>
   </tbody></table>
   <p style="font-size:12px;color:#665;margin-top:8px">Static preview — JS will replace with live results on load.</p>
 </div>
@@ -1161,11 +1162,12 @@ function searchSchedules(ir, ambiguity, memBudget) {
       name = 'Eager erase';
       rationale = 'Zero memory. Maximum logical erasure. No garbage.';
     } else if (pt.preserveCount >= N - 1) {
-      name = 'Full preserve';
+      name = 'Full uncompute (reversible)';
       rationale = 'Minimum logical erasure. Maximum memory. Erases only final uncertainty.';
     } else {
-      name = `Allocator ${pt.policy} @ ${pt.budget} reg (${pct}%)`;
-      rationale = `${pt.policy === 'greedy' ? 'Value-based eviction' : 'LRU eviction'}. ${pt.preserveCount}/${N} preserved, ${N - pt.preserveCount} erased. Budget: ${pt.budget} registers.`;
+      const method = pt.policy === 'greedy' ? 'value-weighted eviction' : 'LRU eviction';
+      name = `Hybrid @ ${pt.budget} reg (${pct}% preserved)`;
+      rationale = `Found by ${method}: keeps highest-value intermediates, evicts lowest when memory full. ${pt.preserveCount}/${N} preserved, ${N - pt.preserveCount} erased eagerly.`;
     }
 
     named.push({
@@ -1405,7 +1407,7 @@ function compile() {
   const savePct = totalErasure > 0 ? ((totalErasure/Math.LN2 - ambiguity.bits) / (totalErasure/Math.LN2) * 100) : 0;
   document.getElementById('heroConv').textContent = convBits + ' bits';
   document.getElementById('heroMin').textContent = minBits + ' bits';
-  document.getElementById('heroSavings').textContent = 'same computation \u00b7 ' + savePct.toFixed(1) + '% less information destroyed';
+  document.getElementById('heroSavings').innerHTML = 'same computation \u00b7 ' + savePct.toFixed(1) + '% less information destroyed<br><span style="font-size:12px;color:#998">minimum information to specify the answer: ' + ambiguity.label + '</span><br><span style="font-size:11px;color:#665">logical erasure within this cost model \u2014 not physical energy</span>';
   document.getElementById('heroLine').style.display = 'block';
 
   // Build information flow graph (#3: new ways to reason about information flow)
