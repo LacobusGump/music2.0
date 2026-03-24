@@ -105,10 +105,12 @@ canvas{display:block;width:100%;border-radius:8px;margin:12px 0}
 
 <p>
 This compiler rewrites computations into different schedules that trade off
-information destruction, memory, and operations. Write pseudocode or describe
-what you want. The compiler identifies every destructive operation, lifts
-reversible structure, inserts uncompute points, plans collapse events, and
-generates multiple schedules on the Pareto frontier.
+information destruction, memory, and operations. It does not eliminate
+necessary erasure. It eliminates <strong>premature</strong> erasure &mdash;
+information destroyed before the computation proves it was unneeded.
+The compiler identifies every destructive operation, lifts reversible
+structure, inserts uncompute points, plans collapse events, and generates
+multiple schedules on the Pareto frontier.
 </p>
 
 <!-- Pipeline visualization -->
@@ -137,6 +139,10 @@ generates multiple schedules on the Pareto frontier.
   <button class="go-btn" onclick="loadAndCompile('matmul')" style="font-size:12px;padding:6px 14px">Matrix Multiply</button>
   <button class="go-btn" onclick="loadAndCompile('maxpool')" style="font-size:12px;padding:6px 14px">Max Pooling</button>
   <button class="go-btn" onclick="loadAndCompile('pipeline')" style="font-size:12px;padding:6px 14px;border-color:#ffd6a066">Pipeline</button>
+  <span style="color:#554;font-size:11px;margin:0 4px">|</span>
+  <button class="go-btn" onclick="loadAndCompile('bsearch')" style="font-size:12px;padding:6px 14px;border-color:#f6644">Binary Search</button>
+  <button class="go-btn" onclick="loadAndCompile('sorting')" style="font-size:12px;padding:6px 14px;border-color:#f6644">Sorting</button>
+  <button class="go-btn" onclick="loadAndCompile('mul')" style="font-size:12px;padding:6px 14px;border-color:#f6644">Multiply</button>
 </div>
 
 <div class="controls">
@@ -448,6 +454,51 @@ reduce(products, sum)
 discard(A)
 discard(B)`,
 
+  bsearch: `// Binary search: find target in sorted list of 64 items
+// Already optimal: each comparison halves the search space
+// Expected: ~log₂(64) = 6 comparisons, each destroying 1 bit
+// The compiler should find NO big improvement here
+let items = array(64)  // sorted
+let target = items[?]
+// Binary search: 6 comparisons (log₂64)
+compare(items[31], target)
+compare(items[15], target)
+compare(items[7], target)
+compare(items[3], target)
+compare(items[1], target)
+compare(items[0], target)
+// Output: index of target`,
+
+  sorting: `// Comparison sort: 8 items
+// Lower bound: log₂(8!) = 15.3 bits (permutation info)
+// Merge sort: ~24 comparisons (n·log₂n = 8·3 = 24)
+// Each comparison erases 1 bit (which was larger)
+let items = array(8)
+sort(items)
+// Output: sorted order`,
+
+  mul: `// Multiply two numbers, discard inputs
+// Reversible multiply keeps both inputs
+// UNCOMPUTE should shine: all intermediates reclaimable
+let a = array(16)  // 4-bit number
+let b = array(16)  // 4-bit number
+multiply(a[0], b[0])
+multiply(a[0], b[1])
+multiply(a[0], b[2])
+multiply(a[0], b[3])
+multiply(a[1], b[0])
+multiply(a[1], b[1])
+multiply(a[1], b[2])
+multiply(a[1], b[3])
+reduce(products, sum)
+reduce(products, sum)
+reduce(products, sum)
+reduce(products, sum)
+// Now discard inputs
+discard(a)
+discard(b)
+// Output: product only`,
+
   pipeline: `// Pipeline: filter → select → classify (3 stages)
 // Stage 1: filter 1000 items down to ~30
 let items = array(1000)
@@ -624,6 +675,15 @@ function analyzeOutputAmbiguity(source, ir) {
   const matMatch = src.match(/matrix\((\d+)\s*,\s*(\d+)\)/);
   if (matMatch) arraySize = parseInt(matMatch[1]) * parseInt(matMatch[2]);
 
+  // Binary search: already optimal, ~log₂(N) comparisons
+  if (src.includes('binary search') || src.includes('sorted list')) {
+    const N = arraySize || 64;
+    const comps = ir.filter(op => op.type === 'irrev' && op.op === 'COMPARE').length;
+    return { size: N, bits: Math.log2(N), nats: Math.log(N),
+      label: `${N} possible positions → log₂(${N}) = ${Math.log2(N).toFixed(1)} bits`,
+      explanation: `Binary search uses ${comps} comparisons (already near optimal log₂(${N})=${Math.log2(N).toFixed(1)}). Minimal room for improvement — this is the control case.` };
+  }
+
   // Search: output = 1 index from N → N possibilities
   if (src.includes('find') || src.includes('search') || (src.includes('compare') && src.includes('match'))) {
     const N = arraySize || ir.filter(op => op.type === 'irrev' && op.op === 'COMPARE').length + 1;
@@ -677,11 +737,14 @@ function analyzeOutputAmbiguity(source, ir) {
       explanation: 'Output = filtered subset. Actual ambiguity depends on threshold distribution.' };
   }
 
-  // Multiply: output = product, inputs ambiguous → d(n) factorizations
+  // Multiply: output = product, inputs discarded
+  // The discard ops are the irreversible part; multiply itself is reversible
   if (src.includes('multiply') && src.includes('discard')) {
-    return { size: arraySize || 64, bits: Math.log2(arraySize || 64), nats: Math.log(arraySize || 64),
-      label: `input ambiguity class`,
-      explanation: 'Output = product. Must erase which inputs produced it.' };
+    const discards = ir.filter(op => op.type === 'irrev' && op.op === 'DISCARD').length;
+    const inputBits = discards > 0 ? Math.log2(arraySize || 16) * discards : Math.log2(arraySize || 64);
+    return { size: Math.pow(2, inputBits), bits: inputBits, nats: inputBits * Math.LN2,
+      label: `${inputBits.toFixed(0)} bits of input identity (${discards} values discarded)`,
+      explanation: `Multiply is reversible (Toffoli-style). The cost comes from discarding the inputs after computing the product. UNCOMPUTE should recover most intermediates.` };
   }
 
   // Pipeline: if MATERIALIZE boundaries exist, analyze per-stage
