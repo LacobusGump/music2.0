@@ -23,25 +23,27 @@ We present an empirical framework for classifying computations by the structure 
 
 **Ê(b̂) = E(b)/E₀:** Normalized curve, b̂ = b/N. Maps [0,1] → [f, 1].
 
-**A_linear = (1 + f) / 2:** Area under the straight line from (0,1) to (1,f). Represents uniform marginal value of memory — the only scale-free baseline.
+**A_linear = (1 + f) / 2:** Area under the straight line from (0,1) to (1,f). This linear baseline is the unique function that preserves endpoint constraints and has constant marginal gain — the only baseline invariant under affine rescaling of both axes.
 
 **A = ∫₀¹ Ê(b̂) db̂:** Actual area under the normalized curve.
 
 **R = A / A_linear:** Dimensionless curvature ratio. Invariant under rescaling of memory or cost.
 
-**α = (1-f) / (R·(1+f)/2 - f) - 1:** Shape exponent, derived from R and f. Not fitted.
+**α = (1-f) / (R·(1+f)/2 - f) - 1:** Shape exponent. This is the unique value of α such that the power law Ê(b̂) = f + (1-f)·(1-b̂)^α reproduces the observed area ratio R under the given endpoints. It is solved from the model assumption, not derived from first principles. The power law is an empirical approximation chosen for its simplicity and endpoint-respecting monotonicity.
 
 ---
 
 ## 2. Phase Classification (R only)
 
+The formal phase boundary is **R = 1** (the diagonal). In practice, we apply a measurement tolerance band:
+
 - **R < 1:** Convex → GAS. Early memory investment yields disproportionate savings. Destruction is front-loaded and mostly premature. *Optimize aggressively.*
 
-- **R ≈ 1:** Linear → LIQUID. Each unit of memory reduces erasure at a roughly constant rate. Destruction is evenly distributed. *Optimize selectively.*
+- **R ≈ 1** (within tolerance): Linear → LIQUID. Each unit of memory reduces erasure at a roughly constant rate. Destruction is evenly distributed. *Optimize selectively.*
 
 - **R > 1:** Concave → CRYSTAL. Late memory investment yields most savings, or savings are negligible. Destruction is tightly coupled. *The cost is inherent.*
 
-Phase depends ONLY on R. f is efficiency (extrinsic), not identity (intrinsic).
+Phase depends ONLY on R. f is efficiency (extrinsic), not identity (intrinsic). The tolerance band (e.g. 0.9-1.1) is a practical discretization for labeling, not a fundamental boundary.
 
 ---
 
@@ -77,7 +79,7 @@ Same problem, different implementations — does the phase hold?
 | Filter 32 | threshold, compare | 0.516-0.644 | Both LIQUID | No |
 | Parity | 32, 64, 128 bit | 0.998-1.000 | All LIQUID | No |
 
-R clusters by problem. f varies by implementation. Phase boundaries not crossed.
+R clusters by problem. f varies by implementation. Phase boundaries not crossed. Results are shown for small instances where full schedule enumeration is tractable; larger-scale validation remains future work.
 
 ---
 
@@ -129,9 +131,9 @@ Neural nets are GAS (R ≈ 0.54). The sweet spot is ~30% of memory budget, captu
 
 - This is not a claim about physical energy savings on current hardware
 - The power law is an empirical approximation, not a derived law
-- The phase boundaries (0.85, 1.15) are convenience labels, not constants
+- The formal phase boundary is R = 1; the tolerance band for labeling is a practical choice, not a constant
 - Not all computations fit the two-parameter family
-- The framework requires knowing the output ambiguity (minimum erasure floor)
+- The framework requires knowing the output ambiguity (minimum erasure floor). In this work, ambiguity floors are computed analytically for each domain; automated inference remains an open problem
 
 ---
 
