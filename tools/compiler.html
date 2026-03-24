@@ -894,107 +894,201 @@ function drawFlowCanvas(flow) {
 // Preserved ops must be uncomputed (LIFO). The search generates points
 // on the Pareto frontier of (erasure, memory).
 
-function searchSchedules(ir, ambiguity, memBudget) {
+// =====================================================================
+// LIVENESS + VALUE ANALYSIS
+// =====================================================================
+// For each irrev op, compute:
+//   - erasureCost: bits destroyed if erased now
+//   - futureUses: how many downstream ops depend on correlated state
+//   - lastUseful: last step where this info could enable uncompute savings
+//   - preserveValue: erasureCost / 1 (cost saved per register held)
+//
+// This is the "what is worth remembering" analysis.
+
+function analyzeLiveness(ir) {
   const irrevOps = [];
   const boundaryIndices = new Set();
+  let stageId = 0;
+
   ir.forEach((op, idx) => {
     if (op.type === 'irrev') {
-      irrevOps.push({ ...op, irrevIdx: irrevOps.length, idx, bits: Math.log(op.M) });
-      if (op.isBoundary) boundaryIndices.add(irrevOps.length - 1);
+      const entry = {
+        ...op, irrevIdx: irrevOps.length, idx,
+        bits: Math.log(op.M),
+        bitsPerReg: Math.log(op.M), // cost saved per register if preserved
+        stage: stageId,
+        futureUses: 0,
+        lastUseful: idx,
+        preserveValue: 0
+      };
+      if (op.isBoundary) {
+        boundaryIndices.add(irrevOps.length);
+        stageId++;
+      }
+      irrevOps.push(entry);
     }
   });
 
+  // Forward pass: compute future usefulness
+  // Ops near the end of a stage have less uncompute value
+  // (fewer ops to reverse). Ops early in a stage have more.
   const N = irrevOps.length;
-  const schedules = [];
+  for (let i = 0; i < N; i++) {
+    const op = irrevOps[i];
+    // How many same-stage ops come after this one?
+    let futureInStage = 0;
+    for (let j = i + 1; j < N; j++) {
+      if (irrevOps[j].stage !== op.stage) break;
+      if (boundaryIndices.has(j)) break;
+      futureInStage++;
+    }
+    op.futureUses = futureInStage;
+    op.lastUseful = op.idx + futureInStage;
+    // Value = erasure cost saved per register consumed
+    // Higher cost ops are worth preserving; late-stage ops less so
+    op.preserveValue = op.bitsPerReg * (1 + futureInStage * 0.1);
+  }
 
-  if (N === 0) return schedules;
+  return { irrevOps, boundaryIndices, N };
+}
 
-  // For small N (≤18), enumerate all 2^N bitmasks
-  // For large N, use window-based heuristic
-  if (N <= 18) {
-    const seen = new Map(); // memory → best erasure
-    for (let mask = 0; mask < (1 << N); mask++) {
-      let erasure = 0;
-      let memory = 0;
-      let preserveCount = 0;
+// =====================================================================
+// GLOBAL ALLOCATOR
+// =====================================================================
+// Simulates execution with a memory pool. At each irrev op:
+//   - If memory available and not a boundary: PRESERVE (defer erasure)
+//   - If memory full: EVICT lowest-value preserved state, then decide
+//   - If boundary: must ERASE (cannot defer past materialization)
+//
+// Runs multiple simulations with different eviction policies to generate
+// the Pareto frontier.
 
-      let valid = true;
-      for (let i = 0; i < N; i++) {
-        if (mask & (1 << i)) {
-          // PRESERVE this op — but boundaries cannot be deferred
-          if (boundaryIndices.has(i)) { valid = false; break; }
-          memory++;
+function globalAllocate(liveness, ambiguity, memBudget, policy) {
+  const { irrevOps, boundaryIndices, N } = liveness;
+  const preserved = []; // stack of preserved ops (LIFO for uncompute)
+  let erasure = 0;
+  let peakMem = 0;
+  let preserveCount = 0;
+  const decisions = []; // per-op: 'erase' or 'preserve'
+  const timeline = [];
+  let cumCost = 0;
+
+  for (let i = 0; i < N; i++) {
+    const op = irrevOps[i];
+
+    // Boundaries must erase
+    if (boundaryIndices.has(i)) {
+      erasure += op.bits;
+      cumCost += op.bits;
+      decisions.push('erase');
+      timeline.push({ step: i, cumCost, type: 'irrev' });
+      // Also flush any preserved state from this stage
+      while (preserved.length > 0 && preserved[preserved.length-1].stage === op.stage) {
+        const evicted = preserved.pop();
+        erasure += evicted.bits;
+        cumCost += evicted.bits;
+      }
+      continue;
+    }
+
+    // Check memory
+    if (memBudget < 100 && preserved.length >= memBudget) {
+      // Memory full — evict or erase current
+      if (policy === 'greedy') {
+        // Evict lowest-value preserved state
+        let worstIdx = 0;
+        for (let j = 1; j < preserved.length; j++) {
+          if (preserved[j].preserveValue < preserved[worstIdx].preserveValue) worstIdx = j;
+        }
+        // Compare: is current op more valuable than worst preserved?
+        if (op.preserveValue > preserved[worstIdx].preserveValue) {
+          // Evict worst, preserve current
+          const evicted = preserved.splice(worstIdx, 1)[0];
+          erasure += evicted.bits;
+          cumCost += evicted.bits;
+          preserved.push(op);
+          decisions.push('preserve');
           preserveCount++;
         } else {
-          // ERASE this op
-          erasure += irrevOps[i].bits;
+          // Current not worth it, erase now
+          erasure += op.bits;
+          cumCost += op.bits;
+          decisions.push('erase');
         }
+      } else {
+        // LRU: evict oldest
+        const evicted = preserved.shift();
+        erasure += evicted.bits;
+        cumCost += evicted.bits;
+        preserved.push(op);
+        decisions.push('preserve');
+        preserveCount++;
       }
-      if (!valid) continue;
-
-      // Add minimum output erasure (the final uncertainty)
-      erasure += ambiguity.nats;
-
-      // Check memory budget
-      if (memBudget < 100 && memory > memBudget) continue;
-
-      // Ops: original + preserved reversible + fork + uncompute + collapse
-      const collapseOps = Object.values(factorize(Math.min(ambiguity.size, 1e15))).reduce((a,b) => a+b, 0);
-      const ops = ir.length + preserveCount + 1 + preserveCount + collapseOps;
-
-      // Pareto filter: only keep if not dominated
-      const key = memory;
-      if (!seen.has(key) || seen.get(key) > erasure) {
-        seen.set(key, erasure);
-      }
-
-      schedules.push({ erasure, memory, ops, preserveCount, mask });
+    } else {
+      // Memory available — preserve
+      preserved.push(op);
+      decisions.push('preserve');
+      preserveCount++;
     }
-  } else {
-    // Window heuristic: try preserving contiguous blocks of size 0, N/4, N/2, 3N/4, N
-    const windowSizes = [0];
-    for (let w = Math.max(1, Math.floor(N/8)); w <= N; w += Math.max(1, Math.floor(N/8))) {
-      windowSizes.push(Math.min(w, N));
-    }
-    if (windowSizes[windowSizes.length-1] !== N) windowSizes.push(N);
 
-    for (const windowSize of windowSizes) {
-      // Try different starting positions
-      const starts = windowSize === 0 ? [0] : windowSize === N ? [0] :
-        Array.from({length: Math.min(8, N - windowSize + 1)}, (_, i) =>
-          Math.round(i * (N - windowSize) / Math.min(7, N - windowSize)));
+    if (preserved.length > peakMem) peakMem = preserved.length;
+    timeline.push({ step: i, cumCost, type: decisions[decisions.length-1] === 'erase' ? 'irrev' : 'rev' });
+  }
 
-      for (const start of starts) {
-        let erasure = 0;
-        let memory = 0;
-        let preserveCount = 0;
-        let mask = 0;
+  // Uncompute phase: reverse all preserved ops
+  for (let i = 0; i < preserved.length; i++) {
+    timeline.push({ step: N + i, cumCost, type: 'rev' });
+  }
 
-        for (let i = 0; i < N; i++) {
-          if (i >= start && i < start + windowSize) {
-            memory++;
-            preserveCount++;
-            mask |= (1 << i);
-          } else {
-            erasure += irrevOps[i].bits;
-          }
-        }
+  // Final collapse: output ambiguity
+  cumCost += ambiguity.nats;
+  erasure += ambiguity.nats;
+  timeline.push({ step: N + preserved.length, cumCost, type: 'irrev' });
 
-        erasure += ambiguity.nats;
+  const collapseOps = Object.values(factorize(Math.min(ambiguity.size, 1e15))).reduce((a,b)=>a+b, 0) || 1;
+  const totalOps = N + preserveCount + 1 + preserveCount + collapseOps;
 
-        if (memBudget < 100 && memory > memBudget) continue;
+  return { erasure, memory: peakMem, ops: totalOps, preserveCount, decisions, timeline, garbage: preserveCount, garbageReclaimed: preserveCount };
+}
 
-        const collapseOps = Object.values(factorize(Math.min(ambiguity.size, 1e15))).reduce((a,b) => a+b, 0);
-        const ops = ir.length + preserveCount + 1 + preserveCount + collapseOps;
+function searchSchedules(ir, ambiguity, memBudget) {
+  const liveness = analyzeLiveness(ir);
+  const { N } = liveness;
 
-        schedules.push({ erasure, memory, ops, preserveCount, mask });
-      }
+  if (N === 0) return [];
+
+  // Run global allocator at multiple memory budgets and policies
+  // This generates the Pareto frontier through simulation, not enumeration
+  const results = [];
+
+  // Budget levels to try: 0, 25%, 50%, 75%, unlimited
+  const budgets = [0];
+  for (let b = Math.max(1, Math.floor(N/8)); b <= N; b += Math.max(1, Math.floor(N/6))) {
+    budgets.push(Math.min(b, N));
+  }
+  if (budgets[budgets.length-1] !== N) budgets.push(N);
+
+  // Cap by user's memory budget
+  const maxBudget = memBudget >= 100 ? N : memBudget;
+
+  for (const budget of budgets) {
+    if (budget > maxBudget) continue;
+
+    // Try both eviction policies
+    for (const policy of ['greedy', 'lru']) {
+      const result = globalAllocate(liveness, ambiguity, budget, policy);
+      results.push({ ...result, budget, policy });
     }
   }
 
-  // Pareto filter
+  // Also always include budget=0 (pure eager) and budget=unlimited (full uncompute)
+  if (!results.some(r => r.budget === 0)) {
+    results.push({ ...globalAllocate(liveness, ambiguity, 0, 'greedy'), budget: 0, policy: 'greedy' });
+  }
+
+  // Pareto filter: keep non-dominated points on (memory, erasure)
   const pareto = [];
-  const sorted = [...schedules].sort((a, b) => a.memory - b.memory || a.erasure - b.erasure);
+  const sorted = [...results].sort((a, b) => a.memory - b.memory || a.erasure - b.erasure);
   let bestErasure = Infinity;
   for (const s of sorted) {
     if (s.erasure < bestErasure - 0.001) {
@@ -1003,11 +1097,11 @@ function searchSchedules(ir, ambiguity, memBudget) {
     }
   }
 
-  // Build named schedules from Pareto points
+  // Build named schedules from key Pareto points
   const named = [];
   if (pareto.length === 0) return named;
 
-  // Always include the two extremes + interesting middle points
+  // Select representative points
   const points = [pareto[0]]; // lowest memory
   if (pareto.length > 2) points.push(pareto[Math.floor(pareto.length / 3)]);
   if (pareto.length > 3) points.push(pareto[Math.floor(2 * pareto.length / 3)]);
@@ -1020,47 +1114,29 @@ function searchSchedules(ir, ambiguity, memBudget) {
     if (!usedMem.has(p.memory)) { unique.push(p); usedMem.add(p.memory); }
   }
 
-  unique.forEach((pt, i) => {
+  unique.forEach((pt) => {
     const pct = pt.preserveCount > 0 ? Math.round(pt.preserveCount / N * 100) : 0;
     let name, rationale;
     if (pt.memory === 0) {
-      name = 'Eager erase (all conventional)';
-      rationale = 'Zero memory overhead. Maximum logical erasure.';
-    } else if (pt.preserveCount === N) {
-      name = 'Full uncompute (minimum erasure)';
-      rationale = 'Minimum logical erasure. Preserves all intermediates.';
+      name = 'Eager erase';
+      rationale = 'Zero memory. Maximum logical erasure. No garbage.';
+    } else if (pt.preserveCount >= N - 1) {
+      name = 'Full preserve';
+      rationale = 'Minimum logical erasure. Maximum memory. Erases only final uncertainty.';
     } else {
-      name = `Hybrid (${pct}% preserved)`;
-      rationale = `Preserves ${pt.preserveCount} of ${N} ops. Balanced tradeoff.`;
+      name = `Allocator ${pt.policy} @ ${pt.budget} reg (${pct}%)`;
+      rationale = `${pt.policy === 'greedy' ? 'Value-based eviction' : 'LRU eviction'}. ${pt.preserveCount}/${N} preserved, ${N - pt.preserveCount} erased. Budget: ${pt.budget} registers.`;
     }
-
-    // Build timeline
-    const timeline = [];
-    let cumCost = 0;
-    // Forward pass
-    for (let j = 0; j < N; j++) {
-      if (!(pt.mask & (1 << j))) {
-        cumCost += irrevOps[j].bits;
-      }
-      timeline.push({ step: j, cumCost, type: (pt.mask & (1 << j)) ? 'rev' : 'irrev' });
-    }
-    // Uncompute phase
-    for (let j = 0; j < pt.preserveCount; j++) {
-      timeline.push({ step: N + j, cumCost, type: 'rev' });
-    }
-    // Collapse phase
-    cumCost += ambiguity.nats;
-    timeline.push({ step: N + pt.preserveCount, cumCost, type: 'irrev' });
 
     named.push({
       name, rationale,
       erasure: pt.erasure,
       memory: pt.memory,
       ops: pt.ops,
-      garbage: pt.preserveCount,
-      garbageReclaimed: pt.preserveCount,
-      timeline,
-      detail: `${pt.preserveCount}/${N} ops preserved, ${N - pt.preserveCount} erased eagerly. Final collapse: ${ambiguity.label}.`
+      garbage: pt.garbage,
+      garbageReclaimed: pt.garbageReclaimed,
+      timeline: pt.timeline,
+      detail: `Policy: ${pt.policy}. Budget: ${pt.budget}. ${pt.preserveCount}/${N} preserved. Final collapse: ${ambiguity.label}.`
     });
   });
 
