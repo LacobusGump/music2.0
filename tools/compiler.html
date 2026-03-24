@@ -1738,30 +1738,41 @@ function computePhase(ir, ambiguity) {
 
   const final = curve[N];
 
-  // Phase classification
+  // Self-referencing phase boundary: R = actual_area / linear_area
+  // The diagonal (linear baseline) represents uniform marginal value of memory.
+  // That's the only scale-free baseline. No hand-tuned thresholds.
+  const linearArea = (1 + final) / 2;
+  const R = linearArea > 0 ? area / linearArea : 1;
+
+  // Phase from curvature relative to diagonal
   let phase, phaseColor, phaseIcon;
-  if (area < 0.3) {
-    phase = 'GAS'; phaseColor = '#6c6'; phaseIcon = '\u2601'; // cloud
-  } else if (area < 0.7) {
-    phase = 'LIQUID'; phaseColor = '#66ccff'; phaseIcon = '\u224B'; // ≋
+  if (R < 0.85) {
+    phase = 'GAS'; phaseColor = '#6c6'; phaseIcon = '\u2601';
+  } else if (R > 1.15) {
+    phase = 'CRYSTAL'; phaseColor = '#f66'; phaseIcon = '\u25C7';
+  } else if (final > 0.9) {
+    // Linear curve but almost no savings = crystal (parity, binary search)
+    phase = 'CRYSTAL'; phaseColor = '#f66'; phaseIcon = '\u25C7';
   } else {
-    phase = 'CRYSTAL'; phaseColor = '#f66'; phaseIcon = '\u25C7'; // diamond
+    phase = 'LIQUID'; phaseColor = '#66ccff'; phaseIcon = '\u224B';
   }
 
   // Render
   let html = '<div style="text-align:center;margin-bottom:16px">';
   html += '<div style="font-size:48px;line-height:1">' + phaseIcon + '</div>';
   html += '<div style="font-size:24px;font-weight:300;color:' + phaseColor + ';letter-spacing:0.1em;margin:8px 0">' + phase + '</div>';
-  html += '<div style="font-size:15px;color:#e8e4dc">compressibility index: <strong style="color:' + phaseColor + '">' + area.toFixed(3) + '</strong></div>';
+  html += '<div style="font-size:14px;color:#e8e4dc">R = <strong style="color:' + phaseColor + '">' + R.toFixed(3) + '</strong>';
+  html += ' &nbsp; final = ' + (final * 100).toFixed(1) + '%</div>';
+  html += '<div style="font-size:12px;color:#776;margin-top:4px">R = curvature relative to linear baseline (dimensionless, no free parameters)</div>';
   html += '</div>';
 
   // Explanation
   if (phase === 'GAS') {
-    html += '<p style="font-size:14px;color:#998;text-align:center">Operations are largely independent. Most information destruction is premature. Memory buys large savings. <strong style="color:#6c6">Optimize aggressively.</strong></p>';
+    html += '<p style="font-size:14px;color:#998;text-align:center">Convex curve: early memory buys disproportionate savings. Destruction is front-loaded and mostly premature. <strong style="color:#6c6">Optimize aggressively.</strong></p>';
   } else if (phase === 'LIQUID') {
-    html += '<p style="font-size:14px;color:#998;text-align:center">Operations have moderate correlation. Some destruction is premature, some is structural. Memory buys diminishing returns. <strong style="color:#66ccff">Optimize selectively.</strong></p>';
+    html += '<p style="font-size:14px;color:#998;text-align:center">Linear curve: each unit of memory reduces erasure at a roughly constant rate. Destruction is evenly distributed. <strong style="color:#66ccff">Optimize selectively.</strong></p>';
   } else {
-    html += '<p style="font-size:14px;color:#998;text-align:center">Operations are highly entangled. Almost all destruction is structurally required. Memory barely helps. <strong style="color:#f66">The cost is inherent.</strong></p>';
+    html += '<p style="font-size:14px;color:#998;text-align:center">Concave curve or negligible savings: destruction is tightly coupled or structurally required. <strong style="color:#f66">The cost is inherent.</strong></p>';
   }
 
   // Mini curve visualization
@@ -1769,9 +1780,9 @@ function computePhase(ir, ambiguity) {
 
   // Phase context
   html += '<div style="display:flex;justify-content:center;gap:24px;margin-top:12px;font-size:12px">';
-  html += '<div style="text-align:center"><span style="color:#6c6;font-size:16px">\u2601</span><br><span style="color:#887">GAS &lt;0.3</span><br><span style="color:#665">neural nets</span></div>';
-  html += '<div style="text-align:center"><span style="color:#66ccff;font-size:16px">\u224B</span><br><span style="color:#887">LIQUID 0.3-0.7</span><br><span style="color:#665">search, filter</span></div>';
-  html += '<div style="text-align:center"><span style="color:#f66;font-size:16px">\u25C7</span><br><span style="color:#887">CRYSTAL &gt;0.7</span><br><span style="color:#665">parity, sorting</span></div>';
+  html += '<div style="text-align:center"><span style="color:#6c6;font-size:16px">\u2601</span><br><span style="color:#887">GAS R&lt;1</span><br><span style="color:#665">convex, early gains</span></div>';
+  html += '<div style="text-align:center"><span style="color:#66ccff;font-size:16px">\u224B</span><br><span style="color:#887">LIQUID R\u22481</span><br><span style="color:#665">linear, uniform</span></div>';
+  html += '<div style="text-align:center"><span style="color:#f66;font-size:16px">\u25C7</span><br><span style="color:#887">CRYSTAL R&gt;1</span><br><span style="color:#665">concave, coupled</span></div>';
   html += '</div>';
 
   el.innerHTML = html;
@@ -1818,13 +1829,14 @@ function drawPhaseCurve(curve, phase, phaseColor, area) {
   });
   ctx.stroke();
 
-  // Reference line: linear (area = 0.5)
+  // Reference line: the diagonal (linear baseline = uniform marginal value)
+  const finalY = pad.top + cH - curve[curve.length-1] * cH;
   ctx.beginPath();
-  ctx.strokeStyle = '#ffffff15';
+  ctx.strokeStyle = '#ffffff25';
   ctx.lineWidth = 1;
   ctx.setLineDash([3, 3]);
-  ctx.moveTo(pad.left, pad.top);
-  ctx.lineTo(pad.left + cW, pad.top + cH);
+  ctx.moveTo(pad.left, pad.top); // (0, 1)
+  ctx.lineTo(pad.left + cW, finalY); // (1, final)
   ctx.stroke();
   ctx.setLineDash([]);
 
