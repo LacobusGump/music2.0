@@ -188,11 +188,119 @@ KNOWN_MODELS = {
 }
 
 
+def compute_R(model, input_shape=(1, 3, 224, 224), device='cpu'):
+    """
+    Compute R for any PyTorch nn.Module automatically.
+
+    Hooks into the forward pass, measures activation sizes and
+    estimates recompute cost per layer. No training run needed.
+
+    Usage:
+        import torch
+        from rcheck import compute_R
+        model = torchvision.models.resnet50()
+        R, phase, strategy = compute_R(model)
+    """
+    try:
+        import torch
+    except ImportError:
+        print("PyTorch not installed. Use known model names or install torch.")
+        return None
+
+    model = model.to(device).eval()
+    layers = []
+    hooks = []
+
+    def make_hook(name):
+        def hook_fn(module, input, output):
+            if isinstance(output, torch.Tensor):
+                mb = output.nelement() * output.element_size() / (1024 * 1024)
+                # Estimate recompute cost: proportional to parameter count × activation size
+                params = sum(p.nelement() for p in module.parameters())
+                flops_est = params * output.nelement()  # rough FLOPs estimate
+                ms = flops_est / 1e12 * 1000  # assume ~1 TFLOPS throughput for estimation
+                layers.append({
+                    'name': name,
+                    'activation_mb': mb,
+                    'recompute_ms': ms
+                })
+        return hook_fn
+
+    # Register hooks on all leaf modules with parameters
+    for name, module in model.named_modules():
+        if len(list(module.children())) == 0 and len(list(module.parameters())) > 0:
+            hooks.append(module.register_forward_hook(make_hook(name)))
+
+    # Run one forward pass
+    with torch.no_grad():
+        dummy = torch.randn(*input_shape).to(device)
+        try:
+            model(dummy)
+        except Exception as e:
+            print(f"Forward pass failed: {e}")
+            for h in hooks:
+                h.remove()
+            return None
+
+    # Remove hooks
+    for h in hooks:
+        h.remove()
+
+    if not layers:
+        print("No layers detected. Model may not have standard structure.")
+        return None
+
+    # Group small layers into blocks (layers < 0.1 MB get merged with previous)
+    grouped = []
+    for l in layers:
+        if grouped and l['activation_mb'] < 0.1 and grouped[-1]['activation_mb'] < 0.1:
+            grouped[-1]['activation_mb'] += l['activation_mb']
+            grouped[-1]['recompute_ms'] += l['recompute_ms']
+            grouped[-1]['name'] += '+' + l['name'].split('.')[-1]
+        else:
+            grouped.append(dict(l))
+
+    R, f, alpha, phase, strategy, sweet = compute_R_from_layers(grouped)
+    return R, f, alpha, phase, strategy, sweet, grouped
+
+
 def main():
     if len(sys.argv) < 2:
         print("Usage: python rcheck.py <model_name>")
+        print(f"       python rcheck.py --auto <module.py:ClassName>")
         print(f"Known models: {', '.join(KNOWN_MODELS.keys())}")
         sys.exit(1)
+
+    # Auto-detect mode
+    if sys.argv[1] == '--auto' and len(sys.argv) > 2:
+        try:
+            import torch
+            spec = sys.argv[2]
+            if ':' in spec:
+                module_path, class_name = spec.rsplit(':', 1)
+                import importlib.util
+                spec_obj = importlib.util.spec_from_file_location("user_model", module_path)
+                mod = importlib.util.module_from_spec(spec_obj)
+                spec_obj.loader.exec_module(mod)
+                model_class = getattr(mod, class_name)
+                model = model_class()
+            else:
+                # Try torchvision
+                import torchvision.models as tvm
+                model = getattr(tvm, spec)(weights=None)
+
+            shape = (1, 3, 224, 224)
+            if len(sys.argv) > 3:
+                shape = tuple(int(x) for x in sys.argv[3].split(','))
+
+            result = compute_R(model, input_shape=shape)
+            if result:
+                R, f, alpha, phase, strategy, sweet, layers = result
+                print_result(sys.argv[2], R, f, alpha, phase, strategy, sweet, layers)
+            return
+        except Exception as e:
+            print(f"Auto-detect failed: {e}")
+            sys.exit(1)
 
     model_name = sys.argv[1].lower().replace('-', '').replace('_', '')
 
@@ -206,14 +314,18 @@ def main():
     if layers is None:
         print(f"Unknown model: {sys.argv[1]}")
         print(f"Known models: {', '.join(KNOWN_MODELS.keys())}")
+        print(f"For custom models: python rcheck.py --auto torchvision_name")
+        print(f"Or: python rcheck.py --auto your_model.py:ClassName")
         sys.exit(1)
 
     R, f, alpha, phase, strategy, sweet_pct = compute_R_from_layers(layers)
+    print_result(sys.argv[1], R, f, alpha, phase, strategy, sweet_pct, layers)
 
+
+def print_result(model_name, R, f, alpha, phase, strategy, sweet_pct, layers):
     total_mb = sum(l['activation_mb'] for l in layers)
     total_ms = sum(l['recompute_ms'] for l in layers)
 
-    # Output
     phase_symbol = {'GAS': '☁', 'LIQUID': '≋', 'CRYSTAL': '◇'}[phase]
     phase_color = {'GAS': '\033[92m', 'LIQUID': '\033[96m', 'CRYSTAL': '\033[91m'}[phase]
     reset = '\033[0m'
@@ -222,14 +334,13 @@ def main():
     print(f"  {phase_color}{phase_symbol}  {phase}{reset}")
     print(f"  R = {phase_color}{R:.3f}{reset}   α = {alpha:.2f}   f = {f*100:.1f}%")
     print(f"")
-    print(f"  Model: {sys.argv[1]} ({len(layers)} layer groups)")
+    print(f"  Model: {model_name} ({len(layers)} layer groups)")
     print(f"  Total activations: {total_mb:.1f} MB")
     print(f"  Total recompute: {total_ms*1000:.1f} μs")
     print(f"")
     print(f"  Strategy: {strategy}")
     print(f"")
 
-    # Per-layer breakdown
     sorted_layers = sorted(layers, key=lambda l: l['recompute_ms'] / max(0.001, l['activation_mb']), reverse=True)
     budget_mb = (sweet_pct / 100) * total_mb
     stored = 0.0

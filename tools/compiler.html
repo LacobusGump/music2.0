@@ -698,6 +698,14 @@ function parse(source) {
 
   for (const raw of lines) {
     const line = raw.trim();
+
+    // Output annotation: // output: N — check BEFORE skipping comments
+    const outputMatch = line.match(/\/\/\s*output:\s*(\d+)/i);
+    if (outputMatch) {
+      ir._outputSize = parseInt(outputMatch[1]);
+      continue;
+    }
+
     if (!line || line.startsWith('//')) continue;
 
     // Detect array/matrix sizes
@@ -782,6 +790,8 @@ function parse(source) {
     }
   }
 
+  // Propagate output annotation to expanded IR
+  if (ir._outputSize) expanded._outputSize = ir._outputSize;
   return expanded;
 }
 
@@ -813,6 +823,15 @@ function analyzeOutputAmbiguity(source, ir) {
   if (arrMatch) arraySize = parseInt(arrMatch[1]);
   const matMatch = src.match(/matrix\((\d+)\s*,\s*(\d+)\)/);
   if (matMatch) arraySize = parseInt(matMatch[1]) * parseInt(matMatch[2]);
+
+  // FIRST: explicit output annotation (// output: N)
+  // This overrides all heuristics. The user knows their output space.
+  if (ir._outputSize) {
+    const N = ir._outputSize;
+    return { size: N, bits: Math.log2(N), nats: Math.log(N),
+      label: `${N} possible outputs → log₂(${N}) = ${Math.log2(N).toFixed(1)} bits`,
+      explanation: 'Output size specified via // output: N annotation. No heuristic needed.' };
+  }
 
   // Parity: output = 1 bit, but 2^(N-1) inputs map to each output
   // This is the adversarial case — almost no savings possible
