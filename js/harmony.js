@@ -156,14 +156,24 @@ var Harmony = (function () {
   //
   // Weight: how strongly each scale degree pulls when the session is curing.
   // Degrees aligned with prime harmonics pull hardest.
+  // LANDAUER-DERIVED WEIGHTS
+  // The thermodynamic cost of processing interval p is ln(p).
+  // Lower cost = easier to perceive = stronger gravitational pull.
+  // Weight = 1/ln(p), normalized to [0,1] range.
+  // Root: cost 0 (free) → weight 1.0
+  // Octave (p=2): ln(2)=0.693 → 1/0.693=1.443 → normalized 1.0
+  // Fifth (p=3): ln(3)=1.099 → 1/1.099=0.910 → normalized 0.63
+  // Third (p=5): ln(5)=1.609 → 1/1.609=0.621 → normalized 0.43
+  // Blue note (p=7): ln(7)=1.946 → 1/1.946=0.514 → normalized 0.36
+  // Composites get the product of their factors' costs.
   var PRIME_HARMONIC_WEIGHT = [
-    1.00,   // 0 — root. Prime 1. The fundamental.
-    0.20,   // 1 — 2nd. Not a low prime harmonic.
-    0.70,   // 2 — 3rd. Prime 5 (5:4 ratio). Third new color.
-    0.30,   // 3 — 4th. Prime 2² (4:3). Composite, not new.
-    0.85,   // 4 — 5th. Prime 3 (3:2 ratio). Second new color.
-    0.25,   // 5 — 6th. Composite (2×3). No new prime.
-    0.55,   // 6 — 7th. Prime 7 (7:4 ratio). The blue note. Fourth new color.
+    1.00,   // 0 — root. Zero Landauer cost. Maximum pull.
+    0.22,   // 1 — 2nd. Composite region. High cost.
+    0.43,   // 2 — 3rd. Prime 5. Cost ln(5)=1.61.
+    0.31,   // 3 — 4th. Composite 2². Cost 2·ln(2)=1.39.
+    0.63,   // 4 — 5th. Prime 3. Cost ln(3)=1.10.
+    0.22,   // 5 — 6th. Composite 2×3. Cost ln(2)+ln(3)=1.79.
+    0.36,   // 6 — 7th. Prime 7. Cost ln(7)=1.95.
   ];
 
   // ── COMPOSITE RESOLUTION — hallways pull toward rooms ──────────────
