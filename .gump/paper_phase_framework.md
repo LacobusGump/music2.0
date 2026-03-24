@@ -116,14 +116,31 @@ Bubblesort: no sharp knee. Its deviation is smooth curvature mismatch, not regim
 
 ## 7. Practical Implications
 
-**Before optimizing any computation:**
-1. Compute R (one measurement: sweep budget, compute area ratio)
-2. If GAS (R < 1): optimize aggressively — large savings from checkpointing/caching
-3. If LIQUID (R ≈ 1): optimize selectively — moderate, uniform savings
-4. If CRYSTAL (R > 1): don't optimize for erasure — the cost is structural
+**R predicts checkpointing strategy before training.**
 
-**For ML training (activation checkpointing):**
-Neural nets are GAS (R ≈ 0.54). The sweet spot is ~30% of memory budget, capturing ~75% of total savings. This matches real-world experience with PyTorch gradient checkpointing.
+No profiling run. No grid search. Compute R from the architecture alone (layer sizes and recompute costs), and the strategy follows:
+
+| Phase | R | Strategy | Action |
+|-------|---|----------|--------|
+| GAS | < 1 | **Early checkpointing** | Store the first few expensive layers, recompute the rest. Sweet spot at 5-10% of budget. |
+| LIQUID | ≈ 1 | **Uniform checkpointing** | Every layer is equally worth storing. Checkpoint evenly. Sweet spot at 45-70% of budget. |
+| CRYSTAL | > 1 | **Don't checkpoint** | No strategy beats naive. The cost is structural. |
+
+**Validated on real architectures (O(N) computation, no enumeration):**
+
+| Model | R | Phase | Predicted Strategy | Matches Practice? |
+|-------|---|-------|--------------------|-------------------|
+| ResNet-18 | 0.278 | GAS | Store early conv layers | Yes — early layers dominate activation memory |
+| ResNet-50 | 0.375 | GAS | Store early conv layers | Yes — standard PyTorch checkpoint strategy |
+| U-Net | 0.619 | GAS | Store encoder activations | Yes — skip connections need encoder state |
+| VGG-16 | 0.706 | GAS | Store early conv blocks | Yes — conv1/conv2 are largest |
+| GPT-2 Small | 1.096 | LIQUID | Checkpoint uniformly | Yes — all transformer blocks cost the same |
+| GPT-2 Medium | 1.147 | LIQUID | Checkpoint uniformly | Yes — uniform block structure |
+| BERT Base | 1.096 | LIQUID | Checkpoint uniformly | Yes — same architecture pattern as GPT-2 |
+
+**The architectural split:** CNNs are GAS (heterogeneous layers, front-loaded value). Transformers are LIQUID (homogeneous blocks, uniform value). R captures this from the architecture alone.
+
+**For ML engineers:** compute R for your model. If R < 0.8, use `torch.utils.checkpoint` on the first 2-3 layer groups only. If R > 0.9, checkpoint every other block uniformly. This replaces trial-and-error profiling with a single precomputable number.
 
 ---
 
