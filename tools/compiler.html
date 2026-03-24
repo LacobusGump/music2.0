@@ -142,6 +142,7 @@ multiple schedules on the Pareto frontier.
   <button class="go-btn" onclick="loadAndCompile('maxpool')" style="font-size:12px;padding:6px 14px">Max Pooling</button>
   <button class="go-btn" onclick="loadAndCompile('pipeline')" style="font-size:12px;padding:6px 14px;border-color:#ffd6a066">Pipeline</button>
   <span style="color:#554;font-size:11px;margin:0 4px">|</span>
+  <button class="go-btn" onclick="loadAndCompile('parity')" style="font-size:12px;padding:6px 14px;border-color:#f66">Parity</button>
   <button class="go-btn" onclick="loadAndCompile('bsearch')" style="font-size:12px;padding:6px 14px;border-color:#f6644">Binary Search</button>
   <button class="go-btn" onclick="loadAndCompile('sorting')" style="font-size:12px;padding:6px 14px;border-color:#f6644">Sorting</button>
   <button class="go-btn" onclick="loadAndCompile('mul')" style="font-size:12px;padding:6px 14px;border-color:#f6644">Multiply</button>
@@ -456,6 +457,18 @@ reduce(products, sum)
 discard(A)
 discard(B)`,
 
+  parity: `// Parity: XOR of 64 bits → 1 output bit
+// THE ADVERSARIAL CASE: every input bit matters,
+// no redundancy, no "once found rest are useless"
+// XOR is reversible — computation costs 0
+// But discarding inputs costs 63 bits (the info NOT in the output)
+// The compiler should show almost NO improvement here
+let bits = array(2)
+for i in 0..63:
+  compare(bits[0], bits[1])
+// Each compare here represents discarding 1 bit of input
+// Output: 1 parity bit`,
+
   bsearch: `// Binary search: find target in sorted list of 64 items
 // Already optimal: each comparison halves the search space
 // Expected: ~log₂(64) = 6 comparisons, each destroying 1 bit
@@ -471,13 +484,15 @@ compare(items[1], target)
 compare(items[0], target)
 // Output: index of target`,
 
-  sorting: `// Comparison sort: 8 items
+  sorting: `// Comparison sort: 8 items via merge sort
 // Lower bound: log₂(8!) = 15.3 bits (permutation info)
-// Merge sort: ~24 comparisons (n·log₂n = 8·3 = 24)
+// Merge sort: 24 comparisons (n·log₂n = 8·3 = 24)
 // Each comparison erases 1 bit (which was larger)
+// Conventional: 24 bits. Minimum: 15.3 bits. Savings: 36%
 let items = array(8)
-sort(items)
-// Output: sorted order`,
+for i in 0..23:
+  compare(items[?], items[?])
+// Output: sorted order (permutation of input)`,
 
   mul: `// Multiply two numbers, discard inputs
 // Reversible multiply keeps both inputs
@@ -677,6 +692,17 @@ function analyzeOutputAmbiguity(source, ir) {
   const matMatch = src.match(/matrix\((\d+)\s*,\s*(\d+)\)/);
   if (matMatch) arraySize = parseInt(matMatch[1]) * parseInt(matMatch[2]);
 
+  // Parity: output = 1 bit, but 2^(N-1) inputs map to each output
+  // This is the adversarial case — almost no savings possible
+  if (src.includes('parity') || src.includes('xor of')) {
+    const N = ir.filter(op => op.type === 'irrev').length; // number of input bits
+    // Output = 1 bit. Given that bit, 2^(N-1) inputs could have produced it.
+    // Minimum erasure = N-1 bits (the input info NOT captured by output)
+    return { size: Math.pow(2, N-1), bits: N - 1, nats: (N-1) * Math.LN2,
+      label: `${N}-1 = ${N-1} bits (2^${N-1} inputs per parity value)`,
+      explanation: `Output = 1 bit. Each parity value has 2^${N-1} possible inputs. Must erase ${N-1} bits of input identity — almost everything. Savings: only ${(1/N*100).toFixed(1)}%.` };
+  }
+
   // Binary search: already optimal, ~log₂(N) comparisons
   if (src.includes('binary search') || src.includes('sorted list')) {
     const N = arraySize || 64;
@@ -695,7 +721,7 @@ function analyzeOutputAmbiguity(source, ir) {
   }
 
   // Sort: output = 1 permutation from N! → N! possibilities
-  if (src.includes('sort(') && arraySize > 0) {
+  if ((src.includes('sort(') || src.includes('comparison sort') || src.includes('merge sort')) && arraySize > 0) {
     const N = arraySize;
     return { size: factorial(N), bits: logFact(N)/Math.LN2, nats: logFact(N),
       label: `${N}! = ${factorial(N)} permutations → log₂(${N}!) = ${(logFact(N)/Math.LN2).toFixed(1)} bits`,
