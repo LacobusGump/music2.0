@@ -556,6 +556,10 @@ const App = (function () {
     voiceStillnessStart    = 0;
     voiceDeepStillnessFired = false;
 
+    // Show novelty slider after a short delay
+    var nWrap = document.getElementById('novelty-slider-wrap');
+    if (nWrap) setTimeout(function(){ nWrap.classList.add('visible'); }, 3000);
+
     // Start the main loop
     lastFrame = performance.now();
     requestAnimationFrame(loop);

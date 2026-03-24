@@ -198,7 +198,11 @@ const Flow = (function () {
 
   function hTime(t) {
     var offset = _pinkTimingSeq[_pinkTimingIdx++ & 511];
-    return t + offset;
+    // Novelty scales timing humanization: novel=more jitter, familiar=tighter
+    var novelty = (typeof window !== 'undefined' && window.GUMP_NOVELTY !== undefined)
+      ? window.GUMP_NOVELTY : 0.5;
+    var jitterScale = 0.4 + novelty * 1.2; // 0.4 (tight) to 1.6 (loose)
+    return t + offset * jitterScale;
   }
 
   // -- Session energy / epigenetic --
@@ -623,10 +627,15 @@ const Flow = (function () {
       _prodigy.energyHead = (_prodigy.energyHead + 1) & 15;
     }
 
-    // Track degree usage
+    // Track degree usage — novelty affects how fast heat decays
+    // Familiar (novelty=0): slow decay → patterns lock in
+    // Novel (novelty=1): fast decay → heat dissipates, everything stays open
+    var novelty = (typeof window !== 'undefined' && window.GUMP_NOVELTY !== undefined)
+      ? window.GUMP_NOVELTY : 0.5;
+    var heatDecay = 0.9990 + (1 - novelty) * 0.0008; // 0.9990 (novel) to 0.9998 (familiar)
     var di = Math.max(0, Math.min(14, _currentDegree + 7));
     _prodigy.degreeHeat[di] += 0.1;
-    for (var i = 0; i < 15; i++) _prodigy.degreeHeat[i] *= _prodigy.degreeDecay;
+    for (var i = 0; i < 15; i++) _prodigy.degreeHeat[i] *= heatDecay;
 
     // Classify energy arc
     var recent4 = 0, older4 = 0;

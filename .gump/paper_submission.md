@@ -8,7 +8,7 @@ jim@begump.com
 
 ## Abstract
 
-We prove that the Euler product of the Riemann zeta function encodes the tensor factorization of minimal Stinespring dilation environments for the Bost-Connes endomorphisms. Each prime p contributes an irreversible endomorphism sigma_p that erases the p-coset label in Q/Z, a p-to-1 map whose minimal Stinespring environment is C^p. We construct the dilation unitaries explicitly, prove the Landauer entropy bound Delta S_env >= ln(p) from subadditivity and unitarity, and show that equality is achieved at the KMS state. The main result (Environment Rigidity Theorem) states that the minimal dilation environment for the composite endomorphism sigma_n has dimension exactly n and factors uniquely as H_E^{(n)} = bigotimes_p (C^p)^{otimes v_p(n)}, where v_p(n) is the p-adic valuation of n. The Euler product zeta(beta) = prod_p (1 - p^{-beta})^{-1} thereby admits a natural interpretation as the partition function of independent Landauer erasure modes, one per prime, with the free energy decomposition -ln zeta(beta) = sum_p ln(1 - p^{-beta}) providing an itemized thermodynamic cost receipt. The Hagedorn transition at beta = 1, where the total Landauer cost diverges, marks the boundary beyond which arithmetic erasure cannot be thermodynamically sustained.
+We prove that the Euler product of the Riemann zeta function encodes the tensor factorization of minimal Stinespring dilation environments for the Bost-Connes endomorphisms. Each prime p contributes an irreversible endomorphism sigma_p that erases the p-coset label in Q/Z, a p-to-1 map whose minimal Stinespring environment is C^p. We construct the dilation unitaries explicitly, prove the Landauer entropy bound Delta S_env >= ln(p) from subadditivity and unitarity, and show that equality is achieved at the KMS state. The main result (Environment Rigidity Theorem) states that the minimal dilation environment for the complete erasure channel on C^n has dimension exactly n and its logarithm decomposes additively over primes. For squarefree n, the channel admits a canonical tensor factorization induced by the Chinese Remainder Theorem. The Euler product zeta(beta) = prod_p (1 - p^{-beta})^{-1} thereby admits, within this system, a natural interpretation as the partition function of independent Landauer erasure modes, one per prime, with the free energy decomposition -ln zeta(beta) = sum_p ln(1 - p^{-beta}) providing an itemized thermodynamic cost receipt. The Hagedorn transition at beta = 1, where the total Landauer cost diverges, marks the boundary beyond which arithmetic erasure cannot be thermodynamically sustained.
 
 ---
 
@@ -22,7 +22,7 @@ Stinespring's dilation theorem [Sti55] provides the operator-algebraic framework
 
 Despite the maturity of all three ingredients -- the Bost-Connes system, Landauer's principle, and Stinespring dilation -- no published work, to our knowledge, connects them. This paper does so. We prove:
 
-**Main Theorem (Environment Rigidity, informal).** The minimal Stinespring environment for sigma_n has dimension exactly n and factors over primes as the fundamental theorem of arithmetic dictates. The Euler product of the Riemann zeta function admits interpretation as the partition function of these factored erasure environments, with each prime contributing one independent Landauer mode of cost ln(p).
+**Main Theorem (Environment Rigidity, informal).** The minimal Stinespring environment dimension of the complete erasure channel on C^n equals n, and its logarithm decomposes additively over primes. For squarefree n, the channel admits a canonical tensor factorization induced by the Chinese Remainder Theorem. Everything else in the paper -- the Bost-Connes connection, the Euler product as a thermodynamic receipt, the Hagedorn transition -- is interpretation built on this foundation.
 
 The paper is organized as follows. Section 2 collects the necessary definitions: the Bost-Connes system, KMS states, Landauer's principle, and Stinespring dilation. Section 3 constructs the arithmetic channel at each prime. Section 4 builds the Stinespring dilation explicitly and verifies it implements the channel. Section 5 proves the Landauer bound from subadditivity and unitarity. Section 6 states and proves the Environment Rigidity Theorem. Section 7 interprets the Euler product as a Landauer cost receipt. Section 8 discusses open questions. Section 9 describes the origin of this work.
 
@@ -112,13 +112,17 @@ These satisfy P_j^{(p)} P_k^{(p)} = delta_{jk} P_j^{(p)} and sum_{j=0}^{p-1} P_j
 
 ### 3.2 The channel Phi_p
 
-The *-endomorphism sigma_p on A induces, by restriction and duality with respect to the KMS state phi_beta, a completely positive trace-preserving (CPTP) map Phi_p on the state space of B_p = C^p. The construction is standard (details appear in Appendix A). The map Phi_p has the following key properties:
+Proposition 1 shows that sigma_p collapses the entire p-dimensional algebra B_p to the one-dimensional subalgebra C * e_p. This motivates defining a CPTP channel Phi_p on B_p = C^p that captures the erasure content of sigma_p.
+
+**Definition.** The arithmetic erasure channel Phi_p: S(C^p) -> S(C^p) is the complete erasure channel on C^p:
 
 (i) Its Kraus operators are K_j = |0><j| for j = 0, ..., p-1;
 
 (ii) Phi_p maps every state to |0><0| (complete erasure of the coset label mod p);
 
 (iii) Phi_p is CPTP, since sum_j K_j* K_j = sum_j |j><j| = I_p.
+
+**Remark on the derivation from sigma_p.** A natural question is whether Phi_p can be derived from sigma_p via the standard duality Tr[Phi_p(rho) * b] = Tr[rho * sigma_p(b)]. This duality defines a map on states, but it does not automatically produce a trace-preserving channel, because sigma_p maps B_p into the corner e_p A e_p rather than back to B_p, and the projection e_p satisfies phi_beta(e_p) = p^{1-beta} != 1 for beta != 1 (see Appendix A). The complete erasure channel Phi_p is the canonical CPTP map on C^p that matches the algebraic content of sigma_p -- it erases the same p-coset information that sigma_p destroys -- but we define it directly rather than deriving it through a normalization procedure. The relationship between sigma_p (an endomorphism of the infinite-dimensional algebra A) and Phi_p (a channel on the finite-dimensional space C^p) is one of correspondence, not derivation: Phi_p is the quantum channel that an observer confined to B_p would use to describe the effect of sigma_p on the coset degrees of freedom.
 
 **Proposition 1 (Erasure).** The endomorphism sigma_p acts on B_p as complete erasure:
 
@@ -148,23 +152,13 @@ So sigma_p maps every generator of B_p to the projection e_p, collapsing the ent
 
 The geometric sum equals p when j = 0 (mod p) and 0 otherwise. Since 0 <= j < p, we obtain sigma_p(P_j^{(p)}) = delta_{j,0} * e_p. []
 
-Thus sigma_p maps P_0 to e_p and annihilates every other minimal projection. The *-endomorphism sigma_p on the algebra induces, by duality with respect to the KMS state, a CPTP map Phi_p on the state space of B_p. Explicitly: for a density matrix rho on H_S = C^p (the GNS space of B_p), the dual channel is defined by:
+Thus sigma_p maps P_0 to e_p and annihilates every other minimal projection. By duality, sigma_p canonically determines a completely positive, trace-nonincreasing map on the state space of B_p (see Appendix A for the precise relationship and the trace deficit). In this paper, we model the erasure content of sigma_p by the complete erasure channel Phi_p defined in Section 3.2: a CPTP map on C^p that captures the algebraic fact that sigma_p destroys the p-coset label completely.
 
-    Tr[Phi_p(rho) * b] = Tr[rho * sigma_p(b)]   for all b in B_p
+**Proposition 2a.** The channel Phi_p (as defined in Section 3.2) is completely positive and trace-preserving.
 
-**Proposition 2a.** The channel Phi_p is completely positive and trace-preserving.
+*Proof.* The channel has the Kraus representation Phi_p(rho) = sum_{j=0}^{p-1} K_j rho K_j* with K_j = |0><j|. Any map admitting a Kraus decomposition is completely positive [Cho75, Kra83]. Trace preservation follows from:
 
-*Proof.* We verify both properties.
-
-*Complete positivity.* The channel has the Kraus representation Phi_p(rho) = sum_{j=0}^{p-1} K_j rho K_j* with K_j = |0><j| (verified in Proposition 3 below). Any map admitting a Kraus decomposition is completely positive [Cho75, Kra83].
-
-Alternatively: sigma_p(x) = mu_p x mu_p* is in Kraus form on the full algebra A with a single Kraus operator mu_p. The restriction of a completely positive map to a subalgebra remains completely positive. The dual of a completely positive map is completely positive [Pau02].
-
-*Trace preservation.* We verify:
-
-    sum_{j=0}^{p-1} K_j* K_j = sum_{j=0}^{p-1} |j><0|0><j| = sum_{j=0}^{p-1} |j><j| = I_p
-
-The Kraus operators satisfy the trace-preservation condition. Equivalently, sigma_p is unital on the algebra side: sigma_p(sum_j P_j) = delta_{0,0} e_p = e_p. The channel is defined via duality on B_p, where Tr[Phi_p(rho)] = Tr[rho * sigma_p(I)] = Tr[rho] = 1 (the last equality using that sigma_p(I) acts as the identity in the restricted GNS representation; see Appendix A for details). []
+    sum_{j=0}^{p-1} K_j* K_j = sum_{j=0}^{p-1} |j><j| = I_p  []
 
 *Channel action.* For any density matrix rho on C^p:
 
@@ -359,13 +353,13 @@ This is the Landauer cost of erasing one prime's worth of arithmetic information
 
 ### 6.1 Statement
 
-**Theorem 3 (Environment Rigidity).** Let n in N* with prime factorization n = prod_i p_i^{a_i}. The minimal Stinespring environment for the Bost-Connes endomorphism sigma_n, restricted to the subalgebra B_n = span{e(k/n) : k = 0, ..., n-1}, has dimension exactly n. Its Hilbert space factors uniquely (up to isomorphism) as:
-
-    H_E^{(n)} = bigotimes_i (C^{p_i})^{otimes a_i}
-
-The total Landauer entropy cost decomposes additively over primes:
+**Theorem 3 (Environment Rigidity).** Let n in N* with prime factorization n = prod_i p_i^{a_i}. The complete erasure channel Phi_n on C^n has minimal Stinespring environment of dimension exactly n. Its Landauer entropy cost decomposes additively over primes:
 
     Delta S_env = sum_i a_i ln(p_i) = ln(n)
+
+For squarefree n, the channel admits a canonical tensor factorization induced by the Chinese Remainder Theorem:
+
+    Phi_n = bigotimes_i Phi_{p_i},   H_E^{(n)} = bigotimes_i C^{p_i}
 
 ### 6.2 Proof
 
@@ -405,31 +399,27 @@ By Stinespring's dilation theorem, the minimal dilation environment has dimensio
 
 This is minimal: no environment with dimension less than p can implement the channel Phi_p. []
 
-**Step 2: sigma_p restricted to B_q is an automorphism (for distinct primes p, q).**
+**Step 2: sigma_p acts as a permutation on B_q generators (for distinct primes p, q).**
 
-This is the key structural lemma enabling the tensor factorization.
+This is the key structural observation enabling the tensor factorization.
 
-**Lemma (Automorphism Lemma).** Let p and q be distinct primes. The endomorphism sigma_p, restricted to the subalgebra B_q = span{e(k/q) : k = 0, ..., q-1}, is a *-automorphism of B_q.
-
-*Proof.* We compute sigma_p on the generators of B_q. For k = 0, ..., q-1:
-
-    sigma_p(e(k/q)) = mu_p e(k/q) mu_p*
-
-Using relation (iv): mu_p e(k/q) = e(pk/q) mu_p. Now pk/q (mod 1) is an element of (1/q)Z/Z since k in {0, ..., q-1} and p is coprime to q. Specifically, pk mod q is some element of {0, ..., q-1}, so e(pk/q) = e((pk mod q)/q) is a generator of B_q. Therefore:
+**Lemma (Permutation Lemma).** Let p and q be distinct primes. The endomorphism sigma_p permutes the generators of B_q: for k = 0, ..., q-1,
 
     sigma_p(e(k/q)) = e((pk mod q)/q) * e_p
 
-The critical group-theoretic fact: since gcd(p, q) = 1, the map k -> pk mod q is a bijection on Z/qZ. This follows from Bezout's identity: there exist integers a, b such that ap + bq = 1, so p has a multiplicative inverse a (mod q). The inverse map is k -> ak mod q.
+where e_p = mu_p mu_p* is a projection and the map k -> pk mod q is a bijection on Z/qZ.
 
-Therefore multiplication by p is a permutation of Z/qZ, and the induced map on B_q:
+*Proof.* Using relation (iv): mu_p e(k/q) = e(pk/q) mu_p. Since k in {0, ..., q-1} and gcd(p, q) = 1, the element pk mod q lies in {0, ..., q-1}, so e(pk/q) = e((pk mod q)/q) is a generator of B_q. Therefore:
 
-    sigma_p|_{B_q}: e(k/q) -> e((pk mod q)/q)
+    sigma_p(e(k/q)) = e((pk mod q)/q) * e_p
 
-is a *-automorphism of B_q (it permutes the generators bijectively and preserves the algebra structure).
+Since gcd(p, q) = 1, Bezout's identity gives a multiplicative inverse of p mod q, so k -> pk mod q is a bijection on Z/qZ. []
 
-**Contrast with sigma_p on B_p:** there, sigma_p(e(k/p)) = e(pk/p) = e(k) = 1 for all k, because pk/p = k is always an integer. The map k -> pk mod p = 0 is the zero map -- total collapse. For B_q with q != p, the map k -> pk mod q is a nontrivial permutation -- no collapse, no erasure. []
+**Important caveat.** This is NOT a *-automorphism of B_q as an abstract algebra, because the output includes the factor e_p, which lies outside B_q. The statement is that sigma_p *permutes the generators of B_q up to the projection e_p*. In the full algebra A, the image sigma_p(B_q) lies in the corner e_p A e_p, not in B_q itself.
 
-**Corollary.** sigma_p erases information only at its own prime. It acts as a reversible relabeling on every other prime's subalgebra. The irreversibility is localized: sigma_p is a proper endomorphism on B_p (p-to-1, hence irreversible) and an automorphism on B_q for q != p (bijective, hence reversible).
+However, for the purpose of the channel factorization (Step 4), what matters is the group-theoretic content: the map k -> pk mod q is a bijection. When we construct the channels Phi_p and Phi_q directly on the finite-dimensional spaces C^p and C^q (as defined in Section 3.2), the channels do not involve e_p at all -- they are maps on C^p and C^q respectively. The tensor factorization in Step 4 is therefore proved at the level of the directly-defined channels using the Chinese Remainder Theorem, not by routing through the endomorphisms sigma_p on the full Bost-Connes algebra.
+
+**Contrast with sigma_p on B_p:** there, sigma_p(e(k/p)) = e(pk/p) = e(k) = 1 for all k, because pk/p = k is always an integer. The map k -> pk mod p = 0 is the zero map -- total collapse. For B_q with q != p, the map k -> pk mod q is a nontrivial permutation -- no information about the q-coset label is destroyed.
 
 **Step 3: The endomorphisms for distinct primes commute.**
 
@@ -467,9 +457,24 @@ Now consider sigma_p tensor sigma_q acting on B_p tensor B_q:
 - sigma_q annihilates B_q: sigma_q(e(k_q/q)) = e(qk_q/q) = e(k_q) = 1 for all k_q (since k_q is an integer).
 - So (sigma_p tensor sigma_q)(e(k_p/p) tensor e(k_q/q)) = 1 tensor 1 = 1.
 
-Both Phi_{pq} and Phi_p tensor Phi_q send every basis element to 1. Since they agree on a basis and are linear, they are equal. []
+We now prove equality by exhibiting an explicit factorization of the Kraus operators.
 
-*Note:* This factorization is specific to the Bost-Connes algebra. It fails for channels on generic C*-algebras where the subsystems do not decompose as a tensor product. The CRT provides the tensor decomposition of the algebra; the Automorphism Lemma ensures the channels respect it.
+The Kraus operators of Phi_{pq} on C^{pq} are {K_j^{(pq)} = |0>_{pq} <j|_{pq} : j = 0, ..., pq-1}. Under the CRT isomorphism, each j in {0, ..., pq-1} corresponds uniquely to the pair (a, b) = (j mod p, j mod q). The basis identification is |j>_{pq} <-> |a>_p tensor |b>_q. In particular, |0>_{pq} <-> |0>_p tensor |0>_q. Therefore:
+
+    K_{(a,b)}^{(pq)} = |0>_{pq} <(a,b)|_{pq}
+                      = (|0>_p tensor |0>_q)(<a|_p tensor <b|_q)
+                      = (|0>_p <a|_p) tensor (|0>_q <b|_q)
+                      = K_a^{(p)} tensor K_b^{(q)}
+
+The Kraus operators factor as tensor products. Consequently:
+
+    Phi_{pq}(rho) = sum_{a,b} (K_a^{(p)} tensor K_b^{(q)}) rho (K_a^{(p)} tensor K_b^{(q)})*
+                  = (sum_a K_a^{(p)} [.]  K_a^{(p)*}) tensor (sum_b K_b^{(q)} [.] K_b^{(q)*})
+                  = (Phi_p tensor Phi_q)(rho)
+
+where the second equality uses the standard identity for tensor products of completely positive maps [Wil17, Proposition 4.4.1]. []
+
+*Note:* This proof works directly with the channels Phi_p and Phi_q as defined in Section 3.2 (complete erasure on C^p and C^q). It does not require the Automorphism Lemma or any properties of the endomorphisms sigma_p on the full Bost-Connes algebra -- only the Chinese Remainder Theorem for the basis identification.
 
 **Proposition 8 (Dilation factorization for coprime endomorphisms).** Let p, q be distinct primes. The minimal Stinespring dilation environment for sigma_{pq} restricted to B_{pq} satisfies:
 
@@ -477,7 +482,7 @@ Both Phi_{pq} and Phi_p tensor Phi_q send every basis element to 1. Since they a
 
 and the dilation unitary factors as U_{pq} = (U_p tensor I_q)(I_p tensor U_q) (up to reordering of tensor factors).
 
-*Proof.* By Proposition 7, the channel factors: Phi_{pq} = Phi_p tensor Phi_q. By the Automorphism Lemma (Step 2), sigma_p acts as erasure on B_p and as an automorphism on B_q, while sigma_q acts as an automorphism on B_p and as erasure on B_q. Under the tensor decomposition B_{pq} = B_p tensor B_q, the composite erasure factors over the two tensor components.
+*Proof.* By Proposition 7, the channel factors: Phi_{pq} = Phi_p tensor Phi_q, proved via the explicit Kraus operator factorization under the CRT isomorphism.
 
 For a tensor product of channels Phi_p tensor Phi_q, the Stinespring dilation factors. The fact that the minimal Stinespring dilation of a tensor product of channels equals the tensor product of their minimal dilations is a standard result in quantum information theory; see Paulsen, *Completely Bounded Maps and Operator Algebras* [Pau02], Theorem 8.1, or Wilde, *Quantum Information Theory* [Wil17], Section 5.2.2. The minimal dilation of Phi_p requires environment C^p with unitary U_p (Section 4). The minimal dilation of Phi_q requires environment C^q with unitary U_q. The minimal dilation of Phi_p tensor Phi_q uses:
 
@@ -492,13 +497,15 @@ Since the Choi rank equals the minimal environment dimension, dim(H_E^{(pq)}) = 
 
 **Step 5: Repeated application at a single prime.**
 
-**Proposition 9.** sigma_p^a = sigma_{p^a} acts on B_{p^a} = span{e(k/p^a) : k = 0, ..., p^a - 1}, which is p^a-dimensional. The Kraus rank of Phi_{p^a} is p^a, and the minimal environment is C^{p^a} = (C^p)^{otimes a}.
+**Proposition 9.** The channel Phi_{p^a} (complete erasure on C^{p^a}) has Kraus rank p^a. The minimal Stinespring environment has dimension p^a.
 
-*Proof.* The Kraus operators for Phi_{p^a} on B_{p^a} = C^{p^a} are {K_j = |0><j| : j = 0, ..., p^a - 1}, and they are linearly independent by the same argument as in Step 1 (applied with p^a in place of p). The Choi rank is p^a.
+*Proof.* The Kraus operators for Phi_{p^a} on C^{p^a} are {K_j = |0><j| : j = 0, ..., p^a - 1}, and they are linearly independent by the same argument as in Step 1 (applied with p^a in place of p). The Choi rank is p^a. By Stinespring's theorem, the minimal environment dimension equals the Choi rank. []
 
-The tensor factorization C^{p^a} = (C^p)^{otimes a} reflects the a successive erasure steps: sigma_p^a = sigma_p composed with ... composed with sigma_p (a times). The first application of sigma_p erases the p-coset label in B_{p^a}/B_{p^{a-1}} (requiring a C^p environment register); the second erases the p-coset label in B_{p^{a-1}}/B_{p^{a-2}} (requiring an independent C^p register); and so on. The a registers are independent because each application erases a distinct coset label at a different level of the p-adic hierarchy.
+**Remark on tensor structure (interpretation, not theorem).** As a vector space, C^{p^a} admits the decomposition (C^p)^{otimes a}. This decomposition is suggestive in the Bost-Connes context: the semigroup gives sigma_{p^a} = sigma_p^a (a-fold composition), which invites a sequential reading where each application of sigma_p erases one p-coset label at a successive level of the p-adic hierarchy. However, we do not prove that the successive erasures are independent in any formal sense -- the tensor interpretation is a heuristic motivated by the semigroup structure, not a theorem derived from the channel.
 
-The Choi rank of sigma_p^a restricted to B_{p^a} equals p^a. Since the Choi rank is the minimum number of linearly independent Kraus operators, and the minimal dilation environment dimension equals the Choi rank (Stinespring), the environment C^{p^a} cannot be compressed to a smaller space without losing the ability to implement the channel. In particular, no environment register can be "reused" across successive applications of sigma_p: each application erases one independent coset label, contributing an independent C^p factor to the environment. This is not a physical argument -- it follows from the algebraic fact that the Choi rank of the a-fold composition is p^a, not p. The information destroyed by the k-th application of sigma_p is linearly independent of the information destroyed by the j-th application for j != k. []
+The distinction from the coprime case is important. For coprime p, q, the Chinese Remainder Theorem provides a canonical isomorphism Z/(pq)Z -> Z/pZ x Z/qZ, which uniquely determines the tensor factorization of C^{pq}. For prime powers, no such canonical decomposition exists: Z/p^2Z is NOT isomorphic to Z/pZ x Z/pZ (the former is cyclic, the latter is not). The tensor factorization C^{p^a} = (C^p)^{otimes a} is a choice -- one that is well-motivated by the iterated composition -- but it is not forced by an isomorphism of the underlying groups.
+
+What IS forced is the dimension: dim(H_E^{(p^a)}) = p^a, regardless of how the tensor factors are arranged. The Landauer cost a * ln(p) = ln(p^a) is determined by the Choi rank alone and does not depend on the tensor interpretation.
 
 **Step 6: General n by induction on prime factorization.**
 
@@ -506,7 +513,7 @@ For general n = prod_{i=1}^r p_i^{a_i}, we combine Steps 4 and 5 by induction on
 
 *Base case:* For n = p (a single prime), dim(H_E^{(p)}) = p by Step 1.
 
-*Inductive step (distinct primes):* If n = p * m where p is prime and gcd(p, m) = 1, then sigma_n = sigma_p composed with sigma_m. By the Automorphism Lemma (Step 2), sigma_p acts as erasure on B_p and as an automorphism on B_m, while sigma_m acts as erasure on B_m and as an automorphism on B_p. By the Chinese Remainder Theorem, B_n = B_p tensor B_m. By Step 4, the dilation factors: H_E^{(n)} = H_E^{(p)} tensor H_E^{(m)} = C^p tensor H_E^{(m)}. By the inductive hypothesis, dim(H_E^{(m)}) = m, so dim(H_E^{(n)}) = p * m = n.
+*Inductive step (distinct primes):* If n = p * m where p is prime and gcd(p, m) = 1, then by the Chinese Remainder Theorem, C^n = C^p tensor C^m. The Kraus operator factorization (Step 4, Proposition 7) gives Phi_n = Phi_p tensor Phi_m. The Choi rank of a tensor product equals the product of Choi ranks, so dim(H_E^{(n)}) = dim(H_E^{(p)}) * dim(H_E^{(m)}) = p * m = n by the inductive hypothesis.
 
 *Inductive step (prime powers):* If n = p^a, then sigma_{p^a} = sigma_p^a. By Step 5, each successive application of sigma_p erases an independent coset label requiring an independent C^p register. The environment is (C^p)^{otimes a} with dimension p^a.
 
@@ -514,9 +521,11 @@ For general n = prod_{i=1}^r p_i^{a_i}, we combine Steps 4 and 5 by induction on
 
     H_E^{(n)} = bigotimes_i (C^{p_i})^{otimes a_i}
 
-with dim(H_E^{(n)}) = prod_i p_i^{a_i} = n. The factorization is unique up to isomorphism because the Choi rank of each prime's channel is exactly p_i (Step 1), the tensor factorization of the Choi matrix mirrors the prime factorization of n, and the prime factorization itself is unique (fundamental theorem of arithmetic). []
+with dim(H_E^{(n)}) = prod_i p_i^{a_i} = n.
 
-**Remark.** The Environment Rigidity Theorem can be read as the fundamental theorem of arithmetic in quantum channel language: the prime factorization of n determines the tensor structure of the minimal environment needed to dilate sigma_n, and this determination is unique. The primes are not a choice; they are forced by the Kraus rank.
+For squarefree n, the tensor factorization is canonical: the CRT provides a unique isomorphism at each coprime splitting, and the fundamental theorem of arithmetic determines the prime factorization itself. For general n, the dimension n and the additive cost decomposition ln(n) = sum_i a_i ln(p_i) are rigidly determined, while the tensor interpretation of prime-power factors is natural but not canonical (see Remark on tensor structure in Step 5). []
+
+**Remark.** The Environment Rigidity Theorem states that the *dimension* of the minimal environment is forced to equal n, and that the *Landauer cost* decomposes additively over primes. For squarefree n, the full tensor factorization is also forced. The theorem is strongest when read as a statement about dimension and cost rather than tensor structure: the Kraus rank of the complete erasure channel on C^n is n, and the logarithm of n decomposes over primes by the fundamental theorem of arithmetic.
 
 ### 6.3 Concrete Example: n = 6
 
@@ -541,7 +550,7 @@ Let n = 6 = 2 x 3. We trace the full construction explicitly.
 
 **Stinespring dilation.** The minimal environment is H_E = C^6. A minimal dilation unitary U acts as U |j>_S |0>_E = |0>_S |j>_E, which swaps the coset label into the environment.
 
-**Tensor factorization of the environment.** By the Automorphism Lemma together with the Chinese Remainder Theorem, the single endomorphism sigma_6 factors through the prime-power components:
+**Tensor factorization of the environment.** By the Chinese Remainder Theorem and the Kraus operator factorization (Proposition 7), the erasure channel Phi_6 factors through the prime components:
 
 - sigma_2 erases the Z/2Z label (1 bit) while permuting the Z/3Z factor.
 - sigma_3 erases the Z/3Z label (1 trit) while permuting the Z/2Z factor.
@@ -596,7 +605,7 @@ The Euler product gives:
 
 where the sum runs over all n = prod_p p^{k_p}, i.e., over all possible compositions of prime erasure operations. Each term n^{-beta} = exp(-beta ln(n)) can be read as the Boltzmann weight associated with the total Landauer cost ln(n) = sum_p v_p(n) ln(p) of applying sigma_n. The integer n indexes an erasure history: v_p(n) applications of sigma_p at each prime.
 
-The Euler product therefore admits a natural interpretation as an itemized Landauer cost receipt:
+The Euler product therefore admits a natural interpretation as an itemized Landauer cost receipt *within the Bost-Connes system* (this is a statement about the specific endomorphisms sigma_n, not about integer multiplication in arbitrary computational contexts):
 
 - The full bill (total partition function): zeta(beta).
 - Each line item (one prime's contribution): (1 - p^{-beta})^{-1}.
@@ -626,7 +635,7 @@ We have proven three results:
 
 1. **The Landauer bound** (Theorem 2): For each prime p, the Bost-Connes endomorphism sigma_p erases ln(p) nats of entropy, and this is the minimum entropy increase in any environment implementing sigma_p. The bound follows from subadditivity and unitarity. Equality holds at the KMS state.
 
-2. **Environment Rigidity** (Theorem 3): The minimal Stinespring environment for sigma_n has dimension n and factors uniquely over primes according to the prime factorization of n.
+2. **Environment Rigidity** (Theorem 3): The minimal Stinespring environment for the complete erasure channel on C^n has dimension n, with ln(n) decomposing additively over primes. For squarefree n, the channel factors canonically via the Chinese Remainder Theorem.
 
 3. **The Euler product interpretation** (Section 7): The Euler product zeta(beta) = prod_p (1 - p^{-beta})^{-1} admits interpretation as the partition function of independent Landauer erasure modes, one per prime, with the free energy decomposing additively.
 
@@ -634,7 +643,7 @@ We have proven three results:
 
 The Bost-Connes system was introduced in [BC95] and has been extensively studied in the context of class field theory and noncommutative geometry [CM08]. The endomorphisms sigma_n and their role in the phase transition at beta = 1 are central to the theory. The primon gas formulation is due to Julia [Jul90], with further development by Spector [Spe90] and Bakas-Bowick [BB91].
 
-The quantum information perspective -- viewing sigma_n as a quantum channel and applying Stinespring dilation -- appears to be new. The interpretation of the Euler product as a Landauer cost decomposition has not, to our knowledge, appeared in the literature, although the ingredients (Bost-Connes endomorphisms, Landauer's principle, Stinespring dilation) are individually well established.
+The quantum information perspective -- viewing sigma_n as a quantum channel and applying Stinespring dilation -- appears to be new. The interpretation of the Euler product as a Landauer cost decomposition has not, to our knowledge, appeared in the literature, although the ingredients (Bost-Connes endomorphisms, Landauer's principle, Stinespring dilation) are individually well established. We emphasize that the present work is a translation between established frameworks -- number-theoretic (Bost-Connes), quantum-information-theoretic (Stinespring), and thermodynamic (Landauer) -- rather than a deep new result in any one of them. The novelty, such as it is, lies in the observation that connecting these frameworks reveals structure (the tensor factorization of environments, the Landauer bound at KMS) that is invisible from any single perspective. The technical core (the automorphism lemma, the tensor factorization) rests on the Chinese Remainder Theorem and standard facts about tensor-product channels; the contribution is recognizing that these standard facts, when assembled in the Bost-Connes context, produce the Euler product as an output.
 
 ### 8.3 Specificity to arithmetic
 
@@ -662,7 +671,37 @@ The first Li coefficient lambda_1 admits a clean decomposition into Landauer qua
 
 We frame this not as a failure but as a *stability boundary*: the Environment Rigidity Theorem characterizes the *local thermodynamic structure* of arithmetic — how each prime independently processes information. The zeros of zeta characterize the *global collective behavior* — how the prime oscillations interfere when analytically continued beyond the convergence boundary. The open question is not whether rigidity reaches the zeros, but what mechanism entangles the locally rigid environments in the scaling flow that produces the zeros.
 
-### 8.5 Extensions
+### 8.5 The general principle: degeneracy and irreversible cost
+
+The results of Sections 3-7 are specific to the Bost-Connes endomorphisms. It is worth stating the general principle they instantiate, both to clarify the scope and to connect with the broader literature on the thermodynamics of computation.
+
+**The general bound.** For any deterministic computation f that produces output y while discarding input information, the minimal expected thermodynamic cost in the quasistatic limit is:
+
+    E_min(y) >= kT * H(X | f(X) = y)
+
+where H(X | f(X) = y) is the conditional entropy of the input given the output. Under a uniform input distribution, this reduces to kT * ln|{x : f(x) = y}| -- the logarithm of the number of preimages (the degeneracy of the output). This is a direct consequence of Landauer's principle applied to the many-to-one map f, and has been established in the modern resource-theoretic framework [Fai15, Wol19, GPE15].
+
+**Specialization to the Bost-Connes system.** Our results are the case where f = sigma_n (the Bost-Connes endomorphism) and the input space is the p-cosets of Q/Z. The KMS state provides the uniform distribution on each finite cyclic subgroup (Section 2.2), so the conditional-entropy bound takes its maximal form: for sigma_p, the degeneracy is p (exactly p preimages per output element), and the minimum cost is kT * ln(p). Environment Rigidity (Theorem 3) then shows this cost decomposes multiplicatively: the degeneracy of sigma_n is n, and it factors over primes as n = prod_p p^{v_p(n)}.
+
+The reliance on uniformity is essential and should be noted explicitly. The tight saturation of the Landauer bound (Theorem 2, equality at KMS) depends on the KMS state being Haar measure on finite cyclic subgroups. For non-thermal or biased input distributions, the actual dissipated entropy is the true conditional entropy H(X | f(X) = y), which may be strictly less than ln(p). The "receipt" interpretation -- where each prime contributes exactly kT * ln(p) -- is therefore a property of the thermal equilibrium state, not of the endomorphisms alone. In any physical realization with imperfect thermalization, the actual costs would be bounded by, but not necessarily equal to, the values in the receipt.
+
+The Euler product is an itemized receipt not for arbitrary computation, but for a specific family of structured erasure operations -- the Bost-Connes endomorphisms -- whose many-to-one structure is dictated by the multiplicative arithmetic of the integers.
+
+**Structure vs. size.** The general principle reveals why the Bost-Connes case is distinguished. For a generic many-to-one function on an n-element set, the degeneracy depends on the specific function, not on properties of n. But the Bost-Connes endomorphisms are structured: sigma_n is exactly n-to-1, with the preimage structure dictated by the cosets of Z/nZ in Q/Z. The degeneracy equals n, and its prime factorization determines the tensor factorization of the minimal environment. This is a structural coincidence between arithmetic and information theory that does not hold for generic computations.
+
+**Comparison with other operations.** To illustrate: for addition (x + y = n with x, y >= 1), the degeneracy is n - 1 (all pairs summing to n). For multiplication (x * y = n with x, y >= 1), the degeneracy is d(n), the number of divisors. The conditional-entropy bound for addition scales as kT * ln(n) (linear in magnitude), while for multiplication it scales as kT * ln(d(n)) (depending on divisor structure). A prime p has d(p) = 2, while a highly composite number like 60 has d(60) = 12. The minimum cost of "forgetting which factors produced n" depends on the arithmetic structure of n, not its bit-length. This is the sense in which "structure dominates size" -- not as a claim about physical energy consumption, but as a statement about information-theoretic erasure bounds.
+
+**What the framework does not claim.** The Landauer decomposition over primes applies to the Bost-Connes endomorphisms, not to arbitrary computation on integers. Erasing the number 60 from a 6-bit register costs kT * ln(2) * 6 regardless of whether 60 is prime or composite -- the register does not know about factorization. The prime structure appears only when the computation itself has multiplicative structure (as the Bost-Connes endomorphisms do). We do not claim that "primes cost more to erase" in general, only that in systems whose dynamics respect the multiplicative semigroup of N*, the irreversibility decomposes over primes.
+
+### 8.6 Physical realizability
+
+The Stinespring environments constructed in this paper are abstract Hilbert spaces (C^p registers), and the Landauer costs are derived within the Bost-Connes C*-dynamical system. The natural question is whether these costs could be realized -- or even in principle measured -- in a physical system.
+
+We are frank: no laboratory implementation of a "Bost-Connes computer" exists, and it is not obvious how to build one. The algebra A acts on the profinite completion of Q/Z, and the endomorphisms sigma_n erase coset labels in this number-theoretic structure. Mapping these to physical degrees of freedom (spins, oscillators, photonic modes) would require engineering a system whose dynamics natively respect the multiplicative semigroup of N* -- a tall order.
+
+However, the Landauer bounds derived here hold within the abstract resource theory of quantum channels, which is the standard setting for information-theoretic results about irreversible computation. The experimental verification of Landauer's principle for simple bit erasure [Ber12] confirms the physical content of the bound; what we add is the observation that for Bost-Connes endomorphisms, the bound decomposes over primes. Whether this decomposition has direct experimental consequences remains open. The Hagedorn transition at beta = 1 is a genuine phase transition in the Bost-Connes system with well-studied mathematical properties [BC95], but its physical interpretation as a "sustainability boundary for arithmetic erasure" is, at present, a suggestive reading rather than an experimentally testable prediction.
+
+### 8.7 Extensions
 
 **Dedekind zeta functions.** The framework extends to Bost-Connes systems over number fields [CMR05, LLN09]. The Landauer cost decomposition carries over to prime ideals, with each prime ideal p contributing an N(p)-dimensional environment. The framework automatically sees ideal factorization — the "correct" arithmetic — even in rings where element factorization fails. The class number formula's factors (h_K, R_K, D_K, w_K) each admit natural information-theoretic names, though computing their values still requires number-theoretic input. Whether the class number formula can be *derived* (not merely interpreted) from the Landauer framework remains open; the key missing ingredient is a quantum-channel-theoretic derivation of the functional equation.
 
@@ -694,6 +733,10 @@ The author is a drummer and drum teacher, not a mathematical physicist. The math
 
 [CM08] A. Connes and M. Marcolli, *Noncommutative Geometry, Quantum Fields and Motives*, AMS Colloquium Publications (2008).
 
+[Fai15] P. Faist, F. Dupuis, J. Oppenheim, and R. Renner, "The minimal work cost of information processing," *Nature Communications* **6** (2015), 7669.
+
+[GPE15] M.P. Goold, M. Huber, A. Riera, L. del Rio, and P. Skrzypczyk, "The role of quantum information in thermodynamics -- a topical review," *Journal of Physics A* **49** (2016), 143001.
+
 [CMR05] A. Connes, M. Marcolli, and N. Ramachandran, "KMS states and complex multiplication," *Selecta Mathematica* **11** (2005), 325-347.
 
 [CR94] A. Connes and C. Rovelli, "Von Neumann algebra automorphisms and time-thermodynamics relation in generally covariant quantum theories," *Classical and Quantum Gravity* **11** (1994), 2899-2917.
@@ -716,49 +759,43 @@ The author is a drummer and drum teacher, not a mathematical physicist. The math
 
 [Wil17] M.M. Wilde, *Quantum Information Theory*, 2nd edition, Cambridge University Press (2017).
 
+[Wol19] D.H. Wolpert, "The stochastic thermodynamics of computation," *Journal of Physics A* **52** (2019), 193001.
+
 ---
 
-## Appendix A: The GNS Construction for B_p and the Dual Channel
+## Appendix A: Relationship Between sigma_p and Phi_p
 
-This appendix provides the detailed construction of the quantum channel Phi_p from the *-endomorphism sigma_p, via the GNS representation and duality. The main text (Section 3.2) states only the results; here we supply the full argument.
+The main text defines Phi_p directly as the complete erasure channel on C^p and states that it models the erasure content of the Bost-Connes endomorphism sigma_p. This appendix discusses the relationship between the two objects and the subtleties involved in connecting them.
 
-### A.1 The GNS triple for B_p
+### A.1 What sigma_p does algebraically
 
-The subalgebra B_p = C*{e(k/p) : k = 0, ..., p-1} is isomorphic to C^p as a finite-dimensional abelian C*-algebra. The KMS state phi_beta restricts to B_p as the uniform distribution (Section 2.2). Let (H_phi, pi_phi, Omega_phi) be the GNS triple for B_p with respect to this restriction. Since B_p is isomorphic to C^p with the uniform state (1/p, ..., 1/p), the GNS space is:
+Proposition 1 shows that sigma_p(e(k/p)) = e_p for all k = 0, ..., p-1: the endomorphism collapses every generator of B_p to a single projection. Proposition 2 refines this: sigma_p annihilates every spectral projection except P_0, which it sends to e_p. The p-coset label is completely destroyed.
 
-    H_phi = C^p,  with orthonormal basis |k> for k = 0, ..., p-1
+### A.2 The canonical CP map and the CPTP completion
 
-The representation pi_phi acts by multiplication: pi_phi(e(k/p)) acts on the basis as pi_phi(e(k/p))|j> = exp(2 pi i k j / p) |j>, and the cyclic vector is:
+The dual of sigma_p restricted to B_p -- defined by Tr[Psi_p(rho) * b] = Tr[rho * sigma_p(b)] for b in B_p -- canonically determines a completely positive, trace-*nonincreasing* map Psi_p on the state space of C^p. The trace deficit is:
 
-    Omega_phi = (1/sqrt{p}) sum_{k=0}^{p-1} |k>
+    Tr[Psi_p(rho)] = Tr[rho * sigma_p(I)] = Tr[rho * e_p] = phi_beta(e_p) = p^{1-beta}
 
-(the uniform superposition, reflecting the equidistribution of the KMS state on Z/pZ).
+which is strictly less than 1 for beta > 1. The map Psi_p is therefore a *quantum operation* (CP, trace-nonincreasing) but not a *quantum channel* (CPTP). Physically, this trace deficit represents the probability that the operation "succeeds" within the p-sector; the missing probability 1 - p^{1-beta} leaks into the complement of the corner e_p A e_p.
 
-### A.2 The projection e_p in the GNS representation
+To obtain a CPTP map, one must make a completion choice. The standard construction in quantum instrument theory is to adjoin a one-dimensional failure flag: define Phi_p^{aug} on C^p + C^1 by
 
-The projection e_p = mu_p mu_p* is an element of the full Bost-Connes algebra A. In the GNS representation of A with respect to phi_beta, the subspace B_p * Omega_phi = {pi_phi(b) Omega_phi : b in B_p} spans all of H_phi = C^p, since the KMS state is faithful on B_p (it assigns nonzero weight to each minimal projection).
+    Phi_p^{aug}(rho) = Psi_p(rho) + (1 - Tr[Psi_p(rho)]) * |fail><fail|
 
-The action of e_p on B_p * Omega_phi requires care. In the full GNS representation of A, phi_beta(e_p) = p^{1-beta} [BC95, Prop. 25], which is not equal to 1 for beta != 1. Therefore e_p does not act as the identity operator in the full representation. However, this does not affect the construction of Phi_p, because the channel is defined by duality on B_p (not by the action of e_p).
+This is canonical given sigma_p. The complete erasure channel Phi_p(rho) = |0><0| used in the main text is then an additional modeling choice: it is the unique CPTP map on C^p that matches the algebraic content of sigma_p (annihilation of all projections except P_0) while remaining on C^p without the failure flag. This choice is well-motivated -- sigma_p destroys the coset label completely, and the erasure channel is the simplest finite-dimensional channel capturing that fact -- but it is not forced by sigma_p alone.
 
-### A.3 The dual channel
+### A.3 Summary of the passage from sigma_p to Phi_p
 
-The *-endomorphism sigma_p on A induces, by duality with respect to the KMS state, a map on the state space of B_p. For a density matrix rho on H_phi = C^p:
+The relationship between the Bost-Connes endomorphism and the erasure channel involves three layers:
 
-    Tr[Phi_p(rho) * b] = Tr[rho * sigma_p(b)]   for all b in B_p
+1. **Canonical:** sigma_p determines a CP trace-nonincreasing map on the p-sector (no choices required).
 
-where we identify elements of B_p with operators on C^p via the GNS isomorphism pi_phi.
+2. **Standard completion:** Adjoining a failure flag produces a CPTP map on an augmented space (a standard construction, but a choice of how to handle the trace deficit).
 
-Since sigma_p(P_j^{(p)}) = delta_{j,0} * e_p (Proposition 2 in the main text), and in the restricted representation on B_p the relevant quantity is:
+3. **Modeling choice:** Restricting to C^p and taking complete erasure gives Phi_p (well-motivated by the algebraic content, but an additional choice beyond what sigma_p forces).
 
-    Tr[Phi_p(rho) * P_j] = Tr[rho * sigma_p(P_j)] = Tr[rho * delta_{j,0} * e_p]
-
-For j != 0: Tr[Phi_p(rho) * P_j] = 0.
-
-For j = 0: Tr[Phi_p(rho) * P_0] = Tr[rho * e_p]. The normalization of e_p in the restricted representation is determined by the requirement that Phi_p be trace-preserving: sum_j Tr[Phi_p(rho) * P_j] = Tr[Phi_p(rho)] = Tr[rho] = 1. Since all terms with j != 0 vanish, we need Tr[Phi_p(rho) * P_0] = 1, which means Phi_p(rho) = |0><0| (the pure state concentrated on P_0).
-
-This is confirmed by the Kraus decomposition: Phi_p(rho) = sum_{j=0}^{p-1} K_j rho K_j* with K_j = |0><j| gives Phi_p(rho) = |0><0| for all density matrices rho (Proposition 3 in the main text).
-
-The passage from endomorphism to channel is therefore rigorous: sigma_p on the algebra induces Phi_p on states by duality, and the complete erasure follows from sigma_p(P_j) = delta_{j,0} * e_p regardless of the precise normalization of e_p in the full GNS representation. What matters is that sigma_p annihilates all projections except P_0, forcing the dual map to concentrate all probability on the state |0><0|. []
+The main results of this paper (Stinespring dilation, Landauer bound, CRT factorization) depend only on Phi_p as defined in layer 3. They are provable independently of layers 1 and 2 -- and indeed independently of the Bost-Connes framework entirely. The Bost-Connes system provides the motivation: the endomorphisms sigma_n have exactly the multiplicative structure, the p-to-1 erasure, and the connection to the Riemann zeta function that the channels Phi_n were designed to capture. Whether a tighter categorical bridge between layers 1 and 3 exists is an interesting question at the intersection of operator algebras and quantum information theory, but it is not required for the results presented here.
 
 ---
 

@@ -1,0 +1,1178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Entropy-Aware Architecture Simulator</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{
+  font-family:'Georgia','Times New Roman',serif;
+  background:#0a0a0a;color:#e8e4dc;
+  max-width:1060px;margin:0 auto;
+  padding:40px 24px 80px;
+  line-height:1.85;font-size:17px;
+}
+h1{font-size:28px;font-weight:300;letter-spacing:0.06em;color:#fff;margin-bottom:6px}
+.subtitle{font-size:13px;letter-spacing:0.25em;color:#887;text-transform:uppercase;margin-bottom:32px}
+h2{font-size:20px;font-weight:400;color:#ffd6a0;letter-spacing:0.04em;margin-top:32px;margin-bottom:16px}
+h3{font-size:15px;font-weight:600;color:#ccc;margin-top:20px;margin-bottom:8px}
+p{margin-bottom:14px}
+a{color:#ffd6a0;text-decoration:none}
+a:hover{text-decoration:underline}
+
+.tabs{display:flex;gap:0;margin-bottom:32px;border-bottom:1px solid #ffffff15}
+.tab{
+  background:none;border:none;border-bottom:2px solid transparent;
+  color:#887;font-family:inherit;font-size:14px;
+  letter-spacing:0.12em;text-transform:uppercase;
+  padding:12px 20px;cursor:pointer;transition:all 0.2s;
+}
+.tab:hover{color:#e8e4dc}
+.tab.active{color:#ffd6a0;border-bottom-color:#ffd6a0}
+.panel{display:none}.panel.active{display:block}
+
+.card{background:#ffffff06;border:1px solid #ffffff0a;border-radius:12px;padding:24px;margin:20px 0}
+.result-row{display:flex;justify-content:space-between;align-items:baseline;padding:8px 0;border-bottom:1px solid #ffffff08}
+.result-row:last-child{border-bottom:none}
+.result-label{font-size:14px;color:#998;flex-shrink:0;margin-right:16px}
+.result-value{font-size:15px;color:#ffd6a0;text-align:right;font-variant-numeric:tabular-nums}
+.result-value.match{color:#6c6}
+.result-value.mismatch{color:#f66}
+.badge{display:inline-block;font-size:13px;font-weight:600;padding:3px 10px;border-radius:4px;margin-left:8px}
+.badge.pass{background:#6c62;color:#6c6;border:1px solid #6c64}
+.badge.win{background:#ffd6a018;color:#ffd6a0;border:1px solid #ffd6a044}
+
+button.go-btn{
+  background:#ffd6a018;border:1px solid #ffd6a044;
+  color:#ffd6a0;font-family:inherit;font-size:14px;
+  padding:8px 18px;border-radius:8px;cursor:pointer;letter-spacing:0.1em;
+}
+button.go-btn:hover{background:#ffd6a028}
+select.sel{
+  background:#ffffff08;border:1px solid #ffffff15;color:#e8e4dc;
+  font-family:'Georgia',serif;font-size:15px;
+  padding:8px 12px;border-radius:8px;outline:none;
+}
+
+canvas{display:block;width:100%;border-radius:8px;margin:12px 0}
+.slider{-webkit-appearance:none;appearance:none;height:4px;background:#ffffff15;border-radius:2px;outline:none}
+.slider::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:#ffd6a0;cursor:pointer}
+.slider-val{font-size:13px;color:#ffd6a0;font-variant-numeric:tabular-nums;min-width:40px}
+
+/* Ledger table */
+.ledger{width:100%;border-collapse:collapse;margin:12px 0;font-size:14px}
+.ledger th{font-size:11px;letter-spacing:0.12em;color:#887;text-transform:uppercase;text-align:left;padding:6px 10px;border-bottom:1px solid #ffffff15}
+.ledger td{padding:6px 10px;border-bottom:1px solid #ffffff08;color:#e8e4dc}
+.ledger td.op{color:#ffd6a0;font-weight:600;font-family:monospace;font-size:13px}
+.ledger td.rev{color:#6c6}
+.ledger td.irrev{color:#f66}
+.ledger td.cost{text-align:right;color:#ffd6a0}
+.ledger tr.total td{border-top:2px solid #ffd6a044;font-weight:600;color:#ffd6a0}
+
+.insight{font-size:16px;font-style:italic;color:#ffd6a0;border-left:3px solid #ffd6a033;padding:14px 0 14px 24px;margin:28px 0;line-height:1.6}
+
+.controls{display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin:16px 0}
+
+.footer{margin-top:64px;padding-top:32px;border-top:1px solid #ffffff0a}
+.footer p{font-size:14px;color:#776;line-height:1.8}
+.back-link{display:inline-block;margin-top:24px;font-size:13px;letter-spacing:0.15em;color:#ffd6a0;text-transform:uppercase}
+
+@media(max-width:600px){
+  body{padding:24px 16px 60px}
+  h1{font-size:22px}
+  .tab{padding:10px 12px;font-size:12px}
+  .result-row{flex-direction:column;gap:2px}
+  .result-value{text-align:left}
+}
+</style>
+</head>
+<body>
+
+<h1>Entropy-Aware Architecture Simulator</h1>
+<p class="subtitle">Does factorizing erasure lead to better designs?</p>
+
+<p>
+Computation destroys information at specific moments. This simulator
+compares schedules for the same computation by logical erasure, memory,
+operations, and garbage &mdash; then shows the Pareto frontier between them.
+No physical energy claims. Just the structure of irreversibility, made visible.
+</p>
+
+<div class="tabs">
+  <button class="tab active" onclick="switchTab(0)">1. Search</button>
+  <button class="tab" onclick="switchTab(1)">2. Sorting</button>
+  <button class="tab" onclick="switchTab(2)">3. Multiply</button>
+  <button class="tab" onclick="switchTab(3)">4. Primitives</button>
+  <button class="tab" onclick="switchTab(4)">5. Optimizer</button>
+</div>
+
+<!-- ============================================================ -->
+<!-- PANEL 0: SEARCH                                               -->
+<!-- ============================================================ -->
+<div class="panel active" id="panel0">
+  <h2>Search: (N&minus;1)&middot;ln(2) vs ln(N)</h2>
+  <p>
+    Find the index of a target in an unsorted list of N items.
+    Conventional search discards each failed comparison &mdash; one bit erased per check.
+    Entropy-aware search does reversible comparisons, copies the match, uncomputes
+    everything, then erases only the position uncertainty: ln(N) nats.
+  </p>
+
+  <div class="controls">
+    <select class="sel" id="searchSize" onchange="runSearch()">
+      <option value="8">N = 8</option>
+      <option value="16" selected>N = 16</option>
+      <option value="32">N = 32</option>
+      <option value="64">N = 64</option>
+      <option value="128">N = 128</option>
+    </select>
+    <button class="go-btn" onclick="runSearch()">Run</button>
+  </div>
+
+  <div class="card" id="searchLedgerConv"></div>
+  <div class="card" id="searchLedgerAware"></div>
+  <div class="card" id="searchComparison"></div>
+
+  <div class="insight">
+    Conventional wins on simplicity (fewer total ops, zero garbage).
+    Entropy-aware wins on logical erasure (ln(N) vs (N&minus;1)&middot;ln(2)).
+    The gap is structural waste &mdash; comparison bits that were never needed.
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- PANEL 1: SORTING                                              -->
+<!-- ============================================================ -->
+<div class="panel" id="panel1">
+  <h2>Sorting: Conventional vs Entropy-Aware</h2>
+  <p>
+    Comparison sort erases 1 bit per comparison (which was bigger?).
+    Entropy-aware sort uses reversible comparisons, copies the sorted output,
+    uncomputes all intermediates, then erases only the permutation information:
+    ln(N!) nats, factorized through the primes of N!.
+  </p>
+
+  <div class="controls">
+    <select class="sel" id="sortSize" onchange="runSort()">
+      <option value="4">N = 4</option>
+      <option value="8" selected>N = 8</option>
+      <option value="16">N = 16</option>
+      <option value="32">N = 32</option>
+      <option value="64">N = 64</option>
+    </select>
+    <button class="go-btn" onclick="runSort()">Run</button>
+  </div>
+
+  <div class="card" id="sortLedgerConv"></div>
+  <div class="card" id="sortLedgerAware"></div>
+  <div class="card" id="sortComparison"></div>
+
+  <div class="insight">
+    Conventional wins on memory and latency.
+    Entropy-aware wins on logical erasure.
+    The tradeoff grows with N &mdash; and so does the design space.
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- PANEL 2: MULTIPLY                                             -->
+<!-- ============================================================ -->
+<div class="panel" id="panel2">
+  <h2>Multiply: Where Does the Cost Live?</h2>
+  <p>
+    Compute a &times; b = n, then discard inputs.
+    Both versions erase the same total: ln(n) nats.
+    The factorized version doesn't erase less &mdash;
+    it reveals <em>where</em> the information goes.
+    Which prime absorbed which bits? That's the structure
+    the generic version throws away.
+  </p>
+
+  <div class="controls">
+    <select class="sel" id="mulA">
+      <option value="6">a = 6</option>
+      <option value="7">a = 7</option>
+      <option value="10" selected>a = 10</option>
+      <option value="12">a = 12</option>
+      <option value="15">a = 15</option>
+    </select>
+    <span style="color:#887">&times;</span>
+    <select class="sel" id="mulB">
+      <option value="6" selected>b = 6</option>
+      <option value="7">b = 7</option>
+      <option value="10">b = 10</option>
+      <option value="12">b = 12</option>
+      <option value="14">b = 14</option>
+    </select>
+    <button class="go-btn" onclick="runMultiply()">Run</button>
+  </div>
+
+  <div class="card" id="mulLedgerGeneric"></div>
+  <div class="card" id="mulLedgerFactored"></div>
+  <div class="card" id="mulComparison"></div>
+
+  <div class="insight">
+    Both versions erase the same total. Factorization doesn't lower the cost &mdash;
+    it reveals where the cost lives. That structural accounting is the
+    starting point for schedule optimization, not the optimization itself.
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- PANEL 3: PRIMITIVES                                           -->
+<!-- ============================================================ -->
+<div class="panel" id="panel3">
+  <h2>Primitive Instruction Set</h2>
+  <p>
+    Each primitive answers three questions: what information is preserved,
+    what is destroyed, and what hardware resource would implement it.
+  </p>
+
+  <div class="card">
+    <h3>Reversible Operations (zero Landauer cost)</h3>
+    <table class="ledger">
+      <thead><tr><th>Op</th><th>Preserved</th><th>Destroyed</th><th>Hardware</th><th>Cost</th></tr></thead>
+      <tbody>
+        <tr><td class="op">SWAP(a,b)</td><td>Both values (reordered)</td><td>Nothing</td><td>Wire crossover / Fredkin gate</td><td class="rev">0</td></tr>
+        <tr><td class="op">PERMUTE(r,&pi;)</td><td>All values (reordered)</td><td>Nothing</td><td>Routing network</td><td class="rev">0</td></tr>
+        <tr><td class="op">XOR(a,b,c)</td><td>a, b, and c&oplus;(a&oplus;b)</td><td>Nothing (c overwritten reversibly)</td><td>Toffoli / CNOT gate</td><td class="rev">0</td></tr>
+        <tr><td class="op">TAG(r,label)</td><td>Register value + metadata</td><td>Nothing</td><td>Metadata register / annotation bus</td><td class="rev">0</td></tr>
+        <tr><td class="op">FORK(r,copy)</td><td>Original + tracked copy</td><td>Nothing (if copy is tracked)</td><td>Fanout with history tape</td><td class="rev">0</td></tr>
+        <tr><td class="op">UNCOMPUTE(ops)</td><td>Input state (restored)</td><td>Nothing (intermediate state unwound)</td><td>Reverse execution unit</td><td class="rev">0</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h3>Irreversible Operations (nonzero Landauer cost)</h3>
+    <table class="ledger">
+      <thead><tr><th>Op</th><th>Preserved</th><th>Destroyed</th><th>Hardware</th><th>Cost</th></tr></thead>
+      <tbody>
+        <tr><td class="op">RESET(r)</td><td>Nothing</td><td>Full register contents</td><td>Bit-clear with thermal bath</td><td class="irrev">ln(|r|)</td></tr>
+        <tr><td class="op">COLLAPSE_2(r)</td><td>Parity / half-label</td><td>1 bit: which half</td><td>Single erasure cell</td><td class="irrev">ln(2)</td></tr>
+        <tr><td class="op">COLLAPSE_3(r)</td><td>Residue mod 3</td><td>1 trit: which third</td><td>3-state erasure cell</td><td class="irrev">ln(3)</td></tr>
+        <tr><td class="op">COLLAPSE_P(r,p)</td><td>Residue mod p</td><td>1 p-label: which p-th</td><td>p-state erasure cell</td><td class="irrev">ln(p)</td></tr>
+        <tr><td class="op">COLLAPSE_FACT(r,M)</td><td>Final collapsed state</td><td>M-to-1 ambiguity, staged by primes</td><td>Cascade of p-cells</td><td class="irrev">&Sigma;a<sub>i</sub>&middot;ln(p<sub>i</sub>)</td></tr>
+        <tr><td class="op">COMPARE_SELECT</td><td>max(a,b)</td><td>Ordering bit: which was bigger</td><td>Comparator + erasure cell</td><td class="irrev">ln(2)</td></tr>
+        <tr><td class="op">THRESHOLD(r,t)</td><td>Boolean: r &ge; t</td><td>Magnitude of r</td><td>Comparator + RESET</td><td class="irrev">ln(|r|)</td></tr>
+        <tr><td class="op">ARGMAX(r[])</td><td>Index of maximum</td><td>All N values</td><td>Tree comparator + RESET</td><td class="irrev">ln(N)</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h3>COLLAPSE_FACTORIZED example: M = 60</h3>
+    <div id="collapseExample"></div>
+  </div>
+
+  <div class="insight">
+    Reversible ops preserve everything (zero cost, needs history tape).
+    Irreversible ops destroy information (cost = ln of what's lost).
+    The design question: when and where to cross that line.
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- PANEL 4: OPTIMIZER                                            -->
+<!-- ============================================================ -->
+<div class="panel" id="panel4">
+  <h2>Schedule Optimizer</h2>
+  <p>
+    Same computation, multiple collapse schedules.
+    The optimizer searches over orderings and strategies to minimize
+    a chosen objective: total erasure, peak memory, or a weighted combination.
+  </p>
+
+  <div class="controls">
+    <select class="sel" id="optTask" onchange="runOptimizer()">
+      <option value="search16">Search N=16</option>
+      <option value="search32" selected>Search N=32</option>
+      <option value="search64">Search N=64</option>
+      <option value="sort8">Sort N=8</option>
+      <option value="sort16">Sort N=16</option>
+      <option value="mul60">Multiply 6&times;10=60</option>
+      <option value="mul210">Multiply 14&times;15=210</option>
+      <option value="topk16">Top-K (N=16, K=3)</option>
+    </select>
+    <button class="go-btn" onclick="runOptimizer()">Optimize</button>
+  </div>
+
+  <div class="card">
+    <h3>Cost Surface: &alpha;&middot;erasure + &beta;&middot;memory + &gamma;&middot;ops</h3>
+    <div class="controls">
+      <div style="display:flex;flex-direction:column;gap:4px">
+        <span style="font-size:11px;letter-spacing:0.15em;color:#887;text-transform:uppercase">&alpha; (erasure)</span>
+        <div style="display:flex;align-items:center;gap:8px">
+          <input type="range" class="slider" id="alphaSlider" min="0" max="100" value="50" oninput="liveRerank()" style="width:160px">
+          <span class="slider-val" id="alphaVal">0.50</span>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:4px">
+        <span style="font-size:11px;letter-spacing:0.15em;color:#887;text-transform:uppercase">&beta; (memory)</span>
+        <div style="display:flex;align-items:center;gap:8px">
+          <input type="range" class="slider" id="betaSlider" min="0" max="100" value="30" oninput="liveRerank()" style="width:160px">
+          <span class="slider-val" id="betaVal">0.30</span>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:4px">
+        <span style="font-size:11px;letter-spacing:0.15em;color:#887;text-transform:uppercase">&gamma; (ops)</span>
+        <div style="display:flex;align-items:center;gap:8px">
+          <input type="range" class="slider" id="gammaSlider" min="0" max="100" value="20" oninput="liveRerank()" style="width:160px">
+          <span class="slider-val" id="gammaVal">0.20</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Pareto Frontier: Memory vs Logical Erasure</h3>
+    <canvas id="paretoChart" height="300"></canvas>
+  </div>
+
+  <div class="card" id="optResults"></div>
+
+  <div class="card" id="optSchedules"></div>
+
+  <div class="insight">
+    The best schedule depends on the objective, not ideology.
+    Drag the sliders: entropy-aware wins on erasure, conventional wins on
+    simplicity, hybrids win in between. That's the frontier. Choose what matters.
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- FOOTER                                                        -->
+<!-- ============================================================ -->
+<div class="footer">
+  <p>
+    This simulator treats information destruction as a schedulable resource.
+    The question is not &ldquo;can we erase less&rdquo; but &ldquo;where on
+    the frontier do we want to be.&rdquo;
+  </p>
+  <a href="https://begump.com/tools/test-model.html" class="back-link">&larr; Test Model</a>
+  &nbsp;&nbsp;
+  <a href="https://begump.com/r/" class="back-link">&larr; Research</a>
+</div>
+
+<script>
+// =====================================================================
+// CORE: Entropy Ledger
+// =====================================================================
+class EntropyLedger {
+  constructor(name) {
+    this.name = name;
+    this.ops = [];
+    this.totalCost = 0;
+    this.reversibleOps = 0;
+    this.irreversibleOps = 0;
+    this.tempMemory = 0;
+    this.peakMemory = 0;
+    this.currentMemory = 0;
+    this.garbageCreated = 0;   // total garbage states produced
+    this.garbageReclaimed = 0; // garbage cleaned via uncompute
+    // Timeline: snapshot after each op
+    this.timeline = [];
+  }
+
+  _snap() {
+    this.timeline.push({
+      step: this.ops.length,
+      memory: this.currentMemory,
+      cumCost: this.totalCost,
+      garbage: this.garbageCreated - this.garbageReclaimed,
+      type: this.ops[this.ops.length - 1].type
+    });
+  }
+
+  reversible(opName, detail) {
+    this.ops.push({ op: opName, detail, cost: 0, type: 'rev' });
+    this.reversibleOps++;
+    this._snap();
+  }
+
+  irreversible(opName, M, detail) {
+    const cost = Math.log(M);
+    this.ops.push({ op: opName, detail, cost, M, type: 'irrev' });
+    this.totalCost += cost;
+    this.irreversibleOps++;
+    this._snap();
+  }
+
+  allocTemp(bits) {
+    this.currentMemory += bits;
+    this.garbageCreated += bits;
+    if (this.currentMemory > this.peakMemory) this.peakMemory = this.currentMemory;
+    this.tempMemory += bits;
+  }
+
+  freeTemp(bits) {
+    this.currentMemory -= bits;
+    this.garbageReclaimed += bits;
+  }
+
+  summary() {
+    return {
+      name: this.name,
+      totalOps: this.ops.length,
+      reversibleOps: this.reversibleOps,
+      irreversibleOps: this.irreversibleOps,
+      totalCost: this.totalCost,
+      totalCostBits: this.totalCost / Math.LN2,
+      peakMemory: this.peakMemory,
+      tempMemory: this.tempMemory,
+      garbageCreated: this.garbageCreated,
+      garbageReclaimed: this.garbageReclaimed,
+      garbageFinal: this.garbageCreated - this.garbageReclaimed,
+      timeline: this.timeline,
+      ops: this.ops
+    };
+  }
+}
+
+// =====================================================================
+// UTILITY
+// =====================================================================
+function factorize(n) {
+  const f = {};
+  let d = 2;
+  while (d * d <= n) {
+    while (n % d === 0) { f[d] = (f[d]||0)+1; n /= d; }
+    d++;
+  }
+  if (n > 1) f[n] = (f[n]||0)+1;
+  return f;
+}
+
+function divisorCount(n) {
+  const f = factorize(n);
+  let d = 1;
+  for (const p in f) d *= (f[p] + 1);
+  return d;
+}
+
+// =====================================================================
+// TABS
+// =====================================================================
+function switchTab(idx) {
+  document.querySelectorAll('.tab').forEach((t,i) => t.classList.toggle('active', i===idx));
+  document.querySelectorAll('.panel').forEach((p,i) => p.classList.toggle('active', i===idx));
+  if (idx === 0) runSearch();
+  if (idx === 1) runSort();
+  if (idx === 2) runMultiply();
+  if (idx === 3) buildCollapseExample();
+  if (idx === 4) runOptimizer();
+}
+
+// =====================================================================
+// TEST 1: SORTING
+// =====================================================================
+function runSort() {
+  const N = parseInt(document.getElementById('sortSize').value);
+
+  // --- Conventional: comparison sort ---
+  const conv = new EntropyLedger('Conventional Sort');
+  // Merge sort: ~N*log2(N) comparisons, each erases 1 bit
+  const comparisons = Math.ceil(N * Math.log2(N));
+  for (let i = 0; i < comparisons; i++) {
+    conv.irreversible('COMPARE_SELECT', 2, `comparison ${i+1}`);
+  }
+
+  // --- Entropy-aware: reversible compare + uncompute ---
+  const aware = new EntropyLedger('Entropy-Aware Sort');
+  // Step 1: reversible comparisons (keep all intermediate state)
+  for (let i = 0; i < comparisons; i++) {
+    aware.reversible('XOR_COMPARE', `reversible comparison ${i+1}`);
+    aware.allocTemp(1); // 1 bit of comparison result stored
+  }
+  // Step 2: copy sorted output
+  aware.reversible('FORK', `copy sorted result (${N} elements)`);
+  aware.allocTemp(N * Math.ceil(Math.log2(N))); // output copy
+
+  // Step 3: uncompute all comparisons
+  for (let i = 0; i < comparisons; i++) {
+    aware.reversible('UNCOMPUTE', `reverse comparison ${comparisons - i}`);
+    aware.freeTemp(1);
+  }
+
+  // Step 4: erase the permutation information (mandatory)
+  // The permutation of N items requires log2(N!) bits to specify
+  const permBits = logFactorial(N) / Math.LN2;
+  // Factorized collapse: N! = prod of primes
+  const nFactFactors = factorizeFactorial(N);
+  for (const p in nFactFactors) {
+    const a = nFactFactors[p];
+    for (let i = 0; i < a; i++) {
+      aware.irreversible(`COLLAPSE_${p}`, parseInt(p), `prime stage p=${p}, step ${i+1}/${a}`);
+    }
+  }
+  aware.freeTemp(N * Math.ceil(Math.log2(N)));
+
+  renderLedger('sortLedgerConv', conv.summary());
+  renderLedger('sortLedgerAware', aware.summary());
+  renderComparison('sortComparison', conv.summary(), aware.summary());
+}
+
+function logFactorial(n) {
+  if (n <= 1) return 0;
+  let s = 0;
+  for (let i = 2; i <= n; i++) s += Math.log(i);
+  return s;
+}
+
+function factorizeFactorial(n) {
+  // Prime factorization of N! using Legendre's formula
+  const primes = [];
+  const sieve = new Uint8Array(n + 1);
+  for (let i = 2; i <= n; i++) {
+    if (!sieve[i]) {
+      primes.push(i);
+      for (let j = i*i; j <= n; j += i) sieve[j] = 1;
+    }
+  }
+  const factors = {};
+  for (const p of primes) {
+    let exp = 0;
+    let pk = p;
+    while (pk <= n) {
+      exp += Math.floor(n / pk);
+      pk *= p;
+    }
+    factors[p] = exp;
+  }
+  return factors;
+}
+
+// =====================================================================
+// TEST 2: MULTIPLY
+// =====================================================================
+function runMultiply() {
+  const a = parseInt(document.getElementById('mulA').value);
+  const b = parseInt(document.getElementById('mulB').value);
+  const n = a * b;
+
+  // --- Generic: compute n, erase both inputs at once ---
+  const generic = new EntropyLedger('Generic Multiply');
+  generic.reversible('MULTIPLY_REV', `${a} × ${b} = ${n} (Toffoli-style, keep inputs)`);
+  generic.allocTemp(Math.ceil(Math.log2(n)));
+  // Erase inputs: we had (a, b, n), want just n
+  // Degeneracy = d(n) ordered pairs
+  const dn = divisorCount(n);
+  generic.irreversible('RESET', a, `erase input a=${a} (${Math.ceil(Math.log2(a))} bits)`);
+  generic.irreversible('RESET', b, `erase input b=${b} (${Math.ceil(Math.log2(b))} bits)`);
+
+  // --- Factorized: decompose through prime stages ---
+  const factored = new EntropyLedger('Factorized Multiply');
+  factored.reversible('MULTIPLY_REV', `${a} × ${b} = ${n} (Toffoli-style, keep inputs)`);
+  factored.allocTemp(Math.ceil(Math.log2(n)));
+
+  // Factor n
+  const factors = factorize(n);
+  // Erase inputs through prime-stage collapses
+  // The idea: decompose the erasure of (a,b) → n into stages
+  // At each prime p dividing n, collapse the p-ambiguity
+  factored.reversible('TAG', `annotate n=${n} with factorization ${fmtFactors(factors)}`);
+
+  for (const p in factors) {
+    const exp = factors[p];
+    for (let i = 0; i < exp; i++) {
+      factored.irreversible(`COLLAPSE_${p}`, parseInt(p),
+        `erase p=${p} ambiguity, stage ${i+1}/${exp}`);
+    }
+  }
+
+  renderLedger('mulLedgerGeneric', generic.summary());
+  renderLedger('mulLedgerFactored', factored.summary());
+  renderComparison('mulComparison', generic.summary(), factored.summary());
+}
+
+function fmtFactors(f) {
+  return Object.entries(f).map(([p,a]) => a > 1 ? `${p}^${a}` : p).join(' × ');
+}
+
+// =====================================================================
+// TEST 3: SEARCH
+// =====================================================================
+function runSearch() {
+  const N = parseInt(document.getElementById('searchSize').value);
+
+  // --- Conventional: linear search, discard non-matches ---
+  const conv = new EntropyLedger('Conventional Search');
+  // Average case: check N/2 elements, worst case: N
+  // Each comparison that fails: erase 1 bit (match/no-match)
+  for (let i = 0; i < N - 1; i++) {
+    conv.irreversible('COMPARE_SELECT', 2, `compare element ${i+1}, discard result`);
+  }
+  // Final element found
+  conv.reversible('TAG', 'found at last comparison');
+
+  // --- Entropy-aware: reversible compare, tag, uncompute ---
+  const aware = new EntropyLedger('Entropy-Aware Search');
+  // Step 1: reversible comparisons against all N elements
+  for (let i = 0; i < N; i++) {
+    aware.reversible('XOR_COMPARE', `reversible compare with element ${i+1}`);
+    aware.allocTemp(1);
+  }
+  // Step 2: one match bit is set — copy it
+  aware.reversible('FORK', 'copy match index');
+  aware.allocTemp(Math.ceil(Math.log2(N)));
+
+  // Step 3: uncompute all comparisons
+  for (let i = 0; i < N; i++) {
+    aware.reversible('UNCOMPUTE', `reverse comparison ${N - i}`);
+    aware.freeTemp(1);
+  }
+
+  // Step 4: erase the "which of N" uncertainty — this is mandatory
+  // Factorized: N might have prime structure
+  const factors = factorize(N);
+  for (const p in factors) {
+    const exp = factors[p];
+    for (let i = 0; i < exp; i++) {
+      aware.irreversible(`COLLAPSE_${p}`, parseInt(p),
+        `position uncertainty p=${p}, stage ${i+1}/${exp}`);
+    }
+  }
+  aware.freeTemp(Math.ceil(Math.log2(N)));
+
+  renderLedger('searchLedgerConv', conv.summary());
+  renderLedger('searchLedgerAware', aware.summary());
+  renderComparison('searchComparison', conv.summary(), aware.summary());
+}
+
+// =====================================================================
+// OPTIMIZER (Panel 4)
+// =====================================================================
+let cachedSchedules = [];
+
+function runOptimizer() {
+  const task = document.getElementById('optTask').value;
+  cachedSchedules = generateSchedules(task);
+
+  cachedSchedules.forEach(s => {
+    const sum = s.ledger.summary();
+    s.erasure = sum.totalCost;
+    s.erasureBits = sum.totalCostBits;
+    s.memory = sum.peakMemory;
+    s.ops = sum.totalOps;
+    s.irrevOps = sum.irreversibleOps;
+    s.garbage = sum.garbageCreated;
+    s.garbageReclaimed = sum.garbageReclaimed;
+  });
+
+  liveRerank();
+}
+
+function liveRerank() {
+  const schedules = cachedSchedules;
+  if (!schedules.length) return;
+
+  const aRaw = parseInt(document.getElementById('alphaSlider').value);
+  const bRaw = parseInt(document.getElementById('betaSlider').value);
+  const gRaw = parseInt(document.getElementById('gammaSlider').value);
+  const total = aRaw + bRaw + gRaw || 1;
+  const alpha = aRaw / total;
+  const beta = bRaw / total;
+  const gamma = gRaw / total;
+
+  document.getElementById('alphaVal').textContent = alpha.toFixed(2);
+  document.getElementById('betaVal').textContent = beta.toFixed(2);
+  document.getElementById('gammaVal').textContent = gamma.toFixed(2);
+
+  const maxE = Math.max(...schedules.map(s => s.erasure), 0.001);
+  const maxM = Math.max(...schedules.map(s => s.memory), 1);
+  const maxO = Math.max(...schedules.map(s => s.ops), 1);
+
+  schedules.forEach(s => {
+    s.normErasure = s.erasure / maxE;
+    s.normMemory = s.memory / maxM;
+    s.normOps = s.ops / maxO;
+    s.score = alpha * s.normErasure + beta * s.normMemory + gamma * s.normOps;
+  });
+
+  const sorted = [...schedules].sort((a, b) => a.score - b.score);
+
+  // Pareto chart
+  drawPareto(schedules);
+
+  // Ranking table
+  let html = '<h3 style="margin-top:0">Schedule Ranking (live)</h3>';
+  html += '<table class="ledger"><thead><tr><th>#</th><th>Schedule</th><th style="text-align:right">Erasure</th><th style="text-align:right">Memory</th><th style="text-align:right">Garbage</th><th style="text-align:right">Ops</th><th style="text-align:right">Score</th></tr></thead><tbody>';
+  sorted.forEach((s, i) => {
+    const best = i === 0 ? ' style="color:#6c6"' : '';
+    html += `<tr${best}><td>${i+1}</td><td class="op">${s.name}</td>`;
+    html += `<td class="cost">${s.erasure.toFixed(2)} nats</td>`;
+    html += `<td class="cost">${s.memory}</td>`;
+    html += `<td class="cost">${s.garbage} / ${s.garbageReclaimed} recl.</td>`;
+    html += `<td class="cost">${s.ops}</td>`;
+    html += `<td class="cost">${s.score.toFixed(4)}</td></tr>`;
+  });
+  html += '</tbody></table>';
+  document.getElementById('optResults').innerHTML = html;
+
+  // Best vs worst
+  const best = sorted[0];
+  const worst = sorted[sorted.length - 1];
+  const eSave = worst.erasure > 0 ? ((worst.erasure - best.erasure) / worst.erasure * 100) : 0;
+  const mCost = best.memory > worst.memory ? ((best.memory - worst.memory) / (worst.memory||1) * 100) : 0;
+  let dh = '<h3 style="margin-top:0">Tradeoff Summary</h3>';
+  dh += `<div class="result-row"><span class="result-label">Best: ${best.name}</span><span class="result-value match">${best.erasure.toFixed(2)} nats, ${best.memory} mem, ${best.garbage} garbage</span></div>`;
+  dh += `<div class="result-row"><span class="result-label">Worst: ${worst.name}</span><span class="result-value mismatch">${worst.erasure.toFixed(2)} nats, ${worst.memory} mem, ${worst.garbage} garbage</span></div>`;
+  dh += `<div class="result-row"><span class="result-label">Erasure reduction</span><span class="result-value match">${eSave.toFixed(1)}%</span></div>`;
+  if (mCost > 0) dh += `<div class="result-row"><span class="result-label">Memory overhead</span><span class="result-value mismatch">+${mCost.toFixed(0)}%</span></div>`;
+  dh += `<div class="result-row"><span class="result-label">Tradeoff</span><span class="result-value">${eSave > 1 && mCost > 0 ? 'Less logical erasure costs more garbage memory' : eSave > 1 ? 'Free win on erasure' : 'Schedules roughly equivalent'}</span></div>`;
+  document.getElementById('optSchedules').innerHTML = dh;
+}
+
+function drawPareto(schedules) {
+  const canvas = document.getElementById('paretoChart');
+  if (!canvas) return;
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  const w = rect.width, h = rect.height;
+  const pad = { top: 30, right: 30, bottom: 50, left: 70 };
+  const cW = w - pad.left - pad.right;
+  const cH = h - pad.top - pad.bottom;
+
+  const maxMem = Math.max(...schedules.map(s => s.memory), 1) * 1.15;
+  const maxErasure = Math.max(...schedules.map(s => s.erasure), 0.1) * 1.15;
+
+  // Grid
+  ctx.font = '10px Georgia'; ctx.textAlign = 'right'; ctx.fillStyle = '#887';
+  for (let i = 0; i <= 4; i++) {
+    const y = pad.top + cH - (cH * i / 4);
+    const val = (maxErasure * i / 4).toFixed(1);
+    ctx.fillStyle = '#ffffff10'; ctx.fillRect(pad.left, y, cW, 1);
+    ctx.fillStyle = '#887'; ctx.fillText(val, pad.left - 6, y + 3);
+  }
+  ctx.textAlign = 'center';
+  for (let i = 0; i <= 4; i++) {
+    const x = pad.left + (cW * i / 4);
+    const val = Math.round(maxMem * i / 4);
+    ctx.fillStyle = '#ffffff10'; ctx.fillRect(x, pad.top, 1, cH);
+    ctx.fillStyle = '#887'; ctx.fillText(val, x, pad.top + cH + 16);
+  }
+
+  // Axis labels
+  ctx.fillStyle = '#887'; ctx.font = '12px Georgia';
+  ctx.textAlign = 'center';
+  ctx.fillText('Peak memory (registers)', pad.left + cW/2, h - 8);
+  ctx.save(); ctx.translate(14, pad.top + cH/2); ctx.rotate(-Math.PI/2);
+  ctx.fillText('Logical erasure (nats)', 0, 0); ctx.restore();
+
+  // Points
+  const colors = ['#ffd6a0','#ff6655','#6c6','#66ccff','#cc66ff','#ff9966','#99ff66'];
+  schedules.forEach((s, i) => {
+    const x = pad.left + (s.memory / maxMem) * cW;
+    const y = pad.top + cH - (s.erasure / maxErasure) * cH;
+    ctx.beginPath();
+    ctx.fillStyle = colors[i % colors.length];
+    ctx.arc(x, y, 7, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#0a0a0a'; ctx.lineWidth = 2; ctx.stroke();
+    // Label
+    ctx.fillStyle = colors[i % colors.length];
+    ctx.font = '10px Georgia'; ctx.textAlign = 'left';
+    ctx.fillText(s.name, x + 10, y + 3);
+  });
+
+  // Pareto frontier line (connect non-dominated points)
+  const pareto = findPareto(schedules);
+  if (pareto.length > 1) {
+    pareto.sort((a, b) => a.memory - b.memory);
+    ctx.beginPath(); ctx.strokeStyle = '#ffd6a044'; ctx.lineWidth = 1.5;
+    ctx.setLineDash([4, 4]);
+    pareto.forEach((s, i) => {
+      const x = pad.left + (s.memory / maxMem) * cW;
+      const y = pad.top + cH - (s.erasure / maxErasure) * cH;
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  // Label
+  ctx.fillStyle = '#ffd6a066'; ctx.font = '11px Georgia'; ctx.textAlign = 'right';
+  ctx.fillText('Pareto frontier', w - pad.right, pad.top + 12);
+  ctx.fillStyle = '#665'; ctx.font = '10px Georgia';
+  ctx.fillText('lower-left = better', w - pad.right, pad.top + 26);
+}
+
+function findPareto(schedules) {
+  // Non-dominated on (memory, erasure) — lower is better for both
+  return schedules.filter(s => {
+    return !schedules.some(other =>
+      other.memory <= s.memory && other.erasure <= s.erasure &&
+      (other.memory < s.memory || other.erasure < s.erasure)
+    );
+  });
+}
+
+function generateSchedules(task) {
+  const schedules = [];
+  let N, a, b;
+
+  if (task.startsWith('search')) {
+    N = parseInt(task.replace('search', ''));
+
+    // Schedule 1: Conventional (eager erasure)
+    const s1 = new EntropyLedger('Conventional');
+    for (let i = 0; i < N - 1; i++) s1.irreversible('COMPARE_SELECT', 2, `cmp ${i+1}`);
+    s1.reversible('TAG', 'found');
+    schedules.push({ name: 'Conventional (eager erase)', ledger: s1 });
+
+    // Schedule 2: Full uncompute + single collapse
+    const s2 = new EntropyLedger('Full Uncompute');
+    for (let i = 0; i < N; i++) { s2.reversible('XOR_CMP', `rev cmp ${i+1}`); s2.allocTemp(1); }
+    s2.reversible('FORK', 'copy match'); s2.allocTemp(Math.ceil(Math.log2(N)));
+    for (let i = 0; i < N; i++) { s2.reversible('UNCOMPUTE', `undo ${N-i}`); s2.freeTemp(1); }
+    s2.irreversible('RESET', N, `erase position uncertainty (ln ${N})`);
+    s2.freeTemp(Math.ceil(Math.log2(N)));
+    schedules.push({ name: 'Uncompute + generic RESET', ledger: s2 });
+
+    // Schedule 3: Full uncompute + factorized collapse
+    const s3 = new EntropyLedger('Factorized Collapse');
+    for (let i = 0; i < N; i++) { s3.reversible('XOR_CMP', `rev cmp ${i+1}`); s3.allocTemp(1); }
+    s3.reversible('FORK', 'copy match'); s3.allocTemp(Math.ceil(Math.log2(N)));
+    for (let i = 0; i < N; i++) { s3.reversible('UNCOMPUTE', `undo ${N-i}`); s3.freeTemp(1); }
+    const factors = factorize(N);
+    for (const p in factors) {
+      for (let i = 0; i < factors[p]; i++) s3.irreversible(`COLLAPSE_${p}`, parseInt(p), `p=${p}`);
+    }
+    s3.freeTemp(Math.ceil(Math.log2(N)));
+    schedules.push({ name: 'Uncompute + COLLAPSE_FACT', ledger: s3 });
+
+    // Schedule 4: Partial uncompute (keep half, erase half)
+    const s4 = new EntropyLedger('Partial Uncompute');
+    const half = Math.floor(N / 2);
+    for (let i = 0; i < N; i++) { s4.reversible('XOR_CMP', `rev cmp ${i+1}`); s4.allocTemp(1); }
+    s4.reversible('FORK', 'copy match'); s4.allocTemp(Math.ceil(Math.log2(N)));
+    for (let i = 0; i < half; i++) { s4.reversible('UNCOMPUTE', `undo ${N-i}`); s4.freeTemp(1); }
+    // Erase remaining comparisons eagerly
+    for (let i = 0; i < N - half; i++) s4.irreversible('RESET', 2, `erase cmp bit ${i+1}`);
+    s4.freeTemp(N - half);
+    // Still need to erase position uncertainty
+    s4.irreversible('RESET', N, `position uncertainty`);
+    s4.freeTemp(Math.ceil(Math.log2(N)));
+    schedules.push({ name: 'Partial uncompute (50%)', ledger: s4 });
+
+    // Schedule 5: Binary search (fewer comparisons)
+    const s5 = new EntropyLedger('Binary Search');
+    const lgN = Math.ceil(Math.log2(N));
+    // Binary search only needs log2(N) comparisons, but each erases more
+    for (let i = 0; i < lgN; i++) {
+      s5.irreversible('COMPARE_SELECT', 2, `binary cmp ${i+1}`);
+    }
+    schedules.push({ name: 'Binary search (sorted input)', ledger: s5 });
+
+  } else if (task.startsWith('sort')) {
+    N = parseInt(task.replace('sort', ''));
+    const comps = Math.ceil(N * Math.log2(N));
+
+    // Schedule 1: Conventional
+    const s1 = new EntropyLedger('Conventional');
+    for (let i = 0; i < comps; i++) s1.irreversible('COMPARE_SELECT', 2, `cmp ${i+1}`);
+    schedules.push({ name: 'Conventional sort', ledger: s1 });
+
+    // Schedule 2: Full uncompute + factorized N!
+    const s2 = new EntropyLedger('Full Uncompute');
+    for (let i = 0; i < comps; i++) { s2.reversible('XOR_CMP', `rev cmp ${i+1}`); s2.allocTemp(1); }
+    s2.reversible('FORK', 'copy sorted'); s2.allocTemp(N * Math.ceil(Math.log2(N)));
+    for (let i = 0; i < comps; i++) { s2.reversible('UNCOMPUTE', `undo ${comps-i}`); s2.freeTemp(1); }
+    const nf = factorizeFactorial(N);
+    for (const p in nf) {
+      for (let i = 0; i < nf[p]; i++) s2.irreversible(`COLLAPSE_${p}`, parseInt(p), `N! stage p=${p}`);
+    }
+    s2.freeTemp(N * Math.ceil(Math.log2(N)));
+    schedules.push({ name: 'Uncompute + COLLAPSE_FACT(N!)', ledger: s2 });
+
+    // Schedule 3: Partial uncompute
+    const s3 = new EntropyLedger('Partial Uncompute');
+    const keep = Math.floor(comps * 0.3);
+    for (let i = 0; i < comps; i++) { s3.reversible('XOR_CMP', `rev cmp ${i+1}`); s3.allocTemp(1); }
+    s3.reversible('FORK', 'copy sorted'); s3.allocTemp(N * Math.ceil(Math.log2(N)));
+    for (let i = 0; i < comps - keep; i++) { s3.reversible('UNCOMPUTE', `undo`); s3.freeTemp(1); }
+    for (let i = 0; i < keep; i++) s3.irreversible('RESET', 2, `erase kept cmp`);
+    s3.freeTemp(keep);
+    const nf2 = factorizeFactorial(N);
+    for (const p in nf2) {
+      for (let i = 0; i < nf2[p]; i++) s3.irreversible(`COLLAPSE_${p}`, parseInt(p), `perm stage`);
+    }
+    s3.freeTemp(N * Math.ceil(Math.log2(N)));
+    schedules.push({ name: 'Partial uncompute (70%)', ledger: s3 });
+
+  } else if (task.startsWith('mul')) {
+    const num = parseInt(task.replace('mul', ''));
+    if (num === 60) { a = 6; b = 10; }
+    else { a = 14; b = 15; }
+    const n = a * b;
+
+    // Schedule 1: Generic RESET
+    const s1 = new EntropyLedger('Generic RESET');
+    s1.reversible('MULTIPLY_REV', `${a}×${b}=${n}`);
+    s1.allocTemp(Math.ceil(Math.log2(n)));
+    s1.irreversible('RESET', a, `erase a=${a}`);
+    s1.irreversible('RESET', b, `erase b=${b}`);
+    schedules.push({ name: 'Generic RESET (a,b)', ledger: s1 });
+
+    // Schedule 2: Factorized collapse of n
+    const s2 = new EntropyLedger('Factorized');
+    s2.reversible('MULTIPLY_REV', `${a}×${b}=${n}`);
+    s2.allocTemp(Math.ceil(Math.log2(n)));
+    const fn = factorize(n);
+    for (const p in fn) {
+      for (let i = 0; i < fn[p]; i++) s2.irreversible(`COLLAPSE_${p}`, parseInt(p), `p=${p}`);
+    }
+    schedules.push({ name: `COLLAPSE_FACT(${n})`, ledger: s2 });
+
+    // Schedule 3: Factor a and b separately
+    const s3 = new EntropyLedger('Factor inputs');
+    s3.reversible('MULTIPLY_REV', `${a}×${b}=${n}`);
+    s3.allocTemp(Math.ceil(Math.log2(n)));
+    const fa = factorize(a); const fb = factorize(b);
+    for (const p in fa) {
+      for (let i = 0; i < fa[p]; i++) s3.irreversible(`COLLAPSE_${p}`, parseInt(p), `a: p=${p}`);
+    }
+    for (const p in fb) {
+      for (let i = 0; i < fb[p]; i++) s3.irreversible(`COLLAPSE_${p}`, parseInt(p), `b: p=${p}`);
+    }
+    schedules.push({ name: `COLLAPSE_FACT(a) + COLLAPSE_FACT(b)`, ledger: s3 });
+
+  } else if (task.startsWith('topk')) {
+    // Top-K selection: find K largest from N items
+    N = parseInt(task.replace('topk', ''));
+    const K = 3;
+
+    // Schedule 1: Conventional — sort then take top K, erase rest
+    const s1 = new EntropyLedger('Sort + Take K');
+    const comps1 = Math.ceil(N * Math.log2(N));
+    for (let i = 0; i < comps1; i++) s1.irreversible('COMPARE_SELECT', 2, `sort cmp ${i+1}`);
+    // Erase N-K discarded items
+    for (let i = 0; i < N - K; i++) s1.irreversible('RESET', N, `discard item ${i+1}`);
+    schedules.push({ name: `Sort + take top ${K}`, ledger: s1 });
+
+    // Schedule 2: Tournament — pairwise elimination
+    const s2 = new EntropyLedger('Tournament');
+    let remaining = N;
+    let round = 0;
+    while (remaining > K) {
+      round++;
+      const pairs = Math.floor(remaining / 2);
+      for (let i = 0; i < pairs; i++) s2.irreversible('COMPARE_SELECT', 2, `round ${round} match ${i+1}`);
+      remaining = remaining - pairs;
+    }
+    schedules.push({ name: 'Tournament elimination', ledger: s2 });
+
+    // Schedule 3: Entropy-aware — reversible compare all, tag top K, uncompute
+    // After uncompute, the only information destroyed is "which K of N were chosen."
+    // That's C(N,K) possible selections — the output ambiguity class.
+    // The collapse cost ln(C(N,K)) comes from the SIZE of that class, not from
+    // any deep structure. It's factorized through primes purely for accounting.
+    const s3 = new EntropyLedger('Reversible + Uncompute');
+    const pairComps = Math.ceil(N * Math.log2(N));
+    for (let i = 0; i < pairComps; i++) { s3.reversible('XOR_CMP', `rev cmp ${i+1}`); s3.allocTemp(1); }
+    s3.reversible('FORK', `copy top-${K} indices`);
+    s3.allocTemp(K * Math.ceil(Math.log2(N)));
+    for (let i = 0; i < pairComps; i++) { s3.reversible('UNCOMPUTE', `undo`); s3.freeTemp(1); }
+    const cnk = binomial(N, K);
+    const cnkFactors = factorize(cnk);
+    for (const p in cnkFactors) {
+      for (let i = 0; i < cnkFactors[p]; i++) s3.irreversible(`COLLAPSE_${p}`, parseInt(p), `C(${N},${K})=${cnk}, prime stage p=${p}`);
+    }
+    s3.freeTemp(K * Math.ceil(Math.log2(N)));
+    schedules.push({ name: `Uncompute + COLLAPSE(C(${N},${K})=${cnk})`, ledger: s3 });
+
+    // Schedule 4: Partial uncompute tournament
+    const s4 = new EntropyLedger('Partial Tournament');
+    remaining = N;
+    round = 0;
+    let revComps = 0;
+    while (remaining > K * 2) {
+      round++;
+      const pairs = Math.floor(remaining / 2);
+      for (let i = 0; i < pairs; i++) { s4.reversible('XOR_CMP', `rev round ${round}`); s4.allocTemp(1); revComps++; }
+      remaining = remaining - pairs;
+    }
+    // Final rounds: erase eagerly
+    while (remaining > K) {
+      const pairs = Math.floor(remaining / 2);
+      for (let i = 0; i < pairs; i++) s4.irreversible('COMPARE_SELECT', 2, `final round`);
+      remaining = remaining - pairs;
+    }
+    // Uncompute early rounds
+    for (let i = 0; i < revComps; i++) { s4.reversible('UNCOMPUTE', 'undo'); s4.freeTemp(1); }
+    schedules.push({ name: 'Hybrid tournament', ledger: s4 });
+  }
+
+  return schedules;
+}
+
+function binomial(n, k) {
+  if (k > n) return 0;
+  if (k === 0 || k === n) return 1;
+  let result = 1;
+  for (let i = 0; i < k; i++) {
+    result = result * (n - i) / (i + 1);
+  }
+  return Math.round(result);
+}
+
+// =====================================================================
+// COLLAPSE EXAMPLE (Panel 3)
+// =====================================================================
+function buildCollapseExample() {
+  const M = 60;
+  const factors = factorize(M);
+  let html = '<table class="ledger"><thead><tr><th>Stage</th><th>Op</th><th>Cost (nats)</th><th>Running Total</th></tr></thead><tbody>';
+  let running = 0;
+  let stage = 0;
+  for (const p in factors) {
+    const a = factors[p];
+    for (let i = 0; i < a; i++) {
+      stage++;
+      const cost = Math.log(parseInt(p));
+      running += cost;
+      html += `<tr><td>${stage}</td><td class="op">COLLAPSE_${p}</td><td class="cost">${cost.toFixed(4)}</td><td class="cost">${running.toFixed(4)}</td></tr>`;
+    }
+  }
+  html += `<tr class="total"><td colspan="2">TOTAL = ln(${M})</td><td class="cost">${Math.log(M).toFixed(4)}</td><td class="cost">${running.toFixed(4)}</td></tr>`;
+  html += '</tbody></table>';
+  html += `<p style="font-size:13px;color:#998">60 = 2² × 3 × 5. Three prime stages: COLLAPSE_2 twice, COLLAPSE_3 once, COLLAPSE_5 once. Total cost = 2·ln(2) + ln(3) + ln(5) = ln(60).</p>`;
+  document.getElementById('collapseExample').innerHTML = html;
+}
+
+// =====================================================================
+// RENDERING
+// =====================================================================
+function renderLedger(containerId, summary) {
+  const container = document.getElementById(containerId);
+  let html = `<h3 style="margin-top:0">${summary.name}</h3>`;
+
+  // Show last ~12 ops (or all if fewer)
+  const showOps = summary.ops.length <= 15 ? summary.ops : [
+    ...summary.ops.slice(0, 6),
+    { op: '...', detail: `${summary.ops.length - 12} more operations`, cost: 0, type: 'skip' },
+    ...summary.ops.slice(-6)
+  ];
+
+  html += '<table class="ledger"><thead><tr><th>#</th><th>Op</th><th>Detail</th><th style="text-align:right">Cost (nats)</th></tr></thead><tbody>';
+  let idx = 0;
+  for (const op of showOps) {
+    if (op.type === 'skip') {
+      html += `<tr><td style="color:#665">...</td><td class="op" style="color:#665">...</td><td style="color:#665">${op.detail}</td><td></td></tr>`;
+    } else {
+      idx++;
+      const costClass = op.type === 'rev' ? 'rev' : 'irrev';
+      html += `<tr><td>${idx}</td><td class="op">${op.op}</td><td>${op.detail}</td><td class="${costClass}" style="text-align:right">${op.cost > 0 ? op.cost.toFixed(4) : '0'}</td></tr>`;
+    }
+  }
+  html += `<tr class="total"><td colspan="3">TOTAL (${summary.irreversibleOps} irreversible / ${summary.reversibleOps} reversible)</td><td style="text-align:right">${summary.totalCost.toFixed(4)} nats = ${summary.totalCostBits.toFixed(2)} bits</td></tr>`;
+  html += '</tbody></table>';
+
+  container.innerHTML = html;
+}
+
+function renderComparison(containerId, a, b) {
+  const container = document.getElementById(containerId);
+  const winner = a.totalCost < b.totalCost ? a.name : (b.totalCost < a.totalCost ? b.name : 'Tie');
+  const savings = a.totalCost > 0 ? ((a.totalCost - b.totalCost) / a.totalCost * 100) : 0;
+
+  let html = '<h3 style="margin-top:0">Comparison</h3>';
+  html += `<div class="result-row"><span class="result-label">${a.name}: logical erasure</span><span class="result-value">${a.totalCost.toFixed(4)} nats (${a.totalCostBits.toFixed(2)} bits)</span></div>`;
+  html += `<div class="result-row"><span class="result-label">${b.name}: logical erasure</span><span class="result-value">${b.totalCost.toFixed(4)} nats (${b.totalCostBits.toFixed(2)} bits)</span></div>`;
+  html += `<div class="result-row"><span class="result-label">Irreversible ops</span><span class="result-value">${a.irreversibleOps} vs ${b.irreversibleOps}</span></div>`;
+  html += `<div class="result-row"><span class="result-label">Peak temp memory</span><span class="result-value">${a.peakMemory} vs ${b.peakMemory} registers</span></div>`;
+
+  // Garbage accounting
+  html += `<div class="result-row"><span class="result-label">Garbage created / reclaimed</span><span class="result-value">${a.garbageCreated}/${a.garbageReclaimed} vs ${b.garbageCreated}/${b.garbageReclaimed}</span></div>`;
+
+  if (savings > 0.01) {
+    html += `<div class="result-row"><span class="result-label">Erasure savings</span><span class="result-value match">${savings.toFixed(1)}% fewer nats <span class="badge win">${winner}</span></span></div>`;
+  } else if (savings < -0.01) {
+    html += `<div class="result-row"><span class="result-label">Erasure penalty</span><span class="result-value mismatch">${(-savings).toFixed(1)}% more nats <span class="badge win">${winner}</span></span></div>`;
+  } else {
+    html += `<div class="result-row"><span class="result-label">Logical erasure</span><span class="result-value">Same total</span></div>`;
+  }
+
+  html += `<div class="result-row"><span class="result-label">Tradeoff</span><span class="result-value">${b.peakMemory > a.peakMemory ? 'Less erasure costs more garbage memory' : b.garbageCreated > a.garbageCreated ? 'Less erasure requires more garbage states' : 'No tradeoff'}</span></div>`;
+
+  // Timeline chart
+  html += `<h3>Timeline: when destruction happens</h3>`;
+  html += `<canvas id="${containerId}_timeline" height="140"></canvas>`;
+  container.innerHTML = html;
+
+  // Draw timeline
+  drawTimeline(`${containerId}_timeline`, a, b);
+}
+
+function drawTimeline(canvasId, a, b) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  const w = rect.width, h = rect.height;
+  const pad = { top: 20, right: 20, bottom: 30, left: 50 };
+  const cW = w - pad.left - pad.right;
+  const cH = h - pad.top - pad.bottom;
+
+  const tlA = a.timeline || [];
+  const tlB = b.timeline || [];
+  const maxSteps = Math.max(tlA.length, tlB.length, 1);
+  const maxCost = Math.max(a.totalCost, b.totalCost, 0.1);
+
+  // Axes
+  ctx.strokeStyle = '#ffffff15'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(pad.left, pad.top); ctx.lineTo(pad.left, pad.top + cH); ctx.lineTo(pad.left + cW, pad.top + cH); ctx.stroke();
+  ctx.font = '10px Georgia'; ctx.fillStyle = '#887'; ctx.textAlign = 'center';
+  ctx.fillText('step', pad.left + cW/2, h - 4);
+  ctx.save(); ctx.translate(10, pad.top + cH/2); ctx.rotate(-Math.PI/2);
+  ctx.fillText('cum. erasure (nats)', 0, 0); ctx.restore();
+
+  // Line A (red = conventional)
+  if (tlA.length > 1) {
+    ctx.beginPath(); ctx.strokeStyle = '#ff6655'; ctx.lineWidth = 2;
+    tlA.forEach((pt, i) => {
+      const x = pad.left + (i / maxSteps) * cW;
+      const y = pad.top + cH - (pt.cumCost / maxCost) * cH;
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+  }
+
+  // Line B (green = entropy-aware)
+  if (tlB.length > 1) {
+    ctx.beginPath(); ctx.strokeStyle = '#6c6'; ctx.lineWidth = 2;
+    tlB.forEach((pt, i) => {
+      const x = pad.left + (i / maxSteps) * cW;
+      const y = pad.top + cH - (pt.cumCost / maxCost) * cH;
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+  }
+
+  // Legend
+  ctx.font = '11px Georgia';
+  ctx.fillStyle = '#ff6655'; ctx.fillRect(pad.left + 10, 4, 10, 10);
+  ctx.fillStyle = '#e8e4dc'; ctx.textAlign = 'left'; ctx.fillText(a.name, pad.left + 24, 13);
+  ctx.fillStyle = '#6c6'; ctx.fillRect(pad.left + 180, 4, 10, 10);
+  ctx.fillStyle = '#e8e4dc'; ctx.fillText(b.name, pad.left + 194, 13);
+}
+
+// =====================================================================
+// INIT
+// =====================================================================
+window.addEventListener('load', () => {
+  runSearch();
+  buildCollapseExample();
+});
+</script>
+</body>
+</html>

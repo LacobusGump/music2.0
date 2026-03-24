@@ -332,6 +332,18 @@ var Harmony = (function () {
   var _motifCooldown = 0;            // seconds until next motif suggestion
   var _sessionMaturity = 0;          // 0 (wet) to 1 (cured), builds with repetition
 
+  // Effective maturity: combines natural cure time with user novelty slider.
+  // Novelty 0 (familiar) → effectiveMaturity pushed toward 1 (cured, stable)
+  // Novelty 1 (novel) → effectiveMaturity pushed toward 0 (wet, exploratory)
+  // Novelty 0.5 → no override, natural cure time drives
+  function _effectiveMaturity() {
+    var novelty = (typeof window !== 'undefined' && window.GUMP_NOVELTY !== undefined)
+      ? window.GUMP_NOVELTY : 0.5;
+    // Map: novelty=0 → mult=2.0 (double maturity), novelty=1 → mult=0, novelty=0.5 → mult=1.0
+    var mult = 2.0 * (1 - novelty);
+    return Math.min(1, _sessionMaturity * mult);
+  }
+
   // ════════════════════════════════════════════════════════════════════
   // 10. SWEET SPOTS — gravitational wells for tilt-to-pitch mapping
   // ════════════════════════════════════════════════════════════════════
@@ -517,23 +529,29 @@ var Harmony = (function () {
     // get weighted proportional to maturity × their prime weight.
 
     // After 2+ notes: phrase wants to breathe — pull toward resolution
-    if (_phraseNoteCount >= 2) {
+    // Novelty modulates: familiar = strong resolution, novel = free wandering
+    var novelty = (typeof window !== 'undefined' && window.GUMP_NOVELTY !== undefined)
+      ? window.GUMP_NOVELTY : 0.5;
+    var phraseThreshold = 2 + Math.floor(novelty * 4); // 2 (familiar) to 6 (novel)
+    if (_phraseNoteCount >= phraseThreshold) {
       var resolveTones = [0, 2, 4, 7];
       var best2 = 0, bestD2 = 999;
       for (var ri = 0; ri < resolveTones.length; ri++) {
         var d2 = Math.abs(rawDeg - resolveTones[ri]);
         if (d2 < bestD2) { bestD2 = d2; best2 = resolveTones[ri]; }
       }
-      return Math.round(rawDeg * 0.30 + best2 * 0.70);
+      var resolvePull = 0.70 - novelty * 0.45; // 0.70 (familiar) to 0.25 (novel)
+      return Math.round(rawDeg * (1 - resolvePull) + best2 * resolvePull);
     }
 
     // Prime harmonic gravity — scales with session maturity (cure time)
     // As the session cures, notes aligned with prime harmonics (1,3,5,7)
     // pull harder. The music crystallizes around fundamental intervals.
-    if (_sessionMaturity > 0.1) {
+    var _em = _effectiveMaturity();
+    if (_em > 0.1) {
       var nd = _normalDeg(Math.round(rawDeg));
       var primeWeight = (nd < PRIME_HARMONIC_WEIGHT.length) ? PRIME_HARMONIC_WEIGHT[nd] : 0.2;
-      var primePull = _sessionMaturity * primeWeight * 0.25;
+      var primePull = _em * primeWeight * 0.25;
       var nearest = Math.round(rawDeg);
       rawDeg = rawDeg * (1 - primePull) + nearest * primePull;
     }
@@ -541,20 +559,18 @@ var Harmony = (function () {
     // Composite resolution — hallways pull toward rooms
     // Composite intervals can't hold structure. As the session cures,
     // they increasingly resolve toward the nearest prime interval.
-    if (_sessionMaturity > 0.15) {
+    if (_em > 0.15) {
       var roundedDeg = _normalDeg(Math.round(rawDeg));
       for (var cr = 0; cr < COMPOSITE_RESOLVE.length; cr++) {
         var rule = COMPOSITE_RESOLVE[cr];
         if (roundedDeg === rule.deg) {
-          // Find nearest prime target
           var bestTarget = rule.targets[0];
           var bestDist = Math.abs(rawDeg - rule.targets[0]);
           for (var ct = 1; ct < rule.targets.length; ct++) {
             var dist = Math.abs(rawDeg - rule.targets[ct]);
             if (dist < bestDist) { bestDist = dist; bestTarget = rule.targets[ct]; }
           }
-          // Pull toward the room. Stronger as session cures.
-          var compositePull = rule.pull * _sessionMaturity;
+          var compositePull = rule.pull * _em;
           rawDeg = rawDeg * (1 - compositePull) + bestTarget * compositePull;
           break;
         }
@@ -681,7 +697,7 @@ var Harmony = (function () {
    */
   function applySweetSpot(rawDegree, pullStrength) {
     // Cure time: pull starts low (wet pour) and increases as session matures
-    var maturityPull = SWEET_SPOT_PULL_WET + _sessionMaturity * (SWEET_SPOT_PULL_CURED - SWEET_SPOT_PULL_WET);
+    var maturityPull = SWEET_SPOT_PULL_WET + _effectiveMaturity() * (SWEET_SPOT_PULL_CURED - SWEET_SPOT_PULL_WET);
     var pull = (pullStrength !== undefined) ? pullStrength : maturityPull;
     var nearest = Math.round(rawDegree);
     var dist = rawDegree - nearest;
@@ -1326,5 +1342,7 @@ var Harmony = (function () {
     get silenceSeedSet() { return _silenceSeedSet; },
     get motifs()    { return _motifs.slice(); },
     get maturity()  { return _sessionMaturity; },  // 0=wet pour, 1=cured foundation
+    get effectiveMaturity() { return _effectiveMaturity(); }, // maturity × novelty
+    get novelty() { return (typeof window !== 'undefined' && window.GUMP_NOVELTY !== undefined) ? window.GUMP_NOVELTY : 0.5; },
   });
 })();

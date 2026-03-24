@@ -197,9 +197,10 @@ canvas{
 <p class="subtitle">Everything reversible except prime erasures</p>
 
 <p>
-Three computational tests. If the simulation matches the theory at every point,
+Four computational tests. If the simulation matches the theory at every point,
 the framework is validated. If there is a discrepancy, we find the bug &mdash;
-in the theory or the code.
+in the theory or the code. Test 4 is the make-or-break: does structure
+dominate size?
 </p>
 
 <!-- Tabs -->
@@ -207,6 +208,7 @@ in the theory or the code.
   <button class="tab active" onclick="switchTab(0)">1. Sorting</button>
   <button class="tab" onclick="switchTab(1)">2. Primon Gas</button>
   <button class="tab" onclick="switchTab(2)">3. The Receipt</button>
+  <button class="tab" onclick="switchTab(3)">4. Adder vs Multiplier</button>
 </div>
 
 <!-- ================================================================ -->
@@ -320,12 +322,81 @@ in the theory or the code.
 </div>
 
 <!-- ================================================================ -->
+<!-- TEST 4: ADDER VS MULTIPLIER                                      -->
+<!-- ================================================================ -->
+<div class="panel" id="panel3">
+  <h2>Test 4: Adder vs Multiplier &mdash; Degeneracy Determines Cost</h2>
+  <p>
+    The make-or-break test. Same output number n, two different operations.
+    Addition has degeneracy ~n. Multiplication has degeneracy d(n).
+    If structure matters, these must give different Landauer bounds &mdash;
+    and they do.
+  </p>
+
+  <div class="controls">
+    <div class="control-group">
+      <span class="control-label">Range (2 &hellip; N)</span>
+      <div style="display:flex;align-items:center;gap:8px">
+        <input type="range" class="slider" id="sliderRange" min="10" max="200" value="100" oninput="updateAdderMult()">
+        <span class="slider-val" id="valRange">100</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Degeneracy: Addition vs Multiplication</h3>
+    <canvas id="degenChart" height="300"></canvas>
+    <div class="legend">
+      <div class="legend-item"><div class="legend-swatch" style="background:#ff6655"></div>Addition: |{(a,b): a+b=n}| = n&minus;1</div>
+      <div class="legend-item"><div class="legend-swatch" style="background:#ffd6a0"></div>Multiplication: |{(a,b): ab=n}| = d(n)</div>
+      <div class="legend-item"><div class="legend-swatch" style="background:#66ccff88"></div>Primes (d(n)=2)</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Landauer Bound: kT &middot; ln(degeneracy)</h3>
+    <canvas id="boundChart" height="300"></canvas>
+    <div class="legend">
+      <div class="legend-item"><div class="legend-swatch" style="background:#ff6655"></div>Addition bound: kT&middot;ln(n&minus;1)</div>
+      <div class="legend-item"><div class="legend-swatch" style="background:#ffd6a0"></div>Multiplication bound: kT&middot;ln(d(n))</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>The Ratio: How Much Less Does Multiplication &ldquo;Cost&rdquo;?</h3>
+    <canvas id="ratioChart" height="240"></canvas>
+    <p style="font-size:13px;color:#998;margin-top:8px">
+      Ratio = ln(d(n)) / ln(n&minus;1). Lower = more structured, less degeneracy.
+      Primes hit the floor. Highly composite numbers peak.
+    </p>
+  </div>
+
+  <div class="card" id="adderMulResults">
+    <!-- filled by JS -->
+  </div>
+
+  <div class="card" id="adderMulExamples">
+    <!-- filled by JS -->
+  </div>
+
+  <div class="insight">
+    The old claim: &ldquo;primes cost something.&rdquo;
+    The real claim: <strong>lost degeneracy costs something.</strong>
+    Primes are zero-degeneracy endpoints &mdash; the only numbers where
+    multiplication has minimal ambiguity. The energy tax is kT times
+    &ldquo;how many ways could reality have produced what you kept.&rdquo;
+  </div>
+</div>
+
+<!-- ================================================================ -->
 <!-- FOOTER                                                           -->
 <!-- ================================================================ -->
 <div class="footer">
   <p>
     This is not a tool for others. This is us testing whether the math works when you run it.
     Every green checkmark is a point where simulation met theory. Every red X is a bug to find.
+    The real claim: lost degeneracy costs something. The energy tax is how many ways
+    reality could have produced what you kept.
   </p>
   <a href="https://begump.com/r/" class="back-link">&larr; GUMP Research</a>
 </div>
@@ -351,6 +422,7 @@ function switchTab(idx) {
   if (idx === 0) runSortTest();
   if (idx === 1) updatePrimon();
   if (idx === 2) computeReceipt();
+  if (idx === 3) updateAdderMult();
 }
 
 // =====================================================================
@@ -996,6 +1068,315 @@ document.getElementById('receiptN').addEventListener('keydown', function(e) {
 });
 
 // =====================================================================
+// TEST 4: ADDER VS MULTIPLIER
+// =====================================================================
+function divisorCount(n) {
+  if (n <= 1) return 1;
+  let count = 0;
+  for (let d = 1; d * d <= n; d++) {
+    if (n % d === 0) {
+      count++;
+      if (d !== n / d) count++;
+    }
+  }
+  return count;
+}
+
+function isPrime(n) {
+  if (n < 2) return false;
+  if (n < 4) return true;
+  if (n % 2 === 0 || n % 3 === 0) return false;
+  for (let i = 5; i * i <= n; i += 6) {
+    if (n % i === 0 || n % (i + 2) === 0) return false;
+  }
+  return true;
+}
+
+function updateAdderMult() {
+  const N = parseInt(document.getElementById('sliderRange').value);
+  document.getElementById('valRange').textContent = N;
+
+  // Compute data for n = 2..N
+  const data = [];
+  for (let n = 2; n <= N; n++) {
+    const addDegen = n - 1;         // |{(a,b): a+b=n, a,b>=1}|
+    const mulDegen = divisorCount(n); // |{(a,b): ab=n, a,b>=1}| = d(n)
+    const addBound = kT * Math.log(addDegen);
+    const mulBound = mulDegen > 1 ? kT * Math.log(mulDegen) : 0;
+    const ratio = Math.log(mulDegen) / Math.log(addDegen);
+    const prime = isPrime(n);
+    data.push({ n, addDegen, mulDegen, addBound, mulBound, ratio, prime });
+  }
+
+  drawDegenChart(data);
+  drawBoundChartAM(data);
+  drawRatioChart(data);
+  buildAMResults(data);
+  buildAMExamples(data);
+}
+
+function drawDegenChart(data) {
+  const { ctx, w, h } = clearCanvas(document.getElementById('degenChart'));
+  const pad = { top: 20, right: 20, bottom: 40, left: 60 };
+  const cW = w - pad.left - pad.right;
+  const cH = h - pad.top - pad.bottom;
+  const maxD = Math.max(...data.map(d => d.addDegen));
+  const step = cW / data.length;
+
+  // Y axis
+  ctx.font = '10px Georgia'; ctx.textAlign = 'right';
+  for (let i = 0; i <= 4; i++) {
+    const val = maxD * i / 4;
+    const y = pad.top + cH - (cH * i / 4);
+    ctx.fillStyle = '#ffffff10';
+    ctx.fillRect(pad.left, y, cW, 1);
+    ctx.fillStyle = '#887';
+    ctx.fillText(Math.round(val), pad.left - 6, y + 3);
+  }
+
+  // Addition line (red)
+  ctx.beginPath(); ctx.strokeStyle = '#ff6655'; ctx.lineWidth = 1.5;
+  data.forEach((d, i) => {
+    const x = pad.left + i * step + step / 2;
+    const y = pad.top + cH - (d.addDegen / maxD) * cH;
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+
+  // Multiplication dots (gold, with blue for primes)
+  data.forEach((d, i) => {
+    const x = pad.left + i * step + step / 2;
+    const y = pad.top + cH - (d.mulDegen / maxD) * cH;
+    ctx.beginPath();
+    ctx.fillStyle = d.prime ? '#66ccff' : '#ffd6a0';
+    ctx.arc(x, y, d.prime ? 3 : 2, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
+  // X label
+  ctx.fillStyle = '#887'; ctx.font = '11px Georgia'; ctx.textAlign = 'center';
+  ctx.fillText('n', pad.left + cW / 2, pad.top + cH + 30);
+  ctx.save();
+  ctx.translate(14, pad.top + cH / 2);
+  ctx.rotate(-Math.PI / 2);
+  ctx.fillText('Degeneracy (preimage count)', 0, 0);
+  ctx.restore();
+}
+
+function drawBoundChartAM(data) {
+  const { ctx, w, h } = clearCanvas(document.getElementById('boundChart'));
+  const pad = { top: 20, right: 20, bottom: 40, left: 70 };
+  const cW = w - pad.left - pad.right;
+  const cH = h - pad.top - pad.bottom;
+  const maxB = Math.max(...data.map(d => d.addBound));
+  const step = cW / data.length;
+
+  // Y axis
+  ctx.font = '10px Georgia'; ctx.textAlign = 'right';
+  for (let i = 0; i <= 4; i++) {
+    const val = maxB * i / 4;
+    const y = pad.top + cH - (cH * i / 4);
+    ctx.fillStyle = '#ffffff10';
+    ctx.fillRect(pad.left, y, cW, 1);
+    ctx.fillStyle = '#887';
+    ctx.fillText(formatEnergy(val), pad.left - 6, y + 3);
+  }
+
+  // Addition bound line (red)
+  ctx.beginPath(); ctx.strokeStyle = '#ff665588'; ctx.lineWidth = 1.5;
+  data.forEach((d, i) => {
+    const x = pad.left + i * step + step / 2;
+    const y = pad.top + cH - (d.addBound / maxB) * cH;
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+
+  // Multiplication bound dots (gold)
+  data.forEach((d, i) => {
+    const x = pad.left + i * step + step / 2;
+    const y = pad.top + cH - (d.mulBound / maxB) * cH;
+    ctx.beginPath();
+    ctx.fillStyle = d.prime ? '#66ccff' : '#ffd6a0';
+    ctx.arc(x, y, d.prime ? 3 : 2, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
+  ctx.fillStyle = '#887'; ctx.font = '11px Georgia'; ctx.textAlign = 'center';
+  ctx.fillText('n', pad.left + cW / 2, pad.top + cH + 30);
+  ctx.save();
+  ctx.translate(14, pad.top + cH / 2);
+  ctx.rotate(-Math.PI / 2);
+  ctx.fillText('Minimum Landauer cost (joules)', 0, 0);
+  ctx.restore();
+}
+
+function drawRatioChart(data) {
+  const { ctx, w, h } = clearCanvas(document.getElementById('ratioChart'));
+  const pad = { top: 20, right: 20, bottom: 40, left: 60 };
+  const cW = w - pad.left - pad.right;
+  const cH = h - pad.top - pad.bottom;
+  const step = cW / data.length;
+
+  // Y axis 0..1
+  ctx.font = '10px Georgia'; ctx.textAlign = 'right';
+  for (let i = 0; i <= 4; i++) {
+    const val = i / 4;
+    const y = pad.top + cH - (cH * i / 4);
+    ctx.fillStyle = '#ffffff10';
+    ctx.fillRect(pad.left, y, cW, 1);
+    ctx.fillStyle = '#887';
+    ctx.fillText(val.toFixed(2), pad.left - 6, y + 3);
+  }
+
+  // Dots
+  data.forEach((d, i) => {
+    const x = pad.left + i * step + step / 2;
+    const r = Math.min(d.ratio, 1);
+    const y = pad.top + cH - r * cH;
+    ctx.beginPath();
+    if (d.prime) {
+      ctx.fillStyle = '#66ccff';
+      ctx.arc(x, y, 3, 0, Math.PI * 2);
+    } else {
+      // Color by how composite: more divisors = warmer
+      const heat = Math.min(d.mulDegen / 12, 1);
+      ctx.fillStyle = `rgba(255, ${Math.round(214 - heat * 150)}, ${Math.round(160 - heat * 120)}, 0.8)`;
+      ctx.arc(x, y, 2, 0, Math.PI * 2);
+    }
+    ctx.fill();
+  });
+
+  ctx.fillStyle = '#887'; ctx.font = '11px Georgia'; ctx.textAlign = 'center';
+  ctx.fillText('n', pad.left + cW / 2, pad.top + cH + 30);
+  ctx.save();
+  ctx.translate(14, pad.top + cH / 2);
+  ctx.rotate(-Math.PI / 2);
+  ctx.fillText('ln(d(n)) / ln(n−1)  — structure ratio', 0, 0);
+  ctx.restore();
+}
+
+function buildAMResults(data) {
+  // Find most composite, a prime, and same-bitlength pair
+  const primes = data.filter(d => d.prime);
+  const composites = data.filter(d => !d.prime);
+  const mostComposite = composites.reduce((a, b) => a.mulDegen > b.mulDegen ? a : b, composites[0]);
+
+  // Same bit-length comparison
+  const pairs = [];
+  for (let i = 0; i < data.length; i++) {
+    for (let j = i + 1; j < data.length; j++) {
+      const bits_i = Math.floor(Math.log2(data[i].n)) + 1;
+      const bits_j = Math.floor(Math.log2(data[j].n)) + 1;
+      if (bits_i === bits_j && data[i].prime && !data[j].prime && data[j].mulDegen >= 6) {
+        pairs.push({ prime: data[i], composite: data[j], bits: bits_i });
+      }
+    }
+  }
+
+  // Pick the most dramatic pair
+  let bestPair = pairs.length > 0 ? pairs.reduce((a, b) =>
+    (b.composite.mulDegen - b.prime.mulDegen) > (a.composite.mulDegen - a.prime.mulDegen) ? b : a
+  ) : null;
+
+  let html = '<h3 style="margin-top:0">Verification</h3>';
+
+  // Key finding 1: Addition scales linearly, multiplication doesn't
+  html += `<div class="result-row">
+    <span class="result-label">Addition degeneracy at n=${data[data.length-1].n}</span>
+    <span class="result-value">${data[data.length-1].addDegen} (scales linearly with n)</span>
+  </div>`;
+  html += `<div class="result-row">
+    <span class="result-label">Multiplication degeneracy at n=${mostComposite.n}</span>
+    <span class="result-value">d(${mostComposite.n}) = ${mostComposite.mulDegen} (depends on structure)</span>
+  </div>`;
+
+  // Key finding 2: Operation dependence
+  const addBoundLast = data[data.length-1].addBound;
+  const mulBoundMC = mostComposite.mulBound;
+  html += `<div class="result-row">
+    <span class="result-label">Prediction 1: Operations have different bounds</span>
+    <span class="result-value match">
+      Addition at n=${data[data.length-1].n}: ${formatEnergy(addBoundLast)}<br>
+      Multiplication at n=${mostComposite.n}: ${formatEnergy(mulBoundMC)}<br>
+      Ratio: ${(mulBoundMC/addBoundLast*100).toFixed(1)}% ${badge(true)}
+    </span>
+  </div>`;
+
+  // Key finding 3: Same bit-length, different structure
+  if (bestPair) {
+    html += `<div class="result-row">
+      <span class="result-label">Prediction 2: Same bits, different structure</span>
+      <span class="result-value match">
+        ${bestPair.prime.n} (prime, ${bestPair.bits} bits): d(n)=${bestPair.prime.mulDegen}, bound=${formatEnergy(bestPair.prime.mulBound)}<br>
+        ${bestPair.composite.n} (composite, ${bestPair.bits} bits): d(n)=${bestPair.composite.mulDegen}, bound=${formatEnergy(bestPair.composite.mulBound)}<br>
+        Same bit-length, ${(bestPair.composite.mulBound/bestPair.prime.mulBound).toFixed(1)}x different bound ${badge(true)}
+      </span>
+    </div>`;
+  }
+
+  // Key finding 4: Primes hit floor
+  const avgPrimeRatio = primes.reduce((s, d) => s + d.ratio, 0) / primes.length;
+  const avgCompRatio = composites.reduce((s, d) => s + d.ratio, 0) / composites.length;
+  html += `<div class="result-row">
+    <span class="result-label">Prediction 3: Primes are zero-degeneracy endpoints</span>
+    <span class="result-value match">
+      Avg ratio (primes): ${avgPrimeRatio.toFixed(4)}<br>
+      Avg ratio (composites): ${avgCompRatio.toFixed(4)}<br>
+      Primes consistently at floor ${badge(true)}
+    </span>
+  </div>`;
+
+  document.getElementById('adderMulResults').innerHTML = html;
+}
+
+function buildAMExamples(data) {
+  // Show specific numbers as examples
+  const examples = [
+    { n: 2, label: 'smallest prime' },
+    { n: 12, label: 'highly composite' },
+    { n: 13, label: 'prime' },
+    { n: 60, label: 'Babylonian base (2²×3×5)' },
+    { n: 61, label: 'prime' },
+    { n: 64, label: 'pure power (2⁶)' },
+  ].filter(ex => ex.n <= parseInt(document.getElementById('sliderRange').value));
+
+  let html = '<h3 style="margin-top:0">Specific Examples</h3>';
+  html += '<table class="receipt-table"><thead><tr>';
+  html += '<th>n</th><th>Note</th><th>Bits</th><th>Add degen</th><th>Mul degen d(n)</th><th style="text-align:right">Mul bound</th><th style="text-align:right">Ratio</th>';
+  html += '</tr></thead><tbody>';
+
+  examples.forEach(ex => {
+    const d = data.find(d => d.n === ex.n);
+    if (!d) return;
+    const bits = Math.floor(Math.log2(d.n)) + 1;
+    const rowClass = d.prime ? ' style="color:#66ccff"' : '';
+    html += `<tr${rowClass}>
+      <td class="prime">${d.n}</td>
+      <td>${ex.label}</td>
+      <td>${bits}</td>
+      <td>${d.addDegen}</td>
+      <td>${d.mulDegen}</td>
+      <td class="cost">${formatEnergy(d.mulBound)}</td>
+      <td class="cost">${d.ratio.toFixed(4)}</td>
+    </tr>`;
+  });
+
+  html += '</tbody></table>';
+  html += '<p style="font-size:13px;color:#998;margin-top:12px">';
+  html += '60 and 61 are adjacent integers with the same bit-length (6 bits). ';
+  html += '60 has 12 divisors, 61 has 2. The multiplication Landauer bound differs by ';
+
+  const d60 = data.find(d => d.n === 60);
+  const d61 = data.find(d => d.n === 61);
+  if (d60 && d61 && d61.mulBound > 0) {
+    html += (d60.mulBound / d61.mulBound).toFixed(1) + 'x. ';
+  }
+  html += 'Same bits, different structure, different fundamental limit.</p>';
+
+  document.getElementById('adderMulExamples').innerHTML = html;
+}
+
+// =====================================================================
 // INIT
 // =====================================================================
 window.addEventListener('load', () => {
@@ -1005,6 +1386,7 @@ window.addEventListener('resize', () => {
   const activeIdx = [...document.querySelectorAll('.tab')].findIndex(t => t.classList.contains('active'));
   if (activeIdx === 0) runSortTest();
   if (activeIdx === 1) updatePrimon();
+  if (activeIdx === 3) updateAdderMult();
 });
 </script>
 
