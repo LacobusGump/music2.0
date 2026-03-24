@@ -128,9 +128,18 @@ generates multiple schedules on the Pareto frontier.
 <!-- INPUT                                                         -->
 <!-- ============================================================ -->
 
+<!-- Example pills -->
+<div style="display:flex;flex-wrap:wrap;gap:8px;margin:16px 0" id="examplePills">
+  <button class="go-btn" onclick="loadAndCompile('search')" style="font-size:12px;padding:6px 14px">Search</button>
+  <button class="go-btn" onclick="loadAndCompile('topk')" style="font-size:12px;padding:6px 14px">Top-K</button>
+  <button class="go-btn" onclick="loadAndCompile('filter')" style="font-size:12px;padding:6px 14px">Threshold Filter</button>
+  <button class="go-btn" onclick="loadAndCompile('dtree')" style="font-size:12px;padding:6px 14px">Decision Tree</button>
+  <button class="go-btn" onclick="loadAndCompile('matmul')" style="font-size:12px;padding:6px 14px">Matrix Multiply</button>
+  <button class="go-btn" onclick="loadAndCompile('maxpool')" style="font-size:12px;padding:6px 14px">Max Pooling</button>
+</div>
+
 <div class="controls">
-  <select class="sel" id="presetSelect" onchange="loadPreset()">
-    <option value="">— load example —</option>
+  <select class="sel" id="presetSelect" onchange="loadPreset()" style="display:none">
     <option value="search">Linear search</option>
     <option value="topk">Top-K selection</option>
     <option value="filter">Threshold filter</option>
@@ -139,6 +148,7 @@ generates multiple schedules on the Pareto frontier.
     <option value="maxpool">Max pooling (neural net)</option>
   </select>
   <button class="go-btn" onclick="compile()">Compile</button>
+  <button class="go-btn" onclick="shareState()" style="background:#ffffff08;border-color:#ffffff20;color:#998;font-size:12px">Copy link</button>
 </div>
 
 <textarea class="code-input" id="sourceCode" placeholder="// Write pseudocode here, or load an example above.
@@ -164,7 +174,11 @@ generates multiple schedules on the Pareto frontier.
 <p style="font-size:14px;color:#887">
 Every operation classified: <span style="color:#6c6">reversible</span> (preserves information) or
 <span style="color:#f66">irreversible</span> (destroys information).
-Reversible ops incur time and switching costs but zero logical erasure.
+Reversible ops incur time and switching costs but zero logical erasure.<br>
+<span style="font-family:Menlo,Consolas,monospace;font-size:12px">
+<span style="color:#f66">COMPARE_SELECT</span> &rarr; irreversible (1 bit) &nbsp;&nbsp;
+<span style="color:#6c6">MULTIPLY</span> &rarr; reversible (0 bits)
+</span>
 </p>
 
 <div class="card" id="irOutput">
@@ -226,13 +240,23 @@ computation gets restructured.
   </div>
 </div>
 
+<!-- Optimizer presets -->
+<div style="display:flex;flex-wrap:wrap;gap:8px;margin:0 0 16px">
+  <button class="go-btn" onclick="setWeights(90,5,5)" style="font-size:11px;padding:5px 12px;background:#f6620a;border-color:#f6622a">Erasure-first</button>
+  <button class="go-btn" onclick="setWeights(33,34,33)" style="font-size:11px;padding:5px 12px">Balanced</button>
+  <button class="go-btn" onclick="setWeights(5,90,5)" style="font-size:11px;padding:5px 12px">Memory-first</button>
+  <button class="go-btn" onclick="setWeights(5,5,90)" style="font-size:11px;padding:5px 12px">Throughput-first</button>
+</div>
+
 <div class="two-col">
   <div class="card">
     <h3>Pareto Frontier</h3>
+    <p style="font-size:12px;color:#776;margin-bottom:4px">Each point computes the same result with a different tradeoff. Lower-left is better.</p>
     <canvas id="paretoCanvas" height="280"></canvas>
   </div>
   <div class="card">
     <h3>Timeline: Cumulative Erasure</h3>
+    <p style="font-size:12px;color:#776;margin-bottom:4px">When logical erasure happens during execution. Not physical power — information destruction.</p>
     <canvas id="timelineCanvas" height="280"></canvas>
   </div>
 </div>
@@ -1070,12 +1094,56 @@ function drawTimelines(schedules) {
 }
 
 // =====================================================================
+// HELPERS
+// =====================================================================
+function loadAndCompile(preset) {
+  document.getElementById('presetSelect').value = preset;
+  loadPreset();
+  compile();
+  // Update URL
+  const url = new URL(window.location);
+  url.searchParams.set('p', preset);
+  url.searchParams.set('a', document.getElementById('wA').value);
+  url.searchParams.set('b', document.getElementById('wB').value);
+  url.searchParams.set('c', document.getElementById('wC').value);
+  history.replaceState(null, '', url);
+  // Highlight active pill
+  document.querySelectorAll('#examplePills button').forEach(btn => {
+    btn.style.borderColor = btn.textContent.toLowerCase().replace(/\s+/g,'').includes(preset) ? '#ffd6a0' : '#ffd6a044';
+  });
+}
+
+function setWeights(a, b, c) {
+  document.getElementById('wA').value = a;
+  document.getElementById('wB').value = b;
+  document.getElementById('wC').value = c;
+  rerank();
+}
+
+function shareState() {
+  const url = new URL(window.location);
+  const sel = document.getElementById('presetSelect').value;
+  if (sel) url.searchParams.set('p', sel);
+  url.searchParams.set('a', document.getElementById('wA').value);
+  url.searchParams.set('b', document.getElementById('wB').value);
+  url.searchParams.set('c', document.getElementById('wC').value);
+  navigator.clipboard.writeText(url.toString()).then(() => {
+    const btn = document.querySelector('[onclick="shareState()"]');
+    if (btn) { btn.textContent = 'Copied!'; setTimeout(() => btn.textContent = 'Copy link', 1500); }
+  });
+}
+
+// =====================================================================
 // INIT
 // =====================================================================
 window.addEventListener('load', () => {
-  document.getElementById('presetSelect').value = 'search';
-  loadPreset();
-  compile();
+  // Restore from URL params if present
+  const params = new URLSearchParams(window.location.search);
+  const preset = params.get('p') || 'search';
+  if (params.get('a')) document.getElementById('wA').value = params.get('a');
+  if (params.get('b')) document.getElementById('wB').value = params.get('b');
+  if (params.get('c')) document.getElementById('wC').value = params.get('c');
+  loadAndCompile(preset);
 });
 </script>
 </body>
