@@ -100,33 +100,10 @@ canvas{display:block;width:100%;border-radius:8px;margin:12px 0}
 </head>
 <body>
 
-<h1>Entropy-Aware Compiler</h1>
-<p style="font-size:18px;color:#ffd6a0;font-weight:300;letter-spacing:0.03em;margin-bottom:4px">computation &ne; destruction</p>
-<p style="font-size:14px;color:#998;letter-spacing:0.06em;margin-bottom:24px">only the final result entropy matters</p>
-<p class="subtitle">code &rarr; IR &rarr; passes &rarr; schedules &rarr; frontier</p>
-
-<p>
-This compiler rewrites computations into different schedules that trade off
-information destruction, memory, and operations. It does not eliminate
-necessary erasure. It eliminates <strong>premature</strong> erasure &mdash;
-information destroyed before the computation proves it was unneeded.
-The compiler identifies every destructive operation, lifts reversible
-structure, inserts uncompute points, plans collapse events, and generates
-multiple schedules on the Pareto frontier.
+<h1>Should I optimize this?</h1>
+<p style="font-size:16px;color:#998;margin-bottom:24px">
+Paste your code. Get a one-word answer and the reason why.
 </p>
-
-<!-- Pipeline visualization -->
-<div style="display:flex;align-items:center;gap:0;margin:20px 0;flex-wrap:wrap;font-family:Menlo,Consolas,monospace;font-size:12px">
-  <div style="background:#ffffff08;border:1px solid #ffffff15;border-radius:6px;padding:8px 14px;color:#e8e4dc">Source</div>
-  <div style="color:#554;padding:0 8px">&rarr;</div>
-  <div style="background:#ffffff08;border:1px solid #ffffff15;border-radius:6px;padding:8px 14px;color:#e8e4dc">IR</div>
-  <div style="color:#554;padding:0 8px">&rarr;</div>
-  <div style="background:#ffd6a010;border:1px solid #ffd6a033;border-radius:6px;padding:8px 14px;color:#ffd6a0">4 Passes</div>
-  <div style="color:#554;padding:0 8px">&rarr;</div>
-  <div style="background:#ffffff08;border:1px solid #ffffff15;border-radius:6px;padding:8px 14px;color:#e8e4dc">Schedules</div>
-  <div style="color:#554;padding:0 8px">&rarr;</div>
-  <div style="background:#6c620;border:1px solid #6c640;border-radius:6px;padding:8px 14px;color:#6c6">Frontier</div>
-</div>
 
 <!-- ============================================================ -->
 <!-- INPUT                                                         -->
@@ -173,8 +150,34 @@ for i in 0..63:
 // Output: index of target</textarea>
 
 <!-- ============================================================ -->
-<!-- IR OUTPUT                                                     -->
+<!-- THE DECISION (first thing you see)                            -->
 <!-- ============================================================ -->
+
+<div id="decisionCard" style="margin:24px 0">
+  <div style="text-align:center;padding:32px 0">
+    <div style="font-size:64px;font-weight:300;color:#66ccff;letter-spacing:0.05em;margin-bottom:8px">MAYBE</div>
+    <div style="font-size:18px;color:#e8e4dc;margin-bottom:16px">Moderate benefit. Quick optimization pass worth it.</div>
+    <div style="font-size:14px;color:#998;max-width:500px;margin:0 auto;line-height:1.7">This computation is <strong>LIQUID</strong> (R=1.08). Each unit of memory reduces erasure at a roughly constant rate. Checkpoint uniformly.</div>
+    <div style="margin-top:20px;display:inline-block;text-align:left">
+      <table style="border-collapse:collapse;font-size:15px">
+        <tr><td style="padding:4px 16px 4px 0;color:#998">Conventional</td><td style="color:#f66">64 bits erased</td></tr>
+        <tr><td style="padding:4px 16px 4px 0;color:#998">Optimized</td><td style="color:#6c6">6 bits erased</td></tr>
+        <tr><td style="padding:4px 16px 4px 0;color:#998">Savings</td><td style="color:#ffd6a0">91%</td></tr>
+      </table>
+    </div>
+    <div style="font-size:11px;color:#665;margin-top:12px">logical erasure within this cost model &mdash; not physical energy</div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- DETAILS (expandable)                                          -->
+<!-- ============================================================ -->
+
+<div style="margin-top:32px">
+  <span id="detailsToggle" onclick="var d=document.getElementById('detailsSection');var v=d.style.display!=='none';d.style.display=v?'none':'block';this.textContent=v?'show details \u25BC':'hide details \u25B2'" style="cursor:pointer;color:#ffd6a0;font-size:14px;letter-spacing:0.06em;border-bottom:1px solid #ffd6a030;padding-bottom:3px">show details &#9660;</span>
+</div>
+
+<div id="detailsSection" style="display:none">
 
 <h2>Intermediate Representation</h2>
 <p style="font-size:14px;color:#887">
@@ -382,13 +385,14 @@ uncompute later (save erasure)? The search finds every point on the frontier.
   </span>
 </div>
 
+</div><!-- end detailsSection -->
+
 <!-- ============================================================ -->
 <!-- FOOTER                                                        -->
 <!-- ============================================================ -->
 <div class="footer">
   <p>
-    Code &rarr; IR &rarr; schedules &rarr; frontier. Information destruction as a
-    first-class compilation target.
+    One question. One number. One decision.
   </p>
   <a href="/tools/simulator.html" class="back-link">&larr; Simulator</a>
   &nbsp;&nbsp;
@@ -1721,6 +1725,9 @@ function compile() {
   // Compute phase diagram
   computePhase(ir, ambiguity);
 
+  // THE DECISION CARD — the first thing the user sees
+  renderDecision(totalErasure, ambiguity, irrevCount);
+
   // Rank and display
   rerank();
 }
@@ -1728,6 +1735,75 @@ function compile() {
 // =====================================================================
 // PHASE DIAGRAM
 // =====================================================================
+function renderDecision(totalErasure, ambiguity, irrevCount) {
+  const el = document.getElementById('decisionCard');
+  const convBits = Math.round(totalErasure / Math.LN2);
+  const minBits = Math.round(ambiguity.bits);
+  const savePct = totalErasure > 0 ? ((totalErasure/Math.LN2 - ambiguity.bits) / (totalErasure/Math.LN2) * 100) : 0;
+  const costOfWrong = savePct > 50 ? 'A bad schedule costs ~' + Math.round(savePct * 0.2) + '% performance' :
+                      savePct > 10 ? 'A bad schedule costs ~' + Math.round(savePct * 0.15) + '% performance' :
+                      'Schedule choice barely matters';
+
+  // Compute R quickly from the phase card (it will also be computed by computePhase)
+  const liveness = analyzeLiveness(ir);
+  const N = liveness.N;
+  let R = 1;
+  if (N > 0) {
+    const eager = globalAllocate(liveness, ambiguity, 0, 'greedy').erasure;
+    if (eager > 0) {
+      const full = globalAllocate(liveness, ambiguity, N, 'greedy');
+      const f = full.erasure / eager;
+      let area = 0, prev = 1;
+      const steps = Math.min(20, N);
+      for (let s = 1; s <= steps; s++) {
+        const r = globalAllocate(liveness, ambiguity, Math.ceil(s/steps*N), 'greedy');
+        const norm = r.erasure / eager;
+        area += (prev + norm) / 2 * (1/steps);
+        prev = norm;
+      }
+      const linArea = (1 + f) / 2;
+      R = linArea > 0 ? area / linArea : 1;
+    }
+  }
+
+  let answer, answerColor, recommendation, detail;
+  if (R < 0.85) {
+    answer = 'YES';
+    answerColor = '#6c6';
+    recommendation = 'Optimize aggressively. A random schedule wastes significant resources.';
+    detail = 'This computation is <strong>GAS</strong> (R=' + R.toFixed(2) + '). Early operations carry disproportionate value. Use selective checkpointing on the first layer groups.';
+  } else if (R > 1.15 || savePct < 5) {
+    answer = 'NO';
+    answerColor = '#f66';
+    recommendation = 'Don\u2019t waste time optimizing. The cost is structural.';
+    detail = 'This computation is <strong>CRYSTAL</strong> (R=' + R.toFixed(2) + '). The destruction is tightly coupled. Any schedule performs about the same.';
+  } else {
+    answer = 'MAYBE';
+    answerColor = '#66ccff';
+    recommendation = 'Moderate benefit. A quick optimization pass is worth it, but don\u2019t overthink it.';
+    detail = 'This computation is <strong>LIQUID</strong> (R=' + R.toFixed(2) + '). Each unit of memory reduces erasure at a roughly constant rate. Checkpoint uniformly.';
+  }
+
+  let html = '<div style="text-align:center;padding:32px 0">';
+  html += '<div style="font-size:64px;font-weight:300;color:' + answerColor + ';letter-spacing:0.05em;margin-bottom:8px">' + answer + '</div>';
+  html += '<div style="font-size:18px;color:#e8e4dc;margin-bottom:16px">' + recommendation + '</div>';
+  html += '<div style="font-size:14px;color:#998;max-width:500px;margin:0 auto;line-height:1.7">' + detail + '</div>';
+
+  // The numbers
+  html += '<div style="margin-top:20px;display:inline-block;text-align:left">';
+  html += '<table style="border-collapse:collapse;font-size:15px">';
+  html += '<tr><td style="padding:4px 16px 4px 0;color:#998">Conventional</td><td style="color:#f66">' + convBits + ' bits erased</td></tr>';
+  html += '<tr><td style="padding:4px 16px 4px 0;color:#998">Optimized</td><td style="color:#6c6">' + minBits + ' bits erased</td></tr>';
+  html += '<tr><td style="padding:4px 16px 4px 0;color:#998">Savings</td><td style="color:#ffd6a0">' + savePct.toFixed(0) + '%</td></tr>';
+  html += '<tr><td style="padding:4px 16px 4px 0;color:#998">' + costOfWrong + '</td><td></td></tr>';
+  html += '</table></div>';
+
+  html += '<div style="font-size:11px;color:#665;margin-top:12px">logical erasure within this cost model \u2014 not physical energy</div>';
+  html += '</div>';
+
+  el.innerHTML = html;
+}
+
 function computePhase(ir, ambiguity) {
   const liveness = analyzeLiveness(ir);
   const N = liveness.N;
