@@ -1,37 +1,37 @@
-# The Sieve's R: Constant at 1/e?
+# The Sieve's R: CORRECTED
 
 **Date:** March 24, 2026
 
-## Finding
+## Initial finding (discrete model)
 
-The sieve of Eratosthenes, treated as a computation, has R ≈ 0.366 ± 0.015 across 3 orders of magnitude (N=50 to N=10,000). This is GAS phase.
+R ≈ 0.366 ± 0.015 across N=50 to N=10,000. Looked constant. Looked like 1/e.
 
-R is constant. The sieve's curvature is a structural invariant of the prime distribution.
+## Correction (continuous Mertens frontier)
 
-## The 1/e connection
+R is NOT constant. It decreases with N:
 
-R_sieve = 0.366. 1/e = 0.3679. Difference: 0.002 (within noise).
+| N | R (exact) | R (analytical) |
+|---|-----------|---------------|
+| 10² | 0.625 | 0.680 |
+| 10³ | 0.494 | 0.531 |
+| 10⁴ | 0.407 | 0.439 |
+| 10⁵ | 0.354 | 0.376 |
+| 10⁶ | — | 0.330 |
+| 10²⁰ | — | 0.131 |
 
-1/e appears in:
-- Secretary problem / optimal stopping: reject first N/e, then pick
-- Derangement probability: fraction with no fixed point
-- Mertens' theorem: Π(1-1/p) ~ e^{-γ}/ln(N)
+R → 0 as N → ∞. The 1/e claim is KILLED.
 
-The sieve IS an optimal stopping problem: small primes do disproportionate work (eliminate half, third, fifth of numbers). By prime ~√N, most composites are already found. The "early work dominates" signature is exactly GAS phase.
+## What IS real
 
-## What this means
+1. The sieve is GAS at every scale (R < 1 always). Small primes do disproportionate work.
+2. R decreases with N: the sieve becomes MORE compressible at larger scales.
+3. Scaling: R ~ C·ln(ln(N))/ln(N), from Mertens' theorem.
+4. This connects R to the prime number theorem: density ~ 1/ln(N) drives increasing gas-ness.
 
-The prime distribution's compressibility is a structural constant ≈ 1/e. This means:
+## What was wrong
 
-1. The sieve's "early primes" capture ~1-1/e ≈ 63% of the total composite elimination with the first fraction of steps
-2. The remaining primes add diminishing returns — the GAS curve
-3. This ratio is SCALE-INVARIANT — same R at N=50 and N=10,000
+The discrete model (each prime = one operation) had too few data points. The constant R was an artifact of discretization, not a structural invariant. The continuous frontier is the correct test.
 
-## Status
+## Lesson
 
-SUGGESTIVE, not proven. The 1/e connection needs:
-- Larger N (100K, 1M) to confirm stability
-- Analytical derivation of R for the sieve from Mertens' theorem
-- Comparison to other sieves (Atkin, segmented, wheel)
-
-If R_sieve = 1/e exactly, that would connect the phase framework directly to the prime number theorem through Mertens' constant.
+Always use the highest-resolution frontier. Discrete approximations can hide scale dependence.
