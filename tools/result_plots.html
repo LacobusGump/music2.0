@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Direct Quantization — Results</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0a0a0a; color: #e0e0e0; font-family: 'SF Mono', 'Fira Code', monospace; padding: 20px; }
+  h1 { color: #fff; font-size: 18px; margin-bottom: 8px; }
+  h2 { color: #aaa; font-size: 14px; margin-bottom: 16px; font-weight: normal; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; max-width: 1200px; margin: 0 auto; }
+  .panel { background: #111; border: 1px solid #333; border-radius: 8px; padding: 16px; }
+  .panel h3 { color: #fff; font-size: 13px; margin-bottom: 4px; }
+  .panel .subtitle { color: #666; font-size: 11px; margin-bottom: 12px; }
+  canvas { width: 100%; height: 300px; display: block; }
+  .equation { background: #1a1a1a; border: 1px solid #333; border-radius: 4px; padding: 16px; margin: 20px auto; max-width: 1200px; font-size: 13px; line-height: 1.8; }
+  .eq-line { color: #ccc; }
+  .eq-key { color: #f0a050; }
+  .eq-val { color: #70c0f0; }
+  .verdict { background: #0a1a0a; border: 1px solid #2a4a2a; border-radius: 4px; padding: 16px; margin: 20px auto; max-width: 1200px; }
+  .verdict p { font-size: 13px; line-height: 1.6; color: #a0d0a0; }
+</style>
+</head>
+<body>
+
+<div style="max-width:1200px;margin:0 auto;">
+  <h1>Direct Quantization of Zeta Zeros from Prime Harmonics</h1>
+  <h2>Zero free parameters. Identical pipeline for all families. Out of sample.</h2>
+</div>
+
+<div class="equation">
+  <div class="eq-line"><span class="eq-key">Smooth:</span> <span class="eq-val">N(t) = (t/2π) ln(t/2πe) + 7/8</span></div>
+  <div class="eq-line"><span class="eq-key">Oscillatory:</span> <span class="eq-val">R_M(t) = -(1/π) Σ_{p≤M} Σ_{k=1}^5 sin(t·k·ln p) / (k·p^{k/2})</span></div>
+  <div class="eq-line"><span class="eq-key">Prediction:</span> <span class="eq-val">Solve N(t) + R_M(t) = n − ½ for t = t_n(M)</span></div>
+  <div class="eq-line"><span class="eq-key">Error:</span> <span class="eq-val">δ_n = t_n(M) − t_n (true zero)</span></div>
+  <div class="eq-line" style="margin-top:8px;color:#666;">Zero free parameters. Same equation for every family. Only the frequency set changes.</div>
+</div>
+
+<div class="grid">
+  <!-- Panel A: Scaling Law (log-log) -->
+  <div class="panel">
+    <h3>A. Scaling Law: RMSE vs Prime Cutoff</h3>
+    <div class="subtitle">Log-log axes. Zeros 201–400 (out of sample). No retuning.</div>
+    <canvas id="plotA"></canvas>
+  </div>
+
+  <!-- Panel B: Frequency Perturbation -->
+  <div class="panel">
+    <h3>B. Frequency Perturbation Collapse</h3>
+    <div class="subtitle">Shift ln(p) → ln(p) + ε. Sub-permille sensitivity.</div>
+    <canvas id="plotB"></canvas>
+  </div>
+
+  <!-- Panel C: Phase Scramble Distribution -->
+  <div class="panel">
+    <h3>C. Phase Scramble Distribution</h3>
+    <div class="subtitle">Same frequencies & amplitudes, random phases. 10 trials.</div>
+    <canvas id="plotC"></canvas>
+  </div>
+
+  <!-- Panel D: Null Family Comparison -->
+  <div class="panel">
+    <h3>D. Null Family Comparison (zeros 201–400)</h3>
+    <div class="subtitle">Identical pipeline. Only frequency set differs.</div>
+    <canvas id="plotD"></canvas>
+  </div>
+</div>
+
+<div class="verdict">
+  <p>A truncated oscillatory model built from the exact prime-power frequencies k·ln(p), with fixed
+  explicit-formula amplitudes and no fitted parameters, predicts individual nontrivial zero positions
+  with RMSE = 0.064 (4.5% of mean spacing) using 15 primes. This accuracy is stable out of sample,
+  improves monotonically with prime cutoff, collapses under phase scrambling, and is exquisitely
+  sensitive to perturbations of the prime frequencies. Matched non-prime frequency families fail
+  under the identical protocol.</p>
+</div>
+
+<script>
+// ── Data from kill shots ──
+
+const scalingData = {
+  cutoffs: [10, 20, 30, 50, 80, 100, 150, 200, 500],
+  primes:  [4,  8,  10, 15, 22, 25,  35,  46,  95],
+  rmse:    [0.1209, 0.0898, 0.0811, 0.0642, 0.0557, 0.0527, 0.0437, 0.0389, 0.0337]
+};
+
+const perturbData = {
+  eps:  [0.0, 0.001, 0.005, 0.01, 0.02, 0.05, 0.10, 0.20, 0.50],
+  rmse: [0.0642, 0.2025, 0.6633, 0.4422, 0.5143, 0.5453, 0.5312, 0.5156, 0.4681]
+};
+
+const phaseData = {
+  coherent: 0.0642,
+  scrambled: [0.4732, 0.5459, 0.6160, 0.6233, 0.5355, 0.5873, 0.5859, 0.2812, 0.5959, 0.5770]
+};
+
+const nullData = {
+  labels: ['Primes', 'Rand 42', 'Rand 43', 'Rand 44', 'Shifted', 'Composites', 'Log-match'],
+  rmse:   [0.0642,   0.2639,   0.2809,   0.2361,   0.2984,    0.3766,       0.3874],
+  isPrime:[true,      false,    false,    false,    false,     false,        false]
+};
+
+// ── Drawing utilities ──
+
+function setupCanvas(id) {
+  const c = document.getElementById(id);
+  const dpr = window.devicePixelRatio || 1;
+  const rect = c.getBoundingClientRect();
+  c.width = rect.width * dpr;
+  c.height = rect.height * dpr;
+  const ctx = c.getContext('2d');
+  ctx.scale(dpr, dpr);
+  return { ctx, w: rect.width, h: rect.height };
+}
+
+function drawAxes(ctx, w, h, pad, xLabel, yLabel) {
+  ctx.strokeStyle = '#333';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(pad.l, pad.t);
+  ctx.lineTo(pad.l, h - pad.b);
+  ctx.lineTo(w - pad.r, h - pad.b);
+  ctx.stroke();
+  ctx.fillStyle = '#666';
+  ctx.font = '10px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText(xLabel, (pad.l + w - pad.r) / 2, h - 4);
+  ctx.save();
+  ctx.translate(10, (pad.t + h - pad.b) / 2);
+  ctx.rotate(-Math.PI/2);
+  ctx.fillText(yLabel, 0, 0);
+  ctx.restore();
+}
+
+// ── Plot A: Log-log scaling ──
+
+function plotA() {
+  const { ctx, w, h } = setupCanvas('plotA');
+  const pad = { l: 50, r: 20, t: 10, b: 30 };
+  drawAxes(ctx, w, h, pad, 'Prime cutoff M (log)', 'RMSE (log)');
+
+  const xs = scalingData.cutoffs.map(Math.log10);
+  const ys = scalingData.rmse.map(Math.log10);
+  const xMin = 0.9, xMax = 2.8, yMin = -1.6, yMax = -0.8;
+
+  function tx(v) { return pad.l + (v - xMin)/(xMax - xMin) * (w - pad.l - pad.r); }
+  function ty(v) { return pad.t + (yMax - v)/(yMax - yMin) * (h - pad.t - pad.b); }
+
+  // Grid
+  ctx.strokeStyle = '#1a1a1a'; ctx.lineWidth = 0.5;
+  for (let x = 1; x <= 2.5; x += 0.5) {
+    ctx.beginPath(); ctx.moveTo(tx(x), pad.t); ctx.lineTo(tx(x), h-pad.b); ctx.stroke();
+    ctx.fillStyle = '#444'; ctx.font = '9px monospace'; ctx.textAlign = 'center';
+    ctx.fillText(Math.round(Math.pow(10, x)), tx(x), h - pad.b + 12);
+  }
+  for (let y = -1.5; y <= -0.8; y += 0.1) {
+    ctx.beginPath(); ctx.moveTo(pad.l, ty(y)); ctx.lineTo(w-pad.r, ty(y)); ctx.stroke();
+  }
+
+  // Fit line
+  const n = xs.length;
+  const mx = xs.reduce((a,b)=>a+b)/n, my = ys.reduce((a,b)=>a+b)/n;
+  let num = 0, den = 0;
+  for (let i = 0; i < n; i++) { num += (xs[i]-mx)*(ys[i]-my); den += (xs[i]-mx)**2; }
+  const slope = num/den, intercept = my - slope*mx;
+
+  ctx.strokeStyle = '#444'; ctx.lineWidth = 1; ctx.setLineDash([4,4]);
+  ctx.beginPath(); ctx.moveTo(tx(xMin), ty(slope*xMin+intercept)); ctx.lineTo(tx(xMax), ty(slope*xMax+intercept)); ctx.stroke();
+  ctx.setLineDash([]);
+
+  ctx.fillStyle = '#666'; ctx.font = '10px monospace';
+  ctx.fillText(`slope = ${slope.toFixed(3)}`, tx(2.2), ty(-0.9));
+
+  // Data points
+  ctx.fillStyle = '#f0a050';
+  for (let i = 0; i < n; i++) {
+    ctx.beginPath(); ctx.arc(tx(xs[i]), ty(ys[i]), 4, 0, Math.PI*2); ctx.fill();
+  }
+
+  // Line
+  ctx.strokeStyle = '#f0a050'; ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  for (let i = 0; i < n; i++) {
+    if (i === 0) ctx.moveTo(tx(xs[i]), ty(ys[i]));
+    else ctx.lineTo(tx(xs[i]), ty(ys[i]));
+  }
+  ctx.stroke();
+}
+
+// ── Plot B: Frequency perturbation ──
+
+function plotB() {
+  const { ctx, w, h } = setupCanvas('plotB');
+  const pad = { l: 50, r: 20, t: 10, b: 30 };
+  drawAxes(ctx, w, h, pad, 'ε (perturbation to ln p)', 'RMSE');
+
+  const xs = perturbData.eps;
+  const ys = perturbData.rmse;
+  const xMin = -0.02, xMax = 0.52, yMin = 0, yMax = 0.75;
+
+  function tx(v) { return pad.l + (v - xMin)/(xMax - xMin) * (w - pad.l - pad.r); }
+  function ty(v) { return pad.t + (yMax - v)/(yMax - yMin) * (h - pad.t - pad.b); }
+
+  // Grid
+  ctx.strokeStyle = '#1a1a1a'; ctx.lineWidth = 0.5;
+  for (let x = 0; x <= 0.5; x += 0.1) {
+    ctx.beginPath(); ctx.moveTo(tx(x), pad.t); ctx.lineTo(tx(x), h-pad.b); ctx.stroke();
+    ctx.fillStyle = '#444'; ctx.font = '9px monospace'; ctx.textAlign = 'center';
+    ctx.fillText(x.toFixed(1), tx(x), h - pad.b + 12);
+  }
+
+  // Null baseline zone
+  ctx.fillStyle = 'rgba(255,80,80,0.05)';
+  ctx.fillRect(tx(xMin), ty(0.7), tx(xMax)-tx(xMin), ty(0.2)-ty(0.7));
+  ctx.fillStyle = '#553333'; ctx.font = '9px monospace';
+  ctx.fillText('null family zone', tx(0.25), ty(0.65));
+
+  // Data
+  ctx.strokeStyle = '#70c0f0'; ctx.lineWidth = 2;
+  ctx.beginPath();
+  for (let i = 0; i < xs.length; i++) {
+    if (i === 0) ctx.moveTo(tx(xs[i]), ty(ys[i]));
+    else ctx.lineTo(tx(xs[i]), ty(ys[i]));
+  }
+  ctx.stroke();
+
+  ctx.fillStyle = '#70c0f0';
+  for (let i = 0; i < xs.length; i++) {
+    ctx.beginPath(); ctx.arc(tx(xs[i]), ty(ys[i]), 4, 0, Math.PI*2); ctx.fill();
+  }
+
+  // ε=0 marker
+  ctx.fillStyle = '#50f050';
+  ctx.beginPath(); ctx.arc(tx(0), ty(ys[0]), 6, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = '#50f050'; ctx.font = '10px monospace'; ctx.textAlign = 'left';
+  ctx.fillText('ε=0: 0.064', tx(0.01), ty(ys[0]) - 8);
+
+  // 3× annotation
+  ctx.strokeStyle = '#f05050'; ctx.lineWidth = 1; ctx.setLineDash([3,3]);
+  ctx.beginPath(); ctx.moveTo(tx(0.001), ty(0)); ctx.lineTo(tx(0.001), ty(0.7)); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = '#f05050'; ctx.font = '9px monospace';
+  ctx.fillText('ε=0.001: 3×', tx(0.001)+4, ty(0.5));
+}
+
+// ── Plot C: Phase scramble histogram ──
+
+function plotC() {
+  const { ctx, w, h } = setupCanvas('plotC');
+  const pad = { l: 50, r: 20, t: 10, b: 30 };
+  drawAxes(ctx, w, h, pad, 'RMSE', 'Count');
+
+  // Histogram bins
+  const bins = 12;
+  const lo = 0, hi = 0.7;
+  const bw = (hi - lo) / bins;
+  const counts = new Array(bins).fill(0);
+  phaseData.scrambled.forEach(v => {
+    const b = Math.floor((v - lo) / bw);
+    if (b >= 0 && b < bins) counts[b]++;
+  });
+  const maxCount = Math.max(...counts);
+
+  function tx(v) { return pad.l + (v - lo)/(hi - lo) * (w - pad.l - pad.r); }
+  function ty(v) { return pad.t + (maxCount + 1 - v)/(maxCount + 1) * (h - pad.t - pad.b); }
+
+  // Bars
+  ctx.fillStyle = 'rgba(255, 100, 100, 0.4)';
+  ctx.strokeStyle = '#f06060';
+  for (let i = 0; i < bins; i++) {
+    const x = tx(lo + i * bw);
+    const barW = tx(lo + (i+1) * bw) - x;
+    const barH = ty(0) - ty(counts[i]);
+    ctx.fillRect(x, ty(counts[i]), barW, barH);
+    ctx.strokeRect(x, ty(counts[i]), barW, barH);
+  }
+
+  // Coherent line
+  ctx.strokeStyle = '#50f050'; ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(tx(phaseData.coherent), pad.t);
+  ctx.lineTo(tx(phaseData.coherent), h - pad.b);
+  ctx.stroke();
+
+  ctx.fillStyle = '#50f050'; ctx.font = '11px monospace'; ctx.textAlign = 'left';
+  ctx.fillText('coherent', tx(phaseData.coherent) + 4, pad.t + 16);
+  ctx.fillText('0.064', tx(phaseData.coherent) + 4, pad.t + 30);
+
+  // Scrambled label
+  ctx.fillStyle = '#f06060'; ctx.font = '11px monospace'; ctx.textAlign = 'center';
+  ctx.fillText('scrambled phases', tx(0.5), pad.t + 16);
+
+  // X labels
+  ctx.fillStyle = '#444'; ctx.font = '9px monospace'; ctx.textAlign = 'center';
+  for (let v = 0; v <= 0.7; v += 0.1) {
+    ctx.fillText(v.toFixed(1), tx(v), h - pad.b + 12);
+  }
+}
+
+// ── Plot D: Null comparison bars ──
+
+function plotD() {
+  const { ctx, w, h } = setupCanvas('plotD');
+  const pad = { l: 80, r: 20, t: 10, b: 16 };
+
+  const n = nullData.labels.length;
+  const barH = (h - pad.t - pad.b) / n - 4;
+  const maxV = 0.42;
+
+  function tx(v) { return pad.l + (v / maxV) * (w - pad.l - pad.r); }
+
+  for (let i = 0; i < n; i++) {
+    const y = pad.t + i * (barH + 4);
+    const bw = tx(nullData.rmse[i]) - pad.l;
+    const color = nullData.isPrime[i] ? '#50f050' : '#f06060';
+
+    ctx.fillStyle = color + '40';
+    ctx.fillRect(pad.l, y, bw, barH);
+    ctx.strokeStyle = color;
+    ctx.strokeRect(pad.l, y, bw, barH);
+
+    ctx.fillStyle = '#ccc'; ctx.font = '10px monospace'; ctx.textAlign = 'right';
+    ctx.fillText(nullData.labels[i], pad.l - 6, y + barH/2 + 4);
+
+    ctx.fillStyle = color; ctx.font = '10px monospace'; ctx.textAlign = 'left';
+    ctx.fillText(nullData.rmse[i].toFixed(3), pad.l + bw + 4, y + barH/2 + 4);
+  }
+
+  // X axis labels
+  ctx.fillStyle = '#444'; ctx.font = '9px monospace'; ctx.textAlign = 'center';
+  for (let v = 0; v <= 0.4; v += 0.1) {
+    ctx.fillText(v.toFixed(1), tx(v), h - 2);
+  }
+}
+
+// ── Render ──
+plotA(); plotB(); plotC(); plotD();
+</script>
+</body>
+</html>
