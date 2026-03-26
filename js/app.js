@@ -290,6 +290,13 @@ const App = (function () {
         Identity.init();
       }
 
+      // Prime Engine (phase coherence synthesis)
+      if (typeof PrimeBridge !== 'undefined') {
+        blog('PrimeBridge.init()');
+        var primeTarget = (sound.masterHPFNode) ? sound.masterHPFNode : audioCtx.destination;
+        PrimeBridge.init(audioCtx, primeTarget);
+      }
+
       // Flow (v2 conductor)
       var flow = getFlow();
       blog('Flow.init()');
@@ -763,6 +770,11 @@ const App = (function () {
       }
 
       // 5. Rhythm -- flow.js handles Rhythm.update() to avoid double-ticking
+
+      // 5b. Prime Engine -- coupled oscillator synthesis
+      if (typeof PrimeBridge !== 'undefined' && PrimeBridge.isActive()) {
+        PrimeBridge.update(bodyModule.energy, sensor);
+      }
 
       // 6. THE CONDUCTOR -- flow reads Body directly, just needs sensor + timestamp
       flow.update(sensor, timestamp);
