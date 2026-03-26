@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>The Oracle — π(x) from Nothing</title>
+<style>
+:root { --bg:#0a0a0f; --fg:#e8e4dc; --accent:#c9a44a; --dim:#666; }
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:var(--bg);color:var(--fg);font-family:Georgia,serif;
+  max-width:600px;margin:0 auto;padding:40px 24px 80px;line-height:1.8;}
+h1{font-size:2em;font-weight:300;color:var(--accent);letter-spacing:0.1em;margin-bottom:4px;}
+h1 span{display:block;font-size:0.4em;color:var(--dim);font-weight:100;letter-spacing:0.2em;}
+p{color:#999;margin:12px 0;}
+input{background:#111;border:1px solid #333;color:var(--fg);font-family:Georgia,serif;
+  font-size:1.2em;padding:12px 16px;border-radius:8px;width:100%;margin:16px 0;outline:none;}
+input:focus{border-color:var(--accent);}
+button{background:var(--accent);color:#000;font-family:Georgia,serif;font-size:1em;
+  padding:12px 32px;border:none;border-radius:8px;cursor:pointer;font-weight:600;}
+button:hover{background:#d4af5a;}
+#result{margin-top:24px;min-height:200px;}
+.label{color:var(--dim);font-size:0.85em;}
+.value{color:var(--fg);font-size:1.3em;font-weight:300;}
+.accent{color:var(--accent);}
+.row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #ffffff08;}
+#zeros-display{margin-top:16px;font-family:monospace;font-size:0.75em;color:#555;
+  max-height:150px;overflow-y:auto;line-height:1.4;}
+.known{margin-top:16px;padding:12px;background:#111118;border-radius:8px;}
+a{color:var(--accent);}
+</style>
+</head>
+<body>
+
+<h1>The Oracle<span>π(x) from nothing</span></h1>
+
+<p>How many primes below x? No data files. No precomputation. Just math running in your browser.</p>
+
+<input type="text" id="x-input" placeholder="Enter a number (e.g. 1000000)" value="1000000">
+<button onclick="run()">Count primes</button>
+
+<div id="result"></div>
+
+<div style="margin-top:48px;border-top:1px solid #222;padding-top:24px;">
+<p style="font-size:0.85em;">How it works: the Hardy Z-function Z(t) has sign changes at the zeros of the Riemann zeta function. Each zero γ contributes a correction x<sup>ρ</sup>/(ρ log x) to the prime counting function. Scan Z(t), find sign changes, bisect to locate zeros, accumulate corrections. One streaming pass. The explicit formula becomes a computational engine.</p>
+<p style="font-size:0.85em;">No server. This runs entirely in your browser. <a href="https://github.com/LacobusGump/music2.0/tree/main/tools">Source code</a> | <a href="https://github.com/LacobusGump/music2.0/blob/main/PAPER.md">Paper</a></p>
+</div>
+
+<script>
+// ─── The Oracle (JavaScript) ─────────────────────────
+function theta(t){
+  if(t<1)return 0;
+  return(t/2)*Math.log(t/(2*Math.PI))-t/2-Math.PI/8+1/(48*t)+7/(5760*t*t*t)+31/(80640*t*t*t*t*t);
+}
+function Z(t){
+  if(t<2)return 0;
+  var a=Math.sqrt(t/(2*Math.PI)),N=Math.max(1,Math.floor(a)),p=a-N,th=theta(t),s=0;
+  for(var n=1;n<=N;n++)s+=Math.cos(th-t*Math.log(n))/Math.sqrt(n);
+  s*=2;
+  var d=Math.cos(2*Math.PI*p);
+  var C0=Math.abs(d)>1e-8?Math.cos(2*Math.PI*(p*p-p-1/16))/d:0.5;
+  s+=Math.pow(-1,N-1)*Math.pow(2*Math.PI/t,0.25)*C0;
+  return s;
+}
+function Li(x){
+  if(x<=1)return 0;
+  var g=0.5772156649015329,lnx=Math.log(x),tot=g+Math.log(Math.abs(lnx)),term=1;
+  for(var k=1;k<200;k++){term*=lnx/k;tot+=term/k;if(Math.abs(term/k)<1e-15)break;}
+  var ln2=Math.log(2),li2=g+Math.log(ln2),t2=1;
+  for(var k2=1;k2<100;k2++){t2*=ln2/k2;li2+=t2/k2;}
+  return tot-li2;
+}
+
+var known={1e4:1229,1e5:9592,1e6:78498,1e7:664579,1e8:5761455,1e9:50847534};
+
+function run(){
+  var x=parseFloat(document.getElementById('x-input').value.replace(/,/g,''));
+  if(isNaN(x)||x<2){document.getElementById('result').innerHTML='<p>Enter a number ≥ 2</p>';return;}
+
+  var el=document.getElementById('result');
+  el.innerHTML='<p style="color:var(--accent)">Scanning Z(t) for zeros...</p>';
+
+  setTimeout(function(){
+    var t0=performance.now();
+    var logx=Math.log(x),sqrtx=Math.sqrt(x);
+    var K=Math.max(200,Math.min(20000,Math.floor(5.1*sqrtx/Math.max(Math.pow(x,0.25),1))));
+    var correction=0,count=0,t=9,prevZ=Z(t),zerosList=[];
+
+    while(count<K&&t<5000000){
+      var step=t>14?Math.max(0.02,(2*Math.PI/Math.max(Math.log(t/(2*Math.PI)),0.1))/8):0.3;
+      t+=step;var currZ=Z(t);
+      if(prevZ*currZ<0){
+        var lo=t-step,hi=t;
+        for(var i=0;i<50;i++){var mid=(lo+hi)/2;if(Z(lo)*Z(mid)<0)hi=mid;else lo=mid;}
+        var gamma=(lo+hi)/2;
+        var phase=gamma*logx;
+        var xRe=sqrtx*Math.cos(phase),xIm=sqrtx*Math.sin(phase);
+        var rMag2=0.25+gamma*gamma;
+        correction+=2*(xRe*0.5+xIm*gamma)/(rMag2*logx);
+        count++;
+        if(count<=20)zerosList.push(gamma);
+      }
+      prevZ=currZ;
+    }
+
+    var liX=Li(x);
+    var mob=-Li(Math.sqrt(x))/2-Li(Math.pow(x,1/3))/3;
+    if(x>32)mob-=Li(Math.pow(x,0.2))/5;
+    if(x>64)mob+=Li(Math.pow(x,1/6))/6;
+    var offset=Li(2.001)-Math.log(2);
+    var result=Math.round(liX-correction+mob+offset);
+    var errEst=Math.round(5.1*sqrtx/Math.max(count,1));
+    var elapsed=((performance.now()-t0)/1000).toFixed(2);
+
+    var html='';
+    html+='<div class="row"><span class="label">Result</span><span class="value accent">π('+x.toLocaleString()+') = '+result.toLocaleString()+'</span></div>';
+    html+='<div class="row"><span class="label">Error estimate</span><span class="value">±'+errEst.toLocaleString()+'</span></div>';
+    html+='<div class="row"><span class="label">Zeros used</span><span class="value">'+count.toLocaleString()+'</span></div>';
+    html+='<div class="row"><span class="label">Time</span><span class="value">'+elapsed+'s</span></div>';
+
+    if(known[x]!==undefined){
+      var actual=known[x];
+      var realErr=result-actual;
+      html+='<div class="known">';
+      html+='<div class="row"><span class="label">Actual π('+x.toLocaleString()+')</span><span class="value">'+actual.toLocaleString()+'</span></div>';
+      html+='<div class="row"><span class="label">True error</span><span class="value">'+(realErr>=0?'+':'')+realErr+'</span></div>';
+      html+='</div>';
+    }
+
+    html+='<div id="zeros-display"><p style="color:var(--dim);margin-bottom:4px;">First zeros found:</p>';
+    zerosList.forEach(function(g,i){
+      html+='γ<sub>'+(i+1)+'</sub> = '+g.toFixed(8)+'<br>';
+    });
+    if(count>20)html+='... and '+(count-20).toLocaleString()+' more';
+    html+='</div>';
+
+    el.innerHTML=html;
+  },50);
+}
+</script>
+</body>
+</html>
