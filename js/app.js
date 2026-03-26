@@ -251,32 +251,56 @@ const App = (function () {
     Sensor.init().then(function () {
       blog('Sensor.init() DONE');
 
-      // Initialize Sound
+      // Initialize processing modules (v2 order)
+      // Body (replaces Brain in v2 -- if Body.init exists use it, else Brain.init)
+      if (typeof Body !== 'undefined' && Body.init) {
+        blog('Body.init()');
+        Body.init();
+      } else if (typeof Brain !== 'undefined' && Brain.init) {
+        blog('Brain.init()');
+        Brain.init();
+      }
+
+      // Sound (v2 orchestra)
       var sound = getSound();
       blog('Sound.init()');
       sound.init(audioCtx);
 
-      // Initialize Emilia (THE MIND — replaces Body, Harmony, Rhythm, Flow)
-      if (typeof Emilia !== 'undefined') {
-        blog('Emilia.init()');
-        Emilia.init();
+      // Harmony
+      if (typeof Harmony !== 'undefined' && Harmony.init) {
+        blog('Harmony.init()');
+        Harmony.init();
       }
 
-      // Legacy fallbacks (only if Emilia not loaded)
-      if (typeof Emilia === 'undefined') {
-        if (typeof Body !== 'undefined' && Body.init) Body.init();
-        if (typeof Harmony !== 'undefined' && Harmony.init) Harmony.init();
-        if (typeof Rhythm !== 'undefined' && Rhythm.init) Rhythm.init();
+      // Rhythm
+      if (typeof Rhythm !== 'undefined' && Rhythm.init) {
+        blog('Rhythm.init()');
+        Rhythm.init();
       }
 
-      // Flow / Emilia conductor init
-      if (typeof Emilia !== 'undefined') {
-        blog('Emilia is the conductor');
-      } else {
-        var flow = getFlow();
-        blog('Flow.init() (legacy)');
-        flow.init();
+      // Weather
+      if (typeof Weather !== 'undefined') {
+        blog('Weather.init()');
+        Weather.init();
       }
+
+      // Identity
+      if (typeof Identity !== 'undefined') {
+        blog('Identity.init()');
+        Identity.init();
+      }
+
+      // Prime Engine (phase coherence synthesis)
+      if (typeof PrimeBridge !== 'undefined') {
+        blog('PrimeBridge.init()');
+        var primeTarget = (sound.masterHPFNode) ? sound.masterHPFNode : audioCtx.destination;
+        PrimeBridge.init(audioCtx, primeTarget);
+      }
+
+      // Flow (v2 conductor)
+      var flow = getFlow();
+      blog('Flow.init()');
+      flow.init();
 
       // Build lens picker and apply
       blog('Lens.buildPicker()');
@@ -323,16 +347,16 @@ const App = (function () {
     var flow  = getFlow();
 
     try { sound.configure(lens); } catch (e) { console.error('applyLens sound:', e.message, e.stack); }
-
-    // Route to Emilia if available, else legacy
-    if (typeof Emilia !== 'undefined') {
-      try { Emilia.applyLens(lens); } catch (e) { console.error('applyLens emilia:', e.message, e.stack); }
-    } else {
-      try { flow.applyLens(lens); } catch (e) { console.error('applyLens flow:', e.message, e.stack); }
-    }
-
+    try { flow.applyLens(lens); } catch (e) { console.error('applyLens flow:', e.message, e.stack); }
     try { Organism.applyLens(lens); } catch (e) { console.error('applyLens organism:', e.message, e.stack); }
-    console.log('[applyLens] done. lens:', lens.name);
+    console.log('[applyLens] done. lens:', lens.name, 'pipeline:', lens.pipeline);
+
+    // v2 modules (when they exist)
+    if (typeof Harmony !== 'undefined' && Harmony.configure) {
+      try { Harmony.configure(lens.harmony || lens); } catch (e) {}
+    }
+    if (typeof Rhythm !== 'undefined' && Rhythm.configure) {
+      try { Rhythm.configure(lens.rhythm || lens); } catch (e) {}
     }
   }
 
@@ -726,36 +750,69 @@ const App = (function () {
       var dt = Math.min(0.05, (timestamp - lastFrame) / 1000);
       lastFrame = timestamp;
 
+      var flow = getFlow();
+      var bodyModule = (typeof Body !== 'undefined') ? Body : Brain;
+
       // 1. Read sensors
       var sensor = Sensor.read();
 
-      // 2. THE MIND — Emilia processes everything
-      if (typeof Emilia !== 'undefined') {
-        Emilia.update(sensor, timestamp);
-      } else {
-        // Legacy fallback
-        var flow = getFlow();
-        var bodyModule = (typeof Body !== 'undefined') ? Body : Brain;
-        bodyModule.process(sensor, timestamp);
-        flow.update(sensor, timestamp);
-      }
+      // 2. Process body (Kalman, neurons, void, peaks)
+      bodyModule.process(sensor, timestamp);
 
       // 3. Update position (visual tracking)
       updatePosition(sensor);
 
-      // 4. Render visuals
-      var energy = (typeof Emilia !== 'undefined') ? Emilia.energy : 0;
+      // 4. Update weather (infrequent, self-gating)
+      // Weather.init() fetches on its own schedule; no per-frame update needed
+      // If Weather.update exists (v2), call it
+      if (typeof Weather !== 'undefined' && Weather.update) {
+        Weather.update(sensor);
+      }
+
+      // 5. Rhythm -- flow.js handles Rhythm.update() to avoid double-ticking
+
+      // 5b. Prime Engine -- coupled oscillator synthesis
+      if (typeof PrimeBridge !== 'undefined' && PrimeBridge.isActive()) {
+        PrimeBridge.update(bodyModule.energy, sensor);
+      }
+
+      // 6. THE CONDUCTOR -- flow reads Body directly, just needs sensor + timestamp
+      flow.update(sensor, timestamp);
+
+      // 7. Update identity (infrequent)
+      if (typeof Identity !== 'undefined' && Identity.update) {
+        Identity.update(bodyModule, typeof Harmony !== 'undefined' ? Harmony : null);
+      }
+
+      // 8. Render visuals -- organism stays from v1
       Organism.update(dt, posX, posY, W, H,
-        { energy: energy, neurons: [] },
+        { energy: bodyModule.energy, neurons: bodyModule.neurons },
         sensor.touching
       );
       render(dt);
 
-      // 5. Hourly ode
+      // 9. Hourly ode -- Mt. Holly, High Street
       checkHourlyChime(sensor, dt);
 
-      // Legacy outfit sync
+      // 10. Pattern engine (AI Producer)
+      if (typeof Pattern !== 'undefined') {
+        Pattern.update(dt, flow.silent);
+      }
+
+      // 11. Outfit -- sync with dance partner
       if (typeof Outfit !== 'undefined' && Outfit.connected) {
+        if (flow.peaks > lastPeakCount) {
+          lastPeakCount     = flow.peaks;
+          lastLocalPeakTime = Date.now();
+        }
+        Outfit.broadcast({
+          energy:    flow.energy,
+          lens:      Lens.active ? Lens.active.name : '',
+          phrase:    flow.phrase,
+          archetype: flow.profileArchetype,
+          peakTime:  lastLocalPeakTime,
+        });
+        // Respond to partner's peaks
         var ps = Outfit.partnerState;
         if (ps && ps.peakTime && ps.peakTime > lastPartnerPeak) {
           lastPartnerPeak = ps.peakTime;

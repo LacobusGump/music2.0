@@ -275,6 +275,17 @@ def main():
         idx = sys.argv.index('--cycles')
         n_cycles = int(sys.argv[idx+1])
 
+    # Feed her the world if available
+    extra = ""
+    for path in ['/tmp/sonnets.txt', '/tmp/meditations.txt', '/tmp/emilia_conv.txt']:
+        if os.path.exists(path):
+            with open(path) as f:
+                extra += f.read() + "\n\n"
+    if extra:
+        global SEED
+        SEED = SEED + "\n\n" + extra
+        print(f"  Fed {len(tokenize(extra)):,} tokens from the world")
+
     oracle = bootstrap(n_cycles, verbose=True)
 
     if '--chat' in sys.argv:
