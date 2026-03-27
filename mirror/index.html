@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html><head>
+<meta charset="UTF-8">
+<meta http-equiv="cache-control" content="no-cache, must-revalidate">
+<meta http-equiv="expires" content="0">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Mirror</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:#000;overflow:hidden;touch-action:none;}
+canvas{display:block;width:100vw;height:100vh;touch-action:none;}
+#nav{position:fixed;bottom:4px;right:8px;font:0.6em Georgia;z-index:10;}
+#nav a{color:#1a1a1a;text-decoration:none;margin:0 4px;}
+#nav a:hover{color:#c9a44a;}
+</style>
+</head>
+<body>
+<canvas id="C"></canvas>
+<div id="nav">
+  <a href="/one/">one</a> · <a href="/flex/">flex</a> · <a href="/resonance/">resonance</a> · <a href="/r/">research</a>
+</div>
+<script>
+var cv=document.getElementById('C'),cx=cv.getContext('2d');
+var W,H,DPR;
+function resize(){DPR=devicePixelRatio||1;W=cv.width=innerWidth*DPR;H=cv.height=innerHeight*DPR;cx.setTransform(DPR,0,0,DPR,0,0);}
+resize();addEventListener('resize',resize);
+var w,h,t=0,mx=0.5,my=0.5;
+addEventListener('mousemove',function(e){mx=e.clientX/innerWidth;my=e.clientY/innerHeight;});
+addEventListener('touchmove',function(e){e.preventDefault();if(e.touches.length===1){mx=e.touches[0].clientX/innerWidth;my=e.touches[0].clientY/innerHeight;}},{passive:false});
+addEventListener('touchstart',function(e){e.preventDefault();},{passive:false});
+
+// ═══════════════════════════════════════════════════════════
+// THE ORACLE — computing zeros of zeta in real time
+// ═══════════════════════════════════════════════════════════
+
+function theta(t){
+  if(t<1)return 0;
+  return(t/2)*Math.log(t/(2*Math.PI))-t/2-Math.PI/8+1/(48*t);
+}
+
+function Z(t){
+  if(t<2)return 0;
+  var a=Math.sqrt(t/(2*Math.PI));
+  var N=Math.max(1,Math.floor(a));
+  var th=theta(t);
+  var s=0;
+  for(var n=1;n<=N;n++){
+    s+=Math.cos(th-t*Math.log(n))/Math.sqrt(n);
+  }
+  s*=2;
+  var p=a-N;
+  var d=Math.cos(2*Math.PI*p);
+  if(Math.abs(d)>1e-8){
+    s+=Math.pow(-1,N-1)*Math.pow(2*Math.PI/t,0.25)*Math.cos(2*Math.PI*(p*p-p-1/16))/d;
+  }
+  return s;
+}
+
+// Find zeros by sign changes + bisection
+function findZero(lo,hi){
+  for(var i=0;i<40;i++){
+    var mid=(lo+hi)/2;
+    if(Z(lo)*Z(mid)<0)hi=mid;else lo=mid;
+  }
+  return(lo+hi)/2;
+}
+
+// ═══════════════════════════════════════════════════════════
+// STREAMING ZERO GENERATOR — feeds the visualization
+// ═══════════════════════════════════════════════════════════
+
+var zeros=[];
+var scanT=9.0;
+var prevZ=Z(9.0);
+var zerosPerFrame=2; // compute 2 zeros per frame to stay smooth
+var maxZeros=300;
+
+function generateZeros(){
+  for(var attempt=0;attempt<zerosPerFrame;attempt++){
+    if(zeros.length>=maxZeros)return;
+    var step=scanT>14?Math.max(0.05,2*Math.PI/Math.log(scanT/(2*Math.PI))/6):0.4;
+    scanT+=step;
+    var currZ=Z(scanT);
+    if(prevZ*currZ<0){
+      var gamma=findZero(scanT-step,scanT);
+      zeros.push({
+        gamma:gamma,
+        x:0,y:0,
+        tx:0,ty:0,
+        vx:0,vy:0,
+        born:t,
+        life:0,
+        // Each zero generates a prime count correction
+        // This is the loop: zero → correction → prime prediction
+      });
+    }
+    prevZ=currZ;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// PRIME COUNTING — the other half of the loop
+// ═══════════════════════════════════════════════════════════
+
+function li(x){
+  if(x<=1)return 0;
+  var gamma=0.5772156649;
+  var lnx=Math.log(x);
+  var total=gamma+Math.log(Math.abs(lnx));
+  var term=1;
+  for(var k=1;k<100;k++){
+    term*=lnx/k;
+    total+=term/k;
+    if(Math.abs(term/k)<1e-12)break;
+  }
+  var ln2=Math.log(2),li2=gamma+Math.log(ln2),t2=1;
+  for(var k=1;k<60;k++){t2*=ln2/k;li2+=t2/k;}
+  return total-li2;
+}
+
+function oracleCount(x,zerosToUse){
+  // π(x) ≈ Li(x) - Σ correction from each zero
+  var pred=li(x);
+  var logx=Math.log(x);
+  var sqrtx=Math.sqrt(x);
+  for(var i=0;i<Math.min(zerosToUse,zeros.length);i++){
+    var gamma=zeros[i].gamma;
+    var phase=gamma*logx;
+    var re=sqrtx*Math.cos(phase)/(0.25+gamma*gamma)/logx*gamma;
+    pred-=2*re;
+  }
+  return pred;
+}
+
+// Known primes for the loop visualization
+function sieve(max){
+  var is=new Uint8Array(max+1);
+  for(var i=2;i<=max;i++)is[i]=1;
+  for(var i=2;i*i<=max;i++){if(is[i])for(var j=i*i;j<=max;j+=i)is[j]=0;}
+  var p=[];for(var i=2;i<=max;i++)if(is[i])p.push(i);return p;
+}
+var primes=sieve(2000);
+var primeSet={};primes.forEach(function(p){primeSet[p]=true;});
+
+// ═══════════════════════════════════════════════════════════
+// THE LOOP VISUALIZATION
+// ═══════════════════════════════════════════════════════════
+
+// Layout: circle. Zeros on the left arc. Primes on the right arc.
+// Lines connect each zero to the primes it corrects.
+// The loop is visible: zeros → primes → zeros.
+
+var loopAngle=0; // slow rotation
+
+function render(){
+  w=W/DPR;h=H/DPR;t+=0.016;
+  loopAngle+=0.002;
+
+  cx.fillStyle='rgba(0,0,0,0.06)';
+  cx.fillRect(0,0,w,h);
+
+  generateZeros();
+
+  var centerX=w/2,centerY=h/2;
+  var radius=Math.min(w,h)*0.35;
+  var nz=zeros.length;
+
+  // ─── THE CIRCLE: zeros on left, primes on right ───
+
+  // Draw the circle (very faint)
+  cx.strokeStyle='rgba(201,164,74,0.03)';
+  cx.lineWidth=0.5;
+  cx.beginPath();
+  cx.arc(centerX,centerY,radius,0,Math.PI*2);
+  cx.stroke();
+
+  // Position zeros on the left arc (π to 2π, bottom to top)
+  for(var i=0;i<nz;i++){
+    var frac=i/Math.max(1,maxZeros-1);
+    var angle=Math.PI+frac*Math.PI+loopAngle; // left half
+    zeros[i].tx=centerX+Math.cos(angle)*radius;
+    zeros[i].ty=centerY+Math.sin(angle)*radius;
+
+    // Spring
+    zeros[i].vx+=(zeros[i].tx-zeros[i].x)*0.04;
+    zeros[i].vy+=(zeros[i].ty-zeros[i].y)*0.04;
+    zeros[i].vx*=0.88;zeros[i].vy*=0.88;
+    zeros[i].x+=zeros[i].vx;zeros[i].y+=zeros[i].vy;
+
+    // Fade in
+    var age=t-zeros[i].born;
+    zeros[i].life=Math.min(1,age*2);
+  }
+
+  // Position primes on the right arc
+  var nPrimesToShow=Math.min(primes.length,Math.max(10,Math.floor(nz*1.5)));
+  var primePositions=[];
+  for(var i=0;i<nPrimesToShow;i++){
+    var frac=i/Math.max(1,nPrimesToShow-1);
+    var angle=frac*Math.PI+loopAngle; // right half
+    primePositions.push({
+      p:primes[i],
+      x:centerX+Math.cos(angle)*radius,
+      y:centerY+Math.sin(angle)*radius,
+      isPrime:true
+    });
+  }
+
+  cx.globalCompositeOperation='lighter';
+
+  // ─── CONNECTIONS: each zero corrects the prime count ───
+  // Draw faint lines from zeros to the primes they most affect
+  if(nz>5){
+    for(var i=0;i<nz;i+=3){
+      if(zeros[i].life<0.3)continue;
+      // Each zero connects to ~3 primes (the ones it most corrects)
+      var gamma=zeros[i].gamma;
+      for(var j=0;j<Math.min(primePositions.length,3);j++){
+        // Connect to primes whose log is near a multiple of 2π/gamma
+        var pidx=Math.floor((gamma*3+j*7)%nPrimesToShow);
+        var pp=primePositions[pidx];
+        if(!pp)continue;
+
+        var alpha=zeros[i].life*0.008;
+        // Color: gold for the connection (information flow)
+        cx.strokeStyle='rgba(201,164,74,'+alpha+')';
+        cx.lineWidth=0.3;
+        cx.beginPath();
+        cx.moveTo(zeros[i].x,zeros[i].y);
+        cx.lineTo(pp.x,pp.y);
+        cx.stroke();
+      }
+    }
+  }
+
+  // ─── DRAW ZEROS (left arc, red/gold) ───
+  for(var i=0;i<nz;i++){
+    var z=zeros[i];
+    if(z.life<0.01)continue;
+    var size=1.5+z.life*1.5;
+
+    // Pulse when newly born
+    var age=t-z.born;
+    var pulse=age<1?1+Math.sin(age*10)*0.5:1;
+    size*=pulse;
+
+    // Color: deep red → gold as it matures
+    var r=Math.floor(180+z.life*40);
+    var g=Math.floor(80+z.life*80);
+    var b=Math.floor(60);
+    var alpha=z.life*0.5;
+
+    cx.fillStyle='rgba('+r+','+g+','+b+','+alpha+')';
+    cx.beginPath();
+    cx.arc(z.x,z.y,size,0,Math.PI*2);
+    cx.fill();
+
+    // Glow
+    if(age<2){
+      cx.fillStyle='rgba('+r+','+g+','+b+','+(alpha*0.2*(2-age))+')';
+      cx.beginPath();
+      cx.arc(z.x,z.y,size*3,0,Math.PI*2);
+      cx.fill();
+    }
+  }
+
+  // ─── DRAW PRIMES (right arc, green/white) ───
+  for(var i=0;i<primePositions.length;i++){
+    var pp=primePositions[i];
+    var size=1.2;
+
+    // Bigger for small primes (they matter more)
+    if(pp.p<20)size=2.5;
+    else if(pp.p<100)size=1.8;
+
+    cx.fillStyle='rgba(74,234,160,0.4)';
+    cx.beginPath();
+    cx.arc(pp.x,pp.y,size,0,Math.PI*2);
+    cx.fill();
+  }
+
+  // ─── THE LIVE ORACLE: show π(x) converging ───
+  // As more zeros arrive, the prediction gets sharper
+  if(nz>10){
+    var testX=1000;
+    var actual=168; // π(1000) = 168
+    var predictions=[];
+    for(var k=1;k<=Math.min(nz,50);k++){
+      predictions.push(oracleCount(testX,k));
+    }
+
+    // Draw convergence curve at bottom
+    var curveY=h*0.88;
+    var curveH=h*0.08;
+    var curveW=w*0.5;
+    var curveX=(w-curveW)/2;
+
+    // Actual line
+    cx.strokeStyle='rgba(74,234,160,0.15)';
+    cx.lineWidth=0.5;
+    var actualY=curveY-((actual-150)/(190-150))*curveH;
+    cx.beginPath();cx.moveTo(curveX,actualY);cx.lineTo(curveX+curveW,actualY);cx.stroke();
+
+    // Prediction curve
+    cx.strokeStyle='rgba(201,164,74,0.3)';
+    cx.lineWidth=1;
+    cx.beginPath();
+    for(var k=0;k<predictions.length;k++){
+      var px2=curveX+k/predictions.length*curveW;
+      var py2=curveY-((predictions[k]-150)/(190-150))*curveH;
+      py2=Math.max(curveY-curveH,Math.min(curveY,py2));
+      if(k===0)cx.moveTo(px2,py2);else cx.lineTo(px2,py2);
+    }
+    cx.stroke();
+
+    // Labels
+    cx.fillStyle='rgba(74,234,160,0.08)';
+    cx.font='9px Georgia';cx.textAlign='left';
+    cx.fillText('π(1000) = '+actual,curveX+curveW+8,actualY+3);
+
+    cx.fillStyle='rgba(201,164,74,0.08)';
+    cx.textAlign='right';
+    if(predictions.length>0){
+      var latest=predictions[predictions.length-1];
+      cx.fillText(Math.round(latest)+' ('+nz+' zeros)',curveX-8,curveY-curveH/2);
+    }
+  }
+
+  cx.globalCompositeOperation='source-over';
+
+  // ─── WHISPERS ───
+  cx.textAlign='center';
+
+  // Left label
+  cx.fillStyle='rgba(201,164,74,0.04)';
+  cx.font='11px Georgia';
+  cx.fillText('zeros',centerX-radius-30,centerY);
+
+  // Right label
+  cx.fillStyle='rgba(74,234,160,0.04)';
+  cx.fillText('primes',centerX+radius+30,centerY);
+
+  // Top: the count
+  if(nz>0){
+    cx.fillStyle='rgba(201,164,74,0.06)';
+    cx.font='200 1.5em Georgia';
+    cx.fillText(nz,centerX,centerY-radius-20);
+    cx.font='10px Georgia';
+    cx.fillStyle='rgba(201,164,74,0.03)';
+    cx.fillText('zeros found',centerX,centerY-radius-6);
+  }
+
+  // Bottom whisper
+  var whisper='';
+  if(nz<5)whisper='scanning the critical line...';
+  else if(nz<20)whisper='zeros emerging';
+  else if(nz<50)whisper='the corrections accumulate';
+  else if(nz<100)whisper='primes ← zeros ← primes';
+  else if(nz<200)whisper='the loop closes';
+  else if(nz<maxZeros)whisper='the mirror sees itself';
+  else whisper='ready';
+
+  cx.fillStyle='rgba(201,164,74,0.04)';
+  cx.font='12px Georgia';
+  cx.fillText(whisper,centerX,h-20);
+
+  requestAnimationFrame(render);
+}
+
+render();
+</script>
+</body>
+</html>
