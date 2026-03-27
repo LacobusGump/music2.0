@@ -28,7 +28,7 @@ canvas{display:block;width:100vw;height:100vh;touch-action:none;}
 </style>
 </head>
 <body>
-<div id="start"><div id="start-inner"><h1>GUMP</h1><p>tap to begin · tilt to play</p></div></div>
+<div id="start"><div id="start-inner"><h1>GUMP</h1><p>tap to begin · drag up to play</p></div></div>
 <canvas id="C"></canvas>
 <div id="hud"><span id="info"></span></div>
 <script>
@@ -79,37 +79,55 @@ var R=0,meanPhase=0;
 var t=0,w,h;
 var started=false;
 
-// ═══ SENSOR: body → K ═══
-var sensorK=0; // raw sensor reading
+// ═══ INPUT: body → K ═══
+var sensorK=0;
 var beta=0,gamma2=0,accel=0;
+var hasSensors=false;
+var touchY=0.5; // touch position 0-1
 
 function initSensors(){
   if(typeof DeviceMotionEvent!=='undefined'&&typeof DeviceMotionEvent.requestPermission==='function'){
-    DeviceMotionEvent.requestPermission().then(function(r){if(r==='granted')bindSensors();});
+    DeviceMotionEvent.requestPermission().then(function(r){
+      if(r==='granted')bindSensors();
+    }).catch(function(){});
   } else {
     bindSensors();
   }
+  // Fallback: if no sensor data in 2s, rely on touch
+  setTimeout(function(){
+    if(!hasSensors)console.log('No sensors — touch mode');
+  },2000);
 }
 
 function bindSensors(){
   addEventListener('deviceorientation',function(e){
-    beta=e.beta||0;   // front-back tilt (-180 to 180)
-    gamma2=e.gamma||0; // left-right tilt (-90 to 90)
+    if(e.beta!==null){hasSensors=true;beta=e.beta||0;gamma2=e.gamma||0;}
   });
   addEventListener('devicemotion',function(e){
     var a=e.accelerationIncludingGravity;
-    if(a){
+    if(a&&a.x!==null){
+      hasSensors=true;
       var mag=Math.sqrt((a.x||0)*(a.x||0)+(a.y||0)*(a.y||0)+(a.z||0)*(a.z||0));
-      // Remove gravity (~9.8), take absolute motion
       accel=Math.abs(mag-9.8);
     }
   });
 }
 
-// Mouse fallback: mouse Y = K
+// Touch: drag up/down to control K (always works)
+addEventListener('touchmove',function(e){
+  if(!started)return;
+  e.preventDefault();
+  touchY=1-e.touches[0].clientY/innerHeight; // 0=bottom, 1=top
+},{passive:false});
+addEventListener('touchstart',function(e){
+  if(!started||!document.getElementById('start'))return;
+  touchY=1-e.touches[0].clientY/innerHeight;
+},{passive:true});
+
+// Mouse: same
 addEventListener('mousemove',function(e){
   if(!started)return;
-  sensorK=(1-e.clientY/innerHeight)*4; // 0 at bottom, 4 at top
+  touchY=1-e.clientY/innerHeight;
 });
 
 // ═══ AUDIO ENGINE ═══
@@ -273,14 +291,17 @@ function updateAudio(){
 function step(){
   t+=0.016;
 
-  // Sensor → K with water-bottle damping
-  // Tilt magnitude + acceleration → target K
-  var tiltMag=Math.sqrt(beta*beta+gamma2*gamma2)/90; // 0-1 normalized
-  var motionK=tiltMag*2.5+accel*0.3;
-  sensorK+=(motionK-sensorK)*0.1; // smooth
-
-  // Spring toward sensor K
-  Ktarget=Math.max(0,Math.min(5,sensorK));
+  // Input → K: sensors if available, touch always
+  if(hasSensors){
+    var tiltMag=Math.sqrt(beta*beta+gamma2*gamma2)/90;
+    var motionK=tiltMag*2.5+accel*0.3;
+    sensorK+=(motionK-sensorK)*0.1;
+  }
+  // Touch always contributes (finger position = K)
+  var touchK=touchY*4; // 0 at bottom, 4 at top
+  // Blend: sensors + touch, whichever is higher wins
+  var inputK=Math.max(hasSensors?sensorK:0, touchK);
+  Ktarget=Math.max(0,Math.min(5,inputK));
   Kvel+=(Ktarget-K)*0.06;
   Kvel*=0.85; // damping — water bottle
   K+=Kvel;
