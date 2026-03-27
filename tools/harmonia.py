@@ -278,31 +278,70 @@ def call_llm(messages):
 
 def call_llm_ensemble(messages):
     """
-    Ask ALL available models. Pick the best response.
-    Best = longest coherent response (simple heuristic).
-    Use with /deep command for important questions.
+    Multi-pass refinement across models.
+    Like oracle_train: each pass extracts more structure.
+
+    Pass 1 (fast model): rough draft
+    Pass 2 (smart model): refine — fix grammar, deepen meaning
+    Pass 3 (if available): polish — check logic, tighten
+
+    The output of each model becomes the input to the next.
+    Each pass improves the residual. Same as frequency extraction.
     """
     models = _all_models()
-    ollama_messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-    for m in messages[-6:]:
-        ollama_messages.append({"role": m["role"], "content": m["content"]})
 
-    responses = []
-    for model in models:
-        resp, elapsed = _ask_model(model, ollama_messages)
-        if resp:
-            # Score: longer + fewer repetitions = better
-            words = resp.split()
-            unique_ratio = len(set(words)) / max(len(words), 1)
-            score = len(words) * unique_ratio
-            responses.append((resp, score, model, elapsed))
+    # Sort: smallest first (fast draft), largest last (smart polish)
+    size_order = ['gemma3:4b', 'qwen2.5:7b', 'llama3.1:8b', 'deepseek-r1:8b', 'gemma3:12b']
+    available = []
+    for pref in size_order:
+        for m in models:
+            if m.startswith(pref.split(':')[0]) and m not in available:
+                available.append(m)
+    if not available:
+        available = models[:3]
 
-    if not responses:
-        return "No models responded."
+    # Use up to 3 models in the chain
+    chain = available[:3]
 
-    responses.sort(key=lambda x: -x[1])
-    best = responses[0]
-    return best[0]
+    last_msg = messages[-1]['content'] if messages else ''
+
+    # Pass 1: Draft
+    draft_messages = [
+        {"role": "system", "content": "Answer briefly. 2 sentences max."},
+    ] + [{"role": m["role"], "content": m["content"]} for m in messages[-4:]]
+
+    draft, t1 = _ask_model(chain[0], draft_messages, num_predict=60)
+    if not draft:
+        return "No response."
+
+    if len(chain) < 2:
+        return draft
+
+    # Pass 2: Refine
+    refine_messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": last_msg},
+        {"role": "assistant", "content": draft},
+        {"role": "user", "content": "Improve that response. Make it warmer, more precise, more beautiful. Keep it short. Do not explain what you changed — just give the improved version."},
+    ]
+
+    refined, t2 = _ask_model(chain[1], refine_messages, num_predict=80)
+    if not refined:
+        return draft
+
+    if len(chain) < 3:
+        return refined
+
+    # Pass 3: Polish
+    polish_messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": last_msg},
+        {"role": "assistant", "content": refined},
+        {"role": "user", "content": "Final polish. One perfect response. Remove anything unnecessary. Every word must earn its place."},
+    ]
+
+    polished, t3 = _ask_model(chain[2], polish_messages, num_predict=80)
+    return polished if polished else refined
 
 # Legacy: keep the old payload-based path for Claude API
 def _legacy_payload():
