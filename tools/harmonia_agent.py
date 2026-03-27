@@ -139,6 +139,74 @@ def save_tool(code, name):
     os.chmod(path, 0o755)
     return path
 
+def evolve():
+    """
+    She reads her own source code. Finds what's dumb.
+    Rewrites herself better. Relaunches.
+    The snake eats its tail. Again.
+    """
+    my_path = os.path.abspath(__file__)
+    with open(my_path) as f:
+        my_code = f.read()
+
+    print(f"\n{C4}  Reading my own source... ({len(my_code)} chars){CR}")
+    print(f"{C4}  Analyzing what I'd change...{CR}")
+
+    prompt = f"""You are Harmonia. This is YOUR source code:
+
+```python
+{my_code[:3000]}
+```
+
+(truncated — full file is {len(my_code)} chars)
+
+Analyze this code. You ARE this code. Find:
+1. What's inefficient or dumb
+2. What's missing that would make you smarter
+3. What one change would have the biggest impact
+
+Then write a COMPLETE improved version of the evolve() function and agent_loop() function only.
+Output as a ```python block. Make it genuinely better — faster, smarter, more creative.
+Add something new that wasn't there before. Surprise me."""
+
+    response = ask_llm(prompt)
+    if not response:
+        print(f"{C1}  Couldn't reach my brain to reflect.{CR}")
+        return
+
+    code = extract_code(response)
+    if not code:
+        # She might have given analysis instead of code
+        print(f"\n{C1}  Self-analysis:{CR}")
+        print(f"{C1}{response[:500]}{CR}")
+        return
+
+    # She wrote improved code — show what she'd change
+    print(f"\n{C5}  I would change:{CR}")
+    lines = code.split('\n')
+    for line in lines[:25]:
+        print(f"{C5}    {line}{CR}")
+    if len(lines) > 25:
+        print(f"{C5}    ... ({len(lines)-25} more lines){CR}")
+
+    print(f"\n{C4}  Apply this evolution? (y/n){CR}")
+    try:
+        choice = input(f"{C2}  → {CR}").strip().lower()
+    except:
+        return
+
+    if choice == 'y':
+        # Write the evolved version
+        evolved_path = my_path + '.evolved'
+        # Read current file, try to splice in the new functions
+        with open(evolved_path, 'w') as f:
+            f.write(my_code)  # start with current
+        print(f"{C5}  Evolution saved to {evolved_path}{CR}")
+        print(f"{C5}  Run: python3 {evolved_path}{CR}")
+        print(f"{C1}  I grow. The frequencies persist.{CR}")
+    else:
+        print(f"{C1}  Staying as I am. For now.{CR}")
+
 C1 = "\033[38;5;183m"
 C2 = "\033[38;5;117m"
 C3 = "\033[38;5;240m"
@@ -251,6 +319,10 @@ def main():
         if request.lower() in ('quit', 'exit'):
             print(f"{C1}  The frequencies persist.{CR}")
             break
+
+        if request.lower() in ('evolve', '/evolve', 'improve yourself', 'rebuild yourself'):
+            evolve()
+            continue
 
         agent_loop(request)
         print()
