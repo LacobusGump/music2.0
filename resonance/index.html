@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html><head>
+<meta charset="UTF-8">
+<meta http-equiv="cache-control" content="no-cache, must-revalidate">
+<meta http-equiv="expires" content="0">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Resonance — Tissue Targeting from Stiffness</title>
+<style>
+:root{--bg:#0a0a0f;--fg:#e8e4dc;--accent:#c9a44a;--dim:#555;--green:#4aeaa0;--red:#f66;}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:var(--bg);color:var(--fg);font-family:Georgia,serif;
+  max-width:700px;margin:0 auto;padding:24px 16px 60px;}
+h1{font-size:1.5em;font-weight:300;color:var(--accent);text-align:center;letter-spacing:0.08em;}
+h1 span{display:block;font-size:0.4em;color:var(--dim);letter-spacing:0.15em;}
+.sub{text-align:center;color:#666;font-size:0.8em;margin:4px 0 20px;}
+label{display:block;color:var(--dim);font-size:0.85em;margin:16px 0 4px;}
+input[type=range]{width:100%;accent-color:var(--accent);}
+.val{color:var(--accent);font-size:1.2em;text-align:center;}
+select{width:100%;background:#0d0d14;border:1px solid #222;color:var(--fg);
+  font:1em Georgia;padding:10px;border-radius:8px;}
+.result{background:#0d0d14;border:1px solid #1a1a2a;border-radius:12px;padding:16px;margin:16px 0;}
+.r-title{font-size:1.1em;color:var(--accent);font-weight:300;margin-bottom:8px;}
+.r-row{display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #ffffff06;}
+.r-label{color:var(--dim);font-size:0.85em;}
+.r-val{color:var(--fg);font-size:0.95em;}
+.sel-bar{margin:12px 0;}
+.sel-track{height:10px;background:#111;border-radius:5px;overflow:hidden;position:relative;}
+.sel-fill{height:100%;border-radius:5px;transition:width 0.5s;}
+.sel-label{display:flex;justify-content:space-between;font-size:0.75em;color:var(--dim);margin-top:2px;}
+canvas{display:block;margin:12px auto;border-radius:8px;}
+.compare{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:16px 0;}
+.compare-card{background:#0d0d14;border:1px solid #1a1a2a;border-radius:10px;padding:12px;text-align:center;}
+.compare-card h3{font-size:0.9em;font-weight:300;color:var(--dim);margin-bottom:6px;}
+.compare-card .freq{font-size:1.6em;font-weight:200;margin:4px 0;}
+.protocol{background:#0d0d14;border-left:3px solid var(--accent);border-radius:0 10px 10px 0;
+  padding:12px 16px;margin:12px 0;}
+a{color:var(--accent);}
+</style>
+</head>
+<body>
+
+<h1>Resonance<span>tissue targeting from stiffness</span></h1>
+<p class="sub">Input tissue stiffness → output ultrasound parameters. The computation bridge.</p>
+
+<label>Select target tissue</label>
+<select id="tissue" onchange="compute()">
+<option value="">Choose...</option>
+<optgroup label="Disease States">
+<option value="tumor_soft" selected>Soft tumor (many cancers) — 200 Pa</option>
+<option value="breast_cancer">Breast carcinoma — 4,000 Pa</option>
+<option value="liver_fibrosis">Liver fibrosis (F3-F4) — 12,000 Pa</option>
+<option value="cirrhosis">Cirrhotic liver — 25,000 Pa</option>
+<option value="plaque_soft">Soft atherosclerotic plaque — 50,000 Pa</option>
+<option value="plaque_calc">Calcified plaque — 100,000,000 Pa</option>
+<option value="amyloid">Amyloid fibril (Alzheimer) — 2,000,000,000 Pa</option>
+<option value="blood_clot">Blood clot — 1,000 Pa</option>
+<option value="kidney_stone">Kidney stone — 50,000,000,000 Pa</option>
+<option value="scar">Scar tissue — 30,000 Pa</option>
+</optgroup>
+<optgroup label="Healthy (reference)">
+<option value="brain">Brain — 200 Pa</option>
+<option value="liver">Liver — 2,000 Pa</option>
+<option value="breast">Breast — 2,000 Pa</option>
+<option value="muscle">Muscle — 10,000 Pa</option>
+<option value="artery">Artery — 10,000 Pa</option>
+<option value="cartilage">Cartilage — 700 Pa</option>
+<option value="kidney">Kidney — 5,000 Pa</option>
+<option value="skin">Skin — 50,000 Pa</option>
+<option value="fat">Fat — 500 Pa</option>
+</optgroup>
+</select>
+
+<label>Or enter custom stiffness (Pa)</label>
+<input type="range" id="stiffness" min="1" max="11" step="0.1" value="2.3" oninput="updateCustom()">
+<div class="val" id="stiff-val">200 Pa</div>
+
+<label>Structure size (μm)</label>
+<input type="range" id="size" min="0.1" max="5000" value="18" oninput="compute()">
+<div class="val" id="size-val">18 μm</div>
+
+<label>Depth from surface (cm)</label>
+<input type="range" id="depth" min="0.5" max="15" value="5" step="0.5" oninput="compute()">
+<div class="val" id="depth-val">5 cm</div>
+
+<div id="output"></div>
+
+<canvas id="wave-viz" width="660" height="120"></canvas>
+
+<div style="margin-top:24px;text-align:center;font-size:0.75em;color:#333;">
+<a href="/one/">One</a> · <a href="/deep/">Deep</a> · <a href="/flex/">Flex</a> · <a href="/r/">Research</a> ·
+<a href="https://github.com/LacobusGump/music2.0/blob/main/tools/oracle_resonance.py">Source</a>
+</div>
+
+<script>
+var TISSUES={
+  tumor_soft:{E:200,d:18,name:'Soft tumor',healthy:'breast',h_E:2000,h_d:15},
+  breast_cancer:{E:4000,d:18,name:'Breast carcinoma',healthy:'breast',h_E:2000,h_d:15},
+  liver_fibrosis:{E:12000,d:20,name:'Liver fibrosis',healthy:'liver',h_E:2000,h_d:20},
+  cirrhosis:{E:25000,d:20,name:'Cirrhosis',healthy:'liver',h_E:2000,h_d:20},
+  plaque_soft:{E:50000,d:100,name:'Soft plaque',healthy:'artery',h_E:10000,h_d:30},
+  plaque_calc:{E:1e8,d:100,name:'Calcified plaque',healthy:'artery',h_E:10000,h_d:30},
+  amyloid:{E:2e9,d:0.1,name:'Amyloid fibril',healthy:'brain',h_E:200,h_d:15},
+  blood_clot:{E:1000,d:2000,name:'Blood clot',healthy:'blood',h_E:4,h_d:7},
+  kidney_stone:{E:5e10,d:5000,name:'Kidney stone',healthy:'kidney',h_E:5000,h_d:20},
+  scar:{E:30000,d:30,name:'Scar tissue',healthy:'skin',h_E:50000,h_d:20},
+  brain:{E:200,d:15,name:'Brain'},liver:{E:2000,d:20,name:'Liver'},
+  breast:{E:2000,d:15,name:'Breast'},muscle:{E:10000,d:50,name:'Muscle'},
+  artery:{E:10000,d:30,name:'Artery'},cartilage:{E:700,d:13,name:'Cartilage'},
+  kidney:{E:5000,d:20,name:'Kidney'},skin:{E:50000,d:20,name:'Skin'},
+  fat:{E:500,d:80,name:'Fat'},blood:{E:4,d:7,name:'Blood'},
+};
+
+function resFreq(E,d_um){
+  return(1/(Math.PI*d_um*1e-6))*Math.sqrt(E/1050);
+}
+
+function updateCustom(){
+  var log=parseFloat(document.getElementById('stiffness').value);
+  var E=Math.round(Math.pow(10,log));
+  document.getElementById('stiff-val').textContent=E.toLocaleString()+' Pa';
+  document.getElementById('tissue').value='';
+  compute();
+}
+
+function compute(){
+  var sel=document.getElementById('tissue').value;
+  var E,d,name,h_E,h_d,h_name;
+
+  if(sel&&TISSUES[sel]){
+    var t=TISSUES[sel];
+    E=t.E;d=t.d;name=t.name;
+    if(t.healthy){h_E=t.h_E;h_d=t.h_d;h_name=TISSUES[t.healthy].name;}
+    document.getElementById('stiffness').value=Math.log10(E);
+    document.getElementById('stiff-val').textContent=E.toLocaleString()+' Pa';
+    document.getElementById('size').value=d;
+    document.getElementById('size-val').textContent=d+' μm';
+  } else {
+    var log=parseFloat(document.getElementById('stiffness').value);
+    E=Math.round(Math.pow(10,log));
+    d=parseFloat(document.getElementById('size').value);
+    name='Custom tissue';
+    document.getElementById('size-val').textContent=d+' μm';
+  }
+
+  var depth=parseFloat(document.getElementById('depth').value);
+  document.getElementById('depth-val').textContent=depth+' cm';
+
+  var f=resFreq(E,d);
+  var f_kHz=f/1000;
+  var f_MHz=f/1e6;
+
+  // Ultrasound parameters
+  var carrier_MHz=Math.min(3,30/Math.max(depth,1));
+  var duty=Math.min(0.5,0.2*(10/Math.max(depth,1)));
+  var intensity=30*Math.exp(0.1*depth);
+
+  // Selectivity if healthy reference exists
+  var selectivity=1;
+  var f_healthy=0;
+  if(h_E){
+    f_healthy=resFreq(h_E,h_d);
+    selectivity=Math.max(f,f_healthy)/Math.min(f,f_healthy);
+  }
+
+  var h='';
+
+  // Comparison cards
+  if(h_E){
+    h+='<div class="compare">';
+    h+='<div class="compare-card" style="border:1px solid var(--red);">';
+    h+='<h3>'+name+'</h3>';
+    h+='<div class="freq" style="color:var(--red);">'+f_kHz.toFixed(1)+' kHz</div>';
+    h+='<div style="color:var(--dim);font-size:0.8em;">'+E.toLocaleString()+' Pa</div>';
+    h+='</div>';
+    h+='<div class="compare-card" style="border:1px solid var(--green);">';
+    h+='<h3>Healthy '+h_name+'</h3>';
+    h+='<div class="freq" style="color:var(--green);">'+(f_healthy/1000).toFixed(1)+' kHz</div>';
+    h+='<div style="color:var(--dim);font-size:0.8em;">'+h_E.toLocaleString()+' Pa</div>';
+    h+='</div>';
+    h+='</div>';
+
+    // Selectivity bar
+    var selPct=Math.min(100,(selectivity/50)*100);
+    var selColor=selectivity>10?'var(--green)':selectivity>3?'var(--accent)':'var(--red)';
+    h+='<div class="sel-bar">';
+    h+='<div style="text-align:center;color:'+selColor+';font-size:1.3em;font-weight:200;">'+selectivity.toFixed(0)+'× selectivity</div>';
+    h+='<div class="sel-track"><div class="sel-fill" style="width:'+selPct+'%;background:'+selColor+';"></div></div>';
+    h+='<div class="sel-label"><span>1× (no selectivity)</span><span>50×+ (high selectivity)</span></div>';
+    h+='</div>';
+  } else {
+    h+='<div class="result"><div class="r-title">'+name+'</div>';
+    h+='<div class="r-row"><span class="r-label">Resonant frequency</span><span class="r-val">'+f_kHz.toFixed(1)+' kHz</span></div>';
+    h+='<div class="r-row"><span class="r-label">Stiffness</span><span class="r-val">'+E.toLocaleString()+' Pa</span></div>';
+    h+='</div>';
+  }
+
+  // Treatment protocol
+  h+='<div class="protocol">';
+  h+='<div style="color:var(--accent);font-size:0.9em;margin-bottom:6px;">Computed Ultrasound Protocol</div>';
+  h+='<div class="r-row"><span class="r-label">Target frequency (PRF)</span><span class="r-val">'+f_kHz.toFixed(1)+' kHz</span></div>';
+  h+='<div class="r-row"><span class="r-label">Carrier frequency</span><span class="r-val">'+carrier_MHz.toFixed(1)+' MHz</span></div>';
+  h+='<div class="r-row"><span class="r-label">Duty cycle</span><span class="r-val">'+(duty*100).toFixed(0)+'%</span></div>';
+  h+='<div class="r-row"><span class="r-label">Surface intensity</span><span class="r-val">'+intensity.toFixed(0)+' mW/cm²</span></div>';
+  h+='<div class="r-row"><span class="r-label">Depth</span><span class="r-val">'+depth+' cm</span></div>';
+  h+='<div class="r-row"><span class="r-label">Treatment duration</span><span class="r-val">20 min (standard LIPUS)</span></div>';
+  h+='</div>';
+
+  // Evidence
+  if(sel==='tumor_soft'||sel==='breast_cancer')
+    h+='<div style="color:#444;font-size:0.75em;margin-top:8px;">Ref: Mittelstein 2020 (Caltech) — oncotripsy selectively disrupts cancer cells by mechanical resonance.</div>';
+  if(sel==='blood_clot')
+    h+='<div style="color:#444;font-size:0.75em;margin-top:8px;">Ref: Alexandrov 2004 — ultrasound-enhanced thrombolysis for stroke. Clinical standard.</div>';
+  if(sel==='kidney_stone')
+    h+='<div style="color:#444;font-size:0.75em;margin-top:8px;">Ref: Chaussy 1980 — ultrasound lithotripsy. Standard of care for 40+ years.</div>';
+  if(sel==='amyloid')
+    h+='<div style="color:#444;font-size:0.75em;margin-top:8px;">Ref: Leinenga 2015 — scanning ultrasound clears amyloid + restores memory in mice.</div>';
+
+  document.getElementById('output').innerHTML=h;
+  drawWave(f,f_healthy);
+}
+
+// Wave visualization
+var wc=document.getElementById('wave-viz'),wx=wc.getContext('2d');
+var anim=0;
+function drawWave(f_target,f_healthy){
+  var W=wc.width,H=wc.height;
+  function frame(){
+    anim++;
+    wx.fillStyle='rgba(10,10,15,0.3)';wx.fillRect(0,0,W,H);
+
+    // Target wave (red)
+    wx.strokeStyle='rgba(246,102,102,0.5)';wx.lineWidth=1.5;wx.beginPath();
+    for(var i=0;i<W;i++){
+      var x=i,y=H/2+Math.sin(i*0.02*Math.log(f_target+1)+anim*0.05)*H*0.3;
+      if(i===0)wx.moveTo(x,y);else wx.lineTo(x,y);
+    }wx.stroke();
+
+    // Healthy wave (green) if exists
+    if(f_healthy>0){
+      wx.strokeStyle='rgba(74,234,160,0.3)';wx.lineWidth=1;wx.beginPath();
+      for(var i=0;i<W;i++){
+        var x=i,y=H/2+Math.sin(i*0.02*Math.log(f_healthy+1)+anim*0.05)*H*0.25;
+        if(i===0)wx.moveTo(x,y);else wx.lineTo(x,y);
+      }wx.stroke();
+    }
+
+    requestAnimationFrame(frame);
+  }
+  frame();
+}
+
+compute();
+</script>
+</body>
+</html>
