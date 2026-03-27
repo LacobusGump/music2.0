@@ -28,444 +28,263 @@ resize();addEventListener('resize',resize);
 var w,h,t=0,mx=0.5,my=0.5;
 addEventListener('mousemove',function(e){mx=e.clientX/innerWidth;my=e.clientY/innerHeight;});
 addEventListener('touchmove',function(e){e.preventDefault();if(e.touches.length===1){mx=e.touches[0].clientX/innerWidth;my=e.touches[0].clientY/innerHeight;}},{passive:false});
-var lastTapTime=0;
-addEventListener('touchstart',function(e){e.preventDefault();
-  if(e.touches.length===1){lastTapTime=Date.now();tapMirror(e.touches[0].clientX/innerWidth,e.touches[0].clientY/innerHeight);}
-},{passive:false});
-addEventListener('click',function(e){if(Date.now()-lastTapTime>300)tapMirror(e.clientX/innerWidth,e.clientY/innerHeight);});
+addEventListener('touchstart',function(e){e.preventDefault();},{passive:false});
 
-// ═══ TAP: send a pulse in — mirror sends its rhythm back ═══
-var taps=[];
-var tapPulses=[];
-var returnPulses=[];  // the mirror's RESPONSE
-var resonance=0;
-var resonanceDecay=0;
-var responding=false;  // mirror is sending back its pattern
-var responseQueue=[];  // scheduled return pulses
+// ═══════════════════════════════════════════════════════════
+// THE MACHINE
+// 137 oscillators. Hexagonal close-packing.
+// Clocked by the zeros of zeta. Filtered to 5 channels.
+// Coupling: K = 1.37 (α × 100). The decoded build spec.
+// ═══════════════════════════════════════════════════════════
 
-function tapMirror(nx,ny){
-  huntPaused=true; // stop computing Z() during interaction
-  setTimeout(function(){huntPaused=false;},2000); // resume after 2s
-  var now=t;
-  taps.push(now);
-  if(taps.length>20)taps.shift();
+var N=137;
+var K=1.37; // the coupling constant — α × 100
 
-  // Your pulse goes IN — THREE pulses, staggered (the pattern)
-  if(tapPulses.length>15){tapPulses.length=0;} // clear old ones
-  tapPulses.push({x:nx,y:ny,born:t,life:1});
-  tapPulses.push({x:nx,y:ny,born:t+0.12,life:1});
-  tapPulses.push({x:nx,y:ny,born:t+0.28,life:1});
-
-  // THREE nearest zeros respond — fast linear scan, no sort
-  if(zeros.length>3){
-    // Find closest by simple scan (faster than sort)
-    var best=[{d:999,i:0},{d:999,i:0},{d:999,i:0}];
-    for(var i=0;i<zeros.length;i++){
-      var zy=zeros[i].soul.y||0;
-      var d=Math.abs(ny-zy/h);
-      if(d<best[2].d){best[2]={d:d,i:i};if(d<best[1].d){best[2]=best[1];best[1]={d:d,i:i};if(d<best[0].d){best[1]=best[0];best[0]={d:d,i:i};}}}
-    }
-    for(var k=0;k<3;k++)if(best[k].i<zeros.length)zeros[best[k].i].pulse=1-k*0.2;
-
-    // MIRROR ANSWERS: 3 groups of 3 — clear old queue first
-    var baseIdx=best[0].i;
-    if(zeros.length>baseIdx+9){
-      responding=true;
-      responseQueue=[];
-      var delay=0.4;
-      for(var group=0;group<3;group++){
-        for(var k=0;k<3;k++){
-          var idx=baseIdx+group*3+k;
-          if(idx+1>=zeros.length)break;
-          var spacing=zeros[idx+1].gamma-zeros[idx].gamma;
-          delay+=spacing/6*0.35;
-          responseQueue.push({time:t+delay,fromIdx:idx,toX:nx,toY:ny});
-        }
-        delay+=0.25;
-      }
-    }
-  }
-
-  // Check resonance: compare YOUR intervals to the zeros' answer
-  if(taps.length>=3&&zeros.length>5){
-    var intervals=[];
-    for(var i=taps.length-1;i>=1&&intervals.length<5;i--){
-      intervals.unshift(taps[i]-taps[i-1]);
-    }
-    var zSpacings=[];
-    for(var i=1;i<Math.min(zeros.length,20);i++){
-      zSpacings.push(zeros[i].gamma-zeros[i-1].gamma);
-    }
-    var zMean=zSpacings.reduce(function(a,b){return a+b;},0)/zSpacings.length;
-    var tMean=intervals.reduce(function(a,b){return a+b;},0)/intervals.length;
-
-    var match=0,tested=0;
-    for(var i=0;i<Math.min(intervals.length,zSpacings.length);i++){
-      var tRatio=intervals[i]/tMean;
-      var bestDist=999;
-      for(var j=0;j<zSpacings.length;j++){
-        var zRatio=zSpacings[j]/zMean;
-        if(Math.abs(tRatio-zRatio)<bestDist)bestDist=Math.abs(tRatio-zRatio);
-      }
-      if(bestDist<0.35)match++;
-      tested++;
-    }
-    resonance=tested>0?match/tested:0;
-    resonanceDecay=3;
-    if(resonance>0.5){
-      for(var i=0;i<zeros.length;i++)zeros[i].pulse=Math.max(zeros[i].pulse,resonance);
-    }
-  }
-}
-
-// Process the mirror's scheduled responses
-function processResponses(){
-  for(var i=responseQueue.length-1;i>=0;i--){
-    var rq=responseQueue[i];
-    if(t>=rq.time){
-      // Fire a return pulse from the zero BACK toward the tap point
-      var z=zeros[rq.fromIdx];
-      if(z){
-        z.pulse=0.8;
-        // Return pulse (white/blue — the mirror's voice)
-        if(returnPulses.length>30)returnPulses.shift();
-        returnPulses.push({
-          sx:0.5, sy:z.soul.y?z.soul.y/h:0.5,  // from mirror center
-          tx:rq.toX, ty:rq.toY,  // toward where you tapped
-          born:t, life:1, progress:0
-        });
-      }
-      responseQueue.splice(i,1);
-    }
-  }
-  if(responseQueue.length===0)responding=false;
-}
-
-// ═══ THE ORACLE ═══
-function theta(t){if(t<1)return 0;return(t/2)*Math.log(t/(2*Math.PI))-t/2-Math.PI/8+1/(48*t);}
-function Z(t){
-  if(t<2)return 0;
-  var a=Math.sqrt(t/(2*Math.PI)),N=Math.max(1,Math.floor(a)),th=theta(t),s=0;
-  for(var n=1;n<=N;n++)s+=Math.cos(th-t*Math.log(n))/Math.sqrt(n);
-  s*=2;var p=a-N,d=Math.cos(2*Math.PI*p);
-  if(Math.abs(d)>1e-8)s+=Math.pow(-1,N-1)*Math.pow(2*Math.PI/t,0.25)*Math.cos(2*Math.PI*(p*p-p-1/16))/d;
+// ═══ ORACLE: compute zeros of ζ on load ═══
+function theta(tt){if(tt<1)return 0;return(tt/2)*Math.log(tt/(2*Math.PI))-tt/2-Math.PI/8+1/(48*tt);}
+function Zfn(tt){
+  if(tt<2)return 0;
+  var a=Math.sqrt(tt/(2*Math.PI)),NN=Math.max(1,Math.floor(a)),th=theta(tt),s=0;
+  for(var n=1;n<=NN;n++)s+=Math.cos(th-tt*Math.log(n))/Math.sqrt(n);
+  s*=2;var p=a-NN,d=Math.cos(2*Math.PI*p);
+  if(Math.abs(d)>1e-8)s+=Math.pow(-1,NN-1)*Math.pow(2*Math.PI/tt,0.25)*Math.cos(2*Math.PI*(p*p-p-1/16))/d;
   return s;
 }
-function findZero(lo,hi){for(var i=0;i<40;i++){var m=(lo+hi)/2;if(Z(lo)*Z(m)<0)hi=m;else lo=m;}return(lo+hi)/2;}
 
-// ═══ STATE ═══
-var scanT=9,prevZval=Z(9);
-var zeros=[]; // {gamma, born, soul:{x,y,vx,vy}, anti:{x,y,vx,vy}}
-var maxZeros=137;
-
-// ═══ HUNT FOR ZEROS ═══
-var huntPaused=false;
-function hunt(){
-  if(zeros.length>=maxZeros||huntPaused)return;
-  for(var attempt=0;attempt<1;attempt++){  // only 1 per frame
-    var step=scanT>14?Math.max(0.05,2*Math.PI/Math.log(scanT/(2*Math.PI))/6):0.4;
-    scanT+=step;
-    var curr=Z(scanT);
-    if(prevZval*curr<0){
-      var gamma=findZero(scanT-step,scanT);
-      // Born at the mirror line, will drift to final position
-      zeros.push({
-        gamma:gamma,
-        born:t,
-        // Soul: left side of the mirror (σ < 1/2)
-        soul:{x:0,y:0,vx:0,vy:0,tx:0,ty:0},
-        // Anti-soul: right side (σ > 1/2) — the conjugate
-        anti:{x:0,y:0,vx:0,vy:0,tx:0,ty:0},
-        // Pulse along the mirror when born
-        pulse:1
-      });
+// Find all 137 zeros on load
+var zeros=[];
+(function(){
+  var st=9,pv=Zfn(9);
+  while(zeros.length<N){
+    var step=st>14?Math.max(0.05,2*Math.PI/Math.log(st/(2*Math.PI))/6):0.4;
+    st+=step;var cv2=Zfn(st);
+    if(pv*cv2<0){
+      var lo=st-step,hi=st;
+      for(var i=0;i<40;i++){var m=(lo+hi)/2;if(Zfn(lo)*Zfn(m)<0)hi=m;else lo=m;}
+      zeros.push((lo+hi)/2);
     }
-    prevZval=curr;
+    pv=cv2;
+  }
+})();
+
+// ═══ SPACINGS → FILTERED FREQUENCIES (5 surviving modes) ═══
+var spacings=[];
+for(var i=0;i<N-1;i++)spacings.push(zeros[i+1]-zeros[i]);
+var meanS=0;for(var i=0;i<spacings.length;i++)meanS+=spacings[i];meanS/=spacings.length;
+var normS=[];for(var i=0;i<spacings.length;i++)normS.push(spacings[i]/meanS);
+
+// FFT
+var fftRe=[],fftIm=[];
+var SN=normS.length;
+for(var k=0;k<SN;k++){
+  var re=0,im=0;
+  for(var n=0;n<SN;n++){
+    re+=normS[n]*Math.cos(2*Math.PI*k*n/SN);
+    im-=normS[n]*Math.sin(2*Math.PI*k*n/SN);
+  }
+  fftRe.push(re/SN);fftIm.push(im/SN);
+}
+
+// Filter: keep only k=0,1,2,3,4
+var filtered=[];
+for(var n=0;n<SN;n++){
+  var val=0;
+  for(var k=0;k<5;k++){
+    val+=fftRe[k]*Math.cos(2*Math.PI*k*n/SN)-fftIm[k]*Math.sin(2*Math.PI*k*n/SN);
+  }
+  filtered.push(val);
+}
+
+// ═══ HEXAGONAL LATTICE ═══
+var cols=13,rows=11;
+var nx=[],ny=[],nphase=[],nfreq=[],nvx=[],nvy=[];
+var idx=0;
+for(var row=0;row<rows;row++){
+  for(var col=0;col<cols;col++){
+    if(idx>=N)break;
+    nx.push(col+(row%2?0.5:0));
+    ny.push(row*Math.sqrt(3)/2);
+    nphase.push(0);
+    nfreq.push(filtered[Math.min(idx,filtered.length-1)]);
+    nvx.push(0);nvy.push(0);
+    idx++;
   }
 }
 
-// ═══ |ζ(σ + iγ)| — how strong the field is off the critical line ═══
-// This shows WHY things stay on the line — the function grows off it
-function zetaMagnitude(sigma, gamma){
-  // Approximate |ζ(σ+iγ)| — grows as you move away from σ=0.5
-  // Near a zero: it's tiny ON the line, large OFF it
-  var offLine=Math.abs(sigma-0.5);
-  // The further from the line, the stronger the restoring force
-  return offLine*offLine*4+0.001;
+// Precompute neighbors
+var nbrs=[];
+for(var i=0;i<N;i++){
+  var nn=[];
+  for(var j=0;j<N;j++){
+    if(j===i)continue;
+    var dx=nx[j]-nx[i],dy=ny[j]-ny[i];
+    if(dx*dx+dy*dy<1.44)nn.push(j);
+  }
+  nbrs.push(nn);
 }
 
-// ═══ PARTICLES — the field between soul and anti-soul ═══
-var NF=1500; // field particles (light for phone)
-var fx=new Float32Array(NF),fy=new Float32Array(NF);
-var fvx=new Float32Array(NF),fvy=new Float32Array(NF);
-var flife=new Float32Array(NF);
-
-for(var i=0;i<NF;i++){
-  fx[i]=(Math.random()-0.5)*10;
-  fy[i]=(Math.random()-0.5)*10;
-  fvx[i]=0;fvy[i]=0;
-  flife[i]=0.1+Math.random()*0.3;
-}
+// ═══ SIMULATION STATE ═══
+var R=0,meanPhase=0;
+var dt=0.016; // real-time step
+var simSpeed=2.0; // simulation runs 2x real time
 
 // ═══ RENDER ═══
 function render(){
   w=W/DPR;h=H/DPR;t+=0.016;
 
-  cx.fillStyle='rgba(0,0,0,0.05)';
+  cx.fillStyle='rgba(0,0,0,0.06)';
   cx.fillRect(0,0,w,h);
 
-  hunt();
-
-  var mirrorX=w/2; // the critical line: σ = 1/2
-  var nz=zeros.length;
-
-  // Map gamma to vertical position
-  var gammaMin=nz>0?zeros[0].gamma:14;
-  var gammaMax=nz>0?zeros[nz-1].gamma:100;
-  var vMargin=h*0.08;
-
-  function gammaToY(gamma){
-    if(gammaMax<=gammaMin)return h/2;
-    return vMargin+(gamma-gammaMin)/(gammaMax-gammaMin)*(h-vMargin*2);
-  }
-
-  // How far souls sit from the mirror (breathing)
-  var soulDist=w*0.12+Math.sin(t*0.4)*w*0.02;
-
-  // Update zero positions
-  for(var i=0;i<nz;i++){
-    var z=zeros[i];
-    var gy=gammaToY(z.gamma);
-
-    // Soul: left of mirror
-    z.soul.tx=mirrorX-soulDist;
-    z.soul.ty=gy;
-    z.soul.vx+=(z.soul.tx-z.soul.x)*0.04;
-    z.soul.vy+=(z.soul.ty-z.soul.y)*0.04;
-    z.soul.vx*=0.88;z.soul.vy*=0.88;
-    z.soul.x+=z.soul.vx;z.soul.y+=z.soul.vy;
-
-    // Anti-soul: right of mirror — perfect reflection
-    z.anti.tx=mirrorX+soulDist;
-    z.anti.ty=gy;
-    z.anti.vx+=(z.anti.tx-z.anti.x)*0.04;
-    z.anti.vy+=(z.anti.ty-z.anti.y)*0.04;
-    z.anti.vx*=0.88;z.anti.vy*=0.88;
-    z.anti.x+=z.anti.vx;z.anti.y+=z.anti.vy;
-
-    z.pulse*=0.97;
-  }
-
-  // ─── FIELD PARTICLES: drawn toward the mirror line ───
-  for(var i=0;i<NF;i++){
-    // Force toward the critical line (σ=0.5)
-    var offLine=fx[i]; // distance from center (mapped)
-    var restore=-offLine*0.003; // pulled to center
-    fvx[i]+=restore;
-
-    // Drift upward slowly (the imaginary axis flows)
-    fvy[i]-=0.002;
-
-    // Influence from a few nearby zeros (sampled, not all)
-    if(nz>0&&i%4===0){
-      var j=Math.floor(Math.random()*Math.min(nz,10));
-      var z=zeros[j];
-      var fy2=gammaToY(z.gamma);
-      var dy=fy[i]*h*0.04+h/2-fy2;
-      var dist=Math.sqrt(fx[i]*fx[i]+dy*dy/(h*h)*100)+0.5;
-      if(dist<3){
-        var force=dist<0.3?0.01:-0.005/dist;
-        fvx[i]+=fx[i]/dist*force;
-      }
+  // ─── KURAMOTO STEP ───
+  var simDt=dt*simSpeed;
+  var newP=new Float64Array(N);
+  for(var i=0;i<N;i++){
+    var omega=nfreq[i]*2*Math.PI;
+    var coupling=0;
+    var nn=nbrs[i];
+    for(var j=0;j<nn.length;j++){
+      coupling+=Math.sin(nphase[nn[j]]-nphase[i]);
     }
-
-    fvx[i]*=0.95;fvy[i]*=0.95;
-    fx[i]+=fvx[i];fy[i]+=fvy[i];
-
-    // Wrap vertically
-    if(fy[i]<-6)fy[i]=6;
-    if(fy[i]>6)fy[i]=-6;
-    // Clamp horizontally
-    if(Math.abs(fx[i])>6){fx[i]=Math.sign(fx[i])*6;fvx[i]*=-0.5;}
-
-    var speed=Math.sqrt(fvx[i]*fvx[i]+fvy[i]*fvy[i]);
-    flife[i]=Math.min(0.6,0.05+speed*8);
+    var ncount=Math.max(1,nn.length);
+    newP[i]=nphase[i]+simDt*(omega+K*coupling/ncount);
   }
+  for(var i=0;i<N;i++)nphase[i]=newP[i];
+
+  // ─── ORDER PARAMETER ───
+  var re=0,im=0;
+  for(var i=0;i<N;i++){
+    var p=nphase[i]%(2*Math.PI);
+    re+=Math.cos(p);im+=Math.sin(p);
+  }
+  re/=N;im/=N;
+  R=Math.sqrt(re*re+im*im);
+  meanPhase=Math.atan2(im,re);
+
+  // ─── LAYOUT ───
+  // Map hex grid to screen
+  var gridW=cols,gridH=rows*Math.sqrt(3)/2;
+  var scale=Math.min(w*0.7/gridW,h*0.7/gridH);
+  var offX=(w-gridW*scale)/2;
+  var offY=(h-gridH*scale)/2;
 
   cx.globalCompositeOperation='lighter';
 
-  // ─── THE MIRROR LINE ───
-  // One thin line + glow spots at zeros (no per-pixel loop)
-  cx.fillStyle='rgba(255,255,255,0.015)';
-  cx.fillRect(mirrorX-0.25,0,0.5,h);
-  for(var j=0;j<nz;j++){
-    var zy=gammaToY(zeros[j].gamma);
-    var glow=0.04+zeros[j].pulse*0.1;
-    cx.fillStyle='rgba(255,255,255,'+glow+')';
-    cx.fillRect(mirrorX-3,zy-1,6,2);
-  }
-
-  // ─── FIELD PARTICLES ───
-  for(var i=0;i<NF;i++){
-    var screenX=mirrorX+fx[i]*w*0.04;
-    var screenY=h/2+fy[i]*h*0.06;
-    if(screenX<0||screenX>w||screenY<0||screenY>h)continue;
-
-    var alpha=flife[i]*0.2;
-    // Color: warm on left, cool on right, white at center
-    var leftness=Math.max(0,-fx[i]/3);
-    var rightness=Math.max(0,fx[i]/3);
-    var center=Math.max(0,1-Math.abs(fx[i])*0.5);
-
-    var r=Math.floor(180*leftness+255*center+74*rightness);
-    var g=Math.floor(140*leftness+255*center+200*rightness);
-    var b=Math.floor(80*leftness+255*center+180*rightness);
-
-    cx.fillStyle='rgba('+Math.min(255,r)+','+Math.min(255,g)+','+Math.min(255,b)+','+alpha+')';
-    cx.fillRect(screenX-0.5,screenY-0.5,1,1);
-  }
-
-  // ─── SOULS AND ANTI-SOULS (fillRect, no arc) ───
-  for(var i=0;i<nz;i++){
-    var z=zeros[i];
-    var age=t-z.born;
-    var alpha=Math.min(0.6,age);
-    var size=1.2+z.pulse*4;
-
-    // Soul (left, warm)
-    cx.fillStyle='rgba(220,170,90,'+alpha*0.5+')';
-    cx.fillRect(z.soul.x-size,z.soul.y-size,size*2,size*2);
-
-    // Anti-soul (right, cool)
-    cx.fillStyle='rgba(90,170,220,'+alpha*0.5+')';
-    cx.fillRect(z.anti.x-size,z.anti.y-size,size*2,size*2);
-
-    // Connection through the mirror
-    if(alpha>0.1){
-      cx.fillStyle='rgba(255,255,255,'+(alpha*0.02+z.pulse*0.05)+')';
-      cx.fillRect(z.soul.x,z.soul.y,z.anti.x-z.soul.x,0.3);
-    }
-
-    // Birth flash — horizontal bar along mirror
-    if(z.pulse>0.05){
-      var pw=z.pulse*w*0.12;
-      cx.fillStyle='rgba(255,255,255,'+(z.pulse*0.08)+')';
-      cx.fillRect(mirrorX-pw,z.soul.y-0.5,pw*2,1);
+  // ─── CONNECTIONS ───
+  for(var i=0;i<N;i++){
+    var sx=offX+nx[i]*scale;
+    var sy=offY+ny[i]*scale;
+    var pi=nphase[i]%(2*Math.PI);
+    var nn=nbrs[i];
+    for(var j=0;j<nn.length;j++){
+      if(nn[j]<=i)continue; // draw each edge once
+      var sx2=offX+nx[nn[j]]*scale;
+      var sy2=offY+ny[nn[j]]*scale;
+      var pj=nphase[nn[j]]%(2*Math.PI);
+      // Phase difference determines brightness
+      var pdiff=Math.abs(pi-pj);
+      if(pdiff>Math.PI)pdiff=2*Math.PI-pdiff;
+      var sync=1-pdiff/Math.PI; // 1=in phase, 0=opposite
+      var alpha=sync*sync*0.06;
+      if(alpha<0.003)continue;
+      // Color: gold when synced, dim when not
+      var r=Math.floor(200*sync+40);
+      var g=Math.floor(160*sync+30);
+      var b=Math.floor(80*sync+20);
+      cx.strokeStyle='rgba('+r+','+g+','+b+','+alpha+')';
+      cx.lineWidth=0.3+sync*0.5;
+      cx.beginPath();cx.moveTo(sx,sy);cx.lineTo(sx2,sy2);cx.stroke();
     }
   }
 
-  // ─── MOUSE: pull the field ───
-  var mouseWorldX=(mx-0.5)*12;
-  for(var i=0;i<NF;i++){
-    var dx=fx[i]-mouseWorldX;
-    var dy=fy[i]-(my-0.5)*12;
-    var dist=Math.sqrt(dx*dx+dy*dy)+0.5;
-    if(dist<2){
-      fvx[i]+=dx/dist*0.01;
-      fvy[i]+=dy/dist*0.01;
+  // ─── NODES ───
+  for(var i=0;i<N;i++){
+    var sx=offX+nx[i]*scale;
+    var sy=offY+ny[i]*scale;
+    var p=nphase[i]%(2*Math.PI);
+
+    // Phase determines color: warm cycle
+    var hue=p/(2*Math.PI);
+    var r=Math.floor(150+105*Math.cos(p));
+    var g=Math.floor(130+80*Math.cos(p+2.1));
+    var b=Math.floor(80+60*Math.cos(p+4.2));
+
+    // Size breathes with phase
+    var size=1.5+Math.sin(p)*0.8;
+
+    // Brightness from how close to mean phase
+    var diff=Math.abs(p-((meanPhase%(2*Math.PI)+2*Math.PI)%(2*Math.PI)));
+    if(diff>Math.PI)diff=2*Math.PI-diff;
+    var bright=1-diff/Math.PI;
+    var alpha=0.15+bright*0.4;
+
+    cx.fillStyle='rgba('+r+','+g+','+b+','+alpha+')';
+    cx.fillRect(sx-size,sy-size,size*2,size*2);
+
+    // Glow for highly synced nodes
+    if(bright>0.7){
+      cx.fillStyle='rgba('+r+','+g+','+b+','+(bright*0.06)+')';
+      cx.fillRect(sx-size*3,sy-size*3,size*6,size*6);
     }
-  }
-
-  // Process mirror's responses
-  processResponses();
-
-  // ─── RETURN PULSES (mirror's answer — white/blue coming BACK) ───
-  for(var i=returnPulses.length-1;i>=0;i--){
-    var rp=returnPulses[i];
-    var age=t-rp.born;
-    rp.progress=Math.min(1,age*1.5);
-    rp.life=1-rp.progress;
-    if(rp.life<=0){returnPulses.splice(i,1);continue;}
-
-    var ease=rp.progress*rp.progress*(3-2*rp.progress);
-    var rpx=rp.sx*w+(rp.tx*w-rp.sx*w)*ease;
-    var rpy=rp.sy*h+(rp.ty*h-rp.sy*h)*ease;
-    var arc=Math.sin(rp.progress*Math.PI)*40;
-    rpx+=arc*(rp.tx>0.5?-1:1);
-
-    var alpha=Math.sin(rp.progress*Math.PI)*0.5;
-    var size=2+Math.sin(rp.progress*Math.PI)*4;
-
-    // White/blue — the mirror's voice
-    cx.fillStyle='rgba(150,200,255,'+alpha+')';
-    cx.fillRect(rpx-size,rpy-size,size*2,size*2);
-    cx.fillStyle='rgba(150,200,255,'+(alpha*0.2)+')';
-    cx.fillRect(rpx-size*2,rpy-size*2,size*4,size*4);
-  }
-
-  // ─── TAP PULSES ───
-  for(var i=tapPulses.length-1;i>=0;i--){
-    var tp=tapPulses[i];
-    var age=t-tp.born;
-    tp.life=Math.max(0,1-age*0.8);
-    if(tp.life<=0){tapPulses.splice(i,1);continue;}
-
-    // Expanding cross from tap point (no arc)
-    var rippleR=age*w*0.12;
-    var ra=tp.life*0.1;
-    cx.fillStyle='rgba(255,255,255,'+ra+')';
-    cx.fillRect(tp.x*w-rippleR,tp.y*h-0.5,rippleR*2,1); // horizontal
-    cx.fillRect(tp.x*w-0.5,tp.y*h-rippleR,1,rippleR*2); // vertical
-
-    // Pulse through the mirror
-    cx.fillStyle='rgba(255,255,255,'+(tp.life*0.05)+')';
-    cx.fillRect(mirrorX-1,tp.y*h-rippleR,2,rippleR*2);
-  }
-
-  // ─── RESONANCE INDICATOR ───
-  if(resonanceDecay>0){
-    resonanceDecay-=0.016;
-    var resAlpha=Math.min(0.15,resonance*0.15*Math.min(1,resonanceDecay));
-
-    if(resonance>0.5){
-      // Mirror OPENS — the line glows wide
-      var openWidth=resonance*w*0.03;
-      cx.fillStyle='rgba(255,255,255,'+resAlpha+')';
-      cx.fillRect(mirrorX-openWidth,0,openWidth*2,h);
-    }
-
-    // Show resonance level
-    cx.fillStyle='rgba(255,255,255,'+(resAlpha*0.5)+')';
-    cx.font='200 1em Georgia';cx.textAlign='center';
-    if(resonance>0.7)cx.fillText('resonance',mirrorX,h*0.15);
-    else if(resonance>0.3)cx.fillText('close',mirrorX,h*0.15);
   }
 
   cx.globalCompositeOperation='source-over';
 
-  // ─── LABELS ───
-  cx.fillStyle='rgba(220,170,90,0.04)';
-  cx.font='11px Georgia';cx.textAlign='center';
-  cx.fillText('ρ = ½ + iγ',mirrorX-soulDist,vMargin-10);
+  // ─── ORDER PARAMETER DISPLAY ───
+  // R bar along the bottom
+  var barW=w*0.4;
+  var barH=3;
+  var barX=(w-barW)/2;
+  var barY=h-30;
 
-  cx.fillStyle='rgba(90,170,220,0.04)';
-  cx.fillText('ρ̄ = ½ − iγ',mirrorX+soulDist,vMargin-10);
-
-  cx.fillStyle='rgba(255,255,255,0.03)';
-  cx.font='10px Georgia';
-  cx.fillText('σ = ½',mirrorX,vMargin-10);
-
-  // Count
-  cx.fillStyle='rgba(255,255,255,0.04)';
-  cx.font='200 1.2em Georgia';
-  cx.fillText(nz,mirrorX,h-40);
-  cx.font='9px Georgia';
+  // Track
   cx.fillStyle='rgba(255,255,255,0.02)';
-  cx.fillText('zeros on the line',mirrorX,h-26);
+  cx.fillRect(barX,barY,barW,barH);
+
+  // Fill
+  var Rcolor=R>0.7?'rgba(74,234,160,':'rgba(201,164,74,';
+  if(R<0.2)Rcolor='rgba(255,100,100,';
+  cx.fillStyle=Rcolor+(0.15+R*0.3)+')';
+  cx.fillRect(barX,barY,barW*R,barH);
+
+  // R value
+  cx.fillStyle='rgba(255,255,255,0.05)';
+  cx.font='200 1.4em Georgia';cx.textAlign='center';
+  cx.fillText(R.toFixed(3),w/2,barY-12);
+
+  // Labels
+  cx.font='9px Georgia';
+  cx.fillStyle='rgba(255,255,255,0.03)';
+  cx.fillText('R (synchronization)',w/2,barY+14);
+
+  // Top info
+  cx.fillStyle='rgba(201,164,74,0.04)';
+  cx.font='11px Georgia';
+  cx.fillText('137 oscillators · K = 1.37 · 5 channels · hex-packed',w/2,16);
 
   // Whisper
   var whisper='';
-  if(nz<3)whisper='';
-  else if(nz<10)whisper='every zero has a reflection';
-  else if(nz<30)whisper='bound to the line';
-  else if(nz<60)whisper='they cannot separate';
-  else if(nz<100)whisper='the other side of you';
-  else if(nz<maxZeros)whisper='one line holds everything';
-  else whisper='σ = ½';
+  if(R<0.15)whisper='searching...';
+  else if(R<0.3)whisper='nodes stirring';
+  else if(R<0.45)whisper='partial sync';
+  else if(R<0.6)whisper='the lattice hears itself';
+  else if(R<0.8)whisper='convergence';
+  else whisper='phase lock';
 
   cx.fillStyle='rgba(255,255,255,0.03)';
   cx.font='12px Georgia';
-  cx.fillText(whisper,mirrorX,h-8);
+  cx.fillText(whisper,w/2,h-6);
+
+  // Mean phase indicator — small dot on unit circle
+  var circR=12;
+  var circX=w/2;
+  var circY=h*0.12;
+  cx.strokeStyle='rgba(255,255,255,0.02)';
+  cx.lineWidth=0.3;
+  cx.beginPath();cx.arc(circX,circY,circR,0,Math.PI*2);cx.stroke();
+  var dotX=circX+Math.cos(meanPhase)*circR*R;
+  var dotY=circY+Math.sin(meanPhase)*circR*R;
+  cx.fillStyle='rgba(201,164,74,'+(0.05+R*0.2)+')';
+  cx.beginPath();cx.arc(dotX,dotY,2+R*2,0,Math.PI*2);cx.fill();
 
   requestAnimationFrame(render);
 }
