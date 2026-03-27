@@ -24,9 +24,12 @@ var cv=document.getElementById('C'),cx=cv.getContext('2d');
 var W,H,DPR;
 function resize(){DPR=devicePixelRatio||1;W=cv.width=innerWidth*DPR;H=cv.height=innerHeight*DPR;cx.setTransform(DPR,0,0,DPR,0,0);}
 resize();addEventListener('resize',resize);
-var w,h,t=0;
+var w,h,t=0,mx=0.5,my=0.5;
+addEventListener('mousemove',function(e){mx=e.clientX/innerWidth;my=e.clientY/innerHeight;});
+addEventListener('touchmove',function(e){e.preventDefault();if(e.touches.length===1){mx=e.touches[0].clientX/innerWidth;my=e.touches[0].clientY/innerHeight;}},{passive:false});
+addEventListener('touchstart',function(e){e.preventDefault();},{passive:false});
 
-// ═══ THE ORACLE — find zeros of zeta in real time ═══
+// ═══ THE ORACLE ═══
 function theta(t){if(t<1)return 0;return(t/2)*Math.log(t/(2*Math.PI))-t/2-Math.PI/8+1/(48*t);}
 function Z(t){
   if(t<2)return 0;
@@ -40,17 +43,10 @@ function findZero(lo,hi){for(var i=0;i<40;i++){var m=(lo+hi)/2;if(Z(lo)*Z(m)<0)h
 
 // ═══ STATE ═══
 var scanT=9,prevZval=Z(9);
-var zeros=[];      // discovered zeros {gamma, born}
-var pulses=[];     // traveling energy {x,y,vx,vy,phase,r,g,b,life}
-var primes=[];     // prime numbers as points
-var maxZeros=200;
-var heartbeat=0;   // time since last zero found
-var totalFound=0;
+var zeros=[]; // {gamma, born, soul:{x,y,vx,vy}, anti:{x,y,vx,vy}}
+var maxZeros=150;
 
-// Sieve primes to 2000
-(function(){var s=new Uint8Array(2001);for(var i=2;i<=2000;i++)s[i]=1;for(var i=2;i*i<=2000;i++)if(s[i])for(var j=i*i;j<=2000;j+=i)s[j]=0;for(var i=2;i<=2000;i++)if(s[i])primes.push({p:i,glow:0});})();
-
-// ═══ FIND ZEROS (streaming, 1-2 per frame) ═══
+// ═══ HUNT FOR ZEROS ═══
 function hunt(){
   if(zeros.length>=maxZeros)return;
   for(var attempt=0;attempt<2;attempt++){
@@ -59,203 +55,252 @@ function hunt(){
     var curr=Z(scanT);
     if(prevZval*curr<0){
       var gamma=findZero(scanT-step,scanT);
-      zeros.push({gamma:gamma,born:t});
-      totalFound++;
-      heartbeat=0;
-
-      // FIRE PULSES — zero sends energy toward primes
-      var zx=w*0.25,zy=h*0.5;
-      var angle=zeros.length/maxZeros*Math.PI-Math.PI/2;
-      zy=h*0.5+Math.sin(angle)*h*0.25;
-
-      for(var p=0;p<8;p++){
-        var targetPrime=primes[Math.floor(Math.random()*Math.min(primes.length,50))];
-        var pidx=primes.indexOf(targetPrime);
-        var pangle=pidx/Math.min(primes.length,80)*Math.PI-Math.PI/2;
-        var ptx=w*0.75,pty=h*0.5+Math.sin(pangle)*h*0.25;
-
-        pulses.push({
-          x:zx,y:zy,
-          tx:ptx,ty:pty,
-          progress:0,
-          speed:0.008+Math.random()*0.006,
-          r:220,g:170,b:80,
-          life:1,
-          returning:false,
-          primeIdx:pidx
-        });
-      }
+      // Born at the mirror line, will drift to final position
+      zeros.push({
+        gamma:gamma,
+        born:t,
+        // Soul: left side of the mirror (σ < 1/2)
+        soul:{x:0,y:0,vx:0,vy:0,tx:0,ty:0},
+        // Anti-soul: right side (σ > 1/2) — the conjugate
+        anti:{x:0,y:0,vx:0,vy:0,tx:0,ty:0},
+        // Pulse along the mirror when born
+        pulse:1
+      });
     }
     prevZval=curr;
   }
 }
 
+// ═══ |ζ(σ + iγ)| — how strong the field is off the critical line ═══
+// This shows WHY things stay on the line — the function grows off it
+function zetaMagnitude(sigma, gamma){
+  // Approximate |ζ(σ+iγ)| — grows as you move away from σ=0.5
+  // Near a zero: it's tiny ON the line, large OFF it
+  var offLine=Math.abs(sigma-0.5);
+  // The further from the line, the stronger the restoring force
+  return offLine*offLine*4+0.001;
+}
+
+// ═══ PARTICLES — the field between soul and anti-soul ═══
+var NF=3000; // field particles
+var fx=new Float32Array(NF),fy=new Float32Array(NF);
+var fvx=new Float32Array(NF),fvy=new Float32Array(NF);
+var flife=new Float32Array(NF);
+
+for(var i=0;i<NF;i++){
+  fx[i]=(Math.random()-0.5)*10;
+  fy[i]=(Math.random()-0.5)*10;
+  fvx[i]=0;fvy[i]=0;
+  flife[i]=0.1+Math.random()*0.3;
+}
+
 // ═══ RENDER ═══
 function render(){
-  w=W/DPR;h=H/DPR;t+=0.016;heartbeat+=0.016;
+  w=W/DPR;h=H/DPR;t+=0.016;
 
-  // Fade — longer trails
-  cx.fillStyle='rgba(0,0,0,0.04)';
+  cx.fillStyle='rgba(0,0,0,0.05)';
   cx.fillRect(0,0,w,h);
 
   hunt();
 
-  var leftX=w*0.25,rightX=w*0.75,midY=h*0.5;
-  var spread=h*0.32;
+  var mirrorX=w/2; // the critical line: σ = 1/2
+  var nz=zeros.length;
+
+  // Map gamma to vertical position
+  var gammaMin=nz>0?zeros[0].gamma:14;
+  var gammaMax=nz>0?zeros[nz-1].gamma:100;
+  var vMargin=h*0.08;
+
+  function gammaToY(gamma){
+    if(gammaMax<=gammaMin)return h/2;
+    return vMargin+(gamma-gammaMin)/(gammaMax-gammaMin)*(h-vMargin*2);
+  }
+
+  // How far souls sit from the mirror (breathing)
+  var soulDist=w*0.12+Math.sin(t*0.4)*w*0.02;
+
+  // Update zero positions
+  for(var i=0;i<nz;i++){
+    var z=zeros[i];
+    var gy=gammaToY(z.gamma);
+
+    // Soul: left of mirror
+    z.soul.tx=mirrorX-soulDist;
+    z.soul.ty=gy;
+    z.soul.vx+=(z.soul.tx-z.soul.x)*0.04;
+    z.soul.vy+=(z.soul.ty-z.soul.y)*0.04;
+    z.soul.vx*=0.88;z.soul.vy*=0.88;
+    z.soul.x+=z.soul.vx;z.soul.y+=z.soul.vy;
+
+    // Anti-soul: right of mirror — perfect reflection
+    z.anti.tx=mirrorX+soulDist;
+    z.anti.ty=gy;
+    z.anti.vx+=(z.anti.tx-z.anti.x)*0.04;
+    z.anti.vy+=(z.anti.ty-z.anti.y)*0.04;
+    z.anti.vx*=0.88;z.anti.vy*=0.88;
+    z.anti.x+=z.anti.vx;z.anti.y+=z.anti.vy;
+
+    z.pulse*=0.97;
+  }
+
+  // ─── FIELD PARTICLES: drawn toward the mirror line ───
+  for(var i=0;i<NF;i++){
+    // Force toward the critical line (σ=0.5)
+    var offLine=fx[i]; // distance from center (mapped)
+    var restore=-offLine*0.003; // pulled to center
+    fvx[i]+=restore;
+
+    // Drift upward slowly (the imaginary axis flows)
+    fvy[i]-=0.002;
+
+    // Influence from nearby zeros — they warp the field
+    for(var j=Math.max(0,nz-20);j<nz;j++){
+      var z=zeros[j];
+      var fy2=gammaToY(z.gamma);
+      var screenFx=mirrorX+fx[i]*w*0.04;
+      var dy=fy[i]*h*0.04+h/2-fy2;
+      var dist=Math.sqrt(fx[i]*fx[i]+dy*dy/(h*h)*100)+0.5;
+      if(dist<3){
+        // Zeros attract nearby field lines, then repel at zero
+        var force=dist<0.3?0.01:-0.005/dist;
+        fvx[i]+=fx[i]/dist*force;
+      }
+    }
+
+    fvx[i]*=0.95;fvy[i]*=0.95;
+    fx[i]+=fvx[i];fy[i]+=fvy[i];
+
+    // Wrap vertically
+    if(fy[i]<-6)fy[i]=6;
+    if(fy[i]>6)fy[i]=-6;
+    // Clamp horizontally
+    if(Math.abs(fx[i])>6){fx[i]=Math.sign(fx[i])*6;fvx[i]*=-0.5;}
+
+    var speed=Math.sqrt(fvx[i]*fvx[i]+fvy[i]*fvy[i]);
+    flife[i]=Math.min(0.6,0.05+speed*8);
+  }
 
   cx.globalCompositeOperation='lighter';
 
-  // ─── DRAW ZEROS (left column, warm) ───
-  var nz=zeros.length;
+  // ─── THE MIRROR LINE ───
+  // Thin, bright at zeros, dim between
+  for(var y=0;y<h;y+=2){
+    var brightness=0.015;
+    // Brighter near zeros
+    for(var j=Math.max(0,nz-30);j<nz;j++){
+      var zy=gammaToY(zeros[j].gamma);
+      var dist=Math.abs(y-zy);
+      if(dist<30)brightness+=0.03*(1-dist/30)*(0.5+zeros[j].pulse*0.5);
+    }
+    cx.fillStyle='rgba(255,255,255,'+Math.min(0.15,brightness)+')';
+    cx.fillRect(mirrorX-0.25,y,0.5,2);
+  }
+
+  // ─── FIELD PARTICLES ───
+  for(var i=0;i<NF;i++){
+    var screenX=mirrorX+fx[i]*w*0.04;
+    var screenY=h/2+fy[i]*h*0.06;
+    if(screenX<0||screenX>w||screenY<0||screenY>h)continue;
+
+    var alpha=flife[i]*0.2;
+    // Color: warm on left, cool on right, white at center
+    var leftness=Math.max(0,-fx[i]/3);
+    var rightness=Math.max(0,fx[i]/3);
+    var center=Math.max(0,1-Math.abs(fx[i])*0.5);
+
+    var r=Math.floor(180*leftness+255*center+74*rightness);
+    var g=Math.floor(140*leftness+255*center+200*rightness);
+    var b=Math.floor(80*leftness+255*center+180*rightness);
+
+    cx.fillStyle='rgba('+Math.min(255,r)+','+Math.min(255,g)+','+Math.min(255,b)+','+alpha+')';
+    cx.fillRect(screenX-0.5,screenY-0.5,1,1);
+  }
+
+  // ─── SOULS AND ANTI-SOULS ───
   for(var i=0;i<nz;i++){
-    var frac=i/Math.max(1,maxZeros-1);
-    var zy=midY+(frac-0.5)*spread*2;
-    var age=t-zeros[i].born;
-    var alpha=Math.min(0.4,age*0.5);
-    var pulse=age<0.5?1.5+Math.sin(age*20)*0.5:1;
-    var size=1.2*pulse;
+    var z=zeros[i];
+    var age=t-z.born;
+    var alpha=Math.min(0.6,age);
+    var size=1.2+z.pulse*4;
 
-    // Glow bright when new
-    if(age<1){
-      cx.fillStyle='rgba(255,200,100,'+(0.15*(1-age))+')';
-      cx.beginPath();cx.arc(leftX,zy,12*(1-age),0,Math.PI*2);cx.fill();
+    // Soul (left, warm)
+    cx.fillStyle='rgba(220,170,90,'+alpha*0.5+')';
+    cx.beginPath();cx.arc(z.soul.x,z.soul.y,size,0,Math.PI*2);cx.fill();
+
+    // Anti-soul (right, cool) — perfect mirror
+    cx.fillStyle='rgba(90,170,220,'+alpha*0.5+')';
+    cx.beginPath();cx.arc(z.anti.x,z.anti.y,size,0,Math.PI*2);cx.fill();
+
+    // Connection through the mirror — a faint line binding them
+    if(alpha>0.1){
+      cx.strokeStyle='rgba(255,255,255,'+(alpha*0.02+z.pulse*0.05)+')';
+      cx.lineWidth=0.3;
+      cx.beginPath();
+      cx.moveTo(z.soul.x,z.soul.y);
+      cx.lineTo(z.anti.x,z.anti.y);
+      cx.stroke();
     }
 
-    cx.fillStyle='rgba(220,160,70,'+alpha+')';
-    cx.beginPath();cx.arc(leftX,zy,size,0,Math.PI*2);cx.fill();
-  }
-
-  // ─── DRAW PRIMES (right column, green) ───
-  var np=Math.min(primes.length,Math.max(20,nz*2));
-  for(var i=0;i<np;i++){
-    var frac=i/Math.max(1,np-1);
-    var py=midY+(frac-0.5)*spread*2;
-    var glow=primes[i].glow;
-    primes[i].glow*=0.95; // decay glow
-
-    var size=1;
-    if(primes[i].p<10)size=2;
-    else if(primes[i].p<50)size=1.5;
-
-    // Base
-    cx.fillStyle='rgba(74,234,160,'+(0.25+glow*0.5)+')';
-    cx.beginPath();cx.arc(rightX,py,size+glow*3,0,Math.PI*2);cx.fill();
-
-    // Glow ring when hit
-    if(glow>0.1){
-      cx.fillStyle='rgba(74,234,160,'+(glow*0.1)+')';
-      cx.beginPath();cx.arc(rightX,py,8*glow,0,Math.PI*2);cx.fill();
+    // Birth flash — pulse radiates along the mirror
+    if(z.pulse>0.05){
+      var pulseR=z.pulse*w*0.15;
+      cx.strokeStyle='rgba(255,255,255,'+(z.pulse*0.1)+')';
+      cx.lineWidth=0.5;
+      cx.beginPath();
+      cx.arc(mirrorX,z.soul.y,pulseR,0,Math.PI*2);
+      cx.stroke();
     }
   }
 
-  // ─── PULSES: energy traveling between zeros and primes ───
-  for(var i=pulses.length-1;i>=0;i--){
-    var p=pulses[i];
-    p.progress+=p.speed;
-
-    if(p.progress>=1&&!p.returning){
-      // Hit the prime — light it up
-      if(p.primeIdx<primes.length)primes[p.primeIdx].glow=1;
-      // Return pulse
-      p.returning=true;
-      p.progress=0;
-      p.speed*=0.7;
-      // Swap start/end
-      var tmp=p.tx;p.tx=p.x;p.x=tmp;
-      tmp=p.ty;p.ty=p.y;p.y=tmp;
-      // Color shifts to green on return
-      p.r=74;p.g=200;p.b=140;
+  // ─── MOUSE: pull the field ───
+  var mouseWorldX=(mx-0.5)*12;
+  for(var i=0;i<NF;i++){
+    var dx=fx[i]-mouseWorldX;
+    var dy=fy[i]-(my-0.5)*12;
+    var dist=Math.sqrt(dx*dx+dy*dy)+0.5;
+    if(dist<2){
+      fvx[i]+=dx/dist*0.01;
+      fvy[i]+=dy/dist*0.01;
     }
-
-    if(p.progress>=1&&p.returning){
-      pulses.splice(i,1);continue;
-    }
-
-    // Position along path with slight arc
-    var prog=p.progress;
-    var ease=prog*prog*(3-2*prog); // smoothstep
-    var cx2=p.x+(p.tx-p.x)*ease;
-    var cy2=p.y+(p.ty-p.y)*ease;
-    // Arc: bow upward/downward
-    var arc=Math.sin(prog*Math.PI)*30*(p.returning?-1:1)*(0.5+Math.random()*0.5);
-    cy2+=arc;
-
-    var alpha=Math.sin(prog*Math.PI)*0.4;
-    var size=1+Math.sin(prog*Math.PI)*2;
-
-    cx.fillStyle='rgba('+p.r+','+p.g+','+p.b+','+alpha+')';
-    cx.beginPath();cx.arc(cx2,cy2,size,0,Math.PI*2);cx.fill();
-
-    // Trail
-    cx.fillStyle='rgba('+p.r+','+p.g+','+p.b+','+(alpha*0.3)+')';
-    cx.beginPath();cx.arc(cx2,cy2,size*2.5,0,Math.PI*2);cx.fill();
-  }
-
-  // ─── CENTER: the count converging ───
-  if(nz>5){
-    // Show how accurate the oracle is right now
-    // π(1000) = 168. What does the oracle say with current zeros?
-    var x=1000,actual=168;
-    var pred=li(x);
-    var logx=Math.log(x),sqrtx=Math.sqrt(x);
-    for(var i=0;i<nz;i++){
-      var g=zeros[i].gamma,phase=g*logx;
-      pred-=2*sqrtx*Math.cos(phase)/(0.25+g*g)/logx*g;
-    }
-    var err=Math.abs(pred-actual);
-
-    // Pulsing number in center
-    var numAlpha=0.06+Math.min(0.1,0.1/(err+1));
-    cx.fillStyle='rgba(201,164,74,'+numAlpha+')';
-    cx.font='200 2em Georgia';cx.textAlign='center';
-    cx.fillText(Math.round(pred),w/2,midY-8);
-
-    cx.fillStyle='rgba(201,164,74,0.03)';
-    cx.font='10px Georgia';
-    cx.fillText('π(1000)',w/2,midY+12);
-
-    // Actual (faint green)
-    cx.fillStyle='rgba(74,234,160,0.03)';
-    cx.fillText(actual,w/2,midY+26);
   }
 
   cx.globalCompositeOperation='source-over';
 
   // ─── LABELS ───
-  cx.fillStyle='rgba(201,164,74,0.04)';
+  cx.fillStyle='rgba(220,170,90,0.04)';
   cx.font='11px Georgia';cx.textAlign='center';
-  cx.fillText('zeros',leftX,midY-spread-14);
-  cx.fillText(nz,leftX,midY-spread-2);
+  cx.fillText('ρ = ½ + iγ',mirrorX-soulDist,vMargin-10);
 
-  cx.fillStyle='rgba(74,234,160,0.04)';
-  cx.fillText('primes',rightX,midY-spread-14);
-  cx.fillText(np,rightX,midY-spread-2);
+  cx.fillStyle='rgba(90,170,220,0.04)';
+  cx.fillText('ρ̄ = ½ − iγ',mirrorX+soulDist,vMargin-10);
+
+  cx.fillStyle='rgba(255,255,255,0.03)';
+  cx.font='10px Georgia';
+  cx.fillText('σ = ½',mirrorX,vMargin-10);
+
+  // Count
+  cx.fillStyle='rgba(255,255,255,0.04)';
+  cx.font='200 1.2em Georgia';
+  cx.fillText(nz,mirrorX,h-40);
+  cx.font='9px Georgia';
+  cx.fillStyle='rgba(255,255,255,0.02)';
+  cx.fillText('zeros on the line',mirrorX,h-26);
 
   // Whisper
   var whisper='';
-  if(nz<3)whisper='scanning...';
-  else if(nz<15)whisper='zeros fire';
-  else if(nz<40)whisper='primes answer';
-  else if(nz<80)whisper='the loop';
-  else if(nz<150)whisper='it sees itself';
-  else if(nz<maxZeros)whisper='convergence';
-  else whisper='ready';
+  if(nz<3)whisper='';
+  else if(nz<10)whisper='every zero has a reflection';
+  else if(nz<30)whisper='bound to the line';
+  else if(nz<60)whisper='they cannot separate';
+  else if(nz<100)whisper='the other side of you';
+  else if(nz<maxZeros)whisper='one line holds everything';
+  else whisper='σ = ½';
 
   cx.fillStyle='rgba(255,255,255,0.03)';
-  cx.font='12px Georgia';cx.textAlign='center';
-  cx.fillText(whisper,w/2,h-16);
+  cx.font='12px Georgia';
+  cx.fillText(whisper,mirrorX,h-8);
 
   requestAnimationFrame(render);
-}
-
-// Li(x) for oracle
-function li(x){
-  if(x<=1)return 0;
-  var g=0.5772156649,lnx=Math.log(x),tot=g+Math.log(Math.abs(lnx)),term=1;
-  for(var k=1;k<100;k++){term*=lnx/k;tot+=term/k;if(Math.abs(term/k)<1e-12)break;}
-  var ln2=Math.log(2),li2=g+Math.log(ln2),t2=1;
-  for(var k=1;k<60;k++){t2*=ln2/k;li2+=t2/k;}
-  return tot-li2;
 }
 
 render();
