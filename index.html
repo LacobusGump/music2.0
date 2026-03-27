@@ -119,11 +119,23 @@ var MAX_VOICES=8;
 var reverbNode=null;
 
 function initAudio(){
+  // iOS requires AudioContext created AND resumed from user gesture
   audioCtx=new(window.AudioContext||window.webkitAudioContext)();
 
-  // Reverb via delay feedback
+  // iOS unlock: play a silent buffer to unblock the audio graph
+  var unlock=audioCtx.createBuffer(1,1,22050);
+  var unlockSrc=audioCtx.createBufferSource();
+  unlockSrc.buffer=unlock;
+  unlockSrc.connect(audioCtx.destination);
+  unlockSrc.start(0);
+
+  // Force resume (iOS suspends by default)
+  if(audioCtx.state==='suspended'){
+    audioCtx.resume();
+  }
+
   masterGain=audioCtx.createGain();
-  masterGain.gain.value=0;
+  masterGain.gain.value=0.12; // start audible, not zero
 
   var compressor=audioCtx.createDynamicsCompressor();
   compressor.threshold.value=-20;
@@ -132,23 +144,27 @@ function initAudio(){
   masterGain.connect(compressor);
   compressor.connect(audioCtx.destination);
 
-  // Pre-allocate voices
+  // Pre-allocate voices — start them NOW in the gesture handler
   for(var i=0;i<MAX_VOICES;i++){
     var osc=audioCtx.createOscillator();
     var gain=audioCtx.createGain();
     osc.type='sine';
-    osc.frequency.value=220;
+    osc.frequency.value=220+i*30; // spread so they're not all identical
     osc.detune.value=(Math.random()-0.5)*8;
-    gain.gain.value=0;
+    gain.gain.value=0.01; // barely audible — proves audio works
     osc.connect(gain);
     gain.connect(masterGain);
-    osc.start();
+    osc.start(0); // start immediately in gesture context
     clusterOscs.push(osc);
     clusterGains.push(gain);
   }
 
-  // Fade in master
-  masterGain.gain.setTargetAtTime(0.12,audioCtx.currentTime,1);
+  // Confirm audio is running
+  console.log('Audio state:',audioCtx.state);
+  setTimeout(function(){
+    console.log('Audio state after 500ms:',audioCtx.state);
+    if(audioCtx.state==='suspended')audioCtx.resume();
+  },500);
 }
 
 // ═══ CLUSTER DETECTION → AUDIO ═══
@@ -204,8 +220,8 @@ function updateAudio(){
     }
   }
 
-  // Master volume follows R
-  var masterVol=R*R*0.15; // quiet when scattered, full when synced
+  // Master volume: always some sound when K>0, louder with R
+  var masterVol=K>0.1?0.04+R*0.12:0;
   masterGain.gain.setTargetAtTime(masterVol,audioCtx.currentTime,0.1);
 }
 
@@ -325,19 +341,19 @@ function render(){
 }
 
 // ═══ START ═══
-document.getElementById('start').addEventListener('click',function(){
+function begin(){
+  if(started)return;
   document.getElementById('start').style.display='none';
   started=true;
   initAudio();
   initSensors();
-});
-document.getElementById('start').addEventListener('touchstart',function(e){
-  e.preventDefault();
-  document.getElementById('start').style.display='none';
-  started=true;
-  initAudio();
-  initSensors();
-},{passive:false});
+  // Double-check audio after a beat
+  setTimeout(function(){
+    if(audioCtx&&audioCtx.state==='suspended')audioCtx.resume();
+  },300);
+}
+document.getElementById('start').addEventListener('click',begin);
+document.getElementById('start').addEventListener('touchend',begin);
 
 render();
 </script>
