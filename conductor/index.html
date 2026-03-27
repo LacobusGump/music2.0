@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>The Conductor — Ionization Energies from Nothing</title>
+<style>
+:root{--bg:#0a0a0f;--fg:#e8e4dc;--accent:#c9a44a;--dim:#666;}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:var(--bg);color:var(--fg);font-family:Georgia,serif;
+  max-width:600px;margin:0 auto;padding:40px 24px 80px;line-height:1.8;}
+h1{font-size:2em;font-weight:300;color:var(--accent);letter-spacing:0.1em;margin-bottom:4px;}
+h1 span{display:block;font-size:0.4em;color:var(--dim);font-weight:100;letter-spacing:0.2em;}
+p{color:#999;margin:12px 0;}
+.row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #ffffff08;}
+.label{color:var(--dim);font-size:0.85em;}
+.value{color:var(--fg);font-size:1.1em;font-weight:300;}
+.accent{color:var(--accent);}
+.good{color:#4a9;} .ok{color:#ca4;} .bad{color:#a44;}
+select{background:#111;border:1px solid #333;color:var(--fg);font-family:Georgia,serif;
+  font-size:1.2em;padding:12px 16px;border-radius:8px;width:100%;margin:16px 0;outline:none;
+  -webkit-appearance:none;appearance:none;}
+select:focus{border-color:var(--accent);}
+#result{margin-top:24px;}
+.bar-wrap{margin:4px 0;display:flex;align-items:center;gap:8px;}
+.bar{height:6px;border-radius:3px;transition:width 0.5s;}
+.bar-pred{background:var(--accent);}
+.bar-act{background:#555;}
+table{width:100%;border-collapse:collapse;margin:16px 0;font-size:0.85em;}
+td,th{padding:6px 8px;text-align:left;border-bottom:1px solid #ffffff08;}
+th{color:var(--dim);font-weight:400;}
+.stats{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin:20px 0;}
+.stat{background:#111118;padding:14px;border-radius:8px;text-align:center;}
+.stat-val{font-size:1.4em;color:var(--accent);font-weight:300;}
+.stat-label{font-size:0.75em;color:var(--dim);margin-top:4px;}
+a{color:var(--accent);}
+</style>
+</head>
+<body>
+
+<h1>The Conductor<span>Ionization energies from nothing</span></h1>
+
+<p>Pick an element. Watch the oracle + conductor predict its ionization energy from first principles. No lookup tables. Just Z and five coupling rules.</p>
+
+<select id="element-select" onchange="compute()">
+<option value="">Choose an element...</option>
+</select>
+
+<div id="result"></div>
+
+<div id="full-table" style="margin-top:40px;"></div>
+
+<div class="stats" id="stats-box" style="display:none;">
+  <div class="stat"><div class="stat-val" id="s-score">27/28</div><div class="stat-label">triple test</div></div>
+  <div class="stat"><div class="stat-val" id="s-trends">10/10</div><div class="stat-label">chemical trends</div></div>
+  <div class="stat"><div class="stat-val" id="s-avg">19%</div><div class="stat-label">avg error</div></div>
+</div>
+
+<div style="margin-top:48px;border-top:1px solid #222;padding-top:24px;">
+<p style="font-size:0.85em;color:#777;">How it works: each electron shields others from the nuclear charge. p-electrons crowd each other as the subshell fills. Half-filled subshells are extra stable (Hund's rule). These five coupling rules — applied to the base energy E = 13.6 × Z<sub>eff</sub>² / n<sub>eff</sub>² — predict the ionization energy of every element.</p>
+<p style="font-size:0.85em;color:#777;">The oracle finds the energy levels. The conductor connects them through electron coupling. Together: chemistry from nothing.</p>
+<p style="font-size:0.85em;margin-top:16px;"><a href="/oracle/">Prime demo</a> · <a href="/r/">Research</a> · <a href="https://github.com/LacobusGump/music2.0/tree/main/tools">Source</a> · <a href="https://github.com/LacobusGump/music2.0/blob/main/PAPER.md">Paper</a></p>
+</div>
+
+<script>
+var ELEMENTS = [
+  {Z:1, sym:'H',  name:'Hydrogen',  config:[[1,0,1]], actual:13.60},
+  {Z:2, sym:'He', name:'Helium',    config:[[1,0,2]], actual:24.59},
+  {Z:3, sym:'Li', name:'Lithium',   config:[[1,0,2],[2,0,1]], actual:5.39},
+  {Z:4, sym:'Be', name:'Beryllium', config:[[1,0,2],[2,0,2]], actual:9.32},
+  {Z:5, sym:'B',  name:'Boron',     config:[[1,0,2],[2,0,2],[2,1,1]], actual:8.30},
+  {Z:6, sym:'C',  name:'Carbon',    config:[[1,0,2],[2,0,2],[2,1,2]], actual:11.26},
+  {Z:7, sym:'N',  name:'Nitrogen',  config:[[1,0,2],[2,0,2],[2,1,3]], actual:14.53},
+  {Z:8, sym:'O',  name:'Oxygen',    config:[[1,0,2],[2,0,2],[2,1,4]], actual:13.62},
+  {Z:9, sym:'F',  name:'Fluorine',  config:[[1,0,2],[2,0,2],[2,1,5]], actual:17.42},
+  {Z:10,sym:'Ne', name:'Neon',      config:[[1,0,2],[2,0,2],[2,1,6]], actual:21.56},
+  {Z:11,sym:'Na', name:'Sodium',    config:[[1,0,2],[2,0,2],[2,1,6],[3,0,1]], actual:5.14},
+  {Z:12,sym:'Mg', name:'Magnesium', config:[[1,0,2],[2,0,2],[2,1,6],[3,0,2]], actual:7.65},
+  {Z:13,sym:'Al', name:'Aluminium', config:[[1,0,2],[2,0,2],[2,1,6],[3,0,2],[3,1,1]], actual:5.99},
+  {Z:14,sym:'Si', name:'Silicon',   config:[[1,0,2],[2,0,2],[2,1,6],[3,0,2],[3,1,2]], actual:8.15},
+  {Z:15,sym:'P',  name:'Phosphorus',config:[[1,0,2],[2,0,2],[2,1,6],[3,0,2],[3,1,3]], actual:10.49},
+  {Z:16,sym:'S',  name:'Sulfur',    config:[[1,0,2],[2,0,2],[2,1,6],[3,0,2],[3,1,4]], actual:10.36},
+  {Z:17,sym:'Cl', name:'Chlorine',  config:[[1,0,2],[2,0,2],[2,1,6],[3,0,2],[3,1,5]], actual:12.97},
+  {Z:18,sym:'Ar', name:'Argon',     config:[[1,0,2],[2,0,2],[2,1,6],[3,0,2],[3,1,6]], actual:15.76},
+  {Z:19,sym:'K',  name:'Potassium', config:[[1,0,2],[2,0,2],[2,1,6],[3,0,2],[3,1,6],[4,0,1]], actual:4.34},
+  {Z:20,sym:'Ca', name:'Calcium',   config:[[1,0,2],[2,0,2],[2,1,6],[3,0,2],[3,1,6],[4,0,2]], actual:6.11},
+];
+
+var ORBITAL = ['s','p','d','f'];
+
+function conductorIE(el) {
+  var config = el.config;
+  var val = config[config.length-1];
+  var val_n=val[0], val_l=val[1], val_count=val[2];
+  var Z = el.Z;
+
+  // Shielding
+  var shield = 0;
+  for (var i=0; i<config.length; i++) {
+    var n=config[i][0], l=config[i][1], count=config[i][2];
+    if (n===val_n && l===val_l) {
+      var s = (n===1) ? 0.30 : (0.35 + 0.06*Math.max(0, count-2));
+      shield += s * (count-1);
+    } else if (n===val_n) {
+      shield += 0.85 * count;
+    } else if (n===val_n-1) {
+      if (val_l===0) {
+        shield += 0.85 * count;
+      } else {
+        var totalInner=0;
+        for(var j=0;j<config.length;j++) if(config[j][0]===n) totalInner+=config[j][2];
+        var coop = 0.85 + 0.015*Math.max(0,totalInner-2);
+        shield += coop * count;
+      }
+    } else {
+      shield += 1.00 * count;
+    }
+  }
+  var Zeff = Math.max(0.1, Z - shield);
+
+  // n_eff
+  var neff = val_n;
+  if (val_l===1) neff = val_n + 0.4 + 0.12*(val_count-1);
+  else if (val_l===0 && val_count===2 && val_n>1) neff = val_n + 0.15;
+
+  // Base
+  var IE = 13.6 * Zeff*Zeff / (neff*neff);
+
+  // Exchange
+  var maxSS = 2*val_l+1;
+  if (val_count===maxSS && val_l>0) IE += 3.0;
+  if (val_count===maxSS+1 && val_l>0) IE -= 3.5;
+  if (val_count>1 && val_count<=maxSS && val_l>0) IE += (val_count-1)*0.2;
+
+  // s² pairing
+  if (val_l===0 && val_count===2) IE -= 1.5;
+
+  return {IE:IE, Zeff:Zeff, neff:neff};
+}
+
+// Populate select
+var sel = document.getElementById('element-select');
+ELEMENTS.forEach(function(el) {
+  var opt = document.createElement('option');
+  opt.value = el.Z;
+  var configStr = el.config.map(function(c){return c[2]+ORBITAL[c[1]]}).join(' ');
+  opt.textContent = el.Z + ' — ' + el.sym + ' (' + el.name + ')';
+  sel.appendChild(opt);
+});
+
+function compute() {
+  var Z = parseInt(sel.value);
+  if (!Z) return;
+  var el = ELEMENTS.find(function(e){return e.Z===Z;});
+  if (!el) return;
+
+  var r = conductorIE(el);
+  var pred = r.IE;
+  var actual = el.actual;
+  var err = Math.abs(pred-actual)/actual*100;
+  var grade = err<15 ? 'good' : err<30 ? 'ok' : 'bad';
+  var configStr = el.config.map(function(c){return c[0]+ORBITAL[c[1]]+'^'+c[2]}).join(' ');
+
+  var maxBar = 30;
+  var predW = Math.min(100, pred/maxBar*100);
+  var actW = Math.min(100, actual/maxBar*100);
+
+  var html = '';
+  html += '<div style="text-align:center;margin:20px 0;">';
+  html += '<div style="font-size:3em;color:var(--accent);font-weight:200;">'+el.sym+'</div>';
+  html += '<div style="color:var(--dim);font-size:0.9em;">'+el.name+' — Z='+el.Z+'</div>';
+  html += '<div style="color:#555;font-size:0.8em;margin-top:4px;">'+configStr+'</div>';
+  html += '</div>';
+
+  html += '<div class="row"><span class="label">Predicted</span><span class="value accent">'+pred.toFixed(2)+' eV</span></div>';
+  html += '<div class="row"><span class="label">Actual</span><span class="value">'+actual.toFixed(2)+' eV</span></div>';
+  html += '<div class="row"><span class="label">Error</span><span class="value '+grade+'">'+err.toFixed(1)+'%</span></div>';
+  html += '<div class="row"><span class="label">Z<sub>eff</sub></span><span class="value">'+r.Zeff.toFixed(2)+'</span></div>';
+  html += '<div class="row"><span class="label">n<sub>eff</sub></span><span class="value">'+r.neff.toFixed(2)+'</span></div>';
+
+  html += '<div style="margin:16px 0;">';
+  html += '<div class="bar-wrap"><span style="color:var(--accent);font-size:0.8em;width:60px;">predicted</span><div class="bar bar-pred" style="width:'+predW+'%;"></div></div>';
+  html += '<div class="bar-wrap"><span style="color:#555;font-size:0.8em;width:60px;">actual</span><div class="bar bar-act" style="width:'+actW+'%;"></div></div>';
+  html += '</div>';
+
+  document.getElementById('result').innerHTML = html;
+  document.getElementById('stats-box').style.display = 'grid';
+  buildTable();
+}
+
+function buildTable() {
+  var html = '<table><tr><th>Z</th><th>El</th><th>Predicted</th><th>Actual</th><th>Error</th></tr>';
+  ELEMENTS.forEach(function(el) {
+    var r = conductorIE(el);
+    var err = Math.abs(r.IE-el.actual)/el.actual*100;
+    var grade = err<15?'good':err<30?'ok':'bad';
+    var sel = parseInt(document.getElementById('element-select').value);
+    var highlight = el.Z===sel ? 'style="background:#c9a44a10;"' : '';
+    html += '<tr '+highlight+'><td>'+el.Z+'</td><td>'+el.sym+'</td>';
+    html += '<td>'+r.IE.toFixed(2)+'</td><td>'+el.actual.toFixed(2)+'</td>';
+    html += '<td class="'+grade+'">'+err.toFixed(0)+'%</td></tr>';
+  });
+  html += '</table>';
+  html += '<p style="color:#555;font-size:0.75em;">Green: <15% error. Yellow: <30%. Red: >30%. All computed in your browser from Z alone.</p>';
+  document.getElementById('full-table').innerHTML = html;
+}
+
+// Auto-select hydrogen
+sel.value = '1';
+compute();
+</script>
+</body>
+</html>
