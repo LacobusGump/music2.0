@@ -41,261 +41,199 @@ addEventListener('touchstart',function(e){e.preventDefault();
 addEventListener('touchend',function(e){lastPinch=0;},{passive:false});
 addEventListener('wheel',function(e){e.preventDefault();zoom*=e.deltaY>0?0.94:1.06;zoom=Math.max(0.3,Math.min(4,zoom));},{passive:false});
 
-// Tap/click to advance shape
+// Tap/click to advance
 var forceNext=false;
 addEventListener('click',function(){forceNext=true;});
+
+// ═══ AUDIO ENGINE — each shape sings ═══
+var audioCtx=null,masterGain=null;
+var shapeOsc=[],shapeGain=[];
+
+function initAudio(){
+  if(audioCtx)return;
+  audioCtx=new(window.AudioContext||window.webkitAudioContext)();
+  masterGain=audioCtx.createGain();
+  masterGain.gain.value=0.06;
+  masterGain.connect(audioCtx.destination);
+}
+
+// Chord per shape — tuned to the feeling
+var CHORDS=[
+  [261.6,329.6,392.0],    // sphere: C major — unity
+  [220.0,277.2,329.6],    // helix: A minor — life code
+  [293.7,370.0,440.0],    // torus: D major — topology
+  [246.9,311.1,370.0],    // wave: B minor — quantum
+  [277.2,349.2,415.3],    // orbitals: C# minor — electrons
+  [261.6,311.1,392.0],    // prime: C sus — tension of primes
+  [233.1,277.2,349.2],    // mobius: Bb minor — twist
+  [220.0,261.6,329.6],    // lorenz: A minor — chaos
+  [196.0,246.9,293.7],    // galaxy: G minor — vast
+  [261.6,329.6,392.0,523.3], // tree: C major 8va — growth
+];
+
+function playShapeChord(shapeIdx){
+  if(!audioCtx)return;
+  // Fade out old oscillators
+  for(var i=0;i<shapeOsc.length;i++){
+    var g=shapeGain[i];
+    g.gain.setTargetAtTime(0,audioCtx.currentTime,0.8);
+    (function(osc,gain){setTimeout(function(){try{osc.stop();}catch(e){}},3000);})(shapeOsc[i],g);
+  }
+  shapeOsc=[];shapeGain=[];
+
+  var chord=CHORDS[shapeIdx];
+  for(var i=0;i<chord.length;i++){
+    var osc=audioCtx.createOscillator();
+    var gain=audioCtx.createGain();
+    osc.type='sine';
+    osc.frequency.value=chord[i];
+    // Gentle detune for warmth
+    osc.detune.value=(Math.random()-0.5)*8;
+    gain.gain.value=0;
+    gain.gain.setTargetAtTime(0.3/(chord.length),audioCtx.currentTime,0.6);
+    osc.connect(gain);gain.connect(masterGain);
+    osc.start();
+    shapeOsc.push(osc);shapeGain.push(gain);
+  }
+}
 
 // ═══ 12,000 PARTICLES ═══
 var N=12000;
 var px=new Float32Array(N),py=new Float32Array(N),pz=new Float32Array(N);
 var vx=new Float32Array(N),vy=new Float32Array(N),vz=new Float32Array(N);
 var pr=new Float32Array(N),pg=new Float32Array(N),pb=new Float32Array(N);
-var tr=new Float32Array(N),tg=new Float32Array(N),tb=new Float32Array(N); // target color
+var tr=new Float32Array(N),tg=new Float32Array(N),tb=new Float32Array(N);
 var plife=new Float32Array(N);
+var psize=new Float32Array(N); // individual particle sizes
 
-// Initialize scattered
 for(var i=0;i<N;i++){
   var a=Math.random()*Math.PI*2,b=Math.random()*Math.PI,r=1+Math.random()*3;
-  px[i]=Math.sin(b)*Math.cos(a)*r;
-  py[i]=Math.sin(b)*Math.sin(a)*r;
-  pz[i]=Math.cos(b)*r;
-  vx[i]=(Math.random()-0.5)*0.01;
-  vy[i]=(Math.random()-0.5)*0.01;
-  vz[i]=(Math.random()-0.5)*0.01;
+  px[i]=Math.sin(b)*Math.cos(a)*r;py[i]=Math.sin(b)*Math.sin(a)*r;pz[i]=Math.cos(b)*r;
+  vx[i]=(Math.random()-0.5)*0.01;vy[i]=(Math.random()-0.5)*0.01;vz[i]=(Math.random()-0.5)*0.01;
   pr[i]=150+r*25;pg[i]=120+r*15;pb[i]=80+r*10;
   tr[i]=pr[i];tg[i]=pg[i];tb[i]=pb[i];
   plife[i]=0.3+Math.random()*0.7;
+  psize[i]=0.6+Math.random()*1.2; // size hierarchy
 }
 
-// ═══ SHAPES — 10 forms, each from our work ═══
+// ═══ 10 SHAPES ═══
 var SHAPES=10;
-var shape=0,prevShape=-1,morphT=1;
-var shapeTime=0;
-var SHAPE_DURATION=8; // seconds per shape
+var shape=0,prevShape=-1,morphT=1,shapeTime=0;
+var SHAPE_DURATION=8;
+var burstT=0; // explosion timer
 
-var NAMES=[
-  'sphere',      // 0: unity
-  'helix',       // 1: DNA, the code
-  'torus',       // 2: S¹ × S¹, topology
-  'wave',        // 3: quantum surface
-  'orbitals',    // 4: atom — the conductor
-  'prime spiral', // 5: Ulam spiral — primes have geometry
-  'mobius',      // 6: one-sided surface
-  'lorenz',      // 7: chaos
-  'galaxy',      // 8: cosmic scale
-  'tree',        // 9: neural branching — Emilia
-];
+var NAMES=['sphere','helix','torus','wave','orbitals','prime spiral','mobius','lorenz','galaxy','tree'];
 
-// Color palettes per shape [r, g, b] base
 var PALETTES=[
-  [200,170,120],  // sphere: warm gold
-  [170,148,105],  // helix: DNA amber
-  [110,160,200],  // torus: cool blue
-  [80,200,160],   // wave: quantum green
-  [100,180,220],  // orbitals: electric blue
-  [200,190,140],  // prime: pure gold
-  [180,120,180],  // mobius: purple
-  [220,100,80],   // lorenz: fire red
-  [180,140,200],  // galaxy: violet
-  [120,200,120],  // tree: life green
+  [200,170,120],[170,148,105],[110,160,200],[80,200,160],[100,180,220],
+  [200,190,140],[180,120,180],[220,100,80],[180,140,200],[120,200,120]
 ];
+
+// Precompute primes
+var _isPrime=new Uint8Array(N+2);
+(function(){for(var n=2;n<=N+1;n++){var p=true;if(n<2)p=false;else if(n<4)p=true;else if(n%2===0||n%3===0)p=false;else{for(var j=5;j*j<=n;j+=6){if(n%j===0||n%(j+2)===0){p=false;break;}}}_isPrime[n]=p?1:0;}})();
+function isPrime(n){return _isPrime[n];}
+
+// Precompute Lorenz
+var lorenzX=new Float32Array(N),lorenzY=new Float32Array(N),lorenzZ=new Float32Array(N);
+(function(){var sigma=10,rho=28,beta=8/3;for(var i=0;i<N;i++){var fi=i/N,lx=0.1+fi*0.001,ly=0,lz=0;for(var s=0;s<40;s++){lx+=sigma*(ly-lx)*0.01;ly+=(lx*(rho-lz)-ly)*0.01;lz+=(lx*ly-beta*lz)*0.01;}lorenzX[i]=lx*0.07;lorenzY[i]=ly*0.07;lorenzZ[i]=(lz-25)*0.07;}})();
 
 function shapeTarget(i,s){
-  var fi=i/N;
-  var tx,ty,tz;
-
+  var fi=i/N,tx,ty,tz;
   switch(s){
-    case 0: // Sphere
-      var a=fi*Math.PI*2*50,b=fi*Math.PI;
-      tx=Math.sin(b)*Math.cos(a)*2;ty=Math.sin(b)*Math.sin(a)*2;tz=Math.cos(b)*2;
-      break;
-
-    case 1: // DNA double helix
-      var tt=fi*Math.PI*20,strand=i%2;
-      tx=Math.cos(tt+strand*Math.PI)*1.5;ty=(fi-0.5)*8;tz=Math.sin(tt+strand*Math.PI)*1.5;
-      break;
-
-    case 2: // Torus
-      var u=fi*Math.PI*2*20,v=fi*Math.PI*2;
-      var R=2.5,rr=0.8;
-      tx=(R+rr*Math.cos(v))*Math.cos(u);ty=rr*Math.sin(v);tz=(R+rr*Math.cos(v))*Math.sin(u);
-      break;
-
-    case 3: // Wave function surface
-      var gx=(i%100)/100*8-4,gy=Math.floor(i/100)/100*8-4;
-      tx=gx;ty=Math.sin(gx*1.5+t*0.3)*Math.sin(gy*1.5+t*0.2)*2;tz=gy;
-      break;
-
-    case 4: // Atom orbitals (s, p, d shells)
-      var shell=i%4;
-      var ai=fi*Math.PI*2*30+t*0.2*(shell+1);
-      if(shell===0){ // s orbital — sphere
-        var br=fi*Math.PI;
-        tx=Math.sin(br)*Math.cos(ai)*0.8;ty=Math.sin(br)*Math.sin(ai)*0.8;tz=Math.cos(br)*0.8;
-      } else if(shell===1){ // p orbital — dumbbell along x
-        var pamp=Math.sin(fi*Math.PI)*2.5;
-        tx=pamp*Math.cos(ai*0.3);ty=Math.cos(fi*Math.PI*3)*0.3;tz=pamp*Math.sin(ai*0.3);
-      } else if(shell===2){ // p orbital — dumbbell along y
-        var pamp2=Math.sin(fi*Math.PI)*2.5;
-        tx=Math.cos(fi*Math.PI*3)*0.3;ty=pamp2*Math.cos(ai*0.3);tz=pamp2*Math.sin(ai*0.3);
-      } else { // d orbital — cloverleaf
-        var da=fi*Math.PI*2*8;
-        var dr=1.8+Math.sin(da*2)*0.8;
-        tx=Math.cos(da)*dr*Math.cos(ai*0.15);ty=Math.sin(da*2)*0.6;tz=Math.sin(da)*dr*Math.cos(ai*0.15);
-      }
-      break;
-
-    case 5: // Prime spiral (Ulam)
-      var n=i+1;
-      var angle2=Math.sqrt(n)*2.5;
-      var radius=Math.sqrt(n)*0.12;
-      tx=Math.cos(angle2)*radius;
-      ty=Math.sin(angle2)*radius;
-      tz=(isPrime(n)?0.5:-0.3)*Math.sin(n*0.01+t*0.5);
-      break;
-
-    case 6: // Möbius strip
-      var mu=fi*Math.PI*2;
-      var mv=(i%50)/50-0.5;
-      var halfTwist=mu/2;
-      var mR=2.5;
-      tx=(mR+mv*Math.cos(halfTwist))*Math.cos(mu);
-      ty=(mR+mv*Math.cos(halfTwist))*Math.sin(mu);
-      tz=mv*Math.sin(halfTwist);
-      break;
-
-    case 7: // Lorenz attractor (precomputed)
-      tx=lorenzX[i];ty=lorenzY[i];tz=lorenzZ[i];
-      break;
-
-    case 8: // Galaxy spiral
-      var arm=i%3,dist=fi*4,angle=dist*1.5+arm*Math.PI*2/3+t*0.05;
-      tx=Math.cos(angle)*dist;ty=(Math.random()-0.5)*0.1*Math.max(0.2,1-dist*0.2);tz=Math.sin(angle)*dist;
-      break;
-
-    case 9: // Neural tree (fractal branching)
-      var depth=Math.floor(fi*6); // 6 levels
-      var branch=i%(1<<depth);
-      var angle3=branch/(1<<depth)*Math.PI*2+depth*0.618*Math.PI*2;
-      var treeR=depth*0.5+0.5;
-      var treeY=-3+depth*1.2;
-      tx=Math.cos(angle3)*treeR*(1+Math.sin(t*0.3+depth)*0.1);
-      ty=treeY;
-      tz=Math.sin(angle3)*treeR*(1+Math.cos(t*0.3+depth)*0.1);
-      break;
-
-    default:
-      tx=0;ty=0;tz=0;
+    case 0:var a=fi*Math.PI*2*50,b=fi*Math.PI;tx=Math.sin(b)*Math.cos(a)*2;ty=Math.sin(b)*Math.sin(a)*2;tz=Math.cos(b)*2;break;
+    case 1:var tt=fi*Math.PI*20,strand=i%2;tx=Math.cos(tt+strand*Math.PI)*1.5;ty=(fi-0.5)*8;tz=Math.sin(tt+strand*Math.PI)*1.5;break;
+    case 2:var u=fi*Math.PI*2*20,v=fi*Math.PI*2,R=2.5,rr=0.8;tx=(R+rr*Math.cos(v))*Math.cos(u);ty=rr*Math.sin(v);tz=(R+rr*Math.cos(v))*Math.sin(u);break;
+    case 3:var gx=(i%100)/100*8-4,gy=Math.floor(i/100)/100*8-4;tx=gx;ty=Math.sin(gx*1.5+t*0.3)*Math.sin(gy*1.5+t*0.2)*2;tz=gy;break;
+    case 4:var shell=i%4,ai=fi*Math.PI*2*30+t*0.2*(shell+1);if(shell===0){var br=fi*Math.PI;tx=Math.sin(br)*Math.cos(ai)*0.8;ty=Math.sin(br)*Math.sin(ai)*0.8;tz=Math.cos(br)*0.8;}else if(shell===1){var pa=Math.sin(fi*Math.PI)*2.5;tx=pa*Math.cos(ai*0.3);ty=Math.cos(fi*Math.PI*3)*0.3;tz=pa*Math.sin(ai*0.3);}else if(shell===2){var pb2=Math.sin(fi*Math.PI)*2.5;tx=Math.cos(fi*Math.PI*3)*0.3;ty=pb2*Math.cos(ai*0.3);tz=pb2*Math.sin(ai*0.3);}else{var da=fi*Math.PI*2*8,dr=1.8+Math.sin(da*2)*0.8;tx=Math.cos(da)*dr*Math.cos(ai*0.15);ty=Math.sin(da*2)*0.6;tz=Math.sin(da)*dr*Math.cos(ai*0.15);}break;
+    case 5:var n=i+1,a2=Math.sqrt(n)*2.5,rd=Math.sqrt(n)*0.12;tx=Math.cos(a2)*rd;ty=Math.sin(a2)*rd;tz=(_isPrime[n]?0.5:-0.3)*Math.sin(n*0.01+t*0.5);break;
+    case 6:var mu=fi*Math.PI*2,mv=(i%50)/50-0.5,ht=mu/2,mR=2.5;tx=(mR+mv*Math.cos(ht))*Math.cos(mu);ty=(mR+mv*Math.cos(ht))*Math.sin(mu);tz=mv*Math.sin(ht);break;
+    case 7:tx=lorenzX[i];ty=lorenzY[i];tz=lorenzZ[i];break;
+    case 8:var arm=i%3,dist=fi*4,ang=dist*1.5+arm*Math.PI*2/3+t*0.05;tx=Math.cos(ang)*dist;ty=(Math.random()-0.5)*0.1*Math.max(0.2,1-dist*0.2);tz=Math.sin(ang)*dist;break;
+    case 9:var depth=Math.floor(fi*6),branch=i%(1<<depth),a3=branch/(1<<depth)*Math.PI*2+depth*0.618*Math.PI*2,tR=depth*0.5+0.5,tY=-3+depth*1.2;tx=Math.cos(a3)*tR*(1+Math.sin(t*0.3+depth)*0.1);ty=tY;tz=Math.sin(a3)*tR*(1+Math.cos(t*0.3+depth)*0.1);break;
+    default:tx=0;ty=0;tz=0;
   }
   return[tx,ty,tz];
 }
 
-// Precompute primes and Lorenz positions (once, not per frame)
-var _isPrime=new Uint8Array(N+2);
-(function(){
-  for(var n=2;n<=N+1;n++){
-    var p=true;
-    if(n<2)p=false;
-    else if(n<4)p=true;
-    else if(n%2===0||n%3===0)p=false;
-    else{for(var j=5;j*j<=n;j+=6){if(n%j===0||n%(j+2)===0){p=false;break;}}}
-    _isPrime[n]=p?1:0;
-  }
-})();
-function isPrime(n){return _isPrime[n];}
-
-// Precompute Lorenz attractor positions
-var lorenzX=new Float32Array(N),lorenzY=new Float32Array(N),lorenzZ=new Float32Array(N);
-(function(){
-  var sigma=10,rho=28,beta=8/3;
-  for(var i=0;i<N;i++){
-    var fi=i/N;
-    var lx=0.1+fi*0.001,ly=0,lz=0;
-    for(var step=0;step<40;step++){
-      var dt=0.01;
-      lx+=sigma*(ly-lx)*dt;
-      ly+=(lx*(rho-lz)-ly)*dt;
-      lz+=(lx*ly-beta*lz)*dt;
-    }
-    lorenzX[i]=lx*0.07;lorenzY[i]=ly*0.07;lorenzZ[i]=(lz-25)*0.07;
-  }
-})();
-
 // ═══ PHYSICS ═══
+var breath=0;
+
 function update(){
   t+=0.016;
   shapeTime+=0.016;
+  breath=Math.sin(t*0.6)*0.03;
+  if(burstT>0)burstT-=0.016;
 
-  // Auto-advance or click advance
   if(forceNext||shapeTime>SHAPE_DURATION){
     forceNext=false;
+    initAudio();
+
+    // BURST — scatter particles outward before reforming
+    burstT=0.6;
+    for(var i=0;i<N;i++){
+      var bx=px[i],by=py[i],bz=pz[i];
+      var dist=Math.sqrt(bx*bx+by*by+bz*bz)+0.01;
+      var strength=0.15+Math.random()*0.1;
+      vx[i]+=(bx/dist)*strength;
+      vy[i]+=(by/dist)*strength;
+      vz[i]+=(bz/dist)*strength;
+    }
+
     prevShape=shape;
     shape=(shape+1)%SHAPES;
     morphT=0;
     shapeTime=0;
+    playShapeChord(shape);
 
-    // Set target colors
+    // Target colors
     var pal=PALETTES[shape];
     for(var i=0;i<N;i++){
-      var fi=i/N;
-      var variation=0.7+fi*0.6;
+      var fi=i/N,variation=0.7+fi*0.6;
       tr[i]=Math.min(255,pal[0]*variation);
       tg[i]=Math.min(255,pal[1]*variation);
       tb[i]=Math.min(255,pal[2]*variation);
-
-      // Orbitals: color by shell
-      if(shape===4){
-        var shell=i%4;
-        if(shell===0){tr[i]=200;tg[i]=180;tb[i]=100;} // s: gold
-        else if(shell===1){tr[i]=100;tg[i]=160;tb[i]=220;} // p: blue
-        else if(shell===2){tr[i]=100;tg[i]=200;tb[i]=140;} // p: green
-        else{tr[i]=200;tg[i]=100;tb[i]=180;} // d: purple
-      }
-
-      // Prime spiral: primes glow gold, composites dim
-      if(shape===5){
-        if(isPrime(i+1)){tr[i]=220;tg[i]=195;tb[i]=100;}
-        else{tr[i]=60;tg[i]=50;tb[i]=40;}
-      }
-
-      // Tree: color by depth
-      if(shape===9){
-        var depth=Math.floor(fi*6);
-        tr[i]=80+depth*25;tg[i]=180-depth*10;tb[i]=80+depth*15;
-      }
+      if(shape===4){var sh=i%4;if(sh===0){tr[i]=200;tg[i]=180;tb[i]=100;}else if(sh===1){tr[i]=100;tg[i]=160;tb[i]=220;}else if(sh===2){tr[i]=100;tg[i]=200;tb[i]=140;}else{tr[i]=200;tg[i]=100;tb[i]=180;}}
+      if(shape===5){if(_isPrime[i+1]){tr[i]=220;tg[i]=195;tb[i]=100;}else{tr[i]=60;tg[i]=50;tb[i]=40;}}
+      if(shape===9){var d=Math.floor(fi*6);tr[i]=80+d*25;tg[i]=180-d*10;tb[i]=80+d*15;}
     }
   }
 
-  // Morph progress
-  if(morphT<1)morphT=Math.min(1,morphT+0.016*0.7); // ~1.4s morph
+  if(morphT<1)morphT=Math.min(1,morphT+0.016*0.6);
 
-  var attractX=(mx-0.5)*6;
-  var attractY=(my-0.5)*6;
-  var k=0.02+morphT*0.01; // stiffer when settled
+  // Mouse: attraction far away, repulsion up close (wake effect)
+  var mWorldX=(mx-0.5)*6,mWorldY=(my-0.5)*6;
 
   for(var i=0;i<N;i++){
     var target=shapeTarget(i,shape);
-    var tx=target[0],ty=target[1],tz=target[2];
+    var tx=target[0]+breath*px[i];
+    var ty=target[1]+breath*py[i];
+    var tz=target[2]+breath*pz[i];
 
-    // During morph: blend with previous position (not previous shape — smoother)
-    if(morphT<1){
-      var ease=morphT*morphT*(3-2*morphT); // smoothstep
-      // Just use weaker spring during morph — particles find their own path
-      k=0.008+ease*0.02;
+    // Spring stiffness: weak during burst, medium during morph, strong when settled
+    var k=burstT>0?0.003:morphT<1?0.008+morphT*0.015:0.03;
+
+    vx[i]+=(tx-px[i])*k;
+    vy[i]+=(ty-py[i])*k;
+    vz[i]+=(tz-pz[i])*k;
+
+    // Mouse interaction: attract from far, repel from near
+    var mdx=mWorldX-px[i],mdy=mWorldY-py[i];
+    var mdist=Math.sqrt(mdx*mdx+mdy*mdy)+0.1;
+    if(mdist<1.5){
+      // Repel — wake effect
+      var repel=0.003*(1.5-mdist);
+      vx[i]-=(mdx/mdist)*repel;
+      vy[i]-=(mdy/mdist)*repel;
+    } else {
+      // Gentle attract
+      vx[i]+=mdx*0.0003;
+      vy[i]+=mdy*0.0003;
     }
 
-    // Spring
-    vx[i]+=(tx-px[i])*k;vy[i]+=(ty-py[i])*k;vz[i]+=(tz-pz[i])*k;
-
-    // Mouse attraction
-    vx[i]+=(attractX-px[i])*0.0008;
-    vy[i]+=(attractY-py[i])*0.0008;
-
     // Damping
-    var damp=morphT<1?0.92:0.95;
+    var damp=burstT>0?0.97:morphT<1?0.92:0.95;
     vx[i]*=damp;vy[i]*=damp;vz[i]*=damp;
-
-    // Move
     px[i]+=vx[i];py[i]+=vy[i];pz[i]+=vz[i];
 
     // Color spring
@@ -303,9 +241,9 @@ function update(){
     pg[i]+=(tg[i]-pg[i])*0.03;
     pb[i]+=(tb[i]-pb[i])*0.03;
 
-    // Life from speed
+    // Life: speed + burst glow
     var speed=Math.sqrt(vx[i]*vx[i]+vy[i]*vy[i]+vz[i]*vz[i]);
-    plife[i]=Math.min(1,0.3+speed*15);
+    plife[i]=Math.min(1,0.25+speed*12+(burstT>0?burstT*0.8:0));
   }
 }
 
@@ -313,8 +251,8 @@ function update(){
 function render(){
   w=W/DPR;h=H/DPR;frame++;
 
-  // Longer trails during morph
-  var fadeAlpha=morphT<1?0.04:0.08;
+  // Trails: very long during burst, long during morph, normal when settled
+  var fadeAlpha=burstT>0?0.02:morphT<1?0.04:0.08;
   cx.fillStyle='rgba(0,0,0,'+fadeAlpha+')';
   cx.fillRect(0,0,w,h);
 
@@ -327,62 +265,55 @@ function render(){
 
   cx.globalCompositeOperation='lighter';
 
-  // Draw connections for certain shapes
-  if(shape===1&&morphT>0.7){
-    // Helix rungs — connect strand 0 to strand 1
-    cx.strokeStyle='rgba(170,148,105,0.015)';
-    cx.lineWidth=0.5;
-    for(var i=0;i<N-1;i+=40){
-      if(i%2!==0)continue;
-      var x1=px[i],y1=py[i],z1=pz[i];
-      var x2=px[i+1],y2=py[i+1],z2=pz[i+1];
-      // Project both
-      var ax=x1*cosA+z1*sinA,az=-x1*sinA+z1*cosA;
-      var ay=y1*cosB-az*sinB;
-      var f1=fov/(fov+((y1*sinB+az*cosB))*50+200);
-      var sx1=cx0+ax*50*f1,sy1=cy0+ay*50*f1;
-
-      var bx=x2*cosA+z2*sinA,bz=-x2*sinA+z2*cosA;
-      var by=y2*cosB-bz*sinB;
-      var f2=fov/(fov+((y2*sinB+bz*cosB))*50+200);
-      var sx2=cx0+bx*50*f2,sy2=cy0+by*50*f2;
-
-      cx.beginPath();cx.moveTo(sx1,sy1);cx.lineTo(sx2,sy2);cx.stroke();
+  // ─── Connections ───
+  if(morphT>0.7&&burstT<=0){
+    if(shape===1){ // Helix rungs
+      cx.strokeStyle='rgba(170,148,105,0.015)';cx.lineWidth=0.5;
+      for(var i=0;i<N-1;i+=40){
+        if(i%2!==0)continue;
+        var x1=px[i],y1=py[i],z1=pz[i],x2=px[i+1],y2=py[i+1],z2=pz[i+1];
+        var ax=x1*cosA+z1*sinA,az=-x1*sinA+z1*cosA,ay=y1*cosB-az*sinB;
+        var f1=fov/(fov+(y1*sinB+az*cosB)*50+200),sx1=cx0+ax*50*f1,sy1=cy0+ay*50*f1;
+        var bx=x2*cosA+z2*sinA,bz=-x2*sinA+z2*cosA,by=y2*cosB-bz*sinB;
+        var f2=fov/(fov+(y2*sinB+bz*cosB)*50+200),sx2=cx0+bx*50*f2,sy2=cy0+by*50*f2;
+        cx.beginPath();cx.moveTo(sx1,sy1);cx.lineTo(sx2,sy2);cx.stroke();
+      }
+    }
+    if(shape===9){ // Tree branches
+      cx.strokeStyle='rgba(120,200,120,0.008)';cx.lineWidth=0.3;
+      for(var i=0;i<Math.min(N,2000);i+=20){
+        var parent=Math.floor(i/2);if(parent>=N)continue;
+        var x1=px[i],y1=py[i],z1=pz[i],x2=px[parent],y2=py[parent],z2=pz[parent];
+        var ax=x1*cosA+z1*sinA,az=-x1*sinA+z1*cosA,ay=y1*cosB-az*sinB;
+        var f1=fov/(fov+(y1*sinB+az*cosB)*50+200),sx1=cx0+ax*50*f1,sy1=cy0+ay*50*f1;
+        var bx=x2*cosA+z2*sinA,bz=-x2*sinA+z2*cosA,by=y2*cosB-bz*sinB;
+        var f2=fov/(fov+(y2*sinB+bz*cosB)*50+200),sx2=cx0+bx*50*f2,sy2=cy0+by*50*f2;
+        cx.beginPath();cx.moveTo(sx1,sy1);cx.lineTo(sx2,sy2);cx.stroke();
+      }
+    }
+    if(shape===6){ // Möbius — faint edge lines
+      cx.strokeStyle='rgba(180,120,180,0.006)';cx.lineWidth=0.3;
+      for(var i=0;i<N-50;i+=50){
+        var x1=px[i],y1=py[i],z1=pz[i],x2=px[i+50],y2=py[i+50],z2=pz[i+50];
+        var ax=x1*cosA+z1*sinA,az=-x1*sinA+z1*cosA,ay=y1*cosB-az*sinB;
+        var f1=fov/(fov+(y1*sinB+az*cosB)*50+200),sx1=cx0+ax*50*f1,sy1=cy0+ay*50*f1;
+        var bx=x2*cosA+z2*sinA,bz=-x2*sinA+z2*cosA,by=y2*cosB-bz*sinB;
+        var f2=fov/(fov+(y2*sinB+bz*cosB)*50+200),sx2=cx0+bx*50*f2,sy2=cy0+by*50*f2;
+        cx.beginPath();cx.moveTo(sx1,sy1);cx.lineTo(sx2,sy2);cx.stroke();
+      }
     }
   }
 
-  if(shape===9&&morphT>0.7){
-    // Tree branches — connect adjacent depth levels
-    cx.strokeStyle='rgba(120,200,120,0.008)';
-    cx.lineWidth=0.3;
-    for(var i=0;i<Math.min(N,2000);i+=20){
-      var parent=Math.floor(i/2);
-      if(parent>=N)continue;
-      var x1=px[i],y1=py[i],z1=pz[i];
-      var x2=px[parent],y2=py[parent],z2=pz[parent];
-      var ax=x1*cosA+z1*sinA,az=-x1*sinA+z1*cosA;
-      var ay=y1*cosB-az*sinB;
-      var f1=fov/(fov+((y1*sinB+az*cosB))*50+200);
-      var sx1=cx0+ax*50*f1,sy1=cy0+ay*50*f1;
-      var bx=x2*cosA+z2*sinA,bz=-x2*sinA+z2*cosA;
-      var by=y2*cosB-bz*sinB;
-      var f2=fov/(fov+((y2*sinB+bz*cosB))*50+200);
-      var sx2=cx0+bx*50*f2,sy2=cy0+by*50*f2;
-      cx.beginPath();cx.moveTo(sx1,sy1);cx.lineTo(sx2,sy2);cx.stroke();
-    }
-  }
-
-  // Particles
+  // ─── Particles ───
   for(var i=0;i<N;i++){
     var x=px[i],y=py[i],z=pz[i];
-    var x1=x*cosA+z*sinA;var z1=-x*sinA+z*cosA;
-    var y1=y*cosB-z1*sinB;var z2=y*sinB+z1*cosB;
+    var x1=x*cosA+z*sinA,z1=-x*sinA+z*cosA;
+    var y1=y*cosB-z1*sinB,z2=y*sinB+z1*cosB;
     var f=fov/(fov+z2*50+200);
-    var sx=cx0+x1*50*f;
-    var sy=cy0+y1*50*f;
+    var sx=cx0+x1*50*f,sy=cy0+y1*50*f;
     if(sx<-10||sx>w+10||sy<-10||sy>h+10)continue;
 
-    var size=Math.max(0.4,f*1.4*plife[i]);
+    var size=Math.max(0.3,f*psize[i]*plife[i]);
     var alpha=f*plife[i]*0.4;
 
     var r=Math.floor(Math.min(255,pr[i]));
@@ -394,6 +325,15 @@ function render(){
   }
 
   cx.globalCompositeOperation='source-over';
+
+  // ─── Center glow during burst ───
+  if(burstT>0){
+    var grd=cx.createRadialGradient(cx0,cy0,0,cx0,cy0,Math.min(w,h)*0.3);
+    grd.addColorStop(0,'rgba(201,164,74,'+(burstT*0.08)+')');
+    grd.addColorStop(1,'rgba(201,164,74,0)');
+    cx.fillStyle=grd;
+    cx.fillRect(0,0,w,h);
+  }
 
   // Shape name whisper
   cx.fillStyle='rgba(201,164,74,0.04)';
