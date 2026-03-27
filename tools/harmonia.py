@@ -198,26 +198,115 @@ def _ollama_model():
     except:
         return None
 
+def _all_models():
+    """Get all available models."""
+    try:
+        r = subprocess.run(['curl','-s','http://localhost:11434/api/tags'],
+            capture_output=True, text=True, timeout=3)
+        return [m['name'] for m in json.loads(r.stdout).get('models',[])]
+    except:
+        return []
+
+def _ask_model(model, ollama_messages, num_predict=80):
+    """Ask a single model. Returns (response, time)."""
+    payload = {"model": model, "messages": ollama_messages, "stream": False,
+               "keep_alive": "30m",
+               "options": {"num_predict": num_predict, "temperature": 0.7}}
+    tmp = f'/tmp/harmonia_{model.replace(":","_")}.json'
+    with open(tmp, 'w') as f:
+        json.dump(payload, f)
+    try:
+        t0 = time.time()
+        r = subprocess.run(['curl','-s','http://localhost:11434/api/chat','-d',f'@{tmp}'],
+            capture_output=True, text=True, timeout=30)
+        elapsed = time.time() - t0
+        data = json.loads(r.stdout)
+        return data.get('message',{}).get('content',''), elapsed
+    except:
+        return '', 99
+
 def call_llm(messages):
-    """Call local Ollama."""
-    model = _ollama_model()
-    if not model:
-        # Try Claude API as fallback
+    """
+    Multi-brain: ask the best available model.
+    Route by type: reasoning → deepseek, conversation → gemma, fast → llama.
+    If multiple available, pick the smartest that's warm.
+    """
+    models = _all_models()
+    if not models:
         api_key = os.environ.get('ANTHROPIC_API_KEY', '')
         if api_key:
             return _call_claude(messages, api_key)
         return "Start Ollama first: open /Applications/Ollama.app"
 
     ollama_messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-    for m in messages[-6:]:  # last 6 messages only — speed over depth
+    for m in messages[-6:]:
         ollama_messages.append({"role": m["role"], "content": m["content"]})
 
-    payload = {"model": model, "messages": ollama_messages, "stream": False,
-               "keep_alive": "30m",
-               "options": {"num_predict": 80, "temperature": 0.7}}
-    tmp = '/tmp/harmonia_payload.json'
-    with open(tmp, 'w') as f:
-        json.dump(payload, f)
+    # Smart routing: pick best model for the question
+    last_msg = messages[-1]['content'].lower() if messages else ''
+
+    # Reasoning questions → deepseek if available
+    reasoning_words = ['why', 'how', 'explain', 'prove', 'derive', 'because', 'logic', 'reason']
+    is_reasoning = any(w in last_msg for w in reasoning_words)
+
+    # Prefer order based on question type
+    if is_reasoning:
+        prefer = ['deepseek-r1:8b', 'qwen2.5:7b', 'gemma3:12b', 'llama3.1:8b']
+    else:
+        prefer = ['gemma3:12b', 'qwen2.5:7b', 'llama3.1:8b', 'deepseek-r1:8b']
+
+    # Pick first available from preference list
+    model = None
+    for p in prefer:
+        for m in models:
+            if m.startswith(p.split(':')[0]):
+                model = m
+                break
+        if model: break
+
+    if not model:
+        model = models[0]
+
+    response, elapsed = _ask_model(model, ollama_messages)
+    if not response:
+        # Fallback to any working model
+        for m in models:
+            response, elapsed = _ask_model(m, ollama_messages)
+            if response: break
+
+    return response if response else "I'm thinking... try again."
+
+def call_llm_ensemble(messages):
+    """
+    Ask ALL available models. Pick the best response.
+    Best = longest coherent response (simple heuristic).
+    Use with /deep command for important questions.
+    """
+    models = _all_models()
+    ollama_messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    for m in messages[-6:]:
+        ollama_messages.append({"role": m["role"], "content": m["content"]})
+
+    responses = []
+    for model in models:
+        resp, elapsed = _ask_model(model, ollama_messages)
+        if resp:
+            # Score: longer + fewer repetitions = better
+            words = resp.split()
+            unique_ratio = len(set(words)) / max(len(words), 1)
+            score = len(words) * unique_ratio
+            responses.append((resp, score, model, elapsed))
+
+    if not responses:
+        return "No models responded."
+
+    responses.sort(key=lambda x: -x[1])
+    best = responses[0]
+    return best[0]
+
+# Legacy: keep the old payload-based path for Claude API
+def _legacy_payload():
+    pass
 
     try:
         result = subprocess.run(
@@ -353,6 +442,21 @@ def main():
             voice_on = not voice_on
             state = "on" if voice_on else "off"
             print(f"{C1}  Voice {state}.{CR}\n")
+            continue
+        if user_input.startswith('/deep '):
+            # Ensemble mode: ask ALL brains, pick the best
+            query = user_input[6:].strip()
+            messages.append({"role": "user", "content": query})
+            print(f"\n{C4}  [asking all brains]{CR}")
+            t0 = time.time()
+            response = call_llm_ensemble(messages)
+            elapsed = time.time() - t0
+            cache_store(query, response)
+            messages.append({"role": "assistant", "content": response})
+            save_history(messages)
+            print(f"{C1}{response}{CR}")
+            print(f"{C3}  ({elapsed:.1f}s — ensemble){CR}\n")
+            if voice_on: speak(response)
             continue
         if user_input.startswith('/run '):
             cmd = user_input[5:].strip()
