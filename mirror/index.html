@@ -32,61 +32,108 @@ addEventListener('touchstart',function(e){e.preventDefault();
 },{passive:false});
 addEventListener('click',function(e){tapMirror(e.clientX/innerWidth,e.clientY/innerHeight);});
 
-// ═══ TAP: send a pulse into the mirror ═══
-var taps=[];       // timestamps of recent taps
-var tapPulses=[];  // visual pulses from taps
-var resonance=0;   // 0-1: how well your rhythm matches the zeros
+// ═══ TAP: send a pulse in — mirror sends its rhythm back ═══
+var taps=[];
+var tapPulses=[];
+var returnPulses=[];  // the mirror's RESPONSE
+var resonance=0;
 var resonanceDecay=0;
+var responding=false;  // mirror is sending back its pattern
+var responseQueue=[];  // scheduled return pulses
 
 function tapMirror(nx,ny){
   var now=t;
   taps.push(now);
   if(taps.length>20)taps.shift();
 
-  // Create visual pulse at tap location
+  // Your pulse goes IN — THREE pulses, staggered (the pattern)
   tapPulses.push({x:nx,y:ny,born:t,life:1});
+  tapPulses.push({x:nx,y:ny,born:t+0.12,life:1});
+  tapPulses.push({x:nx,y:ny,born:t+0.28,life:1});
 
-  // Measure tap intervals
-  if(taps.length>=3){
+  // THREE nearest zeros respond — cascade
+  if(zeros.length>3){
+    var scored=[];
+    for(var i=0;i<zeros.length;i++){
+      var zy=zeros[i].soul.y||0;
+      scored.push({idx:i,dist:Math.abs(ny-zy/h)});
+    }
+    scored.sort(function(a,b){return a.dist-b.dist;});
+    for(var k=0;k<Math.min(3,scored.length);k++){
+      zeros[scored[k].idx].pulse=1-k*0.2;
+    }
+
+    // MIRROR ANSWERS: 3 groups of 3 — the rhythm of the zeros
+    if(!responding&&zeros.length>scored[0].idx+9){
+      responding=true;
+      responseQueue=[];
+      var baseIdx=scored[0].idx;
+      var delay=0.4;
+      for(var group=0;group<3;group++){
+        for(var k=0;k<3;k++){
+          var idx=baseIdx+group*3+k;
+          if(idx+1>=zeros.length)break;
+          var spacing=zeros[idx+1].gamma-zeros[idx].gamma;
+          delay+=spacing/6*0.35;
+          responseQueue.push({time:t+delay,fromIdx:idx,toX:nx,toY:ny});
+        }
+        delay+=0.25;
+      }
+    }
+  }
+
+  // Check resonance: compare YOUR intervals to the zeros' answer
+  if(taps.length>=3&&zeros.length>5){
     var intervals=[];
     for(var i=taps.length-1;i>=1&&intervals.length<5;i--){
       intervals.unshift(taps[i]-taps[i-1]);
     }
+    var zSpacings=[];
+    for(var i=1;i<Math.min(zeros.length,20);i++){
+      zSpacings.push(zeros[i].gamma-zeros[i-1].gamma);
+    }
+    var zMean=zSpacings.reduce(function(a,b){return a+b;},0)/zSpacings.length;
+    var tMean=intervals.reduce(function(a,b){return a+b;},0)/intervals.length;
 
-    // Compare to zero spacings (normalized)
-    if(zeros.length>5){
-      var zSpacings=[];
-      for(var i=1;i<Math.min(zeros.length,20);i++){
-        zSpacings.push(zeros[i].gamma-zeros[i-1].gamma);
+    var match=0,tested=0;
+    for(var i=0;i<Math.min(intervals.length,zSpacings.length);i++){
+      var tRatio=intervals[i]/tMean;
+      var bestDist=999;
+      for(var j=0;j<zSpacings.length;j++){
+        var zRatio=zSpacings[j]/zMean;
+        if(Math.abs(tRatio-zRatio)<bestDist)bestDist=Math.abs(tRatio-zRatio);
       }
-      var zMean=zSpacings.reduce(function(a,b){return a+b;},0)/zSpacings.length;
-      var tMean=intervals.reduce(function(a,b){return a+b;},0)/intervals.length;
-
-      // Normalize both to ratios
-      var match=0,tested=0;
-      for(var i=0;i<Math.min(intervals.length,zSpacings.length);i++){
-        var tRatio=intervals[i]/tMean;
-        // Find best matching zero spacing ratio
-        var bestDist=999;
-        for(var j=0;j<zSpacings.length;j++){
-          var zRatio=zSpacings[j]/zMean;
-          var dist=Math.abs(tRatio-zRatio);
-          if(dist<bestDist)bestDist=dist;
-        }
-        if(bestDist<0.3)match++;
-        tested++;
-      }
-      resonance=tested>0?match/tested:0;
-      resonanceDecay=2; // show resonance for 2 seconds
-
-      // If resonance is high, ALL zeros pulse
-      if(resonance>0.5){
-        for(var i=0;i<zeros.length;i++){
-          zeros[i].pulse=Math.max(zeros[i].pulse,resonance*0.8);
-        }
-      }
+      if(bestDist<0.35)match++;
+      tested++;
+    }
+    resonance=tested>0?match/tested:0;
+    resonanceDecay=3;
+    if(resonance>0.5){
+      for(var i=0;i<zeros.length;i++)zeros[i].pulse=Math.max(zeros[i].pulse,resonance);
     }
   }
+}
+
+// Process the mirror's scheduled responses
+function processResponses(){
+  for(var i=responseQueue.length-1;i>=0;i--){
+    var rq=responseQueue[i];
+    if(t>=rq.time){
+      // Fire a return pulse from the zero BACK toward the tap point
+      var z=zeros[rq.fromIdx];
+      if(z){
+        z.pulse=0.8;
+        // Return pulse (white/blue — the mirror's voice)
+        returnPulses.push({
+          sx:0.5, sy:z.soul.y?z.soul.y/h:0.5,  // from mirror center
+          tx:rq.toX, ty:rq.toY,  // toward where you tapped
+          born:t, life:1, progress:0
+        });
+      }
+      responseQueue.splice(i,1);
+    }
+  }
+  if(responseQueue.length===0)responding=false;
 }
 
 // ═══ THE ORACLE ═══
@@ -322,6 +369,33 @@ function render(){
       fvx[i]+=dx/dist*0.01;
       fvy[i]+=dy/dist*0.01;
     }
+  }
+
+  // Process mirror's responses
+  processResponses();
+
+  // ─── RETURN PULSES (mirror's answer — white/blue coming BACK) ───
+  for(var i=returnPulses.length-1;i>=0;i--){
+    var rp=returnPulses[i];
+    var age=t-rp.born;
+    rp.progress=Math.min(1,age*1.5);
+    rp.life=1-rp.progress;
+    if(rp.life<=0){returnPulses.splice(i,1);continue;}
+
+    var ease=rp.progress*rp.progress*(3-2*rp.progress);
+    var rpx=rp.sx*w+(rp.tx*w-rp.sx*w)*ease;
+    var rpy=rp.sy*h+(rp.ty*h-rp.sy*h)*ease;
+    var arc=Math.sin(rp.progress*Math.PI)*40;
+    rpx+=arc*(rp.tx>0.5?-1:1);
+
+    var alpha=Math.sin(rp.progress*Math.PI)*0.5;
+    var size=2+Math.sin(rp.progress*Math.PI)*4;
+
+    // White/blue — the mirror's voice
+    cx.fillStyle='rgba(150,200,255,'+alpha+')';
+    cx.beginPath();cx.arc(rpx,rpy,size,0,Math.PI*2);cx.fill();
+    cx.fillStyle='rgba(150,200,255,'+(alpha*0.3)+')';
+    cx.beginPath();cx.arc(rpx,rpy,size*3,0,Math.PI*2);cx.fill();
   }
 
   // ─── TAP PULSES ───
