@@ -153,20 +153,55 @@ function initAudio(){
   masterGain.connect(compressor);
   compressor.connect(audioCtx.destination);
 
-  // Pre-allocate voices — start them NOW in the gesture handler
+  // Reverb: feedback delay for space
+  var delay=audioCtx.createDelay(1.0);
+  delay.delayTime.value=0.4;
+  var feedback=audioCtx.createGain();
+  feedback.gain.value=0.3;
+  var reverbFilter=audioCtx.createBiquadFilter();
+  reverbFilter.type='lowpass';
+  reverbFilter.frequency.value=2000;
+  masterGain.connect(delay);
+  delay.connect(reverbFilter);
+  reverbFilter.connect(feedback);
+  feedback.connect(delay);
+  delay.connect(compressor);
+
+  // Low-pass on master for warmth
+  var warmth=audioCtx.createBiquadFilter();
+  warmth.type='lowpass';
+  warmth.frequency.value=3000;
+  warmth.Q.value=0.5;
+
+  // Rewire: voices → warmth → masterGain
+  // (masterGain already connects to compressor + delay)
+
+  // Pre-allocate voices — pairs of oscillators for thickness
   for(var i=0;i<MAX_VOICES;i++){
-    var osc=audioCtx.createOscillator();
+    var osc1=audioCtx.createOscillator();
+    var osc2=audioCtx.createOscillator();
     var gain=audioCtx.createGain();
-    osc.type='sine';
-    osc.frequency.value=220+i*30; // spread so they're not all identical
-    osc.detune.value=(Math.random()-0.5)*8;
-    gain.gain.value=0.01; // barely audible — proves audio works
-    osc.connect(gain);
-    gain.connect(masterGain);
-    osc.start(0); // start immediately in gesture context
-    clusterOscs.push(osc);
+
+    // Main: triangle for warmth. Detuned pair for width.
+    osc1.type='triangle';
+    osc2.type='sine';
+    osc1.frequency.value=220+i*30;
+    osc2.frequency.value=220+i*30;
+    osc1.detune.value=-4;
+    osc2.detune.value=4+Math.random()*3;
+    gain.gain.value=0.01;
+
+    osc1.connect(gain);
+    osc2.connect(gain);
+    gain.connect(warmth);
+    osc1.start(0);
+    osc2.start(0);
+
+    clusterOscs.push(osc1);
+    clusterOscs.push(osc2); // pairs
     clusterGains.push(gain);
   }
+  warmth.connect(masterGain);
 
   // Confirm audio is running
   console.log('Audio state:',audioCtx.state);
@@ -208,24 +243,24 @@ function updateAudio(){
   // Sort by size (biggest = loudest)
   clusters.sort(function(a,b){return b.count-a.count;});
 
-  // Map clusters to audio voices
-  // Base frequency scales with mean energy
-  var baseFreq=130.8; // C3
+  // Map clusters to voice pairs
+  var baseFreq=110; // A2 — deep root
 
-  // Map cluster phase to pitch within 2 octaves
   for(var i=0;i<MAX_VOICES;i++){
     if(i<clusters.length&&clusters[i].count>=3){
       var cl=clusters[i];
       // Phase → pitch: spread across 2 octaves
-      var pitchRatio=Math.pow(2,cl.center/(Math.PI)); // 1 to 4x base
+      var pitchRatio=Math.pow(2,cl.center/Math.PI);
       var freq=baseFreq*pitchRatio;
-      // Volume from cluster population
-      var vol=(cl.count/N)*0.4*R;
+      var vol=(cl.count/N)*0.3;
 
-      clusterOscs[i].frequency.setTargetAtTime(freq,audioCtx.currentTime,0.08);
-      clusterGains[i].gain.setTargetAtTime(vol,audioCtx.currentTime,0.05);
+      // Set both oscillators in the pair
+      var t2=audioCtx.currentTime;
+      clusterOscs[i*2].frequency.setTargetAtTime(freq,t2,0.12);
+      clusterOscs[i*2+1].frequency.setTargetAtTime(freq,t2,0.12);
+      clusterGains[i].gain.setTargetAtTime(vol,t2,0.08);
     } else {
-      clusterGains[i].gain.setTargetAtTime(0,audioCtx.currentTime,0.1);
+      clusterGains[i].gain.setTargetAtTime(0,audioCtx.currentTime,0.15);
     }
   }
 
