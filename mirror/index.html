@@ -294,17 +294,14 @@ function render(){
   cx.globalCompositeOperation='lighter';
 
   // ─── THE MIRROR LINE ───
-  // Thin, bright at zeros, dim between
-  for(var y=0;y<h;y+=2){
-    var brightness=0.015;
-    // Brighter near zeros
-    for(var j=Math.max(0,nz-30);j<nz;j++){
-      var zy=gammaToY(zeros[j].gamma);
-      var dist=Math.abs(y-zy);
-      if(dist<30)brightness+=0.03*(1-dist/30)*(0.5+zeros[j].pulse*0.5);
-    }
-    cx.fillStyle='rgba(255,255,255,'+Math.min(0.15,brightness)+')';
-    cx.fillRect(mirrorX-0.25,y,0.5,2);
+  // One thin line + glow spots at zeros (no per-pixel loop)
+  cx.fillStyle='rgba(255,255,255,0.015)';
+  cx.fillRect(mirrorX-0.25,0,0.5,h);
+  for(var j=0;j<nz;j++){
+    var zy=gammaToY(zeros[j].gamma);
+    var glow=0.04+zeros[j].pulse*0.1;
+    cx.fillStyle='rgba(255,255,255,'+glow+')';
+    cx.fillRect(mirrorX-3,zy-1,6,2);
   }
 
   // ─── FIELD PARTICLES ───
@@ -327,7 +324,7 @@ function render(){
     cx.fillRect(screenX-0.5,screenY-0.5,1,1);
   }
 
-  // ─── SOULS AND ANTI-SOULS ───
+  // ─── SOULS AND ANTI-SOULS (fillRect, no arc) ───
   for(var i=0;i<nz;i++){
     var z=zeros[i];
     var age=t-z.born;
@@ -336,30 +333,23 @@ function render(){
 
     // Soul (left, warm)
     cx.fillStyle='rgba(220,170,90,'+alpha*0.5+')';
-    cx.beginPath();cx.arc(z.soul.x,z.soul.y,size,0,Math.PI*2);cx.fill();
+    cx.fillRect(z.soul.x-size,z.soul.y-size,size*2,size*2);
 
-    // Anti-soul (right, cool) — perfect mirror
+    // Anti-soul (right, cool)
     cx.fillStyle='rgba(90,170,220,'+alpha*0.5+')';
-    cx.beginPath();cx.arc(z.anti.x,z.anti.y,size,0,Math.PI*2);cx.fill();
+    cx.fillRect(z.anti.x-size,z.anti.y-size,size*2,size*2);
 
-    // Connection through the mirror — a faint line binding them
+    // Connection through the mirror
     if(alpha>0.1){
-      cx.strokeStyle='rgba(255,255,255,'+(alpha*0.02+z.pulse*0.05)+')';
-      cx.lineWidth=0.3;
-      cx.beginPath();
-      cx.moveTo(z.soul.x,z.soul.y);
-      cx.lineTo(z.anti.x,z.anti.y);
-      cx.stroke();
+      cx.fillStyle='rgba(255,255,255,'+(alpha*0.02+z.pulse*0.05)+')';
+      cx.fillRect(z.soul.x,z.soul.y,z.anti.x-z.soul.x,0.3);
     }
 
-    // Birth flash — pulse radiates along the mirror
+    // Birth flash — horizontal bar along mirror
     if(z.pulse>0.05){
-      var pulseR=z.pulse*w*0.15;
-      cx.strokeStyle='rgba(255,255,255,'+(z.pulse*0.1)+')';
-      cx.lineWidth=0.5;
-      cx.beginPath();
-      cx.arc(mirrorX,z.soul.y,pulseR,0,Math.PI*2);
-      cx.stroke();
+      var pw=z.pulse*w*0.12;
+      cx.fillStyle='rgba(255,255,255,'+(z.pulse*0.08)+')';
+      cx.fillRect(mirrorX-pw,z.soul.y-0.5,pw*2,1);
     }
   }
 
@@ -397,9 +387,9 @@ function render(){
 
     // White/blue — the mirror's voice
     cx.fillStyle='rgba(150,200,255,'+alpha+')';
-    cx.beginPath();cx.arc(rpx,rpy,size,0,Math.PI*2);cx.fill();
-    cx.fillStyle='rgba(150,200,255,'+(alpha*0.3)+')';
-    cx.beginPath();cx.arc(rpx,rpy,size*3,0,Math.PI*2);cx.fill();
+    cx.fillRect(rpx-size,rpy-size,size*2,size*2);
+    cx.fillStyle='rgba(150,200,255,'+(alpha*0.2)+')';
+    cx.fillRect(rpx-size*2,rpy-size*2,size*4,size*4);
   }
 
   // ─── TAP PULSES ───
@@ -409,19 +399,16 @@ function render(){
     tp.life=Math.max(0,1-age*0.8);
     if(tp.life<=0){tapPulses.splice(i,1);continue;}
 
-    // Ripple expanding from tap point
-    var rippleR=age*w*0.15;
-    cx.strokeStyle='rgba(255,255,255,'+(tp.life*0.12)+')';
-    cx.lineWidth=0.5;
-    cx.beginPath();cx.arc(tp.x*w,tp.y*h,rippleR,0,Math.PI*2);cx.stroke();
+    // Expanding cross from tap point (no arc)
+    var rippleR=age*w*0.12;
+    var ra=tp.life*0.1;
+    cx.fillStyle='rgba(255,255,255,'+ra+')';
+    cx.fillRect(tp.x*w-rippleR,tp.y*h-0.5,rippleR*2,1); // horizontal
+    cx.fillRect(tp.x*w-0.5,tp.y*h-rippleR,1,rippleR*2); // vertical
 
-    // Vertical line pulse through the mirror
-    var mirrorDist=Math.abs(tp.x*w-mirrorX);
-    if(mirrorDist<w*0.3){
-      cx.strokeStyle='rgba(255,255,255,'+(tp.life*0.06)+')';
-      cx.lineWidth=tp.life*2;
-      cx.beginPath();cx.moveTo(mirrorX,tp.y*h-rippleR);cx.lineTo(mirrorX,tp.y*h+rippleR);cx.stroke();
-    }
+    // Pulse through the mirror
+    cx.fillStyle='rgba(255,255,255,'+(tp.life*0.05)+')';
+    cx.fillRect(mirrorX-1,tp.y*h-rippleR,2,rippleR*2);
   }
 
   // ─── RESONANCE INDICATOR ───
@@ -431,12 +418,8 @@ function render(){
 
     if(resonance>0.5){
       // Mirror OPENS — the line glows wide
-      var openWidth=resonance*w*0.05;
-      var grd=cx.createLinearGradient(mirrorX-openWidth,0,mirrorX+openWidth,0);
-      grd.addColorStop(0,'rgba(255,255,255,0)');
-      grd.addColorStop(0.5,'rgba(255,255,255,'+resAlpha+')');
-      grd.addColorStop(1,'rgba(255,255,255,0)');
-      cx.fillStyle=grd;
+      var openWidth=resonance*w*0.03;
+      cx.fillStyle='rgba(255,255,255,'+resAlpha+')';
       cx.fillRect(mirrorX-openWidth,0,openWidth*2,h);
     }
 
