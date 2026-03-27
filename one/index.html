@@ -9,16 +9,25 @@
 body{background:#0a0a0f;overflow:hidden;touch-action:manipulation;font-family:Georgia,serif;}
 canvas{display:block;width:100vw;height:100vh;cursor:pointer;}
 #in{position:fixed;top:16px;left:50%;transform:translateX(-50%);width:min(90vw,500px);
-  background:#0a0a0fdd;backdrop-filter:blur(16px);border:1px solid #222;
-  color:#e8e4dc;font-family:Georgia,serif;font-size:1.1em;padding:12px 20px;
-  border-radius:28px;outline:none;text-align:center;z-index:10;}
-#in:focus{border-color:#c9a44a;}
+  background:#0d0d14ee;backdrop-filter:blur(16px);border:1px solid #2a2a3a;
+  color:#e8e4dc;font-family:Georgia,serif;font-size:1.1em;padding:14px 24px;
+  border-radius:28px;outline:none;text-align:center;z-index:10;
+  box-shadow:0 2px 20px rgba(0,0,0,0.4);}
+#in:focus{border-color:#c9a44a;box-shadow:0 2px 20px rgba(201,164,74,0.15);}
 #in::placeholder{color:#333;}
 </style>
 </head>
 <body>
 <canvas id="C"></canvas>
 <input id="in" placeholder="" autocomplete="off">
+<div id="pills" style="position:fixed;top:56px;left:50%;transform:translateX(-50%);
+  display:flex;gap:6px;flex-wrap:wrap;justify-content:center;z-index:10;
+  max-width:min(90vw,500px);transition:opacity 0.5s;">
+</div>
+<div id="suggest" style="position:fixed;top:56px;left:50%;transform:translateX(-50%);
+  width:min(90vw,500px);background:#0d0d14ee;border:1px solid #222;border-top:none;
+  border-radius:0 0 12px 12px;z-index:11;display:none;max-height:180px;overflow-y:auto;">
+</div>
 <script>
 // ═══════════════════════════════════════════════════════════
 // ONE — The entire system as a single computation
@@ -392,7 +401,88 @@ function process(q){
   if(!q)transitionTo('idle',null);
 }
 
-inp.addEventListener('input',function(){process(this.value);});
+// ═══ PILLS: gentle suggestions on idle ═══
+var pillsEl=document.getElementById('pills');
+var suggestEl=document.getElementById('suggest');
+var PILLS=['carbon','H₂O','cancer','love','1000000','depression','gold','NaCl'];
+
+function showPills(){
+  var h='';
+  PILLS.forEach(function(p){
+    h+='<span style="padding:4px 12px;border-radius:14px;font-size:0.8em;'+
+      'background:#111;border:1px solid #1a1a2a;color:#555;cursor:pointer;'+
+      'font-family:Georgia,serif;" onmousedown="pickPill(\''+p+'\')">'+p+'</span>';
+  });
+  pillsEl.innerHTML=h;pillsEl.style.opacity='1';
+}
+
+function hidePills(){pillsEl.style.opacity='0';}
+
+window.pickPill=function(p){
+  // Map display names to search terms
+  var map={'H₂O':'water','NaCl':'salt','gold':'Au'};
+  var q=map[p]||p;
+  inp.value=q;process(q);hidePills();inp.focus();
+};
+
+// ═══ LIVE SUGGESTIONS as you type ═══
+var ALL_SEARCHABLE=[];
+for(var z=1;z<=20;z++)ALL_SEARCHABLE.push({label:SYMS[z]+' — '+NAMES[z],key:NAMES[z].toLowerCase(),type:'element',q:SYMS[z]});
+for(var d in DISEASES)ALL_SEARCHABLE.push({label:d.charAt(0).toUpperCase()+d.slice(1),key:d,type:'disease',q:d});
+['water','salt','caffeine','aspirin','glucose'].forEach(function(m){
+  ALL_SEARCHABLE.push({label:m,key:m,type:'molecule',q:m});
+});
+// Emotion aliases
+['love','hope','fear','joy','sadness','anxiety','peace'].forEach(function(e){
+  ALL_SEARCHABLE.push({label:e,key:e,type:'concept',q:e});
+});
+
+function fuzzyScore(query,target){
+  if(target.indexOf(query)===0)return 100;
+  if(target.indexOf(query)>=0)return 80;
+  var qi=0,matches=0;
+  for(var ti=0;ti<target.length&&qi<query.length;ti++){
+    if(target[ti]===query[qi]){matches++;qi++;}
+  }
+  return matches/Math.max(query.length,1)*50;
+}
+
+function showSuggestions(q){
+  if(q.length<1){suggestEl.style.display='none';return;}
+  var ql=q.toLowerCase();
+  var scored=[];
+  ALL_SEARCHABLE.forEach(function(item){
+    var s=Math.max(fuzzyScore(ql,item.key),fuzzyScore(ql,item.label.toLowerCase()));
+    if(s>20)scored.push({item:item,score:s});
+  });
+  scored.sort(function(a,b){return b.score-a.score;});
+  scored=scored.slice(0,5);
+  if(!scored.length){suggestEl.style.display='none';return;}
+
+  var h='';
+  scored.forEach(function(s,i){
+    var bg=i===0?'#1a1a10':'transparent';
+    var col=i===0?'#c9a44a':'#666';
+    var icon=s.item.type==='element'?'⚛':s.item.type==='disease'?'♥':'·';
+    h+='<div style="padding:8px 14px;cursor:pointer;color:'+col+';background:'+bg+
+      ';font-size:0.9em;font-family:Georgia,serif;" onmousedown="pickSuggest(\''+
+      s.item.q.replace(/'/g,"\\'")+'\')">'+icon+' '+s.item.label+'</div>';
+  });
+  suggestEl.innerHTML=h;suggestEl.style.display='block';
+
+  // Also process top match
+  if(scored[0].score>60)process(scored[0].item.q);
+}
+
+window.pickSuggest=function(q){
+  inp.value=q;process(q);suggestEl.style.display='none';
+};
+
+inp.addEventListener('input',function(){
+  hidePills();
+  showSuggestions(this.value);
+  if(!this.value)showPills();
+});
 
 // ═══ ENTRANCE: carbon → cancer → love ═══
 var entranceText=['carbon','cancer','love'];
@@ -427,7 +517,9 @@ inp.addEventListener('focus',function(){
   state.userTouched=true;
   if(entranceTimer)clearTimeout(entranceTimer);
   this.value='';
-  state.mode='idle';state.data=null;
+  transitionTo('idle',null);
+  suggestEl.style.display='none';
+  showPills();
 });
 
 // ═══ LAUNCH ═══
