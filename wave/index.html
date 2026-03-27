@@ -45,6 +45,11 @@ a{color:var(--accent);}
 <h1>The Wave Table<span>chemistry is a wave on S¹</span></h1>
 <p class="sub">Tap any element on the circle below. Toggle views. Combine two.</p>
 
+<div class="tabs" id="mode-tabs">
+<div class="tab on" data-m="circle" onclick="setMode('circle',this)">S¹ Circle</div>
+<div class="tab" data-m="bar" onclick="setMode('bar',this)">Wave Bar</div>
+</div>
+
 <div class="tabs" id="tabs">
 <div class="tab on" data-v="IE">Energy</div>
 <div class="tab" data-v="r">Size</div>
@@ -55,6 +60,7 @@ a{color:var(--accent);}
 </div>
 
 <canvas id="S1" width="800" height="800"></canvas>
+<canvas id="BAR" width="860" height="260" style="display:none;"></canvas>
 
 <div id="info">
 <h2 id="i-sym"></h2><span class="z" id="i-z"></span>
@@ -295,7 +301,86 @@ window.doCombine=function(){
   document.getElementById('bond-out').innerHTML=h;
 };
 
-draw();
+// BAR VIEW
+var bv=document.getElementById('BAR'),bx=bv.getContext('2d');
+var BW=bv.width,BH=bv.height;
+
+function drawBar(){
+  bx.fillStyle='#0a0a0f';bx.fillRect(0,0,BW,BH);
+  var vals=D.map(valOf),mn=Math.min.apply(null,vals),mx=Math.max.apply(null,vals);
+  var range=mx-mn||1;
+  var pad={l:40,r:16,t:24,b:32},gw=BW-pad.l-pad.r,gh=BH-pad.t-pad.b;
+  var bw=gw/D.length-2;
+
+  // Title
+  bx.fillStyle='#c9a44a';bx.font='12px Georgia';bx.textAlign='center';
+  var labels={IE:'Ionization Energy',r:'Atomic Radius',EN:'Electronegativity',hard:'Hardness',mag:'Magnetism',Zeff:'Z_eff'};
+  bx.fillText(labels[view]||view,BW/2,16);
+
+  // Wave line
+  bx.beginPath();
+  D.forEach(function(d,i){
+    var x=pad.l+i*(gw/D.length)+bw/2;
+    var v=vals[i],h=((v-mn)/range)*gh;
+    var y=pad.t+gh-h;
+
+    // Bar
+    bx.fillStyle=selIdx===i?'#4aeaa0':'#c9a44a';
+    bx.globalAlpha=selIdx===i?1:0.6;
+    bx.fillRect(x-bw/2,y,bw,h);
+    bx.globalAlpha=1;
+
+    // Wave
+    if(i===0)bx.moveTo(x,y);else bx.lineTo(x,y);
+
+    // Label
+    bx.fillStyle=selIdx===i?'#4aeaa0':'#777';
+    bx.font='10px Georgia';bx.textAlign='center';
+    bx.fillText(d.sym,x,pad.t+gh+14);
+
+    // Value on selected
+    if(selIdx===i){bx.fillStyle='#4aeaa0';bx.font='9px Georgia';bx.fillText(v.toFixed(1),x,y-4);}
+
+    // Period lines
+    if(d.Z_===2||d.Z_===10||d.Z_===18){
+      bx.save();bx.strokeStyle='#ffffff10';bx.setLineDash([2,2]);
+      bx.beginPath();bx.moveTo(x+bw,pad.t);bx.lineTo(x+bw,pad.t+gh);bx.stroke();
+      bx.restore();
+    }
+  });
+  bx.strokeStyle='#c9a44a80';bx.lineWidth=1.5;bx.stroke();
+}
+
+bv.addEventListener('click',function(e){
+  var rect=bv.getBoundingClientRect();
+  var mx=(e.clientX-rect.left)*(BW/rect.width);
+  var pad={l:40,r:16},gw=BW-pad.l-pad.r;
+  var idx=Math.floor((mx-pad.l)/(gw/D.length));
+  if(idx>=0&&idx<D.length){selIdx=idx;showInfo(D[idx]);drawBar();draw();}
+});
+
+// Mode switching
+var mode='circle';
+window.setMode=function(m,btn){
+  mode=m;
+  document.querySelectorAll('#mode-tabs .tab').forEach(function(t){t.classList.remove('on');});
+  btn.classList.add('on');
+  document.getElementById('S1').style.display=m==='circle'?'block':'none';
+  document.getElementById('BAR').style.display=m==='bar'?'block':'none';
+  if(m==='bar')drawBar();else draw();
+};
+
+// Update both on view change
+var origTabClick=document.getElementById('tabs').onclick;
+document.getElementById('tabs').addEventListener('click',function(e){
+  if(!e.target.dataset.v)return;
+  view=e.target.dataset.v;
+  document.querySelectorAll('#tabs .tab').forEach(function(t){t.classList.remove('on');});
+  e.target.classList.add('on');
+  draw();drawBar();
+});
+
+draw();drawBar();
 </script>
 </body>
 </html>
