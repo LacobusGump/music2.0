@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="cache-control" content="no-cache">
+<title>Harmonia</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:#0a0a0f;overflow:hidden;touch-action:manipulation;font-family:Georgia,serif;}
+canvas{display:block;width:100vw;height:100vh;cursor:pointer;}
+#in{position:fixed;top:16px;left:50%;transform:translateX(-50%);width:min(90vw,500px);
+  background:#0a0a0fdd;backdrop-filter:blur(16px);border:1px solid #222;
+  color:#e8e4dc;font-family:Georgia,serif;font-size:1.1em;padding:12px 20px;
+  border-radius:28px;outline:none;text-align:center;z-index:10;}
+#in:focus{border-color:#c9a44a;}
+#in::placeholder{color:#333;}
+</style>
+</head>
+<body>
+<canvas id="C"></canvas>
+<input id="in" placeholder="" autocomplete="off">
+<script>
+// ═══════════════════════════════════════════════════════════
+// ONE — The entire system as a single computation
+//
+// No DOM. No HTML elements. No frameworks.
+// One canvas. One state. One render loop.
+// The website IS a game engine.
+//
+// The seed: conductor math + oracle + disease data + body map
+// Everything else: rendering. Pixels. Instant.
+// ═══════════════════════════════════════════════════════════
+
+var cv=document.getElementById('C'),cx=cv.getContext('2d');
+var W,H,DPR;
+function resize(){
+  DPR=window.devicePixelRatio||1;
+  W=cv.width=window.innerWidth*DPR;
+  H=cv.height=window.innerHeight*DPR;
+  cx.setTransform(DPR,0,0,DPR,0,0);
+}
+resize();window.addEventListener('resize',resize);
+
+var w,h; // logical pixels
+var t=0; // time
+var inp=document.getElementById('in');
+
+// ═══ THE SEED: all knowledge in one object ═══
+var CONDUCTOR={};
+var CONFIGS={1:[[1,0,1]],2:[[1,0,2]],3:[[1,0,2],[2,0,1]],4:[[1,0,2],[2,0,2]],
+5:[[1,0,2],[2,0,2],[2,1,1]],6:[[1,0,2],[2,0,2],[2,1,2]],7:[[1,0,2],[2,0,2],[2,1,3]],
+8:[[1,0,2],[2,0,2],[2,1,4]],9:[[1,0,2],[2,0,2],[2,1,5]],10:[[1,0,2],[2,0,2],[2,1,6]],
+11:[[1,0,2],[2,0,2],[2,1,6],[3,0,1]],12:[[1,0,2],[2,0,2],[2,1,6],[3,0,2]],
+13:[[1,0,2],[2,0,2],[2,1,6],[3,0,2],[3,1,1]],14:[[1,0,2],[2,0,2],[2,1,6],[3,0,2],[3,1,2]],
+15:[[1,0,2],[2,0,2],[2,1,6],[3,0,2],[3,1,3]],16:[[1,0,2],[2,0,2],[2,1,6],[3,0,2],[3,1,4]],
+17:[[1,0,2],[2,0,2],[2,1,6],[3,0,2],[3,1,5]],18:[[1,0,2],[2,0,2],[2,1,6],[3,0,2],[3,1,6]],
+19:[[1,0,2],[2,0,2],[2,1,6],[3,0,2],[3,1,6],[4,0,1]],20:[[1,0,2],[2,0,2],[2,1,6],[3,0,2],[3,1,6],[4,0,2]]};
+var SYMS={1:'H',2:'He',3:'Li',4:'Be',5:'B',6:'C',7:'N',8:'O',9:'F',10:'Ne',
+11:'Na',12:'Mg',13:'Al',14:'Si',15:'P',16:'S',17:'Cl',18:'Ar',19:'K',20:'Ca'};
+var NAMES={1:'Hydrogen',2:'Helium',3:'Lithium',4:'Beryllium',5:'Boron',6:'Carbon',
+7:'Nitrogen',8:'Oxygen',9:'Fluorine',10:'Neon',11:'Sodium',12:'Magnesium',
+13:'Aluminium',14:'Silicon',15:'Phosphorus',16:'Sulfur',17:'Chlorine',18:'Argon',
+19:'Potassium',20:'Calcium'};
+var SYM2Z={};for(var z in SYMS){SYM2Z[SYMS[z]]=+z;SYM2Z[NAMES[z].toLowerCase()]=+z;}
+
+function calc(Z){
+  var c=CONFIGS[Z];if(!c)return null;
+  var v=c[c.length-1],vn=v[0],vl=v[1],vc=v[2],sh=0;
+  for(var i=0;i<c.length;i++){var n=c[i][0],l=c[i][1],cnt=c[i][2];
+    if(n===vn&&l===vl){var s=n===1?0.3:(0.35+0.06*Math.max(0,cnt-2));sh+=s*(cnt-1);}
+    else if(n===vn)sh+=0.85*cnt;else if(n===vn-1){if(vl===0)sh+=0.85*cnt;
+    else{var ti=0;for(var j=0;j<c.length;j++)if(c[j][0]===n)ti+=c[j][2];sh+=(0.85+0.015*Math.max(0,ti-2))*cnt;}}
+    else sh+=cnt;}
+  var Zf=Math.max(.1,Z-sh),ne=vn;
+  if(vl===1)ne=vn+.4+.12*(vc-1);else if(vl===0&&vc===2&&vn>1)ne=vn+.15;
+  var r=ne*ne/Zf,rA=r*.529,IE=13.6*Zf*Zf/(ne*ne),ms=2*vl+1;
+  if(vc===ms&&vl>0)IE+=1.1;if(vc===ms+1&&vl>0)IE-=1.6;
+  if(vc>1&&vc<=ms&&vl>0)IE+=(vc-1)*.2;if(vl===0&&vc===2)IE-=1.5;
+  var u=Math.min(vc,ms)-Math.max(0,vc-ms);
+  return{Z:Z,sym:SYMS[Z],name:NAMES[Z],Zeff:Zf,neff:ne,IE:IE,r:rA,vdw:rA*1.7,
+    EN:Math.min(4,.359*Zf/(r*r)*10+.744),hard:IE/2,soft:2/IE,
+    alpha:r*r*r*.529*.529*.529,unpaired:u,mag:Math.sqrt(u*(u+2))};
+}
+
+// Precompute ALL elements once on load
+for(var z=1;z<=20;z++)CONDUCTOR[z]=calc(z);
+
+// Prime oracle (Z function)
+function theta(t){if(t<1)return 0;return(t/2)*Math.log(t/(2*Math.PI))-t/2-Math.PI/8+1/(48*t)+7/(5760*t*t*t);}
+function Zfn(t){if(t<2)return 0;var a=Math.sqrt(t/(2*Math.PI)),N=Math.max(1,Math.floor(a)),p=a-N,th=theta(t),s=0;
+for(var n=1;n<=N;n++)s+=Math.cos(th-t*Math.log(n))/Math.sqrt(n);s*=2;
+var d=Math.cos(2*Math.PI*p);var C0=Math.abs(d)>1e-8?Math.cos(2*Math.PI*(p*p-p-1/16))/d:0.5;
+return s+Math.pow(-1,N-1)*Math.pow(2*Math.PI/t,0.25)*C0;}
+
+// Disease data
+var DISEASES={
+cancer:{sig:'Ester C=O',f:1740,simple:'Cells growing without stopping.',heal:'Exercise, early detection, immunotherapy.'},
+alzheimer:{sig:'β-sheet misfolding',f:1630,simple:'Brain proteins folding wrong, forming plaques.',heal:'40 Hz stimulation, exercise, sleep, social connection.'},
+depression:{sig:'Receptor conformation',f:1625,simple:'Brain chemistry shifted. The signal between neurons weakens.',heal:'Exercise (most proven), sunlight, connection, professional help.'},
+diabetes:{sig:'Glycation products',f:1715,simple:'Too much sugar sticking to proteins.',heal:'Movement after meals, whole foods, blood sugar monitoring.'},
+anxiety:{sig:'Beta over-lock',f:1625,simple:'Brain stuck in high alert. Can\'t turn off the alarm.',heal:'Breathing, exercise, 10 Hz alpha entrainment, therapy.'},
+arthritis:{sig:'Collagen degradation',f:1637,simple:'Cartilage wearing thin. No blood supply to repair it.',heal:'Movement (pumps fluid), heat, PRP, weight management.'},
+'heart disease':{sig:'Cholesterol ester',f:1738,simple:'Arteries clogging with fatty deposits.',heal:'Cardio exercise, omega-3, reduce inflammation.'},
+insomnia:{sig:'Beta at bedtime',f:2,simple:'Brain won\'t shift from alert to sleep mode.',heal:'Warm bath 90min before bed, no screens, consistent schedule.'},
+};
+
+// ═══ STATE ═══
+var state={
+  mode:'idle',      // idle, element, disease, prime, bond
+  data:null,        // current display data
+  anim:0,           // animation frame
+  entrance:true,    // first-time entrance sequence
+  entrancePhase:0,
+  userTouched:false,
+};
+
+// ═══ RENDER ENGINE — pure canvas, zero DOM ═══
+
+function clear(){
+  w=W/DPR;h=H/DPR;
+  cx.fillStyle='#0a0a0f';cx.fillRect(0,0,w,h);
+}
+
+function drawText(text,x,y,opts){
+  opts=opts||{};
+  cx.fillStyle=opts.color||'#e8e4dc';
+  cx.font=(opts.weight||'')+' '+(opts.size||14)+'px Georgia';
+  cx.textAlign=opts.align||'center';
+  cx.textBaseline=opts.baseline||'middle';
+  cx.globalAlpha=opts.alpha||1;
+  cx.fillText(text,x,y);
+  cx.globalAlpha=1;
+}
+
+function drawElementViz(d,cx0,cy0,radius){
+  t+=0.016;
+  // Glow rings
+  for(var ring=4;ring>=0;ring--){
+    var R=radius+ring*radius*0.4;
+    var a=0.06-ring*0.012;
+    var grad=cx.createRadialGradient(cx0,cy0,0,cx0,cy0,R);
+    grad.addColorStop(0,'rgba(201,164,74,'+a+')');
+    grad.addColorStop(1,'rgba(0,0,0,0)');
+    cx.fillStyle=grad;cx.beginPath();cx.arc(cx0,cy0,R,0,Math.PI*2);cx.fill();
+  }
+  // Core
+  var cg=cx.createRadialGradient(cx0,cy0,0,cx0,cy0,radius);
+  cg.addColorStop(0,'rgba(244,217,144,0.25)');cg.addColorStop(1,'rgba(0,0,0,0)');
+  cx.fillStyle=cg;cx.beginPath();cx.arc(cx0,cy0,radius,0,Math.PI*2);cx.fill();
+  // Electrons
+  var nE=Math.min(d.unpaired+2,8);
+  for(var e=0;e<nE;e++){
+    var angle=t*1.2+e*Math.PI*2/nE;
+    var eR=radius*1.3+e*6;
+    var ex=cx0+Math.cos(angle)*eR,ey=cy0+Math.sin(angle)*eR;
+    cx.fillStyle=e<d.unpaired?'#4aeaa0':'rgba(201,164,74,0.3)';
+    cx.beginPath();cx.arc(ex,ey,3,0,Math.PI*2);cx.fill();
+  }
+  // Symbol
+  drawText(d.sym,cx0,cy0,{size:Math.min(48,radius*0.8),color:'#fff',weight:'bold'});
+}
+
+function drawDiseaseViz(d,cx0,cy0,radius){
+  t+=0.016;
+  // Healthy wave
+  cx.strokeStyle='rgba(74,234,160,0.3)';cx.lineWidth=2;cx.beginPath();
+  for(var i=0;i<radius*2;i++){
+    var x=cx0-radius+i,y=cy0-radius*0.3+Math.sin(i*0.08+t)*radius*0.2;
+    if(i===0)cx.moveTo(x,y);else cx.lineTo(x,y);
+  }cx.stroke();
+  // Disease wave
+  cx.strokeStyle='rgba(246,102,102,0.4)';cx.beginPath();
+  for(var i=0;i<radius*2;i++){
+    var x=cx0-radius+i,y=cy0+radius*0.3+Math.sin(i*0.09+t*1.1+0.5)*radius*0.25;
+    if(i===0)cx.moveTo(x,y);else cx.lineTo(x,y);
+  }cx.stroke();
+  // Difference
+  cx.strokeStyle='#c9a44a';cx.lineWidth=1.5;cx.beginPath();
+  for(var i=0;i<radius*2;i++){
+    var x=cx0-radius+i;
+    var healthy=Math.sin(i*0.08+t)*radius*0.2;
+    var disease=Math.sin(i*0.09+t*1.1+0.5)*radius*0.25;
+    var y=cy0+radius*0.8+(disease-healthy)*1.5;
+    if(i===0)cx.moveTo(x,y);else cx.lineTo(x,y);
+  }cx.stroke();
+}
+
+function drawProperties(d,x,y,width){
+  var props=[
+    ['IE',d.IE,25],['Radius',d.r,3],['EN',d.EN,4],
+    ['Hardness',d.hard,12],['Magnetic',d.mag,4]
+  ];
+  props.forEach(function(p,i){
+    var py=y+i*22;
+    drawText(p[0],x,py,{size:11,color:'#555',align:'right'});
+    // Bar
+    var bx=x+8,bw=width-8,pct=Math.min(1,p[1]/p[2]);
+    cx.fillStyle='#111';cx.fillRect(bx,py-3,bw,6);
+    cx.fillStyle='#c9a44a';cx.fillRect(bx,py-3,bw*pct,6);
+    drawText(p[1].toFixed(1),bx+bw+8,py,{size:10,color:'#555',align:'left'});
+  });
+}
+
+// ═══ MAIN RENDER ═══
+function render(){
+  clear();
+  state.anim++;
+
+  var cx0=w/2,cy0=h*0.42;
+  var radius=Math.min(w,h)*0.15;
+
+  if(state.mode==='element'&&state.data){
+    var d=state.data;
+    drawElementViz(d,cx0,cy0,radius);
+    drawText(d.name,cx0,cy0+radius+30,{size:14,color:'#666'});
+    drawText('Z='+d.Z+'  Z_eff='+d.Zeff.toFixed(2)+'  n_eff='+d.neff.toFixed(2),cx0,cy0+radius+50,{size:11,color:'#444'});
+    drawProperties(d,cx0-40,cy0+radius+70,120);
+  }
+  else if(state.mode==='disease'&&state.data){
+    var d=state.data;
+    drawDiseaseViz(d,cx0,cy0,radius);
+    drawText(d.name,cx0,cy0-radius-20,{size:24,color:'#f66',weight:'300'});
+    drawText(d.simple,cx0,cy0+radius+40,{size:13,color:'#999'});
+    drawText(d.heal,cx0,cy0+radius+65,{size:12,color:'#4aeaa0'});
+    drawText(d.sig+' · '+d.f+' cm⁻¹',cx0,cy0+radius+90,{size:10,color:'#444'});
+  }
+  else if(state.mode==='prime'&&state.data){
+    var d=state.data;
+    drawText('π('+d.x.toLocaleString()+')',cx0,cy0-20,{size:28,color:'#c9a44a',weight:'300'});
+    drawText('= '+d.result.toLocaleString(),cx0,cy0+25,{size:36,color:'#fff',weight:'200'});
+    drawText(d.zeros+' zeros · ±'+d.err+' · '+d.ms+'ms',cx0,cy0+60,{size:12,color:'#555'});
+    // Wave animation
+    cx.strokeStyle='#c9a44a20';cx.lineWidth=1;cx.beginPath();
+    for(var i=0;i<w;i++){
+      var y=cy0+100+Math.sin(i*0.03+state.anim*0.02)*20*Math.sin(i*0.007);
+      if(i===0)cx.moveTo(i,y);else cx.lineTo(i,y);
+    }cx.stroke();
+  }
+  else {
+    // Idle: subtle breathing orb
+    var breath=0.5+0.5*Math.sin(state.anim*0.02);
+    var r=radius*0.3+breath*radius*0.1;
+    var grad=cx.createRadialGradient(cx0,cy0,0,cx0,cy0,r*3);
+    grad.addColorStop(0,'rgba(201,164,74,'+(0.04+breath*0.02)+')');
+    grad.addColorStop(1,'rgba(0,0,0,0)');
+    cx.fillStyle=grad;cx.beginPath();cx.arc(cx0,cy0,r*3,0,Math.PI*2);cx.fill();
+    drawText('harmonia',cx0,cy0,{size:16,color:'#c9a44a30'});
+  }
+
+  // Footer
+  drawText('oracle · conductor · wave · body · health',cx0,h-20,{size:10,color:'#222'});
+
+  requestAnimationFrame(render);
+}
+
+// ═══ SEARCH: one input, everything ═══
+function process(q){
+  q=q.trim();if(!q){state.mode='idle';state.data=null;return;}
+  var ql=q.toLowerCase(),qcap=q.charAt(0).toUpperCase()+q.slice(1).toLowerCase();
+
+  // Element?
+  var Z=SYM2Z[q]||SYM2Z[qcap]||SYM2Z[ql];
+  if(Z&&CONDUCTOR[Z]){state.mode='element';state.data=CONDUCTOR[Z];return;}
+
+  // Disease?
+  for(var d in DISEASES){
+    if(ql===d||d.indexOf(ql)===0||(ql.length>=4&&d.indexOf(ql)>=0)){
+      state.mode='disease';state.data=Object.assign({name:d},DISEASES[d]);return;
+    }
+  }
+  // Aliases
+  var AL={sad:'depression',anxious:'anxiety',tumor:'cancer',dementia:'alzheimer',
+    sugar:'diabetes',knee:'arthritis',joint:'arthritis',sleep:'insomnia',
+    heart:'heart disease',cholesterol:'heart disease',stress:'anxiety'};
+  if(AL[ql]){var d=AL[ql];state.mode='disease';state.data=Object.assign({name:d},DISEASES[d]);return;}
+
+  // Number → count primes
+  var n=parseFloat(q);
+  if(!isNaN(n)&&n>1){
+    var t0=performance.now();
+    // Quick prime count using Li(x) for the demo
+    var li=n/Math.log(n)*(1+1/Math.log(n)+2/(Math.log(n)*Math.log(n)));
+    var ms=performance.now()-t0;
+    state.mode='prime';
+    state.data={x:n,result:Math.round(li),zeros:0,err:Math.round(Math.sqrt(n)/Math.log(n)),ms:ms.toFixed(1)};
+    return;
+  }
+
+  state.mode='idle';state.data=null;
+}
+
+inp.addEventListener('input',function(){process(this.value);});
+
+// ═══ ENTRANCE: carbon → cancer → love ═══
+var entranceText=['carbon','cancer','love'];
+var entranceIdx=0,entranceCharIdx=0,entranceTimer=null;
+
+function entranceTick(){
+  if(state.userTouched)return;
+  var word=entranceText[entranceIdx];
+  if(entranceCharIdx<=word.length){
+    inp.value=word.substring(0,entranceCharIdx);
+    process(inp.value);
+    entranceCharIdx++;
+    var speed=entranceIdx===0?(80+Math.random()*50):(30+Math.random()*20);
+    entranceTimer=setTimeout(entranceTick,speed);
+  } else {
+    // Word complete — pause then next
+    var pause=entranceIdx===0?2500:2000;
+    entranceTimer=setTimeout(function(){
+      if(state.userTouched)return;
+      entranceIdx++;
+      entranceCharIdx=0;
+      if(entranceIdx<entranceText.length){
+        inp.value='';
+        setTimeout(entranceTick,300);
+      }
+      // After 'love' — just stay. Don't loop.
+    },pause);
+  }
+}
+
+inp.addEventListener('focus',function(){
+  state.userTouched=true;
+  if(entranceTimer)clearTimeout(entranceTimer);
+  this.value='';
+  state.mode='idle';state.data=null;
+});
+
+// ═══ LAUNCH ═══
+render();
+setTimeout(entranceTick,800);
+</script>
+</body>
+</html>
