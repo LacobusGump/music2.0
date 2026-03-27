@@ -40,8 +40,11 @@ a{color:var(--accent);}
 <body>
 
 <div id="search-wrap">
-<input id="q" placeholder="type anything — element, molecule, disease, concept..."
-  oninput="search(this.value)" autocomplete="off">
+<input id="q" placeholder="type anything — element, molecule, disease..."
+  oninput="onType(this.value)" onkeydown="if(event.key==='Enter')commitSearch()" autocomplete="off">
+<div id="suggest" style="position:absolute;top:100%;left:16px;right:16px;background:#0d0d14;
+  border:1px solid #222;border-top:none;border-radius:0 0 8px 8px;display:none;z-index:101;
+  max-height:200px;overflow-y:auto;"></div>
 </div>
 
 <div class="page">
@@ -300,6 +303,114 @@ function drawMolecule(d){
 
 // ═══ SEARCH + RENDER ═══
 var currentType=null;
+
+// ═══ SEARCHABLE INDEX — everything in one list ═══
+var ALL_ITEMS=[];
+// Elements
+for(var z in NAMES)ALL_ITEMS.push({type:'element',label:SYMS[z]+' — '+NAMES[z],key:NAMES[z].toLowerCase(),sym:SYMS[z],Z:parseInt(z)});
+// Diseases
+for(var d in DISEASES)ALL_ITEMS.push({type:'disease',label:d.charAt(0).toUpperCase()+d.slice(1),key:d,id:d});
+// Molecules
+for(var m in MOLECULES)ALL_ITEMS.push({type:'molecule',label:MOLECULES[m].formula+' ('+m+')',key:m,id:m});
+// Bonus keywords → diseases
+var ALIASES={
+  'althimerz':'alzheimer','alzheimers':'alzheimer','alzhiemers':'alzheimer','dementia':'alzheimer',
+  'adhd':'anxiety','panic':'anxiety','stress':'anxiety','worry':'anxiety',
+  'tumor':'cancer','tumour':'cancer','oncology':'cancer','carcinoma':'cancer','melanoma':'cancer',
+  'parkinsons':'parkinson','tremor':'parkinson','parkinson\'s':'parkinson',
+  'diabetic':'diabetes','sugar':'diabetes','glucose':'diabetes','insulin':'diabetes',
+  'heartattack':'heart disease','cholesterol':'heart disease','atherosclerosis':'heart disease',
+  'stroke':'heart disease','cardiovascular':'heart disease',
+  'joint':'arthritis','knee':'arthritis','hip':'arthritis','rheumatoid':'arthritis',
+  'sleep':'insomnia','sleepless':'insomnia','cant sleep':'insomnia',
+  'addict':'addiction','drugs':'addiction','alcohol':'addiction','smoking':'addiction',
+  'sad':'depression','depressed':'depression','hopeless':'depression','suicidal':'depression',
+  'anxious':'anxiety','nervous':'anxiety','panic':'anxiety',
+  'immune':'autoimmune','lupus':'autoimmune','ms':'autoimmune','hashimoto':'autoimmune',
+};
+for(var a in ALIASES)ALL_ITEMS.push({type:'alias',label:a+' → '+ALIASES[a],key:a,target:ALIASES[a]});
+
+function fuzzyMatch(query, target){
+  // Levenshtein-ish: how many chars match in order
+  var q=query.toLowerCase(),t=target.toLowerCase();
+  if(t.indexOf(q)>=0)return 100-t.indexOf(q); // substring = strong
+  if(q.indexOf(t)>=0)return 80;
+  // Count matching chars in order
+  var qi=0,matches=0;
+  for(var ti=0;ti<t.length&&qi<q.length;ti++){
+    if(t[ti]===q[qi]){matches++;qi++;}
+  }
+  return matches/Math.max(q.length,1)*60;
+}
+
+var suggestEl=document.getElementById('suggest');
+var topMatch=null;
+
+function onType(val){
+  val=val.trim();
+  if(val.length<1){suggestEl.style.display='none';topMatch=null;return;}
+  var ql=val.toLowerCase();
+
+  // Score all items
+  var scored=[];
+  ALL_ITEMS.forEach(function(item){
+    var s=fuzzyMatch(ql,item.key);
+    if(item.sym&&fuzzyMatch(ql,item.sym.toLowerCase())>s)s=fuzzyMatch(ql,item.sym.toLowerCase());
+    if(s>20)scored.push({item:item,score:s});
+  });
+  scored.sort(function(a,b){return b.score-a.score;});
+  scored=scored.slice(0,6);
+
+  if(scored.length===0){suggestEl.style.display='none';topMatch=null;return;}
+
+  topMatch=scored[0].item;
+
+  // Auto-search top match as you type (live preview)
+  doSearch(topMatch);
+
+  // Show suggestions
+  var h='';
+  scored.forEach(function(s,i){
+    var bg=i===0?'#1a1a10':'transparent';
+    var col=i===0?'var(--accent)':'#777';
+    var typeTag=s.item.type==='element'?'⚛':'';
+    if(s.item.type==='disease')typeTag='♥';
+    if(s.item.type==='molecule')typeTag='⬡';
+    if(s.item.type==='alias')typeTag='→';
+    h+='<div style="padding:8px 12px;cursor:pointer;color:'+col+';background:'+bg+
+      ';font-size:0.9em;" onmousedown="pickSuggestion('+i+')" data-idx="'+i+'">'+
+      '<span style="margin-right:6px;opacity:0.5;">'+typeTag+'</span>'+s.item.label+'</div>';
+  });
+  suggestEl.innerHTML=h;
+  suggestEl.style.display='block';
+  suggestEl._scored=scored;
+}
+
+function pickSuggestion(idx){
+  var scored=suggestEl._scored;
+  if(!scored||!scored[idx])return;
+  var item=scored[idx].item;
+  document.getElementById('q').value=item.label.split(' — ')[0].split(' (')[0];
+  suggestEl.style.display='none';
+  doSearch(item);
+}
+
+function commitSearch(){
+  suggestEl.style.display='none';
+  if(topMatch){doSearch(topMatch);return;}
+  var q=document.getElementById('q').value.trim();
+  if(q)search(q);
+}
+
+function doSearch(item){
+  if(item.type==='element'&&CONFIGS[item.Z]){currentType='element';showElement(calc(item.Z));}
+  else if(item.type==='disease'){currentType='disease';showDisease(item.id,DISEASES[item.id]);}
+  else if(item.type==='molecule'){currentType='molecule';showMolecule(item.id,MOLECULES[item.id]);}
+  else if(item.type==='alias'){
+    var target=item.target;
+    if(DISEASES[target]){currentType='disease';showDisease(target,DISEASES[target]);}
+  }
+}
 
 function search(q){
   q=q.trim();if(!q)return;
