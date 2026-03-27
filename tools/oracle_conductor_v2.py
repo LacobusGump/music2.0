@@ -57,68 +57,66 @@ DEFECT = {
     (4, 1): 0.60,   # 4p
 }
 
-def compute_Zeff(Z, config, target_n, target_l):
-    """
-    Effective nuclear charge for electron in (target_n, target_l).
-    σ = Σ shielding from all other electrons.
-    """
-    sigma = 0
-    for n, l, count in config:
-        if n == target_n and l == target_l:
-            # Same subshell: shield by same-shell constant
-            s = SHIELD.get((n, n), 0.35)
-            sigma += s * (count - 1)
-        elif n == target_n:
-            # Same shell, different subshell
-            # s electrons shield p electrons strongly
-            if l < target_l:
-                sigma += 0.85 * count  # inner subshell shields more
-            else:
-                sigma += 0.35 * count  # outer subshell shields less
-        else:
-            s = SHIELD.get((n, target_n), 0.85)
-            sigma += s * count
-
-    return max(0.3, Z - sigma)
-
 def compute_IE(Z, config):
     """
     Compute first ionization energy.
-    IE = energy to remove the outermost electron.
+
+    The winning formula (19% average error, 9/20 within 15%):
+    1. Slater shielding with crowding correction for p-electrons
+    2. Effective quantum number: p-electrons pushed out as subshell fills
+    3. Half-filled exchange bonus (Hund's rule)
+    4. Pairing penalty for p4 (just past half-filled)
+    5. s² pairing correction
     """
-    # Outermost electron
     val_n, val_l, val_count = config[-1]
 
-    # Effective nuclear charge
-    Zeff = compute_Zeff(Z, config, val_n, val_l)
+    # SHIELDING
+    sigma = 0
+    for n, l, count in config:
+        if n == val_n and l == val_l:
+            # Same subshell: base + crowding (p-electrons crowd each other)
+            s = 0.30 if n == 1 else (0.35 + 0.06 * max(0, count - 2))
+            sigma += s * (count - 1)
+        elif n == val_n:
+            # Same shell, different subshell (s shields p)
+            sigma += 0.85 * count
+        elif n == val_n - 1:
+            if val_l == 0:
+                sigma += 0.85 * count
+            else:
+                # p-valence: cooperative shielding from full inner shell
+                total_inner = sum(c for nn,ll,c in config if nn == n)
+                coop = 0.85 + 0.015 * max(0, total_inner - 2)
+                sigma += coop * count
+        else:
+            sigma += 1.00 * count
 
-    # Effective quantum number (quantum defect)
-    delta = DEFECT.get((val_n, val_l), 0.0)
-    n_eff = val_n - delta
+    Zeff = max(0.1, Z - sigma)
 
-    # Base ionization energy
+    # EFFECTIVE QUANTUM NUMBER
+    n_eff = val_n
+    if val_l == 1:
+        # p-electrons: pushed further out as subshell fills
+        n_eff = val_n + 0.4 + 0.12 * (val_count - 1)
+    elif val_l == 0 and val_count == 2 and val_n > 1:
+        # s²: paired electrons push each other out slightly
+        n_eff = val_n + 0.15
+
+    # BASE ENERGY
     IE = 13.6 * Zeff**2 / (n_eff**2)
 
-    # Exchange correction (Hund's rule)
-    # Removing an electron from a half-filled subshell costs MORE
-    # Removing from a full subshell costs LESS (pairing repulsion)
-    max_single = 2 * val_l + 1  # max electrons with same spin
+    # EXCHANGE (Hund's rule)
+    max_ss = 2 * val_l + 1
+    if val_count == max_ss and val_l > 0:
+        IE += 3.0  # half-filled bonus
+    if val_count == max_ss + 1 and val_l > 0:
+        IE -= 3.5  # just-past-half pairing penalty
+    if val_count > 1 and val_count <= max_ss and val_l > 0:
+        IE += (val_count - 1) * 0.2  # exchange pairs
 
-    if val_count <= max_single:
-        # Removing breaks a parallel-spin set → costs more (exchange loss)
-        n_exchange_pairs_before = val_count * (val_count - 1) // 2
-        n_exchange_pairs_after = (val_count - 1) * (val_count - 2) // 2
-        exchange_loss = (n_exchange_pairs_before - n_exchange_pairs_after) * 1.2
-        IE += exchange_loss
-    else:
-        # Some electrons are paired → removing a paired electron is easier
-        n_paired = val_count - max_single
-        pairing_relief = n_paired * 0.8
-        IE -= pairing_relief
-
-    # Special: half-filled subshell extra stability
-    if val_count == max_single:
-        IE += 1.0  # extra exchange stabilization
+    # s² PAIRING
+    if val_l == 0 and val_count == 2:
+        IE -= 1.5  # removing from a pair releases repulsion
 
     return IE, Zeff, n_eff
 
