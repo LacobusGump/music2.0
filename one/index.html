@@ -104,13 +104,43 @@ arthritis:{sig:'Collagen degradation',f:1637,simple:'Cartilage wearing thin. No 
 insomnia:{sig:'Beta at bedtime',f:2,simple:'Brain won\'t shift from alert to sleep mode.',heal:'Warm bath 90min before bed, no screens, consistent schedule.'},
 };
 
+// ═══ SPRING PHYSICS — the conductor drives the UI ═══
+// Not CSS transitions. Actual damped harmonic oscillator.
+// Same equation as the atoms: dx/dt = -kx - bv
+function Spring(target,stiffness,damping){
+  this.value=target;this.target=target;this.velocity=0;
+  this.k=stiffness||0.15;this.b=damping||0.8;
+}
+Spring.prototype.set=function(t){this.target=t;};
+Spring.prototype.tick=function(){
+  var force=-this.k*(this.value-this.target);
+  this.velocity=(this.velocity+force)*this.b;
+  this.value+=this.velocity;
+  return this.value;
+};
+Spring.prototype.settled=function(){return Math.abs(this.value-this.target)<0.001&&Math.abs(this.velocity)<0.001;};
+
+// Every animated value is a spring
+var springs={
+  orbRadius:new Spring(0,0.08,0.85),
+  orbAlpha:new Spring(0,0.12,0.82),
+  textAlpha:new Spring(0,0.10,0.80),
+  waveAmp:new Spring(0,0.06,0.88),
+  propsAlpha:new Spring(0,0.08,0.85),
+  diseaseAlpha:new Spring(0,0.10,0.82),
+  healthyWave:new Spring(0,0.06,0.88),
+  diseaseWave:new Spring(0,0.06,0.88),
+  bgGlow:new Spring(0,0.04,0.92),
+};
+
+function tickSprings(){for(var k in springs)springs[k].tick();}
+
 // ═══ STATE ═══
 var state={
-  mode:'idle',      // idle, element, disease, prime, bond
-  data:null,        // current display data
-  anim:0,           // animation frame
-  entrance:true,    // first-time entrance sequence
-  entrancePhase:0,
+  mode:'idle',
+  prevMode:'idle',
+  data:null,
+  anim:0,
   userTouched:false,
 };
 
@@ -201,56 +231,121 @@ function drawProperties(d,x,y,width){
   });
 }
 
+// ═══ TRANSITION: spring-drive everything ═══
+function transitionTo(mode,data){
+  if(state.mode!==mode){
+    state.prevMode=state.mode;
+    // Fade out current
+    springs.orbAlpha.set(0);springs.textAlpha.set(0);
+    springs.propsAlpha.set(0);springs.diseaseAlpha.set(0);
+    springs.waveAmp.set(0);
+    // After spring settles, switch and fade in
+    setTimeout(function(){
+      state.mode=mode;state.data=data;
+      if(mode==='element'){
+        springs.orbRadius.set(Math.min(w,h)*0.15*(1+data.r*0.1));
+        springs.orbAlpha.set(1);springs.textAlpha.set(1);springs.propsAlpha.set(1);
+        springs.bgGlow.set(data.IE/25);
+      } else if(mode==='disease'){
+        springs.diseaseAlpha.set(1);springs.textAlpha.set(1);
+        springs.healthyWave.set(1);springs.diseaseWave.set(1);
+        springs.bgGlow.set(0.3);
+      } else if(mode==='prime'){
+        springs.textAlpha.set(1);springs.waveAmp.set(1);
+        springs.bgGlow.set(0.2);
+      } else {
+        springs.bgGlow.set(0);
+      }
+    },150);
+  } else {
+    state.data=data;
+  }
+}
+
 // ═══ MAIN RENDER ═══
 function render(){
   clear();
   state.anim++;
+  tickSprings();
 
   var cx0=w/2,cy0=h*0.42;
-  var radius=Math.min(w,h)*0.15;
+  var baseR=Math.min(w,h)*0.15;
+
+  // Background glow — driven by content
+  var bgG=springs.bgGlow.value;
+  if(bgG>0.01){
+    var bgGrad=cx.createRadialGradient(cx0,cy0,0,cx0,cy0,baseR*4);
+    var bgColor=state.mode==='disease'?'246,102,102':'201,164,74';
+    bgGrad.addColorStop(0,'rgba('+bgColor+','+(bgG*0.06)+')');
+    bgGrad.addColorStop(1,'rgba(0,0,0,0)');
+    cx.fillStyle=bgGrad;cx.beginPath();cx.arc(cx0,cy0,baseR*4,0,Math.PI*2);cx.fill();
+  }
 
   if(state.mode==='element'&&state.data){
     var d=state.data;
+    var oA=springs.orbAlpha.value;
+    var radius=springs.orbRadius.value;
+    cx.globalAlpha=oA;
     drawElementViz(d,cx0,cy0,radius);
-    drawText(d.name,cx0,cy0+radius+30,{size:14,color:'#666'});
-    drawText('Z='+d.Z+'  Z_eff='+d.Zeff.toFixed(2)+'  n_eff='+d.neff.toFixed(2),cx0,cy0+radius+50,{size:11,color:'#444'});
-    drawProperties(d,cx0-40,cy0+radius+70,120);
+    cx.globalAlpha=springs.textAlpha.value;
+    drawText(d.name,cx0,cy0+radius+30,{size:14,color:'#888'});
+    drawText('Z = '+d.Z,cx0,cy0+radius+50,{size:12,color:'#555'});
+    cx.globalAlpha=springs.propsAlpha.value;
+    drawProperties(d,cx0-40,cy0+radius+68,120);
+    cx.globalAlpha=1;
   }
   else if(state.mode==='disease'&&state.data){
     var d=state.data;
-    drawDiseaseViz(d,cx0,cy0,radius);
-    drawText(d.name,cx0,cy0-radius-20,{size:24,color:'#f66',weight:'300'});
-    drawText(d.simple,cx0,cy0+radius+40,{size:13,color:'#999'});
-    drawText(d.heal,cx0,cy0+radius+65,{size:12,color:'#4aeaa0'});
-    drawText(d.sig+' · '+d.f+' cm⁻¹',cx0,cy0+radius+90,{size:10,color:'#444'});
+    var dA=springs.diseaseAlpha.value;
+    cx.globalAlpha=dA;
+    drawDiseaseViz(d,cx0,cy0,baseR);
+    cx.globalAlpha=springs.textAlpha.value;
+    drawText(d.name,cx0,cy0-baseR*1.4,{size:28,color:'#f66',weight:'200'});
+    // Wrap simple text
+    wrapText(d.simple,cx0,cy0+baseR+35,w*0.8,18,'#aaa',13);
+    wrapText(d.heal,cx0,cy0+baseR+80,w*0.8,18,'#4aeaa0',12);
+    cx.globalAlpha=1;
   }
   else if(state.mode==='prime'&&state.data){
     var d=state.data;
+    cx.globalAlpha=springs.textAlpha.value;
     drawText('π('+d.x.toLocaleString()+')',cx0,cy0-20,{size:28,color:'#c9a44a',weight:'300'});
-    drawText('= '+d.result.toLocaleString(),cx0,cy0+25,{size:36,color:'#fff',weight:'200'});
-    drawText(d.zeros+' zeros · ±'+d.err+' · '+d.ms+'ms',cx0,cy0+60,{size:12,color:'#555'});
-    // Wave animation
-    cx.strokeStyle='#c9a44a20';cx.lineWidth=1;cx.beginPath();
+    drawText('= '+d.result.toLocaleString(),cx0,cy0+25,{size:40,color:'#fff',weight:'200'});
+    drawText(d.ms+'ms',cx0,cy0+55,{size:11,color:'#555'});
+    // Wave driven by spring
+    var amp=springs.waveAmp.value*25;
+    cx.strokeStyle='#c9a44a15';cx.lineWidth=1;cx.beginPath();
     for(var i=0;i<w;i++){
-      var y=cy0+100+Math.sin(i*0.03+state.anim*0.02)*20*Math.sin(i*0.007);
+      var y=cy0+100+Math.sin(i*0.03+state.anim*0.015)*amp*Math.sin(i*0.007);
       if(i===0)cx.moveTo(i,y);else cx.lineTo(i,y);
     }cx.stroke();
+    cx.globalAlpha=1;
   }
   else {
-    // Idle: subtle breathing orb
-    var breath=0.5+0.5*Math.sin(state.anim*0.02);
-    var r=radius*0.3+breath*radius*0.1;
-    var grad=cx.createRadialGradient(cx0,cy0,0,cx0,cy0,r*3);
-    grad.addColorStop(0,'rgba(201,164,74,'+(0.04+breath*0.02)+')');
+    // Idle: breathing orb
+    var breath=0.5+0.5*Math.sin(state.anim*0.015);
+    var r=baseR*0.3+breath*baseR*0.08;
+    var grad=cx.createRadialGradient(cx0,cy0,0,cx0,cy0,r*4);
+    grad.addColorStop(0,'rgba(201,164,74,'+(0.03+breath*0.015)+')');
     grad.addColorStop(1,'rgba(0,0,0,0)');
-    cx.fillStyle=grad;cx.beginPath();cx.arc(cx0,cy0,r*3,0,Math.PI*2);cx.fill();
-    drawText('harmonia',cx0,cy0,{size:16,color:'#c9a44a30'});
+    cx.fillStyle=grad;cx.beginPath();cx.arc(cx0,cy0,r*4,0,Math.PI*2);cx.fill();
   }
 
-  // Footer
-  drawText('oracle · conductor · wave · body · health',cx0,h-20,{size:10,color:'#222'});
-
   requestAnimationFrame(render);
+}
+
+function wrapText(text,x,y,maxW,lineH,color,size){
+  var words=text.split(' '),line='',lines=[];
+  cx.font=(size||13)+'px Georgia';
+  words.forEach(function(word){
+    var test=line+word+' ';
+    if(cx.measureText(test).width>maxW&&line){lines.push(line.trim());line=word+' ';}
+    else line=test;
+  });
+  if(line)lines.push(line.trim());
+  lines.forEach(function(l,i){
+    drawText(l,x,y+i*lineH,{size:size||13,color:color||'#999'});
+  });
 }
 
 // ═══ SEARCH: one input, everything ═══
@@ -260,33 +355,41 @@ function process(q){
 
   // Element?
   var Z=SYM2Z[q]||SYM2Z[qcap]||SYM2Z[ql];
-  if(Z&&CONDUCTOR[Z]){state.mode='element';state.data=CONDUCTOR[Z];return;}
+  if(Z&&CONDUCTOR[Z]){transitionTo('element',CONDUCTOR[Z]);return;}
 
   // Disease?
   for(var d in DISEASES){
     if(ql===d||d.indexOf(ql)===0||(ql.length>=4&&d.indexOf(ql)>=0)){
-      state.mode='disease';state.data=Object.assign({name:d},DISEASES[d]);return;
+      transitionTo('disease',Object.assign({name:d},DISEASES[d]));return;
     }
   }
   // Aliases
   var AL={sad:'depression',anxious:'anxiety',tumor:'cancer',dementia:'alzheimer',
     sugar:'diabetes',knee:'arthritis',joint:'arthritis',sleep:'insomnia',
-    heart:'heart disease',cholesterol:'heart disease',stress:'anxiety'};
-  if(AL[ql]){var d=AL[ql];state.mode='disease';state.data=Object.assign({name:d},DISEASES[d]);return;}
+    heart:'heart disease',cholesterol:'heart disease',stress:'anxiety',
+    love:'love',happy:'love',hope:'love',beauty:'love',music:'love',
+    afraid:'anxiety',scared:'anxiety',lonely:'depression',alone:'depression',
+    addicted:'addiction',drugs:'addiction',alcohol:'addiction'};
+  if(AL[ql]){
+    var target=AL[ql];
+    if(DISEASES[target]){transitionTo('disease',Object.assign({name:target},DISEASES[target]));return;}
+    // Special: love
+    if(target==='love'){transitionTo('disease',{name:'love',sig:'Fundamental frequency',f:'∞',
+      simple:'Love is the fundamental frequency. Everything else is an overtone.',
+      heal:'It resonates with all things because it is the root note of existence.'});return;}
+  }
 
   // Number → count primes
   var n=parseFloat(q);
   if(!isNaN(n)&&n>1){
     var t0=performance.now();
-    // Quick prime count using Li(x) for the demo
     var li=n/Math.log(n)*(1+1/Math.log(n)+2/(Math.log(n)*Math.log(n)));
     var ms=performance.now()-t0;
-    state.mode='prime';
-    state.data={x:n,result:Math.round(li),zeros:0,err:Math.round(Math.sqrt(n)/Math.log(n)),ms:ms.toFixed(1)};
+    transitionTo('prime',{x:n,result:Math.round(li),zeros:0,err:Math.round(Math.sqrt(n)/Math.log(n)),ms:ms.toFixed(1)});
     return;
   }
 
-  state.mode='idle';state.data=null;
+  if(!q)transitionTo('idle',null);
 }
 
 inp.addEventListener('input',function(){process(this.value);});
