@@ -27,7 +27,67 @@ resize();addEventListener('resize',resize);
 var w,h,t=0,mx=0.5,my=0.5;
 addEventListener('mousemove',function(e){mx=e.clientX/innerWidth;my=e.clientY/innerHeight;});
 addEventListener('touchmove',function(e){e.preventDefault();if(e.touches.length===1){mx=e.touches[0].clientX/innerWidth;my=e.touches[0].clientY/innerHeight;}},{passive:false});
-addEventListener('touchstart',function(e){e.preventDefault();},{passive:false});
+addEventListener('touchstart',function(e){e.preventDefault();
+  if(e.touches.length===1){tapMirror(e.touches[0].clientX/innerWidth,e.touches[0].clientY/innerHeight);}
+},{passive:false});
+addEventListener('click',function(e){tapMirror(e.clientX/innerWidth,e.clientY/innerHeight);});
+
+// ═══ TAP: send a pulse into the mirror ═══
+var taps=[];       // timestamps of recent taps
+var tapPulses=[];  // visual pulses from taps
+var resonance=0;   // 0-1: how well your rhythm matches the zeros
+var resonanceDecay=0;
+
+function tapMirror(nx,ny){
+  var now=t;
+  taps.push(now);
+  if(taps.length>20)taps.shift();
+
+  // Create visual pulse at tap location
+  tapPulses.push({x:nx,y:ny,born:t,life:1});
+
+  // Measure tap intervals
+  if(taps.length>=3){
+    var intervals=[];
+    for(var i=taps.length-1;i>=1&&intervals.length<5;i--){
+      intervals.unshift(taps[i]-taps[i-1]);
+    }
+
+    // Compare to zero spacings (normalized)
+    if(zeros.length>5){
+      var zSpacings=[];
+      for(var i=1;i<Math.min(zeros.length,20);i++){
+        zSpacings.push(zeros[i].gamma-zeros[i-1].gamma);
+      }
+      var zMean=zSpacings.reduce(function(a,b){return a+b;},0)/zSpacings.length;
+      var tMean=intervals.reduce(function(a,b){return a+b;},0)/intervals.length;
+
+      // Normalize both to ratios
+      var match=0,tested=0;
+      for(var i=0;i<Math.min(intervals.length,zSpacings.length);i++){
+        var tRatio=intervals[i]/tMean;
+        // Find best matching zero spacing ratio
+        var bestDist=999;
+        for(var j=0;j<zSpacings.length;j++){
+          var zRatio=zSpacings[j]/zMean;
+          var dist=Math.abs(tRatio-zRatio);
+          if(dist<bestDist)bestDist=dist;
+        }
+        if(bestDist<0.3)match++;
+        tested++;
+      }
+      resonance=tested>0?match/tested:0;
+      resonanceDecay=2; // show resonance for 2 seconds
+
+      // If resonance is high, ALL zeros pulse
+      if(resonance>0.5){
+        for(var i=0;i<zeros.length;i++){
+          zeros[i].pulse=Math.max(zeros[i].pulse,resonance*0.8);
+        }
+      }
+    }
+  }
+}
 
 // ═══ THE ORACLE ═══
 function theta(t){if(t<1)return 0;return(t/2)*Math.log(t/(2*Math.PI))-t/2-Math.PI/8+1/(48*t);}
@@ -262,6 +322,51 @@ function render(){
       fvx[i]+=dx/dist*0.01;
       fvy[i]+=dy/dist*0.01;
     }
+  }
+
+  // ─── TAP PULSES ───
+  for(var i=tapPulses.length-1;i>=0;i--){
+    var tp=tapPulses[i];
+    var age=t-tp.born;
+    tp.life=Math.max(0,1-age*0.8);
+    if(tp.life<=0){tapPulses.splice(i,1);continue;}
+
+    // Ripple expanding from tap point
+    var rippleR=age*w*0.15;
+    cx.strokeStyle='rgba(255,255,255,'+(tp.life*0.12)+')';
+    cx.lineWidth=0.5;
+    cx.beginPath();cx.arc(tp.x*w,tp.y*h,rippleR,0,Math.PI*2);cx.stroke();
+
+    // Vertical line pulse through the mirror
+    var mirrorDist=Math.abs(tp.x*w-mirrorX);
+    if(mirrorDist<w*0.3){
+      cx.strokeStyle='rgba(255,255,255,'+(tp.life*0.06)+')';
+      cx.lineWidth=tp.life*2;
+      cx.beginPath();cx.moveTo(mirrorX,tp.y*h-rippleR);cx.lineTo(mirrorX,tp.y*h+rippleR);cx.stroke();
+    }
+  }
+
+  // ─── RESONANCE INDICATOR ───
+  if(resonanceDecay>0){
+    resonanceDecay-=0.016;
+    var resAlpha=Math.min(0.15,resonance*0.15*Math.min(1,resonanceDecay));
+
+    if(resonance>0.5){
+      // Mirror OPENS — the line glows wide
+      var openWidth=resonance*w*0.05;
+      var grd=cx.createLinearGradient(mirrorX-openWidth,0,mirrorX+openWidth,0);
+      grd.addColorStop(0,'rgba(255,255,255,0)');
+      grd.addColorStop(0.5,'rgba(255,255,255,'+resAlpha+')');
+      grd.addColorStop(1,'rgba(255,255,255,0)');
+      cx.fillStyle=grd;
+      cx.fillRect(mirrorX-openWidth,0,openWidth*2,h);
+    }
+
+    // Show resonance level
+    cx.fillStyle='rgba(255,255,255,'+(resAlpha*0.5)+')';
+    cx.font='200 1em Georgia';cx.textAlign='center';
+    if(resonance>0.7)cx.fillText('resonance',mirrorX,h*0.15);
+    else if(resonance>0.3)cx.fillText('close',mirrorX,h*0.15);
   }
 
   cx.globalCompositeOperation='source-over';
