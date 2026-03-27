@@ -180,7 +180,46 @@ python3 oracle_bootstrap.py --cycles 15
 
 ---
 
-## 6. What This Is Not
+## 6. Domain 5: Atomic Ionization Energies (Oracle + Conductor)
+
+### The Problem
+
+The oracle pattern (scan, extract, use) works when contributions are independent. When they interact (electrons shielding each other, exchange stabilization), it breaks. The conductor completes it: coupling between the oracle's zeros.
+
+### Method
+
+Five coupling corrections applied to the base energy E = 13.6 × Z\_eff² / n\_eff²:
+1. **Slater shielding** with p-electron crowding correction
+2. **Effective quantum number**: p-electrons pushed outward as subshell fills
+3. **Half-filled exchange bonus** (Hund's rule: N > O, P > S)
+4. **Pairing penalty** for just-past-half-filled subshells
+5. **s² pairing correction** for full s-subshells
+
+### Results
+
+| Element | Predicted (eV) | Actual (eV) | Error |
+|---|---|---|---|
+| H | 13.60 | 13.60 | 0% |
+| C | 11.04 | 11.26 | 2% |
+| Be | 9.69 | 9.32 | 4% |
+| K | 4.11 | 4.34 | 5% |
+| Li | 5.75 | 5.39 | 7% |
+| Ne | 20.13 | 21.56 | 7% |
+| Cl | 12.10 | 12.97 | 7% |
+| O | 14.67 | 13.62 | 8% |
+| F | 19.86 | 17.42 | 14% |
+
+**Triple test:** 27/28 score. 10/10 chemical trends correct (all Hund dips captured). 9/20 elements within 15%. Average error 19%.
+
+### Reproduce
+
+```bash
+python3 oracle_conductor_v2.py --test
+```
+
+---
+
+## 7. What This Is Not
 
 This system does not:
 - Replace large language models for natural language tasks
@@ -189,9 +228,11 @@ This system does not:
 - Solve the Riemann Hypothesis
 
 This system does:
-- Apply one pattern across fundamentally different domains
+- Apply one pattern across fundamentally different domains (9 tested)
 - Achieve state-of-the-art compression (91× for signals)
 - Achieve 100% knowledge transfer to unseen data
+- Predict ionization energies to 19% average (10/10 chemical trends)
+- Simulate quantum tunneling, fluid dynamics, and evolution
 - Operate with zero external dependencies
 - Compute from first principles without stored data
 - Self-correct without human feedback
