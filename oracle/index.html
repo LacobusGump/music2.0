@@ -82,6 +82,173 @@ a{color:var(--accent);}
 
 <p style="margin-top:24px;font-size:0.9em;"><a href="https://github.com/LacobusGump/music2.0/tree/main/tools" style="color:var(--accent);">Source code</a> &ensp;|&ensp; <a href="https://github.com/LacobusGump/music2.0/blob/main/PAPER.md" style="color:var(--accent);">Paper</a> &ensp;|&ensp; <a href="https://begump.com/r/" style="color:var(--accent);">Music research</a></p>
 
+<hr style="border:none;border-top:1px solid #222;margin:48px 0;">
+
+<h2 style="color:var(--accent);font-weight:300;font-size:1.4em;margin-bottom:16px;">The Chain</h2>
+<p style="color:#999;font-size:0.9em;">Same equation at every level. Change the potential. Scan for nodes. Structure emerges.</p>
+
+<canvas id="chain-canvas" width="580" height="900" style="width:100%;margin:24px 0;border-radius:8px;"></canvas>
+
+<script>
+(function(){
+var c=document.getElementById('chain-canvas');if(!c)return;
+var ctx=c.getContext('2d'),W=c.width,H=c.height;
+
+// Numerov solver in JS
+function solve(V,x0,x1,E,N){
+  N=N||400;var dx=(x1-x0)/(N-1),x=[],psi=[];
+  for(var i=0;i<N;i++){x.push(x0+i*dx);psi.push(0);}
+  psi[0]=0;psi[1]=dx;var h2=dx*dx;
+  for(var i=1;i<N-1;i++){
+    var fp=V(x[i-1])-E,fc=V(x[i])-E,fn=V(x[i+1])-E;
+    var num=2*psi[i]*(1+5*h2*fc/12)-psi[i-1]*(1-h2*fp/12);
+    var den=1-h2*fn/12;if(Math.abs(den)<1e-30)den=1e-30;
+    psi[i+1]=num/den;
+    if(Math.abs(psi[i+1])>1e12){for(var j=0;j<=i+1;j++)psi[j]*=1e-12;}
+  }
+  var norm=0;for(var i=0;i<N;i++)norm+=psi[i]*psi[i]*dx;
+  norm=Math.sqrt(norm)||1;for(var i=0;i<N;i++)psi[i]/=norm;
+  return{x:x,psi:psi};
+}
+function countNodes(psi){var n=0;for(var i=1;i<psi.length;i++)if(psi[i-1]*psi[i]<0)n++;return n;}
+function findE(V,x0,x1,target,Elo,Ehi){
+  for(var it=0;it<60;it++){
+    var Em=(Elo+Ehi)/2,r=solve(V,x0,x1,Em),n=countNodes(r.psi);
+    if(n>target)Ehi=Em;else if(n<target)Elo=Em;
+    else{if(Math.abs(r.psi[r.psi.length-1])>Math.abs(r.psi[r.psi.length-2]))Ehi=Em;else Elo=Em;}
+    if(Math.abs(Ehi-Elo)<1e-10)break;
+  }
+  return(Elo+Ehi)/2;
+}
+
+var levels=[
+  {name:'String',color:'#FFD700',V:function(x){return 0;},x0:0,x1:Math.PI,Elo:0.01,Ehi:50,
+   desc:'V = 0 between walls'},
+  {name:'Atom',color:'#4ECDC4',V:function(r){return -1/Math.max(r,0.05);},x0:0.01,x1:30,Elo:-2,Ehi:-0.001,
+   desc:'V = -1/r (Coulomb)'},
+  {name:'Molecule',color:'#FF6B6B',V:function(x){return -1.5/(Math.abs(x-1)+0.4)-1.5/(Math.abs(x+1)+0.4);},x0:-8,x1:8,Elo:-10,Ehi:2,
+   desc:'V = double well (two nuclei)'},
+  {name:'Crystal',color:'#C9A44A',V:function(x){for(var i=0;i<6;i++)if(Math.abs(x-i*2)<0.6)return -2;return 0;},x0:-1,x1:13,Elo:-3,Ehi:3,
+   desc:'V = periodic lattice'},
+  {name:'Protein',color:'#96CEB4',V:function(x){return 0.3*x*x-2*Math.exp(-(x-2)*(x-2))-1.5*Math.exp(-(x+2)*(x+2))-Math.exp(-x*x);},x0:-5,x1:5,Elo:-4,Ehi:8,
+   desc:'V = folding landscape'},
+  {name:'Neuron',color:'#9B59B6',V:function(x){return 5*(x+0.07)*(x+0.07)-0.8*Math.exp(-(x*x)/0.001);},x0:-0.2,x1:0.15,Elo:-1,Ehi:15,
+   desc:'V = membrane potential'},
+  {name:'Mind',color:'#E8E4DC',V:function(x){return 0.1*x*x-2*Math.cos(x)-0.5*Math.cos(2*x);},x0:-10,x1:10,Elo:-4,Ehi:10,
+   desc:'V = coupled oscillators'},
+];
+
+// Compute all ground states
+var results=[];
+for(var li=0;li<levels.length;li++){
+  var lev=levels[li];
+  var E=findE(lev.V,lev.x0,lev.x1,0,lev.Elo,lev.Ehi);
+  var r=solve(lev.V,lev.x0,lev.x1,E,300);
+  var nn=countNodes(r.psi);
+  results.push({x:r.x,psi:r.psi,E:E,nodes:nn});
+}
+
+// Also compute n=1 states for comparison
+var results1=[];
+for(var li=0;li<levels.length;li++){
+  var lev=levels[li];
+  try{
+    var E=findE(lev.V,lev.x0,lev.x1,1,lev.Elo,lev.Ehi);
+    var r=solve(lev.V,lev.x0,lev.x1,E,300);
+    results1.push({x:r.x,psi:r.psi,E:E,nodes:countNodes(r.psi)});
+  }catch(e){results1.push(null);}
+}
+
+// Draw
+ctx.fillStyle='#0a0a0f';ctx.fillRect(0,0,W,H);
+
+var levelH=H/levels.length;
+var pad=20,waveW=W-120;
+
+for(var li=0;li<levels.length;li++){
+  var lev=levels[li],res=results[li],res1=results1[li];
+  var y0=li*levelH+10,yMid=y0+levelH/2;
+
+  // Label
+  ctx.fillStyle=lev.color;ctx.font='12px Georgia';ctx.textAlign='left';
+  ctx.fillText(lev.name,8,yMid-20);
+  ctx.fillStyle='#555';ctx.font='9px Georgia';
+  ctx.fillText(lev.desc,8,yMid-8);
+  ctx.fillText('nodes: '+res.nodes+' | E = '+res.E.toFixed(3),8,yMid+4);
+
+  // Wave function
+  var psiMax=0;
+  for(var i=0;i<res.psi.length;i++)if(Math.abs(res.psi[i])>psiMax)psiMax=Math.abs(res.psi[i]);
+  psiMax=psiMax||1;
+
+  var xOff=100,amp=levelH*0.35;
+
+  // Fill
+  ctx.beginPath();ctx.moveTo(xOff,yMid);
+  for(var i=0;i<res.psi.length;i++){
+    var px=xOff+i/res.psi.length*waveW;
+    var py=yMid-res.psi[i]/psiMax*amp;
+    ctx.lineTo(px,py);
+  }
+  ctx.lineTo(xOff+waveW,yMid);ctx.closePath();
+  ctx.fillStyle=lev.color+'20';ctx.fill();
+
+  // Line
+  ctx.beginPath();
+  for(var i=0;i<res.psi.length;i++){
+    var px=xOff+i/res.psi.length*waveW;
+    var py=yMid-res.psi[i]/psiMax*amp;
+    if(i===0)ctx.moveTo(px,py);else ctx.lineTo(px,py);
+  }
+  ctx.strokeStyle=lev.color;ctx.lineWidth=1.5;ctx.stroke();
+
+  // Excited state (if available) — dimmer
+  if(res1){
+    var pm1=0;for(var i=0;i<res1.psi.length;i++)if(Math.abs(res1.psi[i])>pm1)pm1=Math.abs(res1.psi[i]);
+    pm1=pm1||1;
+    ctx.beginPath();
+    for(var i=0;i<res1.psi.length;i++){
+      var px=xOff+i/res1.psi.length*waveW;
+      var py=yMid-res1.psi[i]/pm1*amp*0.6;
+      if(i===0)ctx.moveTo(px,py);else ctx.lineTo(px,py);
+    }
+    ctx.strokeStyle=lev.color+'40';ctx.lineWidth=1;ctx.stroke();
+  }
+
+  // Zero line
+  ctx.beginPath();ctx.moveTo(xOff,yMid);ctx.lineTo(xOff+waveW,yMid);
+  ctx.strokeStyle='#333';ctx.lineWidth=0.5;ctx.stroke();
+
+  // Node dots
+  for(var i=1;i<res.psi.length;i++){
+    if(res.psi[i-1]*res.psi[i]<0){
+      var frac=Math.abs(res.psi[i-1])/(Math.abs(res.psi[i-1])+Math.abs(res.psi[i])+1e-10);
+      var nx=xOff+(i-1+frac)/res.psi.length*waveW;
+      ctx.beginPath();ctx.arc(nx,yMid,3,0,Math.PI*2);
+      ctx.fillStyle='#fff';ctx.fill();
+    }
+  }
+
+  // Connection arrow to next
+  if(li<levels.length-1){
+    ctx.beginPath();
+    ctx.moveTo(W/2,y0+levelH-5);ctx.lineTo(W/2,y0+levelH+5);
+    ctx.strokeStyle='#444';ctx.lineWidth=1;ctx.setLineDash([3,3]);ctx.stroke();
+    ctx.setLineDash([]);
+    // Arrowhead
+    ctx.beginPath();ctx.moveTo(W/2-4,y0+levelH+1);ctx.lineTo(W/2,y0+levelH+7);ctx.lineTo(W/2+4,y0+levelH+1);
+    ctx.fillStyle='#444';ctx.fill();
+  }
+}
+
+// Title
+ctx.fillStyle='#c9a44a';ctx.font='14px Georgia';ctx.textAlign='center';
+ctx.fillText('One equation. Seven potentials. Reality emerges.',W/2,H-10);
+})();
+</script>
+
+<p style="color:#666;font-size:0.8em;margin-top:8px;">Each level: solve &minus;d&sup2;&psi;/dx&sup2; + V(x)&psi; = E&psi;. Change V(x). Scan &psi; for nodes (white dots). Ground state (bright) and first excited state (dim). Nodes at one level become the potential at the next.</p>
+
 <p style="margin-top:32px;color:var(--dim);font-size:0.85em;font-style:italic;">No data files. No downloads. No precomputation. One pattern. It works because it works.</p>
 
 </div>
