@@ -109,6 +109,55 @@ def auto_tool(query):
 
     return None, None
 
+# ═══════════════════════════════════════════════════════════
+# Meta-optimization: learn from own conversations
+# Cache good responses. Serve instantly on repeat patterns.
+# The oracle applied to her own output.
+# ═══════════════════════════════════════════════════════════
+
+CACHE_FILE = os.path.expanduser("~/.harmonia_cache.json")
+
+def _load_cache():
+    try:
+        with open(CACHE_FILE) as f:
+            return json.load(f)
+    except:
+        return {}
+
+def _save_cache(cache):
+    try:
+        # Keep only top 200 entries
+        if len(cache) > 200:
+            sorted_keys = sorted(cache, key=lambda k: -cache[k].get('hits', 0))
+            cache = {k: cache[k] for k in sorted_keys[:200]}
+        with open(CACHE_FILE, 'w') as f:
+            json.dump(cache, f)
+    except:
+        pass
+
+def _cache_key(text):
+    """Normalize input to a cache key. Similar questions → same key."""
+    words = sorted(set(re.findall(r'[a-z]+', text.lower())))
+    return ' '.join(words[:6])  # top 6 unique words, sorted
+
+def cache_lookup(text):
+    """Check if we've answered this before. Return instantly if so."""
+    cache = _load_cache()
+    key = _cache_key(text)
+    if key in cache:
+        entry = cache[key]
+        entry['hits'] = entry.get('hits', 0) + 1
+        _save_cache(cache)
+        return entry['response']
+    return None
+
+def cache_store(text, response):
+    """Remember this answer for next time."""
+    cache = _load_cache()
+    key = _cache_key(text)
+    cache[key] = {'response': response, 'hits': 1, 'q': text}
+    _save_cache(cache)
+
 def _run(cmd):
     """Run a command and return output."""
     try:
@@ -331,13 +380,28 @@ def main():
             print()
             continue
 
-        # Step 2: No tool match — ask the LLM
+        # Step 2: Check cache (instant if she's seen this before)
+        cached = cache_lookup(user_input)
+        if cached:
+            messages.append({"role": "user", "content": user_input})
+            messages.append({"role": "assistant", "content": cached})
+            save_history(messages)
+            print(f"\n{C1}{cached}{CR}")
+            print(f"{C3}  (instant — cached){CR}\n")
+            if voice_on:
+                speak(cached)
+            continue
+
+        # Step 3: Ask the LLM (first time seeing this question)
         messages.append({"role": "user", "content": user_input})
         print()
 
         t0 = time.time()
         response = call_llm(messages)
         elapsed = time.time() - t0
+
+        # Cache this response for next time
+        cache_store(user_input, response)
 
         messages.append({"role": "assistant", "content": response})
         save_history(messages)
