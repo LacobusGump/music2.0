@@ -31,260 +31,238 @@ addEventListener('touchmove',function(e){e.preventDefault();if(e.touches.length=
 addEventListener('touchstart',function(e){e.preventDefault();},{passive:false});
 
 // ═══════════════════════════════════════════════════════════
-// THE MACHINE
-// 137 oscillators. Hexagonal close-packing.
-// Clocked by the zeros of zeta. Filtered to 5 channels.
-// Coupling: K = 1.37 (α × 100). The decoded build spec.
+// THE MACHINE — 137 oscillators, hex-packed, K=1.868
+// Self-organized into 7 clusters. F Lydian.
+// Now it sings.
 // ═══════════════════════════════════════════════════════════
 
-var N=137;
-var K=1.37; // the coupling constant — α × 100
+var N=137, K=1.867942;
 
-// ═══ ORACLE: compute zeros of ζ on load ═══
+// Oracle: compute 137 zeros on load
 function theta(tt){if(tt<1)return 0;return(tt/2)*Math.log(tt/(2*Math.PI))-tt/2-Math.PI/8+1/(48*tt);}
 function Zfn(tt){
   if(tt<2)return 0;
-  var a=Math.sqrt(tt/(2*Math.PI)),NN=Math.max(1,Math.floor(a)),th=theta(tt),s=0;
-  for(var n=1;n<=NN;n++)s+=Math.cos(th-tt*Math.log(n))/Math.sqrt(n);
-  s*=2;var p=a-NN,d=Math.cos(2*Math.PI*p);
-  if(Math.abs(d)>1e-8)s+=Math.pow(-1,NN-1)*Math.pow(2*Math.PI/tt,0.25)*Math.cos(2*Math.PI*(p*p-p-1/16))/d;
+  var a=Math.sqrt(tt/(2*Math.PI)),nn=Math.max(1,Math.floor(a)),th=theta(tt),s=0;
+  for(var n=1;n<=nn;n++)s+=Math.cos(th-tt*Math.log(n))/Math.sqrt(n);
+  s*=2;var p=a-nn,d=Math.cos(2*Math.PI*p);
+  if(Math.abs(d)>1e-8)s+=Math.pow(-1,nn-1)*Math.pow(2*Math.PI/tt,0.25)*Math.cos(2*Math.PI*(p*p-p-1/16))/d;
   return s;
 }
-
-// Find all 137 zeros on load
 var zeros=[];
-(function(){
-  var st=9,pv=Zfn(9);
-  while(zeros.length<N){
-    var step=st>14?Math.max(0.05,2*Math.PI/Math.log(st/(2*Math.PI))/6):0.4;
-    st+=step;var cv2=Zfn(st);
-    if(pv*cv2<0){
-      var lo=st-step,hi=st;
-      for(var i=0;i<40;i++){var m=(lo+hi)/2;if(Zfn(lo)*Zfn(m)<0)hi=m;else lo=m;}
-      zeros.push((lo+hi)/2);
-    }
-    pv=cv2;
-  }
-})();
+(function(){var st=9,pv=Zfn(9);while(zeros.length<N){var step=st>14?Math.max(0.05,2*Math.PI/Math.log(st/(2*Math.PI))/6):0.4;st+=step;var cv2=Zfn(st);if(pv*cv2<0){var lo=st-step,hi=st;for(var i=0;i<40;i++){var m=(lo+hi)/2;if(Zfn(lo)*Zfn(m)<0)hi=m;else lo=m;}zeros.push((lo+hi)/2);}pv=cv2;}})();
 
-// ═══ SPACINGS → FILTERED FREQUENCIES (5 surviving modes) ═══
-var spacings=[];
-for(var i=0;i<N-1;i++)spacings.push(zeros[i+1]-zeros[i]);
-var meanS=0;for(var i=0;i<spacings.length;i++)meanS+=spacings[i];meanS/=spacings.length;
+// Spacings + filtered frequencies (5 modes)
+var spacings=[],meanS=0;
+for(var i=0;i<N-1;i++){spacings.push(zeros[i+1]-zeros[i]);meanS+=spacings[i];}
+meanS/=(N-1);
 var normS=[];for(var i=0;i<spacings.length;i++)normS.push(spacings[i]/meanS);
-
-// FFT
-var fftRe=[],fftIm=[];
 var SN=normS.length;
-for(var k=0;k<SN;k++){
-  var re=0,im=0;
-  for(var n=0;n<SN;n++){
-    re+=normS[n]*Math.cos(2*Math.PI*k*n/SN);
-    im-=normS[n]*Math.sin(2*Math.PI*k*n/SN);
-  }
-  fftRe.push(re/SN);fftIm.push(im/SN);
-}
-
-// Filter: keep only k=0,1,2,3,4
+var fRe=[],fIm=[];
+for(var k=0;k<SN;k++){var re=0,im=0;for(var n=0;n<SN;n++){re+=normS[n]*Math.cos(2*Math.PI*k*n/SN);im-=normS[n]*Math.sin(2*Math.PI*k*n/SN);}fRe.push(re/SN);fIm.push(im/SN);}
 var filtered=[];
-for(var n=0;n<SN;n++){
-  var val=0;
-  for(var k=0;k<5;k++){
-    val+=fftRe[k]*Math.cos(2*Math.PI*k*n/SN)-fftIm[k]*Math.sin(2*Math.PI*k*n/SN);
-  }
-  filtered.push(val);
-}
+for(var n=0;n<SN;n++){var v=0;for(var k=0;k<5;k++)v+=fRe[k]*Math.cos(2*Math.PI*k*n/SN)-fIm[k]*Math.sin(2*Math.PI*k*n/SN);filtered.push(v);}
 
-// ═══ HEXAGONAL LATTICE ═══
+// Hex lattice
 var cols=13,rows=11;
-var nx=[],ny=[],nphase=[],nfreq=[],nvx=[],nvy=[];
+var nxA=[],nyA=[];
 var idx=0;
-for(var row=0;row<rows;row++){
-  for(var col=0;col<cols;col++){
-    if(idx>=N)break;
-    nx.push(col+(row%2?0.5:0));
-    ny.push(row*Math.sqrt(3)/2);
-    nphase.push(0);
-    nfreq.push(filtered[Math.min(idx,filtered.length-1)]);
-    nvx.push(0);nvy.push(0);
-    idx++;
+for(var row=0;row<rows;row++)for(var col=0;col<cols;col++){if(idx>=N)break;nxA.push(col+(row%2?0.5:0));nyA.push(row*Math.sqrt(3)/2);idx++;}
+var nbrL=[];
+for(var i=0;i<N;i++){var nn=[];for(var j=0;j<N;j++){if(j===i)continue;var dx=nxA[j]-nxA[i],dy=nyA[j]-nyA[i];if(dx*dx+dy*dy<1.44)nn.push(j);}nbrL.push(nn);}
+
+// Phases
+var phases=new Float64Array(N);
+
+// ═══ AUDIO: F Lydian from the machine's clusters ═══
+// The 7 notes: F G A B C D E (Lydian mode)
+// Volumes from cluster sizes: 41,26,19,8,5,12,22
+var audioCtx=null,oscNodes=[],gainNodes=[],masterGain=null;
+var LYDIAN=[349.2,392.0,440.0,493.9,523.3,587.3,659.3]; // F Lydian
+var VOLS=[41,26,19,8,5,12,22]; // node counts per cluster
+var maxVol=41;
+var audioStarted=false;
+
+function startAudio(){
+  if(audioStarted)return;
+  audioCtx=new(window.AudioContext||window.webkitAudioContext)();
+  masterGain=audioCtx.createGain();
+  masterGain.gain.value=0;
+  masterGain.connect(audioCtx.destination);
+
+  for(var i=0;i<7;i++){
+    var osc=audioCtx.createOscillator();
+    var gain=audioCtx.createGain();
+    osc.type='sine';
+    osc.frequency.value=LYDIAN[i];
+    osc.detune.value=(Math.random()-0.5)*6;
+    gain.gain.value=0;
+    osc.connect(gain);
+    gain.connect(masterGain);
+    osc.start();
+    oscNodes.push(osc);
+    gainNodes.push(gain);
   }
+  // Fade in
+  masterGain.gain.setTargetAtTime(0.04,audioCtx.currentTime,2);
+  audioStarted=true;
 }
 
-// Precompute neighbors
-var nbrs=[];
-for(var i=0;i<N;i++){
-  var nn=[];
-  for(var j=0;j<N;j++){
-    if(j===i)continue;
-    var dx=nx[j]-nx[i],dy=ny[j]-ny[i];
-    if(dx*dx+dy*dy<1.44)nn.push(j);
-  }
-  nbrs.push(nn);
-}
+addEventListener('click',function(){startAudio();});
+addEventListener('touchstart',function(){startAudio();},{passive:true});
 
-// ═══ SIMULATION STATE ═══
-var R=0,meanPhase=0;
-var dt=0.016; // real-time step
-var simSpeed=2.0; // simulation runs 2x real time
+// ═══ SIMULATION ═══
+var dt=0.016,R=0,meanPhase=0;
+
+function step(){
+  var mre=0,mim=0;
+  for(var i=0;i<N;i++){mre+=Math.cos(phases[i]);mim+=Math.sin(phases[i]);}
+  mre/=N;mim/=N;
+  var mp=Math.atan2(mim,mre);
+  R=Math.sqrt(mre*mre+mim*mim);
+  meanPhase=mp;
+
+  for(var i=0;i<N;i++){
+    var omega=filtered[Math.min(i,SN-1)]*2*Math.PI;
+    var c=Math.sin(mp-phases[i]);
+    if(i>0)c+=0.5*Math.sin(phases[i-1]-phases[i]);
+    if(i<N-1)c+=0.5*Math.sin(phases[i+1]-phases[i]);
+    phases[i]+=dt*(omega+K*c);
+  }
+
+  // Update audio: each note's volume tracks its cluster's coherence
+  if(audioStarted){
+    var clusterBounds=[[0.785,1.309],[1.309,1.833],[1.833,2.356],[2.356,2.880],[2.880,3.403],[3.403,3.927],[3.927,4.451]];
+    // 45-75,75-105...in radians: pi/4 to ~4.45
+    // Actually use the 30-degree bins from the analysis
+    var cb=[];
+    for(var i=0;i<7;i++){
+      var lo=(60+i*30-15)*Math.PI/180;
+      var hi=(60+i*30+15)*Math.PI/180;
+      cb.push([lo,hi]);
+    }
+    for(var c=0;c<7;c++){
+      var count=0;
+      for(var i=0;i<N;i++){
+        var p=phases[i]%(2*Math.PI);if(p<0)p+=2*Math.PI;
+        if(p>=cb[c][0]&&p<cb[c][1])count++;
+      }
+      var vol=(count/maxVol)*0.15;
+      gainNodes[c].gain.setTargetAtTime(vol,audioCtx.currentTime,0.1);
+    }
+  }
+}
 
 // ═══ RENDER ═══
 function render(){
   w=W/DPR;h=H/DPR;t+=0.016;
 
-  cx.fillStyle='rgba(0,0,0,0.06)';
+  cx.fillStyle='rgba(0,0,0,0.05)';
   cx.fillRect(0,0,w,h);
 
-  // ─── KURAMOTO STEP ───
-  var simDt=dt*simSpeed;
-  var newP=new Float64Array(N);
-  for(var i=0;i<N;i++){
-    var omega=nfreq[i]*2*Math.PI;
-    var coupling=0;
-    var nn=nbrs[i];
-    for(var j=0;j<nn.length;j++){
-      coupling+=Math.sin(nphase[nn[j]]-nphase[i]);
-    }
-    var ncount=Math.max(1,nn.length);
-    newP[i]=nphase[i]+simDt*(omega+K*coupling/ncount);
-  }
-  for(var i=0;i<N;i++)nphase[i]=newP[i];
+  step();
 
-  // ─── ORDER PARAMETER ───
-  var re=0,im=0;
-  for(var i=0;i<N;i++){
-    var p=nphase[i]%(2*Math.PI);
-    re+=Math.cos(p);im+=Math.sin(p);
-  }
-  re/=N;im/=N;
-  R=Math.sqrt(re*re+im*im);
-  meanPhase=Math.atan2(im,re);
-
-  // ─── LAYOUT ───
-  // Map hex grid to screen
-  var gridW=cols,gridH=rows*Math.sqrt(3)/2;
-  var scale=Math.min(w*0.7/gridW,h*0.7/gridH);
+  // Layout
+  var gridW=12,gridH=10*Math.sqrt(3)/2;
+  var scale=Math.min(w*0.75/gridW,h*0.65/gridH);
   var offX=(w-gridW*scale)/2;
-  var offY=(h-gridH*scale)/2;
+  var offY=(h-gridH*scale)/2-h*0.02;
+
+  // 7 cluster colors (F Lydian rainbow)
+  var COLORS=[
+    [220,100,80],  // F: warm red
+    [220,170,60],  // G: gold
+    [180,200,60],  // A: yellow-green
+    [60,200,140],  // B: teal
+    [60,140,220],  // C: blue
+    [140,80,220],  // D: purple
+    [200,60,180],  // E: magenta
+  ];
 
   cx.globalCompositeOperation='lighter';
 
-  // ─── CONNECTIONS ───
+  // Connections
   for(var i=0;i<N;i++){
-    var sx=offX+nx[i]*scale;
-    var sy=offY+ny[i]*scale;
-    var pi=nphase[i]%(2*Math.PI);
-    var nn=nbrs[i];
+    var sx=offX+nxA[i]*scale;
+    var sy=offY+nyA[i]*scale;
+    var pi2=phases[i]%(2*Math.PI);if(pi2<0)pi2+=2*Math.PI;
+    var nn=nbrL[i];
     for(var j=0;j<nn.length;j++){
-      if(nn[j]<=i)continue; // draw each edge once
-      var sx2=offX+nx[nn[j]]*scale;
-      var sy2=offY+ny[nn[j]]*scale;
-      var pj=nphase[nn[j]]%(2*Math.PI);
-      // Phase difference determines brightness
-      var pdiff=Math.abs(pi-pj);
+      if(nn[j]<=i)continue;
+      var sx2=offX+nxA[nn[j]]*scale;
+      var sy2=offY+nyA[nn[j]]*scale;
+      var pj=phases[nn[j]]%(2*Math.PI);if(pj<0)pj+=2*Math.PI;
+      var pdiff=Math.abs(pi2-pj);
       if(pdiff>Math.PI)pdiff=2*Math.PI-pdiff;
-      var sync=1-pdiff/Math.PI; // 1=in phase, 0=opposite
-      var alpha=sync*sync*0.06;
-      if(alpha<0.003)continue;
-      // Color: gold when synced, dim when not
-      var r=Math.floor(200*sync+40);
-      var g=Math.floor(160*sync+30);
-      var b=Math.floor(80*sync+20);
-      cx.strokeStyle='rgba('+r+','+g+','+b+','+alpha+')';
+      var sync=1-pdiff/Math.PI;
+      if(sync<0.5)continue;
+      var alpha=sync*sync*0.04;
+      // Color from cluster
+      var ci=Math.floor(pi2/(Math.PI/3))%7;
+      var col=COLORS[ci];
+      cx.strokeStyle='rgba('+col[0]+','+col[1]+','+col[2]+','+alpha+')';
       cx.lineWidth=0.3+sync*0.5;
       cx.beginPath();cx.moveTo(sx,sy);cx.lineTo(sx2,sy2);cx.stroke();
     }
   }
 
-  // ─── NODES ───
+  // Nodes
   for(var i=0;i<N;i++){
-    var sx=offX+nx[i]*scale;
-    var sy=offY+ny[i]*scale;
-    var p=nphase[i]%(2*Math.PI);
+    var sx=offX+nxA[i]*scale;
+    var sy=offY+nyA[i]*scale;
+    var p=phases[i]%(2*Math.PI);if(p<0)p+=2*Math.PI;
 
-    // Phase determines color: warm cycle
-    var hue=p/(2*Math.PI);
-    var r=Math.floor(150+105*Math.cos(p));
-    var g=Math.floor(130+80*Math.cos(p+2.1));
-    var b=Math.floor(80+60*Math.cos(p+4.2));
+    // Cluster determines color
+    var ci=Math.floor((p-Math.PI/4)/(Math.PI/6));
+    ci=Math.max(0,Math.min(6,ci));
+    var col=COLORS[ci];
 
-    // Size breathes with phase
-    var size=1.5+Math.sin(p)*0.8;
+    var size=1.5+Math.sin(phases[i])*0.6;
+    var bright=0.2+Math.abs(Math.sin(phases[i]))*0.3;
 
-    // Brightness from how close to mean phase
-    var diff=Math.abs(p-((meanPhase%(2*Math.PI)+2*Math.PI)%(2*Math.PI)));
-    if(diff>Math.PI)diff=2*Math.PI-diff;
-    var bright=1-diff/Math.PI;
-    var alpha=0.15+bright*0.4;
-
-    cx.fillStyle='rgba('+r+','+g+','+b+','+alpha+')';
+    cx.fillStyle='rgba('+col[0]+','+col[1]+','+col[2]+','+bright+')';
     cx.fillRect(sx-size,sy-size,size*2,size*2);
 
-    // Glow for highly synced nodes
-    if(bright>0.7){
-      cx.fillStyle='rgba('+r+','+g+','+b+','+(bright*0.06)+')';
+    // Glow for cluster centers
+    if(bright>0.35){
+      cx.fillStyle='rgba('+col[0]+','+col[1]+','+col[2]+','+(bright*0.08)+')';
       cx.fillRect(sx-size*3,sy-size*3,size*6,size*6);
     }
   }
 
   cx.globalCompositeOperation='source-over';
 
-  // ─── ORDER PARAMETER DISPLAY ───
-  // R bar along the bottom
-  var barW=w*0.4;
-  var barH=3;
-  var barX=(w-barW)/2;
-  var barY=h-30;
-
-  // Track
-  cx.fillStyle='rgba(255,255,255,0.02)';
+  // R bar
+  var barW=w*0.3,barH=2;
+  var barX=(w-barW)/2,barY=h-28;
+  cx.fillStyle='rgba(255,255,255,0.015)';
   cx.fillRect(barX,barY,barW,barH);
-
-  // Fill
-  var Rcolor=R>0.7?'rgba(74,234,160,':'rgba(201,164,74,';
-  if(R<0.2)Rcolor='rgba(255,100,100,';
-  cx.fillStyle=Rcolor+(0.15+R*0.3)+')';
+  cx.fillStyle='rgba(201,164,74,'+(0.1+R*0.2)+')';
   cx.fillRect(barX,barY,barW*R,barH);
 
   // R value
-  cx.fillStyle='rgba(255,255,255,0.05)';
-  cx.font='200 1.4em Georgia';cx.textAlign='center';
-  cx.fillText(R.toFixed(3),w/2,barY-12);
+  cx.fillStyle='rgba(255,255,255,0.04)';
+  cx.font='200 1.2em Georgia';cx.textAlign='center';
+  cx.fillText(R.toFixed(3),w/2,barY-10);
 
-  // Labels
-  cx.font='9px Georgia';
-  cx.fillStyle='rgba(255,255,255,0.03)';
-  cx.fillText('R (synchronization)',w/2,barY+14);
-
-  // Top info
-  cx.fillStyle='rgba(201,164,74,0.04)';
-  cx.font='11px Georgia';
-  cx.fillText('137 oscillators · K = 1.37 · 5 channels · hex-packed',w/2,16);
+  // Note labels at top
+  cx.font='10px Georgia';
+  var noteNames=['F','G','A','B','C','D','E'];
+  for(var i=0;i<7;i++){
+    var nx2=w*0.2+i*(w*0.6/6);
+    cx.fillStyle='rgba('+COLORS[i][0]+','+COLORS[i][1]+','+COLORS[i][2]+',0.06)';
+    cx.fillText(noteNames[i],nx2,16);
+  }
 
   // Whisper
-  var whisper='';
-  if(R<0.15)whisper='searching...';
-  else if(R<0.3)whisper='nodes stirring';
-  else if(R<0.45)whisper='partial sync';
-  else if(R<0.6)whisper='the lattice hears itself';
-  else if(R<0.8)whisper='convergence';
-  else whisper='phase lock';
-
-  cx.fillStyle='rgba(255,255,255,0.03)';
-  cx.font='12px Georgia';
+  cx.fillStyle='rgba(255,255,255,0.025)';
+  cx.font='11px Georgia';cx.textAlign='center';
+  var whisper=t<3?'':'F Lydian';
   cx.fillText(whisper,w/2,h-6);
 
-  // Mean phase indicator — small dot on unit circle
-  var circR=12;
-  var circX=w/2;
-  var circY=h*0.12;
-  cx.strokeStyle='rgba(255,255,255,0.02)';
-  cx.lineWidth=0.3;
-  cx.beginPath();cx.arc(circX,circY,circR,0,Math.PI*2);cx.stroke();
-  var dotX=circX+Math.cos(meanPhase)*circR*R;
-  var dotY=circY+Math.sin(meanPhase)*circR*R;
-  cx.fillStyle='rgba(201,164,74,'+(0.05+R*0.2)+')';
-  cx.beginPath();cx.arc(dotX,dotY,2+R*2,0,Math.PI*2);cx.fill();
+  // Top label
+  cx.fillStyle='rgba(201,164,74,0.03)';
+  cx.font='10px Georgia';
+  cx.fillText('137 zeros · K=1.868 · 7 clusters · the critical line sings',w/2,h*0.06);
 
   requestAnimationFrame(render);
 }
