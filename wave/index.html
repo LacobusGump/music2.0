@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>The Wave Table — Chemistry is a Wave</title>
+<style>
+:root{--bg:#0a0a0f;--fg:#e8e4dc;--accent:#c9a44a;--dim:#666;--glow:#f4d990;}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:var(--bg);color:var(--fg);font-family:Georgia,serif;
+  max-width:900px;margin:0 auto;padding:24px 16px 80px;line-height:1.6;}
+h1{font-size:1.8em;font-weight:300;color:var(--accent);letter-spacing:0.1em;text-align:center;}
+h1 span{display:block;font-size:0.4em;color:var(--dim);font-weight:100;letter-spacing:0.2em;}
+p{color:#888;margin:8px 0;font-size:0.9em;text-align:center;}
+canvas{display:block;margin:16px auto;border-radius:8px;}
+.controls{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin:16px 0;}
+.btn{background:#111;border:1px solid #333;color:var(--fg);font-family:Georgia,serif;
+  font-size:0.85em;padding:8px 16px;border-radius:6px;cursor:pointer;}
+.btn:hover{border-color:var(--accent);}
+.btn.active{background:var(--accent);color:#000;border-color:var(--accent);}
+#element-info{background:#111118;border-radius:12px;padding:20px;margin:16px 0;display:none;}
+#element-info h2{color:var(--accent);font-weight:300;font-size:1.8em;margin-bottom:4px;}
+.props{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0;}
+.prop{display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #ffffff08;}
+.prop-label{color:var(--dim);font-size:0.85em;}
+.prop-value{color:var(--fg);font-size:0.95em;}
+#combine-section{margin-top:32px;border-top:1px solid #222;padding-top:24px;}
+.combine-row{display:flex;gap:8px;align-items:center;justify-content:center;margin:12px 0;}
+select{background:#111;border:1px solid #333;color:var(--fg);font-family:Georgia,serif;
+  font-size:1em;padding:8px 12px;border-radius:6px;}
+button{background:var(--accent);color:#000;font-family:Georgia,serif;font-size:0.95em;
+  padding:8px 20px;border:none;border-radius:6px;cursor:pointer;font-weight:600;}
+#bond-result{margin-top:16px;}
+.bond-display{text-align:center;padding:16px;background:#111118;border-radius:12px;margin:8px 0;}
+.bond-sym{font-size:2.5em;color:var(--accent);font-weight:200;}
+.bond-type{font-size:1.1em;margin:8px 0;}
+a{color:var(--accent);}
+</style>
+</head>
+<body>
+
+<h1>The Wave Table<span>The periodic table is a wave function</span></h1>
+<p>f(Z) = Z<sub>eff</sub><sup>a</sup> × n<sub>eff</sub><sup>b</sup> — change the exponents, change the property.</p>
+
+<canvas id="wave" width="860" height="280"></canvas>
+
+<div class="controls">
+<div class="btn active" onclick="setView('IE',this)">IE (energy)</div>
+<div class="btn" onclick="setView('r',this)">Radius (space)</div>
+<div class="btn" onclick="setView('EN',this)">EN (pull)</div>
+<div class="btn" onclick="setView('hard',this)">Hardness</div>
+<div class="btn" onclick="setView('alpha',this)">Polarizability</div>
+<div class="btn" onclick="setView('mag',this)">Magnetism</div>
+<div class="btn" onclick="setView('Zeff',this)">Z<sub>eff</sub> (raw wave)</div>
+</div>
+
+<div id="element-info">
+<h2 id="el-sym"></h2>
+<div id="el-name" style="color:var(--dim);margin-bottom:12px;"></div>
+<div class="props" id="el-props"></div>
+</div>
+
+<div id="combine-section">
+<h2 style="color:var(--accent);font-weight:300;font-size:1.3em;text-align:center;">Combine Elements</h2>
+<p>Pick two elements. Predict the bond instantly.</p>
+<div class="combine-row">
+<select id="el-a"></select>
+<span style="color:var(--dim);font-size:1.5em;">+</span>
+<select id="el-b"></select>
+<button onclick="combine()">Predict</button>
+</div>
+<div id="bond-result"></div>
+</div>
+
+<div style="margin-top:32px;text-align:center;color:var(--dim);font-size:0.8em;">
+<a href="/oracle/">Oracle</a> · <a href="/conductor/">Conductor</a> · <a href="/r/">Research</a> · <a href="https://github.com/LacobusGump/music2.0/blob/main/PAPER.md">Paper</a>
+</div>
+
+<script>
+var ELEMENTS=[
+{Z:1,sym:'H',name:'Hydrogen',config:[[1,0,1]]},
+{Z:2,sym:'He',name:'Helium',config:[[1,0,2]]},
+{Z:3,sym:'Li',name:'Lithium',config:[[1,0,2],[2,0,1]]},
+{Z:4,sym:'Be',name:'Beryllium',config:[[1,0,2],[2,0,2]]},
+{Z:5,sym:'B',name:'Boron',config:[[1,0,2],[2,0,2],[2,1,1]]},
+{Z:6,sym:'C',name:'Carbon',config:[[1,0,2],[2,0,2],[2,1,2]]},
+{Z:7,sym:'N',name:'Nitrogen',config:[[1,0,2],[2,0,2],[2,1,3]]},
+{Z:8,sym:'O',name:'Oxygen',config:[[1,0,2],[2,0,2],[2,1,4]]},
+{Z:9,sym:'F',name:'Fluorine',config:[[1,0,2],[2,0,2],[2,1,5]]},
+{Z:10,sym:'Ne',name:'Neon',config:[[1,0,2],[2,0,2],[2,1,6]]},
+{Z:11,sym:'Na',name:'Sodium',config:[[1,0,2],[2,0,2],[2,1,6],[3,0,1]]},
+{Z:12,sym:'Mg',name:'Magnesium',config:[[1,0,2],[2,0,2],[2,1,6],[3,0,2]]},
+{Z:13,sym:'Al',name:'Aluminium',config:[[1,0,2],[2,0,2],[2,1,6],[3,0,2],[3,1,1]]},
+{Z:14,sym:'Si',name:'Silicon',config:[[1,0,2],[2,0,2],[2,1,6],[3,0,2],[3,1,2]]},
+{Z:15,sym:'P',name:'Phosphorus',config:[[1,0,2],[2,0,2],[2,1,6],[3,0,2],[3,1,3]]},
+{Z:16,sym:'S',name:'Sulfur',config:[[1,0,2],[2,0,2],[2,1,6],[3,0,2],[3,1,4]]},
+{Z:17,sym:'Cl',name:'Chlorine',config:[[1,0,2],[2,0,2],[2,1,6],[3,0,2],[3,1,5]]},
+{Z:18,sym:'Ar',name:'Argon',config:[[1,0,2],[2,0,2],[2,1,6],[3,0,2],[3,1,6]]},
+{Z:19,sym:'K',name:'Potassium',config:[[1,0,2],[2,0,2],[2,1,6],[3,0,2],[3,1,6],[4,0,1]]},
+{Z:20,sym:'Ca',name:'Calcium',config:[[1,0,2],[2,0,2],[2,1,6],[3,0,2],[3,1,6],[4,0,2]]},
+];
+
+function computeAll(el){
+  var c=el.config,v=c[c.length-1],vn=v[0],vl=v[1],vc=v[2];
+  var shield=0;
+  for(var i=0;i<c.length;i++){
+    var n=c[i][0],l=c[i][1],cnt=c[i][2];
+    if(n===vn&&l===vl){var s=n===1?0.30:(0.35+0.06*Math.max(0,cnt-2));shield+=s*(cnt-1);}
+    else if(n===vn)shield+=0.85*cnt;
+    else if(n===vn-1){if(vl===0)shield+=0.85*cnt;
+      else{var ti=0;for(var j=0;j<c.length;j++)if(c[j][0]===n)ti+=c[j][2];shield+=(0.85+0.015*Math.max(0,ti-2))*cnt;}}
+    else shield+=1.00*cnt;
+  }
+  var Zeff=Math.max(0.1,el.Z-shield),neff=vn;
+  if(vl===1)neff=vn+0.4+0.12*(vc-1);
+  else if(vl===0&&vc===2&&vn>1)neff=vn+0.15;
+  var r=neff*neff/Zeff,rA=r*0.529;
+  var IE=13.6*Zeff*Zeff/(neff*neff);
+  var maxss=2*vl+1;
+  if(vc===maxss&&vl>0)IE+=3;
+  if(vc===maxss+1&&vl>0)IE-=3.5;
+  if(vc>1&&vc<=maxss&&vl>0)IE+=(vc-1)*0.2;
+  if(vl===0&&vc===2)IE-=1.5;
+  var unpaired=Math.min(vc,maxss)-Math.max(0,vc-maxss);
+  var EN=0.359*Zeff/(r*r)*10+0.744;
+  return{Zeff:Zeff,neff:neff,IE:IE,r:rA,vdw:rA*1.7,
+    alpha:r*r*r*0.529*0.529*0.529,EN:Math.min(4,EN),
+    hard:IE/2,soft:2/IE,unpaired:unpaired,
+    mag:Math.sqrt(unpaired*(unpaired+2)),
+    rho0:Zeff*Zeff*Zeff/(Math.PI*neff*neff*neff)};
+}
+
+// Precompute
+var DATA=[];
+ELEMENTS.forEach(function(el){var d=computeAll(el);d.sym=el.sym;d.name=el.name;d.Z=el.Z;DATA.push(d);});
+
+// Canvas
+var canvas=document.getElementById('wave'),ctx=canvas.getContext('2d');
+var W=canvas.width,H=canvas.height;
+var currentView='IE';
+var selectedZ=null;
+
+function getValues(view){
+  return DATA.map(function(d){
+    if(view==='IE')return d.IE;if(view==='r')return d.r;if(view==='EN')return d.EN;
+    if(view==='hard')return d.hard;if(view==='alpha')return Math.log(d.alpha+1);
+    if(view==='mag')return d.mag;if(view==='Zeff')return d.Zeff;return d.IE;
+  });
+}
+
+var LABELS={IE:'Ionization Energy (eV)',r:'Atomic Radius (Å)',EN:'Electronegativity',
+  hard:'Chemical Hardness (eV)',alpha:'log Polarizability',mag:'Magnetic Moment (μB)',Zeff:'Effective Nuclear Charge'};
+
+function draw(){
+  ctx.fillStyle='#0a0a0f';ctx.fillRect(0,0,W,H);
+  var vals=getValues(currentView);
+  var maxV=Math.max.apply(null,vals),minV=Math.min.apply(null,vals);
+  var range=maxV-minV||1;
+  var pad={l:50,r:20,t:30,b:40};
+  var gw=W-pad.l-pad.r,gh=H-pad.t-pad.b;
+  var barW=gw/DATA.length-2;
+
+  // Title
+  ctx.fillStyle='#c9a44a';ctx.font='13px Georgia';ctx.textAlign='center';
+  ctx.fillText(LABELS[currentView]||currentView,W/2,18);
+
+  // Bars + wave line
+  ctx.beginPath();
+  DATA.forEach(function(d,i){
+    var x=pad.l+i*(gw/DATA.length)+barW/2;
+    var v=vals[i];
+    var h=((v-minV)/range)*gh;
+    var y=pad.t+gh-h;
+
+    // Bar
+    var isSelected=selectedZ===d.Z;
+    ctx.fillStyle=isSelected?'#f4d990':'#c9a44a';
+    ctx.globalAlpha=isSelected?1:0.6;
+    ctx.fillRect(x-barW/2,y,barW,h);
+    ctx.globalAlpha=1;
+
+    // Wave line
+    if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);
+
+    // Label
+    ctx.fillStyle=isSelected?'#fff':'#888';
+    ctx.font=(isSelected?'bold ':'')+('11px Georgia');
+    ctx.textAlign='center';
+    ctx.fillText(d.sym,x,pad.t+gh+14);
+
+    // Value
+    if(isSelected){
+      ctx.fillStyle='#f4d990';ctx.font='10px Georgia';
+      ctx.fillText(v.toFixed(2),x,y-6);
+    }
+
+    // Period markers
+    if(d.Z===2||d.Z===10||d.Z===18){
+      ctx.strokeStyle='#ffffff15';ctx.setLineDash([3,3]);
+      ctx.beginPath();ctx.moveTo(x+barW,pad.t);ctx.lineTo(x+barW,pad.t+gh);ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  });
+
+  // Wave line
+  ctx.strokeStyle='#c9a44a';ctx.lineWidth=2;ctx.stroke();
+
+  // Y axis labels
+  ctx.fillStyle='#555';ctx.font='10px Georgia';ctx.textAlign='right';
+  ctx.fillText(maxV.toFixed(1),pad.l-6,pad.t+10);
+  ctx.fillText(minV.toFixed(1),pad.l-6,pad.t+gh);
+}
+
+function setView(v,btn){
+  currentView=v;
+  document.querySelectorAll('.btn').forEach(function(b){b.classList.remove('active');});
+  if(btn)btn.classList.add('active');
+  draw();
+}
+
+// Click to select element
+canvas.addEventListener('click',function(e){
+  var rect=canvas.getBoundingClientRect();
+  var mx=(e.clientX-rect.left)*(W/rect.width);
+  var pad={l:50,r:20};var gw=W-pad.l-pad.r;
+  var idx=Math.floor((mx-pad.l)/(gw/DATA.length));
+  if(idx>=0&&idx<DATA.length){
+    selectedZ=DATA[idx].Z;
+    showElement(DATA[idx]);
+    draw();
+  }
+});
+
+function showElement(d){
+  document.getElementById('element-info').style.display='block';
+  document.getElementById('el-sym').textContent=d.sym;
+  document.getElementById('el-name').textContent=d.name+' — Z='+d.Z;
+  var h='';
+  var props=[
+    ['Ionization Energy',d.IE.toFixed(2)+' eV'],
+    ['Atomic Radius',d.r.toFixed(2)+' Å'],
+    ['vdW Radius',d.vdw.toFixed(2)+' Å'],
+    ['Electronegativity',d.EN.toFixed(2)],
+    ['Chemical Hardness',d.hard.toFixed(2)+' eV'],
+    ['Chemical Softness',d.soft.toFixed(3)+' 1/eV'],
+    ['Polarizability',d.alpha.toFixed(2)+' ų'],
+    ['Magnetic Moment',d.mag.toFixed(2)+' μB'],
+    ['Unpaired Electrons',d.unpaired],
+    ['Z_eff',d.Zeff.toFixed(2)],
+    ['n_eff',d.neff.toFixed(2)],
+    ['ρ(0)',d.rho0.toFixed(3)],
+  ];
+  props.forEach(function(p){
+    h+='<div class="prop"><span class="prop-label">'+p[0]+'</span><span class="prop-value">'+p[1]+'</span></div>';
+  });
+  document.getElementById('el-props').innerHTML=h;
+}
+
+// Combine
+var selA=document.getElementById('el-a'),selB=document.getElementById('el-b');
+DATA.forEach(function(d){
+  var o1=document.createElement('option');o1.value=d.Z;o1.textContent=d.sym+' ('+d.name+')';selA.appendChild(o1);
+  var o2=document.createElement('option');o2.value=d.Z;o2.textContent=d.sym+' ('+d.name+')';selB.appendChild(o2);
+});
+selA.value=11;selB.value=17;
+
+function combine(){
+  var a=DATA.find(function(d){return d.Z==selA.value;});
+  var b=DATA.find(function(d){return d.Z==selB.value;});
+  if(!a||!b)return;
+  var ENdiff=Math.abs(a.EN-b.EN);
+  var type,len;
+  if(a.EN===0||b.EN===0){type='no bond (noble gas)';len=0;}
+  else if(ENdiff>1.7){type='ionic';len=Math.min(a.r,b.r)*0.7+Math.max(a.r,b.r)*1.2;}
+  else if(ENdiff>0.4){type='polar covalent';len=a.r+b.r;}
+  else{type='covalent';len=a.r+b.r;}
+  var energy=(a.IE+b.IE)*0.15+1.3*ENdiff;
+  var typeColor=type==='ionic'?'#f4d990':type==='polar covalent'?'#4ECDC4':'#96CEB4';
+  if(type.indexOf('no bond')>=0)typeColor='#666';
+  var conduct=type==='ionic'?'conducts when dissolved':'does not conduct (solid)';
+  if(type==='covalent')conduct='does not conduct';
+  var h='<div class="bond-display">';
+  h+='<div class="bond-sym">'+a.sym+' — '+b.sym+'</div>';
+  h+='<div class="bond-type" style="color:'+typeColor+'">'+type+'</div>';
+  if(len>0){
+    h+='<div style="color:var(--dim);font-size:0.9em;margin:8px 0;">';
+    h+='Bond length: '+len.toFixed(2)+' Å<br>';
+    h+='Bond energy: ~'+energy.toFixed(1)+' eV<br>';
+    h+='ΔEN: '+ENdiff.toFixed(2)+'<br>';
+    h+='Conductivity: '+conduct;
+    h+='</div>';
+  }
+  h+='<div style="color:#555;font-size:0.75em;margin-top:8px;">From Z alone. No lookup tables. No molecular calculation.</div>';
+  h+='</div>';
+  document.getElementById('bond-result').innerHTML=h;
+}
+
+draw();
+selectedZ=6;showElement(DATA[5]);draw();
+</script>
+</body>
+</html>
