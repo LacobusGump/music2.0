@@ -348,6 +348,76 @@ const Emilia = (() => {
         return 'I hear you. Ask me about primes, factors, or frequencies.';
     }
 
+    // ─── Therapeutic Conductor ─────────────────────────
+    // Reads movement frequency → computes brain state → outputs correction
+
+    const BRAIN_BANDS = {
+        delta: { lo: 0.5, hi: 4, state: 'deep sleep' },
+        theta: { lo: 4, hi: 8, state: 'drowsy/creative' },
+        alpha: { lo: 8, hi: 13, state: 'relaxed aware' },
+        beta:  { lo: 13, hi: 30, state: 'focused/anxious' },
+        gamma: { lo: 30, hi: 100, state: 'binding/perception' },
+    };
+
+    // Movement frequency → inferred brain state
+    // Fast jerky movement → beta/anxiety
+    // Slow flowing movement → alpha/relaxed
+    // Stillness → delta/theta transition
+    // Moderate rhythmic → alpha sweet spot
+    function inferState(movementFreq, energy) {
+        if (energy < 0.05) return { band: 'delta', freq: 2, note: 'stillness → rest' };
+        if (energy < 0.15) return { band: 'theta', freq: 6, note: 'gentle → creative' };
+        if (movementFreq > 3) return { band: 'beta', freq: 20, note: 'fast → anxious' };
+        if (movementFreq > 1) return { band: 'alpha', freq: 10, note: 'rhythmic → flow' };
+        return { band: 'theta', freq: 5, note: 'slow → settling' };
+    }
+
+    // Target: the healthy band for the current context
+    // If anxious (beta), target alpha (10 Hz)
+    // If sleepy (theta) during day, target alpha-beta (12 Hz)
+    // If resting, let delta happen
+    function correction(currentState, context) {
+        const targets = {
+            'anxious':   { band: 'alpha', freq: 10, method: 'slow the rhythm' },
+            'unfocused': { band: 'beta',  freq: 16, method: 'sharpen the rhythm' },
+            'depressed': { band: 'alpha', freq: 10, method: 'break the lock, add syncopation' },
+            'pain':      { band: 'alpha', freq: 8,  method: 'sustained alpha drone' },
+            'insomnia':  { band: 'delta', freq: 2,  method: 'slow modulation' },
+            'cognitive':  { band: 'gamma', freq: 40, method: '40 Hz embedded pulse' },
+            'healthy':   { band: currentState.band, freq: currentState.freq, method: 'maintain' },
+        };
+        return targets[context] || targets['healthy'];
+    }
+
+    // Embed therapeutic frequency in music
+    // Don't play raw Hz — modulate the music's ENVELOPE at the target frequency
+    function therapeuticParams(targetFreq) {
+        return {
+            // Amplitude modulation at target frequency
+            amFreq: targetFreq,
+            amDepth: 0.15,  // subtle — felt not heard
+            // Filter modulation synced to target
+            filterLfoFreq: targetFreq / 4,
+            // Rhythm quantization toward target
+            rhythmBias: targetFreq,
+            // Haptic pulse (if available)
+            hapticFreq: Math.min(targetFreq, 20),
+        };
+    }
+
+    // Full therapeutic pipeline
+    function diagnoseAndCorrect(movementFreq, energy, context) {
+        const state = inferState(movementFreq, energy);
+        const target = correction(state, context || 'healthy');
+        const params = therapeuticParams(target.freq);
+        return {
+            currentState: state,
+            target: target,
+            params: params,
+            delta: target.freq - state.freq,
+        };
+    }
+
     // ─── Public API ───────────────────────────────────
     return {
         Z, Li, theta,
@@ -358,7 +428,13 @@ const Emilia = (() => {
         speak, mute, unmute, initVoice,
         chat,
         processLocally,
-        version: '1.0.0',
+        // Therapeutic
+        inferState,
+        correction,
+        therapeuticParams,
+        diagnoseAndCorrect,
+        BRAIN_BANDS,
+        version: '2.0.0',
         name: 'Harmonia'
     };
 })();
