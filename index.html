@@ -85,21 +85,10 @@ var beta=0,gamma2=0,accel=0;
 var hasSensors=false;
 var touchY=0.5; // touch position 0-1
 
-function initSensors(){
-  if(typeof DeviceMotionEvent!=='undefined'&&typeof DeviceMotionEvent.requestPermission==='function'){
-    DeviceMotionEvent.requestPermission().then(function(r){
-      if(r==='granted')bindSensors();
-    }).catch(function(){});
-  } else {
-    bindSensors();
-  }
-  // Fallback: if no sensor data in 2s, rely on touch
-  setTimeout(function(){
-    if(!hasSensors)console.log('No sensors — touch mode');
-  },2000);
-}
-
-function bindSensors(){
+var sensorsAdded=false;
+function addSensorListeners(){
+  if(sensorsAdded)return;
+  sensorsAdded=true;
   addEventListener('deviceorientation',function(e){
     if(e.beta!==null){hasSensors=true;beta=e.beta||0;gamma2=e.gamma||0;}
   });
@@ -109,6 +98,61 @@ function bindSensors(){
       hasSensors=true;
       var mag=Math.sqrt((a.x||0)*(a.x||0)+(a.y||0)*(a.y||0)+(a.z||0)*(a.z||0));
       accel=Math.abs(mag-9.8);
+    }
+  });
+}
+
+function initSensors(){
+  // Port of battle-tested iOS permission from sensor.js
+  var needsRequest=typeof DeviceMotionEvent!=='undefined'&&
+    typeof DeviceMotionEvent.requestPermission==='function';
+
+  if(!needsRequest){
+    // Android / desktop — just add listeners
+    addSensorListeners();
+    return;
+  }
+
+  // Chrome iOS: requestPermission lies. Add listeners first, check if events arrive.
+  var isChrome=/CriOS/.test(navigator.userAgent||'');
+  if(isChrome){
+    addSensorListeners();
+    var countBefore=hasSensors;
+    setTimeout(function(){
+      if(!hasSensors){
+        // No events. Try requestPermission as last resort.
+        DeviceMotionEvent.requestPermission().then(function(r){
+          if(r==='granted')addSensorListeners();
+        }).catch(function(){});
+      }
+    },2000);
+    return;
+  }
+
+  // Safari iOS: request both permissions. MUST be in user gesture (we are — this is the tap handler).
+  function withTimeout(p,ms){
+    return Promise.race([p,new Promise(function(r){setTimeout(function(){r('timeout');},ms);})]);
+  }
+
+  var motionP=withTimeout(
+    DeviceMotionEvent.requestPermission().catch(function(){return 'error';}),
+    5000
+  );
+
+  var orientP;
+  if(typeof DeviceOrientationEvent!=='undefined'&&
+     typeof DeviceOrientationEvent.requestPermission==='function'){
+    orientP=withTimeout(
+      DeviceOrientationEvent.requestPermission().catch(function(){return 'error';}),
+      5000
+    );
+  } else {
+    orientP=Promise.resolve('granted');
+  }
+
+  Promise.all([motionP,orientP]).then(function(results){
+    if(results[0]==='granted'||results[1]==='granted'){
+      addSensorListeners();
     }
   });
 }
@@ -291,27 +335,35 @@ function updateAudio(){
 function step(){
   t+=0.016;
 
-  // Input → K: sensors if available, touch always
+  // Input → K: tilt magnitude IS the coupling
   if(hasSensors){
     var tiltMag=Math.sqrt(beta*beta+gamma2*gamma2)/90;
-    var motionK=tiltMag*2.5+accel*0.3;
-    sensorK+=(motionK-sensorK)*0.1;
+    var motionK=tiltMag*3.5+accel*0.4;
+    sensorK+=(motionK-sensorK)*0.08; // water bottle smoothing
   }
-  // Touch always contributes (finger position = K)
-  var touchK=touchY*4; // 0 at bottom, 4 at top
-  // Blend: sensors + touch, whichever is higher wins
+  var touchK=touchY*4;
   var inputK=Math.max(hasSensors?sensorK:0, touchK);
   Ktarget=Math.max(0,Math.min(5,inputK));
+
+  // THE HUMAN AS 138TH OSCILLATOR
+  // Body's tilt angle enters the lattice as a phase
+  // The lattice couples TO the human's rhythm
+  var humanPhase=Math.atan2(gamma2,Math.max(beta,1))*2; // tilt → phase
+  // Inject human phase into the mean field
+  // This makes the machine ENTRAIN with the player
   Kvel+=(Ktarget-K)*0.06;
   Kvel*=0.85; // damping — water bottle
   K+=Kvel;
   K=Math.max(0,Math.min(5,K));
 
-  // Kuramoto step
+  // Kuramoto step — with human as 138th node
   var dt=0.016;
   var mre=0,mim=0;
   for(var i=0;i<N;i++){mre+=Math.cos(phases[i]);mim+=Math.sin(phases[i]);}
-  mre/=N;mim/=N;
+  // Add human phase to the mean field (weighted by K — stronger coupling = more human influence)
+  var humanWeight=K*0.3; // human's voice in the lattice
+  mre=(mre+Math.cos(humanPhase)*humanWeight)/(N+humanWeight);
+  mim=(mim+Math.sin(humanPhase)*humanWeight)/(N+humanWeight);
   var mp=Math.atan2(mim,mre);
 
   for(var i=0;i<N;i++){
@@ -320,6 +372,8 @@ function step(){
     var nn=nbrL[i];
     for(var j=0;j<nn.length;j++)c+=0.5*Math.sin(phases[nn[j]]-phases[i]);
     c/=Math.max(1,nn.length+1);
+    // Human coupling: each node also couples toward the human
+    c+=0.3*Math.sin(humanPhase-phases[i]);
     phases[i]+=dt*(omega+K*c);
   }
 
