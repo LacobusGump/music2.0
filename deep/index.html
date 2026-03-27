@@ -4,578 +4,236 @@
 <meta http-equiv="cache-control" content="no-cache, must-revalidate">
 <meta http-equiv="expires" content="0">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Deep — Spectral Density</title>
+<title>Deep</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;}
 body{background:#000;overflow:hidden;touch-action:none;}
 canvas{display:block;width:100vw;height:100vh;touch-action:none;}
-#label{position:fixed;bottom:12px;left:50%;transform:translateX(-50%);
-  color:#ffffff0a;font:10px Georgia;z-index:10;pointer-events:none;}
+#whisper{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);
+  color:#ffffff06;font:11px Georgia;z-index:10;pointer-events:none;}
 </style>
 </head>
 <body>
 <canvas id="C"></canvas>
-<input id="q" style="position:fixed;top:16px;left:50%;transform:translateX(-50%);width:min(70vw,300px);
-  background:transparent;border:1px solid #ffffff08;color:#c9a44a40;
-  font:0.9em Georgia;padding:8px 16px;border-radius:20px;outline:none;text-align:center;z-index:10;
-  transition:all 0.4s;"
-  placeholder="search element..."
-  onfocus="this.style.background='#000000cc';this.style.borderColor='#c9a44a40';this.style.color='#e8e4dc';"
-  onblur="if(!this.value){this.style.background='transparent';this.style.borderColor='#ffffff08';this.style.color='#c9a44a40';}"
-  oninput="deepSearch(this.value)" autocomplete="off">
-<div id="label"><span id="fps"></span> · <span id="pcount"></span> particles · pure canvas · no libraries</div>
-<div id="mode-label" style="position:fixed;top:56px;left:50%;transform:translateX(-50%);
-  color:#c9a44a30;font:12px Georgia;z-index:10;pointer-events:none;letter-spacing:0.15em;"></div>
-<div id="info-panel" style="position:fixed;bottom:44px;left:50%;transform:translateX(-50%);
-  max-width:min(90vw,500px);text-align:center;z-index:10;pointer-events:none;">
-  <div id="info-sym" style="font:2.5em Georgia;color:#c9a44a;font-weight:200;"></div>
-  <div id="info-name" style="font:0.9em Georgia;color:#666;"></div>
-  <div id="info-props" style="font:0.8em Georgia;color:#444;margin-top:4px;"></div>
-</div>
-<div id="scene-desc" style="position:fixed;bottom:44px;left:50%;transform:translateX(-50%);
-  max-width:min(90vw,500px);text-align:center;z-index:10;pointer-events:none;">
-</div>
+<div id="whisper">pinch to zoom · drag to look</div>
 <script>
 var cv=document.getElementById('C'),cx=cv.getContext('2d');
 var W,H,DPR;
 function resize(){DPR=devicePixelRatio||1;W=cv.width=innerWidth*DPR;H=cv.height=innerHeight*DPR;cx.setTransform(DPR,0,0,DPR,0,0);}
 resize();addEventListener('resize',resize);
-var w,h,t=0,mouseX=0.5,mouseY=0.5;
-var state={anim:0,lastFrame:0};
+
+var w,h,t=0,mouseX=0.5,mouseY=0.5,zoom=1;
 addEventListener('mousemove',function(e){mouseX=e.clientX/innerWidth;mouseY=e.clientY/innerHeight;});
-addEventListener('touchmove',function(e){mouseX=e.touches[0].clientX/innerWidth;mouseY=e.touches[0].clientY/innerHeight;});
+var lastTD=0;
+cv.addEventListener('touchstart',function(e){e.preventDefault();
+  if(e.touches.length===2){var dx=e.touches[0].clientX-e.touches[1].clientX,dy=e.touches[0].clientY-e.touches[1].clientY;lastTD=Math.sqrt(dx*dx+dy*dy);}
+  if(e.touches.length===1){mouseX=e.touches[0].clientX/innerWidth;mouseY=e.touches[0].clientY/innerHeight;}
+},{passive:false});
+cv.addEventListener('touchmove',function(e){e.preventDefault();
+  if(e.touches.length===2){var dx=e.touches[0].clientX-e.touches[1].clientX,dy=e.touches[0].clientY-e.touches[1].clientY,d=Math.sqrt(dx*dx+dy*dy);
+    if(lastTD>0){zoom*=d/lastTD;zoom=Math.max(0.3,Math.min(8,zoom));}lastTD=d;}
+  if(e.touches.length===1){mouseX=e.touches[0].clientX/innerWidth;mouseY=e.touches[0].clientY/innerHeight;}
+},{passive:false});
+cv.addEventListener('touchend',function(e){e.preventDefault();lastTD=0;},{passive:false});
+cv.addEventListener('wheel',function(e){e.preventDefault();zoom*=e.deltaY>0?0.93:1.07;zoom=Math.max(0.3,Math.min(8,zoom));},{passive:false});
 
-// ═══ CONDUCTOR (needed for element search) ═══
-var CONFIGS={1:[[1,0,1]],2:[[1,0,2]],3:[[1,0,2],[2,0,1]],4:[[1,0,2],[2,0,2]],
-5:[[1,0,2],[2,0,2],[2,1,1]],6:[[1,0,2],[2,0,2],[2,1,2]],7:[[1,0,2],[2,0,2],[2,1,3]],
-8:[[1,0,2],[2,0,2],[2,1,4]],9:[[1,0,2],[2,0,2],[2,1,5]],10:[[1,0,2],[2,0,2],[2,1,6]],
-11:[[1,0,2],[2,0,2],[2,1,6],[3,0,1]],12:[[1,0,2],[2,0,2],[2,1,6],[3,0,2]],
-13:[[1,0,2],[2,0,2],[2,1,6],[3,0,2],[3,1,1]],14:[[1,0,2],[2,0,2],[2,1,6],[3,0,2],[3,1,2]],
-15:[[1,0,2],[2,0,2],[2,1,6],[3,0,2],[3,1,3]],16:[[1,0,2],[2,0,2],[2,1,6],[3,0,2],[3,1,4]],
-17:[[1,0,2],[2,0,2],[2,1,6],[3,0,2],[3,1,5]],18:[[1,0,2],[2,0,2],[2,1,6],[3,0,2],[3,1,6]],
-19:[[1,0,2],[2,0,2],[2,1,6],[3,0,2],[3,1,6],[4,0,1]],20:[[1,0,2],[2,0,2],[2,1,6],[3,0,2],[3,1,6],[4,0,2]]};
-var SYMS={1:'H',2:'He',3:'Li',4:'Be',5:'B',6:'C',7:'N',8:'O',9:'F',10:'Ne',
-11:'Na',12:'Mg',13:'Al',14:'Si',15:'P',16:'S',17:'Cl',18:'Ar',19:'K',20:'Ca'};
-var NAMES={1:'Hydrogen',2:'Helium',3:'Lithium',4:'Beryllium',5:'Boron',6:'Carbon',
-7:'Nitrogen',8:'Oxygen',9:'Fluorine',10:'Neon',11:'Sodium',12:'Magnesium',
-13:'Aluminium',14:'Silicon',15:'Phosphorus',16:'Sulfur',17:'Chlorine',18:'Argon',
-19:'Potassium',20:'Calcium'};
-function calc(Z){
-  var c=CONFIGS[Z];if(!c)return null;
-  var v=c[c.length-1],vn=v[0],vl=v[1],vc=v[2],sh=0;
-  for(var i=0;i<c.length;i++){var n=c[i][0],l=c[i][1],cnt=c[i][2];
-    if(n===vn&&l===vl){var s=n===1?0.3:(0.35+0.06*Math.max(0,cnt-2));sh+=s*(cnt-1);}
-    else if(n===vn)sh+=0.85*cnt;else if(n===vn-1){if(vl===0)sh+=0.85*cnt;
-    else{var ti=0;for(var j=0;j<c.length;j++)if(c[j][0]===n)ti+=c[j][2];sh+=(0.85+0.015*Math.max(0,ti-2))*cnt;}}
-    else sh+=cnt;}
-  var Zf=Math.max(.1,Z-sh),ne=vn;
-  if(vl===1)ne=vn+.4+.12*(vc-1);else if(vl===0&&vc===2&&vn>1)ne=vn+.15;
-  var r=ne*ne/Zf,rA=r*.529,IE=13.6*Zf*Zf/(ne*ne),ms=2*vl+1;
-  if(vc===ms&&vl>0)IE+=1.1;if(vc===ms+1&&vl>0)IE-=1.6;
-  if(vc>1&&vc<=ms&&vl>0)IE+=(vc-1)*.2;if(vl===0&&vc===2)IE-=1.5;
-  var u=Math.min(vc,ms)-Math.max(0,vc-ms);
-  return{Z:Z,sym:SYMS[Z],name:NAMES[Z],Zeff:Zf,neff:ne,IE:IE,r:rA,
-    EN:Math.min(4,.359*Zf/(r*r)*10+.744),unpaired:u};}
-
-// ═══ 3D ENGINE — pure math, no libraries ═══
 function rotY(x,y,z,a){var c=Math.cos(a),s=Math.sin(a);return[x*c+z*s,y,-x*s+z*c];}
 function rotX(x,y,z,a){var c=Math.cos(a),s=Math.sin(a);return[x,y*c-z*s,y*s+z*c];}
-function project(x,y,z,cx0,cy0,fov){var f=fov/(fov+z+5);return[cx0+x*f,cy0+y*f,f];}
+function proj(x,y,z,cx0,cy0,fov){var f=fov/(fov+z+8);return[cx0+x*f,cy0+y*f,f];}
 
-// ═══ PARTICLE SYSTEMS ═══
-var N=4000;
-var particles=[];
+// ═══ THE BLOOM ═══
+var P=[];  // particles
+var phase=0;
+var MAX=5000;
 
-// Orbital shells — electrons in probability clouds
-function initAtom(){
-  particles=[];
-  // Nucleus
-  for(var i=0;i<50;i++){
-    var a=Math.random()*Math.PI*2,b=Math.random()*Math.PI;
-    var r=Math.random()*0.3;
-    particles.push({x:Math.sin(b)*Math.cos(a)*r,y:Math.sin(b)*Math.sin(a)*r,z:Math.cos(b)*r,
-      type:'nucleus',vx:0,vy:0,vz:0,life:1});
-  }
-  // 1s orbital (spherical cloud)
-  for(var i=0;i<600;i++){
-    var r=1+Math.random()*0.8;
-    var a=Math.random()*Math.PI*2,b=Math.random()*Math.PI;
-    particles.push({x:Math.sin(b)*Math.cos(a)*r,y:Math.sin(b)*Math.sin(a)*r,z:Math.cos(b)*r,
-      type:'1s',vx:(Math.random()-0.5)*0.01,vy:(Math.random()-0.5)*0.01,vz:(Math.random()-0.5)*0.01,
-      orbit:r,angle_a:a,angle_b:b,speed:0.3+Math.random()*0.2,life:1});
-  }
-  // 2s orbital (larger sphere with node)
-  for(var i=0;i<600;i++){
-    var r=2.2+Math.random()*1.0;
-    var a=Math.random()*Math.PI*2,b=Math.random()*Math.PI;
-    // Node at r≈1.5 — probability dip
-    var nodeR=1.8;var prob=Math.abs(r-nodeR)>0.3?1:0.1;
-    if(Math.random()>prob)continue;
-    particles.push({x:Math.sin(b)*Math.cos(a)*r,y:Math.sin(b)*Math.sin(a)*r,z:Math.cos(b)*r,
-      type:'2s',orbit:r,angle_a:a,angle_b:b,speed:0.15+Math.random()*0.1,life:1});
-  }
-  // 2p orbital (dumbbell shape along y-axis)
-  for(var i=0;i<800;i++){
-    var r=1.5+Math.random()*1.5;
-    var a=Math.random()*Math.PI*2;
-    var y_sign=Math.random()>0.5?1:-1;
-    var y_dist=Math.random()*r;
-    var xz_r=Math.sqrt(Math.max(0,r*r-y_dist*y_dist))*0.3;
-    particles.push({x:Math.cos(a)*xz_r,y:y_sign*y_dist,z:Math.sin(a)*xz_r,
-      type:'2p',orbit:r,angle_a:a,speed:0.2+Math.random()*0.15,life:1});
-  }
-  // 2p orbital (dumbbell along x-axis)
-  for(var i=0;i<800;i++){
-    var r=1.5+Math.random()*1.5;
-    var a=Math.random()*Math.PI*2;
-    var x_sign=Math.random()>0.5?1:-1;
-    var x_dist=Math.random()*r;
-    var yz_r=Math.sqrt(Math.max(0,r*r-x_dist*x_dist))*0.3;
-    particles.push({x:x_sign*x_dist,y:Math.cos(a)*yz_r,z:Math.sin(a)*yz_r,
-      type:'2px',orbit:r,angle_a:a,speed:0.18+Math.random()*0.12,life:1});
-  }
-  // Wave function ripples (the field)
-  for(var i=0;i<1000;i++){
-    var r=3+Math.random()*4;
-    var a=Math.random()*Math.PI*2,b=Math.random()*Math.PI;
-    particles.push({x:Math.sin(b)*Math.cos(a)*r,y:Math.sin(b)*Math.sin(a)*r,z:Math.cos(b)*r,
-      type:'field',orbit:r,angle_a:a,angle_b:b,speed:0.05+Math.random()*0.05,
-      phase:Math.random()*Math.PI*2,life:1});
-  }
-  // Photon streams (energy coming in/out)
-  for(var i=0;i<150;i++){
-    var z_start=-8+Math.random()*16;
-    particles.push({x:(Math.random()-0.5)*0.3,y:(Math.random()-0.5)*0.3,z:z_start,
-      type:'photon',vz:0.05+Math.random()*0.05,life:1,phase:Math.random()*Math.PI*2});
+function add(n,type,spread){
+  for(var i=0;i<n;i++){
+    var a=Math.random()*Math.PI*2,b=Math.random()*Math.PI,r=Math.random()*spread;
+    P.push({x:0,y:0,z:0,
+      tx:Math.sin(b)*Math.cos(a)*r,ty:Math.sin(b)*Math.sin(a)*r,tz:Math.cos(b)*r,
+      type:type,life:0,a:a,b:b,r:r,spd:0.01+Math.random()*0.03,sz:0.8+Math.random()*0.5});
   }
 }
 
-// ═══ SCENE MODES — fold the idea ═══
-var sceneMode=0;
-var SCENES=['atom','dna','galaxy','wave','life'];
-var sceneTimer=0;
-var transitionAlpha=1;
+function bloom(){
+  phase+=0.002; // ~60 seconds to full bloom
+  var p=phase;
 
-function initScene(mode){
-  particles=[];
-  transitionAlpha=0;
+  // 0-1: darkness → a point of light
+  if(p>0.3&&P.length<5) add(3,'origin',0.02);
 
-  if(mode==='atom'){
-    initAtom();
-  }
-  else if(mode==='dna'){
-    // DNA double helix — two strands spiraling
-    for(var i=0;i<2000;i++){
-      var t_pos=i/2000*Math.PI*12;  // 6 full turns
-      var strand=i%2;
-      var r=1.5;
-      var x=Math.cos(t_pos+strand*Math.PI)*r;
-      var z=Math.sin(t_pos+strand*Math.PI)*r;
-      var y=(i/2000-0.5)*8;
-      particles.push({x:x,y:y,z:z,type:strand?'2p':'2px',
-        orbit:t_pos,speed:0.1,life:1,angle_a:t_pos});
-      // Base pairs connecting strands (every ~20 particles)
-      if(i%40<2&&strand===0){
-        for(var j=0;j<10;j++){
-          var frac=j/9;
-          var bx=Math.cos(t_pos)*r*(1-frac*2);
-          var bz=Math.sin(t_pos)*r*(1-frac*2);
-          var col=((i/40)%4<2)?'1s':'2s';  // AT vs GC pairs = different colors
-          particles.push({x:bx,y:y,z:bz,type:col,orbit:0,speed:0,life:0.8,angle_a:0,angle_b:0});
-        }
-      }
-    }
-    // Ambient field
-    for(var i=0;i<500;i++){
-      var r=3+Math.random()*3;var a=Math.random()*Math.PI*2;var b=Math.random()*Math.PI;
-      particles.push({x:Math.sin(b)*Math.cos(a)*r,y:(Math.random()-0.5)*10,z:Math.sin(b)*Math.sin(a)*r,
-        type:'field',orbit:r,angle_a:a,angle_b:b,speed:0.03,phase:Math.random()*Math.PI*2,life:0.5});
-    }
-  }
-  else if(mode==='galaxy'){
-    // Spiral galaxy — the large-scale structure
-    for(var i=0;i<3000;i++){
-      var arm=i%3;  // 3 spiral arms
-      var dist=Math.random()*5;
-      var angle=dist*1.5+arm*Math.PI*2/3+Math.random()*0.3;
-      var x=Math.cos(angle)*dist;
-      var z=Math.sin(angle)*dist;
-      var y=(Math.random()-0.5)*0.3*(1+dist*0.2);  // thin disk, thicker at edges
-      var type=dist<0.5?'nucleus':dist<2?'1s':dist<3.5?'2s':'field';
-      particles.push({x:x,y:y,z:z,type:type,orbit:dist,angle_a:angle,
-        speed:0.5/(dist+0.5),life:Math.random(),angle_b:0,phase:0});
-    }
-    // Central black hole glow
-    for(var i=0;i<200;i++){
-      var r=Math.random()*0.4;var a=Math.random()*Math.PI*2;
-      particles.push({x:Math.cos(a)*r,y:(Math.random()-0.5)*0.1,z:Math.sin(a)*r,
-        type:'photon',vz:0,life:2,phase:a});
-    }
-  }
-  else if(mode==='wave'){
-    // Standing wave — the Schrödinger equation visualized
-    for(var i=0;i<3000;i++){
-      var x=(i/3000-0.5)*10;
-      var n=Math.floor(Math.random()*4)+1;  // quantum number
-      var psi=Math.sin(n*Math.PI*(x/10+0.5));
-      var y=psi*(1+Math.random()*0.3);
-      var z=(Math.random()-0.5)*0.5;
-      var type=n===1?'1s':n===2?'2s':n===3?'2p':'2px';
-      particles.push({x:x,y:y,z:z,type:type,orbit:n,speed:0.1*n,
-        life:Math.abs(psi),angle_a:x,angle_b:0,phase:0});
-    }
-    // Potential walls
-    for(var i=0;i<200;i++){
-      var side=i%2?-5:5;
-      particles.push({x:side,y:(i/200-0.5)*4,z:(Math.random()-0.5)*0.5,
-        type:'photon',vz:0,life:1,phase:0});
-    }
-  }
-  else if(mode==='life'){
-    // Cell — membrane + organelles
-    // Membrane (spherical shell)
-    for(var i=0;i<1500;i++){
+  // 1-2: point splits into harmonics
+  if(p>1&&P.length<30) add(12,'harmonic',0.01);
+
+  // 2-3: harmonics → atom (orbitals form)
+  if(p>2&&P.length<500){
+    for(var i=0;i<6;i++){
+      var sh=Math.random()>0.5?2:1, r_=sh*0.7+Math.random()*0.3;
       var a=Math.random()*Math.PI*2,b=Math.random()*Math.PI;
-      var r=3+Math.random()*0.15;
-      particles.push({x:Math.sin(b)*Math.cos(a)*r,y:Math.sin(b)*Math.sin(a)*r,z:Math.cos(b)*r,
-        type:'2px',orbit:r,angle_a:a,angle_b:b,speed:0.02,life:0.6,phase:0});
+      P.push({x:0,y:0,z:0,tx:Math.sin(b)*Math.cos(a)*r_,ty:Math.sin(b)*Math.sin(a)*r_,tz:Math.cos(b)*r_,
+        type:sh===1?'s1':'s2',life:0,a:a,b:b,r:r_,spd:0.02+Math.random()*0.02,sz:1.1});
     }
-    // Nucleus (inner sphere)
-    for(var i=0;i<500;i++){
-      var a=Math.random()*Math.PI*2,b=Math.random()*Math.PI;
-      var r=1+Math.random()*0.3;
-      particles.push({x:Math.sin(b)*Math.cos(a)*r,y:Math.sin(b)*Math.sin(a)*r,z:Math.cos(b)*r,
-        type:'nucleus',orbit:r,angle_a:a,angle_b:b,speed:0.01,life:1,phase:0});
-    }
-    // Mitochondria (small ellipsoids scattered)
-    for(var m=0;m<5;m++){
-      var mx=Math.cos(m*Math.PI*2/5)*2,mz=Math.sin(m*Math.PI*2/5)*2,my=(Math.random()-0.5);
-      for(var i=0;i<100;i++){
-        var a=Math.random()*Math.PI*2;
-        particles.push({x:mx+Math.cos(a)*0.4,y:my+Math.sin(a)*0.2,z:mz+(Math.random()-0.5)*0.3,
-          type:'2s',orbit:0,speed:0.05,life:0.8,angle_a:a,angle_b:0,phase:0});
-      }
-    }
-    // ER (ribbons)
-    for(var i=0;i<500;i++){
-      var t_pos=i/500*Math.PI*6;
-      var r=1.5+Math.sin(t_pos*3)*0.5;
-      particles.push({x:Math.cos(t_pos)*r,y:Math.sin(t_pos*0.7)*0.5,z:Math.sin(t_pos)*r,
-        type:'1s',orbit:r,speed:0.03,life:0.4,angle_a:t_pos,angle_b:0,phase:0});
-    }
-    // Free particles (cytoplasm)
-    for(var i=0;i<400;i++){
-      var r=Math.random()*2.8;var a=Math.random()*Math.PI*2;var b=Math.random()*Math.PI;
-      particles.push({x:Math.sin(b)*Math.cos(a)*r,y:Math.sin(b)*Math.sin(a)*r,z:Math.cos(b)*r,
-        type:'field',orbit:r,angle_a:a,angle_b:b,speed:0.05+Math.random()*0.05,
-        phase:Math.random()*Math.PI*2,life:0.2});
+    if(p>2.5&&P.length<800){
+      var ax=Math.floor(Math.random()*3),sign=Math.random()>0.5?1:-1,d=1.3+Math.random()*0.6;
+      var px=ax===0?sign*d:(Math.random()-0.5)*0.25;
+      var py=ax===1?sign*d:(Math.random()-0.5)*0.25;
+      var pz=ax===2?sign*d:(Math.random()-0.5)*0.25;
+      P.push({x:0,y:0,z:0,tx:px,ty:py,tz:pz,type:'plobe',life:0,a:Math.atan2(py,px),b:0,r:d,spd:0.015,sz:1});
     }
   }
+
+  // 3-4: second atom arrives, bond forms
+  if(p>3&&P.length<1800){
+    for(var i=0;i<4;i++){
+      var a=Math.random()*Math.PI*2,b=Math.random()*Math.PI,r_=Math.random()*0.8;
+      var offset=3.5-Math.min(p-3,1)*1.5; // atoms approach
+      P.push({x:offset,y:0,z:0,tx:offset+Math.sin(b)*Math.cos(a)*r_,ty:Math.sin(b)*Math.sin(a)*r_,tz:Math.cos(b)*r_,
+        type:'atom2',life:0,a:a,b:b,r:r_,spd:0.025,sz:1});
+    }
+    if(p>3.4){
+      var bx=1+Math.random()*0.5;
+      P.push({x:bx,y:(Math.random()-0.5)*0.15,z:(Math.random()-0.5)*0.15,
+        tx:bx,ty:0,tz:0,type:'bond',life:0,a:0,b:0,r:0,spd:0.01,sz:0.6});
+    }
+  }
+
+  // 4-5: molecule → DNA helix
+  if(p>4&&P.length<3200){
+    for(var i=0;i<3;i++){
+      var tt=P.length*0.025,strand=i%2,r_=1;
+      var hx=Math.cos(tt+strand*Math.PI)*r_;
+      var hy=(P.length/3200-0.5)*5*(p-4);
+      var hz=Math.sin(tt+strand*Math.PI)*r_;
+      P.push({x:0,y:0,z:0,tx:hx,ty:hy,tz:hz,
+        type:strand?'dna_a':'dna_b',life:0,a:tt,b:strand*Math.PI,r:r_,spd:0.03,sz:0.9});
+    }
+  }
+
+  // 5-6: DNA → cell membrane
+  if(p>5&&P.length<4500){
+    for(var i=0;i<2;i++){
+      var a=Math.random()*Math.PI*2,b=Math.random()*Math.PI,r_=3.2+Math.random()*0.15;
+      P.push({x:0,y:0,z:0,tx:Math.sin(b)*Math.cos(a)*r_,ty:Math.sin(b)*Math.sin(a)*r_,tz:Math.cos(b)*r_,
+        type:'membrane',life:0,a:a,b:b,r:r_,spd:0.01,sz:0.8});
+    }
+  }
+
+  // UPDATE all particles
+  var breath=Math.sin(t*0.6)*0.04;
+  for(var i=0;i<P.length;i++){
+    var pt=P[i];
+
+    // Fade in
+    if(pt.life<1){
+      var fadeTarget=1;
+      if(pt.type==='harmonic'&&p>2.5)fadeTarget=0; // harmonics dissolve into atom
+      if((pt.type==='s1'||pt.type==='s2'||pt.type==='plobe')&&p>4.5)fadeTarget=Math.max(0,1-(p-4.5)*2);
+      if((pt.type==='atom2'||pt.type==='bond')&&p>4.5)fadeTarget=Math.max(0,1-(p-4.5)*2);
+      pt.life+=(fadeTarget-pt.life)*0.03;
+    }
+
+    // Spring toward target
+    pt.x+=(pt.tx-pt.x)*0.03;
+    pt.y+=(pt.ty-pt.y)*0.03;
+    pt.z+=(pt.tz-pt.z)*0.03;
+
+    // Orbital motion for atom particles
+    if(pt.type==='s1'||pt.type==='s2'){
+      pt.a+=pt.spd;
+      var or=pt.type==='s1'?0.7:1.4;
+      or+=Math.sin(t*pt.spd*2+pt.b)*0.08+breath;
+      pt.tx=Math.sin(pt.b+pt.a*0.3)*Math.cos(pt.a)*or;
+      pt.ty=Math.sin(pt.b+pt.a*0.3)*Math.sin(pt.a)*or;
+      pt.tz=Math.cos(pt.b+pt.a*0.3)*or;
+    }
+    if(pt.type==='plobe') pt.a+=pt.spd*0.4;
+
+    // Helix rotation
+    if(pt.type==='dna_a'||pt.type==='dna_b'){
+      pt.a+=0.004;
+      var r_=1+breath;
+      pt.tx=Math.cos(pt.a+pt.b)*r_;
+      pt.tz=Math.sin(pt.a+pt.b)*r_;
+    }
+
+    // Membrane breathing
+    if(pt.type==='membrane'&&p>6){
+      var mr=3.2+breath;
+      pt.tx=Math.sin(pt.b)*Math.cos(pt.a)*mr;
+      pt.ty=Math.sin(pt.b)*Math.sin(pt.a)*mr;
+      pt.tz=Math.cos(pt.b)*mr;
+    }
+
+    // Harmonic expansion
+    if(pt.type==='harmonic'&&p<3){
+      var prog=Math.min(1,(p-1));
+      var n=Math.floor(pt.a/(Math.PI*2)*4)+1;
+      var tr=prog*n*0.6;
+      pt.tx=Math.cos(pt.a)*tr;
+      pt.ty=Math.sin(n*Math.PI*prog)*tr*0.4;
+      pt.tz=Math.sin(pt.a)*tr;
+    }
+
+    // Origin glow
+    if(pt.type==='origin') pt.life=Math.min(1,(p-0.3)*3);
+  }
+
+  // Cull
+  if(P.length>MAX) P=P.filter(function(pt){return pt.life>0.008;});
 }
 
-var SCENE_TITLE={
-  atom:'Inside an Atom',
-  dna:'Inside DNA',
-  galaxy:'A Galaxy',
-  wave:'A Quantum Wave',
-  life:'Inside a Living Cell'
-};
-var SCENE_DESC={
-  atom:'Each dot is where an electron might be found right now. The gold cloud stays close. The green cloud reaches further. The colored lobes are where chemistry happens.',
-  dna:'Two strands twisted around each other. The bridges between them are the letters of the genetic code. Every living thing runs on this.',
-  galaxy:'Billions of stars held together by gravity, spinning. The bright center is where the oldest stars live.',
-  wave:'Energy trapped between walls can only vibrate at certain frequencies. These are the allowed shapes. Nothing in between exists.',
-  life:'A bag of water and protein, somehow alive. The bright core holds the DNA. The small clusters are the power plants. The ribbons build the proteins.'
+// ═══ COLORS ═══
+var COLORS={
+  origin:[220,195,150], harmonic:[200,175,130],
+  s1:[175,155,115], s2:[115,160,135], plobe:[95,130,165],
+  atom2:[165,135,115], bond:[210,195,160],
+  dna_a:[170,148,105], dna_b:[110,155,125],
+  membrane:[145,115,130]
 };
 
-function updateSceneLabel(name){
-  var title=SCENE_TITLE[name]||name;
-  var desc=SCENE_DESC[name]||'';
-  document.getElementById('mode-label').innerHTML=
-    '<div style="color:#c9a44a60;font:18px Georgia;font-weight:300;letter-spacing:0.05em;">'+title+'</div>';
-  document.getElementById('scene-desc').innerHTML=
-    '<div style="color:#ffffff18;font:12px Georgia;line-height:1.6;max-width:350px;margin:0 auto;">'+desc+'</div>';
-  document.getElementById('info-panel').style.display='none';
-}
-
-function nextScene(){
-  sceneMode=(sceneMode+1)%SCENES.length;
-  initScene(SCENES[sceneMode]);
-  updateSceneLabel(SCENES[sceneMode]);
-}
-
-// Double-click to switch scenes (single click reserved for zoom)
-cv.addEventListener('dblclick',nextScene);
-
-// ═══ ZOOM — scroll or pinch ═══
-var zoom=1;
-cv.addEventListener('wheel',function(e){
-  e.preventDefault();
-  zoom*=e.deltaY>0?0.92:1.08;
-  zoom=Math.max(0.2,Math.min(5,zoom));
-},{passive:false});
-
-var lastTouchDist=0;
-cv.addEventListener('touchstart',function(e){
-  e.preventDefault();
-  if(e.touches.length===2){
-    var dx=e.touches[0].clientX-e.touches[1].clientX;
-    var dy=e.touches[0].clientY-e.touches[1].clientY;
-    lastTouchDist=Math.sqrt(dx*dx+dy*dy);
-  }
-  if(e.touches.length===1){
-    mouseX=e.touches[0].clientX/innerWidth;
-    mouseY=e.touches[0].clientY/innerHeight;
-  }
-},{passive:false});
-cv.addEventListener('touchmove',function(e){
-  e.preventDefault();
-  if(e.touches.length===2){
-    var dx=e.touches[0].clientX-e.touches[1].clientX;
-    var dy=e.touches[0].clientY-e.touches[1].clientY;
-    var dist=Math.sqrt(dx*dx+dy*dy);
-    if(lastTouchDist>0){zoom*=dist/lastTouchDist;zoom=Math.max(0.2,Math.min(5,zoom));}
-    lastTouchDist=dist;
-  }
-  if(e.touches.length===1){
-    mouseX=e.touches[0].clientX/innerWidth;
-    mouseY=e.touches[0].clientY/innerHeight;
-  }
-},{passive:false});
-cv.addEventListener('touchend',function(e){e.preventDefault();},{passive:false});
-
-// ═══ DEEP SEARCH — type an element, see its REAL orbitals ═══
-var SYM2Z_DEEP={};
-for(var z in SYMS){SYM2Z_DEEP[SYMS[z]]=+z;SYM2Z_DEEP[NAMES[z].toLowerCase()]=+z;}
-
-function deepSearch(q){
-  q=q.trim();if(!q)return;
-  var ql=q.toLowerCase(),qc=q.charAt(0).toUpperCase()+q.slice(1).toLowerCase();
-  var Z=SYM2Z_DEEP[q]||SYM2Z_DEEP[qc]||SYM2Z_DEEP[ql];
-  if(!Z||!CONFIGS[Z])return;
-
-  // Build this element's REAL orbital structure
-  var config=CONFIGS[Z];
-  var el=calc(Z);
-  buildElementScene(Z,config,el);
-
-  // Show info, hide scene desc
-  document.getElementById('scene-desc').innerHTML='';
-  var panel=document.getElementById('info-panel');
-  panel.style.display='block';
-  document.getElementById('info-sym').textContent=el.sym;
-  document.getElementById('info-name').textContent=el.name+' — Z='+Z;
-  document.getElementById('info-props').textContent=
-    'IE: '+el.IE.toFixed(1)+' eV · r: '+el.r.toFixed(2)+' Å · EN: '+el.EN.toFixed(2)+
-    ' · '+el.unpaired+' unpaired e⁻';
-  document.getElementById('mode-label').textContent=el.sym+' ORBITALS';
-
-  // Stop auto-advance
-  clearInterval(autoAdvance);
-}
-
-function buildElementScene(Z,config,el){
-  particles=[];
-
-  // Nucleus — size proportional to Z
-  var nNuc=Math.min(200,Z*10);
-  for(var i=0;i<nNuc;i++){
-    var a=Math.random()*Math.PI*2,b=Math.random()*Math.PI;
-    var r=Math.random()*0.2*(1+Z*0.02);
-    particles.push({x:Math.sin(b)*Math.cos(a)*r,y:Math.sin(b)*Math.sin(a)*r,z:Math.cos(b)*r,
-      type:'nucleus',vx:0,vy:0,vz:0,life:1});
-  }
-
-  // Build each subshell
-  var shellColors={'1s':'1s','2s':'2s','2p':'2p','3s':'1s','3p':'2px','3d':'2p','4s':'2s','4p':'2px'};
-  var ORBITAL_NAMES=['s','p','d','f'];
-
-  for(var si=0;si<config.length;si++){
-    var n=config[si][0],l=config[si][1],count=config[si][2];
-    var orbName=n+ORBITAL_NAMES[l];
-    var colorType=shellColors[orbName]||'field';
-    var rBase=n*1.2-0.5;  // shell radius scales with n
-    var nParticles=Math.min(400,count*60);
-
-    if(l===0){
-      // s orbital: spherical cloud at radius rBase
-      for(var i=0;i<nParticles;i++){
-        var a=Math.random()*Math.PI*2,b=Math.random()*Math.PI;
-        var r=rBase+Math.random()*0.6-0.3;
-        // Node at r ≈ rBase - 0.5 for n > 1
-        if(n>1){var nodeR=rBase-0.6;if(Math.abs(r-nodeR)<0.15&&Math.random()>0.2)continue;}
-        particles.push({x:Math.sin(b)*Math.cos(a)*r,y:Math.sin(b)*Math.sin(a)*r,z:Math.cos(b)*r,
-          type:colorType,orbit:r,angle_a:a,angle_b:b,speed:0.3/n,life:1});
-      }
-    }
-    else if(l===1){
-      // p orbital: three dumbbells along x,y,z
-      var axes=[[1,0,0],[0,1,0],[0,0,1]];
-      var pPerAxis=Math.ceil(nParticles/Math.min(count,3));
-      for(var ax=0;ax<Math.min(count,3);ax++){
-        var dir=axes[ax];
-        var axColor=ax===0?'2p':ax===1?'2px':'2s';
-        for(var i=0;i<pPerAxis;i++){
-          var along=(Math.random()-0.5)*2*rBase;
-          var sign=along>0?1:-1;
-          var perp=Math.sqrt(Math.max(0,rBase*rBase-along*along))*0.25*Math.random();
-          var perpAngle=Math.random()*Math.PI*2;
-          var px=dir[0]*along+(1-Math.abs(dir[0]))*Math.cos(perpAngle)*perp;
-          var py=dir[1]*along+(1-Math.abs(dir[1]))*Math.sin(perpAngle)*perp;
-          var pz=dir[2]*along+(1-Math.abs(dir[2]))*Math.cos(perpAngle+1)*perp;
-          particles.push({x:px,y:py,z:pz,type:axColor,orbit:rBase,
-            angle_a:Math.random()*Math.PI*2,speed:0.2/n,life:1});
-        }
-        if(ax+1>=count)break;  // don't draw more axes than electrons
-      }
-    }
-    else if(l===2){
-      // d orbital: cloverleaf patterns
-      for(var i=0;i<nParticles;i++){
-        var a=Math.random()*Math.PI*2;
-        var r=rBase+Math.random()*0.5-0.25;
-        // d orbitals have 4-lobed pattern
-        var lobe=Math.cos(2*a);
-        var x_=Math.cos(a)*r*Math.abs(lobe);
-        var z_=Math.sin(a)*r*Math.abs(lobe);
-        var y_=(Math.random()-0.5)*0.3;
-        particles.push({x:x_,y:y_,z:z_,type:'field',orbit:r,
-          angle_a:a,speed:0.15/n,life:Math.abs(lobe)*0.8,angle_b:0,phase:0});
-      }
-    }
-  }
-}
-
-var autoAdvance=setInterval(nextScene,12000);
-
-initAtom();
-updateSceneLabel('atom');
-
-// ═══ PHYSICS UPDATE — spectral speed ═══
-function update(){
-  t+=0.016;
-  var rotSpeedY=(mouseX-0.5)*2;
-  var rotSpeedX=(mouseY-0.5)*1;
-
-  for(var i=0;i<particles.length;i++){
-    var p=particles[i];
-
-    // Defensive: ensure properties exist
-    if(!p.angle_a)p.angle_a=0;if(!p.angle_b)p.angle_b=0;
-    if(!p.orbit)p.orbit=1;if(!p.speed)p.speed=0.1;
-    if(!p.phase)p.phase=0;if(!p.life)p.life=1;
-
-    if(p.type==='nucleus'){
-      p.x+=(Math.random()-0.5)*0.005;
-      p.y+=(Math.random()-0.5)*0.005;
-      p.z+=(Math.random()-0.5)*0.005;
-    }
-    else if(p.type==='1s'||p.type==='2s'){
-      p.angle_a+=p.speed*0.02;
-      p.angle_b+=p.speed*0.007;
-      var r=p.orbit+Math.sin(t*p.speed+p.angle_a)*0.1;
-      p.x=Math.sin(p.angle_b)*Math.cos(p.angle_a)*r;
-      p.y=Math.sin(p.angle_b)*Math.sin(p.angle_a)*r;
-      p.z=Math.cos(p.angle_b)*r;
-    }
-    else if(p.type==='2p'||p.type==='2px'){
-      p.angle_a+=p.speed*0.015;
-      var wave=Math.sin(t*0.5+(p.orbit||1))*0.15;
-      p.x+=wave*0.01;p.z+=wave*0.01;
-    }
-    else if(p.type==='field'){
-      // Pulsing wave field OR galaxy rotation
-      if(SCENES[sceneMode]==='galaxy'||SCENES[sceneMode]==='life'){
-        p.angle_a+=p.speed*0.01;
-        var fr=p.orbit+Math.sin(p.phase+t*0.3)*0.2;
-        p.x=Math.sin(p.angle_b||0)*Math.cos(p.angle_a)*fr;
-        p.y=Math.sin(p.angle_b||0)*Math.sin(p.angle_a)*fr;
-        p.z=Math.cos(p.angle_b||0)*fr;
-        p.life=0.3+Math.sin(t+p.orbit)*0.2;
-      } else {
-        p.phase+=0.02;
-        var pulse=Math.sin(p.phase+p.orbit*0.5)*0.3;
-        var r=p.orbit+pulse;
-        p.x=Math.sin(p.angle_b)*Math.cos(p.angle_a)*r;
-        p.y=Math.sin(p.angle_b)*Math.sin(p.angle_a)*r;
-        p.z=Math.cos(p.angle_b)*r;
-        p.life=0.3+pulse*0.5;
-      }
-    }
-    else if(p.type==='photon'){
-      p.z+=p.vz;
-      p.x+=Math.sin(t*3+p.phase)*0.02;
-      p.y+=Math.cos(t*3+p.phase)*0.02;
-      if(p.z>8)p.z=-8;
-      if(p.z<-8)p.z=8;
-      // Glow near nucleus
-      var dist=Math.sqrt(p.x*p.x+p.y*p.y+p.z*p.z);
-      p.life=dist<1.5?2:0.5;
-    }
-  }
-}
-
-// ═══ RENDER — 3D projected to 2D canvas ═══
 function render(){
-  w=W/DPR;h=H/DPR;
-  state.anim++;
-  // Fade instead of clear (trails)
-  cx.fillStyle='rgba(0,0,0,0.08)';cx.fillRect(0,0,w,h);
+  w=W/DPR;h=H/DPR;t+=0.016;
 
-  update();
+  cx.fillStyle='rgba(0,0,0,0.055)';cx.fillRect(0,0,w,h);
 
-  var cx0=w/2,cy0=h/2;
-  var fov=Math.min(w,h)*0.6*zoom;
-  var rotA=t*0.3+(mouseX-0.5)*3;
-  var rotB=(mouseY-0.5)*1.5;
+  bloom();
 
-  // Sort by z for depth ordering
-  var projected=[];
-  for(var i=0;i<particles.length;i++){
-    var p=particles[i];
-    var r1=rotY(p.x,p.y,p.z,rotA);
-    var r2=rotX(r1[0],r1[1],r1[2],rotB);
-    var pr=project(r2[0]*80,r2[1]*80,r2[2],cx0,cy0,fov);
-    projected.push({px:pr[0],py:pr[1],scale:pr[2],type:p.type,life:p.life,z:r2[2]});
+  var cx0=w/2,cy0=h/2,fov=Math.min(w,h)*0.5*zoom;
+  var rA=t*0.12+(mouseX-0.5)*3,rB=(mouseY-0.5)*1.5;
+
+  var sorted=[];
+  for(var i=0;i<P.length;i++){
+    var pt=P[i];if(pt.life<0.005)continue;
+    var r1=rotY(pt.x,pt.y,pt.z,rA),r2=rotX(r1[0],r1[1],r1[2],rB);
+    var pr=proj(r2[0]*55,r2[1]*55,r2[2],cx0,cy0,fov);
+    sorted.push({px:pr[0],py:pr[1],s:pr[2],type:pt.type,life:pt.life,sz:pt.sz,z:r2[2]});
   }
-  projected.sort(function(a,b){return a.z-b.z;});
+  sorted.sort(function(a,b){return a.z-b.z;});
 
-  // Draw
-  for(var i=0;i<projected.length;i++){
-    var p=projected[i];
-    var s=p.scale;
-    var size,color;
-
-    if(p.type==='nucleus'){
-      size=3.5*s;color='rgba(220,185,120,'+(0.7*s)+')';
-    } else if(p.type==='1s'){
-      size=1.8*s;color='rgba(180,155,100,'+(0.3*s*p.life)+')';
-    } else if(p.type==='2s'){
-      size=1.4*s;color='rgba(100,180,140,'+(0.22*s*p.life)+')';
-    } else if(p.type==='2p'){
-      size=1.4*s;color='rgba(90,140,180,'+(0.25*s*p.life)+')';
-    } else if(p.type==='2px'){
-      size=1.4*s;color='rgba(170,100,140,'+(0.25*s*p.life)+')';
-    } else if(p.type==='field'){
-      size=0.8*s;color='rgba(160,140,100,'+(0.05*Math.max(0,p.life))+')';
-    } else if(p.type==='photon'){
-      size=1.2*s*p.life;color='rgba(240,230,190,'+(0.4*s*Math.min(p.life,1))+')';
-    }
-
-    if(size<0.3)continue;
-    cx.fillStyle=color;
-    cx.beginPath();cx.arc(p.px,p.py,Math.max(0.5,size),0,Math.PI*2);cx.fill();
+  for(var i=0;i<sorted.length;i++){
+    var p=sorted[i];
+    var sz=p.sz*p.s,al=p.life*p.s*0.5;
+    if(sz<0.2||al<0.003)continue;
+    var c=COLORS[p.type]||[150,140,120];
+    cx.fillStyle='rgba('+c[0]+','+c[1]+','+c[2]+','+Math.min(1,al)+')';
+    cx.beginPath();cx.arc(p.px,p.py,Math.max(0.3,sz),0,Math.PI*2);cx.fill();
   }
 
-  // Fade in transition
-  if(transitionAlpha<1)transitionAlpha=Math.min(1,transitionAlpha+0.02);
+  // Whisper — the story of what's happening
+  var whisper='';
+  if(phase<0.3)whisper='';
+  else if(phase<1)whisper='...';
+  else if(phase<2)whisper='the first vibration';
+  else if(phase<3)whisper='electrons find their place';
+  else if(phase<4)whisper='two atoms reach for each other';
+  else if(phase<5)whisper='the code begins to spiral';
+  else if(phase<6)whisper='a boundary closes';
+  else if(phase<7)whisper='it breathes';
+  else whisper='alive';
 
-  // FPS counter
-  if(state.anim%30===0){
-    document.getElementById('fps').textContent=Math.round(1000/(performance.now()-(state.lastFrame||performance.now())))+'fps';
-    document.getElementById('pcount').textContent=particles.length;
-  }
-  state.lastFrame=performance.now();
+  cx.fillStyle='rgba(201,164,74,0.05)';
+  cx.font='13px Georgia';cx.textAlign='center';
+  cx.fillText(whisper,w/2,h-48);
 
   requestAnimationFrame(render);
 }
