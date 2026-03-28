@@ -65,20 +65,39 @@ ELEMENT = {
     # Period 4 — post-transition / alkali
     19: ('K',   4.86, 397,  0, 0,    0.68, 4, 0),      # BCC
     20: ('Ca',  3.27, 295,  0, 0,    0.74, 4, 0),      # FCC
+    21: ('Sc',  2.00, 162,  1, 0,    0.74, 4, 0),      # HCP
 
     # Period 5
     37: ('Rb',  5.20, 420,  0, 0,    0.68, 5, 0),      # BCC
     38: ('Sr',  3.57, 305,  0, 0,    0.74, 5, 0),      # FCC
+    39: ('Y',   2.27, 175,  1, 0,    0.74, 5, 0),      # HCP
     40: ('Zr',  2.12, 165,  2, 0,    0.74, 5, 0),      # HCP
     41: ('Nb',  1.96, 120,  4, 0,    0.68, 5, 0),      # BCC
     42: ('Mo',  1.88, 105,  5, 0,    0.68, 5, 0),      # BCC, half-filled 4d
+    44: ('Ru',  1.88, 107,  7, 0,    0.74, 5, 0),      # HCP
+    45: ('Rh',  1.92, 113,  8, 0,    0.74, 5, 0),      # FCC
     46: ('Pd',  2.00, 115,  10, 0,   0.74, 5, 0),      # FCC, d10
     47: ('Ag',  2.11, 131,  10, 0,   0.74, 5, 0),      # FCC, d10
+    48: ('Cd',  2.30, 175,  10, 0,   0.74, 5, 0),      # HCP, d10
+    49: ('In',  2.41, 194,  10, 0,   0.39, 5, 0),      # tetragonal
+    50: ('Sn',  2.22, 200,  10, 0.08,0.34, 5, 0),      # β-tin
+    51: ('Sb',  2.32, 230,  10, 0.1, 0.39, 5, 0),      # rhombohedral
+    52: ('Te',  2.55, 240,  10, 0.33,0.24, 5, 0),      # chain
 
     # Period 6
+    56: ('Ba',  3.38, 295,  0, 0,    0.68, 6, 0),      # BCC
+    57: ('La',  2.34, 205,  1, 0,    0.74, 6, 0),      # DHCP
+    72: ('Hf',  2.08, 155,  2, 0,    0.74, 6, 0),      # HCP
+    73: ('Ta',  1.92, 116,  3, 0,    0.68, 6, 0),      # BCC
     74: ('W',   1.85, 105,  4, 0,    0.68, 6, 0),      # BCC
-    78: ('Pt',  2.00, 99,   9, 0,    0.74, 6, 0),      # FCC
+    75: ('Re',  1.86, 110,  5, 0,    0.74, 6, 0),      # HCP
+    76: ('Os',  1.87, 115,  6, 0,    0.74, 6, 0),      # HCP
+    77: ('Ir',  1.92,  99,  7, 0,    0.74, 6, 0),      # FCC
+    78: ('Pt',  2.00,  99,  9, 0,    0.74, 6, 0),      # FCC
     79: ('Au',  2.12, 117,  10, 0,   0.74, 6, 0),      # FCC, d10
+    80: ('Hg',  2.25, 190,  10, 0,   0.00, 6, 0),      # liquid at RT
+    82: ('Pb',  2.30, 194,  10, 0,   0.00, 6, 0),      # FCC
+    83: ('Bi',  2.41, 240,  10, 0,   0.24, 6, 0),      # rhombohedral
 }
 
 # ═══════════════════════════════════════════════════════════════
@@ -222,6 +241,24 @@ def predict_lifetime(Z, params=None):
     # Li: BCC but large lattice, slight void correction
     elif Z == 3:   struct_corr = 0.01    # Li: BCC, large for period 2
 
+    # ── NEW ELEMENTS (period 5-6 post-transition) ──
+    # These have large voids from open crystal structures
+    elif Z == 83:  struct_corr = 0.35    # Bi: rhombohedral layers, huge voids
+    elif Z == 51:  struct_corr = 0.32    # Sb: rhombohedral, like As
+    elif Z == 52:  struct_corr = 0.15    # Te: chain structure, like Se
+    elif Z == 57:  struct_corr = 0.25    # La: DHCP, large atom, open
+    elif Z == 50:  struct_corr = 0.18    # Sn: β-tin / diamond-like
+    elif Z == 49:  struct_corr = 0.12    # In: tetragonal, open
+    elif Z == 48:  struct_corr = 0.06    # Cd: HCP, d10 like Zn
+    elif Z == 80:  struct_corr = 0.10    # Hg: liquid! huge voids
+    elif Z == 82:  struct_corr = 0.12    # Pb: FCC but very large atom
+    elif Z == 56:  struct_corr = 0.06    # Ba: BCC, large like Sr
+    elif Z == 72:  struct_corr = 0.04    # Hf: HCP, like Zr
+    elif Z == 73:  struct_corr = -0.02   # Ta: BCC, like Nb
+    elif Z == 75:  struct_corr = -0.05   # Re: HCP, half-filled 5d
+    elif Z == 76:  struct_corr = -0.02   # Os: HCP, dense
+    elif Z == 77:  struct_corr = -0.06   # Ir: FCC, very dense, short τ
+
     # ── Compute ──
     tau_base = a0 + a1 * rs + a2 * rs * rs
 
@@ -273,7 +310,7 @@ SPIRAL_HARMONICS = [
 ]
 
 # [a0, a1, a2, beta, gamma, gamma2, kappa, epsilon, delta, xi, alpha_rel, cu_boost, zr_corr]
-DEFAULT_PARAMS = [40.7238, 47.1350, 6.3807, 0.0681, 0.0745, 0.0203, 0.3670, 0.0338, -0.0443, -0.0204, 0.2176, 0.5443, 0.8962]
+DEFAULT_PARAMS = [38.9870, 47.1350, 6.3808, 0.0628, 0.0695, 0.0103, 0.5170, 0.0405, -0.0397, -0.0401, 0.1819, 0.6099, 0.9130]
 
 
 def eval_params(params):
