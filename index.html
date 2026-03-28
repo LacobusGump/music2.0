@@ -16,74 +16,94 @@
 <title>GUMP</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;}
-body{background:#000;color:#e8e4dc;font-family:Georgia,serif;overflow-x:hidden;}
+body{background:#000;overflow:hidden;}
 canvas{position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:0;pointer-events:none;}
-#menu{position:relative;z-index:10;max-width:400px;margin:0 auto;padding:60px 20px 40px;display:flex;flex-direction:column;gap:28px;min-height:100vh;justify-content:center;}
-.item{display:block;text-decoration:none;text-align:center;padding:12px 0;border-radius:8px;transition:background 0.3s;}
-.item:active{background:rgba(255,255,255,0.03);}
-.item .name{font-size:1.15em;font-weight:200;letter-spacing:0.08em;}
-.item .desc{font-size:0.65em;color:#444;letter-spacing:0.1em;margin-top:2px;}
-h1{text-align:center;font-weight:200;font-size:1.5em;letter-spacing:0.15em;color:#c9a44a;opacity:0.4;margin-bottom:8px;}
-h1 span{display:block;font-size:0.35em;color:#333;letter-spacing:0.2em;margin-top:4px;}
+#menu{position:relative;z-index:10;display:flex;flex-direction:column;align-items:center;
+  justify-content:center;min-height:100vh;gap:0;padding:20px;}
+.item{display:block;text-decoration:none;text-align:center;padding:14px 40px;
+  opacity:0;transform:translateY(20px);transition:opacity 1.2s ease,transform 1.2s ease;}
+.item.show{opacity:1;transform:translateY(0);}
+.item .name{font:200 1.3em Georgia;letter-spacing:0.12em;}
+.item .desc{font:0.6em Georgia;letter-spacing:0.1em;margin-top:2px;opacity:0.3;}
+.item:active{opacity:0.5;}
+h1{font:200 1.8em Georgia;letter-spacing:0.2em;color:#c9a44a;opacity:0;
+  transform:scale(0.8);transition:opacity 2s ease,transform 2s ease;text-align:center;}
+h1.show{opacity:0.5;transform:scale(1);}
+h1 span{display:block;font-size:0.25em;color:#333;letter-spacing:0.3em;margin-top:6px;}
 </style>
 </head>
 <body>
 <canvas id="C"></canvas>
 <div id="menu">
-  <h1>GUMP<span>137 zeros · K=1.868 · the orbit</span></h1>
+  <h1 id="title">GUMP<span>137 zeros · K=1.868 · the orbit</span></h1>
   <a class="item" href="/r/" style="color:#c9a44a;"><div class="name">research</div><div class="desc">the full story</div></a>
   <a class="item" href="/one/" style="color:#a0c88c;"><div class="name">one</div><div class="desc">knowledge engine</div></a>
-  <a class="item" href="/mirror/" style="color:#78a0dc;"><div class="name">mirror</div><div class="desc">5D machine</div></a>
-  <a class="item" href="/flex/" style="color:#c86eaa;"><div class="name">flex</div><div class="desc">12 shapes</div></a>
+  <a class="item" href="/flex/" style="color:#c86eaa;"><div class="name">flex</div><div class="desc">100K particles · 16 shapes</div></a>
   <a class="item" href="/bloom/" style="color:#64c896;"><div class="name">bloom</div><div class="desc">nothing to life</div></a>
   <a class="item" href="/resonance/" style="color:#dc6e5a;"><div class="name">resonance</div><div class="desc">tissue targeting</div></a>
   <a class="item" href="/oracle/" style="color:#beb478;"><div class="name">oracle</div><div class="desc">primes from nothing</div></a>
 </div>
 <script>
-// Background particles — decoration only, no touch interaction
+// Background: particles emerge from center, drift outward, form a field
 var cv=document.getElementById('C'),cx=cv.getContext('2d');
-var W,H,DPR;
-function resize(){DPR=devicePixelRatio||1;W=cv.width=innerWidth*DPR;H=cv.height=innerHeight*DPR;cx.setTransform(DPR,0,0,DPR,0,0);}
+var DPR=devicePixelRatio||1;
+function resize(){cv.width=innerWidth*DPR;cv.height=innerHeight*DPR;cx.setTransform(DPR,0,0,DPR,0,0);}
 resize();addEventListener('resize',resize);
 
-var NP=200,t=0;
+var NP=300,t=0;
 var px=new Float32Array(NP),py=new Float32Array(NP);
 var pvx=new Float32Array(NP),pvy=new Float32Array(NP);
 var pr=new Uint8Array(NP),pg=new Uint8Array(NP),pb=new Uint8Array(NP);
-var pa=new Float32Array(NP);
+var born=new Float32Array(NP); // birth time — particles emerge over time
 
-var colors=[[201,164,74],[160,200,140],[120,160,220],[200,110,170],[100,200,150],[220,110,90],[190,180,120]];
+var colors=[[201,164,74],[160,200,140],[200,110,170],[100,200,150],[220,110,90],[190,180,120]];
+var w=innerWidth,h=innerHeight;
+
 for(var i=0;i<NP;i++){
-  px[i]=Math.random()*innerWidth;
-  py[i]=Math.random()*innerHeight;
-  pvx[i]=(Math.random()-0.5)*0.2;
-  pvy[i]=(Math.random()-0.5)*0.2;
-  var c=colors[i%7];
+  // All start at center, drift out
+  px[i]=w/2;py[i]=h/2;
+  var a=Math.random()*Math.PI*2;
+  var spd=0.2+Math.random()*0.5;
+  pvx[i]=Math.cos(a)*spd;pvy[i]=Math.sin(a)*spd;
+  var c=colors[i%6];
   pr[i]=c[0];pg[i]=c[1];pb[i]=c[2];
-  pa[i]=0.05+Math.random()*0.1;
+  born[i]=i*0.02; // staggered births over 6 seconds
 }
 
 function render(){
-  var w=innerWidth,h=innerHeight;t+=0.016;
-  cx.fillStyle='rgba(0,0,0,0.08)';
+  w=innerWidth;h=innerHeight;t+=0.016;
+  cx.fillStyle='rgba(0,0,0,0.06)';
   cx.fillRect(0,0,w,h);
   cx.globalCompositeOperation='lighter';
   for(var i=0;i<NP;i++){
-    // Gentle drift
-    pvx[i]+=Math.sin(t*0.3+i)*0.001;
-    pvy[i]+=Math.cos(t*0.2+i*0.7)*0.001;
-    pvx[i]*=0.99;pvy[i]*=0.99;
+    if(t<born[i])continue; // not born yet
+    var age=t-born[i];
+    var fade=Math.min(1,age*0.5); // fade in over 2 seconds
     px[i]+=pvx[i];py[i]+=pvy[i];
+    pvx[i]*=0.998;pvy[i]*=0.998; // slow drift
+    // Gentle gravity toward center
+    pvx[i]+=(w/2-px[i])*0.00003;
+    pvy[i]+=(h/2-py[i])*0.00003;
     // Wrap
     if(px[i]<0)px[i]=w;if(px[i]>w)px[i]=0;
     if(py[i]<0)py[i]=h;if(py[i]>h)py[i]=0;
-    cx.fillStyle='rgba('+pr[i]+','+pg[i]+','+pb[i]+','+pa[i]+')';
+    cx.fillStyle='rgba('+pr[i]+','+pg[i]+','+pb[i]+','+(fade*0.08)+')';
     cx.fillRect(px[i],py[i],1,1);
   }
   cx.globalCompositeOperation='source-over';
   requestAnimationFrame(render);
 }
 render();
+
+// Staggered reveal of menu items
+var items=document.querySelectorAll('.item');
+var title=document.getElementById('title');
+setTimeout(function(){title.classList.add('show');},300);
+for(var i=0;i<items.length;i++){
+  (function(el,delay){
+    setTimeout(function(){el.classList.add('show');},delay);
+  })(items[i],800+i*400);
+}
 </script>
 </body>
 </html>
