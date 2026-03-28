@@ -240,15 +240,36 @@ def predict_lifetime(Z, params=None):
 
     tau_pred = tau_base * f_d * f_gap * f_pack * f_mag * f_period * f_exchange
 
-    # Spiral correction: coupling spirals with Z at φ²
-    PHI_SQ = ((1 + 5**0.5) / 2) ** 2
-    tau_pred *= 1.0 - 0.01 * math.cos(2 * math.pi * Z / PHI_SQ + 6.2)
+    # ── FRACTAL SPIRAL CORRECTION ──
+    # The coupling spirals with Z. Each layer is a golden harmonic.
+    # Layer 0: φ^1.9 ≈ φ²     (fundamental)
+    # Layer 1: φ^3.9 ≈ φ⁴     (first overtone)
+    # Layer 2: φ^3.1 ≈ φ³     (second overtone)
+    # Layer 3: φ^2.7           (third overtone)
+    # Layer 4: φ^1.6 ≈ φ^φ    (fourth overtone)
+    # Layer 5: φ^4.1 ≈ φ⁴     (fifth overtone)
+    PHI_V = (1 + 5**0.5) / 2
+    spiral = 1.0
+    for amp, power, phase in SPIRAL_HARMONICS:
+        spiral += amp * math.cos(2 * math.pi * Z / (PHI_V ** power) + phase)
+    tau_pred *= spiral
 
     return tau_pred, tau_exp
 
 
+# Spiral harmonics: (amplitude, φ-power, phase)
+# Initialized from fractal_spiral.py findings, will be optimized
+SPIRAL_HARMONICS = [
+    (+0.00553, 1.9, 6.15),   # Layer 0: φ²
+    (+0.00704, 3.9, 0.44),   # Layer 1: φ⁴
+    (-0.00578, 3.1, -0.11),  # Layer 2: φ³
+    (-0.00882, 2.7, -1.35),  # Layer 3: φ^e
+    (-0.00658, 1.6, -0.23),  # Layer 4: φ^φ
+    (-0.00454, 4.1, -0.56),  # Layer 5: φ⁴
+]
+
 # [a0, a1, a2, beta, gamma, gamma2, kappa, epsilon, delta, xi, alpha_rel, cu_boost, zr_corr]
-DEFAULT_PARAMS = [41.1865, 47.1350, 6.2704, 0.0681, 0.0728, 0.0252, 0.3660, 0.0385, -0.0430, -0.0179, 0.2297, 0.5685, 1.0000]
+DEFAULT_PARAMS = [40.6745, 47.1350, 6.3933, 0.0681, 0.0733, 0.0228, 0.3664, 0.0339, -0.0442, -0.0205, 0.2196, 0.5477, 0.8919]
 
 
 def eval_params(params):
@@ -260,6 +281,52 @@ def eval_params(params):
     mean_e = sum(e for _, e in errors) / len(errors)
     max_e = max(e for _, e in errors)
     return mean_e, max_e, errors
+
+
+def optimize_spiral():
+    """Optimize spiral harmonics — amplitude and phase for each layer."""
+    global SPIRAL_HARMONICS
+    harmonics = [list(h) for h in SPIRAL_HARMONICS]
+
+    def eval_spiral():
+        global SPIRAL_HARMONICS
+        SPIRAL_HARMONICS = [tuple(h) for h in harmonics]
+        return eval_params(DEFAULT_PARAMS)[0]
+
+    for iteration in range(16):
+        scale = 0.5 ** iteration
+        for hi in range(len(harmonics)):
+            # Optimize amplitude
+            for step in [0.005, 0.002, 0.001]:
+                best = eval_spiral()
+                for d in [-1, 1]:
+                    harmonics[hi][0] += d * step * scale
+                    e = eval_spiral()
+                    if e < best:
+                        best = e
+                    else:
+                        harmonics[hi][0] -= d * step * scale
+
+            # Optimize phase
+            for step in [0.5, 0.2, 0.1]:
+                best = eval_spiral()
+                for d in [-1, 1]:
+                    harmonics[hi][2] += d * step * scale
+                    e = eval_spiral()
+                    if e < best:
+                        best = e
+                    else:
+                        harmonics[hi][2] -= d * step * scale
+
+    SPIRAL_HARMONICS = [tuple(h) for h in harmonics]
+    mean_err, max_err, _ = eval_params(DEFAULT_PARAMS)
+    print()
+    print("  OPTIMIZED SPIRAL HARMONICS")
+    print("  " + "─" * 40)
+    for i, (a, p, ph) in enumerate(SPIRAL_HARMONICS):
+        print("    Layer %d: amp=%+.5f  φ^%.1f  phase=%.2f" % (i, a, p, ph))
+    print()
+    print("  Mean error: %.3f%%  Max: %.3f%%" % (mean_err * 100, max_err * 100))
 
 
 def optimize():
@@ -299,8 +366,12 @@ def optimize():
 def main():
     single = None
     do_optimize = False
+    do_spiral = '--spiral' in sys.argv
     for arg in sys.argv[1:]:
-        if arg == '--optimize':
+        if arg == '--spiral':
+            optimize_spiral()
+            return
+        elif arg == '--optimize':
             do_optimize = True
         elif arg == '--element':
             pass
