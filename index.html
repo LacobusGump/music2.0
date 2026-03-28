@@ -31,9 +31,10 @@ canvas{display:block;width:100vw;height:100vh;touch-action:none;}
 <div id="start"><div id="start-inner"><h1>GUMP</h1><p>tap to begin</p></div></div>
 <canvas id="C"></canvas>
 <div id="hud"><span id="info"></span></div>
-<div id="dial" style="position:fixed;bottom:60px;left:50%;transform:translateX(-50%);z-index:20;touch-action:none;">
-  <canvas id="knob" width="120" height="120" style="width:120px;height:120px;cursor:pointer;touch-action:none;"></canvas>
-  <div style="color:#c9a44a08;font:10px Georgia;text-align:center;margin-top:4px;">K</div>
+<div style="position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:20;text-align:center;">
+  <input type="range" id="kdial" min="0.3" max="4.0" step="0.01" value="1.868"
+    style="width:200px;accent-color:#c9a44a;touch-action:none;">
+  <div style="color:#c9a44a10;font:10px Georgia;" id="kval">K = 1.868</div>
 </div>
 <script>
 // ═══════════════════════════════════════════════════════════
@@ -161,7 +162,22 @@ function initSensors(){
   });
 }
 
-// Touch/mouse — disabled, dial controls K now
+// Touch: drag up/down to control K (always works)
+addEventListener('touchmove',function(e){
+  if(!started)return;
+  e.preventDefault();
+  touchY=1-e.touches[0].clientY/innerHeight; // 0=bottom, 1=top
+},{passive:false});
+addEventListener('touchstart',function(e){
+  if(!started||!document.getElementById('start'))return;
+  touchY=1-e.touches[0].clientY/innerHeight;
+},{passive:true});
+
+// Mouse: same
+addEventListener('mousemove',function(e){
+  if(!started)return;
+  touchY=1-e.clientY/innerHeight;
+});
 
 // ═══ AUDIO ENGINE ═══
 var audioCtx=null,masterGain=null,warmthFilter=null;
@@ -316,93 +332,77 @@ var CHORDS=[
 ];
 
 var prevClusterCount=0;
-var stableCount=0;
-var activeChordIdx=0;
-
-// THRUSH: three-note phrases from zero spacings
-var phraseIdx=0;       // which three-group we're on
-var noteInPhrase=0;    // 0,1,2 within the phrase
-var noteTimer=0;       // countdown to next note
-var currentNoteFreq=0;
-var currentNoteDur=0;
+var stableCount=0;      // how many frames the cluster count has been the same
+var activeChordIdx=0;   // the chord we're actually playing
 
 function updateAudio(){
   if(!audioCtx)return;
 
-  // K → SOUND. DIRECT. NO LATTICE IN THE WAY.
-  // The dial IS the instrument. Every parameter from K alone.
+  // CHORD FROM K, NOT CLUSTERS
+  // K determines the chord. R drives the dynamics.
+  // The lattice breathes — that's volume/brightness, not chord changes.
+  var chordIdx;
+  if(K<0.3)chordIdx=7;      // very low: chromatic wash (will be quiet anyway)
+  else if(K<0.8)chordIdx=6; // low: full scale
+  else if(K<1.2)chordIdx=4; // moderate: pentatonic
+  else if(K<1.6)chordIdx=3; // sweet: major triad + octave
+  else if(K<2.2)chordIdx=2; // strong: power chord
+  else if(K<3.5)chordIdx=1; // high: octave
+  else chordIdx=0;           // max: unison
 
-  var t2=audioCtx.currentTime;
-  // K normalized 0-1 from dial range 0.3-4.0
+  // Smooth transitions — only change when K really moves
+  if(chordIdx!==prevClusterCount){stableCount++;}
+  else{stableCount=0;}
+  if(stableCount>20){prevClusterCount=chordIdx;activeChordIdx=chordIdx;}
+  var activeChordA=activeChordIdx;
+  var activeChordB=Math.max(0,activeChordIdx-1); // B is one step simpler (higher sync)
+
+  // ROOT from K: 55Hz at K=0.3, 220Hz at K=4.0, breathing
   var kn=(K-0.3)/3.7;
-  kn=Math.max(0,Math.min(1,kn));
+  var root=(55+kn*165)*(1+Math.sin(t/1.618*0.3)*0.02);
 
-  // ROOT: rises with K. Low K = 55Hz (deep). High K = 220Hz.
-  var root=55+kn*165;
+  // THE LEMNISCATE: left ear = loop A chord, right ear = loop B chord
+  var chordA=CHORDS[Math.max(0,Math.min(7,activeChordA))];
+  var chordB=CHORDS[Math.max(0,Math.min(7,activeChordB))];
+  var t2=audioCtx.currentTime;
 
-  // SUB: always there past K=0.3, gets louder
-  if(subOsc){
-    subOsc.frequency.setTargetAtTime(root/2,t2,0.08);
-    subGain.gain.setTargetAtTime(kn*0.06,t2,0.08);
+  // Voices 0-3: loop A. Voices 4-7: loop B.
+  for(var i=0;i<4;i++){
+    var d=i*0.12;
+    if(i<chordA.length){
+      var f=root*chordA[i],v=0.2/chordA.length;if(i===0)v*=1.3;
+      clusterOscs[i*2].frequency.setTargetAtTime(f,t2+d,0.4);
+      clusterOscs[i*2+1].frequency.setTargetAtTime(f,t2+d,0.4);
+      clusterGains[i].gain.setTargetAtTime(v,t2+d,0.2);
+    } else {clusterGains[i].gain.setTargetAtTime(0,t2+d,0.3);}
   }
-
-  // MELODY: speed and register from K directly
-  if(kn>0.1){
-    var melSpeed=0.2+kn*1.5;
-    var melVol=0.05+kn*0.12;
-    noteTimer-=0.016*melSpeed;
-    if(noteTimer<=0){
-      var sIdx=phraseIdx*3+noteInPhrase;
-      if(sIdx>=spacings.length-1){phraseIdx=0;noteInPhrase=0;sIdx=0;}
-      var s=spacings[sIdx];
-      currentNoteFreq=root*2*(meanS/s);
-      currentNoteDur=s*0.1/melSpeed;
-      noteTimer=currentNoteDur;
-      clusterOscs[0].frequency.setTargetAtTime(currentNoteFreq,t2,0.04);
-      clusterOscs[1].frequency.setTargetAtTime(currentNoteFreq*1.002,t2,0.04);
-      clusterGains[0].gain.setTargetAtTime(melVol,t2,0.015);
-      clusterGains[0].gain.setTargetAtTime(melVol*0.2,t2+0.03,currentNoteDur*0.5);
-      noteInPhrase++;
-      if(noteInPhrase>=3){noteInPhrase=0;phraseIdx++;noteTimer+=0.08/melSpeed;}
-    }
-  } else {
-    clusterGains[0].gain.setTargetAtTime(0,t2,0.08);
-  }
-
-  // CHORD: K picks directly. More K = more notes.
-  var ci=Math.floor(kn*7);ci=Math.max(0,Math.min(7,ci));
-  var chord=CHORDS[ci];
-  var droneVol=kn*0.1;
-
-  // Left voices
-  for(var i=1;i<4;i++){
-    var n=i-1;
-    if(n<chord.length){
-      clusterOscs[i*2].frequency.setTargetAtTime(root*chord[n],t2,0.08);
-      clusterOscs[i*2+1].frequency.setTargetAtTime(root*chord[n],t2,0.08);
-      clusterGains[i].gain.setTargetAtTime(droneVol,t2,0.08);
-    } else {clusterGains[i].gain.setTargetAtTime(0,t2,0.08);}
-  }
-  // Right voices (binaural)
   for(var i=4;i<MAX_VOICES;i++){
-    var n=i-4;
-    if(n<chord.length){
-      clusterOscs[i*2].frequency.setTargetAtTime(root*chord[n]*1.003,t2,0.08);
-      clusterOscs[i*2+1].frequency.setTargetAtTime(root*chord[n]*1.003,t2,0.08);
-      clusterGains[i].gain.setTargetAtTime(droneVol,t2,0.08);
-    } else {clusterGains[i].gain.setTargetAtTime(0,t2,0.08);}
+    var bi=i-4,d=bi*0.12;
+    if(bi<chordB.length){
+      var f=root*chordB[bi],v=0.2/chordB.length;if(bi===0)v*=1.3;
+      clusterOscs[i*2].frequency.setTargetAtTime(f,t2+d,0.4);
+      clusterOscs[i*2+1].frequency.setTargetAtTime(f,t2+d,0.4);
+      clusterGains[i].gain.setTargetAtTime(v,t2+d,0.2);
+    } else {clusterGains[i].gain.setTargetAtTime(0,t2+d,0.3);}
   }
 
-  // FILTER: opens with K
-  if(warmthFilter){warmthFilter.frequency.setTargetAtTime(200+kn*5000,t2,0.06);}
+  // SUB BASS
+  if(subOsc){
+    subOsc.frequency.setTargetAtTime(root/2,t2,0.5);
+    subGain.gain.setTargetAtTime(K>0.1?0.03*R:0,t2,0.3);
+  }
 
-  // VIBRATO: wide at low K, tight at high K
+  // VIBRATO: per-loop R controls depth
   for(var i=0;i<vibratoLFOs.length;i++){
-    vibratoLFOs[i].gain.gain.setTargetAtTime(50-kn*40,t2,0.08);
+    var lr=i<4?RA:RB;
+    vibratoLFOs[i].gain.gain.setTargetAtTime(15+35*(1-lr),t2,0.3);
   }
 
-  // MASTER: rises with K
-  masterGain.gain.setTargetAtTime(0.03+kn*0.2,t2,0.06);
+  // Brightness
+  if(warmthFilter){warmthFilter.frequency.setTargetAtTime(400+R*R*4000,t2,0.25);}
+
+  // Master
+  masterGain.gain.setTargetAtTime(K>0.1?(0.08+R*0.2):0,t2,0.2);
 
   prevClusterCount=nc;
 }
@@ -411,8 +411,9 @@ function updateAudio(){
 function step(){
   t+=0.016;
 
-  // K from dial
-  K=dialK;
+  // K from slider — simple, direct, no intermediary
+  K=parseFloat(document.getElementById('kdial').value);
+  document.getElementById('kval').textContent='K = '+K.toFixed(2);
   var humanPhase=0;
 
   // LEMNISCATE Kuramoto: two loops, A tighter coupling to tame its wild zeros
@@ -468,74 +469,8 @@ function step(){
   crossPhase=Math.abs((phases[0]-phases[N1])%(2*Math.PI));
   if(crossPhase>Math.PI)crossPhase=2*Math.PI-crossPhase;
 
-  // Update audio every 3rd frame
-  if(Math.floor(t*60)%3===0)updateAudio();
+  updateAudio();
 }
-
-// ═══ DIAL: rotary knob for K ═══
-var dialK=1.868;
-var dialAngle=Math.PI*0.6; // starting angle (maps to 1.868)
-var dialDragging=false;
-var dialLastY=0;
-var knobCv=document.getElementById('knob');
-var knobCx=knobCv.getContext('2d');
-
-function drawDial(){
-  var s=120;knobCx.clearRect(0,0,s,s);
-  // Ring
-  knobCx.strokeStyle='rgba(201,164,74,0.12)';
-  knobCx.lineWidth=2;
-  knobCx.beginPath();knobCx.arc(60,60,45,Math.PI*0.75,Math.PI*2.25);knobCx.stroke();
-  // Pointer
-  var px=60+Math.cos(dialAngle-Math.PI/2)*38;
-  var py=60+Math.sin(dialAngle-Math.PI/2)*38;
-  knobCx.fillStyle='rgba(201,164,74,0.5)';
-  knobCx.beginPath();knobCx.arc(px,py,4,0,Math.PI*2);knobCx.fill();
-  // Value
-  knobCx.fillStyle='rgba(201,164,74,0.15)';
-  knobCx.font='200 16px Georgia';knobCx.textAlign='center';
-  knobCx.fillText(dialK.toFixed(2),60,65);
-}
-
-function dialToK(angle){
-  // angle 0 to 2pi maps to K 0.3 to 4.0
-  var norm=angle/(Math.PI*2);
-  return 0.3+norm*3.7;
-}
-function kToDial(k){
-  return((k-0.3)/3.7)*Math.PI*2;
-}
-dialAngle=kToDial(1.868);
-
-knobCv.addEventListener('touchstart',function(e){
-  e.preventDefault();e.stopPropagation();
-  dialDragging=true;dialLastY=e.touches[0].clientY;
-},{passive:false});
-knobCv.addEventListener('mousedown',function(e){
-  dialDragging=true;dialLastY=e.clientY;
-});
-addEventListener('touchmove',function(e){
-  if(!dialDragging)return;
-  e.preventDefault();
-  var dy=dialLastY-e.touches[0].clientY;
-  dialAngle+=dy*0.02;
-  dialAngle=Math.max(0,Math.min(Math.PI*2,dialAngle));
-  dialK=dialToK(dialAngle);
-  dialLastY=e.touches[0].clientY;
-  drawDial();
-},{passive:false});
-addEventListener('mousemove',function(e){
-  if(!dialDragging)return;
-  var dy=dialLastY-e.clientY;
-  dialAngle+=dy*0.02;
-  dialAngle=Math.max(0,Math.min(Math.PI*2,dialAngle));
-  dialK=dialToK(dialAngle);
-  dialLastY=e.clientY;
-  drawDial();
-});
-addEventListener('touchend',function(){dialDragging=false;});
-addEventListener('mouseup',function(){dialDragging=false;});
-drawDial();
 
 // ═══ RENDER ═══
 var COLORS=[
