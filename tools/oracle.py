@@ -22,15 +22,20 @@ def _theta(t):
     if t < 1: return 0.0
     return (t/2)*log(t/(2*pi)) - t/2 - pi/8 + 1/(48*t) + 7/(5760*t**3) + 31/(80640*t**5)
 
+# Precomputed tables for speed (avoid repeated log/sqrt calls)
+_MAX_N = 300
+_LN = [0.0] + [log(n) for n in range(1, _MAX_N+1)]
+_ISQRT = [0.0] + [1.0/sqrt(n) for n in range(1, _MAX_N+1)]
+
 def _Z(t):
     if t < 2: return 0.0
     a = sqrt(t/(2*pi))
-    N = max(1, int(floor(a)))
+    N = min(_MAX_N, max(1, int(floor(a))))
     p = a - N
     th = _theta(t)
     s = 0.0
     for n in range(1, N+1):
-        s += cos(th - t*log(n)) / sqrt(n)
+        s += cos(th - t*_LN[n]) * _ISQRT[n]
     s *= 2
     d = cos(2*pi*p)
     C0 = cos(2*pi*(p*p - p - 1/16)) / d if abs(d) > 1e-8 else 0.5
@@ -90,11 +95,23 @@ def _generate_zeros(callback, K_target, t_start=9.0, show=False):
 
         if prev_Z * curr_Z < 0:
             lo, hi = t - step, t
-            for _ in range(50):
+            # 5 bisection steps to get close
+            for _ in range(5):
                 mid = (lo + hi) / 2
                 if _Z(lo) * _Z(mid) < 0: hi = mid
                 else: lo = mid
+            # Newton refinement (3-4x faster than 50 bisection steps)
             gamma = (lo + hi) / 2
+            h = 0.0001
+            for _ in range(8):
+                zt = _Z(gamma)
+                if abs(zt) < 1e-12: break
+                dz = (_Z(gamma+h) - _Z(gamma-h)) / (2*h)
+                if abs(dz) < 1e-15: break
+                newton_step = zt / dz
+                if abs(newton_step) > (hi-lo)/2: newton_step = newton_step/abs(newton_step)*(hi-lo)/4
+                gamma -= newton_step
+                gamma = max(lo, min(hi, gamma))
             callback(gamma)
             count += 1
 
