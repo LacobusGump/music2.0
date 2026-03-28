@@ -78,46 +78,91 @@ def _li(x):
 
 # ─── Streaming zero generator ──────────────────────────────
 
+def _refine_zero(lo, hi):
+    """5 bisection + 8 Newton steps to locate a zero precisely."""
+    zlo = _Z(lo)
+    for _ in range(5):
+        mid = (lo + hi) / 2
+        zmid = _Z(mid)
+        if zlo * zmid < 0: hi = mid
+        else: lo = mid; zlo = zmid
+    gamma = (lo + hi) / 2
+    h = 0.0001
+    for _ in range(8):
+        zt = _Z(gamma)
+        if abs(zt) < 1e-12: break
+        dz = (_Z(gamma+h) - _Z(gamma-h)) / (2*h)
+        if abs(dz) < 1e-15: break
+        ns = zt / dz
+        if abs(ns) > (hi-lo)/2: ns = ns/abs(ns)*(hi-lo)/4
+        gamma -= ns
+        gamma = max(lo, min(hi, gamma))
+    return gamma
+
 def _generate_zeros(callback, K_target, t_start=9.0, show=False):
-    """Generate zeros of ζ by Z(t) sign changes. Call callback(gamma) for each."""
+    """Adaptive-complete zero generator. Fast path + danger zone refinement."""
     t = t_start
     prev_Z = _Z(t)
     count = 0
+    prev_gamma = 0  # last zero found
 
     while count < K_target:
         if t > 14:
-            step = max(0.02, 2*pi / log(t/(2*pi)) / 8)
+            avg_sp = 2*pi / log(t/(2*pi))
+            step = max(0.02, avg_sp / 6)  # coarse fast path
         else:
+            avg_sp = 2.0
             step = 0.3
 
         t += step
         curr_Z = _Z(t)
 
         if prev_Z * curr_Z < 0:
-            lo, hi = t - step, t
-            # 5 bisection steps to get close
-            for _ in range(5):
-                mid = (lo + hi) / 2
-                if _Z(lo) * _Z(mid) < 0: hi = mid
-                else: lo = mid
-            # Newton refinement (3-4x faster than 50 bisection steps)
-            gamma = (lo + hi) / 2
-            h = 0.0001
-            for _ in range(8):
-                zt = _Z(gamma)
-                if abs(zt) < 1e-12: break
-                dz = (_Z(gamma+h) - _Z(gamma-h)) / (2*h)
-                if abs(dz) < 1e-15: break
-                newton_step = zt / dz
-                if abs(newton_step) > (hi-lo)/2: newton_step = newton_step/abs(newton_step)*(hi-lo)/4
-                gamma -= newton_step
-                gamma = max(lo, min(hi, gamma))
+            # Sign change — zero found
+            gamma = _refine_zero(t - step, t)
+
+            # GAP CHECK: did we skip a zero?
+            # If gap > 1.8× mean spacing, rescan the interval with 2x resolution
+            if prev_gamma > 0:
+                gap = gamma - prev_gamma
+                if gap > avg_sp * 1.8:
+                    # Danger zone: rescan [prev_gamma, gamma] with fine step
+                    fine_step = avg_sp / 12
+                    t_scan = prev_gamma + fine_step
+                    pz = _Z(t_scan)
+                    while t_scan < gamma - fine_step:
+                        t_scan += fine_step
+                        cz = _Z(t_scan)
+                        if pz * cz < 0:
+                            missed = _refine_zero(t_scan - fine_step, t_scan)
+                            if abs(missed - gamma) > avg_sp * 0.1:  # not the same zero
+                                callback(missed)
+                                count += 1
+                        pz = cz
+
             callback(gamma)
             count += 1
+            prev_gamma = gamma
 
             if show and count % 1000 == 0:
                 sys.stderr.write(f"\r  {count}/{K_target} zeros (t = {gamma:.0f})")
                 sys.stderr.flush()
+
+        else:
+            # No sign change — check for danger zone (|Z| small, close pair hiding)
+            if abs(curr_Z) < 0.5 and abs(prev_Z) < 0.5:
+                # Suspicious: Z is small on both sides. Probe finer.
+                fine_step = step / 3
+                pz = prev_Z
+                for k in range(1, 4):
+                    t_probe = t - step + k * fine_step
+                    cz = _Z(t_probe)
+                    if pz * cz < 0:
+                        gamma = _refine_zero(t_probe - fine_step, t_probe)
+                        callback(gamma)
+                        count += 1
+                        prev_gamma = gamma
+                    pz = cz
 
         prev_Z = curr_Z
 
