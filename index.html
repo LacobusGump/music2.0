@@ -329,28 +329,33 @@ var currentNoteDur=0;
 function updateAudio(){
   if(!audioCtx)return;
 
-  // THRUSH MELODY: step through zero spacings as three-note phrases
-  noteTimer-=0.016*3; // 3x frame rate for timing
+  // THRUSH MELODY: K controls speed, register, volume, and which zeros
+  var melodySpeed=0.5+K*0.8;       // higher K = slower melody
+  var melodyRegister=280-K*40;     // higher K = lower pitch (grounded)
+  var melodyVol=0.20-K*0.03;      // higher K = melody softens
+  var melodyStart=Math.floor((K/4)*spacings.length*0.5); // K selects region of zeros
+  melodyVol=Math.max(0.03,Math.min(0.20,melodyVol));
+  melodyRegister=Math.max(110,Math.min(330,melodyRegister));
+
+  noteTimer-=0.016*melodySpeed;
   if(noteTimer<=0){
-    var sIdx=phraseIdx*3+noteInPhrase;
-    if(sIdx>=spacings.length-1){phraseIdx=0;noteInPhrase=0;sIdx=0;}
+    var sIdx=melodyStart+phraseIdx*3+noteInPhrase;
+    if(sIdx>=spacings.length-1){phraseIdx=0;noteInPhrase=0;sIdx=melodyStart;}
 
     var s=spacings[sIdx];
     var ms=meanS;
-    currentNoteFreq=220*(ms/s); // inverse: short gap = high pitch
-    currentNoteDur=s*0.12;      // duration from spacing
+    currentNoteFreq=melodyRegister*(ms/s);
+    currentNoteDur=s*0.12/melodySpeed;
     noteTimer=currentNoteDur;
 
-    // Set the FIRST voice pair to the melody note
     var t2=audioCtx.currentTime;
     clusterOscs[0].frequency.setTargetAtTime(currentNoteFreq,t2,0.06);
     clusterOscs[1].frequency.setTargetAtTime(currentNoteFreq,t2,0.06);
-    // Brief volume swell for each note (attack)
-    clusterGains[0].gain.setTargetAtTime(0.18,t2,0.02);
-    clusterGains[0].gain.setTargetAtTime(0.08,t2+0.05,currentNoteDur*0.7);
+    clusterGains[0].gain.setTargetAtTime(melodyVol,t2,0.02);
+    clusterGains[0].gain.setTargetAtTime(melodyVol*0.4,t2+0.05,currentNoteDur*0.7);
 
     noteInPhrase++;
-    if(noteInPhrase>=3){noteInPhrase=0;phraseIdx++;noteTimer+=0.15;} // pause between phrases
+    if(noteInPhrase>=3){noteInPhrase=0;phraseIdx++;noteTimer+=0.15/melodySpeed;}
   }
 
   // CHORD FROM K, NOT CLUSTERS
@@ -378,7 +383,7 @@ function updateAudio(){
   // DRONE FROM CHORD: K picks the chord, drone plays it
   var chordA=CHORDS[activeChordA];
   var chordB=CHORDS[activeChordB];
-  var droneVol=0.04+R*0.06;
+  var droneVol=0.06+R*0.08+K*0.02; // louder with K — drone rises as melody softens
 
   // Left: voices 1-3 play chord A
   for(var i=1;i<4;i++){
