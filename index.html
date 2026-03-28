@@ -238,20 +238,44 @@ function initAudio(){
   // Rewire: voices → warmth → masterGain
   // (masterGain already connects to compressor + delay)
 
-  // Pre-allocate voices — pairs of oscillators for thickness
+  // SUB BASS: one sine at root/2. Felt, not heard.
+  var subOsc=audioCtx.createOscillator();
+  var subGain=audioCtx.createGain();
+  subOsc.type='sine';
+  subOsc.frequency.value=55;
+  subGain.gain.value=0;
+  subOsc.connect(subGain);
+  subGain.connect(masterGain);
+  subOsc.start(0);
+
+  // Voices: triangle + sine pairs with PER-VOICE vibrato
+  var vibratoLFOs=[]; // per-voice LFO for vibrato
+  var PHI_RATE=1.618*1.2; // vibrato base rate ~1.9 Hz
+
   for(var i=0;i<MAX_VOICES;i++){
     var osc1=audioCtx.createOscillator();
     var osc2=audioCtx.createOscillator();
     var gain=audioCtx.createGain();
 
-    // Main: triangle for warmth. Detuned pair for width.
     osc1.type='triangle';
     osc2.type='sine';
     osc1.frequency.value=220+i*30;
     osc2.frequency.value=220+i*30;
     osc1.detune.value=-4;
     osc2.detune.value=4+Math.random()*3;
-    gain.gain.value=0.01;
+    gain.gain.value=0;
+
+    // PER-VOICE VIBRATO via LFO → detune
+    var lfo=audioCtx.createOscillator();
+    var lfoGain=audioCtx.createGain();
+    lfo.type='sine';
+    lfo.frequency.value=PHI_RATE+i*0.13; // slightly different rate per voice
+    lfoGain.gain.value=30; // ±30 cents (~1/phi of a semitone)
+    lfo.connect(lfoGain);
+    lfoGain.connect(osc1.detune);
+    lfoGain.connect(osc2.detune);
+    lfo.start(0);
+    vibratoLFOs.push({lfo:lfo,gain:lfoGain});
 
     osc1.connect(gain);
     osc2.connect(gain);
@@ -260,7 +284,7 @@ function initAudio(){
     osc2.start(0);
 
     clusterOscs.push(osc1);
-    clusterOscs.push(osc2); // pairs
+    clusterOscs.push(osc2);
     clusterGains.push(gain);
   }
   warmth.connect(masterGain);
@@ -301,37 +325,50 @@ function updateAudio(){
   for(var i=1;i<wp.length;i++){if(wp[i]-wp[i-1]>0.3)nc++;}
   nc=Math.max(1,Math.min(8,nc));
 
-  // Get the chord for this cluster count
+  // BREATHING ROOT: 110Hz ± 2% over phi*2pi seconds
+  var root=110*(1+Math.sin(t/1.618*0.3)*0.02);
+
+  // Get chord for cluster count
   var chord=CHORDS[nc-1];
-  var root=110*(1+R*0.5); // root rises slightly with sync (110-165 Hz)
   var t2=audioCtx.currentTime;
 
-  // Assign voices to chord tones
+  // CASCADED VOICE LEADING: stagger transitions 0.3s apart
   for(var i=0;i<MAX_VOICES;i++){
+    var delay=i*0.15; // each voice moves 0.15s after the previous
     if(i<chord.length){
       var freq=root*chord[i];
-      var vol=0.15/(chord.length); // equal volume, scaled by chord size
-      // First note (root) slightly louder
-      if(i===0)vol*=1.4;
+      var vol=0.12/(chord.length);
+      if(i===0)vol*=1.3; // root slightly louder
 
-      clusterOscs[i*2].frequency.setTargetAtTime(freq,t2,0.3);
-      clusterOscs[i*2+1].frequency.setTargetAtTime(freq,t2,0.3);
-      clusterGains[i].gain.setTargetAtTime(vol,t2,0.15);
+      clusterOscs[i*2].frequency.setTargetAtTime(freq,t2+delay,0.4);
+      clusterOscs[i*2+1].frequency.setTargetAtTime(freq,t2+delay,0.4);
+      clusterGains[i].gain.setTargetAtTime(vol,t2+delay,0.2);
     } else {
-      clusterGains[i].gain.setTargetAtTime(0,t2,0.2);
+      clusterGains[i].gain.setTargetAtTime(0,t2+delay,0.3);
     }
   }
 
-  // R controls brightness via warmth filter
-  // Low R = muffled (500Hz). High R = open (4000Hz).
-  if(warmthFilter){
-    var cutoff=500+R*3500;
-    warmthFilter.frequency.setTargetAtTime(cutoff,t2,0.2);
+  // SUB BASS: follows root/2, volume from R
+  if(typeof subOsc!=='undefined'){
+    subOsc.frequency.setTargetAtTime(root/2,t2,0.5);
+    subGain.gain.setTargetAtTime(K>0.1?0.025*R:0,t2,0.3);
   }
 
-  // Master: K > 0.1 = audible. R scales it.
+  // VIBRATO DEPTH: more vibrato at low R (searching), less at high R (locked)
+  for(var i=0;i<vibratoLFOs.length;i++){
+    var depth=20+30*(1-R); // 20 cents when synced, 50 when scattered
+    vibratoLFOs[i].gain.gain.setTargetAtTime(depth,t2,0.3);
+  }
+
+  // R controls brightness: low R = muffled, high R = open
+  if(warmthFilter){
+    var cutoff=400+R*R*4000;
+    warmthFilter.frequency.setTargetAtTime(cutoff,t2,0.25);
+  }
+
+  // Master volume
   var masterVol=K>0.1?(0.03+R*0.1):0;
-  masterGain.gain.setTargetAtTime(masterVol,t2,0.15);
+  masterGain.gain.setTargetAtTime(masterVol,t2,0.2);
 
   prevClusterCount=nc;
 }
