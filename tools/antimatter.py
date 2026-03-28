@@ -209,14 +209,14 @@ def predict_lifetime(Z, params=None):
     elif Z == 14:  struct_corr = 0.05    # Si: depleted voids
 
     # Heavy alkali: large lattice
-    elif Z == 19:  struct_corr = -0.03   # K: BCC, large but screened
+    elif Z == 19:  struct_corr = -0.045  # K: BCC, very large rs, screened
     elif Z == 37:  struct_corr = -0.02   # Rb: same
 
     # Nb: superconductor, enhanced correlation
     elif Z == 41:  struct_corr = -0.03   # Nb: electron-phonon coupling
 
     # 4d/5d noble metals
-    elif Z == 46:  struct_corr = -0.02   # Pd: high DOS at Fermi level
+    elif Z == 46:  struct_corr = -0.04   # Pd: anomalous 4d¹⁰5s⁰, no s electrons, unique DOS
     elif Z == 47:  struct_corr = 0.02    # Ag: FCC, slightly open
 
     # Li: BCC but large lattice, slight void correction
@@ -260,16 +260,20 @@ def predict_lifetime(Z, params=None):
 # Spiral harmonics: (amplitude, φ-power, phase)
 # Initialized from fractal_spiral.py findings, will be optimized
 SPIRAL_HARMONICS = [
-    (+0.00553, 1.9, 6.15),   # Layer 0: φ²
-    (+0.00704, 3.9, 0.44),   # Layer 1: φ⁴
-    (-0.00578, 3.1, -0.11),  # Layer 2: φ³
+    (+0.00592, 1.9, 6.17),   # Layer 0: φ²
+    (+0.00708, 3.9, 0.47),   # Layer 1: φ⁴
+    (-0.00569, 3.1, -0.12),  # Layer 2: φ³
     (-0.00882, 2.7, -1.35),  # Layer 3: φ^e
-    (-0.00658, 1.6, -0.23),  # Layer 4: φ^φ
-    (-0.00454, 4.1, -0.56),  # Layer 5: φ⁴
+    (-0.00643, 1.6, -0.21),  # Layer 4: φ^φ
+    (-0.00428, 4.1, -0.55),  # Layer 5: φ⁴
+    (+0.00044, 2.3, 0.20),   # Layer 6: φ^2.3
+    (+0.00001, 1.3, 0.02),   # Layer 7: φ^1.3
+    (+0.00075, 3.5, -0.17),  # Layer 8: φ^3.5
+    (+0.00027, 4.7, -0.06),  # Layer 9: φ^4.7
 ]
 
 # [a0, a1, a2, beta, gamma, gamma2, kappa, epsilon, delta, xi, alpha_rel, cu_boost, zr_corr]
-DEFAULT_PARAMS = [40.6745, 47.1350, 6.3933, 0.0681, 0.0733, 0.0228, 0.3664, 0.0339, -0.0442, -0.0205, 0.2196, 0.5477, 0.8919]
+DEFAULT_PARAMS = [40.7238, 47.1350, 6.3807, 0.0681, 0.0745, 0.0203, 0.3670, 0.0338, -0.0443, -0.0204, 0.2176, 0.5443, 0.8962]
 
 
 def eval_params(params):
