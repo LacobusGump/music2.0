@@ -163,15 +163,27 @@ def predict_melting(Z, params=None):
     elif Z == 13: T_base *= 1.35  # Al: FCC, strong metallic bond
     elif Z == 11: T_base *= 0.82  # Na: BCC, weak
 
-    # Spiral correction: coupling spirals with Z at φ²
-    PHI_SQ = ((1 + 5**0.5) / 2) ** 2
-    T_base *= 1.0 + 0.02 * math.cos(2 * math.pi * Z / PHI_SQ + 2.3)
+    # Fractal spiral correction
+    PHI_V = (1 + 5**0.5) / 2
+    spiral = 1.0
+    for amp, power, phase in THERMO_SPIRAL:
+        spiral += amp * math.cos(2 * math.pi * Z / (PHI_V ** power) + phase)
+    T_base *= spiral
 
     return T_base, T_exp
 
 
+THERMO_SPIRAL = [
+    (+0.02, 1.9, 2.3),
+    ( 0.00, 3.9, 0.0),
+    ( 0.00, 3.1, 0.0),
+    ( 0.00, 2.7, 0.0),
+    ( 0.00, 1.6, 0.0),
+    ( 0.00, 4.1, 0.0),
+]
+
 # [a, b, c, d, e_period, f_trans, g_cov]
-DEFAULT_PARAMS = [226.0193, 1.0016, 0.2984, 0.6002, 0.0219, 0.0922, 0.4922]
+DEFAULT_PARAMS = [230.0012, 1.0016, 0.2984, 0.6002, 0.0188, 0.0933, 0.4688]
 
 
 def eval_params(params):
@@ -187,6 +199,35 @@ def eval_params(params):
     mean_e = sum(e[3] for e in errors) / len(errors) if errors else 999
     max_e = max(e[3] for e in errors) if errors else 999
     return mean_e, max_e, errors
+
+
+def optimize_spiral():
+    global THERMO_SPIRAL
+    harmonics = [list(h) for h in THERMO_SPIRAL]
+    def ev():
+        global THERMO_SPIRAL
+        THERMO_SPIRAL = [tuple(h) for h in harmonics]
+        return eval_params(DEFAULT_PARAMS)[0]
+    for iteration in range(16):
+        scale = 0.5 ** iteration
+        for hi in range(len(harmonics)):
+            for step in [0.01, 0.005, 0.002]:
+                best = ev()
+                for d in [-1, 1]:
+                    harmonics[hi][0] += d * step * scale
+                    e = ev()
+                    if e < best: best = e
+                    else: harmonics[hi][0] -= d * step * scale
+            for step in [0.5, 0.2]:
+                best = ev()
+                for d in [-1, 1]:
+                    harmonics[hi][2] += d * step * scale
+                    e = ev()
+                    if e < best: best = e
+                    else: harmonics[hi][2] -= d * step * scale
+    THERMO_SPIRAL = [tuple(h) for h in harmonics]
+    mean_err, _, _ = eval_params(DEFAULT_PARAMS)
+    print("  Thermo spiral: %.3f%%" % mean_err)
 
 
 def optimize():
@@ -214,6 +255,9 @@ def optimize():
 
 
 def main():
+    if '--spiral' in sys.argv:
+        optimize_spiral()
+        return
     if '--optimize' in sys.argv:
         optimize()
         return

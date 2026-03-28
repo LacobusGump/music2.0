@@ -228,16 +228,28 @@ def predict_bond(ZA, ZB, order, params=None):
     if n_max > 3.0:
         E -= period3_pen * (n_max - 3.0)
 
-    # Spiral correction: coupling spirals at φ^2.5
+    # Fractal spiral: 6 golden harmonics on average Z
     Z_avg = (ZA + ZB) / 2.0
-    PHI_25 = ((1 + 5**0.5) / 2) ** 2.5
-    E *= 1.0 - 0.03 * math.cos(2 * math.pi * Z_avg / PHI_25 + 4.5)
+    PHI_V = (1 + 5**0.5) / 2
+    spiral = 1.0
+    for amp, power, phase in MOL_SPIRAL:
+        spiral += amp * math.cos(2 * math.pi * Z_avg / (PHI_V ** power) + phase)
+    E *= spiral
 
     return max(0.1, E)
 
 
+MOL_SPIRAL = [
+    (-0.00960, 2.5, 4.33),
+    (+0.03188, 1.9, -0.68),
+    (+0.02912, 3.9, 1.12),
+    (-0.01750, 3.1, 0.35),
+    (-0.00673, 2.7, 0.64),
+    (-0.00531, 1.6, 0.80),
+]
+
 # [a_en, a_den, a_den2, a_const, o2_add, o3_add, lone_k, h_add, size_pen, period3_pen]
-DEFAULT_PARAMS = [0.3467, 0.2828, 0.0119, 0.9612, 2.7782, 5.7822, 0.3200, 0.6582, 0.1623, -0.5250]
+DEFAULT_PARAMS = [0.3467, 0.2863, 0.0119, 0.9663, 2.7729, 5.4857, 0.3201, 0.7863, 0.1623, -0.4973]
 
 
 def eval_params(params):
@@ -252,6 +264,38 @@ def eval_params(params):
     mean_e = sum(e[3] for e in errors) / len(errors)
     max_e = max(e[3] for e in errors)
     return mean_e, max_e, errors
+
+
+def optimize_spiral():
+    """Optimize molecule spiral harmonics."""
+    global MOL_SPIRAL
+    harmonics = [list(h) for h in MOL_SPIRAL]
+    def ev():
+        global MOL_SPIRAL
+        MOL_SPIRAL = [tuple(h) for h in harmonics]
+        return eval_params(DEFAULT_PARAMS)[0]
+    for iteration in range(16):
+        scale = 0.5 ** iteration
+        for hi in range(len(harmonics)):
+            for step in [0.01, 0.005, 0.002]:
+                best = ev()
+                for d in [-1, 1]:
+                    harmonics[hi][0] += d * step * scale
+                    e = ev()
+                    if e < best: best = e
+                    else: harmonics[hi][0] -= d * step * scale
+            for step in [0.5, 0.2]:
+                best = ev()
+                for d in [-1, 1]:
+                    harmonics[hi][2] += d * step * scale
+                    e = ev()
+                    if e < best: best = e
+                    else: harmonics[hi][2] -= d * step * scale
+    MOL_SPIRAL = [tuple(h) for h in harmonics]
+    mean_err, _, _ = eval_params(DEFAULT_PARAMS)
+    print("  Molecule spiral: %.3f%%" % mean_err)
+    for i, (a,p,ph) in enumerate(MOL_SPIRAL):
+        print("    Layer %d: amp=%+.5f  φ^%.1f  phase=%.2f" % (i,a,p,ph))
 
 
 def optimize():
@@ -288,6 +332,9 @@ def optimize():
 
 
 def main():
+    if '--spiral' in sys.argv:
+        optimize_spiral()
+        return
     if '--optimize' in sys.argv:
         optimize()
         return

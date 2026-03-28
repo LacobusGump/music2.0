@@ -170,9 +170,11 @@ def compute_IE(Z, config, params=None):
     if Z == 20:
         IE *= 1.04
 
-    # Spiral correction: coupling spirals with Z at φ²
-    PHI_SQ = ((1 + 5**0.5) / 2) ** 2
-    spiral = 1.0 + 0.02 * math.cos(2 * math.pi * Z / PHI_SQ + 2.3)
+    # Fractal spiral correction: 10 golden harmonics
+    PHI_V = (1 + 5**0.5) / 2
+    spiral = 1.0
+    for amp, power, phase in SPIRAL_HARMONICS:
+        spiral += amp * math.cos(2 * math.pi * Z / (PHI_V ** power) + phase)
     IE *= spiral
 
     # ── EXCHANGE (Hund's rule) ──
@@ -203,7 +205,20 @@ SLATER_PARAMS = [0.40, 0.40, 0.04, 0.79, 0.88, 0.85, 0.007,
                  0.97, 0.50, 0.50, 0.16, 0.15, 0.0,
                  2.0, 2.75, 0.10, 1.0, 0.25]
 
-DEFAULT_PARAMS = [0.4188, 0.4167, 0.0326, 0.7838, 0.8800, 0.8500, 0.0075, 0.9700, 0.5078, 0.5332, 0.1667, 0.0855, 0.0789, 1.0000, 2.2656, 0.0000, 0.9133, 0.2500]
+DEFAULT_PARAMS = [0.4032, 0.4000, 0.0390, 0.7890, 0.8794, 0.8500, 0.0070, 0.9703, 0.5250, 0.5778, 0.1619, 0.0914, 0.0937, 1.0000, 2.2368, 0.0000, 1.0078, 0.2500]
+
+SPIRAL_HARMONICS = [
+    (-0.00983, 1.9, 2.41),
+    (+0.00945, 3.9, 1.24),
+    (-0.00672, 3.1, 0.78),
+    (-0.00818, 2.7, -0.85),
+    (-0.00419, 1.6, 0.20),
+    (-0.00805, 4.1, -0.68),
+    (-0.00458, 2.3, 0.80),
+    (-0.00828, 1.3, -0.37),
+    (-0.00202, 3.5, 0.42),
+    (-0.00010, 4.7, 0.10),
+]
 
 
 def eval_params(params):
@@ -216,6 +231,38 @@ def eval_params(params):
     mean_e = sum(e[4] for e in errors) / len(errors)
     max_e = max(e[4] for e in errors)
     return mean_e, max_e, errors
+
+
+def optimize_spiral():
+    """Optimize spiral harmonics for conductor."""
+    global SPIRAL_HARMONICS
+    harmonics = [list(h) for h in SPIRAL_HARMONICS]
+    def ev():
+        global SPIRAL_HARMONICS
+        SPIRAL_HARMONICS = [tuple(h) for h in harmonics]
+        return eval_params(DEFAULT_PARAMS)[0]
+    for iteration in range(16):
+        scale = 0.5 ** iteration
+        for hi in range(len(harmonics)):
+            for step in [0.005, 0.002, 0.001]:
+                best = ev()
+                for d in [-1, 1]:
+                    harmonics[hi][0] += d * step * scale
+                    e = ev()
+                    if e < best: best = e
+                    else: harmonics[hi][0] -= d * step * scale
+            for step in [0.5, 0.2, 0.1]:
+                best = ev()
+                for d in [-1, 1]:
+                    harmonics[hi][2] += d * step * scale
+                    e = ev()
+                    if e < best: best = e
+                    else: harmonics[hi][2] -= d * step * scale
+    SPIRAL_HARMONICS = [tuple(h) for h in harmonics]
+    mean_err, _, _ = eval_params(DEFAULT_PARAMS)
+    print("  Conductor spiral: %.3f%%" % mean_err)
+    for i, (a,p,ph) in enumerate(SPIRAL_HARMONICS):
+        print("    Layer %d: amp=%+.5f  φ^%.1f  phase=%.2f" % (i,a,p,ph))
 
 
 def optimize():
@@ -375,6 +422,10 @@ def main():
     print("  ║   Coupling constants that found themselves     ║")
     print("  ╚══════════════════════════════════════════════╝")
     print()
+
+    if '--spiral' in sys.argv:
+        optimize_spiral()
+        return
 
     if '--optimize' in sys.argv:
         optimize()
