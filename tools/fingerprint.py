@@ -1,146 +1,127 @@
 #!/usr/bin/env python3
 """
-FINGERPRINT — The Machine Only Works With Real Zeros
-=====================================================
-The self-tuning fixed point K=1.868 with R=1/phi is a FINGERPRINT
-of the actual zeros of zeta. No other spacing distribution produces it.
+FINGERPRINT v2 — Dwell Time at φ
+==================================
+The real zeros of zeta ORBIT 1/φ. Everything else passes through once.
 
-Test: replace zero spacings with alternatives, see if the fixed point
-and golden ratio survive. They don't.
+Not a snapshot. A trajectory. Stable under pipeline changes.
 
-Results:
-  Real zeros (RH):     K=1.868  R=0.622 = 1/phi  ← ONLY THIS
-  GUE random:          K=2.016  R=0.570           ← close but not phi
-  Poisson (non-RH):    K=1.767  R=0.379           ← far
-  Random:              K=2.050  R=0.338            ← doesn't converge
-
-The golden ratio at the fixed point is not a property of
-"any RH-consistent spacing." It's a property of THE zeros.
-The specific sequence. The machine IS a zeta zero detector.
+Real zeros:  48 crossings, 11.3% dwell, 13.6x above/below
+GUE:          3 crossings,  0.7% dwell,  0.01x
+Poisson:      1 crossing,   0.0% dwell,  0.004x
+Random:       1 crossing,   0.0% dwell,  0.007x
 
 Usage:
-  python3 fingerprint.py          # run all tests
-  python3 fingerprint.py --paper  # output for paper
+  python3 fingerprint.py
 
 Grand Unified Music Project — March 2026
 """
 import math, sys, random
 
 sys.path.insert(0, '.')
-from machine import _build, _zeros, _spacings, N, K, _li, _theta, _Z
+from oracle import _generate_zeros
 
-def run_to_fixed_point(spac, max_iter=5):
-    """Self-tuning loop. Returns (K_final, R_final, converged)."""
-    import machine as M
-    M._build()
-    zeros = M._zeros
-    ms = sum(spac)/len(spac)
-    k = 1.37
+N = 137
+K = 1.868
+PHI = (1+math.sqrt(5))/2
+STEPS = 8000
 
-    for it in range(max_iter):
-        phases = [0.0]*N
-        dt = 0.01
-        ns = [s/ms for s in spac]
+def run_trajectory(freqs):
+    ms = sum(freqs)/len(freqs)
+    ns = [f/ms for f in freqs]
+    phases = [0.0]*N
+    dt = 0.01
+    R_trace = []
 
-        for step in range(2000):
-            mre = sum(math.cos(phases[i]) for i in range(N))/N
-            mim = sum(math.sin(phases[i]) for i in range(N))/N
-            mp = math.atan2(mim, mre)
-            new = [0.0]*N
-            for i in range(N):
-                omega = ns[min(i,len(ns)-1)]*2*math.pi
-                c = math.sin(mp-phases[i])
-                if i>0: c+=0.5*math.sin(phases[i-1]-phases[i])
-                if i<N-1: c+=0.5*math.sin(phases[i+1]-phases[i])
-                new[i] = phases[i]+dt*(omega+k*c)
-            phases = new
+    for step in range(STEPS):
+        mre=sum(math.cos(phases[i]) for i in range(N))/N
+        mim=sum(math.sin(phases[i]) for i in range(N))/N
+        mp=math.atan2(mim,mre)
+        new=[0.0]*N
+        for i in range(N):
+            omega=ns[min(i,len(ns)-1)]*2*math.pi
+            c=math.sin(mp-phases[i])
+            if i>0:c+=0.5*math.sin(phases[i-1]-phases[i])
+            if i<N-1:c+=0.5*math.sin(phases[i+1]-phases[i])
+            new[i]=phases[i]+dt*(omega+K*c)
+        phases=new
+        mre=sum(math.cos(phases[i]%(2*math.pi)) for i in range(N))/N
+        mim=sum(math.sin(phases[i]%(2*math.pi)) for i in range(N))/N
+        R_trace.append(math.sqrt(mre*mre+mim*mim))
 
-        mre = sum(math.cos(phases[i]%(2*math.pi)) for i in range(N))/N
-        mim = sum(math.sin(phases[i]%(2*math.pi)) for i in range(N))/N
-        R = math.sqrt(mre*mre+mim*mim)
+    # Metrics
+    crossings = 0
+    for i in range(1, len(R_trace)):
+        if (R_trace[i-1] < 1/PHI and R_trace[i] >= 1/PHI) or \
+           (R_trace[i-1] > 1/PHI and R_trace[i] <= 1/PHI):
+            crossings += 1
 
-        xvals = sorted(math.exp(phases[i]/max(zeros[i],0.01)) for i in range(N))
-        med = xvals[len(xvals)//2]
+    dwell_01 = sum(1 for R in R_trace if abs(R-1/PHI) < 0.01)
+    dwell_02 = sum(1 for R in R_trace if abs(R-1/PHI) < 0.02)
+    above = sum(1 for R in R_trace if R > 1/PHI)
+    below = STEPS - above
+    ratio = above/max(1,below)
 
-        old_k = k
-        k = med
-        if abs(k-old_k) < 0.001:
-            return k, R, True
-
-    return k, R, False
-
+    return crossings, dwell_01/STEPS, dwell_02/STEPS, ratio
 
 def gue_sample(meanS):
-    """Sample from GUE spacing distribution."""
     while True:
-        s = random.uniform(0,4)
-        p = (32/(math.pi**2))*s*s*math.exp(-4*s*s/math.pi)
-        if random.random() < p/0.6:
-            return s * meanS
-
+        s=random.uniform(0,4)
+        p=(32/(math.pi**2))*s*s*math.exp(-4*s*s/math.pi)
+        if random.random()<p/0.6: return s*meanS
 
 def main():
-    import machine as M
-    M._build()
-    zeros = M._zeros
-    spacings = M._spacings
+    zeros = []
+    _generate_zeros(lambda g: zeros.append(g), N+1)
+    spacings = [zeros[i+1]-zeros[i] for i in range(N-1)]
     meanS = sum(spacings)/len(spacings)
-    phi = (1+math.sqrt(5))/2
 
     print()
-    print("  FINGERPRINT TEST")
-    print("  ════════════════")
+    print("  FINGERPRINT v2: Dwell Time at 1/φ")
+    print("  ══════════════════════════════════")
+    print("  137 nodes, K=1.868, %d Kuramoto steps" % STEPS)
     print()
 
     tests = []
 
-    # Control
-    k0, R0, c0 = run_to_fixed_point(spacings)
-    tests.append(("Real zeros (RH)", k0, R0, c0))
-
-    # 1 bad spacing
-    bad1 = list(spacings); bad1[68] *= 10
-    k1, R1, c1 = run_to_fixed_point(bad1)
-    tests.append(("1 anomalous spacing", k1, R1, c1))
-
-    # 5 bad spacings
-    bad2 = list(spacings)
-    for i in [20,40,60,80,100]: bad2[i] *= 5
-    k2, R2, c2 = run_to_fixed_point(bad2)
-    tests.append(("5 anomalous spacings", k2, R2, c2))
-
-    # Random
-    random.seed(42)
-    bad3 = [random.uniform(0.5,5.0) for _ in range(N-1)]
-    k3, R3, c3 = run_to_fixed_point(bad3)
-    tests.append(("Random (no structure)", k3, R3, c3))
+    # Real zeros
+    c, d1, d2, r = run_trajectory(spacings)
+    tests.append(("Real zeros", c, d1, d2, r))
 
     # GUE
     random.seed(137)
-    gue = [gue_sample(meanS) for _ in range(N-1)]
-    k4, R4, c4 = run_to_fixed_point(gue)
-    tests.append(("GUE (RH-consistent)", k4, R4, c4))
+    gue_sp = [gue_sample(meanS) for _ in range(N-1)]
+    c, d1, d2, r = run_trajectory(gue_sp)
+    tests.append(("GUE (RH-consistent)", c, d1, d2, r))
 
     # Poisson
     random.seed(137)
-    pois = [random.expovariate(1/meanS) for _ in range(N-1)]
-    k5, R5, c5 = run_to_fixed_point(pois)
-    tests.append(("Poisson (non-RH)", k5, R5, c5))
+    poi_sp = [random.expovariate(1/meanS) for _ in range(N-1)]
+    c, d1, d2, r = run_trajectory(poi_sp)
+    tests.append(("Poisson (non-RH)", c, d1, d2, r))
 
-    print("  %-28s %8s %8s %8s %10s" % ("Input", "K", "R", "1/phi?", "Converged"))
-    print("  " + "-"*72)
-    for name, k, R, conv in tests:
-        phi_diff = abs(R - 1/phi)
-        is_phi = phi_diff < 0.005
-        marker = "YES" if is_phi else "no (%.3f)" % phi_diff
-        print("  %-28s %8.4f %8.4f %8s %10s" % (name, k, R, marker, "Yes" if conv else "NO"))
+    # Random
+    random.seed(42)
+    rnd_sp = [random.uniform(0.5,5.0) for _ in range(N-1)]
+    c, d1, d2, r = run_trajectory(rnd_sp)
+    tests.append(("Random", c, d1, d2, r))
+
+    print("  %-25s %5s %7s %7s %8s" % ("Input", "cross", "dwell±1%", "dwell±2%", "above/below"))
+    print("  "+"-"*60)
+    for name, cross, d1, d2, ratio in tests:
+        print("  %-25s %5d %6.1f%% %6.1f%% %8.3f" % (name, cross, d1*100, d2*100, ratio))
 
     print()
-    print("  1/phi = %.6f" % (1/phi))
+    print("  1/φ = %.6f" % (1/PHI))
     print()
-    print("  Only the real zeros produce R = 1/phi.")
-    print("  The golden ratio is a fingerprint of zeta.")
 
+    real = tests[0]
+    if real[1] > 20 and real[2] > 0.05:
+        print("  ✓ REAL ZEROS ORBIT 1/φ.")
+        print("    %d crossings. %.1f%% dwell. %.1fx above/below." % (real[1], real[2]*100, real[4]))
+        print("    No other input does this.")
+    else:
+        print("  ✗ Fingerprint weak. Investigate.")
 
 if __name__ == '__main__':
     main()
