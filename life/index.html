@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html><head>
+<meta charset="UTF-8">
+<meta http-equiv="cache-control" content="no-cache, no-store, must-revalidate">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Life</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:#000;overflow:hidden;touch-action:none;}
+canvas{display:block;width:100vw;height:100vh;}
+#nav{position:fixed;bottom:4px;right:8px;font:0.6em Georgia;z-index:10;}
+#nav a{color:#1a1a1a;text-decoration:none;margin:0 4px;}
+#nav a:hover{color:#c9a44a;}
+</style>
+</head>
+<body>
+<canvas id="C"></canvas>
+<div id="nav">
+  <a href="/">home</a> · <a href="/flex/">flex</a> · <a href="/mirror/">mirror</a> · <a href="/r/">research</a>
+</div>
+<script>
+var cv=document.getElementById('C'),cx=cv.getContext('2d');
+var W,H,DPR;
+function resize(){DPR=devicePixelRatio||1;W=cv.width=innerWidth*DPR;H=cv.height=innerHeight*DPR;cx.setTransform(DPR,0,0,DPR,0,0);}
+resize();addEventListener('resize',resize);
+
+// ═══════════════════════════════════════════════════════════
+// LIFE — from fertilization to organism
+// Computed through K. Every phase transition is real.
+// ═══════════════════════════════════════════════════════════
+
+var w,h,t=0,phase=0;
+
+// ═══ CELLS ═══
+// Each cell: {x,y,z, r(radius), phase(oscillator), freq, R(sync), divideAt, age, generation}
+var cells=[];
+var particles=[]; // small particles for effects
+
+// ═══ CAMERA ═══
+var camZ=8;      // distance from origin
+var camRot=0;    // auto rotation
+var camTilt=0.3;
+
+// ═══ TIMELINE ═══
+// phase 0-1:   egg waiting
+// phase 1-2:   sperm approaches
+// phase 2-3:   contact + zinc flash
+// phase 3-4:   R oscillation (integration), slow motion zoom
+// phase 4-5:   first division (1→2), slow motion zoom into split
+// phase 5-6:   2→4
+// phase 6-7:   4→8
+// phase 7-8:   8→16
+// phase 8-9:   16→32
+// phase 9-10:  32→64, zoom out, morula forming
+// phase 10-11: 64→128, blastocyst, hollow sphere
+// phase 11-12: implantation, specialization begins
+
+var PHASE_SPEED=0.008; // ~2 minutes for full journey
+var slowMo=1;          // 1=normal, 0.2=slow motion
+var flash=0;           // zinc flash intensity
+
+function createEgg(){
+  cells=[{
+    x:0,y:0,z:0,
+    r:1.5,
+    phase:0,freq:1.0,
+    R:0.78,          // egg's settled sync
+    K:2.5,           // egg's coupling
+    divideAt:4.0,    // divides at phase 4
+    age:0,gen:0,
+    cr:220,cg:190,cb:160  // warm cream
+  }];
+}
+
+function createSperm(progress){
+  // Sperm approaches from the right
+  var dist=6-progress*5;
+  return {x:dist,y:Math.sin(t*8)*0.15,z:Math.cos(t*8)*0.15,
+    r:0.12,phase:t*6.28*1.618,freq:1.618, // phi frequency — maximally different
+    tail:true,
+    cr:200,cg:210,cb:230}; // cool blue-white
+}
+
+// ═══ CELL DIVISION ═══
+function divideCell(idx){
+  var parent=cells[idx];
+  var newR=parent.r*0.79; // volume conserved: r_new = r_old / 2^(1/3)
+
+  // Split axis: random direction
+  var angle=Math.random()*Math.PI*2;
+  var tilt=(Math.random()-0.5)*Math.PI*0.5;
+  var sep=newR*1.1; // slight separation
+  var dx=Math.cos(angle)*Math.cos(tilt)*sep;
+  var dy=Math.sin(tilt)*sep;
+  var dz=Math.sin(angle)*Math.cos(tilt)*sep;
+
+  // Daughter 1 (replaces parent)
+  cells[idx]={
+    x:parent.x+dx, y:parent.y+dy, z:parent.z+dz,
+    r:newR,
+    phase:parent.phase,
+    freq:parent.freq*(1+Math.random()*0.1-0.05), // slight frequency drift
+    R:parent.R*0.9, // R drops slightly during division
+    K:parent.K,
+    divideAt:phase+0.8+Math.random()*0.4, // next division
+    age:0,gen:parent.gen+1,
+    cr:parent.cr+Math.floor(Math.random()*10-5),
+    cg:parent.cg+Math.floor(Math.random()*10-5),
+    cb:parent.cb+Math.floor(Math.random()*10-5),
+    splitting:1.0 // animation: 1→0
+  };
+
+  // Daughter 2 (new cell)
+  cells.push({
+    x:parent.x-dx, y:parent.y-dy, z:parent.z-dz,
+    r:newR,
+    phase:parent.phase+Math.PI*0.3, // phase offset — not identical to sister
+    freq:parent.freq*(1+Math.random()*0.1-0.05),
+    R:parent.R*0.9,
+    K:parent.K,
+    divideAt:phase+0.8+Math.random()*0.4,
+    age:0,gen:parent.gen+1,
+    cr:parent.cr+Math.floor(Math.random()*10-5),
+    cg:parent.cg+Math.floor(Math.random()*10-5),
+    cb:parent.cb+Math.floor(Math.random()*10-5),
+    splitting:1.0
+  });
+
+  // Burst particles at division site
+  for(var i=0;i<20;i++){
+    var a=Math.random()*Math.PI*2,b=Math.random()*Math.PI;
+    particles.push({
+      x:parent.x,y:parent.y,z:parent.z,
+      vx:Math.sin(b)*Math.cos(a)*0.03,
+      vy:Math.sin(b)*Math.sin(a)*0.03,
+      vz:Math.cos(b)*0.03,
+      life:1,r:180,g:200,b:220
+    });
+  }
+}
+
+// ═══ PHYSICS ═══
+function update(){
+  var dt=0.016*slowMo;
+  t+=dt;
+  phase+=PHASE_SPEED*slowMo;
+
+  // Slow motion during key events
+  slowMo+=(1-slowMo)*0.02; // always drifting back to normal
+
+  // ─── Phase 0-1: Egg waiting ───
+  if(phase<1){
+    if(cells.length===0)createEgg();
+    camZ+=(8-camZ)*0.02;
+  }
+
+  // ─── Phase 1-2: Sperm approaches ───
+  // (rendered in draw, not stored as cell)
+
+  // ─── Phase 2-2.5: Contact ───
+  if(phase>2&&phase<2.5){
+    // R starts oscillating (integration begins)
+    if(cells.length>0){
+      cells[0].R=0.78+Math.sin(t*5.7)*0.06; // 0.91 Hz oscillation
+    }
+  }
+
+  // ─── Phase 2.5: THE FLASH ───
+  if(phase>2.45&&phase<2.55){
+    flash=Math.max(flash,(1-Math.abs(phase-2.5)*20));
+    slowMo=0.15; // SLOW MOTION for the flash
+    // Burst particles
+    if(Math.random()<0.3){
+      var a=Math.random()*Math.PI*2,b=Math.random()*Math.PI;
+      var rr=cells[0]?cells[0].r:1.5;
+      particles.push({
+        x:Math.sin(b)*Math.cos(a)*rr*1.1,
+        y:Math.sin(b)*Math.sin(a)*rr*1.1,
+        z:Math.cos(b)*rr*1.1,
+        vx:Math.sin(b)*Math.cos(a)*0.08,
+        vy:Math.sin(b)*Math.sin(a)*0.08,
+        vz:Math.cos(b)*0.08,
+        life:1,r:255,g:230,b:180 // zinc flash: bright gold-white
+      });
+    }
+  } else {
+    flash*=0.95;
+  }
+
+  // ─── Phase 3-4: R settling, new K forming ───
+  if(phase>3&&phase<4&&cells.length>0){
+    var dampProgress=(phase-3);
+    cells[0].R=0.78+Math.sin(t*5.7)*0.06*(1-dampProgress); // damping
+    cells[0].K=2.5-dampProgress*0.6; // K shifts to new value ~1.9
+    camZ+=(5-camZ)*0.01; // slowly zoom in
+  }
+
+  // ─── Phase 4+: DIVISIONS ───
+  // Check each cell for division time
+  if(phase>4){
+    // Zoom for first few divisions, then pull back
+    if(cells.length<=2){
+      camZ+=(3-camZ)*0.02; // close for first split
+      if(phase>4&&phase<4.3)slowMo=0.2; // slow motion first split
+    } else if(cells.length<=8){
+      camZ+=(4-camZ)*0.01;
+    } else if(cells.length<=32){
+      camZ+=(6-camZ)*0.01;
+    } else {
+      camZ+=(8+cells.length*0.02-camZ)*0.005; // pull out as it grows
+    }
+
+    // Slow motion briefly at each power-of-2 split
+    var nc=cells.length;
+    if(nc===1||nc===2||nc===4||nc===8||nc===16){
+      // Check if any cell is ready to divide
+      for(var i=cells.length-1;i>=0;i--){
+        if(phase>=cells[i].divideAt&&cells.length<256){
+          if(nc<=16)slowMo=0.25; // slow motion zoom for early splits
+          divideCell(i);
+          break; // one division per frame to see it
+        }
+      }
+    } else {
+      // Multiple divisions per frame once past 16 cells
+      for(var i=cells.length-1;i>=0;i--){
+        if(phase>=cells[i].divideAt&&cells.length<256){
+          divideCell(i);
+        }
+      }
+    }
+  }
+
+  // ─── Cell physics: gentle repulsion + cohesion ───
+  for(var i=0;i<cells.length;i++){
+    var c=cells[i];
+    c.age+=dt;
+    c.phase+=c.freq*dt*2*Math.PI;
+    if(c.splitting)c.splitting=Math.max(0,c.splitting-dt*2);
+
+    // Interact with other cells
+    for(var j=i+1;j<cells.length;j++){
+      var d=cells[j];
+      var dx=d.x-c.x,dy=d.y-c.y,dz=d.z-c.z;
+      var dist=Math.sqrt(dx*dx+dy*dy+dz*dz)+0.01;
+      var overlap=c.r+d.r-dist;
+
+      if(overlap>0){
+        // Repel (cells don't overlap)
+        var push=overlap*0.05/dist;
+        c.x-=dx*push;c.y-=dy*push;c.z-=dz*push;
+        d.x+=dx*push;d.y+=dy*push;d.z+=dz*push;
+      }
+
+      // Gentle cohesion (cells stick together)
+      if(dist<(c.r+d.r)*2){
+        var pull=0.001/dist;
+        c.x+=dx*pull;c.y+=dy*pull;c.z+=dz*pull;
+        d.x-=dx*pull;d.y-=dy*pull;d.z-=dz*pull;
+      }
+    }
+
+    // Center gravity (keep the mass together)
+    c.x*=0.999;c.y*=0.999;c.z*=0.999;
+  }
+
+  // Update particles
+  for(var i=particles.length-1;i>=0;i--){
+    var p=particles[i];
+    p.x+=p.vx;p.y+=p.vy;p.z+=p.vz;
+    p.vx*=0.97;p.vy*=0.97;p.vz*=0.97;
+    p.life-=0.015;
+    if(p.life<=0)particles.splice(i,1);
+  }
+}
+
+// ═══ 3D PROJECTION ═══
+function project(x,y,z){
+  var cosR=Math.cos(camRot),sinR=Math.sin(camRot);
+  var cosT=Math.cos(camTilt),sinT=Math.sin(camTilt);
+  // Rotate
+  var rx=x*cosR+z*sinR;
+  var rz=-x*sinR+z*cosR;
+  var ry=y*cosT-rz*sinT;
+  var rz2=y*sinT+rz*cosT;
+  // Project
+  var fov=Math.min(w,h)*0.5;
+  var f=fov/(fov+rz2*40+camZ*40);
+  return{sx:w/2+rx*40*f, sy:h/2+ry*40*f, f:f, z:rz2};
+}
+
+// ═══ RENDER ═══
+function render(){
+  w=W/DPR;h=H/DPR;
+
+  // Background: fades to reveal
+  cx.fillStyle=flash>0.1?'rgba('+Math.floor(40*flash)+','+Math.floor(35*flash)+','+Math.floor(20*flash)+',0.15)':'rgba(0,0,0,0.06)';
+  cx.fillRect(0,0,w,h);
+
+  update();
+  camRot+=0.003*slowMo; // gentle auto-rotate
+
+  cx.globalCompositeOperation='lighter';
+
+  // ─── SPERM (phase 1-2.5) ───
+  if(phase>1&&phase<2.6){
+    var sp=createSperm(Math.min(1,(phase-1)/1.5));
+    var pp=project(sp.x,sp.y,sp.z);
+    if(pp.f>0){
+      // Head
+      var sz=Math.max(1,pp.f*sp.r*40);
+      cx.fillStyle='rgba('+sp.cr+','+sp.cg+','+sp.cb+','+(pp.f*0.6)+')';
+      cx.fillRect(pp.sx-sz,pp.sy-sz,sz*2,sz*2);
+      // Tail
+      if(sp.tail){
+        cx.strokeStyle='rgba(180,190,210,0.1)';
+        cx.lineWidth=0.5;
+        cx.beginPath();
+        cx.moveTo(pp.sx+sz,pp.sy);
+        for(var ti=0;ti<20;ti++){
+          var tx=sp.x+0.1*ti;
+          var ty=sp.y+Math.sin(t*12+ti*0.8)*0.08;
+          var tp=project(tx,ty,sp.z);
+          cx.lineTo(tp.sx,tp.sy);
+        }
+        cx.stroke();
+      }
+    }
+  }
+
+  // ─── CELLS ───
+  // Sort by z for proper overlap
+  var sorted=[];
+  for(var i=0;i<cells.length;i++){
+    var c=cells[i];
+    var pp=project(c.x,c.y,c.z);
+    sorted.push({idx:i,sx:pp.sx,sy:pp.sy,f:pp.f,z:pp.z,cell:c});
+  }
+  sorted.sort(function(a,b){return a.z-b.z;});
+
+  for(var i=0;i<sorted.length;i++){
+    var s=sorted[i],c=s.cell;
+    var sz=Math.max(1,s.f*c.r*40);
+    var alpha=s.f*0.4;
+
+    // Phase breathing: cell pulses with its oscillator
+    var breathe=1+Math.sin(c.phase)*0.08;
+    sz*=breathe;
+
+    // Splitting animation: cell elongates then pinches
+    if(c.splitting&&c.splitting>0){
+      var sq=c.splitting;
+      // Elongation
+      var elongX=sz*(1+sq*0.5);
+      var elongY=sz*(1-sq*0.3);
+      cx.fillStyle='rgba('+c.cr+','+c.cg+','+c.cb+','+alpha+')';
+      cx.fillRect(s.sx-elongX,s.sy-elongY,elongX*2,elongY*2);
+      // Pinch line
+      cx.fillStyle='rgba(0,0,0,'+(sq*0.3)+')';
+      cx.fillRect(s.sx-0.5,s.sy-elongY,1,elongY*2);
+    } else {
+      // Normal cell
+      cx.fillStyle='rgba('+c.cr+','+c.cg+','+c.cb+','+alpha+')';
+      cx.beginPath();cx.arc(s.sx,s.sy,sz,0,Math.PI*2);cx.fill();
+
+      // Inner glow (nucleus)
+      if(sz>3){
+        cx.fillStyle='rgba('+Math.min(255,c.cr+40)+','+Math.min(255,c.cg+30)+','+Math.min(255,c.cb+20)+','+(alpha*0.3)+')';
+        cx.beginPath();cx.arc(s.sx,s.sy,sz*0.35,0,Math.PI*2);cx.fill();
+      }
+    }
+
+    // Glow when R is high
+    if(c.R>0.7&&sz>2){
+      cx.fillStyle='rgba('+c.cr+','+c.cg+','+c.cb+','+(alpha*0.05*c.R)+')';
+      cx.beginPath();cx.arc(s.sx,s.sy,sz*2.5,0,Math.PI*2);cx.fill();
+    }
+  }
+
+  // ─── PARTICLES ───
+  for(var i=0;i<particles.length;i++){
+    var p=particles[i];
+    var pp=project(p.x,p.y,p.z);
+    var sz=Math.max(0.5,pp.f*2);
+    cx.fillStyle='rgba('+p.r+','+p.g+','+p.b+','+(p.life*pp.f*0.4)+')';
+    cx.fillRect(pp.sx-sz,pp.sy-sz,sz*2,sz*2);
+  }
+
+  // ─── ZINC FLASH ───
+  if(flash>0.05){
+    var grd=cx.createRadialGradient(w/2,h/2,0,w/2,h/2,Math.min(w,h)*0.4);
+    grd.addColorStop(0,'rgba(255,240,200,'+(flash*0.15)+')');
+    grd.addColorStop(1,'rgba(255,240,200,0)');
+    cx.fillStyle=grd;
+    cx.fillRect(0,0,w,h);
+  }
+
+  cx.globalCompositeOperation='source-over';
+
+  // ─── WHISPER ───
+  var whisper='';
+  if(phase<0.5)whisper='';
+  else if(phase<1)whisper='waiting';
+  else if(phase<2)whisper='approaching';
+  else if(phase<2.45)whisper='contact';
+  else if(phase<2.6)whisper='the flash';
+  else if(phase<3.5)whisper='0.91 Hz';
+  else if(phase<4)whisper='new K forming';
+  else if(phase<4.5)whisper='first division';
+  else if(phase<5.5)whisper=''+cells.length+' cells';
+  else if(phase<8)whisper=cells.length+' cells';
+  else if(phase<10)whisper='morula ('+cells.length+')';
+  else whisper='alive ('+cells.length+')';
+
+  cx.fillStyle='rgba(201,164,74,0.04)';
+  cx.font='12px Georgia';cx.textAlign='center';
+  cx.fillText(whisper,w/2,h-16);
+
+  // Cell count + R
+  if(cells.length>0){
+    cx.fillStyle='rgba(255,255,255,0.03)';
+    cx.font='9px Georgia';
+    cx.fillText('R='+cells[0].R.toFixed(3)+'  K='+cells[0].K.toFixed(2),w/2,14);
+  }
+
+  requestAnimationFrame(render);
+}
+
+createEgg();
+render();
+</script>
+</body>
+</html>
