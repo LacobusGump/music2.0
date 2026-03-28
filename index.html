@@ -68,36 +68,40 @@ function buildMask(){
   ox.fillStyle='#000';ox.fillRect(0,0,w,h);
   ox.textAlign='center';ox.textBaseline='middle';
 
-  // GUMP — big
+  // Draw ALL text WHITE — identify by Y position, not color
   var ts=Math.min(w*0.18,70);
   ox.font='bold '+ts+'px Georgia';
-  ox.fillStyle='#010000';ox.fillText('GUMP',w/2,h*0.1);
+  ox.fillStyle='#fff';
+  ox.fillText('GUMP',w/2,h*0.1);
 
-  // Pages
   var fs=Math.min(w*0.065,28);
   var startY=h*0.26;
   var gap=(h*0.64)/PAGES.length;
   ox.font='bold '+fs+'px Georgia';
   for(var i=0;i<PAGES.length;i++){
-    // Draw each word with a unique shade so we can identify it
-    var shade=i+2; // 2-7
-    ox.fillStyle='rgb('+shade+',0,0)';
     ox.fillText(PAGES[i].name,w/2,startY+i*gap);
   }
 
-  // GUMP as shade 1
-  ox.fillStyle='rgb(1,0,0)';
-  ox.font='bold '+ts+'px Georgia';
-  ox.fillText('GUMP',w/2,h*0.1);
+  // Word Y regions for identification
+  var wordYs=[{y:h*0.1,h:ts,ci:1}]; // GUMP = 1
+  for(var i=0;i<PAGES.length;i++){
+    wordYs.push({y:startY+i*gap,h:fs,ci:i+2}); // pages = 2-7
+  }
 
-  // Read into mask
+  // Read into mask — white pixels > 128 = on letter
   var img=ox.getImageData(0,0,w,h).data;
   for(var my=0;my<maskH;my++){
     for(var mx=0;mx<maskW;mx++){
       var sx=mx*MASK_SCALE,sy=my*MASK_SCALE;
       var idx=(sy*w+sx)*4;
-      var r=img[idx];
-      if(r>0)mask[my*maskW+mx]=r; // 1=GUMP, 2-7=pages
+      if(img[idx]>128){
+        // Which word by Y
+        var ci=0;
+        for(var j=0;j<wordYs.length;j++){
+          if(Math.abs(sy-wordYs[j].y)<wordYs[j].h)ci=wordYs[j].ci;
+        }
+        mask[my*maskW+mx]=ci||1;
+      }
     }
   }
 
@@ -152,30 +156,14 @@ function render(){
     }
 
     if(onLetter>0){
-      // ON a letter: orbit around the boundary
-      // Push particle tangentially (perpendicular to gradient)
-      // Find gradient direction (toward nearest empty space)
-      var gx=0,gy=0;
-      for(var dx=-2;dx<=2;dx++){
-        for(var dy=-2;dy<=2;dy++){
-          var nx=mx+dx,ny=my+dy;
-          if(nx>=0&&nx<maskW&&ny>=0&&ny<maskH){
-            if(mask[ny*maskW+nx]===0){gx+=dx;gy+=dy;}
-          }
-        }
-      }
-      var gLen=Math.sqrt(gx*gx+gy*gy)+0.01;
-      // Push along gradient (away from letter center) + tangential orbit
-      pvx[i]+=gx/gLen*0.08-gy/gLen*0.04;
-      pvy[i]+=gy/gLen*0.08+gx/gLen*0.04;
-
-      // GLOW: particle near letter = bright in letter's color
+      // ON a letter: slow down + glow bright in word color
+      pvx[i]*=0.8;pvy[i]*=0.8; // friction on letters — particles linger
       var c=wordColors[onLetter]||[150,140,120];
-      cx.fillStyle='rgba('+c[0]+','+c[1]+','+c[2]+',0.25)';
+      cx.fillStyle='rgba('+c[0]+','+c[1]+','+c[2]+',0.3)';
       cx.fillRect(px[i]-0.5,py[i]-0.5,1.5,1.5);
     } else {
       // In the void: dim, flowing
-      cx.fillStyle='rgba(60,55,45,0.06)';
+      cx.fillStyle='rgba(50,45,35,0.04)';
       cx.fillRect(px[i],py[i],1,1);
     }
 
