@@ -4,9 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <meta name="theme-color" content="#050505">
-<meta name="description" content="GUMP — 137 coupled oscillators on zeta zeros orbit 1/φ. Only real zeros do this.">
+<meta name="description" content="GUMP — 137 coupled oscillators on zeta zeros orbit 1/φ.">
 <meta property="og:title" content="GUMP — The Machine">
-<meta property="og:description" content="137 oscillators tuned to the zeros of zeta orbit the golden ratio.">
 <meta property="og:image" content="https://begump.com/og-image.png">
 <link rel="canonical" href="https://begump.com/">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
@@ -25,171 +24,141 @@ var cv=document.getElementById('C'),cx=cv.getContext('2d');
 var W,H,DPR;
 function resize(){DPR=devicePixelRatio||1;W=cv.width=innerWidth*DPR;H=cv.height=innerHeight*DPR;cx.setTransform(DPR,0,0,DPR,0,0);}
 resize();addEventListener('resize',resize);
-var w,h,t=0,mx=-1,my=-1;
-addEventListener('mousemove',function(e){mx=e.clientX;my=e.clientY;});
-addEventListener('touchmove',function(e){e.preventDefault();mx=e.touches[0].clientX;my=e.touches[0].clientY;},{passive:false});
-addEventListener('touchstart',function(e){e.preventDefault();mx=e.touches[0].clientX;my=e.touches[0].clientY;},{passive:false});
-addEventListener('touchend',function(){mx=-1;my=-1;});
-addEventListener('mouseleave',function(){mx=-1;my=-1;});
+var w,h,t=0;
 
-// ═══ PAGES — each is a living entity ═══
+// ═══ PAGES ═══
 var PAGES=[
-  {name:'research',  url:'/r/',         color:[201,164,74],  desc:'the full story'},
-  {name:'one',       url:'/one/',       color:[180,200,160], desc:'knowledge engine'},
-  {name:'mirror',    url:'/mirror/',    color:[140,170,220], desc:'5D machine'},
-  {name:'flex',      url:'/flex/',      color:[200,120,180], desc:'12 shapes'},
-  {name:'bloom',     url:'/bloom/',     color:[120,200,140], desc:'nothing to life'},
-  {name:'resonance', url:'/resonance/', color:[220,120,100], desc:'tissue targeting'},
-  {name:'oracle',    url:'/oracle/',    color:[200,190,130], desc:'primes from nothing'},
+  {name:'research',  url:'/r/',         c:[201,164,74],  desc:'the full story'},
+  {name:'one',       url:'/one/',       c:[160,200,140], desc:'knowledge engine'},
+  {name:'mirror',    url:'/mirror/',    c:[120,160,220], desc:'5D machine'},
+  {name:'flex',      url:'/flex/',      c:[200,110,170], desc:'12 shapes'},
+  {name:'bloom',     url:'/bloom/',     c:[100,200,150], desc:'nothing to life'},
+  {name:'resonance', url:'/resonance/', c:[220,110,90],  desc:'tissue targeting'},
+  {name:'oracle',    url:'/oracle/',    c:[190,180,120], desc:'primes from nothing'},
 ];
 
-var N_PER=80; // particles per page entry
-var particles=[]; // {x,y,vx,vy,homeX,homeY,page,size,life}
-var pageBoxes=[]; // {x,y,w,h,page} for hit detection
+// ═══ PARTICLES: 40 per page, simple ═══
+var NP=40;
+var px=[],py=[],pvx=[],pvy=[],pp=[],psz=[];
+var boxes=[];
 
-function layout(){
+function build(){
   w=innerWidth;h=innerHeight;
-  particles=[];
-  pageBoxes=[];
+  px=[];py=[];pvx=[];pvy=[];pp=[];psz=[];
+  boxes=[];
 
+  // Single column, evenly spaced
   var n=PAGES.length;
-  var colW=w/2;
-  var rowH=h/(Math.ceil(n/2)+1);
-  var startY=rowH*0.8;
+  var margin=h*0.1;
+  var spacing=(h-margin*2)/(n-1||1);
 
   for(var p=0;p<n;p++){
-    var col=p%2;
-    var row=Math.floor(p/2);
-    var cx2=col*colW+colW/2;
-    var cy2=startY+row*rowH+rowH/2;
+    var cy=margin+p*spacing;
+    var bx=0,by=cy-spacing*0.35,bw=w,bh=spacing*0.7;
+    boxes.push({x:bx,y:by,w:bw,h:bh,cx:w/2,cy:cy,page:p});
 
-    pageBoxes.push({x:cx2-colW*0.4,y:cy2-rowH*0.35,w:colW*0.8,h:rowH*0.7,page:p,cx:cx2,cy:cy2});
-
-    // Spawn particles in a gentle cloud around the center
-    for(var i=0;i<N_PER;i++){
+    for(var i=0;i<NP;i++){
       var a=Math.random()*Math.PI*2;
-      var r=Math.random()*30+5;
-      var px2=cx2+Math.cos(a)*r;
-      var py2=cy2+Math.sin(a)*r;
-      particles.push({
-        x:px2,y:py2,
-        homeX:px2,homeY:py2,
-        vx:0,vy:0,
-        page:p,
-        size:0.5+Math.random()*1.5,
-        life:0.2+Math.random()*0.5,
-        angle:a,
-        radius:r,
-        speed:0.003+Math.random()*0.005
-      });
+      var r=10+Math.random()*20;
+      px.push(w/2+Math.cos(a)*r);
+      py.push(cy+Math.sin(a)*r*0.3);
+      pvx.push(0);pvy.push(0);
+      pp.push(p);
+      psz.push(0.4+Math.random()*1.2);
     }
   }
 }
-layout();
+build();
 
-// ═══ CLICK/TAP → NAVIGATE ═══
-function handleClick(ex,ey){
-  for(var i=0;i<pageBoxes.length;i++){
-    var b=pageBoxes[i];
-    if(ex>b.x&&ex<b.x+b.w&&ey>b.y&&ey<b.y+b.h){
+// ═══ TOUCH: tap navigates, no hover needed ═══
+var tapX=-1,tapY=-1,tapTime=0;
+
+addEventListener('touchstart',function(e){
+  e.preventDefault();
+  tapX=e.touches[0].clientX;
+  tapY=e.touches[0].clientY;
+  tapTime=Date.now();
+},{passive:false});
+
+addEventListener('touchend',function(e){
+  e.preventDefault();
+  // Only navigate if it was a quick tap (not a drag)
+  if(Date.now()-tapTime<300&&tapX>0){
+    navigate(tapX,tapY);
+  }
+  tapX=-1;tapY=-1;
+},{passive:false});
+
+addEventListener('click',function(e){
+  navigate(e.clientX,e.clientY);
+});
+
+function navigate(ex,ey){
+  for(var i=0;i<boxes.length;i++){
+    var b=boxes[i];
+    if(ey>b.y&&ey<b.y+b.h){
       window.location.href=PAGES[b.page].url;
       return;
     }
   }
 }
-addEventListener('click',function(e){handleClick(e.clientX,e.clientY);});
 
 // ═══ RENDER ═══
-var hoveredPage=-1;
-
 function render(){
   w=innerWidth;h=innerHeight;t+=0.016;
 
-  cx.fillStyle='rgba(0,0,0,0.12)';
+  cx.fillStyle='rgba(0,0,0,0.1)';
   cx.fillRect(0,0,w,h);
-
-  // Detect hover
-  hoveredPage=-1;
-  if(mx>0){
-    for(var i=0;i<pageBoxes.length;i++){
-      var b=pageBoxes[i];
-      if(mx>b.x&&mx<b.x+b.w&&my>b.y&&my<b.y+b.h){
-        hoveredPage=i;
-        break;
-      }
-    }
-  }
 
   cx.globalCompositeOperation='lighter';
 
-  // ═══ UPDATE + DRAW PARTICLES ═══
-  for(var i=0;i<particles.length;i++){
-    var p=particles[i];
-    var pg=PAGES[p.page];
-    var box=pageBoxes[p.page];
-    var hovered=hoveredPage===p.page;
+  // Update + draw particles
+  var total=px.length;
+  for(var i=0;i<total;i++){
+    var p=pp[i];
+    var b=boxes[p];
+    var c=PAGES[p].c;
 
-    // Orbit gently around home
-    p.angle+=p.speed*(hovered?3:1);
-    var targetR=hovered?50+Math.sin(t*2+p.angle)*15:p.radius;
-    var tx=box.cx+Math.cos(p.angle)*targetR;
-    var ty=box.cy+Math.sin(p.angle)*targetR*(hovered?1:0.4);
+    // Gentle orbit
+    var angle=t*0.3+i*0.5;
+    var orbitR=15+Math.sin(t*0.2+i)*8;
+    var tx=b.cx+Math.cos(angle+i*0.1)*orbitR;
+    var ty=b.cy+Math.sin(angle+i*0.1)*orbitR*0.25;
 
-    // Spring
-    p.vx+=(tx-p.x)*0.04;
-    p.vy+=(ty-p.y)*0.04;
-    p.vx*=0.88;p.vy*=0.88;
-    p.x+=p.vx;p.y+=p.vy;
+    pvx[i]+=(tx-px[i])*0.02;
+    pvy[i]+=(ty-py[i])*0.02;
+    pvx[i]*=0.9;pvy[i]*=0.9;
+    px[i]+=pvx[i];py[i]+=pvy[i];
 
-    // Brightness: hovered = bright, else dim
-    var alpha=hovered?p.life*0.6:p.life*0.2;
-    var size=hovered?p.size*2:p.size;
+    var alpha=0.2+Math.sin(t+i)*0.08;
+    var sz=psz[i];
 
-    var c=pg.color;
     cx.fillStyle='rgba('+c[0]+','+c[1]+','+c[2]+','+alpha+')';
-    cx.fillRect(p.x-size/2,p.y-size/2,size,size);
-
-    // Glow on hover
-    if(hovered&&size>2){
-      cx.fillStyle='rgba('+c[0]+','+c[1]+','+c[2]+','+(alpha*0.08)+')';
-      cx.fillRect(p.x-size*2,p.y-size*2,size*4,size*4);
-    }
+    cx.fillRect(px[i]-sz/2,py[i]-sz/2,sz,sz);
   }
 
   cx.globalCompositeOperation='source-over';
 
-  // ═══ TEXT LABELS ═══
-  for(var i=0;i<pageBoxes.length;i++){
-    var b=pageBoxes[i];
-    var pg=PAGES[i];
-    var hovered=hoveredPage===i;
-    var c=pg.color;
+  // Labels
+  for(var i=0;i<boxes.length;i++){
+    var b=boxes[i];
+    var c=PAGES[i].c;
 
-    // Name
-    var nameAlpha=hovered?0.7:0.12;
-    cx.fillStyle='rgba('+c[0]+','+c[1]+','+c[2]+','+nameAlpha+')';
-    cx.font=(hovered?'200 1.3em':'200 1.1em')+' Georgia';
+    cx.fillStyle='rgba('+c[0]+','+c[1]+','+c[2]+',0.18)';
+    cx.font='200 1.1em Georgia';
     cx.textAlign='center';
-    cx.fillText(pg.name,b.cx,b.cy+(hovered?-8:0));
+    cx.fillText(PAGES[i].name,b.cx,b.cy+4);
 
-    // Description (only on hover)
-    if(hovered){
-      cx.fillStyle='rgba('+c[0]+','+c[1]+','+c[2]+',0.25)';
-      cx.font='0.7em Georgia';
-      cx.fillText(pg.desc,b.cx,b.cy+14);
-    }
+    cx.fillStyle='rgba('+c[0]+','+c[1]+','+c[2]+',0.06)';
+    cx.font='0.6em Georgia';
+    cx.fillText(PAGES[i].desc,b.cx,b.cy+18);
   }
 
-  // ═══ TITLE ═══
+  // Title
   cx.fillStyle='rgba(201,164,74,0.04)';
-  cx.font='200 1.6em Georgia';
+  cx.font='200 1.4em Georgia';
   cx.textAlign='center';
-  cx.fillText('GUMP',w/2,h*0.06);
-
-  // Subtitle
-  cx.fillStyle='rgba(201,164,74,0.02)';
-  cx.font='0.6em Georgia';
-  cx.fillText('137 zeros · K=1.868 · the orbit',w/2,h*0.06+18);
+  cx.fillText('GUMP',w/2,28);
 
   requestAnimationFrame(render);
 }
