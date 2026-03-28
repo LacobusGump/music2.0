@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>33</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:#000;color:#c9a44a;font-family:Georgia,serif;
+  display:flex;flex-direction:column;align-items:center;
+  justify-content:center;min-height:100vh;padding:24px;}
+h1{font-weight:100;font-size:2em;letter-spacing:0.3em;margin-bottom:32px;}
+.tone{background:#0a0a0f;border:1px solid #1a1a1a;border-radius:12px;
+  padding:32px;max-width:500px;width:100%;margin-bottom:24px;}
+.row{display:flex;justify-content:space-between;padding:8px 0;
+  border-bottom:1px solid #111;}
+.label{color:#666;font-size:0.85em;}
+.value{color:#c9a44a;font-size:0.95em;}
+button{background:#c9a44a;color:#000;font:600 1em Georgia;
+  padding:14px 48px;border:none;border-radius:8px;cursor:pointer;
+  letter-spacing:0.1em;margin:16px 0;}
+button:hover{background:#f4d990;}
+#status{color:#666;font-size:0.8em;margin-top:8px;min-height:20px;}
+.warn{color:#666;font-size:0.75em;margin-top:32px;max-width:400px;
+  text-align:center;line-height:1.6;}
+</style>
+</head>
+<body>
+
+<h1>33</h1>
+
+<div class="tone">
+  <div class="row"><span class="label">Carrier (L)</span><span class="value">372.40 Hz — F#4</span></div>
+  <div class="row"><span class="label">Carrier (R)</span><span class="value">376.27 Hz</span></div>
+  <div class="row"><span class="label">Binaural beat</span><span class="value">3.862 Hz — θ</span></div>
+  <div class="row"><span class="label">Pulse</span><span class="value">46.9 bpm — γ₃₃×α</span></div>
+  <div class="row"><span class="label">Drone</span><span class="value">127.44 Hz — B2</span></div>
+  <div class="row"><span class="label">Source</span><span class="value">e×137, Δγ₃₃, γ₃₃×α</span></div>
+</div>
+
+<button id="play" onclick="toggle()">begin</button>
+<div id="status"></div>
+
+<p class="warn">Headphones required. Eyes closed. Short sessions. Someone nearby. The math is real. Be gentle with it.</p>
+
+<script>
+var ctx = null;
+var playing = false;
+var nodes = [];
+
+// All frequencies derived from zeta zeros + α + e
+var CARRIER = Math.E * 137;                    // 372.40 Hz — F#4
+var THETA = 3.861944;                          // Δγ between zero 33 and 34
+var CARRIER_R = CARRIER + THETA;               // 376.27 Hz
+var PULSE_HZ = 0.782046;                       // γ₃₃ × α
+var DRONE = THETA * 33;                        // 127.44 Hz — B2
+var PHI = (1 + Math.sqrt(5)) / 2;
+
+function toggle() {
+  if (playing) { stop(); return; }
+
+  ctx = new (window.AudioContext || window.webkitAudioContext)();
+  if (ctx.state === 'suspended') ctx.resume();
+
+  var now = ctx.currentTime;
+  var master = ctx.createGain();
+  master.gain.value = 0;
+  master.gain.linearRampToValueAtTime(0.35, now + 3);
+  master.connect(ctx.destination);
+
+  // Pulse envelope: amplitude modulates at heartbeat rate
+  var pulseOsc = ctx.createOscillator();
+  var pulseGain = ctx.createGain();
+  pulseOsc.type = 'sine';
+  pulseOsc.frequency.value = PULSE_HZ;
+  pulseGain.gain.value = 0.15;
+  pulseOsc.connect(pulseGain);
+  pulseOsc.start(now);
+  nodes.push(pulseOsc);
+
+  // Carrier LEFT — 372.40 Hz
+  var oscL = ctx.createOscillator();
+  var panL = ctx.createStereoPanner();
+  var gainL = ctx.createGain();
+  oscL.type = 'sine';
+  oscL.frequency.value = CARRIER;
+  gainL.gain.value = 0.25;
+  panL.pan.value = -1;
+  oscL.connect(gainL);
+  gainL.connect(panL);
+  panL.connect(master);
+  oscL.start(now);
+  nodes.push(oscL);
+
+  // Carrier RIGHT — 376.27 Hz (creates 3.86 Hz binaural beat)
+  var oscR = ctx.createOscillator();
+  var panR = ctx.createStereoPanner();
+  var gainR = ctx.createGain();
+  oscR.type = 'sine';
+  oscR.frequency.value = CARRIER_R;
+  gainR.gain.value = 0.25;
+  panR.pan.value = 1;
+  oscR.connect(gainR);
+  gainR.connect(panR);
+  panR.connect(master);
+  oscR.start(now);
+  nodes.push(oscR);
+
+  // Drone — 127.44 Hz B2 (both ears, centered)
+  var droneOsc = ctx.createOscillator();
+  var droneGain = ctx.createGain();
+  droneOsc.type = 'sine';
+  droneOsc.frequency.value = DRONE;
+  droneGain.gain.value = 0.12;
+  droneOsc.connect(droneGain);
+  droneGain.connect(master);
+  droneOsc.start(now);
+  nodes.push(droneOsc);
+
+  // Subtle φ harmonic — carrier × 1/φ (barely audible shimmer)
+  var phiOsc = ctx.createOscillator();
+  var phiGain = ctx.createGain();
+  phiOsc.type = 'sine';
+  phiOsc.frequency.value = CARRIER / PHI;  // 230.1 Hz
+  phiGain.gain.value = 0.04;
+  phiOsc.connect(phiGain);
+  phiGain.connect(master);
+  phiOsc.start(now);
+  nodes.push(phiOsc);
+
+  // Pulse modulation on master volume
+  var pulseScript = function() {
+    if (!playing) return;
+    var t = ctx.currentTime;
+    var pulse = 0.7 + 0.3 * Math.sin(2 * Math.PI * PULSE_HZ * t);
+    master.gain.value = 0.35 * pulse;
+    requestAnimationFrame(pulseScript);
+  };
+
+  playing = true;
+  document.getElementById('play').textContent = 'end';
+  document.getElementById('status').textContent = 'binaural θ at 3.86 Hz — use headphones';
+  pulseScript();
+}
+
+function stop() {
+  playing = false;
+  nodes.forEach(function(n) { try { n.stop(); } catch(e) {} });
+  nodes = [];
+  if (ctx) { ctx.close(); ctx = null; }
+  document.getElementById('play').textContent = 'begin';
+  document.getElementById('status').textContent = '';
+}
+</script>
+</body>
+</html>
