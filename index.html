@@ -329,102 +329,80 @@ var currentNoteDur=0;
 function updateAudio(){
   if(!audioCtx)return;
 
-  // PHASES OF LIFE: K is the dial. Turn it like the universe turning on.
-  //
-  // K=0.3-0.6:  VOID — sub bass hum only. Dark. Pre-existence.
-  // K=0.6-1.0:  SPARK — single melody note appears. First vibration.
-  // K=1.0-1.4:  PULSE — melody in threes (thrush). Rhythm emerges.
-  // K=1.4-1.8:  BREATH — drone fades in. Harmony. Two voices.
-  // K=1.8-2.2:  LIFE — full sound. Melody + drone + sub. The sweet spot.
-  // K=2.2-3.0:  BLOOM — drone thickens. Richer chord. Overtones open.
-  // K=3.0-4.0:  TRANSCEND — everything simplifies to one tone. Unity.
+  // K → SOUND. DIRECT. NO LATTICE IN THE WAY.
+  // The dial IS the instrument. Every parameter from K alone.
 
   var t2=audioCtx.currentTime;
-  var root=110*(1+Math.sin(t/1.618*0.3)*0.02);
+  // K normalized 0-1 from dial range 0.3-4.0
+  var kn=(K-0.3)/3.7;
+  kn=Math.max(0,Math.min(1,kn));
 
-  // ─── VOID (K < 0.6): sub bass only ───
-  var subVol=K>0.3?0.04+K*0.01:0;
+  // ROOT: rises with K. Low K = 55Hz (deep). High K = 220Hz.
+  var root=55+kn*165;
+
+  // SUB: always there past K=0.3, gets louder
   if(subOsc){
-    subOsc.frequency.setTargetAtTime(root/2,t2,0.5);
-    subGain.gain.setTargetAtTime(subVol,t2,0.3);
+    subOsc.frequency.setTargetAtTime(root/2,t2,0.08);
+    subGain.gain.setTargetAtTime(kn*0.06,t2,0.08);
   }
 
-  // ─── SPARK + PULSE (K > 0.6): melody ───
-  if(K>0.6){
-    var melSpeed=0.3+K*0.5;
-    var melReg=330-K*50;
-    melReg=Math.max(110,Math.min(330,melReg));
-    var melVol=Math.min(0.18,(K-0.6)*0.3);
-
+  // MELODY: speed and register from K directly
+  if(kn>0.1){
+    var melSpeed=0.2+kn*1.5;
+    var melVol=0.05+kn*0.12;
     noteTimer-=0.016*melSpeed;
     if(noteTimer<=0){
       var sIdx=phraseIdx*3+noteInPhrase;
       if(sIdx>=spacings.length-1){phraseIdx=0;noteInPhrase=0;sIdx=0;}
       var s=spacings[sIdx];
-      currentNoteFreq=melReg*(meanS/s);
-      currentNoteDur=s*0.12/melSpeed;
+      currentNoteFreq=root*2*(meanS/s);
+      currentNoteDur=s*0.1/melSpeed;
       noteTimer=currentNoteDur;
-      clusterOscs[0].frequency.setTargetAtTime(currentNoteFreq,t2,0.06);
-      clusterOscs[1].frequency.setTargetAtTime(currentNoteFreq,t2,0.06);
-      clusterGains[0].gain.setTargetAtTime(melVol,t2,0.02);
-      clusterGains[0].gain.setTargetAtTime(melVol*0.3,t2+0.04,currentNoteDur*0.6);
+      clusterOscs[0].frequency.setTargetAtTime(currentNoteFreq,t2,0.04);
+      clusterOscs[1].frequency.setTargetAtTime(currentNoteFreq*1.002,t2,0.04);
+      clusterGains[0].gain.setTargetAtTime(melVol,t2,0.015);
+      clusterGains[0].gain.setTargetAtTime(melVol*0.2,t2+0.03,currentNoteDur*0.5);
       noteInPhrase++;
-      if(noteInPhrase>=3){noteInPhrase=0;phraseIdx++;noteTimer+=0.12/melSpeed;}
+      if(noteInPhrase>=3){noteInPhrase=0;phraseIdx++;noteTimer+=0.08/melSpeed;}
     }
   } else {
-    clusterGains[0].gain.setTargetAtTime(0,t2,0.2);
+    clusterGains[0].gain.setTargetAtTime(0,t2,0.08);
   }
 
-  // ─── BREATH (K > 1.4): drone fades in ───
-  var droneVol=K>1.4?Math.min(0.12,(K-1.4)*0.15):0;
-  // Chord complexity from K
-  var chordIdx;
-  if(K<1.6)chordIdx=0;       // unison (just root)
-  else if(K<2.0)chordIdx=1;  // octave
-  else if(K<2.5)chordIdx=2;  // power chord
-  else if(K<3.0)chordIdx=3;  // triad
-  else if(K<3.5)chordIdx=4;  // pentatonic
-  else chordIdx=2;            // simplify back to power
+  // CHORD: K picks directly. More K = more notes.
+  var ci=Math.floor(kn*7);ci=Math.max(0,Math.min(7,ci));
+  var chord=CHORDS[ci];
+  var droneVol=kn*0.1;
 
-  var chord=CHORDS[chordIdx];
-
-  // Left: voices 1-3
+  // Left voices
   for(var i=1;i<4;i++){
-    var ci=i-1;
-    if(ci<chord.length&&droneVol>0.005){
-      clusterOscs[i*2].frequency.setTargetAtTime(root*chord[ci],t2,0.6);
-      clusterOscs[i*2+1].frequency.setTargetAtTime(root*chord[ci],t2,0.6);
-      clusterGains[i].gain.setTargetAtTime(droneVol*(1-ci*0.25),t2,0.4);
-    } else {
-      clusterGains[i].gain.setTargetAtTime(0,t2,0.3);
-    }
+    var n=i-1;
+    if(n<chord.length){
+      clusterOscs[i*2].frequency.setTargetAtTime(root*chord[n],t2,0.08);
+      clusterOscs[i*2+1].frequency.setTargetAtTime(root*chord[n],t2,0.08);
+      clusterGains[i].gain.setTargetAtTime(droneVol,t2,0.08);
+    } else {clusterGains[i].gain.setTargetAtTime(0,t2,0.08);}
   }
-  // Right: voices 4-7 (binaural offset)
+  // Right voices (binaural)
   for(var i=4;i<MAX_VOICES;i++){
-    var ci=i-4;
-    if(ci<chord.length&&droneVol>0.005){
-      clusterOscs[i*2].frequency.setTargetAtTime(root*chord[ci]*1.003,t2,0.6);
-      clusterOscs[i*2+1].frequency.setTargetAtTime(root*chord[ci]*1.003,t2,0.6);
-      clusterGains[i].gain.setTargetAtTime(droneVol*(1-ci*0.25),t2,0.4);
-    } else {
-      clusterGains[i].gain.setTargetAtTime(0,t2,0.3);
-    }
+    var n=i-4;
+    if(n<chord.length){
+      clusterOscs[i*2].frequency.setTargetAtTime(root*chord[n]*1.003,t2,0.08);
+      clusterOscs[i*2+1].frequency.setTargetAtTime(root*chord[n]*1.003,t2,0.08);
+      clusterGains[i].gain.setTargetAtTime(droneVol,t2,0.08);
+    } else {clusterGains[i].gain.setTargetAtTime(0,t2,0.08);}
   }
 
-  // ─── BRIGHTNESS: opens with K ───
-  if(warmthFilter){
-    var cut=300+K*K*400;
-    warmthFilter.frequency.setTargetAtTime(Math.min(6000,cut),t2,0.3);
-  }
+  // FILTER: opens with K
+  if(warmthFilter){warmthFilter.frequency.setTargetAtTime(200+kn*5000,t2,0.06);}
 
-  // ─── VIBRATO: tighter with higher K ───
+  // VIBRATO: wide at low K, tight at high K
   for(var i=0;i<vibratoLFOs.length;i++){
-    vibratoLFOs[i].gain.gain.setTargetAtTime(40-K*8,t2,0.3);
+    vibratoLFOs[i].gain.gain.setTargetAtTime(50-kn*40,t2,0.08);
   }
 
-  // ─── MASTER ───
-  var masterVol=K>0.3?0.06+K*0.04:0;
-  masterGain.gain.setTargetAtTime(Math.min(0.3,masterVol),t2,0.2);
+  // MASTER: rises with K
+  masterGain.gain.setTargetAtTime(0.03+kn*0.2,t2,0.06);
 
   prevClusterCount=nc;
 }
