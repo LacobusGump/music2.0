@@ -28,9 +28,13 @@ canvas{display:block;width:100vw;height:100vh;touch-action:none;}
 </style>
 </head>
 <body>
-<div id="start"><div id="start-inner"><h1>GUMP</h1><p>tap to begin · drag up/down to tune K</p></div></div>
+<div id="start"><div id="start-inner"><h1>GUMP</h1><p>tap to begin</p></div></div>
 <canvas id="C"></canvas>
 <div id="hud"><span id="info"></span></div>
+<div id="dial" style="position:fixed;bottom:60px;left:50%;transform:translateX(-50%);z-index:20;touch-action:none;">
+  <canvas id="knob" width="120" height="120" style="width:120px;height:120px;cursor:pointer;touch-action:none;"></canvas>
+  <div style="color:#c9a44a08;font:10px Georgia;text-align:center;margin-top:4px;">K</div>
+</div>
 <script>
 // ═══════════════════════════════════════════════════════════
 // GUMP — THE MACHINE
@@ -446,9 +450,8 @@ function updateAudio(){
 function step(){
   t+=0.016;
 
-  // K from touch. Drag up/down to tune. Machine stays still otherwise.
-  var touchK=touchY*4;
-  K=Math.max(0.5,Math.min(4,touchK>0.01?touchK:1.868));
+  // K from dial
+  K=dialK;
   var humanPhase=0;
 
   // LEMNISCATE Kuramoto: two loops, A tighter coupling to tame its wild zeros
@@ -507,6 +510,70 @@ function step(){
   // Update audio every 3rd frame
   if(Math.floor(t*60)%3===0)updateAudio();
 }
+
+// ═══ DIAL: rotary knob for K ═══
+var dialK=1.868;
+var dialAngle=Math.PI*0.6; // starting angle (maps to 1.868)
+var dialDragging=false;
+var dialLastY=0;
+var knobCv=document.getElementById('knob');
+var knobCx=knobCv.getContext('2d');
+
+function drawDial(){
+  var s=120;knobCx.clearRect(0,0,s,s);
+  // Ring
+  knobCx.strokeStyle='rgba(201,164,74,0.12)';
+  knobCx.lineWidth=2;
+  knobCx.beginPath();knobCx.arc(60,60,45,Math.PI*0.75,Math.PI*2.25);knobCx.stroke();
+  // Pointer
+  var px=60+Math.cos(dialAngle-Math.PI/2)*38;
+  var py=60+Math.sin(dialAngle-Math.PI/2)*38;
+  knobCx.fillStyle='rgba(201,164,74,0.5)';
+  knobCx.beginPath();knobCx.arc(px,py,4,0,Math.PI*2);knobCx.fill();
+  // Value
+  knobCx.fillStyle='rgba(201,164,74,0.15)';
+  knobCx.font='200 16px Georgia';knobCx.textAlign='center';
+  knobCx.fillText(dialK.toFixed(2),60,65);
+}
+
+function dialToK(angle){
+  // angle 0 to 2pi maps to K 0.3 to 4.0
+  var norm=angle/(Math.PI*2);
+  return 0.3+norm*3.7;
+}
+function kToDial(k){
+  return((k-0.3)/3.7)*Math.PI*2;
+}
+dialAngle=kToDial(1.868);
+
+knobCv.addEventListener('touchstart',function(e){
+  e.preventDefault();e.stopPropagation();
+  dialDragging=true;dialLastY=e.touches[0].clientY;
+},{passive:false});
+knobCv.addEventListener('mousedown',function(e){
+  dialDragging=true;dialLastY=e.clientY;
+});
+addEventListener('touchmove',function(e){
+  if(!dialDragging)return;
+  var dy=dialLastY-e.touches[0].clientY;
+  dialAngle+=dy*0.02;
+  dialAngle=Math.max(0,Math.min(Math.PI*2,dialAngle));
+  dialK=dialToK(dialAngle);
+  dialLastY=e.touches[0].clientY;
+  drawDial();
+},{passive:true});
+addEventListener('mousemove',function(e){
+  if(!dialDragging)return;
+  var dy=dialLastY-e.clientY;
+  dialAngle+=dy*0.02;
+  dialAngle=Math.max(0,Math.min(Math.PI*2,dialAngle));
+  dialK=dialToK(dialAngle);
+  dialLastY=e.clientY;
+  drawDial();
+});
+addEventListener('touchend',function(){dialDragging=false;});
+addEventListener('mouseup',function(){dialDragging=false;});
+drawDial();
 
 // ═══ RENDER ═══
 var COLORS=[
