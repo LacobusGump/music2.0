@@ -69,6 +69,8 @@ var CHORDS=[
   [220.0,261.6,329.6],    // lorenz: A minor — chaos
   [196.0,246.9,293.7],    // galaxy: G minor — vast
   [261.6,329.6,392.0,523.3], // tree: C major 8va — growth
+  [246.9,329.6,415.3],       // klein: E minor — impossible surface
+  [220.0,329.6,440.0,554.4], // tesseract: A major 7 — higher dimensions
 ];
 
 function playShapeChord(shapeIdx){
@@ -117,16 +119,17 @@ for(var i=0;i<N;i++){
 }
 
 // ═══ 10 SHAPES ═══
-var SHAPES=10;
+var SHAPES=12;
 var shape=0,prevShape=-1,morphT=1,shapeTime=0;
 var SHAPE_DURATION=8;
 var burstT=0; // explosion timer
 
-var NAMES=['sphere','helix','torus','wave','orbitals','prime spiral','mobius','lorenz','galaxy','tree'];
+var NAMES=['sphere','helix','torus','wave','orbitals','prime spiral','mobius','lorenz','galaxy','tree','klein','tesseract'];
 
 var PALETTES=[
   [200,170,120],[170,148,105],[110,160,200],[80,200,160],[100,180,220],
-  [200,190,140],[180,120,180],[220,100,80],[180,140,200],[120,200,120]
+  [200,190,140],[180,120,180],[220,100,80],[180,140,200],[120,200,120],
+  [160,200,200],[255,180,100]  // klein: teal-white, tesseract: bright gold
 ];
 
 // Precompute primes
@@ -151,6 +154,32 @@ function shapeTarget(i,s){
     case 7:tx=lorenzX[i];ty=lorenzY[i];tz=lorenzZ[i];break;
     case 8:var arm=i%3,dist=fi*4,ang=dist*1.5+arm*Math.PI*2/3+t*0.05;tx=Math.cos(ang)*dist;ty=(Math.random()-0.5)*0.1*Math.max(0.2,1-dist*0.2);tz=Math.sin(ang)*dist;break;
     case 9:var depth=Math.floor(fi*6),branch=i%(1<<depth),a3=branch/(1<<depth)*Math.PI*2+depth*0.618*Math.PI*2,tR=depth*0.5+0.5,tY=-3+depth*1.2;tx=Math.cos(a3)*tR*(1+Math.sin(t*0.3+depth)*0.1);ty=tY;tz=Math.sin(a3)*tR*(1+Math.cos(t*0.3+depth)*0.1);break;
+    case 10: // Klein bottle (immersion in 3D)
+      var ku=fi*Math.PI*2,kv=(i%80)/80*Math.PI*2;
+      var kr=2;
+      if(ku<Math.PI){
+        tx=3*Math.cos(ku)*(1+Math.sin(ku))+kr*(1-Math.cos(ku)/2)*Math.cos(ku)*Math.cos(kv);
+        ty=-8*Math.sin(ku)-kr*Math.sin(ku)*Math.cos(kv)*(1-Math.cos(ku)/2);
+      } else {
+        tx=3*Math.cos(ku)*(1+Math.sin(ku))+kr*Math.cos(kv+Math.PI);
+        ty=-8*Math.sin(ku);
+      }
+      tz=kr*Math.sin(kv);
+      tx*=0.15;ty*=0.15;tz*=0.5;
+      break;
+    case 11: // Tesseract (4D hypercube projected to 3D, rotating in 4D)
+      // 16 vertices of a hypercube, particles distributed along edges
+      var edge=i%32,vert=Math.floor(i/32)%16;
+      var b0=(vert&1)?1:-1,b1=(vert&2)?1:-1,b2=(vert&4)?1:-1,b3=(vert&8)?1:-1;
+      // 4D rotation
+      var a4=t*0.3,c4=Math.cos(a4),s4=Math.sin(a4);
+      var w4=b3*c4-b0*s4,x4=b3*s4+b0*c4;
+      // Project 4D→3D
+      var proj4=2/(2+w4*0.5);
+      tx=x4*proj4*1.5+Math.sin(edge*0.2)*0.1;
+      ty=b1*proj4*1.5+Math.cos(edge*0.3)*0.1;
+      tz=b2*proj4*1.5+Math.sin(edge*0.15+t)*0.1;
+      break;
     default:tx=0;ty=0;tz=0;
   }
   return[tx,ty,tz];
@@ -316,13 +345,20 @@ function render(){
     var sx=cx0+x1*50*f,sy=cy0+y1*50*f;
     if(sx<-10||sx>w+10||sy<-10||sy>h+10)continue;
 
-    var size=Math.max(0.3,f*psize[i]*plife[i]);
-    var alpha=f*plife[i]*0.4;
+    // When close (f>2): particles bloom huge. Inside the shape = immersive.
+    var rawSize=f*psize[i]*plife[i];
+    var size=Math.max(0.3,rawSize*(1+Math.max(0,f-1)*0.8));
+    var alpha=Math.min(1,f*plife[i]*0.4*(1/(1+Math.max(0,size-8)*0.05))); // dim when huge
 
     var r=Math.floor(Math.min(255,pr[i]));
     var g=Math.floor(Math.min(255,pg[i]));
     var b=Math.floor(Math.min(255,pb[i]));
 
+    // Depth glow: close particles get a soft halo
+    if(size>4){
+      cx.fillStyle='rgba('+r+','+g+','+b+','+(alpha*0.06)+')';
+      cx.fillRect(sx-size*1.5,sy-size*1.5,size*3,size*3);
+    }
     cx.fillStyle='rgba('+r+','+g+','+b+','+Math.min(1,alpha)+')';
     cx.fillRect(sx-size/2,sy-size/2,size,size);
   }
