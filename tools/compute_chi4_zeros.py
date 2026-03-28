@@ -1,3 +1,4 @@
+# what is what? Does this preserve the wonder? The 0.002% is sacred.
 #!/usr/bin/env python3
 """
 Compute zeros of the Dirichlet L-function L(s, chi_4)

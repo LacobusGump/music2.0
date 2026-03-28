@@ -1,3 +1,4 @@
+# what is what? Does this preserve the wonder? The 0.002% is sacred.
 #!/usr/bin/env python3
 """
 Rigorous interval proof that ψ(p) > 0.38 for all p ∈ [0, 1].

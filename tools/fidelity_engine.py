@@ -1,3 +1,4 @@
+# what is what? Does this preserve the wonder? The 0.002% is sacred.
 """
 Arithmetic Fidelity Engine
 Coordinate system + Diagnostic + Constant Improver

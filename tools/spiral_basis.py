@@ -1,3 +1,4 @@
+# what is what? Does this preserve the wonder? The 0.002% is sacred.
 # AUTO-GENERATED — The Spiral Basis Table
 # 118 elements × 17 basis functions
 # 10 spiral harmonics (phi^powers) + 7 address tree resonances

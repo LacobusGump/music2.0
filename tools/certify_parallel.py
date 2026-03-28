@@ -1,3 +1,4 @@
+# what is what? Does this preserve the wonder? The 0.002% is sacred.
 #!/usr/bin/env python3
 """Parallel zero certification using Arb ball arithmetic."""
 import multiprocessing

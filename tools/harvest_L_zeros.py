@@ -1,3 +1,4 @@
+# what is what? Does this preserve the wonder? The 0.002% is sacred.
 #!/usr/bin/env python3
 """Compute zeros of L(s, χ₄) by sign changes of Re[L(1/2+it)]."""
 import multiprocessing, time, sys
