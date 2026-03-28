@@ -154,8 +154,19 @@ var PALETTES=[
 var _isPrime=new Uint8Array(N+2);
 (function(){for(var n=2;n<=N+1;n++){var p=true;if(n<2)p=false;else if(n<4)p=true;else if(n%2===0||n%3===0)p=false;else{for(var j=5;j*j<=n;j+=6){if(n%j===0||n%(j+2)===0){p=false;break;}}}_isPrime[n]=p?1:0;}})();
 
+// Lorenz: trace the ACTUAL trajectory. 100K points along one long orbit.
 var lorenzX=new Float32Array(N),lorenzY=new Float32Array(N),lorenzZ=new Float32Array(N);
-(function(){var sigma=10,rho=28,beta=8/3;for(var i=0;i<N;i++){var fi=i/N,lx=0.1+fi*0.001,ly=0,lz=0;for(var s=0;s<40;s++){lx+=sigma*(ly-lx)*0.01;ly+=(lx*(rho-lz)-ly)*0.01;lz+=(lx*ly-beta*lz)*0.01;}lorenzX[i]=lx*0.07;lorenzY[i]=ly*0.07;lorenzZ[i]=(lz-25)*0.07;}})();
+(function(){
+  var sigma=10,rho=28,beta=8/3;
+  var lx=1,ly=1,lz=1,dt=0.005;
+  // Warm up
+  for(var s=0;s<2000;s++){lx+=sigma*(ly-lx)*dt;ly+=(lx*(rho-lz)-ly)*dt;lz+=(lx*ly-beta*lz)*dt;}
+  // Record trajectory
+  for(var i=0;i<N;i++){
+    lx+=sigma*(ly-lx)*dt;ly+=(lx*(rho-lz)-ly)*dt;lz+=(lx*ly-beta*lz)*dt;
+    lorenzX[i]=lx*0.06;lorenzY[i]=ly*0.06;lorenzZ[i]=(lz-25)*0.06;
+  }
+})();
 
 function shapeTarget(i,s){
   var fi=i/N,tx,ty,tz;
@@ -168,13 +179,48 @@ function shapeTarget(i,s){
       ty=Math.sin(b)*Math.sin(a)*(shell+wobble)*0.7;
       tz=Math.cos(b)*(shell+wobble);
       break;
-    case 1:var tt=fi*Math.PI*20,strand=i%2;tx=Math.cos(tt+strand*Math.PI)*1.5;ty=(fi-0.5)*8;tz=Math.sin(tt+strand*Math.PI)*1.5;break;
-    case 2:var u=fi*Math.PI*2*20,v=fi*Math.PI*2,R=2.5,rr=0.8;tx=(R+rr*Math.cos(v))*Math.cos(u);ty=rr*Math.sin(v);tz=(R+rr*Math.cos(v))*Math.sin(u);break;
-    case 3:var gx=(i%316)/316*8-4,gy=Math.floor(i/316)/316*8-4;tx=gx;ty=Math.sin(gx*1.5+t*0.3)*Math.sin(gy*1.5+t*0.2)*2;tz=gy;break;
+    case 1: // DNA — backbone + rungs + major/minor groove
+      var tt=fi*Math.PI*24,strand=i%3; // 3 types: strand A, strand B, rung
+      var groove=1.2+Math.sin(tt*0.3)*0.3; // major/minor groove
+      if(strand<2){
+        // Backbone strands
+        tx=Math.cos(tt+strand*Math.PI)*groove;
+        ty=(fi-0.5)*8;
+        tz=Math.sin(tt+strand*Math.PI)*groove;
+      } else {
+        // Base pair rungs — connect the strands
+        var rungPos=tt;
+        var rungFrac=((i*17)%100)/100; // position along rung
+        var ax=Math.cos(rungPos)*groove,az=Math.sin(rungPos)*groove;
+        var bx=Math.cos(rungPos+Math.PI)*groove,bz=Math.sin(rungPos+Math.PI)*groove;
+        tx=ax+(bx-ax)*rungFrac;
+        ty=(fi-0.5)*8;
+        tz=az+(bz-az)*rungFrac;
+      }
+      break;
+    case 2: // Torus — flow lines visible, density at inner edge
+      var u=fi*Math.PI*2*30,v=fi*Math.PI*2;
+      var R=2.5,rr=0.7+Math.sin(u*3)*0.15; // ripple
+      // More particles at inner edge (where torus curves tighter)
+      var vBias=v+Math.sin(u*5)*0.2;
+      tx=(R+rr*Math.cos(vBias))*Math.cos(u);
+      ty=rr*Math.sin(vBias);
+      tz=(R+rr*Math.cos(vBias))*Math.sin(u);
+      break;
+    case 3: // Wave — 3D interference from two sources
+      var wx=(i%316)/316*8-4,wz=Math.floor(i/316)/316*8-4;
+      // Two point sources creating interference
+      var d1=Math.sqrt((wx-1.5)*(wx-1.5)+wz*wz);
+      var d2=Math.sqrt((wx+1.5)*(wx+1.5)+wz*wz);
+      var wave1=Math.sin(d1*3-t*2);
+      var wave2=Math.sin(d2*3-t*2);
+      tx=wx;ty=(wave1+wave2)*0.8;tz=wz; // interference pattern
+      break;
     case 4:var shell=i%4,ai=fi*Math.PI*2*30+t*0.2*(shell+1);if(shell===0){var br=fi*Math.PI;tx=Math.sin(br)*Math.cos(ai)*0.8;ty=Math.sin(br)*Math.sin(ai)*0.8;tz=Math.cos(br)*0.8;}else if(shell===1){var pa=Math.sin(fi*Math.PI)*2.5;tx=pa*Math.cos(ai*0.3);ty=Math.cos(fi*Math.PI*3)*0.3;tz=pa*Math.sin(ai*0.3);}else if(shell===2){var pb2=Math.sin(fi*Math.PI)*2.5;tx=Math.cos(fi*Math.PI*3)*0.3;ty=pb2*Math.cos(ai*0.3);tz=pb2*Math.sin(ai*0.3);}else{var da=fi*Math.PI*2*8,dr=1.8+Math.sin(da*2)*0.8;tx=Math.cos(da)*dr*Math.cos(ai*0.15);ty=Math.sin(da*2)*0.6;tz=Math.sin(da)*dr*Math.cos(ai*0.15);}break;
     case 5:var n=i+1,a2=Math.sqrt(n)*2.5,rd=Math.sqrt(n)*0.025;tx=Math.cos(a2)*rd;ty=Math.sin(a2)*rd;tz=(_isPrime[n]?0.3:-0.15)*Math.sin(n*0.01+t*0.5);break;
     case 6:var mu=fi*Math.PI*2,mv=(i%50)/50-0.5,ht=mu/2,mR=2.5;tx=(mR+mv*Math.cos(ht))*Math.cos(mu);ty=(mR+mv*Math.cos(ht))*Math.sin(mu);tz=mv*Math.sin(ht);break;
-    case 7:tx=lorenzX[i];ty=lorenzY[i];tz=lorenzZ[i];break;
+    case 7:tx=lorenzX[i];ty=lorenzY[i];tz=lorenzZ[i];
+      break;
     case 8: // Galaxy — dense core, logarithmic arms, disk thickness
       var arm=i%4; // 4 spiral arms
       var r8=Math.pow(fi,0.5)*5; // sqrt distribution = dense core
@@ -189,7 +235,23 @@ function shapeTarget(i,s){
       break;
     case 9:var depth=Math.floor(fi*6),branch=i%(1<<depth),a3=branch/(1<<depth)*Math.PI*2+depth*0.618*Math.PI*2,tR2=depth*0.5+0.5,tY=-3+depth*1.2;tx=Math.cos(a3)*tR2*(1+Math.sin(t*0.3+depth)*0.1);ty=tY;tz=Math.sin(a3)*tR2*(1+Math.cos(t*0.3+depth)*0.1);break;
     case 10:var ku=fi*Math.PI*2,kv=(i%80)/80*Math.PI*2,kr=2;if(ku<Math.PI){tx=3*Math.cos(ku)*(1+Math.sin(ku))+kr*(1-Math.cos(ku)/2)*Math.cos(ku)*Math.cos(kv);ty=-8*Math.sin(ku)-kr*Math.sin(ku)*Math.cos(kv)*(1-Math.cos(ku)/2);}else{tx=3*Math.cos(ku)*(1+Math.sin(ku))+kr*Math.cos(kv+Math.PI);ty=-8*Math.sin(ku);}tz=kr*Math.sin(kv);tx*=0.15;ty*=0.15;tz*=0.5;break;
-    case 11:var vert=Math.floor(i/32)%16,b0=(vert&1)?1:-1,b1=(vert&2)?1:-1,b2=(vert&4)?1:-1,b3=(vert&8)?1:-1;var a4=t*0.3,c4=Math.cos(a4),s4=Math.sin(a4),w4=b3*c4-b0*s4,x4=b3*s4+b0*c4;var proj4=2/(2+w4*0.5);tx=x4*proj4*1.5+Math.sin(i*0.2)*0.1;ty=b1*proj4*1.5+Math.cos(i*0.3)*0.1;tz=b2*proj4*1.5+Math.sin(i*0.15+t)*0.1;break;
+    case 11: // Tesseract — particles along edges of 4D hypercube
+      // 32 edges, particles distributed along them
+      var edge4=i%32, edgeFrac=(i%3125)/3125; // position along edge
+      // 32 edges of a tesseract: each connects two vertices that differ in 1 bit
+      var v1=edge4,v2=edge4^(1<<(edge4%4)); // flip one bit
+      var ax4=(v1&1)?1:-1,ay4=(v1&2)?1:-1,az4=(v1&4)?1:-1,aw4=(v1&8)?1:-1;
+      var bx4=(v2&1)?1:-1,by4=(v2&2)?1:-1,bz4=(v2&4)?1:-1,bw4=(v2&8)?1:-1;
+      // Interpolate along edge
+      var ex=ax4+(bx4-ax4)*edgeFrac,ey=ay4+(by4-ay4)*edgeFrac;
+      var ez=az4+(bz4-az4)*edgeFrac,ew=aw4+(bw4-aw4)*edgeFrac;
+      // 4D rotation (xw plane)
+      var rot4=t*0.3,c4=Math.cos(rot4),s4=Math.sin(rot4);
+      var rx4=ex*c4-ew*s4, rw4=ex*s4+ew*c4;
+      // Project 4D→3D
+      var p4=2.5/(2.5+rw4*0.4);
+      tx=rx4*p4*1.8;ty=ey*p4*1.8;tz=ez*p4*1.8;
+      break;
     default:tx=0;ty=0;tz=0;
   }
   return[tx,ty,tz];
