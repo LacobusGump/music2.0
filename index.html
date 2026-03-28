@@ -19,90 +19,152 @@
 body{background:#000;overflow:hidden;}
 canvas{position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:0;pointer-events:none;}
 #menu{position:relative;z-index:10;display:flex;flex-direction:column;align-items:center;
-  justify-content:center;min-height:100vh;gap:0;padding:20px;}
-.item{display:block;text-decoration:none;text-align:center;padding:14px 40px;
-  opacity:0;transform:translateY(20px);transition:opacity 1.2s ease,transform 1.2s ease;}
+  justify-content:flex-end;min-height:100vh;padding:0 20px 8vh;}
+.item{display:block;text-decoration:none;text-align:center;padding:10px 30px;
+  opacity:0;transform:translateY(12px);transition:opacity 1.4s ease,transform 1.4s ease;}
 .item.show{opacity:1;transform:translateY(0);}
-.item .name{font:200 1.3em Georgia;letter-spacing:0.12em;}
-.item .desc{font:0.6em Georgia;letter-spacing:0.1em;margin-top:2px;opacity:0.3;}
-.item:active{opacity:0.5;}
-h1{font:200 1.8em Georgia;letter-spacing:0.2em;color:#c9a44a;opacity:0;
-  transform:scale(0.8);transition:opacity 2s ease,transform 2s ease;text-align:center;}
-h1.show{opacity:0.5;transform:scale(1);}
-h1 span{display:block;font-size:0.25em;color:#333;letter-spacing:0.3em;margin-top:6px;}
+.item .name{font-weight:100;font-size:0.85em;letter-spacing:0.35em;text-transform:uppercase;}
+.item .desc{font-size:0.5em;letter-spacing:0.15em;opacity:0.25;margin-top:1px;text-transform:lowercase;}
+.item:active .name{opacity:0.4;}
+#title{position:fixed;top:6vh;left:50%;transform:translateX(-50%);z-index:10;text-align:center;
+  opacity:0;transition:opacity 2.5s ease;}
+#title.show{opacity:1;}
+#title h1{font:100 2.2em Georgia;letter-spacing:0.3em;color:#c9a44a;opacity:0.3;}
+#title span{display:block;font:0.3em Georgia;color:#333;letter-spacing:0.25em;margin-top:4px;}
+#rtrace{position:fixed;bottom:0;left:0;width:100vw;height:3vh;z-index:5;pointer-events:none;}
 </style>
 </head>
 <body>
 <canvas id="C"></canvas>
+<canvas id="rtrace"></canvas>
+<div id="title"><h1>GUMP</h1><span>137 zeros · K = 1.868 · the orbit</span></div>
 <div id="menu">
-  <h1 id="title">GUMP<span>137 zeros · K=1.868 · the orbit</span></h1>
-  <a class="item" href="/r/" style="color:#c9a44a;"><div class="name">research</div><div class="desc">the full story</div></a>
-  <a class="item" href="/one/" style="color:#a0c88c;"><div class="name">one</div><div class="desc">knowledge engine</div></a>
-  <a class="item" href="/flex/" style="color:#c86eaa;"><div class="name">flex</div><div class="desc">100K particles · 16 shapes</div></a>
-  <a class="item" href="/bloom/" style="color:#64c896;"><div class="name">bloom</div><div class="desc">nothing to life</div></a>
-  <a class="item" href="/resonance/" style="color:#dc6e5a;"><div class="name">resonance</div><div class="desc">tissue targeting</div></a>
-  <a class="item" href="/oracle/" style="color:#beb478;"><div class="name">oracle</div><div class="desc">primes from nothing</div></a>
+  <a class="item" href="/r/" style="color:#c9a44a80;"><div class="name">research</div><div class="desc">the full story</div></a>
+  <a class="item" href="/one/" style="color:#a0c88c80;"><div class="name">one</div><div class="desc">knowledge engine</div></a>
+  <a class="item" href="/flex/" style="color:#c86eaa80;"><div class="name">flex</div><div class="desc">100K particles</div></a>
+  <a class="item" href="/bloom/" style="color:#64c89680;"><div class="name">bloom</div><div class="desc">nothing to life</div></a>
+  <a class="item" href="/resonance/" style="color:#dc6e5a80;"><div class="name">resonance</div><div class="desc">tissue targeting</div></a>
+  <a class="item" href="/oracle/" style="color:#beb47880;"><div class="name">oracle</div><div class="desc">primes from nothing</div></a>
 </div>
 <script>
-// Background: particles emerge from center, drift outward, form a field
+// ═══ BACKGROUND: 137 Kuramoto oscillators running live ═══
 var cv=document.getElementById('C'),cx=cv.getContext('2d');
 var DPR=devicePixelRatio||1;
-function resize(){cv.width=innerWidth*DPR;cv.height=innerHeight*DPR;cx.setTransform(DPR,0,0,DPR,0,0);}
+function resize(){cv.width=innerWidth*DPR;cv.height=innerHeight*DPR;cx.setTransform(DPR,0,0,DPR,0,0);
+  var rc=document.getElementById('rtrace');rc.width=innerWidth*DPR;rc.height=innerHeight*0.03*DPR;
+  rc.getContext('2d').setTransform(DPR,0,0,DPR,0,0);}
 resize();addEventListener('resize',resize);
 
-var NP=300,t=0;
-var px=new Float32Array(NP),py=new Float32Array(NP);
-var pvx=new Float32Array(NP),pvy=new Float32Array(NP);
-var pr=new Uint8Array(NP),pg=new Uint8Array(NP),pb=new Uint8Array(NP);
-var born=new Float32Array(NP); // birth time — particles emerge over time
+// Oracle: compute 137 zeros
+var N=137,K=1.868,PHI=(1+Math.sqrt(5))/2;
+function theta(tt){if(tt<1)return 0;return(tt/2)*Math.log(tt/(2*Math.PI))-tt/2-Math.PI/8+1/(48*tt);}
+function Zfn(tt){if(tt<2)return 0;var a=Math.sqrt(tt/(2*Math.PI)),nn=Math.max(1,Math.floor(a)),th=theta(tt),s=0;for(var n=1;n<=nn;n++)s+=Math.cos(th-tt*Math.log(n))/Math.sqrt(n);s*=2;var p=a-nn,d=Math.cos(2*Math.PI*p);if(Math.abs(d)>1e-8)s+=Math.pow(-1,nn-1)*Math.pow(2*Math.PI/tt,0.25)*Math.cos(2*Math.PI*(p*p-p-1/16))/d;return s;}
+var zeros=[];
+(function(){var st=9,pv=Zfn(9);while(zeros.length<N+1){var step=st>14?Math.max(0.05,2*Math.PI/Math.log(st/(2*Math.PI))/6):0.4;st+=step;var c=Zfn(st);if(pv*c<0){var lo=st-step,hi=st;for(var i=0;i<40;i++){var m=(lo+hi)/2;if(Zfn(lo)*Zfn(m)<0)hi=m;else lo=m;}zeros.push((lo+hi)/2);}pv=c;}})();
 
-var colors=[[201,164,74],[160,200,140],[200,110,170],[100,200,150],[220,110,90],[190,180,120]];
-var w=innerWidth,h=innerHeight;
+// Spacings → filtered frequencies
+var spacings=[],meanS=0;
+for(var i=0;i<N;i++){spacings.push(zeros[i+1]-zeros[i]);meanS+=spacings[i];}
+meanS/=N;
+var normS=[];for(var i=0;i<N;i++)normS.push(spacings[i]/meanS);
+var SN=normS.length;
+var fRe=[],fIm=[];
+for(var k=0;k<SN;k++){var re=0,im=0;for(var n=0;n<SN;n++){re+=normS[n]*Math.cos(2*Math.PI*k*n/SN);im-=normS[n]*Math.sin(2*Math.PI*k*n/SN);}fRe.push(re/SN);fIm.push(im/SN);}
+var filtered=[];
+for(var n=0;n<SN;n++){var v=0;for(var k=0;k<5;k++)v+=fRe[k]*Math.cos(2*Math.PI*k*n/SN)-fIm[k]*Math.sin(2*Math.PI*k*n/SN);filtered.push(v);}
 
-for(var i=0;i<NP;i++){
-  // All start at center, drift out
-  px[i]=w/2;py[i]=h/2;
-  var a=Math.random()*Math.PI*2;
-  var spd=0.2+Math.random()*0.5;
-  pvx[i]=Math.cos(a)*spd;pvy[i]=Math.sin(a)*spd;
-  var c=colors[i%6];
-  pr[i]=c[0];pg[i]=c[1];pb[i]=c[2];
-  born[i]=i*0.02; // staggered births over 6 seconds
+// Hex lattice
+var nxA=[],nyA=[],cols=13,rows=11,idx=0;
+for(var row=0;row<rows;row++)for(var col=0;col<cols;col++){if(idx>=N)break;nxA.push(col+(row%2?0.5:0));nyA.push(row*Math.sqrt(3)/2);idx++;}
+
+// Phases + R
+var phases=new Float64Array(N);
+var R=0,t=0;
+var R_history=[];
+var MAX_HIST=400;
+
+// Colors
+var COLORS=[[201,164,74],[160,200,140],[200,110,170],[100,200,150],[220,110,90],[190,180,120],[120,160,220]];
+
+function step(){
+  var mre=0,mim=0;
+  for(var i=0;i<N;i++){mre+=Math.cos(phases[i]);mim+=Math.sin(phases[i]);}
+  mre/=N;mim/=N;
+  var mp=Math.atan2(mim,mre);
+  for(var i=0;i<N;i++){
+    var omega=filtered[Math.min(i,SN-1)]*2*Math.PI;
+    var c=Math.sin(mp-phases[i]);
+    if(i>0)c+=0.5*Math.sin(phases[i-1]-phases[i]);
+    if(i<N-1)c+=0.5*Math.sin(phases[i+1]-phases[i]);
+    phases[i]+=0.016*(omega+K*c);
+  }
+  mre=0;mim=0;
+  for(var i=0;i<N;i++){var p=phases[i]%(2*Math.PI);mre+=Math.cos(p);mim+=Math.sin(p);}
+  mre/=N;mim/=N;
+  R=Math.sqrt(mre*mre+mim*mim);
+  R_history.push(R);
+  if(R_history.length>MAX_HIST)R_history.shift();
 }
 
 function render(){
-  w=innerWidth;h=innerHeight;t+=0.016;
-  cx.fillStyle='rgba(0,0,0,0.06)';
-  cx.fillRect(0,0,w,h);
+  var w=innerWidth,h=innerHeight;t+=0.016;
+  step();
+
+  // Main canvas: hex lattice very subtle
+  cx.fillStyle='rgba(0,0,0,0.08)';cx.fillRect(0,0,w,h);
   cx.globalCompositeOperation='lighter';
-  for(var i=0;i<NP;i++){
-    if(t<born[i])continue; // not born yet
-    var age=t-born[i];
-    var fade=Math.min(1,age*0.5); // fade in over 2 seconds
-    px[i]+=pvx[i];py[i]+=pvy[i];
-    pvx[i]*=0.998;pvy[i]*=0.998; // slow drift
-    // Gentle gravity toward center
-    pvx[i]+=(w/2-px[i])*0.00003;
-    pvy[i]+=(h/2-py[i])*0.00003;
-    // Wrap
-    if(px[i]<0)px[i]=w;if(px[i]>w)px[i]=0;
-    if(py[i]<0)py[i]=h;if(py[i]>h)py[i]=0;
-    cx.fillStyle='rgba('+pr[i]+','+pg[i]+','+pb[i]+','+(fade*0.08)+')';
-    cx.fillRect(px[i],py[i],1,1);
+
+  var scale=Math.min(w*0.06,h*0.045);
+  var offX=(w-12*scale)/2;
+  var offY=h*0.15;
+
+  for(var i=0;i<N;i++){
+    var sx=offX+nxA[i]*scale;
+    var sy=offY+nyA[i]*scale;
+    var p=phases[i]%(2*Math.PI);if(p<0)p+=2*Math.PI;
+    var ci=Math.floor(p/(Math.PI*2/7))%7;
+    var co=COLORS[ci];
+    var bright=0.03+Math.abs(Math.sin(phases[i]))*0.04;
+    cx.fillStyle='rgba('+co[0]+','+co[1]+','+co[2]+','+bright+')';
+    cx.fillRect(sx,sy,1,1);
   }
+
   cx.globalCompositeOperation='source-over';
+
+  // R trace at bottom
+  var rc=document.getElementById('rtrace');
+  var rx=rc.getContext('2d');
+  var rw=w,rh=h*0.03;
+  rx.fillStyle='rgba(0,0,0,0.1)';rx.fillRect(0,0,rw,rh);
+  var phiY=rh*(1-1/PHI);
+
+  // 1/phi line
+  rx.fillStyle='rgba(201,164,74,0.06)';
+  rx.fillRect(0,phiY,rw,0.5);
+
+  // R trace
+  if(R_history.length>1){
+    rx.globalCompositeOperation='lighter';
+    for(var i=1;i<R_history.length;i++){
+      var x=i/MAX_HIST*rw;
+      var y=rh*(1-R_history[i]);
+      var near=Math.max(0,1-Math.abs(R_history[i]-1/PHI)*20);
+      rx.fillStyle='rgba(201,164,74,'+(0.05+near*0.15)+')';
+      rx.fillRect(x,y,1.5,1.5);
+    }
+    rx.globalCompositeOperation='source-over';
+  }
+
   requestAnimationFrame(render);
 }
 render();
 
-// Staggered reveal of menu items
+// Staggered reveal
 var items=document.querySelectorAll('.item');
 var title=document.getElementById('title');
-setTimeout(function(){title.classList.add('show');},300);
+setTimeout(function(){title.classList.add('show');},500);
 for(var i=0;i<items.length;i++){
-  (function(el,delay){
-    setTimeout(function(){el.classList.add('show');},delay);
-  })(items[i],800+i*400);
+  (function(el,delay){setTimeout(function(){el.classList.add('show');},delay);})(items[i],1200+i*350);
 }
 </script>
 </body>
