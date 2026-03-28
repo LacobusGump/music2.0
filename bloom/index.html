@@ -10,14 +10,14 @@
 *{margin:0;padding:0;box-sizing:border-box;}
 body{background:#000;overflow:hidden;touch-action:none;}
 canvas{display:block;width:100vw;height:100vh;}
-#phase{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);
-  font:100 0.9em Georgia;color:#c9a44a50;letter-spacing:0.4em;
-  text-transform:uppercase;transition:color 1s;pointer-events:none;}
+#label{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);
+  font:100 1em Georgia;color:#c9a44a;letter-spacing:0.4em;
+  text-transform:uppercase;opacity:0.6;pointer-events:none;}
 </style>
 </head>
 <body>
 <canvas id="C"></canvas>
-<div id="phase"></div>
+<div id="label"></div>
 <script>
 var cv = document.getElementById('C');
 var gl = cv.getContext('webgl', {alpha:false, antialias:false});
@@ -30,24 +30,18 @@ function resize(){
 }
 resize(); addEventListener('resize',resize);
 
-var N = 40000;
-var PHI = 1.618033988749895;
+var N = 25000;
 
-// You are INSIDE the cone. Looking UP.
-// Particles surround you. Close ones are big and bright.
-// The spiral rises above you. The phase transitions pass through you.
+// APPROACH FIX: bright, big, centered, see the whole shape.
+// No more ghost particles. These are SOLID.
 
 var VS = `
 attribute vec3 aPos;
-attribute float aFreq;
 attribute float aPhase;
-attribute float aSize;
 uniform float uTime;
 uniform float uEye;
-uniform vec2 uRes;
-
-varying float vTemp;
-varying float vAlpha;
+uniform float uAspect;
+varying vec3 vCol;
 
 #define PHI 1.618033988749895
 
@@ -57,92 +51,70 @@ void main() {
   float h = aPos.y;
   float r0 = aPos.z;
 
-  // Cone: wider at top, narrow at bottom
-  float coneR = 0.15 + h * 2.0;
-
-  // Spiral rotation: golden ratio speeds
-  float spin = theta + t * (0.06 + h * 0.15) * aFreq;
-  float gmod = 1.0 + 0.1 * sin(spin / PHI + aPhase);
-  float radius = coneR * r0 * gmod;
+  // Cone shape
+  float coneR = 0.1 + h * 1.0;
+  float spin = theta + t * 0.08 * (0.5 + h * 0.5);
+  float radius = coneR * r0;
 
   // World position
   float wx = radius * cos(spin);
   float wz = radius * sin(spin);
-  float wy = h * 8.0; // tall cone
+  float wy = (h - 0.5) * 2.0;
 
-  // Camera: inside the cone, looking UP
-  // Eye position rises slowly (the ascent)
-  float eyeY = uEye * 8.0;
-  float relY = wy - eyeY;
+  // Camera: OUTSIDE, looking at the whole cone, slowly orbiting
+  float camDist = 2.5;
+  float camAngle = t * 0.06;
+  float camY = (uEye - 0.5) * 0.8;
 
-  // Gentle orbit
-  float ca = t * 0.04;
-  float vx = wx * cos(ca) - wz * sin(ca);
-  float vz = wx * sin(ca) + wz * cos(ca);
+  // Rotate world by camera
+  float rx = wx * cos(camAngle) - wz * sin(camAngle);
+  float rz = wx * sin(camAngle) + wz * cos(camAngle);
+  float ry = wy - camY;
 
-  // Perspective: CLOSE. You're inside this.
-  float dist = sqrt(vx*vx + relY*relY + vz*vz);
-  float fov = 0.8;
-  float aspect = uRes.x / uRes.y;
+  // Simple perspective
+  float depth = camDist + rz;
+  float pd = max(0.3, depth);
+  float px = rx / pd;
+  float py = ry / pd;
 
-  // Project
-  float pz = vz + 0.5; // slight forward offset
-  float pd = max(0.1, dist * fov);
+  gl_Position = vec4(px * 1.8, py * 1.8 * uAspect, rz * 0.01, 1.0);
 
-  gl_Position = vec4(
-    vx / pd,
-    relY / pd * aspect,
-    0.0, 1.0
-  );
+  // Point size: BIG. Visible. Not ghost particles.
+  float nearScale = camDist / pd;
+  gl_PointSize = (2.0 + nearScale * 2.5) * (uAspect > 1.5 ? 1.0 : 1.5);
+  gl_PointSize = clamp(gl_PointSize, 1.5, 10.0);
 
-  // Size: CLOSE particles are BIG
-  float nearness = 1.0 / max(0.3, dist);
-  gl_PointSize = aSize * nearness * 4.0;
-  gl_PointSize *= (uRes.x > 600.0 ? 1.5 : 1.2);
-  gl_PointSize = clamp(gl_PointSize, 0.5, 12.0);
+  // Color by height — VIVID
+  if (h < 0.1) {
+    vCol = mix(vec3(0.15, 0.05, 0.35), vec3(0.2, 0.1, 0.5), h/0.1);
+  } else if (h < 0.25) {
+    float tt = (h-0.1)/0.15;
+    vCol = mix(vec3(0.2, 0.1, 0.5), vec3(0.15, 0.4, 0.65), tt);
+  } else if (h < 0.45) {
+    float tt = (h-0.25)/0.2;
+    vCol = mix(vec3(0.15, 0.4, 0.65), vec3(0.1, 0.65, 0.5), tt);
+  } else if (h < 0.65) {
+    float tt = (h-0.45)/0.2;
+    vCol = mix(vec3(0.1, 0.65, 0.5), vec3(0.9, 0.75, 0.35), tt);
+  } else if (h < 0.85) {
+    float tt = (h-0.65)/0.2;
+    vCol = mix(vec3(0.9, 0.75, 0.35), vec3(1.0, 0.85, 0.5), tt);
+  } else {
+    float tt = (h-0.85)/0.15;
+    vCol = mix(vec3(1.0, 0.85, 0.5), vec3(1.0, 1.0, 0.95), tt);
+  }
 
-  // Alpha: close = bright, far = dim
-  vAlpha = clamp(nearness * 0.4, 0.02, 0.4);
-
-  // Particles behind camera: invisible
-  if (relY < -2.0) vAlpha = 0.0;
-
-  vTemp = h;
+  // Dim particles behind camera
+  if (depth < 0.5) vCol *= 0.2;
 }
 `;
 
 var FS = `
 precision mediump float;
-varying float vTemp;
-varying float vAlpha;
-
+varying vec3 vCol;
 void main() {
-  vec3 col;
-  float h = vTemp;
-
-  // Color spectrum: the phases of matter on the cone
-  if (h < 0.08) {
-    col = vec3(0.06, 0.02, 0.15); // quantum: deep violet
-  } else if (h < 0.18) {
-    float t = (h-0.08)/0.1;
-    col = mix(vec3(0.06, 0.02, 0.15), vec3(0.12, 0.2, 0.45), t); // solid: blue
-  } else if (h < 0.35) {
-    float t = (h-0.18)/0.17;
-    col = mix(vec3(0.12, 0.2, 0.45), vec3(0.05, 0.45, 0.35), t); // liquid: teal
-  } else if (h < 0.55) {
-    float t = (h-0.35)/0.2;
-    col = mix(vec3(0.05, 0.45, 0.35), vec3(0.85, 0.7, 0.3), t); // gas: gold
-  } else if (h < 0.75) {
-    float t = (h-0.55)/0.2;
-    col = mix(vec3(0.85, 0.7, 0.3), vec3(1.0, 0.75, 0.35), t); // plasma: bright gold
-  } else if (h < 0.9) {
-    float t = (h-0.75)/0.15;
-    col = mix(vec3(1.0, 0.75, 0.35), vec3(1.0, 0.95, 0.85), t); // light: white-gold
-  } else {
-    col = vec3(1.0, 0.98, 0.92); // edge: pure light
-  }
-
-  gl_FragColor = vec4(col, vAlpha);
+  // SOLID. Not ghost. Alpha 0.5 minimum.
+  gl_FragColor = vec4(vCol, 0.55);
 }
 `;
 
@@ -160,25 +132,19 @@ gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, FS));
 gl.linkProgram(prog);
 gl.useProgram(prog);
 
-// Particles: golden angle packing on the cone
 var pos = new Float32Array(N * 3);
-var freq = new Float32Array(N);
-var phase = new Float32Array(N);
-var size = new Float32Array(N);
-
-var GA = 2.39996322; // golden angle
+var phases = new Float32Array(N);
+var GA = 2.39996322;
 
 for (var i = 0; i < N; i++) {
-  var h = Math.pow(i / N, 0.6); // more particles at bottom (denser = colder)
+  var h = Math.pow(i / N, 0.65);
   var theta = i * GA;
-  var r = 0.15 + Math.random() * 0.85;
+  var r = 0.2 + Math.random() * 0.8;
 
   pos[i*3]   = theta;
   pos[i*3+1] = h;
   pos[i*3+2] = r;
-  freq[i]  = 0.3 + Math.random() * 1.7;
-  phase[i] = Math.random() * Math.PI * 2;
-  size[i]  = 0.5 + Math.random() * 2.5;
+  phases[i]  = Math.random() * 6.28;
 }
 
 function makeBuf(data, attr, comp) {
@@ -190,24 +156,21 @@ function makeBuf(data, attr, comp) {
   return {buf:buf,loc:loc,comp:comp};
 }
 
-var bufs = [
-  makeBuf(pos,'aPos',3),
-  makeBuf(freq,'aFreq',1),
-  makeBuf(phase,'aPhase',1),
-  makeBuf(size,'aSize',1)
-];
+var b1 = makeBuf(pos, 'aPos', 3);
+var b2 = makeBuf(phases, 'aPhase', 1);
 
-var uTime=gl.getUniformLocation(prog,'uTime');
-var uEye=gl.getUniformLocation(prog,'uEye');
-var uRes=gl.getUniformLocation(prog,'uRes');
+var uTime = gl.getUniformLocation(prog, 'uTime');
+var uEye = gl.getUniformLocation(prog, 'uEye');
+var uAspect = gl.getUniformLocation(prog, 'uAspect');
 
+// NOT additive. Standard alpha blend. SOLID particles.
 gl.enable(gl.BLEND);
-gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
-gl.clearColor(0,0,0,1);
+gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+gl.clearColor(0, 0, 0, 1);
 
+var labelEl = document.getElementById('label');
 var phaseNames = ['quantum','solid','liquid','gas','plasma','light','edge','?'];
-var phaseH = [0, 0.08, 0.18, 0.35, 0.55, 0.75, 0.9, 1.0];
-var phaseEl = document.getElementById('phase');
+var phaseH = [0, 0.1, 0.25, 0.45, 0.65, 0.85, 0.95, 1.0];
 
 var t = 0;
 
@@ -219,25 +182,24 @@ function rebind(b){
 function frame() {
   t += 0.016;
 
-  // Ascent: steady climb, slow, with breath
-  var climb = (t * 0.0015) % 1.3;
-  var breath = 0.02 * Math.sin(t * 0.25);
-  var eye = Math.min(1.05, climb + breath);
-  if (climb > 1.1) eye = 2.2 - climb + breath;
+  // Slow ascent with breathing
+  var climb = (t * 0.0012) % 1.4;
+  var eye = Math.min(1.1, climb);
+  if (climb > 1.1) eye = 2.2 - climb;
+  eye += 0.02 * Math.sin(t * 0.2);
 
-  // Phase label
   var pname = '';
   for (var i = phaseH.length-1; i >= 0; i--) {
     if (eye >= phaseH[i]) { pname = phaseNames[i]; break; }
   }
-  phaseEl.textContent = pname;
+  labelEl.textContent = pname;
 
   gl.clear(gl.COLOR_BUFFER_BIT);
   gl.uniform1f(uTime, t);
   gl.uniform1f(uEye, eye);
-  gl.uniform2f(uRes, cv.width, cv.height);
+  gl.uniform1f(uAspect, cv.width / cv.height);
 
-  for(var b=0;b<bufs.length;b++) rebind(bufs[b]);
+  rebind(b1); rebind(b2);
   gl.drawArrays(gl.POINTS, 0, N);
 
   requestAnimationFrame(frame);
