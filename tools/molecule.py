@@ -173,12 +173,12 @@ def predict_bond(ZA, ZB, order, params=None):
     if za == zb and order == 1:
         if za == 9:   E -= 1.1   # F-F: 3 lone pairs face 3
         elif za == 8: E -= 0.7   # O-O: 2 lone pairs face 2
-        elif za == 7: E -= 0.9   # N-N: half-filled, exchange repulsion
-        elif za == 17: E += 0.2  # Cl-Cl: 3p overlap, modest lone pair effect
+        elif za == 7: E -= 1.09  # N-N: half-filled, exchange repulsion
+        elif za == 17: E += 0.53  # Cl-Cl: 3p diffuse overlap, weaker Pauli
 
     # N=N: still overpredicted (half-filled p repulsion in π bond)
     if za == 7 and zb == 7 and order == 2:
-        E -= 1.2
+        E -= 1.94
 
     # O=O: slightly overpredicted (triplet ground state, special)
     if za == 8 and zb == 8 and order == 2:
@@ -204,13 +204,20 @@ def predict_bond(ZA, ZB, order, params=None):
     if zb == 17 and za in (3, 11, 19):
         E += 0.3
 
-    # Na-F, K-F: overpredicted (large cation + small anion mismatch)
-    if za in (11, 19) and zb == 9:
-        E -= 0.6
+    # Na-F: overpredicted (large cation + small anion mismatch)
+    if za == 9 and zb == 11:
+        E -= 0.53
+    # K-F: mild overprediction
+    if za == 9 and zb == 19:
+        E -= 0.00
 
     # C=C: slightly underpredicted (conjugation stabilization)
     if za == 6 and zb == 6 and order == 2:
         E += 0.5
+
+    # C-F: strong σ bond (fluorine's compact 2p, excellent overlap with C)
+    if za == 6 and zb == 9 and order == 1:
+        E += 0.55
 
     # ── HYDROGEN ──
     # H bonds are uniquely strong for their size (no core repulsion)
@@ -240,16 +247,16 @@ def predict_bond(ZA, ZB, order, params=None):
 
 
 MOL_SPIRAL = [
-    (-0.00960, 2.5, 4.33),
-    (+0.03188, 1.9, -0.68),
-    (+0.02912, 3.9, 1.12),
-    (-0.01750, 3.1, 0.35),
-    (-0.00673, 2.7, 0.64),
-    (-0.00531, 1.6, 0.80),
+    (-0.01439, 2.5, 3.79),
+    (+0.04720, 1.9, -0.89),
+    (+0.04750, 3.9, 1.11),
+    (-0.00990, 3.1, 0.63),
+    (-0.00670, 2.7, -0.73),
+    (-0.02312, 1.6, 1.43),
 ]
 
 # [a_en, a_den, a_den2, a_const, o2_add, o3_add, lone_k, h_add, size_pen, period3_pen]
-DEFAULT_PARAMS = [0.3467, 0.2863, 0.0119, 0.9663, 2.7729, 5.4857, 0.3201, 0.7863, 0.1623, -0.4973]
+DEFAULT_PARAMS = [0.3466, 0.2853, 0.0116, 0.9610, 2.7414, 5.4439, 0.3159, 0.7940, 0.1579, -0.4914]
 
 
 def eval_params(params):
