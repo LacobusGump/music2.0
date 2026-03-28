@@ -15,120 +15,90 @@
 <style>
 *{margin:0;padding:0;box-sizing:border-box;}
 body{background:#000;overflow:hidden;}
-canvas#C{display:block;width:100vw;height:100vh;}
+canvas{display:block;width:100vw;height:100vh;}
 #hitboxes{position:fixed;top:0;left:0;width:100%;height:100%;z-index:10;pointer-events:none;}
 #hitboxes a{pointer-events:auto;position:absolute;display:block;left:0;width:100%;}
+#fps{position:fixed;top:8px;right:8px;color:#ffffff06;font:9px monospace;z-index:20;pointer-events:none;}
 </style>
 </head>
 <body>
 <canvas id="C"></canvas>
-<div id="fps" style="position:fixed;top:8px;right:8px;color:#ffffff06;font:9px monospace;z-index:20;pointer-events:none;"></div>
 <div id="hitboxes"></div>
-<div id="textlayer" style="position:fixed;top:0;left:0;width:100%;height:100%;z-index:5;pointer-events:none;display:flex;flex-direction:column;align-items:center;"></div>
+<div id="fps"></div>
 <script>
-var cv=document.getElementById('C');
-var gl=cv.getContext('webgl',{antialias:false,alpha:false});
-if(!gl){document.body.innerHTML='<p style="color:#c9a44a;padding:40px;">WebGL required</p>';throw 0;}
+// ═══════════════════════════════════════════════════════════
+// HOME — fluid dynamics. Particles flow everywhere.
+// Letters are ABSENCE — particles orbit around letter shapes,
+// lighting them up by proximity. The text is the interference.
+// ═══════════════════════════════════════════════════════════
+
+var cv=document.getElementById('C'),cx=cv.getContext('2d');
 var DPR=devicePixelRatio||1,w,h;
-function resize(){w=innerWidth;h=innerHeight;cv.width=w*DPR;cv.height=h*DPR;cv.style.width=w+'px';cv.style.height=h+'px';gl.viewport(0,0,cv.width,cv.height);}
+function resize(){w=innerWidth;h=innerHeight;cv.width=w*DPR;cv.height=h*DPR;cx.setTransform(DPR,0,0,DPR,0,0);buildMask();}
 resize();addEventListener('resize',resize);
 
 var PAGES=[
-  {name:'research',  url:'/r/',         c:[201,164,74]},
-  {name:'one',       url:'/one/',       c:[140,184,122]},
-  {name:'flex',      url:'/flex/',      c:[184,104,160]},
-  {name:'bloom',     url:'/bloom/',     c:[92,184,136]},
-  {name:'resonance', url:'/resonance/', c:[200,104,88]},
-  {name:'oracle',    url:'/oracle/',    c:[168,160,104]},
+  {name:'RESEARCH',  url:'/r/',         c:[201,164,74]},
+  {name:'ONE',       url:'/one/',       c:[140,184,122]},
+  {name:'FLEX',      url:'/flex/',      c:[184,104,160]},
+  {name:'BLOOM',     url:'/bloom/',     c:[92,184,136]},
+  {name:'RESONANCE', url:'/resonance/', c:[200,104,88]},
+  {name:'ORACLE',    url:'/oracle/',    c:[168,160,104]},
 ];
 
-// Shaders
-var vsrc=`
-attribute vec3 aPos;
-attribute vec3 aCol;
-uniform vec2 uRes;
-varying vec3 vCol;
-varying float vAlpha;
-void main(){
-  // aPos is in PIXELS (screen space). Convert to clip space [-1,1].
-  // Z gives subtle parallax only — no rotation.
-  float parallax=1.0+aPos.z*0.0003; // very subtle depth shift
-  float sx=(aPos.x/uRes.x-1.0)*parallax;
-  float sy=-(aPos.y/uRes.y-1.0)*parallax;
-  gl_Position=vec4(sx,sy,0.0,1.0);
-  gl_PointSize=clamp(1.5+aPos.z*0.01,0.5,4.0);
-  vCol=aCol;
-  vAlpha=0.4;
-}`;
-var fsrc=`
-precision mediump float;
-varying vec3 vCol;
-varying float vAlpha;
-void main(){gl_FragColor=vec4(vCol,vAlpha);}`;
+var t=0,frame=0,lastT=performance.now();
 
-function compile(type,src){var s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))console.error(gl.getShaderInfoLog(s));return s;}
-var prog=gl.createProgram();
-gl.attachShader(prog,compile(gl.VERTEX_SHADER,vsrc));
-gl.attachShader(prog,compile(gl.FRAGMENT_SHADER,fsrc));
-gl.linkProgram(prog);gl.useProgram(prog);
-var aPos=gl.getAttribLocation(prog,'aPos');
-var aCol=gl.getAttribLocation(prog,'aCol');
-var uRes=gl.getUniformLocation(prog,'uRes');
-gl.enable(gl.BLEND);gl.blendFunc(gl.SRC_ALPHA,gl.ONE);
-gl.clearColor(0,0,0,1);
+// ═══ TEXT MASK: where the letters ARE ═══
+// We build a low-res mask of which pixels are "inside" a letter.
+// Particles that touch a letter pixel glow bright in that letter's color.
+var MASK_SCALE=2; // 1 mask pixel = 2 screen pixels
+var mask=null; // Uint8Array: 0=empty, 1-7=which word (1=GUMP, 2-7=pages)
+var maskW=0,maskH=0;
+var wordColors=[[201,164,74]]; // index 0 unused, 1=GUMP
+for(var i=0;i<PAGES.length;i++)wordColors.push(PAGES[i].c);
 
-// Particles
-var NP=12000;
-var posArr=new Float32Array(NP*3);
-var colArr=new Float32Array(NP*3);
-var homeX=new Float32Array(NP),homeY=new Float32Array(NP),homeZ=new Float32Array(NP);
-var curX=new Float32Array(NP),curY=new Float32Array(NP),curZ=new Float32Array(NP);
-var velX=new Float32Array(NP),velY=new Float32Array(NP),velZ=new Float32Array(NP);
-var assigned=new Uint8Array(NP);
-var posBuf=gl.createBuffer(),colBuf=gl.createBuffer();
+function buildMask(){
+  maskW=Math.ceil(w/MASK_SCALE);
+  maskH=Math.ceil(h/MASK_SCALE);
+  mask=new Uint8Array(maskW*maskH);
 
-var t=0,phase=0,holdTimer=0;
-
-// Sample text and assign 3D positions
-function sampleAndBuild(){
-  var oc=document.createElement('canvas');oc.width=w;oc.height=h;
+  var oc=document.createElement('canvas');
+  oc.width=w;oc.height=h;
   var ox=oc.getContext('2d');
   ox.fillStyle='#000';ox.fillRect(0,0,w,h);
-  ox.textAlign='center';ox.fillStyle='#fff';
+  ox.textAlign='center';ox.textBaseline='middle';
 
-  // Draw text with manual letter spacing (letterSpacing not supported everywhere)
-  function drawSpaced(ctx,text,cx2,cy,size,spacing){
-    ctx.font='100 '+size+'px Georgia';
-    ctx.textAlign='left'; // we position manually
-    var totalW=0;
-    for(var i=0;i<text.length;i++)totalW+=ctx.measureText(text[i]).width+spacing;
-    totalW-=spacing;
-    var x=cx2-totalW/2;
-    for(var i=0;i<text.length;i++){
-      ctx.fillText(text[i],x,cy);
-      x+=ctx.measureText(text[i]).width+spacing;
-    }
-    ctx.textAlign='center'; // restore
+  // GUMP — big
+  var ts=Math.min(w*0.18,70);
+  ox.font='bold '+ts+'px Georgia';
+  ox.fillStyle='#010000';ox.fillText('GUMP',w/2,h*0.1);
+
+  // Pages
+  var fs=Math.min(w*0.065,28);
+  var startY=h*0.26;
+  var gap=(h*0.64)/PAGES.length;
+  ox.font='bold '+fs+'px Georgia';
+  for(var i=0;i<PAGES.length;i++){
+    // Draw each word with a unique shade so we can identify it
+    var shade=i+2; // 2-7
+    ox.fillStyle='rgb('+shade+',0,0)';
+    ox.fillText(PAGES[i].name,w/2,startY+i*gap);
   }
 
-  var ts=Math.min(w*0.15,60);
-  drawSpaced(ox,'GUMP',w/2,h*0.12+ts*0.35,ts,ts*0.3);
+  // GUMP as shade 1
+  ox.fillStyle='rgb(1,0,0)';
+  ox.font='bold '+ts+'px Georgia';
+  ox.fillText('GUMP',w/2,h*0.1);
 
-  var fs=Math.min(w*0.06,24);
-  var startY=h*0.28;
-  var gap=(h*0.62)/PAGES.length;
-  for(var i=0;i<PAGES.length;i++) drawSpaced(ox,PAGES[i].name,w/2,startY+i*gap,fs,fs*0.3);
-
-  // Readable text layer underneath particles
-  var tl=document.getElementById('textlayer');tl.innerHTML='';
-  var gumpEl=document.createElement('div');
-  gumpEl.style.cssText='position:absolute;top:'+(h*0.12-ts*0.2)+'px;width:100%;text-align:center;font:100 '+(ts*0.85)+'px Georgia;letter-spacing:0.25em;color:rgba(160,150,130,0.06);';
-  gumpEl.textContent='GUMP';tl.appendChild(gumpEl);
-  for(var i=0;i<PAGES.length;i++){
-    var el=document.createElement('div');
-    var c=PAGES[i].c;
-    el.style.cssText='position:absolute;top:'+(startY+i*gap-fs*0.4)+'px;width:100%;text-align:center;font:100 '+(fs*0.85)+'px Georgia;letter-spacing:0.25em;color:rgba('+c[0]+','+c[1]+','+c[2]+',0.06);text-transform:lowercase;';
-    el.textContent=PAGES[i].name;tl.appendChild(el);
+  // Read into mask
+  var img=ox.getImageData(0,0,w,h).data;
+  for(var my=0;my<maskH;my++){
+    for(var mx=0;mx<maskW;mx++){
+      var sx=mx*MASK_SCALE,sy=my*MASK_SCALE;
+      var idx=(sy*w+sx)*4;
+      var r=img[idx];
+      if(r>0)mask[my*maskW+mx]=r; // 1=GUMP, 2-7=pages
+    }
   }
 
   // Hitboxes
@@ -138,146 +108,95 @@ function sampleAndBuild(){
     a.style.top=(startY+i*gap-fs)+'px';a.style.height=(fs*2)+'px';
     hb.appendChild(a);
   }
-
-  var img=ox.getImageData(0,0,w,h).data;
-  var targets=[];
-  var totalWhite=0;
-  for(var y=0;y<h;y++){
-    for(var x=0;x<w;x++){
-      if(img[(y*w+x)*4]>100){totalWhite++;if(Math.random()>0.3)continue;
-        var ci=-1;
-        if(y<h*0.17)ci=-1;
-        else{for(var j=0;j<PAGES.length;j++){if(Math.abs(y-(startY+j*gap))<fs)ci=j;}}
-        targets.push({x:x,y:y,ci:ci});
-      }
-    }
-  }
-
-  // Assign particles
-  for(var i=0;i<NP;i++){
-    // Start scattered across the screen + beyond edges
-    var angle=Math.random()*Math.PI*2;
-    var dist=Math.random()*Math.max(w,h)*0.6;
-    curX[i]=w/2+Math.cos(angle)*dist;
-    curY[i]=h/2+Math.sin(angle)*dist;
-    curZ[i]=(Math.random()-0.5)*30;
-    velX[i]=velY[i]=velZ[i]=0;
-
-    if(i<targets.length){
-      var tt=targets[i];
-      homeX[i]=tt.x;homeY[i]=tt.y;
-      assigned[i]=1;
-
-      // 3D depth: each letter gets orbital Z based on its shape
-      // Distance from letter center → depth (rounded letters)
-      // Plus: each particle orbits slightly in Z
-      var letterCenterX=w/2; // approximate
-      var dx=tt.x-letterCenterX;
-      homeZ[i]=Math.sin(dx*0.05)*15+Math.sin(tt.y*0.03)*10;
-
-      if(tt.ci>=0){
-        var c=PAGES[tt.ci].c;
-        colArr[i*3]=c[0]/255;colArr[i*3+1]=c[1]/255;colArr[i*3+2]=c[2]/255;
-      } else {
-        colArr[i*3]=0.79;colArr[i*3+1]=0.64;colArr[i*3+2]=0.29;
-      }
-    } else {
-      // Ether particle
-      homeX[i]=Math.random()*w;homeY[i]=Math.random()*h;homeZ[i]=(Math.random()-0.5)*80;
-      assigned[i]=0;
-      colArr[i*3]=0.06;colArr[i*3+1]=0.05;colArr[i*3+2]=0.04;
-    }
-  }
-
-  gl.bindBuffer(gl.ARRAY_BUFFER,colBuf);
-  gl.bufferData(gl.ARRAY_BUFFER,colArr,gl.STATIC_DRAW);
 }
-// Delay build until layout is stable
-setTimeout(sampleAndBuild,100);
+buildMask();
 
+// ═══ FLUID PARTICLES — 20K flowing across the screen ═══
+var NP=20000;
+var px=new Float32Array(NP),py=new Float32Array(NP);
+var pvx=new Float32Array(NP),pvy=new Float32Array(NP);
+
+for(var i=0;i<NP;i++){
+  px[i]=Math.random()*w;
+  py[i]=Math.random()*h;
+  pvx[i]=(Math.random()-0.5)*1;
+  pvy[i]=(Math.random()-0.5)*0.5;
+}
+
+// ═══ RENDER ═══
 function render(){
-  t+=0.016;
+  t+=0.016;frame++;
 
-  // Phase: assemble → hold → consume
-  if(phase===0){
-    var arrived=0;
-    for(var i=0;i<NP;i++){
-      if(assigned[i]&&Math.abs(curX[i]-homeX[i])<4&&Math.abs(curY[i]-homeY[i])<4)arrived++;
-    }
-    if(arrived>NP*0.3)phase=1; // most text particles arrived
-  } else if(phase===1){
-    holdTimer+=0.016;
-    if(holdTimer>20){phase=2;} // 20 seconds → consume
-  } else if(phase===2){
-    // All flow to GUMP center
-    holdTimer+=0.016;
-    if(holdTimer>25)window.location.href='/r/';
-  }
+  // Fade — creates trails
+  cx.fillStyle='rgba(0,0,0,0.08)';
+  cx.fillRect(0,0,w,h);
 
-  // Physics
+  cx.globalCompositeOperation='lighter';
+
+  // Fluid: global flow field + letter boundary forces
+  var flowAngle=t*0.15;
+  var flowX=Math.cos(flowAngle)*0.4;
+  var flowY=Math.sin(flowAngle*0.7)*0.3;
+
   for(var i=0;i<NP;i++){
-    var tx,ty,tz;
-    if(phase===2){
-      tx=w/2;ty=h*0.1;tz=0;
+    // Global flow
+    pvx[i]+=flowX*0.01+Math.sin(t*0.3+py[i]*0.005)*0.015;
+    pvy[i]+=flowY*0.01+Math.cos(t*0.25+px[i]*0.005)*0.015;
+
+    // Check mask: is this particle near a letter?
+    var mx=Math.floor(px[i]/MASK_SCALE);
+    var my=Math.floor(py[i]/MASK_SCALE);
+    var onLetter=0;
+    if(mx>=0&&mx<maskW&&my>=0&&my<maskH){
+      onLetter=mask[my*maskW+mx];
+    }
+
+    if(onLetter>0){
+      // ON a letter: orbit around the boundary
+      // Push particle tangentially (perpendicular to gradient)
+      // Find gradient direction (toward nearest empty space)
+      var gx=0,gy=0;
+      for(var dx=-2;dx<=2;dx++){
+        for(var dy=-2;dy<=2;dy++){
+          var nx=mx+dx,ny=my+dy;
+          if(nx>=0&&nx<maskW&&ny>=0&&ny<maskH){
+            if(mask[ny*maskW+nx]===0){gx+=dx;gy+=dy;}
+          }
+        }
+      }
+      var gLen=Math.sqrt(gx*gx+gy*gy)+0.01;
+      // Push along gradient (away from letter center) + tangential orbit
+      pvx[i]+=gx/gLen*0.08-gy/gLen*0.04;
+      pvy[i]+=gy/gLen*0.08+gx/gLen*0.04;
+
+      // GLOW: particle near letter = bright in letter's color
+      var c=wordColors[onLetter]||[150,140,120];
+      cx.fillStyle='rgba('+c[0]+','+c[1]+','+c[2]+',0.25)';
+      cx.fillRect(px[i]-0.5,py[i]-0.5,1.5,1.5);
     } else {
-      tx=homeX[i];ty=homeY[i];tz=homeZ[i];
+      // In the void: dim, flowing
+      cx.fillStyle='rgba(60,55,45,0.06)';
+      cx.fillRect(px[i],py[i],1,1);
     }
 
-    // Spring — slower, more organic
-    var k=assigned[i]?0.02:0.002;
-    if(phase===2)k=0.008;
-    velX[i]+=(tx-curX[i])*k;
-    velY[i]+=(ty-curY[i])*k;
-    velZ[i]+=(tz-curZ[i])*k;
+    // Damping
+    pvx[i]*=0.96;pvy[i]*=0.96;
+    px[i]+=pvx[i];py[i]+=pvy[i];
 
-    // Orbital wobble when settled
-    if(phase>=1&&assigned[i]){
-      velX[i]+=Math.sin(t*1.5+i*0.07)*0.02;
-      velY[i]+=Math.cos(t*1.2+i*0.09)*0.02;
-      velZ[i]+=Math.sin(t*0.8+i*0.13)*0.05;
-    }
-
-    velX[i]*=0.95;velY[i]*=0.95;velZ[i]*=0.95;
-    curX[i]+=velX[i];curY[i]+=velY[i];curZ[i]+=velZ[i];
-
-    // Ether respawn
-    if(!assigned[i]&&(curX[i]<-50||curX[i]>w+50||curY[i]<-50||curY[i]>h+50)){
-      var edge=Math.random()*4;
-      if(edge<1){curX[i]=Math.random()*w;curY[i]=-20;}
-      else if(edge<2){curX[i]=w+20;curY[i]=Math.random()*h;}
-      else if(edge<3){curX[i]=Math.random()*w;curY[i]=h+20;}
-      else{curX[i]=-20;curY[i]=Math.random()*h;}
-      velX[i]=velY[i]=velZ[i]=0;
-    }
-
-    posArr[i*3]=curX[i];posArr[i*3+1]=curY[i];posArr[i*3+2]=curZ[i];
+    // Wrap
+    if(px[i]<-10)px[i]=w+10;if(px[i]>w+10)px[i]=-10;
+    if(py[i]<-10)py[i]=h+10;if(py[i]>h+10)py[i]=-10;
   }
 
-  // Render
-  gl.clear(gl.COLOR_BUFFER_BIT);
-  gl.uniform2f(uRes,w/2,h/2);
-
-  gl.bindBuffer(gl.ARRAY_BUFFER,posBuf);
-  gl.bufferData(gl.ARRAY_BUFFER,posArr,gl.DYNAMIC_DRAW);
-  gl.enableVertexAttribArray(aPos);
-  gl.vertexAttribPointer(aPos,3,gl.FLOAT,false,0,0);
-
-  gl.bindBuffer(gl.ARRAY_BUFFER,colBuf);
-  gl.enableVertexAttribArray(aCol);
-  gl.vertexAttribPointer(aCol,3,gl.FLOAT,false,0,0);
-
-  gl.drawArrays(gl.POINTS,0,NP);
+  cx.globalCompositeOperation='source-over';
 
   // FPS
   var now=performance.now();
-  if(!render.lastT)render.lastT=now;
-  if(!render.fc)render.fc=0;
-  render.fc++;
-  if(render.fc%15===0){
-    var fps=Math.round(1000/(now-render.lastT));
+  if(frame%15===0){
+    var fps=Math.round(1000/(now-lastT));
     document.getElementById('fps').textContent=NP.toLocaleString()+' · '+fps+'fps';
   }
-  render.lastT=now;
+  lastT=now;
 
   requestAnimationFrame(render);
 }
