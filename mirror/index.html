@@ -25,15 +25,25 @@ var cv=document.getElementById('C'),cx=cv.getContext('2d');
 var W,H,DPR;
 function resize(){DPR=devicePixelRatio||1;W=cv.width=innerWidth*DPR;H=cv.height=innerHeight*DPR;cx.setTransform(DPR,0,0,DPR,0,0);}
 resize();addEventListener('resize',resize);
-var w,h,t=0,mx=0.5,my=0.5;
-addEventListener('mousemove',function(e){mx=e.clientX/innerWidth;my=e.clientY/innerHeight;});
-addEventListener('touchmove',function(e){e.preventDefault();if(e.touches.length===1){mx=e.touches[0].clientX/innerWidth;my=e.touches[0].clientY/innerHeight;}},{passive:false});
-addEventListener('touchstart',function(e){e.preventDefault();},{passive:false});
+var w,h,t=0;
+
+// Camera: angles + zoom
+var camRX=-0.45,camRY=0,zoom=1.0;
+var autoRot=true,dragActive=false;
+var lastTX=0,lastTY=0,pinchD0=0;
+
+addEventListener('mousedown',function(e){dragActive=true;lastTX=e.clientX;lastTY=e.clientY;autoRot=false;});
+addEventListener('mousemove',function(e){if(!dragActive)return;camRY+=(e.clientX-lastTX)*0.006;camRX+=(e.clientY-lastTY)*0.006;camRX=Math.max(-1.2,Math.min(-0.1,camRX));lastTX=e.clientX;lastTY=e.clientY;});
+addEventListener('mouseup',function(){dragActive=false;});
+addEventListener('wheel',function(e){e.preventDefault();zoom*=e.deltaY>0?0.93:1.07;zoom=Math.max(0.3,Math.min(3,zoom));},{passive:false});
+
+addEventListener('touchstart',function(e){e.preventDefault();if(e.touches.length===1){dragActive=true;lastTX=e.touches[0].clientX;lastTY=e.touches[0].clientY;autoRot=false;}if(e.touches.length===2){var dx=e.touches[1].clientX-e.touches[0].clientX,dy=e.touches[1].clientY-e.touches[0].clientY;pinchD0=Math.sqrt(dx*dx+dy*dy);}},{passive:false});
+addEventListener('touchmove',function(e){e.preventDefault();if(e.touches.length===1&&dragActive){camRY+=(e.touches[0].clientX-lastTX)*0.006;camRX+=(e.touches[0].clientY-lastTY)*0.006;camRX=Math.max(-1.2,Math.min(-0.1,camRX));lastTX=e.touches[0].clientX;lastTY=e.touches[0].clientY;}if(e.touches.length===2&&pinchD0>0){var dx=e.touches[1].clientX-e.touches[0].clientX,dy=e.touches[1].clientY-e.touches[0].clientY;var d=Math.sqrt(dx*dx+dy*dy);zoom*=d/pinchD0;zoom=Math.max(0.3,Math.min(3,zoom));pinchD0=d;}},{passive:false});
+addEventListener('touchend',function(e){if(e.touches.length<2)pinchD0=0;if(e.touches.length===0)dragActive=false;});
 
 // ═══════════════════════════════════════════════════════════
 // THE MACHINE — 137 oscillators, hex-packed, K=1.868
-// Self-organized into 7 clusters. F Lydian.
-// Now it sings.
+// 5D: (x, y, θ, t, K). Now you see the surface breathe.
 // ═══════════════════════════════════════════════════════════
 
 var N=137, K=1.867942;
@@ -67,48 +77,16 @@ var cols=13,rows=11;
 var nxA=[],nyA=[];
 var idx=0;
 for(var row=0;row<rows;row++)for(var col=0;col<cols;col++){if(idx>=N)break;nxA.push(col+(row%2?0.5:0));nyA.push(row*Math.sqrt(3)/2);idx++;}
+// Center the grid around origin
+var cxOff=6,cyOff=5*Math.sqrt(3)/2;
+for(var i=0;i<N;i++){nxA[i]-=cxOff;nyA[i]-=cyOff;}
+
+// Neighbor list
 var nbrL=[];
 for(var i=0;i<N;i++){var nn=[];for(var j=0;j<N;j++){if(j===i)continue;var dx=nxA[j]-nxA[i],dy=nyA[j]-nyA[i];if(dx*dx+dy*dy<1.44)nn.push(j);}nbrL.push(nn);}
 
 // Phases
 var phases=new Float64Array(N);
-
-// ═══ AUDIO: F Lydian from the machine's clusters ═══
-// The 7 notes: F G A B C D E (Lydian mode)
-// Volumes from cluster sizes: 41,26,19,8,5,12,22
-var audioCtx=null,oscNodes=[],gainNodes=[],masterGain=null;
-var LYDIAN=[349.2,392.0,440.0,493.9,523.3,587.3,659.3]; // F Lydian
-var VOLS=[41,26,19,8,5,12,22]; // node counts per cluster
-var maxVol=41;
-var audioStarted=false;
-
-function startAudio(){
-  if(audioStarted)return;
-  audioCtx=new(window.AudioContext||window.webkitAudioContext)();
-  masterGain=audioCtx.createGain();
-  masterGain.gain.value=0;
-  masterGain.connect(audioCtx.destination);
-
-  for(var i=0;i<7;i++){
-    var osc=audioCtx.createOscillator();
-    var gain=audioCtx.createGain();
-    osc.type='sine';
-    osc.frequency.value=LYDIAN[i];
-    osc.detune.value=(Math.random()-0.5)*6;
-    gain.gain.value=0;
-    osc.connect(gain);
-    gain.connect(masterGain);
-    osc.start();
-    oscNodes.push(osc);
-    gainNodes.push(gain);
-  }
-  // Fade in
-  masterGain.gain.setTargetAtTime(0.04,audioCtx.currentTime,2);
-  audioStarted=true;
-}
-
-addEventListener('click',function(){startAudio();});
-addEventListener('touchstart',function(){startAudio();},{passive:true});
 
 // ═══ SIMULATION ═══
 var dt=0.016,R=0,meanPhase=0;
@@ -120,7 +98,6 @@ function step(){
   var mp=Math.atan2(mim,mre);
   R=Math.sqrt(mre*mre+mim*mim);
   meanPhase=mp;
-
   for(var i=0;i<N;i++){
     var omega=filtered[Math.min(i,SN-1)]*2*Math.PI;
     var c=Math.sin(mp-phases[i]);
@@ -128,141 +105,107 @@ function step(){
     if(i<N-1)c+=0.5*Math.sin(phases[i+1]-phases[i]);
     phases[i]+=dt*(omega+K*c);
   }
+}
 
-  // Update audio: each note's volume tracks its cluster's coherence
-  if(audioStarted){
-    var clusterBounds=[[0.785,1.309],[1.309,1.833],[1.833,2.356],[2.356,2.880],[2.880,3.403],[3.403,3.927],[3.927,4.451]];
-    // 45-75,75-105...in radians: pi/4 to ~4.45
-    // Actually use the 30-degree bins from the analysis
-    var cb=[];
-    for(var i=0;i<7;i++){
-      var lo=(60+i*30-15)*Math.PI/180;
-      var hi=(60+i*30+15)*Math.PI/180;
-      cb.push([lo,hi]);
-    }
-    for(var c=0;c<7;c++){
-      var count=0;
-      for(var i=0;i<N;i++){
-        var p=phases[i]%(2*Math.PI);if(p<0)p+=2*Math.PI;
-        if(p>=cb[c][0]&&p<cb[c][1])count++;
-      }
-      var vol=(count/maxVol)*0.15;
-      gainNodes[c].gain.setTargetAtTime(vol,audioCtx.currentTime,0.1);
-    }
-  }
+// ═══ 3D PROJECTION ═══
+var COLORS=[
+  [220,100,80],[220,170,60],[180,200,60],[60,200,140],
+  [60,140,220],[140,80,220],[200,60,180]
+];
+var HEIGHT=3.5; // max Z height for phase 2π
+
+function project(x,y,z,ry,rx,sc,cx2,cy2){
+  // Rotate around Y
+  var cosY=Math.cos(ry),sinY=Math.sin(ry);
+  var x1=x*cosY+z*sinY, z1=-x*sinY+z*cosY, y1=y;
+  // Rotate around X (tilt)
+  var cosX=Math.cos(rx),sinX=Math.sin(rx);
+  var y2=y1*cosX-z1*sinX, z2=y1*sinX+z1*cosX;
+  // Perspective
+  var persp=600/(600+z2*sc*0.3);
+  return [cx2+x1*sc*persp, cy2+y2*sc*persp, z2, persp];
 }
 
 // ═══ RENDER ═══
 function render(){
   w=W/DPR;h=H/DPR;t+=0.016;
 
-  cx.fillStyle='rgba(0,0,0,0.05)';
+  // Full clear every frame for clean 3D
+  cx.fillStyle='#000';
   cx.fillRect(0,0,w,h);
 
   step();
 
-  // Layout
-  var gridW=12,gridH=10*Math.sqrt(3)/2;
-  var scale=Math.min(w*0.75/gridW,h*0.65/gridH);
-  var offX=(w-gridW*scale)/2;
-  var offY=(h-gridH*scale)/2-h*0.02;
+  if(autoRot) camRY+=0.003;
 
-  // 7 cluster colors (F Lydian rainbow)
-  var COLORS=[
-    [220,100,80],  // F: warm red
-    [220,170,60],  // G: gold
-    [180,200,60],  // A: yellow-green
-    [60,200,140],  // B: teal
-    [60,140,220],  // C: blue
-    [140,80,220],  // D: purple
-    [200,60,180],  // E: magenta
-  ];
+  var sc=Math.min(w,h)*0.065*zoom;
+  var cx2=w/2, cy2=h*0.48;
 
-  cx.globalCompositeOperation='lighter';
-
-  // Connections
+  // Project all nodes
+  var proj=[];
   for(var i=0;i<N;i++){
-    var sx=offX+nxA[i]*scale;
-    var sy=offY+nyA[i]*scale;
-    var pi2=phases[i]%(2*Math.PI);if(pi2<0)pi2+=2*Math.PI;
-    var nn=nbrL[i];
+    var p=phases[i]%(2*Math.PI);if(p<0)p+=2*Math.PI;
+    var z3d=p/(2*Math.PI)*HEIGHT;
+    var pr=project(nxA[i],nyA[i],z3d,camRY,camRX,sc,cx2,cy2);
+    proj.push({i:i,sx:pr[0],sy:pr[1],z:pr[2],persp:pr[3],phase:p});
+  }
+
+  // Depth sort (back to front)
+  proj.sort(function(a,b){return b.z-a.z;});
+  var idxMap=new Array(N);
+  for(var k=0;k<N;k++) idxMap[proj[k].i]=proj[k];
+
+  // Draw connections first (behind nodes)
+  cx.globalCompositeOperation='lighter';
+  for(var k=0;k<proj.length;k++){
+    var nd=proj[k], i=nd.i, nn=nbrL[i];
     for(var j=0;j<nn.length;j++){
       if(nn[j]<=i)continue;
-      var sx2=offX+nxA[nn[j]]*scale;
-      var sy2=offY+nyA[nn[j]]*scale;
-      var pj=phases[nn[j]]%(2*Math.PI);if(pj<0)pj+=2*Math.PI;
-      var pdiff=Math.abs(pi2-pj);
+      var nb=idxMap[nn[j]];
+      var pdiff=Math.abs(nd.phase-nb.phase);
       if(pdiff>Math.PI)pdiff=2*Math.PI-pdiff;
       var sync=1-pdiff/Math.PI;
-      if(sync<0.5)continue;
-      var alpha=sync*sync*0.04;
-      // Color from cluster
-      var ci=Math.floor(pi2/(Math.PI/3))%7;
+      if(sync<0.3)continue;
+      var alpha=sync*sync*0.06*Math.min(nd.persp,nb.persp);
+      var ci=Math.floor(nd.phase/(Math.PI/3))%7;
       var col=COLORS[ci];
-      cx.strokeStyle='rgba('+col[0]+','+col[1]+','+col[2]+','+alpha+')';
-      cx.lineWidth=0.3+sync*0.5;
-      cx.beginPath();cx.moveTo(sx,sy);cx.lineTo(sx2,sy2);cx.stroke();
+      cx.strokeStyle='rgba('+col[0]+','+col[1]+','+col[2]+','+alpha.toFixed(3)+')';
+      cx.lineWidth=(0.3+sync*0.7)*nd.persp;
+      cx.beginPath();cx.moveTo(nd.sx,nd.sy);cx.lineTo(nb.sx,nb.sy);cx.stroke();
     }
   }
 
-  // Nodes
-  for(var i=0;i<N;i++){
-    var sx=offX+nxA[i]*scale;
-    var sy=offY+nyA[i]*scale;
-    var p=phases[i]%(2*Math.PI);if(p<0)p+=2*Math.PI;
-
-    // Cluster determines color
-    var ci=Math.floor((p-Math.PI/4)/(Math.PI/6));
-    ci=Math.max(0,Math.min(6,ci));
+  // Draw nodes (front to back already sorted, draw back first)
+  for(var k=0;k<proj.length;k++){
+    var nd=proj[k];
+    var ci=Math.floor(nd.phase/(Math.PI/3))%7;
     var col=COLORS[ci];
+    var size=(1.2+Math.sin(phases[nd.i])*0.4)*nd.persp;
+    var bright=(0.25+Math.abs(Math.sin(phases[nd.i]))*0.35)*nd.persp;
 
-    var size=1.5+Math.sin(phases[i])*0.6;
-    var bright=0.2+Math.abs(Math.sin(phases[i]))*0.3;
-
-    cx.fillStyle='rgba('+col[0]+','+col[1]+','+col[2]+','+bright+')';
-    cx.fillRect(sx-size,sy-size,size*2,size*2);
-
-    // Glow for cluster centers
-    if(bright>0.35){
-      cx.fillStyle='rgba('+col[0]+','+col[1]+','+col[2]+','+(bright*0.08)+')';
-      cx.fillRect(sx-size*3,sy-size*3,size*6,size*6);
+    // Glow
+    if(bright>0.3){
+      cx.fillStyle='rgba('+col[0]+','+col[1]+','+col[2]+','+(bright*0.06).toFixed(3)+')';
+      cx.fillRect(nd.sx-size*3,nd.sy-size*3,size*6,size*6);
     }
+    // Core
+    cx.fillStyle='rgba('+col[0]+','+col[1]+','+col[2]+','+bright.toFixed(3)+')';
+    cx.fillRect(nd.sx-size,nd.sy-size,size*2,size*2);
   }
 
   cx.globalCompositeOperation='source-over';
 
-  // R bar
-  var barW=w*0.3,barH=2;
-  var barX=(w-barW)/2,barY=h-28;
-  cx.fillStyle='rgba(255,255,255,0.015)';
-  cx.fillRect(barX,barY,barW,barH);
-  cx.fillStyle='rgba(201,164,74,'+(0.1+R*0.2)+')';
-  cx.fillRect(barX,barY,barW*R,barH);
-
-  // R value
+  // K and R — subtle
   cx.fillStyle='rgba(255,255,255,0.04)';
-  cx.font='200 1.2em Georgia';cx.textAlign='center';
-  cx.fillText(R.toFixed(3),w/2,barY-10);
-
-  // Note labels at top
-  cx.font='10px Georgia';
-  var noteNames=['F','G','A','B','C','D','E'];
-  for(var i=0;i<7;i++){
-    var nx2=w*0.2+i*(w*0.6/6);
-    cx.fillStyle='rgba('+COLORS[i][0]+','+COLORS[i][1]+','+COLORS[i][2]+',0.06)';
-    cx.fillText(noteNames[i],nx2,16);
-  }
-
-  // Whisper
-  cx.fillStyle='rgba(255,255,255,0.025)';
-  cx.font='11px Georgia';cx.textAlign='center';
-  var whisper=t<3?'':'F Lydian';
-  cx.fillText(whisper,w/2,h-6);
+  cx.font='200 11px Georgia';cx.textAlign='left';
+  cx.fillText('K = '+K.toFixed(3),12,h-12);
+  cx.textAlign='right';
+  cx.fillText('R = '+R.toFixed(3),w-12,h-12);
 
   // Top label
   cx.fillStyle='rgba(201,164,74,0.03)';
-  cx.font='10px Georgia';
-  cx.fillText('137 zeros · K=1.868 · 7 clusters · the critical line sings',w/2,h*0.06);
+  cx.font='10px Georgia';cx.textAlign='center';
+  cx.fillText('137 zeros · 5D: (x, y, \u03B8, t, K) · the critical line breathes',w/2,h*0.04);
 
   requestAnimationFrame(render);
 }

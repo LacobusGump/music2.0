@@ -44,98 +44,241 @@ function proj(x,y,z,cx0,cy0,fov){var f=fov/(fov+z+8);return[cx0+x*f,cy0+y*f,f];}
 // ═══ THE BLOOM ═══
 var P=[];  // particles
 var phase=0;
-var MAX=5000;
+var MAX=8000;
+
+// Flash system
+var flashAlpha=0;
+var flashColor=[255,255,255];
+var lastPhaseInt=0;
+
+// Background tint per phase
+var BG_TINTS=[
+  [0,0,0],       // 0: void — black
+  [0,0,0],       // 1: origin — black
+  [5,5,12],      // 2: first vibration — deep indigo
+  [6,8,18],      // 3: atom — blue
+  [5,12,8],      // 4: bond — teal
+  [4,14,6],      // 5: DNA — green
+  [14,8,6],      // 6: cell — warm
+  [12,10,8],     // 7: breathing — amber
+  [16,14,12],    // 8: alive — warm white
+  [18,16,14]     // 9: divide — bright warm
+];
+
+function getBgColor(p){
+  var idx=Math.min(Math.floor(p),BG_TINTS.length-2);
+  var frac=p-idx;
+  var a=BG_TINTS[idx],b=BG_TINTS[Math.min(idx+1,BG_TINTS.length-1)];
+  return[a[0]+(b[0]-a[0])*frac, a[1]+(b[1]-a[1])*frac, a[2]+(b[2]-a[2])*frac];
+}
+
+// Division state
+var divideProgress=0;
+var divideBridgeAlpha=1;
 
 function add(n,type,spread){
   for(var i=0;i<n;i++){
     var a=Math.random()*Math.PI*2,b=Math.random()*Math.PI,r=Math.random()*spread;
-    P.push({x:0,y:0,z:0,
+    P.push({x:0,y:0,z:0,vx:0,vy:0,vz:0,
       tx:Math.sin(b)*Math.cos(a)*r,ty:Math.sin(b)*Math.sin(a)*r,tz:Math.cos(b)*r,
       type:type,life:0,a:a,b:b,r:r,spd:0.01+Math.random()*0.03,sz:0.8+Math.random()*0.5});
   }
 }
 
+function addBurst(n,type,spread){
+  // Particles burst from origin with explosive velocity, then spring-settle
+  for(var i=0;i<n;i++){
+    var a=Math.random()*Math.PI*2,b=Math.random()*Math.PI,r=Math.random()*spread;
+    var tx=Math.sin(b)*Math.cos(a)*r,ty=Math.sin(b)*Math.sin(a)*r,tz=Math.cos(b)*r;
+    // explosive outward velocity
+    var ev=1.5+Math.random()*2.5;
+    var dx=Math.sin(b)*Math.cos(a),dy=Math.sin(b)*Math.sin(a),dz=Math.cos(b);
+    P.push({x:0,y:0,z:0,
+      vx:dx*ev,vy:dy*ev,vz:dz*ev,
+      tx:tx,ty:ty,tz:tz,
+      type:type,life:0,a:a,b:b,r:r,spd:0.01+Math.random()*0.03,sz:0.8+Math.random()*0.5});
+  }
+}
+
+function triggerFlash(r,g,b){
+  flashAlpha=1.0;
+  flashColor=[r,g,b];
+}
+
+var originBursted=false;
+var harmonicFlashed=false;
+var atomFlashed=false;
+var bondFlashed=false;
+var dnaFlashed=false;
+var membraneFlashed=false;
+var aliveFlashed=false;
+var divideFlashed=false;
+
 function bloom(){
-  phase+=0.005; // ~25 seconds to full bloom
+  phase+=0.008;
   var p=phase;
 
-  // 0-1: darkness → a point of light
-  if(p>0.1&&P.length<5) add(3,'origin',0.02);
+  // Check for phase transition flashes
+  var pi=Math.floor(p);
+  if(pi>lastPhaseInt&&pi>=1){
+    lastPhaseInt=pi;
+  }
+
+  // 0-1: darkness → a point of light BURSTS from nothing
+  if(p>0.1&&!originBursted){
+    originBursted=true;
+    addBurst(80,'origin',0.3);
+    triggerFlash(255,230,180);
+  }
 
   // 1-2: point splits into harmonics
-  if(p>1&&P.length<30) add(12,'harmonic',0.01);
+  if(p>1&&!harmonicFlashed){
+    harmonicFlashed=true;
+    triggerFlash(200,180,140);
+  }
+  if(p>1&&P.length<60) add(15,'harmonic',0.01);
 
   // 2-3: harmonics → atom (orbitals form)
-  if(p>2&&P.length<500){
-    for(var i=0;i<6;i++){
+  if(p>2&&!atomFlashed){
+    atomFlashed=true;
+    triggerFlash(130,170,220);
+  }
+  if(p>2&&P.length<700){
+    for(var i=0;i<8;i++){
       var sh=Math.random()>0.5?2:1, r_=sh*0.7+Math.random()*0.3;
       var a=Math.random()*Math.PI*2,b=Math.random()*Math.PI;
-      P.push({x:0,y:0,z:0,tx:Math.sin(b)*Math.cos(a)*r_,ty:Math.sin(b)*Math.sin(a)*r_,tz:Math.cos(b)*r_,
+      P.push({x:0,y:0,z:0,vx:0,vy:0,vz:0,tx:Math.sin(b)*Math.cos(a)*r_,ty:Math.sin(b)*Math.sin(a)*r_,tz:Math.cos(b)*r_,
         type:sh===1?'s1':'s2',life:0,a:a,b:b,r:r_,spd:0.02+Math.random()*0.02,sz:1.1});
     }
-    if(p>2.5&&P.length<800){
+    if(p>2.5&&P.length<1000){
       var ax=Math.floor(Math.random()*3),sign=Math.random()>0.5?1:-1,d=1.3+Math.random()*0.6;
       var px=ax===0?sign*d:(Math.random()-0.5)*0.25;
       var py=ax===1?sign*d:(Math.random()-0.5)*0.25;
       var pz=ax===2?sign*d:(Math.random()-0.5)*0.25;
-      P.push({x:0,y:0,z:0,tx:px,ty:py,tz:pz,type:'plobe',life:0,a:Math.atan2(py,px),b:0,r:d,spd:0.015,sz:1});
+      P.push({x:0,y:0,z:0,vx:0,vy:0,vz:0,tx:px,ty:py,tz:pz,type:'plobe',life:0,a:Math.atan2(py,px),b:0,r:d,spd:0.015,sz:1});
     }
   }
 
   // 3-4: second atom arrives, bond forms
-  if(p>3&&P.length<1800){
-    for(var i=0;i<4;i++){
+  if(p>3&&!bondFlashed){
+    bondFlashed=true;
+    triggerFlash(210,195,160);
+  }
+  if(p>3&&P.length<2200){
+    for(var i=0;i<5;i++){
       var a=Math.random()*Math.PI*2,b=Math.random()*Math.PI,r_=Math.random()*0.8;
-      var offset=3.5-Math.min(p-3,1)*1.5; // atoms approach
-      P.push({x:offset,y:0,z:0,tx:offset+Math.sin(b)*Math.cos(a)*r_,ty:Math.sin(b)*Math.sin(a)*r_,tz:Math.cos(b)*r_,
+      var offset=3.5-Math.min(p-3,1)*1.5;
+      P.push({x:offset,y:0,z:0,vx:0,vy:0,vz:0,tx:offset+Math.sin(b)*Math.cos(a)*r_,ty:Math.sin(b)*Math.sin(a)*r_,tz:Math.cos(b)*r_,
         type:'atom2',life:0,a:a,b:b,r:r_,spd:0.025,sz:1});
     }
     if(p>3.4){
       var bx=1+Math.random()*0.5;
-      P.push({x:bx,y:(Math.random()-0.5)*0.15,z:(Math.random()-0.5)*0.15,
+      P.push({x:bx,y:(Math.random()-0.5)*0.15,z:(Math.random()-0.5)*0.15,vx:0,vy:0,vz:0,
         tx:bx,ty:0,tz:0,type:'bond',life:0,a:0,b:0,r:0,spd:0.01,sz:0.6});
     }
   }
 
-  // 4-5: molecule → DNA helix
-  if(p>4&&P.length<3200){
-    for(var i=0;i<3;i++){
-      var tt=P.length*0.025,strand=i%2,r_=1;
+  // 4-5: molecule → DNA helix with RUNGS
+  if(p>4&&!dnaFlashed){
+    dnaFlashed=true;
+    triggerFlash(120,200,130);
+  }
+  if(p>4&&P.length<4000){
+    for(var i=0;i<5;i++){
+      var tt=P.length*0.02,strand=i%2,r_=1;
       var hx=Math.cos(tt+strand*Math.PI)*r_;
-      var hy=(P.length/3200-0.5)*5*(p-4);
+      var hy=(P.length/4000-0.5)*5*(p-4);
       var hz=Math.sin(tt+strand*Math.PI)*r_;
-      P.push({x:0,y:0,z:0,tx:hx,ty:hy,tz:hz,
+      P.push({x:0,y:0,z:0,vx:0,vy:0,vz:0,tx:hx,ty:hy,tz:hz,
         type:strand?'dna_a':'dna_b',life:0,a:tt,b:strand*Math.PI,r:r_,spd:0.03,sz:0.9});
+    }
+    // Add rung particles between strands
+    if(i%4===0){
+      var tt2=P.length*0.02;
+      var hy2=(P.length/4000-0.5)*5*(p-4);
+      for(var ri=0;ri<4;ri++){
+        var frac=(ri+1)/5;
+        var rx=Math.cos(tt2)*1*(1-frac)+Math.cos(tt2+Math.PI)*1*frac;
+        var rz=Math.sin(tt2)*1*(1-frac)+Math.sin(tt2+Math.PI)*1*frac;
+        P.push({x:0,y:0,z:0,vx:0,vy:0,vz:0,tx:rx,ty:hy2,tz:rz,
+          type:'dna_rung',life:0,a:tt2,b:0,r:1,spd:0.03,sz:0.5});
+      }
     }
   }
 
-  // 5-6: DNA → cell membrane
-  if(p>5&&P.length<4500){
-    for(var i=0;i<2;i++){
-      var a=Math.random()*Math.PI*2,b=Math.random()*Math.PI,r_=3.2+Math.random()*0.15;
-      P.push({x:0,y:0,z:0,tx:Math.sin(b)*Math.cos(a)*r_,ty:Math.sin(b)*Math.sin(a)*r_,tz:Math.cos(b)*r_,
-        type:'membrane',life:0,a:a,b:b,r:r_,spd:0.01,sz:0.8});
+  // 5-6: DNA → cell membrane (tighter sphere)
+  if(p>5&&!membraneFlashed){
+    membraneFlashed=true;
+    triggerFlash(180,130,100);
+  }
+  if(p>5&&P.length<6500){
+    // Fibonacci sphere packing for even distribution
+    for(var i=0;i<4;i++){
+      var idx=P.filter(function(q){return q.type==='membrane';}).length;
+      var golden=Math.PI*(3-Math.sqrt(5));
+      var off=2.0/(idx+100);
+      var yy=-1+(idx*off)+off/2;
+      if(yy>1)yy=1;if(yy<-1)yy=-1;
+      var rad=Math.sqrt(1-yy*yy);
+      var phi=idx*golden;
+      var r_=3.2+Math.random()*0.05; // tighter spread
+      P.push({x:0,y:0,z:0,vx:0,vy:0,vz:0,
+        tx:Math.cos(phi)*rad*r_,ty:yy*r_,tz:Math.sin(phi)*rad*r_,
+        type:'membrane',life:0,a:Math.atan2(Math.sin(phi)*rad,Math.cos(phi)*rad),b:Math.acos(yy),r:r_,spd:0.01,sz:0.7});
     }
+  }
+
+  // 7-8: alive glow
+  if(p>7&&!aliveFlashed){
+    aliveFlashed=true;
+    triggerFlash(255,240,220);
+  }
+
+  // 8+: CELL DIVISION
+  if(p>8&&!divideFlashed){
+    divideFlashed=true;
+    triggerFlash(255,255,240);
+  }
+  if(p>8){
+    divideProgress=Math.min(1,(p-8)*0.5);
+    divideBridgeAlpha=Math.max(0,1-Math.max(0,(p-9.2)*2));
   }
 
   // UPDATE all particles
   var breath=Math.sin(t*0.6)*0.04;
+  var dampK=0.92; // velocity damping
+  var springK=0.03;
+
   for(var i=0;i<P.length;i++){
     var pt=P[i];
 
-    // Fade in
+    // Fade in / out
     if(pt.life<1){
       var fadeTarget=1;
-      if(pt.type==='harmonic'&&p>2.5)fadeTarget=0; // harmonics dissolve into atom
+      if(pt.type==='harmonic'&&p>2.5)fadeTarget=0;
       if((pt.type==='s1'||pt.type==='s2'||pt.type==='plobe')&&p>4.5)fadeTarget=Math.max(0,1-(p-4.5)*2);
       if((pt.type==='atom2'||pt.type==='bond')&&p>4.5)fadeTarget=Math.max(0,1-(p-4.5)*2);
+      // DNA and atom stuff fades during membrane phase
+      if((pt.type==='dna_a'||pt.type==='dna_b'||pt.type==='dna_rung')&&p>6)fadeTarget=Math.max(0,1-(p-6)*1.5);
       pt.life+=(fadeTarget-pt.life)*0.03;
     }
 
-    // Spring toward target
-    pt.x+=(pt.tx-pt.x)*0.03;
-    pt.y+=(pt.ty-pt.y)*0.03;
-    pt.z+=(pt.tz-pt.z)*0.03;
+    // Spring physics with velocity
+    if(pt.vx!==undefined){
+      var ax=(pt.tx-pt.x)*springK;
+      var ay=(pt.ty-pt.y)*springK;
+      var az=(pt.tz-pt.z)*springK;
+      pt.vx=(pt.vx+ax)*dampK;
+      pt.vy=(pt.vy+ay)*dampK;
+      pt.vz=(pt.vz+az)*dampK;
+      pt.x+=pt.vx;
+      pt.y+=pt.vy;
+      pt.z+=pt.vz;
+    } else {
+      pt.x+=(pt.tx-pt.x)*springK;
+      pt.y+=(pt.ty-pt.y)*springK;
+      pt.z+=(pt.tz-pt.z)*springK;
+    }
 
     // Orbital motion for atom particles
     if(pt.type==='s1'||pt.type==='s2'){
@@ -155,13 +298,28 @@ function bloom(){
       pt.tx=Math.cos(pt.a+pt.b)*r_;
       pt.tz=Math.sin(pt.a+pt.b)*r_;
     }
+    // Rungs follow helix
+    if(pt.type==='dna_rung'){
+      pt.a+=0.004;
+    }
 
-    // Membrane breathing
-    if(pt.type==='membrane'&&p>6){
+    // Membrane breathing + division
+    if(pt.type==='membrane'){
       var mr=3.2+breath;
-      pt.tx=Math.sin(pt.b)*Math.cos(pt.a)*mr;
-      pt.ty=Math.sin(pt.b)*Math.sin(pt.a)*mr;
-      pt.tz=Math.cos(pt.b)*mr;
+      if(p>8&&divideProgress>0){
+        // Split into two spheres
+        var sep=divideProgress*4; // separation distance
+        // Assign to left or right sphere based on original angle
+        var side=(pt.a+pt.b)%6.28>3.14?1:-1;
+        var shrink=1-divideProgress*0.35; // spheres get smaller
+        pt.tx=Math.sin(pt.b)*Math.cos(pt.a)*mr*shrink+side*sep;
+        pt.ty=Math.sin(pt.b)*Math.sin(pt.a)*mr*shrink;
+        pt.tz=Math.cos(pt.b)*mr*shrink;
+      } else if(p>6){
+        pt.tx=Math.sin(pt.b)*Math.cos(pt.a)*mr;
+        pt.ty=Math.sin(pt.b)*Math.sin(pt.a)*mr;
+        pt.tz=Math.cos(pt.b)*mr;
+      }
     }
 
     // Harmonic expansion
@@ -184,17 +342,27 @@ function bloom(){
 
 // ═══ COLORS ═══
 var COLORS={
-  origin:[220,195,150], harmonic:[200,175,130],
+  origin:[255,225,170], harmonic:[220,195,150],
   s1:[175,155,115], s2:[115,160,135], plobe:[95,130,165],
   atom2:[165,135,115], bond:[210,195,160],
-  dna_a:[170,148,105], dna_b:[110,155,125],
-  membrane:[145,115,130]
+  dna_a:[170,210,120], dna_b:[110,195,145], dna_rung:[190,180,130],
+  membrane:[175,135,150]
 };
 
 function render(){
   w=W/DPR;h=H/DPR;t+=0.016;
 
-  cx.fillStyle='rgba(0,0,0,0.055)';cx.fillRect(0,0,w,h);
+  // Background with phase-tinted color
+  var bg=getBgColor(phase);
+  cx.fillStyle='rgba('+Math.floor(bg[0])+','+Math.floor(bg[1])+','+Math.floor(bg[2])+',0.07)';
+  cx.fillRect(0,0,w,h);
+
+  // Flash overlay
+  if(flashAlpha>0.01){
+    cx.fillStyle='rgba('+flashColor[0]+','+flashColor[1]+','+flashColor[2]+','+flashAlpha*0.35+')';
+    cx.fillRect(0,0,w,h);
+    flashAlpha*=0.92;
+  }
 
   bloom();
 
@@ -216,8 +384,39 @@ function render(){
     var sz=p.sz*p.s,al=p.life*p.s*0.5;
     if(sz<0.2||al<0.003)continue;
     var c=COLORS[p.type]||[150,140,120];
+
+    // Glow for origin particles
+    if(p.type==='origin'&&sz>1){
+      var grad=cx.createRadialGradient(p.px,p.py,0,p.px,p.py,sz*4);
+      grad.addColorStop(0,'rgba('+c[0]+','+c[1]+','+c[2]+','+Math.min(0.3,al*0.6)+')');
+      grad.addColorStop(1,'rgba('+c[0]+','+c[1]+','+c[2]+',0)');
+      cx.fillStyle=grad;
+      cx.beginPath();cx.arc(p.px,p.py,sz*4,0,Math.PI*2);cx.fill();
+    }
+
     cx.fillStyle='rgba('+c[0]+','+c[1]+','+c[2]+','+Math.min(1,al)+')';
     cx.beginPath();cx.arc(p.px,p.py,Math.max(0.3,sz),0,Math.PI*2);cx.fill();
+  }
+
+  // Draw division bridge
+  if(phase>8&&divideBridgeAlpha>0.01&&divideProgress>0.1){
+    var sep=divideProgress*4;
+    var bscale=Math.min(w,h)*0.12;
+    // Bridge between the two dividing cells
+    var bridgeW=Math.max(0.5,(1-divideProgress)*12);
+    for(var bi=0;bi<20;bi++){
+      var frac=bi/19;
+      var bx=-sep+frac*sep*2;
+      var by=(Math.random()-0.5)*bridgeW*0.08;
+      var bz=(Math.random()-0.5)*bridgeW*0.08;
+      var r1=rotY(bx,by,bz,rA),r2=rotX(r1[0],r1[1],r1[2],rB);
+      var pr=proj(r2[0]*bscale,r2[1]*bscale,r2[2],cx0,cy0,fov);
+      var bal=divideBridgeAlpha*0.4*(1-Math.abs(frac-0.5)*2)*pr[2];
+      if(bal>0.005){
+        cx.fillStyle='rgba(200,170,140,'+bal+')';
+        cx.beginPath();cx.arc(pr[0],pr[1],Math.max(0.3,bridgeW*pr[2]*0.15),0,Math.PI*2);cx.fill();
+      }
+    }
   }
 
   // Whisper — the story of what's happening
@@ -230,9 +429,12 @@ function render(){
   else if(phase<5)whisper='the code begins to spiral';
   else if(phase<6)whisper='a boundary closes';
   else if(phase<7)whisper='it breathes';
-  else whisper='alive';
+  else if(phase<8)whisper='alive';
+  else whisper='begin again';
 
-  cx.fillStyle='rgba(201,164,74,0.05)';
+  // Whisper fades in more
+  var whisperAlpha=0.05+Math.sin(t*0.3)*0.015;
+  cx.fillStyle='rgba(201,164,74,'+whisperAlpha+')';
   cx.font='13px Georgia';cx.textAlign='center';
   cx.fillText(whisper,w/2,h-48);
 
