@@ -8,8 +8,6 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <meta name="theme-color" content="#050505">
 <meta name="description" content="GUMP — 137 coupled oscillators on zeta zeros orbit 1/φ.">
-<meta property="og:title" content="GUMP — The Machine">
-<meta property="og:image" content="https://begump.com/og-image.png">
 <link rel="canonical" href="https://begump.com/">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="icon" href="/favicon.png">
@@ -17,7 +15,7 @@
 <style>
 *{margin:0;padding:0;box-sizing:border-box;}
 body{background:#000;overflow:hidden;}
-canvas{display:block;width:100vw;height:100vh;}
+canvas#C{display:block;width:100vw;height:100vh;}
 #hitboxes{position:fixed;top:0;left:0;width:100%;height:100%;z-index:10;pointer-events:none;}
 #hitboxes a{pointer-events:auto;position:absolute;display:block;left:0;width:100%;}
 </style>
@@ -26,9 +24,11 @@ canvas{display:block;width:100vw;height:100vh;}
 <canvas id="C"></canvas>
 <div id="hitboxes"></div>
 <script>
-var cv=document.getElementById('C'),cx=cv.getContext('2d');
+var cv=document.getElementById('C');
+var gl=cv.getContext('webgl',{antialias:false,alpha:false});
+if(!gl){document.body.innerHTML='<p style="color:#c9a44a;padding:40px;">WebGL required</p>';throw 0;}
 var DPR=devicePixelRatio||1,w,h;
-function resize(){w=innerWidth;h=innerHeight;cv.width=w*DPR;cv.height=h*DPR;cx.setTransform(DPR,0,0,DPR,0,0);if(needsSample)sampleText();}
+function resize(){w=innerWidth;h=innerHeight;cv.width=w*DPR;cv.height=h*DPR;cv.style.width=w+'px';cv.style.height=h+'px';gl.viewport(0,0,cv.width,cv.height);}
 resize();addEventListener('resize',resize);
 
 var PAGES=[
@@ -40,188 +40,210 @@ var PAGES=[
   {name:'oracle',    url:'/oracle/',    c:[168,160,104]},
 ];
 
-var t=0,phase=0; // 0=assembling, 1=holding, 2=consuming, 3=cycling
-var NP=10000;
-var px=new Float32Array(NP),py=new Float32Array(NP);
-var pvx=new Float32Array(NP),pvy=new Float32Array(NP);
-var ptx=new Float32Array(NP),pty=new Float32Array(NP);
-var pr=new Float32Array(NP),pg=new Float32Array(NP),pb=new Float32Array(NP);
-var passigned=new Uint8Array(NP); // has a text target
+// Shaders
+var vsrc=`
+attribute vec3 aPos;
+attribute vec3 aCol;
+uniform float uTime;
+uniform vec2 uRes;
+varying vec3 vCol;
+varying float vAlpha;
+void main(){
+  // Gentle 3D rotation around Y
+  float angle=uTime*0.08;
+  float ca=cos(angle),sa=sin(angle);
+  vec3 p=vec3(aPos.x*ca+aPos.z*sa, aPos.y, -aPos.x*sa+aPos.z*ca);
+  // Orthographic-ish with slight perspective
+  float scale=1.0/(1.0+p.z*0.03);
+  gl_Position=vec4((p.x/uRes.x*2.0)*scale, -(p.y/uRes.y*2.0)*scale, p.z*0.001, 1.0);
+  gl_PointSize=clamp(1.5*scale,0.5,4.0);
+  vCol=aCol;
+  vAlpha=0.35*scale;
+}`;
+var fsrc=`
+precision mediump float;
+varying vec3 vCol;
+varying float vAlpha;
+void main(){gl_FragColor=vec4(vCol,vAlpha);}`;
 
-// Ether: particles continuously born at random positions
-var born=new Float32Array(NP);
-for(var i=0;i<NP;i++){
-  px[i]=Math.random()*2000;py[i]=Math.random()*2000;
-  pvx[i]=(Math.random()-0.5)*2;pvy[i]=(Math.random()-0.5)*2;
-  pr[i]=0.15;pg[i]=0.13;pb[i]=0.1;
-  born[i]=-Math.random()*3; // stagger
-}
+function compile(type,src){var s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))console.error(gl.getShaderInfoLog(s));return s;}
+var prog=gl.createProgram();
+gl.attachShader(prog,compile(gl.VERTEX_SHADER,vsrc));
+gl.attachShader(prog,compile(gl.FRAGMENT_SHADER,fsrc));
+gl.linkProgram(prog);gl.useProgram(prog);
+var aPos=gl.getAttribLocation(prog,'aPos');
+var aCol=gl.getAttribLocation(prog,'aCol');
+var uTime=gl.getUniformLocation(prog,'uTime');
+var uRes=gl.getUniformLocation(prog,'uRes');
+gl.enable(gl.BLEND);gl.blendFunc(gl.SRC_ALPHA,gl.ONE);
+gl.clearColor(0,0,0,1);
 
-// Text sampling with organic scatter
-var textTargets=[];
-var wordRegions=[];
-var needsSample=true;
+// Particles
+var NP=12000;
+var posArr=new Float32Array(NP*3);
+var colArr=new Float32Array(NP*3);
+var homeX=new Float32Array(NP),homeY=new Float32Array(NP),homeZ=new Float32Array(NP);
+var curX=new Float32Array(NP),curY=new Float32Array(NP),curZ=new Float32Array(NP);
+var velX=new Float32Array(NP),velY=new Float32Array(NP),velZ=new Float32Array(NP);
+var assigned=new Uint8Array(NP);
+var posBuf=gl.createBuffer(),colBuf=gl.createBuffer();
 
-function sampleText(){
-  needsSample=false;
-  var oc=document.createElement('canvas');
-  oc.width=w;oc.height=h;
+var t=0,phase=0,holdTimer=0;
+
+// Sample text and assign 3D positions
+function sampleAndBuild(){
+  var oc=document.createElement('canvas');oc.width=w;oc.height=h;
   var ox=oc.getContext('2d');
   ox.fillStyle='#000';ox.fillRect(0,0,w,h);
   ox.textAlign='center';ox.fillStyle='#fff';
 
-  wordRegions=[];
-
-  // GUMP at top
   var ts=Math.min(w*0.13,55);
   ox.font='100 '+ts+'px Georgia';
   ox.letterSpacing='0.25em';
   ox.fillText('GUMP',w/2,h*0.1+ts*0.35);
-  wordRegions.push({y:h*0.1-ts*0.3,h:ts*1.2,ci:-1});
 
-  // Pages
   var fs=Math.min(w*0.05,22);
   var startY=h*0.26;
   var gap=(h*0.65)/PAGES.length;
   ox.font='100 '+fs+'px Georgia';
   ox.letterSpacing='0.25em';
-
-  for(var i=0;i<PAGES.length;i++){
-    var y=startY+i*gap;
-    ox.fillText(PAGES[i].name,w/2,y);
-    wordRegions.push({y:y-fs*0.8,h:fs*1.6,ci:i,cy:y});
-  }
-
-  // Sample pixels — with organic scatter
-  var imgData=ox.getImageData(0,0,w,h).data;
-  textTargets=[];
-  for(var y=0;y<h;y++){
-    for(var x=0;x<w;x++){
-      if(imgData[(y*w+x)*4]>100){
-        // Only sample ~1 in 3 for organic density
-        if(Math.random()>0.35)continue;
-        var ci=-1;
-        for(var j=0;j<wordRegions.length;j++){
-          if(y>wordRegions[j].y&&y<wordRegions[j].y+wordRegions[j].h)ci=wordRegions[j].ci;
-        }
-        // Organic scatter: offset each target slightly
-        var scatter=1.5;
-        textTargets.push({
-          x:x+(Math.random()-0.5)*scatter,
-          y:y+(Math.random()-0.5)*scatter,
-          ci:ci
-        });
-      }
-    }
-  }
-
-  // Assign particles to targets
-  for(var i=0;i<NP;i++){
-    if(i<textTargets.length){
-      var tt=textTargets[i];
-      ptx[i]=tt.x;pty[i]=tt.y;
-      passigned[i]=1;
-      if(tt.ci>=0){
-        pr[i]=PAGES[tt.ci].c[0]/255;
-        pg[i]=PAGES[tt.ci].c[1]/255;
-        pb[i]=PAGES[tt.ci].c[2]/255;
-      } else {
-        pr[i]=0.79;pg[i]=0.64;pb[i]=0.29; // GUMP gold
-      }
-    } else {
-      passigned[i]=0;
-      ptx[i]=Math.random()*w;pty[i]=Math.random()*h;
-      pr[i]=0.1;pg[i]=0.09;pb[i]=0.07;
-    }
-  }
+  for(var i=0;i<PAGES.length;i++) ox.fillText(PAGES[i].name,w/2,startY+i*gap);
 
   // Hitboxes
   var hb=document.getElementById('hitboxes');hb.innerHTML='';
   for(var i=0;i<PAGES.length;i++){
-    var a=document.createElement('a');
-    a.href=PAGES[i].url;
-    a.style.top=(startY+i*gap-fs*0.8)+'px';
-    a.style.height=(fs*1.6)+'px';
+    var a=document.createElement('a');a.href=PAGES[i].url;
+    a.style.top=(startY+i*gap-fs)+'px';a.style.height=(fs*2)+'px';
     hb.appendChild(a);
   }
-}
-sampleText();
 
-var holdTimer=0;
-var consumeStarted=false;
-var cycleIdx=0,cycleTimer=0;
+  var img=ox.getImageData(0,0,w,h).data;
+  var targets=[];
+  for(var y=0;y<h;y++){
+    for(var x=0;x<w;x++){
+      if(img[(y*w+x)*4]>100&&Math.random()<0.3){
+        var ci=-1;
+        if(y<h*0.17)ci=-1;
+        else{for(var j=0;j<PAGES.length;j++){if(Math.abs(y-(startY+j*gap))<fs)ci=j;}}
+        targets.push({x:x,y:y,ci:ci});
+      }
+    }
+  }
+
+  // Assign particles
+  for(var i=0;i<NP;i++){
+    // Start from random positions far from center
+    var angle=Math.random()*Math.PI*2;
+    var dist=Math.max(w,h)*0.8+Math.random()*200;
+    curX[i]=w/2+Math.cos(angle)*dist;
+    curY[i]=h/2+Math.sin(angle)*dist;
+    curZ[i]=(Math.random()-0.5)*50;
+    velX[i]=velY[i]=velZ[i]=0;
+
+    if(i<targets.length){
+      var tt=targets[i];
+      homeX[i]=tt.x;homeY[i]=tt.y;
+      assigned[i]=1;
+
+      // 3D depth: each letter gets orbital Z based on its shape
+      // Distance from letter center → depth (rounded letters)
+      // Plus: each particle orbits slightly in Z
+      var letterCenterX=w/2; // approximate
+      var dx=tt.x-letterCenterX;
+      homeZ[i]=Math.sin(dx*0.05)*15+Math.sin(tt.y*0.03)*10;
+
+      if(tt.ci>=0){
+        var c=PAGES[tt.ci].c;
+        colArr[i*3]=c[0]/255;colArr[i*3+1]=c[1]/255;colArr[i*3+2]=c[2]/255;
+      } else {
+        colArr[i*3]=0.79;colArr[i*3+1]=0.64;colArr[i*3+2]=0.29;
+      }
+    } else {
+      // Ether particle
+      homeX[i]=Math.random()*w;homeY[i]=Math.random()*h;homeZ[i]=(Math.random()-0.5)*80;
+      assigned[i]=0;
+      colArr[i*3]=0.06;colArr[i*3+1]=0.05;colArr[i*3+2]=0.04;
+    }
+  }
+
+  gl.bindBuffer(gl.ARRAY_BUFFER,colBuf);
+  gl.bufferData(gl.ARRAY_BUFFER,colArr,gl.STATIC_DRAW);
+}
+sampleAndBuild();
 
 function render(){
-  w=innerWidth;h=innerHeight;t+=0.016;
-  cx.fillStyle='rgba(0,0,0,0.07)';
-  cx.fillRect(0,0,w,h);
+  t+=0.016;
 
-  // Phase management
+  // Phase: assemble → hold → consume
   if(phase===0){
-    // Assembling — check if most particles arrived
     var arrived=0;
     for(var i=0;i<NP;i++){
-      if(passigned[i]&&Math.abs(px[i]-ptx[i])<3&&Math.abs(py[i]-pty[i])<3)arrived++;
+      if(assigned[i]&&Math.abs(curX[i]-homeX[i])<4&&Math.abs(curY[i]-homeY[i])<4)arrived++;
     }
-    if(arrived>textTargets.length*0.85)phase=1;
+    if(arrived>NP*0.3)phase=1; // most text particles arrived
   } else if(phase===1){
     holdTimer+=0.016;
-    if(holdTimer>12){phase=2;} // 12 seconds idle → consume
+    if(holdTimer>20){phase=2;} // 20 seconds → consume
   } else if(phase===2){
-    // Consuming: all particles flow to center
-    if(!consumeStarted){
-      consumeStarted=true;
-      for(var i=0;i<NP;i++){ptx[i]=w/2;pty[i]=h*0.1;}
-    }
-    cycleTimer+=0.016;
-    if(cycleTimer>3){
-      // Navigate to first page
-      window.location.href=PAGES[0].url;
-    }
+    // All flow to GUMP center
+    holdTimer+=0.016;
+    if(holdTimer>25)window.location.href='/r/';
   }
 
-  cx.globalCompositeOperation='lighter';
-
-  // Continuously spawn new ether particles at edges
+  // Physics
   for(var i=0;i<NP;i++){
-    if(!passigned[i]&&Math.random()<0.001){
-      // Respawn at edge
-      var edge=Math.random()*4;
-      if(edge<1){px[i]=Math.random()*w;py[i]=-5;}
-      else if(edge<2){px[i]=w+5;py[i]=Math.random()*h;}
-      else if(edge<3){px[i]=Math.random()*w;py[i]=h+5;}
-      else{px[i]=-5;py[i]=Math.random()*h;}
-      pvx[i]=(Math.random()-0.5)*1;pvy[i]=(Math.random()-0.5)*1;
-    }
-  }
-
-  for(var i=0;i<NP;i++){
-    var age=t-born[i];
-    if(age<0)continue;
-
-    if(passigned[i]){
-      // Spring toward text target
-      var k=phase===2?0.01:0.015+Math.min(0.03,age*0.005);
-      pvx[i]+=(ptx[i]-px[i])*k;
-      pvy[i]+=(pty[i]-py[i])*k;
-      pvx[i]*=0.88;pvy[i]*=0.88;
+    var tx,ty,tz;
+    if(phase===2){
+      tx=w/2;ty=h*0.1;tz=0;
     } else {
-      // Ether: gentle drift toward center with wander
-      pvx[i]+=(w/2-px[i])*0.00005+Math.sin(t+i)*0.005;
-      pvy[i]+=(h/2-py[i])*0.00005+Math.cos(t*0.7+i*0.5)*0.005;
-      pvx[i]*=0.995;pvy[i]*=0.995;
+      tx=homeX[i];ty=homeY[i];tz=homeZ[i];
     }
 
-    px[i]+=pvx[i];py[i]+=pvy[i];
+    // Spring — slower, more organic
+    var k=assigned[i]?0.006:0.001;
+    if(phase===2)k=0.008;
+    velX[i]+=(tx-curX[i])*k;
+    velY[i]+=(ty-curY[i])*k;
+    velZ[i]+=(tz-curZ[i])*k;
 
-    // Alpha: assigned = brighter, ether = dim
-    var alpha=passigned[i]?Math.min(0.35,age*0.15):0.03;
+    // Orbital wobble when settled
+    if(phase>=1&&assigned[i]){
+      velX[i]+=Math.sin(t*1.5+i*0.07)*0.02;
+      velY[i]+=Math.cos(t*1.2+i*0.09)*0.02;
+      velZ[i]+=Math.sin(t*0.8+i*0.13)*0.05;
+    }
 
-    cx.fillStyle='rgba('+Math.floor(pr[i]*255)+','+Math.floor(pg[i]*255)+','+Math.floor(pb[i]*255)+','+alpha+')';
-    cx.fillRect(px[i],py[i],1,1);
+    velX[i]*=0.95;velY[i]*=0.95;velZ[i]*=0.95;
+    curX[i]+=velX[i];curY[i]+=velY[i];curZ[i]+=velZ[i];
+
+    // Ether respawn
+    if(!assigned[i]&&(curX[i]<-50||curX[i]>w+50||curY[i]<-50||curY[i]>h+50)){
+      var edge=Math.random()*4;
+      if(edge<1){curX[i]=Math.random()*w;curY[i]=-20;}
+      else if(edge<2){curX[i]=w+20;curY[i]=Math.random()*h;}
+      else if(edge<3){curX[i]=Math.random()*w;curY[i]=h+20;}
+      else{curX[i]=-20;curY[i]=Math.random()*h;}
+      velX[i]=velY[i]=velZ[i]=0;
+    }
+
+    posArr[i*3]=curX[i];posArr[i*3+1]=curY[i];posArr[i*3+2]=curZ[i];
   }
 
-  cx.globalCompositeOperation='source-over';
+  // Render
+  gl.clear(gl.COLOR_BUFFER_BIT);
+  gl.uniform1f(uTime,t);
+  gl.uniform2f(uRes,w/2,h/2);
+
+  gl.bindBuffer(gl.ARRAY_BUFFER,posBuf);
+  gl.bufferData(gl.ARRAY_BUFFER,posArr,gl.DYNAMIC_DRAW);
+  gl.enableVertexAttribArray(aPos);
+  gl.vertexAttribPointer(aPos,3,gl.FLOAT,false,0,0);
+
+  gl.bindBuffer(gl.ARRAY_BUFFER,colBuf);
+  gl.enableVertexAttribArray(aCol);
+  gl.vertexAttribPointer(aCol,3,gl.FLOAT,false,0,0);
+
+  gl.drawArrays(gl.POINTS,0,NP);
 
   requestAnimationFrame(render);
 }
