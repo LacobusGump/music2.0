@@ -16,475 +16,480 @@ canvas{display:block;width:100vw;height:100vh;touch-action:none;}
 </head>
 <body>
 <canvas id="C"></canvas>
-<div id="whisper">pinch to zoom · drag to look</div>
+<div id="whisper">pinch to zoom</div>
 <script>
-var cv=document.getElementById('C'),cx=cv.getContext('2d');
-var W,H,DPR;
-function resize(){DPR=devicePixelRatio||1;W=cv.width=innerWidth*DPR;H=cv.height=innerHeight*DPR;cx.setTransform(DPR,0,0,DPR,0,0);}
+// ═══════════════════════════════════════════════════════════
+// BLOOM — WebGL. 50,000 particles. Spring physics in JS.
+// origin → harmonics → atom → bond → DNA → membrane → alive → divide
+// ═══════════════════════════════════════════════════════════
+
+var cv=document.getElementById('C');
+var gl=cv.getContext('webgl',{antialias:false,alpha:false});
+if(!gl){document.body.innerHTML='<p style="color:#c9a44a;padding:40px;font:Georgia;">WebGL not available</p>';throw'no webgl';}
+
+var DPR=devicePixelRatio||1;
+function resize(){
+  cv.width=innerWidth*DPR;cv.height=innerHeight*DPR;
+  cv.style.width=innerWidth+'px';cv.style.height=innerHeight+'px';
+  gl.viewport(0,0,cv.width,cv.height);
+}
 resize();addEventListener('resize',resize);
 
-var w,h,t=0,mouseX=0.5,mouseY=0.5,zoom=1;
-addEventListener('mousemove',function(e){mouseX=e.clientX/innerWidth;mouseY=e.clientY/innerHeight;});
-var lastTD=0;
-cv.addEventListener('touchstart',function(e){e.preventDefault();
-  if(e.touches.length===2){var dx=e.touches[0].clientX-e.touches[1].clientX,dy=e.touches[0].clientY-e.touches[1].clientY;lastTD=Math.sqrt(dx*dx+dy*dy);}
-  if(e.touches.length===1){mouseX=e.touches[0].clientX/innerWidth;mouseY=e.touches[0].clientY/innerHeight;}
-},{passive:false});
-cv.addEventListener('touchmove',function(e){e.preventDefault();
+var t=0,mx=0.5,my=0.5,zoom=1,lastPinch=0;
+addEventListener('mousemove',function(e){mx=e.clientX/innerWidth;my=e.clientY/innerHeight;});
+addEventListener('touchmove',function(e){e.preventDefault();
+  if(e.touches.length===1){mx=e.touches[0].clientX/innerWidth;my=e.touches[0].clientY/innerHeight;}
   if(e.touches.length===2){var dx=e.touches[0].clientX-e.touches[1].clientX,dy=e.touches[0].clientY-e.touches[1].clientY,d=Math.sqrt(dx*dx+dy*dy);
-    if(lastTD>0){zoom*=d/lastTD;zoom=Math.max(0.3,Math.min(8,zoom));}lastTD=d;}
-  if(e.touches.length===1){mouseX=e.touches[0].clientX/innerWidth;mouseY=e.touches[0].clientY/innerHeight;}
+    if(lastPinch>0){zoom*=d/lastPinch;zoom=Math.max(0.3,Math.min(8,zoom));}lastPinch=d;}
 },{passive:false});
-cv.addEventListener('touchend',function(e){e.preventDefault();lastTD=0;},{passive:false});
-cv.addEventListener('wheel',function(e){e.preventDefault();zoom*=e.deltaY>0?0.93:1.07;zoom=Math.max(0.3,Math.min(8,zoom));},{passive:false});
+addEventListener('touchstart',function(e){e.preventDefault();
+  if(e.touches.length===2){var dx=e.touches[0].clientX-e.touches[1].clientX,dy=e.touches[0].clientY-e.touches[1].clientY;lastPinch=Math.sqrt(dx*dx+dy*dy);}
+  if(e.touches.length===1){mx=e.touches[0].clientX/innerWidth;my=e.touches[0].clientY/innerHeight;}
+},{passive:false});
+addEventListener('touchend',function(){lastPinch=0;});
+addEventListener('wheel',function(e){e.preventDefault();zoom*=e.deltaY>0?0.93:1.07;zoom=Math.max(0.3,Math.min(8,zoom));},{passive:false});
 
-function rotY(x,y,z,a){var c=Math.cos(a),s=Math.sin(a);return[x*c+z*s,y,-x*s+z*c];}
-function rotX(x,y,z,a){var c=Math.cos(a),s=Math.sin(a);return[x,y*c-z*s,y*s+z*c];}
-function proj(x,y,z,cx0,cy0,fov){var f=fov/(fov+z+8);return[cx0+x*f,cy0+y*f,f];}
+// ═══ SHADERS ═══
+var vsrc=`
+attribute vec3 aPos;
+attribute vec3 aCol;
+attribute float aSize;
+uniform mat4 uMVP;
+uniform float uScale;
+varying vec3 vCol;
+varying float vAlpha;
+void main(){
+  vec4 p=uMVP*vec4(aPos,1.0);
+  gl_Position=p;
+  gl_PointSize=clamp(aSize*uScale/max(1.0,p.w),1.0,8.0);
+  vCol=aCol;
+  float depthFade=clamp(1.5/max(0.5,p.w),0.1,1.0);
+  vAlpha=depthFade;
+  gl_PointSize*=0.5+depthFade*1.5;
+}`;
 
-// ═══ THE BLOOM ═══
-var P=[];  // particles
-var phase=0;
-var MAX=8000;
-var waterCount=0;
+var fsrc=`
+precision mediump float;
+varying vec3 vCol;
+varying float vAlpha;
+void main(){
+  gl_FragColor=vec4(vCol,vAlpha*0.15);
+}`;
 
-// Flash system — disabled (no flashing)
-var flashAlpha=0;
-var flashColor=[0,0,0];
-var lastPhaseInt=0;
+function compile(type,src){
+  var s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);
+  if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))console.error(gl.getShaderInfoLog(s));
+  return s;
+}
+var prog=gl.createProgram();
+gl.attachShader(prog,compile(gl.VERTEX_SHADER,vsrc));
+gl.attachShader(prog,compile(gl.FRAGMENT_SHADER,fsrc));
+gl.linkProgram(prog);gl.useProgram(prog);
 
-// Background tint per phase
-var BG_TINTS=[
-  [0,0,0],       // 0: void — black
-  [0,0,0],       // 1: origin — black
-  [5,5,12],      // 2: first vibration — deep indigo
-  [6,8,18],      // 3: atom — blue
-  [5,12,8],      // 4: bond — teal
-  [4,14,6],      // 5: DNA — green
-  [14,8,6],      // 6: cell — warm
-  [12,10,8],     // 7: breathing — amber
-  [16,14,12],    // 8: alive — warm white
-  [18,16,14]     // 9: divide — bright warm
+var aPos=gl.getAttribLocation(prog,'aPos');
+var aCol=gl.getAttribLocation(prog,'aCol');
+var aSize=gl.getAttribLocation(prog,'aSize');
+var uMVP=gl.getUniformLocation(prog,'uMVP');
+var uScale=gl.getUniformLocation(prog,'uScale');
+
+gl.enable(gl.BLEND);
+gl.blendFunc(gl.SRC_ALPHA,gl.ONE); // additive
+gl.clearColor(0,0,0,1);
+
+// ═══ 50,000 PARTICLES ═══
+var N=50000;
+var px=new Float32Array(N),py=new Float32Array(N),pz=new Float32Array(N);
+var vx=new Float32Array(N),vy=new Float32Array(N),vz=new Float32Array(N);
+var tx=new Float32Array(N),ty=new Float32Array(N),tz=new Float32Array(N);
+var cr=new Float32Array(N),cg=new Float32Array(N),cb=new Float32Array(N);
+var psize=new Float32Array(N);
+var plife=new Float32Array(N); // 0=dormant, >0=active
+var ptype=new Uint8Array(N);  // 0=unused,1=origin,2=harmonic,3=s-orbital,4=p-orbital,5=atom2,6=bond,7=dna_a,8=dna_b,9=dna_rung,10=membrane,11=water,12=energy
+var pangle=new Float32Array(N); // per-particle angle for orbits
+var pphi=new Float32Array(N);   // secondary angle
+var pspd=new Float32Array(N);   // speed multiplier
+var pnospring=new Uint8Array(N);
+var pdecay=new Uint8Array(N);
+
+var posBuf=gl.createBuffer(),colBuf=gl.createBuffer(),sizeBuf=gl.createBuffer();
+var gpuPos=new Float32Array(N*3),gpuCol=new Float32Array(N*3);
+
+// Colors by type (r,g,b in 0-1)
+var TYPE_COLORS=[
+  [0,0,0],             // 0 unused
+  [1,.88,.67],         // 1 origin
+  [.86,.76,.59],       // 2 harmonic
+  [.69,.61,.45],       // 3 s-orbital
+  [.45,.63,.53],       // 4 p-orbital
+  [.65,.53,.45],       // 5 atom2
+  [.82,.76,.63],       // 6 bond
+  [.67,.82,.47],       // 7 dna_a
+  [.43,.76,.57],       // 8 dna_b
+  [.75,.71,.51],       // 9 dna_rung
+  [.69,.53,.59],       // 10 membrane
+  [.6,.75,.9],         // 11 water
+  [1,.86,.47]          // 12 energy
 ];
 
-function getBgColor(p){
-  var idx=Math.min(Math.floor(p),BG_TINTS.length-2);
-  var frac=p-idx;
-  var a=BG_TINTS[idx],b=BG_TINTS[Math.min(idx+1,BG_TINTS.length-1)];
-  return[a[0]+(b[0]-a[0])*frac, a[1]+(b[1]-a[1])*frac, a[2]+(b[2]-a[2])*frac];
+var nextSlot=0;
+function findSlots(n){
+  var slots=[];
+  for(var i=0;i<N&&slots.length<n;i++){
+    var idx=(nextSlot+i)%N;
+    if(plife[idx]<=0.005){slots.push(idx);}
+  }
+  if(slots.length>0)nextSlot=(slots[slots.length-1]+1)%N;
+  return slots;
 }
 
-// Division state
-var divideProgress=0;
-var divideBridgeAlpha=1;
-
-function add(n,type,spread){
-  for(var i=0;i<n;i++){
+function spawn(n,type,spread,burst){
+  var slots=findSlots(n);
+  var c=TYPE_COLORS[type]||[.6,.55,.47];
+  for(var j=0;j<slots.length;j++){
+    var i=slots[j];
     var a=Math.random()*Math.PI*2,b=Math.random()*Math.PI,r=Math.random()*spread;
-    P.push({x:0,y:0,z:0,vx:0,vy:0,vz:0,
-      tx:Math.sin(b)*Math.cos(a)*r,ty:Math.sin(b)*Math.sin(a)*r,tz:Math.cos(b)*r,
-      type:type,life:0,a:a,b:b,r:r,spd:0.01+Math.random()*0.03,sz:0.8+Math.random()*0.5});
+    var sx=Math.sin(b)*Math.cos(a)*r,sy=Math.sin(b)*Math.sin(a)*r,sz=Math.cos(b)*r;
+    px[i]=0;py[i]=0;pz[i]=0;
+    tx[i]=sx;ty[i]=sy;tz[i]=sz;
+    if(burst){
+      var ev=1.5+Math.random()*2.5;
+      var dx=Math.sin(b)*Math.cos(a),dy=Math.sin(b)*Math.sin(a),dz=Math.cos(b);
+      vx[i]=dx*ev;vy[i]=dy*ev;vz[i]=dz*ev;
+    } else {vx[i]=vy[i]=vz[i]=0;}
+    cr[i]=c[0];cg[i]=c[1];cb[i]=c[2];
+    psize[i]=1+Math.random()*2;
+    plife[i]=0.01;ptype[i]=type;
+    pangle[i]=a;pphi[i]=b;pspd[i]=0.01+Math.random()*0.03;
+    pnospring[i]=0;pdecay[i]=0;
+  }
+  return slots;
+}
+
+function spawnWater(n){
+  var slots=findSlots(n);
+  for(var j=0;j<slots.length;j++){
+    var i=slots[j];
+    var a=Math.random()*Math.PI*2,b=Math.random()*Math.PI,r=Math.random()*5;
+    px[i]=Math.sin(b)*Math.cos(a)*r;py[i]=Math.sin(b)*Math.sin(a)*r;pz[i]=Math.cos(b)*r;
+    vx[i]=(Math.random()-.5)*.08;vy[i]=(Math.random()-.5)*.08;vz[i]=(Math.random()-.5)*.08;
+    tx[i]=ty[i]=tz[i]=0;
+    cr[i]=.6;cg[i]=.75;cb[i]=.9;
+    psize[i]=.5+Math.random();plife[i]=1;ptype[i]=11;
+    pangle[i]=a;pphi[i]=b;pspd[i]=.08;pnospring[i]=1;pdecay[i]=0;
   }
 }
 
-function addBurst(n,type,spread){
-  // Particles burst from origin with explosive velocity, then spring-settle
-  for(var i=0;i<n;i++){
-    var a=Math.random()*Math.PI*2,b=Math.random()*Math.PI,r=Math.random()*spread;
-    var tx=Math.sin(b)*Math.cos(a)*r,ty=Math.sin(b)*Math.sin(a)*r,tz=Math.cos(b)*r;
-    // explosive outward velocity
-    var ev=1.5+Math.random()*2.5;
-    var dx=Math.sin(b)*Math.cos(a),dy=Math.sin(b)*Math.sin(a),dz=Math.cos(b);
-    P.push({x:0,y:0,z:0,
-      vx:dx*ev,vy:dy*ev,vz:dz*ev,
-      tx:tx,ty:ty,tz:tz,
-      type:type,life:0,a:a,b:b,r:r,spd:0.01+Math.random()*0.03,sz:0.8+Math.random()*0.5});
-  }
+function spawnEnergy(){
+  var slots=findSlots(1);if(!slots.length)return;
+  var i=slots[0];
+  var a=Math.random()*Math.PI*2,b=Math.random()*Math.PI,r=Math.random()*4;
+  px[i]=Math.sin(b)*Math.cos(a)*r;py[i]=Math.sin(b)*Math.sin(a)*r;pz[i]=Math.cos(b)*r;
+  vx[i]=(Math.random()-.5)*.15;vy[i]=(Math.random()-.5)*.15;vz[i]=(Math.random()-.5)*.15;
+  tx[i]=ty[i]=tz[i]=0;
+  cr[i]=1;cg[i]=.86;cb[i]=.47;
+  psize[i]=1+Math.random();plife[i]=.3+Math.random()*.3;ptype[i]=12;
+  pangle[i]=a;pphi[i]=b;pspd[i]=.15;pnospring[i]=1;pdecay[i]=1;
 }
 
-function triggerFlash(r,g,b){
-  // disabled — no flashing
-  return;
-}
-
-var originBursted=false;
-var harmonicFlashed=false;
-var atomFlashed=false;
-var bondFlashed=false;
-var dnaFlashed=false;
-var membraneFlashed=false;
-var aliveFlashed=false;
-var divideFlashed=false;
+// ═══ PHASE PROGRESSION ═══
+var phase=0,waterCount=0,divideProgress=0;
+var flags=[0,0,0,0,0,0,0,0]; // origin,harmonic,atom,bond,dna,membrane,alive,divide
 
 function bloom(){
-  phase+=0.004; // ~33 minutes for full journey — slow, deliberate
-  var p=phase;
+  phase+=0.004;
+  var p=phase,breath=Math.sin(t*.6)*.04;
 
-  // Check for phase transition flashes
-  var pi=Math.floor(p);
-  if(pi>lastPhaseInt&&pi>=1){
-    lastPhaseInt=pi;
-  }
+  // 0-1: origin burst
+  if(p>.1&&!flags[0]){flags[0]=1;spawn(600,'origin',.3,true);}
 
-  // 0-1: darkness → a point of light BURSTS from nothing
-  if(p>0.1&&!originBursted){
-    originBursted=true;
-    addBurst(80,'origin',0.3);
-    triggerFlash(255,230,180);
-  }
+  // 1-2: harmonics
+  if(p>1&&!flags[1]){flags[1]=1;}
+  if(p>1&&p<2){var cnt=0;for(var i=0;i<N;i++)if(ptype[i]===2)cnt++;if(cnt<400)spawn(20,2,.01,false);}
 
-  // 1-2: point splits into harmonics
-  if(p>1&&!harmonicFlashed){
-    harmonicFlashed=true;
-    triggerFlash(200,180,140);
-  }
-  if(p>1&&P.length<60) add(15,'harmonic',0.01);
-
-  // 2-3: harmonics → atom (orbitals form)
-  if(p>2&&!atomFlashed){
-    atomFlashed=true;
-    triggerFlash(130,170,220);
-  }
-  if(p>2&&P.length<700){
-    for(var i=0;i<8;i++){
-      var sh=Math.random()>0.5?2:1, r_=sh*0.7+Math.random()*0.3;
-      var a=Math.random()*Math.PI*2,b=Math.random()*Math.PI;
-      P.push({x:0,y:0,z:0,vx:0,vy:0,vz:0,tx:Math.sin(b)*Math.cos(a)*r_,ty:Math.sin(b)*Math.sin(a)*r_,tz:Math.cos(b)*r_,
-        type:sh===1?'s1':'s2',life:0,a:a,b:b,r:r_,spd:0.02+Math.random()*0.02,sz:1.1});
-    }
-    if(p>2.5&&P.length<1000){
-      var ax=Math.floor(Math.random()*3),sign=Math.random()>0.5?1:-1,d=1.3+Math.random()*0.6;
-      var px=ax===0?sign*d:(Math.random()-0.5)*0.25;
-      var py=ax===1?sign*d:(Math.random()-0.5)*0.25;
-      var pz=ax===2?sign*d:(Math.random()-0.5)*0.25;
-      P.push({x:0,y:0,z:0,vx:0,vy:0,vz:0,tx:px,ty:py,tz:pz,type:'plobe',life:0,a:Math.atan2(py,px),b:0,r:d,spd:0.015,sz:1});
+  // 2-3: atom orbitals
+  if(p>2&&!flags[2]){flags[2]=1;}
+  if(p>2&&p<4){
+    var cnt=0;for(var i=0;i<N;i++)if(ptype[i]===3||ptype[i]===4)cnt++;
+    if(cnt<5000){
+      spawn(60,3,.01,false); // s-orbital
+      if(p>2.5)spawn(30,4,.01,false); // p-orbital
     }
   }
 
-  // 3-4: second atom arrives, bond forms
-  if(p>3&&!bondFlashed){
-    bondFlashed=true;
-    triggerFlash(210,195,160);
-  }
-  if(p>3&&P.length<2200){
-    for(var i=0;i<5;i++){
-      var a=Math.random()*Math.PI*2,b=Math.random()*Math.PI,r_=Math.random()*0.8;
+  // 3-4: second atom + bond
+  if(p>3&&!flags[3]){flags[3]=1;}
+  if(p>3&&p<5){
+    var cnt=0;for(var i=0;i<N;i++)if(ptype[i]===5||ptype[i]===6)cnt++;
+    if(cnt<4000){
+      var slots=findSlots(40);
       var offset=3.5-Math.min(p-3,1)*1.5;
-      P.push({x:offset,y:0,z:0,vx:0,vy:0,vz:0,tx:offset+Math.sin(b)*Math.cos(a)*r_,ty:Math.sin(b)*Math.sin(a)*r_,tz:Math.cos(b)*r_,
-        type:'atom2',life:0,a:a,b:b,r:r_,spd:0.025,sz:1});
-    }
-    if(p>3.4){
-      var bx=1+Math.random()*0.5;
-      P.push({x:bx,y:(Math.random()-0.5)*0.15,z:(Math.random()-0.5)*0.15,vx:0,vy:0,vz:0,
-        tx:bx,ty:0,tz:0,type:'bond',life:0,a:0,b:0,r:0,spd:0.01,sz:0.6});
-    }
-  }
-
-  // 4-5: molecule → DNA helix with RUNGS
-  if(p>4&&!dnaFlashed){
-    dnaFlashed=true;
-    triggerFlash(120,200,130);
-  }
-  if(p>4&&P.length<4000){
-    for(var i=0;i<5;i++){
-      var tt=P.length*0.02,strand=i%2,r_=1;
-      var hx=Math.cos(tt+strand*Math.PI)*r_;
-      var hy=(P.length/4000-0.5)*5*(p-4);
-      var hz=Math.sin(tt+strand*Math.PI)*r_;
-      P.push({x:0,y:0,z:0,vx:0,vy:0,vz:0,tx:hx,ty:hy,tz:hz,
-        type:strand?'dna_a':'dna_b',life:0,a:tt,b:strand*Math.PI,r:r_,spd:0.03,sz:0.9});
-    }
-    // Add rung particles between strands
-    if(i%4===0){
-      var tt2=P.length*0.02;
-      var hy2=(P.length/4000-0.5)*5*(p-4);
-      for(var ri=0;ri<4;ri++){
-        var frac=(ri+1)/5;
-        var rx=Math.cos(tt2)*1*(1-frac)+Math.cos(tt2+Math.PI)*1*frac;
-        var rz=Math.sin(tt2)*1*(1-frac)+Math.sin(tt2+Math.PI)*1*frac;
-        P.push({x:0,y:0,z:0,vx:0,vy:0,vz:0,tx:rx,ty:hy2,tz:rz,
-          type:'dna_rung',life:0,a:tt2,b:0,r:1,spd:0.03,sz:0.5});
+      var c=TYPE_COLORS[5];
+      for(var j=0;j<slots.length;j++){
+        var ii=slots[j];
+        var a=Math.random()*Math.PI*2,b=Math.random()*Math.PI,r=Math.random()*.8;
+        px[ii]=offset;py[ii]=0;pz[ii]=0;
+        tx[ii]=offset+Math.sin(b)*Math.cos(a)*r;ty[ii]=Math.sin(b)*Math.sin(a)*r;tz[ii]=Math.cos(b)*r;
+        vx[ii]=vy[ii]=vz[ii]=0;
+        cr[ii]=c[0];cg[ii]=c[1];cb[ii]=c[2];
+        psize[ii]=1+Math.random()*2;plife[ii]=.01;ptype[ii]=5;
+        pangle[ii]=a;pphi[ii]=b;pspd[ii]=.025;pnospring[ii]=0;pdecay[ii]=0;
+      }
+      if(p>3.4){
+        var bs=findSlots(10);var bc=TYPE_COLORS[6];
+        for(var j=0;j<bs.length;j++){
+          var ii=bs[j];var bx2=1+Math.random()*.5;
+          px[ii]=bx2;py[ii]=(Math.random()-.5)*.15;pz[ii]=(Math.random()-.5)*.15;
+          tx[ii]=bx2;ty[ii]=0;tz[ii]=0;vx[ii]=vy[ii]=vz[ii]=0;
+          cr[ii]=bc[0];cg[ii]=bc[1];cb[ii]=bc[2];
+          psize[ii]=1;plife[ii]=.01;ptype[ii]=6;pnospring[ii]=0;pdecay[ii]=0;
+        }
       }
     }
   }
 
-  // 5-6: DNA → cell membrane (tighter sphere)
-  if(p>5&&!membraneFlashed){
-    membraneFlashed=true;
-    triggerFlash(180,130,100);
-  }
-  if(p>5&&P.length<6500){
-    // Fibonacci sphere packing for even distribution
-    for(var i=0;i<4;i++){
-      var idx=P.filter(function(q){return q.type==='membrane';}).length;
-      var golden=Math.PI*(3-Math.sqrt(5));
-      var off=2.0/(idx+100);
-      var yy=-1+(idx*off)+off/2;
-      if(yy>1)yy=1;if(yy<-1)yy=-1;
-      var rad=Math.sqrt(1-yy*yy);
-      var phi=idx*golden;
-      var r_=3.2+Math.random()*0.05; // tighter spread
-      P.push({x:0,y:0,z:0,vx:0,vy:0,vz:0,
-        tx:Math.cos(phi)*rad*r_,ty:yy*r_,tz:Math.sin(phi)*rad*r_,
-        type:'membrane',life:0,a:Math.atan2(Math.sin(phi)*rad,Math.cos(phi)*rad),b:Math.acos(yy),r:r_,spd:0.01,sz:0.7});
-    }
-  }
-
-  // 7-8: alive glow
-  if(p>7&&!aliveFlashed){
-    aliveFlashed=true;
-    triggerFlash(255,240,220);
-  }
-
-  // 8+: CELL DIVISION
-  if(p>8&&!divideFlashed){
-    divideFlashed=true;
-    triggerFlash(255,255,240);
-  }
-  if(p>8){
-    divideProgress=Math.min(1,(p-8)*0.5);
-    divideBridgeAlpha=Math.max(0,1-Math.max(0,(p-9.2)*2));
-  }
-
-  // WATER PARTICLES — phase 4+, tiny fast drifters
-  if(p>4){
-    if(waterCount<500){
-      for(var wi=0;wi<2;wi++){waterCount++;
-        var wa=Math.random()*Math.PI*2,wb=Math.random()*Math.PI,wr=Math.random()*5;
-        P.push({x:Math.sin(wb)*Math.cos(wa)*wr,y:Math.sin(wb)*Math.sin(wa)*wr,z:Math.cos(wb)*wr,
-          vx:(Math.random()-0.5)*0.08,vy:(Math.random()-0.5)*0.08,vz:(Math.random()-0.5)*0.08,
-          tx:0,ty:0,tz:0,type:'water',life:1,a:wa,b:wb,r:wr,spd:0.08,sz:0.3,nospring:true});
+  // 4-5: DNA helix
+  if(p>4&&!flags[4]){flags[4]=1;}
+  if(p>4&&p<6){
+    var cnt=0;for(var i=0;i<N;i++)if(ptype[i]>=7&&ptype[i]<=9)cnt++;
+    if(cnt<12000){
+      for(var j=0;j<40;j++){
+        var slots=findSlots(1);if(!slots.length)break;
+        var ii=slots[0],strand=j%3,tt2=cnt*.015;
+        var groove=1+Math.sin(tt2*.3)*.2;
+        var yy=(cnt/12000-.5)*5*(p-4);
+        if(strand<2){
+          tx[ii]=Math.cos(tt2+strand*Math.PI)*groove;ty[ii]=yy;tz[ii]=Math.sin(tt2+strand*Math.PI)*groove;
+          ptype[ii]=strand?8:7;
+        } else {
+          var frac=Math.random();
+          tx[ii]=Math.cos(tt2)*groove*(1-frac)+Math.cos(tt2+Math.PI)*groove*frac;
+          ty[ii]=yy;tz[ii]=Math.sin(tt2)*groove*(1-frac)+Math.sin(tt2+Math.PI)*groove*frac;
+          ptype[ii]=9;
+        }
+        px[ii]=py[ii]=pz[ii]=0;vx[ii]=vy[ii]=vz[ii]=0;
+        var c2=TYPE_COLORS[ptype[ii]];
+        cr[ii]=c2[0];cg[ii]=c2[1];cb[ii]=c2[2];
+        psize[ii]=1+Math.random();plife[ii]=.01;
+        pangle[ii]=tt2;pphi[ii]=strand*Math.PI;pspd[ii]=.03;pnospring[ii]=0;pdecay[ii]=0;
+        cnt++;
       }
     }
   }
 
-  // ENERGY SPARKS — phase 5+, rare bright ATP zips
+  // 5-6: membrane sphere (fibonacci packing)
+  if(p>5&&!flags[5]){flags[5]=1;}
   if(p>5){
-    var ea=Math.random()*Math.PI*2,eb=Math.random()*Math.PI,er=Math.random()*4;
-    P.push({x:Math.sin(eb)*Math.cos(ea)*er,y:Math.sin(eb)*Math.sin(ea)*er,z:Math.cos(eb)*er,
-      vx:(Math.random()-0.5)*0.15,vy:(Math.random()-0.5)*0.15,vz:(Math.random()-0.5)*0.15,
-      tx:0,ty:0,tz:0,type:'energy',life:0.3+Math.random()*0.3,a:ea,b:eb,r:er,spd:0.15,sz:0.5,nospring:true,decay:true});
+    var cnt=0;for(var i=0;i<N;i++)if(ptype[i]===10)cnt++;
+    if(cnt<20000){
+      var golden=Math.PI*(3-Math.sqrt(5));
+      for(var j=0;j<30;j++){
+        var slots=findSlots(1);if(!slots.length)break;
+        var ii=slots[0],idx=cnt+j;
+        var off2=2/(idx+200);
+        var yy=-1+(idx*off2)+off2/2;
+        if(yy>1)yy=1;if(yy<-1)yy=-1;
+        var rad=Math.sqrt(1-yy*yy);
+        var phi=idx*golden;
+        var r2=3.2+Math.random()*.05;
+        tx[ii]=Math.cos(phi)*rad*r2;ty[ii]=yy*r2;tz[ii]=Math.sin(phi)*rad*r2;
+        px[ii]=py[ii]=pz[ii]=0;vx[ii]=vy[ii]=vz[ii]=0;
+        cr[ii]=.69;cg[ii]=.53;cb[ii]=.59;
+        psize[ii]=1+Math.random();plife[ii]=.01;ptype[ii]=10;
+        pangle[ii]=Math.atan2(Math.sin(phi)*rad,Math.cos(phi)*rad);
+        pphi[ii]=Math.acos(yy);pspd[ii]=.01;pnospring[ii]=0;pdecay[ii]=0;
+      }
+    }
   }
 
-  // UPDATE all particles
-  var breath=Math.sin(t*0.6)*0.04;
-  var dampK=0.92; // velocity damping
-  var springK=0.03;
+  // 7: alive
+  if(p>7&&!flags[6])flags[6]=1;
 
-  for(var i=0;i<P.length;i++){
-    var pt=P[i];
+  // 8+: divide
+  if(p>8&&!flags[7])flags[7]=1;
+  if(p>8)divideProgress=Math.min(1,(p-8)*.5);
 
-    // Fade in / out
-    if(pt.life<1){
-      var fadeTarget=1;
-      if(pt.type==='harmonic'&&p>2.5)fadeTarget=0;
-      if((pt.type==='s1'||pt.type==='s2'||pt.type==='plobe')&&p>4.5)fadeTarget=Math.max(0,1-(p-4.5)*2);
-      if((pt.type==='atom2'||pt.type==='bond')&&p>4.5)fadeTarget=Math.max(0,1-(p-4.5)*2);
-      // DNA and atom stuff fades during membrane phase
-      if((pt.type==='dna_a'||pt.type==='dna_b'||pt.type==='dna_rung')&&p>6)fadeTarget=Math.max(0,1-(p-6)*1.5);
-      pt.life+=(fadeTarget-pt.life)*0.03;
+  // Water — phase 4+
+  if(p>4&&waterCount<3000){spawnWater(3);waterCount+=3;}
+
+  // Energy sparks — phase 5+
+  if(p>5)spawnEnergy();
+
+  // ═══ PHYSICS UPDATE ═══
+  var springK=.03,dampK=.92;
+  for(var i=0;i<N;i++){
+    if(plife[i]<=0.005)continue;
+    var tp=ptype[i];
+
+    // Life fade
+    if(plife[i]<1){
+      var fadeT=1;
+      if(tp===2&&p>2.5)fadeT=0;
+      if((tp===3||tp===4)&&p>4.5)fadeT=Math.max(0,1-(p-4.5)*2);
+      if((tp===5||tp===6)&&p>4.5)fadeT=Math.max(0,1-(p-4.5)*2);
+      if((tp>=7&&tp<=9)&&p>6)fadeT=Math.max(0,1-(p-6)*1.5);
+      if(tp===1)fadeT=Math.min(1,(p-.3)*3);
+      plife[i]+=(fadeT-plife[i])*.03;
     }
 
-    // Energy sparks decay
-    if(pt.decay){
-      pt.life-=0.016;
-      if(pt.life<=0){pt.life=0;continue;}
-    }
+    // Energy decay
+    if(pdecay[i]){plife[i]-=.016;if(plife[i]<=0){plife[i]=0;continue;}}
 
-    // Spring physics with velocity (water/energy just drift with damping)
-    if(pt.nospring){
-      pt.vx*=0.995;pt.vy*=0.995;pt.vz*=0.995;
-      pt.x+=pt.vx;pt.y+=pt.vy;pt.z+=pt.vz;
-    } else if(pt.vx!==undefined){
-      var ax=(pt.tx-pt.x)*springK;
-      var ay=(pt.ty-pt.y)*springK;
-      var az=(pt.tz-pt.z)*springK;
-      pt.vx=(pt.vx+ax)*dampK;
-      pt.vy=(pt.vy+ay)*dampK;
-      pt.vz=(pt.vz+az)*dampK;
-      pt.x+=pt.vx;
-      pt.y+=pt.vy;
-      pt.z+=pt.vz;
+    // Spring or drift
+    if(pnospring[i]){
+      vx[i]*=.995;vy[i]*=.995;vz[i]*=.995;
+      px[i]+=vx[i];py[i]+=vy[i];pz[i]+=vz[i];
     } else {
-      pt.x+=(pt.tx-pt.x)*springK;
-      pt.y+=(pt.ty-pt.y)*springK;
-      pt.z+=(pt.tz-pt.z)*springK;
+      vx[i]+=(tx[i]-px[i])*springK;vy[i]+=(ty[i]-py[i])*springK;vz[i]+=(tz[i]-pz[i])*springK;
+      vx[i]*=dampK;vy[i]*=dampK;vz[i]*=dampK;
+      px[i]+=vx[i];py[i]+=vy[i];pz[i]+=vz[i];
     }
 
-    // Orbital motion for atom particles
-    if(pt.type==='s1'||pt.type==='s2'){
-      pt.a+=pt.spd;
-      var or=pt.type==='s1'?0.7:1.4;
-      or+=Math.sin(t*pt.spd*2+pt.b)*0.08+breath;
-      pt.tx=Math.sin(pt.b+pt.a*0.3)*Math.cos(pt.a)*or;
-      pt.ty=Math.sin(pt.b+pt.a*0.3)*Math.sin(pt.a)*or;
-      pt.tz=Math.cos(pt.b+pt.a*0.3)*or;
+    // Orbital motion (s-orbital)
+    if(tp===3){
+      pangle[i]+=pspd[i];
+      var or2=.7+Math.sin(t*pspd[i]*2+pphi[i])*.08+breath;
+      tx[i]=Math.sin(pphi[i]+pangle[i]*.3)*Math.cos(pangle[i])*or2;
+      ty[i]=Math.sin(pphi[i]+pangle[i]*.3)*Math.sin(pangle[i])*or2;
+      tz[i]=Math.cos(pphi[i]+pangle[i]*.3)*or2;
     }
-    if(pt.type==='plobe') pt.a+=pt.spd*0.4;
+    // p-orbital
+    if(tp===4){
+      pangle[i]+=pspd[i]*.4;
+      var ax2=Math.floor(pphi[i]*3/(Math.PI*2))%3,sign2=pphi[i]>Math.PI?1:-1;
+      var d2=1.3+Math.random()*.001;
+      tx[i]=ax2===0?sign2*d2:(Math.random()-.5)*.25;
+      ty[i]=ax2===1?sign2*d2:(Math.random()-.5)*.25;
+      tz[i]=ax2===2?sign2*d2:(Math.random()-.5)*.25;
+    }
 
     // Helix rotation
-    if(pt.type==='dna_a'||pt.type==='dna_b'){
-      pt.a+=0.004;
-      var r_=1+breath;
-      pt.tx=Math.cos(pt.a+pt.b)*r_;
-      pt.tz=Math.sin(pt.a+pt.b)*r_;
+    if(tp===7||tp===8){
+      pangle[i]+=.004;
+      var r3=1+breath;
+      tx[i]=Math.cos(pangle[i]+pphi[i])*r3;
+      tz[i]=Math.sin(pangle[i]+pphi[i])*r3;
     }
-    // Rungs follow helix
-    if(pt.type==='dna_rung'){
-      pt.a+=0.004;
+    if(tp===9)pangle[i]+=.004;
+
+    // Harmonic expansion
+    if(tp===2&&p<3){
+      var prog=Math.min(1,p-1);
+      var n2=Math.floor(pangle[i]/(Math.PI*2)*4)+1;
+      var tr2=prog*n2*.6;
+      tx[i]=Math.cos(pangle[i])*tr2;
+      ty[i]=Math.sin(n2*Math.PI*prog)*tr2*.4;
+      tz[i]=Math.sin(pangle[i])*tr2;
     }
 
     // Membrane breathing + division
-    if(pt.type==='membrane'){
+    if(tp===10){
       var mr=3.2+breath;
       if(p>8&&divideProgress>0){
-        // Split into two spheres
-        var sep=divideProgress*4; // separation distance
-        // Assign to left or right sphere based on original angle
-        var side=(pt.a+pt.b)%6.28>3.14?1:-1;
-        var shrink=1-divideProgress*0.35; // spheres get smaller
-        pt.tx=Math.sin(pt.b)*Math.cos(pt.a)*mr*shrink+side*sep;
-        pt.ty=Math.sin(pt.b)*Math.sin(pt.a)*mr*shrink;
-        pt.tz=Math.cos(pt.b)*mr*shrink;
+        var sep=divideProgress*4;
+        var side=(pangle[i]+pphi[i])%6.28>3.14?1:-1;
+        var shrink=1-divideProgress*.35;
+        tx[i]=Math.sin(pphi[i])*Math.cos(pangle[i])*mr*shrink+side*sep;
+        ty[i]=Math.sin(pphi[i])*Math.sin(pangle[i])*mr*shrink;
+        tz[i]=Math.cos(pphi[i])*mr*shrink;
       } else if(p>6){
-        pt.tx=Math.sin(pt.b)*Math.cos(pt.a)*mr;
-        pt.ty=Math.sin(pt.b)*Math.sin(pt.a)*mr;
-        pt.tz=Math.cos(pt.b)*mr;
+        tx[i]=Math.sin(pphi[i])*Math.cos(pangle[i])*mr;
+        ty[i]=Math.sin(pphi[i])*Math.sin(pangle[i])*mr;
+        tz[i]=Math.cos(pphi[i])*mr;
       }
     }
-
-    // Harmonic expansion
-    if(pt.type==='harmonic'&&p<3){
-      var prog=Math.min(1,(p-1));
-      var n=Math.floor(pt.a/(Math.PI*2)*4)+1;
-      var tr=prog*n*0.6;
-      pt.tx=Math.cos(pt.a)*tr;
-      pt.ty=Math.sin(n*Math.PI*prog)*tr*0.4;
-      pt.tz=Math.sin(pt.a)*tr;
-    }
-
-    // Origin glow
-    if(pt.type==='origin') pt.life=Math.min(1,(p-0.3)*3);
   }
-
-  // Cull
-  if(P.length>MAX) P=P.filter(function(pt){return pt.life>0.008;});
 }
 
-// ═══ COLORS ═══
-var COLORS={
-  origin:[255,225,170], harmonic:[220,195,150],
-  s1:[175,155,115], s2:[115,160,135], plobe:[95,130,165],
-  atom2:[165,135,115], bond:[210,195,160],
-  dna_a:[170,210,120], dna_b:[110,195,145], dna_rung:[190,180,130],
-  membrane:[175,135,150],
-  water:[150,180,210], energy:[255,220,120]
-};
+// ═══ MATRIX MATH ═══
+function mat4_perspective(fov,aspect,near,far){
+  var f=1/Math.tan(fov/2),nf=1/(near-far);
+  return new Float32Array([f/aspect,0,0,0, 0,f,0,0, 0,0,(far+near)*nf,-1, 0,0,2*far*near*nf,0]);
+}
+function mat4_identity(){return new Float32Array([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]);}
+function mat4_translate(m,x,y,z){
+  var r=new Float32Array(m);r[12]+=m[0]*x+m[4]*y+m[8]*z;r[13]+=m[1]*x+m[5]*y+m[9]*z;r[14]+=m[2]*x+m[6]*y+m[10]*z;r[15]+=m[3]*x+m[7]*y+m[11]*z;return r;
+}
+function mat4_rotateY(m,a){
+  var c=Math.cos(a),s=Math.sin(a),r=new Float32Array(m);
+  r[0]=m[0]*c+m[8]*s;r[1]=m[1]*c+m[9]*s;r[2]=m[2]*c+m[10]*s;r[3]=m[3]*c+m[11]*s;
+  r[8]=m[8]*c-m[0]*s;r[9]=m[9]*c-m[1]*s;r[10]=m[10]*c-m[2]*s;r[11]=m[11]*c-m[3]*s;return r;
+}
+function mat4_rotateX(m,a){
+  var c=Math.cos(a),s=Math.sin(a),r=new Float32Array(m);
+  r[4]=m[4]*c+m[8]*s;r[5]=m[5]*c+m[9]*s;r[6]=m[6]*c+m[10]*s;r[7]=m[7]*c+m[11]*s;
+  r[8]=m[8]*c-m[4]*s;r[9]=m[9]*c-m[5]*s;r[10]=m[10]*c-m[6]*s;r[11]=m[11]*c-m[7]*s;return r;
+}
+function mat4_mul(a,b){
+  var r=new Float32Array(16);
+  for(var i=0;i<4;i++)for(var j=0;j<4;j++){r[j*4+i]=0;for(var k=0;k<4;k++)r[j*4+i]+=a[k*4+i]*b[j*4+k];}
+  return r;
+}
 
+// ═══ RENDER ═══
+var frame=0;
 function render(){
-  w=W/DPR;h=H/DPR;t+=0.016;
-
-  // Background with phase-tinted color
-  var bg=getBgColor(phase);
-  cx.fillStyle='rgba('+Math.floor(bg[0])+','+Math.floor(bg[1])+','+Math.floor(bg[2])+',0.07)';
-  cx.fillRect(0,0,w,h);
-
-  // Flash overlay
-  if(flashAlpha>0.01){
-    cx.fillStyle='rgba('+flashColor[0]+','+flashColor[1]+','+flashColor[2]+','+flashAlpha*0.35+')';
-    cx.fillRect(0,0,w,h);
-    flashAlpha*=0.92;
-  }
+  var w=innerWidth,h=innerHeight;
+  t+=.016;frame++;
 
   bloom();
 
-  var cx0=w/2,cy0=h/2,fov=Math.min(w,h)*0.85*zoom;
-  var rA=t*0.12+(mouseX-0.5)*3,rB=(mouseY-0.5)*1.5;
+  // Camera
+  var camDist=6/zoom;
+  var proj=mat4_perspective(1.0,w/h,0.1,100);
+  var view=mat4_identity();
+  view=mat4_translate(view,0,0,-camDist);
+  view=mat4_rotateX(view,(my-.5)*1.5);
+  view=mat4_rotateY(view,t*.12+(mx-.5)*3);
+  var mvp=mat4_mul(proj,view);
 
-  var sorted=[];
-  for(var i=0;i<P.length;i++){
-    var pt=P[i];if(pt.life<0.005)continue;
-    var r1=rotY(pt.x,pt.y,pt.z,rA),r2=rotX(r1[0],r1[1],r1[2],rB);
-    var scale=Math.min(w,h)*0.12;
-    var pr=proj(r2[0]*scale,r2[1]*scale,r2[2],cx0,cy0,fov);
-    sorted.push({px:pr[0],py:pr[1],s:pr[2],type:pt.type,life:pt.life,sz:pt.sz,z:r2[2]});
-  }
-  sorted.sort(function(a,b){return a.z-b.z;});
-
-  for(var i=0;i<sorted.length;i++){
-    var p=sorted[i];
-    var sz=p.sz*p.s,al=p.life*p.s*0.5;
-    // Depth fade — particles further in z fade out
-    var depthFade=1-Math.abs(p.z)*0.15;
-    depthFade=Math.max(0.05,Math.min(1,depthFade));
-    al*=depthFade;
-    if(sz<0.2||al<0.003)continue;
-    var c=COLORS[p.type]||[150,140,120];
-
-    // Glow for origin particles
-    if(p.type==='origin'&&sz>1){
-      var grad=cx.createRadialGradient(p.px,p.py,0,p.px,p.py,sz*4);
-      grad.addColorStop(0,'rgba('+c[0]+','+c[1]+','+c[2]+','+Math.min(0.3,al*0.6)+')');
-      grad.addColorStop(1,'rgba('+c[0]+','+c[1]+','+c[2]+',0)');
-      cx.fillStyle=grad;
-      cx.fillRect(p.px-sz*3,p.py-sz*3,sz*6,sz*6);
-    }
-
-    cx.fillStyle='rgba('+c[0]+','+c[1]+','+c[2]+','+Math.min(1,al)+')';
-    var rs=Math.max(0.3,sz);cx.fillRect(p.px-rs,p.py-rs,rs*2,rs*2);
-  }
-
-  // Draw bonds: connect every 5th atom to next (O(n), not O(n²))
-  cx.strokeStyle='rgba(175,155,115,0.015)';cx.lineWidth=0.3;
-  var atomTypes={s1:1,s2:1,plobe:1,atom2:1};
-  var prevAtom=null;
-  for(var i=0;i<sorted.length;i+=5){
-    if(!atomTypes[sorted[i].type]||sorted[i].life<0.01)continue;
-    if(prevAtom){
-      cx.beginPath();cx.moveTo(prevAtom.px,prevAtom.py);cx.lineTo(sorted[i].px,sorted[i].py);cx.stroke();
-    }
-    prevAtom=sorted[i];
-  }
-
-  // Draw division bridge
-  if(phase>8&&divideBridgeAlpha>0.01&&divideProgress>0.1){
-    var sep=divideProgress*4;
-    var bscale=Math.min(w,h)*0.12;
-    // Bridge between the two dividing cells
-    var bridgeW=Math.max(0.5,(1-divideProgress)*12);
-    for(var bi=0;bi<20;bi++){
-      var frac=bi/19;
-      var bx=-sep+frac*sep*2;
-      var by=(Math.random()-0.5)*bridgeW*0.08;
-      var bz=(Math.random()-0.5)*bridgeW*0.08;
-      var r1=rotY(bx,by,bz,rA),r2=rotX(r1[0],r1[1],r1[2],rB);
-      var pr=proj(r2[0]*bscale,r2[1]*bscale,r2[2],cx0,cy0,fov);
-      var bal=divideBridgeAlpha*0.4*(1-Math.abs(frac-0.5)*2)*pr[2];
-      if(bal>0.005){
-        cx.fillStyle='rgba(200,170,140,'+bal+')';
-        var bs=Math.max(0.3,bridgeW*pr[2]*0.15);cx.fillRect(pr[0]-bs,pr[1]-bs,bs*2,bs*2);
-      }
+  // Upload to GPU
+  var drawn=0;
+  for(var i=0;i<N;i++){
+    if(plife[i]>0.005){
+      var alpha=plife[i];
+      gpuPos[drawn*3]=px[i];gpuPos[drawn*3+1]=py[i];gpuPos[drawn*3+2]=pz[i];
+      gpuCol[drawn*3]=cr[i]*alpha;gpuCol[drawn*3+1]=cg[i]*alpha;gpuCol[drawn*3+2]=cb[i]*alpha;
+      psize[drawn]=1+Math.random()*.5; // slight shimmer
+      drawn++;
     }
   }
 
-  // Whisper — the story of what's happening
-  var whisper='';
-  if(phase<0.1)whisper='';
-  else if(phase<1)whisper='...';
-  else if(phase<2)whisper='the first vibration \u2014 a photon';
-  else if(phase<3)whisper='electrons settle into orbitals';
-  else if(phase<4)whisper='hydrogen bonds form';
-  else if(phase<5)whisper='adenine, thymine, guanine, cytosine';
-  else if(phase<6)whisper='lipid bilayer \u2014 inside becomes different from outside';
-  else if(phase<7)whisper='it breathes \u2014 0.91 Hz';
-  else if(phase<8)whisper='alive';
-  else whisper='begin again';
+  gl.clear(gl.COLOR_BUFFER_BIT);
+  gl.uniformMatrix4fv(uMVP,false,mvp);
+  gl.uniform1f(uScale,Math.min(w,h)*DPR*.03);
 
-  // Whisper fades in more
-  var whisperAlpha=0.05+Math.sin(t*0.3)*0.015;
-  cx.fillStyle='rgba(201,164,74,'+whisperAlpha+')';
-  cx.font='13px Georgia';cx.textAlign='center';
-  cx.fillText(whisper,w/2,h-48);
+  gl.bindBuffer(gl.ARRAY_BUFFER,posBuf);
+  gl.bufferData(gl.ARRAY_BUFFER,gpuPos.subarray(0,drawn*3),gl.DYNAMIC_DRAW);
+  gl.enableVertexAttribArray(aPos);
+  gl.vertexAttribPointer(aPos,3,gl.FLOAT,false,0,0);
+
+  gl.bindBuffer(gl.ARRAY_BUFFER,colBuf);
+  gl.bufferData(gl.ARRAY_BUFFER,gpuCol.subarray(0,drawn*3),gl.DYNAMIC_DRAW);
+  gl.enableVertexAttribArray(aCol);
+  gl.vertexAttribPointer(aCol,3,gl.FLOAT,false,0,0);
+
+  gl.bindBuffer(gl.ARRAY_BUFFER,sizeBuf);
+  gl.bufferData(gl.ARRAY_BUFFER,psize.subarray(0,drawn),gl.DYNAMIC_DRAW);
+  gl.enableVertexAttribArray(aSize);
+  gl.vertexAttribPointer(aSize,1,gl.FLOAT,false,0,0);
+
+  gl.drawArrays(gl.POINTS,0,drawn);
+
+  // Whisper
+  if(frame%15===0){
+    var msg='';
+    if(phase<.1)msg='';
+    else if(phase<1)msg='...';
+    else if(phase<2)msg='the first vibration \u2014 a photon';
+    else if(phase<3)msg='electrons settle into orbitals';
+    else if(phase<4)msg='hydrogen bonds form';
+    else if(phase<5)msg='adenine, thymine, guanine, cytosine';
+    else if(phase<6)msg='lipid bilayer \u2014 inside becomes different from outside';
+    else if(phase<7)msg='it breathes \u2014 0.91 Hz';
+    else if(phase<8)msg='alive';
+    else msg='begin again';
+    document.getElementById('whisper').textContent=msg;
+  }
 
   requestAnimationFrame(render);
 }
