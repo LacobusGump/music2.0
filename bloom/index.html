@@ -10,26 +10,15 @@
 *{margin:0;padding:0;box-sizing:border-box;}
 body{background:#000;overflow:hidden;touch-action:none;}
 canvas{display:block;width:100vw;height:100vh;}
-#phase{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);
-  font:100 0.8em Georgia;color:#c9a44a40;letter-spacing:0.3em;
-  text-transform:uppercase;transition:opacity 1s;}
-#fps{position:fixed;top:8px;left:12px;font:100 0.7em Georgia;color:#c9a44a30;}
+#phase{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);
+  font:100 0.9em Georgia;color:#c9a44a50;letter-spacing:0.4em;
+  text-transform:uppercase;transition:color 1s;pointer-events:none;}
 </style>
 </head>
 <body>
 <canvas id="C"></canvas>
-<div id="phase">root</div>
-<div id="fps"></div>
+<div id="phase"></div>
 <script>
-// ═══════════════════════════════════════════════════════════
-// BLOOM — The Cone
-// ═══════════════════════════════════════════════════════════
-// The spiral on a cone. Temperature is the axis.
-// Bottom: quantum, cold, dense, violet.
-// Rising: solid → liquid → gas → plasma → light → edge.
-// Each phase transition strips a coupling dimension.
-// You ascend by watching. The cone breathes.
-
 var cv = document.getElementById('C');
 var gl = cv.getContext('webgl', {alpha:false, antialias:false});
 if(!gl){document.body.innerHTML='<p style="color:#c9a44a;text-align:center;margin-top:40vh;font-family:Georgia">WebGL required</p>';throw'';}
@@ -41,8 +30,12 @@ function resize(){
 }
 resize(); addEventListener('resize',resize);
 
-var N = 30000;
+var N = 40000;
 var PHI = 1.618033988749895;
+
+// You are INSIDE the cone. Looking UP.
+// Particles surround you. Close ones are big and bright.
+// The spiral rises above you. The phase transitions pass through you.
 
 var VS = `
 attribute vec3 aPos;
@@ -50,12 +43,11 @@ attribute float aFreq;
 attribute float aPhase;
 attribute float aSize;
 uniform float uTime;
-uniform float uAscent;
+uniform float uEye;
 uniform vec2 uRes;
 
 varying float vTemp;
 varying float vAlpha;
-varying float vGlow;
 
 #define PHI 1.618033988749895
 
@@ -65,52 +57,57 @@ void main() {
   float h = aPos.y;
   float r0 = aPos.z;
 
-  float viewH = uAscent;
-  float relH = h - viewH;
+  // Cone: wider at top, narrow at bottom
+  float coneR = 0.15 + h * 2.0;
 
-  // Cone widens with height
-  float coneR = 0.2 + h * 1.5;
+  // Spiral rotation: golden ratio speeds
+  float spin = theta + t * (0.06 + h * 0.15) * aFreq;
+  float gmod = 1.0 + 0.1 * sin(spin / PHI + aPhase);
+  float radius = coneR * r0 * gmod;
 
-  // Spiral: golden angle rotation, speed varies with height
-  float spiralAngle = theta + t * (0.08 + h * 0.2) * aFreq;
+  // World position
+  float wx = radius * cos(spin);
+  float wz = radius * sin(spin);
+  float wy = h * 8.0; // tall cone
 
-  // Golden modulation
-  float goldenMod = 1.0 + 0.12 * sin(spiralAngle / PHI + aPhase);
-  float radius = coneR * r0 * goldenMod;
+  // Camera: inside the cone, looking UP
+  // Eye position rises slowly (the ascent)
+  float eyeY = uEye * 8.0;
+  float relY = wy - eyeY;
 
-  // 3D
-  float x = radius * cos(spiralAngle);
-  float z = radius * sin(spiralAngle);
-  float y = relH * 4.0;
+  // Gentle orbit
+  float ca = t * 0.04;
+  float vx = wx * cos(ca) - wz * sin(ca);
+  float vz = wx * sin(ca) + wz * cos(ca);
 
-  // Gentle camera orbit
-  float ca = t * 0.03;
-  float cx2 = x * cos(ca) - z * sin(ca);
-  float cz2 = x * sin(ca) + z * cos(ca);
+  // Perspective: CLOSE. You're inside this.
+  float dist = sqrt(vx*vx + relY*relY + vz*vz);
+  float fov = 0.8;
+  float aspect = uRes.x / uRes.y;
 
-  // Perspective
-  float depth = 2.0 + cz2 * 0.3 - y * 0.15;
-  float scale = 1.2 / max(0.2, depth);
+  // Project
+  float pz = vz + 0.5; // slight forward offset
+  float pd = max(0.1, dist * fov);
 
-  float aspect = uRes.y / uRes.x;
-  gl_Position = vec4(cx2 * scale, (y * 0.7) * scale * aspect, cz2 * 0.001, 1.0);
+  gl_Position = vec4(
+    vx / pd,
+    relY / pd * aspect,
+    0.0, 1.0
+  );
 
-  // Phase transition glow
-  float pd = min(abs(h-0.15), min(abs(h-0.35), min(abs(h-0.55), abs(h-0.8))));
-  float phaseGlow = smoothstep(0.04, 0.0, pd);
+  // Size: CLOSE particles are BIG
+  float nearness = 1.0 / max(0.3, dist);
+  gl_PointSize = aSize * nearness * 4.0;
+  gl_PointSize *= (uRes.x > 600.0 ? 1.5 : 1.2);
+  gl_PointSize = clamp(gl_PointSize, 0.5, 12.0);
 
-  // Depth fade
-  float depthFade = clamp(1.5 / max(0.5, depth), 0.1, 1.0);
+  // Alpha: close = bright, far = dim
+  vAlpha = clamp(nearness * 0.4, 0.02, 0.4);
 
-  gl_PointSize = (aSize + phaseGlow * 2.5) * scale * depthFade;
-  gl_PointSize *= (uRes.x > 600.0 ? 1.3 : 0.9);
-  gl_PointSize = clamp(gl_PointSize, 0.5, 6.0);
+  // Particles behind camera: invisible
+  if (relY < -2.0) vAlpha = 0.0;
 
   vTemp = h;
-  vAlpha = 0.12 * depthFade * (0.6 + 0.4 * goldenMod);
-  vAlpha *= (1.0 + phaseGlow * 0.5);
-  vAlpha = clamp(vAlpha, 0.01, 0.25);
-  vGlow = phaseGlow;
 }
 `;
 
@@ -118,42 +115,32 @@ var FS = `
 precision mediump float;
 varying float vTemp;
 varying float vAlpha;
-varying float vGlow;
 
 void main() {
   vec3 col;
   float h = vTemp;
 
+  // Color spectrum: the phases of matter on the cone
   if (h < 0.08) {
-    // Quantum: deep violet. The root.
-    col = mix(vec3(0.03, 0.01, 0.08), vec3(0.08, 0.03, 0.2), h/0.08);
+    col = vec3(0.06, 0.02, 0.15); // quantum: deep violet
   } else if (h < 0.18) {
-    // Solid: crystalline blue-white
     float t = (h-0.08)/0.1;
-    col = mix(vec3(0.08, 0.03, 0.2), vec3(0.15, 0.25, 0.45), t);
+    col = mix(vec3(0.06, 0.02, 0.15), vec3(0.12, 0.2, 0.45), t); // solid: blue
   } else if (h < 0.35) {
-    // Liquid: flowing teal-green
     float t = (h-0.18)/0.17;
-    col = mix(vec3(0.15, 0.25, 0.45), vec3(0.08, 0.4, 0.35), t);
+    col = mix(vec3(0.12, 0.2, 0.45), vec3(0.05, 0.45, 0.35), t); // liquid: teal
   } else if (h < 0.55) {
-    // Gas: warm gold
     float t = (h-0.35)/0.2;
-    col = mix(vec3(0.08, 0.4, 0.35), vec3(0.78, 0.64, 0.29), t);
+    col = mix(vec3(0.05, 0.45, 0.35), vec3(0.85, 0.7, 0.3), t); // gas: gold
   } else if (h < 0.75) {
-    // Plasma: hot orange-white
     float t = (h-0.55)/0.2;
-    col = mix(vec3(0.78, 0.64, 0.29), vec3(0.95, 0.7, 0.3), t);
+    col = mix(vec3(0.85, 0.7, 0.3), vec3(1.0, 0.75, 0.35), t); // plasma: bright gold
   } else if (h < 0.9) {
-    // Approaching edge: brilliant white-gold
     float t = (h-0.75)/0.15;
-    col = mix(vec3(0.95, 0.7, 0.3), vec3(1.0, 0.95, 0.85), t);
+    col = mix(vec3(1.0, 0.75, 0.35), vec3(1.0, 0.95, 0.85), t); // light: white-gold
   } else {
-    // The edge: pure light
-    col = vec3(1.0, 0.97, 0.9);
+    col = vec3(1.0, 0.98, 0.92); // edge: pure light
   }
-
-  // Phase transition rings glow brighter
-  col += vGlow * vec3(0.2, 0.15, 0.05);
 
   gl_FragColor = vec4(col, vAlpha);
 }
@@ -163,6 +150,7 @@ function compile(type, src) {
   var s = gl.createShader(type);
   gl.shaderSource(s, src);
   gl.compileShader(s);
+  if(!gl.getShaderParameter(s, gl.COMPILE_STATUS)) console.error(gl.getShaderInfoLog(s));
   return s;
 }
 
@@ -172,32 +160,25 @@ gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, FS));
 gl.linkProgram(prog);
 gl.useProgram(prog);
 
-// Particles: distributed on the cone using golden angle
+// Particles: golden angle packing on the cone
 var pos = new Float32Array(N * 3);
 var freq = new Float32Array(N);
 var phase = new Float32Array(N);
 var size = new Float32Array(N);
 
-var GOLDEN_ANGLE = 2.39996322; // 2π(2-φ)
+var GA = 2.39996322; // golden angle
 
 for (var i = 0; i < N; i++) {
-  var h = Math.pow(Math.random(), 0.8); // slight bias toward bottom (more structure there)
-  var theta = i * GOLDEN_ANGLE; // golden angle packing = most uniform
-  var r = 0.2 + Math.random() * 0.8;
-
-  // Cluster more particles near phase transitions
-  var nearTransition = Math.min(
-    Math.abs(h-0.15), Math.abs(h-0.35),
-    Math.abs(h-0.55), Math.abs(h-0.8)
-  );
-  if (nearTransition < 0.03) r *= 0.6; // tighter at transitions
+  var h = Math.pow(i / N, 0.6); // more particles at bottom (denser = colder)
+  var theta = i * GA;
+  var r = 0.15 + Math.random() * 0.85;
 
   pos[i*3]   = theta;
   pos[i*3+1] = h;
   pos[i*3+2] = r;
-  freq[i]  = 0.4 + Math.random() * 1.6;
+  freq[i]  = 0.3 + Math.random() * 1.7;
   phase[i] = Math.random() * Math.PI * 2;
-  size[i]  = 0.6 + Math.random() * 1.8;
+  size[i]  = 0.5 + Math.random() * 2.5;
 }
 
 function makeBuf(data, attr, comp) {
@@ -209,13 +190,15 @@ function makeBuf(data, attr, comp) {
   return {buf:buf,loc:loc,comp:comp};
 }
 
-var bPos=makeBuf(pos,'aPos',3);
-var bFreq=makeBuf(freq,'aFreq',1);
-var bPhase=makeBuf(phase,'aPhase',1);
-var bSize=makeBuf(size,'aSize',1);
+var bufs = [
+  makeBuf(pos,'aPos',3),
+  makeBuf(freq,'aFreq',1),
+  makeBuf(phase,'aPhase',1),
+  makeBuf(size,'aSize',1)
+];
 
 var uTime=gl.getUniformLocation(prog,'uTime');
-var uAscent=gl.getUniformLocation(prog,'uAscent');
+var uEye=gl.getUniformLocation(prog,'uEye');
 var uRes=gl.getUniformLocation(prog,'uRes');
 
 gl.enable(gl.BLEND);
@@ -223,13 +206,10 @@ gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
 gl.clearColor(0,0,0,1);
 
 var phaseNames = ['quantum','solid','liquid','gas','plasma','light','edge','?'];
-var phaseHeights = [0, 0.08, 0.18, 0.35, 0.55, 0.75, 0.9, 1.0];
+var phaseH = [0, 0.08, 0.18, 0.35, 0.55, 0.75, 0.9, 1.0];
 var phaseEl = document.getElementById('phase');
-var fpsEl = document.getElementById('fps');
 
 var t = 0;
-var frameCount = 0;
-var lastFpsTime = performance.now();
 
 function rebind(b){
   gl.bindBuffer(gl.ARRAY_BUFFER, b.buf);
@@ -238,34 +218,27 @@ function rebind(b){
 
 function frame() {
   t += 0.016;
-  frameCount++;
 
-  // Slow ascent, breathes (sinusoidal wobble on top of linear climb)
-  var climb = (t * 0.002) % 1.3;
-  var breath = 0.03 * Math.sin(t * 0.3);
-  var ascent = Math.min(1.05, climb + breath);
-  if (climb > 1.1) ascent = 2.2 - climb + breath; // descend back
+  // Ascent: steady climb, slow, with breath
+  var climb = (t * 0.0015) % 1.3;
+  var breath = 0.02 * Math.sin(t * 0.25);
+  var eye = Math.min(1.05, climb + breath);
+  if (climb > 1.1) eye = 2.2 - climb + breath;
 
   // Phase label
-  var pname = '?';
-  for (var i = phaseHeights.length-1; i >= 0; i--) {
-    if (ascent >= phaseHeights[i]) { pname = phaseNames[i]; break; }
+  var pname = '';
+  for (var i = phaseH.length-1; i >= 0; i--) {
+    if (eye >= phaseH[i]) { pname = phaseNames[i]; break; }
   }
   phaseEl.textContent = pname;
 
   gl.clear(gl.COLOR_BUFFER_BIT);
   gl.uniform1f(uTime, t);
-  gl.uniform1f(uAscent, ascent);
+  gl.uniform1f(uEye, eye);
   gl.uniform2f(uRes, cv.width, cv.height);
 
-  rebind(bPos); rebind(bFreq); rebind(bPhase); rebind(bSize);
+  for(var b=0;b<bufs.length;b++) rebind(bufs[b]);
   gl.drawArrays(gl.POINTS, 0, N);
-
-  var now = performance.now();
-  if (now - lastFpsTime > 1000) {
-    fpsEl.textContent = Math.round(frameCount*1000/(now-lastFpsTime));
-    frameCount=0; lastFpsTime=now;
-  }
 
   requestAnimationFrame(frame);
 }
