@@ -228,6 +228,11 @@ def predict_bond(ZA, ZB, order, params=None):
     if n_max > 3.0:
         E -= period3_pen * (n_max - 3.0)
 
+    # Spiral correction: coupling spirals at φ^2.5
+    Z_avg = (ZA + ZB) / 2.0
+    PHI_25 = ((1 + 5**0.5) / 2) ** 2.5
+    E *= 1.0 - 0.03 * math.cos(2 * math.pi * Z_avg / PHI_25 + 4.5)
+
     return max(0.1, E)
 
 

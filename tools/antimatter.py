@@ -240,6 +240,10 @@ def predict_lifetime(Z, params=None):
 
     tau_pred = tau_base * f_d * f_gap * f_pack * f_mag * f_period * f_exchange
 
+    # Spiral correction: coupling spirals with Z at φ²
+    PHI_SQ = ((1 + 5**0.5) / 2) ** 2
+    tau_pred *= 1.0 - 0.01 * math.cos(2 * math.pi * Z / PHI_SQ + 6.2)
+
     return tau_pred, tau_exp
 
 

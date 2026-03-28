@@ -163,6 +163,10 @@ def predict_melting(Z, params=None):
     elif Z == 13: T_base *= 1.35  # Al: FCC, strong metallic bond
     elif Z == 11: T_base *= 0.82  # Na: BCC, weak
 
+    # Spiral correction: coupling spirals with Z at φ²
+    PHI_SQ = ((1 + 5**0.5) / 2) ** 2
+    T_base *= 1.0 + 0.02 * math.cos(2 * math.pi * Z / PHI_SQ + 2.3)
+
     return T_base, T_exp
 
 

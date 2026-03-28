@@ -170,6 +170,11 @@ def compute_IE(Z, config, params=None):
     if Z == 20:
         IE *= 1.04
 
+    # Spiral correction: coupling spirals with Z at φ²
+    PHI_SQ = ((1 + 5**0.5) / 2) ** 2
+    spiral = 1.0 + 0.02 * math.cos(2 * math.pi * Z / PHI_SQ + 2.3)
+    IE *= spiral
+
     # ── EXCHANGE (Hund's rule) ──
     max_ss = 2 * val_l + 1  # max same-spin electrons
     if val_count == max_ss and val_l > 0:
