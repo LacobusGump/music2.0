@@ -327,11 +327,42 @@ var CHORDS=[
 ];
 
 var prevClusterCount=0;
-var stableCount=0;      // how many frames the cluster count has been the same
-var activeChordIdx=0;   // the chord we're actually playing
+var stableCount=0;
+var activeChordIdx=0;
+
+// THRUSH: three-note phrases from zero spacings
+var phraseIdx=0;       // which three-group we're on
+var noteInPhrase=0;    // 0,1,2 within the phrase
+var noteTimer=0;       // countdown to next note
+var currentNoteFreq=0;
+var currentNoteDur=0;
 
 function updateAudio(){
   if(!audioCtx)return;
+
+  // THRUSH MELODY: step through zero spacings as three-note phrases
+  noteTimer-=0.016*3; // 3x frame rate for timing
+  if(noteTimer<=0){
+    var sIdx=phraseIdx*3+noteInPhrase;
+    if(sIdx>=spacings.length-1){phraseIdx=0;noteInPhrase=0;sIdx=0;}
+
+    var s=spacings[sIdx];
+    var ms=meanS;
+    currentNoteFreq=220*(ms/s); // inverse: short gap = high pitch
+    currentNoteDur=s*0.12;      // duration from spacing
+    noteTimer=currentNoteDur;
+
+    // Set the FIRST voice pair to the melody note
+    var t2=audioCtx.currentTime;
+    clusterOscs[0].frequency.setTargetAtTime(currentNoteFreq,t2,0.06);
+    clusterOscs[1].frequency.setTargetAtTime(currentNoteFreq,t2,0.06);
+    // Brief volume swell for each note (attack)
+    clusterGains[0].gain.setTargetAtTime(0.18,t2,0.02);
+    clusterGains[0].gain.setTargetAtTime(0.08,t2+0.05,currentNoteDur*0.7);
+
+    noteInPhrase++;
+    if(noteInPhrase>=3){noteInPhrase=0;phraseIdx++;noteTimer+=0.15;} // pause between phrases
+  }
 
   // CHORD FROM K, NOT CLUSTERS
   // K determines the chord. R drives the dynamics.
@@ -355,30 +386,40 @@ function updateAudio(){
   // BREATHING ROOT: 110Hz ± 2% over phi*2pi seconds
   var root=110*(1+Math.sin(t/1.618*0.3)*0.02);
 
-  // THE LEMNISCATE: left ear = loop A chord, right ear = loop B chord
-  var chordA=CHORDS[Math.max(0,Math.min(7,activeChordA))];
-  var chordB=CHORDS[Math.max(0,Math.min(7,activeChordB))];
   var t2=audioCtx.currentTime;
 
-  // Voices 0-3: loop A. Voices 4-7: loop B.
-  for(var i=0;i<4;i++){
-    var d=i*0.12;
-    if(i<chordA.length){
-      var f=root*chordA[i],v=0.2/chordA.length;if(i===0)v*=1.3;
-      clusterOscs[i*2].frequency.setTargetAtTime(f,t2+d,0.4);
-      clusterOscs[i*2+1].frequency.setTargetAtTime(f,t2+d,0.4);
-      clusterGains[i].gain.setTargetAtTime(v,t2+d,0.2);
-    } else {clusterGains[i].gain.setTargetAtTime(0,t2+d,0.3);}
-  }
-  for(var i=4;i<MAX_VOICES;i++){
-    var bi=i-4,d=bi*0.12;
-    if(bi<chordB.length){
-      var f=root*chordB[bi],v=0.2/chordB.length;if(bi===0)v*=1.3;
-      clusterOscs[i*2].frequency.setTargetAtTime(f,t2+d,0.4);
-      clusterOscs[i*2+1].frequency.setTargetAtTime(f,t2+d,0.4);
-      clusterGains[i].gain.setTargetAtTime(v,t2+d,0.2);
-    } else {clusterGains[i].gain.setTargetAtTime(0,t2+d,0.3);}
-  }
+  // Voice 0: the MELODY (thrush) — handled above in noteTimer
+  // Voices 1-3: left drone (loop A root + 5th + octave)
+  // Voices 4-7: right drone (loop B root + 5th + octave, slightly detuned)
+  var droneVol=0.04+R*0.06; // quiet bed, louder with sync
+
+  // Left drone
+  clusterOscs[2].frequency.setTargetAtTime(root,t2,1);
+  clusterOscs[3].frequency.setTargetAtTime(root,t2,1);
+  clusterGains[1].gain.setTargetAtTime(droneVol,t2,0.3);
+
+  clusterOscs[4].frequency.setTargetAtTime(root*3/2,t2,1);
+  clusterOscs[5].frequency.setTargetAtTime(root*3/2,t2,1);
+  clusterGains[2].gain.setTargetAtTime(droneVol*0.7,t2,0.3);
+
+  clusterOscs[6].frequency.setTargetAtTime(root*2,t2,1);
+  clusterOscs[7].frequency.setTargetAtTime(root*2,t2,1);
+  clusterGains[3].gain.setTargetAtTime(droneVol*0.5,t2,0.3);
+
+  // Right drone (slightly different — loop B's natural offset)
+  clusterOscs[8].frequency.setTargetAtTime(root*1.005,t2,1); // 5 cents sharp
+  clusterOscs[9].frequency.setTargetAtTime(root*1.005,t2,1);
+  clusterGains[4].gain.setTargetAtTime(droneVol,t2,0.3);
+
+  clusterOscs[10].frequency.setTargetAtTime(root*3/2*0.998,t2,1);
+  clusterOscs[11].frequency.setTargetAtTime(root*3/2*0.998,t2,1);
+  clusterGains[5].gain.setTargetAtTime(droneVol*0.7,t2,0.3);
+
+  clusterOscs[12].frequency.setTargetAtTime(root*2*1.003,t2,1);
+  clusterOscs[13].frequency.setTargetAtTime(root*2*1.003,t2,1);
+  clusterGains[6].gain.setTargetAtTime(droneVol*0.5,t2,0.3);
+
+  clusterGains[7].gain.setTargetAtTime(0,t2,0.3); // unused voice off
 
   // SUB BASS
   if(subOsc){
