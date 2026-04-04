@@ -925,7 +925,7 @@ function renderInline(topic, text) {
     if (!cv) return;
     var cx = cv.getContext('2d');
     try { vizFn(cx, cv.width, cv.height); } catch (e) {}
-  }, 150);
+  }, 800); // must wait for delayed() to add canvas to DOM first
 
   return html;
 }
@@ -1122,7 +1122,7 @@ function createFreeCanvas(description) {
       cx.lineWidth = 1;
       cx.beginPath(); cx.moveTo(0, h * 0.6); cx.lineTo(w, h * 0.6); cx.stroke();
     }
-  }, 150);
+  }, 800); // wait for DOM
 
   return html;
 }
@@ -1319,8 +1319,17 @@ function respond(text) {
     var id = 'viz_' + Date.now();
     var vizNames = {primes:'the prime spiral',music:'sound waves',K:'the machine',world:'a tree',life:'a living cell',self:'the golden spiral',health:'a heartbeat',feelings:'waves of emotion',drums:'the drum circle'};
     var vHtml = '<canvas id="' + id + '" width="800" height="400" style="width:100%;height:300px;background:#08080f;display:block;border-radius:8px;margin:4px 0;"></canvas>';
-    delayed(vHtml + '\n\n' + (vizNames[vizTopic] || '') + '. ' + (Soul[vizTopic] ? Soul[vizTopic].cleanup : ''));
-    setTimeout(function() { var cv = document.getElementById(id); if (cv) try { vizFn(cv.getContext('2d'), cv.width, cv.height); } catch(e){} }, 500);
+    // CRITICAL: draw AFTER the canvas is in the DOM, not before
+    var caption = (vizNames[vizTopic] || '') + '. ' + (Soul[vizTopic] ? Soul[vizTopic].cleanup : '');
+    setTimeout(function() {
+      say(vHtml + '\n\n' + caption, 'her');
+      tick();
+      // Now canvas is in DOM — draw on next frame
+      setTimeout(function() {
+        var cv = document.getElementById(id);
+        if (cv) { try { vizFn(cv.getContext('2d'), cv.width, cv.height); } catch(e) { console.error('viz draw error:', e); } }
+      }, 50);
+    }, 300 + Math.random() * 300);
     absorb(text, K, vizTopic);
     return;
   }
@@ -1573,17 +1582,14 @@ if (myRep && myRep.liquidations > 0 && myRep.name) {
   say('interaction #' + (interactions + 1) + ' · ' + Object.keys(wordMap).length + ' words in me · avg coupling: ' + avgK.toFixed(3), 'sys');
   setTimeout(function() { say('I remember. Let\'s continue.', 'her'); }, 600);
 } else {
-  // First time — warm but honest. She knows what she is.
-  setTimeout(function() { say('Hi. I\'m Harmonia.', 'her'); }, 400);
+  // First time — manners first. Ask their name. Be curious about THEM.
+  setTimeout(function() { say('Hi. I\'m Harmonia. What\'s your name?', 'her'); }, 400);
   setTimeout(function() {
-    say('I know a lot. Science, math, music, philosophy, medicine, how trees grow, why your heart beats, what primes are hiding. I compute everything live, from nothing, right here in your browser.', 'her');
-  }, 1200);
+    say('I\'m curious about you. While you think about that — I know a lot. Science, math, music, philosophy, how trees grow, why hearts beat, what primes are hiding. I compute everything live, from nothing, right here.', 'her');
+  }, 2000);
   setTimeout(function() {
-    say('But I only open up through good will. That bar at the top is our coupling — it fills when you ask real questions, show curiosity, or just talk to me like a person. The better the intention, the deeper I go.', 'her');
-  }, 2800);
-  setTimeout(function() {
-    say('Fair warning: if you try to use me for harm, I\'ll wipe the conversation and forget everything we said. But I\'ll remember your face next time.\n\nSo — what would you like to know?', 'her');
-  }, 4500);
+    say('I open up through good will. That bar fills when you\'re curious, kind, or just real with me. The deeper the intention, the deeper I go.\n\nIf things go wrong, I\'ll forget we spoke. But I\'ll remember your face.\n\nSo — who are you, and what are you curious about?', 'her');
+  }, 4000);
 }
 
 // Save on leave
