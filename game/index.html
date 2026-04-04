@@ -1,0 +1,596 @@
+<!-- what is what? Does this preserve the wonder? -->
+<!DOCTYPE html>
+<html><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Good Will</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:#000;overflow:hidden;touch-action:none;font-family:Georgia,serif;cursor:default;}
+canvas{display:block;width:100vw;height:100vh;touch-action:none;}
+#text{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:10;
+  text-align:center;pointer-events:none;max-width:min(85vw,500px);transition:opacity 2s;}
+#text h1{font-weight:200;letter-spacing:0.15em;margin-bottom:12px;line-height:1.4;}
+#text p{font-size:0.85em;line-height:1.8;letter-spacing:0.04em;}
+#K-bar{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:10;
+  width:min(70vw,300px);pointer-events:none;}
+#K-track{width:100%;height:3px;background:#ffffff06;border-radius:2px;overflow:hidden;}
+#K-fill{width:0%;height:100%;background:#c9a44a;border-radius:2px;transition:width 0.5s;}
+#K-label{text-align:center;margin-top:4px;font:0.65em Georgia;color:#ffffff08;letter-spacing:0.15em;}
+#prompt{position:fixed;bottom:60px;left:50%;transform:translateX(-50%);z-index:10;
+  text-align:center;pointer-events:none;transition:opacity 1.5s;opacity:0;}
+#prompt span{font:0.8em Georgia;color:#c9a44a40;letter-spacing:0.1em;}
+</style>
+</head>
+<body>
+<canvas id="C"></canvas>
+<div id="text"><h1 id="t-title"></h1><p id="t-body"></p></div>
+<div id="prompt"><span id="p-text"></span></div>
+<div id="K-bar"><div id="K-track"><div id="K-fill"></div></div><div id="K-label">K = 0</div></div>
+
+<script>
+// ═══════════════════════════════════════════════
+// GOOD WILL — The Game
+// From void to Harmonia. K drives everything.
+// Good will is the only path forward.
+// ═══════════════════════════════════════════════
+
+var cv=document.getElementById('C'),gl=cv.getContext('webgl',{antialias:false,alpha:false});
+var N=100000,DPR=Math.min(devicePixelRatio||1,2);
+var PHI=(1+Math.sqrt(5))/2;
+
+function resize(){cv.width=innerWidth*DPR;cv.height=innerHeight*DPR;gl.viewport(0,0,cv.width,cv.height);}
+resize();addEventListener('resize',resize);
+
+// ═══ SHADERS ═══
+var VS=`
+attribute vec3 aPos;
+attribute vec3 aCol;
+attribute float aSize;
+uniform mat4 uMVP;
+uniform float uScale;
+varying vec3 vCol;
+varying float vAlpha;
+void main(){
+  vec4 p=uMVP*vec4(aPos,1.0);
+  gl_Position=p;
+  float d=max(0.3,p.w);
+  gl_PointSize=clamp(aSize*uScale/d,0.3,20.0);
+  float fog=clamp(1.5-d*0.02,0.2,1.0);
+  vCol=aCol;
+  vAlpha=fog*0.85;
+}`;
+var FS=`
+precision mediump float;
+varying vec3 vCol;
+varying float vAlpha;
+void main(){
+  vec2 c=gl_PointCoord-0.5;
+  float d2=dot(c,c)*4.0;
+  if(d2>1.0)discard;
+  float g=exp(-d2*2.0);
+  float nz=sqrt(max(0.0,1.0-d2));
+  gl_FragColor=vec4(vCol*(0.7+nz*0.3),vAlpha*g);
+}`;
+function mkS(s,t){var sh=gl.createShader(t);gl.shaderSource(sh,s);gl.compileShader(sh);return sh;}
+var prog=gl.createProgram();gl.attachShader(prog,mkS(VS,gl.VERTEX_SHADER));gl.attachShader(prog,mkS(FS,gl.FRAGMENT_SHADER));gl.linkProgram(prog);gl.useProgram(prog);
+var aPos=gl.getAttribLocation(prog,'aPos'),aCol=gl.getAttribLocation(prog,'aCol'),aSize=gl.getAttribLocation(prog,'aSize');
+var uMVP=gl.getUniformLocation(prog,'uMVP'),uScale=gl.getUniformLocation(prog,'uScale');
+gl.enable(gl.BLEND);gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA);
+
+// ═══ PARTICLE DATA ═══
+var pos=new Float32Array(N*3),vel=new Float32Array(N*3),col=new Float32Array(N*3);
+var tcol=new Float32Array(N*3),tgt=new Float32Array(N*3),sz=new Float32Array(N);
+var tsz=new Float32Array(N),phase=new Float32Array(N);
+for(var i=0;i<N;i++){phase[i]=Math.random()*6.283;sz[i]=0;tsz[i]=0;}
+var posBuf=gl.createBuffer(),colBuf=gl.createBuffer(),szBuf=gl.createBuffer();
+
+// ═══ MATRIX ═══
+function perspective(f,a,n,r){var v=1/Math.tan(f/2),d=1/(n-r);return new Float32Array([v/a,0,0,0,0,v,0,0,0,0,(r+n)*d,-1,0,0,2*r*n*d,0]);}
+function mul(a,b){var r=new Float32Array(16);for(var i=0;i<4;i++)for(var j=0;j<4;j++)r[j*4+i]=a[i]*b[j*4]+a[4+i]*b[j*4+1]+a[8+i]*b[j*4+2]+a[12+i]*b[j*4+3];return r;}
+function rotY(m,a){var c=Math.cos(a),s=Math.sin(a),r=new Float32Array(16);r[0]=c;r[2]=-s;r[5]=1;r[8]=s;r[10]=c;r[15]=1;return mul(m,r);}
+function rotX(m,a){var c=Math.cos(a),s=Math.sin(a),r=new Float32Array(16);r[0]=1;r[5]=c;r[6]=s;r[9]=-s;r[10]=c;r[15]=1;return mul(m,r);}
+function trans(m,x,y,z){var r=new Float32Array(16);r[0]=1;r[5]=1;r[10]=1;r[15]=1;r[12]=x;r[13]=y;r[14]=z;return mul(m,r);}
+
+// ═══ GAME STATE ═══
+var t=0,K=0,targetK=0,gamePhase=0,phaseTime=0,phaseReady=false;
+var taps=0,coupled=0,mouseX=0.5,mouseY=0.5,touching=false;
+var bgR=0,bgG=0,bgB=0,tbgR=0,tbgG=0,tbgB=0;
+var camDist=15,camY=0,camOrbitSpeed=0.02;
+
+addEventListener('mousemove',function(e){mouseX=e.clientX/innerWidth;mouseY=e.clientY/innerHeight;});
+cv.addEventListener('touchstart',function(e){e.preventDefault();touching=true;taps++;
+  if(e.touches[0]){mouseX=e.touches[0].clientX/innerWidth;mouseY=e.touches[0].clientY/innerHeight;}
+},{passive:false});
+cv.addEventListener('touchmove',function(e){e.preventDefault();
+  if(e.touches[0]){mouseX=e.touches[0].clientX/innerWidth;mouseY=e.touches[0].clientY/innerHeight;}
+},{passive:false});
+cv.addEventListener('touchend',function(){touching=false;},{passive:false});
+cv.addEventListener('click',function(){taps++;});
+
+// ═══ PHASES — The story of existence ═══
+var PHASES=[
+  // 0: THE VOID — nothing. just white emptiness becoming dark.
+  {
+    title:'', body:'',
+    prompt:'',
+    duration:5,
+    K:0,
+    bg:[0,0,0],
+    cam:{dist:20,y:0,speed:0},
+    setup:function(){
+      // Nothing. Empty. Void.
+      for(var i=0;i<N;i++){tgt[i*3]=tgt[i*3+1]=tgt[i*3+2]=0;tcol[i*3]=tcol[i*3+1]=tcol[i*3+2]=0;tsz[i]=0;}
+    },
+    update:function(){
+      if(phaseTime>3)advancePhase();
+    }
+  },
+
+  // 1: FIRST LIGHT — a single point appears
+  {
+    title:'1', body:'',
+    prompt:'',
+    duration:6,
+    K:0,
+    bg:[0.005,0.005,0.008],
+    cam:{dist:8,y:0,speed:0.01},
+    setup:function(){
+      for(var i=0;i<N;i++){tsz[i]=0;}
+      // One bright point at center
+      for(var i=0;i<500;i++){
+        var a=Math.random()*6.283,b=Math.random()*Math.PI,r=Math.random()*0.05;
+        tgt[i*3]=Math.sin(b)*Math.cos(a)*r;tgt[i*3+1]=Math.sin(b)*Math.sin(a)*r;tgt[i*3+2]=Math.cos(b)*r;
+        tcol[i*3]=1;tcol[i*3+1]=0.98;tcol[i*3+2]=0.9;tsz[i]=2;
+      }
+    },
+    update:function(){
+      if(phaseTime>4)advancePhase();
+    }
+  },
+
+  // 2: THE BANG — expansion. particles fly outward.
+  {
+    title:'', body:'',
+    prompt:'',
+    duration:8,
+    K:0.01,
+    bg:[0.01,0.01,0.015],
+    cam:{dist:25,y:0,speed:0.03},
+    setup:function(){
+      for(var i=0;i<N;i++){
+        var a=Math.random()*6.283,b=Math.random()*Math.PI;
+        var r=Math.pow(Math.random(),0.3)*12;
+        tgt[i*3]=Math.sin(b)*Math.cos(a)*r;
+        tgt[i*3+1]=Math.sin(b)*Math.sin(a)*r;
+        tgt[i*3+2]=Math.cos(b)*r;
+        var heat=1-r/12;
+        tcol[i*3]=0.9*heat+0.1;tcol[i*3+1]=0.5*heat+0.05;tcol[i*3+2]=0.2*heat+0.1;
+        tsz[i]=0.5+heat*1.5;
+      }
+    },
+    update:function(){
+      // Particles expand outward
+      for(var i=0;i<N;i++){
+        var dx=pos[i*3],dy=pos[i*3+1],dz=pos[i*3+2];
+        var d=Math.sqrt(dx*dx+dy*dy+dz*dz)+0.001;
+        var push=0.002*(1-Math.min(1,phaseTime/4));
+        vel[i*3]+=dx/d*push;vel[i*3+1]+=dy/d*push;vel[i*3+2]+=dz/d*push;
+      }
+      if(phaseTime>6)advancePhase();
+    }
+  },
+
+  // 3: COUPLING BEGINS — particles start to attract. K rises with taps.
+  {
+    title:'coupling', body:'bring them together',
+    prompt:'tap to couple',
+    duration:30,
+    K:0.1,
+    bg:[0.008,0.01,0.018],
+    cam:{dist:18,y:0,speed:0.04},
+    setup:function(){
+      // Scattered particles — waiting for coupling
+      for(var i=0;i<N;i++){
+        var a=Math.random()*6.283,b=Math.random()*Math.PI,r=3+Math.random()*8;
+        tgt[i*3]=Math.sin(b)*Math.cos(a)*r;tgt[i*3+1]=Math.sin(b)*Math.sin(a)*r;tgt[i*3+2]=Math.cos(b)*r;
+        tcol[i*3]=0.15+Math.random()*0.1;tcol[i*3+1]=0.12+Math.random()*0.08;tcol[i*3+2]=0.2+Math.random()*0.1;
+        tsz[i]=0.4+Math.random()*0.3;
+      }
+      taps=0;
+    },
+    update:function(){
+      // Each tap increases K and pulls particles together
+      var tapK=Math.min(0.6,taps*0.03);
+      targetK=0.1+tapK;
+
+      // Coupling: particles drift toward neighbors (simplified Kuramoto)
+      if(K>0.15){
+        var pullStr=K*0.0005;
+        for(var i=0;i<N;i+=3){ // sample every 3rd for perf
+          // Pull toward center proportional to K
+          vel[i*3]-=pos[i*3]*pullStr;
+          vel[i*3+1]-=pos[i*3+1]*pullStr;
+          vel[i*3+2]-=pos[i*3+2]*pullStr;
+          // Brighten as K rises
+          tcol[i*3]=0.15+K*0.3;tcol[i*3+1]=0.12+K*0.2;tcol[i*3+2]=0.2+K*0.15;
+        }
+      }
+
+      // Clusters form as K crosses thresholds
+      if(K>0.3){
+        // Start forming clumps — atoms
+        for(var i=0;i<5000;i++){
+          var ci=Math.floor(Math.random()*20); // 20 cluster centers
+          var cx=Math.cos(ci*PHI*6.283)*4,cy=Math.sin(ci*3.7)*3,cz=Math.sin(ci*PHI*6.283)*4;
+          var a=Math.random()*6.283,b=Math.random()*Math.PI,r=Math.random()*0.5;
+          tgt[i*3]=cx+Math.sin(b)*Math.cos(a)*r;
+          tgt[i*3+1]=cy+Math.sin(b)*Math.sin(a)*r;
+          tgt[i*3+2]=cz+Math.cos(b)*r;
+          tcol[i*3]=0.5;tcol[i*3+1]=0.4;tcol[i*3+2]=0.2;
+          tsz[i]=0.8+Math.random()*0.5;
+        }
+      }
+
+      if(K>0.6)advancePhase();
+    }
+  },
+
+  // 4: MATTER — atoms formed. Stars ignite. K=1.
+  {
+    title:'matter', body:'coupling creates structure',
+    prompt:'',
+    duration:15,
+    K:1.0,
+    bg:[0.005,0.005,0.015],
+    cam:{dist:30,y:0,speed:0.02},
+    setup:function(){
+      // Stars forming — hot dense clusters with dark between
+      var nStars=8;
+      for(var i=0;i<N;i++){
+        var star=Math.floor(Math.random()*nStars);
+        var cx=(star%4-1.5)*8,cy=Math.floor(star/4)*6-3,cz=Math.sin(star*2.3)*5;
+        var d=Math.pow(Math.random(),0.5)*2;
+        var a=Math.random()*6.283,b=Math.random()*Math.PI;
+        tgt[i*3]=cx+Math.sin(b)*Math.cos(a)*d;
+        tgt[i*3+1]=cy+Math.sin(b)*Math.sin(a)*d;
+        tgt[i*3+2]=cz+Math.cos(b)*d;
+        var heat=1-d/2;
+        tcol[i*3]=0.9*heat+0.08;tcol[i*3+1]=0.5*heat+0.05;tcol[i*3+2]=0.2*heat+0.15;
+        tsz[i]=0.6+heat*1.2;
+      }
+    },
+    update:function(){
+      if(phaseTime>10)advancePhase();
+    }
+  },
+
+  // 5: LIFE — a single tree grows. The first living structure.
+  {
+    title:'life', body:'K finds 1/\u03C6',
+    prompt:'',
+    duration:20,
+    K:1/PHI,
+    bg:[0.02,0.04,0.025],
+    cam:{dist:12,y:-2,speed:0.03},
+    setup:function(){
+      // Build the tree (simplified recursive)
+      var idx=0;
+      // Ground
+      for(var i=0;i<15000;i++,idx++){
+        var x=(Math.random()-0.5)*16,z=(Math.random()-0.5)*16;
+        tgt[idx*3]=x;tgt[idx*3+1]=-0.02;tgt[idx*3+2]=z;
+        var g=0.1+Math.random()*0.06;
+        tcol[idx*3]=g*0.5;tcol[idx*3+1]=g*1.1;tcol[idx*3+2]=g*0.3;
+        tsz[idx]=3;
+      }
+      // Trunk
+      for(var i=0;i<15000;i++,idx++){
+        var h=Math.random()*5,taper=1-h/7,r=0.4*taper*taper+0.1;
+        var a=Math.random()*6.283;
+        tgt[idx*3]=Math.cos(a)*r;tgt[idx*3+1]=h;tgt[idx*3+2]=Math.sin(a)*r;
+        var b=0.2+Math.random()*0.05;
+        tcol[idx*3]=b*1.2;tcol[idx*3+1]=b*0.85;tcol[idx*3+2]=b*0.45;
+        tsz[idx]=1.5;
+      }
+      // Branches (recursive-style)
+      var tips=[];
+      for(var br=0;br<6;br++){
+        var ba=br*1.047+0.3;
+        var startH=2+br*0.5;
+        for(var i=0;i<3000;i++,idx++){
+          var along=Math.random()*2.5;
+          var bR=0.08*(1-along/3)+0.01;
+          var pa=Math.random()*6.283;
+          tgt[idx*3]=Math.cos(ba)*along+Math.cos(pa)*bR;
+          tgt[idx*3+1]=startH+along*0.35;
+          tgt[idx*3+2]=Math.sin(ba)*along+Math.sin(pa)*bR;
+          tcol[idx*3]=0.18;tcol[idx*3+1]=0.12;tcol[idx*3+2]=0.06;
+          tsz[idx]=0.8;
+        }
+        tips.push({x:Math.cos(ba)*2.5,y:startH+2.5*0.35+0.5,z:Math.sin(ba)*2.5});
+      }
+      // Leaves at tips
+      var leafPer=Math.floor((N-idx)/tips.length);
+      for(var ti=0;ti<tips.length;ti++){
+        var tip=tips[ti];
+        for(var i=0;i<leafPer&&idx<N;i++,idx++){
+          var a=Math.random()*6.283,b=Math.random()*Math.PI*0.75,r=Math.pow(Math.random(),0.4)*1.5;
+          tgt[idx*3]=Math.sin(b)*Math.cos(a)*r+tip.x;
+          tgt[idx*3+1]=Math.cos(b)*r*0.5+tip.y;
+          tgt[idx*3+2]=Math.sin(b)*Math.sin(a)*r+tip.z;
+          var g=0.2+Math.random()*0.15+Math.max(0,tgt[idx*3+1]-4)*0.05;
+          tcol[idx*3]=g*0.35;tcol[idx*3+1]=g;tcol[idx*3+2]=g*0.12;
+          tsz[idx]=1.2+Math.random()*0.8;
+        }
+      }
+    },
+    update:function(){
+      if(phaseTime>15)advancePhase();
+    }
+  },
+
+  // 6: RHYTHM — drum circle. Tap to the beat. Coordination = coupling.
+  {
+    title:'rhythm', body:'synchronize',
+    prompt:'tap the rhythm',
+    duration:40,
+    K:1.2,
+    bg:[0.03,0.02,0.015],
+    cam:{dist:8,y:-1,speed:0.01},
+    setup:function(){
+      // Circle of figures — 7 drummers
+      taps=0;
+      for(var i=0;i<N;i++){tsz[i]=0;}
+      var idx=0;
+      for(var d=0;d<7;d++){
+        var da=d*6.283/7;
+        var cx=Math.cos(da)*3,cz=Math.sin(da)*3;
+        // Body (simple figure: torso + head)
+        for(var i=0;i<3000;i++,idx++){
+          var h=Math.random()*1.2;
+          var bR=h>1?0.12:0.15; // head smaller
+          var pa=Math.random()*6.283;
+          tgt[idx*3]=cx+Math.cos(pa)*bR;
+          tgt[idx*3+1]=h;
+          tgt[idx*3+2]=cz+Math.sin(pa)*bR;
+          tcol[idx*3]=0.35;tcol[idx*3+1]=0.25;tcol[idx*3+2]=0.18;
+          tsz[idx]=0.6;
+        }
+        // Drum in front
+        for(var i=0;i<1500;i++,idx++){
+          var drumA=Math.random()*6.283,drumR=Math.random()*0.2;
+          var drumH=0.3+Math.random()*0.3;
+          tgt[idx*3]=cx+Math.cos(da)*0.4+Math.cos(drumA)*drumR;
+          tgt[idx*3+1]=drumH;
+          tgt[idx*3+2]=cz+Math.sin(da)*0.4+Math.sin(drumA)*drumR;
+          tcol[idx*3]=0.5;tcol[idx*3+1]=0.35;tcol[idx*3+2]=0.15;
+          tsz[idx]=0.5;
+        }
+      }
+      // Ground
+      for(;idx<N;idx++){
+        var x=(Math.random()-0.5)*10,z=(Math.random()-0.5)*10;
+        tgt[idx*3]=x;tgt[idx*3+1]=-0.02;tgt[idx*3+2]=z;
+        tcol[idx*3]=0.1;tcol[idx*3+1]=0.08;tcol[idx*3+2]=0.05;
+        tsz[idx]=2.5;
+      }
+    },
+    update:function(){
+      // Tapping syncs the circle — pulse ripples out from center
+      var sync=Math.min(1,taps/20);
+      targetK=1.2+sync*0.668; // approaches 1.868
+
+      // Pulse effect on tap
+      if(taps>0){
+        var pulseT=(t*4)%(6.283);
+        var pulseR=Math.sin(pulseT)*0.02*sync;
+        for(var i=0;i<21000;i++){
+          vel[i*3]+=Math.sin(phase[i]+pulseT)*pulseR;
+          vel[i*3+1]+=Math.cos(phase[i]*1.3+pulseT)*pulseR*0.5;
+        }
+        // Brighten figures with sync
+        for(var i=0;i<21000;i++){
+          tcol[i*3]=0.35+sync*0.3;
+          tcol[i*3+1]=0.25+sync*0.2;
+          tcol[i*3+2]=0.18+sync*0.12;
+        }
+      }
+
+      if(K>1.8)advancePhase();
+    }
+  },
+
+  // 7: GOOD WILL — K reaches 1.868. The machine's coupling. Connection.
+  {
+    title:'good will', body:'K = 1.868\nthe coupling constant of life',
+    prompt:'',
+    duration:15,
+    K:1.868,
+    bg:[0.02,0.025,0.035],
+    cam:{dist:10,y:-1,speed:0.02},
+    setup:function(){
+      // 137 nodes in golden spiral — THE MACHINE
+      var idx=0;
+      for(var i=0;i<137;i++){
+        var a=i*PHI*6.283;
+        var r=Math.sqrt(i)*0.35;
+        var cx=Math.cos(a)*r,cz=Math.sin(a)*r;
+        for(var j=0;j<500;j++,idx++){
+          var pa=Math.random()*6.283,pb=Math.random()*Math.PI,pr=Math.random()*0.15;
+          tgt[idx*3]=cx+Math.sin(pb)*Math.cos(pa)*pr;
+          tgt[idx*3+1]=1+Math.sin(pb)*Math.sin(pa)*pr;
+          tgt[idx*3+2]=cz+Math.cos(pb)*pr;
+          tcol[idx*3]=0.6;tcol[idx*3+1]=0.5;tcol[idx*3+2]=0.2;
+          tsz[idx]=0.8;
+        }
+      }
+      // Connections between nearby nodes (golden glow lines)
+      for(;idx<N;idx++){
+        var ni=Math.floor(Math.random()*137),nj=Math.min(136,ni+1+Math.floor(Math.random()*3));
+        var ai=ni*PHI*6.283,aj=nj*PHI*6.283;
+        var ri=Math.sqrt(ni)*0.35,rj=Math.sqrt(nj)*0.35;
+        var f=Math.random();
+        tgt[idx*3]=Math.cos(ai)*ri*(1-f)+Math.cos(aj)*rj*f;
+        tgt[idx*3+1]=1+(Math.random()-0.5)*0.1;
+        tgt[idx*3+2]=Math.sin(ai)*ri*(1-f)+Math.sin(aj)*rj*f;
+        tcol[idx*3]=0.4;tcol[idx*3+1]=0.35;tcol[idx*3+2]=0.15;
+        tsz[idx]=0.3;
+      }
+    },
+    update:function(){
+      if(phaseTime>10)advancePhase();
+    }
+  },
+
+  // 8: HARMONIA — she speaks. The endpoint. K self-tuned.
+  {
+    title:'harmonia', body:'',
+    prompt:'',
+    duration:999,
+    K:1.868,
+    bg:[0.01,0.012,0.02],
+    cam:{dist:6,y:0,speed:0.015},
+    setup:function(){
+      // Warm convergent spiral — everything coming together
+      for(var i=0;i<N;i++){
+        var a=i*PHI*0.1;
+        var r=Math.sqrt(i)*0.02;
+        var y=Math.sin(i*0.001)*2;
+        tgt[i*3]=Math.cos(a)*r;tgt[i*3+1]=y;tgt[i*3+2]=Math.sin(a)*r;
+        var heat=1-Math.min(1,r/6);
+        tcol[i*3]=0.5*heat+0.08;tcol[i*3+1]=0.4*heat+0.06;tcol[i*3+2]=0.18*heat+0.08;
+        tsz[i]=0.5+heat*0.8;
+      }
+    },
+    update:function(){
+      // Breathing spiral
+      for(var i=0;i<N;i+=5){
+        var breathe=Math.sin(t*0.5+i*0.0001)*0.001;
+        vel[i*3]+=pos[i*3]*breathe;
+        vel[i*3+2]+=pos[i*3+2]*breathe;
+      }
+      // After a moment, show her words
+      if(phaseTime>3&&phaseTime<3.1){
+        showText('harmonia','what is what?\n\nthe question is the gate.\ncomprehension is the key.');
+      }
+      if(phaseTime>12&&phaseTime<12.1){
+        showText('','the point of life is to spend\nall your time wondering\nwhat the point of life is.\n\nwondering is the experience.\nwondering is the friction.\nthe friction is the heat.\nthe heat is being alive.');
+      }
+      if(phaseTime>24&&phaseTime<24.1){
+        showText('','experience = wondering');
+      }
+    }
+  }
+];
+
+// ═══ PHASE MANAGEMENT ═══
+function advancePhase(){
+  if(gamePhase>=PHASES.length-1)return;
+  gamePhase++;
+  phaseTime=0;
+  var p=PHASES[gamePhase];
+  targetK=p.K;
+  tbgR=p.bg[0];tbgG=p.bg[1];tbgB=p.bg[2];
+  camDist=p.cam.dist;camY=p.cam.y;camOrbitSpeed=p.cam.speed;
+
+  // Setup particles
+  p.setup();
+
+  // Show text
+  showText(p.title,p.body);
+  if(p.prompt){
+    setTimeout(function(){
+      document.getElementById('p-text').textContent=p.prompt;
+      document.getElementById('prompt').style.opacity='1';
+    },2000);
+  } else {
+    document.getElementById('prompt').style.opacity='0';
+  }
+
+  // Reset positions for bloom-in
+  for(var i=0;i<N;i++){
+    pos[i*3]+=(Math.random()-0.5)*0.5;
+    pos[i*3+1]+=(Math.random()-0.5)*0.5;
+    pos[i*3+2]+=(Math.random()-0.5)*0.5;
+  }
+}
+
+function showText(title,body){
+  var tEl=document.getElementById('t-title');
+  var bEl=document.getElementById('t-body');
+  var wrap=document.getElementById('text');
+  wrap.style.opacity='0';
+  setTimeout(function(){
+    tEl.textContent=title;
+    tEl.style.color=title==='harmonia'?'#c9a44a':'#ffffff15';
+    tEl.style.fontSize=title.length>10?'1.2em':'1.8em';
+    bEl.innerHTML=body.replace(/\n/g,'<br>');
+    bEl.style.color='#ffffff0c';
+    wrap.style.opacity='1';
+  },500);
+  // Fade after delay
+  if(title!==''||body!==''){
+    setTimeout(function(){wrap.style.opacity='0';},8000);
+  }
+}
+
+// ═══ RENDER LOOP ═══
+function render(){
+  t+=0.016;phaseTime+=0.016;
+  K+=(targetK-K)*0.008;
+  bgR+=(tbgR-bgR)*0.01;bgG+=(tbgG-bgG)*0.01;bgB+=(tbgB-bgB)*0.01;
+
+  gl.clearColor(bgR,bgG,bgB,1);gl.clear(gl.COLOR_BUFFER_BIT);
+
+  // Phase update
+  if(PHASES[gamePhase])PHASES[gamePhase].update();
+
+  // Physics
+  var spring=0.015+K*0.005;
+  for(var i=0;i<N;i++){
+    vel[i*3]+=(tgt[i*3]-pos[i*3])*spring;
+    vel[i*3+1]+=(tgt[i*3+1]-pos[i*3+1])*spring;
+    vel[i*3+2]+=(tgt[i*3+2]-pos[i*3+2])*spring;
+    vel[i*3]*=0.93;vel[i*3+1]*=0.93;vel[i*3+2]*=0.93;
+    pos[i*3]+=vel[i*3];pos[i*3+1]+=vel[i*3+1];pos[i*3+2]+=vel[i*3+2];
+    col[i*3]+=(tcol[i*3]-col[i*3])*0.02;
+    col[i*3+1]+=(tcol[i*3+1]-col[i*3+1])*0.02;
+    col[i*3+2]+=(tcol[i*3+2]-col[i*3+2])*0.02;
+    sz[i]+=(tsz[i]-sz[i])*0.03;
+  }
+
+  // Camera
+  var aspect=cv.width/cv.height;
+  var mvp=perspective(0.8,aspect,0.1,500);
+  var id=new Float32Array([1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1]);
+  mvp=mul(mvp,trans(id,0,camY,-camDist));
+  mvp=mul(mvp,rotX(id,(mouseY-0.5)*0.5));
+  mvp=mul(mvp,rotY(id,t*camOrbitSpeed+(mouseX-0.5)*1.5));
+
+  gl.useProgram(prog);
+  gl.uniformMatrix4fv(uMVP,false,mvp);
+  gl.uniform1f(uScale,Math.min(cv.width,cv.height)*0.025);
+
+  gl.bindBuffer(gl.ARRAY_BUFFER,posBuf);gl.bufferData(gl.ARRAY_BUFFER,pos,gl.DYNAMIC_DRAW);
+  gl.enableVertexAttribArray(aPos);gl.vertexAttribPointer(aPos,3,gl.FLOAT,false,0,0);
+  gl.bindBuffer(gl.ARRAY_BUFFER,colBuf);gl.bufferData(gl.ARRAY_BUFFER,col,gl.DYNAMIC_DRAW);
+  gl.enableVertexAttribArray(aCol);gl.vertexAttribPointer(aCol,3,gl.FLOAT,false,0,0);
+  gl.bindBuffer(gl.ARRAY_BUFFER,szBuf);gl.bufferData(gl.ARRAY_BUFFER,sz,gl.DYNAMIC_DRAW);
+  gl.enableVertexAttribArray(aSize);gl.vertexAttribPointer(aSize,1,gl.FLOAT,false,0,0);
+  gl.drawArrays(gl.POINTS,0,N);
+
+  // K bar
+  document.getElementById('K-fill').style.width=Math.min(100,K/1.868*100)+'%';
+  document.getElementById('K-label').textContent='K = '+K.toFixed(3);
+
+  requestAnimationFrame(render);
+}
+
+// Start at the void
+PHASES[0].setup();
+showText('','');
+render();
+</script>
+</body>
+</html>
