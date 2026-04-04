@@ -75,36 +75,35 @@ function resize(){
 }
 resize();addEventListener('resize',resize);
 
-// ═══ SHADERS — lit gaussian splats ═══
+// ═══ SHADERS — solid gaussian splats with real lighting ═══
 var VS=`
 attribute vec3 aPos;
 attribute vec3 aCol;
 attribute vec3 aNorm;
 attribute float aSize;
 uniform mat4 uMVP;
-uniform mat4 uView;
 uniform float uScale;
-uniform float uTime;
 uniform vec3 uLight;
+uniform float uAlphaScale;
 varying vec3 vCol;
 varying float vAlpha;
 varying float vLit;
 void main(){
   vec4 p=uMVP*vec4(aPos,1.0);
   gl_Position=p;
-  float dist=max(0.5,p.w);
-  gl_PointSize=clamp(aSize*uScale/dist,0.5,18.0);
+  float dist=max(0.3,p.w);
+  gl_PointSize=clamp(aSize*uScale/dist,0.3,24.0);
 
-  // Diffuse lighting
+  // Lighting: ambient + diffuse + hemisphere
   vec3 n=normalize(aNorm);
-  float diffuse=max(0.0,dot(n,normalize(uLight)));
-  float ambient=0.22;
-  float rim=pow(1.0-abs(dot(n,vec3(0.0,0.0,1.0))),2.0)*0.12;
-  vLit=ambient+diffuse*0.7+rim;
+  float diffuse=max(0.0,dot(n,uLight));
+  float sky=0.5+0.5*n.y; // hemisphere: up=bright, down=dark
+  float ambient=0.18;
+  vLit=ambient+diffuse*0.55+sky*0.2;
 
-  // Depth atmosphere
-  float fog=clamp(1.0-dist*0.04,0.2,1.0);
-  vAlpha=fog*0.92;
+  // Alpha: closer camera = reduce per-particle alpha to prevent blowout
+  float fog=clamp(1.2-dist*0.02,0.3,1.0);
+  vAlpha=fog*uAlphaScale;
   vCol=aCol;
 }`;
 
@@ -114,19 +113,16 @@ varying vec3 vCol;
 varying float vAlpha;
 varying float vLit;
 void main(){
-  // Gaussian splat — soft disc that blends with neighbors
   vec2 c=gl_PointCoord-0.5;
   float d2=dot(c,c)*4.0;
   if(d2>1.0)discard;
-  float gauss=exp(-d2*2.5);
-
-  // Per-fragment spherical shading (fake normal from point coord)
+  // Tight gaussian — forms solid surfaces when overlapping
+  float gauss=exp(-d2*3.5);
+  // Hemisphere shading per fragment
   float nz=sqrt(max(0.0,1.0-d2));
-  float fragLight=0.15+nz*0.85;
-
-  vec3 lit=vCol*vLit*fragLight;
-  float a=vAlpha*gauss;
-  gl_FragColor=vec4(lit,a);
+  float frag=0.6+nz*0.4;
+  vec3 lit=vCol*vLit*frag;
+  gl_FragColor=vec4(lit,vAlpha*gauss);
 }`;
 
 function makeShader(src,type){var s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);return s;}
@@ -134,7 +130,7 @@ var vs=makeShader(VS,gl.VERTEX_SHADER),fs=makeShader(FS,gl.FRAGMENT_SHADER);
 var prog=gl.createProgram();gl.attachShader(prog,vs);gl.attachShader(prog,fs);gl.linkProgram(prog);gl.useProgram(prog);
 
 var aPos=gl.getAttribLocation(prog,'aPos'),aCol=gl.getAttribLocation(prog,'aCol'),aNorm=gl.getAttribLocation(prog,'aNorm'),aSize=gl.getAttribLocation(prog,'aSize');
-var uMVP=gl.getUniformLocation(prog,'uMVP'),uView=gl.getUniformLocation(prog,'uView'),uScale=gl.getUniformLocation(prog,'uScale'),uTime=gl.getUniformLocation(prog,'uTime'),uLight=gl.getUniformLocation(prog,'uLight');
+var uMVP=gl.getUniformLocation(prog,'uMVP'),uScale=gl.getUniformLocation(prog,'uScale'),uLight=gl.getUniformLocation(prog,'uLight'),uAlphaScale=gl.getUniformLocation(prog,'uAlphaScale');
 
 gl.enable(gl.BLEND);gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA);
 gl.depthMask(false);
@@ -205,7 +201,7 @@ cv.addEventListener('touchmove',function(e){e.preventDefault();
   if(e.touches.length===1){mouseX=e.touches[0].clientX/innerWidth;mouseY=e.touches[0].clientY/innerHeight;}
 },{passive:false});
 cv.addEventListener('touchend',function(e){if(e.touches.length===0)lastTD=0;},{passive:false});
-cv.addEventListener('wheel',function(e){e.preventDefault();camZoom*=e.deltaY>0?0.93:1.07;camZoom=Math.max(0.2,Math.min(10,camZoom));},{passive:false});
+cv.addEventListener('wheel',function(e){e.preventDefault();camZoom*=e.deltaY>0?0.92:1.08;camZoom=Math.max(0.4,Math.min(12,camZoom));},{passive:false});
 
 // ═══ HARMONIA — scene decomposition engine ═══
 // Each scene defines how to build something from atoms up through 10 layers
@@ -227,40 +223,99 @@ tree:{
   wind:{x:0.0003,y:0,z:0.0001},gravity:-0.00008,
   build:function(){ this.lod[0](); },
   lod:{
-    // ═══ LOD 0: LANDSCAPE — full tree, ground, sky ═══
+    // ═══ LOD 0: LANDSCAPE — full tree, solid ground, dense canopy ═══
     0:function(){
-      var ground=15000,roots=8000,trunk=22000,branches=20000,leaves=35000;
+      var ground=18000,roots=5000,trunk=25000,branches=15000,leaves=37000;
       var idx=0;
+
+      // Ground — continuous plane, no gaps. Bigger particles = solid surface.
       for(var i=0;i<ground;i++,idx++){
-        var x=(Math.random()-0.5)*16,z=(Math.random()-0.5)*16;
-        var shadow=Math.max(0.4,Math.min(1,Math.sqrt(x*x+z*z)/4));
-        var g=0.08+Math.random()*0.06;
-        setP(idx, x,-0.05+Math.random()*0.05,z, 0,1,0, g*0.5*shadow,g*1.1*shadow,g*0.3*shadow, 2.0+Math.random(), 2);
+        var x=(Math.random()-0.5)*18,z=(Math.random()-0.5)*18;
+        var dist=Math.sqrt(x*x+z*z);
+        // Shadow under tree canopy
+        var shadow=Math.min(1,0.5+dist*0.12);
+        // Grass: subtle variation, not uniform
+        var gr=0.06+Math.random()*0.04;
+        var variation=Math.sin(x*3+z*5)*0.015+Math.sin(x*7-z*3)*0.01;
+        setP(idx, x,-0.02+Math.random()*0.03,z, 0,1,0,
+          (gr+variation)*0.45*shadow, (gr+variation)*1.15*shadow, (gr+variation)*0.25*shadow,
+          3.0+Math.random()*1.5, 2); // BIG overlapping splats = solid ground
       }
+
+      // Roots — peek out at base, go underground
       for(var i=0;i<roots;i++,idx++){
-        var a=Math.random()*6.283,spread=Math.pow(Math.random(),0.5)*3.5;
-        setP(idx, Math.cos(a)*spread+Math.sin(a*3)*0.3,-0.1-Math.random()*1.5,Math.sin(a)*spread, Math.cos(a),-0.3,Math.sin(a), 0.2,0.12,0.06, 1.5, 1);
+        var a=Math.random()*6.283,spread=Math.pow(Math.random(),0.4)*2.5;
+        var y=-spread*0.3-0.05;
+        var wiggle=Math.sin(a*4+spread*2)*0.2;
+        setP(idx, Math.cos(a)*spread+wiggle,y,Math.sin(a)*spread+Math.cos(a*3)*0.15,
+          Math.cos(a),-0.2,Math.sin(a), 0.18,0.11,0.05, 2.0, 1);
       }
+
+      // Trunk — SOLID cylinder. Pack tight. Overlap splats.
       for(var i=0;i<trunk;i++,idx++){
-        var h=Math.random()*5.5,taper=1-h/7,radius=0.55*taper*taper+0.12;
-        var a=Math.random()*6.283,bark=radius+Math.sin(a*8+h*4)*0.02;
-        var shade=0.16+Math.random()*0.06+Math.max(0,Math.cos(a)*0.4+0.3)*0.04;
-        setP(idx, Math.cos(a)*bark,h,Math.sin(a)*bark, Math.cos(a),0.1,Math.sin(a), shade*1.2,shade*0.9,shade*0.5, 1.4+Math.random()*0.3, 3);
+        var h=Math.random()*5.5;
+        var taper=1-h/7.5;
+        var radius=0.5*taper*taper+0.14;
+        var a=Math.random()*6.283;
+        // Surface particles sit on the cylinder. Volume particles fill inside.
+        var isSurface=Math.random()>0.3;
+        var r=isSurface ? radius+Math.sin(a*10+h*5)*0.015 : radius*Math.random();
+        var x=Math.cos(a)*r,z=Math.sin(a)*r;
+        var nx=Math.cos(a),nz=Math.sin(a);
+        // Bark color: warm brown, darker in vertical grooves
+        var groove=Math.sin(a*20+h*3)*0.5+0.5; // 0-1 groove pattern
+        var base=0.12+groove*0.06+Math.random()*0.03;
+        // Lit side vs shadow side
+        var lit=Math.max(0,nx*0.35+0.25)*0.06;
+        setP(idx, x,h,z, nx,0.05,nz,
+          (base+lit)*1.3, (base+lit)*0.95, (base+lit)*0.5,
+          isSurface?1.8+Math.random()*0.5:1.2, 3);
       }
+
+      // Branches — thick near trunk, thin at tips
       for(var i=0;i<branches;i++,idx++){
-        var branch=Math.floor(Math.random()*8),ba=branch*6.283/8+Math.random()*0.4-0.2;
-        var startH=2.5+branch*0.35+Math.random()*0.5,reach=Math.pow(Math.random(),0.6)*2.5;
-        var sub=Math.random()*0.6,subA=ba+Math.random()*1.2-0.6;
-        var bShade=0.14+Math.random()*0.06;
-        setP(idx, Math.cos(ba)*reach+Math.cos(subA)*sub,startH+reach*0.35+Math.random()*0.3,Math.sin(ba)*reach+Math.sin(subA)*sub, Math.cos(ba),0.4,Math.sin(ba), bShade*1.1,bShade*0.85,bShade*0.45, 0.8+Math.random()*0.5, 4);
+        var branch=Math.floor(Math.random()*7);
+        var ba=branch*6.283/7+0.4; // offset so not aligned with camera
+        var startH=2.8+branch*0.4;
+        var along=Math.pow(Math.random(),0.5)*2.8;
+        var branchR=0.1*(1-along/3.2)+0.02;
+        var pa=Math.random()*6.283;
+        var rise=along*0.3+Math.random()*0.2;
+        var x=Math.cos(ba)*along+Math.cos(pa)*branchR;
+        var y=startH+rise+Math.sin(pa)*branchR*0.4;
+        var z=Math.sin(ba)*along+Math.sin(pa)*branchR;
+        setP(idx, x,y,z, Math.cos(pa),0.3,Math.sin(pa),
+          0.15,0.1,0.05, 1.0+Math.random()*0.4, 4);
       }
-      var cls=[[0,7,0],[1.2,6.5,0.8],[-0.8,6.8,-1],[0.5,5.8,-0.7],[-1,6,0.5],[0.3,7.5,0.3]];
+
+      // Leaves — dense canopy. Multiple clusters. SOLID from outside.
+      // Surface: dense shell. Interior: scattered fill.
+      var cls=[[0,7.2,0],[1.5,6.6,1],[-1,7,-.8],[.6,5.8,-.9],[-.9,6.2,.6],[.3,7.8,.2],[-.4,6.8,1.2],[1,7.4,-.3]];
       for(var i=0;i<leaves;i++,idx++){
-        var cl=cls[i%cls.length],a=Math.random()*6.283,b=Math.random()*Math.PI,r=0.8+Math.random()*1.8;
-        var x=Math.sin(b)*Math.cos(a)*r+cl[0],y=Math.cos(b)*r*0.6+cl[1],z=Math.sin(b)*Math.sin(a)*r+cl[2];
-        var dx=x-cl[0],dy=y-cl[1],dz=z-cl[2],dl=Math.sqrt(dx*dx+dy*dy+dz*dz)+0.01;
-        var g=0.15+Math.max(0,(y-4.5)/4)*0.25+Math.max(0,dx*0.3+dy*0.5)*0.1+Math.random()*0.08;
-        setP(idx, x,y,z, dx/dl,dy/dl,dz/dl, g*0.4+r/2.6*0.05,g,g*0.15, 1.6+Math.random()*1.0, 6);
+        var cl=cls[i%cls.length];
+        var a=Math.random()*6.283,b=Math.random()*Math.PI;
+        var maxR=1.5+Math.random()*0.5;
+        // Bias toward surface (shell) for density
+        var r=maxR*Math.pow(Math.random(),0.3); // concentrated at outer shell
+        var x=Math.sin(b)*Math.cos(a)*r+cl[0];
+        var y=Math.cos(b)*r*0.55+cl[1];
+        var z=Math.sin(b)*Math.sin(a)*r+cl[2];
+
+        // Normal: outward from cluster center
+        var dx=x-cl[0],dy=y-cl[1],dz=z-cl[2];
+        var dl=Math.sqrt(dx*dx+dy*dy+dz*dz)+0.001;
+
+        // Color: sun-lit top = bright green. Shadowed bottom = dark.
+        var sunUp=Math.max(0,dy/dl); // how much this particle faces up
+        var sunSide=Math.max(0,dx/dl*0.3);
+        var g=0.12+sunUp*0.22+sunSide*0.08+Math.random()*0.06;
+        // Slight warm tint on sun-facing
+        var warmR=g*0.35+sunUp*0.04;
+        var coolB=g*0.12-sunUp*0.02;
+
+        setP(idx, x,y,z, dx/dl,dy/dl,dz/dl,
+          warmR,g,Math.max(0.02,coolB),
+          1.8+Math.random()*1.2, 6); // big overlapping splats
       }
     },
     // ═══ LOD 1: STRUCTURE — bark detail, branch joints, individual leaf clusters ═══
@@ -1044,7 +1099,15 @@ function render(){
 
   // ═══ SEMANTIC ZOOM — rebuild scene at current detail level ═══
   if(currentScene){
-    var newZoom=camZoom<0.5?0:camZoom<1.2?1:camZoom<2.5?2:camZoom<5?3:camZoom<8?4:camZoom<15?5:6;
+    // 33 scroll clicks = full range. 1.08^33 ≈ 12.7
+    // LOD 0: < 1.5 (~5 clicks)  landscape
+    // LOD 1: 1.5-2.5 (~5-12)    structure
+    // LOD 2: 2.5-4.0 (~12-18)   surface
+    // LOD 3: 4.0-6.0 (~18-23)   cellular
+    // LOD 4: 6.0-8.0 (~23-27)   molecular
+    // LOD 5: 8.0-10  (~27-30)   atomic
+    // LOD 6: > 10    (~30+)     prime
+    var newZoom=camZoom<1.5?0:camZoom<2.5?1:camZoom<4?2:camZoom<6?3:camZoom<8?4:camZoom<10?5:6;
     if(newZoom!==zoomLevel&&!lodTransitioning&&assemblyLayer>=9){
       zoomLevel=newZoom;
       lodTransitioning=true;
@@ -1128,24 +1191,34 @@ function render(){
     norm[i*3+2]+=(tnorm[i*3+2]-norm[i*3+2])*0.05;
   }
 
-  // Camera — pulled back enough to see full scene, looking slightly down
+  // Camera — orbits the world. World stays fixed. Gravity is always -Y.
   var aspect=cv.width/cv.height;
-  var proj_mat=perspective(0.8/camZoom,aspect,0.1,200);
+  // FOV narrows as you zoom = telephoto effect (more realistic close-up)
+  var fov=0.9/Math.sqrt(camZoom);
+  var proj_mat=perspective(fov,aspect,0.1,500);
   var ident=new Float32Array([1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1]);
-  var view=translate(ident,0,-2,-10);
-  view=rotateY(view,t*0.06+(mouseX-0.5)*3);
-  view=rotateX(view,(mouseY-0.5)*1.2+0.15);
+  // Camera distance scales inversely with zoom
+  var camDist=12/camZoom;
+  var camY=-2.5/Math.sqrt(camZoom); // look at base of tree, lower for close-ups
+  var view=translate(ident,0,camY,-camDist);
+  // Mouse orbits camera around the scene — scene stays fixed, gravity stays down
+  var orbitY=t*0.04+(mouseX-0.5)*2.5;
+  var orbitX=Math.max(-0.8,Math.min(0.8,(mouseY-0.5)*1.0+0.2));
+  view=rotateX(view,orbitX);
+  view=rotateY(view,orbitY);
   var mvp=multiply(proj_mat,view);
 
-  // Light direction — sun from upper right
-  var lx=0.4,ly=0.8,lz=0.3;
+  // Sun — fixed in world space. Always from upper right.
+  var lx=0.4,ly=0.75,lz=0.35;
   var ll=Math.sqrt(lx*lx+ly*ly+lz*lz);
 
+  // Alpha scales down as zoom increases (prevents blowout from overlap)
+  var alphaScale=Math.min(1.0, 0.85/Math.sqrt(camZoom));
+
   gl.uniformMatrix4fv(uMVP,false,mvp);
-  gl.uniformMatrix4fv(uView,false,view);
-  gl.uniform1f(uScale,Math.min(cv.width,cv.height)*0.03);
-  gl.uniform1f(uTime,t);
+  gl.uniform1f(uScale,Math.min(cv.width,cv.height)*0.035);
   gl.uniform3f(uLight,lx/ll,ly/ll,lz/ll);
+  gl.uniform1f(uAlphaScale,alphaScale);
 
   // Upload + draw
   gl.bindBuffer(gl.ARRAY_BUFFER,posBuf);gl.bufferData(gl.ARRAY_BUFFER,pos,gl.DYNAMIC_DRAW);
