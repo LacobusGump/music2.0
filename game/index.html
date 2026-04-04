@@ -127,7 +127,8 @@ var wURes=gl.getUniformLocation(worldProg,'uRes');
 var wUTime=gl.getUniformLocation(worldProg,'uTime');
 var wUCamPos=gl.getUniformLocation(worldProg,'uCamPos');
 var wUCamDir=gl.getUniformLocation(worldProg,'uCamDir');
-var wUK=gl.getUniformLocation(worldProg,'uK');
+var wUPeople=gl.getUniformLocation(worldProg,'uPeople');
+var wUPeopleState=gl.getUniformLocation(worldProg,'uPeopleState');
 var worldActive=false;
 
 // Low-res FBO for world (1/3 resolution — 9x fewer pixels to shade)
@@ -403,125 +404,25 @@ function updatePanel(p){
 
 // ═══ BUILD DRUM CIRCLE SCENE ═══
 function buildDrumCircle(){
+  // World shader handles terrain, people, drums, fire, trees.
+  // Particles: just fire sparks + stars for overlay effects.
   var idx=0;
 
-  // Ground — warm african dirt, wide
-  for(var i=0;i<25000;i++,idx++){
-    var x=(Math.random()-0.5)*30,z=(Math.random()-0.5)*30;
-    var dist=Math.sqrt(x*x+z*z);
-    var shade=0.2+Math.random()*0.06;
-    var grass=dist>6?Math.random()*0.03:0;
-    tgt[idx*3]=x;tgt[idx*3+1]=-0.02+Math.random()*0.02;tgt[idx*3+2]=z;
-    tcol[idx*3]=shade+grass*0.3;tcol[idx*3+1]=shade*0.8+grass;tcol[idx*3+2]=shade*0.4;
-    tsz[idx]=3.5+Math.random()*2;
-  }
-
-  // Fire at center
+  // Fire sparks (rise and drift, overlay on SDF fire)
   for(var i=0;i<3000;i++,idx++){
     var a=Math.random()*TAU;
-    var h=Math.random()*1.5;
-    var r=(1-h/1.5)*0.3+0.05;
+    var h=0.5+Math.random()*2;
+    var r=Math.random()*0.4;
     tgt[idx*3]=Math.cos(a)*r;tgt[idx*3+1]=h;tgt[idx*3+2]=Math.sin(a)*r;
-    var heat=1-h/1.5;
-    tcol[idx*3]=0.9*heat+0.15;tcol[idx*3+1]=0.45*heat+0.05;tcol[idx*3+2]=0.1*heat;
-    tsz[idx]=0.8+heat*0.8;
+    tcol[idx*3]=1;tcol[idx*3+1]=0.6+Math.random()*0.3;tcol[idx*3+2]=0.1;
+    tsz[idx]=0.3+Math.random()*0.3;
   }
 
-  // Stars above
-  for(var i=0;i<5000;i++,idx++){
-    var x=(Math.random()-0.5)*80,z=(Math.random()-0.5)*80;
-    var y=15+Math.random()*30;
-    tgt[idx*3]=x;tgt[idx*3+1]=y;tgt[idx*3+2]=z;
-    var bright=Math.random();
-    tcol[idx*3]=0.5+bright*0.5;tcol[idx*3+1]=0.5+bright*0.4;tcol[idx*3+2]=0.5+bright*0.3;
-    tsz[idx]=0.2+bright*0.6;
-  }
+  // Everything else invisible
+  for(;idx<N;idx++){tsz[idx]=0;}
 
-  // Distant trees silhouettes
-  for(var i=0;i<8000;i++,idx++){
-    var angle=Math.random()*TAU;
-    var dist=10+Math.random()*15;
-    var treeIdx=Math.floor(Math.random()*12);
-    var tx=Math.cos(angle+treeIdx*0.5)*dist+(Math.random()-0.5)*3;
-    var tz=Math.sin(angle+treeIdx*0.5)*dist+(Math.random()-0.5)*3;
-    var h=Math.random()*3+1;
-    tgt[idx*3]=tx;tgt[idx*3+1]=h;tgt[idx*3+2]=tz;
-    tcol[idx*3]=0.06+Math.random()*0.02;tcol[idx*3+1]=0.08+Math.random()*0.03;tcol[idx*3+2]=0.04;
-    tsz[idx]=1.5+Math.random()*2;
-  }
-
-  // THE TWELVE — each person is a cluster of particles
-  var perPerson=Math.floor((N-idx)/12);
-  PEOPLE.forEach(function(p,pi){
-    p.pStart=idx;
-    var cx=p.x,cz=p.z;
-    var facingCenter=Math.atan2(-cz,-cx); // face the fire
-
-    // Body — seated figure
-    for(var i=0;i<Math.floor(perPerson*0.5);i++,idx++){
-      var h=Math.random()*1.1;
-      var bodyR=h>0.9?0.1:h>0.7?0.12:0.15; // head, neck, torso
-      var pa=Math.random()*TAU;
-      var lean=Math.sin(facingCenter)*0.05; // slight lean toward fire
-      tgt[idx*3]=cx+Math.cos(pa)*bodyR+lean;
-      tgt[idx*3+1]=h;
-      tgt[idx*3+2]=cz+Math.sin(pa)*bodyR;
-      // Skin tone with per-person variation
-      tcol[idx*3]=p.color[0]+Math.random()*0.04;
-      tcol[idx*3+1]=p.color[1]+Math.random()*0.03;
-      tcol[idx*3+2]=p.color[2]+Math.random()*0.02;
-      tsz[idx]=0.6+Math.random()*0.2;
-    }
-
-    // Arms (reaching toward drum)
-    var armDirX=Math.cos(facingCenter)*0.3;
-    var armDirZ=Math.sin(facingCenter)*0.3;
-    for(var i=0;i<Math.floor(perPerson*0.15);i++,idx++){
-      var along=Math.random();
-      tgt[idx*3]=cx+armDirX*along+(Math.random()-0.5)*0.05;
-      tgt[idx*3+1]=0.55+Math.random()*0.1;
-      tgt[idx*3+2]=cz+armDirZ*along+(Math.random()-0.5)*0.05;
-      tcol[idx*3]=p.color[0];tcol[idx*3+1]=p.color[1];tcol[idx*3+2]=p.color[2];
-      tsz[idx]=0.4;
-    }
-
-    // Drum in front of person
-    var drumX=cx+Math.cos(facingCenter)*0.55;
-    var drumZ=cz+Math.sin(facingCenter)*0.55;
-    for(var i=0;i<Math.floor(perPerson*0.2);i++,idx++){
-      var da=Math.random()*TAU,dr=Math.random()*0.18;
-      var dh=Math.random()*0.35;
-      tgt[idx*3]=drumX+Math.cos(da)*dr;
-      tgt[idx*3+1]=dh;
-      tgt[idx*3+2]=drumZ+Math.sin(da)*dr;
-      // Drum: wooden body, lighter skin top
-      var isDrumHead=dh>0.3;
-      tcol[idx*3]=isDrumHead?0.6:0.35;
-      tcol[idx*3+1]=isDrumHead?0.5:0.22;
-      tcol[idx*3+2]=isDrumHead?0.3:0.1;
-      tsz[idx]=isDrumHead?0.5:0.4;
-    }
-
-    // Legs (crossed, sitting)
-    for(var i=0;i<Math.floor(perPerson*0.15);i++,idx++){
-      var side=i%2?0.1:-0.1;
-      tgt[idx*3]=cx+side+Math.cos(facingCenter)*Math.random()*0.15;
-      tgt[idx*3+1]=Math.random()*0.2;
-      tgt[idx*3+2]=cz+(Math.random()-0.5)*0.15;
-      tcol[idx*3]=p.color[0]*0.85;tcol[idx*3+1]=p.color[1]*0.85;tcol[idx*3+2]=p.color[2]*0.85;
-      tsz[idx]=0.5;
-    }
-
-    p.pEnd=idx;
-  });
-
-  // Fill any remaining with ground
-  while(idx<N){
-    var x=(Math.random()-0.5)*20,z=(Math.random()-0.5)*20;
-    tgt[idx*3]=x;tgt[idx*3+1]=-0.02;tgt[idx*3+2]=z;
-    tcol[idx*3]=0.18;tcol[idx*3+1]=0.14;tcol[idx*3+2]=0.08;
-    tsz[idx]=3;idx++;
-  }
+  // Set person particle ranges to empty (SDF handles them now)
+  PEOPLE.forEach(function(p){p.pStart=0;p.pEnd=0;});
 }
 
 // ═══ CINEMATIC HELPERS ═══
@@ -642,33 +543,16 @@ function updateDrumCircle(){
     p.hitFlash*=0.92;
     p.lockGlow+=(p.locked?1:0-p.lockGlow)*0.03;
 
-    // Animate person particles — bob on hit, glow when locked
-    var glow=p.lockGlow*0.3+p.hitFlash*0.4;
-    for(var i=p.pStart;i<p.pEnd;i++){
-      // Hit bounce
-      if(p.hitFlash>0.1){
-        var bobY=p.hitFlash*0.03*Math.sin(phase[i]*3);
-        vel[i*3+1]+=bobY;
-      }
-      // Glow: brighten particles
-      tcol[i*3]=col[i*3]+glow;
-      tcol[i*3+1]=col[i*3+1]+glow*0.8;
-      tcol[i*3+2]=col[i*3+2]+glow*0.4;
-    }
-
-    // Selection highlight
-    if(p.selected){
-      for(var i=p.pStart;i<Math.min(p.pStart+100,p.pEnd);i++){
-        tcol[i*3]+=0.15;tcol[i*3+1]+=0.1;tcol[i*3+2]+=0.05;
-      }
-    }
+    // People rendering is handled by world shader — hitFlash/locked passed as uniforms
   });
 
-  // Fire flicker
-  for(var i=25000;i<28000;i++){
-    var flicker=Math.sin(t*8+phase[i]*5)*0.1+Math.sin(t*13+phase[i]*3)*0.05;
-    vel[i*3]+=flicker*0.001;
-    vel[i*3+1]+=Math.abs(flicker)*0.002; // fire rises
+  // Fire sparks drift upward
+  for(var i=0;i<3000;i++){
+    vel[i*3]+=(Math.random()-0.5)*0.002;
+    vel[i*3+1]+=0.003; // rise
+    vel[i*3+2]+=(Math.random()-0.5)*0.002;
+    // Reset sparks that drift too far
+    if(pos[i*3+1]>3){pos[i*3+1]=0.5;pos[i*3]=(Math.random()-0.5)*0.3;pos[i*3+2]=(Math.random()-0.5)*0.3;}
   }
 
   // Camera: gentle orbit, slightly above
@@ -742,7 +626,22 @@ function render(){
       Math.sin(wCamAngle)*wCamDist,wCamH,Math.cos(wCamAngle)*wCamDist);
     gl.uniform3f(wUCamDir,
       -Math.sin(wCamAngle),lookDown,-Math.cos(wCamAngle));
-    if(wUK)gl.uniform1f(wUK,K);
+
+    // Pass people data to world shader
+    var peopleData=new Float32Array(48); // 12 * vec4
+    var stateData=new Float32Array(48);
+    PEOPLE.forEach(function(p,i){
+      peopleData[i*4]=p.x;
+      peopleData[i*4+1]=0; // y will be terrain-sampled in shader
+      peopleData[i*4+2]=p.z;
+      peopleData[i*4+3]=p.hitFlash||0;
+      stateData[i*4]=p.locked?1:0;
+      stateData[i*4+1]=p.bpm;
+      stateData[i*4+2]=p.beatTimer;
+      stateData[i*4+3]=p.selected?1:0;
+    });
+    gl.uniform4fv(wUPeople,peopleData);
+    gl.uniform4fv(wUPeopleState,stateData);
 
     // Render world to low-res FBO
     var ww=Math.floor(cv.width/worldScale),wh=Math.floor(cv.height/worldScale);
