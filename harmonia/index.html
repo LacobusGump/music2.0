@@ -10,6 +10,7 @@
 <script src="memory.js"></script>
 <script src="actions.js"></script>
 <script src="voice.js"></script>
+<script src="think.js"></script>
 <style>
 :root{--bg:#0a0a0f;--fg:#e8e4dc;--accent:#c9a44a;--dim:#555;--green:#4aeaa0;}
 *{margin:0;padding:0;box-sizing:border-box;}
@@ -402,43 +403,33 @@ function _process(text){
   if(targetK<0)targetK=0;
   sessionGoodWill+=gw;
 
-  // Try ACTIONS first — she DOES, not just talks
-  var actionResult=Actions.tryAction(text,K);
-  if(actionResult){
-    targetK=Math.min(1.868,targetK+0.06);
-    addMsg(actionResult,'harmonia');
-    chatHistory.push({role:'harmonia',text:'[action]'});
-    var actionTopic=Mind.detectTopic(text)||'coding';
-    Memory.absorb(text,'[action: '+actionTopic+']',K,actionTopic,0.06);
-    updateK();
-    return;
+  // ═══ THINK FIRST — grok, reason, tool, simplify, guide ═══
+  if(typeof Think!=='undefined'){
+    var thought=Think.process(text,K);
+    if(thought){
+      var response=thought;
+      // Still need immune check + voice adapt below
+      // Skip to the response handling
+    }
   }
 
-  // Try code generation (at K > 0.5)
-  var codeResult=K>0.5?tryCode(text):null;
-  if(codeResult){
-    targetK=Math.min(1.868,targetK+0.06);
-    addMsg(codeResult,'harmonia');
-    chatHistory.push({role:'harmonia',text:codeResult});
-    Memory.absorb(text,codeResult,K,'coding',0.06);
-    updateK();
-    return;
-  }
+  // Fallback chain if Think didn't produce a response
+  if(typeof response==='undefined'||!response){
+    // Try math (always available)
+    var mathResult=tryMath(text);
+    if(mathResult){
+      targetK=Math.min(1.868,targetK+0.04);
+      addMsg(mathResult,'harmonia');
+      chatHistory.push({role:'harmonia',text:mathResult});
+      var mt=Mind.detectTopic(text)||'primes';
+      Memory.absorb(text,mathResult,K,mt,0.04);
+      updateK();
+      return;
+    }
 
-  // Try math (always available)
-  var mathResult=tryMath(text);
-  if(mathResult){
-    // Math boosts K (seeking truth = coupling)
-    targetK=Math.min(1.868,targetK+0.04);
-    addMsg(mathResult,'harmonia');
-    chatHistory.push({role:'harmonia',text:mathResult});
-    Memory.absorb(text,mathResult,K,'primes',0.04);
-    updateK();
-    return;
+    // Generate response (greetings → memory → status → Mind)
+    var response=getResponse(text);
   }
-
-  // Generate response (greetings → memory → status → Mind knowledge graph)
-  var response=getResponse(text);
 
   // ═══ IMMUNE CHECK + LIQUIDATION ENGINE ═══
   // Normal bad intent → static or troll
