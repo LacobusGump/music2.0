@@ -242,126 +242,99 @@ function buildBondCloud(configA, ZA, configB, ZB, type){
   bloomT=0;
 }
 
-// ═══ AUDIO — bond tone ═══
-var audioCtx=null;
-function playBondTone(type){
-  if(!audioCtx)audioCtx=new(window.AudioContext||window.webkitAudioContext)();
-  var now=audioCtx.currentTime;
-
-  // Two tones that resolve into consonance
-  var freqA=type==='ionic'?220:261.6;
-  var freqB=type==='ionic'?330:329.6; // ionic=perfect fifth, covalent=major third
-  var resolve=type==='ionic'?293.7:293.7; // resolves to D4
-
-  var o1=audioCtx.createOscillator(),o2=audioCtx.createOscillator();
-  var g1=audioCtx.createGain(),g2=audioCtx.createGain();
-  var master=audioCtx.createGain();
-  o1.type='sine';o2.type='sine';
-  o1.connect(g1);g1.connect(master);
-  o2.connect(g2);g2.connect(master);
-  master.connect(audioCtx.destination);
-  master.gain.value=0.12;
-
-  // Start apart
-  o1.frequency.setValueAtTime(freqA,now);
-  o2.frequency.setValueAtTime(freqB,now);
-
-  // Approach and lock (at bond moment ~2.5s)
-  o1.frequency.linearRampToValueAtTime(resolve*0.998,now+2.5);
-  o2.frequency.linearRampToValueAtTime(resolve*1.002,now+2.5);
-
-  // Perfect unison at bond
-  o1.frequency.linearRampToValueAtTime(resolve,now+3);
-  o2.frequency.linearRampToValueAtTime(resolve,now+3);
-
-  // Swell on bond
-  g1.gain.setValueAtTime(0.3,now);g2.gain.setValueAtTime(0.3,now);
-  g1.gain.linearRampToValueAtTime(0.6,now+2.8);
-  g2.gain.linearRampToValueAtTime(0.6,now+2.8);
-  g1.gain.linearRampToValueAtTime(1,now+3);
-  g2.gain.linearRampToValueAtTime(1,now+3);
-
-  // Fade out
-  master.gain.linearRampToValueAtTime(0.12,now+3);
-  master.gain.linearRampToValueAtTime(0,now+5);
-
-  o1.start(now);o2.start(now);
-  o1.stop(now+5.5);o2.stop(now+5.5);
-}
-
 function renderAtom(){
   var w=W/DPR,h=H/DPR;
   t+=0.016;bloomT+=0.016;
 
   cx.fillStyle='rgba(0,0,0,0.06)';cx.fillRect(0,0,w,h);
 
-  // Bond flash overlay
-  if(bondFlash>0.01){
-    cx.fillStyle='rgba(201,164,74,'+Math.min(0.25,bondFlash*0.3)+')';
-    cx.fillRect(0,0,w,h);
-    bondFlash*=0.95;
-  }
-
-  var cx0=w/2,cy0=h/2,fov=Math.min(w,h)*0.5*zoom;
-  var rA=t*0.15+(mouseX-0.5)*3,rB=(mouseY-0.5)*1.5;
   var breath=Math.sin(t*0.6)*0.025;
 
-  // Bond animation: 4 phases looping
-  // 0-2s: bloom apart, 2-4s: approach, 4-4.5s: bond flash, 4.5-7s: bonded orbit, 7-8s: fade & reset
-  var bondCycle=8;
+  // ═══ BOND CAMERA — cinematic zoom ═══
+  // 0-3s:   bloom wide showing both atoms
+  // 3-7s:   slow approach, camera starts pulling in
+  // 7-12s:  tight on the bond zone — electrons transfer/share in detail
+  // 12-16s: hold bonded state, camera slowly pulls back out
+  // 16-19s: wide shot of molecule, fade
+  // 19-20s: reset
+
+  var bondZoom=1; // multiplier on top of user zoom
+  var bondPanX=0; // camera offset toward bond point
+  var bondCycle=20;
+
   if(bondMode){
-    bondPhase=(bondPhase+0.016);
+    bondPhase+=0.016;
     var bp=bondPhase%bondCycle;
-    var approach=0; // how close the atoms are (0=apart, 1=touching)
+    var approach=0;
     var bonded=false;
 
-    if(bp<2){
-      approach=0; // bloom phase
-    } else if(bp<4){
-      approach=(bp-2)/2; // slide together
-      approach=approach*approach*(3-2*approach); // smooth ease
-    } else if(bp<4.5){
-      approach=1;bonded=true;
-      if(bp<4.1)bondFlash=1; // flash once
+    if(bp<3){
+      // Bloom phase — wide
+      approach=0;
+      bondZoom=1;
     } else if(bp<7){
+      // Approach — atoms slide together, camera starts zooming
+      var t1=(bp-3)/4;
+      approach=t1*t1*(3-2*t1); // smooth ease 0→1
+      bondZoom=1+t1*1.2; // zoom from 1x to 2.2x
+    } else if(bp<12){
+      // Tight on bond zone — full zoom, electrons do their thing
       approach=1;bonded=true;
+      bondZoom=2.2+Math.sin((bp-7)*0.4)*0.15; // gentle breathe at max zoom
+    } else if(bp<16){
+      // Pull back out, still bonded
+      var t2=(bp-12)/4;
+      approach=1;bonded=true;
+      bondZoom=2.2-t2*1.2; // zoom back to 1x
+    } else if(bp<19){
+      // Wide shot of bonded molecule
+      approach=1;bonded=true;
+      bondZoom=1;
     } else {
-      // fade out, reset bloom
-      approach=1-(bp-7);
-      if(bp>7.8){bondPhase=0;bloomT=0;
-        AP.forEach(function(p){p.x=0;p.y=0;p.z=0;p.life=0;});}
+      // Reset
+      bondPhase=0;bloomT=0;
+      AP.forEach(function(p){p.x=0;p.y=0;p.z=0;p.life=0;});
+      approach=0;bondZoom=1;
     }
 
-    var slideX=approach*1.2; // how much each side slides inward
+    var slideX=approach*1.2;
 
     for(var i=0;i<AP.length;i++){
       var p=AP[i];
-      var drift=p.side==='L'?slideX:-slideX;
 
-      // Transfer electrons fly across for ionic
-      if(p.transfer&&bp>2.5){
-        var tProg=Math.min(1,(bp-2.5)/1.5);
+      // Ionic: valence electrons slowly migrate across during zoom phase
+      if(p.transfer&&bp>5){
+        var tProg=Math.min(1,(bp-5)/4); // slow 4-second transfer
         tProg=tProg*tProg*(3-2*tProg);
-        // Move from left atom to right atom
-        p.tx=p.ox+drift+(AP[0].ox?0:3.5)*tProg;
-        p.c=[255,200,80]; // bright gold during transfer
-        p.sz=1.5;
-      } else if(!p.transfer){
-        // Regular particles slide with their atom
-        var baseTx=p.tx;
-        // Only apply drift to the home offset portion
-        p.x+=(p.tx+drift-p.ox-p.x)*0.05+drift*0.02;
+        var targetOX=p.ox+3.5*tProg; // drift from left atom toward right
+        p.tx=targetOX+(p.tx-p.ox)*(1-tProg*0.7);
+        // Glow brighter as they cross the midpoint
+        var midGlow=1-Math.abs(tProg-0.5)*2;
+        var bright=Math.floor(180+midGlow*75);
+        p.c=[255,bright,Math.floor(60+midGlow*40)];
+        p.sz=1+midGlow*0.8;
       }
 
-      // Shared electrons glow in bonded state (covalent)
-      if(bonded&&p.isValence&&(bondType==='covalent'||bondType==='polar covalent')){
-        // Pull valence electrons toward center
-        var pull=(p.side==='L'?0.3:-0.3)*Math.sin(t*2+p.a);
-        p.x+=pull*0.01;
-        p.c=[240,210,120]; // warm shared glow
+      // Covalent: valence electrons drift toward center and orbit there
+      if(bonded&&!p.transfer&&p.isValence&&(bondType==='covalent'||bondType==='polar covalent')){
+        var center=0; // midpoint between atoms
+        var pull=bonded?0.02:0;
+        var toCenter=center-p.x;
+        p.x+=toCenter*pull;
+        // Orbit around the bond axis
+        var orbitR=0.3+Math.sin(t*1.5+p.a)*0.1;
+        p.x+=Math.sin(t*0.8+p.a*2)*orbitR*0.005;
+        p.y+=Math.cos(t*0.8+p.a*2)*orbitR*0.005;
+        // Warm shared glow
+        p.c=[230,200,110];
       }
     }
   }
+
+  // Camera
+  var effectiveZoom=zoom*(bondMode?bondZoom:1);
+  var cx0=w/2,cy0=h/2,fov=Math.min(w,h)*0.5*effectiveZoom;
+  var rA=t*0.1+(mouseX-0.5)*3,rB=(mouseY-0.5)*1.5;
 
   // Update positions
   var bloom_ease=Math.min(1,bloomT*0.7);
@@ -374,9 +347,9 @@ function renderAtom(){
     if(bondMode){
       var bp=bondPhase%bondCycle;
       var slideX=0;
-      if(bp>=2&&bp<8){
-        var approach=bp<4?(bp-2)/2:1;
-        if(bp>7)approach=1-(bp-7);
+      if(bp>=3){
+        var approach=bp<7?(bp-3)/4:1;
+        if(bp>=19)approach=0;
         approach=Math.max(0,Math.min(1,approach));
         approach=approach*approach*(3-2*approach);
         slideX=approach*1.2;
@@ -385,11 +358,11 @@ function renderAtom(){
       targetX=p.tx*bloom_ease+drift;
     }
 
-    p.x+=(targetX-p.x)*0.05;
-    p.y+=(targetY-p.y)*0.05;
-    p.z+=(targetZ-p.z)*0.05;
+    p.x+=(targetX-p.x)*0.04;
+    p.y+=(targetY-p.y)*0.04;
+    p.z+=(targetZ-p.z)*0.04;
     p.life=Math.min(1,bloomT*1.2);
-    if(bondMode&&(bondPhase%bondCycle)>7.5)p.life*=Math.max(0,1-(bondPhase%bondCycle-7.5)*3);
+    if(bondMode&&(bondPhase%bondCycle)>18.5)p.life*=Math.max(0,1-(bondPhase%bondCycle-18.5)*3);
 
     if(p.orbital&&p.shell>0){
       p.a=(p.a||0)+p.spd;
@@ -421,14 +394,16 @@ function renderAtom(){
     cx.beginPath();cx.arc(p.px,p.py,Math.max(0.3,sz),0,Math.PI*2);cx.fill();
   }
 
-  // Bond label overlay
+  // Bond type label — appears during wide pull-back
   if(bondMode){
     var bp=bondPhase%bondCycle;
-    if(bp>4&&bp<7){
+    if(bp>13&&bp<18){
+      var labelAlpha=Math.min(0.4,(bp-13)*0.15);
+      if(bp>16)labelAlpha*=Math.max(0,1-(bp-16)*0.5);
       cx.save();
-      cx.font='1.2em Georgia';cx.textAlign='center';
-      cx.fillStyle='rgba(201,164,74,'+Math.min(0.5,(bp-4)*0.3)+')';
-      cx.fillText(bondType,w/2,h*0.88);
+      cx.font='1.1em Georgia';cx.textAlign='center';
+      cx.fillStyle='rgba(201,164,74,'+labelAlpha+')';
+      cx.fillText(bondType,w/2,h*0.9);
       cx.restore();
     }
   }
@@ -680,7 +655,6 @@ window.predictBond=function(){
       document.getElementById('al-sym').textContent=symA+' + '+symB;
       document.getElementById('al-config').textContent=bType;
       window.scrollTo({top:0,behavior:'smooth'});
-      try{playBondTone(bType);}catch(e){}
     }
   }
 
