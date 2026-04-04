@@ -27,13 +27,24 @@ SPECTRUM_FILE = os.path.expanduser("~/.harmonia_spectrum.json")
 # TOKENIZER — simple, fast, preserves meaning
 # ═══════════════════════════════════════════════════════════
 
+STOP = set('the of and in to is was for on it as with that by from are at an be this which or had its but not were has been have all they one their would there can been will more if no do about into than other also some time may could people new two first been she out made after year over many these between most only very them been has when used so'.split())
+
 def tokenize(text):
-    """Split text into meaningful tokens. Lowercase. Strip noise."""
+    """Split text into meaningful tokens. Lowercase. Strip ALL noise."""
     text = text.lower()
-    text = re.sub(r'[^a-z0-9\s.\-]', ' ', text)
+    # Kill HTML entities, wiki markup, numbers-only tokens
+    text = re.sub(r'&[a-z]+;', ' ', text)
+    text = re.sub(r'quot|lt|gt|amp|nbsp|ref|ndash|mdash', ' ', text)
+    text = re.sub(r'https?://\S+', ' ', text)
+    text = re.sub(r'style="[^"]*"', ' ', text)
+    text = re.sub(r'class="[^"]*"', ' ', text)
+    text = re.sub(r'align="[^"]*"', ' ', text)
+    text = re.sub(r'category:', ' ', text)
+    text = re.sub(r'\d{4,}', ' ', text)  # kill long numbers (years ok)
+    text = re.sub(r'[^a-z\s\-]', ' ', text)
     tokens = text.split()
-    # Skip very short and very long
-    return [t for t in tokens if 2 <= len(t) <= 20]
+    # Skip short, long, and stop words
+    return [t for t in tokens if 3 <= len(t) <= 18 and t not in STOP]
 
 # ═══════════════════════════════════════════════════════════
 # CO-OCCURRENCE — which words resonate together
@@ -140,18 +151,33 @@ def query(spectrum, text, top_n=20):
 
     Like using the explicit formula: sum the contributions
     of each mode that matches the query."""
-    tokens = tokenize(text)
+    words = text.lower().split()
+    # Also try 3+ letter substrings for fuzzy matching
+    tokens = set(w for w in words if len(w) >= 3)
+
     if not tokens:
         return []
 
+    # Build index on first query
+    if not hasattr(query, '_index'):
+        query._index = defaultdict(list)
+        for i, (w1, w2, strength) in enumerate(spectrum['modes']):
+            query._index[w1].append((w2, strength))
+            query._index[w2].append((w1, strength))
+
     # Find modes where either word matches a query token
     results = defaultdict(float)
-    for word, partner, strength in spectrum['modes']:
-        for t in tokens:
-            if t == word or t == partner:
-                # This mode resonates with the query
-                other = partner if t == word else word
-                results[other] += strength
+    for t in tokens:
+        # Exact match
+        if t in query._index:
+            for partner, strength in query._index[t]:
+                if partner not in tokens:  # don't return the query itself
+                    results[partner] += strength
+        # Prefix match (catches plurals, conjugations)
+        for key in query._index:
+            if key.startswith(t[:4]) and key != t:
+                for partner, strength in query._index[key]:
+                    results[partner] += strength * 0.5  # partial match = half weight
 
     # Sort by resonance strength
     ranked = sorted(results.items(), key=lambda x: -x[1])
