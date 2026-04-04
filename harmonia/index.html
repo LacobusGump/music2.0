@@ -49,6 +49,77 @@ a{color:var(--gold);}
 <div id="chat"></div>
 <div id="input"><input id="cmd" placeholder="talk to her..." autocomplete="off"></div>
 
+<script src="spectrum.js"></script>
+<script>
+// ═══════════════════════════════════════════════════════════════
+// GENERATE — our own language model. Spectral modes. No neural net.
+// The oracle pattern: scan for coupling, extract, chain. Repeat.
+// ═══════════════════════════════════════════════════════════════
+
+var Gen = {
+  idx: null,
+
+  build: function() {
+    if (this.idx || typeof SPECTRUM === 'undefined') return;
+    this.idx = {};
+    var modes = SPECTRUM.m;
+    for (var i = 0; i < modes.length; i++) {
+      var w1 = modes[i][0], w2 = modes[i][1], s = modes[i][2];
+      if (!this.idx[w1]) this.idx[w1] = [];
+      if (!this.idx[w2]) this.idx[w2] = [];
+      this.idx[w1].push([w2, s]);
+      this.idx[w2].push([w1, s]);
+    }
+    for (var w in this.idx) this.idx[w].sort(function(a, b) { return b[1] - a[1]; });
+  },
+
+  generate: function(seeds, maxWords, temperature) {
+    this.build();
+    if (!this.idx) return null;
+    maxWords = maxWords || 30;
+    temperature = temperature || 0.5;
+
+    var words = seeds.slice();
+    var used = {};
+    seeds.forEach(function(w) { used[w] = true; });
+
+    for (var i = 0; i < maxWords; i++) {
+      var recent = words.slice(-3);
+      var candidates = {};
+      for (var j = 0; j < recent.length; j++) {
+        var w = recent[j].toLowerCase();
+        if (!this.idx[w]) continue;
+        var conn = this.idx[w];
+        var rWeight = 1 + j / recent.length;
+        for (var k = 0; k < Math.min(15, conn.length); k++) {
+          var p = conn[k][0], s = conn[k][1];
+          if (used[p]) continue;
+          candidates[p] = (candidates[p] || 0) + s * rWeight;
+        }
+      }
+      var sorted = Object.entries(candidates).sort(function(a, b) { return b[1] - a[1]; });
+      if (sorted.length === 0) break;
+
+      var pool = sorted.slice(0, Math.min(5, Math.ceil(temperature * 8)));
+      var totalW = pool.reduce(function(s, p) { return s + p[1]; }, 0);
+      var r = Math.random() * totalW, cum = 0, pick = pool[0][0];
+      for (var p = 0; p < pool.length; p++) { cum += pool[p][1]; if (cum >= r) { pick = pool[p][0]; break; } }
+
+      words.push(pick);
+      used[pick] = true;
+      if (sorted[0][1] < 2) break; // coupling exhausted — natural stop
+    }
+    return words.slice(seeds.length).join(' ');
+  },
+
+  respond: function(text, maxWords, temp) {
+    var seeds = text.toLowerCase().replace(/[^a-z\s]/g, '').split(/\s+/).filter(function(w) { return w.length > 2; });
+    if (seeds.length === 0) return null;
+    return this.generate(seeds, maxWords || 25, temp || 0.5);
+  }
+};
+</script>
+
 <script>
 // ═══════════════════════════════════════════════════════════════
 //
@@ -1272,6 +1343,14 @@ function respond(text) {
   // Adapt to perception
   if (perception.level === 'child') {
     parts = parts.slice(0, 2); // keep it short for kids
+  }
+
+  // ── GENERATE — if Soul didn't have enough, let the spectrum speak ──
+  if (parts.length <= 1 && typeof Gen !== 'undefined' && K > 0.3) {
+    var generated = Gen.respond(text, 20, 0.4 + K * 0.2);
+    if (generated && generated.split(' ').length > 3) {
+      parts.push(generated);
+    }
   }
 
   // ── DELIVER ──
