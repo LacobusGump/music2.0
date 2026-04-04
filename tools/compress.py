@@ -119,7 +119,30 @@ def compress(freq, cooc, max_modes=5000, min_freq=3):
                 score = pmi * math.log(count + 1)
                 modes.append((word, partner, round(score, 3), count))
 
-    # Step 3: Sort by strength, keep top modes
+    # Step 3: CLEAN modes — kill anything that looks like code/template
+    import re as _re
+    def is_real_word(w):
+        if len(w) < 3: return False
+        if _re.match(r'^[a-z]+$', w) is None: return False  # must be pure alpha
+        vowels = sum(1 for c in w if c in 'aeiou')
+        if vowels == 0: return False  # no vowels = abbreviation
+        if vowels < len(w) * 0.2 and len(w) > 4: return False  # too few vowels = code
+        # Blocklist: known wiki/CSS/code tokens
+        junk = {'col','nth','child','bar','till','ticker','timest','gsub','ustring',
+                'shortname','abbrev','navigational','boxes','wocka','shy','pyr',
+                'shift','ard','che','sur','div','src','img','url','var','font',
+                'span','href','alt','svg','png','jpg','gif','css','html','xml',
+                'http','https','www','org','com','wiki','talk','stub','redirect',
+                'colspan','rowspan','bgcolor','valign','align','cellpadding','border',
+                'padding','margin','display','inline','block','none','float','clear',
+                'serif','sans','bold','italic','underline','nowrap','overflow','hidden',
+                'footnotes','citations','references','retrieved','archived','isbn','doi',
+                'accessdate','deadurl','template','infobox','navbox','sidebar'}
+        if w in junk: return False
+        return True
+
+    modes = [(w1,w2,s,c) for w1,w2,s,c in modes if is_real_word(w1) and is_real_word(w2)]
+
     modes.sort(key=lambda x: -x[2])
     modes = modes[:max_modes]
 
@@ -251,11 +274,32 @@ def ingest_wiki(path):
                 article = ' '.join(current)
                 # Skip redirects and very short articles
                 if len(article) > 200 and not article.startswith('#REDIRECT'):
-                    # Strip basic wiki markup
+                    # AGGRESSIVE CLEANUP — kill templates before they enter
+                    # Infoboxes: everything between {{ and }} including nested
+                    depth = 0
+                    clean = []
+                    i_c = 0
+                    while i_c < len(article):
+                        if article[i_c:i_c+2] == '{{': depth += 1; i_c += 2
+                        elif article[i_c:i_c+2] == '}}': depth = max(0, depth-1); i_c += 2
+                        elif depth == 0: clean.append(article[i_c]); i_c += 1
+                        else: i_c += 1
+                    article = ''.join(clean)
+                    # Tables
+                    article = re.sub(r'\{\|[\s\S]*?\|\}', '', article)
+                    article = re.sub(r'\|-.*', '', article)
+                    article = re.sub(r'\|.*?=.*', '', article) # key=value pairs
+                    # Wiki markup
                     article = re.sub(r'\[\[(?:[^|\]]*\|)?([^\]]*)\]\]', r'\1', article)
-                    article = re.sub(r'\{\{[^}]*\}\}', '', article)
                     article = re.sub(r'<[^>]+>', '', article)
                     article = re.sub(r'={2,}.*?={2,}', '', article)
+                    # References and citations
+                    article = re.sub(r'<ref[^>]*>.*?</ref>', '', article)
+                    article = re.sub(r'<ref[^/]*/>', '', article)
+                    # CSS/HTML artifacts
+                    article = re.sub(r'style="[^"]*"', '', article)
+                    article = re.sub(r'class="[^"]*"', '', article)
+                    article = re.sub(r'(colspan|rowspan|align|valign|width|height|border|cellpadding|bgcolor)="[^"]*"', '', article)
                     text_chunks.append(article)
                     total_bytes += len(article)
                     article_count += 1
