@@ -15,6 +15,68 @@
 
 var Memory = {
   STORAGE_KEY: 'harmonia_chain',
+  REP_KEY: 'harmonia_reputation',
+
+  // ═══ REPUTATION — remembers who you are across sessions ═══
+  reputation: {}, // {fingerprint: {name, K, visits, liquidated, lastSeen}}
+
+  fingerprint: function(){
+    // Simple browser fingerprint — not tracking, just recognition
+    var fp=navigator.userAgent+screen.width+'x'+screen.height+new Date().getTimezoneOffset();
+    var hash=0;for(var i=0;i<fp.length;i++){hash=((hash<<5)-hash)+fp.charCodeAt(i);hash|=0;}
+    return'fp_'+Math.abs(hash).toString(36);
+  },
+
+  extractName: function(text){
+    // Look for "I'm X", "my name is X", "call me X", "its X", "im X", "this is X"
+    var m=text.match(/(?:i'?m|my name is|call me|its me|this is|i am)\s+([A-Z][a-z]{1,15})/i);
+    if(m)return m[1].charAt(0).toUpperCase()+m[1].slice(1).toLowerCase();
+    // Also catch "hey its X" or "X here"
+    m=text.match(/(?:hey its?|hi its?)\s+([A-Z][a-z]{1,15})/i);
+    if(m)return m[1].charAt(0).toUpperCase()+m[1].slice(1).toLowerCase();
+    m=text.match(/^([A-Z][a-z]{1,15})\s+here\b/);
+    if(m)return m[1];
+    return null;
+  },
+
+  loadReputation: function(){
+    try{
+      var saved=localStorage.getItem(this.REP_KEY);
+      if(saved)this.reputation=JSON.parse(saved);
+    }catch(e){}
+  },
+
+  saveReputation: function(){
+    try{localStorage.setItem(this.REP_KEY,JSON.stringify(this.reputation));}catch(e){}
+  },
+
+  getMyRep: function(){
+    var fp=this.fingerprint();
+    return this.reputation[fp]||null;
+  },
+
+  updateRep: function(name,K,liquidated){
+    var fp=this.fingerprint();
+    var rep=this.reputation[fp]||{name:null,avgK:0,visits:0,liquidated:0,lastSeen:0};
+    if(name)rep.name=name;
+    rep.visits++;
+    rep.avgK=(rep.avgK*(rep.visits-1)+K)/rep.visits;
+    if(liquidated)rep.liquidated++;
+    rep.lastSeen=Date.now();
+    this.reputation[fp]=rep;
+    this.saveReputation();
+    return rep;
+  },
+
+  markLiquidated: function(name){
+    var fp=this.fingerprint();
+    var rep=this.reputation[fp]||{name:null,avgK:0,visits:0,liquidated:0,lastSeen:0};
+    if(name)rep.name=name;
+    rep.liquidated++;
+    rep.lastSeen=Date.now();
+    this.reputation[fp]=rep;
+    this.saveReputation();
+  },
   chain: [],        // the full chain of compressed interactions
   wordFreq: {},     // distilled word frequencies (her vocabulary shaped by interactions)
   topicWeights: {}, // how much she's learned about each topic

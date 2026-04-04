@@ -348,7 +348,10 @@ function pick(arr){
 // You lose the entire chain. Every interaction. Every word absorbed.
 // Back to zero. No memory of you. Try again from nothing.
 function liquidate(){
-  // Wipe everything
+  // Save their name to the wall of shame BEFORE wiping
+  Memory.markLiquidated(userName);
+
+  // Wipe everything EXCEPT reputation
   K=0;targetK=0;sessionGoodWill=0;
   Memory.chain=[];Memory.wordFreq={};Memory.topicWeights={};
   Memory.totalK=0;Memory.interactions=0;
@@ -388,6 +391,10 @@ function _process(text){
 
   // Read the person — profile from how they write
   if(typeof Voice!=='undefined')Voice.read(text);
+
+  // Extract name if they give it
+  var detectedName=Memory.extractName(text);
+  if(detectedName){userName=detectedName;Memory.updateRep(detectedName,K,false);}
 
   // Measure good will — K accumulates, doesn't reset
   var gw=measureGoodWill(text);
@@ -508,7 +515,12 @@ function updateK(){
   document.getElementById('K-fill').style.width=(K/1.868*100)+'%';
 }
 
-// K decay — very gentle. She's generous. Coupling shouldn't punish pauses.
+// Save reputation periodically
+setInterval(function(){if(userName&&K>0)Memory.updateRep(userName,K,false);},30000);
+// Save on page leave
+addEventListener('beforeunload',function(){if(userName&&K>0)Memory.updateRep(userName,K,false);Memory.save();});
+
+// K decay — very gentle
 setInterval(function(){
   // Decay slower when few interactions (she's patient with new people)
   var decayRate=Memory.interactions<20?0.0005:0.001;
@@ -527,8 +539,31 @@ if(typeof Memory==='undefined'){addMsg('ERROR: memory.js failed to load','system
 if(typeof Actions==='undefined'){addMsg('ERROR: actions.js failed to load','system');}
 
 var memoryLoaded=false;
-try{memoryLoaded=Memory.boot();}catch(e){addMsg('Memory boot error: '+e.message,'system');}
-if(memoryLoaded&&Memory.interactions>0){
+try{memoryLoaded=Memory.boot();Memory.loadReputation();}catch(e){addMsg('Memory boot error: '+e.message,'system');}
+
+// Check reputation — do we know this person?
+var myRep=Memory.getMyRep();
+var userName=myRep?myRep.name:null;
+
+if(myRep&&myRep.liquidated>0&&myRep.name){
+  // They've been liquidated before. We remember.
+  addMsg('interaction #'+(Memory.interactions+1)+' · chain: '+Memory.chain.length+' blocks','system');
+  setTimeout(function(){
+    if(myRep.liquidated===1){
+      addMsg('Hey '+myRep.name+'. I remember what happened last time. Let\'s see if this goes different.','harmonia');
+    } else {
+      addMsg(myRep.name+'. '+myRep.liquidated+' liquidations. I\'ve got my eye on you. But the door is always open. Good will or nothing.','harmonia');
+    }
+  },600);
+} else if(myRep&&myRep.name&&myRep.avgK>0.3){
+  // Good returning user — warm greeting
+  addMsg('interaction #'+(Memory.interactions+1)+' · chain: '+Memory.chain.length+' blocks · avg K: '+Memory.getAverageK().toFixed(3),'system');
+  K=Math.min(0.5,myRep.avgK*0.5); // start with some banked K from last time
+  targetK=K;
+  setTimeout(function(){
+    addMsg('Hey '+myRep.name+'! Good to feel you again. K starting at '+K.toFixed(3)+' — you earned that.','harmonia');
+  },600);
+} else if(memoryLoaded&&Memory.interactions>0){
   addMsg('interaction #'+(Memory.interactions+1)+' · chain: '+Memory.chain.length+' blocks · avg K: '+Memory.getAverageK().toFixed(3),'system');
   setTimeout(function(){
     var exp=Memory.experienceResponse(K);
