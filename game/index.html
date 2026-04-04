@@ -540,24 +540,34 @@ function runOpening(){
     if(stateTime>13){openingPhase=4;stateTime=0;}
   }
   else if(openingPhase===4){
-    // Transition to drum circle
     showCinema('good will','the game');
     if(stateTime>4){openingPhase=5;stateTime=0;}
   }
   else if(openingPhase===5){
+    // FLYOVER — world loads, camera sweeps over the plains
+    hideCinema();
+    worldActive=true;
+    tbgR=0;tbgG=0;tbgB=0;
+    // Hide particles during flyover (set all sizes to 0)
+    for(var i=0;i<N;i++){tsz[i]=0;sz[i]=0;}
+    if(stateTime>8){
+      showCinema('','a tribe on the plains');
+    }
+    if(stateTime>13){openingPhase=6;stateTime=0;}
+  }
+  else if(openingPhase===6){
+    // DESCEND to drum circle
     hideCinema();
     gameState='drumcircle';
     stateTime=0;
-    worldActive=true; // turn on the SDF world
     buildDrumCircle();
-    tbgR=0;tbgG=0;tbgB=0; // world shader handles the background now
-    // Camera setup for drum circle
     tcamX=0;tcamY=6;tcamZ=8;
     document.getElementById('kbar').classList.add('show');
-    document.getElementById('prompt').style.opacity='1';
-    document.getElementById('prompt-text').textContent='click each drummer to find the rhythm';
-    document.getElementById('sync').style.opacity='1';
-    // Scatter positions for bloom-in
+    setTimeout(function(){
+      document.getElementById('prompt').style.opacity='1';
+      document.getElementById('prompt-text').textContent='click each drummer to find the rhythm';
+      document.getElementById('sync').style.opacity='1';
+    },2000);
     for(var i=0;i<N;i++){
       pos[i*3]=(Math.random()-0.5)*2;pos[i*3+1]=Math.random()*5;pos[i*3+2]=(Math.random()-0.5)*2;
     }
@@ -671,26 +681,32 @@ function render(){
   if(gameState==='opening')runOpening();
   else if(gameState==='drumcircle')updateDrumCircle();
 
-  // ═══ RENDER WORLD (SDF) — when active, replaces the black background ═══
+  // ═══ RENDER WORLD (SDF) ═══
   if(worldActive){
     gl.useProgram(worldProg);
     gl.uniform2f(wURes,cv.width,cv.height);
     gl.uniform1f(wUTime,t);
-    // Camera for world: orbiting the plains, looking at the drum circle location
-    var wCamAngle=t*0.015+(mouseX-0.5)*0.5;
-    var wCamH=4+Math.sin(t*0.02)*1;
-    var wCamDist=15;
+
+    var wCamAngle,wCamH,wCamDist,lookDown;
+    if(gameState==='opening'&&openingPhase===5){
+      // FLYOVER: high sweep across the plains
+      var flyT=stateTime/13; // 0→1 over flyover duration
+      wCamAngle=flyT*1.5-0.3;
+      wCamH=12-flyT*6; // descend from 12 to 6
+      wCamDist=25-flyT*10; // close in from 25 to 15
+      lookDown=-0.25-flyT*0.1;
+    } else {
+      // Drum circle: gentle orbit
+      wCamAngle=t*0.012+(mouseX-0.5)*0.4;
+      wCamH=5+Math.sin(t*0.02)*0.5;
+      wCamDist=14;
+      lookDown=-0.18;
+    }
     gl.uniform3f(wUCamPos,
-      Math.sin(wCamAngle)*wCamDist,
-      wCamH,
-      Math.cos(wCamAngle)*wCamDist
-    );
+      Math.sin(wCamAngle)*wCamDist,wCamH,Math.cos(wCamAngle)*wCamDist);
     gl.uniform3f(wUCamDir,
-      -Math.sin(wCamAngle),
-      -0.15,
-      -Math.cos(wCamAngle)
-    );
-    gl.uniform1f(wUK,K);
+      -Math.sin(wCamAngle),lookDown,-Math.cos(wCamAngle));
+    if(wUK)gl.uniform1f(wUK,K);
     gl.bindBuffer(gl.ARRAY_BUFFER,wQuadBuf);
     gl.enableVertexAttribArray(wAPos);
     gl.vertexAttribPointer(wAPos,2,gl.FLOAT,false,0,0);
