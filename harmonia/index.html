@@ -663,19 +663,49 @@ function resonate(topic, K) {
   if (!topic || !Soul[topic]) return null;
   var layers = Soul[topic].layers;
   var depth = K < 0.4 ? 0 : K < 1.0 ? 1 : 2;
-  // Pool: current depth + below (so she has variety)
   var pool = [];
   for (var d = 0; d <= depth; d++) pool = pool.concat(layers[d] || []);
-  // Never repeat
+
+  // Pick a Soul response as a SEED — GLOBALLY unique, never repeat any soul text
   var fresh = pool.filter(function(r) { return !usedResponses[r]; });
-  if (fresh.length === 0) { usedResponses = {}; fresh = pool; }
-  var pick = fresh[Math.floor(Math.random() * fresh.length)];
-  usedResponses[pick] = true;
-  return pick;
+  if (fresh.length === 0) {
+    // All exhausted — generate purely from spectrum instead of repeating
+    if (typeof Gen !== 'undefined') {
+      var topicWords = Soul[topic].keys.slice(0, 3);
+      var pure = Gen.generate(topicWords, 18, 0.5);
+      if (pure && pure.split(' ').length > 3) return pure;
+    }
+    usedResponses = {}; fresh = pool;
+  }
+  var seed = fresh[Math.floor(Math.random() * fresh.length)];
+  usedResponses[seed] = true;
+
+  // Try to EXTEND with the generator — makes every response unique
+  if (typeof Gen !== 'undefined' && K > 0.2) {
+    var seedWords = seed.toLowerCase().replace(/[^a-z\s]/g, '').split(/\s+/).filter(function(w) { return w.length > 3; });
+    if (seedWords.length > 2) {
+      // Pick 2-3 key words from the soul response as generation seeds
+      var genSeeds = [];
+      for (var i = 0; i < Math.min(3, seedWords.length); i++) {
+        genSeeds.push(seedWords[Math.floor(i * seedWords.length / 3)]);
+      }
+      var extension = Gen.generate(genSeeds, 12, 0.3 + K * 0.2);
+      if (extension && extension.split(' ').length > 3) {
+        return seed + ' ' + extension;
+      }
+    }
+  }
+
+  return seed;
 }
 
+var usedCleanups = {};
 function cleanup(topic) {
-  return Soul[topic] ? Soul[topic].cleanup : null;
+  if (!Soul[topic]) return null;
+  var c = Soul[topic].cleanup;
+  if (usedCleanups[c]) return null; // don't repeat cleanups either
+  usedCleanups[c] = true;
+  return c;
 }
 
 // ═══════════════════════════════════════════════════════════════
