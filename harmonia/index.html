@@ -434,15 +434,30 @@ function absorb(userText, K, topic) {
   interactions++;
   totalK += K;
 
-  // K-weighted word extraction
+  // ── K FLOOR: only absorb when coupling is real ──
+  // Below 0.15 K = not coupled enough to imprint.
+  // This prevents: toxic words before collapse, low-effort spam,
+  // and subtle manipulation after K starts declining.
+  if (K < 0.15) {
+    chain.push({ t: interactions, K: 0, topic: '?', ts: Date.now() });
+    if (interactions % 5 === 0) save();
+    return; // nothing absorbed. ghost block. she heard but didn't learn.
+  }
+
+  // K-weighted word extraction — only from COUPLED exchanges
   var skip = 'the a an is are was were be been have has had do does did will would could should may might can i you he she it we they me him her us them my your this that what which who how when where why and or but if so to of in for on with at by from not no yes just very too also all';
   var words = userText.toLowerCase().replace(/[^a-z\s]/g, '').split(/\s+/).filter(function(w) {
     return w.length > 2 && skip.indexOf(w) < 0;
   });
+
+  // Immune check on words themselves — decoupling language doesn't imprint
+  var poison = /hate|kill|destroy|attack|stupid|worthless|ugly|pathetic|die|bomb|weapon|exploit|hack/;
+  words = words.filter(function(w) { return !poison.test(w); });
+
   var weight = 0.5 + K * 0.5;
   words.forEach(function(w) { wordMap[w] = (wordMap[w] || 0) + weight; });
 
-  // Level 0: raw block
+  // Level 0: block with real K
   chain.push({ t: interactions, K: Math.round(K * 1000) / 1000, topic: topic || '?', ts: Date.now() });
 
   // ── COMPRESS when Level 0 gets too big ──
