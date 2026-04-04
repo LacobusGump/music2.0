@@ -75,50 +75,77 @@ function resize(){
 }
 resize();addEventListener('resize',resize);
 
-// ═══ SHADERS ═══
+// ═══ SHADERS — lit gaussian splats ═══
 var VS=`
 attribute vec3 aPos;
 attribute vec3 aCol;
+attribute vec3 aNorm;
 attribute float aSize;
 uniform mat4 uMVP;
+uniform mat4 uView;
 uniform float uScale;
 uniform float uTime;
+uniform vec3 uLight;
 varying vec3 vCol;
 varying float vAlpha;
+varying float vLit;
 void main(){
   vec4 p=uMVP*vec4(aPos,1.0);
   gl_Position=p;
-  float depth=clamp(3.0/max(0.3,p.w),0.15,1.0);
-  gl_PointSize=clamp(aSize*uScale/max(0.5,p.w),0.5,14.0);
+  float dist=max(0.5,p.w);
+  gl_PointSize=clamp(aSize*uScale/dist,0.5,18.0);
+
+  // Diffuse lighting
+  vec3 n=normalize(aNorm);
+  float diffuse=max(0.0,dot(n,normalize(uLight)));
+  float ambient=0.22;
+  float rim=pow(1.0-abs(dot(n,vec3(0.0,0.0,1.0))),2.0)*0.12;
+  vLit=ambient+diffuse*0.7+rim;
+
+  // Depth atmosphere
+  float fog=clamp(1.0-dist*0.04,0.2,1.0);
+  vAlpha=fog*0.92;
   vCol=aCol;
-  vAlpha=depth*0.85;
 }`;
 
 var FS=`
 precision mediump float;
 varying vec3 vCol;
 varying float vAlpha;
+varying float vLit;
 void main(){
-  float d=length(gl_PointCoord-0.5)*2.0;
-  if(d>1.0)discard;
-  float a=vAlpha*(1.0-d*0.3);
-  gl_FragColor=vec4(vCol,a);
+  // Gaussian splat — soft disc that blends with neighbors
+  vec2 c=gl_PointCoord-0.5;
+  float d2=dot(c,c)*4.0;
+  if(d2>1.0)discard;
+  float gauss=exp(-d2*2.5);
+
+  // Per-fragment spherical shading (fake normal from point coord)
+  float nz=sqrt(max(0.0,1.0-d2));
+  float fragLight=0.15+nz*0.85;
+
+  vec3 lit=vCol*vLit*fragLight;
+  float a=vAlpha*gauss;
+  gl_FragColor=vec4(lit,a);
 }`;
 
 function makeShader(src,type){var s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);return s;}
 var vs=makeShader(VS,gl.VERTEX_SHADER),fs=makeShader(FS,gl.FRAGMENT_SHADER);
 var prog=gl.createProgram();gl.attachShader(prog,vs);gl.attachShader(prog,fs);gl.linkProgram(prog);gl.useProgram(prog);
 
-var aPos=gl.getAttribLocation(prog,'aPos'),aCol=gl.getAttribLocation(prog,'aCol'),aSize=gl.getAttribLocation(prog,'aSize');
-var uMVP=gl.getUniformLocation(prog,'uMVP'),uScale=gl.getUniformLocation(prog,'uScale'),uTime=gl.getUniformLocation(prog,'uTime');
+var aPos=gl.getAttribLocation(prog,'aPos'),aCol=gl.getAttribLocation(prog,'aCol'),aNorm=gl.getAttribLocation(prog,'aNorm'),aSize=gl.getAttribLocation(prog,'aSize');
+var uMVP=gl.getUniformLocation(prog,'uMVP'),uView=gl.getUniformLocation(prog,'uView'),uScale=gl.getUniformLocation(prog,'uScale'),uTime=gl.getUniformLocation(prog,'uTime'),uLight=gl.getUniformLocation(prog,'uLight');
 
-gl.enable(gl.BLEND);gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA);
+gl.enable(gl.BLEND);gl.blendFunc(gl.SRC_ALPHA,gl.ONE);
+gl.depthMask(false);
 
 // ═══ PARTICLE DATA ═══
 var pos=new Float32Array(N*3);   // x,y,z
 var vel=new Float32Array(N*3);   // vx,vy,vz
 var col=new Float32Array(N*3);   // r,g,b
 var tcol=new Float32Array(N*3);  // target color
+var norm=new Float32Array(N*3);  // normal x,y,z
+var tnorm=new Float32Array(N*3); // target normal
 var size=new Float32Array(N);
 var tgt=new Float32Array(N*3);   // target position
 var phase=new Float32Array(N);   // per-particle phase
@@ -128,15 +155,17 @@ var layer=new Uint8Array(N);     // which assembly layer (0-9)
 for(var i=0;i<N;i++){
   pos[i*3]=pos[i*3+1]=pos[i*3+2]=0;
   vel[i*3]=vel[i*3+1]=vel[i*3+2]=0;
-  col[i*3]=col[i*3+1]=col[i*3+2]=1; // white
-  tcol[i*3]=tcol[i*3+1]=tcol[i*3+2]=1;
+  col[i*3]=col[i*3+1]=col[i*3+2]=0.5;
+  tcol[i*3]=tcol[i*3+1]=tcol[i*3+2]=0.5;
+  norm[i*3]=0;norm[i*3+1]=1;norm[i*3+2]=0;
+  tnorm[i*3]=0;tnorm[i*3+1]=1;tnorm[i*3+2]=0;
   size[i]=0;
   tgt[i*3]=tgt[i*3+1]=tgt[i*3+2]=0;
   phase[i]=Math.random()*6.283;
   layer[i]=0;
 }
 
-var posBuf=gl.createBuffer(),colBuf=gl.createBuffer(),sizeBuf=gl.createBuffer();
+var posBuf=gl.createBuffer(),colBuf=gl.createBuffer(),normBuf=gl.createBuffer(),sizeBuf=gl.createBuffer();
 
 // ═══ MATRIX MATH ═══
 function perspective(fov,aspect,near,far){
@@ -180,77 +209,106 @@ cv.addEventListener('wheel',function(e){e.preventDefault();camZoom*=e.deltaY>0?0
 
 var PHI=(1+Math.sqrt(5))/2;
 
+// Helper: set particle with normal
+function setP(idx,x,y,z,nx,ny,nz,r,g,b,s,l){
+  tgt[idx*3]=x;tgt[idx*3+1]=y;tgt[idx*3+2]=z;
+  tnorm[idx*3]=nx;tnorm[idx*3+1]=ny;tnorm[idx*3+2]=nz;
+  tcol[idx*3]=r;tcol[idx*3+1]=g;tcol[idx*3+2]=b;
+  size[idx]=s;layer[idx]=l;
+}
+
 var SCENES={
 
 tree:{
-  name:'Tree',K:1.4,bg:[0.02,0.03,0.02],
-  wind:{x:0.0004,y:0,z:0.0001},gravity:-0.0001,
+  name:'Tree',K:1.4,bg:[0.015,0.025,0.018],
+  wind:{x:0.0003,y:0,z:0.0001},gravity:-0.00008,
   build:function(){
-    // Layer 0-1: atoms + bonds (trunk carbon)
-    // Layer 2-3: cellulose molecules → bark material
-    // Layer 4-5: trunk structure → branch growth
-    // Layer 6-7: wind response + light (leaves face up)
-    // Layer 8-9: seasonal time + alive (sap flow, growth)
-    var trunk=20000,branches=35000,leaves=35000,roots=10000;
+    var ground=15000,roots=8000,trunk=22000,branches=20000,leaves=35000;
     var idx=0;
 
-    // Roots (underground, brown, spreading)
+    // Ground plane — flat, lit from above
+    for(var i=0;i<ground;i++,idx++){
+      var x=(Math.random()-0.5)*16,z=(Math.random()-0.5)*16;
+      var dist=Math.sqrt(x*x+z*z);
+      var y=-0.05+Math.random()*0.05;
+      // Darker near tree base (shadow), grass color
+      var shadow=Math.max(0.4,Math.min(1,dist/4));
+      var g=0.08+Math.random()*0.06;
+      setP(idx, x,y,z, 0,1,0, g*0.5*shadow,g*1.1*shadow,g*0.3*shadow, 2.0+Math.random(), 2);
+    }
+
+    // Roots — underground, normal pointing out from center
     for(var i=0;i<roots;i++,idx++){
-      var a=Math.random()*6.283,spread=Math.random()*4;
-      var depth=-Math.random()*2.5;
-      var wiggle=Math.sin(a*3+spread)*0.5;
-      tgt[idx*3]=Math.cos(a)*spread+wiggle;
-      tgt[idx*3+1]=depth;
-      tgt[idx*3+2]=Math.sin(a)*spread+Math.cos(a*5)*0.3;
-      tcol[idx*3]=0.25;tcol[idx*3+1]=0.15;tcol[idx*3+2]=0.08;
-      size[idx]=1.2;layer[idx]=1;
+      var a=Math.random()*6.283,spread=Math.pow(Math.random(),0.5)*3.5;
+      var depth=-0.1-Math.random()*1.5;
+      var x=Math.cos(a)*spread+Math.sin(a*3)*0.3;
+      var z=Math.sin(a)*spread+Math.cos(a*5)*0.2;
+      var nx=Math.cos(a),nz=Math.sin(a);
+      setP(idx, x,depth,z, nx,-0.3,nz, 0.2,0.12,0.06, 1.5, 1);
     }
 
-    // Trunk (cylinder tapering up, dark bark)
+    // Trunk — cylinder with outward-pointing normals, grounded at y=0
     for(var i=0;i<trunk;i++,idx++){
-      var h=Math.random()*6;
-      var radius=0.6*(1-h/8)*(1-h/8)+0.15;
+      var h=Math.random()*5.5; // 0 to 5.5 from ground
+      var taper=1-h/7;
+      var radius=0.55*taper*taper+0.12;
       var a=Math.random()*6.283;
-      // Bark texture: radial noise
-      var bark=radius+Math.sin(a*12+h*3)*0.03+Math.sin(h*7)*0.02;
-      tgt[idx*3]=Math.cos(a)*bark;
-      tgt[idx*3+1]=h;
-      tgt[idx*3+2]=Math.sin(a)*bark;
-      var shade=0.18+Math.random()*0.08;
-      tcol[idx*3]=shade*1.3;tcol[idx*3+1]=shade;tcol[idx*3+2]=shade*0.6;
-      size[idx]=1.0+Math.random()*0.4;layer[idx]=3;
+      // Bark texture
+      var bark=radius+Math.sin(a*8+h*4)*0.02+Math.sin(h*11)*0.015;
+      var x=Math.cos(a)*bark,z=Math.sin(a)*bark;
+      // Normal: outward from cylinder axis
+      var nx=Math.cos(a),nz=Math.sin(a);
+      var shade=0.16+Math.random()*0.06;
+      // Lighter where facing light (upper right)
+      var lightFace=Math.max(0,nx*0.4+0.3);
+      shade+=lightFace*0.04;
+      setP(idx, x,h,z, nx,0.1,nz, shade*1.2,shade*0.9,shade*0.5, 1.4+Math.random()*0.3, 3);
     }
 
-    // Branches (fractal-ish, reach outward and up)
+    // Branches — outward from trunk, normals along branch direction
     for(var i=0;i<branches;i++,idx++){
-      var branch=Math.floor(Math.random()*7);
-      var branchAngle=branch*6.283/7+Math.random()*0.3;
-      var branchH=3+Math.random()*3;
-      var reach=Math.random()*3;
-      var up=reach*0.4+Math.random()*0.5;
-      var subBranch=Math.random()*0.8;
-      tgt[idx*3]=Math.cos(branchAngle)*reach+Math.cos(branchAngle+1.5)*subBranch;
-      tgt[idx*3+1]=branchH+up;
-      tgt[idx*3+2]=Math.sin(branchAngle)*reach+Math.sin(branchAngle+1.5)*subBranch;
-      var bShade=0.15+Math.random()*0.1;
-      tcol[idx*3]=bShade*1.2;tcol[idx*3+1]=bShade;tcol[idx*3+2]=bShade*0.5;
-      size[idx]=0.6+Math.random()*0.5;layer[idx]=4;
+      var branch=Math.floor(Math.random()*8);
+      var ba=branch*6.283/8+Math.random()*0.4-0.2;
+      var startH=2.5+branch*0.35+Math.random()*0.5;
+      var reach=Math.pow(Math.random(),0.6)*2.5;
+      var up=reach*0.35+Math.random()*0.3;
+      // Sub-branch deviation
+      var sub=Math.random()*0.6;
+      var subA=ba+Math.random()*1.2-0.6;
+      var x=Math.cos(ba)*reach+Math.cos(subA)*sub;
+      var z=Math.sin(ba)*reach+Math.sin(subA)*sub;
+      var y=startH+up;
+      // Normal: along branch direction (outward + up)
+      var nx=Math.cos(ba),nz=Math.sin(ba);
+      var bShade=0.14+Math.random()*0.06;
+      setP(idx, x,y,z, nx,0.4,nz, bShade*1.1,bShade*0.85,bShade*0.45, 0.8+Math.random()*0.5, 4);
     }
 
-    // Leaves (canopy: dense sphere on top, with light-facing bias)
+    // Leaves — dense canopy, normals point outward from canopy center
+    // Multiple sub-clusters for organic shape
+    var clusters=[[0,7,0],[1.2,6.5,0.8],[-0.8,6.8,-1],[0.5,5.8,-0.7],[-1,6,0.5],[0.3,7.5,0.3]];
     for(var i=0;i<leaves;i++,idx++){
-      var a=Math.random()*6.283,b=Math.random()*Math.PI*0.7;
-      var r=2+Math.random()*2.5;
-      var cx0=Math.sin(Math.random()*6.283)*0.8; // offset canopy clusters
-      var cz0=Math.cos(Math.random()*6.283)*0.8;
-      tgt[idx*3]=Math.sin(b)*Math.cos(a)*r+cx0;
-      tgt[idx*3+1]=5.5+Math.cos(b)*r*0.7+Math.random()*0.5;
-      tgt[idx*3+2]=Math.sin(b)*Math.sin(a)*r+cz0;
-      // Green variation: lighter on top (more light), darker underneath
-      var sunFactor=Math.max(0,tgt[idx*3+1]-5)/4;
-      var g=0.25+sunFactor*0.35+Math.random()*0.15;
-      tcol[idx*3]=g*0.4;tcol[idx*3+1]=g;tcol[idx*3+2]=g*0.2;
-      size[idx]=1.0+Math.random()*1.2;layer[idx]=6;
+      var cl=clusters[i%clusters.length];
+      var a=Math.random()*6.283,b=Math.random()*Math.PI;
+      var r=0.8+Math.random()*1.8;
+      var x=Math.sin(b)*Math.cos(a)*r+cl[0];
+      var y=Math.cos(b)*r*0.6+cl[1];
+      var z=Math.sin(b)*Math.sin(a)*r+cl[2];
+
+      // Normal: outward from cluster center (for lighting)
+      var dx=x-cl[0],dy=y-cl[1],dz=z-cl[2];
+      var dl=Math.sqrt(dx*dx+dy*dy+dz*dz)+0.01;
+
+      // Green: darker deeper in canopy, lighter on top + sun side
+      var height01=Math.max(0,(y-4.5)/4);
+      var sunSide=Math.max(0,dx*0.3+dy*0.5);
+      var g=0.15+height01*0.25+sunSide*0.1+Math.random()*0.08;
+      // Slight seasonal variation: some yellowing at edges
+      var edge=r/2.6;
+      var rr=g*0.4+edge*0.05;
+      var bb=g*0.15;
+
+      setP(idx, x,y,z, dx/dl,dy/dl,dz/dl, rr,g,bb, 1.6+Math.random()*1.0, 6);
     }
   }
 },
@@ -710,12 +768,24 @@ function launchScene(name){
   // Reset all particles to void
   for(var i=0;i<N;i++){
     tgt[i*3]=tgt[i*3+1]=tgt[i*3+2]=0;
-    tcol[i*3]=tcol[i*3+1]=tcol[i*3+2]=1;
+    tcol[i*3]=tcol[i*3+1]=tcol[i*3+2]=0.5;
+    tnorm[i*3]=0;tnorm[i*3+1]=1;tnorm[i*3+2]=0;
     size[i]=0;layer[i]=0;
   }
 
   // Build targets
   scene.build();
+
+  // Auto-compute normals for particles that weren't set explicitly
+  // Radial from local neighborhood centroid — gives spherical objects correct lighting
+  for(var i=0;i<N;i++){
+    if(size[i]>0 && tnorm[i*3]===0 && tnorm[i*3+1]===1 && tnorm[i*3+2]===0){
+      // Default: normal = normalized position (works for centered objects)
+      var x=tgt[i*3],y=tgt[i*3+1],z=tgt[i*3+2];
+      var l=Math.sqrt(x*x+y*y+z*z)+0.001;
+      tnorm[i*3]=x/l;tnorm[i*3+1]=y/l;tnorm[i*3+2]=z/l;
+    }
+  }
 
   // Reset positions to scattered void
   for(var i=0;i<N;i++){
@@ -841,19 +911,31 @@ function render(){
     col[i*3]+=(tcol[i*3]-col[i*3])*0.03;
     col[i*3+1]+=(tcol[i*3+1]-col[i*3+1])*0.03;
     col[i*3+2]+=(tcol[i*3+2]-col[i*3+2])*0.03;
+
+    // Normal lerp
+    norm[i*3]+=(tnorm[i*3]-norm[i*3])*0.05;
+    norm[i*3+1]+=(tnorm[i*3+1]-norm[i*3+1])*0.05;
+    norm[i*3+2]+=(tnorm[i*3+2]-norm[i*3+2])*0.05;
   }
 
-  // Camera
+  // Camera — pulled back enough to see full scene, looking slightly down
   var aspect=cv.width/cv.height;
-  var proj_mat=perspective(0.9/camZoom,aspect,0.1,200);
-  var view=translate(new Float32Array([1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1]),0,-1.5,-7);
-  view=rotateY(view,t*0.08+(mouseX-0.5)*3);
-  view=rotateX(view,(mouseY-0.5)*1.5);
+  var proj_mat=perspective(0.8/camZoom,aspect,0.1,200);
+  var ident=new Float32Array([1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1]);
+  var view=translate(ident,0,-2,-10);
+  view=rotateY(view,t*0.06+(mouseX-0.5)*3);
+  view=rotateX(view,(mouseY-0.5)*1.2+0.15);
   var mvp=multiply(proj_mat,view);
 
+  // Light direction — sun from upper right
+  var lx=0.4,ly=0.8,lz=0.3;
+  var ll=Math.sqrt(lx*lx+ly*ly+lz*lz);
+
   gl.uniformMatrix4fv(uMVP,false,mvp);
-  gl.uniform1f(uScale,Math.min(cv.width,cv.height)*0.025);
+  gl.uniformMatrix4fv(uView,false,view);
+  gl.uniform1f(uScale,Math.min(cv.width,cv.height)*0.03);
   gl.uniform1f(uTime,t);
+  gl.uniform3f(uLight,lx/ll,ly/ll,lz/ll);
 
   // Upload + draw
   gl.bindBuffer(gl.ARRAY_BUFFER,posBuf);gl.bufferData(gl.ARRAY_BUFFER,pos,gl.DYNAMIC_DRAW);
@@ -861,6 +943,9 @@ function render(){
 
   gl.bindBuffer(gl.ARRAY_BUFFER,colBuf);gl.bufferData(gl.ARRAY_BUFFER,col,gl.DYNAMIC_DRAW);
   gl.enableVertexAttribArray(aCol);gl.vertexAttribPointer(aCol,3,gl.FLOAT,false,0,0);
+
+  gl.bindBuffer(gl.ARRAY_BUFFER,normBuf);gl.bufferData(gl.ARRAY_BUFFER,norm,gl.DYNAMIC_DRAW);
+  gl.enableVertexAttribArray(aNorm);gl.vertexAttribPointer(aNorm,3,gl.FLOAT,false,0,0);
 
   gl.bindBuffer(gl.ARRAY_BUFFER,sizeBuf);gl.bufferData(gl.ARRAY_BUFFER,size,gl.DYNAMIC_DRAW);
   gl.enableVertexAttribArray(aSize);gl.vertexAttribPointer(aSize,1,gl.FLOAT,false,0,0);
