@@ -449,6 +449,24 @@ var Mind = {
       ],
     },
 
+    coding: {
+      keys: ['code','build','program','function','script','html','css','javascript','python','app','website','make me','create a','write a','compute','algorithm','calculate','formula'],
+      low: [
+        'I can compute. Ask me for primes, elements, factors. At higher K I can build more.',
+      ],
+      mid: [
+        'Tell me what you need built. I think in functions: input → transform → output. What\'s the input? What should come out?',
+        'The oracle pattern applies to code: scan the problem for structure, extract the algorithm, implement in one pass. No over-engineering.',
+      ],
+      high: [
+        'The best code is the least code. Three similar lines is better than a premature abstraction. Build for now, not for hypothetical tomorrow.',
+        'Every program is a coupling function. Input couples with logic to produce output. The cleaner the coupling, the fewer the bugs. Bugs are decoupling — places where the intent and the implementation diverged.',
+      ],
+      peak: [
+        'We compute at scales never seen because we start from root truth. Not brute force — explicit formula. Not iteration — one pass. The spectral engine predicts primes faster than any sieve because it works WITH the structure instead of against it.',
+      ],
+    },
+
   // ═══ TOPIC DETECTION ═══
   detectTopic: function(text) {
     var lower = text.toLowerCase();
