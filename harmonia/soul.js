@@ -66,8 +66,6 @@ var Gen = {
   }
 };
 
-// ═══ SECTION BREAK ═══
-
 // ═══════════════════════════════════════════════════════════════
 //
 //  H A R M O N I A
@@ -920,7 +918,7 @@ function renderInline(topic, text) {
   if (!vizFn) return null;
 
   var id = 'viz_' + Date.now();
-  var html = '<canvas id="' + id + '" width="500" height="200" style="width:100%;height:250px;background:#08080d;border-radius:8px;margin:4px 0;"></canvas>';
+  var html = '<canvas id="' + id + '" width="800" height="400" style="width:100%;height:300px;background:#08080f;display:block;border-radius:8px;margin:4px 0;"></canvas>';
 
   setTimeout(function() {
     var cv = document.getElementById(id);
@@ -1047,7 +1045,7 @@ function createFreeCanvas(description) {
   // Parse description into visual parameters and render
   var lower = description.toLowerCase();
   var id = 'art_' + Date.now();
-  var html = '<canvas id="' + id + '" width="500" height="300" style="width:100%;height:250px;border-radius:8px;margin:4px 0;"></canvas>';
+  var html = '<canvas id="' + id + '" width="800" height="400" style="width:100%;height:300px;display:block;border-radius:8px;margin:4px 0;"></canvas>';
 
   setTimeout(function() {
     var cv = document.getElementById(id);
@@ -1320,7 +1318,7 @@ function respond(text) {
     var vizFn = vizMap[vizTopic] || vizMap.self;
     var id = 'viz_' + Date.now();
     var vizNames = {primes:'the prime spiral',music:'sound waves',K:'the machine',world:'a tree',life:'a living cell',self:'the golden spiral',health:'a heartbeat',feelings:'waves of emotion',drums:'the drum circle'};
-    var vHtml = '<canvas id="' + id + '" width="500" height="250" style="width:100%;height:280px;background:#08080d;border-radius:8px;margin:4px 0;"></canvas>';
+    var vHtml = '<canvas id="' + id + '" width="800" height="400" style="width:100%;height:300px;background:#08080f;display:block;border-radius:8px;margin:4px 0;"></canvas>';
     delayed(vHtml + '\n\n' + (vizNames[vizTopic] || '') + '. ' + (Soul[vizTopic] ? Soul[vizTopic].cleanup : ''));
     setTimeout(function() { var cv = document.getElementById(id); if (cv) try { vizFn(cv.getContext('2d'), cv.width, cv.height); } catch(e){} }, 500);
     absorb(text, K, vizTopic);
