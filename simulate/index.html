@@ -94,16 +94,15 @@ void main(){
   float dist=max(0.3,p.w);
   gl_PointSize=clamp(aSize*uScale/dist,0.3,24.0);
 
-  // Lighting: ambient + diffuse + hemisphere
+  // Lighting: generous ambient + diffuse + sky fill
   vec3 n=normalize(aNorm);
   float diffuse=max(0.0,dot(n,uLight));
-  float sky=0.5+0.5*n.y; // hemisphere: up=bright, down=dark
-  float ambient=0.18;
-  vLit=ambient+diffuse*0.55+sky*0.2;
+  float sky=0.5+0.5*n.y;
+  float ambient=0.45;
+  vLit=ambient+diffuse*0.45+sky*0.15;
 
-  // Alpha: closer camera = reduce per-particle alpha to prevent blowout
-  float fog=clamp(1.2-dist*0.02,0.3,1.0);
-  vAlpha=fog*uAlphaScale;
+  // Alpha: scale with zoom to prevent blowout but stay visible
+  vAlpha=clamp(uAlphaScale,0.3,1.0);
   vCol=aCol;
 }`;
 
@@ -116,11 +115,11 @@ void main(){
   vec2 c=gl_PointCoord-0.5;
   float d2=dot(c,c)*4.0;
   if(d2>1.0)discard;
-  // Tight gaussian — forms solid surfaces when overlapping
-  float gauss=exp(-d2*3.5);
-  // Hemisphere shading per fragment
+  // Soft gaussian — smooth overlap into continuous surfaces
+  float gauss=exp(-d2*1.8);
+  // Subtle shading per fragment
   float nz=sqrt(max(0.0,1.0-d2));
-  float frag=0.6+nz*0.4;
+  float frag=0.75+nz*0.25;
   vec3 lit=vCol*vLit*frag;
   gl_FragColor=vec4(lit,vAlpha*gauss);
 }`;
@@ -219,7 +218,7 @@ function setP(idx,x,y,z,nx,ny,nz,r,g,b,s,l){
 var SCENES={
 
 tree:{
-  name:'Tree',K:1.4,bg:[0.015,0.025,0.018],
+  name:'Tree',K:1.4,bg:[0.08,0.12,0.15],
   wind:{x:0.0003,y:0,z:0.0001},gravity:-0.00008,
   build:function(){ this.lod[0](); },
   lod:{
@@ -235,11 +234,11 @@ tree:{
         // Shadow under tree canopy
         var shadow=Math.min(1,0.5+dist*0.12);
         // Grass: subtle variation, not uniform
-        var gr=0.06+Math.random()*0.04;
-        var variation=Math.sin(x*3+z*5)*0.015+Math.sin(x*7-z*3)*0.01;
+        var gr=0.15+Math.random()*0.08;
+        var variation=Math.sin(x*3+z*5)*0.02+Math.sin(x*7-z*3)*0.015;
         setP(idx, x,-0.02+Math.random()*0.03,z, 0,1,0,
-          (gr+variation)*0.45*shadow, (gr+variation)*1.15*shadow, (gr+variation)*0.25*shadow,
-          3.0+Math.random()*1.5, 2); // BIG overlapping splats = solid ground
+          (gr+variation)*0.5*shadow, (gr+variation)*1.2*shadow, (gr+variation)*0.3*shadow,
+          3.0+Math.random()*1.5, 2);
       }
 
       // Roots — peek out at base, go underground
@@ -264,11 +263,10 @@ tree:{
         var nx=Math.cos(a),nz=Math.sin(a);
         // Bark color: warm brown, darker in vertical grooves
         var groove=Math.sin(a*20+h*3)*0.5+0.5; // 0-1 groove pattern
-        var base=0.12+groove*0.06+Math.random()*0.03;
-        // Lit side vs shadow side
-        var lit=Math.max(0,nx*0.35+0.25)*0.06;
+        var base=0.22+groove*0.08+Math.random()*0.04;
+        var lit=Math.max(0,nx*0.35+0.25)*0.08;
         setP(idx, x,h,z, nx,0.05,nz,
-          (base+lit)*1.3, (base+lit)*0.95, (base+lit)*0.5,
+          (base+lit)*1.2, (base+lit)*0.85, (base+lit)*0.45,
           isSurface?1.8+Math.random()*0.5:1.2, 3);
       }
 
@@ -308,10 +306,9 @@ tree:{
         // Color: sun-lit top = bright green. Shadowed bottom = dark.
         var sunUp=Math.max(0,dy/dl); // how much this particle faces up
         var sunSide=Math.max(0,dx/dl*0.3);
-        var g=0.12+sunUp*0.22+sunSide*0.08+Math.random()*0.06;
-        // Slight warm tint on sun-facing
-        var warmR=g*0.35+sunUp*0.04;
-        var coolB=g*0.12-sunUp*0.02;
+        var g=0.22+sunUp*0.3+sunSide*0.1+Math.random()*0.08;
+        var warmR=g*0.38+sunUp*0.05;
+        var coolB=g*0.15-sunUp*0.02;
 
         setP(idx, x,y,z, dx/dl,dy/dl,dz/dl,
           warmR,g,Math.max(0.02,coolB),
@@ -555,7 +552,7 @@ tree:{
 },
 
 water:{
-  name:'Water',K:0.8,bg:[0.01,0.02,0.04],
+  name:'Water',K:0.8,bg:[0.05,0.08,0.14],
   wind:{x:0.0002,y:0,z:0.0003},gravity:-0.00005,
   build:function(){
     var surface=60000,depth=30000,foam=10000;
@@ -590,7 +587,7 @@ water:{
 },
 
 fire:{
-  name:'Fire',K:2.4,bg:[0.03,0.01,0.01],
+  name:'Fire',K:2.4,bg:[0.06,0.03,0.02],
   wind:{x:0.0001,y:0.001,z:0},gravity:0.0004,
   build:function(){
     var core=30000,flame=50000,ember=15000,smoke=5000;
@@ -642,7 +639,7 @@ fire:{
 },
 
 crystal:{
-  name:'Crystal',K:3.2,bg:[0.01,0.01,0.02],
+  name:'Crystal',K:3.2,bg:[0.04,0.04,0.07],
   wind:{x:0,y:0,z:0},gravity:0,
   build:function(){
     var lattice=60000,faces=30000,glow=10000;
@@ -691,7 +688,7 @@ crystal:{
 },
 
 star:{
-  name:'Star',K:1.868,bg:[0.005,0.005,0.01],
+  name:'Star',K:1.868,bg:[0.02,0.02,0.04],
   wind:{x:0,y:0,z:0},gravity:0,
   build:function(){
     var core=25000,plasma=45000,corona=20000,flares=10000;
@@ -750,7 +747,7 @@ star:{
 },
 
 flower:{
-  name:'Flower',K:1.2,bg:[0.02,0.03,0.02],
+  name:'Flower',K:1.2,bg:[0.08,0.12,0.08],
   wind:{x:0.0003,y:0,z:0.0001},gravity:-0.0002,
   build:function(){
     var stem=10000,petals=50000,center=15000,pollen=5000,ground=20000;
@@ -816,7 +813,7 @@ flower:{
 },
 
 rock:{
-  name:'Rock',K:2.8,bg:[0.02,0.02,0.02],
+  name:'Rock',K:2.8,bg:[0.06,0.06,0.07],
   wind:{x:0,y:0,z:0},gravity:-0.0003,
   build:function(){
     var idx=0;
@@ -845,7 +842,7 @@ rock:{
 },
 
 cell:{
-  name:'Living Cell',K:1/PHI,bg:[0.01,0.015,0.02],
+  name:'Living Cell',K:1/PHI,bg:[0.04,0.05,0.07],
   wind:{x:0,y:0,z:0},gravity:0,
   build:function(){
     var membrane=25000,cyto=30000,nucleus=15000,mito=12000,er=8000,vesicles=10000;
@@ -918,7 +915,7 @@ cell:{
 },
 
 mountain:{
-  name:'Mountain',K:2.2,bg:[0.01,0.015,0.025],
+  name:'Mountain',K:2.2,bg:[0.06,0.08,0.12],
   wind:{x:0.0005,y:0,z:0.0002},gravity:-0.0003,
   build:function(){
     var idx=0;
@@ -942,7 +939,7 @@ mountain:{
 },
 
 dna:{
-  name:'DNA',K:1/PHI,bg:[0.005,0.01,0.015],
+  name:'DNA',K:1/PHI,bg:[0.03,0.04,0.06],
   wind:{x:0,y:0,z:0},gravity:0,
   build:function(){
     var backbone=40000,bases=40000,glow=20000;
@@ -1212,8 +1209,8 @@ function render(){
   var lx=0.4,ly=0.75,lz=0.35;
   var ll=Math.sqrt(lx*lx+ly*ly+lz*lz);
 
-  // Alpha scales down as zoom increases (prevents blowout from overlap)
-  var alphaScale=Math.min(1.0, 0.85/Math.sqrt(camZoom));
+  // Alpha: stay solid, gentle reduction on zoom to prevent blowout
+  var alphaScale=Math.min(1.0, 1.0/Math.pow(camZoom,0.25));
 
   gl.uniformMatrix4fv(uMVP,false,mvp);
   gl.uniform1f(uScale,Math.min(cv.width,cv.height)*0.035);
