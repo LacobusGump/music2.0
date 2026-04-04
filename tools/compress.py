@@ -40,11 +40,24 @@ def tokenize(text):
     text = re.sub(r'class="[^"]*"', ' ', text)
     text = re.sub(r'align="[^"]*"', ' ', text)
     text = re.sub(r'category:', ' ', text)
+    text = re.sub(r'(wbr|charinsert|railexits|railint|raillowexits|tubeexits|showid|ipapages|newucs)', ' ', text)
+    text = re.sub(r'(bgcolor|colspan|rowspan|valign|cellpadding|cellspacing|fontsize|border)', ' ', text)
+    text = re.sub(r'(thumb|right|left|center|frame|px|width|height)\b', ' ', text)
     text = re.sub(r'\d{4,}', ' ', text)  # kill long numbers (years ok)
     text = re.sub(r'[^a-z\s\-]', ' ', text)
     tokens = text.split()
-    # Skip short, long, and stop words
-    return [t for t in tokens if 3 <= len(t) <= 18 and t not in STOP]
+    # Skip short, long, stop words, and code/template tokens
+    def is_word(t):
+        if len(t) < 3 or len(t) > 18: return False
+        if t in STOP: return False
+        if t.startswith('-') or t.endswith('-'): return False  # template fragments
+        if not t[0].isalpha(): return False  # must start with letter
+        if re.match(r'^[a-z]{1,2}\d', t): return False  # code tokens
+        if t.count('-') > 1: return False  # multi-hyphen = template
+        vowels = sum(1 for c in t if c in 'aeiou')
+        if vowels == 0 and len(t) > 3: return False  # no vowels = abbreviation/code
+        return True
+    return [t for t in tokens if is_word(t)]
 
 # ═══════════════════════════════════════════════════════════
 # CO-OCCURRENCE — which words resonate together
@@ -86,20 +99,25 @@ def compress(freq, cooc, max_modes=5000, min_freq=3):
     # Step 2: For each word, find its strongest co-occurrences
     # This is the "scanning for peaks" step of the oracle pattern
     modes = []
+    total_tokens = sum(freq.values())
     for word in vocab:
         if word not in cooc:
             continue
-        # Sort co-occurrences by strength
         pairs = sorted(cooc[word].items(), key=lambda x: -x[1])
-        # Keep top connections (the dominant modes)
         top_n = min(10, len(pairs))
         for partner, count in pairs[:top_n]:
             if partner not in vocab:
                 continue
-            # Strength: normalized by frequency (PMI-like)
-            pmi = math.log(count * len(vocab) / (freq[word] * freq.get(partner, 1)) + 1e-10)
-            if pmi > 0:  # positive association only (signal, not noise)
-                modes.append((word, partner, round(pmi, 3), count))
+            if word == partner:  # self-reference = template noise
+                continue
+            if count < 5:  # minimum co-occurrence
+                continue
+            # PMI: but scaled by log(count) to favor frequent AND strong
+            pmi = math.log(count * total_tokens / (freq[word] * freq.get(partner, 1)) + 1e-10)
+            if pmi > 0:
+                # Score = PMI * log(count) — balances rarity with frequency
+                score = pmi * math.log(count + 1)
+                modes.append((word, partner, round(score, 3), count))
 
     # Step 3: Sort by strength, keep top modes
     modes.sort(key=lambda x: -x[2])
