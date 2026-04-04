@@ -75,110 +75,114 @@ resize();window.addEventListener('resize',resize);
 
 var layer='anatomy',selectedRegion=null,highlight=null,showPhysics=false;
 
+// ═══ PHYSICS — same formula as resonance page ═══
+function resFreq(E,d_um){return(1/(Math.PI*d_um*1e-6))*Math.sqrt(E/1050);}
+
 // ═══ BODY REGIONS ═══
+// E = Young's modulus (Pa), d = characteristic dimension (μm), depth = cm from surface
 var REGIONS=[
   {id:'brain',label:'Brain',x:0.5,y:0.06,w:0.12,h:0.06,
     simple:'Your command center. 86 billion neurons firing electrical signals.',
     physics:'Neural oscillators coupled at K. Healthy: flexible switching between gamma (40Hz) and alpha (10Hz). Disease: locked in one mode.',
-    blood:0.15, stiffness:200, resonance:9.3,
+    blood:0.15, E:200, d:15, depth:8,
     conditions:['depression','anxiety','alzheimer','parkinson','migraine','epilepsy','addiction'],
     healing:'Neuroplasticity — new connections form when you learn, move, and sleep. The brain rewires itself every day.',
   },
   {id:'eyes',label:'Eyes',x:0.5,y:0.08,w:0.08,h:0.02,
     simple:'Light enters. Signals sent to brain. You see.',
     physics:'Photoreceptors convert photons to electrical signals via rhodopsin conformational change at ~500nm.',
-    blood:0.08, stiffness:1000, resonance:15,
+    blood:0.08, E:1000, d:12, depth:2,
     conditions:['macular degeneration','glaucoma','diabetic retinopathy'],
     healing:'Retinal cells don\'t regenerate. Prevention: blood sugar control + UV protection.',
   },
   {id:'heart',label:'Heart',x:0.48,y:0.22,w:0.08,h:0.07,
     simple:'Pumps blood everywhere. Beats 100,000 times a day. The delivery truck for your whole body.',
     physics:'Cardiomyocytes coupled at K→∞ (gap junctions). Pacemaker cells set ω. SA node: 60-100 Hz. The most tightly coupled oscillator in the body.',
-    blood:0.05, stiffness:10000, resonance:39.1,
+    blood:0.05, E:10000, d:20, depth:6,
     conditions:['heart disease','arrhythmia','heart attack','heart failure'],
     healing:'Heart muscle barely regenerates. After heart attack: scar forms. Prevention is everything. Exercise strengthens the pump.',
   },
   {id:'lungs',label:'Lungs',x:0.5,y:0.22,w:0.16,h:0.10,
     simple:'Oxygen in, CO₂ out. Every breath feeds every cell.',
     physics:'Gas exchange across 70m² of alveolar surface. O₂ diffuses down concentration gradient. CO₂ diffuses out. Pure physics.',
-    blood:0.10, stiffness:2000, resonance:20,
+    blood:0.10, E:2000, d:200, depth:5,
     conditions:['asthma','copd','pneumonia','lung cancer','covid'],
     healing:'Alveoli can regenerate from stem cells. Quitting smoking: lungs measurably improve within weeks.',
   },
   {id:'liver',label:'Liver',x:0.42,y:0.32,w:0.10,h:0.07,
     simple:'Your filter. Cleans blood, processes nutrients, makes bile. The only organ that can regrow from 25%.',
     physics:'Hepatocytes: highest metabolic rate of any cell. Stiffness increases with fibrosis (2→12→25 kPa). Elastography measures this.',
-    blood:0.25, stiffness:2000, resonance:22,
+    blood:0.25, E:2000, d:20, depth:7,
     conditions:['fatty liver','hepatitis','cirrhosis','liver cancer'],
     healing:'The liver regenerates. Even after removing 75%, it grows back in weeks. Unique among organs.',
   },
   {id:'stomach',label:'Stomach & Gut',x:0.5,y:0.36,w:0.12,h:0.08,
     simple:'Digests food. But also: 70% of your immune system lives here. Your gut talks to your brain.',
     physics:'Gut microbiome: 100 trillion bacteria. Their metabolites (butyrate, serotonin) are signaling molecules. The gut-brain axis is bidirectional coupling.',
-    blood:0.15, stiffness:1000, resonance:15,
+    blood:0.15, E:1000, d:30, depth:4,
     conditions:['ibs','crohn','ulcer','leaky gut','gut health','microbiome'],
     healing:'Gut lining replaces itself every 3-5 days. Fastest regenerating tissue. Fiber feeds the good bacteria.',
   },
   {id:'kidneys',label:'Kidneys',x:0.5,y:0.35,w:0.14,h:0.05,
     simple:'Filter your blood. Make urine. Control blood pressure. You have two — can survive with one.',
     physics:'1 million nephrons per kidney. Each a tiny filter operating by pressure gradients. Stiffness: 5 kPa healthy, increases with disease.',
-    blood:0.20, stiffness:5000, resonance:35,
+    blood:0.20, E:5000, d:20, depth:9,
     conditions:['kidney disease','kidney stones','uti'],
     healing:'Nephrons don\'t regenerate. Protect what you have: hydrate, control blood pressure, limit NSAIDs.',
   },
   {id:'spine',label:'Spine',x:0.5,y:0.32,w:0.06,h:0.20,
     simple:'23 discs cushion 33 vertebrae. Protects the spinal cord. When discs wear out: back pain.',
     physics:'Discs are avascular after age 20 — same problem as cartilage. No blood = no maintenance = degeneration. Stiffness drops as disc degenerates.',
-    blood:0.02, stiffness:700, resonance:20,
+    blood:0.02, E:700, d:13, depth:5,
     conditions:['back pain','herniated disc','sciatica','spinal stenosis','scoliosis'],
     healing:'Discs barely heal. Movement pumps nutrients in (like cartilage). Core strength reduces load. Prevention > cure.',
   },
   {id:'shoulder',label:'Shoulder',x:0.35,y:0.18,w:0.06,h:0.06,
     simple:'Most mobile joint in the body. That flexibility comes at a cost: easier to injure.',
     physics:'Ball-and-socket joint. Rotator cuff = 4 muscles holding the ball in place. Tendons are collagen — Amide I at 1660 cm⁻¹.',
-    blood:0.08, stiffness:5000, resonance:35,
+    blood:0.08, E:5000, d:15, depth:3,
     conditions:['rotator cuff','frozen shoulder','dislocation'],
     healing:'Tendons heal slowly (limited blood supply). PRP can help. Gradual loading rebuilds collagen alignment.',
   },
   {id:'hip',label:'Hip',x:0.42,y:0.46,w:0.06,h:0.06,
     simple:'Ball-and-socket joint that bears your full weight. Built to last — when the cartilage holds.',
     physics:'Cartilage: 2-4mm thick, avascular, E≈700 Pa. Same failure mode as knee. Load: 3-5× body weight walking.',
-    blood:0.05, stiffness:700, resonance:20,
+    blood:0.05, E:700, d:13, depth:6,
     conditions:['hip arthritis','hip fracture','hip replacement','bursitis'],
     healing:'Same as knee: movement pumps synovial fluid. PRP may help. Weight management critical.',
   },
   {id:'knee',label:'Knee',x:0.44,y:0.58,w:0.06,h:0.07,
     simple:'The biggest joint. Cartilage cushions bone-on-bone. No blood supply to cartilage — that\'s why it wears out.',
-    physics:'Avascular cartilage: E≈700 Pa, resonance ~20 kHz. No blood = no IR delivery = no maintenance. Synovial fluid is the ONLY nutrient path. Movement pumps it.',
-    blood:0.01, stiffness:700, resonance:20,
+    physics:'Avascular cartilage: E≈700 Pa. No blood = no IR delivery = no maintenance. Synovial fluid is the ONLY nutrient path. Movement pumps it.',
+    blood:0.01, E:700, d:13, depth:2,
     conditions:['knee arthritis','torn meniscus','acl tear','knee pain','osteoarthritis'],
     healing:'PRP delivers growth factors (WAKE). Movement pumps synovial fluid (FEED). Heat increases local circulation (SUPPORT). Rest lets cells build (GROW). Repeat.',
   },
   {id:'ankle',label:'Ankle & Foot',x:0.45,y:0.72,w:0.06,h:0.08,
     simple:'26 bones per foot. Absorbs impact of every step. Achilles tendon: strongest tendon in the body.',
     physics:'Achilles tendon: E≈1.2 GPa. Collagen fibers aligned along force direction. Plantar fascia: E≈350 MPa.',
-    blood:0.04, stiffness:1200000000, resonance:1000,
+    blood:0.04, E:1200000000, d:5000, depth:1,
     conditions:['plantar fasciitis','achilles','ankle sprain','fracture'],
     healing:'Tendons: slow healing (6-12 months). Gradual loading essential. Too much too soon = re-injury. Eccentric exercises proven for Achilles.',
   },
   {id:'skin',label:'Skin',x:0.5,y:0.4,w:0.20,h:0.30,
     simple:'Your largest organ. 2 square meters. Barrier against everything. Replaces itself every 27 days.',
     physics:'Epidermis regenerates from stem cells in basal layer. Dermis: collagen + elastin matrix. E≈50 kPa. IR therapy FDA-cleared for wound healing.',
-    blood:0.10, stiffness:50000, resonance:110,
+    blood:0.10, E:50000, d:20, depth:0.5,
     conditions:['eczema','psoriasis','skin cancer','wound','burn','aging skin'],
     healing:'Skin heals well (good blood supply). Chronic wounds fail when circulation is poor (diabetes, age). Warmth + moisture + nutrition = faster healing.',
   },
   {id:'blood',label:'Blood & Immune',x:0.5,y:0.30,w:0.20,h:0.20,
     simple:'5 liters of blood. Red cells carry oxygen. White cells fight invaders. Platelets seal wounds.',
     physics:'Blood: non-Newtonian fluid, E≈4 Pa. Clots: E≈1000 Pa (250× stiffer). This stiffness contrast enables sonothrombolysis.',
-    blood:1.0, stiffness:4, resonance:3,
+    blood:1.0, E:4, d:7, depth:4,
     conditions:['anemia','leukemia','blood clot','immune','autoimmune','allergy'],
     healing:'Blood regenerates from bone marrow stem cells. 200 billion red cells made per day. Sleep is when immune cells are built.',
   },
   {id:'bones',label:'Bones',x:0.5,y:0.40,w:0.14,h:0.30,
     simple:'206 bones. Living tissue — constantly rebuilding. Osteoblasts build. Osteoclasts remove. Balance = health.',
-    physics:'Cortical bone: E≈15 GPa. Resonance very high. LIPUS at 1 kHz pulse promotes healing — FDA cleared since 1994. 38% faster fracture healing.',
-    blood:0.05, stiffness:15000000000, resonance:120000,
+    physics:'Cortical bone: E≈15 GPa. LIPUS at 1 kHz pulse promotes healing — FDA cleared since 1994. 38% faster fracture healing.',
+    blood:0.05, E:15000000000, d:10000, depth:3,
     conditions:['fracture','osteoporosis','bone cancer'],
     healing:'Bones heal in 4 phases: inflammation (day 1-5), soft callus (week 1-3), hard callus (week 3-12), remodeling (month 3-12+). LIPUS accelerates all phases. Weight bearing helps.',
   },
@@ -327,17 +331,28 @@ function showDetail(r){
   h+='<div class="toggle-depth '+(showPhysics?'on':'')+'" onclick="togglePhysics()">show the physics</div>';
 
   if(showPhysics){
+    var f=resFreq(r.E,r.d);
+    var f_kHz=f/1000;
+    var depth=r.depth;
+    var carrier_MHz=Math.min(3,30/Math.max(depth,0.5));
+    var duty=Math.min(0.5,0.2*(10/Math.max(depth,0.5)));
+    var intensity=30*Math.exp(0.1*depth);
+
     h+='<div class="detail-section" style="margin-top:12px;">';
     h+='<div class="detail-label">Physics</div>';
     h+='<div class="detail-text">'+r.physics+'</div>';
     h+='</div>';
     h+='<div class="detail-section">';
-    h+='<div class="detail-label">Mechanical Properties</div>';
-    var f_kHz=r.resonance;
-    h+='<div class="bar-row"><span class="bar-name">Stiffness</span><div class="bar-track"><div class="bar-fill" style="width:'+Math.min(100,Math.log10(r.stiffness+1)*10)+'%;background:var(--accent);"></div></div></div>';
+    h+='<div class="detail-label">Computed from E and d — f = (1/πd)√(E/ρ)</div>';
+    h+='<div class="bar-row"><span class="bar-name">Stiffness</span><div class="bar-track"><div class="bar-fill" style="width:'+Math.min(100,Math.log10(r.E+1)*10)+'%;background:var(--accent);"></div></div></div>';
     h+='<div class="bar-row"><span class="bar-name">Blood flow</span><div class="bar-track"><div class="bar-fill" style="width:'+r.blood*100+'%;background:var(--red);"></div></div></div>';
     h+='<div class="bar-row"><span class="bar-name">Resonance</span><div class="bar-track"><div class="bar-fill" style="width:'+Math.min(100,Math.log10(f_kHz+1)*15)+'%;background:var(--blue);"></div></div></div>';
-    h+='<div style="color:var(--dim);font-size:0.75em;margin-top:4px;">Stiffness: '+r.stiffness.toLocaleString()+' Pa | Resonance: '+f_kHz+' kHz</div>';
+    h+='<div style="color:var(--dim);font-size:0.75em;margin-top:8px;line-height:1.8;">';
+    h+='E: '+r.E.toLocaleString()+' Pa · d: '+r.d+' μm · depth: '+depth+' cm<br>';
+    h+='<span style="color:var(--blue);">resonance: '+f_kHz.toFixed(1)+' kHz</span> · ';
+    h+='<span style="color:var(--accent);">carrier: '+carrier_MHz.toFixed(1)+' MHz</span> · ';
+    h+='duty: '+(duty*100).toFixed(0)+'% · '+intensity.toFixed(0)+' mW/cm²';
+    h+='</div>';
     h+='</div>';
   }
 
