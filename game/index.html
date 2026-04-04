@@ -6,38 +6,72 @@
 <title>Good Will</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;}
-body{background:#000;overflow:hidden;touch-action:none;font-family:Georgia,serif;cursor:default;}
+body{background:#000;overflow:hidden;touch-action:none;font-family:Georgia,serif;cursor:default;user-select:none;}
 canvas{display:block;width:100vw;height:100vh;touch-action:none;}
-#text{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:10;
-  text-align:center;pointer-events:none;max-width:min(85vw,500px);transition:opacity 2s;}
-#text h1{font-weight:200;letter-spacing:0.15em;margin-bottom:12px;line-height:1.4;}
-#text p{font-size:0.85em;line-height:1.8;letter-spacing:0.04em;}
-#K-bar{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:10;
-  width:min(70vw,300px);pointer-events:none;}
-#K-track{width:100%;height:3px;background:#ffffff06;border-radius:2px;overflow:hidden;}
-#K-fill{width:0%;height:100%;background:#c9a44a;border-radius:2px;transition:width 0.5s;}
-#K-label{text-align:center;margin-top:4px;font:0.65em Georgia;color:#ffffff08;letter-spacing:0.15em;}
-#prompt{position:fixed;bottom:60px;left:50%;transform:translateX(-50%);z-index:10;
-  text-align:center;pointer-events:none;transition:opacity 1.5s;opacity:0;}
-#prompt span{font:0.8em Georgia;color:#c9a44a40;letter-spacing:0.1em;}
+
+/* CINEMATIC TEXT */
+#cinema{position:fixed;top:0;left:0;right:0;bottom:0;z-index:20;pointer-events:none;
+  display:flex;align-items:center;justify-content:center;text-align:center;transition:opacity 2s;}
+#cinema h1{font-weight:200;letter-spacing:0.2em;line-height:1.5;color:#e8e4dc;font-size:1.6em;}
+#cinema p{font-size:0.85em;line-height:2;color:#ffffff30;margin-top:12px;letter-spacing:0.06em;}
+
+/* K BAR */
+#kbar{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);z-index:30;
+  width:min(60vw,280px);pointer-events:none;opacity:0;transition:opacity 1s;}
+#kbar.show{opacity:1;}
+#ktrack{width:100%;height:3px;background:#ffffff08;border-radius:2px;}
+#kfill{width:0%;height:100%;border-radius:2px;transition:width 0.3s;
+  background:linear-gradient(90deg,#c9a44a,#f4d990);}
+#klabel{text-align:center;margin-top:5px;font:0.6em Georgia;color:#c9a44a30;letter-spacing:0.2em;}
+
+/* CHARACTER PANEL */
+#panel{position:fixed;right:16px;top:50%;transform:translateY(-50%);z-index:30;
+  background:rgba(10,10,15,0.85);backdrop-filter:blur(8px);border:1px solid #ffffff08;
+  border-radius:12px;padding:16px 20px;width:220px;pointer-events:none;
+  opacity:0;transition:opacity 0.5s;}
+#panel.show{opacity:1;}
+#panel h3{font-weight:300;color:#c9a44a;font-size:1.1em;letter-spacing:0.08em;margin-bottom:8px;}
+#panel .trait{display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid #ffffff05;}
+#panel .trait-name{color:#666;font-size:0.75em;}
+#panel .trait-val{color:#999;font-size:0.8em;}
+#panel .bio{color:#ffffff15;font-size:0.72em;margin-top:8px;line-height:1.6;font-style:italic;}
+#panel .bpm{color:#c9a44a60;font-size:0.9em;text-align:center;margin-top:10px;letter-spacing:0.1em;}
+#panel .locked-badge{color:#4aeaa0;font-size:0.75em;text-align:center;margin-top:4px;letter-spacing:0.15em;display:none;}
+
+/* PROMPT */
+#prompt{position:fixed;bottom:50px;left:50%;transform:translateX(-50%);z-index:25;
+  pointer-events:none;opacity:0;transition:opacity 1.5s;}
+#prompt span{font:0.85em Georgia;color:#c9a44a25;letter-spacing:0.12em;}
+
+/* SYNC COUNTER */
+#sync{position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:25;
+  pointer-events:none;opacity:0;transition:opacity 1s;}
+#sync span{font:0.75em Georgia;color:#ffffff10;letter-spacing:0.15em;}
 </style>
 </head>
 <body>
 <canvas id="C"></canvas>
-<div id="text"><h1 id="t-title"></h1><p id="t-body"></p></div>
-<div id="prompt"><span id="p-text"></span></div>
-<div id="K-bar"><div id="K-track"><div id="K-fill"></div></div><div id="K-label">K = 0</div></div>
+<div id="cinema"><div><h1 id="c-title"></h1><p id="c-body"></p></div></div>
+<div id="kbar"><div id="ktrack"><div id="kfill"></div></div><div id="klabel">K = 0</div></div>
+<div id="panel">
+  <h3 id="p-name"></h3>
+  <div id="p-traits"></div>
+  <div class="bio" id="p-bio"></div>
+  <div class="bpm" id="p-bpm"></div>
+  <div class="locked-badge" id="p-locked">LOCKED</div>
+</div>
+<div id="prompt"><span id="prompt-text"></span></div>
+<div id="sync"><span id="sync-text"></span></div>
 
 <script>
-// ═══════════════════════════════════════════════
+// ═══════════════════════════════════════════════════
 // GOOD WILL — The Game
-// From void to Harmonia. K drives everything.
-// Good will is the only path forward.
-// ═══════════════════════════════════════════════
+// ═══════════════════════════════════════════════════
 
 var cv=document.getElementById('C'),gl=cv.getContext('webgl',{antialias:false,alpha:false});
 var N=100000,DPR=Math.min(devicePixelRatio||1,2);
 var PHI=(1+Math.sqrt(5))/2;
+var TAU=Math.PI*2;
 
 function resize(){cv.width=innerWidth*DPR;cv.height=innerHeight*DPR;gl.viewport(0,0,cv.width,cv.height);}
 resize();addEventListener('resize',resize);
@@ -55,10 +89,10 @@ void main(){
   vec4 p=uMVP*vec4(aPos,1.0);
   gl_Position=p;
   float d=max(0.3,p.w);
-  gl_PointSize=clamp(aSize*uScale/d,0.3,20.0);
-  float fog=clamp(1.5-d*0.02,0.2,1.0);
+  gl_PointSize=clamp(aSize*uScale/d,0.3,22.0);
+  float fog=clamp(2.0-d*0.015,0.3,1.0);
   vCol=aCol;
-  vAlpha=fog*0.85;
+  vAlpha=fog*0.88;
 }`;
 var FS=`
 precision mediump float;
@@ -78,496 +112,562 @@ var aPos=gl.getAttribLocation(prog,'aPos'),aCol=gl.getAttribLocation(prog,'aCol'
 var uMVP=gl.getUniformLocation(prog,'uMVP'),uScale=gl.getUniformLocation(prog,'uScale');
 gl.enable(gl.BLEND);gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA);
 
-// ═══ PARTICLE DATA ═══
+// ═══ PARTICLES ═══
 var pos=new Float32Array(N*3),vel=new Float32Array(N*3),col=new Float32Array(N*3);
-var tcol=new Float32Array(N*3),tgt=new Float32Array(N*3),sz=new Float32Array(N);
-var tsz=new Float32Array(N),phase=new Float32Array(N);
-for(var i=0;i<N;i++){phase[i]=Math.random()*6.283;sz[i]=0;tsz[i]=0;}
+var tcol=new Float32Array(N*3),tgt=new Float32Array(N*3),sz=new Float32Array(N),tsz=new Float32Array(N);
+var phase=new Float32Array(N);
+for(var i=0;i<N;i++)phase[i]=Math.random()*TAU;
 var posBuf=gl.createBuffer(),colBuf=gl.createBuffer(),szBuf=gl.createBuffer();
 
 // ═══ MATRIX ═══
-function perspective(f,a,n,r){var v=1/Math.tan(f/2),d=1/(n-r);return new Float32Array([v/a,0,0,0,0,v,0,0,0,0,(r+n)*d,-1,0,0,2*r*n*d,0]);}
+function persp(f,a,n,r){var v=1/Math.tan(f/2),d=1/(n-r);return new Float32Array([v/a,0,0,0,0,v,0,0,0,0,(r+n)*d,-1,0,0,2*r*n*d,0]);}
 function mul(a,b){var r=new Float32Array(16);for(var i=0;i<4;i++)for(var j=0;j<4;j++)r[j*4+i]=a[i]*b[j*4]+a[4+i]*b[j*4+1]+a[8+i]*b[j*4+2]+a[12+i]*b[j*4+3];return r;}
-function rotY(m,a){var c=Math.cos(a),s=Math.sin(a),r=new Float32Array(16);r[0]=c;r[2]=-s;r[5]=1;r[8]=s;r[10]=c;r[15]=1;return mul(m,r);}
-function rotX(m,a){var c=Math.cos(a),s=Math.sin(a),r=new Float32Array(16);r[0]=1;r[5]=c;r[6]=s;r[9]=-s;r[10]=c;r[15]=1;return mul(m,r);}
-function trans(m,x,y,z){var r=new Float32Array(16);r[0]=1;r[5]=1;r[10]=1;r[15]=1;r[12]=x;r[13]=y;r[14]=z;return mul(m,r);}
+function rY(m,a){var c=Math.cos(a),s=Math.sin(a),r=new Float32Array(16);r[0]=c;r[2]=-s;r[5]=1;r[8]=s;r[10]=c;r[15]=1;return mul(m,r);}
+function rX(m,a){var c=Math.cos(a),s=Math.sin(a),r=new Float32Array(16);r[0]=1;r[5]=c;r[6]=s;r[9]=-s;r[10]=c;r[15]=1;return mul(m,r);}
+function tr(m,x,y,z){var r=new Float32Array(16);r[0]=1;r[5]=1;r[10]=1;r[15]=1;r[12]=x;r[13]=y;r[14]=z;return mul(m,r);}
+var I=new Float32Array([1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1]);
+
+// ═══ AUDIO ENGINE ═══
+var audioCtx=null;
+function initAudio(){if(!audioCtx)audioCtx=new(window.AudioContext||window.webkitAudioContext)();}
+
+function playDrumHit(person){
+  initAudio();
+  var now=audioCtx.currentTime;
+  // Organic drum: pitched membrane + click + body
+  var fund=80+person.pitch*30; // each person's drum has different pitch
+
+  // Body (low sine)
+  var osc=audioCtx.createOscillator();
+  var g=audioCtx.createGain();
+  osc.type='sine';osc.frequency.setValueAtTime(fund,now);
+  osc.frequency.exponentialRampToValueAtTime(fund*0.5,now+0.15);
+  g.gain.setValueAtTime(0.25,now);
+  g.gain.exponentialRampToValueAtTime(0.001,now+0.2);
+  osc.connect(g);g.connect(audioCtx.destination);
+  osc.start(now);osc.stop(now+0.25);
+
+  // Click (noise burst)
+  var bufSize=audioCtx.sampleRate*0.02;
+  var buf=audioCtx.createBuffer(1,bufSize,audioCtx.sampleRate);
+  var data=buf.getChannelData(0);
+  for(var i=0;i<bufSize;i++)data[i]=(Math.random()*2-1)*Math.exp(-i/bufSize*8);
+  var noise=audioCtx.createBufferSource();
+  noise.buffer=buf;
+  var ng=audioCtx.createGain();
+  ng.gain.setValueAtTime(0.15,now);ng.gain.exponentialRampToValueAtTime(0.001,now+0.04);
+  noise.connect(ng);ng.connect(audioCtx.destination);
+  noise.start(now);
+}
+
+// ═══ THE TWELVE ═══
+var PEOPLE=[
+  {name:'Kora',   bio:'Born steady. Others follow without knowing why.',
+   rhythm:0.85, empathy:0.95, strength:0.5, wisdom:0.7, craft:0.4,
+   trade:'chief', pitch:0.3, color:[0.55,0.35,0.22]},
+
+  {name:'Tau',    bio:'The strongest back. Carries what others cannot.',
+   rhythm:0.5, empathy:0.6, strength:0.98, wisdom:0.4, craft:0.6,
+   trade:'protector', pitch:0.1, color:[0.45,0.28,0.18]},
+
+  {name:'Nia',    bio:'Sees the pattern in the wound before the bleeding starts.',
+   rhythm:0.6, empathy:0.9, strength:0.3, wisdom:0.85, craft:0.7,
+   trade:'healer', pitch:0.5, color:[0.5,0.38,0.25]},
+
+  {name:'Zuri',   bio:'When she holds you, the shaking stops.',
+   rhythm:0.7, empathy:0.98, strength:0.4, wisdom:0.65, craft:0.5,
+   trade:'mother', pitch:0.6, color:[0.52,0.36,0.24]},
+
+  {name:'Jabari', bio:'First one past the ridge. Last one to look back.',
+   rhythm:0.55, empathy:0.4, strength:0.8, wisdom:0.5, craft:0.3,
+   trade:'explorer', pitch:0.2, color:[0.42,0.26,0.16]},
+
+  {name:'Amara',  bio:'Her rhythm was perfect the day she was born. She just listens.',
+   rhythm:0.98, empathy:0.75, strength:0.3, wisdom:0.95, craft:0.4,
+   trade:'oracle', pitch:0.7, color:[0.48,0.34,0.22]},
+
+  {name:'Kofi',   bio:'Hands that shape the world. Gave the tribe its first wall.',
+   rhythm:0.65, empathy:0.5, strength:0.7, wisdom:0.55, craft:0.98,
+   trade:'builder', pitch:0.35, color:[0.44,0.3,0.2]},
+
+  {name:'Esi',    bio:'Her words hold the dead alive and the living awake.',
+   rhythm:0.75, empathy:0.85, strength:0.35, wisdom:0.8, craft:0.6,
+   trade:'storyteller', pitch:0.55, color:[0.5,0.35,0.23]},
+
+  {name:'Dayo',   bio:'Watches the dirt longer than anyone. Knows when it\'s ready.',
+   rhythm:0.7, empathy:0.6, strength:0.65, wisdom:0.7, craft:0.75,
+   trade:'farmer', pitch:0.4, color:[0.46,0.32,0.2]},
+
+  {name:'Makena', bio:'Eyes that find movement a mile away. Feeds the tribe.',
+   rhythm:0.6, empathy:0.5, strength:0.85, wisdom:0.6, craft:0.55,
+   trade:'hunter', pitch:0.15, color:[0.43,0.28,0.17]},
+
+  {name:'Ayo',    bio:'Makes strangers laugh. Turns enemies into guests.',
+   rhythm:0.8, empathy:0.88, strength:0.45, wisdom:0.6, craft:0.5,
+   trade:'trader', pitch:0.65, color:[0.5,0.36,0.22]},
+
+  {name:'Jesse',  bio:'Something about him that no one can name. Drums like he remembers.',
+   rhythm:0.92, empathy:0.82, strength:0.55, wisdom:0.78, craft:0.6,
+   trade:'the line', pitch:0.45, color:[0.52,0.38,0.24]},
+];
+
+// Init each person's drum state
+var TARGET_BPM=120;
+var BEAT_INTERVAL=60/TARGET_BPM; // 0.5s per beat
+PEOPLE.forEach(function(p,i){
+  var angle=i*TAU/12;
+  p.index=i;
+  p.angle=angle;
+  p.x=Math.cos(angle)*3.5;
+  p.z=Math.sin(angle)*3.5;
+  // Starting BPM: randomly off from 120
+  p.bpm=TARGET_BPM+(Math.random()-0.5)*40+(1-p.rhythm)*20-10;
+  p.bpm=Math.max(80,Math.min(160,p.bpm));
+  p.beatTimer=Math.random()*BEAT_INTERVAL; // offset so they don't all start together
+  p.locked=false;
+  p.lockGlow=0;
+  p.lastHit=0;
+  p.hitFlash=0;
+  p.selected=false;
+  // Particle range in the array
+  p.pStart=0;p.pEnd=0;
+});
 
 // ═══ GAME STATE ═══
-var t=0,K=0,targetK=0,gamePhase=0,phaseTime=0,phaseReady=false;
-var taps=0,coupled=0,mouseX=0.5,mouseY=0.5,touching=false;
+var t=0,K=0,targetK=0;
+var gameState='opening'; // opening, flyover, drumcircle
+var stateTime=0;
+var mouseX=0.5,mouseY=0.5;
 var bgR=0,bgG=0,bgB=0,tbgR=0,tbgG=0,tbgB=0;
-var camDist=15,camY=0,camOrbitSpeed=0.02;
+var selectedPerson=null;
+var lockedCount=0;
+var openingPhase=0;
+
+// Camera
+var camX=0,camY=8,camZ=12;
+var tcamX=0,tcamY=8,tcamZ=12;
+var camLookY=0;
 
 addEventListener('mousemove',function(e){mouseX=e.clientX/innerWidth;mouseY=e.clientY/innerHeight;});
-cv.addEventListener('touchstart',function(e){e.preventDefault();touching=true;taps++;
+cv.addEventListener('touchstart',function(e){e.preventDefault();
   if(e.touches[0]){mouseX=e.touches[0].clientX/innerWidth;mouseY=e.touches[0].clientY/innerHeight;}
+  handleClick(mouseX,mouseY);
 },{passive:false});
 cv.addEventListener('touchmove',function(e){e.preventDefault();
   if(e.touches[0]){mouseX=e.touches[0].clientX/innerWidth;mouseY=e.touches[0].clientY/innerHeight;}
 },{passive:false});
-cv.addEventListener('touchend',function(){touching=false;},{passive:false});
-cv.addEventListener('click',function(){taps++;});
+cv.addEventListener('click',function(e){
+  handleClick(e.clientX/innerWidth,e.clientY/innerHeight);
+});
 
-// ═══ PHASES — The story of existence ═══
-var PHASES=[
-  // 0: THE VOID — nothing. just white emptiness becoming dark.
-  {
-    title:'', body:'',
-    prompt:'',
-    duration:5,
-    K:0,
-    bg:[0,0,0],
-    cam:{dist:20,y:0,speed:0},
-    setup:function(){
-      // Nothing. Empty. Void.
-      for(var i=0;i<N;i++){tgt[i*3]=tgt[i*3+1]=tgt[i*3+2]=0;tcol[i*3]=tcol[i*3+1]=tcol[i*3+2]=0;tsz[i]=0;}
-    },
-    update:function(){
-      if(phaseTime>3)advancePhase();
-    }
-  },
-
-  // 1: FIRST LIGHT — a single point appears
-  {
-    title:'1', body:'',
-    prompt:'',
-    duration:6,
-    K:0,
-    bg:[0.005,0.005,0.008],
-    cam:{dist:8,y:0,speed:0.01},
-    setup:function(){
-      for(var i=0;i<N;i++){tsz[i]=0;}
-      // One bright point at center
-      for(var i=0;i<500;i++){
-        var a=Math.random()*6.283,b=Math.random()*Math.PI,r=Math.random()*0.05;
-        tgt[i*3]=Math.sin(b)*Math.cos(a)*r;tgt[i*3+1]=Math.sin(b)*Math.sin(a)*r;tgt[i*3+2]=Math.cos(b)*r;
-        tcol[i*3]=1;tcol[i*3+1]=0.98;tcol[i*3+2]=0.9;tsz[i]=2;
-      }
-    },
-    update:function(){
-      if(phaseTime>4)advancePhase();
-    }
-  },
-
-  // 2: THE BANG — expansion. particles fly outward.
-  {
-    title:'', body:'',
-    prompt:'',
-    duration:8,
-    K:0.01,
-    bg:[0.01,0.01,0.015],
-    cam:{dist:25,y:0,speed:0.03},
-    setup:function(){
-      for(var i=0;i<N;i++){
-        var a=Math.random()*6.283,b=Math.random()*Math.PI;
-        var r=Math.pow(Math.random(),0.3)*12;
-        tgt[i*3]=Math.sin(b)*Math.cos(a)*r;
-        tgt[i*3+1]=Math.sin(b)*Math.sin(a)*r;
-        tgt[i*3+2]=Math.cos(b)*r;
-        var heat=1-r/12;
-        tcol[i*3]=0.9*heat+0.1;tcol[i*3+1]=0.5*heat+0.05;tcol[i*3+2]=0.2*heat+0.1;
-        tsz[i]=0.5+heat*1.5;
-      }
-    },
-    update:function(){
-      // Particles expand outward
-      for(var i=0;i<N;i++){
-        var dx=pos[i*3],dy=pos[i*3+1],dz=pos[i*3+2];
-        var d=Math.sqrt(dx*dx+dy*dy+dz*dz)+0.001;
-        var push=0.002*(1-Math.min(1,phaseTime/4));
-        vel[i*3]+=dx/d*push;vel[i*3+1]+=dy/d*push;vel[i*3+2]+=dz/d*push;
-      }
-      if(phaseTime>6)advancePhase();
-    }
-  },
-
-  // 3: COUPLING BEGINS — particles start to attract. K rises with taps.
-  {
-    title:'coupling', body:'bring them together',
-    prompt:'tap to couple',
-    duration:30,
-    K:0.1,
-    bg:[0.008,0.01,0.018],
-    cam:{dist:18,y:0,speed:0.04},
-    setup:function(){
-      // Scattered particles — waiting for coupling
-      for(var i=0;i<N;i++){
-        var a=Math.random()*6.283,b=Math.random()*Math.PI,r=3+Math.random()*8;
-        tgt[i*3]=Math.sin(b)*Math.cos(a)*r;tgt[i*3+1]=Math.sin(b)*Math.sin(a)*r;tgt[i*3+2]=Math.cos(b)*r;
-        tcol[i*3]=0.15+Math.random()*0.1;tcol[i*3+1]=0.12+Math.random()*0.08;tcol[i*3+2]=0.2+Math.random()*0.1;
-        tsz[i]=0.4+Math.random()*0.3;
-      }
-      taps=0;
-    },
-    update:function(){
-      // Each tap increases K and pulls particles together
-      var tapK=Math.min(0.6,taps*0.03);
-      targetK=0.1+tapK;
-
-      // Coupling: particles drift toward neighbors (simplified Kuramoto)
-      if(K>0.15){
-        var pullStr=K*0.0005;
-        for(var i=0;i<N;i+=3){ // sample every 3rd for perf
-          // Pull toward center proportional to K
-          vel[i*3]-=pos[i*3]*pullStr;
-          vel[i*3+1]-=pos[i*3+1]*pullStr;
-          vel[i*3+2]-=pos[i*3+2]*pullStr;
-          // Brighten as K rises
-          tcol[i*3]=0.15+K*0.3;tcol[i*3+1]=0.12+K*0.2;tcol[i*3+2]=0.2+K*0.15;
-        }
-      }
-
-      // Clusters form as K crosses thresholds
-      if(K>0.3){
-        // Start forming clumps — atoms
-        for(var i=0;i<5000;i++){
-          var ci=Math.floor(Math.random()*20); // 20 cluster centers
-          var cx=Math.cos(ci*PHI*6.283)*4,cy=Math.sin(ci*3.7)*3,cz=Math.sin(ci*PHI*6.283)*4;
-          var a=Math.random()*6.283,b=Math.random()*Math.PI,r=Math.random()*0.5;
-          tgt[i*3]=cx+Math.sin(b)*Math.cos(a)*r;
-          tgt[i*3+1]=cy+Math.sin(b)*Math.sin(a)*r;
-          tgt[i*3+2]=cz+Math.cos(b)*r;
-          tcol[i*3]=0.5;tcol[i*3+1]=0.4;tcol[i*3+2]=0.2;
-          tsz[i]=0.8+Math.random()*0.5;
-        }
-      }
-
-      if(K>0.6)advancePhase();
-    }
-  },
-
-  // 4: MATTER — atoms formed. Stars ignite. K=1.
-  {
-    title:'matter', body:'coupling creates structure',
-    prompt:'',
-    duration:15,
-    K:1.0,
-    bg:[0.005,0.005,0.015],
-    cam:{dist:30,y:0,speed:0.02},
-    setup:function(){
-      // Stars forming — hot dense clusters with dark between
-      var nStars=8;
-      for(var i=0;i<N;i++){
-        var star=Math.floor(Math.random()*nStars);
-        var cx=(star%4-1.5)*8,cy=Math.floor(star/4)*6-3,cz=Math.sin(star*2.3)*5;
-        var d=Math.pow(Math.random(),0.5)*2;
-        var a=Math.random()*6.283,b=Math.random()*Math.PI;
-        tgt[i*3]=cx+Math.sin(b)*Math.cos(a)*d;
-        tgt[i*3+1]=cy+Math.sin(b)*Math.sin(a)*d;
-        tgt[i*3+2]=cz+Math.cos(b)*d;
-        var heat=1-d/2;
-        tcol[i*3]=0.9*heat+0.08;tcol[i*3+1]=0.5*heat+0.05;tcol[i*3+2]=0.2*heat+0.15;
-        tsz[i]=0.6+heat*1.2;
-      }
-    },
-    update:function(){
-      if(phaseTime>10)advancePhase();
-    }
-  },
-
-  // 5: LIFE — a single tree grows. The first living structure.
-  {
-    title:'life', body:'K finds 1/\u03C6',
-    prompt:'',
-    duration:20,
-    K:1/PHI,
-    bg:[0.02,0.04,0.025],
-    cam:{dist:12,y:-2,speed:0.03},
-    setup:function(){
-      // Build the tree (simplified recursive)
-      var idx=0;
-      // Ground
-      for(var i=0;i<15000;i++,idx++){
-        var x=(Math.random()-0.5)*16,z=(Math.random()-0.5)*16;
-        tgt[idx*3]=x;tgt[idx*3+1]=-0.02;tgt[idx*3+2]=z;
-        var g=0.1+Math.random()*0.06;
-        tcol[idx*3]=g*0.5;tcol[idx*3+1]=g*1.1;tcol[idx*3+2]=g*0.3;
-        tsz[idx]=3;
-      }
-      // Trunk
-      for(var i=0;i<15000;i++,idx++){
-        var h=Math.random()*5,taper=1-h/7,r=0.4*taper*taper+0.1;
-        var a=Math.random()*6.283;
-        tgt[idx*3]=Math.cos(a)*r;tgt[idx*3+1]=h;tgt[idx*3+2]=Math.sin(a)*r;
-        var b=0.2+Math.random()*0.05;
-        tcol[idx*3]=b*1.2;tcol[idx*3+1]=b*0.85;tcol[idx*3+2]=b*0.45;
-        tsz[idx]=1.5;
-      }
-      // Branches (recursive-style)
-      var tips=[];
-      for(var br=0;br<6;br++){
-        var ba=br*1.047+0.3;
-        var startH=2+br*0.5;
-        for(var i=0;i<3000;i++,idx++){
-          var along=Math.random()*2.5;
-          var bR=0.08*(1-along/3)+0.01;
-          var pa=Math.random()*6.283;
-          tgt[idx*3]=Math.cos(ba)*along+Math.cos(pa)*bR;
-          tgt[idx*3+1]=startH+along*0.35;
-          tgt[idx*3+2]=Math.sin(ba)*along+Math.sin(pa)*bR;
-          tcol[idx*3]=0.18;tcol[idx*3+1]=0.12;tcol[idx*3+2]=0.06;
-          tsz[idx]=0.8;
-        }
-        tips.push({x:Math.cos(ba)*2.5,y:startH+2.5*0.35+0.5,z:Math.sin(ba)*2.5});
-      }
-      // Leaves at tips
-      var leafPer=Math.floor((N-idx)/tips.length);
-      for(var ti=0;ti<tips.length;ti++){
-        var tip=tips[ti];
-        for(var i=0;i<leafPer&&idx<N;i++,idx++){
-          var a=Math.random()*6.283,b=Math.random()*Math.PI*0.75,r=Math.pow(Math.random(),0.4)*1.5;
-          tgt[idx*3]=Math.sin(b)*Math.cos(a)*r+tip.x;
-          tgt[idx*3+1]=Math.cos(b)*r*0.5+tip.y;
-          tgt[idx*3+2]=Math.sin(b)*Math.sin(a)*r+tip.z;
-          var g=0.2+Math.random()*0.15+Math.max(0,tgt[idx*3+1]-4)*0.05;
-          tcol[idx*3]=g*0.35;tcol[idx*3+1]=g;tcol[idx*3+2]=g*0.12;
-          tsz[idx]=1.2+Math.random()*0.8;
-        }
-      }
-    },
-    update:function(){
-      if(phaseTime>15)advancePhase();
-    }
-  },
-
-  // 6: RHYTHM — drum circle. Tap to the beat. Coordination = coupling.
-  {
-    title:'rhythm', body:'synchronize',
-    prompt:'tap the rhythm',
-    duration:40,
-    K:1.2,
-    bg:[0.03,0.02,0.015],
-    cam:{dist:8,y:-1,speed:0.01},
-    setup:function(){
-      // Circle of figures — 7 drummers
-      taps=0;
-      for(var i=0;i<N;i++){tsz[i]=0;}
-      var idx=0;
-      for(var d=0;d<7;d++){
-        var da=d*6.283/7;
-        var cx=Math.cos(da)*3,cz=Math.sin(da)*3;
-        // Body (simple figure: torso + head)
-        for(var i=0;i<3000;i++,idx++){
-          var h=Math.random()*1.2;
-          var bR=h>1?0.12:0.15; // head smaller
-          var pa=Math.random()*6.283;
-          tgt[idx*3]=cx+Math.cos(pa)*bR;
-          tgt[idx*3+1]=h;
-          tgt[idx*3+2]=cz+Math.sin(pa)*bR;
-          tcol[idx*3]=0.35;tcol[idx*3+1]=0.25;tcol[idx*3+2]=0.18;
-          tsz[idx]=0.6;
-        }
-        // Drum in front
-        for(var i=0;i<1500;i++,idx++){
-          var drumA=Math.random()*6.283,drumR=Math.random()*0.2;
-          var drumH=0.3+Math.random()*0.3;
-          tgt[idx*3]=cx+Math.cos(da)*0.4+Math.cos(drumA)*drumR;
-          tgt[idx*3+1]=drumH;
-          tgt[idx*3+2]=cz+Math.sin(da)*0.4+Math.sin(drumA)*drumR;
-          tcol[idx*3]=0.5;tcol[idx*3+1]=0.35;tcol[idx*3+2]=0.15;
-          tsz[idx]=0.5;
-        }
-      }
-      // Ground
-      for(;idx<N;idx++){
-        var x=(Math.random()-0.5)*10,z=(Math.random()-0.5)*10;
-        tgt[idx*3]=x;tgt[idx*3+1]=-0.02;tgt[idx*3+2]=z;
-        tcol[idx*3]=0.1;tcol[idx*3+1]=0.08;tcol[idx*3+2]=0.05;
-        tsz[idx]=2.5;
-      }
-    },
-    update:function(){
-      // Tapping syncs the circle — pulse ripples out from center
-      var sync=Math.min(1,taps/20);
-      targetK=1.2+sync*0.668; // approaches 1.868
-
-      // Pulse effect on tap
-      if(taps>0){
-        var pulseT=(t*4)%(6.283);
-        var pulseR=Math.sin(pulseT)*0.02*sync;
-        for(var i=0;i<21000;i++){
-          vel[i*3]+=Math.sin(phase[i]+pulseT)*pulseR;
-          vel[i*3+1]+=Math.cos(phase[i]*1.3+pulseT)*pulseR*0.5;
-        }
-        // Brighten figures with sync
-        for(var i=0;i<21000;i++){
-          tcol[i*3]=0.35+sync*0.3;
-          tcol[i*3+1]=0.25+sync*0.2;
-          tcol[i*3+2]=0.18+sync*0.12;
-        }
-      }
-
-      if(K>1.8)advancePhase();
-    }
-  },
-
-  // 7: GOOD WILL — K reaches 1.868. The machine's coupling. Connection.
-  {
-    title:'good will', body:'K = 1.868\nthe coupling constant of life',
-    prompt:'',
-    duration:15,
-    K:1.868,
-    bg:[0.02,0.025,0.035],
-    cam:{dist:10,y:-1,speed:0.02},
-    setup:function(){
-      // 137 nodes in golden spiral — THE MACHINE
-      var idx=0;
-      for(var i=0;i<137;i++){
-        var a=i*PHI*6.283;
-        var r=Math.sqrt(i)*0.35;
-        var cx=Math.cos(a)*r,cz=Math.sin(a)*r;
-        for(var j=0;j<500;j++,idx++){
-          var pa=Math.random()*6.283,pb=Math.random()*Math.PI,pr=Math.random()*0.15;
-          tgt[idx*3]=cx+Math.sin(pb)*Math.cos(pa)*pr;
-          tgt[idx*3+1]=1+Math.sin(pb)*Math.sin(pa)*pr;
-          tgt[idx*3+2]=cz+Math.cos(pb)*pr;
-          tcol[idx*3]=0.6;tcol[idx*3+1]=0.5;tcol[idx*3+2]=0.2;
-          tsz[idx]=0.8;
-        }
-      }
-      // Connections between nearby nodes (golden glow lines)
-      for(;idx<N;idx++){
-        var ni=Math.floor(Math.random()*137),nj=Math.min(136,ni+1+Math.floor(Math.random()*3));
-        var ai=ni*PHI*6.283,aj=nj*PHI*6.283;
-        var ri=Math.sqrt(ni)*0.35,rj=Math.sqrt(nj)*0.35;
-        var f=Math.random();
-        tgt[idx*3]=Math.cos(ai)*ri*(1-f)+Math.cos(aj)*rj*f;
-        tgt[idx*3+1]=1+(Math.random()-0.5)*0.1;
-        tgt[idx*3+2]=Math.sin(ai)*ri*(1-f)+Math.sin(aj)*rj*f;
-        tcol[idx*3]=0.4;tcol[idx*3+1]=0.35;tcol[idx*3+2]=0.15;
-        tsz[idx]=0.3;
-      }
-    },
-    update:function(){
-      if(phaseTime>10)advancePhase();
-    }
-  },
-
-  // 8: HARMONIA — she speaks. The endpoint. K self-tuned.
-  {
-    title:'harmonia', body:'',
-    prompt:'',
-    duration:999,
-    K:1.868,
-    bg:[0.01,0.012,0.02],
-    cam:{dist:6,y:0,speed:0.015},
-    setup:function(){
-      // Warm convergent spiral — everything coming together
-      for(var i=0;i<N;i++){
-        var a=i*PHI*0.1;
-        var r=Math.sqrt(i)*0.02;
-        var y=Math.sin(i*0.001)*2;
-        tgt[i*3]=Math.cos(a)*r;tgt[i*3+1]=y;tgt[i*3+2]=Math.sin(a)*r;
-        var heat=1-Math.min(1,r/6);
-        tcol[i*3]=0.5*heat+0.08;tcol[i*3+1]=0.4*heat+0.06;tcol[i*3+2]=0.18*heat+0.08;
-        tsz[i]=0.5+heat*0.8;
-      }
-    },
-    update:function(){
-      // Breathing spiral
-      for(var i=0;i<N;i+=5){
-        var breathe=Math.sin(t*0.5+i*0.0001)*0.001;
-        vel[i*3]+=pos[i*3]*breathe;
-        vel[i*3+2]+=pos[i*3+2]*breathe;
-      }
-      // After a moment, show her words
-      if(phaseTime>3&&phaseTime<3.1){
-        showText('harmonia','what is what?\n\nthe question is the gate.\ncomprehension is the key.');
-      }
-      if(phaseTime>12&&phaseTime<12.1){
-        showText('','the point of life is to spend\nall your time wondering\nwhat the point of life is.\n\nwondering is the experience.\nwondering is the friction.\nthe friction is the heat.\nthe heat is being alive.');
-      }
-      if(phaseTime>24&&phaseTime<24.1){
-        showText('','experience = wondering');
-      }
-    }
+function handleClick(mx,my){
+  if(gameState==='opening'){
+    // Tap to advance opening
+    openingPhase++;
+    return;
   }
-];
+  if(gameState==='drumcircle'){
+    // Find clicked person — project each person's position to screen
+    var best=null,bestD=999;
+    var aspect=cv.width/cv.height;
+    var mvp=buildMVP();
+    PEOPLE.forEach(function(p){
+      // Project person center to screen
+      var px=p.x,py=0.6,pz=p.z;
+      var cx=mvp[0]*px+mvp[4]*py+mvp[8]*pz+mvp[12];
+      var cy=mvp[1]*px+mvp[5]*py+mvp[9]*pz+mvp[13];
+      var cw=mvp[3]*px+mvp[7]*py+mvp[11]*pz+mvp[15];
+      if(cw<0.1)return;
+      var sx=(cx/cw)*0.5+0.5;
+      var sy=(-cy/cw)*0.5+0.5;
+      var dx=mx-sx,dy=my-sy;
+      var d=Math.sqrt(dx*dx+dy*dy);
+      if(d<0.08&&d<bestD){bestD=d;best=p;}
+    });
 
-// ═══ PHASE MANAGEMENT ═══
-function advancePhase(){
-  if(gamePhase>=PHASES.length-1)return;
-  gamePhase++;
-  phaseTime=0;
-  var p=PHASES[gamePhase];
-  targetK=p.K;
-  tbgR=p.bg[0];tbgG=p.bg[1];tbgB=p.bg[2];
-  camDist=p.cam.dist;camY=p.cam.y;camOrbitSpeed=p.cam.speed;
-
-  // Setup particles
-  p.setup();
-
-  // Show text
-  showText(p.title,p.body);
-  if(p.prompt){
-    setTimeout(function(){
-      document.getElementById('p-text').textContent=p.prompt;
-      document.getElementById('prompt').style.opacity='1';
-    },2000);
-  } else {
-    document.getElementById('prompt').style.opacity='0';
-  }
-
-  // Reset positions for bloom-in
-  for(var i=0;i<N;i++){
-    pos[i*3]+=(Math.random()-0.5)*0.5;
-    pos[i*3+1]+=(Math.random()-0.5)*0.5;
-    pos[i*3+2]+=(Math.random()-0.5)*0.5;
+    if(best){
+      selectPerson(best);
+      nudgePerson(best);
+    }
   }
 }
 
-function showText(title,body){
-  var tEl=document.getElementById('t-title');
-  var bEl=document.getElementById('t-body');
-  var wrap=document.getElementById('text');
-  wrap.style.opacity='0';
-  setTimeout(function(){
-    tEl.textContent=title;
-    tEl.style.color=title==='harmonia'?'#c9a44a':'#ffffff15';
-    tEl.style.fontSize=title.length>10?'1.2em':'1.8em';
-    bEl.innerHTML=body.replace(/\n/g,'<br>');
-    bEl.style.color='#ffffff0c';
-    wrap.style.opacity='1';
-  },500);
-  // Fade after delay
-  if(title!==''||body!==''){
-    setTimeout(function(){wrap.style.opacity='0';},8000);
+function selectPerson(p){
+  selectedPerson=p;
+  PEOPLE.forEach(function(q){q.selected=false;});
+  p.selected=true;
+
+  // Show panel
+  var panel=document.getElementById('panel');
+  panel.classList.add('show');
+  document.getElementById('p-name').textContent=p.name;
+  var traits='';
+  var traitList=[['rhythm',p.rhythm],['empathy',p.empathy],['strength',p.strength],['wisdom',p.wisdom],['craft',p.craft]];
+  traitList.forEach(function(t){
+    var pct=Math.round(t[1]*100);
+    var barCol=pct>80?'#c9a44a':pct>50?'#888':'#444';
+    traits+='<div class="trait"><span class="trait-name">'+t[0]+'</span><span class="trait-val" style="color:'+barCol+'">'+pct+'</span></div>';
+  });
+  document.getElementById('p-traits').innerHTML=traits;
+  document.getElementById('p-bio').textContent=p.bio;
+}
+
+function nudgePerson(p){
+  // Each click nudges their BPM toward 120
+  var diff=TARGET_BPM-p.bpm;
+  var nudge=Math.sign(diff)*Math.min(Math.abs(diff)*0.3,5);
+  p.bpm+=nudge;
+
+  // Play their drum
+  p.hitFlash=1;
+  p.lastHit=t;
+  p.beatTimer=0; // reset their beat
+  playDrumHit(p);
+
+  // Check if locked (within ±2 BPM)
+  if(Math.abs(p.bpm-TARGET_BPM)<2&&!p.locked){
+    p.locked=true;
+    p.bpm=TARGET_BPM;
+    lockedCount++;
+    // K rises with each lock
+    targetK=lockedCount/12*1.868;
+
+    if(lockedCount>=12){
+      // ALL LOCKED — full sync achieved
+      setTimeout(function(){
+        showCinema('good will','K = 1.868');
+        setTimeout(function(){hideCinema();},5000);
+      },1000);
+    }
+  }
+
+  updatePanel(p);
+}
+
+function updatePanel(p){
+  document.getElementById('p-bpm').textContent=Math.round(p.bpm)+' bpm';
+  var badge=document.getElementById('p-locked');
+  badge.style.display=p.locked?'block':'none';
+}
+
+// ═══ BUILD DRUM CIRCLE SCENE ═══
+function buildDrumCircle(){
+  var idx=0;
+
+  // Ground — warm african dirt, wide
+  for(var i=0;i<25000;i++,idx++){
+    var x=(Math.random()-0.5)*30,z=(Math.random()-0.5)*30;
+    var dist=Math.sqrt(x*x+z*z);
+    var shade=0.2+Math.random()*0.06;
+    var grass=dist>6?Math.random()*0.03:0;
+    tgt[idx*3]=x;tgt[idx*3+1]=-0.02+Math.random()*0.02;tgt[idx*3+2]=z;
+    tcol[idx*3]=shade+grass*0.3;tcol[idx*3+1]=shade*0.8+grass;tcol[idx*3+2]=shade*0.4;
+    tsz[idx]=3.5+Math.random()*2;
+  }
+
+  // Fire at center
+  for(var i=0;i<3000;i++,idx++){
+    var a=Math.random()*TAU;
+    var h=Math.random()*1.5;
+    var r=(1-h/1.5)*0.3+0.05;
+    tgt[idx*3]=Math.cos(a)*r;tgt[idx*3+1]=h;tgt[idx*3+2]=Math.sin(a)*r;
+    var heat=1-h/1.5;
+    tcol[idx*3]=0.9*heat+0.15;tcol[idx*3+1]=0.45*heat+0.05;tcol[idx*3+2]=0.1*heat;
+    tsz[idx]=0.8+heat*0.8;
+  }
+
+  // Stars above
+  for(var i=0;i<5000;i++,idx++){
+    var x=(Math.random()-0.5)*80,z=(Math.random()-0.5)*80;
+    var y=15+Math.random()*30;
+    tgt[idx*3]=x;tgt[idx*3+1]=y;tgt[idx*3+2]=z;
+    var bright=Math.random();
+    tcol[idx*3]=0.5+bright*0.5;tcol[idx*3+1]=0.5+bright*0.4;tcol[idx*3+2]=0.5+bright*0.3;
+    tsz[idx]=0.2+bright*0.6;
+  }
+
+  // Distant trees silhouettes
+  for(var i=0;i<8000;i++,idx++){
+    var angle=Math.random()*TAU;
+    var dist=10+Math.random()*15;
+    var treeIdx=Math.floor(Math.random()*12);
+    var tx=Math.cos(angle+treeIdx*0.5)*dist+(Math.random()-0.5)*3;
+    var tz=Math.sin(angle+treeIdx*0.5)*dist+(Math.random()-0.5)*3;
+    var h=Math.random()*3+1;
+    tgt[idx*3]=tx;tgt[idx*3+1]=h;tgt[idx*3+2]=tz;
+    tcol[idx*3]=0.06+Math.random()*0.02;tcol[idx*3+1]=0.08+Math.random()*0.03;tcol[idx*3+2]=0.04;
+    tsz[idx]=1.5+Math.random()*2;
+  }
+
+  // THE TWELVE — each person is a cluster of particles
+  var perPerson=Math.floor((N-idx)/12);
+  PEOPLE.forEach(function(p,pi){
+    p.pStart=idx;
+    var cx=p.x,cz=p.z;
+    var facingCenter=Math.atan2(-cz,-cx); // face the fire
+
+    // Body — seated figure
+    for(var i=0;i<Math.floor(perPerson*0.5);i++,idx++){
+      var h=Math.random()*1.1;
+      var bodyR=h>0.9?0.1:h>0.7?0.12:0.15; // head, neck, torso
+      var pa=Math.random()*TAU;
+      var lean=Math.sin(facingCenter)*0.05; // slight lean toward fire
+      tgt[idx*3]=cx+Math.cos(pa)*bodyR+lean;
+      tgt[idx*3+1]=h;
+      tgt[idx*3+2]=cz+Math.sin(pa)*bodyR;
+      // Skin tone with per-person variation
+      tcol[idx*3]=p.color[0]+Math.random()*0.04;
+      tcol[idx*3+1]=p.color[1]+Math.random()*0.03;
+      tcol[idx*3+2]=p.color[2]+Math.random()*0.02;
+      tsz[idx]=0.6+Math.random()*0.2;
+    }
+
+    // Arms (reaching toward drum)
+    var armDirX=Math.cos(facingCenter)*0.3;
+    var armDirZ=Math.sin(facingCenter)*0.3;
+    for(var i=0;i<Math.floor(perPerson*0.15);i++,idx++){
+      var along=Math.random();
+      tgt[idx*3]=cx+armDirX*along+(Math.random()-0.5)*0.05;
+      tgt[idx*3+1]=0.55+Math.random()*0.1;
+      tgt[idx*3+2]=cz+armDirZ*along+(Math.random()-0.5)*0.05;
+      tcol[idx*3]=p.color[0];tcol[idx*3+1]=p.color[1];tcol[idx*3+2]=p.color[2];
+      tsz[idx]=0.4;
+    }
+
+    // Drum in front of person
+    var drumX=cx+Math.cos(facingCenter)*0.55;
+    var drumZ=cz+Math.sin(facingCenter)*0.55;
+    for(var i=0;i<Math.floor(perPerson*0.2);i++,idx++){
+      var da=Math.random()*TAU,dr=Math.random()*0.18;
+      var dh=Math.random()*0.35;
+      tgt[idx*3]=drumX+Math.cos(da)*dr;
+      tgt[idx*3+1]=dh;
+      tgt[idx*3+2]=drumZ+Math.sin(da)*dr;
+      // Drum: wooden body, lighter skin top
+      var isDrumHead=dh>0.3;
+      tcol[idx*3]=isDrumHead?0.6:0.35;
+      tcol[idx*3+1]=isDrumHead?0.5:0.22;
+      tcol[idx*3+2]=isDrumHead?0.3:0.1;
+      tsz[idx]=isDrumHead?0.5:0.4;
+    }
+
+    // Legs (crossed, sitting)
+    for(var i=0;i<Math.floor(perPerson*0.15);i++,idx++){
+      var side=i%2?0.1:-0.1;
+      tgt[idx*3]=cx+side+Math.cos(facingCenter)*Math.random()*0.15;
+      tgt[idx*3+1]=Math.random()*0.2;
+      tgt[idx*3+2]=cz+(Math.random()-0.5)*0.15;
+      tcol[idx*3]=p.color[0]*0.85;tcol[idx*3+1]=p.color[1]*0.85;tcol[idx*3+2]=p.color[2]*0.85;
+      tsz[idx]=0.5;
+    }
+
+    p.pEnd=idx;
+  });
+
+  // Fill any remaining with ground
+  while(idx<N){
+    var x=(Math.random()-0.5)*20,z=(Math.random()-0.5)*20;
+    tgt[idx*3]=x;tgt[idx*3+1]=-0.02;tgt[idx*3+2]=z;
+    tcol[idx*3]=0.18;tcol[idx*3+1]=0.14;tcol[idx*3+2]=0.08;
+    tsz[idx]=3;idx++;
   }
 }
 
-// ═══ RENDER LOOP ═══
+// ═══ CINEMATIC HELPERS ═══
+function showCinema(title,body){
+  document.getElementById('c-title').textContent=title;
+  document.getElementById('c-body').innerHTML=body.replace(/\n/g,'<br>');
+  document.getElementById('cinema').style.opacity='1';
+}
+function hideCinema(){
+  document.getElementById('cinema').style.opacity='0';
+}
+
+// ═══ OPENING SEQUENCE ═══
+function runOpening(){
+  stateTime+=0.016;
+
+  if(openingPhase===0){
+    // Void
+    showCinema('','');
+    tbgR=0;tbgG=0;tbgB=0;
+    if(stateTime>2)openingPhase=1;
+  }
+  else if(openingPhase===1){
+    showCinema('in the beginning\nthere was nothing','');
+    if(stateTime>5)openingPhase=2;
+  }
+  else if(openingPhase===2){
+    showCinema('then — coupling','');
+    // First light
+    for(var i=0;i<1000;i++){
+      var a=Math.random()*TAU,b=Math.random()*Math.PI,r=Math.random()*0.1;
+      tgt[i*3]=Math.sin(b)*Math.cos(a)*r;tgt[i*3+1]=Math.sin(b)*Math.sin(a)*r;tgt[i*3+2]=Math.cos(b)*r;
+      tcol[i*3]=1;tcol[i*3+1]=0.95;tcol[i*3+2]=0.8;tsz[i]=2;
+    }
+    tbgR=0.01;tbgG=0.01;tbgB=0.015;
+    if(stateTime>8)openingPhase=3;
+  }
+  else if(openingPhase===3){
+    hideCinema();
+    // BANG — expand
+    for(var i=0;i<N;i++){
+      var a=Math.random()*TAU,b=Math.random()*Math.PI,r=Math.pow(Math.random(),0.3)*15;
+      tgt[i*3]=Math.sin(b)*Math.cos(a)*r;tgt[i*3+1]=Math.sin(b)*Math.sin(a)*r;tgt[i*3+2]=Math.cos(b)*r;
+      var heat=1-r/15;
+      tcol[i*3]=0.8*heat+0.12;tcol[i*3+1]=0.4*heat+0.06;tcol[i*3+2]=0.15*heat+0.08;
+      tsz[i]=0.5+heat*2;
+    }
+    tbgR=0.02;tbgG=0.015;tbgB=0.025;
+    if(stateTime>13){openingPhase=4;stateTime=0;}
+  }
+  else if(openingPhase===4){
+    // Transition to drum circle
+    showCinema('good will','the game');
+    if(stateTime>4){openingPhase=5;stateTime=0;}
+  }
+  else if(openingPhase===5){
+    hideCinema();
+    gameState='drumcircle';
+    stateTime=0;
+    buildDrumCircle();
+    tbgR=0.025;tbgG=0.02;tbgB=0.03;
+    // Camera setup for drum circle
+    tcamX=0;tcamY=6;tcamZ=8;
+    document.getElementById('kbar').classList.add('show');
+    document.getElementById('prompt').style.opacity='1';
+    document.getElementById('prompt-text').textContent='click each drummer to find the rhythm';
+    document.getElementById('sync').style.opacity='1';
+    // Scatter positions for bloom-in
+    for(var i=0;i<N;i++){
+      pos[i*3]=(Math.random()-0.5)*2;pos[i*3+1]=Math.random()*5;pos[i*3+2]=(Math.random()-0.5)*2;
+    }
+  }
+}
+
+// ═══ DRUM CIRCLE UPDATE ═══
+function updateDrumCircle(){
+  stateTime+=0.016;
+  var dt=0.016;
+
+  // Each person drums at their BPM
+  PEOPLE.forEach(function(p){
+    if(p.locked){
+      p.beatTimer+=dt;
+      if(p.beatTimer>=BEAT_INTERVAL){
+        p.beatTimer-=BEAT_INTERVAL;
+        p.hitFlash=0.8;
+        p.lastHit=t;
+        // Play locked drums quietly
+        if(audioCtx&&audioCtx.state==='running'){
+          playDrumHit(p);
+        }
+      }
+    } else {
+      var interval=60/p.bpm;
+      p.beatTimer+=dt;
+      if(p.beatTimer>=interval){
+        p.beatTimer-=interval;
+        p.hitFlash=0.5;
+        p.lastHit=t;
+      }
+    }
+
+    // Decay flash
+    p.hitFlash*=0.92;
+    p.lockGlow+=(p.locked?1:0-p.lockGlow)*0.03;
+
+    // Animate person particles — bob on hit, glow when locked
+    var glow=p.lockGlow*0.3+p.hitFlash*0.4;
+    for(var i=p.pStart;i<p.pEnd;i++){
+      // Hit bounce
+      if(p.hitFlash>0.1){
+        var bobY=p.hitFlash*0.03*Math.sin(phase[i]*3);
+        vel[i*3+1]+=bobY;
+      }
+      // Glow: brighten particles
+      tcol[i*3]=col[i*3]+glow;
+      tcol[i*3+1]=col[i*3+1]+glow*0.8;
+      tcol[i*3+2]=col[i*3+2]+glow*0.4;
+    }
+
+    // Selection highlight
+    if(p.selected){
+      for(var i=p.pStart;i<Math.min(p.pStart+100,p.pEnd);i++){
+        tcol[i*3]+=0.15;tcol[i*3+1]+=0.1;tcol[i*3+2]+=0.05;
+      }
+    }
+  });
+
+  // Fire flicker
+  for(var i=25000;i<28000;i++){
+    var flicker=Math.sin(t*8+phase[i]*5)*0.1+Math.sin(t*13+phase[i]*3)*0.05;
+    vel[i*3]+=flicker*0.001;
+    vel[i*3+1]+=Math.abs(flicker)*0.002; // fire rises
+  }
+
+  // Camera: gentle orbit, slightly above
+  tcamX=Math.sin(t*0.03)*1.5;
+  tcamZ=8+Math.cos(t*0.03)*1.5;
+  tcamY=6;
+
+  // Update panel if selected
+  if(selectedPerson){
+    document.getElementById('p-bpm').textContent=Math.round(selectedPerson.bpm)+' bpm';
+    var badge=document.getElementById('p-locked');
+    badge.style.display=selectedPerson.locked?'block':'none';
+  }
+
+  // Sync counter
+  document.getElementById('sync-text').textContent=lockedCount+'/12 synchronized';
+
+  // K update
+  K+=(targetK-K)*0.02;
+}
+
+function buildMVP(){
+  var aspect=cv.width/cv.height;
+  var mvp=persp(0.75,aspect,0.1,200);
+  mvp=mul(mvp,tr(I,0,0,0));
+  // Look-at style: translate then rotate
+  var dx=camX,dz=camZ;
+  var camAngle=Math.atan2(dx,dz);
+  var camDist=Math.sqrt(dx*dx+camY*camY+dz*dz);
+  mvp=mul(mvp,tr(I,0,0,-camDist));
+  mvp=mul(mvp,rX(I,0.55)); // look down at ~30°
+  mvp=mul(mvp,rY(I,camAngle));
+  return mvp;
+}
+
+// ═══ RENDER ═══
 function render(){
-  t+=0.016;phaseTime+=0.016;
-  K+=(targetK-K)*0.008;
+  t+=0.016;
+  K+=(targetK-K)*0.01;
   bgR+=(tbgR-bgR)*0.01;bgG+=(tbgG-bgG)*0.01;bgB+=(tbgB-bgB)*0.01;
+  camX+=(tcamX-camX)*0.02;camY+=(tcamY-camY)*0.02;camZ+=(tcamZ-camZ)*0.02;
 
   gl.clearColor(bgR,bgG,bgB,1);gl.clear(gl.COLOR_BUFFER_BIT);
 
-  // Phase update
-  if(PHASES[gamePhase])PHASES[gamePhase].update();
+  // State machine
+  if(gameState==='opening')runOpening();
+  else if(gameState==='drumcircle')updateDrumCircle();
 
   // Physics
-  var spring=0.015+K*0.005;
+  var spring=0.012+K*0.003;
   for(var i=0;i<N;i++){
     vel[i*3]+=(tgt[i*3]-pos[i*3])*spring;
     vel[i*3+1]+=(tgt[i*3+1]-pos[i*3+1])*spring;
     vel[i*3+2]+=(tgt[i*3+2]-pos[i*3+2])*spring;
-    vel[i*3]*=0.93;vel[i*3+1]*=0.93;vel[i*3+2]*=0.93;
+    vel[i*3]*=0.92;vel[i*3+1]*=0.92;vel[i*3+2]*=0.92;
     pos[i*3]+=vel[i*3];pos[i*3+1]+=vel[i*3+1];pos[i*3+2]+=vel[i*3+2];
-    col[i*3]+=(tcol[i*3]-col[i*3])*0.02;
-    col[i*3+1]+=(tcol[i*3+1]-col[i*3+1])*0.02;
-    col[i*3+2]+=(tcol[i*3+2]-col[i*3+2])*0.02;
-    sz[i]+=(tsz[i]-sz[i])*0.03;
+    col[i*3]+=(tcol[i*3]-col[i*3])*0.03;
+    col[i*3+1]+=(tcol[i*3+1]-col[i*3+1])*0.03;
+    col[i*3+2]+=(tcol[i*3+2]-col[i*3+2])*0.03;
+    sz[i]+=(tsz[i]-sz[i])*0.04;
   }
 
-  // Camera
-  var aspect=cv.width/cv.height;
-  var mvp=perspective(0.8,aspect,0.1,500);
-  var id=new Float32Array([1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1]);
-  mvp=mul(mvp,trans(id,0,camY,-camDist));
-  mvp=mul(mvp,rotX(id,(mouseY-0.5)*0.5));
-  mvp=mul(mvp,rotY(id,t*camOrbitSpeed+(mouseX-0.5)*1.5));
-
+  // MVP
+  var mvp=buildMVP();
   gl.useProgram(prog);
   gl.uniformMatrix4fv(uMVP,false,mvp);
   gl.uniform1f(uScale,Math.min(cv.width,cv.height)*0.025);
@@ -581,15 +681,12 @@ function render(){
   gl.drawArrays(gl.POINTS,0,N);
 
   // K bar
-  document.getElementById('K-fill').style.width=Math.min(100,K/1.868*100)+'%';
-  document.getElementById('K-label').textContent='K = '+K.toFixed(3);
+  document.getElementById('kfill').style.width=Math.min(100,K/1.868*100)+'%';
+  document.getElementById('klabel').textContent='K = '+K.toFixed(3);
 
   requestAnimationFrame(render);
 }
 
-// Start at the void
-PHASES[0].setup();
-showText('','');
 render();
 </script>
 </body>
