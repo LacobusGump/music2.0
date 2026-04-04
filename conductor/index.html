@@ -112,6 +112,7 @@ function resize(){DPR=devicePixelRatio||1;W=cv.width=innerWidth*DPR;H=cv.height=
 resize();addEventListener('resize',resize);
 
 var t=0,mouseX=0.5,mouseY=0.5,zoom=1,AP=[],bloomT=0;
+var bondMode=false,bondPhase=0,bondType='',bondFlash=0;
 addEventListener('mousemove',function(e){mouseX=e.clientX/innerWidth;mouseY=e.clientY/innerHeight;});
 var lastTD=0;
 cv.addEventListener('touchstart',function(e){e.preventDefault();
@@ -147,25 +148,21 @@ var SHELL_COLORS={
   valence_glow:[201,164,74],
 };
 
-function buildAtomCloud(config, Z){
-  AP=[];
-  var totalE=0;
-  config.forEach(function(c){totalE+=c[2];});
+function makeShell(config, Z, offsetX){
+  var parts=[];
   var valShell=config[config.length-1];
   var valN=valShell[0], valL=valShell[1];
-  var scale=1+Z*0.02; // slightly bigger atoms for higher Z
+  var scale=1+Z*0.02;
+  var axes=[[1,0,0],[0,1,0],[0,0,1]];
 
-  // Nucleus — size scales with Z
-  var nucR=0.15+Z*0.008;
-  var nucCount=20+Z*2;
+  // Nucleus
+  var nucR=0.15+Z*0.008,nucCount=20+Z*2;
   for(var i=0;i<nucCount;i++){
     var a=Math.random()*Math.PI*2,b=Math.random()*Math.PI,r=Math.random()*nucR;
-    AP.push({tx:Math.sin(b)*Math.cos(a)*r,ty:Math.sin(b)*Math.sin(a)*r,tz:Math.cos(b)*r,
-      c:SHELL_COLORS.nucleus,spd:0.004,shell:-1,sz:0.9,orbital:false});
+    parts.push({tx:Math.sin(b)*Math.cos(a)*r+offsetX,ty:Math.sin(b)*Math.sin(a)*r,tz:Math.cos(b)*r,
+      c:SHELL_COLORS.nucleus,spd:0.004,shell:-1,sz:0.9,orbital:false,ox:offsetX,isValence:false});
   }
 
-  // Build each subshell
-  var axes=[[1,0,0],[0,1,0],[0,0,1]];
   config.forEach(function(sub){
     var n=sub[0],l=sub[1],count=sub[2];
     var isValence=(n===valN && l===valL);
@@ -173,58 +170,123 @@ function buildAtomCloud(config, Z){
     baseR*=scale*0.8;
 
     if(l===0){
-      // s orbital — spherical shell
-      var key=n+'s';
-      var col=SHELL_COLORS[key]||[140,160,150];
+      var key=n+'s';var col=SHELL_COLORS[key]||[140,160,150];
       var nPart=Math.round(80+count*40);
       for(var i=0;i<nPart;i++){
         var a=Math.random()*Math.PI*2,b=Math.random()*Math.PI;
         var r=baseR+Math.random()*0.25-0.12;
-        // radial node for n>=2
         if(n>=2&&Math.abs(r-baseR*0.6)<0.1&&Math.random()>0.2)continue;
-        AP.push({tx:Math.sin(b)*Math.cos(a)*r,ty:Math.sin(b)*Math.sin(a)*r,tz:Math.cos(b)*r,
+        parts.push({tx:Math.sin(b)*Math.cos(a)*r+offsetX,ty:Math.sin(b)*Math.sin(a)*r,tz:Math.cos(b)*r,
           c:isValence?SHELL_COLORS.valence_glow:col,spd:0.015+n*0.005,shell:n,
-          a:a,b:b,orbital:true,sz:isValence?1.2:0.8,baseR:baseR});
+          a:a,b:b,orbital:true,sz:isValence?1.2:0.8,baseR:baseR,ox:offsetX,isValence:isValence});
       }
     } else if(l===1){
-      // p orbitals — dumbbell lobes along 3 axes
-      var filled=count; // how many of 6 p electrons
       for(var ax=0;ax<3;ax++){
-        var axCount=ax<filled?Math.min(2,filled-ax*2+1):0;
-        if(ax*2>=filled)break; // no electrons in this axis yet
-        // each p axis gets particles proportional to occupancy
-        var nPart=Math.round(50+axCount*25);
+        if(ax*2>=count)break;
+        var nPart=Math.round(50+Math.min(2,count-ax*2+1)*25);
         var axKey=n+'p_'+['x','y','z'][ax];
         var col=SHELL_COLORS[axKey]||[130,130,160];
         for(var i=0;i<nPart;i++){
-          var dir=axes[ax];
-          var sign=Math.random()>0.5?1:-1;
+          var dir=axes[ax];var sign=Math.random()>0.5?1:-1;
           var along=sign*(0.3+Math.random()*baseR*0.9);
           var perp=Math.sqrt(Math.max(0,baseR*0.6-Math.abs(along)*0.3))*0.15*Math.random();
           var pa=Math.random()*Math.PI*2;
           var px=dir[0]*along+(1-Math.abs(dir[0]))*Math.cos(pa)*perp;
           var py=dir[1]*along+(1-Math.abs(dir[1]))*Math.sin(pa)*perp;
           var pz=dir[2]*along+(1-Math.abs(dir[2]))*Math.cos(pa+1)*perp;
-          AP.push({tx:px,ty:py,tz:pz,c:isValence?SHELL_COLORS.valence_glow:col,
+          parts.push({tx:px+offsetX,ty:py,tz:pz,c:isValence?SHELL_COLORS.valence_glow:col,
             spd:0.008+n*0.003,shell:n,a:pa,b:0,orbital:true,
-            sz:isValence?1.1:0.7,baseR:baseR});
+            sz:isValence?1.1:0.7,baseR:baseR,ox:offsetX,isValence:isValence});
         }
       }
     }
-
-    // Ring guides for each shell
     if(l===0){
       for(var i=0;i<60;i++){
         var a=i/60*Math.PI*2;
-        AP.push({tx:Math.cos(a)*baseR,ty:0,tz:Math.sin(a)*baseR,
-          c:SHELL_COLORS.ring,spd:0,shell:n,sz:0.3,orbital:false});
+        parts.push({tx:Math.cos(a)*baseR+offsetX,ty:0,tz:Math.sin(a)*baseR,
+          c:SHELL_COLORS.ring,spd:0,shell:n,sz:0.3,orbital:false,ox:offsetX,isValence:false});
       }
     }
   });
+  return parts;
+}
 
-  // All start at center for bloom
+function buildAtomCloud(config, Z){
+  AP=[];bondMode=false;
+  AP=makeShell(config, Z, 0);
   AP.forEach(function(p){p.x=0;p.y=0;p.z=0;p.life=0;});
   bloomT=0;
+}
+
+function buildBondCloud(configA, ZA, configB, ZB, type){
+  AP=[];bondMode=true;bondPhase=0;bondType=type;bondFlash=0;
+  var gap=3.5;
+  var left=makeShell(configA, ZA, -gap/2);
+  var right=makeShell(configB, ZB, gap/2);
+  left.forEach(function(p){p.side='L';});
+  right.forEach(function(p){p.side='R';});
+  AP=left.concat(right);
+
+  // Mark transfer electrons for ionic bonds
+  if(type==='ionic'){
+    // Find valence electrons on the less electronegative atom (left) and mark them
+    var transferCount=0;
+    for(var i=0;i<AP.length;i++){
+      if(AP[i].side==='L'&&AP[i].isValence&&transferCount<2){
+        AP[i].transfer=true;transferCount++;
+      }
+    }
+  }
+
+  AP.forEach(function(p){p.x=0;p.y=0;p.z=0;p.life=0;});
+  bloomT=0;
+}
+
+// ═══ AUDIO — bond tone ═══
+var audioCtx=null;
+function playBondTone(type){
+  if(!audioCtx)audioCtx=new(window.AudioContext||window.webkitAudioContext)();
+  var now=audioCtx.currentTime;
+
+  // Two tones that resolve into consonance
+  var freqA=type==='ionic'?220:261.6;
+  var freqB=type==='ionic'?330:329.6; // ionic=perfect fifth, covalent=major third
+  var resolve=type==='ionic'?293.7:293.7; // resolves to D4
+
+  var o1=audioCtx.createOscillator(),o2=audioCtx.createOscillator();
+  var g1=audioCtx.createGain(),g2=audioCtx.createGain();
+  var master=audioCtx.createGain();
+  o1.type='sine';o2.type='sine';
+  o1.connect(g1);g1.connect(master);
+  o2.connect(g2);g2.connect(master);
+  master.connect(audioCtx.destination);
+  master.gain.value=0.12;
+
+  // Start apart
+  o1.frequency.setValueAtTime(freqA,now);
+  o2.frequency.setValueAtTime(freqB,now);
+
+  // Approach and lock (at bond moment ~2.5s)
+  o1.frequency.linearRampToValueAtTime(resolve*0.998,now+2.5);
+  o2.frequency.linearRampToValueAtTime(resolve*1.002,now+2.5);
+
+  // Perfect unison at bond
+  o1.frequency.linearRampToValueAtTime(resolve,now+3);
+  o2.frequency.linearRampToValueAtTime(resolve,now+3);
+
+  // Swell on bond
+  g1.gain.setValueAtTime(0.3,now);g2.gain.setValueAtTime(0.3,now);
+  g1.gain.linearRampToValueAtTime(0.6,now+2.8);
+  g2.gain.linearRampToValueAtTime(0.6,now+2.8);
+  g1.gain.linearRampToValueAtTime(1,now+3);
+  g2.gain.linearRampToValueAtTime(1,now+3);
+
+  // Fade out
+  master.gain.linearRampToValueAtTime(0.12,now+3);
+  master.gain.linearRampToValueAtTime(0,now+5);
+
+  o1.start(now);o2.start(now);
+  o1.stop(now+5.5);o2.stop(now+5.5);
 }
 
 function renderAtom(){
@@ -233,25 +295,107 @@ function renderAtom(){
 
   cx.fillStyle='rgba(0,0,0,0.06)';cx.fillRect(0,0,w,h);
 
+  // Bond flash overlay
+  if(bondFlash>0.01){
+    cx.fillStyle='rgba(201,164,74,'+Math.min(0.25,bondFlash*0.3)+')';
+    cx.fillRect(0,0,w,h);
+    bondFlash*=0.95;
+  }
+
   var cx0=w/2,cy0=h/2,fov=Math.min(w,h)*0.5*zoom;
   var rA=t*0.15+(mouseX-0.5)*3,rB=(mouseY-0.5)*1.5;
   var breath=Math.sin(t*0.6)*0.025;
 
-  // Update
+  // Bond animation: 4 phases looping
+  // 0-2s: bloom apart, 2-4s: approach, 4-4.5s: bond flash, 4.5-7s: bonded orbit, 7-8s: fade & reset
+  var bondCycle=8;
+  if(bondMode){
+    bondPhase=(bondPhase+0.016);
+    var bp=bondPhase%bondCycle;
+    var approach=0; // how close the atoms are (0=apart, 1=touching)
+    var bonded=false;
+
+    if(bp<2){
+      approach=0; // bloom phase
+    } else if(bp<4){
+      approach=(bp-2)/2; // slide together
+      approach=approach*approach*(3-2*approach); // smooth ease
+    } else if(bp<4.5){
+      approach=1;bonded=true;
+      if(bp<4.1)bondFlash=1; // flash once
+    } else if(bp<7){
+      approach=1;bonded=true;
+    } else {
+      // fade out, reset bloom
+      approach=1-(bp-7);
+      if(bp>7.8){bondPhase=0;bloomT=0;
+        AP.forEach(function(p){p.x=0;p.y=0;p.z=0;p.life=0;});}
+    }
+
+    var slideX=approach*1.2; // how much each side slides inward
+
+    for(var i=0;i<AP.length;i++){
+      var p=AP[i];
+      var drift=p.side==='L'?slideX:-slideX;
+
+      // Transfer electrons fly across for ionic
+      if(p.transfer&&bp>2.5){
+        var tProg=Math.min(1,(bp-2.5)/1.5);
+        tProg=tProg*tProg*(3-2*tProg);
+        // Move from left atom to right atom
+        p.tx=p.ox+drift+(AP[0].ox?0:3.5)*tProg;
+        p.c=[255,200,80]; // bright gold during transfer
+        p.sz=1.5;
+      } else if(!p.transfer){
+        // Regular particles slide with their atom
+        var baseTx=p.tx;
+        // Only apply drift to the home offset portion
+        p.x+=(p.tx+drift-p.ox-p.x)*0.05+drift*0.02;
+      }
+
+      // Shared electrons glow in bonded state (covalent)
+      if(bonded&&p.isValence&&(bondType==='covalent'||bondType==='polar covalent')){
+        // Pull valence electrons toward center
+        var pull=(p.side==='L'?0.3:-0.3)*Math.sin(t*2+p.a);
+        p.x+=pull*0.01;
+        p.c=[240,210,120]; // warm shared glow
+      }
+    }
+  }
+
+  // Update positions
   var bloom_ease=Math.min(1,bloomT*0.7);
   for(var i=0;i<AP.length;i++){
     var p=AP[i];
-    p.x+=(p.tx*bloom_ease-p.x)*0.05;
-    p.y+=(p.ty*bloom_ease-p.y)*0.05;
-    p.z+=(p.tz*bloom_ease-p.z)*0.05;
+    var targetX=p.tx*bloom_ease;
+    var targetY=p.ty*bloom_ease;
+    var targetZ=p.tz*bloom_ease;
+
+    if(bondMode){
+      var bp=bondPhase%bondCycle;
+      var slideX=0;
+      if(bp>=2&&bp<8){
+        var approach=bp<4?(bp-2)/2:1;
+        if(bp>7)approach=1-(bp-7);
+        approach=Math.max(0,Math.min(1,approach));
+        approach=approach*approach*(3-2*approach);
+        slideX=approach*1.2;
+      }
+      var drift=p.side==='L'?slideX:-slideX;
+      targetX=p.tx*bloom_ease+drift;
+    }
+
+    p.x+=(targetX-p.x)*0.05;
+    p.y+=(targetY-p.y)*0.05;
+    p.z+=(targetZ-p.z)*0.05;
     p.life=Math.min(1,bloomT*1.2);
+    if(bondMode&&(bondPhase%bondCycle)>7.5)p.life*=Math.max(0,1-(bondPhase%bondCycle-7.5)*3);
 
     if(p.orbital&&p.shell>0){
       p.a=(p.a||0)+p.spd;
       var r=(p.baseR||1)+breath;
       if(p.b!==undefined&&p.b!==0){
-        // s orbital: rotate around shell
-        p.tx=Math.sin(p.b+p.a*0.3)*Math.cos(p.a)*r;
+        p.tx=Math.sin(p.b+p.a*0.3)*Math.cos(p.a)*r+(p.ox||0);
         p.ty=Math.sin(p.b+p.a*0.3)*Math.sin(p.a)*r;
         p.tz=Math.cos(p.b+p.a*0.3)*r;
       }
@@ -260,10 +404,10 @@ function renderAtom(){
 
   // Project + depth sort
   var sorted=[];
+  var sc=bondMode?30:45;
   for(var i=0;i<AP.length;i++){
     var p=AP[i];if(p.life<0.01)continue;
     var r1=rotY(p.x,p.y,p.z,rA),r2=rotX(r1[0],r1[1],r1[2],rB);
-    var sc=45;
     var pr=proj(r2[0]*sc,r2[1]*sc,r2[2],cx0,cy0,fov);
     sorted.push({px:pr[0],py:pr[1],s:pr[2],c:p.c,life:p.life,sz:p.sz||1,z:r2[2]});
   }
@@ -275,6 +419,18 @@ function renderAtom(){
     if(sz<0.15||al<0.003)continue;
     cx.fillStyle='rgba('+p.c[0]+','+p.c[1]+','+p.c[2]+','+Math.min(1,al)+')';
     cx.beginPath();cx.arc(p.px,p.py,Math.max(0.3,sz),0,Math.PI*2);cx.fill();
+  }
+
+  // Bond label overlay
+  if(bondMode){
+    var bp=bondPhase%bondCycle;
+    if(bp>4&&bp<7){
+      cx.save();
+      cx.font='1.2em Georgia';cx.textAlign='center';
+      cx.fillStyle='rgba(201,164,74,'+Math.min(0.5,(bp-4)*0.3)+')';
+      cx.fillText(bondType,w/2,h*0.88);
+      cx.restore();
+    }
   }
 
   requestAnimationFrame(renderAtom);
@@ -492,26 +648,44 @@ window.predictBond=function(){
   var symA=selA.value,symB=selB.value;
 
   var ENdiff=Math.abs(a.EN-b.EN);
-  var bondType,length;
+  var bType,length;
 
-  if(a.EN===0||b.EN===0){bondType='no bond (noble gas)';length=0;}
+  if(a.EN===0||b.EN===0){bType='no bond (noble gas)';length=0;}
   else if(ENdiff>1.7){
-    bondType='ionic';
+    bType='ionic';
     var rSmall=Math.min(a.r,b.r)*0.7;
     var rLarge=Math.max(a.r,b.r)*1.2;
     length=rSmall+rLarge;
   } else if(ENdiff>0.4){
-    bondType='polar covalent';
+    bType='polar covalent';
     length=a.r+b.r;
   } else {
-    bondType='covalent';
+    bType='covalent';
     length=a.r+b.r;
   }
 
   var energy=(a.IE+b.IE)*0.15+1.3*ENdiff;
 
-  var typeColor=bondType==='ionic'?'#f4d990':bondType==='polar covalent'?'#4ECDC4':'#96CEB4';
-  if(bondType.indexOf('no bond')>=0)typeColor='#666';
+  // Launch 3D bond visualization
+  if(bType.indexOf('no bond')<0){
+    var elA=ELEMENTS.find(function(e){return e.Z===a.Z;});
+    var elB=ELEMENTS.find(function(e){return e.Z===b.Z;});
+    if(elA&&elB){
+      // Put lower EN on left (donor) for ionic
+      if(a.EN<b.EN){
+        buildBondCloud(elA.config, elA.Z, elB.config, elB.Z, bType);
+      } else {
+        buildBondCloud(elB.config, elB.Z, elA.config, elA.Z, bType);
+      }
+      document.getElementById('al-sym').textContent=symA+' + '+symB;
+      document.getElementById('al-config').textContent=bType;
+      window.scrollTo({top:0,behavior:'smooth'});
+      try{playBondTone(bType);}catch(e){}
+    }
+  }
+
+  var typeColor=bType==='ionic'?'#f4d990':bType==='polar covalent'?'#4ECDC4':'#96CEB4';
+  if(bType.indexOf('no bond')>=0)typeColor='#666';
 
   var h='';
   h+='<div style="text-align:center;margin:16px 0;">';
@@ -520,7 +694,7 @@ window.predictBond=function(){
   h+='<span style="font-size:2.5em;color:var(--accent);font-weight:200;">'+symB+'</span>';
   h+='</div>';
 
-  h+='<div style="text-align:center;margin:8px 0;color:'+typeColor+';font-size:1.2em;font-weight:300;">'+bondType+'</div>';
+  h+='<div style="text-align:center;margin:8px 0;color:'+typeColor+';font-size:1.2em;font-weight:300;">'+bType+'</div>';
 
   if(length>0){
     h+='<div class="row"><span class="label">Bond length</span><span class="value">'+length.toFixed(2)+' Å</span></div>';
