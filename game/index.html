@@ -48,6 +48,13 @@ canvas{display:block;width:100vw;height:100vh;touch-action:none;}
 #sync{position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:25;
   pointer-events:none;opacity:0;transition:opacity 1s;}
 #sync span{font:0.75em Georgia;color:#ffffff10;letter-spacing:0.15em;}
+#debug{position:fixed;top:0;left:0;z-index:999;background:rgba(0,0,0,0.9);color:#0f0;
+  font:11px monospace;padding:8px 12px;max-width:90vw;max-height:50vh;overflow-y:auto;
+  white-space:pre-wrap;word-break:break-all;pointer-events:none;display:none;}
+#debug.show{display:block;}
+#fps{position:fixed;top:0;right:0;z-index:999;color:#0f0;font:11px monospace;
+  padding:4px 8px;background:rgba(0,0,0,0.7);pointer-events:none;display:none;}
+#fps.show{display:block;}
 </style>
 </head>
 <body>
@@ -63,6 +70,8 @@ canvas{display:block;width:100vw;height:100vh;touch-action:none;}
 </div>
 <div id="prompt"><span id="prompt-text"></span></div>
 <div id="sync"><span id="sync-text"></span></div>
+<div id="debug"></div>
+<div id="fps"></div>
 
 <script>
 // ═══════════════════════════════════════════════════
@@ -76,6 +85,55 @@ var TAU=Math.PI*2;
 
 function resize(){cv.width=innerWidth*DPR;cv.height=innerHeight*DPR;gl.viewport(0,0,cv.width,cv.height);}
 resize();addEventListener('resize',resize);
+
+// ═══ DIAGNOSTIC ENGINE ═══
+// Press D to toggle debug overlay. Shows everything.
+var debugEl=document.getElementById('debug');
+var fpsEl=document.getElementById('fps');
+var debugLog=[];
+var debugOn=false;
+var frameCount=0,fpsTime=0,currentFPS=0;
+
+function D(msg,level){
+  var prefix=level==='err'?'[ERROR] ':level==='ok'?'[OK] ':'';
+  var color=level==='err'?'#f44':level==='ok'?'#4f4':level==='warn'?'#ff4':'#0f0';
+  debugLog.push({msg:prefix+msg,color:color,t:Date.now()});
+  if(debugLog.length>50)debugLog.shift();
+  console.log(prefix+msg);
+  if(debugOn)renderDebug();
+}
+
+function renderDebug(){
+  debugEl.innerHTML=debugLog.map(function(e){
+    return '<span style="color:'+e.color+'">'+e.msg+'</span>';
+  }).join('\n');
+  debugEl.scrollTop=debugEl.scrollHeight;
+}
+
+addEventListener('keydown',function(e){
+  if(e.key==='d'||e.key==='D'){
+    debugOn=!debugOn;
+    debugEl.classList.toggle('show',debugOn);
+    fpsEl.classList.toggle('show',debugOn);
+    if(debugOn)renderDebug();
+  }
+});
+
+// ═══ SYSTEM CHECK ═══
+D('Good Will — diagnostic engine');
+D('canvas: '+innerWidth+'x'+innerHeight+' @ DPR='+DPR);
+D('pixels: '+(cv.width)+'x'+(cv.height)+' = '+(cv.width*cv.height/1e6).toFixed(1)+'M');
+if(!gl){D('WebGL: FAILED — no GL context','err');}
+else{
+  D('WebGL: '+gl.getParameter(gl.VERSION),'ok');
+  D('renderer: '+gl.getParameter(gl.RENDERER));
+  D('vendor: '+gl.getParameter(gl.VENDOR));
+  var maxTex=gl.getParameter(gl.MAX_TEXTURE_SIZE);
+  var maxUni=gl.getParameter(gl.MAX_FRAGMENT_UNIFORM_VECTORS);
+  var maxVary=gl.getParameter(gl.MAX_VARYING_VECTORS);
+  D('max texture: '+maxTex+' | max frag uniforms: '+maxUni+' | max varyings: '+maxVary);
+  if(maxUni<128)D('low uniform count — world shader may fail','warn');
+}
 
 // ═══ SHADERS ═══
 var VS=`
@@ -107,19 +165,36 @@ void main(){
   float nz=sqrt(max(0.0,1.0-d2));
   gl_FragColor=vec4(vCol*(0.7+nz*0.3),vAlpha*g);
 }`;
-function mkS(s,t){var sh=gl.createShader(t);gl.shaderSource(sh,s);gl.compileShader(sh);
-  if(!gl.getShaderParameter(sh,gl.COMPILE_STATUS)){console.error('SHADER ERROR:',gl.getShaderInfoLog(sh));}return sh;}
-var prog=gl.createProgram();gl.attachShader(prog,mkS(VS,gl.VERTEX_SHADER));gl.attachShader(prog,mkS(FS,gl.FRAGMENT_SHADER));gl.linkProgram(prog);gl.useProgram(prog);
+function mkS(s,t){
+  var sh=gl.createShader(t);gl.shaderSource(sh,s);gl.compileShader(sh);
+  var name=t===gl.VERTEX_SHADER?'VERT':'FRAG';
+  if(!gl.getShaderParameter(sh,gl.COMPILE_STATUS)){
+    var err=gl.getShaderInfoLog(sh);
+    D(name+' compile FAILED: '+err,'err');
+    // Show which line failed
+    var lines=s.split('\n');
+    var match=err.match(/(\d+):(\d+)/);
+    if(match){var ln=parseInt(match[2]);D('  line '+ln+': '+(lines[ln-1]||'?').trim(),'err');}
+  } else {D(name+' compiled','ok');}
+  return sh;
+}
+function mkProg(name,vsSrc,fsSrc){
+  var p=gl.createProgram();
+  gl.attachShader(p,mkS(vsSrc,gl.VERTEX_SHADER));
+  gl.attachShader(p,mkS(fsSrc,gl.FRAGMENT_SHADER));
+  gl.linkProgram(p);
+  if(!gl.getProgramParameter(p,gl.LINK_STATUS)){D(name+' link FAILED: '+gl.getProgramInfoLog(p),'err');return null;}
+  D(name+' linked','ok');
+  return p;
+}
+var prog=mkProg('particles',VS,FS);gl.useProgram(prog);
 var aPos=gl.getAttribLocation(prog,'aPos'),aCol=gl.getAttribLocation(prog,'aCol'),aSize=gl.getAttribLocation(prog,'aSize');
 var uMVP=gl.getUniformLocation(prog,'uMVP'),uScale=gl.getUniformLocation(prog,'uScale');
 gl.enable(gl.BLEND);gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA);
 
 // ═══ WORLD RENDERER (SDF ray-march) ═══
-var worldProg=gl.createProgram();
-gl.attachShader(worldProg,mkS(WORLD_VS,gl.VERTEX_SHADER));
-gl.attachShader(worldProg,mkS(WORLD_FS,gl.FRAGMENT_SHADER));
-gl.linkProgram(worldProg);
-if(!gl.getProgramParameter(worldProg,gl.LINK_STATUS)){console.error('World link:',gl.getProgramInfoLog(worldProg));worldActive=false;}
+var worldProg=mkProg('world',WORLD_VS,WORLD_FS);
+if(!worldProg){D('world shader unavailable — falling back to particles only','warn');}
 var wQuadBuf=gl.createBuffer();
 gl.bindBuffer(gl.ARRAY_BUFFER,wQuadBuf);
 gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
@@ -155,10 +230,7 @@ addEventListener('resize',function(){setTimeout(createWorldFBO,100);});
 // Blit shader — draws a texture fullscreen
 var BLIT_VS='attribute vec2 aP;varying vec2 vUV;void main(){gl_Position=vec4(aP,0,1);vUV=aP*0.5+0.5;}';
 var BLIT_FS='precision mediump float;uniform sampler2D uTex;varying vec2 vUV;void main(){gl_FragColor=texture2D(uTex,vUV);}';
-var blitProg=gl.createProgram();
-gl.attachShader(blitProg,mkS(BLIT_VS,gl.VERTEX_SHADER));
-gl.attachShader(blitProg,mkS(BLIT_FS,gl.FRAGMENT_SHADER));
-gl.linkProgram(blitProg);
+var blitProg=mkProg('blit',BLIT_VS,BLIT_FS);
 var blitAP=gl.getAttribLocation(blitProg,'aP');
 var blitUT=gl.getUniformLocation(blitProg,'uTex');
 var blitBuf=gl.createBuffer();
@@ -481,8 +553,17 @@ function runOpening(){
   else if(openingPhase===5){
     // FLYOVER — world loads, camera sweeps over the plains
     hideCinema();
-    worldActive=true;
-    tbgR=0;tbgG=0;tbgB=0;
+    // Self-heal: only activate world if shader compiled
+    if(worldProg&&blitProg){
+      worldActive=true;
+      tbgR=0;tbgG=0;tbgB=0;
+      D('world shader active — entering flyover','ok');
+    } else {
+      D('world shader failed — skipping flyover, using particle fallback','warn');
+      worldActive=false;
+      tbgR=0.025;tbgG=0.02;tbgB=0.03;
+      openingPhase=6; // skip straight to drum circle
+    }
     // Hide particles during flyover (set all sizes to 0)
     for(var i=0;i<N;i++){tsz[i]=0;sz[i]=0;}
     if(stateTime>8){
@@ -603,7 +684,7 @@ function render(){
   else if(gameState==='drumcircle')updateDrumCircle();
 
   // ═══ RENDER WORLD (SDF) ═══
-  if(worldActive){
+  if(worldActive&&worldProg&&blitProg){
     gl.useProgram(worldProg);
     gl.uniform2f(wURes,cv.width,cv.height);
     gl.uniform1f(wUTime,t);
@@ -700,6 +781,13 @@ function render(){
   // K bar
   document.getElementById('kfill').style.width=Math.min(100,K/1.868*100)+'%';
   document.getElementById('klabel').textContent='K = '+K.toFixed(3);
+
+  // FPS
+  frameCount++;
+  var now=performance.now();
+  if(now-fpsTime>1000){currentFPS=frameCount;frameCount=0;fpsTime=now;
+    if(debugOn)fpsEl.textContent=currentFPS+'fps | '+gameState+' | phase:'+openingPhase+' | world:'+(worldActive&&worldProg?'ON':'OFF')+' | K:'+K.toFixed(3);
+  }
 
   requestAnimationFrame(render);
 }
