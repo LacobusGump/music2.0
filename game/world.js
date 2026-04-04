@@ -87,7 +87,7 @@ vec3 norm(vec3 p){
 // ═══ SHADOW (cheap) ═══
 float shadow(vec3 p,vec3 l){
   float t=0.2,res=1.0;
-  for(int i=0;i<16;i++){
+  for(int i=0;i<8;i++){
     float d=scene(p+l*t).x;
     res=min(res,6.0*d/t);
     t+=max(d,0.1);
@@ -139,7 +139,7 @@ void main(){
 
   // March
   float t=0.0,m=-1.0;vec3 p;
-  for(int i=0;i<64;i++){
+  for(int i=0;i<48;i++){
     p=ro+rd*t;
     vec2 h=scene(p);
     if(abs(h.x)<0.003*t){m=h.y;break;}

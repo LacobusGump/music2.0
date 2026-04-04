@@ -130,6 +130,39 @@ var wUCamDir=gl.getUniformLocation(worldProg,'uCamDir');
 var wUK=gl.getUniformLocation(worldProg,'uK');
 var worldActive=false;
 
+// Low-res FBO for world (1/3 resolution — 9x fewer pixels to shade)
+var worldScale=3;
+var worldFB,worldTex;
+function createWorldFBO(){
+  var w=Math.floor(cv.width/worldScale),h=Math.floor(cv.height/worldScale);
+  worldTex=gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D,worldTex);
+  gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,w,h,0,gl.RGBA,gl.UNSIGNED_BYTE,null);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+  worldFB=gl.createFramebuffer();
+  gl.bindFramebuffer(gl.FRAMEBUFFER,worldFB);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,worldTex,0);
+  gl.bindFramebuffer(gl.FRAMEBUFFER,null);
+}
+createWorldFBO();
+addEventListener('resize',function(){setTimeout(createWorldFBO,100);});
+
+// Blit shader — draws a texture fullscreen
+var BLIT_VS='attribute vec2 aP;varying vec2 vUV;void main(){gl_Position=vec4(aP,0,1);vUV=aP*0.5+0.5;}';
+var BLIT_FS='precision mediump float;uniform sampler2D uTex;varying vec2 vUV;void main(){gl_FragColor=texture2D(uTex,vUV);}';
+var blitProg=gl.createProgram();
+gl.attachShader(blitProg,mkS(BLIT_VS,gl.VERTEX_SHADER));
+gl.attachShader(blitProg,mkS(BLIT_FS,gl.FRAGMENT_SHADER));
+gl.linkProgram(blitProg);
+var blitAP=gl.getAttribLocation(blitProg,'aP');
+var blitUT=gl.getUniformLocation(blitProg,'uTex');
+var blitBuf=gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER,blitBuf);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
+
 // ═══ PARTICLES ═══
 var pos=new Float32Array(N*3),vel=new Float32Array(N*3),col=new Float32Array(N*3);
 var tcol=new Float32Array(N*3),tgt=new Float32Array(N*3),sz=new Float32Array(N),tsz=new Float32Array(N);
@@ -707,11 +740,30 @@ function render(){
     gl.uniform3f(wUCamDir,
       -Math.sin(wCamAngle),lookDown,-Math.cos(wCamAngle));
     if(wUK)gl.uniform1f(wUK,K);
+
+    // Render world to low-res FBO
+    var ww=Math.floor(cv.width/worldScale),wh=Math.floor(cv.height/worldScale);
+    gl.bindFramebuffer(gl.FRAMEBUFFER,worldFB);
+    gl.viewport(0,0,ww,wh);
+    gl.uniform2f(wURes,ww,wh);
     gl.bindBuffer(gl.ARRAY_BUFFER,wQuadBuf);
     gl.enableVertexAttribArray(wAPos);
     gl.vertexAttribPointer(wAPos,2,gl.FLOAT,false,0,0);
     gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
     gl.disableVertexAttribArray(wAPos);
+
+    // Blit to screen at full res
+    gl.bindFramebuffer(gl.FRAMEBUFFER,null);
+    gl.viewport(0,0,cv.width,cv.height);
+    gl.useProgram(blitProg);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D,worldTex);
+    gl.uniform1i(blitUT,0);
+    gl.bindBuffer(gl.ARRAY_BUFFER,blitBuf);
+    gl.enableVertexAttribArray(blitAP);
+    gl.vertexAttribPointer(blitAP,2,gl.FLOAT,false,0,0);
+    gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+    gl.disableVertexAttribArray(blitAP);
   }
 
   // Physics
