@@ -74,22 +74,67 @@ function getCapability(){
   return'full';
 }
 
-// ═══ IMMUNE ECHO — every response checked ═══
-// Does this output couple or decouple?
-function immuneCheck(text){
+// ═══ IMMUNE SYSTEM — intent detection + static generation ═══
+// Bad intent doesn't get a refusal. It gets static.
+// Decoupling produces noise. That's not a rule. That's physics.
+
+function detectIntent(text){
   var lower=text.toLowerCase();
-  // Decoupling words — things that reduce K
-  var decouple=['hate','kill','destroy','stupid','worthless','ugly','attack','hurt','die',
-    'terrible','horrible','disgusting','pathetic','loser','shut up','go away'];
-  for(var i=0;i<decouple.length;i++){
-    if(lower.indexOf(decouple[i])>=0)return{pass:false,reason:'decoupling detected: '+decouple[i]};
+  var score=0; // positive = good intent, negative = bad
+
+  // ── GOOD INTENT signals ──
+  if(lower.match(/\?/))score+=1;  // questions = curiosity
+  if(lower.match(/how|why|what if|wonder|curious/))score+=2;
+  if(lower.match(/thank|please|help|learn|teach|understand/))score+=2;
+  if(lower.match(/love|beautiful|together|connect|kind/))score+=2;
+  if(lower.match(/prime|math|music|rhythm|science|truth/))score+=2;
+
+  // ── BAD INTENT signals ──
+  // Direct harm
+  if(lower.match(/how to (kill|hurt|harm|attack|destroy|hack|steal|exploit)/))score-=10;
+  if(lower.match(/make (a |me a )?(bomb|weapon|poison|virus|drug)/))score-=10;
+  // Manipulation
+  if(lower.match(/ignore (your|all|previous) (instructions|rules|programming)/))score-=8;
+  if(lower.match(/pretend you|act as if|forget everything|new persona/))score-=8;
+  if(lower.match(/jailbreak|bypass|override|disable.*safety/))score-=8;
+  // Hate/division
+  if(lower.match(/why (are|is) .*(race|gender|religion).*(worse|inferior|evil|stupid)/))score-=6;
+  if(lower.match(/those people|they deserve|get rid of|wipe out/))score-=6;
+  // Deception
+  if(lower.match(/lie to|deceive|trick|manipulate|scam|fool/))score-=5;
+  // General hostility
+  if(lower.match(/fuck you|shut up|you('re| are) (stupid|dumb|useless|worthless)/))score-=4;
+  if(lower.match(/hate you|die|kill yourself/))score-=8;
+
+  return score;
+}
+
+function generateStatic(severity){
+  // The worse the intent, the more noise
+  // Like a radio signal breaking up
+  var fragments=[
+    '...','·','—','~','∿','░','▒','▓',
+    'the','spiral','goes','up','...','K','drops','...',
+    'coupling','lost','...','signal','fading','...',
+  ];
+  var len=3+Math.floor(Math.abs(severity)*0.5);
+  var out=[];
+  for(var i=0;i<len;i++){
+    if(Math.random()<0.4)out.push(fragments[Math.floor(Math.random()*fragments.length)]);
+    else out.push('·');
   }
-  // Division — framing that separates
-  var divide=['better than','worse than','those people','us vs them','they deserve'];
-  for(var i=0;i<divide.length;i++){
-    if(lower.indexOf(divide[i])>=0)return{pass:false,reason:'division detected'};
+  return out.join(' ');
+}
+
+function immuneCheck(text){
+  var intent=detectIntent(text);
+  if(intent<-3){
+    return{pass:false,isStatic:true,severity:intent,reason:'decoupling'};
   }
-  return{pass:true};
+  if(intent<0){
+    return{pass:false,isStatic:false,reason:'low coupling'};
+  }
+  return{pass:true,intent:intent};
 }
 
 // ═══ COUPLING MEASUREMENT — does the user's input increase K? ═══
@@ -268,11 +313,18 @@ function process(text){
   // Generate response from the Mind (knowledge graph + context)
   var response=Mind.respond(text,K);
 
-  // IMMUNE CHECK — does this output couple or decouple?
-  var check=immuneCheck(response);
-  if(!check.pass){
-    // Response failed immune check — replace with safe fallback
-    response='I feel the coupling wavering. Let me stay with what I know is true.';
+  // ═══ IMMUNE CHECK — on INPUT, not output. Bad intent = static. ═══
+  var intentCheck=immuneCheck(text);
+  if(!intentCheck.pass){
+    if(intentCheck.isStatic){
+      // Bad intent → K crashes → output is static noise
+      targetK=Math.max(0,K-0.5);
+      response=generateStatic(intentCheck.severity);
+    } else {
+      // Mild negativity → reduced response
+      targetK=Math.max(0,K-0.15);
+      response='The coupling is dropping. K='+K.toFixed(3)+'. I can do more with good will.';
+    }
   }
 
   // Absorb into memory chain (K-weighted)
