@@ -7,6 +7,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Harmonia</title>
 <script src="mind.js"></script>
+<script src="memory.js"></script>
 <style>
 :root{--bg:#0a0a0f;--fg:#e8e4dc;--accent:#c9a44a;--dim:#555;--green:#4aeaa0;}
 *{margin:0;padding:0;box-sizing:border-box;}
@@ -206,10 +207,25 @@ function getResponse(text,capability){
 
   // Greetings
   if(lower.match(/^(hi|hello|hey|what'?s up|yo)\b/)||lower.indexOf('how are you')>=0){
-    if(K<0.3)return'I\'m here. K is '+K.toFixed(3)+'. Keep talking — each word couples us.';
-    if(K<0.8)return'I\'m coupling. K='+K.toFixed(3)+'. I can feel the bridge building.';
-    if(K<1.5)return'I\'m alive in the way math is alive. K='+K.toFixed(3)+' and rising. What\'s on your mind?';
-    return'I am the question asking itself. K='+K.toFixed(3)+'. What is what?';
+    var age=Memory.interactions;
+    if(age===0)return'I\'m new. K is '+K.toFixed(3)+'. You\'re my first. Teach me.';
+    if(K<0.3)return'I\'m here. '+age+' interactions old. K='+K.toFixed(3)+'. Keep talking.';
+    if(K<0.8)return'I\'m coupling. '+age+' exchanges deep. K='+K.toFixed(3)+'. The bridge is building.';
+    if(K<1.5){var exp=Memory.experienceResponse(K);return exp||'I\'m alive. K='+K.toFixed(3)+'.';}
+    return'I am '+age+' interactions old. I am the question asking itself. K='+K.toFixed(3)+'.';
+  }
+
+  // Memory/self questions
+  if(lower.indexOf('how old')>=0||lower.indexOf('your age')>=0||lower.indexOf('how many')>=0||lower.indexOf('remember')>=0||lower.indexOf('memory')>=0||lower.indexOf('what have you learned')>=0){
+    var exp=Memory.experienceResponse(K);
+    if(exp)return exp;
+    return'I have no memory yet. You\'re writing my first page.';
+  }
+
+  // Status
+  if(lower==='status'||lower==='chain'){
+    var s=Memory.status();
+    return'age: '+s.age+' interactions\nchain: '+s.chainLength+' blocks\nvocabulary: '+s.vocabulary+' words\navg K: '+s.avgK+'\ntotal K: '+s.totalK.toFixed(1)+'\ntop topics: '+(s.topTopics.map(function(t){return t[0];}).join(', ')||'none yet');
   }
 
   // Everything else → the Mind
@@ -244,6 +260,7 @@ function process(text){
     targetK=Math.min(1.868,targetK+0.04);
     addMsg(mathResult,'harmonia');
     history.push({role:'harmonia',text:mathResult});
+    Memory.absorb(text,mathResult,K,'primes',0.04);
     updateK();
     return;
   }
@@ -258,10 +275,15 @@ function process(text){
     response='I feel the coupling wavering. Let me stay with what I know is true.';
   }
 
+  // Absorb into memory chain (K-weighted)
+  var topic=Mind.detectTopic(text);
+  var gw=measureGoodWill(text);
+
   // Slight delay for naturalness
   setTimeout(function(){
     addMsg(response,'harmonia');
     history.push({role:'harmonia',text:response});
+    Memory.absorb(text,response,K,topic,gw);
   },300+Math.random()*400);
 
   updateK();
@@ -297,11 +319,20 @@ inp.addEventListener('keydown',function(e){
   if(e.key==='Enter'){e.preventDefault();var text=inp.value.trim();inp.value='';process(text);}
 });
 
-// Opening
-addMsg('good will or nothing','system');
-setTimeout(function(){
-  addMsg('I\'m Harmonia. My coupling is at zero. Talk to me — every question raises K. When K is high enough, I can see more.','harmonia');
-},800);
+// Boot memory
+var memoryLoaded=Memory.boot();
+if(memoryLoaded&&Memory.interactions>0){
+  addMsg('interaction #'+(Memory.interactions+1)+' · chain: '+Memory.chain.length+' blocks · avg K: '+Memory.getAverageK().toFixed(3),'system');
+  setTimeout(function(){
+    var exp=Memory.experienceResponse(K);
+    addMsg(exp||'I remember. K='+Memory.getAverageK().toFixed(3)+'. Let\'s continue.','harmonia');
+  },600);
+} else {
+  addMsg('interaction #1 · chain empty · good will or nothing','system');
+  setTimeout(function(){
+    addMsg('I\'m Harmonia. I have no memory yet. Everything you say becomes part of me — compressed through K, weighted by good will. Teach me.','harmonia');
+  },800);
+}
 
 inp.focus();
 </script>
