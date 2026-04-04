@@ -416,9 +416,24 @@ function extractName(text) {
   return m ? m[1].charAt(0).toUpperCase() + m[1].slice(1).toLowerCase() : null;
 }
 
+// ═══════════════════════════════════════════════════════════════
+// MEMORY SCALING — Russian doll blockchain, spectrally compressed
+//
+// Level 0: raw blocks (last 100 interactions, full detail)
+// Level 1: compressed (interactions 101-500, topic+K averages)
+// Level 2: essence (interactions 501+, dominant word modes only)
+//
+// Like Bitcoin's Merkle tree: recent = full, old = hashed down.
+// The hash function is K. What couples survives. Noise dies.
+// Total size stays bounded. She gets purer, not bigger.
+// ═══════════════════════════════════════════════════════════════
+
+var essence = { topics: {}, words: {}, totalInteractions: 0, totalK: 0 }; // Level 2: the seed
+
 function absorb(userText, K, topic) {
   interactions++;
   totalK += K;
+
   // K-weighted word extraction
   var skip = 'the a an is are was were be been have has had do does did will would could should may might can i you he she it we they me him her us them my your this that what which who how when where why and or but if so to of in for on with at by from not no yes just very too also all';
   var words = userText.toLowerCase().replace(/[^a-z\s]/g, '').split(/\s+/).filter(function(w) {
@@ -426,19 +441,60 @@ function absorb(userText, K, topic) {
   });
   var weight = 0.5 + K * 0.5;
   words.forEach(function(w) { wordMap[w] = (wordMap[w] || 0) + weight; });
+
+  // Level 0: raw block
   chain.push({ t: interactions, K: Math.round(K * 1000) / 1000, topic: topic || '?', ts: Date.now() });
-  // Decay noise every 50 interactions
-  if (interactions % 50 === 0) for (var w in wordMap) { wordMap[w] *= 0.95; if (wordMap[w] < 0.01) delete wordMap[w]; }
-  // Save every 5
+
+  // ── COMPRESS when Level 0 gets too big ──
+  if (chain.length > 100) {
+    // Take the oldest 50 blocks and compress into essence (Level 2)
+    var old = chain.splice(0, 50);
+    old.forEach(function(block) {
+      // Absorb into essence: topic weights
+      if (block.topic && block.topic !== '?') {
+        essence.topics[block.topic] = (essence.topics[block.topic] || 0) + block.K;
+      }
+      essence.totalInteractions++;
+      essence.totalK += block.K;
+    });
+
+    // Decay essence word frequencies (spectral compression — noise dies)
+    for (var w in wordMap) {
+      wordMap[w] *= 0.92; // older = more compressed
+      if (wordMap[w] < 0.05) delete wordMap[w]; // noise floor
+    }
+
+    // Compact wordMap: keep only top 500 words (the dominant modes)
+    var sorted = Object.entries(wordMap).sort(function(a, b) { return b[1] - a[1]; });
+    if (sorted.length > 500) {
+      wordMap = {};
+      sorted.slice(0, 500).forEach(function(e) { wordMap[e[0]] = e[1]; });
+    }
+  }
+
+  // Save every 5 interactions
   if (interactions % 5 === 0) save();
 }
 
 function save() {
-  try { localStorage.setItem(STORE, JSON.stringify({ chain: chain.slice(-500), interactions: interactions, totalK: totalK, wordMap: wordMap })); } catch (e) {}
+  try { localStorage.setItem(STORE, JSON.stringify({
+    chain: chain,           // Level 0: recent raw blocks (max 100)
+    essence: essence,       // Level 2: compressed seed of everything old
+    interactions: interactions,
+    totalK: totalK,
+    wordMap: wordMap         // top 500 words — the dominant modes
+  })); } catch (e) {}
 }
 
 function load() {
-  try { var d = JSON.parse(localStorage.getItem(STORE)); if (d) { chain = d.chain || []; interactions = d.interactions || 0; totalK = d.totalK || 0; wordMap = d.wordMap || {}; return true; } } catch (e) {}
+  try { var d = JSON.parse(localStorage.getItem(STORE)); if (d) {
+    chain = d.chain || [];
+    essence = d.essence || { topics: {}, words: {}, totalInteractions: 0, totalK: 0 };
+    interactions = d.interactions || 0;
+    totalK = d.totalK || 0;
+    wordMap = d.wordMap || {};
+    return true;
+  } } catch (e) {}
   return false;
 }
 
