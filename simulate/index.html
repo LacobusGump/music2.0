@@ -136,7 +136,7 @@ var prog=gl.createProgram();gl.attachShader(prog,vs);gl.attachShader(prog,fs);gl
 var aPos=gl.getAttribLocation(prog,'aPos'),aCol=gl.getAttribLocation(prog,'aCol'),aNorm=gl.getAttribLocation(prog,'aNorm'),aSize=gl.getAttribLocation(prog,'aSize');
 var uMVP=gl.getUniformLocation(prog,'uMVP'),uView=gl.getUniformLocation(prog,'uView'),uScale=gl.getUniformLocation(prog,'uScale'),uTime=gl.getUniformLocation(prog,'uTime'),uLight=gl.getUniformLocation(prog,'uLight');
 
-gl.enable(gl.BLEND);gl.blendFunc(gl.SRC_ALPHA,gl.ONE);
+gl.enable(gl.BLEND);gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA);
 gl.depthMask(false);
 
 // ═══ PARTICLE DATA ═══
@@ -187,8 +187,11 @@ var t=0,simTime=0,K=0,targetK=0;
 var mouseX=0.5,mouseY=0.5,camZoom=1;
 var currentScene=null,assemblyPhase=0,assemblyLayer=0;
 var wind={x:0,y:0,z:0},gravity=-0.0003,lightDir={x:0.5,y:1,z:0.3};
-var bgR=1,bgG=1,bgB=1; // starts white
+var bgR=1,bgG=1,bgB=1;
 var tbgR=1,tbgG=1,tbgB=1;
+var zoomLevel=0,lastZoomLevel=0; // 0=far, 1=medium, 2=close, 3=micro, 4=molecular, 5=atomic, 6=prime
+var LOD_NAMES=['landscape','structure','surface','cellular','molecular','atomic','prime'];
+var lodTransitioning=false;
 
 addEventListener('mousemove',function(e){mouseX=e.clientX/innerWidth;mouseY=e.clientY/innerHeight;});
 var lastTD=0;
@@ -222,93 +225,276 @@ var SCENES={
 tree:{
   name:'Tree',K:1.4,bg:[0.015,0.025,0.018],
   wind:{x:0.0003,y:0,z:0.0001},gravity:-0.00008,
-  build:function(){
-    var ground=15000,roots=8000,trunk=22000,branches=20000,leaves=35000;
-    var idx=0;
-
-    // Ground plane — flat, lit from above
-    for(var i=0;i<ground;i++,idx++){
-      var x=(Math.random()-0.5)*16,z=(Math.random()-0.5)*16;
-      var dist=Math.sqrt(x*x+z*z);
-      var y=-0.05+Math.random()*0.05;
-      // Darker near tree base (shadow), grass color
-      var shadow=Math.max(0.4,Math.min(1,dist/4));
-      var g=0.08+Math.random()*0.06;
-      setP(idx, x,y,z, 0,1,0, g*0.5*shadow,g*1.1*shadow,g*0.3*shadow, 2.0+Math.random(), 2);
-    }
-
-    // Roots — underground, normal pointing out from center
-    for(var i=0;i<roots;i++,idx++){
-      var a=Math.random()*6.283,spread=Math.pow(Math.random(),0.5)*3.5;
-      var depth=-0.1-Math.random()*1.5;
-      var x=Math.cos(a)*spread+Math.sin(a*3)*0.3;
-      var z=Math.sin(a)*spread+Math.cos(a*5)*0.2;
-      var nx=Math.cos(a),nz=Math.sin(a);
-      setP(idx, x,depth,z, nx,-0.3,nz, 0.2,0.12,0.06, 1.5, 1);
-    }
-
-    // Trunk — cylinder with outward-pointing normals, grounded at y=0
-    for(var i=0;i<trunk;i++,idx++){
-      var h=Math.random()*5.5; // 0 to 5.5 from ground
-      var taper=1-h/7;
-      var radius=0.55*taper*taper+0.12;
-      var a=Math.random()*6.283;
-      // Bark texture
-      var bark=radius+Math.sin(a*8+h*4)*0.02+Math.sin(h*11)*0.015;
-      var x=Math.cos(a)*bark,z=Math.sin(a)*bark;
-      // Normal: outward from cylinder axis
-      var nx=Math.cos(a),nz=Math.sin(a);
-      var shade=0.16+Math.random()*0.06;
-      // Lighter where facing light (upper right)
-      var lightFace=Math.max(0,nx*0.4+0.3);
-      shade+=lightFace*0.04;
-      setP(idx, x,h,z, nx,0.1,nz, shade*1.2,shade*0.9,shade*0.5, 1.4+Math.random()*0.3, 3);
-    }
-
-    // Branches — outward from trunk, normals along branch direction
-    for(var i=0;i<branches;i++,idx++){
-      var branch=Math.floor(Math.random()*8);
-      var ba=branch*6.283/8+Math.random()*0.4-0.2;
-      var startH=2.5+branch*0.35+Math.random()*0.5;
-      var reach=Math.pow(Math.random(),0.6)*2.5;
-      var up=reach*0.35+Math.random()*0.3;
-      // Sub-branch deviation
-      var sub=Math.random()*0.6;
-      var subA=ba+Math.random()*1.2-0.6;
-      var x=Math.cos(ba)*reach+Math.cos(subA)*sub;
-      var z=Math.sin(ba)*reach+Math.sin(subA)*sub;
-      var y=startH+up;
-      // Normal: along branch direction (outward + up)
-      var nx=Math.cos(ba),nz=Math.sin(ba);
-      var bShade=0.14+Math.random()*0.06;
-      setP(idx, x,y,z, nx,0.4,nz, bShade*1.1,bShade*0.85,bShade*0.45, 0.8+Math.random()*0.5, 4);
-    }
-
-    // Leaves — dense canopy, normals point outward from canopy center
-    // Multiple sub-clusters for organic shape
-    var clusters=[[0,7,0],[1.2,6.5,0.8],[-0.8,6.8,-1],[0.5,5.8,-0.7],[-1,6,0.5],[0.3,7.5,0.3]];
-    for(var i=0;i<leaves;i++,idx++){
-      var cl=clusters[i%clusters.length];
-      var a=Math.random()*6.283,b=Math.random()*Math.PI;
-      var r=0.8+Math.random()*1.8;
-      var x=Math.sin(b)*Math.cos(a)*r+cl[0];
-      var y=Math.cos(b)*r*0.6+cl[1];
-      var z=Math.sin(b)*Math.sin(a)*r+cl[2];
-
-      // Normal: outward from cluster center (for lighting)
-      var dx=x-cl[0],dy=y-cl[1],dz=z-cl[2];
-      var dl=Math.sqrt(dx*dx+dy*dy+dz*dz)+0.01;
-
-      // Green: darker deeper in canopy, lighter on top + sun side
-      var height01=Math.max(0,(y-4.5)/4);
-      var sunSide=Math.max(0,dx*0.3+dy*0.5);
-      var g=0.15+height01*0.25+sunSide*0.1+Math.random()*0.08;
-      // Slight seasonal variation: some yellowing at edges
-      var edge=r/2.6;
-      var rr=g*0.4+edge*0.05;
-      var bb=g*0.15;
-
-      setP(idx, x,y,z, dx/dl,dy/dl,dz/dl, rr,g,bb, 1.6+Math.random()*1.0, 6);
+  build:function(){ this.lod[0](); },
+  lod:{
+    // ═══ LOD 0: LANDSCAPE — full tree, ground, sky ═══
+    0:function(){
+      var ground=15000,roots=8000,trunk=22000,branches=20000,leaves=35000;
+      var idx=0;
+      for(var i=0;i<ground;i++,idx++){
+        var x=(Math.random()-0.5)*16,z=(Math.random()-0.5)*16;
+        var shadow=Math.max(0.4,Math.min(1,Math.sqrt(x*x+z*z)/4));
+        var g=0.08+Math.random()*0.06;
+        setP(idx, x,-0.05+Math.random()*0.05,z, 0,1,0, g*0.5*shadow,g*1.1*shadow,g*0.3*shadow, 2.0+Math.random(), 2);
+      }
+      for(var i=0;i<roots;i++,idx++){
+        var a=Math.random()*6.283,spread=Math.pow(Math.random(),0.5)*3.5;
+        setP(idx, Math.cos(a)*spread+Math.sin(a*3)*0.3,-0.1-Math.random()*1.5,Math.sin(a)*spread, Math.cos(a),-0.3,Math.sin(a), 0.2,0.12,0.06, 1.5, 1);
+      }
+      for(var i=0;i<trunk;i++,idx++){
+        var h=Math.random()*5.5,taper=1-h/7,radius=0.55*taper*taper+0.12;
+        var a=Math.random()*6.283,bark=radius+Math.sin(a*8+h*4)*0.02;
+        var shade=0.16+Math.random()*0.06+Math.max(0,Math.cos(a)*0.4+0.3)*0.04;
+        setP(idx, Math.cos(a)*bark,h,Math.sin(a)*bark, Math.cos(a),0.1,Math.sin(a), shade*1.2,shade*0.9,shade*0.5, 1.4+Math.random()*0.3, 3);
+      }
+      for(var i=0;i<branches;i++,idx++){
+        var branch=Math.floor(Math.random()*8),ba=branch*6.283/8+Math.random()*0.4-0.2;
+        var startH=2.5+branch*0.35+Math.random()*0.5,reach=Math.pow(Math.random(),0.6)*2.5;
+        var sub=Math.random()*0.6,subA=ba+Math.random()*1.2-0.6;
+        var bShade=0.14+Math.random()*0.06;
+        setP(idx, Math.cos(ba)*reach+Math.cos(subA)*sub,startH+reach*0.35+Math.random()*0.3,Math.sin(ba)*reach+Math.sin(subA)*sub, Math.cos(ba),0.4,Math.sin(ba), bShade*1.1,bShade*0.85,bShade*0.45, 0.8+Math.random()*0.5, 4);
+      }
+      var cls=[[0,7,0],[1.2,6.5,0.8],[-0.8,6.8,-1],[0.5,5.8,-0.7],[-1,6,0.5],[0.3,7.5,0.3]];
+      for(var i=0;i<leaves;i++,idx++){
+        var cl=cls[i%cls.length],a=Math.random()*6.283,b=Math.random()*Math.PI,r=0.8+Math.random()*1.8;
+        var x=Math.sin(b)*Math.cos(a)*r+cl[0],y=Math.cos(b)*r*0.6+cl[1],z=Math.sin(b)*Math.sin(a)*r+cl[2];
+        var dx=x-cl[0],dy=y-cl[1],dz=z-cl[2],dl=Math.sqrt(dx*dx+dy*dy+dz*dz)+0.01;
+        var g=0.15+Math.max(0,(y-4.5)/4)*0.25+Math.max(0,dx*0.3+dy*0.5)*0.1+Math.random()*0.08;
+        setP(idx, x,y,z, dx/dl,dy/dl,dz/dl, g*0.4+r/2.6*0.05,g,g*0.15, 1.6+Math.random()*1.0, 6);
+      }
+    },
+    // ═══ LOD 1: STRUCTURE — bark detail, branch joints, individual leaf clusters ═══
+    1:function(){
+      var idx=0;
+      // Detailed bark — rings, cracks, texture
+      for(var i=0;i<40000;i++,idx++){
+        var h=Math.random()*5.5,taper=1-h/7,radius=0.55*taper*taper+0.12;
+        var a=Math.random()*6.283;
+        var barkNoise=Math.sin(a*16+h*5)*0.015+Math.sin(h*23)*0.01+Math.sin(a*7-h*11)*0.008;
+        var r=radius+barkNoise;
+        var shade=0.14+Math.random()*0.04+Math.sin(h*30)*0.02;
+        // Bark grain: vertical lines
+        var grain=Math.sin(a*40)*0.02;
+        setP(idx, Math.cos(a)*r,h,Math.sin(a)*r, Math.cos(a),0.05,Math.sin(a), shade*1.2+grain,shade*0.85+grain*0.5,shade*0.45, 0.8+Math.random()*0.2, 3);
+      }
+      // Visible branches with junction detail
+      for(var i=0;i<20000;i++,idx++){
+        var branch=Math.floor(Math.random()*8),ba=branch*6.283/8+Math.random()*0.3;
+        var startH=2.5+branch*0.35,along=Math.random()*2.5;
+        var branchR=0.12*(1-along/3);
+        var pa=Math.random()*6.283;
+        var x=Math.cos(ba)*along+Math.cos(pa)*branchR;
+        var y=startH+along*0.4+Math.sin(pa)*branchR*0.5;
+        var z=Math.sin(ba)*along+Math.sin(pa)*branchR;
+        setP(idx, x,y,z, Math.cos(pa),Math.sin(pa)*0.5,Math.sin(pa), 0.16,0.12,0.06, 0.6+Math.random()*0.3, 4);
+      }
+      // Leaf clusters with individual leaf shapes
+      var cls=[[0,7,0],[1.2,6.5,0.8],[-0.8,6.8,-1],[0.5,5.8,-0.7],[-1,6,0.5],[0.3,7.5,0.3]];
+      for(var i=0;i<40000;i++,idx++){
+        var cl=cls[i%cls.length],a=Math.random()*6.283,b=Math.random()*Math.PI,r=0.8+Math.random()*1.8;
+        var x=Math.sin(b)*Math.cos(a)*r+cl[0],y=Math.cos(b)*r*0.6+cl[1],z=Math.sin(b)*Math.sin(a)*r+cl[2];
+        var dx=x-cl[0],dy=y-cl[1],dz=z-cl[2],dl=Math.sqrt(dx*dx+dy*dy+dz*dz)+0.01;
+        var g=0.18+Math.max(0,(y-4.5)/4)*0.3+Math.random()*0.1;
+        // Smaller particles = sharper leaves
+        setP(idx, x,y,z, dx/dl,dy/dl,dz/dl, g*0.35,g,g*0.12, 0.8+Math.random()*0.6, 6);
+      }
+    },
+    // ═══ LOD 2: SURFACE — single leaf, veins, stomata ═══
+    2:function(){
+      var idx=0;
+      // One leaf — flat plane with vein network
+      var leafW=4,leafH=6;
+      for(var i=0;i<60000;i++,idx++){
+        var x=(Math.random()-0.5)*leafW,y=(Math.random()-0.5)*leafH;
+        // Leaf shape: ellipse with pointed tip
+        var shape=1-Math.pow(x/(leafW*0.45),2)-Math.pow((y+1)/(leafH*0.55),2);
+        if(shape<0){size[idx]=0;continue;}
+        // Midrib + veins
+        var midrib=Math.abs(x)<0.06?1:0;
+        var vein=Math.abs(Math.sin(y*4)*x-Math.cos(y*3)*0.3)<0.08?0.5:0;
+        var g=0.2+shape*0.25+Math.random()*0.05;
+        var veinDark=midrib*0.08+vein*0.04;
+        setP(idx, x,y*0.1,y*0.3, 0,0.95,-0.3, g*0.3-veinDark,g+veinDark*0.5,g*0.1, 0.5+shape*0.3, 5);
+      }
+      // Stomata (tiny pores on surface)
+      for(var i=0;i<15000;i++,idx++){
+        var x=(Math.random()-0.5)*leafW*0.8,y=(Math.random()-0.5)*leafH*0.8;
+        var shape=1-Math.pow(x/(leafW*0.4),2)-Math.pow((y+1)/(leafH*0.5),2);
+        if(shape<0){size[idx]=0;continue;}
+        setP(idx, x,y*0.1+0.02,y*0.3, 0,1,0, 0.1,0.15+Math.random()*0.05,0.05, 0.2, 7);
+      }
+      // Cuticle wax (faint sparkle layer)
+      for(var i=0;i<25000;i++,idx++){
+        var x=(Math.random()-0.5)*leafW*0.85,y=(Math.random()-0.5)*leafH*0.85;
+        var shape=1-Math.pow(x/(leafW*0.42),2)-Math.pow((y+1)/(leafH*0.52),2);
+        if(shape<0){size[idx]=0;continue;}
+        setP(idx, x,y*0.1+0.01,y*0.3, 0,1,0, 0.25+Math.random()*0.1,0.35+Math.random()*0.1,0.15, 0.3, 8);
+      }
+    },
+    // ═══ LOD 3: CELLULAR — plant cell interior ═══
+    3:function(){
+      var idx=0;
+      // Cell wall (rectangular, rigid)
+      for(var i=0;i<15000;i++,idx++){
+        var face=Math.floor(Math.random()*6);
+        var u=(Math.random()-0.5)*4,v=(Math.random()-0.5)*3;
+        var x,y,z,nx,ny,nz;
+        if(face<2){x=face?2:-2;y=u*0.75;z=v;nx=face?1:-1;ny=0;nz=0;}
+        else if(face<4){y=face===2?1.5:-1.5;x=u;z=v;nx=0;ny=face===2?1:-1;nz=0;}
+        else{z=face===4?1.5:-1.5;x=u;y=v*0.75;nx=0;ny=0;nz=face===4?1:-1;}
+        setP(idx, x,y,z, nx,ny,nz, 0.15,0.22,0.1, 0.6, 3);
+      }
+      // Chloroplasts (green discs)
+      for(var i=0;i<30000;i++,idx++){
+        var cp=Math.floor(i/5000);
+        var cx0=(cp%3-1)*1.2,cy0=Math.floor(cp/3)*0.8-0.4;
+        var a=Math.random()*6.283,r=Math.random()*0.45;
+        var x=cx0+Math.cos(a)*r,y=cy0+Math.sin(a)*r*0.3,z=(Math.random()-0.5)*0.15;
+        // Thylakoid stacks inside
+        var stack=Math.sin(r*20)*0.03;
+        setP(idx, x,y,z+stack, 0,0,1, 0.08,0.3+Math.random()*0.1,0.06, 0.4+Math.random()*0.2, 5);
+      }
+      // Central vacuole (large, pale)
+      for(var i=0;i<20000;i++,idx++){
+        var a=Math.random()*6.283,b=Math.random()*Math.PI,r=Math.random()*0.9;
+        setP(idx, Math.sin(b)*Math.cos(a)*r*1.5,Math.sin(b)*Math.sin(a)*r,Math.cos(b)*r*0.8, 0,0,1, 0.15,0.18,0.22, 0.5, 4);
+      }
+      // Nucleus
+      for(var i=0;i<10000;i++,idx++){
+        var a=Math.random()*6.283,b=Math.random()*Math.PI,r=Math.random()*0.4;
+        setP(idx, Math.sin(b)*Math.cos(a)*r+1.2,Math.sin(b)*Math.sin(a)*r-0.5,Math.cos(b)*r, 0,0,1, 0.45,0.35,0.15, 0.6, 6);
+      }
+      // Cytoplasm fill
+      for(var i=0;i<25000;i++,idx++){
+        var x=(Math.random()-0.5)*3.5,y=(Math.random()-0.5)*2.5,z=(Math.random()-0.5)*0.8;
+        setP(idx, x,y,z, 0,0,1, 0.1,0.12,0.08, 0.3, 2);
+      }
+    },
+    // ═══ LOD 4: MOLECULAR — cellulose chain, water, CO2 ═══
+    4:function(){
+      var idx=0;
+      // Cellulose backbone (glucose ring chain)
+      for(var ring=0;ring<12;ring++){
+        var rx=ring*0.55-3.3;
+        // Hexagonal glucose ring
+        for(var v=0;v<6;v++){
+          var a=v*6.283/6;
+          var cx0=rx+Math.cos(a)*0.2,cy0=Math.sin(a)*0.2;
+          // Carbon atom
+          for(var i=0;i<400;i++,idx++){
+            var pa=Math.random()*6.283,pb=Math.random()*Math.PI,pr=Math.random()*0.08;
+            setP(idx, cx0+Math.sin(pb)*Math.cos(pa)*pr,cy0+Math.sin(pb)*Math.sin(pa)*pr,Math.cos(pb)*pr,
+              Math.sin(pb)*Math.cos(pa),Math.sin(pb)*Math.sin(pa),Math.cos(pb), 0.2,0.2,0.2, 0.5, 2);
+          }
+        }
+        // Oxygen bridges
+        for(var i=0;i<300;i++,idx++){
+          var a=Math.random()*6.283,r=Math.random()*0.06;
+          setP(idx, rx+0.25+Math.cos(a)*r,Math.sin(a)*r,0, 1,0,0, 0.6,0.15,0.1, 0.4, 3);
+        }
+      }
+      // Water molecules scattered
+      for(var i=0;i<35000;i++,idx++){
+        var x=(Math.random()-0.5)*8,y=(Math.random()-0.5)*4,z=(Math.random()-0.5)*3;
+        // Skip if inside cellulose zone
+        if(Math.abs(y)<0.5&&Math.abs(z)<0.5)continue;
+        var a=Math.random()*6.283,r=Math.random()*0.04;
+        setP(idx, x+Math.cos(a)*r,y+Math.sin(a)*r,z, 0,1,0, 0.15,0.2,0.4, 0.25, 5);
+      }
+      // Hydrogen bonds (dotted lines between water)
+      for(var i=0;i<15000;i++,idx++){
+        var x=(Math.random()-0.5)*7,y=0.5+(Math.random()-0.5)*3,z=(Math.random()-0.5)*2;
+        setP(idx, x,y,z, 0,1,0, 0.08,0.12,0.2, 0.15, 7);
+      }
+    },
+    // ═══ LOD 5: ATOMIC — carbon atom with electron clouds ═══
+    5:function(){
+      var idx=0;
+      // Nucleus (6 protons + 6 neutrons)
+      for(var i=0;i<8000;i++,idx++){
+        var a=Math.random()*6.283,b=Math.random()*Math.PI,r=Math.random()*0.3;
+        var isProton=i%2===0;
+        setP(idx, Math.sin(b)*Math.cos(a)*r,Math.sin(b)*Math.sin(a)*r,Math.cos(b)*r,
+          Math.sin(b)*Math.cos(a),Math.sin(b)*Math.sin(a),Math.cos(b),
+          isProton?0.6:0.3, isProton?0.25:0.3, isProton?0.15:0.35, 1.0, 0);
+      }
+      // 1s orbital (2 electrons — tight sphere)
+      for(var i=0;i<15000;i++,idx++){
+        var a=Math.random()*6.283,b=Math.random()*Math.PI,r=0.6+Math.random()*0.3;
+        if(Math.abs(r-0.5)<0.08&&Math.random()>0.3)continue; // node hint
+        setP(idx, Math.sin(b)*Math.cos(a)*r,Math.sin(b)*Math.sin(a)*r,Math.cos(b)*r,
+          Math.sin(b)*Math.cos(a),Math.sin(b)*Math.sin(a),Math.cos(b),
+          0.5,0.42,0.2, 0.6, 2);
+      }
+      // 2s orbital (2 electrons — larger sphere with radial node)
+      for(var i=0;i<15000;i++,idx++){
+        var a=Math.random()*6.283,b=Math.random()*Math.PI,r=1.3+Math.random()*0.5;
+        if(Math.abs(r-1.1)<0.12&&Math.random()>0.15)continue; // radial node
+        setP(idx, Math.sin(b)*Math.cos(a)*r,Math.sin(b)*Math.sin(a)*r,Math.cos(b)*r,
+          Math.sin(b)*Math.cos(a),Math.sin(b)*Math.sin(a),Math.cos(b),
+          0.2,0.4,0.35, 0.5, 4);
+      }
+      // 2p orbitals (2 electrons — two dumbbell lobes, x and y)
+      var axes=[[1,0,0],[0,1,0]];
+      var colors=[[0.2,0.25,0.5],[0.4,0.15,0.35]];
+      for(var ax=0;ax<2;ax++){
+        for(var i=0;i<15000;i++,idx++){
+          var dir=axes[ax],col=colors[ax];
+          var sign=Math.random()>0.5?1:-1;
+          var along=sign*(0.4+Math.random()*1.5);
+          var perp=Math.sqrt(Math.max(0,1.8-Math.abs(along)*0.6))*0.15*Math.random();
+          var pa=Math.random()*6.283;
+          var x=dir[0]*along+(1-Math.abs(dir[0]))*Math.cos(pa)*perp;
+          var y=dir[1]*along+(1-Math.abs(dir[1]))*Math.sin(pa)*perp;
+          var z=dir[2]*along*0.1+Math.cos(pa+1)*perp;
+          setP(idx, x,y,z, dir[0]*sign,dir[1]*sign,0, col[0],col[1],col[2], 0.5, 6);
+        }
+      }
+      // Ring guides
+      for(var shell=0;shell<3;shell++){
+        var r=[0.7,1.4,2.0][shell];
+        for(var i=0;i<2500;i++,idx++){
+          var a=i/2500*6.283;
+          setP(idx, Math.cos(a)*r,0,Math.sin(a)*r, 0,1,0, 0.08,0.08,0.06, 0.2, 8);
+        }
+      }
+    },
+    // ═══ LOD 6: PRIME — the spiral, K, the source ═══
+    6:function(){
+      var idx=0;
+      // Golden spiral of primes
+      var PHI=(1+Math.sqrt(5))/2;
+      for(var i=0;i<50000;i++,idx++){
+        var n=i+2;
+        var a=n*2.399; // golden angle
+        var r=Math.sqrt(n)*0.025;
+        var y=Math.sin(n*0.02)*0.3;
+        // Is it prime?
+        var isPrime=true;
+        if(n<2)isPrime=false;
+        else{for(var j=2;j*j<=n;j++){if(n%j===0){isPrime=false;break;}}}
+        if(isPrime){
+          setP(idx, Math.cos(a)*r,y,Math.sin(a)*r, 0,1,0, 0.7,0.55,0.15, 1.2, 0);
+        } else {
+          setP(idx, Math.cos(a)*r,y,Math.sin(a)*r, 0,1,0, 0.08,0.08,0.1, 0.3, 2);
+        }
+      }
+      // The K coupling field — 137 bright nodes on hex lattice
+      for(var i=0;i<137;i++){
+        var row=Math.floor(i/13),col=i%13;
+        var x=(col-6)*0.15+(row%2)*0.075;
+        var y=3+row*0.13;
+        for(var j=0;j<150;j++,idx++){
+          var pa=Math.random()*6.283,pr=Math.random()*0.05;
+          setP(idx, x+Math.cos(pa)*pr,y+Math.sin(pa)*pr,0, 0,0,1, 0.6,0.5,0.2, 0.8, 5);
+        }
+      }
+      // Fill remaining with spiral glow
+      while(idx<N){
+        var a=idx*0.1,r=Math.sqrt(idx)*0.015;
+        setP(idx, Math.cos(a)*r,Math.sin(a*0.3)*0.5,Math.sin(a)*r, 0,1,0, 0.04,0.04,0.06, 0.2, 8);
+        idx++;
+      }
     }
   }
 },
@@ -855,6 +1041,30 @@ function render(){
 
   // K transition
   K+=(targetK-K)*0.01;
+
+  // ═══ SEMANTIC ZOOM — rebuild scene at current detail level ═══
+  if(currentScene){
+    var newZoom=camZoom<0.5?0:camZoom<1.2?1:camZoom<2.5?2:camZoom<5?3:camZoom<8?4:camZoom<15?5:6;
+    if(newZoom!==zoomLevel&&!lodTransitioning&&assemblyLayer>=9){
+      zoomLevel=newZoom;
+      lodTransitioning=true;
+      // Rebuild at new LOD
+      if(currentScene.lod&&currentScene.lod[zoomLevel]){
+        for(var i=0;i<N;i++){tnorm[i*3]=0;tnorm[i*3+1]=1;tnorm[i*3+2]=0;size[i]=0;}
+        currentScene.lod[zoomLevel]();
+        // Auto normals for new particles
+        for(var i=0;i<N;i++){
+          if(size[i]>0&&tnorm[i*3]===0&&tnorm[i*3+1]===1&&tnorm[i*3+2]===0){
+            var x=tgt[i*3],y=tgt[i*3+1],z=tgt[i*3+2];
+            var l=Math.sqrt(x*x+y*y+z*z)+0.001;
+            tnorm[i*3]=x/l;tnorm[i*3+1]=y/l;tnorm[i*3+2]=z/l;
+          }
+        }
+        document.getElementById('al-config').textContent=LOD_NAMES[zoomLevel]+' · K = '+K.toFixed(3);
+      }
+      setTimeout(function(){lodTransitioning=false;},500);
+    }
+  }
 
   // Assembly: reveal layers over time
   if(currentScene){
