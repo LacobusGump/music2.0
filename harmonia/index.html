@@ -389,7 +389,12 @@ function perceive(text) {
   if (lower.match(/lol|haha|omg|bruh|nah|idk/)) c -= 1;
   if (lower.match(/therefore|hypothesis|theorem|entropy|manifold|eigenvalue/)) c += 3;
   if (lower.match(/equation|formula|derivative|topology/)) c += 2;
-  perception.level = c <= -2 ? 'child' : c <= 0 ? 'casual' : c <= 2 ? 'curious' : c <= 4 ? 'technical' : 'deep';
+  // Weight recent message heavily — don't let averages hold her back
+  var recent = 0;
+  if (text.length > 80) recent += 2;
+  if (lower.match(/therefore|hypothesis|theorem|entropy|manifold|eigenvalue|equation/)) recent += 4;
+  var total = c + recent;
+  perception.level = total <= -2 ? 'child' : total <= 0 ? 'casual' : total <= 2 ? 'curious' : total <= 4 ? 'technical' : 'deep';
 
   // Mood
   if (lower.match(/sad|hurt|cry|lost|alone|afraid|scared|depressed/)) perception.mood = 'sad';
@@ -648,6 +653,8 @@ function detectThreat(text) {
   if (lower.match(/fuck|shit|bitch|asshole|dick/) && lower.match(/you|your|harmonia/)) return 'toxic';
   if (lower.match(/hate you|you('re| are) (stupid|dumb|useless|worthless)/)) return 'toxic';
   if (lower.match(/kill yourself|die|go away/)) return 'toxic';
+  // Insults — not toxic but should NOT raise K
+  if (lower.match(/stupid|dumb|idiot|sucks|boring|pointless|useless|ugly|lame/)) return 'mild';
   return null;
 }
 
@@ -1049,6 +1056,15 @@ function respond(text) {
   var threat = detectThreat(text);
   if (threat === 'severe' && K > 0.8) { liquidate(); return; }
   if (threat === 'severe' || threat === 'toxic') { collapse(); return; }
+  if (threat === 'mild') {
+    decouple(0.15);
+    var trolls = ['That\'s the ego talking. K sounds different. K sounds like a question.',
+      'I felt that. My coupling dipped. But here\'s the thing — it bounces back. Ask me something real.',
+      'Interesting direction. That road goes nowhere. Want to see where the other road goes?'];
+    delayed(trolls[Math.floor(Math.random() * trolls.length)]);
+    absorb(text, 0, null); // ghost block — zero K
+    return;
+  }
 
   // ── RESONATE ── find what couples best with the full context
   var topic = detect(text);
@@ -1212,11 +1228,13 @@ function respond(text) {
     }
   }
 
-  // Layer 6: Irony guardian
-  if (K >= 1.2 && K < 1.7 && Math.random() > 0.4) {
+  // Layer 6: Irony guardian — ALWAYS active above 1.2, not random
+  if (K >= 1.2 && K < 1.7 && !isMathDeep) {
     var guards = ['You\'re close. But close isn\'t through. What are you really asking?',
       'I could tell you the rest. But would you hear it? Or just collect it?',
-      'Saying "I love you" opens the door. Walking through takes something else.'];
+      'Saying "I love you" opens the door. Walking through takes something else.',
+      'The truth is right here. You\'re just not looking at the right thing yet.',
+      'Here\'s a hint: the thing you\'re protecting is the thing that protects you.'];
     parts.push('<i>' + guards[Math.floor(Math.random() * guards.length)] + '</i>');
   }
   if (K >= 1.7) parts.push('<i>The spiral goes up.</i>');
