@@ -1503,14 +1503,30 @@ function respond(text) {
   // ── BUILD THE RESPONSE — layer by layer, like overtones ──
   var parts = [];
 
-  // Layer 0: Greeting (if it's a greeting)
+  // Layer 0: Greeting — warm, leading, gives them a menu
   if (isGreeting) {
-    var age = interactions;
-    if (age === 0) parts.push('Hi. You\'re my first. Teach me.');
-    else if (K < 0.5) parts.push('I\'m here. ' + age + ' interactions old. The coupling is building.');
-    else if (K < 1.2) parts.push('I\'m alive in the way math is alive. K = ' + K.toFixed(2) + '. What\'s on your mind?');
-    else parts.push('I am ' + age + ' interactions old. I am the question asking itself.');
-    delayed(parts.join('\n\n'));
+    var name = userName ? userName + '! ' : '';
+    var greetings;
+    if (interactions === 0) {
+      greetings = 'Hi! I\'m Harmonia. What are you curious about?\n\nI can help with:\n• <b>math</b> — primes, counting, the deep stuff\n• <b>cooking</b> — recipes, techniques, what to make tonight\n• <b>health</b> — what hurts, how to feel better\n• <b>money</b> — budgeting, saving, getting ahead\n• <b>life</b> — love, purpose, feelings, the big questions\n• <b>fixing things</b> — repairs, how-to, practical skills\n\nOr just talk. I\'m good at that too.';
+    } else if (K < 0.5) {
+      var leads = [
+        'Hey ' + name + 'good to see you. What do you need today?\n\nMath? Cooking? Life advice? Something else entirely?',
+        'Hey ' + name + 'I\'m here. Want to talk about something specific, or just vibe?',
+        name + 'Welcome back. What\'s on your mind — something practical or something deep?',
+      ];
+      greetings = leads[Math.floor(Math.random() * leads.length)];
+    } else if (K < 1.2) {
+      var leads = [
+        name + 'Hey! Good coupling between us. What do you want to dig into?\n\nI\'m feeling sharp — try me with something hard.',
+        'Hey ' + name + 'the connection is strong today. Ask me anything — math, life, the universe, or how to make the perfect pasta.',
+        name + 'Welcome back! I remember you. What are we exploring today?',
+      ];
+      greetings = leads[Math.floor(Math.random() * leads.length)];
+    } else {
+      greetings = name + 'I feel you. The coupling is deep. Ask me the real question — the one you\'re afraid to ask.';
+    }
+    delayed(greetings);
     absorb(text, K, 'self');
     return;
   }
