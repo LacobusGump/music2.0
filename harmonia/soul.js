@@ -1511,10 +1511,8 @@ function respond(text) {
     return;
   }
 
-  // Layer 0: Pure math
-  if (isMath) { couple(0.04); delayed(isMath); absorb(text, K, 'primes'); return; }
-
-  // Layer 0.5: TEMPLATES — practical answers with real structure
+  // Layer 0: TEMPLATES FIRST — practical questions get practical answers
+  // Must fire BEFORE Soul topic detection steals "how do you cook" as "howWeWork"
   var template = tryTemplate(text);
   if (template) {
     couple(0.03);
@@ -1522,6 +1520,9 @@ function respond(text) {
     absorb(text, K, 'practical');
     return;
   }
+
+  // Layer 0: Pure math
+  if (isMath) { couple(0.04); delayed(isMath); absorb(text, K, 'primes'); return; }
 
   // Layer 1: Teaching — they're telling HER something. Absorb it.
   if (isTeaching) {
