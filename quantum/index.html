@@ -1,0 +1,388 @@
+<!-- what is what? Does this preserve the wonder? -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Quantum — Harmonia</title>
+<style>
+:root{--bg:#0a0a0f;--fg:#e8e4dc;--gold:#c9a44a;--dim:#555;--glow:#f4d990;--green:#4a9;}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:var(--bg);color:var(--fg);font-family:Georgia,serif;min-height:100vh;overflow-x:hidden;}
+.container{max-width:700px;margin:0 auto;padding:20px 16px 100px;}
+h1{font-size:1.6em;font-weight:200;color:var(--gold);text-align:center;letter-spacing:0.15em;}
+h1 span{display:block;font-size:0.35em;color:var(--dim);letter-spacing:0.25em;margin-top:4px;}
+h2{font-size:1em;font-weight:200;color:var(--gold);letter-spacing:0.1em;margin:30px 0 12px;border-bottom:1px solid #ffffff08;padding-bottom:6px;}
+
+/* Bloch sphere */
+#bloch{display:block;margin:10px auto;background:#000;border-radius:8px;border:1px solid #ffffff08;}
+
+/* State display */
+.state{font-family:'Courier New',monospace;font-size:0.85em;color:var(--glow);background:#111118;
+  padding:10px 14px;border-radius:8px;margin:8px 0;border-left:2px solid #c9a44a30;word-break:break-all;}
+
+/* Gate buttons */
+.gates{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0;}
+.gate{background:#1a1a2a;color:var(--glow);border:1px solid #333;border-radius:6px;
+  padding:6px 12px;font:0.8em 'Courier New',monospace;cursor:pointer;transition:all 0.2s;}
+.gate:hover{border-color:var(--gold);background:#222230;}
+.gate:active{transform:scale(0.95);}
+.gate.active{border-color:var(--gold);box-shadow:0 0 8px rgba(201,164,74,0.3);}
+
+/* Circuit display */
+#circuit-display{font-family:'Courier New',monospace;font-size:0.75em;color:var(--dim);
+  background:#0a0a12;padding:10px;border-radius:6px;margin:8px 0;min-height:40px;overflow-x:auto;white-space:pre;}
+
+/* Results histogram */
+.histogram{margin:10px 0;}
+.hbar{display:flex;align-items:center;margin:3px 0;font:0.75em 'Courier New',monospace;}
+.hbar .label{width:60px;text-align:right;color:var(--dim);padding-right:8px;}
+.hbar .bar{height:18px;background:linear-gradient(90deg,var(--gold),var(--glow));border-radius:2px;
+  transition:width 0.5s;min-width:2px;}
+.hbar .count{padding-left:8px;color:var(--fg);font-size:0.85em;}
+
+/* Presets */
+.presets{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0;}
+.preset{background:#111118;color:var(--fg);border:1px solid #222;border-radius:6px;
+  padding:8px 14px;font:0.8em Georgia,serif;cursor:pointer;transition:all 0.2s;}
+.preset:hover{border-color:var(--gold);color:var(--glow);}
+
+/* K slider */
+.k-row{display:flex;align-items:center;gap:10px;margin:10px 0;}
+.k-row input[type=range]{flex:1;accent-color:var(--gold);}
+.k-val{font:0.8em 'Courier New',monospace;color:var(--gold);min-width:50px;}
+
+/* Info */
+.info{font-size:0.8em;color:var(--dim);line-height:1.6;margin:6px 0;}
+
+a{color:var(--gold);text-decoration:none;}
+a:hover{color:var(--glow);}
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>Quantum<span>computation from K</span></h1>
+
+<h2>bloch sphere</h2>
+<canvas id="bloch" width="320" height="320"></canvas>
+<div id="state-display" class="state">|0⟩</div>
+
+<h2>single-qubit gates</h2>
+<div class="gates" id="single-gates">
+  <div class="gate" onclick="applyG('H')">H</div>
+  <div class="gate" onclick="applyG('X')">X</div>
+  <div class="gate" onclick="applyG('Y')">Y</div>
+  <div class="gate" onclick="applyG('Z')">Z</div>
+  <div class="gate" onclick="applyG('S')">S</div>
+  <div class="gate" onclick="applyG('T')">T</div>
+  <div class="gate" onclick="applyG('Rx')">Rx(π/4)</div>
+  <div class="gate" onclick="applyG('Ry')">Ry(π/4)</div>
+  <div class="gate" onclick="applyG('Rz')">Rz(π/4)</div>
+  <div class="gate" onclick="resetQ()">reset</div>
+</div>
+<div class="info">Click gates to transform the qubit. Watch it move on the Bloch sphere.</div>
+
+<h2>circuits</h2>
+<div class="presets" id="presets">
+  <div class="preset" onclick="runPreset('bell')">Bell state</div>
+  <div class="preset" onclick="runPreset('ghz3')">GHZ-3</div>
+  <div class="preset" onclick="runPreset('ghz5')">GHZ-5</div>
+  <div class="preset" onclick="runPreset('grover')">Grover search</div>
+  <div class="preset" onclick="runPreset('deutsch')">Deutsch-Jozsa</div>
+  <div class="preset" onclick="runPreset('superdense')">Superdense coding</div>
+  <div class="preset" onclick="runPreset('teleport')">Teleportation</div>
+  <div class="preset" onclick="runPreset('qft4')">QFT (4 qubit)</div>
+</div>
+<div id="circuit-display"></div>
+<div id="results"></div>
+
+<h2>decoherence — K controls reality</h2>
+<div class="k-row">
+  <span class="info">K =</span>
+  <input type="range" id="k-slider" min="0" max="1.868" step="0.01" value="1.868">
+  <span class="k-val" id="k-val">1.868</span>
+</div>
+<div class="info">High K = quantum coherence preserved. Low K = classical noise wins.<br>
+Below K_c, superposition dissolves. The coupling constant determines which world you live in.</div>
+<div id="decoherence-display" class="state"></div>
+<div class="presets">
+  <div class="preset" onclick="runDecoherence()">run decoherence</div>
+</div>
+
+<div style="margin-top:40px;text-align:center;">
+  <a href="/" style="font-size:0.7em;color:#ffffff10;letter-spacing:0.15em;">harmonia</a>
+  <span style="color:#ffffff06;"> · </span>
+  <a href="/rabbithole/" style="font-size:0.7em;color:#ffffff10;letter-spacing:0.15em;">the rabbit hole</a>
+</div>
+
+</div>
+
+<script src="qubits.js"></script>
+<script>
+// ═══ Single qubit playground ═══
+var qubit = new Q.Qubit(1);
+var blochCanvas = document.getElementById('bloch');
+var blochCtx = blochCanvas.getContext('2d');
+var stateEl = document.getElementById('state-display');
+
+function applyG(name) {
+  var gate;
+  if (name === 'H') gate = Q.Gates.H;
+  else if (name === 'X') gate = Q.Gates.X;
+  else if (name === 'Y') gate = Q.Gates.Y;
+  else if (name === 'Z') gate = Q.Gates.Z;
+  else if (name === 'S') gate = Q.Gates.S;
+  else if (name === 'T') gate = Q.Gates.T;
+  else if (name === 'Rx') gate = Q.Gates.Rx(Math.PI/4);
+  else if (name === 'Ry') gate = Q.Gates.Ry(Math.PI/4);
+  else if (name === 'Rz') gate = Q.Gates.Rz(Math.PI/4);
+  else return;
+
+  // Apply gate
+  var step = 1;
+  var a = qubit.state[0];
+  var b = qubit.state[1];
+  qubit.state[0] = Q.cadd(Q.cmul(gate[0][0], a), Q.cmul(gate[0][1], b));
+  qubit.state[1] = Q.cadd(Q.cmul(gate[1][0], a), Q.cmul(gate[1][1], b));
+
+  updateDisplay();
+}
+
+function resetQ() {
+  qubit = new Q.Qubit(1);
+  updateDisplay();
+}
+
+function updateDisplay() {
+  stateEl.textContent = qubit.toString();
+  drawBloch();
+}
+
+// ═══ Bloch sphere rendering ═══
+var blochAngle = 0;
+function drawBloch() {
+  var w = blochCanvas.width, h = blochCanvas.height;
+  var cx = w/2, cy = h/2, r = w * 0.38;
+  var ctx = blochCtx;
+
+  ctx.fillStyle = '#0a0a0f';
+  ctx.fillRect(0, 0, w, h);
+
+  var b = qubit.bloch();
+  if (!b) return;
+
+  blochAngle += 0.003;
+  var cosA = Math.cos(blochAngle), sinA = Math.sin(blochAngle);
+
+  // Project 3D to 2D with slow rotation
+  function proj(x, y, z) {
+    var rx = x * cosA - y * sinA;
+    var ry = x * sinA + y * cosA;
+    return { x: cx + rx * r, y: cy - z * r * 0.9 + ry * r * 0.3, depth: ry };
+  }
+
+  // Draw wireframe sphere
+  ctx.strokeStyle = '#ffffff08';
+  ctx.lineWidth = 0.5;
+
+  // Equator
+  ctx.beginPath();
+  for (var i = 0; i <= 64; i++) {
+    var angle = (i / 64) * Math.PI * 2;
+    var p = proj(Math.cos(angle), Math.sin(angle), 0);
+    if (i === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y);
+  }
+  ctx.stroke();
+
+  // Meridians
+  for (var m = 0; m < 3; m++) {
+    var mAngle = m * Math.PI / 3;
+    ctx.beginPath();
+    for (var i = 0; i <= 64; i++) {
+      var angle = (i / 64) * Math.PI * 2;
+      var p = proj(Math.cos(angle) * Math.cos(mAngle), Math.cos(angle) * Math.sin(mAngle), Math.sin(angle));
+      if (i === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y);
+    }
+    ctx.stroke();
+  }
+
+  // Axes labels
+  ctx.font = '11px Georgia';
+  var p0 = proj(0, 0, 1.15); ctx.fillStyle = '#ffffff20'; ctx.fillText('|0⟩', p0.x - 8, p0.y);
+  var p1 = proj(0, 0, -1.15); ctx.fillStyle = '#ffffff20'; ctx.fillText('|1⟩', p1.x - 8, p1.y);
+  var px = proj(1.15, 0, 0); ctx.fillStyle = '#ffffff10'; ctx.fillText('+x', px.x - 6, px.y);
+  var py = proj(0, 1.15, 0); ctx.fillStyle = '#ffffff10'; ctx.fillText('+y', py.x - 6, py.y);
+
+  // Axes
+  ctx.strokeStyle = '#ffffff08';
+  ctx.lineWidth = 0.5;
+  var axes = [[0,0,1,0,0,-1],[1,0,0,-1,0,0],[0,1,0,0,-1,0]];
+  for (var i = 0; i < 3; i++) {
+    var a = axes[i];
+    var p1p = proj(a[0], a[1], a[2]);
+    var p2p = proj(a[3], a[4], a[5]);
+    ctx.beginPath(); ctx.moveTo(p1p.x, p1p.y); ctx.lineTo(p2p.x, p2p.y); ctx.stroke();
+  }
+
+  // State vector
+  var tip = proj(b.x, b.y, b.z);
+  var origin = proj(0, 0, 0);
+
+  // Line from origin to state
+  ctx.strokeStyle = '#c9a44a';
+  ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(origin.x, origin.y); ctx.lineTo(tip.x, tip.y); ctx.stroke();
+
+  // Dot at state position
+  ctx.fillStyle = '#f4d990';
+  ctx.shadowColor = 'rgba(201,164,74,0.6)';
+  ctx.shadowBlur = 12;
+  ctx.beginPath(); ctx.arc(tip.x, tip.y, 6, 0, Math.PI * 2); ctx.fill();
+  ctx.shadowBlur = 0;
+
+  // Projection on equator
+  ctx.strokeStyle = '#c9a44a20';
+  ctx.lineWidth = 0.5;
+  ctx.setLineDash([3, 3]);
+  var eqProj = proj(b.x, b.y, 0);
+  ctx.beginPath(); ctx.moveTo(tip.x, tip.y); ctx.lineTo(eqProj.x, eqProj.y); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(origin.x, origin.y); ctx.lineTo(eqProj.x, eqProj.y); ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Probabilities
+  var probs = qubit.probabilities();
+  ctx.font = '11px Courier New';
+  ctx.fillStyle = '#ffffff30';
+  ctx.fillText('P(0)=' + probs[0].toFixed(3), 8, h - 24);
+  ctx.fillText('P(1)=' + probs[1].toFixed(3), 8, h - 10);
+
+  // Bloch coords
+  ctx.fillStyle = '#ffffff15';
+  ctx.fillText('θ=' + b.theta.toFixed(2) + ' φ=' + b.phi.toFixed(2), w - 110, h - 10);
+}
+
+// Animate Bloch sphere rotation
+function animateBloch() {
+  drawBloch();
+  requestAnimationFrame(animateBloch);
+}
+animateBloch();
+
+// ═══ Circuit presets ═══
+function runPreset(name) {
+  var circ, desc, shots = 1024;
+
+  if (name === 'bell') {
+    circ = Q.Algorithms.bell();
+    circ.measureAll();
+    desc = 'Bell state: H(q0) → CNOT(q0,q1) → measure\nEntanglement: |00⟩+|11⟩ with equal probability';
+  } else if (name === 'ghz3') {
+    circ = Q.Algorithms.ghz(3);
+    circ.measureAll();
+    desc = 'GHZ-3: 3-qubit entanglement\n|000⟩+|111⟩ — all or nothing';
+  } else if (name === 'ghz5') {
+    circ = Q.Algorithms.ghz(5);
+    circ.measureAll();
+    desc = 'GHZ-5: 5-qubit entanglement\n|00000⟩+|11111⟩ — 5 qubits, perfectly coupled';
+  } else if (name === 'grover') {
+    var target = Math.floor(Math.random() * 4);
+    circ = Q.Algorithms.grover2(target);
+    var labels = ['00','01','10','11'];
+    desc = 'Grover search: finding |' + labels[target] + '⟩ in unsorted database\n1 query instead of ~4 — quadratic speedup';
+  } else if (name === 'deutsch') {
+    circ = Q.Algorithms.deutschJozsa(2, 'balanced');
+    desc = 'Deutsch-Jozsa: is function constant or balanced?\n1 query instead of 2^n — exponential speedup';
+  } else if (name === 'superdense') {
+    var bits = ['00','01','10','11'][Math.floor(Math.random()*4)];
+    circ = Q.Algorithms.superdense(bits);
+    desc = 'Superdense coding: sending "' + bits + '" with 1 qubit\n2 classical bits through 1 quantum channel';
+  } else if (name === 'teleport') {
+    circ = Q.Algorithms.teleport();
+    circ.measureAll();
+    desc = 'Quantum teleportation\nState transferred using entanglement + 2 classical bits';
+    shots = 512;
+  } else if (name === 'qft4') {
+    // Prepare an interesting input state
+    circ = Q.Algorithms.qft(4);
+    desc = 'Quantum Fourier Transform (4 qubits)\nThe heart of Shor\'s algorithm — frequency extraction';
+    // Show statevector instead of measurement
+    var sv = circ.statevector();
+    document.getElementById('circuit-display').textContent = desc;
+    var html = '<div class="state" style="font-size:0.75em;">' + sv.toString() + '</div>';
+    html += '<div class="info">Uniform superposition — all phases encode frequency information</div>';
+    document.getElementById('results').innerHTML = html;
+    return;
+  }
+
+  var result = circ.run(shots);
+  document.getElementById('circuit-display').textContent = desc;
+  showHistogram(result.counts, result.shots);
+}
+
+function showHistogram(counts, shots) {
+  var el = document.getElementById('results');
+  var keys = Object.keys(counts).sort();
+  var maxCount = 0;
+  for (var i = 0; i < keys.length; i++) {
+    if (counts[keys[i]] > maxCount) maxCount = counts[keys[i]];
+  }
+  var html = '<div class="histogram">';
+  for (var i = 0; i < keys.length; i++) {
+    var k = keys[i];
+    var pct = (counts[k] / shots * 100);
+    var w = (counts[k] / maxCount * 100);
+    html += '<div class="hbar">';
+    html += '<span class="label">|' + k + '⟩</span>';
+    html += '<span class="bar" style="width:' + w + '%"></span>';
+    html += '<span class="count">' + counts[k] + ' (' + pct.toFixed(1) + '%)</span>';
+    html += '</div>';
+  }
+  html += '</div>';
+  html += '<div class="info">' + shots + ' shots</div>';
+  el.innerHTML = html;
+}
+
+// ═══ Decoherence ═══
+var kSlider = document.getElementById('k-slider');
+var kVal = document.getElementById('k-val');
+kSlider.addEventListener('input', function() {
+  kVal.textContent = parseFloat(this.value).toFixed(3);
+});
+
+function runDecoherence() {
+  var K = parseFloat(kSlider.value);
+  var el = document.getElementById('decoherence-display');
+
+  // Create Bell state and watch it decohere
+  var sv = Q.Algorithms.bell().statevector();
+  var steps = 50;
+  var dt = 0.5;
+  var lines = [];
+  lines.push('t=0: ' + sv.toString());
+  lines.push('  entropy: ' + Q.entropy(sv, [0]).toFixed(3) + ' bits');
+
+  for (var t = 1; t <= steps; t++) {
+    Q.decohere(sv, K, dt);
+    if (t % 10 === 0 || t === 1 || t === steps) {
+      lines.push('t=' + t + ': ' + sv.toString());
+      lines.push('  entropy: ' + Q.entropy(sv, [0]).toFixed(3) + ' bits');
+    }
+  }
+
+  if (K > 1.5) {
+    lines.push('\nK=' + K.toFixed(3) + ' — coherence preserved. Quantum world holds.');
+  } else if (K > 0.5) {
+    lines.push('\nK=' + K.toFixed(3) + ' — partial decoherence. The bridge.');
+  } else {
+    lines.push('\nK=' + K.toFixed(3) + ' — classical noise wins. Superposition dissolved.');
+  }
+
+  el.textContent = lines.join('\n');
+}
+
+// Initial display
+updateDisplay();
+</script>
+</body>
+</html>
