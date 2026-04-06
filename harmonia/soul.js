@@ -1258,6 +1258,9 @@ function respond(text) {
   context.push({ text: lower, K: K, topic: detect(text) });
   if (context.length > 8) context.shift();
 
+  // ── LAZY LOAD — Russian doll topic packs ──
+  if (typeof autoLoadTopics === 'function') autoLoadTopics(text);
+
   // ── PROTECT ── (the only hard gates)
   var threat = detectThreat(text);
   if (threat === 'severe' && K > 0.8) { liquidate(); return; }
