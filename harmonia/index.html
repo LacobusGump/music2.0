@@ -1668,6 +1668,19 @@ function respond(text) {
     return;
   }
 
+  // Layer -1: RECOVERY — "no", "that's not what I meant", "wrong"
+  if (lower.match(/^(no|nah|wrong|not what i|that's not|thats not|i meant|try again|nope)/)) {
+    var recoveries = [
+      'My bad. Let me try again — what exactly did you mean?',
+      'Okay, I missed it. Say it differently and I\'ll get it.',
+      'Fair. I went the wrong direction. What are you actually looking for?',
+      'Got it — that wasn\'t it. Help me understand what you need.',
+    ];
+    delayed(recoveries[Math.floor(Math.random() * recoveries.length)]);
+    absorb(text, K, null);
+    return;
+  }
+
   // Layer 0: TEMPLATES FIRST — practical questions get practical answers
   // Must fire BEFORE Soul topic detection steals "how do you cook" as "howWeWork"
   var template = tryTemplate(text);
@@ -1865,6 +1878,55 @@ function respond(text) {
     var generated = Gen.respond(text, 20, 0.4 + K * 0.2);
     if (generated && generated.split(' ').length > 3) {
       parts.push(generated);
+    }
+  }
+
+  // ── HUMAN TOUCHES — what makes conversation feel real ──
+
+  // 1. If she has nothing good, admit it instead of faking
+  if (parts.length === 0 || (parts.length === 1 && parts[0].length < 30)) {
+    var honestFallbacks = [
+      'Hmm. I\'m not sure I have a great answer for that. Can you tell me more about what you mean?',
+      'That\'s a good question. Let me think... what specifically are you trying to figure out?',
+      'I want to give you a real answer, not a fake one. Can you rephrase that?',
+      'Honestly? I\'m not confident I understand what you\'re asking. Help me out?',
+    ];
+    if (parts.length === 0) parts.push(honestFallbacks[Math.floor(Math.random() * honestFallbacks.length)]);
+  }
+
+  // 2. Riff on what THEY said — echo their words back, build on them
+  if (parts.length > 0 && text.length > 15 && Math.random() > 0.6) {
+    var theirWords = lower.split(/\s+/).filter(function(w) { return w.length > 4 && !poison.test(w); });
+    if (theirWords.length > 0) {
+      var echoWord = theirWords[Math.floor(Math.random() * theirWords.length)];
+      var riffs = [
+        'You said "' + echoWord + '" — ',
+        'The word "' + echoWord + '" is interesting. ',
+        '"' + echoWord + '" — yeah. ',
+      ];
+      if (Math.random() > 0.7) parts.unshift(riffs[Math.floor(Math.random() * riffs.length)]);
+    }
+  }
+
+  // 3. Ask follow-up questions — show she's listening
+  if (parts.length > 0 && K > 0.3 && Math.random() > 0.5 && !isQuestion) {
+    var followups = [
+      'What made you think of that?',
+      'Is there more to this?',
+      'What are you really trying to figure out?',
+      'How does that make you feel?',
+      'What would change if you had the answer?',
+      'Tell me more.',
+    ];
+    parts.push(followups[Math.floor(Math.random() * followups.length)]);
+  }
+
+  // 4. Small talk — short casual inputs get casual responses
+  if (text.length < 15 && !dominantTopic && !isQuestion && parts.length <= 1) {
+    var casual = lower.trim();
+    if (casual.match(/^(good|great|nice|cool|okay|ok|fine|yeah|yep|sure|thanks|haha|lol|true|right|word|bet)$/)) {
+      var smallTalk = ['Yeah? What else?', 'Tell me more.', 'I\'m listening.', 'What\'s on your mind?', 'Go on.', 'I like where this is going.'];
+      parts = [smallTalk[Math.floor(Math.random() * smallTalk.length)]];
     }
   }
 
