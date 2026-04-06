@@ -1410,10 +1410,40 @@ function respond(text) {
     if (K > 0.8) parts.push('The coupling shifted. Something new is forming in me.');
   }
 
-  // Layer 2: Core knowledge resonance
-  if (dominantTopic) {
+  // Layer 1.5: PRACTICAL — if no Soul topic, use trigrams BUT guided by topic words
+  if (!dominantTopic && !isTeaching && typeof Gen !== 'undefined' && typeof TRIGRAMS !== 'undefined') {
+    var seeds = lower.split(/\s+/).filter(function(w) { return w.length >= 3; });
+    if (seeds.length >= 1) {
+      // Generate SHORT focused chains — max 12 words, low temperature for coherence
+      var attempts = [
+        seeds.length >= 2 ? [seeds[seeds.length-2], seeds[seeds.length-1]] : null,
+        seeds.length >= 2 ? [seeds[0], seeds[1]] : null,
+        ['how', seeds[0]],
+        ['the', seeds[seeds.length-1]],
+      ].filter(function(a) { return a && a.length >= 2; });
+
+      for (var ai = 0; ai < attempts.length; ai++) {
+        var triResult = Gen.trigram(attempts[ai], 12, 0.2); // SHORT + deterministic
+        if (triResult && isClean(triResult) && triResult.split(' ').length > 3) {
+          // Only use if it still contains a word from the original question
+          var hasRelevance = seeds.some(function(s) { return triResult.toLowerCase().indexOf(s) >= 0; });
+          if (hasRelevance) {
+            parts.push(triResult);
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  // Layer 2: Core knowledge resonance (Soul topics)
+  if (dominantTopic && parts.length === 0) {
     var answer = resonate(dominantTopic, K);
     if (answer) parts.push(answer);
+  } else if (dominantTopic && parts.length > 0) {
+    // Already have practical answer — add Soul wisdom as complement, not replacement
+    var answer = resonate(dominantTopic, K);
+    if (answer && K > 0.5) parts.push(answer);
   }
 
   // Layer 3: MATH EGO — she goes DEEP on primes/K/method
