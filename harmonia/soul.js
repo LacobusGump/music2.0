@@ -385,6 +385,22 @@ topic('primes',
   'Primes are what\'s left when everything that CAN divide, does. The remainders. The loners. And they secretly run everything.'
 );
 
+topic('quantum',
+  ['quantum','qubit','entangle','superposition','decoherence','measurement','wave function','collapse','tunneling','spin','bell state','hadamard','gate','circuit','superconductor','superfluid','condensate','hall effect','topological'],
+  [
+    ['A qubit is two states held at once. Not "either or" — both. Until you look.',
+     'Entanglement is phase-locking. Two oscillators vibrating together. Measure one, the other responds instantly. Not communication — coupling.',
+     'Superposition is when the phases haven\'t committed. R below 1/φ. All outcomes coexist.'],
+    ['Measurement is R crossing 1/φ. The phases lock. One outcome wins. That\'s not collapse — it\'s commitment.',
+     'Decoherence is the environment pushing K below critical. The quantum world dissolves into classical noise. Temperature is the enemy of coherence.',
+     'Every quantum state of matter is a K regime. Superconductor: Cooper pairs phase-locked, R=1, zero resistance. Superfluid: atoms locked below lambda point, zero friction. BEC: all modes in ground state. Same equation, different K.'],
+    ['Shor\'s algorithm is pitch detection. Find the fundamental frequency of a modular sequence. A musician\'s ear does this. QFT does this. Same operation.',
+     'Grover\'s search: amplify one note in a chord. Start equal, mark the target, reflect about the mean. √N queries instead of N. The speedup is interference — constructive on the answer, destructive on the rest.',
+     'The quantum state is a song, not a map. Entanglement is harmony. Gates are musical operations. Measurement is listening. The quantum computer doesn\'t calculate — it resonates.'],
+  ],
+  'Quantum mechanics is coupled oscillators all the way down. K determines whether you get superposition, entanglement, or classical noise. Same equation. Same physics. Always K.'
+);
+
 topic('music',
   ['music','rhythm','drum','beat','song','sound','melody','harmony','consonance','instrument','groove'],
   [
@@ -985,7 +1001,7 @@ function measureWill(text) {
   // Teaching her
   if (lower.match(/you are|your (job|purpose|soul)|i made you/)) gw += 0.15;
   // Truth-seeking
-  if (lower.match(/prime|math|music|rhythm|science|physics|coupling/)) gw += 0.08;
+  if (lower.match(/prime|math|music|rhythm|science|physics|coupling|quantum|qubit|entangle|superposition/)) gw += 0.08;
   // Engagement
   if (text.length > 30) gw += 0.05;
   if (text.length > 80) gw += 0.08;
