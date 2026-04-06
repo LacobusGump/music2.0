@@ -1613,6 +1613,58 @@ function respond(text) {
     return;
   }
 
+  // Layer -2: SMART CLARIFICATION — vague question → specific branches
+  // "how big" → "how tall, how wide, or how heavy?"
+  // "fix it" → "fix what? plumbing, electrical, or mechanical?"
+  var vague = null;
+  if (text.split(/\s+/).length <= 4) {
+    // Short vague inputs — offer specific paths
+    if (lower.match(/^how (big|much|long|far|many|often|old)/)) {
+      var word = lower.match(/how (\w+)/)[1];
+      var branches = {
+        'big': 'Do you mean how tall, how wide, how heavy, or how much space?',
+        'much': 'How much — in dollars, in weight, in time, or in effort?',
+        'long': 'How long — distance, time, or duration?',
+        'far': 'How far — driving distance, walking distance, or metaphorically?',
+        'many': 'How many of what? Give me the thing and I\'ll give you the number.',
+        'often': 'How often — daily, weekly, or as-needed? And for what?',
+        'old': 'How old — a person, an object, a concept, or the universe?',
+      };
+      vague = branches[word] || null;
+    }
+    else if (lower.match(/^(fix|help|do|make|get|find|change)\b/) && text.split(/\s+/).length <= 2) {
+      var verb = lower.match(/^(\w+)/)[1];
+      var branches = {
+        'fix': 'Fix what? Plumbing, electrical, car, computer, relationship, or something else?',
+        'help': 'Help with what? Something practical, emotional, creative, or academic?',
+        'do': 'Do what? I need a bit more to work with.',
+        'make': 'Make what? Food, art, music, a plan, or something physical?',
+        'get': 'Get what? Something you need to buy, learn, find, or achieve?',
+        'find': 'Find what? A place, a person, an answer, or a thing?',
+        'change': 'Change what? A habit, a situation, a setting, or your mind?',
+      };
+      vague = branches[verb] || null;
+    }
+    else if (lower.match(/^what (should|do|can) i/)) {
+      vague = 'What about? Relationships, work, health, money, or something else? The more specific you are, the better I can help.';
+    }
+    else if (lower.match(/^(it|this|that)$/) || lower.match(/^(yes|yeah|yep|sure) (but|and|so)$/)) {
+      // Reference to previous — use context
+      if (context.length > 0) {
+        var lastTopic = context[context.length-1].topic;
+        if (lastTopic) vague = null; // we have context, proceed normally
+        else vague = 'What are you referring to? I want to make sure I follow.';
+      } else {
+        vague = 'Tell me a little more — what are we talking about?';
+      }
+    }
+  }
+  if (vague) {
+    delayed(vague);
+    absorb(text, K, null);
+    return;
+  }
+
   // Layer -1: RECOVERY — "no", "that's not what I meant", "wrong"
   if (lower.match(/^(no|nah|wrong|not what i|that's not|thats not|i meant|try again|nope)/)) {
     var recoveries = [
