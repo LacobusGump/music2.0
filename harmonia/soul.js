@@ -4,8 +4,10 @@
 // No neural net. No gradient descent. Pure frequency extraction.
 // ═══════════════════════════════════════════════════════════════
 
-// GLOBAL poison filter — blocks toxic words from ALL generation paths
-var poison = /fuck|shit|bitch|ass|dick|piss|crap|damn|hell|stupid|idiot|ugly|hate|kill|die|bomb|weapon|pee|urinate|kidnappers|whizzers|pissed|yelled|dude|rug|pederast|tit|digby|arthur|guns|branded|enormous|cabinet|wrap|lebowski|donny|maude|bunny|walter/;
+// GLOBAL poison filter — blocks toxic + script character chains
+var poison = /fuck|shit|bitch|ass|dick|piss|crap|damn|hell|stupid|idiot|ugly|hate|kill|die|bomb|weapon|pee|urinate|kidnappers|whizzers|pissed|yelled|dude|rug|pederast|tit|digby|arthur|guns|branded|enormous|cabinet|wrap|lebowski|donny|maude|bunny|walter|knutsens|treehorn|smut|deadbeats|caucasian|sqoosh|stomp|owes|twat|mancha|panza|sancho|quixote|teresa|hast|dost|thee|thou|saith|unto|minivan|homewor|nobel|liberia|revolutions|squid|giggle|corpse|piggyback|puff|cheeky|bastards/;
+// Kill generated text that drifted into script chains
+function isClean(text){if(!text||text.length<5)return false;return!poison.test(text);}
 
 var Gen = {
   // Trigram generator — produces grammatical sentences
@@ -688,7 +690,7 @@ function resonate(topic, K) {
         // poison is global
         pure = pure.split(' ').filter(function(w){return !poison.test(w);}).join(' ');
       }
-      if (pure && pure.split(' ').length > 3) return pure;
+      if (pure && isClean(pure) && pure.split(' ').length > 3) return pure;
     }
     // ALL soul responses exhausted for this topic AND generator failed
     // Pick least-recently-used instead of full reset
@@ -710,7 +712,7 @@ function resonate(topic, K) {
         var strategy = strategies[Math.floor(Math.random() * strategies.length)];
         extension = Gen.generate(strategy, 15 + Math.floor(K * 10), 0.3 + K * 0.25);
       }
-      if (extension && extension.split(' ').length > 2) {
+      if (extension && isClean(extension) && extension.split(' ').length > 2) {
         // IMMUNE CHECK on generated words — no poison through the spectrum
         // poison is global
         var genWords = extension.split(' ').filter(function(w) { return !poison.test(w); });
@@ -1570,7 +1572,7 @@ function respond(text) {
           // poison is global
           gen = gen.split(' ').filter(function(w){return !poison.test(w);}).join(' ');
         }
-        if (gen && gen.split(' ').length > 3) { parts.push(gen); }
+        if (gen && isClean(gen) && gen.split(' ').length > 3) { parts.push(gen); }
       }
     }
     // Only use canned fallback if generator also failed
