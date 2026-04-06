@@ -572,7 +572,7 @@ function absorb(userText, K, topic) {
   });
 
   // Immune check on words themselves — decoupling language doesn't imprint
-  var poison = /hate|kill|destroy|attack|stupid|worthless|ugly|pathetic|die|bomb|weapon|exploit|hack/;
+  // poison is global
   words = words.filter(function(w) { return !poison.test(w); });
 
   var weight = 0.5 + K * 0.5;
@@ -685,7 +685,7 @@ function resonate(topic, K) {
       var topicWords = Soul[topic].keys.slice(0, 3);
       var pure = Gen.generate(topicWords, 18, 0.5);
       if (pure) {
-        var poison = /fuck|shit|bitch|ass|dick|piss|crap|damn|hell|stupid|idiot|ugly|hate|kill|die|bomb|weapon|pee|urinate|kidnappers|whizzers|dude|rug|pederast/;
+        // poison is global
         pure = pure.split(' ').filter(function(w){return !poison.test(w);}).join(' ');
       }
       if (pure && pure.split(' ').length > 3) return pure;
@@ -712,7 +712,7 @@ function resonate(topic, K) {
       }
       if (extension && extension.split(' ').length > 2) {
         // IMMUNE CHECK on generated words — no poison through the spectrum
-        var poison = /fuck|shit|bitch|ass|dick|piss|crap|damn|hell|stupid|idiot|ugly|hate|kill|die|bomb|weapon|pee|urinate|kidnappers|pissed|yelled|whizzers/;
+        // poison is global
         var genWords = extension.split(' ').filter(function(w) { return !poison.test(w); });
         extension = genWords.join(' ');
         if (extension.split(' ').length > 2) return seed + ' ' + extension;
@@ -1567,7 +1567,7 @@ function respond(text) {
       if (seeds.length > 0) {
         var gen = Gen.generate(seeds, 18, 0.5);
         if (gen) {
-          var poison = /fuck|shit|bitch|ass|dick|piss|crap|damn|hell|stupid|idiot|ugly|hate|kill|die|bomb|weapon|pee|urinate|kidnappers|whizzers|pissed|yelled|dude|rug|pederast/;
+          // poison is global
           gen = gen.split(' ').filter(function(w){return !poison.test(w);}).join(' ');
         }
         if (gen && gen.split(' ').length > 3) { parts.push(gen); }
