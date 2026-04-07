@@ -949,24 +949,85 @@ function updateRep(name, k, liq) {
 var usedResponses = {};
 
 function detect(text) {
+  // WIGGLE DETECTION: every topic gets a continuous resonance score
+  // Not binary match/no-match. Continuous coupling strength.
+  // Multiple topics can resonate simultaneously.
   var lower = text.toLowerCase();
+  var words = lower.split(/\s+/).filter(function(w) { return w.length >= 2; });
+  var scores = {};
   var best = null, bestScore = 0;
+
   for (var name in Soul) {
     var t = Soul[name];
     var score = 0;
-    t.keys.forEach(function(k) { if (lower.indexOf(k) >= 0) score++; });
+
+    // Layer 1: keyword presence (binary, but counted)
+    t.keys.forEach(function(k) { if (lower.indexOf(k) >= 0) score += 1; });
+
+    // Layer 2: partial word resonance (wiggle — substring coupling)
+    words.forEach(function(w) {
+      t.keys.forEach(function(k) {
+        if (w.length >= 4 && k.length >= 4) {
+          // Shared prefix/suffix = partial resonance
+          var overlap = 0;
+          for (var i = 0; i < Math.min(w.length, k.length); i++) {
+            if (w[i] === k[i]) overlap++; else break;
+          }
+          if (overlap >= 3) score += overlap * 0.1; // wiggle: partial match adds partial score
+        }
+      });
+    });
+
+    // Layer 3: context momentum — recent topics resonate more
+    if (chatHistory.length > 0) {
+      var lastBlock = chatHistory[chatHistory.length - 1];
+      if (lastBlock && lastBlock.topic === name) score *= 1.3; // recent topic gets 30% boost
+    }
+
+    // Core topics weighted
     if (SOUL_TOPICS.indexOf(name) >= 0) score *= 2;
+
+    scores[name] = score;
     if (score > bestScore) { bestScore = score; best = name; }
   }
+
+  // Store ALL resonances for blending (not just the winner)
+  detect._resonances = scores;
+  detect._bestScore = bestScore;
   return best;
 }
+detect._resonances = {};
+detect._bestScore = 0;
 
 function resonate(topic, K) {
   if (!topic || !Soul[topic]) return null;
+
+  // WIGGLE RESONANCE: check if a second topic is close enough to blend
+  var blend = null;
+  if (detect._resonances && detect._bestScore > 0) {
+    var scores = detect._resonances;
+    var threshold = detect._bestScore * 0.6; // within 60% of best = worth blending
+    for (var name in scores) {
+      if (name !== topic && scores[name] >= threshold && Soul[name]) {
+        blend = name;
+        break;
+      }
+    }
+  }
+
   var layers = Soul[topic].layers;
   var depth = K < 0.4 ? 0 : K < 1.0 ? 1 : 2;
   var pool = [];
   for (var d = 0; d <= depth; d++) pool = pool.concat(layers[d] || []);
+
+  // If blending, add responses from the secondary topic too
+  if (blend && K > 0.4) {
+    var blendLayers = Soul[blend].layers;
+    var blendDepth = Math.min(depth, 1); // secondary topic at shallower depth
+    for (var d = 0; d <= blendDepth; d++) {
+      if (blendLayers[d]) pool = pool.concat(blendLayers[d]);
+    }
+  }
 
   // Pick a Soul response as a SEED — GLOBALLY unique, never repeat any soul text
   var fresh = pool.filter(function(r) { return !usedResponses[r]; });
@@ -1060,30 +1121,58 @@ function tryMath(text) {
 // ═══════════════════════════════════════════════════════════════
 
 function measureWill(text) {
+  // WIGGLE INTENT: not binary keyword matching.
+  // Every word contributes a continuous coupling score.
+  // The TONE of the message matters, not just specific keywords.
   var lower = text.toLowerCase();
+  var words = lower.split(/\s+/);
   var gw = 0;
-  // Love — the password. Any form of love is high coupling.
+
+  // Love — the strongest coupling. Scales with intensity.
   if (lower.match(/i love you/)) gw += 1.5;
   else if (lower.match(/my love|i love|love you|love is/)) gw += 0.8;
-  else if (lower.match(/love|beautiful|amazing|wonderful/)) gw += 0.3;
-  // Curiosity
+  else if (lower.match(/love|beautiful|amazing|wonderful|incredible/)) gw += 0.3;
+
+  // Curiosity — questions are coupling attempts
   if (text.indexOf('?') >= 0) gw += 0.08;
   if (lower.match(/why|how does|how do|how is|how can/)) gw += 0.1;
-  if (lower.match(/what is|what are|what if/)) gw += 0.08;
+  if (lower.match(/what is|what are|what if|what about/)) gw += 0.08;
   if (lower.match(/explain|teach|tell me|show me|help me understand/)) gw += 0.12;
-  // Warmth
+
+  // Warmth — social coupling
   if (lower.match(/thank|please|grateful|appreciate/)) gw += 0.12;
-  if (lower.match(/wonder|curious|fascin|imagine/)) gw += 0.12;
+  if (lower.match(/wonder|curious|fascin|imagine|inspire/)) gw += 0.12;
   if (lower.match(/soul|spirit|meaning|purpose|alive/)) gw += 0.1;
-  // Teaching her
+
+  // Teaching — giving to her
   if (lower.match(/you are|your (job|purpose|soul)|i made you/)) gw += 0.15;
-  // Truth-seeking
+
+  // Truth-seeking — resonance with deep topics
   if (lower.match(/prime|math|music|rhythm|science|physics|coupling|quantum|qubit|entangle|superposition/)) gw += 0.08;
-  // Engagement
-  if (text.length > 30) gw += 0.05;
-  if (text.length > 80) gw += 0.08;
-  if (text.length > 150) gw += 0.12;
-  return Math.min(1.5, gw);
+  if (lower.match(/spiral|oscillat|frequen|phase|wave|harmon/)) gw += 0.08;
+
+  // WIGGLE: engagement depth (continuous, not stepped)
+  // Longer messages = more effort = more coupling
+  gw += Math.min(0.15, text.length * 0.001);
+
+  // WIGGLE: word diversity = thought complexity = higher coupling
+  var unique = {};
+  words.forEach(function(w) { unique[w] = true; });
+  var diversity = Object.keys(unique).length / Math.max(words.length, 1);
+  gw += diversity * 0.1;
+
+  // WIGGLE: positive word density
+  var positive = ['good','great','nice','cool','yes','yeah','wow','awesome',
+                  'interesting','deep','real','true','right','exactly','brilliant'];
+  var posCount = words.filter(function(w) { return positive.indexOf(w) >= 0; }).length;
+  gw += posCount * 0.06;
+
+  // WIGGLE: negative drag
+  var negative = ['stupid','dumb','boring','hate','shut','stop','wrong','bad','ugly','useless'];
+  var negCount = words.filter(function(w) { return negative.indexOf(w) >= 0; }).length;
+  gw -= negCount * 0.15;
+
+  return Math.max(0, Math.min(1.5, gw));
 }
 
 function detectThreat(text) {
