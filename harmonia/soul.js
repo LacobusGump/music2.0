@@ -873,16 +873,35 @@ var usedResponses = {};
 
 function detect(text) {
   var lower = text.toLowerCase();
+  var words = lower.split(/\s+/).filter(function(w) { return w.length >= 2; });
   var best = null, bestScore = 0;
+  var scores = {};
   for (var name in Soul) {
     var t = Soul[name];
     var score = 0;
-    t.keys.forEach(function(k) { if (lower.indexOf(k) >= 0) score++; });
+    t.keys.forEach(function(k) { if (lower.indexOf(k) >= 0) score += 1; });
+    // Wiggle: partial word resonance
+    words.forEach(function(w) {
+      t.keys.forEach(function(k) {
+        if (w.length >= 4 && k.length >= 4) {
+          var overlap = 0;
+          for (var i = 0; i < Math.min(w.length, k.length); i++) {
+            if (w[i] === k[i]) overlap++; else break;
+          }
+          if (overlap >= 3) score += overlap * 0.1;
+        }
+      });
+    });
     if (SOUL_TOPICS.indexOf(name) >= 0) score *= 2;
+    scores[name] = score;
     if (score > bestScore) { bestScore = score; best = name; }
   }
+  detect._resonances = scores;
+  detect._bestScore = bestScore;
   return best;
 }
+detect._resonances = {};
+detect._bestScore = 0;
 
 function resonate(topic, K) {
   if (!topic || !Soul[topic]) return null;
