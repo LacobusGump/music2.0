@@ -33,12 +33,12 @@ test('Harmonia is FREE', html.includes('FREE'));
 
 // Products - all 7
 const products = [
-  { name: 'Org X-Ray', price: '$499', href: '/products/orgxray/' },
-  { name: 'Learn Engine', price: '$299', href: '/products/learnengine/' },
-  { name: 'Fold Watch', price: '$999', href: '/products/foldwatch/' },
-  { name: 'Chip Fast', price: '$2,499', href: '/products/chipfast/' },
-  { name: 'AI Trainer', price: '$499', href: '/products/aitrainer/' },
-  { name: 'Knowledge Engine', price: '$499', href: '/products/knowledge/' },
+  { name: 'Org X-Ray', price: '$15', href: '/products/orgxray/' },
+  { name: 'Learn Engine', price: '$29', href: '/products/learnengine/' },
+  { name: 'Fold Watch', price: '$1,500', href: '/products/foldwatch/' },
+  { name: 'Chip Fast', price: '$5,000', href: '/products/chipfast/' },
+  { name: 'AI Trainer', price: '$49', href: '/products/aitrainer/' },
+  { name: 'Knowledge Engine', price: '$39', href: '/products/knowledge/' },
   { name: 'Universal Sensor', price: '$999', href: '/products/sensor/' },
 ];
 
@@ -47,13 +47,11 @@ products.forEach(p => {
   test(`Product: ${p.name} has price`, html.includes(p.price), `"${p.price}" not found`);
   test(`Product: ${p.name} has link`, html.includes(`href="${p.href}"`), `"${p.href}" not found`);
   test(`Product: ${p.name} has pitch`, html.includes('pitch') && html.includes(p.name));
-  test(`Product: ${p.name} has competitor ref`, html.includes('replaces'));
+  test(`Product: ${p.name} has competitor ref`, html.includes('charges'));
 });
 
-// Bundle
-test('Bundle price exists', html.includes('$4,999'));
-test('Bundle label', html.includes('all 7 products'));
-test('Savings claim', html.includes('$1.2M'));
+// No bundle (products sell individually)
+test('No bundle pricing', !html.includes('all 7 products'));
 
 // Links work
 const internalLinks = ['/harmonia/'];
