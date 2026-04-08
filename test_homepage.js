@@ -90,9 +90,14 @@ test('No spiral page link', !html.includes('/spiral/'));
 test('No quantum page link', !html.includes('/quantum/'));
 test('No rabbithole link', !html.includes('/rabbithole/'));
 
-// Seed tier
-test('Seed tier exists', html.includes('The Seed'));
-test('Seed tier priced at $49', html.includes('$49'));
+// No Seed tier (removed — Harmonia is free, nothing between free and products)
+test('No Seed tier', !html.includes('The Seed'));
+
+// Has pip install
+test('pip install shown', html.includes('pip install gump'));
+
+// Has docs link
+test('Docs link exists', html.includes('/docs/'));
 
 // Clean
 test('No TODO/FIXME', !html.includes('TODO') && !html.includes('FIXME'));
