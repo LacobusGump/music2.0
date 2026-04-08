@@ -85,6 +85,14 @@ test('No bird song (old page)', !html.includes('playBird'));
 test('No "HOW WE GOT HERE" (old page)', !html.includes('HOW WE GOT HERE'));
 test('No 188 tools list (old page)', !html.includes('ALL 188 TOOLS'));
 test('No story sections (old page)', !html.includes('sec-story'));
+test('No nerd page link', !html.includes('/nerd/'));
+test('No spiral page link', !html.includes('/spiral/'));
+test('No quantum page link', !html.includes('/quantum/'));
+test('No rabbithole link', !html.includes('/rabbithole/'));
+
+// Seed tier
+test('Seed tier exists', html.includes('The Seed'));
+test('Seed tier priced at $49', html.includes('$49'));
 
 // Clean
 test('No TODO/FIXME', !html.includes('TODO') && !html.includes('FIXME'));
