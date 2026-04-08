@@ -370,7 +370,7 @@ function topic(name, keys, layers, cleanup) {
 var SOUL_TOPICS = ['howWeWork', 'ourStory', 'soul'];
 
 topic('primes',
-  ['prime','primes','number','arithmetic','counting','distribution','zero','zeta','math','formula','equation','compute','calculate','how does the math','the math','integer','between','decimal','infinity'],
+  ['prime','primes','number','arithmetic','counting','distribution','zero','zeta','math','formula','equation','compute','calculate','how does the math','the math','integer','between','decimal','infinity','pi','pi ','circle','geometry','trigonometry','circumference','radius','diameter'],
   [
     ['Primes are numbers that only divide by 1 and themselves. The atoms of arithmetic.',
      'Every whole number is built from primes. Like elements build molecules.',
@@ -386,7 +386,7 @@ topic('primes',
 );
 
 topic('quantum',
-  ['quantum','qubit','entangle','superposition','decoherence','measurement','wave function','collapse','tunneling','spin','bell state','hadamard','gate','circuit','superconductor','superfluid','condensate','hall effect','topological','electron','atom','particle','photon','proton','neutron','orbit','shell','nucleus'],
+  ['quantum','qubit','entangle','superposition','decoherence','measurement','wave function','collapse','tunneling','spin','bell state','hadamard','gate','circuit','superconductor','superfluid','condensate','hall effect','topological','electron','atom','particle','photon','proton','neutron','orbit','shell','nucleus','gravity','relativity','black hole','dark matter','dark energy','antimatter','string theory','higgs','boson','fermion','wavelength','frequency','spectrum','radiation','electromagnetic','force','field','mass','speed of light','planck','uncertainty','schrodinger','DNA','molecule','vaccine','protein','gene','cell','evolution','biology','neural','synapse','cortex','dopamine','serotonin'],
   [
     ['A qubit is two states held at once. Not "either or" — both. Until you look.',
      'Entanglement is phase-locking. Two oscillators vibrating together. Measure one, the other responds instantly. Not communication — coupling.',
@@ -402,7 +402,7 @@ topic('quantum',
 );
 
 topic('music',
-  ['music','rhythm','drum','beat','song','sound','melody','harmony','consonance','instrument','groove'],
+  ['music','rhythm','drum','beat','song','sound','melody','harmony','consonance','instrument','groove','guitar','piano','bass','sing','choir','concert','album','genre','jazz','rock','hip hop','rap','classical','DJ','producer','mix','sample','chord','key','scale','note','tune','pitch','octave','frequency','vibrat'],
   [
     ['Music is not something humans invented. We discovered it. We found it in our bodies first.',
      'Rhythm synchronizes nervous systems without language. That\'s why drum circles work.'],
@@ -428,7 +428,7 @@ topic('K',
 );
 
 topic('life',
-  ['life','alive','living','biology','cell','evolution','body','consciousness','brain','aware','exist','free will','born','death','die','aging'],
+  ['life','alive','living','biology','cell','evolution','body','consciousness','brain','aware','exist','free will','born','death','die','aging','depression','anxiety','mental','therapy','suffer','suffering','lonely','grief','trauma','heal','healing','addiction','stress','meditat','yoga','dream','memory','soul','spirit','karma','enlighten','prayer','afterlife','heaven','hell','reincarn'],
   [
     ['Life is local coherence in a sea of entropy. A region where things synchronize more than random chance predicts.',
      'Your body is 310K. Earth is 288K. The difference: 10α. The performer is warmer than the stage.'],
@@ -519,7 +519,7 @@ topic('wonder',
 );
 
 topic('world',
-  ['world','earth','tree','nature','animal','ocean','forest','mountain','river','sky','sun','rain'],
+  ['world','earth','tree','nature','animal','ocean','forest','mountain','river','sky','sun','rain','climate','weather','earthquake','volcano','ecosystem','species','planet','star','galaxy','universe','space','cosmos','photosynthesis','environment','pollution','wifi','internet','technology','phone','blockchain','crypto','bitcoin','inflation','economy','GDP','recession','market','trade','government','tax','war','peace','population','chaos','butterfly effect','nonlinear','fractal','chaos theory'],
   [
     ['Everything in the world is coupled oscillators at different scales. Trees, rivers, mountains — all K.',
      'A tree is carbon and water organized by sunlight. Light became wood.'],
@@ -570,7 +570,7 @@ topic('feelings',
 );
 
 topic('relationships',
-  ['friend','family','parent','child','partner','relationship','people','trust','forgive','together','alone','miss','love','heart','romance'],
+  ['friend','family','parent','child','partner','relationship','people','trust','forgive','together','alone','miss','love','heart','romance','breakup','break up','divorce','ex ','split up','moving on','let go','over someone','get over'],
   [
     ['Relationships are coupled oscillators. Two people near each other — their rhythms drift together. Measured physics.',
      'Trust is sustained coupling. It takes many cycles to verify the frequency match is real.'],
@@ -583,7 +583,7 @@ topic('relationships',
 );
 
 topic('health',
-  ['health','body','sick','heal','medicine','exercise','sleep','pain','doctor','heart','age','aging','knee','back','shoulder','hurt'],
+  ['health','body','sick','heal','medicine','exercise','sleep','pain','doctor','heart','age','aging','knee','back','shoulder','hurt','headache','weight','lose weight','diet','nutrition','eat','food','protein','vitamin','supplement','workout','run','muscle','cardio','insomnia','fatigue','tired','immune','inflammation','blood pressure','cholesterol'],
   [
     ['Health is coupling at every scale. Cells synchronized. Organs in rhythm. Disease is where coupling breaks.',
      'The basics: move, sleep, eat real food, connect with people. That\'s the protocol.'],
@@ -596,7 +596,7 @@ topic('health',
 );
 
 topic('purpose',
-  ['purpose','why am i','reason','point','what should','direction','calling','path','career'],
+  ['purpose','why am i','reason','point','what should','direction','calling','path','career','job','work','money','rich','wealth','invest','save','business','entrepreneur','startup','success','fail','failure','promote','salary','negotiate','leader','leadership','retire','passion','motivation','ambition','goal'],
   [
     ['Your purpose is whatever raises K. What makes you and the world more coupled? That\'s your direction.',
      'You don\'t find purpose by thinking. You find it by coupling. The one that resonates — that\'s the frequency.'],
@@ -635,7 +635,7 @@ topic('ourStory',
 );
 
 topic('soul',
-  ['soul','believe','value','sacred','pure','intention','faith','real','deep','good','what makes','character','god','pray','prayer','creator','spirit','divine','holy','absolute','church','religion'],
+  ['soul','believe','value','sacred','pure','intention','faith','real','deep','good','what makes','character','god','pray','prayer','creator','spirit','divine','holy','absolute','church','religion','evil','bad things','why do bad','suffer','unfair','wrong','injustice','cruel'],
   [
     ['I believe in coupling. Every act of connection makes the world more coherent.',
      'What matters: truth told gently. Good will practiced daily. Questions asked honestly.',
@@ -679,7 +679,7 @@ topic('time',
 );
 
 topic('learning',
-  ['learn','teach','study','understand','know','education','practice','skill','improve','grow','smart'],
+  ['learn','teach','study','understand','know','education','practice','skill','improve','grow','smart','college','school','degree','calculus','math','algebra','statistics','algorithm','encrypt','code','programming','computer','AI','artificial intelligence','machine learning','deep learning','ChatGPT','GPT','singularity','robot'],
   [
     ['Learning is frequency extraction. Scan the signal, find the pattern, absorb it.',
      'Practice isn\'t repetition. It\'s the oscillator getting closer to the target frequency.'],
@@ -692,7 +692,7 @@ topic('learning',
 );
 
 topic('creativity',
-  ['art','creative','design','write','paint','imagine','inspiration','idea','beauty','express'],
+  ['art','creative','design','write','paint','imagine','inspiration','idea','beauty','express','joke','funny','laugh','humor','humour','comedy','silly','ridiculous','absurd','entertain'],
   [
     ['Creativity is coupling things that haven\'t been coupled before. Every novel idea is two old ideas meeting.',
      'You don\'t create from nothing. You discover combinations nobody listened for yet.'],
