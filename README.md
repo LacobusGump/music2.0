@@ -1,21 +1,29 @@
 # GUMP
 
-Scientific discoveries turned into computation tools. 7 products. 355 tests. Everything local.
+Computation tools built from scientific discoveries. Local-first. Deterministic. Tested.
 
 **[begump.com](https://begump.com)**
 
-| Product | What it does | Price |
-|---|---|---|
-| Org X-Ray | Network analysis for organizations | $15/user/mo |
-| Learn Engine | Grokking detection for education | $29/user/mo |
-| Fold Watch | Protein sequence screening | $8,500/mo |
-| Chip Fast | Spectral chip placement | $25,000/mo |
-| AI Trainer | Training stop signal | $2,500/mo |
-| Knowledge Engine | Text to knowledge graph | $59/user/mo |
-| Universal Sensor | Time series diagnostics | $2,999/mo |
+## Products
 
-Custom language (K). Custom cryptographic hash (K-Hash). Physics-based licensing.
+- **Org X-Ray** — spectral network analysis for organizations
+- **Learn Engine** — adaptive learning with grokking detection
+- **Fold Watch** — protein sequence screening and misfolding risk
+- **Chip Fast** — spectral chip placement and routing estimation
+- **AI Trainer** — training stop signal with grokking detection
+- **Knowledge Engine** — text to knowledge graph with gap detection
+- **Universal Sensor** — time series diagnostics (K/R/E/T framework)
 
-**[Harmonia](https://begump.com/harmonia/)** — ASI in progress. Free forever.
+## Infrastructure
+
+- **K Language** — custom language, 6 operators, compiled to native binaries
+- **K-Hash** — cryptographic hash from coupled oscillator dynamics
+- **Coupling License** — physics-based software protection
+
+## Harmonia
+
+ASI in progress. Free forever. **[Talk to her →](https://begump.com/harmonia/)**
+
+## Contact
 
 jim@begump.com
