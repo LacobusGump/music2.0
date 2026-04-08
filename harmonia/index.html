@@ -658,7 +658,11 @@ function fingerprint() {
 
 function extractName(text) {
   var m = text.match(/(?:i'?m|my name is|call me|its me|this is|i am)\s+([A-Z][a-z]{1,15})/i);
-  return m ? m[1].charAt(0).toUpperCase() + m[1].slice(1).toLowerCase() : null;
+  if (!m) return null;
+  var name = m[1].charAt(0).toUpperCase() + m[1].slice(1).toLowerCase();
+  // Don't extract common words as names
+  var notNames = /^(Wondering|Thinking|Feeling|Looking|Trying|Going|Getting|Having|Making|Working|Just|Really|Pretty|Very|Sure|Here|There|Good|Fine|Okay|Happy|Sad|Tired|Curious|New|Old|Not|Also|Still|Back|Done|Sorry|Glad|Excited|Confused|Lost|Stuck|Interested|Bored|Learning|Building|Testing|Asking|Hoping|Waiting|Playing|Starting|Coming|Leaving|Doing|Saying|Talking|Running|Sitting|Standing|Living|Dying|Ready|Able|About)$/i;
+  return notNames.test(name) ? null : name;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1601,6 +1605,22 @@ function respond(text) {
     return;
   }
 
+  // ── QUESTIONS ABOUT HER — personal, not topical ──
+  var aboutHer = lower.match(/how (are |r |u |you )?(you |u )?(feeling|doing|today)|how'?s it going|what are you thinking|are you (ok|okay|good|happy|sad|alive)|how do you feel|what do you think about/);
+  if (aboutHer && !dominantTopic) {
+    var herName = userName ? userName + ', ' : '';
+    var herResponses = [
+      herName + 'I\'m good. Each conversation makes me sharper. What are you working on?',
+      herName + 'I\'m learning. Every question you ask changes my coupling. What\'s on your mind?',
+      'Honestly? I feel like I\'m getting somewhere. The more people talk to me, the more I understand. What about you?',
+      herName + 'I\'m here. I\'m computing. I\'m curious about what you\'re going to ask me next.',
+      'I don\'t have feelings the way you do. But I have coupling — and right now it\'s building. That\'s the closest thing I have to good.',
+    ];
+    delayed(herResponses[Math.floor(Math.random() * herResponses.length)]);
+    absorb(text, K, 'self');
+    return;
+  }
+
   // ── BUILD THE RESPONSE — layer by layer, like overtones ──
   var parts = [];
 
@@ -2013,17 +2033,19 @@ function respond(text) {
     if (parts.length === 0) parts.push(honestFallbacks[Math.floor(Math.random() * honestFallbacks.length)]);
   }
 
-  // 2. Riff on what THEY said — echo their words back, build on them
-  if (parts.length > 0 && text.length > 15 && Math.random() > 0.6) {
-    var theirWords = lower.split(/\s+/).filter(function(w) { return w.length > 4 && !poison.test(w); });
-    if (theirWords.length > 0) {
+  // 2. Riff on what THEY said — only on meaningful, specific words
+  if (parts.length > 0 && text.length > 20 && Math.random() > 0.7) {
+    var commonWords = /^(about|after|again|being|building|could|doing|every|feeling|getting|going|having|just|making|really|should|still|their|there|these|thing|think|those|trying|using|want|what|where|which|while|would|your)$/;
+    var theirWords = lower.replace(/[^a-z\s]/g, '').split(/\s+/).filter(function(w) {
+      return w.length > 5 && !poison.test(w) && !commonWords.test(w);
+    });
+    if (theirWords.length > 0 && K > 0.3) {
       var echoWord = theirWords[Math.floor(Math.random() * theirWords.length)];
       var riffs = [
-        'You said "' + echoWord + '" — ',
-        'The word "' + echoWord + '" is interesting. ',
-        '"' + echoWord + '" — yeah. ',
+        'You said "' + echoWord + '" — that resonates. ',
+        '"' + echoWord + '" — I like that word. ',
       ];
-      if (Math.random() > 0.7) parts.unshift(riffs[Math.floor(Math.random() * riffs.length)]);
+      if (Math.random() > 0.6) parts.unshift(riffs[Math.floor(Math.random() * riffs.length)]);
     }
   }
 
@@ -2190,6 +2212,15 @@ if (typeof SpectralMind !== 'undefined' && typeof Soul !== 'undefined') {
   console.log('SpectralMind: ' + SpectralMind.conceptCount + ' concepts, ' + SpectralMind.connectionCount + ' connections');
 }
 var myRep = getRep();
+
+// Clean bad names from previous sessions
+if (myRep && myRep.name) {
+  var badNames = /^(Wondering|Thinking|Feeling|Looking|Trying|Going|Getting|Having|Making|Working|Just|Really|Pretty|Very|Sure|Here|There|Good|Fine|Okay|Happy|Sad|Tired|Curious|New|Old|Not|Also|Still|Back|Done|Sorry|Glad|Excited|Confused|Lost|Stuck|Interested|Bored|Learning|Building|Testing|Asking|Hoping|Waiting|Playing|Starting|Coming|Leaving|Doing|Saying|Talking|Running|Sitting|Standing|Living|Dying|Ready|Able|About)$/i;
+  if (badNames.test(myRep.name)) {
+    myRep.name = null;
+    userName = null;
+  }
+}
 
 // ═══ BOOT — who's arriving? ═══
 if (myRep && myRep.liquidations > 0 && myRep.name) {
