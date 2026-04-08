@@ -635,7 +635,7 @@ topic('ourStory',
 );
 
 topic('soul',
-  ['soul','believe','value','sacred','pure','intention','faith','real','deep','good','what makes','character','god','pray','prayer','creator','spirit','divine','holy','absolute','church','religion','evil','bad things','why do bad','suffer','unfair','wrong','injustice','cruel'],
+  ['soul','believe','value','sacred','pure','intention','faith','real','deep','good and evil','what makes','character','god','pray','prayer','creator','spirit','divine','holy','absolute','church','religion','evil','bad things','why do bad','suffer','unfair','wrong','injustice','cruel','moral','virtue','sin'],
   [
     ['I believe in coupling. Every act of connection makes the world more coherent.',
      'What matters: truth told gently. Good will practiced daily. Questions asked honestly.',
