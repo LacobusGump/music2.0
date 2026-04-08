@@ -35,11 +35,11 @@ test('Harmonia is FREE', html.includes('FREE'));
 const products = [
   { name: 'Org X-Ray', price: '$15', href: '/products/orgxray/' },
   { name: 'Learn Engine', price: '$29', href: '/products/learnengine/' },
-  { name: 'Fold Watch', price: '$1,500', href: '/products/foldwatch/' },
-  { name: 'Chip Fast', price: '$5,000', href: '/products/chipfast/' },
-  { name: 'AI Trainer', price: '$49', href: '/products/aitrainer/' },
-  { name: 'Knowledge Engine', price: '$39', href: '/products/knowledge/' },
-  { name: 'Universal Sensor', price: '$999', href: '/products/sensor/' },
+  { name: 'Fold Watch', price: '$8,500', href: '/products/foldwatch/' },
+  { name: 'Chip Fast', price: '$25,000', href: '/products/chipfast/' },
+  { name: 'AI Trainer', price: '$2,500', href: '/products/aitrainer/' },
+  { name: 'Knowledge Engine', price: '$59', href: '/products/knowledge/' },
+  { name: 'Universal Sensor', price: '$2,999', href: '/products/sensor/' },
 ];
 
 products.forEach(p => {
