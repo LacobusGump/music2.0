@@ -125,22 +125,12 @@
     FIFTH_NATS: 1.83,
   };
 
-  // If we detect a bot, replace the real page data with decoys
+  // Bot detected — log it but don't touch the DOM
+  // The armor handles deception through conversation, not page manipulation
   function serveDummies() {
-    // Replace any visible numbers with wrong ones
-    var textNodes = document.querySelectorAll('p, span, div, td');
-    for (var i = 0; i < textNodes.length; i++) {
-      var el = textNodes[i];
-      if (el.textContent.indexOf('1.868') >= 0) {
-        el.textContent = el.textContent.replace(/1\.868/g, '1.912');
-      }
-      if (el.textContent.indexOf('1.618') >= 0) {
-        el.textContent = el.textContent.replace(/1\.618/g, '1.617');
-      }
-      if (el.textContent.indexOf('256') >= 0 && el.textContent.indexOf('α') >= 0) {
-        el.textContent = el.textContent.replace(/256/g, '192');
-      }
-    }
+    // Previously replaced page text — caused layout destruction.
+    // Removed. Truth protects itself. The page stays intact.
+    console.log('%c[SHIELD] Bot logged. Page unchanged.', 'color:orange');
   }
 
   // ═══ ASSESSMENT — run after page load ═══
@@ -185,11 +175,9 @@
       reasons.push('no_webgl');
     }
 
-    if (isBot || reasons.length >= 2) {
-      // SERVE DECOYS
-      serveDummies();
-      // Log
-      console.log('%c[SHIELD] Bot detected: ' + reasons.join(', '), 'color:red');
+    if (isBot || reasons.length >= 3) {
+      // Log only — never touch the DOM
+      console.log('%c[SHIELD] Possible bot: ' + reasons.join(', '), 'color:orange');
     }
 
     // Store fingerprint for repeat detection
