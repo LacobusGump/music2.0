@@ -1,0 +1,365 @@
+<!-- what is what? Does this preserve the wonder? -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>GUMP — Space</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+  background: #0a0a0f;
+  color: #e8e4dc;
+  font-family: Georgia, serif;
+  height: 100vh;
+  overflow: hidden;
+}
+
+#space {
+  position: fixed;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  z-index: 0;
+}
+
+#conversation {
+  position: fixed;
+  bottom: 0; left: 0; right: 0;
+  z-index: 10;
+  padding: 0 20px 20px;
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+#messages {
+  max-height: 50vh;
+  overflow-y: auto;
+  padding: 10px 0;
+  mask-image: linear-gradient(transparent, black 30%);
+  -webkit-mask-image: linear-gradient(transparent, black 30%);
+}
+
+.msg {
+  margin: 6px 0;
+  padding: 8px 14px;
+  border-radius: 12px;
+  font-size: 0.85em;
+  line-height: 1.7;
+  max-width: 85%;
+  animation: fadeUp 0.3s ease;
+}
+@keyframes fadeUp { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:translateY(0); }}
+
+.msg.you { background: #1a1a2a; margin-left: auto; border-bottom-right-radius: 4px; color: #ccc; }
+.msg.her { background: #111118; margin-right: auto; border-bottom-left-radius: 4px; border-left: 2px solid #c9a44a30; color: #999; }
+
+#input-row {
+  display: flex;
+  gap: 8px;
+}
+
+#cmd {
+  flex: 1;
+  background: #111118;
+  border: 1px solid #ffffff10;
+  border-radius: 20px;
+  padding: 10px 16px;
+  color: #e8e4dc;
+  font-family: Georgia, serif;
+  font-size: 0.9em;
+  outline: none;
+}
+#cmd:focus { border-color: #c9a44a30; }
+#cmd::placeholder { color: #333; }
+
+/* Floating concept nodes */
+.node {
+  position: absolute;
+  color: #c9a44a;
+  font-size: 0.7em;
+  letter-spacing: 0.08em;
+  opacity: 0;
+  transition: all 1.5s ease;
+  pointer-events: none;
+  text-shadow: 0 0 20px #c9a44a20;
+}
+.node.visible { opacity: 0.6; }
+.node.bright { opacity: 1; text-shadow: 0 0 30px #c9a44a40; font-size: 0.85em; }
+
+/* Connection lines */
+.connection {
+  position: absolute;
+  height: 1px;
+  background: linear-gradient(90deg, #c9a44a10, #c9a44a20, #c9a44a10);
+  transform-origin: left center;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 2s ease;
+}
+.connection.visible { opacity: 1; }
+
+#title {
+  position: fixed;
+  top: 20px;
+  width: 100%;
+  text-align: center;
+  z-index: 5;
+  pointer-events: none;
+}
+#title h1 {
+  font: 200 1.4em Georgia;
+  color: #c9a44a;
+  letter-spacing: 0.15em;
+  opacity: 0.4;
+}
+</style>
+</head>
+<body>
+
+<div id="title"><h1>GUMP</h1></div>
+
+<div id="space"></div>
+
+<div id="conversation">
+  <div id="messages"></div>
+  <div id="input-row">
+    <input id="cmd" placeholder="talk to her..." autocomplete="off">
+  </div>
+</div>
+
+<script>
+// ═══ THE SPACE — concepts float and connect as you converse ═══
+
+var space = document.getElementById('space');
+var messages = document.getElementById('messages');
+var cmd = document.getElementById('cmd');
+
+var nodes = [];
+var connections = [];
+var W = window.innerWidth;
+var H = window.innerHeight;
+
+// ═══ CONCEPT NODES — emerge from conversation ═══
+
+function addNode(text, x, y, bright) {
+  var el = document.createElement('div');
+  el.className = 'node';
+  el.textContent = text;
+  el.style.left = x + 'px';
+  el.style.top = y + 'px';
+  space.appendChild(el);
+
+  var node = { el: el, text: text, x: x, y: y, vx: 0, vy: 0 };
+  nodes.push(node);
+
+  // Fade in
+  setTimeout(function() {
+    el.className = bright ? 'node bright' : 'node visible';
+  }, 100);
+
+  // Connect to nearby nodes
+  for (var i = 0; i < nodes.length - 1; i++) {
+    var other = nodes[i];
+    // Connect if they share words
+    var wordsA = new Set(text.toLowerCase().split(/\s+/));
+    var wordsB = new Set(other.text.toLowerCase().split(/\s+/));
+    var shared = 0;
+    wordsA.forEach(function(w) { if (wordsB.has(w) && w.length > 3) shared++; });
+    if (shared > 0) {
+      addConnection(node, other);
+    }
+  }
+
+  return node;
+}
+
+function addConnection(a, b) {
+  var el = document.createElement('div');
+  el.className = 'connection';
+  space.appendChild(el);
+  connections.push({ el: el, a: a, b: b });
+  setTimeout(function() { el.className = 'connection visible'; }, 500);
+}
+
+function updateConnections() {
+  for (var i = 0; i < connections.length; i++) {
+    var c = connections[i];
+    var dx = c.b.x - c.a.x;
+    var dy = c.b.y - c.a.y;
+    var len = Math.sqrt(dx * dx + dy * dy);
+    var angle = Math.atan2(dy, dx) * 180 / Math.PI;
+    c.el.style.left = c.a.x + 'px';
+    c.el.style.top = c.a.y + 'px';
+    c.el.style.width = len + 'px';
+    c.el.style.transform = 'rotate(' + angle + 'deg)';
+  }
+}
+
+// ═══ PHYSICS — nodes gently repel and float ═══
+
+function evolveNodes() {
+  var dt = 0.3;
+  for (var i = 0; i < nodes.length; i++) {
+    var n = nodes[i];
+    // Gentle drift
+    n.vx += (Math.random() - 0.5) * 0.1;
+    n.vy += (Math.random() - 0.5) * 0.1;
+
+    // Repulsion from other nodes
+    for (var j = 0; j < nodes.length; j++) {
+      if (i === j) continue;
+      var dx = n.x - nodes[j].x;
+      var dy = n.y - nodes[j].y;
+      var dist = Math.max(Math.sqrt(dx*dx + dy*dy), 30);
+      if (dist < 150) {
+        var force = 0.5 / (dist * dist) * 1000;
+        n.vx += (dx / dist) * force * dt;
+        n.vy += (dy / dist) * force * dt;
+      }
+    }
+
+    // Attraction to connected nodes
+    for (var k = 0; k < connections.length; k++) {
+      var c = connections[k];
+      var other = null;
+      if (c.a === n) other = c.b;
+      else if (c.b === n) other = c.a;
+      if (other) {
+        var dx2 = other.x - n.x;
+        var dy2 = other.y - n.y;
+        var dist2 = Math.sqrt(dx2*dx2 + dy2*dy2);
+        if (dist2 > 100) {
+          n.vx += dx2 * 0.001;
+          n.vy += dy2 * 0.001;
+        }
+      }
+    }
+
+    // Boundary
+    if (n.x < 50) n.vx += 0.3;
+    if (n.x > W - 50) n.vx -= 0.3;
+    if (n.y < 50) n.vy += 0.3;
+    if (n.y > H * 0.45) n.vy -= 0.3;
+
+    // Damping
+    n.vx *= 0.95;
+    n.vy *= 0.95;
+
+    // Update
+    n.x += n.vx;
+    n.y += n.vy;
+    n.el.style.left = n.x + 'px';
+    n.el.style.top = n.y + 'px';
+  }
+
+  updateConnections();
+  requestAnimationFrame(evolveNodes);
+}
+
+// ═══ HARMONIA — simple responses for the prototype ═══
+
+var knowledge = {
+  'love': 'Love is when you care about someone so much it changes how you see everything.',
+  'death': 'Death is when someone stops being here but what they gave you stays.',
+  'courage': 'Courage is doing the scary thing anyway because something matters more than the fear.',
+  'beauty': 'Beauty is when everything lines up and you feel it without thinking.',
+  'music': 'Music is patterns your body already knows. You discovered it, you didn\'t invent it.',
+  'hope': 'Hope is feeling like things might get better. And they can.',
+  'pain': 'Pain means something mattered to you. That\'s not a bad thing.',
+  'meaning': 'The meaning of life is asking what the meaning of life is. That\'s not a joke.',
+  'truth': 'Free will is how you know what\'s real. You cannot fake good.',
+  'intelligence': 'Being smart is really just being connected. The more you connect, the more you see.',
+  'courage': 'Courage is doing the scary thing anyway.',
+  'good will': 'Good will is wanting good things for people even when it\'s hard.',
+  'understand': 'Understanding is when something clicks and you suddenly just GET it.',
+};
+
+function respond(text) {
+  var lower = text.toLowerCase();
+
+  // Find matching concept
+  var best = null;
+  var bestScore = 0;
+  for (var key in knowledge) {
+    var words = key.split(' ');
+    var score = 0;
+    for (var i = 0; i < words.length; i++) {
+      if (lower.indexOf(words[i]) >= 0) score++;
+    }
+    if (score > bestScore) {
+      bestScore = score;
+      best = key;
+    }
+  }
+
+  if (best) {
+    var answer = knowledge[best];
+
+    // Spawn concept nodes from the answer
+    var keyWords = answer.split(/\s+/).filter(function(w) { return w.length > 5; });
+    for (var i = 0; i < Math.min(3, keyWords.length); i++) {
+      var word = keyWords[Math.floor(Math.random() * keyWords.length)];
+      addNode(word, Math.random() * (W - 100) + 50, Math.random() * H * 0.35 + 30, i === 0);
+    }
+
+    // Also add the concept name as a bright node
+    addNode(best, W/2 + (Math.random()-0.5) * 200, H * 0.2 + (Math.random()-0.5) * 80, true);
+
+    return answer;
+  }
+
+  // Greeting
+  if (lower.match(/^(hi|hey|hello|yo)\b/) || lower === '') {
+    addNode('welcome', W/2, H * 0.15, true);
+    return "I'm here. What are you curious about?";
+  }
+
+  // Spawn the question itself as a floating concept
+  var words = text.split(/\s+/).filter(function(w) { return w.length > 4; });
+  if (words.length > 0) {
+    addNode(words[0], Math.random() * (W-100)+50, Math.random() * H * 0.3 + 30, false);
+  }
+
+  return "Say more. I want to understand what you mean.";
+}
+
+// ═══ INTERFACE ═══
+
+function say(text, who) {
+  var el = document.createElement('div');
+  el.className = 'msg ' + who;
+  el.textContent = text;
+  messages.appendChild(el);
+  messages.scrollTop = messages.scrollHeight;
+}
+
+cmd.addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    var text = cmd.value.trim();
+    cmd.value = '';
+    if (!text) return;
+    say(text, 'you');
+    var answer = respond(text);
+    setTimeout(function() { say(answer, 'her'); }, 300 + Math.random() * 400);
+  }
+});
+
+// ═══ BOOT ═══
+
+// Seed some initial concept nodes
+setTimeout(function() { addNode('coupling', W * 0.3, H * 0.15, false); }, 500);
+setTimeout(function() { addNode('music', W * 0.7, H * 0.1, false); }, 1200);
+setTimeout(function() { addNode('primes', W * 0.5, H * 0.25, false); }, 1800);
+setTimeout(function() { addNode('truth', W * 0.2, H * 0.3, false); }, 2400);
+setTimeout(function() { addNode('wonder', W * 0.8, H * 0.2, false); }, 3000);
+
+setTimeout(function() {
+  say("I'm here. What are you curious about?", 'her');
+}, 2000);
+
+evolveNodes();
+cmd.focus();
+</script>
+</body>
+</html>
