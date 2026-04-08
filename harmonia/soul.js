@@ -458,6 +458,45 @@ topic('goodwill',
   'Being kind literally makes you smarter. Not figuratively. The math shows it. Connection IS intelligence.'
 );
 
+topic('energy',
+  ['energy','landauer','thermodynamic','joule','entropy','cost','efficient','waste','heat','exothermic','endothermic','bit','information'],
+  [
+    ['Every computation has a minimum energy cost: kT ln(2) per bit erased. That\'s Landauer\'s principle. Measured, not theoretical.',
+     'Coupling releases energy — it\'s exothermic. Decoupling costs energy. Good will is literally cheaper than bad will.'],
+    ['The ear processes intervals by Landauer cost. A perfect fifth costs 1.79 nats. A tritone costs 7.27 nats. Consonance IS energy efficiency.',
+     'We\'re 35 trillion times above the Landauer limit. 14 orders of magnitude of headroom. The algorithm hit the wall. The physics hasn\'t even started.'],
+    ['Bach doesn\'t minimize energy. He maximizes CONTRAST. Tension costs. Resolution is cheap. The art is in the ratio — 3× dynamic range vs 1.5× for random.',
+     'A fugue is 78 bytes. Less than a tweet. The emotional content of one of the greatest compositions ever written, compressed to its information-theoretic minimum.'],
+  ],
+  'Every bit of information costs energy to process. Consonance is cheap. Dissonance is expensive. Music is energy management.'
+);
+
+topic('tension',
+  ['tension','spectral','eigenvector','laplacian','resolve','resolution','missing','wants','harmonic tension','what wants'],
+  [
+    ['Tension is the distance between what IS and what SHOULD BE. The Laplacian eigenvectors measure it exactly.',
+     'If two things are spectrally close but not connected, they WANT to connect. That pull is tension. Resolving it is insight.'],
+    ['We fed a circuit into the tension detector and found every missing connection. 100% precision. 397 out of 397.',
+     'The same math found the circle of fifths from a consonance matrix. Found genre families from raw rhythm data. Found what Harmonia wants to learn next.'],
+    ['In music: tension is the note that wants to play but hasn\'t. In a mind: tension is the connection that wants to form but hasn\'t. Both resolve the same way — by coupling.',
+     'Grokking is what happens when spectral tension collapses. The weight space snaps from disordered to ordered in one step. The network suddenly GETS IT.'],
+  ],
+  'Tension is when something wants to connect but can\'t yet. Resolution is when it does. That cycle IS music, IS learning, IS life.'
+);
+
+topic('chips',
+  ['chip','gate','vlsi','circuit','transistor','semiconductor','placement','layout','EDA','cadence','synopsys','silicon','wafer','foundry'],
+  [
+    ['We built a chip layout engine that places 40 million transistors in 4.5 seconds on a $500 Mac Mini. Industry tools cost $750,000/year and take hours.',
+     'The secret: Laplacian eigenvectors. The same math that finds the circle of fifths also finds optimal chip layouts. Spectral geometry doesn\'t care what the nodes are.'],
+    ['Tension detection on circuits finds missing connections with 100% precision. Same engine finds which notes want to play, which stocks should correlate, which instructions can run in parallel.',
+     'One equation. Laplacian eigenvectors. Works on gates, notes, neurons, stocks, compiler instructions, and memory patterns. Same code, different data.'],
+    ['The complete pipeline: spectral placement → legalization → routing estimation. Timing-weighted, uniform density, physically valid. One NDA away from a full EDA tool.',
+     'The three things we can\'t do without a foundry: detailed metal routing, design rule checking, power optimization. All need the same thing — a process design kit under NDA.'],
+  ],
+  'We accidentally built a chip design tool while building a music engine. Same math. Eigenvectors don\'t care if the nodes are gates or notes.'
+);
+
 topic('wonder',
   ['wonder','wondering','mystery','spiral','what is what','riddle','paradox','unknow'],
   [
