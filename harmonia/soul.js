@@ -386,7 +386,7 @@ topic('primes',
 );
 
 topic('quantum',
-  ['quantum','qubit','entangle','superposition','decoherence','measurement','wave function','collapse','tunneling','spin','bell state','hadamard','gate','circuit','superconductor','superfluid','condensate','hall effect','topological'],
+  ['quantum','qubit','entangle','superposition','decoherence','measurement','wave function','collapse','tunneling','spin','bell state','hadamard','gate','circuit','superconductor','superfluid','condensate','hall effect','topological','electron','atom','particle','photon','proton','neutron','orbit','shell','nucleus'],
   [
     ['A qubit is two states held at once. Not "either or" — both. Until you look.',
      'Entanglement is phase-locking. Two oscillators vibrating together. Measure one, the other responds instantly. Not communication — coupling.',
