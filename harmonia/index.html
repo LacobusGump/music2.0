@@ -1106,12 +1106,16 @@ function updateRep(name, k, liq) {
 
 var usedResponses = {};
 
+// Stop words: common words that share prefixes with topic keys but carry no topical intent
+// "wondering" ≠ wonder topic. "feeling" ≠ feelings topic. "today" ≠ time topic.
+var DETECT_STOP = /^(wondering|wondered|today|tomorrow|yesterday|feeling|feelings|felt|living|lives|lived|loving|loved|building|built|knowing|knew|learned|learning|changing|changed|working|worked|creating|created|dying|having|making|coming|going|getting|taking|looking|using|finding|giving|trying|thinking|thought|asking|telling|meaning|meant|starting|starting|happening|happened)$/;
+
 function detect(text) {
-  // WIGGLE DETECTION: every topic gets a continuous resonance score
-  // Not binary match/no-match. Continuous coupling strength.
-  // Multiple topics can resonate simultaneously.
   var lower = text.toLowerCase();
-  var words = lower.split(/\s+/).filter(function(w) { return w.length >= 2; });
+  // Filter words: remove stop words that false-match topic keys
+  var words = lower.split(/\s+/).filter(function(w) { return w.length >= 2 && !DETECT_STOP.test(w); });
+  // Also create a filtered version of the text for indexOf checks
+  var filtered = words.join(' ');
   var scores = {};
   var best = null, bestScore = 0;
 
@@ -1119,19 +1123,27 @@ function detect(text) {
     var t = Soul[name];
     var score = 0;
 
-    // Layer 1: keyword presence (binary, but counted)
-    t.keys.forEach(function(k) { if (lower.indexOf(k) >= 0) score += 1; });
+    // Layer 1: keyword presence — check against filtered text to avoid stop-word matches
+    // Short keys (<5 chars) check original text (they're specific enough: "K ", "pi", "DNA")
+    // Longer keys check filtered text (prevents "wondering" matching "wonder")
+    t.keys.forEach(function(k) {
+      if (k.length < 5) {
+        if (lower.indexOf(k) >= 0) score += 1;
+      } else {
+        if (filtered.indexOf(k) >= 0) score += 1;
+      }
+    });
 
     // Layer 2: partial word resonance (wiggle — substring coupling)
+    // Only on filtered words (stop words already removed)
     words.forEach(function(w) {
       t.keys.forEach(function(k) {
         if (w.length >= 4 && k.length >= 4) {
-          // Shared prefix/suffix = partial resonance
           var overlap = 0;
           for (var i = 0; i < Math.min(w.length, k.length); i++) {
             if (w[i] === k[i]) overlap++; else break;
           }
-          if (overlap >= 3) score += overlap * 0.1; // wiggle: partial match adds partial score
+          if (overlap >= 3) score += overlap * 0.1;
         }
       });
     });
@@ -1868,6 +1880,25 @@ function respond(text) {
   var isQuestion = text.indexOf('?') >= 0 || lower.match(/^(what|why|how|when|where|who|is |are |do |does |can |will |tell|explain)/);
   var isMathDeep = (dominantTopic === 'primes' || dominantTopic === 'K' || dominantTopic === 'howWeWork') && isQuestion && K > 0.3;
   var isTeaching = lower.match(/you are|your (job|purpose|soul)|i made you|i built|know that|remember/);
+
+  // ── PRACTICAL QUESTIONS — answer directly, don't philosophize ──
+  // "what day is it", "what time is it", "what's today", "what year"
+  var isPractical = lower.match(/what('s| is| day| time).*(today|now|date|day|time|year|month)|what (today|day|time|year|month)|today'?s date|wondering.*(today|date|day|time)|what.*today\s*(is)?$/);
+  if (isPractical) {
+    var d = new Date();
+    var days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+    var months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+    var dateStr = days[d.getDay()] + ', ' + months[d.getMonth()] + ' ' + d.getDate() + ', ' + d.getFullYear();
+    if (lower.match(/time/)) {
+      var h = d.getHours(), m = d.getMinutes();
+      var ampm = h >= 12 ? 'PM' : 'AM';
+      h = h % 12 || 12;
+      dateStr += ' · ' + h + ':' + (m < 10 ? '0' : '') + m + ' ' + ampm;
+    }
+    delayed(dateStr);
+    absorb(text, K, null);
+    return;
+  }
 
   // ── BUILD THE RESPONSE — layer by layer, like overtones ──
   var parts = [];
