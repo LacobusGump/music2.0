@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Trace — Spectral Forensics</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#08080d;color:#e8e4dc;font-family:'SF Pro Text',system-ui,Georgia,serif;display:flex;height:100vh;overflow:hidden}
+#canvas-wrap{flex:1;position:relative}
+canvas{display:block;width:100%;height:100%;cursor:crosshair}
+#tooltip{position:absolute;display:none;background:#0d0d14ee;border:1px solid #c9a44a40;border-radius:8px;padding:12px 16px;font-size:12px;pointer-events:none;max-width:280px;backdrop-filter:blur(8px);z-index:10;box-shadow:0 8px 32px #00000080}
+#tooltip .tt-name{color:#c9a44a;font-size:14px;font-weight:600;margin-bottom:6px}
+#tooltip .tt-row{display:flex;justify-content:space-between;gap:16px;padding:2px 0;color:#888}
+#tooltip .tt-row span:last-child{color:#e8e4dc}
+#legend{position:absolute;bottom:16px;left:16px;background:#0d0d14dd;border:1px solid #ffffff0a;border-radius:8px;padding:12px 16px;font-size:11px;backdrop-filter:blur(8px)}
+#legend .lg-title{color:#c9a44a;font-size:10px;letter-spacing:0.15em;margin-bottom:8px;text-transform:uppercase}
+#legend .lg-row{display:flex;align-items:center;gap:8px;padding:2px 0;color:#888}
+#legend .lg-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+#legend .lg-line{width:20px;height:0;border-top:2px solid;flex-shrink:0}
+#panel{width:380px;background:#0d0d14;border-left:1px solid #ffffff08;display:flex;flex-direction:column;overflow:hidden}
+.panel-header{padding:20px 20px 0}
+h1{font-size:1.3em;font-weight:200;color:#c9a44a;letter-spacing:0.12em}
+.sub{font-size:0.6em;color:#444;letter-spacing:0.18em;margin-bottom:12px}
+.risk-wrap{text-align:center;margin:8px 0 4px}
+.risk-num{font-size:2.6em;font-weight:100;color:#c44;line-height:1}
+.risk-label{font-size:0.65em;letter-spacing:0.2em;color:#c44;opacity:0.8}
+.risk-bar{height:3px;background:#ffffff08;border-radius:2px;margin:8px 0 16px}
+.risk-fill{height:100%;width:65%;background:linear-gradient(90deg,#c44,#c44aa);border-radius:2px;transition:width 0.6s}
+.tabs{display:flex;border-bottom:1px solid #ffffff0a;padding:0 20px}
+.tab{flex:1;text-align:center;padding:10px 4px;font-size:0.68em;letter-spacing:0.1em;color:#555;cursor:pointer;border-bottom:2px solid transparent;transition:all 0.2s;text-transform:uppercase}
+.tab:hover{color:#888}
+.tab.active{color:#c9a44a;border-bottom-color:#c9a44a}
+.tab-body{flex:1;overflow-y:auto;padding:16px 20px}
+.tab-content{display:none}
+.tab-content.active{display:block}
+.stat-row{display:flex;justify-content:space-between;font-size:0.76em;color:#666;padding:5px 0;border-bottom:1px solid #ffffff04}
+.stat-row span:last-child{color:#c9a44a;font-weight:500}
+.section-title{font-size:0.7em;color:#c9a44a;letter-spacing:0.12em;margin:16px 0 8px;text-transform:uppercase}
+.alert-item{display:flex;align-items:flex-start;gap:8px;padding:8px 10px;margin:4px 0;border-radius:6px;background:#0a0a12;border-left:3px solid #444;cursor:pointer;transition:all 0.15s;font-size:0.72em}
+.alert-item:hover{background:#12121e;transform:translateX(2px)}
+.alert-item[data-sev="HIGH"]{border-left-color:#c44;background:#1a0d0d}
+.alert-item[data-sev="MEDIUM"]{border-left-color:#c9a44a;background:#14120d}
+.alert-item[data-sev="LOW"]{border-left-color:#4a9;background:#0d1410}
+.sev-badge{font-size:9px;font-weight:700;letter-spacing:0.08em;padding:2px 6px;border-radius:3px;flex-shrink:0;margin-top:1px}
+.sev-badge.HIGH{background:#c4433a;color:#fff}
+.sev-badge.MEDIUM{background:#c9a44a;color:#08080d}
+.sev-badge.LOW{background:#4a9;color:#08080d}
+.alert-text{color:#aaa;line-height:1.4}
+.flow-table{width:100%;border-collapse:collapse;font-size:0.7em}
+.flow-table th{text-align:left;color:#c9a44a;font-weight:400;padding:6px 4px;border-bottom:1px solid #ffffff0a;font-size:0.9em;letter-spacing:0.08em}
+.flow-table td{padding:5px 4px;border-bottom:1px solid #ffffff04;color:#888}
+.flow-table td.num{text-align:right;font-variant-numeric:tabular-nums}
+.flow-table tr:hover td{color:#e8e4dc}
+.flow-table .pos{color:#4a9}.flow-table .neg{color:#c94}
+.tension-card{padding:8px 10px;margin:4px 0;border-radius:6px;background:#0a0a12;border-left:3px solid #c9a44a30;cursor:pointer;transition:all 0.15s;font-size:0.72em}
+.tension-card:hover{background:#12121e;border-left-color:#c9a44a}
+.tension-card .tc-pair{color:#c9a44a;margin-bottom:2px}
+.tension-card .tc-detail{color:#666}
+@media(max-width:768px){body{flex-direction:column}#panel{width:100%;height:50vh}}
+</style>
+</head>
+<body>
+<div id="canvas-wrap">
+  <canvas id="graph"></canvas>
+  <div id="tooltip"></div>
+  <div id="legend">
+    <div class="lg-title">Legend</div>
+    <div class="lg-row"><div class="lg-dot" style="background:#4a9"></div> Net receiver</div>
+    <div class="lg-row"><div class="lg-dot" style="background:#c94"></div> Net sender</div>
+    <div class="lg-row"><div class="lg-dot" style="background:#c44;box-shadow:0 0 6px #c44"></div> Circular flow entity</div>
+    <div class="lg-row"><div class="lg-dot" style="background:#888;border:2px solid #c9a44a"></div> Concentration risk</div>
+    <div class="lg-row"><div class="lg-line" style="border-color:#4a9"></div> Normal flow</div>
+    <div class="lg-row"><div class="lg-line" style="border-color:#c9a44a"></div> Tension (hidden link)</div>
+    <div class="lg-row"><div class="lg-line" style="border-color:#c44"></div> Circular flow</div>
+    <div class="lg-row" style="color:#666;font-style:italic;margin-top:4px">Arrow thickness = volume</div>
+  </div>
+</div>
+<div id="panel">
+  <div class="panel-header">
+    <h1>Trace</h1>
+    <div class="sub">GUMP &middot; spectral forensics</div>
+    <div class="risk-wrap">
+      <div class="risk-num">65</div>
+      <div class="risk-label">HIGH RISK</div>
+    </div>
+    <div class="risk-bar"><div class="risk-fill"></div></div>
+  </div>
+  <div class="tabs">
+    <div class="tab active" data-tab="overview">Overview</div>
+    <div class="tab" data-tab="alerts">Alerts</div>
+    <div class="tab" data-tab="flows">Flows</div>
+    <div class="tab" data-tab="tensions">Tensions</div>
+  </div>
+  <div class="tab-body">
+    <div class="tab-content active" id="tc-overview">
+      <div class="section-title">Flow Summary</div>
+      <div class="stat-row"><span>Total volume</span><span>$93,000,000.00</span></div>
+      <div class="stat-row"><span>Transactions</span><span>6</span></div>
+      <div class="stat-row"><span>Avg transaction</span><span>$15,500,000.00</span></div>
+      <div class="stat-row"><span>Entities</span><span>5</span></div>
+      <div class="stat-row"><span>Clusters</span><span>3</span></div>
+      <div class="stat-row"><span>Net senders</span><span>2</span></div>
+      <div class="stat-row"><span>Net receivers</span><span>3</span></div>
+      <div class="stat-row"><span>Circular patterns</span><span>2</span></div>
+      <div class="stat-row"><span>Anomalous amounts</span><span>0</span></div>
+      <div class="stat-row"><span>Hidden relationships</span><span>6</span></div>
+      <div class="section-title">Concentration Risk</div>
+      <div id="conc-list"></div>
+      <div class="section-title">Spectral Energy</div>
+      <div class="stat-row"><span>Information bits</span><span>672</span></div>
+      <div class="stat-row"><span>Landauer energy</span><span>1.93e-18 J</span></div>
+    </div>
+    <div class="tab-content" id="tc-alerts">
+      <div class="section-title">Prioritized Alert Queue</div>
+      <div id="alert-list"></div>
+    </div>
+    <div class="tab-content" id="tc-flows">
+      <div class="section-title">Entity Flow Table</div>
+      <table class="flow-table">
+        <thead><tr><th>Entity</th><th style="text-align:right">Sent</th><th style="text-align:right">Recv</th><th style="text-align:right">Net</th></tr></thead>
+        <tbody id="flow-tbody"></tbody>
+      </table>
+    </div>
+    <div class="tab-content" id="tc-tensions">
+      <div class="section-title">Hidden Relationships</div>
+      <div id="tension-list"></div>
+    </div>
+  </div>
+</div>
+<script>
+var DATA={"risk_score": 65, "flags": ["2 circular flow pattern(s) detected", "1 entity(ies) with extreme flow concentration (>40%)", "6 spectral tensions detected"], "tensions": [{"entity_a": "LJM", "entity_b": "Supplier", "tension": 0.766, "spectral_distance": 1.3056, "note": "Spectrally close but no direct transactions \u2014 potential hidden relationship"}, {"entity_a": "Customer_1", "entity_b": "LJM", "tension": 0.761, "spectral_distance": 1.3133, "note": "Spectrally close but no direct transactions \u2014 potential hidden relationship"}, {"entity_a": "Chewco", "entity_b": "LJM", "tension": 0.741, "spectral_distance": 1.3495, "note": "Spectrally close but no direct transactions \u2014 potential hidden relationship"}, {"entity_a": "Chewco", "entity_b": "Supplier", "tension": 0.71, "spectral_distance": 1.409, "note": "Spectrally close but no direct transactions \u2014 potential hidden relationship"}, {"entity_a": "Chewco", "entity_b": "Customer_1", "tension": 0.709, "spectral_distance": 1.4105, "note": "Spectrally close but no direct transactions \u2014 potential hidden relationship"}, {"entity_a": "Customer_1", "entity_b": "Supplier", "tension": 0.707, "spectral_distance": 1.4141, "note": "Spectrally close but no direct transactions \u2014 potential hidden relationship"}], "circular_flows": [{"entity_a": "Chewco", "entity_b": "Enron", "forward": 10000000.0, "backward": 12000000.0, "ratio": 0.833, "flag": "MEDIUM", "note": "Bidirectional flow \u2014 potential wash trading or structuring"}, {"entity_a": "Enron", "entity_b": "LJM", "forward": 30000000.0, "backward": 28000000.0, "ratio": 0.933, "flag": "HIGH", "note": "Bidirectional flow \u2014 potential wash trading or structuring"}], "anomalous_amounts": [], "concentration": [{"entity": "Enron", "volume": 93000000.0, "pct_of_total": 50.0, "sent": 47000000.0, "received": 46000000.0, "note": "Handles >25% of total flow \u2014 concentration risk"}, {"entity": "LJM", "volume": 58000000.0, "pct_of_total": 31.2, "sent": 28000000.0, "received": 30000000.0, "note": "Handles >25% of total flow \u2014 concentration risk"}], "spectral_anomalies": [], "net_flow": {"Chewco": {"entity": "Chewco", "sent": 10000000.0, "received": 12000000.0, "net": 2000000.0, "role": "net_receiver"}, "Customer_1": {"entity": "Customer_1", "sent": 8000000.0, "received": 0.0, "net": -8000000.0, "role": "net_sender"}, "Enron": {"entity": "Enron", "sent": 47000000.0, "received": 46000000.0, "net": -1000000.0, "role": "net_sender"}, "LJM": {"entity": "LJM", "sent": 28000000.0, "received": 30000000.0, "net": 2000000.0, "role": "net_receiver"}, "Supplier": {"entity": "Supplier", "sent": 0.0, "received": 5000000.0, "net": 5000000.0, "role": "net_receiver"}}, "clusters": [["Customer_1"], ["Chewco", "Enron"], ["LJM", "Supplier"]], "positions": {"Chewco": [220.0, 30.0], "Customer_1": [40.0, 570.0], "Enron": [580.0, 300.0], "LJM": [400.0, 165.0], "Supplier": [760.0, 435.0]}, "stats": {"entities": 5, "transactions": 6, "total_volume": 93000000.0, "total_energy_J": 1.9292978107729025e-18, "total_bits": 672}, "report": "TRACE ANALYSIS \u2014 5 entities, 6 transactions\nRisk score: 65/100\nAssessment: HIGH RISK \u2014 multiple suspicious patterns detected.\n\n  \u26a0 2 circular flow pattern(s) detected\n  \u26a0 1 entity(ies) with extreme flow concentration (>40%)\n  \u26a0 6 spectral tensions detected\n\nCIRCULAR FLOWS:\n  [MEDIUM] Chewco \u2194 Enron (forward: 10000000.0, back: 12000000.0, ratio: 0.833)\n  [HIGH] Enron \u2194 LJM (forward: 30000000.0, back: 28000000.0, ratio: 0.933)\nHIDDEN RELATIONSHIPS (spectral tension):\n  LJM \u2194 Supplier (tension: 0.766)\n  Customer_1 \u2194 LJM (tension: 0.761)\n  Chewco \u2194 LJM (tension: 0.741)"};
+var ALERTS=[{"severity": "HIGH", "text": "Bidirectional: Enron \u2194 LJM (ratio: 0.933)", "type": "circular", "entities": ["Enron", "LJM"]}, {"severity": "HIGH", "text": "Concentration: Enron handles 50.0% of flow", "type": "concentration", "entities": ["Enron"]}, {"severity": "MEDIUM", "text": "Bidirectional: Chewco \u2194 Enron (ratio: 0.833)", "type": "circular", "entities": ["Chewco", "Enron"]}, {"severity": "MEDIUM", "text": "Concentration: LJM handles 31.2% of flow", "type": "concentration", "entities": ["LJM"]}, {"severity": "LOW", "text": "2 circular flow pattern(s) detected", "type": "flag", "entities": []}, {"severity": "LOW", "text": "1 entity(ies) with extreme flow concentration (>40%)", "type": "flag", "entities": []}, {"severity": "LOW", "text": "6 spectral tensions detected", "type": "flag", "entities": []}];
+var cv=document.getElementById('graph'),cx=cv.getContext('2d'),wrap=document.getElementById('canvas-wrap');
+var dpr=window.devicePixelRatio||1;
+var hoverNode=null,highlightEntities=null,mouseX=0,mouseY=0;
+
+function resize(){var r=wrap.getBoundingClientRect();cv.width=r.width*dpr;cv.height=r.height*dpr;cx.setTransform(dpr,0,0,dpr,0,0);}
+resize();window.addEventListener('resize',function(){resize();draw();});
+var W=function(){return cv.width/dpr},H=function(){return cv.height/dpr};
+
+// Build sets for quick lookup
+var circularEntities=new Set();
+(DATA.circular_flows||[]).forEach(function(c){
+  if(c.entity_a)circularEntities.add(c.entity_a);
+  if(c.entity_b)circularEntities.add(c.entity_b);
+  if(c.path)c.path.split(' \u2192 ').forEach(function(e){circularEntities.add(e.trim())});
+});
+var concEntities=new Set();
+(DATA.concentration||[]).forEach(function(c){concEntities.add(c.entity)});
+
+// Build edge list from net_flow pairs: we reconstruct from circular + infer from positions
+// Actually reconstruct all directed edges from the data we have
+var allEdges=[];
+// From circular_flows we know bidirectional pairs
+(DATA.circular_flows||[]).forEach(function(c){
+  if(c.entity_a&&c.entity_b&&c.forward!==undefined){
+    allEdges.push({from:c.entity_a,to:c.entity_b,amount:c.forward,circular:true});
+    allEdges.push({from:c.entity_b,to:c.entity_a,amount:c.backward,circular:true});
+  }
+});
+
+// Build inferred edges from net_flow (for entities not in circular)
+// We create edges proportional to sent/received for visualization
+var nf=DATA.net_flow||{};
+var entities=Object.keys(DATA.positions||{});
+// We need real edge data. Since it's not in the result, we'll draw flows based on what we have.
+// For a production version, edges should be in the result dict.
+
+function mp(name){
+  var pos=DATA.positions||{};var p=pos[name];if(!p)return null;
+  var w=W(),h=H(),m=80;
+  return[m+(p[0]/800)*(w-2*m),m+(p[1]/600)*(h-2*m)];
+}
+
+function nodeRadius(name){
+  var nf=DATA.net_flow[name]||{};
+  var vol=(nf.sent||0)+(nf.received||0);
+  var maxVol=0;entities.forEach(function(e){var n=DATA.net_flow[e]||{};var v=(n.sent||0)+(n.received||0);if(v>maxVol)maxVol=v});
+  var norm=maxVol>0?vol/maxVol:0;
+  return Math.max(6,norm*28+6);
+}
+
+function nodeColor(name){
+  if(circularEntities.has(name))return'#c44';
+  var nf=DATA.net_flow[name]||{};
+  return nf.role==='net_receiver'?'#4a9':nf.role==='net_sender'?'#c94':'#888';
+}
+
+function drawArrow(x1,y1,x2,y2,thickness,color,dashed){
+  var dx=x2-x1,dy=y2-y1,len=Math.sqrt(dx*dx+dy*dy);
+  if(len<1)return;
+  var ux=dx/len,uy=dy/len;
+  // Shorten to not overlap nodes
+  var r1=nodeRadius(hoverNode)||8,r2=8;
+  // Find which entity is at each end for proper radius
+  entities.forEach(function(e){var p=mp(e);if(p&&Math.abs(p[0]-x1)<2&&Math.abs(p[1]-y1)<2)r1=nodeRadius(e);if(p&&Math.abs(p[0]-x2)<2&&Math.abs(p[1]-y2)<2)r2=nodeRadius(e);});
+  var sx=x1+ux*(r1+4),sy=y1+uy*(r1+4);
+  var ex=x2-ux*(r2+8),ey=y2-uy*(r2+8);
+  cx.save();
+  if(dashed)cx.setLineDash([6,4]);
+  cx.strokeStyle=color;cx.lineWidth=thickness;cx.lineCap='round';
+  cx.beginPath();cx.moveTo(sx,sy);cx.lineTo(ex,ey);cx.stroke();
+  if(dashed)cx.setLineDash([]);
+  // Arrowhead
+  var headLen=Math.min(12,thickness*4+6);
+  var angle=Math.atan2(ey-sy,ex-sx);
+  cx.fillStyle=color;
+  cx.beginPath();
+  cx.moveTo(ex,ey);
+  cx.lineTo(ex-headLen*Math.cos(angle-0.35),ey-headLen*Math.sin(angle-0.35));
+  cx.lineTo(ex-headLen*Math.cos(angle+0.35),ey-headLen*Math.sin(angle+0.35));
+  cx.closePath();cx.fill();
+  cx.restore();
+}
+
+function draw(){
+  var w=W(),h=H();cx.clearRect(0,0,w,h);
+  var pos=DATA.positions||{};entities=Object.keys(pos);
+  if(!entities.length)return;
+
+  // Compute max edge amount for thickness scaling
+  var maxAmt=1;
+  allEdges.forEach(function(e){if(e.amount>maxAmt)maxAmt=e.amount});
+  // Also consider net_flow for the general edges
+  entities.forEach(function(e){var n=DATA.net_flow[e]||{};if((n.sent||0)>maxAmt)maxAmt=n.sent});
+
+  // Draw tension lines (dashed gold)
+  (DATA.tensions||[]).forEach(function(t){
+    var a=mp(t.entity_a),b=mp(t.entity_b);
+    if(!a||!b)return;
+    var alpha=highlightEntities?((highlightEntities.has(t.entity_a)&&highlightEntities.has(t.entity_b))?0.6:0.06):0.2;
+    drawArrow(a[0],a[1],b[0],b[1],1,'rgba(201,164,74,'+alpha+')',true);
+  });
+
+  // Draw circular flow edges (red, with arrows both ways)
+  allEdges.forEach(function(e){
+    var a=mp(e.from),b=mp(e.to);
+    if(!a||!b)return;
+    var thick=Math.max(1.5,Math.min(8,(e.amount/maxAmt)*8));
+    var alpha=highlightEntities?((highlightEntities.has(e.from)||highlightEntities.has(e.to))?0.9:0.08):0.6;
+    var col=e.circular?'rgba(200,70,70,'+alpha+')':'rgba(90,180,130,'+alpha+')';
+    drawArrow(a[0],a[1],b[0],b[1],thick,col,false);
+  });
+
+  // Draw implied flow edges for non-circular entities (green arrows based on net_flow)
+  // We draw from senders to receivers with thickness proportional to volume
+  var senderList=[],receiverList=[];
+  entities.forEach(function(e){
+    var n=DATA.net_flow[e]||{};
+    if(n.role==='net_sender')senderList.push(e);
+    else if(n.role==='net_receiver')receiverList.push(e);
+  });
+  // Only draw implied edges if we have no explicit edges for these entities
+  var explicitNodes=new Set();
+  allEdges.forEach(function(e){explicitNodes.add(e.from);explicitNodes.add(e.to)});
+
+  // Draw cluster backgrounds
+  (DATA.clusters||[]).forEach(function(cluster,ci){
+    if(cluster.length<2)return;
+    var pts=cluster.map(function(e){return mp(e)}).filter(function(p){return p});
+    if(pts.length<2)return;
+    var cx2=0,cy2=0;pts.forEach(function(p){cx2+=p[0];cy2+=p[1]});
+    cx2/=pts.length;cy2/=pts.length;
+    var maxR=0;pts.forEach(function(p){var d=Math.sqrt((p[0]-cx2)*(p[0]-cx2)+(p[1]-cy2)*(p[1]-cy2));if(d>maxR)maxR=d});
+    cx.fillStyle='rgba(201,164,74,0.02)';
+    cx.beginPath();cx.arc(cx2,cy2,maxR+30,0,Math.PI*2);cx.fill();
+    cx.strokeStyle='rgba(201,164,74,0.06)';cx.lineWidth=1;
+    cx.beginPath();cx.arc(cx2,cy2,maxR+30,0,Math.PI*2);cx.stroke();
+  });
+
+  // Draw nodes
+  entities.forEach(function(name){
+    var p=mp(name);if(!p)return;
+    var r=nodeRadius(name);
+    var color=nodeColor(name);
+    var isHighlighted=!highlightEntities||highlightEntities.has(name);
+    var alpha=isHighlighted?1:0.15;
+
+    // Glow for circular entities
+    if(circularEntities.has(name)&&isHighlighted){
+      var grd=cx.createRadialGradient(p[0],p[1],r,p[0],p[1],r*3);
+      grd.addColorStop(0,'rgba(200,70,70,0.3)');grd.addColorStop(1,'rgba(200,70,70,0)');
+      cx.fillStyle=grd;cx.beginPath();cx.arc(p[0],p[1],r*3,0,Math.PI*2);cx.fill();
+    }
+
+    // Concentration ring
+    if(concEntities.has(name)&&isHighlighted){
+      cx.strokeStyle='#c9a44a';cx.lineWidth=2;
+      cx.beginPath();cx.arc(p[0],p[1],r+4,0,Math.PI*2);cx.stroke();
+      cx.strokeStyle='rgba(201,164,74,0.3)';cx.lineWidth=1;
+      cx.beginPath();cx.arc(p[0],p[1],r+8,0,Math.PI*2);cx.stroke();
+    }
+
+    // Node fill
+    cx.globalAlpha=alpha;
+    cx.fillStyle=color;cx.beginPath();cx.arc(p[0],p[1],r,0,Math.PI*2);cx.fill();
+    // Subtle border
+    cx.strokeStyle='rgba(255,255,255,0.15)';cx.lineWidth=1;
+    cx.beginPath();cx.arc(p[0],p[1],r,0,Math.PI*2);cx.stroke();
+
+    // Label
+    cx.fillStyle=isHighlighted?'#e8e4dc':'#e8e4dc';
+    cx.font=(name===hoverNode?'bold ':'')+Math.max(10,Math.min(13,r*0.9))+'px "SF Pro Text",system-ui,Georgia';
+    cx.textAlign='center';cx.textBaseline='bottom';
+    cx.fillText(name,p[0],p[1]-r-6);
+    cx.globalAlpha=1;
+  });
+
+  // Hover Sankey highlight: thick colored bands showing all flows for hovered node
+  if(hoverNode&&DATA.net_flow[hoverNode]){
+    var hp=mp(hoverNode);
+    if(hp){
+      var hn=DATA.net_flow[hoverNode]||{};
+      // Draw flow magnitude bands to connected entities
+      allEdges.forEach(function(e){
+        if(e.from===hoverNode||e.to===hoverNode){
+          var a=mp(e.from),b=mp(e.to);
+          if(a&&b){
+            var thick=Math.max(3,Math.min(14,(e.amount/maxAmt)*14));
+            var col=e.circular?'rgba(200,70,70,0.8)':'rgba(90,180,130,0.8)';
+            drawArrow(a[0],a[1],b[0],b[1],thick,col,false);
+          }
+        }
+      });
+    }
+  }
+}
+
+// Mouse tracking for hover
+cv.addEventListener('mousemove',function(ev){
+  var rect=cv.getBoundingClientRect();
+  mouseX=ev.clientX-rect.left;mouseY=ev.clientY-rect.top;
+  var oldHover=hoverNode;hoverNode=null;
+  var pos=DATA.positions||{};
+  Object.keys(pos).forEach(function(name){
+    var p=mp(name);if(!p)return;
+    var dx=mouseX-p[0],dy=mouseY-p[1];
+    if(Math.sqrt(dx*dx+dy*dy)<nodeRadius(name)+6)hoverNode=name;
+  });
+  if(hoverNode!==oldHover){
+    if(!highlightEntities)draw();
+    updateTooltip();
+  }
+});
+
+cv.addEventListener('mouseleave',function(){
+  hoverNode=null;if(!highlightEntities)draw();
+  document.getElementById('tooltip').style.display='none';
+});
+
+function updateTooltip(){
+  var tt=document.getElementById('tooltip');
+  if(!hoverNode){tt.style.display='none';return;}
+  var nf=DATA.net_flow[hoverNode]||{};
+  var role=nf.role==='net_receiver'?'Net Receiver':nf.role==='net_sender'?'Net Sender':'Neutral';
+  var isCirc=circularEntities.has(hoverNode)?' [CIRCULAR]':'';
+  var isConc=concEntities.has(hoverNode)?' [CONCENTRATED]':'';
+  // Find connections
+  var conns=new Set();
+  allEdges.forEach(function(e){if(e.from===hoverNode)conns.add(e.to);if(e.to===hoverNode)conns.add(e.from);});
+  // Also from tensions
+  (DATA.tensions||[]).forEach(function(t){if(t.entity_a===hoverNode)conns.add(t.entity_b);if(t.entity_b===hoverNode)conns.add(t.entity_a);});
+
+  tt.innerHTML='<div class="tt-name">'+hoverNode+isCirc+isConc+'</div>'+
+    '<div class="tt-row"><span>Role</span><span>'+role+'</span></div>'+
+    '<div class="tt-row"><span>Sent</span><span>$'+(nf.sent||0).toLocaleString()+'</span></div>'+
+    '<div class="tt-row"><span>Received</span><span>$'+(nf.received||0).toLocaleString()+'</span></div>'+
+    '<div class="tt-row"><span>Net</span><span style="color:'+((nf.net||0)>=0?'#4a9':'#c94')+'">$'+(nf.net||0).toLocaleString()+'</span></div>'+
+    (conns.size?'<div class="tt-row"><span>Connected to</span><span>'+Array.from(conns).join(', ')+'</span></div>':'');
+  tt.style.display='block';
+  var rect=cv.getBoundingClientRect();
+  tt.style.left=Math.min(mouseX+16,rect.width-290)+'px';
+  tt.style.top=Math.min(mouseY+16,rect.height-160)+'px';
+}
+
+// Tabs
+document.querySelectorAll('.tab').forEach(function(tab){
+  tab.addEventListener('click',function(){
+    document.querySelectorAll('.tab').forEach(function(t){t.classList.remove('active')});
+    document.querySelectorAll('.tab-content').forEach(function(t){t.classList.remove('active')});
+    tab.classList.add('active');
+    document.getElementById('tc-'+tab.dataset.tab).classList.add('active');
+  });
+});
+
+// Populate alerts
+(function(){
+  var list=document.getElementById('alert-list');
+  if(!ALERTS.length){list.innerHTML='<div style="color:#4a9;font-size:0.72em;padding:8px">No alerts.</div>';return;}
+  ALERTS.forEach(function(a,i){
+    var div=document.createElement('div');
+    div.className='alert-item';div.dataset.sev=a.severity;div.dataset.idx=i;
+    div.innerHTML='<span class="sev-badge '+a.severity+'">'+a.severity+'</span><span class="alert-text">'+a.text+'</span>';
+    div.addEventListener('click',function(){
+      highlightEntities=new Set(a.entities||[]);
+      draw();
+      // Clear after 4 seconds
+      setTimeout(function(){highlightEntities=null;draw();},4000);
+    });
+    list.appendChild(div);
+  });
+})();
+
+// Populate flow table
+(function(){
+  var tbody=document.getElementById('flow-tbody');
+  var nf=DATA.net_flow||{};
+  var rows=Object.keys(nf).map(function(e){return nf[e]}).sort(function(a,b){return Math.abs(b.net)-Math.abs(a.net)});
+  rows.forEach(function(r){
+    var tr=document.createElement('tr');
+    tr.innerHTML='<td>'+r.entity+'</td><td class="num">$'+(r.sent||0).toLocaleString()+'</td><td class="num">$'+(r.received||0).toLocaleString()+'</td><td class="num '+((r.net||0)>=0?'pos':'neg')+'">$'+(r.net||0).toLocaleString()+'</td>';
+    tr.style.cursor='pointer';
+    tr.addEventListener('click',function(){
+      highlightEntities=new Set([r.entity]);draw();
+      setTimeout(function(){highlightEntities=null;draw();},4000);
+    });
+    tbody.appendChild(tr);
+  });
+})();
+
+// Populate concentration
+(function(){
+  var list=document.getElementById('conc-list');
+  var conc=DATA.concentration||[];
+  if(!conc.length){list.innerHTML='<div style="color:#4a9;font-size:0.72em">No concentration risk detected.</div>';return;}
+  conc.forEach(function(c){
+    var div=document.createElement('div');div.className='stat-row';
+    div.innerHTML='<span>'+c.entity+' ('+c.pct_of_total+'%)</span><span>$'+(c.volume||0).toLocaleString()+'</span>';
+    list.appendChild(div);
+  });
+})();
+
+// Populate tensions
+(function(){
+  var list=document.getElementById('tension-list');
+  var tens=DATA.tensions||[];
+  if(!tens.length){list.innerHTML='<div style="color:#4a9;font-size:0.72em">No hidden relationships detected.</div>';return;}
+  tens.forEach(function(t){
+    var div=document.createElement('div');div.className='tension-card';
+    div.innerHTML='<div class="tc-pair">'+t.entity_a+' \u2194 '+t.entity_b+'</div><div class="tc-detail">Tension: '+t.tension+' &middot; Spectral distance: '+t.spectral_distance+'</div><div class="tc-detail" style="color:#555;font-size:0.9em;margin-top:2px">'+t.note+'</div>';
+    div.addEventListener('click',function(){
+      highlightEntities=new Set([t.entity_a,t.entity_b]);draw();
+      setTimeout(function(){highlightEntities=null;draw();},4000);
+    });
+    list.appendChild(div);
+  });
+})();
+
+draw();
+</script>
+</body>
+</html>
