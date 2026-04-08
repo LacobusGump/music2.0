@@ -72,7 +72,7 @@ h2{font-size:1em;font-weight:200;color:#c9a44a;letter-spacing:0.08em;margin:24px
       <div id="demo-output"></div>
     </div>
     <div id="demo-locked" class="locked" style="display:none;">
-      You've used your 3 free analyses.<br><br>
+      You've used your 5 free analyses.<br><br>
       You've seen what it does. Now imagine it on YOUR data.<br><br>
       <a href="https://buy.stripe.com/aFa3cv3Pi20h8tf4LSfIs05">$25,000/mo →</a>
     </div>
@@ -130,10 +130,45 @@ function _gumpTrialCheck(product, maxTries) {
     if (c.startsWith(key + '=')) countC = parseInt(c.split('=')[1]) || 0;
   }
   var count = Math.max(countA, countB, countC);
+  // Also check IndexedDB
+  try {
+    var dbReq = indexedDB.open("gump_trials", 1);
+    dbReq.onsuccess = function(e) {
+      try {
+        var tx = e.target.result.transaction("counts", "readonly");
+        var getReq = tx.objectStore("counts").get(product);
+        getReq.onsuccess = function() {
+          var dbCount = getReq.result || 0;
+          if (dbCount > count) {
+            localStorage.setItem(key, dbCount);
+            localStorage.setItem(keyB, dbCount);
+            checkTrial();
+          }
+        };
+      } catch(ex) {}
+    };
+  } catch(ex) {}
   return { count: count, remaining: Math.max(0, maxTries - count), fp: fp, key: key, keyB: keyB };
 }
 
 function _gumpTrialUse(product) {
+  // 4th storage: IndexedDB (survives localStorage.clear)
+  try {
+    var dbReq = indexedDB.open("gump_trials", 1);
+    dbReq.onupgradeneeded = function(e) { e.target.result.createObjectStore("counts"); };
+    dbReq.onsuccess = function(e) {
+      var db = e.target.result;
+      try {
+        var tx = db.transaction("counts", "readwrite");
+        var store = tx.objectStore("counts");
+        var getReq = store.get(product);
+        getReq.onsuccess = function() {
+          var c = (getReq.result || 0) + 1;
+          store.put(c, product);
+        };
+      } catch(ex) {}
+    };
+  } catch(ex) {}
   var fp = _gumpFP();
   var key = 'gump_trial_' + product + '_' + fp;
   var keyB = 'gump_tb_' + product;
@@ -149,7 +184,7 @@ function _gumpTrialUse(product) {
 
 
 var PRODUCT = 'chipfast';
-var MAX_TRIES = 3;
+var MAX_TRIES = 5;
 
 function checkTrial() {
   var t = _gumpTrialCheck(PRODUCT, MAX_TRIES);
