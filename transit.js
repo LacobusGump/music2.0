@@ -347,12 +347,11 @@
   function restore() {
     animating = false;
     var page = document.querySelector('.page');
-    if (page) { page.style.transition = 'none'; page.style.opacity = '1'; }
+    if (page) { page.style.cssText += ';opacity:1!important;transition:none!important;'; }
     if (canvas) canvas.style.opacity = '0';
   }
-  window.addEventListener('pageshow', function(e) { if (e.persisted) restore(); });
+  window.addEventListener('pageshow', restore);
   window.addEventListener('popstate', restore);
-  // Also restore on visibility change (covers tab switching + back nav)
   document.addEventListener('visibilitychange', function() {
     if (!document.hidden) restore();
   });
