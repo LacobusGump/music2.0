@@ -301,6 +301,11 @@
     requestAnimationFrame(frame);
   }
 
+  // ═══ BACK BUTTON — just reload fresh ═══
+  window.addEventListener('pageshow', function(e) {
+    if (e.persisted) window.location.reload();
+  });
+
   // ═══ BOOT ═══
   function boot() {
     init();
