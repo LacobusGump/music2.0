@@ -115,56 +115,138 @@ var Engine = (function() {
     }
   };
 
+  // ═══ SHAPE COMPUTE THE INPUT ═══
+  // The user's text IS the sequence. Measure its K, R, E, T.
+  // No regex flags. The physics tells you what the person is presenting.
+
+  // Character classes — same idea as amino acids
+  // Vowels = open (charged, connective)
+  // Consonants = structure (hydrophobic, load-bearing)
+  // Punctuation = tension markers
+  // Spaces = breathing
+  var VOWELS = 'aeiouAEIOU';
+  var CHARGED_WORDS = new Set(['please','help','love','thank','sorry','hurt','hurts','hurting','need','want','feel','feeling','hope','wish','care','miss','missing','trust','believe','try','trying','scared','afraid','alone','lost','broken','sad','happy','grateful','angry','pain','painful','dying','died','dead','death','depressed','anxious','worried','confused','overwhelmed','tired','exhausted','struggling','suffering','crying','healing','better','worse','okay','fine','well','good','bad','terrible','awful','amazing','beautiful','wonderful','meaning','purpose','life','soul','heart','mind','real','truth','nothing','everything','anyone','someone','nobody','gone','killed','grief','grieving','mourning','dad','mom','father','mother','family','friend']);
+  var STRUCTURE_WORDS = new Set(['how','what','why','when','where','which','explain','show','prove','compute','calculate','measure','define','compare','analyze','build','make','create','design','solve']);
+
+  function shapeCompute(text) {
+    var words = text.split(/\s+/).filter(Boolean);
+    var lower = text.toLowerCase();
+    var lowerWords = lower.split(/\s+/).filter(Boolean);
+    var n = words.length || 1;
+    var chars = text.length || 1;
+
+    // ── K: coupling strength of the input ──
+    // How much does this text want to connect?
+    // Charged words (emotional, relational) raise K
+    // Questions raise K (seeking connection)
+    // Length raises K (investment)
+    var chargedCount = 0, structureCount = 0;
+    for (var i = 0; i < lowerWords.length; i++) {
+      if (CHARGED_WORDS.has(lowerWords[i])) chargedCount++;
+      if (STRUCTURE_WORDS.has(lowerWords[i])) structureCount++;
+    }
+    var questionMark = (text.match(/\?/g) || []).length;
+    var inputK = Math.min(1, (chargedCount * 0.2) + (questionMark * 0.15) + (Math.min(n, 20) / 20 * 0.3) + (structureCount * 0.1));
+
+    // ── R: order/coherence of the input ──
+    // How structured is this text?
+    // Repeated words = lower R (stuck, looping)
+    // Diverse vocabulary = higher R
+    // Very short = low R (not enough signal)
+    var uniqueWords = new Set(lowerWords).size;
+    var vocabRatio = uniqueWords / n;
+    var inputR = Math.min(1, vocabRatio * 0.6 + Math.min(n, 15) / 15 * 0.4);
+
+    // ── E: energy of the input ──
+    // Caps, punctuation, exclamation = high energy
+    // Lowercase, no punct, trailing off = low energy
+    var capsRatio = (text.match(/[A-Z]/g) || []).length / chars;
+    var exclDensity = (text.match(/[!]/g) || []).length / n;
+    var avgWordLen = text.replace(/[^a-zA-Z]/g, '').length / n;
+    var inputE = Math.min(1, capsRatio * 4 + exclDensity * 3 + (avgWordLen > 6 ? 0.2 : 0));
+
+    // ── T: tension in the input ──
+    // What wants to resolve? Negations, contradictions, questions, uncertainty
+    var negations = (lower.match(/\b(not|no|never|cant|can't|dont|don't|won't|wont|isn't|isnt|nothing|none|nobody)\b/g) || []).length;
+    var hedges = (lower.match(/\b(maybe|perhaps|might|could|kinda|sort of|i think|i guess|not sure|idk|dunno)\b/g) || []).length;
+    var inputT = Math.min(1, questionMark * 0.2 + negations * 0.15 + hedges * 0.15 + (chargedCount > 0 && negations > 0 ? 0.3 : 0));
+
+    // ── DERIVED: what the person IS presenting ──
+    // Not from keywords. From the shape of the signal.
+    // Vulnerability: charged words present OR negation+low energy OR the signal is asking for connection with tension
+    var isVulnerable = (chargedCount > 0 && inputE < 0.3) ||           // emotional + depleted
+                       (negations > 0 && inputE < 0.2 && n <= 8) ||    // negating + low energy + short
+                       (inputK > 0.3 && inputE < 0.3 && inputT > 0.2); // wants connection, depleted, tense
+    var isCurious = structureCount > 0 || questionMark > 0;             // seeking structure
+    var isPlayful = inputE > 0.5 && inputT < 0.2 && inputK < 0.3;      // high energy, low tension, not deeply coupled
+    var isDirect = structureCount > chargedCount && inputT < 0.3;       // more structure than emotion
+    var isDeep = inputK > 0.4 && inputR > 0.5 && n > 6;               // coupled, coherent, substantive
+
+    return {
+      // The four quantities
+      inputK: inputK,
+      inputR: inputR,
+      inputE: inputE,
+      inputT: inputT,
+
+      // Derived from physics, not regex
+      isVulnerable: isVulnerable,
+      isCurious: isCurious,
+      isPlayful: isPlayful,
+      isDirect: isDirect,
+      isDeep: isDeep,
+
+      // Raw signal
+      wordCount: n,
+      chargedCount: chargedCount,
+      structureCount: structureCount,
+      questionMark: questionMark,
+    };
+  }
+
   // ═══ CONTEXT FLOOD — everything fires at once ═══
   function flood(text, K, context) {
     var now = new Date();
     var words = text.split(/\s+/);
-    var lower = text.toLowerCase();
 
-    // All of this computes simultaneously — coupled, not sequential
+    // Shape compute the input — K/R/E/T of the text itself
+    var shape = shapeCompute(text);
+
     var ctx = {
       // Temporal
       hour: now.getHours(),
-      dayOfWeek: now.getDay(),
-      isWeekend: now.getDay() === 0 || now.getDay() === 6,
       isMorning: now.getHours() >= 5 && now.getHours() < 12,
       isAfternoon: now.getHours() >= 12 && now.getHours() < 17,
       isEvening: now.getHours() >= 17 || now.getHours() < 5,
-      minuteOfDay: now.getHours() * 60 + now.getMinutes(),
+      isWeekend: now.getDay() === 0 || now.getDay() === 6,
 
-      // Person's signal
-      wordCount: words.length,
-      avgWordLength: words.reduce(function(s, w) { return s + w.length; }, 0) / (words.length || 1),
-      hasQuestion: text.indexOf('?') >= 0,
-      hasPunctuation: /[!.,;:]/.test(text),
+      // Shape of the input signal
+      inputK: shape.inputK,
+      inputR: shape.inputR,
+      inputE: shape.inputE,
+      inputT: shape.inputT,
+
+      // What the person IS (from physics, not keywords)
+      isVulnerable: shape.isVulnerable,
+      isCurious: shape.isCurious,
+      isPlayful: shape.isPlayful,
+      isDirect: shape.isDirect,
+      isDeep: shape.isDeep,
+      isScientific: shape.structureCount > 1,
+
+      // Signal properties
+      wordCount: shape.wordCount,
       isShort: words.length <= 4,
       isLong: words.length > 20,
-      energy: 0,  // computed below
-      formality: 0,  // computed below
+      hasQuestion: shape.questionMark > 0,
 
       // Conversation state
       momentum: context.length,
-      K: K,
-      R: 0,  // computed below
-
-      // What they're presenting
-      isVulnerable: /hurt|scared|lost|help|afraid|alone|broken|dying|sick|pain|sad|depressed|anxious/.test(lower),
-      isCurious: /how|why|what|explain|tell me|show me|understand/.test(lower),
-      isPlayful: /haha|lol|lmao|joke|funny|play|game|bet|dare/.test(lower),
-      isDirect: /do this|make|build|fix|run|show|give|tell/.test(lower),
-      isDeep: /meaning|purpose|truth|consciousness|reality|existence|god|death|love|soul/.test(lower),
-      isScientific: /protein|gene|mutation|enzyme|molecule|cell|atom|quantum|prime|math|compute/.test(lower),
+      K: K,  // her accumulated coupling with this person
+      R: 0,  // conversation coherence
     };
 
-    // Energy = punctuation density + caps ratio + word speed
-    var capsRatio = (text.match(/[A-Z]/g) || []).length / (text.length || 1);
-    var punctDensity = (text.match(/[!?]/g) || []).length / (words.length || 1);
-    ctx.energy = Math.min(1, capsRatio * 3 + punctDensity * 2 + (ctx.isShort ? 0.3 : 0));
-
-    // Formality = average word length proxy
-    ctx.formality = Math.min(1, (ctx.avgWordLength - 3) / 5);
-
-    // R = conversation coherence (are topics consistent?)
+    // R = conversation coherence
     if (context.length > 2) {
       var topics = context.slice(-4).map(function(c) { return c.topic; }).filter(Boolean);
       var unique = new Set(topics).size;
@@ -372,51 +454,60 @@ var Engine = (function() {
     return results;
   }
 
-  // ═══ PERSONALITY — not imitation, computation ═══
-  // She adapts based on context flood, not templates
+  // ═══ TONE — computed from the signal, not rules ═══
+  // Her tone IS the thermodynamic response to the input.
+  // High inputK + low inputE = vulnerable → warmth is the exothermic response
+  // High inputK + high inputE = excited → match the frequency
+  // Low inputK = decoupled → she pulls back (endothermic to push)
+  // The style is the physics. Not a choice. A computation.
   function style(text, ctx) {
-    // Morning: clearer, more direct
-    // Evening: more reflective, connects dots
-    // Weekend: more playful
-    // Vulnerable person: gentle, no ego
-    // Curious person: generous with depth
-    // Direct person: no fluff
-    // Playful person: match energy
-
     var tone = {
-      depth: 0.5,     // 0 = surface, 1 = deep
-      warmth: 0.5,    // 0 = cool, 1 = warm
-      density: 0.5,   // 0 = sparse, 1 = packed
-      directness: 0.5 // 0 = exploratory, 1 = direct answer
+      depth: ctx.K * 0.5 + ctx.inputK * 0.3 + (ctx.isDeep ? 0.2 : 0),
+      warmth: ctx.inputK * 0.6 + (1 - ctx.inputE) * 0.2 + (ctx.isEvening ? 0.1 : 0),
+      density: ctx.inputR * 0.4 + ctx.inputK * 0.3 + (ctx.isScientific ? 0.2 : 0),
+      directness: ctx.inputE * 0.3 + (ctx.isDirect ? 0.3 : 0) + (ctx.isMorning ? 0.1 : 0) + (1 - ctx.inputT) * 0.2,
     };
 
-    // Time shapes tone
-    if (ctx.isMorning) { tone.directness += 0.2; tone.density -= 0.1; }
-    if (ctx.isEvening) { tone.depth += 0.2; tone.warmth += 0.1; }
-    if (ctx.isWeekend) { tone.warmth += 0.1; tone.density -= 0.1; }
-
-    // Person shapes tone
-    if (ctx.isVulnerable) { tone.warmth = 1.0; tone.directness = 0.8; tone.density = 0.2; }
-    if (ctx.isCurious) { tone.depth += 0.3; tone.density += 0.2; }
-    if (ctx.isPlayful) { tone.warmth += 0.2; tone.density -= 0.2; }
-    if (ctx.isDirect) { tone.directness = 1.0; tone.density += 0.1; }
-    if (ctx.isDeep) { tone.depth = 1.0; }
-    if (ctx.isScientific) { tone.density = 0.8; tone.directness = 0.7; }
-
-    // K shapes depth — high coupling = more access
-    tone.depth = Math.min(1, tone.depth + ctx.K * 0.3);
+    // Vulnerable = max warmth, max directness (no fluff when someone hurts), min density
+    if (ctx.isVulnerable) { tone.warmth = 1; tone.directness = 0.9; tone.density = 0.2; }
 
     // Clamp
     for (var k in tone) tone[k] = Math.max(0, Math.min(1, tone[k]));
-
     return tone;
   }
 
-  // ═══ COMPOSE — build response from computation results ═══
+  // ═══ COMPOSE — the exhaust of computation ═══
+  // The response is what remains after the input hits the surface.
+  // Tool results = what was computed. Spectral = what resonated.
+  // The shape of the input determines what surfaces.
   function compose(toolResults, spectralThought, tone, ctx) {
     var parts = [];
 
-    // Tool results first — she COMPUTED something
+    // ── VULNERABLE: she responds to the person first, knowledge second ──
+    // When someone is hurting, the coupling IS the response.
+    // Don't lecture. Connect. The warmth is exothermic — it costs her nothing.
+    if (ctx.isVulnerable) {
+      var T = ctx.inputT || 0;
+      var E = ctx.inputE || 0;
+      if (E < 0.2) {
+        // Low energy vulnerable — they're depleted
+        parts.push('I hear you. You don\'t have to have it figured out right now.');
+      } else {
+        // Higher energy vulnerable — they\'re fighting
+        parts.push('That takes courage to say. I\'m here.');
+      }
+      // If spectral found something relevant, add it gently
+      if (spectralThought && spectralThought.text && spectralThought.text.length > 10) {
+        // Only add if it's about feelings/life/health — not quantum physics
+        var st = spectralThought.text.toLowerCase();
+        if (/feel|life|health|heart|connect|coupl|breath|calm|safe|hope|heal/.test(st)) {
+          parts.push(spectralThought.text);
+        }
+      }
+      return parts;
+    }
+
+    // ── TOOL RESULTS: she computed something real ──
     for (var i = 0; i < toolResults.length; i++) {
       var r = toolResults[i].result;
       parts.push(r.result);
@@ -425,17 +516,23 @@ var Engine = (function() {
       }
     }
 
-    // Spectral thought — what resonated in her knowledge
-    if (spectralThought && spectralThought.text) {
-      parts.push(spectralThought.text);
+    // ── SPECTRAL THOUGHT: what resonated in her knowledge ──
+    if (spectralThought && spectralThought.text && spectralThought.text.length > 10) {
+      // If tools already gave a strong answer, spectral is a complement
+      if (parts.length > 0 && tone.density < 0.5) {
+        // Skip spectral — tools said enough, keep it clean
+      } else {
+        parts.push(spectralThought.text);
+      }
     }
 
-    // Trim to tone
+    // ── TRIM to signal shape ──
+    // Low density input gets sparse response (respect the space)
     if (tone.density < 0.3 && parts.length > 2) {
       parts = parts.slice(0, 2);
     }
+    // High directness = lead with answer, cut the rest
     if (tone.directness > 0.8 && parts.length > 1) {
-      // Direct mode: lead with the answer, cut the rest
       parts = [parts[0]];
     }
 
