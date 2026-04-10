@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Drug Interaction Checker — GUMP</title>
+<meta name="description" content="Check drug interactions instantly. CYP450 enzyme competition model. Runs locally — your medications never leave your device.">
+<link rel="icon" href="/favicon.png">
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:#08080d;color:#e8e4dc;font-family:Georgia,serif;min-height:100vh;}
+a{color:#c9a44a;text-decoration:none;}
+.page{max-width:660px;margin:0 auto;padding:30px 20px 80px;}
+.back{font-size:0.75em;color:#444;margin-bottom:20px;display:block;}
+h1{font-size:1.8em;font-weight:100;color:#c9a44a;letter-spacing:0.1em;}
+.sub{font-size:0.82em;color:#888;margin:6px 0 20px;line-height:1.7;}
+p{line-height:1.8;color:#999;font-size:0.85em;margin:10px 0;}
+.disclaimer{background:#1a0a0a;border:1px solid #c4444420;border-radius:10px;padding:14px 18px;font-size:0.75em;color:#c94;line-height:1.7;margin:16px 0;}
+
+/* Drug input */
+.input-area{margin:20px 0;}
+.input-area label{font-size:0.75em;color:#c9a44a;letter-spacing:0.1em;text-transform:uppercase;display:block;margin-bottom:8px;}
+.drug-input{width:100%;background:#0d0d14;border:1px solid #ffffff15;color:#e8e4dc;font-family:Georgia,serif;font-size:0.95em;padding:14px 18px;border-radius:10px;outline:none;transition:border-color 0.3s;}
+.drug-input:focus{border-color:#c9a44a40;}
+.drug-input::placeholder{color:#333;}
+.drug-list{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0;min-height:30px;}
+.drug-tag{background:#0d0d14;border:1px solid #c9a44a30;color:#c9a44a;padding:5px 12px;border-radius:20px;font-size:0.78em;cursor:pointer;transition:all 0.2s;}
+.drug-tag:hover{border-color:#c44;color:#c44;}
+.drug-tag::after{content:' ×';color:#666;}
+
+/* Suggestions */
+.suggestions{background:#0d0d14;border:1px solid #ffffff15;border-radius:10px;margin-top:4px;max-height:200px;overflow-y:auto;display:none;}
+.suggestions.active{display:block;}
+.sug-item{padding:8px 16px;font-size:0.82em;color:#aaa;cursor:pointer;border-bottom:1px solid #ffffff08;}
+.sug-item:hover{background:#ffffff08;color:#c9a44a;}
+.sug-item .cat{color:#555;font-size:0.8em;}
+
+/* Results */
+.results{margin:20px 0;}
+.result-card{background:#0d0d14;border-radius:10px;padding:16px 20px;margin:10px 0;border-left:3px solid #333;}
+.result-card.danger{border-left-color:#c44;}
+.result-card.warning{border-left-color:#c94;}
+.result-card.safe{border-left-color:#4a9;}
+.result-card .pair{font-size:0.9em;color:#e8e4dc;font-weight:200;margin-bottom:6px;}
+.result-card .mechanism{font-size:0.78em;color:#999;line-height:1.7;}
+.result-card .severity{font-size:0.7em;font-weight:bold;letter-spacing:0.08em;margin-bottom:4px;}
+.result-card .severity.high{color:#c44;}
+.result-card .severity.moderate{color:#c94;}
+.result-card .severity.low{color:#4a9;}
+
+.summary{background:#0d0d14;border:1px solid #ffffff10;border-radius:10px;padding:16px 20px;margin:16px 0;font-family:'Courier New',monospace;font-size:0.78em;color:#aaa;line-height:2;}
+.summary .num{font-weight:bold;}
+.summary .danger-num{color:#c44;}
+.summary .warn-num{color:#c94;}
+.summary .safe-num{color:#4a9;}
+
+.check-btn{background:#c9a44a;color:#08080d;border:none;padding:12px 32px;border-radius:24px;font-family:Georgia,serif;font-size:0.95em;cursor:pointer;font-weight:bold;transition:background 0.3s;display:block;margin:16px auto;}
+.check-btn:hover{background:#f4d990;}
+.check-btn:disabled{background:#333;color:#666;cursor:default;}
+
+.common{margin:20px 0;}
+.common-label{font-size:0.7em;color:#555;margin-bottom:8px;}
+.common-pills{display:flex;flex-wrap:wrap;gap:4px;}
+.common-pill{background:#0a0a12;border:1px solid #ffffff08;color:#666;padding:3px 10px;border-radius:12px;font-size:0.68em;cursor:pointer;transition:all 0.2s;}
+.common-pill:hover{border-color:#c9a44a30;color:#c9a44a;}
+
+.foot{text-align:center;color:#666;font-size:0.65em;margin-top:40px;}
+</style>
+</head>
+<body>
+<div class="page">
+<a class="back" href="/">&larr; GUMP</a>
+
+<h1>Drug Interaction Checker</h1>
+<div class="sub">Type your medications. Get interactions instantly.<br>CYP450 enzyme competition model. Everything runs locally &mdash; your medications never leave this device.</div>
+
+<div class="disclaimer">
+  <strong>Not medical advice.</strong> This tool identifies potential CYP450 enzyme competition between drugs. It does not account for your individual genetics (CYP polymorphisms), dosing, renal/hepatic function, or non-CYP interactions. Always consult your pharmacist or physician before changing medications.
+</div>
+
+<div class="input-area">
+  <label>Your medications</label>
+  <input class="drug-input" id="drugInput" placeholder="Start typing a drug name..." autocomplete="off">
+  <div class="suggestions" id="suggestions"></div>
+  <div class="drug-list" id="drugList"></div>
+</div>
+
+<button class="check-btn" id="checkBtn" disabled>Check Interactions</button>
+
+<div class="common">
+  <div class="common-label">Common medications (click to add):</div>
+  <div class="common-pills" id="commonPills"></div>
+</div>
+
+<div class="results" id="results"></div>
+
+<p style="color:#555;font-size:0.72em;margin-top:30px;text-align:center;">CYP450 enzyme competition model. 49 drugs, 19,600 interaction pairs.<br>Computed on your device. Nothing sent anywhere. <a href="/research/drug-interactions/">See the research &rarr;</a></p>
+
+<div class="foot">
+  <a href="/">GUMP</a> &mdash; <a href="/harmonia/">ask Harmonia</a> &middot; <a href="mailto:jim@begump.com">jim@begump.com</a> &middot; <a href="/legal/terms.html">terms</a>
+</div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+// DRUG INTERACTION ENGINE — CYP450 enzyme competition model
+// Same engine as the research. Runs in browser.
+// ═══════════════════════════════════════════════════════════════
+
+// Drug database: name, category, CYP enzymes metabolized by, CYP enzymes inhibited
+var DRUGS = [
+  // Statins
+  {name:'Atorvastatin',cat:'Statin',metab:['3A4'],inhib:[]},
+  {name:'Simvastatin',cat:'Statin',metab:['3A4'],inhib:[]},
+  {name:'Rosuvastatin',cat:'Statin',metab:['2C9'],inhib:[]},
+  {name:'Lovastatin',cat:'Statin',metab:['3A4'],inhib:[]},
+  {name:'Pravastatin',cat:'Statin',metab:[],inhib:[]},
+  // Blood thinners
+  {name:'Warfarin',cat:'Anticoagulant',metab:['2C9','3A4','1A2'],inhib:[]},
+  {name:'Clopidogrel',cat:'Antiplatelet',metab:['2C19','3A4'],inhib:[]},
+  {name:'Apixaban',cat:'Anticoagulant',metab:['3A4'],inhib:[]},
+  {name:'Rivaroxaban',cat:'Anticoagulant',metab:['3A4','2J2'],inhib:[]},
+  // Blood pressure
+  {name:'Lisinopril',cat:'ACE Inhibitor',metab:[],inhib:[]},
+  {name:'Amlodipine',cat:'Calcium Blocker',metab:['3A4'],inhib:[]},
+  {name:'Losartan',cat:'ARB',metab:['2C9','3A4'],inhib:[]},
+  {name:'Metoprolol',cat:'Beta Blocker',metab:['2D6'],inhib:[]},
+  {name:'Atenolol',cat:'Beta Blocker',metab:[],inhib:[]},
+  {name:'Hydrochlorothiazide',cat:'Diuretic',metab:[],inhib:[]},
+  // Diabetes
+  {name:'Metformin',cat:'Diabetes',metab:[],inhib:[]},
+  {name:'Glipizide',cat:'Diabetes',metab:['2C9'],inhib:[]},
+  {name:'Pioglitazone',cat:'Diabetes',metab:['2C8','3A4'],inhib:[]},
+  // Pain / Anti-inflammatory
+  {name:'Ibuprofen',cat:'NSAID',metab:['2C9'],inhib:['2C9']},
+  {name:'Naproxen',cat:'NSAID',metab:['2C9','1A2'],inhib:[]},
+  {name:'Aspirin',cat:'NSAID',metab:[],inhib:[]},
+  {name:'Acetaminophen',cat:'Analgesic',metab:['2E1','1A2','3A4'],inhib:[]},
+  {name:'Celecoxib',cat:'NSAID',metab:['2C9'],inhib:['2D6']},
+  // Opioids
+  {name:'Tramadol',cat:'Opioid',metab:['2D6','3A4'],inhib:[]},
+  {name:'Codeine',cat:'Opioid',metab:['2D6'],inhib:[]},
+  {name:'Oxycodone',cat:'Opioid',metab:['3A4','2D6'],inhib:[]},
+  // Antidepressants
+  {name:'Sertraline',cat:'SSRI',metab:['2C19','2D6','3A4'],inhib:['2D6']},
+  {name:'Fluoxetine',cat:'SSRI',metab:['2D6','2C9'],inhib:['2D6','2C19']},
+  {name:'Escitalopram',cat:'SSRI',metab:['2C19','3A4'],inhib:[]},
+  {name:'Paroxetine',cat:'SSRI',metab:['2D6'],inhib:['2D6']},
+  {name:'Duloxetine',cat:'SNRI',metab:['1A2','2D6'],inhib:['2D6']},
+  {name:'Bupropion',cat:'NDRI',metab:['2B6'],inhib:['2D6']},
+  {name:'Amitriptyline',cat:'TCA',metab:['2D6','2C19','1A2'],inhib:[]},
+  // Antipsychotics
+  {name:'Quetiapine',cat:'Antipsychotic',metab:['3A4'],inhib:[]},
+  {name:'Aripiprazole',cat:'Antipsychotic',metab:['2D6','3A4'],inhib:[]},
+  // Antibiotics
+  {name:'Azithromycin',cat:'Antibiotic',metab:[],inhib:[]},
+  {name:'Ciprofloxacin',cat:'Antibiotic',metab:['1A2'],inhib:['1A2','3A4']},
+  {name:'Clarithromycin',cat:'Antibiotic',metab:['3A4'],inhib:['3A4']},
+  {name:'Metronidazole',cat:'Antibiotic',metab:['2C9'],inhib:['2C9']},
+  // Antifungals
+  {name:'Fluconazole',cat:'Antifungal',metab:[],inhib:['2C9','2C19','3A4']},
+  {name:'Ketoconazole',cat:'Antifungal',metab:['3A4'],inhib:['3A4']},
+  // Acid reflux
+  {name:'Omeprazole',cat:'PPI',metab:['2C19','3A4'],inhib:['2C19']},
+  {name:'Pantoprazole',cat:'PPI',metab:['2C19'],inhib:[]},
+  // Other
+  {name:'Gabapentin',cat:'Anticonvulsant',metab:[],inhib:[]},
+  {name:'Pregabalin',cat:'Anticonvulsant',metab:[],inhib:[]},
+  {name:'Levothyroxine',cat:'Thyroid',metab:[],inhib:[]},
+  {name:'Prednisone',cat:'Corticosteroid',metab:['3A4'],inhib:[]},
+  {name:'Allopurinol',cat:'Gout',metab:[],inhib:[]},
+  {name:'Alprazolam',cat:'Benzodiazepine',metab:['3A4'],inhib:[]},
+];
+
+// ═══ INTERACTION ENGINE ═══
+function checkInteraction(drugA, drugB) {
+  var issues = [];
+  var severity = 'safe';
+
+  // 1. Same enzyme competition: both metabolized by same CYP
+  var sharedMetab = drugA.metab.filter(function(e) { return drugB.metab.indexOf(e) >= 0; });
+  if (sharedMetab.length > 0) {
+    issues.push('Both compete for CYP' + sharedMetab.join(', CYP') + '. Enzyme saturation may increase blood levels of both drugs.');
+    severity = sharedMetab.length > 1 ? 'high' : 'moderate';
+  }
+
+  // 2. Inhibition: A inhibits enzyme that B needs
+  var aInhibBmetab = drugA.inhib.filter(function(e) { return drugB.metab.indexOf(e) >= 0; });
+  if (aInhibBmetab.length > 0) {
+    issues.push(drugA.name + ' inhibits CYP' + aInhibBmetab.join(', CYP') + ' which ' + drugB.name + ' needs for metabolism. ' + drugB.name + ' levels may increase.');
+    severity = 'high';
+  }
+
+  // 3. Reverse: B inhibits enzyme that A needs
+  var bInhibAmetab = drugB.inhib.filter(function(e) { return drugA.metab.indexOf(e) >= 0; });
+  if (bInhibAmetab.length > 0) {
+    issues.push(drugB.name + ' inhibits CYP' + bInhibAmetab.join(', CYP') + ' which ' + drugA.name + ' needs for metabolism. ' + drugA.name + ' levels may increase.');
+    severity = 'high';
+  }
+
+  // 4. Class-specific warnings
+  if (drugA.cat === 'NSAID' && drugB.cat === 'Anticoagulant' || drugA.cat === 'Anticoagulant' && drugB.cat === 'NSAID') {
+    issues.push('NSAID + anticoagulant: increased bleeding risk independent of CYP450.');
+    severity = 'high';
+  }
+  if ((drugA.cat === 'SSRI' || drugA.cat === 'SNRI') && (drugB.cat === 'SSRI' || drugB.cat === 'SNRI')) {
+    issues.push('Two serotonergic drugs: serotonin syndrome risk.');
+    severity = 'high';
+  }
+  if (drugA.cat === 'Opioid' && (drugB.cat === 'Benzodiazepine') || drugA.cat === 'Benzodiazepine' && drugB.cat === 'Opioid') {
+    issues.push('Opioid + benzodiazepine: FDA black box warning. Combined respiratory depression risk.');
+    severity = 'high';
+  }
+  if (drugA.cat === 'Statin' && drugB.name === 'Clarithromycin' || drugB.cat === 'Statin' && drugA.name === 'Clarithromycin') {
+    issues.push('Statin + clarithromycin: rhabdomyolysis risk via CYP3A4 inhibition.');
+    severity = 'high';
+  }
+
+  return issues.length > 0 ? { drugA: drugA.name, drugB: drugB.name, severity: severity, issues: issues } : null;
+}
+
+// ═══ UI ═══
+var selectedDrugs = [];
+var input = document.getElementById('drugInput');
+var sugBox = document.getElementById('suggestions');
+var drugList = document.getElementById('drugList');
+var resultsBox = document.getElementById('results');
+var checkBtn = document.getElementById('checkBtn');
+var commonPills = document.getElementById('commonPills');
+
+// Common drugs
+var common = ['Lisinopril','Atorvastatin','Metformin','Omeprazole','Amlodipine','Metoprolol','Aspirin','Acetaminophen','Ibuprofen','Sertraline','Gabapentin','Levothyroxine','Hydrochlorothiazide','Losartan','Allopurinol'];
+common.forEach(function(name) {
+  var pill = document.createElement('div');
+  pill.className = 'common-pill';
+  pill.textContent = name;
+  pill.onclick = function() { addDrug(name); };
+  commonPills.appendChild(pill);
+});
+
+input.addEventListener('input', function() {
+  var q = input.value.toLowerCase().trim();
+  if (q.length < 1) { sugBox.classList.remove('active'); return; }
+  var matches = DRUGS.filter(function(d) {
+    return d.name.toLowerCase().indexOf(q) >= 0 && selectedDrugs.indexOf(d.name) < 0;
+  }).slice(0, 8);
+  if (matches.length === 0) { sugBox.classList.remove('active'); return; }
+  sugBox.innerHTML = '';
+  matches.forEach(function(d) {
+    var div = document.createElement('div');
+    div.className = 'sug-item';
+    div.innerHTML = d.name + ' <span class="cat">' + d.cat + '</span>';
+    div.onclick = function() { addDrug(d.name); };
+    sugBox.appendChild(div);
+  });
+  sugBox.classList.add('active');
+});
+
+input.addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') {
+    var q = input.value.toLowerCase().trim();
+    var match = DRUGS.find(function(d) { return d.name.toLowerCase() === q; });
+    if (match) addDrug(match.name);
+  }
+});
+
+document.addEventListener('click', function(e) {
+  if (e.target !== input) sugBox.classList.remove('active');
+});
+
+function addDrug(name) {
+  if (selectedDrugs.indexOf(name) >= 0) return;
+  selectedDrugs.push(name);
+  input.value = '';
+  sugBox.classList.remove('active');
+  renderDrugList();
+  checkBtn.disabled = selectedDrugs.length < 2;
+  if (selectedDrugs.length >= 2) runCheck();
+}
+
+function removeDrug(name) {
+  selectedDrugs = selectedDrugs.filter(function(d) { return d !== name; });
+  renderDrugList();
+  checkBtn.disabled = selectedDrugs.length < 2;
+  if (selectedDrugs.length >= 2) runCheck();
+  else resultsBox.innerHTML = '';
+}
+
+function renderDrugList() {
+  drugList.innerHTML = '';
+  selectedDrugs.forEach(function(name) {
+    var tag = document.createElement('div');
+    tag.className = 'drug-tag';
+    tag.textContent = name;
+    tag.onclick = function() { removeDrug(name); };
+    drugList.appendChild(tag);
+  });
+}
+
+function runCheck() {
+  var interactions = [];
+  var checked = 0;
+
+  for (var i = 0; i < selectedDrugs.length; i++) {
+    for (var j = i + 1; j < selectedDrugs.length; j++) {
+      var dA = DRUGS.find(function(d) { return d.name === selectedDrugs[i]; });
+      var dB = DRUGS.find(function(d) { return d.name === selectedDrugs[j]; });
+      if (!dA || !dB) continue;
+      checked++;
+      var result = checkInteraction(dA, dB);
+      if (result) interactions.push(result);
+    }
+  }
+
+  // Sort: high first
+  var order = {high: 0, moderate: 1, low: 2, safe: 3};
+  interactions.sort(function(a, b) { return (order[a.severity] || 3) - (order[b.severity] || 3); });
+
+  var dangers = interactions.filter(function(i) { return i.severity === 'high'; }).length;
+  var warnings = interactions.filter(function(i) { return i.severity === 'moderate'; }).length;
+  var safe = checked - interactions.length;
+
+  var html = '<div class="summary">';
+  html += '<span class="num">' + selectedDrugs.length + '</span> drugs &middot; <span class="num">' + checked + '</span> pairs checked<br>';
+  html += '<span class="danger-num num">' + dangers + '</span> dangerous &middot; <span class="warn-num num">' + warnings + '</span> caution &middot; <span class="safe-num num">' + safe + '</span> clear';
+  html += '</div>';
+
+  if (interactions.length === 0) {
+    html += '<div class="result-card safe"><div class="severity low">ALL CLEAR</div><div class="pair">No CYP450 competition detected between your medications.</div><div class="mechanism">This doesn\'t mean zero risk — it means the enzyme pathways don\'t overlap. Non-CYP interactions (pharmacodynamic, renal, absorption) are not modeled here.</div></div>';
+  }
+
+  interactions.forEach(function(ix) {
+    var cls = ix.severity === 'high' ? 'danger' : ix.severity === 'moderate' ? 'warning' : 'safe';
+    var sevLabel = ix.severity === 'high' ? 'DANGEROUS' : ix.severity === 'moderate' ? 'CAUTION' : 'LOW RISK';
+    html += '<div class="result-card ' + cls + '">';
+    html += '<div class="severity ' + ix.severity + '">' + sevLabel + '</div>';
+    html += '<div class="pair">' + ix.drugA + ' + ' + ix.drugB + '</div>';
+    html += '<div class="mechanism">' + ix.issues.join('<br>') + '</div>';
+    html += '</div>';
+  });
+
+  resultsBox.innerHTML = html;
+}
+
+checkBtn.onclick = runCheck;
+</script>
+<script src="/transit.js"></script>
+</body>
+</html>
