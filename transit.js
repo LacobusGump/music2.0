@@ -342,15 +342,19 @@
     requestAnimationFrame(frame);
   }
 
-  // ═══ RESTORE — handle back/forward navigation (bfcache) ═══
-  window.addEventListener('pageshow', function(e) {
-    // If page was restored from bfcache, reset everything
-    if (e.persisted) {
-      animating = false;
-      var page = document.querySelector('.page');
-      if (page) { page.style.opacity = '1'; page.style.transition = 'none'; }
-      if (canvas) canvas.style.opacity = '0';
-    }
+  // ═══ RESTORE — handle back/forward navigation ═══
+  // Multiple strategies because browsers are inconsistent with bfcache
+  function restore() {
+    animating = false;
+    var page = document.querySelector('.page');
+    if (page) { page.style.transition = 'none'; page.style.opacity = '1'; }
+    if (canvas) canvas.style.opacity = '0';
+  }
+  window.addEventListener('pageshow', function(e) { if (e.persisted) restore(); });
+  window.addEventListener('popstate', restore);
+  // Also restore on visibility change (covers tab switching + back nav)
+  document.addEventListener('visibilitychange', function() {
+    if (!document.hidden) restore();
   });
 
   // ═══ BOOT ═══
