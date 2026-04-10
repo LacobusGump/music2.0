@@ -301,27 +301,15 @@
     requestAnimationFrame(frame);
   }
 
-  // ═══ BACK BUTTON — every possible hook ═══
-  window.addEventListener('pageshow', function(e) {
-    if (e.persisted) window.location.reload();
-  });
-  window.addEventListener('popstate', function() {
-    window.location.reload();
-  });
-  // Safari sometimes doesn't fire pageshow persisted
-  // So also: if canvas exists and is visible on load, kill it
-  window.addEventListener('load', function() {
-    if (canvas && canvas.style.display !== 'none') {
-      canvas.style.display = 'none';
-    }
-    var page = document.querySelector('.page');
-    if (page) page.style.visibility = 'visible';
-  });
-
   // ═══ BOOT ═══
   function boot() {
-    init();
-    assemble();
+    // Only init canvas if we're assembling. Otherwise no canvas exists = no problems.
+    var hasTransit = false;
+    try { hasTransit = sessionStorage.getItem('transit'); } catch(e) {}
+    if (hasTransit) {
+      init();
+      assemble();
+    }
 
     var links = document.querySelectorAll('a.product, a.card, a.harmonia-section');
     for (var i = 0; i < links.length; i++) {
