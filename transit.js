@@ -27,6 +27,7 @@
     if (canvas) return;
     dpr = devicePixelRatio || 1;
     canvas = document.createElement('canvas');
+    canvas.id = 'transit-canvas';
     canvas.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;z-index:9999;pointer-events:none;display:none;';
     document.body.appendChild(canvas);
     ctx = canvas.getContext('2d');
@@ -301,9 +302,19 @@
     requestAnimationFrame(frame);
   }
 
+  // ═══ CLEANUP — kill any leftover canvas from bfcache restore ═══
+  window.addEventListener('pageshow', function(e) {
+    if (e.persisted) {
+      var old = document.getElementById('transit-canvas');
+      if (old) old.remove();
+      canvas = null;
+      var page = document.querySelector('.page');
+      if (page) page.style.visibility = 'visible';
+    }
+  });
+
   // ═══ BOOT ═══
   function boot() {
-    // Only init canvas if we're assembling. Otherwise no canvas exists = no problems.
     var hasTransit = false;
     try { hasTransit = sessionStorage.getItem('transit'); } catch(e) {}
     if (hasTransit) {
