@@ -151,8 +151,11 @@
     }
 
     // Fade the page content
-    document.querySelector('.page').style.transition = 'opacity 0.3s';
-    document.querySelector('.page').style.opacity = '0';
+    var pageEl = document.querySelector('.page');
+    if (pageEl) {
+      pageEl.style.transition = 'opacity 0.3s';
+      pageEl.style.opacity = '0';
+    }
 
     var startTime = performance.now();
     var duration = 800; // ms
@@ -339,6 +342,17 @@
     requestAnimationFrame(frame);
   }
 
+  // ═══ RESTORE — handle back/forward navigation (bfcache) ═══
+  window.addEventListener('pageshow', function(e) {
+    // If page was restored from bfcache, reset everything
+    if (e.persisted) {
+      animating = false;
+      var page = document.querySelector('.page');
+      if (page) { page.style.opacity = '1'; page.style.transition = 'none'; }
+      if (canvas) canvas.style.opacity = '0';
+    }
+  });
+
   // ═══ BOOT ═══
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', boot);
@@ -358,7 +372,7 @@
       (function(link) {
         link.addEventListener('click', function(e) {
           var href = link.getAttribute('href');
-          if (!href || href === '#' || href.indexOf('http') === 0) return; // skip external/anchor
+          if (!href || href === '#' || href.indexOf('http') === 0) return;
           e.preventDefault();
           dissolve(link, href);
         });
