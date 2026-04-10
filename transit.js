@@ -301,9 +301,21 @@
     requestAnimationFrame(frame);
   }
 
-  // ═══ BACK BUTTON — just reload fresh ═══
+  // ═══ BACK BUTTON — every possible hook ═══
   window.addEventListener('pageshow', function(e) {
     if (e.persisted) window.location.reload();
+  });
+  window.addEventListener('popstate', function() {
+    window.location.reload();
+  });
+  // Safari sometimes doesn't fire pageshow persisted
+  // So also: if canvas exists and is visible on load, kill it
+  window.addEventListener('load', function() {
+    if (canvas && canvas.style.display !== 'none') {
+      canvas.style.display = 'none';
+    }
+    var page = document.querySelector('.page');
+    if (page) page.style.visibility = 'visible';
   });
 
   // ═══ BOOT ═══
