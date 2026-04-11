@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Protein Sequence Analyzer — GUMP</title>
+<meta name="description" content="Paste any protein sequence. Get structural analysis, aggregation risk, mutation strategies. Runs locally — your sequence never leaves your device.">
+<link rel="icon" href="/favicon.png">
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:#08080d;color:#e8e4dc;font-family:Georgia,serif;min-height:100vh;}
+a{color:#c9a44a;text-decoration:none;}
+.page{max-width:700px;margin:0 auto;padding:30px 20px 80px;}
+.back{font-size:0.75em;color:#444;margin-bottom:20px;display:block;}
+h1{font-size:1.8em;font-weight:100;color:#c9a44a;letter-spacing:0.1em;}
+.sub{font-size:0.82em;color:#888;margin:6px 0 20px;line-height:1.7;}
+p{line-height:1.8;color:#999;font-size:0.85em;margin:10px 0;}
+
+textarea{width:100%;background:#0d0d14;border:1px solid #ffffff15;color:#e8e4dc;font-family:'Courier New',monospace;font-size:0.85em;padding:14px 18px;border-radius:10px;outline:none;resize:vertical;min-height:80px;transition:border-color 0.3s;line-height:1.6;}
+textarea:focus{border-color:#c9a44a40;}
+textarea::placeholder{color:#333;font-family:Georgia,serif;}
+.label{font-size:0.7em;color:#c9a44a;letter-spacing:0.1em;text-transform:uppercase;margin-bottom:6px;display:block;}
+
+.analyze-btn{background:#c9a44a;color:#08080d;border:none;padding:12px 32px;border-radius:24px;font-family:Georgia,serif;font-size:0.95em;cursor:pointer;font-weight:bold;transition:background 0.3s;display:block;margin:16px auto;}
+.analyze-btn:hover{background:#f4d990;}
+
+.result{background:#0d0d14;border:1px solid #ffffff10;border-radius:10px;padding:16px 20px;margin:16px 0;font-family:'Courier New',monospace;font-size:0.78em;color:#aaa;line-height:2;display:none;}
+.result.active{display:block;}
+.result .hi{color:#4a9;font-weight:bold;}
+.result .warn{color:#c94;}
+.result .danger{color:#c44;}
+.result .gold{color:#c9a44a;}
+
+.seq-viz{margin:12px 0;font-family:'Courier New',monospace;font-size:0.72em;line-height:1.8;word-break:break-all;}
+.seq-viz .hydro{color:#c44;font-weight:bold;}
+.seq-viz .charged{color:#4a9;font-weight:bold;}
+.seq-viz .neutral{color:#666;}
+
+.bar{display:flex;height:24px;border-radius:6px;overflow:hidden;margin:8px 0;}
+.bar div{transition:width 0.5s;}
+
+.preset{display:flex;flex-wrap:wrap;gap:6px;margin:16px 0;}
+.preset-btn{background:#0a0a12;border:1px solid #ffffff08;color:#888;padding:5px 12px;border-radius:16px;font-size:0.72em;cursor:pointer;transition:all 0.2s;font-family:Georgia,serif;}
+.preset-btn:hover{border-color:#c9a44a30;color:#c9a44a;}
+
+.strategy{background:#0a0a12;border-left:3px solid #c9a44a;padding:14px 18px;border-radius:0 10px 10px 0;margin:12px 0;font-size:0.82em;color:#bbb;line-height:1.8;display:none;}
+.strategy.active{display:block;}
+.strategy .title{color:#c9a44a;font-weight:200;font-size:0.95em;margin-bottom:6px;}
+
+.foot{text-align:center;color:#666;font-size:0.65em;margin-top:40px;}
+</style>
+</head>
+<body>
+<div class="page">
+<a class="back" href="/">&larr; GUMP</a>
+
+<h1>Protein Analyzer</h1>
+<div class="sub">Paste any amino acid sequence. Get structural analysis, aggregation risk, and mutation strategies. Everything runs in your browser &mdash; your sequence never leaves this device.</div>
+
+<span class="label">Amino acid sequence</span>
+<textarea id="seqInput" placeholder="Paste a protein sequence (single letter amino acid code)...&#10;Example: DAEFRHDSGYEVHHQKLVFFAEDVGSNKGAIIGLMVGGVVIA" rows="4"></textarea>
+
+<div class="preset">
+  <div class="preset-btn" data-seq="DAEFRHDSGYEVHHQKLVFFAEDVGSNKGAIIGLMVGGVVIA" data-name="Aβ42 (Alzheimer's)">Aβ42</div>
+  <div class="preset-btn" data-seq="KCNTATCATQRLANFLVHSSNNFGAILSSTNVGSNTY" data-name="IAPP (Diabetes)">IAPP</div>
+  <div class="preset-btn" data-seq="MDVFMKGLSKAKEGVVAAAEKTKQGVAEAAGKTKEGVLYVGSKTKEGVVHGVATVAEKTKEQVTNVGGAVVTGVTAVAQKTVEGAGSIAAATGFVKKDQLGKNEEGAPQEGILEDMPVDPDNEAYEMPSEEGYQDYEPEA" data-name="α-Synuclein (Parkinson's)">α-Synuclein</div>
+  <div class="preset-btn" data-seq="MASNDYTQQATQSYGAYPTQPGQGYSQQSSQPYGQQSYSGYSQSTDTSGYGQSSYSSYGQSQNTGYGTQSTPQGYGSTGGYGSSQSSQSSYGQQSSYPGYGQQPAPSSTSGSYGSSSQSSSYGQPQSGSYSQQPSYGGQQQSYGQQQSYNPPQGYGQQNQYNS" data-name="FUS (ALS)">FUS</div>
+  <div class="preset-btn" data-seq="QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQ" data-name="PolyQ (Huntington's)">PolyQ 40</div>
+  <div class="preset-btn" data-seq="FVNQHLCGSHLVEALYLVCGERGFFYTPKT" data-name="Insulin B chain">Insulin</div>
+  <div class="preset-btn" data-seq="GPTGTGESKCPLMVKVLDAVRGSPAINVAVHVFRKAADDTWEPFASGKTSESGELHGLTTEEQFVEGIYKVEIDTKSYWKALGISPFHEHAEVVFTANDSGPRRYTIAALLSPYSYSTTAVVTNPKE" data-name="TTR (Cardiac Amyloidosis)">TTR</div>
+</div>
+
+<button class="analyze-btn" id="analyzeBtn">Analyze Sequence</button>
+
+<div class="result" id="result"></div>
+<div class="strategy" id="strategy"></div>
+
+<p style="color:#555;font-size:0.72em;margin-top:30px;text-align:center;">Shape computing engine. Same math that found the tramiprosate match for Alzheimer's.<br><a href="/research/">See the research &rarr;</a> &middot; <a href="/products/foldwatch/">Fold Watch product &rarr;</a></p>
+
+<div class="foot">
+  <a href="/">GUMP</a> &mdash; <a href="/harmonia/">ask Harmonia</a> &middot; <a href="mailto:jim@begump.com">jim@begump.com</a> &middot; <a href="/legal/terms.html">terms</a>
+</div>
+</div>
+
+<script>
+var HYDRO = 'AVILMFWP';
+var CHARGED = 'DEKRH';
+var POLAR = 'STNQYC';
+var SPECIAL = 'GP';
+
+var seqInput = document.getElementById('seqInput');
+var resultBox = document.getElementById('result');
+var stratBox = document.getElementById('strategy');
+
+// Presets
+document.querySelectorAll('.preset-btn').forEach(function(btn) {
+  btn.addEventListener('click', function() {
+    seqInput.value = btn.dataset.seq;
+    analyze();
+  });
+});
+
+document.getElementById('analyzeBtn').addEventListener('click', analyze);
+seqInput.addEventListener('keydown', function(e) {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); analyze(); }
+});
+
+function analyze() {
+  var raw = seqInput.value.toUpperCase().replace(/[^ACDEFGHIKLMNPQRSTVWY]/g, '');
+  if (raw.length < 5) { resultBox.innerHTML = 'Need at least 5 amino acids.'; resultBox.classList.add('active'); return; }
+
+  var n = raw.length;
+  var t0 = performance.now();
+
+  // Composition
+  var hCount = 0, cCount = 0, pCount = 0;
+  for (var i = 0; i < n; i++) {
+    if (HYDRO.indexOf(raw[i]) >= 0) hCount++;
+    if (CHARGED.indexOf(raw[i]) >= 0) cCount++;
+    if (POLAR.indexOf(raw[i]) >= 0) pCount++;
+  }
+
+  // Aggregation-prone regions (hydrophobic runs ≥ 4)
+  var aggRegions = [];
+  var run = 0, runStart = 0;
+  for (var i = 0; i < n; i++) {
+    if (HYDRO.indexOf(raw[i]) >= 0) {
+      if (run === 0) runStart = i;
+      run++;
+    } else {
+      if (run >= 4) aggRegions.push({start: runStart, end: i-1, len: run});
+      run = 0;
+    }
+  }
+  if (run >= 4) aggRegions.push({start: runStart, end: n-1, len: run});
+
+  // Net charge at pH 7
+  var posCharge = 0, negCharge = 0;
+  for (var i = 0; i < n; i++) {
+    if ('KR'.indexOf(raw[i]) >= 0) posCharge++;
+    if ('DE'.indexOf(raw[i]) >= 0) negCharge++;
+    if (raw[i] === 'H') posCharge += 0.1; // partial at pH 7
+  }
+  var netCharge = posCharge - negCharge;
+
+  // Disorder prediction (simplified: high charge + low hydrophobicity = disordered)
+  var chargeRatio = cCount / n;
+  var hydroRatio = hCount / n;
+  var disorderScore = chargeRatio * 0.6 + (1 - hydroRatio) * 0.4;
+  var isDisordered = disorderScore > 0.55 && hydroRatio < 0.35;
+
+  // Risk assessment
+  var aggResidues = aggRegions.reduce(function(s,r) { return s + r.len; }, 0);
+  var aggPct = aggResidues / n * 100;
+  var risk = aggRegions.length > 3 ? 'HIGH' : aggRegions.length > 1 ? 'MEDIUM' : aggRegions.length > 0 ? 'LOW' : 'MINIMAL';
+
+  var elapsed = performance.now() - t0;
+
+  // Build colored sequence
+  var seqViz = '';
+  for (var i = 0; i < n; i++) {
+    var inAgg = aggRegions.some(function(r) { return i >= r.start && i <= r.end; });
+    var cls = HYDRO.indexOf(raw[i]) >= 0 ? 'hydro' : CHARGED.indexOf(raw[i]) >= 0 ? 'charged' : 'neutral';
+    seqViz += '<span class="' + cls + '"' + (inAgg ? ' style="text-decoration:underline;text-decoration-color:#c44"' : '') + '>' + raw[i] + '</span>';
+    if ((i + 1) % 60 === 0) seqViz += '<br>';
+  }
+
+  // Structure bars
+  var hPct = (hCount/n*100).toFixed(1);
+  var cPct = (cCount/n*100).toFixed(1);
+  var pPct = (pCount/n*100).toFixed(1);
+  var oPct = ((n-hCount-cCount-pCount)/n*100).toFixed(1);
+
+  var html = '<span class="gold">SEQUENCE ANALYSIS</span> — ' + n + ' residues — ' + elapsed.toFixed(1) + 'ms<br><br>';
+
+  html += '<div class="seq-viz">' + seqViz + '</div>';
+  html += '<span style="font-size:0.85em;color:#555;"><span class="hydro">■</span> hydrophobic <span class="charged">■</span> charged <span class="neutral">■</span> other — <span style="text-decoration:underline;text-decoration-color:#c44;">underlined</span> = aggregation region</span><br><br>';
+
+  html += '<span class="gold">COMPOSITION</span><br>';
+  html += '  Hydrophobic (A,V,I,L,M,F,W,P): <span class="' + (hCount/n > 0.4 ? 'warn' : 'hi') + '">' + hPct + '%</span> (' + hCount + '/' + n + ')<br>';
+  html += '  Charged (D,E,K,R,H): <span class="' + (cCount/n < 0.1 ? 'warn' : 'hi') + '">' + cPct + '%</span> (' + cCount + '/' + n + ')<br>';
+  html += '  Polar (S,T,N,Q,Y,C): ' + pPct + '% (' + pCount + '/' + n + ')<br>';
+  html += '  Net charge: ' + (netCharge > 0 ? '+' : '') + netCharge.toFixed(1) + '<br><br>';
+
+  html += '<div class="bar">';
+  html += '<div style="width:' + hPct + '%;background:#c44;" title="Hydrophobic ' + hPct + '%"></div>';
+  html += '<div style="width:' + cPct + '%;background:#4a9;" title="Charged ' + cPct + '%"></div>';
+  html += '<div style="width:' + pPct + '%;background:#69a;" title="Polar ' + pPct + '%"></div>';
+  html += '<div style="width:' + oPct + '%;background:#333;" title="Other ' + oPct + '%"></div>';
+  html += '</div><br>';
+
+  html += '<span class="gold">AGGREGATION</span><br>';
+  html += '  Regions: ' + aggRegions.length + '<br>';
+  for (var i = 0; i < aggRegions.length; i++) {
+    var r = aggRegions[i];
+    html += '  <span class="danger">▸ residues ' + (r.start+1) + '-' + (r.end+1) + '</span> (' + r.len + ' hydrophobic run): ' + raw.substring(r.start, r.end+1) + '<br>';
+  }
+  html += '  Aggregation-prone: <span class="' + (aggPct > 30 ? 'danger' : aggPct > 15 ? 'warn' : 'hi') + '">' + aggPct.toFixed(1) + '%</span> of residues<br>';
+  html += '  Risk: <span class="' + (risk === 'HIGH' ? 'danger' : risk === 'MEDIUM' ? 'warn' : 'hi') + '">' + risk + '</span><br><br>';
+
+  html += '<span class="gold">DISORDER</span><br>';
+  html += '  Score: ' + (disorderScore * 100).toFixed(0) + '%<br>';
+  html += '  Classification: ' + (isDisordered ? '<span class="warn">Intrinsically Disordered Protein (IDP)</span>' : '<span class="hi">Structured</span>') + '<br>';
+
+  resultBox.innerHTML = html;
+  resultBox.classList.add('active');
+
+  // Strategy recommendation
+  var stratHtml = '';
+  if (aggRegions.length > 0 && !isDisordered) {
+    stratHtml = '<div class="title">RECOMMENDED STRATEGY: ADD CHARGE</div>';
+    stratHtml += 'This protein has exposed hydrophobic aggregation surfaces. Adding charged residues (D, E, K, R) at the aggregation core disrupts self-assembly by:<br><br>';
+    stratHtml += '1. <strong style="color:#c9a44a;">Electrostatic repulsion</strong> — charged monomers repel instead of stacking<br>';
+    stratHtml += '2. <strong style="color:#c9a44a;">Increased solubility</strong> — charge keeps monomers dissolved<br>';
+    stratHtml += '3. <strong style="color:#c9a44a;">Helix nucleation</strong> — charge favors α-helix over β-sheet (the amyloid form)<br><br>';
+    stratHtml += 'Target positions: ';
+    aggRegions.forEach(function(r) {
+      var mid = Math.floor((r.start + r.end) / 2);
+      stratHtml += '<strong style="color:#4a9;">' + raw[mid] + (mid+1) + '→D/K</strong> ';
+    });
+    stratHtml += '<br><br><span style="color:#555;font-size:0.9em;">This is the same strategy that matched the tramiprosate Phase 3 clinical trial for Alzheimer\'s.</span>';
+  } else if (isDisordered) {
+    stratHtml = '<div class="title">RECOMMENDED STRATEGY: ADD HYDROPHOBIC ANCHORS</div>';
+    stratHtml += 'This is an intrinsically disordered protein — no stable fold, no hydrophobic core. The strategy is the OPPOSITE of aggregation diseases:<br><br>';
+    stratHtml += '1. <strong style="color:#c9a44a;">Hydrophobic anchors</strong> — V, I, L substitutions create a folding nucleus<br>';
+    stratHtml += '2. <strong style="color:#c9a44a;">Partial stabilization</strong> — a brace, not a cast. Don\'t over-stabilize.<br>';
+    stratHtml += '3. <strong style="color:#c9a44a;">Minimum effective dose</strong> — 2-3 anchor points is usually enough<br><br>';
+    stratHtml += '<span style="color:#555;font-size:0.9em;">Same approach that found the 2-anchor strategy for FUS in ALS.</span>';
+  } else if (aggRegions.length === 0) {
+    stratHtml = '<div class="title">LOW RISK</div>';
+    stratHtml += 'No aggregation-prone regions detected. This protein has a balanced hydrophobic/charged composition. No intervention strategy needed.';
+  }
+
+  stratBox.innerHTML = stratHtml;
+  stratBox.classList.add('active');
+}
+</script>
+<script src="/transit.js"></script>
+</body>
+</html>
