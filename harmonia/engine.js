@@ -441,6 +441,50 @@ var Engine = (function() {
     };
   }
 
+  // ═══ INTERNET — Harmonia reads the cached web at RAM speed ═══
+  // The proxy at localhost:8888 caches every page spectrally.
+  // Harmonia searches it by coupling, not keywords.
+  // 0.1ms per cached page. The internet IS local memory.
+  var _internetCache = {};  // local JS cache of proxy results
+
+  function searchInternet(query, callback) {
+    // Check local JS cache first (even faster than proxy)
+    if (_internetCache[query]) {
+      callback(_internetCache[query]);
+      return;
+    }
+
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', 'http://localhost:8888/search?q=' + encodeURIComponent(query), true);
+    xhr.timeout = 2000;
+    xhr.onload = function() {
+      if (xhr.status === 200) {
+        try {
+          var data = JSON.parse(xhr.responseText);
+          _internetCache[query] = data;
+          callback(data);
+        } catch(e) { callback(null); }
+      } else { callback(null); }
+    };
+    xhr.onerror = function() { callback(null); };
+    xhr.ontimeout = function() { callback(null); };
+    xhr.send();
+  }
+
+  function getDigest(callback) {
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', 'http://localhost:8888/digest', true);
+    xhr.timeout = 3000;
+    xhr.onload = function() {
+      if (xhr.status === 200) {
+        try { callback(JSON.parse(xhr.responseText)); }
+        catch(e) { callback(null); }
+      } else { callback(null); }
+    };
+    xhr.onerror = function() { callback(null); };
+    xhr.send();
+  }
+
   // ═══ DISPATCH — tools fire based on resonance, not rules ═══
   function dispatch(text, ctx) {
     var results = [];
@@ -704,6 +748,8 @@ var Engine = (function() {
     compile: compileAndRun,
     KProgram: KProgram,
     tools: tools,
-    analyzeSequence: analyzeSequence
+    analyzeSequence: analyzeSequence,
+    searchInternet: searchInternet,
+    getDigest: getDigest,
   };
 })();
