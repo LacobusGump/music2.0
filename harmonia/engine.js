@@ -672,6 +672,8 @@ var Engine = (function() {
   // ═══ THINK — the complete pipeline ═══
   // Input → flood → dispatch → resonate → compose.
   function think(text, K, context) {
+    K = K || 0;
+    context = context || [];
     // 0. UNICODE — handle non-Latin gracefully
     var unicodeResponse = handleUnicode(text);
     if (unicodeResponse) return { parts: [unicodeResponse], ctx: {}, tone: {}, toolsUsed: [], tensions: 0, computed: false };
