@@ -64,6 +64,8 @@ h1{font-size:2.8em;font-weight:100;color:#c9a44a;text-align:center;letter-spacin
 <h1>GUMP</h1>
 <div class="tagline">Computation tools that run on your machine.<br>Your data never leaves. Results are deterministic.</div>
 
+<canvas id="spectral" style="width:100%;height:380px;margin:28px 0 0;border-radius:16px;cursor:crosshair;opacity:0;animation:up 2s ease 0.5s forwards;"></canvas>
+
 <div class="intro">
 <p>Every tool runs on your hardware. Nothing is sent anywhere. Each product page tells you what it does, what it doesn't, and where it stops working.</p>
 </div>
@@ -242,6 +244,278 @@ h1{font-size:2.8em;font-weight:100;color:#c9a44a;text-align:center;letter-spacin
 </div>
 
 </div>
+<script>
+// ═══ SPECTRAL ENGINE — Da Vinci meets K ═══
+// Coupled oscillators finding their fixed point in real time.
+// Each node is a product. Edges are coupling between them.
+// The system converges to K* = 1.868 — the universal attractor.
+// Touch/hover disrupts coupling. Release → it resolves. T → 0.
+
+(function(){
+var cv=document.getElementById('spectral'),cx=cv.getContext('2d');
+var dpr=window.devicePixelRatio||1;
+var W,H;
+
+function resize(){
+  var r=cv.getBoundingClientRect();
+  W=r.width;H=r.height;
+  cv.width=W*dpr;cv.height=H*dpr;
+  cx.setTransform(dpr,0,0,dpr,0,0);
+}
+resize();
+window.addEventListener('resize',function(){resize();});
+
+// Golden ratio
+var PHI=(1+Math.sqrt(5))/2;
+var K_STAR=1.868;
+
+// Nodes — each is a product, positioned on a golden spiral
+var products=[
+  'Fold Watch','Trace','Oracle','Sensor','Dissonance',
+  'Accord','Chip Fast','Learn Engine','Knowledge','Org X-Ray',
+  'AI Trainer','Turbo','Harmonia'
+];
+var N=products.length;
+
+// Initialize on golden spiral
+var nodes=[];
+for(var i=0;i<N;i++){
+  var angle=i*2.399963;// golden angle in radians
+  var r=Math.sqrt(i+1)*28;
+  nodes.push({
+    x:W/2+Math.cos(angle)*r,
+    y:H/2+Math.sin(angle)*r,
+    vx:0,vy:0,
+    baseX:W/2+Math.cos(angle)*r,
+    baseY:H/2+Math.sin(angle)*r,
+    phase:Math.random()*Math.PI*2,
+    freq:0.3+Math.random()*0.4,
+    size:4+Math.random()*3,
+    name:products[i],
+    K:0.5+Math.random()*0.5
+  });
+}
+
+// Edges — coupling between products (all-to-all but weighted by proximity)
+var edges=[];
+for(var i=0;i<N;i++){
+  for(var j=i+1;j<N;j++){
+    var dx=nodes[i].baseX-nodes[j].baseX;
+    var dy=nodes[i].baseY-nodes[j].baseY;
+    var dist=Math.sqrt(dx*dx+dy*dy);
+    if(dist<200){
+      edges.push({a:i,b:j,strength:1.0-dist/200,tension:0});
+    }
+  }
+}
+
+// Background particles — sfumato mist
+var mist=[];
+for(var i=0;i<60;i++){
+  mist.push({
+    x:Math.random()*W,y:Math.random()*H,
+    vx:(Math.random()-0.5)*0.15,vy:(Math.random()-0.5)*0.15,
+    size:Math.random()*1.5+0.5,alpha:Math.random()*0.15+0.03
+  });
+}
+
+var mouseX=-1000,mouseY=-1000,mouseActive=false;
+cv.addEventListener('mousemove',function(e){
+  var r=cv.getBoundingClientRect();
+  mouseX=e.clientX-r.left;mouseY=e.clientY-r.top;mouseActive=true;
+});
+cv.addEventListener('mouseleave',function(){mouseActive=false;mouseX=-1000;mouseY=-1000;});
+cv.addEventListener('touchmove',function(e){
+  e.preventDefault();
+  var r=cv.getBoundingClientRect();
+  var t=e.touches[0];
+  mouseX=t.clientX-r.left;mouseY=t.clientY-r.top;mouseActive=true;
+},{passive:false});
+cv.addEventListener('touchend',function(){mouseActive=false;mouseX=-1000;mouseY=-1000;});
+
+var time=0;
+var globalK=0;
+var globalR=0;
+
+function update(){
+  time+=0.016;
+
+  // Oscillate nodes (each has its own frequency — coupled oscillators)
+  for(var i=0;i<N;i++){
+    var n=nodes[i];
+    n.phase+=n.freq*0.016;
+
+    // Coupling force: pull toward neighbors' phases (Kuramoto)
+    var coupling=0;
+    for(var e=0;e<edges.length;e++){
+      var edge=edges[e];
+      if(edge.a===i||edge.b===i){
+        var other=edge.a===i?nodes[edge.b]:nodes[edge.a];
+        coupling+=edge.strength*Math.sin(other.phase-n.phase)*0.3;
+      }
+    }
+    n.phase+=coupling*0.016;
+
+    // Breathing motion — gentle orbit around base position
+    var breath=3+Math.sin(time*0.5+i)*2;
+    var targetX=n.baseX+Math.cos(n.phase)*breath;
+    var targetY=n.baseY+Math.sin(n.phase)*breath;
+
+    // Mouse disruption — push nodes away
+    if(mouseActive){
+      var dx=n.x-mouseX,dy=n.y-mouseY;
+      var dist=Math.sqrt(dx*dx+dy*dy);
+      if(dist<120&&dist>0){
+        var force=((120-dist)/120)*30;
+        n.vx+=dx/dist*force*0.016;
+        n.vy+=dy/dist*force*0.016;
+      }
+    }
+
+    // Spring back to target (K coupling)
+    n.vx+=(targetX-n.x)*0.08;
+    n.vy+=(targetY-n.y)*0.08;
+    n.vx*=0.85;n.vy*=0.85;
+    n.x+=n.vx;n.y+=n.vy;
+  }
+
+  // Compute global K and R
+  var totalSync=0,totalK=0,pairs=0;
+  for(var e=0;e<edges.length;e++){
+    var a=nodes[edges[e].a],b=nodes[edges[e].b];
+    var phaseDiff=Math.cos(a.phase-b.phase);
+    totalSync+=phaseDiff;
+    totalK+=edges[e].strength;
+    edges[e].tension=1.0-Math.abs(phaseDiff);
+    pairs++;
+  }
+  globalR=pairs>0?totalSync/pairs:0;
+  globalK=pairs>0?totalK/pairs:0;
+
+  // Update mist
+  for(var i=0;i<mist.length;i++){
+    var p=mist[i];
+    p.x+=p.vx;p.y+=p.vy;
+    if(p.x<0)p.x=W;if(p.x>W)p.x=0;
+    if(p.y<0)p.y=H;if(p.y>H)p.y=0;
+    // Gentle attraction toward nearest node
+    var nearest=0,nearDist=9999;
+    for(var j=0;j<N;j++){
+      var dx=nodes[j].x-p.x,dy=nodes[j].y-p.y;
+      var d=dx*dx+dy*dy;
+      if(d<nearDist){nearDist=d;nearest=j;}
+    }
+    if(nearDist<10000){
+      var nd=Math.sqrt(nearDist);
+      p.vx+=(nodes[nearest].x-p.x)/nd*0.001;
+      p.vy+=(nodes[nearest].y-p.y)/nd*0.001;
+      p.vx*=0.99;p.vy*=0.99;
+    }
+  }
+}
+
+function draw(){
+  cx.clearRect(0,0,W,H);
+
+  // Background — deep dark with subtle gradient
+  var bg=cx.createRadialGradient(W/2,H/2,0,W/2,H/2,W*0.6);
+  bg.addColorStop(0,'#0c0c15');
+  bg.addColorStop(1,'#08080d');
+  cx.fillStyle=bg;
+  cx.fillRect(0,0,W,H);
+
+  // Mist particles (sfumato layer)
+  for(var i=0;i<mist.length;i++){
+    var p=mist[i];
+    cx.beginPath();
+    cx.arc(p.x,p.y,p.size,0,Math.PI*2);
+    cx.fillStyle='rgba(201,164,74,'+p.alpha+')';
+    cx.fill();
+  }
+
+  // Edges — coupling lines with tension coloring
+  for(var e=0;e<edges.length;e++){
+    var edge=edges[e];
+    var a=nodes[edge.a],b=nodes[edge.b];
+
+    // Color: gold when synchronized, red when tense
+    var sync=1.0-edge.tension;
+    var r_c=Math.floor(201*(1-edge.tension*0.5));
+    var g_c=Math.floor(164*sync);
+    var b_c=Math.floor(74*sync);
+    var alpha=edge.strength*0.3*(0.3+sync*0.7);
+
+    cx.beginPath();
+    cx.moveTo(a.x,a.y);
+    cx.lineTo(b.x,b.y);
+    cx.strokeStyle='rgba('+r_c+','+g_c+','+b_c+','+alpha+')';
+    cx.lineWidth=edge.strength*1.5;
+    cx.stroke();
+  }
+
+  // Nodes — golden circles with glow
+  for(var i=0;i<N;i++){
+    var n=nodes[i];
+    var sync=Math.abs(Math.cos(n.phase));
+
+    // Glow
+    var glow=cx.createRadialGradient(n.x,n.y,0,n.x,n.y,n.size*4);
+    glow.addColorStop(0,'rgba(201,164,74,'+(0.1+sync*0.15)+')');
+    glow.addColorStop(1,'rgba(201,164,74,0)');
+    cx.fillStyle=glow;
+    cx.fillRect(n.x-n.size*4,n.y-n.size*4,n.size*8,n.size*8);
+
+    // Node
+    cx.beginPath();
+    cx.arc(n.x,n.y,n.size,0,Math.PI*2);
+    cx.fillStyle='rgba(201,164,74,'+(0.5+sync*0.5)+')';
+    cx.fill();
+    cx.strokeStyle='rgba(255,255,255,0.1)';
+    cx.lineWidth=0.5;
+    cx.stroke();
+
+    // Label (only on hover proximity)
+    if(mouseActive){
+      var dx=n.x-mouseX,dy=n.y-mouseY;
+      var dist=Math.sqrt(dx*dx+dy*dy);
+      if(dist<60){
+        cx.fillStyle='rgba(232,228,220,'+(1.0-dist/60)+')';
+        cx.font='11px Georgia';
+        cx.textAlign='center';
+        cx.fillText(n.name,n.x,n.y-n.size-8);
+      }
+    }
+  }
+
+  // K/R readout — subtle, bottom right
+  cx.fillStyle='rgba(136,136,136,0.4)';
+  cx.font='10px "Courier New"';
+  cx.textAlign='right';
+  var T=(globalK-globalR).toFixed(3);
+  cx.fillText('K='+globalK.toFixed(3)+' R='+globalR.toFixed(3)+' T='+T,W-12,H-10);
+}
+
+function loop(){
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+
+loop();
+
+// Resize handler
+window.addEventListener('resize',function(){
+  resize();
+  // Reposition nodes
+  for(var i=0;i<N;i++){
+    var angle=i*2.399963;
+    var r=Math.sqrt(i+1)*28;
+    nodes[i].baseX=W/2+Math.cos(angle)*r;
+    nodes[i].baseY=H/2+Math.sin(angle)*r;
+  }
+});
+})();
+</script>
 <script src="/transit.js"></script>
 </body>
 </html>
