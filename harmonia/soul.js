@@ -1085,7 +1085,7 @@ function detectThreat(text) {
 // VIII. VOICE — she speaks
 // ═══════════════════════════════════════════════════════════════
 
-var chat = document.getElementById('chat');
+var chat = document.getElementById('chat') || document.getElementById('voice');
 var cmd = document.getElementById('cmd');
 
 // Words that get visual emphasis
