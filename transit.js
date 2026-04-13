@@ -145,11 +145,63 @@
   }
 
   function go(href) {
-    // Store the DESTINATION url, not just a flag
-    // Assembly only runs if current page matches this url
-    try { sessionStorage.setItem('transit-to', new URL(href, location.origin).pathname); } catch(e) {}
-    window.location.href = href;
+    // SPECTRAL NAVIGATION: fetch only the content residual, not the full page.
+    // Base (CSS, layout, scripts) is already loaded. Just swap the content.
+    if (href.indexOf('http') === 0 || href.indexOf('mailto') === 0) {
+      window.location.href = href;
+      return;
+    }
+
+    fetch(href).then(function(r) { return r.text(); }).then(function(html) {
+      // Extract the content from the fetched page
+      var parser = new DOMParser();
+      var doc = parser.parseFromString(html, 'text/html');
+      var newContent = doc.querySelector('.page');
+      var newTitle = doc.querySelector('title');
+
+      if (newContent) {
+        // Inject the residual into the current base
+        var currentPage = document.querySelector('.page');
+        if (currentPage) {
+          currentPage.innerHTML = newContent.innerHTML;
+          // Reset animations
+          currentPage.style.visibility = 'visible';
+          currentPage.querySelectorAll('[style*="animation"]').forEach(function(el) {
+            el.style.animationDelay = '0s';
+            el.style.opacity = '1';
+            el.style.transform = 'none';
+          });
+        }
+        // Update title and URL
+        if (newTitle) document.title = newTitle.textContent;
+        history.pushState({path: href}, '', href);
+
+        // Re-bind click handlers on new content
+        bindLinks();
+
+        // Run assembly animation on the new content
+        canvas.style.display = 'none';
+        try { sessionStorage.setItem('transit-to', new URL(href, location.origin).pathname); } catch(e) {}
+        assemble();
+
+        // Scroll to top
+        window.scrollTo(0, 0);
+      } else {
+        // Fallback: full navigation
+        window.location.href = href;
+      }
+    }).catch(function() {
+      // Network error: fall back to full navigation
+      window.location.href = href;
+    });
   }
+
+  // Handle browser back/forward
+  window.addEventListener('popstate', function(e) {
+    if (e.state && e.state.path) {
+      go(e.state.path);
+    }
+  });
 
   // ═══ ASSEMBLY ═══
   function assemble() {
@@ -216,24 +268,50 @@
   // ═══ BACK BUTTON — clean slate ═══
   window.addEventListener('pageshow', function(e) { if (e.persisted) cleanup(); });
 
-  // ═══ BOOT ═══
-  function boot() {
-    if (!assemble()) {
-      // Normal load — no assembly. Make sure nothing is covering the page.
-      cleanup();
-    }
-
+  // ═══ LINK BINDING ═══
+  function bindLinks() {
     var links = document.querySelectorAll('a.product, a.card, a.harmonia-section');
     for (var i = 0; i < links.length; i++) {
+      if (links[i].dataset.transitBound) continue; // don't double-bind
+      links[i].dataset.transitBound = '1';
       (function(link) {
         link.addEventListener('click', function(e) {
           var href = link.getAttribute('href');
-          if (!href || href === '#' || href.indexOf('http') === 0) return;
+          if (!href || href === '#' || href.indexOf('http') === 0 || href.indexOf('mailto') === 0) return;
           e.preventDefault();
           dissolve(link, href);
         });
       })(links[i]);
     }
+  }
+
+  // ═══ PREFETCH — load adjacent pages in background ═══
+  function prefetch() {
+    var links = document.querySelectorAll('a[href^="/"]');
+    for (var i = 0; i < links.length; i++) {
+      var href = links[i].getAttribute('href');
+      if (href && href !== location.pathname) {
+        var link = document.createElement('link');
+        link.rel = 'prefetch';
+        link.href = href;
+        document.head.appendChild(link);
+      }
+    }
+  }
+
+  // ═══ BOOT ═══
+  function boot() {
+    // Set initial history state
+    history.replaceState({path: location.pathname}, '', location.pathname);
+
+    if (!assemble()) {
+      cleanup();
+    }
+
+    bindLinks();
+
+    // Prefetch adjacent pages after 2 seconds (when idle)
+    setTimeout(prefetch, 2000);
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
