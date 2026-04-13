@@ -100,7 +100,7 @@
     var cy = sample.rect.top + sample.rect.height / 2;
 
     canvas.style.display = 'block';
-    var t0 = performance.now(), dur = 650;
+    var t0 = performance.now(), dur = 350;
 
     function frame(now) {
       var t = Math.min(1, (now - t0) / dur);
@@ -237,7 +237,7 @@
     canvas.style.display = 'block';
     page.style.visibility = 'hidden';
 
-    var t0 = performance.now(), dur = 500;
+    var t0 = performance.now(), dur = 280;
     function frame(now) {
       var t = Math.min(1, (now - t0) / dur);
       var bgAlpha = 1 - t * t;
