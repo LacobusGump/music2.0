@@ -113,8 +113,37 @@ var Products = {
     return tensions[detection.product] || 'What problem are you trying to solve?';
   },
 
+  // ═══ META: questions about the site/tools/products themselves ═══
+  metaResponse: function(text) {
+    var lower = text.toLowerCase();
+    if (lower.match(/what.*(tool|product|do you|can you|this page|this site|begump|gump offer|you do|sell|service)/)) {
+      var names = Object.keys(this.catalog);
+      var highlights = ['Fold Watch (protein analysis, $8,500/mo)',
+        'Trace (financial forensics, $5,000/mo)',
+        'Oracle (spectral prediction, $3,500/mo)',
+        'Sensor (K/R/E/T diagnosis, $2,999/mo)'];
+      return 'beGump has ' + names.length + ' computation tools. They all run locally — your data never leaves your machine.\n\nThe big ones:\n' +
+        highlights.join('\n') +
+        '\n\nEverything ships via pip install begump. What problem are you working on? I can point you to the right one.';
+    }
+    if (lower.match(/how.*(work|run|built|made|function)|what.*(under|behind|engine|math)/)) {
+      return 'Everything is built on one principle: coupling. K measures how strongly things connect. R measures how well they synchronize. T = K - R = tension. The same math folds proteins, detects fraud, predicts time series, and places chips.\n\nIt runs on your machine — Metal GPU for compute, spectral decomposition for analysis. pip install begump.';
+    }
+    if (lower.match(/who.*(made|built|created|behind)|about.*(you|gump|begump)/)) {
+      return 'beGump was built by Jim McCandless — drummer, dad, self-taught engineer. The math came from music: everything is coupled oscillation. The products came from applying that one idea everywhere.\n\nColumbus, NJ. begump.com.';
+    }
+    if (lower.match(/free|cost|price|pricing|how much/)) {
+      return 'Every product has a free tier with sample data via pip install begump. Harmonia (me) is free forever.\n\nPricing ranges from $15/user/mo (Org X-Ray) to $25,000/mo (Chip Fast). Most are $2,500-$5,000/mo. Using 3+? Ask about platform pricing: jim@begump.com.';
+    }
+    return null;
+  },
+
   // ═══ MAIN: 4-phase conversation ═══
   handle: function(text) {
+    // Meta-questions about the site/tools
+    var meta = this.metaResponse(text);
+    if (meta) return meta;
+
     // Phase 1: K — what are they coupling with?
     var detection = this.detect(text);
     if (!detection.isProductQuery) return null; // not a product query, fall through to soul.js
