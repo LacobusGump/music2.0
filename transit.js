@@ -160,18 +160,22 @@
       var newTitle = doc.querySelector('title');
 
       if (newContent) {
+        // Inject the new page's CSS (each page has its own <style>)
+        var newStyle = doc.querySelector('style');
+        if (newStyle) {
+          var currentStyle = document.querySelector('style');
+          if (currentStyle) {
+            currentStyle.textContent = newStyle.textContent;
+          }
+        }
+
         // Inject the residual into the current base
         var currentPage = document.querySelector('.page');
         if (currentPage) {
           currentPage.innerHTML = newContent.innerHTML;
-          // Reset animations
           currentPage.style.visibility = 'visible';
-          currentPage.querySelectorAll('[style*="animation"]').forEach(function(el) {
-            el.style.animationDelay = '0s';
-            el.style.opacity = '1';
-            el.style.transform = 'none';
-          });
         }
+
         // Update title and URL
         if (newTitle) document.title = newTitle.textContent;
         history.pushState({path: href}, '', href);
