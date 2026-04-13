@@ -116,7 +116,7 @@ var Products = {
   // ═══ META: questions about the site/tools/products themselves ═══
   metaResponse: function(text) {
     var lower = text.toLowerCase();
-    if (lower.match(/what.*(tool|product|do you|can you|this page|this site|begump|gump offer|you do|sell|service)/)) {
+    if (lower.match(/tool|product|this page|this site|begump|what.*(do you|can you|offer|sell|have)|tell me about/)) {
       var names = Object.keys(this.catalog);
       var highlights = ['Fold Watch (protein analysis, $8,500/mo)',
         'Trace (financial forensics, $5,000/mo)',
