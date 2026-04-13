@@ -1131,14 +1131,16 @@ function say(text, cls) {
   if (cls === 'her') {
     var lines = text.split('\n');
     var styledLines = lines.map(function(line) {
-      // Don't stylize HTML lines (canvases, formatted blocks)
       if (line.indexOf('<') >= 0) return line;
       return stylize(line);
     });
     div.innerHTML = '<div class="name">harmonia</div>' + styledLines.join('<br>');
   }
   else if (cls === 'sys') div.innerHTML = text;
-  else div.innerHTML = text;
+  else {
+    // User input — sanitize to prevent XSS
+    div.textContent = text;
+  }
   chat.appendChild(div);
   chat.scrollTop = chat.scrollHeight;
 }
