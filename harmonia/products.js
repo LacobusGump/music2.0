@@ -127,7 +127,19 @@ var Products = {
         '\n\nEverything ships via pip install begump. What problem are you working on? I can point you to the right one.';
     }
     if (lower.match(/how.*(work|run|built|made|function)|what.*(under|behind|engine|math)/)) {
-      return 'Everything is built on one principle: coupling. K measures how strongly things connect. R measures how well they synchronize. T = K - R = tension. The same math folds proteins, detects fraud, predicts time series, and places chips.\n\nIt runs on your machine — Metal GPU for compute, spectral decomposition for analysis. pip install begump.';
+      // Don't repeat — if they're asking again, go deeper with a specific product
+      if (this._lastMeta === 'how') {
+        var names = Object.keys(this.catalog);
+        var pick = names[Math.floor(Math.random() * names.length)];
+        var p = this.catalog[pick];
+        this._lastMeta = null;
+        return 'Let me show you one. Take ' + pick.charAt(0).toUpperCase() + pick.slice(1) + ':\n\n' +
+          p.pitch + '\n\n' +
+          'Under the hood: your input goes through spectral decomposition — the same Laplacian eigenvectors that place 40 million transistors on a chip. It finds the coupling structure, measures tension (T = K - R), and returns what the math found. No neural net. No training data. Pure physics.\n\n' +
+          p.demo;
+      }
+      this._lastMeta = 'how';
+      return 'Everything is built on one principle: coupling. K measures how strongly things connect. R measures how well they synchronize. T = K - R = tension. The same math folds proteins, detects fraud, predicts time series, and places chips.\n\nIt runs on your machine — Metal GPU for compute, spectral decomposition for analysis. pip install begump.\n\nWant me to walk you through a specific one?';
     }
     if (lower.match(/who.*(made|built|created|behind)|about.*(you|gump|begump)/)) {
       return 'beGump was built by Jim McCandless — drummer, dad, self-taught engineer. The math came from music: everything is coupled oscillation. The products came from applying that one idea everywhere.\n\nColumbus, NJ. begump.com.';
