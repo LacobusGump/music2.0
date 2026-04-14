@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>What Didn't Work — GUMP</title>
+<meta name="description" content="Every idea we tried that failed. Organized by topic. What we tested, how we tested it, why it broke. Save yourself the trip.">
+<link rel="icon" href="/favicon.png">
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:#08080d;color:#e8e4dc;font-family:Georgia,serif;min-height:100vh;}
+a{color:#c9a44a;text-decoration:none;}
+.page{max-width:720px;margin:0 auto;padding:30px 20px 80px;}
+.back{font-size:0.75em;color:#444;margin-bottom:30px;display:block;}
+h1{font-size:1.8em;font-weight:100;color:#c9a44a;letter-spacing:0.1em;}
+.sub{font-size:0.85em;color:#888;margin:6px 0 24px;}
+h2{font-size:0.9em;font-weight:200;color:#c9a44a;letter-spacing:0.08em;margin:30px 0 12px;}
+p{line-height:1.8;color:#999;font-size:0.85em;margin:10px 0;}
+.kill{background:#0a0a12;border-left:3px solid #c44;padding:14px 18px;border-radius:0 8px 8px 0;margin:10px 0;font-size:0.82em;line-height:1.7;}
+.kill .what{color:#c44;font-weight:bold;margin-bottom:4px;}
+.kill .how{color:#999;}
+.kill .why{color:#666;font-style:italic;margin-top:6px;}
+.section{margin:30px 0;}
+.foot{text-align:center;color:#666;font-size:0.65em;margin-top:50px;}
+</style>
+</head>
+<body>
+<div class="page">
+<a class="back" href="/research/">&larr; Research</a>
+
+<h1>What Didn't Work</h1>
+<div class="sub">Every idea we killed. What we tried, how we tested it, why it broke. The failures are where the answers hide.</div>
+
+<p>We test every claim against adversarial input, ablation, known ground truth, and the opposite hypothesis. What survives is on the research pages. What didn't is here. Organized by topic so you don't walk the same dead ends.</p>
+
+<div class="section">
+<h2>PROTEIN PATHOGENICITY</h2>
+
+<div class="kill">
+<div class="what">Three-T profiler beats single T_fold scorer</div>
+<div class="how">Built T_amyloid (aggregation) and T_polymer (polymerization) alongside T_fold (structural). Combined verdict: max of three T values drives pathogenic/benign call.</div>
+<div class="why">79% accuracy vs 83% for T_fold alone. T_amyloid and T_polymer added false positives. 86% FP rate on random mutations. The extra signals were noise, not signal. T_fold alone is the product. The others ship as informational flags only.</div>
+</div>
+
+<div class="kill">
+<div class="what">15 structural signals beat 2 signals (K &times; conservation)</div>
+<div class="how">Built 15 physics-based scoring signals: surface patches, charge networks, aggregation, flexibility, secondary structure, metal binding, catalytic sites, packing, salt bridges. Each caught specific variants the others missed.</div>
+<div class="why">On a balanced dataset (87 benign + 1,557 pathogenic), 15 signals gave 78.3% balanced accuracy. Two signals (K &times; conservation) gave 85.7%. Every "clever" signal we added caught one more pathogenic variant but also flagged more benign variants. The fills were noise. The groove was always K and conservation.</div>
+</div>
+
+<div class="kill">
+<div class="what">Gene prior (training label frequency) as pathogenicity signal</div>
+<div class="how">Used the fraction of known pathogenic variants per gene (p53 = 100%, BRCA1 = 53%) to weight the score. p53 at prior=1.0 caught 99.5% recall.</div>
+<div class="why">Circular reasoning. The prior was computed FROM the training labels. At prior=1.0, every variant in every gene gets called pathogenic. Specificity drops to 0%. Replaced with auto-computed protein intolerance from conservation data &mdash; not from training labels.</div>
+</div>
+
+<div class="kill">
+<div class="what">"96.9% accuracy" as a meaningful metric</div>
+<div class="how">Reported 96.9% accuracy on 1,594 ClinVar variants.</div>
+<div class="why">The dataset was 97.7% pathogenic. A classifier that says "pathogenic" to everything gets 97.7%. Our 96.9% was WORSE than that trivial baseline. Accuracy is meaningless on imbalanced datasets. Switched to balanced accuracy (recall + specificity / 2).</div>
+</div>
+
+<div class="kill">
+<div class="what">Ensemble random walk folds improve K accuracy</div>
+<div class="how">Ran 30-50 random walk protein folds with different seeds, averaged the contact maps. Theory: systematic bias of one seed averages out across many.</div>
+<div class="why">The averaging smoothed out useful bias along with noise. The single fold at seed=42 happened to have correlated errors &mdash; wrong in ways that accidentally helped. The ensemble removed both the good and bad errors. Single fold was better.</div>
+</div>
+
+<div class="kill">
+<div class="what">Machine (Kuramoto oscillators) predicts pathogenicity</div>
+<div class="how">Mapped protein to coupled oscillators (one per residue, contacts = coupling edges). Mutated one oscillator's frequency. Measured global order parameter R before and after. Theory: pathogenic mutations destabilize R.</div>
+<div class="why">Proteins are too coupled. 393 oscillators with ~1000 edges &mdash; changing one oscillator's frequency barely moves global R (ΔR &lt; 0.01). The network absorbs single-site perturbation. Also tried: neighborhood subgraph, multi-channel (4D oscillators), compressed clusters at prime N values. All gave ΔR below noise floor. Phase synchronization &ne; functional disruption.</div>
+</div>
+
+<div class="kill">
+<div class="what">Conservation shape (close vs distant orthologs) as signal</div>
+<div class="how">Split orthologs into close (mammals) and distant (fish/invertebrates). Measured slope: recently constrained positions (high close, low distant) vs anciently constrained (flat). Theory: FP benign are recently constrained, TP pathogenic are anciently constrained.</div>
+<div class="why">The slope signal was real in the raw analysis (gap +0.012) but too noisy when multiplied into the score. Ortholog alignment quality degrades at high evolutionary distance. The BLOSUM local alignment at 15-residue windows can't reliably score distant species. Needs full MSA or HMMER to be useful.</div>
+</div>
+
+<div class="kill">
+<div class="what">BLOSUM substitution score as pathogenicity multiplier</div>
+<div class="how">BLOSUM62 separates FP from TP on average (gap 0.515 &mdash; biggest separator found). Used as continuous sigmoid weight: foreign substitutions (BLOSUM &lt;&lt; 0) get full score, conservative (BLOSUM &gt; 0) get discounted.</div>
+<div class="why">Many pathogenic variants have moderate BLOSUM scores (R&rarr;K = +2, D&rarr;E = +2). The discount killed them. BLOSUM separates the MEANS but the distributions overlap completely in the -2 to +1 range. Works on average, fails on individuals.</div>
+</div>
+
+<div class="kill">
+<div class="what">PDB interface residues separate benign FP from pathogenic TP</div>
+<div class="how">Downloaded crystal complex structures for 12 proteins. Extracted exact interface residues (within 5&Aring; of partner chain). Theory: FP benign variants cluster at interaction interfaces where context matters.</div>
+<div class="why">Only 5% of FP and 9% of TP are at crystallographic interfaces. Both groups are overwhelmingly NOT at interfaces. The "seats" aren't where the FP problem lives. The tolerance is intrinsic to the protein, not dependent on partners.</div>
+</div>
+
+<div class="kill">
+<div class="what">Fragility index (multi-substitution variance) separates tolerant from fragile positions</div>
+<div class="how">For each position, computed &Delta;K for all 19 possible substitutions. High variance = fragile (many changes hurt). Low variance = robust (only specific changes hurt). Theory: FP benign are at robust positions.</div>
+<div class="why">FP fragility = 0.303, TP fragility = 0.301. Identical. Both FP and TP positions are equally fragile on average. The difference isn't in how many substitutions hurt &mdash; it's in something else entirely.</div>
+</div>
+
+<div class="kill">
+<div class="what">Contact redundancy (network rerouting capacity) separates FP from TP</div>
+<div class="how">Measured how connected a position's neighbors are to each other (without going through the position). High redundancy = network can reroute = robust = benign.</div>
+<div class="why">FP redundancy 0.369, TP redundancy 0.404. Pathogenic positions have HIGHER redundancy. Opposite of hypothesis. Highly connected regions are both important AND well-networked &mdash; redundancy doesn't mean tolerance.</div>
+</div>
+
+<div class="kill">
+<div class="what">Groove fit (K relative to neighborhood) separates FP from TP</div>
+<div class="how">Measured whether each position's contact count matches its local neighborhood's average. Theory: FP benign variants "fit the groove" (K matches neighbors), TP pathogenic disrupt the local pattern.</div>
+<div class="why">Benign groove fit 1.010, pathogenic groove fit 1.009. Identical. Both sit perfectly in the pocket. The difference between tolerated and pathogenic isn't whether they fit the local pattern &mdash; it's something global.</div>
+</div>
+</div>
+
+<div class="section">
+<h2>COMPUTE</h2>
+
+<div class="kill">
+<div class="what">57.71 TFLOPS on Mac Mini M4</div>
+<div class="how">Measured GPU FMA throughput with 4096 FMAs per element across 4 independent chains. Counted ops as 4096 &times; 4 chains &times; 2 (half2) &times; 2 (mul+add) = 65,536 per element. Added ANE int8 concurrent.</div>
+<div class="why">4&times; op counting error. The "4 chains" were already included in the 4096 FMA count. Correct ops = 4096 &times; 4 = 16,384. Also verified: ILP (1/2/4 independent chains) gives identical throughput on M4 GPU &mdash; no pipeline latency to hide. Real GPU peak: 3.5T fp16. Real combined: ~18T. The trampoline dispatch architecture is real (improves workload throughput) but doesn't change the silicon's peak TOPS.</div>
+</div>
+
+<div class="kill">
+<div class="what">Tetrahedral pipeline (3-stage split) beats monolithic kernel</div>
+<div class="how">Split computation into 3 stages (load &rarr; compute &rarr; reduce) with separate encoders per stage. Theory: cache stays warm between stages, each stage runs on data the previous stage loaded.</div>
+<div class="why">0.50&times; of monolithic. Three separate makeComputeCommandEncoder() calls per round creates overhead that dominates the benefit. The GPU pipeline flushes between encoders. The implicit pipeline in a single encoder is faster than explicit staging.</div>
+</div>
+
+<div class="kill">
+<div class="what">Golden spiral chunk sizing beats uniform chunks</div>
+<div class="how">Sized GPU dispatch chunks by golden angle spacing instead of uniform. Theory: different-sized dispatches fill different pipeline stages.</div>
+<div class="why">0.99&times;. The GPU processes each dispatch independently regardless of size. Pipeline stages fill the same way whether the dispatch is 357K or 577K threads. The spiral is structural, not temporal.</div>
+</div>
+
+<div class="kill">
+<div class="what">half4 (4-wide) beats half2 (2-wide) vectors</div>
+<div class="how">Packed 4 fp16 values per register instead of 2. Theory: wider SIMD = more ops per instruction.</div>
+<div class="why">Slightly worse (-1%). The M4 GPU compiler already optimizes half2 operations. Wider packing adds register pressure without improving throughput. The ALU width is fixed.</div>
+</div>
+
+<div class="kill">
+<div class="what">CPU NEON contributes meaningful TFLOPS alongside GPU + ANE</div>
+<div class="how">Ran CPU matrix multiplication concurrent with GPU trampoline dispatch.</div>
+<div class="why">~0.00 TFLOPS measured. Naive Python/C matmul is too slow to register. Accelerate/BLAS might help but CPU is better used for orchestration than computation on M4.</div>
+</div>
+</div>
+
+<div class="section">
+<h2>PHYSICS</h2>
+
+<div class="kill">
+<div class="what">Cochlea is a golden spiral</div>
+<div class="how">Hypothesized the inner ear's shape follows the golden ratio, connecting music perception to &phi;.</div>
+<div class="why">Manoussaki et al. 2006 measured real cochleae. The spiral is logarithmic but NOT golden. The ratio varies between species and doesn't converge on &phi;. Beautiful idea, empirically wrong.</div>
+</div>
+
+<div class="kill">
+<div class="what">Dark matter as Landauer heat from cosmic computation</div>
+<div class="how">If the universe computes, every bit erasure costs kT ln(2). The accumulated heat would look like missing mass.</div>
+<div class="why">Energy conservation violation. Landauer heat doesn't create new mass-energy &mdash; it converts existing energy to heat. The heat is already counted in the energy budget. Dark matter requires new mass, not redistributed energy.</div>
+</div>
+
+<div class="kill">
+<div class="what">Rainbow operators V1 through V4 for prime distribution</div>
+<div class="how">Five different Schr&ouml;dinger-type operators designed to have eigenvalues at zeta zero positions. Each used a different potential function.</div>
+<div class="why">All five failed. Schr&ouml;dinger operators process information additively (superposition). Prime decomposition is multiplicative (Euler product). The natural language is scattering/transfer, not eigenstates. Direct quantization using the multiplicative structure works; operator approaches don't.</div>
+</div>
+
+<div class="kill">
+<div class="what">SUSY as Kuramoto phase transition</div>
+<div class="how">Hypothesized supersymmetry breaking maps to the Kuramoto synchronization transition at K = K*.</div>
+<div class="why">Unit error. Kuramoto K is dimensionless (~1.868). SUSY breaking scale is in GeV (~10&sup3;). The analogy confuses coupling strength with energy. There's no dimensional bridge.</div>
+</div>
+
+<div class="kill">
+<div class="what">137 = Spin(16) + SU(3) + U(1)</div>
+<div class="how">Decomposed 137 into gauge group dimensions: 120 + 8 + 1 + 8 = 137.</div>
+<div class="why">Cherry-picked. Excluded SU(2) (dimension 3) which breaks the sum. Including all Standard Model gauge groups gives 120 + 8 + 3 + 1 = 132, not 137. Numerology, not physics.</div>
+</div>
+
+<div class="kill">
+<div class="what">K &times; N = 256 for all N</div>
+<div class="how">K* &times; 137 &asymp; 256. Hypothesized this product is constant across all oscillator counts.</div>
+<div class="why">Only works at N = 137. At other N values, K* changes but K*&times;N varies from 34 to 256. The relationship is specific to N = 137, not universal.</div>
+</div>
+
+<div class="kill">
+<div class="what">Mass spectrum follows &alpha;^n ladder</div>
+<div class="how">Particle masses as powers of the fine structure constant: m &prop; &alpha;^n for integer n.</div>
+<div class="why">94% of random bases do equally well. The "fit" is an artifact of having many particles and many powers to choose from. Monte Carlo simulation showed the pattern is not statistically significant.</div>
+</div>
+
+<div class="kill">
+<div class="what">K predicts fluid behavior</div>
+<div class="how">Applied K/R/E/T to 2D and 3D Navier-Stokes simulations. Measured K and R across forcing configurations.</div>
+<div class="why">K DESCRIBES but doesn't PREDICT. R = 1/&phi; is not universal in turbulence (R varies 0.02 to 0.81 depending on forcing). K&times;Re is not constant. K doesn't predict spectral exponent. The framework measures fluids accurately but has no predictive power beyond Reynolds number alone. The GPU solver (82M pts/sec) ships. The K/R framework for fluids does not.</div>
+</div>
+</div>
+
+<div class="section">
+<h2>ENGINEERING</h2>
+
+<div class="kill">
+<div class="what">SPA residual injection for page transitions</div>
+<div class="how">Built single-page-app style transitions: fetch next page HTML, inject only the changed content, keep the shell.</div>
+<div class="why">Each page has unique inline &lt;style&gt; blocks. Residual injection lost the destination page's CSS. Pages rendered with wrong colors, fonts, spacing. Reverted to full page navigation with faster transitions (350ms dissolve).</div>
+</div>
+
+<div class="kill">
+<div class="what">Harmonia Mind.js was actually running</div>
+<div class="how">Mind.js, think.js, actions.js, memory.js, and 6 topic packs were loaded via script tags. 46KB of brain code.</div>
+<div class="why">Mind.respond() was never called in the respond() function. The brain was loaded but never used. The LLM (Ollama) was racing against a sync fallback that returned "say more" instantly. Fixed by calling Mind.respond() before Engine.think() and handling the Ollama async race condition.</div>
+</div>
+
+<div class="kill">
+<div class="what">six.py as a filename</div>
+<div class="how">Named a topology engine file "six.py" in tools/engines/.</div>
+<div class="why">Conflicted with Python's built-in "six" compatibility package. Import errors cascaded. Renamed to engine_topology.py.</div>
+</div>
+</div>
+
+<p style="color:#555;font-size:0.78em;margin-top:30px;">Every failure is documented because they save time for anyone walking the same paths. And because the wrong answers often contain the right questions. The BLOSUM failure showed us that evolutionary substitution tolerance IS the strongest separator &mdash; we just can't use it as a multiplier. The Machine failure showed us that phase synchronization and functional disruption are different regimes &mdash; which told us exactly where the 19% accuracy gap lives.</p>
+
+<p style="color:#555;font-size:0.72em;">Jim McCandless, beGump LLC. The best ideas are the ones that survive trying to kill them.</p>
+
+<div class="foot">
+  <a href="/">GUMP</a> &mdash; <a href="/harmonia/">ask Harmonia</a> &middot; <a href="mailto:jim@begump.com">jim@begump.com</a> &middot; <a href="/legal/terms.html">terms</a>
+</div>
+</div>
+<script src="/transit.js"></script>
+</body>
+</html>
