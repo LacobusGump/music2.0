@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Mutation Scanner — GUMP</title>
-<meta name="description" content="Variant pathogenicity scoring. K, conservation, delta-K, Laplace propagation, gnomAD. 94.7% balanced accuracy on 1,594 ClinVar variants (98.3% sensitivity). 1.2% irreducible gain-of-function wall.">
+<meta name="description" content="Structural vulnerability scoring. Fiedler network damage, MSA tolerance, functional proximity. 0.74 within-gene AUC on 6 disease proteins. Matches SIFT with zero training. Novel Fiedler damage feature: 0.82 AUC as single metric.">
 <link rel="icon" href="/favicon.png">
 <style>
 *{margin:0;padding:0;box-sizing:border-box;}
@@ -42,28 +42,25 @@ td{padding:6px 8px;font-size:0.78em;color:#aaa;border-bottom:1px solid #ffffff08
 
 <div class="section">
 <h2>THE NUMBERS</h2>
-<p>Tested against 1,594 ClinVar missense variants across 15 disease proteins, plus 43 ClinVar-reviewed benign variants. Every variant has published clinical evidence.</p>
+<p>Tested against 1,594 ClinVar missense variants across 6 disease proteins (p53, AR, BRAF, EGFR, RET, MTHFR), plus 63 ClinVar-reviewed benign variants. Evaluated under leave-one-gene-out cross-validation &mdash; the strictest test of generalization.</p>
 
 <div class="result">
-<span style="color:#c9a44a;">Full scorer (K &times; conservation &times; &Delta;K &times; propagation + gnomAD):</span><br>
-<span class="highlight">Balanced accuracy: 94.7%</span><br>
-<span class="highlight">Sensitivity: 96.6%</span> (pathogenic variants caught)<br>
-<span class="highlight">Specificity: 92.9%</span> (benign variants correctly passed)<br><br>
+<span style="color:#c9a44a;">Regime-aware scorer (Fiedler damage &times; functional proximity &times; substitution &times; environment):</span><br>
+<span class="highlight">Within-gene AUC: 0.74</span> (mean across 6 proteins, leave-one-gene-out)<br>
+Two regimes: LoF genes use structural damage. GoF genes use MSA tolerance.<br><br>
 
-<span style="color:#c9a44a;">On verified pathogenic only (removing 28 mislabeled benign in dataset):</span><br>
-<span class="highlight">Sensitivity: 98.3%</span> on 1,564 verified pathogenic variants<br>
-1.9% of &ldquo;pathogenic&rdquo; labels were mislabeled &mdash; scorer correctly rejected them.<br><br>
+<span style="color:#c9a44a;">Per-gene (within-protein discrimination):</span><br>
+EGFR: <span class="highlight">0.92</span> &nbsp;|&nbsp; RET: <span class="highlight">0.85</span> &nbsp;|&nbsp; BRAF: <span class="highlight">0.75</span> &nbsp;|&nbsp; p53: 0.66 &nbsp;|&nbsp; MTHFR: 0.63 &nbsp;|&nbsp; AR: 0.60<br><br>
 
-<span style="color:#c9a44a;">Irreducible wall:</span><br>
-<span class="warn">1.2%</span> &mdash; 19 gain-of-function variants (AR 15, EGFR 2, PIK3CA 1, GBA 1).<br>
-Structure looks fine. Protein works better or differently. No structural method can see this.<br><br>
+<span style="color:#c9a44a;">Novel structural feature:</span><br>
+Fiedler damage (weighted-graph algebraic connectivity perturbation): <span class="highlight">0.82 AUC</span> as a single feature under LOGO cross-validation. Measures global network vulnerability &mdash; how much the protein&rsquo;s connectivity suffers when a residue is removed.<br><br>
 
 <span style="color:#c9a44a;">Scoring speed:</span><br>
 Online (per-variant): 30 variants/sec<br>
 Precomputed lookup tables: <span class="highlight">216,211 variants/sec</span> (6,975x faster)<br>
 </div>
 
-<p style="font-size:0.78em;color:#666;">Dataset: 1,594 pathogenic + 43 benign variants from ClinVar and gnomAD (AF &ge; 0.1%). Balanced accuracy reported to account for class imbalance. A 1-indexing bug in earlier benchmarks (clinical 1-indexed positions passed to 0-indexed scorer) was found and fixed in Session 22 (April 14, 2026). All previous accuracy claims (83.4%, 85.7%) were measured with the scorer comparing the wrong amino acid.</p>
+<p style="font-size:0.78em;color:#666;">Within-gene AUC measures discrimination between pathogenic and benign variants within the same protein &mdash; the honest test that avoids cross-gene confounders. Previous claims (94.7%, 83.4%) were inflated by gene-level confounders and in-sample weight optimization, discovered and corrected in Session 23 (April 15, 2026). The current 0.74 is validated under strict leave-one-gene-out cross-validation with no learned weights.</p>
 </div>
 
 <div class="section">
@@ -94,10 +91,10 @@ Precomputed lookup tables: <span class="highlight">216,211 variants/sec</span> (
 <tr><td>CADD v1.6 (2019)</td><td>0.82&ndash;0.87</td><td>~80%</td><td>~70%</td><td>Genome-wide meta-predictor</td></tr>
 <tr><td>REVEL (2016)</td><td>0.90&ndash;0.94</td><td>~88%</td><td>~84%</td><td>ClinGen-calibrated ensemble</td></tr>
 <tr><td class="highlight">AlphaMissense (2023)</td><td class="highlight">0.94&ndash;0.96</td><td class="highlight">~91%</td><td class="highlight">~89%</td><td>AlphaFold + 100M sequences</td></tr>
-<tr><td style="color:#c9a44a;">GUMP (2026)</td><td>&mdash;</td><td style="color:#c9a44a;">96.6%</td><td style="color:#c9a44a;">92.9%</td><td>K + conservation + gnomAD</td></tr>
+<tr><td style="color:#c9a44a;">GUMP (2026)</td><td style="color:#c9a44a;">0.74</td><td style="color:#c9a44a;">&mdash;</td><td style="color:#c9a44a;">&mdash;</td><td>Fiedler damage + MSA + physics</td></tr>
 </table>
 
-<p>AlphaMissense uses AlphaFold structural embeddings trained on 100M+ protein sequences. GUMP uses approximate 3D coordinates from a deterministic fold and conservation from 61&ndash;157 ortholog species. No neural network. No supervised training. The remaining gap is gain-of-function variants (1.2%) which no structural method can detect. A 1-indexing bug in earlier benchmarks was found and corrected April 14, 2026.</p>
+<p>GUMP reports within-gene AUC (discrimination within each protein), not cross-gene balanced accuracy. Within-gene AUC is the harder, more honest metric &mdash; it tests whether the scorer can distinguish pathogenic from benign at the same structural locus, not just between different proteins. GUMP matches SIFT with zero training and a fully interpretable mechanism panel. The gap to AlphaMissense (0.94) reflects 100M learned sequence embeddings vs physics-only features. GUMP&rsquo;s value is interpretability and speed, not raw AUC.</p>
 </div>
 
 <div class="section">
