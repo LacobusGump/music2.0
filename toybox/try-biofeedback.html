@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Biofeedback — GUMP</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:#08080d;color:#e8e4dc;font-family:'Courier New',monospace;min-height:100vh;padding:20px;overflow-x:hidden;}
+h1{font-size:1.2em;color:#c9a44a;letter-spacing:0.1em;text-align:center;margin-bottom:20px;}
+.metric{background:#0d0d14;border:1px solid #ffffff10;border-radius:10px;padding:14px;margin:10px 0;}
+.label{font-size:0.65em;color:#666;letter-spacing:0.08em;}
+.value{font-size:1.6em;color:#4a9;font-weight:bold;margin-top:4px;}
+.bar{height:8px;background:#ffffff08;border-radius:4px;margin-top:6px;overflow:hidden;}
+.bar-fill{height:100%;border-radius:4px;transition:width 0.5s;}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+#status{text-align:center;color:#888;font-size:0.8em;margin:16px 0;}
+button{background:#c9a44a;color:#08080d;border:none;padding:14px 28px;border-radius:8px;font-size:1em;font-weight:bold;cursor:pointer;display:block;margin:20px auto;font-family:'Courier New',monospace;}
+button:active{opacity:0.7;}
+.note{color:#555;font-size:0.65em;text-align:center;margin-top:20px;line-height:1.6;}
+#consonance-ring{width:120px;height:120px;margin:10px auto;position:relative;}
+#consonance-ring canvas{width:100%;height:100%;}
+</style>
+</head>
+<body>
+
+<h1>BIOFEEDBACK</h1>
+
+<div id="consonance-ring">
+  <canvas id="ring" width="240" height="240"></canvas>
+</div>
+
+<div id="status">Tap START to begin measuring</div>
+
+<button id="startBtn" onclick="startBio()">START</button>
+
+<div class="grid">
+  <div class="metric">
+    <div class="label">BREATH RATE</div>
+    <div class="value" id="breathVal">--</div>
+    <div style="font-size:0.6em;color:#555;">breaths/min</div>
+  </div>
+  <div class="metric">
+    <div class="label">MOVEMENT</div>
+    <div class="value" id="moveVal">--</div>
+    <div style="font-size:0.6em;color:#555;">Hz</div>
+  </div>
+</div>
+
+<div class="metric">
+  <div class="label">CONSONANCE</div>
+  <div class="bar"><div class="bar-fill" id="consBar" style="width:0%;background:#4a9;"></div></div>
+  <div style="display:flex;justify-content:space-between;font-size:0.55em;color:#555;margin-top:4px;">
+    <span>dissonant</span><span>consonant</span>
+  </div>
+</div>
+
+<div class="grid">
+  <div class="metric">
+    <div class="label">COUPLING K</div>
+    <div class="value" id="kVal" style="font-size:1.2em;">--</div>
+    <div class="bar"><div class="bar-fill" id="kBar" style="width:0%;background:#c9a44a;"></div></div>
+  </div>
+  <div class="metric">
+    <div class="label">SYNC R</div>
+    <div class="value" id="rVal" style="font-size:1.2em;">--</div>
+    <div class="bar"><div class="bar-fill" id="rBar" style="width:0%;background:#c9a44a;"></div></div>
+  </div>
+</div>
+
+<div class="metric">
+  <div class="label">SUGGESTED TEMPO</div>
+  <div class="value" id="bpmVal">--</div>
+  <div style="font-size:0.6em;color:#555;">BPM (for Heart:Breath = 4:1)</div>
+</div>
+
+<div class="note">
+  Hold phone against chest or in pocket.<br>
+  Breathe normally. Walk if you want movement data.<br>
+  The ring shows consonance — how close your body's<br>
+  oscillators are to integer frequency ratios.<br><br>
+  <a href="/" style="color:#c9a44a;">GUMP</a> — the body IS the instrument
+</div>
+
+<script src="/js/biofeedback.js"></script>
+<script>
+var bio = null;
+var ringCanvas = document.getElementById('ring');
+var ringCtx = ringCanvas.getContext('2d');
+
+function startBio() {
+  bio = new Biofeedback();
+  bio.start();
+  document.getElementById('startBtn').textContent = 'MEASURING...';
+  document.getElementById('startBtn').style.background = '#4a9';
+  document.getElementById('status').textContent = 'Hold phone steady... calibrating';
+  setInterval(updateDisplay, 500);
+}
+
+function updateDisplay() {
+  if (!bio) return;
+  var s = bio.measure();
+
+  if (!s.ready) {
+    document.getElementById('status').textContent = 'Calibrating... (' + Math.min(100, Math.round(bio.sampleCount / bio.sampleRate / 5 * 100)) + '%)';
+    return;
+  }
+
+  document.getElementById('status').textContent = '';
+  document.getElementById('breathVal').textContent = s.breathRate.toFixed(1);
+  document.getElementById('moveVal').textContent = s.movementRate.toFixed(2);
+  document.getElementById('kVal').textContent = s.K.toFixed(3);
+  document.getElementById('rVal').textContent = s.R.toFixed(3);
+  document.getElementById('bpmVal').textContent = s.suggestedBPM;
+  document.getElementById('consBar').style.width = (s.consonance * 100) + '%';
+  document.getElementById('kBar').style.width = (s.K * 100) + '%';
+  document.getElementById('rBar').style.width = (s.R * 100) + '%';
+
+  // Color the consonance bar
+  var consColor = s.consonance > 0.7 ? '#4a9' : s.consonance > 0.4 ? '#c9a44a' : '#c44';
+  document.getElementById('consBar').style.background = consColor;
+
+  drawRing(s.consonance, s.K);
+}
+
+function drawRing(consonance, k) {
+  var w = 240, h = 240, cx = w/2, cy = h/2, r = 90;
+  ringCtx.clearRect(0, 0, w, h);
+
+  // Background ring
+  ringCtx.strokeStyle = 'rgba(255,255,255,0.05)';
+  ringCtx.lineWidth = 8;
+  ringCtx.beginPath();
+  ringCtx.arc(cx, cy, r, 0, Math.PI * 2);
+  ringCtx.stroke();
+
+  // Consonance arc
+  var angle = consonance * Math.PI * 2;
+  var col = consonance > 0.7 ? '#4a9' : consonance > 0.4 ? '#c9a44a' : '#c44';
+  ringCtx.strokeStyle = col;
+  ringCtx.lineWidth = 8;
+  ringCtx.lineCap = 'round';
+  ringCtx.beginPath();
+  ringCtx.arc(cx, cy, r, -Math.PI/2, -Math.PI/2 + angle);
+  ringCtx.stroke();
+
+  // Center text
+  ringCtx.fillStyle = col;
+  ringCtx.font = 'bold 28px Courier New';
+  ringCtx.textAlign = 'center';
+  ringCtx.fillText(Math.round(consonance * 100) + '%', cx, cy + 5);
+  ringCtx.fillStyle = '#555';
+  ringCtx.font = '10px Courier New';
+  ringCtx.fillText('CONSONANCE', cx, cy + 22);
+}
+
+// Initial draw
+drawRing(0, 0);
+</script>
+</body>
+</html>
