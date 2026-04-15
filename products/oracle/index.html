@@ -37,14 +37,14 @@ p{line-height:1.8;margin:12px 0;color:#999;font-size:0.85em;}
 <a class="back" href="/products/">&larr; Tools</a>
 
 <h1>Oracle</h1>
-<p class="pitch">Paste a time series. Find hidden frequencies. Project forward. When it can't predict, it says so.</p>
+<p class="pitch">Paste a time series. Find hidden frequencies. Project forward. When it can&rsquo;t predict, it says so &mdash; low confidence on unpredictable data is an honest answer.</p>
 
 <div class="tool">
-  <div class="tool-label">PASTE TIME SERIES</div>
-  <textarea id="input" rows="4" placeholder="10, 12, 11, 14, 13, 16, 15, 18, 17, 20, 19, 22, 21, 24, 23, 26, 25">10, 12, 11, 14, 13, 16, 15, 18, 17, 20, 19, 22, 21, 24, 23, 26, 25</textarea>
+  <div class="tool-label">PASTE TIME SERIES (numbers, comma or newline separated)</div>
+  <textarea id="input" rows="4" placeholder="10, 12, 11, 14, 13, 16, 15, 18, 17, 20, 19, 22, 21, 24, 23">10, 12, 11, 14, 13, 16, 15, 18, 17, 20, 19, 22, 21, 24, 23, 26, 25, 28, 27, 30</textarea>
   <button class="run" id="run-btn" onclick="runTool()" disabled>Loading Python...</button>
   <div id="status">Loading runtime...</div>
-  <div class="output" id="output">Paste your data and press Run.</div>
+  <div class="output" id="output">Paste any sequence of numbers and press Run. The oracle finds the hidden frequencies and projects them forward.</div>
 </div>
 
 <div class="support">
@@ -53,15 +53,23 @@ p{line-height:1.8;margin:12px 0;color:#999;font-size:0.85em;}
 
 <div class="docs">
 <h2>HOW IT WORKS</h2>
-<p>Spectral decomposition via FFT. Extracts dominant frequencies, projects them forward. Confidence decays with distance from known data. Works on any periodic or quasi-periodic signal.</p>
+<p>Spectral decomposition via FFT. Every time series is a sum of oscillations at different frequencies. The oracle extracts the dominant modes (the strongest oscillations), then projects them forward. Confidence decays exponentially with distance from known data &mdash; the further ahead, the less certain. Works on any periodic or quasi-periodic signal: heart rate, stock prices, sensor readings, seasonal data.</p>
+
+<h2>HONEST LIMITS</h2>
+<p>Cannot predict regime changes, black swan events, or truly random data. If the signal has no periodic structure, the oracle will say so (low amplitude modes, fast confidence decay). The prediction assumes past patterns continue. They might not.</p>
 
 <h2>INSTALL</h2>
 <div class="result">
 pip install begump<br>
-from gump.oracle import predict<br>
+from gump.oracle import predict, extract<br>
+<br>
+freqs = extract(my_data)&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;# find hidden frequencies<br>
+future = predict(my_data, steps=20)&nbsp;# project forward<br>
+print(future['values'])&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;# predicted values<br>
+print(future['confidence'])&nbsp;# confidence at each step
 </div>
 
-<p style="font-size:0.78em;color:#555;">Your data stays on your machine. No cloud. No API keys. Deterministic.</p>
+<p style="font-size:0.78em;color:#555;">Your data stays on your machine. No cloud. No API keys. Deterministic: same input, same output, every time.</p>
 
 <div class="foot">
   <a href="/">GUMP</a> &mdash; <a href="/products/">Tools</a> &middot; <a href="/support/">Support</a> &middot; <a href="mailto:jim@begump.com">jim@begump.com</a>
@@ -71,55 +79,94 @@ from gump.oracle import predict<br>
 
 <script src="https://cdn.jsdelivr.net/pyodide/v0.25.1/full/pyodide.js"></script>
 <script>
-var pyodide=null;
-async function init(){
-  try{
-    pyodide=await loadPyodide();
+var pyodide = null;
+
+async function init() {
+  try {
+    pyodide = await loadPyodide();
     await pyodide.loadPackage(['numpy']);
-    document.getElementById('status').textContent='Ready. Your data stays here.';
-    document.getElementById('status').style.color='#4a9';
-    document.getElementById('run-btn').disabled=false;
-    document.getElementById('run-btn').textContent='RUN';
-  }catch(e){document.getElementById('status').textContent='Failed: '+e.message;}
+    document.getElementById('status').textContent = 'Ready. Your data stays here.';
+    document.getElementById('status').style.color = '#4a9';
+    document.getElementById('run-btn').disabled = false;
+    document.getElementById('run-btn').textContent = 'RUN';
+  } catch(e) {
+    document.getElementById('status').textContent = 'Failed: ' + e.message;
+  }
 }
-async function runTool(){
-  var input=document.getElementById('input').value.trim().replace(/'/g,"\\'");
-  document.getElementById('run-btn').disabled=true;
-  document.getElementById('run-btn').textContent='Computing...';
-  document.getElementById('output').textContent='Running...';
-  try{
-    pyodide.runPython('import io,sys;_o=io.StringIO();sys.stdout=_o');
-    var code=`import numpy as np
-data = [float(x.strip()) for x in '${input}'.replace('\\n',',').split(',') if x.strip()]
-if len(data) < 8:
-    print("Need at least 8 data points")
-else:
-    x = np.array(data); n = len(x)
-    fft = np.fft.rfft(x); freqs = np.fft.rfftfreq(n)
-    mags = np.abs(fft); mags[0] = 0; phases = np.angle(fft)
-    top = np.argsort(mags)[::-1][:5]
-    modes = [(freqs[i],mags[i]/n,phases[i]) for i in top if mags[i]>1e-10]
-    steps = 10
-    t_f = np.arange(n, n+steps)
-    pred = sum(m[1]*np.cos(2*np.pi*m[0]*t_f+m[2]) for m in modes)+np.mean(x)
-    conf = np.exp(-np.arange(steps)/(n*0.5))
-    print(f"Input: {n} points")
-    print(f"Frequencies found: {len(modes)}")
-    for i,(f,a,p) in enumerate(modes):
-        print(f"  Mode {i+1}: freq={f:.4f}, amp={a:.4f}")
-    print(f"")
-    print(f"Prediction:")
-    for i in range(steps):
-        bar = '#'*int(conf[i]*20)
-`;
+
+async function runTool() {
+  var raw = document.getElementById('input').value.trim();
+  if (!raw) return;
+
+  document.getElementById('run-btn').disabled = true;
+  document.getElementById('run-btn').textContent = 'Computing...';
+  document.getElementById('output').textContent = 'Running...';
+
+  // Clean: newlines to commas, strip quotes
+  var cleaned = raw.replace(/\n/g, ',').replace(/'/g, '');
+
+  try {
+    pyodide.runPython('import io, sys; _o = io.StringIO(); sys.stdout = _o');
+
+    var code = [
+      "import numpy as np",
+      "",
+      "data = [float(x.strip()) for x in '" + cleaned + "'.split(',') if x.strip()]",
+      "",
+      "if len(data) < 8:",
+      "    print('Need at least 8 data points for frequency detection.')",
+      "else:",
+      "    x = np.array(data)",
+      "    n = len(x)",
+      "",
+      "    # FFT: decompose into frequencies",
+      "    fft = np.fft.rfft(x)",
+      "    freqs = np.fft.rfftfreq(n)",
+      "    mags = np.abs(fft)",
+      "    mags[0] = 0  # skip DC component",
+      "    phases = np.angle(fft)",
+      "",
+      "    # Top 5 modes by amplitude",
+      "    top = np.argsort(mags)[::-1][:5]",
+      "    modes = [(freqs[i], mags[i]/n, phases[i]) for i in top if mags[i] > 1e-10]",
+      "",
+      "    # Project forward 10 steps",
+      "    steps = 10",
+      "    t_future = np.arange(n, n + steps)",
+      "    pred = np.zeros(steps)",
+      "    for f, a, p in modes:",
+      "        pred += a * np.cos(2 * np.pi * f * t_future + p)",
+      "    pred += np.mean(x)",
+      "",
+      "    # Confidence decays with distance",
+      "    conf = np.exp(-np.arange(steps) / (n * 0.5))",
+      "",
+      "    print(f'Input: {n} points')",
+      "    print(f'Mean: {np.mean(x):.2f}  Std: {np.std(x):.2f}')",
+      "    print()",
+      "    print(f'Frequencies found: {len(modes)} modes')",
+      "    for i, (f, a, p) in enumerate(modes):",
+      "        period = f'{1/f:.1f} steps' if f > 0.001 else 'DC'",
+      "        print(f'  Mode {i+1}: freq={f:.4f} (period {period}), amplitude={a:.3f}')",
+      "    print()",
+      "    print('Prediction (next 10 steps):')",
+      "    for i in range(steps):",
+      "        bar = chr(9608) * int(conf[i] * 20)",
+      "        print(f'  t+{i+1:>2}: {pred[i]:>8.2f}  {bar:<20s} {conf[i]*100:.0f}%')",
+    ].join('\n');
+
     await pyodide.runPythonAsync(code);
-    var out=pyodide.runPython('_o.getvalue()');
-    pyodide.runPython('sys.stdout=sys.__stdout__');
-    document.getElementById('output').textContent=out||'No output';
-  }catch(e){document.getElementById('output').textContent='Error: '+e.message;}
-  document.getElementById('run-btn').disabled=false;
-  document.getElementById('run-btn').textContent='RUN';
+    var out = pyodide.runPython('_o.getvalue()');
+    pyodide.runPython('sys.stdout = sys.__stdout__');
+    document.getElementById('output').textContent = out || 'No output.';
+  } catch(e) {
+    document.getElementById('output').textContent = 'Error: ' + e.message;
+  }
+
+  document.getElementById('run-btn').disabled = false;
+  document.getElementById('run-btn').textContent = 'RUN';
 }
+
 init();
 </script>
 <script src="/js/breathe.js?v=2"></script>
