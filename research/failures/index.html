@@ -109,6 +109,36 @@ p{line-height:1.8;color:#999;font-size:0.85em;margin:10px 0;}
 </div>
 
 <div class="kill">
+<div class="what">94.7% balanced accuracy on pathogenicity scoring</div>
+<div class="how">Reported 94.7% balanced accuracy on 1,594 ClinVar variants with a 6-signal scorer (K, conservation, &Delta;K, propagation, functional context, gnomAD). Identified and fixed a 1-indexing bug. Tuned threshold and feature weights on the evaluation data.</div>
+<div class="why">The 94.7% was inflated by three compounding errors. (1) The threshold was optimized on the same data used for evaluation &mdash; in-sample fitting. (2) AUC-proportional feature weights were computed from the test set. (3) A gene-level confounder: p53 variants (91% of pathogenic data) have systematically higher scores than AR variants, so the scorer was mostly classifying &ldquo;is this p53?&rdquo; not &ldquo;is this variant pathogenic?&rdquo; Under strict leave-one-gene-out cross-validation with predeclared weights, the honest within-gene AUC is 0.74. Still matches SIFT with zero training, but not the headline we published.</div>
+</div>
+
+<div class="kill">
+<div class="what">Products of features (stiff &times; cons, damage &times; func &times; chem) improve accuracy</div>
+<div class="how">Multiplied structural channels together: stiffness &times; conservation, damage &times; functional_proximity &times; chemistry. Greedy forward selection chose the best product combinations. AUC reached 0.875 on the evaluation set.</div>
+<div class="why">0.875 collapsed to 0.610 under leave-one-gene-out cross-validation. The products amplify gene-level confounders: they look great when the channels align in-sample, then explode out-of-sample. Any step that selects features, tunes weights, or chooses thresholds from the evaluation data leaks the answer. Banned: greedy selection, AUC-derived weights, multiplicative stacking on full data.</div>
+</div>
+
+<div class="kill">
+<div class="what">Deeper MSA (more sequences) improves tolerance signal</div>
+<div class="how">Compared shallow MSA (~2,000 sequences from UniRef, capped) vs deep MSA (~10,000 from ColabFold uncapped) vs environmental sequences (BFD/MGnify). Theory: more evolutionary data = more precise substitution tolerance.</div>
+<div class="why">Deep was identical to shallow. Environmental was WORSE (0.567 vs 0.648). The first ~2,000 sequences already saturate the column frequencies. Additional metagenomic sequences add distant homologs that blur the tolerance signal with noise from proteins under different functional constraints. More data &ne; better data.</div>
+</div>
+
+<div class="kill">
+<div class="what">Coevolutionary coupling (mutual information / DCA) predicts pathogenicity</div>
+<div class="how">Computed pairwise mutual information between MSA columns for each residue and its spatial neighbors. High MI = co-evolved = allosteric hub = important. Theory: mutations at high-MI positions should be more pathogenic.</div>
+<div class="why">Mean AUC 0.302 &mdash; ANTI-predicts. Pathogenic variants hit positions with LOW mutual information. High-MI positions are the tightly co-evolved structural core &mdash; evolution keeps them locked together. The allosteric &ldquo;control knobs&rdquo; for gain-of-function are exactly the positions that AREN&rsquo;T co-evolved. MI measures structural constraint, not functional vulnerability.</div>
+</div>
+
+<div class="kill">
+<div class="what">Exact Fiedler damage (&Delta;&lambda;&sub2; by node removal) beats the approximation</div>
+<div class="how">Computed the exact change in algebraic connectivity when each residue is removed from the weighted contact graph. Theory: the real number should be more precise than the perturbation theory estimate.</div>
+<div class="why">0.369 AUC vs 0.817 for the approximation. The approximation (|v&sub2;|&sup2; &times; degree / &lambda;&sub2;) is BETTER because it combines two signals: WHERE in the topology (Fiedler participation) and HOW CONNECTED locally (degree). The exact &Delta;&lambda;&sub2; conflates these. The &ldquo;wrong&rdquo; formula captures the right physics &mdash; a node matters when it&rsquo;s both topologically critical AND locally connected.</div>
+</div>
+
+<div class="kill">
 <div class="what">Structural coupling alone predicts double mutation interaction type</div>
 <div class="how">Two mutations in the same protein: if both high-K and structurally close (&lt;15&Aring;), predict synergistic. If far apart, predict additive. Tested on 5 known double mutations (TP53, BRCA1, EGFR, BRAF, PIK3CA).</div>
 <div class="why">40% accuracy (2/5). Catches same-region synergy (TP53 175+248 at 12.7&Aring;) but misses cross-domain interactions entirely. BRCA1 61+1775 are 50.8&Aring; apart in different domains &mdash; both pathogenic but not structurally coupled. EGFR T790M+L858R is compensatory (resistance undoes activation) &mdash; needs functional direction, not just distance. Double mutations need allosteric pathway modeling and gain/loss-of-function annotation, not just K.</div>
