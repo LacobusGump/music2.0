@@ -37,16 +37,15 @@ p{line-height:1.8;margin:12px 0;color:#999;font-size:0.85em;}
 <a class="back" href="/products/">&larr; Tools</a>
 
 <h1>AI Trainer</h1>
-<p class="pitch">Paste training and test losses. Detect grokking — when your model transitions from memorizing to understanding.</p>
+<p class="pitch">Paste your training and test losses. Detect grokking &mdash; the moment your model transitions from memorizing to actually understanding.</p>
 
 <div class="tool">
-  <div class="tool-label">PASTE LOSSES (line 1 = train, line 2 = test, comma-separated)</div>
-  <textarea id="input" rows="4" placeholder="0.9,0.7,0.5,0.3,0.15,0.08,0.04,0.02,0.01,0.01,0.01,0.01,0.01,0.01,0.01,0.01,0.01,0.01,0.01,0.01
-0.9,0.8,0.7,0.65,0.6,0.58,0.55,0.52,0.5,0.45,0.4,0.35,0.3,0.25,0.2,0.15,0.1,0.08,0.05,0.03">0.9,0.7,0.5,0.3,0.15,0.08,0.04,0.02,0.01,0.01,0.01,0.01,0.01,0.01,0.01,0.01,0.01,0.01,0.01,0.01
-0.9,0.8,0.7,0.65,0.6,0.58,0.55,0.52,0.5,0.45,0.4,0.35,0.3,0.25,0.2,0.15,0.1,0.08,0.05,0.03</textarea>
+  <div class="tool-label">LINE 1: TRAIN LOSSES &nbsp; LINE 2: TEST LOSSES (comma-separated)</div>
+  <textarea id="input" rows="4">0.9,0.7,0.5,0.3,0.15,0.08,0.04,0.02,0.01,0.01,0.01,0.01,0.01,0.01,0.01,0.01,0.01,0.01,0.01,0.01
+0.9,0.85,0.8,0.7,0.65,0.6,0.55,0.5,0.45,0.4,0.35,0.3,0.25,0.2,0.15,0.1,0.08,0.05,0.04,0.03</textarea>
   <button class="run" id="run-btn" onclick="runTool()" disabled>Loading Python...</button>
   <div id="status">Loading runtime...</div>
-  <div class="output" id="output">Paste your data and press Run.</div>
+  <div class="output" id="output">Paste train losses on line 1, test losses on line 2. Press Run.</div>
 </div>
 
 <div class="support">
@@ -55,12 +54,16 @@ p{line-height:1.8;margin:12px 0;color:#999;font-size:0.85em;}
 
 <div class="docs">
 <h2>HOW IT WORKS</h2>
-<p>Four phases: LEARNING (both dropping), MEMORIZED (train low, test high), GROKKING (gap closing), UNDERSTOOD (both low). Detects the transition from memorization to comprehension. Understanding is 224,000x cheaper than memorization (Landauer).</p>
+<p>Four phases: LEARNING (both dropping), MEMORIZED (train low, test high, gap growing), GROKKING (train low, test dropping, gap closing), UNDERSTOOD (both low). Understanding is 224,000x cheaper than memorization in Landauer bits &mdash; the model compresses its representation.</p>
 
 <h2>INSTALL</h2>
 <div class="result">
 pip install begump<br>
 from gump.aitrainer import detect_grokking<br>
+<br>
+r = detect_grokking(train_losses, test_losses)<br>
+print(r['phase'])&nbsp;&nbsp;&nbsp;# GROKKING<br>
+print(r['gap'])&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;# train-test gap
 </div>
 
 <p style="font-size:0.78em;color:#555;">Your data stays on your machine. No cloud. No API keys. Deterministic.</p>
@@ -73,60 +76,100 @@ from gump.aitrainer import detect_grokking<br>
 
 <script src="https://cdn.jsdelivr.net/pyodide/v0.25.1/full/pyodide.js"></script>
 <script>
-var pyodide=null;
-async function init(){
-  try{
-    pyodide=await loadPyodide();
+var pyodide = null;
+
+async function init() {
+  try {
+    pyodide = await loadPyodide();
     await pyodide.loadPackage(['numpy']);
-    document.getElementById('status').textContent='Ready. Your data stays here.';
-    document.getElementById('status').style.color='#4a9';
-    document.getElementById('run-btn').disabled=false;
-    document.getElementById('run-btn').textContent='RUN';
-  }catch(e){document.getElementById('status').textContent='Failed: '+e.message;}
+    document.getElementById('status').textContent = 'Ready. Your data stays here.';
+    document.getElementById('status').style.color = '#4a9';
+    document.getElementById('run-btn').disabled = false;
+    document.getElementById('run-btn').textContent = 'RUN';
+  } catch(e) {
+    document.getElementById('status').textContent = 'Failed: ' + e.message;
+  }
 }
-async function runTool(){
-  var input=document.getElementById('input').value.trim().replace(/'/g,"\\'");
-  document.getElementById('run-btn').disabled=true;
-  document.getElementById('run-btn').textContent='Computing...';
-  document.getElementById('output').textContent='Running...';
-  try{
-    pyodide.runPython('import io,sys;_o=io.StringIO();sys.stdout=_o');
-    var code=`import numpy as np
-lines = '${input}'.strip().split('\\n')
-if len(lines) < 2:
-    print("Need two lines: train losses, then test losses")
-else:
-    train = np.array([float(x) for x in lines[0].split(',') if x.strip()])
-    test = np.array([float(x) for x in lines[1].split(',') if x.strip()])
-    n = min(len(train),len(test))
-    if n < 10:
-        print("Need at least 10 loss values per line")
-    else:
-        train,test = train[:n],test[:n]
-        gap = test-train; w = min(5,n//3)
-        gt = np.polyfit(range(w),gap[-w:],1)[0]
-        fg = float(np.mean(gap[-w:])); ft = float(np.mean(train[-w:]))
-        if ft>0.5: phase='LEARNING'
-        elif fg>0.3 and gt>0: phase='MEMORIZED'
-        elif fg>0.1 and gt<-0.001: phase='GROKKING'
-        elif fg<0.1: phase='UNDERSTOOD'
-        else: phase='MEMORIZED'
-        print(f"Phase: {phase}")
-        print(f"Train loss: {ft:.4f}")
-        print(f"Test loss: {float(np.mean(test[-w:])):.4f}")
-        print(f"Gap: {fg:.4f} ({'closing' if gt<0 else 'widening'})")
-        print(f"Epochs: {n}")
-        if phase=='GROKKING': print(f"\\nKeep training — it's compressing.")
-        elif phase=='UNDERSTOOD': print(f"\\nDone. The model has grokked.")
-`;
+
+async function runTool() {
+  var raw = document.getElementById('input').value.trim();
+  if (!raw) return;
+
+  document.getElementById('run-btn').disabled = true;
+  document.getElementById('run-btn').textContent = 'Computing...';
+  document.getElementById('output').textContent = 'Running...';
+
+  var lines = raw.split('\n');
+  var line1 = (lines[0] || '').replace(/'/g, '');
+  var line2 = (lines[1] || '').replace(/'/g, '');
+
+  try {
+    pyodide.runPython('import io, sys; _o = io.StringIO(); sys.stdout = _o');
+
+    var code = [
+      "import numpy as np",
+      "",
+      "train = np.array([float(x) for x in '" + line1 + "'.split(',') if x.strip()])",
+      "test = np.array([float(x) for x in '" + line2 + "'.split(',') if x.strip()])",
+      "n = min(len(train), len(test))",
+      "",
+      "if n < 10:",
+      "    print('Need at least 10 loss values per line.')",
+      "    print('Line 1: train losses (comma-separated)')",
+      "    print('Line 2: test losses (comma-separated)')",
+      "else:",
+      "    train = train[:n]",
+      "    test = test[:n]",
+      "    gap = test - train",
+      "    w = min(5, n // 3)",
+      "",
+      "    gt = np.polyfit(range(w), gap[-w:], 1)[0]",
+      "    fg = float(np.mean(gap[-w:]))",
+      "    ft = float(np.mean(train[-w:]))",
+      "    ftest = float(np.mean(test[-w:]))",
+      "",
+      "    if ft > 0.5:",
+      "        phase = 'LEARNING'",
+      "    elif fg > 0.3 and gt > 0:",
+      "        phase = 'MEMORIZED'",
+      "    elif fg > 0.1 and gt < -0.001:",
+      "        phase = 'GROKKING'",
+      "    elif fg < 0.1:",
+      "        phase = 'UNDERSTOOD'",
+      "    else:",
+      "        phase = 'MEMORIZED'",
+      "",
+      "    print(f'Phase: {phase}')",
+      "    print(f'Train loss: {ft:.4f}')",
+      "    print(f'Test loss:  {ftest:.4f}')",
+      "    print(f'Gap: {fg:.4f}')",
+      "    gdir = 'closing' if gt < 0 else 'widening'",
+      "    print(f'Gap trend: {gt:.6f} ({gdir})')",
+      "    print(f'Epochs: {n}')",
+      "    print()",
+      "    if phase == 'GROKKING':",
+      "        print('The model is compressing. Keep training.')",
+      "    elif phase == 'UNDERSTOOD':",
+      "        print('The model has grokked. Training complete.')",
+      "    elif phase == 'MEMORIZED':",
+      "        print('Memorized but not understood.')",
+      "        print('Try: more epochs, regularization, or different architecture.')",
+      "    elif phase == 'LEARNING':",
+      "        print('Still learning. Both losses high. Keep going.')",
+    ].join('\n');
+
     await pyodide.runPythonAsync(code);
-    var out=pyodide.runPython('_o.getvalue()');
-    pyodide.runPython('sys.stdout=sys.__stdout__');
-    document.getElementById('output').textContent=out||'No output';
-  }catch(e){document.getElementById('output').textContent='Error: '+e.message;}
-  document.getElementById('run-btn').disabled=false;
-  document.getElementById('run-btn').textContent='RUN';
+    var out = pyodide.runPython('_o.getvalue()');
+    pyodide.runPython('sys.stdout = sys.__stdout__');
+    document.getElementById('output').textContent = out || 'No output.';
+  } catch(e) {
+    document.getElementById('output').textContent = 'Error: ' + e.message;
+  }
+
+  document.getElementById('run-btn').disabled = false;
+  document.getElementById('run-btn').textContent = 'RUN';
 }
+
 init();
 </script>
 <script src="/js/breathe.js?v=2"></script>
