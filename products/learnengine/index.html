@@ -37,14 +37,14 @@ p{line-height:1.8;margin:12px 0;color:#999;font-size:0.85em;}
 <a class="back" href="/products/">&larr; Tools</a>
 
 <h1>Learn Engine</h1>
-<p class="pitch">Paste correct/incorrect responses. Track the transition from memorizing to understanding.</p>
+<p class="pitch">Paste a sequence of correct (1) and incorrect (0) responses. Track the transition from memorizing to understanding.</p>
 
 <div class="tool">
   <div class="tool-label">PASTE RESPONSES (1=correct, 0=incorrect, comma-separated)</div>
-  <textarea id="input" rows="4" placeholder="0,0,1,0,1,0,1,1,0,1,1,1,1,0,1,1,1,1,1,1,1,1,1,1,1">0,0,1,0,1,0,1,1,0,1,1,1,1,0,1,1,1,1,1,1,1,1,1,1,1</textarea>
+  <textarea id="input" rows="3">0,0,1,0,1,0,1,1,0,1,1,1,1,0,1,1,1,1,1,1,1,1,1,1,1</textarea>
   <button class="run" id="run-btn" onclick="runTool()" disabled>Loading Python...</button>
   <div id="status">Loading runtime...</div>
-  <div class="output" id="output">Paste your data and press Run.</div>
+  <div class="output" id="output">Paste 1s and 0s and press Run. The engine detects the learning phase.</div>
 </div>
 
 <div class="support">
@@ -53,12 +53,16 @@ p{line-height:1.8;margin:12px 0;color:#999;font-size:0.85em;}
 
 <div class="docs">
 <h2>HOW IT WORKS</h2>
-<p>Tracks learning from a response sequence. Detects the phase transition from memorization to understanding. Consistency (K) measures how stable performance is.</p>
+<p>Tracks rolling accuracy and trend. Four phases: LEARNING (accuracy below 50%), MEMORIZING (50-80%, still inconsistent), TRANSITIONING (improving rapidly), UNDERSTANDING (80%+ and stable). Consistency K measures how stable performance is &mdash; high K means the student isn&rsquo;t guessing.</p>
 
 <h2>INSTALL</h2>
 <div class="result">
 pip install begump<br>
 from gump.learnengine import track<br>
+<br>
+r = track([0,0,1,0,1,1,1,1,1,1,1,1])<br>
+print(r['phase'])&nbsp;&nbsp;&nbsp;&nbsp;# UNDERSTANDING<br>
+print(r['accuracy'])&nbsp;# 0.83
 </div>
 
 <p style="font-size:0.78em;color:#555;">Your data stays on your machine. No cloud. No API keys. Deterministic.</p>
@@ -71,51 +75,90 @@ from gump.learnengine import track<br>
 
 <script src="https://cdn.jsdelivr.net/pyodide/v0.25.1/full/pyodide.js"></script>
 <script>
-var pyodide=null;
-async function init(){
-  try{
-    pyodide=await loadPyodide();
+var pyodide = null;
+
+async function init() {
+  try {
+    pyodide = await loadPyodide();
     await pyodide.loadPackage(['numpy']);
-    document.getElementById('status').textContent='Ready. Your data stays here.';
-    document.getElementById('status').style.color='#4a9';
-    document.getElementById('run-btn').disabled=false;
-    document.getElementById('run-btn').textContent='RUN';
-  }catch(e){document.getElementById('status').textContent='Failed: '+e.message;}
+    document.getElementById('status').textContent = 'Ready. Your data stays here.';
+    document.getElementById('status').style.color = '#4a9';
+    document.getElementById('run-btn').disabled = false;
+    document.getElementById('run-btn').textContent = 'RUN';
+  } catch(e) {
+    document.getElementById('status').textContent = 'Failed: ' + e.message;
+  }
 }
-async function runTool(){
-  var input=document.getElementById('input').value.trim().replace(/'/g,"\\'");
-  document.getElementById('run-btn').disabled=true;
-  document.getElementById('run-btn').textContent='Computing...';
-  document.getElementById('output').textContent='Running...';
-  try{
-    pyodide.runPython('import io,sys;_o=io.StringIO();sys.stdout=_o');
-    var code=`import numpy as np
-data = [int(x.strip()) for x in '${input}'.replace('\\n',',').split(',') if x.strip() in ('0','1')]
-if len(data) < 10:
-    print("Need at least 10 responses (0 or 1)")
-else:
-    r = np.array(data,dtype=float); n = len(r); w = min(5,n//3)
-    current = float(np.mean(r[-w:]))
-    accs = [np.mean(r[max(0,i-w):i]) for i in range(w,n+1)]
-    trend = np.polyfit(range(len(accs[-w:])),accs[-w:],1)[0] if len(accs)>=w else 0
-    if current<0.5: phase='LEARNING'
-    elif current<0.8: phase='MEMORIZING'
-    elif trend>0.01: phase='TRANSITIONING'
-    else: phase='UNDERSTANDING'
-    K = float(1-np.std(r[-w:])) if n>=w else 0
-    print(f"Phase: {phase}")
-    print(f"Accuracy: {current*100:.0f}%")
-    print(f"Trend: {'improving' if trend>0 else 'stable' if abs(trend)<0.001 else 'declining'}")
-    print(f"Consistency: {K:.2f}")
-`;
+
+async function runTool() {
+  var raw = document.getElementById('input').value.trim();
+  if (!raw) return;
+
+  document.getElementById('run-btn').disabled = true;
+  document.getElementById('run-btn').textContent = 'Computing...';
+  document.getElementById('output').textContent = 'Running...';
+
+  var cleaned = raw.replace(/\n/g, ',').replace(/'/g, '');
+
+  try {
+    pyodide.runPython('import io, sys; _o = io.StringIO(); sys.stdout = _o');
+
+    var code = [
+      "import numpy as np",
+      "",
+      "data = [int(x.strip()) for x in '" + cleaned + "'.split(',') if x.strip() in ('0','1')]",
+      "",
+      "if len(data) < 10:",
+      "    print('Need at least 10 responses (0=wrong, 1=correct).')",
+      "else:",
+      "    r = np.array(data, dtype=float)",
+      "    n = len(r)",
+      "    w = min(5, n // 3)",
+      "",
+      "    current = float(np.mean(r[-w:]))",
+      "    accs = [float(np.mean(r[max(0,i-w):i])) for i in range(w, n+1)]",
+      "    trend = float(np.polyfit(range(len(accs[-w:])), accs[-w:], 1)[0]) if len(accs) >= w else 0",
+      "",
+      "    if current < 0.5:",
+      "        phase = 'LEARNING'",
+      "    elif current < 0.8:",
+      "        phase = 'MEMORIZING'",
+      "    elif trend > 0.01:",
+      "        phase = 'TRANSITIONING'",
+      "    else:",
+      "        phase = 'UNDERSTANDING'",
+      "",
+      "    K = float(1 - np.std(r[-w:]))",
+      "",
+      "    print(f'Phase: {phase}')",
+      "    print(f'Accuracy: {current*100:.0f}%')",
+      "    tdir = 'improving' if trend > 0.001 else 'stable' if abs(trend) < 0.001 else 'declining'",
+      "    print(f'Trend: {tdir}')",
+      "    print(f'Consistency (K): {K:.2f}')",
+      "    print(f'Total: {int(np.sum(r))}/{n} correct')",
+      "    print()",
+      "    if phase == 'UNDERSTANDING':",
+      "        print('The student understands. Performance is stable and high.')",
+      "    elif phase == 'TRANSITIONING':",
+      "        print('Improving rapidly. The transition is happening.')",
+      "    elif phase == 'MEMORIZING':",
+      "        print('Getting answers right but inconsistently. Not yet understanding.')",
+      "    elif phase == 'LEARNING':",
+      "        print('Still below chance. More practice needed.')",
+    ].join('\n');
+
     await pyodide.runPythonAsync(code);
-    var out=pyodide.runPython('_o.getvalue()');
-    pyodide.runPython('sys.stdout=sys.__stdout__');
-    document.getElementById('output').textContent=out||'No output';
-  }catch(e){document.getElementById('output').textContent='Error: '+e.message;}
-  document.getElementById('run-btn').disabled=false;
-  document.getElementById('run-btn').textContent='RUN';
+    var out = pyodide.runPython('_o.getvalue()');
+    pyodide.runPython('sys.stdout = sys.__stdout__');
+    document.getElementById('output').textContent = out || 'No output.';
+  } catch(e) {
+    document.getElementById('output').textContent = 'Error: ' + e.message;
+  }
+
+  document.getElementById('run-btn').disabled = false;
+  document.getElementById('run-btn').textContent = 'RUN';
 }
+
 init();
 </script>
 <script src="/js/breathe.js?v=2"></script>
