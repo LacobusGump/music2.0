@@ -37,18 +37,11 @@ p{line-height:1.8;margin:12px 0;color:#999;font-size:0.85em;}
 <a class="back" href="/products/">&larr; Tools</a>
 
 <h1>Org X-Ray</h1>
-<p class="pitch">Paste connections between people. Find the real structure: hubs, bottlenecks, and silos.</p>
+<p class="pitch">Paste connections between people. Find the real structure &mdash; who holds the network together, who&rsquo;s a bottleneck, and where the silos are.</p>
 
 <div class="tool">
   <div class="tool-label">PASTE CONNECTIONS (one per line: name1,name2)</div>
-  <textarea id="input" rows="4" placeholder="alice,bob
-bob,carol
-carol,dave
-alice,carol
-bob,dave
-eve,carol
-eve,frank
-frank,grace">alice,bob
+  <textarea id="input" rows="6" placeholder="alice,bob&#10;bob,carol&#10;carol,dave&#10;alice,carol&#10;bob,dave&#10;eve,carol&#10;eve,frank">alice,bob
 bob,carol
 carol,dave
 alice,carol
@@ -58,7 +51,7 @@ eve,frank
 frank,grace</textarea>
   <button class="run" id="run-btn" onclick="runTool()" disabled>Loading Python...</button>
   <div id="status">Loading runtime...</div>
-  <div class="output" id="output">Paste your data and press Run.</div>
+  <div class="output" id="output">Paste connections (one per line, name1,name2) and press Run.</div>
 </div>
 
 <div class="support">
@@ -67,15 +60,19 @@ frank,grace</textarea>
 
 <div class="docs">
 <h2>HOW IT WORKS</h2>
-<p>Graph analysis of organizational connections. Finds hubs (most connected), bottlenecks (removal disconnects the network), and measures density. Your data stays local.</p>
+<p>Builds a graph from your connection list. Finds hubs (most connected people), bottlenecks (people whose removal disconnects the network), and measures density. A hub with high degree is either a leader or a chokepoint &mdash; the difference is which direction the information flows. Bottleneck detection uses actual graph connectivity testing, not heuristics.</p>
 
 <h2>INSTALL</h2>
 <div class="result">
 pip install begump<br>
 from gump.orgxray import analyze<br>
+<br>
+r = analyze([('alice','bob'), ('bob','carol')])<br>
+print(r['hubs'])&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;# most connected<br>
+print(r['bottlenecks'])&nbsp;# removal disconnects
 </div>
 
-<p style="font-size:0.78em;color:#555;">Your data stays on your machine. No cloud. No API keys. Deterministic.</p>
+<p style="font-size:0.78em;color:#555;">Your data stays on your machine. No cloud. No API keys. No employee data leaves your device.</p>
 
 <div class="foot">
   <a href="/">GUMP</a> &mdash; <a href="/products/">Tools</a> &middot; <a href="/support/">Support</a> &middot; <a href="mailto:jim@begump.com">jim@begump.com</a>
@@ -85,66 +82,103 @@ from gump.orgxray import analyze<br>
 
 <script src="https://cdn.jsdelivr.net/pyodide/v0.25.1/full/pyodide.js"></script>
 <script>
-var pyodide=null;
-async function init(){
-  try{
-    pyodide=await loadPyodide();
-    await pyodide.loadPackage(['numpy']);
-    document.getElementById('status').textContent='Ready. Your data stays here.';
-    document.getElementById('status').style.color='#4a9';
-    document.getElementById('run-btn').disabled=false;
-    document.getElementById('run-btn').textContent='RUN';
-  }catch(e){document.getElementById('status').textContent='Failed: '+e.message;}
+var pyodide = null;
+
+async function init() {
+  try {
+    pyodide = await loadPyodide();
+    document.getElementById('status').textContent = 'Ready. Your data stays here.';
+    document.getElementById('status').style.color = '#4a9';
+    document.getElementById('run-btn').disabled = false;
+    document.getElementById('run-btn').textContent = 'RUN';
+  } catch(e) {
+    document.getElementById('status').textContent = 'Failed: ' + e.message;
+  }
 }
-async function runTool(){
-  var input=document.getElementById('input').value.trim().replace(/'/g,"\\'");
-  document.getElementById('run-btn').disabled=true;
-  document.getElementById('run-btn').textContent='Computing...';
-  document.getElementById('output').textContent='Running...';
-  try{
-    pyodide.runPython('import io,sys;_o=io.StringIO();sys.stdout=_o');
-    var code=`from collections import defaultdict
-import numpy as np
-lines = '${input}'.strip().split('\\n')
-connections = [tuple(l.strip().split(',')[:2]) for l in lines if ',' in l]
-if len(connections) < 2:
-    print("Need at least 2 connections (name1,name2)")
-else:
-    adj = defaultdict(set); nodes = set()
-    for a,b in connections:
-        a,b=a.strip(),b.strip();nodes.add(a);nodes.add(b);adj[a].add(b);adj[b].add(a)
-    nodes = sorted(nodes); n = len(nodes)
-    deg = {nd:len(adj[nd]) for nd in nodes}
-    print(f"Network: {n} people, {len(connections)} connections")
-    print(f"Density: {len(connections)/(n*(n-1)/2)*100:.0f}%")
-    print(f"")
-    print(f"Most connected:")
-    for nd in sorted(nodes,key=lambda x:-deg[x])[:5]:
-        print(f"  {nd}: {deg[nd]} connections")
-    bns = []
-    for node in nodes:
-        if deg[node]<2: continue
-        rem=[nd for nd in nodes if nd!=node]
-        vis=set([rem[0]]);stk=[rem[0]]
-        while stk:
-            c=stk.pop()
-            for nb in adj[c]:
-                if nb!=node and nb not in vis:vis.add(nb);stk.append(nb)
-        if len(vis)<len(rem):bns.append(node)
-    print(f"")
-    if bns:
-        print(f"Bottlenecks (removal disconnects):")
-        for b in bns: print(f"  {b}")
-    else:
-`;
+
+async function runTool() {
+  var raw = document.getElementById('input').value.trim();
+  if (!raw) return;
+
+  document.getElementById('run-btn').disabled = true;
+  document.getElementById('run-btn').textContent = 'Computing...';
+  document.getElementById('output').textContent = 'Running...';
+
+  // Escape for Python: backslashes and single quotes
+  var safe = raw.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+
+  try {
+    pyodide.runPython('import io, sys; _o = io.StringIO(); sys.stdout = _o');
+
+    var code = [
+      "from collections import defaultdict",
+      "",
+      "lines = '" + safe + "'.strip().split('\\n')",
+      "connections = []",
+      "for l in lines:",
+      "    parts = l.strip().split(',')",
+      "    if len(parts) >= 2:",
+      "        connections.append((parts[0].strip(), parts[1].strip()))",
+      "",
+      "if len(connections) < 2:",
+      "    print('Need at least 2 connections (one per line: name1,name2)')",
+      "else:",
+      "    adj = defaultdict(set)",
+      "    nodes = set()",
+      "    for a, b in connections:",
+      "        nodes.add(a); nodes.add(b)",
+      "        adj[a].add(b); adj[b].add(a)",
+      "    nodes = sorted(nodes)",
+      "    n = len(nodes)",
+      "    deg = {nd: len(adj[nd]) for nd in nodes}",
+      "",
+      "    density = len(connections) / (n * (n - 1) / 2) * 100 if n > 1 else 0",
+      "    print(f'Network: {n} people, {len(connections)} connections')",
+      "    print(f'Density: {density:.0f}%')",
+      "    print()",
+      "",
+      "    print('Most connected:')",
+      "    for nd in sorted(nodes, key=lambda x: -deg[x])[:5]:",
+      "        print(f'  {nd}: {deg[nd]} connections')",
+      "",
+      "    # Bottleneck detection: remove each node, check if graph splits",
+      "    bns = []",
+      "    for node in nodes:",
+      "        if deg[node] < 2:",
+      "            continue",
+      "        rem = [nd for nd in nodes if nd != node]",
+      "        vis = set([rem[0]])",
+      "        stk = [rem[0]]",
+      "        while stk:",
+      "            c = stk.pop()",
+      "            for nb in adj[c]:",
+      "                if nb != node and nb not in vis:",
+      "                    vis.add(nb)",
+      "                    stk.append(nb)",
+      "        if len(vis) < len(rem):",
+      "            bns.append(node)",
+      "",
+      "    print()",
+      "    if bns:",
+      "        print(f'Bottlenecks ({len(bns)}):')",
+      "        for b in bns:",
+      "            print(f'  {b} (removal disconnects the network)')",
+      "    else:",
+      "        print('No bottlenecks. Network is resilient.')",
+    ].join('\n');
+
     await pyodide.runPythonAsync(code);
-    var out=pyodide.runPython('_o.getvalue()');
-    pyodide.runPython('sys.stdout=sys.__stdout__');
-    document.getElementById('output').textContent=out||'No output';
-  }catch(e){document.getElementById('output').textContent='Error: '+e.message;}
-  document.getElementById('run-btn').disabled=false;
-  document.getElementById('run-btn').textContent='RUN';
+    var out = pyodide.runPython('_o.getvalue()');
+    pyodide.runPython('sys.stdout = sys.__stdout__');
+    document.getElementById('output').textContent = out || 'No output.';
+  } catch(e) {
+    document.getElementById('output').textContent = 'Error: ' + e.message;
+  }
+
+  document.getElementById('run-btn').disabled = false;
+  document.getElementById('run-btn').textContent = 'RUN';
 }
+
 init();
 </script>
 <script src="/js/breathe.js?v=2"></script>
