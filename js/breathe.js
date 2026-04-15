@@ -167,8 +167,12 @@ for(var i=0;i<trs.length;i++){
 // ═══ 5. BACKGROUND PARTICLE FIELD ═══
 // Very subtle — just enough to know the page is alive
 var bgCanvas=document.createElement('canvas');
-bgCanvas.style.cssText='position:fixed;top:0;left:0;width:100%;height:100%;z-index:-1;pointer-events:none;';
+bgCanvas.style.cssText='position:fixed;top:0;left:0;width:100%;height:100%;z-index:0;pointer-events:none;opacity:0.8;';
 document.body.appendChild(bgCanvas);
+// Make sure page content sits above the canvas
+var page=document.querySelector('.page');
+if(page)page.style.position='relative';
+if(page)page.style.zIndex='1';
 var bgCx=bgCanvas.getContext('2d');
 var dpr=devicePixelRatio||1;
 var bW,bH;
