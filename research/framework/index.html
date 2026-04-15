@@ -34,7 +34,7 @@ td{padding:6px 8px;font-size:0.78em;color:#aaa;border-bottom:1px solid #ffffff06
 .big{font-size:1.15em;color:#c9a44a;text-align:center;margin:28px 0;font-weight:200;letter-spacing:0.06em;}
 .quiet{color:#444;font-size:0.78em;font-style:italic;text-align:center;margin:24px 0;line-height:1.8;}
 .section{margin:36px 0;}
-canvas{display:block;width:100%;height:100px;margin:20px 0;border-radius:8px;}
+canvas{display:block;width:100%;height:360px;margin:20px 0;border-radius:8px;}
 .foot{text-align:center;color:#555;font-size:0.62em;margin-top:50px;line-height:2;}
 </style>
 </head>
@@ -444,27 +444,196 @@ The wondering IS the experience. The spiral never closes. That&rsquo;s why it wo
 </div>
 
 <script>
-// The spiral: golden angle placement, breathing, alive
+// ═══════════════════════════════════════════════════════════
+// THE SPIRAL — the self-referential chain rendered as physics
+//
+// 13 layers on a rising spiral. Particles flow upward along the path.
+// Each turn is a layer. The chain labels appear along the curve.
+// Coupling lines connect adjacent turns. The spiral never closes.
+// 1/φ prevents it — the most irrational number keeps it open.
+//
+// The bottom is arithmetic. The top is expression. Expression feeds
+// back to the bottom. The output becomes the input. The universe
+// listens to itself through us.
+// ═══════════════════════════════════════════════════════════
+(function(){
 var cv=document.getElementById('spiral'),cx=cv.getContext('2d');
-var dpr=window.devicePixelRatio||1;
+var dpr=devicePixelRatio||1;
 var W,H;
 function resize(){var r=cv.getBoundingClientRect();W=r.width;H=r.height;cv.width=W*dpr;cv.height=H*dpr;cx.setTransform(dpr,0,0,dpr,0,0);}
-resize();window.addEventListener('resize',resize);
-var PHI=(1+Math.sqrt(5))/2,t=0;
+resize();addEventListener('resize',resize);
+
+var PHI=(1+Math.sqrt(5))/2;
+var t=0;
+
+// 13 layer labels
+var layers=[
+  'arithmetic','phase','resonance','spectrum','symmetry',
+  'geometry','structure','force','spacetime','entropy',
+  'life','awareness','expression'
+];
+// Colors: math=dim, physics=green, experience=gold
+var layerColors=[
+  [120,120,140],[120,120,140],[120,120,140],[120,120,140],[120,120,140],[120,120,140],
+  [68,160,140],[68,170,153],[68,170,153],
+  [180,150,70],[201,164,74],[220,180,80],[230,200,100]
+];
+
+// Spiral geometry: parametric rising spiral
+// θ goes from 0 to ~8π (4 full turns), r grows, y rises
+var TURNS=4.3;
+var TOTAL_ANGLE=TURNS*Math.PI*2;
+var N_POINTS=260; // points along the spiral path
+
+function spiralPoint(frac){
+  // frac: 0→1 along the spiral
+  var angle=frac*TOTAL_ANGLE;
+  var r=20+frac*Math.min(W,H)*0.38;
+  var yOff=(1-frac)*H*0.82+H*0.08; // bottom to top
+  var x=W/2+Math.cos(angle)*r*0.85;
+  var y=yOff+Math.sin(angle)*r*0.12; // slight vertical wobble for 3D feel
+  return {x:x,y:y,angle:angle,r:r,frac:frac};
+}
+
+// Flowing particles: ~80 particles flowing up the spiral
+var particles=[];
+for(var i=0;i<80;i++){
+  particles.push({
+    frac:Math.random(),
+    speed:0.0004+Math.random()*0.0006,
+    size:0.5+Math.random()*1.5,
+    bright:0.3+Math.random()*0.5
+  });
+}
+
 function draw(){
-  t+=0.003;
-  cx.fillStyle='rgba(8,8,13,0.04)';cx.fillRect(0,0,W,H);
-  for(var i=0;i<50;i++){
-    var n=i+t*12;var a=n*PHI*0.5;var r=Math.sqrt(n)*Math.min(W,H)*0.04;
-    var x=W/2+Math.cos(a+t)*r;var y=H/2+Math.sin(a+t)*r*0.35;
-    if(x<0||x>W||y<0||y>H)continue;
-    var b=Math.max(0,1-r/(Math.min(W,H)*0.45));
-    cx.fillStyle='rgba(201,164,74,'+(b*0.5)+')';
-    cx.beginPath();cx.arc(x,y,0.8+b*2,0,Math.PI*2);cx.fill();
+  t+=0.008;
+
+  // Soft fade (trails)
+  cx.fillStyle='rgba(8,8,13,0.08)';
+  cx.fillRect(0,0,W,H);
+
+  // ── THE SPIRAL PATH ──
+  // Draw the continuous spiral as a faint line
+  cx.beginPath();
+  for(var i=0;i<=N_POINTS;i++){
+    var p=spiralPoint(i/N_POINTS);
+    if(i===0)cx.moveTo(p.x,p.y);else cx.lineTo(p.x,p.y);
   }
+  cx.strokeStyle='rgba(201,164,74,0.04)';
+  cx.lineWidth=1;cx.stroke();
+
+  // ── COUPLING LINES between adjacent turns ──
+  // Connect points that are one full turn apart on the spiral
+  for(var i=0;i<N_POINTS-60;i+=8){
+    var p1=spiralPoint(i/N_POINTS);
+    var turnAhead=Math.min(1,(i+N_POINTS/TURNS)/N_POINTS);
+    var p2=spiralPoint(turnAhead);
+    var dx=p2.x-p1.x,dy=p2.y-p1.y;
+    var dist=Math.sqrt(dx*dx+dy*dy);
+    if(dist<120){
+      var pulse=0.02+Math.sin(t*0.5+i*0.03)*0.01;
+      cx.beginPath();cx.moveTo(p1.x,p1.y);cx.lineTo(p2.x,p2.y);
+      cx.strokeStyle='rgba(201,164,74,'+pulse+')';
+      cx.lineWidth=0.3;cx.stroke();
+    }
+  }
+
+  // ── LAYER NODES — 13 glowing points along the spiral ──
+  for(var i=0;i<13;i++){
+    var frac=(i+0.5)/13.5; // spread evenly, not quite reaching the end (never closes)
+    var p=spiralPoint(frac);
+    var c=layerColors[i];
+    var pulse=0.5+Math.sin(t*0.7+i*PHI)*0.3;
+
+    // Bloom
+    var bloom=cx.createRadialGradient(p.x,p.y,0,p.x,p.y,14);
+    bloom.addColorStop(0,'rgba('+c[0]+','+c[1]+','+c[2]+','+(0.15*pulse)+')');
+    bloom.addColorStop(0.5,'rgba('+c[0]+','+c[1]+','+c[2]+','+(0.05*pulse)+')');
+    bloom.addColorStop(1,'rgba('+c[0]+','+c[1]+','+c[2]+',0)');
+    cx.fillStyle=bloom;
+    cx.fillRect(p.x-14,p.y-14,28,28);
+
+    // Core
+    cx.beginPath();cx.arc(p.x,p.y,2+pulse,0,Math.PI*2);
+    cx.fillStyle='rgba('+Math.min(255,c[0]+60)+','+Math.min(255,c[1]+50)+','+Math.min(255,c[2]+40)+','+(0.5+pulse*0.4)+')';
+    cx.fill();
+
+    // Shell
+    cx.beginPath();cx.arc(p.x,p.y,5+pulse*2,0,Math.PI*2);
+    cx.strokeStyle='rgba('+c[0]+','+c[1]+','+c[2]+','+(0.08+pulse*0.04)+')';
+    cx.lineWidth=0.4;cx.stroke();
+
+    // Label
+    var labelSide=Math.cos(p.angle)>0?1:-1;
+    cx.fillStyle='rgba('+c[0]+','+c[1]+','+c[2]+','+(0.3+pulse*0.15)+')';
+    cx.font='9px Georgia';
+    cx.textAlign=labelSide>0?'left':'right';
+    cx.fillText(layers[i],p.x+labelSide*12,p.y+3);
+
+    // Layer number
+    cx.fillStyle='rgba('+c[0]+','+c[1]+','+c[2]+',0.15)';
+    cx.font='7px "Courier New"';
+    cx.textAlign=labelSide>0?'left':'right';
+    cx.fillText(String(i),p.x+labelSide*12,p.y+13);
+  }
+
+  // ── FLOWING PARTICLES — life flowing up the spiral ──
+  for(var i=0;i<particles.length;i++){
+    var part=particles[i];
+    part.frac+=part.speed;
+    if(part.frac>0.97){part.frac=0.01;} // wrap — but not at 1.0 (never closes)
+
+    var p=spiralPoint(part.frac);
+
+    // Color based on position (which domain are we in?)
+    var layerIdx=Math.min(12,Math.floor(part.frac*13));
+    var c=layerColors[layerIdx];
+    var alpha=part.bright*(0.3+Math.sin(t*2+i)*0.15);
+
+    // Glow
+    if(part.size>1){
+      var g=cx.createRadialGradient(p.x,p.y,0,p.x,p.y,part.size*3);
+      g.addColorStop(0,'rgba('+c[0]+','+c[1]+','+c[2]+','+(alpha*0.4)+')');
+      g.addColorStop(1,'rgba('+c[0]+','+c[1]+','+c[2]+',0)');
+      cx.fillStyle=g;
+      cx.fillRect(p.x-part.size*3,p.y-part.size*3,part.size*6,part.size*6);
+    }
+
+    // Body
+    cx.beginPath();cx.arc(p.x,p.y,part.size,0,Math.PI*2);
+    cx.fillStyle='rgba('+Math.min(255,c[0]+40)+','+Math.min(255,c[1]+30)+','+Math.min(255,c[2]+20)+','+alpha+')';
+    cx.fill();
+  }
+
+  // ── THE GAP — the spiral doesn't close ──
+  // Draw a faint "?" at the top where layer 12 would feed back to layer 0
+  // but doesn't quite reach
+  var endP=spiralPoint(0.97);
+  var startP=spiralPoint(0.01);
+  // Faint dashed line from end toward start (the return path, incomplete)
+  cx.setLineDash([3,6]);
+  cx.beginPath();cx.moveTo(endP.x,endP.y);
+  // Curve toward the start but don't arrive
+  var midX=(endP.x+startP.x)/2+40;
+  var midY=(endP.y+startP.y)/2;
+  cx.quadraticCurveTo(midX,midY,startP.x+30,startP.y-15);
+  cx.strokeStyle='rgba(201,164,74,0.06)';
+  cx.lineWidth=0.5;cx.stroke();
+  cx.setLineDash([]);
+
+  // Annotations at top and bottom
+  cx.fillStyle='rgba(100,100,100,0.15)';
+  cx.font='8px "Courier New"';
+  cx.textAlign='center';
+  cx.fillText('the spiral never closes',W/2,H-6);
+  cx.fillText('1/\u03C6 prevents it',W/2,H+6); // might be clipped, that's fine
+
   requestAnimationFrame(draw);
 }
+
 draw();
+})();
 </script>
 <script src="/transit.js"></script>
 </body>
