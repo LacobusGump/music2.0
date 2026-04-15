@@ -41,10 +41,10 @@ p{line-height:1.8;margin:12px 0;color:#999;font-size:0.85em;}
 
 <div class="tool">
   <div class="tool-label">PASTE TEXT</div>
-  <textarea id="input" rows="4" placeholder="The heart beats at a regular rhythm. The brain controls the heart through the vagus nerve. Music entrains the heart rate. The brain processes music in the auditory cortex.">The heart beats at a regular rhythm. The brain controls the heart through the vagus nerve. Music entrains the heart rate. The brain processes music in the auditory cortex.</textarea>
+  <textarea id="input" rows="5" placeholder="The heart beats at a regular rhythm. The brain controls the heart through the vagus nerve. Music entrains the heart rate. Rhythm synchronizes the brain and heart.">The heart beats at a regular rhythm. The brain controls the heart through the vagus nerve. Music entrains the heart rate. The brain processes music in the auditory cortex. Rhythm synchronizes the brain and heart.</textarea>
   <button class="run" id="run-btn" onclick="runTool()" disabled>Loading Python...</button>
   <div id="status">Loading runtime...</div>
-  <div class="output" id="output">Paste your data and press Run.</div>
+  <div class="output" id="output">Paste any text and press Run. The engine finds concepts, connections, and gaps.</div>
 </div>
 
 <div class="support">
@@ -53,12 +53,17 @@ p{line-height:1.8;margin:12px 0;color:#999;font-size:0.85em;}
 
 <div class="docs">
 <h2>HOW IT WORKS</h2>
-<p>Co-occurrence graph from text. Nodes = significant words. Edges = appearing in same sentence. Gaps = high-degree nodes that never co-occur. The gaps are often more valuable than the connections.</p>
+<p>Splits text into sentences. Extracts significant words (3+ letters, no stopwords). Builds a co-occurrence graph: words that appear in the same sentence are connected. The weight is how many times they co-occur. Gaps are pairs of important concepts that never appear together &mdash; often more valuable than the connections themselves.</p>
 
 <h2>INSTALL</h2>
 <div class="result">
 pip install begump<br>
 from gump.knowledge import build_graph<br>
+<br>
+g = build_graph("Your text here...")<br>
+print(g['nodes'])&nbsp;&nbsp;# top concepts<br>
+print(g['edges'])&nbsp;&nbsp;# connections<br>
+print(g['gaps'])&nbsp;&nbsp;&nbsp;# missing links
 </div>
 
 <p style="font-size:0.78em;color:#555;">Your data stays on your machine. No cloud. No API keys. Deterministic.</p>
@@ -71,63 +76,101 @@ from gump.knowledge import build_graph<br>
 
 <script src="https://cdn.jsdelivr.net/pyodide/v0.25.1/full/pyodide.js"></script>
 <script>
-var pyodide=null;
-async function init(){
-  try{
-    pyodide=await loadPyodide();
-    await pyodide.loadPackage(['numpy']);
-    document.getElementById('status').textContent='Ready. Your data stays here.';
-    document.getElementById('status').style.color='#4a9';
-    document.getElementById('run-btn').disabled=false;
-    document.getElementById('run-btn').textContent='RUN';
-  }catch(e){document.getElementById('status').textContent='Failed: '+e.message;}
+var pyodide = null;
+
+async function init() {
+  try {
+    pyodide = await loadPyodide();
+    document.getElementById('status').textContent = 'Ready. Your data stays here.';
+    document.getElementById('status').style.color = '#4a9';
+    document.getElementById('run-btn').disabled = false;
+    document.getElementById('run-btn').textContent = 'RUN';
+  } catch(e) {
+    document.getElementById('status').textContent = 'Failed: ' + e.message;
+  }
 }
-async function runTool(){
-  var input=document.getElementById('input').value.trim().replace(/'/g,"\\'");
-  document.getElementById('run-btn').disabled=true;
-  document.getElementById('run-btn').textContent='Computing...';
-  document.getElementById('output').textContent='Running...';
-  try{
-    pyodide.runPython('import io,sys;_o=io.StringIO();sys.stdout=_o');
-    var code=`import re
-from collections import Counter
-text = '${input}'
-sentences = [s.strip() for s in re.split(r'[.!?]+', text.lower()) if s.strip()]
-stops = {'the','a','an','is','are','was','were','in','on','at','to','of','and','or','by','for','with','from','as','it','its','this','that','not','no','but','so','if','then','than','be','been','has','have','had','do','does','did','will','would','can','could'}
-wp = re.compile(r'[a-z]+')
-co, wf = Counter(), Counter()
-for s in sentences:
-    words = list(set(w for w in wp.findall(s) if len(w)>=3 and w not in stops))
-    for w in words: wf[w]+=1
-    for i in range(len(words)):
-        for j in range(i+1,len(words)):
-            co[tuple(sorted([words[i],words[j]]))]+=1
-nodes = [w for w,_ in wf.most_common(20)]
-edges = sorted([(a,b,c) for (a,b),c in co.items() if a in nodes and b in nodes],key=lambda x:-x[2])
-conn = set()
-for a,b,c in edges: conn.add((a,b));conn.add((b,a))
-top = nodes[:10]
-gaps = [(top[i],top[j]) for i in range(len(top)) for j in range(i+1,len(top)) if (top[i],top[j]) not in conn]
-print(f"Concepts: {', '.join(nodes[:10])}")
-print(f"")
-print(f"Connections:")
-for a,b,c in edges[:8]:
-    print(f"  {a} <-> {b}  ({c}x)")
-print(f"")
-if gaps:
-    print(f"Gaps ({len(gaps)}):")
-    for a,b in gaps[:5]:
-        print(f"  {a} -- {b}  (should connect)")
-else:
-`;
+
+async function runTool() {
+  var raw = document.getElementById('input').value.trim();
+  if (!raw) return;
+
+  // Escape for Python string (handle quotes and backslashes)
+  var safe = raw.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, ' ');
+
+  document.getElementById('run-btn').disabled = true;
+  document.getElementById('run-btn').textContent = 'Computing...';
+  document.getElementById('output').textContent = 'Running...';
+
+  try {
+    pyodide.runPython('import io, sys; _o = io.StringIO(); sys.stdout = _o');
+
+    var code = [
+      "import re",
+      "from collections import Counter",
+      "",
+      "text = '" + safe + "'",
+      "sentences = [s.strip() for s in re.split(r'[.!?]+', text.lower()) if s.strip()]",
+      "",
+      "stops = {'the','a','an','is','are','was','were','in','on','at','to','of','and','or',",
+      "         'by','for','with','from','as','it','its','this','that','not','no','but','so',",
+      "         'if','then','than','be','been','has','have','had','do','does','did','will',",
+      "         'would','can','could','may','might','shall','should','each','every','also',",
+      "         'just','about','up','out','all','both','more','most','very','too','how',",
+      "         'what','which','who','whom','where','when','while','into','through'}",
+      "",
+      "wp = re.compile(r'[a-z]+')",
+      "co = Counter()",
+      "wf = Counter()",
+      "",
+      "for s in sentences:",
+      "    words = list(set(w for w in wp.findall(s) if len(w) >= 3 and w not in stops))",
+      "    for w in words:",
+      "        wf[w] += 1",
+      "    for i in range(len(words)):",
+      "        for j in range(i + 1, len(words)):",
+      "            co[tuple(sorted([words[i], words[j]]))] += 1",
+      "",
+      "nodes = [w for w, _ in wf.most_common(20)]",
+      "edges = sorted([(a,b,c) for (a,b),c in co.items() if a in nodes and b in nodes], key=lambda x: -x[2])",
+      "",
+      "conn = set()",
+      "for a, b, c in edges:",
+      "    conn.add((a, b))",
+      "    conn.add((b, a))",
+      "",
+      "top = nodes[:10]",
+      "gaps = [(top[i], top[j]) for i in range(len(top)) for j in range(i+1, len(top)) if (top[i], top[j]) not in conn]",
+      "",
+      "print(f'Concepts: {len(nodes)} found')",
+      "print(f'  {chr(34) + chr(34).join([\", \".join(nodes[:10])])+chr(34)}')" ,
+      "print()",
+      "if edges:",
+      "    print(f'Connections: {len(edges)}')",
+      "    for a, b, c in edges[:8]:",
+      "        print(f'  {a} <-> {b}  ({c}x)')",
+      "else:",
+      "    print('No connections found. Try more text.')",
+      "print()",
+      "if gaps:",
+      "    print(f'Gaps: {len(gaps)} (concepts that should connect but dont)')",
+      "    for a, b in gaps[:5]:",
+      "        print(f'  {a} -- {b}')",
+      "else:",
+      "    print('No gaps. All top concepts are connected.')",
+    ].join('\n');
+
     await pyodide.runPythonAsync(code);
-    var out=pyodide.runPython('_o.getvalue()');
-    pyodide.runPython('sys.stdout=sys.__stdout__');
-    document.getElementById('output').textContent=out||'No output';
-  }catch(e){document.getElementById('output').textContent='Error: '+e.message;}
-  document.getElementById('run-btn').disabled=false;
-  document.getElementById('run-btn').textContent='RUN';
+    var out = pyodide.runPython('_o.getvalue()');
+    pyodide.runPython('sys.stdout = sys.__stdout__');
+    document.getElementById('output').textContent = out || 'No output. Try adding more text.';
+  } catch(e) {
+    document.getElementById('output').textContent = 'Error: ' + e.message;
+  }
+
+  document.getElementById('run-btn').disabled = false;
+  document.getElementById('run-btn').textContent = 'RUN';
 }
+
 init();
 </script>
 <script src="/js/breathe.js?v=2"></script>
