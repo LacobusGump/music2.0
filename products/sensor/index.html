@@ -37,14 +37,14 @@ p{line-height:1.8;margin:12px 0;color:#999;font-size:0.85em;}
 <a class="back" href="/products/">&larr; Tools</a>
 
 <h1>Universal Sensor</h1>
-<p class="pitch">Paste any time series. Get K (coupling), R (synchronization), E (energy), and T (tension). Instant analysis of any signal.</p>
+<p class="pitch">Paste any numbers. Get K (coupling), R (synchronization), E (energy), and T (tension). Four quantities that describe any signal.</p>
 
 <div class="tool">
-  <div class="tool-label">PASTE NUMBERS (one per line or comma-separated)</div>
-  <textarea id="input" rows="4" placeholder="72, 75, 71, 74, 73, 76, 72, 75, 71, 74, 73, 76, 72, 75, 71, 74, 73, 76, 72, 75">72, 75, 71, 74, 73, 76, 72, 75, 71, 74, 73, 76, 72, 75, 71, 74, 73, 76, 72, 75</textarea>
+  <div class="tool-label">PASTE NUMBERS (comma or newline separated)</div>
+  <textarea id="input" rows="4" placeholder="72, 75, 71, 74, 73, 76, 72, 75, 71, 74, 73, 76">72, 75, 71, 74, 73, 76, 72, 75, 71, 74, 73, 76, 72, 75, 71, 74, 73, 76</textarea>
   <button class="run" id="run-btn" onclick="runTool()" disabled>Loading Python...</button>
   <div id="status">Loading runtime...</div>
-  <div class="output" id="output">Paste your data and press Run.</div>
+  <div class="output" id="output">Paste numbers and press Run. Any signal — heart rate, stock prices, sensor readings, anything.</div>
 </div>
 
 <div class="support">
@@ -53,12 +53,15 @@ p{line-height:1.8;margin:12px 0;color:#999;font-size:0.85em;}
 
 <div class="docs">
 <h2>HOW IT WORKS</h2>
-<p>Four quantities describe any signal. K measures coupling (autocorrelation). R measures synchronization (spectral coherence). E measures information content (Shannon entropy). T measures tension (what wants to couple but hasn't). Same math across all 18 domains.</p>
+<p>K measures coupling (autocorrelation at lag 1 &mdash; how strongly each value predicts the next). R measures synchronization (spectral coherence &mdash; how peaked the frequency spectrum is). E measures information content (Shannon entropy of the spectrum). T measures tension (K minus R &mdash; what wants to couple but hasn&rsquo;t). Same four quantities across all 18 domains.</p>
 
 <h2>INSTALL</h2>
 <div class="result">
 pip install begump<br>
 from gump.sensor import measure_kret<br>
+<br>
+r = measure_kret([72, 75, 71, 74, 73, 76])<br>
+print(r['K'], r['R'], r['verdict'])
 </div>
 
 <p style="font-size:0.78em;color:#555;">Your data stays on your machine. No cloud. No API keys. Deterministic.</p>
@@ -71,56 +74,75 @@ from gump.sensor import measure_kret<br>
 
 <script src="https://cdn.jsdelivr.net/pyodide/v0.25.1/full/pyodide.js"></script>
 <script>
-var pyodide=null;
-async function init(){
-  try{
-    pyodide=await loadPyodide();
+var pyodide = null;
+
+async function init() {
+  try {
+    pyodide = await loadPyodide();
     await pyodide.loadPackage(['numpy']);
-    document.getElementById('status').textContent='Ready. Your data stays here.';
-    document.getElementById('status').style.color='#4a9';
-    document.getElementById('run-btn').disabled=false;
-    document.getElementById('run-btn').textContent='RUN';
-  }catch(e){document.getElementById('status').textContent='Failed: '+e.message;}
+    document.getElementById('status').textContent = 'Ready. Your data stays here.';
+    document.getElementById('status').style.color = '#4a9';
+    document.getElementById('run-btn').disabled = false;
+    document.getElementById('run-btn').textContent = 'RUN';
+  } catch(e) {
+    document.getElementById('status').textContent = 'Failed: ' + e.message;
+  }
 }
-async function runTool(){
-  var input=document.getElementById('input').value.trim().replace(/'/g,"\\'");
-  document.getElementById('run-btn').disabled=true;
-  document.getElementById('run-btn').textContent='Computing...';
-  document.getElementById('output').textContent='Running...';
-  try{
-    pyodide.runPython('import io,sys;_o=io.StringIO();sys.stdout=_o');
-    var code=`import numpy as np
-data = [float(x.strip()) for x in '${input}'.replace('\\n',',').split(',') if x.strip()]
-if len(data) < 3:
-    print("Need at least 3 numbers")
-else:
-    x = np.array(data); n = len(x)
-    mu, sigma = np.mean(x), np.std(x)
-    if sigma < 1e-15:
-        print("K=1.0  R=1.0  E=0.0  T=0.0  CONSTANT")
-    else:
-        xn = (x-mu)/sigma
-        K = abs(float(np.corrcoef(xn[:-1],xn[1:])[0,1]))
-        fft = np.abs(np.fft.rfft(xn)[1:])**2
-        p = fft/np.sum(fft) if np.sum(fft)>0 else fft
-        H = -np.sum(p*np.log2(p+1e-15)); Hm = np.log2(len(p)) if len(p)>0 else 1
-        R = max(0, min(1, 1-H/Hm)) if Hm>0 else 0
-        T = max(0, K-R)
-        v = 'COUPLED' if K>0.8 and R>0.6 else 'PARTIAL' if K>0.5 else 'RANDOM' if K<0.1 else 'WEAK'
-        print(f"K = {K:.4f}  (coupling)")
-        print(f"R = {R:.4f}  (synchronization)")
-        print(f"E = {abs(H):.4f} bits")
-        print(f"T = {T:.4f}  (tension)")
-        print(f"Verdict: {v}")
-`;
+
+async function runTool() {
+  var raw = document.getElementById('input').value.trim();
+  if (!raw) return;
+
+  document.getElementById('run-btn').disabled = true;
+  document.getElementById('run-btn').textContent = 'Computing...';
+  document.getElementById('output').textContent = 'Running...';
+
+  // Clean input: replace newlines with commas, escape for Python
+  var cleaned = raw.replace(/\n/g, ',').replace(/'/g, '');
+
+  try {
+    pyodide.runPython('import io, sys; _o = io.StringIO(); sys.stdout = _o');
+
+    var code = [
+      "import numpy as np",
+      "data = [float(x.strip()) for x in '" + cleaned + "'.split(',') if x.strip()]",
+      "if len(data) < 3:",
+      "    print('Need at least 3 numbers')",
+      "else:",
+      "    x = np.array(data); n = len(x)",
+      "    mu, sigma = np.mean(x), np.std(x)",
+      "    if sigma < 1e-15:",
+      "        print('K=1.000  R=1.000  E=0.000  T=0.000  CONSTANT')",
+      "    else:",
+      "        xn = (x - mu) / sigma",
+      "        K = abs(float(np.corrcoef(xn[:-1], xn[1:])[0, 1]))",
+      "        fft = np.abs(np.fft.rfft(xn)[1:])**2",
+      "        p = fft / np.sum(fft) if np.sum(fft) > 0 else fft",
+      "        H = -np.sum(p * np.log2(p + 1e-15))",
+      "        Hm = np.log2(len(p)) if len(p) > 0 else 1",
+      "        R = max(0, min(1, 1 - H / Hm)) if Hm > 0 else 0",
+      "        T = max(0, K - R)",
+      "        v = 'COUPLED' if K > 0.8 and R > 0.6 else 'PARTIAL' if K > 0.5 else 'RANDOM' if K < 0.1 else 'WEAK'",
+      "        print(f'K = {K:.4f}  (coupling)')",
+      "        print(f'R = {R:.4f}  (synchronization)')",
+      "        print(f'E = {abs(H):.4f} bits')",
+      "        print(f'T = {T:.4f}  (tension)')",
+      "        print(f'Verdict: {v}')",
+      "        print(f'Points: {n}  Mean: {mu:.2f}  Std: {sigma:.2f}')",
+    ].join('\n');
+
     await pyodide.runPythonAsync(code);
-    var out=pyodide.runPython('_o.getvalue()');
-    pyodide.runPython('sys.stdout=sys.__stdout__');
-    document.getElementById('output').textContent=out||'No output';
-  }catch(e){document.getElementById('output').textContent='Error: '+e.message;}
-  document.getElementById('run-btn').disabled=false;
-  document.getElementById('run-btn').textContent='RUN';
+    var out = pyodide.runPython('_o.getvalue()');
+    pyodide.runPython('sys.stdout = sys.__stdout__');
+    document.getElementById('output').textContent = out || 'No output.';
+  } catch(e) {
+    document.getElementById('output').textContent = 'Error: ' + e.message;
+  }
+
+  document.getElementById('run-btn').disabled = false;
+  document.getElementById('run-btn').textContent = 'RUN';
 }
+
 init();
 </script>
 <script src="/js/breathe.js?v=2"></script>
