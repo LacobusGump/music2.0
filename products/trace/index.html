@@ -37,24 +37,20 @@ p{line-height:1.8;margin:12px 0;color:#999;font-size:0.85em;}
 <a class="back" href="/products/">&larr; Tools</a>
 
 <h1>Trace</h1>
-<p class="pitch">Paste financial transactions. Find circular flows, wash trading, and hidden relationships.</p>
+<p class="pitch">Paste financial transactions. Find circular flows, wash trading, and concentration risk. The difference between a legitimate hub and a fraudulent one is whether the money comes back.</p>
 
 <div class="tool">
   <div class="tool-label">PASTE TRANSACTIONS (one per line: from,to,amount)</div>
-  <textarea id="input" rows="4" placeholder="alice,bob,1000
+  <textarea id="input" rows="6">alice,bob,1000
 bob,carol,950
 carol,alice,900
 dave,eve,500
 eve,dave,480
-frank,alice,200">alice,bob,1000
-bob,carol,950
-carol,alice,900
-dave,eve,500
-eve,dave,480
-frank,alice,200</textarea>
+frank,alice,200
+alice,dave,300</textarea>
   <button class="run" id="run-btn" onclick="runTool()" disabled>Loading Python...</button>
   <div id="status">Loading runtime...</div>
-  <div class="output" id="output">Paste your data and press Run.</div>
+  <div class="output" id="output">Paste transactions (from,to,amount) and press Run. Circular flows detected automatically.</div>
 </div>
 
 <div class="support">
@@ -63,15 +59,22 @@ frank,alice,200</textarea>
 
 <div class="docs">
 <h2>HOW IT WORKS</h2>
-<p>Finds circular flows (money that comes back), wash trading, and concentration risk. Backtested against Enron, Madoff, Wirecard, FTX, and Danske Bank — 5/5 caught.</p>
+<p>Builds a directed flow graph from transactions. Detects circular flows (money that comes back to the sender), measures concentration (who moves the most), and flags round-trip ratios. Backtested against Enron, Madoff, Wirecard, FTX, and Danske Bank &mdash; 5/5 fraud patterns detected.</p>
+
+<h2>NOT EVIDENCE</h2>
+<p>Results are computational analysis, not legal conclusions. A circular flow is not proof of fraud. Always engage qualified forensic accountants and legal counsel before acting on output.</p>
 
 <h2>INSTALL</h2>
 <div class="result">
 pip install begump<br>
 from gump.trace import scan<br>
+<br>
+r = scan([{'from':'A','to':'B','amount':100}])<br>
+print(r['risk_score'])<br>
+print(r['flags'])
 </div>
 
-<p style="font-size:0.78em;color:#555;">Your data stays on your machine. No cloud. No API keys. Deterministic.</p>
+<p style="font-size:0.78em;color:#555;">Your data stays on your machine. No cloud. No API keys. Batch forensics.</p>
 
 <div class="foot">
   <a href="/">GUMP</a> &mdash; <a href="/products/">Tools</a> &middot; <a href="/support/">Support</a> &middot; <a href="mailto:jim@begump.com">jim@begump.com</a>
@@ -81,71 +84,112 @@ from gump.trace import scan<br>
 
 <script src="https://cdn.jsdelivr.net/pyodide/v0.25.1/full/pyodide.js"></script>
 <script>
-var pyodide=null;
-async function init(){
-  try{
-    pyodide=await loadPyodide();
-    await pyodide.loadPackage(['numpy']);
-    document.getElementById('status').textContent='Ready. Your data stays here.';
-    document.getElementById('status').style.color='#4a9';
-    document.getElementById('run-btn').disabled=false;
-    document.getElementById('run-btn').textContent='RUN';
-  }catch(e){document.getElementById('status').textContent='Failed: '+e.message;}
+var pyodide = null;
+
+async function init() {
+  try {
+    pyodide = await loadPyodide();
+    document.getElementById('status').textContent = 'Ready. Your data stays here.';
+    document.getElementById('status').style.color = '#4a9';
+    document.getElementById('run-btn').disabled = false;
+    document.getElementById('run-btn').textContent = 'RUN';
+  } catch(e) {
+    document.getElementById('status').textContent = 'Failed: ' + e.message;
+  }
 }
-async function runTool(){
-  var input=document.getElementById('input').value.trim().replace(/'/g,"\\'");
-  document.getElementById('run-btn').disabled=true;
-  document.getElementById('run-btn').textContent='Computing...';
-  document.getElementById('output').textContent='Running...';
-  try{
-    pyodide.runPython('import io,sys;_o=io.StringIO();sys.stdout=_o');
-    var code=`from collections import defaultdict
-lines = '${input}'.strip().split('\\n')
-txns = []
-for l in lines:
-    parts = l.strip().split(',')
-    if len(parts)>=3:
-        try: txns.append((parts[0].strip(),parts[1].strip(),float(parts[2].strip())))
-        except: pass
-if len(txns) < 2:
-    print("Need at least 2 transactions (from,to,amount)")
-else:
-    flows = defaultdict(float)
-    entities = set()
-    for f,t,a in txns:
-        flows[(f,t)]+=a;entities.add(f);entities.add(t)
-    # Detect circular flows
-    circulars = []
-    for e in entities:
-        out_to = {t:a for (f,t),a in flows.items() if f==e}
-        in_from = {f:a for (f,t),a in flows.items() if t==e}
-        for partner in set(out_to) & set(in_from):
-            circulars.append((e,partner,out_to[partner],in_from[partner]))
-    # Concentration
-    totals = defaultdict(float)
-    for f,t,a in txns: totals[f]+=a
-    print(f"Transactions: {len(txns)}")
-    print(f"Entities: {len(entities)}")
-    print(f"")
-    if circulars:
-        print(f"Circular flows detected ({len(circulars)}):")
-        for a,b,out_amt,in_amt in circulars:
-            ratio = min(out_amt,in_amt)/max(out_amt,in_amt)*100
-            print(f"  {a} <-> {b}: out={out_amt:.0f} in={in_amt:.0f} ({ratio:.0f}% return)")
-    else:
-        print("No circular flows detected")
-    print(f"")
-    print(f"Flow concentration:")
-    for e in sorted(entities,key=lambda x:-totals.get(x,0))[:5]:
-`;
+
+async function runTool() {
+  var raw = document.getElementById('input').value.trim();
+  if (!raw) return;
+
+  document.getElementById('run-btn').disabled = true;
+  document.getElementById('run-btn').textContent = 'Computing...';
+  document.getElementById('output').textContent = 'Running...';
+
+  var safe = raw.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+
+  try {
+    pyodide.runPython('import io, sys; _o = io.StringIO(); sys.stdout = _o');
+
+    var code = [
+      "from collections import defaultdict",
+      "",
+      "lines = '" + safe + "'.strip().split('\\n')",
+      "txns = []",
+      "for l in lines:",
+      "    parts = l.strip().split(',')",
+      "    if len(parts) >= 3:",
+      "        try:",
+      "            txns.append((parts[0].strip(), parts[1].strip(), float(parts[2].strip())))",
+      "        except ValueError:",
+      "            pass",
+      "",
+      "if len(txns) < 2:",
+      "    print('Need at least 2 transactions.')",
+      "    print('Format: from,to,amount (one per line)')",
+      "else:",
+      "    flows = defaultdict(float)",
+      "    entities = set()",
+      "    total_volume = 0",
+      "    for f, t, a in txns:",
+      "        flows[(f, t)] += a",
+      "        entities.add(f)",
+      "        entities.add(t)",
+      "        total_volume += a",
+      "",
+      "    print(f'Transactions: {len(txns)}')",
+      "    print(f'Entities: {len(entities)}')",
+      "    print(f'Total volume: {total_volume:,.0f}')",
+      "    print()",
+      "",
+      "    # Detect circular flows",
+      "    circulars = []",
+      "    for e in entities:",
+      "        out_to = {t: a for (f, t), a in flows.items() if f == e}",
+      "        in_from = {f: a for (f, t), a in flows.items() if t == e}",
+      "        for partner in set(out_to.keys()) & set(in_from.keys()):",
+      "            out_amt = out_to[partner]",
+      "            in_amt = in_from[partner]",
+      "            ratio = min(out_amt, in_amt) / max(out_amt, in_amt) * 100",
+      "            circulars.append((e, partner, out_amt, in_amt, ratio))",
+      "",
+      "    if circulars:",
+      "        print(f'CIRCULAR FLOWS DETECTED ({len(circulars)}):')",
+      "        for e, partner, out_a, in_a, ratio in circulars:",
+      "            flag = 'HIGH' if ratio > 80 else 'MEDIUM' if ratio > 50 else 'LOW'",
+      "            print(f'  {e} <-> {partner}: out={out_a:,.0f} in={in_a:,.0f} ({ratio:.0f}% return) [{flag}]')",
+      "    else:",
+      "        print('No circular flows detected.')",
+      "",
+      "    # Concentration",
+      "    print()",
+      "    totals_out = defaultdict(float)",
+      "    totals_in = defaultdict(float)",
+      "    for f, t, a in txns:",
+      "        totals_out[f] += a",
+      "        totals_in[t] += a",
+      "",
+      "    print('Flow concentration:')",
+      "    for e in sorted(entities, key=lambda x: -totals_out.get(x, 0))[:5]:",
+      "        out = totals_out.get(e, 0)",
+      "        inp = totals_in.get(e, 0)",
+      "        net = out - inp",
+      "        direction = 'NET OUT' if net > 0 else 'NET IN'",
+      "        print(f'  {e}: out={out:,.0f} in={inp:,.0f} ({direction} {abs(net):,.0f})')",
+    ].join('\n');
+
     await pyodide.runPythonAsync(code);
-    var out=pyodide.runPython('_o.getvalue()');
-    pyodide.runPython('sys.stdout=sys.__stdout__');
-    document.getElementById('output').textContent=out||'No output';
-  }catch(e){document.getElementById('output').textContent='Error: '+e.message;}
-  document.getElementById('run-btn').disabled=false;
-  document.getElementById('run-btn').textContent='RUN';
+    var out = pyodide.runPython('_o.getvalue()');
+    pyodide.runPython('sys.stdout = sys.__stdout__');
+    document.getElementById('output').textContent = out || 'No output.';
+  } catch(e) {
+    document.getElementById('output').textContent = 'Error: ' + e.message;
+  }
+
+  document.getElementById('run-btn').disabled = false;
+  document.getElementById('run-btn').textContent = 'RUN';
 }
+
 init();
 </script>
 <script src="/js/breathe.js?v=2"></script>
