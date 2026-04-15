@@ -11,7 +11,7 @@
 <link rel="canonical" href="https://begump.com/">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="icon" href="/favicon.png">
-<title>GUMP</title>
+<title>GUMP — Grand Unified Music Project</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;}
 body{background:#08080d;color:#e8e4dc;font-family:Georgia,serif;
@@ -27,9 +27,13 @@ a:hover{color:#f4d990;}
 }
 
 /* Masthead */
-h1{font-size:2.4em;font-weight:100;color:#c9a44a;text-align:center;
-  letter-spacing:0.3em;opacity:0;animation:up 1.2s ease 0.1s forwards;
-  flex-shrink:0;padding:8px 0 0;}
+h1{font-size:1.1em;font-weight:100;text-align:center;
+  letter-spacing:0.06em;opacity:0;animation:up 1.2s ease 0.1s forwards;
+  flex-shrink:0;padding:8px 0 0;color:#555;word-spacing:0.2em;}
+h1 .cap{color:#c9a44a;font-size:1.3em;font-weight:200;letter-spacing:0.02em;}
+h1 .proj{display:inline;background:linear-gradient(90deg,#c9a44a 0%,#887040 40%,#554428 70%,#33291a 100%);
+  -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;
+  letter-spacing:0.04em;}
 
 /* The coupler — takes remaining space */
 .coupler{flex:1;min-height:0;position:relative;
@@ -68,7 +72,7 @@ h1{font-size:2.4em;font-weight:100;color:#c9a44a;text-align:center;
 @media(max-width:600px){
   body{overflow-y:auto;}
   .frame{height:auto;min-height:100vh;min-height:100dvh;padding:12px 14px;}
-  h1{font-size:1.8em;padding:4px 0 0;}
+  h1{font-size:0.85em;padding:4px 0 0;}
   .coupler{min-height:320px;flex:none;height:52vh;}
   .doors{flex-direction:column;gap:0;}
   .door{padding:14px 10px;}
@@ -86,7 +90,7 @@ h1{font-size:2.4em;font-weight:100;color:#c9a44a;text-align:center;
 <body>
 <div class="frame">
 
-<h1>GUMP</h1>
+<h1><span class="cap">G</span><span class="proj">rand</span> <span class="cap">U</span><span class="proj">nified</span> <span class="cap">M</span><span class="proj">usic</span> <span class="cap">P</span><span class="proj">roject</span></h1>
 
 <div class="coupler">
   <canvas id="field"></canvas>
@@ -175,14 +179,33 @@ var items=[
 ];
 var N=items.length;
 
+// Degree (connection count) per node — computed after edges
+var degree=new Array(N);for(var i=0;i<N;i++)degree[i]=0;
+
 var nodes=[];
 for(var i=0;i<N;i++){
+  // Z-depth: Harmonia closest, research mid, products back
+  var z=items[i].g===2?1.0:items[i].g===0?0.6+Math.random()*0.3:0.4+Math.random()*0.3;
+  // Electrons: 1-3 orbiting particles per node
+  var nElec=items[i].g===2?3:1+Math.floor(Math.random()*2);
+  var elecs=[];
+  for(var e=0;e<nElec;e++){
+    elecs.push({
+      angle:e*(6.28/nElec)+Math.random()*0.5,
+      radius:8+Math.random()*6,
+      speed:0.8+Math.random()*0.6,
+      size:0.6+Math.random()*0.5
+    });
+  }
   nodes.push({
     x:0,y:0,vx:0,vy:0,bx:0,by:0,
     phase:i*GA,
     freq:0.15+Math.random()*0.25,
-    size:items[i].g===2?7:4+Math.random()*2.5,
-    g:items[i].g
+    size:items[i].g===2?6:3+Math.random()*2,
+    g:items[i].g,
+    z:z,
+    elecs:elecs,
+    labelAlpha:0 // smooth fade for labels
   });
 }
 
@@ -210,6 +233,24 @@ addEdge(9,5,0.3);  // Trace → Cancer (fraud patterns)
 // Harmonia couples to everything
 addEdge(15,0,0.3); addEdge(15,4,0.3); addEdge(15,8,0.3);
 addEdge(15,10,0.3); addEdge(15,6,0.3);
+
+// Count degree per node
+for(var e=0;e<edges.length;e++){degree[edges[e].a]++;degree[edges[e].b]++;}
+
+// ═══ EDGE PARTICLES — flow along couplings ═══
+var eparts=[];
+for(var e=0;e<edges.length;e++){
+  var np=Math.ceil(edges[e].w*3); // more particles on stronger edges
+  for(var p=0;p<np;p++){
+    eparts.push({
+      edge:e,
+      t:Math.random(),           // position along edge 0→1
+      speed:0.003+edges[e].w*0.004, // faster on stronger couplings
+      dir:Math.random()>0.5?1:-1,   // direction
+      size:0.4+edges[e].w*0.4
+    });
+  }
+}
 
 // ═══ LAYOUT — golden spiral with group bias ═══
 function layout(){
@@ -318,11 +359,21 @@ function tick(){
     }
     if(d<25)hovered=i;
 
+    // Label fade: smooth approach to target alpha
+    var targetLA=0;
+    if(d<70) targetLA=Math.max(0,(70-d)/70); // proximity fade
+    n.labelAlpha+=(targetLA-n.labelAlpha)*0.1;
+
     // Spring
     n.vx+=(tx-n.x)*0.07;
     n.vy+=(ty-n.y)*0.07;
     n.vx*=0.86;n.vy*=0.86;
     n.x+=n.vx;n.y+=n.vy;
+
+    // Electrons orbit
+    for(var j=0;j<n.elecs.length;j++){
+      n.elecs[j].angle+=n.elecs[j].speed*0.016;
+    }
   }
 
   // Global K/R
@@ -335,6 +386,14 @@ function tick(){
   }
   var nE=edges.length||1;
   gR=sR/nE;gK=sK/nE;
+
+  // Edge particles flow
+  for(var i=0;i<eparts.length;i++){
+    var ep=eparts[i];
+    ep.t+=ep.speed*ep.dir;
+    if(ep.t>1){ep.t=1;ep.dir=-1;}
+    if(ep.t<0){ep.t=0;ep.dir=1;}
+  }
 
   // Mist
   for(var i=0;i<mist.length;i++){
@@ -361,74 +420,151 @@ function draw(){
     cx.fillStyle='rgba(201,164,74,'+p.a+')';cx.fill();
   }
 
-  // Group labels — subtle, only on desktop
-  if(W>500){
-    cx.fillStyle='rgba(201,164,74,0.08)';
-    cx.font='200 11px Georgia';
-    cx.textAlign='center';
-    cx.fillText('RESEARCH',W*0.35,28);
-    cx.fillText('PRODUCTS',W*0.65,28);
-  }
-
-  // Edges
+  // ─── EDGES: coupling lines with tension + flowing particles ───
   for(var e=0;e<edges.length;e++){
     var ed=edges[e];
     var a=nodes[ed.a],b=nodes[ed.b];
     var sync=1-ed.t;
-    var alpha=ed.w*0.25*(0.3+sync*0.7);
+    var alpha=ed.w*0.2*(0.3+sync*0.7);
+    var nearHover=hovered>=0&&(ed.a===hovered||ed.b===hovered);
+    if(nearHover)alpha=Math.min(0.6,alpha*4);
 
-    // Brighten edges connected to hovered node
-    if(hovered>=0&&(ed.a===hovered||ed.b===hovered))alpha=Math.min(0.7,alpha*4);
-
-    var rc=Math.floor(201*(1-ed.t*0.4));
-    var gc=Math.floor(164*sync);
-    var bc=Math.floor(74*sync);
+    // Edge color: blend both node colors based on tension
+    var rc=Math.floor(150*(1-ed.t*0.3));
+    var gc=Math.floor(150*sync*0.9);
+    var bc=Math.floor(100*sync*0.5);
 
     cx.beginPath();cx.moveTo(a.x,a.y);cx.lineTo(b.x,b.y);
     cx.strokeStyle='rgba('+rc+','+gc+','+bc+','+alpha+')';
-    cx.lineWidth=ed.w*1.5;cx.stroke();
+    cx.lineWidth=ed.w*(nearHover?2:1.2);cx.stroke();
   }
 
-  // Nodes
-  for(var i=0;i<N;i++){
+  // ─── EDGE PARTICLES: flowing along couplings ───
+  for(var i=0;i<eparts.length;i++){
+    var ep=eparts[i];
+    var ed=edges[ep.edge];
+    var a=nodes[ed.a],b=nodes[ed.b];
+    var px=a.x+(b.x-a.x)*ep.t;
+    var py=a.y+(b.y-a.y)*ep.t;
+    var sync=1-ed.t;
+    // Particle brightness peaks at ends (near nodes), dims in middle
+    var posBright=1-Math.abs(ep.t-0.5)*1.2;
+    var pa=sync*0.35*posBright*ed.w;
+    if(pa>0.02){
+      cx.beginPath();cx.arc(px,py,ep.size,0,6.28);
+      cx.fillStyle='rgba(201,180,100,'+pa+')';cx.fill();
+    }
+  }
+
+  // ─── Sort nodes by Z for depth rendering (back to front) ───
+  var zOrder=[];
+  for(var i=0;i<N;i++)zOrder.push(i);
+  zOrder.sort(function(a,b){return nodes[a].z-nodes[b].z;});
+
+  // ─── NODES: nucleus + shell + electrons + bloom ───
+  for(var zi=0;zi<N;zi++){
+    var i=zOrder[zi];
     var n=nodes[i];
     var sync=Math.abs(Math.cos(n.phase));
     var isH=i===hovered;
-    var sz=isH?n.size*1.4:n.size;
 
-    // Color by group
+    // Z-depth affects rendered size and brightness
+    var zScale=0.6+n.z*0.6; // 0.6 → 1.2
+    var zBright=0.5+n.z*0.5; // dimmer in back
+    var sz=(isH?n.size*1.5:n.size)*zScale;
+
+    // Degree affects shell radius
+    var deg=degree[i]||1;
+    var shellR=sz+2+deg*0.6;
+
+    // Color by group with slight per-node hue variation
+    var hueShift=Math.sin(i*GA)*15;
     var cr,cg,cb;
-    if(n.g===0){cr=68;cg=170;cb=153;}       // research: green
-    else if(n.g===1){cr=201;cg=164;cb=74;}   // products: gold
-    else{cr=220;cg=200;cb=140;}               // harmonia: bright gold
+    if(n.g===0){
+      cr=Math.floor(68+hueShift*0.3);
+      cg=Math.floor(170+hueShift*0.5);
+      cb=Math.floor(153-hueShift*0.3);
+    }else if(n.g===1){
+      cr=Math.floor(201+hueShift*0.3);
+      cg=Math.floor(164+hueShift*0.4);
+      cb=Math.floor(74+hueShift*0.2);
+    }else{
+      cr=230;cg=210;cb=150;
+    }
+    cr=Math.max(0,Math.min(255,cr));
+    cg=Math.max(0,Math.min(255,cg));
+    cb=Math.max(0,Math.min(255,cb));
 
-    // Glow
-    var glow=cx.createRadialGradient(n.x,n.y,0,n.x,n.y,sz*4);
-    glow.addColorStop(0,'rgba('+cr+','+cg+','+cb+','+(0.08+sync*0.12)+')');
-    glow.addColorStop(1,'rgba('+cr+','+cg+','+cb+',0)');
-    cx.fillStyle=glow;
-    cx.fillRect(n.x-sz*4,n.y-sz*4,sz*8,sz*8);
+    // ── BLOOM LAYER 1: wide soft glow ──
+    var bloom1=cx.createRadialGradient(n.x,n.y,0,n.x,n.y,sz*6);
+    bloom1.addColorStop(0,'rgba('+cr+','+cg+','+cb+','+(0.04+sync*0.04)*zBright+')');
+    bloom1.addColorStop(0.4,'rgba('+cr+','+cg+','+cb+','+(0.02*zBright)+')');
+    bloom1.addColorStop(1,'rgba('+cr+','+cg+','+cb+',0)');
+    cx.fillStyle=bloom1;
+    cx.fillRect(n.x-sz*6,n.y-sz*6,sz*12,sz*12);
 
-    // Body
-    cx.beginPath();cx.arc(n.x,n.y,sz,0,6.28);
-    cx.fillStyle='rgba('+cr+','+cg+','+cb+','+(0.4+sync*0.6)+')';
+    // ── BLOOM LAYER 2: tight bright core glow ──
+    var bloom2=cx.createRadialGradient(n.x,n.y,0,n.x,n.y,sz*2.5);
+    bloom2.addColorStop(0,'rgba('+cr+','+cg+','+cb+','+(0.12+sync*0.15)*zBright+')');
+    bloom2.addColorStop(1,'rgba('+cr+','+cg+','+cb+',0)');
+    cx.fillStyle=bloom2;
+    cx.fillRect(n.x-sz*2.5,n.y-sz*2.5,sz*5,sz*5);
+
+    // ── SHELL: faint ring showing degree/connectivity ──
+    cx.beginPath();cx.arc(n.x,n.y,shellR,0,6.28);
+    cx.strokeStyle='rgba('+cr+','+cg+','+cb+','+(0.06+sync*0.04)*zBright+')';
+    cx.lineWidth=0.5;cx.stroke();
+
+    // ── NUCLEUS: bright core ──
+    cx.beginPath();cx.arc(n.x,n.y,sz*0.7,0,6.28);
+    cx.fillStyle='rgba('+Math.min(255,cr+40)+','+Math.min(255,cg+30)+','+Math.min(255,cb+20)+','+(0.6+sync*0.4)*zBright+')';
     cx.fill();
 
+    // Outer body
+    cx.beginPath();cx.arc(n.x,n.y,sz,0,6.28);
+    cx.fillStyle='rgba('+cr+','+cg+','+cb+','+(0.2+sync*0.25)*zBright+')';
+    cx.fill();
+
+    // Hover ring
     if(isH){
-      cx.strokeStyle='rgba('+cr+','+cg+','+cb+',0.8)';
-      cx.lineWidth=1.5;cx.stroke();
+      cx.beginPath();cx.arc(n.x,n.y,sz+1.5,0,6.28);
+      cx.strokeStyle='rgba('+cr+','+cg+','+cb+',0.7)';
+      cx.lineWidth=1.2;cx.stroke();
     }
 
-    // Label
-    var la=isH?0.95:0.3;
-    cx.fillStyle='rgba(232,228,220,'+la+')';
-    cx.font=isH?'bold 11px Georgia':'9px Georgia';
-    cx.textAlign='center';
-    cx.fillText(items[i].name,n.x,n.y-sz-5);
+    // ── ELECTRONS: orbiting particles ──
+    for(var j=0;j<n.elecs.length;j++){
+      var el=n.elecs[j];
+      var eR=el.radius*zScale;
+      var ex=n.x+Math.cos(el.angle)*eR;
+      var ey=n.y+Math.sin(el.angle)*eR;
+      var eSz=el.size*zScale;
+
+      // Electron glow
+      var eg=cx.createRadialGradient(ex,ey,0,ex,ey,eSz*3);
+      eg.addColorStop(0,'rgba('+cr+','+cg+','+cb+','+(0.25*zBright)+')');
+      eg.addColorStop(1,'rgba('+cr+','+cg+','+cb+',0)');
+      cx.fillStyle=eg;
+      cx.fillRect(ex-eSz*3,ey-eSz*3,eSz*6,eSz*6);
+
+      // Electron body
+      cx.beginPath();cx.arc(ex,ey,eSz,0,6.28);
+      cx.fillStyle='rgba('+Math.min(255,cr+60)+','+Math.min(255,cg+50)+','+Math.min(255,cb+40)+','+(0.5+sync*0.3)*zBright+')';
+      cx.fill();
+    }
+
+    // ── LABEL: only on proximity, smooth fade ──
+    if(n.labelAlpha>0.02){
+      var la=n.labelAlpha*zBright;
+      cx.fillStyle='rgba(232,228,220,'+la+')';
+      cx.font=la>0.6?'bold 11px Georgia':'9px Georgia';
+      cx.textAlign='center';
+      cx.fillText(items[i].name,n.x,n.y-shellR-4);
+    }
   }
 
   // K/R — bottom right, whisper quiet
-  cx.fillStyle='rgba(100,100,100,0.3)';
+  cx.fillStyle='rgba(80,80,80,0.25)';
   cx.font='9px "Courier New"';cx.textAlign='right';
   cx.fillText('K='+gK.toFixed(3)+' R='+gR.toFixed(3),W-8,H-6);
 }
