@@ -59,7 +59,25 @@ style.textContent=
   '::-webkit-scrollbar{width:6px;}'+
   '::-webkit-scrollbar-track{background:#08080d;}'+
   '::-webkit-scrollbar-thumb{background:rgba(201,164,74,0.12);border-radius:3px;}'+
-  '::-webkit-scrollbar-thumb:hover{background:rgba(201,164,74,0.25);}';
+  '::-webkit-scrollbar-thumb:hover{background:rgba(201,164,74,0.25);}'+
+
+  // ═══ BRAND FONT — Futura geometric sans on all titles ═══
+  // The ONE non-serif element. Mathematics rendered as letterforms.
+  'h1{font-family:Futura,"Century Gothic",Avenir,"Avenir Next",system-ui,sans-serif !important;'+
+  'font-weight:200 !important;letter-spacing:0.12em !important;}'+
+
+  // Section titles: same brand font, lighter weight
+  'h2{font-family:Futura,"Century Gothic",Avenir,"Avenir Next",system-ui,sans-serif !important;'+
+  'font-weight:200 !important;letter-spacing:0.12em !important;}'+
+
+  // Card titles, product names, door names — brand font
+  '.card h3,.item .name,.d-name,.name{'+
+  'font-family:Futura,"Century Gothic",Avenir,"Avenir Next",system-ui,sans-serif !important;'+
+  'font-weight:200 !important;letter-spacing:0.08em !important;}'+
+
+  // Back links — brand font, small
+  '.back{font-family:Futura,"Century Gothic",Avenir,"Avenir Next",system-ui,sans-serif !important;'+
+  'letter-spacing:0.08em !important;}';
 document.head.appendChild(style);
 
 // ═══ 1. SECTION TITLES: glow when they enter viewport ═══
