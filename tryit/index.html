@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Try It — GUMP</title>
+<meta name="description" content="Run GUMP tools in your browser. No install. No server. Your data stays on your machine.">
+<link rel="icon" href="/favicon.png">
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:#08080d;color:#e8e4dc;font-family:Georgia,serif;min-height:100vh;}
+a{color:#c9a44a;text-decoration:none;}
+.page{max-width:760px;margin:0 auto;padding:30px 20px 80px;}
+.back{font-size:0.75em;color:#444;margin-bottom:20px;display:block;}
+h1{font-family:Futura,'Century Gothic',system-ui,sans-serif;font-size:1.6em;font-weight:200;
+  color:#c9a44a;letter-spacing:0.12em;text-align:center;}
+.sub{text-align:center;color:#888;font-size:0.82em;margin:8px 0 20px;line-height:1.7;}
+#status{text-align:center;color:#c94;font-size:0.78em;margin:10px 0;min-height:1.5em;}
+.tools{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin:16px 0;}
+.tool-btn{background:#0a0a14;border:1px solid #ffffff08;border-radius:6px;padding:8px 14px;
+  cursor:pointer;color:#c9a44a;font-family:Futura,'Century Gothic',system-ui,sans-serif;
+  font-size:0.72em;letter-spacing:0.06em;transition:all 0.3s;}
+.tool-btn:hover{border-color:#c9a44a30;background:#0e0e18;}
+.tool-btn.active{border-color:#c9a44a;background:#12121c;}
+textarea{width:100%;background:#0a0a12;border:1px solid #ffffff10;border-radius:8px;
+  color:#ccc;font-family:'Courier New',monospace;font-size:0.82em;padding:14px;
+  resize:vertical;outline:none;line-height:1.7;}
+textarea:focus{border-color:#c9a44a30;}
+#input-area{margin:16px 0;}
+#input-label{font-family:Futura,'Century Gothic',system-ui,sans-serif;
+  font-size:0.65em;color:#555;letter-spacing:0.1em;margin-bottom:6px;}
+#run-btn{display:block;margin:12px auto;background:#c9a44a;color:#08080d;border:none;
+  padding:10px 32px;border-radius:6px;font-family:Futura,'Century Gothic',system-ui,sans-serif;
+  font-size:0.85em;font-weight:500;letter-spacing:0.08em;cursor:pointer;transition:all 0.3s;}
+#run-btn:hover{background:#f0d070;}
+#run-btn:disabled{background:#333;color:#666;cursor:wait;}
+#output{background:#0a0a12;border:1px solid #ffffff08;border-radius:8px;
+  padding:14px;margin:12px 0;font-family:'Courier New',monospace;font-size:0.78em;
+  color:#4a9;min-height:80px;white-space:pre-wrap;line-height:1.7;overflow-x:auto;}
+.note{color:#444;font-size:0.65em;text-align:center;margin-top:20px;line-height:1.8;}
+.foot{text-align:center;color:#555;font-size:0.62em;margin-top:30px;}
+</style>
+</head>
+<body>
+<div class="page">
+<a class="back" href="/">&larr; GUMP</a>
+
+<h1>Try It</h1>
+<div class="sub">Run GUMP tools in your browser. No install. No server.<br>Your data never leaves your machine.</div>
+
+<div id="status">Loading Python runtime...</div>
+
+<div class="tools">
+  <div class="tool-btn active" onclick="selectTool('kret')">K/R/E/T</div>
+  <div class="tool-btn" onclick="selectTool('protein')">Protein</div>
+  <div class="tool-btn" onclick="selectTool('discriminator')">Discriminator</div>
+  <div class="tool-btn" onclick="selectTool('oracle')">Oracle</div>
+  <div class="tool-btn" onclick="selectTool('knowledge')">Knowledge</div>
+  <div class="tool-btn" onclick="selectTool('orgxray')">Org X-Ray</div>
+  <div class="tool-btn" onclick="selectTool('grokking')">Grokking</div>
+  <div class="tool-btn" onclick="selectTool('compress')">Compress</div>
+</div>
+
+<div id="input-area">
+  <div id="input-label">PASTE YOUR DATA</div>
+  <textarea id="input" rows="6" placeholder="Paste numbers (one per line), a protein sequence, or text..."></textarea>
+</div>
+
+<button id="run-btn" onclick="runTool()" disabled>Loading...</button>
+
+<div id="output">Results will appear here.</div>
+
+<div class="note">
+  Powered by <a href="https://pyodide.org" style="color:#555;">Pyodide</a> — full Python + NumPy running in your browser via WebAssembly.<br>
+  Nothing is sent to any server. Computation happens on YOUR device.<br>
+  For the full package: <code style="color:#888;">pip install begump</code>
+</div>
+
+<div class="foot">
+  <a href="/">GUMP</a> &mdash; <a href="/research/">Research</a> &middot; <a href="/support/">Support</a> &middot; <a href="mailto:jim@begump.com">jim@begump.com</a>
+</div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/pyodide/v0.25.1/full/pyodide.js"></script>
+<script>
+var pyodide = null;
+var currentTool = 'kret';
+var ready = false;
+
+// Tool configs: what code to run for each tool
+var TOOLS = {
+  kret: {
+    label: 'PASTE NUMBERS (one per line, or comma-separated)',
+    placeholder: '1.2, 3.4, 2.1, 4.5, 3.2, 1.8, 3.9, 2.5, 4.1, 3.0',
+    code: function(input) {
+      return `
+import numpy as np
+data = [float(x.strip()) for x in '${input}'.replace('\\n',',').split(',') if x.strip()]
+if len(data) < 3:
+    print("Need at least 3 numbers")
+else:
+    x = np.array(data)
+    n = len(x)
+    mu, sigma = np.mean(x), np.std(x)
+    if sigma < 1e-15:
+        print("K=1.0000  R=1.0000  E=0.0000  T=0.0000  CONSTANT")
+    else:
+        xn = (x-mu)/sigma
+        K = abs(float(np.corrcoef(xn[:-1],xn[1:])[0,1]))
+        fft = np.abs(np.fft.rfft(xn)[1:])**2
+        p = fft/np.sum(fft) if np.sum(fft)>0 else fft
+        H = -np.sum(p*np.log2(p+1e-15)); Hm = np.log2(len(p))
+        R = max(0, min(1, 1-H/Hm)) if Hm>0 else 0
+        T = max(0, K-R)
+        v = 'COUPLED' if K>0.8 and R>0.6 else 'PARTIAL' if K>0.5 else 'RANDOM' if K<0.1 else 'WEAK'
+        print(f"K = {K:.4f}  (coupling strength)")
+        print(f"R = {R:.4f}  (synchronization)")
+        print(f"E = {abs(H):.4f} bits  (information content)")
+        print(f"T = {T:.4f}  (tension)")
+        print(f"")
+        print(f"Verdict: {v}")
+        print(f"Points: {n}  Mean: {mu:.4f}  Std: {sigma:.4f}")
+`;
+    }
+  },
+  protein: {
+    label: 'PASTE PROTEIN SEQUENCE (amino acid letters)',
+    placeholder: 'MVLSPADKTNVKAAWGKVGAHAGEYGAEALERMFLSFPTTKTYFPHFDLSH',
+    code: function(input) {
+      var seq = input.replace(/[^A-Za-z]/g, '').toUpperCase();
+      return `
+seq = "${seq}"
+n = len(seq)
+if n < 5:
+    print("Need at least 5 residues")
+else:
+    # Composition
+    from collections import Counter
+    comp = Counter(seq)
+    hydrophobic = set('VILMFYW')
+    charged = set('DEKRH')
+    h_frac = sum(comp[a] for a in hydrophobic) / n
+    c_frac = sum(comp[a] for a in charged) / n
+
+    # Simple secondary structure prediction (Chou-Fasman inspired)
+    helix_formers = set('AELM')
+    sheet_formers = set('VIY')
+    h_pct = sum(1 for a in seq if a in helix_formers) / n * 100
+    s_pct = sum(1 for a in seq if a in sheet_formers) / n * 100
+    c_pct = 100 - h_pct - s_pct
+
+    # Flory Rg
+    rg = 2.8 * n**0.34
+
+    # Aggregation risk
+    window = 7
+    agg_regions = 0
+    for i in range(n-window):
+        chunk = seq[i:i+window]
+        h_score = sum(1 for a in chunk if a in hydrophobic) / window
+        if h_score > 0.5:
+            agg_regions += 1
+
+    risk = 'HIGH' if agg_regions > 5 else 'MEDIUM' if agg_regions > 2 else 'LOW'
+
+    print(f"Sequence: {seq[:30]}{'...' if n>30 else ''}")
+    print(f"Length: {n} residues")
+    print(f"Predicted Rg: {rg:.1f} Angstroms")
+    print(f"")
+    print(f"Composition:")
+    print(f"  Hydrophobic: {h_frac*100:.1f}%")
+    print(f"  Charged: {c_frac*100:.1f}%")
+    print(f"  Helix tendency: {h_pct:.0f}%")
+    print(f"  Sheet tendency: {s_pct:.0f}%")
+    print(f"  Coil: {c_pct:.0f}%")
+    print(f"")
+    print(f"Aggregation regions: {agg_regions}")
+    print(f"Misfolding risk: {risk}")
+`;
+    }
+  },
+  discriminator: {
+    label: 'PASTE TWO SIGNALS (line 1 = signal A, line 2 = signal B)',
+    placeholder: '1,2,3,4,5,4,3,2,1,2,3,4,5,4,3,2\n1.1,2.2,2.9,4.1,5.2,3.8,3.1,1.9,1.2,2.1,3.3,3.9,5.1,4.2,2.8,2.1',
+    code: function(input) {
+      var lines = input.trim().split('\n');
+      if (lines.length < 2) return 'print("Need two lines of numbers")';
+      return `
+import numpy as np
+a = np.array([float(x) for x in '${lines[0]}'.split(',') if x.strip()])
+b = np.array([float(x) for x in '${lines[1]}'.split(',') if x.strip()])
+n = min(len(a), len(b))
+if n < 10:
+    print("Need at least 10 points per signal")
+else:
+    a, b = a[:n], b[:n]
+    R = abs(float(np.corrcoef(a, b)[0, 1]))
+    # Shuffle test
+    rng = np.random.RandomState(137)
+    R_null = []
+    a_shuf = a.copy()
+    for _ in range(200):
+        rng.shuffle(a_shuf)
+        R_null.append(abs(float(np.corrcoef(a_shuf, b)[0, 1])))
+    p = np.mean(np.array(R_null) >= R)
+    real = p < 0.01
+    if real and R > 0.309:
+        verdict = 'COUPLED'
+    elif not real and R > 0.309:
+        verdict = 'CORRELATED (phantom)'
+    elif real:
+        verdict = 'FORCED'
+    else:
+        verdict = 'INDEPENDENT'
+    print(f"R = {R:.4f}  (synchronization)")
+    print(f"p = {p:.4f}  (probability of seeing R by chance)")
+    print(f"Verdict: {verdict}")
+    print(f"Points: {n}")
+`;
+    }
+  },
+  oracle: {
+    label: 'PASTE NUMBERS (time series to predict)',
+    placeholder: '10, 12, 11, 14, 13, 16, 15, 18, 17, 20, 19, 22, 21, 24, 23',
+    code: function(input) {
+      return `
+import numpy as np
+data = [float(x.strip()) for x in '${input}'.replace('\\n',',').split(',') if x.strip()]
+if len(data) < 8:
+    print("Need at least 8 data points")
+else:
+    x = np.array(data)
+    n = len(x)
+    fft = np.fft.rfft(x)
+    freqs = np.fft.rfftfreq(n)
+    mags = np.abs(fft); mags[0] = 0
+    phases = np.angle(fft)
+    top = np.argsort(mags)[::-1][:5]
+    modes = [(freqs[i], mags[i]/n, phases[i]) for i in top if mags[i]>1e-10]
+
+    steps = 10
+    t_future = np.arange(n, n+steps)
+    pred = sum(m[1]*np.cos(2*np.pi*m[0]*t_future+m[2]) for m in modes) + np.mean(x)
+    conf = np.exp(-np.arange(steps)/(n*0.5))
+
+    print(f"Input: {n} points")
+    print(f"Dominant frequencies: {len(modes)} modes found")
+    for i,(f,a,p) in enumerate(modes):
+        print(f"  Mode {i+1}: freq={f:.4f}, amplitude={a:.4f}")
+    print(f"")
+    print(f"Prediction (next {steps} steps):")
+    for i in range(steps):
+        bar = '#' * int(conf[i]*20)
+        print(f"  t+{i+1}: {pred[i]:>8.2f}  [{bar:<20}] {conf[i]*100:.0f}% conf")
+`;
+    }
+  },
+  knowledge: {
+    label: 'PASTE TEXT (paragraphs, articles, notes)',
+    placeholder: 'The heart beats at a regular rhythm. The brain controls the heart through the vagus nerve. Music entrains the heart rate. The brain processes music in the auditory cortex. Rhythm synchronizes the brain and heart.',
+    code: function(input) {
+      var safe = input.replace(/'/g, "\\'").replace(/\n/g, ' ');
+      return `
+import re
+from collections import Counter
+text = '${safe}'
+sentences = [s.strip() for s in re.split(r'[.!?]+', text.lower()) if s.strip()]
+stopwords = {'the','a','an','is','are','was','were','in','on','at','to','of','and','or','by','for','with','from','as','it','its','this','that','not','no','but','so','if','then','than','be','been','has','have','had','do','does','did','will','would','can','could','may','might','shall','should'}
+wp = re.compile(r'[a-z]+')
+cooccur, wf = Counter(), Counter()
+for s in sentences:
+    words = list(set(w for w in wp.findall(s) if len(w)>=3 and w not in stopwords))
+    for w in words: wf[w]+=1
+    for i in range(len(words)):
+        for j in range(i+1,len(words)):
+            cooccur[tuple(sorted([words[i],words[j]]))]+=1
+nodes = [w for w,_ in wf.most_common(30)]
+edges = [(a,b,c) for (a,b),c in cooccur.items() if a in nodes and b in nodes]
+nd = Counter()
+conn = set()
+for a,b,c in edges: nd[a]+=c;nd[b]+=c;conn.add((a,b));conn.add((b,a))
+top = [n for n,_ in nd.most_common(10)]
+gaps = [(top[i],top[j]) for i in range(len(top)) for j in range(i+1,len(top)) if (top[i],top[j]) not in conn]
+print(f"Nodes: {len(nodes)} concepts extracted")
+print(f"Edges: {len(edges)} connections found")
+print(f"")
+print(f"Top concepts: {', '.join(nodes[:10])}")
+print(f"")
+print(f"Strongest connections:")
+for a,b,c in sorted(edges, key=lambda x:-x[2])[:8]:
+    print(f"  {a} <-> {b}  ({c}x)")
+print(f"")
+if gaps:
+    print(f"Knowledge gaps ({len(gaps)} found):")
+    for a,b in gaps[:5]:
+        print(f"  {a} and {b} should connect but don't")
+else:
+    print("No gaps found — concepts are well connected")
+`;
+    }
+  },
+  orgxray: {
+    label: 'PASTE CONNECTIONS (one per line: person1,person2)',
+    placeholder: 'alice,bob\nbob,carol\ncarol,dave\nalice,carol\nbob,dave\neve,carol\neve,frank',
+    code: function(input) {
+      var safe = input.replace(/'/g, "\\'");
+      return `
+from collections import defaultdict
+import numpy as np
+lines = '${safe}'.strip().split('\\n')
+connections = [tuple(l.strip().split(',')[:2]) for l in lines if ',' in l]
+if len(connections) < 2:
+    print("Need at least 2 connections (format: name1,name2)")
+else:
+    adj = defaultdict(set); nodes = set()
+    for a,b in connections:
+        a,b = a.strip(),b.strip(); nodes.add(a);nodes.add(b);adj[a].add(b);adj[b].add(a)
+    nodes = sorted(nodes); n = len(nodes)
+    deg = {nd:len(adj[nd]) for nd in nodes}; dv = list(deg.values())
+    K = len(connections)/(n*(n-1)/2) if n>1 else 0
+    print(f"Network: {n} people, {len(connections)} connections")
+    print(f"K (density): {K:.4f}")
+    print(f"")
+    print(f"Hubs (most connected):")
+    for nd in sorted(nodes,key=lambda x:-deg[x])[:5]:
+        print(f"  {nd}: {deg[nd]} connections")
+    # Bottleneck detection
+    bns = []
+    for node in nodes:
+        if deg[node]<2: continue
+        rem = [nd for nd in nodes if nd!=node]
+        vis = set([rem[0]]); stk = [rem[0]]
+        while stk:
+            c = stk.pop()
+            for nb in adj[c]:
+                if nb!=node and nb not in vis: vis.add(nb);stk.append(nb)
+        if len(vis)<len(rem): bns.append(node)
+    print(f"")
+    if bns:
+        print(f"Bottlenecks (removal disconnects network):")
+        for b in bns: print(f"  {b}")
+    else:
+        print("No bottlenecks — network is resilient")
+`;
+    }
+  },
+  grokking: {
+    label: 'PASTE TRAIN AND TEST LOSS (line 1 = train, line 2 = test)',
+    placeholder: '0.9,0.7,0.5,0.3,0.15,0.08,0.04,0.02,0.01,0.01,0.01,0.01,0.01,0.01,0.01,0.01,0.01,0.01,0.01,0.01\n0.9,0.8,0.7,0.65,0.6,0.58,0.55,0.52,0.5,0.45,0.4,0.35,0.3,0.25,0.2,0.15,0.1,0.08,0.05,0.03',
+    code: function(input) {
+      var lines = input.trim().split('\n');
+      if (lines.length < 2) return 'print("Need two lines: train losses, then test losses")';
+      return `
+import numpy as np
+train = np.array([float(x) for x in '${lines[0]}'.split(',') if x.strip()])
+test = np.array([float(x) for x in '${lines[1]}'.split(',') if x.strip()])
+n = min(len(train),len(test))
+if n < 10:
+    print("Need at least 10 loss values")
+else:
+    train,test = train[:n],test[:n]
+    gap = test-train
+    w = min(5, n//3)
+    gt = np.polyfit(range(w), gap[-w:], 1)[0]
+    fg = float(np.mean(gap[-w:]))
+    ft = float(np.mean(train[-w:]))
+    if ft > 0.5: phase = 'LEARNING'
+    elif fg > 0.3 and gt > 0: phase = 'MEMORIZED'
+    elif fg > 0.1 and gt < -0.001: phase = 'GROKKING'
+    elif fg < 0.1: phase = 'UNDERSTOOD'
+    else: phase = 'MEMORIZED'
+    print(f"Phase: {phase}")
+    print(f"Train loss: {ft:.4f}")
+    print(f"Test loss: {float(np.mean(test[-w:])):.4f}")
+    print(f"Gap: {fg:.4f}")
+    print(f"Gap trend: {gt:.6f} ({'closing' if gt<0 else 'widening'})")
+    print(f"Epochs: {n}")
+    if phase=='GROKKING':
+        print(f"\\nThe model is transitioning from memorization to understanding.")
+        print(f"Keep training — it's compressing.")
+    elif phase=='UNDERSTOOD':
+        print(f"\\nThe model has grokked. Training complete.")
+    elif phase=='MEMORIZED':
+        print(f"\\nThe model has memorized but not understood.")
+        print(f"Consider: more training, different architecture, or regularization.")
+`;
+    }
+  },
+  compress: {
+    label: 'PASTE TEXT TO COMPRESS',
+    placeholder: 'The coupling constant K measures how strongly things are connected. When K is low, things are disconnected. When K is high, patterns emerge. The same K appears in proteins, primes, markets, music, and consciousness.',
+    code: function(input) {
+      var safe = input.replace(/'/g, "\\'").replace(/\n/g, ' ');
+      return `
+import zlib
+text = '${safe}'
+raw = text.encode('utf-8')
+compressed = zlib.compress(raw, 9)
+ratio = len(raw) / max(1, len(compressed))
+print(f"Original: {len(raw)} bytes")
+print(f"Compressed: {len(compressed)} bytes")
+print(f"Ratio: {ratio:.1f}x")
+print(f"Saved: {len(raw)-len(compressed)} bytes ({(1-len(compressed)/len(raw))*100:.0f}%)")
+# Shannon entropy
+from collections import Counter
+import math
+freq = Counter(text)
+n = len(text)
+H = -sum((c/n)*math.log2(c/n) for c in freq.values())
+print(f"\\nShannon entropy: {H:.2f} bits/char")
+print(f"Theoretical minimum: {n*H/8:.0f} bytes")
+print(f"Compression efficiency: {len(compressed)/(n*H/8)*100:.0f}% of theoretical limit")
+`;
+    }
+  }
+};
+
+function selectTool(name) {
+  currentTool = name;
+  document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
+  event.target.classList.add('active');
+  var tool = TOOLS[name];
+  document.getElementById('input-label').textContent = tool.label;
+  document.getElementById('input').placeholder = tool.placeholder;
+  document.getElementById('output').textContent = 'Results will appear here.';
+}
+
+async function initPyodide() {
+  try {
+    pyodide = await loadPyodide();
+    await pyodide.loadPackage(['numpy']);
+    document.getElementById('status').textContent = 'Ready. Your data stays on your machine.';
+    document.getElementById('status').style.color = '#4a9';
+    document.getElementById('run-btn').disabled = false;
+    document.getElementById('run-btn').textContent = 'RUN';
+    ready = true;
+  } catch(e) {
+    document.getElementById('status').textContent = 'Failed to load Python runtime: ' + e.message;
+  }
+}
+
+async function runTool() {
+  if (!ready) return;
+  var input = document.getElementById('input').value.trim();
+  if (!input) { input = TOOLS[currentTool].placeholder; document.getElementById('input').value = input; }
+
+  document.getElementById('run-btn').disabled = true;
+  document.getElementById('run-btn').textContent = 'Computing...';
+  document.getElementById('output').textContent = 'Running...';
+
+  try {
+    var code = TOOLS[currentTool].code(input);
+    // Capture stdout
+    pyodide.runPython(`
+import io, sys
+_stdout = io.StringIO()
+sys.stdout = _stdout
+`);
+    await pyodide.runPythonAsync(code);
+    var output = pyodide.runPython('_stdout.getvalue()');
+    pyodide.runPython('sys.stdout = sys.__stdout__');
+    document.getElementById('output').textContent = output || 'No output';
+  } catch(e) {
+    document.getElementById('output').textContent = 'Error: ' + e.message;
+  }
+
+  document.getElementById('run-btn').disabled = false;
+  document.getElementById('run-btn').textContent = 'RUN';
+}
+
+initPyodide();
+</script>
+<script src="/js/breathe.js?v=2"></script>
+<script src="/transit.js"></script>
+</body>
+</html>
