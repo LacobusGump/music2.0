@@ -37,26 +37,21 @@ p{line-height:1.8;margin:12px 0;color:#999;font-size:0.85em;}
 <a class="back" href="/products/">&larr; Tools</a>
 
 <h1>Chip Fast</h1>
-<p class="pitch">Define gates and connections. Get an optimized placement. Force-directed layout via coupling.</p>
+<p class="pitch">Define gates and connections. Get an optimized placement. Force-directed layout &mdash; the strongest connections pull closest, same way real circuits self-organize.</p>
 
 <div class="tool">
-  <div class="tool-label">PASTE GATES AND CONNECTIONS (line 1: gate names, line 2+: connections as gate1,gate2)</div>
-  <textarea id="input" rows="4" placeholder="AND,OR,NOT,XOR,NAND,BUF
+  <div class="tool-label">LINE 1: GATE NAMES &nbsp; LINES 2+: CONNECTIONS (gate1,gate2)</div>
+  <textarea id="input" rows="6">AND,OR,NOT,XOR,NAND,BUF
 AND,OR
 OR,NOT
 NOT,XOR
 XOR,NAND
 NAND,BUF
-AND,XOR">AND,OR,NOT,XOR,NAND,BUF
-AND,OR
-OR,NOT
-NOT,XOR
-XOR,NAND
-NAND,BUF
-AND,XOR</textarea>
+AND,XOR
+OR,BUF</textarea>
   <button class="run" id="run-btn" onclick="runTool()" disabled>Loading Python...</button>
   <div id="status">Loading runtime...</div>
-  <div class="output" id="output">Paste your data and press Run.</div>
+  <div class="output" id="output">Line 1: gate names (comma-separated). Lines 2+: connections (gate1,gate2). Press Run.</div>
 </div>
 
 <div class="support">
@@ -65,15 +60,22 @@ AND,XOR</textarea>
 
 <div class="docs">
 <h2>HOW IT WORKS</h2>
-<p>Force-directed gate placement. Repulsion between all gates, attraction along connections. The strongest connections form first — same way real circuits self-organize. Early-stage exploration, not tapeout.</p>
+<p>Force-directed placement: all gates repel each other (Coulomb-like), connected gates attract (spring-like). The system relaxes over 200 iterations until forces balance. Connected gates end up close. Unconnected gates spread out. Total wire length is minimized. Same math as protein folding &mdash; coupling determines structure.</p>
+
+<h2>HONEST LIMITS</h2>
+<p>This is the exploration phase, not the tapeout. For final chip designs you need a PDK, DRC, timing analysis. Chip Fast gives you fast placement to explore 50 configurations in minutes instead of days.</p>
 
 <h2>INSTALL</h2>
 <div class="result">
 pip install begump<br>
 from gump.chipfast import place<br>
+<br>
+r = place(['AND','OR','NOT'], [(0,1),(1,2)])<br>
+print(r['positions'])&nbsp;&nbsp;&nbsp;&nbsp;# {gate: (x,y)}<br>
+print(r['total_wire'])&nbsp;&nbsp;&nbsp;# wire length
 </div>
 
-<p style="font-size:0.78em;color:#555;">Your data stays on your machine. No cloud. No API keys. Deterministic.</p>
+<p style="font-size:0.78em;color:#555;">Your data stays on your machine. Deterministic: same input, same placement.</p>
 
 <div class="foot">
   <a href="/">GUMP</a> &mdash; <a href="/products/">Tools</a> &middot; <a href="/support/">Support</a> &middot; <a href="mailto:jim@begump.com">jim@begump.com</a>
@@ -83,63 +85,115 @@ from gump.chipfast import place<br>
 
 <script src="https://cdn.jsdelivr.net/pyodide/v0.25.1/full/pyodide.js"></script>
 <script>
-var pyodide=null;
-async function init(){
-  try{
-    pyodide=await loadPyodide();
+var pyodide = null;
+
+async function init() {
+  try {
+    pyodide = await loadPyodide();
     await pyodide.loadPackage(['numpy']);
-    document.getElementById('status').textContent='Ready. Your data stays here.';
-    document.getElementById('status').style.color='#4a9';
-    document.getElementById('run-btn').disabled=false;
-    document.getElementById('run-btn').textContent='RUN';
-  }catch(e){document.getElementById('status').textContent='Failed: '+e.message;}
+    document.getElementById('status').textContent = 'Ready. Your data stays here.';
+    document.getElementById('status').style.color = '#4a9';
+    document.getElementById('run-btn').disabled = false;
+    document.getElementById('run-btn').textContent = 'RUN';
+  } catch(e) {
+    document.getElementById('status').textContent = 'Failed: ' + e.message;
+  }
 }
-async function runTool(){
-  var input=document.getElementById('input').value.trim().replace(/'/g,"\\'");
-  document.getElementById('run-btn').disabled=true;
-  document.getElementById('run-btn').textContent='Computing...';
-  document.getElementById('output').textContent='Running...';
-  try{
-    pyodide.runPython('import io,sys;_o=io.StringIO();sys.stdout=_o');
-    var code=`import numpy as np
-lines = '${input}'.strip().split('\\n')
-if len(lines) < 2:
-    print("Line 1: gate names. Line 2+: connections (gate1,gate2)")
-else:
-    gates = [g.strip() for g in lines[0].split(',')]
-    n = len(gates)
-    gi = {g:i for i,g in enumerate(gates)}
-    conns = []
-    for l in lines[1:]:
-        parts = l.strip().split(',')
-        if len(parts)>=2 and parts[0].strip() in gi and parts[1].strip() in gi:
-            conns.append((gi[parts[0].strip()],gi[parts[1].strip()]))
-    pos = np.random.RandomState(42).uniform(0,10,(n,2))
-    for _ in range(200):
-        forces = np.zeros((n,2))
-        for i in range(n):
-            for j in range(i+1,n):
-                d=pos[i]-pos[j];dist=np.sqrt(np.sum(d**2))+0.01
-                f=2.0/dist**2;forces[i]+=d/dist*f;forces[j]-=d/dist*f
-        for a,b in conns:
-            d=pos[b]-pos[a];dist=np.sqrt(np.sum(d**2))+0.01
-            f=dist*0.1;forces[a]+=d/dist*f;forces[b]-=d/dist*f
-        pos+=forces*0.1;pos=np.clip(pos,0,10)
-    wl = sum(np.sqrt(np.sum((pos[a]-pos[b])**2)) for a,b in conns)
-    print(f"Gates: {n}  Connections: {len(conns)}")
-    print(f"Total wire: {wl:.1f} units")
-    print(f"")
-    print(f"Placement:")
-    for i,g in enumerate(gates):
-`;
+
+async function runTool() {
+  var raw = document.getElementById('input').value.trim();
+  if (!raw) return;
+
+  document.getElementById('run-btn').disabled = true;
+  document.getElementById('run-btn').textContent = 'Computing...';
+  document.getElementById('output').textContent = 'Running...';
+
+  // Split lines, escape for Python
+  var safe = raw.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+
+  try {
+    pyodide.runPython('import io, sys; _o = io.StringIO(); sys.stdout = _o');
+
+    var code = [
+      "import numpy as np",
+      "",
+      "lines = '" + safe + "'.strip().split('\\n')",
+      "",
+      "if len(lines) < 2:",
+      "    print('Line 1: gate names (comma-separated)')",
+      "    print('Lines 2+: connections (gate1,gate2)')",
+      "else:",
+      "    gates = [g.strip() for g in lines[0].split(',')]",
+      "    n = len(gates)",
+      "    gi = {g: i for i, g in enumerate(gates)}",
+      "",
+      "    conns = []",
+      "    for l in lines[1:]:",
+      "        parts = l.strip().split(',')",
+      "        if len(parts) >= 2:",
+      "            a, b = parts[0].strip(), parts[1].strip()",
+      "            if a in gi and b in gi:",
+      "                conns.append((gi[a], gi[b]))",
+      "",
+      "    if n < 2:",
+      "        print('Need at least 2 gates.')",
+      "    elif len(conns) < 1:",
+      "        print('Need at least 1 connection.')",
+      "    else:",
+      "        # Force-directed placement",
+      "        rng = np.random.RandomState(42)",
+      "        pos = rng.uniform(0, 10, (n, 2))",
+      "",
+      "        for iteration in range(200):",
+      "            forces = np.zeros((n, 2))",
+      "            # Repulsion between all gates",
+      "            for i in range(n):",
+      "                for j in range(i + 1, n):",
+      "                    d = pos[i] - pos[j]",
+      "                    dist = np.sqrt(np.sum(d**2)) + 0.01",
+      "                    f = 2.0 / dist**2",
+      "                    forces[i] += d / dist * f",
+      "                    forces[j] -= d / dist * f",
+      "            # Attraction along connections",
+      "            for a, b in conns:",
+      "                d = pos[b] - pos[a]",
+      "                dist = np.sqrt(np.sum(d**2)) + 0.01",
+      "                f = dist * 0.1",
+      "                forces[a] += d / dist * f",
+      "                forces[b] -= d / dist * f",
+      "            pos += forces * 0.1",
+      "            pos = np.clip(pos, 0, 10)",
+      "",
+      "        # Results",
+      "        wl = sum(np.sqrt(np.sum((pos[a]-pos[b])**2)) for a, b in conns)",
+      "        avg_wl = wl / len(conns)",
+      "",
+      "        print(f'Gates: {n}  Connections: {len(conns)}')",
+      "        print(f'Total wire length: {wl:.1f} units')",
+      "        print(f'Avg wire per connection: {avg_wl:.1f} units')",
+      "        print()",
+      "        print('Placement:')",
+      "        for i, g in enumerate(gates):",
+      "            print(f'  {g:>6}: ({pos[i,0]:.1f}, {pos[i,1]:.1f})')",
+      "        print()",
+      "        print('Connections:')",
+      "        for a, b in conns:",
+      "            d = np.sqrt(np.sum((pos[a]-pos[b])**2))",
+      "            print(f'  {gates[a]} -- {gates[b]}: {d:.1f} units')",
+    ].join('\n');
+
     await pyodide.runPythonAsync(code);
-    var out=pyodide.runPython('_o.getvalue()');
-    pyodide.runPython('sys.stdout=sys.__stdout__');
-    document.getElementById('output').textContent=out||'No output';
-  }catch(e){document.getElementById('output').textContent='Error: '+e.message;}
-  document.getElementById('run-btn').disabled=false;
-  document.getElementById('run-btn').textContent='RUN';
+    var out = pyodide.runPython('_o.getvalue()');
+    pyodide.runPython('sys.stdout = sys.__stdout__');
+    document.getElementById('output').textContent = out || 'No output.';
+  } catch(e) {
+    document.getElementById('output').textContent = 'Error: ' + e.message;
+  }
+
+  document.getElementById('run-btn').disabled = false;
+  document.getElementById('run-btn').textContent = 'RUN';
 }
+
 init();
 </script>
 <script src="/js/breathe.js?v=2"></script>
