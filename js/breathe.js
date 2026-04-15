@@ -17,6 +17,51 @@ if(window.matchMedia('(prefers-reduced-motion: reduce)').matches)return;
 
 var PHI=(1+Math.sqrt(5))/2;
 
+// ═══ 0. THE DESK — warm texture injected via CSS ═══
+var style=document.createElement('style');
+style.textContent=
+  // Film grain overlay — barely there, adds tactile warmth
+  'body::after{content:"";position:fixed;top:0;left:0;width:100%;height:100%;'+
+  'pointer-events:none;z-index:9998;opacity:0.018;mix-blend-mode:overlay;'+
+  'background-image:url("data:image/svg+xml,%3Csvg viewBox=\'0 0 256 256\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cfilter id=\'n\'%3E%3CfeTurbulence type=\'fractalNoise\' baseFrequency=\'0.9\' numOctaves=\'4\' stitchTiles=\'stitch\'/%3E%3C/filter%3E%3Crect width=\'256\' height=\'256\' filter=\'url(%23n)\' opacity=\'1\'/%3E%3C/svg%3E");}'+
+
+  // Warm the text color slightly — not white, not gray, warm cream
+  'body{color:#e5dfd4;}'+
+  'p{color:#a09585;}'+
+
+  // Result blocks: desk cards — warm shadow, subtle inset feel
+  '.result,.box{background:linear-gradient(180deg,#0d0c12 0%,#0b0a10 100%);'+
+  'border:1px solid rgba(201,164,74,0.06);'+
+  'box-shadow:0 2px 8px rgba(0,0,0,0.3), inset 0 1px 0 rgba(201,164,74,0.03);}'+
+
+  // Equations: brass inlay feel
+  '.eq{background:linear-gradient(180deg,#0e0d14 0%,#0a0912 100%);'+
+  'border:1px solid rgba(201,164,74,0.08);'+
+  'box-shadow:0 1px 6px rgba(0,0,0,0.3), inset 0 1px 0 rgba(201,164,74,0.04);}'+
+
+  // H2: thin brass rule with gradient fade at edges
+  'h2{border-bottom:none;padding-bottom:8px;position:relative;}'+
+  'h2::after{content:"";position:absolute;bottom:0;left:10%;right:10%;height:1px;'+
+  'background:linear-gradient(90deg,transparent,rgba(201,164,74,0.15),transparent);}'+
+
+  // Tables: warm alternating rows
+  'tr:nth-child(even){background:rgba(201,164,74,0.015);}'+
+  'th{border-bottom:1px solid rgba(201,164,74,0.1) !important;}'+
+
+  // Monospace: warm it up
+  'code,.eq,td{color:#c4b896;}'+
+
+  // Links: warm gold, not cold
+  'a{color:#d4a843;transition:color 0.3s,text-shadow 0.3s;}'+
+  'a:hover{color:#f0d070;text-shadow:0 0 8px rgba(201,164,74,0.2);}'+
+
+  // Scrollbar: dark brass
+  '::-webkit-scrollbar{width:6px;}'+
+  '::-webkit-scrollbar-track{background:#08080d;}'+
+  '::-webkit-scrollbar-thumb{background:rgba(201,164,74,0.12);border-radius:3px;}'+
+  '::-webkit-scrollbar-thumb:hover{background:rgba(201,164,74,0.25);}';
+document.head.appendChild(style);
+
 // ═══ 1. SECTION TITLES: glow when they enter viewport ═══
 var h2s=document.querySelectorAll('h2');
 if(h2s.length>0&&'IntersectionObserver' in window){
@@ -25,11 +70,11 @@ if(h2s.length>0&&'IntersectionObserver' in window){
       var e=entries[i];
       if(e.isIntersecting){
         e.target.style.transition='text-shadow 0.8s ease, opacity 0.8s ease';
-        e.target.style.textShadow='0 0 12px rgba(201,164,74,0.3), 0 0 30px rgba(201,164,74,0.1)';
+        e.target.style.textShadow='0 0 10px rgba(210,155,60,0.3), 0 0 25px rgba(201,164,74,0.08)';
         e.target.style.opacity='1';
       }else{
-        e.target.style.textShadow='0 0 8px rgba(201,164,74,0.05)';
-        e.target.style.opacity='0.8';
+        e.target.style.textShadow='0 0 6px rgba(201,164,74,0.04)';
+        e.target.style.opacity='0.75';
       }
     }
   },{threshold:0.5});
@@ -135,11 +180,15 @@ function bgResize(){
 bgResize();addEventListener('resize',bgResize);
 
 var motes=[];
-for(var i=0;i<25;i++){
+for(var i=0;i<20;i++){
   motes.push({
     x:Math.random()*2000,y:Math.random()*2000,
-    vx:(Math.random()-0.5)*0.12,vy:(Math.random()-0.5)*0.12,
-    s:Math.random()*1.8+0.5,a:Math.random()*0.08+0.03
+    vx:(Math.random()-0.5)*0.08,vy:(Math.random()-0.5)*0.08,
+    s:Math.random()*1.5+0.4,
+    base:Math.random()*0.06+0.025,  // base brightness
+    flicker:Math.random()*0.5+0.5,  // flicker frequency (irregular)
+    phase:Math.random()*100,        // phase offset
+    warm:Math.random()              // warm shift: 0=gold, 1=amber
   });
 }
 
@@ -152,16 +201,31 @@ function bgDraw(){
     m.x+=m.vx;m.y+=m.vy;
     if(m.x<0)m.x=bW;if(m.x>bW)m.x=0;
     if(m.y<0)m.y=bH;if(m.y>bH)m.y=0;
-    var pulse=m.a*(0.7+Math.sin(bgT/PHI+i*2.4)*0.3);
-    // Glow
-    var g=bgCx.createRadialGradient(m.x,m.y,0,m.x,m.y,m.s*4);
-    g.addColorStop(0,'rgba(201,164,74,'+(pulse*0.5)+')');
-    g.addColorStop(1,'rgba(201,164,74,0)');
-    bgCx.fillStyle=g;
-    bgCx.fillRect(m.x-m.s*4,m.y-m.s*4,m.s*8,m.s*8);
-    // Core
-    bgCx.beginPath();bgCx.arc(m.x,m.y,m.s,0,Math.PI*2);
-    bgCx.fillStyle='rgba(201,164,74,'+pulse+')';
+
+    // Incandescent flicker: irregular sine + noise + occasional flare
+    var flick=Math.sin(bgT*m.flicker+m.phase)
+             *Math.sin(bgT*m.flicker*PHI+m.phase*0.7)
+             *0.5+0.5;
+    // Occasional bright flare (1 in ~200 frames)
+    var flare=(Math.sin(bgT*0.3+m.phase*3)>0.97)?1.8:1.0;
+    var alpha=m.base*flick*flare;
+
+    // Color: shift between gold (201,164,74) and warm amber (210,140,50)
+    var r=Math.floor(201+m.warm*9);
+    var g=Math.floor(164-m.warm*24);
+    var b=Math.floor(74-m.warm*24);
+
+    // Warm glow halo
+    var gl=bgCx.createRadialGradient(m.x,m.y,0,m.x,m.y,m.s*5);
+    gl.addColorStop(0,'rgba('+r+','+g+','+b+','+(alpha*0.4)+')');
+    gl.addColorStop(0.4,'rgba('+r+','+g+','+b+','+(alpha*0.1)+')');
+    gl.addColorStop(1,'rgba('+r+','+g+','+b+',0)');
+    bgCx.fillStyle=gl;
+    bgCx.fillRect(m.x-m.s*5,m.y-m.s*5,m.s*10,m.s*10);
+
+    // Hot core — brighter, slightly whiter
+    bgCx.beginPath();bgCx.arc(m.x,m.y,m.s*0.6,0,Math.PI*2);
+    bgCx.fillStyle='rgba('+Math.min(255,r+40)+','+Math.min(255,g+30)+','+Math.min(255,b+20)+','+(alpha*1.2)+')';
     bgCx.fill();
   }
   requestAnimationFrame(bgDraw);
