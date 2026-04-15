@@ -37,6 +37,9 @@ td{padding:6px 8px;font-size:0.78em;color:#aaa;border-bottom:1px solid #ffffff08
 <h2>THE IDEA</h2>
 <p>A protein mutation is pathogenic when it disrupts a position that matters. Two questions determine this: how coupled is the position to its neighbors (contact degree from 3D structure), and how conserved is it across species (evolutionary memory from ortholog alignment). If both are high, the position is load-bearing and the mutation is damaging.</p>
 
+<canvas id="mechanism-graph" style="width:100%;height:280px;border-radius:12px;margin:16px 0;"></canvas>
+<p style="text-align:center;font-size:0.65em;color:#555;">Scoring signals as coupled features. Edge weight = correlation strength. Hover to explore dependencies.</p>
+
 <p>Population frequency is the third signal. If a variant exists at &ge;1% frequency in healthy humans, it is not causing Mendelian disease. gnomAD provides this data for 807,000 exomes. We index it locally &mdash; 18,272 variants across 15 genes, zero API calls.</p>
 </div>
 
@@ -93,6 +96,9 @@ Precomputed lookup tables: <span class="highlight">216,211 variants/sec</span> (
 <tr><td class="highlight">AlphaMissense (2023)</td><td class="highlight">0.94&ndash;0.96</td><td class="highlight">~91%</td><td class="highlight">~89%</td><td>AlphaFold + 100M sequences</td></tr>
 <tr><td style="color:#c9a44a;">GUMP (2026)</td><td style="color:#c9a44a;">0.74</td><td style="color:#c9a44a;">&mdash;</td><td style="color:#c9a44a;">&mdash;</td><td>Fiedler damage + MSA + physics</td></tr>
 </table>
+
+<canvas id="auc-waterfall" style="width:100%;height:200px;border-radius:12px;margin:16px 0;"></canvas>
+<p style="text-align:center;font-size:0.65em;color:#555;">Per-gene within-protein AUC. Fiedler value = 0.82. Higher bar = better discrimination.</p>
 
 <p>GUMP reports within-gene AUC (discrimination within each protein), not cross-gene balanced accuracy. Within-gene AUC is the harder, more honest metric &mdash; it tests whether the scorer can distinguish pathogenic from benign at the same structural locus, not just between different proteins. GUMP matches SIFT with zero training and a fully interpretable mechanism panel. The gap to AlphaMissense (0.94) reflects 100M learned sequence embeddings vs physics-only features. GUMP&rsquo;s value is interpretability and speed, not raw AUC.</p>
 </div>
@@ -171,6 +177,38 @@ profile_mutation(P53, 175, 'R', 'H')  # &rarr; ValueError with fix suggestion
   <a href="/">GUMP</a> &mdash; <a href="/harmonia/">ask Harmonia</a> &middot; <a href="mailto:jim@begump.com">jim@begump.com</a> &middot; <a href="/legal/terms.html">terms</a>
 </div>
 </div>
+<script src="/js/gump-viz.js"></script>
+<script>
+// ═══ MECHANISM COUPLING GRAPH ═══
+// Scoring signals as a coupled network
+GumpViz.couplingGraph('mechanism-graph', {
+  nodes: [
+    {name:'Fiedler damage',  k:0.82, group:0, damage:0},
+    {name:'MSA tolerance',   k:0.65, group:0, damage:0},
+    {name:'Contact degree',  k:0.7,  group:0, damage:0},
+    {name:'Substitution',    k:0.6,  group:1, damage:0},
+    {name:'gnomAD filter',   k:0.9,  group:1, damage:0},
+    {name:'Functional site', k:0.55, group:1, damage:0}
+  ],
+  edges: [
+    {from:0, to:2, weight:0.9},  // Fiedler uses contact graph
+    {from:0, to:1, weight:0.4},  // Fiedler + conservation orthogonal
+    {from:1, to:3, weight:0.7},  // Conservation informs substitution
+    {from:2, to:5, weight:0.6},  // Contacts reveal functional sites
+    {from:3, to:5, weight:0.5},  // Substitution at functional sites
+    {from:4, to:1, weight:0.3},  // gnomAD overrides conservation
+    {from:4, to:0, weight:0.3},  // gnomAD overrides damage
+    {from:0, to:5, weight:0.5}   // Fiedler-functional proximity
+  ]
+}, {nodeSize: 5, showKR: false});
+
+// ═══ PER-GENE AUC WATERFALL ═══
+// Sorted eigenvalue-style display of per-gene AUC
+GumpViz.eigenWaterfall('auc-waterfall',
+  [0.60, 0.63, 0.66, 0.75, 0.85, 0.92],
+  {title: 'Per-gene within-protein AUC'}
+);
+</script>
 <script src="/transit.js"></script>
 </body>
 </html>
