@@ -37,22 +37,20 @@ p{line-height:1.8;margin:12px 0;color:#999;font-size:0.85em;}
 <a class="back" href="/products/">&larr; Tools</a>
 
 <h1>Accord</h1>
-<p class="pitch">Define your rules and your current state. Find the compliance gaps and their priority.</p>
+<p class="pitch">Define your regulatory rules. See which ones you&rsquo;re missing. Priority ranked &mdash; &ldquo;must&rdquo; requirements flagged HIGH.</p>
 
 <div class="tool">
   <div class="tool-label">PASTE RULES (one per line, format: category|requirement)</div>
-  <textarea id="input" rows="4" placeholder="security|Must encrypt data at rest
-security|Must log access attempts
-privacy|Must allow data deletion
-privacy|Must obtain consent
-compliance|Must file annual report">security|Must encrypt data at rest
-security|Must log access attempts
-privacy|Must allow data deletion
-privacy|Must obtain consent
-compliance|Must file annual report</textarea>
+  <textarea id="input" rows="6">security|Must encrypt data at rest
+security|Must log all access attempts
+security|Should implement MFA
+privacy|Must allow users to delete their data
+privacy|Must obtain explicit consent before collection
+compliance|Must file annual SOC 2 report
+compliance|Should document incident response plan</textarea>
   <button class="run" id="run-btn" onclick="runTool()" disabled>Loading Python...</button>
   <div id="status">Loading runtime...</div>
-  <div class="output" id="output">Paste your data and press Run.</div>
+  <div class="output" id="output">Paste rules (category|requirement) and press Run. Rules with "must" are flagged HIGH priority.</div>
 </div>
 
 <div class="support">
@@ -61,12 +59,19 @@ compliance|Must file annual report</textarea>
 
 <div class="docs">
 <h2>HOW IT WORKS</h2>
-<p>Graph-based compliance gap detection. Scans rules against business state. Finds gaps, priorities, and suggests action order. The framing method is the contribution — it organizes regulatory complexity into a coupling graph.</p>
+<p>Parses rules by category. Flags &ldquo;must&rdquo; requirements as HIGH priority, everything else as MEDIUM. With the pip package, you can also provide your business state to see which rules are already covered vs which are gaps. This browser version shows the gap analysis without business state &mdash; all rules show as uncovered.</p>
+
+<h2>NOT LEGAL ADVICE</h2>
+<p>Accord is a research and analysis tool. It finds gaps and suggests priorities. Your attorney makes the final call. But your attorney bills $400/hr &mdash; Accord does the research in seconds so they can focus on judgment, not reading.</p>
 
 <h2>INSTALL</h2>
 <div class="result">
 pip install begump<br>
 from gump.accord import scan_regulations<br>
+<br>
+gaps = scan_regulations(rules, business_state)<br>
+print(gaps['n_gaps'])&nbsp;&nbsp;&nbsp;&nbsp;# how many uncovered<br>
+print(gaps['K_compliance'])&nbsp;# coverage ratio
 </div>
 
 <p style="font-size:0.78em;color:#555;">Your data stays on your machine. No cloud. No API keys. Deterministic.</p>
@@ -79,54 +84,82 @@ from gump.accord import scan_regulations<br>
 
 <script src="https://cdn.jsdelivr.net/pyodide/v0.25.1/full/pyodide.js"></script>
 <script>
-var pyodide=null;
-async function init(){
-  try{
-    pyodide=await loadPyodide();
-    await pyodide.loadPackage(['numpy']);
-    document.getElementById('status').textContent='Ready. Your data stays here.';
-    document.getElementById('status').style.color='#4a9';
-    document.getElementById('run-btn').disabled=false;
-    document.getElementById('run-btn').textContent='RUN';
-  }catch(e){document.getElementById('status').textContent='Failed: '+e.message;}
+var pyodide = null;
+
+async function init() {
+  try {
+    pyodide = await loadPyodide();
+    document.getElementById('status').textContent = 'Ready. Your data stays here.';
+    document.getElementById('status').style.color = '#4a9';
+    document.getElementById('run-btn').disabled = false;
+    document.getElementById('run-btn').textContent = 'RUN';
+  } catch(e) {
+    document.getElementById('status').textContent = 'Failed: ' + e.message;
+  }
 }
-async function runTool(){
-  var input=document.getElementById('input').value.trim().replace(/'/g,"\\'");
-  document.getElementById('run-btn').disabled=true;
-  document.getElementById('run-btn').textContent='Computing...';
-  document.getElementById('output').textContent='Running...';
-  try{
-    pyodide.runPython('import io,sys;_o=io.StringIO();sys.stdout=_o');
-    var code=`lines = '${input}'.strip().split('\\n')
-rules = []
-for l in lines:
-    parts = l.strip().split('|')
-    if len(parts) >= 2:
-        rules.append({'category':parts[0].strip(),'requirement':parts[1].strip()})
-if not rules:
-    print("Need rules in format: category|requirement")
-else:
-    gaps = []
-    for r in rules:
-        priority = 'HIGH' if 'must' in r['requirement'].lower() else 'MEDIUM'
-        gaps.append({'category':r['category'],'requirement':r['requirement'],'priority':priority})
-    high = sum(1 for g in gaps if g['priority']=='HIGH')
-    print(f"Rules scanned: {len(rules)}")
-    print(f"Gaps found: {len(gaps)} (all uncovered without business state)")
-    print(f"HIGH priority: {high}")
-    print(f"")
-    for g in gaps:
-        mark = '!' if g['priority']=='HIGH' else '-'
-        print(f"  {mark} [{g['category']}] {g['requirement']}")
-`;
+
+async function runTool() {
+  var raw = document.getElementById('input').value.trim();
+  if (!raw) return;
+
+  document.getElementById('run-btn').disabled = true;
+  document.getElementById('run-btn').textContent = 'Computing...';
+  document.getElementById('output').textContent = 'Running...';
+
+  // Escape for Python string
+  var safe = raw.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+
+  try {
+    pyodide.runPython('import io, sys; _o = io.StringIO(); sys.stdout = _o');
+
+    var code = [
+      "lines = '" + safe + "'.strip().split('\\n')",
+      "rules = []",
+      "for l in lines:",
+      "    parts = l.strip().split('|')",
+      "    if len(parts) >= 2:",
+      "        rules.append({'category': parts[0].strip(), 'requirement': parts[1].strip()})",
+      "",
+      "if not rules:",
+      "    print('Need rules in format: category|requirement')",
+      "    print('Example: security|Must encrypt data at rest')",
+      "else:",
+      "    high = sum(1 for r in rules if 'must' in r['requirement'].lower())",
+      "    medium = len(rules) - high",
+      "    print(f'Rules scanned: {len(rules)}')",
+      "    print(f'HIGH priority (must): {high}')",
+      "    print(f'MEDIUM priority: {medium}')",
+      "    print()",
+      "",
+      "    # Group by category",
+      "    cats = {}",
+      "    for r in rules:",
+      "        cats.setdefault(r['category'], []).append(r)",
+      "",
+      "    for cat, cat_rules in sorted(cats.items()):",
+      "        print(f'[{cat.upper()}]')",
+      "        for r in cat_rules:",
+      "            mark = '!' if 'must' in r['requirement'].lower() else '-'",
+      "            print(f'  {mark} {r[\"requirement\"]}')",
+      "        print()",
+      "",
+      "    print('All rules shown as gaps (no business state provided).')",
+      "    print('With pip install begump, provide your business state')",
+      "    print('to see which rules are already covered.')",
+    ].join('\n');
+
     await pyodide.runPythonAsync(code);
-    var out=pyodide.runPython('_o.getvalue()');
-    pyodide.runPython('sys.stdout=sys.__stdout__');
-    document.getElementById('output').textContent=out||'No output';
-  }catch(e){document.getElementById('output').textContent='Error: '+e.message;}
-  document.getElementById('run-btn').disabled=false;
-  document.getElementById('run-btn').textContent='RUN';
+    var out = pyodide.runPython('_o.getvalue()');
+    pyodide.runPython('sys.stdout = sys.__stdout__');
+    document.getElementById('output').textContent = out || 'No output.';
+  } catch(e) {
+    document.getElementById('output').textContent = 'Error: ' + e.message;
+  }
+
+  document.getElementById('run-btn').disabled = false;
+  document.getElementById('run-btn').textContent = 'RUN';
 }
+
 init();
 </script>
 <script src="/js/breathe.js?v=2"></script>
