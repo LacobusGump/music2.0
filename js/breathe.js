@@ -54,12 +54,20 @@ style.textContent=
   '::-webkit-scrollbar-thumb{background:rgba(189,110,55,0.12);border-radius:3px;}'+
   '::-webkit-scrollbar-thumb:hover{background:rgba(189,110,55,0.25);}'+
 
-  // ═══ BRAND FONT ═══
+  // ═══ BRAND FONT + COLOR HIERARCHY ═══
+  // h1: amber incandescent — the filament glow of a 1920s bulb
   'h1{font-family:Futura,"Century Gothic",Avenir,"Avenir Next",system-ui,sans-serif !important;'+
-  'font-weight:200 !important;letter-spacing:0.12em !important;}'+
+  'font-weight:200 !important;letter-spacing:0.12em !important;'+
+  'color:#bd6e37 !important;'+
+  'text-shadow:0 0 18px rgba(189,110,55,0.22), 0 0 40px rgba(189,110,55,0.06) !important;}'+
 
+  // h2: moss — unity, the coupled subsection
   'h2{font-family:Futura,"Century Gothic",Avenir,"Avenir Next",system-ui,sans-serif !important;'+
-  'font-weight:200 !important;letter-spacing:0.12em !important;}'+
+  'font-weight:200 !important;letter-spacing:0.12em !important;'+
+  'color:#409540 !important;}'+
+
+  // sacred: violet for must-see items
+  '.sacred,.must-see,strong.sacred{color:#5b3e82 !important;}'+
 
   '.card h3,.item .name,.d-name,.name{'+
   'font-family:Futura,"Century Gothic",Avenir,"Avenir Next",system-ui,sans-serif !important;'+
@@ -77,10 +85,10 @@ if(h2s.length>0&&'IntersectionObserver' in window){
       var e=entries[i];
       if(e.isIntersecting){
         e.target.style.transition='text-shadow 0.8s ease, opacity 0.8s ease';
-        e.target.style.textShadow='0 0 10px rgba(189,110,55,0.3), 0 0 25px rgba(191,160,63,0.08)';
+        e.target.style.textShadow='0 0 10px rgba(64,149,64,0.25), 0 0 25px rgba(64,149,64,0.06)';
         e.target.style.opacity='1';
       }else{
-        e.target.style.textShadow='0 0 6px rgba(191,160,63,0.04)';
+        e.target.style.textShadow='0 0 6px rgba(64,149,64,0.04)';
         e.target.style.opacity='0.75';
       }
     }
