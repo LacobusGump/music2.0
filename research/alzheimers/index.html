@@ -63,7 +63,7 @@ p{line-height:1.8;color:#999;font-size:0.85em;margin:10px 0;}
 <div class="scanner-tool" style="background:#0a0a12;border:1px solid #ffffff08;border-radius:10px;padding:20px;margin:16px 0;">
   <div style="font-family:Futura,'Century Gothic',Avenir,'Avenir Next',system-ui,sans-serif;font-size:0.6em;color:#555;letter-spacing:0.1em;margin-bottom:6px;">PASTE ANY PROTEIN SEQUENCE &mdash; OR USE THE A&beta;42 WILD-TYPE BELOW</div>
   <textarea id="scan-input" rows="3" style="width:100%;background:#08080d;border:1px solid #ffffff10;border-radius:6px;color:#ccc;font-family:'Courier New',monospace;font-size:0.78em;padding:12px;resize:vertical;outline:none;line-height:1.5;">DAEFRHDSGYEVHHQKLVFFAEDVGSNKGAIIGLMVGGVVIA</textarea>
-  <button id="scan-btn" onclick="runMutationScan()" style="display:block;width:100%;margin:10px 0;background:#bd6e37;color:#08080d;border:none;padding:10px;border-radius:6px;font-family:Futura,'Century Gothic',Avenir,'Avenir Next',system-ui,sans-serif;font-size:0.82em;font-weight:500;letter-spacing:0.08em;cursor:pointer;transition:all 0.3s;">Scan All 798 Mutations</button>
+  <button id="scan-btn" onclick="runMutationScan()" style="display:block;width:100%;margin:10px 0;background:#bd6e37;color:#08080d;border:none;padding:10px;border-radius:6px;font-family:Futura,'Century Gothic',Avenir,'Avenir Next',system-ui,sans-serif;font-size:0.82em;font-weight:500;letter-spacing:0.08em;cursor:pointer;transition:all 0.3s;">Scan All 798 Mutations (&approx;10 seconds with full spectral analysis)</button>
   <div id="scan-status" style="font-size:0.7em;color:#bd6e37;text-align:center;margin:6px 0;"></div>
   <canvas id="scan-viz" style="width:100%;border-radius:8px;margin-top:12px;display:none;"></canvas>
   <div id="scan-output" style="background:#08080d;border:1px solid #ffffff08;border-radius:6px;padding:12px;font-family:'Courier New',monospace;font-size:0.75em;color:#409540;min-height:40px;white-space:pre-wrap;line-height:1.7;overflow-x:auto;margin-top:10px;">Results will appear here. Press the button to scan all 798 single-point mutations.</div>
@@ -279,9 +279,10 @@ var scanPyodide = null;
 
 async function loadScanPyodide() {
   if (scanPyodide) return scanPyodide;
-  document.getElementById('scan-status').textContent = 'Loading Python runtime...';
+  document.getElementById('scan-status').textContent = 'Loading Python + NumPy... (first load may take 5-10s)';
   scanPyodide = await loadPyodide();
-  document.getElementById('scan-status').textContent = 'Python ready.';
+  await scanPyodide.loadPackage(['numpy']);
+  document.getElementById('scan-status').textContent = 'Python + NumPy ready.';
   return scanPyodide;
 }
 
@@ -301,13 +302,13 @@ async function runMutationScan() {
   btn.style.background = '#333';
   btn.style.color = '#666';
   btn.style.cursor = 'wait';
-  btn.textContent = 'Loading Python...';
-  output.textContent = 'Initializing...';
+  btn.textContent = 'Loading Python + NumPy...';
+  output.textContent = 'Initializing Python + NumPy for spectral analysis...';
 
   try {
     var pyodide = await loadScanPyodide();
-    btn.textContent = 'Scanning...';
-    status.textContent = 'Running ' + (seq.length * 19) + ' mutations...';
+    btn.textContent = 'Scanning (spectral analysis)...';
+    status.textContent = 'Running ' + (seq.length * 19) + ' mutations with full spectral analysis...';
 
     var nMut = seq.length * 19;
 
@@ -316,6 +317,7 @@ async function runMutationScan() {
     await pyodide.runPythonAsync(`
 import time
 import json
+import numpy as np
 
 seq = input_seq
 
@@ -349,10 +351,22 @@ SHEET_PROP = {
     'T':1.19,'W':1.37,'Y':1.47,'V':1.70
 }
 
+# Charge map for salt bridges
+CHARGE = {
+    'R':1,'K':1,'H':0.5,
+    'D':-1,'E':-1,
+    'A':0,'N':0,'C':0,'F':0,'G':0,'I':0,'L':0,'M':0,
+    'P':0,'Q':0,'S':0,'T':0,'V':0,'W':0,'Y':0
+}
+
+# Positive/negative sets for salt bridges
+POS_AA = {'R','K'}
+NEG_AA = {'D','E'}
+
 def analyze_protein(sequence):
     n = len(sequence)
     if n == 0:
-        return {'agg_count': 0, 'agg_regions': 0, 'helix': 0, 'sheet': 0, 'coil': 0, 'risk': 0}
+        return {'agg_count': 0, 'agg_regions': 0, 'agg_regions_list': [], 'helix': 0, 'sheet': 0, 'coil': 0, 'risk': 0, 'has_core': False}
 
     # ─── Aggregation-prone region detection (TANGO-like, window=7, threshold=0.35) ───
     agg_scores = [0.0] * n
@@ -471,31 +485,114 @@ def analyze_protein(sequence):
 
     helix_pct = ss.count('H') / n if n > 0 else 0
     sheet_pct = ss.count('E') / n if n > 0 else 0
-    coil_pct = ss.count('C') / n if n > 0 else 0
+    coil_pct_val = ss.count('C') / n if n > 0 else 0
 
-    # ─── Risk score (composite, matches foldwatch) ───
+    # ─── SPECTRAL ANALYSIS: interaction graph + Laplacian core/surface ───
+    # Build interaction graph
+    edges = []
+    weights = []
+
+    # Backbone bonds: weight 3.0 for each i,i+1
+    for i in range(n - 1):
+        edges.append((i, i + 1))
+        weights.append(3.0)
+
+    # Hydrophobic interactions: |i-j| >= 3 and < 50, both HYDRO > 0.55
+    for i in range(n):
+        hi = HYDRO.get(sequence[i], 0.5)
+        if hi <= 0.55:
+            continue
+        for j in range(i + 3, min(n, i + 50)):
+            hj = HYDRO.get(sequence[j], 0.5)
+            if hj > 0.55:
+                edges.append((i, j))
+                weights.append(hi * hj * 1.5)
+
+    # Salt bridges: positive (R,K) to negative (D,E), |i-j| >= 3
+    for i in range(n):
+        if sequence[i] in POS_AA:
+            for j in range(i + 3, n):
+                if sequence[j] in NEG_AA:
+                    edges.append((i, j))
+                    weights.append(2.0)
+        elif sequence[i] in NEG_AA:
+            for j in range(i + 3, n):
+                if sequence[j] in POS_AA:
+                    edges.append((i, j))
+                    weights.append(2.0)
+
+    # Build adjacency matrix
+    A = np.zeros((n, n))
+    for idx in range(len(edges)):
+        ei, ej = edges[idx]
+        w = weights[idx]
+        A[ei, ej] += w
+        A[ej, ei] += w
+
+    # Laplacian
+    D = np.diag(A.sum(axis=1))
+    L = D - A
+
+    # Eigenvectors (first 8 non-trivial)
+    eigenvalues, eigenvectors = np.linalg.eigh(L)
+    n_coords = min(9, n)
+    coords = eigenvectors[:, 1:n_coords]  # skip first (constant)
+
+    # Core vs surface from spectral coordinates
+    center = np.mean(coords, axis=0)
+    dists = np.array([np.linalg.norm(coords[i] - center) for i in range(n)])
+    median_dist = np.median(dists)
+    core_mask = dists < median_dist
+    surface_mask = ~core_mask
+
+    hydro_arr = np.array([HYDRO.get(aa, 0.5) for aa in sequence])
+    core_hydro = float(np.mean(hydro_arr[core_mask])) if np.any(core_mask) else 0.0
+    surface_hydro = float(np.mean(hydro_arr[surface_mask])) if np.any(surface_mask) else 0.0
+    has_core = core_hydro > surface_hydro + 0.05
+
+    # ─── Risk assessment (full composite, matches foldwatch) ───
     agg_fraction = agg_count / n if n > 0 else 0
-    large_stretch_count = sum(1 for r in agg_regions_list if (r['end'] - r['start'] + 1) >= 7)
+    agg_threshold = 2  # minimum region count to trigger
 
-    # Hydrophobic core detection: core vs surface
-    if n >= 10:
-        third = n // 3
-        core_hydro = sum(HYDRO.get(sequence[j], 0.0) for j in range(third, 2*third)) / max(1, third)
-        surf_hydro = (sum(HYDRO.get(sequence[j], 0.0) for j in range(third)) +
-                      sum(HYDRO.get(sequence[j], 0.0) for j in range(2*third, n))) / max(1, n - third)
-        no_core = core_hydro <= surf_hydro + 0.05
-    else:
-        no_core = True
+    risk_factors = 0
+    # Aggregation with no core
+    if not has_core and agg_regions > agg_threshold:
+        risk_factors += 1
+    if agg_fraction > 0.3 and not has_core:
+        risk_factors += 1
+    # Large contiguous stretches (>= 6 residues)
+    large_stretches = sum(1 for r in agg_regions_list if (r['end'] - r['start'] + 1) >= 6)
+    if large_stretches:
+        risk_factors += 1
+    # High coil
+    if coil_pct_val * 100 > 70:
+        risk_factors += 1
+    # No core
+    if not has_core:
+        risk_factors += 1
+    # High proline
+    if sum(1 for aa in sequence if aa == 'P') / n > 0.10:
+        risk_factors += 1
 
-    risk = (agg_regions * 0.15) + (agg_fraction * 0.3) + (large_stretch_count * 0.2) + (coil_pct * 0.15) + (0.2 if no_core else 0.0)
+    risk_label = 'high' if risk_factors >= 4 else 'medium' if risk_factors >= 2 else 'low'
+
+    # Composite risk score for mutation comparison
+    large_stretch_count = sum(1 for r in agg_regions_list if (r['end'] - r['start'] + 1) >= 6)
+    risk = (agg_regions * 0.15) + (agg_fraction * 0.3) + (large_stretch_count * 0.2) + (coil_pct_val * 0.15) + (0.2 if not has_core else 0.0)
 
     return {
         'agg_count': agg_count,
         'agg_regions': agg_regions,
+        'agg_regions_list': agg_regions_list,
         'helix': round(helix_pct * 100),
         'sheet': round(sheet_pct * 100),
-        'coil': round(coil_pct * 100),
-        'risk': round(risk, 4)
+        'coil': round(coil_pct_val * 100),
+        'risk': round(risk, 4),
+        'has_core': has_core,
+        'risk_label': risk_label,
+        'risk_factors': risk_factors,
+        'core_hydro': round(core_hydro, 4),
+        'surface_hydro': round(surface_hydro, 4)
     }
 
 # ─── Run the scan ───
@@ -539,8 +636,10 @@ results.sort(key=lambda x: x['risk_change'])
 # ─── Format top 20 output ───
 lines = []
 lines.append(f"WILD TYPE: agg={wt['agg_count']}/{n} ({round(wt['agg_count']/n*100)}%)  helix={wt['helix']}%  sheet={wt['sheet']}%  coil={wt['coil']}%  risk={wt['risk']:.4f}")
+lines.append(f"  Spectral core: {'YES' if wt['has_core'] else 'NO'}  (core_hydro={wt['core_hydro']:.3f}  surface_hydro={wt['surface_hydro']:.3f})")
+lines.append(f"  Risk assessment: {wt['risk_label'].upper()} ({wt['risk_factors']} risk factors)")
 lines.append(f"")
-lines.append(f"TOP 20 STABILIZING MUTATIONS (out of {n_mutations} scanned):")
+lines.append(f"TOP 20 STABILIZING MUTATIONS (out of {n_mutations} scanned, full spectral analysis):")
 lines.append(f"{'─' * 72}")
 lines.append(f"{'Rank':<6}{'Mutation':<10}{'Δrisk':<10}{'Agg':<12}{'Helix':<8}{'Sheet':<8}{'Coil':<8}")
 lines.append(f"{'─' * 72}")
@@ -606,7 +705,7 @@ result_json = json.dumps({
   btn.style.background = '#bd6e37';
   btn.style.color = '#08080d';
   btn.style.cursor = 'pointer';
-  btn.textContent = 'Scan All ' + (seq.length * 19) + ' Mutations';
+  btn.textContent = 'Scan All ' + (seq.length * 19) + ' Mutations (\u224810s spectral)';
 }
 
 function drawHeatmap(canvas, data) {
