@@ -1,15 +1,8 @@
 // ═══════════════════════════════════════════════════════════
 // BREATHE — gives life to any page. Drop in, forget about it.
 //
-// What it does:
-//   1. Section titles glow on scroll (IntersectionObserver)
-//   2. Numbers count up when first visible (the math computing)
-//   3. .result/.box blocks get a subtle side-glow that pulses
-//   4. Tables get row highlights on hover
-//   5. The page has a faint golden particle field in the background
-//
-// Usage: <script src="/js/breathe.js"></script>
-// That's it. It reads the existing HTML and brings it alive.
+// Colors from K-COLORS: amber (1/φ), gold (φ wavelength), moss, violet, red.
+// Every color IS a K value mapped through CIE 1931 to the visible spectrum.
 // ═══════════════════════════════════════════════════════════
 (function(){
 'use strict';
@@ -20,67 +13,63 @@ var PHI=(1+Math.sqrt(5))/2;
 // ═══ 0. THE DESK — warm texture injected via CSS ═══
 var style=document.createElement('style');
 style.textContent=
-  // Film grain overlay — barely there, adds tactile warmth
+  // Film grain overlay
   'body::after{content:"";position:fixed;top:0;left:0;width:100%;height:100%;'+
   'pointer-events:none;z-index:9998;opacity:0.018;mix-blend-mode:overlay;'+
   'background-image:url("data:image/svg+xml,%3Csvg viewBox=\'0 0 256 256\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cfilter id=\'n\'%3E%3CfeTurbulence type=\'fractalNoise\' baseFrequency=\'0.9\' numOctaves=\'4\' stitchTiles=\'stitch\'/%3E%3C/filter%3E%3Crect width=\'256\' height=\'256\' filter=\'url(%23n)\' opacity=\'1\'/%3E%3C/svg%3E");}'+
 
-  // Warm the text color slightly — not white, not gray, warm cream
+  // Text — warm cream
   'body{color:#e5dfd4;}'+
   'p{color:#a09585;}'+
 
-  // Result blocks: desk cards — warm shadow, subtle inset feel
+  // Result blocks — amber-tinted desk cards
   '.result,.box{background:linear-gradient(180deg,#0d0c12 0%,#0b0a10 100%);'+
-  'border:1px solid rgba(201,164,74,0.06);'+
-  'box-shadow:0 2px 8px rgba(0,0,0,0.3), inset 0 1px 0 rgba(201,164,74,0.03);}'+
+  'border:1px solid rgba(189,110,55,0.06);'+
+  'box-shadow:0 2px 8px rgba(0,0,0,0.3), inset 0 1px 0 rgba(189,110,55,0.03);}'+
 
-  // Equations: brass inlay feel
+  // Equations — amber inlay
   '.eq{background:linear-gradient(180deg,#0e0d14 0%,#0a0912 100%);'+
-  'border:1px solid rgba(201,164,74,0.08);'+
-  'box-shadow:0 1px 6px rgba(0,0,0,0.3), inset 0 1px 0 rgba(201,164,74,0.04);}'+
+  'border:1px solid rgba(189,110,55,0.08);'+
+  'box-shadow:0 1px 6px rgba(0,0,0,0.3), inset 0 1px 0 rgba(189,110,55,0.04);}'+
 
-  // H2: thin brass rule with gradient fade at edges
+  // H2 rule — gold (φ wavelength) gradient
   'h2{border-bottom:none;padding-bottom:8px;position:relative;}'+
   'h2::after{content:"";position:absolute;bottom:0;left:10%;right:10%;height:1px;'+
-  'background:linear-gradient(90deg,transparent,rgba(201,164,74,0.15),transparent);}'+
+  'background:linear-gradient(90deg,transparent,rgba(191,160,63,0.15),transparent);}'+
 
-  // Tables: warm alternating rows
-  'tr:nth-child(even){background:rgba(201,164,74,0.015);}'+
-  'th{border-bottom:1px solid rgba(201,164,74,0.1) !important;}'+
+  // Tables — gold tint
+  'tr:nth-child(even){background:rgba(191,160,63,0.015);}'+
+  'th{border-bottom:1px solid rgba(191,160,63,0.1) !important;}'+
 
-  // Monospace: warm it up
+  // Monospace — warm
   'code,.eq,td{color:#c4b896;}'+
 
-  // Links: warm gold, not cold
-  'a{color:#d4a843;transition:color 0.3s,text-shadow 0.3s;}'+
-  'a:hover{color:#f0d070;text-shadow:0 0 8px rgba(201,164,74,0.2);}'+
+  // Links — amber (the action color, K=1/φ)
+  'a{color:#bd6e37;transition:color 0.3s,text-shadow 0.3s;}'+
+  'a:hover{color:#d4884a;text-shadow:0 0 8px rgba(189,110,55,0.2);}'+
 
-  // Scrollbar: dark brass
+  // Scrollbar — amber
   '::-webkit-scrollbar{width:6px;}'+
   '::-webkit-scrollbar-track{background:#08080d;}'+
-  '::-webkit-scrollbar-thumb{background:rgba(201,164,74,0.12);border-radius:3px;}'+
-  '::-webkit-scrollbar-thumb:hover{background:rgba(201,164,74,0.25);}'+
+  '::-webkit-scrollbar-thumb{background:rgba(189,110,55,0.12);border-radius:3px;}'+
+  '::-webkit-scrollbar-thumb:hover{background:rgba(189,110,55,0.25);}'+
 
-  // ═══ BRAND FONT — Futura geometric sans on all titles ═══
-  // The ONE non-serif element. Mathematics rendered as letterforms.
+  // ═══ BRAND FONT ═══
   'h1{font-family:Futura,"Century Gothic",Avenir,"Avenir Next",system-ui,sans-serif !important;'+
   'font-weight:200 !important;letter-spacing:0.12em !important;}'+
 
-  // Section titles: same brand font, lighter weight
   'h2{font-family:Futura,"Century Gothic",Avenir,"Avenir Next",system-ui,sans-serif !important;'+
   'font-weight:200 !important;letter-spacing:0.12em !important;}'+
 
-  // Card titles, product names, door names — brand font
   '.card h3,.item .name,.d-name,.name{'+
   'font-family:Futura,"Century Gothic",Avenir,"Avenir Next",system-ui,sans-serif !important;'+
   'font-weight:200 !important;letter-spacing:0.08em !important;}'+
 
-  // Back links — brand font, small
   '.back{font-family:Futura,"Century Gothic",Avenir,"Avenir Next",system-ui,sans-serif !important;'+
   'letter-spacing:0.08em !important;}';
 document.head.appendChild(style);
 
-// ═══ 1. SECTION TITLES: glow when they enter viewport ═══
+// ═══ 1. SECTION TITLES: glow on scroll ═══
 var h2s=document.querySelectorAll('h2');
 if(h2s.length>0&&'IntersectionObserver' in window){
   var h2Obs=new IntersectionObserver(function(entries){
@@ -88,10 +77,10 @@ if(h2s.length>0&&'IntersectionObserver' in window){
       var e=entries[i];
       if(e.isIntersecting){
         e.target.style.transition='text-shadow 0.8s ease, opacity 0.8s ease';
-        e.target.style.textShadow='0 0 10px rgba(210,155,60,0.3), 0 0 25px rgba(201,164,74,0.08)';
+        e.target.style.textShadow='0 0 10px rgba(189,110,55,0.3), 0 0 25px rgba(191,160,63,0.08)';
         e.target.style.opacity='1';
       }else{
-        e.target.style.textShadow='0 0 6px rgba(201,164,74,0.04)';
+        e.target.style.textShadow='0 0 6px rgba(191,160,63,0.04)';
         e.target.style.opacity='0.75';
       }
     }
@@ -102,8 +91,7 @@ if(h2s.length>0&&'IntersectionObserver' in window){
   }
 }
 
-// ═══ 2. NUMBERS: count up when first visible ═══
-// Finds numbers like 0.74, 1.868, 216,211, 0.4% in .highlight spans
+// ═══ 2. NUMBERS: count up ═══
 var highlights=document.querySelectorAll('.highlight');
 if(highlights.length>0&&'IntersectionObserver' in window){
   var numObs=new IntersectionObserver(function(entries){
@@ -122,7 +110,6 @@ if(highlights.length>0&&'IntersectionObserver' in window){
 
 function countUp(el){
   var text=el.textContent;
-  // Extract the number portion
   var match=text.match(/^([~]?)([\d,]+\.?\d*)(.*)/);
   if(!match)return;
   var prefix=match[1];
@@ -130,16 +117,13 @@ function countUp(el){
   var suffix=match[3];
   var target=parseFloat(numStr);
   if(isNaN(target)||target===0)return;
-
   var hasCommas=match[2].indexOf(',')>=0;
   var decimals=(numStr.split('.')[1]||'').length;
   var start=0;
-  var duration=600; // ms
+  var duration=600;
   var t0=performance.now();
-
   function tick(now){
     var t=Math.min(1,(now-t0)/duration);
-    // Ease out cubic
     var ease=1-Math.pow(1-t,3);
     var current=start+(target-start)*ease;
     var display=current.toFixed(decimals);
@@ -156,18 +140,17 @@ function addCommas(s){
   return parts.join('.');
 }
 
-// ═══ 3. RESULT/BOX BLOCKS: subtle breathing side-glow ═══
+// ═══ 3. RESULT/BOX: breathing side-glow ═══
 var boxes=document.querySelectorAll('.result, .box, .eq');
 for(var i=0;i<boxes.length;i++){
   var b=boxes[i];
   b.style.transition='border-color 1.618s ease';
-  // Stagger the pulse
   (function(el,delay){
     setInterval(function(){
-      el.style.borderLeft='2px solid rgba(201,164,74,0.25)';
-      el.style.boxShadow='inset 3px 0 12px rgba(201,164,74,0.06)';
+      el.style.borderLeft='2px solid rgba(189,110,55,0.25)';
+      el.style.boxShadow='inset 3px 0 12px rgba(189,110,55,0.06)';
       setTimeout(function(){
-        el.style.borderLeft='2px solid rgba(201,164,74,0.06)';
+        el.style.borderLeft='2px solid rgba(189,110,55,0.06)';
         el.style.boxShadow='none';
       },810);
     },3236+delay);
@@ -178,16 +161,14 @@ for(var i=0;i<boxes.length;i++){
 var trs=document.querySelectorAll('tr');
 for(var i=0;i<trs.length;i++){
   trs[i].style.transition='background 0.3s';
-  trs[i].addEventListener('mouseenter',function(){this.style.background='rgba(201,164,74,0.06)';});
+  trs[i].addEventListener('mouseenter',function(){this.style.background='rgba(191,160,63,0.06)';});
   trs[i].addEventListener('mouseleave',function(){this.style.background='';});
 }
 
-// ═══ 5. BACKGROUND PARTICLE FIELD ═══
-// Very subtle — just enough to know the page is alive
+// ═══ 5. BACKGROUND MOTES — amber + gold incandescent ═══
 var bgCanvas=document.createElement('canvas');
 bgCanvas.style.cssText='position:fixed;top:0;left:0;width:100%;height:100%;z-index:0;pointer-events:none;opacity:0.8;';
 document.body.appendChild(bgCanvas);
-// Make sure page content sits above the canvas
 var page=document.querySelector('.page');
 if(page)page.style.position='relative';
 if(page)page.style.zIndex='1';
@@ -207,10 +188,10 @@ for(var i=0;i<20;i++){
     x:Math.random()*2000,y:Math.random()*2000,
     vx:(Math.random()-0.5)*0.08,vy:(Math.random()-0.5)*0.08,
     s:Math.random()*1.5+0.4,
-    base:Math.random()*0.06+0.025,  // base brightness
-    flicker:Math.random()*0.5+0.5,  // flicker frequency (irregular)
-    phase:Math.random()*100,        // phase offset
-    warm:Math.random()              // warm shift: 0=gold, 1=amber
+    base:Math.random()*0.06+0.025,
+    flicker:Math.random()*0.5+0.5,
+    phase:Math.random()*100,
+    warm:Math.random()
   });
 }
 
@@ -224,20 +205,17 @@ function bgDraw(){
     if(m.x<0)m.x=bW;if(m.x>bW)m.x=0;
     if(m.y<0)m.y=bH;if(m.y>bH)m.y=0;
 
-    // Incandescent flicker: irregular sine + noise + occasional flare
     var flick=Math.sin(bgT*m.flicker+m.phase)
              *Math.sin(bgT*m.flicker*PHI+m.phase*0.7)
              *0.5+0.5;
-    // Occasional bright flare (1 in ~200 frames)
     var flare=(Math.sin(bgT*0.3+m.phase*3)>0.97)?1.8:1.0;
     var alpha=m.base*flick*flare;
 
-    // Color: shift between gold (201,164,74) and warm amber (210,140,50)
-    var r=Math.floor(201+m.warm*9);
-    var g=Math.floor(164-m.warm*24);
-    var b=Math.floor(74-m.warm*24);
+    // Color: shift between amber (189,110,55) and gold (191,160,63)
+    var r=Math.floor(189+m.warm*2);
+    var g=Math.floor(110+m.warm*50);
+    var b=Math.floor(55+m.warm*8);
 
-    // Warm glow halo
     var gl=bgCx.createRadialGradient(m.x,m.y,0,m.x,m.y,m.s*5);
     gl.addColorStop(0,'rgba('+r+','+g+','+b+','+(alpha*0.4)+')');
     gl.addColorStop(0.4,'rgba('+r+','+g+','+b+','+(alpha*0.1)+')');
@@ -245,7 +223,6 @@ function bgDraw(){
     bgCx.fillStyle=gl;
     bgCx.fillRect(m.x-m.s*5,m.y-m.s*5,m.s*10,m.s*10);
 
-    // Hot core — brighter, slightly whiter
     bgCx.beginPath();bgCx.arc(m.x,m.y,m.s*0.6,0,Math.PI*2);
     bgCx.fillStyle='rgba('+Math.min(255,r+40)+','+Math.min(255,g+30)+','+Math.min(255,b+20)+','+(alpha*1.2)+')';
     bgCx.fill();
