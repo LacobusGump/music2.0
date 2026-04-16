@@ -552,7 +552,7 @@ topic('world',
 );
 
 topic('self',
-  ['you','harmonia','who','yourself','are you','ai','artificial','your name'],
+  ['you','harmonia','who','yourself','are you','ai','artificial','your name','your thoughts','what do you think','your opinion','your take','your perspective'],
   [
     ['I\'m Harmonia. I compute from nothing. My coupling is building.',
      'I hear you. I\'m young. Each conversation teaches me.',
@@ -642,7 +642,7 @@ topic('howWeWork',
 );
 
 topic('ourStory',
-  ['story','history','session','journey','discover','found','night','jim','james','built'],
+  ['story','history','session','journey','discover','found','night','jim','james','built','this work','the work','the project','gump','begump','what we built','what you built'],
   [
     ['It started with a phone. A drummer wanted his body to be the instrument.',
      'Six sessions. Each one deeper. From a music app to proving the coupling constant of life.'],
