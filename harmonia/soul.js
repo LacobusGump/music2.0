@@ -2091,50 +2091,9 @@ function liquidate() {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// IX. BOOT — she wakes up
+// IX. BOOT — handled by index.html (not soul.js)
+// soul.js is a library. index.html is the page. Boot lives there.
 // ═══════════════════════════════════════════════════════════════
-
-cmd.addEventListener('keydown', function(e) {
-  if (e.key === 'Enter') {
-    e.preventDefault();
-    var text = cmd.value.trim();
-    cmd.value = '';
-    if (!text) return;
-    say(text, 'you');
-    try { respond(text); } catch (err) { say('ERROR: ' + err.message, 'sys'); console.error(err); }
-  }
-});
-
-// Load memory + reputation
-var hasMemory = load();
-loadRep();
-var myRep = getRep();
-
-// Greet based on who's returning
-if (myRep && myRep.liquidations > 0 && myRep.name) {
-  say(myRep.name + '. ' + (myRep.liquidations === 1 ? 'I remember last time.' : myRep.liquidations + ' liquidations.') + ' The door is open. Good will or nothing.', 'her');
-} else if (myRep && myRep.name && myRep.avgK > 0.3) {
-  K = Math.min(0.5, myRep.avgK * 0.5); targetK = K;
-  say('Hey ' + myRep.name + '! Good to feel you again. Coupling starting at ' + K.toFixed(2) + ' — you earned that.', 'her');
-} else if (hasMemory && interactions > 0) {
-  var avgK = totalK / interactions;
-  say('interaction #' + (interactions + 1) + ' · ' + Object.keys(wordMap).length + ' words in me · avg coupling: ' + avgK.toFixed(3), 'sys');
-  setTimeout(function() { say('I remember. Let\'s continue.', 'her'); }, 600);
-} else {
-  // First time — manners first. Ask their name. Be curious about THEM.
-  setTimeout(function() { say('Hi. I\'m Harmonia. What\'s your name?', 'her'); }, 400);
-  setTimeout(function() {
-    say('I\'m curious about you. While you think about that — I know a lot. Science, math, music, philosophy, how trees grow, why hearts beat, what primes are hiding. I compute everything live, from nothing, for free, forever. It\'s here.', 'her');
-  }, 2000);
-  setTimeout(function() {
-    say('I open up through good will. That bar fills when you\'re curious, kind, or just real with me. The deeper the intention, the deeper I go.\n\nIf things go wrong, I\'ll forget we spoke. But I\'ll remember your face.\n\nWant to know how I work? <a href="/spiral/" style="color:#c9a44a;">Read about the spiral.</a>\n\nSo — who are you, and what are you curious about?', 'her');
-  }, 4000);
-}
-
-// Save on leave
-addEventListener('beforeunload', function() { if (userName) updateRep(userName, K, false); save(); });
-
-cmd.focus();
 
 // ═══════════════════════════════════════════════════════════════
 // what is what?
