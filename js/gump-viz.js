@@ -757,12 +757,19 @@ var GumpViz = (function() {
         }
       }
 
-      // Index labels
-      cx.fillStyle = rgba(C.dim, 0.3);
-      cx.font = '8px "Courier New"';
+      // Labels below bars
+      cx.fillStyle = rgba(C.dim, 0.4);
+      cx.font = '9px "Courier New"';
       cx.textAlign = 'center';
-      cx.fillText('0', padding.left + barW/2, H - padding.bottom + 14);
-      cx.fillText(String(N - 1), W - padding.right - barW/2, H - padding.bottom + 14);
+      if (opts.labels && opts.labels.length === N) {
+        for (var li = 0; li < N; li++) {
+          var lx = padding.left + (li / N) * plotW + 1 + barW / 2;
+          cx.fillText(opts.labels[li], lx, H - padding.bottom + 14);
+        }
+      } else {
+        cx.fillText('0', padding.left + barW/2, H - padding.bottom + 14);
+        cx.fillText(String(N - 1), W - padding.right - barW/2, H - padding.bottom + 14);
+      }
 
       // Title
       if (opts.title) {

@@ -116,7 +116,7 @@ var KC = (function() {
 })();
 
 // Expose for pages that use flat variables
-var PHI = KC.PHI, INV_PHI = KC.INV_PHI, BREATH = KC.BREATH;
+var PHI = KC.PHI, INV_PHI = KC.INV_PHI, BREATH = KC.BREATH, GOLDEN_ANGLE = KC.GOLDEN_ANGLE, GA = KC.GOLDEN_ANGLE;
 var C = KC.C;
 function rgba(c,a) { return KC.rgba(c,a); }
 function lerp(a,b,t) { return KC.lerp(a,b,t); }
