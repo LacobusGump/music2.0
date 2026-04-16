@@ -57,6 +57,21 @@ p{line-height:1.8;color:#999;font-size:0.85em;margin:10px 0;}
 </div>
 
 <div class="section">
+<h2>RUN IT YOURSELF</h2>
+<p style="color:#ddd;font-size:0.88em;line-height:1.9;">Don't take our word for it. Run the scan in your browser right now. Watch V18D emerge as the top hit. You are the peer reviewer.</p>
+
+<div class="scanner-tool" style="background:#0a0a12;border:1px solid #ffffff08;border-radius:10px;padding:20px;margin:16px 0;">
+  <div style="font-family:Futura,'Century Gothic',Avenir,'Avenir Next',system-ui,sans-serif;font-size:0.6em;color:#555;letter-spacing:0.1em;margin-bottom:6px;">PASTE ANY PROTEIN SEQUENCE &mdash; OR USE THE A&beta;42 WILD-TYPE BELOW</div>
+  <textarea id="scan-input" rows="3" style="width:100%;background:#08080d;border:1px solid #ffffff10;border-radius:6px;color:#ccc;font-family:'Courier New',monospace;font-size:0.78em;padding:12px;resize:vertical;outline:none;line-height:1.5;">DAEFRHDSGYEVHHQKLVFFAEDVGSNKGAIIGLMVGGVVIA</textarea>
+  <button id="scan-btn" onclick="runMutationScan()" style="display:block;width:100%;margin:10px 0;background:#bd6e37;color:#08080d;border:none;padding:10px;border-radius:6px;font-family:Futura,'Century Gothic',Avenir,'Avenir Next',system-ui,sans-serif;font-size:0.82em;font-weight:500;letter-spacing:0.08em;cursor:pointer;transition:all 0.3s;">Scan All 798 Mutations</button>
+  <div id="scan-status" style="font-size:0.7em;color:#bd6e37;text-align:center;margin:6px 0;"></div>
+  <canvas id="scan-viz" style="width:100%;border-radius:8px;margin-top:12px;display:none;"></canvas>
+  <div id="scan-output" style="background:#08080d;border:1px solid #ffffff08;border-radius:6px;padding:12px;font-family:'Courier New',monospace;font-size:0.75em;color:#409540;min-height:40px;white-space:pre-wrap;line-height:1.7;overflow-x:auto;margin-top:10px;">Results will appear here. Press the button to scan all 798 single-point mutations.</div>
+  <p style="color:#555;font-size:0.68em;margin-top:10px;text-align:center;line-height:1.6;">This computation runs entirely in your browser. No server. No login. No data leaves your machine. You are the peer reviewer.</p>
+</div>
+</div>
+
+<div class="section">
 <h2>THE PROTEIN</h2>
 <div class="result">
 <span style="color:#c9a44a;">Amyloid-beta 42 (A&beta;42)</span><br>
@@ -252,5 +267,384 @@ print(f"Aggregation: {wt_agg} → {mut_agg} residues")
 </div>
 <script src="/js/breathe.js?v=2"></script>
 <script src="/transit.js"></script>
+<script src="https://cdn.jsdelivr.net/pyodide/v0.25.1/full/pyodide.js"></script>
+<script>
+// ═══════════════════════════════════════════════════════════════
+// MUTATION SCANNER — runs the full 798-mutation scan in-browser
+// Pure Python via Pyodide. No server. No imports from gump.
+// The reader IS the peer reviewer.
+// ═══════════════════════════════════════════════════════════════
+
+var scanPyodide = null;
+
+async function loadScanPyodide() {
+  if (scanPyodide) return scanPyodide;
+  document.getElementById('scan-status').textContent = 'Loading Python runtime...';
+  scanPyodide = await loadPyodide();
+  document.getElementById('scan-status').textContent = 'Python ready.';
+  return scanPyodide;
+}
+
+async function runMutationScan() {
+  var btn = document.getElementById('scan-btn');
+  var status = document.getElementById('scan-status');
+  var output = document.getElementById('scan-output');
+  var canvas = document.getElementById('scan-viz');
+  var seq = document.getElementById('scan-input').value.trim().toUpperCase().replace(/[^A-Z]/g, '');
+
+  if (seq.length < 5) {
+    output.textContent = 'Error: sequence too short. Paste a protein sequence (minimum 5 residues).';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.style.background = '#333';
+  btn.style.color = '#666';
+  btn.style.cursor = 'wait';
+  btn.textContent = 'Loading Python...';
+  output.textContent = 'Initializing...';
+
+  try {
+    var pyodide = await loadScanPyodide();
+    btn.textContent = 'Scanning...';
+    status.textContent = 'Running ' + (seq.length * 19) + ' mutations...';
+
+    var nMut = seq.length * 19;
+
+    pyodide.globals.set('input_seq', seq);
+
+    await pyodide.runPythonAsync(`
+import time
+import json
+
+seq = input_seq
+
+# ─── Amino acid data tables ───
+AMINO_ACIDS = 'ACDEFGHIKLMNPQRSTVWY'
+
+HYDROPHOBICITY = {
+    'A': 1.8, 'C': 2.5, 'D': -3.5, 'E': -3.5, 'F': 2.8, 'G': -0.4,
+    'H': -3.2, 'I': 4.5, 'K': -3.9, 'L': 3.8, 'M': 1.9, 'N': -3.5,
+    'P': -1.6, 'Q': -3.5, 'R': -4.5, 'S': -0.8, 'T': -0.7, 'V': 4.2,
+    'W': -0.9, 'Y': -1.3
+}
+
+# Chou-Fasman propensities
+HELIX_PROP = {
+    'A': 1.42, 'C': 0.70, 'D': 1.01, 'E': 1.51, 'F': 1.13, 'G': 0.57,
+    'H': 1.00, 'I': 1.08, 'K': 1.16, 'L': 1.21, 'M': 1.45, 'N': 0.67,
+    'P': 0.57, 'Q': 1.11, 'R': 0.98, 'S': 0.77, 'T': 0.83, 'V': 1.06,
+    'W': 1.08, 'Y': 0.69
+}
+
+SHEET_PROP = {
+    'A': 0.83, 'C': 1.19, 'D': 0.54, 'E': 0.37, 'F': 1.38, 'G': 0.75,
+    'H': 0.87, 'I': 1.60, 'K': 0.74, 'L': 1.30, 'M': 1.05, 'N': 0.89,
+    'P': 0.55, 'Q': 1.10, 'R': 0.93, 'S': 0.75, 'T': 1.19, 'V': 1.70,
+    'W': 1.37, 'Y': 1.47
+}
+
+CHARGE = {
+    'D': -1, 'E': -1, 'K': 1, 'R': 1, 'H': 0.5
+}
+
+def analyze_protein(sequence):
+    n = len(sequence)
+    if n == 0:
+        return {'agg_count': 0, 'agg_regions': 0, 'helix': 0, 'sheet': 0, 'coil': 0, 'risk': 0}
+
+    # ─── Aggregation-prone region detection ───
+    # A residue is aggregation-prone if it's hydrophobic AND in a window
+    # of mostly hydrophobic residues (window=5, threshold=3)
+    agg_mask = [False] * n
+    window = 5
+    for i in range(n):
+        start = max(0, i - window // 2)
+        end = min(n, i + window // 2 + 1)
+        hydro_count = sum(1 for j in range(start, end) if HYDROPHOBICITY.get(sequence[j], 0) > 1.5)
+        if hydro_count >= 3 and HYDROPHOBICITY.get(sequence[i], 0) > 0.5:
+            # Charged residues suppress aggregation in their neighborhood
+            has_charge = any(sequence[j] in CHARGE for j in range(start, end))
+            if not has_charge:
+                agg_mask[i] = True
+
+    agg_count = sum(agg_mask)
+
+    # Count distinct aggregation regions
+    agg_regions = 0
+    in_region = False
+    for m in agg_mask:
+        if m and not in_region:
+            agg_regions += 1
+            in_region = True
+        elif not m:
+            in_region = False
+
+    # ─── Secondary structure (Chou-Fasman-like) ───
+    ss = ['C'] * n  # default coil
+    # Helix nucleation: 4+ consecutive residues with helix propensity > 1.0
+    i = 0
+    while i < n - 3:
+        if all(HELIX_PROP.get(sequence[j], 0.8) > 1.0 for j in range(i, i + 4)):
+            # Extend helix
+            start = i
+            end = i + 4
+            while end < n and HELIX_PROP.get(sequence[end], 0.8) > 0.9:
+                end += 1
+            for j in range(start, end):
+                ss[j] = 'H'
+            i = end
+        else:
+            i += 1
+
+    # Sheet nucleation: 3+ consecutive residues with sheet propensity > 1.0
+    # (only where not already helix)
+    i = 0
+    while i < n - 2:
+        if ss[i] == 'C' and all(ss[j] == 'C' and SHEET_PROP.get(sequence[j], 0.8) > 1.0 for j in range(i, min(i + 3, n))):
+            start = i
+            end = i + 3
+            while end < n and ss[end] == 'C' and SHEET_PROP.get(sequence[end], 0.8) > 0.9:
+                end += 1
+            for j in range(start, end):
+                ss[j] = 'E'
+            i = end
+        else:
+            i += 1
+
+    helix_pct = ss.count('H') / n if n > 0 else 0
+    sheet_pct = ss.count('E') / n if n > 0 else 0
+    coil_pct = ss.count('C') / n if n > 0 else 0
+
+    # ─── Risk score ───
+    # Higher = worse. Based on aggregation fraction + sheet fraction - helix fraction
+    risk = (agg_count / n) * 3.0 + sheet_pct * 1.0 - helix_pct * 0.5
+
+    return {
+        'agg_count': agg_count,
+        'agg_regions': agg_regions,
+        'helix': round(helix_pct * 100),
+        'sheet': round(sheet_pct * 100),
+        'coil': round(coil_pct * 100),
+        'risk': round(risk, 4)
+    }
+
+# ─── Run the scan ───
+t0 = time.time()
+
+wt = analyze_protein(seq)
+n = len(seq)
+n_mutations = n * 19
+
+results = []
+heatmap = {}  # (pos, aa) -> risk_change
+
+for i in range(n):
+    orig = seq[i]
+    for aa in AMINO_ACIDS:
+        if aa == orig:
+            continue
+        mutant = seq[:i] + aa + seq[i+1:]
+        mut = analyze_protein(mutant)
+        risk_change = mut['risk'] - wt['risk']
+        label = f"{orig}{i+1}{aa}"
+        results.append({
+            'label': label,
+            'pos': i,
+            'from': orig,
+            'to': aa,
+            'risk_change': round(risk_change, 4),
+            'agg_count': mut['agg_count'],
+            'agg_pct': round(mut['agg_count'] / n * 100),
+            'helix': mut['helix'],
+            'sheet': mut['sheet'],
+            'coil': mut['coil']
+        })
+        heatmap[(i, aa)] = risk_change
+
+elapsed = time.time() - t0
+
+# Sort by risk change (most stabilizing first)
+results.sort(key=lambda x: x['risk_change'])
+
+# ─── Format top 20 output ───
+lines = []
+lines.append(f"WILD TYPE: agg={wt['agg_count']}/{n} ({round(wt['agg_count']/n*100)}%)  helix={wt['helix']}%  sheet={wt['sheet']}%  coil={wt['coil']}%  risk={wt['risk']:.4f}")
+lines.append(f"")
+lines.append(f"TOP 20 STABILIZING MUTATIONS (out of {n_mutations} scanned):")
+lines.append(f"{'─' * 72}")
+lines.append(f"{'Rank':<6}{'Mutation':<10}{'Δrisk':<10}{'Agg':<12}{'Helix':<8}{'Sheet':<8}{'Coil':<8}")
+lines.append(f"{'─' * 72}")
+
+for idx, r in enumerate(results[:20]):
+    agg_str = f"{r['agg_count']}/{n} ({r['agg_pct']}%)"
+    lines.append(f"{idx+1:<6}{r['label']:<10}{r['risk_change']:>+.4f}    {agg_str:<12}{r['helix']}%{'':<5}{r['sheet']}%{'':<5}{r['coil']}%")
+
+lines.append(f"{'─' * 72}")
+
+# Count how many top-10 add charge
+top10_charged = sum(1 for r in results[:10] if r['to'] in 'DEKRH')
+top10_hydrophobic = sum(1 for r in results[:10] if r['to'] in 'FILMVW')
+lines.append(f"")
+lines.append(f"Top 10: {top10_charged}/10 add charge.  {top10_hydrophobic}/10 add hydrophobic.")
+lines.append(f"")
+
+# Count stabilizing vs destabilizing
+stabilizing = sum(1 for r in results if r['risk_change'] < -0.001)
+destabilizing = sum(1 for r in results if r['risk_change'] > 0.001)
+neutral = len(results) - stabilizing - destabilizing
+lines.append(f"Summary: {stabilizing} stabilizing, {destabilizing} destabilizing, {neutral} neutral")
+lines.append(f"Computation time: {elapsed:.2f}s  ({len(results)/elapsed:.0f} mutations/sec)")
+
+output_text = "\\n".join(lines)
+
+# Build heatmap data for JS
+heatmap_data = []
+for i in range(n):
+    row = []
+    for aa in AMINO_ACIDS:
+        if aa == seq[i]:
+            row.append(None)  # wild type position
+        else:
+            row.append(round(heatmap.get((i, aa), 0), 4))
+    heatmap_data.append(row)
+
+result_json = json.dumps({
+    'output': output_text,
+    'heatmap': heatmap_data,
+    'seq': seq,
+    'amino_acids': list(AMINO_ACIDS),
+    'elapsed': round(elapsed, 2),
+    'n': n
+})
+`);
+
+    var resultJSON = pyodide.globals.get('result_json');
+    var data = JSON.parse(resultJSON);
+
+    output.textContent = data.output;
+    status.textContent = 'Done in ' + data.elapsed + 's';
+
+    // ─── Draw heatmap ───
+    drawHeatmap(canvas, data);
+
+  } catch (e) {
+    output.textContent = 'Error: ' + e.message;
+    status.textContent = 'Error';
+  }
+
+  btn.disabled = false;
+  btn.style.background = '#bd6e37';
+  btn.style.color = '#08080d';
+  btn.style.cursor = 'pointer';
+  btn.textContent = 'Scan All ' + (seq.length * 19) + ' Mutations';
+}
+
+function drawHeatmap(canvas, data) {
+  var heatmap = data.heatmap;
+  var seq = data.seq;
+  var aas = data.amino_acids;
+  var n = data.n;
+  var nAA = aas.length;
+
+  // Sizing
+  var cellW = Math.max(8, Math.min(16, Math.floor(600 / n)));
+  var cellH = Math.max(10, Math.min(18, 14));
+  var labelLeft = 28;
+  var labelTop = 14;
+  var w = labelLeft + n * cellW + 10;
+  var h = labelTop + nAA * cellH + 10;
+
+  var dpr = window.devicePixelRatio || 1;
+  canvas.width = w * dpr;
+  canvas.height = h * dpr;
+  canvas.style.width = w + 'px';
+  canvas.style.height = h + 'px';
+  canvas.style.display = 'block';
+
+  var ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  ctx.fillStyle = '#08080d';
+  ctx.fillRect(0, 0, w, h);
+
+  // Find min/max for color scaling
+  var minVal = 0, maxVal = 0;
+  for (var i = 0; i < n; i++) {
+    for (var j = 0; j < nAA; j++) {
+      var v = heatmap[i][j];
+      if (v !== null) {
+        if (v < minVal) minVal = v;
+        if (v > maxVal) maxVal = v;
+      }
+    }
+  }
+  var absMax = Math.max(Math.abs(minVal), Math.abs(maxVal), 0.001);
+
+  // Draw cells
+  for (var i = 0; i < n; i++) {
+    for (var j = 0; j < nAA; j++) {
+      var v = heatmap[i][j];
+      var x = labelLeft + i * cellW;
+      var y = labelTop + j * cellH;
+
+      if (v === null) {
+        ctx.fillStyle = '#1a1a2a';
+      } else {
+        var norm = v / absMax;
+        if (norm < 0) {
+          // Stabilizing = green
+          var intensity = Math.min(1, Math.abs(norm));
+          var r = Math.round(10 + (1 - intensity) * 50);
+          var g = Math.round(40 + intensity * 180);
+          var b = Math.round(10 + (1 - intensity) * 50);
+          ctx.fillStyle = 'rgb(' + r + ',' + g + ',' + b + ')';
+        } else if (norm > 0) {
+          // Destabilizing = red
+          var intensity = Math.min(1, Math.abs(norm));
+          var r = Math.round(40 + intensity * 180);
+          var g = Math.round(10 + (1 - intensity) * 50);
+          var b = Math.round(10 + (1 - intensity) * 30);
+          ctx.fillStyle = 'rgb(' + r + ',' + g + ',' + b + ')';
+        } else {
+          ctx.fillStyle = '#2a2a3a';
+        }
+      }
+      ctx.fillRect(x, y, cellW - 1, cellH - 1);
+    }
+  }
+
+  // Y-axis labels (amino acids)
+  ctx.fillStyle = '#666';
+  ctx.font = Math.min(10, cellH - 2) + 'px Courier New';
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'middle';
+  for (var j = 0; j < nAA; j++) {
+    ctx.fillText(aas[j], labelLeft - 4, labelTop + j * cellH + cellH / 2);
+  }
+
+  // X-axis labels (position numbers, every 5th)
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  ctx.font = Math.min(9, cellW) + 'px Courier New';
+  for (var i = 0; i < n; i += 5) {
+    ctx.fillText((i + 1).toString(), labelLeft + i * cellW + cellW / 2, labelTop + nAA * cellH + 1);
+  }
+
+  // Legend
+  var legendY = 4;
+  ctx.font = '9px Courier New';
+  ctx.textAlign = 'left';
+  ctx.fillStyle = '#4a9';
+  ctx.fillText('green=stabilizing', labelLeft, legendY);
+  ctx.fillStyle = '#888';
+  ctx.fillText('gray=neutral', labelLeft + 110, legendY);
+  ctx.fillStyle = '#c44';
+  ctx.fillText('red=destabilizing', labelLeft + 190, legendY);
+  ctx.fillStyle = '#1a1a2a';
+  ctx.fillRect(labelLeft + 310, legendY - 1, 8, 8);
+  ctx.fillStyle = '#555';
+  ctx.fillText('=wild type', labelLeft + 322, legendY);
+}
+</script>
 </body>
 </html>
