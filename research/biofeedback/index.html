@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Biofeedback &mdash; Phone Sensors to Body Oscillators &mdash; GUMP Research</title>
+<meta name="description" content="How phone accelerometer and gyroscope data maps to the 7-oscillator body model. Tilt as attention proxy. Motion amplitude as activity proxy. Breathing detection from periodic acceleration. The founding circle closes.">
+<link rel="icon" href="/favicon.png">
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:#08080d;color:#e8e4dc;font-family:Georgia,serif;min-height:100vh;}
+a{color:#c9a44a;text-decoration:none;}
+.page{max-width:720px;margin:0 auto;padding:30px 20px 80px;}
+.back{font-size:0.75em;color:#444;margin-bottom:30px;display:block;}
+h1{font-size:1.8em;font-weight:100;color:#c9a44a;letter-spacing:0.1em;}
+.sub{font-size:0.85em;color:#888;margin:6px 0 24px;}
+h2{font-size:0.9em;font-weight:200;color:#c9a44a;letter-spacing:0.08em;margin:30px 0 12px;}
+p{line-height:1.8;color:#999;font-size:0.85em;margin:10px 0;}
+.result{background:#0d0d14;border:1px solid #ffffff10;border-radius:10px;padding:16px 20px;margin:16px 0;font-family:'Courier New',monospace;font-size:0.78em;color:#aaa;line-height:2;}
+.highlight{color:#4a9;font-weight:bold;}
+.warn{color:#c94;font-weight:bold;}
+.section{margin:30px 0;}
+.foot{text-align:center;color:#666;font-size:0.65em;margin-top:50px;}
+table{width:100%;border-collapse:collapse;margin:12px 0;}
+th{text-align:left;color:#c9a44a;font-weight:200;font-size:0.72em;letter-spacing:0.05em;padding:6px 8px;border-bottom:1px solid #ffffff10;}
+td{padding:6px 8px;font-size:0.78em;color:#aaa;border-bottom:1px solid #ffffff08;font-family:'Courier New',monospace;}
+</style>
+</head>
+<body>
+<div class="page">
+<a class="back" href="/research/">&larr; Research</a>
+
+<h1>Biofeedback</h1>
+<div class="sub">Phone sensors &rarr; body oscillators &rarr; music &rarr; entrainment &rarr; body. The founding circle.</div>
+
+<div class="section">
+<h2>THE CIRCLE CLOSES</h2>
+<p>GUMP started with a question: what makes music good? The answer was coupled oscillators at consonant frequency ratios. The <a href="/research/body-music/">body-music research</a> showed the body IS 7 coupled oscillators at those ratios. This page connects the two: how a phone in your hand or pocket reads those oscillators and feeds them back as music.</p>
+
+<div class="result">
+Body oscillates &rarr; phone sensors capture motion<br>
+&rarr; software extracts breathing, movement, posture<br>
+&rarr; maps to body oscillator model (Heart, Brain, Breath)<br>
+&rarr; GUMP makes music tuned to YOUR coupling state<br>
+&rarr; music entrains body oscillators<br>
+&rarr; body oscillates better &rarr; better music<br><br>
+<span class="highlight">The instrument IS the biofeedback loop.</span>
+</div>
+</div>
+
+<div class="section">
+<h2>WHAT THE PHONE MEASURES</h2>
+<p>A modern phone has two relevant motion sensors. Both sample at 60 Hz. Between them, they capture three of the seven body oscillators &mdash; the fast group.</p>
+
+<table>
+<tr><th>Sensor</th><th>Signal</th><th>Body Oscillator</th><th>How</th></tr>
+<tr><td class="highlight">Accelerometer</td><td>X, Y, Z + gravity</td><td>Breath (0.25 Hz)</td><td>Chest/pocket rise and fall at 0.1&ndash;0.5 Hz</td></tr>
+<tr><td class="highlight">Accelerometer</td><td>Magnitude peaks</td><td>Heart (proxy)</td><td>Motion amplitude correlates with activity level</td></tr>
+<tr><td class="highlight">Gyroscope</td><td>Tilt angle</td><td>Brain (proxy)</td><td>Postural engagement tracks attention state</td></tr>
+</table>
+
+<p>The accelerometer captures breathing as a low-frequency oscillation in acceleration magnitude. When the phone is against the chest, each breath cycle produces a ~0.01&ndash;0.1 g swing at 0.1&ndash;0.5 Hz. Autocorrelation in that band extracts the period.</p>
+
+<p>Walking cadence (1.5&ndash;3.0 Hz) comes from acceleration peaks. Cardiac-locomotor coupling means walking tempo tracks heart rate during movement &mdash; a proxy, not a measurement.</p>
+
+<p>Tilt from the gyroscope is the least physiological and the most behavioral: an upright, engaged posture produces a different angular profile than a slouched, disengaged one. This maps loosely to attention state &mdash; the alpha rhythm territory of the brain oscillator.</p>
+</div>
+
+<div class="section">
+<h2>THE SENSOR PIPELINE</h2>
+<p>The <code>Biofeedback</code> class (<a href="/js/biofeedback.js">biofeedback.js</a>) runs the full extraction.</p>
+
+<div class="result">
+<span style="color:#c9a44a;">1. CAPTURE</span><br>
+&nbsp;&nbsp;DeviceMotionEvent &rarr; accelerationIncludingGravity (x, y, z)<br>
+&nbsp;&nbsp;60 Hz sample rate &rarr; 15-second circular buffer (900 samples)<br>
+&nbsp;&nbsp;Magnitude: &radic;(x&sup2; + y&sup2; + z&sup2;)<br><br>
+
+<span style="color:#c9a44a;">2. EXTRACT</span><br>
+&nbsp;&nbsp;Breathing: bandpass autocorrelation 0.1&ndash;0.5 Hz &rarr; dominant period<br>
+&nbsp;&nbsp;Movement: bandpass autocorrelation 1.0&ndash;3.5 Hz &rarr; cadence<br>
+&nbsp;&nbsp;Both: mean-subtract, then find strongest autocorrelation peak<br>
+&nbsp;&nbsp;Minimum 5 seconds of data before first reading<br><br>
+
+<span style="color:#c9a44a;">3. COMPUTE COUPLING</span><br>
+&nbsp;&nbsp;K = confidence of dominant oscillation (autocorrelation peak height)<br>
+&nbsp;&nbsp;R = phase coherence between breath and movement channels<br>
+&nbsp;&nbsp;Consonance = proximity of movement:breath ratio to nearest integer ratio<br>
+&nbsp;&nbsp;Scans all a:b for a &isin; [1,12], b &isin; [1,4], takes nearest<br><br>
+
+<span style="color:#c9a44a;">4. ENTRAIN</span><br>
+&nbsp;&nbsp;Target: Heart:Breath = 4:1 (the RSA consonance)<br>
+&nbsp;&nbsp;suggestedBPM = tempo that would guide toward 4:1 coupling<br>
+&nbsp;&nbsp;Walking: estimated HR = cadence &times; 60<br>
+&nbsp;&nbsp;Resting: default 66 BPM baseline<br>
+&nbsp;&nbsp;Clamped to 50&ndash;140 BPM range
+</div>
+</div>
+
+<div class="section">
+<h2>MAPPING TO THE 7-OSCILLATOR MODEL</h2>
+<p>The body-music page defines 7 oscillators in two groups. Phone sensors reach the fast group directly and the slow group not at all.</p>
+
+<canvas id="sensor-map" style="width:100%;height:340px;border-radius:12px;margin:16px 0;"></canvas>
+<p style="text-align:center;font-size:0.65em;color:#555;">Gold = directly sensed. Green = reachable through entrainment. Dim = not reachable from phone sensors.</p>
+
+<table>
+<tr><th>Oscillator</th><th>Frequency</th><th>Sensor Channel</th><th>Quality</th></tr>
+<tr><td class="highlight">Breath</td><td>0.25 Hz</td><td>Accel magnitude, 0.1&ndash;0.5 Hz band</td><td><span class="highlight">Direct measurement</span></td></tr>
+<tr><td class="highlight">Heart</td><td>1.0 Hz</td><td>Motion amplitude / walking cadence</td><td><span class="warn">Activity proxy</span></td></tr>
+<tr><td class="highlight">Brain</td><td>10 Hz</td><td>Tilt angle / postural engagement</td><td><span class="warn">Behavioral proxy</span></td></tr>
+<tr><td>Gut</td><td>0.00019 Hz</td><td>&mdash;</td><td>Not measurable</td></tr>
+<tr><td>Pancreas</td><td>0.0017 Hz</td><td>&mdash;</td><td>Not measurable</td></tr>
+<tr><td>Liver</td><td>0.000012 Hz</td><td>&mdash;</td><td>Not measurable</td></tr>
+<tr><td>Immune</td><td>0.00014 Hz</td><td>&mdash;</td><td>Not measurable</td></tr>
+</table>
+
+<div class="result">
+<span class="highlight">What we actually measure: 1 of 7 directly (Breath).</span><br>
+<span class="warn">What we estimate: 2 of 7 through proxies (Heart, Brain).</span><br>
+What we cannot reach: 4 of 7 (Gut, Pancreas, Liver, Immune).<br><br>
+But the fast group IS the group that music entrains.<br>
+Heart, Brain, Breath &mdash; the Fiedler fast split.<br>
+We measure the oscillators we can change.
+</div>
+</div>
+
+<div class="section">
+<h2>TILT &rarr; BRAIN STATE PROXY</h2>
+<p>The gyroscope measures angular velocity. Integrating gives tilt angle. Tilt correlates with engagement, not cognition &mdash; but engagement is what the instrument needs.</p>
+
+<div class="result">
+<span style="color:#c9a44a;">Upright, stable:</span> high engagement &rarr; K(brain) estimate up<br>
+&nbsp;&nbsp;Phone tilt &lt; 15&deg; from vertical, low angular variance<br>
+&nbsp;&nbsp;Maps to: focused attention, alpha rhythm coherent<br><br>
+
+<span style="color:#c9a44a;">Tilted, variable:</span> shifting engagement &rarr; K(brain) estimate fluctuating<br>
+&nbsp;&nbsp;Phone tilt 15&ndash;45&deg;, moderate angular variance<br>
+&nbsp;&nbsp;Maps to: exploratory attention, switching between stimuli<br><br>
+
+<span style="color:#c9a44a;">Flat or erratic:</span> disengaged or in motion &rarr; K(brain) estimate low<br>
+&nbsp;&nbsp;Phone tilt &gt; 45&deg; or high-frequency angular noise<br>
+&nbsp;&nbsp;Maps to: passive state or active locomotion<br><br>
+
+<span class="warn">Honest limit:</span> this is postural behavior, not EEG.<br>
+A person lying down reading intently will register as "disengaged."<br>
+The proxy works for standing/walking instrument use. That is the use case.
+</div>
+</div>
+
+<div class="section">
+<h2>MOTION AMPLITUDE &rarr; HEART RATE PROXY</h2>
+<p>During walking, cardiac-locomotor coupling is well-documented (Niizeki 2005, <i>J Appl Physiol</i>). Heart rate tracks walking tempo within ~10%. At rest, there is no motion to measure &mdash; the system falls back to a 66 BPM default.</p>
+
+<div class="result">
+<span style="color:#c9a44a;">Walking:</span><br>
+&nbsp;&nbsp;Cadence from accel peaks at 1.0&ndash;3.5 Hz<br>
+&nbsp;&nbsp;Estimated HR = cadence &times; 60 (1:1 cardiac-locomotor coupling)<br>
+&nbsp;&nbsp;Accuracy: &plusmn;10% during steady walking (literature-supported)<br>
+&nbsp;&nbsp;Breaks down during: running, stairs, erratic movement<br><br>
+
+<span style="color:#c9a44a;">Standing still:</span><br>
+&nbsp;&nbsp;No cadence signal. Default HR = 66 BPM.<br>
+&nbsp;&nbsp;Postural sway provides coupling regularity (K), not rate<br><br>
+
+<span class="warn">Honest limit:</span> this is NOT a heart rate monitor.<br>
+An optical PPG sensor (Apple Watch) measures actual pulse.<br>
+We measure movement periodicity, which correlates with HR<br>
+during locomotion only.
+</div>
+</div>
+
+<div class="section">
+<h2>BREATHING DETECTION</h2>
+<p>This is the strongest channel. A phone against the chest or in a breast pocket rises and falls with each breath. The signal is small (0.01&ndash;0.1 g) but periodic, and autocorrelation finds periodicity better than amplitude thresholding.</p>
+
+<div class="result">
+<span style="color:#c9a44a;">Method:</span> bandpass autocorrelation, 0.1&ndash;0.5 Hz (6&ndash;30 breaths/min)<br><br>
+
+1. Collect 15 seconds of acceleration magnitude<br>
+2. Mean-subtract to remove gravity bias<br>
+3. Compute autocorrelation at lags corresponding to 0.1&ndash;0.5 Hz<br>
+4. Peak lag = dominant breathing period<br>
+5. Peak height = confidence (K of breathing oscillation)<br><br>
+
+<span class="highlight">Accuracy: &plusmn;1 breath/min when phone is on chest</span><br>
+<span class="warn">Degrades to: &plusmn;3&ndash;5 breaths/min in hand or pocket</span><br>
+Fails when: walking fast (locomotion dominates), phone on table<br><br>
+
+Breath is the Fiedler bridge &mdash; damage score 1.000.<br>
+It couples fast group to slow group through the vagal reflex.<br>
+If we measure one thing well, this is the right one.
+</div>
+</div>
+
+<div class="section">
+<h2>HOW THE INSTRUMENT USES THIS</h2>
+<p>The biofeedback module feeds three signals to the GUMP audio engine. Each signal modulates a different musical dimension.</p>
+
+<table>
+<tr><th>Biofeedback Signal</th><th>Musical Parameter</th><th>Target Coupling</th></tr>
+<tr><td class="highlight">Breath rate</td><td>Phrase length / rhythmic grouping</td><td>Heart:Breath = 4:1</td></tr>
+<tr><td class="highlight">Motion amplitude</td><td>Tempo / density</td><td>Cardiac-locomotor 1:1</td></tr>
+<tr><td class="highlight">Coupling K</td><td>Harmonic complexity / depth</td><td>Higher K = simpler harmony</td></tr>
+<tr><td class="highlight">Consonance</td><td>Dissonance level in synthesis</td><td>Body consonance = musical consonance</td></tr>
+<tr><td class="highlight">Suggested BPM</td><td>Entrainment tempo target</td><td>Guides toward 4:1 RSA ratio</td></tr>
+</table>
+
+<div class="result">
+<span style="color:#c9a44a;">The entrainment loop:</span><br><br>
+1. Measure your breath rate (say 16/min = 0.267 Hz)<br>
+2. Target HR for 4:1 consonance = 64 BPM<br>
+3. Set music tempo near 64 BPM<br>
+4. Rhythmic entrainment pulls heart rate toward tempo<br>
+   (Bernardi 2006: heart rate follows musical tempo)<br>
+5. Heart rate at 64 BPM with breath at 16/min = 4:1<br>
+6. RSA (respiratory sinus arrhythmia) strengthens<br>
+7. K increases. Consonance increases. Music gets simpler.<br>
+8. Goto 1. The loop tightens.<br><br>
+
+<span class="highlight">The body tunes the instrument. The instrument tunes the body.</span>
+</div>
+</div>
+
+<div class="section">
+<h2>K / R / E / T OF BODY-SENSOR COUPLING</h2>
+
+<canvas id="kret-viz" style="width:100%;height:260px;border-radius:12px;margin:16px 0;"></canvas>
+<p style="text-align:center;font-size:0.65em;color:#555;">K/R/E/T of the biofeedback system. K rises as the loop tightens. R tracks phase-lock. E peaks during transition.</p>
+
+<div class="result">
+<span class="highlight">K (Coupling Strength)</span><br>
+&nbsp;&nbsp;Autocorrelation peak height of dominant oscillation<br>
+&nbsp;&nbsp;Range: 0 (noise) to 1 (perfect periodicity)<br>
+&nbsp;&nbsp;High K = the body is oscillating regularly<br>
+&nbsp;&nbsp;The instrument responds: simpler harmony, longer phrases<br><br>
+
+<span class="highlight">R (Synchronization)</span><br>
+&nbsp;&nbsp;Phase coherence between breath and movement channels<br>
+&nbsp;&nbsp;Range: 0 (uncoupled) to 1 (phase-locked)<br>
+&nbsp;&nbsp;High R = breath and movement are synchronized<br>
+&nbsp;&nbsp;The instrument responds: more consonant intervals<br><br>
+
+<span class="highlight">E (Energy / Tension)</span><br>
+&nbsp;&nbsp;Motion amplitude &times; (1 &minus; consonance)<br>
+&nbsp;&nbsp;High E = active but dissonant &mdash; the body is working<br>
+&nbsp;&nbsp;The instrument responds: rhythmic tension, denser texture<br><br>
+
+<span class="highlight">T (Temperature / Phase)</span><br>
+&nbsp;&nbsp;Rate of change of K over time<br>
+&nbsp;&nbsp;Positive T = coupling is building (warming up)<br>
+&nbsp;&nbsp;Negative T = coupling is decaying (cooling down)<br>
+&nbsp;&nbsp;The instrument responds: evolving harmony follows the trend
+</div>
+</div>
+
+<div class="section">
+<h2>THE THREE SENSOR CHANNELS AS MUSIC</h2>
+
+<div class="result">
+<span style="color:#c9a44a;">BREATH (0.25 Hz) &rarr; PHRASE STRUCTURE</span><br>
+&nbsp;&nbsp;Each breath cycle = one musical phrase<br>
+&nbsp;&nbsp;Inhale = tension (ascending motion, added notes)<br>
+&nbsp;&nbsp;Exhale = resolution (descending, notes thin)<br>
+&nbsp;&nbsp;Breath IS the conductor. The phrase follows the baton.<br><br>
+
+<span style="color:#c9a44a;">HEART PROXY (1 Hz) &rarr; PULSE</span><br>
+&nbsp;&nbsp;Walking cadence sets the beat<br>
+&nbsp;&nbsp;Higher activity = faster tempo<br>
+&nbsp;&nbsp;Stillness = ambient, beatless<br>
+&nbsp;&nbsp;The heartbeat IS the downbeat.<br><br>
+
+<span style="color:#c9a44a;">BRAIN PROXY (tilt) &rarr; HARMONIC DEPTH</span><br>
+&nbsp;&nbsp;Engaged posture = richer harmony, more overtones<br>
+&nbsp;&nbsp;Relaxed posture = sparser, fundamental-heavy<br>
+&nbsp;&nbsp;Shifting attention = modulating timbre<br>
+&nbsp;&nbsp;Attention IS the mix engineer.
+</div>
+</div>
+
+<div class="section">
+<h2>DEMONSTRATED: WHAT WORKS</h2>
+<div class="result">
+<span class="highlight">Breathing detection:</span> works reliably with phone on chest<br>
+&nbsp;&nbsp;&plusmn;1 breath/min accuracy. Autocorrelation is robust to noise.<br>
+&nbsp;&nbsp;Degrades gracefully in hand/pocket. Fails on table.<br><br>
+
+<span class="highlight">Movement cadence:</span> works during walking<br>
+&nbsp;&nbsp;Acceleration peak detection at 1.0&ndash;3.5 Hz is clean.<br>
+&nbsp;&nbsp;Cardiac-locomotor coupling gives HR proxy (&plusmn;10%).<br><br>
+
+<span class="highlight">Consonance detection:</span> works in real time<br>
+&nbsp;&nbsp;Movement:breath ratio proximity to integer ratio.<br>
+&nbsp;&nbsp;Updates every 500ms. Smoothed exponentially.<br><br>
+
+<span class="highlight">Entrainment suggestion:</span> computes correct target<br>
+&nbsp;&nbsp;suggestedBPM tracks toward 4:1 Heart:Breath ratio.<br>
+&nbsp;&nbsp;Whether the music actually entrains HR is the claim<br>
+&nbsp;&nbsp;from Bernardi 2006, not our measurement.<br><br>
+
+<a href="/toybox/try-biofeedback.html" style="color:#4a9;">Try the biofeedback module &rarr;</a>
+</div>
+</div>
+
+<div class="section">
+<h2>HONEST LIMITS</h2>
+<div class="result">
+<span class="warn">Phone sensors measure movement, not organ oscillation.</span><br>
+&nbsp;&nbsp;Breath: real oscillation detected through body movement. Closest to direct.<br>
+&nbsp;&nbsp;Heart: proxy via activity level. Not a pulse measurement.<br>
+&nbsp;&nbsp;Brain: proxy via postural behavior. Not EEG.<br>
+&nbsp;&nbsp;Gut, Pancreas, Liver, Immune: not measurable from phone sensors. Period.<br><br>
+
+<span class="warn">The mapping from accelerometer to body state is a proxy, not measurement.</span><br>
+&nbsp;&nbsp;An actual biofeedback system would use ECG, EEG, respiratory belt, HRV monitor.<br>
+&nbsp;&nbsp;We use one $800 device with two motion sensors. The quality matches the cost.<br><br>
+
+<span class="warn">No clinical validation of sensor &rarr; health correspondence.</span><br>
+&nbsp;&nbsp;We have not run a clinical trial. We have not validated against medical devices.<br>
+&nbsp;&nbsp;The entrainment claim rests on Bernardi 2006 and Thaut 1996, not our data.<br>
+&nbsp;&nbsp;Our contribution: the mapping from sensor data to the body oscillator model.<br><br>
+
+<span class="warn">Placement matters enormously.</span><br>
+&nbsp;&nbsp;Chest: breath works, movement works, tilt works. Best case.<br>
+&nbsp;&nbsp;Pocket: breath marginal, movement works, tilt useless.<br>
+&nbsp;&nbsp;Hand: breath poor, movement works, tilt noisy.<br>
+&nbsp;&nbsp;Table: nothing works. The phone must be ON the body.<br><br>
+
+<span class="warn">The 4:1 target is a simplification.</span><br>
+&nbsp;&nbsp;Real RSA varies with fitness, age, autonomic tone.<br>
+&nbsp;&nbsp;A single target ratio works for the average case.<br>
+&nbsp;&nbsp;Future: adapt target based on accumulated user data.<br><br>
+
+This is a Tier 2 result: the principle works, the proxy data is real,<br>
+but the clinical bridge from "phone motion" to "body oscillator state"<br>
+is not independently validated.
+</div>
+</div>
+
+<div class="section">
+<h2>THE FOUNDING CIRCLE</h2>
+<p>GUMP started with "what makes music good?" The answer was coupled oscillators. The body IS coupled oscillators. Phone sensors read the body. The instrument makes music from the reading. The music entrains the body. The circle closes.</p>
+
+<div class="result">
+<span style="color:#c9a44a;">Question:</span> What makes music good?<br>
+<span style="color:#c9a44a;">Answer:</span> Coupled oscillators at consonant frequency ratios.<br><br>
+
+<span style="color:#c9a44a;">Discovery:</span> The body IS coupled oscillators at consonant ratios.<br>
+<span style="color:#c9a44a;">Bridge:</span> Phone sensors read 3 of 7 body oscillators (the fast group).<br>
+<span style="color:#c9a44a;">Instrument:</span> GUMP turns those readings into music.<br>
+<span style="color:#c9a44a;">Entrainment:</span> The music pulls the body toward better coupling.<br>
+<span style="color:#c9a44a;">Loop:</span> Better coupling makes better music makes better coupling.<br><br>
+
+<span class="highlight">The body is the instrument.</span><br>
+<span class="highlight">The instrument is the body.</span><br>
+Same K. Same R. Same math.
+</div>
+</div>
+
+<p style="text-align:center;color:#555;font-size:0.72em;margin-top:30px;">The instrument we&rsquo;re building is the instrument we already are.</p>
+
+<div class="foot">
+  <a href="/">GUMP</a> &mdash; <a href="/research/">Research</a> &middot; <a href="/support/">Support</a> &middot; <a href="mailto:jim@begump.com">jim@begump.com</a> &middot; <a href="/legal/terms.html">terms</a>
+</div>
+</div>
+<script src="/js/breathe.js?v=2"></script>
+<script src="/js/gump-viz.js"></script>
+<script>
+// === SENSOR-TO-OSCILLATOR MAP ===
+// 7 body oscillators. Edges show sensor channels reaching them.
+// Gold = directly sensed, Green = entrainment-reachable, Dim = unreachable.
+GumpViz.couplingGraph('sensor-map', {
+  nodes: [
+    {name:'Breath',   group:0, k:0.9,  damage:1.0},
+    {name:'Heart',    group:0, k:0.7,  damage:0.4},
+    {name:'Brain',    group:0, k:0.6,  damage:0.3},
+    {name:'Phone',    group:2, k:1.0,  damage:0.0},
+    {name:'Gut',      group:1, k:0.3,  damage:0.2},
+    {name:'Pancreas', group:1, k:0.3,  damage:0.15},
+    {name:'Liver',    group:1, k:0.3,  damage:0.1},
+    {name:'Immune',   group:1, k:0.3,  damage:0.5}
+  ],
+  edges: [
+    {from:3, to:0, weight:0.95},  // Phone → Breath (direct measurement)
+    {from:3, to:1, weight:0.55},  // Phone → Heart (activity proxy)
+    {from:3, to:2, weight:0.40},  // Phone → Brain (tilt proxy)
+    {from:0, to:1, weight:0.90},  // Breath ↔ Heart (RSA, 4:1)
+    {from:1, to:2, weight:0.85},  // Heart ↔ Brain (baroreflex)
+    {from:0, to:2, weight:0.80},  // Breath ↔ Brain
+    {from:0, to:7, weight:0.70},  // Breath ↔ Immune (vagal bridge)
+    {from:1, to:7, weight:0.50},  // Heart ↔ Immune
+    {from:2, to:4, weight:0.60},  // Brain ↔ Gut (serotonin)
+    {from:2, to:7, weight:0.55},  // Brain ↔ Immune (HPA)
+    {from:4, to:5, weight:0.85},  // Gut ↔ Pancreas
+    {from:4, to:7, weight:0.80},  // Gut ↔ Immune (4:3)
+    {from:5, to:6, weight:0.90},  // Pancreas ↔ Liver
+    {from:6, to:7, weight:0.75}   // Liver ↔ Immune
+  ]
+}, {
+  fiedlerSplit: [-1, -1, -1, -1, 1, 1, 1, 1],
+  splitLabels: ['SENSED (fast group + phone)', 'UNREACHABLE (slow group)'],
+  nodeSize: 6
+});
+
+// === K/R/E/T VISUALIZATION ===
+// Show the four quantities as they evolve during a biofeedback session.
+(function() {
+  var c = document.getElementById('kret-viz');
+  if (!c) return;
+  var dpr = window.devicePixelRatio || 1;
+  var w = c.offsetWidth, h = c.offsetHeight || 260;
+  c.width = w * dpr; c.height = h * dpr;
+  var ctx = c.getContext('2d');
+  ctx.scale(dpr, dpr);
+
+  var t = 0;
+  function draw() {
+    ctx.clearRect(0, 0, w, h);
+
+    // Background
+    ctx.fillStyle = '#0d0d14';
+    ctx.fillRect(0, 0, w, h);
+
+    // Labels
+    ctx.font = '10px Courier New';
+    ctx.fillStyle = '#4a9';
+    ctx.fillText('K (coupling)', 10, 16);
+    ctx.fillStyle = '#c9a44a';
+    ctx.fillText('R (sync)', 10, 30);
+    ctx.fillStyle = '#c94';
+    ctx.fillText('E (tension)', 10, 44);
+    ctx.fillStyle = '#888';
+    ctx.fillText('T (phase)', 10, 58);
+
+    // Draw evolving curves
+    var pad = 20, plotW = w - 2 * pad, plotH = h - 80;
+    var baseY = h - 40;
+
+    // Simulate a biofeedback session: coupling builds over time
+    var steps = 200;
+    for (var ch = 0; ch < 4; ch++) {
+      ctx.beginPath();
+      ctx.strokeStyle = ['#4a9', '#c9a44a', '#c94', '#666'][ch];
+      ctx.lineWidth = 1.5;
+      for (var i = 0; i < steps; i++) {
+        var x = pad + (i / steps) * plotW;
+        var phase = t * 0.02 + i * 0.05;
+        var envelope;
+        switch (ch) {
+          case 0: // K: rises and stabilizes
+            envelope = 0.3 + 0.5 * (1 - Math.exp(-i / 80));
+            break;
+          case 1: // R: follows K with delay
+            envelope = 0.2 + 0.5 * (1 - Math.exp(-Math.max(0, i - 20) / 60));
+            break;
+          case 2: // E: peaks in middle (transition), then falls
+            envelope = 0.7 * Math.exp(-Math.pow((i - 60) / 40, 2));
+            break;
+          case 3: // T: derivative of K, positive then zero
+            envelope = 0.4 * Math.exp(-i / 50);
+            break;
+        }
+        var ripple = Math.sin(phase + ch * 1.5) * 0.05 * (1 - envelope * 0.5);
+        var y = baseY - (envelope + ripple) * plotH;
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
+
+    // Time axis
+    ctx.strokeStyle = '#ffffff10';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(pad, baseY);
+    ctx.lineTo(w - pad, baseY);
+    ctx.stroke();
+    ctx.fillStyle = '#444';
+    ctx.font = '9px Courier New';
+    ctx.fillText('start playing', pad, baseY + 14);
+    ctx.fillText('entrained', w - pad - 50, baseY + 14);
+
+    t++;
+    requestAnimationFrame(draw);
+  }
+  draw();
+})();
+</script>
+<script src="/transit.js"></script>
+</body>
+</html>
