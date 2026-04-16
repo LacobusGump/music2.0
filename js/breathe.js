@@ -54,14 +54,28 @@ style.textContent=
   '::-webkit-scrollbar-thumb{background:rgba(189,110,55,0.12);border-radius:3px;}'+
   '::-webkit-scrollbar-thumb:hover{background:rgba(189,110,55,0.25);}'+
 
-  // ═══ BRAND FONT + COLOR HIERARCHY ═══
-  // h1: dark moss with glass depth — organic, not neon
+  // ═══ THE GLASS — Futura as boundary, math as material ═══
+  //
+  // 1920s: layered drop-shadows = letterpress depth, engraved quality
+  // 2026:  gradient at golden angle (137.5°) through transparent text = glass
+  // The font is the mold. The gradient is light through moss-colored glass.
+  //
   'h1{font-family:Futura,"Century Gothic",Avenir,"Avenir Next",system-ui,sans-serif !important;'+
   'font-weight:200 !important;letter-spacing:0.12em !important;'+
-  'color:#2d7a2d !important;'+
-  'text-shadow:0 0 20px rgba(45,122,45,0.18), 0 0 50px rgba(64,149,64,0.06) !important;}'+
+  'color:transparent !important;'+
+  'background:linear-gradient(137.5deg,#14471a,#2a7a2a 30%,#3d9a3d 50%,#2a7a2a 70%,#14471a) !important;'+
+  'background-size:200% 100% !important;'+
+  '-webkit-background-clip:text !important;background-clip:text !important;'+
+  '-webkit-text-fill-color:transparent !important;'+
+  // Three shadow layers: sharp depth + soft depth + glass glow
+  'filter:drop-shadow(0 1px 1px rgba(0,0,0,0.5)) drop-shadow(0 2px 4px rgba(0,0,0,0.25)) drop-shadow(0 0 12px rgba(45,122,45,0.12)) !important;'+
+  'animation:glassShift 6.472s ease-in-out infinite !important;'+
+  'will-change:background-position !important;}'+
 
-  // h2: amber — the important subsection, warm action
+  // Glass animation: light slowly moves through the letters, like sun through a bottle
+  '@keyframes glassShift{0%,100%{background-position:0% 50%;}50%{background-position:100% 50%;}}'+
+
+  // h2: amber — warm, important, the subsection marker
   'h2{font-family:Futura,"Century Gothic",Avenir,"Avenir Next",system-ui,sans-serif !important;'+
   'font-weight:200 !important;letter-spacing:0.12em !important;'+
   'color:#bd6e37 !important;}'+
