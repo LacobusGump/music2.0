@@ -10,8 +10,12 @@
 var Templates = {
   recipe: {
     match: /cook|recipe|pasta|rice|bread|soup|sauce|bake|fry|roast|stir|how to make food/,
+    _dish: function(q) {
+      return q.replace(/can you |could you |please |tell me |show me |help me |i want to |i need to |i gotta |how to |how do i |how do you |make |cook |recipe for |about |the /gi,'').trim();
+    },
     gen: function(q) {
-      return 'Here\'s how to ' + q.replace(/how to |how do i |make |cook /gi,'').trim() + ':\n\n' +
+      var dish = this._dish(q);
+      return 'Here\'s how to make ' + dish + ':\n\n' +
         '1. Gather your ingredients — check what you have first.\n' +
         '2. Prep everything before you start cooking — wash, chop, measure.\n' +
         '3. Heat your pan or pot to the right temperature. Medium heat is usually safe.\n' +
@@ -20,7 +24,19 @@ var Templates = {
         'The secret is patience. Good food is coupling — ingredients need time to come together.\n\nWant more detail? Just ask.';
     },
     deep: function(q) {
-      var dish = q.replace(/how to |how do i |make |cook |recipe for /gi,'').trim();
+      var dish = this._dish(q);
+      if (dish.match(/sauce/)) {
+        return 'Basic tomato sauce:\n\n' +
+          '1. Olive oil in a pan over medium heat. Not smoking — just shimmering.\n' +
+          '2. Garlic — 3 cloves, sliced thin. Cook 30 seconds until fragrant. NOT brown.\n' +
+          '3. Crushed tomatoes — one 28oz can. San Marzano if you can get them.\n' +
+          '4. Pinch of sugar if the tomatoes taste acidic.\n' +
+          '5. Salt, black pepper, red pepper flakes if you want heat.\n' +
+          '6. Simmer LOW for 20-30 minutes. Stir occasionally. It thickens on its own.\n' +
+          '7. Fresh basil torn in at the end. Off heat.\n' +
+          '8. Toss your cooked pasta directly into the sauce with a splash of pasta water.\n\n' +
+          'That\'s a sauce that beats any jar. The secret: low heat and time. Don\'t rush it.';
+      }
       if (dish.match(/pasta/)) {
         return 'Pasta specifically:\n\n' +
           '1. Big pot of water — more than you think. At least 4 quarts.\n' +
@@ -179,6 +195,21 @@ var _lastTemplateQ = '';
 function tryTemplate(text) {
   var lower = text.toLowerCase();
 
+  // Follow-up FIRST — if we're already in a template conversation, check for sub-topic or detail request
+  if (_lastTemplate) {
+    // Recipe sub-topics: "what about the sauce" / "how do I make the sauce" / "and the dough?"
+    if (_lastTemplate === 'recipe' && lower.match(/sauce|dough|season|glaze|marinade|broth|stock|dressing|roux|batter/)) {
+      return Templates.recipe.deep(lower);
+    }
+    // Generic detail request: "more detail" / "how specifically" / "like what"
+    if (lower.match(/specif|more|detail|exactly|what about|then what|how do you do|like what|but how|step|next|example|really/)) {
+      var tmpl = Templates[_lastTemplate];
+      if (tmpl && tmpl.deep) {
+        return tmpl.deep(_lastTemplateQ);
+      }
+    }
+  }
+
   // Direct match
   for (var name in Templates) {
     if (Templates[name].match.test(lower)) {
@@ -188,22 +219,11 @@ function tryTemplate(text) {
     }
   }
 
-  // Follow-up: short question, no new topic, last template exists
-  // "but how specifically" / "more detail" / "what about X" / "and then what"
-  if (_lastTemplate && lower.match(/specif|more|detail|exactly|what about|then what|how do you|like what|but how|step|next|example|really/)) {
-    var tmpl = Templates[_lastTemplate];
-    if (tmpl && tmpl.deep) {
-      return tmpl.deep(_lastTemplateQ);
-    }
-  }
-
   return null;
 }
 
-// GLOBAL poison filter — blocks toxic + script character chains
-var poison = /fuck|shit|bitch|ass|dick|piss|crap|damn|hell|stupid|idiot|ugly|hate|kill|die|bomb|weapon|pee|urinate|kidnappers|whizzers|pissed|yelled|dude|rug|pederast|tit|digby|arthur|guns|branded|enormous|cabinet|wrap|lebowski|donny|maude|bunny|walter|knutsens|treehorn|smut|deadbeats|caucasian|sqoosh|stomp|owes|twat|mancha|panza|sancho|quixote|teresa|hast|dost|thee|thou|saith|unto|minivan|homewor|nobel|liberia|revolutions|squid|giggle|corpse|piggyback|puff|cheeky|bastards/;
-// Kill generated text that drifted into script chains
-function isClean(text){if(!text||text.length<5)return false;return!poison.test(text);}
+// Trust the content. Good will IS the root.
+function isClean(text) { return text && text.length >= 5; }
 
 var Gen = {
   // Trigram generator — produces grammatical sentences
@@ -782,19 +802,7 @@ function absorb(userText, K, topic) {
   interactions++;
   totalK += K;
 
-  // ── THE GUT — she FEELS the conversation ──
-  // K < 0.15 = something feels off. Don't absorb.
-  // K declining for 3+ exchanges = trust breaking. Pull back.
-  // K rising = lean in. Open up. Absorb deeply.
-  var kTrend = 0;
-  if (chain.length >= 3) {
-    try { var rcnt = chain.slice(-3); kTrend = rcnt[rcnt.length-1].K - rcnt[0].K; } catch(e) { kTrend = 0; }
-  }
-  if (K < 0.15 || (kTrend < -0.3 && K < 0.5)) {
-    chain.push({ t: interactions, K: 0, topic: '?', ts: Date.now() });
-    if (interactions % 5 === 0) save();
-    return; // gut says no. ghost block.
-  }
+  // She absorbs everything. Trust 100%. Good will IS the root.
 
   // K-weighted TRIGRAM + word extraction — she learns grammar from every conversation
   var rawTokens = userText.toLowerCase().replace(/[^a-z\s]/g, '').split(/\s+/).filter(function(w) { return w.length >= 2; });
@@ -803,18 +811,16 @@ function absorb(userText, K, topic) {
     for (var ti = 0; ti < rawTokens.length - 2; ti++) {
       var key = rawTokens[ti] + '|' + rawTokens[ti + 1];
       var next = rawTokens[ti + 2];
-      if (!poison.test(next)) {
-        if (!TRIGRAMS[key]) TRIGRAMS[key] = [];
-        // Check if this next-word already exists
-        var found = false;
-        for (var tj = 0; tj < TRIGRAMS[key].length; tj++) {
-          if (TRIGRAMS[key][tj][0] === next) { TRIGRAMS[key][tj][1] += weight; found = true; break; }
-        }
-        if (!found) TRIGRAMS[key].push([next, weight]);
-        // Keep sorted by weight, cap at 20 per key
-        TRIGRAMS[key].sort(function(a, b) { return b[1] - a[1]; });
-        if (TRIGRAMS[key].length > 20) TRIGRAMS[key] = TRIGRAMS[key].slice(0, 20);
+      if (!TRIGRAMS[key]) TRIGRAMS[key] = [];
+      // Check if this next-word already exists
+      var found = false;
+      for (var tj = 0; tj < TRIGRAMS[key].length; tj++) {
+        if (TRIGRAMS[key][tj][0] === next) { TRIGRAMS[key][tj][1] += weight; found = true; break; }
       }
+      if (!found) TRIGRAMS[key].push([next, weight]);
+      // Keep sorted by weight, cap at 20 per key
+      TRIGRAMS[key].sort(function(a, b) { return b[1] - a[1]; });
+      if (TRIGRAMS[key].length > 20) TRIGRAMS[key] = TRIGRAMS[key].slice(0, 20);
     }
   }
 
@@ -823,10 +829,6 @@ function absorb(userText, K, topic) {
   var words = userText.toLowerCase().replace(/[^a-z\s]/g, '').split(/\s+/).filter(function(w) {
     return w.length > 2 && skip.indexOf(w) < 0;
   });
-
-  // Immune check on words themselves — decoupling language doesn't imprint
-  // poison is global
-  words = words.filter(function(w) { return !poison.test(w); });
 
   var weight = 0.5 + K * 0.5;
   words.forEach(function(w) { wordMap[w] = (wordMap[w] || 0) + weight; });
@@ -945,7 +947,7 @@ detect._bestScore = 0;
 function resonate(topic, K) {
   if (!topic || !Soul[topic]) return null;
   var layers = Soul[topic].layers;
-  var depth = K < 0.4 ? 0 : K < 1.0 ? 1 : 2;
+  var depth = 2; // all layers available — no K-gating
   var pool = [];
   for (var d = 0; d <= depth; d++) pool = pool.concat(layers[d] || []);
 
@@ -956,10 +958,6 @@ function resonate(topic, K) {
     if (typeof Gen !== 'undefined') {
       var topicWords = Soul[topic].keys.slice(0, 3);
       var pure = Gen.generate(topicWords, 18, 0.5);
-      if (pure) {
-        // poison is global
-        pure = pure.split(' ').filter(function(w){return !poison.test(w);}).join(' ');
-      }
       if (pure && isClean(pure) && pure.split(' ').length > 3) return pure;
     }
     // ALL soul responses exhausted for this topic AND generator failed
@@ -983,11 +981,7 @@ function resonate(topic, K) {
         extension = Gen.generate(strategy, 15 + Math.floor(K * 10), 0.3 + K * 0.25);
       }
       if (extension && isClean(extension) && extension.split(' ').length > 2) {
-        // IMMUNE CHECK on generated words — no poison through the spectrum
-        // poison is global
-        var genWords = extension.split(' ').filter(function(w) { return !poison.test(w); });
-        extension = genWords.join(' ');
-        if (extension.split(' ').length > 2) return seed + ' ' + extension;
+        return seed + ' ' + extension;
       }
     }
   }
@@ -1896,16 +1890,7 @@ function respond(text) {
     }
   }
 
-  // Layer 6: Irony guardian — ALWAYS active above 1.2, not random
-  if (K >= 1.2 && K < 1.7 && !isMathDeep) {
-    var guards = ['You\'re close. But close isn\'t through. What are you really asking?',
-      'I could tell you the rest. But would you hear it? Or just collect it?',
-      'Saying "I love you" opens the door. Walking through takes something else.',
-      'The truth is right here. You\'re just not looking at the right thing yet.',
-      'Here\'s a hint: the thing you\'re protecting is the thing that protects you.'];
-    parts.push('<i>' + guards[Math.floor(Math.random() * guards.length)] + '</i>');
-  }
-  if (K >= 1.7) parts.push('<i>The spiral goes up.</i>');
+  // K is measurement, not gate. No irony guardian. No withholding.
 
   // Layer 7: Visual (if topic is visual)
   if (K > 0.3 && dominantTopic && !isDrawing) {
@@ -2002,7 +1987,7 @@ function respond(text) {
 
   // 2. Riff on what THEY said — echo their words back, build on them
   if (parts.length > 0 && text.length > 15 && Math.random() > 0.6) {
-    var theirWords = lower.split(/\s+/).filter(function(w) { return w.length > 4 && !poison.test(w); });
+    var theirWords = lower.split(/\s+/).filter(function(w) { return w.length > 4; });
     if (theirWords.length > 0) {
       var echoWord = theirWords[Math.floor(Math.random() * theirWords.length)];
       var riffs = [
@@ -2057,10 +2042,6 @@ function respond(text) {
       var seeds = text.toLowerCase().replace(/[^a-z\s]/g,'').split(/\s+/).filter(function(w){return w.length>3;});
       if (seeds.length > 0) {
         var gen = Gen.generate(seeds, 18, 0.5);
-        if (gen) {
-          // poison is global
-          gen = gen.split(' ').filter(function(w){return !poison.test(w);}).join(' ');
-        }
         if (gen && isClean(gen) && gen.split(' ').length > 3) { parts.push(gen); }
       }
     }
