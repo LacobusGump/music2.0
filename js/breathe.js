@@ -18,8 +18,8 @@ style.textContent=
   'pointer-events:none;z-index:9998;opacity:0.018;mix-blend-mode:overlay;'+
   'background-image:url("data:image/svg+xml,%3Csvg viewBox=\'0 0 256 256\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cfilter id=\'n\'%3E%3CfeTurbulence type=\'fractalNoise\' baseFrequency=\'0.9\' numOctaves=\'4\' stitchTiles=\'stitch\'/%3E%3C/filter%3E%3Crect width=\'256\' height=\'256\' filter=\'url(%23n)\' opacity=\'1\'/%3E%3C/svg%3E");}'+
 
-  // Text — warm cream
-  'body{color:#e5dfd4;}'+
+  // Text — sandy everywhere, not bright white
+  'body{color:#a09585;}'+
   'p{color:#a09585;}'+
 
   // Result blocks — amber-tinted desk cards
@@ -55,16 +55,16 @@ style.textContent=
   '::-webkit-scrollbar-thumb:hover{background:rgba(189,110,55,0.25);}'+
 
   // ═══ BRAND FONT + COLOR HIERARCHY ═══
-  // h1: amber incandescent — the filament glow of a 1920s bulb
+  // h1: dark moss with glass depth — organic, not neon
   'h1{font-family:Futura,"Century Gothic",Avenir,"Avenir Next",system-ui,sans-serif !important;'+
   'font-weight:200 !important;letter-spacing:0.12em !important;'+
-  'color:#bd6e37 !important;'+
-  'text-shadow:0 0 18px rgba(189,110,55,0.22), 0 0 40px rgba(189,110,55,0.06) !important;}'+
+  'color:#2d7a2d !important;'+
+  'text-shadow:0 0 20px rgba(45,122,45,0.18), 0 0 50px rgba(64,149,64,0.06) !important;}'+
 
-  // h2: moss — unity, the coupled subsection
+  // h2: amber — the important subsection, warm action
   'h2{font-family:Futura,"Century Gothic",Avenir,"Avenir Next",system-ui,sans-serif !important;'+
   'font-weight:200 !important;letter-spacing:0.12em !important;'+
-  'color:#409540 !important;}'+
+  'color:#bd6e37 !important;}'+
 
   // sacred: violet for must-see items
   '.sacred,.must-see,strong.sacred{color:#5b3e82 !important;}'+
@@ -85,10 +85,10 @@ if(h2s.length>0&&'IntersectionObserver' in window){
       var e=entries[i];
       if(e.isIntersecting){
         e.target.style.transition='text-shadow 0.8s ease, opacity 0.8s ease';
-        e.target.style.textShadow='0 0 10px rgba(64,149,64,0.25), 0 0 25px rgba(64,149,64,0.06)';
+        e.target.style.textShadow='0 0 10px rgba(189,110,55,0.25), 0 0 25px rgba(189,110,55,0.06)';
         e.target.style.opacity='1';
       }else{
-        e.target.style.textShadow='0 0 6px rgba(64,149,64,0.04)';
+        e.target.style.textShadow='0 0 6px rgba(189,110,55,0.04)';
         e.target.style.opacity='0.75';
       }
     }
