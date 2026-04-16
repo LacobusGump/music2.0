@@ -680,32 +680,55 @@ function visualize(tool, output, rawInput, container) {
       break;
     }
     case 'foldwatch': {
-      H = 80; c.height = H * dpr; c.style.height = H + 'px';
+      H = 90; c.height = H * dpr; c.style.height = H + 'px';
       ctx.scale(dpr, dpr); ctx.fillStyle = '#06060a'; ctx.fillRect(0, 0, W, H);
       var risk = output.match(/Misfolding risk: (\w+)/);
-      var rg = output.match(/Radius of gyration: ([\d.]+)/);
       var hp = output.match(/Hydrophobic: (\d+)%/);
       var ch = output.match(/Charged: (\d+)%/);
       var po = output.match(/Polar: (\d+)%/);
       // Risk meter
       var riskLevel = risk ? (risk[1]==='HIGH'?1:risk[1]==='MEDIUM'?0.6:0.2) : 0;
       var riskColor = riskLevel > 0.8 ? '#c94444' : riskLevel > 0.4 ? '#c9a44a' : '#4aa999';
-      ctx.fillStyle = '#ffffff08'; ctx.fillRect(20, 20, W-40, 14);
-      ctx.fillStyle = riskColor + '80'; ctx.fillRect(20, 20, (W-40)*riskLevel, 14);
+      ctx.fillStyle = '#ffffff08'; ctx.fillRect(20, 18, W-40, 16);
+      ctx.fillStyle = riskColor + '80'; ctx.fillRect(20, 18, (W-40)*riskLevel, 16);
       ctx.fillStyle = '#888'; ctx.font = '9px sans-serif'; ctx.textAlign = 'left';
-      ctx.fillText('RISK', 20, 16);
-      ctx.fillStyle = riskColor; ctx.textAlign = 'right'; ctx.font = '11px sans-serif';
-      ctx.fillText(risk ? risk[1] : '?', W-20, 32);
-      // Composition bars
+      ctx.fillText('MISFOLDING RISK', 20, 14);
+      ctx.fillStyle = riskColor; ctx.textAlign = 'right'; ctx.font = 'bold 11px sans-serif';
+      ctx.fillText(risk ? risk[1] : '?', W-20, 31);
+      // Composition — single stacked bar (parts of a whole)
       if (hp && ch && po) {
         var hpv=parseInt(hp[1]), chv=parseInt(ch[1]), pov=parseInt(po[1]);
-        var bw=(W-60)/3, by=50;
-        [{v:hpv,c:'#c9a44a',n:'hydrophobic'},{v:chv,c:'#4aa999',n:'charged'},{v:pov,c:'#9966cc',n:'polar'}].forEach(function(b,i){
-          var x = 20+i*(bw+10);
-          ctx.fillStyle='#ffffff08'; ctx.fillRect(x,by,bw,10);
-          ctx.fillStyle=b.c+'60'; ctx.fillRect(x,by,bw*(b.v/100),10);
-          ctx.fillStyle='#555'; ctx.font='8px sans-serif'; ctx.textAlign='center';
-          ctx.fillText(b.n+' '+b.v+'%', x+bw/2, by+22);
+        var other = Math.max(0, 100-hpv-chv-pov);
+        var bw = W-40, by = 50;
+        ctx.fillStyle = '#888'; ctx.font = '9px sans-serif'; ctx.textAlign = 'left';
+        ctx.fillText('COMPOSITION', 20, 47);
+        // Stacked segments
+        var segments = [
+          {v:hpv, c:'#c9a44a', n:'hydrophobic'},
+          {v:chv, c:'#4aa999', n:'charged'},
+          {v:pov, c:'#9966cc', n:'polar'},
+          {v:other, c:'#ffffff', n:'other'}
+        ];
+        var sx = 20;
+        segments.forEach(function(seg) {
+          var sw = bw * (seg.v / 100);
+          if (sw < 1) return;
+          ctx.fillStyle = seg.c + (seg.n==='other'?'10':'50');
+          ctx.fillRect(sx, by, sw, 16);
+          if (sw > 40) {
+            ctx.fillStyle = seg.c; ctx.font = '8px sans-serif'; ctx.textAlign = 'center';
+            ctx.fillText(seg.n + ' ' + seg.v + '%', sx + sw/2, by + 11);
+          }
+          sx += sw;
+        });
+        // Legend for narrow segments
+        sx = 20;
+        segments.forEach(function(seg) {
+          if (bw*(seg.v/100) <= 40 && seg.v > 0 && seg.n !== 'other') {
+            ctx.fillStyle = seg.c; ctx.font = '8px sans-serif'; ctx.textAlign = 'left';
+            ctx.fillText(seg.n + ' ' + seg.v + '%', sx, by + 30);
+            sx += 80;
+          }
         });
       }
       break;
@@ -821,62 +844,242 @@ function visualize(tool, output, rawInput, container) {
       break;
     }
     case 'trace': {
-      H = 100; c.height = H * dpr; c.style.height = H + 'px';
+      H = 180; c.height = H * dpr; c.style.height = H + 'px';
       ctx.scale(dpr, dpr); ctx.fillStyle = '#06060a'; ctx.fillRect(0, 0, W, H);
-      // Parse entities and volumes
-      var entities = output.match(/Entities: (\d+)/);
-      var volume = output.match(/Volume: ([\d,]+)/);
-      var circulars = output.match(/CIRCULAR FLOWS \((\d+)\)/);
-      var hasCirc = circulars ? parseInt(circulars[1]) : 0;
-      // Draw status indicator
-      var cx = W/2, cy = 45, r = 30;
-      ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI*2);
-      ctx.strokeStyle = hasCirc ? '#c9444460' : '#4aa99960';
-      ctx.lineWidth = 3; ctx.stroke();
-      if (hasCirc) {
-        // Circular arrows
-        for (var a = 0; a < 3; a++) {
-          var angle = (a/3)*Math.PI*2 - Math.PI/2;
-          var ax = cx + Math.cos(angle)*(r-4);
-          var ay = cy + Math.sin(angle)*(r-4);
-          ctx.beginPath(); ctx.arc(ax, ay, 3, 0, Math.PI*2);
-          ctx.fillStyle = '#c94444'; ctx.fill();
+      // Parse transactions from raw input
+      var txnLines = rawInput.trim().split('\n');
+      var names = {}, txns = [];
+      txnLines.forEach(function(l) {
+        var p = l.trim().split(',');
+        if (p.length >= 3) {
+          var f=p[0].trim(), t=p[1].trim(), a=parseFloat(p[2]);
+          if (!isNaN(a)) { names[f]=1; names[t]=1; txns.push({f:f,t:t,a:a}); }
         }
-        ctx.fillStyle = '#c94444'; ctx.font = 'bold 12px sans-serif'; ctx.textAlign = 'center';
-        ctx.fillText(hasCirc + ' circular', cx, cy + r + 18);
-      } else {
-        ctx.fillStyle = '#4aa999'; ctx.font = '12px sans-serif'; ctx.textAlign = 'center';
-        ctx.fillText('\u2713 clean', cx, cy + 4);
+      });
+      var entities = Object.keys(names);
+      if (entities.length < 2) break;
+      // Layout entities in a circle
+      var cx = W/2, cy = H/2 - 5, cr = Math.min(pw, ph) * 0.38;
+      var pos = {};
+      entities.forEach(function(e, i) {
+        var angle = (i / entities.length) * Math.PI * 2 - Math.PI/2;
+        pos[e] = {x: cx + Math.cos(angle)*cr, y: cy + Math.sin(angle)*cr};
+      });
+      // Parse circular flows
+      var circPairs = {};
+      var circMatches = output.match(/(\w+) <-> (\w+)/g);
+      if (circMatches) circMatches.forEach(function(m) {
+        var parts = m.split(' <-> ');
+        var key = [parts[0],parts[1]].sort().join('-');
+        circPairs[key] = true;
+      });
+      // Draw edges (arrows)
+      var maxA = Math.max.apply(null, txns.map(function(t){return t.a;}));
+      txns.forEach(function(tx) {
+        var from = pos[tx.f], to = pos[tx.t];
+        if (!from || !to) return;
+        var key = [tx.f, tx.t].sort().join('-');
+        var isCirc = circPairs[key];
+        var lw = 1 + (tx.a / maxA) * 3;
+        // Offset to avoid overlapping bidirectional arrows
+        var dx = to.x-from.x, dy = to.y-from.y;
+        var len = Math.sqrt(dx*dx+dy*dy) || 1;
+        var nx = -dy/len*4, ny = dx/len*4;
+        var fx = from.x+nx, fy = from.y+ny, tx2 = to.x+nx, ty2 = to.y+ny;
+        // Shorten to not overlap node circles
+        var r2 = 16;
+        var sx = fx + (dx/len)*r2, sy = fy + (dy/len)*r2;
+        var ex = tx2 - (dx/len)*r2, ey = ty2 - (dy/len)*r2;
+        ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(ex, ey);
+        ctx.strokeStyle = isCirc ? 'rgba(201,68,68,0.5)' : 'rgba(74,170,153,0.25)';
+        ctx.lineWidth = lw; ctx.stroke();
+        // Arrowhead
+        var aLen = 6, aAngle = Math.atan2(ey-sy, ex-sx);
+        ctx.beginPath();
+        ctx.moveTo(ex, ey);
+        ctx.lineTo(ex - aLen*Math.cos(aAngle-0.4), ey - aLen*Math.sin(aAngle-0.4));
+        ctx.moveTo(ex, ey);
+        ctx.lineTo(ex - aLen*Math.cos(aAngle+0.4), ey - aLen*Math.sin(aAngle+0.4));
+        ctx.strokeStyle = isCirc ? 'rgba(201,68,68,0.6)' : 'rgba(74,170,153,0.35)';
+        ctx.lineWidth = 1.5; ctx.stroke();
+      });
+      // Draw entity nodes
+      entities.forEach(function(e) {
+        var p = pos[e];
+        ctx.beginPath(); ctx.arc(p.x, p.y, 12, 0, Math.PI*2);
+        ctx.fillStyle = '#0c0c18'; ctx.fill();
+        ctx.strokeStyle = '#c9a44a40'; ctx.lineWidth = 1; ctx.stroke();
+        ctx.fillStyle = '#ccc'; ctx.font = '9px sans-serif'; ctx.textAlign = 'center';
+        ctx.fillText(e, p.x, p.y + 3);
+      });
+      // Legend
+      ctx.fillStyle = '#666'; ctx.font = '8px sans-serif'; ctx.textAlign = 'left';
+      ctx.fillRect(8, H-14, 8, 2); ctx.fillStyle='rgba(74,170,153,0.5)'; ctx.fillRect(8,H-14,8,2);
+      ctx.fillStyle='#555'; ctx.fillText('normal flow', 20, H-10);
+      ctx.fillStyle='rgba(201,68,68,0.5)'; ctx.fillRect(90,H-14,8,2);
+      ctx.fillStyle='#555'; ctx.fillText('circular (returns)', 102, H-10);
+      break;
+    }
+    case 'knowledge': {
+      H = 200; c.height = H * dpr; c.style.height = H + 'px';
+      ctx.scale(dpr, dpr); ctx.fillStyle = '#06060a'; ctx.fillRect(0, 0, W, H);
+      // Parse concepts and connections from output
+      var conceptLines = output.match(/  (\w+): (\d+)/g);
+      var connLines = output.match(/  (\w+) -- (\w+) \((\d+)\)/g);
+      if (!conceptLines || conceptLines.length < 2) break;
+      var concepts = [];
+      conceptLines.forEach(function(l) {
+        var m = l.trim().match(/(\w+): (\d+)/);
+        if (m && concepts.length < 10) concepts.push({name:m[1], count:parseInt(m[2])});
+      });
+      var edges = [];
+      if (connLines) connLines.forEach(function(l) {
+        var m = l.trim().match(/(\w+) -- (\w+) \((\d+)\)/);
+        if (m && edges.length < 12) edges.push({a:m[1], b:m[2], w:parseInt(m[3])});
+      });
+      // Layout: force-directed-ish — place by index on ellipse, scale by frequency
+      var cx = W/2, cy = H/2;
+      var maxCount = concepts[0] ? concepts[0].count : 1;
+      var pos = {};
+      concepts.forEach(function(c, i) {
+        var angle = (i / concepts.length) * Math.PI * 2 - Math.PI/2;
+        var r = 55 + (1 - c.count/maxCount) * 30;
+        pos[c.name] = {x: cx + Math.cos(angle)*r*1.8, y: cy + Math.sin(angle)*r*0.85, count: c.count};
+      });
+      // Draw edges
+      edges.forEach(function(e) {
+        var pa = pos[e.a], pb = pos[e.b];
+        if (!pa || !pb) return;
+        ctx.beginPath(); ctx.moveTo(pa.x, pa.y); ctx.lineTo(pb.x, pb.y);
+        ctx.strokeStyle = 'rgba(201,164,74,' + (0.1 + 0.2*e.w) + ')';
+        ctx.lineWidth = 0.5 + e.w * 0.8; ctx.stroke();
+      });
+      // Draw nodes
+      concepts.forEach(function(c) {
+        var p = pos[c.name]; if (!p) return;
+        var r = 4 + (c.count / maxCount) * 10;
+        ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI*2);
+        ctx.fillStyle = 'rgba(74,170,153,' + (0.2 + 0.5*c.count/maxCount) + ')';
+        ctx.fill();
+        ctx.strokeStyle = '#4aa99940'; ctx.lineWidth = 0.5; ctx.stroke();
+        ctx.fillStyle = '#ccc'; ctx.font = (c.count >= maxCount*0.5 ? 'bold ' : '') + '9px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(c.name, p.x, p.y + r + 11);
+      });
+      break;
+    }
+    case 'orgxray': {
+      H = 200; c.height = H * dpr; c.style.height = H + 'px';
+      ctx.scale(dpr, dpr); ctx.fillStyle = '#06060a'; ctx.fillRect(0, 0, W, H);
+      // Parse people and connections from raw input
+      var pLines = rawInput.trim().split('\n');
+      var pEdges = [], pNodes = {};
+      pLines.forEach(function(l) {
+        var p = l.trim().split(',');
+        if (p.length >= 2) {
+          var a = p[0].trim(), b = p[1].trim();
+          pEdges.push({a:a, b:b});
+          pNodes[a] = (pNodes[a]||0) + 1;
+          pNodes[b] = (pNodes[b]||0) + 1;
+        }
+      });
+      var people = Object.keys(pNodes);
+      if (people.length < 2) break;
+      var maxDeg = Math.max.apply(null, people.map(function(p){return pNodes[p];}));
+      // Layout on ellipse, hub in center
+      var hub = people.reduce(function(a,b){return pNodes[a]>pNodes[b]?a:b;});
+      var cx = W/2, cy = H/2;
+      var pos = {};
+      pos[hub] = {x: cx, y: cy};
+      var others = people.filter(function(p){return p !== hub;});
+      others.forEach(function(p, i) {
+        var angle = (i / others.length) * Math.PI * 2 - Math.PI/2;
+        var r = 60 + (1 - pNodes[p]/maxDeg) * 20;
+        pos[p] = {x: cx + Math.cos(angle)*r*1.6, y: cy + Math.sin(angle)*r*0.8};
+      });
+      // Check bottleneck from output
+      var bottleneck = output.match(/Remove (\w+): (\d+) people disconnected/);
+      var bnName = bottleneck ? bottleneck[1] : null;
+      // Draw edges
+      pEdges.forEach(function(e) {
+        var pa = pos[e.a], pb = pos[e.b];
+        if (!pa || !pb) return;
+        ctx.beginPath(); ctx.moveTo(pa.x, pa.y); ctx.lineTo(pb.x, pb.y);
+        ctx.strokeStyle = 'rgba(201,164,74,0.15)'; ctx.lineWidth = 1; ctx.stroke();
+      });
+      // Draw nodes
+      people.forEach(function(p) {
+        var pp = pos[p]; if (!pp) return;
+        var r = 6 + (pNodes[p]/maxDeg) * 12;
+        var isBn = (p === bnName);
+        var isHub = (p === hub);
+        ctx.beginPath(); ctx.arc(pp.x, pp.y, r, 0, Math.PI*2);
+        ctx.fillStyle = isBn ? 'rgba(201,68,68,0.4)' : isHub ? 'rgba(201,164,74,0.4)' : 'rgba(74,170,153,0.25)';
+        ctx.fill();
+        ctx.strokeStyle = isBn ? '#c94444' : isHub ? '#c9a44a60' : '#4aa99930';
+        ctx.lineWidth = isBn ? 2 : 1; ctx.stroke();
+        ctx.fillStyle = isHub ? '#c9a44a' : isBn ? '#c94444' : '#999';
+        ctx.font = (isHub || isBn ? 'bold ' : '') + '10px sans-serif'; ctx.textAlign = 'center';
+        ctx.fillText(p, pp.x, pp.y + r + 12);
+      });
+      // Legend
+      ctx.fillStyle = '#555'; ctx.font = '8px sans-serif'; ctx.textAlign = 'left';
+      ctx.beginPath(); ctx.arc(12, H-10, 4, 0, Math.PI*2); ctx.fillStyle='rgba(201,164,74,0.4)'; ctx.fill();
+      ctx.fillStyle='#555'; ctx.fillText('hub', 20, H-7);
+      if (bnName) {
+        ctx.beginPath(); ctx.arc(52, H-10, 4, 0, Math.PI*2); ctx.fillStyle='rgba(201,68,68,0.4)'; ctx.fill();
+        ctx.fillStyle='#555'; ctx.fillText('bottleneck', 60, H-7);
       }
-      // Stats
-      ctx.fillStyle = '#666'; ctx.font = '9px sans-serif';
-      ctx.textAlign = 'left'; ctx.fillText(entities ? entities[1]+' entities' : '', 20, 86);
-      ctx.textAlign = 'right'; ctx.fillText(volume ? '$'+volume[1] : '', W-20, 86);
       break;
     }
     case 'accord': {
-      H = 80; c.height = H * dpr; c.style.height = H + 'px';
-      ctx.scale(dpr, dpr); ctx.fillStyle = '#06060a'; ctx.fillRect(0, 0, W, H);
-      var musts = output.match(/MUST requirements: (\d+)/);
-      var shoulds = output.match(/SHOULD requirements: (\d+)/);
-      var total = output.match(/Total rules: (\d+)/);
-      if (total) {
-        var tv = parseInt(total[1]);
-        var mv = musts ? parseInt(musts[1]) : 0;
-        var sv = shoulds ? parseInt(shoulds[1]) : 0;
-        var ov = tv - mv - sv;
-        var bw = W - 60;
-        // Stacked bar
-        ctx.fillStyle = '#c9444460'; ctx.fillRect(30, 20, bw * (mv/tv), 24);
-        ctx.fillStyle = '#c9a44a40'; ctx.fillRect(30 + bw*(mv/tv), 20, bw*(sv/tv), 24);
-        ctx.fillStyle = '#4aa99930'; ctx.fillRect(30 + bw*((mv+sv)/tv), 20, bw*(ov/tv), 24);
-        // Labels
-        ctx.font = '9px sans-serif'; ctx.textAlign = 'center';
-        if (mv) { ctx.fillStyle='#c94444'; ctx.fillText('MUST '+mv, 30+bw*(mv/tv)/2, 36); }
-        if (sv) { ctx.fillStyle='#c9a44a'; ctx.fillText('SHOULD '+sv, 30+bw*(mv/tv)+bw*(sv/tv)/2, 36); }
-        ctx.fillStyle = '#666'; ctx.textAlign = 'center';
-        ctx.fillText(tv + ' total rules', W/2, 62);
+      // Parse categories from output
+      var catMatches = output.match(/^(\w+) \((\d+) rules?\):/gm);
+      if (!catMatches || catMatches.length < 1) {
+        // Fallback to simple bar
+        H = 60; c.height = H * dpr; c.style.height = H + 'px';
+        ctx.scale(dpr, dpr); ctx.fillStyle = '#06060a'; ctx.fillRect(0, 0, W, H);
+        var musts = output.match(/MUST requirements: (\d+)/);
+        var total = output.match(/Total rules: (\d+)/);
+        if (total && musts) {
+          ctx.fillStyle='#666'; ctx.font='10px sans-serif'; ctx.textAlign='center';
+          ctx.fillText(musts[1]+' MUST / '+total[1]+' total', W/2, 35);
+        }
+        break;
       }
+      var cats = [];
+      catMatches.forEach(function(m) {
+        var cm = m.match(/^(\w+) \((\d+)/);
+        if (cm) cats.push({name:cm[1], count:parseInt(cm[2])});
+      });
+      // Count HIGH/MEDIUM per category from output
+      var highMatches = output.match(/\[HIGH\]/g);
+      var medMatches = output.match(/\[MEDIUM\]/g);
+      var totalHigh = highMatches ? highMatches.length : 0;
+      var totalMed = medMatches ? medMatches.length : 0;
+      var totalRules = cats.reduce(function(a,b){return a+b.count;},0);
+
+      H = 30 + cats.length * 32 + 20;
+      c.height = H * dpr; c.style.height = H + 'px';
+      ctx.scale(dpr, dpr); ctx.fillStyle = '#06060a'; ctx.fillRect(0, 0, W, H);
+      var maxCat = Math.max.apply(null, cats.map(function(c){return c.count;}));
+      var barMax = W - 180;
+      // Horizontal grouped bars by category
+      cats.forEach(function(cat, i) {
+        var y = 16 + i * 32;
+        ctx.fillStyle = '#888'; ctx.font = '10px sans-serif'; ctx.textAlign = 'right';
+        ctx.fillText(cat.name, 90, y + 12);
+        // Bar
+        var bw = barMax * (cat.count / maxCat);
+        ctx.fillStyle = '#ffffff08'; ctx.fillRect(100, y, barMax, 18);
+        ctx.fillStyle = 'rgba(201,164,74,0.35)'; ctx.fillRect(100, y, bw, 18);
+        // Count
+        ctx.fillStyle = '#ccc'; ctx.font = '10px monospace'; ctx.textAlign = 'left';
+        ctx.fillText(cat.count + ' rules', 100 + bw + 8, y + 13);
+      });
+      // Summary
+      ctx.fillStyle = '#555'; ctx.font = '9px sans-serif'; ctx.textAlign = 'center';
+      ctx.fillText(totalRules + ' rules \u2022 ' + totalHigh + ' must \u2022 ' + totalMed + ' should', W/2, H - 6);
       break;
     }
     case 'turbo': {
