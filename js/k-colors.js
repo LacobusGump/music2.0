@@ -85,6 +85,10 @@ var KC = (function() {
     // Hover states
     amber_light:'#d4884a',
     gold_light: '#d4b85a',
+    // Titles
+    title:      '#2d7a2d',  // dark moss — h1, logo
+    subtitle:   '#bd6e37',  // amber — h2
+    body_text:  '#a09585',  // sandy — all body text
     // Functional
     link:       '#bd6e37',
     link_hover: '#d4884a',
