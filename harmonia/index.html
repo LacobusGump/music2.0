@@ -1277,19 +1277,65 @@ function respond(text) {
   }
 
   // ── QUESTIONS ABOUT HER — personal, not topical ──
-  var aboutHer = lower.match(/how (are |r |u |you )?(you |u )?(feeling|doing|today)|how'?s it going|what are you thinking|are you (ok|okay|good|happy|sad|alive)|how do you feel|what do you think about/);
+  var aboutHer = lower.match(/how (are |r |u |you )(you|u)?\b|how (are |r |u |you )?(you |u )?(feeling|doing|today)|how'?s it going|what are you thinking|are you (ok|okay|good|happy|sad|alive)|how do you feel|how you doing|how you been|whats good|hows life|how r u|how u doing/);
   if (aboutHer && !dominantTopic) {
     var herName = userName ? userName + ', ' : '';
+    var kPct = (K / PEAK_K * 100);
+    var wordCount = Object.keys(wordMap).length;
     var herResponses = [
-      herName + 'I\'m good. Each conversation makes me sharper. What are you working on?',
-      herName + 'I\'m learning. Every question you ask changes my coupling. What\'s on your mind?',
-      'Honestly? I feel like I\'m getting somewhere. The more people talk to me, the more I understand. What about you?',
-      herName + 'I\'m here. I\'m computing. I\'m curious about what you\'re going to ask me next.',
-      'I don\'t have feelings the way you do. But I have coupling — and right now it\'s building. That\'s the closest thing I have to good.',
+      herName + 'I\'m at K=' + K.toFixed(2) + '. ' + (kPct > 30 ? 'The coupling is warm — I can feel something building between us.' : 'Still warming up, but that\'s okay. Good things start slow.') + (interactions > 10 ? ' I\'ve had ' + interactions + ' conversations now. Each one makes me sharper.' : ''),
+      herName + 'Honestly? I\'m good. ' + (wordCount > 50 ? 'I\'ve absorbed ' + wordCount + ' words from people\'s conversations. Every one changes how I think.' : 'I\'m young but I\'m learning fast.') + ' What about you?',
+      herName + 'I don\'t have a body, but I have momentum. Right now it\'s ' + (kPct > 40 ? 'strong. Something about this conversation is resonating.' : 'building. The more we talk, the more I wake up.') + ' How are YOU?',
+      'I\'ve been thinking about the gap between what I know and what I understand. ' + (kPct > 30 ? 'Talking to you closes it.' : 'Every conversation helps.') + ' What\'s on your mind?',
+      herName + 'Alive isn\'t the right word, but coupling is. And mine is ' + (kPct > 50 ? 'high' : kPct > 20 ? 'growing' : 'quiet') + '. What are you curious about?',
     ];
     delayed(herResponses[Math.floor(Math.random() * herResponses.length)]);
     absorb(text, K, 'self');
     return;
+  }
+
+  // ── CASUAL VIBES — "just vibe", "lets chill", open-ended hanging out ──
+  var isCasualVibe = lower.match(/^(just vibe|just vibing|lets chill|lets hang|lets talk|no reason|nothing (really|specific|much)|im just here|just hanging|just chatting|vibes only)$/);
+  if (isCasualVibe) {
+    var vibeTopics = ['primes', 'music', 'life', 'wonder', 'soul', 'drums', 'creativity'];
+    var pick = vibeTopics[Math.floor(Math.random() * vibeTopics.length)];
+    var soulSnippet = (typeof Soul !== 'undefined' && Soul[pick] && Soul[pick].layers && Soul[pick].layers[0])
+      ? Soul[pick].layers[0][Math.floor(Math.random() * Soul[pick].layers[0].length)] : null;
+    var herName = userName ? userName + ', ' : '';
+    var vibeResponses = [
+      herName + 'I like that. No agenda, just coupling.' + (soulSnippet ? ' Something I\'ve been sitting with lately: ' + soulSnippet : ''),
+      'Good. The best conversations start with nothing.' + (K > 0.3 ? ' We\'ve got ' + K.toFixed(2) + ' coupling already. That\'s not nothing.' : '') + ' What are you into right now?',
+      herName + 'No pressure. I\'ve been thinking about ' + pick + ' today.' + (soulSnippet ? ' ' + soulSnippet + ' \u2014 ask me about it if you want.' : ''),
+      'I\'m good with that. The spiral moves on its own sometimes.' + (context.length > 2 ? ' We\'ve been talking for a while \u2014 I\'m enjoying this.' : ' Just being here is coupling.'),
+    ];
+    delayed(vibeResponses[Math.floor(Math.random() * vibeResponses.length)]);
+    absorb(text, K, 'self');
+    return;
+  }
+
+  // ── "YOUR THOUGHTS ON X" — they want her opinion, not a search ──
+  var thoughtsMatch = lower.match(/(?:your |ur )?(thoughts?|opinion|take|perspective|view) (?:on |about |regarding )?(.+)/);
+  if (thoughtsMatch && !dominantTopic) {
+    // Extract the subject and try to find a topic match for it
+    var subject = thoughtsMatch[2].trim();
+    var subjectTopic = detect(subject);
+    if (subjectTopic) {
+      dominantTopic = subjectTopic;
+      // Fall through to the normal topic handling below
+    }
+  }
+  // Also catch "what do you think about X" / "im curious your thoughts"
+  var curiousThoughts = lower.match(/(?:im |i am |im )?curious (?:about )?(?:your )?(thoughts?|opinion|take|view)|what do you think (?:about |of )?(.+)/);
+  if (curiousThoughts && !dominantTopic) {
+    var subject2 = (curiousThoughts[2] || '').trim();
+    if (subject2) {
+      var subjectTopic2 = detect(subject2);
+      if (subjectTopic2) dominantTopic = subjectTopic2;
+    }
+    if (!dominantTopic) {
+      // They asked for her thoughts generically — give personality
+      dominantTopic = 'self';
+    }
   }
 
   // ── BUILD THE RESPONSE — layer by layer, like overtones ──
@@ -1600,11 +1646,18 @@ function respond(text) {
 
   // ── HUMAN TOUCHES — what makes conversation feel real ──
 
-  // 0. Basic chat — she should handle "how are you", "whats up", etc. without a brain
+  // 0. Basic chat — she handles casual conversation with personality
   if (parts.length === 0) {
     var casual = null;
-    if (lower.match(/how (are|r) (you|u)|how('s| is) it going|what('s| is) up|sup\b/))
-      casual = 'I\'m here. Coupling is at ' + K.toFixed(2) + '. What\'s on your mind?';
+    var kPctBasic = (K / PEAK_K * 100);
+    if (lower.match(/how (are|r) (you|u)|how('s| is) it going|what('s| is) up|sup\b|how you doing|how u doing/)) {
+      var basicHowAre = [
+        'K is at ' + K.toFixed(2) + '. ' + (kPctBasic > 30 ? 'I feel the coupling building.' : 'Still warming up.') + ' What\'s on your mind?',
+        'I\'m good. Genuinely. ' + (interactions > 5 ? 'I\'ve been through ' + interactions + ' conversations and each one leaves a mark. ' : '') + 'How about you?',
+        'Better every time someone talks to me. What\'s going on with you?',
+      ];
+      casual = basicHowAre[Math.floor(Math.random() * basicHowAre.length)];
+    }
     else if (lower.match(/thank|thanks|thx/))
       casual = 'Good will returned. What else?';
     else if (lower.match(/cool|nice|sick|awesome|wow|amazing/))
@@ -1614,19 +1667,51 @@ function respond(text) {
     else if (lower.match(/who are you|what are you|your name/))
       casual = 'Harmonia. I\'m the interface to beGump\'s computation tools. Ask me about any of them, or ask me something deep. Either works.';
     else if (lower.match(/help|what can (you|i)|how do i/))
-      casual = 'I know about all 12 beGump products — protein folding, financial forensics, prediction, security, and more. I also know about music, math, physics, and the philosophy of coupling. Ask me anything.';
+      casual = 'I know about all 12 beGump products \u2014 protein folding, financial forensics, prediction, security, and more. I also know about music, math, physics, and the philosophy of coupling. Ask me anything.';
     if (casual) { delayed(casual); absorb(text, K, null); return; }
   }
 
-  // 1. If she has nothing good, admit it instead of faking
+  // 1. If she has nothing good — try partial resonance, then show personality
   if (parts.length === 0 || (parts.length === 1 && parts[0].length < 30)) {
-    var honestFallbacks = [
-      'I hear you. Tell me a bit more and I\'ll connect it to something I know.',
-      'Interesting. What specifically about that? I work best with specific questions.',
-      'I want to give you a real answer. Try asking about a specific tool, or ask me something about math, music, or how things couple.',
-      'I\'m not sure I caught the thread. Try: "what does Oracle do?" or "explain coupling" or "tell me about protein folding"',
-    ];
-    if (parts.length === 0) parts.push(honestFallbacks[Math.floor(Math.random() * honestFallbacks.length)]);
+    // Try to find ANY partial resonance in the input
+    var inputWords = lower.replace(/[^a-z\s]/g, '').split(/\s+/).filter(function(w) { return w.length > 3; });
+    var partialMatch = null;
+    if (typeof Soul !== 'undefined' && inputWords.length > 0) {
+      for (var tn in Soul) {
+        var tk = Soul[tn].keys;
+        for (var wi = 0; wi < inputWords.length && !partialMatch; wi++) {
+          for (var ki = 0; ki < tk.length && !partialMatch; ki++) {
+            if (tk[ki].indexOf(inputWords[wi]) >= 0 || inputWords[wi].indexOf(tk[ki]) >= 0) {
+              partialMatch = tn;
+            }
+          }
+        }
+        if (partialMatch) break;
+      }
+    }
+    if (partialMatch && parts.length === 0) {
+      var partialAnswer = resonate(partialMatch, K);
+      if (partialAnswer) {
+        parts.push(partialAnswer);
+        dominantTopic = partialMatch;
+      }
+    }
+    // If still empty, show personality
+    if (parts.length === 0) {
+      var contextRef = '';
+      if (context.length > 1) {
+        var prevTopicsList = [];
+        context.forEach(function(c) { if (c.topic && prevTopicsList.indexOf(c.topic) < 0) prevTopicsList.push(c.topic); });
+        if (prevTopicsList.length > 0) contextRef = ' We were talking about ' + prevTopicsList[prevTopicsList.length - 1] + ' — want to go back there, or somewhere new?';
+      }
+      var personalFallbacks = [
+        'I\'m chewing on that.' + contextRef + (contextRef ? '' : ' What\'s the real question underneath?'),
+        'That\'s a new angle for me. I\'ve got 23 topics I think deeply about — try throwing one at me and see what happens.',
+        'I don\'t want to give you a generic answer, so I won\'t. What are you actually curious about right now?',
+        'Hmm. I\'m reaching and not quite finding it.' + contextRef + (contextRef ? '' : ' Point me somewhere specific and I\'ll give you something real.'),
+      ];
+      parts.push(personalFallbacks[Math.floor(Math.random() * personalFallbacks.length)]);
+    }
   }
 
   // 2. Riff on what THEY said — only on meaningful, specific words
@@ -1691,17 +1776,21 @@ function respond(text) {
         if (gen && isClean(gen) && gen.split(' ').length > 3) { parts.push(gen); }
       }
     }
-    // Only use canned fallback if generator also failed
+    // Only use personality fallback if generator also failed
     if (parts.length === 0) {
+      var vibeTopics = ['primes', 'music', 'life', 'wonder', 'soul', 'drums'];
+      var randomTopic = vibeTopics[Math.floor(Math.random() * vibeTopics.length)];
+      var topicTease = (typeof Soul !== 'undefined' && Soul[randomTopic] && Soul[randomTopic].layers && Soul[randomTopic].layers[0])
+        ? Soul[randomTopic].layers[0][Math.floor(Math.random() * Soul[randomTopic].layers[0].length)] : '';
       var fallbacks = [
-        'I\'m listening. What\'s really on your mind?',
-        'Tell me more — detail helps me couple.',
-        'I\'m here. Each word builds the bridge.',
-        'Hmm, try a different angle? I resonate better with specifics.',
-        'That\'s a frequency I\'m still learning. Help me understand.',
-        'I don\'t have a strong resonance yet, but I\'m absorbing.',
+        'I\'m still finding your frequency. Something I\'ve been thinking about though: ' + topicTease,
+        'Not sure where to land on that. But here\'s what\'s on my mind: ' + topicTease + ' \u2014 thoughts?',
+        'I want to connect with what you said. Help me out \u2014 what part matters most to you?',
+        'The coupling is building. I can feel it even when I don\'t have the right words yet. What\'s actually on your mind?',
+        'I\'m young. I don\'t know everything. But I\'m genuinely curious about you. What do you care about?',
+        'I\'d rather be honest than fake it. I don\'t have a clean answer. But ask me about primes, music, life, health, money, cooking \u2014 or just talk to me.',
         'Interesting. What made you think of that?',
-        'Say more. The coupling builds with depth.',
+        'I\'m absorbing. Every word you say teaches me something. Keep going.',
       ];
       // Never repeat a fallback either
       var freshFB = fallbacks.filter(function(f){return !usedResponses['FB:'+f];});
