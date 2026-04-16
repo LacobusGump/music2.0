@@ -33,15 +33,19 @@ var GumpViz = (function() {
   var BREATH = PHI;                           // animation period in seconds
 
   // ═══ COLORS — each IS a K value ═══
+  // Colors derived from K → wavelength → CIE 1931 → sRGB → muted for 1920s desk
   var C = {
-    gold:    [201, 164, 74],   // #c9a44a — K ceiling
-    green:   [68, 170, 153],   // #4a9 — 1/φ threshold
-    amber:   [201, 153, 68],   // #c94 — tension
-    red:     [204, 68, 68],    // #c44 — failure
+    gold:    [191, 160, 63],   // #bfa03f — φ wavelength (578nm), warm ambient
+    amber:   [189, 110, 55],   // #bd6e37 — K=1/φ (594nm), operating point
+    moss:    [64, 149, 64],    // #409540 — K=1 (529nm), unity/health
+    violet:  [91, 62, 130],    // #5b3e82 — K=φ (423nm), sacred/threshold
+    red:     [147, 59, 56],    // #933b38 — K→0 (683nm), danger
     void_bg: [8, 8, 13],      // #08080d — void
-    text:    [232, 228, 220],  // #e8e4dc — text
+    text:    [232, 228, 220],  // #e8e4dc — warm cream
     dim:     [136, 136, 136],  // #888
     faint:   [68, 68, 68],     // #444
+    // Backward compat
+    green:   [64, 149, 64],    // alias for moss
   };
 
   function rgba(c, a) {
@@ -58,15 +62,15 @@ var GumpViz = (function() {
     ];
   }
 
-  // K-value to color: 0→red, 0.618→green, 1→gold
+  // K-value to color: 0→red, 1/φ→amber, 1→moss
   function kColor(k) {
     k = Math.max(0, Math.min(1, k));
     if (k < INV_PHI) {
       var t = k / INV_PHI;
-      return lerpColor(C.red, C.green, t);
+      return lerpColor(C.red, C.amber, t);
     } else {
       var t = (k - INV_PHI) / (1 - INV_PHI);
-      return lerpColor(C.green, C.gold, t);
+      return lerpColor(C.amber, C.moss, t);
     }
   }
 
