@@ -105,7 +105,7 @@ function renderViz(data){
   var cv=document.getElementById('viz');cv.style.display='block';
   cv.onmousemove=function(e){var r=cv.getBoundingClientRect();vizMx=e.clientX-r.left;vizMy=e.clientY-r.top;};
   cv.onmouseleave=function(){vizMx=-1000;vizMy=-1000;};
-  var dpr=window.devicePixelRatio||1,W=cv.clientWidth,H=320;
+  var dpr=window.devicePixelRatio||1,W=cv.clientWidth,H=380;
   cv.style.height=H+'px';cv.width=W*dpr;cv.height=H*dpr;
   var cx=cv.getContext('2d');cx.setTransform(dpr,0,0,dpr,0,0);
   var gates=data.gates,conns=data.conns,N=gates.length;
@@ -137,6 +137,8 @@ function renderViz(data){
     }
     // Gates
     var hovered=-1,rn=Math.floor(smoothstep(Math.min(1,t*1.4))*N);
+    var labelBoxes=[];
+    var maxChars=8;
     for(var i=0;i<rn;i++){
       var g=gates[i],px=gx(g.x),py=gy(g.y);
       var bx=px+(t>=1?Math.sin(bt/PHI+i)*0.8:0),by=py+(t>=1?Math.cos(bt/PHI+i)*0.8:0);
@@ -146,8 +148,23 @@ function renderViz(data){
       cx.fillStyle=rgba(C.gold,i===hovered?0.9:0.55);
       cx.fillRect(bx-sz/2,by-sz/2,sz,sz);
       if(i===hovered){cx.strokeStyle=rgba(C.gold,0.8);cx.lineWidth=1;cx.strokeRect(bx-sz/2-1,by-sz/2-1,sz+2,sz+2);}
-      // Label
-      cx.fillStyle=rgba(C.text,i===hovered?0.9:0.35);cx.font=(i===hovered?'bold ':'')+' 8px "Courier New",monospace';cx.textAlign='center';cx.fillText(g.name,bx,by-sz-3);
+      // Label — truncate long names
+      var lbl=g.name.length>maxChars?g.name.slice(0,maxChars)+'...':g.name;
+      cx.fillStyle=rgba(C.text,i===hovered?0.9:0.35);cx.font=(i===hovered?'bold ':'')+'8px "Courier New",monospace';cx.textAlign='center';
+      var lw=cx.measureText(lbl).width,lh=10;
+      var ly=by-sz-3;
+      // Collision avoidance — bump down until clear
+      for(var attempt=0;attempt<5;attempt++){
+        var collides=false;
+        for(var lb=0;lb<labelBoxes.length;lb++){
+          var ob=labelBoxes[lb];
+          if(Math.abs(bx-ob.cx)<(lw+ob.w)*0.5&&Math.abs(ly-ob.y)<lh){collides=true;break;}
+        }
+        if(!collides)break;
+        ly+=12;
+      }
+      labelBoxes.push({cx:bx,y:ly,w:lw});
+      cx.fillText(lbl,bx,ly);
     }
     // Summary
     cx.fillStyle=rgba(C.dim,0.25);cx.font='8px Georgia,serif';cx.textAlign='left';
