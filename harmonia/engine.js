@@ -394,7 +394,7 @@ var Engine = (function() {
         if (/what is R\b/i.test(lower)) return { result: 'R = order parameter. How synchronized things are. 0 to 1. R=0 is chaos. R=1 is lock (also death). R=1/φ=0.618 is life — the operating point of consciousness, heart, flocking, markets. The golden ratio prevents mode-locking.', detail: null };
         if (/what is E\b/i.test(lower)) return { result: 'E = energy cost of coupling. Every bit erasure costs kT ln(2) = 2.87×10⁻²¹ J. A fifth costs 1.79 nats. A tritone costs 7.27 nats. Understanding is 224,000× cheaper than memorization. Good will is exothermic.', detail: null };
         if (/what is T\b/i.test(lower)) return { result: 'T = tension. The distance between what IS and what SHOULD BE. What wants to couple but hasn\'t. Laplacian eigenvectors reveal what wants to connect. Tension IS the question your system is asking.', detail: null };
-        return { result: 'K/R/E/T: four quantities, everything computable.\nK = coupling strength, R = synchronization, E = energy cost, T = tension.\n137 coupled oscillators on hex lattice self-tune to K = 1.868 = 256α. R settles at 1/φ. The machine IS the framework.', detail: null };
+        return { result: 'K/R/E/T: four quantities, everything computable.\nK = coupling strength, R = synchronization, E = energy cost, T = tension.\nCoupled oscillators on zeta zero spacings synchronize 30-43% more than random. Prime number correlations make things more cooperative. The machine IS the framework.', detail: null };
       }
     }
   };
