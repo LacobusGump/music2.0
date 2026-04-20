@@ -110,19 +110,25 @@ with open('insulin.html', 'w') as f: f.write(html)</pre>
 
 <h2>Chip Fast</h2>
 <div class="product-doc">
-<h3>Spectral chip placement</h3>
-<pre>from gump.chipfast import place
+<h3>Spectral placement + isolation</h3>
+<pre>from gump.chipfast import place, isolate
 
-# Gates and their connections
+# Minimize wire length (bring connected things close)
 result = place(
     gates=['and', 'or', 'xor', 'buf', 'nand'],
     connections=[(0,1), (1,2), (2,3), (3,4), (0,4)]
 )
+print(result['total_wire'])       # minimized wire length
 
-print(result['positions'])        # {gate_name: (x, y)} per gate
-print(result['total_wire'])       # total wire length
-print(result['K_compactness'])    # layout quality (0-1)
-print(result['n_gates'])          # number of gates placed</pre>
+# Maximize isolation (push sensitive things apart)
+result = isolate(
+    components=['user_db', 'auth', 'api', 'cdn', 'analytics'],
+    connections=[(0,1), (1,2), (2,3), (2,4)],
+    isolate_pairs=[('user_db', 'cdn')],      # push apart
+    couple_pairs=[('auth', 'user_db')]        # keep together
+)
+print(result['isolation'])        # spectral distance between sensitive pairs
+print(result['fiedler_gap'])      # algebraic connectivity (higher = better split)</pre>
 </div>
 
 <h2>AI Trainer</h2>
@@ -303,24 +309,28 @@ print(result['n_gaps'])           # how many gaps</pre>
 
 <h2 id="tune">Tune</h2>
 <div class="product-doc">
-<h3>Universal coherence detector</h3>
-<pre>from gump.tune import detect, coherence, anomaly_detect
+<h3>Universal coherence detector + predictive decoherence</h3>
+<pre>from gump.tune import detect, coherence, anomaly_detect, decoherence
 
 # Measure coherence of any signal
 score = coherence(signal)
 # 0 = incoherent, 1 = in tune
 
 # Find the critical point of any system
-# system_fn(param) → time series
 result = detect(system_fn, param_range=(0, 10))
 print(result['peak'])      # optimal parameter (best tuning)
 print(result['onset'])     # where coherence begins
-print(result['drop'])      # where coherence ends
 
 # Anomaly detection: detect when coherence drops
 detections = anomaly_detect(signal, window=100)
 print(detections['detections'])   # sample indices of anomalies
-print(detections['scores'])       # coherence at each window</pre>
+
+# Predictive decoherence (Anti-Tune): detect BEFORE failure
+# Monitors BOTH directions: dropping = degradation, rising = critical sync
+warn = decoherence(signal, window=100)
+print(warn['direction'])   # 'stable', 'degrading', 'locking', or 'critical'
+print(warn['deviation'])   # how far from baseline (in std units)
+print(warn['rate'])        # coherence change rate</pre>
 <p>One function. One metric. No training data. Detects phase transitions, critical coupling, optimal parameters, and anomalies. Finds the minimum coupling that produces coherence &mdash; the way a drummer finds the tone by starting loose and listening. Kuramoto K<sub>c</sub> to 2%, Ising T<sub>c</sub> to 6%, anomaly in 5 samples.</p>
 </div>
 
