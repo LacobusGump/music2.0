@@ -47,6 +47,9 @@ Spectral transition rate separates all 5 sleep stages. Cohen&rsquo;s d = 4.02.</
 
 <p class="lead">How often does the brain change its tune? That single question separates wakefulness from deep sleep with an effect size larger than most clinical tests.</p>
 
+<canvas id="sleep-tetra" style="display:block;width:100%;height:260px;border-radius:10px;margin:16px 0;touch-action:none;"></canvas>
+<p style="text-align:center;font-size:0.62em;color:#444;margin:-8px 0 16px;">Awake: phases cohere. Deep sleep: phases scatter. The shape tells you which.</p>
+
 <hr>
 
 <h2>The Metric</h2>
@@ -150,5 +153,67 @@ A drummer&rsquo;s algorithm applied to neuroscience.
 
 </div>
 <script src="/js/breathe.js?v=2"></script>
+<script>
+(function(){
+var cv=document.getElementById('sleep-tetra');if(!cv)return;
+var cx=cv.getContext('2d'),W,H,dpr;
+function resize(){var r=cv.getBoundingClientRect();dpr=window.devicePixelRatio||1;W=r.width;H=r.height;cv.width=W*dpr;cv.height=H*dpr;cx.setTransform(dpr,0,0,dpr,0,0);}
+window.addEventListener('resize',resize);resize();
+var s=1,t1=[[s,s,s],[s,-s,-s],[-s,s,-s],[-s,-s,s]],t2=[[-s,-s,-s],[-s,s,s],[s,-s,s],[s,s,-s]];
+var all=t1.concat(t2),e6=[[0,1],[0,2],[0,3],[1,2],[1,3],[2,3]];
+var rotY=0,rotX=0.3;
+function proj(p){var x=p[0],y=p[1],z=p[2],cy=Math.cos(rotY),sy=Math.sin(rotY),x1=x*cy-z*sy,z1=x*sy+z*cy,c2=Math.cos(rotX),s2=Math.sin(rotX),y1=y*c2-z1*s2,z2=y*s2+z1*c2,sc=Math.min(W,H)*0.18,d=3+z2;return{x:W/2+x1*sc/d*2,y:H/2+y1*sc/d*2,d:d};}
+// Sleep cycle: 0-1 where 0=deep sleep (scattered), 1=awake (coherent)
+function draw(){
+  cx.clearRect(0,0,W,H);rotY+=0.003;
+  var time=Date.now()*0.001;
+  // Cycle through sleep stages: awake → N1 → N2 → N3 → REM → awake (~12s)
+  var cycle=((time*0.5)%6)/6; // 0 to 1
+  var coherence=0.5+0.5*Math.cos(cycle*Math.PI*2); // 1→0→1
+
+  // Label current state
+  var stateNames=['AWAKE','N1','N2','N3','N2','REM'];
+  var stateIdx=Math.floor(cycle*6)%6;
+  cx.font='10px Futura,sans-serif';cx.textAlign='center';
+  cx.fillStyle='rgba(201,164,74,'+(0.2+coherence*0.3)+')';
+  cx.fillText(stateNames[stateIdx],W/2,18);
+
+  // Draw shape — vertices jitter based on coherence (low coherence = more scatter)
+  var jitter=1-coherence; // 0=no jitter, 1=max jitter
+  for(var t=0;t<2;t++){
+    var tetra=t===0?t1:t2;
+    cx.strokeStyle=t===0?'rgba(201,164,74,'+(0.15+coherence*0.35)+')':'rgba(189,110,55,'+(0.15+coherence*0.35)+')';
+    cx.lineWidth=1+coherence;
+    for(var i=0;i<e6.length;i++){
+      var vi=tetra[e6[i][0]],vj=tetra[e6[i][1]];
+      var pi=[vi[0]+jitter*Math.sin(time*3+i*7)*0.4,vi[1]+jitter*Math.cos(time*2.5+i*5)*0.4,vi[2]+jitter*Math.sin(time*2+i*3)*0.4];
+      var pj=[vj[0]+jitter*Math.sin(time*2.7+i*11)*0.4,vj[1]+jitter*Math.cos(time*3.2+i*9)*0.4,vj[2]+jitter*Math.sin(time*1.8+i*6)*0.4];
+      var a=proj(pi),b=proj(pj);
+      cx.beginPath();cx.moveTo(a.x,a.y);cx.lineTo(b.x,b.y);cx.stroke();
+    }
+  }
+  // Vertices with jitter
+  for(var i=0;i<8;i++){
+    var v=all[i];
+    var jv=[v[0]+jitter*Math.sin(time*3+i*7)*0.4,v[1]+jitter*Math.cos(time*2.5+i*5)*0.4,v[2]+jitter*Math.sin(time*2+i*3)*0.4];
+    var p=proj(jv);
+    var col=i<4?'201,164,74':'189,110,55';
+    var bs=5*(2/p.d);
+    var grd=cx.createRadialGradient(p.x,p.y,0,p.x,p.y,bs*2.5);
+    grd.addColorStop(0,'rgba('+col+','+(0.05+coherence*0.15)+')');
+    grd.addColorStop(1,'rgba('+col+',0)');
+    cx.fillStyle=grd;cx.beginPath();cx.arc(p.x,p.y,bs*2.5,0,Math.PI*2);cx.fill();
+    cx.beginPath();cx.arc(p.x,p.y,bs,0,Math.PI*2);
+    cx.fillStyle='rgba('+col+','+(0.2+coherence*0.5)+')';cx.fill();
+  }
+  // R meter
+  cx.font='9px Courier New,monospace';cx.textAlign='left';
+  cx.fillStyle='rgba(74,153,153,0.4)';
+  cx.fillText('R = '+coherence.toFixed(2),12,H-10);
+  requestAnimationFrame(draw);
+}
+draw();
+})();
+</script>
 </body>
 </html>
