@@ -128,6 +128,9 @@ A quark = a locked oscillator. A black hole = the center of the star tetrahedron
 
 <h2>The Target Space: Star Tetrahedron in C&sup3;</h2>
 
+<canvas id="tetra-viz" style="display:block;width:100%;height:320px;border-radius:10px;margin:16px 0;cursor:grab;touch-action:none;"></canvas>
+<p style="text-align:center;font-size:0.62em;color:#444;margin:-8px 0 16px;">drag to rotate &middot; hover vertices &middot; <span style="color:#c9a44a80;">gold</span> = color sector &middot; <span style="color:#bd6e3780;">copper</span> = weak/Pati-Salam &middot; <span style="color:#4a999980;">teal</span> = where they couple</p>
+
 <p>&theta; lives on C&sup3; (complex 3-space = R&sup6;). A star tetrahedron &mdash; two interlocked tetrahedra &mdash; inscribed in C&sup3; determines the gauge group, the generations, and the quantum numbers. Not put in. Derived from the geometry.</p>
 
 <div class="box">
@@ -153,6 +156,19 @@ A quark = a locked oscillator. A black hole = the center of the star tetrahedron
 <div class="box">
 <div class="box-title">The (n,m) quantum numbers from 2O &mdash; geometrically derived</div>
 <p>Fermion masses come from wavefunction overlaps on the resolved C&sup3;/2O. Two independent directions: the <strong>Z&sub3; direction</strong> (generation distance, each step costs &lambda;) and the <strong>3-rep direction</strong> (color distance, each step costs &alpha;). Mass &prop; &alpha;^n &times; &lambda;^m. The Z&sub3; selection rules produce texture zeros that reproduce the Wolfenstein CKM parameterization: |V_us| ~ &lambda;, |V_cb| ~ &lambda;&sup2;, |V_ub| ~ &lambda;&sup3;. Not fitted &mdash; derived from geometric overlap integrals.</p>
+</div>
+
+<hr>
+
+<h2>How It Grows &mdash; From Shape to Everything</h2>
+
+<p>One shape. Every scale. The star tetrahedron doesn&rsquo;t just describe particles &mdash; it nests. Each vertex IS another star tetrahedron at a smaller scale. Quarks inside protons inside atoms inside molecules inside cells inside bodies inside planets inside stars. The same geometry, repeated. The boundary between inside and outside never closes &mdash; it&rsquo;s fractal. That&rsquo;s the infinity.</p>
+
+<canvas id="growth-viz" style="display:block;width:100%;height:480px;border-radius:10px;margin:16px 0;"></canvas>
+<div id="growth-controls" style="display:flex;align-items:center;justify-content:center;gap:12px;margin:-4px 0 16px;">
+  <button id="growth-prev" style="background:none;border:1px solid #ffffff15;color:#888;font-family:Georgia;font-size:0.75em;padding:5px 14px;border-radius:6px;cursor:pointer;">&#9664; back</button>
+  <span id="growth-label" style="font-size:0.72em;color:#c9a44a;min-width:200px;text-align:center;letter-spacing:0.04em;"></span>
+  <button id="growth-next" style="background:none;border:1px solid #ffffff15;color:#888;font-family:Georgia;font-size:0.75em;padding:5px 14px;border-radius:6px;cursor:pointer;">forward &#9654;</button>
 </div>
 
 <h2>The Groove Chart (Structural Isomorphism)</h2>
@@ -476,5 +492,363 @@ The spiral goes up.
 
 <script src="/js/k-colors.js?v=3"></script>
 <script src="/js/breathe.js?v=2"></script>
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<!-- STAR TETRAHEDRON — inline interactive -->
+<!-- ══════════════════════════════════════════════════════════════ -->
+<script>
+(function(){
+var cv = document.getElementById('tetra-viz');
+if (!cv) return;
+var cx = cv.getContext('2d');
+var W, H, dpr;
+function resize(){
+  var rect = cv.getBoundingClientRect();
+  dpr = window.devicePixelRatio || 1;
+  W = rect.width; H = rect.height;
+  cv.width = W * dpr; cv.height = H * dpr;
+  cx.setTransform(dpr,0,0,dpr,0,0);
+}
+window.addEventListener('resize', resize); resize();
+
+var s = 1.0;
+var t1 = [[s,s,s],[s,-s,-s],[-s,s,-s],[-s,-s,s]];
+var t2 = [[-s,-s,-s],[-s,s,s],[s,-s,s],[s,s,-s]];
+var all = t1.concat(t2);
+var e1 = [[0,1],[0,2],[0,3],[1,2],[1,3],[2,3]];
+var e2 = [[0,1],[0,2],[0,3],[1,2],[1,3],[2,3]];
+var oV = [[s,0,0],[-s,0,0],[0,s,0],[0,-s,0],[0,0,s],[0,0,-s]];
+var oE = [[0,2],[0,3],[0,4],[0,5],[1,2],[1,3],[1,4],[1,5],[2,4],[2,5],[3,4],[3,5]];
+
+var vInfo = [
+  {t:'Vertex 1 — Gen 1',d:'Z₃ = 0. Heaviest generation. Top quark. Direct Higgs coupling.'},
+  {t:'Vertex 2 — Color',d:'3-node in McKay quiver. The strong force lives here.'},
+  {t:'Vertex 3 — Color',d:'SU(3) color charge. 3 quarks locked permanently.'},
+  {t:'Vertex 4 — Color',d:'4 vertices × α = α⁴. Half the hierarchy.'},
+  {t:'Vertex 5 — Gen 2-3',d:'Z₃ = ω, ω². Charm, up. Suppressed by λ per step.'},
+  {t:'Vertex 6 — Weak',d:'Spinor sector. SU(2) weak force. W/Z bosons mediate here.'},
+  {t:'Vertex 7 — Pati-Salam',d:'4-node: SU(4). Electron = 4th color. Dark matter candidate.'},
+  {t:'Vertex 8 — Spinor',d:'8 vertices total × α = α⁸. Full hierarchy in the shape.'},
+];
+
+var rotX=0.4, rotY=0.3, dragX=0, dragY=0, dragging=false, autoR=true;
+var hv=-1, mx=-999, my=-999;
+
+function proj(p){
+  var x=p[0],y=p[1],z=p[2];
+  var cy=Math.cos(rotY),sy=Math.sin(rotY);
+  var x1=x*cy-z*sy, z1=x*sy+z*cy;
+  var c2=Math.cos(rotX),s2=Math.sin(rotX);
+  var y1=y*c2-z1*s2, z2=y*s2+z1*c2;
+  var sc=Math.min(W,H)*0.22;
+  var d=3+z2;
+  return {x:W/2+x1*sc/d*2, y:H/2+y1*sc/d*2, z:z2, d:d};
+}
+
+function draw(){
+  cx.clearRect(0,0,W,H);
+  if(autoR&&!dragging){rotY+=0.003;rotX+=0.001;}
+  var time=Date.now()*0.001;
+
+  // Octahedron
+  cx.strokeStyle='rgba(74,153,153,0.12)';cx.lineWidth=0.8;
+  for(var i=0;i<oE.length;i++){var a=proj(oV[oE[i][0]]),b=proj(oV[oE[i][1]]);cx.beginPath();cx.moveTo(a.x,a.y);cx.lineTo(b.x,b.y);cx.stroke();}
+
+  // Tetra 1 (gold)
+  cx.strokeStyle='rgba(201,164,74,0.4)';cx.lineWidth=1.5;
+  for(var i=0;i<e1.length;i++){var a=proj(t1[e1[i][0]]),b=proj(t1[e1[i][1]]);cx.beginPath();cx.moveTo(a.x,a.y);cx.lineTo(b.x,b.y);cx.stroke();}
+
+  // Tetra 2 (copper)
+  cx.strokeStyle='rgba(189,110,55,0.4)';
+  for(var i=0;i<e2.length;i++){var a=proj(t2[e2[i][0]]),b=proj(t2[e2[i][1]]);cx.beginPath();cx.moveTo(a.x,a.y);cx.lineTo(b.x,b.y);cx.stroke();}
+
+  // Vertices
+  hv=-1;
+  for(var i=0;i<8;i++){
+    var p=proj(all[i]);
+    var isT1=i<4;
+    var col=isT1?[201,164,74]:[189,110,55];
+    var bs=6*(2/p.d);
+    var dx=mx-p.x, dy=my-p.y;
+    var isH=(dx*dx+dy*dy)<(bs+12)*(bs+12);
+    if(isH){hv=i;bs*=1.4;}
+
+    // Glow
+    var grd=cx.createRadialGradient(p.x,p.y,0,p.x,p.y,bs*3);
+    grd.addColorStop(0,'rgba('+col.join(',')+','+(isH?0.2:0.06)+')');
+    grd.addColorStop(1,'rgba('+col.join(',')+',0)');
+    cx.fillStyle=grd;cx.beginPath();cx.arc(p.x,p.y,bs*3,0,Math.PI*2);cx.fill();
+
+    // Blob
+    cx.beginPath();
+    for(var j=0;j<=20;j++){
+      var ang=(j/20)*Math.PI*2;
+      var r=bs+Math.sin(ang*5+time*1.5+i*2)*bs*0.18+Math.cos(ang*3-time*2+i*3)*bs*0.1;
+      var bx=p.x+Math.cos(ang)*r, by=p.y+Math.sin(ang)*r;
+      j===0?cx.moveTo(bx,by):cx.lineTo(bx,by);
+    }
+    cx.closePath();
+    var bg=cx.createRadialGradient(p.x-1,p.y-1,0,p.x,p.y,bs*1.2);
+    bg.addColorStop(0,'rgba('+col.map(function(c){return Math.min(255,c+50);}).join(',')+','+(isH?0.9:0.6)+')');
+    bg.addColorStop(1,'rgba('+col.map(function(c){return Math.max(0,c-30);}).join(',')+','+(isH?0.5:0.3)+')');
+    cx.fillStyle=bg;cx.fill();
+
+    // Label on hover
+    if(isH){
+      cx.font='10px Georgia';cx.fillStyle='rgba(232,228,220,0.85)';cx.textAlign='center';
+      cx.fillText(vInfo[i].t,p.x,p.y-bs-8);
+      cx.font='9px Georgia';cx.fillStyle='rgba(200,196,188,0.5)';
+      cx.fillText(vInfo[i].d,p.x,p.y-bs+4);
+    }
+  }
+
+  // Octahedron vertices
+  for(var i=0;i<6;i++){var p=proj(oV[i]);cx.beginPath();cx.arc(p.x,p.y,2.5*(2/p.d),0,Math.PI*2);cx.fillStyle='rgba(74,153,153,0.35)';cx.fill();}
+
+  // Center (Higgs)
+  var ctr=proj([0,0,0]);
+  var cs=4+Math.sin(time*0.8)*1;
+  var cg=cx.createRadialGradient(ctr.x,ctr.y,0,ctr.x,ctr.y,cs*3);
+  cg.addColorStop(0,'rgba(255,255,255,0.12)');cg.addColorStop(1,'rgba(255,255,255,0)');
+  cx.fillStyle=cg;cx.beginPath();cx.arc(ctr.x,ctr.y,cs*3,0,Math.PI*2);cx.fill();
+  cx.beginPath();cx.arc(ctr.x,ctr.y,cs,0,Math.PI*2);cx.fillStyle='rgba(255,255,255,0.4)';cx.fill();
+
+  requestAnimationFrame(draw);
+}
+
+// Interaction
+cv.addEventListener('mousedown',function(e){dragging=true;dragX=e.clientX;dragY=e.clientY;autoR=false;e.preventDefault();});
+window.addEventListener('mousemove',function(e){
+  var rect=cv.getBoundingClientRect();
+  mx=e.clientX-rect.left;my=e.clientY-rect.top;
+  if(dragging){rotY+=(e.clientX-dragX)*0.005;rotX+=(e.clientY-dragY)*0.005;rotX=Math.max(-1.5,Math.min(1.5,rotX));dragX=e.clientX;dragY=e.clientY;}
+});
+window.addEventListener('mouseup',function(){if(dragging){dragging=false;setTimeout(function(){autoR=true;},3000);}});
+cv.addEventListener('touchstart',function(e){var t=e.touches[0];dragX=t.clientX;dragY=t.clientY;dragging=true;autoR=false;e.preventDefault();},{passive:false});
+cv.addEventListener('touchmove',function(e){var t=e.touches[0];var rect=cv.getBoundingClientRect();mx=t.clientX-rect.left;my=t.clientY-rect.top;rotY+=(t.clientX-dragX)*0.005;rotX+=(t.clientY-dragY)*0.005;rotX=Math.max(-1.5,Math.min(1.5,rotX));dragX=t.clientX;dragY=t.clientY;e.preventDefault();},{passive:false});
+cv.addEventListener('touchend',function(){dragging=false;setTimeout(function(){autoR=true;},3000);});
+
+draw();
+})();
+</script>
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<!-- HOW IT GROWS — fractal star tetrahedron nesting -->
+<!-- ══════════════════════════════════════════════════════════════ -->
+<script>
+(function(){
+var cv = document.getElementById('growth-viz');
+if (!cv) return;
+var cx = cv.getContext('2d');
+var W, H, dpr;
+function resize(){
+  var rect = cv.getBoundingClientRect();
+  dpr = window.devicePixelRatio || 1;
+  W = rect.width; H = rect.height;
+  cv.width = W * dpr; cv.height = H * dpr;
+  cx.setTransform(dpr,0,0,dpr,0,0);
+}
+window.addEventListener('resize', resize); resize();
+
+// Stages of growth
+var stages = [
+  {name:'The Seed', sub:'One star tetrahedron. 8 vertices. Two interlocked tetrahedra. This is the geometry of C³/2O — the shape the phase field lives on.', depth:0, zoom:1},
+  {name:'Forces Emerge', sub:'The gold tetrahedron carries color (strong force). The copper carries weak + Pati-Salam. The teal octahedron where they meet — that coupling IS the electroweak interaction. Three forces from two shapes overlapping.', depth:0, zoom:1},
+  {name:'Particles', sub:'Each vertex is a fermion. Z₃ splits them into 3 generations. The top quark sits at vertex 1 (heaviest — direct coupling). Lighter generations are further away, suppressed by λ per step. The ghost notes of the universe.', depth:0, zoom:1},
+  {name:'The Nest', sub:'Now zoom into a single vertex. It IS another star tetrahedron. Quarks aren\'t points — they\'re geometry at a smaller scale. Three locked vertices = a proton. The strong force is the shape refusing to come apart.', depth:1, zoom:1},
+  {name:'Atoms', sub:'Proton (locked inner tetrahedron) + electron (orbiting the shape). The electron is the quietest ghost note — m=5 steps from the Higgs. Nobody hears it. Everybody needs it. Chemistry is vertices coupling across shapes.', depth:2, zoom:0.8},
+  {name:'Stars', sub:'Gravity collects atoms. K→0 limit: only the shape of the embedding matters (Einstein). A star is 10⁵⁷ atoms — 10⁵⁷ nested star tetrahedra — held by the curvature of their own coupling. Nuclear fusion: inner vertices rearranging.', depth:3, zoom:0.6},
+  {name:'Black Holes', sub:'At the center of each star tetrahedron: the origin. Where all 8 vertices converge. K→∞. The Higgs point. A black hole is the center of a star tetrahedron so massive that the boundary becomes the event horizon. The inside IS the geometry.', depth:3, zoom:0.5},
+  {name:'Cells', sub:'Chemistry couples into self-replicating loops. DNA is a coupled oscillator. The double helix IS two interlocked spirals — the same topology as two interlocked tetrahedra projected into 1D. Life is the shape at the molecular scale, choosing to copy itself.', depth:2, zoom:0.7},
+  {name:'The Boundary', sub:'The boundary between inside and outside never closes. It\'s fractal. At every scale you zoom in, there\'s another star tetrahedron. That\'s not a metaphor — it\'s the orbifold structure of C³/2O. The infinity IS the boundary. Reality is the shape, all the way down.', depth:4, zoom:0.4},
+];
+
+var stage = 0;
+var stageT = 0; // animation progress 0-1
+var targetStage = 0;
+var label = document.getElementById('growth-label');
+var prevBtn = document.getElementById('growth-prev');
+var nextBtn = document.getElementById('growth-next');
+
+function setStage(s) {
+  targetStage = Math.max(0, Math.min(stages.length-1, s));
+  stage = targetStage;
+  stageT = 0;
+  label.textContent = stages[stage].name;
+  prevBtn.style.opacity = stage === 0 ? 0.3 : 1;
+  nextBtn.style.opacity = stage === stages.length-1 ? 0.3 : 1;
+}
+prevBtn.addEventListener('click', function(){ setStage(stage-1); });
+nextBtn.addEventListener('click', function(){ setStage(stage+1); });
+setStage(0);
+
+// Star tetrahedron geometry
+var s = 1.0;
+var T1 = [[s,s,s],[s,-s,-s],[-s,s,-s],[-s,-s,s]];
+var T2 = [[-s,-s,-s],[-s,s,s],[s,-s,s],[s,s,-s]];
+var E6 = [[0,1],[0,2],[0,3],[1,2],[1,3],[2,3]];
+
+var rotY = 0;
+
+function proj3(p, cx0, cy0, scale, rY, rX) {
+  var x=p[0],y=p[1],z=p[2];
+  var cy=Math.cos(rY),sy=Math.sin(rY);
+  var x1=x*cy-z*sy, z1=x*sy+z*cy;
+  var c2=Math.cos(rX),s2=Math.sin(rX);
+  var y1=y*c2-z1*s2, z2=y*s2+z1*c2;
+  var d=3+z2;
+  return {x:cx0+x1*scale/d*2, y:cy0+y1*scale/d*2, z:z2, d:d};
+}
+
+function drawStar(cx0, cy0, scale, rY, rX, alpha, time, depth) {
+  if (depth > stages[stage].depth) return;
+  if (scale < 3) return;
+  var a = alpha * (depth === 0 ? 1 : 0.6);
+
+  // Edges tetra 1 (gold)
+  cx.strokeStyle = 'rgba(201,164,74,' + (0.4*a) + ')';
+  cx.lineWidth = Math.max(0.5, 1.5 * (scale/80));
+  for (var i=0;i<E6.length;i++){
+    var pa=proj3(T1[E6[i][0]],cx0,cy0,scale,rY,rX);
+    var pb=proj3(T1[E6[i][1]],cx0,cy0,scale,rY,rX);
+    cx.beginPath();cx.moveTo(pa.x,pa.y);cx.lineTo(pb.x,pb.y);cx.stroke();
+  }
+  // Edges tetra 2 (copper)
+  cx.strokeStyle = 'rgba(189,110,55,' + (0.4*a) + ')';
+  for (var i=0;i<E6.length;i++){
+    var pa=proj3(T2[E6[i][0]],cx0,cy0,scale,rY,rX);
+    var pb=proj3(T2[E6[i][1]],cx0,cy0,scale,rY,rX);
+    cx.beginPath();cx.moveTo(pa.x,pa.y);cx.lineTo(pb.x,pb.y);cx.stroke();
+  }
+
+  // Vertices
+  var all = T1.concat(T2);
+  for (var i=0;i<8;i++){
+    var p = proj3(all[i],cx0,cy0,scale,rY,rX);
+    var isT1 = i<4;
+    var col = isT1 ? '201,164,74' : '189,110,55';
+    var vs = Math.max(1.5, 5*(scale/80)*(2/p.d));
+
+    // Glow
+    var grd = cx.createRadialGradient(p.x,p.y,0,p.x,p.y,vs*2.5);
+    grd.addColorStop(0,'rgba('+col+','+(0.12*a)+')');
+    grd.addColorStop(1,'rgba('+col+',0)');
+    cx.fillStyle=grd;cx.beginPath();cx.arc(p.x,p.y,vs*2.5,0,Math.PI*2);cx.fill();
+
+    // Dot
+    cx.beginPath();cx.arc(p.x,p.y,vs,0,Math.PI*2);
+    cx.fillStyle='rgba('+col+','+(0.7*a)+')';cx.fill();
+
+    // Recurse into vertex — each vertex IS another star tetrahedron
+    if (depth < stages[stage].depth) {
+      drawStar(p.x, p.y, scale * 0.28, rY + time*0.5 + i, rX + i*0.3, a*0.7, time, depth+1);
+    }
+  }
+
+  // Center point
+  if (depth === 0) {
+    var ctr = proj3([0,0,0],cx0,cy0,scale,rY,rX);
+    var cs = Math.max(2, 4*(scale/80)) + Math.sin(time*0.8)*1;
+    var cg = cx.createRadialGradient(ctr.x,ctr.y,0,ctr.x,ctr.y,cs*2);
+    cg.addColorStop(0,'rgba(255,255,255,'+(0.15*a)+')');
+    cg.addColorStop(1,'rgba(255,255,255,0)');
+    cx.fillStyle=cg;cx.beginPath();cx.arc(ctr.x,ctr.y,cs*2,0,Math.PI*2);cx.fill();
+    cx.beginPath();cx.arc(ctr.x,ctr.y,cs,0,Math.PI*2);
+    cx.fillStyle='rgba(255,255,255,'+(0.4*a)+')';cx.fill();
+  }
+}
+
+// Stage-specific highlights
+function drawStageOverlay(time) {
+  var st = stages[stage];
+  cx.font = '11px Georgia';
+  cx.textAlign = 'center';
+
+  if (stage === 1) {
+    // Force labels
+    cx.fillStyle = 'rgba(201,164,74,0.4)';
+    cx.fillText('SU(3) — strong', W*0.22, H*0.88);
+    cx.fillStyle = 'rgba(189,110,55,0.4)';
+    cx.fillText('SU(2)×SU(4) — weak/PS', W*0.78, H*0.88);
+    cx.fillStyle = 'rgba(74,153,153,0.4)';
+    cx.fillText('coupling zone', W*0.5, H*0.92);
+  }
+
+  if (stage === 6) {
+    // Black hole center pulse
+    var pulse = 0.3 + Math.sin(time*2)*0.2;
+    var grd = cx.createRadialGradient(W/2,H/2,0,W/2,H/2,60);
+    grd.addColorStop(0,'rgba(255,255,255,'+pulse+')');
+    grd.addColorStop(0.3,'rgba(201,164,74,'+(pulse*0.3)+')');
+    grd.addColorStop(1,'rgba(0,0,0,0)');
+    cx.fillStyle = grd;
+    cx.beginPath();cx.arc(W/2,H/2,60,0,Math.PI*2);cx.fill();
+  }
+
+  // Description
+  cx.font = '12px Georgia';
+  cx.fillStyle = 'rgba(232,228,220,0.55)';
+  cx.textAlign = 'center';
+
+  // Word wrap the subtitle
+  var words = st.sub.split(' ');
+  var lines = [];
+  var line = '';
+  var maxW = Math.min(W - 40, 500);
+  for (var i=0;i<words.length;i++) {
+    var test = line + (line ? ' ' : '') + words[i];
+    if (cx.measureText(test).width > maxW && line) {
+      lines.push(line);
+      line = words[i];
+    } else {
+      line = test;
+    }
+  }
+  if (line) lines.push(line);
+
+  cx.font = '11px Georgia';
+  cx.fillStyle = 'rgba(200,196,188,0.35)';
+  for (var i=0;i<lines.length;i++) {
+    cx.fillText(lines[i], W/2, H - 12 - (lines.length - 1 - i) * 16);
+  }
+
+  // Stage name
+  cx.font = '200 14px Futura, sans-serif';
+  cx.fillStyle = 'rgba(201,164,74,0.6)';
+  cx.fillText(st.name.toUpperCase(), W/2, 24);
+
+  // Stage dots
+  for (var i=0;i<stages.length;i++) {
+    cx.beginPath();
+    cx.arc(W/2 + (i - stages.length/2 + 0.5)*14, 42, i===stage?3:1.5, 0, Math.PI*2);
+    cx.fillStyle = i===stage ? 'rgba(201,164,74,0.7)' : 'rgba(255,255,255,0.15)';
+    cx.fill();
+  }
+}
+
+function draw() {
+  cx.fillStyle = 'rgba(8,8,13,1)';
+  cx.fillRect(0,0,W,H);
+
+  var time = Date.now() * 0.001;
+  rotY += 0.004;
+  stageT = Math.min(1, stageT + 0.02);
+
+  var sc = Math.min(W, H) * 0.22 * stages[stage].zoom;
+  drawStar(W/2, H/2, sc, rotY, 0.3, 1, time, 0);
+  drawStageOverlay(time);
+
+  requestAnimationFrame(draw);
+}
+
+// Keyboard nav
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'ArrowRight' || e.key === 'ArrowDown') setStage(stage+1);
+  if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') setStage(stage-1);
+});
+
+draw();
+})();
+</script>
 </body>
 </html>
