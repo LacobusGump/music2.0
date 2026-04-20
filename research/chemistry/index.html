@@ -40,6 +40,9 @@ td.bad{color:#c94;}
 <h1>Chemistry &mdash; Bonds as Coupling</h1>
 <div class="sub">Two atoms = two coupled oscillators. The bond IS K.</div>
 
+<canvas id="chem-tetra" style="display:block;width:100%;height:260px;border-radius:10px;margin:16px 0;touch-action:none;"></canvas>
+<p style="text-align:center;font-size:0.62em;color:#444;margin:-8px 0 16px;">Two vertices find their optimal distance. The edge between them IS the bond. K at that distance IS the bond energy.</p>
+
 <div class="section">
 <h2>THE RESULT</h2>
 <div class="result">
@@ -181,5 +184,87 @@ print(f"NaCl: {result['predicted_eV']:.2f} eV")
 </div>
 <script src="/js/breathe.js?v=2"></script>
 <script src="/transit.js"></script>
+<script>
+(function(){
+var cv=document.getElementById('chem-tetra');if(!cv)return;
+var cx=cv.getContext('2d'),W,H,dpr;
+function resize(){var r=cv.getBoundingClientRect();dpr=window.devicePixelRatio||1;W=r.width;H=r.height;cv.width=W*dpr;cv.height=H*dpr;cx.setTransform(dpr,0,0,dpr,0,0);}
+window.addEventListener('resize',resize);resize();
+var s=1,t1=[[s,s,s],[s,-s,-s],[-s,s,-s],[-s,-s,s]],t2=[[-s,-s,-s],[-s,s,s],[s,-s,s],[s,s,-s]];
+var all=t1.concat(t2),e6=[[0,1],[0,2],[0,3],[1,2],[1,3],[2,3]];
+var rotY=0,rotX=0.35;
+function proj(p){var x=p[0],y=p[1],z=p[2],cy=Math.cos(rotY),sy=Math.sin(rotY),x1=x*cy-z*sy,z1=x*sy+z*cy,c2=Math.cos(rotX),s2=Math.sin(rotX),y1=y*c2-z1*s2,z2=y*s2+z1*c2,sc=Math.min(W,H)*0.18,d=3+z2;return{x:W/2+x1*sc/d*2,y:H/2+y1*sc/d*2,d:d};}
+// Highlight one edge as "the bond" — pulsing bright, the two vertices connected
+var bondEdge=0; // edge [0,1] in tetra 1
+function draw(){
+  cx.clearRect(0,0,W,H);rotY+=0.003;
+  var time=Date.now()*0.001;
+  // Bond distance oscillates slightly (vibration)
+  var vibration=Math.sin(time*4)*0.06;
+
+  // Dim tetra 2
+  cx.strokeStyle='rgba(189,110,55,0.12)';cx.lineWidth=0.8;
+  for(var i=0;i<e6.length;i++){var a=proj(t2[e6[i][0]]),b=proj(t2[e6[i][1]]);cx.beginPath();cx.moveTo(a.x,a.y);cx.lineTo(b.x,b.y);cx.stroke();}
+
+  // Tetra 1 — dim all edges except the bond
+  for(var i=0;i<e6.length;i++){
+    var isBond=(i===bondEdge);
+    var v0=t1[e6[i][0]].slice(),v1=t1[e6[i][1]].slice();
+    if(isBond){
+      // Vibrate bond vertices slightly apart/together
+      for(var d=0;d<3;d++){var mid=(v0[d]+v1[d])/2;v0[d]=mid+(v0[d]-mid)*(1+vibration);v1[d]=mid+(v1[d]-mid)*(1+vibration);}
+    }
+    var a=proj(v0),b=proj(v1);
+    if(isBond){
+      // Glowing bond edge
+      var bondAlpha=0.6+Math.sin(time*2)*0.2;
+      cx.strokeStyle='rgba(74,220,153,'+bondAlpha+')';
+      cx.lineWidth=3;
+      cx.shadowColor='rgba(74,220,153,0.4)';cx.shadowBlur=12;
+    }else{
+      cx.strokeStyle='rgba(201,164,74,0.15)';cx.lineWidth=0.8;
+      cx.shadowBlur=0;
+    }
+    cx.beginPath();cx.moveTo(a.x,a.y);cx.lineTo(b.x,b.y);cx.stroke();
+    cx.shadowBlur=0;
+  }
+
+  // Vertices — highlight the two bonded ones
+  for(var i=0;i<8;i++){
+    var p=proj(all[i]);
+    var col=i<4?'201,164,74':'189,110,55';
+    var bs=5*(2/p.d);
+    var isBonded=(i===e6[bondEdge][0]||i===e6[bondEdge][1]);
+    if(i>=4){
+      // Dim tetra 2 vertices
+      cx.beginPath();cx.arc(p.x,p.y,bs*0.6,0,Math.PI*2);
+      cx.fillStyle='rgba('+col+',0.15)';cx.fill();
+      continue;
+    }
+    if(isBonded){
+      var grd=cx.createRadialGradient(p.x,p.y,0,p.x,p.y,bs*3);
+      grd.addColorStop(0,'rgba(74,220,153,0.2)');grd.addColorStop(1,'rgba(74,220,153,0)');
+      cx.fillStyle=grd;cx.beginPath();cx.arc(p.x,p.y,bs*3,0,Math.PI*2);cx.fill();
+      cx.beginPath();cx.arc(p.x,p.y,bs*1.2,0,Math.PI*2);
+      cx.fillStyle='rgba(74,220,153,'+(0.5+Math.sin(time*2)*0.2)+')';cx.fill();
+      // Label
+      cx.font='9px Futura,sans-serif';cx.textAlign='center';
+      cx.fillStyle='rgba(74,220,153,0.4)';
+      cx.fillText(i===0?'atom A':'atom B',p.x,p.y-bs-8);
+    }else{
+      cx.beginPath();cx.arc(p.x,p.y,bs,0,Math.PI*2);
+      cx.fillStyle='rgba('+col+',0.2)';cx.fill();
+    }
+  }
+  // Bond energy label
+  var K=3.8+Math.sin(time*4)*0.2;
+  cx.font='9px Courier New,monospace';cx.textAlign='center';
+  cx.fillStyle='rgba(74,220,153,0.35)';
+  cx.fillText('K(bond) = '+K.toFixed(2)+' eV',W/2,H-10);
+  requestAnimationFrame(draw);
+}
+draw();
+})();
+</script>
 </body>
 </html>
