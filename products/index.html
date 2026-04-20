@@ -8,361 +8,538 @@
 <link rel="icon" href="/favicon.png">
 <style>
 *{margin:0;padding:0;box-sizing:border-box;}
-body{background:#08080d;color:#a09585;font-family:Georgia,serif;min-height:100vh;}
-a{color:inherit;text-decoration:none;}
-.page{max-width:720px;margin:0 auto;padding:30px 20px 80px;}
-.back{font-size:0.75em;color:#444;margin-bottom:30px;display:block;}
-h1{font-family:Futura,'Century Gothic',Avenir,'Avenir Next',system-ui,sans-serif;font-size:1.8em;font-weight:200;letter-spacing:0.12em;color:transparent;background:linear-gradient(137.5deg,#0d2e0d,#1a5a1a 25%,#2d7a2d 45%,#3d9a3d 50%,#2d7a2d 55%,#1a5a1a 75%,#0d2e0d);background-size:200% 100%;-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;filter:drop-shadow(0 1px 1px rgba(0,0,0,0.5)) drop-shadow(0 2px 4px rgba(0,0,0,0.25)) drop-shadow(0 0 12px rgba(45,122,45,0.12));animation:glassShift 6.472s ease-in-out infinite;}
-.sub{font-size:0.82em;color:#666;text-align:center;margin-bottom:36px;line-height:1.7;}
-.grid{display:flex;flex-direction:column;gap:6px;}
-.card{display:flex;align-items:center;gap:16px;padding:14px 16px;
-  background:#0a0a12;border:1px solid #ffffff06;border-radius:10px;
-  cursor:pointer;transition:all 0.35s ease;position:relative;overflow:hidden;}
-.card:hover{border-color:#bd6e3720;background:#0c0c16;transform:translateY(-1px);}
-.card:hover .card-name{color:#bd6e37;}
-.card canvas{flex-shrink:0;border-radius:6px;}
-.card-text{flex:1;min-width:0;}
-.card-name{font-family:Futura,'Century Gothic',system-ui,sans-serif;font-size:0.92em;
-  font-weight:200;color:#ccc;letter-spacing:0.06em;transition:color 0.3s;margin-bottom:2px;}
-.card-desc{font-size:0.72em;color:#555;line-height:1.6;}
-.pip{font-family:'Courier New',monospace;font-size:0.78em;color:#888;text-align:center;
-  margin:36px 0 0;padding:14px;background:#0a0a12;border:1px solid #ffffff06;border-radius:8px;}
-.pip a{color:#bd6e37;}
-.foot{text-align:center;color:#555;font-size:0.62em;margin-top:40px;}
-.foot a{color:#666;}
-.foot a:hover{color:#bd6e37;}
+body{background:#08080d;color:#e8e4dc;font-family:Georgia,serif;min-height:100vh;overflow:hidden;}
+canvas{display:block;position:fixed;top:0;left:0;width:100%;height:100%;}
+.info{position:fixed;bottom:30px;left:50%;transform:translateX(-50%);
+  font-size:0.72em;color:#444;text-align:center;pointer-events:none;
+  transition:opacity 0.5s;}
+.hover-panel{position:fixed;top:50%;right:40px;transform:translateY(-50%);
+  max-width:280px;padding:20px 24px;background:rgba(10,10,18,0.92);
+  border:1px solid rgba(255,255,255,0.06);border-radius:12px;
+  opacity:0;transition:opacity 0.4s;pointer-events:none;}
+.hover-panel.show{opacity:1;}
+.hover-panel h3{font-family:Futura,'Century Gothic',system-ui,sans-serif;
+  font-size:1em;font-weight:200;color:#c9a44a;letter-spacing:0.06em;margin:0 0 8px;}
+.hover-panel p{font-size:0.78em;color:#888;line-height:1.7;margin:0;}
+.hover-panel .hint{font-size:0.65em;color:#555;margin-top:12px;font-style:italic;}
+.back{position:fixed;top:20px;left:20px;font-size:0.72em;color:#444;z-index:10;}
+.back:hover{color:#c9a44a;}
+a{color:#c9a44a;text-decoration:none;}
 </style>
 </head>
 <body>
-<div class="page">
 <a class="back" href="/">&larr; GUMP</a>
-
-<h1>Tools</h1>
-<div class="sub">Every tool has example data loaded. Click one, press Run, see what happens. Then paste your own. Nothing leaves your browser.</div>
-
-<a href="/tryit/" style="display:block;text-align:center;margin:0 0 20px;padding:14px 20px;background:#0a0a12;border:1px solid #bd6e3720;border-radius:10px;font-family:Futura,'Century Gothic',system-ui,sans-serif;font-size:0.88em;color:#bd6e37;letter-spacing:0.06em;transition:all 0.3s;text-decoration:none;">Don't know which tool? Drop any data &mdash; we figure it out &rarr;</a>
-
-<div class="grid" id="grid"></div>
-
-<div class="pip">
-  pip install begump<br>
-  <span style="font-size:0.85em;color:#555;">everything is free &middot; <a href="/docs/" style="color:#666;">docs</a> &middot; <a href="/support/">support the work</a></span>
-</div>
-
-<div class="foot">
-  <a href="/">GUMP</a> &mdash; <a href="/research/">Research</a> &middot; <a href="/support/">Support</a> &middot; <a href="mailto:jim@begump.com">jim@begump.com</a>
-</div>
+<canvas id="cv"></canvas>
+<div class="info">drag to rotate &middot; hover a node &middot; click to enter</div>
+<div class="hover-panel" id="panel">
+  <h3 id="panel-name"></h3>
+  <p id="panel-desc"></p>
+  <div class="hint">click to open</div>
 </div>
 
 <script>
+var cv = document.getElementById('cv');
+var cx = cv.getContext('2d');
+var panel = document.getElementById('panel');
+var panelName = document.getElementById('panel-name');
+var panelDesc = document.getElementById('panel-desc');
+
+// Tools as coupled nodes in 3D space
 var tools = [
-  {name:'Fold Watch', desc:'Example: human hemoglobin. Press Run to see how it folds. 11.5M/sec on GPU. <code>keystones()</code> finds destabilization targets. Try your own from <a href="https://www.uniprot.org/" target="_blank" onclick="event.stopPropagation()">UniProt</a>.', href:'/products/foldwatch/', anim:'fold'},
-  {name:'Oracle', desc:'Example: a zigzag signal. Press Run to see the hidden frequency and where it goes next. Try stock prices from <a href="https://finance.yahoo.com/" target="_blank" onclick="event.stopPropagation()">Yahoo Finance</a> or your own data.', href:'/products/oracle/', anim:'wave'},
-  {name:'Universal Sensor', desc:'Example: heartbeat-like data. Press Run to see four numbers that describe it. Try any numbers \u2014 temperature, sales, steps, anything.', href:'/products/sensor/', anim:'pulse'},
-  {name:'Tune', desc:'Example: a signal that loses coherence halfway. Press Run to see where the tune breaks. The drum tuner\u2019s algorithm. <code>detect()</code> finds critical coupling. <code>decoherence()</code> warns before failure (both directions). No training data.', href:'/docs/#tune', anim:'pulse'},
-  {name:'Dissonance', desc:'Example: steady metrics that suddenly spike. Press Run to see exactly where the behavior changed. Try server logs, error counts, any monitoring data.', href:'/products/dissonance/', anim:'shift'},
-  {name:'Trace', desc:'Example: money flowing between people. Press Run to see it comes back in a circle. Try any transactions from a spreadsheet (from,to,amount).', href:'/products/trace/', anim:'circle'},
-  {name:'Knowledge Engine', desc:'Example: a paragraph about music and the brain. Press Run to see what connects to what. Paste any text \u2014 an article, notes, a report.', href:'/products/knowledge/', anim:'graph'},
-  {name:'Org X-Ray', desc:'Example: a small team\u2019s connections. Press Run to see who\u2019s the real hub. Paste who talks to who from Slack, email, or meetings (name,name).', href:'/products/orgxray/', anim:'net'},
-  {name:'Accord', desc:'Example: security and privacy rules. Press Run to see gap analysis. Paste your own company policies, SOC 2 controls, or HIPAA rules (category|requirement).', href:'/products/accord/', anim:'bars'},
-  {name:'AI Trainer', desc:'Example: two models learning. Press Run to see which one grokked. Paste training loss from PyTorch, TensorFlow, or any logger (one model per line).', href:'/products/aitrainer/', anim:'grok'},
-  {name:'Learn Engine', desc:'Example: a student\u2019s quiz answers. Press Run to see when they actually got it. Paste any sequence of right/wrong (1,0,1,1,1...).', href:'/products/learnengine/', anim:'step'},
-  {name:'Turbo', desc:'Example: K(3) + R(5) * T(2). Press Run. Four operators that describe coupling. Type your own expression.', href:'/products/turbo/', anim:'compress'},
-  {name:'Chip Fast', desc:'Example: 6 logic gates. Press Run to see them placed optimally. <code>place()</code> minimizes wire. <code>isolate()</code> maximizes security boundaries. Same math, opposite goals.', href:'/products/chipfast/', anim:'grid'},
-  {name:'Sfumato', desc:'Example: a paragraph about coupling. Press Run to see how much it compresses. Paste any text \u2014 try the same sentence twice and watch the ratio change.', href:'/products/sfumato/', anim:'layers'},
-  {name:"Alan\u2019s Eye", desc:'Pick two colors and press Match. See how close they are and what to adjust. <a href="/tools/color/" onclick="event.stopPropagation()">Full tool</a> has OEM codes, mix, blend, dry times.', href:'/products/alans-eye/', anim:'blend'}
+  {name:'Fold Watch', short:'Protein structure. 11.5M/sec. Keystones.', href:'/products/foldwatch/', group:0},
+  {name:'Oracle', short:'Hidden frequencies. Prediction. Prime counting.', href:'/products/oracle/', group:1},
+  {name:'Sensor', short:'K/R/E/T from any signal. Four numbers.', href:'/products/sensor/', group:1},
+  {name:'Tune', short:'Coherence onset. Decoherence warning. No training.', href:'/docs/#tune', group:1},
+  {name:'Dissonance', short:'Regime change detection. Where behavior shifted.', href:'/products/dissonance/', group:1},
+  {name:'Trace', short:'Follow the money. Find the circle. Spectral forensics.', href:'/products/trace/', group:2},
+  {name:'Knowledge', short:'Text to graph. What connects to what.', href:'/products/knowledge/', group:2},
+  {name:'Org X-Ray', short:'Who is the real hub. Network centrality.', href:'/products/orgxray/', group:2},
+  {name:'Accord', short:'Gap analysis. Compliance as coupling.', href:'/products/accord/', group:2},
+  {name:'AI Trainer', short:'Detect grokking. When the model actually learns.', href:'/products/aitrainer/', group:3},
+  {name:'Learn Engine', short:'When the student gets it. Phase transition in understanding.', href:'/products/learnengine/', group:3},
+  {name:'Turbo', short:'K/R/E/T algebra. Four operators. Direct computation.', href:'/products/turbo/', group:3},
+  {name:'Chip Fast', short:'Place gates. Isolate boundaries. Same Laplacian, both goals.', href:'/products/chipfast/', group:0},
+  {name:'Sfumato', short:'Compression as understanding. Repetition vanishes.', href:'/products/sfumato/', group:3},
+  {name:"Alan's Eye", short:'Color matching. OEM codes. Mix, blend, dry.', href:'/products/alans-eye/', group:2},
 ];
 
-var W=64, H=40;
-var canvases = [];
+// Connections between related tools (coupling)
+var edges = [
+  [0, 12],  // FoldWatch ↔ ChipFast (same math)
+  [1, 2],   // Oracle ↔ Sensor
+  [2, 3],   // Sensor ↔ Tune
+  [3, 4],   // Tune ↔ Dissonance
+  [5, 7],   // Trace ↔ OrgXRay
+  [6, 7],   // Knowledge ↔ OrgXRay
+  [9, 10],  // AITrainer ↔ LearnEngine
+  [2, 11],  // Sensor ↔ Turbo
+  [0, 3],   // FoldWatch ↔ Tune (coherence in biology)
+  [5, 12],  // Trace ↔ ChipFast (network math)
+];
 
-function buildCards() {
-  var grid = document.getElementById('grid');
-  tools.forEach(function(t, i) {
-    var card = document.createElement('a');
-    card.className = 'card';
-    card.href = t.href;
-    var c = document.createElement('canvas');
-    c.width = W; c.height = H;
-    c.style.width = W+'px'; c.style.height = H+'px';
-    card.appendChild(c);
-    var txt = document.createElement('div');
-    txt.className = 'card-text';
-    txt.innerHTML = '<div class="card-name">'+t.name+'</div><div class="card-desc">'+t.desc+'</div>';
-    card.appendChild(txt);
-    grid.appendChild(card);
-    canvases.push({ctx: c.getContext('2d'), anim: t.anim, phase: Math.random()*Math.PI*2});
-  });
+// Group colors
+var groupColors = [
+  [201, 164, 74],   // 0: gold (structure)
+  [74, 153, 153],   // 1: teal (signal)
+  [189, 110, 55],   // 2: copper (network)
+  [120, 90, 160],   // 3: violet (learning)
+];
+
+// Each tool has TWO states: LIST position and CLOVER position
+// transition blend goes 0 → 1 over time
+var N = tools.length;
+var transition = 0; // 0 = list, 1 = clover
+var transitionStart = -1;
+var TRANSITION_DURATION = 2.5; // seconds to morph
+
+tools.forEach(function(t, i) {
+  // CLOVER target position (four-leaf rose curve)
+  var theta = (i / N) * Math.PI * 2;
+  var r = Math.abs(Math.cos(2 * theta)) * 0.85 + 0.15;
+  t.cloverX = r * Math.cos(theta);
+  t.cloverY = r * Math.sin(theta);
+  t.cloverZ = Math.sin(4 * theta) * 0.3;
+
+  // LIST start position (stacked vertically, centered, flat)
+  t.listX = 0;
+  t.listY = (i - N/2 + 0.5) / (N/2) * 0.8; // spread vertically
+  t.listZ = 0;
+
+  // Current interpolated position
+  t.x = t.listX;
+  t.y = t.listY;
+  t.z = t.listZ;
+  t.sx = 0; t.sy = 0;
+  t.size = 6;
+  t.hover = false;
+});
+
+// Rotation state
+var rotX = 0.3, rotY = 0;
+var dragX = 0, dragY = 0, dragging = false;
+var autoRotate = true;
+var hoverIdx = -1;
+var lastMx = -999, lastMy = -999;
+var W, H;
+
+function resize() {
+  var dpr = window.devicePixelRatio || 1;
+  W = window.innerWidth;
+  H = window.innerHeight;
+  cv.width = W * dpr;
+  cv.height = H * dpr;
+  cx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+window.addEventListener('resize', resize);
+resize();
+
+// Project 3D → 2D with rotation
+function project(x, y, z) {
+  // Rotate around Y
+  var cosY = Math.cos(rotY), sinY = Math.sin(rotY);
+  var x1 = x * cosY - z * sinY;
+  var z1 = x * sinY + z * cosY;
+  // Rotate around X
+  var cosX = Math.cos(rotX), sinX = Math.sin(rotX);
+  var y1 = y * cosX - z1 * sinX;
+  var z2 = y * sinX + z1 * cosX;
+  // Perspective
+  var scale = 200 + z2 * 50;
+  var fov = Math.min(W, H) * 0.35;
+  return {
+    sx: W/2 + x1 * fov / (scale/200),
+    sy: H/2 + y1 * fov / (scale/200),
+    depth: z2,
+    scale: scale / 200
+  };
 }
 
-function draw(time) {
-  var t = time * 0.001;
-  canvases.forEach(function(c) {
-    var ctx = c.ctx;
-    var p = c.phase;
-    ctx.clearRect(0, 0, W, H);
+function draw() {
+  cx.fillStyle = '#08080d';
+  cx.fillRect(0, 0, W, H);
 
-    if (c.anim === 'fold') {
-      // chain of dots folding
-      var pts = 8;
-      for (var i = 0; i < pts; i++) {
-        var angle = (i / pts) * Math.PI * 1.5 + t * 0.4 + p;
-        var r = 12 + Math.sin(t * 0.3 + i * 0.8) * 6;
-        var x = W/2 + Math.cos(angle) * r;
-        var y = H/2 + Math.sin(angle) * r * 0.7;
-        ctx.beginPath();
-        ctx.arc(x, y, 1.8, 0, Math.PI*2);
-        ctx.fillStyle = 'rgba(201,164,74,' + (0.3 + 0.5 * (i/pts)) + ')';
-        ctx.fill();
-        if (i > 0) {
-          var pa = ((i-1) / pts) * Math.PI * 1.5 + t * 0.4 + p;
-          var pr = 12 + Math.sin(t * 0.3 + (i-1) * 0.8) * 6;
-          ctx.beginPath();
-          ctx.moveTo(W/2 + Math.cos(pa)*pr, H/2 + Math.sin(pa)*pr*0.7);
-          ctx.lineTo(x, y);
-          ctx.strokeStyle = 'rgba(201,164,74,0.12)';
-          ctx.lineWidth = 0.5;
-          ctx.stroke();
-        }
-      }
+  // Update transition — STAGGERED IN PAIRS
+  // Pairs peel off one at a time: [0,7], [1,8], [2,9], [3,10], [4,11], [5,12], [6,13], [14]
+  var now = Date.now() * 0.001;
+  if (transitionStart < 0) transitionStart = now + 3; // start after 3s
+
+  // Each pair gets its own transition with 0.4s delay between pairs
+  var PAIR_DELAY = 0.4; // seconds between each pair launching
+  var PAIR_DURATION = 1.8; // seconds for one pair to complete its morph
+
+  // Global transition (max of all individual transitions)
+  var maxT = 0;
+  tools.forEach(function(t, i) {
+    // Pair index: first half pairs with second half (0↔7, 1↔8, etc)
+    var pairIdx = i < Math.ceil(N/2) ? i : i - Math.ceil(N/2);
+    var pairStart = transitionStart + pairIdx * PAIR_DELAY;
+    var elapsed = now - pairStart;
+    if (elapsed > 0) {
+      var raw = Math.min(elapsed / PAIR_DURATION, 1);
+      t.t = raw < 0.5 ? 2*raw*raw : 1 - Math.pow(-2*raw+2, 2)/2; // ease in-out
+    } else {
+      t.t = 0;
     }
-    else if (c.anim === 'wave') {
-      // sine wave with dotted projection
-      ctx.beginPath();
-      for (var i = 0; i < 44; i++) {
-        var x = i * (W/44);
-        var y = H/2 + Math.sin(i*0.3 + t*1.2 + p) * 10;
-        i === 0 ? ctx.moveTo(x,y) : ctx.lineTo(x,y);
-      }
-      ctx.strokeStyle = 'rgba(74,170,153,0.5)';
-      ctx.lineWidth = 1;
-      ctx.stroke();
-      // projection dots
-      for (var i = 44; i < 54; i++) {
-        var x = i * (W/44);
-        if (x > W) break;
-        var y = H/2 + Math.sin(i*0.3 + t*1.2 + p) * 10;
-        ctx.beginPath();
-        ctx.arc(x, y, 0.8, 0, Math.PI*2);
-        ctx.fillStyle = 'rgba(201,164,74,0.3)';
-        ctx.fill();
-      }
-    }
-    else if (c.anim === 'pulse') {
-      // four coupled oscillators
-      var labels = ['K','R','E','T'];
-      var colors = ['#bd6e37','#4a9','#94c','#c94'];
-      for (var i = 0; i < 4; i++) {
-        var x = 10 + i * 15;
-        var h = 6 + Math.sin(t * (0.8 + i*0.3) + p + i) * 5;
-        ctx.fillStyle = colors[i] + '60';
-        ctx.fillRect(x, H/2 - h, 8, h*2);
-        ctx.fillStyle = colors[i] + '30';
-        ctx.font = '6px sans-serif';
-        ctx.fillText(labels[i], x+1.5, H-3);
-      }
-    }
-    else if (c.anim === 'shift') {
-      // stable line then sudden shift
-      ctx.beginPath();
-      var shiftPt = 36 + Math.sin(t*0.2+p)*8;
-      for (var i = 0; i < W; i++) {
-        var base = i < shiftPt ? H*0.55 : H*0.3;
-        var noise = Math.sin(i*2.1+t*2+p) * 2;
-        var y = base + noise;
-        i === 0 ? ctx.moveTo(i,y) : ctx.lineTo(i,y);
-      }
-      ctx.strokeStyle = 'rgba(74,170,153,0.4)';
-      ctx.lineWidth = 1;
-      ctx.stroke();
-      // shift marker
-      ctx.beginPath();
-      ctx.moveTo(shiftPt, 4); ctx.lineTo(shiftPt, H-4);
-      ctx.strokeStyle = 'rgba(201,148,74,0.3)';
-      ctx.setLineDash([2,2]);
-      ctx.stroke();
-      ctx.setLineDash([]);
-    }
-    else if (c.anim === 'circle') {
-      // dots flowing in a circle
-      var n = 6;
-      for (var i = 0; i < n; i++) {
-        var angle = (i/n)*Math.PI*2 + t*0.6 + p;
-        var x = W/2 + Math.cos(angle)*14;
-        var y = H/2 + Math.sin(angle)*12;
-        ctx.beginPath();
-        ctx.arc(x, y, 2, 0, Math.PI*2);
-        ctx.fillStyle = 'rgba(201,164,74,'+(0.2+0.5*((i+1)/n))+')';
-        ctx.fill();
-      }
-      // arrows
-      for (var i = 0; i < n; i++) {
-        var a1 = (i/n)*Math.PI*2 + t*0.6 + p;
-        var a2 = ((i+1)/n)*Math.PI*2 + t*0.6 + p;
-        ctx.beginPath();
-        ctx.moveTo(W/2+Math.cos(a1)*14, H/2+Math.sin(a1)*12);
-        ctx.lineTo(W/2+Math.cos(a2)*14, H/2+Math.sin(a2)*12);
-        ctx.strokeStyle = 'rgba(201,164,74,0.1)';
-        ctx.lineWidth = 0.5;
-        ctx.stroke();
-      }
-    }
-    else if (c.anim === 'graph') {
-      // nodes with edges appearing
-      var nodes = [[12,12],[52,10],[32,H-10],[10,H-6],[54,H-8],[32,14]];
-      var edges = [[0,1],[1,5],[5,0],[2,3],[3,0],[4,1],[2,4]];
-      var vis = Math.floor((t*0.4+p)%edges.length);
-      for (var i = 0; i <= vis; i++) {
-        var e = edges[i % edges.length];
-        ctx.beginPath();
-        ctx.moveTo(nodes[e[0]][0], nodes[e[0]][1]);
-        ctx.lineTo(nodes[e[1]][0], nodes[e[1]][1]);
-        ctx.strokeStyle = 'rgba(74,170,153,'+(i===vis?0.5:0.12)+')';
-        ctx.lineWidth = 0.5;
-        ctx.stroke();
-      }
-      nodes.forEach(function(n) {
-        ctx.beginPath();
-        ctx.arc(n[0], n[1], 1.5, 0, Math.PI*2);
-        ctx.fillStyle = 'rgba(201,164,74,0.4)';
-        ctx.fill();
-      });
-    }
-    else if (c.anim === 'net') {
-      // hub and spoke
-      var hub = [W/2, H/2];
-      var spokes = 6;
-      for (var i = 0; i < spokes; i++) {
-        var angle = (i/spokes)*Math.PI*2 + t*0.15 + p;
-        var r = 14 + Math.sin(t*0.5+i+p)*3;
-        var x = hub[0]+Math.cos(angle)*r;
-        var y = hub[1]+Math.sin(angle)*r*0.8;
-        ctx.beginPath();
-        ctx.moveTo(hub[0], hub[1]);
-        ctx.lineTo(x, y);
-        ctx.strokeStyle = 'rgba(201,164,74,0.12)';
-        ctx.lineWidth = 0.5;
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.arc(x, y, 1.5, 0, Math.PI*2);
-        ctx.fillStyle = 'rgba(74,170,153,0.4)';
-        ctx.fill();
-      }
-      ctx.beginPath();
-      ctx.arc(hub[0], hub[1], 2.5, 0, Math.PI*2);
-      ctx.fillStyle = 'rgba(201,164,74,0.5)';
-      ctx.fill();
-    }
-    else if (c.anim === 'bars') {
-      // two sets of bars aligning
-      for (var i = 0; i < 5; i++) {
-        var h1 = 6 + i*3;
-        var h2 = h1 + Math.sin(t*0.5+i+p)*4;
-        var gap = Math.abs(h1-h2);
-        var col = gap < 2 ? 'rgba(74,170,153,0.4)' : 'rgba(201,148,74,0.3)';
-        ctx.fillStyle = 'rgba(201,164,74,0.15)';
-        ctx.fillRect(4+i*12, H-4-h1, 4, h1);
-        ctx.fillStyle = col;
-        ctx.fillRect(9+i*12, H-4-h2, 4, h2);
-      }
-    }
-    else if (c.anim === 'grok') {
-      // loss curve with sudden drop
-      ctx.beginPath();
-      var grokPt = 38 + Math.sin(t*0.15+p)*6;
-      for (var i = 0; i < W; i++) {
-        var y;
-        if (i < grokPt) {
-          y = 10 + Math.sin(i*0.15+p)*3 + (i/grokPt)*4;
-        } else {
-          var decay = (i-grokPt)*0.15;
-          y = 14 + 18*(1-Math.exp(-decay));
-        }
-        i === 0 ? ctx.moveTo(i,y) : ctx.lineTo(i,y);
-      }
-      ctx.strokeStyle = 'rgba(74,170,153,0.5)';
-      ctx.lineWidth = 1;
-      ctx.stroke();
-    }
-    else if (c.anim === 'step') {
-      // phase transition step
-      ctx.beginPath();
-      var stepPt = 30 + Math.sin(t*0.25+p)*8;
-      for (var i = 0; i < W; i++) {
-        var y;
-        if (i < stepPt-3) y = H*0.7 + Math.sin(i*0.5+t+p)*1.5;
-        else if (i > stepPt+3) y = H*0.25 + Math.sin(i*0.5+t+p)*1.5;
-        else {
-          var frac = (i-(stepPt-3))/6;
-          y = H*0.7*(1-frac) + H*0.25*frac;
-        }
-        i === 0 ? ctx.moveTo(i,y) : ctx.lineTo(i,y);
-      }
-      ctx.strokeStyle = 'rgba(201,164,74,0.45)';
-      ctx.lineWidth = 1;
-      ctx.stroke();
-    }
-    else if (c.anim === 'compress') {
-      // shrinking bar
-      var w = 40 + Math.sin(t*0.6+p)*12;
-      ctx.fillStyle = 'rgba(201,164,74,0.15)';
-      ctx.fillRect(W/2-20, H/2-6, 40, 12);
-      ctx.fillStyle = 'rgba(74,170,153,0.4)';
-      ctx.fillRect(W/2-w/2, H/2-6, w, 12);
-      // arrows pointing in
-      ctx.strokeStyle = 'rgba(201,164,74,0.25)';
-      ctx.lineWidth = 0.8;
-      ctx.beginPath(); ctx.moveTo(4,H/2); ctx.lineTo(W/2-w/2-2,H/2); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(W-4,H/2); ctx.lineTo(W/2+w/2+2,H/2); ctx.stroke();
-    }
-    else if (c.anim === 'grid') {
-      // dots settling into grid
-      var cols=5, rows=3;
-      for (var r=0; r<rows; r++) {
-        for (var cc=0; cc<cols; cc++) {
-          var tx = 10+cc*11, ty = 8+r*12;
-          var jitter = Math.sin(t*0.8+r*3+cc*5+p)*3*Math.exp(-t*0.02%1);
-          ctx.beginPath();
-          ctx.arc(tx+jitter, ty+jitter*0.7, 1.5, 0, Math.PI*2);
-          ctx.fillStyle = 'rgba(201,164,74,'+(0.2+0.2*Math.sin(t+r+cc+p))+')';
-          ctx.fill();
-        }
-      }
-    }
-    else if (c.anim === 'layers') {
-      // stacked layers compressing
-      var n = 5;
-      var squeeze = 2 + Math.sin(t*0.5+p)*1.5;
-      for (var i = 0; i < n; i++) {
-        var y = H/2 + (i - n/2) * squeeze;
-        ctx.fillStyle = 'rgba(74,170,153,'+(0.08+0.08*i)+')';
-        ctx.fillRect(12, y-1, W-24, 2);
-      }
-    }
-    else if (c.anim === 'blend') {
-      // two colors blending
-      var r1=26,g1=60,b1=110;
-      var r2=30+Math.sin(t*0.4+p)*20|0, g2=68+Math.sin(t*0.3+p)*20|0, b2=120+Math.sin(t*0.5+p)*15|0;
-      ctx.fillStyle = 'rgb('+r1+','+g1+','+b1+')';
-      ctx.fillRect(4, 8, 22, H-16);
-      ctx.fillStyle = 'rgb('+r2+','+g2+','+b2+')';
-      ctx.fillRect(W-26, 8, 22, H-16);
-      // blend in middle
-      for (var i = 0; i < 12; i++) {
-        var frac = i/12;
-        var rm = Math.round(r1*(1-frac)+r2*frac);
-        var gm = Math.round(g1*(1-frac)+g2*frac);
-        var bm = Math.round(b1*(1-frac)+b2*frac);
-        ctx.fillStyle = 'rgb('+rm+','+gm+','+bm+')';
-        ctx.fillRect(28+i*1.2, 12, 2, H-24);
-      }
-    }
+    if (t.t > maxT) maxT = t.t;
   });
+  transition = maxT; // for global uses (rotation, etc)
+
+  // Auto-rotate (ramps up as pairs launch)
+  if (autoRotate && !dragging) {
+    rotY += 0.002 * transition;
+  }
+
+  // Interpolate positions per-tool (each has its own t)
+  tools.forEach(function(t) {
+    var ease = t.t;
+    t.x = t.listX + (t.cloverX - t.listX) * ease;
+    t.y = t.listY + (t.cloverY - t.listY) * ease;
+    t.z = t.listZ + (t.cloverZ - t.listZ) * ease;
+
+    var p = project(t.x, t.y, t.z);
+    t.sx = p.sx;
+    t.sy = p.sy;
+    t.depth = p.depth;
+    t.screenScale = p.scale;
+  });
+
+  // Sort by depth (back to front)
+  var order = tools.map(function(t, i) { return i; });
+  order.sort(function(a, b) { return tools[a].depth - tools[b].depth; });
+
+  // CENTER NODE: "Drop any data" — always at origin
+  var centerP = project(0, 0, 0);
+  var centerSize = 10 + Math.sin(now * 0.6) * 2;
+  var centerHover = false;
+  var cdx = (typeof lastMx !== 'undefined') ? lastMx - centerP.sx : 999;
+  var cdy = (typeof lastMy !== 'undefined') ? lastMy - centerP.sy : 999;
+  if (cdx*cdx + cdy*cdy < (centerSize+15)*(centerSize+15)) {
+    centerHover = true;
+    if (hoverIdx < 0) {
+      panelName.textContent = 'Drop Any Data';
+      panelDesc.textContent = "Don\u2019t know which tool? Drop anything \u2014 we figure it out.";
+      panel.classList.add('show');
+      cv.style.cursor = 'pointer';
+    }
+  }
+
+  // Center glow
+  var cgrd = cx.createRadialGradient(centerP.sx, centerP.sy, 0, centerP.sx, centerP.sy, centerSize * 4);
+  cgrd.addColorStop(0, 'rgba(201,164,74,' + (centerHover ? 0.2 : 0.08) + ')');
+  cgrd.addColorStop(1, 'rgba(201,164,74,0)');
+  cx.fillStyle = cgrd;
+  cx.beginPath(); cx.arc(centerP.sx, centerP.sy, centerSize * 4, 0, Math.PI*2); cx.fill();
+
+  // Center blob (smaller, gold, pulsing)
+  cx.beginPath();
+  var cpts = 24;
+  for (var ci = 0; ci <= cpts; ci++) {
+    var ca = (ci/cpts) * Math.PI * 2;
+    var cr = centerSize + Math.sin(ca * 5 + now * 1.5) * centerSize * 0.2 + Math.sin(ca * 3 - now * 2) * centerSize * 0.1;
+    var cpx = centerP.sx + Math.cos(ca) * cr;
+    var cpy = centerP.sy + Math.sin(ca) * cr;
+    ci === 0 ? cx.moveTo(cpx, cpy) : cx.lineTo(cpx, cpy);
+  }
+  cx.closePath();
+  var cbg = cx.createRadialGradient(centerP.sx - 2, centerP.sy - 2, 0, centerP.sx, centerP.sy, centerSize * 1.3);
+  cbg.addColorStop(0, 'rgba(255,220,140,' + (centerHover ? 0.9 : 0.6) + ')');
+  cbg.addColorStop(0.5, 'rgba(201,164,74,' + (centerHover ? 0.7 : 0.45) + ')');
+  cbg.addColorStop(1, 'rgba(140,100,40,' + (centerHover ? 0.5 : 0.3) + ')');
+  cx.fillStyle = cbg; cx.fill();
+
+  // Center label (only when transition complete)
+  if (transition > 0.8) {
+    cx.font = '9px Futura, sans-serif';
+    cx.fillStyle = 'rgba(201,164,74,' + (centerHover ? 0.9 : 0.35) + ')';
+    cx.textAlign = 'center';
+    cx.fillText('drop anything', centerP.sx, centerP.sy + centerSize + 14);
+  }
+
+  // Draw edges
+  edges.forEach(function(e) {
+    var a = tools[e[0]], b = tools[e[1]];
+    var alpha = 0.06 + (hoverIdx === e[0] || hoverIdx === e[1] ? 0.15 : 0);
+    cx.beginPath();
+    cx.moveTo(a.sx, a.sy);
+    cx.lineTo(b.sx, b.sy);
+    cx.strokeStyle = 'rgba(201,164,74,' + alpha + ')';
+    cx.lineWidth = 0.8;
+    cx.stroke();
+  });
+
+  // Draw nodes — ferrofluid blobs
+  var time = Date.now() * 0.001;
+  order.forEach(function(idx) {
+    var t = tools[idx];
+    var col = groupColors[t.group];
+    var baseSize = t.size * t.screenScale;
+    var alpha = 0.3 + t.screenScale * 0.5;
+    var isHover = idx === hoverIdx;
+
+    if (isHover) { baseSize *= 1.8; alpha = 1.0; }
+
+    // Blob only appears as THIS tool's transition progresses
+    var myT = t.t || 0;
+    var blobAlpha = alpha * myT;
+    if (blobAlpha < 0.01) {
+      // Still in list mode for this tool — just draw text
+      var textAlpha2 = isHover ? 0.95 : 0.6;
+      var textSize2 = 13;
+      if (isHover) textSize2 = 15;
+      cx.font = (isHover ? 'bold ' : '200 ') + textSize2 + 'px Futura, sans-serif';
+      cx.fillStyle = 'rgba(232,228,220,' + textAlpha2 + ')';
+      cx.textAlign = 'center';
+      cx.fillText(t.name, t.sx, t.sy + 5);
+      return;
+    }
+    alpha = blobAlpha;
+
+    var lobes = isHover ? 8 : 6; // more detail on hover
+    var spikes = isHover ? 12 : 7;
+
+    // Outer glow — soft, large, breathing
+    var breathe = 1 + Math.sin(time * 0.8 + idx * 1.7) * 0.15;
+    var glowSize = baseSize * 3.5 * breathe;
+    var grd = cx.createRadialGradient(t.sx, t.sy, baseSize * 0.3, t.sx, t.sy, glowSize);
+    grd.addColorStop(0, 'rgba(' + col.join(',') + ',' + (isHover ? 0.25 : 0.08) * alpha + ')');
+    grd.addColorStop(0.5, 'rgba(' + col.join(',') + ',' + (isHover ? 0.1 : 0.03) * alpha + ')');
+    grd.addColorStop(1, 'rgba(' + col.join(',') + ',0)');
+    cx.fillStyle = grd;
+    cx.beginPath();
+    cx.arc(t.sx, t.sy, glowSize, 0, Math.PI * 2);
+    cx.fill();
+
+    // Ferrofluid body — amorphous blob with shifting lobes
+    cx.beginPath();
+    var pts = 36;
+    for (var i = 0; i <= pts; i++) {
+      var angle = (i / pts) * Math.PI * 2;
+      // Multiple frequency distortion (ferrofluid spikes)
+      var r = baseSize;
+      r += Math.sin(angle * spikes + time * 1.3 + idx * 2.1) * baseSize * 0.25;
+      r += Math.sin(angle * (spikes - 2) - time * 0.9 + idx * 0.7) * baseSize * 0.15;
+      r += Math.cos(angle * 3 + time * 2.1 + idx * 4.3) * baseSize * 0.1;
+      // Pulse with breathing
+      r *= breathe;
+
+      var px = t.sx + Math.cos(angle) * r;
+      var py = t.sy + Math.sin(angle) * r;
+      if (i === 0) cx.moveTo(px, py); else cx.lineTo(px, py);
+    }
+    cx.closePath();
+
+    // Fill with radial gradient (metallic sheen)
+    var sheenAngle = time * 0.5 + idx;
+    var sheenX = t.sx + Math.cos(sheenAngle) * baseSize * 0.3;
+    var sheenY = t.sy + Math.sin(sheenAngle) * baseSize * 0.3;
+    var bodyGrd = cx.createRadialGradient(sheenX, sheenY, 0, t.sx, t.sy, baseSize * 1.5);
+    // Bright highlight (metallic reflection point)
+    var hiR = Math.min(255, col[0] + 80);
+    var hiG = Math.min(255, col[1] + 80);
+    var hiB = Math.min(255, col[2] + 80);
+    bodyGrd.addColorStop(0, 'rgba(' + hiR + ',' + hiG + ',' + hiB + ',' + alpha * 0.9 + ')');
+    bodyGrd.addColorStop(0.4, 'rgba(' + col.join(',') + ',' + alpha * 0.8 + ')');
+    // Dark edge (depth)
+    var loR = Math.max(0, col[0] - 60);
+    var loG = Math.max(0, col[1] - 60);
+    var loB = Math.max(0, col[2] - 60);
+    bodyGrd.addColorStop(1, 'rgba(' + loR + ',' + loG + ',' + loB + ',' + alpha * 0.6 + ')');
+    cx.fillStyle = bodyGrd;
+    cx.fill();
+
+    // Inner bright core (energy center)
+    var coreSize = baseSize * 0.3 * (1 + Math.sin(time * 2 + idx * 3) * 0.3);
+    var coreGrd = cx.createRadialGradient(t.sx, t.sy, 0, t.sx, t.sy, coreSize);
+    coreGrd.addColorStop(0, 'rgba(255,255,255,' + alpha * 0.5 + ')');
+    coreGrd.addColorStop(0.5, 'rgba(' + hiR + ',' + hiG + ',' + hiB + ',' + alpha * 0.3 + ')');
+    coreGrd.addColorStop(1, 'rgba(' + col.join(',') + ',0)');
+    cx.fillStyle = coreGrd;
+    cx.beginPath();
+    cx.arc(t.sx, t.sy, coreSize, 0, Math.PI * 2);
+    cx.fill();
+
+    // Tiny orbiting motes (like particles attracted to the blob)
+    if (isHover || t.screenScale > 0.85) {
+      var nMotes = isHover ? 5 : 2;
+      for (var m = 0; m < nMotes; m++) {
+        var mAngle = time * (1.5 + m * 0.4) + idx * 2 + m * Math.PI * 2 / nMotes;
+        var mDist = baseSize * (1.8 + Math.sin(time * 3 + m) * 0.5);
+        var mx = t.sx + Math.cos(mAngle) * mDist;
+        var my = t.sy + Math.sin(mAngle) * mDist * 0.6; // elliptical orbit
+        var mSize = 1.2 + Math.sin(time * 4 + m * 2) * 0.5;
+        cx.beginPath();
+        cx.arc(mx, my, mSize, 0, Math.PI * 2);
+        cx.fillStyle = 'rgba(' + hiR + ',' + hiG + ',' + hiB + ',' + alpha * 0.4 + ')';
+        cx.fill();
+      }
+    }
+
+    // Label — fades as blob forms, stays as small tag in orbit
+    var myT2 = t.t || 0;
+    var textAlpha = isHover ? 0.95 : Math.max(0.3, 1.0 - myT2 * 0.5) * alpha;
+    var textSize = 10 + (1 - myT2) * 3;
+    if (isHover) textSize = 13;
+
+    var textY = t.sy - baseSize * myT2 * 1.6 - 4 + (1 - myT2) * 2;
+
+    cx.font = (isHover ? 'bold ' : '') + textSize + 'px Futura, sans-serif';
+    cx.fillStyle = 'rgba(232,228,220,' + textAlpha + ')';
+    cx.textAlign = 'center';
+    cx.fillText(t.name, t.sx, textY);
+  });
+
+  // pip install badge (bottom center)
+  cx.font = '11px "Courier New", monospace';
+  cx.fillStyle = 'rgba(136,136,136,0.3)';
+  cx.textAlign = 'center';
+  cx.fillText('pip install begump', W/2, H - 30);
+
   requestAnimationFrame(draw);
 }
 
-buildCards();
-requestAnimationFrame(draw);
+// Interaction
+cv.addEventListener('mousedown', function(e) {
+  if (hoverIdx >= 0) {
+    window.location.href = tools[hoverIdx].href;
+    return;
+  }
+  // Check center node click
+  var cp = project(0, 0, 0);
+  var cdx = e.clientX - cp.sx, cdy = e.clientY - cp.sy;
+  if (cdx*cdx + cdy*cdy < 625) { // 25px radius
+    window.location.href = '/tryit/';
+    return;
+  }
+  dragging = true;
+  dragX = e.clientX;
+  dragY = e.clientY;
+  autoRotate = false;
+});
+
+cv.addEventListener('mousemove', function(e) {
+  lastMx = e.clientX;
+  lastMy = e.clientY;
+
+  if (dragging) {
+    rotY += (e.clientX - dragX) * 0.005;
+    rotX += (e.clientY - dragY) * 0.005;
+    rotX = Math.max(-1.2, Math.min(1.2, rotX));
+    dragX = e.clientX;
+    dragY = e.clientY;
+  }
+
+  // Hit test
+  hoverIdx = -1;
+  for (var i = 0; i < tools.length; i++) {
+    var dx = e.clientX - tools[i].sx;
+    var dy = e.clientY - tools[i].sy;
+    var hitSize = tools[i].size * tools[i].screenScale + 12;
+    if (dx*dx + dy*dy < hitSize * hitSize) {
+      hoverIdx = i;
+      break;
+    }
+  }
+
+  cv.style.cursor = hoverIdx >= 0 ? 'pointer' : (dragging ? 'grabbing' : 'grab');
+
+  // Panel
+  if (hoverIdx >= 0) {
+    panelName.textContent = tools[hoverIdx].name;
+    panelDesc.textContent = tools[hoverIdx].short;
+    panel.classList.add('show');
+  } else {
+    panel.classList.remove('show');
+  }
+});
+
+cv.addEventListener('mouseup', function() {
+  dragging = false;
+  setTimeout(function() { autoRotate = true; }, 3000);
+});
+
+cv.addEventListener('mouseleave', function() {
+  dragging = false;
+  hoverIdx = -1;
+  panel.classList.remove('show');
+  setTimeout(function() { autoRotate = true; }, 1000);
+});
+
+// Touch support
+cv.addEventListener('touchstart', function(e) {
+  var t = e.touches[0];
+  dragX = t.clientX; dragY = t.clientY;
+  dragging = true; autoRotate = false;
+  e.preventDefault();
+});
+cv.addEventListener('touchmove', function(e) {
+  var t = e.touches[0];
+  rotY += (t.clientX - dragX) * 0.005;
+  rotX += (t.clientY - dragY) * 0.005;
+  rotX = Math.max(-1.2, Math.min(1.2, rotX));
+  dragX = t.clientX; dragY = t.clientY;
+  e.preventDefault();
+});
+cv.addEventListener('touchend', function() {
+  dragging = false;
+  setTimeout(function() { autoRotate = true; }, 3000);
+});
+
+draw();
+
+// PHASE TRANSITION: list → constellation after 3 seconds of lingering
+// The list stays functional — you can click items during the wait.
+// After 3s: items scatter, canvas fades in, constellation takes over.
+// Moving the mouse resets the timer (you're engaged, don't transition).
+
+var transitionTimer = null;
+var transitioned = false;
+
+function triggerTransition() {
+  if (transitioned) return;
+  transitioned = true;
+
+  // Scatter the list items (staggered)
+  var items = document.querySelectorAll('#list .item');
+  items.forEach(function(item, i) {
+    setTimeout(function() {
+      item.classList.add('scatter');
+    }, i * 60);
+  });
+
+  // After items scatter, fade in canvas
+  setTimeout(function() {
+    document.getElementById('cv').classList.add('live');
+    document.getElementById('list').classList.add('fade');
+  }, items.length * 60 + 300);
+}
+
+function resetTransition() {
+  if (transitioned) return;
+  clearTimeout(transitionTimer);
+  transitionTimer = setTimeout(triggerTransition, 3000);
+}
+
+// Start the timer
+transitionTimer = setTimeout(triggerTransition, 3000);
+
+// Mouse/touch activity on the LIST resets (user is reading)
+document.getElementById('list').addEventListener('mousemove', resetTransition);
+document.getElementById('list').addEventListener('touchstart', resetTransition);
+
+// Make list items clickable
+document.querySelectorAll('#list .item').forEach(function(item, i) {
+  item.style.cursor = 'pointer';
+  item.addEventListener('click', function() {
+    window.location.href = tools[i].href;
+  });
+  item.addEventListener('mouseenter', function() {
+    item.style.color = '#c9a44a';
+  });
+  item.addEventListener('mouseleave', function() {
+    item.style.color = '#666';
+  });
+});
+
 </script>
 <script src="/js/breathe.js?v=2"></script>
 <script src="/transit.js"></script>
