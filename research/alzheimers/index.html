@@ -32,6 +32,11 @@ p{line-height:1.8;color:#999;font-size:0.85em;margin:10px 0;}
 <h1>Amyloid-beta 42</h1>
 <div class="sub">Alzheimer's Disease &mdash; computational analysis + drug target identification</div>
 
+<div style="margin:24px 0 30px;text-align:center;">
+<canvas id="alz-tetra" style="width:100%;height:280px;border-radius:10px;background:#0a0a12;display:block;"></canvas>
+<p style="font-size:0.72em;color:#666;margin-top:10px;font-style:italic;line-height:1.6;">A vertex decouples. Edges weaken. The shape loses coherence. This is aggregation.</p>
+</div>
+
 <div class="section">
 <h2>THE RESULT</h2>
 <div class="result">
@@ -252,5 +257,116 @@ print(f"Aggregation: {wt_agg} → {mut_agg} residues")
 </div>
 <script src="/js/breathe.js?v=2"></script>
 <script src="/transit.js"></script>
+<script>
+(function(){
+  var canvas = document.getElementById('alz-tetra');
+  if(!canvas) return;
+  var ctx = canvas.getContext('2d');
+  var W, H;
+  function resize(){
+    var rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width * (window.devicePixelRatio || 1);
+    canvas.height = rect.height * (window.devicePixelRatio || 1);
+    W = canvas.width;
+    H = canvas.height;
+    ctx.setTransform(1,0,0,1,0,0);
+  }
+  resize();
+  window.addEventListener('resize', resize);
+
+  var s = 1.0;
+  var t1 = [[s,s,s],[s,-s,-s],[-s,s,-s],[-s,-s,s]];
+  var t2 = [[-s,-s,-s],[-s,s,s],[s,-s,s],[s,s,-s]];
+  var e6 = [[0,1],[0,2],[0,3],[1,2],[1,3],[2,3]];
+
+  var rotX = 0.3, rotY = 0;
+  var DECOUPLE_VERTEX = 2;
+
+  function proj(p){
+    var x=p[0],y=p[1],z=p[2];
+    var cy=Math.cos(rotY),sy=Math.sin(rotY);
+    var x1=x*cy-z*sy, z1=x*sy+z*cy;
+    var c2=Math.cos(rotX),s2=Math.sin(rotX);
+    var y1=y*c2-z1*s2, z2=y*s2+z1*c2;
+    var sc=Math.min(W,H)*0.2;
+    var d=3+z2;
+    return {x:W/2+x1*sc/d*2, y:H/2+y1*sc/d*2, z:z2, d:d};
+  }
+
+  function getDecoupled(verts, t){
+    var amt = 0.5 + 0.5*Math.sin(t*0.4);
+    var scale = 1.0 + amt * 0.8;
+    var out = [];
+    for(var i=0;i<verts.length;i++){
+      if(i === DECOUPLE_VERTEX){
+        out.push([verts[i][0]*scale, verts[i][1]*scale, verts[i][2]*scale]);
+      } else {
+        out.push(verts[i].slice());
+      }
+    }
+    return {verts:out, amt:amt};
+  }
+
+  function drawEdges(verts, edges, color, decoupleIdx, decoupleAmt){
+    for(var i=0;i<edges.length;i++){
+      var a = edges[i][0], b = edges[i][1];
+      var pa = proj(verts[a]);
+      var pb = proj(verts[b]);
+      var alpha = 0.7;
+      if(a === decoupleIdx || b === decoupleIdx){
+        alpha = 0.7 * (1.0 - decoupleAmt*0.85);
+      }
+      ctx.beginPath();
+      ctx.moveTo(pa.x, pa.y);
+      ctx.lineTo(pb.x, pb.y);
+      ctx.strokeStyle = color.replace('ALPHA', alpha.toFixed(3));
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
+  }
+
+  function drawVerts(verts, color, decoupleIdx, decoupleAmt){
+    for(var i=0;i<verts.length;i++){
+      var p = proj(verts[i]);
+      var r = 3;
+      if(i === decoupleIdx){
+        var glowR = 8 + decoupleAmt * 12;
+        var grd = ctx.createRadialGradient(p.x,p.y,0,p.x,p.y,glowR);
+        grd.addColorStop(0, 'rgba(200,60,60,'+(0.6*decoupleAmt).toFixed(3)+')');
+        grd.addColorStop(0.5, 'rgba(200,60,60,'+(0.25*decoupleAmt).toFixed(3)+')');
+        grd.addColorStop(1, 'rgba(200,60,60,0)');
+        ctx.beginPath();
+        ctx.arc(p.x,p.y,glowR,0,Math.PI*2);
+        ctx.fillStyle = grd;
+        ctx.fill();
+        var flicker = 0.5 + 0.5*Math.sin(Date.now()*0.01);
+        r = 3 + decoupleAmt * 2 * flicker;
+      }
+      ctx.beginPath();
+      ctx.arc(p.x,p.y,r,0,Math.PI*2);
+      ctx.fillStyle = color;
+      ctx.fill();
+    }
+  }
+
+  function draw(){
+    ctx.clearRect(0,0,W,H);
+    var t = Date.now()*0.001;
+    rotY += 0.008;
+
+    var d1 = getDecoupled(t1, t);
+    var d2 = getDecoupled(t2, t);
+
+    drawEdges(d1.verts, e6, 'rgba(201,164,74,ALPHA)', DECOUPLE_VERTEX, d1.amt);
+    drawEdges(d2.verts, e6, 'rgba(180,120,60,ALPHA)', DECOUPLE_VERTEX, d2.amt);
+
+    drawVerts(d1.verts, '#c9a44a', DECOUPLE_VERTEX, d1.amt);
+    drawVerts(d2.verts, '#b4783c', DECOUPLE_VERTEX, d2.amt);
+
+    requestAnimationFrame(draw);
+  }
+  draw();
+})();
+</script>
 </body>
 </html>

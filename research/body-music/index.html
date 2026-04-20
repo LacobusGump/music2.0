@@ -33,6 +33,9 @@ td{padding:6px 8px;font-size:0.78em;color:#aaa;border-bottom:1px solid #ffffff08
 <h1>The Body as Music</h1>
 <div class="sub">7 oscillators. 16 couplings. Integer frequency ratios. Same math as proteins. Same K.</div>
 
+<canvas id="body-tetra" style="width:100%;height:280px;border-radius:12px;margin:20px 0 8px;"></canvas>
+<p style="text-align:center;font-size:0.65em;color:#555;font-style:italic;margin-bottom:24px;">The shape breathes. All vertices move together. This is coherence. This is health.</p>
+
 <div class="section">
 <h2>THE IDEA</h2>
 <p>GUMP started with a question: what makes music good? The answer was coupled oscillators at consonant frequency ratios. Then we found the same math in proteins, in primes, in markets. This page is where it comes home: the body IS coupled oscillators at consonant frequency ratios. Health is consonance. Disease is dissonance. Aging is detuning.</p>
@@ -294,6 +297,171 @@ GumpViz.phaseCircle('phase-viz', {
 GumpViz.kMeter('k-young', 0.85, {label:'K (young)'});
 GumpViz.kMeter('k-mid',   0.62, {label:'K (middle)'});
 GumpViz.kMeter('k-old',   0.40, {label:'K (elderly)'});
+</script>
+<script>
+// ═══ STAR TETRAHEDRON — BREATHING COHERENCE ═══
+(function(){
+  var canvas = document.getElementById('body-tetra');
+  if(!canvas) return;
+  var ctx = canvas.getContext('2d');
+  var dpr = window.devicePixelRatio || 1;
+
+  function resize(){
+    var rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  resize();
+  window.addEventListener('resize', resize);
+
+  // Star tetrahedron = two interlocking tetrahedra
+  // Tetrahedron A vertices (inscribed in unit sphere)
+  var tetA = [
+    [0, 1, 0],
+    [0.943, -0.333, 0],
+    [-0.471, -0.333, 0.816],
+    [-0.471, -0.333, -0.816]
+  ];
+  // Tetrahedron B = inverted A (rotated 180 around Y)
+  var tetB = tetA.map(function(v){ return [-v[0], -v[1], -v[2]]; });
+
+  // Octahedron vertices (midpoints of star tetrahedron edges that intersect)
+  var oct = [
+    [1, 0, 0], [-1, 0, 0],
+    [0, 1, 0], [0, -1, 0],
+    [0, 0, 1], [0, 0, -1]
+  ];
+  // Octahedron edges
+  var octEdges = [
+    [0,2],[0,3],[0,4],[0,5],
+    [1,2],[1,3],[1,4],[1,5],
+    [2,4],[2,5],[3,4],[3,5]
+  ];
+
+  // Tetrahedron edges (4 verts = 6 edges each)
+  var tetEdges = [[0,1],[0,2],[0,3],[1,2],[1,3],[2,3]];
+
+  function rotateY(v, a){
+    var c = Math.cos(a), s = Math.sin(a);
+    return [v[0]*c + v[2]*s, v[1], -v[0]*s + v[2]*c];
+  }
+  function rotateX(v, a){
+    var c = Math.cos(a), s = Math.sin(a);
+    return [v[0], v[1]*c - v[2]*s, v[1]*s + v[2]*c];
+  }
+  function project(v, w, h, scale){
+    var perspective = 3.5 / (3.5 + v[2]);
+    return [w/2 + v[0] * scale * perspective, h/2 - v[1] * scale * perspective, perspective];
+  }
+
+  var startTime = performance.now();
+
+  function draw(){
+    var t = (performance.now() - startTime) / 1000;
+    var w = canvas.getBoundingClientRect().width;
+    var h = canvas.getBoundingClientRect().height;
+    var scale = Math.min(w, h) * 0.32;
+
+    ctx.clearRect(0, 0, w, h);
+
+    // Breathing: all vertices expand/contract together (~1Hz)
+    var breathe = 1.0 + 0.15 * Math.sin(t * 1.2);
+
+    // Rotation
+    var rotY = t * 0.4;
+    var rotX = 0.35;
+
+    // Transform vertices
+    function transform(verts){
+      return verts.map(function(v){
+        var scaled = [v[0] * breathe, v[1] * breathe, v[2] * breathe];
+        var ry = rotateY(scaled, rotY);
+        var rx = rotateX(ry, rotX);
+        return project(rx, w, h, scale);
+      });
+    }
+
+    var pA = transform(tetA);
+    var pB = transform(tetB);
+    var pO = transform(oct.map(function(v){ return [v[0]*0.5, v[1]*0.5, v[2]*0.5]; }));
+
+    // Edge brightness: brighter when contracted, dimmer when expanded
+    // breathe ranges from 0.85 to 1.15. Contracted = 0.85, expanded = 1.15
+    var edgeAlpha = 0.3 + 0.7 * (1.0 - (breathe - 0.85) / 0.3);
+    edgeAlpha = Math.max(0.2, Math.min(1.0, edgeAlpha));
+
+    // Golden center pulse (the Higgs/heart)
+    var pulseR = 8 + 4 * Math.sin(t * 1.2);
+    var pulseAlpha = 0.3 + 0.4 * (1.0 - (breathe - 0.85) / 0.3);
+    pulseAlpha = Math.max(0.1, Math.min(0.8, pulseAlpha));
+    var grd = ctx.createRadialGradient(w/2, h/2, 0, w/2, h/2, pulseR * 3);
+    grd.addColorStop(0, 'rgba(201,164,74,' + pulseAlpha + ')');
+    grd.addColorStop(0.5, 'rgba(201,164,74,' + (pulseAlpha * 0.3) + ')');
+    grd.addColorStop(1, 'rgba(201,164,74,0)');
+    ctx.fillStyle = grd;
+    ctx.beginPath();
+    ctx.arc(w/2, h/2, pulseR * 3, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Draw octahedron edges (subtle coupling zone)
+    ctx.strokeStyle = 'rgba(74,153,153,' + (edgeAlpha * 0.25) + ')';
+    ctx.lineWidth = 0.8;
+    for(var i = 0; i < octEdges.length; i++){
+      var a = pO[octEdges[i][0]];
+      var b = pO[octEdges[i][1]];
+      ctx.beginPath();
+      ctx.moveTo(a[0], a[1]);
+      ctx.lineTo(b[0], b[1]);
+      ctx.stroke();
+    }
+
+    // Draw tetrahedron A edges (gold)
+    ctx.strokeStyle = 'rgba(201,164,74,' + edgeAlpha + ')';
+    ctx.lineWidth = 1.5;
+    for(var i = 0; i < tetEdges.length; i++){
+      var a = pA[tetEdges[i][0]];
+      var b = pA[tetEdges[i][1]];
+      ctx.beginPath();
+      ctx.moveTo(a[0], a[1]);
+      ctx.lineTo(b[0], b[1]);
+      ctx.stroke();
+    }
+
+    // Draw tetrahedron B edges (teal/green)
+    ctx.strokeStyle = 'rgba(74,170,153,' + edgeAlpha + ')';
+    ctx.lineWidth = 1.5;
+    for(var i = 0; i < tetEdges.length; i++){
+      var a = pB[tetEdges[i][0]];
+      var b = pB[tetEdges[i][1]];
+      ctx.beginPath();
+      ctx.moveTo(a[0], a[1]);
+      ctx.lineTo(b[0], b[1]);
+      ctx.stroke();
+    }
+
+    // Draw vertices as small dots
+    var dotAlpha = edgeAlpha;
+    // Tet A vertices (gold)
+    for(var i = 0; i < pA.length; i++){
+      ctx.fillStyle = 'rgba(201,164,74,' + dotAlpha + ')';
+      ctx.beginPath();
+      ctx.arc(pA[i][0], pA[i][1], 2.5 * pA[i][2], 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // Tet B vertices (teal)
+    for(var i = 0; i < pB.length; i++){
+      ctx.fillStyle = 'rgba(74,170,153,' + dotAlpha + ')';
+      ctx.beginPath();
+      ctx.arc(pB[i][0], pB[i][1], 2.5 * pB[i][2], 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    requestAnimationFrame(draw);
+  }
+
+  draw();
+})();
 </script>
 <script src="/transit.js"></script>
 </body>
