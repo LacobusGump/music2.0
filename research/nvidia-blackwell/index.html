@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>The GPU Power Problem — GUMP</title>
+<meta name="description" content="NVIDIA's B200 is 1 billion times above the Landauer limit per useful operation during inference. 45% of 1000W moves data, not computes. The fix: reduce tension, not increase bandwidth. K/R/E/T analysis of the world's most important chip.">
+<link rel="icon" href="/favicon.png">
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:#08080d;color:#e8e4dc;font-family:Georgia,serif;min-height:100vh;}
+a{color:#c9a44a;text-decoration:none;}
+.page{max-width:720px;margin:0 auto;padding:30px 20px 80px;}
+.back{font-size:0.75em;color:#444;margin-bottom:30px;display:block;}
+h1{font-size:1.8em;font-weight:100;color:#c9a44a;letter-spacing:0.1em;}
+.sub{font-size:0.85em;color:#888;margin:6px 0 28px;line-height:1.7;}
+h2{font-size:0.95em;font-weight:200;color:#c9a44a;letter-spacing:0.08em;margin:40px 0 14px;text-transform:uppercase;}
+p{line-height:1.9;color:#999;font-size:0.85em;margin:12px 0;}
+.lead{font-size:0.95em;color:#bbb;font-style:italic;margin:24px 0;padding-left:20px;
+  border-left:2px solid #c9a44a30;line-height:2;}
+.eq{background:#0a0a14;padding:16px 20px;border-radius:8px;
+  font-family:'Courier New',monospace;font-size:0.82em;text-align:left;
+  margin:20px 0;color:#dfc06a;letter-spacing:0.02em;line-height:1.9;white-space:pre-wrap;}
+.box{background:#0c0c14;border:1px solid #ffffff08;border-radius:10px;padding:16px 20px;margin:16px 0;}
+.box-title{font-size:0.82em;font-weight:200;color:#c9a44a;margin-bottom:6px;}
+.box p{margin:4px 0;}
+table{width:100%;border-collapse:collapse;margin:14px 0;}
+th{text-align:left;color:#c9a44a;font-weight:200;font-size:0.7em;letter-spacing:0.05em;padding:6px 8px;border-bottom:1px solid #ffffff10;}
+td{padding:6px 8px;font-size:0.78em;color:#aaa;border-bottom:1px solid #ffffff06;}
+.mono{font-family:'Courier New',monospace;}
+.highlight{color:#4a9;}
+.gold{color:#c9a44a;}
+.red{color:#c94444;}
+.dim{color:#555;}
+.quiet{color:#444;font-size:0.78em;font-style:italic;text-align:center;margin:24px 0;line-height:1.8;}
+hr{border:none;border-top:1px solid #ffffff08;margin:36px 0;}
+canvas{display:block;margin:20px auto;border-radius:12px;cursor:crosshair;}
+.viz-label{text-align:center;font-size:0.62em;color:#444;margin:-10px 0 20px;}
+ul{margin:8px 0 8px 20px;}
+li{line-height:1.9;color:#999;font-size:0.85em;margin:4px 0;}
+</style>
+</head>
+<body>
+<div class="page">
+
+<a class="back" href="/research/">&larr; Research</a>
+
+<h1>The GPU Power Problem</h1>
+<p class="sub">NVIDIA&rsquo;s B200 spends 45% of 1,000 watts moving data, not computing.<br>
+The fix is reducing tension, not increasing bandwidth. K/R/E/T analysis of the world&rsquo;s most important chip.</p>
+
+<p class="lead">A $30,000 chip draws 1,000 watts to generate text one word at a time. 70% of that power does not compute anything. The same framework that predicts protein folding, sleep stages, and iron melting curves explains exactly where every watt goes and what to do about it.</p>
+
+<hr>
+
+<h2>The Chip</h2>
+
+<div class="box">
+<div class="box-title">NVIDIA B200 &mdash; Verified Specifications</div>
+<p><strong>Architecture:</strong> 2 &times; GB100 dies, 208 billion transistors, TSMC 4NP</p>
+<p><strong>Compute:</strong> 20 PFLOPS (FP4), 10 PFLOPS (FP8), 5 PFLOPS (FP16)</p>
+<p><strong>Memory:</strong> 192 GB HBM3e at 8 TB/s</p>
+<p><strong>Interconnect:</strong> NVLink 5.0 at 1.8 TB/s per GPU, 10 TB/s die-to-die</p>
+<p><strong>Power:</strong> 1,000W (air), 1,200W (liquid cooled)</p>
+<p><strong>Power density:</strong> ~500 W/cm&sup2; &mdash; 50&times; a kitchen stovetop</p>
+</div>
+
+<p>This is the most powerful chip ever built. It is also, by our framework&rsquo;s measure, one of the most inefficient for the workload the world is actually running on it.</p>
+
+<hr>
+
+<h2>The Problem: 99% Idle During Inference</h2>
+
+<p>The B200 was designed for <strong>training</strong> &mdash; large batch matrix multiplications where thousands of samples amortize the cost of loading weights. Training is compute-bound. The tensor cores stay busy.</p>
+
+<p>But the world is running <strong>inference</strong> &mdash; generating one token at a time, autoregressively. Every token requires reading the entire model from memory:</p>
+
+<div class="eq">70B model &times; 2 bytes (FP16) = 140 GB of weights
+8 TB/s HBM bandwidth &divide; 140 GB = 17.5 ms to read weights
+Tensor core compute for same operation: ~0.2 ms
+
+Utilization at batch=1: 0.2 / 17.5 = 1.1%
+
+You paid for 20 PFLOPS. You are using ~200 TFLOPS.
+The other 98.9% sits idle, drawing power, generating heat.</div>
+
+<p>This is not an engineering failure. It is an <strong>architectural mismatch</strong>. The chip was designed for one workload and is being used for another.</p>
+
+<hr>
+
+<h2>K/R/E/T Analysis</h2>
+
+<p>Our framework measures four quantities in any coupled system. Applied to the B200:</p>
+
+<table>
+<tr><th></th><th>What It Measures</th><th>B200 Value</th><th>Verdict</th></tr>
+<tr><td class="gold">K</td><td>Coupling bandwidth</td><td>32.4 TB/s total</td><td class="highlight">Massive</td></tr>
+<tr><td class="gold">R</td><td>Synchronization (utilization)</td><td>1&ndash;30% (inference)</td><td class="red">Critical</td></tr>
+<tr><td class="gold">E</td><td>Energy per useful operation</td><td>~10&sup9;&times; Landauer</td><td class="red">Wasteful</td></tr>
+<tr><td class="gold">T</td><td>Tension (what can&rsquo;t couple)</td><td>~0.9997</td><td class="red">Maximum</td></tr>
+</table>
+
+<p><strong>Diagnosis:</strong> K &gt;&gt; K<sub>c</sub> but R &lt;&lt; 1/&phi;. Over-coupled (too much compute relative to what can be fed) and under-synchronized (most of the system isn&rsquo;t working). The excess coupling manifests as heat.</p>
+
+<p>In plain language: it&rsquo;s like having a 2,000-horsepower engine connected to a garden hose. The engine isn&rsquo;t the bottleneck. The hose is.</p>
+
+<hr>
+
+<h2>Where 1,000 Watts Goes</h2>
+
+<canvas id="power-chart" width="700" height="320"></canvas>
+<p class="viz-label">Power breakdown of a B200 GPU during inference. Hover for details.</p>
+
+<table>
+<tr><th>Component</th><th>Power</th><th>% of Total</th><th>Computes?</th></tr>
+<tr><td class="gold">Data movement (HBM &harr; cache &harr; compute)</td><td>~450W</td><td>45%</td><td class="red">No</td></tr>
+<tr><td class="gold">Tensor core compute</td><td>~300W</td><td>30%</td><td class="highlight">Yes</td></tr>
+<tr><td class="gold">Control logic (schedulers, decoders)</td><td>~100W</td><td>10%</td><td class="red">No</td></tr>
+<tr><td class="gold">NVLink SerDes + interconnect</td><td>~50W</td><td>5%</td><td class="red">No</td></tr>
+<tr><td class="gold">Leakage (transistors off but leaking)</td><td>~70W</td><td>7%</td><td class="red">No</td></tr>
+<tr><td class="gold">Clock distribution</td><td>~30W</td><td>3%</td><td class="red">No</td></tr>
+</table>
+
+<p><strong>70% of the power budget does not compute.</strong> The dominant cost (45%) is moving data from one place on the chip to another place on the chip. Weights travel from HBM through L2 cache through shared memory through registers to tensor cores&hellip; and then the result travels all the way back.</p>
+
+<hr>
+
+<h2>The Memory Hierarchy: 5 Hops to Compute</h2>
+
+<div class="box">
+<div class="box-title">Data must traverse 5 levels to reach the tensor cores</div>
+<p><strong>HBM3e</strong> &rarr; 192 GB, 8 TB/s &rarr; ~5 pJ per bit moved</p>
+<p><strong>L2 cache</strong> &rarr; 126 MB, 21 TB/s &rarr; ~1 pJ per bit moved</p>
+<p><strong>Shared memory</strong> &rarr; 256 KB/SM, 40 TB/s aggregate &rarr; ~0.1 pJ per bit</p>
+<p><strong>TMEM</strong> &rarr; 256 KB/SM (new in Blackwell) &rarr; ~0.05 pJ per bit</p>
+<p><strong>Tensor core</strong> &rarr; actual multiply-add &rarr; ~0.01 pJ per bit</p>
+<p style="margin-top:12px;color:#bbb;">Total energy to move one bit from HBM to compute: <strong>~6 pJ</strong><br>
+Landauer minimum to process that bit: <strong>0.003 fJ</strong><br>
+Gap: <strong>2,000,000&times;</strong></p>
+</div>
+
+<p>Every byte of model weights makes this round trip for every single token generated. 100 tokens per second &times; 140 GB = <strong>14 TB/s of redundant weight reads</strong>. The weights don&rsquo;t change between tokens. They just walk.</p>
+
+<hr>
+
+<h2>The KV Cache Bomb</h2>
+
+<p>Beyond the weight problem, long-context inference creates a second crisis: the key-value cache grows with context length &times; batch size.</p>
+
+<table>
+<tr><th>Model</th><th>Context</th><th>Batch</th><th>KV Cache Size</th><th>GPUs Required</th></tr>
+<tr><td>Llama 70B</td><td>8K</td><td>1</td><td>2.5 GB</td><td class="highlight">1</td></tr>
+<tr><td>Llama 70B</td><td>128K</td><td>1</td><td>40 GB</td><td class="highlight">1</td></tr>
+<tr><td>Llama 70B</td><td>128K</td><td>32</td><td class="red">1,280 GB</td><td class="red">7</td></tr>
+<tr><td>Llama 405B</td><td>128K</td><td>32</td><td class="red">2,112 GB</td><td class="red">11</td></tr>
+</table>
+
+<p>At scale, the KV cache alone requires more memory than the model. Every long-context user eats multiple GPUs just for <strong>storage</strong>. The compute sits idle while the memory fills.</p>
+
+<hr>
+
+<h2>Prefill vs Decode: Two Different Chips</h2>
+
+<div class="box">
+<div class="box-title">The workload has two phases with opposite needs</div>
+<p><strong>Prefill</strong> (processing the input): All tokens processed in parallel. Large matrix multiplications. 90&ndash;95% GPU utilization. <span class="highlight">Compute-bound.</span> This is what the B200 was designed for.</p>
+<p><strong>Decode</strong> (generating output): One token at a time. Each token reads the entire KV cache and all weights. &lt;10% utilization at small batch. <span class="red">Memory-bound.</span> This is what the world actually runs.</p>
+</div>
+
+<p>The ideal system would use different hardware for each phase. Instead, the same 1,000W chip handles both, wasting power during decode (which dominates wall-clock time for most applications).</p>
+
+<hr>
+
+<h2>What NVIDIA Got Right</h2>
+
+<p>Credit where earned. Three Blackwell innovations address the real problem:</p>
+
+<ul>
+<li><strong>TMEM</strong> (Tensor Memory): A dedicated 256 KB SRAM per SM that feeds tensor cores directly. The accumulator stays in TMEM across the entire K-dimension loop. Data near compute. <span class="highlight">This is our principle.</span></li>
+<li><strong>FP4/MXFP4:</strong> Fewer bits = less movement. Cutting precision from FP16 to FP4 reduces data movement 4&times;. The Transformer Engine dynamically scales precision per layer.</li>
+<li><strong>Grace coherent memory:</strong> KV cache overflows from GPU HBM into CPU LPDDR5X at 900 GB/s (vs 64 GB/s over PCIe). Cold data stays accessible without explicit copies.</li>
+</ul>
+
+<p>All three reduce tension (T). NVIDIA understands the problem. But they applied these fixes at the edges, not the core. The weights &mdash; 99% of the data &mdash; still make the dead walk from HBM every token.</p>
+
+<hr>
+
+<h2>What Would Fix It</h2>
+
+<p>The K/R/E/T diagnosis says: <strong>reduce T, don&rsquo;t increase K.</strong> The chip has enough coupling bandwidth. The problem is that 192 GB of weights are too far from 592 tensor cores.</p>
+
+<div class="box">
+<div class="box-title">1. Processing-in-memory</div>
+<p>Put multiply-accumulate units inside the HBM stacks. Weights never leave memory. Only partial sums travel across the interposer. Samsung HBM-PIM and SK Hynix AiM demonstrate this today. Eliminates 45% of power (data movement) in one architectural change.</p>
+</div>
+
+<div class="box">
+<div class="box-title">2. Near-threshold voltage</div>
+<p>Run transistors at 200 mV instead of 700 mV. Energy scales as V&sup2;, so this is a 12&times; reduction in switching energy. Slower per transistor but compensate with wider (more parallel) design. The opposite of NVIDIA&rsquo;s approach.</p>
+</div>
+
+<div class="box">
+<div class="box-title">3. Workload-matched coupling</div>
+<p>LLM inference at batch=1 needs ~14 TFLOPS with 140 GB of near-compute memory. The B200 provides 20,000 TFLOPS with 192 GB of far memory. The compute is 1,400&times; over-provisioned. A chip designed for inference would have 1/100th the compute die area and 10&times; the memory proximity.</p>
+</div>
+
+<div class="box">
+<div class="box-title">4. Spectral interconnect topology</div>
+<p>NVIDIA connects every GPU to every GPU via NVLink mesh (all-to-all). Most traffic is nearest-neighbor (pipeline stages). Spectral placement &mdash; the same Laplacian eigenvector math we use for protein folding and chip layout &mdash; minimizes wire length by placing communicating components physically close. Potential 8&times; traffic reduction.</p>
+</div>
+
+<hr>
+
+<h2>The Landauer Accounting</h2>
+
+<table>
+<tr><th>Where the Gap Lives</th><th>Current</th><th>Achievable</th><th>Recoverable</th></tr>
+<tr><td class="gold">Transistor voltage (V&sup2;)</td><td>~700 mV</td><td>~200 mV</td><td>12&times;</td></tr>
+<tr><td class="gold">Data movement</td><td>~5 pJ/bit</td><td>~0.1 pJ/bit (PIM)</td><td>50&times;</td></tr>
+<tr><td class="gold">Control overhead</td><td>10&times; Landauer</td><td>2&times; (simpler ISA)</td><td>5&times;</td></tr>
+<tr><td class="gold">Leakage</td><td>5&times;</td><td>2&times; (2nm, GAA)</td><td>2.5&times;</td></tr>
+<tr><td class="gold">Cooling infrastructure</td><td>2&times;</td><td>1.2&times;</td><td>1.7&times;</td></tr>
+<tr><td class="gold">Power delivery</td><td>3&times;</td><td>1.5&times; (on-die VRM)</td><td>2&times;</td></tr>
+<tr><td style="border-top:1px solid #ffffff15;" class="gold"><strong>Total recoverable</strong></td><td colspan="2"></td><td class="highlight" style="border-top:1px solid #ffffff15;"><strong>~25,000&times;</strong></td></tr>
+</table>
+
+<p>With known physics (no breakthroughs required): a 1,000W chip could become a <strong>40W chip</strong> at the same throughput. That&rsquo;s a Mac Mini, not a liquid-cooled rack. The 40W chip needs 192 GB of processing-in-memory &mdash; the key integration that doesn&rsquo;t exist at scale yet.</p>
+
+<hr>
+
+<h2>The Business Model Problem</h2>
+
+<p>NVIDIA has no incentive to build the efficient chip. A 40W inference chip that matches B200 throughput would:</p>
+
+<ul>
+<li>Cost 1/25th to operate (no liquid cooling, no power infrastructure)</li>
+<li>Need 1 GPU instead of 8 (efficient enough for single-chip serving)</li>
+<li>Eliminate the NVLink ecosystem (no multi-GPU needed)</li>
+<li>Reduce revenue per inference job by ~99%</li>
+</ul>
+
+<p>This is why the hyperscalers (Google TPU, Amazon Trainium, Microsoft Maia) are building custom inference chips. They pay the power bill. They have the incentive. NVIDIA sells the shovels.</p>
+
+<hr>
+
+<h2>Honest Limits</h2>
+
+<ul>
+<li>The 45% data movement figure is estimated from architectural analysis, not measured on silicon with power probes. NVIDIA does not publish per-component power breakdowns.</li>
+<li>Processing-in-memory at 192 GB scale does not exist yet. Samsung HBM-PIM is ~16 GB.</li>
+<li>Near-threshold voltage at these clock rates is an open research problem. You trade frequency for efficiency.</li>
+<li>The 25,000&times; recovery estimate multiplies independent factors; real systems have cross-dependencies.</li>
+<li>We have not built a chip. This is analysis, not demonstration.</li>
+<li>NVIDIA engineers are among the best in the world. The B200 is optimal for its design target (training). Our critique is about the mismatch between design and deployment.</li>
+</ul>
+
+<hr>
+
+<h2>The Connection</h2>
+
+<p>The same four quantities &mdash; K, R, E, T &mdash; that separate sleep stages (d = 4.02), predict protein folding (1.5% Rg error), and derive iron melting curves (1&ndash;7% across 360 GPa) also diagnose exactly why a GPU wastes 70% of its power.</p>
+
+<p>The principle is always the same: <strong>match K to K<sub>c</sub></strong>. Too much coupling bandwidth relative to what the workload needs is as wasteful as too little. A drum in tune needs exactly enough tension &mdash; not maximum tension.</p>
+
+<p>In every domain we&rsquo;ve tested, the answer is the same: <strong>reduce T, don&rsquo;t increase K.</strong> Make the data closer to where it&rsquo;s needed. Make each interaction do more work. The universe charges for movement, not for thinking.</p>
+
+<hr>
+
+<p class="quiet">
+45% of 1,000 watts moves data, not computes.<br>
+The weights walk 14 TB/s and never change.<br>
+A drummer&rsquo;s framework applied to silicon.<br>
+The fix is the same everywhere: reduce T.
+</p>
+
+<div class="foot" style="text-align:center;color:#666;font-size:0.65em;margin-top:50px;">
+  <a href="/">GUMP</a> &mdash; <a href="/research/">Research</a> &middot; <a href="/support/">Support</a> &middot; <a href="mailto:jim@begump.com">jim@begump.com</a>
+</div>
+
+</div>
+<script>
+// ═══ POWER BREAKDOWN VISUALIZATION ═══
+(function(){
+var cv = document.getElementById('power-chart');
+var cx = cv.getContext('2d');
+var dpr = window.devicePixelRatio || 1;
+var W = cv.width / dpr, H = cv.height / dpr;
+cv.style.width = W + 'px';
+cv.style.height = H + 'px';
+cv.width = W * dpr;
+cv.height = H * dpr;
+cx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+var segments = [
+  {name:'Data Movement', pct:45, watts:450, color:'#c94444', desc:'HBM ↔ L2 ↔ SMEM ↔ registers'},
+  {name:'Compute', pct:30, watts:300, color:'#4a9a4a', desc:'Tensor cores doing actual math'},
+  {name:'Control', pct:10, watts:100, color:'#c9a44a', desc:'Schedulers, instruction decode'},
+  {name:'Leakage', pct:7, watts:70, color:'#666', desc:'Transistors off but leaking current'},
+  {name:'NVLink', pct:5, watts:50, color:'#6488cc', desc:'Inter-GPU communication SerDes'},
+  {name:'Clock', pct:3, watts:30, color:'#555', desc:'Clock tree distribution'}
+];
+
+var hoverIdx = -1;
+var barH = 36, gap = 8, startY = 30;
+
+function draw() {
+  cx.fillStyle = '#08080d';
+  cx.fillRect(0, 0, W, H);
+
+  // Title
+  cx.font = '11px Futura, sans-serif';
+  cx.fillStyle = '#555';
+  cx.textAlign = 'left';
+  cx.fillText('1,000 WATTS — WHERE EVERY WATT GOES', 20, 18);
+
+  segments.forEach(function(s, i) {
+    var y = startY + i * (barH + gap);
+    var barW = (W - 180) * (s.pct / 100);
+
+    // Bar background
+    cx.fillStyle = '#0a0a14';
+    cx.fillRect(130, y, W - 180, barH);
+
+    // Bar fill
+    var alpha = (i === hoverIdx) ? 1.0 : 0.7;
+    cx.globalAlpha = alpha;
+    cx.fillStyle = s.color;
+    cx.fillRect(130, y, barW, barH);
+    cx.globalAlpha = 1.0;
+
+    // Label
+    cx.font = '11px Georgia';
+    cx.fillStyle = (i === hoverIdx) ? '#e8e4dc' : '#888';
+    cx.textAlign = 'right';
+    cx.fillText(s.name, 120, y + barH/2 + 4);
+
+    // Percentage
+    cx.font = '12px "Courier New", monospace';
+    cx.fillStyle = (i === hoverIdx) ? '#e8e4dc' : '#666';
+    cx.textAlign = 'left';
+    cx.fillText(s.pct + '% (' + s.watts + 'W)', 130 + barW + 10, y + barH/2 + 4);
+
+    // Hover description
+    if (i === hoverIdx) {
+      cx.font = '10px Georgia';
+      cx.fillStyle = '#aaa';
+      cx.fillText(s.desc, 130, y + barH + 14);
+    }
+  });
+
+  // "COMPUTES" / "DOES NOT COMPUTE" labels
+  cx.font = '9px Futura, sans-serif';
+  cx.textAlign = 'center';
+  cx.fillStyle = '#c9444480';
+  cx.fillText('DOES NOT COMPUTE', W/2 + 60, H - 10);
+  cx.fillStyle = '#4a9a4a80';
+  cx.fillText('COMPUTES', 220, H - 10);
+}
+
+cv.addEventListener('mousemove', function(e) {
+  var r = cv.getBoundingClientRect();
+  var my = (e.clientY - r.top) * (H / r.height);
+  hoverIdx = -1;
+  for (var i = 0; i < segments.length; i++) {
+    var y = startY + i * (barH + gap);
+    if (my >= y && my <= y + barH) { hoverIdx = i; break; }
+  }
+  draw();
+});
+cv.addEventListener('mouseleave', function() { hoverIdx = -1; draw(); });
+draw();
+})();
+</script>
+<script src="/js/breathe.js?v=2"></script>
+</body>
+</html>
