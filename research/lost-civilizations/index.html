@@ -134,6 +134,9 @@ hr{border:none;border-top:1px solid #ffffff08;margin:36px 0;}
 
 <h2>The Knowledge Chain</h2>
 
+<canvas id="epoch-graph" style="display:block;width:100%;height:220px;border-radius:10px;margin:16px 0;"></canvas>
+<p style="text-align:center;font-size:0.62em;color:#444;margin:-8px 0 16px;">vertex latitude over 12,500 years &middot; horizontal lines = sacred site latitudes &middot; dots = construction dates</p>
+
 <div class="timeline">
 
 <div class="epoch">
@@ -333,6 +336,106 @@ cv.addEventListener('touchmove',function(e){var t=e.touches[0];rotY+=(t.clientX-
 cv.addEventListener('touchend',function(){dragging=false;setTimeout(function(){autoR=true;},3000);});
 
 draw();
+})();
+
+// ═══ EPOCH GRAPH — vertex latitude over time ═══
+(function(){
+var cv=document.getElementById('epoch-graph');if(!cv)return;
+var gx=cv.getContext('2d'),gW,gH,gdpr;
+function resize(){var r=cv.getBoundingClientRect();gdpr=window.devicePixelRatio||1;gW=r.width;gH=r.height;cv.width=gW*gdpr;cv.height=gH*gdpr;gx.setTransform(gdpr,0,0,gdpr,0,0);}
+window.addEventListener('resize',resize);resize();
+
+var BASE=19.592;
+var epochs=[[-10500,14],[-9500,13.5],[-9000,13],[-8000,12.5],[-5000,12],[-3000,11.8],[-2560,11.7],[-2000,11.5],[-1400,11],[-957,10.8],[-500,10.5],[0,10.5],[691,10.8],[1150,11],[2026,10.5]];
+var sites=[{name:'Göbekli',lat:37.22,col:'189,110,55'},{name:'Baalbek',lat:34.01,col:'201,164,74'},{name:'Jerusalem',lat:31.78,col:'100,160,255'},{name:'Giza',lat:29.98,col:'74,220,153'}];
+var builds=[{year:-10500,name:'Baalbek'},{year:-9500,name:'Göbekli'},{year:-2560,name:'Pyramid'},{year:-957,name:'Temple'},{year:691,name:'Dome'},{year:2026,name:'Now'}];
+
+var yearMin=-11000,yearMax=2500;
+var latMin=29,latMax=38;
+var pad={l:45,r:15,t:15,b:25};
+
+function xOf(yr){return pad.l+(yr-yearMin)/(yearMax-yearMin)*(gW-pad.l-pad.r);}
+function yOf(lat){return pad.t+(latMax-lat)/(latMax-latMin)*(gH-pad.t-pad.b);}
+
+function drawGraph(){
+  gx.clearRect(0,0,gW,gH);
+  var time=Date.now()*0.001;
+
+  // Grid
+  gx.strokeStyle='rgba(255,255,255,0.04)';gx.lineWidth=0.5;
+  for(var yr=-10000;yr<=2000;yr+=2000){
+    var x=xOf(yr);gx.beginPath();gx.moveTo(x,pad.t);gx.lineTo(x,gH-pad.b);gx.stroke();
+    gx.font='7px Courier New';gx.fillStyle='rgba(255,255,255,0.15)';gx.textAlign='center';
+    gx.fillText((yr<0?Math.abs(yr)+'BC':yr+'AD'),x,gH-pad.b+12);
+  }
+
+  // Site latitude lines
+  for(var i=0;i<sites.length;i++){
+    var s=sites[i],y=yOf(s.lat);
+    gx.strokeStyle='rgba('+s.col+',0.12)';gx.lineWidth=0.5;gx.setLineDash([2,4]);
+    gx.beginPath();gx.moveTo(pad.l,y);gx.lineTo(gW-pad.r,y);gx.stroke();
+    gx.setLineDash([]);
+    gx.font='7px Georgia';gx.fillStyle='rgba('+s.col+',0.3)';gx.textAlign='right';
+    gx.fillText(s.name+' '+s.lat+'°',pad.l-3,y+3);
+  }
+
+  // Vertex curve
+  gx.strokeStyle='rgba(201,164,74,0.6)';gx.lineWidth=1.5;
+  gx.beginPath();
+  for(var i=0;i<epochs.length;i++){
+    var vlat=BASE+epochs[i][1];
+    var x=xOf(epochs[i][0]),y=yOf(vlat);
+    i===0?gx.moveTo(x,y):gx.lineTo(x,y);
+  }
+  gx.stroke();
+
+  // Vertex dots
+  for(var i=0;i<epochs.length;i++){
+    var vlat=BASE+epochs[i][1];
+    var x=xOf(epochs[i][0]),y=yOf(vlat);
+    gx.beginPath();gx.arc(x,y,2,0,Math.PI*2);gx.fillStyle='rgba(201,164,74,0.5)';gx.fill();
+  }
+
+  // Construction date markers
+  for(var i=0;i<builds.length;i++){
+    var b=builds[i];
+    var x=xOf(b.year);
+    // Find vertex lat at this epoch
+    var vlat=BASE+10.5; // default
+    for(var j=0;j<epochs.length;j++){
+      if(epochs[j][0]<=b.year){vlat=BASE+epochs[j][1];}
+    }
+    var y=yOf(vlat);
+    var pulse=0.5+Math.sin(time*2+i*1.5)*0.3;
+
+    // Vertical line from vertex to bottom
+    gx.strokeStyle='rgba(201,164,74,0.08)';gx.lineWidth=0.5;
+    gx.beginPath();gx.moveTo(x,y);gx.lineTo(x,gH-pad.b);gx.stroke();
+
+    // Glowing dot
+    var gg=gx.createRadialGradient(x,y,0,x,y,8);
+    gg.addColorStop(0,'rgba(201,164,74,'+(pulse*0.3)+')');gg.addColorStop(1,'rgba(201,164,74,0)');
+    gx.fillStyle=gg;gx.beginPath();gx.arc(x,y,8,0,Math.PI*2);gx.fill();
+    gx.beginPath();gx.arc(x,y,3,0,Math.PI*2);gx.fillStyle='rgba(201,164,74,'+pulse+')';gx.fill();
+
+    // Label
+    gx.font='7px Georgia';gx.textAlign='center';gx.fillStyle='rgba(201,164,74,'+(pulse*0.6)+')';
+    gx.fillText(b.name,x,y-10);
+  }
+
+  // "NOW" marker
+  var nowX=xOf(2026),nowVlat=BASE+10.5,nowY=yOf(nowVlat);
+  var nowPulse=0.6+Math.sin(time*3)*0.4;
+  gx.beginPath();gx.arc(nowX,nowY,4,0,Math.PI*2);gx.fillStyle='rgba(255,255,255,'+nowPulse+')';gx.fill();
+
+  // Y axis label
+  gx.save();gx.translate(8,gH/2);gx.rotate(-Math.PI/2);
+  gx.font='7px Georgia';gx.fillStyle='rgba(255,255,255,0.15)';gx.textAlign='center';
+  gx.fillText('vertex latitude (°N)',0,0);gx.restore();
+
+  requestAnimationFrame(drawGraph);
+}
+drawGraph();
 })();
 </script>
 </body>
