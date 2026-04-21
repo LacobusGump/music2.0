@@ -33,6 +33,9 @@ td{padding:6px 8px;font-size:0.78em;color:#aaa;border-bottom:1px solid #ffffff08
 <h1>Mutation Scanner</h1>
 <div class="sub">Variant pathogenicity scoring &mdash; 1,594 variants across 15 disease proteins</div>
 
+<canvas id="star-tet" style="width:100%;height:260px;border-radius:10px;touch-action:none;display:block;margin:0 0 6px;"></canvas>
+<p style="text-align:center;font-size:0.65em;color:#555;margin:0 0 24px;">Vertices flash green (benign) or red (pathogenic). The scanner classifies.</p>
+
 <div class="section">
 <h2>THE IDEA</h2>
 <p>A protein mutation is pathogenic when it disrupts a position that matters. Two questions determine this: how coupled is the position to its neighbors (contact degree from 3D structure), and how conserved is it across species (evolutionary memory from ortholog alignment). If both are high, the position is load-bearing and the mutation is damaging.</p>
@@ -178,6 +181,79 @@ profile_mutation(P53, 175, 'R', 'H')  # &rarr; ValueError with fix suggestion
 </div>
 </div>
 <script src="/js/breathe.js?v=2"></script>
+<script>
+(function(){
+var c=document.getElementById('star-tet'),ctx=c.getContext('2d');
+var W,H,dpr=window.devicePixelRatio||1;
+function resize(){var r=c.getBoundingClientRect();W=r.width;H=r.height;c.width=W*dpr;c.height=H*dpr;ctx.setTransform(dpr,0,0,dpr,0,0);}
+resize();window.addEventListener('resize',resize);
+var s=1,t1=[[s,s,s],[s,-s,-s],[-s,s,-s],[-s,-s,s]],t2=[[-s,-s,-s],[-s,s,s],[s,-s,s],[s,s,-s]];
+var e6=[[0,1],[0,2],[0,3],[1,2],[1,3],[2,3]];
+var ax=0,ay=0;
+// Random color state for each vertex (0=green benign, 1=red pathogenic)
+var vcolors=[0,0,0,0,0,0,0,0]; // 4 per tetra
+var vtimers=[0,0,0,0,0,0,0,0];
+var vdurations=[1.2,1.8,1.5,2.0,1.4,1.7,1.9,1.3];
+function rotX(p,a){var c=Math.cos(a),sn=Math.sin(a);return[p[0],p[1]*c-p[2]*sn,p[1]*sn+p[2]*c];}
+function rotY(p,a){var c=Math.cos(a),sn=Math.sin(a);return[p[0]*c+p[2]*sn,p[1],-p[0]*sn+p[2]*c];}
+function proj(p){var sc=Math.min(W,H)*0.28;return[W/2+p[0]*sc,H/2-p[1]*sc];}
+var lastT=0;
+function draw(){
+  ctx.clearRect(0,0,W,H);
+  ax+=0.008;ay+=0.012;
+  var t=performance.now()*0.001;
+  var dt=t-lastT;lastT=t;
+  // Update vertex flash timers
+  for(var i=0;i<8;i++){
+    vtimers[i]-=dt;
+    if(vtimers[i]<=0){
+      vcolors[i]=Math.random()<0.4?1:0;
+      vdurations[i]=0.8+Math.random()*1.5;
+      vtimers[i]=vdurations[i];
+    }
+  }
+  var p1=t1.map(function(v){return proj(rotY(rotX(v,ax),ay));});
+  var p2=t2.map(function(v){return proj(rotY(rotX(v,ax),ay));});
+  // Gold edges
+  e6.forEach(function(e){
+    ctx.beginPath();ctx.moveTo(p1[e[0]][0],p1[e[0]][1]);ctx.lineTo(p1[e[1]][0],p1[e[1]][1]);
+    ctx.strokeStyle='rgba(201,164,74,0.4)';ctx.lineWidth=1.2;ctx.stroke();
+  });
+  // Copper edges
+  e6.forEach(function(e){
+    ctx.beginPath();ctx.moveTo(p2[e[0]][0],p2[e[0]][1]);ctx.lineTo(p2[e[1]][0],p2[e[1]][1]);
+    ctx.strokeStyle='rgba(189,110,55,0.4)';ctx.lineWidth=1.2;ctx.stroke();
+  });
+  // Flash vertices
+  for(var i=0;i<4;i++){
+    var flash=Math.max(0,Math.min(1,(vtimers[i]/vdurations[i])));
+    var bright=0.3+flash*0.7;
+    var r2=4+flash*3;
+    if(vcolors[i]===1){
+      ctx.beginPath();ctx.arc(p1[i][0],p1[i][1],r2,0,Math.PI*2);
+      ctx.fillStyle='rgba(200,60,60,'+bright+')';ctx.fill();
+    } else {
+      ctx.beginPath();ctx.arc(p1[i][0],p1[i][1],r2,0,Math.PI*2);
+      ctx.fillStyle='rgba(74,170,100,'+bright+')';ctx.fill();
+    }
+  }
+  for(var i=0;i<4;i++){
+    var flash=Math.max(0,Math.min(1,(vtimers[i+4]/vdurations[i+4])));
+    var bright=0.3+flash*0.7;
+    var r2=4+flash*3;
+    if(vcolors[i+4]===1){
+      ctx.beginPath();ctx.arc(p2[i][0],p2[i][1],r2,0,Math.PI*2);
+      ctx.fillStyle='rgba(200,60,60,'+bright+')';ctx.fill();
+    } else {
+      ctx.beginPath();ctx.arc(p2[i][0],p2[i][1],r2,0,Math.PI*2);
+      ctx.fillStyle='rgba(74,170,100,'+bright+')';ctx.fill();
+    }
+  }
+  requestAnimationFrame(draw);
+}
+draw();
+})();
+</script>
 <script src="/js/gump-viz.js"></script>
 <script>
 // ═══ MECHANISM COUPLING GRAPH ═══
