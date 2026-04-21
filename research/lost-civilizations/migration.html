@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Migration Map — Lost Civilizations</title>
+<link rel="icon" href="/favicon.png">
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:#08080d;color:#e8e4dc;font-family:Georgia,serif;min-height:100vh;}
+a{color:#c9a44a;text-decoration:none;}
+.page{max-width:900px;margin:0 auto;padding:20px 20px 80px;}
+.back{font-size:0.75em;color:#444;margin-bottom:20px;display:block;}
+h1{font-size:1.6em;font-weight:100;color:#c9a44a;letter-spacing:0.1em;}
+.sub{font-size:0.82em;color:#888;margin:6px 0 20px;line-height:1.7;}
+h2{font-size:0.9em;font-weight:200;color:#c9a44a;letter-spacing:0.06em;margin:30px 0 10px;}
+p{line-height:1.8;color:#999;font-size:0.82em;margin:10px 0;}
+canvas{display:block;width:100%;border-radius:10px;margin:10px 0;}
+.phase-label{font-size:0.75em;color:#c9a44a;text-align:center;margin:-4px 0 6px;letter-spacing:0.06em;}
+.dim{color:#555;font-size:0.72em;}
+.foot{text-align:center;color:#555;font-size:0.62em;margin-top:40px;}
+</style>
+</head>
+<body>
+<div class="page">
+<a class="back" href="/research/lost-civilizations/">&larr; Lost Civilizations</a>
+<h1>The Migration</h1>
+<div class="sub">Follow the footsteps. Each map adds a layer. If the paths don't fit the timeline, the theory doesn't fit.</div>
+
+<canvas id="map0" style="height:300px;"></canvas>
+<div class="phase-label">BEFORE THE FLOOD — everyone lives LOW</div>
+<p>Coastal civilization. Gulf basin. River valleys. Water = trade, food, transport. The best real estate on Earth is at sea level. Baalbek at 1,170m is the high-ground exception.</p>
+
+<canvas id="map1" style="height:300px;"></canvas>
+<div class="phase-label">THE FLOOD (~10,800 BC) — water rises 120m</div>
+<p>Younger Dryas impact. Every coastal city drowns. Survivors run HIGH. The trauma is civilizational — everyone who lived low died.</p>
+
+<canvas id="map2" style="height:300px;"></canvas>
+<div class="phase-label">PHASE 1: ALTITUDE (~10,800–8,000 BC) — PTSD drives UP</div>
+<p>Göbekli Tepe (760m), Baalbek refuge (1,170m), Andes (2,400–3,700m). Build on hilltops. Not strategic — fear. Noah's Ark "lands" on Ararat (5,137m). The flood story ends at the highest point.</p>
+
+<canvas id="map3" style="height:300px;"></canvas>
+<div class="phase-label">PHASE 2: DESCENT (~8,000–3,000 BC) — coming down</div>
+<p>Generations pass. PTSD fades. It's cold up here. Rivers look nice. They come down. Göbekli Tepe buried. Settle in Nile, Tigris, Euphrates, Indus valleys. The "cradles of civilization" — not origins, but where mountain people landed.</p>
+
+<canvas id="map4" style="height:300px;"></canvas>
+<div class="phase-label">PHASE 3: SPREAD (~3,000–500 BC) — recipe degrades with distance</div>
+<p>Pyramids everywhere. Quality drops with distance from source: Egypt (7/10), Mexico (5/10), Peru (4/10), Easter Island (2/10). North America: recipe lost, only shapes in dirt remain (Poverty Point, Cahokia).</p>
+
+<canvas id="map5" style="height:300px;"></canvas>
+<div class="phase-label">PHASE 4: EGO — claiming ruins, building obelisks</div>
+<p>Leaders find old structures. Put their names on them. Build ego monuments. The recipe is lost. All that remains is brute force and the memory of big stone.</p>
+
+<p class="dim" style="margin-top:20px;text-align:center;">Each map accumulates all previous paths. The story builds. If any path doesn't make sense geographically or chronologically — the theory has a hole.</p>
+
+<div class="foot">
+  <a href="/research/lost-civilizations/">Lost Civilizations</a> &middot; <a href="/research/">Research</a> &middot; <a href="/">GUMP</a>
+</div>
+</div>
+
+<script>
+(function(){
+// Mercator projection (simplified)
+var lonMin=-180, lonMax=180, latMin=-60, latMax=75;
+
+function setupCanvas(id){
+  var cv=document.getElementById(id);if(!cv)return null;
+  var dpr=window.devicePixelRatio||1;
+  var rect=cv.getBoundingClientRect();
+  var W=rect.width, H=rect.height;
+  cv.width=W*dpr;cv.height=H*dpr;
+  var cx=cv.getContext('2d');
+  cx.setTransform(dpr,0,0,dpr,0,0);
+  return{cv:cv,cx:cx,W:W,H:H};
+}
+
+function xOf(lon,W){return((lon-lonMin)/(lonMax-lonMin))*W;}
+function yOf(lat,H){return((latMax-lat)/(latMax-latMin))*H;}
+
+// Sites with elevation data
+var sites={
+  gulf:     {lat:27,lon:51,elev:'-50 (submerged)',name:'Gulf Basin',col:'74,220,153'},
+  baalbek:  {lat:34,lon:36.2,elev:'1,170',name:'Baalbek',col:'201,164,74'},
+  gobekli:  {lat:37.2,lon:38.9,elev:'760',name:'Göbekli Tepe',col:'189,110,55'},
+  karahan:  {lat:37.3,lon:39.2,elev:'600',name:'Karahan Tepe',col:'189,110,55'},
+  giza:     {lat:30,lon:31.1,elev:'60',name:'Giza',col:'74,220,153'},
+  jerusalem:{lat:31.8,lon:35.2,elev:'754',name:'Jerusalem',col:'100,160,255'},
+  teotihuacan:{lat:19.7,lon:-98.8,elev:'2,300',name:'Teotihuacan',col:'150,130,100'},
+  machupicchu:{lat:-13.2,lon:-72.5,elev:'2,430',name:'Machu Picchu',col:'220,160,80'},
+  tiwanaku: {lat:-16.6,lon:-68.7,elev:'3,640',name:'Tiwanaku',col:'220,160,80'},
+  sacsay:   {lat:-13.5,lon:-72.0,elev:'3,700',name:'Sacsayhuaman',col:'220,160,80'},
+  pumapunku:{lat:-16.6,lon:-68.7,elev:'3,640',name:'Puma Punku',col:'220,120,60'},
+  easter:   {lat:-27.1,lon:-109.3,elev:'507',name:'Easter Island',col:'160,100,100'},
+  poverty:  {lat:32.6,lon:-91.4,elev:'23',name:'Poverty Point',col:'120,160,120'},
+  cahokia:  {lat:38.7,lon:-90.1,elev:'128',name:'Cahokia',col:'120,160,120'},
+  nile:     {lat:25,lon:32.5,elev:'75',name:'Nile Valley',col:'100,150,200'},
+  tigris:   {lat:33,lon:44,elev:'34',name:'Tigris-Euphrates',col:'100,150,200'},
+  indus:    {lat:27,lon:68,elev:'50',name:'Indus Valley',col:'100,150,200'},
+  china:    {lat:34,lon:109,elev:'400',name:'Yellow River',col:'100,150,200'},
+  petra:    {lat:30.3,lon:35.4,elev:'810',name:'Petra',col:'180,140,100'},
+  lalibela: {lat:12.0,lon:39.0,elev:'2,500',name:'Lalibela',col:'180,140,100'},
+  ararat:   {lat:39.7,lon:44.3,elev:'5,137',name:'Ararat',col:'255,200,200'},
+  beringia: {lat:65,lon:-170,elev:'0 (ice bridge)',name:'Beringia',col:'180,200,220'},
+};
+
+// Simplified continent outlines (very rough — just enough to show landmasses)
+var continents=[
+  // Africa
+  [[37,10],[35,-5],[30,-10],[20,-15],[10,-15],[5,-10],[0,10],[-5,15],[-15,25],[-25,30],[-35,25],[-35,20],[-30,15],[-25,30],[-15,40],[0,42],[10,45],[15,50],[20,40],[25,35],[30,32],[35,25],[37,10]],
+  // Europe
+  [[37,10],[40,-5],[45,-10],[48,-5],[50,0],[52,5],[55,10],[58,10],[60,25],[55,30],[50,30],[45,25],[42,28],[40,25],[38,25],[36,22],[37,10]],
+  // Asia
+  [[42,28],[45,35],[50,40],[55,50],[60,60],[65,70],[70,140],[65,170],[60,165],[55,155],[50,140],[45,135],[40,130],[35,130],[30,120],[25,110],[20,105],[15,100],[10,100],[5,105],[0,105],[-8,115],[10,105],[15,100],[20,95],[25,90],[25,80],[30,75],[25,65],[25,60],[28,55],[30,48],[32,35],[35,25],[37,25],[42,28]],
+  // Americas
+  [[65,-170],[70,-160],[65,-140],[60,-135],[55,-130],[50,-125],[45,-125],[40,-125],[35,-120],[30,-115],[25,-110],[20,-105],[15,-90],[10,-85],[10,-80],[5,-77],[0,-80],[-5,-80],[-10,-78],[-15,-75],[-20,-70],[-30,-70],[-35,-72],[-40,-72],[-45,-75],[-55,-70],[-55,-65],[-50,-68],[-45,-65],[-40,-60],[-35,-55],[-30,-50],[-25,-45],[-20,-40],[-15,-40],[-10,-35],[-5,-50],[0,-50],[5,-55],[10,-62],[10,-75],[15,-85],[18,-88],[20,-90],[25,-90],[28,-82],[30,-82],[25,-80],[27,-78],[30,-75],[35,-75],[40,-70],[42,-68],[45,-62],[48,-55],[50,-55],[55,-60],[60,-65],[65,-60],[65,-80],[70,-100],[72,-130],[70,-160],[65,-170]],
+  // Australia
+  [[-12,130],[-15,135],[-20,140],[-25,148],[-30,150],[-35,150],[-38,145],[-35,137],[-30,130],[-25,115],[-20,115],[-15,125],[-12,130]],
+];
+
+function drawMap(c, phase){
+  if(!c)return;
+  var cx=c.cx, W=c.W, H=c.H;
+
+  // Background
+  cx.fillStyle='rgba(8,8,13,1)';
+  cx.fillRect(0,0,W,H);
+
+  // Continents
+  cx.strokeStyle='rgba(255,255,255,0.06)';
+  cx.fillStyle='rgba(20,25,20,0.3)';
+  cx.lineWidth=0.5;
+  for(var ci=0;ci<continents.length;ci++){
+    var cont=continents[ci];
+    cx.beginPath();
+    for(var i=0;i<cont.length;i++){
+      var x=xOf(cont[i][1],W), y=yOf(cont[i][0],H);
+      i===0?cx.moveTo(x,y):cx.lineTo(x,y);
+    }
+    cx.closePath();cx.fill();cx.stroke();
+  }
+
+  // Water indication for Gulf basin (pre-flood = dry land)
+  if(phase<=1){
+    cx.fillStyle='rgba(74,220,153,0.08)';
+    cx.beginPath();
+    cx.arc(xOf(51,W),yOf(27,H),12,0,Math.PI*2);
+    cx.fill();
+    cx.font='7px Georgia';cx.textAlign='center';
+    cx.fillStyle='rgba(74,220,153,0.2)';
+    cx.fillText('Gulf Oasis (dry land)',xOf(51,W),yOf(27,H)+16);
+  }
+
+  // Flood water overlay
+  if(phase>=1){
+    cx.fillStyle='rgba(50,80,150,0.06)';
+    cx.fillRect(0,0,W,H);
+  }
+
+  // Draw migration paths for each phase
+  function arrow(from,to,col,dashed){
+    var x1=xOf(from.lon,W),y1=yOf(from.lat,H);
+    var x2=xOf(to.lon,W),y2=yOf(to.lat,H);
+    cx.strokeStyle='rgba('+col+',0.3)';
+    cx.lineWidth=1.5;
+    if(dashed)cx.setLineDash([3,4]);
+    cx.beginPath();cx.moveTo(x1,y1);cx.lineTo(x2,y2);cx.stroke();
+    cx.setLineDash([]);
+    // Arrowhead
+    var angle=Math.atan2(y2-y1,x2-x1);
+    cx.fillStyle='rgba('+col+',0.3)';
+    cx.beginPath();
+    cx.moveTo(x2,y2);
+    cx.lineTo(x2-8*Math.cos(angle-0.4),y2-8*Math.sin(angle-0.4));
+    cx.lineTo(x2-8*Math.cos(angle+0.4),y2-8*Math.sin(angle+0.4));
+    cx.closePath();cx.fill();
+  }
+
+  function dot(site,size,pulse){
+    var s=sites[site];if(!s)return;
+    var x=xOf(s.lon,W),y=yOf(s.lat,H);
+    var r=size||4;
+    // Glow
+    var grd=cx.createRadialGradient(x,y,0,x,y,r*3);
+    grd.addColorStop(0,'rgba('+s.col+','+(pulse?0.2:0.1)+')');
+    grd.addColorStop(1,'rgba('+s.col+',0)');
+    cx.fillStyle=grd;cx.beginPath();cx.arc(x,y,r*3,0,Math.PI*2);cx.fill();
+    // Dot
+    cx.beginPath();cx.arc(x,y,r,0,Math.PI*2);
+    cx.fillStyle='rgba('+s.col+','+(pulse?0.8:0.5)+')';cx.fill();
+    // Label
+    cx.font='7px Georgia';cx.textAlign='center';
+    cx.fillStyle='rgba('+s.col+',0.4)';
+    cx.fillText(s.name+' ('+s.elev+'m)',x,y-r-4);
+  }
+
+  // Phase 0: Pre-flood — everyone low
+  if(phase>=0){
+    dot('gulf',5,phase==0);
+    dot('baalbek',3,false);
+  }
+
+  // Phase 1: Flood + run to altitude
+  if(phase>=1){
+    // Flood arrows UP
+    arrow(sites.gulf,sites.baalbek,'201,164,74');
+    arrow(sites.gulf,sites.gobekli,'189,110,55');
+    arrow(sites.gulf,sites.ararat,'255,200,200',true);
+    dot('gobekli',4,phase==2);
+    dot('karahan',3,false);
+    dot('ararat',3,phase==2);
+  }
+
+  // Phase 2: PTSD altitude — mountain sites light up
+  if(phase>=2){
+    // Andes path (via ice bridge long ago, or coastal)
+    arrow(sites.gobekli,{lat:40,lon:70},'180,140,100',true); // east
+    dot('machupicchu',4,phase==2);
+    dot('tiwanaku',4,phase==2);
+    dot('sacsay',3,phase==2);
+    dot('petra',3,phase==2);
+    dot('lalibela',3,phase==2);
+    // Show Beringia path
+    dot('beringia',2,false);
+    cx.font='6px Georgia';cx.textAlign='center';
+    cx.fillStyle='rgba(180,200,220,0.2)';
+    cx.fillText('ice bridge (pre-flood)',xOf(-170,W),yOf(63,H));
+  }
+
+  // Phase 3: Coming down — river valleys
+  if(phase>=3){
+    arrow(sites.gobekli,sites.tigris,'100,150,200');
+    arrow(sites.baalbek,sites.nile,'100,150,200');
+    arrow(sites.baalbek,sites.giza,'74,220,153');
+    arrow(sites.baalbek,sites.jerusalem,'100,160,255');
+    dot('giza',5,phase==3);
+    dot('jerusalem',3,false);
+    dot('nile',3,false);
+    dot('tigris',3,false);
+    dot('indus',3,false);
+    dot('china',3,false);
+    // Americas south path
+    arrow({lat:65,lon:-170},{lat:35,lon:-110},'150,130,100',true);
+    arrow({lat:35,lon:-110},sites.teotihuacan,'150,130,100');
+    arrow(sites.teotihuacan,sites.pumapunku,'220,120,60',true);
+    arrow(sites.pumapunku,sites.easter,'160,100,100',true);
+    dot('teotihuacan',4,phase==4);
+    dot('pumapunku',3,false);
+    dot('easter',3,false);
+    // North America
+    arrow({lat:50,lon:-120},sites.poverty,'120,160,120',true);
+    dot('poverty',3,false);
+    dot('cahokia',2,false);
+  }
+
+  // Phase 4: Spread + degradation
+  if(phase>=4){
+    // Quality labels
+    cx.font='8px Futura, sans-serif';cx.textAlign='center';
+    var labels=[
+      {lat:32,lon:35,text:'7/10',col:'74,220,153'},
+      {lat:22,lon:-95,text:'5/10',col:'150,130,100'},
+      {lat:-14,lon:-65,text:'4/10',col:'220,120,60'},
+      {lat:-25,lon:-105,text:'2/10',col:'160,100,100'},
+      {lat:35,lon:-88,text:'1/10 (dirt)',col:'120,160,120'},
+    ];
+    for(var i=0;i<labels.length;i++){
+      var l=labels[i];
+      cx.fillStyle='rgba('+l.col+',0.35)';
+      cx.fillText(l.text,xOf(l.lon,W),yOf(l.lat,H));
+    }
+  }
+
+  // Phase 5: Ego markers
+  if(phase>=5){
+    // Obelisk symbols at ego sites
+    var egoSites=[
+      {lat:30,lon:31.5,name:'Obelisks'},
+      {lat:41.9,lon:12.5,name:'Rome'},
+    ];
+    for(var i=0;i<egoSites.length;i++){
+      var e=egoSites[i];
+      var x=xOf(e.lon,W),y=yOf(e.lat,H);
+      cx.strokeStyle='rgba(170,85,85,0.4)';cx.lineWidth=1.5;
+      cx.beginPath();cx.moveTo(x,y);cx.lineTo(x,y-12);cx.stroke();
+      cx.beginPath();cx.moveTo(x-3,y);cx.lineTo(x+3,y);cx.stroke();
+      cx.font='6px Georgia';cx.fillStyle='rgba(170,85,85,0.3)';
+      cx.textAlign='center';cx.fillText(e.name,x,y+8);
+    }
+  }
+}
+
+// Render all maps
+var ids=['map0','map1','map2','map3','map4','map5'];
+for(var i=0;i<ids.length;i++){
+  var c=setupCanvas(ids[i]);
+  if(c)drawMap(c,i);
+}
+
+// Handle resize
+window.addEventListener('resize',function(){
+  for(var i=0;i<ids.length;i++){
+    var c=setupCanvas(ids[i]);
+    if(c)drawMap(c,i);
+  }
+});
+})();
+</script>
+</body>
+</html>
