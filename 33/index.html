@@ -215,454 +215,89 @@ Good will applied forward.
 <hr>
 
 <div style="text-align:center;margin:40px 0 20px;">
-<button id="tune-btn-couple" style="background:none;border:none;color:#c9a44a15;cursor:pointer;transition:all 1s;line-height:1;letter-spacing:-0.15em;font-size:2.2em;" onclick="toggleCouple()">&#9650;&#9650;</button>
-<button id="tune-btn-child" style="background:none;border:none;color:#4a915;font-size:1.2em;cursor:pointer;transition:all 1s;line-height:1;margin-left:14px;" onclick="toggleChild()">&#9650;</button>
+<button id="tune-btn-couple" style="background:none;border:none;color:#c9a44a15;cursor:pointer;transition:all 1s;line-height:1;letter-spacing:-0.12em;" onclick="toggleCouple()"><span style="font-size:2.2em;">&#9650;</span><span style="font-size:2.05em;">&#9650;</span></button>
+<button id="tune-btn-child" style="background:none;border:none;color:#4a912;font-size:1.0em;cursor:pointer;transition:all 1s;line-height:1;margin-left:14px;" onclick="toggleChild()">&#9650;</button>
 <p class="dim" style="font-size:0.6em;margin-top:8px;">headphones</p>
 </div>
 
 <script>
-// ═══ THE TUNING ═══
-// Not music. Resonance. Based on the measured frequencies.
-// Binaural beats at the chamber frequencies.
-// Headphones required — left and right ear get different Hz.
-// The brain perceives the DIFFERENCE as the target frequency.
-//
-// Layers:
-//   7.83 Hz — Schumann fundamental (Earth's pulse)
-//   33 Hz   — Khafre chamber resonance (the room)
-//   4 Hz    — deep theta (below the Schumann, where the quiet is)
-//
-// Carrier: ~136.1 Hz (the OM frequency, C# in Vedic tuning,
-//   also: 1 year cycle compressed to audible = 136.1 Hz)
-//
-// This is psychoacoustics. Published. Safe.
-// The frequencies are from our measurements.
-// The intention is clean.
-
-var tuneCtx = null;
-var tuning = false;
-var tuneNodes = [];
-
-function createBinauralLayer(ctx, carrierHz, beatHz, gain){
-  // Left ear: carrier
-  // Right ear: carrier + beat
-  // Brain perceives: beatHz
-  var oscL = ctx.createOscillator();
-  var oscR = ctx.createOscillator();
-  var gainL = ctx.createGain();
-  var gainR = ctx.createGain();
-  var mergerL = ctx.createChannelMerger(2);
-
-  oscL.type = 'sine';
-  oscL.frequency.value = carrierHz;
-  oscR.type = 'sine';
-  oscR.frequency.value = carrierHz + beatHz;
-
-  gainL.gain.value = gain;
-  gainR.gain.value = gain;
-
-  // Fade in over 8 seconds
-  gainL.gain.setValueAtTime(0, ctx.currentTime);
-  gainL.gain.linearRampToValueAtTime(gain, ctx.currentTime + 8);
-  gainR.gain.setValueAtTime(0, ctx.currentTime);
-  gainR.gain.linearRampToValueAtTime(gain, ctx.currentTime + 8);
-
-  oscL.connect(gainL);
-  oscR.connect(gainR);
-
-  // Left channel = 0, Right channel = 1
-  gainL.connect(mergerL, 0, 0);
-  gainR.connect(mergerL, 0, 1);
-  mergerL.connect(ctx.destination);
-
-  oscL.start();
-  oscR.start();
-
-  tuneNodes.push(oscL, oscR, gainL, gainR);
-  return {oscL: oscL, oscR: oscR, gainL: gainL, gainR: gainR};
+(function(){
+function bLayer(ctx,carrier,beat,gain,delay){
+  var oL=ctx.createOscillator(),oR=ctx.createOscillator();
+  var gL=ctx.createGain(),gR=ctx.createGain(),m=ctx.createChannelMerger(2);
+  oL.type='sine';oL.frequency.value=carrier;
+  oR.type='sine';oR.frequency.value=carrier+beat;
+  gL.gain.setValueAtTime(0,ctx.currentTime);
+  gL.gain.linearRampToValueAtTime(gain,ctx.currentTime+(delay||8));
+  gR.gain.setValueAtTime(0,ctx.currentTime);
+  gR.gain.linearRampToValueAtTime(gain,ctx.currentTime+(delay||8));
+  oL.connect(gL);oR.connect(gR);gL.connect(m,0,0);gR.connect(m,0,1);
+  m.connect(ctx.destination);oL.start();oR.start();
+  return[oL,oR,gL,gR];
+}
+function tone(ctx,freq,gain,delay){
+  var o=ctx.createOscillator(),g=ctx.createGain();
+  o.type='sine';o.frequency.value=freq;
+  g.gain.setValueAtTime(0,ctx.currentTime);
+  g.gain.linearRampToValueAtTime(gain,ctx.currentTime+(delay||8));
+  o.connect(g);g.connect(ctx.destination);o.start();
+  return[o,g];
+}
+function fadeStop(ctx,nodes,cb){
+  if(!ctx){if(cb)cb();return;}
+  var now=ctx.currentTime;
+  nodes.forEach(function(n){if(n.gain)try{n.gain.linearRampToValueAtTime(0,now+4);}catch(e){}});
+  setTimeout(function(){
+    nodes.forEach(function(n){try{n.stop();}catch(e){}});
+    try{ctx.close();}catch(e){}
+    if(cb)cb();
+  },4500);
 }
 
-function startTune(){
-  tuneCtx = new (window.AudioContext || window.webkitAudioContext)();
-  tuning = true;
+var cCtx=null,cNodes=[],cOn=false;
+var dCtx=null,dNodes=[],dOn=false;
 
-  // ═══ TUNED TO JAMES ═══
-  // Carriers are HIS body. Beats are THE ROOM.
-  // The coupling happens where they meet.
-  //
-  // James: 5'10" = 1.778m → body fundamental 96.7 Hz
-  // His 3rd subharmonic: 32.2 Hz ≈ Khafre chamber (32.8 Hz)
-  // His body naturally couples to that room within 2%.
-
-  // Layer 1: Schumann + his body
-  // Carrier at 96.7 Hz (HIS fundamental), beat at 7.83 Hz
-  createBinauralLayer(tuneCtx, 96.7, 7.83, 0.22);
-
-  // Layer 2: His coupling to Khafre
-  // Carrier at 193.5 Hz (HIS octave), beat at 32.2 Hz (HIS 3rd sub)
-  createBinauralLayer(tuneCtx, 193.5, 32.2, 0.16);
-
-  // Layer 3: Deep theta on his sub
-  // Carrier at 48.4 Hz (HIS half), beat at 4 Hz
-  createBinauralLayer(tuneCtx, 48.4, 4.0, 0.18);
-
-  // Layer 4: The 33m column — center, felt in his chest
-  var sub = tuneCtx.createOscillator();
-  var subGain = tuneCtx.createGain();
-  sub.type = 'sine';
-  sub.frequency.value = 53.0;
-  subGain.gain.setValueAtTime(0, tuneCtx.currentTime);
-  subGain.gain.linearRampToValueAtTime(0.14, tuneCtx.currentTime + 12);
-  sub.connect(subGain);
-  subGain.connect(tuneCtx.destination);
-  sub.start();
-  tuneNodes.push(sub, subGain);
-
-  // Layer 5: The gap above his head in the box
-  // 35.2cm gap when he lays in the Khafre sarcophagus → 488.6 Hz
-  // Very quiet. The last thing to arrive.
-  var gap = tuneCtx.createOscillator();
-  var gapGain = tuneCtx.createGain();
-  gap.type = 'sine';
-  gap.frequency.value = 488.6;
-  gapGain.gain.setValueAtTime(0, tuneCtx.currentTime);
-  gapGain.gain.linearRampToValueAtTime(0.05, tuneCtx.currentTime + 25);
-  gap.connect(gapGain);
-  gapGain.connect(tuneCtx.destination);
-  gap.start();
-  tuneNodes.push(gap, gapGain);
-
-}
-
-function stopTune(){
-  if(tuneCtx){
-    var now = tuneCtx.currentTime;
-    tuneNodes.forEach(function(n){
-      if(n.gain) try{n.gain.linearRampToValueAtTime(0, now+4);}catch(e){}
-    });
-    setTimeout(function(){
-      tuneNodes.forEach(function(n){try{n.stop();}catch(e){}});
-      tuneNodes = [];
-      try{tuneCtx.close();}catch(e){}
-      tuneCtx = null;
-    }, 4500);
-  }
-  tuning = false;
-}
-
-// ═══ THE SEQUENCE ═══
-// Three pyramids. Three stages. In order.
-// Khufu strips ego (detune). Khafre strips everything (zero). Menkaure rebuilds (voice).
-// Each stage runs ~3 minutes. Total ~9 minutes.
-// One button. The sequence runs itself.
-
-var stageTimer = null;
-var currentStage = 0;
-var stageLabel = null;
-
-var coupleActive = false;
-var childActive = false;
-var coupleCtx = null;
-var childCtx = null;
-var coupleNodes = [];
-var childNodes = [];
-
-window.toggleCouple = function(){
-  if(coupleActive){
-    // Stop
-    if(coupleCtx){
-      var now = coupleCtx.currentTime;
-      coupleNodes.forEach(function(n){if(n.gain)try{n.gain.linearRampToValueAtTime(0,now+4);}catch(e){}});
-      setTimeout(function(){
-        coupleNodes.forEach(function(n){try{n.stop();}catch(e){}});
-        coupleNodes=[];try{coupleCtx.close();}catch(e){}coupleCtx=null;
-      },4500);
-    }
-    coupleActive=false;
-    document.getElementById('tune-btn-couple').style.color='#c9a44a15';
-    return;
-  }
-  coupleActive=true;
-  coupleCtx = new (window.AudioContext||window.webkitAudioContext)();
+window.toggleCouple=function(){
+  if(cOn){fadeStop(cCtx,cNodes);cCtx=null;cNodes=[];cOn=false;
+    document.getElementById('tune-btn-couple').style.color='#c9a44a15';return;}
+  cCtx=new(window.AudioContext||window.webkitAudioContext)();cOn=true;
   document.getElementById('tune-btn-couple').style.color='#c9a44a';
 
-  function addTone(freq,gain,delay){
-    var o=coupleCtx.createOscillator();var g=coupleCtx.createGain();
-    o.type='sine';o.frequency.value=freq;
-    g.gain.setValueAtTime(0,coupleCtx.currentTime);
-    g.gain.linearRampToValueAtTime(gain,coupleCtx.currentTime+(delay||8));
-    o.connect(g);g.connect(coupleCtx.destination);o.start();
-    coupleNodes.push(o,g);
-  }
-
-  function addBinaural(carrier,beat,gain,delay){
-    var oL=coupleCtx.createOscillator();var oR=coupleCtx.createOscillator();
-    var gL=coupleCtx.createGain();var gR=coupleCtx.createGain();
-    var m=coupleCtx.createChannelMerger(2);
-    oL.type='sine';oL.frequency.value=carrier;
-    oR.type='sine';oR.frequency.value=carrier+beat;
-    gL.gain.setValueAtTime(0,coupleCtx.currentTime);
-    gL.gain.linearRampToValueAtTime(gain,coupleCtx.currentTime+(delay||8));
-    gR.gain.setValueAtTime(0,coupleCtx.currentTime);
-    gR.gain.linearRampToValueAtTime(gain,coupleCtx.currentTime+(delay||8));
-    oL.connect(gL);oR.connect(gR);gL.connect(m,0,0);gR.connect(m,0,1);
-    m.connect(coupleCtx.destination);oL.start();oR.start();
-    coupleNodes.push(oL,oR,gL,gR);
-  }
-
-  // ═══ THE COUPLE: Khufu + Khafre played TOGETHER ═══
-  // The BEATING between their close frequencies IS the coupling.
-  // 32.9 Hz (Khufu width) vs 32.2 Hz (James/Khafre) = beat at 0.7 Hz
-  // 29.6 Hz (Khufu height) vs 26.1 Hz (Menkaure length) = beat at 3.5 Hz
-  // These beats PULSE. The pulse IS the 3.
-
-  // Khufu frequencies on his body carrier
-  addBinaural(96.7, 16.4, 0.14, 6);    // KC length — infrasonic
-  addBinaural(96.7, 32.9, 0.12, 8);    // KC width — skull
-
-  // Khafre frequencies on his octave carrier
-  addBinaural(193.5, 32.2, 0.12, 8);   // his coupling to Khafre
-  addBinaural(193.5, 7.83, 0.10, 10);  // Schumann through Khafre
-
-  // The BEATING pair: both close frequencies TOGETHER
-  // Left ear: 32.2 Hz beat. Right ear: 32.9 Hz beat.
-  // Brain hears BOTH and perceives the 0.7 Hz pulse between them.
-  // One pulse every 1.4 seconds. Like a slow heartbeat.
-  addBinaural(145.0, 32.2, 0.10, 12);  // Khafre on neutral carrier
-  addBinaural(145.0, 32.9, 0.10, 12);  // Khufu on same carrier — BEATS
-
-  // 53 Hz column — the physical link between them
-  addTone(53.0, 0.12, 15);
-
-  // 121 Hz KC — the engine hum
-  addTone(121.0, 0.06, 20);
+  // Khufu frequencies on James's body carriers
+  cNodes=cNodes.concat(bLayer(cCtx,96.7,16.4,0.14,6));
+  cNodes=cNodes.concat(bLayer(cCtx,96.7,32.9,0.12,8));
+  // Khafre frequencies on his octave
+  cNodes=cNodes.concat(bLayer(cCtx,193.5,32.2,0.12,8));
+  cNodes=cNodes.concat(bLayer(cCtx,193.5,7.83,0.10,10));
+  // THE BEAT: both close frequencies on same carrier = 0.7 Hz pulse
+  cNodes=cNodes.concat(bLayer(cCtx,145.0,32.2,0.10,12));
+  cNodes=cNodes.concat(bLayer(cCtx,145.0,32.9,0.10,12));
+  // 53 Hz column + 121 Hz KC
+  cNodes=cNodes.concat(tone(cCtx,53.0,0.12,15));
+  cNodes=cNodes.concat(tone(cCtx,121.0,0.06,20));
 };
 
-window.toggleChild = function(){
-  if(childActive){
-    if(childCtx){
-      var now=childCtx.currentTime;
-      childNodes.forEach(function(n){if(n.gain)try{n.gain.linearRampToValueAtTime(0,now+4);}catch(e){}});
-      setTimeout(function(){
-        childNodes.forEach(function(n){try{n.stop();}catch(e){}});
-        childNodes=[];try{childCtx.close();}catch(e){}childCtx=null;
-      },4500);
-    }
-    childActive=false;
-    document.getElementById('tune-btn-child').style.color='#4a915';
-    return;
-  }
-  childActive=true;
-  childCtx = new (window.AudioContext||window.webkitAudioContext)();
+window.toggleChild=function(){
+  if(dOn){fadeStop(dCtx,dNodes);dCtx=null;dNodes=[];dOn=false;
+    document.getElementById('tune-btn-child').style.color='#4a912';return;}
+  dCtx=new(window.AudioContext||window.webkitAudioContext)();dOn=true;
   document.getElementById('tune-btn-child').style.color='#4a9';
 
-  function addTone(freq,gain,delay){
-    var o=childCtx.createOscillator();var g=childCtx.createGain();
-    o.type='sine';o.frequency.value=freq;
-    g.gain.setValueAtTime(0,childCtx.currentTime);
-    g.gain.linearRampToValueAtTime(gain,childCtx.currentTime+(delay||8));
-    o.connect(g);g.connect(childCtx.destination);o.start();
-    childNodes.push(o,g);
-  }
-
-  function addBinaural(carrier,beat,gain,delay){
-    var oL=childCtx.createOscillator();var oR=childCtx.createOscillator();
-    var gL=childCtx.createGain();var gR=childCtx.createGain();
-    var m=childCtx.createChannelMerger(2);
-    oL.type='sine';oL.frequency.value=carrier;
-    oR.type='sine';oR.frequency.value=carrier+beat;
-    gL.gain.setValueAtTime(0,childCtx.currentTime);
-    gL.gain.linearRampToValueAtTime(gain,childCtx.currentTime+(delay||8));
-    gR.gain.setValueAtTime(0,childCtx.currentTime);
-    gR.gain.linearRampToValueAtTime(gain,childCtx.currentTime+(delay||8));
-    oL.connect(gL);oR.connect(gR);gL.connect(m,0,0);gR.connect(m,0,1);
-    m.connect(childCtx.destination);oL.start();oR.start();
-    childNodes.push(oL,oR,gL,gR);
-  }
-
-  // ═══ THE CHILD: Menkaure alone. Warm. Voice. Return. ═══
-  addBinaural(96.7, 50.1, 0.18, 6);    // chamber height ≈ his sub
-  addBinaural(193.5, 74.5, 0.14, 8);   // chamber width — voice range
-  addBinaural(48.4, 26.1, 0.14, 10);   // chamber length — slow pulse
-
-  // The sarcophagus at sea
-  addTone(286.7, 0.05, 15);
-
-  // Him. Last. Center. Steady. You come back.
-  addTone(96.7, 0.10, 25);
+  // Menkaure chamber frequencies on James's body
+  dNodes=dNodes.concat(bLayer(dCtx,96.7,50.1,0.18,6));
+  dNodes=dNodes.concat(bLayer(dCtx,193.5,74.5,0.14,8));
+  dNodes=dNodes.concat(bLayer(dCtx,48.4,26.1,0.14,10));
+  // Sarcophagus at sea
+  dNodes=dNodes.concat(tone(dCtx,286.7,0.05,15));
+  // Him. Last. Center. Steady.
+  dNodes=dNodes.concat(tone(dCtx,96.7,0.10,25));
 };
 
-// Old stage functions removed — replaced by couple/child above
-
-function _unused_runStage1(){
-  // KHUFU — the engine, the detune, strip ego
-  // King's Chamber frequencies: harsh, powerful, confronting
-  tuneCtx = new (window.AudioContext || window.webkitAudioContext)();
-  tuning = true;
-  document.getElementById('tune-btn-1').style.color = '#a55';
-  document.getElementById('tune-btn-1').innerHTML = '&#9724;';
-
-  // KC length mode: 16.4 Hz (infrasonic, destabilizing)
-  createBinauralLayer(tuneCtx, 96.7, 16.4, 0.18);
-  // KC width mode: 32.9 Hz (skull)
-  createBinauralLayer(tuneCtx, 193.5, 32.9, 0.14);
-  // KC height mode: 29.6 Hz (dissonant with width — intentional)
-  createBinauralLayer(tuneCtx, 48.4, 29.6, 0.12);
-  // 121 Hz — the KC resonance itself, raw
-  var kc = tuneCtx.createOscillator();
-  var kcG = tuneCtx.createGain();
-  kc.type = 'sine'; kc.frequency.value = 121;
-  kcG.gain.setValueAtTime(0, tuneCtx.currentTime);
-  kcG.gain.linearRampToValueAtTime(0.10, tuneCtx.currentTime + 10);
-  kcG.gain.linearRampToValueAtTime(0, tuneCtx.currentTime + 170);
-  kc.connect(kcG); kcG.connect(tuneCtx.destination); kc.start();
-  tuneNodes.push(kc, kcG);
-
-  document.getElementById('tune-btn-1').style.color='#a55';
-  document.getElementById('tune-btn-1').style.borderColor='#a5555560';
-  document.getElementById('tune-btn-1').innerHTML='&#9632;';
-}
-
-function runStage2(){
-  // KHAFRE — the operator, strip everything, zero point
-  // 33 Hz from two directions. Deep. Primal. Nothing left.
-  tuneCtx = new (window.AudioContext || window.webkitAudioContext)();
-  tuning = true;
-  document.getElementById('tune-btn-2').style.color = '#c9a44a';
-  document.getElementById('tune-btn-2').innerHTML = '&#9724;';
-
-  // Schumann + his body
-  createBinauralLayer(tuneCtx, 96.7, 7.83, 0.20);
-  // His coupling to Khafre: 32.2 Hz
-  createBinauralLayer(tuneCtx, 193.5, 32.2, 0.16);
-  // Deep theta
-  createBinauralLayer(tuneCtx, 48.4, 4.0, 0.18);
-  // 53 Hz column — chest
-  var sub = tuneCtx.createOscillator();
-  var subG = tuneCtx.createGain();
-  sub.type = 'sine'; sub.frequency.value = 53.0;
-  subG.gain.setValueAtTime(0, tuneCtx.currentTime);
-  subG.gain.linearRampToValueAtTime(0.12, tuneCtx.currentTime + 15);
-  subG.gain.linearRampToValueAtTime(0, tuneCtx.currentTime + 170);
-  sub.connect(subG); subG.connect(tuneCtx.destination); sub.start();
-  tuneNodes.push(sub, subG);
-
-  stageTimer = setTimeout(function(){
-    fadeTune(function(){ runStage3(); });
-  }, 180000);
-}
-
-function runStage3(){
-  // MENKAURE — the voice, rebuild, minimum viable self
-  // Warmer. Higher. Where speech lives. You come back.
-  tuneCtx = new (window.AudioContext || window.webkitAudioContext)();
-  tuning = true;
-  stageLabel.textContent = 'III — Menkaure — returning';
-  stageLabel.style.color = '#4a9';
-  document.getElementById('tune-btn-k').style.color = '#4a9';
-  document.getElementById('tune-btn-k').style.borderColor = '#4a960';
-  document.getElementById('tune-btn-k').innerHTML = 'III';
-
-  // Chamber height ≈ his sub-octave
-  createBinauralLayer(tuneCtx, 96.7, 50.1, 0.20);
-  // Chamber width — warm, voice range
-  createBinauralLayer(tuneCtx, 193.5, 74.5, 0.15);
-  // Chamber length — slow pulse
-  createBinauralLayer(tuneCtx, 48.4, 26.1, 0.16);
-  // Sarcophagus at sea
-  var sea = tuneCtx.createOscillator();
-  var seaG = tuneCtx.createGain();
-  sea.type = 'sine'; sea.frequency.value = 286.7;
-  seaG.gain.setValueAtTime(0, tuneCtx.currentTime);
-  seaG.gain.linearRampToValueAtTime(0.05, tuneCtx.currentTime + 15);
-  sea.connect(seaG); seaG.connect(tuneCtx.destination); sea.start();
-  tuneNodes.push(sea, seaG);
-  // His own frequency — you come back as yourself
-  var self = tuneCtx.createOscillator();
-  var selfG = tuneCtx.createGain();
-  self.type = 'sine'; self.frequency.value = 96.7;
-  selfG.gain.setValueAtTime(0, tuneCtx.currentTime);
-  selfG.gain.linearRampToValueAtTime(0.10, tuneCtx.currentTime + 30);
-  self.connect(selfG); selfG.connect(tuneCtx.destination); self.start();
-  tuneNodes.push(self, selfG);
-
-  document.getElementById('tune-btn-3').style.color = '#4a9';
-  document.getElementById('tune-btn-3').innerHTML = '&#9724;';
-}
-
-function fadeTune(callback){
-  if(tuneCtx){
-    var now = tuneCtx.currentTime;
-    tuneNodes.forEach(function(n){
-      if(n.gain) try{n.gain.linearRampToValueAtTime(0, now+4);}catch(e){}
-    });
-    setTimeout(function(){
-      tuneNodes.forEach(function(n){try{n.stop();}catch(e){}});
-      tuneNodes = [];
-      try{tuneCtx.close();}catch(e){}
-      tuneCtx = null;
-      tuning = false;
-      if(callback) setTimeout(callback, 2000); // 2 sec silence between stages
-    }, 4500);
-  } else {
-    tuning = false;
-    if(callback) callback();
-  }
-}
-
-function startMenkaure(){
-  tuneCtx = new (window.AudioContext || window.webkitAudioContext)();
-  tuning = true;
-
-  // ═══ MENKAURE — THE VOICE ═══
-  // Same carriers (HIS body). Different beats (MENKAURE room).
-  // Higher frequencies. Warmer. Where speech lives.
-  // This one gives you back your voice.
-
-  // Layer 1: Chamber height + his body
-  // 50.1 Hz ≈ his sub-octave (48.4 Hz) — within 3.5%
-  createBinauralLayer(tuneCtx, 96.7, 50.1, 0.20);
-
-  // Layer 2: Chamber width on his octave
-  // 74.5 Hz — warm, chest-to-throat, voice range
-  createBinauralLayer(tuneCtx, 193.5, 74.5, 0.15);
-
-  // Layer 3: Chamber length on his sub
-  // 26.1 Hz — the slow pulse of the room
-  createBinauralLayer(tuneCtx, 48.4, 26.1, 0.16);
-
-  // Layer 4: The sarcophagus that went to sea
-  // 286.7 Hz — the box cross-section, square, gentle
-  var sea = tuneCtx.createOscillator();
-  var seaGain = tuneCtx.createGain();
-  sea.type = 'sine';
-  sea.frequency.value = 286.7;
-  seaGain.gain.setValueAtTime(0, tuneCtx.currentTime);
-  seaGain.gain.linearRampToValueAtTime(0.05, tuneCtx.currentTime + 15);
-  sea.connect(seaGain);
-  seaGain.connect(tuneCtx.destination);
-  sea.start();
-  tuneNodes.push(sea, seaGain);
-
-  // Layer 5: His body fundamental — center, mono, warm
-  // Not binaural. Just him. Steady.
-  var self = tuneCtx.createOscillator();
-  var selfGain = tuneCtx.createGain();
-  self.type = 'sine';
-  self.frequency.value = 96.7;
-  selfGain.gain.setValueAtTime(0, tuneCtx.currentTime);
-  selfGain.gain.linearRampToValueAtTime(0.08, tuneCtx.currentTime + 20);
-  self.connect(selfGain);
-  selfGain.connect(tuneCtx.destination);
-  self.start();
-  tuneNodes.push(self, selfGain);
-
-  document.getElementById('tune-btn-m').style.color = '#c9a44a';
-  document.getElementById('tune-btn-m').style.borderColor = '#c9a44a40';
-  document.getElementById('tune-btn-m').innerHTML = '&#9632;';
-}
-
-window.addEventListener('beforeunload', function(){ if(tuning) stopTune(); });
+window.addEventListener('beforeunload',function(){
+  if(cOn)fadeStop(cCtx,cNodes);
+  if(dOn)fadeStop(dCtx,dNodes);
+});
+})();
 </script>
 </div>
 </body>
