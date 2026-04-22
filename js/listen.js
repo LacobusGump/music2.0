@@ -1,152 +1,172 @@
-/* listen.js — Audio for every research page
-   One button. Click it. The page reads itself to you.
-   Uses Web Speech API (built into all modern browsers).
-   No server. No cost. No tokens. */
+/* listen.js — Audio for every page
+   Click to play. Click to pause. Double-click to stop.
+   Web Speech API. No server. No cost. */
 
 (function(){
-  // Only add to pages with .page class
   var page = document.querySelector('.page');
   if (!page) return;
-
-  // Don't add to pages that opt out
   if (document.querySelector('[data-no-listen]')) return;
 
-  // Create the button
-  var btn = document.createElement('button');
-  btn.id = 'listen-btn';
-  btn.innerHTML = '&#9654; Listen';
-  btn.title = 'Read this page aloud';
-  btn.style.cssText = 'position:fixed;bottom:20px;right:20px;z-index:9999;' +
-    'background:#0c0c14;color:#c9a44a;border:1px solid #c9a44a30;' +
-    'border-radius:20px;padding:8px 16px;font-family:Georgia,serif;' +
-    'font-size:0.78em;cursor:pointer;transition:all 0.3s;' +
-    'backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);';
-
-  // Hover
-  btn.onmouseenter = function(){ btn.style.borderColor = '#c9a44a'; btn.style.color = '#e8e4dc'; };
-  btn.onmouseleave = function(){
-    if (!speaking) { btn.style.borderColor = '#c9a44a30'; btn.style.color = '#c9a44a'; }
-  };
+  // Kill any speech leftover from previous page / refresh
+  try { speechSynthesis.cancel(); } catch(e){}
 
   // State
-  var speaking = false;
-  var paused = false;
-  var utterance = null;
+  var speaking = false, paused = false, chunks = [], chunkIndex = 0;
+  var voiceReady = false, selectedVoice = null;
 
-  // Extract readable text from the page
+  // Button
+  var btn = document.createElement('button');
+  btn.id = 'listen-btn';
+  btn.setAttribute('aria-label', 'Listen to this page');
+  btn.innerHTML = '&#9654; Listen';
+  btn.style.cssText = 'position:fixed;bottom:20px;right:20px;z-index:9999;' +
+    'background:rgba(12,12,20,0.9);color:#c9a44a;border:1px solid #c9a44a30;' +
+    'border-radius:20px;padding:8px 16px;font-family:Georgia,serif;' +
+    'font-size:0.78em;cursor:pointer;transition:all 0.3s;' +
+    'backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);' +
+    '-webkit-tap-highlight-color:transparent;user-select:none;';
+
+  btn.onmouseenter = function(){ if(!speaking) btn.style.borderColor='#c9a44a'; };
+  btn.onmouseleave = function(){ if(!speaking) btn.style.borderColor='#c9a44a30'; };
+
+  // Pick the best voice available
+  // Priority: deeper American male voices that match what James liked
+  function pickVoice(){
+    var voices = speechSynthesis.getVoices();
+    if (!voices.length) return;
+
+    // Ranked preference for American English male voices
+    var priority = [
+      'Aaron',           // iOS 17+ premium voice
+      'Evan',            // macOS premium
+      'Tom',             // macOS
+      'Alex',            // macOS classic
+      'Fred',            // macOS
+      'Samantha',        // iOS/macOS (female but very clear)
+      'Daniel',          // British but clear
+      'Google US English' // Chrome
+    ];
+
+    // First pass: exact name match from priority list, English only
+    for (var p = 0; p < priority.length; p++){
+      for (var i = 0; i < voices.length; i++){
+        if (voices[i].lang.startsWith('en') && voices[i].name.indexOf(priority[p]) >= 0){
+          selectedVoice = voices[i];
+          voiceReady = true;
+          return;
+        }
+      }
+    }
+
+    // Second pass: any en-US voice
+    for (var i = 0; i < voices.length; i++){
+      if (voices[i].lang === 'en-US'){
+        selectedVoice = voices[i];
+        voiceReady = true;
+        return;
+      }
+    }
+
+    // Fallback: any English voice
+    for (var i = 0; i < voices.length; i++){
+      if (voices[i].lang.startsWith('en')){
+        selectedVoice = voices[i];
+        voiceReady = true;
+        return;
+      }
+    }
+
+    voiceReady = true; // use default
+  }
+
+  // Voices load async on most browsers
+  pickVoice();
+  if (speechSynthesis.onvoiceschanged !== undefined){
+    speechSynthesis.onvoiceschanged = pickVoice;
+  }
+
+  // Extract readable text
   function getPageText(){
     var clone = page.cloneNode(true);
-
-    // Remove elements that shouldn't be read
-    var skip = clone.querySelectorAll('script, style, canvas, .back, .foot, .meta, .tag, #listen-btn, [data-no-read]');
+    var skip = clone.querySelectorAll('script,style,canvas,svg,.back,.foot,.meta,.tag,button,[data-no-read]');
     for (var i = 0; i < skip.length; i++) skip[i].remove();
-
-    // Get text, clean it up
-    var text = clone.textContent || clone.innerText || '';
-
-    // Clean up whitespace and special chars
-    text = text.replace(/\s+/g, ' ').trim();
-
-    // Replace common HTML entities that might survive
-    text = text.replace(/←/g, '').replace(/→/g, '').replace(/—/g, ' — ');
-    text = text.replace(/×/g, ' times ').replace(/±/g, ' plus or minus ');
-    text = text.replace(/≈/g, ' approximately ').replace(/≥/g, ' greater than or equal to ');
-    text = text.replace(/≤/g, ' less than or equal to ');
-
+    var text = (clone.textContent || clone.innerText || '').replace(/\s+/g, ' ').trim();
+    // Clean symbols
+    text = text.replace(/[←→]/g, '');
+    text = text.replace(/—/g, ' — ');
+    text = text.replace(/×/g, ' times ');
+    text = text.replace(/±/g, ' plus or minus ');
+    text = text.replace(/[≈~]/g, ' approximately ');
+    text = text.replace(/[≥≤]/g, '');
+    text = text.replace(/\s+/g, ' ');
     return text;
   }
 
-  // Chunk text for reliability (some browsers cut off long utterances)
-  function chunkText(text, maxLen){
-    var chunks = [];
-    var sentences = text.split(/(?<=[.!?])\s+/);
-    var current = '';
-
-    for (var i = 0; i < sentences.length; i++){
-      if ((current + ' ' + sentences[i]).length > maxLen && current.length > 0){
-        chunks.push(current.trim());
-        current = sentences[i];
+  // Split into sentences, keep chunks short for reliability
+  function makeChunks(text){
+    var out = [], buf = '';
+    // Split on sentence boundaries
+    var parts = text.split(/(?<=[.!?:;])\s+/);
+    for (var i = 0; i < parts.length; i++){
+      if ((buf + ' ' + parts[i]).length > 180 && buf.length > 0){
+        out.push(buf.trim());
+        buf = parts[i];
       } else {
-        current += (current ? ' ' : '') + sentences[i];
+        buf += (buf ? ' ' : '') + parts[i];
       }
     }
-    if (current.trim()) chunks.push(current.trim());
-    return chunks;
+    if (buf.trim()) out.push(buf.trim());
+    return out;
   }
 
-  var chunks = [];
-  var chunkIndex = 0;
+  function speakNext(){
+    if (chunkIndex >= chunks.length){ stop(); return; }
 
-  function speakNextChunk(){
-    if (chunkIndex >= chunks.length){
-      stopSpeaking();
-      return;
-    }
+    var u = new SpeechSynthesisUtterance(chunks[chunkIndex]);
+    u.rate = 0.92;   // slightly slower than default
+    u.pitch = 0.95;  // slightly deeper
+    if (selectedVoice) u.voice = selectedVoice;
 
-    utterance = new SpeechSynthesisUtterance(chunks[chunkIndex]);
-    utterance.rate = 0.95;
-    utterance.pitch = 1.0;
-
-    // Try to pick a good voice
-    var voices = speechSynthesis.getVoices();
-    var preferred = null;
-    for (var i = 0; i < voices.length; i++){
-      var v = voices[i];
-      // Prefer natural-sounding English voices
-      if (v.lang.startsWith('en') && (v.name.indexOf('Samantha') >= 0 ||
-          v.name.indexOf('Daniel') >= 0 || v.name.indexOf('Karen') >= 0 ||
-          v.name.indexOf('Google') >= 0 || v.name.indexOf('Natural') >= 0)){
-        preferred = v;
-        break;
-      }
-    }
-    if (!preferred){
-      for (var i = 0; i < voices.length; i++){
-        if (voices[i].lang.startsWith('en')){ preferred = voices[i]; break; }
-      }
-    }
-    if (preferred) utterance.voice = preferred;
-
-    utterance.onend = function(){
+    u.onend = function(){
       chunkIndex++;
-      if (speaking && !paused) speakNextChunk();
+      if (speaking && !paused) speakNext();
     };
-
-    utterance.onerror = function(e){
-      if (e.error !== 'canceled'){
+    u.onerror = function(e){
+      if (e.error !== 'canceled' && e.error !== 'interrupted'){
         chunkIndex++;
-        if (speaking) speakNextChunk();
+        if (speaking) speakNext();
       }
     };
 
-    speechSynthesis.speak(utterance);
+    speechSynthesis.speak(u);
   }
 
-  function startSpeaking(){
+  function play(){
     speechSynthesis.cancel();
     speaking = true;
     paused = false;
-    chunks = chunkText(getPageText(), 200);
+    chunks = makeChunks(getPageText());
     chunkIndex = 0;
     btn.innerHTML = '&#9646;&#9646; Pause';
     btn.style.borderColor = '#c9a44a';
     btn.style.color = '#e8e4dc';
-    speakNextChunk();
+    // Small delay to let cancel() finish
+    setTimeout(speakNext, 100);
   }
 
-  function pauseSpeaking(){
+  function pause(){
     speechSynthesis.pause();
     paused = true;
     btn.innerHTML = '&#9654; Resume';
   }
 
-  function resumeSpeaking(){
+  function resume(){
     speechSynthesis.resume();
     paused = false;
     btn.innerHTML = '&#9646;&#9646; Pause';
   }
 
-  function stopSpeaking(){
+  function stop(){
     speechSynthesis.cancel();
     speaking = false;
     paused = false;
@@ -156,36 +176,32 @@
     btn.style.color = '#c9a44a';
   }
 
-  // Click handler: play → pause → resume cycle, double-click to stop
+  // Click handler
   var lastClick = 0;
-  btn.onclick = function(){
+  btn.onclick = function(e){
+    e.preventDefault();
     var now = Date.now();
-
-    // Double-click to stop
-    if (now - lastClick < 400 && speaking){
-      stopSpeaking();
-      lastClick = 0;
-      return;
-    }
+    // Double-click = stop
+    if (now - lastClick < 400 && speaking){ stop(); lastClick = 0; return; }
     lastClick = now;
-
-    if (!speaking){
-      startSpeaking();
-    } else if (paused){
-      resumeSpeaking();
-    } else {
-      pauseSpeaking();
-    }
+    if (!speaking) play();
+    else if (paused) resume();
+    else pause();
   };
 
-  // Load voices (some browsers load async)
-  if (speechSynthesis.onvoiceschanged !== undefined){
-    speechSynthesis.onvoiceschanged = function(){};
-  }
+  // Prevent touch glitches on iOS
+  btn.addEventListener('touchend', function(e){ e.preventDefault(); btn.click(); }, {passive:false});
 
-  // Add button to page
   document.body.appendChild(btn);
 
-  // Stop on page leave
-  window.addEventListener('beforeunload', function(){ speechSynthesis.cancel(); });
+  // Clean up on page leave AND on page show (back/forward cache)
+  window.addEventListener('beforeunload', function(){ try{speechSynthesis.cancel();}catch(e){} });
+  window.addEventListener('pagehide', function(){ try{speechSynthesis.cancel();}catch(e){} });
+  window.addEventListener('pageshow', function(e){
+    if (e.persisted){ try{speechSynthesis.cancel();}catch(e){} stop(); }
+  });
+  // Also cancel on visibility change (tab switch)
+  document.addEventListener('visibilitychange', function(){
+    if (document.hidden && speaking && !paused){ pause(); }
+  });
 })();
