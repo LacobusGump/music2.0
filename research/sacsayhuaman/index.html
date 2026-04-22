@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sacsayhuam&aacute;n Pour Sequence &mdash; GUMP</title>
+<meta name="description" content="Reverse-engineering one wall section block by block. Foundation → key stones → fills. Paint by numbers.">
+<link rel="icon" href="/favicon.png">
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:#08080d;color:#e8e4dc;font-family:Georgia,serif;min-height:100vh;}
+a{color:#c9a44a;text-decoration:none;}
+.page{max-width:900px;margin:0 auto;padding:30px 20px 80px;}
+.back{font-size:0.75em;color:#444;margin-bottom:30px;display:block;}
+h1{font-size:1.6em;font-weight:100;color:#c9a44a;letter-spacing:0.1em;}
+.sub{font-size:0.85em;color:#888;margin:6px 0 28px;line-height:1.7;}
+h2{font-size:0.95em;font-weight:200;color:#c9a44a;letter-spacing:0.08em;margin:30px 0 14px;text-transform:uppercase;}
+p{line-height:1.9;color:#999;font-size:0.85em;margin:12px 0;}
+.quiet{color:#444;font-size:0.78em;font-style:italic;text-align:center;margin:24px 0;line-height:1.8;}
+hr{border:none;border-top:1px solid #ffffff08;margin:30px 0;}
+.foot{text-align:center;color:#555;font-size:0.62em;margin-top:50px;line-height:2;}
+canvas{display:block;width:100%;border-radius:10px;cursor:grab;touch-action:none;}
+.controls{display:flex;gap:8px;justify-content:center;margin:12px 0;flex-wrap:wrap;}
+.controls button{background:#0c0c14;color:#c9a44a;border:1px solid #c9a44a30;border-radius:16px;padding:6px 14px;font-family:Georgia,serif;font-size:0.75em;cursor:pointer;transition:all 0.3s;}
+.controls button:hover,.controls button.active{background:#c9a44a;color:#08080d;}
+.phase-label{text-align:center;font-size:0.82em;color:#c9a44a;margin:8px 0;min-height:1.6em;}
+</style>
+</head>
+<body>
+<div class="page">
+<a class="back" href="/research/">&larr; Research</a>
+
+<h1>Sacsayhuam&aacute;n</h1>
+<div class="sub">One wall section. Two corners. Every block between them.<br>Paint by numbers &mdash; reverse-engineering the pour sequence.</div>
+
+<div style="background:#0c0c14;border:1px solid #c9a44a20;border-radius:10px;padding:18px 22px;margin:16px 0 24px;">
+<div style="font-size:0.7em;color:#c9a44a80;font-weight:200;letter-spacing:0.08em;margin-bottom:10px;">JIM&rsquo;S OVERSIMPLIFICATION</div>
+<p style="font-size:0.88em;color:#ccc;line-height:2;margin:0;">Start with level bedrock. Pour small foundation blocks. Then pour two big anchor stones at the corners &mdash; those are the ugly ones with cracks because they took a hundred buckets and the first bucket started curing before the last one went in. Then fill the space between the anchors with smaller pours &mdash; those are the pretty ones because they&rsquo;re small enough to pour in one go. Each fill block gets its shape from its neighbors. Nobody designed the interlocking. The liquid did the fitting.</p>
+</div>
+
+<canvas id="wall" height="500"></canvas>
+<div class="phase-label" id="phase-label">Click Play to begin</div>
+<div class="controls">
+<button id="btn-play" onclick="togglePlay()">&#9654; Play</button>
+<button onclick="goPhase(0)">Bedrock</button>
+<button onclick="goPhase(1)">Foundation</button>
+<button onclick="goPhase(2)">Key Stones</button>
+<button onclick="goPhase(3)">Lower Fills</button>
+<button onclick="goPhase(4)">Course 2</button>
+<button onclick="goPhase(5)">Upper Fills</button>
+<button onclick="goPhase(6)">Complete</button>
+</div>
+
+<hr>
+<h2>What you&rsquo;re seeing</h2>
+<p>One section between two adjacent salient corners of the first (lowest) zigzag wall. Approximately 17 meters wide, 7.5 meters tall. Based on published dimensions (Protzen 1993, Gasparini &amp; Margolies 1980).</p>
+
+<p>The colors indicate pour phase &mdash; <span style="color:#665544;">bedrock</span>, <span style="color:#887755;">foundation</span>, <span style="color:#cc8844;">key stones</span>, <span style="color:#aa9966;">fills</span>, <span style="color:#99aa77;">course 2</span>. Watch the sequence: the biggest blocks go in at the corners first, then everything else fills the gaps. The interlocking shapes emerge from the negative space between cured neighbors.</p>
+
+<p><strong style="color:#ccc;">The predictions this model makes:</strong></p>
+<p>&bull; Key stones (corners) should be roughest and most cracked &mdash; largest volume, most bucket loads, worst cold joints.</p>
+<p>&bull; Fill stones should be smoother &mdash; smaller volume, more uniform pour.</p>
+<p>&bull; Exposed faces should bulge outward (skin form). Joint faces should be flat (against cured neighbor or plank).</p>
+<p>&bull; The pour dependency graph should have no cycles &mdash; every block was poured after its lower/adjacent neighbors.</p>
+
+<p class="quiet">
+Yucay limestone. Quarry 3 km away. Geopolymer-compatible.<br>
+Protzen (Stanford) couldn&rsquo;t replicate the concave joints by pounding.<br>
+Liquid fills concave molds perfectly.<br>
+Nobody has run SEM on a Sacsayhuam&aacute;n block.<br>
+One sample would settle this.
+</p>
+
+<div class="foot">
+  <a href="/">GUMP</a> &mdash; <a href="/research/">Research</a> &middot; <a href="/research/lost-civilizations/">Lost Civilizations</a> &middot; <a href="mailto:jim@begump.com">jim@begump.com</a>
+</div>
+</div>
+
+<script>
+// ═══ POUR SEQUENCE VISUALIZATION ═══
+// One section of the first zigzag wall between two salient corners
+(function(){
+var cv = document.getElementById('wall');
+var cx = cv.getContext('2d');
+var W, H, dpr;
+var label = document.getElementById('phase-label');
+
+function resize(){
+  var r = cv.getBoundingClientRect();
+  dpr = window.devicePixelRatio || 1;
+  W = r.width; H = 500;
+  cv.width = W * dpr; cv.height = H * dpr;
+  cx.setTransform(dpr,0,0,dpr,0,0);
+}
+window.addEventListener('resize', function(){ resize(); draw(); });
+resize();
+
+// Wall geometry: 17m wide section, 7.5m tall
+// Scale to canvas
+var WALL_W = 17; // meters
+var WALL_H = 7.5;
+var pad = {l:40, r:20, t:20, b:40};
+var drawW = W - pad.l - pad.r;
+var drawH = H - pad.t - pad.b;
+var scale = Math.min(drawW / WALL_W, drawH / WALL_H);
+var ox = pad.l + (drawW - WALL_W * scale) / 2;
+var oy = pad.t + drawH; // bottom of wall
+
+function mx(x){ return ox + x * scale; }
+function my(y){ return oy - y * scale; }
+
+// Block definitions: [x, y, w, h, phase, bulge_pts]
+// x,y = bottom-left corner in meters
+// phase: 0=bedrock, 1=foundation, 2=keystone, 3=fill, 4=course2, 5=upper fill
+// bulge_pts: array of [bx,by] offsets for skin bulge on exposed face
+
+var blocks = [];
+
+// Phase 0: Bedrock (irregular base)
+// Drawn as a filled shape, not blocks
+
+// Phase 1: Foundation blocks (small, along the base)
+var fnd_h = 0.6;
+for(var i = 0; i < 14; i++){
+  var fw = 0.9 + Math.random() * 0.5;
+  var fh = fnd_h + (Math.random()-0.5)*0.15;
+  blocks.push({x: i*1.22, y:0, w:fw, h:fh, phase:1, bulge:0.06+Math.random()*0.04,
+    cracks:0, label:'F'+(i+1)});
+}
+
+// Phase 2: Key stones at corners (two big ones)
+// Left corner key stone
+blocks.push({x:-0.3, y:fnd_h, w:3.2, h:3.8, phase:2, bulge:0.03,
+  cracks:5, label:'K1'});
+// Right corner key stone
+blocks.push({x:14.5, y:fnd_h, w:2.8, h:3.5, phase:2, bulge:0.03,
+  cracks:4, label:'K2'});
+
+// Phase 3: Lower fill stones between key stones
+var fill_x = 2.9;
+var fills_lower = [
+  {w:2.4, h:2.2, bulge:0.08, cracks:0},
+  {w:1.8, h:2.5, bulge:0.09, cracks:0},
+  {w:2.1, h:1.9, bulge:0.10, cracks:0},
+  {w:1.6, h:2.3, bulge:0.07, cracks:1},
+  {w:2.3, h:2.1, bulge:0.09, cracks:0},
+  {w:1.5, h:2.4, bulge:0.08, cracks:0},
+];
+for(var i = 0; i < fills_lower.length; i++){
+  var f = fills_lower[i];
+  // Vary height to create interlocking
+  var yoff = fnd_h + (Math.random()-0.5)*0.3;
+  blocks.push({x:fill_x, y:fnd_h, w:f.w, h:f.h, phase:3,
+    bulge:f.bulge, cracks:f.cracks, label:'L'+(i+1)});
+  fill_x += f.w + 0.05; // tiny gap = joint
+}
+
+// Phase 4: Course 2 (on top of key stones and some fills)
+blocks.push({x:-0.1, y:fnd_h+3.8, w:2.5, h:2.2, phase:4, bulge:0.06, cracks:2, label:'C1'});
+blocks.push({x:14.2, y:fnd_h+3.5, w:2.6, h:2.0, phase:4, bulge:0.06, cracks:2, label:'C2'});
+
+// Phase 5: Upper fills
+var uf_x = 2.4;
+var fills_upper = [
+  {w:2.0, h:1.8, bulge:0.09},
+  {w:1.7, h:2.0, bulge:0.10},
+  {w:2.2, h:1.6, bulge:0.08},
+  {w:1.9, h:1.9, bulge:0.09},
+  {w:2.0, h:1.7, bulge:0.10},
+  {w:1.8, h:2.1, bulge:0.08},
+];
+for(var i = 0; i < fills_upper.length; i++){
+  var f = fills_upper[i];
+  var base_y = fnd_h + fills_lower[i] ? fills_lower[i].h : 2.2;
+  // Overlap: upper blocks lap slightly over lower blocks
+  var overlap = 0.15 + Math.random()*0.2;
+  blocks.push({x:uf_x-overlap*0.5, y:fnd_h + (fills_lower[i]?fills_lower[i].h:2.2) - overlap,
+    w:f.w+overlap, h:f.h, phase:5, bulge:f.bulge, cracks:0, label:'U'+(i+1)});
+  uf_x += (fills_lower[i]?fills_lower[i].w:2.0) + 0.05;
+}
+
+// Current animation phase
+var currentPhase = -1;
+var targetPhase = 6;
+var animating = false;
+var animTimer = null;
+var blockAlpha = {};
+var fadeSpeed = 0.03;
+
+var phaseNames = [
+  'Phase 0: Bedrock — the level reference',
+  'Phase 1: Foundation — small blocks, most bulge',
+  'Phase 2: Key stones — big corners, most cracks',
+  'Phase 3: Lower fills — smooth, shape from neighbors',
+  'Phase 4: Course 2 — on top of cured key stones',
+  'Phase 5: Upper fills — overlap lapping, leapfrog',
+  'Complete — every block placed'
+];
+
+var phaseColors = {
+  0: {r:60,g:50,b:40},   // bedrock
+  1: {r:120,g:100,b:70},  // foundation
+  2: {r:180,g:120,b:60},  // key stones
+  3: {r:150,g:135,b:90},  // lower fills
+  4: {r:130,g:150,b:100}, // course 2
+  5: {r:140,g:140,b:105}, // upper fills
+};
+
+function draw(){
+  cx.clearRect(0,0,W,H);
+  resize(); // recalc scale
+  drawW = W - pad.l - pad.r;
+  drawH = H - pad.t - pad.b;
+  scale = Math.min(drawW / WALL_W, drawH / WALL_H);
+  ox = pad.l + (drawW - WALL_W * scale) / 2;
+  oy = pad.t + drawH;
+
+  // Background
+  cx.fillStyle = '#08080d';
+  cx.fillRect(0,0,W,H);
+
+  // Bedrock
+  var bedrockAlpha = currentPhase >= 0 ? 1 : 0;
+  if(bedrockAlpha > 0){
+    cx.fillStyle = 'rgba(50,42,35,'+bedrockAlpha+')';
+    cx.beginPath();
+    cx.moveTo(mx(-2), my(0));
+    // Irregular bedrock surface
+    for(var i = -2; i <= WALL_W+2; i += 0.5){
+      var bh = -0.3 + Math.sin(i*0.8)*0.15 + Math.sin(i*2.1)*0.08;
+      cx.lineTo(mx(i), my(bh));
+    }
+    cx.lineTo(mx(WALL_W+2), my(-2));
+    cx.lineTo(mx(-2), my(-2));
+    cx.closePath();
+    cx.fill();
+
+    // Bedrock surface line
+    cx.strokeStyle = 'rgba(80,65,50,'+bedrockAlpha*0.5+')';
+    cx.lineWidth = 1.5;
+    cx.beginPath();
+    for(var i = -2; i <= WALL_W+2; i += 0.3){
+      var bh = -0.3 + Math.sin(i*0.8)*0.15 + Math.sin(i*2.1)*0.08;
+      i === -2 ? cx.moveTo(mx(i), my(bh)) : cx.lineTo(mx(i), my(bh));
+    }
+    cx.stroke();
+
+    // Level line
+    if(currentPhase >= 0){
+      cx.strokeStyle = 'rgba(100,180,255,0.15)';
+      cx.setLineDash([4,6]);
+      cx.beginPath();
+      cx.moveTo(mx(-1), my(0));
+      cx.lineTo(mx(WALL_W+1), my(0));
+      cx.stroke();
+      cx.setLineDash([]);
+      cx.fillStyle = 'rgba(100,180,255,0.2)';
+      cx.font = '9px Georgia';
+      cx.fillText('water level', mx(WALL_W+1)+4, my(0)+3);
+    }
+  }
+
+  // Draw blocks by phase
+  for(var i = 0; i < blocks.length; i++){
+    var b = blocks[i];
+    var alpha = blockAlpha[i] || 0;
+    if(alpha <= 0) continue;
+
+    var c = phaseColors[b.phase] || {r:150,g:150,b:150};
+    var bx = mx(b.x);
+    var by = my(b.y + b.h);
+    var bw = b.w * scale;
+    var bh = b.h * scale;
+
+    // Block body with skin bulge
+    cx.fillStyle = 'rgba('+c.r+','+c.g+','+c.b+','+(alpha*0.7)+')';
+
+    // Draw with subtle bulge on exposed face
+    var bulge = b.bulge * scale * 8;
+    cx.beginPath();
+    cx.moveTo(bx, by);
+    // Top edge (flat — water leveled or against neighbor above)
+    cx.lineTo(bx + bw, by);
+    // Right edge — bulge if exposed, flat if against neighbor
+    var rightBulge = (b.phase === 2 && b.label === 'K2') || b.phase >= 3 ? 0 : bulge;
+    cx.quadraticCurveTo(bx + bw + rightBulge, by + bh*0.5, bx + bw, by + bh);
+    // Bottom (flat — on foundation/neighbor)
+    cx.lineTo(bx, by + bh);
+    // Left edge — bulge if exposed
+    var leftBulge = (b.phase === 2 && b.label === 'K1') || b.phase >= 3 ? 0 : bulge;
+    cx.quadraticCurveTo(bx - leftBulge, by + bh*0.5, bx, by);
+    cx.closePath();
+    cx.fill();
+
+    // Front face bulge (the main exposed face)
+    if(b.bulge > 0.05){
+      var grad = cx.createRadialGradient(
+        bx+bw*0.5, by+bh*0.5, bh*0.1,
+        bx+bw*0.5, by+bh*0.5, bh*0.6
+      );
+      grad.addColorStop(0, 'rgba('+(c.r+30)+','+(c.g+20)+','+(c.b+10)+','+(alpha*0.3)+')');
+      grad.addColorStop(1, 'rgba('+c.r+','+c.g+','+c.b+',0)');
+      cx.fillStyle = grad;
+      cx.fill();
+    }
+
+    // Border
+    cx.strokeStyle = 'rgba('+Math.min(c.r+40,255)+','+Math.min(c.g+30,255)+','+Math.min(c.b+20,255)+','+(alpha*0.4)+')';
+    cx.lineWidth = 1;
+    cx.stroke();
+
+    // Cracks on key stones
+    if(b.cracks > 0){
+      cx.strokeStyle = 'rgba(40,30,25,'+(alpha*0.6)+')';
+      cx.lineWidth = 0.8;
+      for(var ci = 0; ci < b.cracks; ci++){
+        var crx = bx + bw * (0.2 + Math.random()*0.6);
+        var cry = by + bh * 0.1;
+        cx.beginPath();
+        cx.moveTo(crx, cry);
+        for(var s = 0; s < 4; s++){
+          crx += (Math.random()-0.5) * bw * 0.15;
+          cry += bh * (0.15 + Math.random()*0.1);
+          cx.lineTo(crx, cry);
+        }
+        cx.stroke();
+      }
+    }
+
+    // Label
+    if(alpha > 0.5){
+      cx.fillStyle = 'rgba(255,255,255,'+(alpha*0.25)+')';
+      cx.font = (b.phase === 2 ? '11' : '9') + 'px Courier New';
+      cx.textAlign = 'center';
+      cx.fillText(b.label, bx+bw*0.5, by+bh*0.55);
+    }
+  }
+
+  // Scale bar
+  cx.strokeStyle = 'rgba(255,255,255,0.15)';
+  cx.lineWidth = 1;
+  var sb_y = H - 15;
+  var sb_w = 5 * scale; // 5 meters
+  cx.beginPath();
+  cx.moveTo(mx(0), sb_y); cx.lineTo(mx(5), sb_y);
+  cx.moveTo(mx(0), sb_y-4); cx.lineTo(mx(0), sb_y+4);
+  cx.moveTo(mx(5), sb_y-4); cx.lineTo(mx(5), sb_y+4);
+  cx.stroke();
+  cx.fillStyle = 'rgba(255,255,255,0.15)';
+  cx.font = '9px Georgia';
+  cx.textAlign = 'center';
+  cx.fillText('5 meters', mx(2.5), sb_y - 6);
+
+  // Phase legend
+  cx.textAlign = 'left';
+  cx.font = '9px Georgia';
+  var ly = 20;
+  var phases = [
+    [1,'Foundation','120,100,70'],
+    [2,'Key stones (corners)','180,120,60'],
+    [3,'Lower fills','150,135,90'],
+    [4,'Course 2','130,150,100'],
+    [5,'Upper fills','140,140,105']
+  ];
+  for(var i = 0; i < phases.length; i++){
+    var p = phases[i];
+    if(currentPhase >= p[0]){
+      cx.fillStyle = 'rgba('+p[2]+',0.6)';
+      cx.fillRect(8, ly-6, 10, 10);
+      cx.fillStyle = 'rgba(255,255,255,0.3)';
+      cx.fillText(p[1], 22, ly+2);
+      ly += 14;
+    }
+  }
+}
+
+function updateAlphas(){
+  var dirty = false;
+  for(var i = 0; i < blocks.length; i++){
+    var b = blocks[i];
+    var target = (b.phase <= currentPhase) ? 1 : 0;
+    var cur = blockAlpha[i] || 0;
+    if(Math.abs(cur - target) > 0.01){
+      blockAlpha[i] = cur + (target - cur) * 0.08;
+      dirty = true;
+    } else {
+      blockAlpha[i] = target;
+    }
+  }
+  return dirty;
+}
+
+function animate(){
+  var dirty = updateAlphas();
+  draw();
+  if(dirty || animating){
+    requestAnimationFrame(animate);
+  }
+}
+
+window.goPhase = function(p){
+  currentPhase = p;
+  if(p >= 0 && p < phaseNames.length) label.textContent = phaseNames[p];
+  animate();
+};
+
+var playing = false;
+var playPhase = -1;
+window.togglePlay = function(){
+  if(playing){
+    playing = false;
+    document.getElementById('btn-play').innerHTML = '&#9654; Play';
+    return;
+  }
+  playing = true;
+  playPhase = -1;
+  document.getElementById('btn-play').innerHTML = '&#9646;&#9646; Stop';
+  function step(){
+    if(!playing) return;
+    playPhase++;
+    if(playPhase > 6){ playing = false; document.getElementById('btn-play').innerHTML = '&#9654; Play'; return; }
+    goPhase(playPhase);
+    setTimeout(step, 2000);
+  }
+  step();
+};
+
+// Initial state
+currentPhase = -1;
+draw();
+})();
+</script>
+<script src="/js/breathe.js?v=2"></script>
+<script src="/js/listen.js"></script>
+</body>
+</html>
