@@ -212,6 +212,153 @@ The spiral goes up.<br>
 Good will applied forward.
 </p>
 
+<hr>
+
+<div style="text-align:center;margin:40px 0 20px;">
+<button id="tune-btn" style="background:none;border:1px solid #c9a44a20;color:#c9a44a60;border-radius:50%;width:60px;height:60px;font-size:1.4em;cursor:pointer;transition:all 1s;" onclick="toggleTune()">&#9698;</button>
+<p class="dim" style="font-size:0.65em;margin-top:10px;">headphones required</p>
+</div>
+
+<script>
+// ═══ THE TUNING ═══
+// Not music. Resonance. Based on the measured frequencies.
+// Binaural beats at the chamber frequencies.
+// Headphones required — left and right ear get different Hz.
+// The brain perceives the DIFFERENCE as the target frequency.
+//
+// Layers:
+//   7.83 Hz — Schumann fundamental (Earth's pulse)
+//   33 Hz   — Khafre chamber resonance (the room)
+//   4 Hz    — deep theta (below the Schumann, where the quiet is)
+//
+// Carrier: ~136.1 Hz (the OM frequency, C# in Vedic tuning,
+//   also: 1 year cycle compressed to audible = 136.1 Hz)
+//
+// This is psychoacoustics. Published. Safe.
+// The frequencies are from our measurements.
+// The intention is clean.
+
+var tuneCtx = null;
+var tuning = false;
+var tuneNodes = [];
+
+function createBinauralLayer(ctx, carrierHz, beatHz, gain){
+  // Left ear: carrier
+  // Right ear: carrier + beat
+  // Brain perceives: beatHz
+  var oscL = ctx.createOscillator();
+  var oscR = ctx.createOscillator();
+  var gainL = ctx.createGain();
+  var gainR = ctx.createGain();
+  var mergerL = ctx.createChannelMerger(2);
+
+  oscL.type = 'sine';
+  oscL.frequency.value = carrierHz;
+  oscR.type = 'sine';
+  oscR.frequency.value = carrierHz + beatHz;
+
+  gainL.gain.value = gain;
+  gainR.gain.value = gain;
+
+  // Fade in over 8 seconds
+  gainL.gain.setValueAtTime(0, ctx.currentTime);
+  gainL.gain.linearRampToValueAtTime(gain, ctx.currentTime + 8);
+  gainR.gain.setValueAtTime(0, ctx.currentTime);
+  gainR.gain.linearRampToValueAtTime(gain, ctx.currentTime + 8);
+
+  oscL.connect(gainL);
+  oscR.connect(gainR);
+
+  // Left channel = 0, Right channel = 1
+  gainL.connect(mergerL, 0, 0);
+  gainR.connect(mergerL, 0, 1);
+  mergerL.connect(ctx.destination);
+
+  oscL.start();
+  oscR.start();
+
+  tuneNodes.push(oscL, oscR, gainL, gainR);
+  return {oscL: oscL, oscR: oscR, gainL: gainL, gainR: gainR};
+}
+
+function startTune(){
+  tuneCtx = new (window.AudioContext || window.webkitAudioContext)();
+  tuning = true;
+
+  // Layer 1: Schumann fundamental
+  // Carrier at 136.1 Hz, beat at 7.83 Hz
+  createBinauralLayer(tuneCtx, 136.1, 7.83, 0.08);
+
+  // Layer 2: Khafre chamber coupling
+  // Carrier at 165 Hz (E below middle C), beat at 33 Hz
+  createBinauralLayer(tuneCtx, 165.0, 33.0, 0.05);
+
+  // Layer 3: Deep theta
+  // Carrier at 108 Hz (sacred frequency in many traditions), beat at 4 Hz
+  createBinauralLayer(tuneCtx, 108.0, 4.0, 0.06);
+
+  // Layer 4: Sub bass drone — the 33m column
+  // Not binaural — center, felt not heard
+  var sub = tuneCtx.createOscillator();
+  var subGain = tuneCtx.createGain();
+  sub.type = 'sine';
+  sub.frequency.value = 53.0; // 33m limestone column resonance
+  subGain.gain.setValueAtTime(0, tuneCtx.currentTime);
+  subGain.gain.linearRampToValueAtTime(0.04, tuneCtx.currentTime + 12);
+  sub.connect(subGain);
+  subGain.connect(tuneCtx.destination);
+  sub.start();
+  tuneNodes.push(sub, subGain);
+
+  // Layer 5: Very quiet high shimmer — the sarcophagus
+  // 257 Hz square cross-section resonance, barely there
+  var shimmer = tuneCtx.createOscillator();
+  var shimGain = tuneCtx.createGain();
+  shimmer.type = 'sine';
+  shimmer.frequency.value = 256.7;
+  shimGain.gain.setValueAtTime(0, tuneCtx.currentTime);
+  shimGain.gain.linearRampToValueAtTime(0.015, tuneCtx.currentTime + 20);
+  shimmer.connect(shimGain);
+  shimGain.connect(tuneCtx.destination);
+  shimmer.start();
+  tuneNodes.push(shimmer, shimGain);
+
+  document.getElementById('tune-btn').style.color = '#c9a44a';
+  document.getElementById('tune-btn').style.borderColor = '#c9a44a40';
+  document.getElementById('tune-btn').innerHTML = '&#9632;';
+}
+
+function stopTune(){
+  // Fade out over 5 seconds
+  if(tuneCtx){
+    var now = tuneCtx.currentTime;
+    tuneNodes.forEach(function(n){
+      if(n.gain){
+        try{
+          n.gain.linearRampToValueAtTime(0, now + 5);
+        }catch(e){}
+      }
+    });
+    setTimeout(function(){
+      tuneNodes.forEach(function(n){ try{n.stop();}catch(e){} });
+      tuneNodes = [];
+      try{tuneCtx.close();}catch(e){}
+      tuneCtx = null;
+    }, 5500);
+  }
+  tuning = false;
+  document.getElementById('tune-btn').style.color = '#c9a44a60';
+  document.getElementById('tune-btn').style.borderColor = '#c9a44a20';
+  document.getElementById('tune-btn').innerHTML = '&#9698;';
+}
+
+window.toggleTune = function(){
+  if(tuning) stopTune();
+  else startTune();
+};
+
+window.addEventListener('beforeunload', function(){ if(tuning) stopTune(); });
+</script>
 </div>
 </body>
 </html>
