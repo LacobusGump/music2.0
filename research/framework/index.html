@@ -958,50 +958,46 @@ var playing = false;
 var nodes = [];
 
 // The harmony: Db territory. Warm. Suspended. Home.
-// Voiced as jazz — extensions, no roots, let it float
+// Voiced wide — bass note anchors, upper structure floats
 var chords = [
-  // Dbmaj9 voiced open: Ab, C, Eb, F (upper structure)
-  [415.30, 523.25, 622.25, 698.46],
-  // Db/C — same color, bass moves: C, Eb, F, Ab
-  [523.25, 622.25, 698.46, 830.61],
-  // Bbm11 — shift: Bb, Db, F, Ab (the pull)
-  [466.16, 554.37, 698.46, 830.61],
-  // F7sus — resolve without resolving: F, Bb, C, Eb
-  [349.23, 466.16, 523.25, 622.25],
+  // Dbmaj9: Db bass, Ab-C-Eb-F up top
+  {bass: 138.59, mid: [207.65, 261.63], top: [415.30, 523.25, 622.25, 698.46]},
+  // Db/C: C bass, Eb-F-Ab up top
+  {bass: 130.81, mid: [196.00, 246.94], top: [523.25, 622.25, 698.46, 830.61]},
+  // Bbm11: Bb bass, Db-F-Ab up top
+  {bass: 116.54, mid: [174.61, 233.08], top: [466.16, 554.37, 698.46, 830.61]},
+  // F7sus: F bass, Bb-C-Eb up top
+  {bass: 87.31, mid: [130.81, 174.61], top: [349.23, 466.16, 523.25, 622.25]},
 ];
 
 // 10/4 at ~72 bpm → each beat = 833ms → bar = 8.33s
 var barLength = 8.33;
 var beatLength = barLength / 10;
 
-function createPad(freq, startTime, duration, gain){
-  // Warm electric piano — triangle wave + gentle filter + reverb
+function createTone(freq, startTime, duration, gain, type, panVal, detune){
   var osc = actx.createOscillator();
   var osc2 = actx.createOscillator();
   var filt = actx.createBiquadFilter();
   var env = actx.createGain();
   var pan = actx.createStereoPanner();
 
-  // Detuned pair = warmth (like a Rhodes with chorus)
-  osc.type = 'triangle';
+  osc.type = type || 'triangle';
   osc.frequency.value = freq;
   osc2.type = 'sine';
-  osc2.frequency.value = freq * 1.002; // 2 cents sharp = shimmer
+  osc2.frequency.value = freq * (1 + (detune || 0.002));
 
   filt.type = 'lowpass';
-  filt.frequency.value = freq * 3; // gentle rolloff above 3rd harmonic
-  filt.Q.value = 0.7;
+  filt.frequency.value = Math.min(freq * 4, 8000);
+  filt.Q.value = 0.5;
 
-  // Envelope: slow attack, sustain, slow release
-  var attack = 0.8;
-  var release = 2.0;
+  var attack = freq < 150 ? 1.5 : 0.8;  // bass attacks slower
+  var release = freq < 150 ? 3.0 : 2.0;  // bass releases longer
   env.gain.setValueAtTime(0, startTime);
   env.gain.linearRampToValueAtTime(gain, startTime + attack);
   env.gain.setValueAtTime(gain, startTime + duration - release);
   env.gain.linearRampToValueAtTime(0, startTime + duration);
 
-  // Slight stereo spread per note
-  pan.pan.value = (Math.random() - 0.5) * 0.6;
+  pan.pan.value = panVal || 0;
 
   osc.connect(filt);
   osc2.connect(filt);
@@ -1011,29 +1007,56 @@ function createPad(freq, startTime, duration, gain){
 
   osc.start(startTime);
   osc2.start(startTime);
-  osc.stop(startTime + duration + 0.1);
-  osc2.stop(startTime + duration + 0.1);
-
+  osc.stop(startTime + duration + 0.5);
+  osc2.stop(startTime + duration + 0.5);
   nodes.push(osc, osc2);
+}
+
+function createSub(freq, startTime, duration, gain){
+  // Pure sine sub bass — felt not heard
+  var osc = actx.createOscillator();
+  var env = actx.createGain();
+  osc.type = 'sine';
+  osc.frequency.value = freq;
+
+  var attack = 2.0;
+  var release = 3.5;
+  env.gain.setValueAtTime(0, startTime);
+  env.gain.linearRampToValueAtTime(gain, startTime + attack);
+  env.gain.setValueAtTime(gain, startTime + duration - release);
+  env.gain.linearRampToValueAtTime(0, startTime + duration);
+
+  osc.connect(env);
+  env.connect(actx.destination);
+  osc.start(startTime);
+  osc.stop(startTime + duration + 0.5);
+  nodes.push(osc);
 }
 
 function scheduleLoop(startTime){
   if (!playing) return;
 
   for (var c = 0; c < chords.length; c++){
-    var chord = chords[c];
-    var chordStart = startTime + c * barLength;
+    var ch = chords[c];
+    var t = startTime + c * barLength;
 
-    for (var n = 0; n < chord.length; n++){
-      // Stagger entries slightly — like a real player
-      var offset = n * 0.08 + Math.random() * 0.05;
-      var noteGain = 0.04 + Math.random() * 0.01; // very quiet
-      createPad(chord[n], chordStart + offset, barLength * 0.95, noteGain);
+    // SUB BASS — deep, center, sine only, felt in the chest
+    createSub(ch.bass / 2, t, barLength * 1.1, 0.07);
 
-      // Octave below for warmth (quieter)
-      if (n === 0){
-        createPad(chord[n] / 2, chordStart + offset + 0.1, barLength * 0.9, noteGain * 0.5);
-      }
+    // BASS NOTE — triangle, warm, center
+    createTone(ch.bass, t + 0.1, barLength * 0.95, 0.05, 'triangle', 0, 0.003);
+
+    // MID VOICING — fills the space between bass and top
+    for (var m = 0; m < ch.mid.length; m++){
+      var mPan = (m === 0) ? -0.3 : 0.3;
+      createTone(ch.mid[m], t + 0.2 + m * 0.1, barLength * 0.9, 0.035, 'triangle', mPan, 0.002);
+    }
+
+    // TOP VOICING — shimmer, wide stereo, quiet
+    for (var n = 0; n < ch.top.length; n++){
+      var offset = 0.3 + n * 0.08 + Math.random() * 0.05;
+      var tPan = (Math.random() - 0.5) * 0.8;
+      createTone(ch.top[n], t + offset, barLength * 0.85, 0.025 + Math.random() * 0.008, 'triangle', tPan, 0.002);
     }
   }
 
