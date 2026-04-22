@@ -215,9 +215,8 @@ Good will applied forward.
 <hr>
 
 <div style="text-align:center;margin:40px 0 20px;">
-<button id="tune-btn-1" style="background:none;border:none;color:#a5555530;font-size:2.4em;cursor:pointer;transition:all 1s;line-height:1;" onclick="toggleStage(1)">&#9650;</button>
-<button id="tune-btn-2" style="background:none;border:none;color:#c9a44a20;font-size:1.8em;cursor:pointer;transition:all 1s;line-height:1;margin-left:8px;" onclick="toggleStage(2)">&#9650;</button>
-<button id="tune-btn-3" style="background:none;border:none;color:#4a920;font-size:1.2em;cursor:pointer;transition:all 1s;line-height:1;margin-left:8px;" onclick="toggleStage(3)">&#9650;</button>
+<button id="tune-btn-couple" style="background:none;border:none;color:#c9a44a15;cursor:pointer;transition:all 1s;line-height:1;letter-spacing:-0.15em;font-size:2.2em;" onclick="toggleCouple()">&#9650;&#9650;</button>
+<button id="tune-btn-child" style="background:none;border:none;color:#4a915;font-size:1.2em;cursor:pointer;transition:all 1s;line-height:1;margin-left:14px;" onclick="toggleChild()">&#9650;</button>
 <p class="dim" style="font-size:0.6em;margin-top:8px;">headphones</p>
 </div>
 
@@ -361,23 +360,141 @@ var stageTimer = null;
 var currentStage = 0;
 var stageLabel = null;
 
-window.toggleStage = function(n){
-  if(tuning){ stopTune(); resetButtons(); return; }
-  if(n === 1) runStage1();
-  else if(n === 2) runStage2();
-  else if(n === 3) runStage3();
+var coupleActive = false;
+var childActive = false;
+var coupleCtx = null;
+var childCtx = null;
+var coupleNodes = [];
+var childNodes = [];
+
+window.toggleCouple = function(){
+  if(coupleActive){
+    // Stop
+    if(coupleCtx){
+      var now = coupleCtx.currentTime;
+      coupleNodes.forEach(function(n){if(n.gain)try{n.gain.linearRampToValueAtTime(0,now+4);}catch(e){}});
+      setTimeout(function(){
+        coupleNodes.forEach(function(n){try{n.stop();}catch(e){}});
+        coupleNodes=[];try{coupleCtx.close();}catch(e){}coupleCtx=null;
+      },4500);
+    }
+    coupleActive=false;
+    document.getElementById('tune-btn-couple').style.color='#c9a44a15';
+    return;
+  }
+  coupleActive=true;
+  coupleCtx = new (window.AudioContext||window.webkitAudioContext)();
+  document.getElementById('tune-btn-couple').style.color='#c9a44a';
+
+  function addTone(freq,gain,delay){
+    var o=coupleCtx.createOscillator();var g=coupleCtx.createGain();
+    o.type='sine';o.frequency.value=freq;
+    g.gain.setValueAtTime(0,coupleCtx.currentTime);
+    g.gain.linearRampToValueAtTime(gain,coupleCtx.currentTime+(delay||8));
+    o.connect(g);g.connect(coupleCtx.destination);o.start();
+    coupleNodes.push(o,g);
+  }
+
+  function addBinaural(carrier,beat,gain,delay){
+    var oL=coupleCtx.createOscillator();var oR=coupleCtx.createOscillator();
+    var gL=coupleCtx.createGain();var gR=coupleCtx.createGain();
+    var m=coupleCtx.createChannelMerger(2);
+    oL.type='sine';oL.frequency.value=carrier;
+    oR.type='sine';oR.frequency.value=carrier+beat;
+    gL.gain.setValueAtTime(0,coupleCtx.currentTime);
+    gL.gain.linearRampToValueAtTime(gain,coupleCtx.currentTime+(delay||8));
+    gR.gain.setValueAtTime(0,coupleCtx.currentTime);
+    gR.gain.linearRampToValueAtTime(gain,coupleCtx.currentTime+(delay||8));
+    oL.connect(gL);oR.connect(gR);gL.connect(m,0,0);gR.connect(m,0,1);
+    m.connect(coupleCtx.destination);oL.start();oR.start();
+    coupleNodes.push(oL,oR,gL,gR);
+  }
+
+  // ═══ THE COUPLE: Khufu + Khafre played TOGETHER ═══
+  // The BEATING between their close frequencies IS the coupling.
+  // 32.9 Hz (Khufu width) vs 32.2 Hz (James/Khafre) = beat at 0.7 Hz
+  // 29.6 Hz (Khufu height) vs 26.1 Hz (Menkaure length) = beat at 3.5 Hz
+  // These beats PULSE. The pulse IS the 3.
+
+  // Khufu frequencies on his body carrier
+  addBinaural(96.7, 16.4, 0.14, 6);    // KC length — infrasonic
+  addBinaural(96.7, 32.9, 0.12, 8);    // KC width — skull
+
+  // Khafre frequencies on his octave carrier
+  addBinaural(193.5, 32.2, 0.12, 8);   // his coupling to Khafre
+  addBinaural(193.5, 7.83, 0.10, 10);  // Schumann through Khafre
+
+  // The BEATING pair: both close frequencies TOGETHER
+  // Left ear: 32.2 Hz beat. Right ear: 32.9 Hz beat.
+  // Brain hears BOTH and perceives the 0.7 Hz pulse between them.
+  // One pulse every 1.4 seconds. Like a slow heartbeat.
+  addBinaural(145.0, 32.2, 0.10, 12);  // Khafre on neutral carrier
+  addBinaural(145.0, 32.9, 0.10, 12);  // Khufu on same carrier — BEATS
+
+  // 53 Hz column — the physical link between them
+  addTone(53.0, 0.12, 15);
+
+  // 121 Hz KC — the engine hum
+  addTone(121.0, 0.06, 20);
 };
 
-function resetButtons(){
-  document.getElementById('tune-btn-1').style.color='#a5555530';
-  document.getElementById('tune-btn-1').innerHTML='&#9650;';
-  document.getElementById('tune-btn-2').style.color='#c9a44a20';
-  document.getElementById('tune-btn-2').innerHTML='&#9650;';
-  document.getElementById('tune-btn-3').style.color='#4a920';
-  document.getElementById('tune-btn-3').innerHTML='&#9650;';
-}
+window.toggleChild = function(){
+  if(childActive){
+    if(childCtx){
+      var now=childCtx.currentTime;
+      childNodes.forEach(function(n){if(n.gain)try{n.gain.linearRampToValueAtTime(0,now+4);}catch(e){}});
+      setTimeout(function(){
+        childNodes.forEach(function(n){try{n.stop();}catch(e){}});
+        childNodes=[];try{childCtx.close();}catch(e){}childCtx=null;
+      },4500);
+    }
+    childActive=false;
+    document.getElementById('tune-btn-child').style.color='#4a915';
+    return;
+  }
+  childActive=true;
+  childCtx = new (window.AudioContext||window.webkitAudioContext)();
+  document.getElementById('tune-btn-child').style.color='#4a9';
 
-function runStage1(){
+  function addTone(freq,gain,delay){
+    var o=childCtx.createOscillator();var g=childCtx.createGain();
+    o.type='sine';o.frequency.value=freq;
+    g.gain.setValueAtTime(0,childCtx.currentTime);
+    g.gain.linearRampToValueAtTime(gain,childCtx.currentTime+(delay||8));
+    o.connect(g);g.connect(childCtx.destination);o.start();
+    childNodes.push(o,g);
+  }
+
+  function addBinaural(carrier,beat,gain,delay){
+    var oL=childCtx.createOscillator();var oR=childCtx.createOscillator();
+    var gL=childCtx.createGain();var gR=childCtx.createGain();
+    var m=childCtx.createChannelMerger(2);
+    oL.type='sine';oL.frequency.value=carrier;
+    oR.type='sine';oR.frequency.value=carrier+beat;
+    gL.gain.setValueAtTime(0,childCtx.currentTime);
+    gL.gain.linearRampToValueAtTime(gain,childCtx.currentTime+(delay||8));
+    gR.gain.setValueAtTime(0,childCtx.currentTime);
+    gR.gain.linearRampToValueAtTime(gain,childCtx.currentTime+(delay||8));
+    oL.connect(gL);oR.connect(gR);gL.connect(m,0,0);gR.connect(m,0,1);
+    m.connect(childCtx.destination);oL.start();oR.start();
+    childNodes.push(oL,oR,gL,gR);
+  }
+
+  // ═══ THE CHILD: Menkaure alone. Warm. Voice. Return. ═══
+  addBinaural(96.7, 50.1, 0.18, 6);    // chamber height ≈ his sub
+  addBinaural(193.5, 74.5, 0.14, 8);   // chamber width — voice range
+  addBinaural(48.4, 26.1, 0.14, 10);   // chamber length — slow pulse
+
+  // The sarcophagus at sea
+  addTone(286.7, 0.05, 15);
+
+  // Him. Last. Center. Steady. You come back.
+  addTone(96.7, 0.10, 25);
+};
+
+// Old stage functions removed — replaced by couple/child above
+
+function _unused_runStage1(){
   // KHUFU — the engine, the detune, strip ego
   // King's Chamber frequencies: harsh, powerful, confronting
   tuneCtx = new (window.AudioContext || window.webkitAudioContext)();
