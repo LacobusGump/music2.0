@@ -78,7 +78,7 @@ One sample would settle this.
 
 <script>
 // ═══ POUR SEQUENCE VISUALIZATION ═══
-// One section of the first zigzag wall between two salient corners
+// Irregular polygonal blocks — shapes emerge from pouring into gaps
 (function(){
 var cv = document.getElementById('wall');
 var cx = cv.getContext('2d');
@@ -95,88 +95,207 @@ function resize(){
 window.addEventListener('resize', function(){ resize(); draw(); });
 resize();
 
-// Wall geometry: 17m wide section, 7.5m tall
-// Scale to canvas
-var WALL_W = 17; // meters
-var WALL_H = 7.5;
+var WALL_W = 17, WALL_H = 7.5;
 var pad = {l:40, r:20, t:20, b:40};
-var drawW = W - pad.l - pad.r;
-var drawH = H - pad.t - pad.b;
-var scale = Math.min(drawW / WALL_W, drawH / WALL_H);
-var ox = pad.l + (drawW - WALL_W * scale) / 2;
-var oy = pad.t + drawH; // bottom of wall
+var drawW, drawH, sc, ox, oy;
+function recalc(){
+  drawW=W-pad.l-pad.r; drawH=H-pad.t-pad.b;
+  sc=Math.min(drawW/WALL_W, drawH/WALL_H);
+  ox=pad.l+(drawW-WALL_W*sc)/2; oy=pad.t+drawH;
+}
+function mx(x){return ox+x*sc;}
+function my(y){return oy-y*sc;}
 
-function mx(x){ return ox + x * scale; }
-function my(y){ return oy - y * scale; }
+// Seeded random for consistent shapes across redraws
+var seed = 42;
+function srand(s){seed=s;}
+function rand(){seed=(seed*16807+0)%2147483647;return(seed-1)/2147483646;}
 
-// Block definitions: [x, y, w, h, phase, bulge_pts]
-// x,y = bottom-left corner in meters
-// phase: 0=bedrock, 1=foundation, 2=keystone, 3=fill, 4=course2, 5=upper fill
-// bulge_pts: array of [bx,by] offsets for skin bulge on exposed face
-
+// Each block is a polygon (array of [x,y] points in meters)
+// phase: 1=foundation, 2=keystone, 3=lower fill, 4=course2, 5=upper fill
+// Joint edges (against neighbor) are STRAIGHT
+// Exposed edges (skin form) BULGE outward
 var blocks = [];
 
-// Phase 0: Bedrock (irregular base)
-// Drawn as a filled shape, not blocks
-
-// Phase 1: Foundation blocks (small, along the base)
-var fnd_h = 0.6;
-for(var i = 0; i < 14; i++){
-  var fw = 0.9 + Math.random() * 0.5;
-  var fh = fnd_h + (Math.random()-0.5)*0.15;
-  blocks.push({x: i*1.22, y:0, w:fw, h:fh, phase:1, bulge:0.06+Math.random()*0.04,
-    cracks:0, label:'F'+(i+1)});
+// Helper: make a polygon with flat joints and bulging exposed faces
+// pts = [[x,y],...] clockwise. expose = array of edge indices that bulge
+function makeBlock(pts, phase, cracks, lbl, expose){
+  blocks.push({pts:pts, phase:phase, cracks:cracks||0, label:lbl, expose:expose||[]});
 }
 
-// Phase 2: Key stones at corners (two big ones)
-// Left corner key stone
-blocks.push({x:-0.3, y:fnd_h, w:3.2, h:3.8, phase:2, bulge:0.03,
-  cracks:5, label:'K1'});
-// Right corner key stone
-blocks.push({x:14.5, y:fnd_h, w:2.8, h:3.5, phase:2, bulge:0.03,
-  cracks:4, label:'K2'});
+srand(77);
 
-// Phase 3: Lower fill stones between key stones
-var fill_x = 2.9;
-var fills_lower = [
-  {w:2.4, h:2.2, bulge:0.08, cracks:0},
-  {w:1.8, h:2.5, bulge:0.09, cracks:0},
-  {w:2.1, h:1.9, bulge:0.10, cracks:0},
-  {w:1.6, h:2.3, bulge:0.07, cracks:1},
-  {w:2.3, h:2.1, bulge:0.09, cracks:0},
-  {w:1.5, h:2.4, bulge:0.08, cracks:0},
-];
-for(var i = 0; i < fills_lower.length; i++){
-  var f = fills_lower[i];
-  // Vary height to create interlocking
-  var yoff = fnd_h + (Math.random()-0.5)*0.3;
-  blocks.push({x:fill_x, y:fnd_h, w:f.w, h:f.h, phase:3,
-    bulge:f.bulge, cracks:f.cracks, label:'L'+(i+1)});
-  fill_x += f.w + 0.05; // tiny gap = joint
+// Foundation: small irregular lumps along the base
+var fh = 0.55;
+var fx = -0.5;
+for(var i=0;i<16;i++){
+  var w = 0.7+rand()*0.6;
+  var h = 0.4+rand()*0.3;
+  var jog = (rand()-0.5)*0.15; // irregular top
+  makeBlock([
+    [fx, 0],
+    [fx+w, 0],
+    [fx+w+rand()*0.1, h+jog],
+    [fx+rand()*0.05-0.05, h-jog*0.5]
+  ], 1, 0, '', [2,3]); // top and left exposed
+  fx += w - 0.02;
 }
 
-// Phase 4: Course 2 (on top of key stones and some fills)
-blocks.push({x:-0.1, y:fnd_h+3.8, w:2.5, h:2.2, phase:4, bulge:0.06, cracks:2, label:'C1'});
-blocks.push({x:14.2, y:fnd_h+3.5, w:2.6, h:2.0, phase:4, bulge:0.06, cracks:2, label:'C2'});
+// KEY STONE 1 (left corner) — big, rough, cracked
+// Irregular polygon, not a rectangle
+makeBlock([
+  [-0.6, fh],
+  [2.8, fh+0.15],
+  [3.0, fh+1.6],
+  [2.9, fh+3.2],
+  [2.6, fh+3.9],
+  [-0.3, fh+4.1],
+  [-0.7, fh+2.5]
+], 2, 6, 'K1', [4,5,6]); // left face + top exposed
 
-// Phase 5: Upper fills
-var uf_x = 2.4;
-var fills_upper = [
-  {w:2.0, h:1.8, bulge:0.09},
-  {w:1.7, h:2.0, bulge:0.10},
-  {w:2.2, h:1.6, bulge:0.08},
-  {w:1.9, h:1.9, bulge:0.09},
-  {w:2.0, h:1.7, bulge:0.10},
-  {w:1.8, h:2.1, bulge:0.08},
-];
-for(var i = 0; i < fills_upper.length; i++){
-  var f = fills_upper[i];
-  var base_y = fnd_h + fills_lower[i] ? fills_lower[i].h : 2.2;
-  // Overlap: upper blocks lap slightly over lower blocks
-  var overlap = 0.15 + Math.random()*0.2;
-  blocks.push({x:uf_x-overlap*0.5, y:fnd_h + (fills_lower[i]?fills_lower[i].h:2.2) - overlap,
-    w:f.w+overlap, h:f.h, phase:5, bulge:f.bulge, cracks:0, label:'U'+(i+1)});
-  uf_x += (fills_lower[i]?fills_lower[i].w:2.0) + 0.05;
+// KEY STONE 2 (right corner) — big, rough
+makeBlock([
+  [14.2, fh+0.1],
+  [17.2, fh],
+  [17.5, fh+2.8],
+  [17.0, fh+3.7],
+  [14.6, fh+3.5],
+  [14.0, fh+1.8]
+], 2, 5, 'K2', [2,3]); // right face + top exposed
+
+// LOWER FILLS between K1 and K2
+// These take the SHAPE of the gap. Joint edges match their neighbors.
+// Exposed face (front) bulges.
+// Heights vary — interlocking with the row above
+
+// The fills share edges with K1's right side and K2's left side
+// and with each other. Each fill's right edge = next fill's left edge.
+
+// Generate irregular shared boundaries between fills
+var n_fills = 6;
+var boundaries = []; // vertical-ish lines between fills
+var total_w = 14.2 - 2.8; // gap between K1 right and K2 left
+var bx = 2.8;
+boundaries.push([]); // left boundary = K1's right edge
+for(var i=1;i<n_fills;i++){
+  bx += total_w/n_fills + (rand()-0.5)*0.8;
+  // Each boundary is a jagged vertical line (2-3 points)
+  var by_bot = fh + rand()*0.2;
+  var by_mid = fh + 1.0 + rand()*1.0;
+  var by_top = fh + 1.8 + rand()*0.8;
+  boundaries.push([
+    [bx + (rand()-0.5)*0.3, by_bot],
+    [bx + (rand()-0.5)*0.4, by_mid],
+    [bx + (rand()-0.5)*0.3, by_top]
+  ]);
+}
+boundaries.push([]); // right boundary = K2's left edge
+
+// Top edges of lower fills (irregular — these define the interlock with course 2)
+var fill_tops = [];
+for(var i=0;i<n_fills;i++){
+  fill_tops.push(fh + 1.8 + rand()*1.2);
+}
+
+// K1 right edge points (for fills to match)
+var k1_right = [[2.8, fh+0.15],[3.0, fh+1.6],[2.9, fh+3.2]];
+// K2 left edge points
+var k2_left = [[14.2, fh+0.1],[14.0, fh+1.8],[14.6, fh+3.5]];
+
+for(var i=0;i<n_fills;i++){
+  var pts = [];
+  var left_pts, right_pts;
+  var top_h = fill_tops[i];
+  var next_top = fill_tops[Math.min(i+1, n_fills-1)];
+
+  // Left edge
+  if(i === 0){
+    // Against K1 — match K1's right side (FLAT joint)
+    left_pts = [[k1_right[0][0], k1_right[0][1]], [k1_right[1][0], k1_right[1][1]]];
+  } else {
+    left_pts = boundaries[i]; // shared boundary with previous fill
+  }
+
+  // Right edge
+  if(i === n_fills-1){
+    // Against K2 — match K2's left side
+    right_pts = [[k2_left[0][0], k2_left[0][1]], [k2_left[1][0], k2_left[1][1]]];
+  } else {
+    right_pts = boundaries[i+1];
+  }
+
+  // Build polygon: bottom (flat on foundation) → right edge (joint) → top → left edge (joint)
+  var lx = left_pts[0][0], rx = right_pts[0][0];
+  var mid_top_x = (lx+rx)/2;
+
+  pts.push([lx, fh]); // bottom left
+  pts.push([rx, fh]); // bottom right
+
+  // Right edge going up (joint = straight segments)
+  for(var j=0;j<right_pts.length;j++) pts.push(right_pts[j]);
+
+  // Top edge — bulges slightly upward (skin form on top of pour = water level + skin)
+  var top_mid = Math.max(top_h, next_top) + rand()*0.3;
+  pts.push([rx - (rx-lx)*0.3, top_h + rand()*0.2]);
+  pts.push([lx + (rx-lx)*0.3, top_h - rand()*0.15]);
+
+  // Left edge going down (joint = straight segments)
+  for(var j=left_pts.length-1;j>=0;j--) pts.push(left_pts[j]);
+
+  makeBlock(pts, 3, (rand()>0.8?1:0), 'L'+(i+1), [pts.length-3, pts.length-4]); // top edges exposed
+}
+
+// COURSE 2 — on top of key stones
+makeBlock([
+  [-0.3, fh+4.1],
+  [2.6, fh+3.9],
+  [2.8, fh+5.2],
+  [2.4, fh+6.3],
+  [-0.1, fh+6.0],
+  [-0.5, fh+5.0]
+], 4, 2, 'C1', [3,4,5]);
+
+makeBlock([
+  [14.6, fh+3.5],
+  [17.0, fh+3.7],
+  [17.3, fh+5.4],
+  [16.8, fh+6.1],
+  [14.3, fh+5.8],
+  [14.1, fh+4.5]
+], 4, 2, 'C2', [3,4,5]);
+
+// UPPER FILLS — between C1 and C2, on top of lower fills
+// These interlock with the irregular tops of the lower fills
+srand(99);
+var uf_boundaries = [];
+var uf_bx = 2.6;
+uf_boundaries.push([]);
+for(var i=1;i<n_fills;i++){
+  uf_bx += total_w/n_fills + (rand()-0.5)*0.6;
+  uf_boundaries.push([
+    [uf_bx+(rand()-0.5)*0.3, fh+3.0+rand()*0.5],
+    [uf_bx+(rand()-0.5)*0.4, fh+4.5+rand()*0.5],
+    [uf_bx+(rand()-0.5)*0.3, fh+5.5+rand()*0.5]
+  ]);
+}
+uf_boundaries.push([]);
+
+for(var i=0;i<n_fills;i++){
+  var pts = [];
+  var left_pts = i===0 ? [[2.6,fh+3.9],[2.8,fh+5.2]] : uf_boundaries[i];
+  var right_pts = i===n_fills-1 ? [[14.6,fh+3.5],[14.3,fh+5.8]] : uf_boundaries[i+1];
+  var lx = left_pts[0][0], rx = right_pts[0][0];
+  var base_y = fill_tops[i] - 0.2; // overlap onto lower fill
+
+  pts.push([lx, base_y]);
+  pts.push([rx, fill_tops[Math.min(i+1,n_fills-1)] - 0.15]);
+  for(var j=0;j<right_pts.length;j++) pts.push(right_pts[j]);
+  var top_y = fh + 5.5 + rand()*0.8;
+  pts.push([rx-(rx-lx)*0.3, top_y+rand()*0.2]);
+  pts.push([lx+(rx-lx)*0.3, top_y-rand()*0.15]);
+  for(var j=left_pts.length-1;j>=0;j--) pts.push(left_pts[j]);
+
+  makeBlock(pts, 5, 0, 'U'+(i+1), [pts.length-3,pts.length-4]);
 }
 
 // Current animation phase
@@ -208,12 +327,7 @@ var phaseColors = {
 
 function draw(){
   cx.clearRect(0,0,W,H);
-  resize(); // recalc scale
-  drawW = W - pad.l - pad.r;
-  drawH = H - pad.t - pad.b;
-  scale = Math.min(drawW / WALL_W, drawH / WALL_H);
-  ox = pad.l + (drawW - WALL_W * scale) / 2;
-  oy = pad.t + drawH;
+  recalc();
 
   // Background
   cx.fillStyle = '#08080d';
@@ -260,67 +374,56 @@ function draw(){
     }
   }
 
-  // Draw blocks by phase
+  // Draw blocks by phase — irregular polygons
   for(var i = 0; i < blocks.length; i++){
     var b = blocks[i];
     var alpha = blockAlpha[i] || 0;
     if(alpha <= 0) continue;
 
     var c = phaseColors[b.phase] || {r:150,g:150,b:150};
-    var bx = mx(b.x);
-    var by = my(b.y + b.h);
-    var bw = b.w * scale;
-    var bh = b.h * scale;
+    var pts = b.pts;
 
-    // Block body with skin bulge
-    cx.fillStyle = 'rgba('+c.r+','+c.g+','+c.b+','+(alpha*0.7)+')';
-
-    // Draw with subtle bulge on exposed face
-    var bulge = b.bulge * scale * 8;
+    // Draw polygon
     cx.beginPath();
-    cx.moveTo(bx, by);
-    // Top edge (flat — water leveled or against neighbor above)
-    cx.lineTo(bx + bw, by);
-    // Right edge — bulge if exposed, flat if against neighbor
-    var rightBulge = (b.phase === 2 && b.label === 'K2') || b.phase >= 3 ? 0 : bulge;
-    cx.quadraticCurveTo(bx + bw + rightBulge, by + bh*0.5, bx + bw, by + bh);
-    // Bottom (flat — on foundation/neighbor)
-    cx.lineTo(bx, by + bh);
-    // Left edge — bulge if exposed
-    var leftBulge = (b.phase === 2 && b.label === 'K1') || b.phase >= 3 ? 0 : bulge;
-    cx.quadraticCurveTo(bx - leftBulge, by + bh*0.5, bx, by);
+    cx.moveTo(mx(pts[0][0]), my(pts[0][1]));
+    for(var j=1;j<pts.length;j++){
+      cx.lineTo(mx(pts[j][0]), my(pts[j][1]));
+    }
     cx.closePath();
+
+    // Fill with slight gradient for depth (skin bulge look)
+    var centX=0, centY=0;
+    for(var j=0;j<pts.length;j++){centX+=pts[j][0];centY+=pts[j][1];}
+    centX/=pts.length; centY/=pts.length;
+
+    var grad = cx.createRadialGradient(
+      mx(centX), my(centY), 2,
+      mx(centX), my(centY), sc * 2
+    );
+    grad.addColorStop(0, 'rgba('+(c.r+25)+','+(c.g+18)+','+(c.b+10)+','+(alpha*0.75)+')');
+    grad.addColorStop(1, 'rgba('+(c.r-10)+','+(c.g-10)+','+(c.b-5)+','+(alpha*0.55)+')');
+    cx.fillStyle = grad;
     cx.fill();
 
-    // Front face bulge (the main exposed face)
-    if(b.bulge > 0.05){
-      var grad = cx.createRadialGradient(
-        bx+bw*0.5, by+bh*0.5, bh*0.1,
-        bx+bw*0.5, by+bh*0.5, bh*0.6
-      );
-      grad.addColorStop(0, 'rgba('+(c.r+30)+','+(c.g+20)+','+(c.b+10)+','+(alpha*0.3)+')');
-      grad.addColorStop(1, 'rgba('+c.r+','+c.g+','+c.b+',0)');
-      cx.fillStyle = grad;
-      cx.fill();
-    }
-
-    // Border
-    cx.strokeStyle = 'rgba('+Math.min(c.r+40,255)+','+Math.min(c.g+30,255)+','+Math.min(c.b+20,255)+','+(alpha*0.4)+')';
-    cx.lineWidth = 1;
+    // Border — thicker for key stones
+    cx.strokeStyle = 'rgba('+(c.r+50)+','+(c.g+40)+','+(c.b+25)+','+(alpha*0.5)+')';
+    cx.lineWidth = b.phase === 2 ? 1.5 : 1;
     cx.stroke();
 
     // Cracks on key stones
     if(b.cracks > 0){
-      cx.strokeStyle = 'rgba(40,30,25,'+(alpha*0.6)+')';
+      srand(i*31);
+      cx.strokeStyle = 'rgba(30,25,20,'+(alpha*0.7)+')';
       cx.lineWidth = 0.8;
       for(var ci = 0; ci < b.cracks; ci++){
-        var crx = bx + bw * (0.2 + Math.random()*0.6);
-        var cry = by + bh * 0.1;
+        var p1 = pts[Math.floor(rand()*pts.length)];
+        var crx = mx(p1[0] + (centX-p1[0])*rand()*0.5);
+        var cry = my(p1[1] + (centY-p1[1])*rand()*0.5);
         cx.beginPath();
         cx.moveTo(crx, cry);
-        for(var s = 0; s < 4; s++){
-          crx += (Math.random()-0.5) * bw * 0.15;
-          cry += bh * (0.15 + Math.random()*0.1);
+        for(var s = 0; s < 3+Math.floor(rand()*3); s++){
+          crx += (rand()-0.5) * sc * 0.8;
+          cry += (rand()-0.5) * sc * 0.6;
           cx.lineTo(crx, cry);
         }
         cx.stroke();
@@ -328,11 +431,11 @@ function draw(){
     }
 
     // Label
-    if(alpha > 0.5){
-      cx.fillStyle = 'rgba(255,255,255,'+(alpha*0.25)+')';
-      cx.font = (b.phase === 2 ? '11' : '9') + 'px Courier New';
+    if(alpha > 0.5 && b.label){
+      cx.fillStyle = 'rgba(255,255,255,'+(alpha*0.3)+')';
+      cx.font = (b.phase === 2 ? '12' : '9') + 'px Courier New';
       cx.textAlign = 'center';
-      cx.fillText(b.label, bx+bw*0.5, by+bh*0.55);
+      cx.fillText(b.label, mx(centX), my(centY)+4);
     }
   }
 
@@ -340,7 +443,7 @@ function draw(){
   cx.strokeStyle = 'rgba(255,255,255,0.15)';
   cx.lineWidth = 1;
   var sb_y = H - 15;
-  var sb_w = 5 * scale; // 5 meters
+  var sb_w = 5 * sc; // 5 meters
   cx.beginPath();
   cx.moveTo(mx(0), sb_y); cx.lineTo(mx(5), sb_y);
   cx.moveTo(mx(0), sb_y-4); cx.lineTo(mx(0), sb_y+4);
