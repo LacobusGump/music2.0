@@ -947,5 +947,146 @@ cv.addEventListener('touchend',function(){dragging=false;setTimeout(function(){a
 draw();
 })();
 </script>
+<script>
+// ═══ ODE — an ambient piece for the framework page ═══
+// Inspired by the spaciousness of "Everything in Its Right Place"
+// Not a cover. An ode. The feel, not the notes.
+// Warm electric piano chords in 10/4, breathing with the star.
+(function(){
+var actx = null;
+var playing = false;
+var nodes = [];
+
+// The harmony: Db territory. Warm. Suspended. Home.
+// Voiced as jazz — extensions, no roots, let it float
+var chords = [
+  // Dbmaj9 voiced open: Ab, C, Eb, F (upper structure)
+  [415.30, 523.25, 622.25, 698.46],
+  // Db/C — same color, bass moves: C, Eb, F, Ab
+  [523.25, 622.25, 698.46, 830.61],
+  // Bbm11 — shift: Bb, Db, F, Ab (the pull)
+  [466.16, 554.37, 698.46, 830.61],
+  // F7sus — resolve without resolving: F, Bb, C, Eb
+  [349.23, 466.16, 523.25, 622.25],
+];
+
+// 10/4 at ~72 bpm → each beat = 833ms → bar = 8.33s
+var barLength = 8.33;
+var beatLength = barLength / 10;
+
+function createPad(freq, startTime, duration, gain){
+  // Warm electric piano — triangle wave + gentle filter + reverb
+  var osc = actx.createOscillator();
+  var osc2 = actx.createOscillator();
+  var filt = actx.createBiquadFilter();
+  var env = actx.createGain();
+  var pan = actx.createStereoPanner();
+
+  // Detuned pair = warmth (like a Rhodes with chorus)
+  osc.type = 'triangle';
+  osc.frequency.value = freq;
+  osc2.type = 'sine';
+  osc2.frequency.value = freq * 1.002; // 2 cents sharp = shimmer
+
+  filt.type = 'lowpass';
+  filt.frequency.value = freq * 3; // gentle rolloff above 3rd harmonic
+  filt.Q.value = 0.7;
+
+  // Envelope: slow attack, sustain, slow release
+  var attack = 0.8;
+  var release = 2.0;
+  env.gain.setValueAtTime(0, startTime);
+  env.gain.linearRampToValueAtTime(gain, startTime + attack);
+  env.gain.setValueAtTime(gain, startTime + duration - release);
+  env.gain.linearRampToValueAtTime(0, startTime + duration);
+
+  // Slight stereo spread per note
+  pan.pan.value = (Math.random() - 0.5) * 0.6;
+
+  osc.connect(filt);
+  osc2.connect(filt);
+  filt.connect(env);
+  env.connect(pan);
+  pan.connect(actx.destination);
+
+  osc.start(startTime);
+  osc2.start(startTime);
+  osc.stop(startTime + duration + 0.1);
+  osc2.stop(startTime + duration + 0.1);
+
+  nodes.push(osc, osc2);
+}
+
+function scheduleLoop(startTime){
+  if (!playing) return;
+
+  for (var c = 0; c < chords.length; c++){
+    var chord = chords[c];
+    var chordStart = startTime + c * barLength;
+
+    for (var n = 0; n < chord.length; n++){
+      // Stagger entries slightly — like a real player
+      var offset = n * 0.08 + Math.random() * 0.05;
+      var noteGain = 0.04 + Math.random() * 0.01; // very quiet
+      createPad(chord[n], chordStart + offset, barLength * 0.95, noteGain);
+
+      // Octave below for warmth (quieter)
+      if (n === 0){
+        createPad(chord[n] / 2, chordStart + offset + 0.1, barLength * 0.9, noteGain * 0.5);
+      }
+    }
+  }
+
+  // Schedule next cycle
+  var loopDuration = chords.length * barLength;
+  setTimeout(function(){
+    if (playing) scheduleLoop(actx.currentTime + 0.1);
+  }, (loopDuration - 2) * 1000);
+}
+
+function start(){
+  if (playing) return;
+  actx = new (window.AudioContext || window.webkitAudioContext)();
+  playing = true;
+  scheduleLoop(actx.currentTime + 0.5);
+  odeBtn.innerHTML = '&#9646;&#9646;';
+  odeBtn.title = 'Stop the ode';
+}
+
+function stop(){
+  playing = false;
+  if (actx){
+    actx.close().catch(function(){});
+    actx = null;
+  }
+  nodes = [];
+  odeBtn.innerHTML = '&#9835;';
+  odeBtn.title = 'Play — an ode';
+}
+
+// Small music note button, top-right of the star canvas
+var odeBtn = document.createElement('button');
+odeBtn.innerHTML = '&#9835;';
+odeBtn.title = 'Play — an ode';
+odeBtn.style.cssText = 'position:fixed;bottom:20px;left:20px;z-index:9999;' +
+  'background:rgba(12,12,20,0.7);color:#c9a44a60;border:1px solid #c9a44a15;' +
+  'border-radius:50%;width:36px;height:36px;font-size:1.1em;cursor:pointer;' +
+  'transition:all 0.5s;display:flex;align-items:center;justify-content:center;' +
+  'backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);';
+odeBtn.onmouseenter = function(){ odeBtn.style.color = '#c9a44a'; odeBtn.style.borderColor = '#c9a44a40'; };
+odeBtn.onmouseleave = function(){ if(!playing){ odeBtn.style.color = '#c9a44a60'; odeBtn.style.borderColor = '#c9a44a15'; }};
+
+odeBtn.onclick = function(e){
+  e.preventDefault();
+  if (playing) stop(); else start();
+};
+
+document.body.appendChild(odeBtn);
+
+// Stop on page leave
+window.addEventListener('beforeunload', stop);
+window.addEventListener('pagehide', stop);
+})();
+</script>
 </body>
 </html>
