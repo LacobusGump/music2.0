@@ -5,7 +5,7 @@
 
 (function(){
   // Check for saved preference
-  var mode = localStorage.getItem('gump-mode') || 'math';
+  var mode = localStorage.getItem('gump-mode') || 'point';
 
   function init() {
     var bar = document.getElementById('mode-toggle');
