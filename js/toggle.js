@@ -64,6 +64,8 @@
         btnBlue.style.background = '#0a0a12';
         btnBlue.style.color = '#444';
       }
+      // Trigger resize so canvases in newly-visible divs re-init
+      setTimeout(function(){ window.dispatchEvent(new Event('resize')); }, 50);
     }
 
     btnBlue.addEventListener('click', function(){ setMode('math'); });
