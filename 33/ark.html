@@ -350,13 +350,35 @@ seat.castShadow = true;
 seat.receiveShadow = true;
 ark.add(seat);
 
-// Load procedural mesh data
-const meshScript = document.createElement('script');
-meshScript.src = 'cherub-mesh.js';
-meshScript.onload = () => { buildCherubim(); };
-document.head.appendChild(meshScript);
+// Load cherub model (Blender-sculpted, 8484 vertices, subdivision-smoothed)
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
-function buildCherubim() {
+const loader = new GLTFLoader();
+loader.load('cherub.glb', (gltf) => {
+  const cherubModel = gltf.scene;
+
+  // Override material with our gold
+  cherubModel.traverse((child) => {
+    if (child.isMesh) {
+      child.material = polishedGold.clone();
+      child.castShadow = true;
+      child.receiveShadow = true;
+    }
+  });
+
+  // Place two copies at ends of mercy seat
+  const cherub1 = cherubModel.clone();
+  cherub1.position.set(W/2 - 0.08, H + seatH, 0);
+  cherub1.rotation.z = 0.06;
+  ark.add(cherub1);
+
+  const cherub2 = cherubModel.clone();
+  cherub2.position.set(-W/2 + 0.08, H + seatH, 0);
+  cherub2.scale.x = -1; // mirror
+  cherub2.rotation.z = -0.06;
+  ark.add(cherub2);
+});
+
 // ═══════════════════════════════════════════════════════
 // TWO CHERUBIM — "Make two cherubim of gold;
 //  of hammered work shall you make them,
@@ -367,100 +389,9 @@ function buildCherubim() {
 //  toward the mercy seat shall the faces of the cherubim be."
 // ═══════════════════════════════════════════════════════
 
-function buildCherub(side) {
-  // Procedural mesh: 1176 body vertices, 325 wing vertices
-  // Da Vinci 8-head proportions. Anatomical cross-sections.
-  // Muscle definition at calves, pecs, deltoids.
-  // Archaeological basis: Eichler + Beth Shemesh, Nimrud ivories.
-
-  const g = new THREE.Group();
-  const gMat = new THREE.MeshStandardMaterial({
-    color: 0xe0c040, metalness: 0.93, roughness: 0.05,
-    emissive: 0x221100, emissiveIntensity: 0.04,
-  });
-  const wingMat = new THREE.MeshStandardMaterial({
-    color: 0xe8c840, metalness: 0.95, roughness: 0.03,
-    side: THREE.DoubleSide,
-    emissive: 0x332200, emissiveIntensity: 0.03,
-  });
-
-  // ── BODY ── from precomputed mesh (1176 vertices, 48 height × 24 circ)
-  // Da Vinci 8-head proportions. Anatomical cross-sections.
-  // Muscle definition: calves, pecs, deltoids.
-  const bodyGeo = new THREE.BufferGeometry();
-  bodyGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(CHERUB_BODY_POS), 3));
-  bodyGeo.setIndex(new THREE.BufferAttribute(new Uint16Array(CHERUB_BODY_IDX), 1));
-  bodyGeo.computeVertexNormals();
-
-  const body = new THREE.Mesh(bodyGeo, gMat);
-  body.castShadow = true;
-  body.receiveShadow = true;
-  g.add(body);
-
-  const figH = 0.22;
-
-  // ── WINGS ── from precomputed mesh (325 vertices, smooth surface)
-  for (let wDir of [-1, 1]) {
-    const wGeo = new THREE.BufferGeometry();
-    // Mirror the wing for the other side
-    const wPos = new Float32Array(CHERUB_WING_POS);
-    if (wDir === -1) {
-      for (let i = 0; i < wPos.length; i += 3) {
-        wPos[i] = -wPos[i]; // mirror X
-      }
-    }
-    // Curve wings toward center (toward the other cherub)
-    for (let i = 0; i < wPos.length; i += 3) {
-      const ts = wPos[i+1] / (figH * 1.5); // approximate span position from Y
-      wPos[i+2] -= side * ts * 0.04; // curve toward center
-    }
-    wGeo.setAttribute('position', new THREE.BufferAttribute(wPos, 3));
-    wGeo.setIndex(new THREE.BufferAttribute(new Uint16Array(CHERUB_WING_IDX), 1));
-    wGeo.computeVertexNormals();
-
-    const wing = new THREE.Mesh(wGeo, wingMat);
-    wing.castShadow = true;
-    g.add(wing);
-
-    // Leading edge tube
-    const edgePts = [];
-    for (let i = 0; i <= 24; i++) {
-      const t = i / 24;
-      const angle = t * Math.PI * 0.55;
-      const halfSpan = figH / 2;
-      const radius = halfSpan * (0.3 + t * 0.7);
-      edgePts.push(new THREE.Vector3(
-        wDir * Math.cos(angle) * radius * 0.5,
-        figH * 0.75 + Math.sin(angle) * radius,
-        -side * t * 0.04 - 0.04 * (1 - t*0.6)
-      ));
-    }
-    const edgeCurve = new THREE.CatmullRomCurve3(edgePts);
-    g.add(new THREE.Mesh(new THREE.TubeGeometry(edgeCurve, 24, 0.002, 6, false), gMat));
-
-    // Shoulder junction
-    const junc = new THREE.Mesh(new THREE.SphereGeometry(1, 10, 8), gMat);
-    junc.scale.set(0.02, 0.016, 0.018);
-    junc.position.set(wDir * 0.015, figH * 0.78, 0);
-    g.add(junc);
-  }
-
-  // Slight lean toward center
-  g.rotation.z = side * 0.06;
-
-  return g;
-}
-
-// Place cherubim at ends of mercy seat, facing each other
-const cherub1 = buildCherub(1);
-cherub1.position.set(W/2 - 0.08, H + seatH, 0);
-ark.add(cherub1);
-
-const cherub2 = buildCherub(-1);
-cherub2.position.set(-W/2 + 0.08, H + seatH, 0);
-ark.add(cherub2);
-
-} // end buildCherubim
+// Cherubim loaded from cherub.glb (Blender-sculpted)
+// 8,484 vertices. Skin modifier + 3-level subdivision + smooth.
+// Da Vinci 8-head proportions. Proper organic form.
 
 // ═══════════════════════════════════════════════════════
 // THE FIELD — visible between the cherubim
