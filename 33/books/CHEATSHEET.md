@@ -329,8 +329,8 @@ Born one residue at a time. Each new residue folds onto what exists. Chaperone c
 ### lucy_scan(sequence) — Mutation strategy from shape
 Meissel-Lehmer principle applied to proteins. Don't enumerate mutations, count what survives at each scale. 130 proteins/sec. 18/20 strategy correct.
 
-### Backbone RMSD Status (honest)
-Rg prediction: **1.5% average** (solved). Backbone RMSD: **8-16Å** (AlphaFold is <1Å). Gap = contact map prediction. Path: PDB fragment library + profile matching. Need 10,000+ structures for coverage. The mechanism (fragment assembly) is proven — with self in library gives 0.0Å RMSD.
+### Backbone RMSD Status (honest — Session 33 verified)
+Rg prediction: **2.4% average** across 6 proteins (crystal_fold). Backbone RMSD: **13-16Å** (Kabsch-aligned vs PDB). AlphaFold is <1Å. Gap is FUNDAMENTAL to spectral methods — Laplacian eigenvectors give topology, not geometry. smart_fold (hydrophobic packing + Cα regularization + crystal_fold Rg target) improves Rg from 15.6% to 3.6% but does NOT improve backbone RMSD. The 13Å gap requires learned contact maps or MD simulation — different architecture, not a tuning problem. Our value is DOWNSTREAM of structure: pathogenicity, mutation scanning, drug interactions, aggregation. AlphaFold gives the shape. We tell you what happens when it breaks.
 
 ### PATHOGENICITY SCORER (Session 22 — corrected)
 
