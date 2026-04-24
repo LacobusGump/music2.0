@@ -363,106 +363,281 @@ ark.add(seat);
 function buildCherub(side) {
   const g = new THREE.Group();
   const mat = polishedGold.clone();
+  const skinMat = new THREE.MeshStandardMaterial({
+    color: 0xe0b840, metalness: 0.92, roughness: 0.06,
+    emissive: 0x221100, emissiveIntensity: 0.04,
+  });
 
-  // Torso (kneeling figure)
-  const torso = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.025, 0.035, 0.14, 10),
-    mat
-  );
-  torso.position.y = 0.07;
+  // ── KNEELING LEGS ──
+  // Thighs (kneeling, angled back)
+  for (let lSide of [-1, 1]) {
+    // Thigh
+    const thigh = new THREE.Mesh(new THREE.CapsuleGeometry(0.014, 0.05, 6, 8), skinMat);
+    thigh.rotation.z = 0.3;
+    thigh.rotation.x = lSide * 0.15;
+    thigh.position.set(-side * 0.005, 0.025, lSide * 0.02);
+    g.add(thigh);
+    // Shin (folded under)
+    const shin = new THREE.Mesh(new THREE.CapsuleGeometry(0.011, 0.045, 6, 8), skinMat);
+    shin.rotation.z = Math.PI/2 + 0.2;
+    shin.position.set(side * 0.015, 0.005, lSide * 0.02);
+    g.add(shin);
+  }
+
+  // ── TORSO ── (lathe profile for smooth curves)
+  const torsoShape = [];
+  const torsoSegs = 12;
+  for (let i = 0; i <= torsoSegs; i++) {
+    const t = i / torsoSegs;
+    // Profile: narrow waist, wider chest, narrow neck
+    let r;
+    if (t < 0.3) r = 0.018 + t * 0.04;         // hips to waist
+    else if (t < 0.6) r = 0.030 + (t-0.3)*0.02; // waist to chest
+    else if (t < 0.8) r = 0.036 - (t-0.6)*0.03; // chest to shoulders
+    else r = 0.024 - (t-0.8)*0.06;               // shoulders to neck
+    torsoShape.push(new THREE.Vector2(Math.max(r, 0.008), t * 0.12));
+  }
+  const torsoGeo = new THREE.LatheGeometry(torsoShape, 16);
+  const torso = new THREE.Mesh(torsoGeo, skinMat);
+  torso.position.y = 0.04;
+  torso.castShadow = true;
   g.add(torso);
 
-  // Chest/shoulders
-  const chest = new THREE.Mesh(
-    new THREE.SphereGeometry(0.035, 10, 8),
-    mat
+  // ── SHOULDERS ── (wider than torso for wing attachment)
+  const shoulders = new THREE.Mesh(
+    new THREE.SphereGeometry(0.032, 12, 8),
+    skinMat
   );
-  chest.position.y = 0.14;
-  chest.scale.set(1, 0.7, 0.8);
-  g.add(chest);
+  shoulders.scale.set(1.4, 0.5, 1.0);
+  shoulders.position.y = 0.155;
+  g.add(shoulders);
 
-  // Head — tilted down toward mercy seat
-  const head = new THREE.Mesh(
-    new THREE.SphereGeometry(0.028, 10, 8),
-    mat
+  // ── NECK ──
+  const neck = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.012, 0.015, 0.025, 8),
+    skinMat
   );
-  head.position.set(-side * 0.008, 0.185, 0);
-  g.add(head);
+  neck.position.set(-side * 0.003, 0.173, 0);
+  neck.rotation.z = side * 0.15; // tilted toward center
+  g.add(neck);
 
-  // Face direction indicator (small nose/beak)
-  const face = new THREE.Mesh(
-    new THREE.ConeGeometry(0.008, 0.018, 6),
-    mat
+  // ── HEAD ── (not a sphere — more oval, with features)
+  const headGroup = new THREE.Group();
+
+  // Cranium (elongated sphere)
+  const cranium = new THREE.Mesh(
+    new THREE.SphereGeometry(0.026, 14, 10),
+    skinMat
   );
-  face.rotation.z = side * 0.6; // facing toward center
-  face.rotation.x = 0.4; // looking DOWN at the seat
-  face.position.set(-side * 0.03, 0.175, 0);
-  g.add(face);
+  cranium.scale.set(0.85, 1.0, 0.9);
+  headGroup.add(cranium);
 
-  // Wings — spread upward, curving over the mercy seat
+  // Brow ridge
+  const brow = new THREE.Mesh(
+    new THREE.SphereGeometry(0.015, 8, 4, 0, Math.PI*2, 0, Math.PI*0.4),
+    skinMat
+  );
+  brow.position.set(-side * 0.012, 0.008, 0);
+  brow.scale.set(1.2, 0.5, 1.4);
+  headGroup.add(brow);
+
+  // Nose
+  const nose = new THREE.Mesh(
+    new THREE.ConeGeometry(0.005, 0.016, 5),
+    skinMat
+  );
+  nose.rotation.z = side * 0.8;
+  nose.rotation.x = 0.3;
+  nose.position.set(-side * 0.022, -0.003, 0);
+  headGroup.add(nose);
+
+  // Chin
+  const chin = new THREE.Mesh(
+    new THREE.SphereGeometry(0.01, 6, 4),
+    skinMat
+  );
+  chin.position.set(-side * 0.015, -0.018, 0);
+  chin.scale.set(0.7, 0.6, 0.8);
+  headGroup.add(chin);
+
+  // Eyes (subtle indentations — just small dark spheres)
+  for (let eSide of [-1, 1]) {
+    const eye = new THREE.Mesh(
+      new THREE.SphereGeometry(0.004, 6, 4),
+      new THREE.MeshStandardMaterial({color: 0x8b6914, metalness: 0.8, roughness: 0.3})
+    );
+    eye.position.set(-side * 0.016, 0.005, eSide * 0.012);
+    headGroup.add(eye);
+  }
+
+  // Hair/headdress (layered curves flowing back)
+  for (let i = 0; i < 8; i++) {
+    const hairAngle = (i / 8) * Math.PI - Math.PI/2;
+    const strand = new THREE.Mesh(
+      new THREE.CapsuleGeometry(0.004, 0.03, 3, 4),
+      new THREE.MeshStandardMaterial({color: 0xc8a020, metalness: 0.93, roughness: 0.08})
+    );
+    strand.position.set(
+      side * 0.008 + Math.cos(hairAngle) * 0.015,
+      0.015 + Math.sin(hairAngle) * 0.01,
+      Math.sin(hairAngle) * 0.02
+    );
+    strand.rotation.z = side * 0.4;
+    strand.rotation.x = hairAngle * 0.3;
+    headGroup.add(strand);
+  }
+
+  headGroup.position.set(-side * 0.01, 0.195, 0);
+  headGroup.rotation.z = side * 0.25; // tilted toward center
+  headGroup.rotation.x = 0.2;         // looking DOWN at mercy seat
+  g.add(headGroup);
+
+  // ── ARMS ── (anatomical, reaching forward)
+  for (let armSide of [-1, 1]) {
+    // Upper arm
+    const upperArm = new THREE.Mesh(
+      new THREE.CapsuleGeometry(0.009, 0.05, 6, 6),
+      skinMat
+    );
+    upperArm.rotation.z = side * 0.5 + armSide * 0.4;
+    upperArm.rotation.x = armSide * 0.2;
+    upperArm.position.set(-side * 0.005, 0.14, armSide * 0.03);
+    g.add(upperArm);
+
+    // Forearm
+    const forearm = new THREE.Mesh(
+      new THREE.CapsuleGeometry(0.007, 0.045, 6, 6),
+      skinMat
+    );
+    forearm.rotation.z = side * 0.9;
+    forearm.rotation.x = armSide * 0.15;
+    forearm.position.set(-side * 0.04, 0.12, armSide * 0.035);
+    g.add(forearm);
+
+    // Hand (small flattened sphere)
+    const hand = new THREE.Mesh(
+      new THREE.SphereGeometry(0.008, 6, 4),
+      skinMat
+    );
+    hand.scale.set(1, 0.5, 1.2);
+    hand.position.set(-side * 0.06, 0.10, armSide * 0.035);
+    g.add(hand);
+  }
+
+  // ── WINGS ── (large, curved, feathered, overshadowing the seat)
   // "spread out their wings above, overshadowing the mercy seat"
   for (let wingDir of [-1, 1]) {
-    const wingPts = [];
-    const segments = 12;
-    for (let i = 0; i <= segments; i++) {
-      const t = i / segments;
-      const x = wingDir * t * 0.18;
-      const y = 0.14 + t * 0.08 + Math.sin(t * Math.PI) * 0.06;
-      const z = -side * t * 0.05; // curve toward center
-      wingPts.push(new THREE.Vector3(x, y, z));
-    }
+    const wingGroup = new THREE.Group();
 
-    // Wing as a series of connected quads (feathered look)
-    for (let i = 0; i < segments; i++) {
-      const t = i / segments;
-      const featherW = 0.005 + t * 0.012; // wider at tips
-      const p1 = wingPts[i];
-      const p2 = wingPts[i+1];
-      const feather = new THREE.Mesh(
-        new THREE.PlaneGeometry(
-          p2.distanceTo(p1),
-          featherW
-        ),
-        new THREE.MeshStandardMaterial({
-          color: 0xe8c840,
-          metalness: 0.95,
-          roughness: 0.05,
-          side: THREE.DoubleSide,
-          emissive: 0x332200,
-          emissiveIntensity: 0.03,
-        })
-      );
-      const mid = new THREE.Vector3().addVectors(p1, p2).multiplyScalar(0.5);
-      feather.position.copy(mid);
-      feather.lookAt(p2);
-      feather.rotation.z += Math.PI/2;
+    // Wing bone (leading edge — curved tube)
+    const bonePts = [];
+    const boneSegs = 20;
+    for (let i = 0; i <= boneSegs; i++) {
+      const t = i / boneSegs;
+      const span = 0.22;  // wing span
+      const lift = 0.12;  // how high wings go
+      const x = wingDir * t * span;
+      const y = 0.15 + Math.pow(t, 0.7) * lift + Math.sin(t * Math.PI) * 0.03;
+      const z = -side * t * 0.06 + wingDir * t * t * 0.02; // curve toward center + slight sweep
+      bonePts.push(new THREE.Vector3(x, y, z));
+    }
+    const boneCurve = new THREE.CatmullRomCurve3(bonePts);
+    const boneTube = new THREE.TubeGeometry(boneCurve, 20, 0.004, 6, false);
+    wingGroup.add(new THREE.Mesh(boneTube, skinMat));
+
+    // Primary feathers (long, at the outer wing)
+    const numPrimaries = 8;
+    for (let f = 0; f < numPrimaries; f++) {
+      const t = 0.4 + f / numPrimaries * 0.6; // outer 60% of wing
+      const attachPt = boneCurve.getPointAt(t);
+      const featherLen = 0.04 + (1 - Math.abs(t - 0.7) * 2) * 0.06; // longest in middle
+
+      // Each feather is a tapered shape
+      const fShape = new THREE.Shape();
+      fShape.moveTo(0, 0);
+      fShape.quadraticCurveTo(featherLen * 0.4, featherLen * 0.15, featherLen, 0);
+      fShape.quadraticCurveTo(featherLen * 0.4, -featherLen * 0.08, 0, 0);
+
+      const featherGeo = new THREE.ShapeGeometry(fShape);
+      const feather = new THREE.Mesh(featherGeo, new THREE.MeshStandardMaterial({
+        color: 0xe0c040,
+        metalness: 0.93,
+        roughness: 0.04,
+        side: THREE.DoubleSide,
+        emissive: 0x221100,
+        emissiveIntensity: 0.03,
+      }));
+
+      feather.position.copy(attachPt);
+      // Feathers point downward and outward
+      feather.rotation.z = wingDir * (0.3 + f * 0.08);
+      feather.rotation.x = -0.2 + f * 0.05;
+      feather.rotation.y = -side * 0.2;
       feather.castShadow = true;
-      g.add(feather);
+      wingGroup.add(feather);
     }
 
-    // Wing edge (solid curve)
-    const wingCurve = new THREE.CatmullRomCurve3(wingPts);
-    const wingTube = new THREE.TubeGeometry(wingCurve, 16, 0.003, 6, false);
-    g.add(new THREE.Mesh(wingTube, mat));
+    // Secondary feathers (shorter, inner wing, overlapping)
+    const numSecondaries = 6;
+    for (let f = 0; f < numSecondaries; f++) {
+      const t = 0.1 + f / numSecondaries * 0.35;
+      const attachPt = boneCurve.getPointAt(t);
+      const featherLen = 0.025 + f * 0.005;
+
+      const fShape = new THREE.Shape();
+      fShape.moveTo(0, 0);
+      fShape.quadraticCurveTo(featherLen * 0.5, featherLen * 0.2, featherLen, 0);
+      fShape.quadraticCurveTo(featherLen * 0.5, -featherLen * 0.1, 0, 0);
+
+      const feather = new THREE.Mesh(new THREE.ShapeGeometry(fShape), new THREE.MeshStandardMaterial({
+        color: 0xd4a830,
+        metalness: 0.90,
+        roughness: 0.07,
+        side: THREE.DoubleSide,
+      }));
+      feather.position.copy(attachPt);
+      feather.rotation.z = wingDir * (0.5 + f * 0.06);
+      feather.rotation.y = -side * 0.15;
+      feather.castShadow = true;
+      wingGroup.add(feather);
+    }
+
+    // Covert feathers (small, covering the base of the wing)
+    for (let f = 0; f < 5; f++) {
+      const t = 0.05 + f * 0.08;
+      const attachPt = boneCurve.getPointAt(t);
+      const covert = new THREE.Mesh(
+        new THREE.SphereGeometry(0.008, 5, 3),
+        skinMat
+      );
+      covert.scale.set(1.5, 0.4, 1);
+      covert.position.copy(attachPt);
+      covert.position.y -= 0.005;
+      wingGroup.add(covert);
+    }
+
+    // Trailing edge (thin line connecting feather tips)
+    const trailPts = [];
+    for (let i = 0; i <= 10; i++) {
+      const t = 0.3 + i/10 * 0.7;
+      const p = boneCurve.getPointAt(t);
+      trailPts.push(new THREE.Vector3(p.x + wingDir * 0.04, p.y - 0.02, p.z));
+    }
+    const trailCurve = new THREE.CatmullRomCurve3(trailPts);
+    const trailTube = new THREE.TubeGeometry(trailCurve, 12, 0.002, 4, false);
+    wingGroup.add(new THREE.Mesh(trailTube, skinMat));
+
+    wingGroup.castShadow = true;
+    g.add(wingGroup);
   }
 
-  // Arms (reaching toward center, hands on either side)
-  for (let armSide of [-1, 1]) {
-    const arm = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.008, 0.01, 0.08, 6),
-      mat
-    );
-    arm.rotation.z = armSide * 0.8 + side * 0.3;
-    arm.position.set(-side * 0.01 + armSide * 0.03, 0.11, 0);
-    g.add(arm);
-  }
-
-  // Base — hammered from the mercy seat (continuous with it)
+  // ── BASE ── hammered from the mercy seat (smooth gold mound)
   const base = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.04, 0.05, 0.015, 10),
-    mat
+    new THREE.SphereGeometry(0.04, 12, 6, 0, Math.PI*2, 0, Math.PI*0.4),
+    skinMat
   );
   base.position.y = 0.0;
+  base.scale.set(1.2, 0.4, 1.0);
   g.add(base);
 
   return g;
