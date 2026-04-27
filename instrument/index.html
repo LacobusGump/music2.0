@@ -27,7 +27,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;}
 <div id="start">
   <div style="color:#c9a44a30;font-size:0.65em;letter-spacing:0.2em;">GUMP</div>
   <button onclick="begin()">play</button>
-  <div class="sub">hold your phone. tilt to shape the sound.<br>move to play. be still to listen.</div>
+  <div class="sub">hold your phone. tilt to shape the sound.<br>move to play. be still to listen.<br>the mic hears the world and tunes it to 33 Hz.</div>
 </div>
 
 <div id="instrument">
@@ -162,6 +162,29 @@ function begin() {
   subGain.gain.value = 0.12;
   sub.connect(subGain);
   subGain.connect(masterGain);
+
+  // ═══ MICROPHONE — hear the world, tune it to 33 Hz ═══
+  // The phone listens to everything around you.
+  // FFT finds which frequencies are present.
+  // Each detected frequency maps to the nearest harmonic of 33.
+  // The environment becomes the instrument.
+
+  var micAnalyser = null;
+  var micData = null;
+
+  navigator.mediaDevices.getUserMedia({audio: true}).then(function(stream) {
+    var micSource = actx.createMediaStreamSource(stream);
+    micAnalyser = actx.createAnalyser();
+    micAnalyser.fftSize = 2048;
+    micAnalyser.smoothingTimeConstant = 0.8;
+    micSource.connect(micAnalyser);
+    // Don't connect to output — we don't want raw mic playback
+    // We only READ the spectrum and drive our harmonics
+    micData = new Uint8Array(micAnalyser.frequencyBinCount);
+  }).catch(function(err) {
+    // No mic permission — instrument still works with tilt only
+    console.log('No mic access — tilt mode only');
+  });
 
   // Start oscillators
   drone.start();
@@ -308,7 +331,31 @@ function update() {
   var detune = normalGamma * 5;  // ±5 Hz
   drone.frequency.setTargetAtTime(FUNDAMENTAL + detune, actx.currentTime, 0.05);
 
-  // ═══ HARMONIC REVEAL — each overtone fades in based on tilt ═══
+  // ═══ MICROPHONE → HARMONICS ═══
+  // Read the ambient spectrum. Map each band to nearest harmonic.
+  // The world tunes itself to 33 Hz.
+  var micLevels = new Array(9).fill(0);  // one per harmonic
+  if (micAnalyser && micData) {
+    micAnalyser.getByteFrequencyData(micData);
+    var binHz = actx.sampleRate / micAnalyser.fftSize;
+    var hFreqs = [66, 99, 132, 165, 198, 264, 330, 396, 528];
+
+    for (var h = 0; h < hFreqs.length; h++) {
+      // Find FFT bins near this harmonic (±20%)
+      var lo = Math.floor(hFreqs[h] * 0.8 / binHz);
+      var hi = Math.ceil(hFreqs[h] * 1.2 / binHz);
+      var sum = 0, count = 0;
+      for (var b = Math.max(0, lo); b <= Math.min(hi, micData.length - 1); b++) {
+        sum += micData[b];
+        count++;
+      }
+      var avg = count > 0 ? sum / count / 255 : 0;  // normalize 0-1
+      // Smooth
+      micLevels[h] = micLevels[h] * 0.85 + avg * 0.15;
+    }
+  }
+
+  // ═══ HARMONIC REVEAL — each overtone fades in based on tilt + mic ═══
   // filterTarget tells us which harmonics should be audible
   // Each harmonic below the filter cutoff gets volume
   // Each one above stays silent
@@ -324,6 +371,9 @@ function update() {
     vol *= 0.08 / (1 + i * 0.3);
     // Scale by energy (moving = harmonics ring louder)
     vol *= (0.4 + energy * 0.6);
+    // ADD mic input — the world's vibrations at this harmonic
+    // Mic and tilt blend together. Both drive the same harmonics.
+    vol += micLevels[i] * 0.06;
     harmonicGains[i].gain.setTargetAtTime(vol, actx.currentTime, 0.08);
 
     // Detune harmonics slightly with gamma tilt (warmth)
