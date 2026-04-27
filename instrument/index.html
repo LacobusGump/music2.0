@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>GUMP</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;-webkit-user-select:none;user-select:none;}
+body{background:#000;color:#999;font-family:Georgia,serif;
+  height:100vh;height:100dvh;overflow:hidden;touch-action:none;}
+#start{display:flex;align-items:center;justify-content:center;
+  height:100vh;height:100dvh;flex-direction:column;gap:20px;}
+#start button{background:none;border:1px solid #c9a44a30;color:#c9a44a;
+  padding:20px 50px;border-radius:12px;font-family:Georgia,serif;
+  font-size:1.2em;cursor:pointer;letter-spacing:0.15em;transition:all 0.4s;}
+#start button:hover{border-color:#c9a44a;background:#c9a44a10;}
+#start .sub{color:#333;font-size:0.7em;max-width:300px;text-align:center;line-height:1.8;}
+#instrument{display:none;height:100vh;height:100dvh;position:relative;}
+canvas{display:block;width:100%;height:100%;touch-action:none;}
+#hud{position:fixed;top:12px;left:12px;font-size:0.6em;color:#333;
+  font-family:'Courier New',monospace;line-height:1.8;pointer-events:none;z-index:10;}
+</style>
+</head>
+<body>
+
+<div id="start">
+  <div style="color:#c9a44a30;font-size:0.65em;letter-spacing:0.2em;">GUMP</div>
+  <button onclick="begin()">play</button>
+  <div class="sub">hold your phone. tilt to shape the sound.<br>move to play. be still to listen.</div>
+</div>
+
+<div id="instrument">
+  <canvas id="viz"></canvas>
+  <div id="hud"></div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════
+// GUMP — the body is the instrument
+//
+// First principles:
+// 1. One oscillator at 33 Hz (the pyramid fundamental)
+// 2. Tilt reveals harmonics (the melody IS the overtones)
+// 3. Motion adds energy (louder, brighter)
+// 4. Stillness = the drone (the void)
+// 5. Water bottle feel: momentum, overshoot, damping
+// 6. Enable outcomes, don't make choices
+//
+// The harmonic series of 33 Hz:
+//   33, 66, 99, 132, 165, 198, 231, 264 (≈ middle C)
+//   330, 396, 462, 528 (≈ C5)
+//
+// Tilt forward = open the filter = bright = high harmonics
+// Tilt back = close the filter = dark = fundamental only
+// Left/right = detune slightly = warmth/chorus
+// Shake = rhythmic energy = the groove
+// Impact = percussive burst = the hit
+// ═══════════════════════════════════════════════════════════
+
+var actx, started = false;
+
+// Audio nodes
+var drone, droneGain, filter, filterGain, masterGain;
+var sub, subGain;  // sub-bass sine at 33 Hz
+var delay, feedback, delayGain;  // space
+
+// Sensor state (smoothed — water bottle)
+var tiltX = 0, tiltY = 0;        // current angle (degrees)
+var targetX = 0, targetY = 0;    // raw sensor target
+var velX = 0, velY = 0;          // velocity (for overshoot)
+var energy = 0;                   // motion energy (0-1)
+var targetEnergy = 0;
+var impactCooldown = 0;
+
+// Smoothing constants (water bottle)
+var SPRING = 0.03;    // how fast it follows (lower = more lag)
+var DAMPING = 0.85;   // how fast overshoot dies (lower = more bounce)
+var ENERGY_ATTACK = 0.15;
+var ENERGY_DECAY = 0.97;
+
+// Musical constants
+var FUNDAMENTAL = 33;  // Hz — the pyramid
+var BASE_FILTER = 80;  // Hz — minimum filter cutoff (just above fundamental)
+var MAX_FILTER = 4000; // Hz — maximum (bright, all harmonics)
+
+function begin() {
+  document.getElementById('start').style.display = 'none';
+  document.getElementById('instrument').style.display = 'block';
+
+  // ═══ AUDIO CONTEXT ═══
+  actx = new (window.AudioContext || window.webkitAudioContext)();
+
+  // Master output
+  masterGain = actx.createGain();
+  masterGain.gain.value = 0.7;
+  masterGain.connect(actx.destination);
+
+  // Delay/reverb (space)
+  delay = actx.createDelay(1.0);
+  delay.delayTime.value = 0.4;  // ~150 BPM echo
+  feedback = actx.createGain();
+  feedback.gain.value = 0.3;
+  delayGain = actx.createGain();
+  delayGain.gain.value = 0.15;
+  delay.connect(feedback);
+  feedback.connect(delay);
+  delay.connect(delayGain);
+  delayGain.connect(masterGain);
+
+  // ═══ THE DRONE — sawtooth at 33 Hz ═══
+  // Sawtooth contains ALL harmonics (1/n amplitude)
+  // The filter controls which harmonics you hear
+  drone = actx.createOscillator();
+  drone.type = 'sawtooth';
+  drone.frequency.value = FUNDAMENTAL;
+
+  // Filter — the voice of the instrument
+  filter = actx.createBiquadFilter();
+  filter.type = 'lowpass';
+  filter.frequency.value = BASE_FILTER;
+  filter.Q.value = 2;  // mild resonance at cutoff
+
+  filterGain = actx.createGain();
+  filterGain.gain.value = 0.35;
+
+  drone.connect(filter);
+  filter.connect(filterGain);
+  filterGain.connect(masterGain);
+  filterGain.connect(delay);  // filtered drone into delay
+
+  // ═══ SUB-BASS — pure sine at 33 Hz ═══
+  // Always present. The foundation. You feel this.
+  sub = actx.createOscillator();
+  sub.type = 'sine';
+  sub.frequency.value = FUNDAMENTAL;
+  subGain = actx.createGain();
+  subGain.gain.value = 0.25;
+  sub.connect(subGain);
+  subGain.connect(masterGain);
+
+  // Start oscillators
+  drone.start();
+  sub.start();
+
+  // ═══ SENSORS ═══
+  if (window.DeviceOrientationEvent) {
+    // iOS 13+ requires permission
+    if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+      DeviceOrientationEvent.requestPermission().then(function(state) {
+        if (state === 'granted') {
+          window.addEventListener('deviceorientation', onOrientation);
+        }
+      });
+    } else {
+      window.addEventListener('deviceorientation', onOrientation);
+    }
+  }
+
+  if (window.DeviceMotionEvent) {
+    if (typeof DeviceMotionEvent.requestPermission === 'function') {
+      DeviceMotionEvent.requestPermission().then(function(state) {
+        if (state === 'granted') {
+          window.addEventListener('devicemotion', onMotion);
+        }
+      });
+    } else {
+      window.addEventListener('devicemotion', onMotion);
+    }
+  }
+
+  // Desktop fallback: mouse
+  document.addEventListener('mousemove', function(e) {
+    targetY = ((e.clientX / window.innerWidth) - 0.5) * 90;  // left-right → tilt
+    targetX = ((e.clientY / window.innerHeight) - 0.5) * -90; // up-down → tilt
+    targetEnergy = 0.3; // mouse is mild energy
+  });
+
+  // Touch for energy
+  document.addEventListener('touchstart', function(e) {
+    targetEnergy = 0.8;
+    impactCooldown = 8;
+  });
+
+  started = true;
+  initViz();
+  update();
+}
+
+// ═══ SENSOR HANDLERS ═══
+
+function onOrientation(e) {
+  // beta: front/back tilt (-180 to 180). Phone flat face-up = 90.
+  // gamma: left/right tilt (-90 to 90).
+  if (e.beta !== null) targetX = e.beta;
+  if (e.gamma !== null) targetY = e.gamma;
+}
+
+function onMotion(e) {
+  var a = e.acceleration;
+  if (a && a.x !== null) {
+    var mag = Math.sqrt(a.x*a.x + a.y*a.y + a.z*a.z);
+    targetEnergy = Math.min(mag / 15, 1);  // normalize to 0-1
+
+    // Impact detection: sudden acceleration spike
+    if (mag > 12 && impactCooldown <= 0) {
+      triggerImpact(Math.min(mag / 20, 1));
+      impactCooldown = 10;  // frames cooldown
+    }
+  }
+}
+
+function triggerImpact(intensity) {
+  if (!actx) return;
+  // Short noise burst — percussive hit
+  var bufferSize = actx.sampleRate * 0.08;
+  var buffer = actx.createBuffer(1, bufferSize, actx.sampleRate);
+  var data = buffer.getChannelData(0);
+  for (var i = 0; i < bufferSize; i++) {
+    data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufferSize * 0.15));
+  }
+  var noise = actx.createBufferSource();
+  noise.buffer = buffer;
+
+  // Filter the noise — pitch follows current tilt
+  var hitFilter = actx.createBiquadFilter();
+  hitFilter.type = 'bandpass';
+  hitFilter.frequency.value = filter.frequency.value * 1.5;
+  hitFilter.Q.value = 3;
+
+  var hitGain = actx.createGain();
+  hitGain.gain.setValueAtTime(intensity * 0.5, actx.currentTime);
+  hitGain.gain.exponentialRampToValueAtTime(0.001, actx.currentTime + 0.3);
+
+  noise.connect(hitFilter);
+  hitFilter.connect(hitGain);
+  hitGain.connect(masterGain);
+  hitGain.connect(delay);
+  noise.start();
+}
+
+// ═══ MAIN LOOP ═══
+
+function update() {
+  if (!started) return;
+  requestAnimationFrame(update);
+
+  // ═══ WATER BOTTLE SMOOTHING ═══
+  // Spring-damper system: position follows target with momentum
+  var dx = targetX - tiltX;
+  var dy = targetY - tiltY;
+  velX = velX * DAMPING + dx * SPRING;
+  velY = velY * DAMPING + dy * SPRING;
+  tiltX += velX;
+  tiltY += velY;
+
+  // Energy: fast attack, slow decay
+  if (targetEnergy > energy) {
+    energy += (targetEnergy - energy) * ENERGY_ATTACK;
+  } else {
+    energy *= ENERGY_DECAY;
+  }
+  targetEnergy *= 0.9;  // target decays too (motion is transient)
+
+  if (impactCooldown > 0) impactCooldown--;
+
+  // ═══ MAP TILT TO SOUND ═══
+
+  // Beta (front/back tilt): controls filter cutoff
+  // Phone flat (beta≈90): mid-range
+  // Phone tilted toward you (beta<90): darker, more fundamental
+  // Phone tilted away (beta>90): brighter, more harmonics
+  var normalBeta = (tiltX - 45) / 90;  // -1 to +1, 0 = 45° tilt (natural hold)
+  normalBeta = Math.max(-1, Math.min(1, normalBeta));
+
+  // Exponential mapping for filter (ears hear logarithmically)
+  var filterTarget = BASE_FILTER * Math.pow(MAX_FILTER / BASE_FILTER, (normalBeta + 1) / 2);
+  filter.frequency.setTargetAtTime(filterTarget, actx.currentTime, 0.05);
+
+  // Gamma (left/right tilt): detune the drone slightly
+  // Creates warmth/chorus. ±5 Hz max.
+  var normalGamma = tiltY / 45;  // -1 to +1
+  normalGamma = Math.max(-1, Math.min(1, normalGamma));
+  var detune = normalGamma * 5;  // ±5 Hz
+  drone.frequency.setTargetAtTime(FUNDAMENTAL + detune, actx.currentTime, 0.05);
+
+  // Energy → volume + filter Q (resonance)
+  // More motion = louder + more resonant (brighter, more present)
+  var vol = 0.15 + energy * 0.5;
+  filterGain.gain.setTargetAtTime(vol, actx.currentTime, 0.05);
+
+  // Filter Q increases with energy (more resonant when active)
+  var q = 1 + energy * 8;
+  filter.Q.setTargetAtTime(q, actx.currentTime, 0.05);
+
+  // Sub-bass: always present but louder when still (the void)
+  var subVol = 0.25 * (1 - energy * 0.5);
+  subGain.gain.setTargetAtTime(subVol, actx.currentTime, 0.1);
+
+  // Delay feedback increases with energy (more space when active)
+  var fb = 0.2 + energy * 0.35;
+  feedback.gain.setTargetAtTime(fb, actx.currentTime, 0.05);
+
+  // ═══ VISUALIZATION ═══
+  drawViz(normalBeta, normalGamma, energy, filterTarget);
+
+  // ═══ HUD ═══
+  document.getElementById('hud').innerHTML =
+    'tilt ' + tiltX.toFixed(0) + '° ' + tiltY.toFixed(0) + '°<br>' +
+    'filter ' + filterTarget.toFixed(0) + ' Hz<br>' +
+    'energy ' + (energy * 100).toFixed(0) + '%<br>' +
+    'K ' + (FUNDAMENTAL + detune).toFixed(1) + ' Hz';
+}
+
+// ═══ VISUALIZATION ═══
+// Simple: a circle that responds to the sound
+// Brighter when filter opens, larger when energy increases
+
+var vizCanvas, vizCtx;
+
+function initViz() {
+  vizCanvas = document.getElementById('viz');
+  vizCtx = vizCanvas.getContext('2d');
+  resizeViz();
+  window.addEventListener('resize', resizeViz);
+}
+
+function resizeViz() {
+  var dpr = window.devicePixelRatio || 1;
+  var r = vizCanvas.getBoundingClientRect();
+  vizCanvas.width = r.width * dpr;
+  vizCanvas.height = r.height * dpr;
+  vizCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+
+function drawViz(beta, gamma, energy, filterFreq) {
+  var w = vizCanvas.width / (window.devicePixelRatio || 1);
+  var h = vizCanvas.height / (window.devicePixelRatio || 1);
+  var cx = w / 2 + gamma * w * 0.15;
+  var cy = h / 2 - beta * h * 0.15;
+
+  vizCtx.fillStyle = 'rgba(0,0,0,0.15)';
+  vizCtx.fillRect(0, 0, w, h);
+
+  var t = Date.now() * 0.001;
+
+  // Harmonic brightness: how open is the filter?
+  var openness = Math.log(filterFreq / BASE_FILTER) / Math.log(MAX_FILTER / BASE_FILTER);
+
+  // Core circle
+  var baseR = 30 + energy * 80;
+  var pulse = 1 + 0.05 * Math.sin(t * FUNDAMENTAL * 0.1);
+  var r = baseR * pulse;
+
+  // Glow layers
+  for (var layer = 4; layer >= 0; layer--) {
+    var lr = r * (1 + layer * 0.8);
+    var alpha = (0.03 + openness * 0.04) * (1 - layer * 0.18);
+    var hue = 35 + openness * 15;  // warm gold → bright gold
+    vizCtx.beginPath();
+    vizCtx.arc(cx, cy, lr, 0, Math.PI * 2);
+    vizCtx.fillStyle = 'hsla(' + hue + ',60%,' + (30 + openness * 30) + '%,' + alpha + ')';
+    vizCtx.fill();
+  }
+
+  // Core
+  vizCtx.beginPath();
+  vizCtx.arc(cx, cy, r * 0.3, 0, Math.PI * 2);
+  var coreAlpha = 0.3 + energy * 0.5;
+  vizCtx.fillStyle = 'hsla(40,70%,' + (40 + openness * 40) + '%,' + coreAlpha + ')';
+  vizCtx.fill();
+
+  // Harmonic rings — one per audible harmonic
+  var nHarmonics = Math.floor(filterFreq / FUNDAMENTAL);
+  for (var i = 1; i <= Math.min(nHarmonics, 12); i++) {
+    var hr = r * 0.3 + i * (r * 0.7 / 12);
+    var ha = 0.02 + (1 - i / 12) * 0.06 * energy;
+    vizCtx.beginPath();
+    vizCtx.arc(cx, cy, hr, 0, Math.PI * 2);
+    vizCtx.strokeStyle = 'hsla(40,50%,60%,' + ha + ')';
+    vizCtx.lineWidth = 0.5;
+    vizCtx.stroke();
+  }
+}
+</script>
+</body>
+</html>
