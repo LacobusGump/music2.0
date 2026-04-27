@@ -158,14 +158,58 @@ var massRatio = 0.4935;   // M_B / M_A — how much A wobbles
 // Visual period: 28 seconds per orbit — fast enough to see the egg shape
 var period = 28;
 
-// ═══ BACKGROUND STARS ═══
-var stars = [];
-for (var i = 0; i < 300; i++) {
-  stars.push({
-    x: Math.random(),
-    y: Math.random(),
-    size: Math.random() * 1.2 + 0.3,
-    bright: 0.15 + Math.random() * 0.25,
+// ═══ REAL STARS — the actual sky around Sirius ═══
+// Positions are angular offsets from Sirius in degrees (J2000)
+// dx = west(+)/east(-), dy = north(+)/south(-)
+// Magnitudes are apparent visual magnitude
+var realStars = [
+  ["Betelgeuse",-11.97,24.13,0.5],
+  ["Rigel",-21.7,8.52,0.13],
+  ["Bellatrix",-19.16,23.07,1.64],
+  ["Mintaka",-17.51,16.42,2.23],
+  ["Alnilam",-16.51,15.52,1.69],
+  ["Alnitak",-15.42,14.78,1.77],
+  ["Saiph",-13.74,7.05,2.09],
+  ["Procyon",12.97,21.94,0.34],
+  ["Adhara",3.23,-12.25,1.5],
+  ["Wezen",5.57,-9.67,1.84],
+  ["Mirzam",-5.38,-1.24,1.98],
+  ["Furud",-5.94,-13.34,3.02],
+  ["Aludra",9.32,-12.58,2.45],
+  ["Pollux",14.41,44.75,1.14],
+  ["Castor",11.84,48.61,1.58],
+  ["Aldebaran",-30.94,33.23,0.87],
+  ["Elnath",-18.88,45.33,1.65],
+  ["Alcyone",-42.54,40.83,2.87],
+  ["Muliphein",-0.29,1.09,4.11],
+  ["Arneb",-17.34,-1.1,2.58],
+  ["Nihal",-18.41,-4.04,2.84],
+  ["Alhena",-1.78,33.12,1.93],
+  ["Tejat",-5.31,39.23,2.88],
+];
+
+// Constellation lines
+var constellationLines = [
+  // Orion
+  ["Betelgeuse","Bellatrix"],["Bellatrix","Mintaka"],["Mintaka","Alnilam"],
+  ["Alnilam","Alnitak"],["Alnitak","Saiph"],["Saiph","Rigel"],
+  ["Rigel","Mintaka"],["Betelgeuse","Alnitak"],
+  // Canis Major
+  ["Mirzam","Adhara"],["Adhara","Wezen"],["Adhara","Furud"],["Wezen","Aludra"],
+  // Gemini
+  ["Castor","Pollux"],["Pollux","Alhena"],
+  // Lepus
+  ["Arneb","Nihal"],
+];
+
+// Faint background fill stars (real sky has thousands of dim ones)
+var faintStars = [];
+for (var i = 0; i < 150; i++) {
+  faintStars.push({
+    x: (Math.random() - 0.5) * 2,
+    y: (Math.random() - 0.5) * 2,
+    size: Math.random() * 0.8 + 0.2,
+    bright: 0.06 + Math.random() * 0.12,
     twinkleSpeed: 1 + Math.random() * 3,
     twinklePhase: Math.random() * Math.PI * 2
   });
@@ -214,14 +258,99 @@ function draw() {
   cx.fillStyle = bg;
   cx.fillRect(0, 0, W, H);
 
-  // ═══ STARS ═══
-  for (var i = 0; i < stars.length; i++) {
-    var s = stars[i];
-    var twinkle = s.bright + 0.1 * Math.sin(time * s.twinkleSpeed + s.twinklePhase);
+  // ═══ REAL SKY ═══
+  // Field of view: ~80° across the canvas width
+  var fov = 80; // degrees
+  var degPerPx = fov / W;
+
+  // Faint fill stars first
+  for (var i = 0; i < faintStars.length; i++) {
+    var fs = faintStars[i];
+    var twinkle = fs.bright + 0.04 * Math.sin(time * fs.twinkleSpeed + fs.twinklePhase);
     cx.beginPath();
-    cx.arc(s.x * W, s.y * H, s.size, 0, Math.PI * 2);
-    cx.fillStyle = 'rgba(200,195,180,' + twinkle + ')';
+    cx.arc(centerX + fs.x * W * 0.5, centerY - fs.y * H * 0.5, fs.size, 0, Math.PI * 2);
+    cx.fillStyle = 'rgba(180,178,170,' + twinkle + ')';
     cx.fill();
+  }
+
+  // Constellation lines — very faint
+  var starPositions = {};
+  for (var i = 0; i < realStars.length; i++) {
+    var rs = realStars[i];
+    var sx = centerX + rs[1] / degPerPx;
+    var sy = centerY - rs[2] / degPerPx;
+    starPositions[rs[0]] = {x: sx, y: sy};
+  }
+  // Sirius is at center for Canis Major lines
+  starPositions['Sirius'] = {x: centerX, y: centerY};
+
+  cx.strokeStyle = 'rgba(100,110,130,0.06)';
+  cx.lineWidth = 0.5;
+  for (var i = 0; i < constellationLines.length; i++) {
+    var line = constellationLines[i];
+    var p1 = starPositions[line[0]];
+    var p2 = starPositions[line[1]];
+    if (p1 && p2) {
+      cx.beginPath();
+      cx.moveTo(p1.x, p1.y);
+      cx.lineTo(p2.x, p2.y);
+      cx.stroke();
+    }
+  }
+
+  // Real named stars
+  for (var i = 0; i < realStars.length; i++) {
+    var rs = realStars[i];
+    var name = rs[0], dx = rs[1], dy = rs[2], mag = rs[3];
+    var sx = centerX + dx / degPerPx;
+    var sy = centerY - dy / degPerPx;
+
+    // Skip if off screen
+    if (sx < -20 || sx > W + 20 || sy < -20 || sy > H + 20) continue;
+
+    // Brightness from magnitude (lower mag = brighter)
+    // Sirius is -1.46, Rigel is 0.13, faintest here ~4
+    var brightness = Math.max(0.08, Math.min(0.7, 0.7 - mag * 0.14));
+    var radius = Math.max(0.5, 2.5 - mag * 0.4);
+
+    // Scintillation
+    var twinkle = brightness + 0.06 * Math.sin(time * (2 + i * 0.7) + i * 1.3);
+
+    // Star color by spectral type (approximate by name)
+    var r = 200, g = 195, b = 185; // default warm white
+    if (name === 'Betelgeuse') { r = 255; g = 150; b = 80; } // red supergiant
+    else if (name === 'Aldebaran') { r = 255; g = 170; b = 100; } // orange giant
+    else if (name === 'Rigel') { r = 180; g = 200; b = 255; } // blue supergiant
+    else if (name === 'Bellatrix') { r = 170; g = 190; b = 255; }
+    else if (name === 'Mintaka' || name === 'Alnilam' || name === 'Alnitak') { r = 180; g = 200; b = 255; } // blue belt stars
+    else if (name === 'Procyon') { r = 255; g = 245; b = 220; } // white-yellow
+    else if (name === 'Pollux') { r = 255; g = 200; b = 130; } // orange
+    else if (name === 'Alcyone') { r = 170; g = 195; b = 255; } // blue (Pleiades)
+
+    // Glow for bright stars
+    if (mag < 1.5) {
+      var glow = cx.createRadialGradient(sx, sy, 0, sx, sy, radius * 4);
+      glow.addColorStop(0, 'rgba(' + r + ',' + g + ',' + b + ',' + (twinkle * 0.15) + ')');
+      glow.addColorStop(1, 'rgba(' + r + ',' + g + ',' + b + ',0)');
+      cx.fillStyle = glow;
+      cx.beginPath();
+      cx.arc(sx, sy, radius * 4, 0, Math.PI * 2);
+      cx.fill();
+    }
+
+    // Star point
+    cx.beginPath();
+    cx.arc(sx, sy, radius, 0, Math.PI * 2);
+    cx.fillStyle = 'rgba(' + r + ',' + g + ',' + b + ',' + twinkle + ')';
+    cx.fill();
+
+    // Label for bright stars only (mag < 2)
+    if (mag < 2) {
+      cx.font = '7px Georgia';
+      cx.textAlign = 'center';
+      cx.fillStyle = 'rgba(' + r + ',' + g + ',' + b + ',' + (twinkle * 0.3) + ')';
+      cx.fillText(name, sx, sy - radius - 4);
+    }
   }
 
   // ═══ ORBITAL TRAIL — faint egg showing B's path ═══
