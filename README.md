@@ -41,6 +41,8 @@ A drummer asked "what makes music good?" and worked with AI for 40 days. The cou
 
 Every page answers a question people actually Google. Every claim tested. Every failure documented.
 
+- **[The Theory](https://begump.com/research/theory/)** — Star tetrahedron in C³. 2O symmetry. Standard Model from geometry. 0-1 free parameters.
+- **[The Framework](https://begump.com/research/framework/)** — K/R/E/T. Four quantities. 18 domains. Same math everywhere.
 - **[What Is Love?](https://begump.com/research/one-plus-one/)** — 1+1=3. Coupling creates something neither part could alone.
 - **[What Time Is It?](https://begump.com/research/time/)** — Time is the energy-weighted count of coupling events.
 - **[Why Do We Laugh?](https://begump.com/research/humor-happiness/)** — Laughter is a 3.5 Hz ego seizure.
