@@ -259,31 +259,127 @@ function onMotion(e) {
 
 function triggerImpact(intensity) {
   if (!actx) return;
-  // Short noise burst — percussive hit
-  var bufferSize = actx.sampleRate * 0.08;
+
+  // ═══════════════════════════════════════════════════════════
+  // DRUM MEMBRANE MODEL
+  //
+  // A circular membrane vibrates in modes (m,n) whose frequencies
+  // are zeros of Bessel functions J_m. The ratios to the fundamental:
+  //
+  //   Mode (m,n)  Ratio   Character
+  //   (0,1)       1.000   fundamental — the boom
+  //   (1,1)       1.593   first asymmetric — the tone
+  //   (2,1)       2.136   second asymmetric — brightness
+  //   (0,2)       2.296   first radial overtone — body
+  //   (3,1)       2.653   third asymmetric — shimmer
+  //   (1,2)       2.917   mixed — complexity
+  //   (4,1)       3.156   fourth asymmetric — air
+  //   (2,2)       3.501   second mixed — sizzle
+  //
+  // Strike position determines which modes are excited:
+  //   Center strike → radial modes (0,n) dominate → warm, boomy
+  //   Edge strike → asymmetric modes (m>0) dominate → bright, complex
+  //
+  // The phone's tilt at moment of impact = strike position.
+  // Higher modes decay faster. The fundamental rings longest.
+  // This is why a drum hit starts bright and settles warm.
+  // ═══════════════════════════════════════════════════════════
+
+  var now = actx.currentTime;
+
+  // Bessel modes: [ratio, m (nodal diameters), decay_rate]
+  // m=0 are radial (center-excited), m>0 are asymmetric (edge-excited)
+  var modes = [
+    [1.000, 0, 1.0],   // (0,1) fundamental
+    [1.593, 1, 1.8],   // (1,1)
+    [2.136, 2, 2.5],   // (2,1)
+    [2.296, 0, 2.2],   // (0,2)
+    [2.653, 3, 3.2],   // (3,1)
+    [2.917, 1, 3.0],   // (1,2)
+    [3.156, 4, 3.8],   // (4,1)
+    [3.501, 2, 3.5]    // (2,2)
+  ];
+
+  // Strike position from tilt: 0 = center, 1 = edge
+  // normalBeta near 0 = natural hold = center strike
+  // extreme tilt = edge strike
+  var strikePos = Math.min(1, Math.sqrt(tiltX * tiltX + tiltY * tiltY) / 70);
+
+  // Membrane fundamental frequency: rooted in 33 Hz but higher
+  // A struck membrane's pitch sits above the drone
+  var membraneF0 = FUNDAMENTAL * 3;  // 99 Hz — third harmonic territory
+
+  // Duration scales with intensity — harder hit rings longer
+  var baseDuration = 0.25 + intensity * 0.35;
+
+  // Synthesize each mode as a decaying sinusoid
+  var duration = baseDuration + 0.3;  // total buffer length with tail
+  var bufferSize = Math.ceil(actx.sampleRate * duration);
   var buffer = actx.createBuffer(1, bufferSize, actx.sampleRate);
   var data = buffer.getChannelData(0);
-  for (var i = 0; i < bufferSize; i++) {
-    data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufferSize * 0.15));
-  }
-  var noise = actx.createBufferSource();
-  noise.buffer = buffer;
 
-  // Filter the noise — pitch follows current tilt
-  var hitFilter = actx.createBiquadFilter();
-  hitFilter.type = 'bandpass';
-  hitFilter.frequency.value = filter.frequency.value * 1.5;
-  hitFilter.Q.value = 3;
+  for (var m = 0; m < modes.length; m++) {
+    var ratio = modes[m][0];
+    var nodalDiam = modes[m][1];
+    var decayRate = modes[m][2];
+
+    // Mode amplitude depends on strike position:
+    // Center strike (strikePos≈0): m=0 modes are loud, m>0 modes are quiet
+    // Edge strike (strikePos≈1): m>0 modes are loud, m=0 stays present
+    var amp;
+    if (nodalDiam === 0) {
+      // Radial modes: strong at center, present everywhere
+      amp = 1.0 - strikePos * 0.5;
+    } else {
+      // Asymmetric modes: scale with strike position and mode order
+      // Higher m needs further from center to excite
+      amp = Math.pow(strikePos, 0.3 + nodalDiam * 0.2);
+    }
+
+    // Natural amplitude falloff with frequency (1/ratio gives warmth)
+    amp *= intensity / (1 + (ratio - 1) * 0.6);
+
+    // Scale to reasonable level
+    amp *= 0.18;
+
+    // Mode frequency
+    var freq = membraneF0 * ratio;
+
+    // Decay time constant: fundamental rings for ~baseDuration,
+    // higher modes die proportionally faster.
+    // tau = baseDuration / decayRate — so fundamental (1.0) gets full duration,
+    // mode (4,1) at decayRate 3.8 gets ~1/4 the ring time.
+    var tau = baseDuration / decayRate;
+
+    // Add this mode's contribution to the buffer
+    var w = 2 * Math.PI * freq / actx.sampleRate;
+    for (var i = 0; i < bufferSize; i++) {
+      var t = i / actx.sampleRate;
+      data[i] += amp * Math.sin(w * i) * Math.exp(-t / tau);
+    }
+  }
+
+  // Tiny noise component for the initial transient (stick contact, ~2ms)
+  // This is the physical reality: the first milliseconds of ANY impact
+  // are broadband before modal vibration takes over
+  var transientSamples = Math.ceil(actx.sampleRate * 0.003);
+  for (var i = 0; i < transientSamples; i++) {
+    var env = (1 - i / transientSamples);
+    data[i] += (Math.random() * 2 - 1) * env * env * intensity * 0.15;
+  }
+
+  // Play it
+  var source = actx.createBufferSource();
+  source.buffer = buffer;
 
   var hitGain = actx.createGain();
-  hitGain.gain.setValueAtTime(intensity * 0.5, actx.currentTime);
-  hitGain.gain.exponentialRampToValueAtTime(0.001, actx.currentTime + 0.3);
+  hitGain.gain.setValueAtTime(0.6, now);
+  hitGain.gain.setTargetAtTime(0.001, now + baseDuration * 0.7, baseDuration * 0.15);
 
-  noise.connect(hitFilter);
-  hitFilter.connect(hitGain);
+  source.connect(hitGain);
   hitGain.connect(masterGain);
   hitGain.connect(delay);
-  noise.start();
+  source.start();
 }
 
 // ═══ MAIN LOOP ═══
