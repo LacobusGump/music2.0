@@ -91,7 +91,7 @@ var convolver = null;
 function initAudio(){
   ctx = new (window.AudioContext || window.webkitAudioContext)();
   masterGain = ctx.createGain();
-  masterGain.gain.value = 0.08;
+  masterGain.gain.value = 0.15;
 
   // Simple reverb via delay feedback
   var delay = ctx.createDelay(1.0);
@@ -164,7 +164,7 @@ function update(){
       targetFreq *= (1 + (Math.random() - 0.5) * 0.002);
 
       // Volume shaped by brightness and position in the chord
-      targetGain = p.brightness * 0.04 / (1 + i * 0.5);
+      targetGain = p.brightness * 0.12 / (1 + i * 0.4);
 
       // Tension adds dissonance — shift some voices by a semitone
       if(p.tension > 0.3 && i > 2){
@@ -178,7 +178,7 @@ function update(){
   }
 
   // Master volume follows density
-  masterGain.gain.setTargetAtTime(0.03 + p.density * 0.06, now, 0.5);
+  masterGain.gain.setTargetAtTime(0.06 + p.density * 0.12, now, 0.5);
 }
 
 // ═══ SCROLL LISTENER ═══
@@ -204,10 +204,12 @@ btn.onmouseleave = function(){
   btn.firstChild.style.borderColor = started ? '#c9a44a30' : '#c9a44a15';
 };
 
-btn.onclick = function(){
+btn.onclick = function(e){
+  e.preventDefault();
   if(!started){
     initAudio();
-    update();
+    if(ctx.state === 'suspended') ctx.resume();
+    setTimeout(update, 100);
     btn.firstChild.textContent = '♪ mute';
     btn.firstChild.style.color = '#c9a44a60';
   } else if(ctx.state === 'running'){
