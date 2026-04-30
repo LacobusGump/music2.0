@@ -10,10 +10,15 @@
   // Build the button — sits at bottom of page, quiet
   var btn = document.createElement('div');
   btn.style.cssText = 'text-align:center;margin:20px 0 0;cursor:pointer;user-select:none;-webkit-tap-highlight-color:transparent;';
-  btn.innerHTML = '<span style="font-size:0.6em;color:#c9a44a20;letter-spacing:0.08em;border:1px solid #c9a44a10;padding:6px 14px;border-radius:20px;transition:all 0.6s;">read with love</span>';
+  btn.innerHTML = '<span style="font-size:0.6em;color:#c4444480;letter-spacing:0.08em;border:1px solid #c4444430;padding:6px 14px;border-radius:20px;transition:all 0.6s;animation:lovepulse 3s ease-in-out infinite;">🐛 read with love</span>';
 
-  btn.onmouseenter = function(){ btn.firstChild.style.color='#c9a44a60'; btn.firstChild.style.borderColor='#c9a44a30'; };
-  btn.onmouseleave = function(){ if(!active){ btn.firstChild.style.color='#c9a44a20'; btn.firstChild.style.borderColor='#c9a44a10'; }};
+  // Add the pulse animation
+  var loveStyle = document.createElement('style');
+  loveStyle.textContent = '@keyframes lovepulse{0%,100%{border-color:#c4444420;color:#c4444460;}50%{border-color:#c4444450;color:#c44444a0;}}';
+  document.head.appendChild(loveStyle);
+
+  btn.onmouseenter = function(){ btn.firstChild.style.color='#c44'; btn.firstChild.style.borderColor='#c44'; };
+  btn.onmouseleave = function(){ if(!active){ btn.firstChild.style.color='#c4444480'; btn.firstChild.style.borderColor='#c4444430'; }};
 
   btn.onclick = function(){
     var page = document.querySelector('.page');
@@ -48,9 +53,9 @@
       var foot = page.querySelector('.foot');
       if (foot) foot.parentNode.insertBefore(btn, foot);
 
-      btn.firstChild.textContent = 'read with math';
-      btn.firstChild.style.color = '#c9a44a60';
-      btn.firstChild.style.borderColor = '#c9a44a30';
+      btn.firstChild.textContent = '🐛 read with math';
+      btn.firstChild.style.color = '#c4444480';
+      btn.firstChild.style.borderColor = '#c4444430';
 
     } else {
       // Restore original
@@ -61,14 +66,18 @@
       var foot = page.querySelector('.foot');
       if (foot) foot.parentNode.insertBefore(btn, foot);
 
-      btn.firstChild.textContent = 'read with love';
-      btn.firstChild.style.color = '#c9a44a20';
-      btn.firstChild.style.borderColor = '#c9a44a10';
+      btn.firstChild.textContent = '🐛 read with love';
+      btn.firstChild.style.color = '#c4444480';
+      btn.firstChild.style.borderColor = '#c4444430';
     }
   };
 
-  // Insert before the footer
+  // Only show if the page actually uses the word coupling
   function place(){
+    var page = document.querySelector('.page');
+    if (!page) return;
+    var text = page.textContent || page.innerText || '';
+    if (!/coupl/i.test(text)) return; // no coupling words, no button
     var foot = document.querySelector('.foot');
     if (foot) foot.parentNode.insertBefore(btn, foot);
   }
