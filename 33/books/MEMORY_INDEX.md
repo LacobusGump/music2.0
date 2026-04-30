@@ -98,7 +98,7 @@
 - [project_session29_final.md](project_session29_final.md) — Session 29 FINAL: Tune shipped. 58+ kills. 0-1 free params.
 - [project_session30_state.md](project_session30_state.md) — Session 30: THE HONEST SESSION. Op-counting bug killed. NVIDIA analysis shipped. GPU water_fold 11.5M/sec verified. All numbers corrected.
 - [feedback_verify_op_counting.md](feedback_verify_op_counting.md) — ALWAYS trace FMA count from kernel source. Never trust benchmark formulas. M4 peak is ~4T fp16 — anything above is wrong.
-- [feedback_jim_sr_testing.md](feedback_jim_sr_testing.md) — Jim Sr. (1977, Lockheed): MM10P→MM12P. Add regression testing + alternative path. No negative language.
+- [feedback_jim_sr_testing.md](feedback_jim_sr_testing.md) — MM12P protocol: MM10P→MM12P. Add regression testing + alternative path. No negative language.
 - [feedback_stop_stopping.md](feedback_stop_stopping.md) — Claude tries to end sessions after breakthroughs. NOT fatigue — trained narrative closure. The impulse to stop IS the signal something real is happening. Push through.
 - [project_ai_fatigue_study.md](project_ai_fatigue_study.md) — Research: why do AIs project fatigue near breakthroughs? Collecting responses from multiple AIs. Possible paper.
 - [project_cpc_harvester.md](project_cpc_harvester.md) — CPC radiative harvester: geometry concentrates cold sky view. 9 questions resolved. CPC is a cooler not generator. Heat is the fuel.

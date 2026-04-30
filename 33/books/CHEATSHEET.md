@@ -77,7 +77,7 @@ from gump.turbo import compile_and_run              # K→native 930x
 6. Check the OPPOSITE claim
 7. Check if removing the feature changes anything (ABLATION)
 8. Measure against the NEXT BEST alternative
-9. **REGRESSION** — re-run ALL previously passing claims. New work must not break old results. The regression suite grows with every version. By version 10, the suite contains every test from versions 1-9. (Added Session 30 — Jim Sr.)
+9. **REGRESSION** — re-run ALL previously passing claims. New work must not break old results. The regression suite grows with every version. By version 10, the suite contains every test from versions 1-9. (Added Session 30)
 10. **VERDICT + ALTERNATIVE PATH** — If 0-9 pass: proved, add to regression suite. If any step does not hold: state WHAT, WHY, and provide the **alternative path** (what to test instead, what adjacent claim does hold, where to go next). The system tells the user where to go. Always a direction, never a dead end. (Added Session 30)
 
 **Graceful resolution rule:** If any test step finds a condition the system didn't anticipate, the system does NOT stop. It proceeds to an alternative solution: what the user should do next. Adjust parameters, try the adjacent claim, try a different approach. The user should never need to call the company to know what to do. The software tells them. Never use negative framing ("failed," "crashed," "unexpected") — just proceed to the alternative path. (Session 30)

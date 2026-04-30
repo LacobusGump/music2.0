@@ -121,7 +121,11 @@ canvas#sky{width:100%;height:100%;display:block;}
 
 <script>
 // ═══════════════════════════════════════════════════════════
-// SIRIUS A + B — real orbital mechanics
+// THE MIRROR — 137 coupled oscillators on a golden spiral
+// The math computing beauty in real time.
+// If the coupling is wrong, the nodes don't synchronize.
+// They synchronize because K works.
+// The loading IS the proof.
 //
 // Sirius A: 2.063 solar masses. Bright. Hot. The research.
 // Sirius B: 1.018 solar masses. Tiny. Dense. The tools.
@@ -133,7 +137,7 @@ canvas#sky{width:100%;height:100%;display:block;}
 //   Inclination: 136.53 degrees
 //   Mass ratio B/A: 0.4935
 //
-// The wobble IS the coupling made visible.
+// The breathing IS the coupling made visible.
 // ═══════════════════════════════════════════════════════════
 (function(){
 var cv = document.getElementById('sky');
@@ -151,387 +155,138 @@ function resize() {
 resize();
 window.addEventListener('resize', resize);
 
-// ═══ ORBITAL PARAMETERS (real) ═══
-var e = 0.5923;           // eccentricity
-var incl = 136.53 * Math.PI / 180;  // inclination
-var cosI = Math.cos(incl);  // -0.7257 (orbit appears tilted)
-var massRatio = 0.4935;   // M_B / M_A — how much A wobbles
+// ═══ 137 COUPLED OSCILLATORS ═══
+var N = 137;
+var K_COUPLE = 1.868;
+var GA = 2.39996322; // golden angle
+var PHI = (1+Math.sqrt(5))/2;
+var dt = 0.016;
 
-// Visual period: 28 seconds per orbit — fast enough to see the egg shape
-var period = 28;
-
-// ═══ REAL STARS — the actual sky around Sirius ═══
-// Positions are angular offsets from Sirius in degrees (J2000)
-// dx = west(+)/east(-), dy = north(+)/south(-)
-// Magnitudes are apparent visual magnitude
-var realStars = [
-  ["Betelgeuse",-11.97,24.13,0.5],
-  ["Rigel",-21.7,8.52,0.13],
-  ["Bellatrix",-19.16,23.07,1.64],
-  ["Mintaka",-17.51,16.42,2.23],
-  ["Alnilam",-16.51,15.52,1.69],
-  ["Alnitak",-15.42,14.78,1.77],
-  ["Saiph",-13.74,7.05,2.09],
-  ["Procyon",12.97,21.94,0.34],
-  ["Adhara",3.23,-12.25,1.5],
-  ["Wezen",5.57,-9.67,1.84],
-  ["Mirzam",-5.38,-1.24,1.98],
-  ["Furud",-5.94,-13.34,3.02],
-  ["Aludra",9.32,-12.58,2.45],
-  ["Pollux",14.41,44.75,1.14],
-  ["Castor",11.84,48.61,1.58],
-  ["Aldebaran",-30.94,33.23,0.87],
-  ["Elnath",-18.88,45.33,1.65],
-  ["Alcyone",-42.54,40.83,2.87],
-  ["Muliphein",-0.29,1.09,4.11],
-  ["Arneb",-17.34,-1.1,2.58],
-  ["Nihal",-18.41,-4.04,2.84],
-  ["Alhena",-1.78,33.12,1.93],
-  ["Tejat",-5.31,39.23,2.88],
-];
-
-// Constellation lines
-var constellationLines = [
-  // Orion
-  ["Betelgeuse","Bellatrix"],["Bellatrix","Mintaka"],["Mintaka","Alnilam"],
-  ["Alnilam","Alnitak"],["Alnitak","Saiph"],["Saiph","Rigel"],
-  ["Rigel","Mintaka"],["Betelgeuse","Alnitak"],
-  // Canis Major
-  ["Mirzam","Adhara"],["Adhara","Wezen"],["Adhara","Furud"],["Wezen","Aludra"],
-  // Gemini
-  ["Castor","Pollux"],["Pollux","Alhena"],
-  // Lepus
-  ["Arneb","Nihal"],
-];
-
-// Faint background fill stars (real sky has thousands of dim ones)
-var faintStars = [];
-for (var i = 0; i < 150; i++) {
-  faintStars.push({
-    x: (Math.random() - 0.5) * 2,
-    y: (Math.random() - 0.5) * 2,
-    size: Math.random() * 0.8 + 0.2,
-    bright: 0.06 + Math.random() * 0.12,
-    twinkleSpeed: 1 + Math.random() * 3,
-    twinklePhase: Math.random() * Math.PI * 2
-  });
+// ═══ LAYOUT — golden spiral ═══
+var nxA=[], nyA=[];
+for(var i=0;i<N;i++){
+  var r=0.8+Math.sqrt(i/N)*5.5;
+  var a=i*GA;
+  nxA.push(Math.cos(a)*r);
+  nyA.push(Math.sin(a)*r);
 }
 
-// ═══ KEPLER SOLVER — real elliptical orbit ═══
-function solveKepler(M, e) {
-  // Solve M = E - e*sin(E) for E using Newton's method
-  var E = M;
-  for (var j = 0; j < 10; j++) {
-    E = E - (E - e * Math.sin(E) - M) / (1 - e * Math.cos(E));
+// Neighbors
+var nbrL=[];
+for(var i=0;i<N;i++){var nn=[];for(var j=0;j<N;j++){if(j===i)continue;var ddx=nxA[j]-nxA[i],ddy=nyA[j]-nyA[i];if(ddx*ddx+ddy*ddy<3.5)nn.push(j);}nbrL.push(nn);}
+
+// Phases — start at zero
+var phases=new Float64Array(N);
+
+// Natural frequencies — gentle variation
+var omega=new Float64Array(N);
+for(var i=0;i<N;i++) omega[i]=(0.3+Math.random()*0.7)*Math.PI*2*(0.8+Math.random()*0.4);
+
+// Colors — warm palette, no categories needed for homepage
+var COLS=[
+  [201,164,74],[220,170,60],[180,140,60],[160,180,80],
+  [60,180,140],[80,140,200],[140,100,200],[200,100,160]
+];
+
+// Simulation step
+var Rval=0;
+function step(){
+  var mre=0,mim=0;
+  for(var i=0;i<N;i++){mre+=Math.cos(phases[i]);mim+=Math.sin(phases[i]);}
+  mre/=N;mim/=N;
+  Rval=Math.sqrt(mre*mre+mim*mim);
+  var mp=Math.atan2(mim,mre);
+  for(var i=0;i<N;i++){
+    var c=0;
+    var nn=nbrL[i];
+    for(var k=0;k<nn.length;k++) c+=Math.sin(phases[nn[k]]-phases[i]);
+    phases[i]+=dt*(omega[i]+(K_COUPLE/N)*c);
   }
-  return E;
 }
 
-function getOrbitalPosition(t, semiMajor) {
-  // Mean anomaly
-  var M = (t / period) * Math.PI * 2;
-  // Eccentric anomaly
-  var E = solveKepler(M, e);
-  // True anomaly
-  var cosV = (Math.cos(E) - e) / (1 - e * Math.cos(E));
-  var sinV = (Math.sqrt(1 - e * e) * Math.sin(E)) / (1 - e * Math.cos(E));
-  // Radius
-  var r = semiMajor * (1 - e * Math.cos(E));
-  // Position in orbital plane
-  var x = r * cosV;
-  var y = r * sinV;
-  // Project through inclination (tilt the orbit)
-  return { x: x, y: y * cosI, z: y * Math.sin(incl), r: r };
+// 3D projection
+var camRY=0,HEIGHT=3.2;
+function project(x,y,z,sc,cx2,cy2){
+  var cosY=Math.cos(camRY),sinY=Math.sin(camRY);
+  var x1=x*cosY+z*sinY,z1=-x*sinY+z*cosY,y1=y;
+  var rx=-0.4,cosX=Math.cos(rx),sinX=Math.sin(rx);
+  var y2=y1*cosX-z1*sinX,z2=y1*sinX+z1*cosX;
+  var persp=500/(500+z2*sc*0.3);
+  return[cx2+x1*sc*persp,cy2+y2*sc*persp,z2,persp];
 }
 
+// ═══ DRAW ═══
+// REPLACED: real stars and Sirius orbital mechanics
 function draw() {
-  cx.clearRect(0, 0, W, H);
-  var time = Date.now() * 0.001;
-  var centerX = W * 0.5;
-  var centerY = H * 0.48;
-  var scale = Math.min(W, H) * 0.18;
+  cx.fillStyle='#050505';
+  cx.fillRect(0,0,W,H);
+  step();
+  camRY+=0.0015; // slow auto-rotate
 
-  // ═══ BACKGROUND ═══
-  // Subtle radial gradient — not pure black
-  var bg = cx.createRadialGradient(centerX, centerY * 0.9, 0, centerX, centerY, Math.max(W, H) * 0.7);
-  bg.addColorStop(0, '#0a0908');
-  bg.addColorStop(0.5, '#060504');
-  bg.addColorStop(1, '#030303');
-  cx.fillStyle = bg;
-  cx.fillRect(0, 0, W, H);
+  var sc=Math.min(W,H)*0.055;
+  var cx2=W/2, cy2=H*0.48;
 
-  // ═══ REAL SKY ═══
-  // Field of view: ~80° across the canvas width
-  var fov = 80; // degrees
-  var degPerPx = fov / W;
-
-  // Faint fill stars first
-  for (var i = 0; i < faintStars.length; i++) {
-    var fs = faintStars[i];
-    var twinkle = fs.bright + 0.04 * Math.sin(time * fs.twinkleSpeed + fs.twinklePhase);
-    cx.beginPath();
-    cx.arc(centerX + fs.x * W * 0.5, centerY - fs.y * H * 0.5, fs.size, 0, Math.PI * 2);
-    cx.fillStyle = 'rgba(180,178,170,' + twinkle + ')';
-    cx.fill();
+  // Project all nodes
+  var proj=[];
+  for(var i=0;i<N;i++){
+    var p=phases[i]%(Math.PI*2);if(p<0)p+=Math.PI*2;
+    var z3d=p/(Math.PI*2)*HEIGHT;
+    var pr=project(nxA[i],nyA[i],z3d,sc,cx2,cy2);
+    proj.push({i:i,sx:pr[0],sy:pr[1],z:pr[2],persp:pr[3],phase:p});
   }
+  proj.sort(function(a,b){return b.z-a.z;});
 
-  // Constellation lines — very faint
-  var starPositions = {};
-  for (var i = 0; i < realStars.length; i++) {
-    var rs = realStars[i];
-    var sx = centerX + rs[1] / degPerPx;
-    var sy = centerY - rs[2] / degPerPx;
-    starPositions[rs[0]] = {x: sx, y: sy};
-  }
-  // Sirius is at center for Canis Major lines
-  starPositions['Sirius'] = {x: centerX, y: centerY};
+  // Draw connections — very subtle
+  cx.globalCompositeOperation='lighter';
+  var idxMap=new Array(N);
+  for(var k=0;k<N;k++) idxMap[proj[k].i]=proj[k];
 
-  cx.strokeStyle = 'rgba(100,110,130,0.06)';
-  cx.lineWidth = 0.5;
-  for (var i = 0; i < constellationLines.length; i++) {
-    var line = constellationLines[i];
-    var p1 = starPositions[line[0]];
-    var p2 = starPositions[line[1]];
-    if (p1 && p2) {
-      cx.beginPath();
-      cx.moveTo(p1.x, p1.y);
-      cx.lineTo(p2.x, p2.y);
-      cx.stroke();
+  for(var i=0;i<N;i++){
+    var nd=idxMap[i]; if(!nd) continue;
+    var nn=nbrL[i];
+    for(var j=0;j<nn.length;j++){
+      if(nn[j]<=i) continue;
+      var nb=idxMap[nn[j]]; if(!nb) continue;
+      var pdiff=Math.abs(nd.phase-nb.phase);
+      if(pdiff>Math.PI) pdiff=Math.PI*2-pdiff;
+      var sync=1-pdiff/Math.PI;
+      if(sync<0.35) continue;
+      var alpha=sync*sync*0.12*Math.min(nd.persp,nb.persp);
+      var ci=Math.floor(nd.phase/(Math.PI/4))%8;
+      var col=COLS[ci];
+      cx.strokeStyle='rgba('+col[0]+','+col[1]+','+col[2]+','+alpha.toFixed(3)+')';
+      cx.lineWidth=(0.2+sync*0.5)*nd.persp;
+      cx.beginPath();cx.moveTo(nd.sx,nd.sy);cx.lineTo(nb.sx,nb.sy);cx.stroke();
     }
   }
 
-  // Real named stars
-  for (var i = 0; i < realStars.length; i++) {
-    var rs = realStars[i];
-    var name = rs[0], dx = rs[1], dy = rs[2], mag = rs[3];
-    var sx = centerX + dx / degPerPx;
-    var sy = centerY - dy / degPerPx;
+  // Draw nodes — small, breathing, no labels
+  for(var k=0;k<proj.length;k++){
+    var nd=proj[k];
+    var ci=Math.floor(nd.phase/(Math.PI/4))%8;
+    var col=COLS[ci];
+    var size=(0.8+Math.sin(phases[nd.i])*0.3)*nd.persp;
+    var bright=(0.35+Math.abs(Math.sin(phases[nd.i]))*0.35)*nd.persp;
 
-    // Skip if off screen
-    if (sx < -20 || sx > W + 20 || sy < -20 || sy > H + 20) continue;
-
-    // Brightness from magnitude (lower mag = brighter)
-    // Sirius is -1.46, Rigel is 0.13, faintest here ~4
-    var brightness = Math.max(0.08, Math.min(0.7, 0.7 - mag * 0.14));
-    var radius = Math.max(0.5, 2.5 - mag * 0.4);
-
-    // Scintillation
-    var twinkle = brightness + 0.06 * Math.sin(time * (2 + i * 0.7) + i * 1.3);
-
-    // Star color by spectral type (approximate by name)
-    var r = 200, g = 195, b = 185; // default warm white
-    if (name === 'Betelgeuse') { r = 255; g = 150; b = 80; } // red supergiant
-    else if (name === 'Aldebaran') { r = 255; g = 170; b = 100; } // orange giant
-    else if (name === 'Rigel') { r = 180; g = 200; b = 255; } // blue supergiant
-    else if (name === 'Bellatrix') { r = 170; g = 190; b = 255; }
-    else if (name === 'Mintaka' || name === 'Alnilam' || name === 'Alnitak') { r = 180; g = 200; b = 255; } // blue belt stars
-    else if (name === 'Procyon') { r = 255; g = 245; b = 220; } // white-yellow
-    else if (name === 'Pollux') { r = 255; g = 200; b = 130; } // orange
-    else if (name === 'Alcyone') { r = 170; g = 195; b = 255; } // blue (Pleiades)
-
-    // Glow for bright stars
-    if (mag < 1.5) {
-      var glow = cx.createRadialGradient(sx, sy, 0, sx, sy, radius * 4);
-      glow.addColorStop(0, 'rgba(' + r + ',' + g + ',' + b + ',' + (twinkle * 0.15) + ')');
-      glow.addColorStop(1, 'rgba(' + r + ',' + g + ',' + b + ',0)');
-      cx.fillStyle = glow;
-      cx.beginPath();
-      cx.arc(sx, sy, radius * 4, 0, Math.PI * 2);
-      cx.fill();
+    // Soft glow
+    if(bright>0.25){
+      cx.fillStyle='rgba('+col[0]+','+col[1]+','+col[2]+','+(bright*0.04).toFixed(3)+')';
+      cx.fillRect(nd.sx-size*2.5,nd.sy-size*2.5,size*5,size*5);
     }
-
-    // Star point
-    cx.beginPath();
-    cx.arc(sx, sy, radius, 0, Math.PI * 2);
-    cx.fillStyle = 'rgba(' + r + ',' + g + ',' + b + ',' + twinkle + ')';
-    cx.fill();
-
-    // Label for bright stars only (mag < 2)
-    if (mag < 2) {
-      cx.font = '7px Georgia';
-      cx.textAlign = 'center';
-      cx.fillStyle = 'rgba(' + r + ',' + g + ',' + b + ',' + (twinkle * 0.3) + ')';
-      cx.fillText(name, sx, sy - radius - 4);
-    }
+    // Core
+    cx.fillStyle='rgba('+col[0]+','+col[1]+','+col[2]+','+bright.toFixed(3)+')';
+    cx.beginPath();cx.arc(nd.sx,nd.sy,size,0,Math.PI*2);cx.fill();
   }
 
-  // ═══ ORBITAL TRAIL — faint egg showing B's path ═══
-  cx.strokeStyle = 'rgba(201,164,74,0.06)';
-  cx.lineWidth = 0.6;
-  cx.beginPath();
-  for (var i = 0; i <= 200; i++) {
-    var tt = (i / 200) * period;
-    var pos = getOrbitalPosition(tt, scale);
-    var px = centerX + pos.x;
-    var py = centerY - pos.y;
-    if (i === 0) cx.moveTo(px, py);
-    else cx.lineTo(px, py);
-  }
-  cx.closePath();
-  cx.stroke();
-
-  // ═══ POSITIONS — both orbit barycenter ═══
-  var posB = getOrbitalPosition(time, scale);
-  var posA = getOrbitalPosition(time, -scale * massRatio);
-
-  var ax = centerX + posA.x;
-  var ay = centerY - posA.y;
-  var bx = centerX + posB.x;
-  var by = centerY - posB.y;
-
-  // Store for click detection
-  starA = {x:ax, y:ay, r:Math.min(W,H)*0.05};
-  starB = {x:bx, y:by, r:Math.min(W,H)*0.025};
-
-  // Distance between A and B on screen (for B's phase brightness)
-  var abDist = Math.sqrt((ax-bx)*(ax-bx)+(ay-by)*(ay-by));
-  var maxDist = scale * (1 + e) * (1 + massRatio);
-  var separation = Math.min(abDist / maxDist, 1); // 0 = close, 1 = far
-
-  // Depth for rendering order
-  var aInFront = posA.z < posB.z;
-
-  // ═══ SIRIUS A — huge, bright, white-blue, alive ═══
-  function drawA() {
-    // Scintillation — real stars flicker
-    var flicker = 1 + 0.02 * Math.sin(time * 7.3) + 0.015 * Math.sin(time * 11.1) + 0.01 * Math.sin(time * 17.7);
-    var breathe = 1 + 0.025 * Math.sin(time * 0.8);
-    var radiusA = Math.min(W, H) * 0.04 * flicker * breathe;
-
-    // Outer glow — large, soft
-    var glowA = cx.createRadialGradient(ax, ay, radiusA * 0.2, ax, ay, radiusA * 10);
-    glowA.addColorStop(0, 'rgba(220,230,255,0.10)');
-    glowA.addColorStop(0.2, 'rgba(200,215,250,0.04)');
-    glowA.addColorStop(0.5, 'rgba(180,195,235,0.015)');
-    glowA.addColorStop(1, 'rgba(150,165,210,0)');
-    cx.fillStyle = glowA;
-    cx.beginPath();
-    cx.arc(ax, ay, radiusA * 10, 0, Math.PI * 2);
-    cx.fill();
-
-    // Mid glow
-    var midA = cx.createRadialGradient(ax, ay, 0, ax, ay, radiusA * 3.5);
-    midA.addColorStop(0, 'rgba(240,245,255,0.45)');
-    midA.addColorStop(0.3, 'rgba(225,235,255,0.15)');
-    midA.addColorStop(0.7, 'rgba(200,215,245,0.03)');
-    midA.addColorStop(1, 'rgba(180,195,230,0)');
-    cx.fillStyle = midA;
-    cx.beginPath();
-    cx.arc(ax, ay, radiusA * 3.5, 0, Math.PI * 2);
-    cx.fill();
-
-    // Core — white hot center
-    var coreA = cx.createRadialGradient(ax, ay, 0, ax, ay, radiusA);
-    coreA.addColorStop(0, '#ffffff');
-    coreA.addColorStop(0.2, '#f0f4ff');
-    coreA.addColorStop(0.5, '#dde5f8');
-    coreA.addColorStop(0.8, '#bbc8e8');
-    coreA.addColorStop(1, 'rgba(160,175,210,0)');
-    cx.fillStyle = coreA;
-    cx.beginPath();
-    cx.arc(ax, ay, radiusA, 0, Math.PI * 2);
-    cx.fill();
-  }
-
-  // ═══ SIRIUS B — tiny, dim, dense. The dark companion. ═══
-  function drawB() {
-    // B is 10,000x dimmer than A in reality
-    // Phase brightness: dimmer near A (lost in glare), brighter when separated
-    var phase = 0.15 + separation * 0.6; // 0.15 at closest, 0.75 at farthest
-    var pulseB = 1 + 0.08 * Math.sin(time * 3.1);
-    var radiusB = Math.min(W, H) * 0.006 * pulseB;
-
-    // Faint warm glow — only visible when separated from A
-    var glowB = cx.createRadialGradient(bx, by, 0, bx, by, radiusB * 8);
-    glowB.addColorStop(0, 'rgba(255,235,210,' + (phase * 0.15) + ')');
-    glowB.addColorStop(0.4, 'rgba(255,225,190,' + (phase * 0.04) + ')');
-    glowB.addColorStop(1, 'rgba(240,210,170,0)');
-    cx.fillStyle = glowB;
-    cx.beginPath();
-    cx.arc(bx, by, radiusB * 8, 0, Math.PI * 2);
-    cx.fill();
-
-    // Core — a warm ember
-    var coreB = cx.createRadialGradient(bx, by, 0, bx, by, radiusB * 1.5);
-    coreB.addColorStop(0, 'rgba(255,245,230,' + phase + ')');
-    coreB.addColorStop(0.6, 'rgba(255,230,200,' + (phase * 0.5) + ')');
-    coreB.addColorStop(1, 'rgba(240,215,180,0)');
-    cx.fillStyle = coreB;
-    cx.beginPath();
-    cx.arc(bx, by, radiusB * 1.5, 0, Math.PI * 2);
-    cx.fill();
-
-    // Hard point — the dense white dwarf core
-    cx.beginPath();
-    cx.arc(bx, by, radiusB * 0.6, 0, Math.PI * 2);
-    cx.fillStyle = 'rgba(255,250,240,' + (phase * 0.9) + ')';
-    cx.fill();
-  }
-
-  // Draw back-to-front
-  if (aInFront) { drawB(); drawA(); } else { drawA(); drawB(); }
-
-  // ═══ THE 3 — the coupling point. Where love creates. ═══
-  // Not A. Not B. The third thing between them.
-  // Both orbit this. Neither owns it. It owns both.
-  var barPulse = 0.3 + 0.15 * Math.sin(time * 1.8);
-  var barRadius = 2 + 0.5 * Math.sin(time * 2.5);
-
-  // Glow
-  var barGlow = cx.createRadialGradient(centerX, centerY, 0, centerX, centerY, barRadius * 8);
-  barGlow.addColorStop(0, 'rgba(201,164,74,' + (barPulse * 0.12) + ')');
-  barGlow.addColorStop(0.5, 'rgba(201,164,74,' + (barPulse * 0.03) + ')');
-  barGlow.addColorStop(1, 'rgba(201,164,74,0)');
-  cx.fillStyle = barGlow;
-  cx.beginPath();
-  cx.arc(centerX, centerY, barRadius * 8, 0, Math.PI * 2);
-  cx.fill();
-
-  // Core
-  cx.beginPath();
-  cx.arc(centerX, centerY, barRadius, 0, Math.PI * 2);
-  cx.fillStyle = 'rgba(201,164,74,' + (barPulse * 0.6) + ')';
-  cx.fill();
-
-  // ═══ CURSOR — pointer when over a star ═══
-  cv.style.cursor = hovering ? 'pointer' : 'default';
+  cx.globalCompositeOperation='source-over';
 
   requestAnimationFrame(draw);
 }
 
-// ═══ CLICK + HOVER — stars are doors ═══
-var starA = {x:0,y:0,r:30};
-var starB = {x:0,y:0,r:15};
-var hovering = false;
-
-function hitTest(mx, my) {
-  var dA = Math.sqrt((mx-starA.x)*(mx-starA.x)+(my-starA.y)*(my-starA.y));
-  var dB = Math.sqrt((mx-starB.x)*(mx-starB.x)+(my-starB.y)*(my-starB.y));
-  if (dA < starA.r) return 'A';
-  if (dB < starB.r) return 'B';
-  return null;
-}
-
-cv.addEventListener('mousemove', function(ev) {
-  var r = cv.getBoundingClientRect();
-  hovering = hitTest(ev.clientX - r.left, ev.clientY - r.top) !== null;
-});
-
-cv.addEventListener('click', function(ev) {
-  var r = cv.getBoundingClientRect();
-  var hit = hitTest(ev.clientX - r.left, ev.clientY - r.top);
-  if (hit === 'A') window.location.href = '/research/';
-  if (hit === 'B') window.location.href = '/products/';
-});
-
-// Touch
-cv.addEventListener('touchend', function(ev) {
-  var t = ev.changedTouches[0];
-  var r = cv.getBoundingClientRect();
-  var hit = hitTest(t.clientX - r.left, t.clientY - r.top);
-  if (hit === 'A') window.location.href = '/research/';
-  if (hit === 'B') window.location.href = '/products/';
-});
+// Click anywhere on canvas → /mirror/ for the full experience
+cv.addEventListener('click', function(){ window.location.href='/mirror/'; });
+cv.addEventListener('touchend', function(e){ e.preventDefault(); window.location.href='/mirror/'; });
+cv.style.cursor='pointer';
 
 draw();
 })();
