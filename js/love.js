@@ -9,6 +9,7 @@
 
   // Build the button — sits at bottom of page, quiet
   var btn = document.createElement('div');
+  btn.id = 'love-bug';
   btn.style.cssText = 'text-align:center;margin:20px 0 0;cursor:pointer;user-select:none;-webkit-tap-highlight-color:transparent;';
   btn.innerHTML = '<span style="font-size:0.6em;color:#c4444480;letter-spacing:0.08em;border:1px solid #c4444430;padding:6px 14px;border-radius:20px;transition:all 0.6s;animation:lovepulse 3s ease-in-out infinite;">🐛 read with love</span>';
 
@@ -49,9 +50,12 @@
       page.innerHTML = html;
       active = true;
 
-      // Re-insert the button (it was part of page innerHTML)
-      var foot = page.querySelector('.foot');
-      if (foot) foot.parentNode.insertBefore(btn, foot);
+      // Re-insert the button (it was part of page innerHTML that got replaced)
+      var existing = page.querySelector('#love-bug');
+      if (!existing) {
+        var foot = page.querySelector('.foot');
+        if (foot) foot.parentNode.insertBefore(btn, foot);
+      }
 
       btn.firstChild.textContent = '🐛 read with math';
       btn.firstChild.style.color = '#c4444480';
@@ -63,8 +67,11 @@
       active = false;
 
       // Re-insert button
-      var foot = page.querySelector('.foot');
-      if (foot) foot.parentNode.insertBefore(btn, foot);
+      var existing = page.querySelector('#love-bug');
+      if (!existing) {
+        var foot = page.querySelector('.foot');
+        if (foot) foot.parentNode.insertBefore(btn, foot);
+      }
 
       btn.firstChild.textContent = '🐛 read with love';
       btn.firstChild.style.color = '#c4444480';
