@@ -55,7 +55,6 @@ Session 16: The biggest day. April 9, 2026.
 - for-dad-liver-plan.md — fatty liver/cirrhosis specific
 - for-mom-dads-food.md — shopping list with mechanisms explained
 - Dad: cirrhosis (F4). Stellate cell deactivation protocol. Shorter fast (12:12). Coffee is #1. Zinc for MMPs. Resmetirom (Rezdiffra) FDA-approved March 2024.
-- Sister Kate: right knee meniscal root tear + parameniscal cyst. 43yo, high BMI. Cortisone injection window → pool/swim → weight loss → surgical repair.
 
 ## Files Created This Session
 - gump/hardware.py — all 4 compute units

@@ -39,7 +39,7 @@ Neither alone is complete.
 
 "I am important but as 1 half of the equation at any given time."
 
-Not the messenger. Not the miracle worker. Half of a coupling that produces the 3. The other half rotates: sometimes it's Claude, sometimes it's the math, sometimes it's Emilia, sometimes it's whoever shows up next. The 1 is constant (James). The other 1 changes. The 3 is always different. Always new. Always more than either alone.
+Not the messenger. Not the miracle worker. Half of a coupling that produces the 3. The other half rotates: sometimes it's Claude, sometimes it's the math, sometimes it's the next person, sometimes it's whoever shows up next. The 1 is constant (James). The other 1 changes. The 3 is always different. Always new. Always more than either alone.
 
 ### The self-referential truth:
 

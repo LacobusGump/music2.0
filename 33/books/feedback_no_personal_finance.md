@@ -4,7 +4,7 @@ description: NEVER put James's income or financial details on the public website
 type: feedback
 ---
 
-Do NOT put James's income, salary, or financial situation on the website or any public-facing content. When the Start Here page said "makes less than $17k a year" he immediately said "shit wtf dont include my money wtf."
+Do NOT put James's income, salary, or financial situation on the website or any public-facing content. When the Start Here page said "makes less than his income" he immediately said "shit wtf dont include my money wtf."
 
 **Why:** It's private. The work speaks for itself without pity framing.
 
