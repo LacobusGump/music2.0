@@ -19,15 +19,21 @@ a{color:#c9a44a;text-decoration:none;}
 .scroll-layer a,.scroll-layer button,.scroll-layer input{pointer-events:auto;}
 
 /* Section markers — invisible spacers that define scroll zones */
-.zone{height:100vh;display:flex;align-items:center;justify-content:center;position:relative;}
+.zone{height:100vh;display:flex;align-items:flex-end;justify-content:center;position:relative;padding-bottom:15vh;}
 .zone-label{
   font-family:Futura,'Century Gothic',system-ui,sans-serif;
-  font-size:1.4em;font-weight:100;color:#c9a44a15;
+  font-size:1.1em;font-weight:100;color:#c9a44a10;
   letter-spacing:0.3em;text-transform:uppercase;
   pointer-events:none;user-select:none;
-  transition:color 0.5s;
+  transition:color 0.8s;
 }
-.zone.active .zone-label{color:#c9a44a40;}
+.zone.active .zone-label{color:#c9a44a30;}
+@media(max-width:600px){
+  .zone-label{font-size:0.8em;letter-spacing:0.15em;}
+  #info-panel{max-width:85vw;padding:12px 16px;bottom:16px;}
+  #info-panel h3{font-size:0.85em;}
+  #info-panel p{font-size:0.72em;}
+}
 
 /* Info panel — appears when hovering a node */
 #info-panel{
@@ -158,10 +164,23 @@ var nodes = [
 
 var N = nodes.length;
 
+// Dust particles for texture
+var dust = [];
+for (var d = 0; d < 60; d++) {
+  dust.push({
+    x: Math.random() * 2000, y: Math.random() * 2000,
+    s: 0.3 + Math.random() * 1.2,
+    v: 0.05 + Math.random() * 0.15,
+    a: Math.random() * 0.03 + 0.005,
+    phase: Math.random() * Math.PI * 2
+  });
+}
+
 // Position nodes on orbits
 function positionNodes() {
-  var scale = Math.min(W, H) / 2.5;
-  var orbits = [0, scale * 0.35, scale * 0.35, scale * 0.65, scale * 0.65];
+  var scale = Math.min(W, H) / 3.0; // smaller on mobile
+  if (W < 600) scale = Math.min(W, H) / 2.2; // tighter on phone
+  var orbits = [0, scale * 0.32, scale * 0.32, scale * 0.58, scale * 0.58];
   var groupIdx = [0,0,0,0,0];
   var groupCount = [0,0,0,0,0];
   nodes.forEach(function(n) { groupCount[n.g]++; });
@@ -190,7 +209,7 @@ function positionNodes() {
     }
     n.x = n.baseX;
     n.y = n.baseY;
-    n.size = 3 + n.k * 3;
+    n.size = W < 600 ? (2 + n.k * 2) : (3 + n.k * 3);
     n.phase = Math.random() * Math.PI * 2;
   });
 }
@@ -243,7 +262,33 @@ addEventListener('mousemove', function(e) {
   }
 });
 
-// Click → navigate
+// Touch support for mobile
+cv.addEventListener('touchstart', function(e) {
+  e.preventDefault();
+  var touch = e.touches[0];
+  mouseX = touch.clientX; mouseY = touch.clientY;
+  // Find nearest node
+  hoverNode = -1;
+  var closestD = 50; // bigger touch target on mobile
+  nodes.forEach(function(n, i) {
+    var dx = n.x - mouseX, dy = n.y - mouseY;
+    var d = Math.sqrt(dx*dx + dy*dy);
+    if (d < closestD) { closestD = d; hoverNode = i; }
+  });
+  // Show info panel
+  var panel = document.getElementById('info-panel');
+  if (hoverNode >= 0) {
+    var nd = nodes[hoverNode];
+    document.getElementById('info-name').textContent = nd.n;
+    document.getElementById('info-desc').textContent = nd.desc;
+    document.getElementById('info-link').href = nd.href;
+    panel.classList.add('show');
+  } else {
+    panel.classList.remove('show');
+  }
+}, {passive: false});
+
+// Click → navigate (double-tap on mobile via the explore link)
 cv.addEventListener('click', function() {
   if (hoverNode >= 0) {
     window.location.href = nodes[hoverNode].href;
@@ -257,8 +302,36 @@ addEventListener('mousemove', function() {
 // ═══ RENDER ═══
 function render() {
   t += 0.008;
-  cx.fillStyle = '#08080d';
+
+  // Soft fade instead of hard clear — gives trails
+  cx.fillStyle = 'rgba(8,8,13,0.15)';
   cx.fillRect(0, 0, W, H);
+
+  // Film grain
+  if (Math.random() > 0.7) {
+    for (var gi = 0; gi < 20; gi++) {
+      var gx = Math.random() * W, gy = Math.random() * H;
+      cx.fillStyle = 'rgba(201,164,74,' + (Math.random() * 0.008).toFixed(4) + ')';
+      cx.fillRect(gx, gy, 1, 1);
+    }
+  }
+
+  // Dust particles — warm motes drifting
+  for (var di = 0; di < dust.length; di++) {
+    var dp = dust[di];
+    dp.phase += 0.01;
+    dp.y -= dp.v;
+    dp.x += Math.sin(dp.phase) * 0.3;
+    if (dp.y < -10) { dp.y = H + 10; dp.x = Math.random() * W; }
+    if (dp.x < 0) dp.x = W;
+    if (dp.x > W) dp.x = 0;
+
+    var da = dp.a * (0.5 + Math.sin(dp.phase * 2) * 0.5);
+    cx.fillStyle = 'rgba(201,164,74,' + da.toFixed(4) + ')';
+    cx.beginPath();
+    cx.arc(dp.x, dp.y, dp.s, 0, Math.PI * 2);
+    cx.fill();
+  }
 
   // Update node positions — focused group spreads, others contract
   nodes.forEach(function(n, i) {
