@@ -57,14 +57,24 @@ var loudness={
 
 function getWordLoudness(word){
   word=word.toLowerCase().trim();
+  if(!word)return 0.05;
   if(loudness[word]!==undefined)return loudness[word];
-  // Estimate: longer words tend to be more specific (quieter)
-  // Shorter words tend to be more ambiguous (louder)
-  var len=word.length;
-  if(len<=2)return 0.15; // very short = very specific
-  if(len<=4)return 0.5+Math.random()*0.3; // short = ambiguous
-  if(len<=7)return 0.3+Math.random()*0.3; // medium
-  return 0.15+Math.random()*0.2; // long = specific
+  // Estimate by character analysis
+  // Uppercase letters = louder (shouting)
+  var caps=0;for(var i=0;i<arguments[0].length;i++)if(arguments[0][i]===arguments[0][i].toUpperCase()&&arguments[0][i]!==arguments[0][i].toLowerCase())caps++;
+  var capRatio=caps/Math.max(word.length,1);
+  // Short common words = ambiguous = loud
+  // Long specific words = precise = quiet
+  var lenFactor=word.length<=3?0.7:word.length<=5?0.5:word.length<=8?0.3:0.15;
+  // Hard consonants = louder (k,t,d,g,b,p)
+  var hard=0;for(var i=0;i<word.length;i++)if('ktdgbpx'.indexOf(word[i])>=0)hard++;
+  var hardFactor=hard/Math.max(word.length,1);
+  // Soft letters = quieter (s,l,m,n,w,h)
+  var soft=0;for(var i=0;i<word.length;i++)if('slmnwh'.indexOf(word[i])>=0)soft++;
+  var softFactor=soft/Math.max(word.length,1);
+
+  var result=lenFactor+capRatio*0.3+hardFactor*0.2-softFactor*0.15;
+  return Math.max(0.05,Math.min(0.95,result));
 }
 
 var particles=[];
@@ -77,9 +87,10 @@ function setWord(word){
   targetLoudness=getWordLoudness(word);
 }
 
-document.getElementById('word').addEventListener('input',function(){
-  setWord(this.value);
-});
+var wordInput=document.getElementById('word');
+wordInput.addEventListener('input',function(){setWord(this.value);});
+wordInput.addEventListener('keyup',function(){setWord(this.value);});
+wordInput.addEventListener('change',function(){setWord(this.value);});
 
 // Start with hm
 setWord('hm');
@@ -89,8 +100,8 @@ function draw(){
   cx.fillStyle='rgba(0,0,0,0.04)';
   cx.fillRect(0,0,W,H);
 
-  // Smooth transition
-  currentLoudness+=(targetLoudness-currentLoudness)*0.03;
+  // Smooth transition — fast enough to FEEL the change
+  currentLoudness+=(targetLoudness-currentLoudness)*0.08;
 
   // Manage particles — more particles for louder words
   var targetCount=Math.round(20+currentLoudness*600);
