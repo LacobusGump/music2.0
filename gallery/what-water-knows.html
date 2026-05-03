@@ -63,18 +63,27 @@ for(var i=0;i<5;i++){
 }
 
 function draw(){
-  t+=0.003;
+  t+=0.004;
 
-  // Don't clear — let trails persist (water has memory)
-  cx.fillStyle='rgba(0,0,0,0.015)';
+  // Slow fade — longer memory
+  cx.fillStyle='rgba(0,0,0,0.008)';
   cx.fillRect(0,0,W,H);
 
-  // Update currents
+  // Update currents + DRAW THEM VISIBLE
   for(var c=0;c<currents.length;c++){
     var cur=currents[c];
     cur.angle+=cur.spin;
     cur.x=W/2+Math.cos(cur.angle*0.3+c*2)*W*0.3;
     cur.y=H/2+Math.sin(cur.angle*0.5+c)*H*0.3;
+
+    // VISIBLE CURRENTS — soft gradient showing warm vs cold flow
+    var curColor=cur.warm?'201,164,74':'60,100,180';
+    var grad=cx.createRadialGradient(cur.x,cur.y,0,cur.x,cur.y,cur.radius);
+    grad.addColorStop(0,'rgba('+curColor+',0.015)');
+    grad.addColorStop(0.5,'rgba('+curColor+',0.006)');
+    grad.addColorStop(1,'rgba('+curColor+',0)');
+    cx.fillStyle=grad;
+    cx.beginPath();cx.arc(cur.x,cur.y,cur.radius,0,Math.PI*2);cx.fill();
   }
 
   // Update drops
@@ -82,69 +91,94 @@ function draw(){
     var d=drops[i];
     d.phase+=0.01;
 
-    // Apply currents
+    // Apply currents — stronger effect
     for(var c=0;c<currents.length;c++){
       var cur=currents[c];
       var dx=d.x-cur.x,dy=d.y-cur.y;
       var dist=Math.sqrt(dx*dx+dy*dy);
       if(dist<cur.radius){
-        var influence=(1-dist/cur.radius)*cur.strength;
-        // Rotate around current center
-        d.vx+=(-dy/dist)*influence;
-        d.vy+=(dx/dist)*influence;
-        // Temperature transfer: warm currents warm, cold currents cool
-        if(cur.warm) d.temp+=(1-d.temp)*0.001;
-        else d.temp-=d.temp*0.001;
+        var influence=(1-dist/cur.radius)*cur.strength*1.5;
+        d.vx+=(-dy/(dist+1))*influence;
+        d.vy+=(dx/(dist+1))*influence;
+        // Stronger temperature transfer
+        if(cur.warm) d.temp+=(1-d.temp)*0.004;
+        else d.temp-=d.temp*0.004;
       }
     }
 
-    // Gentle drift
-    d.vx*=0.99;d.vy*=0.99;
+    // Neighbor coupling — nearby drops share temperature (heat diffusion)
+    // Check a few random neighbors for performance
+    if(i%4===0){
+      var ni=(i+Math.floor(Math.random()*20))%drops.length;
+      var nd=drops[ni];
+      var ndx=nd.x-d.x,ndy=nd.y-d.y;
+      var ndist=Math.sqrt(ndx*ndx+ndy*ndy);
+      if(ndist<30){
+        var avg=(d.temp+nd.temp)/2;
+        d.temp+=(avg-d.temp)*0.02;
+        nd.temp+=(avg-nd.temp)*0.02;
+      }
+    }
+
+    // Drift
+    d.vx*=0.985;d.vy*=0.985;
     d.x+=d.vx;d.y+=d.vy;
 
     // Wrap
     if(d.x<0)d.x=W;if(d.x>W)d.x=0;
     if(d.y<0)d.y=H;if(d.y>H)d.y=0;
 
-    // Temperature slowly cools (memory fades)
-    d.temp*=0.9999;
+    // Memory fades slowly
+    d.temp=d.temp*0.9995+0.25*0.0005; // decay toward lukewarm (0.25), not zero
 
-    // Draw
-    // Cold: blue (forgetting). Warm: gold (remembering).
+    // Draw — bigger, more visible, stronger color
     var r,g,b;
     if(d.temp>0.5){
-      // warm: gold
       var warmth=(d.temp-0.5)*2;
-      r=80+warmth*140;
-      g=60+warmth*100;
-      b=30+warmth*40;
+      r=100+warmth*155;
+      g=70+warmth*110;
+      b=20+warmth*50;
     }else{
-      // cold: blue
       var cold=(0.5-d.temp)*2;
-      r=20+cold*20;
-      g=30+cold*60;
-      b=60+cold*140;
+      r=15+cold*15;
+      g=25+cold*70;
+      b=50+cold*160;
     }
 
-    var alpha=0.15+Math.sin(d.phase)*0.05;
-    var breathe=1+Math.sin(d.phase*2)*0.2;
+    var alpha=0.25+Math.sin(d.phase)*0.08;
+    var breathe=1+Math.sin(d.phase*2)*0.25;
+    var drawSize=d.size*breathe*1.5; // bigger
+
+    // Glow for warm drops
+    if(d.temp>0.6){
+      var glow=cx.createRadialGradient(d.x,d.y,0,d.x,d.y,drawSize*4);
+      glow.addColorStop(0,'rgba('+Math.round(r)+','+Math.round(g)+','+Math.round(b)+','+(alpha*0.15).toFixed(3)+')');
+      glow.addColorStop(1,'rgba('+Math.round(r)+','+Math.round(g)+','+Math.round(b)+',0)');
+      cx.fillStyle=glow;cx.beginPath();cx.arc(d.x,d.y,drawSize*4,0,Math.PI*2);cx.fill();
+    }
 
     cx.fillStyle='rgba('+Math.round(r)+','+Math.round(g)+','+Math.round(b)+','+alpha.toFixed(3)+')';
     cx.beginPath();
-    cx.arc(d.x,d.y,d.size*breathe,0,Math.PI*2);
+    cx.arc(d.x,d.y,drawSize,0,Math.PI*2);
     cx.fill();
   }
 
-  // Mouse/touch: warm the water where you touch (you leave a memory)
+  // Touch: warm the water — VISIBLE bloom
   if(touchX>0){
+    // Draw touch warmth bloom
+    var touchGrad=cx.createRadialGradient(touchX,touchY,0,touchX,touchY,130);
+    touchGrad.addColorStop(0,'rgba(220,170,70,0.06)');
+    touchGrad.addColorStop(0.5,'rgba(220,170,70,0.02)');
+    touchGrad.addColorStop(1,'rgba(220,170,70,0)');
+    cx.fillStyle=touchGrad;cx.beginPath();cx.arc(touchX,touchY,130,0,Math.PI*2);cx.fill();
+
     for(var i=0;i<drops.length;i++){
       var d=drops[i];
       var dx=d.x-touchX,dy=d.y-touchY;
       var dist=Math.sqrt(dx*dx+dy*dy);
-      if(dist<120){
-        d.temp+=(1-d.temp)*0.08*(1-dist/120);
-        // push drops gently away from touch (like real water)
-        if(dist>5){d.vx+=dx/dist*0.3;d.vy+=dy/dist*0.3;}
+      if(dist<130){
+        d.temp+=(1-d.temp)*0.1*(1-dist/130);
+        if(dist>5){d.vx+=dx/dist*0.4;d.vy+=dy/dist*0.4;}
       }
     }
   }
