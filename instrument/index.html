@@ -495,6 +495,55 @@ function update() {
   var fb = 0.2 + energy * 0.35;
   feedback.gain.setTargetAtTime(fb, actx.currentTime, 0.05);
 
+  // ═══ BIRD MELODY — prime ticks as melody ═══
+  // The birds from the mirror music. Short sine bursts at high frequencies.
+  // They sing when you tilt bright (filter open) and move (energy high).
+  // Tilt controls which notes. Energy controls how often.
+  // The melody IS the birdsong. Not random — pentatonic from tilt position.
+  //
+  // Pentatonic scale rooted on harmonics of 33:
+  //   E4=330, F#4=371, A4=440, B4=495, C#5=556, E5=660, A5=880
+  // Bird octave: 1320, 1485, 1760, 1980, 2227 (two octaves up — actual bird range)
+  if (!window._birdTimer) window._birdTimer = 0;
+  if (!window._birdIdx) window._birdIdx = 0;
+  window._birdTimer += 0.016;
+
+  var birdNotes = [1320, 1485, 1760, 1980, 2227, 2640, 3520];
+  // Birds sing more when bright (high tilt) and active (energy)
+  var birdRate = 0.3 + (1 - normalBeta) * 0.8 + energy * 0.5; // faster when bright+active
+  var birdProb = Math.max(0, normalBeta * 0.5 + energy * 0.5); // only when tilted bright
+
+  if (window._birdTimer > birdRate && birdProb > 0.2 && Math.random() < birdProb) {
+    window._birdTimer = 0;
+
+    var now = actx.currentTime;
+    // Pick note based on tilt position (gamma = left/right selects note)
+    var noteIdx = Math.floor(((normalGamma + 1) / 2) * birdNotes.length);
+    noteIdx = Math.max(0, Math.min(birdNotes.length - 1, noteIdx));
+    var birdFreq = birdNotes[noteIdx];
+
+    // Slight randomization — birds aren't metronomic
+    birdFreq *= (0.98 + Math.random() * 0.04);
+    var birdDur = 0.02 + Math.random() * 0.08; // 20-100ms — short chirps
+
+    var birdOsc = actx.createOscillator();
+    birdOsc.type = 'sine';
+    birdOsc.frequency.setValueAtTime(birdFreq, now);
+    // Slight pitch fall (like a real bird call)
+    birdOsc.frequency.exponentialRampToValueAtTime(birdFreq * 0.85, now + birdDur);
+
+    var birdEnv = actx.createGain();
+    var birdVol = 0.04 + energy * 0.06; // louder when moving
+    birdEnv.gain.setValueAtTime(birdVol, now);
+    birdEnv.gain.exponentialRampToValueAtTime(0.001, now + birdDur);
+
+    birdOsc.connect(birdEnv);
+    birdEnv.connect(masterGain);
+    birdEnv.connect(delay); // birds get reverb too
+    birdOsc.start(now);
+    birdOsc.stop(now + birdDur + 0.01);
+  }
+
   // ═══ VISUALIZATION ═══
   drawViz(normalBeta, normalGamma, energy, filterTarget);
 
