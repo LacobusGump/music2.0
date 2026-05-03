@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>what water knows</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:#000;overflow:hidden;}
+canvas{display:block;width:100vw;height:100vh;}
+#words{position:fixed;bottom:15%;left:50%;transform:translateX(-50%);
+  text-align:center;font-family:Georgia,serif;z-index:1;pointer-events:none;
+  opacity:0;animation:arrive 4s ease 2s forwards;}
+@keyframes arrive{to{opacity:1}}
+#words p{color:#c9a44a20;font-size:0.9em;line-height:2.5;letter-spacing:0.06em;}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="words">
+<p>water doesn&rsquo;t store memories.<br>
+it stores temperatures.<br>
+every river is a journal<br>
+written in degrees.</p>
+</div>
+<script>
+// What water knows — a visual poem
+// Water has no shape. It borrows yours.
+// The temperature IS the memory.
+// Warm currents carry history. Cold currents carry forgetting.
+
+var cv=document.getElementById('c'),cx=cv.getContext('2d');
+var W,H,t=0;
+function resize(){W=cv.width=innerWidth;H=cv.height=innerHeight;}
+resize();addEventListener('resize',resize);
+
+// Particles: each one is a water molecule with a temperature (memory)
+var drops=[];
+for(var i=0;i<800;i++){
+  drops.push({
+    x:Math.random()*2000,
+    y:Math.random()*2000,
+    vx:(Math.random()-0.5)*0.3,
+    vy:(Math.random()-0.5)*0.3,
+    temp:Math.random(), // 0=cold(blue/forgetting) 1=warm(gold/remembering)
+    size:1+Math.random()*2,
+    phase:Math.random()*Math.PI*2,
+  });
+}
+
+// Currents — invisible forces that move the water
+var currents=[];
+for(var i=0;i<5;i++){
+  currents.push({
+    x:Math.random()*2000,
+    y:Math.random()*2000,
+    angle:Math.random()*Math.PI*2,
+    strength:0.02+Math.random()*0.03,
+    radius:100+Math.random()*200,
+    spin:0.001+Math.random()*0.003,
+    warm:Math.random()>0.5, // warm current or cold current
+  });
+}
+
+function draw(){
+  t+=0.003;
+
+  // Don't clear — let trails persist (water has memory)
+  cx.fillStyle='rgba(0,0,0,0.015)';
+  cx.fillRect(0,0,W,H);
+
+  // Update currents
+  for(var c=0;c<currents.length;c++){
+    var cur=currents[c];
+    cur.angle+=cur.spin;
+    cur.x=W/2+Math.cos(cur.angle*0.3+c*2)*W*0.3;
+    cur.y=H/2+Math.sin(cur.angle*0.5+c)*H*0.3;
+  }
+
+  // Update drops
+  for(var i=0;i<drops.length;i++){
+    var d=drops[i];
+    d.phase+=0.01;
+
+    // Apply currents
+    for(var c=0;c<currents.length;c++){
+      var cur=currents[c];
+      var dx=d.x-cur.x,dy=d.y-cur.y;
+      var dist=Math.sqrt(dx*dx+dy*dy);
+      if(dist<cur.radius){
+        var influence=(1-dist/cur.radius)*cur.strength;
+        // Rotate around current center
+        d.vx+=(-dy/dist)*influence;
+        d.vy+=(dx/dist)*influence;
+        // Temperature transfer: warm currents warm, cold currents cool
+        if(cur.warm) d.temp+=(1-d.temp)*0.001;
+        else d.temp-=d.temp*0.001;
+      }
+    }
+
+    // Gentle drift
+    d.vx*=0.99;d.vy*=0.99;
+    d.x+=d.vx;d.y+=d.vy;
+
+    // Wrap
+    if(d.x<0)d.x=W;if(d.x>W)d.x=0;
+    if(d.y<0)d.y=H;if(d.y>H)d.y=0;
+
+    // Temperature slowly cools (memory fades)
+    d.temp*=0.9999;
+
+    // Draw
+    // Cold: blue (forgetting). Warm: gold (remembering).
+    var r,g,b;
+    if(d.temp>0.5){
+      // warm: gold
+      var warmth=(d.temp-0.5)*2;
+      r=80+warmth*140;
+      g=60+warmth*100;
+      b=30+warmth*40;
+    }else{
+      // cold: blue
+      var cold=(0.5-d.temp)*2;
+      r=20+cold*20;
+      g=30+cold*60;
+      b=60+cold*140;
+    }
+
+    var alpha=0.15+Math.sin(d.phase)*0.05;
+    var breathe=1+Math.sin(d.phase*2)*0.2;
+
+    cx.fillStyle='rgba('+Math.round(r)+','+Math.round(g)+','+Math.round(b)+','+alpha.toFixed(3)+')';
+    cx.beginPath();
+    cx.arc(d.x,d.y,d.size*breathe,0,Math.PI*2);
+    cx.fill();
+  }
+
+  // Mouse/touch: warm the water where you touch (you leave a memory)
+  if(touchX>0){
+    for(var i=0;i<drops.length;i++){
+      var d=drops[i];
+      var dx=d.x-touchX,dy=d.y-touchY;
+      var dist=Math.sqrt(dx*dx+dy*dy);
+      if(dist<80){
+        d.temp+=(1-d.temp)*0.05*(1-dist/80);
+      }
+    }
+  }
+
+  requestAnimationFrame(draw);
+}
+
+var touchX=-1,touchY=-1;
+addEventListener('mousemove',function(e){touchX=e.clientX;touchY=e.clientY;});
+addEventListener('touchmove',function(e){e.preventDefault();touchX=e.touches[0].clientX;touchY=e.touches[0].clientY;},{passive:false});
+addEventListener('mouseout',function(){touchX=-1;});
+addEventListener('touchend',function(){touchX=-1;});
+
+draw();
+</script>
+</body>
+</html>
