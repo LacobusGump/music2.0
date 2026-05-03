@@ -98,6 +98,9 @@ var scrollY = 0, scrollMax = 1;
 var focusGroup = -1; // which group is in focus (-1 = all)
 var hoverNode = -1;
 var mouseX = 0, mouseY = 0;
+var cycles = 0; // how many times you've scrolled through — the 3
+var aliveness = 1; // grows each cycle — the spiral going up
+var wasAtBottom = false;
 
 function resize() {
   dpr = devicePixelRatio || 1;
@@ -243,6 +246,22 @@ addEventListener('scroll', function() {
   else focusGroup = 4;
   }
 
+  // The loop — when you hit bottom, scroll back to top but MORE ALIVE
+  // Each cycle adds coupling. The spiral goes up. 1+1=3.
+  if (frac > 0.98 && !wasAtBottom) {
+    wasAtBottom = true;
+    cycles++;
+    aliveness = 1 + cycles * 0.3; // 30% more alive each cycle
+    // Add more dust each cycle
+    for (var di = 0; di < 15; di++) {
+      dust.push({x:Math.random()*W, y:Math.random()*H, s:0.3+Math.random()*1.5,
+        v:0.05+Math.random()*0.2, a:Math.random()*0.04+0.01, phase:Math.random()*6.28});
+    }
+    // Scroll back to top after a breath
+    setTimeout(function() { window.scrollTo({top: 0, behavior: 'smooth'}); }, 600);
+  }
+  if (frac < 0.05) wasAtBottom = false;
+
   // Update zone labels
   document.querySelectorAll('.zone').forEach(function(z) {
     z.classList.toggle('active', parseInt(z.dataset.group) === focusGroup);
@@ -348,12 +367,12 @@ function render() {
   // Update node positions — focused group spreads, others contract
   nodes.forEach(function(n, i) {
     var isFocused = (focusGroup === -1 || n.g === focusGroup);
-    var targetScale = isFocused ? 1.0 : 0.7;
-    var targetAlpha = isFocused ? 1.0 : 0.15;
+    var targetScale = isFocused ? 1.0 * aliveness : 0.7;
+    var targetAlpha = isFocused ? Math.min(1.0, 0.7 + cycles * 0.1) : 0.15;
 
     // Breathing
     n.phase += 0.02 + n.k * 0.01;
-    var breathe = 1 + Math.sin(n.phase) * 0.15;
+    var breathe = 1 + Math.sin(n.phase) * (0.15 + cycles * 0.05); // breathes deeper each cycle
 
     // Focused nodes spread out slightly
     if (isFocused && focusGroup !== -1) {
@@ -377,7 +396,7 @@ function render() {
     for (var j = i + 1; j < N; j++) {
       if (nodes[i].g !== nodes[j].g) continue;
       var a = nodes[i], b = nodes[j];
-      var alpha = Math.min(a._alpha, b._alpha) * 0.06;
+      var alpha = Math.min(a._alpha, b._alpha) * (0.06 + cycles * 0.02); // connections strengthen each cycle
       if (alpha < 0.005) continue;
 
       var col = a.color || groups[a.g].color;
