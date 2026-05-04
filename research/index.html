@@ -622,50 +622,115 @@ function render() {
   updateLiveCentroids();
   if (!isMobile) updateGroupLabels();
 
-  // --- PHASE 2: COMPUTE GRID + SNAP + BREATHE ---
+  // --- PHASE 2: COMPUTE SHAPES — each group IS its domain ---
   if (simDone && !shapesComputed) {
     shapesComputed = true;
-    var margin = 60;
-    var usableW = W - margin * 2;
-    var usableH = H - margin * 2;
     var groupMembers = [[],[],[],[],[]];
     for (var i = 0; i < N; i++) groupMembers[nodes[i].g].push(nodes[i]);
     for (var g = 0; g < 5; g++) groupMembers[g].sort(function(a,b){return b.k - a.k;});
-    var totalSubRows = 0;
-    var groupSubRows = [];
-    for (var g = 0; g < 5; g++) {
-      var sr = groupMembers[g].length > 10 ? 2 : 1;
-      groupSubRows.push(sr);
-      totalSubRows += sr;
+
+    // Use live centroids from Kuramoto — the coupling CHOSE these positions
+    var gc = [];
+    for (var g = 0; g < 5; g++) gc.push({x: liveCentroids[g].x, y: liveCentroids[g].y});
+
+    var PHI = (1 + Math.sqrt(5)) / 2;
+    var GA = 2.39996322; // golden angle
+
+    // ═══ GROUP 0: FRAMEWORK (11) — nucleus. tight golden spiral. everything orbits this. ═══
+    var fw = groupMembers[0];
+    for (var j = 0; j < fw.length; j++) {
+      var r = 8 + Math.sqrt(j / fw.length) * Math.min(W,H) * 0.08;
+      var a = j * GA;
+      fw[j].shapeX = gc[0].x + Math.cos(a) * r;
+      fw[j].shapeY = gc[0].y + Math.sin(a) * r;
     }
-    var rowH = usableH / (totalSubRows + 1);
-    var currentY = margin + rowH * 0.6;
-    for (var g = 0; g < 5; g++) {
-      var members = groupMembers[g];
-      var count = members.length;
-      var subRows = groupSubRows[g];
-      if (subRows === 1) {
-        var cellW = usableW / (count + 1);
-        for (var j = 0; j < count; j++) {
-          members[j].shapeX = margin + cellW * (j + 0.5);
-          members[j].shapeY = currentY;
-        }
-        currentY += rowH;
+
+    // ═══ GROUP 1: BIOLOGY (18) — double helix. two intertwined strands of life. ═══
+    var bio = groupMembers[1];
+    var helixH = Math.min(H * 0.35, bio.length * 14);
+    var helixW = Math.min(W * 0.08, 60);
+    for (var j = 0; j < bio.length; j++) {
+      var t2 = (j / (bio.length - 1)) * Math.PI * 3; // 1.5 full turns
+      var strand = j % 2; // alternate strands
+      var sign = strand === 0 ? 1 : -1;
+      var yOff = (j / (bio.length - 1) - 0.5) * helixH;
+      fw = bio[j];
+      fw.shapeX = gc[1].x + Math.sin(t2) * helixW * sign;
+      fw.shapeY = gc[1].y + yOff;
+    }
+
+    // ═══ GROUP 2: PHYSICS (16) — constellation. hexagonal crystal. order from law. ═══
+    var phys = groupMembers[2];
+    // Hexagonal packing: rings of 1, 6, 9+
+    var hexRings = [0]; // center
+    var hexR = Math.min(W, H) * 0.04;
+    // Ring 1: 6 nodes
+    for (var j = 0; j < Math.min(6, phys.length - 1); j++) {
+      hexRings.push({ring: 1, idx: j, of: Math.min(6, phys.length - 1)});
+    }
+    // Ring 2: remaining nodes
+    var remaining = phys.length - 1 - Math.min(6, phys.length - 1);
+    for (var j = 0; j < remaining; j++) {
+      hexRings.push({ring: 2, idx: j, of: remaining});
+    }
+    for (var j = 0; j < phys.length; j++) {
+      if (j === 0) {
+        phys[j].shapeX = gc[2].x;
+        phys[j].shapeY = gc[2].y;
       } else {
-        var topCount = Math.ceil(count / 2);
-        var botCount = count - topCount;
-        var cellW1 = usableW / (topCount + 1);
-        var cellW2 = usableW / (botCount + 1);
-        for (var j = 0; j < topCount; j++) {
-          members[j].shapeX = margin + cellW1 * (j + 0.5);
-          members[j].shapeY = currentY;
-        }
-        currentY += rowH * 0.7;
-        for (var j = 0; j < botCount; j++) {
-          members[topCount + j].shapeX = margin + cellW2 * (j + 0.5);
-          members[topCount + j].shapeY = currentY;
-        }
-        currentY += rowH * 0.8;
+        var info = hexRings[j];
+        var angle = (info.idx / info.of) * Math.PI * 2 - Math.PI / 6;
+        var radius = info.ring * hexR;
+        phys[j].shapeX = gc[2].x + Math.cos(angle) * radius;
+        phys[j].shapeY = gc[2].y + Math.sin(angle) * radius;
+      }
+    }
+
+    // ═══ GROUP 3: APPLIED (13) — network. hub with spokes. the real-world web. ═══
+    var app = groupMembers[3];
+    // Central hub (highest K) + two rings of spokes
+    var innerSpokes = Math.min(5, app.length - 1);
+    var outerSpokes = app.length - 1 - innerSpokes;
+    var spokeR1 = Math.min(W, H) * 0.04;
+    var spokeR2 = Math.min(W, H) * 0.075;
+    for (var j = 0; j < app.length; j++) {
+      if (j === 0) {
+        app[j].shapeX = gc[3].x;
+        app[j].shapeY = gc[3].y;
+      } else if (j <= innerSpokes) {
+        var angle = ((j - 1) / innerSpokes) * Math.PI * 2 - Math.PI / 2;
+        app[j].shapeX = gc[3].x + Math.cos(angle) * spokeR1;
+        app[j].shapeY = gc[3].y + Math.sin(angle) * spokeR1;
+      } else {
+        var oj = j - innerSpokes - 1;
+        var angle = (oj / outerSpokes) * Math.PI * 2 - Math.PI / 2 + Math.PI / outerSpokes;
+        app[j].shapeX = gc[3].x + Math.cos(angle) * spokeR2;
+        app[j].shapeY = gc[3].y + Math.sin(angle) * spokeR2;
+      }
+    }
+
+    // ═══ GROUP 4: FOUNDATION (14) — tree. trunk + branches. history growing. ═══
+    var found = groupMembers[4];
+    var treeH = Math.min(H * 0.30, found.length * 12);
+    var treeW = Math.min(W * 0.12, 90);
+    // Trunk: top 3 nodes vertically centered
+    // Branches: remaining nodes spread left and right
+    var trunkCount = Math.min(3, found.length);
+    var branchCount = found.length - trunkCount;
+    for (var j = 0; j < found.length; j++) {
+      if (j < trunkCount) {
+        // Trunk — vertical line
+        found[j].shapeX = gc[4].x;
+        found[j].shapeY = gc[4].y - treeH * 0.3 + (j / (trunkCount - 1 || 1)) * treeH * 0.3;
+      } else {
+        // Branches — spread outward, alternating sides
+        var bj = j - trunkCount;
+        var side = bj % 2 === 0 ? -1 : 1;
+        var level = Math.floor(bj / 2);
+        var yPos = gc[4].y + (level / (Math.ceil(branchCount / 2))) * treeH * 0.4;
+        var xSpread = treeW * (0.4 + level * 0.12);
+        found[j].shapeX = gc[4].x + side * xSpread;
+        found[j].shapeY = yPos;
       }
     }
   }
