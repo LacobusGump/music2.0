@@ -620,42 +620,67 @@ function render() {
   updateLiveCentroids();
   if (!isMobile) updateGroupLabels();
 
-  // --- COMPUTE SHAPE TARGETS (once after settling) ---
+  // --- COMPUTE PERIODIC TABLE TARGETS (once after settling) ---
   if (simDone && !shapesComputed) {
     shapesComputed = true;
-    // For each group, arrange nodes in a clean shape around centroid
+    // Periodic table: rows = groups, columns = nodes sorted by K
+    // Chaos resolves into a readable grid
+
+    var margin = 60;
+    var usableW = W - margin * 2;
+    var usableH = H - margin * 2;
+
+    // Count nodes per group and find max columns needed
+    var groupMembers = [[],[],[],[],[]];
+    for (var i = 0; i < N; i++) groupMembers[nodes[i].g].push(nodes[i]);
+
+    // Sort each group by K (highest first = left)
     for (var g = 0; g < 5; g++) {
-      var gc = liveCentroids[g];
-      var members = [];
-      for (var i = 0; i < N; i++) {
-        if (nodes[i].g === g) members.push(nodes[i]);
-      }
+      groupMembers[g].sort(function(a, b) { return b.k - a.k; });
+    }
+
+    // Each group gets a row band. Groups with >10 nodes get 2 sub-rows.
+    var totalSubRows = 0;
+    var groupSubRows = [];
+    for (var g = 0; g < 5; g++) {
+      var sr = groupMembers[g].length > 10 ? 2 : 1;
+      groupSubRows.push(sr);
+      totalSubRows += sr;
+    }
+
+    var rowH = usableH / (totalSubRows + 1); // +1 for spacing
+    var currentY = margin + rowH * 0.6;
+
+    for (var g = 0; g < 5; g++) {
+      var members = groupMembers[g];
       var count = members.length;
-      if (count === 0) continue;
+      var subRows = groupSubRows[g];
 
-      // Shape logic: arrange in concentric rings
-      // Inner ring holds up to 6 nodes, outer ring holds the rest
-      var innerMax = Math.min(count <= 7 ? count : Math.ceil(count * 0.4), 8);
-      var outerCount = count - innerMax;
-      var baseRadius = Math.min(W, H) * (0.06 + count * 0.002);
-      var innerR = outerCount > 0 ? baseRadius * 0.45 : baseRadius * 0.55;
-      var outerR = baseRadius * 0.85;
-
-      // Sort by K value — highest K nodes go to inner ring
-      members.sort(function(a, b) { return b.k - a.k; });
-
-      for (var j = 0; j < count; j++) {
-        var angle, radius;
-        if (j < innerMax) {
-          angle = (j / innerMax) * Math.PI * 2 - Math.PI / 2;
-          radius = innerMax === 1 ? 0 : innerR;
-        } else {
-          var oj = j - innerMax;
-          angle = (oj / outerCount) * Math.PI * 2 - Math.PI / 2;
-          radius = outerR;
+      if (subRows === 1) {
+        // Single row
+        var cellW = usableW / (count + 1);
+        for (var j = 0; j < count; j++) {
+          members[j].shapeX = margin + cellW * (j + 0.5);
+          members[j].shapeY = currentY;
         }
-        members[j].shapeX = gc.x + Math.cos(angle) * radius;
-        members[j].shapeY = gc.y + Math.sin(angle) * radius;
+        currentY += rowH;
+      } else {
+        // Two sub-rows: split in half
+        var topCount = Math.ceil(count / 2);
+        var botCount = count - topCount;
+        var cellW1 = usableW / (topCount + 1);
+        var cellW2 = usableW / (botCount + 1);
+
+        for (var j = 0; j < topCount; j++) {
+          members[j].shapeX = margin + cellW1 * (j + 0.5);
+          members[j].shapeY = currentY;
+        }
+        currentY += rowH * 0.7;
+        for (var j = 0; j < botCount; j++) {
+          members[topCount + j].shapeX = margin + cellW2 * (j + 0.5);
+          members[topCount + j].shapeY = currentY;
+        }
+        currentY += rowH * 0.8;
       }
     }
   }
