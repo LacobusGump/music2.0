@@ -310,7 +310,6 @@ for (var i = 0; i < N; i++) {
 var simStep = 0;
 var simTotal = 120; // steps of settling
 var simDone = false;
-var shapesComputed = false;
 
 // Group target centroids — evenly spaced in a pentagon
 var groupCentroids = [];
@@ -614,116 +613,24 @@ function render() {
     for (var si = 0; si < stepsPerFrame; si++) {
       simForceStep();
     }
-  } else {
-    simStep++; // keep counting for snap phase timing
   }
 
   // Update live centroids
   updateLiveCentroids();
   if (!isMobile) updateGroupLabels();
 
-  // --- COMPUTE PERIODIC TABLE TARGETS (once after settling) ---
-  if (simDone && !shapesComputed) {
-    shapesComputed = true;
-    // Periodic table: rows = groups, columns = nodes sorted by K
-    // Chaos resolves into a readable grid
-
-    var margin = 60;
-    var usableW = W - margin * 2;
-    var usableH = H - margin * 2;
-
-    // Count nodes per group and find max columns needed
-    var groupMembers = [[],[],[],[],[]];
-    for (var i = 0; i < N; i++) groupMembers[nodes[i].g].push(nodes[i]);
-
-    // Sort each group by K (highest first = left)
-    for (var g = 0; g < 5; g++) {
-      groupMembers[g].sort(function(a, b) { return b.k - a.k; });
-    }
-
-    // Each group gets a row band. Groups with >10 nodes get 2 sub-rows.
-    var totalSubRows = 0;
-    var groupSubRows = [];
-    for (var g = 0; g < 5; g++) {
-      var sr = groupMembers[g].length > 10 ? 2 : 1;
-      groupSubRows.push(sr);
-      totalSubRows += sr;
-    }
-
-    var rowH = usableH / (totalSubRows + 1); // +1 for spacing
-    var currentY = margin + rowH * 0.6;
-
-    for (var g = 0; g < 5; g++) {
-      var members = groupMembers[g];
-      var count = members.length;
-      var subRows = groupSubRows[g];
-
-      if (subRows === 1) {
-        // Single row
-        var cellW = usableW / (count + 1);
-        for (var j = 0; j < count; j++) {
-          members[j].shapeX = margin + cellW * (j + 0.5);
-          members[j].shapeY = currentY;
-        }
-        currentY += rowH;
-      } else {
-        // Two sub-rows: split in half
-        var topCount = Math.ceil(count / 2);
-        var botCount = count - topCount;
-        var cellW1 = usableW / (topCount + 1);
-        var cellW2 = usableW / (botCount + 1);
-
-        for (var j = 0; j < topCount; j++) {
-          members[j].shapeX = margin + cellW1 * (j + 0.5);
-          members[j].shapeY = currentY;
-        }
-        currentY += rowH * 0.7;
-        for (var j = 0; j < botCount; j++) {
-          members[topCount + j].shapeX = margin + cellW2 * (j + 0.5);
-          members[topCount + j].shapeY = currentY;
-        }
-        currentY += rowH * 0.8;
-      }
-    }
-  }
-
-  // --- PHASE 2: HOLD then SNAP TO SHAPE ---
+  // --- BREATHING after settled ---
   if (simDone) {
-    var framesSinceSettle = simStep - 120;
-
-    // Beat 1: HOLD — freeze for 30 frames so the eye registers the clusters
-    if (framesSinceSettle < 30) {
-      // do nothing — let the clusters sit
-    }
-    // Beat 2: SNAP — fast crystallization over 40 frames
-    else if (framesSinceSettle < 70) {
-      var snapT = (framesSinceSettle - 30) / 40; // 0→1
-      var ease = snapT * snapT * (3 - 2 * snapT); // smoothstep
-      for (var i = 0; i < N; i++) {
-        var n = nodes[i];
-        if (n.shapeX !== undefined) {
-          n.x += (n.shapeX - n.x) * ease * 0.15;
-          n.y += (n.shapeY - n.y) * ease * 0.15;
-        }
-      }
-    }
-    // Beat 3: BREATHE — settled into shape, gentle oscillation
-    else {
-      for (var i = 0; i < N; i++) {
-        var n = nodes[i];
-        n.phase += 0.012 + n.k * 0.006;
-
-        // Hold shape position firmly
-        if (n.shapeX !== undefined) {
-          n.x += (n.shapeX - n.x) * 0.08;
-          n.y += (n.shapeY - n.y) * 0.08;
-        }
-
-        // Breathe around it
-        var breathAmp = 0.6 + cycles * 0.2;
-        n.x += Math.sin(n.phase) * breathAmp * 0.04;
-        n.y += Math.cos(n.phase * 0.7 + i) * breathAmp * 0.03;
-      }
+    for (var i = 0; i < N; i++) {
+      var n = nodes[i];
+      n.phase += 0.012 + n.k * 0.006;
+      var breathAmp = 1.5 + cycles * 0.5;
+      n.x += Math.sin(n.phase) * breathAmp * 0.08;
+      n.y += Math.cos(n.phase * 0.7 + i) * breathAmp * 0.06;
+      // Gentle drift toward group centroid to prevent wandering
+      var gc = liveCentroids[n.g];
+      n.x += (gc.x - n.x) * 0.001;
+      n.y += (gc.y - n.y) * 0.001;
     }
   }
 
