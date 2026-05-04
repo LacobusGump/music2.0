@@ -11,8 +11,9 @@
 body{background:#08080d;color:#e8e4dc;font-family:Georgia,serif;overflow-x:hidden;}
 a{color:#c9a44a;text-decoration:none;}
 
-/* Full-screen canvas */
-#cosmos{position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:0;}
+/* Full-screen orbital canvas */
+#cosmos{position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:0;pointer-events:none;}
+
 
 /* Scroll content overlays the cosmos */
 .scroll-layer{position:relative;z-index:1;pointer-events:none;}
@@ -84,22 +85,6 @@ a{color:#c9a44a;text-decoration:none;}
 
 /* Stats */
 .stats{position:fixed;bottom:12px;right:16px;font-size:0.55em;color:#ffffff08;z-index:10;font-family:'Courier New',monospace;}
-
-/* Group labels — computed from centroids */
-.group-label-float{
-  position:fixed;
-  font-family:Futura,'Century Gothic',system-ui,sans-serif;
-  font-size:0.65em;font-weight:100;
-  letter-spacing:0.25em;text-transform:uppercase;
-  pointer-events:none;user-select:none;
-  z-index:5;
-  transition:opacity 0.6s;
-  white-space:nowrap;
-}
-@media(max-width:600px){
-  .group-label-float{display:none;}
-  #cosmos{pointer-events:none;}
-}
 </style>
 </head>
 <body>
@@ -134,9 +119,6 @@ a{color:#c9a44a;text-decoration:none;}
   <div class="zone" data-group="4"><div class="zone-label">Foundation</div></div>
 </div>
 
-<!-- Floating group labels — positioned by JS from centroids -->
-<div id="group-labels"></div>
-
 <script>
 (function(){
 'use strict';
@@ -146,13 +128,12 @@ var cx = cv.getContext('2d');
 var dpr = 1, W = 0, H = 0, CX = 0, CY = 0;
 var t = 0;
 var scrollY = 0, scrollMax = 1;
-var focusGroup = -1;
+var focusGroup = -1; // which group is in focus (-1 = all)
 var hoverNode = -1;
-var mouseX = -9999, mouseY = -9999;
-var cycles = 0;
-var aliveness = 1;
+var mouseX = 0, mouseY = 0;
+var cycles = 0; // how many times you've scrolled through — the 3
+var aliveness = 1; // grows each cycle — the spiral going up
 var wasAtBottom = false;
-var isMobile = false;
 
 function resize() {
   dpr = devicePixelRatio || 1;
@@ -160,12 +141,11 @@ function resize() {
   cv.width = W * dpr; cv.height = H * dpr;
   cx.setTransform(dpr, 0, 0, dpr, 0, 0);
   CX = W / 2; CY = H / 2;
-  isMobile = W < 600;
 }
 resize();
 addEventListener('resize', resize);
 
-// --- NODE DATA ---
+// ═══ NODE DATA ═══
 var groups = [
   {name:'K',         color:[201,164,74]},
   {name:'Biology',   color:[64,149,64]},
@@ -261,291 +241,120 @@ var nodes = [
 
 var N = nodes.length;
 
-// --- KEYWORD EXTRACTION FOR CROSS-GROUP COUPLING ---
-// Shared concepts create medium coupling (K=0.3) between groups
-var keywords = {
-  coupling:    [0,1,2,3,4,5,6,7,8,9,10,12,13,14,15,16,17,18,19,20,25,26,27,28,29,30,31,33,34,35,36,37,42,43,44,48,49,50,59,60,61,71,72,74],
-  protein:     [8,9,12,13,14,15,16,17,18,19,20,23,24,25,38],
-  disease:     [6,12,13,14,15,16,17,18,19,20,23,24,25,26],
-  energy:      [5,30,31,32,33,34,35,36,37,38,39,45,46],
-  computation: [7,37,38,39,40,41,46,47,50,55,56,73,75],
-  pattern:     [10,21,22,27,28,29,37,39,51,55,62,63,64,65,66,72,74,75],
-  geometry:    [4,9,45,64,65,67,69],
-  oscillator:  [21,22,26,27,29,36,44,48,58,60,61],
-  phase:       [30,34,39,41,44,48,58,60,61,72],
-  ego:         [7,11,22,29,62,66,75],
-  music:       [10,26,60,61],
-  graph:       [49,53,54,55,56,57],
-  ancient:     [63,64,65,67,68,69,74],
-};
-
-// --- BUILD COUPLING MATRIX ---
-// Same group: K=1.0. Cross-group shared keyword: K=0.3. Otherwise 0.
-var coupling = new Float32Array(N * N);
-for (var i = 0; i < N; i++) {
-  for (var j = i + 1; j < N; j++) {
-    var kij = 0;
-    if (nodes[i].g === nodes[j].g) {
-      kij = 1.0;
-    } else {
-      // Check keyword overlap
-      var shared = 0;
-      for (var kw in keywords) {
-        var list = keywords[kw];
-        var hasI = false, hasJ = false;
-        for (var li = 0; li < list.length; li++) {
-          if (list[li] === i) hasI = true;
-          if (list[li] === j) hasJ = true;
-        }
-        if (hasI && hasJ) shared++;
-      }
-      if (shared > 0) kij = Math.min(0.3 + shared * 0.05, 0.5);
-    }
-    coupling[i * N + j] = kij;
-    coupling[j * N + i] = kij;
-  }
-}
-
-// --- KURAMOTO FORCE SIMULATION ---
-var simStep = 0;
-var simTotal = 120; // steps of settling
-var simDone = false;
-
-// Group target centroids — evenly spaced in a pentagon
-var groupCentroids = [];
-var groupAngles = [-Math.PI/2, Math.PI*0.9, Math.PI*0.1, -Math.PI*0.8, -Math.PI*0.2];
-
-function computeGroupCentroids() {
-  var radius = Math.min(W, H) * 0.28;
-  for (var g = 0; g < 5; g++) {
-    var a = groupAngles[g];
-    groupCentroids[g] = {
-      x: CX + Math.cos(a) * radius,
-      y: CY + Math.sin(a) * radius
-    };
-  }
-  // K group (0) goes to center
-  groupCentroids[0] = { x: CX, y: CY * 0.92 };
-}
-
-// Initialize node positions — random scatter with slight group bias
-function initPositions() {
-  computeGroupCentroids();
-  var spread = Math.min(W, H) * 0.42;
-  for (var i = 0; i < N; i++) {
-    var n = nodes[i];
-    // Start scattered — slight bias toward eventual group position
-    var gc = groupCentroids[n.g];
-    n.x = gc.x + (Math.random() - 0.5) * spread;
-    n.y = gc.y + (Math.random() - 0.5) * spread;
-    // Clamp to viewport
-    n.x = Math.max(40, Math.min(W - 40, n.x));
-    n.y = Math.max(40, Math.min(H - 40, n.y));
-    n.vx = 0;
-    n.vy = 0;
-    n.phase = Math.random() * Math.PI * 2;
-    n.size = 3 + n.k * 3.5;
-    n._alpha = 0.8;
-    n._scale = 1;
-    n._breathe = 1;
-  }
-  simStep = 0;
-  simDone = false;
-}
-
-// One step of force simulation
-function simForceStep() {
-  if (simStep >= simTotal) { simDone = true; return; }
-  simStep++;
-
-  var dt = 0.15;
-  var damping = 0.82; // friction
-  var progress = simStep / simTotal; // 0 to 1 — easing
-
-  // Forces: group attraction, repulsion, cross-group attraction
-  for (var i = 0; i < N; i++) {
-    var ni = nodes[i];
-    var fx = 0, fy = 0;
-
-    // 1) Attract toward group centroid (spring)
-    var gc = groupCentroids[ni.g];
-    var dx = gc.x - ni.x;
-    var dy = gc.y - ni.y;
-    var dist = Math.sqrt(dx * dx + dy * dy) || 1;
-    // Stronger pull as simulation progresses
-    var pullStrength = 0.4 + progress * 0.6;
-    fx += dx * 0.012 * pullStrength;
-    fy += dy * 0.012 * pullStrength;
-
-    // 2) Repulsion from all other nodes (inverse square, short range)
-    for (var j = 0; j < N; j++) {
-      if (i === j) continue;
-      var nj = nodes[j];
-      dx = ni.x - nj.x;
-      dy = ni.y - nj.y;
-      dist = Math.sqrt(dx * dx + dy * dy);
-      if (dist < 1) dist = 1;
-
-      // Minimum separation — bigger nodes need more space
-      var minDist = (ni.size + nj.size) * 2.5 + 8;
-      if (dist < minDist) {
-        var repulse = (minDist - dist) / minDist;
-        repulse = repulse * repulse * 3.0;
-        fx += (dx / dist) * repulse;
-        fy += (dy / dist) * repulse;
-      }
-
-      // 3) Cross-group attraction for coupled nodes
-      var kij = coupling[i * N + j];
-      if (kij > 0 && kij < 1.0) {
-        // Weak pull toward coupled nodes in other groups
-        var attract = kij * 0.003 * pullStrength;
-        fx -= (dx / dist) * attract * Math.min(dist, 100);
-        fy -= (dy / dist) * attract * Math.min(dist, 100);
-      }
-
-      // 4) Same-group: additional gentle cohesion
-      if (ni.g === nj.g && dist > minDist) {
-        var cohesion = 0.002 * pullStrength;
-        fx -= (dx / dist) * cohesion * dist * 0.1;
-        fy -= (dy / dist) * cohesion * dist * 0.1;
-      }
-    }
-
-    // 5) Viewport containment — soft walls
-    var margin = 50;
-    if (ni.x < margin) fx += (margin - ni.x) * 0.1;
-    if (ni.x > W - margin) fx += (W - margin - ni.x) * 0.1;
-    if (ni.y < margin) fy += (margin - ni.y) * 0.1;
-    if (ni.y > H - margin) fy += (H - margin - ni.y) * 0.1;
-
-    // Apply
-    ni.vx = (ni.vx + fx * dt) * damping;
-    ni.vy = (ni.vy + fy * dt) * damping;
-  }
-
-  // Update positions
-  for (var i = 0; i < N; i++) {
-    nodes[i].x += nodes[i].vx;
-    nodes[i].y += nodes[i].vy;
-  }
-}
-
-// --- COMPUTE LIVE GROUP CENTROIDS (from actual node positions) ---
-var liveCentroids = [{x:0,y:0},{x:0,y:0},{x:0,y:0},{x:0,y:0},{x:0,y:0}];
-function updateLiveCentroids() {
-  for (var g = 0; g < 5; g++) {
-    var sx = 0, sy = 0, count = 0;
-    for (var i = 0; i < N; i++) {
-      if (nodes[i].g === g) {
-        sx += nodes[i].x;
-        sy += nodes[i].y;
-        count++;
-      }
-    }
-    if (count > 0) {
-      liveCentroids[g].x = sx / count;
-      liveCentroids[g].y = sy / count;
-    }
-  }
-}
-
-// --- DUST ---
+// Dust particles for texture
 var dust = [];
-for (var d = 0; d < 70; d++) {
+for (var d = 0; d < 60; d++) {
   dust.push({
     x: Math.random() * 2000, y: Math.random() * 2000,
     s: 0.3 + Math.random() * 1.2,
-    v: 0.04 + Math.random() * 0.12,
-    a: Math.random() * 0.025 + 0.005,
+    v: 0.05 + Math.random() * 0.15,
+    a: Math.random() * 0.03 + 0.005,
     phase: Math.random() * Math.PI * 2
   });
 }
 
-// --- GROUP LABEL DOM ELEMENTS ---
-var groupLabelEls = [];
-var groupNames = ['K', 'Biology', 'Physics', 'Applied', 'Foundation'];
-var groupLabelColors = ['#c9a44a', '#409540', '#6496ff', '#bd6e37', '#933b38'];
-(function createLabels() {
-  var container = document.getElementById('group-labels');
-  for (var g = 0; g < 5; g++) {
-    var el = document.createElement('div');
-    el.className = 'group-label-float';
-    el.textContent = groupNames[g];
-    el.style.color = groupLabelColors[g] + '18';
-    container.appendChild(el);
-    groupLabelEls.push(el);
-  }
-})();
+// Position nodes on orbits
+function positionNodes() {
+  var scale = Math.min(W, H) / 3.0; // smaller on mobile
+  if (W < 600) scale = Math.min(W, H) / 2.2; // tighter on phone
+  var orbits = [0, scale * 0.32, scale * 0.32, scale * 0.58, scale * 0.58];
+  var groupIdx = [0,0,0,0,0];
+  var groupCount = [0,0,0,0,0];
+  nodes.forEach(function(n) { groupCount[n.g]++; });
 
-function updateGroupLabels() {
-  for (var g = 0; g < 5; g++) {
-    var el = groupLabelEls[g];
-    var lc = liveCentroids[g];
-    // Position above the cluster centroid
-    el.style.left = lc.x + 'px';
-    el.style.top = (lc.y - 50) + 'px';
-    el.style.transform = 'translateX(-50%)';
+  nodes.forEach(function(n, i) {
+    var g = n.g;
+    var idx = groupIdx[g]++;
+    var count = groupCount[g];
 
-    // Brighten on focus
-    var isFocused = (focusGroup === -1 || focusGroup === g);
-    var alpha = isFocused ? (focusGroup === g ? '40' : '20') : '08';
-    el.style.color = groupLabelColors[g].slice(0, 7) + alpha;
-    el.style.fontSize = (focusGroup === g) ? '0.8em' : '0.65em';
-  }
+    if (g === 0 && idx === 0) {
+      n.baseX = CX; n.baseY = CY; // K at center
+    } else {
+      var orbit = orbits[g];
+      // Spread groups into quadrants
+      var groupAngleBase = [0, -Math.PI/2, Math.PI/2, Math.PI, 0][g];
+      var spread = Math.PI * 0.8;
+      var angle = groupAngleBase - spread/2 + (idx / (count-1 || 1)) * spread;
+
+      if (g === 0) { // inner orbit for framework
+        orbit = scale * 0.15;
+        angle = idx * Math.PI * 2 / (count - 1) + Math.PI/4;
+      }
+
+      n.baseX = CX + Math.cos(angle) * orbit;
+      n.baseY = CY + Math.sin(angle) * orbit;
+    }
+    n.x = n.baseX;
+    n.y = n.baseY;
+    n.size = W < 600 ? (2 + n.k * 2) : (3 + n.k * 3);
+    n.phase = Math.random() * Math.PI * 2;
+  });
 }
+positionNodes();
+addEventListener('resize', function() { resize(); positionNodes(); });
 
-// --- SCROLL ---
+// ═══ SCROLL TRACKING ═══
 addEventListener('scroll', function() {
   scrollY = pageYOffset;
   scrollMax = document.documentElement.scrollHeight - innerHeight;
   var frac = scrollMax > 0 ? scrollY / scrollMax : 0;
 
+  // Map scroll to focus group
+  // Mobile: start on framework (never show all at once — too crowded)
+  // Desktop: start with all visible
+  var isMobile = W < 600;
   if (isMobile) {
-    if (frac < 0.16) focusGroup = 0;
+    // Mobile: framework first, then each group as you scroll
+    if (frac < 0.16) focusGroup = 0; // start on framework, not all
     else if (frac < 0.33) focusGroup = 1;
     else if (frac < 0.50) focusGroup = 2;
     else if (frac < 0.67) focusGroup = 3;
     else focusGroup = 4;
   } else {
-    if (frac < 0.16) focusGroup = -1;
-    else if (frac < 0.33) focusGroup = 0;
-    else if (frac < 0.50) focusGroup = 1;
-    else if (frac < 0.67) focusGroup = 2;
-    else if (frac < 0.84) focusGroup = 3;
-    else focusGroup = 4;
+  // Desktop: show all first, then focus
+  if (frac < 0.16) focusGroup = -1;
+  else if (frac < 0.33) focusGroup = 0;
+  else if (frac < 0.50) focusGroup = 1;
+  else if (frac < 0.67) focusGroup = 2;
+  else if (frac < 0.84) focusGroup = 3;
+  else focusGroup = 4;
   }
 
-  // Cycle — the spiral
+  // The loop — when you hit bottom, scroll back to top but MORE ALIVE
+  // Each cycle adds coupling. The spiral goes up. 1+1=3.
   if (frac > 0.98 && !wasAtBottom) {
     wasAtBottom = true;
     cycles++;
-    aliveness = 1 + cycles * 0.3;
+    aliveness = 1 + cycles * 0.3; // 30% more alive each cycle
+    // Add more dust each cycle
     for (var di = 0; di < 15; di++) {
       dust.push({x:Math.random()*W, y:Math.random()*H, s:0.3+Math.random()*1.5,
         v:0.05+Math.random()*0.2, a:Math.random()*0.04+0.01, phase:Math.random()*6.28});
     }
+    // Scroll back to top after a breath
     setTimeout(function() { window.scrollTo({top: 0, behavior: 'smooth'}); }, 600);
   }
   if (frac < 0.05) wasAtBottom = false;
 
+  // Update zone labels
   document.querySelectorAll('.zone').forEach(function(z) {
     z.classList.toggle('active', parseInt(z.dataset.group) === focusGroup);
   });
 });
 
-// --- MOUSE ---
+// ═══ MOUSE TRACKING ═══
 addEventListener('mousemove', function(e) {
   mouseX = e.clientX; mouseY = e.clientY;
+  // Find nearest node
   hoverNode = -1;
-  var closestD = 35;
-  for (var i = 0; i < N; i++) {
-    var n = nodes[i];
+  var closestD = 40;
+  nodes.forEach(function(n, i) {
     var dx = n.x - mouseX, dy = n.y - mouseY;
     var d = Math.sqrt(dx*dx + dy*dy);
     if (d < closestD) { closestD = d; hoverNode = i; }
-  }
+  });
 
+  // Update info panel
   var panel = document.getElementById('info-panel');
   if (hoverNode >= 0) {
     var nd = nodes[hoverNode];
@@ -558,19 +367,19 @@ addEventListener('mousemove', function(e) {
   }
 });
 
-// Desktop click/touch
-if (!isMobile) {
+// Touch + Click — DESKTOP ONLY. Mobile uses cards, no canvas interaction.
+if (W >= 600) {
 
 document.addEventListener('touchstart', function(e) {
   var touch = e.touches[0];
   mouseX = touch.clientX; mouseY = touch.clientY;
   hoverNode = -1;
   var closestD = 45;
-  for (var i = 0; i < N; i++) {
-    var dx = nodes[i].x - mouseX, dy = nodes[i].y - mouseY;
+  nodes.forEach(function(n, i) {
+    var dx = n.x - mouseX, dy = n.y - mouseY;
     var d = Math.sqrt(dx*dx + dy*dy);
     if (d < closestD) { closestD = d; hoverNode = i; }
-  }
+  });
   if (hoverNode >= 0) {
     e.preventDefault();
     var nd = nodes[hoverNode];
@@ -594,79 +403,35 @@ addEventListener('mousemove', function() {
   cv.style.cursor = hoverNode >= 0 ? 'pointer' : 'default';
 });
 
-} // end desktop-only
+} // end desktop-only touch/click
 
-// --- INITIALIZE ---
-initPositions();
-addEventListener('resize', function() {
-  resize();
-  initPositions();
-});
-
-// --- RENDER ---
+// ═══ RENDER ═══
 function render() {
   t += 0.008;
 
-  // Run simulation steps — multiple per frame for fast settling
-  if (!simDone) {
-    var stepsPerFrame = simStep < 30 ? 4 : 2;
-    for (var si = 0; si < stepsPerFrame; si++) {
-      simForceStep();
-    }
-  }
-
-  // Update live centroids
-  updateLiveCentroids();
-  if (!isMobile) updateGroupLabels();
-
-  // --- BREATHING after settled ---
-  if (simDone) {
-    for (var i = 0; i < N; i++) {
-      var n = nodes[i];
-      n.phase += 0.012 + n.k * 0.006;
-      var breathAmp = 1.5 + cycles * 0.5;
-      n.x += Math.sin(n.phase) * breathAmp * 0.08;
-      n.y += Math.cos(n.phase * 0.7 + i) * breathAmp * 0.06;
-      // Gentle drift toward group centroid to prevent wandering
-      var gc = liveCentroids[n.g];
-      n.x += (gc.x - n.x) * 0.001;
-      n.y += (gc.y - n.y) * 0.001;
-    }
-  }
-
-  // --- Focus group effect ---
-  for (var i = 0; i < N; i++) {
-    var n = nodes[i];
-    var isFocused = (focusGroup === -1 || n.g === focusGroup);
-    var targetAlpha = isFocused ? Math.min(1.0, 0.75 + cycles * 0.08) : 0.12;
-    var targetScale = isFocused ? 1.0 * aliveness : 0.6;
-    n._alpha += (targetAlpha - n._alpha) * 0.06;
-    n._scale += (targetScale - n._scale) * 0.06;
-  }
-
-  // --- CLEAR ---
-  // Soft fade for trails
-  cx.fillStyle = 'rgba(8,8,13,0.18)';
+  // Soft fade instead of hard clear — gives trails
+  cx.fillStyle = 'rgba(8,8,13,0.15)';
   cx.fillRect(0, 0, W, H);
 
   // Film grain
-  if (Math.random() > 0.65) {
-    for (var gi = 0; gi < 25; gi++) {
+  if (Math.random() > 0.7) {
+    for (var gi = 0; gi < 20; gi++) {
       var gx = Math.random() * W, gy = Math.random() * H;
-      cx.fillStyle = 'rgba(201,164,74,' + (Math.random() * 0.007).toFixed(4) + ')';
+      cx.fillStyle = 'rgba(201,164,74,' + (Math.random() * 0.008).toFixed(4) + ')';
       cx.fillRect(gx, gy, 1, 1);
     }
   }
 
-  // Dust
+  // Dust particles — warm motes drifting
   for (var di = 0; di < dust.length; di++) {
     var dp = dust[di];
-    dp.phase += 0.008;
+    dp.phase += 0.01;
     dp.y -= dp.v;
-    dp.x += Math.sin(dp.phase) * 0.25;
+    dp.x += Math.sin(dp.phase) * 0.3;
     if (dp.y < -10) { dp.y = H + 10; dp.x = Math.random() * W; }
     if (dp.x < 0) dp.x = W;
     if (dp.x > W) dp.x = 0;
+
     var da = dp.a * (0.5 + Math.sin(dp.phase * 2) * 0.5);
     cx.fillStyle = 'rgba(201,164,74,' + da.toFixed(4) + ')';
     cx.beginPath();
@@ -674,26 +439,43 @@ function render() {
     cx.fill();
   }
 
-  // --- DRAW EDGES ---
-  cx.globalCompositeOperation = 'lighter';
+  // Update node positions — focused group spreads, others contract
+  nodes.forEach(function(n, i) {
+    var isFocused = (focusGroup === -1 || n.g === focusGroup);
+    var targetScale = isFocused ? 1.0 * aliveness : 0.7;
+    var targetAlpha = isFocused ? Math.min(1.0, 0.7 + cycles * 0.1) : 0.15;
 
-  // Same-group edges (faint lines between cluster members)
+    // Breathing
+    n.phase += 0.02 + n.k * 0.01;
+    var breathe = 1 + Math.sin(n.phase) * (0.15 + cycles * 0.05); // breathes deeper each cycle
+
+    // Focused nodes spread out slightly
+    if (isFocused && focusGroup !== -1) {
+      var dx = n.baseX - CX, dy = n.baseY - CY;
+      var dist = Math.sqrt(dx*dx + dy*dy) || 1;
+      n.x += ((CX + dx * 1.15) - n.x) * 0.05;
+      n.y += ((CY + dy * 1.15) - n.y) * 0.05;
+    } else {
+      n.x += (n.baseX - n.x) * 0.05;
+      n.y += (n.baseY - n.y) * 0.05;
+    }
+
+    n._scale = (n._scale || 1) + (targetScale - (n._scale || 1)) * 0.08;
+    n._alpha = (n._alpha || 1) + (targetAlpha - (n._alpha || 1)) * 0.08;
+    n._breathe = breathe;
+  });
+
+  // Draw edges between same-group nodes
+  cx.globalCompositeOperation = 'lighter';
   for (var i = 0; i < N; i++) {
     for (var j = i + 1; j < N; j++) {
       if (nodes[i].g !== nodes[j].g) continue;
       var a = nodes[i], b = nodes[j];
-      var dx = a.x - b.x, dy = a.y - b.y;
-      var dist = Math.sqrt(dx*dx + dy*dy);
-      // Only draw within reasonable distance
-      if (dist > 250) continue;
-
-      var edgeAlpha = Math.min(a._alpha, b._alpha) * (0.04 + cycles * 0.015);
-      // Fade by distance
-      edgeAlpha *= Math.max(0, 1 - dist / 250);
-      if (edgeAlpha < 0.003) continue;
+      var alpha = Math.min(a._alpha, b._alpha) * (0.06 + cycles * 0.02); // connections strengthen each cycle
+      if (alpha < 0.005) continue;
 
       var col = a.color || groups[a.g].color;
-      cx.strokeStyle = 'rgba(' + col[0] + ',' + col[1] + ',' + col[2] + ',' + edgeAlpha.toFixed(4) + ')';
+      cx.strokeStyle = 'rgba(' + col[0] + ',' + col[1] + ',' + col[2] + ',' + alpha.toFixed(3) + ')';
       cx.lineWidth = 0.5;
       cx.beginPath();
       cx.moveTo(a.x, a.y);
@@ -702,13 +484,13 @@ function render() {
     }
   }
 
-  // Cross-group edges to K node (very faint)
+  // Draw cross-group edges to K (center)
   var kNode = nodes[0];
   for (var i = 1; i < N; i++) {
     var n = nodes[i];
-    var alpha = n._alpha * 0.015;
-    if (alpha < 0.002) continue;
-    cx.strokeStyle = 'rgba(201,164,74,' + alpha.toFixed(4) + ')';
+    var alpha = n._alpha * 0.02;
+    if (alpha < 0.003) continue;
+    cx.strokeStyle = 'rgba(201,164,74,' + alpha.toFixed(3) + ')';
     cx.lineWidth = 0.3;
     cx.beginPath();
     cx.moveTo(kNode.x, kNode.y);
@@ -716,110 +498,62 @@ function render() {
     cx.stroke();
   }
 
-  // Cross-group coupled edges (very subtle)
-  for (var i = 0; i < N; i++) {
-    for (var j = i + 1; j < N; j++) {
-      var kij = coupling[i * N + j];
-      if (kij <= 0 || kij >= 1.0) continue; // skip same-group and uncoupled
-      var a = nodes[i], b = nodes[j];
-      var dx = a.x - b.x, dy = a.y - b.y;
-      var dist = Math.sqrt(dx*dx + dy*dy);
-      if (dist > 300) continue;
-
-      var edgeAlpha = Math.min(a._alpha, b._alpha) * kij * 0.02;
-      edgeAlpha *= Math.max(0, 1 - dist / 300);
-      if (edgeAlpha < 0.002) continue;
-
-      cx.strokeStyle = 'rgba(201,164,74,' + edgeAlpha.toFixed(4) + ')';
-      cx.lineWidth = 0.3;
-      cx.beginPath();
-      cx.moveTo(a.x, a.y);
-      cx.lineTo(b.x, b.y);
-      cx.stroke();
-    }
-  }
-
   cx.globalCompositeOperation = 'source-over';
 
-  // --- DRAW NODES ---
+  // Draw nodes
   for (var i = 0; i < N; i++) {
     var n = nodes[i];
     var col = n.color || groups[n.g].color;
-    var size = n.size * n._scale;
+    var size = n.size * n._scale * n._breathe;
     var alpha = n._alpha;
     var isHover = (i === hoverNode);
 
-    if (isHover) { size *= 2.2; alpha = 1; }
+    if (isHover) { size *= 2; alpha = 1; }
 
     // Ghost nodes flicker
     if (n.ghost) {
       alpha *= 0.3 + Math.sin(t * 3 + i * 7) * 0.15;
     }
 
-    // Outer glow
-    if (alpha > 0.08) {
-      var glowR = size * (isHover ? 6 : 4);
-      var grad = cx.createRadialGradient(n.x, n.y, 0, n.x, n.y, glowR);
-      grad.addColorStop(0, 'rgba(' + col[0] + ',' + col[1] + ',' + col[2] + ',' + (alpha * 0.07).toFixed(4) + ')');
-      grad.addColorStop(0.5, 'rgba(' + col[0] + ',' + col[1] + ',' + col[2] + ',' + (alpha * 0.02).toFixed(4) + ')');
+    // Glow
+    if (alpha > 0.1) {
+      var grad = cx.createRadialGradient(n.x, n.y, 0, n.x, n.y, size * 4);
+      grad.addColorStop(0, 'rgba(' + col[0] + ',' + col[1] + ',' + col[2] + ',' + (alpha * 0.08).toFixed(3) + ')');
       grad.addColorStop(1, 'rgba(' + col[0] + ',' + col[1] + ',' + col[2] + ',0)');
       cx.fillStyle = grad;
       cx.beginPath();
-      cx.arc(n.x, n.y, glowR, 0, Math.PI * 2);
+      cx.arc(n.x, n.y, size * 4, 0, Math.PI * 2);
       cx.fill();
     }
 
-    // Core dot
+    // Node dot
     cx.fillStyle = 'rgba(' + col[0] + ',' + col[1] + ',' + col[2] + ',' + alpha.toFixed(3) + ')';
     cx.beginPath();
     cx.arc(n.x, n.y, size, 0, Math.PI * 2);
     cx.fill();
 
-    // Bright center pip for higher-K nodes
-    if (n.k > 0.9 && alpha > 0.3) {
-      cx.fillStyle = 'rgba(255,255,255,' + (alpha * 0.15).toFixed(3) + ')';
-      cx.beginPath();
-      cx.arc(n.x, n.y, size * 0.3, 0, Math.PI * 2);
-      cx.fill();
-    }
-
-    // Label — show on hover, or when focused and large enough
-    var showLabel = isHover || (alpha > 0.45 && size > 4.5 && simDone);
-    if (showLabel) {
-      var labelAlpha = isHover ? 0.9 : alpha * 0.55;
-      cx.fillStyle = 'rgba(' + col[0] + ',' + col[1] + ',' + col[2] + ',' + labelAlpha.toFixed(3) + ')';
-      cx.font = (isHover ? '13' : '9') + 'px Georgia';
+    // Label
+    if (isHover || (alpha > 0.5 && size > 4)) {
+      cx.fillStyle = 'rgba(' + col[0] + ',' + col[1] + ',' + col[2] + ',' + (alpha * 0.7).toFixed(3) + ')';
+      cx.font = (isHover ? '12' : '9') + 'px Georgia';
       cx.textAlign = 'center';
-      cx.fillText(n.n, n.x, n.y - size - 7);
+      cx.fillText(n.n, n.x, n.y - size - 6);
     }
-  }
-
-  // --- SETTLING INDICATOR ---
-  if (!simDone) {
-    var progress = simStep / simTotal;
-    // Subtle progress arc in bottom-left
-    cx.strokeStyle = 'rgba(201,164,74,' + (0.08 * (1 - progress)).toFixed(3) + ')';
-    cx.lineWidth = 1;
-    cx.beginPath();
-    cx.arc(30, H - 30, 12, -Math.PI/2, -Math.PI/2 + progress * Math.PI * 2);
-    cx.stroke();
   }
 
   // Stats
-  var statsEl = document.getElementById('stats');
-  var groupLabel = focusGroup >= 0 ? groups[focusGroup].name : 'all';
-  var settleText = simDone ? '' : ' settling...';
-  statsEl.textContent = N + ' nodes \u00b7 ' + groupLabel + ' \u00b7 K=' +
-    (focusGroup >= 0 ? nodes.filter(function(n){return n.g===focusGroup}).length : N) + settleText;
+  document.getElementById('stats').textContent =
+    N + ' nodes · ' + groups[focusGroup >= 0 ? focusGroup : 0].name +
+    ' · K=' + (focusGroup >= 0 ? nodes.filter(function(n){return n.g===focusGroup}).length : N);
 
   requestAnimationFrame(render);
 }
 render();
 
-// --- MOBILE CARDS ---
-if (isMobile) {
+// ═══ MOBILE CARDS — generated from the same node data ═══
+if (W < 600) {
   var mc = document.getElementById('mobile-cards');
-  var mGroupNames = ['The Framework', 'Biology', 'Physics', 'Applied', 'Foundation'];
+  var groupNames = ['The Framework', 'Biology', 'Physics', 'Applied', 'Foundation'];
   var currentGroup = -1;
 
   nodes.forEach(function(n) {
@@ -827,7 +561,7 @@ if (isMobile) {
       currentGroup = n.g;
       var title = document.createElement('div');
       title.className = 'group-title';
-      title.textContent = mGroupNames[currentGroup] || '';
+      title.textContent = groupNames[currentGroup] || '';
       mc.appendChild(title);
     }
 
