@@ -310,6 +310,7 @@ for (var i = 0; i < N; i++) {
 var simStep = 0;
 var simTotal = 120; // steps of settling
 var simDone = false;
+var shapesComputed = false;
 
 // Group target centroids — evenly spaced in a pentagon
 var groupCentroids = [];
@@ -619,18 +620,63 @@ function render() {
   updateLiveCentroids();
   if (!isMobile) updateGroupLabels();
 
-  // --- BREATHING after settled ---
+  // --- COMPUTE SHAPE TARGETS (once after settling) ---
+  if (simDone && !shapesComputed) {
+    shapesComputed = true;
+    // For each group, arrange nodes in a clean shape around centroid
+    for (var g = 0; g < 5; g++) {
+      var gc = liveCentroids[g];
+      var members = [];
+      for (var i = 0; i < N; i++) {
+        if (nodes[i].g === g) members.push(nodes[i]);
+      }
+      var count = members.length;
+      if (count === 0) continue;
+
+      // Shape logic: arrange in concentric rings
+      // Inner ring holds up to 6 nodes, outer ring holds the rest
+      var innerMax = Math.min(count <= 7 ? count : Math.ceil(count * 0.4), 8);
+      var outerCount = count - innerMax;
+      var baseRadius = Math.min(W, H) * (0.06 + count * 0.002);
+      var innerR = outerCount > 0 ? baseRadius * 0.45 : baseRadius * 0.55;
+      var outerR = baseRadius * 0.85;
+
+      // Sort by K value — highest K nodes go to inner ring
+      members.sort(function(a, b) { return b.k - a.k; });
+
+      for (var j = 0; j < count; j++) {
+        var angle, radius;
+        if (j < innerMax) {
+          angle = (j / innerMax) * Math.PI * 2 - Math.PI / 2;
+          radius = innerMax === 1 ? 0 : innerR;
+        } else {
+          var oj = j - innerMax;
+          angle = (oj / outerCount) * Math.PI * 2 - Math.PI / 2;
+          radius = outerR;
+        }
+        members[j].shapeX = gc.x + Math.cos(angle) * radius;
+        members[j].shapeY = gc.y + Math.sin(angle) * radius;
+      }
+    }
+  }
+
+  // --- BREATHING + SNAP TO SHAPE after settled ---
   if (simDone) {
+    var snapStrength = Math.min(1, (simStep - 120) * 0.01); // ease in over 100 frames
     for (var i = 0; i < N; i++) {
       var n = nodes[i];
       n.phase += 0.012 + n.k * 0.006;
-      var breathAmp = 1.5 + cycles * 0.5;
-      n.x += Math.sin(n.phase) * breathAmp * 0.08;
-      n.y += Math.cos(n.phase * 0.7 + i) * breathAmp * 0.06;
-      // Gentle drift toward group centroid to prevent wandering
-      var gc = liveCentroids[n.g];
-      n.x += (gc.x - n.x) * 0.001;
-      n.y += (gc.y - n.y) * 0.001;
+
+      // Ease toward shape target
+      if (n.shapeX !== undefined && snapStrength > 0) {
+        n.x += (n.shapeX - n.x) * 0.03 * snapStrength;
+        n.y += (n.shapeY - n.y) * 0.03 * snapStrength;
+      }
+
+      // Breathe around shape position
+      var breathAmp = 0.8 + cycles * 0.3;
+      n.x += Math.sin(n.phase) * breathAmp * 0.05;
+      n.y += Math.cos(n.phase * 0.7 + i) * breathAmp * 0.04;
     }
   }
 
