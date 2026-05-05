@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>the cost of order</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:#0d0906;overflow:hidden;cursor:default;}
+canvas{display:block;width:100vw;height:100vh;}
+#back{position:fixed;top:20px;left:24px;font-family:Georgia,serif;
+  font-size:0.72em;color:rgba(139,74,46,0.12);text-decoration:none;
+  z-index:10;letter-spacing:0.06em;transition:color 0.5s;cursor:pointer;}
+#back:hover{color:rgba(184,117,58,0.4);}
+#whisper{position:fixed;bottom:32px;left:0;right:0;text-align:center;
+  font-family:Georgia,serif;font-size:0.72em;color:rgba(232,207,160,0);
+  letter-spacing:0.12em;pointer-events:none;
+  transition:color 4s ease;}
+#whisper.show{color:rgba(232,207,160,0.22);}
+#whisper.hide{color:rgba(232,207,160,0);transition:color 6s ease;}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<a id="back" href="/gallery/">&larr; gallery</a>
+<div id="whisper"></div>
+<script>
+// the cost of order
+//
+// S = k ln W
+//
+// boltzmann's entropy. the universe counts its options
+// and always — always — chooses more.
+//
+// disorder is free. order costs.
+// not money. not energy. presence.
+//
+// touch the screen and particles remember
+// where they belong. hexagonal. closest-packed.
+// the most efficient arrangement matter knows.
+//
+// let go and they forget.
+// not all at once. slowly. the way
+// a classroom dissolves after the teacher leaves.
+// the way a garden returns to meadow.
+// the way anything held together
+// needs someone holding.
+//
+// that's not entropy being cruel.
+// that's entropy saying:
+// the holding was the point.
+
+var cv = document.getElementById('c');
+var ctx = cv.getContext('2d');
+var W, H;
+
+// mobile detection for particle count
+var isMobile = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+
+function resize() {
+  W = cv.width = innerWidth;
+  H = cv.height = innerHeight;
+}
+resize();
+addEventListener('resize', resize);
+
+// -- PARTICLES --
+// each one wants to wander. brownian motion.
+// your touch gives them a reason to stay.
+var N = isMobile ? 260 : 420;
+var particles = [];
+var hexSpacing = isMobile ? 16 : 14;
+
+for (var i = 0; i < N; i++) {
+  particles.push({
+    x: Math.random() * innerWidth,
+    y: Math.random() * innerHeight,
+    vx: (Math.random() - 0.5) * 0.8,
+    vy: (Math.random() - 0.5) * 0.8,
+    homeX: 0,
+    homeY: 0,
+    order: 0,   // 0 = chaos, 1 = crystal
+    warmth: 0,  // visual warmth — lingers after order fades
+    radius: 1.2 + Math.random() * 0.6,
+  });
+}
+
+// -- TOUCH STATE --
+var pointerX = -1000, pointerY = -1000;
+var touching = false;
+var holdTime = 0;       // how long current touch has lasted
+var letGoCount = 0;     // how many times you've released a crystal
+var wasHolding = false;  // previous frame's touch state
+
+addEventListener('mousemove', function(e) {
+  pointerX = e.clientX;
+  pointerY = e.clientY;
+  touching = true;
+});
+addEventListener('mouseout', function() {
+  touching = false;
+});
+addEventListener('touchstart', function(e) {
+  var tc = e.touches[0];
+  pointerX = tc.clientX;
+  pointerY = tc.clientY;
+  touching = true;
+}, {passive: true});
+addEventListener('touchmove', function(e) {
+  var tc = e.touches[0];
+  pointerX = tc.clientX;
+  pointerY = tc.clientY;
+}, {passive: true});
+addEventListener('touchend', function() {
+  touching = false;
+});
+
+// -- HEXAGONAL LATTICE --
+// the most efficient packing in 2D.
+// bees know this. crystals know this. soap bubbles know this.
+// it's not designed. it's discovered.
+var hexCache = [];       // cached hex positions
+var lastHexCenter = null;
+var hexFrameSkip = 0;
+
+function buildHexGrid(cenX, cenY, radius) {
+  hexCache = [];
+  var maxRings = Math.ceil(radius / hexSpacing) + 1;
+
+  // ring 0: center
+  hexCache.push({ x: cenX, y: cenY, d: 0 });
+
+  // rings 1..n: walk the hexagonal perimeter
+  for (var ring = 1; ring <= maxRings; ring++) {
+    // six corners of this ring, starting at top
+    var corners = [];
+    for (var c = 0; c < 6; c++) {
+      var angle = (c * 60 + 90) * Math.PI / 180;
+      corners.push({
+        x: cenX + ring * hexSpacing * Math.cos(angle),
+        y: cenY + ring * hexSpacing * Math.sin(angle)
+      });
+    }
+    // walk each side
+    for (var side = 0; side < 6; side++) {
+      var next = (side + 1) % 6;
+      for (var step = 0; step < ring; step++) {
+        var frac = step / ring;
+        var hx = corners[side].x + (corners[next].x - corners[side].x) * frac;
+        var hy = corners[side].y + (corners[next].y - corners[side].y) * frac;
+        var hd = Math.sqrt((hx - cenX) * (hx - cenX) + (hy - cenY) * (hy - cenY));
+        if (hd <= radius) {
+          hexCache.push({ x: hx, y: hy, d: hd });
+        }
+      }
+    }
+  }
+
+  hexCache.sort(function(a, b) { return a.d - b.d; });
+  lastHexCenter = { x: cenX, y: cenY, r: radius };
+}
+
+function assignHomes(cenX, cenY, radius) {
+  // only rebuild grid if center or radius changed significantly
+  if (!lastHexCenter ||
+      Math.abs(cenX - lastHexCenter.x) > 8 ||
+      Math.abs(cenY - lastHexCenter.y) > 8 ||
+      Math.abs(radius - lastHexCenter.r) > 10) {
+    buildHexGrid(cenX, cenY, radius);
+  }
+
+  // sort particles by distance to center
+  var sorted = [];
+  for (var i = 0; i < N; i++) {
+    var p = particles[i];
+    var dx = p.x - cenX;
+    var dy = p.y - cenY;
+    sorted.push({ idx: i, dist: Math.sqrt(dx * dx + dy * dy) });
+  }
+  sorted.sort(function(a, b) { return a.dist - b.dist; });
+
+  // assign: closest particle gets closest hex position
+  var count = Math.min(sorted.length, hexCache.length);
+  for (var i = 0; i < count; i++) {
+    var p = particles[sorted[i].idx];
+    var h = hexCache[i];
+    p.homeX = h.x;
+    p.homeY = h.y;
+  }
+  // particles beyond the grid: home = current position (no pull)
+  for (var i = count; i < sorted.length; i++) {
+    var p = particles[sorted[i].idx];
+    p.homeX = p.x;
+    p.homeY = p.y;
+  }
+}
+
+// -- SPATIAL GRID for bond drawing --
+// avoids O(N^2) on every frame
+var gridCellSize = hexSpacing * 1.5;
+var gridCols, gridRows;
+var grid = {};
+
+function buildSpatialGrid() {
+  grid = {};
+  gridCols = Math.ceil(W / gridCellSize);
+  gridRows = Math.ceil(H / gridCellSize);
+  for (var i = 0; i < N; i++) {
+    var p = particles[i];
+    if (p.order < 0.08) continue;
+    var col = Math.floor(p.x / gridCellSize);
+    var row = Math.floor(p.y / gridCellSize);
+    var key = col + ',' + row;
+    if (!grid[key]) grid[key] = [];
+    grid[key].push(i);
+  }
+}
+
+function getNeighborIndices(col, row) {
+  var result = [];
+  for (var dc = -1; dc <= 1; dc++) {
+    for (var dr = -1; dr <= 1; dr++) {
+      var key = (col + dc) + ',' + (row + dr);
+      if (grid[key]) {
+        for (var k = 0; k < grid[key].length; k++) {
+          result.push(grid[key][k]);
+        }
+      }
+    }
+  }
+  return result;
+}
+
+// -- ENTROPY --
+function measureEntropy() {
+  var total = 0;
+  for (var i = 0; i < N; i++) total += particles[i].order;
+  return 1 - (total / N);
+}
+
+// -- WHISPER --
+var whisperEl = document.getElementById('whisper');
+var whisperTexts = [
+  'disorder is the default.',
+  'order costs presence.',
+  'the holding was the point.',
+];
+var whisperTriggered = [false, false, false];
+var whisperTimer = -1;
+var whisperState = 'idle';
+
+function triggerWhisper(text) {
+  if (whisperState !== 'idle') return;
+  whisperEl.textContent = text;
+  whisperEl.className = '';
+  void whisperEl.offsetHeight;
+  whisperEl.className = 'show';
+  whisperState = 'showing';
+  whisperTimer = 0;
+}
+
+// -- TIME --
+var t = 0;
+var lastTime = performance.now();
+
+// -- MAIN LOOP --
+function draw(now) {
+  var dt = Math.min((now - lastTime) / 1000, 0.05);
+  lastTime = now;
+  t += dt;
+
+  // -- background: warm dark, slight trail --
+  ctx.fillStyle = 'rgba(13,9,6,0.18)';
+  ctx.fillRect(0, 0, W, H);
+
+  // -- TOUCH LOGIC --
+  if (touching) {
+    holdTime += dt;
+  } else {
+    // detect the moment of release
+    if (wasHolding && holdTime > 0.5) {
+      letGoCount++;
+    }
+    holdTime = Math.max(0, holdTime - dt * 0.3);
+  }
+  wasHolding = touching;
+
+  // influence radius: patience grows the crystal
+  var influenceR = 0;
+  if (touching) {
+    influenceR = Math.min(50 + holdTime * 35, Math.min(W, H) * 0.38);
+  }
+
+  // assign hex homes (throttled)
+  if (touching && holdTime > 0.15) {
+    hexFrameSkip++;
+    if (hexFrameSkip > 3) {
+      assignHomes(pointerX, pointerY, influenceR);
+      hexFrameSkip = 0;
+    }
+  }
+
+  // -- UPDATE PARTICLES --
+  var currentOrder = 0;
+
+  for (var i = 0; i < N; i++) {
+    var p = particles[i];
+    var dx = p.x - pointerX;
+    var dy = p.y - pointerY;
+    var dist = Math.sqrt(dx * dx + dy * dy);
+
+    if (touching && dist < influenceR && holdTime > 0.15) {
+      // -- ORDERING: pull toward crystal home --
+      var strength = Math.min(holdTime * 0.25, 1.0);
+      var edgeFade = 1 - (dist / influenceR) * (dist / influenceR);
+      edgeFade = Math.max(0, edgeFade);
+      strength *= edgeFade;
+
+      var hdx = p.homeX - p.x;
+      var hdy = p.homeY - p.y;
+      var hdist = Math.sqrt(hdx * hdx + hdy * hdy);
+
+      if (hdist > 0.3) {
+        var pull = strength * 2.0;
+        p.vx += (hdx / hdist) * pull * dt * 60;
+        p.vy += (hdy / hdist) * pull * dt * 60;
+      }
+
+      // crystal damping
+      p.vx *= (1 - strength * 0.06);
+      p.vy *= (1 - strength * 0.06);
+
+      // order rises
+      p.order += (strength * edgeFade - p.order) * 0.025;
+
+    } else {
+      // -- DISSOLVING: brownian motion --
+      p.vx += (Math.random() - 0.5) * 1.0 * dt * 60;
+      p.vy += (Math.random() - 0.5) * 1.0 * dt * 60;
+
+      // order decays. slowly. like memory fading.
+      p.order *= (1 - 0.003);
+      if (p.order < 0.001) p.order = 0;
+    }
+
+    // viscosity
+    p.vx *= 0.97;
+    p.vy *= 0.97;
+
+    // speed limit
+    var spd = Math.sqrt(p.vx * p.vx + p.vy * p.vy);
+    if (spd > 3) {
+      p.vx = (p.vx / spd) * 3;
+      p.vy = (p.vy / spd) * 3;
+    }
+
+    // move
+    p.x += p.vx * dt * 60;
+    p.y += p.vy * dt * 60;
+
+    // soft walls
+    if (p.x < 10) { p.vx += 0.3; p.x = 10; }
+    if (p.x > W - 10) { p.vx -= 0.3; p.x = W - 10; }
+    if (p.y < 10) { p.vy += 0.3; p.y = 10; }
+    if (p.y > H - 10) { p.vy -= 0.3; p.y = H - 10; }
+
+    // warmth lags order — the glow lingers after structure dissolves
+    p.warmth += (p.order - p.warmth) * 0.012;
+
+    currentOrder += p.order;
+  }
+
+  // -- DRAW BONDS (spatial grid) --
+  buildSpatialGrid();
+  var bondDist = hexSpacing * 1.35;
+  var bondDist2 = bondDist * bondDist;
+  var drawn = {};
+
+  for (var i = 0; i < N; i++) {
+    var p = particles[i];
+    if (p.order < 0.08) continue;
+
+    var col = Math.floor(p.x / gridCellSize);
+    var row = Math.floor(p.y / gridCellSize);
+    var neighbors = getNeighborIndices(col, row);
+
+    for (var k = 0; k < neighbors.length; k++) {
+      var j = neighbors[k];
+      if (j <= i) continue;
+
+      // dedupe key
+      var pairKey = i * N + j;
+      if (drawn[pairKey]) continue;
+      drawn[pairKey] = 1;
+
+      var q = particles[j];
+      var bdx = p.x - q.x;
+      var bdy = p.y - q.y;
+      var bd2 = bdx * bdx + bdy * bdy;
+
+      if (bd2 < bondDist2) {
+        var bd = Math.sqrt(bd2);
+        var bondStr = Math.min(p.order, q.order);
+
+        // strongest at exactly hexSpacing
+        var proximity = 1 - Math.abs(bd - hexSpacing) / (hexSpacing * 0.35);
+        proximity = Math.max(0, Math.min(1, proximity));
+
+        var alpha = bondStr * proximity * 0.07;
+        if (alpha < 0.002) continue;
+
+        var wf = (p.warmth + q.warmth) * 0.5;
+        var br = Math.round(100 + wf * 84);
+        var bg = Math.round(70 + wf * 47);
+        var bb = Math.round(55 - wf * 10);
+
+        ctx.strokeStyle = 'rgba(' + br + ',' + bg + ',' + bb + ',' + alpha.toFixed(4) + ')';
+        ctx.lineWidth = 0.3 + bondStr * 0.5;
+        ctx.beginPath();
+        ctx.moveTo(p.x, p.y);
+        ctx.lineTo(q.x, q.y);
+        ctx.stroke();
+      }
+    }
+  }
+
+  // -- DRAW PARTICLES --
+  for (var i = 0; i < N; i++) {
+    var p = particles[i];
+    var w = p.warmth;
+
+    // disordered: cool grey-blue. ordered: warm ember.
+    var pr = Math.round(60 + 136 * w);
+    var pg = Math.round(65 + 99 * w);
+    var pb = Math.round(80 + 48 * w);
+
+    var alpha = 0.12 + w * 0.58;
+
+    // subtle jitter when disordered, still when ordered
+    var jitter = (1 - w) * Math.sin(t * 3.7 + i * 1.3) * 0.3;
+    var sz = p.radius + jitter;
+
+    // glow halo for ordered particles
+    if (w > 0.15) {
+      var glowR = sz * (2.5 + w * 5);
+      var glowA = w * 0.025;
+      var gl = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, glowR);
+      gl.addColorStop(0, 'rgba(' + pr + ',' + pg + ',' + pb + ',' + glowA.toFixed(4) + ')');
+      gl.addColorStop(1, 'rgba(' + pr + ',' + pg + ',' + pb + ',0)');
+      ctx.fillStyle = gl;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, glowR, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.fillStyle = 'rgba(' + pr + ',' + pg + ',' + pb + ',' + alpha.toFixed(3) + ')';
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, sz, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // -- INFLUENCE HINT --
+  // the faintest warmth where your presence reaches
+  if (touching && influenceR > 15) {
+    var rimA = 0.012 + Math.min(holdTime * 0.004, 0.018);
+    var breathe = 1 + Math.sin(t * 1.2) * 0.015;
+    var rr = influenceR * breathe;
+
+    var gl2 = ctx.createRadialGradient(pointerX, pointerY, rr * 0.8, pointerX, pointerY, rr);
+    gl2.addColorStop(0, 'rgba(139,74,46,0)');
+    gl2.addColorStop(0.5, 'rgba(184,117,58,' + (rimA * 0.4).toFixed(4) + ')');
+    gl2.addColorStop(1, 'rgba(139,74,46,0)');
+    ctx.fillStyle = gl2;
+    ctx.beginPath();
+    ctx.arc(pointerX, pointerY, rr, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // -- ENTROPY METER --
+  // a near-invisible bar. you might never see it.
+  var entropy = measureEntropy();
+  var barH = 1.5;
+  var barW = W * 0.25;
+  var barX = (W - barW) / 2;
+  var barY = 14;
+
+  ctx.fillStyle = 'rgba(50,45,40,0.03)';
+  ctx.fillRect(barX, barY, barW, barH);
+
+  var orderFrac = 1 - entropy;
+  if (orderFrac > 0.01) {
+    ctx.fillStyle = 'rgba(184,117,58,' + (0.04 + orderFrac * 0.1).toFixed(3) + ')';
+    ctx.fillRect(barX, barY, barW * orderFrac, barH);
+  }
+
+  // -- WHISPERS --
+  if (!whisperTriggered[0] && currentOrder > N * 0.12) {
+    whisperTriggered[0] = true;
+    triggerWhisper(whisperTexts[0]);
+  }
+  if (!whisperTriggered[1] && letGoCount >= 1 && entropy > 0.85) {
+    whisperTriggered[1] = true;
+    setTimeout(function() { triggerWhisper(whisperTexts[1]); }, 2000);
+  }
+  if (!whisperTriggered[2] && letGoCount >= 2 && currentOrder > N * 0.15) {
+    whisperTriggered[2] = true;
+    triggerWhisper(whisperTexts[2]);
+  }
+
+  if (whisperState === 'showing') {
+    whisperTimer += dt;
+    if (whisperTimer > 5) {
+      whisperEl.className = 'hide';
+      whisperState = 'fading';
+      whisperTimer = 0;
+    }
+  } else if (whisperState === 'fading') {
+    whisperTimer += dt;
+    if (whisperTimer > 6) {
+      whisperState = 'idle';
+    }
+  }
+
+  requestAnimationFrame(draw);
+}
+
+requestAnimationFrame(draw);
+</script>
+</body>
+</html>
