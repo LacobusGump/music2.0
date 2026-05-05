@@ -28,14 +28,14 @@
   btn.setAttribute('aria-label', 'Listen to this page');
   btn.innerHTML = '&#9654; Listen';
   btn.style.cssText = 'position:fixed;bottom:20px;right:20px;z-index:9999;' +
-    'background:rgba(12,12,20,0.9);color:#c9a44a;border:1px solid #c9a44a30;' +
+    'background:rgba(12,12,20,0.9);color:#b8753a;border:1px solid #b8753a30;' +
     'border-radius:20px;padding:8px 16px;font-family:Georgia,serif;' +
     'font-size:0.78em;cursor:pointer;transition:all 0.3s;' +
     'backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);' +
     '-webkit-tap-highlight-color:transparent;user-select:none;';
 
-  btn.onmouseenter = function(){ if(!speaking) btn.style.borderColor='#c9a44a'; };
-  btn.onmouseleave = function(){ if(!speaking) btn.style.borderColor='#c9a44a30'; };
+  btn.onmouseenter = function(){ if(!speaking) btn.style.borderColor='#b8753a'; };
+  btn.onmouseleave = function(){ if(!speaking) btn.style.borderColor='#b8753a30'; };
 
   // ═══════════════════════════════════
   // MP3 PLAYBACK (the good voice)
@@ -173,12 +173,12 @@
   function setBtn(state){
     if(state==='pause'){
       btn.innerHTML='&#9646;&#9646; Pause';
-      btn.style.borderColor='#c9a44a'; btn.style.color='#e8e4dc';
+      btn.style.borderColor='#b8753a'; btn.style.color='#e8e4dc';
     } else if(state==='resume'){
       btn.innerHTML='&#9654; Resume';
     } else {
       btn.innerHTML='&#9654; Listen';
-      btn.style.borderColor='#c9a44a30'; btn.style.color='#c9a44a';
+      btn.style.borderColor='#b8753a30'; btn.style.color='#b8753a';
     }
   }
 
