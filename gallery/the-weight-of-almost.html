@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>the weight of almost</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:#0a0706;overflow:hidden;cursor:text;
+  font-family:Georgia,serif;}
+canvas{display:block;width:100vw;height:100vh;}
+#back{position:fixed;top:20px;left:24px;font-family:Georgia,serif;
+  font-size:0.72em;color:rgba(139,74,46,0.12);text-decoration:none;
+  z-index:10;letter-spacing:0.06em;transition:color 0.5s;cursor:pointer;}
+#back:hover{color:rgba(184,117,58,0.4);}
+#hint{position:fixed;bottom:40px;left:0;right:0;text-align:center;
+  font-size:0.65em;color:rgba(139,74,46,0.08);letter-spacing:0.15em;
+  pointer-events:none;transition:opacity 8s ease;}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<a id="back" href="/gallery/">&larr; gallery</a>
+<div id="hint">type</div>
+<script>
+// the weight of almost
+//
+// you have something to say.
+// you start typing. the letters appear.
+// but they dissolve. they're made of embers.
+//
+// type fast — frantic — and the letters burn up before
+// they form words. the rush kills them.
+//
+// type slowly. one letter. wait. another.
+// slow letters glow longer. they persist.
+// you can almost read what you wrote.
+//
+// the piece is about the messages you almost sent.
+// the things you almost said.
+// the weight of almost.
+
+var cv = document.getElementById('c');
+var cx = cv.getContext('2d');
+var W, H;
+
+function resize() {
+  W = cv.width = innerWidth;
+  H = cv.height = innerHeight;
+}
+resize();
+addEventListener('resize', resize);
+
+// Each letter is a cloud of particles
+var letters = [];
+var cursorX = 60;
+var cursorY;
+var lineHeight = 38;
+var lastKeyTime = 0;
+var totalTyped = 0;
+var hintEl = document.getElementById('hint');
+var hintShown = true;
+
+function Letter(char, x, y, patience) {
+  this.char = char;
+  this.x = x;
+  this.y = y;
+  this.patience = patience; // 0-1, how slowly it was typed
+  this.age = 0;
+  this.particles = [];
+  this.born = performance.now();
+
+  // Create particles from the letter shape
+  // Draw letter to offscreen canvas, sample pixels
+  var size = 28;
+  var off = document.createElement('canvas');
+  off.width = size * 2;
+  off.height = size * 2;
+  var oc = off.getContext('2d');
+  oc.font = size + 'px Georgia';
+  oc.fillStyle = '#fff';
+  oc.textBaseline = 'middle';
+  oc.textAlign = 'center';
+  oc.fillText(char, size, size);
+
+  var data = oc.getImageData(0, 0, size * 2, size * 2).data;
+  var step = 2;
+  for (var py = 0; py < size * 2; py += step) {
+    for (var px = 0; px < size * 2; px += step) {
+      var idx = (py * size * 2 + px) * 4;
+      if (data[idx + 3] > 80) {
+        this.particles.push({
+          // position relative to letter center
+          ox: (px - size),
+          oy: (py - size),
+          x: (px - size),
+          y: (py - size),
+          vx: 0,
+          vy: 0,
+          life: 1,
+          drift: (Math.random() - 0.5) * 0.3
+        });
+      }
+    }
+  }
+}
+
+Letter.prototype.update = function(dt) {
+  this.age += dt;
+
+  // Lifespan based on patience
+  // Fast typing: ~1.5 seconds
+  // Slow typing: ~12 seconds
+  var lifespan = 1.5 + this.patience * 10.5;
+  var decay = this.age / lifespan;
+
+  // Phase 1: stable (0 to 40% of lifespan)
+  // Phase 2: drift (40% to 70%)
+  // Phase 3: dissolve (70% to 100%)
+
+  var stable = decay < 0.4;
+  var drifting = decay >= 0.4 && decay < 0.7;
+  var dissolving = decay >= 0.7;
+
+  for (var i = 0; i < this.particles.length; i++) {
+    var p = this.particles[i];
+
+    if (stable) {
+      // Gentle breathing
+      var breathe = Math.sin(this.age * 1.5 + p.ox * 0.1) * 0.3;
+      p.x = p.ox + breathe;
+      p.y = p.oy + Math.cos(this.age * 1.2 + p.oy * 0.1) * 0.2;
+      p.life = 1;
+    } else if (drifting) {
+      // Start to wander
+      var driftPhase = (decay - 0.4) / 0.3;
+      p.vx += (Math.random() - 0.5) * 0.08 * driftPhase;
+      p.vy -= Math.random() * 0.03 * driftPhase; // rise like heat
+      p.vx *= 0.98;
+      p.vy *= 0.98;
+      p.x += p.vx;
+      p.y += p.vy;
+      p.life = 1 - driftPhase * 0.3;
+    } else {
+      // Dissolve upward like ash
+      var dissPhase = (decay - 0.7) / 0.3;
+      p.vx += (Math.random() - 0.5) * 0.15;
+      p.vy -= 0.05 + Math.random() * 0.1;
+      p.vx *= 0.97;
+      p.vy *= 0.97;
+      p.x += p.vx;
+      p.y += p.vy;
+      p.life = Math.max(0, 1 - dissPhase);
+    }
+  }
+
+  return decay < 1.15; // alive?
+};
+
+Letter.prototype.draw = function(cx) {
+  for (var i = 0; i < this.particles.length; i++) {
+    var p = this.particles[i];
+    if (p.life <= 0) continue;
+
+    var px = this.x + p.x;
+    var py = this.y + p.y;
+
+    // Color: ember palette
+    // Patient letters glow warmer gold
+    // Rushed letters are dim orange
+    var warmth = this.patience;
+    var r = Math.floor(184 + warmth * 48);
+    var g = Math.floor(90 + warmth * 117);
+    var b = Math.floor(30 + warmth * 130);
+    var a = p.life * (0.3 + warmth * 0.5);
+
+    cx.fillStyle = 'rgba(' + r + ',' + g + ',' + b + ',' + a.toFixed(3) + ')';
+    cx.fillRect(px, py, 2, 2);
+
+    // Glow for patient letters
+    if (warmth > 0.5 && p.life > 0.5) {
+      var glow = warmth * p.life * 0.04;
+      cx.fillStyle = 'rgba(232,207,160,' + glow.toFixed(4) + ')';
+      cx.beginPath();
+      cx.arc(px, py, 4 + warmth * 3, 0, Math.PI * 2);
+      cx.fill();
+    }
+  }
+};
+
+// Cursor blink
+var cursorBlink = 0;
+
+// Ghost words that appear very faintly when nothing is typed
+var ghosts = [
+  "i should have said",
+  "what i meant was",
+  "i'm sorry i",
+  "the truth is",
+  "i almost told you",
+  "what i never",
+  "if you knew",
+  "i keep thinking",
+  "you deserved to hear",
+  "the part i left out"
+];
+var ghostText = '';
+var ghostAlpha = 0;
+var ghostTimer = 0;
+var idleTime = 0;
+var ghostIndex = 0;
+
+function draw() {
+  var now = performance.now();
+
+  // Very slow fade — not full clear, so dissolved particles leave traces
+  cx.fillStyle = 'rgba(10,7,6,0.08)';
+  cx.fillRect(0, 0, W, H);
+
+  cursorBlink += 0.03;
+  idleTime += 1/60;
+
+  // Update and draw letters
+  var alive = [];
+  for (var i = 0; i < letters.length; i++) {
+    if (letters[i].update(1/60)) {
+      alive.push(letters[i]);
+    }
+  }
+  letters = alive;
+
+  for (var i = 0; i < letters.length; i++) {
+    letters[i].draw(cx);
+  }
+
+  // Draw cursor
+  if (!cursorY) cursorY = H * 0.35;
+  var ca = 0.15 + Math.sin(cursorBlink) * 0.1;
+  cx.fillStyle = 'rgba(184,117,58,' + ca.toFixed(3) + ')';
+  cx.fillRect(cursorX, cursorY - 14, 1.5, 28);
+
+  // Ghost text when idle
+  if (idleTime > 6 && totalTyped === 0) {
+    ghostTimer += 1/60;
+    if (ghostTimer > 4) {
+      ghostTimer = 0;
+      ghostIndex = (ghostIndex + 1) % ghosts.length;
+      ghostText = ghosts[ghostIndex];
+    }
+    ghostAlpha = Math.min(0.06, ghostAlpha + 0.0003);
+    cx.font = '18px Georgia';
+    cx.textAlign = 'center';
+    cx.fillStyle = 'rgba(139,74,46,' + ghostAlpha.toFixed(4) + ')';
+    cx.fillText(ghostText, W/2, H * 0.65);
+  } else if (idleTime > 12 && totalTyped > 0) {
+    // After typing, different ghosts
+    ghostTimer += 1/60;
+    ghostAlpha = Math.min(0.05, ghostAlpha + 0.0002);
+    cx.font = '14px Georgia';
+    cx.textAlign = 'center';
+    cx.fillStyle = 'rgba(139,74,46,' + ghostAlpha.toFixed(4) + ')';
+    cx.fillText('the ones that lasted were the slow ones', W/2, H * 0.85);
+  }
+
+  requestAnimationFrame(draw);
+}
+
+// Keyboard input
+addEventListener('keydown', function(e) {
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  if (e.key === 'Escape' || e.key === 'Tab') return;
+
+  // Hide hint
+  if (hintShown) {
+    hintEl.style.opacity = '0';
+    hintShown = false;
+  }
+
+  idleTime = 0;
+  ghostAlpha = 0;
+
+  var now = performance.now();
+  var gap = now - lastKeyTime;
+  lastKeyTime = now;
+
+  if (e.key === 'Enter') {
+    cursorX = 60;
+    cursorY += lineHeight;
+    if (cursorY > H * 0.85) {
+      cursorY = H * 0.2;
+    }
+    return;
+  }
+
+  if (e.key === 'Backspace') {
+    // Can't unsay what dissolves
+    return;
+  }
+
+  if (e.key.length !== 1) return;
+
+  // Patience: how long since last keystroke
+  // < 80ms = frantic (patience 0)
+  // > 1500ms = deliberate (patience 1)
+  var patience;
+  if (totalTyped === 0) {
+    patience = 0.7; // first letter gets some grace
+  } else {
+    patience = Math.min(1, Math.max(0, (gap - 80) / 1420));
+  }
+
+  var letter = new Letter(e.key, cursorX, cursorY, patience);
+  letters.push(letter);
+
+  cursorX += 16 + Math.random() * 3;
+  totalTyped++;
+
+  if (cursorX > W - 80) {
+    cursorX = 60;
+    cursorY += lineHeight;
+    if (cursorY > H * 0.85) {
+      cursorY = H * 0.2;
+    }
+  }
+
+  e.preventDefault();
+});
+
+// Touch support
+var touchTyping = false;
+addEventListener('touchstart', function(e) {
+  if (!touchTyping) {
+    touchTyping = true;
+    // Create an invisible input for mobile keyboard
+    var inp = document.createElement('input');
+    inp.style.cssText = 'position:fixed;top:-100px;left:0;opacity:0;';
+    inp.setAttribute('autocomplete', 'off');
+    inp.setAttribute('autocorrect', 'off');
+    inp.setAttribute('autocapitalize', 'off');
+    document.body.appendChild(inp);
+    inp.focus();
+    inp.addEventListener('input', function(ev) {
+      var char = inp.value.slice(-1);
+      if (char) {
+        var event = new KeyboardEvent('keydown', { key: char });
+        dispatchEvent(event);
+      }
+      inp.value = '';
+    });
+  }
+});
+
+draw();
+</script>
+</body>
+</html>
