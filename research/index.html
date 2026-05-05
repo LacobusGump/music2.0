@@ -630,104 +630,50 @@ function render() {
     for (var i = 0; i < N; i++) groupMembers[nodes[i].g].push(nodes[i]);
     for (var g = 0; g < 5; g++) groupMembers[g].sort(function(a,b){return b.k - a.k;});
 
-    // Phase 2 positions: override Kuramoto centroids with evenly-spaced regions
-    // Framework=center, Bio=top-left, Physics=top-right, Applied=bot-left, Foundation=bot-right
-    var pad = 80;
-    var qW = (W - pad * 3) / 2; // quadrant width
-    var qH = (H - pad * 3) / 2; // quadrant height
-    var gc = [
-      {x: W/2,           y: H * 0.42},           // Framework: center
-      {x: pad + qW/2,    y: pad + qH/2},          // Biology: top-left
-      {x: W - pad - qW/2, y: pad + qH/2},         // Physics: top-right
-      {x: pad + qW/2,    y: H - pad - qH/2},      // Applied: bot-left
-      {x: W - pad - qW/2, y: H - pad - qH/2},     // Foundation: bot-right
-    ];
+    // Phase 2: PERIODIC TABLE — rows = groups, sorted by K
+    var margin = 50;
+    var usableW = W - margin * 2;
+    var usableH = H - margin * 2;
 
-    var PHI = (1 + Math.sqrt(5)) / 2;
-    var GA = 2.39996322;
-
-    // ═══ FRAMEWORK (11) — golden spiral. the nucleus. ═══
-    var fw = groupMembers[0];
-    var fwR = Math.min(qW, qH) * 0.35;
-    for (var j = 0; j < fw.length; j++) {
-      var r = 10 + Math.sqrt(j / fw.length) * fwR;
-      var a = j * GA;
-      fw[j].shapeX = gc[0].x + Math.cos(a) * r;
-      fw[j].shapeY = gc[0].y + Math.sin(a) * r;
+    // Each group gets a row. Large groups split into 2 sub-rows.
+    var totalSubRows = 0;
+    var groupSubRows = [];
+    for (var g = 0; g < 5; g++) {
+      var sr = groupMembers[g].length > 10 ? 2 : 1;
+      groupSubRows.push(sr);
+      totalSubRows += sr;
     }
 
-    // ═══ BIOLOGY (18) — double helix. ═══
-    var bio = groupMembers[1];
-    var helixH = qH * 0.8;
-    var helixW = qW * 0.25;
-    for (var j = 0; j < bio.length; j++) {
-      var t2 = (j / (bio.length - 1)) * Math.PI * 3;
-      var strand = j % 2;
-      var sign = strand === 0 ? 1 : -1;
-      var yOff = (j / (bio.length - 1) - 0.5) * helixH;
-      bio[j].shapeX = gc[1].x + Math.sin(t2) * helixW * sign;
-      bio[j].shapeY = gc[1].y + yOff;
-    }
+    var rowH = usableH / (totalSubRows + 0.5);
+    var currentY = margin + rowH * 0.5;
 
-    // ═══ PHYSICS (16) — hexagonal crystal. ═══
-    var phys = groupMembers[2];
-    var hexR = Math.min(qW, qH) * 0.15;
-    for (var j = 0; j < phys.length; j++) {
-      if (j === 0) {
-        phys[j].shapeX = gc[2].x;
-        phys[j].shapeY = gc[2].y;
-      } else if (j <= 6) {
-        var angle = ((j - 1) / 6) * Math.PI * 2 - Math.PI / 6;
-        phys[j].shapeX = gc[2].x + Math.cos(angle) * hexR;
-        phys[j].shapeY = gc[2].y + Math.sin(angle) * hexR;
+    for (var g = 0; g < 5; g++) {
+      var members = groupMembers[g];
+      var count = members.length;
+      var subRows = groupSubRows[g];
+
+      if (subRows === 1) {
+        var cellW = usableW / (count + 0.5);
+        for (var j = 0; j < count; j++) {
+          members[j].shapeX = margin + cellW * (j + 0.25);
+          members[j].shapeY = currentY;
+        }
+        currentY += rowH;
       } else {
-        var oj = j - 7;
-        var outerN = phys.length - 7;
-        var angle = (oj / outerN) * Math.PI * 2 - Math.PI / 6 + Math.PI / outerN;
-        phys[j].shapeX = gc[2].x + Math.cos(angle) * hexR * 1.9;
-        phys[j].shapeY = gc[2].y + Math.sin(angle) * hexR * 1.9;
-      }
-    }
-
-    // ═══ APPLIED (13) — hub and spoke network. ═══
-    var app = groupMembers[3];
-    var spokeR1 = Math.min(qW, qH) * 0.15;
-    var spokeR2 = Math.min(qW, qH) * 0.30;
-    var innerN = Math.min(5, app.length - 1);
-    var outerN2 = app.length - 1 - innerN;
-    for (var j = 0; j < app.length; j++) {
-      if (j === 0) {
-        app[j].shapeX = gc[3].x;
-        app[j].shapeY = gc[3].y;
-      } else if (j <= innerN) {
-        var angle = ((j - 1) / innerN) * Math.PI * 2 - Math.PI / 2;
-        app[j].shapeX = gc[3].x + Math.cos(angle) * spokeR1;
-        app[j].shapeY = gc[3].y + Math.sin(angle) * spokeR1;
-      } else {
-        var oj = j - innerN - 1;
-        var angle = (oj / outerN2) * Math.PI * 2 - Math.PI / 2 + Math.PI / outerN2;
-        app[j].shapeX = gc[3].x + Math.cos(angle) * spokeR2;
-        app[j].shapeY = gc[3].y + Math.sin(angle) * spokeR2;
-      }
-    }
-
-    // ═══ FOUNDATION (14) — tree. trunk + branches. ═══
-    var found = groupMembers[4];
-    var treeH = qH * 0.75;
-    var treeW = qW * 0.40;
-    var trunkN = Math.min(3, found.length);
-    var branchN = found.length - trunkN;
-    for (var j = 0; j < found.length; j++) {
-      if (j < trunkN) {
-        found[j].shapeX = gc[4].x;
-        found[j].shapeY = gc[4].y - treeH * 0.35 + (j / (trunkN - 1 || 1)) * treeH * 0.25;
-      } else {
-        var bj = j - trunkN;
-        var side = bj % 2 === 0 ? -1 : 1;
-        var level = Math.floor(bj / 2);
-        var maxLevel = Math.ceil(branchN / 2);
-        found[j].shapeX = gc[4].x + side * treeW * (0.3 + level * 0.1);
-        found[j].shapeY = gc[4].y - treeH * 0.05 + (level / maxLevel) * treeH * 0.5;
+        var topCount = Math.ceil(count / 2);
+        var botCount = count - topCount;
+        var cellW1 = usableW / (topCount + 0.5);
+        var cellW2 = usableW / (botCount + 0.5);
+        for (var j = 0; j < topCount; j++) {
+          members[j].shapeX = margin + cellW1 * (j + 0.25);
+          members[j].shapeY = currentY;
+        }
+        currentY += rowH * 0.65;
+        for (var j = 0; j < botCount; j++) {
+          members[topCount + j].shapeX = margin + cellW2 * (j + 0.25);
+          members[topCount + j].shapeY = currentY;
+        }
+        currentY += rowH * 0.75;
       }
     }
   }
