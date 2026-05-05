@@ -1,6 +1,6 @@
 ---
 name: Session 37 Theory — The E7 Chain
-description: May 4, 2026. 137 from E7 topology. Mass formula from quiver. Born rule from Noether. Kill test complete. r = sqrt(2/pi) candidate. The process itself is novel.
+description: May 4-5, 2026. 137 from E7 topology. Mass formula from quiver. Born rule from Noether. Kill test complete. r candidates killed (√(2/π) and arctan(√(19/18))). Trinity-2 method (the 9). Gallery ember palette. The process itself is novel.
 type: project
 ---
 
@@ -35,9 +35,12 @@ type: project
 - Action corrected: S = ∫[K·R - ½|∇ψ|²]d⁴x
 - Counter-wave: ψ×ψ* = 1+1=3 (two unobservables → one observable)
 
-### 6. The Coefficient r
-- r = √(det(C_E7)/π) = √(2/π) is UNIQUE algebraic candidate
-- 1.30σ from CODATA 2022
+### 6. The Coefficient r (TWO CANDIDATES KILLED)
+- √(2/π): KILLED by Eguchi-Hanson spectral determinant (Δζ'(0) = -0.036747, not log(π))
+- arctan(√(19/18)): KILLED by precision (4 digits match, need 10+. 8.42 ppm = 56,000x worse than CODATA)
+- 19/18 = dim(E7)/roots(E7) = (h+1)/h IS real E7 data. h=18 is the right integer. Wrapping function unknown.
+- Graph scattering picture (drumhead into air) found the right neighborhood but not the formula
+- Trinity-2 method (the 9) produced the scattering insight that Trinity-1 couldn't find
 - CODATA 2026 separates √(2/π) from 4/5 at 8.2σ
 - 12 approaches, 9 spawned sub-computations, 10,000+ formulas tested
 - Wall: ζ'(0) needs full eigenvalue spectrum on Gibbons-Hawking metric
