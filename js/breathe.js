@@ -18,13 +18,8 @@ var PHI=(1+Math.sqrt(5))/2;
 
 // ═══ DETECT PAGE TYPE ═══
 var path=window.location.pathname;
-// Only the specific index pages we redesigned get light treatment.
-// Individual product/tool pages keep their own dark inline styles.
-var isLight=(
-  path==='/products/' || path==='/products/index.html' ||
-  path==='/support/' || path==='/support/index.html' ||
-  path==='/start-here/' || path==='/start-here/index.html'
-);
+// Everything is dark ember now. No light pages.
+var isLight=false;
 var isHomepage=(path==='/' || path==='/index.html');
 var isDark=!isLight && !isHomepage;
 
@@ -48,50 +43,11 @@ var fontRules=
   'letter-spacing:0.06em !important;}';
 
 if(isLight){
-  // ═══ WORKSHOP MODE — warm paper, ink text, wood accents ═══
-  style.textContent=fontRules+
-
-    // Text — warm charcoal on paper
-    'body{color:#2c2a26;}'+
-    'p{color:#2c2a26;}'+
-
-    // H2 — saddle brown, clean underline
-    'h2{color:#8b4513 !important;border-bottom:none;padding-bottom:8px;position:relative;}'+
-    'h2::after{content:"";position:absolute;bottom:0;left:0;right:60%;height:2px;'+
-    'background:#8b4513;opacity:0.3;}'+
-
-    // Result blocks — notebook callouts
-    '.result,.box{background:#ede8dd;'+
-    'border:none;border-left:3px solid #8b4513;'+
-    'box-shadow:none;border-radius:4px;}'+
-
-    // Equations — cream inlay
-    '.eq{background:#ede8dd;'+
-    'border:1px solid rgba(139,69,19,0.12);'+
-    'box-shadow:none;}'+
-
-    // Tables — subtle warmth
-    'tr:nth-child(even){background:rgba(139,69,19,0.04);}'+
-    'th{border-bottom:2px solid rgba(139,69,19,0.15) !important;}'+
-
-    // Monospace — dark wood on cream
-    'code,.eq,td{color:#5c4a32;}'+
-
-    // Links — saddle brown, underline on hover
-    'a{color:#8b4513;transition:color 0.3s;}'+
-    'a:hover{color:#6b3410;text-decoration:underline;text-shadow:none;}'+
-
-    // Scrollbar — warm
-    '::-webkit-scrollbar{width:6px;}'+
-    '::-webkit-scrollbar-track{background:#f4f0e8;}'+
-    '::-webkit-scrollbar-thumb{background:rgba(139,69,19,0.15);border-radius:3px;}'+
-    '::-webkit-scrollbar-thumb:hover{background:rgba(139,69,19,0.3);}'+
-
-    // Sacred/strong
-    '.sacred,.must-see,strong.sacred{color:#4a6741 !important;}';
+  // ═══ LIGHT MODE — unused, everything is dark ember now ═══
+  style.textContent=fontRules;
 
 }else{
-  // ═══ COSMOS MODE — dark pages (research, gallery, /33/) ═══
+  // ═══ EMBER MODE — all dark pages ═══
   style.textContent=fontRules+
 
     // Film grain overlay — keep on dark pages
@@ -99,44 +55,44 @@ if(isLight){
     'pointer-events:none;z-index:9998;opacity:0.018;mix-blend-mode:overlay;'+
     'background-image:url("data:image/svg+xml,%3Csvg viewBox=\'0 0 256 256\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cfilter id=\'n\'%3E%3CfeTurbulence type=\'fractalNoise\' baseFrequency=\'0.9\' numOctaves=\'4\' stitchTiles=\'stitch\'/%3E%3C/filter%3E%3Crect width=\'256\' height=\'256\' filter=\'url(%23n)\' opacity=\'1\'/%3E%3C/svg%3E");}'+
 
-    // Text — sandy
-    'body{color:#a09585;}'+
-    'p{color:#a09585;}'+
+    // Text — shell (quiet)
+    'body{color:#c4a088;}'+
+    'p{color:#c4a088;}'+
 
-    // Result blocks — dark glass cards
-    '.result,.box{background:linear-gradient(180deg,#0d0c12 0%,#0b0a10 100%);'+
-    'border:1px solid rgba(189,110,55,0.06);'+
-    'box-shadow:0 2px 8px rgba(0,0,0,0.3), inset 0 1px 0 rgba(189,110,55,0.03);}'+
+    // Result blocks — deep dark ember cards
+    '.result,.box{background:#120d0a;'+
+    'border:1px solid rgba(184,117,58,0.08);'+
+    'box-shadow:0 2px 8px rgba(0,0,0,0.3), inset 0 1px 0 rgba(184,117,58,0.03);}'+
 
-    // Equations — amber inlay
-    '.eq{background:linear-gradient(180deg,#0e0d14 0%,#0a0912 100%);'+
-    'border:1px solid rgba(189,110,55,0.08);'+
-    'box-shadow:0 1px 6px rgba(0,0,0,0.3), inset 0 1px 0 rgba(189,110,55,0.04);}'+
+    // Equations — ember inlay
+    '.eq{background:#120d0a;'+
+    'border:1px solid rgba(184,117,58,0.1);'+
+    'box-shadow:0 1px 6px rgba(0,0,0,0.3), inset 0 1px 0 rgba(184,117,58,0.04);}'+
 
-    // H2 rule — amber gradient
-    'h2{border-bottom:none;padding-bottom:8px;position:relative;color:#bd6e37 !important;}'+
+    // H2 rule — ember gradient
+    'h2{border-bottom:none;padding-bottom:8px;position:relative;color:#b8753a !important;}'+
     'h2::after{content:"";position:absolute;bottom:0;left:10%;right:10%;height:1px;'+
-    'background:linear-gradient(90deg,transparent,rgba(191,160,63,0.15),transparent);}'+
+    'background:linear-gradient(90deg,transparent,rgba(184,117,58,0.2),transparent);}'+
 
-    // Tables — gold tint
-    'tr:nth-child(even){background:rgba(191,160,63,0.015);}'+
-    'th{border-bottom:1px solid rgba(191,160,63,0.1) !important;}'+
+    // Tables — ember tint
+    'tr:nth-child(even){background:rgba(184,117,58,0.02);}'+
+    'th{border-bottom:1px solid rgba(184,117,58,0.1) !important;}'+
 
-    // Monospace — warm
-    'code,.eq,td{color:#c4b896;}'+
+    // Monospace — code green
+    'code,.eq,td{color:#7a9a6a;}'+
 
-    // Links — amber
-    'a{color:#bd6e37;transition:color 0.3s,text-shadow 0.3s;}'+
-    'a:hover{color:#d4884a;text-shadow:0 0 8px rgba(189,110,55,0.2);}'+
+    // Links — deep amber
+    'a{color:#a0622d;transition:color 0.3s,text-shadow 0.3s;}'+
+    'a:hover{color:#e8cfa0;text-shadow:0 0 8px rgba(184,117,58,0.15);}'+
 
-    // Scrollbar — amber
+    // Scrollbar — ember
     '::-webkit-scrollbar{width:6px;}'+
-    '::-webkit-scrollbar-track{background:#08080d;}'+
-    '::-webkit-scrollbar-thumb{background:rgba(189,110,55,0.12);border-radius:3px;}'+
-    '::-webkit-scrollbar-thumb:hover{background:rgba(189,110,55,0.25);}'+
+    '::-webkit-scrollbar-track{background:#1a110d;}'+
+    '::-webkit-scrollbar-thumb{background:rgba(184,117,58,0.12);border-radius:3px;}'+
+    '::-webkit-scrollbar-thumb:hover{background:rgba(184,117,58,0.25);}'+
 
     // Sacred
-    '.sacred,.must-see,strong.sacred{color:#5b3e82 !important;}';
+    '.sacred,.must-see,strong.sacred{color:#7a9a6a !important;}';
 }
 document.head.appendChild(style);
 
@@ -155,13 +111,13 @@ if(h2s.length>0&&'IntersectionObserver' in window){
           e.target.style.opacity='0.7';
         }
       }else{
-        // Dark mode: amber glow
+        // Dark mode: ember glow
         if(e.isIntersecting){
           e.target.style.transition='text-shadow 0.8s ease, opacity 0.8s ease';
-          e.target.style.textShadow='0 0 10px rgba(189,110,55,0.25), 0 0 25px rgba(189,110,55,0.06)';
+          e.target.style.textShadow='0 0 10px rgba(184,117,58,0.25), 0 0 25px rgba(184,117,58,0.06)';
           e.target.style.opacity='1';
         }else{
-          e.target.style.textShadow='0 0 6px rgba(189,110,55,0.04)';
+          e.target.style.textShadow='0 0 6px rgba(184,117,58,0.04)';
           e.target.style.opacity='0.75';
         }
       }
@@ -227,16 +183,16 @@ var boxes=document.querySelectorAll('.result, .box, .eq');
 if(isLight){
   // Light mode: no animation on boxes. They're notebook callouts. Still.
 }else{
-  // Dark mode: breathing amber side-glow
+  // Dark mode: breathing ember side-glow
   for(var i=0;i<boxes.length;i++){
     var b=boxes[i];
     b.style.transition='border-color 1.618s ease';
     (function(el,delay){
       setInterval(function(){
-        el.style.borderLeft='2px solid rgba(189,110,55,0.25)';
-        el.style.boxShadow='inset 3px 0 12px rgba(189,110,55,0.06)';
+        el.style.borderLeft='2px solid rgba(184,117,58,0.25)';
+        el.style.boxShadow='inset 3px 0 12px rgba(184,117,58,0.06)';
         setTimeout(function(){
-          el.style.borderLeft='2px solid rgba(189,110,55,0.06)';
+          el.style.borderLeft='2px solid rgba(184,117,58,0.06)';
           el.style.boxShadow='none';
         },810);
       },3236+delay);
@@ -249,9 +205,9 @@ var trs=document.querySelectorAll('tr');
 for(var i=0;i<trs.length;i++){
   trs[i].style.transition='background 0.3s';
   if(isLight){
-    trs[i].addEventListener('mouseenter',function(){this.style.background='rgba(139,69,19,0.06)';});
+    trs[i].addEventListener('mouseenter',function(){this.style.background='rgba(184,117,58,0.06)';});
   }else{
-    trs[i].addEventListener('mouseenter',function(){this.style.background='rgba(191,160,63,0.06)';});
+    trs[i].addEventListener('mouseenter',function(){this.style.background='rgba(184,117,58,0.06)';});
   }
   trs[i].addEventListener('mouseleave',function(){this.style.background='';});
 }
@@ -303,10 +259,10 @@ if(isDark && !isHomepage){
       var flare=(Math.sin(bgT*0.3+m.phase*3)>0.97)?1.8:1.0;
       var alpha=m.base*flick*flare;
 
-      // Color: shift between amber (189,110,55) and gold (191,160,63)
-      var r=Math.floor(189+m.warm*2);
-      var g=Math.floor(110+m.warm*50);
-      var b=Math.floor(55+m.warm*8);
+      // Color: shift between ember (184,117,58) and spark (232,207,160)
+      var r=Math.floor(184+m.warm*16);
+      var g=Math.floor(117+m.warm*30);
+      var b=Math.floor(58+m.warm*20);
 
       var gl=bgCx.createRadialGradient(m.x,m.y,0,m.x,m.y,m.s*5);
       gl.addColorStop(0,'rgba('+r+','+g+','+b+','+(alpha*0.4)+')');
