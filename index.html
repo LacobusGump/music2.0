@@ -17,9 +17,9 @@
 body{background:#0c0b09;color:#d4cec4;font-family:Georgia,serif;
   height:100vh;height:100dvh;overflow:hidden;}
 
-/* Dusk gradient — dark cosmos at top, warm earth at bottom */
+/* Deep dark — let the constellation be the light */
 body::before{content:"";position:fixed;top:0;left:0;width:100%;height:100%;
-  background:linear-gradient(180deg, #0c0b09 0%, #231f19 25%, #3d3530 55%, #574d42 100%);
+  background:linear-gradient(180deg, #0a0908 0%, #0f0d0a 40%, #171310 100%);
   z-index:-1;pointer-events:none;}
 
 a{color:#a0622d;text-decoration:none;}
@@ -182,9 +182,9 @@ for(var i=0;i<N;i++){
   nyA.push(Math.sin(a)*r);
 }
 
-// Neighbors
+// Neighbors — wider radius so the web of connections is rich
 var nbrL=[];
-for(var i=0;i<N;i++){var nn=[];for(var j=0;j<N;j++){if(j===i)continue;var ddx=nxA[j]-nxA[i],ddy=nyA[j]-nyA[i];if(ddx*ddx+ddy*ddy<3.5)nn.push(j);}nbrL.push(nn);}
+for(var i=0;i<N;i++){var nn=[];for(var j=0;j<N;j++){if(j===i)continue;var ddx=nxA[j]-nxA[i],ddy=nyA[j]-nyA[i];if(ddx*ddx+ddy*ddy<5.0)nn.push(j);}nbrL.push(nn);}
 
 // Phases — start at zero
 var phases=new Float64Array(N);
@@ -193,11 +193,34 @@ var phases=new Float64Array(N);
 var omega=new Float64Array(N);
 for(var i=0;i<N;i++) omega[i]=(0.3+Math.random()*0.7)*Math.PI*2*(0.8+Math.random()*0.4);
 
-// Colors — warm palette, earthy for dusk
-var COLS=[
-  [180,110,50],[140,105,65],[90,130,80],[200,165,110],
-  [74,103,65],[120,100,70],[180,140,60],[160,100,50]
+// ═══ PALETTE — earth tones that BURN ═══
+// Each node gets a fixed color based on golden-ratio assignment.
+// These are not muted. These are firelight, copper, autumn, moss at dawn.
+var PALETTE = [
+  [210, 120, 45],   // copper flame
+  [185, 82, 40],    // saddle brown — bright
+  [190, 145, 60],   // amber wood
+  [165, 90, 35],    // burnt sienna
+  [95, 155, 70],    // moss in sunlight
+  [75, 130, 60],    // deep moss, warm
+  [220, 155, 65],   // honey amber
+  [200, 100, 40],   // fired clay
+  [140, 170, 75],   // autumn chartreuse
+  [180, 130, 50],   // golden oak
+  [160, 75, 35],    // dark copper
+  [110, 145, 65],   // fern green
+  [230, 170, 80],   // warm firelight
+  [170, 105, 45],   // teak
+  [130, 160, 70],   // sage bright
+  [195, 135, 55],   // caramel
+  [145, 85, 40],    // raw umber warm
 ];
+
+// Assign each node a fixed color — golden ratio distribution for visual variety
+var nodeCol = new Array(N);
+for(var i=0;i<N;i++){
+  nodeCol[i] = PALETTE[Math.floor((i * PHI * 7) % PALETTE.length)];
+}
 
 // Simulation step
 var Rval=0;
@@ -228,13 +251,15 @@ function project(x,y,z,sc,cx2,cy2){
 
 // ═══ DRAW ═══
 function draw() {
-  // Clear transparent — let the body dusk gradient show through
   cx.clearRect(0,0,W,H);
   step();
-  camRY+=0.0015; // slow auto-rotate
+  camRY+=0.0018; // slow auto-rotate
 
   var sc=Math.min(W,H)*0.055;
   var cx2=W/2, cy2=H*0.48;
+
+  // Global breathing — R drives a collective pulse
+  var globalBreath = 0.85 + Rval * 0.3;
 
   // Project all nodes
   var proj=[];
@@ -246,10 +271,11 @@ function draw() {
   }
   proj.sort(function(a,b){return b.z-a.z;});
 
-  // Draw connections — very subtle
-  cx.globalCompositeOperation='lighter';
   var idxMap=new Array(N);
   for(var k=0;k<N;k++) idxMap[proj[k].i]=proj[k];
+
+  // ═══ CONNECTIONS — the coupling made visible ═══
+  cx.globalCompositeOperation='lighter';
 
   for(var i=0;i<N;i++){
     var nd=idxMap[i]; if(!nd) continue;
@@ -260,31 +286,79 @@ function draw() {
       var pdiff=Math.abs(nd.phase-nb.phase);
       if(pdiff>Math.PI) pdiff=Math.PI*2-pdiff;
       var sync=1-pdiff/Math.PI;
-      if(sync<0.35) continue;
-      var alpha=sync*sync*0.70*Math.min(nd.persp,nb.persp);
-      var ci=Math.floor(nd.phase/(Math.PI/4))%8;
-      var col=COLS[ci];
-      cx.strokeStyle='rgba('+col[0]+','+col[1]+','+col[2]+','+alpha.toFixed(3)+')';
-      cx.lineWidth=(0.6+sync*1.2)*nd.persp;
+      if(sync<0.2) continue;
+
+      // Sync drives everything — low sync = ghost line, high sync = bright burning wire
+      var s2 = sync*sync;
+      var s3 = s2*sync;
+      var pMin = Math.min(nd.persp,nb.persp);
+
+      // Blend the two endpoint colors
+      var ca=nodeCol[nd.i], cb=nodeCol[nb.i];
+      var mr=Math.round((ca[0]+cb[0])*0.5);
+      var mg=Math.round((ca[1]+cb[1])*0.5);
+      var mb=Math.round((ca[2]+cb[2])*0.5);
+
+      // At high sync, brighten the line toward white-hot
+      var whiten = s3 * 0.4;
+      var lr = Math.min(255, Math.round(mr + (255-mr)*whiten));
+      var lg = Math.min(255, Math.round(mg + (255-mg)*whiten));
+      var lb = Math.min(255, Math.round(mb + (255-mb)*whiten));
+
+      var alpha = s2 * 0.55 * pMin * globalBreath;
+      cx.strokeStyle='rgba('+lr+','+lg+','+lb+','+alpha.toFixed(3)+')';
+      cx.lineWidth=(0.4+s2*1.8)*pMin;
       cx.beginPath();cx.moveTo(nd.sx,nd.sy);cx.lineTo(nb.sx,nb.sy);cx.stroke();
+
+      // At very high sync, draw a second wider dim line for glow effect
+      if(sync > 0.7){
+        var glowA = (sync-0.7)*2.0 * 0.12 * pMin;
+        cx.strokeStyle='rgba('+mr+','+mg+','+mb+','+glowA.toFixed(3)+')';
+        cx.lineWidth=(2+s2*4)*pMin;
+        cx.beginPath();cx.moveTo(nd.sx,nd.sy);cx.lineTo(nb.sx,nb.sy);cx.stroke();
+      }
     }
   }
 
-  // Draw nodes — small, breathing, no labels
+  // ═══ NODES — embers in the dark ═══
   for(var k=0;k<proj.length;k++){
     var nd=proj[k];
-    var ci=Math.floor(nd.phase/(Math.PI/4))%8;
-    var col=COLS[ci];
-    var size=(1.8+Math.sin(phases[nd.i])*0.3)*nd.persp;
-    var bright=(0.90+Math.abs(Math.sin(phases[nd.i]))*0.60)*nd.persp;
+    var col=nodeCol[nd.i];
 
-    // Soft glow
-    if(bright>0.25){
-      cx.fillStyle='rgba('+col[0]+','+col[1]+','+col[2]+','+(bright*0.25).toFixed(3)+')';
-      cx.fillRect(nd.sx-size*2.5,nd.sy-size*2.5,size*5,size*5);
+    // Dramatic breathing — real expansion/contraction
+    var breath = Math.sin(phases[nd.i]);
+    var size = (2.0 + breath*0.8) * nd.persp * globalBreath;
+    var bright = (0.7 + Math.abs(breath)*0.5) * nd.persp;
+
+    // Radial glow — soft halo, not a rectangle
+    // Only for foreground nodes (persp > 0.6) to save GPU on distant ones
+    if(bright>0.15 && nd.persp > 0.6){
+      var glowR = size * 4.5;
+      var grad = cx.createRadialGradient(nd.sx,nd.sy,size*0.3, nd.sx,nd.sy,glowR);
+      grad.addColorStop(0,'rgba('+col[0]+','+col[1]+','+col[2]+','+(bright*0.20).toFixed(3)+')');
+      grad.addColorStop(0.35,'rgba('+col[0]+','+col[1]+','+col[2]+','+(bright*0.07).toFixed(3)+')');
+      grad.addColorStop(1,'rgba('+col[0]+','+col[1]+','+col[2]+',0)');
+      cx.fillStyle=grad;
+      cx.fillRect(nd.sx-glowR,nd.sy-glowR,glowR*2,glowR*2);
     }
-    // Core
-    cx.fillStyle='rgba('+col[0]+','+col[1]+','+col[2]+','+bright.toFixed(3)+')';
+
+    // Hot core — brighter center fading to color at edge
+    var hotFactor = Math.max(0, breath) * 0.35;
+    var cr = Math.min(255, Math.round(col[0]+(255-col[0])*hotFactor));
+    var cg = Math.min(255, Math.round(col[1]+(255-col[1])*hotFactor));
+    var cb = Math.min(255, Math.round(col[2]+(255-col[2])*hotFactor));
+
+    if(nd.persp > 0.5){
+      // Full radial gradient core for foreground nodes
+      var coreGrad = cx.createRadialGradient(nd.sx,nd.sy,0, nd.sx,nd.sy,size);
+      coreGrad.addColorStop(0,'rgba('+cr+','+cg+','+cb+','+Math.min(1,bright*1.1).toFixed(3)+')');
+      coreGrad.addColorStop(0.6,'rgba('+col[0]+','+col[1]+','+col[2]+','+bright.toFixed(3)+')');
+      coreGrad.addColorStop(1,'rgba('+col[0]+','+col[1]+','+col[2]+','+(bright*0.25).toFixed(3)+')');
+      cx.fillStyle=coreGrad;
+    } else {
+      // Simple fill for background nodes — still visible, just cheaper
+      cx.fillStyle='rgba('+cr+','+cg+','+cb+','+bright.toFixed(3)+')';
+    }
     cx.beginPath();cx.arc(nd.sx,nd.sy,size,0,Math.PI*2);cx.fill();
   }
 
