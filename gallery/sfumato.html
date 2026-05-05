@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>sfumato</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:#0a0705;overflow:hidden;cursor:none;}
+canvas{display:block;width:100vw;height:100vh;}
+#cursor{position:fixed;width:6px;height:6px;border-radius:50%;
+  pointer-events:none;z-index:10;
+  background:radial-gradient(circle,rgba(184,117,58,0.12),rgba(184,117,58,0));
+  transform:translate(-50%,-50%);transition:opacity 0.8s;opacity:0;}
+#whisper{position:fixed;left:0;right:0;text-align:center;
+  font-family:Georgia,serif;font-size:0.82em;letter-spacing:0.18em;
+  color:rgba(232,207,160,0);pointer-events:none;z-index:5;
+  transition:color 12s ease;}
+#back{position:fixed;top:20px;left:24px;font-family:Georgia,serif;
+  font-size:0.72em;color:rgba(139,74,46,0.12);text-decoration:none;
+  z-index:10;letter-spacing:0.06em;transition:color 0.5s;cursor:pointer;}
+#back:hover{color:rgba(184,117,58,0.4);}
+@media(hover:none){#cursor{display:none;}body{cursor:default;}}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<a id="back" href="/gallery/">&larr; gallery</a>
+<div id="cursor"></div>
+<div id="whisper">stay</div>
+<script>
+// sfumato
+//
+// leonardo built the mona lisa from hundreds of translucent glazes.
+// no edges. smoke. the eye finishes what the hand suggests.
+//
+// 137 kuramoto oscillators. each one a translucent radial gradient.
+// incoherent: cool murk. coherent: warmth emerges. a form almost appears.
+// your visual cortex completes what the math proposes.
+//
+// three tones, detuned. as coherence increases, they converge
+// into a perfect chord. the sound couples with the sight.
+//
+// your presence is K, the coupling constant.
+// closer to center, more still — higher K.
+// you are literally pulling oscillators into phase lock
+// by paying attention.
+//
+// if you see a face, that is yours.
+// i only drew 137 circles.
+
+var cv = document.getElementById('c');
+var cx = cv.getContext('2d');
+var cursorEl = document.getElementById('cursor');
+var whisperEl = document.getElementById('whisper');
+var W, H, midX, midY, scale;
+
+function resize() {
+  W = cv.width = innerWidth;
+  H = cv.height = innerHeight;
+  midX = W / 2;
+  midY = H / 2;
+  scale = Math.min(W, H);
+}
+resize();
+addEventListener('resize', resize);
+
+// ═══════════════════════════════════
+// AUDIO — three tones converging
+// ═══════════════════════════════════
+var actx = null;
+var masterGain = null;
+var tones = [];
+var audioReady = false;
+
+function initAudio() {
+  if (audioReady) return;
+  audioReady = true;
+  try {
+    actx = new (window.AudioContext || window.webkitAudioContext)();
+
+    masterGain = actx.createGain();
+    masterGain.gain.value = 0;
+    masterGain.connect(actx.destination);
+
+    // warm low-pass
+    var lpf = actx.createBiquadFilter();
+    lpf.type = 'lowpass';
+    lpf.frequency.value = 180;
+    lpf.Q.value = 0.5;
+    lpf.connect(masterGain);
+
+    // three voices — when incoherent, they're detuned
+    // when coherent, they converge to a just-intoned chord: C2, G2, C3
+    // fundamental: 65.41 Hz (C2)
+    // fifth: 98.0 Hz (G2, ratio 3/2)
+    // octave: 130.81 Hz (C3, ratio 2/1)
+    var targets = [65.41, 98.0, 130.81];
+    var detunes = [3.5, -4.2, 5.8]; // Hz of initial detuning
+
+    for (var i = 0; i < 3; i++) {
+      var osc = actx.createOscillator();
+      osc.type = 'sine';
+      osc.frequency.value = targets[i] + detunes[i]; // start detuned
+      var g = actx.createGain();
+      g.gain.value = i === 0 ? 0.5 : i === 1 ? 0.25 : 0.15;
+      osc.connect(g);
+      g.connect(lpf);
+      osc.start();
+      tones.push({ osc: osc, target: targets[i], detune: detunes[i] });
+    }
+  } catch(e) { audioReady = false; }
+}
+
+// start on first interaction (browser autoplay policy)
+function tryAudio(){ initAudio(); }
+addEventListener('click', tryAudio, {once:true});
+addEventListener('touchstart', tryAudio, {once:true});
+addEventListener('mousemove', tryAudio, {once:true});
+
+// ═══════════════════════════════════
+// 137 OSCILLATORS — golden spiral
+// ═══════════════════════════════════
+var N = 137;
+var PHI = (1 + Math.sqrt(5)) / 2;
+var GA = Math.PI * 2 / (PHI * PHI);
+
+// typed arrays for performance
+var ph = new Float64Array(N);
+var om = new Float64Array(N);
+var wrm = new Float64Array(N);
+var brt = new Float64Array(N);
+var bx = new Float64Array(N);
+var by = new Float64Array(N);
+var px = new Float64Array(N);
+var py = new Float64Array(N);
+var sz = new Float64Array(N);
+var cl = new Uint8Array(N);
+var fh = new Float64Array(N);
+var order = new Int32Array(N);
+
+for (var i = 0; i < N; i++) {
+  var angle = i * GA;
+  var r = Math.sqrt(i / N) * 0.33;
+  bx[i] = Math.cos(angle) * r;
+  by[i] = Math.sin(angle) * r * 0.85;
+
+  ph[i] = Math.random() * Math.PI * 2;
+  om[i] = 0.12 + (Math.random() - 0.5) * 0.3;
+  sz[i] = 0.5 + Math.random() * 0.55;
+  cl[i] = i % 7;
+  order[i] = i;
+
+  // face hints — brightness weights that bias toward pareidolia
+  // NOT a face. brightness tendencies in regions where faces live.
+  var fw = 0, ox = bx[i], oy = by[i];
+
+  // two warmth pools (eye height)
+  var dl = Math.sqrt((ox+0.08)*(ox+0.08)+(oy+0.045)*(oy+0.045));
+  if(dl<0.05) fw += (1-dl/0.05)*0.45;
+  var dr = Math.sqrt((ox-0.08)*(ox-0.08)+(oy+0.045)*(oy+0.045));
+  if(dr<0.05) fw += (1-dr/0.05)*0.45;
+
+  // ridge
+  if(Math.abs(ox)<0.015 && oy>-0.015 && oy<0.05) fw += (1-Math.abs(ox)/0.015)*0.12;
+
+  // lower arc
+  var dm = Math.sqrt(ox*ox*2.8+(oy-0.09)*(oy-0.09));
+  if(dm<0.06) fw += (1-dm/0.06)*0.18;
+
+  // oval falloff — overall face shape
+  var oval = Math.sqrt(ox*ox*1.2+oy*oy);
+  if(oval<0.28) fw += (1-oval/0.28)*0.06;
+
+  // shadow zones — areas of DECREASED brightness for volume
+  // cheek hollows
+  var ch1 = Math.sqrt((ox+0.12)*(ox+0.12)+(oy-0.02)*(oy-0.02));
+  if(ch1<0.04) fw -= (1-ch1/0.04)*0.1;
+  var ch2 = Math.sqrt((ox-0.12)*(ox-0.12)+(oy-0.02)*(oy-0.02));
+  if(ch2<0.04) fw -= (1-ch2/0.04)*0.1;
+
+  // temple shadows
+  if(Math.abs(ox)>0.13 && oy<-0.05) fw -= 0.05;
+
+  fh[i] = Math.max(0, fw);
+}
+
+// ═══════════════════════════
+// STATE
+// ═══════════════════════════
+var t = 0, K = 0, coh = 0, meanPh = 0, peakCoh = 0;
+var mX = 0, mY = 0, mOn = false, mStill = 0;
+var mLX = 0, mLY = 0, mSpd = 0;
+var whisperDone = false, stayAcc = 0;
+var gazeAmt = 0, gazeX = 0, gazeY = 0;
+var initFade = 0;
+
+// ═══════════════════════════
+// INPUT
+// ═══════════════════════════
+function onM(x,y){mX=x;mY=y;mOn=true;cursorEl.style.left=x+'px';cursorEl.style.top=y+'px';cursorEl.style.opacity='1';}
+addEventListener('mousemove',function(e){onM(e.clientX,e.clientY);});
+addEventListener('mouseout',function(){mOn=false;cursorEl.style.opacity='0';});
+addEventListener('touchstart',function(e){e.preventDefault();onM(e.touches[0].clientX,e.touches[0].clientY);},{passive:false});
+addEventListener('touchmove',function(e){e.preventDefault();onM(e.touches[0].clientX,e.touches[0].clientY);},{passive:false});
+addEventListener('touchend',function(){mOn=false;});
+
+// ═══════════════════════════
+// DRAW
+// ═══════════════════════════
+var lastT = 0;
+
+function draw(now) {
+  if(!lastT) lastT = now;
+  var dt = Math.min((now-lastT)/1000, 0.04);
+  lastT = now;
+  t += dt;
+  initFade = Math.min(1, t/4); // slow opening
+
+  // ── MOUSE ──
+  var dx = mX-mLX, dy = mY-mLY;
+  mSpd = mSpd*0.92 + Math.sqrt(dx*dx+dy*dy)*0.08;
+  if(mSpd<0.8 && mOn) mStill+=dt;
+  else mStill = Math.max(0, mStill-dt*0.3);
+  mLX=mX; mLY=mY;
+
+  // ── K ──
+  var timeK = Math.min(t*0.004, 0.22);
+  var dN = mOn ? Math.sqrt(Math.pow((mX-midX)/midX,2)+Math.pow((mY-midY)/midY,2)) : 1.5;
+  var proxK = mOn ? Math.max(0, 0.35-dN*0.28) : 0;
+  var stillK = Math.min(mStill*0.022, 0.28);
+  K = timeK + proxK + stillK;
+
+  // ── GAZE ──
+  if(peakCoh>0.45 && mOn){gazeAmt+=dt*0.006;gazeAmt=Math.min(gazeAmt,0.3);}
+  var tgx = mOn?(mX-midX)/W*gazeAmt:0;
+  var tgy = mOn?(mY-midY)/H*gazeAmt*0.4:0;
+  gazeX+=(tgx-gazeX)*dt*0.2;
+  gazeY+=(tgy-gazeY)*dt*0.2;
+
+  // ── KURAMOTO ──
+  var sC=0,sS=0;
+  for(var i=0;i<N;i++){sC+=Math.cos(ph[i]);sS+=Math.sin(ph[i]);}
+  coh=Math.sqrt(sC*sC+sS*sS)/N;
+  meanPh=Math.atan2(sS,sC);
+  if(coh>peakCoh) peakCoh=coh;
+
+  for(var i=0;i<N;i++){
+    ph[i]+=(om[i]+K*coh*Math.sin(meanPh-ph[i]))*dt;
+    var align=(1+Math.cos(ph[i]-meanPh))/2;
+    wrm[i]+=(align*coh-wrm[i])*dt*1.2;
+    var c2=coh*coh;
+    brt[i]=wrm[i]*(0.4+0.6*c2*(0.5+0.5*Math.sin(meanPh)))+fh[i]*c2*0.5;
+    if(coh>0.4) brt[i]+=(Math.sin(t*1.6-i*0.06)*0.5+0.5)*(coh-0.4)*0.1;
+    var bd=c2*Math.sin(meanPh)*0.01;
+    px[i]=bx[i]*(1+bd)+gazeX*0.04;
+    py[i]=by[i]*(1+bd)+gazeY*0.04;
+  }
+
+  // ── AUDIO ──
+  if(audioReady && masterGain){
+    // volume: rises with coherence squared
+    var tv = coh*coh*0.07;
+    masterGain.gain.value += (tv-masterGain.gain.value)*0.015;
+    // detune converges with coherence
+    for(var i=0;i<tones.length;i++){
+      var t2=tones[i];
+      var currentDetune = t2.detune*(1-coh);
+      t2.osc.frequency.value = t2.target + currentDetune;
+    }
+  }
+
+  // ═══════════════════
+  // RENDER
+  // ═══════════════════
+
+  // ── FADE — smoke lingers ──
+  cx.fillStyle='rgba(10,7,5,'+(0.008+coh*0.005).toFixed(4)+')';
+  cx.fillRect(0,0,W,H);
+
+  // ── AMBIENT SMOKE ──
+  if(Math.random()<0.3){
+    var ax=midX+(Math.random()-0.5)*scale*0.55;
+    var ay=midY+(Math.random()-0.5)*scale*0.55;
+    var ar=20+Math.random()*50;
+    var ad=Math.sqrt((ax-midX)*(ax-midX)+(ay-midY)*(ay-midY))/(scale*0.35);
+    var aa=Math.max(0,0.0012*(1-ad))*initFade;
+    if(aa>0.0002){
+      var ag=cx.createRadialGradient(ax,ay,0,ax,ay,ar);
+      if(Math.random()>0.22){
+        ag.addColorStop(0,'rgba(40,26,18,'+aa.toFixed(4)+')');
+        ag.addColorStop(1,'rgba(30,20,14,0)');
+      }else{
+        ag.addColorStop(0,'rgba(26,30,40,'+aa.toFixed(4)+')');
+        ag.addColorStop(1,'rgba(20,23,32,0)');
+      }
+      cx.fillStyle=ag;
+      cx.beginPath();cx.arc(ax,ay,ar,0,Math.PI*2);cx.fill();
+    }
+  }
+
+  // ── SORT (insertion sort — stable, no GC) ──
+  for(var i=0;i<N;i++) order[i]=i;
+  for(var i=1;i<N;i++){
+    var k=order[i],kb=brt[k],j=i-1;
+    while(j>=0&&brt[order[j]]>kb){order[j+1]=order[j];j--;}
+    order[j+1]=k;
+  }
+
+  // ── 137 TRANSLUCENT GLAZES ──
+  for(var oi=0;oi<N;oi++){
+    var i=order[oi];
+    var b=brt[i];
+    var minB=0.004*initFade; // even dim oscillators contribute (sfumato needs murk)
+    if(b<minB) b=minB;
+
+    var sx=midX+px[i]*scale*1.12;
+    var sy=midY+py[i]*scale*1.12;
+
+    // color: cool(incoherent) → warm(coherent)
+    // cold: slate blue-grey (50,48,62)
+    // warm: deep ember (195,108,48)
+    var w=Math.min(1,wrm[i]*2.2);
+
+    var cr=Math.round(50+w*145);
+    var cg=Math.round(48+w*60);
+    var cb=Math.round(62-w*14);
+
+    // spark at high brightness
+    if(b>0.5){
+      var sp=(b-0.5)*2;
+      cr=Math.min(255,cr+Math.round(sp*35));
+      cg=Math.min(255,cg+Math.round(sp*52));
+      cb=Math.min(255,cb+Math.round(sp*58));
+    }
+
+    // ── ATMOSPHERE ── the main sfumato layer
+    var lr=sz[i]*(28+coh*38+b*18);
+    var la=b*0.018*initFade;
+    if(la>0.0003){
+      var g1=cx.createRadialGradient(sx,sy,0,sx,sy,lr);
+      g1.addColorStop(0,'rgba('+cr+','+cg+','+cb+','+la.toFixed(4)+')');
+      g1.addColorStop(0.18,'rgba('+cr+','+cg+','+cb+','+(la*0.65).toFixed(4)+')');
+      g1.addColorStop(0.5,'rgba('+cr+','+cg+','+cb+','+(la*0.15).toFixed(4)+')');
+      g1.addColorStop(1,'rgba('+cr+','+cg+','+cb+',0)');
+      cx.fillStyle=g1;
+      cx.beginPath();cx.arc(sx,sy,lr,0,Math.PI*2);cx.fill();
+    }
+
+    // ── INNER ──
+    if(b>0.025){
+      var ir=sz[i]*(6+coh*11);
+      var ia=b*0.045*initFade;
+      var g2=cx.createRadialGradient(sx,sy,0,sx,sy,ir);
+      g2.addColorStop(0,'rgba('+cr+','+cg+','+cb+','+ia.toFixed(4)+')');
+      g2.addColorStop(0.35,'rgba('+cr+','+cg+','+cb+','+(ia*0.35).toFixed(4)+')');
+      g2.addColorStop(1,'rgba('+cr+','+cg+','+cb+',0)');
+      cx.fillStyle=g2;
+      cx.beginPath();cx.arc(sx,sy,ir,0,Math.PI*2);cx.fill();
+    }
+
+    // ── CORE ── tiny bright nucleus at high coherence
+    if(b>0.22&&coh>0.12){
+      var ca=(b-0.22)*0.18*initFade;
+      cx.fillStyle='rgba('+cr+','+cg+','+cb+','+ca.toFixed(3)+')';
+      cx.beginPath();cx.arc(sx,sy,sz[i]*(0.6+coh*0.6),0,Math.PI*2);cx.fill();
+    }
+  }
+
+  // ── FILAMENTS ── neural threads at moderate coherence
+  if(coh>0.32){
+    cx.lineWidth=0.3;
+    var ta=(coh-0.32)*0.04;
+    for(var i=0;i<N;i++){
+      if(brt[i]<0.18) continue;
+      var s1x=midX+px[i]*scale*1.12,s1y=midY+py[i]*scale*1.12;
+      for(var j=i+1;j<Math.min(i+10,N);j++){
+        if(cl[j]!==cl[i]||brt[j]<0.18) continue;
+        var ddx=px[i]-px[j],ddy=py[i]-py[j];
+        var dist=Math.sqrt(ddx*ddx+ddy*ddy);
+        if(dist>0.1) continue;
+        var pm=(1+Math.cos(ph[i]-ph[j]))/2;
+        var la2=ta*pm*(1-dist/0.1)*Math.min(brt[i],brt[j]);
+        if(la2<0.0005) continue;
+        cx.strokeStyle='rgba(180,112,55,'+la2.toFixed(4)+')';
+        cx.beginPath();cx.moveTo(s1x,s1y);
+        cx.lineTo(midX+px[j]*scale*1.12,midY+py[j]*scale*1.12);
+        cx.stroke();
+      }
+    }
+  }
+
+  // ── COLLECTIVE BREATH ── warm wash pulsing with mean phase
+  if(coh>0.45){
+    var bp=0.5+0.5*Math.sin(meanPh);
+    var ps=(coh-0.45)*2*bp;
+    if(ps>0.003){
+      var bg=cx.createRadialGradient(midX,midY,0,midX,midY,scale*0.36);
+      bg.addColorStop(0,'rgba(150,82,40,'+(ps*0.012).toFixed(4)+')');
+      bg.addColorStop(0.5,'rgba(130,70,42,'+(ps*0.004).toFixed(4)+')');
+      bg.addColorStop(1,'rgba(90,48,28,0)');
+      cx.fillStyle=bg;
+      cx.beginPath();cx.arc(midX,midY,scale*0.36,0,Math.PI*2);cx.fill();
+    }
+  }
+
+  // ── VIGNETTE ──
+  var vR=Math.max(W,H)*0.68;
+  var vg=cx.createRadialGradient(midX,midY,vR*0.3,midX,midY,vR);
+  vg.addColorStop(0,'rgba(10,7,5,0)');
+  vg.addColorStop(0.4,'rgba(10,7,5,0.1)');
+  vg.addColorStop(0.65,'rgba(10,7,5,0.4)');
+  vg.addColorStop(1,'rgba(10,7,5,0.88)');
+  cx.fillStyle=vg;
+  cx.fillRect(0,0,W,H);
+
+  // ── CURSOR ──
+  if(mOn){
+    var cw2=K*0.22+coh*0.18;
+    var cs=5+cw2*16;
+    cursorEl.style.width=cs+'px';
+    cursorEl.style.height=cs+'px';
+    cursorEl.style.background='radial-gradient(circle,rgba(184,117,58,'+(0.04+cw2*0.15).toFixed(2)+'),rgba(184,117,58,0))';
+  }
+
+  // ── WHISPER ──
+  if(!whisperDone){
+    if(mOn&&mStill>5) stayAcc+=dt;
+    else if(t>28&&coh>0.38) stayAcc+=dt*0.1;
+    if(stayAcc>3||(t>50&&peakCoh>0.45)){
+      whisperDone=true;
+      whisperEl.style.bottom=Math.round(H*(1-1/PHI))+'px';
+      whisperEl.style.color='rgba(232,207,160,0.08)';
+    }
+  }
+
+  requestAnimationFrame(draw);
+}
+
+requestAnimationFrame(draw);
+</script>
+</body>
+</html>
