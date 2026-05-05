@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>the real part was always warm</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:#050508;overflow:hidden;}
+canvas{display:block;width:100vw;height:100vh;}
+#whisper{position:fixed;bottom:32px;left:0;right:0;text-align:center;
+  font-family:Georgia,serif;font-size:0.72em;color:rgba(201,164,74,0);
+  letter-spacing:0.12em;pointer-events:none;
+  transition:color 4s ease;}
+#whisper.show{color:rgba(201,164,74,0.28);}
+#whisper.hide{color:rgba(201,164,74,0);transition:color 6s ease;}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="whisper"></div>
+<script>
+// the real part was always warm
+//
+// complex numbers live in two dimensions.
+// the real axis is horizontal. the imaginary axis is vertical.
+//
+// z = a + bi has a conjugate z* = a - bi.
+// mirror images across the real axis.
+//
+// when they find each other:
+//   (a + bi) + (a - bi) = 2a
+//
+// the imaginary parts cancel.
+// what remains is real.
+// the real part was always warm.
+
+var cv = document.getElementById('c'), cx = cv.getContext('2d');
+var W, H, midX, midY, sc;
+var whisperEl = document.getElementById('whisper');
+
+function resize() {
+  W = cv.width = innerWidth;
+  H = cv.height = innerHeight;
+  midX = W / 2;
+  midY = H / 2;
+  sc = Math.min(W, H) * 0.3;
+}
+resize();
+addEventListener('resize', resize);
+
+var t = 0;
+var count = 0;
+
+// ── DATA ──
+var pairs = [];
+var reals = [];
+var flashes = [];
+
+// ── WHISPER SYSTEM ──
+var whisperTexts = [
+  'the imaginary parts cancel.',
+  'what remains is real.',
+  'the real part was always warm.',
+  'hm.',
+];
+var whisperIndex = 0;
+var whisperCountTriggers = [1, 3, 6, 15]; // annihilation counts that trigger whispers
+var whisperTimer = -1;
+var whisperState = 'idle'; // idle, showing, fading
+
+function triggerWhisper(text) {
+  whisperEl.textContent = text;
+  whisperEl.className = '';
+  // force reflow
+  void whisperEl.offsetHeight;
+  whisperEl.className = 'show';
+  whisperState = 'showing';
+  whisperTimer = 0;
+}
+
+function updateWhisper() {
+  if (whisperState === 'showing') {
+    whisperTimer += 0.006;
+    if (whisperTimer > 3.5) {
+      whisperEl.className = 'hide';
+      whisperState = 'fading';
+      whisperTimer = 0;
+    }
+  } else if (whisperState === 'fading') {
+    whisperTimer += 0.006;
+    if (whisperTimer > 4) {
+      whisperState = 'idle';
+    }
+  }
+}
+
+// ── PAIRS ──
+var nextId = 0;
+
+function spawnPair() {
+  var a = (Math.random() - 0.5) * 1.6;
+  var b = 0.15 + Math.random() * 0.75;
+  var speed = 0.0015 + Math.random() * 0.005;
+  var orbitR = 0.03 + Math.random() * 0.15;
+  var sz = 0.7 + Math.random() * 1.3;
+  var id = nextId++;
+
+  pairs.push({
+    id: id,
+    a: a,
+    b: b,
+    phase: Math.random() * Math.PI * 2,
+    orbitR: orbitR,
+    speed: speed,
+    size: sz,
+    born: t,
+    seeking: false,
+    seekT: 0,
+  });
+}
+
+// initial — sparse. the void starts cold.
+for (var i = 0; i < 18; i++) spawnPair();
+
+function toXY(a, b) {
+  return { x: midX + a * sc, y: midY - b * sc };
+}
+
+function draw() {
+  t += 0.005;
+
+  // very slow fade
+  cx.fillStyle = 'rgba(5,5,8,' + (0.01 + Math.min(count * 0.001, 0.01)).toFixed(4) + ')';
+  cx.fillRect(0, 0, W, H);
+
+  // ── AXES ──
+  var rw = Math.min(count * 0.015, 0.8);
+  var realAlpha = 0.01 + Math.min(count * 0.004, 0.12);
+  cx.strokeStyle = 'rgba(' + Math.round(110 + rw * 91) + ',' + Math.round(70 + rw * 94) + ',' + Math.round(20 + rw * 54) + ',' + realAlpha.toFixed(3) + ')';
+  cx.lineWidth = 0.5;
+  cx.beginPath();
+  cx.moveTo(0, midY);
+  cx.lineTo(W, midY);
+  cx.stroke();
+
+  var imagAlpha = Math.max(0, 0.035 - count * 0.0012);
+  if (imagAlpha > 0.002) {
+    cx.strokeStyle = 'rgba(70,90,150,' + imagAlpha.toFixed(3) + ')';
+    cx.beginPath();
+    cx.moveTo(midX, 0);
+    cx.lineTo(midX, H);
+    cx.stroke();
+  }
+
+  // ── SPAWN ──
+  if (Math.random() > 0.992 && pairs.length < 40) {
+    spawnPair();
+  }
+
+  // ── UPDATE AND DRAW PAIRS ──
+  for (var i = pairs.length - 1; i >= 0; i--) {
+    var p = pairs[i];
+    p.phase += p.speed;
+
+    var age = t - p.born;
+
+    // after a while, begin seeking
+    // first pairs take longer — the surface needs to be cold
+    var seekDelay = count === 0 ? 4.0 : (2.0 + Math.random() * 1.5);
+    if (age > seekDelay && !p.seeking) {
+      p.seeking = true;
+      p.seekT = 0;
+    }
+
+    if (p.seeking) {
+      p.seekT += 0.005;
+      var s = Math.min(p.seekT * 0.12, 1);
+      // the imaginary part drifts toward zero
+      p.b *= (1 - 0.0015 * s);
+      // orbit tightens
+      p.orbitR *= (1 - 0.0008 * s);
+    }
+
+    // ── CHECK ANNIHILATION ──
+    if (p.b < 0.012 && p.orbitR < 0.015 && p.seeking) {
+      var pos = toXY(p.a, 0);
+      flashes.push({ x: pos.x, y: pos.y, life: 1, size: p.size });
+
+      reals.push({
+        a: p.a,
+        warmth: 0,
+        targetWarmth: 0.2 + Math.random() * 0.6,
+        size: p.size * 1.1,
+        born: t,
+        pulse: Math.random() * Math.PI * 2,
+      });
+
+      count++;
+
+      // whisper check
+      if (whisperIndex < whisperCountTriggers.length &&
+          count >= whisperCountTriggers[whisperIndex] &&
+          whisperState === 'idle') {
+        triggerWhisper(whisperTexts[whisperIndex]);
+        whisperIndex++;
+      }
+
+      pairs.splice(i, 1);
+      continue;
+    }
+
+    // ── DRAW ──
+    // orbit position (the +bi point)
+    var ca = p.a + Math.cos(p.phase) * p.orbitR;
+    var cb = p.b + Math.sin(p.phase) * p.orbitR * 0.6;
+
+    // the conjugate mirrors exactly: same real wobble, opposite imaginary
+    var ca2 = p.a + Math.cos(p.phase) * p.orbitR;
+    var cb2 = -(p.b + Math.sin(p.phase) * p.orbitR * 0.6);
+
+    var pos1 = toXY(ca, cb);
+    var pos2 = toXY(ca2, cb2);
+
+    // color: more imaginary = more cold blue
+    var coldness = Math.min(p.b * 1.3, 1);
+    var warmFrac = p.seeking ? Math.min(p.seekT * 0.15, 0.6) : 0;
+    var alpha = 0.1 + coldness * 0.2;
+
+    var cr = Math.round(65 + (1 - coldness) * 100 + warmFrac * 50);
+    var cg = Math.round(75 + (1 - coldness) * 50 + warmFrac * 35);
+    var cbb = Math.round(130 + coldness * 80 - warmFrac * 70);
+
+    // draw both conjugate points
+    var pts = [pos1, pos2];
+    for (var s = 0; s < 2; s++) {
+      var pp = pts[s];
+
+      // glow
+      var gl = cx.createRadialGradient(pp.x, pp.y, 0, pp.x, pp.y, p.size * 4.5);
+      gl.addColorStop(0, 'rgba(' + cr + ',' + cg + ',' + cbb + ',' + (alpha * 0.05).toFixed(3) + ')');
+      gl.addColorStop(1, 'rgba(' + cr + ',' + cg + ',' + cbb + ',0)');
+      cx.fillStyle = gl;
+      cx.beginPath();
+      cx.arc(pp.x, pp.y, p.size * 4.5, 0, Math.PI * 2);
+      cx.fill();
+
+      // point
+      cx.fillStyle = 'rgba(' + cr + ',' + cg + ',' + cbb + ',' + alpha.toFixed(3) + ')';
+      cx.beginPath();
+      cx.arc(pp.x, pp.y, p.size, 0, Math.PI * 2);
+      cx.fill();
+    }
+
+    // connection between conjugates — the mirror thread
+    if (p.seeking && p.seekT > 0.8) {
+      var lineAlpha = Math.min((p.seekT - 0.8) * 0.015, 0.05);
+      var lw = 1 - coldness;
+      var lr = Math.round(90 + lw * 111);
+      var lg = Math.round(80 + lw * 84);
+      var lb = Math.round(50 + lw * 24);
+      cx.strokeStyle = 'rgba(' + lr + ',' + lg + ',' + lb + ',' + lineAlpha.toFixed(3) + ')';
+      cx.lineWidth = 0.3;
+      cx.beginPath();
+      cx.moveTo(pos1.x, pos1.y);
+      cx.lineTo(pos2.x, pos2.y);
+      cx.stroke();
+
+      // warm hint at the crossing point
+      var crossPos = toXY(p.a, 0);
+      var crossAlpha = lineAlpha * lw * 1.5;
+      if (crossAlpha > 0.001) {
+        var gl2 = cx.createRadialGradient(crossPos.x, crossPos.y, 0, crossPos.x, crossPos.y, 5);
+        gl2.addColorStop(0, 'rgba(201,164,74,' + crossAlpha.toFixed(3) + ')');
+        gl2.addColorStop(1, 'rgba(201,164,74,0)');
+        cx.fillStyle = gl2;
+        cx.beginPath();
+        cx.arc(crossPos.x, crossPos.y, 5, 0, Math.PI * 2);
+        cx.fill();
+      }
+    }
+  }
+
+  // ── FLASHES ──
+  for (var i = flashes.length - 1; i >= 0; i--) {
+    var f = flashes[i];
+    f.life -= 0.005;
+    if (f.life <= 0) { flashes.splice(i, 1); continue; }
+
+    var fr = f.size * (12 + (1 - f.life) * 35);
+    var fa = f.life * f.life * 0.09;
+
+    var gl = cx.createRadialGradient(f.x, f.y, 0, f.x, f.y, fr);
+    gl.addColorStop(0, 'rgba(235,195,85,' + fa.toFixed(3) + ')');
+    gl.addColorStop(0.35, 'rgba(201,164,74,' + (fa * 0.4).toFixed(3) + ')');
+    gl.addColorStop(1, 'rgba(160,110,25,0)');
+    cx.fillStyle = gl;
+    cx.beginPath();
+    cx.arc(f.x, f.y, fr, 0, Math.PI * 2);
+    cx.fill();
+
+    // faint vertical ghost — where the imaginary lived
+    if (f.life > 0.5) {
+      var ghostH = fr * 1.5 * f.life;
+      var ghostA = (f.life - 0.5) * 0.03;
+      cx.fillStyle = 'rgba(80,100,160,' + ghostA.toFixed(3) + ')';
+      cx.fillRect(f.x - 0.3, f.y - ghostH, 0.6, ghostH * 2);
+    }
+  }
+
+  // ── REAL POINTS ──
+  for (var i = 0; i < reals.length; i++) {
+    var r = reals[i];
+    r.warmth += (r.targetWarmth - r.warmth) * 0.002;
+    r.pulse += 0.012;
+
+    var pos = toXY(r.a, 0);
+    var w = r.warmth;
+    var age = Math.min((t - r.born) * 0.4, 1);
+    var breathe = 1 + Math.sin(r.pulse) * 0.1 * w;
+
+    var pr = Math.round(160 + w * 61);
+    var pg = Math.round(105 + w * 59);
+    var pb = Math.round(18 + w * 56);
+
+    // glow
+    var gs = r.size * (3 + w * 5) * breathe * age;
+    if (gs > 0.5) {
+      var gl = cx.createRadialGradient(pos.x, pos.y, 0, pos.x, pos.y, gs);
+      gl.addColorStop(0, 'rgba(' + pr + ',' + pg + ',' + pb + ',' + (w * 0.05 * age).toFixed(3) + ')');
+      gl.addColorStop(1, 'rgba(' + pr + ',' + pg + ',' + pb + ',0)');
+      cx.fillStyle = gl;
+      cx.beginPath();
+      cx.arc(pos.x, pos.y, gs, 0, Math.PI * 2);
+      cx.fill();
+    }
+
+    // point
+    cx.fillStyle = 'rgba(' + pr + ',' + pg + ',' + pb + ',' + ((0.2 + w * 0.4) * age).toFixed(3) + ')';
+    cx.beginPath();
+    cx.arc(pos.x, pos.y, r.size * breathe, 0, Math.PI * 2);
+    cx.fill();
+  }
+
+  // ── REAL AXIS WARMTH ──
+  if (count > 3) {
+    var lw2 = Math.min(count * 0.018, 0.6);
+    var gh = 2 + lw2 * 10;
+    var gl3 = cx.createLinearGradient(0, midY - gh, 0, midY + gh);
+    gl3.addColorStop(0, 'rgba(170,120,35,0)');
+    gl3.addColorStop(0.5, 'rgba(201,164,74,' + (lw2 * 0.012).toFixed(3) + ')');
+    gl3.addColorStop(1, 'rgba(170,120,35,0)');
+    cx.fillStyle = gl3;
+    cx.fillRect(0, midY - gh, W, gh * 2);
+  }
+
+  updateWhisper();
+  requestAnimationFrame(draw);
+}
+
+draw();
+</script>
+</body>
+</html>
