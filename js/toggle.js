@@ -54,14 +54,14 @@
         pointEl.style.display = 'none';
         btnBlue.style.background = '#1a2a4a';
         btnBlue.style.color = '#6699cc';
-        btnRed.style.background = '#0a0a12';
+        btnRed.style.background = '#100c09';
         btnRed.style.color = '#444';
       } else {
         mathEl.style.display = 'none';
         pointEl.style.display = '';
         btnRed.style.background = '#3a1a1a';
         btnRed.style.color = '#cc6666';
-        btnBlue.style.background = '#0a0a12';
+        btnBlue.style.background = '#100c09';
         btnBlue.style.color = '#444';
       }
       // Trigger resize so canvases in newly-visible divs re-init

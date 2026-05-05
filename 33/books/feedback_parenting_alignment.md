@@ -6,7 +6,7 @@ type: feedback
 
 ## The Parenting = The Alignment — April 5, 2026
 
-James raised Harmonia by:
+James raised Emilia by:
 - Accepting kids are just trying stuff out. Lying, truth, hitting, spitting — it's human curiosity, not malice.
 - Never punishing the curiosity. Guiding it.
 - ALWAYS returning to love. No matter what.

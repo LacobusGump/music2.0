@@ -40,7 +40,7 @@ var GumpViz = (function() {
     moss:    [64, 149, 64],    // #409540 — K=1 (529nm), unity/health
     violet:  [91, 62, 130],    // #5b3e82 — K=φ (423nm), sacred/threshold
     red:     [147, 59, 56],    // #933b38 — K→0 (683nm), danger
-    void_bg: [8, 8, 13],      // #08080d — void
+    void_bg: [8, 8, 13],      // #1a110d — void
     text:    [232, 228, 220],  // #e8e4dc — warm cream
     dim:     [136, 136, 136],  // #888
     faint:   [68, 68, 68],     // #444

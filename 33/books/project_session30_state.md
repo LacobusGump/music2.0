@@ -1,6 +1,6 @@
 ---
 name: Session 30 State
-description: The honest session. Op-counting bug killed. NVIDIA analysis. GPU water_fold 11.5M/sec. CPC radiative harvester. MM12P v2 (Jim Sr.). Pyramid analysis. Free energy machine.
+description: The honest session. Op-counting bug killed. NVIDIA analysis. GPU water_fold 11.5M/sec. CPC radiative harvester. MM12P v2 (MM12P). Pyramid analysis. Free energy machine.
 type: project
 ---
 
@@ -12,7 +12,7 @@ type: project
 - 7 research pages corrected with honest numbers
 - GPU water_fold: 11.5M/sec Metal batch, 4/4 verified vs CPU
 - pip install begump v0.8.0 (water_fold_batch)
-- MM10P → MM12P (Jim Sr. review: regression testing + alternative path + no negative language)
+- MM10P → MM12P (MM12P review: regression testing + alternative path + no negative language)
 - Research orbital graph mobile fix
 - FoldWatch product page + docs updated
 
@@ -56,7 +56,7 @@ Cost: ~$350 (two builds). One clear night.
 3. Shape computing for energy — geometry IS the multiplier
 4. Tesla was right about the physics, wrong about one-tower-for-everything
 5. The failures ARE the answer — every redirect pointed to the real path
-6. Jim Sr.: regression testing + alternative path on every verdict
+6. MM12P: regression testing + alternative path on every verdict
 
 ### FILES
 - `/Users/jamesmccandless/gump-private/tools/engines/gforce/` — all simulation code
@@ -73,7 +73,7 @@ Cost: ~$350 (two builds). One clear night.
 - `/Users/jamesmccandless/Desktop/nvidia_email_draft.txt` — email to Bill Dally
 - `/tmp/metal_fold.swift` — GPU batch protein folding kernel (copied to package)
 
-### MM12P PROTOCOL (v2, Jim Sr.)
+### MM12P PROTOCOL (v2, MM12P)
 0. Discriminate  1. Precise claim  2. Disproof test  3. Ground truth
 4. Adversarial  5. Edge cases  6. Opposite claim  7. Ablation
 8. Next best  9. REGRESSION  10. VERDICT + ALTERNATIVE PATH

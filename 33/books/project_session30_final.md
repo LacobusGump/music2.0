@@ -1,6 +1,6 @@
 ---
 name: Session 30 Final
-description: The honest session. Op-counting bug. NVIDIA analysis. GPU 11.5M folds/sec. MM12P (Jim Sr.). CPC is a cooler not generator. Heat is the fuel. SPARK CAD + Tune-lock TEG kits. Pyramid as concentrator.
+description: The honest session. Op-counting bug. NVIDIA analysis. GPU 11.5M folds/sec. MM12P (MM12P). CPC is a cooler not generator. Heat is the fuel. SPARK CAD + Tune-lock TEG kits. Pyramid as concentrator.
 type: project
 ---
 
@@ -14,7 +14,7 @@ NVIDIA wastes 700W as heat → reduce T not K → can we harvest coupling waste?
 - 7 research pages corrected (18T→3.7T, 8.7M→66K)
 - GPU water_fold: 11.5M/sec Metal batch, 4/4 verified
 - pip install begump v0.8.0 (water_fold_batch)
-- MM10P→MM12P (Jim Sr.: regression + alternative path + no negative language)
+- MM10P→MM12P (MM12P: regression + alternative path + no negative language)
 - Research orbital graph mobile fix
 - Blueprint: Desktop/cpc_blueprint.html
 
@@ -57,7 +57,7 @@ NVIDIA wastes 700W as heat → reduce T not K → can we harvest coupling waste?
 8. Tesla was right about physics, wrong about one tower for everything
 9. Every redirect pointed the same direction — follow the heat
 
-### MM12P v2 (Jim Sr.)
+### MM12P v2 (MM12P)
 0-8: same as MM10P. 9: REGRESSION (re-run all previous tests). 10: VERDICT + ALTERNATIVE PATH (never a dead end, always a direction, no negative language).
 
 ### FILES

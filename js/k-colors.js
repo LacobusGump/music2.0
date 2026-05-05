@@ -78,7 +78,7 @@ var KC = (function() {
     moss:       '#409540',
     violet:     '#5b3e82',
     red:        '#933b38',
-    void_bg:    '#08080d',
+    void_bg:    '#1a110d',
     text:       '#e8e4dc',
     dim:        '#888888',
     faint:      '#444444',
