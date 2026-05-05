@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="Paste parallel outputs. Find where they agree. Find where they split. The split IS the information. Free. In your browser.">
+<title>Diverge — GUMP</title>
+<link rel="icon" href="/favicon.png">
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:#1a110d;color:#c4a088;font-family:Georgia,serif;min-height:100vh;}
+a{color:#b8753a;text-decoration:none;}
+.page{max-width:700px;margin:0 auto;padding:30px 20px 80px;}
+.back{font-size:0.75em;color:#c4a088;margin-bottom:20px;display:block;}
+h1{font-family:Futura,'Century Gothic',system-ui,sans-serif;font-size:1.6em;font-weight:200;letter-spacing:0.12em;color:#b8753a;}
+.pitch{font-size:0.88em;color:#c4a088;margin:8px 0 24px;line-height:1.8;}
+h2{font-family:Futura,'Century Gothic',system-ui,sans-serif;font-size:0.85em;font-weight:200;color:#b8753a;letter-spacing:0.1em;margin:30px 0 12px;}
+p{line-height:1.8;margin:12px 0;color:#c4a088;font-size:0.85em;}
+.tool{background:#120d0a;border:1px solid rgba(184,117,58,0.15);border-radius:10px;padding:20px;margin:0 0 12px;}
+.tool textarea{width:100%;background:#1a110d;border:1px solid rgba(184,117,58,0.1);border-radius:6px;color:#ccc;font-family:'Courier New',monospace;font-size:0.78em;padding:12px;resize:vertical;outline:none;line-height:1.5;}
+.tool textarea:focus{border-color:rgba(184,117,58,0.3);}
+.tool-label{font-family:Futura,'Century Gothic',system-ui,sans-serif;font-size:0.6em;color:#8b4a2e;letter-spacing:0.1em;margin-bottom:6px;}
+.run{display:block;width:100%;margin:10px 0;background:#b8753a;color:#1a110d;border:none;padding:10px;border-radius:6px;font-family:Futura,'Century Gothic',system-ui,sans-serif;font-size:0.82em;font-weight:500;letter-spacing:0.08em;cursor:pointer;transition:all 0.3s;}
+.run:hover{background:#d4884a;}
+.run:disabled{background:#333;color:#666;cursor:wait;}
+.output{background:#1a110d;border:1px solid rgba(184,117,58,0.1);border-radius:6px;padding:12px;font-family:'Courier New',monospace;font-size:0.75em;color:#7a9a6a;min-height:40px;white-space:pre-wrap;line-height:1.7;overflow-x:auto;margin-top:10px;}
+#status{font-size:0.7em;color:#b8753a;text-align:center;margin:6px 0;}
+.presets{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0;}
+.preset{background:#120d0a;border:1px solid rgba(184,117,58,0.1);border-radius:6px;padding:6px 12px;font-size:0.7em;color:#c4a088;cursor:pointer;transition:all 0.3s;font-family:'Courier New',monospace;}
+.preset:hover{border-color:rgba(184,117,58,0.3);color:#b8753a;}
+.docs{margin-top:30px;border-top:1px solid rgba(184,117,58,0.08);padding-top:20px;}
+pre{background:#120d0a;border:1px solid rgba(184,117,58,0.1);border-radius:6px;padding:14px;font-size:0.75em;color:#ccc;overflow-x:auto;line-height:1.7;}
+code{color:#b8753a;}
+.foot{text-align:center;color:#8b4a2e;font-size:0.62em;margin-top:40px;}
+.foot a{color:#8b4a2e;}
+</style>
+</head>
+<body>
+<div class="page">
+<a class="back" href="/products/">&larr; Tools</a>
+
+<h1>Diverge</h1>
+<p class="pitch">Paste parallel outputs. Find where they agree. Find where they split. The split IS the information.</p>
+
+<div class="tool">
+  <div class="tool-label">PASTE MULTIPLE RESPONSES (separated by --- or blank lines)</div>
+  <textarea id="input" rows="10" placeholder="Response 1 here...
+---
+Response 2 here...
+---
+Response 3 here..."></textarea>
+  <div class="presets">
+    <div class="preset" onclick="loadPreset('identical')">5 identical answers</div>
+    <div class="preset" onclick="loadPreset('different')">5 different answers</div>
+    <div class="preset" onclick="loadPreset('outlier')">4 agree + 1 outlier</div>
+  </div>
+  <button class="run" id="run-btn" onclick="runTool()" disabled>Loading Python...</button>
+  <div id="status">Loading runtime...</div>
+  <div class="output" id="output">Pick a preset or paste your own responses. Press Run.</div>
+</div>
+
+<div class="docs">
+<h2>Usage</h2>
+<pre>
+pip install begump
+
+<code>from gump.diverge import analyze</code>
+
+responses = [
+    "The answer is 42.",
+    "The answer is 42.",
+    "The answer is 37.",
+]
+
+result = analyze(responses)
+print(result['divergence_score'])   # 0.33
+print(result['unique_content_ratio']) # 0.67
+print(result['consensus'])          # "The answer is 42."
+print(result['splits'])             # [{'group': [0,1], 'content': '42'}, ...]
+print(result['diagnosis'])          # "low divergence, 1 outlier"
+</pre>
+
+<h2>What It Measures</h2>
+<p><strong>divergence_score</strong> — 0 = perfect agreement, 1 = total disagreement. Based on pairwise similarity of all responses.</p>
+<p><strong>unique_content_ratio</strong> — What fraction of content is NOT shared across all responses. High = lots of novel material per response.</p>
+<p><strong>consensus</strong> — The response (or fragment) that most others agree with. The center of mass.</p>
+<p><strong>splits</strong> — Groups of responses that agree with each other but disagree with other groups. Where the fork happens.</p>
+
+<h2>Why Splits Matter</h2>
+<p>When you run the same prompt 5 times and 4 agree but 1 says something different — that one is either wrong or seeing something the others missed. The split tells you where the model is uncertain. Uncertainty IS information.</p>
+</div>
+
+<div class="foot">
+  <a href="/products/">Tools</a> &middot; <a href="/">GUMP</a> &middot; <a href="mailto:jim@begump.com">jim@begump.com</a>
+</div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/pyodide/v0.25.1/full/pyodide.js"></script>
+<script>
+var presets = {
+  identical: function(){
+    return "The capital of France is Paris. It has been the capital since the 10th century.\n---\nThe capital of France is Paris. It has been the capital since the 10th century.\n---\nThe capital of France is Paris. It has been the capital since the 10th century.\n---\nThe capital of France is Paris. It has been the capital since the 10th century.\n---\nThe capital of France is Paris. It has been the capital since the 10th century.";
+  },
+  different: function(){
+    return "The best programming language is Python because of its readability.\n---\nRust is the best language because of memory safety without garbage collection.\n---\nJavaScript is the best because it runs everywhere, browser and server.\n---\nC is the best because everything else is built on top of it.\n---\nLisp is the best because code is data and macros are infinite power.";
+  },
+  outlier: function(){
+    return "Water boils at 100 degrees Celsius at standard atmospheric pressure.\n---\nWater boils at 100 degrees Celsius at sea level pressure (1 atm).\n---\nAt standard pressure, water's boiling point is 100 degrees C.\n---\nWater boils at 100C under normal atmospheric conditions.\n---\nWater boils at 373.15 Kelvin, which means the phase transition happens when molecular kinetic energy overcomes intermolecular hydrogen bonds. The exact temperature depends on pressure according to the Clausius-Clapeyron relation.";
+  }
+};
+
+function loadPreset(name){
+  document.getElementById('input').value = presets[name]();
+}
+
+loadPreset('outlier');
+
+var pyodide = null;
+async function init(){
+  document.getElementById('status').textContent = 'Loading Python runtime...';
+  pyodide = await loadPyodide();
+  await pyodide.loadPackage(['numpy']);
+  document.getElementById('status').textContent = 'Installing gump.diverge...';
+
+  await pyodide.runPythonAsync(`
+import numpy as np
+from collections import Counter
+
+def _tokenize(text):
+    """Simple word tokenizer."""
+    return text.lower().split()
+
+def _ngrams(tokens, n=2):
+    """Generate n-grams from token list."""
+    return [tuple(tokens[i:i+n]) for i in range(len(tokens)-n+1)]
+
+def _jaccard(a, b):
+    """Jaccard similarity between two sets."""
+    if not a and not b:
+        return 1.0
+    sa, sb = set(a), set(b)
+    inter = len(sa & sb)
+    union = len(sa | sb)
+    return inter / union if union > 0 else 1.0
+
+def _cosine_bow(a_tokens, b_tokens):
+    """Cosine similarity using bag-of-words."""
+    all_words = list(set(a_tokens + b_tokens))
+    if not all_words:
+        return 1.0
+    va = np.array([a_tokens.count(w) for w in all_words], dtype=float)
+    vb = np.array([b_tokens.count(w) for w in all_words], dtype=float)
+    dot = np.dot(va, vb)
+    na, nb = np.linalg.norm(va), np.linalg.norm(vb)
+    if na == 0 or nb == 0:
+        return 0.0
+    return float(dot / (na * nb))
+
+def diverge_analyze(responses):
+    n = len(responses)
+    if n < 2:
+        return {'error': 'Need at least 2 responses'}
+
+    # Tokenize all
+    tokenized = [_tokenize(r) for r in responses]
+    bigrams = [set(_ngrams(t, 2)) for t in tokenized]
+    unigrams = [set(t) for t in tokenized]
+
+    # Pairwise similarity matrix (cosine on BOW)
+    sim_matrix = np.zeros((n, n))
+    for i in range(n):
+        for j in range(n):
+            if i == j:
+                sim_matrix[i,j] = 1.0
+            elif j > i:
+                s = _cosine_bow(tokenized[i], tokenized[j])
+                sim_matrix[i,j] = s
+                sim_matrix[j,i] = s
+
+    # Divergence score = 1 - mean pairwise similarity
+    upper_tri = []
+    for i in range(n):
+        for j in range(i+1, n):
+            upper_tri.append(sim_matrix[i,j])
+    mean_sim = float(np.mean(upper_tri))
+    divergence_score = round(1.0 - mean_sim, 4)
+
+    # Unique content ratio: what fraction of each response's words are NOT in all others
+    shared_all = set.intersection(*unigrams) if unigrams else set()
+    total_unique = 0
+    total_words = 0
+    for u in unigrams:
+        total_words += len(u)
+        total_unique += len(u - shared_all)
+    unique_ratio = round(total_unique / max(total_words, 1), 4)
+
+    # Consensus: response with highest average similarity to all others
+    avg_sims = []
+    for i in range(n):
+        others = [sim_matrix[i,j] for j in range(n) if j != i]
+        avg_sims.append(np.mean(others))
+    consensus_idx = int(np.argmax(avg_sims))
+    consensus = responses[consensus_idx]
+    if len(consensus) > 200:
+        consensus = consensus[:200] + '...'
+
+    # Splits: cluster by similarity threshold
+    threshold = 0.6
+    visited = [False] * n
+    splits = []
+    for i in range(n):
+        if visited[i]:
+            continue
+        group = [i]
+        visited[i] = True
+        for j in range(i+1, n):
+            if not visited[j] and sim_matrix[i,j] >= threshold:
+                group.append(j)
+                visited[j] = True
+        splits.append(group)
+
+    # Diagnosis
+    n_splits = len(splits)
+    outliers = [s for s in splits if len(s) == 1]
+    if divergence_score < 0.1:
+        dx = 'near-identical'
+    elif divergence_score < 0.3:
+        if outliers:
+            dx = 'low divergence, ' + str(len(outliers)) + ' outlier' + ('s' if len(outliers)>1 else '')
+        else:
+            dx = 'low divergence'
+    elif divergence_score < 0.6:
+        dx = str(n_splits) + ' distinct clusters'
+    elif divergence_score < 0.85:
+        dx = 'high divergence, ' + str(n_splits) + ' splits'
+    else:
+        dx = 'total disagreement'
+
+    return {
+        'divergence_score': divergence_score,
+        'unique_content_ratio': unique_ratio,
+        'consensus': consensus,
+        'consensus_idx': consensus_idx,
+        'splits': splits,
+        'n_responses': n,
+        'n_splits': n_splits,
+        'diagnosis': dx,
+    }
+  `);
+
+  document.getElementById('run-btn').disabled = false;
+  document.getElementById('run-btn').textContent = 'Run';
+  document.getElementById('status').textContent = 'Ready.';
+}
+
+async function runTool(){
+  var btn = document.getElementById('run-btn');
+  var out = document.getElementById('output');
+  btn.disabled = true; btn.textContent = 'Analyzing...';
+
+  var raw = document.getElementById('input').value.trim();
+  // Split on --- or double newlines
+  var responses;
+  if(raw.indexOf('---') !== -1){
+    responses = raw.split(/\n*---\n*/).filter(function(s){return s.trim().length>0;});
+  } else {
+    responses = raw.split(/\n\n+/).filter(function(s){return s.trim().length>0;});
+  }
+
+  if(responses.length < 2){
+    out.textContent='Need at least 2 responses (separate with --- or blank lines).';
+    btn.disabled=false;btn.textContent='Run';return;
+  }
+
+  // Pass to Python
+  var pyList = JSON.stringify(responses);
+  try {
+    var t0 = performance.now();
+    var result = await pyodide.runPythonAsync(`
+import json
+responses = json.loads('''` + pyList.replace(/\\/g,'\\\\').replace(/'/g,"\\'") + `''')
+p = diverge_analyze(responses)
+json.dumps(p)
+    `);
+    var dt = (performance.now()-t0).toFixed(0);
+    var p = JSON.parse(result);
+
+    if(p.error){out.textContent='Error: '+p.error;btn.disabled=false;btn.textContent='Run';return;}
+
+    var lines = [];
+    lines.push('DIAGNOSIS: ' + p.diagnosis.toUpperCase());
+    lines.push('');
+    lines.push('divergence_score    = ' + p.divergence_score + '  (0=identical, 1=total split)');
+    lines.push('unique_content_ratio = ' + p.unique_content_ratio + '  (novel material per response)');
+    lines.push('');
+    lines.push('Consensus (response #' + (p.consensus_idx+1) + '):');
+    lines.push('  "' + p.consensus + '"');
+    lines.push('');
+    lines.push('Splits (' + p.n_splits + ' group' + (p.n_splits>1?'s':'') + '):');
+    p.splits.forEach(function(g, i){
+      lines.push('  Group ' + (i+1) + ': responses [' + g.map(function(x){return x+1;}).join(', ') + ']');
+    });
+    lines.push('');
+    lines.push(p.n_responses + ' responses analyzed in ' + dt + 'ms');
+
+    out.textContent = lines.join('\n');
+  } catch(e) {
+    out.textContent = 'Error: ' + e.message;
+  }
+  btn.disabled = false; btn.textContent = 'Run';
+}
+
+init();
+</script>
+<script src="/js/breathe.js?v=2"></script>
+<script src="/js/listen.js"></script>
+<script src="/transit.js"></script>
+<script src="/js/love.js"></script>
+</body>
+</html>
