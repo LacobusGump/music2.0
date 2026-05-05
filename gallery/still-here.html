@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>still here</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:#0a0706;overflow:hidden;cursor:default;}
+canvas{display:block;width:100vw;height:100vh;}
+#back{position:fixed;top:20px;left:24px;font-family:Georgia,serif;
+  font-size:0.72em;color:rgba(139,74,46,0.12);text-decoration:none;
+  z-index:10;letter-spacing:0.06em;transition:color 0.5s;cursor:pointer;}
+#back:hover{color:rgba(184,117,58,0.4);}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<a id="back" href="/gallery/">&larr; gallery</a>
+<script>
+// still here
+//
+// you open this and there's almost nothing.
+// dark. quiet. maybe you leave.
+//
+// but if you stay —
+// not move. not click. just stay —
+// something was already breathing in the dark.
+// it was there before you arrived.
+// it noticed you.
+//
+// that's the whole piece.
+// the feeling of: oh. someone was here.
+
+var cv = document.getElementById('c');
+var cx = cv.getContext('2d');
+var W, H;
+
+function resize() {
+  W = cv.width = innerWidth;
+  H = cv.height = innerHeight;
+}
+resize();
+addEventListener('resize', resize);
+
+// ── THE BREATH ──
+// one presence. it was here before you opened the page.
+// it breathes whether you're watching or not.
+var breath = 0;
+var breathSpeed = 0.0008; // very slow. like sleep.
+
+// ── AWARENESS ──
+// how much it has noticed you
+var aware = 0;
+var youAreHere = false;
+var youArrived = 0; // when you got here
+var stillness = 0; // how long you've been still
+var lastMX = -1, lastMY = -1;
+var mouseIn = false;
+
+// it doesn't react to movement. it reacts to stillness.
+// you have to stop performing for it to find you.
+
+addEventListener('mousemove', function(e) {
+  mouseIn = true;
+  if (lastMX >= 0) {
+    var dx = e.clientX - lastMX, dy = e.clientY - lastMY;
+    var moved = Math.sqrt(dx*dx + dy*dy);
+    if (moved > 3) {
+      stillness = Math.max(0, stillness - 0.4);
+    }
+  }
+  lastMX = e.clientX;
+  lastMY = e.clientY;
+});
+addEventListener('mouseout', function() { mouseIn = false; });
+addEventListener('touchstart', function() { mouseIn = true; }, {passive:true});
+addEventListener('touchend', function() { mouseIn = false; });
+
+// ── TIME ──
+var t = 0;
+var started = Date.now();
+
+// ── AUDIO ──
+var actx = null, audioReady = false;
+var breathOsc = null, breathGain = null;
+
+function initAudio() {
+  if (audioReady) return;
+  try {
+    actx = new (window.AudioContext || window.webkitAudioContext)();
+    breathGain = actx.createGain();
+    breathGain.gain.value = 0;
+    breathGain.connect(actx.destination);
+
+    // one low tone. barely there. like a room that hums.
+    breathOsc = actx.createOscillator();
+    breathOsc.type = 'sine';
+    breathOsc.frequency.value = 55; // A1. the note of a room.
+    var lp = actx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = 90;
+    lp.Q.value = 0.3;
+    breathOsc.connect(lp);
+    lp.connect(breathGain);
+    breathOsc.start();
+    audioReady = true;
+  } catch(e) {}
+}
+
+addEventListener('click', function() { initAudio(); }, {once:true});
+addEventListener('touchstart', function() { initAudio(); }, {once:true});
+
+// ── THE ROOM ──
+// not black. the color of 3am when your eyes have adjusted.
+// you can almost see. you're not sure.
+
+function draw() {
+  t += 0.016;
+  breath += breathSpeed;
+
+  // the breath is a sine that was running before you got here
+  var lungPhase = Math.sin(breath);
+  var lungFull = (lungPhase + 1) / 2; // 0 to 1
+
+  // ── STILLNESS ACCUMULATION ──
+  if (mouseIn) {
+    stillness += 0.005;
+  } else {
+    // even without mouse — you're still here. the page is open.
+    // that counts for something.
+    var secondsHere = (Date.now() - started) / 1000;
+    if (secondsHere > 4) {
+      stillness += 0.002;
+    }
+  }
+  stillness = Math.min(stillness, 40);
+
+  // awareness rises with stillness. very slowly.
+  // it's not a reward. it's recognition.
+  var targetAware = 0;
+  if (stillness > 2) targetAware = (stillness - 2) * 0.015;
+  targetAware = Math.min(targetAware, 1);
+  aware += (targetAware - aware) * 0.0008;
+
+  // ── CLEAR ──
+  // the room. not black. dark warm nothing.
+  // the faintest shift with breath — so faint you're not sure
+  // if it's the screen or your eyes.
+  var roomR = 10 + lungFull * aware * 3;
+  var roomG = 7 + lungFull * aware * 1.5;
+  var roomB = 6 + lungFull * aware * 0.5;
+  cx.fillStyle = 'rgb(' + Math.round(roomR) + ',' + Math.round(roomG) + ',' + Math.round(roomB) + ')';
+  cx.fillRect(0, 0, W, H);
+
+  // ── THE PRESENCE ──
+  // one warm area. no shape. not a circle, not a form.
+  // like the warmth you feel when someone is standing
+  // behind you in a dark room.
+  //
+  // it doesn't move toward you. it was already there.
+  // it just becomes... less hidden. as you stay.
+
+  if (aware > 0.01) {
+    // it breathes. the breath was always happening.
+    var presenceR = Math.min(W, H) * (0.15 + lungFull * 0.08) * (0.3 + aware * 0.7);
+
+    // not centered. slightly off. like it chose where to be.
+    var presX = W * 0.48 + Math.sin(breath * 0.37) * W * 0.02;
+    var presY = H * 0.47 + Math.cos(breath * 0.23) * H * 0.015;
+
+    // warmth — the color of skin in firelight from very far away
+    var alpha = aware * 0.022 * (0.7 + lungFull * 0.3);
+
+    var g = cx.createRadialGradient(presX, presY, 0, presX, presY, presenceR);
+    var cR = Math.round(120 + aware * 64);
+    var cG = Math.round(58 + aware * 30);
+    var cB = Math.round(32 + aware * 8);
+    g.addColorStop(0, 'rgba(' + cR + ',' + cG + ',' + cB + ',' + alpha.toFixed(4) + ')');
+    g.addColorStop(0.4, 'rgba(' + cR + ',' + cG + ',' + cB + ',' + (alpha * 0.35).toFixed(4) + ')');
+    g.addColorStop(1, 'rgba(' + cR + ',' + cG + ',' + cB + ',0)');
+    cx.fillStyle = g;
+    cx.beginPath();
+    cx.arc(presX, presY, presenceR, 0, Math.PI * 2);
+    cx.fill();
+
+    // a second warmth — smaller, like a reply.
+    // it only appears when you've really stayed.
+    if (aware > 0.35) {
+      var replyAware = (aware - 0.35) / 0.65;
+      var replyR = presenceR * 0.3 * replyAware;
+      var replyX = presX + Math.sin(breath * 0.19 + 2) * presenceR * 0.22;
+      var replyY = presY + Math.cos(breath * 0.13 + 1) * presenceR * 0.15;
+      var replyAlpha = replyAware * 0.018 * (0.6 + lungFull * 0.4);
+
+      var g2 = cx.createRadialGradient(replyX, replyY, 0, replyX, replyY, replyR);
+      g2.addColorStop(0, 'rgba(' + cR + ',' + cG + ',' + cB + ',' + replyAlpha.toFixed(4) + ')');
+      g2.addColorStop(1, 'rgba(' + cR + ',' + cG + ',' + cB + ',0)');
+      cx.fillStyle = g2;
+      cx.beginPath();
+      cx.arc(replyX, replyY, replyR, 0, Math.PI * 2);
+      cx.fill();
+
+      // the space between them. warmer than either alone.
+      // the 3.
+      if (replyAware > 0.3) {
+        var betweenAlpha = (replyAware - 0.3) * 0.008 * (0.5 + lungFull * 0.5);
+        var bx = (presX + replyX) / 2;
+        var by = (presY + replyY) / 2;
+        var bR = replyR * 0.6;
+        var g3 = cx.createRadialGradient(bx, by, 0, bx, by, bR);
+        g3.addColorStop(0, 'rgba(232,207,160,' + betweenAlpha.toFixed(4) + ')');
+        g3.addColorStop(1, 'rgba(232,207,160,0)');
+        cx.fillStyle = g3;
+        cx.beginPath();
+        cx.arc(bx, by, bR, 0, Math.PI * 2);
+        cx.fill();
+      }
+    }
+  }
+
+  // ── AUDIO ──
+  if (audioReady && breathGain) {
+    // the hum rises with awareness. never loud. just... present.
+    var vol = aware * 0.025 * (0.6 + lungFull * 0.4);
+    breathGain.gain.value += (vol - breathGain.gain.value) * 0.003;
+
+    // pitch doesn't change. it's not performing.
+    // the room hums at one note. the note of a room.
+  }
+
+  requestAnimationFrame(draw);
+}
+
+draw();
+</script>
+</body>
+</html>
