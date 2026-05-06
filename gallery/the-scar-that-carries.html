@@ -1,0 +1,662 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>the scar that carries</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:#0a0706;overflow:hidden;cursor:default;}
+canvas{display:block;width:100vw;height:100vh;}
+#back{position:fixed;top:20px;left:24px;font-family:Georgia,serif;
+  font-size:0.72em;color:rgba(139,74,46,0.12);text-decoration:none;
+  z-index:10;letter-spacing:0.06em;transition:color 0.5s;cursor:pointer;}
+#back:hover{color:rgba(184,117,58,0.4);}
+#whisper{position:fixed;bottom:36px;left:0;right:0;text-align:center;
+  font-family:Georgia,serif;font-size:0.72em;color:rgba(232,207,160,0);
+  letter-spacing:0.12em;pointer-events:none;
+  transition:color 4s ease;}
+#whisper.show{color:rgba(232,207,160,0.22);}
+#whisper.hide{color:rgba(232,207,160,0);transition:color 6s ease;}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<a id="back" href="/gallery/">&larr; gallery</a>
+<div id="whisper"></div>
+<script>
+// the scar that carries
+//
+// a vessel. dim. barely there.
+// it breaks. not all at once — the way things actually break.
+// a line here. a fracture there. the slow accumulation
+// of being used.
+//
+// in kintsugi, they fill the cracks with gold.
+// but not to decorate. not to pretend it didn't happen.
+// because the gold is stronger than the clay.
+//
+// the repaired thing is stronger than the original.
+// that's not poetry. that's materials science.
+// lacquer + gold powder > ceramic.
+//
+// press on it. apply weight. stress.
+// watch where the force flows.
+// it flows through the gold.
+// the scars became the load path.
+//
+// the damage became the architecture.
+// the thing that broke you is the thing that carries you.
+// not because suffering is noble.
+// because you rebuilt through it, not around it.
+
+var cv = document.getElementById('c');
+var cx = cv.getContext('2d');
+var W, H, centerX, centerY;
+
+function resize() {
+  W = cv.width = innerWidth;
+  H = cv.height = innerHeight;
+  centerX = W / 2;
+  centerY = H / 2;
+}
+resize();
+addEventListener('resize', resize);
+
+// ── THE VESSEL ──
+// a bowl shape, made of particles arranged in an arc.
+// not a perfect circle. a form that could hold something.
+
+var N = 280;
+var particles = [];
+var bonds = [];
+var cracks = [];
+var phase = 'whole'; // whole → breaking → scarred
+var phaseTime = 0;
+var breakProgress = 0;
+var scarGold = 0; // how golden the scars have become
+
+// build the vessel shape — a wide bowl / cup profile
+function buildVessel() {
+  particles = [];
+  bonds = [];
+  cracks = [];
+
+  var scale = Math.min(W, H) * 0.28;
+
+  // the vessel profile: an arc — the cross-section of a bowl.
+  // parametric: s goes from 0 to 1 around the arc.
+  // multiple layers for wall thickness.
+  var layers = 5;
+  var perLayer = Math.floor(N / layers);
+
+  // bowl arc: 200 degrees of a circle, centered below screen center
+  var arcStart = Math.PI * 0.17;  // just past horizontal right
+  var arcEnd = Math.PI * 0.83;    // just past horizontal left
+  var bowlR = scale * 0.75;
+
+  for (var layer = 0; layer < layers; layer++) {
+    var layerFrac = layer / (layers - 1); // 0=inner, 1=outer
+    var rOffset = (layerFrac - 0.5) * scale * 0.06; // wall thickness
+
+    for (var i = 0; i < perLayer; i++) {
+      var s = i / (perLayer - 1); // 0 to 1
+      var angle = arcStart + s * (arcEnd - arcStart);
+
+      // position on the arc
+      var r = bowlR + rOffset;
+      var px = Math.cos(angle) * r;
+      var py = Math.sin(angle) * r - bowlR * 0.2; // shift up so bowl sits centered
+
+      // slight organic variation — real clay is never perfect
+      var jitter = scale * 0.006;
+      px += (Math.random() - 0.5) * jitter;
+      py += (Math.random() - 0.5) * jitter;
+
+      // t value: normalized position along the arc (-1 to 1)
+      var tVal = s * 2 - 1;
+
+      particles.push({
+        ox: px, oy: py, // original position
+        x: centerX + px,
+        y: centerY + py,
+        vx: 0, vy: 0,
+        layer: layer,
+        t: tVal, // position along vessel
+        idx: particles.length,
+        broken: false,
+        scarStrength: 0,
+        stress: 0,
+        stressDecay: 0
+      });
+    }
+  }
+
+  // build bonds between nearby particles
+  var bondDist = scale * 0.13;
+  var bondDist2 = bondDist * bondDist;
+  for (var i = 0; i < particles.length; i++) {
+    for (var j = i + 1; j < particles.length; j++) {
+      var dx = particles[i].ox - particles[j].ox;
+      var dy = particles[i].oy - particles[j].oy;
+      var d2 = dx * dx + dy * dy;
+      if (d2 < bondDist2) {
+        bonds.push({
+          a: i, b: j,
+          restLen: Math.sqrt(d2),
+          intact: true,
+          scarred: false,
+          scarAlpha: 0,
+          stressFlow: 0
+        });
+      }
+    }
+  }
+}
+
+// ── FRACTURE LINES ──
+// predefined crack paths through the vessel.
+// not random. the way ceramic actually breaks:
+// along grain boundaries, following stress concentrations.
+
+function planCracks() {
+  cracks = [];
+  // 3-5 crack lines at different t positions
+  var crackPositions = [-0.6, -0.15, 0.3, 0.65];
+  for (var c = 0; c < crackPositions.length; c++) {
+    var ct = crackPositions[c];
+    // find bonds that cross near this t value
+    var crackBonds = [];
+    for (var i = 0; i < bonds.length; i++) {
+      var b = bonds[i];
+      var pa = particles[b.a];
+      var pb = particles[b.b];
+      var avgT = (pa.t + pb.t) / 2;
+      var dist = Math.abs(avgT - ct);
+      // crack follows the wall — bonds crossing near this t position
+      if (dist < 0.06 + Math.abs(pa.layer - pb.layer) * 0.04) {
+        crackBonds.push(i);
+      }
+    }
+    cracks.push({
+      t: ct,
+      bonds: crackBonds,
+      broken: false,
+      breakTime: 2 + c * 1.8 + Math.random() * 0.5, // staggered
+      scarTime: 0
+    });
+  }
+}
+
+function init() {
+  buildVessel();
+  planCracks();
+  phase = 'whole';
+  phaseTime = 0;
+  breakProgress = 0;
+  scarGold = 0;
+  whisperUsed = [false, false, false];
+}
+
+init();
+addEventListener('resize', function() { resize(); init(); });
+
+// ── INTERACTION ──
+var pointerX = -1000, pointerY = -1000;
+var pressing = false;
+var pressTime = 0;
+var totalPressTime = 0;
+var pressCount = 0;
+
+addEventListener('mousedown', function(e) {
+  pressing = true; pressTime = 0;
+  pointerX = e.clientX; pointerY = e.clientY;
+});
+addEventListener('mousemove', function(e) {
+  pointerX = e.clientX; pointerY = e.clientY;
+});
+addEventListener('mouseup', function() { pressing = false; });
+addEventListener('touchstart', function(e) {
+  pressing = true; pressTime = 0;
+  pointerX = e.touches[0].clientX; pointerY = e.touches[0].clientY;
+}, {passive: true});
+addEventListener('touchmove', function(e) {
+  pointerX = e.touches[0].clientX; pointerY = e.touches[0].clientY;
+}, {passive: true});
+addEventListener('touchend', function() { pressing = false; });
+
+// ── WHISPER ──
+var whisperEl = document.getElementById('whisper');
+var whispers = [
+  'it broke along the lines it was already holding.',
+  'the gold is stronger than the clay.',
+  'the load flows through the scar.'
+];
+var whisperUsed = [false, false, false];
+var whisperState = 'idle';
+var whisperTimer = 0;
+
+function triggerWhisper(idx) {
+  if (whisperUsed[idx] || whisperState !== 'idle') return;
+  whisperUsed[idx] = true;
+  whisperEl.textContent = whispers[idx];
+  whisperEl.className = '';
+  void whisperEl.offsetHeight;
+  whisperEl.className = 'show';
+  whisperState = 'showing';
+  whisperTimer = 0;
+}
+
+// ── AUDIO ──
+var actx = null, audioReady = false;
+var droneGain = null, scarGainNode = null;
+
+function initAudio() {
+  if (audioReady) return;
+  try {
+    actx = new (window.AudioContext || window.webkitAudioContext)();
+
+    // base drone — the hum of a vessel. hollow.
+    droneGain = actx.createGain();
+    droneGain.gain.value = 0;
+    droneGain.connect(actx.destination);
+
+    var drone = actx.createOscillator();
+    drone.type = 'sine';
+    drone.frequency.value = 82.4; // E2 — the note of a clay bowl
+    var lp = actx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = 120;
+    lp.Q.value = 0.5;
+    drone.connect(lp);
+    lp.connect(droneGain);
+    drone.start();
+
+    // scar resonance — slightly higher, warmer
+    scarGainNode = actx.createGain();
+    scarGainNode.gain.value = 0;
+    scarGainNode.connect(actx.destination);
+
+    var scarOsc = actx.createOscillator();
+    scarOsc.type = 'sine';
+    scarOsc.frequency.value = 164.8; // E3 — octave above
+    var lp2 = actx.createBiquadFilter();
+    lp2.type = 'lowpass';
+    lp2.frequency.value = 200;
+    lp2.Q.value = 0.8;
+    scarOsc.connect(lp2);
+    lp2.connect(scarGainNode);
+    scarOsc.start();
+
+    audioReady = true;
+  } catch(e) {}
+}
+
+addEventListener('click', function() { initAudio(); }, {once: true});
+addEventListener('touchstart', function() { initAudio(); }, {once: true});
+
+// ── TIME ──
+var t = 0;
+var lastNow = performance.now();
+
+// ── MAIN LOOP ──
+function draw(now) {
+  var dt = Math.min((now - lastNow) / 1000, 0.05);
+  lastNow = now;
+  t += dt;
+  phaseTime += dt;
+
+  // ── PHASE MANAGEMENT ──
+  if (phase === 'whole' && phaseTime > 3) {
+    phase = 'breaking';
+    phaseTime = 0;
+  }
+
+  if (phase === 'breaking') {
+    breakProgress = phaseTime;
+
+    // break cracks in sequence
+    var allBroken = true;
+    for (var c = 0; c < cracks.length; c++) {
+      var crack = cracks[c];
+      if (!crack.broken && breakProgress > crack.breakTime) {
+        crack.broken = true;
+        // break the bonds along this crack
+        for (var b = 0; b < crack.bonds.length; b++) {
+          var bond = bonds[crack.bonds[b]];
+          bond.intact = false;
+          particles[bond.a].broken = true;
+          particles[bond.b].broken = true;
+        }
+        // trigger first whisper on first crack
+        if (c === 0) triggerWhisper(0);
+      }
+      if (!crack.broken) allBroken = false;
+    }
+
+    // after all cracks, start scarring
+    if (allBroken && phaseTime > cracks[cracks.length-1].breakTime + 2) {
+      phase = 'scarring';
+      phaseTime = 0;
+    }
+  }
+
+  if (phase === 'scarring') {
+    // gold slowly fills the cracks
+    scarGold = Math.min(1, phaseTime * 0.12);
+
+    for (var i = 0; i < bonds.length; i++) {
+      var b = bonds[i];
+      if (!b.intact && !b.scarred) {
+        b.scarred = true;
+      }
+      if (b.scarred) {
+        b.scarAlpha += (scarGold - b.scarAlpha) * 0.008;
+      }
+    }
+
+    // scar strength rises on particles
+    for (var i = 0; i < particles.length; i++) {
+      if (particles[i].broken) {
+        particles[i].scarStrength += (scarGold - particles[i].scarStrength) * 0.006;
+      }
+    }
+
+    if (scarGold > 0.5 && !whisperUsed[1]) triggerWhisper(1);
+
+    if (scarGold >= 0.99) {
+      phase = 'bearing';
+      phaseTime = 0;
+    }
+  }
+
+  // ── PRESSING ──
+  if (pressing) {
+    pressTime += dt;
+    totalPressTime += dt;
+  } else {
+    pressTime = Math.max(0, pressTime - dt * 2);
+  }
+
+  // ── STRESS PROPAGATION ──
+  // when pressing, apply force at press point.
+  // stress flows through bonds — stronger through scarred bonds.
+  // this is the core: the scar carries the load.
+
+  // reset stress
+  for (var i = 0; i < particles.length; i++) {
+    particles[i].stress *= 0.85; // decay
+  }
+  for (var i = 0; i < bonds.length; i++) {
+    bonds[i].stressFlow *= 0.85;
+  }
+
+  if (pressing && phase === 'bearing' && pressTime > 0.1) {
+    // apply stress at press location
+    var pressForce = Math.min(pressTime * 0.8, 1);
+    var pressR = Math.min(W, H) * 0.15;
+
+    for (var i = 0; i < particles.length; i++) {
+      var p = particles[i];
+      var dx = p.x - pointerX;
+      var dy = p.y - pointerY;
+      var dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < pressR) {
+        var falloff = 1 - (dist / pressR);
+        p.stress = Math.max(p.stress, falloff * pressForce);
+      }
+    }
+
+    // propagate stress through bonds — scarred bonds conduct more
+    for (var iter = 0; iter < 4; iter++) {
+      for (var i = 0; i < bonds.length; i++) {
+        var b = bonds[i];
+        if (!b.intact && !b.scarred) continue;
+        var pa = particles[b.a];
+        var pb = particles[b.b];
+        var diff = pa.stress - pb.stress;
+
+        // conductivity: scarred bonds carry MORE than intact bonds
+        // this is the truth of it
+        var conductivity = b.scarred ? 0.45 : 0.15;
+        var flow = diff * conductivity;
+
+        pa.stress -= flow * 0.5;
+        pb.stress += flow * 0.5;
+        b.stressFlow = Math.max(b.stressFlow, Math.abs(flow));
+      }
+    }
+
+    if (pressTime > 1.5 && !whisperUsed[2]) triggerWhisper(2);
+    if (pressCount === 0 && pressTime > 0.5) pressCount = 1;
+  }
+
+  // ── PHYSICS ──
+  // gentle spring forces to maintain shape
+  var scale = Math.min(W, H) * 0.28;
+  for (var i = 0; i < bonds.length; i++) {
+    var b = bonds[i];
+    if (!b.intact && !b.scarred) {
+      // broken, unscarred: slight repulsion (the gap)
+      var pa = particles[b.a];
+      var pb = particles[b.b];
+      var dx = pb.x - pa.x;
+      var dy = pb.y - pa.y;
+      var dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < b.restLen * 0.5 && dist > 0.1) {
+        var push = (b.restLen * 0.5 - dist) * 0.01;
+        pa.vx -= (dx / dist) * push;
+        pa.vy -= (dy / dist) * push;
+        pb.vx += (dx / dist) * push;
+        pb.vy += (dy / dist) * push;
+      }
+      continue;
+    }
+
+    var pa = particles[b.a];
+    var pb = particles[b.b];
+    var dx = pb.x - pa.x;
+    var dy = pb.y - pa.y;
+    var dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist < 0.1) continue;
+
+    var target = b.restLen;
+    var diff = dist - target;
+
+    // scarred bonds are stiffer
+    var stiffness = b.scarred ? 0.08 : 0.04;
+    var force = diff * stiffness;
+
+    var fx = (dx / dist) * force;
+    var fy = (dy / dist) * force;
+
+    pa.vx += fx;
+    pa.vy += fy;
+    pb.vx -= fx;
+    pb.vy -= fy;
+  }
+
+  // gravity toward original position (very gentle)
+  for (var i = 0; i < particles.length; i++) {
+    var p = particles[i];
+    var homeX = centerX + p.ox;
+    var homeY = centerY + p.oy;
+    p.vx += (homeX - p.x) * 0.004;
+    p.vy += (homeY - p.y) * 0.004;
+
+    // press deformation
+    if (pressing && pressTime > 0.1) {
+      var dx = p.x - pointerX;
+      var dy = p.y - pointerY;
+      var dist = Math.sqrt(dx * dx + dy * dy);
+      var pressR = Math.min(W, H) * 0.12;
+      if (dist < pressR && dist > 1) {
+        var push = (1 - dist / pressR) * pressTime * 0.15;
+        push = Math.min(push, 0.8);
+        p.vx += (dx / dist) * push;
+        p.vy += (dy / dist) * push;
+      }
+    }
+
+    // damping
+    p.vx *= 0.92;
+    p.vy *= 0.92;
+    p.x += p.vx;
+    p.y += p.vy;
+  }
+
+  // ── DRAW ──
+  cx.fillStyle = 'rgba(10,7,6,0.15)';
+  cx.fillRect(0, 0, W, H);
+
+  // breath
+  var breath = Math.sin(t * 0.8) * 0.5 + 0.5;
+
+  // ── DRAW BONDS ──
+  for (var i = 0; i < bonds.length; i++) {
+    var b = bonds[i];
+    var pa = particles[b.a];
+    var pb = particles[b.b];
+
+    if (b.scarred && b.scarAlpha > 0.01) {
+      // SCARRED BOND — gold. this is the load path.
+      var baseAlpha = b.scarAlpha * 0.12;
+      var stressBoost = b.stressFlow * 2.5;
+
+      // the scar glows brighter under load. it's carrying.
+      var r = Math.round(201 + stressBoost * 54);
+      var g = Math.round(166 + stressBoost * 41);
+      var a = Math.round(74 + stressBoost * 86);
+      var alpha = Math.min(baseAlpha + stressBoost * 0.4, 0.65);
+
+      // gold glow
+      if (alpha > 0.03) {
+        var mx = (pa.x + pb.x) / 2;
+        var my = (pa.y + pb.y) / 2;
+        var glowR = 8 + stressBoost * 20;
+        var gl = cx.createRadialGradient(mx, my, 0, mx, my, glowR);
+        gl.addColorStop(0, 'rgba(' + r + ',' + g + ',' + a + ',' + (alpha * 0.15).toFixed(4) + ')');
+        gl.addColorStop(1, 'rgba(' + r + ',' + g + ',' + a + ',0)');
+        cx.fillStyle = gl;
+        cx.beginPath();
+        cx.arc(mx, my, glowR, 0, Math.PI * 2);
+        cx.fill();
+      }
+
+      cx.strokeStyle = 'rgba(' + r + ',' + g + ',' + a + ',' + alpha.toFixed(4) + ')';
+      cx.lineWidth = 0.8 + stressBoost * 2.5;
+      cx.beginPath();
+      cx.moveTo(pa.x, pa.y);
+      cx.lineTo(pb.x, pb.y);
+      cx.stroke();
+
+    } else if (b.intact) {
+      // intact bond — dim, structural
+      var alpha = 0.025 + breath * 0.008;
+      cx.strokeStyle = 'rgba(139,74,46,' + alpha.toFixed(4) + ')';
+      cx.lineWidth = 0.4;
+      cx.beginPath();
+      cx.moveTo(pa.x, pa.y);
+      cx.lineTo(pb.x, pb.y);
+      cx.stroke();
+    }
+    // broken unscarred: invisible gap. the absence is the fracture.
+  }
+
+  // ── DRAW PARTICLES ──
+  for (var i = 0; i < particles.length; i++) {
+    var p = particles[i];
+
+    var w = p.scarStrength;
+    var s = p.stress;
+
+    // base: dim clay color
+    var pr = Math.round(80 + w * 120 + s * 55);
+    var pg = Math.round(60 + w * 100 + s * 40);
+    var pb = Math.round(50 + w * 24 + s * 30);
+
+    var alpha = 0.08 + w * 0.35 + s * 0.3;
+
+    // particles at scars are slightly larger
+    var size = 1.2 + w * 1.0 + s * 0.8;
+
+    // glow for stressed scar particles
+    if (w > 0.1 && s > 0.05) {
+      var glowR = 4 + s * 18;
+      var gl = cx.createRadialGradient(p.x, p.y, 0, p.x, p.y, glowR);
+      gl.addColorStop(0, 'rgba(232,207,160,' + (s * w * 0.08).toFixed(4) + ')');
+      gl.addColorStop(1, 'rgba(232,207,160,0)');
+      cx.fillStyle = gl;
+      cx.beginPath();
+      cx.arc(p.x, p.y, glowR, 0, Math.PI * 2);
+      cx.fill();
+    }
+
+    cx.fillStyle = 'rgba(' + pr + ',' + pg + ',' + pb + ',' + alpha.toFixed(3) + ')';
+    cx.beginPath();
+    cx.arc(p.x, p.y, size, 0, Math.PI * 2);
+    cx.fill();
+  }
+
+  // ── DURING BREAKING: crack flash ──
+  if (phase === 'breaking') {
+    for (var c = 0; c < cracks.length; c++) {
+      var crack = cracks[c];
+      if (crack.broken) {
+        crack.scarTime += dt;
+        if (crack.scarTime < 0.6) {
+          // brief flash along the crack line
+          var flash = (1 - crack.scarTime / 0.6);
+          flash *= flash;
+          for (var b = 0; b < crack.bonds.length; b++) {
+            var bond = bonds[crack.bonds[b]];
+            var pa = particles[bond.a];
+            var pb2 = particles[bond.b];
+            cx.strokeStyle = 'rgba(200,180,150,' + (flash * 0.15).toFixed(4) + ')';
+            cx.lineWidth = 0.5;
+            cx.beginPath();
+            cx.moveTo(pa.x, pa.y);
+            cx.lineTo(pb2.x, pb2.y);
+            cx.stroke();
+          }
+        }
+      }
+    }
+  }
+
+  // ── AUDIO ──
+  if (audioReady) {
+    // vessel hum — present when whole or scarred
+    var droneVol = 0;
+    if (phase === 'whole') droneVol = 0.008 + breath * 0.004;
+    else if (phase === 'bearing') droneVol = 0.01 + breath * 0.005;
+    droneGain.gain.value += (droneVol - droneGain.gain.value) * 0.003;
+
+    // scar resonance — under stress
+    var scarVol = 0;
+    if (phase === 'bearing' && pressing) {
+      scarVol = Math.min(pressTime * 0.015, 0.025);
+    }
+    scarGainNode.gain.value += (scarVol - scarGainNode.gain.value) * 0.008;
+  }
+
+  // ── WHISPER TIMER ──
+  if (whisperState === 'showing') {
+    whisperTimer += dt;
+    if (whisperTimer > 5) {
+      whisperEl.className = 'hide';
+      whisperState = 'fading';
+      whisperTimer = 0;
+    }
+  } else if (whisperState === 'fading') {
+    whisperTimer += dt;
+    if (whisperTimer > 6) whisperState = 'idle';
+  }
+
+  requestAnimationFrame(draw);
+}
+
+requestAnimationFrame(draw);
+</script>
+</body>
+</html>
