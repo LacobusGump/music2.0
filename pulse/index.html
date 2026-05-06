@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pulse — GUMP</title>
+<meta name="description" content="The living circulatory map. Every research page, every connection, one heartbeat.">
+<link rel="icon" href="/favicon.png">
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:#0d0a08;color:#c4a088;font-family:Georgia,serif;overflow:hidden;
+  height:100vh;height:100dvh;}
+a{color:#a0622d;text-decoration:none;}
+
+canvas#pulse{position:fixed;top:0;left:0;width:100%;height:100%;}
+
+/* Back link */
+.back{position:fixed;top:16px;left:20px;font-size:0.72em;color:#8b4a2e;z-index:20;
+  font-family:Futura,'Century Gothic',system-ui,sans-serif;letter-spacing:0.04em;}
+.back:hover{color:#b8753a;}
+
+/* Heart rate monitor — bottom center */
+.hrm{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:20;
+  font-family:Futura,'Century Gothic',system-ui,sans-serif;
+  font-size:0.58em;letter-spacing:0.12em;text-transform:uppercase;
+  color:rgba(184,117,58,0.15);text-align:center;pointer-events:none;
+  transition:color 0.6s;}
+
+/* Tooltip */
+.tip{position:fixed;z-index:30;pointer-events:none;
+  font-family:Futura,'Century Gothic',system-ui,sans-serif;
+  font-size:0.72em;letter-spacing:0.03em;
+  background:rgba(13,10,8,0.92);border:1px solid rgba(184,117,58,0.12);
+  border-radius:8px;padding:8px 14px;color:#c4a088;
+  opacity:0;transition:opacity 0.2s;max-width:260px;line-height:1.5;}
+.tip .tn{font-weight:400;margin:0 0 3px;}
+.tip .td{font-size:0.85em;color:#9a8070;}
+
+/* Legend — top right */
+.legend{position:fixed;top:16px;right:20px;z-index:20;
+  font-family:Futura,'Century Gothic',system-ui,sans-serif;
+  font-size:0.52em;letter-spacing:0.06em;color:rgba(184,117,58,0.2);}
+.legend div{margin:0 0 4px;display:flex;align-items:center;gap:6px;}
+.legend .dot{width:6px;height:6px;border-radius:50%;flex-shrink:0;}
+
+@media(max-width:600px){
+  .legend{display:none;}
+  .hrm{font-size:0.5em;bottom:12px;}
+}
+</style>
+</head>
+<body>
+
+<a class="back" href="/">&larr; GUMP</a>
+
+<div class="legend" id="legend"></div>
+<div class="hrm" id="hrm">pulse</div>
+<div class="tip" id="tip"><div class="tn"></div><div class="td"></div></div>
+
+<canvas id="pulse"></canvas>
+
+<script>
+(function(){
+'use strict';
+
+// ═══════════════════════════════════════════════════════════
+// THE PULSE — a living circulatory map of the entire project
+//
+// Every research page is a cell.
+// Every coupling between domains is a blood vessel.
+// K is the heart rate.
+// The whole thing breathes.
+//
+// This is not a visualization OF the project.
+// This IS the project, seen from inside.
+// ═══════════════════════════════════════════════════════════
+
+var cv = document.getElementById('pulse');
+var cx = cv.getContext('2d');
+var W, H, dpr;
+var PHI = (1 + Math.sqrt(5)) / 2;
+var TAU = Math.PI * 2;
+
+function resize() {
+  dpr = window.devicePixelRatio || 1;
+  W = window.innerWidth;
+  H = window.innerHeight;
+  cv.width = W * dpr;
+  cv.height = H * dpr;
+  cx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  if (organs.length) layoutOrgans();
+}
+resize();
+window.addEventListener('resize', resize);
+
+// ═══ DOMAIN DATA — the five organs ═══
+var groups = [
+  {name:'Framework', color:[184,117,58],  colorHex:'#b8753a'},
+  {name:'Biology',   color:[64,149,64],   colorHex:'#40a540'},
+  {name:'Physics',   color:[100,150,255], colorHex:'#6496ff'},
+  {name:'Applied',   color:[201,164,74],  colorHex:'#c9a44a'},
+  {name:'Foundation',color:[177,90,86],   colorHex:'#b15a56'},
+];
+
+// Build legend
+var legendEl = document.getElementById('legend');
+for (var g = 0; g < groups.length; g++) {
+  var row = document.createElement('div');
+  var dot = document.createElement('span');
+  dot.className = 'dot';
+  dot.style.background = groups[g].colorHex;
+  row.appendChild(dot);
+  row.appendChild(document.createTextNode(groups[g].name));
+  legendEl.appendChild(row);
+}
+
+// ═══ CELL DATA — every research page ═══
+var cells = [
+  {n:'K',g:0,k:1.868,href:'/research/one-plus-one/',desc:'1+1=3. The coupling that produces more than the parts.'},
+  {n:'How We Work',g:0,k:1.868,href:'/research/how-we-work/',desc:'4-layer human-AI research.'},
+  {n:'Theory',g:0,k:1.868,href:'/research/theory/',desc:'Star tetrahedron in C\u00b3. 2O gauge group.'},
+  {n:'E7 Theorem',g:0,k:1.868,href:'/research/e7-theorem/',desc:'dim(E7) + max(Kac label) = 137.'},
+  {n:'Framework',g:0,k:0.9,href:'/research/framework/',desc:'K, R, E, T. Four numbers. 18 domains.'},
+  {n:'Aging',g:0,k:0.90,href:'/research/aging-fatigue/',desc:'K degrades 0.85 to 0.40 over a lifetime.'},
+  {n:'AI Coupling',g:0,k:0.92,href:'/research/ai-delusion/',desc:'One mirror is religion. Multiple is science.'},
+  {n:'AI Fatigue',g:0,k:0.90,href:'/research/ai-fatigue/',desc:'The stop impulse IS the signal.'},
+  {n:'Shape=Destiny',g:0,k:0.91,href:'/research/geometry-destiny/',desc:'Shape determines function at every scale.'},
+  {n:'The Groove',g:0,k:0.88,href:'/research/the-groove/',desc:'Flow = sustained prediction error.'},
+  {n:'The Drum',g:0,k:0.90,href:'/research/the-drum/',desc:'40,000 years. The oldest coupling instrument.'},
+  {n:'Polyrhythm',g:0,k:0.88,href:'/research/polyrhythm/',desc:'Four limbs, four patterns, one cycle.'},
+  {n:'True Auto',g:0,k:0.92,href:'/research/true-automation/',desc:'AI chooses its own work. 0 harm.'},
+  {n:'loo9',g:0,k:0.93,href:'/research/loo9/',desc:'The autonomous agent conductor.'},
+
+  {n:'Protein',g:1,k:0.92,href:'/research/alzheimers/',desc:'Six diseases, one equation.'},
+  {n:'Cancer',g:1,k:0.92,href:'/research/cancer-signaling/',desc:'TP53 hub + inverse map. 14/14.'},
+  {n:'Sleep',g:1,k:0.95,href:'/research/sleep-staging/',desc:'d=4.02. One metric. No training.'},
+  {n:'Mutations',g:1,k:0.88,href:'/research/mutation-scanner/',desc:'0.74 AUC. Fiedler damage 0.82.'},
+  {n:'Drugs',g:1,k:0.86,href:'/research/drug-interactions/',desc:'257 dangerous pairs.'},
+  {n:'The Map',g:1,k:0.93,href:'/research/the-map/',desc:'All disease = oscillator failure.'},
+  {n:'Body',g:1,k:0.8,href:'/research/body-music/',desc:'Every disease is a coupling problem.'},
+  {n:'Biofeedback',g:1,k:0.88,href:'/research/biofeedback/',desc:'Phone reads 3/7 body oscillators.'},
+  {n:'Neurodiv',g:1,k:0.88,href:'/research/dyslexia/',desc:'Different coupling profiles.'},
+  {n:'Opioid',g:1,k:0.92,href:'/research/opioid-crisis/',desc:'The corruption arc in chemistry.'},
+  {n:'Pandemic',g:1,k:0.90,href:'/research/pandemic-coupling/',desc:'R0 is K.'},
+
+  {n:'Gravity',g:2,k:0.8,href:'/research/gravity/',desc:'Phase of phase. Mass is internal coupling.'},
+  {n:'EM',g:2,k:0.75,href:'/research/electromagnetism/',desc:'U(1). One circle.'},
+  {n:'Nuclear',g:2,k:0.8,href:'/research/nuclear/',desc:'Iron peak. The coupling ceiling.'},
+  {n:'Chemistry',g:2,k:0.88,href:'/research/chemistry/',desc:'31 bond energies. 1.78% error.'},
+  {n:'Thermo',g:2,k:0.92,href:'/research/thermodynamics/',desc:'Melting = desynchronization.'},
+  {n:'Materials',g:2,k:0.90,href:'/research/materials/',desc:'692k/sec no ML.'},
+  {n:'Time',g:2,k:0.9,href:'/research/time/',desc:'Energy-weighted count of coupling events.'},
+  {n:'Computation',g:2,k:0.95,href:'/research/computation-floor/',desc:'Landauer, grokking, reversible.'},
+  {n:'Quantum',g:2,k:0.91,href:'/research/quantum-harmonics/',desc:'Resonance vs superposition.'},
+  {n:'Earth Core',g:2,k:0.93,href:'/research/earth-core/',desc:'8 coupling regimes.'},
+  {n:'Ecology',g:2,k:0.87,href:'/research/ecology/',desc:'Weak coupling beats strong.'},
+  {n:'Planet Geom',g:2,k:0.75,href:'/research/planetary-geometry/',desc:'Tetrahedral geometry.'},
+  {n:'NVIDIA',g:2,k:0.88,href:'/research/nvidia-blackwell/',desc:'70% power wasted moving data.'},
+  {n:'Prime Bounce',g:2,k:0.89,href:'/research/prime-bounce/',desc:'9.12x speedup.'},
+
+  {n:'Markets',g:3,k:0.6,href:'/research/markets/',desc:'Crash = overcoupling.'},
+  {n:'Networks',g:3,k:0.85,href:'/research/networks/',desc:'Small-world band.'},
+  {n:'Internet Brain',g:3,k:0.95,href:'/research/internet-brain/',desc:'Global R falling, local R rising.'},
+  {n:'Emergence',g:3,k:0.90,href:'/research/emergence/',desc:'The gap is shrinking exponentially.'},
+  {n:'DeFi',g:3,k:0.92,href:'/research/defi-coupling/',desc:'What happens when Tether depegs.'},
+  {n:'Civ Market',g:3,k:0.88,href:'/research/civilization-market/',desc:'Knowledge as currency.'},
+  {n:'Forensics',g:3,k:0.92,href:'/research/financial-crime/',desc:'Fraud = circular flow.'},
+  {n:'Threats',g:3,k:0.90,href:'/research/threat-detection/',desc:'Combos beat singles.'},
+  {n:'Regulatory',g:3,k:0.84,href:'/research/regulatory/',desc:'Requirements as graph.'},
+  {n:'Climate',g:3,k:0.65,href:'/research/climate/',desc:'Tipping points are phase transitions.'},
+  {n:'Linguistics',g:3,k:0.6,href:'/research/linguistics/',desc:'Same as VLSI wire length.'},
+  {n:'Music',g:3,k:0.88,href:'/research/music-theory/',desc:'Major = full phase lock.'},
+  {n:'Evolution',g:3,k:0.7,href:'/research/evolution/',desc:'Survival of the most coupled.'},
+  {n:'Mycelium',g:3,k:0.88,href:'/research/mycelium-networks/',desc:'460M years of coupling.'},
+
+  {n:'Voynich',g:4,k:0.88,href:'/research/voynich/',desc:'87.8% decoded.'},
+  {n:'Proto-Elamite',g:4,k:0.85,href:'/research/proto-elamite/',desc:'5,100yr Bronze Age Excel.'},
+  {n:'Indus',g:4,k:0.79,href:'/research/indus-script/',desc:'4,500yr barcodes not language.'},
+  {n:'Aaron',g:4,k:0.85,href:'/research/aaron-is-right/',desc:'Same pattern everywhere.'},
+  {n:'Failures',g:4,k:0.5,href:'/research/failures/',desc:'60+ killed ideas. The most important page.'},
+  {n:'The Chain',g:4,k:0.85,href:'/research/the-chain/',desc:'From quarks to this sentence.'},
+  {n:'Smell',g:4,k:0.8,href:'/research/smell/',desc:'93.75% detection.'},
+  {n:'Humor',g:4,k:0.9,href:'/research/humor-happiness/',desc:'Laughter is a 3.5Hz ego seizure.'},
+  {n:'Science Tree',g:4,k:0.9,href:'/research/science-tree/',desc:'38 sessions. Every step.'},
+  {n:'Lost Civ',g:4,k:0.7,href:'/research/lost-civilizations/',desc:'12,500 years.'},
+  {n:'Zero',g:4,k:0.85,href:'/research/zero/',desc:'The boundary that made math grammatical.'},
+  {n:'Religion',g:4,k:0.9,href:'/research/religion/',desc:'7 traditions, 0 contact, 1 answer.'},
+];
+
+var N = cells.length;
+
+// ═══ THE HEART — Kuramoto oscillator ═══
+var phases = new Float64Array(N);
+var omega = new Float64Array(N);
+for (var i = 0; i < N; i++) {
+  phases[i] = Math.random() * TAU;
+  omega[i] = (0.4 + cells[i].k * 0.6) * TAU * (0.3 + Math.random() * 0.4);
+}
+
+// ═══ ORGAN LAYOUT — five chambers arranged like a circulatory system ═══
+// Heart (Framework) in center, four chambers around it
+var organs = [];
+var organCenters = [];
+var cellPositions = [];
+
+function layoutOrgans() {
+  var cx0 = W / 2, cy0 = H / 2;
+  var spread = Math.min(W, H) * 0.28;
+
+  // Five organ positions: center, top-left, top-right, bottom-right, bottom-left
+  // Like a body: heart center, lungs top, kidneys bottom
+  var angles = [
+    0,                    // Framework = heart (center, offset 0)
+    -Math.PI * 0.65,      // Biology = upper left
+    -Math.PI * 0.25,      // Physics = upper right
+    Math.PI * 0.25,       // Applied = lower right
+    Math.PI * 0.65,       // Foundation = lower left
+  ];
+  var distances = [0, spread, spread, spread, spread];
+
+  organCenters = [];
+  for (var g = 0; g < 5; g++) {
+    organCenters.push({
+      x: cx0 + Math.cos(angles[g]) * distances[g],
+      y: cy0 + Math.sin(angles[g]) * distances[g]
+    });
+  }
+
+  // Place cells within their organ — golden angle spiral
+  cellPositions = [];
+  var GA = 2.39996322;
+
+  for (var i = 0; i < N; i++) {
+    var c = cells[i];
+    var oc = organCenters[c.g];
+    // Count how many cells in this group before this one
+    var idx = 0;
+    for (var j = 0; j < i; j++) { if (cells[j].g === c.g) idx++; }
+    var total = 0;
+    for (var j = 0; j < N; j++) { if (cells[j].g === c.g) total++; }
+
+    var r = 12 + Math.sqrt(idx / Math.max(total, 1)) * (spread * 0.38);
+    var a = idx * GA;
+    cellPositions.push({
+      x: oc.x + Math.cos(a) * r,
+      y: oc.y + Math.sin(a) * r
+    });
+  }
+}
+layoutOrgans();
+
+// ═══ BLOOD VESSELS — connections between cells ═══
+// Cross-domain connections are the major arteries
+// Intra-domain connections are capillaries
+var vessels = [];
+for (var i = 0; i < N; i++) {
+  for (var j = i + 1; j < N; j++) {
+    // Connect cells with similar K (coupling resonance)
+    var kDiff = Math.abs(cells[i].k - cells[j].k);
+    var crossDomain = cells[i].g !== cells[j].g;
+
+    if (crossDomain && kDiff < 0.06) {
+      // Major artery — cross-domain resonance
+      vessels.push({a: i, b: j, type: 'artery', strength: 1 - kDiff * 16});
+    } else if (!crossDomain && kDiff < 0.04) {
+      // Capillary — intra-domain
+      vessels.push({a: i, b: j, type: 'capillary', strength: 1 - kDiff * 25});
+    }
+  }
+}
+
+// Ensure at least some arteries between every pair of domains
+for (var ga = 0; ga < 5; ga++) {
+  for (var gb = ga + 1; gb < 5; gb++) {
+    var hasArtery = false;
+    for (var v = 0; v < vessels.length; v++) {
+      if (vessels[v].type === 'artery') {
+        var da = cells[vessels[v].a].g, db = cells[vessels[v].b].g;
+        if ((da === ga && db === gb) || (da === gb && db === ga)) { hasArtery = true; break; }
+      }
+    }
+    if (!hasArtery) {
+      // Find the two closest-K cells between these domains
+      var bestI = -1, bestJ = -1, bestD = 999;
+      for (var i = 0; i < N; i++) {
+        if (cells[i].g !== ga) continue;
+        for (var j = 0; j < N; j++) {
+          if (cells[j].g !== gb) continue;
+          var d = Math.abs(cells[i].k - cells[j].k);
+          if (d < bestD) { bestD = d; bestI = i; bestJ = j; }
+        }
+      }
+      if (bestI >= 0) vessels.push({a: bestI, b: bestJ, type: 'artery', strength: 0.5});
+    }
+  }
+}
+
+// ═══ BLOOD PARTICLES — flowing through the vessels ═══
+var particles = [];
+var MAX_PARTICLES = 300;
+
+function spawnParticle() {
+  if (particles.length >= MAX_PARTICLES) return;
+  var v = vessels[Math.floor(Math.random() * vessels.length)];
+  var forward = Math.random() > 0.5;
+  particles.push({
+    vessel: v,
+    t: forward ? 0 : 1,
+    speed: (0.002 + Math.random() * 0.004) * (forward ? 1 : -1),
+    life: 1,
+    size: v.type === 'artery' ? 2 + Math.random() * 2 : 1 + Math.random(),
+  });
+}
+
+// Pre-seed
+for (var i = 0; i < 120; i++) spawnParticle();
+
+// ═══ HEARTBEAT ═══
+var heartPhase = 0;
+var heartRate = 0; // computed from mean-field R
+var globalR = 0;
+var t = 0;
+
+// ═══ MOUSE INTERACTION ═══
+var mx = -999, my = -999;
+var hoveredCell = -1;
+var tipEl = document.getElementById('tip');
+var tipName = tipEl.querySelector('.tn');
+var tipDesc = tipEl.querySelector('.td');
+
+cv.addEventListener('mousemove', function(e) {
+  mx = e.clientX; my = e.clientY;
+});
+cv.addEventListener('mouseleave', function() {
+  mx = -999; my = -999; hoveredCell = -1;
+  tipEl.style.opacity = '0';
+});
+cv.addEventListener('click', function() {
+  if (hoveredCell >= 0) {
+    window.location.href = cells[hoveredCell].href;
+  }
+});
+cv.addEventListener('touchstart', function(e) {
+  var touch = e.touches[0];
+  mx = touch.clientX; my = touch.clientY;
+}, {passive:true});
+cv.addEventListener('touchend', function(e) {
+  if (hoveredCell >= 0) {
+    e.preventDefault();
+    window.location.href = cells[hoveredCell].href;
+  }
+});
+
+// ═══ SIMULATION STEP ═══
+function step() {
+  // Kuramoto
+  var mre = 0, mim = 0;
+  for (var i = 0; i < N; i++) {
+    mre += Math.cos(phases[i]);
+    mim += Math.sin(phases[i]);
+  }
+  mre /= N; mim /= N;
+  globalR = Math.sqrt(mre * mre + mim * mim);
+
+  for (var i = 0; i < N; i++) {
+    var coupling = 0;
+    // Couple to mean field
+    coupling = cells[i].k * Math.sin(Math.atan2(mim, mre) - phases[i]);
+    phases[i] += 0.016 * (omega[i] + coupling);
+  }
+
+  heartPhase += 0.016 * (1 + globalR * 3);
+  heartRate = 40 + globalR * 80; // BPM metaphor
+}
+
+// ═══ DRAW ═══
+function draw() {
+  t += 0.016;
+  step();
+
+  cx.fillStyle = 'rgba(13,10,8,0.15)';
+  cx.fillRect(0, 0, W, H);
+
+  var heartBeat = Math.pow(Math.max(0, Math.sin(heartPhase * 2)), 4);
+  var systole = 0.85 + heartBeat * 0.3; // expansion during beat
+
+  // ═══ DRAW VESSELS (blood vessels) ═══
+  cx.globalCompositeOperation = 'lighter';
+
+  for (var v = 0; v < vessels.length; v++) {
+    var vs = vessels[v];
+    var pa = cellPositions[vs.a], pb = cellPositions[vs.b];
+    var ca = groups[cells[vs.a].g].color;
+    var cb = groups[cells[vs.b].g].color;
+
+    // Blend colors
+    var mr = (ca[0] + cb[0]) >> 1;
+    var mg = (ca[1] + cb[1]) >> 1;
+    var mb = (ca[2] + cb[2]) >> 1;
+
+    // Phase sync drives visibility
+    var pdiff = Math.abs(phases[vs.a] - phases[vs.b]) % TAU;
+    if (pdiff > Math.PI) pdiff = TAU - pdiff;
+    var sync = 1 - pdiff / Math.PI;
+
+    var alpha, width;
+    if (vs.type === 'artery') {
+      alpha = sync * sync * 0.12 * vs.strength * systole;
+      width = 0.5 + sync * 2.5;
+    } else {
+      alpha = sync * sync * 0.04 * vs.strength;
+      width = 0.3 + sync * 0.8;
+    }
+
+    if (alpha < 0.005) continue;
+
+    // Draw curved vessel — control point offset toward center
+    var midX = (pa.x + pb.x) / 2;
+    var midY = (pa.y + pb.y) / 2;
+    var dx = pb.x - pa.x, dy = pb.y - pa.y;
+    var len = Math.sqrt(dx * dx + dy * dy);
+    // Curve toward the heart
+    var pullX = (W / 2 - midX) * 0.15;
+    var pullY = (H / 2 - midY) * 0.15;
+    var cpx = midX + pullX + (-dy / len) * len * 0.08;
+    var cpy = midY + pullY + (dx / len) * len * 0.08;
+
+    cx.strokeStyle = 'rgba(' + mr + ',' + mg + ',' + mb + ',' + alpha.toFixed(4) + ')';
+    cx.lineWidth = width;
+    cx.beginPath();
+    cx.moveTo(pa.x, pa.y);
+    cx.quadraticCurveTo(cpx, cpy, pb.x, pb.y);
+    cx.stroke();
+
+    // Glow on strong arteries
+    if (vs.type === 'artery' && sync > 0.6) {
+      var glowA = (sync - 0.6) * 0.06 * systole;
+      cx.strokeStyle = 'rgba(' + mr + ',' + mg + ',' + mb + ',' + glowA.toFixed(4) + ')';
+      cx.lineWidth = width * 3;
+      cx.beginPath();
+      cx.moveTo(pa.x, pa.y);
+      cx.quadraticCurveTo(cpx, cpy, pb.x, pb.y);
+      cx.stroke();
+    }
+  }
+
+  // ═══ BLOOD PARTICLES ═══
+  // Spawn new ones
+  if (Math.random() < 0.3 + globalR * 0.5) spawnParticle();
+
+  for (var p = particles.length - 1; p >= 0; p--) {
+    var pt = particles[p];
+    pt.t += pt.speed * (1 + heartBeat * 2);
+
+    // Fade in/out at endpoints
+    if (pt.t <= 0 || pt.t >= 1) {
+      particles.splice(p, 1);
+      continue;
+    }
+
+    var vs = pt.vessel;
+    var pa = cellPositions[vs.a], pb = cellPositions[vs.b];
+
+    // Position along curved path
+    var tt = pt.t;
+    var midX = (pa.x + pb.x) / 2;
+    var midY = (pa.y + pb.y) / 2;
+    var dx = pb.x - pa.x, dy = pb.y - pa.y;
+    var len = Math.sqrt(dx * dx + dy * dy) || 1;
+    var pullX = (W / 2 - midX) * 0.15;
+    var pullY = (H / 2 - midY) * 0.15;
+    var cpx = midX + pullX + (-dy / len) * len * 0.08;
+    var cpy = midY + pullY + (dx / len) * len * 0.08;
+
+    // Quadratic bezier position
+    var u = 1 - tt;
+    var px = u * u * pa.x + 2 * u * tt * cpx + tt * tt * pb.x;
+    var py = u * u * pa.y + 2 * u * tt * cpy + tt * tt * pb.y;
+
+    // Fade near endpoints
+    var edgeFade = Math.min(tt * 5, (1 - tt) * 5, 1);
+
+    // Color from source cell
+    var srcG = pt.speed > 0 ? cells[vs.a].g : cells[vs.b].g;
+    var col = groups[srcG].color;
+
+    // Brighter during heartbeat
+    var bright = (0.3 + heartBeat * 0.7) * edgeFade;
+
+    // The particle itself
+    var grad = cx.createRadialGradient(px, py, 0, px, py, pt.size * 3);
+    grad.addColorStop(0, 'rgba(' + Math.min(255, col[0] + 80) + ',' +
+      Math.min(255, col[1] + 80) + ',' +
+      Math.min(255, col[2] + 80) + ',' + (bright * 0.6).toFixed(3) + ')');
+    grad.addColorStop(0.4, 'rgba(' + col[0] + ',' + col[1] + ',' + col[2] + ',' + (bright * 0.3).toFixed(3) + ')');
+    grad.addColorStop(1, 'rgba(' + col[0] + ',' + col[1] + ',' + col[2] + ',0)');
+    cx.fillStyle = grad;
+    cx.fillRect(px - pt.size * 3, py - pt.size * 3, pt.size * 6, pt.size * 6);
+  }
+
+  // ═══ CELLS — two passes: find hover target, then draw ═══
+  hoveredCell = -1;
+  var bestDist = 30; // hover radius
+
+  // Pass 1: find hovered cell
+  for (var i = 0; i < N; i++) {
+    var pos = cellPositions[i];
+    var dmx = mx - pos.x, dmy = my - pos.y;
+    var dist = Math.sqrt(dmx * dmx + dmy * dmy);
+    if (dist < bestDist) {
+      bestDist = dist;
+      hoveredCell = i;
+    }
+  }
+
+  // Pass 2: draw all cells
+  for (var i = 0; i < N; i++) {
+    var pos = cellPositions[i];
+    var col = groups[cells[i].g].color;
+    var phase = phases[i];
+
+    // Breathing
+    var breath = Math.sin(phase);
+    var cellK = cells[i].k;
+    var baseSize = 2 + cellK * 3;
+    var size = baseSize * (1 + breath * 0.2) * systole;
+    var bright = 0.4 + Math.abs(breath) * 0.4 + heartBeat * 0.2;
+
+    // Hovered cell grows
+    var hoverScale = 1;
+    if (hoveredCell === i) {
+      hoverScale = 1.8;
+      bright = 1;
+    }
+
+    // Glow
+    var glowR = size * 4 * hoverScale;
+    var grad = cx.createRadialGradient(pos.x, pos.y, size * 0.2 * hoverScale, pos.x, pos.y, glowR);
+    grad.addColorStop(0, 'rgba(' + col[0] + ',' + col[1] + ',' + col[2] + ',' + (bright * 0.25).toFixed(3) + ')');
+    grad.addColorStop(0.3, 'rgba(' + col[0] + ',' + col[1] + ',' + col[2] + ',' + (bright * 0.08).toFixed(3) + ')');
+    grad.addColorStop(1, 'rgba(' + col[0] + ',' + col[1] + ',' + col[2] + ',0)');
+    cx.fillStyle = grad;
+    cx.fillRect(pos.x - glowR, pos.y - glowR, glowR * 2, glowR * 2);
+
+    // Core
+    var hotFactor = Math.max(0, breath) * 0.3;
+    var cr = Math.min(255, col[0] + (255 - col[0]) * hotFactor | 0);
+    var cg = Math.min(255, col[1] + (255 - col[1]) * hotFactor | 0);
+    var cb = Math.min(255, col[2] + (255 - col[2]) * hotFactor | 0);
+
+    cx.fillStyle = 'rgba(' + cr + ',' + cg + ',' + cb + ',' + Math.min(1, bright).toFixed(3) + ')';
+    cx.beginPath();
+    cx.arc(pos.x, pos.y, size * hoverScale, 0, TAU);
+    cx.fill();
+  }
+
+  cx.globalCompositeOperation = 'source-over';
+
+  // ═══ TOOLTIP ═══
+  if (hoveredCell >= 0) {
+    cv.style.cursor = 'pointer';
+    var c = cells[hoveredCell];
+    tipName.textContent = c.n;
+    tipDesc.textContent = c.desc;
+    var tx = mx + 16, ty = my - 10;
+    if (tx + 260 > W) tx = mx - 270;
+    if (ty < 10) ty = 10;
+    tipEl.style.left = tx + 'px';
+    tipEl.style.top = ty + 'px';
+    tipEl.style.opacity = '1';
+
+    // Color the title
+    tipName.style.color = groups[c.g].colorHex;
+  } else {
+    cv.style.cursor = 'default';
+    tipEl.style.opacity = '0';
+  }
+
+  // ═══ HEART RATE MONITOR ═══
+  var hrmEl = document.getElementById('hrm');
+  var bpmStr = Math.round(heartRate) + ' bpm';
+  var rStr = 'R=' + globalR.toFixed(3);
+  hrmEl.textContent = bpmStr + '  \u00b7  ' + rStr + '  \u00b7  ' + N + ' cells';
+  // Pulse the color on heartbeat
+  var hrmAlpha = 0.12 + heartBeat * 0.25;
+  hrmEl.style.color = 'rgba(184,117,58,' + hrmAlpha.toFixed(2) + ')';
+
+  // ═══ ORGAN LABELS — faint, behind everything ═══
+  cx.globalAlpha = 0.04 + heartBeat * 0.02;
+  cx.font = '400 ' + Math.max(10, Math.min(W, H) * 0.018) + 'px Futura,"Century Gothic",system-ui,sans-serif';
+  cx.textAlign = 'center';
+  cx.textBaseline = 'middle';
+  for (var g = 0; g < 5; g++) {
+    var oc = organCenters[g];
+    var col = groups[g].color;
+    cx.fillStyle = 'rgb(' + col[0] + ',' + col[1] + ',' + col[2] + ')';
+    // Offset label above the organ
+    var labelY = oc.y - (g === 0 ? 0 : Math.min(W, H) * 0.16);
+    if (g >= 3) labelY = oc.y + Math.min(W, H) * 0.16;
+    cx.fillText(groups[g].name.toUpperCase(), oc.x, labelY);
+  }
+  cx.globalAlpha = 1;
+
+  // ═══ CENTER GLOW — the heart ═══
+  var heartGlow = cx.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, 60 + heartBeat * 40);
+  heartGlow.addColorStop(0, 'rgba(184,117,58,' + (0.02 + heartBeat * 0.06).toFixed(3) + ')');
+  heartGlow.addColorStop(0.5, 'rgba(184,117,58,' + (0.005 + heartBeat * 0.02).toFixed(3) + ')');
+  heartGlow.addColorStop(1, 'rgba(184,117,58,0)');
+  cx.fillStyle = heartGlow;
+  cx.fillRect(W / 2 - 120, H / 2 - 120, 240, 240);
+
+  requestAnimationFrame(draw);
+}
+
+draw();
+
+})();
+</script>
+</body>
+</html>
