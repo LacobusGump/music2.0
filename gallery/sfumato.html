@@ -198,6 +198,7 @@ var mLX = 0, mLY = 0, mSpd = 0;
 var whisperDone = false, stayAcc = 0;
 var gazeAmt = 0, gazeX = 0, gazeY = 0;
 var initFade = 0;
+var sfNoise = null;
 
 // ═══════════════════════════
 // INPUT
@@ -282,6 +283,24 @@ function draw(now) {
   cx.fillStyle='rgba(10,7,6,'+(0.008+coh*0.005).toFixed(4)+')';
   cx.fillRect(0,0,W,H);
 
+  // subtle noise for velvet depth
+  if(!sfNoise){
+    sfNoise=document.createElement('canvas');
+    sfNoise.width=150;sfNoise.height=150;
+    var snc=sfNoise.getContext('2d');
+    var snd=snc.createImageData(150,150);
+    for(var sni=0;sni<snd.data.length;sni+=4){
+      var snv=Math.random()*5;
+      snd.data[sni]=snv;snd.data[sni+1]=snv*0.7;
+      snd.data[sni+2]=snv*0.5;snd.data[sni+3]=8;
+    }
+    snc.putImageData(snd,0,0);
+  }
+  cx.globalAlpha=0.008;
+  cx.fillStyle=cx.createPattern(sfNoise,'repeat');
+  cx.fillRect(0,0,W,H);
+  cx.globalAlpha=1;
+
   // ── AMBIENT SMOKE ──
   if(Math.random()<0.3){
     var ax=midX+(Math.random()-0.5)*scale*0.55;
@@ -338,14 +357,16 @@ function draw(now) {
       cb=Math.min(255,cb+Math.round(sp*58));
     }
 
-    // ── ATMOSPHERE ── the main sfumato layer
+    // ── ATMOSPHERE ── the main sfumato layer — rich falloff
     var lr=sz[i]*(28+coh*38+b*18);
     var la=b*0.018*initFade;
     if(la>0.0003){
       var g1=cx.createRadialGradient(sx,sy,0,sx,sy,lr);
       g1.addColorStop(0,'rgba('+cr+','+cg+','+cb+','+la.toFixed(4)+')');
-      g1.addColorStop(0.18,'rgba('+cr+','+cg+','+cb+','+(la*0.65).toFixed(4)+')');
-      g1.addColorStop(0.5,'rgba('+cr+','+cg+','+cb+','+(la*0.15).toFixed(4)+')');
+      g1.addColorStop(0.1,'rgba('+cr+','+cg+','+cb+','+(la*0.82).toFixed(4)+')');
+      g1.addColorStop(0.25,'rgba('+cr+','+cg+','+cb+','+(la*0.5).toFixed(4)+')');
+      g1.addColorStop(0.45,'rgba('+cr+','+cg+','+cb+','+(la*0.18).toFixed(4)+')');
+      g1.addColorStop(0.7,'rgba('+cr+','+cg+','+cb+','+(la*0.04).toFixed(4)+')');
       g1.addColorStop(1,'rgba('+cr+','+cg+','+cb+',0)');
       cx.fillStyle=g1;
       cx.beginPath();cx.arc(sx,sy,lr,0,Math.PI*2);cx.fill();
@@ -372,8 +393,10 @@ function draw(now) {
   }
 
   // ── FILAMENTS ── neural threads at moderate coherence
+  // thicker lines with shadow blur for soft anti-aliased look
   if(coh>0.32){
-    cx.lineWidth=0.3;
+    cx.save();
+    cx.lineCap='round';
     var ta=(coh-0.32)*0.04;
     for(var i=0;i<N;i++){
       if(brt[i]<0.18) continue;
@@ -386,12 +409,16 @@ function draw(now) {
         var pm=(1+Math.cos(ph[i]-ph[j]))/2;
         var la2=ta*pm*(1-dist/0.1)*Math.min(brt[i],brt[j]);
         if(la2<0.0005) continue;
-        cx.strokeStyle='rgba(180,112,55,'+la2.toFixed(4)+')';
+        cx.shadowColor='rgba(180,112,55,'+(la2*0.6).toFixed(4)+')';
+        cx.shadowBlur=3;
+        cx.strokeStyle='rgba(180,112,55,'+(la2*0.7).toFixed(4)+')';
+        cx.lineWidth=0.8;
         cx.beginPath();cx.moveTo(s1x,s1y);
         cx.lineTo(midX+px[j]*scale*1.12,midY+py[j]*scale*1.12);
         cx.stroke();
       }
     }
+    cx.restore();
   }
 
   // ── COLLECTIVE BREATH ── warm wash pulsing with mean phase
@@ -399,12 +426,17 @@ function draw(now) {
     var bp=0.5+0.5*Math.sin(meanPh);
     var ps=(coh-0.45)*2*bp;
     if(ps>0.003){
-      var bg=cx.createRadialGradient(midX,midY,0,midX,midY,scale*0.36);
-      bg.addColorStop(0,'rgba(150,82,40,'+(ps*0.012).toFixed(4)+')');
-      bg.addColorStop(0.5,'rgba(130,70,42,'+(ps*0.004).toFixed(4)+')');
+      cx.save();
+      cx.globalCompositeOperation='lighter';
+      var bg=cx.createRadialGradient(midX,midY,0,midX,midY,scale*0.4);
+      bg.addColorStop(0,'rgba(160,92,45,'+(ps*0.015).toFixed(4)+')');
+      bg.addColorStop(0.15,'rgba(150,82,40,'+(ps*0.01).toFixed(4)+')');
+      bg.addColorStop(0.4,'rgba(130,70,42,'+(ps*0.004).toFixed(4)+')');
+      bg.addColorStop(0.7,'rgba(100,55,32,'+(ps*0.001).toFixed(4)+')');
       bg.addColorStop(1,'rgba(90,48,28,0)');
       cx.fillStyle=bg;
-      cx.beginPath();cx.arc(midX,midY,scale*0.36,0,Math.PI*2);cx.fill();
+      cx.beginPath();cx.arc(midX,midY,scale*0.4,0,Math.PI*2);cx.fill();
+      cx.restore();
     }
   }
 

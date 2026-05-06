@@ -56,7 +56,7 @@ function resize() {
   layoutStrings();
 }
 
-// ── STRINGS ──
+// -- STRINGS --
 // 12 strings tuned to just intonation ratios.
 // not equal temperament. the way strings actually resonate.
 var NUM = 12;
@@ -84,7 +84,7 @@ function layoutStrings() {
   }
 }
 
-// ── COUPLING MATRIX ──
+// -- COUPLING MATRIX --
 // precomputed: how strongly string j drives string i
 // based on lorentzian resonance at harmonics
 var coupling = [];
@@ -116,7 +116,7 @@ function buildCoupling() {
   }
 }
 
-// ── AUDIO ──
+// -- AUDIO --
 var actx = null, audioReady = false;
 var masterGain = null;
 var oscs = [];
@@ -144,12 +144,12 @@ function initAudio() {
   } catch(e) {}
 }
 
-// ── INTERACTION ──
+// -- INTERACTION --
 var touching = false;
 var dragIdx = -1;
 
 function nearestString(x) {
-  var best = -1, bestD = 40;
+  var best = -1, bestD = 50;
   for (var i = 0; i < NUM; i++) {
     var d = Math.abs(x - strings[i].x);
     if (d < bestD) { bestD = d; best = i; }
@@ -196,20 +196,37 @@ addEventListener('touchmove', function(e){
 }, {passive:false});
 addEventListener('touchend', onUp);
 
-// ── INIT ──
+// -- INIT --
 layoutStrings();
 buildCoupling();
 resize();
 addEventListener('resize', function() { resize(); buildCoupling(); });
 
-// ── TIME ──
-var t = 0;
+// -- TIME --
+var lastNow = performance.now();
 
-// ── MAIN LOOP ──
-function frame() {
-  t += 0.016;
+// -- BACKGROUND TEXTURE (subtle noise) --
+var noiseCv = document.createElement('canvas');
+noiseCv.width = 128;
+noiseCv.height = 128;
+var noiseCx = noiseCv.getContext('2d');
+var noiseData = noiseCx.createImageData(128, 128);
+for (var i = 0; i < noiseData.data.length; i += 4) {
+  var v = Math.random() * 8;
+  noiseData.data[i] = v;
+  noiseData.data[i+1] = v * 0.7;
+  noiseData.data[i+2] = v * 0.5;
+  noiseData.data[i+3] = 12;
+}
+noiseCx.putImageData(noiseData, 0, 0);
 
-  // ── PHYSICS ──
+// -- MAIN LOOP --
+function frame(now) {
+  var dt = Math.min((now - lastNow) / 1000, 0.05);
+  lastNow = now;
+  var dtScale = dt / 0.016; // normalized to ~60fps
+
+  // -- PHYSICS --
   // each string: damped harmonic oscillator + sympathetic drive
   for (var i = 0; i < NUM; i++) {
     var s = strings[i];
@@ -225,50 +242,66 @@ function frame() {
       // pressure wave: proportional to source velocity
       f += c * strings[j].vy * 0.6;
     }
-    s.vy += f;
-    s.y += s.vy;
+    s.vy += f * dtScale;
+    s.y += s.vy * dtScale;
     // energy (kinetic + potential)
     s.energy = s.y * s.y + s.vy * s.vy / (omega * omega + 0.0001);
-    s.peakEnergy = Math.max(s.peakEnergy * 0.9997, s.energy);
+    s.peakEnergy = Math.max(s.peakEnergy * (1 - 0.0003 * dtScale), s.energy);
     // fade pluck marker
-    if (s.pluckFade > 0) s.pluckFade *= 0.999;
+    if (s.pluckFade > 0) s.pluckFade *= (1 - 0.001 * dtScale);
     if (s.energy < 0.00001 && s.pluckFade < 0.01) s.wasPlucked = false;
   }
 
-  // ── CLEAR ──
+  // -- CLEAR with subtle depth --
   cx.fillStyle = 'rgba(10,7,6,0.18)';
   cx.fillRect(0, 0, W, H);
+
+  // subtle noise texture for depth
+  cx.globalAlpha = 0.015;
+  var pat = cx.createPattern(noiseCv, 'repeat');
+  cx.fillStyle = pat;
+  cx.fillRect(0, 0, W, H);
+  cx.globalAlpha = 1;
 
   var topY = H * 0.08;
   var botY = H * 0.92;
   var span = botY - topY;
 
-  // ── COUPLING AIR ──
+  // -- COUPLING AIR --
   // visible pressure between vibrating strings that share harmonics
+  cx.save();
+  cx.globalCompositeOperation = 'lighter';
   for (var i = 0; i < NUM; i++) {
     for (var j = i + 1; j < NUM; j++) {
       var c = coupling[i][j];
       if (c < 0.08) continue;
       var shared = Math.sqrt(strings[i].energy * strings[j].energy) * c;
       if (shared < 0.0001) continue;
-      var alpha = Math.min(shared * 60, 0.1);
-      if (alpha < 0.004) continue;
+      var alpha = Math.min(shared * 60, 0.08);
+      if (alpha < 0.003) continue;
 
       var x1 = strings[i].x, x2 = strings[j].x;
-      var col = c > 0.5 ? '232,207,160' : '184,117,58';
+      // rich color based on coupling strength
+      var warmR = c > 0.5 ? 232 : 184;
+      var warmG = c > 0.5 ? 207 : 117;
+      var warmB = c > 0.5 ? 160 : 58;
+
       var g = cx.createLinearGradient(x1, 0, x2, 0);
-      g.addColorStop(0, 'rgba(' + col + ',0)');
-      g.addColorStop(0.25, 'rgba(' + col + ',' + (alpha * 0.5).toFixed(4) + ')');
-      g.addColorStop(0.5, 'rgba(' + col + ',' + alpha.toFixed(4) + ')');
-      g.addColorStop(0.75, 'rgba(' + col + ',' + (alpha * 0.5).toFixed(4) + ')');
-      g.addColorStop(1, 'rgba(' + col + ',0)');
+      g.addColorStop(0, 'rgba(' + warmR + ',' + warmG + ',' + warmB + ',0)');
+      g.addColorStop(0.15, 'rgba(' + warmR + ',' + warmG + ',' + warmB + ',' + (alpha * 0.25).toFixed(4) + ')');
+      g.addColorStop(0.35, 'rgba(' + warmR + ',' + warmG + ',' + warmB + ',' + (alpha * 0.7).toFixed(4) + ')');
+      g.addColorStop(0.5, 'rgba(' + warmR + ',' + warmG + ',' + warmB + ',' + alpha.toFixed(4) + ')');
+      g.addColorStop(0.65, 'rgba(' + warmR + ',' + warmG + ',' + warmB + ',' + (alpha * 0.7).toFixed(4) + ')');
+      g.addColorStop(0.85, 'rgba(' + warmR + ',' + warmG + ',' + warmB + ',' + (alpha * 0.25).toFixed(4) + ')');
+      g.addColorStop(1, 'rgba(' + warmR + ',' + warmG + ',' + warmB + ',0)');
       cx.fillStyle = g;
       var h = Math.min(30 + shared * 1200, H * 0.4);
       cx.fillRect(x1, H/2 - h/2, x2 - x1, h);
     }
   }
+  cx.restore();
 
-  // ── STRINGS ──
+  // -- STRINGS --
   for (var i = 0; i < NUM; i++) {
     var s = strings[i];
     var amp = Math.min(Math.sqrt(s.energy) * 25, 1);
@@ -280,7 +313,7 @@ function frame() {
     if (modes < 1) modes = 1;
     if (modes > 4) modes = 4;
 
-    // color
+    // rich color gradient through the ember palette
     var cr, cg, cb;
     if (sympathetic) {
       // sympathetic strings glow warmer/lighter — they chose to vibrate
@@ -288,6 +321,7 @@ function frame() {
       cg = 160 + amp * 47;
       cb = 120 + amp * 40;
     } else {
+      // plucked: deep amber through gold
       cr = 139 + amp * 93;
       cg = 74 + amp * 133;
       cb = 46 + amp * 114;
@@ -295,13 +329,19 @@ function frame() {
 
     var lineAlpha = 0.12 + amp * 0.78;
 
-    // draw the string as a standing wave
+    // draw the string with shadow blur for anti-aliased softness
+    cx.save();
+    cx.shadowColor = 'rgba(' + Math.round(cr) + ',' + Math.round(cg) + ',' + Math.round(cb) + ',' + (lineAlpha * 0.4).toFixed(3) + ')';
+    cx.shadowBlur = 3 + amp * 6;
+
     cx.beginPath();
     cx.strokeStyle = 'rgba(' + Math.round(cr) + ',' + Math.round(cg) + ',' +
       Math.round(cb) + ',' + lineAlpha.toFixed(3) + ')';
-    cx.lineWidth = 0.8 + amp * 1.8;
+    cx.lineWidth = 1.0 + amp * 1.5;
+    cx.lineCap = 'round';
+    cx.lineJoin = 'round';
 
-    var segs = 80;
+    var segs = 100;
     for (var k = 0; k <= segs; k++) {
       var frac = k / segs;
       var py = topY + frac * span;
@@ -312,40 +352,52 @@ function frame() {
       if (k === 0) cx.moveTo(px, py); else cx.lineTo(px, py);
     }
     cx.stroke();
+    cx.restore();
 
-    // glow at antinodes
+    // glow at antinodes — soft radial gradients, multiple stops
     if (amp > 0.04) {
-      var glowSize = 6 + amp * 30;
-      var glowA = amp * 0.035;
+      cx.save();
+      cx.globalCompositeOperation = 'lighter';
+      var glowSize = 8 + amp * 40;
+      var glowA = amp * 0.03;
       // place glows at the antinodes of this mode
       for (var m = 0; m < modes; m++) {
         var nodeFrac = (m + 0.5) / modes;
         var ny = topY + nodeFrac * span;
-        var env = Math.sin(modes * Math.PI * nodeFrac);
-        var ndx = s.y * env * 100;
+        var env2 = Math.sin(modes * Math.PI * nodeFrac);
+        var ndx = s.y * env2 * 100;
         var nx = s.x + ndx;
-        var absEnv = Math.abs(env);
+        var absEnv = Math.abs(env2);
 
-        var gr = cx.createRadialGradient(nx, ny, 0, nx, ny, glowSize * absEnv + 2);
+        var gr = cx.createRadialGradient(nx, ny, 0, nx, ny, glowSize * absEnv + 4);
         if (sympathetic) {
-          gr.addColorStop(0, 'rgba(232,207,160,' + (glowA * absEnv * 1.8).toFixed(4) + ')');
-          gr.addColorStop(1, 'rgba(232,207,160,0)');
-        } else {
-          gr.addColorStop(0, 'rgba(184,117,58,' + (glowA * absEnv).toFixed(4) + ')');
+          gr.addColorStop(0, 'rgba(232,207,160,' + (glowA * absEnv * 2.0).toFixed(4) + ')');
+          gr.addColorStop(0.2, 'rgba(220,185,140,' + (glowA * absEnv * 1.2).toFixed(4) + ')');
+          gr.addColorStop(0.5, 'rgba(200,160,120,' + (glowA * absEnv * 0.4).toFixed(4) + ')');
           gr.addColorStop(1, 'rgba(184,117,58,0)');
+        } else {
+          gr.addColorStop(0, 'rgba(232,207,160,' + (glowA * absEnv * 1.2).toFixed(4) + ')');
+          gr.addColorStop(0.25, 'rgba(184,117,58,' + (glowA * absEnv * 0.6).toFixed(4) + ')');
+          gr.addColorStop(0.6, 'rgba(139,74,46,' + (glowA * absEnv * 0.15).toFixed(4) + ')');
+          gr.addColorStop(1, 'rgba(139,74,46,0)');
         }
         cx.fillStyle = gr;
         cx.beginPath();
-        cx.arc(nx, ny, glowSize * absEnv + 2, 0, Math.PI * 2);
+        cx.arc(nx, ny, glowSize * absEnv + 4, 0, Math.PI * 2);
         cx.fill();
       }
+      cx.restore();
     }
 
-    // bridge and nut (anchor dots)
+    // bridge and nut (anchor dots) — soft not hard
     var dotA = 0.15 + amp * 0.35;
+    cx.save();
+    cx.shadowColor = 'rgba(139,74,46,' + (dotA * 0.5).toFixed(3) + ')';
+    cx.shadowBlur = 3;
     cx.fillStyle = 'rgba(139,74,46,' + dotA.toFixed(3) + ')';
-    cx.beginPath(); cx.arc(s.x, topY, 1.5, 0, Math.PI * 2); cx.fill();
-    cx.beginPath(); cx.arc(s.x, botY, 1.5, 0, Math.PI * 2); cx.fill();
+    cx.beginPath(); cx.arc(s.x, topY, 2, 0, Math.PI * 2); cx.fill();
+    cx.beginPath(); cx.arc(s.x, botY, 2, 0, Math.PI * 2); cx.fill();
+    cx.restore();
 
     // ratio label — fades in when vibrating
     if (amp > 0.08) {
@@ -356,7 +408,7 @@ function frame() {
     }
   }
 
-  // ── AUDIO ──
+  // -- AUDIO --
   if (audioReady) {
     for (var i = 0; i < NUM; i++) {
       var vol = Math.min(Math.sqrt(strings[i].energy) * 4, 0.25);
@@ -365,7 +417,7 @@ function frame() {
     }
   }
 
-  // ── AMBIENT ──
+  // -- AMBIENT --
   // the room breathes. barely. the fundamental shivers sometimes.
   if (Math.random() < 0.0004) {
     strings[0].vy += 0.0004 * (Math.random() - 0.3);
@@ -374,7 +426,7 @@ function frame() {
   requestAnimationFrame(frame);
 }
 
-frame();
+requestAnimationFrame(frame);
 </script>
 </body>
 </html>

@@ -266,6 +266,7 @@ function triggerWhisper(text) {
 // -- TIME --
 var t = 0;
 var lastTime = performance.now();
+var coNoise = null;
 
 // -- MAIN LOOP --
 function draw(now) {
@@ -276,6 +277,24 @@ function draw(now) {
   // -- background: warm dark, slight trail --
   ctx.fillStyle = 'rgba(10,7,6,0.18)';
   ctx.fillRect(0, 0, W, H);
+
+  // depth noise
+  if(!coNoise){
+    coNoise=document.createElement('canvas');
+    coNoise.width=128;coNoise.height=128;
+    var cnc=coNoise.getContext('2d');
+    var cnd=cnc.createImageData(128,128);
+    for(var cni=0;cni<cnd.data.length;cni+=4){
+      var cnv=Math.random()*5;
+      cnd.data[cni]=cnv;cnd.data[cni+1]=cnv*0.7;
+      cnd.data[cni+2]=cnv*0.5;cnd.data[cni+3]=9;
+    }
+    cnc.putImageData(cnd,0,0);
+  }
+  ctx.globalAlpha=0.012;
+  ctx.fillStyle=ctx.createPattern(coNoise,'repeat');
+  ctx.fillRect(0,0,W,H);
+  ctx.globalAlpha=1;
 
   // -- TOUCH LOGIC --
   if (touching) {
@@ -418,12 +437,17 @@ function draw(now) {
         var bg = Math.round(70 + wf * 47);
         var bb = Math.round(55 - wf * 10);
 
+        ctx.save();
+        ctx.shadowColor = 'rgba(' + br + ',' + bg + ',' + bb + ',' + (alpha*0.4).toFixed(4) + ')';
+        ctx.shadowBlur = 2;
         ctx.strokeStyle = 'rgba(' + br + ',' + bg + ',' + bb + ',' + alpha.toFixed(4) + ')';
-        ctx.lineWidth = 0.3 + bondStr * 0.5;
+        ctx.lineWidth = 0.6 + bondStr * 0.6;
+        ctx.lineCap = 'round';
         ctx.beginPath();
         ctx.moveTo(p.x, p.y);
         ctx.lineTo(q.x, q.y);
         ctx.stroke();
+        ctx.restore();
       }
     }
   }
@@ -444,22 +468,32 @@ function draw(now) {
     var jitter = (1 - w) * Math.sin(t * 3.7 + i * 1.3) * 0.3;
     var sz = p.radius + jitter;
 
-    // glow halo for ordered particles
+    // glow halo for ordered particles — rich gradient
     if (w > 0.15) {
-      var glowR = sz * (2.5 + w * 5);
+      var glowR = sz * (3 + w * 6);
       var glowA = w * 0.025;
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
       var gl = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, glowR);
       gl.addColorStop(0, 'rgba(' + pr + ',' + pg + ',' + pb + ',' + glowA.toFixed(4) + ')');
+      gl.addColorStop(0.2, 'rgba(' + pr + ',' + pg + ',' + pb + ',' + (glowA * 0.5).toFixed(4) + ')');
+      gl.addColorStop(0.5, 'rgba(' + pr + ',' + pg + ',' + pb + ',' + (glowA * 0.12).toFixed(4) + ')');
       gl.addColorStop(1, 'rgba(' + pr + ',' + pg + ',' + pb + ',0)');
       ctx.fillStyle = gl;
       ctx.beginPath();
       ctx.arc(p.x, p.y, glowR, 0, Math.PI * 2);
       ctx.fill();
+      ctx.restore();
     }
 
-    ctx.fillStyle = 'rgba(' + pr + ',' + pg + ',' + pb + ',' + alpha.toFixed(3) + ')';
+    // soft particle — radial gradient not hard circle
+    var pg2 = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, sz * 1.4);
+    pg2.addColorStop(0, 'rgba(' + pr + ',' + pg + ',' + pb + ',' + alpha.toFixed(3) + ')');
+    pg2.addColorStop(0.5, 'rgba(' + pr + ',' + pg + ',' + pb + ',' + (alpha * 0.55).toFixed(3) + ')');
+    pg2.addColorStop(1, 'rgba(' + pr + ',' + pg + ',' + pb + ',0)');
+    ctx.fillStyle = pg2;
     ctx.beginPath();
-    ctx.arc(p.x, p.y, sz, 0, Math.PI * 2);
+    ctx.arc(p.x, p.y, sz * 1.4, 0, Math.PI * 2);
     ctx.fill();
   }
 

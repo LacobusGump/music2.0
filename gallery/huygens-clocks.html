@@ -108,6 +108,7 @@ var maxTrail = 90;
 // -- HINT --
 var hintEl = document.getElementById('hint');
 var hintCount = 0;
+var hcNoise = null;
 
 function showHint(text, delay) {
   setTimeout(function() {
@@ -328,27 +329,43 @@ function draw() {
   cx.fillStyle = 'rgba(10,7,6,0.22)';
   cx.fillRect(0, 0, w, h);
 
+  // depth noise
+  if(!hcNoise){
+    hcNoise=document.createElement('canvas');
+    hcNoise.width=128;hcNoise.height=128;
+    var hnc=hcNoise.getContext('2d');
+    var hnd=hnc.createImageData(128,128);
+    for(var hni=0;hni<hnd.data.length;hni+=4){
+      var hnv=Math.random()*5;
+      hnd.data[hni]=hnv;hnd.data[hni+1]=hnv*0.7;
+      hnd.data[hni+2]=hnv*0.5;hnd.data[hni+3]=9;
+    }
+    hnc.putImageData(hnd,0,0);
+  }
+  cx.globalAlpha=0.01;
+  cx.fillStyle=cx.createPattern(hcNoise,'repeat');
+  cx.fillRect(0,0,w,h);
+  cx.globalAlpha=1;
+
   // -- THE BEAM --
   var by = getBeamY();
   var bLeft = w * 0.1;
   var bRight = w * 0.9;
   var bShift = beamDisp * 60;
 
-  // beam shadow
-  cx.strokeStyle = 'rgba(139,74,46,0.05)';
-  cx.lineWidth = 7;
-  cx.beginPath();
-  cx.moveTo(bLeft + bShift, by + 2);
-  cx.lineTo(bRight + bShift, by + 2);
-  cx.stroke();
-
-  // beam
-  cx.strokeStyle = 'rgba(139,74,46,0.2)';
+  // beam with shadow for soft rendering
+  cx.save();
+  cx.shadowColor = 'rgba(139,74,46,0.08)';
+  cx.shadowBlur = 8;
+  cx.shadowOffsetY = 2;
+  cx.strokeStyle = 'rgba(139,74,46,0.22)';
   cx.lineWidth = 3;
+  cx.lineCap = 'round';
   cx.beginPath();
   cx.moveTo(bLeft + bShift, by);
   cx.lineTo(bRight + bShift, by);
   cx.stroke();
+  cx.restore();
 
   // wall mounts
   cx.fillStyle = 'rgba(139,74,46,0.07)';
@@ -364,35 +381,48 @@ function draw() {
   if (trail1.length > maxTrail) trail1.shift();
   if (trail2.length > maxTrail) trail2.shift();
 
-  // draw arc trails
+  // draw arc trails — shadow blur for anti-aliased softness
+  cx.save();
+  cx.lineCap = 'round';
+  cx.lineJoin = 'round';
+
   if (trail1.length > 2) {
+    cx.shadowColor = 'rgba(184,117,58,0.04)';
+    cx.shadowBlur = 4;
     cx.beginPath();
     cx.moveTo(trail1[0].x, trail1[0].y);
     for (var i = 1; i < trail1.length; i++) {
       cx.lineTo(trail1[i].x, trail1[i].y);
     }
-    cx.strokeStyle = 'rgba(184,117,58,0.04)';
-    cx.lineWidth = 1.5;
+    cx.strokeStyle = 'rgba(184,117,58,0.045)';
+    cx.lineWidth = 2;
     cx.stroke();
   }
 
   if (trail2.length > 2) {
+    cx.shadowColor = 'rgba(196,160,136,0.04)';
+    cx.shadowBlur = 4;
     cx.beginPath();
     cx.moveTo(trail2[0].x, trail2[0].y);
     for (var i = 1; i < trail2.length; i++) {
       cx.lineTo(trail2[i].x, trail2[i].y);
     }
-    cx.strokeStyle = 'rgba(196,160,136,0.04)';
-    cx.lineWidth = 1.5;
+    cx.strokeStyle = 'rgba(196,160,136,0.045)';
+    cx.lineWidth = 2;
     cx.stroke();
   }
+  cx.restore();
 
   // -- PENDULUM ARMS --
   var pivot1 = getPivot(1);
   var pivot2 = getPivot(2);
 
-  cx.strokeStyle = 'rgba(139,74,46,0.28)';
-  cx.lineWidth = 1.5;
+  cx.save();
+  cx.shadowColor = 'rgba(139,74,46,0.12)';
+  cx.shadowBlur = 3;
+  cx.strokeStyle = 'rgba(139,74,46,0.3)';
+  cx.lineWidth = 1.8;
+  cx.lineCap = 'round';
   cx.beginPath();
   cx.moveTo(pivot1.x, pivot1.y);
   cx.lineTo(bob1.x, bob1.y);
@@ -402,41 +432,64 @@ function draw() {
   cx.moveTo(pivot2.x, pivot2.y);
   cx.lineTo(bob2.x, bob2.y);
   cx.stroke();
+  cx.restore();
 
   // -- BOBS --
   var amp1 = Math.sqrt(theta1 * theta1 + (dtheta1 / omega0) * (dtheta1 / omega0));
   var amp2 = Math.sqrt(theta2 * theta2 + (dtheta2 / omega0) * (dtheta2 / omega0));
 
-  // bob 1
+  // bob 1 — rich multi-stop glow
   var r1 = 4 + amp1 * 3;
-  var g1 = cx.createRadialGradient(bob1.x, bob1.y, 0, bob1.x, bob1.y, r1 * 5);
-  g1.addColorStop(0, 'rgba(184,117,58,0.4)');
-  g1.addColorStop(0.25, 'rgba(184,117,58,0.12)');
-  g1.addColorStop(1, 'rgba(184,117,58,0)');
+  cx.save();
+  cx.globalCompositeOperation = 'lighter';
+  var g1 = cx.createRadialGradient(bob1.x, bob1.y, 0, bob1.x, bob1.y, r1 * 6);
+  g1.addColorStop(0, 'rgba(232,207,160,0.3)');
+  g1.addColorStop(0.08, 'rgba(184,117,58,0.25)');
+  g1.addColorStop(0.2, 'rgba(184,117,58,0.1)');
+  g1.addColorStop(0.45, 'rgba(139,74,46,0.03)');
+  g1.addColorStop(0.7, 'rgba(139,74,46,0.008)');
+  g1.addColorStop(1, 'rgba(139,74,46,0)');
   cx.fillStyle = g1;
   cx.beginPath();
-  cx.arc(bob1.x, bob1.y, r1 * 5, 0, Math.PI * 2);
+  cx.arc(bob1.x, bob1.y, r1 * 6, 0, Math.PI * 2);
   cx.fill();
+  cx.restore();
 
-  cx.fillStyle = '#e8cfa0';
+  // bob 1 core — soft edge
+  var bc1 = cx.createRadialGradient(bob1.x, bob1.y, 0, bob1.x, bob1.y, r1 * 1.3);
+  bc1.addColorStop(0, 'rgba(232,207,160,0.95)');
+  bc1.addColorStop(0.6, 'rgba(232,207,160,0.7)');
+  bc1.addColorStop(1, 'rgba(184,117,58,0)');
+  cx.fillStyle = bc1;
   cx.beginPath();
-  cx.arc(bob1.x, bob1.y, r1, 0, Math.PI * 2);
+  cx.arc(bob1.x, bob1.y, r1 * 1.3, 0, Math.PI * 2);
   cx.fill();
 
-  // bob 2
+  // bob 2 — rich multi-stop glow
   var r2 = 4 + amp2 * 3;
-  var g2 = cx.createRadialGradient(bob2.x, bob2.y, 0, bob2.x, bob2.y, r2 * 5);
-  g2.addColorStop(0, 'rgba(196,160,136,0.4)');
-  g2.addColorStop(0.25, 'rgba(196,160,136,0.12)');
-  g2.addColorStop(1, 'rgba(196,160,136,0)');
+  cx.save();
+  cx.globalCompositeOperation = 'lighter';
+  var g2 = cx.createRadialGradient(bob2.x, bob2.y, 0, bob2.x, bob2.y, r2 * 6);
+  g2.addColorStop(0, 'rgba(232,207,160,0.3)');
+  g2.addColorStop(0.08, 'rgba(196,160,136,0.25)');
+  g2.addColorStop(0.2, 'rgba(196,160,136,0.1)');
+  g2.addColorStop(0.45, 'rgba(139,74,46,0.03)');
+  g2.addColorStop(0.7, 'rgba(139,74,46,0.008)');
+  g2.addColorStop(1, 'rgba(139,74,46,0)');
   cx.fillStyle = g2;
   cx.beginPath();
-  cx.arc(bob2.x, bob2.y, r2 * 5, 0, Math.PI * 2);
+  cx.arc(bob2.x, bob2.y, r2 * 6, 0, Math.PI * 2);
   cx.fill();
+  cx.restore();
 
-  cx.fillStyle = '#e8cfa0';
+  // bob 2 core — soft edge
+  var bc2 = cx.createRadialGradient(bob2.x, bob2.y, 0, bob2.x, bob2.y, r2 * 1.3);
+  bc2.addColorStop(0, 'rgba(232,207,160,0.95)');
+  bc2.addColorStop(0.6, 'rgba(232,207,160,0.7)');
+  bc2.addColorStop(1, 'rgba(196,160,136,0)');
+  cx.fillStyle = bc2;
   cx.beginPath();
-  cx.arc(bob2.x, bob2.y, r2, 0, Math.PI * 2);
+  cx.arc(bob2.x, bob2.y, r2 * 1.3, 0, Math.PI * 2);
   cx.fill();
 
   // -- BEAM VIBRATION --
@@ -448,9 +501,14 @@ function draw() {
       var px = bLeft + (bRight - bLeft) * frac + bShift;
       var py = by + Math.sin(simTime * 25 + i * 1.7) * beamActivity * 500;
       var pa = Math.min(0.18, beamActivity * 15);
-      cx.fillStyle = 'rgba(184,117,58,' + pa.toFixed(4) + ')';
+      // soft particle with radial falloff
+      var bpg = cx.createRadialGradient(px, py, 0, px, py, 3);
+      bpg.addColorStop(0, 'rgba(184,117,58,' + pa.toFixed(4) + ')');
+      bpg.addColorStop(0.5, 'rgba(184,117,58,' + (pa * 0.3).toFixed(4) + ')');
+      bpg.addColorStop(1, 'rgba(184,117,58,0)');
+      cx.fillStyle = bpg;
       cx.beginPath();
-      cx.arc(px, py, 1, 0, Math.PI * 2);
+      cx.arc(px, py, 3, 0, Math.PI * 2);
       cx.fill();
     }
   }
@@ -485,9 +543,15 @@ function draw() {
     var cr = Math.round(100 + sync * 132);
     var cg = Math.round(50 + sync * 107);
     var cb = Math.round(30 + sync * 30);
+    cx.save();
+    cx.shadowColor = 'rgba(' + cr + ',' + cg + ',' + cb + ',' + (0.04 + sync * 0.06).toFixed(3) + ')';
+    cx.shadowBlur = 3;
     cx.strokeStyle = 'rgba(' + cr + ',' + cg + ',' + cb + ',' + (0.08 + sync * 0.15).toFixed(3) + ')';
-    cx.lineWidth = 1.5;
+    cx.lineWidth = 1.8;
+    cx.lineCap = 'round';
+    cx.lineJoin = 'round';
     cx.stroke();
+    cx.restore();
   }
 
   // -- THE GLOW BETWEEN --
@@ -499,23 +563,34 @@ function draw() {
     var midY = (bob1.y + bob2.y) / 2;
     var glowR = Math.abs(bob1.x - bob2.x) * 0.6;
 
-    var gg = cx.createRadialGradient(midX, midY, 0, midX, midY, Math.max(glowR, 20));
-    gg.addColorStop(0, 'rgba(232,207,160,' + glowAlpha.toFixed(4) + ')');
-    gg.addColorStop(0.4, 'rgba(184,117,58,' + (glowAlpha * 0.3).toFixed(4) + ')');
-    gg.addColorStop(1, 'rgba(184,117,58,0)');
+    cx.save();
+    cx.globalCompositeOperation = 'lighter';
+    var ggR = Math.max(glowR, 25);
+    var gg = cx.createRadialGradient(midX, midY, 0, midX, midY, ggR);
+    gg.addColorStop(0, 'rgba(232,207,160,' + (glowAlpha * 1.2).toFixed(4) + ')');
+    gg.addColorStop(0.15, 'rgba(220,180,120,' + (glowAlpha * 0.6).toFixed(4) + ')');
+    gg.addColorStop(0.4, 'rgba(184,117,58,' + (glowAlpha * 0.2).toFixed(4) + ')');
+    gg.addColorStop(0.7, 'rgba(139,74,46,' + (glowAlpha * 0.05).toFixed(4) + ')');
+    gg.addColorStop(1, 'rgba(139,74,46,0)');
     cx.fillStyle = gg;
     cx.beginPath();
-    cx.arc(midX, midY, Math.max(glowR, 20), 0, Math.PI * 2);
+    cx.arc(midX, midY, ggR, 0, Math.PI * 2);
     cx.fill();
+    cx.restore();
 
     // connecting line — faint thread between the bobs when synced
     if (glowStrength > 0.4) {
-      cx.strokeStyle = 'rgba(232,207,160,' + ((glowStrength - 0.4) * 0.04).toFixed(4) + ')';
-      cx.lineWidth = 0.5;
+      cx.save();
+      cx.shadowColor = 'rgba(232,207,160,' + ((glowStrength - 0.4) * 0.03).toFixed(4) + ')';
+      cx.shadowBlur = 4;
+      cx.strokeStyle = 'rgba(232,207,160,' + ((glowStrength - 0.4) * 0.05).toFixed(4) + ')';
+      cx.lineWidth = 0.8;
+      cx.lineCap = 'round';
       cx.beginPath();
       cx.moveTo(bob1.x, bob1.y);
       cx.lineTo(bob2.x, bob2.y);
       cx.stroke();
+      cx.restore();
     }
   }
 

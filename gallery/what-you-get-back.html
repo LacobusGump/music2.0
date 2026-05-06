@@ -38,7 +38,20 @@ function resize(){
 }
 resize();addEventListener('resize',resize);
 
+// -- NOISE TEXTURE --
+var noiseCv=document.createElement('canvas');
+noiseCv.width=128;noiseCv.height=128;
+var noiseCx=noiseCv.getContext('2d');
+var noiseData=noiseCx.createImageData(128,128);
+for(var ni=0;ni<noiseData.data.length;ni+=4){
+  var nv=Math.random()*5;
+  noiseData.data[ni]=nv;noiseData.data[ni+1]=nv*0.7;
+  noiseData.data[ni+2]=nv*0.5;noiseData.data[ni+3]=10;
+}
+noiseCx.putImageData(noiseData,0,0);
+
 var t=0;
+var lastNow=performance.now();
 var absorbed=0;
 var courage=0;
 var firstSuccess=false;
@@ -80,25 +93,34 @@ function spawn(x,y,vy,alpha,size){
     alpha:alpha||0.1+Math.random()*0.12});
 }
 
-function draw(){
-  t+=0.01;
+function draw(now){
+  var dt=Math.min((now-lastNow)/1000,0.05);
+  lastNow=now;
+  t+=dt;
+  var dtScale=dt/0.01; // normalized to ~100fps (original t+=0.01)
 
-  // the dark breathes — warm earth, not void
+  // deep warm background — subtle gradient, not flat
   cx.fillStyle='rgba(26,17,13,'+(0.011+courage*0.009).toFixed(4)+')';
   cx.fillRect(0,0,W,H);
 
-  // ── AMBIENT (patience) ──
+  // noise texture for depth
+  cx.globalAlpha=0.01;
+  cx.fillStyle=cx.createPattern(noiseCv,'repeat');
+  cx.fillRect(0,0,W,H);
+  cx.globalAlpha=1;
+
+  // -- AMBIENT (patience) --
   if(Math.random()>0.93) spawn(Math.random()*W);
 
-  // ── HOVER (presence without action) ──
+  // -- HOVER (presence without action) --
   if(hovering&&!touching&&hoverX>0){
     if(Math.random()>0.7){
       spawn(hoverX+(Math.random()-0.5)*100,-5,0.4+Math.random()*0.6,0.06+Math.random()*0.06,0.4+Math.random()*0.8);
     }
-    absorbed=Math.min(1,absorbed+0.00008);
+    absorbed=Math.min(1,absorbed+0.00008*dtScale);
   }
 
-  // ── TOUCH (focused attention) ──
+  // -- TOUCH (focused attention) --
   if(touching&&touchX>0){
     var n=2+Math.floor(courage*4);
     var sp=35+courage*35;
@@ -106,36 +128,37 @@ function draw(){
       spawn(touchX+(Math.random()-0.5)*sp,touchY+(Math.random()-0.5)*sp*0.4,
         0.8+Math.random()*2.2,0.12+Math.random()*0.22,0.7+Math.random()*2);
     }
-    absorbed=Math.min(1,absorbed+0.0006);
+    absorbed=Math.min(1,absorbed+0.0006*dtScale);
   }
 
-  // ── INCOMING LIGHT ──
+  // -- INCOMING LIGHT --
   for(var i=particles.length-1;i>=0;i--){
     var p=particles[i];
-    p.vy+=0.01;p.x+=p.vx;p.y+=p.vy;
+    p.vy+=0.01*dtScale;p.x+=p.vx*dtScale;p.y+=p.vy*dtScale;
     var sy=sY(p.x);
 
     if(p.y>=sy){
       absorbed=Math.min(1,absorbed+0.0004);
       addW(p.x,0.004);
 
-      // impact glow — ember colors
+      // rich impact glow — multiple gradient stops
       var w=wAt(p.x);
       var ia=0.006+courage*0.035+w*0.03;
       var ir=10+courage*25+w*25;
-      var sz=6+courage*18+w*14;
+      var sz=8+courage*22+w*18;
       var g=cx.createRadialGradient(p.x,sy,0,p.x,sy,sz);
-      g.addColorStop(0,'rgba('+Math.round(139+ir)+','+Math.round(74+ir*0.45)+','+Math.round(46+ir*0.15)+','+ia.toFixed(4)+')');
+      g.addColorStop(0,'rgba('+Math.round(160+ir)+','+Math.round(90+ir*0.45)+','+Math.round(50+ir*0.15)+','+ia.toFixed(4)+')');
+      g.addColorStop(0.2,'rgba('+Math.round(139+ir*0.7)+','+Math.round(74+ir*0.3)+','+Math.round(46+ir*0.1)+','+(ia*0.6).toFixed(4)+')');
+      g.addColorStop(0.5,'rgba(139,74,46,'+(ia*0.15).toFixed(4)+')');
       g.addColorStop(1,'rgba(139,74,46,0)');
       cx.fillStyle=g;cx.beginPath();cx.arc(p.x,sy,sz,0,Math.PI*2);cx.fill();
 
-      // ── TRY ──
+      // -- TRY --
       if(absorbed>0.22&&Math.random()<0.025+courage*0.14){
         attemptCount++;
         var power=courage*0.35+Math.min(attemptCount*0.015,0.3)+Math.random()*0.35;
 
         if(power>0.58||(firstSuccess&&power>0.32)){
-          // ═══ SUCCESS ═══ reflections come back in ember
           var wm=0.4+courage*0.6;
           reflections.push({x:p.x,y:sy,
             vx:(Math.random()-0.5)*1.3,vy:-(1.4+courage*3.5+Math.random()*2),
@@ -156,7 +179,6 @@ function draw(){
             addW(p.x,0.35);
           }
         }else{
-          // ── FAIL ── rises... falls back
           attempts.push({x:p.x,y:sy,
             vx:(Math.random()-0.5)*0.5,vy:-(0.25+power*2.8),
             size:0.5+Math.random()*0.7,life:1,
@@ -166,36 +188,54 @@ function draw(){
       particles.splice(i,1);continue;
     }
 
-    cx.fillStyle='rgba('+Math.round(p.r)+','+Math.round(p.g)+','+Math.round(p.b)+','+p.alpha.toFixed(3)+')';
-    cx.beginPath();cx.arc(p.x,p.y,p.size,0,Math.PI*2);cx.fill();
+    // soft particle rendering — radial gradient instead of hard circle
+    var pg=cx.createRadialGradient(p.x,p.y,0,p.x,p.y,p.size*2);
+    pg.addColorStop(0,'rgba('+Math.round(p.r)+','+Math.round(p.g)+','+Math.round(p.b)+','+p.alpha.toFixed(3)+')');
+    pg.addColorStop(0.4,'rgba('+Math.round(p.r)+','+Math.round(p.g)+','+Math.round(p.b)+','+(p.alpha*0.5).toFixed(3)+')');
+    pg.addColorStop(1,'rgba('+Math.round(p.r)+','+Math.round(p.g)+','+Math.round(p.b)+',0)');
+    cx.fillStyle=pg;cx.beginPath();cx.arc(p.x,p.y,p.size*2,0,Math.PI*2);cx.fill();
   }
 
-  // ── FAILED ATTEMPTS ──
+  // -- FAILED ATTEMPTS --
   for(var i=attempts.length-1;i>=0;i--){
     var a=attempts[i];
-    a.vy+=0.028;a.x+=a.vx;a.y+=a.vy;a.life-=0.01;
+    a.vy+=0.028*dtScale;a.x+=a.vx*dtScale;a.y+=a.vy*dtScale;a.life-=0.01*dtScale;
     if(a.y>sY(a.x)+2||a.life<=0){addW(a.x,0.0008);attempts.splice(i,1);continue;}
     var al=a.life*(a.vy>0?0.12:0.22);
-    cx.fillStyle='rgba('+Math.round(a.r)+','+Math.round(a.g)+','+Math.round(a.b)+','+al.toFixed(3)+')';
-    cx.beginPath();cx.arc(a.x,a.y,a.size*a.life,0,Math.PI*2);cx.fill();
+    // soft attempt particle
+    var ag=cx.createRadialGradient(a.x,a.y,0,a.x,a.y,a.size*a.life*2);
+    ag.addColorStop(0,'rgba('+Math.round(a.r)+','+Math.round(a.g)+','+Math.round(a.b)+','+al.toFixed(3)+')');
+    ag.addColorStop(0.5,'rgba('+Math.round(a.r)+','+Math.round(a.g)+','+Math.round(a.b)+','+(al*0.3).toFixed(3)+')');
+    ag.addColorStop(1,'rgba('+Math.round(a.r)+','+Math.round(a.g)+','+Math.round(a.b)+',0)');
+    cx.fillStyle=ag;cx.beginPath();cx.arc(a.x,a.y,a.size*a.life*2,0,Math.PI*2);cx.fill();
   }
 
-  // ── REFLECTIONS ── what comes back is warmer — ember spark
+  // -- REFLECTIONS -- what comes back is warmer
+  cx.save();
+  cx.globalCompositeOperation='lighter';
   for(var i=reflections.length-1;i>=0;i--){
     var r=reflections[i];
-    r.vy+=0.0015;r.x+=r.vx;r.y+=r.vy;r.life-=0.004;
+    r.vy+=0.0015*dtScale;r.x+=r.vx*dtScale;r.y+=r.vy*dtScale;r.life-=0.004*dtScale;
     if(r.life<=0||r.y<-100||r.x<-100||r.x>W+100){reflections.splice(i,1);continue;}
     var al=r.life*r.alpha;
     var gs=r.size*(2.5+courage*4);
-    var gl=cx.createRadialGradient(r.x,r.y,0,r.x,r.y,gs);
-    gl.addColorStop(0,'rgba('+Math.round(r.r)+','+Math.round(r.g)+','+Math.round(r.b)+','+(al*0.18).toFixed(4)+')');
+    // outer glow — wide soft warmth
+    var gl=cx.createRadialGradient(r.x,r.y,0,r.x,r.y,gs*1.3);
+    gl.addColorStop(0,'rgba('+Math.round(r.r)+','+Math.round(r.g)+','+Math.round(r.b)+','+(al*0.12).toFixed(4)+')');
+    gl.addColorStop(0.25,'rgba('+Math.round(r.r)+','+Math.round(r.g)+','+Math.round(r.b)+','+(al*0.06).toFixed(4)+')');
+    gl.addColorStop(0.6,'rgba('+Math.round(r.r)+','+Math.round(r.g)+','+Math.round(r.b)+','+(al*0.015).toFixed(4)+')');
     gl.addColorStop(1,'rgba('+Math.round(r.r)+','+Math.round(r.g)+','+Math.round(r.b)+',0)');
-    cx.fillStyle=gl;cx.beginPath();cx.arc(r.x,r.y,gs,0,Math.PI*2);cx.fill();
-    cx.fillStyle='rgba('+Math.round(r.r)+','+Math.round(r.g)+','+Math.round(r.b)+','+al.toFixed(3)+')';
-    cx.beginPath();cx.arc(r.x,r.y,r.size*Math.sqrt(r.life),0,Math.PI*2);cx.fill();
+    cx.fillStyle=gl;cx.beginPath();cx.arc(r.x,r.y,gs*1.3,0,Math.PI*2);cx.fill();
+    // inner bright core
+    var gl2=cx.createRadialGradient(r.x,r.y,0,r.x,r.y,r.size*Math.sqrt(r.life)*1.5);
+    gl2.addColorStop(0,'rgba('+Math.round(Math.min(255,r.r+30))+','+Math.round(Math.min(255,r.g+20))+','+Math.round(Math.min(255,r.b+10))+','+al.toFixed(3)+')');
+    gl2.addColorStop(0.5,'rgba('+Math.round(r.r)+','+Math.round(r.g)+','+Math.round(r.b)+','+(al*0.4).toFixed(3)+')');
+    gl2.addColorStop(1,'rgba('+Math.round(r.r)+','+Math.round(r.g)+','+Math.round(r.b)+',0)');
+    cx.fillStyle=gl2;cx.beginPath();cx.arc(r.x,r.y,r.size*Math.sqrt(r.life)*1.5,0,Math.PI*2);cx.fill();
   }
+  cx.restore();
 
-  // ── THE SURFACE ── warm earth, not cold obsidian
+  // -- THE SURFACE -- warm earth, not cold obsidian
   for(var x=0;x<W;x+=2){
     var sy=sY(x);var w=wAt(x);
     var ba=0.12+absorbed*0.12+w*0.35;
@@ -204,21 +244,26 @@ function draw(){
     var sb=Math.round(13+absorbed*5+w*12+courage*4);
     cx.fillStyle='rgba('+sr+','+sg+','+sb+','+ba.toFixed(3)+')';
     cx.fillRect(x,sy,2,H-sy);
+    // surface edge glow — warm highlight
     if(w>0.04){
-      cx.fillStyle='rgba('+(139+Math.round(w*45))+','+(74+Math.round(w*43))+','+(46+Math.round(w*12))+','+(w*0.18).toFixed(3)+')';
-      cx.fillRect(x,sy-1,2,2);
+      var edgeG=cx.createLinearGradient(x,sy-3,x,sy+4);
+      edgeG.addColorStop(0,'rgba('+(139+Math.round(w*45))+','+(74+Math.round(w*43))+','+(46+Math.round(w*12))+',0)');
+      edgeG.addColorStop(0.4,'rgba('+(139+Math.round(w*45))+','+(74+Math.round(w*43))+','+(46+Math.round(w*12))+','+(w*0.2).toFixed(3)+')');
+      edgeG.addColorStop(1,'rgba('+(139+Math.round(w*45))+','+(74+Math.round(w*43))+','+(46+Math.round(w*12))+',0)');
+      cx.fillStyle=edgeG;
+      cx.fillRect(x,sy-3,2,7);
     }
   }
 
-  // ── EVOLVE ──
-  if(!firstSuccess) courage+=(absorbed*0.45-courage)*0.0003;
-  else{timeSinceFirst+=0.016;courage+=(absorbed-courage)*0.004;}
-  for(var i=0;i<warmth.length;i++) warmth[i]*=0.9997;
+  // -- EVOLVE --
+  if(!firstSuccess) courage+=(absorbed*0.45-courage)*0.0003*dtScale;
+  else{timeSinceFirst+=dt;courage+=(absorbed-courage)*0.004*dtScale;}
+  for(var i=0;i<warmth.length;i++) warmth[i]*=Math.pow(0.9997,dtScale);
 
   requestAnimationFrame(draw);
 }
 
-// ── INPUT ──
+// -- INPUT --
 addEventListener('mousemove',function(e){hoverX=e.clientX;hovering=true;if(touching){touchX=e.clientX;touchY=e.clientY;}});
 addEventListener('mousedown',function(e){touching=true;touchX=e.clientX;touchY=e.clientY;});
 addEventListener('mouseup',function(){touching=false;});
@@ -227,7 +272,7 @@ addEventListener('touchstart',function(e){e.preventDefault();touching=true;touch
 addEventListener('touchmove',function(e){e.preventDefault();touchX=e.touches[0].clientX;touchY=e.touches[0].clientY;},{passive:false});
 addEventListener('touchend',function(){touching=false;});
 
-draw();
+requestAnimationFrame(draw);
 </script>
 </body>
 </html>
