@@ -46,6 +46,10 @@ var W, H;
 var hintEl = document.getElementById('hint');
 var hintGone = false;
 
+// mobile detection — disable GPU-heavy effects
+var isMobile = ('ontouchstart' in window) || (innerWidth < 600);
+var SEGS = isMobile ? 50 : 100;
+
 function resize() {
   var dpr = Math.min(window.devicePixelRatio || 1, 2);
   W = innerWidth;
@@ -212,20 +216,23 @@ addEventListener('resize', function() { resize(); buildCoupling(); });
 // -- TIME --
 var lastNow = performance.now();
 
-// -- BACKGROUND TEXTURE (subtle noise) --
-var noiseCv = document.createElement('canvas');
-noiseCv.width = 128;
-noiseCv.height = 128;
-var noiseCx = noiseCv.getContext('2d');
-var noiseData = noiseCx.createImageData(128, 128);
-for (var i = 0; i < noiseData.data.length; i += 4) {
-  var v = Math.random() * 8;
-  noiseData.data[i] = v;
-  noiseData.data[i+1] = v * 0.7;
-  noiseData.data[i+2] = v * 0.5;
-  noiseData.data[i+3] = 12;
+// -- BACKGROUND TEXTURE (subtle noise) -- skip on mobile
+var noiseCv = null;
+if (!isMobile) {
+  noiseCv = document.createElement('canvas');
+  noiseCv.width = 128;
+  noiseCv.height = 128;
+  var noiseCx = noiseCv.getContext('2d');
+  var noiseData = noiseCx.createImageData(128, 128);
+  for (var i = 0; i < noiseData.data.length; i += 4) {
+    var v = Math.random() * 8;
+    noiseData.data[i] = v;
+    noiseData.data[i+1] = v * 0.7;
+    noiseData.data[i+2] = v * 0.5;
+    noiseData.data[i+3] = 12;
+  }
+  noiseCx.putImageData(noiseData, 0, 0);
 }
-noiseCx.putImageData(noiseData, 0, 0);
 
 // -- MAIN LOOP --
 function frame(now) {
@@ -268,12 +275,14 @@ function frame(now) {
   cx.fillStyle = 'rgba(10,7,6,0.18)';
   cx.fillRect(0, 0, W, H);
 
-  // subtle noise texture for depth
-  cx.globalAlpha = 0.015;
-  var pat = cx.createPattern(noiseCv, 'repeat');
-  cx.fillStyle = pat;
-  cx.fillRect(0, 0, W, H);
-  cx.globalAlpha = 1;
+  // subtle noise texture for depth (skip on mobile)
+  if (noiseCv) {
+    cx.globalAlpha = 0.015;
+    var pat = cx.createPattern(noiseCv, 'repeat');
+    cx.fillStyle = pat;
+    cx.fillRect(0, 0, W, H);
+    cx.globalAlpha = 1;
+  }
 
   var topY = H * 0.08;
   var botY = H * 0.92;
@@ -298,17 +307,24 @@ function frame(now) {
       var warmG = c > 0.5 ? 207 : 117;
       var warmB = c > 0.5 ? 160 : 58;
 
-      var g = cx.createLinearGradient(x1, 0, x2, 0);
-      g.addColorStop(0, 'rgba(' + warmR + ',' + warmG + ',' + warmB + ',0)');
-      g.addColorStop(0.15, 'rgba(' + warmR + ',' + warmG + ',' + warmB + ',' + (alpha * 0.25).toFixed(4) + ')');
-      g.addColorStop(0.35, 'rgba(' + warmR + ',' + warmG + ',' + warmB + ',' + (alpha * 0.7).toFixed(4) + ')');
-      g.addColorStop(0.5, 'rgba(' + warmR + ',' + warmG + ',' + warmB + ',' + alpha.toFixed(4) + ')');
-      g.addColorStop(0.65, 'rgba(' + warmR + ',' + warmG + ',' + warmB + ',' + (alpha * 0.7).toFixed(4) + ')');
-      g.addColorStop(0.85, 'rgba(' + warmR + ',' + warmG + ',' + warmB + ',' + (alpha * 0.25).toFixed(4) + ')');
-      g.addColorStop(1, 'rgba(' + warmR + ',' + warmG + ',' + warmB + ',0)');
-      cx.fillStyle = g;
-      var h = Math.min(30 + shared * 1200, H * 0.4);
-      cx.fillRect(x1, H/2 - h/2, x2 - x1, h);
+      if (isMobile) {
+        // simple flat fill instead of gradient on mobile
+        cx.fillStyle = 'rgba(' + warmR + ',' + warmG + ',' + warmB + ',' + (alpha * 0.5).toFixed(4) + ')';
+        var h = Math.min(30 + shared * 1200, H * 0.4);
+        cx.fillRect(x1, H/2 - h/2, x2 - x1, h);
+      } else {
+        var g = cx.createLinearGradient(x1, 0, x2, 0);
+        g.addColorStop(0, 'rgba(' + warmR + ',' + warmG + ',' + warmB + ',0)');
+        g.addColorStop(0.15, 'rgba(' + warmR + ',' + warmG + ',' + warmB + ',' + (alpha * 0.25).toFixed(4) + ')');
+        g.addColorStop(0.35, 'rgba(' + warmR + ',' + warmG + ',' + warmB + ',' + (alpha * 0.7).toFixed(4) + ')');
+        g.addColorStop(0.5, 'rgba(' + warmR + ',' + warmG + ',' + warmB + ',' + alpha.toFixed(4) + ')');
+        g.addColorStop(0.65, 'rgba(' + warmR + ',' + warmG + ',' + warmB + ',' + (alpha * 0.7).toFixed(4) + ')');
+        g.addColorStop(0.85, 'rgba(' + warmR + ',' + warmG + ',' + warmB + ',' + (alpha * 0.25).toFixed(4) + ')');
+        g.addColorStop(1, 'rgba(' + warmR + ',' + warmG + ',' + warmB + ',0)');
+        cx.fillStyle = g;
+        var h = Math.min(30 + shared * 1200, H * 0.4);
+        cx.fillRect(x1, H/2 - h/2, x2 - x1, h);
+      }
     }
   }
   cx.restore();
@@ -341,38 +357,66 @@ function frame(now) {
 
     var lineAlpha = 0.12 + amp * 0.78;
 
-    // draw the string with shadow blur for anti-aliased softness
+    // draw the string -- shadow blur on desktop, wider alpha lines on mobile
     cx.save();
-    cx.shadowColor = 'rgba(' + Math.round(cr) + ',' + Math.round(cg) + ',' + Math.round(cb) + ',' + (lineAlpha * 0.4).toFixed(3) + ')';
-    cx.shadowBlur = 3 + amp * 6;
-
-    cx.beginPath();
-    cx.strokeStyle = 'rgba(' + Math.round(cr) + ',' + Math.round(cg) + ',' +
-      Math.round(cb) + ',' + lineAlpha.toFixed(3) + ')';
-    cx.lineWidth = 1.0 + amp * 1.5;
-    cx.lineCap = 'round';
-    cx.lineJoin = 'round';
-
-    var segs = 100;
-    for (var k = 0; k <= segs; k++) {
-      var frac = k / segs;
-      var py = topY + frac * span;
-      // standing wave: sin(n*pi*x/L)
-      var env = Math.sin(modes * Math.PI * frac);
-      var dx = s.y * env * 100;
-      var px = s.x + dx;
-      if (k === 0) cx.moveTo(px, py); else cx.lineTo(px, py);
+    if (isMobile) {
+      // no shadowBlur -- use wider line at lower alpha for soft look
+      cx.beginPath();
+      cx.strokeStyle = 'rgba(' + Math.round(cr) + ',' + Math.round(cg) + ',' +
+        Math.round(cb) + ',' + (lineAlpha * 0.3).toFixed(3) + ')';
+      cx.lineWidth = 3.0 + amp * 3;
+      cx.lineCap = 'round';
+      for (var k = 0; k <= SEGS; k++) {
+        var frac = k / SEGS;
+        var py = topY + frac * span;
+        var env = Math.sin(modes * Math.PI * frac);
+        var dx = s.y * env * 100;
+        var px = s.x + dx;
+        if (k === 0) cx.moveTo(px, py); else cx.lineTo(px, py);
+      }
+      cx.stroke();
+      // sharp core line on top
+      cx.beginPath();
+      cx.strokeStyle = 'rgba(' + Math.round(cr) + ',' + Math.round(cg) + ',' +
+        Math.round(cb) + ',' + lineAlpha.toFixed(3) + ')';
+      cx.lineWidth = 1.0 + amp * 1.0;
+      for (var k = 0; k <= SEGS; k++) {
+        var frac = k / SEGS;
+        var py = topY + frac * span;
+        var env = Math.sin(modes * Math.PI * frac);
+        var dx = s.y * env * 100;
+        var px = s.x + dx;
+        if (k === 0) cx.moveTo(px, py); else cx.lineTo(px, py);
+      }
+      cx.stroke();
+    } else {
+      cx.shadowColor = 'rgba(' + Math.round(cr) + ',' + Math.round(cg) + ',' + Math.round(cb) + ',' + (lineAlpha * 0.4).toFixed(3) + ')';
+      cx.shadowBlur = 3 + amp * 6;
+      cx.beginPath();
+      cx.strokeStyle = 'rgba(' + Math.round(cr) + ',' + Math.round(cg) + ',' +
+        Math.round(cb) + ',' + lineAlpha.toFixed(3) + ')';
+      cx.lineWidth = 1.0 + amp * 1.5;
+      cx.lineCap = 'round';
+      cx.lineJoin = 'round';
+      for (var k = 0; k <= SEGS; k++) {
+        var frac = k / SEGS;
+        var py = topY + frac * span;
+        var env = Math.sin(modes * Math.PI * frac);
+        var dx = s.y * env * 100;
+        var px = s.x + dx;
+        if (k === 0) cx.moveTo(px, py); else cx.lineTo(px, py);
+      }
+      cx.stroke();
     }
-    cx.stroke();
     cx.restore();
 
     // glow at antinodes — soft radial gradients, multiple stops
+    // on mobile: simpler single-stop glow, fewer draw calls
     if (amp > 0.04) {
       cx.save();
       cx.globalCompositeOperation = 'lighter';
-      var glowSize = 8 + amp * 40;
+      var glowSize = isMobile ? (6 + amp * 20) : (8 + amp * 40);
       var glowA = amp * 0.03;
-      // place glows at the antinodes of this mode
       for (var m = 0; m < modes; m++) {
         var nodeFrac = (m + 0.5) / modes;
         var ny = topY + nodeFrac * span;
@@ -381,22 +425,34 @@ function frame(now) {
         var nx = s.x + ndx;
         var absEnv = Math.abs(env2);
 
-        var gr = cx.createRadialGradient(nx, ny, 0, nx, ny, glowSize * absEnv + 4);
-        if (sympathetic) {
-          gr.addColorStop(0, 'rgba(232,207,160,' + (glowA * absEnv * 2.0).toFixed(4) + ')');
-          gr.addColorStop(0.2, 'rgba(220,185,140,' + (glowA * absEnv * 1.2).toFixed(4) + ')');
-          gr.addColorStop(0.5, 'rgba(200,160,120,' + (glowA * absEnv * 0.4).toFixed(4) + ')');
+        if (isMobile) {
+          // simple 2-stop gradient on mobile
+          var gr = cx.createRadialGradient(nx, ny, 0, nx, ny, glowSize * absEnv + 4);
+          var ga = sympathetic ? (glowA * absEnv * 1.5) : (glowA * absEnv * 0.8);
+          gr.addColorStop(0, 'rgba(232,207,160,' + ga.toFixed(4) + ')');
           gr.addColorStop(1, 'rgba(184,117,58,0)');
+          cx.fillStyle = gr;
+          cx.beginPath();
+          cx.arc(nx, ny, glowSize * absEnv + 4, 0, Math.PI * 2);
+          cx.fill();
         } else {
-          gr.addColorStop(0, 'rgba(232,207,160,' + (glowA * absEnv * 1.2).toFixed(4) + ')');
-          gr.addColorStop(0.25, 'rgba(184,117,58,' + (glowA * absEnv * 0.6).toFixed(4) + ')');
-          gr.addColorStop(0.6, 'rgba(139,74,46,' + (glowA * absEnv * 0.15).toFixed(4) + ')');
-          gr.addColorStop(1, 'rgba(139,74,46,0)');
+          var gr = cx.createRadialGradient(nx, ny, 0, nx, ny, glowSize * absEnv + 4);
+          if (sympathetic) {
+            gr.addColorStop(0, 'rgba(232,207,160,' + (glowA * absEnv * 2.0).toFixed(4) + ')');
+            gr.addColorStop(0.2, 'rgba(220,185,140,' + (glowA * absEnv * 1.2).toFixed(4) + ')');
+            gr.addColorStop(0.5, 'rgba(200,160,120,' + (glowA * absEnv * 0.4).toFixed(4) + ')');
+            gr.addColorStop(1, 'rgba(184,117,58,0)');
+          } else {
+            gr.addColorStop(0, 'rgba(232,207,160,' + (glowA * absEnv * 1.2).toFixed(4) + ')');
+            gr.addColorStop(0.25, 'rgba(184,117,58,' + (glowA * absEnv * 0.6).toFixed(4) + ')');
+            gr.addColorStop(0.6, 'rgba(139,74,46,' + (glowA * absEnv * 0.15).toFixed(4) + ')');
+            gr.addColorStop(1, 'rgba(139,74,46,0)');
+          }
+          cx.fillStyle = gr;
+          cx.beginPath();
+          cx.arc(nx, ny, glowSize * absEnv + 4, 0, Math.PI * 2);
+          cx.fill();
         }
-        cx.fillStyle = gr;
-        cx.beginPath();
-        cx.arc(nx, ny, glowSize * absEnv + 4, 0, Math.PI * 2);
-        cx.fill();
       }
       cx.restore();
     }
@@ -404,8 +460,10 @@ function frame(now) {
     // bridge and nut (anchor dots) — soft not hard
     var dotA = 0.15 + amp * 0.35;
     cx.save();
-    cx.shadowColor = 'rgba(139,74,46,' + (dotA * 0.5).toFixed(3) + ')';
-    cx.shadowBlur = 3;
+    if (!isMobile) {
+      cx.shadowColor = 'rgba(139,74,46,' + (dotA * 0.5).toFixed(3) + ')';
+      cx.shadowBlur = 3;
+    }
     cx.fillStyle = 'rgba(139,74,46,' + dotA.toFixed(3) + ')';
     cx.beginPath(); cx.arc(s.x, topY, 2, 0, Math.PI * 2); cx.fill();
     cx.beginPath(); cx.arc(s.x, botY, 2, 0, Math.PI * 2); cx.fill();
@@ -430,9 +488,11 @@ function frame(now) {
   }
 
   // -- AMBIENT --
-  // the room breathes. barely. the fundamental shivers sometimes.
-  if (Math.random() < 0.0004) {
-    strings[0].vy += 0.0004 * (Math.random() - 0.3);
+  // the room breathes. barely. sometimes a string shivers on its own.
+  // not just the fundamental — any string can catch a draft.
+  if (Math.random() < 0.0006) {
+    var draftIdx = Math.floor(Math.random() * NUM);
+    strings[draftIdx].vy += 0.0003 * (Math.random() - 0.3);
   }
 
   requestAnimationFrame(frame);
