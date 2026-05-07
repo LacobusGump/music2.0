@@ -1,0 +1,883 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Music Outfit -- GUMP</title>
+<meta name="description" content="Two phones. One song. Neither can play the full spectrum alone. The coupling IS the music.">
+<link rel="icon" href="/favicon.png">
+<style>
+*{margin:0;padding:0;box-sizing:border-box;-webkit-user-select:none;user-select:none;}
+body{background:#000;color:#c4a088;font-family:Georgia,serif;
+  height:100vh;height:100dvh;overflow:hidden;touch-action:none;}
+
+/* ─── LOBBY ─── */
+#lobby{display:flex;align-items:center;justify-content:center;
+  height:100vh;height:100dvh;flex-direction:column;gap:16px;padding:20px;}
+.lobby-title{font-family:Futura,'Century Gothic',system-ui,sans-serif;
+  font-size:0.65em;letter-spacing:0.2em;color:#c9a44a30;}
+.lobby-sub{color:#444;font-size:0.72em;max-width:320px;text-align:center;line-height:1.9;}
+.room-row{display:flex;gap:8px;align-items:center;margin:10px 0;}
+.room-input{background:none;border:1px solid #c9a44a30;color:#c9a44a;
+  padding:14px 18px;border-radius:10px;font-family:'Courier New',monospace;
+  font-size:1.4em;width:140px;text-align:center;letter-spacing:0.3em;
+  outline:none;-webkit-appearance:none;}
+.room-input:focus{border-color:#c9a44a80;}
+.room-input::placeholder{color:#333;letter-spacing:0.1em;font-size:0.6em;}
+.btn{background:none;border:1px solid #c9a44a30;color:#c9a44a;
+  padding:14px 28px;border-radius:10px;font-family:Georgia,serif;
+  font-size:1em;cursor:pointer;letter-spacing:0.12em;transition:all 0.4s;}
+.btn:hover{border-color:#c9a44a;background:#c9a44a10;}
+.btn:disabled{opacity:0.3;cursor:default;}
+.btn-create{font-size:0.8em;padding:10px 20px;color:#666;border-color:#ffffff10;}
+#status-msg{color:#555;font-size:0.7em;min-height:1.4em;text-align:center;
+  font-family:'Courier New',monospace;transition:color 0.3s;}
+#status-msg.connected{color:#4a9;}
+#status-msg.error{color:#c44;}
+.back{position:fixed;top:12px;left:12px;font-size:0.65em;color:#333;z-index:100;
+  text-decoration:none;font-family:Georgia,serif;}
+.back:hover{color:#c9a44a;}
+
+/* ─── INSTRUMENT ─── */
+#instrument{display:none;height:100vh;height:100dvh;position:relative;}
+canvas{display:block;width:100%;height:100%;touch-action:none;}
+#hud{position:fixed;top:12px;left:12px;font-size:0.55em;color:#333;
+  font-family:'Courier New',monospace;line-height:1.8;pointer-events:none;z-index:10;}
+#partner-indicator{position:fixed;top:12px;right:12px;width:8px;height:8px;
+  border-radius:50%;background:#333;z-index:10;transition:background 0.5s;}
+#partner-indicator.live{background:#4a9;}
+#k-display{position:fixed;bottom:16px;left:0;right:0;text-align:center;
+  font-family:Futura,'Century Gothic',system-ui,sans-serif;
+  font-size:0.72em;color:#333;letter-spacing:0.1em;pointer-events:none;z-index:10;
+  transition:color 0.5s;}
+</style>
+</head>
+<body>
+
+<a class="back" href="/">&larr;</a>
+
+<div id="lobby">
+  <div class="lobby-title">MUSIC OUTFIT</div>
+  <div class="lobby-sub">
+    two phones. one song.<br>
+    you get half the harmonics. they get the other half.<br>
+    neither of you can play the full sound alone.
+  </div>
+  <div class="room-row">
+    <input class="room-input" id="room-code" type="text" maxlength="4"
+      pattern="[0-9]*" inputmode="numeric" placeholder="code">
+    <button class="btn" id="join-btn" onclick="joinRoom()">play</button>
+  </div>
+  <button class="btn btn-create" onclick="createRoom()">new room</button>
+  <div id="status-msg">&nbsp;</div>
+  <div class="lobby-sub" style="color:#333;font-size:0.6em;margin-top:10px;">
+    one person creates a room. both enter the same 4-digit code.<br>
+    works on phones and desktop. headphones recommended.
+  </div>
+</div>
+
+<div id="instrument">
+  <canvas id="viz"></canvas>
+  <div id="hud"></div>
+  <div id="partner-indicator"></div>
+  <div id="k-display"></div>
+</div>
+
+<!-- PeerJS for WebRTC signaling (free, no server needed) -->
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+
+<script>
+// =====================================================================
+// MUSIC OUTFIT — Two phones, one song
+//
+// The founding vision of GUMP. Built 40+ sessions later.
+//
+// Architecture:
+//   - Each player owns HALF the harmonic series of 33 Hz
+//   - Player A: odd partials (1, 3, 5, 7, 10, 14) → 33, 99, 165, 231, 330, 462
+//   - Player B: even partials (2, 4, 6, 8, 12, 16) → 66, 132, 198, 264, 396, 528
+//   - Neither can play the full sound alone
+//   - Coupling K = cos(angleA - angleB) — how aligned are your tilts?
+//   - When K is high: coupling tone emerges (the 3)
+//   - When K is low: you hear only your half — incomplete, searching
+//
+// Network:
+//   - WebRTC DataChannel via PeerJS (peer-to-peer, no server)
+//   - State exchange: {tiltX, tiltY, energy} — 3 floats, 20x/sec
+//   - No audio streaming. Each phone synthesizes locally.
+//   - Latency doesn't kill the music because we're sharing STATE not SOUND
+//
+// The insight:
+//   Don't try to synchronize audio across the network (impossible).
+//   Share the human state. Let each phone compute the sound locally.
+//   The coupling is in the INTENTION, not the waveform.
+// =====================================================================
+
+var FUNDAMENTAL = 33;
+var BASE_FILTER = 80;
+var MAX_FILTER = 4000;
+
+// Water bottle smoothing
+var SPRING = 0.03;
+var DAMPING = 0.85;
+var ENERGY_ATTACK = 0.15;
+var ENERGY_DECAY = 0.97;
+
+// Local state
+var tiltX = 0, tiltY = 0;
+var targetX = 0, targetY = 0;
+var velX = 0, velY = 0;
+var energy = 0, targetEnergy = 0;
+var impactCooldown = 0;
+
+// Partner state (received over WebRTC)
+var partnerTiltX = 0, partnerTiltY = 0;
+var partnerEnergy = 0;
+var partnerConnected = false;
+var lastPartnerUpdate = 0;
+
+// Role: 'A' gets odd harmonics, 'B' gets even harmonics
+var myRole = null;
+
+// Audio
+var actx = null, started = false;
+var masterGain, delay, feedbackNode, delayGain;
+var drone, filter, filterGain, sub, subGain;
+var myHarmonicOscs = [], myHarmonicGains = [];
+var couplingOsc = null, couplingGain = null;
+var couplingOsc2 = null, couplingGain2 = null;
+
+// All harmonics of 33 Hz
+var ALL_HARMONICS = [33, 66, 99, 132, 165, 198, 231, 264, 330, 396, 462, 528];
+// Player A: odd partials (indices 0,2,4,6,8,10) → 33,99,165,231,330,462
+var A_HARMONICS = [33, 99, 165, 231, 330, 462];
+// Player B: even partials (indices 1,3,5,7,9,11) → 66,132,198,264,396,528
+var B_HARMONICS = [66, 132, 198, 264, 396, 528];
+
+// PeerJS
+var peer = null;
+var conn = null;
+var ROOM_PREFIX = 'gump-outfit-';
+
+// Coupling measurement
+var couplingK = 0;        // live K value
+var smoothK = 0;          // smoothed for display
+var peakK = 0;            // peak K achieved
+var kHistory = [];         // last 60 frames of K
+
+// ═══ LOBBY ═══
+
+function createRoom() {
+  var code = String(Math.floor(1000 + Math.random() * 9000));
+  document.getElementById('room-code').value = code;
+  setStatus('room ' + code + ' created. share the code.');
+  myRole = 'A';
+  initPeer(code, true);
+}
+
+function joinRoom() {
+  var code = document.getElementById('room-code').value.trim();
+  if (code.length !== 4 || !/^\d{4}$/.test(code)) {
+    setStatus('enter a 4-digit code', 'error');
+    return;
+  }
+  myRole = 'B';
+  setStatus('connecting...');
+  initPeer(code, false);
+}
+
+function setStatus(msg, cls) {
+  var el = document.getElementById('status-msg');
+  el.textContent = msg;
+  el.className = cls || '';
+}
+
+function initPeer(code, isHost) {
+  var myId = ROOM_PREFIX + code + (isHost ? '-host' : '-join-' + Date.now());
+
+  document.getElementById('join-btn').disabled = true;
+
+  peer = new Peer(myId, {
+    // Use PeerJS cloud server for signaling (free tier)
+    // No TURN server needed for DataChannel (tiny packets)
+  });
+
+  peer.on('open', function(id) {
+    if (isHost) {
+      setStatus('room ' + code + '. waiting for partner...');
+      peer.on('connection', function(c) {
+        conn = c;
+        setupConnection();
+      });
+    } else {
+      // Connect to host
+      var hostId = ROOM_PREFIX + code + '-host';
+      conn = peer.connect(hostId, { reliable: false });
+      setupConnection();
+    }
+  });
+
+  peer.on('error', function(err) {
+    console.error('PeerJS error:', err);
+    if (err.type === 'peer-unavailable') {
+      setStatus('no room found with that code. try again.', 'error');
+      document.getElementById('join-btn').disabled = false;
+    } else if (err.type === 'network' || err.type === 'server-error') {
+      setStatus('network error. check your connection.', 'error');
+      document.getElementById('join-btn').disabled = false;
+    } else {
+      setStatus('connection error: ' + err.type, 'error');
+      document.getElementById('join-btn').disabled = false;
+    }
+  });
+}
+
+function setupConnection() {
+  conn.on('open', function() {
+    partnerConnected = true;
+    lastPartnerUpdate = Date.now();
+    setStatus('connected. starting...', 'connected');
+
+    // Tell partner our role
+    conn.send({ type: 'role', role: myRole });
+
+    // Start instrument after brief delay (let both sides connect)
+    setTimeout(function() {
+      beginInstrument();
+    }, 800);
+  });
+
+  conn.on('data', function(data) {
+    if (data.type === 'role') {
+      // Partner confirmed their role — we are the other
+      if (data.role === 'A') myRole = 'B';
+      else myRole = 'A';
+    } else if (data.type === 'state') {
+      partnerTiltX = data.tiltX;
+      partnerTiltY = data.tiltY;
+      partnerEnergy = data.energy;
+      lastPartnerUpdate = Date.now();
+    } else if (data.type === 'impact') {
+      // Partner hit their phone — trigger a sympathetic response
+      if (actx) triggerPartnerImpact(data.intensity);
+    }
+  });
+
+  conn.on('close', function() {
+    partnerConnected = false;
+    document.getElementById('partner-indicator').className = '';
+    setStatus('partner disconnected', 'error');
+  });
+
+  conn.on('error', function(err) {
+    console.error('Connection error:', err);
+  });
+
+  // Send state 20x per second
+  setInterval(function() {
+    if (conn && conn.open) {
+      conn.send({
+        type: 'state',
+        tiltX: tiltX,
+        tiltY: tiltY,
+        energy: energy
+      });
+    }
+  }, 50);
+}
+
+// ═══ INSTRUMENT ═══
+
+function beginInstrument() {
+  document.getElementById('lobby').style.display = 'none';
+  document.getElementById('instrument').style.display = 'block';
+
+  actx = new (window.AudioContext || window.webkitAudioContext)();
+
+  // Master output
+  masterGain = actx.createGain();
+  masterGain.gain.value = 0.7;
+  masterGain.connect(actx.destination);
+
+  // Delay/space
+  delay = actx.createDelay(1.0);
+  delay.delayTime.value = 0.4;
+  feedbackNode = actx.createGain();
+  feedbackNode.gain.value = 0.25;
+  delayGain = actx.createGain();
+  delayGain.gain.value = 0.12;
+  delay.connect(feedbackNode);
+  feedbackNode.connect(delay);
+  delay.connect(delayGain);
+  delayGain.connect(masterGain);
+
+  // ═══ MY HARMONICS — only half the spectrum ═══
+  var myFreqs = (myRole === 'A') ? A_HARMONICS : B_HARMONICS;
+
+  // Drone: triangle at my lowest frequency
+  drone = actx.createOscillator();
+  drone.type = 'triangle';
+  drone.frequency.value = myFreqs[0];
+
+  filter = actx.createBiquadFilter();
+  filter.type = 'lowpass';
+  filter.frequency.value = BASE_FILTER;
+  filter.Q.value = 3;
+
+  filterGain = actx.createGain();
+  filterGain.gain.value = 0.10;
+
+  drone.connect(filter);
+  filter.connect(filterGain);
+  filterGain.connect(masterGain);
+  filterGain.connect(delay);
+
+  // Sub-bass at my fundamental
+  sub = actx.createOscillator();
+  sub.type = 'sine';
+  sub.frequency.value = myFreqs[0];
+  subGain = actx.createGain();
+  subGain.gain.value = 0.10;
+  sub.connect(subGain);
+  subGain.connect(masterGain);
+
+  // My harmonic oscillators
+  for (var i = 0; i < myFreqs.length; i++) {
+    var osc = actx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.value = myFreqs[i];
+    var g = actx.createGain();
+    g.gain.value = 0;
+    osc.connect(g);
+    g.connect(masterGain);
+    g.connect(delay);
+    osc.start();
+    myHarmonicOscs.push(osc);
+    myHarmonicGains.push(g);
+  }
+
+  // ═══ COUPLING TONES — the 3 ═══
+  // Two oscillators that only sound when K is high
+  // Frequency = the harmonic that belongs to NEITHER player alone
+  // It's the geometric mean between the two nearest harmonics from A and B
+  // This sound exists ONLY in the coupling. It's the third thing.
+  couplingOsc = actx.createOscillator();
+  couplingOsc.type = 'sine';
+  // Geometric mean of A's 165 Hz and B's 132 Hz = ~147.6 Hz (D3)
+  // This note is NOT in the 33 Hz harmonic series. It only exists in coupling.
+  couplingOsc.frequency.value = Math.sqrt(165 * 132); // ~147.6 Hz
+  couplingGain = actx.createGain();
+  couplingGain.gain.value = 0;
+  couplingOsc.connect(couplingGain);
+  couplingGain.connect(masterGain);
+  couplingGain.connect(delay);
+  couplingOsc.start();
+
+  // Second coupling tone: geometric mean of A's 330 and B's 264 = ~295.2 Hz
+  // The octave of the first coupling tone. Both are D.
+  couplingOsc2 = actx.createOscillator();
+  couplingOsc2.type = 'sine';
+  couplingOsc2.frequency.value = Math.sqrt(330 * 264); // ~295.2 Hz
+  couplingGain2 = actx.createGain();
+  couplingGain2.gain.value = 0;
+  couplingOsc2.connect(couplingGain2);
+  couplingGain2.connect(masterGain);
+  couplingGain2.connect(delay);
+  couplingOsc2.start();
+
+  // Start oscillators
+  drone.start();
+  sub.start();
+
+  // ═══ SENSORS ═══
+  if (window.DeviceOrientationEvent) {
+    if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+      DeviceOrientationEvent.requestPermission().then(function(state) {
+        if (state === 'granted') window.addEventListener('deviceorientation', onOrientation);
+      });
+    } else {
+      window.addEventListener('deviceorientation', onOrientation);
+    }
+  }
+
+  if (window.DeviceMotionEvent) {
+    if (typeof DeviceMotionEvent.requestPermission === 'function') {
+      DeviceMotionEvent.requestPermission().then(function(state) {
+        if (state === 'granted') window.addEventListener('devicemotion', onMotion);
+      });
+    } else {
+      window.addEventListener('devicemotion', onMotion);
+    }
+  }
+
+  // Desktop fallback: mouse
+  document.addEventListener('mousemove', function(e) {
+    targetY = ((e.clientX / window.innerWidth) - 0.5) * 90;
+    targetX = ((e.clientY / window.innerHeight) - 0.5) * -90;
+    targetEnergy = 0.3;
+  });
+
+  document.addEventListener('touchstart', function(e) {
+    targetEnergy = 0.8;
+    impactCooldown = 8;
+  });
+
+  started = true;
+  initViz();
+  update();
+}
+
+// ═══ SENSOR HANDLERS ═══
+
+function onOrientation(e) {
+  if (e.beta !== null) targetX = e.beta;
+  if (e.gamma !== null) targetY = e.gamma;
+}
+
+function onMotion(e) {
+  var a = e.acceleration;
+  if (a && a.x !== null) {
+    var mag = Math.sqrt(a.x*a.x + a.y*a.y + a.z*a.z);
+    targetEnergy = Math.min(mag / 15, 1);
+
+    if (mag > 12 && impactCooldown <= 0) {
+      triggerImpact(Math.min(mag / 20, 1));
+      impactCooldown = 10;
+      // Send impact to partner
+      if (conn && conn.open) {
+        conn.send({ type: 'impact', intensity: Math.min(mag / 20, 1) });
+      }
+    }
+  }
+}
+
+// ═══ DRUM IMPACT — membrane model (same as instrument, but tuned to my fundamental) ═══
+
+function triggerImpact(intensity) {
+  if (!actx) return;
+  var now = actx.currentTime;
+  var myFreqs = (myRole === 'A') ? A_HARMONICS : B_HARMONICS;
+
+  var modes = [
+    [1.000, 0, 1.0],
+    [1.593, 1, 1.8],
+    [2.136, 2, 2.5],
+    [2.296, 0, 2.2],
+    [2.653, 3, 3.2],
+    [2.917, 1, 3.0]
+  ];
+
+  var strikePos = Math.min(1, Math.sqrt(tiltX*tiltX + tiltY*tiltY) / 70);
+  var membraneF0 = myFreqs[0] * 3;
+  var baseDuration = 0.25 + intensity * 0.35;
+  var duration = baseDuration + 0.3;
+  var bufferSize = Math.ceil(actx.sampleRate * duration);
+  var buffer = actx.createBuffer(1, bufferSize, actx.sampleRate);
+  var data = buffer.getChannelData(0);
+
+  for (var m = 0; m < modes.length; m++) {
+    var ratio = modes[m][0];
+    var nodalDiam = modes[m][1];
+    var decayRate = modes[m][2];
+    var amp;
+    if (nodalDiam === 0) { amp = 1.0 - strikePos * 0.5; }
+    else { amp = Math.pow(strikePos, 0.3 + nodalDiam * 0.2); }
+    amp *= intensity / (1 + (ratio - 1) * 0.6);
+    amp *= 0.16;
+    var freq = membraneF0 * ratio;
+    var tau = baseDuration / decayRate;
+    var w = 2 * Math.PI * freq / actx.sampleRate;
+    for (var i = 0; i < bufferSize; i++) {
+      var t = i / actx.sampleRate;
+      data[i] += amp * Math.sin(w * i) * Math.exp(-t / tau);
+    }
+  }
+
+  var transientSamples = Math.ceil(actx.sampleRate * 0.003);
+  for (var i = 0; i < transientSamples; i++) {
+    var env = (1 - i / transientSamples);
+    data[i] += (Math.random() * 2 - 1) * env * env * intensity * 0.12;
+  }
+
+  var source = actx.createBufferSource();
+  source.buffer = buffer;
+  var hitGain = actx.createGain();
+  hitGain.gain.setValueAtTime(0.5, now);
+  hitGain.gain.setTargetAtTime(0.001, now + baseDuration * 0.7, baseDuration * 0.15);
+  source.connect(hitGain);
+  hitGain.connect(masterGain);
+  hitGain.connect(delay);
+  source.start();
+}
+
+// Partner's impact — sympathetic resonance on MY harmonics
+// Softer, filtered through coupling strength
+function triggerPartnerImpact(intensity) {
+  if (!actx) return;
+  var now = actx.currentTime;
+
+  // The partner's hit excites YOUR harmonics sympathetically
+  // Volume scales with coupling K — more coupled = more sympathetic
+  var sympathy = intensity * smoothK * 0.3;
+  if (sympathy < 0.02) return;
+
+  var myFreqs = (myRole === 'A') ? A_HARMONICS : B_HARMONICS;
+
+  // Just a soft burst on a few of my harmonics
+  for (var i = 0; i < Math.min(3, myFreqs.length); i++) {
+    var osc = actx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.value = myFreqs[i];
+    var g = actx.createGain();
+    var vol = sympathy / (1 + i * 0.5);
+    g.gain.setValueAtTime(vol, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.15 + i * 0.05);
+    osc.connect(g);
+    g.connect(masterGain);
+    g.connect(delay);
+    osc.start(now);
+    osc.stop(now + 0.25);
+  }
+}
+
+// ═══ MAIN LOOP ═══
+
+function update() {
+  if (!started) return;
+  requestAnimationFrame(update);
+
+  // Water bottle smoothing
+  var dx = targetX - tiltX;
+  var dy = targetY - tiltY;
+  velX = velX * DAMPING + dx * SPRING;
+  velY = velY * DAMPING + dy * SPRING;
+  tiltX += velX;
+  tiltY += velY;
+
+  if (targetEnergy > energy) {
+    energy += (targetEnergy - energy) * ENERGY_ATTACK;
+  } else {
+    energy *= ENERGY_DECAY;
+  }
+  targetEnergy *= 0.9;
+  if (impactCooldown > 0) impactCooldown--;
+
+  // Check partner timeout (2 seconds)
+  var partnerAlive = partnerConnected && (Date.now() - lastPartnerUpdate < 2000);
+  document.getElementById('partner-indicator').className = partnerAlive ? 'live' : '';
+
+  // ═══ COMPUTE K — coupling strength ═══
+  // K = how aligned are the two players' tilt angles?
+  // cos(angleA - angleB) gives 1 when perfectly aligned, -1 when opposite
+  if (partnerAlive) {
+    var myAngle = Math.atan2(tiltY, tiltX - 45);
+    var partnerAngle = Math.atan2(partnerTiltY, partnerTiltX - 45);
+    var rawK = Math.cos(myAngle - partnerAngle);
+    // Also factor in energy similarity — moving together amplifies K
+    var energyMatch = 1 - Math.abs(energy - partnerEnergy);
+    rawK = rawK * 0.7 + energyMatch * 0.3;
+    // Smooth K (water bottle on the coupling itself)
+    couplingK += (rawK - couplingK) * 0.08;
+  } else {
+    couplingK *= 0.98; // fade toward 0 when alone
+  }
+
+  smoothK = smoothK * 0.92 + couplingK * 0.08;
+  if (smoothK > peakK) peakK = smoothK;
+
+  kHistory.push(smoothK);
+  if (kHistory.length > 60) kHistory.shift();
+
+  // ═══ MAP TILT TO SOUND ═══
+
+  var normalBeta = (tiltX - 45) / 90;
+  normalBeta = Math.max(-1, Math.min(1, normalBeta));
+
+  var filterTarget = BASE_FILTER * Math.pow(MAX_FILTER / BASE_FILTER, (normalBeta + 1) / 2);
+  filter.frequency.setTargetAtTime(filterTarget, actx.currentTime, 0.05);
+
+  var normalGamma = tiltY / 45;
+  normalGamma = Math.max(-1, Math.min(1, normalGamma));
+  var detune = normalGamma * 5;
+  drone.frequency.setTargetAtTime(
+    ((myRole === 'A') ? A_HARMONICS[0] : B_HARMONICS[0]) + detune,
+    actx.currentTime, 0.05
+  );
+
+  // ═══ MY HARMONICS — reveal based on tilt ═══
+  var myFreqs = (myRole === 'A') ? A_HARMONICS : B_HARMONICS;
+  for (var i = 0; i < myHarmonicGains.length; i++) {
+    var freq = myFreqs[i];
+    var ratio = filterTarget / freq;
+    var vol = 1 / (1 + Math.exp(-6 * (ratio - 1)));
+    vol *= 0.07 / (1 + i * 0.25);
+    vol *= (0.4 + energy * 0.6);
+
+    // When partner is coupled, my harmonics get slightly brighter
+    // The presence of the other half makes your half more alive
+    if (partnerAlive && smoothK > 0.2) {
+      vol *= (1 + smoothK * 0.3);
+    }
+
+    myHarmonicGains[i].gain.setTargetAtTime(vol, actx.currentTime, 0.08);
+    myHarmonicOscs[i].frequency.setTargetAtTime(
+      myFreqs[i] + detune * (i + 2) * 0.3,
+      actx.currentTime, 0.05
+    );
+  }
+
+  // Drone volume
+  var droneVol = 0.05 + energy * 0.07;
+  filterGain.gain.setTargetAtTime(droneVol, actx.currentTime, 0.05);
+
+  var q = 2 + energy * 5;
+  filter.Q.setTargetAtTime(q, actx.currentTime, 0.05);
+
+  var subVol = 0.10 * (1 - energy * 0.3);
+  subGain.gain.setTargetAtTime(subVol, actx.currentTime, 0.1);
+
+  var fb = 0.18 + energy * 0.3;
+  feedbackNode.gain.setTargetAtTime(fb, actx.currentTime, 0.05);
+
+  // ═══ COUPLING TONES — the 3 ═══
+  // These only sound when K > threshold
+  // Volume proportional to K. The higher the coupling, the louder the third thing.
+  var kForSound = Math.max(0, smoothK - 0.15); // threshold: need some alignment
+  var coupVol1 = kForSound * 0.06 * (0.3 + energy * 0.5 + partnerEnergy * 0.5);
+  var coupVol2 = kForSound * 0.04 * (0.3 + energy * 0.5 + partnerEnergy * 0.5);
+  couplingGain.gain.setTargetAtTime(coupVol1, actx.currentTime, 0.1);
+  couplingGain2.gain.setTargetAtTime(coupVol2, actx.currentTime, 0.1);
+
+  // Coupling tone detune: when partner tilts, the coupling tone bends
+  // This makes the 3 responsive to BOTH players
+  if (partnerAlive) {
+    var partnerGamma = partnerTiltY / 45;
+    partnerGamma = Math.max(-1, Math.min(1, partnerGamma));
+    var partnerDetune = partnerGamma * 3;
+    var myDetune = normalGamma * 3;
+    // Coupling tone = average of both detunings
+    var avgDetune = (myDetune + partnerDetune) / 2;
+    couplingOsc.frequency.setTargetAtTime(
+      Math.sqrt(165 * 132) + avgDetune,
+      actx.currentTime, 0.08
+    );
+    couplingOsc2.frequency.setTargetAtTime(
+      Math.sqrt(330 * 264) + avgDetune * 2,
+      actx.currentTime, 0.08
+    );
+  }
+
+  // ═══ VISUALIZATION ═══
+  drawViz(normalBeta, normalGamma, energy, filterTarget, partnerAlive);
+
+  // ═══ K DISPLAY ═══
+  var kEl = document.getElementById('k-display');
+  if (partnerAlive) {
+    var kPct = Math.max(0, smoothK * 100).toFixed(0);
+    kEl.textContent = 'K ' + kPct + '%';
+    // Color shifts from dim to bright as K increases
+    var kBright = 20 + Math.max(0, smoothK) * 60;
+    var kAlpha = 0.3 + Math.max(0, smoothK) * 0.7;
+    kEl.style.color = 'hsla(40,60%,' + kBright + '%,' + kAlpha + ')';
+  } else {
+    kEl.textContent = 'waiting for partner';
+    kEl.style.color = '#333';
+  }
+
+  // ═══ HUD ═══
+  document.getElementById('hud').innerHTML =
+    (myRole === 'A' ? 'odd harmonics' : 'even harmonics') + '<br>' +
+    'tilt ' + tiltX.toFixed(0) + '\u00B0 ' + tiltY.toFixed(0) + '\u00B0<br>' +
+    'energy ' + (energy * 100).toFixed(0) + '%<br>' +
+    (partnerAlive ? 'partner ' + (partnerEnergy * 100).toFixed(0) + '%' : 'solo');
+}
+
+// ═══ VISUALIZATION ═══
+// Two orbiting bodies. Distance = 1/K. When coupled, they're close.
+// When decoupled, they drift apart. The coupling tone is visible as
+// a glow between them.
+
+var vizCanvas, vizCtx;
+
+function initViz() {
+  vizCanvas = document.getElementById('viz');
+  vizCtx = vizCanvas.getContext('2d');
+  resizeViz();
+  window.addEventListener('resize', resizeViz);
+}
+
+function resizeViz() {
+  var dpr = window.devicePixelRatio || 1;
+  var r = vizCanvas.getBoundingClientRect();
+  vizCanvas.width = r.width * dpr;
+  vizCanvas.height = r.height * dpr;
+  vizCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+
+function drawViz(beta, gamma, energy, filterFreq, partnerAlive) {
+  var w = vizCanvas.width / (window.devicePixelRatio || 1);
+  var h = vizCanvas.height / (window.devicePixelRatio || 1);
+
+  // Fade
+  vizCtx.fillStyle = 'rgba(0,0,0,0.12)';
+  vizCtx.fillRect(0, 0, w, h);
+
+  var t = Date.now() * 0.001;
+  var openness = Math.log(filterFreq / BASE_FILTER) / Math.log(MAX_FILTER / BASE_FILTER);
+
+  // My body — warm gold (A) or cool blue-green (B)
+  var myHue = (myRole === 'A') ? 35 : 180;
+  var partnerHue = (myRole === 'A') ? 180 : 35;
+
+  // Position: my body follows my tilt
+  var myCx = w / 2 + gamma * w * 0.12;
+  var myCy = h / 2 - beta * h * 0.12;
+
+  // Partner position: mirror, offset by coupling
+  var separation;
+  if (partnerAlive) {
+    // High K = close together. Low K = far apart.
+    separation = (1 - Math.max(0, smoothK)) * w * 0.25;
+  } else {
+    separation = w * 0.3;
+  }
+
+  var orbitAngle = t * 0.3; // slow orbit
+  var partnerCx, partnerCy;
+
+  if (partnerAlive) {
+    // Partner orbits around center, distance based on K
+    var pNormBeta = (partnerTiltX - 45) / 90;
+    pNormBeta = Math.max(-1, Math.min(1, pNormBeta));
+    var pNormGamma = partnerTiltY / 45;
+    pNormGamma = Math.max(-1, Math.min(1, pNormGamma));
+    partnerCx = w / 2 + pNormGamma * w * 0.12;
+    partnerCy = h / 2 - pNormBeta * h * 0.12;
+  } else {
+    // Ghost partner on slow orbit
+    partnerCx = w / 2 + Math.cos(orbitAngle) * separation;
+    partnerCy = h / 2 + Math.sin(orbitAngle) * separation;
+  }
+
+  // ═══ COUPLING BRIDGE ═══
+  // When K > 0.3, draw a glowing line between the two bodies
+  if (smoothK > 0.15) {
+    var bridgeAlpha = (smoothK - 0.15) * 0.6;
+    var midX = (myCx + partnerCx) / 2;
+    var midY = (myCy + partnerCy) / 2;
+
+    // The bridge pulses at the coupling frequency
+    var pulse = 0.7 + 0.3 * Math.sin(t * Math.sqrt(165 * 132) * 0.02);
+    bridgeAlpha *= pulse;
+
+    // Gradient from my color to partner color
+    var grad = vizCtx.createLinearGradient(myCx, myCy, partnerCx, partnerCy);
+    grad.addColorStop(0, 'hsla(' + myHue + ',60%,50%,' + bridgeAlpha * 0.5 + ')');
+    grad.addColorStop(0.5, 'hsla(30,80%,70%,' + bridgeAlpha + ')');
+    grad.addColorStop(1, 'hsla(' + partnerHue + ',60%,50%,' + bridgeAlpha * 0.5 + ')');
+
+    vizCtx.beginPath();
+    vizCtx.moveTo(myCx, myCy);
+    vizCtx.lineTo(partnerCx, partnerCy);
+    vizCtx.strokeStyle = grad;
+    vizCtx.lineWidth = 1 + smoothK * 4;
+    vizCtx.stroke();
+
+    // Coupling glow at midpoint — the 3
+    if (smoothK > 0.3) {
+      var glowR = 10 + smoothK * 30 + (energy + partnerEnergy) * 15;
+      for (var gl = 3; gl >= 0; gl--) {
+        var glr = glowR * (1 + gl * 0.6);
+        vizCtx.beginPath();
+        vizCtx.arc(midX, midY, glr, 0, Math.PI * 2);
+        vizCtx.fillStyle = 'hsla(30,80%,70%,' + (bridgeAlpha * 0.15 / (gl + 1)) + ')';
+        vizCtx.fill();
+      }
+    }
+  }
+
+  // ═══ MY BODY ═══
+  var myR = 20 + energy * 50;
+  var myPulse = 1 + 0.04 * Math.sin(t * FUNDAMENTAL * 0.1);
+  myR *= myPulse;
+
+  // Glow
+  for (var layer = 3; layer >= 0; layer--) {
+    var lr = myR * (1 + layer * 0.7);
+    var alpha = (0.03 + openness * 0.04) * (1 - layer * 0.2);
+    vizCtx.beginPath();
+    vizCtx.arc(myCx, myCy, lr, 0, Math.PI * 2);
+    vizCtx.fillStyle = 'hsla(' + myHue + ',60%,' + (25 + openness * 30) + '%,' + alpha + ')';
+    vizCtx.fill();
+  }
+
+  // Core
+  vizCtx.beginPath();
+  vizCtx.arc(myCx, myCy, myR * 0.3, 0, Math.PI * 2);
+  vizCtx.fillStyle = 'hsla(' + myHue + ',70%,' + (35 + openness * 35) + '%,' + (0.4 + energy * 0.5) + ')';
+  vizCtx.fill();
+
+  // Harmonic rings
+  var myFreqs = (myRole === 'A') ? A_HARMONICS : B_HARMONICS;
+  var nHarmonics = Math.floor(filterFreq / FUNDAMENTAL);
+  for (var i = 0; i < Math.min(myFreqs.length, 6); i++) {
+    if (myFreqs[i] > filterFreq) break;
+    var hr = myR * 0.3 + (i + 1) * (myR * 0.7 / 6);
+    var ha = 0.03 + (1 - i / 6) * 0.05 * energy;
+    vizCtx.beginPath();
+    vizCtx.arc(myCx, myCy, hr, 0, Math.PI * 2);
+    vizCtx.strokeStyle = 'hsla(' + myHue + ',50%,55%,' + ha + ')';
+    vizCtx.lineWidth = 0.5;
+    vizCtx.stroke();
+  }
+
+  // ═══ PARTNER BODY ═══
+  var pEnergy = partnerAlive ? partnerEnergy : 0.05;
+  var pR = 15 + pEnergy * 40;
+  var pAlpha = partnerAlive ? 0.7 : 0.08;
+
+  // Glow
+  for (var layer = 2; layer >= 0; layer--) {
+    var lr = pR * (1 + layer * 0.6);
+    var alpha = (0.02 + pEnergy * 0.03) * pAlpha * (1 - layer * 0.25);
+    vizCtx.beginPath();
+    vizCtx.arc(partnerCx, partnerCy, lr, 0, Math.PI * 2);
+    vizCtx.fillStyle = 'hsla(' + partnerHue + ',50%,40%,' + alpha + ')';
+    vizCtx.fill();
+  }
+
+  // Core
+  vizCtx.beginPath();
+  vizCtx.arc(partnerCx, partnerCy, pR * 0.3, 0, Math.PI * 2);
+  vizCtx.fillStyle = 'hsla(' + partnerHue + ',60%,45%,' + (0.3 * pAlpha + pEnergy * 0.4) + ')';
+  vizCtx.fill();
+
+  // Partner rings (ghost when not connected)
+  if (partnerAlive) {
+    var pFreqs = (myRole === 'A') ? B_HARMONICS : A_HARMONICS;
+    var pFilterEst = BASE_FILTER * Math.pow(MAX_FILTER / BASE_FILTER,
+      (Math.max(-1, Math.min(1, (partnerTiltX - 45) / 90)) + 1) / 2);
+    for (var i = 0; i < Math.min(pFreqs.length, 6); i++) {
+      if (pFreqs[i] > pFilterEst) break;
+      var hr = pR * 0.3 + (i + 1) * (pR * 0.7 / 6);
+      var ha = 0.02 + (1 - i / 6) * 0.04 * pEnergy;
+      vizCtx.beginPath();
+      vizCtx.arc(partnerCx, partnerCy, hr, 0, Math.PI * 2);
+      vizCtx.strokeStyle = 'hsla(' + partnerHue + ',50%,50%,' + ha + ')';
+      vizCtx.lineWidth = 0.5;
+      vizCtx.stroke();
+    }
+  }
+}
+
+// ═══ ROOM CODE INPUT HANDLING ═══
+document.getElementById('room-code').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') joinRoom();
+});
+
+// Auto-focus
+document.getElementById('room-code').focus();
+</script>
+</body>
+</html>

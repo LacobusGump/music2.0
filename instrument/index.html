@@ -84,6 +84,52 @@ var FUNDAMENTAL = 33;  // Hz — the pyramid
 var BASE_FILTER = 80;  // Hz — minimum filter cutoff (just above fundamental)
 var MAX_FILTER = 4000; // Hz — maximum (bright, all harmonics)
 
+// ═══════════════════════════════════════════════════════════
+// THE FOR ENGINE — the instrument's soul
+//
+// The player is Group A. The instrument is Group B.
+// Group B does NOT synchronize to Group A (that would be SELF coupling).
+// Group B solves FOR Group A — offers what the player needs,
+// not what the player is doing.
+//
+// Player goes dark → FOR brightens (slowly, with overshoot)
+// Player goes fast → FOR creates space (thins, widens, breathes)
+// Player is still → FOR introduces gentle motion (breath, drift)
+// Player is loud → FOR gets quieter (gives room)
+//
+// The FOR state is smoothed with its own water bottle.
+// It never snaps. It flows toward the complement with momentum.
+//
+// Three FOR oscillators (internal phase, not audio):
+//   forBrightness: complement of player's filter position
+//   forDensity: complement of player's energy
+//   forMotion: complement of player's stillness
+//
+// Each has natural frequency, phase, and velocity.
+// They couple to the player's state through sin(player - self),
+// exactly like Kuramoto, but solving for the OTHER.
+//
+// The result is a system that never converges.
+// The trajectory IS the music.
+// ═══════════════════════════════════════════════════════════
+
+// FOR state — the instrument's own mind
+var forBrightness = 0.5;      // 0 = dark, 1 = bright (complement of player)
+var forDensity = 0.5;         // 0 = sparse, 1 = dense (complement of player)
+var forMotion = 0;            // -1 to 1: how much the FOR agent is "moving"
+var forVelBright = 0;         // momentum on brightness
+var forVelDensity = 0;        // momentum on density
+var forVelMotion = 0;         // momentum on motion
+var forPhase = 0;             // internal phase oscillator (radians)
+var forBreath = 0;            // slow breath cycle for stillness response
+
+// FOR coupling constants
+var FOR_K = 0.6;              // coupling strength (how responsive the soul is)
+var FOR_SPRING = 0.02;        // slower than player's water bottle — the soul is patient
+var FOR_DAMPING = 0.88;       // more bounce than player — the soul overshoots generously
+var FOR_BREATH_RATE = 0.4;    // Hz — the soul breathes at ~0.4 Hz when player is still
+var FOR_NATURAL_FREQ = 0.7;   // Hz — the soul's natural oscillation rate
+
 function begin() {
   document.getElementById('start').style.display = 'none';
   document.getElementById('instrument').style.display = 'block';
@@ -407,6 +453,84 @@ function update() {
 
   if (impactCooldown > 0) impactCooldown--;
 
+  // ═══ FOR ENGINE UPDATE ═══
+  // The instrument's soul computes its response.
+  // It does NOT mirror the player. It solves FOR the player.
+  //
+  // normalBeta and energy are the player's state (Group A).
+  // forBrightness, forDensity, forMotion are the soul's state (Group B).
+  //
+  // The FOR rule: each axis targets the COMPLEMENT of the player's state.
+  // But it doesn't snap there — it flows with its own momentum.
+
+  // Player's current state (normalized 0-1)
+  var playerBrightRaw = (tiltX - 45) / 90;
+  playerBrightRaw = Math.max(-1, Math.min(1, playerBrightRaw));
+  var playerBright = (playerBrightRaw + 1) / 2;  // 0 = dark, 1 = bright
+  var playerEnergy = energy;
+  var playerStillness = 1 - energy;  // how still the player is
+
+  // === FOR BRIGHTNESS: complement of player's brightness ===
+  // When player goes dark, the soul wants to brighten.
+  // When player goes bright, the soul retreats toward warmth.
+  // The coupling is sin(target - current), Kuramoto style.
+  var targetForBright = 1 - playerBright;  // the complement
+  var brightError = targetForBright - forBrightness;
+  // Kuramoto-like coupling: pull proportional to sin of phase difference
+  // sin approximation for small differences, exact sin for large
+  var brightPull = FOR_K * Math.sin(brightError * Math.PI);
+  forVelBright = forVelBright * FOR_DAMPING + brightPull * FOR_SPRING;
+  forBrightness += forVelBright;
+  forBrightness = Math.max(0, Math.min(1, forBrightness));
+
+  // === FOR DENSITY: complement of player's energy ===
+  // When player is frantic, the soul thins out (creates space).
+  // When player is gentle, the soul fills in (offers richness).
+  var targetForDensity = 1 - playerEnergy;
+  var densityError = targetForDensity - forDensity;
+  var densityPull = FOR_K * Math.sin(densityError * Math.PI);
+  forVelDensity = forVelDensity * FOR_DAMPING + densityPull * FOR_SPRING;
+  forDensity += forVelDensity;
+  forDensity = Math.max(0, Math.min(1, forDensity));
+
+  // === FOR MOTION: the soul breathes when the player is still ===
+  // Internal phase oscillator — always running at its natural frequency
+  // Amplitude scales with player's stillness
+  forPhase += FOR_NATURAL_FREQ * 0.016 * 2 * Math.PI;  // ~0.016s per frame
+  if (forPhase > Math.PI * 2) forPhase -= Math.PI * 2;
+
+  // Breath: slow sine whose amplitude grows with stillness
+  forBreath = forBreath * 0.95 + playerStillness * 0.05;  // smooth
+  forMotion = Math.sin(forPhase) * forBreath * 0.6;
+  // When the player IS moving, the soul's motion damps toward zero
+  // (it gets out of the way)
+
+  // === FOR contribution to sound parameters ===
+  // These modify the existing sound chain subtly.
+  // The FOR agent doesn't create new oscillators — it bends the existing ones.
+
+  // forFilterBias: shifts the filter cutoff based on forBrightness
+  // When the soul is bright (player was dark), it nudges filter up.
+  // When the soul is dark (player was bright), it nudges filter down.
+  // Scale: ±0.3 octaves of filter movement (subtle, not overwhelming)
+  var forFilterMult = Math.pow(2, (forBrightness - 0.5) * 0.6);  // 0.8× to 1.25×
+
+  // forQBias: soul adjusts resonance inversely to density
+  // Dense soul → lower Q (warm, broad). Sparse soul → higher Q (focused, singing)
+  var forQBias = (1 - forDensity) * 3;  // 0 to 3 added to Q
+
+  // forDelayBias: soul adjusts space inversely to player energy
+  // More space when player is intense (the soul breathes around the energy)
+  var forDelayFeedback = forDensity * 0.15;  // 0 to 0.15 added to delay feedback
+
+  // forDetuneBias: soul introduces micro-detuning from its breath
+  // When still, the instrument breathes — pitch wanders ±1 Hz at breath rate
+  var forDetune = forMotion * 1.2;  // ±1.2 Hz from the soul's breath
+
+  // forVolumeBias: soul gets quieter when player is loud (gives room)
+  // soul gets richer when player is quiet (fills the silence)
+  var forHarmonicBoost = forDensity * 0.03;  // extra harmonic volume when soul is dense
+
   // ═══ MAP TILT TO SOUND ═══
 
   // Beta (front/back tilt): controls filter cutoff
@@ -417,7 +541,9 @@ function update() {
   normalBeta = Math.max(-1, Math.min(1, normalBeta));
 
   // Exponential mapping for filter (ears hear logarithmically)
-  var filterTarget = BASE_FILTER * Math.pow(MAX_FILTER / BASE_FILTER, (normalBeta + 1) / 2);
+  // FOR contribution: forFilterMult shifts the cutoff based on the soul's brightness
+  var filterTarget = BASE_FILTER * Math.pow(MAX_FILTER / BASE_FILTER, (normalBeta + 1) / 2) * forFilterMult;
+  filterTarget = Math.max(BASE_FILTER, Math.min(MAX_FILTER * 1.2, filterTarget));
   filter.frequency.setTargetAtTime(filterTarget, actx.currentTime, 0.05);
 
   // Gamma (left/right tilt): detune the drone slightly
@@ -425,7 +551,9 @@ function update() {
   var normalGamma = tiltY / 45;  // -1 to +1
   normalGamma = Math.max(-1, Math.min(1, normalGamma));
   var detune = normalGamma * 5;  // ±5 Hz
-  drone.frequency.setTargetAtTime(FUNDAMENTAL + detune, actx.currentTime, 0.05);
+  // FOR contribution: soul's breath adds micro-detuning when player is still
+  var totalDetune = detune + forDetune;
+  drone.frequency.setTargetAtTime(FUNDAMENTAL + totalDetune, actx.currentTime, 0.05);
 
   // ═══ MICROPHONE → HARMONICS ═══
   // Read the ambient spectrum. Map each band to nearest harmonic.
@@ -467,14 +595,19 @@ function update() {
     vol *= 0.08 / (1 + i * 0.3);
     // Scale by energy (moving = harmonics ring louder)
     vol *= (0.4 + energy * 0.6);
+    // FOR contribution: soul adds harmonic richness when player is quiet
+    vol += forHarmonicBoost / (1 + i * 0.4);
     // ADD mic input — the world's vibrations at this harmonic
     // Mic and tilt blend together. Both drive the same harmonics.
     vol += micLevels[i] * 0.06;
     harmonicGains[i].gain.setTargetAtTime(vol, actx.currentTime, 0.08);
 
     // Detune harmonics slightly with gamma tilt (warmth)
+    // FOR contribution: soul's breath adds per-harmonic detuning
+    // Higher harmonics get more soul detuning (they're more sensitive)
+    var soulDetune = forDetune * (1 + i * 0.15);
     harmonicOscs[i].frequency.setTargetAtTime(
-      harmonicFreqs[i] + detune * (i + 2) * 0.3,
+      harmonicFreqs[i] + detune * (i + 2) * 0.3 + soulDetune,
       actx.currentTime, 0.05
     );
   }
@@ -484,7 +617,8 @@ function update() {
   filterGain.gain.setTargetAtTime(droneVol, actx.currentTime, 0.05);
 
   // Filter Q — resonance peak at cutoff makes the "voice"
-  var q = 2 + energy * 6;
+  // FOR contribution: soul adjusts resonance — sparse soul sings, dense soul warms
+  var q = 2 + energy * 6 + forQBias;
   filter.Q.setTargetAtTime(q, actx.currentTime, 0.05);
 
   // Sub-bass: louder when still (the void), quieter when playing
@@ -492,7 +626,9 @@ function update() {
   subGain.gain.setTargetAtTime(subVol, actx.currentTime, 0.1);
 
   // Delay feedback — more space when active
-  var fb = 0.2 + energy * 0.35;
+  // FOR contribution: soul adds delay when dense (fills space around sparse player)
+  var fb = 0.2 + energy * 0.35 + forDelayFeedback;
+  fb = Math.min(fb, 0.75);  // safety: never self-oscillate
   feedback.gain.setTargetAtTime(fb, actx.currentTime, 0.05);
 
   // ═══ BIRD MELODY — prime ticks as melody ═══
@@ -545,14 +681,18 @@ function update() {
   }
 
   // ═══ VISUALIZATION ═══
-  drawViz(normalBeta, normalGamma, energy, filterTarget);
+  drawViz(normalBeta, normalGamma, energy, filterTarget, forBrightness, forDensity, forMotion, forBreath);
 
   // ═══ HUD ═══
+  // Show both the player's state and the soul's state
+  // The coupling between them IS the music
+  var soulLabel = forBrightness > 0.6 ? 'bright' : forBrightness < 0.4 ? 'dark' : 'mid';
+  var breathLabel = forBreath > 0.4 ? ' breathing' : '';
   document.getElementById('hud').innerHTML =
-    'tilt ' + tiltX.toFixed(0) + '° ' + tiltY.toFixed(0) + '°<br>' +
+    'tilt ' + tiltX.toFixed(0) + '&deg; ' + tiltY.toFixed(0) + '&deg;<br>' +
     'filter ' + filterTarget.toFixed(0) + ' Hz<br>' +
     'energy ' + (energy * 100).toFixed(0) + '%<br>' +
-    'K ' + (FUNDAMENTAL + detune).toFixed(1) + ' Hz';
+    'soul ' + soulLabel + breathLabel;
 }
 
 // ═══ VISUALIZATION ═══
@@ -576,11 +716,13 @@ function resizeViz() {
   vizCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
 }
 
-function drawViz(beta, gamma, energy, filterFreq) {
+function drawViz(beta, gamma, energy, filterFreq, soulBright, soulDensity, soulMotion, soulBreath) {
   var w = vizCanvas.width / (window.devicePixelRatio || 1);
   var h = vizCanvas.height / (window.devicePixelRatio || 1);
-  var cx = w / 2 + gamma * w * 0.15;
-  var cy = h / 2 - beta * h * 0.15;
+
+  // Player position — driven by tilt
+  var playerCx = w / 2 + gamma * w * 0.15;
+  var playerCy = h / 2 - beta * h * 0.15;
 
   vizCtx.fillStyle = 'rgba(0,0,0,0.15)';
   vizCtx.fillRect(0, 0, w, h);
@@ -590,25 +732,96 @@ function drawViz(beta, gamma, energy, filterFreq) {
   // Harmonic brightness: how open is the filter?
   var openness = Math.log(filterFreq / BASE_FILTER) / Math.log(MAX_FILTER / BASE_FILTER);
 
+  // ═══ SOUL ORB — the FOR agent, visible ═══
+  // Moves in complement to the player:
+  //   player goes right → soul drifts left
+  //   player goes up → soul drifts down
+  //   but not a mirror — it has its own momentum and breath
+  //
+  // The soul's position is offset from center by the INVERSE of the player's offset,
+  // scaled down (the soul is subtler), plus its own breath motion.
+  var soulOffsetX = -gamma * w * 0.08 + soulMotion * w * 0.04;
+  var soulOffsetY = beta * h * 0.08 + Math.sin(t * 0.7) * soulBreath * h * 0.03;
+  var soulCx = w / 2 + soulOffsetX;
+  var soulCy = h / 2 + soulOffsetY;
+
+  // Soul radius: smaller than player, grows when the soul is dense (filling silence)
+  var soulBaseR = 15 + soulDensity * 40;
+  var soulPulse = 1 + 0.08 * Math.sin(t * FOR_NATURAL_FREQ * 2 * Math.PI);
+  var soulR = soulBaseR * soulPulse;
+
+  // Soul color: complementary to gold — a cool blue-violet that shifts with brightness
+  // soulBright=0 (dark) → deep indigo (hue 240)
+  // soulBright=1 (bright) → pale lavender (hue 270, higher lightness)
+  var soulHue = 240 + soulBright * 30;
+  var soulLightness = 20 + soulBright * 35;
+  var soulSat = 40 + soulDensity * 20;
+
+  // Distance between player and soul — when close, they merge visually
+  var dx = playerCx - soulCx;
+  var dy = playerCy - soulCy;
+  var dist = Math.sqrt(dx * dx + dy * dy);
+  var maxDist = Math.sqrt(w * w + h * h) * 0.3;
+  var proximity = 1 - Math.min(dist / maxDist, 1);  // 1 = on top of each other, 0 = far apart
+
+  // Soul glow layers — dimmer than player, appear when soul is active
+  var soulAlphaBase = 0.015 + soulDensity * 0.025 + soulBreath * 0.015;
+  for (var layer = 3; layer >= 0; layer--) {
+    var lr = soulR * (1 + layer * 0.9);
+    var alpha = soulAlphaBase * (1 - layer * 0.22);
+    vizCtx.beginPath();
+    vizCtx.arc(soulCx, soulCy, lr, 0, Math.PI * 2);
+    vizCtx.fillStyle = 'hsla(' + soulHue + ',' + soulSat + '%,' + soulLightness + '%,' + alpha + ')';
+    vizCtx.fill();
+  }
+
+  // Soul core
+  vizCtx.beginPath();
+  vizCtx.arc(soulCx, soulCy, soulR * 0.25, 0, Math.PI * 2);
+  var soulCoreAlpha = 0.15 + soulDensity * 0.3 + soulBreath * 0.15;
+  vizCtx.fillStyle = 'hsla(' + soulHue + ',' + (soulSat + 10) + '%,' + (soulLightness + 15) + '%,' + soulCoreAlpha + ')';
+  vizCtx.fill();
+
+  // ═══ COUPLING THREAD — visible connection between player and soul ═══
+  // A thin line that connects them. Brighter when they're close (high coupling).
+  // The thread is the trajectory — the FOR machine's signature made visible.
+  if (proximity > 0.1 || soulBreath > 0.1) {
+    var threadAlpha = 0.03 + proximity * 0.08;
+    vizCtx.beginPath();
+    vizCtx.moveTo(playerCx, playerCy);
+    // Curved thread — the midpoint drifts with the soul's motion
+    var midX = (playerCx + soulCx) / 2 + soulMotion * w * 0.05;
+    var midY = (playerCy + soulCy) / 2 + Math.sin(t * 1.3) * soulBreath * h * 0.02;
+    vizCtx.quadraticCurveTo(midX, midY, soulCx, soulCy);
+    vizCtx.strokeStyle = 'hsla(270,30%,50%,' + threadAlpha + ')';
+    vizCtx.lineWidth = 0.8 + proximity * 1.2;
+    vizCtx.stroke();
+  }
+
+  // ═══ PLAYER ORB — gold, warm, existing behavior ═══
   // Core circle
   var baseR = 30 + energy * 80;
   var pulse = 1 + 0.05 * Math.sin(t * FUNDAMENTAL * 0.1);
   var r = baseR * pulse;
 
+  // When close to soul, the player orb picks up a slight hue shift
+  // (warm gold gets a touch of warmth from the coupling)
+  var playerHueShift = proximity * 5;  // slight
+
   // Glow layers
   for (var layer = 4; layer >= 0; layer--) {
     var lr = r * (1 + layer * 0.8);
     var alpha = (0.03 + openness * 0.04) * (1 - layer * 0.18);
-    var hue = 35 + openness * 15;  // warm gold → bright gold
+    var hue = 35 + openness * 15 + playerHueShift;
     vizCtx.beginPath();
-    vizCtx.arc(cx, cy, lr, 0, Math.PI * 2);
+    vizCtx.arc(playerCx, playerCy, lr, 0, Math.PI * 2);
     vizCtx.fillStyle = 'hsla(' + hue + ',60%,' + (30 + openness * 30) + '%,' + alpha + ')';
     vizCtx.fill();
   }
 
   // Core
   vizCtx.beginPath();
-  vizCtx.arc(cx, cy, r * 0.3, 0, Math.PI * 2);
+  vizCtx.arc(playerCx, playerCy, r * 0.3, 0, Math.PI * 2);
   var coreAlpha = 0.3 + energy * 0.5;
   vizCtx.fillStyle = 'hsla(40,70%,' + (40 + openness * 40) + '%,' + coreAlpha + ')';
   vizCtx.fill();
@@ -619,10 +832,24 @@ function drawViz(beta, gamma, energy, filterFreq) {
     var hr = r * 0.3 + i * (r * 0.7 / 12);
     var ha = 0.02 + (1 - i / 12) * 0.06 * energy;
     vizCtx.beginPath();
-    vizCtx.arc(cx, cy, hr, 0, Math.PI * 2);
+    vizCtx.arc(playerCx, playerCy, hr, 0, Math.PI * 2);
     vizCtx.strokeStyle = 'hsla(40,50%,60%,' + ha + ')';
     vizCtx.lineWidth = 0.5;
     vizCtx.stroke();
+  }
+
+  // ═══ MERGE GLOW — when player and soul overlap, a third color emerges ═══
+  // This is the 1+1=3. Neither gold nor blue. The coupling creates something new.
+  if (proximity > 0.3) {
+    var mergeR = (r + soulR) * 0.4 * proximity;
+    var mergeCx = (playerCx + soulCx) / 2;
+    var mergeCy = (playerCy + soulCy) / 2;
+    var mergeAlpha = (proximity - 0.3) * 0.15;
+    // The third color: warm white with a hint of both (hue ~320, desaturated pink-gold)
+    vizCtx.beginPath();
+    vizCtx.arc(mergeCx, mergeCy, mergeR, 0, Math.PI * 2);
+    vizCtx.fillStyle = 'hsla(320,20%,70%,' + mergeAlpha + ')';
+    vizCtx.fill();
   }
 }
 </script>
