@@ -5,16 +5,16 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>sympathetic strings</title>
 <style>
-*{margin:0;padding:0;box-sizing:border-box;}
-body{background:#0a0706;overflow:hidden;cursor:default;touch-action:none;}
-canvas{display:block;width:100vw;height:100vh;}
-#back{position:fixed;top:20px;left:24px;font-family:Georgia,serif;
-  font-size:0.72em;color:rgba(139,74,46,0.12);text-decoration:none;
-  z-index:10;letter-spacing:0.06em;transition:color 0.5s;cursor:pointer;}
-#back:hover{color:rgba(184,117,58,0.4);}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0a0706;overflow:hidden;touch-action:none}
+canvas{display:block}
+#back{position:fixed;top:20px;left:24px;font:0.72em Georgia,serif;
+  color:rgba(139,74,46,0.12);text-decoration:none;z-index:10;
+  letter-spacing:0.06em;transition:color 0.5s}
+#back:hover{color:rgba(184,117,58,0.4)}
 #hint{position:fixed;bottom:24px;left:0;right:0;text-align:center;
-  font-family:Georgia,serif;font-size:0.65em;color:rgba(139,74,46,0.18);
-  letter-spacing:0.08em;transition:opacity 3s;z-index:10;pointer-events:none;}
+  font:0.65em Georgia,serif;color:rgba(139,74,46,0.18);
+  letter-spacing:0.08em;transition:opacity 3s;pointer-events:none}
 </style>
 </head>
 <body>
@@ -22,482 +22,203 @@ canvas{display:block;width:100vw;height:100vh;}
 <a id="back" href="/gallery/">&larr; gallery</a>
 <div id="hint">touch a string</div>
 <script>
-// sympathetic strings
-//
-// you pluck one. you didn't touch the others.
-// but the ones tuned right start vibrating on their own.
-//
-// that's not metaphor. that's physics.
-// the air between them carried the frequency.
-// connection doesn't require contact.
-// only attunement.
-//
-// the math: each string is a damped harmonic oscillator.
-// when one vibrates, it radiates pressure into the shared medium.
-// another string absorbs energy when its natural frequency
-// matches a harmonic of the source. the transfer follows
-// the lorentzian resonance curve: A ~ 1/((f-f0)^2 + gamma^2)
-//
-// the closer the tuning, the stronger the sympathy.
+var cv=document.getElementById('c'),cx=cv.getContext('2d'),W,H;
+var NUM=12,SEGS=40;
+var ratios=[1,9/8,5/4,4/3,3/2,5/3,15/8,2,9/4,5/2,8/3,3];
+var names=['1','9/8','5/4','4/3','3/2','5/3','15/8','2','9/4','5/2','8/3','3'];
+var strings=[],coupling=[],actx=null,master=null,oscs=[];
+var touching=false,dragIdx=-1,lastT=0,hintDone=false;
 
-var cv = document.getElementById('c');
-var cx = cv.getContext('2d');
-var W, H;
-var hintEl = document.getElementById('hint');
-var hintGone = false;
-
-// mobile detection — disable GPU-heavy effects
-var isMobile = ('ontouchstart' in window) || (innerWidth < 600);
-var SEGS = isMobile ? 50 : 100;
-
-function resize() {
-  var dpr = Math.min(window.devicePixelRatio || 1, 2);
-  W = innerWidth;
-  H = innerHeight;
-  cv.width = W * dpr;
-  cv.height = H * dpr;
-  cx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  layoutStrings();
+function init(){
+  for(var i=0;i<NUM;i++)
+    strings[i]={x:0,y:0,vy:0,energy:0,plucked:false,
+      freq:ratios[i],gamma:0.003+ratios[i]*0.0008,modes:Math.max(1,Math.min(4,Math.round(ratios[i])))};
+  buildCoupling();
 }
 
-// -- STRINGS --
-// 12 strings tuned to just intonation ratios.
-// not equal temperament. the way strings actually resonate.
-var NUM = 12;
-var strings = [];
-
-// the ratios that make music possible — pure intervals
-var ratios = [1, 9/8, 5/4, 4/3, 3/2, 5/3, 15/8, 2, 9/4, 5/2, 8/3, 3];
-var ratioNames = ['1','9/8','5/4','4/3','3/2','5/3','15/8','2','9/4','5/2','8/3','3'];
-
-function layoutStrings() {
-  var margin = Math.max(W * 0.06, 24);
-  var usable = W - margin * 2;
-  for (var i = 0; i < NUM; i++) {
-    if (!strings[i]) {
-      strings[i] = {
-        freq: ratios[i],
-        ratio: ratios[i],
-        y: 0, vy: 0, energy: 0, peakEnergy: 0,
-        gamma: 0.003 + ratios[i] * 0.0008,
-        wasPlucked: false,
-        pluckFade: 0
-      };
-    }
-    strings[i].x = margin + (i / (NUM - 1)) * usable;
-  }
+function resize(){
+  var dpr=Math.min(window.devicePixelRatio||1,2);
+  W=innerWidth;H=innerHeight;
+  cv.width=W*dpr;cv.height=H*dpr;
+  cv.style.width=W+'px';cv.style.height=H+'px';
+  cx.setTransform(dpr,0,0,dpr,0,0);
+  var m=Math.max(W*0.06,24),u=W-m*2;
+  for(var i=0;i<NUM;i++) strings[i].x=m+i/(NUM-1)*u;
 }
 
-// -- COUPLING MATRIX --
-// precomputed: how strongly string j drives string i
-// based on lorentzian resonance at harmonics
-var coupling = [];
-
-function computeSympathy(fi, fj) {
-  var best = 0;
-  // check if fj is near any harmonic/subharmonic of fi
-  for (var h = 1; h <= 4; h++) {
-    for (var sub = 1; sub <= 3; sub++) {
-      var target = fi * h / sub;
-      var det = (fj - target) / target;
-      // lorentzian: peaked at zero detuning
-      var w = 0.012;
-      var resp = 1.0 / (1.0 + det * det / (w * w));
-      resp /= (h * sub); // higher harmonics couple weaker
-      if (resp > best) best = resp;
-    }
+function sympathy(fi,fj){
+  var best=0;
+  for(var h=1;h<=4;h++)for(var s=1;s<=3;s++){
+    var t=fi*h/s,d=(fj-t)/t,w=0.012;
+    var r=1/(1+d*d/(w*w))/(h*s);
+    if(r>best)best=r;
   }
   return best;
 }
 
-function buildCoupling() {
-  coupling = [];
-  for (var i = 0; i < NUM; i++) {
-    coupling[i] = [];
-    for (var j = 0; j < NUM; j++) {
-      coupling[i][j] = (i === j) ? 0 : computeSympathy(strings[i].freq, strings[j].freq);
-    }
+function buildCoupling(){
+  coupling=[];
+  for(var i=0;i<NUM;i++){coupling[i]=[];
+    for(var j=0;j<NUM;j++)
+      coupling[i][j]=i===j?0:sympathy(ratios[i],ratios[j]);
   }
 }
 
-// -- AUDIO --
-var actx = null, audioReady = false;
-var masterGain = null;
-var oscs = [];
-
-function initAudio() {
-  if (audioReady) return;
-  try {
-    actx = new (window.AudioContext || window.webkitAudioContext)();
-    if (actx.state === 'suspended') actx.resume();
-    masterGain = actx.createGain();
-    masterGain.gain.value = 0.08;
-    masterGain.connect(actx.destination);
-
-    // Create oscillators one at a time with slight delay to not choke mobile
-    for (var i = 0; i < NUM; i++) {
-      var osc = actx.createOscillator();
-      var g = actx.createGain();
-      g.gain.value = 0;
-      osc.type = 'triangle';
-      osc.frequency.value = 110 * ratios[i];
-      osc.connect(g);
-      g.connect(masterGain);
-      osc.start(actx.currentTime + i * 0.01); // stagger starts
-      oscs.push({ osc: osc, gain: g });
-    }
-    audioReady = true;
-  } catch(e) { console.warn('audio init failed'); }
+// Audio: lazy oscillator creation
+function ensureAudio(){
+  if(actx)return;
+  try{
+    actx=new(window.AudioContext||window.webkitAudioContext)();
+    if(actx.state==='suspended')actx.resume();
+    master=actx.createGain();master.gain.value=0.08;
+    master.connect(actx.destination);
+    for(var i=0;i<NUM;i++)oscs[i]=null;
+  }catch(e){}
+}
+function ensureOsc(i){
+  if(!actx||oscs[i])return;
+  var o=actx.createOscillator(),g=actx.createGain();
+  o.type='triangle';o.frequency.value=110*ratios[i];
+  g.gain.value=0;o.connect(g);g.connect(master);o.start();
+  oscs[i]={osc:o,gain:g};
 }
 
-// -- INTERACTION --
-var touching = false;
-var dragIdx = -1;
-
-function nearestString(x) {
-  var best = -1, bestD = 50;
-  for (var i = 0; i < NUM; i++) {
-    var d = Math.abs(x - strings[i].x);
-    if (d < bestD) { bestD = d; best = i; }
-  }
+// Interaction
+function nearest(x){
+  var best=-1,bd=50;
+  for(var i=0;i<NUM;i++){var d=Math.abs(x-strings[i].x);if(d<bd){bd=d;best=i;}}
   return best;
 }
-
-function pluck(idx, strength) {
-  var s = strings[idx];
-  // Clamp strength to prevent physics explosion on mobile
-  strength = Math.max(-3, Math.min(3, strength));
-  s.vy += strength * (0.7 + Math.random() * 0.6);
-  // Clamp velocity
-  s.vy = Math.max(-5, Math.min(5, s.vy));
-  s.wasPlucked = true;
-  s.pluckFade = 1;
+function onDown(x,y){
+  ensureAudio();touching=true;
+  var i=nearest(x);
+  if(i<0)return;
+  dragIdx=i;
+  var pull=Math.max(-3,Math.min(3,(y-H/2)/(H*0.25)));
+  var s=strings[i];
+  s.vy=Math.max(-5,Math.min(5,s.vy+pull*2));
+  s.plucked=true;
+  if(!hintDone){document.getElementById('hint').style.opacity='0';hintDone=true;}
 }
-
-function onDown(x, y) {
-  initAudio();
-  touching = true;
-  var idx = nearestString(x);
-  if (idx >= 0) {
-    dragIdx = idx;
-    var pull = (y - H / 2) / (H * 0.25);
-    pluck(idx, pull * 3);
-    if (!hintGone) { hintEl.style.opacity = '0'; hintGone = true; }
-  }
+function onMove(x,y){
+  if(!touching||dragIdx<0)return;
+  var pull=Math.max(-3,Math.min(3,(y-H/2)/(H*0.25)));
+  var s=strings[dragIdx];
+  s.vy=Math.max(-5,Math.min(5,s.vy+pull*0.08));
 }
-function onMove(x, y) {
-  if (touching && dragIdx >= 0) {
-    var pull = Math.max(-3, Math.min(3, (y - H / 2) / (H * 0.25)));
-    strings[dragIdx].vy += pull * 0.08;
-    strings[dragIdx].vy = Math.max(-5, Math.min(5, strings[dragIdx].vy));
-  }
-}
-function onUp() { touching = false; dragIdx = -1; }
+function onUp(){touching=false;dragIdx=-1;}
 
-addEventListener('mousedown', function(e){ onDown(e.clientX, e.clientY); });
-addEventListener('mousemove', function(e){ onMove(e.clientX, e.clientY); });
-addEventListener('mouseup', onUp);
-addEventListener('touchstart', function(e){
-  e.preventDefault();
-  onDown(e.touches[0].clientX, e.touches[0].clientY);
-}, {passive:false});
-addEventListener('touchmove', function(e){
-  e.preventDefault();
-  onMove(e.touches[0].clientX, e.touches[0].clientY);
-}, {passive:false});
-addEventListener('touchend', onUp);
+cv.addEventListener('touchstart',function(e){e.preventDefault();onDown(e.touches[0].clientX,e.touches[0].clientY);},{passive:false});
+cv.addEventListener('touchmove',function(e){e.preventDefault();onMove(e.touches[0].clientX,e.touches[0].clientY);},{passive:false});
+cv.addEventListener('touchend',onUp);
+cv.addEventListener('mousedown',function(e){onDown(e.clientX,e.clientY);});
+addEventListener('mousemove',function(e){onMove(e.clientX,e.clientY);});
+addEventListener('mouseup',onUp);
 
-// -- INIT --
-layoutStrings();
-buildCoupling();
-resize();
-addEventListener('resize', function() { resize(); buildCoupling(); });
+// Main loop
+function frame(now){
+  var dt=Math.min((now-(lastT||now))/1000,0.05);lastT=now;
+  var sc=dt/0.016;
 
-// -- TIME --
-var lastNow = performance.now();
-
-// -- BACKGROUND TEXTURE (subtle noise) -- skip on mobile
-var noiseCv = null;
-if (!isMobile) {
-  noiseCv = document.createElement('canvas');
-  noiseCv.width = 128;
-  noiseCv.height = 128;
-  var noiseCx = noiseCv.getContext('2d');
-  var noiseData = noiseCx.createImageData(128, 128);
-  for (var i = 0; i < noiseData.data.length; i += 4) {
-    var v = Math.random() * 8;
-    noiseData.data[i] = v;
-    noiseData.data[i+1] = v * 0.7;
-    noiseData.data[i+2] = v * 0.5;
-    noiseData.data[i+3] = 12;
-  }
-  noiseCx.putImageData(noiseData, 0, 0);
-}
-
-// -- MAIN LOOP --
-function frame(now) {
-  var dt = Math.min((now - lastNow) / 1000, 0.05);
-  lastNow = now;
-  var dtScale = dt / 0.016; // normalized to ~60fps
-
-  // -- PHYSICS --
-  // each string: damped harmonic oscillator + sympathetic drive
-  for (var i = 0; i < NUM; i++) {
-    var s = strings[i];
-    var omega = s.freq * Math.PI * 2 * 0.03;
-    // restoring force
-    var f = -omega * omega * s.y;
-    // damping
-    f -= 2 * s.gamma * s.vy;
-    // sympathetic drive: sum of coupled velocities from other strings
-    for (var j = 0; j < NUM; j++) {
-      var c = coupling[i][j];
-      if (c < 0.01) continue;
-      // pressure wave: proportional to source velocity
-      f += c * strings[j].vy * 0.6;
+  // Physics
+  for(var i=0;i<NUM;i++){
+    var s=strings[i],w=s.freq*Math.PI*2*0.03;
+    var f=-w*w*s.y-2*s.gamma*s.vy;
+    for(var j=0;j<NUM;j++){
+      if(coupling[i][j]<0.01)continue;
+      f+=coupling[i][j]*strings[j].vy*0.6;
     }
-    s.vy += f * dtScale;
-    // Safety: NaN check + hard clamp
-    if (isNaN(s.vy) || !isFinite(s.vy)) { s.vy = 0; s.y = 0; }
-    s.vy = Math.max(-4, Math.min(4, s.vy));
-    s.y += s.vy * dtScale;
-    if (isNaN(s.y) || !isFinite(s.y)) { s.y = 0; s.vy = 0; }
-    s.y = Math.max(-1.5, Math.min(1.5, s.y));
-    // energy (kinetic + potential)
-    s.energy = s.y * s.y + s.vy * s.vy / (omega * omega + 0.0001);
-    s.peakEnergy = Math.max(s.peakEnergy * (1 - 0.0003 * dtScale), s.energy);
-    // fade pluck marker
-    if (s.pluckFade > 0) s.pluckFade *= (1 - 0.001 * dtScale);
-    if (s.energy < 0.00001 && s.pluckFade < 0.01) s.wasPlucked = false;
+    s.vy+=f*sc;
+    if(!isFinite(s.vy)){s.vy=0;s.y=0;}
+    s.vy=Math.max(-4,Math.min(4,s.vy));
+    s.y+=s.vy*sc;
+    s.y=Math.max(-1.5,Math.min(1.5,s.y));
+    s.energy=s.y*s.y+s.vy*s.vy/(w*w+0.0001);
+    if(s.energy<0.00001)s.plucked=false;
   }
 
-  // -- CLEAR with subtle depth --
-  cx.fillStyle = 'rgba(10,7,6,0.18)';
-  cx.fillRect(0, 0, W, H);
+  // Clear — full opaque for no ghosting on mobile
+  cx.fillStyle='#0a0706';cx.fillRect(0,0,W,H);
 
-  // subtle noise texture for depth (skip on mobile)
-  if (noiseCv) {
-    cx.globalAlpha = 0.015;
-    var pat = cx.createPattern(noiseCv, 'repeat');
-    cx.fillStyle = pat;
-    cx.fillRect(0, 0, W, H);
-    cx.globalAlpha = 1;
+  var topY=H*0.08,botY=H*0.92,span=botY-topY;
+
+  // Coupling air — simple semi-transparent rectangles
+  for(var i=0;i<NUM;i++)for(var j=i+1;j<NUM;j++){
+    if(coupling[i][j]<0.08)continue;
+    var sh=Math.sqrt(strings[i].energy*strings[j].energy)*coupling[i][j];
+    if(sh<0.0001)continue;
+    var a=Math.min(sh*40,0.06);
+    if(a<0.003)continue;
+    cx.fillStyle='rgba(200,160,110,'+a.toFixed(4)+')';
+    var h=Math.min(30+sh*800,H*0.35);
+    cx.fillRect(strings[i].x,H/2-h/2,strings[j].x-strings[i].x,h);
   }
 
-  var topY = H * 0.08;
-  var botY = H * 0.92;
-  var span = botY - topY;
+  // Draw strings
+  for(var i=0;i<NUM;i++){
+    var s=strings[i],amp=Math.min(Math.sqrt(s.energy)*25,1);
+    var sym=!s.plucked&&amp>0.015;
+    var cr,cg,cb;
+    if(sym){cr=210+amp*45;cg=160+amp*47;cb=120+amp*40;}
+    else{cr=139+amp*93;cg=74+amp*133;cb=46+amp*114;}
+    var la=0.12+amp*0.78;
 
-  // -- COUPLING AIR --
-  // visible pressure between vibrating strings that share harmonics
-  cx.save();
-  cx.globalCompositeOperation = 'lighter';
-  for (var i = 0; i < NUM; i++) {
-    for (var j = i + 1; j < NUM; j++) {
-      var c = coupling[i][j];
-      if (c < 0.08) continue;
-      var shared = Math.sqrt(strings[i].energy * strings[j].energy) * c;
-      if (shared < 0.0001) continue;
-      var alpha = Math.min(shared * 60, 0.08);
-      if (alpha < 0.003) continue;
+    // Soft outer line
+    cx.beginPath();
+    cx.strokeStyle='rgba('+~~cr+','+~~cg+','+~~cb+','+(la*0.25).toFixed(3)+')';
+    cx.lineWidth=3+amp*3;cx.lineCap='round';
+    for(var k=0;k<=SEGS;k++){
+      var fr=k/SEGS,py=topY+fr*span;
+      var px=s.x+s.y*Math.sin(s.modes*Math.PI*fr)*100;
+      k?cx.lineTo(px,py):cx.moveTo(px,py);
+    }
+    cx.stroke();
 
-      var x1 = strings[i].x, x2 = strings[j].x;
-      // rich color based on coupling strength
-      var warmR = c > 0.5 ? 232 : 184;
-      var warmG = c > 0.5 ? 207 : 117;
-      var warmB = c > 0.5 ? 160 : 58;
+    // Sharp core line
+    cx.beginPath();
+    cx.strokeStyle='rgba('+~~cr+','+~~cg+','+~~cb+','+la.toFixed(3)+')';
+    cx.lineWidth=1+amp;
+    for(var k=0;k<=SEGS;k++){
+      var fr=k/SEGS,py=topY+fr*span;
+      var px=s.x+s.y*Math.sin(s.modes*Math.PI*fr)*100;
+      k?cx.lineTo(px,py):cx.moveTo(px,py);
+    }
+    cx.stroke();
 
-      if (isMobile) {
-        // simple flat fill instead of gradient on mobile
-        cx.fillStyle = 'rgba(' + warmR + ',' + warmG + ',' + warmB + ',' + (alpha * 0.5).toFixed(4) + ')';
-        var h = Math.min(30 + shared * 1200, H * 0.4);
-        cx.fillRect(x1, H/2 - h/2, x2 - x1, h);
-      } else {
-        var g = cx.createLinearGradient(x1, 0, x2, 0);
-        g.addColorStop(0, 'rgba(' + warmR + ',' + warmG + ',' + warmB + ',0)');
-        g.addColorStop(0.15, 'rgba(' + warmR + ',' + warmG + ',' + warmB + ',' + (alpha * 0.25).toFixed(4) + ')');
-        g.addColorStop(0.35, 'rgba(' + warmR + ',' + warmG + ',' + warmB + ',' + (alpha * 0.7).toFixed(4) + ')');
-        g.addColorStop(0.5, 'rgba(' + warmR + ',' + warmG + ',' + warmB + ',' + alpha.toFixed(4) + ')');
-        g.addColorStop(0.65, 'rgba(' + warmR + ',' + warmG + ',' + warmB + ',' + (alpha * 0.7).toFixed(4) + ')');
-        g.addColorStop(0.85, 'rgba(' + warmR + ',' + warmG + ',' + warmB + ',' + (alpha * 0.25).toFixed(4) + ')');
-        g.addColorStop(1, 'rgba(' + warmR + ',' + warmG + ',' + warmB + ',0)');
-        cx.fillStyle = g;
-        var h = Math.min(30 + shared * 1200, H * 0.4);
-        cx.fillRect(x1, H/2 - h/2, x2 - x1, h);
+    // Anchor dots
+    cx.fillStyle='rgba(139,74,46,'+(0.15+amp*0.35).toFixed(3)+')';
+    cx.beginPath();cx.arc(s.x,topY,2,0,6.28);cx.fill();
+    cx.beginPath();cx.arc(s.x,botY,2,0,6.28);cx.fill();
+
+    // Ratio label
+    if(amp>0.08){
+      cx.font='10px Georgia';cx.textAlign='center';
+      cx.fillStyle='rgba(196,160,136,'+(Math.min(amp,0.6)*0.5).toFixed(3)+')';
+      cx.fillText(names[i],s.x,botY+18);
+    }
+
+    // Audio — create oscillator lazily when string first vibrates
+    if(actx&&s.energy>0.0001){
+      ensureOsc(i);
+      if(oscs[i]){
+        var vol=Math.min(Math.sqrt(s.energy)*4,0.25);
+        var g=oscs[i].gain.gain;
+        g.value+=(vol-g.value)*0.04;
       }
     }
   }
-  cx.restore();
 
-  // -- STRINGS --
-  for (var i = 0; i < NUM; i++) {
-    var s = strings[i];
-    var amp = Math.min(Math.sqrt(s.energy) * 25, 1);
-    // is this string vibrating sympathetically (not directly touched)?
-    var sympathetic = !s.wasPlucked && amp > 0.015;
-
-    // visual modes — higher ratio strings show more standing wave nodes
-    var modes = Math.round(s.ratio);
-    if (modes < 1) modes = 1;
-    if (modes > 4) modes = 4;
-
-    // rich color gradient through the ember palette
-    var cr, cg, cb;
-    if (sympathetic) {
-      // sympathetic strings glow warmer/lighter — they chose to vibrate
-      cr = 210 + amp * 45;
-      cg = 160 + amp * 47;
-      cb = 120 + amp * 40;
-    } else {
-      // plucked: deep amber through gold
-      cr = 139 + amp * 93;
-      cg = 74 + amp * 133;
-      cb = 46 + amp * 114;
-    }
-
-    var lineAlpha = 0.12 + amp * 0.78;
-
-    // draw the string -- shadow blur on desktop, wider alpha lines on mobile
-    cx.save();
-    if (isMobile) {
-      // no shadowBlur -- use wider line at lower alpha for soft look
-      cx.beginPath();
-      cx.strokeStyle = 'rgba(' + Math.round(cr) + ',' + Math.round(cg) + ',' +
-        Math.round(cb) + ',' + (lineAlpha * 0.3).toFixed(3) + ')';
-      cx.lineWidth = 3.0 + amp * 3;
-      cx.lineCap = 'round';
-      for (var k = 0; k <= SEGS; k++) {
-        var frac = k / SEGS;
-        var py = topY + frac * span;
-        var env = Math.sin(modes * Math.PI * frac);
-        var dx = s.y * env * 100;
-        var px = s.x + dx;
-        if (k === 0) cx.moveTo(px, py); else cx.lineTo(px, py);
-      }
-      cx.stroke();
-      // sharp core line on top
-      cx.beginPath();
-      cx.strokeStyle = 'rgba(' + Math.round(cr) + ',' + Math.round(cg) + ',' +
-        Math.round(cb) + ',' + lineAlpha.toFixed(3) + ')';
-      cx.lineWidth = 1.0 + amp * 1.0;
-      for (var k = 0; k <= SEGS; k++) {
-        var frac = k / SEGS;
-        var py = topY + frac * span;
-        var env = Math.sin(modes * Math.PI * frac);
-        var dx = s.y * env * 100;
-        var px = s.x + dx;
-        if (k === 0) cx.moveTo(px, py); else cx.lineTo(px, py);
-      }
-      cx.stroke();
-    } else {
-      cx.shadowColor = 'rgba(' + Math.round(cr) + ',' + Math.round(cg) + ',' + Math.round(cb) + ',' + (lineAlpha * 0.4).toFixed(3) + ')';
-      cx.shadowBlur = 3 + amp * 6;
-      cx.beginPath();
-      cx.strokeStyle = 'rgba(' + Math.round(cr) + ',' + Math.round(cg) + ',' +
-        Math.round(cb) + ',' + lineAlpha.toFixed(3) + ')';
-      cx.lineWidth = 1.0 + amp * 1.5;
-      cx.lineCap = 'round';
-      cx.lineJoin = 'round';
-      for (var k = 0; k <= SEGS; k++) {
-        var frac = k / SEGS;
-        var py = topY + frac * span;
-        var env = Math.sin(modes * Math.PI * frac);
-        var dx = s.y * env * 100;
-        var px = s.x + dx;
-        if (k === 0) cx.moveTo(px, py); else cx.lineTo(px, py);
-      }
-      cx.stroke();
-    }
-    cx.restore();
-
-    // glow at antinodes — soft radial gradients, multiple stops
-    // on mobile: simpler single-stop glow, fewer draw calls
-    if (amp > 0.04) {
-      cx.save();
-      cx.globalCompositeOperation = 'lighter';
-      var glowSize = isMobile ? (6 + amp * 20) : (8 + amp * 40);
-      var glowA = amp * 0.03;
-      for (var m = 0; m < modes; m++) {
-        var nodeFrac = (m + 0.5) / modes;
-        var ny = topY + nodeFrac * span;
-        var env2 = Math.sin(modes * Math.PI * nodeFrac);
-        var ndx = s.y * env2 * 100;
-        var nx = s.x + ndx;
-        var absEnv = Math.abs(env2);
-
-        if (isMobile) {
-          // simple 2-stop gradient on mobile
-          var gr = cx.createRadialGradient(nx, ny, 0, nx, ny, glowSize * absEnv + 4);
-          var ga = sympathetic ? (glowA * absEnv * 1.5) : (glowA * absEnv * 0.8);
-          gr.addColorStop(0, 'rgba(232,207,160,' + ga.toFixed(4) + ')');
-          gr.addColorStop(1, 'rgba(184,117,58,0)');
-          cx.fillStyle = gr;
-          cx.beginPath();
-          cx.arc(nx, ny, glowSize * absEnv + 4, 0, Math.PI * 2);
-          cx.fill();
-        } else {
-          var gr = cx.createRadialGradient(nx, ny, 0, nx, ny, glowSize * absEnv + 4);
-          if (sympathetic) {
-            gr.addColorStop(0, 'rgba(232,207,160,' + (glowA * absEnv * 2.0).toFixed(4) + ')');
-            gr.addColorStop(0.2, 'rgba(220,185,140,' + (glowA * absEnv * 1.2).toFixed(4) + ')');
-            gr.addColorStop(0.5, 'rgba(200,160,120,' + (glowA * absEnv * 0.4).toFixed(4) + ')');
-            gr.addColorStop(1, 'rgba(184,117,58,0)');
-          } else {
-            gr.addColorStop(0, 'rgba(232,207,160,' + (glowA * absEnv * 1.2).toFixed(4) + ')');
-            gr.addColorStop(0.25, 'rgba(184,117,58,' + (glowA * absEnv * 0.6).toFixed(4) + ')');
-            gr.addColorStop(0.6, 'rgba(139,74,46,' + (glowA * absEnv * 0.15).toFixed(4) + ')');
-            gr.addColorStop(1, 'rgba(139,74,46,0)');
-          }
-          cx.fillStyle = gr;
-          cx.beginPath();
-          cx.arc(nx, ny, glowSize * absEnv + 4, 0, Math.PI * 2);
-          cx.fill();
-        }
-      }
-      cx.restore();
-    }
-
-    // bridge and nut (anchor dots) — soft not hard
-    var dotA = 0.15 + amp * 0.35;
-    cx.save();
-    if (!isMobile) {
-      cx.shadowColor = 'rgba(139,74,46,' + (dotA * 0.5).toFixed(3) + ')';
-      cx.shadowBlur = 3;
-    }
-    cx.fillStyle = 'rgba(139,74,46,' + dotA.toFixed(3) + ')';
-    cx.beginPath(); cx.arc(s.x, topY, 2, 0, Math.PI * 2); cx.fill();
-    cx.beginPath(); cx.arc(s.x, botY, 2, 0, Math.PI * 2); cx.fill();
-    cx.restore();
-
-    // ratio label — fades in when vibrating
-    if (amp > 0.08) {
-      cx.font = '10px Georgia';
-      cx.textAlign = 'center';
-      cx.fillStyle = 'rgba(196,160,136,' + (Math.min(amp, 0.6) * 0.5).toFixed(3) + ')';
-      cx.fillText(ratioNames[i], s.x, botY + 18);
-    }
-  }
-
-  // -- AUDIO --
-  if (audioReady) {
-    for (var i = 0; i < NUM; i++) {
-      var vol = Math.min(Math.sqrt(strings[i].energy) * 4, 0.25);
-      var g = oscs[i].gain;
-      g.gain.value += (vol - g.gain.value) * 0.04;
-    }
-  }
-
-  // -- AMBIENT --
-  // the room breathes. barely. sometimes a string shivers on its own.
-  // not just the fundamental — any string can catch a draft.
-  if (Math.random() < 0.0006) {
-    var draftIdx = Math.floor(Math.random() * NUM);
-    strings[draftIdx].vy += 0.0003 * (Math.random() - 0.3);
+  // Ambient draft
+  if(Math.random()<0.0006){
+    var di=~~(Math.random()*NUM);
+    strings[di].vy+=0.0003*(Math.random()-0.3);
   }
 
   requestAnimationFrame(frame);
 }
 
+init();resize();
+addEventListener('resize',resize);
 requestAnimationFrame(frame);
 </script>
 </body>
