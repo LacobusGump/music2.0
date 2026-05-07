@@ -125,23 +125,25 @@ function initAudio() {
   if (audioReady) return;
   try {
     actx = new (window.AudioContext || window.webkitAudioContext)();
+    if (actx.state === 'suspended') actx.resume();
     masterGain = actx.createGain();
-    masterGain.gain.value = 0.1;
+    masterGain.gain.value = 0.08;
     masterGain.connect(actx.destination);
 
+    // Create oscillators one at a time with slight delay to not choke mobile
     for (var i = 0; i < NUM; i++) {
       var osc = actx.createOscillator();
       var g = actx.createGain();
       g.gain.value = 0;
       osc.type = 'triangle';
-      osc.frequency.value = 110 * ratios[i]; // A2 fundamental
+      osc.frequency.value = 110 * ratios[i];
       osc.connect(g);
       g.connect(masterGain);
-      osc.start();
+      osc.start(actx.currentTime + i * 0.01); // stagger starts
       oscs.push({ osc: osc, gain: g });
     }
     audioReady = true;
-  } catch(e) {}
+  } catch(e) { console.warn('audio init failed'); }
 }
 
 // -- INTERACTION --
@@ -248,10 +250,12 @@ function frame(now) {
       f += c * strings[j].vy * 0.6;
     }
     s.vy += f * dtScale;
-    // Safety clamp: prevent physics explosion
-    s.vy = Math.max(-8, Math.min(8, s.vy));
+    // Safety: NaN check + hard clamp
+    if (isNaN(s.vy) || !isFinite(s.vy)) { s.vy = 0; s.y = 0; }
+    s.vy = Math.max(-4, Math.min(4, s.vy));
     s.y += s.vy * dtScale;
-    s.y = Math.max(-2, Math.min(2, s.y));
+    if (isNaN(s.y) || !isFinite(s.y)) { s.y = 0; s.vy = 0; }
+    s.y = Math.max(-1.5, Math.min(1.5, s.y));
     // energy (kinetic + potential)
     s.energy = s.y * s.y + s.vy * s.vy / (omega * omega + 0.0001);
     s.peakEnergy = Math.max(s.peakEnergy * (1 - 0.0003 * dtScale), s.energy);
