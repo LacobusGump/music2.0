@@ -18,10 +18,8 @@ var PHI=(1+Math.sqrt(5))/2;
 
 // ═══ DETECT PAGE TYPE ═══
 var path=window.location.pathname;
-// Everything is dark ember now. No light pages.
-var isLight=false;
 var isHomepage=(path==='/' || path==='/index.html');
-var isDark=!isLight && !isHomepage;
+var isDark=!isHomepage;
 
 // ═══ 0. THE STYLE — injected via CSS ═══
 var style=document.createElement('style');
@@ -42,11 +40,6 @@ var fontRules=
   '.back{font-family:Futura,"Century Gothic",Avenir,"Avenir Next",system-ui,sans-serif !important;'+
   'letter-spacing:0.06em !important;}';
 
-if(isLight){
-  // ═══ LIGHT MODE — unused, everything is dark ember now ═══
-  style.textContent=fontRules;
-
-}else{
   // ═══ EMBER MODE — all dark pages ═══
   style.textContent=fontRules+
 
@@ -93,7 +86,6 @@ if(isLight){
 
     // Sacred
     '.sacred,.must-see,strong.sacred{color:#7a9a6a !important;}';
-}
 document.head.appendChild(style);
 
 // ═══ 1. SECTION TITLES: glow on scroll (dark) / fade-in on scroll (light) ═══
@@ -102,24 +94,14 @@ if(h2s.length>0&&'IntersectionObserver' in window){
   var h2Obs=new IntersectionObserver(function(entries){
     for(var i=0;i<entries.length;i++){
       var e=entries[i];
-      if(isLight){
-        // Light mode: simple opacity fade
-        if(e.isIntersecting){
-          e.target.style.transition='opacity 0.6s ease';
-          e.target.style.opacity='1';
-        }else{
-          e.target.style.opacity='0.7';
-        }
+      // Ember glow
+      if(e.isIntersecting){
+        e.target.style.transition='text-shadow 0.8s ease, opacity 0.8s ease';
+        e.target.style.textShadow='0 0 10px rgba(184,117,58,0.25), 0 0 25px rgba(184,117,58,0.06)';
+        e.target.style.opacity='1';
       }else{
-        // Dark mode: ember glow
-        if(e.isIntersecting){
-          e.target.style.transition='text-shadow 0.8s ease, opacity 0.8s ease';
-          e.target.style.textShadow='0 0 10px rgba(184,117,58,0.25), 0 0 25px rgba(184,117,58,0.06)';
-          e.target.style.opacity='1';
-        }else{
-          e.target.style.textShadow='0 0 6px rgba(184,117,58,0.04)';
-          e.target.style.opacity='0.75';
-        }
+        e.target.style.textShadow='0 0 6px rgba(184,117,58,0.04)';
+        e.target.style.opacity='0.75';
       }
     }
   },{threshold:0.5});
@@ -180,10 +162,8 @@ function addCommas(s){
 
 // ═══ 3. RESULT/BOX: breathing side-glow (dark only) / subtle left-border pulse (light) ═══
 var boxes=document.querySelectorAll('.result, .box, .eq');
-if(isLight){
-  // Light mode: no animation on boxes. They're notebook callouts. Still.
-}else{
-  // Dark mode: breathing ember side-glow
+{
+  // Breathing ember side-glow
   for(var i=0;i<boxes.length;i++){
     var b=boxes[i];
     b.style.transition='border-color 1.618s ease';
@@ -204,11 +184,7 @@ if(isLight){
 var trs=document.querySelectorAll('tr');
 for(var i=0;i<trs.length;i++){
   trs[i].style.transition='background 0.3s';
-  if(isLight){
-    trs[i].addEventListener('mouseenter',function(){this.style.background='rgba(184,117,58,0.06)';});
-  }else{
-    trs[i].addEventListener('mouseenter',function(){this.style.background='rgba(184,117,58,0.06)';});
-  }
+  trs[i].addEventListener('mouseenter',function(){this.style.background='rgba(184,117,58,0.06)';});
   trs[i].addEventListener('mouseleave',function(){this.style.background='';});
 }
 

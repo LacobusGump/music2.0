@@ -135,7 +135,11 @@
   }
 
   function makeChunks(text){
-    var out=[], buf='', parts=text.split(/(?<=[.!?:;])\s+/);
+    var out=[], buf='', parts=text.split(/([.!?:;])\s+/);
+    // Rejoin punctuation to preceding segment (replaces lookbehind for Safari compat)
+    for(var j=parts.length-2;j>=0;j--){
+      if(/^[.!?:;]$/.test(parts[j+1])){parts[j]+=parts[j+1];parts.splice(j+1,1);}
+    }
     for(var i=0;i<parts.length;i++){
       if((buf+' '+parts[i]).length>180 && buf.length>0){ out.push(buf.trim()); buf=parts[i]; }
       else buf+=(buf?' ':'')+parts[i];

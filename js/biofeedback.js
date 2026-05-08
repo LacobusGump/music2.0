@@ -70,24 +70,27 @@ class Biofeedback {
   start() {
     if (this.active) return;
     this.active = true;
+    this._handler = e => this._onMotion(e);
 
     if (window.DeviceMotionEvent) {
       // Request permission on iOS 13+
       if (typeof DeviceMotionEvent.requestPermission === 'function') {
         DeviceMotionEvent.requestPermission().then(response => {
           if (response === 'granted') {
-            window.addEventListener('devicemotion', e => this._onMotion(e));
+            window.addEventListener('devicemotion', this._handler);
           }
         });
       } else {
-        window.addEventListener('devicemotion', e => this._onMotion(e));
+        window.addEventListener('devicemotion', this._handler);
       }
     }
   }
 
   stop() {
     this.active = false;
-    window.removeEventListener('devicemotion', e => this._onMotion(e));
+    if (this._handler) {
+      window.removeEventListener('devicemotion', this._handler);
+    }
   }
 
   _onMotion(event) {

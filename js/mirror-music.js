@@ -32,11 +32,14 @@ function init() {
   compose();
 }
 
-document.getElementById('C').addEventListener('click', function() {
-  init();
-  var btn = document.getElementById('mirror-sound-btn');
-  if (btn) { btn.style.opacity = '0.15'; btn.textContent = 'listening'; }
-});
+var canvasEl = document.getElementById('C');
+if (canvasEl) {
+  canvasEl.addEventListener('click', function() {
+    init();
+    var btn = document.getElementById('mirror-sound-btn');
+    if (btn) { btn.style.opacity = '0.15'; btn.textContent = 'listening'; }
+  });
+}
 
 // ═══ THE ORCHESTRA ═══
 // each voice is a node finding its place in the composition

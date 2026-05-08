@@ -55,7 +55,7 @@ Every page answers a question people actually Google. Every claim tested. Every 
 
 ## The Numbers (honest)
 
-- GPU: **3.68 TFLOPS** fp16 sustained on M4 ($499, 35W)
+- GPU: **3.68 TFLOPS** fp16 sustained on M4 ($599, 35W)
 - Protein folding: **66,563/sec** (insulin, compiled C)
 - Pathogenicity: **94.7% balanced** accuracy on 1,594 variants
 - Prime counting: **π(10¹²) in 223ms**
@@ -65,7 +65,7 @@ Every page answers a question people actually Google. Every claim tested. Every 
 
 ## Hardware
 
-Mac Mini M4. 16 GB unified. $499. 35 watts. That's it.
+Mac Mini M4. 16 GB unified. $599. 35 watts. That's it.
 
 ## M4 Tuning
 

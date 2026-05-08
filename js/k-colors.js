@@ -33,7 +33,7 @@ var KC = (function() {
     red:     [147, 59, 56],    // K→0 (683nm) — danger, tension, decoupling
 
     // Structural (unchanged)
-    void_bg: [8, 8, 13],      // the void
+    void_bg: [26, 17, 13],     // the void — matches CSS #1a110d
     text:    [232, 228, 220],  // warm cream
     dim:     [136, 136, 136],
     faint:   [68, 68, 68],
