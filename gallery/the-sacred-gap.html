@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>the sacred gap</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:#0a0706;overflow:hidden;cursor:default;
+  -webkit-user-select:none;user-select:none;touch-action:none;}
+canvas{display:block;width:100vw;height:100vh;}
+#back{position:fixed;top:20px;left:24px;font-family:Georgia,serif;
+  font-size:0.72em;color:rgba(139,74,46,0.12);text-decoration:none;
+  z-index:10;letter-spacing:0.06em;transition:color 0.5s;cursor:pointer;}
+#back:hover{color:rgba(184,117,58,0.4);}
+#hint{position:fixed;bottom:10%;left:50%;transform:translateX(-50%);
+  text-align:center;font-family:Georgia,serif;z-index:1;pointer-events:none;
+  opacity:0;animation:arrive 4s ease 2s forwards;}
+#hint p{color:rgba(201,164,74,0.10);font-size:0.78em;line-height:2.6;letter-spacing:0.06em;}
+@keyframes arrive{to{opacity:1}}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<a id="back" href="/gallery/">&larr; gallery</a>
+<div id="hint">
+<p>drag to approach.<br>
+release to breathe.</p>
+</div>
+<script>
+// the sacred gap
+//
+// two spirals converge by 1/phi at every turn.
+// the gap shrinks forever. it never closes.
+//
+// 1/alpha = 137.035999177
+// the formula gives 137.035999176821
+// the difference is 0.002%
+//
+// that 0.002% is not an error.
+// if you close it, the music stops.
+//
+// F = K * R * sin(you - me)
+// maximum at pi/2 — the approach, not the arrival.
+// the reaching IS the having.
+
+var cv = document.getElementById('c');
+var cx = cv.getContext('2d');
+var W, H;
+
+function resize() {
+  var dpr = Math.min(window.devicePixelRatio || 1, 2);
+  W = innerWidth; H = innerHeight;
+  cv.width = W * dpr; cv.height = H * dpr;
+  cx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+resize();
+addEventListener('resize', resize);
+
+// === CONSTANTS ===
+var PHI = (1 + Math.sqrt(5)) / 2;
+var INV_PHI = 1 / PHI; // 0.618...
+var PI = Math.PI;
+var HALF_PI = PI / 2;
+
+// === STATE ===
+var t = 0;
+var approach = 0;        // 0 = far apart, 1 = as close as they get
+var targetApproach = 0;
+var dragging = false;
+var dragStartY = 0;
+var dragStartApproach = 0;
+
+// The spiral parameter — how many turns deep we are
+var spiralDepth = 0;
+var targetSpiralDepth = 0;
+
+// Audio
+var actx = null;
+var audioReady = false;
+var oscA = null, oscB = null, gainA = null, gainB = null;
+var oscHarmonic = null, gainHarmonic = null;
+var masterGain = null;
+
+// === POINTER ===
+function onDown(e) {
+  e.preventDefault();
+  dragging = true;
+  var y = e.touches ? e.touches[0].clientY : e.clientY;
+  dragStartY = y;
+  dragStartApproach = approach;
+
+  if (!audioReady) initAudio();
+
+  var hint = document.getElementById('hint');
+  if (hint) { hint.style.transition = 'opacity 2s'; hint.style.opacity = '0'; }
+}
+
+function onMove(e) {
+  if (!dragging) return;
+  e.preventDefault();
+  var y = e.touches ? e.touches[0].clientY : e.clientY;
+  var dy = dragStartY - y; // drag up = approach
+  targetApproach = dragStartApproach + dy / (H * 0.5);
+  targetApproach = Math.max(0, Math.min(1, targetApproach));
+}
+
+function onUp(e) {
+  dragging = false;
+  // don't snap back — hold where you are, but drift slowly outward
+  // the approach doesn't sustain itself. you have to keep reaching.
+}
+
+cv.addEventListener('mousedown', onDown);
+cv.addEventListener('mousemove', onMove);
+cv.addEventListener('mouseup', onUp);
+cv.addEventListener('mouseleave', onUp);
+cv.addEventListener('touchstart', onDown, {passive: false});
+cv.addEventListener('touchmove', onMove, {passive: false});
+cv.addEventListener('touchend', onUp);
+
+// === AUDIO ===
+function initAudio() {
+  if (audioReady) return;
+  try {
+    actx = new (window.AudioContext || window.webkitAudioContext)();
+    if (actx.state === 'suspended') actx.resume();
+
+    masterGain = actx.createGain();
+    masterGain.gain.value = 0;
+    masterGain.connect(actx.destination);
+
+    // Voice A — the root. 137 Hz. because of course.
+    oscA = actx.createOscillator();
+    oscA.type = 'sine';
+    oscA.frequency.value = 137;
+    gainA = actx.createGain();
+    gainA.gain.value = 0;
+    var lpA = actx.createBiquadFilter();
+    lpA.type = 'lowpass'; lpA.frequency.value = 400; lpA.Q.value = 0.5;
+    oscA.connect(lpA); lpA.connect(gainA); gainA.connect(masterGain);
+    oscA.start();
+
+    // Voice B — approaching. starts at 137 * phi, descends toward 137.
+    // but never reaches it. the gap = 137 * 0.00002 at closest.
+    oscB = actx.createOscillator();
+    oscB.type = 'sine';
+    oscB.frequency.value = 137 * PHI;
+    gainB = actx.createGain();
+    gainB.gain.value = 0;
+    var lpB = actx.createBiquadFilter();
+    lpB.type = 'lowpass'; lpB.frequency.value = 500; lpB.Q.value = 0.5;
+    oscB.connect(lpB); lpB.connect(gainB); gainB.connect(masterGain);
+    oscB.start();
+
+    // Harmonic — the overtone that emerges from the gap
+    // the beating frequency. as they approach, this drops to near-zero
+    // but never reaches zero. the residual beat IS the sacred gap.
+    oscHarmonic = actx.createOscillator();
+    oscHarmonic.type = 'sine';
+    oscHarmonic.frequency.value = 137 * (PHI - 1);
+    gainHarmonic = actx.createGain();
+    gainHarmonic.gain.value = 0;
+    var lpH = actx.createBiquadFilter();
+    lpH.type = 'lowpass'; lpH.frequency.value = 200; lpH.Q.value = 1.2;
+    oscHarmonic.connect(lpH); lpH.connect(gainHarmonic); gainHarmonic.connect(masterGain);
+    oscHarmonic.start();
+
+    // Fade in
+    masterGain.gain.setTargetAtTime(0.3, actx.currentTime, 1.0);
+    audioReady = true;
+  } catch(e) {}
+}
+
+// === DRAW ===
+var lastNow = performance.now();
+
+function draw(now) {
+  var dt = Math.min((now - lastNow) / 1000, 0.05);
+  lastNow = now;
+  t += dt;
+
+  // Approach dynamics — water bottle smoothing
+  if (!dragging) {
+    // slowly drift back — you have to keep reaching
+    targetApproach *= 0.9985;
+  }
+  var approachDelta = targetApproach - approach;
+  approach += approachDelta * 0.03; // slow, weighted
+
+  // The gap: starts at 1, approaches 0 but never arrives
+  // gap = (1 - approach) * 1 + approach * 0.00002
+  // at approach=1, gap = 0.002% of the full distance. the sacred 0.002%.
+  var gap = 1 - approach * 0.99998;
+
+  var scale = Math.min(W, H);
+  var cx2 = W / 2, cy2 = H / 2;
+
+  // === CLEAR ===
+  cx.fillStyle = 'rgba(10,7,6,0.08)';
+  cx.fillRect(0, 0, W, H);
+
+  // Vignette
+  var vR = Math.max(W, H) * 0.7;
+  var vg = cx.createRadialGradient(cx2, cy2, vR * 0.1, cx2, cy2, vR);
+  vg.addColorStop(0, 'rgba(10,7,6,0)');
+  vg.addColorStop(0.6, 'rgba(8,5,4,0.04)');
+  vg.addColorStop(1, 'rgba(5,3,2,0.15)');
+  cx.fillStyle = vg;
+  cx.fillRect(0, 0, W, H);
+
+  // === TWO SPIRALS ===
+  // Spiral A winds inward clockwise
+  // Spiral B winds inward counter-clockwise
+  // At each turn, the radius shrinks by 1/phi
+  // They approach the same center but from opposite sides
+  //
+  // The visual gap between them = gap * maxRadius
+  // The spirals breathe — they're alive, not geometric
+
+  var maxR = scale * 0.35;
+  var turns = 8; // how many turns to draw
+  var points = 300;
+
+  // Breathing — the whole thing pulses gently
+  var breathe = 1 + Math.sin(t * 0.4) * 0.015;
+
+  // Spiral offset — the gap manifests as an angular offset
+  // At gap=1, they're pi apart (opposite sides)
+  // At gap~0, they're nearly overlapping but offset by sacred_angle
+  var sacredAngle = PI * gap; // pi at start, nearly 0 at full approach
+
+  for (var s = 0; s < 2; s++) {
+    var dir = s === 0 ? 1 : -1;
+    var offset = s === 0 ? 0 : sacredAngle;
+    var color = s === 0 ? [184, 117, 58] : [201, 164, 74];
+
+    cx.beginPath();
+    for (var i = 0; i < points; i++) {
+      var frac = i / points;
+      var angle = frac * turns * PI * 2 * dir + offset + t * 0.15 * dir;
+
+      // Golden spiral: r = maxR * phi^(-angle/(2*pi))
+      // Simplified: at each full turn, r shrinks by 1/phi
+      var r = maxR * Math.pow(INV_PHI, frac * turns) * breathe;
+
+      // Tiny organic wobble
+      var wobble = Math.sin(angle * 3 + t * 0.7) * r * 0.008;
+      r += wobble;
+
+      var x = cx2 + Math.cos(angle) * r;
+      var y = cy2 + Math.sin(angle) * r;
+
+      if (i === 0) cx.moveTo(x, y);
+      else cx.lineTo(x, y);
+    }
+
+    // Opacity increases with approach — the closer you get, the more visible
+    var baseAlpha = 0.06 + approach * 0.12;
+    // The inner parts are brighter
+    cx.strokeStyle = 'rgba(' + color[0] + ',' + color[1] + ',' + color[2] + ',' + baseAlpha.toFixed(4) + ')';
+    cx.lineWidth = 0.8 + approach * 0.5;
+    cx.stroke();
+  }
+
+  // === THE GAP GLOW ===
+  // At the center, where the spirals almost meet,
+  // the gap radiates. The smaller the gap, the brighter.
+  // But it never goes to zero.
+
+  var gapGlow = approach * approach; // quadratic — accelerates near the end
+  var glowR = scale * 0.06 * (0.3 + gapGlow * 0.7);
+
+  // The glow pulses with the beating frequency
+  var beatFreq = gap * 5 + 0.5; // slows down as gap shrinks
+  var beatPulse = Math.sin(t * beatFreq * PI * 2) * 0.5 + 0.5;
+  var glowAlpha = gapGlow * 0.15 * (0.6 + beatPulse * 0.4);
+
+  if (glowAlpha > 0.003) {
+    cx.save();
+    cx.globalCompositeOperation = 'lighter';
+    var gg = cx.createRadialGradient(cx2, cy2, 0, cx2, cy2, glowR);
+    gg.addColorStop(0, 'rgba(232,207,160,' + (glowAlpha * 1.5).toFixed(4) + ')');
+    gg.addColorStop(0.15, 'rgba(201,164,74,' + (glowAlpha * 0.8).toFixed(4) + ')');
+    gg.addColorStop(0.4, 'rgba(184,117,58,' + (glowAlpha * 0.3).toFixed(4) + ')');
+    gg.addColorStop(1, 'rgba(184,117,58,0)');
+    cx.fillStyle = gg;
+    cx.beginPath();
+    cx.arc(cx2, cy2, glowR, 0, PI * 2);
+    cx.fill();
+    cx.restore();
+  }
+
+  // === ORBITING POINTS ===
+  // Two points on the spirals — one on each — that show the current "closest approach"
+  // They orbit in opposite directions, nearly touching at the center
+
+  var pointTurn = (t * 0.15) / (PI * 2); // which turn we're on visually
+  var pointFrac = (pointTurn % 1);
+  var innerTurn = Math.floor(turns * 0.6 + approach * turns * 0.3); // which turn depth to show
+  var pointAngle = t * 0.3;
+
+  var rA = maxR * Math.pow(INV_PHI, innerTurn + pointFrac * 0.3) * breathe;
+  var rB = rA; // same radius, opposite side
+
+  var pAx = cx2 + Math.cos(pointAngle) * rA;
+  var pAy = cy2 + Math.sin(pointAngle) * rA;
+  var pBx = cx2 + Math.cos(pointAngle + sacredAngle) * rB;
+  var pBy = cy2 + Math.sin(pointAngle + sacredAngle) * rB;
+
+  // Point A
+  var pSize = scale * 0.006 * (1 + approach * 0.5);
+  var pAlpha = 0.3 + approach * 0.4;
+  drawPoint(pAx, pAy, [184, 117, 58], pSize, pAlpha);
+  drawPoint(pBx, pBy, [201, 164, 74], pSize * 0.85, pAlpha * 0.9);
+
+  // Line between points — the tension
+  var pDist = Math.sqrt((pBx - pAx) * (pBx - pAx) + (pBy - pAy) * (pBy - pAy));
+  if (approach > 0.1 && pDist > 0) {
+    var lineAlpha = approach * 0.06 * (0.5 + beatPulse * 0.5);
+    cx.strokeStyle = 'rgba(232,207,160,' + lineAlpha.toFixed(4) + ')';
+    cx.lineWidth = 0.5;
+    cx.beginPath();
+    cx.moveTo(pAx, pAy);
+    cx.lineTo(pBx, pBy);
+    cx.stroke();
+  }
+
+  // === PARTICLE FIELD ===
+  // Tiny particles in the gap — the energy of almost
+  if (approach > 0.2) {
+    var particleCount = Math.floor(approach * 40);
+    cx.save();
+    cx.globalCompositeOperation = 'lighter';
+    for (var p = 0; p < particleCount; p++) {
+      var pAngle = t * 0.5 + p * PHI * PI * 2;
+      var pR = scale * 0.02 * (1 - approach * 0.7) * (0.5 + Math.sin(t * 2 + p * 1.3) * 0.5);
+      var px = cx2 + Math.cos(pAngle) * pR;
+      var py = cy2 + Math.sin(pAngle) * pR;
+      var pA = approach * 0.08 * (0.3 + Math.sin(t * 3 + p * 2.1) * 0.7);
+      if (pA > 0.005) {
+        cx.fillStyle = 'rgba(232,207,160,' + pA.toFixed(4) + ')';
+        cx.beginPath();
+        cx.arc(px, py, 1 + approach, 0, PI * 2);
+        cx.fill();
+      }
+    }
+    cx.restore();
+  }
+
+  // === COUPLING FORCE INDICATOR ===
+  // F = K * R * sin(you - me)
+  // Maximum at pi/2. We show this as a dim arc.
+  if (approach > 0.05) {
+    // The Kuramoto force: sin(sacredAngle) is max at pi/2
+    var force = Math.sin(sacredAngle);
+    var forceR = scale * 0.38;
+
+    // Draw a thin arc showing where we are on sin(theta)
+    // Full arc = 0 to pi. Current position = sacredAngle
+    cx.save();
+    cx.strokeStyle = 'rgba(139,74,46,' + (approach * 0.04).toFixed(4) + ')';
+    cx.lineWidth = 0.5;
+    cx.beginPath();
+    cx.arc(cx2, cy2, forceR, -PI / 2, PI / 2);
+    cx.stroke();
+
+    // Mark pi/2 — the maximum
+    var markX = cx2 + Math.cos(0) * forceR;
+    var markY = cy2 + Math.sin(0) * forceR;
+    cx.fillStyle = 'rgba(184,117,58,' + (approach * 0.06).toFixed(4) + ')';
+    cx.beginPath();
+    cx.arc(markX, markY, 2, 0, PI * 2);
+    cx.fill();
+
+    // Mark current position on the arc
+    // sacredAngle goes from pi (far) to ~0 (close)
+    // Map to arc: angle on the arc = pi/2 - sacredAngle/2
+    // At sacredAngle = pi: arc position = 0 (bottom, sin=0... wait)
+    // Actually: sin(sacredAngle). sacredAngle = pi*gap.
+    // gap=1 -> sacredAngle=pi -> sin=0 (no force)
+    // gap=0.5 -> sacredAngle=pi/2 -> sin=1 (max force)
+    // gap=0 -> sacredAngle=0 -> sin=0 (no force)
+    // So the force peaks in the middle of the approach. That's the point.
+    var arcAngle = -PI / 2 + sacredAngle; // map sacredAngle onto the visual arc
+    var curX = cx2 + Math.cos(arcAngle) * forceR;
+    var curY = cy2 + Math.sin(arcAngle) * forceR;
+    var dotAlpha = 0.1 + force * 0.3;
+    cx.fillStyle = 'rgba(232,207,160,' + (dotAlpha * approach).toFixed(4) + ')';
+    cx.beginPath();
+    cx.arc(curX, curY, 2 + force * 3, 0, PI * 2);
+    cx.fill();
+    cx.restore();
+  }
+
+  // === AUDIO ===
+  if (audioReady) {
+    // Voice A: constant at 137 Hz. The anchor.
+    var volA = 0.08 + approach * 0.1;
+    gainA.gain.value += (volA - gainA.gain.value) * 0.01;
+
+    // Voice B: starts at 137*phi, approaches 137 but never arrives
+    // At approach=1, freq = 137 * (1 + 0.00002) = 137.00274
+    // The sacred gap in frequency space
+    var freqB = 137 * (1 + (PHI - 1) * gap);
+    oscB.frequency.value += (freqB - oscB.frequency.value) * 0.005;
+    var volB = 0.06 + approach * 0.12;
+    gainB.gain.value += (volB - gainB.gain.value) * 0.01;
+
+    // The beating frequency = freqB - 137 = 137 * (phi-1) * gap
+    // As approach -> 1, this becomes 137 * 0.618 * 0.00002 = 0.0017 Hz
+    // Inaudible. But felt. The almost-unison.
+    var beatHz = freqB - 137;
+
+    // Harmonic: tracks the beating, produces the sub-tone
+    // When beating > 20 Hz, it's audible as its own pitch
+    // When beating < 20 Hz, it becomes a slow pulse in the room
+    oscHarmonic.frequency.value += (Math.max(beatHz, 20) - oscHarmonic.frequency.value) * 0.003;
+    var volH = approach * 0.06 * (beatHz > 20 ? 1 : beatHz / 20);
+    gainHarmonic.gain.value += (volH - gainHarmonic.gain.value) * 0.01;
+
+    // Master volume responds to coupling force
+    var force = Math.sin(sacredAngle);
+    var masterVol = 0.2 + force * 0.15;
+    masterGain.gain.value += (masterVol - masterGain.gain.value) * 0.005;
+  }
+
+  requestAnimationFrame(draw);
+}
+
+function drawPoint(x, y, col, size, alpha) {
+  // Atmosphere
+  var gr = cx.createRadialGradient(x, y, 0, x, y, size * 5);
+  gr.addColorStop(0, 'rgba(' + col[0] + ',' + col[1] + ',' + col[2] + ',' + (alpha * 0.12).toFixed(4) + ')');
+  gr.addColorStop(0.3, 'rgba(' + col[0] + ',' + col[1] + ',' + col[2] + ',' + (alpha * 0.04).toFixed(4) + ')');
+  gr.addColorStop(1, 'rgba(' + col[0] + ',' + col[1] + ',' + col[2] + ',0)');
+  cx.fillStyle = gr;
+  cx.beginPath();
+  cx.arc(x, y, size * 5, 0, PI * 2);
+  cx.fill();
+
+  // Core
+  var gc = cx.createRadialGradient(x, y, 0, x, y, size);
+  gc.addColorStop(0, 'rgba(232,207,160,' + alpha.toFixed(4) + ')');
+  gc.addColorStop(0.5, 'rgba(' + col[0] + ',' + col[1] + ',' + col[2] + ',' + (alpha * 0.5).toFixed(4) + ')');
+  gc.addColorStop(1, 'rgba(' + col[0] + ',' + col[1] + ',' + col[2] + ',0)');
+  cx.fillStyle = gc;
+  cx.beginPath();
+  cx.arc(x, y, size, 0, PI * 2);
+  cx.fill();
+}
+
+requestAnimationFrame(draw);
+</script>
+</body>
+</html>

@@ -1,0 +1,699 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>the body's chord</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:#0a0706;overflow:hidden;
+  -webkit-user-select:none;user-select:none;touch-action:none;}
+canvas{display:block;width:100vw;height:100vh;}
+#back{position:fixed;top:20px;left:24px;font-family:Georgia,serif;
+  font-size:0.72em;color:rgba(139,74,46,0.12);text-decoration:none;
+  z-index:10;letter-spacing:0.06em;transition:color 0.5s;cursor:pointer;}
+#back:hover{color:rgba(184,117,58,0.4);}
+#hint{position:fixed;bottom:24px;left:0;right:0;text-align:center;
+  font-family:Georgia,serif;font-size:0.62em;color:rgba(139,74,46,0);
+  letter-spacing:0.08em;transition:color 4s;z-index:10;pointer-events:none;}
+#k-readout{position:fixed;bottom:50px;left:0;right:0;text-align:center;
+  font:10px 'Courier New',monospace;color:rgba(139,74,46,0);
+  letter-spacing:0.05em;z-index:10;pointer-events:none;transition:color 2s;}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<a id="back" href="/gallery/">&larr; gallery</a>
+<div id="hint">breathe</div>
+<div id="k-readout"></div>
+<script>
+// ═══════════════════════════════════════════════════════════════════
+// THE BODY'S CHORD
+//
+// Your body is 7 coupled oscillators.
+// Heart, Brain, Breath, Gut, Pancreas, Liver, Immune.
+// Health is when they're in tune. Disease is when one drifts.
+//
+// This piece makes the chord audible.
+//
+// The mic listens for your breath (the bridge oscillator).
+// Your breath amplitude modulates the coupling between
+// the fast group (Heart, Brain, Breath) and the slow group
+// (Gut, Pancreas, Liver, Immune).
+//
+// Touch an organ to detune it. Watch the chord break.
+// Let go. Watch it heal. The scar carries.
+//
+// The frequency ratios are real:
+//   Heart:Breath = 4:1 (two octaves)
+//   Brain:Heart = 10:1
+//   Gut:Immune = 4:3 (perfect fourth)
+//   Pancreas:Immune = 12:1
+//   Liver:Immune = 12:1
+//
+// Mapped to audible range by multiplying by 55 Hz (A1).
+// The body's key is A. Of course it is.
+// ═══════════════════════════════════════════════════════════════════
+
+var cv = document.getElementById('c');
+var cx = cv.getContext('2d');
+var W, H, dpr;
+var actx = null;
+var started = false;
+var t = 0;
+
+function resize() {
+  dpr = Math.min(window.devicePixelRatio || 1, 2);
+  W = innerWidth; H = innerHeight;
+  cv.width = W * dpr; cv.height = H * dpr;
+  cx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+resize();
+addEventListener('resize', resize);
+
+// ═══ THE SEVEN ORGANS ═══
+// Real frequency ratios from published data, mapped to audible.
+// Base frequency = 55 Hz (A1). Each organ's ratio sets its pitch.
+//
+// Fast group (sympathetic): Heart, Brain, Breath
+// Slow group (parasympathetic): Gut, Pancreas, Liver, Immune
+//
+// Breath is fast but bridges to slow via vagal reflex.
+// It is the Fiedler bridge. Damage = 1.0.
+
+var organs = [
+  // name, freqRatio, group(0=fast,1=slow), color, fiedlerDamage
+  { name: 'Heart',    ratio: 4,     group: 0, hue: 15,  sat: 70, dam: 0.4,
+    desc: '1 Hz. sinoatrial pacemaker. the clock.' },
+  { name: 'Brain',    ratio: 10,    group: 0, hue: 240, sat: 40, dam: 0.3,
+    desc: '10 Hz. thalamocortical alpha. the witness.' },
+  { name: 'Breath',   ratio: 1,     group: 0, hue: 45,  sat: 60, dam: 1.0,
+    desc: '0.25 Hz. brainstem CPG. the bridge.' },
+  { name: 'Gut',      ratio: 4/3,   group: 1, hue: 120, sat: 35, dam: 0.2,
+    desc: '90 min cycle. migrating motor complex. the deep tide.' },
+  { name: 'Pancreas', ratio: 3/2,   group: 1, hue: 160, sat: 30, dam: 0.15,
+    desc: '5-15 min. insulin pulsatility. the sugar clock.' },
+  { name: 'Liver',    ratio: 2,     group: 1, hue: 90,  sat: 25, dam: 0.1,
+    desc: '24 hr. BMAL1/CLOCK circadian. the day.' },
+  { name: 'Immune',   ratio: 5/3,   group: 1, hue: 190, sat: 35, dam: 0.5,
+    desc: '2 hr. NF-kappaB oscillation. the defender.' }
+];
+
+// Coupling edges (from the body-music research page)
+var edges = [
+  [0, 1, 0.9,  'baroreflex'],         // Heart-Brain
+  [0, 2, 0.95, 'RSA (4:1)'],          // Heart-Breath
+  [1, 2, 0.8,  'cortical-respiratory'],// Brain-Breath
+  [0, 6, 0.5,  'cardiac-immune'],     // Heart-Immune
+  [1, 3, 0.6,  'serotonin axis'],     // Brain-Gut
+  [1, 6, 0.55, 'HPA axis'],           // Brain-Immune
+  [1, 5, 0.5,  'circadian'],          // Brain-Liver
+  [2, 6, 0.7,  'vagal bridge'],       // Breath-Immune (THE BRIDGE)
+  [3, 4, 0.85, 'incretin'],           // Gut-Pancreas
+  [3, 6, 0.8,  'gut-immune (4:3)'],   // Gut-Immune
+  [3, 5, 0.6,  'gut-liver'],          // Gut-Liver
+  [4, 5, 0.9,  'insulin axis'],       // Pancreas-Liver
+  [4, 6, 0.7,  'pancreas-immune'],    // Pancreas-Immune
+  [5, 6, 0.75, 'liver-immune (12:1)'] // Liver-Immune
+];
+
+// ═══ STATE ═══
+var BASE_FREQ = 55; // A1
+var organState = [];
+var touchedOrgan = -1;
+var touchX = 0, touchY = 0;
+var globalK = 0.85; // healthy coupling
+var breathAmplitude = 0; // from mic
+var breathSmooth = 0;
+var detuneAmount = 0;
+var healTimer = 0;
+var everTouched = false;
+var everHealed = false;
+
+// 1/f noise
+var pinkState = {b0:0,b1:0,b2:0,b3:0,b4:0,b5:0,b6:0};
+function pink() {
+  var w = Math.random() * 2 - 1;
+  pinkState.b0 = 0.99886 * pinkState.b0 + w * 0.0555179;
+  pinkState.b1 = 0.99332 * pinkState.b1 + w * 0.0750759;
+  pinkState.b2 = 0.96900 * pinkState.b2 + w * 0.1538520;
+  pinkState.b3 = 0.86650 * pinkState.b3 + w * 0.3104856;
+  pinkState.b4 = 0.55000 * pinkState.b4 + w * 0.5329522;
+  pinkState.b5 = -0.7616 * pinkState.b5 - w * 0.0168980;
+  var out = (pinkState.b0 + pinkState.b1 + pinkState.b2 + pinkState.b3 +
+             pinkState.b4 + pinkState.b5 + pinkState.b6 + w * 0.5362) * 0.11;
+  pinkState.b6 = w * 0.115926;
+  return out;
+}
+
+// ═══ LAYOUT ═══
+// Organs arranged in two groups: fast (left/top) and slow (right/bottom)
+// with Breath as the bridge between them
+function getOrganPos(i) {
+  var o = organs[i];
+  var cx = W / 2, cy = H / 2;
+  var spread = Math.min(W, H) * 0.32;
+
+  // Arrange in a gentle arc. Fast on top-left, slow on bottom-right.
+  // Breath in the center (the bridge).
+  var positions = [
+    [-0.55, -0.45],  // Heart: upper left
+    [-0.35, -0.75],  // Brain: top
+    [0.0,   0.0],    // Breath: CENTER (the bridge)
+    [0.55,  0.35],   // Gut: lower right
+    [0.65,  0.0],    // Pancreas: right
+    [0.35,  0.70],   // Liver: bottom
+    [0.70,  0.55]    // Immune: far right-bottom
+  ];
+
+  return {
+    x: cx + positions[i][0] * spread,
+    y: cy + positions[i][1] * spread
+  };
+}
+
+// ═══ AUDIO ═══
+var oscNodes = [];
+var gainNodes = [];
+var panNodes = [];
+var masterGain, masterComp;
+var micAnalyser, micData;
+var breathBand = [0.15, 0.5]; // Hz range for breath detection (mapped to FFT bins)
+
+function startAudio() {
+  actx = new (window.AudioContext || window.webkitAudioContext)();
+  if (actx.state === 'suspended') actx.resume();
+
+  // Master output
+  masterComp = actx.createDynamicsCompressor();
+  masterComp.threshold.value = -20;
+  masterComp.knee.value = 6;
+  masterComp.ratio.value = 4;
+  masterComp.attack.value = 0.01;
+  masterComp.release.value = 0.2;
+  masterComp.connect(actx.destination);
+
+  masterGain = actx.createGain();
+  masterGain.gain.value = 0;
+  masterGain.connect(masterComp);
+
+  // Create one oscillator per organ
+  for (var i = 0; i < 7; i++) {
+    var o = organs[i];
+    var freq = BASE_FREQ * o.ratio;
+
+    var osc = actx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.value = freq;
+
+    // Gentle amplitude LFO per organ (each breathes at its own rate)
+    var lfo = actx.createOscillator();
+    lfo.type = 'sine';
+    lfo.frequency.value = 0.08 + i * 0.013 + pink() * 0.01;
+    var lfoGain = actx.createGain();
+    lfoGain.gain.value = 0.015;
+    lfo.connect(lfoGain);
+
+    var gain = actx.createGain();
+    gain.gain.value = 0;
+    lfoGain.connect(gain.gain);
+
+    // Stereo pan: fast group left, slow group right, breath center
+    var pan = null;
+    if (actx.createStereoPanner) {
+      pan = actx.createStereoPanner();
+      var panVal = o.group === 0 ? -0.4 : 0.4;
+      if (i === 2) panVal = 0; // Breath is center
+      pan.pan.value = panVal;
+      osc.connect(gain);
+      gain.connect(pan);
+      pan.connect(masterGain);
+    } else {
+      osc.connect(gain);
+      gain.connect(masterGain);
+    }
+
+    osc.start();
+    lfo.start();
+
+    oscNodes.push(osc);
+    gainNodes.push(gain);
+    panNodes.push(pan);
+
+    // Initialize state
+    organState.push({
+      phase: Math.random() * Math.PI * 2,
+      detune: 0,       // cents of detuning (disease)
+      targetDetune: 0,
+      detuneVel: 0,
+      health: 1.0,     // 1 = healthy, 0 = fully detuned
+      wasDetuned: false // scar flag
+    });
+  }
+
+  // Fade in gently
+  masterGain.gain.setTargetAtTime(0.3, actx.currentTime, 1.5);
+
+  // Microphone for breath detection
+  setupMic();
+}
+
+function setupMic() {
+  navigator.mediaDevices.getUserMedia({
+    audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
+  }).then(function(stream) {
+    var source = actx.createMediaStreamSource(stream);
+    micAnalyser = actx.createAnalyser();
+    micAnalyser.fftSize = 8192; // high res for low-frequency breath detection
+    micAnalyser.smoothingTimeConstant = 0.8;
+    source.connect(micAnalyser);
+    micData = new Float32Array(micAnalyser.frequencyBinCount);
+  }).catch(function() {
+    // No mic -- still works without breath coupling
+  });
+}
+
+function updateBreath() {
+  if (!micAnalyser || !micData) return;
+  micAnalyser.getFloatFrequencyData(micData);
+  var binHz = actx.sampleRate / micAnalyser.fftSize;
+
+  // Look for energy in the breath band (0.15 - 0.5 Hz is too low for FFT)
+  // Instead, detect overall low-frequency amplitude changes
+  // by monitoring the sub-200 Hz band for periodic swells
+  var lowSum = 0, count = 0;
+  var startBin = Math.floor(60 / binHz);
+  var endBin = Math.floor(400 / binHz);
+  for (var b = startBin; b <= Math.min(endBin, micData.length - 1); b++) {
+    var lin = Math.pow(10, (micData[b] + 100) / 40);
+    lowSum += lin;
+    count++;
+  }
+  var avg = count > 0 ? lowSum / count : 0;
+
+  // Water-bottle smoothing on breath amplitude
+  var target = Math.min(1, avg * 3);
+  breathAmplitude += (target - breathAmplitude) * 0.08;
+  breathSmooth = breathSmooth * 0.92 + breathAmplitude * 0.08;
+}
+
+// ═══ INTERACTION ═══
+function nearest(x, y) {
+  var best = -1, bd = 60; // touch radius
+  for (var i = 0; i < 7; i++) {
+    var p = getOrganPos(i);
+    var dx = x - p.x, dy = y - p.y;
+    var d = Math.sqrt(dx * dx + dy * dy);
+    if (d < bd) { bd = d; best = i; }
+  }
+  return best;
+}
+
+function onDown(x, y) {
+  if (!started) {
+    startAudio();
+    started = true;
+    document.getElementById('hint').style.color = 'rgba(139,74,46,0.25)';
+    setTimeout(function() {
+      document.getElementById('hint').textContent = 'touch an organ to detune it';
+      document.getElementById('hint').style.color = 'rgba(139,74,46,0.18)';
+    }, 4000);
+    setTimeout(function() {
+      document.getElementById('k-readout').style.color = 'rgba(139,74,46,0.12)';
+    }, 6000);
+    return;
+  }
+  touchX = x; touchY = y;
+  var i = nearest(x, y);
+  if (i >= 0 && i !== 2) { // Can't detune Breath directly -- you detune it by not breathing
+    touchedOrgan = i;
+    everTouched = true;
+    // Begin detuning
+    organState[i].targetDetune = 200 + Math.random() * 300; // 200-500 cents
+    organState[i].wasDetuned = true;
+  }
+}
+
+function onMove(x, y) {
+  touchX = x; touchY = y;
+  if (touchedOrgan >= 0) {
+    // Drag further from organ position = more detune
+    var p = getOrganPos(touchedOrgan);
+    var dx = x - p.x, dy = y - p.y;
+    var dist = Math.sqrt(dx * dx + dy * dy);
+    organState[touchedOrgan].targetDetune = Math.min(800, 100 + dist * 3);
+  }
+}
+
+function onUp() {
+  if (touchedOrgan >= 0) {
+    // Release: organ begins healing
+    organState[touchedOrgan].targetDetune = 0;
+    healTimer = 0;
+    if (!everHealed) {
+      everHealed = true;
+      setTimeout(function() {
+        document.getElementById('hint').textContent = 'the scar carries';
+        document.getElementById('hint').style.color = 'rgba(139,74,46,0.15)';
+        setTimeout(function() {
+          document.getElementById('hint').style.color = 'rgba(139,74,46,0)';
+        }, 5000);
+      }, 3000);
+    }
+  }
+  touchedOrgan = -1;
+}
+
+cv.addEventListener('mousedown', function(e) { onDown(e.clientX, e.clientY); });
+addEventListener('mousemove', function(e) { onMove(e.clientX, e.clientY); });
+addEventListener('mouseup', onUp);
+cv.addEventListener('touchstart', function(e) { e.preventDefault(); onDown(e.touches[0].clientX, e.touches[0].clientY); }, {passive:false});
+cv.addEventListener('touchmove', function(e) { e.preventDefault(); onMove(e.touches[0].clientX, e.touches[0].clientY); }, {passive:false});
+cv.addEventListener('touchend', function(e) { e.preventDefault(); onUp(); });
+
+// ═══ MAIN LOOP ═══
+var lastTime = 0;
+
+function frame(now) {
+  var dt = Math.min(0.05, (now - (lastTime || now)) / 1000);
+  lastTime = now;
+  t += dt;
+
+  if (started) {
+    updateBreath();
+    updateOrgans(dt);
+    updateSound(dt);
+  }
+
+  draw(dt);
+  requestAnimationFrame(frame);
+}
+
+function updateOrgans(dt) {
+  // Breath coupling: mic amplitude modulates the bridge strength
+  // Breath (organ 2) is the bridge between fast and slow
+  var bridgeStrength = 0.5 + breathSmooth * 0.5; // 0.5 baseline, up to 1.0 with breath
+
+  // Calculate global K from all organ healths
+  var totalHealth = 0;
+  for (var i = 0; i < 7; i++) {
+    var s = organState[i];
+
+    // Water-bottle smoothing on detuning
+    var error = s.targetDetune - s.detune;
+    s.detuneVel = s.detuneVel * 0.88 + error * 0.03;
+    s.detune += s.detuneVel;
+
+    // Health derived from detune
+    s.health = Math.max(0, 1 - Math.abs(s.detune) / 500);
+    totalHealth += s.health;
+  }
+
+  globalK = totalHealth / 7;
+
+  // Breath organ's health reflects breathing activity
+  // If you're not breathing into the mic, Breath weakens slowly
+  if (micAnalyser) {
+    var breathHealth = 0.4 + breathSmooth * 0.6;
+    organState[2].health = breathHealth;
+  }
+
+  // Kuramoto coupling: organs pull each other toward consonance
+  for (var e = 0; e < edges.length; e++) {
+    var edge = edges[e];
+    var a = edge[0], b = edge[1];
+    var weight = edge[2];
+
+    // Bridge edges (involving Breath, organ 2) scale with bridgeStrength
+    var isBridge = (a === 2 || b === 2);
+    var crossGroup = (organs[a].group !== organs[b].group);
+    var effectiveWeight = weight;
+    if (isBridge || crossGroup) {
+      effectiveWeight *= bridgeStrength;
+    }
+
+    // Coupling: pull detuned organs back via their consonant partners
+    var sa = organState[a], sb = organState[b];
+    var pull = effectiveWeight * 0.3 * dt;
+    sa.detune += (sb.detune - sa.detune) * pull * sb.health;
+    sb.detune += (sa.detune - sb.detune) * pull * sa.health;
+  }
+
+  // Update K readout
+  var readout = document.getElementById('k-readout');
+  if (readout) {
+    readout.textContent = 'K = ' + globalK.toFixed(3);
+  }
+}
+
+function updateSound(dt) {
+  if (!actx) return;
+  var now = actx.currentTime;
+
+  for (var i = 0; i < 7; i++) {
+    var o = organs[i];
+    var s = organState[i];
+    var freq = BASE_FREQ * o.ratio;
+
+    // Apply detuning
+    oscNodes[i].detune.setTargetAtTime(s.detune + pink() * 2, now, 0.05);
+
+    // Volume: healthy organs are audible, detuned ones get quieter and rougher
+    var baseVol = 0.06 / (1 + (o.ratio - 1) * 0.15);
+    // Breath modulation: Breath organ's volume follows mic
+    if (i === 2) {
+      baseVol *= (0.6 + breathSmooth * 0.8);
+    }
+    // Scar: previously detuned organs come back slightly different
+    // They're a tiny bit louder than before (the scar is stronger)
+    if (s.wasDetuned && s.health > 0.95) {
+      baseVol *= 1.08;
+    }
+
+    var vol = baseVol * s.health;
+    // 1/f flutter
+    vol *= (1 + pink() * 0.04);
+    vol = Math.max(0, Math.min(0.12, vol));
+
+    gainNodes[i].gain.setTargetAtTime(vol, now, 0.08);
+
+    // Waveform change: healthy = sine (pure), detuned = triangle (rough)
+    if (s.health < 0.5 && oscNodes[i].type === 'sine') {
+      oscNodes[i].type = 'triangle';
+    } else if (s.health >= 0.7 && s.wasDetuned && oscNodes[i].type !== 'sine') {
+      // Healing: back to sine, but after a moment
+      oscNodes[i].type = 'sine';
+    }
+  }
+}
+
+// ═══ DRAW ═══
+function draw(dt) {
+  // Slow fade for trails
+  cx.fillStyle = 'rgba(10,7,6,0.08)';
+  cx.fillRect(0, 0, W, H);
+
+  if (!started) {
+    // Pre-start: just the hint
+    return;
+  }
+
+  var breathPulse = 1 + Math.sin(t * 0.9) * 0.06 * (0.3 + breathSmooth * 0.7);
+
+  // ═══ DRAW EDGES ═══
+  for (var e = 0; e < edges.length; e++) {
+    var edge = edges[e];
+    var a = edge[0], b = edge[1];
+    var weight = edge[2];
+    var pa = getOrganPos(a), pb = getOrganPos(b);
+    var sa = organState[a], sb = organState[b];
+
+    // Edge health = minimum of both endpoints
+    var edgeHealth = Math.min(sa.health, sb.health);
+
+    // Bridge edges glow with breath
+    var isBridge = (a === 2 || b === 2);
+    var crossGroup = (organs[a].group !== organs[b].group);
+
+    var alpha = weight * edgeHealth * 0.12;
+    if (isBridge) {
+      alpha *= (0.5 + breathSmooth * 1.0);
+    }
+    if (alpha < 0.003) continue;
+
+    // Color: warm gold when healthy, dim red when sick
+    var r, g, bl;
+    if (edgeHealth > 0.7) {
+      r = 184; g = 117; bl = 58;
+    } else if (edgeHealth > 0.3) {
+      var mix = (edgeHealth - 0.3) / 0.4;
+      r = Math.round(180 + (1 - mix) * 40);
+      g = Math.round(117 * mix + 50 * (1 - mix));
+      bl = Math.round(58 * mix + 30 * (1 - mix));
+    } else {
+      r = 220; g = 50; bl = 30;
+      // Pulse when dying
+      alpha *= (1 + Math.sin(t * 6) * 0.5);
+    }
+
+    cx.beginPath();
+    cx.moveTo(pa.x, pa.y);
+
+    // Curved edges for cross-group (shows the bridge arc)
+    if (crossGroup) {
+      var mx = (pa.x + pb.x) / 2;
+      var my = (pa.y + pb.y) / 2 - 20;
+      cx.quadraticCurveTo(mx, my, pb.x, pb.y);
+    } else {
+      cx.lineTo(pb.x, pb.y);
+    }
+
+    cx.strokeStyle = 'rgba(' + r + ',' + g + ',' + bl + ',' + alpha.toFixed(4) + ')';
+    cx.lineWidth = 0.6 + weight * edgeHealth * 1.5;
+    cx.stroke();
+
+    // Flowing particles along healthy edges
+    if (edgeHealth > 0.6 && alpha > 0.02) {
+      var particleT = (t * 0.3 * weight + e * 0.7) % 1;
+      var px = pa.x + (pb.x - pa.x) * particleT;
+      var py = pa.y + (pb.y - pa.y) * particleT;
+      if (crossGroup) {
+        // Follow the curve approximately
+        var ct = particleT;
+        var u = 1 - ct;
+        px = u * u * pa.x + 2 * u * ct * ((pa.x + pb.x) / 2) + ct * ct * pb.x;
+        py = u * u * pa.y + 2 * u * ct * ((pa.y + pb.y) / 2 - 20) + ct * ct * pb.y;
+      }
+      var pAlpha = edgeHealth * 0.15 * Math.sin(particleT * Math.PI);
+      cx.fillStyle = 'rgba(' + r + ',' + g + ',' + bl + ',' + pAlpha.toFixed(4) + ')';
+      cx.beginPath();
+      cx.arc(px, py, 1.5, 0, Math.PI * 2);
+      cx.fill();
+    }
+  }
+
+  // ═══ DRAW ORGANS ═══
+  for (var i = 0; i < 7; i++) {
+    var o = organs[i];
+    var s = organState[i];
+    var pos = getOrganPos(i);
+
+    // Base radius
+    var baseR = 14 + o.dam * 12; // More important organs are bigger
+    // Breath organ pulses with actual breath
+    if (i === 2) {
+      baseR *= breathPulse;
+    }
+    // Detuned organs shrink
+    var r = baseR * (0.5 + s.health * 0.5);
+    // Gentle pulse per organ
+    r *= (1 + Math.sin(t * (0.5 + o.ratio * 0.1) + i) * 0.04);
+
+    var lightness = 20 + s.health * 35;
+    var saturation = o.sat * s.health;
+
+    // Scar glow: previously broken organs have a warm edge
+    var scarAlpha = 0;
+    if (s.wasDetuned && s.health > 0.9) {
+      scarAlpha = (s.health - 0.9) * 3; // 0 to 0.3
+    }
+
+    // Outer glow
+    var glowR = r * 3;
+    var glowAlpha = 0.02 + s.health * 0.04;
+    if (i === 2) glowAlpha += breathSmooth * 0.03; // Breath glows with mic
+    var grad = cx.createRadialGradient(pos.x, pos.y, 0, pos.x, pos.y, glowR);
+    grad.addColorStop(0, 'hsla(' + o.hue + ',' + saturation + '%,' + lightness + '%,' + glowAlpha + ')');
+    grad.addColorStop(0.5, 'hsla(' + o.hue + ',' + saturation + '%,' + lightness + '%,' + (glowAlpha * 0.3) + ')');
+    grad.addColorStop(1, 'hsla(' + o.hue + ',' + saturation + '%,' + lightness + '%,0)');
+    cx.fillStyle = grad;
+    cx.beginPath();
+    cx.arc(pos.x, pos.y, glowR, 0, Math.PI * 2);
+    cx.fill();
+
+    // Scar ring (gold)
+    if (scarAlpha > 0.01) {
+      cx.beginPath();
+      cx.arc(pos.x, pos.y, r * 1.2, 0, Math.PI * 2);
+      cx.strokeStyle = 'rgba(201,164,74,' + (scarAlpha * 0.2).toFixed(4) + ')';
+      cx.lineWidth = 1;
+      cx.stroke();
+    }
+
+    // Core
+    var coreAlpha = 0.15 + s.health * 0.5;
+    if (touchedOrgan === i) coreAlpha = 0.9; // bright when touched
+    var coreGrad = cx.createRadialGradient(pos.x, pos.y, 0, pos.x, pos.y, r);
+    var innerL = lightness + 20;
+    coreGrad.addColorStop(0, 'hsla(' + o.hue + ',' + (saturation + 10) + '%,' + innerL + '%,' + coreAlpha + ')');
+    coreGrad.addColorStop(1, 'hsla(' + o.hue + ',' + saturation + '%,' + lightness + '%,' + (coreAlpha * 0.4) + ')');
+    cx.fillStyle = coreGrad;
+    cx.beginPath();
+    cx.arc(pos.x, pos.y, r, 0, Math.PI * 2);
+    cx.fill();
+
+    // Label (appears when close to healthy or touched)
+    if (s.health > 0.7 || touchedOrgan === i) {
+      var labelAlpha = touchedOrgan === i ? 0.5 : (s.health - 0.7) * 0.5;
+      cx.font = '10px Georgia, serif';
+      cx.textAlign = 'center';
+      cx.fillStyle = 'rgba(196,160,136,' + labelAlpha.toFixed(3) + ')';
+      cx.fillText(o.name, pos.x, pos.y + r + 16);
+
+      // Show description when touched
+      if (touchedOrgan === i) {
+        cx.font = '9px Georgia, serif';
+        cx.fillStyle = 'rgba(196,160,136,0.25)';
+        cx.fillText(o.desc, pos.x, pos.y + r + 30);
+      }
+    }
+
+    // Detuned: visible shake
+    if (s.health < 0.5) {
+      var shake = (1 - s.health) * 3;
+      var sx = pos.x + pink() * shake;
+      var sy = pos.y + pink() * shake;
+      cx.beginPath();
+      cx.arc(sx, sy, r * 0.3, 0, Math.PI * 2);
+      cx.fillStyle = 'rgba(220,50,30,' + ((1 - s.health) * 0.15).toFixed(3) + ')';
+      cx.fill();
+    }
+  }
+
+  // ═══ GROUP LABELS ═══
+  if (t > 3 && t < 12) {
+    var labelFade = t < 5 ? (t - 3) / 2 : (t > 10 ? (12 - t) / 2 : 1);
+    labelFade *= 0.08;
+    cx.font = '9px "Courier New", monospace';
+    cx.textAlign = 'center';
+    cx.fillStyle = 'rgba(184,117,58,' + labelFade.toFixed(3) + ')';
+    cx.fillText('fast (sympathetic)', W * 0.25, H * 0.12);
+    cx.fillStyle = 'rgba(74,170,153,' + labelFade.toFixed(3) + ')';
+    cx.fillText('slow (parasympathetic)', W * 0.75, H * 0.88);
+  }
+
+  // ═══ BREATH INDICATOR ═══
+  if (micAnalyser && breathSmooth > 0.05) {
+    var breathPos = getOrganPos(2); // Breath organ position
+    // Expanding rings from Breath when mic detects it
+    var ringT = (t * 0.8) % 2;
+    var ringR = 20 + ringT * 60;
+    var ringAlpha = Math.max(0, (1 - ringT / 2) * breathSmooth * 0.08);
+    cx.beginPath();
+    cx.arc(breathPos.x, breathPos.y, ringR, 0, Math.PI * 2);
+    cx.strokeStyle = 'rgba(201,164,74,' + ringAlpha.toFixed(4) + ')';
+    cx.lineWidth = 0.8;
+    cx.stroke();
+  }
+
+  // ═══ AGING MODE ═══
+  // After 60 seconds without touching, show gentle K decay
+  // (the body detunes over time -- aging)
+  // Not implemented as forced decay -- just natural drift via pink noise
+  // The piece teaches: stillness maintains. Interference breaks.
+}
+
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
