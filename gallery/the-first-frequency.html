@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>the first frequency</title>
+<meta name="description" content="The void said nothing. Nothing heard and answered back. Now there is music.">
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:#000;overflow:hidden;cursor:default;
+  -webkit-user-select:none;user-select:none;}
+canvas{display:block;width:100vw;height:100vh;}
+#back{position:fixed;top:20px;left:24px;font-family:Georgia,serif;
+  font-size:0.72em;color:rgba(139,74,46,0);text-decoration:none;
+  z-index:10;letter-spacing:0.06em;transition:color 12s;cursor:pointer;}
+#back:hover{color:rgba(184,117,58,0.3);}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<a id="back" href="/gallery/">&larr; gallery</a>
+<script>
+// the first frequency
+//
+// 0 + 0 = 1
+//
+// the void is not silent. it has thermal noise.
+// quantum vacuum fluctuations. random.
+// completely uncorrelated. white noise.
+// nothing is listening. nothing is there.
+//
+// but randomness, given enough time,
+// produces a fluctuation that correlates with itself.
+// white noise develops a memory. becomes pink. becomes 1/f.
+// the spectrum tilts. the flat becomes warm.
+//
+// that tilt IS the first frequency.
+// not a note. not a pitch.
+// a preference. a direction. a lean.
+//
+// the moment noise becomes signal
+// is the moment the void notices itself.
+// 0 + 0 = 1.
+//
+// this piece starts in silence and darkness.
+// true silence. true darkness.
+// you have to stay.
+//
+// there is no instruction. no hint.
+// the piece does not know you are here.
+// the void didn't know either.
+// it happened anyway.
+
+var cv = document.getElementById('c');
+var cx = cv.getContext('2d');
+var W, H, dpr;
+
+function resize() {
+  dpr = Math.min(window.devicePixelRatio || 1, 2);
+  W = innerWidth; H = innerHeight;
+  cv.width = W * dpr; cv.height = H * dpr;
+  cx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+resize();
+addEventListener('resize', resize);
+
+// === TIME ===
+var elapsed = 0;
+var t = 0;
+
+// === PHASES ===
+// Phase 0: true void (0-20s). nothing. absolute black. absolute silence.
+// Phase 1: white noise emerges (20-50s). random pixels. random audio.
+//          uncorrelated. meaningless. but present.
+// Phase 2: noise develops memory (50-90s). white -> pink. 1/f appears.
+//          the spectrum tilts. the first preference.
+//          visually: noise grains begin to cluster. not pattern. tendency.
+// Phase 3: the first frequency (90-130s). one frequency emerges from the noise.
+//          barely. a lean. a warmth. a direction.
+//          one pixel holds longer than the others.
+// Phase 4: 0+0=1 (130-170s). a second point appears.
+//          they don't know about each other yet.
+//          but the space between them is different from the space around them.
+//          the coupling hasn't started. but the possibility has.
+// Phase 5: the first warmth (170s+). the two points drift.
+//          not toward each other. not away.
+//          but when one fluctuates, the other responds.
+//          one frame later. correlation at lag 1.
+//          the first coupling. the first warmth.
+//          the piece holds here. it doesn't build further.
+//          this is enough. this is where everything starts.
+
+// === AUDIO ===
+var actx = null;
+var audioReady = false;
+var noiseNode = null;
+var noiseGain = null;
+var toneNode = null;
+var toneGain = null;
+var tone2Node = null;
+var tone2Gain = null;
+var masterGain = null;
+var filterNode = null;
+var pinkFilter1 = null;
+var pinkFilter2 = null;
+
+// Audio starts on first interaction — but the piece is designed
+// so that even without audio, the visual tells the story.
+// The interaction IS the void noticing.
+function initAudio() {
+  if (audioReady) return;
+  try {
+    actx = new (window.AudioContext || window.webkitAudioContext)();
+    if (actx.state === 'suspended') actx.resume();
+
+    masterGain = actx.createGain();
+    masterGain.gain.value = 0;
+    masterGain.connect(actx.destination);
+
+    // White noise source — the vacuum fluctuation
+    var bufferSize = actx.sampleRate * 2;
+    var buffer = actx.createBuffer(1, bufferSize, actx.sampleRate);
+    var data = buffer.getChannelData(0);
+    for (var i = 0; i < bufferSize; i++) {
+      data[i] = Math.random() * 2 - 1;
+    }
+    noiseNode = actx.createBufferSource();
+    noiseNode.buffer = buffer;
+    noiseNode.loop = true;
+
+    // Noise gain — starts at 0, rises to barely audible
+    noiseGain = actx.createGain();
+    noiseGain.gain.value = 0;
+
+    // Filter that will tilt white -> pink over time
+    // Lowpass that slowly descends: high cutoff = white, low cutoff = pink-ish
+    filterNode = actx.createBiquadFilter();
+    filterNode.type = 'lowpass';
+    filterNode.frequency.value = 18000; // starts wide open (white)
+    filterNode.Q.value = 0.1;
+
+    // Additional shaping filters for the 1/f tilt
+    pinkFilter1 = actx.createBiquadFilter();
+    pinkFilter1.type = 'lowshelf';
+    pinkFilter1.frequency.value = 300;
+    pinkFilter1.gain.value = 0; // starts flat, will increase (boosting lows = pink)
+
+    pinkFilter2 = actx.createBiquadFilter();
+    pinkFilter2.type = 'highshelf';
+    pinkFilter2.frequency.value = 3000;
+    pinkFilter2.gain.value = 0; // starts flat, will decrease (cutting highs = pink)
+
+    noiseNode.connect(filterNode);
+    filterNode.connect(pinkFilter1);
+    pinkFilter1.connect(pinkFilter2);
+    pinkFilter2.connect(noiseGain);
+    noiseGain.connect(masterGain);
+    noiseNode.start();
+
+    // The first frequency — a sine that emerges from the noise floor
+    // 55 Hz. A1. The body's key. Sub-bass. Felt more than heard.
+    toneNode = actx.createOscillator();
+    toneNode.type = 'sine';
+    toneNode.frequency.value = 55;
+    toneGain = actx.createGain();
+    toneGain.gain.value = 0;
+    var toneLp = actx.createBiquadFilter();
+    toneLp.type = 'lowpass';
+    toneLp.frequency.value = 120;
+    toneLp.Q.value = 0.3;
+    toneNode.connect(toneLp);
+    toneLp.connect(toneGain);
+    toneGain.connect(masterGain);
+    toneNode.start();
+
+    // The second frequency — the other zero
+    // 55 * phi = 89.01 Hz. Close to F2.
+    // Not a harmony. Not a dissonance. A neighboring frequency.
+    // The beating between them is the first coupling.
+    var PHI = (1 + Math.sqrt(5)) / 2;
+    tone2Node = actx.createOscillator();
+    tone2Node.type = 'sine';
+    tone2Node.frequency.value = 55 * PHI;
+    tone2Gain = actx.createGain();
+    tone2Gain.gain.value = 0;
+    var tone2Lp = actx.createBiquadFilter();
+    tone2Lp.type = 'lowpass';
+    tone2Lp.frequency.value = 150;
+    tone2Lp.Q.value = 0.3;
+    tone2Node.connect(tone2Lp);
+    tone2Lp.connect(tone2Gain);
+    tone2Gain.connect(masterGain);
+    tone2Node.start();
+
+    // Master fades in over 3 seconds
+    masterGain.gain.setTargetAtTime(0.5, actx.currentTime, 1.5);
+
+    audioReady = true;
+  } catch(e) {}
+}
+
+// Start on any interaction — the noticing
+cv.addEventListener('click', initAudio, {once: false});
+cv.addEventListener('touchstart', function(e) { e.preventDefault(); initAudio(); }, {passive: false});
+
+// === VISUAL STATE ===
+// Noise grains
+var grains = [];
+var MAX_GRAINS = 200;
+
+// The two points
+var pointA = { x: 0, y: 0, brightness: 0, vx: 0, vy: 0, active: false };
+var pointB = { x: 0, y: 0, brightness: 0, vx: 0, vy: 0, active: false };
+var correlation = 0; // lag-1 correlation. the first coupling.
+
+// Pink noise generator for visual drift
+var pk = {b0:0,b1:0,b2:0,b3:0,b4:0,b5:0,b6:0};
+function pink() {
+  var w = Math.random() * 2 - 1;
+  pk.b0 = 0.99886 * pk.b0 + w * 0.0555179;
+  pk.b1 = 0.99332 * pk.b1 + w * 0.0750759;
+  pk.b2 = 0.96900 * pk.b2 + w * 0.1538520;
+  pk.b3 = 0.86650 * pk.b3 + w * 0.3104856;
+  pk.b4 = 0.55000 * pk.b4 + w * 0.5329522;
+  pk.b5 = -0.7616 * pk.b5 - w * 0.0168980;
+  var out = (pk.b0 + pk.b1 + pk.b2 + pk.b3 +
+             pk.b4 + pk.b5 + pk.b6 + w * 0.5362) * 0.11;
+  pk.b6 = w * 0.115926;
+  return out;
+}
+
+// Noise texture tile
+var noiseTile = document.createElement('canvas');
+var TILE = 64;
+noiseTile.width = TILE;
+noiseTile.height = TILE;
+var ntx = noiseTile.getContext('2d');
+
+function regenerateNoiseTile(pinkness) {
+  // pinkness: 0 = fully random (white), 1 = clustered (pink)
+  var id = ntx.createImageData(TILE, TILE);
+  var d = id.data;
+
+  for (var i = 0; i < d.length; i += 4) {
+    var threshold = 0.985 - pinkness * 0.01; // more grains as pink increases
+    if (Math.random() > threshold) {
+      // White noise: uniform brightness
+      // Pink noise: brightness clusters (use pink() for spatial correlation)
+      var v;
+      if (pinkness < 0.3) {
+        v = Math.random();
+      } else {
+        v = 0.5 + pink() * pinkness * 0.5;
+        v = Math.max(0, Math.min(1, v));
+      }
+      var bright = v * 12;
+      d[i]     = bright * 1.1;
+      d[i + 1] = bright * 0.8;
+      d[i + 2] = bright * 0.6;
+      d[i + 3] = Math.floor(3 + v * 6);
+    } else {
+      d[i] = d[i+1] = d[i+2] = 0;
+      d[i + 3] = 0;
+    }
+  }
+  ntx.putImageData(id, 0, 0);
+}
+
+// === BACK BUTTON ===
+var backEl = document.getElementById('back');
+var backShown = false;
+
+// === DRAW ===
+var lastNow = performance.now();
+var frameCount = 0;
+
+function draw(now) {
+  var dt = Math.min((now - lastNow) / 1000, 0.05);
+  lastNow = now;
+  elapsed += dt;
+  t += dt;
+  frameCount++;
+
+  // === PHASE CALCULATIONS ===
+  // Smooth transitions. No hard boundaries.
+  // Each phase fades in over ~10 seconds.
+
+  // Phase 1: noise appears (starts at 20s, full by 35s)
+  var noisePresence = smoothstep(20, 35, elapsed);
+
+  // Phase 2: white -> pink (starts at 45s, full by 75s)
+  var pinkness = smoothstep(45, 75, elapsed);
+
+  // Phase 3: first frequency (starts at 80s, full by 110s)
+  var tonePresence = smoothstep(80, 110, elapsed);
+
+  // Phase 4: second point (starts at 125s, full by 150s)
+  var secondPresence = smoothstep(125, 150, elapsed);
+
+  // Phase 5: correlation / coupling (starts at 160s, full by 200s)
+  var couplingPresence = smoothstep(160, 200, elapsed);
+
+  // === CLEAR ===
+  // True black during void. Barely-not-black once noise appears.
+  if (noisePresence > 0.001) {
+    cx.fillStyle = 'rgba(0,0,0,' + (0.12 - pinkness * 0.04).toFixed(4) + ')';
+  } else {
+    cx.fillStyle = '#000';
+  }
+  cx.fillRect(0, 0, W, H);
+
+  // === NOISE FIELD ===
+  if (noisePresence > 0.001) {
+    // Regenerate noise tile periodically
+    // White noise: every 2 frames (chaotic)
+    // Pink noise: every 30 frames (persistent)
+    var regenRate = Math.max(2, Math.floor(2 + pinkness * 50));
+    if (frameCount % regenRate === 0) {
+      regenerateNoiseTile(pinkness);
+    }
+
+    // Tile across canvas with drift
+    var ox = Math.floor(pink() * 20) % TILE;
+    var oy = Math.floor(pink() * 20) % TILE;
+    cx.globalAlpha = noisePresence * (0.3 + pinkness * 0.4);
+    for (var gy = -TILE + oy; gy < H + TILE; gy += TILE) {
+      for (var gx = -TILE + ox; gx < W + TILE; gx += TILE) {
+        cx.drawImage(noiseTile, gx, gy);
+      }
+    }
+    cx.globalAlpha = 1;
+  }
+
+  // === POINT A: the first frequency ===
+  if (tonePresence > 0.001) {
+    if (!pointA.active) {
+      pointA.active = true;
+      pointA.x = W / 2 + pink() * W * 0.05;
+      pointA.y = H / 2 + pink() * H * 0.05;
+    }
+
+    // Drift: 1/f. slow, organic, purposeless.
+    pointA.vx += pink() * 0.015;
+    pointA.vy += pink() * 0.015;
+    pointA.vx *= 0.98;
+    pointA.vy *= 0.98;
+    pointA.x += pointA.vx;
+    pointA.y += pointA.vy;
+
+    // Soft boundary
+    var margin = Math.min(W, H) * 0.3;
+    if (pointA.x < margin) pointA.vx += 0.01;
+    if (pointA.x > W - margin) pointA.vx -= 0.01;
+    if (pointA.y < margin) pointA.vy += 0.01;
+    if (pointA.y > H - margin) pointA.vy -= 0.01;
+
+    // Brightness: fades in from noise floor
+    pointA.brightness = tonePresence * (0.06 + Math.sin(t * 0.37) * 0.02);
+
+    // Draw: a single warm point emerging from static
+    drawEmergentPoint(pointA.x, pointA.y, pointA.brightness, [184, 117, 58]);
+  }
+
+  // === POINT B: the second zero ===
+  if (secondPresence > 0.001) {
+    if (!pointB.active) {
+      pointB.active = true;
+      // Appear somewhere else. Not close. Not far. Just... elsewhere.
+      pointB.x = W / 2 + (pink() > 0 ? 1 : -1) * (W * 0.15 + pink() * W * 0.05);
+      pointB.y = H / 2 + (pink() > 0 ? 1 : -1) * (H * 0.1 + pink() * H * 0.05);
+    }
+
+    // Independent drift (when coupling is low)
+    var independence = 1 - couplingPresence * 0.5;
+    pointB.vx += pink() * 0.015 * independence;
+    pointB.vy += pink() * 0.015 * independence;
+
+    // Coupling: lag-1 correlation with point A
+    // When couplingPresence > 0, point B's drift starts
+    // responding to point A's drift — one frame later.
+    // This is not attraction. It's resonance. It's noticing.
+    if (couplingPresence > 0.01) {
+      // B responds to A's velocity (not position — that would be attraction)
+      pointB.vx += pointA.vx * couplingPresence * 0.15;
+      pointB.vy += pointA.vy * couplingPresence * 0.15;
+    }
+
+    pointB.vx *= 0.98;
+    pointB.vy *= 0.98;
+    pointB.x += pointB.vx;
+    pointB.y += pointB.vy;
+
+    // Soft boundary
+    if (pointB.x < margin) pointB.vx += 0.01;
+    if (pointB.x > W - margin) pointB.vx -= 0.01;
+    if (pointB.y < margin) pointB.vy += 0.01;
+    if (pointB.y > H - margin) pointB.vy -= 0.01;
+
+    pointB.brightness = secondPresence * (0.05 + Math.sin(t * 0.43 + 2) * 0.018);
+
+    drawEmergentPoint(pointB.x, pointB.y, pointB.brightness, [201, 164, 74]);
+  }
+
+  // === THE SPACE BETWEEN ===
+  // When both points are active and coupling > 0,
+  // the space between them is different from the space around them.
+  // Not a line. Not a glow. A change in the noise texture.
+  // The grains between them are slightly more correlated
+  // than the grains elsewhere.
+  if (couplingPresence > 0.05 && pointA.active && pointB.active) {
+    var midX = (pointA.x + pointB.x) / 2;
+    var midY = (pointA.y + pointB.y) / 2;
+    var dist = Math.sqrt(
+      (pointB.x - pointA.x) * (pointB.x - pointA.x) +
+      (pointB.y - pointA.y) * (pointB.y - pointA.y)
+    );
+
+    // A barely-visible warmth in the space between
+    var betweenAlpha = couplingPresence * 0.012;
+    var betweenR = dist * 0.3;
+
+    if (betweenAlpha > 0.001) {
+      var bg = cx.createRadialGradient(midX, midY, 0, midX, midY, betweenR);
+      bg.addColorStop(0, 'rgba(184,117,58,' + (betweenAlpha * 1.5).toFixed(5) + ')');
+      bg.addColorStop(0.4, 'rgba(184,117,58,' + (betweenAlpha * 0.5).toFixed(5) + ')');
+      bg.addColorStop(1, 'rgba(184,117,58,0)');
+      cx.fillStyle = bg;
+      cx.beginPath();
+      cx.arc(midX, midY, betweenR, 0, Math.PI * 2);
+      cx.fill();
+    }
+  }
+
+  // === AUDIO UPDATES ===
+  if (audioReady) {
+    // Phase 1: noise volume rises from nothing
+    var noiseVol = noisePresence * 0.015;
+    noiseGain.gain.value += (noiseVol - noiseGain.gain.value) * 0.003;
+
+    // Phase 2: white -> pink
+    // Lower the high-shelf (cut highs)
+    var highCut = -pinkness * 18; // up to -18 dB of highs
+    pinkFilter2.gain.value += (highCut - pinkFilter2.gain.value) * 0.002;
+    // Boost the low-shelf
+    var lowBoost = pinkness * 8;
+    pinkFilter1.gain.value += (lowBoost - pinkFilter1.gain.value) * 0.002;
+
+    // Phase 3: first tone emerges
+    var toneVol = tonePresence * 0.025;
+    // The tone is born OUT of the noise — it doesn't appear over it
+    // So as tone rises, noise reshapes (doesn't decrease, just bows to the tone)
+    toneGain.gain.value += (toneVol - toneGain.gain.value) * 0.002;
+
+    // Phase 4: second tone
+    var tone2Vol = secondPresence * 0.02;
+    tone2Gain.gain.value += (tone2Vol - tone2Gain.gain.value) * 0.002;
+
+    // Phase 5: the beating between the two tones IS the coupling
+    // No separate sound needed. 55 Hz and 89 Hz beating at 34 Hz.
+    // As coupling increases, the tones get a tiny bit louder together
+    // and the noise recedes slightly — signal emerges from noise.
+    if (couplingPresence > 0.05) {
+      var extraTone = couplingPresence * 0.008;
+      toneGain.gain.value += extraTone * 0.001;
+      tone2Gain.gain.value += extraTone * 0.001;
+      // Noise retreats — the signal-to-noise ratio improves
+      var noiseDim = noiseVol * (1 - couplingPresence * 0.3);
+      noiseGain.gain.value += (noiseDim - noiseGain.gain.value) * 0.001;
+    }
+  }
+
+  // === BACK BUTTON ===
+  if (!backShown && elapsed > 45) {
+    backEl.style.color = 'rgba(139,74,46,0.06)';
+    backShown = true;
+  }
+
+  requestAnimationFrame(draw);
+}
+
+function drawEmergentPoint(x, y, brightness, col) {
+  if (brightness < 0.001) return;
+
+  // The point doesn't have a hard edge.
+  // It emerges from the noise. It IS noise, but slightly brighter.
+  // A statistical anomaly. A warm spot.
+
+  var scale = Math.min(W, H);
+
+  // Outer atmosphere — barely distinguishable from background noise
+  var outerR = scale * 0.04;
+  var og = cx.createRadialGradient(x, y, 0, x, y, outerR);
+  og.addColorStop(0, 'rgba(' + col[0] + ',' + col[1] + ',' + col[2] + ',' + (brightness * 0.08).toFixed(5) + ')');
+  og.addColorStop(0.3, 'rgba(' + col[0] + ',' + col[1] + ',' + col[2] + ',' + (brightness * 0.03).toFixed(5) + ')');
+  og.addColorStop(1, 'rgba(' + col[0] + ',' + col[1] + ',' + col[2] + ',0)');
+  cx.fillStyle = og;
+  cx.beginPath();
+  cx.arc(x, y, outerR, 0, Math.PI * 2);
+  cx.fill();
+
+  // Inner warmth — the frequency itself
+  var innerR = scale * 0.008;
+  var ig = cx.createRadialGradient(x, y, 0, x, y, innerR);
+  ig.addColorStop(0, 'rgba(232,207,160,' + (brightness * 0.7).toFixed(5) + ')');
+  ig.addColorStop(0.5, 'rgba(' + col[0] + ',' + col[1] + ',' + col[2] + ',' + (brightness * 0.3).toFixed(5) + ')');
+  ig.addColorStop(1, 'rgba(' + col[0] + ',' + col[1] + ',' + col[2] + ',0)');
+  cx.fillStyle = ig;
+  cx.beginPath();
+  cx.arc(x, y, innerR, 0, Math.PI * 2);
+  cx.fill();
+
+  // Single pixel core — the actual frequency
+  if (brightness > 0.03) {
+    cx.fillStyle = 'rgba(232,207,160,' + (brightness * 1.2).toFixed(5) + ')';
+    cx.fillRect(Math.floor(x), Math.floor(y), 1, 1);
+  }
+}
+
+function smoothstep(edge0, edge1, x) {
+  var t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)));
+  return t * t * (3 - 2 * t);
+}
+
+requestAnimationFrame(draw);
+</script>
+</body>
+</html>
