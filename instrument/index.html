@@ -27,7 +27,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;}
 <div id="start">
   <div style="color:#c9a44a30;font-size:0.65em;letter-spacing:0.2em;">GUMP</div>
   <button onclick="begin()">play</button>
-  <div class="sub">hold your phone. tilt to shape the sound.<br>move to play. be still to listen.<br>the mic couples with the world.</div>
+  <div class="sub">hold your phone. tilt to shape the sound.<br>move to play. be still to listen.</div>
 </div>
 
 <div id="instrument">
@@ -45,9 +45,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;}
 //   3. 1/f timing: pink-noise modulated clocks for all events
 //   4. FOR engine: the instrument's soul (solves for the OTHER)
 //   5. Void state machine: stillness -> settling -> void -> transcendent
-//   6. Microphone COUPLING: ambient sound becomes spectral weights
-//      that reshape the harmonic balance, not just add volume
-//   7. Spectral tension: consonance graph suggests what wants to play
+//   6. Spectral tension: consonance graph suggests what wants to play
 //   8. Water bottle damping on everything: momentum, overshoot, settle
 //   9. Bessel drum membrane (8 modes) on impact
 //  10. Convolution reverb with real IR
@@ -231,7 +229,7 @@ function getTopTension() {
 // =====================================================================
 
 // Master chain
-var masterGain, masterComp, masterLP;
+var masterGain, masterComp, masterLP, masterHighShelf;
 // Convolution reverb
 var convolver, reverbSend, reverbGain, reverbLP, reverbHPF;
 // Stereo delay
@@ -248,10 +246,6 @@ var droneOsc, droneFilter, droneGain;
 var voidPartials = [];
 var voidGains = [];
 var voidMasterGain;
-// Microphone
-var micAnalyser, micData, micStream;
-var micSpectralWeights = new Float32Array(16).fill(0);
-var micCoupling = 0; // how much the mic is reshaping the sound (0-1)
 // Ping-pong delay state
 var lastPingTime = 0;
 
@@ -265,12 +259,18 @@ function begin() {
   var now = actx.currentTime;
 
   // === MASTER OUTPUT CHAIN ===
-  // masterGain -> masterComp -> masterLP -> destination
+  // masterGain -> masterComp -> masterHighShelf -> masterLP -> destination
   masterLP = actx.createBiquadFilter();
   masterLP.type = 'lowpass';
-  masterLP.frequency.value = 6000;
+  masterLP.frequency.value = 5500;
   masterLP.Q.value = 0.3;
   masterLP.connect(actx.destination);
+
+  masterHighShelf = actx.createBiquadFilter();
+  masterHighShelf.type = 'highshelf';
+  masterHighShelf.frequency.value = 2000;
+  masterHighShelf.gain.value = -3; // gentle rolloff above 2kHz
+  masterHighShelf.connect(masterLP);
 
   masterComp = actx.createDynamicsCompressor();
   masterComp.threshold.value = -18;
@@ -278,7 +278,7 @@ function begin() {
   masterComp.ratio.value = 4;
   masterComp.attack.value = 0.008;
   masterComp.release.value = 0.15;
-  masterComp.connect(masterLP);
+  masterComp.connect(masterHighShelf);
 
   masterGain = actx.createGain();
   masterGain.gain.value = 0.65;
@@ -301,8 +301,9 @@ function begin() {
     var freq = FUNDAMENTAL * h;
 
     var osc = actx.createOscillator();
-    // Lower partials: sine (pure). Higher: triangle (richer overtone content).
-    osc.type = h <= 4 ? 'sine' : (h <= 10 ? 'triangle' : 'sine');
+    // All partials are pure sines. The coupling between them creates
+    // the timbre complexity -- not the waveform of each voice.
+    osc.type = 'sine';
     osc.frequency.value = freq;
 
     var g = actx.createGain();
@@ -334,10 +335,11 @@ function begin() {
   subOsc.start();
 
   // === DRONE (filtered rich waveform) ===
-  // Sawtooth at 33 Hz through a resonant lowpass.
+  // Triangle at 33 Hz through a resonant lowpass.
+  // Softer than sawtooth (odd harmonics, 1/n^2 falloff).
   // The filter IS the voice. Tilt opens it. FOR breathes it.
   droneOsc = actx.createOscillator();
-  droneOsc.type = 'sawtooth';
+  droneOsc.type = 'triangle';
   droneOsc.frequency.value = FUNDAMENTAL;
 
   droneFilter = actx.createBiquadFilter();
@@ -394,15 +396,8 @@ function begin() {
     voidGains.push(vg);
   }
 
-  // === SENSORS (request permissions first, then mic after a pause) ===
-  // On iOS, stacking 3 permission dialogs (orientation, motion, mic) causes
-  // confusion and often results in "deny all." Sensors first, mic deferred.
+  // === SENSORS ===
   setupSensors();
-
-  // Defer mic setup so iOS permission dialogs don't stack
-  setTimeout(function() {
-    setupMic();
-  }, 1500);
 
   started = true;
   initViz();
@@ -502,91 +497,6 @@ function buildDelay() {
   delayL.connect(delayMix);
   delayR.connect(delayMix);
   delayMix.connect(masterGain);
-}
-
-// =====================================================================
-// MICROPHONE COUPLING
-// The mic reads the room's spectrum and maps it onto our 16 harmonics.
-// This is NOT "add mic volume." This is spectral coupling.
-//
-// If the room has energy near 99 Hz (3rd harmonic), our 3rd partial
-// gets a boost. If the room is quiet near 264 Hz, that partial stays shy.
-//
-// The result: the instrument COUPLES with the environment.
-// Play in a noisy cafe and it sounds different than in a quiet room.
-// Speak into it and your voice's formants reshape the harmonics.
-// =====================================================================
-function setupMic() {
-  navigator.mediaDevices.getUserMedia({
-    audio: {
-      echoCancellation: false,
-      noiseSuppression: false,
-      autoGainControl: false
-    }
-  }).then(function(stream) {
-    micStream = stream;
-    var micSource = actx.createMediaStreamSource(stream);
-
-    micAnalyser = actx.createAnalyser();
-    micAnalyser.fftSize = 4096; // high resolution for precise harmonic detection
-    micAnalyser.smoothingTimeConstant = 0.75;
-    micSource.connect(micAnalyser);
-    // Do NOT connect to output -- we only READ the spectrum
-
-    micData = new Float32Array(micAnalyser.frequencyBinCount);
-  }).catch(function() {
-    // No mic -- instrument still works with tilt + motion
-  });
-}
-
-function updateMicCoupling() {
-  if (!micAnalyser || !micData) return;
-
-  micAnalyser.getFloatFrequencyData(micData); // dB values (-100 to 0)
-  var binHz = actx.sampleRate / micAnalyser.fftSize;
-
-  // Overall mic level for coupling strength
-  var totalLevel = 0;
-  var loudBins = 0;
-
-  for (var h = 0; h < 16; h++) {
-    var harmFreq = FUNDAMENTAL * (h + 1);
-    // Find the bin closest to this harmonic
-    var centerBin = Math.round(harmFreq / binHz);
-    // Average across a narrow band (+-2 bins for precision)
-    var sum = 0, count = 0;
-    for (var b = Math.max(0, centerBin - 2); b <= Math.min(centerBin + 2, micData.length - 1); b++) {
-      // Convert dB to linear (micData is in dB, -100 to 0)
-      var db = micData[b];
-      var lin = Math.pow(10, (db + 100) / 40); // map -100..0 dB to ~0..1
-      sum += lin;
-      count++;
-    }
-    var avg = count > 0 ? sum / count : 0;
-
-    // Also check for energy in bands BETWEEN our harmonics
-    // (these become beating/interference patterns)
-    var nextFreq = FUNDAMENTAL * (h + 2);
-    var midFreq = (harmFreq + nextFreq) / 2;
-    var midBin = Math.round(midFreq / binHz);
-    var midLevel = 0;
-    if (midBin > 0 && midBin < micData.length) {
-      midLevel = Math.pow(10, (micData[midBin] + 100) / 40) * 0.3;
-    }
-
-    // Smooth update with pink-noise-modulated time constant
-    // This prevents robotic frame-locked response
-    var smoothing = 0.88 + pinkSample() * 0.04;
-    micSpectralWeights[h] = micSpectralWeights[h] * smoothing + (avg + midLevel) * (1 - smoothing);
-
-    totalLevel += avg;
-    if (avg > 0.3) loudBins++;
-  }
-
-  // Mic coupling strength: how much the room is shaping us
-  // Rises when the room has clear harmonic content, falls when quiet
-  var targetCoupling = Math.min(1, loudBins / 6);
-  micCoupling = micCoupling * 0.95 + targetCoupling * 0.05;
 }
 
 // =====================================================================
@@ -954,9 +864,6 @@ function update() {
   // === VOID STATE MACHINE ===
   updateVoidState(dt);
 
-  // === MICROPHONE COUPLING ===
-  updateMicCoupling();
-
   // === FOR ENGINE ===
   // Player state (normalized 0-1)
   var playerBrightRaw = (tiltX - 45) / 90;
@@ -1001,7 +908,7 @@ function update() {
   normalGamma = Math.max(-1, Math.min(1, normalGamma));
 
   var BASE_FILTER = 80;
-  var MAX_FILTER = 5000;
+  var MAX_FILTER = 3500;
   var filterTarget = BASE_FILTER * Math.pow(MAX_FILTER / BASE_FILTER, (normalBeta + 1) / 2) * forFilterMult;
   filterTarget = Math.max(BASE_FILTER, Math.min(MAX_FILTER * 1.2, filterTarget));
 
@@ -1011,7 +918,9 @@ function update() {
   droneFilter.frequency.setTargetAtTime(filterTarget, actx.currentTime, 0.05);
 
   // Filter Q -- resonance peak at cutoff makes the "voice"
-  var q = 2 + energy * 8 + forQBias;
+  // Capped to prevent harsh screaming at high energy
+  var q = 1.5 + energy * 3.5 + forQBias * 0.6;
+  q = Math.min(q, 6);
   // 1/f modulated Q -- the resonance peak wanders slightly
   q *= (1 + pinkSample() * 0.05);
   droneFilter.Q.setTargetAtTime(q, actx.currentTime, 0.05);
@@ -1022,7 +931,7 @@ function update() {
   detune += pinkSample() * 0.5;
   droneOsc.frequency.setTargetAtTime(FUNDAMENTAL + detune, actx.currentTime, 0.05);
 
-  // === 16 HARMONICS: tilt reveals, mic reshapes, FOR enriches ===
+  // === 16 HARMONICS: tilt reveals, FOR enriches ===
   var openness = Math.log(filterTarget / BASE_FILTER) / Math.log(MAX_FILTER / BASE_FILTER);
 
   for (var i = 0; i < 16; i++) {
@@ -1041,15 +950,8 @@ function update() {
     // FOR contribution: soul adds richness when player is quiet
     var forContrib = forHarmonicBoost / (1 + i * 0.3);
 
-    // MIC COUPLING: the room's spectral weights reshape the balance
-    // This is the key difference from the old version.
-    // The mic doesn't just ADD volume. It SHIFTS the harmonic balance.
-    // If the room emphasizes the 5th harmonic, our 5th partial blooms.
-    // If the room is quiet near the 3rd, our 3rd stays subtle.
-    var micWeight = micSpectralWeights[i] * micCoupling * 0.12;
-
     // Total volume for this partial
-    var vol = tiltVol * naturalAmp * energyScale + forContrib + micWeight;
+    var vol = tiltVol * naturalAmp * energyScale + forContrib;
     vol = Math.max(0, Math.min(0.12, vol));
 
     // Set gain with smooth ramp (1/f modulated time constant)
@@ -1059,10 +961,8 @@ function update() {
     // Detune each partial independently
     // Gamma tilt = chorus spread. Higher harmonics spread more.
     // FOR breath adds per-harmonic detuning.
-    // Mic coupling adds micro-detuning when room is active.
     var soulDetune = forDetune * (1 + i * 0.12);
-    var micDetune = micSpectralWeights[i] * micCoupling * 0.8;
-    var partialDetune = detune * (i + 2) * 0.25 + soulDetune + micDetune + pinkSample() * 0.3;
+    var partialDetune = detune * (i + 2) * 0.25 + soulDetune + pinkSample() * 0.3;
     partials[i].frequency.setTargetAtTime(freq + partialDetune, actx.currentTime, 0.05);
   }
 
@@ -1102,7 +1002,7 @@ function update() {
   updatePings(dt, normalBeta, normalGamma, filterTarget);
 
   // === MASTER LP: opens with energy, tightens in stillness ===
-  var masterLPFreq = 3500 + energy * 3500 + openness * 2000;
+  var masterLPFreq = 3000 + energy * 2000 + openness * 1500;
   masterLP.frequency.setTargetAtTime(masterLPFreq, actx.currentTime, 0.1);
 
   // === VISUALIZATION ===
@@ -1115,13 +1015,12 @@ function update() {
     hudTimer = 0;
     var stateLabel = ['present','settling','void','transcendent'][voidState];
     var soulLabel = forBrightness > 0.6 ? 'bright' : forBrightness < 0.4 ? 'dark' : 'mid';
-    var micLabel = micCoupling > 0.1 ? ' mic:' + (micCoupling * 100).toFixed(0) + '%' : '';
     document.getElementById('hud').innerHTML =
       'tilt ' + tiltX.toFixed(0) + '&deg; ' + tiltY.toFixed(0) + '&deg;<br>' +
       'filter ' + filterTarget.toFixed(0) + ' Hz<br>' +
       'energy ' + (energy * 100).toFixed(0) + '%<br>' +
       'soul ' + soulLabel + '<br>' +
-      stateLabel + micLabel;
+      stateLabel;
   }
 }
 
@@ -1131,7 +1030,6 @@ function update() {
 // They move in complement. When close, a third color emerges (1+1=3).
 // Void deepening dims everything toward darkness with breath.
 // Harmonic rings show which overtones are singing.
-// Mic coupling shown as subtle spectral shimmer on the player orb.
 // =====================================================================
 
 var vizCanvas, vizCtx;
@@ -1253,7 +1151,6 @@ function drawViz(beta, gamma, energy, filterFreq, soulBright, soulDensity, soulM
 
   // === HARMONIC RINGS ===
   // Each ring represents a partial. Brightness = how loud it is.
-  // Mic-coupled partials shimmer with a different hue.
   var nRings = Math.min(Math.floor(filterFreq / FUNDAMENTAL), 16);
   for (var i = 0; i < nRings; i++) {
     var hr = r * 0.3 + (i + 1) * (r * 0.8 / 16);
@@ -1261,17 +1158,9 @@ function drawViz(beta, gamma, energy, filterFreq, soulBright, soulDensity, soulM
     var ha = partialVol * 4 + 0.01;
     ha = Math.min(ha, 0.15);
 
-    // Mic coupling tints the ring toward cyan
-    var ringHue = 40;
-    var ringSat = 50;
-    if (micCoupling > 0.05 && micSpectralWeights[i] > 0.2) {
-      ringHue = 40 + micSpectralWeights[i] * micCoupling * 140; // shift toward cyan/teal
-      ringSat = 50 + micCoupling * 20;
-    }
-
     vizCtx.beginPath();
     vizCtx.arc(playerCx, playerCy, hr, 0, TWO_PI);
-    vizCtx.strokeStyle = 'hsla(' + ringHue + ',' + ringSat + '%,60%,' + ha + ')';
+    vizCtx.strokeStyle = 'hsla(40,50%,60%,' + ha + ')';
     vizCtx.lineWidth = 0.4 + partialVol * 3;
     vizCtx.stroke();
   }
