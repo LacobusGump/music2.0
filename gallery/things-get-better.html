@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>things get better</title>
+<meta name="description" content="The heat equation. The mathematical proof that things get better. Not because someone fixes them. Because the universe trends toward sharing.">
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:#0a0706;overflow:hidden;cursor:default;
+  -webkit-user-select:none;user-select:none;touch-action:none;}
+canvas{display:block;width:100vw;height:100vh;}
+#back{position:fixed;top:20px;left:24px;font-family:Georgia,serif;
+  font-size:0.72em;color:rgba(139,74,46,0.12);text-decoration:none;
+  z-index:10;letter-spacing:0.06em;transition:color 0.5s;cursor:pointer;}
+#back:hover{color:rgba(184,117,58,0.4);}
+#hint{position:fixed;bottom:10%;left:50%;transform:translateX(-50%);
+  text-align:center;font-family:Georgia,serif;z-index:1;pointer-events:none;
+  opacity:0;animation:arrive 4s ease 2s forwards;}
+#hint p{color:rgba(201,164,74,0.10);font-size:0.78em;line-height:2.6;letter-spacing:0.06em;}
+@keyframes arrive{to{opacity:1}}
+#eq{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);
+  font-family:Georgia,serif;z-index:1;pointer-events:none;
+  text-align:center;opacity:0;transition:opacity 8s ease;}
+#eq .math{font-size:1.1em;color:rgba(184,117,58,0.08);letter-spacing:0.1em;}
+#eq .note{font-size:0.68em;color:rgba(139,74,46,0.06);margin-top:12px;
+  line-height:2.2;letter-spacing:0.04em;}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<a id="back" href="/gallery/">&larr; gallery</a>
+<div id="hint">
+<p>touch to leave warmth.<br>
+let go. watch it share.</p>
+</div>
+<div id="eq">
+<div class="math">&part;u/&part;t = &nabla;&sup2;u</div>
+<div class="note">differences spread out over time.<br>
+hot things cool. cold things warm. sharp edges soften.<br>
+not because someone fixes them.<br>
+because the universe trends toward sharing.</div>
+</div>
+<script>
+// things get better
+//
+// the heat equation: du/dt = nabla^2 u
+//
+// the most loving equation in physics.
+//
+// it says: differences diffuse.
+// hot spots cool. cold spots warm.
+// sharp peaks soften into gentle hills.
+// concentrated pain spreads thin enough to carry.
+//
+// not because someone intervenes.
+// not because something is fixed.
+// because diffusion is the default.
+// because sharing is what space does.
+//
+// the proof:
+//   any initial temperature distribution u(x,0)
+//   evolves toward the spatial average.
+//   the L2 norm of the gradient decreases monotonically.
+//   sharp -> smooth. concentrated -> spread. always.
+//
+// that is the mathematical proof that things get better.
+//
+// in this piece:
+//   touch the dark to leave heat. a bright point.
+//   a sharp concentration of warmth. pain, maybe.
+//   let go.
+//   the heat equation does the rest.
+//   the point doesn't disappear — it shares itself
+//   with everything around it.
+//   the total warmth is conserved.
+//   nothing is lost. it just spreads.
+//
+//   the sharpness was the suffering.
+//   the spreading is the healing.
+//   same energy. different distribution.
+//
+// multiple touches: multiple pains.
+// they diffuse into each other. they find each other.
+// they equalize. the word for that is empathy.
+
+var cv = document.getElementById('c');
+var cx = cv.getContext('2d');
+var W, H;
+
+// The temperature field — a 2D grid
+var GRID;   // width in cells
+var GRIDH;  // height in cells
+var CELL;   // pixels per cell
+var u;      // temperature array (current)
+var u2;     // temperature array (next)
+
+function resize() {
+  var dpr = Math.min(window.devicePixelRatio || 1, 2);
+  W = innerWidth; H = innerHeight;
+  cv.width = W * dpr; cv.height = H * dpr;
+  cx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  // Grid resolution — enough to see smooth diffusion,
+  // not so many that it becomes noise
+  CELL = Math.max(3, Math.floor(Math.min(W, H) / 180));
+  GRID = Math.floor(W / CELL);
+  GRIDH = Math.floor(H / CELL);
+
+  // Initialize temperature field to zero (cold dark)
+  var newU = new Float32Array(GRID * GRIDH);
+  var newU2 = new Float32Array(GRID * GRIDH);
+
+  // Preserve existing heat if resizing
+  if (u) {
+    var minW = Math.min(GRID, oldGRID || 0);
+    var minH = Math.min(GRIDH, oldGRIDH || 0);
+    for (var y = 0; y < minH; y++) {
+      for (var x = 0; x < minW; x++) {
+        newU[y * GRID + x] = u[y * (oldGRID || GRID) + x];
+      }
+    }
+  }
+
+  u = newU;
+  u2 = newU2;
+  oldGRID = GRID;
+  oldGRIDH = GRIDH;
+}
+
+var oldGRID, oldGRIDH;
+resize();
+addEventListener('resize', resize);
+
+// === DIFFUSION COEFFICIENT ===
+// Not too fast (would flash and vanish)
+// Not too slow (would never see it move)
+// Just right: you watch it happen over 5-15 seconds.
+var ALPHA = 0.18;
+
+// === INTERACTION STATE ===
+var touching = false;
+var touchX = -1, touchY = -1;
+var touchHistory = []; // track recent touch positions for smooth strokes
+var totalHeatAdded = 0;
+var hintEl = document.getElementById('hint');
+var eqEl = document.getElementById('eq');
+var hintHidden = false;
+var eqShown = false;
+var idleTime = 0;
+var everTouched = false;
+
+// === POINTER EVENTS ===
+function onDown(e) {
+  e.preventDefault();
+  touching = true;
+  var p = getPos(e);
+  touchX = p.x; touchY = p.y;
+  touchHistory = [{x: p.x, y: p.y}];
+  everTouched = true;
+  idleTime = 0;
+
+  if (!hintHidden) {
+    hintEl.style.transition = 'opacity 2s';
+    hintEl.style.opacity = '0';
+    hintHidden = true;
+  }
+
+  // Hide equation while adding new heat — don't compete
+  if (eqShown) {
+    eqEl.style.transition = 'opacity 1.5s';
+    eqEl.style.opacity = '0';
+    eqShown = false;
+  }
+}
+
+function onMove(e) {
+  if (!touching) return;
+  e.preventDefault();
+  var p = getPos(e);
+  touchX = p.x; touchY = p.y;
+  touchHistory.push({x: p.x, y: p.y});
+  if (touchHistory.length > 8) touchHistory.shift();
+}
+
+function onUp(e) {
+  touching = false;
+  touchHistory = [];
+}
+
+function getPos(e) {
+  if (e.touches && e.touches.length > 0) {
+    return {x: e.touches[0].clientX, y: e.touches[0].clientY};
+  }
+  return {x: e.clientX, y: e.clientY};
+}
+
+cv.addEventListener('mousedown', onDown);
+cv.addEventListener('mousemove', onMove);
+cv.addEventListener('mouseup', onUp);
+cv.addEventListener('mouseleave', onUp);
+cv.addEventListener('touchstart', onDown, {passive: false});
+cv.addEventListener('touchmove', onMove, {passive: false});
+cv.addEventListener('touchend', onUp);
+
+// === ADD HEAT ===
+// Deposit warmth at a grid position
+// The shape: a gaussian. not a point. a hand has warmth.
+function addHeat(px, py, amount) {
+  var gx = Math.floor(px / CELL);
+  var gy = Math.floor(py / CELL);
+  var radius = 4 + Math.floor(Math.min(GRID, GRIDH) * 0.02);
+
+  for (var dy = -radius; dy <= radius; dy++) {
+    for (var dx = -radius; dx <= radius; dx++) {
+      var cx2 = gx + dx;
+      var cy2 = gy + dy;
+      if (cx2 < 0 || cx2 >= GRID || cy2 < 0 || cy2 >= GRIDH) continue;
+
+      var dist2 = dx * dx + dy * dy;
+      var sigma2 = radius * radius * 0.3;
+      var gaussian = Math.exp(-dist2 / (2 * sigma2));
+      u[cy2 * GRID + cx2] = Math.min(1.0, u[cy2 * GRID + cx2] + amount * gaussian);
+    }
+  }
+}
+
+// === DIFFUSION STEP ===
+// The actual heat equation, discretized.
+// du/dt = alpha * laplacian(u)
+// laplacian = d2u/dx2 + d2u/dy2
+// discretized: laplacian(i,j) = u(i+1,j) + u(i-1,j) + u(i,j+1) + u(i,j-1) - 4*u(i,j)
+//
+// this is it. this is the whole proof.
+// the laplacian measures how different you are from your neighbors.
+// the update moves you toward them.
+// always toward them.
+// that's diffusion. that's sharing. that's healing.
+
+function diffuse() {
+  for (var y = 1; y < GRIDH - 1; y++) {
+    for (var x = 1; x < GRID - 1; x++) {
+      var idx = y * GRID + x;
+      var laplacian =
+        u[idx - 1] +          // left
+        u[idx + 1] +          // right
+        u[idx - GRID] +       // up
+        u[idx + GRID] -       // down
+        4 * u[idx];           // self
+
+      u2[idx] = u[idx] + ALPHA * laplacian;
+
+      // Clamp — temperature can't go negative
+      // (in physics it can. in this piece, it stays warm.)
+      if (u2[idx] < 0) u2[idx] = 0;
+      if (u2[idx] > 1) u2[idx] = 1;
+    }
+  }
+
+  // Boundary: Neumann (no-flux). Heat doesn't leave the room.
+  // It just keeps sharing until everyone has the same amount.
+  // The total energy is conserved. Nothing is lost.
+  for (var x = 0; x < GRID; x++) {
+    u2[x] = u2[GRID + x];                                 // top row
+    u2[(GRIDH - 1) * GRID + x] = u2[(GRIDH - 2) * GRID + x]; // bottom row
+  }
+  for (var y = 0; y < GRIDH; y++) {
+    u2[y * GRID] = u2[y * GRID + 1];                      // left column
+    u2[y * GRID + GRID - 1] = u2[y * GRID + GRID - 2];    // right column
+  }
+
+  // Swap
+  var tmp = u;
+  u = u2;
+  u2 = tmp;
+}
+
+// === STATISTICS ===
+// Track the gradient norm — the "roughness" of the distribution.
+// It decreases monotonically. This is the proof.
+function gradientNorm() {
+  var sum = 0;
+  for (var y = 1; y < GRIDH - 1; y++) {
+    for (var x = 1; x < GRID - 1; x++) {
+      var idx = y * GRID + x;
+      var dxVal = u[idx + 1] - u[idx];
+      var dyVal = u[idx + GRID] - u[idx];
+      sum += dxVal * dxVal + dyVal * dyVal;
+    }
+  }
+  return Math.sqrt(sum / ((GRID - 2) * (GRIDH - 2)));
+}
+
+function totalHeat() {
+  var sum = 0;
+  for (var i = 0; i < u.length; i++) sum += u[i];
+  return sum;
+}
+
+// === RENDER ===
+// Temperature to color.
+// Cold (0): the room. #0a0706. invisible.
+// Warm (0.01-0.2): deep ember. barely visible. the first sign.
+// Hot (0.2-0.6): copper-amber glow. the pain made visible.
+// Very hot (0.6-1.0): white-gold. the acute. the sharp.
+//
+// As heat diffuses, hot becomes warm, warm spreads,
+// and the whole room gets a barely perceptible ambient glow.
+// That glow IS things getting better.
+//
+// Render at grid resolution to an offscreen canvas,
+// then scale up with imageSmoothingEnabled for free bilinear filtering.
+
+var gridCv = document.createElement('canvas');
+var gridCx = gridCv.getContext('2d');
+var gridImg = null;
+
+function render() {
+  // Ensure offscreen canvas matches grid
+  if (gridCv.width !== GRID || gridCv.height !== GRIDH) {
+    gridCv.width = GRID;
+    gridCv.height = GRIDH;
+    gridImg = null;
+  }
+  if (!gridImg) {
+    gridImg = gridCx.createImageData(GRID, GRIDH);
+  }
+
+  var data = gridImg.data;
+
+  for (var y = 0; y < GRIDH; y++) {
+    for (var x = 0; x < GRID; x++) {
+      var v = u[y * GRID + x];
+      var idx = (y * GRID + x) * 4;
+
+      if (v < 0.003) {
+        // Base room color — almost black
+        data[idx]   = 10;
+        data[idx+1] = 7;
+        data[idx+2] = 6;
+        data[idx+3] = 255;
+      } else {
+        // Temperature curve — ember to copper to gold to white
+        var r, g, b;
+
+        if (v < 0.15) {
+          // Deep ember — barely visible warmth
+          var t = v / 0.15;
+          r = 10 + t * 110;       // 10 -> 120
+          g = 7 + t * 30;         // 7 -> 37
+          b = 6 + t * 10;         // 6 -> 16
+        } else if (v < 0.4) {
+          // Copper glow — the pain becoming visible
+          var t = (v - 0.15) / 0.25;
+          r = 120 + t * 64;       // 120 -> 184
+          g = 37 + t * 80;        // 37 -> 117
+          b = 16 + t * 30;        // 16 -> 46
+        } else if (v < 0.7) {
+          // Amber — warm and present
+          var t = (v - 0.4) / 0.3;
+          r = 184 + t * 17;       // 184 -> 201
+          g = 117 + t * 47;       // 117 -> 164
+          b = 46 + t * 28;        // 46 -> 74
+        } else {
+          // Gold-white — the acute, the concentrated
+          var t = (v - 0.7) / 0.3;
+          r = 201 + t * 31;       // 201 -> 232
+          g = 164 + t * 43;       // 164 -> 207
+          b = 74 + t * 86;        // 74 -> 160
+        }
+
+        data[idx]   = Math.min(255, Math.round(r));
+        data[idx+1] = Math.min(255, Math.round(g));
+        data[idx+2] = Math.min(255, Math.round(b));
+        data[idx+3] = 255;
+      }
+    }
+  }
+
+  // Write to small canvas, then scale up — GPU-accelerated bilinear
+  gridCx.putImageData(gridImg, 0, 0);
+  cx.imageSmoothingEnabled = true;
+  cx.imageSmoothingQuality = 'high';
+  cx.drawImage(gridCv, 0, 0, W, H);
+}
+
+// === MAIN LOOP ===
+var lastNow = performance.now();
+var frameCount = 0;
+var peakGradient = 0;
+var gradHistory = [];
+
+function draw(now) {
+  var dt = Math.min((now - lastNow) / 1000, 0.05);
+  lastNow = now;
+  frameCount++;
+
+  // Add heat while touching
+  if (touching && touchX > 0) {
+    // Interpolate between recent positions for smooth strokes
+    if (touchHistory.length > 1) {
+      var last = touchHistory[touchHistory.length - 2];
+      var curr = touchHistory[touchHistory.length - 1];
+      var steps = Math.max(1, Math.ceil(Math.sqrt(
+        (curr.x - last.x) * (curr.x - last.x) +
+        (curr.y - last.y) * (curr.y - last.y)) / CELL));
+      for (var s = 0; s <= steps; s++) {
+        var frac = s / steps;
+        var px = last.x + (curr.x - last.x) * frac;
+        var py = last.y + (curr.y - last.y) * frac;
+        addHeat(px, py, 0.08);
+      }
+    } else {
+      addHeat(touchX, touchY, 0.08);
+    }
+    totalHeatAdded += 0.08;
+  }
+
+  // Run diffusion — multiple steps per frame for visible speed
+  for (var ds = 0; ds < 3; ds++) {
+    diffuse();
+  }
+
+  // Render
+  render();
+
+  // Track gradient for the proof
+  if (frameCount % 10 === 0) {
+    var gn = gradientNorm();
+    if (gn > peakGradient) peakGradient = gn;
+    gradHistory.push(gn);
+    if (gradHistory.length > 200) gradHistory.shift();
+  }
+
+  // Idle tracking
+  if (!touching) {
+    idleTime += dt;
+  }
+
+  // Show the equation after first touch + some diffusion time
+  if (everTouched && !eqShown && idleTime > 6 && totalHeatAdded > 0.5) {
+    eqEl.style.opacity = '1';
+    eqShown = true;
+  }
+
+  // Gradient norm visualization — the proof curve
+  // Appears very subtly after enough interaction
+  if (gradHistory.length > 20 && peakGradient > 0.001 && everTouched) {
+    var graphW = W * 0.2;
+    var graphH = 30;
+    var graphX = W - graphW - 20;
+    var graphY = H - 50;
+
+    // The curve: gradient norm over time. Always decreasing.
+    // THAT is the proof.
+    cx.beginPath();
+    for (var i = 0; i < gradHistory.length; i++) {
+      var gx = graphX + (i / gradHistory.length) * graphW;
+      var gy = graphY - (gradHistory[i] / peakGradient) * graphH;
+      if (i === 0) cx.moveTo(gx, gy);
+      else cx.lineTo(gx, gy);
+    }
+    cx.strokeStyle = 'rgba(184,117,58,0.06)';
+    cx.lineWidth = 1;
+    cx.stroke();
+
+    // Label
+    cx.font = '9px Georgia';
+    cx.textAlign = 'right';
+    cx.fillStyle = 'rgba(139,74,46,0.05)';
+    cx.fillText('roughness', graphX + graphW, graphY + 14);
+    cx.fillText('(always decreasing)', graphX + graphW, graphY + 24);
+  }
+
+  // Total energy conservation indicator
+  if (everTouched && totalHeatAdded > 0.3) {
+    var th = totalHeat();
+    cx.font = '9px Georgia';
+    cx.textAlign = 'left';
+    cx.fillStyle = 'rgba(139,74,46,0.04)';
+    cx.fillText('total warmth: ' + th.toFixed(1), 20, H - 20);
+    cx.fillText('(nothing is lost)', 20, H - 8);
+  }
+
+  requestAnimationFrame(draw);
+}
+
+requestAnimationFrame(draw);
+</script>
+</body>
+</html>
