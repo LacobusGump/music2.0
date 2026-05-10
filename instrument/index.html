@@ -1588,10 +1588,24 @@ function resizeViz() {
   vizCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
 }
 
+// Phrase boundary ripple state
+var vizRipples = [];
+var vizLastBoundaryCount = 0; // tracks phraseBoundaryCount to avoid multi-frame spawns
+
+// Smooth R for visual (avoids flicker — the eye is slower than the ear)
+var vizRsmooth = 0;
+
+// Room breath phase (driven by layer agreement, not a clock)
+var vizRoomBreath = 0;
+var vizRoomBreathVel = 0;
+
 function drawViz(beta, gamma, energy, filterFreq, soulBright, soulDensity, soulMotion, soulBreath, coherenceR) {
   coherenceR = coherenceR || 0;
   var w = vizCanvas.width / (window.devicePixelRatio || 1);
   var h = vizCanvas.height / (window.devicePixelRatio || 1);
+
+  // Smooth R visually (slower than audio R — the eye wants to savor transitions)
+  vizRsmooth += (coherenceR - vizRsmooth) * 0.06;
 
   // Fade rate varies with void depth (deeper = slower trails = more ghostly)
   var fadeAlpha = 0.12 + voidDepth * 0.08;
@@ -1617,6 +1631,34 @@ function drawViz(beta, gamma, energy, filterFreq, soulBright, soulDensity, soulM
   var maxDist = Math.sqrt(w * w + h * h) * 0.3;
   var proximity = 1 - Math.min(dist / maxDist, 1);
 
+  // === ROOM BREATHING (all three FOR layers agreeing) ===
+  // Not a glow. An inhale. The background itself expands and contracts.
+  // Driven by forLayerAgreement — the rarer and more meaningful the moment,
+  // the deeper the breath.
+  var roomBreathTarget = forLayerAgreement > 0.5 ? (forLayerAgreement - 0.5) * 2 : 0;
+  // The room breath has its own spring — it doesn't snap, it swells
+  vizRoomBreathVel = vizRoomBreathVel * 0.92 + (roomBreathTarget - vizRoomBreath) * 0.008;
+  vizRoomBreath += vizRoomBreathVel;
+  vizRoomBreath = Math.max(0, Math.min(1, vizRoomBreath));
+
+  if (vizRoomBreath > 0.01) {
+    // The room inhales: a slow radial pulse from center, barely visible,
+    // like the walls of a cathedral breathing with the choir
+    var breathCycle = Math.sin(t * 0.4) * 0.5 + 0.5; // slow inhale-exhale
+    var breathRadius = Math.min(w, h) * (0.3 + breathCycle * 0.15);
+    var breathAlpha = vizRoomBreath * 0.025 * (0.6 + breathCycle * 0.4);
+    var roomGrad = vizCtx.createRadialGradient(
+      w/2, h/2, breathRadius * 0.2,
+      w/2, h/2, breathRadius);
+    // Warm center, fading to nothing — the room has a heartbeat
+    roomGrad.addColorStop(0, 'rgba(201, 164, 74, ' + (breathAlpha * 0.6) + ')');
+    roomGrad.addColorStop(0.4, 'rgba(180, 140, 80, ' + (breathAlpha * 0.3) + ')');
+    roomGrad.addColorStop(0.7, 'rgba(120, 100, 80, ' + (breathAlpha * 0.1) + ')');
+    roomGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    vizCtx.fillStyle = roomGrad;
+    vizCtx.fillRect(0, 0, w, h);
+  }
+
   // === VOID BREATH OVERLAY ===
   if (voidDepth > 0.1) {
     var breathVal = Math.sin(voidBreathPhase) * voidDepth;
@@ -1626,22 +1668,66 @@ function drawViz(beta, gamma, energy, filterFreq, soulBright, soulDensity, soulM
     vizCtx.fillRect(0, 0, w, h);
   }
 
+  // === PHRASE BOUNDARY RIPPLES ===
+  // When phrase FOR detects a boundary, a ripple expands from center.
+  // Like a stone dropped in still water. The sound breathes, the visual echoes.
+  // Guard: only spawn one ripple per actual boundary (phraseBoundaryCount increments once)
+  if (phraseBoundaryCount > vizLastBoundaryCount) {
+    vizLastBoundaryCount = phraseBoundaryCount;
+    // New ripple born at this phrase boundary
+    vizRipples.push({
+      born: t,
+      cx: (playerCx + soulCx) / 2,
+      cy: (playerCy + soulCy) / 2,
+      strength: 0.4
+    });
+    // Keep only a few ripples alive (old ones have faded anyway)
+    if (vizRipples.length > 4) vizRipples.shift();
+  }
+
+  // Draw living ripples
+  for (var ri = vizRipples.length - 1; ri >= 0; ri--) {
+    var rip = vizRipples[ri];
+    var age = t - rip.born;
+    if (age > 3.0) { vizRipples.splice(ri, 1); continue; }
+
+    // Ripple expands and fades. Two rings, slightly offset in time,
+    // like real water where the first ring is followed by a softer echo.
+    var speed = Math.min(w, h) * 0.12;
+    for (var ring = 0; ring < 2; ring++) {
+      var ringAge = age - ring * 0.15;
+      if (ringAge < 0) continue;
+      var radius = ringAge * speed * (1 - ringAge * 0.1);
+      // Fade: quick rise, slow decay
+      var ripAlpha = rip.strength * 0.08 * Math.exp(-ringAge * 1.2) * (1 - ring * 0.4);
+      if (ripAlpha < 0.002) continue;
+
+      vizCtx.beginPath();
+      vizCtx.arc(rip.cx, rip.cy, Math.max(1, radius), 0, TWO_PI);
+      vizCtx.strokeStyle = 'rgba(201, 164, 74, ' + ripAlpha + ')';
+      vizCtx.lineWidth = 1.2 - ring * 0.4;
+      vizCtx.stroke();
+    }
+  }
+
   // === SOUL ORB ===
   var soulBaseR = 12 + soulDensity * 35;
   var soulPulse = 1 + 0.08 * Math.sin(t * FOR_NATURAL_FREQ * TWO_PI);
-  var soulR = soulBaseR * soulPulse;
+  // When R is high, soul orb swells toward the player (edges reaching)
+  var rSwell = vizRsmooth > 0.5 ? (vizRsmooth - 0.5) * 0.3 : 0;
+  var soulR = soulBaseR * soulPulse * (1 + rSwell);
   var soulHue = 240 + soulBright * 30;
   var soulLightness = 18 + soulBright * 30;
   var soulSat = 35 + soulDensity * 25;
 
-  // Soul glow — R enriches the soul orb (coherence deepens the coupling)
-  var soulAlphaBase = 0.012 + soulDensity * 0.02 + soulBreath * 0.012 + coherenceR * 0.015;
+  // Soul glow -- R enriches the soul orb (coherence deepens the coupling)
+  var soulAlphaBase = 0.012 + soulDensity * 0.02 + soulBreath * 0.012 + vizRsmooth * 0.015;
   for (var layer = 3; layer >= 0; layer--) {
     var lr = soulR * (1 + layer * 0.9);
     var alpha = soulAlphaBase * (1 - layer * 0.22);
     vizCtx.beginPath();
     vizCtx.arc(soulCx, soulCy, lr, 0, TWO_PI);
-    vizCtx.fillStyle = 'hsla(' + soulHue + ',' + soulSat + '%,' + (soulLightness + coherenceR * 6) + '%,' + alpha + ')';
+    vizCtx.fillStyle = 'hsla(' + soulHue + ',' + soulSat + '%,' + (soulLightness + vizRsmooth * 6) + '%,' + alpha + ')';
     vizCtx.fill();
   }
   // Soul core
@@ -1672,15 +1758,16 @@ function drawViz(beta, gamma, energy, filterFreq, soulBright, soulDensity, soulM
   // === PLAYER ORB ===
   var baseR = 25 + energy * 70;
   var pulse = 1 + 0.04 * Math.sin(t * FUNDAMENTAL * 0.1);
-  var r = baseR * pulse;
+  // Player orb also swells slightly toward soul when R is high
+  var r = baseR * pulse * (1 + rSwell * 0.5);
   var playerHueShift = proximity * 5;
 
-  // Player glow layers — R makes them glow brighter (consonance = radiance)
+  // Player glow layers -- R makes them glow brighter (consonance = radiance)
   for (var layer = 4; layer >= 0; layer--) {
     var lr = r * (1 + layer * 0.8);
-    var alpha = (0.025 + openness * 0.035 + coherenceR * 0.025) * (1 - layer * 0.18);
+    var alpha = (0.025 + openness * 0.035 + vizRsmooth * 0.025) * (1 - layer * 0.18);
     var hue = 35 + openness * 15 + playerHueShift;
-    var lightness = 28 + openness * 30 + coherenceR * 8;
+    var lightness = 28 + openness * 30 + vizRsmooth * 8;
     vizCtx.beginPath();
     vizCtx.arc(playerCx, playerCy, lr, 0, TWO_PI);
     vizCtx.fillStyle = 'hsla(' + hue + ',60%,' + lightness + '%,' + alpha + ')';
@@ -1694,65 +1781,152 @@ function drawViz(beta, gamma, energy, filterFreq, soulBright, soulDensity, soulM
   vizCtx.fillStyle = 'hsla(40,70%,' + (38 + openness * 38) + '%,' + coreAlpha + ')';
   vizCtx.fill();
 
-  // === HARMONIC RINGS ===
+  // === WARMTH BETWEEN ORBS (R-driven merge) ===
+  // When R climbs, the space between the orbs warms.
+  // Not a glow on one or the other — a glow in the BETWEEN.
+  // The color is neither gold nor violet. It's the third thing.
+  if (vizRsmooth > 0.3) {
+    var warmth = (vizRsmooth - 0.3) / 0.7; // 0-1 over R range 0.3-1.0
+    var betweenCx = (playerCx * 0.45 + soulCx * 0.55); // slightly soul-ward
+    var betweenCy = (playerCy * 0.45 + soulCy * 0.55);
+    var betweenR = dist * 0.4 + (r + soulR) * 0.2;
+    // The warmth is an ellipse stretched along the axis between them
+    vizCtx.save();
+    vizCtx.translate(betweenCx, betweenCy);
+    var angle = Math.atan2(soulCy - playerCy, soulCx - playerCx);
+    vizCtx.rotate(angle);
+
+    var warmAlpha = warmth * 0.04 * (0.8 + Math.sin(t * 0.6) * 0.2);
+    var warmGrad = vizCtx.createRadialGradient(0, 0, 0, 0, 0, betweenR);
+    // Rose-gold center: the meeting of gold and violet
+    warmGrad.addColorStop(0, 'rgba(210, 160, 120, ' + (warmAlpha * 1.2) + ')');
+    warmGrad.addColorStop(0.5, 'rgba(180, 130, 140, ' + (warmAlpha * 0.6) + ')');
+    warmGrad.addColorStop(1, 'rgba(140, 100, 160, 0)');
+    vizCtx.fillStyle = warmGrad;
+    // Stretch along the axis between orbs
+    vizCtx.scale(1.6, 0.7);
+    vizCtx.beginPath();
+    vizCtx.arc(0, 0, betweenR, 0, TWO_PI);
+    vizCtx.fill();
+    vizCtx.restore();
+  }
+
+  // === HARMONIC RINGS with PHASE-LOCK THREADS ===
   // Each ring represents a partial. Brightness = how loud it is.
   // Phase-locked partials glow warmer (closer to gold).
   // Drifting partials shift cooler (toward blue-white).
+  // NEW: locked pairs connected by thin golden threads.
   var nRings = Math.min(Math.floor(filterFreq / FUNDAMENTAL), 16);
-  for (var i = 0; i < nRings; i++) {
-    var hr = r * 0.3 + (i + 1) * (r * 0.8 / 16);
-    var partialVol = partialGains[i] ? partialGains[i].gain.value : 0;
 
-    // Phase alignment: how close is this partial to the mean phase?
+  // Pre-compute alignment for each partial (needed for threads)
+  var partialAlignments = [];
+  var partialRadii = [];
+  for (var i = 0; i < 16; i++) {
     var normalizedPhase = (kuramotoTheta[i] || 0) / (i + 1);
     var phaseDiff = normalizedPhase - kuramotoPsi;
     while (phaseDiff > Math.PI) phaseDiff -= TWO_PI;
     while (phaseDiff < -Math.PI) phaseDiff += TWO_PI;
-    var alignment = Math.cos(phaseDiff); // 1 = locked, -1 = opposite
+    partialAlignments[i] = Math.cos(phaseDiff);
+    partialRadii[i] = r * 0.3 + (i + 1) * (r * 0.8 / 16);
+  }
+
+  // Draw phase-lock threads between strongly coupled partials
+  // Only when R is above 0.4 (below that, nothing is locked enough to see)
+  if (vizRsmooth > 0.4 && nRings > 1) {
+    for (var i = 0; i < nRings - 1; i++) {
+      if (partialAlignments[i] < 0.5) continue; // this partial not locked
+      for (var j = i + 1; j < nRings; j++) {
+        if (partialAlignments[j] < 0.5) continue; // that partial not locked
+        // Only draw between partials with strong consonance weight
+        var w_ij = kuramotoW[i] ? kuramotoW[i][j] : 0;
+        if (w_ij < 0.4) continue;
+
+        // Thread strength: product of alignments * consonance * R
+        var threadStr = partialAlignments[i] * partialAlignments[j] * w_ij * vizRsmooth;
+        if (threadStr < 0.15) continue;
+
+        // Draw arc between the two rings at fixed angular positions
+        // (position slowly rotates so threads feel alive, not frozen)
+        var angI = (kuramotoTheta[i] || 0) * 0.01 + i * 0.4;
+        var angJ = (kuramotoTheta[j] || 0) * 0.01 + j * 0.4;
+        var x1 = playerCx + Math.cos(angI) * partialRadii[i];
+        var y1 = playerCy + Math.sin(angI) * partialRadii[i];
+        var x2 = playerCx + Math.cos(angJ) * partialRadii[j];
+        var y2 = playerCy + Math.sin(angJ) * partialRadii[j];
+
+        var tAlpha = threadStr * 0.06;
+        vizCtx.beginPath();
+        vizCtx.moveTo(x1, y1);
+        vizCtx.lineTo(x2, y2);
+        vizCtx.strokeStyle = 'rgba(201, 164, 74, ' + tAlpha + ')';
+        vizCtx.lineWidth = 0.3 + threadStr * 0.4;
+        vizCtx.stroke();
+      }
+    }
+  }
+
+  // Draw the rings themselves
+  for (var i = 0; i < nRings; i++) {
+    var hr = partialRadii[i];
+    var partialVol = partialGains[i] ? partialGains[i].gain.value : 0;
+    var alignment = partialAlignments[i];
 
     // Alpha: volume + alignment bonus
-    var ha = partialVol * 4 + 0.01 + (alignment > 0 ? alignment * coherenceR * 0.04 : 0);
-    ha = Math.min(ha, 0.20);
+    var ha = partialVol * 4 + 0.01 + (alignment > 0 ? alignment * vizRsmooth * 0.04 : 0);
+
+    // Session-learned intervals glow subtly brighter
+    // If this harmonic number corresponds to a preferred interval, warm it
+    if (sessionNoteCount > 5) {
+      var harmonicInterval = (i + 1) % 12;
+      if (harmonicInterval === 0) harmonicInterval = 12;
+      for (var si = 0; si < sessionPreferredIntervals.length; si++) {
+        if (harmonicInterval === sessionPreferredIntervals[si]) {
+          // Preferred interval: subtle brightness boost, stronger for top preference
+          ha += 0.02 * (1 - si * 0.3) * Math.min(1, sessionTime / 30);
+          break;
+        }
+      }
+    }
+
+    ha = Math.min(ha, 0.22);
 
     // Hue shifts toward warmer gold when aligned, cooler when drifting
-    var ringHue = 40 + (1 - alignment) * 10; // 40=gold, 50=cooler
-    var ringSat = 50 + alignment * coherenceR * 15;
+    var ringHue = 40 + (1 - alignment) * 10;
+    var ringSat = 50 + alignment * vizRsmooth * 15;
 
     vizCtx.beginPath();
     vizCtx.arc(playerCx, playerCy, hr, 0, TWO_PI);
     vizCtx.strokeStyle = 'hsla(' + ringHue + ',' + ringSat + '%,60%,' + ha + ')';
-    vizCtx.lineWidth = 0.4 + partialVol * 3 + alignment * coherenceR * 0.5;
+    vizCtx.lineWidth = 0.4 + partialVol * 3 + alignment * vizRsmooth * 0.5;
     vizCtx.stroke();
   }
 
   // === MERGE GLOW (1+1=3) ===
-  if (proximity > 0.3) {
-    var mergeR = (r + soulR) * 0.4 * proximity;
+  // When R is high AND proximity is close: the orbs partially merge.
+  // Their edges bleed into each other.
+  var mergeThreshold = 0.2 - vizRsmooth * 0.12; // R lowers the threshold
+  if (proximity > mergeThreshold) {
+    var mergeStrength = (proximity - mergeThreshold) / (1 - mergeThreshold);
+    var mergeR = (r + soulR) * (0.3 + mergeStrength * 0.2 + vizRsmooth * 0.15);
     var mergeCx = (playerCx + soulCx) / 2;
     var mergeCy = (playerCy + soulCy) / 2;
-    var mergeAlpha = (proximity - 0.3) * 0.12;
-    // Layer agreement intensifies the merge glow
+    var mergeAlpha = mergeStrength * 0.08 + vizRsmooth * mergeStrength * 0.06;
+    // Layer agreement intensifies the merge
     if (forLayerAgreement > 0.5) {
-      mergeAlpha += (forLayerAgreement - 0.5) * 0.15;
-      mergeR *= (1 + (forLayerAgreement - 0.5) * 0.3);
+      mergeAlpha += (forLayerAgreement - 0.5) * 0.12;
+      mergeR *= (1 + (forLayerAgreement - 0.5) * 0.2);
     }
+    // Gradient merge: gold-center fading through rose to violet
+    var mergeGrad = vizCtx.createRadialGradient(
+      mergeCx, mergeCy, 0,
+      mergeCx, mergeCy, mergeR);
+    mergeGrad.addColorStop(0, 'rgba(220, 180, 140, ' + (mergeAlpha * 0.8) + ')');
+    mergeGrad.addColorStop(0.5, 'rgba(200, 150, 170, ' + (mergeAlpha * 0.4) + ')');
+    mergeGrad.addColorStop(1, 'rgba(160, 120, 200, 0)');
     vizCtx.beginPath();
     vizCtx.arc(mergeCx, mergeCy, mergeR, 0, TWO_PI);
-    vizCtx.fillStyle = 'hsla(320,20%,70%,' + mergeAlpha + ')';
+    vizCtx.fillStyle = mergeGrad;
     vizCtx.fill();
-  }
-
-  // === LAYER AGREEMENT GLOW ===
-  // When all three FOR layers agree, the entire field glows subtly
-  if (forLayerAgreement > 0.6) {
-    var agreeAlpha = (forLayerAgreement - 0.6) * 0.08;
-    var agreeGrad = vizCtx.createRadialGradient(
-      w/2, h/2, 0, w/2, h/2, Math.min(w, h) * 0.4);
-    agreeGrad.addColorStop(0, 'rgba(201, 164, 74, ' + (agreeAlpha * 0.3) + ')');
-    agreeGrad.addColorStop(0.6, 'rgba(201, 164, 74, ' + (agreeAlpha * 0.1) + ')');
-    agreeGrad.addColorStop(1, 'rgba(201, 164, 74, 0)');
-    vizCtx.fillStyle = agreeGrad;
-    vizCtx.fillRect(0, 0, w, h);
   }
 
   // === SPECTRAL TENSION INDICATOR ===
