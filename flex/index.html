@@ -1,0 +1,1358 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Flex — the shapes of the math</title>
+<meta name="description" content="Deep mathematical visualizations. Attractors, phase spaces, coupling dynamics rendered beautifully. The shapes that keep showing up.">
+<meta name="theme-color" content="#0a0706">
+<link rel="icon" href="/favicon.png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:#0a0706;color:#c4a088;font-family:Georgia,serif;
+  height:100vh;height:100dvh;overflow:hidden;
+  display:flex;flex-direction:column;}
+
+/* ═══ NAV BAR ═══ */
+.nav{display:flex;align-items:center;gap:0;padding:10px 16px;flex-shrink:0;
+  border-bottom:1px solid rgba(184,117,58,0.08);z-index:10;position:relative;}
+.back{font-family:Futura,'Century Gothic',Avenir,'Avenir Next',system-ui,sans-serif;
+  font-size:0.62em;color:#8b4a2e;text-decoration:none;letter-spacing:0.06em;
+  margin-right:16px;white-space:nowrap;transition:color 0.3s;}
+.back:hover{color:#e8cfa0;}
+.tabs{display:flex;gap:2px;flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;
+  scrollbar-width:none;}
+.tabs::-webkit-scrollbar{display:none;}
+.tab{font-family:Futura,'Century Gothic',Avenir,'Avenir Next',system-ui,sans-serif;
+  font-size:0.6em;font-weight:400;letter-spacing:0.05em;
+  color:#8b4a2e;background:none;border:1px solid rgba(139,74,46,0.12);
+  border-radius:6px;padding:7px 13px;cursor:pointer;white-space:nowrap;
+  transition:all 0.4s;user-select:none;-webkit-tap-highlight-color:transparent;}
+.tab:hover{color:#c4a088;border-color:rgba(184,117,58,0.25);}
+.tab.active{color:#b8753a;border-color:rgba(184,117,58,0.35);
+  background:rgba(184,117,58,0.06);
+  text-shadow:0 0 12px rgba(184,117,58,0.15);}
+
+/* ═══ CANVAS AREA ═══ */
+.stage{flex:1;min-height:0;position:relative;}
+canvas#viz{width:100%;height:100%;display:block;}
+
+/* ═══ INFO OVERLAY ═══ */
+.info{position:absolute;bottom:16px;left:16px;right:16px;
+  pointer-events:none;z-index:5;
+  display:flex;justify-content:space-between;align-items:flex-end;}
+.info-left{max-width:50%;}
+.info-title{font-family:Futura,'Century Gothic',Avenir,'Avenir Next',system-ui,sans-serif;
+  font-size:0.82em;font-weight:400;letter-spacing:0.06em;
+  color:#b8753a;margin-bottom:4px;
+  text-shadow:0 0 20px rgba(10,7,6,0.9),0 0 40px rgba(10,7,6,0.7);}
+.info-desc{font-size:0.62em;color:#c4a088;line-height:1.8;opacity:0.6;
+  text-shadow:0 0 12px rgba(10,7,6,0.95),0 0 24px rgba(10,7,6,0.8);}
+.info-right{text-align:right;max-width:45%;}
+.info-stat{font-family:'Courier New',monospace;font-size:0.68em;color:#7a9a6a;
+  text-shadow:0 0 12px rgba(10,7,6,0.95);line-height:1.6;}
+
+/* ═══ CONTROLS OVERLAY ═══ */
+.controls{position:absolute;top:12px;right:16px;z-index:5;
+  display:flex;flex-direction:column;gap:8px;align-items:flex-end;}
+.slider-wrap{display:flex;align-items:center;gap:8px;pointer-events:all;}
+.slider-label{font-family:Futura,'Century Gothic',system-ui,sans-serif;
+  font-size:0.55em;color:#8b4a2e;letter-spacing:0.04em;white-space:nowrap;
+  text-shadow:0 0 12px rgba(10,7,6,0.95);}
+.slider-val{font-family:'Courier New',monospace;font-size:0.6em;color:#7a9a6a;
+  min-width:32px;text-align:right;
+  text-shadow:0 0 12px rgba(10,7,6,0.95);}
+input[type=range]{-webkit-appearance:none;appearance:none;width:100px;height:3px;
+  background:rgba(184,117,58,0.15);border-radius:2px;outline:none;cursor:pointer;}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;
+  width:12px;height:12px;border-radius:50%;
+  background:#b8753a;border:none;cursor:pointer;
+  box-shadow:0 0 6px rgba(184,117,58,0.3);}
+input[type=range]::-moz-range-thumb{width:12px;height:12px;border-radius:50%;
+  background:#b8753a;border:none;cursor:pointer;}
+
+/* ═══ TAP AREA for rhythm viz ═══ */
+.tap-zone{position:absolute;bottom:70px;left:50%;transform:translateX(-50%);
+  z-index:5;pointer-events:all;}
+.tap-btn{font-family:Futura,'Century Gothic',system-ui,sans-serif;
+  font-size:0.6em;color:#8b4a2e;letter-spacing:0.06em;
+  border:1px solid rgba(139,74,46,0.2);border-radius:8px;
+  background:rgba(10,7,6,0.6);padding:10px 24px;cursor:pointer;
+  transition:all 0.15s;user-select:none;-webkit-tap-highlight-color:transparent;}
+.tap-btn:hover{color:#b8753a;border-color:rgba(184,117,58,0.3);}
+.tap-btn:active{background:rgba(184,117,58,0.1);transform:scale(0.96);}
+.tap-btn.flash{background:rgba(184,117,58,0.15);color:#b8753a;}
+
+/* Tooltip for star tetrahedron */
+.tooltip{position:absolute;z-index:15;pointer-events:none;
+  font-family:Futura,'Century Gothic',system-ui,sans-serif;
+  font-size:0.6em;color:#b8753a;letter-spacing:0.04em;
+  background:rgba(10,7,6,0.85);border:1px solid rgba(184,117,58,0.2);
+  border-radius:6px;padding:6px 12px;white-space:nowrap;
+  text-shadow:0 0 8px rgba(10,7,6,0.9);
+  opacity:0;transition:opacity 0.3s;}
+.tooltip.show{opacity:1;}
+.tooltip .tt-label{color:#b8753a;font-weight:400;}
+.tooltip .tt-sub{color:#c4a088;font-size:0.9em;opacity:0.6;display:block;margin-top:2px;}
+
+/* Film grain */
+body::after{content:"";position:fixed;top:0;left:0;width:100%;height:100%;
+  pointer-events:none;z-index:9998;opacity:0.015;mix-blend-mode:overlay;
+  background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='256' height='256' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E");}
+
+@keyframes up{from{opacity:0;transform:translateY(6px);}to{opacity:1;transform:translateY(0);}}
+
+@media(max-width:600px){
+  body{overflow-y:hidden;}
+  .nav{padding:8px 10px;flex-wrap:nowrap;}
+  .back{font-size:0.55em;margin-right:10px;}
+  .tab{font-size:0.5em;padding:6px 9px;}
+  .info-title{font-size:0.68em;}
+  .info-desc{font-size:0.52em;}
+  .info-stat{font-size:0.56em;}
+  input[type=range]{width:70px;}
+  .slider-label{font-size:0.48em;}
+}
+</style>
+</head>
+<body>
+
+<div class="nav">
+  <a class="back" href="/">GUMP</a>
+  <div class="tabs">
+    <button class="tab active" data-viz="lorenz">Lorenz</button>
+    <button class="tab" data-viz="kuramoto">Kuramoto</button>
+    <button class="tab" data-viz="klag">K-Lag</button>
+    <button class="tab" data-viz="machine">Machine</button>
+    <button class="tab" data-viz="tetra">Star Tetrahedron</button>
+  </div>
+</div>
+
+<div class="stage">
+  <canvas id="viz" role="img" aria-label="Mathematical visualization"></canvas>
+
+  <!-- Info overlay — updated per viz -->
+  <div class="info">
+    <div class="info-left">
+      <div class="info-title" id="vizTitle">Lorenz Attractor</div>
+      <div class="info-desc" id="vizDesc">Deterministic chaos. Two wings of sensitivity to initial conditions.</div>
+    </div>
+    <div class="info-right">
+      <div class="info-stat" id="vizStat"></div>
+    </div>
+  </div>
+
+  <!-- Controls — injected per viz -->
+  <div class="controls" id="vizControls"></div>
+
+  <!-- Tap zone for K-Lag -->
+  <div class="tap-zone" id="tapZone" style="display:none;">
+    <button class="tap-btn" id="tapBtn">tap rhythm</button>
+  </div>
+
+  <!-- Tooltip for Star Tetrahedron -->
+  <div class="tooltip" id="tooltip"></div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+// FLEX — deep mathematical visualizations
+//
+// Five systems. One canvas. All warm. All alive.
+// No spinning 3D. Parallax from z-depth. Drag to tilt.
+// ═══════════════════════════════════════════════════════════════
+(function(){
+'use strict';
+
+var cv = document.getElementById('viz');
+var cx = cv.getContext('2d');
+var W, H, dpr;
+var PHI = (1+Math.sqrt(5))/2;
+var PI2 = Math.PI*2;
+
+function resize(){
+  var r = cv.getBoundingClientRect();
+  dpr = window.devicePixelRatio || 1;
+  W = r.width; H = r.height;
+  cv.width = W*dpr; cv.height = H*dpr;
+  cx.setTransform(dpr,0,0,dpr,0,0);
+}
+resize();
+window.addEventListener('resize', resize);
+
+// ═══ PALETTE ═══
+var EMBER  = [184,117,58];
+var COPPER = [210,120,45];
+var GOLD   = [220,175,80];
+var SIENNA = [165,90,35];
+var HONEY  = [230,170,80];
+var TEAK   = [170,105,45];
+var MOSS   = [95,155,70];
+var SAGE   = [130,160,70];
+var COOL   = [60,80,120];   // uncoupled/cold
+var SHELL  = [196,160,136]; // c4a088
+
+// ═══ STATE ═══
+var activeViz = 'lorenz';
+var animId = null;
+var mouseX = W/2, mouseY = H/2;
+var mouseDown = false;
+var dragStartX = 0, dragStartY = 0;
+var dragAngleX = 0, dragAngleY = 0;
+var baseDragX = 0, baseDragY = 0;
+var time = 0;
+
+// ═══ MOUSE / TOUCH ═══
+cv.addEventListener('mousemove', function(e){
+  var r = cv.getBoundingClientRect();
+  mouseX = e.clientX - r.left;
+  mouseY = e.clientY - r.top;
+  if(mouseDown){
+    dragAngleX = baseDragX + (e.clientX - dragStartX)*0.003;
+    dragAngleY = baseDragY + (e.clientY - dragStartY)*0.003;
+    dragAngleY = Math.max(-0.8, Math.min(0.8, dragAngleY));
+  }
+});
+cv.addEventListener('mousedown', function(e){
+  mouseDown = true;
+  dragStartX = e.clientX; dragStartY = e.clientY;
+  baseDragX = dragAngleX; baseDragY = dragAngleY;
+});
+window.addEventListener('mouseup', function(){ mouseDown = false; });
+
+cv.addEventListener('touchmove', function(e){
+  e.preventDefault();
+  var t = e.touches[0];
+  var r = cv.getBoundingClientRect();
+  mouseX = t.clientX - r.left;
+  mouseY = t.clientY - r.top;
+  if(mouseDown){
+    dragAngleX = baseDragX + (t.clientX - dragStartX)*0.003;
+    dragAngleY = baseDragY + (t.clientY - dragStartY)*0.003;
+    dragAngleY = Math.max(-0.8, Math.min(0.8, dragAngleY));
+  }
+}, {passive:false});
+cv.addEventListener('touchstart', function(e){
+  var t = e.touches[0];
+  mouseDown = true;
+  dragStartX = t.clientX; dragStartY = t.clientY;
+  baseDragX = dragAngleX; baseDragY = dragAngleY;
+  var r = cv.getBoundingClientRect();
+  mouseX = t.clientX - r.left;
+  mouseY = t.clientY - r.top;
+});
+cv.addEventListener('touchend', function(){ mouseDown = false; });
+
+// ═══ TABS ═══
+var tabs = document.querySelectorAll('.tab');
+var titleEl = document.getElementById('vizTitle');
+var descEl = document.getElementById('vizDesc');
+var statEl = document.getElementById('vizStat');
+var ctrlEl = document.getElementById('vizControls');
+var tapZone = document.getElementById('tapZone');
+var tooltip = document.getElementById('tooltip');
+
+for(var i=0; i<tabs.length; i++){
+  tabs[i].addEventListener('click', function(){
+    for(var j=0; j<tabs.length; j++) tabs[j].classList.remove('active');
+    this.classList.add('active');
+    switchViz(this.getAttribute('data-viz'));
+  });
+}
+
+function switchViz(name){
+  activeViz = name;
+  time = 0;
+  dragAngleX = 0; dragAngleY = 0;
+  baseDragX = 0; baseDragY = 0;
+  ctrlEl.innerHTML = '';
+  tapZone.style.display = 'none';
+  tooltip.classList.remove('show');
+  tooltip.style.opacity = '0';
+
+  if(name === 'lorenz') initLorenz();
+  else if(name === 'kuramoto') initKuramoto();
+  else if(name === 'klag') initKLag();
+  else if(name === 'machine') initMachine();
+  else if(name === 'tetra') initTetra();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 1. LORENZ ATTRACTOR
+// ═══════════════════════════════════════════════════════════════
+var lorenzTrail = [];
+var lorenzX, lorenzY, lorenzZ;
+var lorenzMaxTrail = 6000;
+var lorenzBreathPhase = 0;
+
+function initLorenz(){
+  titleEl.textContent = 'Lorenz Attractor';
+  descEl.textContent = 'Deterministic chaos. Two wings of sensitivity to initial conditions.';
+  lorenzX = 1; lorenzY = 1; lorenzZ = 1;
+  lorenzTrail = [];
+  lorenzBreathPhase = 0;
+}
+
+function stepLorenz(){
+  // Mouse position subtly shifts parameters — the attractor breathes
+  var mx = (mouseX/W - 0.5)*2;
+  var my = (mouseY/H - 0.5)*2;
+
+  // Breathing — subtle parameter oscillation
+  lorenzBreathPhase += 0.008;
+  var breathSigma = Math.sin(lorenzBreathPhase * 0.7) * 0.3;
+  var breathRho = Math.sin(lorenzBreathPhase * 0.43) * 0.5;
+
+  var sigma = 10 + mx*0.5 + breathSigma;
+  var rho = 28 + my*0.5 + breathRho;
+  var beta = 8/3;
+  var dt = 0.005;
+
+  // Multiple integration steps per frame for density
+  for(var s = 0; s < 8; s++){
+    var dx = sigma * (lorenzY - lorenzX);
+    var dy = lorenzX * (rho - lorenzZ) - lorenzY;
+    var dz = lorenzX * lorenzY - beta * lorenzZ;
+    lorenzX += dx*dt;
+    lorenzY += dy*dt;
+    lorenzZ += dz*dt;
+
+    lorenzTrail.push({x:lorenzX, y:lorenzY, z:lorenzZ});
+    if(lorenzTrail.length > lorenzMaxTrail) lorenzTrail.shift();
+  }
+
+  statEl.innerHTML =
+    'x: ' + lorenzX.toFixed(2) + '<br>' +
+    'y: ' + lorenzY.toFixed(2) + '<br>' +
+    'z: ' + lorenzZ.toFixed(2) + '<br>' +
+    '<span style="color:#8b4a2e">\u03C3=' + sigma.toFixed(1) + ' \u03C1=' + rho.toFixed(1) + '</span>';
+}
+
+function drawLorenz(){
+  cx.fillStyle = 'rgba(10,7,6,0.12)';
+  cx.fillRect(0,0,W,H);
+
+  stepLorenz();
+
+  var len = lorenzTrail.length;
+  if(len < 2) return;
+
+  var centerX = W*0.5, centerY = H*0.5;
+  // Projection: top-down-ish with tilt from drag
+  var cosA = Math.cos(dragAngleX), sinA = Math.sin(dragAngleX);
+  var cosB = Math.cos(dragAngleY-0.3), sinB = Math.sin(dragAngleY-0.3);
+  var scale = Math.min(W,H) * 0.014;
+
+  cx.lineCap = 'round';
+  cx.lineJoin = 'round';
+
+  // Draw trail with depth-dependent brightness and color
+  for(var i = 1; i < len; i++){
+    var p0 = lorenzTrail[i-1];
+    var p1 = lorenzTrail[i];
+
+    // 3D rotation
+    var x0 = p0.x*cosA - p0.y*sinA;
+    var y0t = p0.x*sinA + p0.y*cosA;
+    var y0 = y0t*cosB - p0.z*sinB;
+    var z0 = y0t*sinB + p0.z*cosB;
+
+    var x1 = p1.x*cosA - p1.y*sinA;
+    var y1t = p1.x*sinA + p1.y*cosA;
+    var y1 = y1t*cosB - p1.z*sinB;
+    var z1 = y1t*sinB + p1.z*cosB;
+
+    // Parallax from depth (no perspective rotation, just size/brightness shift)
+    var depth = (z0+z1)*0.5;
+    var depthNorm = (depth + 50) / 100; // normalize roughly 0-1
+    depthNorm = Math.max(0, Math.min(1, depthNorm));
+
+    // Age fade
+    var age = i / len;
+    var alpha = age * age * (0.3 + depthNorm*0.5);
+
+    // Color: deep (far) = sienna, close = gold/copper
+    var r = Math.round(SIENNA[0] + (GOLD[0]-SIENNA[0])*depthNorm);
+    var g = Math.round(SIENNA[1] + (GOLD[1]-SIENNA[1])*depthNorm);
+    var b = Math.round(SIENNA[2] + (GOLD[2]-SIENNA[2])*depthNorm);
+
+    // Recent points glow hot
+    if(age > 0.95){
+      var hot = (age - 0.95) / 0.05;
+      r = Math.min(255, r + Math.round(hot*60));
+      g = Math.min(255, g + Math.round(hot*40));
+      b = Math.min(255, b + Math.round(hot*20));
+      alpha = Math.min(1, alpha + hot*0.4);
+    }
+
+    var lw = 0.6 + depthNorm*1.2 + (age > 0.95 ? (age-0.95)/0.05*1.5 : 0);
+
+    cx.strokeStyle = 'rgba('+r+','+g+','+b+','+alpha.toFixed(3)+')';
+    cx.lineWidth = lw;
+    cx.beginPath();
+    cx.moveTo(centerX + x0*scale, centerY + y0*scale);
+    cx.lineTo(centerX + x1*scale, centerY + y1*scale);
+    cx.stroke();
+  }
+
+  // Head glow
+  var head = lorenzTrail[len-1];
+  var hx = head.x*cosA - head.y*sinA;
+  var hyt = head.x*sinA + head.y*cosA;
+  var hy = hyt*cosB - head.z*sinB;
+
+  var grad = cx.createRadialGradient(
+    centerX+hx*scale, centerY+hy*scale, 0,
+    centerX+hx*scale, centerY+hy*scale, 12
+  );
+  grad.addColorStop(0, 'rgba(230,190,100,0.6)');
+  grad.addColorStop(0.4, 'rgba(210,140,60,0.2)');
+  grad.addColorStop(1, 'rgba(184,117,58,0)');
+  cx.fillStyle = grad;
+  cx.fillRect(centerX+hx*scale-12, centerY+hy*scale-12, 24, 24);
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+// 2. KURAMOTO PHASE SPACE
+// ═══════════════════════════════════════════════════════════════
+var kuraN = 33;
+var kuraPhases, kuraOmega, kuraK, kuraR;
+var kuraSlider;
+
+function initKuramoto(){
+  titleEl.textContent = 'Kuramoto Oscillators';
+  descEl.textContent = 'N=33. Watch them synchronize as coupling strength increases.';
+
+  kuraPhases = new Float64Array(kuraN);
+  kuraOmega = new Float64Array(kuraN);
+  kuraK = 0.5;
+  kuraR = 0;
+
+  // Natural frequencies — Lorentzian distribution for clean transition
+  for(var i=0; i<kuraN; i++){
+    kuraPhases[i] = Math.random() * PI2;
+    // Cauchy distribution centered at 1.0
+    kuraOmega[i] = 1.0 + Math.tan((Math.random()-0.5)*Math.PI*0.8)*0.5;
+  }
+
+  // Build K slider
+  ctrlEl.innerHTML =
+    '<div class="slider-wrap">' +
+    '<span class="slider-label">K</span>' +
+    '<input type="range" id="kSlider" min="0" max="4" step="0.01" value="0.5">' +
+    '<span class="slider-val" id="kVal">0.50</span>' +
+    '</div>';
+  kuraSlider = document.getElementById('kSlider');
+  kuraSlider.addEventListener('input', function(){
+    kuraK = parseFloat(this.value);
+    document.getElementById('kVal').textContent = kuraK.toFixed(2);
+  });
+}
+
+function stepKuramoto(){
+  var dt = 0.03;
+  // Compute order parameter
+  var re=0, im=0;
+  for(var i=0; i<kuraN; i++){
+    re += Math.cos(kuraPhases[i]);
+    im += Math.sin(kuraPhases[i]);
+  }
+  re /= kuraN; im /= kuraN;
+  kuraR = Math.sqrt(re*re + im*im);
+  var meanPhase = Math.atan2(im, re);
+
+  // Update phases — mean-field Kuramoto
+  for(var i=0; i<kuraN; i++){
+    kuraPhases[i] += dt * (kuraOmega[i] + kuraK * kuraR * Math.sin(meanPhase - kuraPhases[i]));
+    // Wrap to [0, 2pi]
+    kuraPhases[i] = ((kuraPhases[i] % PI2) + PI2) % PI2;
+  }
+}
+
+function drawKuramoto(){
+  cx.fillStyle = '#0a0706';
+  cx.fillRect(0,0,W,H);
+
+  for(var sub=0; sub<3; sub++) stepKuramoto();
+
+  var centerX = W*0.5, centerY = H*0.45;
+  var radius = Math.min(W,H)*0.28;
+
+  // ═══ Phase circle ═══
+  cx.strokeStyle = 'rgba(184,117,58,0.08)';
+  cx.lineWidth = 1;
+  cx.beginPath();
+  cx.arc(centerX, centerY, radius, 0, PI2);
+  cx.stroke();
+
+  // Threshold ring at R = 1/phi
+  var rThresh = 1/PHI;
+  cx.strokeStyle = 'rgba(130,160,70,0.06)';
+  cx.lineWidth = 1;
+  cx.setLineDash([4,6]);
+  cx.beginPath();
+  cx.arc(centerX, centerY, radius*rThresh, 0, PI2);
+  cx.stroke();
+  cx.setLineDash([]);
+
+  // ═══ Order parameter vector ═══
+  var re=0, im=0;
+  for(var i=0; i<kuraN; i++){
+    re += Math.cos(kuraPhases[i]);
+    im += Math.sin(kuraPhases[i]);
+  }
+  re /= kuraN; im /= kuraN;
+  var meanPhase = Math.atan2(im, re);
+
+  // R glow in center
+  var rGlow = cx.createRadialGradient(centerX, centerY, 0, centerX, centerY, radius*kuraR*1.2);
+  var warmR = Math.round(COOL[0] + (GOLD[0]-COOL[0])*kuraR);
+  var warmG = Math.round(COOL[1] + (GOLD[1]-COOL[1])*kuraR);
+  var warmB = Math.round(COOL[2] + (GOLD[2]-COOL[2])*kuraR);
+  rGlow.addColorStop(0, 'rgba('+warmR+','+warmG+','+warmB+','+(kuraR*0.12).toFixed(3)+')');
+  rGlow.addColorStop(1, 'rgba('+warmR+','+warmG+','+warmB+',0)');
+  cx.fillStyle = rGlow;
+  cx.fillRect(0,0,W,H);
+
+  // Draw R vector
+  var rEndX = centerX + Math.cos(meanPhase)*radius*kuraR;
+  var rEndY = centerY + Math.sin(meanPhase)*radius*kuraR;
+  cx.strokeStyle = 'rgba('+warmR+','+warmG+','+warmB+','+(0.15+kuraR*0.5).toFixed(3)+')';
+  cx.lineWidth = 1.5;
+  cx.beginPath();
+  cx.moveTo(centerX, centerY);
+  cx.lineTo(rEndX, rEndY);
+  cx.stroke();
+
+  // ═══ Oscillator dots on circle ═══
+  for(var i=0; i<kuraN; i++){
+    var angle = kuraPhases[i];
+    var px = centerX + Math.cos(angle)*radius;
+    var py = centerY + Math.sin(angle)*radius;
+
+    // Phase difference from mean → color
+    var pdiff = Math.abs(angle - meanPhase);
+    if(pdiff > Math.PI) pdiff = PI2 - pdiff;
+    var sync = 1 - pdiff/Math.PI;
+
+    // Interpolate cool blue → warm gold based on sync
+    var cr = Math.round(COOL[0] + (GOLD[0]-COOL[0])*sync);
+    var cg = Math.round(COOL[1] + (GOLD[1]-COOL[1])*sync);
+    var cb = Math.round(COOL[2] + (GOLD[2]-COOL[2])*sync);
+
+    var sz = 3 + sync*3;
+
+    // Glow for synced oscillators
+    if(sync > 0.6){
+      var glowGrad = cx.createRadialGradient(px,py,0,px,py,sz*4);
+      glowGrad.addColorStop(0, 'rgba('+cr+','+cg+','+cb+','+(sync*0.2).toFixed(3)+')');
+      glowGrad.addColorStop(1, 'rgba('+cr+','+cg+','+cb+',0)');
+      cx.fillStyle = glowGrad;
+      cx.fillRect(px-sz*4,py-sz*4,sz*8,sz*8);
+    }
+
+    // Connecting lines for close oscillators (visual coupling)
+    for(var j=i+1; j<kuraN; j++){
+      var a2 = kuraPhases[j];
+      var diff = Math.abs(angle - a2);
+      if(diff > Math.PI) diff = PI2 - diff;
+      if(diff < 0.3){
+        var px2 = centerX + Math.cos(a2)*radius;
+        var py2 = centerY + Math.sin(a2)*radius;
+        var lineSync = 1 - diff/0.3;
+        cx.strokeStyle = 'rgba('+cr+','+cg+','+cb+','+(lineSync*0.08).toFixed(3)+')';
+        cx.lineWidth = 0.5;
+        cx.beginPath(); cx.moveTo(px,py); cx.lineTo(px2,py2); cx.stroke();
+      }
+    }
+
+    cx.fillStyle = 'rgba('+cr+','+cg+','+cb+',0.85)';
+    cx.beginPath(); cx.arc(px,py,sz,0,PI2); cx.fill();
+  }
+
+  // ═══ R bar at bottom ═══
+  var barX = centerX - radius;
+  var barY = centerY + radius + 40;
+  var barW = radius*2;
+  var barH = 6;
+
+  // Bar background
+  cx.fillStyle = 'rgba(184,117,58,0.06)';
+  cx.fillRect(barX, barY, barW, barH);
+
+  // Bar fill
+  var fillGrad = cx.createLinearGradient(barX, barY, barX+barW*kuraR, barY);
+  fillGrad.addColorStop(0, 'rgba('+COOL[0]+','+COOL[1]+','+COOL[2]+',0.6)');
+  fillGrad.addColorStop(1, 'rgba('+warmR+','+warmG+','+warmB+',0.8)');
+  cx.fillStyle = fillGrad;
+  cx.fillRect(barX, barY, barW*kuraR, barH);
+
+  // R label
+  cx.font = '10px "Courier New",monospace';
+  cx.fillStyle = '#7a9a6a';
+  cx.textAlign = 'left';
+  cx.fillText('R = ' + kuraR.toFixed(3), barX, barY + barH + 14);
+
+  // Kc label
+  cx.fillStyle = '#8b4a2e';
+  cx.textAlign = 'right';
+  cx.fillText('K = ' + kuraK.toFixed(2), barX + barW, barY + barH + 14);
+  cx.textAlign = 'left';
+
+  // 1/phi threshold marker on bar
+  var threshX = barX + barW * rThresh;
+  cx.strokeStyle = 'rgba(130,160,70,0.2)';
+  cx.lineWidth = 1;
+  cx.beginPath();
+  cx.moveTo(threshX, barY-3);
+  cx.lineTo(threshX, barY+barH+3);
+  cx.stroke();
+
+  statEl.innerHTML =
+    'R: ' + kuraR.toFixed(3) + '<br>' +
+    'K: ' + kuraK.toFixed(2) + '<br>' +
+    'N: ' + kuraN + '<br>' +
+    '<span style="color:#8b4a2e">1/\u03C6 = ' + rThresh.toFixed(3) + '</span>';
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+// 3. K-LAG SPECTRUM VISUALIZER
+// ═══════════════════════════════════════════════════════════════
+var klagTaps = [];
+var klagAutoCorr = new Float64Array(50);
+var klagMaxLag = 50;
+var klagAutoMode = true;
+var klagAutoPhase = 0;
+
+function initKLag(){
+  titleEl.textContent = 'K-Lag Spectrum';
+  descEl.textContent = 'Tap a rhythm or watch the auto-generator. Autocorrelation at lags 1-50.';
+  tapZone.style.display = '';
+  klagTaps = [];
+  klagAutoCorr = new Float64Array(50);
+  klagAutoMode = true;
+  klagAutoPhase = 0;
+
+  // Auto-generate a rhythm with phrase structure
+  generateAutoRhythm();
+
+  var tapBtn = document.getElementById('tapBtn');
+  tapBtn.textContent = 'tap rhythm';
+  tapBtn.onclick = function(){
+    if(klagAutoMode){
+      klagAutoMode = false;
+      klagTaps = [];
+      klagAutoCorr = new Float64Array(50);
+      tapBtn.textContent = 'tap rhythm (tapping...)';
+    }
+    klagTaps.push(performance.now());
+    tapBtn.classList.add('flash');
+    setTimeout(function(){ tapBtn.classList.remove('flash'); }, 100);
+    if(klagTaps.length > 2) computeAutoCorr();
+  };
+
+  // Add reset/auto controls
+  ctrlEl.innerHTML =
+    '<div class="slider-wrap">' +
+    '<button class="tap-btn" id="klagAuto" style="font-size:0.55em;padding:5px 12px;">auto</button>' +
+    '</div>';
+  document.getElementById('klagAuto').onclick = function(){
+    klagAutoMode = true;
+    klagTaps = [];
+    generateAutoRhythm();
+    tapBtn.textContent = 'tap rhythm';
+  };
+}
+
+function generateAutoRhythm(){
+  // Generate a rhythm with two-level phrase structure
+  // Pattern: [x . . x . x . . | x . x . . x . .] repeated with slight variation
+  klagTaps = [];
+  var baseIOI = 200; // ms between smallest unit
+  // Euclidean(8,3) → [x..x.x..] — the universal pattern
+  var pattern = [1,0,0,1,0,1,0,0, 1,0,1,0,0,1,0,0];
+  var t = 0;
+  for(var rep=0; rep<6; rep++){
+    for(var i=0; i<pattern.length; i++){
+      if(pattern[i]){
+        // Add subtle humanization
+        klagTaps.push(t + (Math.random()-0.5)*15);
+      }
+      t += baseIOI;
+    }
+  }
+  computeAutoCorr();
+}
+
+function computeAutoCorr(){
+  if(klagTaps.length < 3) return;
+
+  // Convert taps to IOI series
+  var ioi = [];
+  for(var i=1; i<klagTaps.length; i++){
+    ioi.push(klagTaps[i] - klagTaps[i-1]);
+  }
+
+  // Normalize IOIs
+  var mean = 0;
+  for(var i=0; i<ioi.length; i++) mean += ioi[i];
+  mean /= ioi.length;
+
+  var normed = [];
+  for(var i=0; i<ioi.length; i++) normed.push(ioi[i] - mean);
+
+  // Autocorrelation at lags 1-50
+  var maxLag = Math.min(klagMaxLag, normed.length - 1);
+  var var0 = 0;
+  for(var i=0; i<normed.length; i++) var0 += normed[i]*normed[i];
+  if(var0 === 0) var0 = 1;
+
+  for(var lag=0; lag<klagMaxLag; lag++){
+    if(lag >= maxLag){
+      klagAutoCorr[lag] = 0;
+      continue;
+    }
+    var sum = 0;
+    for(var i=0; i<normed.length - lag - 1; i++){
+      sum += normed[i] * normed[i+lag+1];
+    }
+    klagAutoCorr[lag] = sum / var0;
+  }
+}
+
+function drawKLag(){
+  cx.fillStyle = '#0a0706';
+  cx.fillRect(0,0,W,H);
+
+  if(klagAutoMode){
+    klagAutoPhase += 0.015;
+    // Subtly vary the auto rhythm over time
+    if(Math.sin(klagAutoPhase) > 0.99){
+      generateAutoRhythm();
+    }
+  }
+
+  var marginX = W*0.08;
+  var marginTop = H*0.15;
+  var marginBot = H*0.25;
+  var plotW = W - marginX*2;
+  var plotH = H - marginTop - marginBot;
+
+  // Find max for scaling
+  var maxVal = 0.01;
+  for(var i=0; i<klagMaxLag; i++){
+    if(Math.abs(klagAutoCorr[i]) > maxVal) maxVal = Math.abs(klagAutoCorr[i]);
+  }
+
+  // ═══ Mountain range ═══
+  var barW = plotW / klagMaxLag;
+  var zeroY = marginTop + plotH * 0.6; // Baseline
+
+  // Mountain fill
+  cx.beginPath();
+  cx.moveTo(marginX, zeroY);
+  for(var i=0; i<klagMaxLag; i++){
+    var x = marginX + (i+0.5)*barW;
+    var val = klagAutoCorr[i] / maxVal;
+    var h = val * plotH * 0.55;
+    if(i === 0){
+      cx.lineTo(x, zeroY - h);
+    } else {
+      // Smooth curve
+      var prevX = marginX + (i-0.5)*barW;
+      var prevVal = klagAutoCorr[i-1] / maxVal;
+      var prevH = prevVal * plotH * 0.55;
+      var cpx = (prevX + x) / 2;
+      cx.bezierCurveTo(cpx, zeroY - prevH, cpx, zeroY - h, x, zeroY - h);
+    }
+  }
+  cx.lineTo(marginX + plotW, zeroY);
+  cx.closePath();
+
+  // Gradient fill
+  var mGrad = cx.createLinearGradient(0, marginTop, 0, zeroY);
+  mGrad.addColorStop(0, 'rgba(220,175,80,0.15)');
+  mGrad.addColorStop(0.5, 'rgba(184,117,58,0.08)');
+  mGrad.addColorStop(1, 'rgba(165,90,35,0.02)');
+  cx.fillStyle = mGrad;
+  cx.fill();
+
+  // Mountain outline
+  cx.beginPath();
+  cx.moveTo(marginX, zeroY);
+  for(var i=0; i<klagMaxLag; i++){
+    var x = marginX + (i+0.5)*barW;
+    var val = klagAutoCorr[i] / maxVal;
+    var h = val * plotH * 0.55;
+    if(i === 0){
+      cx.lineTo(x, zeroY - h);
+    } else {
+      var prevX = marginX + (i-0.5)*barW;
+      var prevVal = klagAutoCorr[i-1] / maxVal;
+      var prevH = prevVal * plotH * 0.55;
+      var cpx = (prevX + x) / 2;
+      cx.bezierCurveTo(cpx, zeroY - prevH, cpx, zeroY - h, x, zeroY - h);
+    }
+  }
+  cx.strokeStyle = 'rgba(220,175,80,0.5)';
+  cx.lineWidth = 1.5;
+  cx.stroke();
+
+  // ═══ Peak glows ═══
+  for(var i=0; i<klagMaxLag; i++){
+    var val = klagAutoCorr[i] / maxVal;
+    if(val > 0.3){
+      var x = marginX + (i+0.5)*barW;
+      var h = val * plotH * 0.55;
+      var py = zeroY - h;
+
+      var glow = cx.createRadialGradient(x, py, 0, x, py, 20 + val*15);
+      var intensity = val * val;
+      glow.addColorStop(0, 'rgba(230,190,100,'+(intensity*0.25).toFixed(3)+')');
+      glow.addColorStop(0.5, 'rgba(184,117,58,'+(intensity*0.08).toFixed(3)+')');
+      glow.addColorStop(1, 'rgba(184,117,58,0)');
+      cx.fillStyle = glow;
+      cx.fillRect(x-35, py-35, 70, 70);
+
+      // Peak dot
+      cx.fillStyle = 'rgba(230,190,100,'+(0.4+val*0.5).toFixed(3)+')';
+      cx.beginPath(); cx.arc(x, py, 2+val*2, 0, PI2); cx.fill();
+    }
+  }
+
+  // ═══ Bars (subtle vertical lines at each lag) ═══
+  for(var i=0; i<klagMaxLag; i++){
+    var x = marginX + (i+0.5)*barW;
+    var val = klagAutoCorr[i] / maxVal;
+    var h = val * plotH * 0.55;
+
+    cx.strokeStyle = 'rgba(184,117,58,'+(0.05 + Math.abs(val)*0.15).toFixed(3)+')';
+    cx.lineWidth = Math.max(1, barW*0.4);
+    cx.beginPath();
+    cx.moveTo(x, zeroY);
+    cx.lineTo(x, zeroY - h);
+    cx.stroke();
+  }
+
+  // Zero line
+  cx.strokeStyle = 'rgba(184,117,58,0.1)';
+  cx.lineWidth = 1;
+  cx.beginPath();
+  cx.moveTo(marginX, zeroY);
+  cx.lineTo(marginX + plotW, zeroY);
+  cx.stroke();
+
+  // Lag labels
+  cx.font = '9px "Courier New",monospace';
+  cx.fillStyle = '#8b4a2e';
+  cx.textAlign = 'center';
+  for(var i=0; i<klagMaxLag; i+=5){
+    var x = marginX + (i+0.5)*barW;
+    cx.fillText(''+(i+1), x, zeroY + 16);
+  }
+  cx.textAlign = 'left';
+  cx.fillText('lag', marginX, zeroY + 30);
+
+  // IOI visualization at bottom — show the rhythm as ticks
+  var tickY = H - marginBot*0.5;
+  if(klagTaps.length > 1){
+    var tMin = klagTaps[0], tMax = klagTaps[klagTaps.length-1];
+    var tRange = tMax - tMin;
+    if(tRange > 0){
+      for(var i=0; i<klagTaps.length; i++){
+        var tx = marginX + ((klagTaps[i]-tMin)/tRange)*plotW;
+        cx.strokeStyle = 'rgba(220,175,80,0.3)';
+        cx.lineWidth = 1.5;
+        cx.beginPath();
+        cx.moveTo(tx, tickY - 6);
+        cx.lineTo(tx, tickY + 6);
+        cx.stroke();
+      }
+    }
+  }
+
+  statEl.innerHTML =
+    'taps: ' + klagTaps.length + '<br>' +
+    'lags: ' + klagMaxLag + '<br>' +
+    '<span style="color:#8b4a2e">' + (klagAutoMode ? 'auto-rhythm' : 'your rhythm') + '</span>';
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+// 4. THE MACHINE — 137 oscillators on golden spiral
+// ═══════════════════════════════════════════════════════════════
+var machN = 137;
+var machPhases, machOmega, machNx, machNy, machNbr, machNodeCol;
+var machR = 0;
+var machK = 1.868;
+var machGA = 2.39996322;
+
+var MACH_PALETTE = [
+  [210,120,45],[185,82,40],[190,145,60],[165,90,35],
+  [95,155,70],[75,130,60],[220,155,65],[200,100,40],
+  [140,170,75],[180,130,50],[160,75,35],[110,145,65],
+  [230,170,80],[170,105,45],[130,160,70],[195,135,55],[145,85,40]
+];
+
+function initMachine(){
+  titleEl.textContent = 'The Machine';
+  descEl.textContent = '137 coupled oscillators on a golden spiral. K=K* (1.868). The math computing beauty.';
+
+  machPhases = new Float64Array(machN);
+  machOmega = new Float64Array(machN);
+  machNx = []; machNy = [];
+  machNbr = [];
+  machNodeCol = [];
+
+  // Layout on golden spiral
+  for(var i=0; i<machN; i++){
+    var r = 0.8 + Math.sqrt(i/machN)*5.5;
+    var a = i*machGA;
+    machNx.push(Math.cos(a)*r);
+    machNy.push(Math.sin(a)*r);
+    machPhases[i] = Math.random() * PI2;
+    machOmega[i] = (0.3+Math.random()*0.7)*PI2*(0.8+Math.random()*0.4);
+    machNodeCol.push(MACH_PALETTE[Math.floor((i*PHI*7) % MACH_PALETTE.length)]);
+  }
+
+  // Build neighbor list — wider radius for rich coupling
+  for(var i=0; i<machN; i++){
+    var nn = [];
+    for(var j=0; j<machN; j++){
+      if(j===i) continue;
+      var ddx = machNx[j]-machNx[i], ddy = machNy[j]-machNy[i];
+      if(ddx*ddx+ddy*ddy < 5.0) nn.push(j);
+    }
+    machNbr.push(nn);
+  }
+
+  // K slider
+  ctrlEl.innerHTML =
+    '<div class="slider-wrap">' +
+    '<span class="slider-label">K</span>' +
+    '<input type="range" id="machKSlider" min="0" max="4" step="0.01" value="1.868">' +
+    '<span class="slider-val" id="machKVal">1.87</span>' +
+    '</div>';
+  document.getElementById('machKSlider').addEventListener('input', function(){
+    machK = parseFloat(this.value);
+    document.getElementById('machKVal').textContent = machK.toFixed(2);
+  });
+}
+
+function stepMachine(){
+  var mre=0, mim=0;
+  for(var i=0; i<machN; i++){
+    mre += Math.cos(machPhases[i]);
+    mim += Math.sin(machPhases[i]);
+  }
+  mre /= machN; mim /= machN;
+  machR = Math.sqrt(mre*mre+mim*mim);
+
+  for(var i=0; i<machN; i++){
+    var c=0;
+    var nn = machNbr[i];
+    for(var k=0; k<nn.length; k++){
+      c += Math.sin(machPhases[nn[k]] - machPhases[i]);
+    }
+    machPhases[i] += 0.016*(machOmega[i] + (machK/machN)*c);
+  }
+}
+
+function drawMachine(){
+  cx.fillStyle = '#0a0706';
+  cx.fillRect(0,0,W,H);
+
+  stepMachine();
+
+  var sc = Math.min(W,H)*0.06;
+  var centerX = W*0.5, centerY = H*0.48;
+
+  // Projection — top-down with drag tilt
+  var cosA = Math.cos(dragAngleX*0.5);
+  var sinA = Math.sin(dragAngleX*0.5);
+  var tiltY = -0.35 + dragAngleY;
+
+  var cosT = Math.cos(tiltY), sinT = Math.sin(tiltY);
+
+  var globalBreath = 0.85 + machR*0.3;
+
+  // Project all nodes
+  var proj = [];
+  for(var i=0; i<machN; i++){
+    var p = machPhases[i] % PI2; if(p<0) p+=PI2;
+    var z3d = p/PI2 * 3.2;
+
+    // Rotate around Y axis (drag)
+    var x1 = machNx[i]*cosA + z3d*sinA;
+    var z1 = -machNx[i]*sinA + z3d*cosA;
+    // Tilt around X
+    var y1 = machNy[i]*cosT - z1*sinT;
+    var z2 = machNy[i]*sinT + z1*cosT;
+
+    var persp = 500/(500 + z2*sc*0.3);
+    var sx = centerX + x1*sc*persp;
+    var sy = centerY + y1*sc*persp;
+    proj.push({i:i, sx:sx, sy:sy, z:z2, persp:persp, phase:p});
+  }
+  proj.sort(function(a,b){ return b.z - a.z; });
+
+  var idxMap = new Array(machN);
+  for(var k=0; k<machN; k++) idxMap[proj[k].i] = proj[k];
+
+  // ═══ R threshold circle (in center, subtle) ═══
+  var rThreshRadius = Math.min(W,H)*0.02 / PHI;
+  if(machR > 0.01){
+    var rGlow = cx.createRadialGradient(centerX,centerY,0,centerX,centerY,rThreshRadius+machR*60);
+    rGlow.addColorStop(0, 'rgba(220,175,80,'+(machR*0.08).toFixed(3)+')');
+    rGlow.addColorStop(1, 'rgba(184,117,58,0)');
+    cx.fillStyle = rGlow;
+    cx.fillRect(centerX-100,centerY-100,200,200);
+  }
+
+  // ═══ CONNECTIONS ═══
+  cx.globalCompositeOperation = 'lighter';
+
+  for(var i=0; i<machN; i++){
+    var nd = idxMap[i]; if(!nd) continue;
+    var nn = machNbr[i];
+    for(var j=0; j<nn.length; j++){
+      if(nn[j] <= i) continue;
+      var nb = idxMap[nn[j]]; if(!nb) continue;
+      var pdiff = Math.abs(nd.phase - nb.phase);
+      if(pdiff > Math.PI) pdiff = PI2 - pdiff;
+      var sync = 1 - pdiff/Math.PI;
+      if(sync < 0.2) continue;
+
+      var s2 = sync*sync, s3 = s2*sync;
+      var pMin = Math.min(nd.persp, nb.persp);
+
+      var ca = machNodeCol[nd.i], cb = machNodeCol[nb.i];
+      var mr = Math.round((ca[0]+cb[0])*0.5);
+      var mg = Math.round((ca[1]+cb[1])*0.5);
+      var mb = Math.round((ca[2]+cb[2])*0.5);
+
+      // Golden thread effect for high sync
+      var whiten = s3 * 0.4;
+      var lr = Math.min(255, Math.round(mr + (255-mr)*whiten));
+      var lg = Math.min(255, Math.round(mg + (255-mg)*whiten));
+      var lb = Math.min(255, Math.round(mb + (255-mb)*whiten));
+
+      var alpha = s2 * 0.55 * pMin * globalBreath;
+      cx.strokeStyle = 'rgba('+lr+','+lg+','+lb+','+alpha.toFixed(3)+')';
+      cx.lineWidth = (0.4+s2*1.8)*pMin;
+      cx.beginPath(); cx.moveTo(nd.sx,nd.sy); cx.lineTo(nb.sx,nb.sy); cx.stroke();
+
+      // Glow for very synced pairs
+      if(sync > 0.7){
+        var glowA = (sync-0.7)*2.0*0.12*pMin;
+        cx.strokeStyle = 'rgba('+mr+','+mg+','+mb+','+glowA.toFixed(3)+')';
+        cx.lineWidth = (2+s2*4)*pMin;
+        cx.beginPath(); cx.moveTo(nd.sx,nd.sy); cx.lineTo(nb.sx,nb.sy); cx.stroke();
+      }
+    }
+  }
+
+  // ═══ NODES ═══
+  for(var k=0; k<proj.length; k++){
+    var nd = proj[k];
+    var col = machNodeCol[nd.i];
+
+    var breath = Math.sin(machPhases[nd.i]);
+    var size = (2.2 + breath*0.9) * nd.persp * globalBreath;
+    var bright = (0.7 + Math.abs(breath)*0.5) * nd.persp;
+
+    // Radial glow
+    if(bright > 0.15 && nd.persp > 0.5){
+      var glowR = size * 5;
+      var grad = cx.createRadialGradient(nd.sx,nd.sy,size*0.3,nd.sx,nd.sy,glowR);
+      grad.addColorStop(0, 'rgba('+col[0]+','+col[1]+','+col[2]+','+(bright*0.22).toFixed(3)+')');
+      grad.addColorStop(0.35, 'rgba('+col[0]+','+col[1]+','+col[2]+','+(bright*0.07).toFixed(3)+')');
+      grad.addColorStop(1, 'rgba('+col[0]+','+col[1]+','+col[2]+',0)');
+      cx.fillStyle = grad;
+      cx.fillRect(nd.sx-glowR, nd.sy-glowR, glowR*2, glowR*2);
+    }
+
+    // Hot core
+    var hotFactor = Math.max(0, breath) * 0.35;
+    var cr = Math.min(255, Math.round(col[0]+(255-col[0])*hotFactor));
+    var cg = Math.min(255, Math.round(col[1]+(255-col[1])*hotFactor));
+    var cb = Math.min(255, Math.round(col[2]+(255-col[2])*hotFactor));
+
+    if(nd.persp > 0.5){
+      var coreGrad = cx.createRadialGradient(nd.sx,nd.sy,0,nd.sx,nd.sy,size);
+      coreGrad.addColorStop(0, 'rgba('+cr+','+cg+','+cb+','+Math.min(1,bright*1.1).toFixed(3)+')');
+      coreGrad.addColorStop(0.6, 'rgba('+col[0]+','+col[1]+','+col[2]+','+bright.toFixed(3)+')');
+      coreGrad.addColorStop(1, 'rgba('+col[0]+','+col[1]+','+col[2]+','+(bright*0.25).toFixed(3)+')');
+      cx.fillStyle = coreGrad;
+    } else {
+      cx.fillStyle = 'rgba('+cr+','+cg+','+cb+','+bright.toFixed(3)+')';
+    }
+    cx.beginPath(); cx.arc(nd.sx,nd.sy,size,0,PI2); cx.fill();
+  }
+
+  cx.globalCompositeOperation = 'source-over';
+
+  // ═══ R = 1/phi threshold ═══
+  // Display text near bottom
+  var rColor = machR > 1/PHI ? '#7a9a6a' : '#8b4a2e';
+  statEl.innerHTML =
+    'R: <span style="color:'+rColor+'">' + machR.toFixed(3) + '</span><br>' +
+    'K: ' + machK.toFixed(3) + '<br>' +
+    'N: ' + machN + '<br>' +
+    '<span style="color:#8b4a2e">1/\u03C6 = ' + (1/PHI).toFixed(3) + '</span>';
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+// 5. STAR TETRAHEDRON
+// ═══════════════════════════════════════════════════════════════
+var tetraTime = 0;
+var tetraHover = -1;
+
+// Two interlocking tetrahedra
+// Tetrahedron 1: pointing up
+// Tetrahedron 2: pointing down (inverted)
+// Labels for C3/2O framework
+var TETRA_LABELS = [
+  // Tetrahedron 1 (fire/up)
+  {name:'K', sub:'coupling strength', var:'K*=1.868'},
+  {name:'R', sub:'order parameter', var:'R threshold=1/\u03C6'},
+  {name:'E', sub:'energy', var:'E=K\u00B7R\u00B7ln(N)'},
+  {name:'T', sub:'temperature', var:'T=E/S'},
+  // Tetrahedron 2 (water/down)
+  {name:'\u03C3', sub:'symmetry group', var:'2O \u2282 SU(2)'},
+  {name:'\u03C9', sub:'natural frequency', var:'\u03C9_i ~ Cauchy'},
+  {name:'\u03C6', sub:'golden ratio', var:'(1+\u221A5)/2'},
+  {name:'\u039B', sub:'Mangoldt weight', var:'\u039B(n)=ln p'}
+];
+
+function initTetra(){
+  titleEl.textContent = 'Star Tetrahedron';
+  descEl.textContent = 'Two interlocking tetrahedra. The geometry that keeps showing up in the framework.';
+  tetraTime = 0;
+  tetraHover = -1;
+
+  // Show tooltip instructions
+  ctrlEl.innerHTML =
+    '<div class="slider-wrap">' +
+    '<span class="slider-label" style="opacity:0.5;">hover vertices</span>' +
+    '</div>';
+}
+
+function getTetraVertices(){
+  // Star tetrahedron = two interlocking tetrahedra
+  // Tetrahedron 1 (up): vertices of regular tetrahedron
+  var s = Math.min(W,H)*0.18;
+  var cx2 = W*0.5, cy2 = H*0.45;
+
+  // Breathing
+  var breathScale = 1 + Math.sin(tetraTime*0.5)*0.03;
+  s *= breathScale;
+
+  // 3D regular tetrahedron vertices
+  // Centered at origin, then projected
+  var sqrt2 = Math.sqrt(2), sqrt3 = Math.sqrt(3);
+
+  // Tetra 1 (up)
+  var t1 = [
+    { x:0,         y:-1,        z:0 },
+    { x:sqrt2*2/3, y:1/3,       z:0 },
+    { x:-sqrt2/3,  y:1/3,       z:sqrt2/sqrt3 },
+    { x:-sqrt2/3,  y:1/3,       z:-sqrt2/sqrt3 }
+  ];
+
+  // Tetra 2 (down) — inverted
+  var t2 = [
+    { x:0,         y:1,         z:0 },
+    { x:-sqrt2*2/3,y:-1/3,      z:0 },
+    { x:sqrt2/3,   y:-1/3,      z:-sqrt2/sqrt3 },
+    { x:sqrt2/3,   y:-1/3,      z:sqrt2/sqrt3 }
+  ];
+
+  // Apply drag rotation + subtle auto rotation
+  var autoAngle = tetraTime * 0.08;
+  var rotY = dragAngleX + autoAngle;
+  var rotX = dragAngleY - 0.2;
+
+  function rot(v){
+    // Rotate Y
+    var cosY = Math.cos(rotY), sinY = Math.sin(rotY);
+    var x1 = v.x*cosY + v.z*sinY;
+    var z1 = -v.x*sinY + v.z*cosY;
+    // Rotate X
+    var cosX = Math.cos(rotX), sinX = Math.sin(rotX);
+    var y1 = v.y*cosX - z1*sinX;
+    var z2 = v.y*sinX + z1*cosX;
+    // Project with parallax (NOT perspective rotation)
+    var depth = z2;
+    var depthFactor = 1 + depth*0.12; // subtle parallax
+    return {
+      sx: cx2 + x1*s*depthFactor,
+      sy: cy2 + y1*s*depthFactor,
+      z: z2,
+      bright: 0.5 + (z2+1)*0.25
+    };
+  }
+
+  var verts1 = t1.map(rot);
+  var verts2 = t2.map(rot);
+
+  return {up: verts1, down: verts2};
+}
+
+function drawTetra(){
+  cx.fillStyle = '#0a0706';
+  cx.fillRect(0,0,W,H);
+
+  tetraTime += 0.016;
+
+  var verts = getTetraVertices();
+  var up = verts.up;
+  var down = verts.down;
+
+  // Edge definitions
+  var edges1 = [[0,1],[0,2],[0,3],[1,2],[1,3],[2,3]];
+  var edges2 = [[0,1],[0,2],[0,3],[1,2],[1,3],[2,3]];
+
+  // ═══ Draw edges ═══
+  function drawEdges(verts, edges, color, label){
+    for(var i=0; i<edges.length; i++){
+      var a = verts[edges[i][0]];
+      var b = verts[edges[i][1]];
+
+      var avgZ = (a.z + b.z)*0.5;
+      var depth = (avgZ+1.5)/3; // normalize
+      var breathPulse = Math.sin(tetraTime*0.8 + i*0.5)*0.15 + 0.85;
+
+      var alpha = (0.15 + depth*0.2) * breathPulse;
+      cx.strokeStyle = 'rgba('+color[0]+','+color[1]+','+color[2]+','+alpha.toFixed(3)+')';
+      cx.lineWidth = 1 + depth*0.8;
+      cx.beginPath();
+      cx.moveTo(a.sx, a.sy);
+      cx.lineTo(b.sx, b.sy);
+      cx.stroke();
+
+      // Glow line
+      cx.strokeStyle = 'rgba('+color[0]+','+color[1]+','+color[2]+','+(alpha*0.3).toFixed(3)+')';
+      cx.lineWidth = 3 + depth*2;
+      cx.beginPath();
+      cx.moveTo(a.sx, a.sy);
+      cx.lineTo(b.sx, b.sy);
+      cx.stroke();
+    }
+  }
+
+  drawEdges(up, edges1, COPPER, 'fire');
+  drawEdges(down, edges2, [120,140,180], 'water');
+
+  // ═══ Draw vertices ═══
+  function drawVerts(verts, startIdx, color){
+    for(var i=0; i<verts.length; i++){
+      var v = verts[i];
+      var labelIdx = startIdx + i;
+      var label = TETRA_LABELS[labelIdx];
+
+      // Pulse based on framework variable
+      var pulse = Math.sin(tetraTime * (1 + i*0.3)) * 0.3 + 0.7;
+      var sz = 4 + pulse*3 + v.bright*2;
+
+      // Glow
+      var glowR = sz*5;
+      var grad = cx.createRadialGradient(v.sx,v.sy,0,v.sx,v.sy,glowR);
+      grad.addColorStop(0, 'rgba('+color[0]+','+color[1]+','+color[2]+','+(v.bright*0.2*pulse).toFixed(3)+')');
+      grad.addColorStop(0.4, 'rgba('+color[0]+','+color[1]+','+color[2]+','+(v.bright*0.06).toFixed(3)+')');
+      grad.addColorStop(1, 'rgba('+color[0]+','+color[1]+','+color[2]+',0)');
+      cx.fillStyle = grad;
+      cx.fillRect(v.sx-glowR, v.sy-glowR, glowR*2, glowR*2);
+
+      // Core
+      var coreGrad = cx.createRadialGradient(v.sx,v.sy,0,v.sx,v.sy,sz);
+      var hotCol = [Math.min(255,color[0]+60), Math.min(255,color[1]+40), Math.min(255,color[2]+20)];
+      coreGrad.addColorStop(0, 'rgba('+hotCol[0]+','+hotCol[1]+','+hotCol[2]+','+(v.bright*pulse).toFixed(3)+')');
+      coreGrad.addColorStop(0.6, 'rgba('+color[0]+','+color[1]+','+color[2]+','+(v.bright*0.8).toFixed(3)+')');
+      coreGrad.addColorStop(1, 'rgba('+color[0]+','+color[1]+','+color[2]+',0.1)');
+      cx.fillStyle = coreGrad;
+      cx.beginPath(); cx.arc(v.sx,v.sy,sz,0,PI2); cx.fill();
+
+      // Label (always visible, small)
+      cx.font = '11px Futura,"Century Gothic",system-ui,sans-serif';
+      cx.fillStyle = 'rgba('+color[0]+','+color[1]+','+color[2]+','+(v.bright*0.7).toFixed(3)+')';
+      cx.textAlign = 'center';
+      cx.fillText(label.name, v.sx, v.sy - sz - 8);
+      cx.textAlign = 'left';
+
+      // Check hover
+      var dx = mouseX - v.sx, dy = mouseY - v.sy;
+      if(dx*dx+dy*dy < (sz+15)*(sz+15)){
+        tetraHover = labelIdx;
+      }
+    }
+  }
+
+  // Check hover reset
+  tetraHover = -1;
+
+  drawVerts(up, 0, COPPER);
+  drawVerts(down, 4, [120,150,190]);
+
+  // ═══ Tooltip ═══
+  if(tetraHover >= 0){
+    var label = TETRA_LABELS[tetraHover];
+    var allVerts = tetraHover < 4 ? up : down;
+    var vIdx = tetraHover < 4 ? tetraHover : tetraHover - 4;
+    var v = allVerts[vIdx];
+
+    tooltip.innerHTML = '<span class="tt-label">' + label.name + '</span>' +
+      '<span class="tt-sub">' + label.sub + '</span>' +
+      '<span class="tt-sub" style="color:#7a9a6a;">' + label.var + '</span>';
+    tooltip.style.left = (v.sx + 20) + 'px';
+    tooltip.style.top = (v.sy - 20) + 'px';
+    tooltip.classList.add('show');
+  } else {
+    tooltip.classList.remove('show');
+  }
+
+  // ═══ Center intersection glow ═══
+  var centerGlow = cx.createRadialGradient(W*0.5,H*0.45,0,W*0.5,H*0.45,30);
+  var cPulse = Math.sin(tetraTime*0.6)*0.3+0.7;
+  centerGlow.addColorStop(0, 'rgba(220,175,80,'+(0.06*cPulse).toFixed(3)+')');
+  centerGlow.addColorStop(0.5, 'rgba(184,117,58,'+(0.02*cPulse).toFixed(3)+')');
+  centerGlow.addColorStop(1, 'rgba(184,117,58,0)');
+  cx.fillStyle = centerGlow;
+  cx.fillRect(W*0.5-30,H*0.45-30,60,60);
+
+  statEl.innerHTML =
+    'vertices: 8<br>' +
+    'edges: 12<br>' +
+    '<span style="color:#8b4a2e">2O \u2282 SU(2)</span>';
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+// MAIN LOOP
+// ═══════════════════════════════════════════════════════════════
+function loop(){
+  time += 0.016;
+
+  if(activeViz === 'lorenz') drawLorenz();
+  else if(activeViz === 'kuramoto') drawKuramoto();
+  else if(activeViz === 'klag') drawKLag();
+  else if(activeViz === 'machine') drawMachine();
+  else if(activeViz === 'tetra') drawTetra();
+
+  animId = requestAnimationFrame(loop);
+}
+
+// ═══ BOOT ═══
+initLorenz();
+loop();
+
+})();
+</script>
+<script src="/js/breathe.js"></script>
+<script src="/js/love.js"></script>
+</body>
+</html>
