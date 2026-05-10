@@ -275,6 +275,9 @@ for(var i=0;i<N;i++){
   nodeCol[i] = PALETTE[Math.floor((i * PHI * 7) % PALETTE.length)];
 }
 
+// Per-node K boost (set during draw, used in step)
+var kBoost=new Float64Array(N); // 0 = normal, positive = boosted
+
 // Simulation step
 var Rval=0;
 function step(){
@@ -287,7 +290,8 @@ function step(){
     var c=0;
     var nn=nbrL[i];
     for(var k=0;k<nn.length;k++) c+=Math.sin(phases[nn[k]]-phases[i]);
-    phases[i]+=dt*(omega[i]+(K_COUPLE/N)*c);
+    var kEff=K_COUPLE*(1+kBoost[i]);
+    phases[i]+=dt*(omega[i]+(kEff/N)*c);
   }
 }
 
@@ -323,14 +327,87 @@ function draw() {
     nxA[i] += ((a.x*(1-ease) + b.x*ease) - nxA[i]) * 0.03;
     nyA[i] += ((a.y*(1-ease) + b.y*ease) - nyA[i]) * 0.03;
   }
+  // ═══ MOUSE/TOUCH ATTRACTION — plants toward light ═══
+  if(mouseDecay>0.01){
+    // Convert mouse screen coords to canvas-relative coords
+    var mCanvasX=mouseX-cvRect.left;
+    var mCanvasY=mouseY-cvRect.top;
+    for(var i=0;i<N;i++){
+      // Get screen position of this oscillator (approximate — use shape coords * scale)
+      var sxApprox=cx2+nxA[i]*sc;
+      var syApprox=cy2+nyA[i]*sc;
+      var mdx=mCanvasX-sxApprox;
+      var mdy=mCanvasY-syApprox;
+      var mDist=Math.sqrt(mdx*mdx+mdy*mdy);
+      if(mDist<150&&mDist>5){
+        var mForce=0.3/(mDist*mDist)*mouseDecay;
+        // Apply in shape-space (divide by scale)
+        nxA[i]+=mdx*mForce*0.01;
+        nyA[i]+=mdy*mForce*0.01;
+      }
+    }
+  }
+
+  // ═══ DOOR HOVER COUPLING — warmth toward the hovered door ═══
+  if(hoveredDoor>=0&&hoveredDoor<doorRects.length&&!isTouchDevice){
+    var dr=doorRects[hoveredDoor];
+    // Door center in canvas-relative coords
+    var doorCX=dr.left+dr.width*0.5-cvRect.left;
+    var doorCY=dr.top-cvRect.top; // top edge of door, closest to canvas
+    for(var i=0;i<N;i++){
+      var sxApprox2=cx2+nxA[i]*sc;
+      var syApprox2=cy2+nyA[i]*sc;
+      var ddx2=doorCX-sxApprox2;
+      var ddy2=doorCY-syApprox2;
+      var dDist=Math.sqrt(ddx2*ddx2+ddy2*ddy2);
+      if(dDist<250&&dDist>5){
+        var dForce=0.15/(dDist);
+        nxA[i]+=ddx2*dForce*0.002;
+        nyA[i]+=ddy2*dForce*0.002;
+      }
+    }
+  }
+
+  // ═══ TEXT AVOIDANCE / CLUSTERING — breathing room for title, warmth around tagline ═══
+  if(titleRect){
+    // Title: gentle repulsion so oscillators don't crowd the text
+    var titleCX=titleRect.left+titleRect.width*0.5-cvRect.left;
+    var titleCY=titleRect.bottom-cvRect.top+10; // just below title
+    for(var i=0;i<N;i++){
+      var sxA3=cx2+nxA[i]*sc;
+      var syA3=cy2+nyA[i]*sc;
+      var tdx=sxA3-titleCX;
+      var tdy=syA3-titleCY;
+      var tDist=Math.sqrt(tdx*tdx+tdy*tdy);
+      if(tDist<80&&tDist>1){
+        // Push away gently
+        var tForce=0.5/(tDist*tDist);
+        nxA[i]+=tdx*tForce*0.003;
+        nyA[i]+=tdy*tForce*0.003;
+      }
+    }
+  }
+
   // Update neighbors periodically (every 2 seconds)
   if(Math.floor(shapeTime*0.5) !== Math.floor((shapeTime-dt)*0.5)){
     nbrL=[];
     for(var i=0;i<N;i++){var nn=[];for(var j=0;j<N;j++){if(j===i)continue;var ddx=nxA[j]-nxA[i],ddy=nyA[j]-nyA[i];if(ddx*ddx+ddy*ddy<5.0)nn.push(j);}nbrL.push(nn);}
   }
 
+  // ═══ PAGE AWARENESS FORCES — perturbations on top of shape ═══
+  // Canvas rect for coordinate mapping
+  var cvRect=cv.getBoundingClientRect();
+
+  // Mouse decay — fade over 0.5s when mouse stops
+  if(!mouseActive && mouseDecay>0) mouseDecay=Math.max(0, mouseDecay-dt*2.0);
+
+  // Scroll parallax offset (80% speed = 20% parallax)
+  var scrollDelta=(scrollY-lastScrollY)*0.2;
+  scrollOffset+=scrollDelta;
+  lastScrollY=scrollY;
+
   var sc=Math.min(W,H)*0.055;
-  var cx2=W/2, cy2=H*0.48;
+  var cx2=W/2, cy2=H*0.48+scrollOffset;
 
   // Global breathing — R drives a collective pulse
   var globalBreath = 0.85 + Rval * 0.3;
@@ -399,6 +476,24 @@ function draw() {
     var nd=proj[k];
     var col=nodeCol[nd.i];
 
+    // Door hover color warming — shift toward brighter gold when near hovered door
+    if(hoveredDoor>=0&&hoveredDoor<doorRects.length&&!isTouchDevice){
+      var dhr=doorRects[hoveredDoor];
+      var dhCX=dhr.left+dhr.width*0.5-cvRect.left;
+      var dhCY=dhr.top-cvRect.top;
+      var dhdx=nd.sx-dhCX, dhdy=nd.sy-dhCY;
+      var dhDist=Math.sqrt(dhdx*dhdx+dhdy*dhdy);
+      if(dhDist<200){
+        var warmth=Math.max(0,(200-dhDist)/200)*0.5;
+        // Warm toward [230,180,80] — bright gold
+        col=[
+          Math.min(255,Math.round(col[0]+(230-col[0])*warmth)),
+          Math.min(255,Math.round(col[1]+(180-col[1])*warmth)),
+          Math.min(255,Math.round(col[2]+(80-col[2])*warmth))
+        ];
+      }
+    }
+
     // Dramatic breathing — real expansion/contraction
     var breath = Math.sin(phases[nd.i]);
     var size = (2.0 + breath*0.8) * nd.persp * globalBreath;
@@ -436,14 +531,105 @@ function draw() {
     cx.beginPath();cx.arc(nd.sx,nd.sy,size,0,Math.PI*2);cx.fill();
   }
 
+  // ═══ COUPLING THREADS — oscillators reaching for content ═══
   cx.globalCompositeOperation='source-over';
+  // Thin golden threads from edge oscillators toward nearest door/tagline
+  var threadTargets=[];
+  // Add door tops as thread targets
+  for(var ti=0;ti<doorRects.length;ti++){
+    var tdr=doorRects[ti];
+    if(tdr) threadTargets.push({x:tdr.left+tdr.width*0.5-cvRect.left, y:tdr.top-cvRect.top});
+  }
+  // Add tagline center
+  if(taglineRect){
+    threadTargets.push({x:taglineRect.left+taglineRect.width*0.5-cvRect.left, y:taglineRect.top+taglineRect.height*0.5-cvRect.top});
+  }
+  // Draw threads from oscillators near canvas edges
+  var edgeMargin=W*0.12;
+  var bottomMargin=H*0.15;
+  for(var k=0;k<proj.length;k++){
+    var nd2=proj[k];
+    // Only edge oscillators or bottom-of-canvas oscillators
+    var nearEdge=(nd2.sx<edgeMargin||nd2.sx>W-edgeMargin||nd2.sy>H-bottomMargin);
+    if(!nearEdge||nd2.persp<0.5) continue;
+    // Find nearest thread target
+    var bestDist=Infinity, bestT=null;
+    for(var ti2=0;ti2<threadTargets.length;ti2++){
+      var ttdx=threadTargets[ti2].x-nd2.sx;
+      var ttdy=threadTargets[ti2].y-nd2.sy;
+      var ttd=Math.sqrt(ttdx*ttdx+ttdy*ttdy);
+      if(ttd<bestDist){bestDist=ttd;bestT=threadTargets[ti2];}
+    }
+    if(bestT&&bestDist<200&&bestDist>20){
+      var threadAlpha=(1-bestDist/200)*0.06*nd2.persp*globalBreath;
+      var tcol=nodeCol[nd2.i];
+      cx.strokeStyle='rgba('+tcol[0]+','+tcol[1]+','+tcol[2]+','+threadAlpha.toFixed(4)+')';
+      cx.lineWidth=0.5;
+      cx.beginPath();cx.moveTo(nd2.sx,nd2.sy);cx.lineTo(bestT.x,bestT.y);cx.stroke();
+    }
+  }
 
   requestAnimationFrame(draw);
 }
 
-// Click anywhere on canvas -> /gallery/
+// ═══ PAGE AWARENESS — oscillators couple with the content ═══
+var mouseX=W/2, mouseY=W/2, mouseActive=false, mouseDecay=0;
+var hoveredDoor=-1; // 0,1,2 or -1
+var scrollY=0, lastScrollY=0;
+var isTouchDevice=('ontouchstart' in window);
+
+// Mouse tracking (canvas-relative coords converted to screen coords)
+cv.addEventListener('mousemove',function(e){
+  mouseX=e.clientX; mouseY=e.clientY;
+  mouseActive=true; mouseDecay=1.0;
+});
+cv.addEventListener('mouseleave',function(){mouseActive=false;});
+// Touch tracking (no hover on touch)
+cv.addEventListener('touchmove',function(e){
+  if(e.touches.length>0){
+    mouseX=e.touches[0].clientX; mouseY=e.touches[0].clientY;
+    mouseActive=true; mouseDecay=1.0;
+  }
+},{passive:true});
+cv.addEventListener('touchend',function(e){
+  e.preventDefault(); window.location.href='/play/';
+});
+
+// Door hover detection
+var doorEls=document.querySelectorAll('.door');
+var doorRects=[]; // updated on draw
+for(var di=0;di<doorEls.length;di++){
+  (function(idx){
+    doorEls[idx].addEventListener('mouseenter',function(){hoveredDoor=idx;});
+    doorEls[idx].addEventListener('mouseleave',function(){hoveredDoor=-1;});
+  })(di);
+}
+
+// Scroll parallax
+var scrollOffset=0;
+window.addEventListener('scroll',function(){
+  scrollY=window.pageYOffset||document.documentElement.scrollTop||0;
+},{passive:true});
+
+// Page element rects (title, tagline, doors) — cached, refreshed on resize
+var titleRect=null, taglineRect=null;
+function cacheRects(){
+  var h1=document.querySelector('h1');
+  var tag=document.querySelector('.orbit-wrap + div'); // tagline div
+  if(h1) titleRect=h1.getBoundingClientRect();
+  if(tag) taglineRect=tag.getBoundingClientRect();
+  doorRects=[];
+  for(var di=0;di<doorEls.length;di++){
+    doorRects.push(doorEls[di].getBoundingClientRect());
+  }
+}
+cacheRects();
+var oldResize=resize;
+resize=function(){oldResize(); cacheRects();};
+window.addEventListener('resize',cacheRects);
+
+// Click anywhere on canvas -> /play/
 cv.addEventListener('click', function(){ window.location.href='/play/'; });
-cv.addEventListener('touchend', function(e){ e.preventDefault(); window.location.href='/play/'; });
 cv.addEventListener('keydown', function(e){ if(e.key==='Enter'||e.key===' '){e.preventDefault();window.location.href='/play/';} });
 cv.setAttribute('tabindex','0');
 cv.style.cursor='pointer';
