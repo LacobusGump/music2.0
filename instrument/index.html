@@ -473,6 +473,546 @@ function getTopTension() {
 }
 
 // =====================================================================
+// MUSIC EVOLUTION ENGINE
+//
+// The instrument goes on its own musical journey. Four systems:
+//   1. Melodic Memory:   circular buffer + motif detection + 1/f recall
+//   2. Rhythmic Pulse:   emergent grid from player IOI, Euclidean patterns
+//   3. Harmonic Journey:  tonal center modulation (33 -> related keys -> home)
+//   4. FOR Initiative:   the soul speaks first when the player is still
+//
+// Built ON TOP of existing systems. The Kuramoto Heart, three-scale FOR,
+// void state machine, and spectral tension engine all remain untouched.
+// The evolution engine reads their state and adds musical agency.
+// =====================================================================
+
+// --- MELODIC MEMORY ---
+// Circular buffer of recent melodic events (pitch, time, energy, source)
+var melodyMemory = [];        // [{pitch, time, energy, fromFOR}]
+var MELODY_MEMORY_SIZE = 16;
+var melodyMotifs = [];        // detected motif patterns [{intervals, startIdx, count}]
+var melodyLastMotifCheck = 0;
+
+function melodyRecord(pitchHz, noteEnergy, fromFOR) {
+  melodyMemory.push({
+    pitch: pitchHz,
+    time: sessionTime,
+    energy: noteEnergy || 0.5,
+    fromFOR: fromFOR || false
+  });
+  if (melodyMemory.length > MELODY_MEMORY_SIZE) melodyMemory.shift();
+}
+
+// Extract interval pattern from a slice of melody memory
+// Returns array of semitone intervals (can be negative)
+function melodyIntervals(arr, startIdx, len) {
+  var intervals = [];
+  for (var i = 1; i < len && startIdx + i < arr.length; i++) {
+    var ratio = arr[startIdx + i].pitch / arr[startIdx + i - 1].pitch;
+    // Convert ratio to semitones
+    intervals.push(Math.round(12 * Math.log2(ratio)));
+  }
+  return intervals;
+}
+
+// Check if two interval patterns match (transposition-invariant)
+function motifsMatch(a, b) {
+  if (a.length !== b.length || a.length < 2) return false;
+  for (var i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+}
+
+// Scan melody memory for recurring motifs (3-4 note patterns)
+function melodyDetectMotifs() {
+  melodyMotifs = [];
+  if (melodyMemory.length < 6) return;
+
+  // Check motif lengths 3 and 4
+  for (var mLen = 3; mLen <= 4; mLen++) {
+    // The most recent mLen notes form the "query" pattern
+    var queryStart = melodyMemory.length - mLen;
+    if (queryStart < 0) continue;
+    var queryIntervals = melodyIntervals(melodyMemory, queryStart, mLen);
+    if (queryIntervals.length < 2) continue;
+
+    // Search earlier in memory for matching patterns
+    for (var s = 0; s <= melodyMemory.length - mLen * 2; s++) {
+      var candidate = melodyIntervals(melodyMemory, s, mLen);
+      if (motifsMatch(queryIntervals, candidate)) {
+        melodyMotifs.push({
+          intervals: queryIntervals,
+          startIdx: s,
+          count: mLen,
+          recentIdx: queryStart
+        });
+      }
+    }
+  }
+}
+
+// Given the current state, choose the next note with motif awareness
+// Returns a frequency in Hz, or -1 if no suggestion
+function melodyChooseNext() {
+  if (melodyMemory.length < 3) return -1;
+  var last = melodyMemory[melodyMemory.length - 1];
+
+  // Check if we're in the middle of completing a motif
+  // Look for a motif where we've played the first N-1 notes and need the Nth
+  for (var mLen = 4; mLen >= 3; mLen--) {
+    if (melodyMemory.length < mLen) continue;
+    var partialQuery = melodyIntervals(melodyMemory, melodyMemory.length - (mLen - 1), mLen - 1);
+    if (partialQuery.length < 1) continue;
+
+    // Search earlier memory for a longer pattern that starts with these intervals
+    for (var s = 0; s <= melodyMemory.length - mLen - 1; s++) {
+      var fullPattern = melodyIntervals(melodyMemory, s, mLen);
+      if (fullPattern.length < mLen - 1) continue;
+
+      // Check if the beginning matches
+      var match = true;
+      for (var i = 0; i < partialQuery.length; i++) {
+        if (partialQuery[i] !== fullPattern[i]) { match = false; break; }
+      }
+
+      if (match) {
+        // The completing interval is fullPattern[mLen-2]
+        var completingInterval = fullPattern[mLen - 2];
+        var completingFreq = last.pitch * Math.pow(2, completingInterval / 12);
+
+        // 1/f variation: don't repeat exactly. Transform.
+        // ±50 cents of pink noise on pitch
+        var pinkCents = pinkSample() * 50;
+        completingFreq *= Math.pow(2, pinkCents / 1200);
+
+        return completingFreq;
+      }
+    }
+  }
+
+  return -1; // no motif completion available
+}
+
+// --- RHYTHMIC EVOLUTION ---
+// Emergent pulse from player inter-onset intervals (IOI)
+var rhythmPhase = 0;          // 0 = free, 1 = pulse emerging, 2 = groove
+var rhythmGrid = 0;           // current grid period in seconds (0 = no grid)
+var rhythmGridPhase = 0;      // where we are in the current grid cycle (0-1)
+var rhythmIOIs = [];           // recent inter-onset intervals
+var rhythmLastOnset = 0;      // time of last note onset
+var rhythmIOIewma = 0;        // exponentially weighted mean IOI
+var rhythmGridStrength = 0;   // how strongly notes attract to grid (0-1)
+var rhythmEuclidean = [];     // Euclidean pattern slots (booleans)
+var rhythmEuclideanLen = 0;   // cycle length in grid units
+var rhythmEuclideanHits = 0;  // number of hits per cycle
+var rhythmEuclideanStep = 0;  // current step in Euclidean cycle
+var rhythmPhraseStretch = 1.0; // phrase FOR breathes the grid
+
+function rhythmRecordOnset() {
+  var now = sessionTime;
+  if (rhythmLastOnset > 0) {
+    var ioi = now - rhythmLastOnset;
+    if (ioi > 0.1 && ioi < 4.0) { // ignore very fast or very slow
+      rhythmIOIs.push(ioi);
+      if (rhythmIOIs.length > 24) rhythmIOIs.shift();
+      // EWMA of IOI
+      if (rhythmIOIewma === 0) {
+        rhythmIOIewma = ioi;
+      } else {
+        rhythmIOIewma = rhythmIOIewma * 0.7 + ioi * 0.3;
+      }
+    }
+  }
+  rhythmLastOnset = now;
+}
+
+// Compute Euclidean rhythm: distribute k hits over n slots
+function euclidean(n, k) {
+  if (k <= 0 || n <= 0) return [];
+  if (k >= n) { var all = []; for (var i = 0; i < n; i++) all.push(true); return all; }
+  var pattern = [];
+  for (var i = 0; i < n; i++) {
+    pattern.push(Math.floor((i * k) / n) !== Math.floor(((i + 1) * k) / n) ? false : true);
+  }
+  // Bjorklund's algorithm via the accumulator method
+  pattern = [];
+  for (var i = 0; i < n; i++) {
+    pattern.push(((i * k) % n) < k);
+  }
+  return pattern;
+}
+
+function rhythmUpdate(dt) {
+  // Phase transitions based on session time
+  var prevPhase = rhythmPhase;
+
+  if (sessionTime < 30) {
+    rhythmPhase = 0; // free
+    rhythmGridStrength = 0;
+  } else if (sessionTime < 120) {
+    rhythmPhase = 1; // pulse emerging
+    // Grid strength ramps from 0 to 0.6 over this phase
+    rhythmGridStrength = Math.min(0.6, (sessionTime - 30) / 150);
+  } else {
+    rhythmPhase = 2; // groove
+    rhythmGridStrength = Math.min(0.8, 0.6 + (sessionTime - 120) / 300);
+  }
+
+  // Establish grid from IOI data
+  if (rhythmIOIs.length >= 4 && rhythmIOIewma > 0.15) {
+    rhythmGrid = rhythmIOIewma;
+  }
+
+  // Advance grid phase
+  if (rhythmGrid > 0) {
+    rhythmGridPhase += dt / (rhythmGrid * rhythmPhraseStretch);
+    if (rhythmGridPhase >= 1.0) {
+      rhythmGridPhase -= 1.0;
+      // Advance Euclidean step
+      if (rhythmEuclideanLen > 0) {
+        rhythmEuclideanStep = (rhythmEuclideanStep + 1) % rhythmEuclideanLen;
+      }
+    }
+  }
+
+  // Phrase FOR breathes the grid (building phrases speed up, settling slows down)
+  rhythmPhraseStretch = 1.0 - phraseDensitySlope * 0.15;
+  rhythmPhraseStretch = Math.max(0.9, Math.min(1.1, rhythmPhraseStretch));
+
+  // Establish Euclidean pattern from note density
+  if (rhythmPhase >= 2 && rhythmGrid > 0 && sessionNoteCount > 12) {
+    // Estimate cycle length from coupling grain
+    var cycleBeats = Math.round(sessionCouplingGrain / rhythmGrid);
+    cycleBeats = Math.max(4, Math.min(16, cycleBeats));
+    // Estimate hit density from phrase note rate
+    var noteRate = phraseNoteCount / Math.max(1, sessionTime - phraseStartTime);
+    var hits = Math.round(noteRate * rhythmGrid * cycleBeats);
+    hits = Math.max(2, Math.min(cycleBeats - 1, hits));
+
+    if (cycleBeats !== rhythmEuclideanLen || hits !== rhythmEuclideanHits) {
+      rhythmEuclideanLen = cycleBeats;
+      rhythmEuclideanHits = hits;
+      rhythmEuclidean = euclidean(cycleBeats, hits);
+    }
+  }
+}
+
+// Returns timing bias for next ping: how much to attract toward grid
+// Returns {bias: -1 to 1, isGridBeat: bool, shouldPlay: bool}
+function rhythmGetTimingBias() {
+  if (rhythmPhase === 0 || rhythmGrid === 0) {
+    return {bias: 0, isGridBeat: false, shouldPlay: true};
+  }
+
+  // How close are we to the next grid beat?
+  // gridPhase 0 = on beat, 0.5 = maximally off-beat
+  var distFromBeat = rhythmGridPhase;
+  if (distFromBeat > 0.5) distFromBeat = 1.0 - distFromBeat;
+
+  var isNearBeat = distFromBeat < 0.15;
+  var bias = 0;
+
+  if (rhythmPhase >= 1) {
+    // Attract toward beats with 1/f jitter
+    bias = -Math.sin(rhythmGridPhase * TWO_PI) * rhythmGridStrength;
+    // 1/f timing deviation (the human feel)
+    bias += pinkSample() * 0.15;
+  }
+
+  // Euclidean gating in groove phase
+  var shouldPlay = true;
+  if (rhythmPhase >= 2 && rhythmEuclidean.length > 0) {
+    shouldPlay = rhythmEuclidean[rhythmEuclideanStep];
+    // Even on "off" beats, allow occasional notes (30% chance) for 1/f surprise
+    if (!shouldPlay && Math.random() < 0.3) shouldPlay = true;
+  }
+
+  return {bias: bias, isGridBeat: isNearBeat, shouldPlay: shouldPlay};
+}
+
+// --- HARMONIC JOURNEY ---
+// The tonal center moves. Related keys. Returns home.
+var harmonicCenter = 33;       // current tonal center (starts at home)
+var harmonicHome = 33;         // home key
+var harmonicTarget = 33;       // where we're modulating to
+var harmonicModCount = 0;      // how many modulations this session
+var harmonicMaxMods = 3;       // max modulations per session
+var harmonicLastModTime = 0;   // when last modulation happened
+var harmonicModCooldown = 30;  // minimum seconds between modulations
+var harmonicModulating = false; // currently in transition?
+var harmonicModPhase = 0;      // 0-1 transition progress
+var harmonicModDuration = 4;   // seconds to complete modulation
+var harmonicReturning = false; // heading home?
+var harmonicRStable = 0;       // how long R has been > 0.5
+
+// Related keys by consonance (ratio from current center)
+var harmonicRelations = [
+  {ratio: 3/2, name: 'fifth up', weight: 1.0},
+  {ratio: 4/3, name: 'fourth up', weight: 0.85},
+  {ratio: 5/6, name: 'relative minor', weight: 0.7},
+  {ratio: 5/4, name: 'major third', weight: 0.5},
+  {ratio: 2/3, name: 'fifth down', weight: 0.9},
+];
+
+function harmonicUpdate(dt) {
+  // Track R stability
+  if (kuramotoR > 0.5) {
+    harmonicRStable += dt;
+  } else {
+    harmonicRStable *= 0.9;
+  }
+
+  // Currently modulating? Advance the transition.
+  if (harmonicModulating) {
+    harmonicModPhase += dt / harmonicModDuration;
+
+    if (harmonicModPhase >= 1.0) {
+      // Modulation complete
+      harmonicModPhase = 1.0;
+      harmonicModulating = false;
+      harmonicCenter = harmonicTarget;
+      harmonicReturning = false;
+      harmonicRStable = 0; // reset stability counter after arrival
+    }
+
+    // Smooth interpolation of center frequency (log-space for pitch)
+    var logStart = Math.log2(harmonicCenter);
+    var logEnd = Math.log2(harmonicTarget);
+    // Ease-in-out curve
+    var t = harmonicModPhase;
+    var ease = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+    var currentLog = logStart + (logEnd - logStart) * ease;
+    var currentCenter = Math.pow(2, currentLog);
+
+    // Apply to all oscillators
+    harmonicApplyCenter(currentCenter);
+    return;
+  }
+
+  // Should we modulate?
+  if (harmonicModCount >= harmonicMaxMods) {
+    // Check if it's time to return home
+    if (!harmonicReturning && harmonicCenter !== harmonicHome &&
+        sessionTime > 180 && harmonicRStable > 8) {
+      harmonicStartMod(harmonicHome, true);
+    }
+    return;
+  }
+
+  // Conditions for modulation:
+  // 1. R stable for >10 seconds (consonance established)
+  // 2. Phrase boundary detected (natural transition point)
+  // 3. Enough time since last modulation
+  // 4. Session has been going for a while
+  if (harmonicRStable > 10 &&
+      sessionTime - harmonicLastModTime > harmonicModCooldown &&
+      sessionTime > 60 &&
+      phraseSilenceTimer > 0.3) {
+
+    // Choose modulation target using session's preferred intervals
+    var bestTarget = harmonicHome;
+    var bestScore = -1;
+
+    for (var i = 0; i < harmonicRelations.length; i++) {
+      var rel = harmonicRelations[i];
+      var candidateFreq = harmonicCenter * rel.ratio;
+      // Keep in reasonable range (20-80 Hz for fundamentals)
+      if (candidateFreq < 20 || candidateFreq > 80) continue;
+      // Don't go back to where we just were
+      if (Math.abs(candidateFreq - harmonicHome) < 1 && harmonicModCount > 0) continue;
+
+      var score = rel.weight;
+      // Boost by session interval preference
+      var relInterval = Math.round(12 * Math.log2(rel.ratio));
+      if (relInterval < 0) relInterval += 12;
+      for (var si = 0; si < sessionPreferredIntervals.length; si++) {
+        if (Math.abs(relInterval - sessionPreferredIntervals[si]) <= 1) {
+          score += 0.3 * (1 - si * 0.2);
+        }
+      }
+      // Add 1/f randomness to selection
+      score += pinkSample() * 0.2;
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestTarget = candidateFreq;
+      }
+    }
+
+    if (bestTarget !== harmonicCenter) {
+      harmonicStartMod(bestTarget, false);
+    }
+  }
+}
+
+function harmonicStartMod(targetFreq, isReturn) {
+  harmonicTarget = targetFreq;
+  harmonicModulating = true;
+  harmonicModPhase = 0;
+  harmonicModCount++;
+  harmonicLastModTime = sessionTime;
+  harmonicReturning = isReturn;
+  // Longer duration for the return home (feels like arrival)
+  harmonicModDuration = isReturn ? 6 : 4;
+}
+
+function harmonicApplyCenter(centerFreq) {
+  // Update the working fundamental — the main update loop reads this
+  // every frame to compute partial frequencies, drone, sub, and pings.
+  // No need to set oscillator frequencies directly here; the main loop
+  // handles that with its own detuning/FOR/tilt contributions applied.
+  FUNDAMENTAL = centerFreq;
+
+  // Update Kuramoto natural frequencies to match the new center
+  for (var i = 0; i < 16; i++) {
+    kuramotoOmega[i] = TWO_PI * centerFreq * (i + 1);
+  }
+
+  // Void partials need direct update (they're not in the main loop's
+  // partial frequency sweep since they're separate oscillators)
+  if (actx) {
+    var now = actx.currentTime;
+    var voidRatios = [0.25, 0.5, 1, 4/3, 1.5, 2];
+    for (var vi = 0; vi < voidPartials.length; vi++) {
+      voidPartials[vi].frequency.setTargetAtTime(
+        centerFreq * 4 * voidRatios[vi], now, 0.3
+      );
+    }
+  }
+}
+
+// --- FOR INITIATIVE ---
+// When the player is still, the soul speaks first.
+// Gentle notes from memory. Simple intervals. Builds if player stays still.
+var forInitiative = false;      // is the soul currently leading?
+var forInitiativeTimer = 0;     // how long the soul has been leading
+var forInitiativeIntensity = 0; // 0-1 how developed the solo is
+var forInitiativeLastNote = 0;  // time of last initiative note
+var forInitiativeBaseRate = 1.2; // seconds between initiative notes (slow, gentle)
+var forInitiativeStartTime = 0;
+var INITIATIVE_TRIGGER_TIME = 3; // seconds of void before soul speaks
+
+function forInitiativeUpdate(dt) {
+  // Check conditions: player in void state for >3 seconds
+  if (voidTimer >= INITIATIVE_TRIGGER_TIME && energy < 0.05) {
+    if (!forInitiative) {
+      // Soul begins to speak
+      forInitiative = true;
+      forInitiativeTimer = 0;
+      forInitiativeIntensity = 0;
+      forInitiativeStartTime = sessionTime;
+    }
+
+    forInitiativeTimer += dt;
+    // Intensity ramps slowly: 0 at start, peaks at ~0.7 after 30 seconds
+    forInitiativeIntensity = Math.min(0.7, forInitiativeTimer / 45);
+
+    // Should we play a note?
+    var timeSinceLast = sessionTime - forInitiativeLastNote;
+    // Note rate increases with intensity (starts slow, gets denser)
+    var rate = forInitiativeBaseRate * (1 - forInitiativeIntensity * 0.5);
+    // 1/f jitter on timing
+    rate += pinkSample() * rate * 0.15;
+    rate = Math.max(0.4, rate);
+
+    if (timeSinceLast > rate) {
+      forInitiativePlayNote();
+      forInitiativeLastNote = sessionTime;
+    }
+  } else {
+    if (forInitiative) {
+      // Player returned. Soul backs off.
+      forInitiative = false;
+      forInitiativeIntensity *= 0.5; // quick fade
+    }
+    forInitiativeTimer = 0;
+  }
+}
+
+function forInitiativePlayNote() {
+  if (!actx) return;
+  var now = actx.currentTime;
+  var center = harmonicCenter || FUNDAMENTAL;
+  var vol = 0.015 + forInitiativeIntensity * 0.025; // 30% of normal at start
+
+  // Choose note: motif completion first, then simple intervals
+  var freq = melodyChooseNext();
+
+  if (freq <= 0) {
+    // No motif to complete. Use simple intervals from center.
+    // Start with octaves and fifths. Add complexity as intensity grows.
+    var simpleIntervals;
+    if (forInitiativeIntensity < 0.2) {
+      // Very early: just octaves
+      simpleIntervals = [1, 2, 0.5];
+    } else if (forInitiativeIntensity < 0.4) {
+      // Developing: octaves and fifths
+      simpleIntervals = [1, 2, 1.5, 0.5, 3/2, 3];
+    } else {
+      // Full development: pentatonic intervals
+      simpleIntervals = [1, 2, 1.5, 4/3, 5/4, 0.5, 3/2, 5/3, 3, 4];
+    }
+
+    var idx = Math.floor(Math.random() * simpleIntervals.length);
+    freq = center * simpleIntervals[idx];
+
+    // Keep in singing range (200-2000 Hz)
+    while (freq < 200) freq *= 2;
+    while (freq > 2000) freq /= 2;
+  } else {
+    // Keep motif completion in range
+    while (freq < 200) freq *= 2;
+    while (freq > 2000) freq /= 2;
+  }
+
+  // 1/f micro-tuning
+  freq *= (1 + pinkSample() * 0.004);
+
+  // Duration scales with intensity (starts short, grows longer)
+  var dur = 0.08 + forInitiativeIntensity * 0.15 + Math.abs(pinkSample()) * 0.05;
+
+  // Create the note (simple, clean sine + quiet triangle shimmer)
+  var osc1 = actx.createOscillator();
+  osc1.type = 'sine';
+  osc1.frequency.setValueAtTime(freq, now);
+  osc1.frequency.exponentialRampToValueAtTime(freq * 0.97, now + dur);
+
+  var env = actx.createGain();
+  // Gentle attack, soft release
+  env.gain.setValueAtTime(0.001, now);
+  env.gain.linearRampToValueAtTime(vol, now + 0.02);
+  env.gain.setValueAtTime(vol * 0.7, now + dur * 0.3);
+  env.gain.exponentialRampToValueAtTime(0.001, now + dur);
+
+  osc1.connect(env);
+  env.connect(masterGain);
+  env.connect(reverbSend); // lots of reverb (the void is spacious)
+
+  osc1.start(now);
+  osc1.stop(now + dur + 0.02);
+
+  // Add shimmer for developed solos
+  if (forInitiativeIntensity > 0.3) {
+    var osc2 = actx.createOscillator();
+    osc2.type = 'triangle';
+    osc2.frequency.setValueAtTime(freq * 2.002, now);
+    var shimGain = actx.createGain();
+    shimGain.gain.value = vol * 0.1;
+    osc2.connect(shimGain);
+    shimGain.connect(env);
+    osc2.start(now);
+    osc2.stop(now + dur + 0.02);
+  }
+
+  // Record in melody memory
+  melodyRecord(freq, vol, true);
+  // Feed spectral engine
+  var semi = Math.round(12 * Math.log2(freq / (center * 16)));
+  feedNote(semi);
+}
+
+// =====================================================================
 // AUDIO GRAPH
 // =====================================================================
 
@@ -951,46 +1491,88 @@ var lastPingNote = -1;
 
 function updatePings(dt, normalBeta, normalGamma, filterTarget) {
   if (!actx) return;
+
+  // Don't fire pings when FOR initiative is active (soul has its own voice)
+  if (forInitiative) return;
+
   pingTimer += dt;
 
   // Rate controlled by energy + brightness (1/f modulated)
   var baseRate = 0.4 + (1 - normalBeta) * 0.8 + energy * 0.6;
   baseRate += pinkSample() * 0.15; // 1/f jitter on timing
+
+  // === RHYTHMIC EVOLUTION: timing bias from emergent grid ===
+  var rhythmInfo = rhythmGetTimingBias();
+  if (rhythmPhase >= 1 && rhythmGrid > 0) {
+    // Attract ping timing toward grid beats
+    // When bias is negative (approaching beat), fire sooner
+    // When bias is positive (leaving beat), delay
+    baseRate += rhythmInfo.bias * rhythmGrid * 0.3;
+    baseRate = Math.max(0.15, baseRate); // don't go faster than 150ms
+  }
+
   var prob = Math.max(0, normalBeta * 0.4 + energy * 0.5);
 
   if (pingTimer > baseRate && prob > 0.15) {
+    // === RHYTHMIC EVOLUTION: Euclidean gating ===
+    if (!rhythmInfo.shouldPlay) {
+      // Grid says rest here. Reset timer but don't play.
+      pingTimer = 0;
+      return;
+    }
+
     pingTimer = 0;
+    // Record onset for rhythm tracking
+    rhythmRecordOnset();
 
     var now = actx.currentTime;
+    var center = harmonicCenter || FUNDAMENTAL;
 
-    // Get tension note from spectral engine
-    var tensionNote = getTopTension();
-
-    // Pentatonic notes rooted on 33 Hz harmonics (high register)
-    // Map tension note to a frequency in the singing range
-    var pingNotes = [528, 594, 660, 792, 880, 990, 1056, 1320, 1485, 1760];
-    var noteIdx;
-    if (tensionNote >= 0) {
-      // Map the tension note to our available ping notes
-      noteIdx = tensionNote % pingNotes.length;
-    } else {
-      // No tension data yet -- use tilt position
-      noteIdx = Math.floor(((normalGamma + 1) / 2) * pingNotes.length);
+    // === MELODIC MEMORY: try motif completion first ===
+    var freq = -1;
+    melodyDetectMotifs();
+    if (melodyMotifs.length > 0 && Math.random() < 0.6) {
+      // 60% chance to try completing a detected motif
+      freq = melodyChooseNext();
     }
-    noteIdx = Math.max(0, Math.min(pingNotes.length - 1, noteIdx));
 
-    // Avoid immediate repetition
-    if (noteIdx === lastPingNote && pingNotes.length > 1) {
-      noteIdx = (noteIdx + 1 + Math.floor(Math.random() * (pingNotes.length - 1))) % pingNotes.length;
+    if (freq <= 0) {
+      // Fall back to spectral tension engine
+      var tensionNote = getTopTension();
+
+      // Pentatonic notes rooted on current harmonic center (high register)
+      // Scale with harmonic center so modulation changes the palette
+      var baseH = center * 16; // 16th harmonic as base
+      var pingNotes = [
+        baseH, baseH * 9/8, baseH * 5/4, baseH * 3/2, baseH * 5/3,
+        baseH * 2, baseH * 9/4, baseH * 5/2, baseH * 3, baseH * 10/3
+      ];
+      var noteIdx;
+      if (tensionNote >= 0) {
+        noteIdx = tensionNote % pingNotes.length;
+      } else {
+        noteIdx = Math.floor(((normalGamma + 1) / 2) * pingNotes.length);
+      }
+      noteIdx = Math.max(0, Math.min(pingNotes.length - 1, noteIdx));
+
+      // Avoid immediate repetition
+      if (noteIdx === lastPingNote && pingNotes.length > 1) {
+        noteIdx = (noteIdx + 1 + Math.floor(Math.random() * (pingNotes.length - 1))) % pingNotes.length;
+      }
+      lastPingNote = noteIdx;
+      freq = pingNotes[noteIdx];
     }
-    lastPingNote = noteIdx;
 
-    var freq = pingNotes[noteIdx];
     // Pink noise micro-tuning (humanize)
+    // 1/f variation on motif recalls: ±50 cents from pink noise
     freq *= (0.995 + pinkSample() * 0.005 + Math.random() * 0.005);
 
     // Duration: 1/f distributed (mostly short, occasionally long)
     var dur = 0.03 + Math.abs(pinkSample()) * 0.12;
+    // Rhythmic phase affects duration: on-beat notes slightly longer
+    if (rhythmInfo.isGridBeat && rhythmPhase >= 1) {
+      dur *= 1.3;
+    }
 
     // Two-oscillator ping: sine + quiet triangle one octave up (shimmer)
     var osc1 = actx.createOscillator();
@@ -1024,8 +1606,11 @@ function updatePings(dt, normalBeta, normalGamma, filterTarget) {
     osc1.start(now); osc1.stop(now + dur + 0.01);
     osc2.start(now); osc2.stop(now + dur + 0.01);
 
+    // Record in melodic memory
+    melodyRecord(freq, vol, false);
+
     // Feed spectral engine
-    var semi = Math.round(12 * Math.log2(freq / (FUNDAMENTAL * 16)));
+    var semi = Math.round(12 * Math.log2(freq / (center * 16)));
     feedNote(semi);
   }
 }
@@ -1525,6 +2110,11 @@ function update() {
   revSend = Math.min(revSend, 0.7); // cap to prevent wash
   reverbSend.gain.setTargetAtTime(revSend, actx.currentTime, 0.1);
 
+  // === MUSIC EVOLUTION ENGINE ===
+  rhythmUpdate(dt);
+  harmonicUpdate(dt);
+  forInitiativeUpdate(dt);
+
   // === MELODIC PINGS ===
   updatePings(dt, normalBeta, normalGamma, filterTarget);
 
@@ -1552,12 +2142,24 @@ function update() {
     var slopeDir = phraseBrightSlope > PHRASE_SLOPE_THRESH ? 'build' :
                    phraseBrightSlope < -PHRASE_SLOPE_THRESH ? 'settle' : '';
     var forLabel = soulLabel + ' ' + forDominant + (slopeDir ? ' ' + slopeDir : '');
+    // Evolution engine state
+    var rhythmLabel = ['free','pulse','groove'][rhythmPhase];
+    var keyLabel = '';
+    if (harmonicModulating) {
+      keyLabel = harmonicReturning ? ' home' : ' mod';
+    } else if (Math.abs(harmonicCenter - harmonicHome) > 0.5) {
+      keyLabel = ' ' + harmonicCenter.toFixed(1);
+    }
+    var initLabel = forInitiative ? ' solo' : '';
+    var motifLabel = melodyMotifs.length > 0 ? ' m' + melodyMotifs.length : '';
+
     document.getElementById('hud').innerHTML =
       'tilt ' + tiltX.toFixed(0) + '&deg; ' + tiltY.toFixed(0) + '&deg;<br>' +
       'filter ' + filterTarget.toFixed(0) + ' Hz<br>' +
       'energy ' + (energy * 100).toFixed(0) + '%<br>' +
-      'soul ' + forLabel + '<br>' +
+      'soul ' + forLabel + initLabel + '<br>' +
       'R ' + kuramotoR.toFixed(2) + ' ' + rLabel + '<br>' +
+      rhythmLabel + keyLabel + motifLabel + '<br>' +
       stateLabel;
   }
 }
@@ -1939,6 +2541,57 @@ function drawViz(beta, gamma, energy, filterFreq, soulBright, soulDensity, soulM
     vizCtx.arc(tDotX, 18, 3, 0, TWO_PI);
     vizCtx.fillStyle = 'hsla(50,60%,60%,' + tDotAlpha + ')';
     vizCtx.fill();
+  }
+
+  // === HARMONIC MODULATION INDICATOR ===
+  // When the tonal center is moving, the background breathes with the key change.
+  // A slow color shift from the edges — the room changes temperature.
+  if (harmonicModulating) {
+    var modProgress = harmonicModPhase;
+    // The room shifts color during modulation: warm gold -> cool blue -> back
+    var modAlpha = 0.02 * Math.sin(modProgress * Math.PI); // peaks at midpoint
+    var modHue = harmonicReturning ? 40 : 220; // gold for home, blue for away
+    vizCtx.fillStyle = 'hsla(' + modHue + ',30%,20%,' + modAlpha + ')';
+    vizCtx.fillRect(0, 0, w, h);
+  } else if (Math.abs(harmonicCenter - harmonicHome) > 0.5) {
+    // Away from home: subtle persistent color tint
+    var awayAmount = Math.min(1, Math.abs(Math.log2(harmonicCenter / harmonicHome)) * 3);
+    var awayAlpha = awayAmount * 0.008;
+    vizCtx.fillStyle = 'hsla(220,25%,15%,' + awayAlpha + ')';
+    vizCtx.fillRect(0, 0, w, h);
+  }
+
+  // === FOR INITIATIVE INDICATOR ===
+  // When the soul is playing alone, small breathing dots appear near soul orb
+  if (forInitiative && forInitiativeIntensity > 0.05) {
+    var initDots = Math.floor(2 + forInitiativeIntensity * 4); // 2-5 dots
+    for (var di = 0; di < initDots; di++) {
+      var dotAngle = t * 0.3 + di * TWO_PI / initDots;
+      var dotDist = soulR * (1.5 + 0.3 * Math.sin(t * 0.5 + di));
+      var dotX = soulCx + Math.cos(dotAngle) * dotDist;
+      var dotY = soulCy + Math.sin(dotAngle) * dotDist;
+      var dotAlpha = forInitiativeIntensity * 0.12 * (0.5 + 0.5 * Math.sin(t * 0.8 + di * 1.3));
+      var dotR = 1.5 + forInitiativeIntensity * 2;
+      vizCtx.beginPath();
+      vizCtx.arc(dotX, dotY, dotR, 0, TWO_PI);
+      vizCtx.fillStyle = 'hsla(250,40%,55%,' + dotAlpha + ')';
+      vizCtx.fill();
+    }
+  }
+
+  // === RHYTHMIC PULSE INDICATOR ===
+  // When a grid is established, a faint ring pulses on the beat
+  if (rhythmPhase >= 1 && rhythmGrid > 0) {
+    // Pulse intensity peaks on the grid beat (gridPhase near 0)
+    var pulseBrightness = Math.exp(-rhythmGridPhase * 8) * rhythmGridStrength;
+    if (pulseBrightness > 0.01) {
+      var pulseR = Math.min(w, h) * 0.35;
+      vizCtx.beginPath();
+      vizCtx.arc(w/2, h/2, pulseR, 0, TWO_PI);
+      vizCtx.strokeStyle = 'rgba(201, 164, 74, ' + (pulseBrightness * 0.04) + ')';
+      vizCtx.lineWidth = 0.5 + pulseBrightness * 1.5;
+      vizCtx.stroke();
+    }
   }
 }
 </script>
