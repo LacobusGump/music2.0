@@ -306,9 +306,73 @@ function project(x,y,z,sc,cx2,cy2){
   return[cx2+x1*sc*persp,cy2+y2*sc*persp,z2,persp];
 }
 
+// ═══ BACKGROUND DEPTH — distant particles + field ═══
+var bgParticles = [];
+for(var bi=0; bi<60; bi++){
+  bgParticles.push({
+    x: Math.random()*2-1, y: Math.random()*2-1,
+    z: 0.1 + Math.random()*0.4, // very far back
+    vx: (Math.random()-0.5)*0.002,
+    vy: (Math.random()-0.5)*0.002,
+    size: 0.3 + Math.random()*0.8,
+    alpha: 0.02 + Math.random()*0.04
+  });
+}
+
+function drawBackground(cx, W, H, Rval, t){
+  // Subtle warm vignette that breathes with R
+  var vigR = Math.min(W,H) * (0.6 + Rval * 0.2);
+  var vig = cx.createRadialGradient(W/2, H*0.45, vigR*0.2, W/2, H*0.45, vigR);
+  vig.addColorStop(0, 'rgba(26,17,13,' + (0.0 + Rval*0.02).toFixed(3) + ')');
+  vig.addColorStop(0.5, 'rgba(18,12,8,' + (0.01 + Rval*0.01).toFixed(3) + ')');
+  vig.addColorStop(1, 'rgba(10,7,5,0.03)');
+  cx.fillStyle = vig;
+  cx.fillRect(0, 0, W, H);
+
+  // Distant particles — very dim, very slow, creating depth
+  for(var bi=0; bi<bgParticles.length; bi++){
+    var bp = bgParticles[bi];
+    bp.x += bp.vx; bp.y += bp.vy;
+    // Wrap
+    if(bp.x > 1.2) bp.x = -1.2;
+    if(bp.x < -1.2) bp.x = 1.2;
+    if(bp.y > 1.2) bp.y = -1.2;
+    if(bp.y < -1.2) bp.y = 1.2;
+
+    var bsx = W/2 + bp.x * W * 0.5;
+    var bsy = H/2 + bp.y * H * 0.5;
+    var bAlpha = bp.alpha * (0.5 + Rval * 0.5) * (0.7 + 0.3 * Math.sin(t*0.3 + bi));
+    var bSize = bp.size * (1 + Rval * 0.5);
+
+    cx.fillStyle = 'rgba(184,117,58,' + bAlpha.toFixed(4) + ')';
+    cx.beginPath();
+    cx.arc(bsx, bsy, bSize, 0, Math.PI*2);
+    cx.fill();
+  }
+
+  // Very subtle field lines — dim concentric ripples from center
+  if(Rval > 0.1){
+    var nRings = 3;
+    for(var ri=0; ri<nRings; ri++){
+      var ringR = (80 + ri * 60 + Math.sin(t*0.15 + ri)*20) * (W/800);
+      var ringAlpha = (Rval - 0.1) * 0.015 * (1 - ri/nRings);
+      cx.strokeStyle = 'rgba(139,74,46,' + ringAlpha.toFixed(4) + ')';
+      cx.lineWidth = 0.5;
+      cx.beginPath();
+      cx.arc(W/2, H*0.45, ringR, 0, Math.PI*2);
+      cx.stroke();
+    }
+  }
+}
+
 // ═══ DRAW ═══
 function draw() {
   cx.clearRect(0,0,W,H);
+
+  // Background depth layer — drawn FIRST, behind everything
+  var drawT = shapeTime || 0;
+  drawBackground(cx, W, H, Rval, drawT);
+
   step();
   camRY+=0.0018; // slow auto-rotate
 
@@ -349,6 +413,8 @@ function draw() {
   }
 
   // ═══ DOOR HOVER COUPLING — warmth toward the hovered door ═══
+  // Reset K boosts each frame
+  for(var i=0;i<N;i++) kBoost[i]*=0.9; // decay toward 0
   if(hoveredDoor>=0&&hoveredDoor<doorRects.length&&!isTouchDevice){
     var dr=doorRects[hoveredDoor];
     // Door center in canvas-relative coords
@@ -364,6 +430,9 @@ function draw() {
         var dForce=0.15/(dDist);
         nxA[i]+=ddx2*dForce*0.002;
         nyA[i]+=ddy2*dForce*0.002;
+        // Boost K for oscillators near hovered door — phase-lock faster
+        var proximity=Math.max(0,(250-dDist)/250);
+        kBoost[i]=Math.min(kBoost[i]+proximity*0.8, 1.5);
       }
     }
   }
