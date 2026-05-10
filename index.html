@@ -187,20 +187,53 @@ var GA = 2.39996322; // golden angle
 var PHI = (1+Math.sqrt(5))/2;
 var dt = 0.016;
 
-// ═══ LAYOUT — butterfly (polar rose) ═══
-// r = sin(2θ) gives a 4-petal rose. We use 2 petals (top) as wings
-// and distribute 137 oscillators along the outline with coupling intact.
+// ═══ LAYOUT — evolving shape ═══
+// The shape breathes through forms. Never static. Always becoming.
 var nxA=[], nyA=[];
-for(var i=0;i<N;i++){
-  var t = (i/N) * Math.PI * 2; // full sweep
-  // Butterfly curve (parametric, based on polar rose + body)
-  var wing = Math.pow(Math.abs(Math.sin(2*t)), 0.8); // wing shape
-  var body = Math.exp(-Math.pow(t - Math.PI, 2) * 0.3) * 0.4; // body center mass
-  var r = (wing * 4.5 + body + 0.6) * (1 + Math.sin(t*3)*0.08); // slight flutter
-  var a = t;
-  nxA.push(Math.cos(a)*r);
-  nyA.push(Math.sin(a)*r);
+var shapeTime = 0;
+
+// Shape generators — each returns {x, y} for node i
+function shapeSpiral(i, N){
+  var r = 0.8 + Math.sqrt(i/N) * 5.5;
+  var a = i * GA;
+  return {x: Math.cos(a)*r, y: Math.sin(a)*r};
 }
+function shapeButterfly(i, N){
+  var t = (i/N) * Math.PI * 2;
+  var wing = Math.pow(Math.abs(Math.sin(2*t)), 0.8);
+  var r = (wing * 4.5 + 0.6);
+  return {x: Math.cos(t)*r, y: Math.sin(t)*r};
+}
+function shapeHeart(i, N){
+  var t = (i/N) * Math.PI * 2;
+  var x = 16 * Math.pow(Math.sin(t), 3) * 0.35;
+  var y = -(13*Math.cos(t) - 5*Math.cos(2*t) - 2*Math.cos(3*t) - Math.cos(4*t)) * 0.35;
+  return {x: x, y: y};
+}
+function shapeFlower(i, N){
+  var t = (i/N) * Math.PI * 2;
+  var r = (2.5 + 2.5 * Math.cos(5*t));
+  return {x: Math.cos(t)*r, y: Math.sin(t)*r};
+}
+function shapeCircle(i, N){
+  var t = (i/N) * Math.PI * 2;
+  var r = 4.5;
+  return {x: Math.cos(t)*r, y: Math.sin(t)*r};
+}
+
+var shapes = [shapeSpiral, shapeButterfly, shapeHeart, shapeFlower, shapeCircle];
+var shapeDuration = 12; // seconds per shape
+var shapeTransition = 3; // seconds to morph
+
+// Initialize positions
+for(var i=0;i<N;i++){
+  var s = shapeSpiral(i, N);
+  nxA.push(s.x);
+  nyA.push(s.y);
+}
+
+// Target positions (updated each frame)
+var nxTarget=nxA.slice(), nyTarget=nyA.slice();
 
 // Neighbors — wider radius so the web of connections is rich
 var nbrL=[];
@@ -274,6 +307,27 @@ function draw() {
   cx.clearRect(0,0,W,H);
   step();
   camRY+=0.0018; // slow auto-rotate
+
+  // ═══ SHAPE EVOLUTION — morph between forms ═══
+  shapeTime += dt;
+  var totalCycle = shapes.length * shapeDuration;
+  var cycleT = shapeTime % totalCycle;
+  var shapeIdx = Math.floor(cycleT / shapeDuration);
+  var nextIdx = (shapeIdx + 1) % shapes.length;
+  var progress = (cycleT % shapeDuration) / shapeDuration;
+  // Smooth ease
+  var ease = progress < 0.5 ? 2*progress*progress : 1-2*(1-progress)*(1-progress);
+  for(var i=0;i<N;i++){
+    var a = shapes[shapeIdx](i, N);
+    var b = shapes[nextIdx](i, N);
+    nxA[i] += ((a.x*(1-ease) + b.x*ease) - nxA[i]) * 0.03;
+    nyA[i] += ((a.y*(1-ease) + b.y*ease) - nyA[i]) * 0.03;
+  }
+  // Update neighbors periodically (every 2 seconds)
+  if(Math.floor(shapeTime*0.5) !== Math.floor((shapeTime-dt)*0.5)){
+    nbrL=[];
+    for(var i=0;i<N;i++){var nn=[];for(var j=0;j<N;j++){if(j===i)continue;var ddx=nxA[j]-nxA[i],ddy=nyA[j]-nyA[i];if(ddx*ddx+ddy*ddy<5.0)nn.push(j);}nbrL.push(nn);}
+  }
 
   var sc=Math.min(W,H)*0.055;
   var cx2=W/2, cy2=H*0.48;
