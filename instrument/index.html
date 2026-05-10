@@ -308,7 +308,6 @@ function updateVoidState(dt) {
 var forBrightness = 0.5;
 var forDensity = 0.5;
 var forMotion = 0;
-var forVelBright = 0, forVelDensity = 0;
 var forPhase = 0;
 var forBreath = 0;
 
@@ -317,6 +316,89 @@ var FOR_SPRING = 0.02;
 var FOR_DAMPING = 0.88;
 var FOR_BREATH_RATE = 0.4;
 var FOR_NATURAL_FREQ = 0.7;
+
+// =====================================================================
+// MULTI-SCALE FOR ENGINE — three ears, not one
+//
+// Beat FOR:    K=0.6,  ~500ms   — complements each gesture
+// Phrase FOR:  K=0.35, ~3s      — complements the trajectory
+// Session FOR: K=0.15, ~30-60s  — learns the player's habits
+//
+// The three layers blend. Conflict is not averaged — it is felt.
+// When all three agree, phase lock. When they disagree, tension.
+// =====================================================================
+
+// --- PHRASE LAYER STATE ---
+var PHRASE_K = 0.35;
+var PHRASE_TAU = 2.5;              // seconds, EWMA time constant
+var PHRASE_SLOPE_THRESH = 0.02;    // minimum slope to count as building/settling
+var PHRASE_BOUNDARY_SILENCE = 0.8; // seconds of low energy to trigger phrase boundary
+
+var phraseBrightEWMA = 0.5;
+var phraseDensityEWMA = 0.5;
+var phraseBrightSlope = 0;
+var phraseDensitySlope = 0;
+var phraseBrightPrev = 0.5;
+var phraseDensityPrev = 0.5;
+var phraseLastSlopeTime = 0;
+
+var phraseBrightness = 0.5;
+var phraseDensity = 0.5;
+var phraseMotionScale = 1.0;
+var phraseBreathRate = 1.0;
+
+var phraseSilenceTimer = 0;
+var phraseBreathImpulse = 0;
+var phraseBoundaryCount = 0;
+var phraseStartTime = 0;
+var phraseNoteCount = 0;
+var phraseKmod = 1.0;              // Kuramoto coupling modifier from phrase trajectory
+
+// --- SESSION LAYER STATE ---
+var SESSION_K = 0.15;
+var SESSION_TAU_ENERGY = 45;       // seconds, ultra-slow EWMA
+var SESSION_TAU_BRIGHT = 30;       // seconds
+var SESSION_BIAS_RATE = 0.001;     // rate of bias drift per frame
+var SESSION_BIAS_MAX = 0.15;       // maximum bias magnitude
+
+var sessionBrightEWMA = 0.5;
+var sessionDensityEWMA = 0.5;
+var sessionBrightBias = 0;
+var sessionDensityBias = 0;
+var sessionMotionBias = 1.0;
+var sessionTime = 0;
+var sessionNoteCount = 0;
+
+// Interval tracking
+var sessionIntervalHist = new Uint16Array(12);
+var sessionLastPitch = -1;
+var sessionPreferredIntervals = [7, 5, 4]; // default: P5, P4, M3
+
+// Session energy arc
+var sessionEnergySlope = 0;
+var sessionEnergyPrev = 0;
+
+// Coupling grain estimation
+var sessionStateChangeTimes = [];
+var sessionCouplingGrain = 1.0;    // seconds between major state changes
+var sessionLastEnergyDir = 0;      // -1, 0, 1
+
+// --- LAYER WEIGHTS (adapted by session layer) ---
+var forBeatWeight = 0.55;
+var forPhraseWeight = 0.30;
+var forSessionWeight = 0.15;
+
+// --- LAYER AGREEMENT (phase lock detection) ---
+var forLayerAgreement = 0;
+
+// --- BEAT LAYER STATE (rename of existing FOR internals) ---
+var beatBright = 0.5;
+var beatDensity = 0.5;
+var beatVelBright = 0;
+var beatVelDensity = 0;
+var beatPhase = 0;
+var beatBreath = 0;
+var beatMotion = 0;
 
 // =====================================================================
 // SPECTRAL TENSION ENGINE
@@ -350,6 +432,15 @@ function feedNote(semi) {
   var pc = ((semi % 12) + 12) % 12;
   recentNotes.push(pc);
   if (recentNotes.length > MAX_RECENT) recentNotes.shift();
+  // Feed session layer interval histogram
+  sessionNoteCount++;
+  phraseNoteCount++;
+  if (sessionLastPitch >= 0) {
+    var interval = Math.abs(pc - sessionLastPitch) % 12;
+    if (interval > 6) interval = 12 - interval; // reduce to within tritone
+    sessionIntervalHist[interval]++;
+  }
+  sessionLastPitch = pc;
 }
 
 function getTopTension() {
@@ -365,6 +456,17 @@ function getTopTension() {
       if (consonanceEdges.has(key)) { connected = true; break; }
     }
     var score = connected ? 1.5 : 0.3;
+    // Session layer bias: boost notes at player's preferred intervals from last note
+    if (sessionNoteCount > 5 && sessionLastPitch >= 0) {
+      var dist = Math.abs(n - sessionLastPitch) % 12;
+      if (dist > 6) dist = 12 - dist;
+      for (var pi = 0; pi < sessionPreferredIntervals.length; pi++) {
+        if (dist === sessionPreferredIntervals[pi]) {
+          score += 0.4 - pi * 0.1; // top preferred interval gets +0.4
+          break;
+        }
+      }
+    }
     if (score > bestScore) { bestScore = score; bestNote = n; }
   }
   return bestNote;
@@ -948,9 +1050,9 @@ function updatePartialCoupling(dt) {
   // Player energy increases K (partials lock faster when moving).
   // 1/f noise prevents permanent lock.
   var pinkK = pinkSample() * 0.08; // 1/f perturbation on K
-  kPartials = K_PARTIALS_BASE * (1 + energy * 2.0 + pinkK);
+  kPartials = K_PARTIALS_BASE * (1 + energy * 2.0 + pinkK) * phraseKmod;
   // Clamp K to prevent runaway
-  kPartials = Math.max(0.02, Math.min(0.6, kPartials));
+  kPartials = Math.max(0.02, Math.min(0.8, kPartials));
 
   // === 2. ADVANCE KURAMOTO PHASES ===
   updateKuramotoPhases(dt);
@@ -1065,35 +1167,256 @@ function update() {
   // === VOID STATE MACHINE ===
   updateVoidState(dt);
 
-  // === FOR ENGINE ===
-  // Player state (normalized 0-1)
+  // === MULTI-SCALE FOR ENGINE ===
+  // Three ears: beat (instant), phrase (arc), session (identity)
   var playerBrightRaw = (tiltX - 45) / 90;
   playerBrightRaw = Math.max(-1, Math.min(1, playerBrightRaw));
   var playerBright = (playerBrightRaw + 1) / 2;
   var playerEnergy = energy;
   var playerStillness = 1 - energy;
+  var forNow = performance.now() / 1000;
+  sessionTime += dt;
 
-  // FOR BRIGHTNESS: complement of player
-  var targetForBright = 1 - playerBright;
-  var brightError = targetForBright - forBrightness;
+  // =================================================================
+  // LAYER 1: BEAT FOR (K=0.6, ~500ms)
+  // The current FOR engine. Complement the instant.
+  // =================================================================
+  var targetBeatBright = 1 - playerBright;
+  var brightError = targetBeatBright - beatBright;
   var brightPull = FOR_K * Math.sin(brightError * Math.PI);
-  forVelBright = forVelBright * FOR_DAMPING + brightPull * FOR_SPRING;
-  forBrightness += forVelBright;
-  forBrightness = Math.max(0, Math.min(1, forBrightness));
+  beatVelBright = beatVelBright * FOR_DAMPING + brightPull * FOR_SPRING;
+  beatBright += beatVelBright;
+  beatBright = Math.max(0, Math.min(1, beatBright));
 
-  // FOR DENSITY: complement of player energy
-  var targetForDensity = 1 - playerEnergy;
-  var densityError = targetForDensity - forDensity;
+  var targetBeatDensity = 1 - playerEnergy;
+  var densityError = targetBeatDensity - beatDensity;
   var densityPull = FOR_K * Math.sin(densityError * Math.PI);
-  forVelDensity = forVelDensity * FOR_DAMPING + densityPull * FOR_SPRING;
-  forDensity += forVelDensity;
+  beatVelDensity = beatVelDensity * FOR_DAMPING + densityPull * FOR_SPRING;
+  beatDensity += beatVelDensity;
+  beatDensity = Math.max(0, Math.min(1, beatDensity));
+
+  // Beat motion (soul breathes when player is still)
+  beatPhase += FOR_NATURAL_FREQ * dt * TWO_PI;
+  if (beatPhase > TWO_PI) beatPhase -= TWO_PI;
+  beatBreath = beatBreath * 0.95 + playerStillness * 0.05;
+  beatMotion = Math.sin(beatPhase) * beatBreath * 0.6;
+
+  // =================================================================
+  // LAYER 2: PHRASE FOR (K=0.35, ~2-4 seconds)
+  // Track the trajectory. Complement the arc, not the instant.
+  // =================================================================
+  // EWMA tracking of player state
+  var phraseAlpha = 1 - Math.exp(-dt / PHRASE_TAU);
+  phraseBrightEWMA += (playerBright - phraseBrightEWMA) * phraseAlpha;
+  phraseDensityEWMA += (playerEnergy - phraseDensityEWMA) * phraseAlpha;
+
+  // Compute trajectory slopes every ~250ms
+  if (forNow - phraseLastSlopeTime > 0.25) {
+    phraseBrightSlope = (phraseBrightEWMA - phraseBrightPrev) / 0.25;
+    phraseDensitySlope = (phraseDensityEWMA - phraseDensityPrev) / 0.25;
+    phraseBrightPrev = phraseBrightEWMA;
+    phraseDensityPrev = phraseDensityEWMA;
+    phraseLastSlopeTime = forNow;
+
+    // Coupling grain: detect direction changes for session layer
+    var energyDir = phraseDensitySlope > PHRASE_SLOPE_THRESH ? 1 :
+                    phraseDensitySlope < -PHRASE_SLOPE_THRESH ? -1 : 0;
+    if (energyDir !== 0 && energyDir !== sessionLastEnergyDir && sessionLastEnergyDir !== 0) {
+      sessionStateChangeTimes.push(forNow);
+      if (sessionStateChangeTimes.length > 20) sessionStateChangeTimes.shift();
+    }
+    if (energyDir !== 0) sessionLastEnergyDir = energyDir;
+  }
+
+  // Phrase boundary detection: sustained silence
+  if (playerEnergy < 0.05) {
+    phraseSilenceTimer += dt;
+  } else {
+    phraseSilenceTimer = 0;
+  }
+
+  if (phraseSilenceTimer > PHRASE_BOUNDARY_SILENCE) {
+    // Phrase boundary detected - FOR breath event
+    phraseBreathImpulse = 0.4;
+    phraseSilenceTimer = 0;
+    phraseBoundaryCount++;
+    // Push phrase duration to session layer
+    if (phraseStartTime > 0) {
+      var phraseDuration = forNow - phraseStartTime;
+      if (phraseDuration > 0.5 && phraseDuration < 30) {
+        // Feed session layer's phrase length learning
+        sessionCouplingGrain = sessionCouplingGrain * 0.9 + phraseDuration * 0.1;
+      }
+    }
+    phraseStartTime = forNow;
+    phraseNoteCount = 0;
+    // Spectral tension soft reset: thin recent notes by ~50%
+    for (var rni = recentNotes.length - 1; rni >= 0; rni--) {
+      if (Math.random() < 0.5) recentNotes.splice(rni, 1);
+    }
+  }
+
+  // Breath impulse decay (~1 second)
+  phraseBreathImpulse *= (1 - dt * 3);
+
+  // Phrase-level complement based on trajectory
+  if (phraseBrightSlope > PHRASE_SLOPE_THRESH) {
+    // Player BUILDING: ease density down (make room for the crescendo)
+    phraseBrightness += (0.5 - phraseBrightSlope * PHRASE_K * 3 - phraseBrightness) * dt * 2;
+    phraseDensity += (0.5 - Math.abs(phraseDensitySlope) * PHRASE_K * 2 - phraseDensity) * dt * 2;
+  } else if (phraseBrightSlope < -PHRASE_SLOPE_THRESH) {
+    // Player SETTLING: bring brightness up gently (catch what they release)
+    phraseBrightness += (0.5 + Math.abs(phraseBrightSlope) * PHRASE_K * 3 - phraseBrightness) * dt * 2;
+    phraseDensity += (0.5 + Math.abs(phraseBrightSlope) * PHRASE_K * 1.5 - phraseDensity) * dt * 2;
+  } else {
+    // SUSTAINING or SEARCHING: stabilize toward center
+    phraseBrightness += (0.5 - phraseBrightness) * dt * 0.5;
+    phraseDensity += (0.5 - phraseDensity) * dt * 0.5;
+  }
+  phraseBrightness = Math.max(0, Math.min(1, phraseBrightness));
+  phraseDensity = Math.max(0, Math.min(1, phraseDensity));
+
+  // Phrase motion scaling and breath rate
+  phraseMotionScale = 1.0 + phraseDensitySlope * 2;
+  phraseMotionScale = Math.max(0.5, Math.min(1.5, phraseMotionScale));
+  phraseBreathRate = 1.0 - phraseBrightSlope * 3;
+  phraseBreathRate = Math.max(0.5, Math.min(1.5, phraseBreathRate));
+
+  // Phrase FOR modulates Kuramoto K_partials:
+  // Building = higher K (partials lock = chorus), Settling = lower K (partials drift = verse)
+  phraseKmod = 1.0 + phraseDensitySlope * 3;
+  phraseKmod = Math.max(0.6, Math.min(1.5, phraseKmod));
+
+  // =================================================================
+  // LAYER 3: SESSION FOR (K=0.15, ~30-60 seconds)
+  // Learn the player. Adapt the soul's character.
+  // =================================================================
+  // Ultra-slow EWMA of energy and brightness
+  var sessionAlphaE = 1 - Math.exp(-dt / SESSION_TAU_ENERGY);
+  var sessionAlphaB = 1 - Math.exp(-dt / SESSION_TAU_BRIGHT);
+  sessionBrightEWMA += (playerBright - sessionBrightEWMA) * sessionAlphaB;
+  sessionDensityEWMA += (playerEnergy - sessionDensityEWMA) * sessionAlphaE;
+
+  // Session energy slope (warming up? peaked? winding down?)
+  sessionEnergySlope = (sessionDensityEWMA - sessionEnergyPrev) * 2;
+  sessionEnergyPrev += (sessionDensityEWMA - sessionEnergyPrev) * 0.01;
+
+  // Brightness bias: drift toward complement of long-term average
+  var sessionBrightTarget = 0.5 - (sessionBrightEWMA - 0.5) * 0.3;
+  sessionBrightBias += (sessionBrightTarget - sessionBrightBias) * SESSION_BIAS_RATE;
+  sessionBrightBias = Math.max(-SESSION_BIAS_MAX, Math.min(SESSION_BIAS_MAX, sessionBrightBias));
+
+  // Density bias
+  var sessionDensityTarget = 0.5 - (sessionDensityEWMA - 0.5) * 0.3;
+  sessionDensityBias += (sessionDensityTarget - sessionDensityBias) * SESSION_BIAS_RATE;
+  sessionDensityBias = Math.max(-SESSION_BIAS_MAX, Math.min(SESSION_BIAS_MAX, sessionDensityBias));
+
+  // Motion bias: warming up = soul stays behind, winding down = soul leads
+  sessionMotionBias = 1.0 + sessionEnergySlope * 5;
+  sessionMotionBias = Math.max(0.7, Math.min(1.3, sessionMotionBias));
+
+  // Coupling grain estimation from state change timing
+  if (sessionStateChangeTimes.length >= 3) {
+    var totalGrainDt = 0;
+    for (var gi = 1; gi < sessionStateChangeTimes.length; gi++) {
+      totalGrainDt += sessionStateChangeTimes[gi] - sessionStateChangeTimes[gi-1];
+    }
+    var measuredGrain = totalGrainDt / (sessionStateChangeTimes.length - 1);
+    sessionCouplingGrain = sessionCouplingGrain * 0.95 + measuredGrain * 0.05;
+  }
+
+  // Adapt layer weights based on coupling grain (very slowly)
+  var targetBW, targetPW, targetSW;
+  if (sessionCouplingGrain < 0.5) {
+    // Fast player: weight beat heavily
+    targetBW = 0.60; targetPW = 0.28; targetSW = 0.12;
+  } else if (sessionCouplingGrain > 3.0) {
+    // Slow player: weight phrase and session heavily
+    targetBW = 0.35; targetPW = 0.40; targetSW = 0.25;
+  } else {
+    // Medium: balanced
+    targetBW = 0.50; targetPW = 0.33; targetSW = 0.17;
+  }
+  forBeatWeight += (targetBW - forBeatWeight) * 0.003;
+  forPhraseWeight += (targetPW - forPhraseWeight) * 0.003;
+  forSessionWeight += (targetSW - forSessionWeight) * 0.003;
+  // Normalize to sum to 1
+  var wSum = forBeatWeight + forPhraseWeight + forSessionWeight;
+  forBeatWeight /= wSum;
+  forPhraseWeight /= wSum;
+  forSessionWeight /= wSum;
+
+  // Update preferred intervals from histogram
+  if (sessionNoteCount > 5) {
+    var sortedIntervals = [];
+    for (var si = 1; si < 12; si++) {
+      sortedIntervals.push({interval: si, count: sessionIntervalHist[si]});
+    }
+    sortedIntervals.sort(function(a, b) { return b.count - a.count; });
+    sessionPreferredIntervals = [
+      sortedIntervals[0].interval,
+      sortedIntervals[1].interval,
+      sortedIntervals[2].interval
+    ];
+  }
+
+  // =================================================================
+  // CONFLICT RESOLUTION
+  // =================================================================
+  // Case 1: Beat says "fill silence" but phrase trajectory is rising
+  var beatDensityResolved = beatDensity;
+  if (phraseDensitySlope > PHRASE_SLOPE_THRESH && beatDensity > 0.7) {
+    beatDensityResolved = beatDensity * (1 - phraseDensitySlope * 1.5);
+  }
+
+  // Case 2: Phrase settling but session warming up — slow the void timers
+  // (handled in void state machine via sessionEnergySlope, applied below)
+
+  // =================================================================
+  // COMBINE THREE LAYERS
+  // =================================================================
+  // Session contributions
+  var sessionBrightContrib = 0.5 + sessionBrightBias;
+  var sessionDensityContrib = 0.5 + sessionDensityBias;
+
+  // Warmup: phrase and session layers fade in over time
+  var phraseWarmup = Math.min(1, sessionTime / 10);     // fully active after 10s
+  var sessionWarmup = Math.min(1, sessionTime / 30);    // fully active after 30s
+
+  // Effective weights with warmup
+  var effBeat = forBeatWeight + forPhraseWeight * (1 - phraseWarmup) + forSessionWeight * (1 - sessionWarmup);
+  var effPhrase = forPhraseWeight * phraseWarmup;
+  var effSession = forSessionWeight * sessionWarmup;
+
+  forBrightness = effBeat * beatBright
+                + effPhrase * phraseBrightness
+                + effSession * sessionBrightContrib;
+
+  forDensity = effBeat * beatDensityResolved
+             + effPhrase * phraseDensity
+             + effSession * sessionDensityContrib;
+
+  // Motion: multiplicative blending across layers
+  forPhase = beatPhase; // beat phase drives the oscillation
+  forBreath = beatBreath * phraseBreathRate + phraseBreathImpulse;
+  forBreath = Math.max(0, Math.min(1, forBreath));
+  forMotion = Math.sin(beatPhase) * forBreath * 0.6
+            * phraseMotionScale * sessionMotionBias;
+
+  forBrightness = Math.max(0, Math.min(1, forBrightness));
   forDensity = Math.max(0, Math.min(1, forDensity));
 
-  // FOR MOTION: soul breathes when player is still
-  forPhase += FOR_NATURAL_FREQ * dt * TWO_PI;
-  if (forPhase > TWO_PI) forPhase -= TWO_PI;
-  forBreath = forBreath * 0.95 + playerStillness * 0.05;
-  forMotion = Math.sin(forPhase) * forBreath * 0.6;
+  // =================================================================
+  // LAYER AGREEMENT (phase lock detection)
+  // =================================================================
+  var agreeVals = [beatBright, phraseBrightness, sessionBrightContrib];
+  var agreeMean = (agreeVals[0] + agreeVals[1] + agreeVals[2]) / 3;
+  var agreeVar = 0;
+  for (var ai = 0; ai < 3; ai++) {
+    var adiff = agreeVals[ai] - agreeMean;
+    agreeVar += adiff * adiff;
+  }
+  forLayerAgreement = Math.max(0, Math.min(1, 1 - Math.sqrt(agreeVar / 3) * 3));
 
   // === FOR SOUND CONTRIBUTIONS ===
   var forFilterMult = Math.pow(2, (forBrightness - 0.5) * 0.6);
@@ -1223,11 +1546,17 @@ function update() {
     var stateLabel = ['present','settling','void','transcendent'][voidState];
     var soulLabel = forBrightness > 0.6 ? 'bright' : forBrightness < 0.4 ? 'dark' : 'mid';
     var rLabel = kuramotoR < 0.3 ? 'drift' : kuramotoR < 0.6 ? 'pull' : kuramotoR < 0.85 ? 'lock' : 'chord';
+    // Dominant FOR layer indicator
+    var forDominant = effBeat >= effPhrase && effBeat >= effSession ? 'B' :
+                      effPhrase >= effSession ? 'P' : 'S';
+    var slopeDir = phraseBrightSlope > PHRASE_SLOPE_THRESH ? 'build' :
+                   phraseBrightSlope < -PHRASE_SLOPE_THRESH ? 'settle' : '';
+    var forLabel = soulLabel + ' ' + forDominant + (slopeDir ? ' ' + slopeDir : '');
     document.getElementById('hud').innerHTML =
       'tilt ' + tiltX.toFixed(0) + '&deg; ' + tiltY.toFixed(0) + '&deg;<br>' +
       'filter ' + filterTarget.toFixed(0) + ' Hz<br>' +
       'energy ' + (energy * 100).toFixed(0) + '%<br>' +
-      'soul ' + soulLabel + '<br>' +
+      'soul ' + forLabel + '<br>' +
       'R ' + kuramotoR.toFixed(2) + ' ' + rLabel + '<br>' +
       stateLabel;
   }
@@ -1325,13 +1654,18 @@ function drawViz(beta, gamma, energy, filterFreq, soulBright, soulDensity, soulM
   // === COUPLING THREAD ===
   if (proximity > 0.08 || soulBreath > 0.08) {
     var threadAlpha = 0.025 + proximity * 0.07;
+    // Layer agreement brightens the thread
+    if (forLayerAgreement > 0.5) {
+      threadAlpha += (forLayerAgreement - 0.5) * 0.1;
+    }
     vizCtx.beginPath();
     vizCtx.moveTo(playerCx, playerCy);
     var midX = (playerCx + soulCx) / 2 + soulMotion * w * 0.05;
     var midY = (playerCy + soulCy) / 2 + Math.sin(t * 1.3) * soulBreath * h * 0.02;
     vizCtx.quadraticCurveTo(midX, midY, soulCx, soulCy);
-    vizCtx.strokeStyle = 'hsla(270,30%,50%,' + threadAlpha + ')';
-    vizCtx.lineWidth = 0.6 + proximity * 1.0;
+    var threadHue = 270 - forLayerAgreement * 30; // shifts toward warmer when aligned
+    vizCtx.strokeStyle = 'hsla(' + threadHue + ',30%,50%,' + threadAlpha + ')';
+    vizCtx.lineWidth = 0.6 + proximity * 1.0 + forLayerAgreement * 0.4;
     vizCtx.stroke();
   }
 
@@ -1397,10 +1731,28 @@ function drawViz(beta, gamma, energy, filterFreq, soulBright, soulDensity, soulM
     var mergeCx = (playerCx + soulCx) / 2;
     var mergeCy = (playerCy + soulCy) / 2;
     var mergeAlpha = (proximity - 0.3) * 0.12;
+    // Layer agreement intensifies the merge glow
+    if (forLayerAgreement > 0.5) {
+      mergeAlpha += (forLayerAgreement - 0.5) * 0.15;
+      mergeR *= (1 + (forLayerAgreement - 0.5) * 0.3);
+    }
     vizCtx.beginPath();
     vizCtx.arc(mergeCx, mergeCy, mergeR, 0, TWO_PI);
     vizCtx.fillStyle = 'hsla(320,20%,70%,' + mergeAlpha + ')';
     vizCtx.fill();
+  }
+
+  // === LAYER AGREEMENT GLOW ===
+  // When all three FOR layers agree, the entire field glows subtly
+  if (forLayerAgreement > 0.6) {
+    var agreeAlpha = (forLayerAgreement - 0.6) * 0.08;
+    var agreeGrad = vizCtx.createRadialGradient(
+      w/2, h/2, 0, w/2, h/2, Math.min(w, h) * 0.4);
+    agreeGrad.addColorStop(0, 'rgba(201, 164, 74, ' + (agreeAlpha * 0.3) + ')');
+    agreeGrad.addColorStop(0.6, 'rgba(201, 164, 74, ' + (agreeAlpha * 0.1) + ')');
+    agreeGrad.addColorStop(1, 'rgba(201, 164, 74, 0)');
+    vizCtx.fillStyle = agreeGrad;
+    vizCtx.fillRect(0, 0, w, h);
   }
 
   // === SPECTRAL TENSION INDICATOR ===
