@@ -126,6 +126,9 @@ body::after{content:"";position:fixed;top:0;left:0;width:100%;height:100%;
     <button class="tab" data-viz="klag">K-Lag</button>
     <button class="tab" data-viz="machine">Machine</button>
     <button class="tab" data-viz="tetra">Star Tetrahedron</button>
+    <button class="tab" data-viz="bifurcation">Bifurcation</button>
+    <button class="tab" data-viz="pendulum">Double Pendulum</button>
+    <button class="tab" data-viz="turing">Turing Patterns</button>
   </div>
 </div>
 
@@ -159,7 +162,7 @@ body::after{content:"";position:fixed;top:0;left:0;width:100%;height:100%;
 // ═══════════════════════════════════════════════════════════════
 // FLEX — deep mathematical visualizations
 //
-// Five systems. One canvas. All warm. All alive.
+// Eight systems. One canvas. All warm. All alive.
 // No spinning 3D. Parallax from z-depth. Drag to tilt.
 // ═══════════════════════════════════════════════════════════════
 (function(){
@@ -276,6 +279,9 @@ function switchViz(name){
   else if(name === 'klag') initKLag();
   else if(name === 'machine') initMachine();
   else if(name === 'tetra') initTetra();
+  else if(name === 'bifurcation') initBifurcation();
+  else if(name === 'pendulum') initPendulum();
+  else if(name === 'turing') initTuring();
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -889,6 +895,9 @@ var machPhases, machOmega, machNx, machNy, machNbr, machNodeCol;
 var machR = 0;
 var machK = 1.868;
 var machGA = 2.39996322;
+var machSyncPairs = []; // cached list of synced pairs for golden threads
+var machPrevR = 0; // for R smoothing
+var machClusterIds; // which cluster each node belongs to
 
 var MACH_PALETTE = [
   [210,120,45],[185,82,40],[190,145,60],[165,90,35],
@@ -899,13 +908,16 @@ var MACH_PALETTE = [
 
 function initMachine(){
   titleEl.textContent = 'The Machine';
-  descEl.textContent = '137 coupled oscillators on a golden spiral. K=K* (1.868). The math computing beauty.';
+  descEl.textContent = '137 coupled oscillators on a golden spiral. K=K* (1.868). Watch them lock.';
 
   machPhases = new Float64Array(machN);
   machOmega = new Float64Array(machN);
   machNx = []; machNy = [];
   machNbr = [];
   machNodeCol = [];
+  machSyncPairs = [];
+  machPrevR = 0;
+  machClusterIds = new Uint8Array(machN);
 
   // Layout on golden spiral
   for(var i=0; i<machN; i++){
@@ -913,8 +925,12 @@ function initMachine(){
     var a = i*machGA;
     machNx.push(Math.cos(a)*r);
     machNy.push(Math.sin(a)*r);
+    // Narrower frequency spread so coupling can actually overcome it
+    // Centered around 1.0, spread ~ 0.5
     machPhases[i] = Math.random() * PI2;
-    machOmega[i] = (0.3+Math.random()*0.7)*PI2*(0.8+Math.random()*0.4);
+    machOmega[i] = 1.0 + (Math.random()-0.5)*0.8;
+    // Assign cluster (7 clusters by golden angle sectors)
+    machClusterIds[i] = Math.floor(((a % PI2)+PI2)%PI2 / PI2 * 7);
     machNodeCol.push(MACH_PALETTE[Math.floor((i*PHI*7) % MACH_PALETTE.length)]);
   }
 
@@ -929,7 +945,7 @@ function initMachine(){
     machNbr.push(nn);
   }
 
-  // K slider
+  // K slider — 0 to 4, default at K*
   ctrlEl.innerHTML =
     '<div class="slider-wrap">' +
     '<span class="slider-label">K</span>' +
@@ -943,21 +959,34 @@ function initMachine(){
 }
 
 function stepMachine(){
+  // Compute order parameter R
   var mre=0, mim=0;
   for(var i=0; i<machN; i++){
     mre += Math.cos(machPhases[i]);
     mim += Math.sin(machPhases[i]);
   }
   mre /= machN; mim /= machN;
-  machR = Math.sqrt(mre*mre+mim*mim);
+  var rawR = Math.sqrt(mre*mre+mim*mim);
+  // Smooth R for visual stability
+  machR = machPrevR*0.9 + rawR*0.1;
+  machPrevR = machR;
 
+  var dt = 0.02;
+
+  // Update phases with LOCAL coupling (divide by neighbor count, not N)
   for(var i=0; i<machN; i++){
-    var c=0;
+    var c = 0;
     var nn = machNbr[i];
-    for(var k=0; k<nn.length; k++){
-      c += Math.sin(machPhases[nn[k]] - machPhases[i]);
+    var nLen = nn.length;
+    if(nLen > 0){
+      for(var k=0; k<nLen; k++){
+        c += Math.sin(machPhases[nn[k]] - machPhases[i]);
+      }
+      c /= nLen; // normalize by actual neighbor count
     }
-    machPhases[i] += 0.016*(machOmega[i] + (machK/machN)*c);
+    machPhases[i] += dt*(machOmega[i] + machK * c);
+    // Wrap phase
+    machPhases[i] = ((machPhases[i] % PI2) + PI2) % PI2;
   }
 }
 
@@ -965,7 +994,8 @@ function drawMachine(){
   cx.fillStyle = '#0a0706';
   cx.fillRect(0,0,W,H);
 
-  stepMachine();
+  // Multiple physics steps per frame for visible dynamics
+  for(var sub=0; sub<3; sub++) stepMachine();
 
   var sc = Math.min(W,H)*0.06;
   var centerX = W*0.5, centerY = H*0.48;
@@ -974,10 +1004,10 @@ function drawMachine(){
   var cosA = Math.cos(dragAngleX*0.5);
   var sinA = Math.sin(dragAngleX*0.5);
   var tiltY = -0.35 + dragAngleY;
-
   var cosT = Math.cos(tiltY), sinT = Math.sin(tiltY);
 
-  var globalBreath = 0.85 + machR*0.3;
+  // Global breath based on R — THIS is what makes R visible
+  var globalBreath = 0.5 + machR*0.8;
 
   // Project all nodes
   var proj = [];
@@ -985,10 +1015,8 @@ function drawMachine(){
     var p = machPhases[i] % PI2; if(p<0) p+=PI2;
     var z3d = p/PI2 * 3.2;
 
-    // Rotate around Y axis (drag)
     var x1 = machNx[i]*cosA + z3d*sinA;
     var z1 = -machNx[i]*sinA + z3d*cosA;
-    // Tilt around X
     var y1 = machNy[i]*cosT - z1*sinT;
     var z2 = machNy[i]*sinT + z1*cosT;
 
@@ -1002,19 +1030,21 @@ function drawMachine(){
   var idxMap = new Array(machN);
   for(var k=0; k<machN; k++) idxMap[proj[k].i] = proj[k];
 
-  // ═══ R threshold circle (in center, subtle) ═══
-  var rThreshRadius = Math.min(W,H)*0.02 / PHI;
-  if(machR > 0.01){
-    var rGlow = cx.createRadialGradient(centerX,centerY,0,centerX,centerY,rThreshRadius+machR*60);
-    rGlow.addColorStop(0, 'rgba(220,175,80,'+(machR*0.08).toFixed(3)+')');
-    rGlow.addColorStop(1, 'rgba(184,117,58,0)');
-    cx.fillStyle = rGlow;
-    cx.fillRect(centerX-100,centerY-100,200,200);
-  }
+  // ═══ CENTER GLOW — R as visible intensity ═══
+  var glowRadius = 40 + machR*120;
+  var rGlow = cx.createRadialGradient(centerX,centerY,0,centerX,centerY,glowRadius);
+  var rIntensity = machR * machR; // quadratic for drama
+  rGlow.addColorStop(0, 'rgba(220,175,80,'+(rIntensity*0.25).toFixed(3)+')');
+  rGlow.addColorStop(0.3, 'rgba(210,140,60,'+(rIntensity*0.10).toFixed(3)+')');
+  rGlow.addColorStop(0.6, 'rgba(184,117,58,'+(rIntensity*0.04).toFixed(3)+')');
+  rGlow.addColorStop(1, 'rgba(184,117,58,0)');
+  cx.fillStyle = rGlow;
+  cx.beginPath(); cx.arc(centerX,centerY,glowRadius,0,PI2); cx.fill();
 
-  // ═══ CONNECTIONS ═══
+  // ═══ CONNECTIONS — golden threads for phase-locked pairs ═══
   cx.globalCompositeOperation = 'lighter';
 
+  var syncCount = 0;
   for(var i=0; i<machN; i++){
     var nd = idxMap[i]; if(!nd) continue;
     var nn = machNbr[i];
@@ -1024,32 +1054,33 @@ function drawMachine(){
       var pdiff = Math.abs(nd.phase - nb.phase);
       if(pdiff > Math.PI) pdiff = PI2 - pdiff;
       var sync = 1 - pdiff/Math.PI;
-      if(sync < 0.2) continue;
+      if(sync < 0.3) continue;
 
       var s2 = sync*sync, s3 = s2*sync;
       var pMin = Math.min(nd.persp, nb.persp);
 
-      var ca = machNodeCol[nd.i], cb = machNodeCol[nb.i];
-      var mr = Math.round((ca[0]+cb[0])*0.5);
-      var mg = Math.round((ca[1]+cb[1])*0.5);
-      var mb = Math.round((ca[2]+cb[2])*0.5);
+      // Color by sync level: low sync = dim copper, high sync = bright gold
+      var colR, colG, colB;
+      if(sync > 0.85){
+        // GOLDEN thread — phase locked
+        colR = 230; colG = 190; colB = 100;
+        syncCount++;
+      } else if(sync > 0.6){
+        colR = 210; colG = 150; colB = 60;
+      } else {
+        colR = 165; colG = 90; colB = 35;
+      }
 
-      // Golden thread effect for high sync
-      var whiten = s3 * 0.4;
-      var lr = Math.min(255, Math.round(mr + (255-mr)*whiten));
-      var lg = Math.min(255, Math.round(mg + (255-mg)*whiten));
-      var lb = Math.min(255, Math.round(mb + (255-mb)*whiten));
-
-      var alpha = s2 * 0.55 * pMin * globalBreath;
-      cx.strokeStyle = 'rgba('+lr+','+lg+','+lb+','+alpha.toFixed(3)+')';
-      cx.lineWidth = (0.4+s2*1.8)*pMin;
+      var alpha = s2 * 0.6 * pMin * globalBreath;
+      cx.strokeStyle = 'rgba('+colR+','+colG+','+colB+','+alpha.toFixed(3)+')';
+      cx.lineWidth = (0.3+s2*2.0)*pMin;
       cx.beginPath(); cx.moveTo(nd.sx,nd.sy); cx.lineTo(nb.sx,nb.sy); cx.stroke();
 
-      // Glow for very synced pairs
-      if(sync > 0.7){
-        var glowA = (sync-0.7)*2.0*0.12*pMin;
-        cx.strokeStyle = 'rgba('+mr+','+mg+','+mb+','+glowA.toFixed(3)+')';
-        cx.lineWidth = (2+s2*4)*pMin;
+      // Extra glow layer for highly synced pairs
+      if(sync > 0.8){
+        var glowA = (sync-0.8)*5.0 * 0.15 * pMin * globalBreath;
+        cx.strokeStyle = 'rgba(230,190,100,'+glowA.toFixed(3)+')';
+        cx.lineWidth = (2+s2*5)*pMin;
         cx.beginPath(); cx.moveTo(nd.sx,nd.sy); cx.lineTo(nb.sx,nb.sy); cx.stroke();
       }
     }
@@ -1060,32 +1091,58 @@ function drawMachine(){
     var nd = proj[k];
     var col = machNodeCol[nd.i];
 
-    var breath = Math.sin(machPhases[nd.i]);
-    var size = (2.2 + breath*0.9) * nd.persp * globalBreath;
-    var bright = (0.7 + Math.abs(breath)*0.5) * nd.persp;
+    // How synced is this node with its neighbors?
+    var localSync = 0;
+    var nn = machNbr[nd.i];
+    if(nn.length > 0){
+      for(var j=0; j<nn.length; j++){
+        var pd = Math.abs(machPhases[nd.i] - machPhases[nn[j]]);
+        if(pd > Math.PI) pd = PI2 - pd;
+        localSync += 1 - pd/Math.PI;
+      }
+      localSync /= nn.length;
+    }
 
-    // Radial glow
-    if(bright > 0.15 && nd.persp > 0.5){
-      var glowR = size * 5;
-      var grad = cx.createRadialGradient(nd.sx,nd.sy,size*0.3,nd.sx,nd.sy,glowR);
-      grad.addColorStop(0, 'rgba('+col[0]+','+col[1]+','+col[2]+','+(bright*0.22).toFixed(3)+')');
-      grad.addColorStop(0.35, 'rgba('+col[0]+','+col[1]+','+col[2]+','+(bright*0.07).toFixed(3)+')');
-      grad.addColorStop(1, 'rgba('+col[0]+','+col[1]+','+col[2]+',0)');
+    var breath = Math.sin(machPhases[nd.i]);
+    var size = (2.0 + localSync*2.5 + breath*0.6) * nd.persp * globalBreath;
+    var bright = (0.5 + localSync*0.7) * nd.persp;
+
+    // Color shifts from cool (desync) to hot gold (synced)
+    var syncCol;
+    if(localSync > 0.7){
+      // Hot gold — locked
+      syncCol = [230,190,100];
+    } else if(localSync > 0.4){
+      // Warm copper
+      var t = (localSync-0.4)/0.3;
+      syncCol = [
+        Math.round(col[0] + (230-col[0])*t),
+        Math.round(col[1] + (190-col[1])*t),
+        Math.round(col[2] + (100-col[2])*t)
+      ];
+    } else {
+      // Original palette color, dimmer
+      syncCol = col;
+    }
+
+    // Radial glow — bigger for synced nodes
+    if(bright > 0.1 && nd.persp > 0.4){
+      var glowR = size * (3 + localSync*5);
+      var grad = cx.createRadialGradient(nd.sx,nd.sy,size*0.2,nd.sx,nd.sy,glowR);
+      grad.addColorStop(0, 'rgba('+syncCol[0]+','+syncCol[1]+','+syncCol[2]+','+(bright*0.25).toFixed(3)+')');
+      grad.addColorStop(0.3, 'rgba('+syncCol[0]+','+syncCol[1]+','+syncCol[2]+','+(bright*0.08).toFixed(3)+')');
+      grad.addColorStop(1, 'rgba('+syncCol[0]+','+syncCol[1]+','+syncCol[2]+',0)');
       cx.fillStyle = grad;
       cx.fillRect(nd.sx-glowR, nd.sy-glowR, glowR*2, glowR*2);
     }
 
-    // Hot core
-    var hotFactor = Math.max(0, breath) * 0.35;
-    var cr = Math.min(255, Math.round(col[0]+(255-col[0])*hotFactor));
-    var cg = Math.min(255, Math.round(col[1]+(255-col[1])*hotFactor));
-    var cb = Math.min(255, Math.round(col[2]+(255-col[2])*hotFactor));
-
-    if(nd.persp > 0.5){
+    // Core dot
+    var cr = syncCol[0], cg = syncCol[1], cb = syncCol[2];
+    if(nd.persp > 0.4){
       var coreGrad = cx.createRadialGradient(nd.sx,nd.sy,0,nd.sx,nd.sy,size);
-      coreGrad.addColorStop(0, 'rgba('+cr+','+cg+','+cb+','+Math.min(1,bright*1.1).toFixed(3)+')');
-      coreGrad.addColorStop(0.6, 'rgba('+col[0]+','+col[1]+','+col[2]+','+bright.toFixed(3)+')');
-      coreGrad.addColorStop(1, 'rgba('+col[0]+','+col[1]+','+col[2]+','+(bright*0.25).toFixed(3)+')');
+      coreGrad.addColorStop(0, 'rgba('+Math.min(255,cr+40)+','+Math.min(255,cg+30)+','+Math.min(255,cb+20)+','+Math.min(1,bright*1.2).toFixed(3)+')');
+      coreGrad.addColorStop(0.5, 'rgba('+cr+','+cg+','+cb+','+bright.toFixed(3)+')');
+      coreGrad.addColorStop(1, 'rgba('+cr+','+cg+','+cb+','+(bright*0.2).toFixed(3)+')');
       cx.fillStyle = coreGrad;
     } else {
       cx.fillStyle = 'rgba('+cr+','+cg+','+cb+','+bright.toFixed(3)+')';
@@ -1095,13 +1152,44 @@ function drawMachine(){
 
   cx.globalCompositeOperation = 'source-over';
 
-  // ═══ R = 1/phi threshold ═══
-  // Display text near bottom
+  // ═══ R bar at bottom ═══
+  var barW2 = Math.min(W,H)*0.35;
+  var barX2 = centerX - barW2/2;
+  var barY2 = H - 60;
+  var barH2 = 4;
+
+  cx.fillStyle = 'rgba(184,117,58,0.06)';
+  cx.fillRect(barX2, barY2, barW2, barH2);
+
+  var rBarGrad = cx.createLinearGradient(barX2, barY2, barX2+barW2*machR, barY2);
+  rBarGrad.addColorStop(0, 'rgba(60,80,120,0.5)');
+  rBarGrad.addColorStop(0.5, 'rgba(184,117,58,0.7)');
+  rBarGrad.addColorStop(1, 'rgba(230,190,100,0.9)');
+  cx.fillStyle = rBarGrad;
+  cx.fillRect(barX2, barY2, barW2*Math.min(1,machR), barH2);
+
+  // 1/phi threshold marker
+  var threshX = barX2 + barW2 / PHI;
+  cx.strokeStyle = 'rgba(130,160,70,0.25)';
+  cx.lineWidth = 1;
+  cx.beginPath();
+  cx.moveTo(threshX, barY2-4);
+  cx.lineTo(threshX, barY2+barH2+4);
+  cx.stroke();
+
+  cx.font = '9px "Courier New",monospace';
+  cx.fillStyle = 'rgba(130,160,70,0.4)';
+  cx.textAlign = 'center';
+  cx.fillText('1/\u03C6', threshX, barY2+barH2+14);
+  cx.textAlign = 'left';
+
+  // Stats
   var rColor = machR > 1/PHI ? '#7a9a6a' : '#8b4a2e';
   statEl.innerHTML =
     'R: <span style="color:'+rColor+'">' + machR.toFixed(3) + '</span><br>' +
     'K: ' + machK.toFixed(3) + '<br>' +
     'N: ' + machN + '<br>' +
+    'locked: ' + syncCount + '<br>' +
     '<span style="color:#8b4a2e">1/\u03C6 = ' + (1/PHI).toFixed(3) + '</span>';
 }
 
@@ -1332,6 +1420,641 @@ function drawTetra(){
 
 
 // ═══════════════════════════════════════════════════════════════
+// 6. BIFURCATION DIAGRAM — period-doubling route to chaos
+// ═══════════════════════════════════════════════════════════════
+var bifurImgData = null;
+var bifurW = 0, bifurH = 0;
+var bifurOrbitR = 3.2;
+var bifurOrbitX = 0.5;
+var bifurOrbitTrail = [];
+var bifurHoverR = -1;
+
+function initBifurcation(){
+  titleEl.textContent = 'Bifurcation Diagram';
+  descEl.textContent = 'Period-doubling route to chaos. The logistic map reveals universal structure.';
+  bifurImgData = null;
+  bifurOrbitTrail = [];
+  bifurHoverR = -1;
+
+  ctrlEl.innerHTML =
+    '<div class="slider-wrap">' +
+    '<span class="slider-label" style="opacity:0.5;">move mouse to explore r</span>' +
+    '</div>';
+}
+
+function renderBifurcation(){
+  // Render the full diagram to an offscreen buffer
+  var rMin = 2.5, rMax = 4.0;
+  var pw = Math.floor(W*dpr), ph = Math.floor(H*dpr*0.7);
+  bifurW = pw; bifurH = ph;
+
+  var buf = new Uint8ClampedArray(pw*ph*4);
+
+  // Brightness accumulation buffer
+  var accum = new Float32Array(pw*ph);
+  var warmup = 200, samples = 300;
+
+  for(var col=0; col<pw; col++){
+    var r = rMin + (col/pw)*(rMax-rMin);
+    var x = 0.5;
+
+    // Warm up
+    for(var i=0; i<warmup; i++){
+      x = r*x*(1-x);
+    }
+
+    // Sample attractors
+    for(var i=0; i<samples; i++){
+      x = r*x*(1-x);
+      var row = Math.floor((1-x)*ph*0.9 + ph*0.05);
+      if(row >= 0 && row < ph){
+        accum[row*pw+col] += 1.0;
+      }
+    }
+  }
+
+  // Find max for normalization
+  var maxAcc = 1;
+  for(var i=0; i<accum.length; i++){
+    if(accum[i] > maxAcc) maxAcc = accum[i];
+  }
+
+  // Render with warm palette
+  for(var y=0; y<ph; y++){
+    for(var x=0; x<pw; x++){
+      var idx = (y*pw+x)*4;
+      var v = accum[y*pw+x] / maxAcc;
+      if(v > 0){
+        // Map density to color: sparse=dim copper, dense=gold, very dense=bright
+        var intensity = Math.pow(v, 0.4); // gamma for visibility
+        var r2, g, b;
+        if(intensity < 0.3){
+          // Dim red/copper
+          r2 = Math.round(120 + intensity*200);
+          g = Math.round(40 + intensity*80);
+          b = Math.round(15 + intensity*30);
+        } else if(intensity < 0.7){
+          // Warm copper to gold
+          var t = (intensity-0.3)/0.4;
+          r2 = Math.round(180 + t*50);
+          g = Math.round(100 + t*80);
+          b = Math.round(30 + t*40);
+        } else {
+          // Bright gold
+          var t = (intensity-0.7)/0.3;
+          r2 = Math.round(230 + t*25);
+          g = Math.round(180 + t*30);
+          b = Math.round(70 + t*30);
+        }
+        var alpha = Math.min(255, Math.round(40 + intensity*215));
+        buf[idx] = r2;
+        buf[idx+1] = g;
+        buf[idx+2] = b;
+        buf[idx+3] = alpha;
+      }
+    }
+  }
+
+  bifurImgData = new ImageData(buf, pw, ph);
+}
+
+function drawBifurcation(){
+  cx.fillStyle = '#0a0706';
+  cx.fillRect(0,0,W,H);
+
+  // Render diagram if needed
+  if(!bifurImgData || bifurW !== Math.floor(W*dpr)){
+    renderBifurcation();
+  }
+
+  // Draw the diagram
+  var offY = H*0.08;
+  var drawH = H*0.7;
+  if(bifurImgData){
+    // Use a temp canvas to scale
+    var tmp = document.createElement('canvas');
+    tmp.width = bifurW; tmp.height = bifurH;
+    var tc = tmp.getContext('2d');
+    tc.putImageData(bifurImgData, 0, 0);
+    cx.drawImage(tmp, 0, offY, W, drawH);
+  }
+
+  var rMin = 2.5, rMax = 4.0;
+
+  // ═══ Mouse interaction — show orbit at hovered r ═══
+  var mx = mouseX / W;
+  bifurHoverR = rMin + mx*(rMax-rMin);
+
+  if(bifurHoverR >= rMin && bifurHoverR <= rMax){
+    // Vertical cursor line
+    cx.strokeStyle = 'rgba(230,190,100,0.15)';
+    cx.lineWidth = 1;
+    cx.beginPath();
+    cx.moveTo(mouseX, offY);
+    cx.lineTo(mouseX, offY+drawH);
+    cx.stroke();
+
+    // Compute orbit at this r
+    var x = 0.5;
+    for(var i=0; i<300; i++) x = bifurHoverR*x*(1-x);
+
+    // Collect unique attractor values
+    var orbitSet = [];
+    for(var i=0; i<64; i++){
+      x = bifurHoverR*x*(1-x);
+      orbitSet.push(x);
+    }
+
+    // Animate the orbit — show dots bouncing on the attractor
+    bifurOrbitTrail.push(x);
+    if(bifurOrbitTrail.length > 30) bifurOrbitTrail.shift();
+
+    // Draw orbit dots on the diagram
+    for(var i=0; i<orbitSet.length; i++){
+      var dotY = offY + (1-orbitSet[i])*drawH*0.9 + drawH*0.05;
+      var age = 0.3 + (i/orbitSet.length)*0.7;
+
+      cx.fillStyle = 'rgba(230,190,100,'+age.toFixed(2)+')';
+      cx.beginPath();
+      cx.arc(mouseX, dotY, 2.5, 0, PI2);
+      cx.fill();
+
+      // Glow
+      var g = cx.createRadialGradient(mouseX, dotY, 0, mouseX, dotY, 8);
+      g.addColorStop(0, 'rgba(230,190,100,'+(age*0.3).toFixed(2)+')');
+      g.addColorStop(1, 'rgba(230,190,100,0)');
+      cx.fillStyle = g;
+      cx.beginPath(); cx.arc(mouseX, dotY, 8, 0, PI2); cx.fill();
+    }
+
+    // r value label
+    cx.font = '11px "Courier New",monospace';
+    cx.fillStyle = '#b8753a';
+    cx.textAlign = 'center';
+    cx.fillText('r = '+bifurHoverR.toFixed(4), mouseX, offY - 6);
+    cx.textAlign = 'left';
+  }
+
+  // ═══ Axis labels ═══
+  cx.font = '9px "Courier New",monospace';
+  cx.fillStyle = '#8b4a2e';
+  cx.textAlign = 'left';
+  cx.fillText('2.5', 4, offY+drawH+14);
+  cx.textAlign = 'center';
+  // Mark bifurcation points
+  var bifs = [3.0, 3.449, 3.5441, 3.5644, 3.5688];
+  var bifNames = ['period-2', 'period-4', 'period-8', 'period-16', 'chaos onset'];
+  for(var i=0; i<bifs.length; i++){
+    var bx = (bifs[i]-rMin)/(rMax-rMin)*W;
+    cx.fillStyle = 'rgba(130,160,70,0.3)';
+    cx.fillText(bifs[i].toFixed(bifs[i]===3.0?1:3), bx, offY+drawH+14);
+    cx.strokeStyle = 'rgba(130,160,70,0.08)';
+    cx.lineWidth = 1;
+    cx.setLineDash([2,4]);
+    cx.beginPath(); cx.moveTo(bx, offY); cx.lineTo(bx, offY+drawH); cx.stroke();
+    cx.setLineDash([]);
+  }
+  cx.textAlign = 'right';
+  cx.fillStyle = '#8b4a2e';
+  cx.fillText('4.0', W-4, offY+drawH+14);
+  cx.textAlign = 'left';
+
+  // Label
+  cx.font = '10px Futura,"Century Gothic",system-ui,sans-serif';
+  cx.fillStyle = 'rgba(184,117,58,0.4)';
+  cx.textAlign = 'center';
+  cx.fillText('x(n+1) = r \u00B7 x(n) \u00B7 (1 - x(n))', W*0.5, offY+drawH+32);
+
+  // Feigenbaum constant note
+  cx.font = '9px "Courier New",monospace';
+  cx.fillStyle = 'rgba(130,160,70,0.3)';
+  cx.fillText('Feigenbaum \u03B4 = 4.669...', W*0.5, offY+drawH+46);
+  cx.textAlign = 'left';
+
+  // Determine period at hovered r
+  var period = '1';
+  if(bifurHoverR > 3.0) period = '2';
+  if(bifurHoverR > 3.449) period = '4';
+  if(bifurHoverR > 3.5441) period = '8';
+  if(bifurHoverR > 3.5644) period = '16+';
+  if(bifurHoverR > 3.5699) period = 'chaos';
+  if(bifurHoverR > 3.8284) period = 'period-3 window';
+  if(bifurHoverR > 3.8415) period = 'chaos';
+
+  statEl.innerHTML =
+    'r: ' + bifurHoverR.toFixed(4) + '<br>' +
+    'regime: ' + period + '<br>' +
+    '<span style="color:#8b4a2e">\u03B4 = 4.669...</span>';
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+// 7. DOUBLE PENDULUM — chaos from simplicity
+// ═══════════════════════════════════════════════════════════════
+var pendulums = []; // array of {th1, th2, w1, w2, trail, color}
+var pendL1 = 1, pendL2 = 1;
+var pendG = 9.81;
+var pendTrailMax = 800;
+var pendClickPending = false;
+
+function initPendulum(){
+  titleEl.textContent = 'Double Pendulum';
+  descEl.textContent = 'Chaos from simplicity. Tiny differences, wildly different paths.';
+  pendulums = [];
+
+  // Spawn 3 pendulums with very slightly different initial conditions
+  var baseAngle = Math.PI * 0.75;
+  var colors = [
+    [230,170,80],  // gold
+    [210,120,45],  // copper
+    [165,90,35]    // sienna
+  ];
+  for(var i=0; i<3; i++){
+    pendulums.push({
+      th1: baseAngle + i*0.001,  // 0.001 radian difference
+      th2: baseAngle * 0.8,
+      w1: 0, w2: 0,
+      trail: [],
+      color: colors[i]
+    });
+  }
+
+  ctrlEl.innerHTML =
+    '<div class="slider-wrap">' +
+    '<span class="slider-label" style="opacity:0.5;">click to set angle</span>' +
+    '</div>';
+
+  // Click to reset with new angle
+  pendClickPending = true;
+}
+
+function stepPendulum(p, dt){
+  var m1=1, m2=1;
+  var l1=pendL1, l2=pendL2, g=pendG;
+  var th1=p.th1, th2=p.th2, w1=p.w1, w2=p.w2;
+  var delta = th2-th1;
+  var sinD = Math.sin(delta), cosD = Math.cos(delta);
+  var s1 = Math.sin(th1), s2 = Math.sin(th2);
+
+  var denom = 2*m1+m2-m2*Math.cos(2*delta);
+
+  var a1 = (-g*(2*m1+m2)*s1 - m2*g*Math.sin(th1-2*th2) - 2*sinD*m2*(w2*w2*l2+w1*w1*l1*cosD)) / (l1*denom);
+  var a2 = (2*sinD*(w1*w1*l1*(m1+m2)+g*(m1+m2)*Math.cos(th1)+w2*w2*l2*m2*cosD)) / (l2*denom);
+
+  p.w1 += a1*dt;
+  p.w2 += a2*dt;
+  // Light damping for visual stability over long runs
+  p.w1 *= 0.9999;
+  p.w2 *= 0.9999;
+  p.th1 += p.w1*dt;
+  p.th2 += p.w2*dt;
+}
+
+function drawPendulum(){
+  // Fade instead of clear for trail persistence
+  cx.fillStyle = 'rgba(10,7,6,0.08)';
+  cx.fillRect(0,0,W,H);
+
+  var sc = Math.min(W,H)*0.16;
+  var pivotX = W*0.5, pivotY = H*0.32;
+
+  // Handle click — reset pendulums
+  if(pendClickPending && mouseDown){
+    var angle = Math.atan2(mouseY-pivotY, mouseX-pivotX) + Math.PI*0.5;
+    var colors = [
+      [230,170,80],
+      [210,120,45],
+      [165,90,35]
+    ];
+    for(var i=0; i<pendulums.length; i++){
+      pendulums[i].th1 = angle + i*0.001;
+      pendulums[i].th2 = angle*0.8;
+      pendulums[i].w1 = 0;
+      pendulums[i].w2 = 0;
+      pendulums[i].trail = [];
+      pendulums[i].color = colors[i % colors.length];
+    }
+  }
+
+  // Physics: multiple substeps for stability
+  var substeps = 8;
+  var dt = 0.004;
+  for(var s=0; s<substeps; s++){
+    for(var i=0; i<pendulums.length; i++){
+      stepPendulum(pendulums[i], dt);
+    }
+  }
+
+  // Draw each pendulum
+  for(var i=0; i<pendulums.length; i++){
+    var p = pendulums[i];
+    var col = p.color;
+
+    // Joint and tip positions
+    var x1 = pivotX + Math.sin(p.th1)*sc*pendL1;
+    var y1 = pivotY + Math.cos(p.th1)*sc*pendL1;
+    var x2 = x1 + Math.sin(p.th2)*sc*pendL2;
+    var y2 = y1 + Math.cos(p.th2)*sc*pendL2;
+
+    // Store trail point (tip position)
+    p.trail.push({x:x2, y:y2});
+    if(p.trail.length > pendTrailMax) p.trail.shift();
+
+    // ═══ Draw trail ═══
+    if(p.trail.length > 1){
+      for(var j=1; j<p.trail.length; j++){
+        var age = j / p.trail.length;
+        var alpha = age * age * 0.5;
+        cx.strokeStyle = 'rgba('+col[0]+','+col[1]+','+col[2]+','+alpha.toFixed(3)+')';
+        cx.lineWidth = 0.5 + age*1.5;
+        cx.beginPath();
+        cx.moveTo(p.trail[j-1].x, p.trail[j-1].y);
+        cx.lineTo(p.trail[j].x, p.trail[j].y);
+        cx.stroke();
+      }
+    }
+
+    // ═══ Draw rods ═══
+    // Only draw rods prominently for first pendulum, subtle for others
+    var rodAlpha = (i === 0) ? 0.5 : 0.15;
+
+    cx.strokeStyle = 'rgba('+col[0]+','+col[1]+','+col[2]+','+rodAlpha+')';
+    cx.lineWidth = 2;
+    cx.beginPath();
+    cx.moveTo(pivotX, pivotY);
+    cx.lineTo(x1, y1);
+    cx.stroke();
+
+    cx.beginPath();
+    cx.moveTo(x1, y1);
+    cx.lineTo(x2, y2);
+    cx.stroke();
+
+    // ═══ Draw joints ═══
+    if(i === 0){
+      // Pivot
+      cx.fillStyle = 'rgba(184,117,58,0.4)';
+      cx.beginPath(); cx.arc(pivotX, pivotY, 3, 0, PI2); cx.fill();
+
+      // Joint
+      cx.fillStyle = 'rgba('+col[0]+','+col[1]+','+col[2]+',0.6)';
+      cx.beginPath(); cx.arc(x1, y1, 4, 0, PI2); cx.fill();
+    }
+
+    // Tip with glow
+    var tipGlow = cx.createRadialGradient(x2, y2, 0, x2, y2, 15);
+    tipGlow.addColorStop(0, 'rgba('+col[0]+','+col[1]+','+col[2]+','+(i===0?0.4:0.15)+')');
+    tipGlow.addColorStop(1, 'rgba('+col[0]+','+col[1]+','+col[2]+',0)');
+    cx.fillStyle = tipGlow;
+    cx.beginPath(); cx.arc(x2, y2, 15, 0, PI2); cx.fill();
+
+    cx.fillStyle = 'rgba('+col[0]+','+col[1]+','+col[2]+','+(i===0?0.9:0.4)+')';
+    cx.beginPath(); cx.arc(x2, y2, 3, 0, PI2); cx.fill();
+  }
+
+  // ═══ Divergence measurement ═══
+  if(pendulums.length >= 2){
+    var p0 = pendulums[0], p1 = pendulums[1];
+    var divergence = Math.abs(p0.th1-p1.th1) + Math.abs(p0.th2-p1.th2) + Math.abs(p0.w1-p1.w1) + Math.abs(p0.w2-p1.w2);
+    var logDiv = divergence > 0.0001 ? Math.log10(divergence).toFixed(2) : '-inf';
+
+    statEl.innerHTML =
+      '\u0394\u03B8: ' + divergence.toFixed(4) + '<br>' +
+      'log\u2081\u2080(\u0394): ' + logDiv + '<br>' +
+      '<span style="color:#8b4a2e">3 paths, \u0394\u03B8\u2080=0.001 rad</span>';
+  }
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+// 8. REACTION-DIFFUSION (Turing Patterns)
+// ═══════════════════════════════════════════════════════════════
+var rdW, rdH, rdU, rdV, rdU2, rdV2;
+var rdScale = 3; // each sim cell = 3x3 pixels
+var rdK = 0.062; // kill rate — maps to K (coupling)
+var rdF = 0.035; // feed rate — maps to T (temperature)
+var rdDu = 0.16, rdDv = 0.08;
+var rdInited = false;
+var rdSweepPhase = 0;
+var rdSweepActive = false;
+var rdTmpCv = null, rdTmpCx = null;
+
+function initTuring(){
+  titleEl.textContent = 'Turing Patterns';
+  descEl.textContent = 'Gray-Scott reaction-diffusion. K=coupling (diffusion). T=noise (feed rate). Touch to seed.';
+  rdInited = false;
+  rdSweepPhase = 0;
+  rdSweepActive = false;
+
+  // Compute grid size
+  rdW = Math.floor(W/rdScale);
+  rdH = Math.floor(H/rdScale);
+  if(rdW < 10) rdW = 10;
+  if(rdH < 10) rdH = 10;
+
+  rdU = new Float32Array(rdW*rdH);
+  rdV = new Float32Array(rdW*rdH);
+  rdU2 = new Float32Array(rdW*rdH);
+  rdV2 = new Float32Array(rdW*rdH);
+
+  // Initialize: U=1 everywhere, V=0 except seed regions
+  for(var i=0; i<rdW*rdH; i++){
+    rdU[i] = 1.0;
+    rdV[i] = 0.0;
+  }
+
+  // Seed: several random spots
+  for(var s=0; s<8; s++){
+    var sx = Math.floor(rdW*0.2 + Math.random()*rdW*0.6);
+    var sy = Math.floor(rdH*0.2 + Math.random()*rdH*0.6);
+    var sr = 3 + Math.floor(Math.random()*3);
+    for(var dy=-sr; dy<=sr; dy++){
+      for(var dx=-sr; dx<=sr; dx++){
+        if(dx*dx+dy*dy <= sr*sr){
+          var ix = (sx+dx+rdW)%rdW;
+          var iy = (sy+dy+rdH)%rdH;
+          rdU[iy*rdW+ix] = 0.5 + Math.random()*0.1;
+          rdV[iy*rdW+ix] = 0.25 + Math.random()*0.1;
+        }
+      }
+    }
+  }
+
+  rdK = 0.062;
+  rdF = 0.035;
+
+  // Controls: K (coupling) and T (noise) sliders
+  ctrlEl.innerHTML =
+    '<div class="slider-wrap">' +
+    '<span class="slider-label">K (coupling)</span>' +
+    '<input type="range" id="rdKSlider" min="0.03" max="0.07" step="0.001" value="0.062">' +
+    '<span class="slider-val" id="rdKVal">0.062</span>' +
+    '</div>' +
+    '<div class="slider-wrap">' +
+    '<span class="slider-label">T (noise)</span>' +
+    '<input type="range" id="rdFSlider" min="0.01" max="0.08" step="0.001" value="0.035">' +
+    '<span class="slider-val" id="rdFVal">0.035</span>' +
+    '</div>' +
+    '<div class="slider-wrap">' +
+    '<button class="tap-btn" id="rdSweep" style="font-size:0.55em;padding:5px 12px;">sweep</button>' +
+    '</div>';
+
+  document.getElementById('rdKSlider').addEventListener('input', function(){
+    rdK = parseFloat(this.value);
+    document.getElementById('rdKVal').textContent = rdK.toFixed(3);
+  });
+  document.getElementById('rdFSlider').addEventListener('input', function(){
+    rdF = parseFloat(this.value);
+    document.getElementById('rdFVal').textContent = rdF.toFixed(3);
+  });
+  document.getElementById('rdSweep').addEventListener('click', function(){
+    rdSweepActive = !rdSweepActive;
+    this.textContent = rdSweepActive ? 'stop sweep' : 'sweep';
+  });
+
+  rdInited = true;
+}
+
+function stepTuring(){
+  var w = rdW, h = rdH;
+  var dt = 1.0;
+  var Du = rdDu, Dv = rdDv;
+  var f = rdF, k = rdK;
+
+  for(var y=0; y<h; y++){
+    var ym = (y-1+h)%h, yp = (y+1)%h;
+    for(var x=0; x<w; x++){
+      var xm = (x-1+w)%w, xp = (x+1)%w;
+      var idx = y*w+x;
+      var u = rdU[idx], v = rdV[idx];
+
+      // 5-point Laplacian
+      var lapU = rdU[ym*w+x] + rdU[yp*w+x] + rdU[y*w+xm] + rdU[y*w+xp] - 4*u;
+      var lapV = rdV[ym*w+x] + rdV[yp*w+x] + rdV[y*w+xm] + rdV[y*w+xp] - 4*v;
+
+      var uvv = u*v*v;
+      rdU2[idx] = u + dt*(Du*lapU - uvv + f*(1-u));
+      rdV2[idx] = v + dt*(Dv*lapV + uvv - (f+k)*v);
+    }
+  }
+
+  // Swap buffers
+  var tmp = rdU; rdU = rdU2; rdU2 = tmp;
+  tmp = rdV; rdV = rdV2; rdV2 = tmp;
+}
+
+function drawTuring(){
+  // Touch/click to seed
+  if(mouseDown && rdInited){
+    var gx = Math.floor(mouseX/rdScale);
+    var gy = Math.floor(mouseY/rdScale);
+    var sr = 4;
+    for(var dy=-sr; dy<=sr; dy++){
+      for(var dx=-sr; dx<=sr; dx++){
+        if(dx*dx+dy*dy <= sr*sr){
+          var ix = (gx+dx+rdW)%rdW;
+          var iy = (gy+dy+rdH)%rdH;
+          if(ix >= 0 && ix < rdW && iy >= 0 && iy < rdH){
+            rdU[iy*rdW+ix] = 0.5 + Math.random()*0.1;
+            rdV[iy*rdW+ix] = 0.25 + Math.random()*0.1;
+          }
+        }
+      }
+    }
+  }
+
+  // Sweep mode: slowly change K across screen
+  if(rdSweepActive){
+    rdSweepPhase += 0.0005;
+    var sweep = Math.sin(rdSweepPhase)*0.015;
+    rdK = 0.062 + sweep;
+    rdF = 0.035 + sweep*0.3;
+    var kSlider = document.getElementById('rdKSlider');
+    var fSlider = document.getElementById('rdFSlider');
+    if(kSlider){
+      kSlider.value = rdK;
+      document.getElementById('rdKVal').textContent = rdK.toFixed(3);
+    }
+    if(fSlider){
+      fSlider.value = rdF;
+      document.getElementById('rdFVal').textContent = rdF.toFixed(3);
+    }
+  }
+
+  // Multiple sim steps per frame
+  for(var s=0; s<6; s++) stepTuring();
+
+  // Render to offscreen canvas at sim resolution, then scale up
+  if(!rdTmpCv || rdTmpCv.width !== rdW || rdTmpCv.height !== rdH){
+    rdTmpCv = document.createElement('canvas');
+    rdTmpCv.width = rdW; rdTmpCv.height = rdH;
+    rdTmpCx = rdTmpCv.getContext('2d');
+  }
+  var imgData = rdTmpCx.createImageData(rdW, rdH);
+  var data = imgData.data;
+
+  for(var gy=0; gy<rdH; gy++){
+    for(var gx=0; gx<rdW; gx++){
+      var v = rdV[gy*rdW+gx];
+      var u = rdU[gy*rdW+gx];
+      var idx = (gy*rdW+gx)*4;
+
+      // Color map: V concentration determines pattern
+      var vn = Math.max(0, Math.min(1, v*4));
+      var un = Math.max(0, Math.min(1, 1-u));
+
+      var r, g, b;
+      if(vn < 0.1){
+        r = Math.round(10 + un*15);
+        g = Math.round(7 + un*8);
+        b = Math.round(6 + un*5);
+      } else if(vn < 0.4){
+        var t = (vn-0.1)/0.3;
+        r = Math.round(10 + t*150);
+        g = Math.round(7 + t*65);
+        b = Math.round(6 + t*20);
+      } else if(vn < 0.7){
+        var t = (vn-0.4)/0.3;
+        r = Math.round(160 + t*60);
+        g = Math.round(72 + t*80);
+        b = Math.round(26 + t*35);
+      } else {
+        var t = (vn-0.7)/0.3;
+        r = Math.round(220 + t*35);
+        g = Math.round(152 + t*38);
+        b = Math.round(61 + t*39);
+      }
+
+      data[idx] = r;
+      data[idx+1] = g;
+      data[idx+2] = b;
+      data[idx+3] = 255;
+    }
+  }
+
+  rdTmpCx.putImageData(imgData, 0, 0);
+  // Disable smoothing for crisp pixel look
+  cx.imageSmoothingEnabled = false;
+  cx.drawImage(rdTmpCv, 0, 0, W, H);
+  cx.imageSmoothingEnabled = true;
+
+  // ═══ Labels ═══
+  // Regime indicator
+  var regime = 'forming...';
+  if(rdK < 0.05) regime = 'stripes (high K)';
+  else if(rdK < 0.055) regime = 'maze';
+  else if(rdK < 0.065) regime = 'spots + stripes';
+  else regime = 'spots (low K)';
+
+  statEl.innerHTML =
+    'K: ' + rdK.toFixed(3) + '<br>' +
+    'T: ' + rdF.toFixed(3) + '<br>' +
+    'regime: ' + regime + '<br>' +
+    '<span style="color:#8b4a2e">Du=' + rdDu + ' Dv=' + rdDv + '</span>';
+}
+
+
+// ═══════════════════════════════════════════════════════════════
 // MAIN LOOP
 // ═══════════════════════════════════════════════════════════════
 function loop(){
@@ -1342,6 +2065,9 @@ function loop(){
   else if(activeViz === 'klag') drawKLag();
   else if(activeViz === 'machine') drawMachine();
   else if(activeViz === 'tetra') drawTetra();
+  else if(activeViz === 'bifurcation') drawBifurcation();
+  else if(activeViz === 'pendulum') drawPendulum();
+  else if(activeViz === 'turing') drawTuring();
 
   animId = requestAnimationFrame(loop);
 }
