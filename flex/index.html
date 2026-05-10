@@ -96,6 +96,22 @@ input[type=range]::-moz-range-thumb{width:12px;height:12px;border-radius:50%;
 .tooltip .tt-label{color:#b8753a;font-weight:400;}
 .tooltip .tt-sub{color:#c4a088;font-size:0.9em;opacity:0.6;display:block;margin-top:2px;}
 
+/* ═══ CREATION VIZ OVERLAY ═══ */
+.creation-bar{position:absolute;bottom:60px;left:50%;transform:translateX(-50%);
+  width:60%;max-width:500px;height:3px;background:rgba(184,117,58,0.08);
+  border-radius:2px;z-index:6;pointer-events:all;cursor:pointer;display:none;}
+.creation-fill{height:100%;background:rgba(184,117,58,0.4);border-radius:2px;
+  transition:width 0.3s ease;}
+.creation-stage-label{position:absolute;top:50%;left:50%;
+  transform:translate(-50%,-50%);z-index:6;pointer-events:none;
+  font-family:Georgia,serif;font-size:1.1em;color:rgba(184,117,58,0);
+  text-align:center;letter-spacing:0.08em;
+  text-shadow:0 0 30px rgba(10,7,6,0.95),0 0 60px rgba(10,7,6,0.8);
+  transition:color 0.8s ease;display:none;line-height:1.6;}
+.creation-stage-label .stage-sub{display:block;font-size:0.55em;
+  color:rgba(196,160,136,0);letter-spacing:0.04em;
+  transition:color 0.8s ease 0.2s;}
+
 /* Film grain */
 body::after{content:"";position:fixed;top:0;left:0;width:100%;height:100%;
   pointer-events:none;z-index:9998;opacity:0.015;mix-blend-mode:overlay;
@@ -129,6 +145,7 @@ body::after{content:"";position:fixed;top:0;left:0;width:100%;height:100%;
     <button class="tab" data-viz="bifurcation">Bifurcation</button>
     <button class="tab" data-viz="pendulum">Double Pendulum</button>
     <button class="tab" data-viz="turing">Turing Patterns</button>
+    <button class="tab" data-viz="creation">Creation</button>
   </div>
 </div>
 
@@ -156,13 +173,17 @@ body::after{content:"";position:fixed;top:0;left:0;width:100%;height:100%;
 
   <!-- Tooltip for Star Tetrahedron -->
   <div class="tooltip" id="tooltip"></div>
+
+  <!-- Creation viz overlays -->
+  <div class="creation-bar" id="creationBar"><div class="creation-fill" id="creationFill"></div></div>
+  <div class="creation-stage-label" id="creationLabel"><span id="creationName"></span><span class="stage-sub" id="creationSub"></span></div>
 </div>
 
 <script>
 // ═══════════════════════════════════════════════════════════════
 // FLEX — deep mathematical visualizations
 //
-// Eight systems. One canvas. All warm. All alive.
+// Nine systems. One canvas. All warm. All alive.
 // No spinning 3D. Parallax from z-depth. Drag to tilt.
 // ═══════════════════════════════════════════════════════════════
 (function(){
@@ -274,6 +295,12 @@ function switchViz(name){
   tooltip.classList.remove('show');
   tooltip.style.opacity = '0';
 
+  // Hide creation overlays when switching away
+  var crBarHide = document.getElementById('creationBar');
+  var crLabelHide = document.getElementById('creationLabel');
+  if(crBarHide) crBarHide.style.display = 'none';
+  if(crLabelHide) crLabelHide.style.display = 'none';
+
   if(name === 'lorenz') initLorenz();
   else if(name === 'kuramoto') initKuramoto();
   else if(name === 'klag') initKLag();
@@ -282,6 +309,7 @@ function switchViz(name){
   else if(name === 'bifurcation') initBifurcation();
   else if(name === 'pendulum') initPendulum();
   else if(name === 'turing') initTuring();
+  else if(name === 'creation') initCreation();
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -2058,6 +2086,943 @@ function drawTuring(){
 
 
 // ═══════════════════════════════════════════════════════════════
+// 9. CREATION — the full sequence, 0+0=1 to black holes
+// ═══════════════════════════════════════════════════════════════
+var crTime = 0;        // global clock
+var crStage = 0;       // float: stage + fractional progress
+var crPlaying = true;
+var crSpeed = 1.0;
+var crDragging = false;
+var crParticles = [];  // persistent particles across stages
+var crLabelAlpha = 0;
+var crLabelTarget = 0;
+var crLastStageIdx = -1;
+var crBarEl, crFillEl, crLabelEl, crNameEl, crSubEl;
+
+var CR_STAGES = [
+  {name:'The Void',          sub:'nothing. vacuum fluctuations.',            dur:3.5},
+  {name:'0 + 0 = 1',         sub:'the first coupling.',                      dur:4.5},
+  {name:'Quarks',             sub:'strong coupling. confinement.',            dur:4.0},
+  {name:'Nucleons',           sub:'nuclear coupling. binding energy.',        dur:3.5},
+  {name:'Atoms',              sub:'electromagnetic coupling. probability.',   dur:3.5},
+  {name:'Molecules',          sub:'chemical coupling. shared electrons.',     dur:3.5},
+  {name:'Cells',              sub:'biological coupling. the first self.',     dur:3.5},
+  {name:'Organisms',          sub:'neural coupling. information.',            dur:3.5},
+  {name:'Planet',             sub:'gravitational coupling. aggregation.',     dur:3.5},
+  {name:'Solar System',       sub:'orbital coupling. phase-lock.',            dur:3.5},
+  {name:'Galaxy',             sub:'galactic coupling. the spiral.',           dur:4.0},
+  {name:'Black Hole',         sub:'maximum coupling. K approaches infinity.', dur:4.0},
+  {name:'The Return',         sub:'everything coupled. everything breathing.',dur:5.0}
+];
+
+var crTotalDur = 0;
+for(var i=0;i<CR_STAGES.length;i++) crTotalDur += CR_STAGES[i].dur;
+
+function initCreation(){
+  titleEl.textContent = 'Creation';
+  descEl.textContent = 'Every coupling step. One continuous journey.';
+  crTime = 0;
+  crStage = 0;
+  crPlaying = true;
+  crParticles = [];
+  crLabelAlpha = 0;
+  crLabelTarget = 0;
+  crLastStageIdx = -1;
+
+  crBarEl = document.getElementById('creationBar');
+  crFillEl = document.getElementById('creationFill');
+  crLabelEl = document.getElementById('creationLabel');
+  crNameEl = document.getElementById('creationName');
+  crSubEl = document.getElementById('creationSub');
+
+  crBarEl.style.display = 'block';
+  crLabelEl.style.display = 'block';
+
+  // Click on bar to scrub
+  crBarEl.onmousedown = function(e){
+    crDragging = true;
+    crPlaying = false;
+    crScrub(e);
+  };
+  crBarEl.onmousemove = function(e){ if(crDragging) crScrub(e); };
+  window.addEventListener('mouseup', function(){ crDragging = false; });
+  crBarEl.ontouchstart = function(e){
+    crDragging = true; crPlaying = false;
+    crScrub(e.touches[0]);
+    e.preventDefault();
+  };
+  crBarEl.ontouchmove = function(e){
+    if(crDragging) crScrub(e.touches[0]);
+    e.preventDefault();
+  };
+  crBarEl.ontouchend = function(){ crDragging = false; };
+
+  ctrlEl.innerHTML =
+    '<div class="slider-wrap">' +
+    '<button class="tap-btn" id="crPlayBtn" style="font-size:0.55em;padding:5px 12px;">pause</button>' +
+    '</div>' +
+    '<div class="slider-wrap">' +
+    '<span class="slider-label">speed</span>' +
+    '<input type="range" id="crSpeedSlider" min="0.2" max="3" step="0.1" value="1">' +
+    '<span class="slider-val" id="crSpeedVal">1.0</span>' +
+    '</div>';
+
+  document.getElementById('crPlayBtn').addEventListener('click', function(){
+    crPlaying = !crPlaying;
+    this.textContent = crPlaying ? 'pause' : 'play';
+  });
+  document.getElementById('crSpeedSlider').addEventListener('input', function(){
+    crSpeed = parseFloat(this.value);
+    document.getElementById('crSpeedVal').textContent = crSpeed.toFixed(1);
+  });
+}
+
+function crScrub(e){
+  var rect = crBarEl.getBoundingClientRect();
+  var frac = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+  crTime = frac * crTotalDur;
+}
+
+function crGetStageAt(t){
+  var acc = 0;
+  for(var i=0; i<CR_STAGES.length; i++){
+    if(t < acc + CR_STAGES[i].dur) return {idx:i, local:(t-acc)/CR_STAGES[i].dur};
+    acc += CR_STAGES[i].dur;
+  }
+  return {idx:CR_STAGES.length-1, local:1};
+}
+
+// ═══ PALETTE helpers ═══
+function crLerp(a,b,t){ return a+(b-a)*t; }
+function crRgba(r,g,b,a){ return 'rgba('+Math.round(r)+','+Math.round(g)+','+Math.round(b)+','+a.toFixed(4)+')'; }
+
+// Warm bg color by stage (black → slightly warm)
+function crBgColor(stageIdx){
+  var t = stageIdx / (CR_STAGES.length-1);
+  var r = Math.round(10 + t*6);
+  var g = Math.round(7 + t*4);
+  var b = Math.round(6 + t*2);
+  return [r,g,b];
+}
+
+// ═══ STAGE DRAW FUNCTIONS ═══
+
+function crDrawVoid(t, cx2, W2, H2){
+  // Vacuum fluctuations — faint noise dots
+  var count = Math.floor(20 + t*60);
+  for(var i=0; i<count; i++){
+    var seed = i*137.508 + crTime*0.3;
+    var px = (Math.sin(seed*1.1+i)*0.5+0.5)*W2;
+    var py = (Math.cos(seed*0.7+i*1.3)*0.5+0.5)*H2;
+    var flicker = Math.sin(seed*3.7)*0.5+0.5;
+    var alpha = flicker * 0.04 * t;
+    cx2.fillStyle = crRgba(140,100,70, alpha);
+    cx2.fillRect(px,py,1,1);
+  }
+}
+
+function crDrawFirstCoupling(t, cx2, W2, H2){
+  var cx0 = W2*0.5, cy0 = H2*0.5;
+
+  // Two points of nothing approaching each other
+  var sep = (1-t)*(1-t) * Math.min(W2,H2)*0.25;
+  var p1x = cx0 - sep, p2x = cx0 + sep;
+
+  // Vacuum noise still visible
+  crDrawVoid(0.3, cx2, W2, H2);
+
+  // The two points
+  var pointAlpha = 0.3 + t*0.7;
+  for(var side=-1; side<=1; side+=2){
+    var px = cx0 + side*sep;
+    var grad = cx2.createRadialGradient(px,cy0,0,px,cy0,6+t*8);
+    grad.addColorStop(0, crRgba(200,150,80, pointAlpha*0.8));
+    grad.addColorStop(0.5, crRgba(180,120,50, pointAlpha*0.3));
+    grad.addColorStop(1, crRgba(180,120,50, 0));
+    cx2.fillStyle = grad;
+    cx2.beginPath(); cx2.arc(px,cy0,6+t*8,0,PI2); cx2.fill();
+  }
+
+  // The line between them — coupling
+  if(t > 0.2){
+    var lineT = (t-0.2)/0.8;
+    cx2.strokeStyle = crRgba(220,175,80, lineT*0.5);
+    cx2.lineWidth = 0.5 + lineT*1.5;
+    cx2.beginPath();
+    cx2.moveTo(p1x, cy0);
+    cx2.lineTo(p2x, cy0);
+    cx2.stroke();
+  }
+
+  // The meeting point — warm dot at center when close enough
+  if(t > 0.6){
+    var dotT = (t-0.6)/0.4;
+    var dotR = 2 + dotT*12;
+    var grad2 = cx2.createRadialGradient(cx0,cy0,0,cx0,cy0,dotR);
+    grad2.addColorStop(0, crRgba(255,220,140, dotT*0.9));
+    grad2.addColorStop(0.3, crRgba(230,180,90, dotT*0.5));
+    grad2.addColorStop(0.7, crRgba(200,140,60, dotT*0.15));
+    grad2.addColorStop(1, crRgba(180,120,50, 0));
+    cx2.fillStyle = grad2;
+    cx2.beginPath(); cx2.arc(cx0,cy0,dotR,0,PI2); cx2.fill();
+  }
+}
+
+function crDrawQuarks(t, cx2, W2, H2){
+  var cx0 = W2*0.5, cy0 = H2*0.5;
+  var triR = 30 + t*20;
+  var colors = [[200,60,60],[60,180,60],[60,80,220]]; // RGB color charge
+  var names = ['r','g','b'];
+
+  // Subtle rotation
+  var rot = crTime*0.4;
+
+  // Draw gluon field — threads between quarks that get thicker when pulled
+  for(var i=0; i<3; i++){
+    var a1 = rot + i*PI2/3;
+    var a2 = rot + ((i+1)%3)*PI2/3;
+    var x1 = cx0 + Math.cos(a1)*triR;
+    var y1 = cy0 + Math.sin(a1)*triR;
+    var x2 = cx0 + Math.cos(a2)*triR;
+    var y2 = cy0 + Math.sin(a2)*triR;
+
+    // Gluon as wavy line
+    var segments = 20;
+    cx2.beginPath();
+    cx2.moveTo(x1, y1);
+    for(var s=1; s<=segments; s++){
+      var st = s/segments;
+      var lx = x1 + (x2-x1)*st;
+      var ly = y1 + (y2-y1)*st;
+      var nx = -(y2-y1), ny = (x2-x1);
+      var nl = Math.sqrt(nx*nx+ny*ny)||1;
+      nx /= nl; ny /= nl;
+      var wave = Math.sin(st*8 + crTime*3)*3*(1-Math.abs(st-0.5)*2);
+      cx2.lineTo(lx + nx*wave, ly + ny*wave);
+    }
+    cx2.strokeStyle = crRgba(220,175,80, 0.25 + t*0.15);
+    cx2.lineWidth = 1 + t*1;
+    cx2.stroke();
+  }
+
+  // Draw quarks — three colored dots in a triangle
+  for(var i=0; i<3; i++){
+    var a = rot + i*PI2/3;
+    var qx = cx0 + Math.cos(a)*triR;
+    var qy = cy0 + Math.sin(a)*triR;
+
+    // Color cycling — charge shifts between quarks
+    var colorIdx = (i + Math.floor(crTime*2)) % 3;
+    var col = colors[colorIdx];
+
+    var grad = cx2.createRadialGradient(qx,qy,0,qx,qy,8);
+    grad.addColorStop(0, crRgba(col[0],col[1],col[2], 0.9));
+    grad.addColorStop(0.5, crRgba(col[0]*0.7,col[1]*0.7,col[2]*0.7, 0.4));
+    grad.addColorStop(1, crRgba(col[0]*0.5,col[1]*0.5,col[2]*0.5, 0));
+    cx2.fillStyle = grad;
+    cx2.beginPath(); cx2.arc(qx,qy,8,0,PI2); cx2.fill();
+
+    cx2.fillStyle = crRgba(col[0],col[1],col[2], 0.85);
+    cx2.beginPath(); cx2.arc(qx,qy,3,0,PI2); cx2.fill();
+  }
+
+  // Confinement label at bottom
+  if(t > 0.4){
+    var confT = (t-0.4)/0.6;
+    cx2.font = '9px "Courier New",monospace';
+    cx2.fillStyle = crRgba(184,117,58, confT*0.35);
+    cx2.textAlign = 'center';
+    cx2.fillText('confinement: pull harder, force grows stronger', cx0, cy0 + triR + 35);
+    cx2.textAlign = 'left';
+  }
+}
+
+function crDrawNucleons(t, cx2, W2, H2){
+  var cx0 = W2*0.5, cy0 = H2*0.5;
+  var sep = 40 - t*15; // coming together
+  var triR = 18;
+  var rot = crTime * 0.3;
+
+  // Two triangles — proton (red-tinted) and neutron (blue-tinted)
+  var nucleons = [
+    {ox:-sep*0.5, oy:0, tint:[210,140,70]},
+    {ox:sep*0.5,  oy:0, tint:[130,150,190]}
+  ];
+
+  for(var n=0; n<2; n++){
+    var nuc = nucleons[n];
+    var ncx = cx0+nuc.ox, ncy = cy0+nuc.oy;
+
+    // Triangle of quarks
+    for(var i=0; i<3; i++){
+      var a1 = rot + i*PI2/3 + n*0.5;
+      var a2 = rot + ((i+1)%3)*PI2/3 + n*0.5;
+      var x1 = ncx + Math.cos(a1)*triR;
+      var y1 = ncy + Math.sin(a1)*triR;
+      var x2 = ncx + Math.cos(a2)*triR;
+      var y2 = ncy + Math.sin(a2)*triR;
+
+      cx2.strokeStyle = crRgba(nuc.tint[0],nuc.tint[1],nuc.tint[2], 0.2);
+      cx2.lineWidth = 1;
+      cx2.beginPath(); cx2.moveTo(x1,y1); cx2.lineTo(x2,y2); cx2.stroke();
+    }
+
+    for(var i=0; i<3; i++){
+      var a = rot + i*PI2/3 + n*0.5;
+      var qx = ncx + Math.cos(a)*triR;
+      var qy = ncy + Math.sin(a)*triR;
+      cx2.fillStyle = crRgba(nuc.tint[0],nuc.tint[1],nuc.tint[2], 0.7);
+      cx2.beginPath(); cx2.arc(qx,qy,3,0,PI2); cx2.fill();
+    }
+  }
+
+  // Binding energy glow between them
+  if(t > 0.3){
+    var beT = (t-0.3)/0.7;
+    var glowR = 20 + beT*30;
+    var grad = cx2.createRadialGradient(cx0,cy0,0,cx0,cy0,glowR);
+    grad.addColorStop(0, crRgba(230,190,100, beT*0.2));
+    grad.addColorStop(0.5, crRgba(200,150,70, beT*0.08));
+    grad.addColorStop(1, crRgba(180,120,50, 0));
+    cx2.fillStyle = grad;
+    cx2.beginPath(); cx2.arc(cx0,cy0,glowR,0,PI2); cx2.fill();
+  }
+}
+
+function crDrawAtoms(t, cx2, W2, H2){
+  var cx0 = W2*0.5, cy0 = H2*0.5;
+
+  // Nucleus — small bright dot
+  var nucR = 4;
+  var grad = cx2.createRadialGradient(cx0,cy0,0,cx0,cy0,nucR*3);
+  grad.addColorStop(0, crRgba(255,220,140, 0.9));
+  grad.addColorStop(0.3, crRgba(230,180,100, 0.5));
+  grad.addColorStop(1, crRgba(200,150,70, 0));
+  cx2.fillStyle = grad;
+  cx2.beginPath(); cx2.arc(cx0,cy0,nucR*3,0,PI2); cx2.fill();
+
+  cx2.fillStyle = crRgba(255,230,160, 0.9);
+  cx2.beginPath(); cx2.arc(cx0,cy0,nucR,0,PI2); cx2.fill();
+
+  // Electron probability clouds — NOT Bohr circles, fuzzy halos
+  var shells = [50, 90, 140];
+  for(var s=0; s<Math.min(3, Math.floor(t*3)+1); s++){
+    var shellR = shells[s] * (0.4 + Math.min(W2,H2)/800);
+    var shellT = Math.min(1, (t*3 - s)*2);
+
+    // Fuzzy probability halo
+    var cloudGrad = cx2.createRadialGradient(cx0,cy0,shellR*0.7,cx0,cy0,shellR*1.3);
+    cloudGrad.addColorStop(0, crRgba(100,140,200, 0));
+    cloudGrad.addColorStop(0.3, crRgba(130,160,210, shellT*0.06));
+    cloudGrad.addColorStop(0.5, crRgba(160,180,220, shellT*0.1));
+    cloudGrad.addColorStop(0.7, crRgba(130,160,210, shellT*0.06));
+    cloudGrad.addColorStop(1, crRgba(100,140,200, 0));
+    cx2.fillStyle = cloudGrad;
+    cx2.beginPath(); cx2.arc(cx0,cy0,shellR*1.3,0,PI2); cx2.fill();
+
+    // Probability dots orbiting in the cloud
+    var nDots = 8 + s*6;
+    for(var d=0; d<nDots; d++){
+      var angle = d*PI2/nDots + crTime*(1.5-s*0.3);
+      var wobble = Math.sin(angle*3+crTime*2+d)*shellR*0.15;
+      var dr = shellR + wobble;
+      var dx = cx0 + Math.cos(angle)*dr;
+      var dy = cy0 + Math.sin(angle)*dr;
+      var dotAlpha = (Math.sin(angle*2+crTime+d)*0.3+0.5)*shellT;
+      cx2.fillStyle = crRgba(160,190,230, dotAlpha*0.5);
+      cx2.beginPath(); cx2.arc(dx,dy,1.5,0,PI2); cx2.fill();
+    }
+  }
+}
+
+function crDrawMolecules(t, cx2, W2, H2){
+  var cx0 = W2*0.5, cy0 = H2*0.5;
+
+  // Water molecule — the angle IS the coupling geometry (104.5 degrees)
+  var bondLen = 50 + Math.min(W2,H2)*0.06;
+  var bondAngle = 104.5 * Math.PI / 180;
+  var halfAngle = bondAngle/2;
+
+  // Oxygen center
+  var ox = cx0, oy = cy0;
+
+  // Hydrogen positions
+  var h1x = ox + Math.cos(-halfAngle + Math.PI*0.5)*bondLen;
+  var h1y = oy + Math.sin(-halfAngle + Math.PI*0.5)*bondLen;
+  var h2x = ox + Math.cos(halfAngle + Math.PI*0.5)*bondLen;
+  var h2y = oy + Math.sin(halfAngle + Math.PI*0.5)*bondLen;
+
+  // Electron cloud halos
+  var atoms = [[ox,oy,22,[200,60,60]],[h1x,h1y,14,[100,150,220]],[h2x,h2y,14,[100,150,220]]];
+
+  // Shared electron regions (bonds) — glowing overlap
+  for(var b=0; b<2; b++){
+    var hx = b===0 ? h1x : h2x;
+    var hy = b===0 ? h1y : h2y;
+    var midx = (ox+hx)/2, midy = (oy+hy)/2;
+    var sharedR = 16;
+    var sg = cx2.createRadialGradient(midx,midy,0,midx,midy,sharedR);
+    var pulse = Math.sin(crTime*2+b)*0.15+0.85;
+    sg.addColorStop(0, crRgba(230,200,120, 0.35*pulse*t));
+    sg.addColorStop(0.5, crRgba(210,170,90, 0.15*pulse*t));
+    sg.addColorStop(1, crRgba(200,150,70, 0));
+    cx2.fillStyle = sg;
+    cx2.beginPath(); cx2.arc(midx,midy,sharedR,0,PI2); cx2.fill();
+
+    // Bond line
+    cx2.strokeStyle = crRgba(220,175,80, 0.3*t);
+    cx2.lineWidth = 1.5;
+    cx2.beginPath(); cx2.moveTo(ox,oy); cx2.lineTo(hx,hy); cx2.stroke();
+  }
+
+  // Draw atom halos
+  for(var a=0; a<atoms.length; a++){
+    var at = atoms[a];
+    var haloR = at[2];
+    var col = at[3];
+    var hg = cx2.createRadialGradient(at[0],at[1],0,at[0],at[1],haloR);
+    hg.addColorStop(0, crRgba(col[0],col[1],col[2], 0.5*t));
+    hg.addColorStop(0.5, crRgba(col[0],col[1],col[2], 0.15*t));
+    hg.addColorStop(1, crRgba(col[0],col[1],col[2], 0));
+    cx2.fillStyle = hg;
+    cx2.beginPath(); cx2.arc(at[0],at[1],haloR,0,PI2); cx2.fill();
+
+    cx2.fillStyle = crRgba(col[0],col[1],col[2], 0.8*t);
+    cx2.beginPath(); cx2.arc(at[0],at[1],3,0,PI2); cx2.fill();
+  }
+
+  // Angle label
+  if(t > 0.5){
+    cx2.font = '9px "Courier New",monospace';
+    cx2.fillStyle = crRgba(184,117,58, (t-0.5)*0.5);
+    cx2.textAlign = 'center';
+    cx2.fillText('104.5\u00B0', cx0, cy0 - 30);
+    cx2.textAlign = 'left';
+  }
+}
+
+function crDrawCells(t, cx2, W2, H2){
+  var cx0 = W2*0.5, cy0 = H2*0.5;
+  var memR = 60 + Math.min(W2,H2)*0.06;
+
+  // Membrane — the coupling creates a boundary
+  var memPulse = Math.sin(crTime*1.5)*0.03+1;
+  cx2.strokeStyle = crRgba(200,160,100, 0.4*t);
+  cx2.lineWidth = 2;
+  cx2.beginPath();
+  // Wobbly circle for membrane
+  for(var a=0; a<=64; a++){
+    var angle = a*PI2/64;
+    var wobble = Math.sin(angle*5+crTime*2)*2 + Math.sin(angle*3-crTime)*1.5;
+    var r = memR*memPulse + wobble;
+    var px = cx0 + Math.cos(angle)*r;
+    var py = cy0 + Math.sin(angle)*r;
+    if(a===0) cx2.moveTo(px,py);
+    else cx2.lineTo(px,py);
+  }
+  cx2.closePath();
+  cx2.stroke();
+
+  // Interior glow — life
+  var innerGrad = cx2.createRadialGradient(cx0,cy0,0,cx0,cy0,memR);
+  innerGrad.addColorStop(0, crRgba(210,170,90, 0.08*t));
+  innerGrad.addColorStop(0.7, crRgba(180,130,60, 0.03*t));
+  innerGrad.addColorStop(1, crRgba(160,110,50, 0));
+  cx2.fillStyle = innerGrad;
+  cx2.beginPath(); cx2.arc(cx0,cy0,memR,0,PI2); cx2.fill();
+
+  // Ions flowing through membrane
+  var nIons = 12;
+  for(var i=0; i<nIons; i++){
+    var ionAngle = i*PI2/nIons + crTime*0.5;
+    var ionPhase = Math.sin(crTime*2+i*1.7);
+    var ionR = memR + ionPhase*15; // crossing membrane
+    var ix = cx0 + Math.cos(ionAngle)*ionR;
+    var iy = cy0 + Math.sin(ionAngle)*ionR;
+    var inside = ionR < memR;
+
+    var ionCol = inside ? [230,190,100] : [120,150,190];
+    cx2.fillStyle = crRgba(ionCol[0],ionCol[1],ionCol[2], 0.6*t);
+    cx2.beginPath(); cx2.arc(ix,iy,2,0,PI2); cx2.fill();
+  }
+
+  // Nucleus inside
+  var nucGrad = cx2.createRadialGradient(cx0-5,cy0-5,0,cx0-5,cy0-5,memR*0.25);
+  nucGrad.addColorStop(0, crRgba(200,150,80, 0.25*t));
+  nucGrad.addColorStop(1, crRgba(180,120,60, 0));
+  cx2.fillStyle = nucGrad;
+  cx2.beginPath(); cx2.arc(cx0-5,cy0-5,memR*0.25,0,PI2); cx2.fill();
+}
+
+function crDrawOrganisms(t, cx2, W2, H2){
+  var cx0 = W2*0.5, cy0 = H2*0.5;
+
+  // Neural network — nodes and edges
+  var nNodes = 24;
+  var nodes = [];
+  var spread = Math.min(W2,H2)*0.25;
+
+  for(var i=0; i<nNodes; i++){
+    var angle = i*2.39996322; // golden angle
+    var r = 10 + Math.sqrt(i/nNodes)*spread;
+    nodes.push({
+      x: cx0 + Math.cos(angle)*r,
+      y: cy0 + Math.sin(angle)*r,
+      phase: Math.random()*PI2,
+      freq: 0.5 + Math.random()*2
+    });
+  }
+
+  // Edges — connect nearby nodes
+  for(var i=0; i<nNodes; i++){
+    for(var j=i+1; j<nNodes; j++){
+      var dx = nodes[j].x-nodes[i].x, dy = nodes[j].y-nodes[i].y;
+      var dist = Math.sqrt(dx*dx+dy*dy);
+      if(dist < spread*0.6){
+        // Signal propagation
+        var signalPhase = Math.sin(crTime*nodes[i].freq + nodes[i].phase);
+        var signalAlpha = (signalPhase*0.3+0.5)*0.15*t / (dist/spread+0.5);
+
+        cx2.strokeStyle = crRgba(220,175,80, signalAlpha);
+        cx2.lineWidth = 0.5;
+        cx2.beginPath(); cx2.moveTo(nodes[i].x,nodes[i].y); cx2.lineTo(nodes[j].x,nodes[j].y);
+        cx2.stroke();
+
+        // Signal pulse traveling along edge
+        if(signalPhase > 0.7){
+          var pulseT = (signalPhase-0.7)/0.3;
+          var px = nodes[i].x + dx*pulseT;
+          var py = nodes[i].y + dy*pulseT;
+          cx2.fillStyle = crRgba(255,220,140, 0.4*t);
+          cx2.beginPath(); cx2.arc(px,py,1.5,0,PI2); cx2.fill();
+        }
+      }
+    }
+  }
+
+  // Nodes
+  for(var i=0; i<nNodes; i++){
+    var nd = nodes[i];
+    var fire = Math.sin(crTime*nd.freq+nd.phase);
+    var brightness = fire*0.3+0.7;
+    var sz = 2 + brightness*2;
+
+    var col = fire > 0.5 ? [255,220,140] : [200,150,80];
+    cx2.fillStyle = crRgba(col[0],col[1],col[2], brightness*0.7*t);
+    cx2.beginPath(); cx2.arc(nd.x,nd.y,sz,0,PI2); cx2.fill();
+
+    if(fire > 0.5){
+      var glow = cx2.createRadialGradient(nd.x,nd.y,0,nd.x,nd.y,sz*4);
+      glow.addColorStop(0, crRgba(255,220,140, 0.2*t));
+      glow.addColorStop(1, crRgba(230,180,90, 0));
+      cx2.fillStyle = glow;
+      cx2.beginPath(); cx2.arc(nd.x,nd.y,sz*4,0,PI2); cx2.fill();
+    }
+  }
+}
+
+function crDrawPlanet(t, cx2, W2, H2){
+  var cx0 = W2*0.5, cy0 = H2*0.5;
+  var planetR = 40 + Math.min(W2,H2)*0.08;
+
+  // Particles aggregating into sphere
+  var nParts = 60;
+  for(var i=0; i<nParts; i++){
+    var angle = i*2.39996322 + crTime*0.1;
+    var startR = planetR*3;
+    var curR = startR - (startR-planetR*0.8)*Math.min(1, t*1.5 + Math.sin(i)*0.1);
+    if(curR < planetR*0.8) curR = planetR*0.8;
+
+    var px = cx0 + Math.cos(angle)*curR;
+    var py = cy0 + Math.sin(angle)*curR*0.85; // slight squash
+
+    var inPlanet = curR <= planetR;
+    var alpha = inPlanet ? 0 : (0.3 + (1-t)*0.4);
+    if(alpha > 0){
+      cx2.fillStyle = crRgba(180,130,70, alpha);
+      cx2.beginPath(); cx2.arc(px,py,1.5,0,PI2); cx2.fill();
+    }
+  }
+
+  // Planet body
+  var bodyAlpha = Math.min(1, t*1.5);
+  // Core
+  var coreGrad = cx2.createRadialGradient(cx0-planetR*0.2,cy0-planetR*0.2,0,cx0,cy0,planetR);
+  coreGrad.addColorStop(0, crRgba(220,170,90, bodyAlpha*0.5));
+  coreGrad.addColorStop(0.3, crRgba(180,120,50, bodyAlpha*0.35));
+  coreGrad.addColorStop(0.6, crRgba(140,85,35, bodyAlpha*0.25));
+  coreGrad.addColorStop(0.85, crRgba(100,65,25, bodyAlpha*0.2));
+  coreGrad.addColorStop(1, crRgba(60,40,20, 0));
+  cx2.fillStyle = coreGrad;
+  cx2.beginPath(); cx2.arc(cx0,cy0,planetR,0,PI2); cx2.fill();
+
+  // Atmosphere edge glow
+  var atmoGrad = cx2.createRadialGradient(cx0,cy0,planetR*0.8,cx0,cy0,planetR*1.15);
+  atmoGrad.addColorStop(0, crRgba(180,140,80, 0));
+  atmoGrad.addColorStop(0.5, crRgba(160,120,60, bodyAlpha*0.08));
+  atmoGrad.addColorStop(1, crRgba(140,100,50, 0));
+  cx2.fillStyle = atmoGrad;
+  cx2.beginPath(); cx2.arc(cx0,cy0,planetR*1.15,0,PI2); cx2.fill();
+
+  // Geological layers hint — concentric circles
+  if(t > 0.5){
+    var layerT = (t-0.5)*2;
+    cx2.strokeStyle = crRgba(220,170,80, layerT*0.08);
+    cx2.lineWidth = 0.5;
+    cx2.beginPath(); cx2.arc(cx0,cy0,planetR*0.35,0,PI2); cx2.stroke();
+    cx2.beginPath(); cx2.arc(cx0,cy0,planetR*0.6,0,PI2); cx2.stroke();
+  }
+}
+
+function crDrawSolarSystem(t, cx2, W2, H2){
+  var cx0 = W2*0.5, cy0 = H2*0.5;
+  var scale = Math.min(W2,H2)*0.3;
+
+  // Star at center
+  var starR = 12;
+  var starGrad = cx2.createRadialGradient(cx0,cy0,0,cx0,cy0,starR*3);
+  starGrad.addColorStop(0, crRgba(255,240,180, 0.9));
+  starGrad.addColorStop(0.2, crRgba(255,220,140, 0.6));
+  starGrad.addColorStop(0.5, crRgba(230,180,90, 0.15));
+  starGrad.addColorStop(1, crRgba(200,150,70, 0));
+  cx2.fillStyle = starGrad;
+  cx2.beginPath(); cx2.arc(cx0,cy0,starR*3,0,PI2); cx2.fill();
+
+  cx2.fillStyle = crRgba(255,240,200, 0.95);
+  cx2.beginPath(); cx2.arc(cx0,cy0,starR,0,PI2); cx2.fill();
+
+  // Planets in orbits
+  var planets = [
+    {r:0.25, speed:3.0, size:2, col:[180,130,80]},
+    {r:0.4,  speed:2.2, size:3, col:[160,170,200]},
+    {r:0.6,  speed:1.5, size:4, col:[80,140,180]},
+    {r:0.8,  speed:1.0, size:3.5,col:[200,150,90]},
+    {r:1.0,  speed:0.6, size:6, col:[210,180,130]}
+  ];
+
+  for(var i=0; i<planets.length; i++){
+    var pl = planets[i];
+    var orbitR = pl.r*scale;
+    var orbitAlpha = Math.min(1, t*2 - i*0.15);
+    if(orbitAlpha <= 0) continue;
+
+    // Orbit ellipse
+    cx2.strokeStyle = crRgba(184,117,58, 0.06*orbitAlpha);
+    cx2.lineWidth = 0.5;
+    cx2.beginPath();
+    cx2.ellipse(cx0, cy0, orbitR, orbitR*0.85, 0, 0, PI2);
+    cx2.stroke();
+
+    // Planet
+    var angle = crTime*pl.speed + i*1.2;
+    var px = cx0 + Math.cos(angle)*orbitR;
+    var py = cy0 + Math.sin(angle)*orbitR*0.85;
+
+    var pGrad = cx2.createRadialGradient(px,py,0,px,py,pl.size*2.5);
+    pGrad.addColorStop(0, crRgba(pl.col[0],pl.col[1],pl.col[2], 0.7*orbitAlpha));
+    pGrad.addColorStop(0.5, crRgba(pl.col[0],pl.col[1],pl.col[2], 0.2*orbitAlpha));
+    pGrad.addColorStop(1, crRgba(pl.col[0],pl.col[1],pl.col[2], 0));
+    cx2.fillStyle = pGrad;
+    cx2.beginPath(); cx2.arc(px,py,pl.size*2.5,0,PI2); cx2.fill();
+
+    cx2.fillStyle = crRgba(pl.col[0],pl.col[1],pl.col[2], 0.9*orbitAlpha);
+    cx2.beginPath(); cx2.arc(px,py,pl.size,0,PI2); cx2.fill();
+  }
+}
+
+function crDrawGalaxy(t, cx2, W2, H2){
+  var cx0 = W2*0.5, cy0 = H2*0.5;
+  var galR = Math.min(W2,H2)*0.35;
+  var nStars = 800;
+  var nArms = 2;
+
+  // Central bulge
+  var bulgeGrad = cx2.createRadialGradient(cx0,cy0,0,cx0,cy0,galR*0.15);
+  bulgeGrad.addColorStop(0, crRgba(255,230,170, 0.5*t));
+  bulgeGrad.addColorStop(0.5, crRgba(230,190,110, 0.15*t));
+  bulgeGrad.addColorStop(1, crRgba(200,150,80, 0));
+  cx2.fillStyle = bulgeGrad;
+  cx2.beginPath(); cx2.arc(cx0,cy0,galR*0.15,0,PI2); cx2.fill();
+
+  // Spiral arms
+  var rot = crTime*0.08;
+  for(var i=0; i<nStars; i++){
+    var armIdx = i % nArms;
+    var armOffset = armIdx * Math.PI;
+    var r = (i/nStars) * galR;
+    // Logarithmic spiral
+    var angle = armOffset + Math.log(r/10+1)*2.5 + rot;
+    // Spread
+    var spread = (0.1 + r/galR*0.3) * (Math.sin(i*137.5)*0.5+0.5);
+    angle += (Math.sin(i*1.618)*2-1)*spread;
+
+    var sx = cx0 + Math.cos(angle)*r;
+    var sy = cy0 + Math.sin(angle)*r*0.7; // tilt
+
+    var brightness = (1 - r/galR)*0.5 + 0.2;
+    var blueShift = r/galR;
+    var starCol = [
+      Math.round(230 - blueShift*80),
+      Math.round(190 - blueShift*30 + blueShift*40),
+      Math.round(100 + blueShift*100)
+    ];
+
+    var starAlpha = brightness * t * (0.5 + Math.sin(i*2.3+crTime*0.5)*0.3);
+    var starSz = 0.5 + brightness*1.5;
+
+    cx2.fillStyle = crRgba(starCol[0],starCol[1],starCol[2], starAlpha);
+    cx2.fillRect(sx-starSz*0.5, sy-starSz*0.5, starSz, starSz);
+  }
+
+  // Subtle spiral arm glow
+  for(var arm=0; arm<nArms; arm++){
+    cx2.beginPath();
+    var armOffset = arm * Math.PI + rot;
+    for(var s=0; s<100; s++){
+      var r = (s/100)*galR;
+      var angle = armOffset + Math.log(r/10+1)*2.5;
+      var sx = cx0 + Math.cos(angle)*r;
+      var sy = cy0 + Math.sin(angle)*r*0.7;
+      if(s===0) cx2.moveTo(sx,sy);
+      else cx2.lineTo(sx,sy);
+    }
+    cx2.strokeStyle = crRgba(220,180,100, 0.04*t);
+    cx2.lineWidth = 8;
+    cx2.stroke();
+  }
+}
+
+function crDrawBlackHole(t, cx2, W2, H2){
+  var cx0 = W2*0.5, cy0 = H2*0.5;
+  var bhR = 25 + Math.min(W2,H2)*0.04;
+
+  // Accretion disk — matter spiraling inward
+  var nParts = 300;
+  for(var i=0; i<nParts; i++){
+    var baseAngle = i*PI2/nParts*3 + crTime*(2+Math.sin(i*0.3));
+    var spiralR = bhR*1.2 + (i/nParts)*bhR*4;
+    // Spiral inward over time
+    var decayR = spiralR * (1 - t*0.3*Math.sin(i+crTime));
+    if(decayR < bhR) continue;
+
+    var px = cx0 + Math.cos(baseAngle)*decayR;
+    var py = cy0 + Math.sin(baseAngle)*decayR*0.3; // disk is thin
+
+    var heat = 1 - (decayR-bhR)/(bhR*4);
+    heat = Math.max(0, Math.min(1, heat));
+    var r = Math.round(100 + heat*155);
+    var g = Math.round(50 + heat*140);
+    var b = Math.round(20 + heat*80);
+    var alpha = heat*0.5*t;
+
+    cx2.fillStyle = crRgba(r,g,b, alpha);
+    cx2.beginPath(); cx2.arc(px,py,1+heat*1.5,0,PI2); cx2.fill();
+  }
+
+  // Event horizon — pure black circle
+  cx2.fillStyle = '#000000';
+  cx2.beginPath(); cx2.arc(cx0,cy0,bhR,0,PI2); cx2.fill();
+
+  // Edge ring — photon sphere
+  var edgeGrad = cx2.createRadialGradient(cx0,cy0,bhR*0.9,cx0,cy0,bhR*1.2);
+  edgeGrad.addColorStop(0, crRgba(0,0,0, 1));
+  edgeGrad.addColorStop(0.3, crRgba(255,200,100, 0.4*t));
+  edgeGrad.addColorStop(0.6, crRgba(230,160,60, 0.15*t));
+  edgeGrad.addColorStop(1, crRgba(200,130,50, 0));
+  cx2.fillStyle = edgeGrad;
+  cx2.beginPath(); cx2.arc(cx0,cy0,bhR*1.2,0,PI2); cx2.fill();
+
+  // Hawking radiation — faint particles leaking out
+  if(t > 0.5){
+    var hawkT = (t-0.5)*2;
+    for(var i=0; i<8; i++){
+      var angle = i*PI2/8 + crTime*0.3;
+      var hr = bhR*1.3 + Math.sin(crTime*2+i)*bhR*0.4;
+      var hx = cx0 + Math.cos(angle)*hr;
+      var hy = cy0 + Math.sin(angle)*hr;
+      cx2.fillStyle = crRgba(200,180,150, hawkT*0.15);
+      cx2.beginPath(); cx2.arc(hx,hy,1,0,PI2); cx2.fill();
+    }
+  }
+}
+
+function crDrawReturn(t, cx2, W2, H2){
+  var cx0 = W2*0.5, cy0 = H2*0.5;
+
+  // All scales simultaneously — dots within dots
+  // Quark triangle (tiny, center)
+  var innerR = 8;
+  for(var i=0; i<3; i++){
+    var a = crTime*0.4 + i*PI2/3;
+    var qx = cx0 + Math.cos(a)*innerR;
+    var qy = cy0 + Math.sin(a)*innerR;
+    cx2.fillStyle = crRgba(230,190,100, 0.6*t);
+    cx2.beginPath(); cx2.arc(qx,qy,1.5,0,PI2); cx2.fill();
+  }
+
+  // Atom shell
+  var atomR = 30;
+  cx2.strokeStyle = crRgba(130,160,210, 0.1*t);
+  cx2.lineWidth = 0.5;
+  cx2.beginPath(); cx2.arc(cx0,cy0,atomR,0,PI2); cx2.stroke();
+
+  // Cell membrane
+  var cellR = 60;
+  cx2.strokeStyle = crRgba(200,160,100, 0.08*t);
+  cx2.lineWidth = 0.5;
+  cx2.beginPath(); cx2.arc(cx0,cy0,cellR,0,PI2); cx2.stroke();
+
+  // Planet
+  var planetR = 100;
+  var pGrad = cx2.createRadialGradient(cx0,cy0,planetR*0.7,cx0,cy0,planetR);
+  pGrad.addColorStop(0, crRgba(180,130,70, 0));
+  pGrad.addColorStop(0.5, crRgba(180,130,70, 0.04*t));
+  pGrad.addColorStop(1, crRgba(160,110,50, 0));
+  cx2.fillStyle = pGrad;
+  cx2.beginPath(); cx2.arc(cx0,cy0,planetR,0,PI2); cx2.fill();
+
+  // Orbit ring
+  var orbitR = 150;
+  cx2.strokeStyle = crRgba(184,117,58, 0.05*t);
+  cx2.lineWidth = 0.5;
+  cx2.beginPath();
+  cx2.ellipse(cx0, cy0, orbitR, orbitR*0.85, 0, 0, PI2);
+  cx2.stroke();
+
+  // Galaxy spiral hint
+  var galR = Math.min(W2,H2)*0.4;
+  var nStars = 200;
+  for(var i=0; i<nStars; i++){
+    var armIdx = i % 2;
+    var armOff = armIdx * Math.PI + crTime*0.05;
+    var r = (i/nStars)*galR;
+    var angle = armOff + Math.log(r/10+1)*2.5;
+    var sx = cx0 + Math.cos(angle)*r;
+    var sy = cy0 + Math.sin(angle)*r*0.7;
+    var brightness = (1-r/galR)*0.3;
+
+    cx2.fillStyle = crRgba(220,190,130, brightness*t*0.4);
+    cx2.fillRect(sx, sy, 1, 1);
+  }
+
+  // Central glow — everything breathing
+  var breathe = Math.sin(crTime*0.8)*0.15+0.85;
+  var centerGlow = cx2.createRadialGradient(cx0,cy0,0,cx0,cy0,60);
+  centerGlow.addColorStop(0, crRgba(255,230,160, 0.25*t*breathe));
+  centerGlow.addColorStop(0.3, crRgba(230,180,100, 0.1*t*breathe));
+  centerGlow.addColorStop(0.7, crRgba(200,150,70, 0.03*t));
+  centerGlow.addColorStop(1, crRgba(180,120,50, 0));
+  cx2.fillStyle = centerGlow;
+  cx2.beginPath(); cx2.arc(cx0,cy0,60,0,PI2); cx2.fill();
+
+  // Coupling lines radiating out — golden threads
+  for(var i=0; i<13; i++){
+    var angle = i*PI2/13 + crTime*0.1;
+    var lineLen = 30 + Math.sin(crTime+i)*20;
+    var x1 = cx0 + Math.cos(angle)*20;
+    var y1 = cy0 + Math.sin(angle)*20;
+    var x2 = cx0 + Math.cos(angle)*(20+lineLen);
+    var y2 = cy0 + Math.sin(angle)*(20+lineLen);
+
+    cx2.strokeStyle = crRgba(220,175,80, 0.15*t*breathe);
+    cx2.lineWidth = 0.5;
+    cx2.beginPath(); cx2.moveTo(x1,y1); cx2.lineTo(x2,y2); cx2.stroke();
+  }
+
+  // "0+0=1" at center
+  if(t > 0.4){
+    var labelT = (t-0.4)/0.6;
+    cx2.font = '11px Georgia,serif';
+    cx2.fillStyle = crRgba(220,180,120, labelT*0.5*breathe);
+    cx2.textAlign = 'center';
+    cx2.fillText('0 + 0 = 1', cx0, cy0 + galR*0.5 + 30);
+    cx2.textAlign = 'left';
+  }
+}
+
+// ═══ MAIN CREATION DRAW ═══
+function drawCreation(){
+  if(crPlaying && !crDragging){
+    crTime += 0.016 * crSpeed;
+    if(crTime > crTotalDur) crTime = 0; // loop
+  }
+
+  var info = crGetStageAt(crTime);
+  var stageIdx = info.idx;
+  var localT = info.local;
+
+  // Background — starts pure black, warms slightly
+  var bg = crBgColor(stageIdx);
+  cx.fillStyle = 'rgb('+bg[0]+','+bg[1]+','+bg[2]+')';
+  cx.fillRect(0,0,W,H);
+
+  // Crossfade: draw previous stage fading out, current stage fading in
+  var fadeIn = Math.min(1, localT * 5);   // fade in over first 20% of stage
+  var fadeOut = Math.min(1, (1-localT)*5); // fade out over last 20%
+
+  // If we're in the first 20%, also draw previous stage fading out
+  if(localT < 0.2 && stageIdx > 0){
+    var prevAlpha = 1 - localT*5;
+    cx.globalAlpha = prevAlpha;
+    crDrawStage(stageIdx-1, 1.0, cx, W, H);
+    cx.globalAlpha = 1;
+  }
+
+  // Draw current stage
+  var stageAlpha = fadeIn;
+  cx.globalAlpha = stageAlpha;
+  crDrawStage(stageIdx, localT, cx, W, H);
+  cx.globalAlpha = 1;
+
+  // ═══ LABEL HANDLING ═══
+  if(stageIdx !== crLastStageIdx){
+    crLastStageIdx = stageIdx;
+    crLabelAlpha = 0;
+  }
+
+  // Label fades in then out
+  var labelFade;
+  if(localT < 0.15) labelFade = localT/0.15;
+  else if(localT < 0.5) labelFade = 1;
+  else if(localT < 0.65) labelFade = 1 - (localT-0.5)/0.15;
+  else labelFade = 0;
+
+  var stage = CR_STAGES[stageIdx];
+  crNameEl.textContent = stage.name;
+  crSubEl.textContent = stage.sub;
+  crLabelEl.style.color = 'rgba(184,117,58,' + (labelFade*0.7).toFixed(3) + ')';
+  crSubEl.style.color = 'rgba(196,160,136,' + (labelFade*0.4).toFixed(3) + ')';
+
+  // Progress bar
+  var progress = crTime / crTotalDur;
+  crFillEl.style.width = (progress*100).toFixed(1) + '%';
+
+  // Stats
+  statEl.innerHTML =
+    'stage: ' + (stageIdx+1) + '/' + CR_STAGES.length + '<br>' +
+    stage.name + '<br>' +
+    '<span style="color:#8b4a2e">' + (crPlaying ? 'playing' : 'paused') + '</span>';
+}
+
+function crDrawStage(idx, t, cx2, W2, H2){
+  switch(idx){
+    case 0: crDrawVoid(t, cx2, W2, H2); break;
+    case 1: crDrawFirstCoupling(t, cx2, W2, H2); break;
+    case 2: crDrawQuarks(t, cx2, W2, H2); break;
+    case 3: crDrawNucleons(t, cx2, W2, H2); break;
+    case 4: crDrawAtoms(t, cx2, W2, H2); break;
+    case 5: crDrawMolecules(t, cx2, W2, H2); break;
+    case 6: crDrawCells(t, cx2, W2, H2); break;
+    case 7: crDrawOrganisms(t, cx2, W2, H2); break;
+    case 8: crDrawPlanet(t, cx2, W2, H2); break;
+    case 9: crDrawSolarSystem(t, cx2, W2, H2); break;
+    case 10: crDrawGalaxy(t, cx2, W2, H2); break;
+    case 11: crDrawBlackHole(t, cx2, W2, H2); break;
+    case 12: crDrawReturn(t, cx2, W2, H2); break;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
 // MAIN LOOP
 // ═══════════════════════════════════════════════════════════════
 function loop(){
@@ -2071,6 +3036,7 @@ function loop(){
   else if(activeViz === 'bifurcation') drawBifurcation();
   else if(activeViz === 'pendulum') drawPendulum();
   else if(activeViz === 'turing') drawTuring();
+  else if(activeViz === 'creation') drawCreation();
 
   animId = requestAnimationFrame(loop);
 }
