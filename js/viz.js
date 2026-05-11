@@ -359,9 +359,12 @@ VISUALIZATIONS.flock = {
     for (var i = 0; i < n; i++) {
       var fx = 0, fy = 0;
 
-      // 1. Cohesion toward center
-      fx += (comX - s.px[i]) * 0.004;
-      fy += (comY - s.py[i]) * 0.004;
+      // 1. Cohesion toward center (strong enough to keep flock in view)
+      fx += (comX - s.px[i]) * 0.008;
+      fy += (comY - s.py[i]) * 0.008;
+      // Also pull toward canvas center to prevent drift
+      fx -= s.px[i] * 0.002;
+      fy -= s.py[i] * 0.002;
 
       // 2. Alignment — match neighbors
       var nn = s.nbrs[i];
@@ -415,11 +418,14 @@ VISUALIZATIONS.flock = {
         }
       }
 
-      // 8. Boundary (soft)
+      // 8. Boundary (strong enough to contain)
       var bx = sW / 2, by = sH / 2;
       var edgeX = s.px[i] / bx, edgeY = s.py[i] / by;
-      if (Math.abs(edgeX) > 0.85) fx -= edgeX * 0.02;
-      if (Math.abs(edgeY) > 0.85) fy -= edgeY * 0.02;
+      if (Math.abs(edgeX) > 0.7) { var ex = (Math.abs(edgeX)-0.7)/0.3; fx -= edgeX * ex * 0.08; }
+      if (Math.abs(edgeY) > 0.7) { var ey = (Math.abs(edgeY)-0.7)/0.3; fy -= edgeY * ey * 0.08; }
+      // Hard clamp — never leave the canvas
+      if (Math.abs(s.px[i]) > bx) { s.px[i] = Math.sign(s.px[i]) * bx * 0.95; s.vx[i] *= -0.3; }
+      if (Math.abs(s.py[i]) > by) { s.py[i] = Math.sign(s.py[i]) * by * 0.95; s.vy[i] *= -0.3; }
 
       // 9. Breathing
       var bDir = Math.atan2(s.py[i] - comY, s.px[i] - comX);
