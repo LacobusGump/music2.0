@@ -10,7 +10,7 @@
 ;(function(root) {
 'use strict';
 
-var VERSION = '1.4.0'; // Soul spec implemented. 8 gates. The 3 cannot be engineered, only enabled.
+var VERSION = '1.5.0'; // Soul spec + voice + ego audit + Wozniak polish. The 3 cannot be engineered, only enabled.
 var DB_NAME = 'harmonia';
 var DB_VERSION = 2;
 var CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
