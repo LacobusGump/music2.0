@@ -46,6 +46,8 @@ canvas{display:block;width:100%;height:100%;touch-action:none;}
 //   4. FOR engine: the instrument's soul (solves for the OTHER)
 //   5. Void state machine: stillness -> settling -> void -> transcendent
 //   6. Spectral tension: consonance graph suggests what wants to play
+//   7. Music Intelligence: Landauer cost, energy contour, contrary motion,
+//      motif completion, R/K groove target, Mozart surprise, voice leading
 //   8. Water bottle damping on everything: momentum, overshoot, settle
 //   9. Bessel drum membrane (8 modes) on impact
 //  10. Convolution reverb with real IR
@@ -470,6 +472,417 @@ function getTopTension() {
     if (score > bestScore) { bestScore = score; bestNote = n; }
   }
   return bestNote;
+}
+
+// =====================================================================
+// MUSIC INTELLIGENCE MODULE
+//
+// This is the brain that makes it compose, not just respond.
+// Every note selection in the instrument routes through here.
+//
+// Seven scoring dimensions (from the research):
+//   1. Landauer cost: cheaper intervals more likely (energy efficiency)
+//   2. Energy contour: tension/release cycle shapes the journey
+//   3. Contrary motion: FOR moves opposite to player (Bach)
+//   4. Motif completion: finish what you started (thematic development)
+//   5. R/K groove target: maintain the sweet spot (0.80-0.85)
+//   6. Mozart surprise: mostly predictable, occasionally wrong-then-right
+//   7. Voice leading: minimize movement, retain common tones (Tymoczko)
+//
+// The output is a frequency. The input is the state of everything.
+// =====================================================================
+
+// --- Landauer interval costs in nats (from music-theory research) ---
+// Index = semitones from current note. Cost = information cost to process.
+// Lower cost = more consonant = ear prefers it.
+var LANDAUER_COST = [
+  0.00,   // 0  unison
+  6.91,   // 1  minor second
+  4.52,   // 2  major second
+  3.33,   // 3  minor third
+  2.77,   // 4  major third
+  2.20,   // 5  perfect fourth
+  7.27,   // 6  tritone
+  1.79,   // 7  perfect fifth
+  4.09,   // 8  minor sixth
+  3.58,   // 9  major sixth
+  4.94,   // 10 minor seventh
+  0.69    // 11 octave (minor second from octave = 1 semitone short)
+];
+// Note: index 11 = 11 semitones up = major seventh (not octave).
+// Octave is 12 semitones = 0 mod 12 = unison. Fix the mapping:
+// We measure intervals mod 12, so 0=unison/octave, and we use the
+// LOWER of the two complementary intervals (e.g., 8 semitones or 4 semitones).
+// The cost array is indexed by semitone distance (0-11).
+// Correction: 11 semitones = major seventh, cost ~6.27 nats (close to m2 inversion)
+LANDAUER_COST[11] = 6.27; // major seventh (inversion of minor second)
+
+// --- Energy Contour Phase Machine ---
+// The instrument breathes through tension-release cycles.
+// Phase 0: HOME      (4-8s)  - consonant, grounded, low tension
+// Phase 1: LIFT      (8-16s) - building K, partials reaching, tension rising
+// Phase 2: CLIMAX    (2-4s)  - maximum tension, surprise allowed
+// Phase 3: RELEASE   (4-8s)  - R catches up, consonance blooms, resolution
+var miContourPhase = 0;       // 0=home, 1=lift, 2=climax, 3=release
+var miContourTimer = 0;       // seconds in current phase
+var miContourCycleCount = 0;  // how many full cycles completed
+
+// Phase durations (randomized per cycle with 1/f)
+var miPhaseDurations = [6, 12, 3, 6]; // home, lift, climax, release
+var miPhaseTimers = [6, 12, 3, 6];    // current cycle's durations
+
+// --- Surprise counter ---
+var miNotesSinceSurprise = 0;
+var miSurpriseThreshold = 12; // notes between surprises (randomized 8-16)
+var miLastSurpriseNote = -1;  // the "wrong" note we played
+
+// --- Contrary motion tracking ---
+var miLastPlayerDirection = 0;  // -1 down, 0 neutral, 1 up
+var miLastFORPitch = -1;        // last pitch the FOR/ping played (semitones)
+var miLastPlayerPitch = -1;     // last pitch from player interaction
+
+// --- Theme/motif development ---
+var miThemeNotes = [];          // the current "theme" (up to 6 notes)
+var miThemeAge = 0;             // how long since theme was established
+var miThemeMaxAge = 45;         // seconds before theme evolves
+
+// --- R/K tracking for groove target ---
+var miRKratio = 0.8;            // smoothed R/K ratio
+var MI_RK_TARGET = 0.82;       // sweet spot from research
+
+function miUpdateContour(dt) {
+  miContourTimer += dt;
+
+  // Check phase transition
+  if (miContourTimer >= miPhaseTimers[miContourPhase]) {
+    miContourTimer = 0;
+    miContourPhase = (miContourPhase + 1) % 4;
+
+    if (miContourPhase === 0) {
+      miContourCycleCount++;
+      // Randomize next cycle's durations with 1/f variation
+      miPhaseTimers[0] = 5 + Math.abs(pinkSample()) * 4;    // home: 5-9s
+      miPhaseTimers[1] = 8 + Math.abs(pinkSample()) * 10;   // lift: 8-18s
+      miPhaseTimers[2] = 2 + Math.abs(pinkSample()) * 3;    // climax: 2-5s
+      miPhaseTimers[3] = 4 + Math.abs(pinkSample()) * 5;    // release: 4-9s
+      // Surprise threshold resets per cycle
+      miSurpriseThreshold = 8 + Math.floor(Math.abs(pinkSample()) * 8);
+    }
+  }
+
+  // Update R/K ratio (smoothed)
+  // R is the Kuramoto order parameter (0-1): realized coherence.
+  // We normalize against the coupling strength: higher K SHOULD produce higher R.
+  // The ratio tells us how much of the available coupling is being realized.
+  // When R/K_normalized > 0.9, things are too locked (boring).
+  // When R/K_normalized < 0.7, things are too loose (chaotic).
+  // Sweet spot: 0.80-0.85.
+  if (kPartials > 0.01) {
+    // K_normalized: how much coupling is being applied relative to base
+    var kNorm = Math.min(kPartials / K_PARTIALS_BASE, 5.0); // cap at 5x base
+    // R/K: order achieved vs coupling applied. High K + low R = tension.
+    var instantRK = kuramotoR / Math.max(0.1, kNorm * 0.2);
+    instantRK = Math.max(0, Math.min(1, instantRK));
+    miRKratio = miRKratio * 0.95 + instantRK * 0.05;
+  }
+
+  // Theme aging
+  miThemeAge += dt;
+  if (miThemeAge > miThemeMaxAge && miThemeNotes.length > 0) {
+    // Theme evolves: shift it, invert it, or start fresh
+    var evolution = Math.random();
+    if (evolution < 0.3 && miThemeNotes.length >= 3) {
+      // Inversion: flip the intervals
+      var newTheme = [miThemeNotes[0]];
+      for (var ti = 1; ti < miThemeNotes.length; ti++) {
+        var interval = miThemeNotes[ti] - miThemeNotes[ti-1];
+        newTheme.push(newTheme[newTheme.length-1] - interval);
+      }
+      miThemeNotes = newTheme;
+    } else if (evolution < 0.6 && miThemeNotes.length >= 3) {
+      // Retrograde: reverse the theme
+      miThemeNotes = miThemeNotes.slice().reverse();
+    } else {
+      // Fresh start: keep first note as anchor
+      miThemeNotes = miThemeNotes.length > 0 ? [miThemeNotes[0]] : [];
+    }
+    miThemeAge = 0;
+    miThemeMaxAge = 30 + Math.abs(pinkSample()) * 30; // 30-60s next time
+  }
+}
+
+// Get the energy contour bias for the current phase.
+// Returns a value that biases note selection:
+//   negative = prefer consonant (cheap intervals)
+//   positive = prefer dissonant (expensive intervals)
+function miGetContourBias() {
+  var phaseProgress = miPhaseTimers[miContourPhase] > 0 ?
+    miContourTimer / miPhaseTimers[miContourPhase] : 0;
+
+  switch (miContourPhase) {
+    case 0: // HOME - prefer consonance, mild drift toward tension at end
+      return -0.6 + phaseProgress * 0.3;
+    case 1: // LIFT - tension builds linearly
+      return -0.3 + phaseProgress * 0.8;
+    case 2: // CLIMAX - maximum tension, surprise welcome
+      return 0.5 + phaseProgress * 0.3;
+    case 3: // RELEASE - consonance returns, deepening
+      return 0.5 - phaseProgress * 0.9;
+    default: return 0;
+  }
+}
+
+// Score a candidate note (0-11 pitch class) given the current musical state.
+// Higher score = more likely to be chosen.
+// fromFOR: true if this is FOR initiative / soul speaking
+// lastPitchPC: pitch class of the last note played (0-11), or -1
+// playerDirection: -1/0/1 direction of player's recent pitch movement
+function miScoreNote(candidate, lastPitchPC, fromFOR, playerDirection) {
+  if (lastPitchPC < 0) return 1.0; // no context yet, all notes equal
+
+  var interval = Math.abs(candidate - lastPitchPC) % 12;
+  if (interval > 6) interval = 12 - interval; // use smaller of complementary intervals
+  var cost = LANDAUER_COST[Math.abs(candidate - lastPitchPC) % 12];
+
+  var score = 0;
+
+  // === 1. LANDAUER COST (base score) ===
+  // Probability inversely proportional to cost.
+  // Unison (0 nats) -> score 1.0
+  // Tritone (7.27 nats) -> score ~0.14
+  // This creates a natural preference for consonance.
+  if (cost < 0.01) {
+    score += 0.7; // unison: good but not always the best choice
+  } else {
+    score += 1.0 / (1.0 + cost * 0.3);
+  }
+
+  // === 2. ENERGY CONTOUR ===
+  // Contour bias shifts the balance between consonant and dissonant
+  var contourBias = miGetContourBias();
+  if (contourBias > 0) {
+    // Tension phase: boost expensive intervals, dampen cheap ones
+    score += contourBias * (cost / 7.27) * 0.4;
+  } else {
+    // Resolution phase: boost cheap intervals more
+    score += Math.abs(contourBias) * (1.0 - cost / 7.27) * 0.4;
+  }
+
+  // === 3. CONTRARY MOTION (Bach) ===
+  // When FOR is choosing, prefer opposite direction from player
+  if (fromFOR && playerDirection !== 0) {
+    var noteDirection = candidate - lastPitchPC;
+    if (noteDirection > 6) noteDirection -= 12;
+    if (noteDirection < -6) noteDirection += 12;
+    // Player going up? Prefer notes below current (negative direction)
+    // Player going up fast? Prefer slow downward steps
+    if (playerDirection > 0 && noteDirection < 0) {
+      score += 0.35; // contrary motion bonus
+      if (interval <= 2) score += 0.15; // stepwise contrary = best
+    } else if (playerDirection < 0 && noteDirection > 0) {
+      score += 0.35;
+      if (interval <= 2) score += 0.15;
+    }
+    // Penalty for parallel fifths (both moving same direction by P5)
+    if (noteDirection !== 0 && interval === 7 &&
+        ((playerDirection > 0 && noteDirection > 0) ||
+         (playerDirection < 0 && noteDirection < 0))) {
+      score -= 0.5; // forbidden parallel fifth
+    }
+  }
+
+  // === 4. MOTIF COMPLETION ===
+  // If this note would complete a pattern from the theme, big bonus
+  if (miThemeNotes.length >= 2) {
+    var themePos = miThemeNotes.length % miThemeNotes.length;
+    // Check if candidate matches next expected note in theme cycle
+    if (miThemeNotes.length >= 3) {
+      var expectedNext = miThemeNotes[miThemeNotes.length % 3]; // cycle through first 3
+      // Transposition-invariant: check interval from last note
+      if (miThemeNotes.length > 1) {
+        var themeInterval = (miThemeNotes[1] - miThemeNotes[0] + 12) % 12;
+        var candidateInterval = (candidate - lastPitchPC + 12) % 12;
+        if (candidateInterval === themeInterval) {
+          score += 0.45; // completing the theme pattern
+        }
+        // Inverted theme interval also gets a smaller bonus (development)
+        if (candidateInterval === (12 - themeInterval) % 12) {
+          score += 0.2;
+        }
+      }
+    }
+  }
+
+  // === 5. R/K GROOVE TARGET ===
+  // If R/K is too high (boring), prefer dissonant notes to shake things up
+  // If R/K is too low (chaotic), prefer consonant notes to stabilize
+  var rkDiff = miRKratio - MI_RK_TARGET;
+  if (rkDiff > 0.05) {
+    // Too locked: boost expensive intervals
+    score += rkDiff * 3 * (cost / 7.27) * 0.3;
+  } else if (rkDiff < -0.1) {
+    // Too loose: boost cheap intervals
+    score += Math.abs(rkDiff) * 3 * (1.0 - cost / 7.27) * 0.3;
+  }
+
+  // === 6. MOZART SURPRISE ===
+  // Every 8-16 notes, one note should be "wrong" — an expensive interval
+  // that resolves beautifully by being consonant with what comes NEXT.
+  // (miNotesSinceSurprise is incremented in miChooseNote, not here)
+  if (miNotesSinceSurprise >= miSurpriseThreshold) {
+    // Time for a surprise. Boost expensive intervals dramatically.
+    if (cost > 4.0) {
+      score += 0.6; // the minor sixth when the fifth was expected
+    }
+    // The surprise note should set up the NEXT note to resolve
+    // (we handle this by checking if expensive intervals lead to cheap resolutions)
+    // Minor sixth (8 semitones) resolves to perfect fifth (7) by half step
+    if (interval === 8) score += 0.3; // m6 -> P5 resolution available
+    if (interval === 6) score += 0.2; // tritone -> P5 resolution available
+  }
+
+  // === 7. VOICE LEADING (Tymoczko) ===
+  // Prefer stepwise motion (seconds). Penalize large leaps unless during climax.
+  if (interval <= 2) {
+    score += 0.25; // stepwise: smooth voice leading
+  } else if (interval >= 5 && miContourPhase !== 2) {
+    score -= 0.15 * (interval - 4) / 7; // large leaps penalized outside climax
+  }
+  // During climax, leaps are expressive
+  if (miContourPhase === 2 && interval >= 5) {
+    score += 0.15;
+  }
+
+  // === SESSION PREFERENCE ===
+  // Blend in the player's demonstrated interval preferences
+  if (sessionNoteCount > 8 && sessionLastPitch >= 0) {
+    var dist = Math.abs(candidate - sessionLastPitch) % 12;
+    if (dist > 6) dist = 12 - dist;
+    for (var pi = 0; pi < sessionPreferredIntervals.length; pi++) {
+      if (dist === sessionPreferredIntervals[pi]) {
+        score += 0.2 * (1 - pi * 0.25);
+        break;
+      }
+    }
+  }
+
+  // === AVOID IMMEDIATE REPETITION ===
+  if (candidate === lastPitchPC) {
+    score -= 0.3;
+  }
+
+  // === AVOID NOTES PLAYED VERY RECENTLY ===
+  if (recentNotes.length > 0) {
+    var lastFew = recentNotes.slice(-4);
+    var recency = 0;
+    for (var ri = 0; ri < lastFew.length; ri++) {
+      if (lastFew[ri] === candidate) recency += 0.15 * (ri + 1) / lastFew.length;
+    }
+    score -= recency;
+  }
+
+  return Math.max(0.01, score);
+}
+
+// Choose the best note using weighted random selection from scored candidates.
+// Returns pitch class (0-11), or -1 if insufficient context.
+// fromFOR: true if FOR initiative is choosing
+function miChooseNote(fromFOR) {
+  var lastPC = sessionLastPitch;
+  if (lastPC < 0 && recentNotes.length > 0) {
+    lastPC = recentNotes[recentNotes.length - 1];
+  }
+  if (lastPC < 0) return -1;
+
+  // Determine player direction from recent notes
+  var playerDir = 0;
+  if (recentNotes.length >= 2) {
+    var prev = recentNotes[recentNotes.length - 2];
+    var curr = recentNotes[recentNotes.length - 1];
+    var diff = curr - prev;
+    if (diff > 6) diff -= 12;
+    if (diff < -6) diff += 12;
+    if (diff > 0) playerDir = 1;
+    else if (diff < 0) playerDir = -1;
+  }
+
+  // Score all 12 pitch classes
+  var scores = [];
+  var totalScore = 0;
+  for (var n = 0; n < 12; n++) {
+    var s = miScoreNote(n, lastPC, fromFOR, playerDir);
+    scores.push(s);
+    totalScore += s;
+  }
+
+  // Weighted random selection (temperature-modulated)
+  // During home/release: lower temperature (more predictable)
+  // During lift/climax: higher temperature (more exploratory)
+  var temperature = 1.0;
+  if (miContourPhase === 0 || miContourPhase === 3) temperature = 0.6;
+  if (miContourPhase === 2) temperature = 1.5;
+
+  // Apply temperature: raise scores to power of 1/temperature
+  var tempScores = [];
+  var tempTotal = 0;
+  for (var n = 0; n < 12; n++) {
+    var ts = Math.pow(scores[n] / totalScore, 1.0 / temperature);
+    tempScores.push(ts);
+    tempTotal += ts;
+  }
+
+  // Weighted random selection
+  var roll = Math.random() * tempTotal;
+  var cumulative = 0;
+  var chosen = 0;
+  for (var n = 0; n < 12; n++) {
+    cumulative += tempScores[n];
+    if (roll <= cumulative) { chosen = n; break; }
+  }
+
+  // Increment surprise counter (once per note, not per candidate)
+  miNotesSinceSurprise++;
+
+  // Track surprise state
+  if (miNotesSinceSurprise >= miSurpriseThreshold) {
+    var chosenCost = LANDAUER_COST[Math.abs(chosen - lastPC) % 12];
+    if (chosenCost > 4.0) {
+      // A surprise was delivered
+      miNotesSinceSurprise = 0;
+      miLastSurpriseNote = chosen;
+      miSurpriseThreshold = 8 + Math.floor(Math.abs(pinkSample()) * 8);
+    }
+  }
+
+  // Update theme
+  miThemeNotes.push(chosen);
+  if (miThemeNotes.length > 6) miThemeNotes.shift();
+
+  return chosen;
+}
+
+// Convert a pitch class (0-11) to a frequency in a target octave range.
+// baseFreq: the harmonic center frequency
+// octaveMultiplier: which octave register (e.g., 16 for high pings, 4 for mid)
+// Returns frequency in Hz.
+function miPCtoFreq(pc, baseFreq, octaveMultiplier) {
+  // The pitch class relative to the root
+  // Root = 0 = the harmonic center itself
+  var semitones = pc; // already 0-11
+  var freq = baseFreq * octaveMultiplier * Math.pow(2, semitones / 12);
+
+  // 1/f micro-tuning (humanize): +/- ~5 cents
+  freq *= (1 + pinkSample() * 0.003);
+
+  return freq;
+}
+
+// Apply 1/f timing variation to a base interval.
+// Returns the modified interval in seconds.
+function miPinkTiming(baseInterval) {
+  // Pink noise deviation: +/- 15% of base interval
+  var deviation = pinkSample() * 0.15 * baseInterval;
+  return Math.max(baseInterval * 0.5, baseInterval + deviation);
 }
 
 // =====================================================================
@@ -912,9 +1325,25 @@ function forInitiativeUpdate(dt) {
     var timeSinceLast = sessionTime - forInitiativeLastNote;
     // Note rate increases with intensity (starts slow, gets denser)
     var rate = forInitiativeBaseRate * (1 - forInitiativeIntensity * 0.5);
-    // 1/f jitter on timing
-    rate += pinkSample() * rate * 0.15;
-    rate = Math.max(0.4, rate);
+
+    // Music Intelligence: contour phase affects note rate
+    // Home/release: slower, more space (the musician breathes)
+    // Lift: gradually denser (building)
+    // Climax: densest (urgent)
+    if (miContourPhase === 0) {
+      rate *= 1.3; // home: spacious
+    } else if (miContourPhase === 1) {
+      var liftProgress = miPhaseTimers[1] > 0 ? miContourTimer / miPhaseTimers[1] : 0;
+      rate *= (1.2 - liftProgress * 0.4); // lift: starts spacious, tightens
+    } else if (miContourPhase === 2) {
+      rate *= 0.7; // climax: dense, urgent
+    } else {
+      rate *= 1.1; // release: easing
+    }
+
+    // 1/f timing variation (the human feel)
+    rate = miPinkTiming(rate);
+    rate = Math.max(0.3, rate);
 
     if (timeSinceLast > rate) {
       forInitiativePlayNote();
@@ -934,75 +1363,136 @@ function forInitiativePlayNote() {
   if (!actx) return;
   var now = actx.currentTime;
   var center = harmonicCenter || FUNDAMENTAL;
-  var vol = 0.015 + forInitiativeIntensity * 0.025; // 30% of normal at start
+  var vol = 0.015 + forInitiativeIntensity * 0.025;
 
-  // Choose note: motif completion first, then simple intervals
-  var freq = melodyChooseNext();
+  // ===================================================================
+  // MUSIC INTELLIGENCE: the soul composes, not randomizes
+  // ===================================================================
+  var freq = -1;
+
+  // First: try motif completion (thematic development)
+  melodyDetectMotifs();
+  if (melodyMotifs.length > 0 && Math.random() < 0.5) {
+    freq = melodyChooseNext();
+  }
 
   if (freq <= 0) {
-    // No motif to complete. Use simple intervals from center.
-    // Start with octaves and fifths. Add complexity as intensity grows.
-    var simpleIntervals;
-    if (forInitiativeIntensity < 0.2) {
-      // Very early: just octaves
-      simpleIntervals = [1, 2, 0.5];
-    } else if (forInitiativeIntensity < 0.4) {
-      // Developing: octaves and fifths
-      simpleIntervals = [1, 2, 1.5, 0.5, 3/2, 3];
+    // Music Intelligence chooses the note
+    var chosenPC = miChooseNote(true); // true = FOR is choosing
+
+    if (chosenPC >= 0) {
+      // Choose octave register based on intensity:
+      // Early (quiet): mid register (4x). Developing: wide range. Full: high register too.
+      var octaveMult, octChoices;
+      if (forInitiativeIntensity < 0.2) {
+        // Very early: stay in mid register, mostly roots and fifths
+        octaveMult = 4 + Math.floor(Math.random() * 2) * 4; // 4 or 8
+      } else if (forInitiativeIntensity < 0.4) {
+        // Developing: wider range
+        octChoices = [4, 8, 8, 16];
+        octaveMult = octChoices[Math.floor(Math.random() * octChoices.length)];
+      } else {
+        // Full development: full range, prefer higher
+        octChoices = [4, 8, 8, 16, 16, 16];
+        octaveMult = octChoices[Math.floor(Math.random() * octChoices.length)];
+      }
+
+      freq = miPCtoFreq(chosenPC, center, octaveMult);
+
+      // Keep in singing range (130-2000 Hz)
+      while (freq < 130) freq *= 2;
+      while (freq > 2000) freq /= 2;
     } else {
-      // Full development: pentatonic intervals
-      simpleIntervals = [1, 2, 1.5, 4/3, 5/4, 0.5, 3/2, 5/3, 3, 4];
+      // Fallback: perfect fifth above center in mid register
+      freq = center * 6; // 3rd harmonic = P5 above octave
+      while (freq < 200) freq *= 2;
+      while (freq > 1500) freq /= 2;
     }
-
-    var idx = Math.floor(Math.random() * simpleIntervals.length);
-    freq = center * simpleIntervals[idx];
-
-    // Keep in singing range (200-2000 Hz)
-    while (freq < 200) freq *= 2;
-    while (freq > 2000) freq /= 2;
   } else {
-    // Keep motif completion in range
-    while (freq < 200) freq *= 2;
+    // Motif completion: keep in range
+    while (freq < 130) freq *= 2;
     while (freq > 2000) freq /= 2;
   }
 
-  // 1/f micro-tuning
-  freq *= (1 + pinkSample() * 0.004);
+  // Duration: contour-aware
+  // Home/release phases: longer, more sustained (the musician lingers)
+  // Lift/climax: shorter, more urgent
+  var baseDur;
+  if (miContourPhase === 0 || miContourPhase === 3) {
+    baseDur = 0.12 + forInitiativeIntensity * 0.25; // longer in consonant phases
+  } else if (miContourPhase === 2) {
+    baseDur = 0.06 + forInitiativeIntensity * 0.08; // short in climax
+  } else {
+    baseDur = 0.08 + forInitiativeIntensity * 0.15; // medium in lift
+  }
+  // 1/f timing variation
+  var dur = miPinkTiming(baseDur);
+  dur = Math.max(0.04, Math.min(0.5, dur));
 
-  // Duration scales with intensity (starts short, grows longer)
-  var dur = 0.08 + forInitiativeIntensity * 0.15 + Math.abs(pinkSample()) * 0.05;
+  // Pitch slide: during release, notes slide DOWN slightly (resolution feel)
+  // During lift, notes bend UP slightly (reaching feel)
+  var pitchSlideRatio;
+  if (miContourPhase === 3) {
+    pitchSlideRatio = 0.96 + pinkSample() * 0.01; // slide down
+  } else if (miContourPhase === 1) {
+    pitchSlideRatio = 1.01 + pinkSample() * 0.005; // bend up slightly
+  } else {
+    pitchSlideRatio = 0.97 + pinkSample() * 0.01; // gentle fall (default)
+  }
 
-  // Create the note (simple, clean sine + quiet triangle shimmer)
+  // Create the note
   var osc1 = actx.createOscillator();
   osc1.type = 'sine';
   osc1.frequency.setValueAtTime(freq, now);
-  osc1.frequency.exponentialRampToValueAtTime(freq * 0.97, now + dur);
+  osc1.frequency.exponentialRampToValueAtTime(
+    Math.max(20, freq * pitchSlideRatio), now + dur
+  );
 
   var env = actx.createGain();
-  // Gentle attack, soft release
+  // Attack time: faster during climax, slower during home
+  var attackTime = miContourPhase === 2 ? 0.008 : 0.025;
   env.gain.setValueAtTime(0.001, now);
-  env.gain.linearRampToValueAtTime(vol, now + 0.02);
-  env.gain.setValueAtTime(vol * 0.7, now + dur * 0.3);
-  env.gain.exponentialRampToValueAtTime(0.001, now + dur);
+  env.gain.linearRampToValueAtTime(vol, now + attackTime);
+  // Sustain shape depends on contour phase
+  if (miContourPhase === 0 || miContourPhase === 3) {
+    // Home/release: gentle sustain, soft tail
+    env.gain.setValueAtTime(vol * 0.8, now + dur * 0.4);
+    env.gain.exponentialRampToValueAtTime(0.001, now + dur * 1.2);
+  } else {
+    // Lift/climax: sharper decay
+    env.gain.setValueAtTime(vol * 0.6, now + dur * 0.2);
+    env.gain.exponentialRampToValueAtTime(0.001, now + dur);
+  }
 
   osc1.connect(env);
   env.connect(masterGain);
-  env.connect(reverbSend); // lots of reverb (the void is spacious)
+  env.connect(reverbSend);
 
   osc1.start(now);
-  osc1.stop(now + dur + 0.02);
+  osc1.stop(now + dur * 1.3 + 0.02);
 
-  // Add shimmer for developed solos
-  if (forInitiativeIntensity > 0.3) {
+  // Shimmer layer: add harmonic shimmer that varies with contour phase
+  if (forInitiativeIntensity > 0.15) {
     var osc2 = actx.createOscillator();
+    // During release: pure octave shimmer (consonant bloom)
+    // During lift: slightly detuned (tension shimmer)
+    // During climax: fifth above (complex shimmer)
+    var shimmerRatio;
+    if (miContourPhase === 3 || miContourPhase === 0) {
+      shimmerRatio = 2.0; // pure octave
+    } else if (miContourPhase === 1) {
+      shimmerRatio = 2.003 + pinkSample() * 0.005; // detuned octave
+    } else {
+      shimmerRatio = 3.0; // fifth above octave (twelfth)
+    }
     osc2.type = 'triangle';
-    osc2.frequency.setValueAtTime(freq * 2.002, now);
+    osc2.frequency.setValueAtTime(freq * shimmerRatio, now);
     var shimGain = actx.createGain();
-    shimGain.gain.value = vol * 0.1;
+    shimGain.gain.value = vol * (0.06 + forInitiativeIntensity * 0.08);
     osc2.connect(shimGain);
     shimGain.connect(env);
     osc2.start(now);
-    osc2.stop(now + dur + 0.02);
+    osc2.stop(now + dur * 1.3 + 0.02);
   }
 
   // Record in melody memory
@@ -1497,8 +1987,12 @@ function updatePings(dt, normalBeta, normalGamma, filterTarget) {
 
   pingTimer += dt;
 
-  // Rate controlled by energy + brightness (1/f modulated)
+  // Rate controlled by energy + brightness + contour phase (1/f modulated)
   var baseRate = 0.4 + (1 - normalBeta) * 0.8 + energy * 0.6;
+  // Music Intelligence: contour phase shapes ping density
+  if (miContourPhase === 0) baseRate *= 1.15;       // home: slightly spacious
+  else if (miContourPhase === 2) baseRate *= 0.8;   // climax: denser
+  else if (miContourPhase === 3) baseRate *= 1.1;   // release: easing
   baseRate += pinkSample() * 0.15; // 1/f jitter on timing
 
   // === RHYTHMIC EVOLUTION: timing bias from emergent grid ===
@@ -1537,30 +2031,42 @@ function updatePings(dt, normalBeta, normalGamma, filterTarget) {
     }
 
     if (freq <= 0) {
-      // Fall back to spectral tension engine
-      var tensionNote = getTopTension();
+      // === MUSIC INTELLIGENCE: choose the note that serves the composition ===
+      var chosenPC = miChooseNote(false); // false = player-driven ping, not FOR
 
-      // Pentatonic notes rooted on current harmonic center (high register)
-      // Scale with harmonic center so modulation changes the palette
-      var baseH = center * 16; // 16th harmonic as base
-      var pingNotes = [
-        baseH, baseH * 9/8, baseH * 5/4, baseH * 3/2, baseH * 5/3,
-        baseH * 2, baseH * 9/4, baseH * 5/2, baseH * 3, baseH * 10/3
-      ];
-      var noteIdx;
-      if (tensionNote >= 0) {
-        noteIdx = tensionNote % pingNotes.length;
+      if (chosenPC >= 0) {
+        // Register: tilt controls register (high tilt = high notes)
+        // normalGamma: -1 (left) to 1 (right) maps to lower/higher octave
+        var baseOctave = 16; // 16th harmonic as default register
+        var gammaRegister = (normalGamma + 1) / 2; // 0 to 1
+        // Blend between octave 8 (low) and octave 32 (high) based on tilt
+        var octaveChoices = [8, 16, 16, 32];
+        var octIdx = Math.floor(gammaRegister * (octaveChoices.length - 0.01));
+        octIdx = Math.max(0, Math.min(octaveChoices.length - 1, octIdx));
+        var octMult = octaveChoices[octIdx];
+
+        freq = miPCtoFreq(chosenPC, center, octMult);
       } else {
-        noteIdx = Math.floor(((normalGamma + 1) / 2) * pingNotes.length);
+        // Absolute fallback: tension engine
+        var tensionNote = getTopTension();
+        var baseH = center * 16;
+        var pingNotes = [
+          baseH, baseH * 9/8, baseH * 5/4, baseH * 3/2, baseH * 5/3,
+          baseH * 2, baseH * 9/4, baseH * 5/2, baseH * 3, baseH * 10/3
+        ];
+        var noteIdx;
+        if (tensionNote >= 0) {
+          noteIdx = tensionNote % pingNotes.length;
+        } else {
+          noteIdx = Math.floor(((normalGamma + 1) / 2) * pingNotes.length);
+        }
+        noteIdx = Math.max(0, Math.min(pingNotes.length - 1, noteIdx));
+        if (noteIdx === lastPingNote && pingNotes.length > 1) {
+          noteIdx = (noteIdx + 1 + Math.floor(Math.random() * (pingNotes.length - 1))) % pingNotes.length;
+        }
+        lastPingNote = noteIdx;
+        freq = pingNotes[noteIdx];
       }
-      noteIdx = Math.max(0, Math.min(pingNotes.length - 1, noteIdx));
-
-      // Avoid immediate repetition
-      if (noteIdx === lastPingNote && pingNotes.length > 1) {
-        noteIdx = (noteIdx + 1 + Math.floor(Math.random() * (pingNotes.length - 1))) % pingNotes.length;
-      }
-      lastPingNote = noteIdx;
-      freq = pingNotes[noteIdx];
     }
 
     // Pink noise micro-tuning (humanize)
@@ -1635,9 +2141,29 @@ function updatePartialCoupling(dt) {
   // Player energy increases K (partials lock faster when moving).
   // 1/f noise prevents permanent lock.
   var pinkK = pinkSample() * 0.08; // 1/f perturbation on K
-  kPartials = K_PARTIALS_BASE * (1 + energy * 2.0 + pinkK) * phraseKmod;
+
+  // Music Intelligence: contour phase drives K_partials
+  // This is HOW tension/release actually happens in the sound.
+  // LIFT: K rises (partials want to lock but can't yet = rich tension)
+  // CLIMAX: K high, R lagging = maximum unresolved energy
+  // RELEASE: K holds, R catches up = consonance blooms
+  // HOME: K moderate, R matched = grounded, warm
+  var contourKmod = 1.0;
+  if (miContourPhase === 0) {
+    contourKmod = 0.9; // home: moderate K, comfortable
+  } else if (miContourPhase === 1) {
+    var liftProgress = miPhaseTimers[1] > 0 ? miContourTimer / miPhaseTimers[1] : 0;
+    contourKmod = 0.9 + liftProgress * 0.6; // lift: K climbs from 0.9 to 1.5
+  } else if (miContourPhase === 2) {
+    contourKmod = 1.5; // climax: maximum coupling attempt
+  } else {
+    var releaseProgress = miPhaseTimers[3] > 0 ? miContourTimer / miPhaseTimers[3] : 0;
+    contourKmod = 1.5 - releaseProgress * 0.5; // release: K settles from 1.5 to 1.0
+  }
+
+  kPartials = K_PARTIALS_BASE * (1 + energy * 2.0 + pinkK) * phraseKmod * contourKmod;
   // Clamp K to prevent runaway
-  kPartials = Math.max(0.02, Math.min(0.8, kPartials));
+  kPartials = Math.max(0.02, Math.min(1.0, kPartials));
 
   // === 2. ADVANCE KURAMOTO PHASES ===
   updateKuramotoPhases(dt);
@@ -2115,6 +2641,9 @@ function update() {
   harmonicUpdate(dt);
   forInitiativeUpdate(dt);
 
+  // === MUSIC INTELLIGENCE: energy contour + theme evolution ===
+  miUpdateContour(dt);
+
   // === MELODIC PINGS ===
   updatePings(dt, normalBeta, normalGamma, filterTarget);
 
@@ -2152,6 +2681,7 @@ function update() {
     }
     var initLabel = forInitiative ? ' solo' : '';
     var motifLabel = melodyMotifs.length > 0 ? ' m' + melodyMotifs.length : '';
+    var contourLabel = ['home','lift','peak','bloom'][miContourPhase];
 
     document.getElementById('hud').innerHTML =
       'tilt ' + tiltX.toFixed(0) + '&deg; ' + tiltY.toFixed(0) + '&deg;<br>' +
@@ -2160,6 +2690,7 @@ function update() {
       'soul ' + forLabel + initLabel + '<br>' +
       'R ' + kuramotoR.toFixed(2) + ' ' + rLabel + '<br>' +
       rhythmLabel + keyLabel + motifLabel + '<br>' +
+      contourLabel + ' R/K ' + miRKratio.toFixed(2) + '<br>' +
       stateLabel;
   }
 }
