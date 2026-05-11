@@ -247,6 +247,43 @@ var driftX = 0, driftY = 0;
 var driftAngle = Math.random() * Math.PI * 2;
 var breathPhase = 0;
 
+// ═══ PULSE SYSTEM — heartbeat that ripples through the flock ═══
+// Every 15-30 seconds, one scout spontaneously fires a brightness pulse.
+// The pulse propagates through coupled pairs at coupling speed.
+// Like a heartbeat visible in the body. Rare enough to be surprising.
+var pulseTimer = 8 + Math.random() * 12; // first pulse in 8-20s
+var pulseActive = false;
+var pulseBright = new Float64Array(N); // per-node brightness boost from pulse (0-1)
+var pulseWave = new Float64Array(N);   // wave arrival time per node (-1 = not reached)
+var pulseOrigin = -1;
+var pulseStartTime = 0;
+var PULSE_SPEED = 180; // pixels per second — speed of wave propagation
+var PULSE_DECAY = 0.92; // how fast the brightness fades after the wave passes
+
+// ═══ AURORAL SHIMMER — transcendence at high R ═══
+// When R > 0.7 for a sustained moment, a subtle color wash drifts through.
+// Not a flash. A shimmer. Northern lights made of earth tones.
+var auroraActive = false;
+var auroraPhase = 0;
+var auroraIntensity = 0; // 0-1, fades in/out
+var highRTimer = 0; // how long R has been above threshold
+var AURORA_R_THRESH = 0.7;
+var AURORA_ONSET = 1.5; // seconds of high R before shimmer begins
+// Aurora color palette — gold-green, copper-teal, ember-blue
+var auroraColors = [
+  [180, 200, 80],   // green-gold
+  [100, 180, 140],  // blue-copper
+  [220, 170, 60],   // warm gold
+  [80, 160, 130],   // teal-green
+];
+var auroraColorIdx = 0;
+
+// ═══ MOUSE PARALLAX — depth from cursor position ═══
+// Near particles shift more than far ones when the mouse moves.
+// Creates genuine parallax — the formation has layers you can see through.
+var parallaxX = 0, parallaxY = 0; // current parallax offset (smoothed)
+var parallaxTargetX = 0, parallaxTargetY = 0;
+
 // Neighbors — wider radius so the web of connections is rich
 var nbrL=[];
 for(var i=0;i<N;i++){var nn=[];for(var j=0;j<N;j++){if(j===i)continue;var ddx=nxA[j]-nxA[i],ddy=nyA[j]-nyA[i];if(ddx*ddx+ddy*ddy<12.0)nn.push(j);}nbrL.push(nn);}
@@ -362,8 +399,9 @@ function drawBackground(cx, W, H, Rval, t){
     if(neb.y > 1.5) neb.y = -1.5;
     if(neb.y < -1.5) neb.y = 1.5;
 
-    var nebX = W/2 + neb.x * W * 0.4;
-    var nebY = H/2 + neb.y * H * 0.4;
+    // Nebulae are the deepest layer — barely shift with parallax (10%)
+    var nebX = W/2 + neb.x * W * 0.4 + parallaxX * 0.1;
+    var nebY = H/2 + neb.y * H * 0.4 + parallaxY * 0.1;
     var nebR = neb.radius * (W/900); // scale with canvas
     var nebA = neb.alpha * (0.6 + Rval * 0.6) * (0.8 + 0.2 * Math.sin(t*0.08 + ni*1.7));
     var nc = neb.color;
@@ -395,8 +433,9 @@ function drawBackground(cx, W, H, Rval, t){
     if(bp.y > 1.2) bp.y = -1.2;
     if(bp.y < -1.2) bp.y = 1.2;
 
-    var bsx = W/2 + bp.x * W * 0.5;
-    var bsy = H/2 + bp.y * H * 0.5;
+    // Background particles are mid-depth — shift with parallax at 25%
+    var bsx = W/2 + bp.x * W * 0.5 + parallaxX * 0.25 * bp.z;
+    var bsy = H/2 + bp.y * H * 0.5 + parallaxY * 0.25 * bp.z;
     var bAlpha = bp.alpha * (0.5 + Rval * 0.5) * (0.7 + 0.3 * Math.sin(t*0.3 + bi));
     var bSize = bp.size * (1 + Rval * 0.5);
 
@@ -554,9 +593,57 @@ function draw() {
     nxA[i] += vxA[i];
     nyA[i] += vyA[i];
   }
+  // ═══ PULSE — spontaneous heartbeat (trigger only — propagation after projection) ═══
+  pulseTimer -= dt;
+  if(pulseTimer <= 0 && !pulseActive){
+    // Pick a random scout to originate the pulse
+    var scoutCandidates = [];
+    for(var si2=0; si2<N; si2++) if(isScout[si2]) scoutCandidates.push(si2);
+    if(scoutCandidates.length > 0){
+      pulseOrigin = scoutCandidates[Math.floor(Math.random() * scoutCandidates.length)];
+      pulseActive = true;
+      pulseStartTime = shapeTime;
+      for(var pi=0; pi<N; pi++) pulseWave[pi] = -1;
+      pulseWave[pulseOrigin] = 0; // origin fires immediately
+      pulseBright[pulseOrigin] = 1.0;
+    }
+    pulseTimer = 15 + Math.random() * 20; // next pulse in 15-35s
+  }
+
+  // ═══ AURORA — shimmer at high coherence ═══
+  if(Rval > AURORA_R_THRESH){
+    highRTimer += dt;
+    if(highRTimer > AURORA_ONSET && !auroraActive){
+      auroraActive = true;
+      auroraColorIdx = Math.floor(Math.random() * auroraColors.length);
+      auroraPhase = 0;
+    }
+  } else {
+    highRTimer = Math.max(0, highRTimer - dt * 2);
+    if(highRTimer <= 0) auroraActive = false;
+  }
+  if(auroraActive){
+    auroraPhase += dt * 0.8;
+    // Intensity ramps in, holds, ramps out
+    var aTarget = Math.sin(auroraPhase * 0.5) * 0.5 + 0.5;
+    aTarget *= Math.min(1, (Rval - AURORA_R_THRESH) / 0.15); // stronger at higher R
+    auroraIntensity += (aTarget - auroraIntensity) * 0.03;
+    if(auroraPhase > Math.PI * 4) auroraActive = false; // ~8 seconds max
+  } else {
+    auroraIntensity *= 0.95; // fade out smoothly
+  }
+
   // ═══ PAGE AWARENESS FORCES — perturbations on top of shape ═══
   // Canvas rect for coordinate mapping
   var cvRect=cv.getBoundingClientRect();
+
+  // ═══ PARALLAX — mouse reveals depth layers ═══
+  // Target parallax from mouse position relative to canvas center
+  parallaxTargetX = (mouseX - (cvRect.left + cvRect.width*0.5)) * 0.015;
+  parallaxTargetY = (mouseY - (cvRect.top + cvRect.height*0.5)) * 0.012;
+  // Smooth toward target — water bottle feel
+  parallaxX += (parallaxTargetX - parallaxX) * 0.04;
+  parallaxY += (parallaxTargetY - parallaxY) * 0.04;
 
   // Mouse decay — fade over 0.5s when mouse stops
   if(!mouseActive && mouseDecay>0) mouseDecay=Math.max(0, mouseDecay-dt*2.0);
@@ -674,6 +761,54 @@ function draw() {
   var idxMap=new Array(N);
   for(var k=0;k<N;k++) idxMap[proj[k].i]=proj[k];
 
+  // ═══ PARALLAX SHIFT — near particles move more than far ones ═══
+  // persp near 1.0 = close to camera = more parallax shift
+  // persp near 0.5 = far from camera = less shift
+  // This creates genuine depth layers you can see through
+  for(var k=0;k<proj.length;k++){
+    var nd=proj[k];
+    // Depth factor: close nodes (persp ~1) shift fully, far nodes (persp ~0.5) shift half
+    var depthFactor = nd.persp * nd.persp; // squared for more dramatic near/far separation
+    nd.sx += parallaxX * depthFactor;
+    nd.sy += parallaxY * depthFactor;
+  }
+
+  // ═══ PULSE PROPAGATION — wave spreads from origin through screen space ═══
+  if(pulseActive){
+    var elapsed = shapeTime - pulseStartTime;
+    var allReached = true;
+    // Decay brightness on reached nodes
+    for(var pi2=0; pi2<N; pi2++){
+      if(pulseWave[pi2] >= 0){
+        pulseBright[pi2] *= PULSE_DECAY;
+      } else {
+        allReached = false;
+      }
+    }
+    // Expand wave front from origin — screen distance
+    var waveRadius = elapsed * PULSE_SPEED;
+    var opm = idxMap[pulseOrigin];
+    if(opm){
+      for(var pi3=0; pi3<N; pi3++){
+        if(pulseWave[pi3] >= 0) continue;
+        var pm3 = idxMap[pi3];
+        if(!pm3) continue;
+        var pdx3 = pm3.sx - opm.sx;
+        var pdy3 = pm3.sy - opm.sy;
+        var pDist3 = Math.sqrt(pdx3*pdx3 + pdy3*pdy3);
+        if(pDist3 < waveRadius){
+          pulseWave[pi3] = elapsed;
+          pulseBright[pi3] = 1.0;
+        }
+      }
+    }
+    // End pulse after timeout or full fade
+    if(elapsed > 6.0 || (allReached && pulseBright[pulseOrigin] < 0.01)){
+      pulseActive = false;
+      for(var pi4=0; pi4<N; pi4++) pulseBright[pi4] = 0;
+    }
+  }
+
   // ═══ TRAIL RECORDING — scouts remember where they've been ═══
   for(var i=0;i<N;i++){
     if(!trailBuf[i]) continue;
@@ -765,9 +900,13 @@ function draw() {
       // Mature bonds: slightly warmer, steadier, thicker
       var matureBoost = maturity * 0.3;
 
+      // ═══ PULSE BOOST ON BONDS — connections flare when the heartbeat passes ═══
+      var bondPulse = Math.max(pulseBright[ki], pulseBright[kj]);
+      var pulseBoost = 1.0 + bondPulse * 3.0; // connections flare 4x during pulse
+
       // Alpha and width scale with sync — weak connections are ghost lines, strong are wires
-      var alpha = (0.01 + s2 * 0.06) * pMin * globalBreath * flicker * (1 + matureBoost);
-      var lw = (0.3 + s2 * 0.8 + maturity * 0.3) * pMin;
+      var alpha = (0.01 + s2 * 0.06) * pMin * globalBreath * flicker * (1 + matureBoost) * pulseBoost;
+      var lw = (0.3 + s2 * 0.8 + maturity * 0.3) * pMin * (1 + bondPulse * 1.5);
       cx.strokeStyle='rgba('+lr+','+lg+','+lb+','+alpha.toFixed(3)+')';
       cx.lineWidth=lw;
       cx.beginPath();cx.moveTo(nd.sx,nd.sy);cx.lineTo(nb.sx,nb.sy);cx.stroke();
@@ -811,6 +950,62 @@ function draw() {
       cx.strokeStyle='rgba('+tcol[0]+','+tcol[1]+','+tcol[2]+','+trailA.toFixed(4)+')';
       cx.lineWidth = 0.5 + age * 0.8;
       cx.beginPath(); cx.moveTo(x1t,y1t); cx.lineTo(x2t,y2t); cx.stroke();
+    }
+  }
+
+  // ═══ AURORA FIELD — subtle color wash across the whole formation at high R ═══
+  if(auroraIntensity > 0.005){
+    var acol2 = auroraColors[auroraColorIdx];
+    // Two soft gradient circles that drift across the formation
+    // Like northern lights — not uniform, not centered, moving
+    var aurX1 = W/2 + Math.sin(auroraPhase * 0.3) * W * 0.15;
+    var aurY1 = H * 0.4 + Math.cos(auroraPhase * 0.2) * H * 0.1;
+    var aurR1 = Math.min(W,H) * (0.3 + auroraIntensity * 0.2);
+    var aurA1 = auroraIntensity * 0.025; // extremely subtle
+
+    var aurGrad1 = cx.createRadialGradient(aurX1, aurY1, 0, aurX1, aurY1, aurR1);
+    aurGrad1.addColorStop(0, 'rgba('+acol2[0]+','+acol2[1]+','+acol2[2]+','+aurA1.toFixed(4)+')');
+    aurGrad1.addColorStop(0.5, 'rgba('+acol2[0]+','+acol2[1]+','+acol2[2]+','+(aurA1*0.4).toFixed(4)+')');
+    aurGrad1.addColorStop(1, 'rgba('+acol2[0]+','+acol2[1]+','+acol2[2]+',0)');
+    cx.fillStyle = aurGrad1;
+    cx.fillRect(aurX1-aurR1, aurY1-aurR1, aurR1*2, aurR1*2);
+
+    // Second aurora lobe — different position, complementary color
+    var acol3 = auroraColors[(auroraColorIdx + 2) % auroraColors.length];
+    var aurX2 = W/2 + Math.cos(auroraPhase * 0.25 + 2) * W * 0.2;
+    var aurY2 = H * 0.5 + Math.sin(auroraPhase * 0.35 + 1) * H * 0.12;
+    var aurR2 = Math.min(W,H) * (0.25 + auroraIntensity * 0.15);
+    var aurA2 = auroraIntensity * 0.018;
+
+    var aurGrad2 = cx.createRadialGradient(aurX2, aurY2, 0, aurX2, aurY2, aurR2);
+    aurGrad2.addColorStop(0, 'rgba('+acol3[0]+','+acol3[1]+','+acol3[2]+','+aurA2.toFixed(4)+')');
+    aurGrad2.addColorStop(0.6, 'rgba('+acol3[0]+','+acol3[1]+','+acol3[2]+','+(aurA2*0.3).toFixed(4)+')');
+    aurGrad2.addColorStop(1, 'rgba('+acol3[0]+','+acol3[1]+','+acol3[2]+',0)');
+    cx.fillStyle = aurGrad2;
+    cx.fillRect(aurX2-aurR2, aurY2-aurR2, aurR2*2, aurR2*2);
+  }
+
+  // ═══ PULSE RING — visible wavefront expanding from origin ═══
+  if(pulseActive && pulseOrigin >= 0){
+    var popm = idxMap[pulseOrigin];
+    if(popm){
+      var pElapsed = shapeTime - pulseStartTime;
+      var ringRadius = pElapsed * PULSE_SPEED;
+      var ringWidth = 30 + pElapsed * 10; // ring gets wider as it expands
+      var ringAlpha = Math.max(0, 0.06 - pElapsed * 0.008); // fades as it expands
+      if(ringAlpha > 0.002){
+        cx.strokeStyle = 'rgba(230,180,80,' + ringAlpha.toFixed(4) + ')';
+        cx.lineWidth = ringWidth * 0.3;
+        cx.beginPath();
+        cx.arc(popm.sx, popm.sy, ringRadius, 0, Math.PI*2);
+        cx.stroke();
+        // Inner brighter ring
+        cx.strokeStyle = 'rgba(255,220,140,' + (ringAlpha * 0.5).toFixed(4) + ')';
+        cx.lineWidth = ringWidth * 0.1;
+        cx.beginPath();
+        cx.arc(popm.sx, popm.sy, ringRadius, 0, Math.PI*2);
+        cx.stroke();
+      }
     }
   }
 
@@ -863,10 +1058,39 @@ function draw() {
     var size = (2.0 + breath*0.8) * nd.persp * globalBreath * scoutBonus;
     var bright = (0.7 + Math.abs(breath)*0.5) * nd.persp * (isScout[nd.i] ? 1.15 : 1.0);
 
+    // ═══ PULSE BRIGHTNESS — heartbeat wave lights up each node ═══
+    var pBright = pulseBright[nd.i];
+    if(pBright > 0.01){
+      // Pulse makes nodes flare — size grows, brightness spikes, color shifts white-hot
+      bright += pBright * 0.8;
+      size += pBright * 3.0 * nd.persp;
+      // Shift color toward white during pulse
+      col = [
+        Math.min(255, Math.round(col[0] + (255 - col[0]) * pBright * 0.6)),
+        Math.min(255, Math.round(col[1] + (255 - col[1]) * pBright * 0.5)),
+        Math.min(255, Math.round(col[2] + (255 - col[2]) * pBright * 0.3))
+      ];
+    }
+
+    // ═══ AURORAL SHIMMER — color wash at transcendent R ═══
+    if(auroraIntensity > 0.005){
+      var acol = auroraColors[auroraColorIdx];
+      // Wave moves across the formation — not uniform, spatial
+      var aWave = Math.sin(auroraPhase * 1.5 + nd.sx * 0.008 + nd.sy * 0.005) * 0.5 + 0.5;
+      var aStr = auroraIntensity * aWave * 0.25; // very subtle
+      col = [
+        Math.min(255, Math.round(col[0] + (acol[0] - col[0]) * aStr)),
+        Math.min(255, Math.round(col[1] + (acol[1] - col[1]) * aStr)),
+        Math.min(255, Math.round(col[2] + (acol[2] - col[2]) * aStr))
+      ];
+    }
+
     // Radial glow — soft halo, not a rectangle
     // Only for foreground nodes (persp > 0.6) to save GPU on distant ones
+    // Pulse makes the glow bigger and brighter
+    var glowMult = 1.0 + pBright * 2.0;
     if(bright>0.15 && nd.persp > 0.6){
-      var glowR = size * 4.5;
+      var glowR = size * 4.5 * glowMult;
       var grad = cx.createRadialGradient(nd.sx,nd.sy,size*0.3, nd.sx,nd.sy,glowR);
       grad.addColorStop(0,'rgba('+col[0]+','+col[1]+','+col[2]+','+(bright*0.20).toFixed(3)+')');
       grad.addColorStop(0.35,'rgba('+col[0]+','+col[1]+','+col[2]+','+(bright*0.07).toFixed(3)+')');
@@ -876,7 +1100,7 @@ function draw() {
     }
 
     // Hot core — brighter center fading to color at edge
-    var hotFactor = Math.max(0, breath) * 0.35;
+    var hotFactor = Math.max(0, breath) * 0.35 + pBright * 0.4;
     var cr = Math.min(255, Math.round(col[0]+(255-col[0])*hotFactor));
     var cg = Math.min(255, Math.round(col[1]+(255-col[1])*hotFactor));
     var cb = Math.min(255, Math.round(col[2]+(255-col[2])*hotFactor));
