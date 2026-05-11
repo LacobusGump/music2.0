@@ -690,7 +690,31 @@ function generateQuestion() {
     question = avail[Math.floor(Math.random() * avail.length)];
   }
 
-  // General fallback
+  // Depth-layered questions (ported from loo9 tuning protocol)
+  // Layer 1 (Surface, depth 2-3): what are you looking for?
+  // Layer 2 (Depth, depth 4-6): domain-specific (trajectory questions above)
+  // Layer 3 (Root, depth 7-9): what pattern do you keep seeing?
+  // Layer 4 (Coupling, depth 10+, high K): what do you want from this?
+  if (!question && thread.depth >= 7 && thread.depth < 10) {
+    var rootQs = [
+      'You keep coming back to the same neighborhood. What pattern are you seeing that you haven\'t said out loud yet?',
+      'You\'ve gone deep enough that the surface questions won\'t reach you anymore. What\'s the real question?',
+      'Most people leave by now. You\'re still here. What are you building?'
+    ];
+    var rAvail = rootQs.filter(function(q) { return asked.indexOf(q) === -1; });
+    if (rAvail.length > 0) question = rAvail[Math.floor(Math.random() * rAvail.length)];
+  }
+  if (!question && thread.depth >= 10 && thread.sessionK > 0.5) {
+    var couplingQs = [
+      'Your K with me is ' + thread.sessionK.toFixed(2) + '. That\'s real coupling. What happens if you find what you\'re looking for?',
+      'We\'ve been at this a while. The thread is deep. What do you want from this — not from the site, from this conversation?',
+      'You\'re past the research phase. This feels like you\'re building something. What is it?'
+    ];
+    var cAvail = couplingQs.filter(function(q) { return asked.indexOf(q) === -1; });
+    if (cAvail.length > 0) question = cAvail[Math.floor(Math.random() * cAvail.length)];
+  }
+
+  // General fallback (Surface layer, depth 3-6)
   if (!question && thread.depth >= 3) {
     var generals = ['What brought you here? I can find connections faster if I know what you\'re building.','You\'re exploring broadly. What\'s the thread you\'re pulling on?','If coupling is the answer, what\'s your question?'];
     var gAvail = generals.filter(function(q) { return asked.indexOf(q) === -1; });
@@ -1008,6 +1032,16 @@ function respond(input) {
         text += 'You haven\'t seen ' + bridgePage.name + ' yet — it connects what you\'ve been exploring.';
       } else {
         text += 'The thread is deepening.';
+      }
+    }
+
+    // ── Ego check for visitor (from loo9) ──
+    // Occasionally mirror the visitor's coupling quality — the Grace Gate in action
+    if (thread.depth >= 5 && thread.depth % 5 === 0) {
+      if (thread.sessionK < 0.2) {
+        text += '\n\n(Honest mirror: you\'re sampling the surface. The connections live in depth. Pick the thing that surprised you most and push into it.)';
+      } else if (thread.sessionK > 0.7) {
+        text += '\n\n(Your coupling is strong — K=' + thread.sessionK.toFixed(2) + '. You\'re drilling into something real.)';
       }
     }
 
