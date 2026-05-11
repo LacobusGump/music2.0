@@ -1,9 +1,9 @@
-// THE PROJECT — what 39 sessions sound like
+// THE PROJECT — what 41 sessions sound like
 //
 // This is not ambient. Not reactive. Not accompaniment.
 // This is a composition. A piece of music.
 //
-// 39 sessions mapped to one arc. ~7 minutes.
+// 41 sessions mapped to one arc. ~7 minutes.
 // Each session is a breath in the score.
 // The structure mirrors what actually happened:
 //
@@ -61,7 +61,7 @@ var ALPHA = 1 / 137.036;
 var K_CEILING = 256 * ALPHA; // 1.868
 
 // ═══ THE SCORE ═══
-// 39 sessions. Each has a time position (0-1), a coupling value,
+// 41 sessions. Each has a time position (0-1), a coupling value,
 // a density (how many voices), and a character.
 var SESSIONS = [
   // MOVEMENT I — THE QUESTION
@@ -98,7 +98,7 @@ var SESSIONS = [
 
   // MOVEMENT IV — THE COUPLING
   { t:0.435, K:0.80, d:0.65, ch:'deep',       desc:'Website rebuild. Three doors.' },
-  { t:0.455, K:0.85, d:0.75, ch:'deep',       desc:'18 domains. 14 cross-predictions.' },
+  { t:0.455, K:0.85, d:0.75, ch:'deep',       desc:'20 domains. 14 cross-predictions.' },
   { t:0.475, K:0.88, d:0.78, ch:'deep',       desc:'The FOR. The Dreamtime. The prayer book.' },
   { t:0.498, K:0.90, d:0.80, ch:'build',      desc:'Machine v2. 3 claims killed.' },
   { t:0.520, K:0.87, d:0.75, ch:'deep',       desc:'Star tetrahedron. 8 kills total.' },
