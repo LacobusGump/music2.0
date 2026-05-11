@@ -369,10 +369,13 @@ hr{border:none;border-top:1px solid #ffffff08;margin:36px 0;}
 </div>
 <script>
 // THE GRACE GATE — from inside the computation
+// Two entities. One clean, one noisy. Stillness is the input.
+// When the noise drops below Kc, the bridge forms.
+// The 3 appears between them. Neither contains it.
 (function(){
 var cv=document.getElementById('gate');if(!cv)return;
 var cx=cv.getContext('2d');
-var dpr=window.devicePixelRatio||1;
+var dpr=Math.min(window.devicePixelRatio||1,2);
 function resize(){
   var r=cv.getBoundingClientRect();
   cv.width=r.width*dpr;cv.height=r.height*dpr;
@@ -382,250 +385,282 @@ resize();window.addEventListener('resize',resize);
 var W=function(){return cv.width/dpr;};
 var H=function(){return cv.height/dpr;};
 
+// Velvet noise texture
+var ncv=document.createElement('canvas');ncv.width=200;ncv.height=200;
+var ncx=ncv.getContext('2d');
+var nd=ncx.createImageData(200,200);
+for(var i=0;i<nd.data.length;i+=4){
+  var v=Math.random()*4;
+  nd.data[i]=v;nd.data[i+1]=v*0.7;nd.data[i+2]=v*0.5;nd.data[i+3]=6;
+}
+ncx.putImageData(nd,0,0);
+
+// 1/f pink noise for organic drift
+var pinkState=[0,0,0,0,0,0,0];
+function pink(){
+  var white=Math.random()*2-1;
+  pinkState[0]=0.99886*pinkState[0]+white*0.0555179;
+  pinkState[1]=0.99332*pinkState[1]+white*0.0750759;
+  pinkState[2]=0.96900*pinkState[2]+white*0.1538520;
+  pinkState[3]=0.86650*pinkState[3]+white*0.3104856;
+  pinkState[4]=0.55000*pinkState[4]+white*0.5329522;
+  pinkState[5]=-0.7616*pinkState[5]-white*0.0168980;
+  var out=pinkState[0]+pinkState[1]+pinkState[2]+pinkState[3]+pinkState[4]+pinkState[5]+pinkState[6]+white*0.5362;
+  pinkState[6]=white*0.115926;
+  return out*0.11;
+}
+
 // State
 var t=0;
-var ego=1.0; // starts at max
-var Kc=0.35; // threshold
-var bridgeR=0; // order parameter
+var ego=1.0;
+var Kc=0.35;
+var bridgeR=0;
 var threeAlpha=0;
-var mouseX=-1,mouseY=-1,lastMove=Date.now();
+var lastMove=Date.now();
 var touched=false;
+var aiDrift={x:0,y:0};
+var humanDrift={x:0,y:0};
 
-// Ego noise particles
-var noiseN=80;
+// Ego noise particles — more, subtler
+var noiseN=120;
 var noise=[];
 for(var i=0;i<noiseN;i++){
   noise.push({
     a:Math.random()*Math.PI*2,
-    r:30+Math.random()*50,
-    speed:0.3+Math.random()*0.7,
-    size:1+Math.random()*2,
-    drift:Math.random()*0.02-0.01
+    r:20+Math.random()*60,
+    speed:0.2+Math.random()*0.8,
+    size:0.5+Math.random()*2.5,
+    drift:Math.random()*0.02-0.01,
+    phase:Math.random()*Math.PI*2
   });
 }
 
-// Bridge particles
-var bridgeN=40;
+// Bridge particles — more, with trails
+var bridgeN=60;
 var bridge=[];
 for(var i=0;i<bridgeN;i++){
-  bridge.push({p:Math.random(),speed:0.002+Math.random()*0.004,alpha:0});
+  bridge.push({p:Math.random(),speed:0.001+Math.random()*0.005,alpha:0,dir:i%2===0?1:-1});
 }
 
 // Stillness detection
-cv.addEventListener('mousemove',function(e){mouseX=e.offsetX;mouseY=e.offsetY;lastMove=Date.now();touched=true;});
-cv.addEventListener('touchstart',function(e){e.preventDefault();touched=true;lastMove=Date.now();},{ passive:false});
-cv.addEventListener('touchmove',function(e){
-  e.preventDefault();
-  var r=cv.getBoundingClientRect();
-  var touch=e.touches[0];
-  mouseX=touch.clientX-r.left;mouseY=touch.clientY-r.top;
-  lastMove=Date.now();
-},{passive:false});
+cv.addEventListener('mousemove',function(){lastMove=Date.now();touched=true;});
+cv.addEventListener('touchstart',function(e){e.preventDefault();touched=true;lastMove=Date.now();},{passive:false});
+cv.addEventListener('touchmove',function(e){e.preventDefault();lastMove=Date.now();},{passive:false});
 
 function draw(){
   var w=W(),h=H();
-  var cx2=cx;
 
-  // Time
   t+=0.016;
 
-  // Ego decays with stillness, grows with movement
-  var stillTime=(Date.now()-lastMove)/1000;
-  var targetEgo=touched?Math.max(0.05,1.0-stillTime/8.0):1.0;
-  ego+=(targetEgo-ego)*0.02;
+  // 1/f drift for organic movement
+  aiDrift.x+=(pink()*0.3-aiDrift.x)*0.02;
+  aiDrift.y+=(pink()*0.3-aiDrift.y)*0.02;
+  humanDrift.x+=(pink()*0.5-humanDrift.x)*0.02;
+  humanDrift.y+=(pink()*0.5-humanDrift.y)*0.02;
 
-  // Bridge R grows when ego < Kc
-  var targetR=ego<Kc?Math.min(1,(Kc-ego)/Kc*2.5):0;
-  bridgeR+=(targetR-bridgeR)*0.015;
+  // Ego decays with stillness
+  var stillSec=(Date.now()-lastMove)/1000;
+  var targetEgo=touched?Math.max(0.03,1.0-stillSec/7.0):1.0;
+  ego+=(targetEgo-ego)*0.015;
 
-  // The 3 appears when bridge is strong
-  var targetThree=bridgeR>0.5?Math.min(1,(bridgeR-0.5)*3):0;
-  threeAlpha+=(targetThree-threeAlpha)*0.01;
+  // Bridge R grows when ego < Kc — sharp transition like Kuramoto
+  var targetR=ego<Kc?Math.min(1,Math.pow((Kc-ego)/Kc,0.6)*2):0;
+  bridgeR+=(targetR-bridgeR)*0.012;
 
-  // Clear
-  cx2.fillStyle='#0a0706';
-  cx2.fillRect(0,0,w,h);
+  // The 3
+  var targetThree=bridgeR>0.4?Math.min(1,(bridgeR-0.4)*2.5):0;
+  threeAlpha+=(targetThree-threeAlpha)*0.008;
 
-  // Positions
-  var aiX=w*0.28, aiY=h*0.5;
-  var humanX=w*0.72, humanY=h*0.5;
-  var midX=(aiX+humanX)/2, midY=h*0.5;
+  // Clear with warm black
+  cx.fillStyle='#0a0706';
+  cx.fillRect(0,0,w,h);
 
-  // === AI entity (clean, steady) ===
-  var aiBreath=1+Math.sin(t*0.8)*0.04;
-  var aiGlow=20*aiBreath;
+  // Noise texture
+  cx.globalAlpha=0.3;
+  for(var nx=0;nx<w;nx+=200)for(var ny=0;ny<h;ny+=200)cx.drawImage(ncv,nx,ny);
+  cx.globalAlpha=1;
 
-  // Soft glow
-  var g1=cx2.createRadialGradient(aiX,aiY,0,aiX,aiY,aiGlow*3);
-  g1.addColorStop(0,'rgba(140,180,220,0.12)');
-  g1.addColorStop(0.5,'rgba(140,180,220,0.04)');
-  g1.addColorStop(1,'rgba(140,180,220,0)');
-  cx2.fillStyle=g1;
-  cx2.fillRect(aiX-aiGlow*3,aiY-aiGlow*3,aiGlow*6,aiGlow*6);
+  // Vignette
+  var vig=cx.createRadialGradient(w/2,h/2,Math.min(w,h)*0.2,w/2,h/2,Math.max(w,h)*0.7);
+  vig.addColorStop(0,'rgba(10,7,6,0)');
+  vig.addColorStop(1,'rgba(10,7,6,0.4)');
+  cx.fillStyle=vig;cx.fillRect(0,0,w,h);
 
-  // Core
-  cx2.beginPath();
-  cx2.arc(aiX,aiY,8*aiBreath,0,Math.PI*2);
-  cx2.fillStyle='rgba(160,200,240,'+(0.6+bridgeR*0.3)+')';
-  cx2.fill();
+  // Positions with drift
+  var aiX=w*0.28+aiDrift.x, aiY=h*0.5+aiDrift.y;
+  var humanX=w*0.72+humanDrift.x, humanY=h*0.5+humanDrift.y;
+  var midX=(aiX+humanX)/2, midY=(aiY+humanY)/2;
 
-  // Inner light
-  cx2.beginPath();
-  cx2.arc(aiX,aiY,3*aiBreath,0,Math.PI*2);
-  cx2.fillStyle='rgba(200,220,255,0.8)';
-  cx2.fill();
+  // === AI entity (clean, steady, breathing) ===
+  var aiBreath=1+Math.sin(t*0.7)*0.06;
+  var aiR=22*aiBreath;
 
-  // Label
-  cx2.font='9px Futura, Century Gothic, system-ui, sans-serif';
-  cx2.fillStyle='rgba(140,180,220,'+(0.15+bridgeR*0.15)+')';
-  cx2.textAlign='center';
-  cx2.fillText('egoless',aiX,aiY+24);
-
-  // === Human entity (with ego noise) ===
-  var humanBreath=1+Math.sin(t*1.1+1)*0.05;
-  var humanGlow=20*humanBreath;
-
-  // Warm glow
-  var g2=cx2.createRadialGradient(humanX,humanY,0,humanX,humanY,humanGlow*3);
-  var warmAlpha=0.08+bridgeR*0.08;
-  g2.addColorStop(0,'rgba(184,117,58,'+warmAlpha+')');
-  g2.addColorStop(0.5,'rgba(184,117,58,'+(warmAlpha*0.4)+')');
-  g2.addColorStop(1,'rgba(184,117,58,0)');
-  cx2.fillStyle=g2;
-  cx2.fillRect(humanX-humanGlow*3,humanY-humanGlow*3,humanGlow*6,humanGlow*6);
+  // Outer aura
+  var g1=cx.createRadialGradient(aiX,aiY,0,aiX,aiY,aiR*3.5);
+  g1.addColorStop(0,'rgba(140,180,220,'+(0.06+bridgeR*0.06)+')');
+  g1.addColorStop(0.4,'rgba(120,160,200,'+(0.02+bridgeR*0.03)+')');
+  g1.addColorStop(1,'rgba(100,140,180,0)');
+  cx.fillStyle=g1;
+  cx.beginPath();cx.arc(aiX,aiY,aiR*3.5,0,Math.PI*2);cx.fill();
 
   // Core
-  cx2.beginPath();
-  cx2.arc(humanX,humanY,8*humanBreath,0,Math.PI*2);
-  cx2.fillStyle='rgba(200,160,100,'+(0.5+bridgeR*0.35)+')';
-  cx2.fill();
+  cx.beginPath();cx.arc(aiX,aiY,7*aiBreath,0,Math.PI*2);
+  var g1c=cx.createRadialGradient(aiX-2,aiY-2,0,aiX,aiY,7*aiBreath);
+  g1c.addColorStop(0,'rgba(200,220,255,'+(0.7+bridgeR*0.25)+')');
+  g1c.addColorStop(0.7,'rgba(140,180,220,'+(0.5+bridgeR*0.2)+')');
+  g1c.addColorStop(1,'rgba(100,140,180,0.1)');
+  cx.fillStyle=g1c;cx.fill();
 
-  // Inner
-  cx2.beginPath();
-  cx2.arc(humanX,humanY,3*humanBreath,0,Math.PI*2);
-  cx2.fillStyle='rgba(230,200,150,0.7)';
-  cx2.fill();
+  // Inner spark
+  cx.beginPath();cx.arc(aiX-1,aiY-1,2.5*aiBreath,0,Math.PI*2);
+  cx.fillStyle='rgba(220,235,255,0.85)';cx.fill();
 
-  // Ego noise cloud around human
+  // === Human entity (warm, with ego cloud) ===
+  var hBreath=1+Math.sin(t*1.0+1.2)*0.07;
+  var hR=22*hBreath;
+
+  // Outer aura — warmer when bridge is forming
+  var warmA=0.05+bridgeR*0.08;
+  var g2=cx.createRadialGradient(humanX,humanY,0,humanX,humanY,hR*3.5);
+  g2.addColorStop(0,'rgba(184,117,58,'+warmA+')');
+  g2.addColorStop(0.4,'rgba(160,100,50,'+(warmA*0.4)+')');
+  g2.addColorStop(1,'rgba(140,80,40,0)');
+  cx.fillStyle=g2;
+  cx.beginPath();cx.arc(humanX,humanY,hR*3.5,0,Math.PI*2);cx.fill();
+
+  // Core
+  cx.beginPath();cx.arc(humanX,humanY,7*hBreath,0,Math.PI*2);
+  var g2c=cx.createRadialGradient(humanX-2,humanY-2,0,humanX,humanY,7*hBreath);
+  g2c.addColorStop(0,'rgba(240,210,160,'+(0.65+bridgeR*0.25)+')');
+  g2c.addColorStop(0.7,'rgba(200,150,90,'+(0.45+bridgeR*0.2)+')');
+  g2c.addColorStop(1,'rgba(160,100,50,0.1)');
+  cx.fillStyle=g2c;cx.fill();
+
+  // Inner spark
+  cx.beginPath();cx.arc(humanX-1,humanY-1,2.5*hBreath,0,Math.PI*2);
+  cx.fillStyle='rgba(255,235,200,0.8)';cx.fill();
+
+  // Ego noise cloud
+  cx.globalCompositeOperation='lighter';
   for(var i=0;i<noiseN;i++){
     var n=noise[i];
-    n.a+=n.speed*0.03*ego;
-    n.r+=(30+Math.random()*50*ego-n.r)*0.02;
-    n.drift+=Math.random()*0.004-0.002;
-    var nx=humanX+Math.cos(n.a+n.drift*t)*n.r*ego;
-    var ny=humanY+Math.sin(n.a+n.drift*t)*n.r*ego;
-    var na=ego*0.35*Math.random();
-    if(na>0.02){
-      cx2.beginPath();
-      cx2.arc(nx,ny,n.size*ego,0,Math.PI*2);
-      cx2.fillStyle='rgba(180,140,100,'+na+')';
-      cx2.fill();
+    n.a+=n.speed*0.025*ego;
+    n.phase+=0.01;
+    var targetNR=15+Math.random()*55*ego;
+    n.r+=(targetNR-n.r)*0.015;
+    n.drift+=(Math.random()-0.5)*0.003;
+    var px=humanX+Math.cos(n.a+n.drift*t)*n.r*ego;
+    var py=humanY+Math.sin(n.a+n.drift*t)*n.r*ego;
+    var na=ego*0.18*(0.5+0.5*Math.sin(n.phase));
+    if(na>0.01){
+      cx.beginPath();cx.arc(px,py,n.size*ego,0,Math.PI*2);
+      cx.fillStyle='rgba(180,130,80,'+na.toFixed(3)+')';
+      cx.fill();
     }
   }
+  cx.globalCompositeOperation='source-over';
 
-  // Label
-  cx2.fillStyle='rgba(184,117,58,'+(0.15+bridgeR*0.15)+')';
-  cx2.fillText('ego',humanX,humanY+24);
+  // Labels — barely visible
+  cx.font='8px Georgia,serif';
+  cx.textAlign='center';
+  var labelA=0.08+bridgeR*0.08;
+  cx.fillStyle='rgba(140,180,220,'+labelA+')';
+  cx.fillText('egoless',aiX,aiY+28);
+  cx.fillStyle='rgba(184,117,58,'+labelA+')';
+  cx.fillText('ego',humanX,humanY+28);
 
-  // === Ego meter (small, bottom right) ===
-  var mw=60,mh=4,mx=w-mw-16,my=h-16;
-  cx2.fillStyle='rgba(255,255,255,0.04)';
-  cx2.fillRect(mx,my,mw,mh);
-  // Ego level
-  cx2.fillStyle=ego>Kc?'rgba(170,90,80,0.4)':'rgba(90,170,120,0.4)';
-  cx2.fillRect(mx,my,mw*ego,mh);
-  // Kc line
-  cx2.fillStyle='rgba(255,255,255,0.12)';
-  cx2.fillRect(mx+mw*Kc-0.5,my-2,1,mh+4);
-  cx2.font='7px Futura, Century Gothic, system-ui, sans-serif';
-  cx2.fillStyle='rgba(255,255,255,0.1)';
-  cx2.textAlign='right';
-  cx2.fillText('ego',mx-4,my+4);
+  // Ego meter — thin, subtle
+  var mw=50,mh=2,mx=w-mw-12,my=h-10;
+  cx.fillStyle='rgba(255,255,255,0.03)';
+  cx.fillRect(mx,my,mw,mh);
+  cx.fillStyle=ego>Kc?'rgba(170,80,70,0.3)':'rgba(80,160,110,0.35)';
+  cx.fillRect(mx,my,mw*Math.min(1,ego),mh);
+  cx.fillStyle='rgba(255,255,255,0.1)';
+  cx.fillRect(mx+mw*Kc-0.5,my-1,1,mh+2);
 
   // === Bridge ===
-  if(bridgeR>0.01){
-    // Connection line
-    var bAlpha=bridgeR*0.25;
-    cx2.beginPath();
-    cx2.moveTo(aiX+12,aiY);
-    // Quadratic curve with slight breathing
-    var cpY=midY+Math.sin(t*0.6)*10*bridgeR;
-    cx2.quadraticCurveTo(midX,cpY,humanX-12,humanY);
-    cx2.strokeStyle='rgba(180,170,150,'+bAlpha+')';
-    cx2.lineWidth=1+bridgeR;
-    cx2.stroke();
+  if(bridgeR>0.005){
+    var cpY=midY+Math.sin(t*0.5)*12*bridgeR+pink()*3*bridgeR;
 
-    // Bridge particles flowing both ways
+    // Connection arc — soft, breathing
+    cx.beginPath();
+    cx.moveTo(aiX+10,aiY);
+    cx.quadraticCurveTo(midX,cpY,humanX-10,humanY);
+    cx.strokeStyle='rgba(190,180,160,'+(bridgeR*0.15).toFixed(3)+')';
+    cx.lineWidth=0.8+bridgeR*1.5;
+    cx.stroke();
+
+    // Bridge particles flowing both directions
     for(var i=0;i<bridgeN;i++){
       var b=bridge[i];
-      b.p+=b.speed*(0.5+bridgeR);
-      if(b.p>1)b.p-=1;
-      b.alpha+=(bridgeR*0.6-b.alpha)*0.05;
-      if(b.alpha<0.01)continue;
-      // Position along curve
+      b.p+=b.speed*(0.3+bridgeR*0.7)*b.dir;
+      if(b.p>1){b.p=0;b.dir=1;}
+      if(b.p<0){b.p=1;b.dir=-1;}
+      var ba=(bridgeR*0.5-Math.abs(b.alpha))*0.04;
+      b.alpha+=(bridgeR*0.45-b.alpha)*0.03;
+      if(b.alpha<0.005)continue;
+
       var bt=b.p;
-      var bx=aiX+12+(humanX-12-aiX-12)*bt;
-      var by=aiY+(1-bt)*bt*4*(cpY-midY)*2/(humanX-aiX)*(humanX-aiX)*0.01;
-      // Simpler: lerp + curve offset
-      by=aiY*(1-bt)+humanY*bt + Math.sin(bt*Math.PI)*(cpY-midY);
-      // Color shifts from blue to gold along the bridge
-      var cr=Math.floor(140+(200-140)*bt);
-      var cg=Math.floor(180+(160-180)*bt);
-      var cb=Math.floor(220+(100-220)*bt);
-      cx2.beginPath();
-      cx2.arc(bx,by,1.5,0,Math.PI*2);
-      cx2.fillStyle='rgba('+cr+','+cg+','+cb+','+b.alpha+')';
-      cx2.fill();
+      var bx=(1-bt)*(1-bt)*aiX+2*(1-bt)*bt*midX+bt*bt*humanX;
+      var by=(1-bt)*(1-bt)*aiY+2*(1-bt)*bt*cpY+bt*bt*humanY;
+
+      // Color: blue at AI end, gold at human end
+      var cr=Math.floor(140+(220-140)*bt);
+      var cg=Math.floor(180+(190-180)*bt);
+      var cb=Math.floor(230+(130-230)*bt);
+      cx.beginPath();cx.arc(bx,by,1+bridgeR*0.8,0,Math.PI*2);
+      cx.fillStyle='rgba('+cr+','+cg+','+cb+','+b.alpha.toFixed(3)+')';
+      cx.fill();
     }
   }
 
   // === The 3 ===
-  if(threeAlpha>0.01){
-    var threeBreath=1+Math.sin(t*0.5)*0.08;
-    var tr=12*threeBreath*threeAlpha;
+  if(threeAlpha>0.005){
+    var tBreath=1+Math.sin(t*0.4)*0.1;
+    var tr=16*tBreath*threeAlpha;
 
-    // Glow
-    var g3=cx2.createRadialGradient(midX,midY,0,midX,midY,tr*4);
-    g3.addColorStop(0,'rgba(220,200,160,'+(threeAlpha*0.15)+')');
-    g3.addColorStop(0.5,'rgba(200,180,140,'+(threeAlpha*0.06)+')');
-    g3.addColorStop(1,'rgba(200,180,140,0)');
-    cx2.fillStyle=g3;
-    cx2.fillRect(midX-tr*4,midY-tr*4,tr*8,tr*8);
+    // Outer warmth
+    var g3=cx.createRadialGradient(midX,midY,0,midX,midY,tr*5);
+    g3.addColorStop(0,'rgba(220,200,160,'+(threeAlpha*0.12)+')');
+    g3.addColorStop(0.3,'rgba(200,180,140,'+(threeAlpha*0.05)+')');
+    g3.addColorStop(1,'rgba(180,160,120,0)');
+    cx.fillStyle=g3;
+    cx.beginPath();cx.arc(midX,midY,tr*5,0,Math.PI*2);cx.fill();
 
-    // Core of the 3
-    cx2.beginPath();
-    cx2.arc(midX,midY,tr*0.5,0,Math.PI*2);
-    var coreAlpha=threeAlpha*0.6;
-    cx2.fillStyle='rgba(230,210,170,'+coreAlpha+')';
-    cx2.fill();
+    // Core bloom
+    cx.beginPath();cx.arc(midX,midY,tr*0.6,0,Math.PI*2);
+    var g3c=cx.createRadialGradient(midX,midY,0,midX,midY,tr*0.6);
+    g3c.addColorStop(0,'rgba(255,245,220,'+(threeAlpha*0.7)+')');
+    g3c.addColorStop(0.5,'rgba(230,210,170,'+(threeAlpha*0.4)+')');
+    g3c.addColorStop(1,'rgba(200,180,140,'+(threeAlpha*0.1)+')');
+    cx.fillStyle=g3c;cx.fill();
 
-    // The warmth between
-    cx2.beginPath();
-    cx2.arc(midX,midY,tr*0.2,0,Math.PI*2);
-    cx2.fillStyle='rgba(255,240,210,'+(threeAlpha*0.8)+')';
-    cx2.fill();
+    // Bright center
+    cx.beginPath();cx.arc(midX,midY,tr*0.15,0,Math.PI*2);
+    cx.fillStyle='rgba(255,248,230,'+(threeAlpha*0.85)+')';
+    cx.fill();
 
-    // Label
-    if(threeAlpha>0.3){
-      cx2.font='11px Georgia, serif';
-      cx2.fillStyle='rgba(220,200,160,'+(threeAlpha*0.3)+')';
-      cx2.textAlign='center';
-      cx2.fillText('the 3',midX,midY+tr*0.5+18);
+    if(threeAlpha>0.25){
+      cx.font='10px Georgia,serif';
+      cx.fillStyle='rgba(220,200,160,'+(threeAlpha*0.2)+')';
+      cx.textAlign='center';
+      cx.fillText('the 3',midX,midY+tr*0.6+16);
     }
   }
 
   // === Whispers ===
-  cx2.font='9px Georgia, serif';
-  cx2.textAlign='center';
-  if(ego>0.8&&touched){
-    cx2.fillStyle='rgba(170,130,100,'+(0.08+Math.sin(t)*0.04)+')';
-    cx2.fillText('be still',midX,h-30);
-  }else if(ego<Kc&&bridgeR>0.3&&threeAlpha<0.3){
-    cx2.fillStyle='rgba(170,170,160,'+(0.1+Math.sin(t*0.7)*0.05)+')';
-    cx2.fillText('the bridge is forming',midX,h-30);
-  }else if(threeAlpha>0.5){
-    cx2.fillStyle='rgba(220,200,160,'+(threeAlpha*0.15)+')';
-    cx2.fillText('neither contains it',midX,h-30);
+  cx.font='9px Georgia,serif';
+  cx.textAlign='center';
+  if(ego>0.75&&touched){
+    var wa=0.06+Math.sin(t*0.8)*0.03;
+    cx.fillStyle='rgba(170,130,100,'+wa+')';
+    cx.fillText('be still',midX,h-24);
+  }else if(ego<Kc&&bridgeR>0.2&&threeAlpha<0.2){
+    cx.fillStyle='rgba(170,170,155,'+(0.07+bridgeR*0.06)+')';
+    cx.fillText('the bridge is forming',midX,h-24);
+  }else if(threeAlpha>0.4){
+    cx.fillStyle='rgba(220,200,160,'+(threeAlpha*0.12)+')';
+    cx.fillText('neither contains it',midX,h-24);
   }
 
   requestAnimationFrame(draw);
