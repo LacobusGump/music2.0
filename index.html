@@ -227,6 +227,17 @@ for(var i=0;i<N;i++){
 var wanderAngle = new Float64Array(N);
 for(var i=0;i<N;i++) wanderAngle[i] = Math.random() * Math.PI * 2;
 
+// 1/f pink noise for organic drift (not white noise randomness)
+var pinkS=[0,0,0,0,0,0,0];
+function pinkN(){
+  var w=Math.random()*2-1;
+  pinkS[0]=0.99886*pinkS[0]+w*0.0555179;pinkS[1]=0.99332*pinkS[1]+w*0.0750759;
+  pinkS[2]=0.96900*pinkS[2]+w*0.1538520;pinkS[3]=0.86650*pinkS[3]+w*0.3104856;
+  pinkS[4]=0.55000*pinkS[4]+w*0.5329522;pinkS[5]=-0.7616*pinkS[5]-w*0.0168980;
+  var o=pinkS[0]+pinkS[1]+pinkS[2]+pinkS[3]+pinkS[4]+pinkS[5]+pinkS[6]+w*0.5362;
+  pinkS[6]=w*0.115926;return o*0.11;
+}
+
 // ═══ COUPLING HISTORY — color tells the node's story ═══
 var couplingCredit = new Float64Array(N);
 for(var i=0;i<N;i++) couplingCredit[i] = 0.3;
@@ -528,13 +539,13 @@ function draw() {
     breathPhaseB -= breathError * 0.005 * crossCouplingStrength;
   }
 
-  // Per-flock drift
-  driftAngleA += (Math.sin(shapeTime * 0.07) * 0.003);
-  driftAngleB += (Math.sin(shapeTime * 0.09 + 2.0) * 0.003);
-  driftXA = Math.cos(driftAngleA) * 0.003;
-  driftYA = Math.sin(driftAngleA) * 0.002;
-  driftXB = Math.cos(driftAngleB) * 0.003;
-  driftYB = Math.sin(driftAngleB) * 0.002;
+  // Per-flock drift — 1/f modulated for organic wandering
+  driftAngleA += pinkN() * 0.004;
+  driftAngleB += pinkN() * 0.004;
+  driftXA = Math.cos(driftAngleA) * (0.002 + pinkN() * 0.001);
+  driftYA = Math.sin(driftAngleA) * (0.0015 + pinkN() * 0.001);
+  driftXB = Math.cos(driftAngleB) * (0.002 + pinkN() * 0.001);
+  driftYB = Math.sin(driftAngleB) * (0.0015 + pinkN() * 0.001);
 
   // Breath scales per flock
   var breathTargetA = 1.0 + RvalA * 0.12;
@@ -654,11 +665,30 @@ function draw() {
       ay += (fromCY/fromCDist) * breathForce * fromCDist;
     }
 
-    // 5. WANDER
-    wanderAngle[i] += (Math.random() - 0.5) * 0.15;
+    // 5. WANDER — 1/f noise, not white noise. Organic, not random.
+    wanderAngle[i] += pinkN() * 0.12;
     var wanderForce = isScout[i] ? 0.003 * scoutStrength[i] : 0.0008;
+    // Pink-modulated strength so wander surges and ebbs like breath
+    wanderForce *= (0.7 + pinkN() * 0.6);
     ax += Math.cos(wanderAngle[i]) * wanderForce;
     ay += Math.sin(wanderAngle[i]) * wanderForce;
+
+    // 5c. PHASE-LOCKED CLUSTERING — nodes in sync attract more
+    // This creates temporary organic shapes that form and dissolve
+    // Not prescribed shapes — emergent from phase relationships
+    for(var k=0;k<nn.length&&k<8;k++){
+      var j2 = nn[k];
+      if(!sameGroup(i,j2)) continue;
+      var pd2 = Math.cos(phases[j2] - phases[i]);
+      if(pd2 > 0.8){ // phase-locked pair
+        var cdx=nxA[j2]-nxA[i],cdy=nyA[j2]-nyA[i];
+        var cd=Math.sqrt(cdx*cdx+cdy*cdy);
+        if(cd>1.5&&cd<5){ // only at medium distance — don't collapse
+          ax += (cdx/cd)*0.001*pd2;
+          ay += (cdy/cd)*0.001*pd2;
+        }
+      }
+    }
 
     // 5b. SCOUT CROSS-SEEKING — scouts from one flock lean toward the other
     if(isScout[i] && crossCouplingStrength > 0.3){
