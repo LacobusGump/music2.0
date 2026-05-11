@@ -85,7 +85,41 @@ var fontRules=
     '::-webkit-scrollbar-thumb:hover{background:rgba(184,117,58,0.25);}'+
 
     // Sacred
-    '.sacred,.must-see,strong.sacred{color:#7a9a6a !important;}';
+    '.sacred,.must-see,strong.sacred{color:#7a9a6a !important;}'+
+
+    // ═══ BEAUTY LAYER — cascades to all research pages ═══
+
+    // Breathing room: more space between sections for the eye to rest
+    'h2{margin-top:48px !important;margin-bottom:16px !important;}'+
+    'hr{margin:44px 0 !important;}'+
+
+    // Tables: more padding, slightly larger text, gentler on mobile
+    'td{padding:8px 10px !important;font-size:0.8em !important;}'+
+    'th{padding:8px 10px !important;font-size:0.72em !important;}'+
+
+    // Oversimplification box: warmer border so it feels like an invitation
+    '[style*="8b451320"]{border-color:rgba(184,117,58,0.15) !important;}'+
+
+    // Link-boxes: subtle left border accent for visual hierarchy
+    '.link-box{border-left:2px solid rgba(184,117,58,0.12) !important;'+
+    'transition:border-color 0.3s, background 0.3s !important;}'+
+    '.link-box:hover{border-left-color:rgba(184,117,58,0.35) !important;'+
+    'background:rgba(184,117,58,0.03) !important;}'+
+
+    // Paragraphs: slightly warmer body text for readability
+    '.page p{color:#b0a898 !important;line-height:2 !important;}'+
+
+    // The .bright class: brighter for emphasis contrast
+    '.bright{color:#ddd !important;}'+
+
+    // Kill-styled text: clearer crossed-out styling
+    '.kill,del,s{color:#a55 !important;text-decoration:line-through !important;'+
+    'text-decoration-color:rgba(170,85,85,0.4) !important;}'+
+
+    // Mobile: slightly bigger base text for readability
+    '@media(max-width:600px){.page p{font-size:0.88em !important;line-height:2.1 !important;}'+
+    'td{font-size:0.82em !important;padding:8px 6px !important;}'+
+    'h1{font-size:1.5em !important;}}';
 document.head.appendChild(style);
 
 // ═══ 1. SECTION TITLES: glow on scroll (dark) / fade-in on scroll (light) ═══
