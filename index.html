@@ -491,7 +491,10 @@ function draw() {
   // How tight should the flock be? R drives coherence.
   // High R = tight, recognizable formation. Low R = scattered cloud.
   var cohesionStrength = 0.003 + Rval * 0.012;
-  var separationDist = 1.2 - Rval * 0.3; // tighter when coupled
+  // Separation distance BREATHES — slow structural heartbeat (~60s cycle)
+  // The formation compresses into tight clusters, then expands into loose networks
+  var sepBreath = Math.sin(shapeTime * 0.105) * 0.3; // 0.105 rad/s ≈ 60s full cycle
+  var separationDist = 1.0 + sepBreath - Rval * 0.25; // tighter when coupled, breathes ±0.3
   var dampening = 0.92; // velocity damping — water-bottle feel
 
   // Center of mass
@@ -514,12 +517,22 @@ function draw() {
       if(dist < 0.01) continue;
       var nx2 = ddx/dist, ny2 = ddy/dist;
 
-      // Phase coupling — sync attracts, opposition repels
+      // Phase coupling — LOCAL preference: nearest synced neighbors couple strongest
+      // Weight by 1/dist² so clusters form locally, not one big blob
       var pdiff = phases[j] - phases[i];
       var sync = Math.cos(pdiff);
-      var phasePull = sync * 0.008;
+      var distWeight = 1.0 / (1.0 + dist * dist); // nearby = strong, far = weak
+      var phasePull = sync * 0.012 * distWeight;
       ax += nx2 * phasePull;
       ay += ny2 * phasePull;
+
+      // Angular momentum from phase difference — creates natural rotation in clusters
+      // If j's phase LEADS i's phase, slight clockwise twist. Lag = counterclockwise.
+      // This makes clusters slowly spiral — the most common shape in nature
+      var phaseLead = Math.sin(pdiff); // positive = j leads, negative = j lags
+      var tangentialStr = phaseLead * 0.003 * distWeight;
+      ax += -ny2 * tangentialStr; // perpendicular to radial direction
+      ay +=  nx2 * tangentialStr;
 
       // Separation — don't crowd regardless of phase
       if(dist < separationDist){
@@ -580,6 +593,51 @@ function draw() {
       couplingCredit[i] += (localSync - couplingCredit[i]) * 0.005;
     }
     couplingCredit[i] = Math.max(0, Math.min(1, couplingCredit[i]));
+
+    // ═══ BUDDING + CHEMOTAXIS — growth and seeking ═══
+    // Count tightly packed neighbors (within half separation distance)
+    var tightCount = 0;
+    var tightCX = 0, tightCY = 0; // center of tight cluster
+    for(var k=0;k<nn.length;k++){
+      var j2 = nn[k];
+      var tdx2 = nxA[j2] - nxA[i], tdy2 = nyA[j2] - nyA[i];
+      var td2 = tdx2*tdx2 + tdy2*tdy2;
+      if(td2 < separationDist * separationDist * 0.6){ // within 60% of sep dist
+        tightCount++;
+        tightCX += nxA[j2];
+        tightCY += nyA[j2];
+      }
+    }
+    // Budding: if local density > 8, the most interior node buds outward
+    // Like cell division — the cluster splits
+    if(tightCount >= 8){
+      tightCX /= tightCount; tightCY /= tightCount;
+      var fromClusterX = nxA[i] - tightCX;
+      var fromClusterY = nyA[i] - tightCY;
+      var fromClusterD = Math.sqrt(fromClusterX*fromClusterX + fromClusterY*fromClusterY);
+      if(fromClusterD < separationDist * 0.4 && fromClusterD > 0.01){
+        // Interior node — push outward gently
+        ax += (fromClusterX/fromClusterD) * 0.008;
+        ay += (fromClusterY/fromClusterD) * 0.008;
+      }
+    }
+    // Chemotaxis: isolated nodes seek community
+    // If no neighbors within coupling range, pull toward nearest cluster
+    if(nn.length === 0){
+      // Find nearest node in the whole system
+      var bestDist2 = Infinity, bestJ2 = -1;
+      for(var j3=0;j3<N;j3++){
+        if(j3===i) continue;
+        var cdx3 = nxA[j3]-nxA[i], cdy3 = nyA[j3]-nyA[i];
+        var cd3 = cdx3*cdx3+cdy3*cdy3;
+        if(cd3 < bestDist2){ bestDist2 = cd3; bestJ2 = j3; }
+      }
+      if(bestJ2 >= 0){
+        var seekDist = Math.sqrt(bestDist2);
+        ax += ((nxA[bestJ2]-nxA[i])/seekDist) * 0.005;
+        ay += ((nyA[bestJ2]-nyA[i])/seekDist) * 0.005;
+      }
+    }
 
     // Apply forces with momentum (water bottle)
     vxA[i] = vxA[i] * dampening + ax;
