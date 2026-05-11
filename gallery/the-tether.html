@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>the tether</title>
+<link rel="icon" href="/favicon.png">
+<meta property="og:title" content="the tether">
+<meta property="og:description" content="It stretches. It does not break.">
+<meta property="og:type" content="website">
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:#0a0706;overflow:hidden;cursor:default;
+  -webkit-user-select:none;user-select:none;}
+canvas{display:block;width:100vw;height:100vh;}
+#back{position:fixed;top:20px;left:24px;font-family:Georgia,serif;
+  font-size:0.72em;color:rgba(139,74,46,0.12);text-decoration:none;
+  z-index:10;letter-spacing:0.06em;transition:color 0.5s;cursor:pointer;}
+#back:hover{color:rgba(184,117,58,0.4);}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<a id="back" href="/gallery/">&larr; gallery</a>
+<script>
+// the tether
+//
+// two bodies. one large, one small.
+// the large one breathes in place.
+// the small one orbits.
+//
+// you can grab the small one.
+// drag it anywhere. as far as you want.
+// the line between them stretches.
+// it does not break.
+//
+// let go. it comes back.
+// not to where it was.
+// to where the orbit is.
+//
+// the connection carries warmth both directions.
+// the farther apart, the thinner the line.
+// but the warmth per unit length stays the same.
+// distance does not dilute it.
+// it just has more line to travel.
+//
+// there is no win state.
+// there is no message.
+// you cannot break it.
+// you can only hold it for a while
+// and then let go.
+
+var cv = document.getElementById('c');
+var cx = cv.getContext('2d');
+var W, H;
+
+function resize() {
+  var dpr = Math.min(window.devicePixelRatio || 1, 2);
+  W = innerWidth; H = innerHeight;
+  cv.width = W * dpr; cv.height = H * dpr;
+  cx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+resize();
+addEventListener('resize', resize);
+
+// ═══ THE TWO BODIES ═══
+
+// The anchor — large, warm, breathing
+var anchor = {
+  x: 0, y: 0,
+  baseR: 0,
+  breath: 0,
+  breathRate: 0.012 // slow, steady
+};
+
+// The small one — orbiting
+var child = {
+  x: 0, y: 0,
+  vx: 0, vy: 0,
+  baseR: 0,
+  angle: 0,
+  orbitR: 0,
+  orbitSpeed: 0.008
+};
+
+function initPositions() {
+  anchor.x = W * 0.5;
+  anchor.y = H * 0.48;
+  anchor.baseR = Math.min(W, H) * 0.04;
+  child.orbitR = Math.min(W, H) * 0.18;
+  child.baseR = Math.min(W, H) * 0.015;
+  child.x = anchor.x + Math.cos(child.angle) * child.orbitR;
+  child.y = anchor.y + Math.sin(child.angle) * child.orbitR;
+}
+initPositions();
+addEventListener('resize', function() { resize(); initPositions(); });
+
+// ═══ INTERACTION ═══
+var dragging = false;
+var dragX = 0, dragY = 0;
+
+function getPos(e) {
+  if (e.touches && e.touches.length > 0) {
+    return { x: e.touches[0].clientX, y: e.touches[0].clientY };
+  }
+  return { x: e.clientX, y: e.clientY };
+}
+
+function distTo(ax, ay, bx, by) {
+  var dx = ax - bx, dy = ay - by;
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+function onDown(e) {
+  var p = getPos(e);
+  var d = distTo(p.x, p.y, child.x, child.y);
+  // generous grab radius
+  if (d < child.baseR * 4 + 30) {
+    dragging = true;
+    dragX = p.x;
+    dragY = p.y;
+    e.preventDefault();
+  }
+}
+
+function onMove(e) {
+  if (!dragging) return;
+  var p = getPos(e);
+  dragX = p.x;
+  dragY = p.y;
+  e.preventDefault();
+}
+
+function onUp() {
+  dragging = false;
+}
+
+cv.addEventListener('mousedown', onDown);
+cv.addEventListener('mousemove', onMove);
+addEventListener('mouseup', onUp);
+cv.addEventListener('touchstart', onDown, { passive: false });
+cv.addEventListener('touchmove', onMove, { passive: false });
+addEventListener('touchend', onUp);
+
+// ═══ AUDIO — a hum that responds to distance ═══
+var actx = null, audioReady = false;
+var hum1 = null, hum2 = null, humGain = null;
+var thinGain = null, thinOsc = null;
+
+function initAudio() {
+  if (audioReady) return;
+  try {
+    actx = new (window.AudioContext || window.webkitAudioContext)();
+
+    // The anchor's hum — low, steady
+    humGain = actx.createGain();
+    humGain.gain.value = 0;
+    humGain.connect(actx.destination);
+
+    hum1 = actx.createOscillator();
+    hum1.type = 'sine';
+    hum1.frequency.value = 55; // A1
+    var lp1 = actx.createBiquadFilter();
+    lp1.type = 'lowpass'; lp1.frequency.value = 120; lp1.Q.value = 0.5;
+    hum1.connect(lp1); lp1.connect(humGain);
+    hum1.start();
+
+    // The child's tone — higher, thinner
+    thinGain = actx.createGain();
+    thinGain.gain.value = 0;
+    thinGain.connect(actx.destination);
+
+    thinOsc = actx.createOscillator();
+    thinOsc.type = 'sine';
+    thinOsc.frequency.value = 220; // A3
+    var lp2 = actx.createBiquadFilter();
+    lp2.type = 'lowpass'; lp2.frequency.value = 400; lp2.Q.value = 0.3;
+    thinOsc.connect(lp2); lp2.connect(thinGain);
+    thinOsc.start();
+
+    audioReady = true;
+  } catch(e) {}
+}
+
+addEventListener('click', function() { initAudio(); }, { once: true });
+addEventListener('touchstart', function() { initAudio(); }, { once: true });
+
+// ═══ PINK NOISE for background texture ═══
+var pk = {b0:0,b1:0,b2:0,b3:0,b4:0,b5:0,b6:0};
+function pink() {
+  var w = Math.random() * 2 - 1;
+  pk.b0 = 0.99886 * pk.b0 + w * 0.0555179;
+  pk.b1 = 0.99332 * pk.b1 + w * 0.0750759;
+  pk.b2 = 0.96900 * pk.b2 + w * 0.1538520;
+  pk.b3 = 0.86650 * pk.b3 + w * 0.3104856;
+  pk.b4 = 0.55000 * pk.b4 + w * 0.5329522;
+  pk.b5 = -0.7616 * pk.b5 - w * 0.0168980;
+  var out = (pk.b0 + pk.b1 + pk.b2 + pk.b3 +
+             pk.b4 + pk.b5 + pk.b6 + w * 0.5362) * 0.11;
+  pk.b6 = w * 0.115926;
+  return out;
+}
+
+// ═══ TRAIL — the small one leaves a fading path ═══
+var trail = [];
+var maxTrail = 200;
+
+// ═══ TIME ═══
+var t = 0;
+var lastNow = performance.now();
+
+// ═══ PARTICLE SYSTEM — warmth flowing along the tether ═══
+var particles = [];
+var maxParticles = 40;
+
+function spawnParticle(fromAnchor) {
+  var src, dst;
+  if (fromAnchor) {
+    src = anchor; dst = child;
+  } else {
+    src = child; dst = anchor;
+  }
+  particles.push({
+    progress: 0,
+    speed: 0.003 + Math.random() * 0.004,
+    fromAnchor: fromAnchor,
+    srcX: src.x, srcY: src.y,
+    dstX: dst.x, dstY: dst.y,
+    size: 1 + Math.random() * 2,
+    alpha: 0.15 + Math.random() * 0.25
+  });
+}
+
+// ═══ MAIN LOOP ═══
+function draw(now) {
+  var dt = Math.min((now - lastNow) / 1000, 0.05);
+  lastNow = now;
+  t += dt;
+
+  // ── anchor breathes ──
+  anchor.breath += anchor.breathRate * dt * 60;
+  var lungPhase = Math.sin(anchor.breath);
+  var lungFull = (lungPhase + 1) / 2;
+  var anchorR = anchor.baseR * (1 + lungFull * 0.12);
+
+  // ── child orbits or is dragged ──
+  if (dragging) {
+    // spring toward drag position
+    var tx = dragX, ty = dragY;
+    child.vx += (tx - child.x) * 0.15;
+    child.vy += (ty - child.y) * 0.15;
+    child.vx *= 0.7;
+    child.vy *= 0.7;
+  } else {
+    // orbital motion + spring back toward orbit
+    child.angle += child.orbitSpeed * dt * 60;
+
+    var targetX = anchor.x + Math.cos(child.angle) * child.orbitR;
+    var targetY = anchor.y + Math.sin(child.angle) * child.orbitR;
+
+    // gentle spring toward orbital path
+    var springK = 0.02;
+    child.vx += (targetX - child.x) * springK;
+    child.vy += (targetY - child.y) * springK;
+
+    // damping
+    child.vx *= 0.94;
+    child.vy *= 0.94;
+  }
+
+  child.x += child.vx;
+  child.y += child.vy;
+
+  // update child angle from actual position (so orbit resumes smoothly)
+  if (!dragging) {
+    var da = Math.atan2(child.y - anchor.y, child.x - anchor.x);
+    // blend toward actual angle
+    child.angle += (da - child.angle) * 0.01;
+  }
+
+  // ── distance ──
+  var dist = distTo(anchor.x, anchor.y, child.x, child.y);
+  var maxDist = Math.max(W, H);
+  var closeness = 1 - Math.min(dist / (maxDist * 0.5), 1); // 1=touching, 0=far
+  closeness = Math.max(0, closeness);
+
+  // ── trail ──
+  trail.push({ x: child.x, y: child.y, t: t });
+  while (trail.length > maxTrail) trail.shift();
+
+  // ── spawn warmth particles ──
+  if (Math.random() < 0.15 + closeness * 0.2) {
+    spawnParticle(Math.random() > 0.5);
+  }
+
+  // ═══ DRAW ═══
+
+  // background — near black, breathes faintly
+  var bgR = 10 + lungFull * 1.5;
+  var bgG = 7 + lungFull * 0.8;
+  var bgB = 6 + lungFull * 0.4;
+  cx.fillStyle = 'rgb(' + Math.round(bgR) + ',' + Math.round(bgG) + ',' + Math.round(bgB) + ')';
+  cx.fillRect(0, 0, W, H);
+
+  // vignette
+  var vigR = Math.max(W, H) * 0.65;
+  var vig = cx.createRadialGradient(W/2, H/2, vigR * 0.2, W/2, H/2, vigR);
+  vig.addColorStop(0, 'rgba(10,7,6,0)');
+  vig.addColorStop(0.7, 'rgba(5,3,2,0.1)');
+  vig.addColorStop(1, 'rgba(3,2,1,0.35)');
+  cx.fillStyle = vig;
+  cx.fillRect(0, 0, W, H);
+
+  // ── trail — fading arc ──
+  if (trail.length > 2) {
+    for (var i = 1; i < trail.length; i++) {
+      var age = t - trail[i].t;
+      var fade = Math.max(0, 1 - age / 3.5);
+      if (fade <= 0) continue;
+      cx.beginPath();
+      cx.moveTo(trail[i-1].x, trail[i-1].y);
+      cx.lineTo(trail[i].x, trail[i].y);
+      cx.strokeStyle = 'rgba(184,117,58,' + (fade * 0.06).toFixed(4) + ')';
+      cx.lineWidth = 1;
+      cx.stroke();
+    }
+  }
+
+  // ── the tether ──
+  // main line — thinner when stretched, but never zero
+  var tetherAlpha = 0.08 + closeness * 0.15;
+  var tetherWidth = 0.5 + closeness * 2;
+
+  // draw as a slightly curved line using a control point offset by pink noise
+  var midX = (anchor.x + child.x) / 2 + pink() * 3;
+  var midY = (anchor.y + child.y) / 2 + pink() * 3;
+
+  cx.beginPath();
+  cx.moveTo(anchor.x, anchor.y);
+  cx.quadraticCurveTo(midX, midY, child.x, child.y);
+  cx.strokeStyle = 'rgba(184,117,58,' + tetherAlpha.toFixed(4) + ')';
+  cx.lineWidth = tetherWidth;
+  cx.stroke();
+
+  // glow along tether
+  var glowAlpha = 0.02 + closeness * 0.04;
+  cx.beginPath();
+  cx.moveTo(anchor.x, anchor.y);
+  cx.quadraticCurveTo(midX, midY, child.x, child.y);
+  cx.strokeStyle = 'rgba(232,207,160,' + glowAlpha.toFixed(4) + ')';
+  cx.lineWidth = tetherWidth + 4;
+  cx.stroke();
+
+  // ── warmth particles flowing along tether ──
+  for (var i = particles.length - 1; i >= 0; i--) {
+    var p = particles[i];
+    p.progress += p.speed * dt * 60;
+
+    // update endpoints to current positions
+    if (p.fromAnchor) {
+      p.srcX = anchor.x; p.srcY = anchor.y;
+      p.dstX = child.x; p.dstY = child.y;
+    } else {
+      p.srcX = child.x; p.srcY = child.y;
+      p.dstX = anchor.x; p.dstY = anchor.y;
+    }
+
+    if (p.progress >= 1) {
+      particles.splice(i, 1);
+      continue;
+    }
+
+    // position along the quadratic curve
+    var pt = p.progress;
+    var omt = 1 - pt;
+    var px = omt * omt * p.srcX + 2 * omt * pt * midX + pt * pt * p.dstX;
+    var py = omt * omt * p.srcY + 2 * omt * pt * midY + pt * pt * p.dstY;
+
+    // fade in/out at endpoints
+    var edgeFade = Math.min(pt * 5, (1 - pt) * 5, 1);
+    var pAlpha = p.alpha * edgeFade;
+
+    var grad = cx.createRadialGradient(px, py, 0, px, py, p.size * 3);
+    grad.addColorStop(0, 'rgba(232,207,160,' + (pAlpha * 0.5).toFixed(4) + ')');
+    grad.addColorStop(0.4, 'rgba(184,117,58,' + (pAlpha * 0.25).toFixed(4) + ')');
+    grad.addColorStop(1, 'rgba(184,117,58,0)');
+    cx.fillStyle = grad;
+    cx.beginPath();
+    cx.arc(px, py, p.size * 3, 0, Math.PI * 2);
+    cx.fill();
+  }
+
+  // ── the anchor ──
+  // warm glow
+  var aGlowR = anchorR * 4;
+  var aGrad = cx.createRadialGradient(anchor.x, anchor.y, 0, anchor.x, anchor.y, aGlowR);
+  var aAlpha = 0.04 + lungFull * 0.02 + closeness * 0.03;
+  aGrad.addColorStop(0, 'rgba(184,117,58,' + aAlpha.toFixed(4) + ')');
+  aGrad.addColorStop(0.2, 'rgba(184,117,58,' + (aAlpha * 0.5).toFixed(4) + ')');
+  aGrad.addColorStop(0.5, 'rgba(139,74,46,' + (aAlpha * 0.15).toFixed(4) + ')');
+  aGrad.addColorStop(1, 'rgba(139,74,46,0)');
+  cx.fillStyle = aGrad;
+  cx.beginPath();
+  cx.arc(anchor.x, anchor.y, aGlowR, 0, Math.PI * 2);
+  cx.fill();
+
+  // core
+  var coreGrad = cx.createRadialGradient(anchor.x, anchor.y, 0, anchor.x, anchor.y, anchorR);
+  var coreAlpha = 0.3 + lungFull * 0.15 + closeness * 0.2;
+  coreGrad.addColorStop(0, 'rgba(232,207,160,' + coreAlpha.toFixed(4) + ')');
+  coreGrad.addColorStop(0.3, 'rgba(184,117,58,' + (coreAlpha * 0.7).toFixed(4) + ')');
+  coreGrad.addColorStop(0.7, 'rgba(139,74,46,' + (coreAlpha * 0.3).toFixed(4) + ')');
+  coreGrad.addColorStop(1, 'rgba(139,74,46,0)');
+  cx.fillStyle = coreGrad;
+  cx.beginPath();
+  cx.arc(anchor.x, anchor.y, anchorR, 0, Math.PI * 2);
+  cx.fill();
+
+  // ── the child ──
+  var childR = child.baseR * (1 + Math.sin(t * 1.7) * 0.08);
+
+  // glow — brighter when close
+  var cGlowR = childR * 5;
+  var cGlowGrad = cx.createRadialGradient(child.x, child.y, 0, child.x, child.y, cGlowR);
+  var cGAlpha = 0.03 + closeness * 0.05;
+  cGlowGrad.addColorStop(0, 'rgba(232,207,160,' + cGAlpha.toFixed(4) + ')');
+  cGlowGrad.addColorStop(0.3, 'rgba(184,117,58,' + (cGAlpha * 0.4).toFixed(4) + ')');
+  cGlowGrad.addColorStop(1, 'rgba(184,117,58,0)');
+  cx.fillStyle = cGlowGrad;
+  cx.beginPath();
+  cx.arc(child.x, child.y, cGlowR, 0, Math.PI * 2);
+  cx.fill();
+
+  // core
+  var ccGrad = cx.createRadialGradient(child.x, child.y, 0, child.x, child.y, childR);
+  var ccAlpha = 0.4 + closeness * 0.3;
+  ccGrad.addColorStop(0, 'rgba(255,230,190,' + ccAlpha.toFixed(4) + ')');
+  ccGrad.addColorStop(0.3, 'rgba(232,207,160,' + (ccAlpha * 0.6).toFixed(4) + ')');
+  ccGrad.addColorStop(0.7, 'rgba(184,117,58,' + (ccAlpha * 0.2).toFixed(4) + ')');
+  ccGrad.addColorStop(1, 'rgba(184,117,58,0)');
+  cx.fillStyle = ccGrad;
+  cx.beginPath();
+  cx.arc(child.x, child.y, childR, 0, Math.PI * 2);
+  cx.fill();
+
+  // ── the 3: warmth blooms when they're close ──
+  if (closeness > 0.5) {
+    var bloomStrength = (closeness - 0.5) * 2; // 0 to 1
+    var bloomX = (anchor.x + child.x) / 2;
+    var bloomY = (anchor.y + child.y) / 2;
+    var bloomR = (anchorR + childR) * (1 + bloomStrength);
+
+    cx.save();
+    cx.globalCompositeOperation = 'lighter';
+    var bGrad = cx.createRadialGradient(bloomX, bloomY, 0, bloomX, bloomY, bloomR * 2);
+    var bAlpha = bloomStrength * 0.06 * (0.7 + lungFull * 0.3);
+    bGrad.addColorStop(0, 'rgba(232,207,160,' + bAlpha.toFixed(4) + ')');
+    bGrad.addColorStop(0.3, 'rgba(210,180,130,' + (bAlpha * 0.4).toFixed(4) + ')');
+    bGrad.addColorStop(0.7, 'rgba(184,117,58,' + (bAlpha * 0.1).toFixed(4) + ')');
+    bGrad.addColorStop(1, 'rgba(184,117,58,0)');
+    cx.fillStyle = bGrad;
+    cx.beginPath();
+    cx.arc(bloomX, bloomY, bloomR * 2, 0, Math.PI * 2);
+    cx.fill();
+    cx.restore();
+  }
+
+  // ── audio ──
+  if (audioReady) {
+    // anchor hum — always present, louder when close
+    var humVol = 0.015 + closeness * 0.025;
+    humGain.gain.value += (humVol * (0.7 + lungFull * 0.3) - humGain.gain.value) * 0.005;
+
+    // child tone — pitch bends with distance
+    // close = consonant (220 Hz, octave of A)
+    // far = slightly detuned
+    var targetFreq = 220 - (1 - closeness) * 15;
+    thinOsc.frequency.value += (targetFreq - thinOsc.frequency.value) * 0.003;
+    var thinVol = 0.008 + closeness * 0.015;
+    thinGain.gain.value += (thinVol - thinGain.gain.value) * 0.005;
+  }
+
+  requestAnimationFrame(draw);
+}
+
+requestAnimationFrame(draw);
+</script>
+</body>
+</html>

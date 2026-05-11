@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>the glow between</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:#0a0706;overflow:hidden;cursor:default;touch-action:none;}
+canvas{display:block;width:100vw;height:100vh;}
+#back{position:fixed;top:20px;left:24px;font-family:Georgia,serif;
+  font-size:0.72em;color:rgba(139,74,46,0.12);text-decoration:none;
+  z-index:10;letter-spacing:0.06em;transition:color 0.5s;cursor:pointer;}
+#back:hover{color:rgba(184,117,58,0.4);}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<a id="back" href="/gallery/">&larr; gallery</a>
+<script>
+// the glow between
+//
+// two flocks. each finds its own groove.
+// R is coherence — how aligned they are inside.
+// K is coupling — how much they feel each other.
+//
+// but watch the gap.
+// when two groups cohere separately,
+// the space between them is not empty.
+// it glows.
+//
+// the glow is the energy of almost-coupling.
+// dark energy is the cost of loneliness.
+// a particle alone burns hotter — spending.
+//
+// the bridge drifts. it cracks.
+// it can't fix itself.
+// but you can drag it back.
+
+var cv = document.getElementById('c');
+var cx = cv.getContext('2d');
+var W, H, dpr;
+
+function resize() {
+  dpr = Math.min(window.devicePixelRatio || 1, 2);
+  W = innerWidth;
+  H = innerHeight;
+  cv.width = W * dpr;
+  cv.height = H * dpr;
+  cx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+resize();
+addEventListener('resize', resize);
+
+// --- FLOCK ---
+
+var N = 40; // per flock
+var boids = [];
+var phi = (1 + Math.sqrt(5)) / 2;
+
+function Boid(x, y, flock) {
+  this.x = x;
+  this.y = y;
+  this.vx = (Math.random() - 0.5) * 1.2;
+  this.vy = (Math.random() - 0.5) * 1.2;
+  this.flock = flock;
+  this.trail = [];
+  this.loneliness = 0; // 0 = surrounded, 1 = alone
+}
+
+// flock 0: left side, warm amber
+// flock 1: right side, cool silver
+function init() {
+  boids = [];
+  for (var i = 0; i < N; i++) {
+    boids.push(new Boid(
+      W * 0.28 + (Math.random() - 0.5) * W * 0.15,
+      H * 0.5 + (Math.random() - 0.5) * H * 0.3,
+      0
+    ));
+  }
+  for (var i = 0; i < N; i++) {
+    boids.push(new Boid(
+      W * 0.72 + (Math.random() - 0.5) * W * 0.15,
+      H * 0.5 + (Math.random() - 0.5) * H * 0.3,
+      1
+    ));
+  }
+}
+init();
+addEventListener('resize', function() { resize(); init(); });
+
+// --- BRIDGE ---
+
+var bridge = {
+  x: 0.5, // normalized 0-1 across screen
+  y: 0.5,
+  targetX: 0.5,
+  targetY: 0.5,
+  driftVx: 0,
+  driftVy: 0,
+  cracks: 0, // 0-1 how broken
+  held: false
+};
+
+// --- INTERACTION ---
+
+var pointer = { x: -1, y: -1, down: false };
+
+function getXY(e) {
+  var t = e.touches ? e.touches[0] : e;
+  return { x: t.clientX, y: t.clientY };
+}
+
+function isOnBridge(px, py) {
+  var bx = bridge.x * W, by = bridge.y * H;
+  var dx = px - bx, dy = py - by;
+  return dx * dx + dy * dy < 1600; // 40px radius
+}
+
+cv.addEventListener('mousedown', function(e) {
+  var p = getXY(e);
+  pointer.x = p.x; pointer.y = p.y; pointer.down = true;
+  if (isOnBridge(p.x, p.y)) bridge.held = true;
+});
+cv.addEventListener('mousemove', function(e) {
+  var p = getXY(e);
+  pointer.x = p.x; pointer.y = p.y;
+  if (bridge.held) {
+    bridge.targetX = p.x / W;
+    bridge.targetY = p.y / H;
+    bridge.cracks = Math.max(0, bridge.cracks - 0.02); // healing while held
+  }
+});
+cv.addEventListener('mouseup', function() {
+  pointer.down = false; bridge.held = false;
+});
+
+cv.addEventListener('touchstart', function(e) {
+  e.preventDefault();
+  var p = getXY(e);
+  pointer.x = p.x; pointer.y = p.y; pointer.down = true;
+  if (isOnBridge(p.x, p.y)) bridge.held = true;
+}, { passive: false });
+cv.addEventListener('touchmove', function(e) {
+  e.preventDefault();
+  var p = getXY(e);
+  pointer.x = p.x; pointer.y = p.y;
+  if (bridge.held) {
+    bridge.targetX = p.x / W;
+    bridge.targetY = p.y / H;
+    bridge.cracks = Math.max(0, bridge.cracks - 0.02);
+  }
+}, { passive: false });
+cv.addEventListener('touchend', function() {
+  pointer.down = false; bridge.held = false;
+});
+
+// --- BOID RULES ---
+
+var maxSpeed = 2.2;
+var neighborDist = 80;
+var separationDist = 28;
+
+function updateBoids() {
+  var bridgeWorldX = bridge.x * W;
+  var bridgeWorldY = bridge.y * H;
+  var bridgeStrength = 1.0 - bridge.cracks; // stronger bridge = more cross-flock pull
+
+  for (var i = 0; i < boids.length; i++) {
+    var b = boids[i];
+
+    // center of own flock
+    var cohX = 0, cohY = 0, cohN = 0;
+    var aliVx = 0, aliVy = 0, aliN = 0;
+    var sepX = 0, sepY = 0;
+    var nearCount = 0;
+
+    for (var j = 0; j < boids.length; j++) {
+      if (i === j) continue;
+      var o = boids[j];
+      var dx = o.x - b.x, dy = o.y - b.y;
+      var dist = Math.sqrt(dx * dx + dy * dy);
+
+      if (o.flock === b.flock && dist < neighborDist) {
+        cohX += o.x; cohY += o.y; cohN++;
+        aliVx += o.vx; aliVy += o.vy; aliN++;
+        nearCount++;
+        if (dist < separationDist && dist > 0) {
+          sepX -= dx / dist;
+          sepY -= dy / dist;
+        }
+      }
+
+      // cross-flock: gentle pull through bridge if bridge is intact
+      if (o.flock !== b.flock && dist < neighborDist * 2 && bridgeStrength > 0.1) {
+        var pull = 0.003 * bridgeStrength;
+        // pull is mediated by proximity to the bridge
+        var toBridgeB = Math.sqrt((b.x - bridgeWorldX) * (b.x - bridgeWorldX) + (b.y - bridgeWorldY) * (b.y - bridgeWorldY));
+        var toBridgeO = Math.sqrt((o.x - bridgeWorldX) * (o.x - bridgeWorldX) + (o.y - bridgeWorldY) * (o.y - bridgeWorldY));
+        var bridgeProximity = Math.max(0, 1 - (toBridgeB + toBridgeO) / (W * 0.8));
+        b.vx += dx / dist * pull * bridgeProximity;
+        b.vy += dy / dist * pull * bridgeProximity;
+      }
+    }
+
+    // loneliness: how few neighbors
+    b.loneliness += ((nearCount < 3 ? 1 : 0) - b.loneliness) * 0.02;
+
+    // cohesion
+    if (cohN > 0) {
+      cohX /= cohN; cohY /= cohN;
+      b.vx += (cohX - b.x) * 0.008;
+      b.vy += (cohY - b.y) * 0.008;
+    }
+
+    // alignment
+    if (aliN > 0) {
+      aliVx /= aliN; aliVy /= aliN;
+      b.vx += (aliVx - b.vx) * 0.04;
+      b.vy += (aliVy - b.vy) * 0.04;
+    }
+
+    // separation
+    b.vx += sepX * 0.6;
+    b.vy += sepY * 0.6;
+
+    // soft containment: keep flocks in their half (unless bridge pulls)
+    var homeX = b.flock === 0 ? W * 0.3 : W * 0.7;
+    var homeY = H * 0.5;
+    var distFromHome = Math.sqrt((b.x - homeX) * (b.x - homeX) + (b.y - homeY) * (b.y - homeY));
+    var homeRadius = Math.min(W, H) * 0.28;
+    if (distFromHome > homeRadius) {
+      var pullHome = (distFromHome - homeRadius) * 0.0008;
+      b.vx += (homeX - b.x) / distFromHome * pullHome;
+      b.vy += (homeY - b.y) / distFromHome * pullHome;
+    }
+
+    // speed limit
+    var speed = Math.sqrt(b.vx * b.vx + b.vy * b.vy);
+    if (speed > maxSpeed) {
+      b.vx = b.vx / speed * maxSpeed;
+      b.vy = b.vy / speed * maxSpeed;
+    }
+
+    // move
+    b.x += b.vx;
+    b.y += b.vy;
+
+    // walls
+    if (b.x < 10) { b.x = 10; b.vx *= -0.5; }
+    if (b.x > W - 10) { b.x = W - 10; b.vx *= -0.5; }
+    if (b.y < 10) { b.y = 10; b.vy *= -0.5; }
+    if (b.y > H - 10) { b.y = H - 10; b.vy *= -0.5; }
+
+    // trail
+    b.trail.push({ x: b.x, y: b.y });
+    if (b.trail.length > 12) b.trail.shift();
+  }
+}
+
+// --- BRIDGE DRIFT ---
+
+function updateBridge() {
+  if (!bridge.held) {
+    // drift: the bridge wanders on its own
+    bridge.driftVx += (Math.random() - 0.5) * 0.0003;
+    bridge.driftVy += (Math.random() - 0.5) * 0.0003;
+    bridge.driftVx *= 0.98;
+    bridge.driftVy *= 0.98;
+    bridge.targetX += bridge.driftVx;
+    bridge.targetY += bridge.driftVy;
+    // keep bridge roughly centered
+    bridge.targetX += (0.5 - bridge.targetX) * 0.001;
+    bridge.targetY += (0.5 - bridge.targetY) * 0.001;
+    bridge.targetX = Math.max(0.2, Math.min(0.8, bridge.targetX));
+    bridge.targetY = Math.max(0.15, Math.min(0.85, bridge.targetY));
+
+    // cracks grow when not held
+    bridge.cracks = Math.min(1, bridge.cracks + 0.0004);
+  }
+
+  // smooth follow
+  bridge.x += (bridge.targetX - bridge.x) * 0.06;
+  bridge.y += (bridge.targetY - bridge.y) * 0.06;
+}
+
+// --- COHERENCE (R) ---
+
+function flockCoherence(flock) {
+  // average alignment of velocity vectors = R (Kuramoto-like order parameter)
+  var sx = 0, sy = 0, n = 0;
+  for (var i = 0; i < boids.length; i++) {
+    if (boids[i].flock !== flock) continue;
+    var b = boids[i];
+    var speed = Math.sqrt(b.vx * b.vx + b.vy * b.vy);
+    if (speed > 0.01) {
+      sx += b.vx / speed;
+      sy += b.vy / speed;
+    }
+    n++;
+  }
+  if (n === 0) return 0;
+  return Math.sqrt(sx * sx + sy * sy) / n;
+}
+
+// --- DRAW ---
+
+var t = 0;
+
+function draw() {
+  t += 0.016;
+
+  updateBoids();
+  updateBridge();
+
+  // dark fade
+  cx.fillStyle = 'rgba(10,7,6,0.12)';
+  cx.fillRect(0, 0, W, H);
+
+  var R0 = flockCoherence(0);
+  var R1 = flockCoherence(1);
+
+  // --- THE GLOW BETWEEN ---
+  // for each pair across flocks, if both are near the gap center,
+  // draw a faint glow connecting them
+  var bridgeWorldX = bridge.x * W;
+  var bridgeWorldY = bridge.y * H;
+  var bridgeStrength = 1.0 - bridge.cracks;
+
+  // aggregate glow: find gap center between flock centers
+  var cx0 = 0, cy0 = 0, n0 = 0;
+  var cx1 = 0, cy1 = 0, n1 = 0;
+  for (var i = 0; i < boids.length; i++) {
+    if (boids[i].flock === 0) { cx0 += boids[i].x; cy0 += boids[i].y; n0++; }
+    else { cx1 += boids[i].x; cy1 += boids[i].y; n1++; }
+  }
+  if (n0 > 0) { cx0 /= n0; cy0 /= n0; }
+  if (n1 > 0) { cx1 /= n1; cy1 /= n1; }
+
+  var gapX = (cx0 + cx1) / 2;
+  var gapY = (cy0 + cy1) / 2;
+  var gapDist = Math.sqrt((cx1 - cx0) * (cx1 - cx0) + (cy1 - cy0) * (cy1 - cy0));
+
+  // the glow: brighter when coherence is high in both flocks
+  var glowIntensity = R0 * R1 * (0.3 + bridgeStrength * 0.7);
+  var glowR = gapDist * 0.3 + 30;
+
+  // radial glow at the gap
+  var grad = cx.createRadialGradient(gapX, gapY, 0, gapX, gapY, glowR);
+  var pulse = 0.5 + Math.sin(t * 0.8) * 0.15 + Math.sin(t * 1.3 * phi) * 0.1;
+  var alpha = glowIntensity * pulse * 0.12;
+  grad.addColorStop(0, 'rgba(200,170,120,' + alpha.toFixed(4) + ')');
+  grad.addColorStop(0.4, 'rgba(180,140,90,' + (alpha * 0.5).toFixed(4) + ')');
+  grad.addColorStop(1, 'rgba(140,100,60,0)');
+  cx.fillStyle = grad;
+  cx.beginPath();
+  cx.arc(gapX, gapY, glowR, 0, Math.PI * 2);
+  cx.fill();
+
+  // filaments between close cross-flock pairs
+  for (var i = 0; i < boids.length; i++) {
+    if (boids[i].flock !== 0) continue;
+    for (var j = 0; j < boids.length; j++) {
+      if (boids[j].flock !== 1) continue;
+      var dx = boids[j].x - boids[i].x;
+      var dy = boids[j].y - boids[i].y;
+      var dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < 180 && dist > 10) {
+        var filAlpha = (1 - dist / 180) * glowIntensity * 0.04 * bridgeStrength;
+        if (filAlpha > 0.002) {
+          cx.strokeStyle = 'rgba(200,170,120,' + filAlpha.toFixed(4) + ')';
+          cx.lineWidth = 0.5;
+          cx.beginPath();
+          // curve through bridge
+          cx.moveTo(boids[i].x, boids[i].y);
+          cx.quadraticCurveTo(bridgeWorldX, bridgeWorldY, boids[j].x, boids[j].y);
+          cx.stroke();
+        }
+      }
+    }
+  }
+
+  // --- BOIDS ---
+  for (var i = 0; i < boids.length; i++) {
+    var b = boids[i];
+    var speed = Math.sqrt(b.vx * b.vx + b.vy * b.vy);
+
+    // color
+    var r, g, bl;
+    if (b.flock === 0) {
+      // warm amber
+      r = 184; g = 117; bl = 58;
+    } else {
+      // cool silver-blue
+      r = 140; g = 170; bl = 200;
+    }
+
+    // lonely particles glow hotter — spending energy
+    var lonelyBrightness = 1 + b.loneliness * 2.5;
+    var lonelySize = 1.8 + b.loneliness * 3;
+
+    // trail
+    for (var k = 0; k < b.trail.length; k++) {
+      var trailAlpha = (k / b.trail.length) * 0.06 * lonelyBrightness;
+      cx.fillStyle = 'rgba(' + r + ',' + g + ',' + bl + ',' + trailAlpha.toFixed(4) + ')';
+      cx.beginPath();
+      cx.arc(b.trail[k].x, b.trail[k].y, lonelySize * 0.4, 0, Math.PI * 2);
+      cx.fill();
+    }
+
+    // body
+    var bodyAlpha = (0.25 + speed * 0.1) * lonelyBrightness;
+    bodyAlpha = Math.min(bodyAlpha, 0.9);
+    cx.fillStyle = 'rgba(' + r + ',' + g + ',' + bl + ',' + bodyAlpha.toFixed(3) + ')';
+    cx.beginPath();
+    cx.arc(b.x, b.y, lonelySize, 0, Math.PI * 2);
+    cx.fill();
+
+    // loneliness halo: the cost
+    if (b.loneliness > 0.3) {
+      var haloR = lonelySize * 4;
+      var haloAlpha = b.loneliness * 0.06;
+      var haloGrad = cx.createRadialGradient(b.x, b.y, lonelySize, b.x, b.y, haloR);
+      // lonely particles: their halo is warm/desperate
+      var haloColor = b.flock === 0 ? '220,140,60' : '160,190,220';
+      haloGrad.addColorStop(0, 'rgba(' + haloColor + ',' + haloAlpha.toFixed(4) + ')');
+      haloGrad.addColorStop(1, 'rgba(' + haloColor + ',0)');
+      cx.fillStyle = haloGrad;
+      cx.beginPath();
+      cx.arc(b.x, b.y, haloR, 0, Math.PI * 2);
+      cx.fill();
+    }
+  }
+
+  // --- BRIDGE ---
+  var bx = bridge.x * W, by = bridge.y * H;
+  var bridgeAlpha = 0.15 + bridgeStrength * 0.25;
+  var bridgePulse = 1 + Math.sin(t * 1.5) * 0.2 * bridgeStrength;
+
+  // bridge glow
+  var bgGrad = cx.createRadialGradient(bx, by, 0, bx, by, 25 * bridgePulse);
+  bgGrad.addColorStop(0, 'rgba(200,170,120,' + (bridgeAlpha * 0.5).toFixed(3) + ')');
+  bgGrad.addColorStop(0.5, 'rgba(200,170,120,' + (bridgeAlpha * 0.15).toFixed(3) + ')');
+  bgGrad.addColorStop(1, 'rgba(200,170,120,0)');
+  cx.fillStyle = bgGrad;
+  cx.beginPath();
+  cx.arc(bx, by, 25 * bridgePulse, 0, Math.PI * 2);
+  cx.fill();
+
+  // bridge core
+  cx.fillStyle = 'rgba(200,170,120,' + bridgeAlpha.toFixed(3) + ')';
+  cx.beginPath();
+  cx.arc(bx, by, 3 * bridgePulse, 0, Math.PI * 2);
+  cx.fill();
+
+  // cracks: fracture lines radiating out
+  if (bridge.cracks > 0.05) {
+    var nCracks = Math.floor(bridge.cracks * 8) + 1;
+    for (var i = 0; i < nCracks; i++) {
+      var crackAngle = (i / nCracks) * Math.PI * 2 + t * 0.1 + i * 1.618;
+      var crackLen = bridge.cracks * 18 + Math.sin(t * 2 + i) * 3;
+      var crackAlpha = bridge.cracks * 0.12;
+      cx.strokeStyle = 'rgba(120,80,40,' + crackAlpha.toFixed(3) + ')';
+      cx.lineWidth = 0.6;
+      cx.beginPath();
+      cx.moveTo(bx, by);
+      // jagged line
+      var segs = 3;
+      var px = bx, py = by;
+      for (var s = 1; s <= segs; s++) {
+        var frac = s / segs;
+        var nx = bx + Math.cos(crackAngle) * crackLen * frac + (Math.random() - 0.5) * 4;
+        var ny = by + Math.sin(crackAngle) * crackLen * frac + (Math.random() - 0.5) * 4;
+        cx.lineTo(nx, ny);
+        px = nx; py = ny;
+      }
+      cx.stroke();
+    }
+  }
+
+  // bridge held cursor feedback
+  if (bridge.held) {
+    cx.strokeStyle = 'rgba(200,170,120,0.06)';
+    cx.lineWidth = 1;
+    cx.beginPath();
+    cx.arc(bx, by, 35, 0, Math.PI * 2);
+    cx.stroke();
+  }
+
+  requestAnimationFrame(draw);
+}
+
+draw();
+</script>
+</body>
+</html>
