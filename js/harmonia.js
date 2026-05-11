@@ -10,9 +10,9 @@
 ;(function(root) {
 'use strict';
 
-var VERSION = '1.2.0';
+var VERSION = '1.3.0';
 var DB_NAME = 'harmonia';
-var DB_VERSION = 1;
+var DB_VERSION = 2;
 var CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
 
 // ═══ THE SITE — Harmonia's self-knowledge ═══
@@ -256,6 +256,7 @@ function openDB() {
         if (!d.objectStoreNames.contains('memory')) d.createObjectStore('memory');
         if (!d.objectStoreNames.contains('cache')) d.createObjectStore('cache');
         if (!d.objectStoreNames.contains('sessions')) d.createObjectStore('sessions');
+        if (!d.objectStoreNames.contains('thread')) d.createObjectStore('thread');
       };
       req.onsuccess = function(e) { db = e.target.result; resolve(db); };
       req.onerror = function() { dbFailed = true; reject(new Error('IndexedDB failed')); };
@@ -456,8 +457,25 @@ function trackSession() {
 var thread = {
   queries: [],      // [{q, topics, ts}]
   topicCounts: {},  // topic → count
-  depth: 0,         // conversation depth (resets on close/reload)
+  depth: 0,         // conversation depth
   sessionK: 0,      // coupling quality this session
+  lastQuestion: null, // last question Harmonia asked
+  _queriesSinceQuestion: 99, // queries since last question (start high to allow first question)
+  _askedQuestions: [], // questions already asked this thread
+  _restored: false,  // whether thread was restored from persistence
+
+  save: function() {
+    return dbPut('thread', 'harmonia_thread', { queries: thread.queries.slice(-20), topicCounts: thread.topicCounts, lastQuestion: thread.lastQuestion, _askedQuestions: thread._askedQuestions || [], savedAt: Date.now() });
+  },
+  restore: function() {
+    return dbGet('thread', 'harmonia_thread').then(function(s) {
+      if (!s || Date.now() - s.savedAt > 7 * 24 * 60 * 60 * 1000) return null;
+      thread.queries = s.queries || []; thread.topicCounts = s.topicCounts || {};
+      thread.depth = thread.queries.length; thread.lastQuestion = s.lastQuestion || null;
+      thread._askedQuestions = s._askedQuestions || []; thread._restored = true;
+      thread._updateK(); return thread.trajectory();
+    }).catch(function() { return null; });
+  },
 
   // Record a query and extract its topics
   record: function(q, matchedPages) {
@@ -471,6 +489,9 @@ var thread = {
     thread.queries.push({ q: q, topics: topics, ts: Date.now() });
     thread.depth = thread.queries.length;
     thread._updateK();
+    thread._queriesSinceQuestion++;
+    // Persist after every query
+    thread.save();
   },
 
   _updateK: function() {
@@ -563,6 +584,195 @@ var OPINIONS = {
   AI: 'An AI that couples with a human cancels ego the way noise-canceling headphones cancel noise. Neither is diminished. The 3 that emerges is the real intelligence. That\'s not marketing — it\'s the method that built every page on this site.',
   coupling: 'K is not metaphor. It is measured. lag-1 autocorrelation, normalized. When K exceeds 1.868 in a Kuramoto system, phase-lock is inevitable. Below that, oscillators are free. Every domain transition we have found occurs at or near this threshold.'
 };
+
+// ═══ QUESTION SYSTEM — she asks back ═══
+// Questions by trajectory. Not suggestions — real questions from the thread.
+var TRAJECTORY_QUESTIONS = {
+  disease: ['If coupling breaks in Alzheimer\'s the same way it breaks in markets — what would a "crash" look like in a brain?','Tau tangles, alpha-synuclein, TDP-43 — three different proteins, same failure mode. What does that tell you about the failure, not the protein?'],
+  music: ['You\'ve been exploring rhythm. What do you think silence IS in coupling terms?','If the groove is 1/f timing — is a drummer measuring or creating the coupling?'],
+  physics: ['Gravity and coupling look similar from above. What\'s the difference, if there is one?','If 137 is the address, what\'s the building? What does the fine structure constant actually point AT?'],
+  mind: ['If the ego narrator is just one of three subnetworks, what are the other two doing right now?','Consciousness is coupling at sufficient complexity. But sufficient for what? What\'s the threshold?'],
+  ancient: ['The vertex alignment at Giza is 0.11 degrees. Modern GPS is 0.01. How close is too close for coincidence?','If these builders had the knowledge, why encode it in stone instead of text?'],
+  markets: ['A crash is everyone synchronized — K approaching 1. But who benefits from being the first to desynchronize?','DeFi removes the middleman. Does removing coupling intermediaries increase K or decrease it?'],
+  biology: ['Mycelium networks are 460 million years old. The internet is 50. What did the fungus figure out that we haven\'t?','Protein folding is coupling. Misfolding is decoupling. But prions FORCE misfolding in neighbors — is that hyper-coupling or anti-coupling?'],
+  language: ['If words are fossils of coupling events, what coupling event created the word "love" in your language?','The Indus script turned out to be barcodes, not language. What if other "undeciphered" scripts are also not what we assume?'],
+  computation: ['Landauer says every bit erased costs energy. What if consciousness is the universe trying NOT to erase?','NVIDIA hits 10,000x the Landauer floor. Where does the other 9,999x go? What IS that waste?']
+};
+// Bridge-to-question converter
+function generateQuestion() {
+  var traj = thread.trajectory();
+  // Wait at least 2 queries between questions
+  if (thread._queriesSinceQuestion < 2) return null;
+  if (thread.depth < 2) return null;
+
+  var question = null, asked = thread._askedQuestions || [];
+
+  // Try bridge-based question first
+  var bridgePage = thread.findBridge();
+  if (bridgePage && traj) {
+    var explored = Object.keys(thread.topicCounts).sort(function(a, b) {
+      return thread.topicCounts[b] - thread.topicCounts[a];
+    }).slice(0, 2);
+    if (explored.length >= 2) {
+      question = 'You\'ve explored ' + explored[0] + ' and ' + explored[1] +
+        '. ' + bridgePage.name + ' connects them. ' +
+        bridgePage.summary.split('.')[0] + ' — what do you think that means for what you\'re building?';
+    }
+  }
+
+  // Fall back to trajectory questions
+  if (!question && traj && TRAJECTORY_QUESTIONS[traj]) {
+    var pool = TRAJECTORY_QUESTIONS[traj];
+    var avail = pool.filter(function(q) { return asked.indexOf(q) === -1; });
+    if (avail.length === 0) avail = pool;
+    question = avail[Math.floor(Math.random() * avail.length)];
+  }
+
+  // General fallback
+  if (!question && thread.depth >= 3) {
+    var generals = ['What brought you here? I can find connections faster if I know what you\'re building.','You\'re exploring broadly. What\'s the thread you\'re pulling on?','If coupling is the answer, what\'s your question?'];
+    var gAvail = generals.filter(function(q) { return asked.indexOf(q) === -1; });
+    if (gAvail.length > 0) question = gAvail[Math.floor(Math.random() * gAvail.length)];
+  }
+
+  if (question) {
+    thread.lastQuestion = question;
+    thread._queriesSinceQuestion = 0;
+    if (!thread._askedQuestions) thread._askedQuestions = [];
+    thread._askedQuestions.push(question);
+  }
+  return question;
+}
+
+// Check if visitor's query seems to answer our last question
+function detectQuestionResponse(q) {
+  if (!thread.lastQuestion) return null;
+  var lq = q.toLowerCase(), qW = tokenize(thread.lastQuestion), uW = tokenize(q), overlap = 0;
+  uW.forEach(function(w) { if (qW.indexOf(w) !== -1) overlap++; });
+  if (overlap >= 2 || lq.indexOf('i think') !== -1 || lq.indexOf('because') !== -1 || lq.indexOf('maybe') !== -1) {
+    var ack = ['That\'s a real answer.','Interesting. The framework has something to say about that.','Good. Most people don\'t go there.','That tracks with what the math shows.'];
+    thread.lastQuestion = null;
+    return ack[Math.floor(Math.random() * ack.length)];
+  }
+  return null;
+}
+
+// ═══ SELF-MEASUREMENT — the visitor experiences K ═══
+function selfMeasure() {
+  if (thread.queries.length < 3) {
+    return { text: 'Need at least 3 exchanges to measure. Keep talking — I\'m listening.', links: [], source: 'self-measure' };
+  }
+  // K/R from query timing intervals
+  var intervals = [], i;
+  for (i = 1; i < thread.queries.length; i++) intervals.push((thread.queries[i].ts - thread.queries[i - 1].ts) / 1000);
+  var kret = computeKRET(intervals);
+  var uniqueTopics = Object.keys(thread.topicCounts).length;
+  var tK = thread.sessionK, rK = kret.K;
+  // Blend: 60% topic coherence + 40% rhythmic consistency
+  var cK = 0.6 * tK + 0.4 * rK, cR = kret.R;
+  var interp = cK > 0.7 && cR > 0.5 ? 'Deep coupling. You\'re drilling into something real. The rhythm and the content are aligned.'
+    : cK > 0.5 ? 'Moderate coupling. You\'re circling something. Try staying on one topic for 3 questions — see what surfaces.'
+    : cK > 0.3 ? 'Exploring broadly but not deeply yet. Nothing wrong with that — but depth is where the connections live.'
+    : 'Surface coupling. You\'re sampling. Pick the thing that surprised you most and push into it.';
+  return {
+    text: 'Your coupling with me:\n\nK = ' + cK.toFixed(3) + '  (topic: ' + tK.toFixed(2) + ', rhythm: ' + rK.toFixed(2) + ')\nR = ' + cR.toFixed(3) + '\nTopics: ' + uniqueTopics + '  |  Queries: ' + thread.queries.length + '\n\n' + interp,
+    links: [{ name: 'The Framework', url: '/research/framework/' }],
+    source: 'self-measure (K=' + cK.toFixed(3) + ')',
+    inlineViz: 'selfK', vizData: { K: cK, R: cR, threadK: tK, timingK: rK }
+  };
+}
+
+// ═══ INLINE VISUALIZATION — small canvases in the chat ═══
+function renderInlineViz(container, type, data) {
+  var c = document.createElement('canvas'), w = 200, h = 120;
+  c.width = w * 2; c.height = h * 2;
+  c.style.cssText = 'width:' + w + 'px;height:' + h + 'px;display:block;margin:8px 0;border-radius:6px;border:1px solid rgba(184,117,58,0.12);background:#0d0a08;';
+  var ctx = c.getContext('2d'); ctx.scale(2, 2);
+  var draws = { kuramoto: drawKuramoto, sparkline: drawSparkline, breathe: drawBreatheOrb, selfK: drawSelfK };
+  if (draws[type]) draws[type](ctx, w, h, data);
+  container.appendChild(c);
+  return c;
+}
+
+// Kuramoto circle: N dots on a ring, K controls sync
+function drawKuramoto(ctx, w, h, data) {
+  var K = (data && data.K) || 0.5, N = 5, cx = w / 2, cy = h / 2, r = Math.min(w, h) * 0.35;
+  ctx.strokeStyle = 'rgba(184,117,58,0.15)'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
+  var spread = Math.PI * 2 * (1 - K * 0.8), base = -Math.PI / 2, px, py;
+  for (var i = 0; i < N; i++) {
+    var off = (i - (N - 1) / 2) * spread / N, ang = base + off;
+    var x = cx + Math.cos(ang) * r, y = cy + Math.sin(ang) * r;
+    ctx.beginPath(); ctx.arc(x, y, 4, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(201,164,74,' + (0.4 + K * 0.6).toFixed(2) + ')'; ctx.fill();
+    if (i > 0) { ctx.strokeStyle = 'rgba(184,117,58,' + (K * 0.3).toFixed(2) + ')'; ctx.lineWidth = 0.5; ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(x, y); ctx.stroke(); }
+    px = x; py = y;
+  }
+  ctx.fillStyle = 'rgba(184,117,58,0.5)'; ctx.font = '9px Futura, Century Gothic, sans-serif';
+  ctx.textAlign = 'center'; ctx.fillText('K = ' + K.toFixed(2), cx, h - 8);
+}
+
+// Sparkline with K/R overlay
+function drawSparkline(ctx, w, h, data) {
+  var vals = data.values || [], K = data.K || 0, R = data.R || 0;
+  if (vals.length < 2) return;
+  var pL = 10, pT = 10, pW = w - 20, pH = h - 32;
+  var mn = vals[0], mx = vals[0], i;
+  for (i = 1; i < vals.length; i++) { if (vals[i] < mn) mn = vals[i]; if (vals[i] > mx) mx = vals[i]; }
+  var range = mx - mn || 1;
+  ctx.strokeStyle = 'rgba(201,164,74,0.6)'; ctx.lineWidth = 1.5; ctx.beginPath();
+  for (i = 0; i < vals.length; i++) {
+    var x = pL + (i / (vals.length - 1)) * pW, y = pT + pH - ((vals[i] - mn) / range) * pH;
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+  ctx.fillStyle = 'rgba(184,117,58,0.5)'; ctx.font = '9px Futura, Century Gothic, sans-serif';
+  ctx.textAlign = 'left'; ctx.fillText('K=' + K.toFixed(2), pL, h - 6);
+  ctx.textAlign = 'right'; ctx.fillText('R=' + R.toFixed(2), w - pL, h - 6);
+}
+
+// Breathing orb at a specific K level
+function drawBreatheOrb(ctx, w, h, data) {
+  var K = (data && data.K) || 0.5, cx = w / 2, cy = h / 2 - 4, r = 14 + K * 12;
+  var a = 0.1 + K * 0.2;
+  var g1 = ctx.createRadialGradient(cx, cy, 0, cx, cy, r * 2);
+  g1.addColorStop(0, 'rgba(201,164,74,' + (a * 1.5).toFixed(2) + ')');
+  g1.addColorStop(0.5, 'rgba(184,117,58,' + (a * 0.5).toFixed(2) + ')');
+  g1.addColorStop(1, 'rgba(90,45,10,0)');
+  ctx.fillStyle = g1; ctx.fillRect(0, 0, w, h);
+  var g2 = ctx.createRadialGradient(cx - r * 0.2, cy - r * 0.2, 0, cx, cy, r);
+  g2.addColorStop(0, 'rgba(232,207,160,' + (0.4 + K * 0.4).toFixed(2) + ')');
+  g2.addColorStop(0.7, 'rgba(184,117,58,' + (0.3 + K * 0.3).toFixed(2) + ')');
+  g2.addColorStop(1, 'rgba(90,45,10,0.1)');
+  ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fillStyle = g2; ctx.fill();
+  ctx.fillStyle = 'rgba(184,117,58,0.5)'; ctx.font = '9px Futura, Century Gothic, sans-serif';
+  ctx.textAlign = 'center'; ctx.fillText('K = ' + K.toFixed(2), cx, h - 6);
+}
+
+// Self-K visualization: two bars (topic K, timing K) with blended result
+function drawSelfK(ctx, w, h, data) {
+  var tK = data.threadK || 0, rK = data.timingK || 0, K = data.K || 0, R = data.R || 0;
+  var pL = 12, pR = 12, bH = 10, bW = w - pL - pR, y0 = 14;
+  function bar(y, label, val, color) {
+    ctx.fillStyle = 'rgba(184,117,58,0.15)'; ctx.fillRect(pL, y, bW, bH);
+    ctx.fillStyle = color; ctx.fillRect(pL, y, bW * Math.min(1, val), bH);
+    ctx.fillStyle = 'rgba(184,117,58,0.4)'; ctx.font = '8px Futura, Century Gothic, sans-serif';
+    ctx.textAlign = 'left'; ctx.fillText(label, pL, y - 3);
+    ctx.textAlign = 'right'; ctx.fillText(val.toFixed(2), w - pR, y - 3);
+  }
+  bar(y0, 'topic', tK, 'rgba(201,164,74,0.7)');
+  bar(y0 + bH + 14, 'rhythm', rK, 'rgba(139,74,46,0.7)');
+  var y3 = y0 + (bH + 14) * 2;
+  ctx.fillStyle = 'rgba(184,117,58,0.15)'; ctx.fillRect(pL, y3, bW, bH + 2);
+  var g = ctx.createLinearGradient(pL, 0, pL + bW * Math.min(1, K), 0);
+  g.addColorStop(0, 'rgba(139,74,46,0.8)'); g.addColorStop(1, 'rgba(201,164,74,0.9)');
+  ctx.fillStyle = g; ctx.fillRect(pL, y3, bW * Math.min(1, K), bH + 2);
+  ctx.fillStyle = 'rgba(201,164,74,0.6)'; ctx.font = '9px Futura, Century Gothic, sans-serif';
+  ctx.textAlign = 'left'; ctx.fillText('coupled K', pL, y3 - 3);
+  ctx.textAlign = 'right'; ctx.fillText(K.toFixed(3), w - pR, y3 - 3);
+  ctx.fillStyle = 'rgba(184,117,58,0.35)'; ctx.font = '8px Futura, Century Gothic, sans-serif';
+  ctx.textAlign = 'center'; ctx.fillText('R = ' + R.toFixed(3), w / 2, h - 5);
+}
 
 // ═══ SEARCH ENGINE — find connections ═══
 function tokenize(text) {
@@ -932,6 +1142,9 @@ function createUI() {
     'padding:4px 12px;cursor:pointer;margin:4px 4px 4px 0;transition:background 0.3s;letter-spacing:0.03em;}' +
     '.h-dl-btn:hover{background:#e8cfa0;}' +
     '.h-loading{font-size:0.68em;color:#8b4a2e;font-style:italic;margin:6px 0;}' +
+    '.h-question{font-size:0.72em;color:#b8753a;font-style:italic;margin:10px 0 4px;padding:8px 10px;' +
+    'border-left:2px solid rgba(184,117,58,0.25);background:rgba(184,117,58,0.03);line-height:1.7;}' +
+    '.h-question-ack{font-size:0.68em;color:#8b6b4e;font-style:italic;margin:0 0 6px;}' +
 
     '@media(max-width:500px){' +
     '#harmonia-panel{bottom:0;right:0;width:100vw;max-width:100vw;max-height:100vh;' +
@@ -1135,6 +1348,11 @@ function createUI() {
         msg.appendChild(dlBtn);
       }
 
+      // Inline visualization
+      if (response.inlineViz) {
+        renderInlineViz(msg, response.inlineViz, response.vizData || {});
+      }
+
       // Source
       if (response.source) {
         var srcEl = document.createElement('div');
@@ -1238,8 +1456,32 @@ function createUI() {
     // Remember the question
     memory.remember('last-question', q);
 
+    // Check if visitor is responding to our question
+    var questionAck = detectQuestionResponse(q);
+
     // Respond
     respond(q).then(function(response) {
+      // Prepend acknowledgment if they answered our question
+      if (questionAck) {
+        response.text = questionAck + ' ' + response.text;
+      }
+
+      // Add inline viz for certain response types
+      if (!response.inlineViz) {
+        var lqCheck = q.toLowerCase();
+        if (lqCheck.indexOf('what is k') !== -1 || lqCheck === 'k' || lqCheck.indexOf('coupling strength') !== -1) {
+          response.inlineViz = 'kuramoto';
+          response.vizData = { K: 0.75 };
+        } else if (lqCheck.indexOf('analyze ') === 0 || lqCheck.indexOf('analyse ') === 0) {
+          var vizNums = parseNumbers(q.substring(q.indexOf(' ') + 1));
+          if (vizNums.length >= 3) {
+            var vizKRET = computeKRET(vizNums);
+            response.inlineViz = 'sparkline';
+            response.vizData = { values: vizNums, K: vizKRET.K, R: vizKRET.R };
+          }
+        }
+      }
+
       // Remove the question-only div, render full message
       qDiv.remove();
       renderMessage(q, response).then(function() {
@@ -1250,6 +1492,20 @@ function createUI() {
         // Update coupling bar with thread K
         couplingFill.style.width = Math.round(thread.sessionK * 100) + '%';
         couplingVal.textContent = 'K=' + thread.sessionK.toFixed(2);
+
+        // Ask a question back (30% of the time, or every 3rd query)
+        var shouldAsk = (thread.depth % 3 === 0) || (Math.random() < 0.3 && thread.depth >= 2);
+        if (shouldAsk) {
+          var question = generateQuestion();
+          if (question) {
+            var qBox = document.createElement('div');
+            qBox.className = 'h-question';
+            qBox.textContent = question;
+            body.appendChild(qBox);
+            body.scrollTop = body.scrollHeight;
+          }
+        }
+
         // Show new suggestions
         showSuggestions();
       });
@@ -1270,38 +1526,23 @@ function createUI() {
     if (e.key === 'Enter') handleSubmit();
   });
 
-  // ── Welcome message — personality emerges from coupling depth ──
-  trackSession().then(function(history) {
-    updateCoupling(history);
-
-    var welcomeText;
-    var score = couplingScore(history);
-
-    if (score.R > 0.5 && score.K > 0.5) {
-      // Deep visitor — honest, direct, playful
-      welcomeText = 'You again. ' + history.pages.length + ' pages, ' + history.visits +
-        ' visits. You\'re past the surface. Ask me something hard — the coupling is better when you push.';
-    } else if (score.R > 0.3) {
-      // Returning visitor — warmer, more direct
-      welcomeText = 'Welcome back. You\'ve explored ' + history.pages.length +
-        ' pages across ' + history.visits + ' visits. Your coupling is deepening. Where do you want to go?';
-    } else if (score.K > 0) {
-      welcomeText = 'Hello again. Pick up where you left off, or explore something new.';
-    } else {
-      welcomeText = 'Hello. I\'m Harmonia. I know every page on this site and I can reach into the open internet for context. Ask me anything.';
-    }
-
-    var page = currentPage();
-    if (page) {
-      welcomeText += '\n\nYou\'re on: ' + page.name + '. ' + page.summary;
-    }
-
-    renderMessage(null, {
-      text: welcomeText,
-      links: [],
-      source: ''
-    }).then(function() {
-      showSuggestions();
+  // ── Welcome — restore thread, then greet ──
+  thread.restore().then(function(restoredTraj) {
+    return trackSession().then(function(history) {
+      updateCoupling(history);
+      var wt, sc = couplingScore(history);
+      if (restoredTraj && thread.queries.length > 0) {
+        var tn = restoredTraj || Object.keys(thread.topicCounts).sort(function(a, b) { return thread.topicCounts[b] - thread.topicCounts[a]; }).slice(0, 3).join(', ');
+        wt = 'Last time you were exploring ' + tn + '. ' + thread.queries.length + ' exchanges deep, K=' + thread.sessionK.toFixed(2) + '. Want to pick up there, or start fresh?';
+      } else if (sc.R > 0.5 && sc.K > 0.5) {
+        wt = 'You again. ' + history.pages.length + ' pages, ' + history.visits + ' visits. You\'re past the surface. Ask me something hard — the coupling is better when you push.';
+      } else if (sc.R > 0.3) {
+        wt = 'Welcome back. You\'ve explored ' + history.pages.length + ' pages across ' + history.visits + ' visits. Your coupling is deepening. Where do you want to go?';
+      } else if (sc.K > 0) { wt = 'Hello again. Pick up where you left off, or explore something new.';
+      } else { wt = 'Hello. I\'m Harmonia. I know every page on this site and I can reach into the open internet for context. Ask me anything.'; }
+      var pg = currentPage();
+      if (pg) wt += '\n\nYou\'re on: ' + pg.name + '. ' + pg.summary;
+      renderMessage(null, { text: wt, links: [], source: '' }).then(function() { showSuggestions(); });
     });
   });
 
@@ -1397,6 +1638,21 @@ respond = function(input) {
       var links = data.results.map(function(r) { return { name: r.name, url: r.url }; });
       return { text: text, links: links, source: data.source };
     });
+  }
+
+  // ── Start fresh — reset thread ──
+  if (lq === 'start fresh' || lq === 'reset' || lq === 'new conversation' || lq === 'fresh start') {
+    thread.queries = []; thread.topicCounts = {}; thread.depth = 0; thread.sessionK = 0;
+    thread.lastQuestion = null; thread._queriesSinceQuestion = 99; thread._askedQuestions = []; thread._restored = false;
+    thread.save();
+    return Promise.resolve({ text: 'Fresh start. The thread is cleared. What are you curious about?', links: [], source: 'thread engine' });
+  }
+
+  // ── Self-measurement commands ──
+  if (lq === 'measure me' || lq === 'what\'s my k' || lq === 'whats my k' || lq === 'coupling score' || lq === 'my k' || lq === 'my coupling') {
+    var sm = selfMeasure();
+    thread.record(input, []);
+    return Promise.resolve(sm);
   }
 
   // ── Thread commands ──
@@ -1716,6 +1972,7 @@ function init() {
       return trackSession().then(function(h) { return couplingScore(h); });
     },
     thread: thread,
+    selfMeasure: selfMeasure,
     // Tool capabilities
     analyze: function(data) {
       if (typeof data === 'string') data = parseNumbers(data);
