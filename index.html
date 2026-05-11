@@ -187,53 +187,43 @@ var GA = 2.39996322; // golden angle
 var PHI = (1+Math.sqrt(5))/2;
 var dt = 0.016;
 
-// ═══ LAYOUT — evolving shape ═══
-// The shape breathes through forms. Never static. Always becoming.
+// ═══ LAYOUT — emergent from coupling ═══
+// No prescribed shapes. The oscillators find their own formations.
+// Phase-synced nodes attract. Phase-opposed repel. R drives coherence.
+// The coupling IS the choreography.
 var nxA=[], nyA=[];
+var vxA=[], vyA=[]; // velocities — the oscillators have momentum
 var shapeTime = 0;
 
-// Shape generators — each returns {x, y} for node i
-function shapeSpiral(i, N){
+// Initialize on golden spiral — a starting whisper, not a destination
+for(var i=0;i<N;i++){
   var r = 0.8 + Math.sqrt(i/N) * 5.5;
   var a = i * GA;
-  return {x: Math.cos(a)*r, y: Math.sin(a)*r};
-}
-function shapeButterfly(i, N){
-  var t = (i/N) * Math.PI * 2;
-  var wing = Math.pow(Math.abs(Math.sin(2*t)), 0.8);
-  var r = (wing * 4.5 + 0.6);
-  return {x: Math.cos(t)*r, y: Math.sin(t)*r};
-}
-function shapeHeart(i, N){
-  var t = (i/N) * Math.PI * 2;
-  var x = 16 * Math.pow(Math.sin(t), 3) * 0.35;
-  var y = -(13*Math.cos(t) - 5*Math.cos(2*t) - 2*Math.cos(3*t) - Math.cos(4*t)) * 0.35;
-  return {x: x, y: y};
-}
-function shapeFlower(i, N){
-  var t = (i/N) * Math.PI * 2;
-  var r = (2.5 + 2.5 * Math.cos(5*t));
-  return {x: Math.cos(t)*r, y: Math.sin(t)*r};
-}
-function shapeCircle(i, N){
-  var t = (i/N) * Math.PI * 2;
-  var r = 4.5;
-  return {x: Math.cos(t)*r, y: Math.sin(t)*r};
+  nxA.push(Math.cos(a)*r);
+  nyA.push(Math.sin(a)*r);
+  vxA.push((Math.random()-0.5)*0.02);
+  vyA.push((Math.random()-0.5)*0.02);
 }
 
-var shapes = [shapeSpiral, shapeButterfly, shapeHeart, shapeFlower, shapeCircle];
-var shapeDuration = 12; // seconds per shape
-var shapeTransition = 3; // seconds to morph
-
-// Initialize positions
+// Scout designation — ~10% of oscillators are scouts
+// They drift further, explore, pull the group
+var isScout = new Uint8Array(N);
+var scoutStrength = new Float64Array(N);
 for(var i=0;i<N;i++){
-  var s = shapeSpiral(i, N);
-  nxA.push(s.x);
-  nyA.push(s.y);
+  if(Math.random() < 0.10){
+    isScout[i] = 1;
+    scoutStrength[i] = 0.6 + Math.random()*0.8;
+  }
 }
 
-// Target positions (updated each frame)
-var nxTarget=nxA.slice(), nyTarget=nyA.slice();
+// Per-node wander angle — each node has a slowly drifting preferred direction
+var wanderAngle = new Float64Array(N);
+for(var i=0;i<N;i++) wanderAngle[i] = Math.random() * Math.PI * 2;
+
+// Slow global drift — the whole formation breathes and wanders
+var driftX = 0, driftY = 0;
+var driftAngle = Math.random() * Math.PI * 2;
+var breathPhase = 0;
 
 // Neighbors — wider radius so the web of connections is rich
 var nbrL=[];
@@ -420,20 +410,106 @@ function draw() {
   step();
   camRY+=0.0018; // slow auto-rotate
 
-  // ═══ SHAPE EVOLUTION — morph between forms ═══
+  // ═══ EMERGENT DYNAMICS — coupling drives spatial form ═══
   shapeTime += dt;
-  var totalCycle = shapes.length * shapeDuration;
-  var cycleT = shapeTime % totalCycle;
-  var shapeIdx = Math.floor(cycleT / shapeDuration);
-  var nextIdx = (shapeIdx + 1) % shapes.length;
-  var progress = (cycleT % shapeDuration) / shapeDuration;
-  // Smooth ease
-  var ease = progress < 0.5 ? 2*progress*progress : 1-2*(1-progress)*(1-progress);
+  breathPhase += dt * 0.4; // slow breath
+
+  // Global drift — the formation wanders like a school of fish
+  driftAngle += (Math.sin(shapeTime * 0.07) * 0.003);
+  driftX = Math.cos(driftAngle) * 0.003;
+  driftY = Math.sin(driftAngle) * 0.002;
+
+  // Breath scale — whole formation expands and contracts
+  var breathScale = 1.0 + Math.sin(breathPhase) * 0.08 + Math.sin(breathPhase * PHI) * 0.04;
+
+  // How tight should the flock be? R drives coherence.
+  // High R = tight, recognizable formation. Low R = scattered cloud.
+  var cohesionStrength = 0.003 + Rval * 0.012;
+  var separationDist = 1.2 - Rval * 0.3; // tighter when coupled
+  var dampening = 0.92; // velocity damping — water-bottle feel
+
+  // Center of mass
+  var comX = 0, comY = 0;
+  for(var i=0;i<N;i++){ comX += nxA[i]; comY += nyA[i]; }
+  comX /= N; comY /= N;
+
   for(var i=0;i<N;i++){
-    var a = shapes[shapeIdx](i, N);
-    var b = shapes[nextIdx](i, N);
-    nxA[i] += ((a.x*(1-ease) + b.x*ease) - nxA[i]) * 0.03;
-    nyA[i] += ((a.y*(1-ease) + b.y*ease) - nyA[i]) * 0.03;
+    var ax = 0, ay = 0; // accumulated force
+
+    // 1+2. PHASE COUPLING + SEPARATION in one pass
+    // Synced oscillators attract. Opposed repel. Too-close repel harder.
+    // Spatial structure emerges from phase structure.
+    var nn = nbrL[i];
+    for(var k=0;k<nn.length;k++){
+      var j = nn[k];
+      var ddx = nxA[j] - nxA[i];
+      var ddy = nyA[j] - nyA[i];
+      var dist = Math.sqrt(ddx*ddx + ddy*ddy);
+      if(dist < 0.01) continue;
+      var nx2 = ddx/dist, ny2 = ddy/dist;
+
+      // Phase coupling — sync attracts, opposition repels
+      var pdiff = phases[j] - phases[i];
+      var sync = Math.cos(pdiff);
+      var phasePull = sync * 0.008;
+      ax += nx2 * phasePull;
+      ay += ny2 * phasePull;
+
+      // Separation — don't crowd regardless of phase
+      if(dist < separationDist){
+        var repel = (separationDist - dist) / separationDist;
+        repel = repel * repel * 0.015;
+        ax -= nx2 * repel;
+        ay -= ny2 * repel;
+      }
+    }
+
+    // 3. COHESION — gentle pull toward center of mass
+    var toCenterX = comX - nxA[i];
+    var toCenterY = comY - nyA[i];
+    ax += toCenterX * cohesionStrength;
+    ay += toCenterY * cohesionStrength;
+
+    // 4. BREATHING — radial pulse from center
+    var fromCX = nxA[i] - comX;
+    var fromCY = nyA[i] - comY;
+    var fromCDist = Math.sqrt(fromCX*fromCX + fromCY*fromCY);
+    if(fromCDist > 0.1){
+      var breathForce = (breathScale - 1.0) * 0.02;
+      ax += (fromCX/fromCDist) * breathForce * fromCDist;
+      ay += (fromCY/fromCDist) * breathForce * fromCDist;
+    }
+
+    // 5. WANDER — each node has its own slow-drifting direction
+    wanderAngle[i] += (Math.random() - 0.5) * 0.15;
+    var wanderForce = isScout[i] ? 0.003 * scoutStrength[i] : 0.0008;
+    ax += Math.cos(wanderAngle[i]) * wanderForce;
+    ay += Math.sin(wanderAngle[i]) * wanderForce;
+
+    // 6. GLOBAL DRIFT — everything moves together
+    ax += driftX;
+    ay += driftY;
+
+    // 7. SOFT BOUNDARY — keep formation in a reasonable area
+    var boundR = 6.5;
+    var nodeR = Math.sqrt(nxA[i]*nxA[i] + nyA[i]*nyA[i]);
+    if(nodeR > boundR){
+      var pushBack = (nodeR - boundR) * 0.02;
+      ax -= (nxA[i]/nodeR) * pushBack;
+      ay -= (nyA[i]/nodeR) * pushBack;
+    }
+
+    // Apply forces with momentum (water bottle)
+    vxA[i] = vxA[i] * dampening + ax;
+    vyA[i] = vyA[i] * dampening + ay;
+
+    // Clamp velocity so nothing flies off
+    var spd = Math.sqrt(vxA[i]*vxA[i] + vyA[i]*vyA[i]);
+    var maxSpd = isScout[i] ? 0.12 : 0.07;
+    if(spd > maxSpd){ vxA[i] *= maxSpd/spd; vyA[i] *= maxSpd/spd; }
+
+    nxA[i] += vxA[i];
+    nyA[i] += vyA[i];
   }
   // ═══ PAGE AWARENESS FORCES — perturbations on top of shape ═══
   // Canvas rect for coordinate mapping
@@ -451,12 +527,11 @@ function draw() {
   var cx2=W/2, cy2=H*0.48+scrollOffset;
 
   // ═══ MOUSE/TOUCH ATTRACTION — plants toward light ═══
+  // Forces applied through velocity so momentum feels consistent
   if(mouseDecay>0.01){
-    // Convert mouse screen coords to canvas-relative coords
     var mCanvasX=mouseX-cvRect.left;
     var mCanvasY=mouseY-cvRect.top;
     for(var i=0;i<N;i++){
-      // Get screen position of this oscillator (approximate — use shape coords * scale)
       var sxApprox=cx2+nxA[i]*sc;
       var syApprox=cy2+nyA[i]*sc;
       var mdx=mCanvasX-sxApprox;
@@ -464,21 +539,18 @@ function draw() {
       var mDist=Math.sqrt(mdx*mdx+mdy*mdy);
       if(mDist<150&&mDist>5){
         var mForce=0.3/(mDist*mDist)*mouseDecay;
-        // Apply in shape-space (divide by scale)
-        nxA[i]+=mdx*mForce*0.01;
-        nyA[i]+=mdy*mForce*0.01;
+        vxA[i]+=mdx*mForce*0.01;
+        vyA[i]+=mdy*mForce*0.01;
       }
     }
   }
 
   // ═══ DOOR HOVER COUPLING — warmth toward the hovered door ═══
-  // Reset K boosts each frame
   for(var i=0;i<N;i++) kBoost[i]*=0.9; // decay toward 0
   if(hoveredDoor>=0&&hoveredDoor<doorRects.length&&!isTouchDevice&&doorRects[hoveredDoor]){
     var dr=doorRects[hoveredDoor];
-    // Door center in canvas-relative coords
     var doorCX=dr.left+dr.width*0.5-cvRect.left;
-    var doorCY=dr.top-cvRect.top; // top edge of door, closest to canvas
+    var doorCY=dr.top-cvRect.top;
     for(var i=0;i<N;i++){
       var sxApprox2=cx2+nxA[i]*sc;
       var syApprox2=cy2+nyA[i]*sc;
@@ -487,20 +559,18 @@ function draw() {
       var dDist=Math.sqrt(ddx2*ddx2+ddy2*ddy2);
       if(dDist<250&&dDist>5){
         var dForce=0.15/(dDist);
-        nxA[i]+=ddx2*dForce*0.002;
-        nyA[i]+=ddy2*dForce*0.002;
-        // Boost K for oscillators near hovered door — phase-lock faster
+        vxA[i]+=ddx2*dForce*0.002;
+        vyA[i]+=ddy2*dForce*0.002;
         var proximity=Math.max(0,(250-dDist)/250);
         kBoost[i]=Math.min(kBoost[i]+proximity*0.8, 1.5);
       }
     }
   }
 
-  // ═══ TEXT AVOIDANCE / CLUSTERING — breathing room for title, warmth around tagline ═══
+  // ═══ TEXT AVOIDANCE — breathing room for title ═══
   if(titleRect){
-    // Title: gentle repulsion so oscillators don't crowd the text
     var titleCX=titleRect.left+titleRect.width*0.5-cvRect.left;
-    var titleCY=titleRect.bottom-cvRect.top+10; // just below title
+    var titleCY=titleRect.bottom-cvRect.top+10;
     for(var i=0;i<N;i++){
       var sxA3=cx2+nxA[i]*sc;
       var syA3=cy2+nyA[i]*sc;
@@ -508,20 +578,19 @@ function draw() {
       var tdy=syA3-titleCY;
       var tDist=Math.sqrt(tdx*tdx+tdy*tdy);
       if(tDist<80&&tDist>1){
-        // Push away gently
         var tForce=0.5/(tDist*tDist);
-        nxA[i]+=tdx*tForce*0.003;
-        nyA[i]+=tdy*tForce*0.003;
+        vxA[i]+=tdx*tForce*0.003;
+        vyA[i]+=tdy*tForce*0.003;
       }
     }
   }
 
-  // ═══ CONTENT ATTRACTION — oscillators cluster near page elements like fireflies around light ═══
+  // ═══ CONTENT ATTRACTION — fireflies near light ═══
   for(var ci=0;ci<doorRects.length;ci++){
     var cdr=doorRects[ci];
     if(!cdr) continue;
     var cdx=cdr.left+cdr.width*0.5-cvRect.left;
-    var cdy=cdr.top-cvRect.top-20; // just above door top
+    var cdy=cdr.top-cvRect.top-20;
     for(var i=0;i<N;i++){
       var sxC=cx2+nxA[i]*sc;
       var syC=cy2+nyA[i]*sc;
@@ -529,21 +598,21 @@ function draw() {
       var cddy=cdy-syC;
       var cDist=Math.sqrt(cddx*cddx+cddy*cddy);
       if(cDist<250&&cDist>30){
-        // Very gentle attraction — drift toward content
         var cForce=0.08/(cDist);
-        nxA[i]+=cddx*cForce*0.001;
-        nyA[i]+=cddy*cForce*0.001;
-        // Boost brightness for nearby oscillators (via kBoost — syncs them faster)
+        vxA[i]+=cddx*cForce*0.001;
+        vyA[i]+=cddy*cForce*0.001;
         var cProx=Math.max(0,(250-cDist)/250);
         kBoost[i]=Math.min(kBoost[i]+cProx*0.3, 1.5);
       }
     }
   }
 
-  // Update neighbors periodically (every 2 seconds)
-  if(Math.floor(shapeTime*0.5) !== Math.floor((shapeTime-dt)*0.5)){
+  // Update neighbors every 0.5 seconds — positions are truly dynamic now
+  // Neighbor radius adapts: tighter formation = smaller radius, looser = wider reach
+  if(Math.floor(shapeTime*2) !== Math.floor((shapeTime-dt)*2)){
+    var nbrR2 = 8.0 + Rval * 8.0; // 8-16 squared distance, R-adaptive
     nbrL=[];
-    for(var i=0;i<N;i++){var nn=[];for(var j=0;j<N;j++){if(j===i)continue;var ddx=nxA[j]-nxA[i],ddy=nyA[j]-nyA[i];if(ddx*ddx+ddy*ddy<12.0)nn.push(j);}nbrL.push(nn);}
+    for(var i=0;i<N;i++){var nn=[];for(var j=0;j<N;j++){if(j===i)continue;var ddx=nxA[j]-nxA[i],ddy=nyA[j]-nyA[i];if(ddx*ddx+ddy*ddy<nbrR2)nn.push(j);}nbrL.push(nn);}
   }
 
   // Global breathing — R drives a collective pulse
@@ -659,9 +728,11 @@ function draw() {
     }
 
     // Dramatic breathing — real expansion/contraction
+    // Scouts run slightly larger and brighter — you notice them without knowing why
     var breath = Math.sin(phases[nd.i]);
-    var size = (2.0 + breath*0.8) * nd.persp * globalBreath;
-    var bright = (0.7 + Math.abs(breath)*0.5) * nd.persp;
+    var scoutBonus = isScout[nd.i] ? 1.3 : 1.0;
+    var size = (2.0 + breath*0.8) * nd.persp * globalBreath * scoutBonus;
+    var bright = (0.7 + Math.abs(breath)*0.5) * nd.persp * (isScout[nd.i] ? 1.15 : 1.0);
 
     // Radial glow — soft halo, not a rectangle
     // Only for foreground nodes (persp > 0.6) to save GPU on distant ones
