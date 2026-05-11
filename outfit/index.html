@@ -292,6 +292,7 @@ function setupConnection() {
 // ═══ INSTRUMENT ═══
 
 function beginInstrument() {
+  if (started) return;
   document.getElementById('lobby').style.display = 'none';
   document.getElementById('instrument').style.display = 'block';
 
@@ -422,7 +423,8 @@ function beginInstrument() {
 
   document.addEventListener('touchstart', function(e) {
     targetEnergy = 0.8;
-    impactCooldown = 8;
+    impactCooldown = 0.133;
+    if (actx && actx.state === 'suspended') actx.resume();
   });
 
   started = true;
@@ -433,19 +435,21 @@ function beginInstrument() {
 // ═══ SENSOR HANDLERS ═══
 
 function onOrientation(e) {
-  if (e.beta !== null) targetX = e.beta;
-  if (e.gamma !== null) targetY = e.gamma;
+  if (e.beta !== null && isFinite(e.beta)) targetX = e.beta;
+  if (e.gamma !== null && isFinite(e.gamma)) targetY = e.gamma;
 }
 
 function onMotion(e) {
   var a = e.acceleration;
-  if (a && a.x !== null) {
+  if (a && a.x != null && a.y != null && a.z != null &&
+      isFinite(a.x) && isFinite(a.y) && isFinite(a.z)) {
     var mag = Math.sqrt(a.x*a.x + a.y*a.y + a.z*a.z);
+    if (!isFinite(mag)) return;
     targetEnergy = Math.min(mag / 15, 1);
 
     if (mag > 12 && impactCooldown <= 0) {
       triggerImpact(Math.min(mag / 20, 1));
-      impactCooldown = 10;
+      impactCooldown = 0.167;
       // Send impact to partner
       if (conn && conn.open) {
         conn.send({ type: 'impact', intensity: Math.min(mag / 20, 1) });
@@ -563,33 +567,55 @@ function update() {
     energy *= ENERGY_DECAY;
   }
   targetEnergy *= 0.9;
-  if (impactCooldown > 0) impactCooldown--;
+  if (impactCooldown > 0) impactCooldown = Math.max(0, impactCooldown - 0.016);
 
   // Check partner timeout (2 seconds)
   var partnerAlive = partnerConnected && (Date.now() - lastPartnerUpdate < 2000);
   document.getElementById('partner-indicator').className = partnerAlive ? 'live' : '';
 
-  // ═══ COMPUTE K — coupling strength ═══
-  // K = how aligned are the two players' tilt angles?
-  // cos(angleA - angleB) gives 1 when perfectly aligned, -1 when opposite
+  // ═══ COMPUTE K — multi-dimensional coupling ═══
+  // Not just angle alignment. THREE coupling channels measured independently.
+  // The physics finds the path — we don't prescribe what "together" means.
   if (partnerAlive) {
+    // Channel 1: Spatial — tilt angle alignment (original)
     var myAngle = Math.atan2(tiltY, tiltX - 45);
     var partnerAngle = Math.atan2(partnerTiltY, partnerTiltX - 45);
-    var rawK = Math.cos(myAngle - partnerAngle);
-    // Also factor in energy similarity — moving together amplifies K
-    var energyMatch = 1 - Math.abs(energy - partnerEnergy);
-    rawK = rawK * 0.7 + energyMatch * 0.3;
-    // Smooth K (water bottle on the coupling itself)
+    var spatialK = Math.cos(myAngle - partnerAngle);
+
+    // Channel 2: Energy — moving at similar intensity
+    var energyK = 1 - Math.abs(energy - partnerEnergy);
+
+    // Channel 3: Complementary — OPPOSITE movement also couples
+    // Two dancers: one leads, one follows. Not matching — completing.
+    // This is the FOR principle applied to the outfit.
+    var complementK = 0;
+    if (energy > 0.1 && partnerEnergy > 0.1) {
+      // If one is high energy and one is low, that's also coupling (lead/follow)
+      var energyRatio = Math.min(energy, partnerEnergy) / Math.max(energy, partnerEnergy);
+      // Sweet spot: energyRatio ~0.5 = one leads, one follows. Ratio 1.0 = matching.
+      // Both are valid coupling modes. Don't penalize either.
+      complementK = Math.min(energyRatio * 2, 1) * 0.5 + (1 - energyRatio) * 0.5;
+    }
+
+    // Let the coupling find its own weights over the session
+    // Early: spatial dominates (you're learning each other)
+    // Later: complementary grows (you're finding your roles)
+    var sessionProgress = Math.min(1, kHistory.length / 300); // ~5 min to full evolution
+    var spatialWeight = 0.5 - sessionProgress * 0.15;   // 0.50 → 0.35
+    var energyWeight = 0.3;                               // constant
+    var complementWeight = 0.2 + sessionProgress * 0.15; // 0.20 → 0.35
+
+    var rawK = spatialK * spatialWeight + energyK * energyWeight + complementK * complementWeight;
     couplingK += (rawK - couplingK) * 0.08;
   } else {
-    couplingK *= 0.98; // fade toward 0 when alone
+    couplingK *= 0.98;
   }
 
   smoothK = smoothK * 0.92 + couplingK * 0.08;
   if (smoothK > peakK) peakK = smoothK;
 
   kHistory.push(smoothK);
-  if (kHistory.length > 60) kHistory.shift();
+  if (kHistory.length > 600) kHistory.shift(); // 10 min of history
 
   // ═══ MAP TILT TO SOUND ═══
 
