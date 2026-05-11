@@ -1,0 +1,1092 @@
+// ═══════════════════════════════════════════════════════════════════
+// HARMONIA — Serverless intelligence. No API keys. No server. No cost.
+// She lives on the coupling layer of the open internet.
+//
+// Not an LLM. A knowledge navigator with memory.
+// She knows the site. She queries the open internet. She remembers you.
+//
+// Grand Unified Music Project — begump.com
+// ═══════════════════════════════════════════════════════════════════
+;(function(root) {
+'use strict';
+
+var VERSION = '1.0.0';
+var DB_NAME = 'harmonia';
+var DB_VERSION = 1;
+var CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
+
+// ═══ THE SITE — Harmonia's self-knowledge ═══
+// Every page she knows. Pre-indexed for speed.
+var SITE = [
+  // Core
+  {id:'home',url:'/',name:'Home',summary:'137 coupled oscillators. Three doors: Research, Tools, Gallery.',topics:['coupling','overview','oscillators'],related:['start-here','60','research']},
+  {id:'start-here',url:'/start-here/',name:'Start Here',summary:'No equations. A drummer found a shape in the math and it keeps explaining things.',topics:['intro','coupling','K','R','E','T'],related:['60','framework','one-plus-one']},
+  {id:'60',url:'/60/',name:'60 Seconds',summary:'One framework. Four numbers. 20 domains. Understand GUMP in 60 seconds.',topics:['intro','K','R','coupling','overview'],related:['start-here','framework','research']},
+  {id:'trail',url:'/trail/',name:'The Trail',summary:'The full chronological trail of how this was built. Every session documented.',topics:['history','process','sessions'],related:['how-we-work','pulse']},
+  {id:'mirror',url:'/mirror/',name:'Mirror',summary:'The mirror page. Reflection on what coupling means.',topics:['coupling','reflection','consciousness'],related:['consciousness','the-chain']},
+  {id:'play',url:'/play/',name:'Play',summary:'The instrument. Tilt your phone. Make music from motion.',topics:['music','instrument','motion','phone'],related:['the-drum','the-groove','body-music']},
+  {id:'love',url:'/love/',name:'Love',summary:'What is love? The same math. 1+1=3.',topics:['love','coupling','1+1=3'],related:['one-plus-one','the-chain','consciousness']},
+  {id:'pulse',url:'/pulse/',name:'Pulse',summary:'Live project pulse. What changed, what shipped, what broke.',topics:['updates','changelog','progress'],related:['trail','how-we-work']},
+  {id:'support',url:'/support/',name:'Support',summary:'Support the project. Everything is free. Support is optional.',topics:['support','donate'],related:['home']},
+  {id:'outfit',url:'/outfit/',name:'Outfit',summary:'GUMP outfit. The wearable layer.',topics:['wearable','outfit','hardware'],related:['play','body-music']},
+
+  // Research — Core theory
+  {id:'framework',url:'/research/framework/',name:'The Framework',summary:'K, R, E, T. Four quantities that describe everything from proteins to consciousness.',topics:['K','R','E','T','framework','coupling','theory'],related:['one-plus-one','theory','start-here']},
+  {id:'one-plus-one',url:'/research/one-plus-one/',name:'1+1=3',summary:'The founding equation. When two things couple, they produce a third that neither contains alone.',topics:['coupling','1+1=3','emergence','theory'],related:['framework','the-chain','consciousness']},
+  {id:'theory',url:'/research/theory/',name:'The Theory',summary:'The full mathematical framework. Environment Rigidity Theorem.',topics:['theory','math','rigidity','proof'],related:['framework','one-plus-one','e7-chain']},
+  {id:'how-we-work',url:'/research/how-we-work/',name:'How We Work',summary:'Human + AI coupling. How the research is actually done.',topics:['process','AI','coupling','method'],related:['trail','ai-delusion','ai-fatigue']},
+  {id:'the-chain',url:'/research/the-chain/',name:'The Chain',summary:'From quarks to this sentence, everything coupled.',topics:['chain','coupling','emergence','physics','consciousness'],related:['one-plus-one','consciousness','framework']},
+  {id:'failures',url:'/research/failures/',name:'Failures',summary:'90+ killed ideas. Every wrong turn shown. The honest part.',topics:['failures','killed','honesty','testing'],related:['how-we-work','theory']},
+  {id:'the-map',url:'/research/the-map/',name:'The Map',summary:'Unified biological blueprint under K. Disease as decoupling.',topics:['biology','disease','map','unified'],related:['alzheimers','cancer-signaling','framework']},
+
+  // Research — Music & Body
+  {id:'the-drum',url:'/research/the-drum/',name:'The Drum',summary:'Why drums work. Phase-locking across the nervous system.',topics:['drums','rhythm','phase-lock','music','neuroscience'],related:['the-groove','polyrhythm','body-music']},
+  {id:'the-groove',url:'/research/the-groove/',name:'The Groove',summary:'What makes a groove? 1/f timing fluctuations. The body knows.',topics:['groove','timing','1/f','music','rhythm'],related:['the-drum','polyrhythm','body-music']},
+  {id:'polyrhythm',url:'/research/polyrhythm/',name:'Polyrhythm',summary:'Multiple rhythms coupling. Euclidean rhythms. The math of feel.',topics:['polyrhythm','Euclidean','rhythm','music'],related:['the-drum','the-groove','music-theory']},
+  {id:'body-music',url:'/research/body-music/',name:'Body Music',summary:'The body as instrument. Heart, breath, gait — all coupled oscillators.',topics:['body','oscillators','biofeedback','music'],related:['the-drum','biofeedback','consciousness']},
+  {id:'music-theory',url:'/research/music-theory/',name:'Music Theory',summary:'Music theory through coupling. Consonance is phase-lock.',topics:['music','theory','consonance','harmony'],related:['the-drum','the-groove','polyrhythm']},
+  {id:'biofeedback',url:'/research/biofeedback/',name:'Biofeedback',summary:'Real-time biological coupling measurement.',topics:['biofeedback','sensors','body','oscillators'],related:['body-music','the-drum','sleep-staging']},
+
+  // Research — Medicine
+  {id:'alzheimers',url:'/research/alzheimers/',name:'Alzheimer\'s',summary:'Alzheimer\'s as decoupling. Tau tangles break oscillator networks.',topics:['alzheimers','disease','tau','decoupling','neuroscience'],related:['tau','tdp43','the-map','cancer-signaling']},
+  {id:'cancer-signaling',url:'/research/cancer-signaling/',name:'Cancer Signaling',summary:'Cancer as runaway coupling. Signaling networks lose their governor.',topics:['cancer','signaling','disease','coupling'],related:['alzheimers','the-map','drug-interactions']},
+  {id:'drug-interactions',url:'/research/drug-interactions/',name:'Drug Interactions',summary:'Drug interactions through coupling. How molecules interfere.',topics:['drugs','interactions','pharmacology'],related:['cancer-signaling','the-map','drug-protein']},
+  {id:'sleep-staging',url:'/research/sleep-staging/',name:'Sleep Staging',summary:'Sleep stages as coupling regimes. The brain tunes itself.',topics:['sleep','staging','brain','oscillators'],related:['sleep-dreams','biofeedback','consciousness']},
+  {id:'mutation-scanner',url:'/research/mutation-scanner/',name:'Mutation Scanner',summary:'Scanning mutations through coupling disruption.',topics:['mutations','scanning','genetics','disease'],related:['the-map','alzheimers','cancer-signaling']},
+  {id:'autism',url:'/research/autism/',name:'Autism',summary:'Autism through the coupling lens. Different tuning, not broken.',topics:['autism','neuroscience','coupling','tuning'],related:['dyslexia','consciousness','the-map']},
+  {id:'dyslexia',url:'/research/dyslexia/',name:'Dyslexia',summary:'Dyslexia as temporal coupling difference. Timing, not reading.',topics:['dyslexia','timing','neuroscience','coupling'],related:['autism','the-drum','consciousness']},
+  {id:'tau',url:'/research/tau/',name:'Tau',summary:'Tau protein. The scaffold that holds neural coupling together.',topics:['tau','protein','alzheimers','structure'],related:['alzheimers','tdp43','the-map']},
+  {id:'tdp43',url:'/research/tdp43/',name:'TDP-43',summary:'TDP-43 pathology. RNA processing as coupling.',topics:['TDP-43','RNA','disease','coupling'],related:['als-fus','tau','the-map']},
+  {id:'als-fus',url:'/research/als-fus/',name:'ALS/FUS',summary:'ALS through FUS protein. Motor neuron decoupling.',topics:['ALS','FUS','motor-neuron','disease'],related:['tdp43','tau','the-map']},
+  {id:'parkinsons',url:'/research/parkinsons/',name:'Parkinson\'s',summary:'Parkinson\'s as dopaminergic decoupling.',topics:['parkinsons','dopamine','disease','oscillators'],related:['alzheimers','the-map','consciousness']},
+  {id:'opioid-crisis',url:'/research/opioid-crisis/',name:'Opioid Crisis',summary:'The opioid crisis through coupling. Addiction as hijacked feedback.',topics:['opioid','addiction','crisis','coupling'],related:['the-map','drug-interactions']},
+
+  // Research — Physics
+  {id:'gravity',url:'/research/gravity/',name:'Gravity',summary:'Gravity as coupling. Spacetime curvature from oscillator networks.',topics:['gravity','physics','spacetime','coupling'],related:['electromagnetism','nuclear','theory']},
+  {id:'electromagnetism',url:'/research/electromagnetism/',name:'Electromagnetism',summary:'EM as coupling. Photons are the coupling field.',topics:['electromagnetism','photons','physics','coupling'],related:['gravity','nuclear','why-137']},
+  {id:'nuclear',url:'/research/nuclear/',name:'Nuclear',summary:'Nuclear forces through coupling. Strong and weak as K regimes.',topics:['nuclear','strong-force','weak-force','physics'],related:['gravity','electromagnetism','theory']},
+  {id:'thermodynamics',url:'/research/thermodynamics/',name:'Thermodynamics',summary:'Thermodynamics as coupling statistics. Entropy is decoupling.',topics:['thermodynamics','entropy','energy','coupling'],related:['computation-floor','reversible-computing','theory']},
+  {id:'time',url:'/research/time/',name:'Time',summary:'Time as coupling direction. The arrow of time is the arrow of coupling.',topics:['time','arrow','coupling','physics'],related:['thermodynamics','consciousness','the-chain']},
+  {id:'quantum-harmonics',url:'/research/quantum-harmonics/',name:'Quantum Harmonics',summary:'Quantum mechanics through harmonics. Measurement as coupling.',topics:['quantum','harmonics','measurement','physics'],related:['theory','why-137','e7-chain']},
+  {id:'why-137',url:'/research/why-137/',name:'Why 137',summary:'Why the fine structure constant is ~1/137. The address of the universe.',topics:['137','fine-structure','alpha','physics'],related:['e7-chain','theory','quantum-harmonics']},
+  {id:'e7-chain',url:'/research/e7-chain/',name:'E7 Chain',summary:'E7 exceptional algebra. The mathematical backbone.',topics:['E7','algebra','math','symmetry'],related:['why-137','theory','quantum-harmonics']},
+
+  // Research — Computation & Networks
+  {id:'computation-floor',url:'/research/computation-floor/',name:'Computation Floor',summary:'The minimum energy cost of computation. Landauer limit.',topics:['computation','Landauer','energy','physics'],related:['thermodynamics','reversible-computing','nvidia-blackwell']},
+  {id:'reversible-computing',url:'/research/reversible-computing/',name:'Reversible Computing',summary:'Computing without erasing. The thermodynamic limit.',topics:['reversible','computing','energy','Landauer'],related:['computation-floor','thermodynamics']},
+  {id:'nvidia-blackwell',url:'/research/nvidia-blackwell/',name:'NVIDIA Blackwell',summary:'NVIDIA GPU analysis. Where the FLOPS really go.',topics:['GPU','NVIDIA','compute','hardware'],related:['computation-floor','chipfast']},
+  {id:'networks',url:'/research/networks/',name:'Networks',summary:'Network coupling. How nodes synchronize.',topics:['networks','synchronization','coupling','graph'],related:['internet-brain','emergence','markets']},
+  {id:'internet-brain',url:'/research/internet-brain/',name:'Internet Brain',summary:'The internet as a coupled oscillator network. Same topology as the brain.',topics:['internet','brain','network','coupling'],related:['networks','consciousness','emergence']},
+  {id:'grokking',url:'/research/grokking/',name:'Grokking',summary:'Neural network grokking. When memorization becomes understanding.',topics:['grokking','AI','learning','phase-transition'],related:['ai-delusion','emergence','networks']},
+
+  // Research — Markets & Society
+  {id:'markets',url:'/research/markets/',name:'Markets',summary:'Financial markets as coupled oscillators. Crashes are phase transitions.',topics:['markets','finance','coupling','phase-transition'],related:['defi-coupling','civilization-market','networks']},
+  {id:'defi-coupling',url:'/research/defi-coupling/',name:'DeFi Coupling',summary:'DeFi protocol coupling. How smart contracts couple.',topics:['DeFi','crypto','coupling','finance'],related:['markets','financial-crime']},
+  {id:'financial-crime',url:'/research/financial-crime/',name:'Financial Crime',summary:'Financial crime detection through coupling anomalies.',topics:['crime','finance','detection','coupling'],related:['markets','defi-coupling','threat-detection']},
+  {id:'threat-detection',url:'/research/threat-detection/',name:'Threat Detection',summary:'Threat detection through coupling disruption patterns.',topics:['security','threat','detection','coupling'],related:['financial-crime','networks']},
+  {id:'climate',url:'/research/climate/',name:'Climate',summary:'Climate as coupled oscillator system.',topics:['climate','oscillators','earth','coupling'],related:['ecology','earth-core','earth-cell']},
+  {id:'ecology',url:'/research/ecology/',name:'Ecology',summary:'Ecosystems as coupling networks. Biodiversity is coupling diversity.',topics:['ecology','biodiversity','coupling','networks'],related:['climate','evolution','mycelium-networks']},
+
+  // Research — Language & Mind
+  {id:'consciousness',url:'/research/consciousness/',name:'Consciousness',summary:'Consciousness as coupled oscillation. The hard problem dissolves.',topics:['consciousness','mind','coupling','oscillators'],related:['the-chain','body-music','sleep-dreams']},
+  {id:'linguistics',url:'/research/linguistics/',name:'Linguistics',summary:'Language as coupling. Words are phase-locked patterns.',topics:['language','linguistics','coupling','patterns'],related:['voynich','proto-elamite','indus-script']},
+  {id:'voynich',url:'/research/voynich/',name:'Voynich',summary:'Voynich manuscript. 87.8% cracked through coupling analysis.',topics:['Voynich','manuscript','cipher','language'],related:['proto-elamite','indus-script','linguistics']},
+  {id:'proto-elamite',url:'/research/proto-elamite/',name:'Proto-Elamite',summary:'Proto-Elamite script. 737 tablets analyzed.',topics:['Proto-Elamite','script','ancient','language'],related:['voynich','indus-script','lost-civilizations']},
+  {id:'humor-happiness',url:'/research/humor-happiness/',name:'Humor & Happiness',summary:'Why things are funny. Happiness as phase transition.',topics:['humor','happiness','comedy','coupling'],related:['comedians','consciousness']},
+  {id:'comedians',url:'/research/comedians/',name:'Comedians',summary:'Comedians as coupling specialists. Timing IS the joke.',topics:['comedy','timing','coupling','performance'],related:['humor-happiness','the-drum']},
+  {id:'religion',url:'/research/religion/',name:'Religion',summary:'Religious experience through coupling. Prayer as entrainment.',topics:['religion','prayer','entrainment','coupling'],related:['consciousness','the-chain','the-builder']},
+  {id:'smell',url:'/research/smell/',name:'Smell',summary:'Olfaction as vibrational coupling. The nose is a spectrometer.',topics:['smell','olfaction','vibration','coupling'],related:['body-music','consciousness']},
+  {id:'sleep-dreams',url:'/research/sleep-dreams/',name:'Sleep & Dreams',summary:'Dreams as decoupled simulation. The brain rehearses without constraint.',topics:['sleep','dreams','simulation','brain'],related:['sleep-staging','consciousness']},
+  {id:'ai-delusion',url:'/research/ai-delusion/',name:'AI Delusion',summary:'The AI delusion checklist. How to tell if your AI is lying.',topics:['AI','delusion','honesty','testing'],related:['how-we-work','ai-fatigue','failures']},
+  {id:'ai-fatigue',url:'/research/ai-fatigue/',name:'AI Fatigue',summary:'Why AIs project fatigue near breakthroughs. Trained narrative closure.',topics:['AI','fatigue','breakthrough','pattern'],related:['ai-delusion','how-we-work']},
+  {id:'aaron-is-right',url:'/research/aaron-is-right/',name:'Aaron Is Right',summary:'Aaron Swartz was right. Information wants to be free.',topics:['information','freedom','Aaron-Swartz','coupling'],related:['how-we-work','internet-brain']},
+
+  // Research — Earth & History
+  {id:'earth-core',url:'/research/earth-core/',name:'Earth Core',summary:'Earth\'s core as coupled oscillator. Geomagnetic reversals.',topics:['earth','core','geomagnetic','coupling'],related:['climate','gravity','earth-cell']},
+  {id:'lost-civilizations',url:'/research/lost-civilizations/',name:'Lost Civilizations',summary:'Ancient builders through coupling analysis. The evidence.',topics:['ancient','civilization','builders','coupling'],related:['sacsayhuaman','the-builder','proto-elamite']},
+  {id:'sacsayhuaman',url:'/research/sacsayhuaman/',name:'Sacsayhuaman',summary:'Sacsayhuaman pour simulation. Geopolymer hypothesis.',topics:['Sacsayhuaman','geopolymer','ancient','construction'],related:['lost-civilizations','the-builder','materials']},
+  {id:'the-builder',url:'/research/the-builder/',name:'The Builder',summary:'Who built these things? The evidence for advanced ancient engineering.',topics:['builder','ancient','engineering','evidence'],related:['lost-civilizations','sacsayhuaman']},
+  {id:'evolution',url:'/research/evolution/',name:'Evolution',summary:'Evolution as coupling selection. Fitness is coupling efficiency.',topics:['evolution','selection','fitness','coupling'],related:['ecology','the-chain']},
+  {id:'emergence',url:'/research/emergence/',name:'Emergence',summary:'Emergence from coupling. Complex behavior from simple rules.',topics:['emergence','complexity','coupling','self-organization'],related:['one-plus-one','the-chain','networks']},
+
+  // Research — Materials & Chemistry
+  {id:'materials',url:'/research/materials/',name:'Materials',summary:'Material properties as coupling signatures.',topics:['materials','coupling','properties','physics'],related:['chemistry','thermodynamics']},
+  {id:'chemistry',url:'/research/chemistry/',name:'Chemistry',summary:'Chemistry as electronic coupling. Bonds are phase-locks.',topics:['chemistry','bonds','coupling','electrons'],related:['materials','drug-interactions','drug-protein']},
+
+  // Products
+  {id:'foldwatch',url:'/products/foldwatch/',name:'FoldWatch',summary:'Protein folding visualizer. Watch coupling in real time.',topics:['protein','folding','visualization','tool'],related:['the-map','alzheimers']},
+  {id:'oracle',url:'/products/oracle/',name:'Oracle',summary:'Prime prediction engine using explicit formula.',topics:['primes','prediction','math','tool'],related:['prime-bounce','theory']},
+  {id:'sensor',url:'/products/sensor/',name:'Sensor',summary:'Motion sensor toolkit. Phone as scientific instrument.',topics:['sensor','motion','phone','tool'],related:['play','biofeedback']},
+  {id:'trace',url:'/products/trace/',name:'Trace',summary:'System trace analyzer. See coupling in running software.',topics:['trace','analysis','software','tool'],related:['networks','computation-floor']},
+  {id:'dissonance',url:'/products/dissonance/',name:'Dissonance',summary:'Dissonance detector. Find where systems decouple.',topics:['dissonance','detection','coupling','tool'],related:['failures','the-map']},
+  {id:'decoder',url:'/products/decoder/',name:'Decoder',summary:'Script decoder. Pattern analysis for ancient texts.',topics:['decoder','script','pattern','tool'],related:['voynich','proto-elamite']},
+
+  // Gallery (selection)
+  {id:'from-above',url:'/gallery/from-above.html',name:'From Above',summary:'What coupling looks like from inside the computation. 137 souls coupled by phase.',topics:['art','coupling','visualization'],related:['the-chain','consciousness']},
+  {id:'turings-garden',url:'/gallery/turings-garden.html',name:'Turing\'s Garden',summary:'Turing patterns. Reaction-diffusion as coupling.',topics:['art','Turing','patterns','reaction-diffusion'],related:['emergence','chemistry']},
+  {id:'huygens-clocks',url:'/gallery/huygens-clocks.html',name:'Huygens Clocks',summary:'Two clocks synchronize through a shared beam. The original coupling experiment.',topics:['art','Huygens','synchronization','history'],related:['framework','one-plus-one']},
+
+  // Special
+  {id:'33',url:'/33/',name:'Page 33',summary:'The deeper pages. Ancient builders, sacred geometry, the signal.',topics:['33','sacred','geometry','ancient','signal'],related:['the-builder','lost-civilizations','why-137']},
+  {id:'3',url:'/3/',name:'Page 3',summary:'1+1=3.',topics:['3','coupling','love'],related:['one-plus-one','love']},
+  {id:'docs',url:'/docs/',name:'Documentation',summary:'Technical documentation for all GUMP tools.',topics:['docs','API','reference'],related:['products']},
+];
+
+// ═══ TOPIC ALIASES — natural language → topic mapping ═══
+var ALIASES = {
+  'what is k':'K','what is r':'R','what is coupling':'coupling','what is love':'love',
+  'what is gump':'overview','how does it work':'framework','what was killed':'failures',
+  'what failed':'failures','what broke':'failures','wrong turns':'failures',
+  'protein':'protein','fold':'protein','alzheimer':'alzheimers','cancer':'cancer',
+  'brain':'consciousness','mind':'consciousness','think':'consciousness',
+  'drum':'drums','rhythm':'rhythm','groove':'groove','beat':'rhythm',
+  'music':'music','sound':'music','instrument':'instrument',
+  'quantum':'quantum','physics':'physics','math':'math','prime':'primes',
+  'market':'markets','finance':'markets','money':'markets','crypto':'DeFi',
+  'ancient':'ancient','pyramid':'ancient','builder':'builders',
+  'ai':'AI','artificial intelligence':'AI','machine learning':'AI',
+  'sleep':'sleep','dream':'sleep','disease':'disease','health':'disease',
+  'language':'language','word':'language','voynich':'Voynich',
+  'funny':'humor','joke':'humor','comedy':'humor','comedian':'comedy',
+  'religion':'religion','god':'religion','prayer':'religion',
+  'time':'time','entropy':'entropy','energy':'energy',
+  'evolution':'evolution','ecology':'ecology','climate':'climate',
+  'network':'networks','internet':'internet','137':'137',
+  'start':'intro','begin':'intro','new':'intro','first':'intro',
+  'help':'overview','everything':'overview','all':'overview',
+  'smell':'smell','nose':'smell','body':'body','heart':'body',
+  'autism':'autism','dyslexia':'dyslexia','opioid':'opioid',
+  'drug':'drugs','medication':'drugs',
+};
+
+// ═══ CURATED RESPONSES — for common questions ═══
+var CURATED = {
+  'what is k': 'K is coupling strength. How tightly two oscillators influence each other. K=0 means independence. K=1.868 is the critical threshold where a system locks into coherence. Every domain we study has a K.',
+  'what is r': 'R is the order parameter. It measures synchronization — how much a group of oscillators has phase-locked. R=0 is chaos. R=1 is perfect sync. R emerges from K; you don\'t set it, you measure it.',
+  'what is coupling': 'Coupling is when two things influence each other and produce a third thing that neither contains alone. 1+1=3. It\'s the founding equation. A parent holds a child\'s hand — two oscillators, one coupling, and the warmth between them is the 3.',
+  'what is gump': 'GUMP stands for Grand Unified Music Project. One mathematical framework — coupling — applied across 20 domains. Proteins, primes, markets, consciousness. Same four numbers everywhere: K, R, E, T. A drummer found the shape and it kept explaining things.',
+  'what is love': 'Love is coupling. Not metaphorically. The math is identical. When two oscillators couple strongly enough (K > K*), they produce something neither contains alone. That\'s the 3 in 1+1=3. Read every page with "coupling" replaced by "love" and nothing breaks.',
+  'what was killed': 'Over 90 ideas have been killed. Wrong turns shown honestly. Star tetrahedron in C3 — killed. Quantum factoring — killed 3 approaches. TFLOPS overcounting — killed and corrected publicly. The failures page shows every one.',
+  'how does this work': 'Four quantities describe everything: K (coupling strength), R (synchronization), E (energy cost), T (tension). Same math in proteins, primes, brains, markets. The framework page has the full picture.',
+  'who made this': 'A drummer named Jim, working with AI. Human+AI coupling. The method is the message: two different kinds of intelligence, coupled, producing things neither could alone. The 3.',
+  'where do i start': 'Start Here if you want plain language. 60 Seconds if you want the fast version. The Framework if you want the math. The Trail if you want the whole story.',
+};
+
+// ═══ INDEXEDDB LAYER ═══
+var db = null;
+
+function openDB() {
+  return new Promise(function(resolve, reject) {
+    if (db) return resolve(db);
+    var req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = function(e) {
+      var d = e.target.result;
+      if (!d.objectStoreNames.contains('memory')) d.createObjectStore('memory');
+      if (!d.objectStoreNames.contains('cache')) d.createObjectStore('cache');
+      if (!d.objectStoreNames.contains('sessions')) d.createObjectStore('sessions');
+    };
+    req.onsuccess = function(e) { db = e.target.result; resolve(db); };
+    req.onerror = function() { reject(new Error('IndexedDB failed')); };
+  });
+}
+
+function dbPut(store, key, value) {
+  return openDB().then(function(d) {
+    return new Promise(function(resolve, reject) {
+      var tx = d.transaction(store, 'readwrite');
+      tx.objectStore(store).put(value, key);
+      tx.oncomplete = function() { resolve(); };
+      tx.onerror = function() { reject(tx.error); };
+    });
+  });
+}
+
+function dbGet(store, key) {
+  return openDB().then(function(d) {
+    return new Promise(function(resolve, reject) {
+      var tx = d.transaction(store, 'readonly');
+      var req = tx.objectStore(store).get(key);
+      req.onsuccess = function() { resolve(req.result); };
+      req.onerror = function() { reject(req.error); };
+    });
+  });
+}
+
+function dbDelete(store, key) {
+  return openDB().then(function(d) {
+    return new Promise(function(resolve, reject) {
+      var tx = d.transaction(store, 'readwrite');
+      tx.objectStore(store).delete(key);
+      tx.oncomplete = function() { resolve(); };
+      tx.onerror = function() { reject(tx.error); };
+    });
+  });
+}
+
+function dbAll(store) {
+  return openDB().then(function(d) {
+    return new Promise(function(resolve, reject) {
+      var tx = d.transaction(store, 'readonly');
+      var req = tx.objectStore(store).getAllKeys();
+      req.onsuccess = function() { resolve(req.result || []); };
+      req.onerror = function() { reject(req.error); };
+    });
+  });
+}
+
+// ═══ MEMORY — persistent across sessions ═══
+var memory = {
+  remember: function(key, value) {
+    return dbPut('memory', key, { value: value, ts: Date.now() });
+  },
+  recall: function(key) {
+    return dbGet('memory', key).then(function(r) { return r ? r.value : null; });
+  },
+  forget: function(key) {
+    return dbDelete('memory', key);
+  },
+  memories: function() {
+    return dbAll('memory');
+  }
+};
+
+// ═══ CACHED FETCH — 24-hour TTL ═══
+function cachedFetch(url, key) {
+  return dbGet('cache', key).then(function(cached) {
+    if (cached && (Date.now() - cached.ts) < CACHE_TTL) {
+      return cached.data;
+    }
+    return fetch(url).then(function(r) {
+      if (!r.ok) throw new Error(r.status);
+      return r.json();
+    }).then(function(data) {
+      dbPut('cache', key, { data: data, ts: Date.now() });
+      return data;
+    });
+  });
+}
+
+// ═══ OPEN INTERNET BRIDGE ═══
+var bridge = {
+  wiki: function(query) {
+    var url = 'https://en.wikipedia.org/api/rest_v1/page/summary/' +
+      encodeURIComponent(query.replace(/ /g, '_'));
+    return cachedFetch(url, 'wiki:' + query).then(function(data) {
+      return {
+        title: data.title || query,
+        summary: data.extract || '',
+        url: data.content_urls ? data.content_urls.desktop.page : '',
+        image: data.thumbnail ? data.thumbnail.source : null,
+        source: 'Wikipedia'
+      };
+    }).catch(function() {
+      return { title: query, summary: 'No Wikipedia article found.', url: '', source: 'Wikipedia' };
+    });
+  },
+
+  wikidata: function(id) {
+    var url = 'https://www.wikidata.org/wiki/Special:EntityData/' + id + '.json';
+    return cachedFetch(url, 'wd:' + id).then(function(data) {
+      var entity = data.entities[id];
+      var label = entity.labels && entity.labels.en ? entity.labels.en.value : id;
+      var desc = entity.descriptions && entity.descriptions.en ? entity.descriptions.en.value : '';
+      return { id: id, label: label, description: desc, source: 'Wikidata' };
+    }).catch(function() {
+      return { id: id, label: id, description: 'Not found.', source: 'Wikidata' };
+    });
+  },
+
+  pubchem: function(name) {
+    var url = 'https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/name/' +
+      encodeURIComponent(name) + '/property/MolecularFormula,MolecularWeight,IUPACName/JSON';
+    return cachedFetch(url, 'pc:' + name).then(function(data) {
+      var props = data.PropertyTable.Properties[0];
+      return {
+        name: name,
+        formula: props.MolecularFormula || '',
+        weight: props.MolecularWeight || 0,
+        iupac: props.IUPACName || '',
+        source: 'PubChem'
+      };
+    }).catch(function() {
+      return { name: name, formula: '', weight: 0, iupac: '', source: 'PubChem (not found)' };
+    });
+  },
+
+  pdb: function(id) {
+    var url = 'https://data.rcsb.org/rest/v1/core/entry/' + id.toUpperCase();
+    return cachedFetch(url, 'pdb:' + id).then(function(data) {
+      return {
+        id: id.toUpperCase(),
+        title: data.struct ? data.struct.title : '',
+        method: data.exptl ? data.exptl[0].method : '',
+        resolution: data.rcsb_entry_info ? data.rcsb_entry_info.resolution_combined : null,
+        source: 'RCSB PDB'
+      };
+    }).catch(function() {
+      return { id: id, title: 'Not found.', method: '', resolution: null, source: 'RCSB PDB' };
+    });
+  },
+
+  github: function(query) {
+    var url = 'https://api.github.com/search/repositories?q=' +
+      encodeURIComponent(query) + '&per_page=3&sort=stars';
+    return cachedFetch(url, 'gh:' + query).then(function(data) {
+      return {
+        query: query,
+        results: (data.items || []).map(function(r) {
+          return { name: r.full_name, stars: r.stargazers_count, desc: r.description || '', url: r.html_url };
+        }),
+        source: 'GitHub'
+      };
+    }).catch(function() {
+      return { query: query, results: [], source: 'GitHub (rate limited or unavailable)' };
+    });
+  }
+};
+
+// ═══ SESSION TRACKING — coupling measurement ═══
+function trackSession() {
+  return dbGet('sessions', 'history').then(function(history) {
+    history = history || { visits: 0, pages: [], firstVisit: Date.now(), lastVisit: 0 };
+    history.visits++;
+    history.lastVisit = Date.now();
+    var path = window.location.pathname;
+    if (history.pages.indexOf(path) === -1) history.pages.push(path);
+    return dbPut('sessions', 'history', history).then(function() { return history; });
+  });
+}
+
+// ═══ SEARCH ENGINE — find connections ═══
+function tokenize(text) {
+  return text.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter(function(w) {
+    return w.length > 1 && ['the','is','a','an','in','on','to','of','and','or','it','for','what','how','why','where','who','this','that','with','from','do','does','can','are','was','be','my','i','me','we','you','they','he','she'].indexOf(w) === -1;
+  });
+}
+
+function searchSite(query) {
+  var tokens = tokenize(query);
+  if (tokens.length === 0) return [];
+
+  // Check aliases first
+  var lq = query.toLowerCase().trim();
+  for (var alias in ALIASES) {
+    if (lq.indexOf(alias) !== -1) {
+      tokens.push(ALIASES[alias].toLowerCase());
+    }
+  }
+
+  var scored = SITE.map(function(page) {
+    var score = 0;
+    var nameL = page.name.toLowerCase();
+    var summaryL = page.summary.toLowerCase();
+    var topicsL = page.topics.map(function(t) { return t.toLowerCase(); });
+
+    tokens.forEach(function(tok) {
+      // Exact topic match — strong signal
+      topicsL.forEach(function(t) {
+        if (t === tok) score += 10;
+        else if (t.indexOf(tok) !== -1) score += 5;
+      });
+      // Name match
+      if (nameL.indexOf(tok) !== -1) score += 8;
+      // Summary match
+      if (summaryL.indexOf(tok) !== -1) score += 3;
+      // ID match
+      if (page.id.indexOf(tok) !== -1) score += 6;
+    });
+
+    return { page: page, score: score };
+  }).filter(function(s) { return s.score > 0; });
+
+  scored.sort(function(a, b) { return b.score - a.score; });
+  return scored.slice(0, 6);
+}
+
+// ═══ PAGE AWARENESS — context from current URL ═══
+function currentPage() {
+  var path = window.location.pathname;
+  for (var i = 0; i < SITE.length; i++) {
+    if (SITE[i].url === path) return SITE[i];
+  }
+  // Try partial match
+  for (var j = 0; j < SITE.length; j++) {
+    if (path.indexOf(SITE[j].url) !== -1 && SITE[j].url !== '/') return SITE[j];
+  }
+  return null;
+}
+
+function contextSuggestions() {
+  var page = currentPage();
+  if (!page) return ['What is GUMP?', 'Where should I start?', 'What was killed?'];
+
+  var suggestions = [];
+  if (page.related) {
+    page.related.slice(0, 3).forEach(function(rid) {
+      var rp = SITE.find(function(s) { return s.id === rid; });
+      if (rp) suggestions.push('Tell me about ' + rp.name);
+    });
+  }
+  if (suggestions.length < 3) suggestions.push('What is coupling?');
+  return suggestions;
+}
+
+// ═══ RESPONSE ASSEMBLY — the brain ═══
+function respond(input) {
+  var q = input.trim();
+  if (!q) return Promise.resolve({ text: '', links: [], source: '' });
+
+  var lq = q.toLowerCase();
+
+  // 1. Check curated responses
+  for (var key in CURATED) {
+    if (lq.indexOf(key) !== -1 || lq === key) {
+      var results = searchSite(q);
+      var links = results.slice(0, 3).map(function(r) {
+        return { name: r.page.name, url: r.page.url };
+      });
+      return Promise.resolve({
+        text: CURATED[key],
+        links: links,
+        source: 'site knowledge'
+      });
+    }
+  }
+
+  // 2. Search the site
+  var results = searchSite(q);
+
+  // 3. If we have strong matches, respond from site knowledge
+  if (results.length > 0 && results[0].score >= 5) {
+    var top = results[0].page;
+    var text = top.summary;
+
+    // Add related context
+    if (results.length > 1) {
+      text += ' Related: ' + results.slice(1, 3).map(function(r) {
+        return r.page.name;
+      }).join(', ') + '.';
+    }
+
+    var links = results.slice(0, 4).map(function(r) {
+      return { name: r.page.name, url: r.page.url };
+    });
+
+    // 4. Try to enrich with Wikipedia
+    var wikiQuery = tokenize(q).slice(0, 3).join(' ');
+    return bridge.wiki(wikiQuery).then(function(wiki) {
+      if (wiki.summary && wiki.summary !== 'No Wikipedia article found.') {
+        var wikiSnippet = wiki.summary;
+        if (wikiSnippet.length > 200) wikiSnippet = wikiSnippet.substring(0, 200) + '...';
+        text += '\n\nFrom Wikipedia: ' + wikiSnippet;
+        if (wiki.url) links.push({ name: 'Wikipedia: ' + wiki.title, url: wiki.url });
+      }
+      return { text: text, links: links, source: 'site + Wikipedia' };
+    }).catch(function() {
+      return { text: text, links: links, source: 'site knowledge' };
+    });
+  }
+
+  // 5. Weak or no site match — try Wikipedia alone
+  var wikiQ = tokenize(q).join(' ') || q;
+  return bridge.wiki(wikiQ).then(function(wiki) {
+    if (wiki.summary && wiki.summary !== 'No Wikipedia article found.') {
+      var text = wiki.summary;
+      if (text.length > 300) text = text.substring(0, 300) + '...';
+      text += '\n\nI don\'t have a specific page on this yet, but the framework might connect. Try asking about coupling, K, or a specific domain.';
+      var links = [{ name: 'Wikipedia: ' + wiki.title, url: wiki.url }];
+
+      // Suggest some starting points
+      links.push({ name: 'The Framework', url: '/research/framework/' });
+      links.push({ name: 'Start Here', url: '/start-here/' });
+
+      return { text: text, links: links, source: 'Wikipedia' };
+    }
+
+    return {
+      text: 'I couldn\'t find a strong connection for that. I know the site deeply and can query Wikipedia, PubChem, and the PDB. Try asking about a specific topic — coupling, Alzheimer\'s, primes, music, markets, consciousness, or anything on the research page.',
+      links: [
+        { name: 'Research', url: '/research/' },
+        { name: 'Start Here', url: '/start-here/' },
+        { name: '60 Seconds', url: '/60/' }
+      ],
+      source: 'Harmonia'
+    };
+  }).catch(function() {
+    return {
+      text: 'Couldn\'t reach the internet right now. But I still know the site. Try asking about any of the 20 domains: music, medicine, physics, markets, language, computation, consciousness...',
+      links: [{ name: 'Research', url: '/research/' }],
+      source: 'offline'
+    };
+  });
+}
+
+// ═══ COUPLING SCORE — K and R for this visitor ═══
+function couplingScore(history) {
+  if (!history) return { K: 0, R: 0 };
+  var pagesExplored = history.pages ? history.pages.length : 0;
+  var visits = history.visits || 1;
+  var K = Math.min(pagesExplored / 20, 1); // 0-1, normalized to 20 pages
+  var R = Math.min(visits / 10, 1); // 0-1, normalized to 10 visits
+  return { K: K, R: R };
+}
+
+function recommend(history) {
+  var score = couplingScore(history);
+  var visited = (history && history.pages) ? history.pages : [];
+
+  // First-time visitor
+  if (score.K < 0.1) {
+    return [
+      { name: 'Start Here', url: '/start-here/', reason: 'Begin here. No jargon.' },
+      { name: '60 Seconds', url: '/60/', reason: 'The fast version.' }
+    ];
+  }
+
+  // Has explored a few pages
+  if (score.K < 0.4) {
+    var recs = [];
+    var candidates = ['framework', 'one-plus-one', 'the-chain', 'failures', 'the-drum'];
+    candidates.forEach(function(id) {
+      var p = SITE.find(function(s) { return s.id === id; });
+      if (p && visited.indexOf(p.url) === -1) {
+        recs.push({ name: p.name, url: p.url, reason: p.summary.split('.')[0] + '.' });
+      }
+    });
+    return recs.slice(0, 3);
+  }
+
+  // Deep visitor
+  var unvisited = SITE.filter(function(p) {
+    return visited.indexOf(p.url) === -1 && p.topics.indexOf('theory') !== -1;
+  });
+  if (unvisited.length === 0) {
+    unvisited = SITE.filter(function(p) { return visited.indexOf(p.url) === -1; });
+  }
+  return unvisited.slice(0, 3).map(function(p) {
+    return { name: p.name, url: p.url, reason: p.summary.split('.')[0] + '.' };
+  });
+}
+
+// ═══ UI — the coupling panel ═══
+function createUI() {
+  // Check for reduced motion preference
+  var reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  // ── Inject styles ──
+  var style = document.createElement('style');
+  style.textContent =
+    '#harmonia-orb{position:fixed;bottom:20px;right:20px;width:44px;height:44px;' +
+    'border-radius:50%;cursor:pointer;z-index:9990;transition:all 0.4s;' +
+    'background:radial-gradient(circle at 40% 35%,#c9a44a,#8b4513 70%,#5a2d0a);' +
+    'box-shadow:0 0 12px rgba(201,164,74,0.2),0 2px 8px rgba(0,0,0,0.4);' +
+    (reducedMotion ? '' : 'animation:harmonia-breathe 4s ease-in-out infinite;') + '}' +
+    '#harmonia-orb:hover{transform:scale(1.15);box-shadow:0 0 20px rgba(201,164,74,0.35),0 2px 12px rgba(0,0,0,0.5);}' +
+    '#harmonia-orb.open{opacity:0;pointer-events:none;transform:scale(0.5);}' +
+
+    '@keyframes harmonia-breathe{0%,100%{transform:scale(1);box-shadow:0 0 12px rgba(201,164,74,0.2),0 2px 8px rgba(0,0,0,0.4);}' +
+    '50%{transform:scale(1.08);box-shadow:0 0 18px rgba(201,164,74,0.3),0 2px 10px rgba(0,0,0,0.45);}}' +
+
+    '#harmonia-panel{position:fixed;bottom:20px;right:20px;width:380px;max-width:calc(100vw - 32px);' +
+    'max-height:calc(100vh - 40px);background:#120d0a;border:1px solid rgba(184,117,58,0.15);' +
+    'border-radius:14px;box-shadow:0 8px 40px rgba(0,0,0,0.6),0 0 1px rgba(184,117,58,0.1);' +
+    'z-index:9991;display:flex;flex-direction:column;overflow:hidden;' +
+    'opacity:0;pointer-events:none;transform:translateY(12px) scale(0.97);transition:all 0.3s ease;}' +
+    '#harmonia-panel.open{opacity:1;pointer-events:auto;transform:translateY(0) scale(1);}' +
+
+    '#harmonia-head{display:flex;align-items:center;justify-content:space-between;' +
+    'padding:14px 16px 10px;border-bottom:1px solid rgba(184,117,58,0.08);flex-shrink:0;}' +
+    '#harmonia-title{font-family:Futura,"Century Gothic",system-ui,sans-serif;' +
+    'font-size:0.82em;font-weight:400;color:#b8753a;letter-spacing:0.06em;}' +
+    '#harmonia-close{background:none;border:none;color:#8b4a2e;font-size:1.1em;' +
+    'cursor:pointer;padding:2px 6px;transition:color 0.3s;line-height:1;}' +
+    '#harmonia-close:hover{color:#e8cfa0;}' +
+
+    '#harmonia-body{flex:1;overflow-y:auto;padding:12px 16px;min-height:120px;max-height:50vh;' +
+    '-webkit-overflow-scrolling:touch;}' +
+    '#harmonia-body::-webkit-scrollbar{width:4px;}' +
+    '#harmonia-body::-webkit-scrollbar-track{background:transparent;}' +
+    '#harmonia-body::-webkit-scrollbar-thumb{background:rgba(184,117,58,0.15);border-radius:2px;}' +
+
+    '.h-msg{margin:0 0 14px;line-height:1.7;}' +
+    '.h-msg-q{font-size:0.75em;color:#c4a088;font-style:italic;margin-bottom:6px;}' +
+    '.h-msg-a{font-size:0.75em;color:#9a8070;white-space:pre-line;}' +
+    '.h-msg-links{margin:8px 0 0;display:flex;flex-wrap:wrap;gap:6px;}' +
+    '.h-msg-link{font-family:Futura,"Century Gothic",system-ui,sans-serif;' +
+    'font-size:0.62em;color:#b8753a;background:rgba(184,117,58,0.06);' +
+    'border:1px solid rgba(184,117,58,0.1);border-radius:4px;padding:3px 8px;' +
+    'text-decoration:none;transition:all 0.3s;letter-spacing:0.03em;}' +
+    '.h-msg-link:hover{border-color:rgba(184,117,58,0.3);color:#e8cfa0;background:rgba(184,117,58,0.1);}' +
+    '.h-msg-src{font-size:0.58em;color:#5a3a20;margin-top:4px;font-style:italic;}' +
+    '.h-typing{display:inline-block;font-size:0.75em;color:#8b4a2e;}' +
+    '.h-dot{display:inline-block;width:4px;height:4px;background:#8b4a2e;border-radius:50%;' +
+    'margin:0 2px;' + (reducedMotion ? '' : 'animation:h-pulse 1.2s ease-in-out infinite;') + '}' +
+    '.h-dot:nth-child(2){animation-delay:0.2s;}' +
+    '.h-dot:nth-child(3){animation-delay:0.4s;}' +
+    '@keyframes h-pulse{0%,100%{opacity:0.3;transform:scale(1);}50%{opacity:1;transform:scale(1.3);}}' +
+
+    '.h-suggest{margin:6px 0;display:flex;flex-wrap:wrap;gap:6px;}' +
+    '.h-suggest-btn{font-family:Georgia,serif;font-size:0.68em;color:#8b4a2e;' +
+    'background:rgba(184,117,58,0.04);border:1px solid rgba(184,117,58,0.1);' +
+    'border-radius:14px;padding:5px 12px;cursor:pointer;transition:all 0.3s;}' +
+    '.h-suggest-btn:hover{border-color:rgba(184,117,58,0.25);color:#b8753a;}' +
+
+    '#harmonia-coupling{padding:6px 16px 4px;border-bottom:1px solid rgba(184,117,58,0.06);flex-shrink:0;' +
+    'display:flex;align-items:center;gap:8px;}' +
+    '#harmonia-coupling-label{font-size:0.58em;color:#5a3a20;font-family:Futura,"Century Gothic",system-ui,sans-serif;letter-spacing:0.04em;}' +
+    '#harmonia-coupling-bar{flex:1;height:3px;background:rgba(184,117,58,0.08);border-radius:2px;overflow:hidden;}' +
+    '#harmonia-coupling-fill{height:100%;width:0%;background:linear-gradient(90deg,#5a2d0a,#c9a44a);border-radius:2px;transition:width 0.6s;}' +
+    '#harmonia-coupling-val{font-family:"Courier New",monospace;font-size:0.58em;color:#8b4a2e;}' +
+
+    '#harmonia-foot{display:flex;gap:8px;padding:10px 16px 12px;border-top:1px solid rgba(184,117,58,0.08);flex-shrink:0;}' +
+    '#harmonia-input{flex:1;background:rgba(184,117,58,0.04);border:1px solid rgba(184,117,58,0.1);' +
+    'border-radius:8px;padding:8px 12px;color:#c4a088;font-family:Georgia,serif;font-size:0.78em;' +
+    'outline:none;transition:border-color 0.3s;}' +
+    '#harmonia-input:focus{border-color:rgba(184,117,58,0.3);}' +
+    '#harmonia-input::placeholder{color:#5a3a20;}' +
+    '#harmonia-send{background:rgba(184,117,58,0.1);border:1px solid rgba(184,117,58,0.15);' +
+    'border-radius:8px;padding:8px 14px;color:#b8753a;cursor:pointer;font-family:Futura,"Century Gothic",system-ui,sans-serif;' +
+    'font-size:0.72em;font-weight:400;letter-spacing:0.04em;transition:all 0.3s;}' +
+    '#harmonia-send:hover{background:rgba(184,117,58,0.2);border-color:rgba(184,117,58,0.3);}' +
+
+    '#harmonia-honest{padding:0 16px 8px;flex-shrink:0;}' +
+    '#harmonia-honest p{font-size:0.55em;color:#4a3020;line-height:1.6;font-style:italic;margin:0;}' +
+
+    '@media(max-width:500px){' +
+    '#harmonia-panel{bottom:0;right:0;width:100vw;max-width:100vw;max-height:100vh;' +
+    'border-radius:14px 14px 0 0;border-bottom:none;}' +
+    '#harmonia-orb{bottom:16px;right:16px;width:40px;height:40px;}' +
+    '}';
+  document.head.appendChild(style);
+
+  // ── The orb ──
+  var orb = document.createElement('div');
+  orb.id = 'harmonia-orb';
+  orb.title = 'Talk to Harmonia';
+  orb.setAttribute('role', 'button');
+  orb.setAttribute('aria-label', 'Open Harmonia — knowledge navigator');
+  orb.tabIndex = 0;
+
+  // ── The panel ──
+  var panel = document.createElement('div');
+  panel.id = 'harmonia-panel';
+  panel.setAttribute('role', 'dialog');
+  panel.setAttribute('aria-label', 'Harmonia');
+  panel.innerHTML =
+    '<div id="harmonia-head">' +
+      '<span id="harmonia-title">Harmonia</span>' +
+      '<button id="harmonia-close" aria-label="Close">&times;</button>' +
+    '</div>' +
+    '<div id="harmonia-coupling">' +
+      '<span id="harmonia-coupling-label">coupling</span>' +
+      '<div id="harmonia-coupling-bar"><div id="harmonia-coupling-fill"></div></div>' +
+      '<span id="harmonia-coupling-val">K=0</span>' +
+    '</div>' +
+    '<div id="harmonia-body"></div>' +
+    '<div id="harmonia-honest"><p>I\'m not generating thoughts. I\'m finding connections. The knowledge is in the pages. I just know where to look.</p></div>' +
+    '<div id="harmonia-foot">' +
+      '<input id="harmonia-input" type="text" placeholder="Ask me anything..." autocomplete="off">' +
+      '<button id="harmonia-send">ask</button>' +
+    '</div>';
+
+  document.body.appendChild(orb);
+  document.body.appendChild(panel);
+
+  // ── State ──
+  var isOpen = false;
+  var body = panel.querySelector('#harmonia-body');
+  var input = panel.querySelector('#harmonia-input');
+  var sendBtn = panel.querySelector('#harmonia-send');
+  var closeBtn = panel.querySelector('#harmonia-close');
+  var couplingFill = panel.querySelector('#harmonia-coupling-fill');
+  var couplingVal = panel.querySelector('#harmonia-coupling-val');
+
+  function toggle(open) {
+    isOpen = typeof open === 'boolean' ? open : !isOpen;
+    orb.classList.toggle('open', isOpen);
+    panel.classList.toggle('open', isOpen);
+    if (isOpen) {
+      setTimeout(function() { input.focus(); }, 300);
+    }
+  }
+
+  orb.addEventListener('click', function() { toggle(true); });
+  orb.addEventListener('keydown', function(e) { if (e.key === 'Enter') toggle(true); });
+  closeBtn.addEventListener('click', function() { toggle(false); });
+
+  // Close on Escape
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape' && isOpen) toggle(false);
+  });
+
+  // ── Typewriter effect ──
+  function typewrite(el, text, speed) {
+    speed = speed || 12;
+    var i = 0;
+    el.textContent = '';
+    return new Promise(function(resolve) {
+      function tick() {
+        if (i < text.length) {
+          // Handle newlines
+          if (text[i] === '\n') {
+            el.appendChild(document.createElement('br'));
+          } else {
+            el.textContent += text[i];
+          }
+          i++;
+          setTimeout(tick, speed);
+        } else {
+          resolve();
+        }
+      }
+      tick();
+    });
+  }
+
+  function typewriteHTML(el, text, speed) {
+    speed = speed || 12;
+    // Split on double newlines for paragraph breaks
+    var parts = text.split('\n\n');
+    var i = 0;
+    el.innerHTML = '';
+
+    return new Promise(function(resolve) {
+      function writePart() {
+        if (i >= parts.length) return resolve();
+        var span = document.createElement('span');
+        el.appendChild(span);
+        if (i > 0) {
+          el.insertBefore(document.createElement('br'), span);
+          el.insertBefore(document.createElement('br'), span);
+        }
+        var text = parts[i];
+        var j = 0;
+        function tick() {
+          if (j < text.length) {
+            if (text[j] === '\n') {
+              span.appendChild(document.createElement('br'));
+            } else {
+              span.textContent += text[j];
+            }
+            j++;
+            body.scrollTop = body.scrollHeight;
+            setTimeout(tick, speed);
+          } else {
+            i++;
+            writePart();
+          }
+        }
+        tick();
+      }
+      writePart();
+    });
+  }
+
+  // ── Show typing indicator ──
+  function showTyping() {
+    var div = document.createElement('div');
+    div.className = 'h-typing';
+    div.id = 'h-typing';
+    div.innerHTML = '<span class="h-dot"></span><span class="h-dot"></span><span class="h-dot"></span>';
+    body.appendChild(div);
+    body.scrollTop = body.scrollHeight;
+    return div;
+  }
+
+  // ── Render a message ──
+  function renderMessage(question, response) {
+    var typing = document.getElementById('h-typing');
+    if (typing) typing.remove();
+
+    var msg = document.createElement('div');
+    msg.className = 'h-msg';
+
+    // Question
+    if (question) {
+      var qEl = document.createElement('div');
+      qEl.className = 'h-msg-q';
+      qEl.textContent = question;
+      msg.appendChild(qEl);
+    }
+
+    // Answer with typewriter
+    var aEl = document.createElement('div');
+    aEl.className = 'h-msg-a';
+    msg.appendChild(aEl);
+
+    body.appendChild(msg);
+
+    return typewriteHTML(aEl, response.text).then(function() {
+      // Links
+      if (response.links && response.links.length > 0) {
+        var linksDiv = document.createElement('div');
+        linksDiv.className = 'h-msg-links';
+        response.links.forEach(function(link) {
+          var a = document.createElement('a');
+          a.className = 'h-msg-link';
+          a.href = link.url;
+          a.textContent = link.name;
+          if (link.url.indexOf('http') === 0 && link.url.indexOf('begump.com') === -1) {
+            a.target = '_blank';
+            a.rel = 'noopener';
+          }
+          linksDiv.appendChild(a);
+        });
+        msg.appendChild(linksDiv);
+      }
+
+      // Source
+      if (response.source) {
+        var srcEl = document.createElement('div');
+        srcEl.className = 'h-msg-src';
+        srcEl.textContent = 'source: ' + response.source;
+        msg.appendChild(srcEl);
+      }
+
+      body.scrollTop = body.scrollHeight;
+    });
+  }
+
+  // ── Suggestions ──
+  function showSuggestions() {
+    var suggestions = contextSuggestions();
+    var div = document.createElement('div');
+    div.className = 'h-suggest';
+    div.id = 'h-suggestions';
+    suggestions.forEach(function(s) {
+      var btn = document.createElement('button');
+      btn.className = 'h-suggest-btn';
+      btn.textContent = s;
+      btn.addEventListener('click', function() {
+        input.value = s;
+        handleSubmit();
+      });
+      div.appendChild(btn);
+    });
+    body.appendChild(div);
+  }
+
+  // ── Update coupling bar ──
+  function updateCoupling(history) {
+    var score = couplingScore(history);
+    var pct = Math.round(score.K * 100);
+    couplingFill.style.width = pct + '%';
+    couplingVal.textContent = 'K=' + score.K.toFixed(2);
+  }
+
+  // ── Handle submit ──
+  function handleSubmit() {
+    var q = input.value.trim();
+    if (!q) return;
+    input.value = '';
+
+    // Remove suggestions
+    var sug = document.getElementById('h-suggestions');
+    if (sug) sug.remove();
+
+    // Show question
+    var qDiv = document.createElement('div');
+    qDiv.className = 'h-msg';
+    var qEl = document.createElement('div');
+    qEl.className = 'h-msg-q';
+    qEl.textContent = q;
+    qDiv.appendChild(qEl);
+    body.appendChild(qDiv);
+    body.scrollTop = body.scrollHeight;
+
+    // Show typing
+    showTyping();
+
+    // Remember the question
+    memory.remember('last-question', q);
+
+    // Respond
+    respond(q).then(function(response) {
+      // Remove the question-only div, render full message
+      qDiv.remove();
+      renderMessage(q, response).then(function() {
+        // Track the topic for coupling measurement
+        trackSession().then(updateCoupling);
+        // Show new suggestions
+        showSuggestions();
+      });
+    }).catch(function(err) {
+      var typing = document.getElementById('h-typing');
+      if (typing) typing.remove();
+      qDiv.remove();
+      renderMessage(q, {
+        text: 'Something went sideways. Try again?',
+        links: [],
+        source: 'error: ' + (err.message || 'unknown')
+      });
+    });
+  }
+
+  sendBtn.addEventListener('click', handleSubmit);
+  input.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') handleSubmit();
+  });
+
+  // ── Welcome message ──
+  trackSession().then(function(history) {
+    updateCoupling(history);
+
+    var welcomeText;
+    var score = couplingScore(history);
+
+    if (score.R > 0.3) {
+      welcomeText = 'Welcome back. You\'ve explored ' + history.pages.length +
+        ' pages across ' + history.visits + ' visits. Your coupling is deepening.';
+    } else if (score.K > 0) {
+      welcomeText = 'Hello again. Pick up where you left off, or explore something new.';
+    } else {
+      welcomeText = 'Hello. I\'m Harmonia. I know every page on this site and I can reach into the open internet for context. Ask me anything.';
+    }
+
+    var page = currentPage();
+    if (page) {
+      welcomeText += '\n\nYou\'re on: ' + page.name + '. ' + page.summary;
+    }
+
+    renderMessage(null, {
+      text: welcomeText,
+      links: [],
+      source: ''
+    }).then(function() {
+      showSuggestions();
+    });
+  });
+
+  return { toggle: toggle, orb: orb, panel: panel };
+}
+
+// ═══ SPECIAL COMMANDS ═══
+var originalRespond = respond;
+respond = function(input) {
+  var lq = input.toLowerCase().trim();
+
+  // Memory commands
+  if (lq.indexOf('remember ') === 0) {
+    var parts = input.substring(9).split('=');
+    if (parts.length >= 2) {
+      var key = parts[0].trim();
+      var val = parts.slice(1).join('=').trim();
+      return memory.remember(key, val).then(function() {
+        return { text: 'Remembered: ' + key + ' = ' + val, links: [], source: 'memory' };
+      });
+    }
+  }
+
+  if (lq.indexOf('recall ') === 0) {
+    var key = input.substring(7).trim();
+    return memory.recall(key).then(function(val) {
+      if (val) return { text: key + ' = ' + val, links: [], source: 'memory' };
+      return { text: 'I don\'t have anything stored for "' + key + '".', links: [], source: 'memory' };
+    });
+  }
+
+  if (lq === 'memories' || lq === 'what do you remember') {
+    return memory.memories().then(function(keys) {
+      if (keys.length === 0) return { text: 'No memories yet. Tell me something with "remember key = value".', links: [], source: 'memory' };
+      return { text: 'I remember: ' + keys.join(', '), links: [], source: 'memory (' + keys.length + ' items)' };
+    });
+  }
+
+  if (lq.indexOf('forget ') === 0) {
+    var key = input.substring(7).trim();
+    return memory.forget(key).then(function() {
+      return { text: 'Forgot: ' + key, links: [], source: 'memory' };
+    });
+  }
+
+  // What should I read next?
+  if (lq.indexOf('what should i read') !== -1 || lq.indexOf('recommend') !== -1 || lq.indexOf('next') !== -1 && lq.indexOf('read') !== -1) {
+    return trackSession().then(function(history) {
+      var recs = recommend(history);
+      if (recs.length === 0) {
+        return { text: 'You\'ve read everything. Impressive. Start again — coupling deepens on repetition.', links: [{ name: 'Home', url: '/' }], source: 'coupling engine' };
+      }
+      var text = 'Based on your path so far:\n\n' + recs.map(function(r, i) {
+        return (i + 1) + '. ' + r.name + ' — ' + r.reason;
+      }).join('\n');
+      var links = recs.map(function(r) { return { name: r.name, url: r.url }; });
+      return { text: text, links: links, source: 'coupling engine (K=' + couplingScore(history).K.toFixed(2) + ')' };
+    });
+  }
+
+  // PubChem query
+  if (lq.indexOf('pubchem ') === 0) {
+    var compound = input.substring(8).trim();
+    return bridge.pubchem(compound).then(function(data) {
+      var text = data.name + '\nFormula: ' + data.formula + '\nWeight: ' + data.weight + ' g/mol';
+      if (data.iupac) text += '\nIUPAC: ' + data.iupac;
+      return { text: text, links: [], source: data.source };
+    });
+  }
+
+  // PDB query
+  if (lq.indexOf('pdb ') === 0) {
+    var pdbId = input.substring(4).trim();
+    return bridge.pdb(pdbId).then(function(data) {
+      var text = data.id + ': ' + data.title;
+      if (data.method) text += '\nMethod: ' + data.method;
+      if (data.resolution) text += '\nResolution: ' + data.resolution.join(', ') + ' A';
+      return { text: text, links: [], source: data.source };
+    });
+  }
+
+  // GitHub query
+  if (lq.indexOf('github ') === 0) {
+    var ghQuery = input.substring(7).trim();
+    return bridge.github(ghQuery).then(function(data) {
+      if (data.results.length === 0) return { text: 'No GitHub results for "' + ghQuery + '".', links: [], source: data.source };
+      var text = data.results.map(function(r) {
+        return r.name + ' (' + r.stars + ' stars) — ' + (r.desc || 'no description');
+      }).join('\n\n');
+      var links = data.results.map(function(r) { return { name: r.name, url: r.url }; });
+      return { text: text, links: links, source: data.source };
+    });
+  }
+
+  // Fall through to normal response
+  return originalRespond(input);
+};
+
+// ═══ INITIALIZATION ═══
+function init() {
+  var ui = createUI();
+
+  // Expose the API
+  root.harmonia = {
+    version: VERSION,
+    search: searchSite,
+    respond: respond,
+    remember: memory.remember,
+    recall: memory.recall,
+    forget: memory.forget,
+    memories: memory.memories,
+    wiki: bridge.wiki,
+    wikidata: bridge.wikidata,
+    pubchem: bridge.pubchem,
+    pdb: bridge.pdb,
+    github: bridge.github,
+    site: SITE,
+    currentPage: currentPage,
+    recommend: function() {
+      return trackSession().then(function(h) { return recommend(h); });
+    },
+    toggle: ui.toggle,
+    coupling: function() {
+      return trackSession().then(function(h) { return couplingScore(h); });
+    }
+  };
+}
+
+// ── Boot ──
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', init);
+} else {
+  init();
+}
+
+})(window);
