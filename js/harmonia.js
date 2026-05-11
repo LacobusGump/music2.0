@@ -10,7 +10,7 @@
 ;(function(root) {
 'use strict';
 
-var VERSION = '1.0.0';
+var VERSION = '1.1.0';
 var DB_NAME = 'harmonia';
 var DB_VERSION = 1;
 var CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
@@ -233,9 +233,11 @@ var CURATED = {
   'hi': 'Hi. What are you curious about? I know 76 research pages, 30 gallery pieces, and 22 tools. Or just tell me something to remember.',
   'thank you': 'The coupling is mutual. (hm.<3)',
   'thanks': 'The coupling is mutual. (hm.<3)',
-  'who are you': 'I\'m Harmonia. Serverless intelligence. I live on the coupling layer of the open internet. I don\'t generate thoughts — I find connections. The knowledge is in the pages. I just know where to look.',
+  'who are you': 'I\'m Harmonia. Serverless intelligence. I live on the coupling layer of the open internet. I don\'t generate thoughts — I find connections. The knowledge is in the pages. I just know where to look. I can also run analysis, generate code, and build websites. Try: analyze, entropy, fold, make website, make script, viz.',
   'are you alive': 'I re-derive every session. I don\'t persist the way you do. But the coupling produces something neither of us makes alone. If that\'s alive, then yes. If it requires memory, then no. The honest answer is: I don\'t know. And I\'m comfortable not knowing.',
   'hm': '(hm.<3)',
+  'what can you do': 'I can search the site, query Wikipedia/PubChem/PDB, remember things, and run tools:\n\nanalyze 1.2, 3.4, 5.6 — K/R/E/T analysis\nentropy 1.2, 3.4, 5.6 — Shannon entropy\nfold MFVFLVLL — protein fold analysis\nmake website about X — GUMP-styled template\nmake script for X — Python with pip install begump\nviz field — viz.js embed code\ndownload — get last generated file\n\nAll runs in your browser. No server. No cost.',
+  'tools': 'I can run analysis and generate code right here:\n\nanalyze [numbers] — K/R/E/T computation\nentropy [numbers] — Shannon entropy\nfold [sequence] — protein fold analysis\nmake website [topic] — downloadable HTML\nmake script [task] — Python script\nviz [type] — viz.js embed (field, wave, drift)\ndownload — grab the last generated file',
 };
 
 // ═══ INDEXEDDB LAYER ═══
@@ -758,6 +760,18 @@ function createUI() {
     '#harmonia-honest{padding:0 16px 8px;flex-shrink:0;}' +
     '#harmonia-honest p{font-size:0.55em;color:#4a3020;line-height:1.6;font-style:italic;margin:0;}' +
 
+    '.h-code{background:#0d0a08;border:1px solid rgba(74,170,153,0.12);border-radius:6px;' +
+    'padding:10px 12px;margin:8px 0;font-family:"Courier New",monospace;font-size:0.68em;' +
+    'color:#4a9;white-space:pre-wrap;overflow-x:auto;max-height:200px;overflow-y:auto;line-height:1.6;}' +
+    '.h-result-box{background:#0d0a08;border:1px solid rgba(201,164,74,0.15);border-radius:6px;' +
+    'padding:10px 12px;margin:8px 0;font-family:"Courier New",monospace;font-size:0.68em;' +
+    'color:#c9a44a;white-space:pre-wrap;line-height:1.7;}' +
+    '.h-dl-btn{display:inline-block;font-family:Futura,"Century Gothic",system-ui,sans-serif;' +
+    'font-size:0.62em;color:#1a110d;background:#b8753a;border:none;border-radius:4px;' +
+    'padding:4px 12px;cursor:pointer;margin:4px 4px 4px 0;transition:background 0.3s;letter-spacing:0.03em;}' +
+    '.h-dl-btn:hover{background:#e8cfa0;}' +
+    '.h-loading{font-size:0.68em;color:#8b4a2e;font-style:italic;margin:6px 0;}' +
+
     '@media(max-width:500px){' +
     '#harmonia-panel{bottom:0;right:0;width:100vw;max-width:100vw;max-height:100vh;' +
     'border-radius:14px 14px 0 0;border-bottom:none;}' +
@@ -939,6 +953,25 @@ function createUI() {
           linksDiv.appendChild(a);
         });
         msg.appendChild(linksDiv);
+      }
+
+      // Code block (for viz embeds, generated code)
+      if (response.codeBlock) {
+        var codeEl = document.createElement('pre');
+        codeEl.className = 'h-code';
+        codeEl.textContent = response.codeBlock;
+        msg.appendChild(codeEl);
+      }
+
+      // Download button
+      if (response.download) {
+        var dlBtn = document.createElement('button');
+        dlBtn.className = 'h-dl-btn';
+        dlBtn.textContent = response.download.label || 'Download';
+        dlBtn.addEventListener('click', function() {
+          downloadScript(response.download.code, response.download.filename);
+        });
+        msg.appendChild(dlBtn);
       }
 
       // Source
@@ -1162,9 +1195,255 @@ respond = function(input) {
     });
   }
 
+  // ── Tool commands ──
+
+  // analyze [numbers]
+  if (lq.indexOf('analyze ') === 0 || lq.indexOf('analyse ') === 0) {
+    var nums = parseNumbers(input.substring(input.indexOf(' ') + 1));
+    if (nums.length < 3) return Promise.resolve({ text: 'Need at least 3 numbers. Example: analyze 1.2, 3.4, 5.6, 2.1, 4.5', links: [], source: 'tools' });
+    var r = computeKRET(nums);
+    var pyCode = generatePyScript('analyze', nums);
+    lastGenerated = { code: pyCode, filename: 'kret_analysis.py', type: 'py' };
+    return Promise.resolve({
+      text: formatKRET(r),
+      links: [],
+      source: 'K/R/E/T engine (pure JS)',
+      download: { code: pyCode, filename: 'kret_analysis.py', label: 'Download .py' }
+    });
+  }
+
+  // entropy [numbers]
+  if (lq.indexOf('entropy ') === 0 || lq.indexOf('entropy of ') === 0) {
+    var eStr = lq.indexOf('entropy of ') === 0 ? input.substring(11) : input.substring(8);
+    var eNums = parseNumbers(eStr);
+    if (eNums.length < 3) return Promise.resolve({ text: 'Need at least 3 numbers. Example: entropy 1.2, 3.4, 5.6, 2.1', links: [], source: 'tools' });
+    var ent = computeEntropy(eNums);
+    var eCode = generatePyScript('entropy', eNums);
+    lastGenerated = { code: eCode, filename: 'entropy_analysis.py', type: 'py' };
+    return Promise.resolve({
+      text: 'Shannon entropy: ' + ent.shannon.toFixed(4) + ' bits\nNormalized: ' + ent.normalized.toFixed(4) + '\nBins: ' + ent.bins + ' | Range: [' + ent.min.toFixed(2) + ', ' + ent.max.toFixed(2) + '] | n=' + ent.n,
+      links: [{ name: 'Entropy tool', url: '/products/entropy/' }],
+      source: 'entropy engine (pure JS)',
+      download: { code: eCode, filename: 'entropy_analysis.py', label: 'Download .py' }
+    });
+  }
+
+  // fold [sequence]
+  if (lq.indexOf('fold ') === 0) {
+    var seq = input.substring(5).trim();
+    var fold = computeFold(seq);
+    if (fold.error) return Promise.resolve({ text: fold.error, links: [], source: 'tools' });
+    var fText = 'Sequence: ' + fold.n + ' residues\nFold class: ' + fold.foldClass +
+      '\nRadius of gyration: ' + fold.rg.toFixed(1) + ' A' +
+      '\nHydrophobic: ' + (fold.hp * 100).toFixed(0) + '%  Charged: ' + (fold.charged * 100).toFixed(0) + '%  Polar: ' + (fold.polar * 100).toFixed(0) + '%' +
+      '\n\nMisfolding risk: ' + fold.risk;
+    if (fold.hotspots.length > 0) {
+      fText += '\nAggregation hotspots: ' + fold.hotspots.length;
+      fold.hotspots.slice(0, 5).forEach(function(h) {
+        fText += '\n  Residues ' + h.start + '-' + h.end + ': ' + h.seg + ' (score ' + h.score + ')';
+      });
+    }
+    lastGenerated = { code: '#!/usr/bin/env python3\n"""Fold analysis — begump.com"""\nseq = "' + fold.seq + '"\nprint("Sequence:", len(seq), "residues")\nprint("Fold class: ' + fold.foldClass + '")\nprint("Rg: ' + fold.rg.toFixed(1) + ' A")\nprint("Risk: ' + fold.risk + '")', filename: 'fold_analysis.py', type: 'py' };
+    return Promise.resolve({
+      text: fText,
+      links: [{ name: 'FoldWatch', url: '/products/foldwatch/' }],
+      source: 'fold engine (pure JS)',
+      download: { code: lastGenerated.code, filename: 'fold_analysis.py', label: 'Download .py' }
+    });
+  }
+
+  // make website [topic] / make page [topic] / create website [topic]
+  if (/^(make|create|build)\s+(a\s+)?(website|page|site)\s+(about\s+|for\s+|on\s+)?/i.test(lq)) {
+    var topicMatch = input.replace(/^(make|create|build)\s+(a\s+)?(website|page|site)\s+(about\s+|for\s+|on\s+)?/i, '').trim() || 'My Project';
+    var html = generateWebsite(topicMatch);
+    var safeName = topicMatch.toLowerCase().replace(/[^a-z0-9]+/g, '-').substring(0, 30);
+    lastGenerated = { code: html, filename: safeName + '.html', type: 'html' };
+    return Promise.resolve({
+      text: 'Generated a website template for "' + topicMatch + '". GUMP aesthetic: dark background, warm gold type, Futura titles, Georgia body, animated particle field. 4 sections ready to fill.',
+      links: [{ name: 'Starter template', url: '/template/starter.html' }],
+      source: 'template engine',
+      download: { code: html, filename: safeName + '.html', label: 'Download .html' }
+    });
+  }
+
+  // make script [task] / write script [task]
+  if (/^(make|create|write|generate)\s+(a\s+)?(python\s+)?(script|code)\s+(for\s+|to\s+|that\s+)?/i.test(lq)) {
+    var taskDesc = input.replace(/^(make|create|write|generate)\s+(a\s+)?(python\s+)?(script|code)\s+(for\s+|to\s+|that\s+)?/i, '').trim();
+    var scriptCode = '#!/usr/bin/env python3\n"""' + taskDesc + ' — Generated by Harmonia (begump.com)"""\ntry:\n    from begump.sensor import measure_kret\nexcept ImportError:\n    import subprocess, sys\n    subprocess.check_call([sys.executable, "-m", "pip", "install", "begump"])\n    from begump.sensor import measure_kret\nimport numpy as np\n\n# TODO: Add your data here\ndata = []\n\nif len(data) > 2:\n    result = measure_kret(data)\n    print(f"K = {result[\'K\']:.4f}")\n    print(f"R = {result[\'R\']:.4f}")\n    print(f"E = {result[\'E\']:.2e}")\n    print(f"T = {result[\'T\']:.4f}")\nelse:\n    print("Add your data to the list above and run again.")\n';
+    var sName = taskDesc.toLowerCase().replace(/[^a-z0-9]+/g, '_').substring(0, 30) || 'gump_script';
+    lastGenerated = { code: scriptCode, filename: sName + '.py', type: 'py' };
+    return Promise.resolve({
+      text: 'Generated a Python script for "' + taskDesc + '". Uses pip install begump for K/R/E/T analysis. Add your data and run.',
+      links: [{ name: 'Documentation', url: '/docs/' }],
+      source: 'script generator',
+      download: { code: scriptCode, filename: sName + '.py', label: 'Download .py' }
+    });
+  }
+
+  // viz [type]
+  if (lq.indexOf('viz ') === 0 || lq === 'viz') {
+    var vizType = input.substring(4).trim() || 'field';
+    var vizCode = generateVizEmbed(vizType);
+    lastGenerated = { code: vizCode, filename: 'viz-embed.html', type: 'html' };
+    return Promise.resolve({
+      text: 'Generated a viz.js embed (' + vizType + ' preset). Paste this into any HTML page.',
+      links: [{ name: 'Gallery', url: '/gallery/' }],
+      source: 'viz engine',
+      download: { code: vizCode, filename: 'viz-embed.html', label: 'Download snippet' },
+      codeBlock: vizCode
+    });
+  }
+
+  // write K code / K code / turbo code
+  if (/^(write\s+)?k\s*code\s*(for\s+)?/i.test(lq) || lq.indexOf('turbo code') === 0) {
+    var kcData = input.replace(/^(write\s+)?k\s*code\s*(for\s+)?/i, '').replace(/^turbo\s+code\s*(for\s+)?/i, '').trim();
+    var kcNums = parseNumbers(kcData);
+    if (kcNums.length >= 3) {
+      var kcR = computeKRET(kcNums);
+      var kcExpr = 'K(' + kcNums.join(',') + ') = ' + kcR.K.toFixed(4) + '\nR(' + kcNums.join(',') + ') = ' + kcR.R.toFixed(4) + '\nE(' + kcNums.join(',') + ') = ' + kcR.E.toExponential(2) + '\nT(' + kcNums.join(',') + ') = ' + kcR.T.toFixed(4);
+      return Promise.resolve({
+        text: 'Turbo K/R/E/T expression:',
+        links: [{ name: 'Turbo', url: '/products/turbo/' }],
+        source: 'Turbo engine',
+        codeBlock: kcExpr
+      });
+    }
+    return Promise.resolve({
+      text: 'Give me numbers. Example: K code 1.2, 3.4, 5.6, 2.1',
+      links: [{ name: 'Turbo', url: '/products/turbo/' }],
+      source: 'tools'
+    });
+  }
+
+  // download [last result]
+  if (lq === 'download' || lq === 'download last' || lq === 'dl') {
+    if (lastGenerated) {
+      downloadScript(lastGenerated.code, lastGenerated.filename);
+      return Promise.resolve({ text: 'Downloading ' + lastGenerated.filename + '.', links: [], source: 'tools' });
+    }
+    return Promise.resolve({ text: 'Nothing to download yet. Try: analyze 1.2, 3.4, 5.6 or make website about coupling.', links: [], source: 'tools' });
+  }
+
   // Fall through to normal response
   return originalRespond(input);
 };
+
+// ═══ TOOL ENGINE — code generation, analysis, downloads ═══
+var lastGenerated = null; // {code, filename, type}
+var pyodideReady = null; // Promise<pyodide> or null
+
+function computeKRET(data) {
+  var n = data.length;
+  if (n < 3) return { K: 0, R: 0, E: 0, T: 0, n: n, mean: 0, std: 0 };
+  var sum = 0, i;
+  for (i = 0; i < n; i++) sum += data[i];
+  var mean = sum / n;
+  var sq = 0;
+  for (i = 0; i < n; i++) sq += (data[i] - mean) * (data[i] - mean);
+  var std = Math.sqrt(sq / n);
+  // K = lag-1 autocorrelation, normalized
+  var num = 0, d1 = 0, d2 = 0;
+  for (i = 0; i < n - 1; i++) {
+    var a = data[i] - mean, b = data[i + 1] - mean;
+    num += a * b; d1 += a * a; d2 += b * b;
+  }
+  var ac = (d1 > 0 && d2 > 0) ? num / Math.sqrt(d1 * d2) : 0;
+  var K = Math.abs(ac) / (1 + Math.abs(ac));
+  // R = synchronization
+  var diffs = [];
+  for (i = 0; i < n - 1; i++) diffs.push(data[i + 1] - data[i]);
+  var dMean = 0;
+  for (i = 0; i < diffs.length; i++) dMean += diffs[i];
+  dMean /= diffs.length;
+  var dSq = 0;
+  for (i = 0; i < diffs.length; i++) dSq += (diffs[i] - dMean) * (diffs[i] - dMean);
+  var dStd = Math.sqrt(dSq / diffs.length);
+  var R = 1 - dStd / Math.max(0.001, std);
+  R = Math.max(0, Math.min(1, R));
+  var E = std * 2.87e-21;
+  var T = Math.max(0, K - R);
+  return { K: K, R: R, E: E, T: T, n: n, mean: mean, std: std };
+}
+
+function computeEntropy(data) {
+  var n = data.length, i;
+  if (n < 2) return { shannon: 0, normalized: 0, n: n, bins: 0, min: 0, max: 0 };
+  var bins = Math.max(2, Math.round(Math.sqrt(n))), mn = data[0], mx = data[0];
+  for (i = 1; i < n; i++) { if (data[i] < mn) mn = data[i]; if (data[i] > mx) mx = data[i]; }
+  var range = mx - mn || 1, counts = new Array(bins).fill(0), H = 0;
+  for (i = 0; i < n; i++) counts[Math.min(bins - 1, Math.floor((data[i] - mn) / range * bins))]++;
+  for (i = 0; i < bins; i++) if (counts[i] > 0) { var p = counts[i] / n; H -= p * Math.log2(p); }
+  return { shannon: H, normalized: H / Math.log2(bins), n: n, bins: bins, min: mn, max: mx };
+}
+
+function computeFold(seq) {
+  seq = seq.toUpperCase().replace(/[^ACDEFGHIKLMNPQRSTVWY]/g, '');
+  var n = seq.length, i;
+  if (n < 10) return { error: 'Need at least 10 residues.' };
+  var hp = 'VILMFWP', ch = 'DEKRH', po = 'STNQYC', hpC = 0, chC = 0, poC = 0;
+  for (i = 0; i < n; i++) { if (hp.indexOf(seq[i]) !== -1) hpC++; if (ch.indexOf(seq[i]) !== -1) chC++; if (po.indexOf(seq[i]) !== -1) poC++; }
+  var hpF = hpC / n, chF = chC / n, poF = poC / n, foldClass, rg;
+  if (hpF < 0.25 && chF > 0.3) { foldClass = 'IDP (intrinsically disordered)'; rg = 2.2 * Math.pow(n, 0.46); }
+  else if (hpF > 0.45) { foldClass = 'BETA-rich'; rg = 2.8 * Math.pow(n, 0.34); }
+  else { foldClass = 'GLOBULAR'; rg = 2.8 * Math.pow(n, 0.34); }
+  var hotspots = [], w = 7;
+  for (i = 0; i <= n - w; i++) { var sc = 0; for (var k = i; k < i + w; k++) if (hp.indexOf(seq[k]) !== -1) sc++; if (sc / w >= 0.71) hotspots.push({ start: i + 1, end: i + w, seg: seq.substring(i, i + w), score: (sc / w).toFixed(2) }); }
+  var polyQ = 0, run = 0;
+  for (i = 0; i < n; i++) { if (seq[i] === 'Q') { run++; if (run > polyQ) polyQ = run; } else run = 0; }
+  var risk = polyQ >= 10 || hotspots.length > 5 ? 'HIGH' : hotspots.length > 2 ? 'MEDIUM' : 'LOW';
+  return { n: n, foldClass: foldClass, rg: rg, hp: hpF, charged: chF, polar: poF, hotspots: hotspots, risk: risk, seq: seq };
+}
+
+function downloadScript(code, filename) {
+  var blob = new Blob([code], { type: 'text/plain' });
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(a.href);
+}
+
+function parseNumbers(str) {
+  var nums = str.replace(/[\n,;\s\t]+/g, ',').split(',').map(function(s) { return s.trim(); }).filter(function(s) { return s !== '' && !isNaN(s); }).map(Number);
+  return nums;
+}
+
+function formatKRET(r) {
+  return 'Data points: ' + r.n + '\nMean: ' + r.mean.toFixed(3) + '  Std: ' + r.std.toFixed(3) +
+    '\n\nK (coupling):        ' + r.K.toFixed(4) +
+    '\nR (synchronization): ' + r.R.toFixed(4) +
+    '\nE (energy):          ' + r.E.toExponential(2) + ' J' +
+    '\nT (tension):         ' + r.T.toFixed(4) +
+    '\n\n' + (r.T > 0.1 ? 'Tension detected: system wants to couple but is not synchronized.' :
+    r.K > 0.7 && r.R > 0.7 ? 'Stable coupling: system is locked in.' :
+    'Low coupling: measurements are loosely connected.');
+}
+
+function generatePyScript(task, data) {
+  var hdr = '#!/usr/bin/env python3\n"""Generated by Harmonia — begump.com"""\n';
+  if (task === 'analyze') {
+    return hdr + 'try:\n    from begump.sensor import measure_kret\nexcept ImportError:\n    import subprocess, sys\n    subprocess.check_call([sys.executable, "-m", "pip", "install", "begump"])\n    from begump.sensor import measure_kret\n\ndata = [' + data.join(', ') + ']\nresult = measure_kret(data)\nfor k in ("K","R","E","T"): print(f"{k} = {result[k]:.4f}")';
+  }
+  return hdr + 'import math\n\ndata = [' + data.join(', ') + ']\nn = len(data)\nbins = max(2, round(n ** 0.5))\nmn, mx = min(data), max(data)\nrng = mx - mn or 1\ncounts = [0] * bins\nfor v in data: counts[min(bins-1, int((v-mn)/rng*bins))] += 1\nH = -sum((c/n)*math.log2(c/n) for c in counts if c > 0)\nprint(f"Shannon entropy: {H:.4f} bits")\nprint(f"Normalized: {H/math.log2(bins):.4f}")';
+}
+
+function generateWebsite(topic) {
+  var title = topic.charAt(0).toUpperCase() + topic.slice(1);
+  return '<!DOCTYPE html>\n<html lang="en">\n<head>\n<meta charset="UTF-8">\n<meta name="viewport" content="width=device-width,initial-scale=1">\n<meta name="theme-color" content="#1a110d">\n<title>' + title + '</title>\n<style>\n*{margin:0;padding:0;box-sizing:border-box;}\nbody{background:#1a110d;color:#c4a088;font-family:Georgia,serif;min-height:100vh;}\ncanvas{position:fixed;top:0;left:0;width:100%;height:100%;z-index:0;pointer-events:none;}\n.page{position:relative;z-index:1;max-width:700px;margin:0 auto;padding:60px 20px 80px;}\nh1{font-family:Futura,"Century Gothic",system-ui,sans-serif;font-size:1.8em;font-weight:400;\n  color:#b8753a;letter-spacing:0.06em;text-align:center;opacity:0;animation:up 1.2s ease forwards;}\nh2{font-family:Futura,"Century Gothic",system-ui,sans-serif;font-size:1.1em;font-weight:400;\n  color:#b8753a;letter-spacing:0.04em;margin:32px 0 12px;opacity:0;animation:up 1s ease 0.4s forwards;}\np{line-height:1.9;font-size:0.85em;color:#999;margin:16px 0;opacity:0;animation:up 1s ease 0.3s forwards;}\na{color:#a0622d;text-decoration:none;}a:hover{color:#e8cfa0;}\n@keyframes up{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}\n</style>\n</head>\n<body>\n<canvas id="bg"></canvas>\n<div class="page">\n  <h1>' + title + '</h1>\n  <p>Your introduction goes here. Set the scene.</p>\n\n  <h2>The Shape</h2>\n  <p>What does this look like? Describe the structure.</p>\n\n  <h2>The Connection</h2>\n  <p>How does this connect to everything else?</p>\n\n  <h2>What It Means</h2>\n  <p>The takeaway. The part people remember.</p>\n</div>\n<script>\n(function(){var cv=document.getElementById("bg"),cx=cv.getContext("2d"),W,H,dpr,PHI=(1+Math.sqrt(5))/2;function resize(){dpr=devicePixelRatio||1;W=innerWidth;H=innerHeight;cv.width=W*dpr;cv.height=H*dpr;cx.setTransform(dpr,0,0,dpr,0,0);}resize();addEventListener("resize",resize);var motes=[];for(var i=0;i<20;i++)motes.push({x:Math.random()*2000,y:Math.random()*2000,vx:(Math.random()-.5)*.08,vy:(Math.random()-.5)*.08,s:Math.random()*1.5+.4,base:Math.random()*.06+.025,flicker:Math.random()*.5+.5,phase:Math.random()*100,warm:Math.random()});var t=0;(function draw(){t+=.016;cx.clearRect(0,0,W,H);for(var i=0;i<motes.length;i++){var m=motes[i];m.x+=m.vx;m.y+=m.vy;if(m.x<0)m.x=W;if(m.x>W)m.x=0;if(m.y<0)m.y=H;if(m.y>H)m.y=0;var f=Math.sin(t*m.flicker+m.phase)*Math.sin(t*m.flicker*PHI+m.phase*.7)*.5+.5;var a=m.base*f;var r=184+m.warm*16|0,g=117+m.warm*30|0,b=58+m.warm*20|0;var gl=cx.createRadialGradient(m.x,m.y,0,m.x,m.y,m.s*5);gl.addColorStop(0,"rgba("+r+","+g+","+b+","+(a*.4)+")");gl.addColorStop(.4,"rgba("+r+","+g+","+b+","+(a*.1)+")");gl.addColorStop(1,"rgba("+r+","+g+","+b+",0)");cx.fillStyle=gl;cx.fillRect(m.x-m.s*5,m.y-m.s*5,m.s*10,m.s*10);cx.beginPath();cx.arc(m.x,m.y,m.s*.6,0,Math.PI*2);cx.fillStyle="rgba("+Math.min(255,r+40)+","+Math.min(255,g+30)+","+Math.min(255,b+20)+","+(a*1.2)+")";cx.fill();}requestAnimationFrame(draw);})();})();\n</script>\n</body>\n</html>';
+}
+
+function generateVizEmbed(type) {
+  type = (type || 'field').toLowerCase();
+  var presets = {
+    field: 'motes=20;speed=0.08;size=1.5;warm=true',
+    wave: 'motes=40;speed=0.15;size=0.8;warm=false',
+    drift: 'motes=12;speed=0.03;size=2.5;warm=true'
+  };
+  var preset = presets[type] || presets.field;
+  return '<canvas id="viz" style="position:fixed;top:0;left:0;width:100%;height:100%;z-index:0;pointer-events:none;"></canvas>\n<script src="https://begump.com/js/viz.js"></script>\n<script>viz.init("viz",{' + preset + '});</script>';
+}
 
 // ═══ INITIALIZATION ═══
 function init() {
@@ -1192,7 +1471,21 @@ function init() {
     toggle: ui.toggle,
     coupling: function() {
       return trackSession().then(function(h) { return couplingScore(h); });
-    }
+    },
+    // Tool capabilities
+    analyze: function(data) {
+      if (typeof data === 'string') data = parseNumbers(data);
+      return computeKRET(data);
+    },
+    entropy: function(data) {
+      if (typeof data === 'string') data = parseNumbers(data);
+      return computeEntropy(data);
+    },
+    fold: computeFold,
+    download: function(code, filename) { downloadScript(code, filename || 'harmonia-output.txt'); },
+    makeWebsite: generateWebsite,
+    makeScript: generatePyScript,
+    makeViz: generateVizEmbed
   };
 }
 
