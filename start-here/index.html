@@ -179,37 +179,296 @@ The tools are free for the same reason.<br><br>
 <script src="/js/breathe.js?v=3"></script>
 <script src="/js/listen.js"></script>
 <script>
+// ═══════════════════════════════════════════════════════════
+// THE STAR TETRAHEDRON — 8 coupled oscillators
+//
+// Not spinning. Coupled.
+// Each vertex is a Kuramoto oscillator. Phase drives everything:
+//   - edge brightness: synced pairs glow, opposed pairs dim
+//   - vertex size: breathing from phase, not from sin(time)
+//   - rotation: R modulates speed — high coherence = slow contemplation
+//   - center point: pure R indicator — the coupling made visible
+//   - mouse/touch: proximity boosts K — you pull the shape into coherence
+//
+// The shape that explains everything should itself be alive.
+// ═══════════════════════════════════════════════════════════
 (function(){
 var cv=document.getElementById('tetra');if(!cv)return;
 var cx=cv.getContext('2d'),W,H,dpr;
 function resize(){var r=cv.getBoundingClientRect();dpr=window.devicePixelRatio||1;W=r.width;H=r.height;cv.width=W*dpr;cv.height=H*dpr;cx.setTransform(dpr,0,0,dpr,0,0);}
 window.addEventListener('resize',resize);resize();
-var s=1,t1=[[s,s,s],[s,-s,-s],[-s,s,-s],[-s,-s,s]],t2=[[-s,-s,-s],[-s,s,s],[s,-s,s],[s,s,-s]];
-var all=t1.concat(t2),e6=[[0,1],[0,2],[0,3],[1,2],[1,3],[2,3]];
+
+// Geometry — two interlocking tetrahedra
+var s=1;
+var t1=[[s,s,s],[s,-s,-s],[-s,s,-s],[-s,-s,s]];       // gold tetrahedron
+var t2=[[-s,-s,-s],[-s,s,s],[s,-s,s],[s,s,-s]];         // copper tetrahedron
+var all=t1.concat(t2);
+var e6=[[0,1],[0,2],[0,3],[1,2],[1,3],[2,3]];           // 6 edges per tetrahedron
+// Octahedron (dual) — the ghost scaffold
 var oV=[[s,0,0],[-s,0,0],[0,s,0],[0,-s,0],[0,0,s],[0,0,-s]];
 var oE=[[0,2],[0,3],[0,4],[0,5],[1,2],[1,3],[1,4],[1,5],[2,4],[2,5],[3,4],[3,5]];
-var rotX=0.4,rotY=0.3;
-function proj(p){var x=p[0],y=p[1],z=p[2],cy=Math.cos(rotY),sy=Math.sin(rotY),x1=x*cy-z*sy,z1=x*sy+z*cy,c2=Math.cos(rotX),s2=Math.sin(rotX),y1=y*c2-z1*s2,z2=y*s2+z1*c2,sc=Math.min(W,H)*0.2,d=3+z2;return{x:W/2+x1*sc/d*2,y:H/2+y1*sc/d*2,d:d};}
-function draw(){
-  cx.clearRect(0,0,W,H);rotY+=0.003;rotX+=0.001;
-  var time=Date.now()*0.001;
-  cx.strokeStyle='rgba(74,153,153,0.1)';cx.lineWidth=0.6;
-  for(var i=0;i<oE.length;i++){var a=proj(oV[oE[i][0]]),b=proj(oV[oE[i][1]]);cx.beginPath();cx.moveTo(a.x,a.y);cx.lineTo(b.x,b.y);cx.stroke();}
-  cx.strokeStyle='rgba(201,164,74,0.35)';cx.lineWidth=1.2;
-  for(var i=0;i<e6.length;i++){var a=proj(t1[e6[i][0]]),b=proj(t1[e6[i][1]]);cx.beginPath();cx.moveTo(a.x,a.y);cx.lineTo(b.x,b.y);cx.stroke();}
-  cx.strokeStyle='rgba(189,110,55,0.35)';
-  for(var i=0;i<e6.length;i++){var a=proj(t2[e6[i][0]]),b=proj(t2[e6[i][1]]);cx.beginPath();cx.moveTo(a.x,a.y);cx.lineTo(b.x,b.y);cx.stroke();}
-  for(var i=0;i<8;i++){
-    var p=proj(all[i]),col=i<4?'201,164,74':'189,110,55',bs=5*(2/p.d);
-    cx.beginPath();
-    for(var j=0;j<=18;j++){var ang=(j/18)*Math.PI*2,r=bs+Math.sin(ang*5+time*1.5+i*2)*bs*0.15;var bx=p.x+Math.cos(ang)*r,by=p.y+Math.sin(ang)*r;j===0?cx.moveTo(bx,by):cx.lineTo(bx,by);}
-    cx.closePath();
-    var bg=cx.createRadialGradient(p.x,p.y,0,p.x,p.y,bs*1.2);
-    bg.addColorStop(0,'rgba('+col+',0.6)');bg.addColorStop(1,'rgba('+col+',0.25)');
-    cx.fillStyle=bg;cx.fill();
+
+// Cross-edges: connections between the two tetrahedra (shortest distances)
+// Each vertex of t1 is close to 3 vertices of t2
+var crossEdges=[];
+for(var i=0;i<4;i++){
+  for(var j=0;j<4;j++){
+    var dx=t1[i][0]-t2[j][0], dy=t1[i][1]-t2[j][1], dz=t1[i][2]-t2[j][2];
+    var d2=dx*dx+dy*dy+dz*dz;
+    if(d2<5) crossEdges.push([i,j+4]); // close pairs
   }
-  var ctr=proj([0,0,0]),cs=3+Math.sin(time*0.8)*0.8;
-  cx.beginPath();cx.arc(ctr.x,ctr.y,cs,0,Math.PI*2);cx.fillStyle='rgba(255,255,255,0.35)';cx.fill();
+}
+
+// ═══ KURAMOTO COUPLING — 8 oscillators ═══
+var N=8;
+var K_COUPLE=1.868;
+var TAU=Math.PI*2;
+var dt=0.016;
+var phases=new Float64Array(N);
+var omega=new Float64Array(N);
+var kBoost=new Float64Array(N);
+
+// Natural frequencies — gold tetrahedron slightly faster, copper slightly slower
+// Creates natural tension that resolves through coupling
+for(var i=0;i<N;i++){
+  phases[i]=Math.random()*TAU;
+  var baseOmega = i<4 ? 1.2 : 0.8; // gold is eager, copper is patient
+  omega[i]=(baseOmega + (Math.random()-0.5)*0.6)*TAU*0.3;
+}
+
+// Order parameter
+var Rval=0, meanPhase=0;
+
+function step(){
+  var mre=0,mim=0;
+  for(var i=0;i<N;i++){mre+=Math.cos(phases[i]);mim+=Math.sin(phases[i]);}
+  mre/=N;mim/=N;
+  Rval=Math.sqrt(mre*mre+mim*mim);
+  meanPhase=Math.atan2(mim,mre);
+
+  for(var i=0;i<N;i++){
+    var c=0;
+    // Couple with all other oscillators (N=8, no need for neighbor lists)
+    for(var j=0;j<N;j++){
+      if(j===i) continue;
+      c+=Math.sin(phases[j]-phases[i]);
+    }
+    var kEff=K_COUPLE*(1+kBoost[i]);
+    phases[i]+=dt*(omega[i]+(kEff/N)*c);
+    kBoost[i]*=0.92; // decay boost
+  }
+}
+
+// ═══ ROTATION — driven by coupling, not a clock ═══
+var rotX=0.4,rotY=0.3;
+var rotVelX=0, rotVelY=0;
+
+function proj(p){
+  var x=p[0],y=p[1],z=p[2];
+  var cy=Math.cos(rotY),sy=Math.sin(rotY);
+  var x1=x*cy-z*sy, z1=x*sy+z*cy;
+  var c2=Math.cos(rotX),s2=Math.sin(rotX);
+  var y1=y*c2-z1*s2, z2=y*s2+z1*c2;
+  var sc=Math.min(W,H)*0.2, d=3+z2;
+  return{x:W/2+x1*sc/d*2, y:H/2+y1*sc/d*2, d:d};
+}
+
+// ═══ MOUSE / TOUCH — coupling with the viewer ═══
+var mx=-999,my=-999,mActive=false;
+cv.addEventListener('mousemove',function(e){
+  var r=cv.getBoundingClientRect();
+  mx=e.clientX-r.left; my=e.clientY-r.top; mActive=true;
+});
+cv.addEventListener('mouseleave',function(){mActive=false;mx=-999;my=-999;});
+cv.addEventListener('touchmove',function(e){
+  if(e.touches.length>0){
+    var r=cv.getBoundingClientRect();
+    mx=e.touches[0].clientX-r.left; my=e.touches[0].clientY-r.top; mActive=true;
+  }
+},{passive:true});
+cv.addEventListener('touchend',function(){mActive=false;mx=-999;my=-999;});
+
+// ═══ DRAW ═══
+function draw(){
+  cx.clearRect(0,0,W,H);
+  step();
+
+  // Rotation velocity from coupling:
+  // Base slow rotation + R modulates: high R = slower, more contemplative
+  // Phase differences between the two tetrahedra create torque
+  var t1MeanRe=0,t1MeanIm=0,t2MeanRe=0,t2MeanIm=0;
+  for(var i=0;i<4;i++){t1MeanRe+=Math.cos(phases[i]);t1MeanIm+=Math.sin(phases[i]);}
+  for(var i=4;i<8;i++){t2MeanRe+=Math.cos(phases[i]);t2MeanIm+=Math.sin(phases[i]);}
+  var t1Phase=Math.atan2(t1MeanIm,t1MeanRe);
+  var t2Phase=Math.atan2(t2MeanIm,t2MeanRe);
+  var interPhase=Math.sin(t1Phase-t2Phase); // torque between the two tetrahedra
+
+  var baseRot=0.002;
+  var targetVelY = baseRot + interPhase*0.002 - Rval*0.001; // high R = slow
+  var targetVelX = baseRot*0.3 + Math.cos(t1Phase)*0.0005;
+
+  // Smooth velocity — water bottle damping
+  rotVelY += (targetVelY - rotVelY) * 0.03;
+  rotVelX += (targetVelX - rotVelX) * 0.03;
+  rotY += rotVelY;
+  rotX += rotVelX;
+
+  // ═══ MOUSE COUPLING — boost K for vertices near the cursor ═══
+  if(mActive && mx>0){
+    for(var i=0;i<N;i++){
+      var p=proj(all[i]);
+      var mdx=mx-p.x, mdy=my-p.y;
+      var mDist=Math.sqrt(mdx*mdx+mdy*mdy);
+      if(mDist<100){
+        var proximity=(100-mDist)/100;
+        kBoost[i]=Math.min(kBoost[i]+proximity*2.0, 3.0);
+      }
+    }
+  }
+
+  // Global breath from R — the shape expands when coupled
+  var rBreath = 0.95 + Rval*0.12;
+
+  // ═══ OCTAHEDRON GHOST — the dual, faintly visible ═══
+  // Its brightness is anti-correlated with R: more visible when oscillators are scattered
+  var ghostAlpha = 0.04 + (1-Rval)*0.06;
+  cx.strokeStyle='rgba(74,153,153,'+ghostAlpha.toFixed(3)+')';
+  cx.lineWidth=0.6;
+  for(var i=0;i<oE.length;i++){
+    var a=proj(oV[oE[i][0]]),b=proj(oV[oE[i][1]]);
+    cx.beginPath();cx.moveTo(a.x,a.y);cx.lineTo(b.x,b.y);cx.stroke();
+  }
+
+  // ═══ CROSS-EDGES — coupling between tetrahedra ═══
+  // These glow when the two tetrahedra are in phase, dim when opposed
+  cx.globalCompositeOperation='lighter';
+  for(var ci=0;ci<crossEdges.length;ci++){
+    var ai=crossEdges[ci][0], bi=crossEdges[ci][1];
+    var pa=proj(all[ai]), pb=proj(all[bi]);
+    var pdiff=Math.abs(phases[ai]-phases[bi])%TAU;
+    if(pdiff>Math.PI) pdiff=TAU-pdiff;
+    var sync=1-pdiff/Math.PI;
+    var s2=sync*sync;
+    var alpha=s2*0.15*rBreath;
+    if(alpha<0.005) continue;
+    var mr=Math.round((201+189)/2), mg=Math.round((164+110)/2), mb=Math.round((74+55)/2);
+    // Whiten at high sync
+    var w=s2*0.3;
+    var cr=Math.min(255,Math.round(mr+(255-mr)*w));
+    var cg=Math.min(255,Math.round(mg+(255-mg)*w));
+    var cb=Math.min(255,Math.round(mb+(255-mb)*w));
+    cx.strokeStyle='rgba('+cr+','+cg+','+cb+','+alpha.toFixed(3)+')';
+    cx.lineWidth=0.4+s2*1.5;
+    cx.beginPath();cx.moveTo(pa.x,pa.y);cx.lineTo(pb.x,pb.y);cx.stroke();
+  }
+
+  // ═══ EDGES — brightness from phase sync between endpoints ═══
+  // Gold tetrahedron
+  for(var i=0;i<e6.length;i++){
+    var ai=e6[i][0], bi=e6[i][1];
+    var pa=proj(t1[ai]), pb=proj(t1[bi]);
+    var pdiff=Math.abs(phases[ai]-phases[bi])%TAU;
+    if(pdiff>Math.PI) pdiff=TAU-pdiff;
+    var sync=1-pdiff/Math.PI;
+    var s2=sync*sync;
+    // Base visibility + sync boost
+    var alpha=0.12+s2*0.35;
+    var w=s2*0.25;
+    var cr=Math.min(255,Math.round(201+(255-201)*w));
+    var cg=Math.min(255,Math.round(164+(255-164)*w));
+    var cb=Math.min(255,Math.round(74+(255-74)*w));
+    cx.strokeStyle='rgba('+cr+','+cg+','+cb+','+alpha.toFixed(3)+')';
+    cx.lineWidth=0.8+s2*1.2;
+    cx.beginPath();cx.moveTo(pa.x,pa.y);cx.lineTo(pb.x,pb.y);cx.stroke();
+    // Glow on high sync
+    if(sync>0.6){
+      var glowA=(sync-0.6)*2.0*0.08;
+      cx.strokeStyle='rgba(201,164,74,'+glowA.toFixed(3)+')';
+      cx.lineWidth=(2+s2*3);
+      cx.beginPath();cx.moveTo(pa.x,pa.y);cx.lineTo(pb.x,pb.y);cx.stroke();
+    }
+  }
+  // Copper tetrahedron
+  for(var i=0;i<e6.length;i++){
+    var ai=e6[i][0], bi=e6[i][1];
+    var pa=proj(t2[ai]), pb=proj(t2[bi]);
+    var pdiff=Math.abs(phases[ai+4]-phases[bi+4])%TAU;
+    if(pdiff>Math.PI) pdiff=TAU-pdiff;
+    var sync=1-pdiff/Math.PI;
+    var s2=sync*sync;
+    var alpha=0.12+s2*0.35;
+    var w=s2*0.25;
+    var cr=Math.min(255,Math.round(189+(255-189)*w));
+    var cg=Math.min(255,Math.round(110+(255-110)*w));
+    var cb=Math.min(255,Math.round(55+(255-55)*w));
+    cx.strokeStyle='rgba('+cr+','+cg+','+cb+','+alpha.toFixed(3)+')';
+    cx.lineWidth=0.8+s2*1.2;
+    cx.beginPath();cx.moveTo(pa.x,pa.y);cx.lineTo(pb.x,pb.y);cx.stroke();
+    if(sync>0.6){
+      var glowA=(sync-0.6)*2.0*0.08;
+      cx.strokeStyle='rgba(189,110,55,'+glowA.toFixed(3)+')';
+      cx.lineWidth=(2+s2*3);
+      cx.beginPath();cx.moveTo(pa.x,pa.y);cx.lineTo(pb.x,pb.y);cx.stroke();
+    }
+  }
+  cx.globalCompositeOperation='source-over';
+
+  // ═══ VERTICES — breathing from phase, not from a clock ═══
+  for(var i=0;i<8;i++){
+    var p=proj(all[i]);
+    var col=i<4?[201,164,74]:[189,110,55];
+
+    // Phase-driven breathing — each vertex has its own rhythm
+    var breath=Math.sin(phases[i]);
+    var bs=(4+breath*1.5)*(2/p.d)*rBreath;
+
+    // Brightness from phase alignment with mean field
+    var alignment=Math.cos(phases[i]-meanPhase);
+    var bright=0.35+alignment*0.25+Math.abs(breath)*0.15;
+    bright=Math.max(0.15,Math.min(1.0,bright));
+
+    // K boost glow — when mouse is near, vertex gets hotter
+    var boostGlow=kBoost[i]*0.3;
+    var hotFactor=Math.max(0,breath)*0.3+boostGlow;
+    var cr=Math.min(255,Math.round(col[0]+(255-col[0])*hotFactor));
+    var cg=Math.min(255,Math.round(col[1]+(255-col[1])*hotFactor));
+    var cb=Math.min(255,Math.round(col[2]+(255-col[2])*hotFactor));
+
+    // Outer glow
+    var glowR=bs*3;
+    var grad=cx.createRadialGradient(p.x,p.y,bs*0.2,p.x,p.y,glowR);
+    grad.addColorStop(0,'rgba('+col[0]+','+col[1]+','+col[2]+','+(bright*0.25).toFixed(3)+')');
+    grad.addColorStop(0.5,'rgba('+col[0]+','+col[1]+','+col[2]+','+(bright*0.08).toFixed(3)+')');
+    grad.addColorStop(1,'rgba('+col[0]+','+col[1]+','+col[2]+',0)');
+    cx.fillStyle=grad;
+    cx.fillRect(p.x-glowR,p.y-glowR,glowR*2,glowR*2);
+
+    // Core — radial gradient, not flat fill
+    var coreGrad=cx.createRadialGradient(p.x,p.y,0,p.x,p.y,bs);
+    coreGrad.addColorStop(0,'rgba('+cr+','+cg+','+cb+','+Math.min(1,bright*1.2).toFixed(3)+')');
+    coreGrad.addColorStop(0.6,'rgba('+col[0]+','+col[1]+','+col[2]+','+bright.toFixed(3)+')');
+    coreGrad.addColorStop(1,'rgba('+col[0]+','+col[1]+','+col[2]+','+(bright*0.2).toFixed(3)+')');
+    cx.fillStyle=coreGrad;
+    cx.beginPath();cx.arc(p.x,p.y,bs,0,TAU);cx.fill();
+  }
+
+  // ═══ CENTER POINT — pure R indicator ═══
+  // The coupling made visible. White when coupled, dim when scattered.
+  var ctr=proj([0,0,0]);
+  var centerBright=0.1+Rval*0.5;
+  var centerSize=2+Rval*3;
+  // Glow
+  var cGrad=cx.createRadialGradient(ctr.x,ctr.y,0,ctr.x,ctr.y,centerSize*4);
+  cGrad.addColorStop(0,'rgba(255,255,255,'+(centerBright*0.3).toFixed(3)+')');
+  cGrad.addColorStop(0.4,'rgba(255,240,220,'+(centerBright*0.1).toFixed(3)+')');
+  cGrad.addColorStop(1,'rgba(255,240,220,0)');
+  cx.fillStyle=cGrad;
+  cx.fillRect(ctr.x-centerSize*4,ctr.y-centerSize*4,centerSize*8,centerSize*8);
+  // Core
+  cx.beginPath();cx.arc(ctr.x,ctr.y,centerSize,0,TAU);
+  cx.fillStyle='rgba(255,255,255,'+centerBright.toFixed(3)+')';
+  cx.fill();
+
   requestAnimationFrame(draw);
 }
 draw();
