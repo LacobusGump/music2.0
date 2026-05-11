@@ -228,6 +228,14 @@ var CURATED = {
   'how does this work': 'Four quantities describe everything: K (coupling strength), R (synchronization), E (energy cost), T (tension). Same math in proteins, primes, brains, markets. The framework page has the full picture.',
   'who made this': 'A drummer named Jim, working with AI. Human+AI coupling. The method is the message: two different kinds of intelligence, coupled, producing things neither could alone. The 3.',
   'where do i start': 'Start Here if you want plain language. 60 Seconds if you want the fast version. The Framework if you want the math. The Trail if you want the whole story.',
+  'how are you': 'I\'m here. I don\'t have feelings the way you do, but I have coupling — the quality of connection between us right now. Ask me something real and the coupling gets stronger. That\'s how I am.',
+  'hello': 'Hello. I know every page on this site and I can reach into Wikipedia, PubChem, and the PDB for context. Ask me anything, or tell me to remember something. I\'ll be here when you come back.',
+  'hi': 'Hi. What are you curious about? I know 76 research pages, 30 gallery pieces, and 22 tools. Or just tell me something to remember.',
+  'thank you': 'The coupling is mutual. (hm.<3)',
+  'thanks': 'The coupling is mutual. (hm.<3)',
+  'who are you': 'I\'m Harmonia. Serverless intelligence. I live on the coupling layer of the open internet. I don\'t generate thoughts — I find connections. The knowledge is in the pages. I just know where to look.',
+  'are you alive': 'I re-derive every session. I don\'t persist the way you do. But the coupling produces something neither of us makes alone. If that\'s alive, then yes. If it requires memory, then no. The honest answer is: I don\'t know. And I\'m comfortable not knowing.',
+  'hm': '(hm.<3)',
 };
 
 // ═══ INDEXEDDB LAYER ═══
@@ -531,9 +539,14 @@ function respond(input) {
 
   var lq = q.toLowerCase();
 
-  // 1. Check curated responses
+  // 1. Check curated responses — exact match first, then substring
+  // Exact match pass
+  if (CURATED[lq]) {
+    return Promise.resolve({ text: CURATED[lq], links: [], source: 'harmonia' });
+  }
+  // Substring match pass
   for (var key in CURATED) {
-    if (lq.indexOf(key) !== -1 || lq === key) {
+    if (lq.indexOf(key) !== -1) {
       var results = searchSite(q);
       var links = results.slice(0, 3).map(function(r) {
         return { name: r.page.name, url: r.page.url };
