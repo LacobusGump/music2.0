@@ -6,7 +6,8 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>GUMP</title>
 <style>
-*{margin:0;padding:0;box-sizing:border-box;-webkit-user-select:none;user-select:none;}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;}
+body{overscroll-behavior:none;}
 body{background:#000;color:#999;font-family:Georgia,serif;
   height:100vh;height:100dvh;overflow:hidden;touch-action:none;}
 #start{display:flex;align-items:center;justify-content:center;
@@ -1668,6 +1669,7 @@ var voidMasterGain;
 var lastPingTime = 0;
 
 function begin() {
+  if (started) return; // prevent double-tap creating zombie oscillators
   document.getElementById('start').style.display = 'none';
   document.getElementById('instrument').style.display = 'block';
 
@@ -1972,7 +1974,7 @@ function setupSensors() {
   document.addEventListener('touchstart', function(e) {
     e.preventDefault();
     targetEnergy = 0.8;
-    impactCooldown = 8;
+    impactCooldown = 0.133; // 133ms, was 8 frames (frame-rate dependent)
     // Also resume AudioContext on any touch (iOS can suspend mid-session)
     if (actx && actx.state === 'suspended') actx.resume();
   }, {passive: false});
@@ -1997,18 +1999,22 @@ function setupSensors() {
 }
 
 function onOrientation(e) {
-  if (e.beta !== null) targetX = e.beta;
-  if (e.gamma !== null) targetY = e.gamma;
+  // NaN guard: one bad reading kills the instrument without this
+  if (e.beta !== null && isFinite(e.beta)) targetX = e.beta;
+  if (e.gamma !== null && isFinite(e.gamma)) targetY = e.gamma;
 }
 
 function onMotion(e) {
   var a = e.acceleration;
-  if (a && a.x !== null) {
+  // Check ALL three axes — any can independently be null on Android
+  if (a && a.x != null && a.y != null && a.z != null &&
+      isFinite(a.x) && isFinite(a.y) && isFinite(a.z)) {
     var mag = Math.sqrt(a.x*a.x + a.y*a.y + a.z*a.z);
+    if (!isFinite(mag)) return; // belt and suspenders
     targetEnergy = Math.min(mag / 15, 1);
     if (mag > 12 && impactCooldown <= 0) {
       triggerImpact(Math.min(mag / 20, 1));
-      impactCooldown = 10;
+      impactCooldown = 0.167; // ~10 frames at 60fps, now time-based
     }
   }
 }
@@ -2413,7 +2419,7 @@ function update() {
     energy *= ENERGY_DECAY;
   }
   targetEnergy *= 0.9;
-  if (impactCooldown > 0) impactCooldown--;
+  if (impactCooldown > 0) impactCooldown = Math.max(0, impactCooldown - dt);
 
   // === VOID STATE MACHINE ===
   updateVoidState(dt);
@@ -2759,8 +2765,8 @@ function update() {
 
   // === VOID DRONE: emerges in stillness ===
   var voidTarget = voidDepth * 0.35;
-  var voidCurrent = voidMasterGain.gain.value;
-  voidMasterGain.gain.value += (voidTarget - voidCurrent) * 0.012;
+  // Scheduled ramp instead of direct .value (prevents clicks)
+  voidMasterGain.gain.setTargetAtTime(voidTarget, actx.currentTime, 0.08);
 
   // === DELAY ===
   var fb = 0.2 + energy * 0.3 + forDelayFeedback;
