@@ -393,6 +393,125 @@ var forSessionWeight = 0.15;
 // --- LAYER AGREEMENT (phase lock detection) ---
 var forLayerAgreement = 0;
 
+// =====================================================================
+// SESSION PERSONALITY — the instrument evolves as you play
+//
+// Layer 1: GRAVITY WELLS — notes the player returns to become attractors.
+//          The more you play a note, the deeper its gravity well.
+//          After 5 minutes, the instrument pulls toward YOUR notes.
+//
+// Layer 2: REGISTER MIGRATION — if you consistently play high, the
+//          instrument's natural register drifts up. Like a conversation
+//          where both parties gradually raise their pitch.
+//
+// Layer 3: TEMPO METABOLISM — the instrument's natural pulse adapts to
+//          yours. Fast player = faster FOR initiative. Slow = spacious.
+//
+// Layer 4: CONSONANCE DRIFT — the harmonic palette shifts based on what
+//          intervals you favor. If you gravitate to minor thirds, the
+//          instrument darkens. Perfect fifths = brightens.
+//
+// Layer 5: VOID DEPTH — how deep stillness goes depends on how active
+//          you've been. More motion = deeper eventual void.
+//          The instrument remembers your storms and offers proportional calm.
+//
+// Layer 6: COUPLING MEMORY — the K between player and soul drifts toward
+//          the average K measured this session. Good coupling begets more.
+//
+// Layer 7: SURPRISE BUDGET — the Mozart surprise probability adapts.
+//          If you respond positively to surprises (play more after one),
+//          surprises get more frequent. If you go still, they get rarer.
+// =====================================================================
+
+// L1: Gravity wells — pitch class visit counts beyond the basic recentNotes
+var gravityWells = new Float32Array(12); // depth of each well
+var GRAVITY_LEARN_RATE = 0.005;
+var GRAVITY_DECAY = 0.9998; // very slow decay per frame
+var gravityActive = false; // activates after enough data
+
+// L2: Register migration
+var registerBias = 0; // -1 (low) to 1 (high), drifts toward player
+var REGISTER_RATE = 0.0002;
+
+// L3: Tempo metabolism
+var tempoMetabolism = 1.0; // multiplier on FOR initiative timing
+var onsetTimes = []; // recent onset timestamps
+
+// L4: Consonance drift — which intervals the player prefers shapes the palette
+var consonanceDrift = 0; // -1 (minor/dark) to 1 (major/bright)
+
+// L5: Void depth scaling
+var sessionPeakEnergy = 0;
+var voidDepthScale = 1.0; // deeper void after bigger storms
+
+// L6: Coupling memory
+var couplingMemory = 0.5; // running average of session K
+var COUPLING_MEMORY_RATE = 0.0001;
+
+// L7: Surprise budget
+var surpriseBudget = 0.15; // initial Mozart surprise probability
+var surpriseResponsePositive = 0;
+var surpriseResponseTotal = 0;
+var lastSurpriseTime = 0;
+
+function updateSessionPersonality(dt) {
+  if (sessionTime < 30) return; // don't adapt in first 30 seconds
+
+  // L1: Gravity wells deepen for played notes
+  if (recentNotes.length > 0) {
+    var lastPC = recentNotes[recentNotes.length - 1];
+    gravityWells[lastPC] += GRAVITY_LEARN_RATE;
+  }
+  // Slow decay so wells are semi-permanent within a session
+  for (var i = 0; i < 12; i++) gravityWells[i] *= GRAVITY_DECAY;
+  gravityActive = sessionNoteCount > 20;
+
+  // L2: Register drifts toward player's preferred range
+  if (recentNotes.length > 3) {
+    var avgPC = 0;
+    for (var i = recentNotes.length - 4; i < recentNotes.length; i++) avgPC += recentNotes[i];
+    avgPC /= 4;
+    // High pitch classes (9-11) = high register, low (0-2) = low
+    var playerRegister = (avgPC - 5.5) / 5.5; // normalize to -1..1
+    registerBias += (playerRegister - registerBias) * REGISTER_RATE;
+  }
+
+  // L3: Tempo from recent onset density
+  if (onsetTimes.length > 4) {
+    // Trim to last 10 seconds
+    var cutoff = sessionTime - 10;
+    while (onsetTimes.length > 0 && onsetTimes[0] < cutoff) onsetTimes.shift();
+    if (onsetTimes.length > 2) {
+      var avgGap = (onsetTimes[onsetTimes.length-1] - onsetTimes[0]) / (onsetTimes.length - 1);
+      // Map to metabolism: faster onsets = higher metabolism
+      tempoMetabolism = Math.max(0.5, Math.min(2.0, 1.0 / Math.max(0.2, avgGap)));
+    }
+  }
+
+  // L4: Consonance drift from interval histogram
+  if (sessionNoteCount > 10) {
+    var minorWeight = (sessionIntervalHist[3] + sessionIntervalHist[8]) || 0; // minor 3rd + minor 6th
+    var majorWeight = (sessionIntervalHist[4] + sessionIntervalHist[7]) || 0; // major 3rd + perfect 5th
+    var total = minorWeight + majorWeight || 1;
+    consonanceDrift += ((majorWeight - minorWeight) / total - consonanceDrift) * 0.001;
+    consonanceDrift = Math.max(-1, Math.min(1, consonanceDrift));
+  }
+
+  // L5: Void depth scales with peak energy (bigger storms = deeper calm)
+  if (energy > sessionPeakEnergy) sessionPeakEnergy = energy;
+  voidDepthScale = 1.0 + sessionPeakEnergy * 0.5;
+
+  // L6: Coupling memory — running average of Kuramoto R
+  couplingMemory += (kuramotoR - couplingMemory) * COUPLING_MEMORY_RATE;
+
+  // L7: Surprise budget adapts to player response
+  if (surpriseResponseTotal > 3) {
+    var successRate = surpriseResponsePositive / surpriseResponseTotal;
+    surpriseBudget += (successRate * 0.25 - surpriseBudget) * 0.002;
+    surpriseBudget = Math.max(0.05, Math.min(0.35, surpriseBudget));
+  }
+}
+
 // --- BEAT LAYER STATE (rename of existing FOR internals) ---
 var beatBright = 0.5;
 var beatDensity = 0.5;
@@ -729,7 +848,9 @@ function miScoreNote(candidate, lastPitchPC, fromFOR, playerDirection) {
   // Every 8-16 notes, one note should be "wrong" — an expensive interval
   // that resolves beautifully by being consonant with what comes NEXT.
   // (miNotesSinceSurprise is incremented in miChooseNote, not here)
-  if (miNotesSinceSurprise >= miSurpriseThreshold) {
+  // Surprise threshold adapts to player's response (Session Personality L7)
+  var effectiveThreshold = Math.round(miSurpriseThreshold * (1.0 / Math.max(0.1, surpriseBudget * 4)));
+  if (miNotesSinceSurprise >= effectiveThreshold) {
     // Time for a surprise. Boost expensive intervals dramatically.
     if (cost > 4.0) {
       score += 0.6; // the minor sixth when the fifth was expected
@@ -751,6 +872,22 @@ function miScoreNote(candidate, lastPitchPC, fromFOR, playerDirection) {
   // During climax, leaps are expressive
   if (miContourPhase === 2 && interval >= 5) {
     score += 0.15;
+  }
+
+  // === SESSION PERSONALITY: GRAVITY WELLS ===
+  // Notes the player returns to become attractors
+  if (gravityActive) {
+    score += gravityWells[candidate] * 2.0; // deep wells pull harder
+  }
+
+  // === SESSION PERSONALITY: CONSONANCE DRIFT ===
+  // If player prefers minor intervals, darken the palette
+  if (Math.abs(consonanceDrift) > 0.05) {
+    if (consonanceDrift > 0 && (interval === 4 || interval === 7)) {
+      score += consonanceDrift * 0.3; // boost major/perfect when player is bright
+    } else if (consonanceDrift < 0 && (interval === 3 || interval === 8)) {
+      score += Math.abs(consonanceDrift) * 0.3; // boost minor when player is dark
+    }
   }
 
   // === SESSION PREFERENCE ===
@@ -1024,6 +1161,9 @@ var rhythmPhraseStretch = 1.0; // phrase FOR breathes the grid
 
 function rhythmRecordOnset() {
   var now = sessionTime;
+  // Feed session personality tempo metabolism
+  onsetTimes.push(now);
+  if (onsetTimes.length > 30) onsetTimes.shift();
   if (rhythmLastOnset > 0) {
     var ioi = now - rhythmLastOnset;
     if (ioi > 0.1 && ioi < 4.0) { // ignore very fast or very slow
@@ -2603,6 +2743,9 @@ function update() {
 
   // === INTER-VOICE COUPLING ===
   updatePartialCoupling(dt);
+
+  // === SESSION PERSONALITY ===
+  updateSessionPersonality(dt);
 
   // === DRONE VOLUME ===
   var droneVol = 0.04 + energy * 0.08 + forDensity * 0.02;
