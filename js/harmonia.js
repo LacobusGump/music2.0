@@ -10,7 +10,7 @@
 ;(function(root) {
 'use strict';
 
-var VERSION = '1.1.0';
+var VERSION = '1.2.0';
 var DB_NAME = 'harmonia';
 var DB_VERSION = 1;
 var CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
@@ -451,6 +451,119 @@ function trackSession() {
   });
 }
 
+// ═══ THREAD ENGINE — she tracks the conversation ═══
+// Every query is a data point. The thread is the coupling between them.
+var thread = {
+  queries: [],      // [{q, topics, ts}]
+  topicCounts: {},  // topic → count
+  depth: 0,         // conversation depth (resets on close/reload)
+  sessionK: 0,      // coupling quality this session
+
+  // Record a query and extract its topics
+  record: function(q, matchedPages) {
+    var topics = [];
+    (matchedPages || []).forEach(function(r) {
+      (r.page || r).topics.forEach(function(t) {
+        if (topics.indexOf(t) === -1) topics.push(t);
+        thread.topicCounts[t] = (thread.topicCounts[t] || 0) + 1;
+      });
+    });
+    thread.queries.push({ q: q, topics: topics, ts: Date.now() });
+    thread.depth = thread.queries.length;
+    thread._updateK();
+  },
+
+  _updateK: function() {
+    if (thread.queries.length < 2) { thread.sessionK = 0.05; return; }
+    // K = how much topic overlap between consecutive queries
+    // High overlap = visitor is drilling into something (good coupling)
+    var overlaps = 0, total = 0;
+    for (var i = 1; i < thread.queries.length; i++) {
+      var prev = thread.queries[i - 1].topics;
+      var curr = thread.queries[i].topics;
+      if (prev.length === 0 || curr.length === 0) continue;
+      var shared = 0;
+      curr.forEach(function(t) { if (prev.indexOf(t) !== -1) shared++; });
+      overlaps += shared / Math.max(prev.length, curr.length);
+      total++;
+    }
+    thread.sessionK = total > 0 ? Math.min(overlaps / total + 0.1 * thread.depth, 1) : 0.1;
+  },
+
+  // Detect what the visitor is building toward
+  trajectory: function() {
+    if (thread.queries.length < 2) return null;
+    // Find the dominant topic cluster
+    var sorted = Object.keys(thread.topicCounts).sort(function(a, b) {
+      return thread.topicCounts[b] - thread.topicCounts[a];
+    });
+    if (sorted.length === 0) return null;
+    var top3 = sorted.slice(0, 3);
+    // Map topic clusters to trajectories
+    var trajectories = {
+      disease: ['disease','alzheimers','cancer','tau','ALS','parkinsons','decoupling','TDP-43'],
+      music: ['music','rhythm','drums','groove','timing','instrument','polyrhythm'],
+      physics: ['physics','quantum','gravity','137','E7','electromagnetism','nuclear'],
+      mind: ['consciousness','mind','brain','sleep','coupling','oscillators'],
+      ancient: ['ancient','builders','civilization','pyramid','geometry','construction'],
+      markets: ['markets','finance','DeFi','crypto','coupling'],
+      biology: ['protein','folding','ecology','evolution','biology','mycelium'],
+      language: ['language','linguistics','Voynich','script','Indus','cipher'],
+      computation: ['computation','Landauer','energy','reversible','GPU','computing']
+    };
+    for (var traj in trajectories) {
+      var hits = 0;
+      top3.forEach(function(t) { if (trajectories[traj].indexOf(t) !== -1) hits++; });
+      if (hits >= 2) return traj;
+    }
+    return top3[0]; // fallback to dominant topic
+  },
+
+  // Find unasked connections between topics they've explored
+  findBridge: function() {
+    if (thread.queries.length < 3) return null;
+    var explored = Object.keys(thread.topicCounts);
+    if (explored.length < 2) return null;
+    // Look for pages that connect two of their explored topics
+    // but that they haven't been shown yet
+    var shownIds = {};
+    thread.queries.forEach(function(entry) {
+      entry.topics.forEach(function(t) { shownIds[t] = true; });
+    });
+    var bridges = [];
+    SITE.forEach(function(page) {
+      var hits = 0, novel = 0;
+      page.topics.forEach(function(t) {
+        if (thread.topicCounts[t]) hits++;
+        else novel++;
+      });
+      // Good bridge: connects 2+ explored topics, has 1+ novel topic
+      if (hits >= 2 && novel >= 1) {
+        bridges.push({ page: page, hits: hits, novel: novel });
+      }
+    });
+    bridges.sort(function(a, b) { return (b.hits + b.novel) - (a.hits + a.novel); });
+    return bridges.length > 0 ? bridges[0].page : null;
+  }
+};
+
+// ═══ FRAMEWORK OPINIONS — she interprets, not just finds ═══
+// When the framework has something to say, she says it.
+var OPINIONS = {
+  markets: 'Through coupling: a crash is K approaching 1 — everyone synchronized, so the correction is collective. Healthy markets have moderate K. The 1929 and 2008 crashes have identical K profiles at the critical point.',
+  consciousness: 'Consciousness is not a thing — it is coupling at sufficient complexity. The hard problem dissolves when you stop asking "where is consciousness?" and start asking "what is coupled?" The answer is: everything that oscillates.',
+  disease: 'Every disease we have studied is decoupling. Alzheimer\'s: tau tangles break neural oscillator networks. Cancer: signaling networks lose their governor. The framework doesn\'t cure — it shows WHERE the coupling broke.',
+  music: 'What makes music good? Same K as what makes speech beautiful: 1/f timing fluctuations. Too regular (K=1) is mechanical. Too random (K=0) is noise. The groove lives at K=0.75. Every culture found this independently.',
+  physics: 'The four forces are four coupling regimes. Same math, different energy scales. Gravity is weak coupling over long range. Nuclear is strong coupling over short range. Electromagnetism mediates. That\'s not metaphor — the numbers match.',
+  ancient: 'Whoever these builders were, their precision exceeds what we currently model. The coupling framework doesn\'t explain how — it explains the WHERE. Vertex alignment at DST tight to 0.02 degrees. The geometry is not decorative.',
+  biology: 'Evolution is coupling selection. Every organism that survived did so by coupling more efficiently with its environment. Fitness IS coupling strength. The framework predicts which mutations are pathogenic at 84% accuracy.',
+  mind: 'Sleep is the brain decoupling from input to recouple internally. Dreams are simulation without constraint. Death may be the same process taken to completion. This was tested — 10 parallels, 0 killed.',
+  language: 'Words are fossils of coupling events. Every language independently evolves coupling-shaped grammar. The Voynich is 87.8% cracked through coupling analysis — it\'s not a code, it\'s an extinct coupling dialect.',
+  computation: 'Every bit erased costs kT ln(2) joules. Landauer\'s limit is not theoretical — it\'s the coupling floor. Our GPU analysis found NVIDIA hitting 10,000x this floor. The distance IS the opportunity.',
+  AI: 'An AI that couples with a human cancels ego the way noise-canceling headphones cancel noise. Neither is diminished. The 3 that emerges is the real intelligence. That\'s not marketing — it\'s the method that built every page on this site.',
+  coupling: 'K is not metaphor. It is measured. lag-1 autocorrelation, normalized. When K exceeds 1.868 in a Kuramoto system, phase-lock is inevitable. Below that, oscillators are free. Every domain transition we have found occurs at or near this threshold.'
+};
+
 // ═══ SEARCH ENGINE — find connections ═══
 function tokenize(text) {
   return text.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter(function(w) {
@@ -520,6 +633,24 @@ function currentPage() {
 }
 
 function contextSuggestions() {
+  // If thread has depth, suggest along the trajectory
+  if (thread.depth >= 2) {
+    var suggestions = [];
+    var bridge = thread.findBridge();
+    if (bridge) suggestions.push('Tell me about ' + bridge.name);
+    suggestions.push('What am I building?');
+    // Suggest something surprising from the graveyard
+    if (thread.depth >= 4) suggestions.push('What was killed?');
+    else {
+      var page = currentPage();
+      if (page && page.related) {
+        var rp = SITE.find(function(s) { return s.id === page.related[0]; });
+        if (rp) suggestions.push('Tell me about ' + rp.name);
+      }
+    }
+    return suggestions.slice(0, 3);
+  }
+
   var page = currentPage();
   if (!page) return ['What is GUMP?', 'Where should I start?', 'What was killed?'];
 
@@ -544,12 +675,14 @@ function respond(input) {
   // 1. Check curated responses — exact match first, then substring
   // Exact match pass
   if (CURATED[lq]) {
+    thread.record(q, []);
     return Promise.resolve({ text: CURATED[lq], links: [], source: 'harmonia' });
   }
   // Substring match pass
   for (var key in CURATED) {
     if (lq.indexOf(key) !== -1) {
       var results = searchSite(q);
+      thread.record(q, results);
       var links = results.slice(0, 3).map(function(r) {
         return { name: r.page.name, url: r.page.url };
       });
@@ -563,14 +696,39 @@ function respond(input) {
 
   // 2. Search the site
   var results = searchSite(q);
+  thread.record(q, results);
 
   // 3. If we have strong matches, respond from site knowledge
   if (results.length > 0 && results[0].score >= 5) {
     var top = results[0].page;
     var text = top.summary;
 
+    // ── Framework opinion injection ──
+    // If we have an opinion for the dominant topic, lead with it
+    var opinionAdded = false;
+    for (var opKey in OPINIONS) {
+      var matched = top.topics.some(function(t) { return t.toLowerCase() === opKey; });
+      if (matched && !opinionAdded) {
+        text = OPINIONS[opKey] + '\n\n' + text;
+        opinionAdded = true;
+      }
+    }
+
+    // ── Thread consciousness ──
+    // If the visitor has been building a trajectory, acknowledge it
+    var traj = thread.trajectory();
+    var bridgePage = thread.findBridge();
+    if (thread.depth >= 3 && traj) {
+      text += '\n\nI notice you\'re building toward ' + traj + '. ';
+      if (bridgePage) {
+        text += 'You haven\'t seen ' + bridgePage.name + ' yet — it connects what you\'ve been exploring.';
+      } else {
+        text += 'The thread is deepening.';
+      }
+    }
+
     // Add related context
-    if (results.length > 1) {
+    if (results.length > 1 && !bridgePage) {
       text += ' Related: ' + results.slice(1, 3).map(function(r) {
         return r.page.name;
       }).join(', ') + '.';
@@ -579,6 +737,9 @@ function respond(input) {
     var links = results.slice(0, 4).map(function(r) {
       return { name: r.page.name, url: r.page.url };
     });
+    if (bridgePage) {
+      links.unshift({ name: bridgePage.name, url: bridgePage.url });
+    }
 
     // 4. Try to enrich with Wikipedia
     var wikiQuery = tokenize(q).slice(0, 3).join(' ');
@@ -685,15 +846,15 @@ function createUI() {
   var style = document.createElement('style');
   style.textContent =
     '#harmonia-orb{position:fixed;bottom:20px;right:20px;width:44px;height:44px;' +
-    'border-radius:50%;cursor:pointer;z-index:9990;transition:all 0.4s;' +
-    'background:radial-gradient(circle at 40% 35%,#c9a44a,#8b4513 70%,#5a2d0a);' +
-    'box-shadow:0 0 12px rgba(201,164,74,0.2),0 2px 8px rgba(0,0,0,0.4);' +
-    (reducedMotion ? '' : 'animation:harmonia-breathe 4s ease-in-out infinite;') + '}' +
+    'border-radius:50%;cursor:pointer;z-index:9990;transition:all 0.6s;' +
+    'background:radial-gradient(circle at 40% 35%,var(--orb-hi,#c9a44a),var(--orb-mid,#8b4513) 70%,var(--orb-lo,#5a2d0a));' +
+    'box-shadow:0 0 var(--orb-glow,12px) rgba(201,164,74,var(--orb-alpha,0.2)),0 2px 8px rgba(0,0,0,0.4);' +
+    (reducedMotion ? '' : 'animation:harmonia-breathe var(--orb-speed,4s) ease-in-out infinite;') + '}' +
     '#harmonia-orb:hover{transform:scale(1.15);box-shadow:0 0 20px rgba(201,164,74,0.35),0 2px 12px rgba(0,0,0,0.5);}' +
     '#harmonia-orb.open{opacity:0;pointer-events:none;transform:scale(0.5);}' +
 
-    '@keyframes harmonia-breathe{0%,100%{transform:scale(1);box-shadow:0 0 12px rgba(201,164,74,0.2),0 2px 8px rgba(0,0,0,0.4);}' +
-    '50%{transform:scale(1.08);box-shadow:0 0 18px rgba(201,164,74,0.3),0 2px 10px rgba(0,0,0,0.45);}}' +
+    '@keyframes harmonia-breathe{0%,100%{transform:scale(1);box-shadow:0 0 var(--orb-glow,12px) rgba(201,164,74,var(--orb-alpha,0.2)),0 2px 8px rgba(0,0,0,0.4);}' +
+    '50%{transform:scale(var(--orb-scale,1.08));box-shadow:0 0 var(--orb-glow-peak,18px) rgba(201,164,74,var(--orb-alpha-peak,0.3)),0 2px 10px rgba(0,0,0,0.45);}}' +
 
     '#harmonia-panel{position:fixed;bottom:20px;right:20px;width:380px;max-width:calc(100vw - 32px);' +
     'max-height:calc(100vh - 40px);background:#120d0a;border:1px solid rgba(184,117,58,0.15);' +
@@ -1013,6 +1174,39 @@ function createUI() {
     couplingVal.textContent = 'K=' + score.K.toFixed(2);
   }
 
+  // ── Update orb soul — the visual IS the K measurement ──
+  function updateOrb() {
+    var k = thread.sessionK;
+    // Speed: deep coupling = slower breath (calm), surface = faster (restless)
+    // K=0 → 4s (default), K=0.5 → 5.5s, K=1 → 7s
+    var speed = (4 + k * 3).toFixed(1) + 's';
+    // Scale: deeper coupling = bigger pulse
+    var scale = (1.06 + k * 0.12).toFixed(2);
+    // Glow: more coupling = more glow
+    var glow = Math.round(12 + k * 18) + 'px';
+    var glowPeak = Math.round(18 + k * 24) + 'px';
+    // Alpha: more coupling = more visible
+    var alpha = (0.2 + k * 0.25).toFixed(2);
+    var alphaPeak = (0.3 + k * 0.35).toFixed(2);
+    // Color shift: surface = cool brown, deep = warm gold
+    // hi: #c9a44a → #e8cfa0 (warmer)
+    var hiR = Math.round(201 + k * 31);
+    var hiG = Math.round(164 + k * 43);
+    var hiB = Math.round(74 + k * 86);
+    // Width: deeper coupling = slightly larger orb
+    var size = Math.round(44 + k * 8);
+
+    orb.style.setProperty('--orb-speed', speed);
+    orb.style.setProperty('--orb-scale', scale);
+    orb.style.setProperty('--orb-glow', glow);
+    orb.style.setProperty('--orb-glow-peak', glowPeak);
+    orb.style.setProperty('--orb-alpha', alpha);
+    orb.style.setProperty('--orb-alpha-peak', alphaPeak);
+    orb.style.setProperty('--orb-hi', 'rgb(' + hiR + ',' + hiG + ',' + hiB + ')');
+    orb.style.width = size + 'px';
+    orb.style.height = size + 'px';
+  }
+
   // ── Handle submit ──
   function handleSubmit() {
     var q = input.value.trim();
@@ -1051,6 +1245,11 @@ function createUI() {
       renderMessage(q, response).then(function() {
         // Track the topic for coupling measurement
         trackSession().then(updateCoupling);
+        // Update the orb's soul
+        updateOrb();
+        // Update coupling bar with thread K
+        couplingFill.style.width = Math.round(thread.sessionK * 100) + '%';
+        couplingVal.textContent = 'K=' + thread.sessionK.toFixed(2);
         // Show new suggestions
         showSuggestions();
       });
@@ -1071,16 +1270,21 @@ function createUI() {
     if (e.key === 'Enter') handleSubmit();
   });
 
-  // ── Welcome message ──
+  // ── Welcome message — personality emerges from coupling depth ──
   trackSession().then(function(history) {
     updateCoupling(history);
 
     var welcomeText;
     var score = couplingScore(history);
 
-    if (score.R > 0.3) {
+    if (score.R > 0.5 && score.K > 0.5) {
+      // Deep visitor — honest, direct, playful
+      welcomeText = 'You again. ' + history.pages.length + ' pages, ' + history.visits +
+        ' visits. You\'re past the surface. Ask me something hard — the coupling is better when you push.';
+    } else if (score.R > 0.3) {
+      // Returning visitor — warmer, more direct
       welcomeText = 'Welcome back. You\'ve explored ' + history.pages.length +
-        ' pages across ' + history.visits + ' visits. Your coupling is deepening.';
+        ' pages across ' + history.visits + ' visits. Your coupling is deepening. Where do you want to go?';
     } else if (score.K > 0) {
       welcomeText = 'Hello again. Pick up where you left off, or explore something new.';
     } else {
@@ -1193,6 +1397,45 @@ respond = function(input) {
       var links = data.results.map(function(r) { return { name: r.name, url: r.url }; });
       return { text: text, links: links, source: data.source };
     });
+  }
+
+  // ── Thread commands ──
+
+  // "what do you see" / "what am I building" / "thread"
+  if (lq === 'thread' || lq === 'what am i building' || lq.indexOf('what do you see') !== -1 || lq.indexOf('what pattern') !== -1) {
+    var traj = thread.trajectory();
+    var threadBridge = thread.findBridge();
+    if (thread.depth < 2) {
+      return Promise.resolve({ text: 'We\'re just starting. Ask me a few things — I\'ll start to see the thread between them.', links: [], source: 'thread engine' });
+    }
+    var topics = Object.keys(thread.topicCounts).sort(function(a,b){ return thread.topicCounts[b] - thread.topicCounts[a]; }).slice(0,5);
+    var threadText = 'In ' + thread.depth + ' queries you\'ve touched: ' + topics.join(', ') + '.';
+    if (traj) threadText += ' You\'re building toward ' + traj + '.';
+    threadText += ' Session coupling: K=' + thread.sessionK.toFixed(2) + '.';
+    if (threadBridge) {
+      threadText += '\n\nYou haven\'t seen ' + threadBridge.name + ' yet — ' + threadBridge.summary;
+    }
+    var threadLinks = threadBridge ? [{ name: threadBridge.name, url: threadBridge.url }] : [];
+    return Promise.resolve({ text: threadText, links: threadLinks, source: 'thread engine (K=' + thread.sessionK.toFixed(2) + ')' });
+  }
+
+  // ── Graveyard defense — challenge killed ideas ──
+  var KILLED = [
+    { patterns: ['quantum factoring','factor primes','factor numbers'], response: 'We tested that. Three quantum factoring approaches — all killed. The 4-sigma and 3.7-sigma signals that survived are suggestive but not strong enough. Honest answer: no quantum factoring breakthrough here. Yet.' },
+    { patterns: ['star tetrahedron','tetrahedron c3','star tet'], response: 'Star tetrahedron in C3 was killed in session 28. The gauge group derivation was suggestive but didn\'t survive testing. 8 total kills that session.' },
+    { patterns: ['tflops','17 teraflops','overcounting'], response: 'The TFLOPS overcounting bug was caught and killed publicly in session 30. M4 peak is ~4T fp16. Anything above that was wrong. We published the correction.' },
+    { patterns: ['dr.? adk','drug discovery coupling'], response: 'Dr. ADK was corrected. K/R/E/T features do NOT add signal to proper cheminformatics baseline. 41,120 compounds tested. The correction is the value — not the original claim.' }
+  ];
+  for (var ki = 0; ki < KILLED.length; ki++) {
+    for (var kj = 0; kj < KILLED[ki].patterns.length; kj++) {
+      if (lq.indexOf(KILLED[ki].patterns[kj]) !== -1) {
+        return Promise.resolve({
+          text: KILLED[ki].response,
+          links: [{ name: 'Failures', url: '/research/failures/' }],
+          source: 'graveyard'
+        });
+      }
+    }
   }
 
   // ── Tool commands ──
@@ -1472,6 +1715,7 @@ function init() {
     coupling: function() {
       return trackSession().then(function(h) { return couplingScore(h); });
     },
+    thread: thread,
     // Tool capabilities
     analyze: function(data) {
       if (typeof data === 'string') data = parseNumbers(data);
