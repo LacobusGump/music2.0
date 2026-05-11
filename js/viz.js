@@ -314,12 +314,12 @@ VISUALIZATIONS.flock = {
     s.breathPhase += dt * 0.4;
     var breath = 1 + Math.sin(s.breathPhase) * 0.12;
 
-    // Drift
-    s.driftAngle += (Math.random() - 0.5) * 0.03;
-    s.driftX += Math.cos(s.driftAngle) * 0.003;
-    s.driftY += Math.sin(s.driftAngle) * 0.003;
-    s.driftX *= 0.995;
-    s.driftY *= 0.995;
+    // Drift (very gentle, heavily damped to prevent flyaway)
+    s.driftAngle += (Math.random() - 0.5) * 0.01;
+    s.driftX += Math.cos(s.driftAngle) * 0.0005;
+    s.driftY += Math.sin(s.driftAngle) * 0.0005;
+    s.driftX *= 0.95;
+    s.driftY *= 0.95;
 
     // Center of mass
     var comX = 0, comY = 0;
@@ -359,12 +359,12 @@ VISUALIZATIONS.flock = {
     for (var i = 0; i < n; i++) {
       var fx = 0, fy = 0;
 
-      // 1. Cohesion toward center (strong enough to keep flock in view)
-      fx += (comX - s.px[i]) * 0.008;
-      fy += (comY - s.py[i]) * 0.008;
-      // Also pull toward canvas center to prevent drift
-      fx -= s.px[i] * 0.002;
-      fy -= s.py[i] * 0.002;
+      // 1. Cohesion toward center of mass
+      fx += (comX - s.px[i]) * 0.01;
+      fy += (comY - s.py[i]) * 0.01;
+      // Strong pull toward origin to prevent ANY drift off-screen
+      fx -= s.px[i] * 0.006;
+      fy -= s.py[i] * 0.006;
 
       // 2. Alignment — match neighbors
       var nn = s.nbrs[i];
@@ -390,17 +390,17 @@ VISUALIZATIONS.flock = {
         fy += (avgVY / avgCount - s.vy[i]) * 0.06;
       }
 
-      // 4. Wander
-      fx += (Math.random() - 0.5) * 0.008;
-      fy += (Math.random() - 0.5) * 0.008;
+      // 4. Wander (gentle — must not overpower containment)
+      fx += (Math.random() - 0.5) * 0.004;
+      fy += (Math.random() - 0.5) * 0.004;
 
-      // 5. Drift
+      // 5. Drift (very gentle)
       fx += s.driftX; fy += s.driftY;
 
-      // 6. Scout behavior — slightly more exploratory
+      // 6. Scout behavior (moderate — still contained)
       if (s.isScout[i]) {
-        fx += (Math.random() - 0.5) * 0.02;
-        fy += (Math.random() - 0.5) * 0.02;
+        fx += (Math.random() - 0.5) * 0.008;
+        fy += (Math.random() - 0.5) * 0.008;
       }
 
       // 7. Mouse interaction
