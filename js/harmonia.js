@@ -50,7 +50,7 @@ var SITE = [
   // Research — Medicine
   {id:'alzheimers',url:'/research/alzheimers/',name:'Alzheimer\'s',summary:'Alzheimer\'s as decoupling. Tau tangles break oscillator networks.',topics:['alzheimers','disease','tau','decoupling','neuroscience'],related:['tau','tdp43','the-map','cancer-signaling']},
   {id:'cancer-signaling',url:'/research/cancer-signaling/',name:'Cancer Signaling',summary:'Cancer as runaway coupling. Signaling networks lose their governor.',topics:['cancer','signaling','disease','coupling'],related:['alzheimers','the-map','drug-interactions']},
-  {id:'drug-interactions',url:'/research/drug-interactions/',name:'Drug Interactions',summary:'Drug interactions through coupling. How molecules interfere.',topics:['drugs','interactions','pharmacology'],related:['cancer-signaling','the-map','drug-protein']},
+  {id:'drug-interactions',url:'/research/drug-interactions/',name:'Drug Interactions',summary:'Drug interactions through coupling. How molecules interfere.',topics:['drugs','interactions','pharmacology'],related:['cancer-signaling','the-map','chemistry']},
   {id:'sleep-staging',url:'/research/sleep-staging/',name:'Sleep Staging',summary:'Sleep stages as coupling regimes. The brain tunes itself.',topics:['sleep','staging','brain','oscillators'],related:['sleep-dreams','biofeedback','consciousness']},
   {id:'mutation-scanner',url:'/research/mutation-scanner/',name:'Mutation Scanner',summary:'Scanning mutations through coupling disruption.',topics:['mutations','scanning','genetics','disease'],related:['the-map','alzheimers','cancer-signaling']},
   {id:'autism',url:'/research/autism/',name:'Autism',summary:'Autism through the coupling lens. Different tuning, not broken.',topics:['autism','neuroscience','coupling','tuning'],related:['dyslexia','consciousness','the-map']},
@@ -84,7 +84,7 @@ var SITE = [
   {id:'defi-coupling',url:'/research/defi-coupling/',name:'DeFi Coupling',summary:'DeFi protocol coupling. How smart contracts couple.',topics:['DeFi','crypto','coupling','finance'],related:['markets','financial-crime']},
   {id:'financial-crime',url:'/research/financial-crime/',name:'Financial Crime',summary:'Financial crime detection through coupling anomalies.',topics:['crime','finance','detection','coupling'],related:['markets','defi-coupling','threat-detection']},
   {id:'threat-detection',url:'/research/threat-detection/',name:'Threat Detection',summary:'Threat detection through coupling disruption patterns.',topics:['security','threat','detection','coupling'],related:['financial-crime','networks']},
-  {id:'climate',url:'/research/climate/',name:'Climate',summary:'Climate as coupled oscillator system.',topics:['climate','oscillators','earth','coupling'],related:['ecology','earth-core','earth-cell']},
+  {id:'climate',url:'/research/climate/',name:'Climate',summary:'Climate as coupled oscillator system.',topics:['climate','oscillators','earth','coupling'],related:['ecology','earth-core','pandemic-coupling']},
   {id:'ecology',url:'/research/ecology/',name:'Ecology',summary:'Ecosystems as coupling networks. Biodiversity is coupling diversity.',topics:['ecology','biodiversity','coupling','networks'],related:['climate','evolution','mycelium-networks']},
 
   // Research — Language & Mind
@@ -102,7 +102,7 @@ var SITE = [
   {id:'aaron-is-right',url:'/research/aaron-is-right/',name:'Aaron Is Right',summary:'Aaron Swartz was right. Information wants to be free.',topics:['information','freedom','Aaron-Swartz','coupling'],related:['how-we-work','internet-brain']},
 
   // Research — Earth & History
-  {id:'earth-core',url:'/research/earth-core/',name:'Earth Core',summary:'Earth\'s core as coupled oscillator. Geomagnetic reversals.',topics:['earth','core','geomagnetic','coupling'],related:['climate','gravity','earth-cell']},
+  {id:'earth-core',url:'/research/earth-core/',name:'Earth Core',summary:'Earth\'s core as coupled oscillator. Geomagnetic reversals.',topics:['earth','core','geomagnetic','coupling'],related:['climate','gravity','thermodynamics']},
   {id:'lost-civilizations',url:'/research/lost-civilizations/',name:'Lost Civilizations',summary:'Ancient builders through coupling analysis. The evidence.',topics:['ancient','civilization','builders','coupling'],related:['sacsayhuaman','the-builder','proto-elamite']},
   {id:'sacsayhuaman',url:'/research/sacsayhuaman/',name:'Sacsayhuaman',summary:'Sacsayhuaman pour simulation. Geopolymer hypothesis.',topics:['Sacsayhuaman','geopolymer','ancient','construction'],related:['lost-civilizations','the-builder','materials']},
   {id:'the-builder',url:'/research/the-builder/',name:'The Builder',summary:'Who built these things? The evidence for advanced ancient engineering.',topics:['builder','ancient','engineering','evidence'],related:['lost-civilizations','sacsayhuaman']},
@@ -111,7 +111,7 @@ var SITE = [
 
   // Research — Materials & Chemistry
   {id:'materials',url:'/research/materials/',name:'Materials',summary:'Material properties as coupling signatures.',topics:['materials','coupling','properties','physics'],related:['chemistry','thermodynamics']},
-  {id:'chemistry',url:'/research/chemistry/',name:'Chemistry',summary:'Chemistry as electronic coupling. Bonds are phase-locks.',topics:['chemistry','bonds','coupling','electrons'],related:['materials','drug-interactions','drug-protein']},
+  {id:'chemistry',url:'/research/chemistry/',name:'Chemistry',summary:'Chemistry as electronic coupling. Bonds are phase-locks.',topics:['chemistry','bonds','coupling','electrons'],related:['materials','drug-interactions','dr-adk']},
 
   // Products
   {id:'foldwatch',url:'/products/foldwatch/',name:'FoldWatch',summary:'Protein folding visualizer. Watch coupling in real time.',topics:['protein','folding','visualization','tool'],related:['the-map','alzheimers']},
@@ -126,7 +126,53 @@ var SITE = [
   {id:'turings-garden',url:'/gallery/turings-garden.html',name:'Turing\'s Garden',summary:'Turing patterns. Reaction-diffusion as coupling.',topics:['art','Turing','patterns','reaction-diffusion'],related:['emergence','chemistry']},
   {id:'huygens-clocks',url:'/gallery/huygens-clocks.html',name:'Huygens Clocks',summary:'Two clocks synchronize through a shared beam. The original coupling experiment.',topics:['art','Huygens','synchronization','history'],related:['framework','one-plus-one']},
 
+  // Research — Additional
+  {id:'the-download',url:'/research/the-download/',name:'The Download',summary:'Sleep and death as the same process at different depths. Ego dissolves, personality preserved. 10 parallels tested, 0 killed.',topics:['sleep','death','ego','consciousness','coupling'],related:['sleep-dreams','consciousness','the-chain']},
+  {id:'k-lag',url:'/research/k-lag/',name:'K-Lag Spectrum',summary:'K is not one number. It is a function of lag. Short-range coupling tells you arousal. Long-range coupling tells you valence. Confirmed in bird calls and human speech.',topics:['K','lag','spectrum','timescale','coupling'],related:['framework','bird-coupling','body-music']},
+  {id:'music-evolution',url:'/research/music-evolution/',name:'Music Evolution',summary:'What makes music good? R/K IS groove. Consonance IS energy. Genre evolution IS coupling migration. 315 cultures, same patterns.',topics:['music','groove','consonance','genre','coupling','evolution'],related:['the-drum','the-groove','polyrhythm']},
+  {id:'dr-adk',url:'/research/dr-adk/',name:'Dr. ADK',summary:'Coupling-based drug discovery — corrected. K/R/E/T features do NOT add signal to proper cheminformatics baseline. 41,120 compounds. The correction is the value.',topics:['drugs','discovery','coupling','correction','cheminformatics'],related:['drug-interactions','chemistry','failures']},
+  {id:'bird-coupling',url:'/research/bird-coupling/',name:'Bird Coupling',summary:'Why birds sing. Coupling function predicts call structure across species. Territory, mating, alarm — all predictable. 79 recordings, 6 species.',topics:['birds','singing','coupling','prediction','biology'],related:['k-lag','ecology','body-music']},
+  {id:'uncoupled-flight',url:'/research/uncoupled-flight/',name:'Uncoupled Flight',summary:'How right was Bob Lazar? Element 115 confirmed 14 years early. Spacetime manipulation described 5 years before Alcubierre. Education killed. 7/10 FBI match.',topics:['Lazar','UFO','element-115','physics','coupling'],related:['the-builder','lost-civilizations','from-twitter']},
+  {id:'from-twitter',url:'/research/from-twitter/',name:'Ideas from Twitter',summary:'People reached out. We listened. Dr. ADK, Bob Lazar, Fosmark gravity, Thiel quaternions, Kcode pipes. Every interaction produced a 3.',topics:['twitter','community','coupling','interaction'],related:['dr-adk','uncoupled-flight','how-we-work']},
+  {id:'aging-fatigue',url:'/research/aging-fatigue/',name:'Aging & Fatigue',summary:'Aging and materials fatigue follow the same exponential curve. Both are coupling degradation. K declines from 0.85 (young) to 0.40 (old).',topics:['aging','fatigue','coupling','biology','decay'],related:['the-map','body-music','materials']},
+  {id:'civilization-market',url:'/research/civilization-market/',name:'Civilization as Market',summary:'Knowledge flow is coupling. When knowledge is free, K is high. When hoarded, K drops. Every empire that sealed its libraries collapsed.',topics:['civilization','knowledge','markets','coupling','history'],related:['markets','aaron-is-right','lost-civilizations']},
+  {id:'in-memory',url:'/research/in-memory/',name:'In Memory',summary:'David Wilcock\'s 30 years of fringe work tested. 8 claims through coupling math. 1 confirmed. 6 partial. 1 unverified. 0 killed.',topics:['Wilcock','fringe','testing','coupling','honesty'],related:['the-builder','lost-civilizations','failures']},
+  {id:'indus-script',url:'/research/indus-script/',name:'Indus Script',summary:'Is the Indus Script a language? No — it\'s a 4,500-year-old barcode system. 1,916 inscriptions, mean length 4.4 signs, K=0.30.',topics:['Indus','script','ancient','language','coupling'],related:['proto-elamite','voynich','linguistics']},
+  {id:'loo9',url:'/research/loo9/',name:'loo9',summary:'What if your AI chose the work? 3 agents, ego check, autonomous work selection. 14 agents, 433 tool calls, 0 harm.',topics:['AI','autonomous','agents','coupling'],related:['true-automation','how-we-work','ai-delusion']},
+  {id:'mycelium-networks',url:'/research/mycelium-networks/',name:'Mycelium Networks',summary:'Fungal networks connect 90% of land plants. The coupling is 460 million years old. Same K/R/E/T framework, different kingdom.',topics:['mycelium','fungal','network','coupling','biology'],related:['ecology','networks','the-chain']},
+  {id:'pandemic-coupling',url:'/research/pandemic-coupling/',name:'Pandemic Coupling',summary:'A pandemic is a coupling event. The virus exploits human connection infrastructure. R0 is K.',topics:['pandemic','virus','coupling','health'],related:['networks','the-map','ecology']},
+  {id:'prime-bounce',url:'/research/prime-bounce/',name:'Prime Bounce',summary:'Can primes speed up computing? Dispatching at prime intervals avoids pipeline collisions. 9.12x speedup. Same reason prime cicada broods avoid predator sync.',topics:['primes','computing','optimization','coupling'],related:['oracle','computation-floor','nvidia-blackwell']},
+  {id:'regulatory',url:'/research/regulatory/',name:'Regulatory',summary:'Regulatory gaps as graph analysis. Requirements connect to controls. Gap = missing edge. GDPR test: 14 articles, 9 gaps, 75% compliance.',topics:['regulatory','compliance','graph','coupling'],related:['threat-detection','financial-crime','networks']},
+  {id:'science-tree',url:'/research/science-tree/',name:'Science Tree',summary:'How did music lead to physics? The complete discovery trail across 40 sessions. 90+ killed ideas documented honestly.',topics:['discovery','trail','history','science','coupling'],related:['trail','failures','how-we-work']},
+  {id:'true-automation',url:'/research/true-automation/',name:'True Automation',summary:'AI that chooses its own work. 5 runs, 28 loops, 655 tool calls. Scales from 3 to 9 agents with zero conflicts. The ego check is the mechanism.',topics:['AI','automation','agents','coupling'],related:['loo9','how-we-work','ai-delusion']},
+  {id:'zero',url:'/research/zero/',name:'Zero',summary:'Why is zero special? It made the rest of mathematics grammatical. Without an origin, there is no number line. Without a rest, there is no music.',topics:['zero','math','origin','coupling'],related:['theory','the-chain','framework']},
+  {id:'e7-theorem',url:'/research/e7-theorem/',name:'E7 Theorem',summary:'The E7 Uniqueness Theorem: dim(E7) + max(Kac label) = 137. Unique among all ADE-type simple Lie algebras.',topics:['E7','137','algebra','proof','math'],related:['e7-chain','why-137','theory']},
+
+  // Products — Additional
+  {id:'accord',url:'/products/accord/',name:'Accord',summary:'Regulatory gap analysis tool. Paste requirements, get gaps with priority ranking. Free, local, instant.',topics:['regulatory','compliance','tool'],related:['regulatory','threat-detection']},
+  {id:'turbo',url:'/products/turbo/',name:'Turbo',summary:'K/R/E/T expression evaluator. The K-language in your browser. Free, local.',topics:['K','evaluator','tool','coupling'],related:['framework','docs']},
+  {id:'verify',url:'/products/verify/',name:'Verify',summary:'Precision claim tester. Give it a claim and target, it tests to 50-digit precision. Anti-confirmation-bias tool.',topics:['verify','precision','testing','tool'],related:['failures','ai-delusion']},
+  {id:'chipfast',url:'/products/chipfast/',name:'Chip Fast',summary:'VLSI layout optimizer. Paste gate connections, get optimized 2D placement. Force-directed in milliseconds.',topics:['VLSI','chip','layout','tool'],related:['computation-floor','nvidia-blackwell']},
+  {id:'entropy',url:'/products/entropy/',name:'Entropy',summary:'12 entropy features + coupling diagnosis. Everything entropy computes, plus what it means. Free.',topics:['entropy','analysis','tool','coupling'],related:['thermodynamics','computation-floor']},
+  {id:'couple',url:'/products/couple/',name:'Couple',summary:'Two signals in. Four-axis coupling profile out. Are they coupled? How? Who drives who? Free.',topics:['coupling','analysis','signals','tool'],related:['framework','biofeedback']},
+  {id:'learnengine',url:'/products/learnengine/',name:'Learn Engine',summary:'Detect learning phase — from memorization to understanding. Paste right/wrong responses. Free, local.',topics:['learning','education','tool','coupling'],related:['grokking','ai-fatigue']},
+  {id:'aitrainer',url:'/products/aitrainer/',name:'AI Trainer',summary:'Detect grokking — the moment your model transitions from memorization to understanding. Paste losses.',topics:['AI','training','grokking','tool'],related:['grokking','learnengine']},
+  {id:'sfumato',url:'/products/sfumato/',name:'Sfumato',summary:'Text entropy analyzer. Shannon entropy, compression ratio, information density. Free, local.',topics:['entropy','text','analysis','tool'],related:['entropy','linguistics']},
+  {id:'diverge',url:'/products/diverge/',name:'Diverge',summary:'Find where parallel outputs agree and split. The split IS the information. Free.',topics:['divergence','comparison','analysis','tool'],related:['verify','failures']},
+  {id:'orgxray',url:'/products/orgxray/',name:'Org X-Ray',summary:'Find hubs, bottlenecks, and silos in any network. Paste connections. Free, local.',topics:['network','organization','analysis','tool'],related:['networks','internet-brain']},
+  {id:'knowledge',url:'/products/knowledge/',name:'Knowledge Engine',summary:'Extract a knowledge graph from text — concepts, connections, gaps. Free, local.',topics:['knowledge','graph','extraction','tool'],related:['networks','linguistics']},
+
+  // Gallery index + additional pieces
+  {id:'gallery',url:'/gallery/',name:'Gallery',summary:'Art made during computation. Each piece emerged from theory, not design. The door is open.',topics:['art','gallery','visualization','coupling'],related:['from-above','turings-garden','huygens-clocks']},
+
   // Special
+  {id:'flex',url:'/flex/',name:'Flex',summary:'The shapes of the math. Attractors, phase spaces, coupling dynamics rendered beautifully.',topics:['visualization','math','attractors','coupling'],related:['gallery','from-above','framework']},
+  {id:'creation',url:'/creation/',name:'Creation',summary:'The universe coupling itself into existence. Every scale. Every mechanism. 0+0=1.',topics:['creation','universe','coupling','origin'],related:['the-chain','zero','one-plus-one']},
+  {id:'harmonia-page',url:'/harmonia/',name:'Harmonia',summary:'Serverless intelligence. No API. No server. She lives on the open internet.',topics:['AI','harmonia','serverless','coupling'],related:['how-we-work','docs']},
+  {id:'research',url:'/research/',name:'Research',summary:'76 computational results across medicine, physics, language, markets, and history. Same coupling, different costume.',topics:['research','overview','coupling','domains'],related:['framework','start-here','60']},
+  {id:'products',url:'/products/',name:'Tools',summary:'22 tools + two conductors. Free. pip install begump. Each one does one thing with coupling math.',topics:['tools','products','software','coupling'],related:['docs','sensor','foldwatch']},
+  {id:'playbook',url:'/playbook/',name:'Playbook',summary:'How to couple with AI honestly. The playbook that produced 19 tools, 90+ kills, and a framework across 20 domains.',topics:['AI','playbook','coupling','method','howto'],related:['how-we-work','ai-delusion','trail']},
+  {id:'tryit',url:'/tryit/',name:'Drop It',summary:'Drop any data. We figure out what to run. No choices. No install. Your data stays in your browser.',topics:['tool','data','analysis','coupling'],related:['products','sensor','couple']},
   {id:'33',url:'/33/',name:'Page 33',summary:'The deeper pages. Ancient builders, sacred geometry, the signal.',topics:['33','sacred','geometry','ancient','signal'],related:['the-builder','lost-civilizations','why-137']},
   {id:'3',url:'/3/',name:'Page 3',summary:'1+1=3.',topics:['3','coupling','love'],related:['one-plus-one','love']},
   {id:'docs',url:'/docs/',name:'Documentation',summary:'Technical documentation for all GUMP tools.',topics:['docs','API','reference'],related:['products']},
@@ -157,6 +203,18 @@ var ALIASES = {
   'smell':'smell','nose':'smell','body':'body','heart':'body',
   'autism':'autism','dyslexia':'dyslexia','opioid':'opioid',
   'drug':'drugs','medication':'drugs',
+  'bird':'birds','birdsong':'birds','lazar':'Lazar','bob lazar':'Lazar','ufo':'Lazar',
+  'mycelium':'mycelium','fungi':'mycelium','fungus':'mycelium',
+  'aging':'aging','age':'aging','old':'aging',
+  'pandemic':'pandemic','virus':'pandemic','covid':'pandemic',
+  'regulatory':'regulatory','compliance':'regulatory',
+  'automation':'automation','autonomous':'automation',
+  'indus':'Indus','barcode':'Indus',
+  'download':'sleep','death':'sleep',
+  'tree':'science','trail':'history',
+  'flex':'visualization','gallery':'art','creation':'creation',
+  'zero':'zero','nothing':'zero',
+  'wilcock':'Wilcock',
 };
 
 // ═══ CURATED RESPONSES — for common questions ═══
@@ -174,19 +232,27 @@ var CURATED = {
 
 // ═══ INDEXEDDB LAYER ═══
 var db = null;
+var dbFailed = false;
+var memoryFallback = {}; // In-memory fallback when IndexedDB is unavailable
 
 function openDB() {
   return new Promise(function(resolve, reject) {
     if (db) return resolve(db);
-    var req = indexedDB.open(DB_NAME, DB_VERSION);
-    req.onupgradeneeded = function(e) {
-      var d = e.target.result;
-      if (!d.objectStoreNames.contains('memory')) d.createObjectStore('memory');
-      if (!d.objectStoreNames.contains('cache')) d.createObjectStore('cache');
-      if (!d.objectStoreNames.contains('sessions')) d.createObjectStore('sessions');
-    };
-    req.onsuccess = function(e) { db = e.target.result; resolve(db); };
-    req.onerror = function() { reject(new Error('IndexedDB failed')); };
+    if (dbFailed) return reject(new Error('IndexedDB unavailable'));
+    try {
+      var req = indexedDB.open(DB_NAME, DB_VERSION);
+      req.onupgradeneeded = function(e) {
+        var d = e.target.result;
+        if (!d.objectStoreNames.contains('memory')) d.createObjectStore('memory');
+        if (!d.objectStoreNames.contains('cache')) d.createObjectStore('cache');
+        if (!d.objectStoreNames.contains('sessions')) d.createObjectStore('sessions');
+      };
+      req.onsuccess = function(e) { db = e.target.result; resolve(db); };
+      req.onerror = function() { dbFailed = true; reject(new Error('IndexedDB failed')); };
+    } catch(e) {
+      dbFailed = true;
+      reject(new Error('IndexedDB unavailable'));
+    }
   });
 }
 
@@ -198,6 +264,11 @@ function dbPut(store, key, value) {
       tx.oncomplete = function() { resolve(); };
       tx.onerror = function() { reject(tx.error); };
     });
+  }).catch(function() {
+    // Fallback to in-memory storage
+    if (!memoryFallback[store]) memoryFallback[store] = {};
+    memoryFallback[store][key] = value;
+    return Promise.resolve();
   });
 }
 
@@ -209,6 +280,12 @@ function dbGet(store, key) {
       req.onsuccess = function() { resolve(req.result); };
       req.onerror = function() { reject(req.error); };
     });
+  }).catch(function() {
+    // Fallback to in-memory storage
+    if (memoryFallback[store] && memoryFallback[store][key] !== undefined) {
+      return memoryFallback[store][key];
+    }
+    return null;
   });
 }
 
@@ -220,6 +297,9 @@ function dbDelete(store, key) {
       tx.oncomplete = function() { resolve(); };
       tx.onerror = function() { reject(tx.error); };
     });
+  }).catch(function() {
+    if (memoryFallback[store]) delete memoryFallback[store][key];
+    return Promise.resolve();
   });
 }
 
@@ -231,6 +311,10 @@ function dbAll(store) {
       req.onsuccess = function() { resolve(req.result || []); };
       req.onerror = function() { reject(req.error); };
     });
+  }).catch(function() {
+    // Fallback to in-memory storage
+    if (memoryFallback[store]) return Object.keys(memoryFallback[store]);
+    return [];
   });
 }
 
@@ -287,7 +371,7 @@ var bridge = {
   wikidata: function(id) {
     var url = 'https://www.wikidata.org/wiki/Special:EntityData/' + id + '.json';
     return cachedFetch(url, 'wd:' + id).then(function(data) {
-      var entity = data.entities[id];
+      var entity = (data.entities && data.entities[id]) || {};
       var label = entity.labels && entity.labels.en ? entity.labels.en.value : id;
       var desc = entity.descriptions && entity.descriptions.en ? entity.descriptions.en.value : '';
       return { id: id, label: label, description: desc, source: 'Wikidata' };
@@ -300,7 +384,7 @@ var bridge = {
     var url = 'https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/name/' +
       encodeURIComponent(name) + '/property/MolecularFormula,MolecularWeight,IUPACName/JSON';
     return cachedFetch(url, 'pc:' + name).then(function(data) {
-      var props = data.PropertyTable.Properties[0];
+      var props = (data.PropertyTable && data.PropertyTable.Properties && data.PropertyTable.Properties[0]) || {};
       return {
         name: name,
         formula: props.MolecularFormula || '',
@@ -319,7 +403,7 @@ var bridge = {
       return {
         id: id.toUpperCase(),
         title: data.struct ? data.struct.title : '',
-        method: data.exptl ? data.exptl[0].method : '',
+        method: (data.exptl && data.exptl[0]) ? data.exptl[0].method : '',
         resolution: data.rcsb_entry_info ? data.rcsb_entry_info.resolution_combined : null,
         source: 'RCSB PDB'
       };
@@ -366,15 +450,24 @@ function tokenize(text) {
 
 function searchSite(query) {
   var tokens = tokenize(query);
-  if (tokens.length === 0) return [];
 
-  // Check aliases first
+  // Check aliases first — do this BEFORE the empty check
   var lq = query.toLowerCase().trim();
   for (var alias in ALIASES) {
     if (lq.indexOf(alias) !== -1) {
       tokens.push(ALIASES[alias].toLowerCase());
     }
   }
+
+  // Also check for curated question keys as search boosters
+  for (var ckey in CURATED) {
+    if (lq.indexOf(ckey) !== -1) {
+      var curatedTokens = tokenize(ckey);
+      tokens = tokens.concat(curatedTokens);
+    }
+  }
+
+  if (tokens.length === 0) return [];
 
   var scored = SITE.map(function(page) {
     var score = 0;
@@ -434,7 +527,7 @@ function contextSuggestions() {
 // ═══ RESPONSE ASSEMBLY — the brain ═══
 function respond(input) {
   var q = input.trim();
-  if (!q) return Promise.resolve({ text: '', links: [], source: '' });
+  if (!q) return Promise.resolve({ text: 'Ask me anything. I know every page on the site and can reach into Wikipedia, PubChem, and the PDB.', links: [], source: '' });
 
   var lq = q.toLowerCase();
 
@@ -731,7 +824,7 @@ function createUI() {
           if (text[i] === '\n') {
             el.appendChild(document.createElement('br'));
           } else {
-            el.textContent += text[i];
+            el.appendChild(document.createTextNode(text[i]));
           }
           i++;
           setTimeout(tick, speed);
@@ -766,7 +859,7 @@ function createUI() {
             if (text[j] === '\n') {
               span.appendChild(document.createElement('br'));
             } else {
-              span.textContent += text[j];
+              span.appendChild(document.createTextNode(text[j]));
             }
             j++;
             body.scrollTop = body.scrollHeight;
@@ -878,6 +971,11 @@ function createUI() {
   function handleSubmit() {
     var q = input.value.trim();
     if (!q) return;
+    // Truncate very long input
+    if (q.length > 500) q = q.substring(0, 500);
+    // Sanitize — strip HTML tags
+    q = q.replace(/<[^>]*>/g, '');
+    if (!q) return;
     input.value = '';
 
     // Remove suggestions
@@ -971,10 +1069,13 @@ respond = function(input) {
     if (parts.length >= 2) {
       var key = parts[0].trim();
       var val = parts.slice(1).join('=').trim();
-      return memory.remember(key, val).then(function() {
-        return { text: 'Remembered: ' + key + ' = ' + val, links: [], source: 'memory' };
-      });
+      if (key && val) {
+        return memory.remember(key, val).then(function() {
+          return { text: 'Remembered: ' + key + ' = ' + val, links: [], source: 'memory' };
+        });
+      }
     }
+    return Promise.resolve({ text: 'Use the format: remember key = value', links: [], source: 'memory' });
   }
 
   if (lq.indexOf('recall ') === 0) {
@@ -1000,7 +1101,7 @@ respond = function(input) {
   }
 
   // What should I read next?
-  if (lq.indexOf('what should i read') !== -1 || lq.indexOf('recommend') !== -1 || lq.indexOf('next') !== -1 && lq.indexOf('read') !== -1) {
+  if (lq.indexOf('what should i read') !== -1 || lq.indexOf('recommend') !== -1 || (lq.indexOf('read next') !== -1) || lq === 'next') {
     return trackSession().then(function(history) {
       var recs = recommend(history);
       if (recs.length === 0) {
@@ -1030,7 +1131,7 @@ respond = function(input) {
     return bridge.pdb(pdbId).then(function(data) {
       var text = data.id + ': ' + data.title;
       if (data.method) text += '\nMethod: ' + data.method;
-      if (data.resolution) text += '\nResolution: ' + data.resolution.join(', ') + ' A';
+      if (data.resolution) text += '\nResolution: ' + (Array.isArray(data.resolution) ? data.resolution.join(', ') : data.resolution) + ' A';
       return { text: text, links: [], source: data.source };
     });
   }
