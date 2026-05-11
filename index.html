@@ -146,22 +146,19 @@ canvas#sky{width:100%;height:100%;display:block;}
 
 <script>
 // ═══════════════════════════════════════════════════════════
-// THE MIRROR — 137 coupled oscillators on a golden spiral
-// The math computing beauty in real time.
-// If the coupling is wrong, the nodes don't synchronize.
-// They synchronize because K works.
-// The loading IS the proof.
+// THE MIRROR — 137 coupled oscillators in TWO FLOCKS
+// 1 + 1 = 3. The founding equation, visualized.
 //
-// Sirius A: 2.063 solar masses. Bright. Hot. The research.
-// Sirius B: 1.018 solar masses. Tiny. Dense. The tools.
+// Group A (0-68): 69 nodes. Gold/copper. The player.
+// Group B (69-136): 68 nodes. Blue-copper/silver. The soul.
+// The space between them: rose-gold. The 3.
+//
+// Internal coupling: K = 1.868 (full coupling within each flock)
+// Cross-coupling: K = 0.5 (weaker — they orbit, not merge)
+//
+// Sirius A: 2.063 solar masses. Bright. Hot.
+// Sirius B: 1.018 solar masses. Tiny. Dense.
 // Both orbit their common barycenter.
-//
-// Orbital elements (Bond et al. 2017):
-//   Period: 50.1284 years
-//   Eccentricity: 0.5923
-//   Inclination: 136.53 degrees
-//   Mass ratio B/A: 0.4935
-//
 // The breathing IS the coupling made visible.
 // ═══════════════════════════════════════════════════════════
 (function(){
@@ -180,33 +177,41 @@ function resize() {
 resize();
 window.addEventListener('resize', resize);
 
-// ═══ 137 COUPLED OSCILLATORS ═══
+// ═══ 137 COUPLED OSCILLATORS IN TWO FLOCKS ═══
 var N = 137;
-var K_COUPLE = 1.868;
+var NA = 69;  // Group A: 0..68
+var NB = 68;  // Group B: 69..136
+var K_INTERNAL = 1.868; // full coupling within each flock
+var K_CROSS = 0.5;      // weaker coupling between flocks
 var GA = 2.39996322; // golden angle
 var PHI = (1+Math.sqrt(5))/2;
 var dt = 0.016;
 
-// ═══ LAYOUT — emergent from coupling ═══
-// No prescribed shapes. The oscillators find their own formations.
-// Phase-synced nodes attract. Phase-opposed repel. R drives coherence.
-// The coupling IS the choreography.
+// ═══ FLOCK MEMBERSHIP ═══
+function flockOf(i){ return i < NA ? 0 : 1; } // 0=A, 1=B
+function sameGroup(i,j){ return flockOf(i) === flockOf(j); }
+
+// ═══ CROSS-COUPLING DISCOVERY — they find each other over 10 seconds ═══
+var crossCouplingStrength = 0; // ramps 0->1 over first 10s
+var CROSS_RAMP_TIME = 10.0;   // seconds to full cross-coupling
+
+// ═══ LAYOUT — two flocks start separated ═══
 var nxA=[], nyA=[];
-var vxA=[], vyA=[]; // velocities — the oscillators have momentum
+var vxA=[], vyA=[];
 var shapeTime = 0;
 
-// Initialize on golden spiral — a starting whisper, not a destination
+// Group A starts left-center, Group B starts right-center
 for(var i=0;i<N;i++){
-  var r = 0.8 + Math.sqrt(i/N) * 5.5;
+  var r = 0.8 + Math.sqrt((i < NA ? i/NA : (i-NA)/NB)) * 4.5;
   var a = i * GA;
-  nxA.push(Math.cos(a)*r);
+  var offsetX = i < NA ? -3.0 : 3.0; // separated by 6 units
+  nxA.push(Math.cos(a)*r + offsetX);
   nyA.push(Math.sin(a)*r);
   vxA.push((Math.random()-0.5)*0.02);
   vyA.push((Math.random()-0.5)*0.02);
 }
 
 // Scout designation — ~10% of oscillators are scouts
-// They drift further, explore, pull the group
 var isScout = new Uint8Array(N);
 var scoutStrength = new Float64Array(N);
 for(var i=0;i<N;i++){
@@ -216,19 +221,15 @@ for(var i=0;i<N;i++){
   }
 }
 
-// Per-node wander angle — each node has a slowly drifting preferred direction
+// Per-node wander angle
 var wanderAngle = new Float64Array(N);
 for(var i=0;i<N;i++) wanderAngle[i] = Math.random() * Math.PI * 2;
 
 // ═══ COUPLING HISTORY — color tells the node's story ═══
-// Each node accumulates coupling credit when phase-locked with neighbors.
-// High credit = warm gold (long-coupled). Low credit = deep brown (isolated).
-// The color IS the autobiography.
-var couplingCredit = new Float64Array(N); // 0 = cold/isolated, 1 = maximally warm
-for(var i=0;i<N;i++) couplingCredit[i] = 0.3; // start neutral
+var couplingCredit = new Float64Array(N);
+for(var i=0;i<N;i++) couplingCredit[i] = 0.3;
 
 // ═══ TRAIL MEMORY — scouts leave faint wakes ═══
-// Ring buffer per scout: last 15 screen positions
 var TRAIL_LEN = 15;
 var trailBuf = new Array(N);
 var trailIdx = new Int32Array(N);
@@ -238,53 +239,52 @@ for(var i=0;i<N;i++){
 }
 
 // ═══ CONNECTION MEMORY — bonds have age ═══
-// Track how long each strong pair has been synced.
-// Old bonds are calm. New bonds flicker.
-var bondAge = {}; // key: "i,j" -> frames of continuous sync
+var bondAge = {};
 
-// Slow global drift — the whole formation breathes and wanders
-var driftX = 0, driftY = 0;
-var driftAngle = Math.random() * Math.PI * 2;
-var breathPhase = 0;
+// Per-flock drift — each group wanders independently
+var driftXA = 0, driftYA = 0, driftAngleA = Math.random() * Math.PI * 2;
+var driftXB = 0, driftYB = 0, driftAngleB = Math.random() * Math.PI * 2 + Math.PI;
+var breathPhaseA = 0, breathPhaseB = Math.PI; // start out of phase — reactive breathing
+
+// ═══ PER-FLOCK R VALUES ═══
+var RvalA = 0, RvalB = 0, Rval = 0;
+var RvalCross = 0; // cross-coupling coherence — the measure of the 3
 
 // ═══ PULSE SYSTEM — heartbeat that ripples through the flock ═══
-// Every 15-30 seconds, one scout spontaneously fires a brightness pulse.
-// The pulse propagates through coupled pairs at coupling speed.
-// Like a heartbeat visible in the body. Rare enough to be surprising.
-var pulseTimer = 8 + Math.random() * 12; // first pulse in 8-20s
+var pulseTimer = 8 + Math.random() * 12;
 var pulseActive = false;
-var pulseBright = new Float64Array(N); // per-node brightness boost from pulse (0-1)
-var pulseWave = new Float64Array(N);   // wave arrival time per node (-1 = not reached)
+var pulseBright = new Float64Array(N);
+var pulseWave = new Float64Array(N);
 var pulseOrigin = -1;
 var pulseStartTime = 0;
-var PULSE_SPEED = 180; // pixels per second — speed of wave propagation
-var PULSE_DECAY = 0.92; // how fast the brightness fades after the wave passes
+var PULSE_SPEED = 180;
+var PULSE_DECAY = 0.92;
 
-// ═══ AURORAL SHIMMER — transcendence at high R ═══
-// When R > 0.7 for a sustained moment, a subtle color wash drifts through.
-// Not a flash. A shimmer. Northern lights made of earth tones.
+// ═══ CROSS-PULSE — heartbeat crosses between flocks with delay ═══
+var crossPulseTimer = -1; // -1 = no pending cross-pulse
+var crossPulseDelay = 0.4; // seconds delay before response beat
+var crossPulseGroup = -1; // which group the response fires in
+
+// ═══ AURORAL SHIMMER ═══
 var auroraActive = false;
 var auroraPhase = 0;
-var auroraIntensity = 0; // 0-1, fades in/out
-var highRTimer = 0; // how long R has been above threshold
+var auroraIntensity = 0;
+var highRTimer = 0;
 var AURORA_R_THRESH = 0.7;
-var AURORA_ONSET = 1.5; // seconds of high R before shimmer begins
-// Aurora color palette — gold-green, copper-teal, ember-blue
+var AURORA_ONSET = 1.5;
 var auroraColors = [
-  [180, 200, 80],   // green-gold
-  [100, 180, 140],  // blue-copper
-  [220, 170, 60],   // warm gold
-  [80, 160, 130],   // teal-green
+  [180, 200, 80],
+  [100, 180, 140],
+  [220, 170, 60],
+  [80, 160, 130],
 ];
 var auroraColorIdx = 0;
 
-// ═══ MOUSE PARALLAX — depth from cursor position ═══
-// Near particles shift more than far ones when the mouse moves.
-// Creates genuine parallax — the formation has layers you can see through.
-var parallaxX = 0, parallaxY = 0; // current parallax offset (smoothed)
+// ═══ MOUSE PARALLAX ═══
+var parallaxX = 0, parallaxY = 0;
 var parallaxTargetX = 0, parallaxTargetY = 0;
 
-// Neighbors — wider radius so the web of connections is rich
+// Neighbors — wider radius
 var nbrL=[];
 for(var i=0;i<N;i++){var nn=[];for(var j=0;j<N;j++){if(j===i)continue;var ddx=nxA[j]-nxA[i],ddy=nyA[j]-nyA[i];if(ddx*ddx+ddy*ddy<12.0)nn.push(j);}nbrL.push(nn);}
 
@@ -295,51 +295,88 @@ var phases=new Float64Array(N);
 var omega=new Float64Array(N);
 for(var i=0;i<N;i++) omega[i]=(0.3+Math.random()*0.7)*Math.PI*2*(0.8+Math.random()*0.4);
 
-// ═══ PALETTE — earth tones that BURN ═══
-// Each node gets a fixed color based on golden-ratio assignment.
-// These are not muted. These are firelight, copper, autumn, moss at dawn.
-var PALETTE = [
+// ═══ PALETTE A — warm golds, coppers, ambers (the player) ═══
+var PALETTE_A = [
   [210, 120, 45],   // copper flame
-  [185, 82, 40],    // saddle brown — bright
+  [185, 82, 40],    // saddle brown
   [190, 145, 60],   // amber wood
   [165, 90, 35],    // burnt sienna
-  [95, 155, 70],    // moss in sunlight
-  [75, 130, 60],    // deep moss, warm
   [220, 155, 65],   // honey amber
   [200, 100, 40],   // fired clay
-  [140, 170, 75],   // autumn chartreuse
+  [230, 170, 80],   // warm firelight
   [180, 130, 50],   // golden oak
   [160, 75, 35],    // dark copper
-  [110, 145, 65],   // fern green
-  [230, 170, 80],   // warm firelight
-  [170, 105, 45],   // teak
-  [130, 160, 70],   // sage bright
   [195, 135, 55],   // caramel
   [145, 85, 40],    // raw umber warm
+  [240, 180, 90],   // bright gold
+  [175, 110, 45],   // teak
 ];
 
-// Assign each node a fixed color — golden ratio distribution for visual variety
+// ═══ PALETTE B — blue-copper, silver-brown, pewter (the soul) ═══
+var PALETTE_B = [
+  [100, 140, 160],  // blue copper
+  [120, 130, 145],  // pewter
+  [85, 125, 150],   // steel blue
+  [140, 155, 165],  // silver-brown
+  [95, 150, 135],   // verdigris
+  [110, 120, 140],  // blue-grey
+  [130, 145, 155],  // cool silver
+  [75, 135, 145],   // dark teal-copper
+  [150, 160, 170],  // bright pewter
+  [90, 115, 135],   // deep blue-copper
+  [125, 140, 150],  // weathered silver
+  [105, 130, 155],  // slate-blue
+  [80, 140, 130],   // patina
+];
+
+// ═══ ROSE-GOLD — the color of the 3 ═══
+var ROSE_GOLD = [210, 150, 120]; // warm rose-gold for cross-connections
+
+// Assign each node a fixed color from its flock's palette
 var nodeCol = new Array(N);
 for(var i=0;i<N;i++){
-  nodeCol[i] = PALETTE[Math.floor((i * PHI * 7) % PALETTE.length)];
+  if(i < NA){
+    nodeCol[i] = PALETTE_A[Math.floor((i * PHI * 7) % PALETTE_A.length)];
+  } else {
+    nodeCol[i] = PALETTE_B[Math.floor(((i-NA) * PHI * 7) % PALETTE_B.length)];
+  }
 }
 
 // Per-node K boost (set during draw, used in step)
-var kBoost=new Float64Array(N); // 0 = normal, positive = boosted
+var kBoost=new Float64Array(N);
 
-// Simulation step
-var Rval=0;
+// ═══ SIMULATION STEP — dual Kuramoto with cross-coupling ═══
 function step(){
-  var mre=0,mim=0;
-  for(var i=0;i<N;i++){mre+=Math.cos(phases[i]);mim+=Math.sin(phases[i]);}
-  mre/=N;mim/=N;
-  Rval=Math.sqrt(mre*mre+mim*mim);
-  var mp=Math.atan2(mim,mre);
+  // Compute per-flock order parameters
+  var mreA=0,mimA=0,mreB=0,mimB=0;
+  for(var i=0;i<NA;i++){mreA+=Math.cos(phases[i]);mimA+=Math.sin(phases[i]);}
+  mreA/=NA;mimA/=NA;
+  RvalA=Math.sqrt(mreA*mreA+mimA*mimA);
+  for(var i=NA;i<N;i++){mreB+=Math.cos(phases[i]);mimB+=Math.sin(phases[i]);}
+  mreB/=NB;mimB/=NB;
+  RvalB=Math.sqrt(mreB*mreB+mimB*mimB);
+
+  // Global R (all 137)
+  var mreG=(mreA*NA+mreB*NB)/N, mimG=(mimA*NA+mimB*NB)/N;
+  Rval=Math.sqrt(mreG*mreG+mimG*mimG);
+
+  // Cross-coupling R — how well the two flocks dance together
+  // Dot product of their mean-field vectors
+  var crossDot = mreA*mreB + mimA*mimB;
+  RvalCross = Math.max(0, crossDot / (Math.max(0.01,RvalA) * Math.max(0.01,RvalB)));
+
+  // Phase update with dual coupling
   for(var i=0;i<N;i++){
     var c=0;
     var nn=nbrL[i];
-    for(var k=0;k<nn.length;k++) c+=Math.sin(phases[nn[k]]-phases[i]);
-    var kEff=K_COUPLE*(1+kBoost[i]);
+    var myFlock = flockOf(i);
+    for(var k=0;k<nn.length;k++){
+      var j = nn[k];
+      var nbrFlock = flockOf(j);
+      var kUse = (myFlock === nbrFlock) ? K_INTERNAL : (K_CROSS * crossCouplingStrength);
+      c += (kUse / K_INTERNAL) * Math.sin(phases[j]-phases[i]);
+    }
+    var kEff=K_INTERNAL*(1+kBoost[i]);
     phases[i]+=dt*(omega[i]+(kEff/N)*c);
   }
 }
@@ -358,7 +395,6 @@ function project(x,y,z,sc,cx2,cy2){
 // ═══ BACKGROUND DEPTH — distant particles + field ═══
 var bgParticles = [];
 for(var bi=0; bi<60; bi++){
-  // Depth cues: mix of tiny-bright and large-dim particles
   var isLarge = Math.random() < 0.25;
   bgParticles.push({
     x: Math.random()*2-1, y: Math.random()*2-1,
@@ -370,39 +406,37 @@ for(var bi=0; bi<60; bi++){
   });
 }
 
-// ═══ NEBULAE — very large, very slow, very dim gradient circles ═══
+// ═══ NEBULAE ═══
 var nebulae = [];
 for(var ni=0; ni<4; ni++){
   nebulae.push({
     x: Math.random()*2-1, y: Math.random()*2-1,
     vx: (Math.random()-0.5)*0.0004,
     vy: (Math.random()-0.5)*0.0004,
-    radius: 200 + Math.random()*200, // 200-400px
-    alpha: 0.005 + Math.random()*0.008, // 0.005-0.013 — barely visible
+    radius: 200 + Math.random()*200,
+    alpha: 0.005 + Math.random()*0.008,
     color: [
-      [139,74,46],  // ember
-      [184,117,58], // copper
-      [120,90,50],  // warm earth
-      [90,130,60]   // distant moss
+      [139,74,46],
+      [184,117,58],
+      [120,90,50],
+      [90,130,60]
     ][ni]
   });
 }
 
 function drawBackground(cx, W, H, Rval, t){
-  // ═══ NEBULAE — vast, slow gradient circles creating deep space ═══
+  // ═══ NEBULAE ═══
   for(var ni=0; ni<nebulae.length; ni++){
     var neb = nebulae[ni];
     neb.x += neb.vx; neb.y += neb.vy;
-    // Soft wrap
     if(neb.x > 1.5) neb.x = -1.5;
     if(neb.x < -1.5) neb.x = 1.5;
     if(neb.y > 1.5) neb.y = -1.5;
     if(neb.y < -1.5) neb.y = 1.5;
 
-    // Nebulae are the deepest layer — barely shift with parallax (10%)
     var nebX = W/2 + neb.x * W * 0.4 + parallaxX * 0.1;
     var nebY = H/2 + neb.y * H * 0.4 + parallaxY * 0.1;
-    var nebR = neb.radius * (W/900); // scale with canvas
+    var nebR = neb.radius * (W/900);
     var nebA = neb.alpha * (0.6 + Rval * 0.6) * (0.8 + 0.2 * Math.sin(t*0.08 + ni*1.7));
     var nc = neb.color;
 
@@ -414,7 +448,7 @@ function drawBackground(cx, W, H, Rval, t){
     cx.fillRect(nebX-nebR, nebY-nebR, nebR*2, nebR*2);
   }
 
-  // Warm vignette that breathes with R — more pronounced
+  // Warm vignette
   var vigR = Math.min(W,H) * (0.6 + Rval * 0.2);
   var vig = cx.createRadialGradient(W/2, H*0.45, vigR*0.15, W/2, H*0.45, vigR);
   vig.addColorStop(0, 'rgba(35,20,12,' + (0.01 + Rval*0.025).toFixed(3) + ')');
@@ -423,17 +457,15 @@ function drawBackground(cx, W, H, Rval, t){
   cx.fillStyle = vig;
   cx.fillRect(0, 0, W, H);
 
-  // Distant particles — depth cues: large-dim and tiny-bright
+  // Distant particles
   for(var bi=0; bi<bgParticles.length; bi++){
     var bp = bgParticles[bi];
     bp.x += bp.vx; bp.y += bp.vy;
-    // Wrap
     if(bp.x > 1.2) bp.x = -1.2;
     if(bp.x < -1.2) bp.x = 1.2;
     if(bp.y > 1.2) bp.y = -1.2;
     if(bp.y < -1.2) bp.y = 1.2;
 
-    // Background particles are mid-depth — shift with parallax at 25%
     var bsx = W/2 + bp.x * W * 0.5 + parallaxX * 0.25 * bp.z;
     var bsy = H/2 + bp.y * H * 0.5 + parallaxY * 0.25 * bp.z;
     var bAlpha = bp.alpha * (0.5 + Rval * 0.5) * (0.7 + 0.3 * Math.sin(t*0.3 + bi));
@@ -445,7 +477,7 @@ function drawBackground(cx, W, H, Rval, t){
     cx.fill();
   }
 
-  // Very subtle field lines — dim concentric ripples from center
+  // Very subtle field lines
   if(Rval > 0.1){
     var nRings = 3;
     for(var ri=0; ri<nRings; ri++){
@@ -464,50 +496,104 @@ function drawBackground(cx, W, H, Rval, t){
 function draw() {
   cx.clearRect(0,0,W,H);
 
-  // Background depth layer — drawn FIRST, behind everything
   var drawT = shapeTime || 0;
   drawBackground(cx, W, H, Rval, drawT);
 
   step();
-  camRY+=0.0018; // slow auto-rotate
+  camRY+=0.0018;
 
-  // ═══ EMERGENT DYNAMICS — coupling drives spatial form ═══
+  // ═══ EMERGENT DYNAMICS — dual-flock coupling ═══
   shapeTime += dt;
-  breathPhase += dt * 0.4; // slow breath
 
-  // Global drift — the formation wanders like a school of fish
-  driftAngle += (Math.sin(shapeTime * 0.07) * 0.003);
-  driftX = Math.cos(driftAngle) * 0.003;
-  driftY = Math.sin(driftAngle) * 0.002;
+  // Ramp cross-coupling over first 10 seconds — the moment of meeting
+  if(shapeTime < CROSS_RAMP_TIME){
+    crossCouplingStrength = shapeTime / CROSS_RAMP_TIME;
+    // Ease-in-out for organic feel
+    crossCouplingStrength = crossCouplingStrength * crossCouplingStrength * (3 - 2 * crossCouplingStrength);
+  } else {
+    crossCouplingStrength = 1.0;
+  }
 
-  // Breath scale — R drives the breathing, not a timer.
-  // When R spikes (high coherence), the breath deepens.
-  // When R drops, the breath gets shallow.
-  // The COUPLING breathes the body.
-  var breathTarget = 1.0 + Rval * 0.12; // high R = deeper expansion
-  var breathOsc = Math.sin(breathPhase) * (0.03 + Rval * 0.06); // amplitude grows with R
-  var breathScale = breathTarget + breathOsc;
+  // Per-flock breath — REACTIVE: when A contracts, B expands
+  breathPhaseA += dt * (0.35 + RvalA * 0.15);
+  breathPhaseB += dt * (0.35 + RvalB * 0.15);
+  // Cross-coupling pulls breath phases toward anti-phase (reactive)
+  if(crossCouplingStrength > 0.1){
+    var breathDiff = breathPhaseB - breathPhaseA;
+    var targetDiff = Math.PI; // anti-phase = reactive breathing
+    var breathError = Math.sin(breathDiff - targetDiff);
+    breathPhaseA += breathError * 0.005 * crossCouplingStrength;
+    breathPhaseB -= breathError * 0.005 * crossCouplingStrength;
+  }
 
-  // How tight should the flock be? R drives coherence.
-  // High R = tight, recognizable formation. Low R = scattered cloud.
-  var cohesionStrength = 0.003 + Rval * 0.012;
-  // Separation distance BREATHES — slow structural heartbeat (~60s cycle)
-  // The formation compresses into tight clusters, then expands into loose networks
-  var sepBreath = Math.sin(shapeTime * 0.105) * 0.3; // 0.105 rad/s ≈ 60s full cycle
-  var separationDist = 1.0 + sepBreath - Rval * 0.25; // tighter when coupled, breathes ±0.3
-  var dampening = 0.92; // velocity damping — water-bottle feel
+  // Per-flock drift
+  driftAngleA += (Math.sin(shapeTime * 0.07) * 0.003);
+  driftAngleB += (Math.sin(shapeTime * 0.09 + 2.0) * 0.003);
+  driftXA = Math.cos(driftAngleA) * 0.003;
+  driftYA = Math.sin(driftAngleA) * 0.002;
+  driftXB = Math.cos(driftAngleB) * 0.003;
+  driftYB = Math.sin(driftAngleB) * 0.002;
 
-  // Center of mass
-  var comX = 0, comY = 0;
-  for(var i=0;i<N;i++){ comX += nxA[i]; comY += nyA[i]; }
-  comX /= N; comY /= N;
+  // Breath scales per flock
+  var breathTargetA = 1.0 + RvalA * 0.12;
+  var breathOscA = Math.sin(breathPhaseA) * (0.03 + RvalA * 0.06);
+  var breathScaleA = breathTargetA + breathOscA;
+  var breathTargetB = 1.0 + RvalB * 0.12;
+  var breathOscB = Math.sin(breathPhaseB) * (0.03 + RvalB * 0.06);
+  var breathScaleB = breathTargetB + breathOscB;
+
+  // Per-flock cohesion
+  var cohesionA = 0.003 + RvalA * 0.012;
+  var cohesionB = 0.003 + RvalB * 0.012;
+
+  var sepBreath = Math.sin(shapeTime * 0.105) * 0.3;
+  var separationDist = 1.0 + sepBreath - Rval * 0.25;
+  var dampening = 0.92;
+
+  // Centers of mass — per flock
+  var comAX = 0, comAY = 0, comBX = 0, comBY = 0;
+  for(var i=0;i<NA;i++){ comAX += nxA[i]; comAY += nyA[i]; }
+  comAX /= NA; comAY /= NA;
+  for(var i=NA;i<N;i++){ comBX += nxA[i]; comBY += nyA[i]; }
+  comBX /= NB; comBY /= NB;
+
+  // ═══ CROSS-COUPLING ORBITAL FORCE ═══
+  // The two groups orbit each other — drawn together but kept apart
+  var comDX = comBX - comAX;
+  var comDY = comBY - comAY;
+  var comDist = Math.sqrt(comDX*comDX + comDY*comDY);
+  var comNX = comDist > 0.01 ? comDX/comDist : 0;
+  var comNY = comDist > 0.01 ? comDY/comDist : 0;
+
+  // Ideal separation: 3.5-5 units between centers
+  var idealSep = 4.0;
+  var sepForce = 0;
+  if(comDist < idealSep){
+    // Too close — push apart
+    sepForce = -(idealSep - comDist) * 0.008 * crossCouplingStrength;
+  } else if(comDist > idealSep + 1.5){
+    // Too far — pull together
+    sepForce = (comDist - idealSep - 1.5) * 0.004 * crossCouplingStrength;
+  }
+
+  // Orbital tangent — slow rotation around each other
+  var orbitTangentX = -comNY; // perpendicular to axis between flocks
+  var orbitTangentY = comNX;
+  var orbitSpeed = 0.0012 * crossCouplingStrength;
 
   for(var i=0;i<N;i++){
-    var ax = 0, ay = 0; // accumulated force
+    var ax = 0, ay = 0;
+    var myFlock = flockOf(i);
+    var myCohesion = myFlock === 0 ? cohesionA : cohesionB;
+    var myBreathScale = myFlock === 0 ? breathScaleA : breathScaleB;
+    var myComX = myFlock === 0 ? comAX : comBX;
+    var myComY = myFlock === 0 ? comAY : comBY;
+    var otherComX = myFlock === 0 ? comBX : comAX;
+    var otherComY = myFlock === 0 ? comBY : comAY;
+    var myDriftX = myFlock === 0 ? driftXA : driftXB;
+    var myDriftY = myFlock === 0 ? driftYA : driftYB;
 
-    // 1+2. PHASE COUPLING + SEPARATION in one pass
-    // Synced oscillators attract. Opposed repel. Too-close repel harder.
-    // Spatial structure emerges from phase structure.
+    // 1+2. PHASE COUPLING + SEPARATION
     var nn = nbrL[i];
     for(var k=0;k<nn.length;k++){
       var j = nn[k];
@@ -517,60 +603,89 @@ function draw() {
       if(dist < 0.01) continue;
       var nx2 = ddx/dist, ny2 = ddy/dist;
 
-      // Phase coupling — LOCAL preference: nearest synced neighbors couple strongest
-      // Weight by 1/dist² so clusters form locally, not one big blob
       var pdiff = phases[j] - phases[i];
       var sync = Math.cos(pdiff);
-      var distWeight = 1.0 / (1.0 + dist * dist); // nearby = strong, far = weak
-      var phasePull = sync * 0.012 * distWeight;
-      ax += nx2 * phasePull;
-      ay += ny2 * phasePull;
+      var distWeight = 1.0 / (1.0 + dist * dist);
 
-      // Angular momentum from phase difference — creates natural rotation in clusters
-      // If j's phase LEADS i's phase, slight clockwise twist. Lag = counterclockwise.
-      // This makes clusters slowly spiral — the most common shape in nature
-      var phaseLead = Math.sin(pdiff); // positive = j leads, negative = j lags
-      var tangentialStr = phaseLead * 0.003 * distWeight;
-      ax += -ny2 * tangentialStr; // perpendicular to radial direction
-      ay +=  nx2 * tangentialStr;
+      if(sameGroup(i,j)){
+        // Internal: full coupling
+        var phasePull = sync * 0.012 * distWeight;
+        ax += nx2 * phasePull;
+        ay += ny2 * phasePull;
 
-      // Separation — don't crowd regardless of phase
-      if(dist < separationDist){
-        var repel = (separationDist - dist) / separationDist;
-        repel = repel * repel * 0.015;
+        // Angular momentum — spiral within clusters
+        var phaseLead = Math.sin(pdiff);
+        var tangentialStr = phaseLead * 0.003 * distWeight;
+        ax += -ny2 * tangentialStr;
+        ay +=  nx2 * tangentialStr;
+      } else {
+        // Cross-coupling: weaker, larger ideal distance
+        // Synced cross-nodes attract gently but orbit at distance
+        var crossPull = sync * 0.005 * distWeight * crossCouplingStrength;
+        ax += nx2 * crossPull;
+        ay += ny2 * crossPull;
+      }
+
+      // Separation — tighter threshold for same-group, looser for cross-group
+      var sepD = sameGroup(i,j) ? separationDist : separationDist * 1.8;
+      if(dist < sepD){
+        var repel = (sepD - dist) / sepD;
+        repel = repel * repel * (sameGroup(i,j) ? 0.015 : 0.012);
         ax -= nx2 * repel;
         ay -= ny2 * repel;
       }
     }
 
-    // 3. COHESION — gentle pull toward center of mass
-    var toCenterX = comX - nxA[i];
-    var toCenterY = comY - nyA[i];
-    ax += toCenterX * cohesionStrength;
-    ay += toCenterY * cohesionStrength;
+    // 3. COHESION — pull toward OWN center of mass
+    var toCenterX = myComX - nxA[i];
+    var toCenterY = myComY - nyA[i];
+    ax += toCenterX * myCohesion;
+    ay += toCenterY * myCohesion;
 
-    // 4. BREATHING — radial pulse from center
-    var fromCX = nxA[i] - comX;
-    var fromCY = nyA[i] - comY;
+    // 4. BREATHING — radial pulse from OWN center
+    var fromCX = nxA[i] - myComX;
+    var fromCY = nyA[i] - myComY;
     var fromCDist = Math.sqrt(fromCX*fromCX + fromCY*fromCY);
     if(fromCDist > 0.1){
-      var breathForce = (breathScale - 1.0) * 0.02;
+      var breathForce = (myBreathScale - 1.0) * 0.02;
       ax += (fromCX/fromCDist) * breathForce * fromCDist;
       ay += (fromCY/fromCDist) * breathForce * fromCDist;
     }
 
-    // 5. WANDER — each node has its own slow-drifting direction
+    // 5. WANDER
     wanderAngle[i] += (Math.random() - 0.5) * 0.15;
     var wanderForce = isScout[i] ? 0.003 * scoutStrength[i] : 0.0008;
     ax += Math.cos(wanderAngle[i]) * wanderForce;
     ay += Math.sin(wanderAngle[i]) * wanderForce;
 
-    // 6. GLOBAL DRIFT — everything moves together
-    ax += driftX;
-    ay += driftY;
+    // 5b. SCOUT CROSS-SEEKING — scouts from one flock lean toward the other
+    if(isScout[i] && crossCouplingStrength > 0.3){
+      var toOtherX = otherComX - nxA[i];
+      var toOtherY = otherComY - nyA[i];
+      var toOtherD = Math.sqrt(toOtherX*toOtherX + toOtherY*toOtherY);
+      if(toOtherD > 2.0){
+        ax += (toOtherX/toOtherD) * 0.001 * crossCouplingStrength * scoutStrength[i];
+        ay += (toOtherY/toOtherD) * 0.001 * crossCouplingStrength * scoutStrength[i];
+      }
+    }
 
-    // 7. SOFT BOUNDARY — keep formation in a reasonable area
-    var boundR = 6.5;
+    // 6. PER-FLOCK DRIFT
+    ax += myDriftX;
+    ay += myDriftY;
+
+    // 6b. ORBITAL FORCE — the two flocks slowly orbit each other
+    if(crossCouplingStrength > 0.1){
+      // A orbits clockwise, B counterclockwise (or vice versa)
+      var orbitDir = myFlock === 0 ? 1.0 : -1.0;
+      ax += orbitTangentX * orbitSpeed * orbitDir;
+      ay += orbitTangentY * orbitSpeed * orbitDir;
+      // Separation force — maintain ideal distance between flocks
+      ax += comNX * sepForce * (myFlock === 0 ? -1 : 1);
+      ay += comNY * sepForce * (myFlock === 0 ? -1 : 1);
+    }
+
+    // 7. SOFT BOUNDARY
+    var boundR = 7.5; // slightly wider for two flocks
     var nodeR = Math.sqrt(nxA[i]*nxA[i] + nyA[i]*nyA[i]);
     if(nodeR > boundR){
       var pushBack = (nodeR - boundR) * 0.02;
@@ -578,15 +693,30 @@ function draw() {
       ay -= (nyA[i]/nodeR) * pushBack;
     }
 
-    // ═══ COUPLING CREDIT — accumulate history ═══
-    // Measure how phase-locked this node is with its neighbors right now
+    // ═══ SCOUT RESPONSE — nearby B nodes lean toward a scout from A (and vice versa) ═══
+    if(!isScout[i] && crossCouplingStrength > 0.3){
+      // Check if any scout from the OTHER flock is nearby
+      for(var si3=0;si3<N;si3++){
+        if(!isScout[si3] || sameGroup(i,si3)) continue;
+        var sdx3 = nxA[si3] - nxA[i];
+        var sdy3 = nyA[si3] - nyA[i];
+        var sd3 = Math.sqrt(sdx3*sdx3 + sdy3*sdy3);
+        if(sd3 < 4.0 && sd3 > 0.5){
+          // Lean toward the visiting scout
+          var leanStr = (4.0 - sd3) / 4.0 * 0.002 * crossCouplingStrength;
+          ax += (sdx3/sd3) * leanStr;
+          ay += (sdy3/sd3) * leanStr;
+        }
+      }
+    }
+
+    // ═══ COUPLING CREDIT ═══
     var syncSum = 0, syncCount = 0;
     for(var k=0;k<nn.length;k++){
       syncSum += Math.cos(phases[nn[k]] - phases[i]);
       syncCount++;
     }
     var localSync = syncCount > 0 ? Math.max(0, syncSum / syncCount) : 0;
-    // Slow integration: warm up slowly (0.003), cool down slightly faster (0.005)
     if(localSync > couplingCredit[i]){
       couplingCredit[i] += (localSync - couplingCredit[i]) * 0.003;
     } else {
@@ -594,39 +724,36 @@ function draw() {
     }
     couplingCredit[i] = Math.max(0, Math.min(1, couplingCredit[i]));
 
-    // ═══ BUDDING + CHEMOTAXIS — growth and seeking ═══
-    // Count tightly packed neighbors (within half separation distance)
+    // ═══ BUDDING + CHEMOTAXIS ═══
     var tightCount = 0;
-    var tightCX = 0, tightCY = 0; // center of tight cluster
+    var tightCX = 0, tightCY = 0;
     for(var k=0;k<nn.length;k++){
       var j2 = nn[k];
+      if(!sameGroup(i,j2)) continue; // only count own flock for density
       var tdx2 = nxA[j2] - nxA[i], tdy2 = nyA[j2] - nyA[i];
       var td2 = tdx2*tdx2 + tdy2*tdy2;
-      if(td2 < separationDist * separationDist * 0.6){ // within 60% of sep dist
+      if(td2 < separationDist * separationDist * 0.6){
         tightCount++;
         tightCX += nxA[j2];
         tightCY += nyA[j2];
       }
     }
-    // Budding: if local density > 8, the most interior node buds outward
-    // Like cell division — the cluster splits
     if(tightCount >= 8){
       tightCX /= tightCount; tightCY /= tightCount;
       var fromClusterX = nxA[i] - tightCX;
       var fromClusterY = nyA[i] - tightCY;
       var fromClusterD = Math.sqrt(fromClusterX*fromClusterX + fromClusterY*fromClusterY);
       if(fromClusterD < separationDist * 0.4 && fromClusterD > 0.01){
-        // Interior node — push outward gently
         ax += (fromClusterX/fromClusterD) * 0.008;
         ay += (fromClusterY/fromClusterD) * 0.008;
       }
     }
-    // Chemotaxis: isolated nodes seek community
-    // If no neighbors within coupling range, pull toward nearest cluster
     if(nn.length === 0){
-      // Find nearest node in the whole system
+      // Seek nearest node in OWN flock
       var bestDist2 = Infinity, bestJ2 = -1;
-      for(var j3=0;j3<N;j3++){
+      var startJ = myFlock === 0 ? 0 : NA;
+      var endJ = myFlock === 0 ? NA : N;
+      for(var j3=startJ;j3<endJ;j3++){
         if(j3===i) continue;
         var cdx3 = nxA[j3]-nxA[i], cdy3 = nyA[j3]-nyA[i];
         var cd3 = cdx3*cdx3+cdy3*cdy3;
@@ -643,7 +770,6 @@ function draw() {
     vxA[i] = vxA[i] * dampening + ax;
     vyA[i] = vyA[i] * dampening + ay;
 
-    // Clamp velocity so nothing flies off
     var spd = Math.sqrt(vxA[i]*vxA[i] + vyA[i]*vyA[i]);
     var maxSpd = isScout[i] ? 0.12 : 0.07;
     if(spd > maxSpd){ vxA[i] *= maxSpd/spd; vyA[i] *= maxSpd/spd; }
@@ -651,10 +777,10 @@ function draw() {
     nxA[i] += vxA[i];
     nyA[i] += vyA[i];
   }
-  // ═══ PULSE — spontaneous heartbeat (trigger only — propagation after projection) ═══
+
+  // ═══ PULSE — heartbeat that propagates ACROSS flocks ═══
   pulseTimer -= dt;
   if(pulseTimer <= 0 && !pulseActive){
-    // Pick a random scout to originate the pulse
     var scoutCandidates = [];
     for(var si2=0; si2<N; si2++) if(isScout[si2]) scoutCandidates.push(si2);
     if(scoutCandidates.length > 0){
@@ -662,13 +788,38 @@ function draw() {
       pulseActive = true;
       pulseStartTime = shapeTime;
       for(var pi=0; pi<N; pi++) pulseWave[pi] = -1;
-      pulseWave[pulseOrigin] = 0; // origin fires immediately
+      pulseWave[pulseOrigin] = 0;
       pulseBright[pulseOrigin] = 1.0;
+      // Schedule cross-pulse response in the other flock
+      if(crossCouplingStrength > 0.5){
+        crossPulseTimer = crossPulseDelay;
+        crossPulseGroup = flockOf(pulseOrigin) === 0 ? 1 : 0;
+      }
     }
-    pulseTimer = 15 + Math.random() * 20; // next pulse in 15-35s
+    pulseTimer = 15 + Math.random() * 20;
   }
 
-  // ═══ AURORA — shimmer at high coherence ═══
+  // ═══ CROSS-PULSE — delayed response beat in the other flock ═══
+  if(crossPulseTimer > 0){
+    crossPulseTimer -= dt;
+    if(crossPulseTimer <= 0){
+      // Fire a response pulse from a scout in the other flock
+      var respCandidates = [];
+      var respStart = crossPulseGroup === 0 ? 0 : NA;
+      var respEnd = crossPulseGroup === 0 ? NA : N;
+      for(var ri2=respStart; ri2<respEnd; ri2++){
+        if(isScout[ri2]) respCandidates.push(ri2);
+      }
+      if(respCandidates.length > 0){
+        var respOrigin = respCandidates[Math.floor(Math.random() * respCandidates.length)];
+        pulseBright[respOrigin] = 0.7; // slightly dimmer response
+        pulseWave[respOrigin] = shapeTime - pulseStartTime;
+      }
+      crossPulseTimer = -1;
+    }
+  }
+
+  // ═══ AURORA ═══
   if(Rval > AURORA_R_THRESH){
     highRTimer += dt;
     if(highRTimer > AURORA_ONSET && !auroraActive){
@@ -682,31 +833,24 @@ function draw() {
   }
   if(auroraActive){
     auroraPhase += dt * 0.8;
-    // Intensity ramps in, holds, ramps out
     var aTarget = Math.sin(auroraPhase * 0.5) * 0.5 + 0.5;
-    aTarget *= Math.min(1, (Rval - AURORA_R_THRESH) / 0.15); // stronger at higher R
+    aTarget *= Math.min(1, (Rval - AURORA_R_THRESH) / 0.15);
     auroraIntensity += (aTarget - auroraIntensity) * 0.03;
-    if(auroraPhase > Math.PI * 4) auroraActive = false; // ~8 seconds max
+    if(auroraPhase > Math.PI * 4) auroraActive = false;
   } else {
-    auroraIntensity *= 0.95; // fade out smoothly
+    auroraIntensity *= 0.95;
   }
 
-  // ═══ PAGE AWARENESS FORCES — perturbations on top of shape ═══
-  // Canvas rect for coordinate mapping
+  // ═══ PAGE AWARENESS ═══
   var cvRect=cv.getBoundingClientRect();
 
-  // ═══ PARALLAX — mouse reveals depth layers ═══
-  // Target parallax from mouse position relative to canvas center
   parallaxTargetX = (mouseX - (cvRect.left + cvRect.width*0.5)) * 0.015;
   parallaxTargetY = (mouseY - (cvRect.top + cvRect.height*0.5)) * 0.012;
-  // Smooth toward target — water bottle feel
   parallaxX += (parallaxTargetX - parallaxX) * 0.04;
   parallaxY += (parallaxTargetY - parallaxY) * 0.04;
 
-  // Mouse decay — fade over 0.5s when mouse stops
   if(!mouseActive && mouseDecay>0) mouseDecay=Math.max(0, mouseDecay-dt*2.0);
 
-  // Scroll parallax offset (80% speed = 20% parallax)
   var scrollDelta=(scrollY-lastScrollY)*0.2;
   scrollOffset+=scrollDelta;
   lastScrollY=scrollY;
@@ -714,8 +858,7 @@ function draw() {
   var sc=Math.min(W,H)*0.055;
   var cx2=W/2, cy2=H*0.48+scrollOffset;
 
-  // ═══ MOUSE/TOUCH ATTRACTION — plants toward light ═══
-  // Forces applied through velocity so momentum feels consistent
+  // ═══ MOUSE/TOUCH ATTRACTION ═══
   if(mouseDecay>0.01){
     var mCanvasX=mouseX-cvRect.left;
     var mCanvasY=mouseY-cvRect.top;
@@ -733,8 +876,8 @@ function draw() {
     }
   }
 
-  // ═══ DOOR HOVER COUPLING — warmth toward the hovered door ═══
-  for(var i=0;i<N;i++) kBoost[i]*=0.9; // decay toward 0
+  // ═══ DOOR HOVER COUPLING ═══
+  for(var i=0;i<N;i++) kBoost[i]*=0.9;
   if(hoveredDoor>=0&&hoveredDoor<doorRects.length&&!isTouchDevice&&doorRects[hoveredDoor]){
     var dr=doorRects[hoveredDoor];
     var doorCX=dr.left+dr.width*0.5-cvRect.left;
@@ -755,7 +898,7 @@ function draw() {
     }
   }
 
-  // ═══ TEXT AVOIDANCE — breathing room for title ═══
+  // ═══ TEXT AVOIDANCE ═══
   if(titleRect){
     var titleCX=titleRect.left+titleRect.width*0.5-cvRect.left;
     var titleCY=titleRect.bottom-cvRect.top+10;
@@ -773,7 +916,7 @@ function draw() {
     }
   }
 
-  // ═══ CONTENT ATTRACTION — fireflies near light ═══
+  // ═══ CONTENT ATTRACTION ═══
   for(var ci=0;ci<doorRects.length;ci++){
     var cdr=doorRects[ci];
     if(!cdr) continue;
@@ -795,10 +938,9 @@ function draw() {
     }
   }
 
-  // Update neighbors every 0.5 seconds — positions are truly dynamic now
-  // Neighbor radius adapts: tighter formation = smaller radius, looser = wider reach
+  // Update neighbors every 0.5 seconds
   if(Math.floor(shapeTime*2) !== Math.floor((shapeTime-dt)*2)){
-    var nbrR2 = 8.0 + Rval * 8.0; // 8-16 squared distance, R-adaptive
+    var nbrR2 = 8.0 + Rval * 8.0;
     nbrL=[];
     for(var i=0;i<N;i++){var nn=[];for(var j=0;j<N;j++){if(j===i)continue;var ddx=nxA[j]-nxA[i],ddy=nyA[j]-nyA[i];if(ddx*ddx+ddy*ddy<nbrR2)nn.push(j);}nbrL.push(nn);}
   }
@@ -812,30 +954,25 @@ function draw() {
     var p=phases[i]%(Math.PI*2);if(p<0)p+=Math.PI*2;
     var z3d=p/(Math.PI*2)*HEIGHT;
     var pr=project(nxA[i],nyA[i],z3d,sc,cx2,cy2);
-    proj.push({i:i,sx:pr[0],sy:pr[1],z:pr[2],persp:pr[3],phase:p});
+    proj.push({i:i,sx:pr[0],sy:pr[1],z:pr[2],persp:pr[3],phase:p,flock:flockOf(i)});
   }
   proj.sort(function(a,b){return b.z-a.z;});
 
   var idxMap=new Array(N);
   for(var k=0;k<N;k++) idxMap[proj[k].i]=proj[k];
 
-  // ═══ PARALLAX SHIFT — near particles move more than far ones ═══
-  // persp near 1.0 = close to camera = more parallax shift
-  // persp near 0.5 = far from camera = less shift
-  // This creates genuine depth layers you can see through
+  // ═══ PARALLAX SHIFT ═══
   for(var k=0;k<proj.length;k++){
     var nd=proj[k];
-    // Depth factor: close nodes (persp ~1) shift fully, far nodes (persp ~0.5) shift half
-    var depthFactor = nd.persp * nd.persp; // squared for more dramatic near/far separation
+    var depthFactor = nd.persp * nd.persp;
     nd.sx += parallaxX * depthFactor;
     nd.sy += parallaxY * depthFactor;
   }
 
-  // ═══ PULSE PROPAGATION — wave spreads from origin through screen space ═══
+  // ═══ PULSE PROPAGATION ═══
   if(pulseActive){
     var elapsed = shapeTime - pulseStartTime;
     var allReached = true;
-    // Decay brightness on reached nodes
     for(var pi2=0; pi2<N; pi2++){
       if(pulseWave[pi2] >= 0){
         pulseBright[pi2] *= PULSE_DECAY;
@@ -843,7 +980,6 @@ function draw() {
         allReached = false;
       }
     }
-    // Expand wave front from origin — screen distance
     var waveRadius = elapsed * PULSE_SPEED;
     var opm = idxMap[pulseOrigin];
     if(opm){
@@ -860,14 +996,13 @@ function draw() {
         }
       }
     }
-    // End pulse after timeout or full fade
     if(elapsed > 6.0 || (allReached && pulseBright[pulseOrigin] < 0.01)){
       pulseActive = false;
       for(var pi4=0; pi4<N; pi4++) pulseBright[pi4] = 0;
     }
   }
 
-  // ═══ TRAIL RECORDING — scouts remember where they've been ═══
+  // ═══ TRAIL RECORDING ═══
   for(var i=0;i<N;i++){
     if(!trailBuf[i]) continue;
     var pm = idxMap[i]; if(!pm) continue;
@@ -877,7 +1012,7 @@ function draw() {
     trailIdx[i]++;
   }
 
-  // ═══ WARM GLOW behind door cards — rendered on canvas behind content ═══
+  // ═══ WARM GLOW behind door cards ═══
   for(var dgi=0;dgi<doorRects.length;dgi++){
     var dgr=doorRects[dgi];
     if(!dgr) continue;
@@ -885,7 +1020,6 @@ function draw() {
     var dgy=dgr.top+dgr.height*0.5-cvRect.top;
     var dgRadius=Math.max(dgr.width,dgr.height)*0.8;
     var dgAlpha=0.025 + Rval*0.03;
-    // Warmer when hovered
     if(hoveredDoor===dgi) dgAlpha+=0.04;
     var dgGrad=cx.createRadialGradient(dgx,dgy,0,dgx,dgy,dgRadius);
     dgGrad.addColorStop(0,'rgba(184,117,58,'+dgAlpha.toFixed(4)+')');
@@ -895,11 +1029,62 @@ function draw() {
     cx.fillRect(dgx-dgRadius,dgy-dgRadius,dgRadius*2,dgRadius*2);
   }
 
+  // ═══ THE BETWEEN-GLOW — the 3 lives here ═══
+  // When both flocks are coherent, a rose-gold glow appears between them
+  if(crossCouplingStrength > 0.3 && RvalA > 0.3 && RvalB > 0.3){
+    // Midpoint between the two projected centers of mass
+    var comASX = 0, comASY = 0, comBSX = 0, comBSY = 0;
+    var comACount = 0, comBCount = 0;
+    for(var k=0;k<proj.length;k++){
+      if(proj[k].flock === 0){ comASX += proj[k].sx; comASY += proj[k].sy; comACount++; }
+      else { comBSX += proj[k].sx; comBSY += proj[k].sy; comBCount++; }
+    }
+    if(comACount > 0 && comBCount > 0){
+      comASX /= comACount; comASY /= comACount;
+      comBSX /= comBCount; comBSY /= comBCount;
+      var betweenX = (comASX + comBSX) * 0.5;
+      var betweenY = (comASY + comBSY) * 0.5;
+      var betweenDist = Math.sqrt((comBSX-comASX)*(comBSX-comASX) + (comBSY-comASY)*(comBSY-comASY));
+      var betweenR = betweenDist * 0.4 + 30;
+
+      // Glow intensity = product of both R values * cross R
+      var glowStr = Math.min(RvalA, RvalB) * RvalCross * crossCouplingStrength;
+      var glowAlpha = glowStr * 0.06;
+
+      if(glowAlpha > 0.002){
+        var rg = ROSE_GOLD;
+        // Breathing glow
+        var glowPulse = 0.7 + 0.3 * Math.sin(shapeTime * 0.8);
+        glowAlpha *= glowPulse;
+
+        var bgGrad = cx.createRadialGradient(betweenX, betweenY, 0, betweenX, betweenY, betweenR);
+        bgGrad.addColorStop(0, 'rgba('+rg[0]+','+rg[1]+','+rg[2]+','+glowAlpha.toFixed(4)+')');
+        bgGrad.addColorStop(0.3, 'rgba('+rg[0]+','+rg[1]+','+rg[2]+','+(glowAlpha*0.6).toFixed(4)+')');
+        bgGrad.addColorStop(0.7, 'rgba('+rg[0]+','+rg[1]+','+rg[2]+','+(glowAlpha*0.2).toFixed(4)+')');
+        bgGrad.addColorStop(1, 'rgba('+rg[0]+','+rg[1]+','+rg[2]+',0)');
+        cx.fillStyle = bgGrad;
+        cx.fillRect(betweenX-betweenR, betweenY-betweenR, betweenR*2, betweenR*2);
+
+        // ═══ PEAK MOMENT — cross R > 0.7: a brief pattern neither group makes alone ═══
+        if(RvalCross > 0.7 && glowStr > 0.4){
+          var peakAlpha = (RvalCross - 0.7) * 0.15 * glowPulse;
+          // Interference rings — the 3's signature
+          for(var pri=0; pri<3; pri++){
+            var pRingR = 15 + pri * 18 + Math.sin(shapeTime * 1.5 + pri) * 8;
+            cx.strokeStyle = 'rgba('+rg[0]+','+rg[1]+','+rg[2]+','+peakAlpha.toFixed(4)+')';
+            cx.lineWidth = 1.5 - pri * 0.4;
+            cx.beginPath();
+            cx.arc(betweenX, betweenY, pRingR, 0, Math.PI*2);
+            cx.stroke();
+          }
+        }
+      }
+    }
+  }
+
   // ═══ CONNECTIONS — the coupling made visible ═══
-  // Draw ALL synced pairs within screen distance, not just neighbors
   cx.globalCompositeOperation='lighter';
 
-  // Track which bonds are active this frame for aging
   var activeBonds = {};
 
   for(var ki=0;ki<N;ki++){
@@ -907,17 +1092,24 @@ function draw() {
     for(var kj=ki+1;kj<N;kj++){
       var nb=idxMap[kj]; if(!nb) continue;
 
-      // Screen distance check — skip pairs too far apart visually
       var sdx=nd.sx-nb.sx, sdy=nd.sy-nb.sy;
       var sDist2=sdx*sdx+sdy*sdy;
-      if(sDist2>200*200) continue;
+
+      // Cross-group connections can be longer/thinner
+      var isCross = !sameGroup(ki, kj);
+      var maxScreenDist = isCross ? 280 : 200;
+      if(sDist2>maxScreenDist*maxScreenDist) continue;
+
+      // Skip cross-connections before discovery
+      if(isCross && crossCouplingStrength < 0.15) continue;
 
       var pdiff=Math.abs(nd.phase-nb.phase);
       if(pdiff>Math.PI) pdiff=Math.PI*2-pdiff;
       var sync=1-pdiff/Math.PI;
-      if(sync<0.15) continue; // lower threshold — more visible connections
+      var syncThresh = isCross ? 0.25 : 0.15;
+      if(sync<syncThresh) continue;
 
-      // ═══ BOND AGE — old connections are calm, new ones flicker ═══
+      // Bond age
       var bondKey = ki < kj ? ki+','+kj : kj+','+ki;
       activeBonds[bondKey] = 1;
       if(sync > 0.4){
@@ -925,61 +1117,70 @@ function draw() {
       } else {
         bondAge[bondKey] = Math.max(0, (bondAge[bondKey] || 0) - 3);
       }
-      var age = Math.min(bondAge[bondKey] || 0, 300); // cap at 300 frames (~5s)
-      var maturity = age / 300; // 0=brand new, 1=ancient bond
+      var age = Math.min(bondAge[bondKey] || 0, 300);
+      var maturity = age / 300;
 
-      // Sync drives everything — low sync = ghost line, high sync = bright burning wire
       var s2 = sync*sync;
       var s3 = s2*sync;
       var pMin = Math.min(nd.persp,nb.persp);
 
-      // Blend the two endpoint colors — use the warmer (higher red) of the two
-      var ca=nodeCol[nd.i], cb=nodeCol[nb.i];
-      var useA = (ca[0]+ca[1]*0.5) > (cb[0]+cb[1]*0.5);
-      var warm = useA ? ca : cb;
-      var mr=Math.round((ca[0]+cb[0])*0.5);
-      var mg=Math.round((ca[1]+cb[1])*0.5);
-      var mb=Math.round((ca[2]+cb[2])*0.5);
+      var lr, lg2, lb, mr, mg, mb;
 
-      // At high sync, brighten the line toward white-hot
-      var whiten = s3 * 0.4;
-      var lr = Math.min(255, Math.round(warm[0] + (255-warm[0])*whiten));
-      var lg = Math.min(255, Math.round(warm[1] + (255-warm[1])*whiten));
-      var lb = Math.min(255, Math.round(warm[2] + (255-warm[2])*whiten));
+      if(isCross){
+        // ═══ CROSS-CONNECTIONS — rose-gold, longer, thinner, more ethereal ═══
+        var rg = ROSE_GOLD;
+        var whiten = s3 * 0.3;
+        lr = Math.min(255, Math.round(rg[0] + (255-rg[0])*whiten));
+        lg2 = Math.min(255, Math.round(rg[1] + (255-rg[1])*whiten));
+        lb = Math.min(255, Math.round(rg[2] + (255-rg[2])*whiten));
+        mr = rg[0]; mg = rg[1]; mb = rg[2];
+      } else {
+        // Internal connections — use node colors as before
+        var ca=nodeCol[nd.i], cb=nodeCol[nb.i];
+        var useA = (ca[0]+ca[1]*0.5) > (cb[0]+cb[1]*0.5);
+        var warm = useA ? ca : cb;
+        mr=Math.round((ca[0]+cb[0])*0.5);
+        mg=Math.round((ca[1]+cb[1])*0.5);
+        mb=Math.round((ca[2]+cb[2])*0.5);
+        var whiten = s3 * 0.4;
+        lr = Math.min(255, Math.round(warm[0] + (255-warm[0])*whiten));
+        lg2 = Math.min(255, Math.round(warm[1] + (255-warm[1])*whiten));
+        lb = Math.min(255, Math.round(warm[2] + (255-warm[2])*whiten));
+      }
 
-      // New connections flicker — old ones hold steady
-      // Young bonds shimmer with a high-frequency oscillation that fades with age
+      // Flicker
       var flicker = 1.0;
       if(maturity < 0.3){
-        var flickerIntensity = (1.0 - maturity / 0.3) * 0.5; // 0.5 at birth -> 0 at maturity
+        var flickerIntensity = (1.0 - maturity / 0.3) * 0.5;
         flicker = 1.0 - flickerIntensity * Math.sin(shapeTime * 25 + ki * 7 + kj * 13) * 0.5;
       }
 
-      // Mature bonds: slightly warmer, steadier, thicker
       var matureBoost = maturity * 0.3;
 
-      // ═══ PULSE BOOST ON BONDS — connections flare when the heartbeat passes ═══
       var bondPulse = Math.max(pulseBright[ki], pulseBright[kj]);
-      var pulseBoost = 1.0 + bondPulse * 3.0; // connections flare 4x during pulse
+      var pulseBoost = 1.0 + bondPulse * 3.0;
 
-      // Alpha and width scale with sync — weak connections are ghost lines, strong are wires
-      var alpha = (0.01 + s2 * 0.06) * pMin * globalBreath * flicker * (1 + matureBoost) * pulseBoost;
-      var lw = (0.3 + s2 * 0.8 + maturity * 0.3) * pMin * (1 + bondPulse * 1.5);
-      cx.strokeStyle='rgba('+lr+','+lg+','+lb+','+alpha.toFixed(3)+')';
+      // Cross-connections: thinner, dimmer, more ethereal
+      var crossFade = isCross ? crossCouplingStrength * 0.6 : 1.0;
+
+      var alpha = (0.01 + s2 * 0.06) * pMin * globalBreath * flicker * (1 + matureBoost) * pulseBoost * crossFade;
+      var lw = ((isCross ? 0.2 : 0.3) + s2 * (isCross ? 0.5 : 0.8) + maturity * 0.3) * pMin * (1 + bondPulse * 1.5);
+
+      cx.strokeStyle='rgba('+lr+','+lg2+','+lb+','+alpha.toFixed(3)+')';
       cx.lineWidth=lw;
       cx.beginPath();cx.moveTo(nd.sx,nd.sy);cx.lineTo(nb.sx,nb.sy);cx.stroke();
 
-      // At high sync, draw a second wider dim line for glow effect
+      // Glow at high sync
       if(sync > 0.6){
-        var glowA = (sync-0.6)*2.0 * 0.04 * pMin * (1 + maturity * 0.5);
+        var glowA = (sync-0.6)*2.0 * 0.04 * pMin * (1 + maturity * 0.5) * crossFade;
         cx.strokeStyle='rgba('+mr+','+mg+','+mb+','+glowA.toFixed(3)+')';
-        cx.lineWidth=(2+s2*4)*pMin;
+        cx.lineWidth=(2+s2*4)*pMin * (isCross ? 0.7 : 1.0);
         cx.beginPath();cx.moveTo(nd.sx,nd.sy);cx.lineTo(nb.sx,nb.sy);cx.stroke();
       }
     }
   }
 
-  // Prune dead bonds every 2 seconds to prevent memory growth
+  // Prune dead bonds
   if(Math.floor(shapeTime*0.5) !== Math.floor((shapeTime-dt)*0.5)){
     for(var bk in bondAge){
       if(!activeBonds[bk]) bondAge[bk] = Math.max(0, bondAge[bk] - 10);
@@ -987,7 +1188,7 @@ function draw() {
     }
   }
 
-  // ═══ SCOUT TRAILS — faint wakes showing where they've been ═══
+  // ═══ SCOUT TRAILS ═══
   cx.globalCompositeOperation='source-over';
   for(var si=0;si<N;si++){
     if(!trailBuf[si]) continue;
@@ -997,29 +1198,26 @@ function draw() {
     var tcol = nodeCol[si];
     var startI = trailIdx[si] - filled;
     for(var ti3=0; ti3<filled-1; ti3++){
-      var age = ti3 / filled; // 0=oldest, ~1=newest
+      var age = ti3 / filled;
       var idx1 = ((startI + ti3) % TRAIL_LEN);
       var idx2 = ((startI + ti3 + 1) % TRAIL_LEN);
       var x1t = trailBuf[si][idx1*2], y1t = trailBuf[si][idx1*2+1];
       var x2t = trailBuf[si][idx2*2], y2t = trailBuf[si][idx2*2+1];
-      // Skip if positions are zero (unfilled)
       if(x1t===0 && y1t===0) continue;
-      var trailA = age * age * 0.08 * pm2.persp; // newest = brightest, still faint
+      var trailA = age * age * 0.08 * pm2.persp;
       cx.strokeStyle='rgba('+tcol[0]+','+tcol[1]+','+tcol[2]+','+trailA.toFixed(4)+')';
       cx.lineWidth = 0.5 + age * 0.8;
       cx.beginPath(); cx.moveTo(x1t,y1t); cx.lineTo(x2t,y2t); cx.stroke();
     }
   }
 
-  // ═══ AURORA FIELD — subtle color wash across the whole formation at high R ═══
+  // ═══ AURORA FIELD ═══
   if(auroraIntensity > 0.005){
     var acol2 = auroraColors[auroraColorIdx];
-    // Two soft gradient circles that drift across the formation
-    // Like northern lights — not uniform, not centered, moving
     var aurX1 = W/2 + Math.sin(auroraPhase * 0.3) * W * 0.15;
     var aurY1 = H * 0.4 + Math.cos(auroraPhase * 0.2) * H * 0.1;
     var aurR1 = Math.min(W,H) * (0.3 + auroraIntensity * 0.2);
-    var aurA1 = auroraIntensity * 0.025; // extremely subtle
+    var aurA1 = auroraIntensity * 0.025;
 
     var aurGrad1 = cx.createRadialGradient(aurX1, aurY1, 0, aurX1, aurY1, aurR1);
     aurGrad1.addColorStop(0, 'rgba('+acol2[0]+','+acol2[1]+','+acol2[2]+','+aurA1.toFixed(4)+')');
@@ -1028,7 +1226,6 @@ function draw() {
     cx.fillStyle = aurGrad1;
     cx.fillRect(aurX1-aurR1, aurY1-aurR1, aurR1*2, aurR1*2);
 
-    // Second aurora lobe — different position, complementary color
     var acol3 = auroraColors[(auroraColorIdx + 2) % auroraColors.length];
     var aurX2 = W/2 + Math.cos(auroraPhase * 0.25 + 2) * W * 0.2;
     var aurY2 = H * 0.5 + Math.sin(auroraPhase * 0.35 + 1) * H * 0.12;
@@ -1043,22 +1240,24 @@ function draw() {
     cx.fillRect(aurX2-aurR2, aurY2-aurR2, aurR2*2, aurR2*2);
   }
 
-  // ═══ PULSE RING — visible wavefront expanding from origin ═══
+  // ═══ PULSE RING ═══
   if(pulseActive && pulseOrigin >= 0){
     var popm = idxMap[pulseOrigin];
     if(popm){
       var pElapsed = shapeTime - pulseStartTime;
       var ringRadius = pElapsed * PULSE_SPEED;
-      var ringWidth = 30 + pElapsed * 10; // ring gets wider as it expands
-      var ringAlpha = Math.max(0, 0.06 - pElapsed * 0.008); // fades as it expands
+      var ringWidth = 30 + pElapsed * 10;
+      var ringAlpha = Math.max(0, 0.06 - pElapsed * 0.008);
       if(ringAlpha > 0.002){
-        cx.strokeStyle = 'rgba(230,180,80,' + ringAlpha.toFixed(4) + ')';
+        // Ring color matches the originating flock
+        var ringCol = flockOf(pulseOrigin) === 0 ? '230,180,80' : '140,170,200';
+        cx.strokeStyle = 'rgba('+ringCol+',' + ringAlpha.toFixed(4) + ')';
         cx.lineWidth = ringWidth * 0.3;
         cx.beginPath();
         cx.arc(popm.sx, popm.sy, ringRadius, 0, Math.PI*2);
         cx.stroke();
-        // Inner brighter ring
-        cx.strokeStyle = 'rgba(255,220,140,' + (ringAlpha * 0.5).toFixed(4) + ')';
+        var ringColBright = flockOf(pulseOrigin) === 0 ? '255,220,140' : '180,200,230';
+        cx.strokeStyle = 'rgba('+ringColBright+',' + (ringAlpha * 0.5).toFixed(4) + ')';
         cx.lineWidth = ringWidth * 0.1;
         cx.beginPath();
         cx.arc(popm.sx, popm.sy, ringRadius, 0, Math.PI*2);
@@ -1067,31 +1266,45 @@ function draw() {
     }
   }
 
-  // ═══ NODES — embers in the dark ═══
+  // ═══ NODES — embers in the dark, two families ═══
   for(var k=0;k<proj.length;k++){
     var nd=proj[k];
-    // Color evolution — coupling credit shifts the palette
-    // High credit (long-coupled) -> warm gold [230,180,70]
-    // Low credit (isolated) -> deep brown [80,45,25]
     var baseCol=nodeCol[nd.i];
     var cc = couplingCredit[nd.i];
+    var myFlock2 = nd.flock;
     var warmR, warmG, warmB;
-    if(cc > 0.5){
-      // Blend toward gold
-      var t2 = (cc - 0.5) * 2; // 0-1
-      warmR = Math.round(baseCol[0] + (230 - baseCol[0]) * t2 * 0.5);
-      warmG = Math.round(baseCol[1] + (180 - baseCol[1]) * t2 * 0.5);
-      warmB = Math.round(baseCol[2] + (70  - baseCol[2]) * t2 * 0.5);
+
+    // Color evolution — per-flock warm/cold targets
+    if(myFlock2 === 0){
+      // Group A: warm gold when coupled, deep brown when isolated
+      if(cc > 0.5){
+        var t2 = (cc - 0.5) * 2;
+        warmR = Math.round(baseCol[0] + (230 - baseCol[0]) * t2 * 0.5);
+        warmG = Math.round(baseCol[1] + (180 - baseCol[1]) * t2 * 0.5);
+        warmB = Math.round(baseCol[2] + (70  - baseCol[2]) * t2 * 0.5);
+      } else {
+        var t2 = (0.5 - cc) * 2;
+        warmR = Math.round(baseCol[0] + (80  - baseCol[0]) * t2 * 0.4);
+        warmG = Math.round(baseCol[1] + (45  - baseCol[1]) * t2 * 0.4);
+        warmB = Math.round(baseCol[2] + (25  - baseCol[2]) * t2 * 0.4);
+      }
     } else {
-      // Blend toward deep brown
-      var t2 = (0.5 - cc) * 2; // 0-1
-      warmR = Math.round(baseCol[0] + (80  - baseCol[0]) * t2 * 0.4);
-      warmG = Math.round(baseCol[1] + (45  - baseCol[1]) * t2 * 0.4);
-      warmB = Math.round(baseCol[2] + (25  - baseCol[2]) * t2 * 0.4);
+      // Group B: bright silver-blue when coupled, dark slate when isolated
+      if(cc > 0.5){
+        var t2 = (cc - 0.5) * 2;
+        warmR = Math.round(baseCol[0] + (160 - baseCol[0]) * t2 * 0.5);
+        warmG = Math.round(baseCol[1] + (180 - baseCol[1]) * t2 * 0.5);
+        warmB = Math.round(baseCol[2] + (200 - baseCol[2]) * t2 * 0.5);
+      } else {
+        var t2 = (0.5 - cc) * 2;
+        warmR = Math.round(baseCol[0] + (50  - baseCol[0]) * t2 * 0.4);
+        warmG = Math.round(baseCol[1] + (55  - baseCol[1]) * t2 * 0.4);
+        warmB = Math.round(baseCol[2] + (65  - baseCol[2]) * t2 * 0.4);
+      }
     }
     var col=[warmR, warmG, warmB];
 
-    // Door hover color warming — shift toward brighter gold when near hovered door
+    // Door hover color warming
     if(hoveredDoor>=0&&hoveredDoor<doorRects.length&&!isTouchDevice&&doorRects[hoveredDoor]){
       var dhr=doorRects[hoveredDoor];
       var dhCX=dhr.left+dhr.width*0.5-cvRect.left;
@@ -1100,29 +1313,25 @@ function draw() {
       var dhDist=Math.sqrt(dhdx*dhdx+dhdy*dhdy);
       if(dhDist<200){
         var warmth=Math.max(0,(200-dhDist)/200)*0.5;
-        // Warm toward [230,180,80] — bright gold
+        var warmTarget = myFlock2 === 0 ? [230,180,80] : [160,180,200];
         col=[
-          Math.min(255,Math.round(col[0]+(230-col[0])*warmth)),
-          Math.min(255,Math.round(col[1]+(180-col[1])*warmth)),
-          Math.min(255,Math.round(col[2]+(80-col[2])*warmth))
+          Math.min(255,Math.round(col[0]+(warmTarget[0]-col[0])*warmth)),
+          Math.min(255,Math.round(col[1]+(warmTarget[1]-col[1])*warmth)),
+          Math.min(255,Math.round(col[2]+(warmTarget[2]-col[2])*warmth))
         ];
       }
     }
 
-    // Dramatic breathing — real expansion/contraction
-    // Scouts run slightly larger and brighter — you notice them without knowing why
     var breath = Math.sin(phases[nd.i]);
     var scoutBonus = isScout[nd.i] ? 1.3 : 1.0;
     var size = (2.0 + breath*0.8) * nd.persp * globalBreath * scoutBonus;
     var bright = (0.7 + Math.abs(breath)*0.5) * nd.persp * (isScout[nd.i] ? 1.15 : 1.0);
 
-    // ═══ PULSE BRIGHTNESS — heartbeat wave lights up each node ═══
+    // Pulse brightness
     var pBright = pulseBright[nd.i];
     if(pBright > 0.01){
-      // Pulse makes nodes flare — size grows, brightness spikes, color shifts white-hot
       bright += pBright * 0.8;
       size += pBright * 3.0 * nd.persp;
-      // Shift color toward white during pulse
       col = [
         Math.min(255, Math.round(col[0] + (255 - col[0]) * pBright * 0.6)),
         Math.min(255, Math.round(col[1] + (255 - col[1]) * pBright * 0.5)),
@@ -1130,12 +1339,11 @@ function draw() {
       ];
     }
 
-    // ═══ AURORAL SHIMMER — color wash at transcendent R ═══
+    // Aurora shimmer
     if(auroraIntensity > 0.005){
       var acol = auroraColors[auroraColorIdx];
-      // Wave moves across the formation — not uniform, spatial
       var aWave = Math.sin(auroraPhase * 1.5 + nd.sx * 0.008 + nd.sy * 0.005) * 0.5 + 0.5;
-      var aStr = auroraIntensity * aWave * 0.25; // very subtle
+      var aStr = auroraIntensity * aWave * 0.25;
       col = [
         Math.min(255, Math.round(col[0] + (acol[0] - col[0]) * aStr)),
         Math.min(255, Math.round(col[1] + (acol[1] - col[1]) * aStr)),
@@ -1143,9 +1351,7 @@ function draw() {
       ];
     }
 
-    // Radial glow — soft halo, not a rectangle
-    // Only for foreground nodes (persp > 0.6) to save GPU on distant ones
-    // Pulse makes the glow bigger and brighter
+    // Radial glow
     var glowMult = 1.0 + pBright * 2.0;
     if(bright>0.15 && nd.persp > 0.6){
       var glowR = size * 4.5 * glowMult;
@@ -1157,21 +1363,19 @@ function draw() {
       cx.fillRect(nd.sx-glowR,nd.sy-glowR,glowR*2,glowR*2);
     }
 
-    // Hot core — brighter center fading to color at edge
+    // Hot core
     var hotFactor = Math.max(0, breath) * 0.35 + pBright * 0.4;
     var cr = Math.min(255, Math.round(col[0]+(255-col[0])*hotFactor));
     var cg = Math.min(255, Math.round(col[1]+(255-col[1])*hotFactor));
     var cb = Math.min(255, Math.round(col[2]+(255-col[2])*hotFactor));
 
     if(nd.persp > 0.5){
-      // Full radial gradient core for foreground nodes
       var coreGrad = cx.createRadialGradient(nd.sx,nd.sy,0, nd.sx,nd.sy,size);
       coreGrad.addColorStop(0,'rgba('+cr+','+cg+','+cb+','+Math.min(1,bright*1.1).toFixed(3)+')');
       coreGrad.addColorStop(0.6,'rgba('+col[0]+','+col[1]+','+col[2]+','+bright.toFixed(3)+')');
       coreGrad.addColorStop(1,'rgba('+col[0]+','+col[1]+','+col[2]+','+(bright*0.25).toFixed(3)+')');
       cx.fillStyle=coreGrad;
     } else {
-      // Simple fill for background nodes — still visible, just cheaper
       cx.fillStyle='rgba('+cr+','+cg+','+cb+','+bright.toFixed(3)+')';
     }
     cx.beginPath();cx.arc(nd.sx,nd.sy,size,0,Math.PI*2);cx.fill();
@@ -1179,26 +1383,20 @@ function draw() {
 
   // ═══ COUPLING THREADS — oscillators reaching for content ═══
   cx.globalCompositeOperation='source-over';
-  // Threads from oscillators toward doors, tagline, and title — across full canvas
   var threadTargets=[];
-  // Add door tops as thread targets
   for(var ti=0;ti<doorRects.length;ti++){
     var tdr=doorRects[ti];
     if(tdr) threadTargets.push({x:tdr.left+tdr.width*0.5-cvRect.left, y:tdr.top-cvRect.top});
   }
-  // Add tagline center
   if(taglineRect){
     threadTargets.push({x:taglineRect.left+taglineRect.width*0.5-cvRect.left, y:taglineRect.top+taglineRect.height*0.5-cvRect.top});
   }
-  // Add title center
   if(titleRect){
     threadTargets.push({x:titleRect.left+titleRect.width*0.5-cvRect.left, y:titleRect.bottom-cvRect.top});
   }
-  // Draw threads from ANY oscillator that is close enough to a target
   for(var k=0;k<proj.length;k++){
     var nd2=proj[k];
     if(nd2.persp<0.4) continue;
-    // Find nearest thread target
     var bestDist=Infinity, bestT=null;
     for(var ti2=0;ti2<threadTargets.length;ti2++){
       var ttdx=threadTargets[ti2].x-nd2.sx;
@@ -1218,19 +1416,17 @@ function draw() {
   requestAnimationFrame(draw);
 }
 
-// ═══ PAGE AWARENESS — oscillators couple with the content ═══
+// ═══ PAGE AWARENESS ═══
 var mouseX=W/2, mouseY=W/2, mouseActive=false, mouseDecay=0;
-var hoveredDoor=-1; // 0,1,2 or -1
+var hoveredDoor=-1;
 var scrollY=0, lastScrollY=0;
 var isTouchDevice=('ontouchstart' in window);
 
-// Mouse tracking — on document so oscillators react to ALL page interaction
 document.addEventListener('mousemove',function(e){
   mouseX=e.clientX; mouseY=e.clientY;
   mouseActive=true; mouseDecay=1.0;
 });
 document.addEventListener('mouseleave',function(){mouseActive=false;});
-// Touch tracking (no hover on touch)
 cv.addEventListener('touchmove',function(e){
   if(e.touches.length>0){
     mouseX=e.touches[0].clientX; mouseY=e.touches[0].clientY;
@@ -1241,9 +1437,8 @@ cv.addEventListener('touchend',function(e){
   e.preventDefault(); window.location.href='/play/';
 });
 
-// Door hover detection
 var doorEls=document.querySelectorAll('.door');
-var doorRects=[]; // updated on draw
+var doorRects=[];
 for(var di=0;di<doorEls.length;di++){
   (function(idx){
     doorEls[idx].addEventListener('mouseenter',function(){hoveredDoor=idx;});
@@ -1251,17 +1446,15 @@ for(var di=0;di<doorEls.length;di++){
   })(di);
 }
 
-// Scroll parallax
 var scrollOffset=0;
 window.addEventListener('scroll',function(){
   scrollY=window.pageYOffset||document.documentElement.scrollTop||0;
 },{passive:true});
 
-// Page element rects (title, tagline, doors) — cached, refreshed on resize
 var titleRect=null, taglineRect=null;
 function cacheRects(){
   var h1=document.querySelector('h1');
-  var tag=document.querySelector('.orbit-wrap + div'); // tagline div
+  var tag=document.querySelector('.orbit-wrap + div');
   if(h1) titleRect=h1.getBoundingClientRect();
   if(tag) taglineRect=tag.getBoundingClientRect();
   doorRects=[];
@@ -1274,7 +1467,6 @@ var oldResize=resize;
 resize=function(){oldResize(); cacheRects();};
 window.addEventListener('resize',cacheRects);
 
-// Click anywhere on canvas -> /play/
 cv.addEventListener('click', function(){ window.location.href='/play/'; });
 cv.addEventListener('keydown', function(e){ if(e.key==='Enter'||e.key===' '){e.preventDefault();window.location.href='/play/';} });
 cv.setAttribute('tabindex','0');
@@ -1282,26 +1474,27 @@ cv.style.cursor='pointer';
 
 draw();
 
-// ═══ ANIMATED FAVICON — 137 oscillators in the tab icon ═══
+// ═══ ANIMATED FAVICON — dual flocks in the tab icon ═══
 var fav = document.createElement('canvas');
 fav.width = 32; fav.height = 32;
 var fc = fav.getContext('2d');
 var favLink = document.querySelector('link[rel="icon"]');
 var favGA = 2.39996322;
-var favN = 33; // fewer for the tiny canvas
+var favN = 33;
+var favNA = 17; // split favicon flocks too
 var favPhases = new Float64Array(favN);
 var favOmega = new Float64Array(favN);
 var favX = [], favY = [];
 for(var i=0;i<favN;i++){
   favPhases[i] = Math.random() * Math.PI * 2;
   favOmega[i] = (0.5+Math.random())*Math.PI*2;
-  var r = 2 + Math.sqrt(i/favN) * 12;
+  var r = 2 + Math.sqrt((i < favNA ? i/favNA : (i-favNA)/(favN-favNA))) * 10;
   var a = i * favGA;
-  favX.push(16 + Math.cos(a)*r);
+  var offX = i < favNA ? -3 : 3;
+  favX.push(16 + Math.cos(a)*r + offX);
   favY.push(16 + Math.sin(a)*r);
 }
 function drawFav(){
-  // step kuramoto
   var mre=0,mim=0;
   for(var i=0;i<favN;i++){mre+=Math.cos(favPhases[i]);mim+=Math.sin(favPhases[i]);}
   mre/=favN;mim/=favN;
@@ -1310,19 +1503,18 @@ function drawFav(){
     for(var j=0;j<favN;j++) if(Math.abs(i-j)<4) c+=Math.sin(favPhases[j]-favPhases[i]);
     favPhases[i]+=0.016*(favOmega[i]+1.868/favN*c);
   }
-  // draw
   fc.fillStyle='#1a110d';
   fc.fillRect(0,0,32,32);
   for(var i=0;i<favN;i++){
     var bright = 0.5 + Math.abs(Math.sin(favPhases[i]))*0.5;
     var sz = 1 + bright;
-    fc.fillStyle='rgba(184,117,58,'+bright.toFixed(2)+')';
+    var favCol = i < favNA ? '184,117,58' : '110,140,160';
+    fc.fillStyle='rgba('+favCol+','+bright.toFixed(2)+')';
     fc.beginPath();fc.arc(favX[i],favY[i],sz,0,Math.PI*2);fc.fill();
   }
-  // update favicon
   if(favLink) favLink.href = fav.toDataURL('image/png');
 }
-setInterval(drawFav, 200); // 5fps for favicon — gentle on CPU
+setInterval(drawFav, 200);
 
 })();
 </script>
