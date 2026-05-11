@@ -672,8 +672,22 @@ document.addEventListener('touchend', function(e) {
   setTimeout(function() { mx = -999; my = -999; }, 100);
 });
 
-// === SIMULATION STEP ===
+// === BUILD ADJACENCY FROM REAL TOPOLOGY ===
+// Each node only couples to its actual vessel neighbors.
+// Coupling strength = vessel strength × geometric mean of both K values.
+// The coherence EMERGES from the real structure.
+var neighbors = [];
+for (var i = 0; i < N; i++) neighbors.push([]);
+for (var v = 0; v < vessels.length; v++) {
+  var va = vessels[v].a, vb = vessels[v].b;
+  var kij = Math.sqrt(nodes[va].k * nodes[vb].k) * vessels[v].strength;
+  neighbors[va].push({j: vb, k: kij});
+  neighbors[vb].push({j: va, k: kij});
+}
+
+// === SIMULATION STEP — REAL TOPOLOGY KURAMOTO ===
 function step() {
+  // Global order parameter R (measured, not designed)
   var mre = 0, mim = 0;
   for (var i = 0; i < N; i++) {
     mre += Math.cos(phases[i]);
@@ -682,9 +696,16 @@ function step() {
   mre /= N; mim /= N;
   globalR = Math.sqrt(mre * mre + mim * mim);
 
+  // Phase update: each node couples ONLY to its real neighbors
   for (var i = 0; i < N; i++) {
-    var coupling = nodes[i].k * Math.sin(Math.atan2(mim, mre) - phases[i]);
-    phases[i] += 0.016 * (omega[i] + coupling);
+    var sum = 0;
+    var nbrs = neighbors[i];
+    for (var ni = 0; ni < nbrs.length; ni++) {
+      sum += nbrs[ni].k * Math.sin(phases[nbrs[ni].j] - phases[i]);
+    }
+    // Normalize by neighbor count (or 1 if isolated)
+    var nCount = nbrs.length || 1;
+    phases[i] += 0.016 * (omega[i] + sum / nCount);
   }
 
   heartPhase += 0.016 * (1 + globalR * 3);
@@ -851,7 +872,20 @@ function draw() {
     var cellK = nodes[i].k;
     var baseSize = 2 + cellK * 3;
     var size = baseSize * (1 + breath * 0.2) * systole;
-    var bright = (0.4 + Math.abs(breath) * 0.4 + heartBeat * 0.2) * mobDim;
+
+    // Local coherence: how phase-locked is this cell with its neighbors?
+    var localR = 0;
+    var nbrs = neighbors[i];
+    if (nbrs.length > 0) {
+      var lre = 0, lim = 0;
+      for (var ni = 0; ni < nbrs.length; ni++) {
+        lre += Math.cos(phases[nbrs[ni].j] - phase);
+        lim += Math.sin(phases[nbrs[ni].j] - phase);
+      }
+      localR = Math.sqrt(lre * lre + lim * lim) / nbrs.length;
+    }
+    // Cells glow brighter when coherent with their neighbors
+    var bright = (0.3 + localR * 0.5 + heartBeat * 0.2) * mobDim;
 
     var hoverScale = 1;
     if (hoveredCell === i) {
