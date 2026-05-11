@@ -237,7 +237,7 @@ var nxTarget=nxA.slice(), nyTarget=nyA.slice();
 
 // Neighbors — wider radius so the web of connections is rich
 var nbrL=[];
-for(var i=0;i<N;i++){var nn=[];for(var j=0;j<N;j++){if(j===i)continue;var ddx=nxA[j]-nxA[i],ddy=nyA[j]-nyA[i];if(ddx*ddx+ddy*ddy<5.0)nn.push(j);}nbrL.push(nn);}
+for(var i=0;i<N;i++){var nn=[];for(var j=0;j<N;j++){if(j===i)continue;var ddx=nxA[j]-nxA[i],ddy=nyA[j]-nyA[i];if(ddx*ddx+ddy*ddy<12.0)nn.push(j);}nbrL.push(nn);}
 
 // Phases — start at zero
 var phases=new Float64Array(N);
@@ -309,27 +309,71 @@ function project(x,y,z,sc,cx2,cy2){
 // ═══ BACKGROUND DEPTH — distant particles + field ═══
 var bgParticles = [];
 for(var bi=0; bi<60; bi++){
+  // Depth cues: mix of tiny-bright and large-dim particles
+  var isLarge = Math.random() < 0.25;
   bgParticles.push({
     x: Math.random()*2-1, y: Math.random()*2-1,
-    z: 0.1 + Math.random()*0.4, // very far back
+    z: 0.1 + Math.random()*0.4,
     vx: (Math.random()-0.5)*0.002,
     vy: (Math.random()-0.5)*0.002,
-    size: 0.3 + Math.random()*0.8,
-    alpha: 0.02 + Math.random()*0.04
+    size: isLarge ? (2.0 + Math.random()*2.5) : (0.4 + Math.random()*1.0),
+    alpha: isLarge ? (0.02 + Math.random()*0.03) : (0.06 + Math.random()*0.08)
+  });
+}
+
+// ═══ NEBULAE — very large, very slow, very dim gradient circles ═══
+var nebulae = [];
+for(var ni=0; ni<4; ni++){
+  nebulae.push({
+    x: Math.random()*2-1, y: Math.random()*2-1,
+    vx: (Math.random()-0.5)*0.0004,
+    vy: (Math.random()-0.5)*0.0004,
+    radius: 200 + Math.random()*200, // 200-400px
+    alpha: 0.012 + Math.random()*0.018, // 0.012-0.03
+    color: [
+      [139,74,46],  // ember
+      [184,117,58], // copper
+      [120,90,50],  // warm earth
+      [90,130,60]   // distant moss
+    ][ni]
   });
 }
 
 function drawBackground(cx, W, H, Rval, t){
-  // Subtle warm vignette that breathes with R
+  // ═══ NEBULAE — vast, slow gradient circles creating deep space ═══
+  for(var ni=0; ni<nebulae.length; ni++){
+    var neb = nebulae[ni];
+    neb.x += neb.vx; neb.y += neb.vy;
+    // Soft wrap
+    if(neb.x > 1.5) neb.x = -1.5;
+    if(neb.x < -1.5) neb.x = 1.5;
+    if(neb.y > 1.5) neb.y = -1.5;
+    if(neb.y < -1.5) neb.y = 1.5;
+
+    var nebX = W/2 + neb.x * W * 0.4;
+    var nebY = H/2 + neb.y * H * 0.4;
+    var nebR = neb.radius * (W/900); // scale with canvas
+    var nebA = neb.alpha * (0.6 + Rval * 0.6) * (0.8 + 0.2 * Math.sin(t*0.08 + ni*1.7));
+    var nc = neb.color;
+
+    var nebGrad = cx.createRadialGradient(nebX, nebY, 0, nebX, nebY, nebR);
+    nebGrad.addColorStop(0, 'rgba('+nc[0]+','+nc[1]+','+nc[2]+','+nebA.toFixed(4)+')');
+    nebGrad.addColorStop(0.4, 'rgba('+nc[0]+','+nc[1]+','+nc[2]+','+(nebA*0.5).toFixed(4)+')');
+    nebGrad.addColorStop(1, 'rgba('+nc[0]+','+nc[1]+','+nc[2]+',0)');
+    cx.fillStyle = nebGrad;
+    cx.fillRect(nebX-nebR, nebY-nebR, nebR*2, nebR*2);
+  }
+
+  // Warm vignette that breathes with R — more pronounced
   var vigR = Math.min(W,H) * (0.6 + Rval * 0.2);
-  var vig = cx.createRadialGradient(W/2, H*0.45, vigR*0.2, W/2, H*0.45, vigR);
-  vig.addColorStop(0, 'rgba(26,17,13,' + (0.0 + Rval*0.02).toFixed(3) + ')');
-  vig.addColorStop(0.5, 'rgba(18,12,8,' + (0.01 + Rval*0.01).toFixed(3) + ')');
-  vig.addColorStop(1, 'rgba(10,7,5,0.03)');
+  var vig = cx.createRadialGradient(W/2, H*0.45, vigR*0.15, W/2, H*0.45, vigR);
+  vig.addColorStop(0, 'rgba(40,22,12,' + (0.02 + Rval*0.06).toFixed(3) + ')');
+  vig.addColorStop(0.4, 'rgba(26,17,13,' + (0.01 + Rval*0.04).toFixed(3) + ')');
+  vig.addColorStop(1, 'rgba(10,7,5,0.04)');
   cx.fillStyle = vig;
   cx.fillRect(0, 0, W, H);
 
-  // Distant particles — very dim, very slow, creating depth
+  // Distant particles — depth cues: large-dim and tiny-bright
   for(var bi=0; bi<bgParticles.length; bi++){
     var bp = bgParticles[bi];
     bp.x += bp.vx; bp.y += bp.vy;
@@ -472,10 +516,34 @@ function draw() {
     }
   }
 
+  // ═══ CONTENT ATTRACTION — oscillators cluster near page elements like fireflies around light ═══
+  for(var ci=0;ci<doorRects.length;ci++){
+    var cdr=doorRects[ci];
+    if(!cdr) continue;
+    var cdx=cdr.left+cdr.width*0.5-cvRect.left;
+    var cdy=cdr.top-cvRect.top-20; // just above door top
+    for(var i=0;i<N;i++){
+      var sxC=cx2+nxA[i]*sc;
+      var syC=cy2+nyA[i]*sc;
+      var cddx=cdx-sxC;
+      var cddy=cdy-syC;
+      var cDist=Math.sqrt(cddx*cddx+cddy*cddy);
+      if(cDist<250&&cDist>30){
+        // Very gentle attraction — drift toward content
+        var cForce=0.08/(cDist);
+        nxA[i]+=cddx*cForce*0.001;
+        nyA[i]+=cddy*cForce*0.001;
+        // Boost brightness for nearby oscillators (via kBoost — syncs them faster)
+        var cProx=Math.max(0,(250-cDist)/250);
+        kBoost[i]=Math.min(kBoost[i]+cProx*0.3, 1.5);
+      }
+    }
+  }
+
   // Update neighbors periodically (every 2 seconds)
   if(Math.floor(shapeTime*0.5) !== Math.floor((shapeTime-dt)*0.5)){
     nbrL=[];
-    for(var i=0;i<N;i++){var nn=[];for(var j=0;j<N;j++){if(j===i)continue;var ddx=nxA[j]-nxA[i],ddy=nyA[j]-nyA[i];if(ddx*ddx+ddy*ddy<5.0)nn.push(j);}nbrL.push(nn);}
+    for(var i=0;i<N;i++){var nn=[];for(var j=0;j<N;j++){if(j===i)continue;var ddx=nxA[j]-nxA[i],ddy=nyA[j]-nyA[i];if(ddx*ddx+ddy*ddy<12.0)nn.push(j);}nbrL.push(nn);}
   }
 
   // Global breathing — R drives a collective pulse
@@ -494,45 +562,72 @@ function draw() {
   var idxMap=new Array(N);
   for(var k=0;k<N;k++) idxMap[proj[k].i]=proj[k];
 
+  // ═══ WARM GLOW behind door cards — rendered on canvas behind content ═══
+  for(var dgi=0;dgi<doorRects.length;dgi++){
+    var dgr=doorRects[dgi];
+    if(!dgr) continue;
+    var dgx=dgr.left+dgr.width*0.5-cvRect.left;
+    var dgy=dgr.top+dgr.height*0.5-cvRect.top;
+    var dgRadius=Math.max(dgr.width,dgr.height)*0.8;
+    var dgAlpha=0.025 + Rval*0.03;
+    // Warmer when hovered
+    if(hoveredDoor===dgi) dgAlpha+=0.04;
+    var dgGrad=cx.createRadialGradient(dgx,dgy,0,dgx,dgy,dgRadius);
+    dgGrad.addColorStop(0,'rgba(184,117,58,'+dgAlpha.toFixed(4)+')');
+    dgGrad.addColorStop(0.5,'rgba(139,74,46,'+(dgAlpha*0.4).toFixed(4)+')');
+    dgGrad.addColorStop(1,'rgba(139,74,46,0)');
+    cx.fillStyle=dgGrad;
+    cx.fillRect(dgx-dgRadius,dgy-dgRadius,dgRadius*2,dgRadius*2);
+  }
+
   // ═══ CONNECTIONS — the coupling made visible ═══
+  // Draw ALL synced pairs within screen distance, not just neighbors
   cx.globalCompositeOperation='lighter';
 
-  for(var i=0;i<N;i++){
-    var nd=idxMap[i]; if(!nd) continue;
-    var nn=nbrL[i];
-    for(var j=0;j<nn.length;j++){
-      if(nn[j]<=i) continue;
-      var nb=idxMap[nn[j]]; if(!nb) continue;
+  for(var ki=0;ki<N;ki++){
+    var nd=idxMap[ki]; if(!nd) continue;
+    for(var kj=ki+1;kj<N;kj++){
+      var nb=idxMap[kj]; if(!nb) continue;
+
+      // Screen distance check — skip pairs too far apart visually
+      var sdx=nd.sx-nb.sx, sdy=nd.sy-nb.sy;
+      var sDist2=sdx*sdx+sdy*sdy;
+      if(sDist2>200*200) continue;
+
       var pdiff=Math.abs(nd.phase-nb.phase);
       if(pdiff>Math.PI) pdiff=Math.PI*2-pdiff;
       var sync=1-pdiff/Math.PI;
-      if(sync<0.2) continue;
+      if(sync<0.15) continue; // lower threshold — more visible connections
 
       // Sync drives everything — low sync = ghost line, high sync = bright burning wire
       var s2 = sync*sync;
       var s3 = s2*sync;
       var pMin = Math.min(nd.persp,nb.persp);
 
-      // Blend the two endpoint colors
+      // Blend the two endpoint colors — use the warmer (higher red) of the two
       var ca=nodeCol[nd.i], cb=nodeCol[nb.i];
+      var useA = (ca[0]+ca[1]*0.5) > (cb[0]+cb[1]*0.5);
+      var warm = useA ? ca : cb;
       var mr=Math.round((ca[0]+cb[0])*0.5);
       var mg=Math.round((ca[1]+cb[1])*0.5);
       var mb=Math.round((ca[2]+cb[2])*0.5);
 
       // At high sync, brighten the line toward white-hot
       var whiten = s3 * 0.4;
-      var lr = Math.min(255, Math.round(mr + (255-mr)*whiten));
-      var lg = Math.min(255, Math.round(mg + (255-mg)*whiten));
-      var lb = Math.min(255, Math.round(mb + (255-mb)*whiten));
+      var lr = Math.min(255, Math.round(warm[0] + (255-warm[0])*whiten));
+      var lg = Math.min(255, Math.round(warm[1] + (255-warm[1])*whiten));
+      var lb = Math.min(255, Math.round(warm[2] + (255-warm[2])*whiten));
 
-      var alpha = s2 * 0.55 * pMin * globalBreath;
+      // Alpha and width scale with sync — weak connections are ghost lines, strong are wires
+      var alpha = (0.02 + s2 * 0.13) * pMin * globalBreath;
+      var lw = (0.3 + s2 * 1.2) * pMin;
       cx.strokeStyle='rgba('+lr+','+lg+','+lb+','+alpha.toFixed(3)+')';
-      cx.lineWidth=(0.4+s2*1.8)*pMin;
+      cx.lineWidth=lw;
       cx.beginPath();cx.moveTo(nd.sx,nd.sy);cx.lineTo(nb.sx,nb.sy);cx.stroke();
 
-      // At very high sync, draw a second wider dim line for glow effect
-      if(sync > 0.7){
-        var glowA = (sync-0.7)*2.0 * 0.12 * pMin;
+      // At high sync, draw a second wider dim line for glow effect
+      if(sync > 0.6){
+        var glowA = (sync-0.6)*2.5 * 0.10 * pMin;
         cx.strokeStyle='rgba('+mr+','+mg+','+mb+','+glowA.toFixed(3)+')';
         cx.lineWidth=(2+s2*4)*pMin;
         cx.beginPath();cx.moveTo(nd.sx,nd.sy);cx.lineTo(nb.sx,nb.sy);cx.stroke();
@@ -602,7 +697,7 @@ function draw() {
 
   // ═══ COUPLING THREADS — oscillators reaching for content ═══
   cx.globalCompositeOperation='source-over';
-  // Thin golden threads from edge oscillators toward nearest door/tagline
+  // Threads from oscillators toward doors, tagline, and title — across full canvas
   var threadTargets=[];
   // Add door tops as thread targets
   for(var ti=0;ti<doorRects.length;ti++){
@@ -613,14 +708,14 @@ function draw() {
   if(taglineRect){
     threadTargets.push({x:taglineRect.left+taglineRect.width*0.5-cvRect.left, y:taglineRect.top+taglineRect.height*0.5-cvRect.top});
   }
-  // Draw threads from oscillators near canvas edges
-  var edgeMargin=W*0.12;
-  var bottomMargin=H*0.15;
+  // Add title center
+  if(titleRect){
+    threadTargets.push({x:titleRect.left+titleRect.width*0.5-cvRect.left, y:titleRect.bottom-cvRect.top});
+  }
+  // Draw threads from ANY oscillator that is close enough to a target
   for(var k=0;k<proj.length;k++){
     var nd2=proj[k];
-    // Only edge oscillators or bottom-of-canvas oscillators
-    var nearEdge=(nd2.sx<edgeMargin||nd2.sx>W-edgeMargin||nd2.sy>H-bottomMargin);
-    if(!nearEdge||nd2.persp<0.5) continue;
+    if(nd2.persp<0.4) continue;
     // Find nearest thread target
     var bestDist=Infinity, bestT=null;
     for(var ti2=0;ti2<threadTargets.length;ti2++){
@@ -629,11 +724,11 @@ function draw() {
       var ttd=Math.sqrt(ttdx*ttdx+ttdy*ttdy);
       if(ttd<bestDist){bestDist=ttd;bestT=threadTargets[ti2];}
     }
-    if(bestT&&bestDist<200&&bestDist>20){
-      var threadAlpha=(1-bestDist/200)*0.06*nd2.persp*globalBreath;
+    if(bestT&&bestDist<280&&bestDist>15){
+      var threadAlpha=(1-bestDist/280)*0.09*nd2.persp*globalBreath;
       var tcol=nodeCol[nd2.i];
       cx.strokeStyle='rgba('+tcol[0]+','+tcol[1]+','+tcol[2]+','+threadAlpha.toFixed(4)+')';
-      cx.lineWidth=0.5;
+      cx.lineWidth=0.4+nd2.persp*0.4;
       cx.beginPath();cx.moveTo(nd2.sx,nd2.sy);cx.lineTo(bestT.x,bestT.y);cx.stroke();
     }
   }
@@ -647,12 +742,12 @@ var hoveredDoor=-1; // 0,1,2 or -1
 var scrollY=0, lastScrollY=0;
 var isTouchDevice=('ontouchstart' in window);
 
-// Mouse tracking (canvas-relative coords converted to screen coords)
-cv.addEventListener('mousemove',function(e){
+// Mouse tracking — on document so oscillators react to ALL page interaction
+document.addEventListener('mousemove',function(e){
   mouseX=e.clientX; mouseY=e.clientY;
   mouseActive=true; mouseDecay=1.0;
 });
-cv.addEventListener('mouseleave',function(){mouseActive=false;});
+document.addEventListener('mouseleave',function(){mouseActive=false;});
 // Touch tracking (no hover on touch)
 cv.addEventListener('touchmove',function(e){
   if(e.touches.length>0){
