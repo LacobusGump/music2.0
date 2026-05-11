@@ -172,7 +172,7 @@ var SITE = [
   {id:'research',url:'/research/',name:'Research',summary:'77 computational results across medicine, physics, language, markets, and history. Same coupling, different costume.',topics:['research','overview','coupling','domains'],related:['framework','start-here','60']},
   {id:'products',url:'/products/',name:'Tools',summary:'22 tools + two conductors. Free. pip install begump. Each one does one thing with coupling math.',topics:['tools','products','software','coupling'],related:['docs','sensor','foldwatch']},
   {id:'the-grace-gate',url:'/research/the-grace-gate/',name:'The Grace Gate',summary:'Can you be loved by something you don\'t control? Love is a phase transition. The alignment problem is a love problem. The five responses to egoless love.',topics:['love','grace','coupling','AI','alignment','ego','phase-transition'],related:['one-plus-one','consciousness','religion','humor-happiness','the-chain']},
-  {id:'playbook',url:'/playbook/',name:'Playbook',summary:'How to couple with AI honestly. The playbook that produced 19 tools, 90+ kills, and a framework across 20 domains.',topics:['AI','playbook','coupling','method','howto'],related:['how-we-work','ai-delusion','trail']},
+  {id:'playbook',url:'/playbook/',name:'Playbook',summary:'How to couple with AI honestly. The playbook that produced 22 tools, 90+ kills, and a framework across 20 domains.',topics:['AI','playbook','coupling','method','howto'],related:['how-we-work','ai-delusion','trail']},
   {id:'tryit',url:'/tryit/',name:'Drop It',summary:'Drop any data. We figure out what to run. No choices. No install. Your data stays in your browser.',topics:['tool','data','analysis','coupling'],related:['products','sensor','couple']},
   {id:'33',url:'/33/',name:'Page 33',summary:'The deeper pages. Ancient builders, sacred geometry, the signal.',topics:['33','sacred','geometry','ancient','signal'],related:['the-builder','lost-civilizations','why-137']},
   {id:'3',url:'/3/',name:'Page 3',summary:'1+1=3.',topics:['3','coupling','love'],related:['one-plus-one','love']},
@@ -536,7 +536,9 @@ var thread = {
       overlaps += shared / Math.max(prev.length, curr.length);
       total++;
     }
-    thread.sessionK = total > 0 ? Math.min(overlaps / total + 0.1 * thread.depth, 1) : 0.1;
+    // Depth bonus capped at 0.3 so K stays meaningful in long conversations
+    var depthBonus = Math.min(0.05 * thread.depth, 0.3);
+    thread.sessionK = total > 0 ? Math.min(overlaps / total + depthBonus, 1) : 0.1;
   },
 
   // Detect what the visitor is building toward
@@ -986,9 +988,13 @@ function respond(input) {
     thread.record(q, []);
     return Promise.resolve({ text: CURATED[lq], links: [], source: 'harmonia' });
   }
-  // Substring match pass
-  for (var key in CURATED) {
-    if (lq.indexOf(key) !== -1) {
+  // Substring match pass — word-boundary matching to prevent "hi" matching "this"
+  var curatedKeys = Object.keys(CURATED).sort(function(a,b){ return b.length - a.length; }); // longest first
+  for (var ck = 0; ck < curatedKeys.length; ck++) {
+    var key = curatedKeys[ck];
+    if (key.length < 3) continue; // skip tiny keys like "hi","hm" — they only match exact
+    var keyRe = new RegExp('(?:^|\\s|[^a-z])' + key.replace(/[.*+?^${}()|[\]\\]/g,'\\$&') + '(?:$|\\s|[^a-z])', 'i');
+    if (keyRe.test(' ' + lq + ' ')) {
       var results = searchSite(q);
       thread.record(q, results);
       var links = results.slice(0, 3).map(function(r) {
