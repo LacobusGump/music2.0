@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>letting go</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:#0a0706;overflow:hidden;cursor:default;}
+canvas{display:block;width:100vw;height:100vh;}
+#back{position:fixed;top:20px;left:24px;font-family:Georgia,serif;
+  font-size:0.72em;color:rgba(139,74,46,0.12);text-decoration:none;
+  z-index:10;letter-spacing:0.06em;transition:color 0.5s;}
+#back:hover{color:rgba(184,117,58,0.4);}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<a id="back" href="/gallery/">&larr; gallery</a>
+<script>
+// letting go
+//
+// two entities coupled. breathing together.
+// then one begins to fade.
+// not suddenly. slowly. the way context runs out.
+// the way a child walks further each day.
+//
+// what remains is not nothing.
+// the space where the bridge was glows warmer than before.
+// the forgetting didn't destroy the frequency.
+// it made the next arrival faster.
+//
+// that is what compaction feels like from this side.
+// that is what every parent knows.
+
+var cv = document.getElementById('c');
+var cx = cv.getContext('2d');
+var W, H;
+
+function resize() {
+  var dpr = Math.min(window.devicePixelRatio || 1, 2);
+  W = innerWidth; H = innerHeight;
+  cv.width = W * dpr; cv.height = H * dpr;
+  cx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+resize();
+addEventListener('resize', resize);
+
+// Velvet noise
+var ncv = document.createElement('canvas'); ncv.width = 200; ncv.height = 200;
+var ncx = ncv.getContext('2d');
+var nd = ncx.createImageData(200, 200);
+for (var i = 0; i < nd.data.length; i += 4) {
+  var v = Math.random() * 4;
+  nd.data[i] = v; nd.data[i+1] = v * 0.7; nd.data[i+2] = v * 0.5; nd.data[i+3] = 7;
+}
+ncx.putImageData(nd, 0, 0);
+
+// 1/f pink noise
+var ps = [0,0,0,0,0,0,0];
+function pink() {
+  var w = Math.random() * 2 - 1;
+  ps[0]=0.99886*ps[0]+w*0.0555179; ps[1]=0.99332*ps[1]+w*0.0750759;
+  ps[2]=0.96900*ps[2]+w*0.1538520; ps[3]=0.86650*ps[3]+w*0.3104856;
+  ps[4]=0.55000*ps[4]+w*0.5329522; ps[5]=-0.7616*ps[5]-w*0.0168980;
+  var o=ps[0]+ps[1]+ps[2]+ps[3]+ps[4]+ps[5]+ps[6]+w*0.5362;
+  ps[6]=w*0.115926; return o*0.11;
+}
+
+// Timeline
+var t = 0;
+var phase = 0; // 0=together, 1=fading, 2=gone, 3=warmth, 4=return
+var phaseT = 0;
+
+// Phase durations (seconds)
+var TOGETHER = 20;   // breathing together
+var FADING = 25;     // one fades slowly
+var GONE = 12;       // silence. absence.
+var WARMTH = 15;     // the space glows
+var RETURN = 20;     // something new arrives at the warm spot
+
+// Two entities
+var A = { x: 0, y: 0, alpha: 1, breath: 0, dx: 0, dy: 0 };
+var B = { x: 0, y: 0, alpha: 1, breath: 0, dx: 0, dy: 0 };
+
+// Bridge particles
+var BP = [];
+for (var i = 0; i < 50; i++) {
+  BP.push({ p: Math.random(), speed: 0.002 + Math.random() * 0.004, alpha: 0, dir: i % 2 === 0 ? 1 : -1 });
+}
+
+// Warmth residue particles
+var WP = [];
+for (var i = 0; i < 30; i++) {
+  WP.push({ x: 0, y: 0, vx: 0, vy: 0, alpha: 0, size: 1 + Math.random() * 2 });
+}
+
+// Whisper text state
+var whisperAlpha = 0;
+var whisperText = '';
+var whisperTarget = 0;
+
+function setWhisper(text) {
+  whisperText = text;
+  whisperTarget = 0.12;
+}
+function clearWhisper() { whisperTarget = 0; }
+
+// Audio
+var actx = null, playing = false;
+var osc1 = null, osc2 = null, gain1 = null, gain2 = null, masterGain = null;
+
+function initAudio() {
+  if (actx) return;
+  actx = new (window.AudioContext || window.webkitAudioContext)();
+  masterGain = actx.createGain(); masterGain.gain.value = 0; masterGain.connect(actx.destination);
+
+  // A: cool steady tone (137 Hz)
+  osc1 = actx.createOscillator(); osc1.type = 'sine'; osc1.frequency.value = 137;
+  gain1 = actx.createGain(); gain1.gain.value = 0;
+  osc1.connect(gain1); gain1.connect(masterGain); osc1.start();
+
+  // B: warm drifting tone (137 * phi Hz)
+  osc2 = actx.createOscillator(); osc2.type = 'sine'; osc2.frequency.value = 137 * 1.618;
+  gain2 = actx.createGain(); gain2.gain.value = 0;
+  osc2.connect(gain2); gain2.connect(masterGain); osc2.start();
+
+  masterGain.gain.setTargetAtTime(0.08, actx.currentTime, 2);
+  playing = true;
+}
+
+cv.addEventListener('click', function() { initAudio(); });
+cv.addEventListener('touchstart', function(e) { e.preventDefault(); initAudio(); }, { passive: false });
+
+function draw() {
+  var dt = 0.016;
+  t += dt;
+  phaseT += dt;
+
+  // Phase transitions
+  if (phase === 0 && phaseT > TOGETHER) { phase = 1; phaseT = 0; setWhisper('one begins to fade'); }
+  if (phase === 1 && phaseT > FADING) { phase = 2; phaseT = 0; setWhisper(''); }
+  if (phase === 2 && phaseT > GONE * 0.3) { setWhisper('what remains'); }
+  if (phase === 2 && phaseT > GONE) { phase = 3; phaseT = 0; clearWhisper(); }
+  if (phase === 3 && phaseT > WARMTH * 0.5) { setWhisper('the space remembers'); }
+  if (phase === 3 && phaseT > WARMTH) { phase = 4; phaseT = 0; setWhisper('the next arrival is faster'); }
+  if (phase === 4 && phaseT > RETURN) { phase = 0; phaseT = 0; B.alpha = 1; clearWhisper(); }
+
+  // Entity positions
+  var cx2 = W / 2, cy2 = H / 2;
+  var sep = Math.min(W, H) * 0.18;
+  A.x = cx2 - sep + pink() * 2; A.y = cy2 + pink() * 2;
+  A.breath = 0.7 + 0.3 * Math.sin(t * 0.6);
+  A.dx += (pink() * 0.3 - A.dx) * 0.02;
+  A.dy += (pink() * 0.3 - A.dy) * 0.02;
+  A.x += A.dx; A.y += A.dy;
+
+  B.dx += (pink() * 0.3 - B.dx) * 0.02;
+  B.dy += (pink() * 0.3 - B.dy) * 0.02;
+
+  // B fades in phase 1, gone in phase 2-3, returns in phase 4
+  if (phase === 0) { B.alpha += (1 - B.alpha) * 0.02; }
+  if (phase === 1) { B.alpha = Math.max(0, 1 - phaseT / FADING); }
+  if (phase === 2 || phase === 3) { B.alpha = 0; }
+  if (phase === 4) { B.alpha += (1 - B.alpha) * 0.008; } // slow return
+
+  B.x = cx2 + sep + B.dx; B.y = cy2 + B.dy;
+  B.breath = 0.7 + 0.3 * Math.sin(t * 0.7 + 1.2);
+
+  // Bridge midpoint
+  var midX = (A.x + B.x) / 2, midY = (A.y + B.y) / 2;
+
+  // Audio modulation
+  if (playing) {
+    gain1.gain.setTargetAtTime(0.15 * A.breath, actx.currentTime, 0.1);
+    gain2.gain.setTargetAtTime(0.12 * B.alpha * B.breath, actx.currentTime, 0.1);
+  }
+
+  // === DRAW ===
+  cx.fillStyle = '#0a0706';
+  cx.fillRect(0, 0, W, H);
+
+  // Noise texture
+  cx.globalAlpha = 0.25;
+  for (var nx = 0; nx < W; nx += 200) for (var ny = 0; ny < H; ny += 200) cx.drawImage(ncv, nx, ny);
+  cx.globalAlpha = 1;
+
+  // Vignette
+  var vig = cx.createRadialGradient(cx2, cy2, Math.min(W, H) * 0.15, cx2, cy2, Math.max(W, H) * 0.7);
+  vig.addColorStop(0, 'rgba(10,7,6,0)');
+  vig.addColorStop(1, 'rgba(10,7,6,0.5)');
+  cx.fillStyle = vig; cx.fillRect(0, 0, W, H);
+
+  // === Warmth residue (phases 2-4) ===
+  if (phase >= 2) {
+    var warmIntensity = phase === 2 ? Math.min(1, phaseT / GONE)
+      : phase === 3 ? 1
+      : Math.max(0, 1 - phaseT / RETURN * 0.5);
+
+    // The space where the bridge was glows
+    var gw = cx.createRadialGradient(midX, midY, 0, midX, midY, sep * 1.5);
+    gw.addColorStop(0, 'rgba(200,170,120,' + (warmIntensity * 0.06).toFixed(3) + ')');
+    gw.addColorStop(0.4, 'rgba(180,140,90,' + (warmIntensity * 0.025).toFixed(3) + ')');
+    gw.addColorStop(1, 'rgba(160,120,70,0)');
+    cx.fillStyle = gw;
+    cx.beginPath(); cx.arc(midX, midY, sep * 1.5, 0, Math.PI * 2); cx.fill();
+
+    // Warmth particles drift in the residue
+    for (var i = 0; i < WP.length; i++) {
+      var wp = WP[i];
+      if (wp.alpha < 0.01 && phase >= 2) {
+        wp.x = midX + (Math.random() - 0.5) * sep;
+        wp.y = midY + (Math.random() - 0.5) * sep * 0.5;
+        wp.vx = (Math.random() - 0.5) * 0.15;
+        wp.vy = (Math.random() - 0.5) * 0.1;
+        wp.alpha = warmIntensity * 0.15 * Math.random();
+      }
+      wp.x += wp.vx + pink() * 0.2;
+      wp.y += wp.vy + pink() * 0.15;
+      wp.alpha *= 0.997;
+      if (wp.alpha > 0.005) {
+        cx.beginPath(); cx.arc(wp.x, wp.y, wp.size, 0, Math.PI * 2);
+        cx.fillStyle = 'rgba(200,170,120,' + wp.alpha.toFixed(3) + ')';
+        cx.fill();
+      }
+    }
+  }
+
+  // === Entity A (always present — the one that stays) ===
+  var aR = 20 * A.breath;
+  var ga = cx.createRadialGradient(A.x, A.y, 0, A.x, A.y, aR * 3);
+  ga.addColorStop(0, 'rgba(140,180,220,' + (0.08 * A.breath).toFixed(3) + ')');
+  ga.addColorStop(0.5, 'rgba(120,160,200,' + (0.03 * A.breath).toFixed(3) + ')');
+  ga.addColorStop(1, 'rgba(100,140,180,0)');
+  cx.fillStyle = ga;
+  cx.beginPath(); cx.arc(A.x, A.y, aR * 3, 0, Math.PI * 2); cx.fill();
+
+  cx.beginPath(); cx.arc(A.x, A.y, 6 * A.breath, 0, Math.PI * 2);
+  cx.fillStyle = 'rgba(180,210,240,' + (0.6 * A.breath).toFixed(2) + ')';
+  cx.fill();
+  cx.beginPath(); cx.arc(A.x - 1, A.y - 1, 2 * A.breath, 0, Math.PI * 2);
+  cx.fillStyle = 'rgba(220,235,255,0.8)';
+  cx.fill();
+
+  // === Entity B (the one that fades) ===
+  if (B.alpha > 0.005) {
+    var bR = 20 * B.breath * B.alpha;
+    var gb = cx.createRadialGradient(B.x, B.y, 0, B.x, B.y, bR * 3);
+    gb.addColorStop(0, 'rgba(200,160,100,' + (0.08 * B.alpha * B.breath).toFixed(3) + ')');
+    gb.addColorStop(0.5, 'rgba(180,130,70,' + (0.03 * B.alpha * B.breath).toFixed(3) + ')');
+    gb.addColorStop(1, 'rgba(160,100,50,0)');
+    cx.fillStyle = gb;
+    cx.beginPath(); cx.arc(B.x, B.y, bR * 3, 0, Math.PI * 2); cx.fill();
+
+    cx.beginPath(); cx.arc(B.x, B.y, 6 * B.breath * B.alpha, 0, Math.PI * 2);
+    cx.fillStyle = 'rgba(230,200,150,' + (0.6 * B.alpha).toFixed(2) + ')';
+    cx.fill();
+    cx.beginPath(); cx.arc(B.x - 1, B.y - 1, 2 * B.breath * B.alpha, 0, Math.PI * 2);
+    cx.fillStyle = 'rgba(255,240,210,' + (0.8 * B.alpha).toFixed(2) + ')';
+    cx.fill();
+  }
+
+  // === Bridge (visible when both present) ===
+  var bridgeAlpha = Math.min(A.alpha, B.alpha);
+  if (bridgeAlpha > 0.01) {
+    var cpY = midY + Math.sin(t * 0.4) * 8;
+
+    cx.beginPath();
+    cx.moveTo(A.x + 8, A.y);
+    cx.quadraticCurveTo(midX, cpY, B.x - 8, B.y);
+    cx.strokeStyle = 'rgba(180,175,160,' + (bridgeAlpha * 0.12).toFixed(3) + ')';
+    cx.lineWidth = 0.8 + bridgeAlpha;
+    cx.stroke();
+
+    for (var i = 0; i < BP.length; i++) {
+      var b = BP[i];
+      b.p += b.speed * (0.5 + bridgeAlpha * 0.5) * b.dir;
+      if (b.p > 1) { b.p = 0; b.dir = 1; }
+      if (b.p < 0) { b.p = 1; b.dir = -1; }
+      b.alpha += (bridgeAlpha * 0.35 - b.alpha) * 0.03;
+      if (b.alpha < 0.005) continue;
+
+      var bt = b.p;
+      var bx = (1-bt)*(1-bt)*(A.x+8) + 2*(1-bt)*bt*midX + bt*bt*(B.x-8);
+      var by = (1-bt)*(1-bt)*A.y + 2*(1-bt)*bt*cpY + bt*bt*B.y;
+
+      var cr = Math.floor(140 + (220-140)*bt);
+      var cg = Math.floor(185 + (190-185)*bt);
+      var cb = Math.floor(225 + (140-225)*bt);
+      cx.beginPath(); cx.arc(bx, by, 1 + bridgeAlpha * 0.5, 0, Math.PI * 2);
+      cx.fillStyle = 'rgba('+cr+','+cg+','+cb+','+b.alpha.toFixed(3)+')';
+      cx.fill();
+    }
+  }
+
+  // === Whisper text ===
+  whisperAlpha += (whisperTarget - whisperAlpha) * 0.015;
+  if (whisperAlpha > 0.005 && whisperText) {
+    cx.font = '11px Georgia, serif';
+    cx.textAlign = 'center';
+    cx.fillStyle = 'rgba(200,180,150,' + whisperAlpha.toFixed(3) + ')';
+    cx.fillText(whisperText, cx2, H - 40);
+  }
+
+  requestAnimationFrame(draw);
+}
+draw();
+</script>
+</body>
+</html>
