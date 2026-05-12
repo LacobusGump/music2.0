@@ -281,11 +281,50 @@ function updateEvolution(dt) {
     evoK_CROSS = K_CROSS * (1 + Math.min(1, (evoTime - 30) / 180) * 0.8);
   }
 
-  // Phase 4+: cross-coupling can EXCEED internal for highly phase-locked pairs
-  // This is how the 3 is born. Some nodes love the other flock more than their own.
-  // They drift to the space between. The child emerges.
-  if (evoPhase >= 4) {
-    evoK_CROSS = K_CROSS * 2.5; // cross-coupling surpasses internal for synced pairs
+  // Phase 4 (300-480s): the 3 is born
+  if (evoPhase === 4) {
+    evoK_CROSS = K_CROSS * 2.5;
+  }
+
+  // Phase 5 (480-600s): BLACK HOLE — maximum coupling, everything collapses
+  // The system has coupled so tightly it falls inward. K at ceiling.
+  if (evoTime > 480 && evoTime <= 600) {
+    evoPhase = 5;
+    var collapseProgress = (evoTime - 480) / 120; // 0→1 over 2 minutes
+    evoK_INTERNAL = K_INTERNAL * (1.5 + collapseProgress * 2.0); // K goes extreme
+    evoK_CROSS = K_CROSS * (3.0 + collapseProgress * 3.0);
+    // Equilibrium distance collapses — everything pulls inward
+  }
+
+  // Phase 6 (600-610s): THE BOUNCE — white hole, instant expansion
+  if (evoTime > 600 && evoTime <= 610) {
+    evoPhase = 6;
+    // K drops to zero — everything repels. The bounce.
+    evoK_INTERNAL = 0.05;
+    evoK_CROSS = 0.01;
+    // Inject energy — every node gets a radial velocity kick
+    if (evoTime > 600 && evoTime < 601) {
+      for (var bi = 0; bi < N; bi++) {
+        var bangle = Math.atan2(nyA[bi], nxA[bi]) + pinkN() * 0.3;
+        vxA[bi] += Math.cos(bangle) * 0.15;
+        vyA[bi] += Math.sin(bangle) * 0.15;
+      }
+    }
+  }
+
+  // Phase 7 (610s+): REBIRTH — new universe, start over
+  // The cycle repeats. K rebuilds from zero. Structure re-emerges.
+  if (evoTime > 610) {
+    evoPhase = 0;
+    evoTime = 0; // reset the clock
+    evoK_INTERNAL = K_INTERNAL;
+    evoK_CROSS = K_CROSS;
+    // Reset evolution state but keep node positions (they carry the expansion)
+    for (var ri = 0; ri < N; ri++) {
+      nodeSize[ri] = 1.0;
+      nodeWarmth[ri] *= 0.3; // warmth partially survives (the universe remembers)
+    }
+    bondStrength = {};
   }
 
   // Phase 2+: nodes grow/shrink based on coupling success
@@ -1022,7 +1061,15 @@ function draw() {
   scrollOffset+=scrollDelta;
   lastScrollY=scrollY;
 
-  var sc=Math.min(W,H)*0.055;
+  // Adaptive scale: measure the actual spread and fill the screen
+  var maxSpread = 0.1;
+  for(var si=0;si<N;si++){
+    var sd = Math.sqrt(nxA[si]*nxA[si] + nyA[si]*nyA[si]);
+    if(sd > maxSpread) maxSpread = sd;
+  }
+  // Target: the outermost node sits at ~40% of the screen
+  var targetSpread = Math.min(W,H) * 0.38;
+  var sc = targetSpread / Math.max(1, maxSpread);
   var cx2=W/2, cy2=H*0.48+scrollOffset;
 
   // ═══ MOUSE/TOUCH ATTRACTION ═══
