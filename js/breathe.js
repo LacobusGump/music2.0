@@ -35,10 +35,7 @@ var fontRules=
   'font-family:Futura,"Century Gothic",Avenir,"Avenir Next",system-ui,sans-serif !important;}'+
 
   'h1{font-family:Futura,"Century Gothic",Avenir,"Avenir Next",system-ui,sans-serif !important;'+
-  'font-weight:400 !important;letter-spacing:0.06em !important;text-align:center !important;'+
-  'width:100% !important;display:block !important;}'+
-
-  '.sub{text-align:center !important;}'+
+  'font-weight:400 !important;letter-spacing:0.06em !important;text-align:center !important;}'+
 
   'h2{font-family:Futura,"Century Gothic",Avenir,"Avenir Next",system-ui,sans-serif !important;'+
   'font-weight:400 !important;letter-spacing:0.06em !important;}'+
@@ -134,14 +131,7 @@ var fontRules=
     'h1{font-size:1.5em !important;}}';
 document.head.appendChild(style);
 
-// ═══ 0.5 TITLE — pure CSS breathing glow (no JS repaints) ═══
-var titleStyle=document.createElement('style');
-titleStyle.textContent='@keyframes titleBreathe{0%,100%{text-shadow:0 0 8px rgba(184,117,58,0.04);}50%{text-shadow:0 0 16px rgba(184,117,58,0.12);}}';
-document.head.appendChild(titleStyle);
-var h1=document.querySelector('h1');
-if(h1 && isDark && !isHomepage){
-  h1.style.animation='titleBreathe 4s ease-in-out infinite';
-}
+// h1 styling handled by CSS injection above. No animation on mobile.
 
 // ═══ 1. SECTION TITLES: glow on scroll (dark) / fade-in on scroll (light) ═══
 var h2s=document.querySelectorAll('h2');
