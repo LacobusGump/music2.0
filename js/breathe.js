@@ -131,6 +131,88 @@ var fontRules=
     'h1{font-size:1.5em !important;}}';
 document.head.appendChild(style);
 
+// ═══ 0.5 LIVING TITLE — h1 rendered as coupled particles ═══
+var h1=document.querySelector('h1');
+if(h1 && isDark && !isHomepage && h1.textContent.length<60){
+  var titleText=h1.textContent;
+  var titleRect=h1.getBoundingClientRect();
+  var tc=document.createElement('canvas');
+  var tw=Math.ceil(titleRect.width)+20, th=Math.ceil(titleRect.height)+10;
+  tc.width=tw*2;tc.height=th*2;
+  tc.style.cssText='width:'+tw+'px;height:'+th+'px;display:block;';
+  var tcx=tc.getContext('2d');
+  tcx.setTransform(2,0,0,2,0,0);
+
+  // Sample the text shape
+  var offCv=document.createElement('canvas');
+  offCv.width=tw;offCv.height=th;
+  var oc=offCv.getContext('2d');
+  var fs=parseFloat(getComputedStyle(h1).fontSize)||28;
+  oc.font='400 '+fs+'px Futura, Century Gothic, Avenir, system-ui, sans-serif';
+  oc.fillStyle='#b8753a';
+  oc.textBaseline='middle';
+  oc.fillText(titleText,4,th/2);
+  var imgData=oc.getImageData(0,0,tw,th).data;
+
+  // Extract particle positions from text pixels
+  var titlePts=[];
+  var step=3;
+  for(var py2=0;py2<th;py2+=step){
+    for(var px2=0;px2<tw;px2+=step){
+      var idx4=(py2*tw+px2)*4;
+      if(imgData[idx4+3]>80){
+        titlePts.push({
+          hx:px2,hy:py2,x:px2,y:py2,
+          phase:Math.random()*Math.PI*2,
+          omega:(0.3+Math.random()*0.5)*Math.PI*2*0.3,
+          r:imgData[idx4],g:imgData[idx4+1],b:imgData[idx4+2]
+        });
+      }
+    }
+  }
+
+  if(titlePts.length>10){
+    h1.style.visibility='hidden';
+    h1.style.position='relative';
+    tc.style.position='absolute';
+    tc.style.left='0';tc.style.top='0';
+    h1.parentNode.insertBefore(tc,h1.nextSibling);
+
+    var titleT=0;
+    var titleK=0.6;
+    function drawTitle(){
+      titleT+=0.016;
+      tcx.clearRect(0,0,tw,th);
+
+      // Kuramoto mean field
+      var mre2=0,mim2=0;
+      for(var i=0;i<titlePts.length;i++){
+        mre2+=Math.cos(titlePts[i].phase);
+        mim2+=Math.sin(titlePts[i].phase);
+      }
+      mre2/=titlePts.length;mim2/=titlePts.length;
+      var psi2=Math.atan2(mim2,mre2);
+
+      for(var i=0;i<titlePts.length;i++){
+        var p=titlePts[i];
+        // Phase coupling
+        p.phase+=0.016*(p.omega+titleK*Math.sin(psi2-p.phase));
+        var breath=Math.sin(p.phase);
+
+        // Subtle drift from home position
+        p.x=p.hx+Math.sin(titleT*0.3+i*0.1)*0.8;
+        p.y=p.hy+Math.cos(titleT*0.25+i*0.13)*0.6;
+
+        var alpha=0.5+Math.abs(breath)*0.5;
+        tcx.fillStyle='rgba('+p.r+','+p.g+','+p.b+','+alpha.toFixed(2)+')';
+        tcx.fillRect(p.x,p.y,step*0.7,step*0.7);
+      }
+      requestAnimationFrame(drawTitle);
+    }
+    drawTitle();
+  }
+}
+
 // ═══ 1. SECTION TITLES: glow on scroll (dark) / fade-in on scroll (light) ═══
 var h2s=document.querySelectorAll('h2');
 if(h2s.length>0&&'IntersectionObserver' in window){
