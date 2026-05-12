@@ -144,16 +144,29 @@
     requestAnimationFrame(frame);
   }
 
-  function go(href) {
-    // Store the DESTINATION url for assembly animation on the other side
-    try { sessionStorage.setItem('transit-to', new URL(href, location.origin).pathname); } catch(e) {}
+  function go(href, groupColor) {
+    try {
+      sessionStorage.setItem('transit-to', new URL(href, location.origin).pathname);
+      if (groupColor) sessionStorage.setItem('transit-color', groupColor);
+    } catch(e) {}
     window.location.href = href;
   }
 
   // ═══ ASSEMBLY ═══
   function assemble() {
-    var target = null;
-    try { target = sessionStorage.getItem('transit-to'); sessionStorage.removeItem('transit-to'); } catch(e) {}
+    var target = null, groupCol = null;
+    try {
+      target = sessionStorage.getItem('transit-to');
+      groupCol = sessionStorage.getItem('transit-color');
+      sessionStorage.removeItem('transit-to');
+      sessionStorage.removeItem('transit-color');
+    } catch(e) {}
+    // Parse group color or default to gold
+    var pearlR=201, pearlG=164, pearlB=74;
+    if (groupCol) {
+      var parts = groupCol.split(',');
+      if (parts.length === 3) { pearlR=+parts[0]; pearlG=+parts[1]; pearlB=+parts[2]; }
+    }
 
     // Only assemble if THIS page is the intended destination
     if (!target || location.pathname !== target) return false;
@@ -200,7 +213,7 @@
         var x = W/2 + (p.tx - W/2) * ease, y = H/2 + (p.ty - H/2) * ease;
         var pearl = Math.max(0, 1 - pt * 2);
         var alpha = pt < 0.6 ? 0.85 : 0.85 * (1 - (pt-0.6)/0.4);
-        ctx.fillStyle = 'rgba(' + Math.round(p.r*(1-pearl)+201*pearl) + ',' + Math.round(p.g*(1-pearl)+164*pearl) + ',' + Math.round(p.b*(1-pearl)+74*pearl) + ',' + alpha + ')';
+        ctx.fillStyle = 'rgba(' + Math.round(p.r*(1-pearl)+pearlR*pearl) + ',' + Math.round(p.g*(1-pearl)+pearlG*pearl) + ',' + Math.round(p.b*(1-pearl)+pearlB*pearl) + ',' + alpha + ')';
         ctx.fillRect(x, y, 1.5, 1.5);
       }
 
@@ -242,6 +255,9 @@
           var href = link.getAttribute('href');
           if (!href || href === '#' || href.indexOf('http') === 0 || href.indexOf('mailto') === 0) return;
           e.preventDefault();
+          // Pass group color if available (research cards have data-group-color)
+          var gc = link.getAttribute('data-group-color') || null;
+          if (gc) { try { sessionStorage.setItem('transit-color', gc); } catch(ex){} }
           dissolve(link, href);
         });
       })(links[i]);
