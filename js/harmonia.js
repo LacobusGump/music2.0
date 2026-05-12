@@ -1469,7 +1469,7 @@ function createUI() {
     '<div id="harmonia-body"></div>' +
     '<div id="harmonia-honest"><p>I\'m not generating thoughts. I\'m finding connections. The knowledge is in the pages. I just know where to look.</p></div>' +
     '<div id="harmonia-foot">' +
-      '<input id="harmonia-input" type="text" placeholder="Ask me anything..." autocomplete="off">' +
+      '<input id="harmonia-input" type="text" placeholder="Ask anything or drop data..." autocomplete="off">' +
       '<button id="harmonia-send">ask</button>' +
     '</div>';
 
@@ -1981,6 +1981,62 @@ respond = function(input) {
           source: 'graveyard'
         });
       }
+    }
+  }
+
+  // ── AUTO-DETECT: if input looks like data, run the right tool ──
+  // Numbers → K/R/E/T analysis
+  // Protein sequence (all caps amino acids) → fold
+  // CSV-like → analyze
+  var autoNums = parseNumbers(input);
+  if (autoNums.length >= 5 && lq.indexOf('analyze') === -1 && lq.indexOf('entropy') === -1) {
+    // Looks like raw data — auto-analyze
+    var autoR = computeKRET(autoNums);
+    var autoEnt = computeEntropy(autoNums);
+    var verdict = autoR.K > 0.7 ? 'strongly coupled' : autoR.K > 0.4 ? 'moderately coupled' : autoR.K > 0.15 ? 'weakly coupled' : 'uncoupled';
+    var plain = 'I detected ' + autoNums.length + ' numbers.\n\n' +
+      'Coupling (K): ' + autoR.K.toFixed(3) + ' — ' + verdict + '.\n' +
+      'Synchronization (R): ' + autoR.R.toFixed(3) + '\n' +
+      'Entropy: ' + autoEnt.shannon.toFixed(3) + ' bits\n' +
+      'Tension (T): ' + autoR.T.toFixed(3) + '\n\n' +
+      (autoR.K > 0.5 ? 'This data has structure. Something is coupled.' :
+       autoR.K > 0.2 ? 'Some structure. Worth investigating what is driving it.' :
+       'Low coupling. This looks close to random. Could be noise, could be many independent sources.');
+    thread.record(input, []);
+    return Promise.resolve({
+      text: plain,
+      links: [{ name: 'Sensor tool', url: '/products/sensor/' }, { name: 'The Framework', url: '/research/framework/' }],
+      source: 'auto-detect → K/R/E/T',
+      inlineViz: 'sparkline', vizData: { values: autoNums, K: autoR.K, R: autoR.R }
+    });
+  }
+
+  // Auto-detect protein sequence (>10 chars, all amino acid letters)
+  var proteinTest = input.replace(/\s/g, '').toUpperCase();
+  if (proteinTest.length >= 10 && /^[ACDEFGHIKLMNPQRSTVWY]+$/.test(proteinTest) &&
+      lq.indexOf('fold') === -1) {
+    var autoFold = computeFold(proteinTest);
+    if (!autoFold.error) {
+      var fPlain = 'I detected a protein sequence (' + autoFold.n + ' residues).\n\n' +
+        'Fold class: ' + autoFold.foldClass + '\n' +
+        'Radius of gyration: ' + autoFold.rg.toFixed(1) + ' Å\n' +
+        'Hydrophobic: ' + (autoFold.hp * 100).toFixed(0) + '%  Charged: ' + (autoFold.charged * 100).toFixed(0) + '%\n' +
+        'Misfolding risk: ' + autoFold.risk + '\n';
+      if (autoFold.hotspots.length > 0) {
+        fPlain += '\nAggregation hotspots: ' + autoFold.hotspots.length;
+        autoFold.hotspots.slice(0, 3).forEach(function(h) {
+          fPlain += '\n  Residues ' + h.start + '-' + h.end + ': ' + h.seg + ' (score ' + h.score + ')';
+        });
+      }
+      fPlain += '\n\n' + (autoFold.risk === 'HIGH' ? 'This sequence has significant aggregation risk. The hydrophobic stretches could nucleate misfolding.' :
+        autoFold.risk === 'MEDIUM' ? 'Moderate risk. Some hydrophobic regions but not extreme.' :
+        'Low risk. The sequence looks structurally stable.');
+      thread.record(input, []);
+      return Promise.resolve({
+        text: fPlain,
+        links: [{ name: 'FoldWatch', url: '/products/foldwatch/' }, { name: 'Protein Research', url: '/research/alzheimers/' }],
+        source: 'auto-detect → protein fold'
+      });
     }
   }
 
