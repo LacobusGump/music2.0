@@ -146,6 +146,7 @@ body::after{content:"";position:fixed;top:0;left:0;width:100%;height:100%;
     <button class="tab" data-viz="pendulum">Double Pendulum</button>
     <button class="tab" data-viz="turing">Turing Patterns</button>
     <button class="tab" data-viz="creation">Creation</button>
+    <button class="tab" data-viz="whitehole">White Hole</button>
   </div>
 </div>
 
@@ -183,7 +184,7 @@ body::after{content:"";position:fixed;top:0;left:0;width:100%;height:100%;
 // ═══════════════════════════════════════════════════════════════
 // FLEX — deep mathematical visualizations
 //
-// Nine systems. One canvas. All warm. All alive.
+// Ten systems. One canvas. All warm. All alive.
 // No spinning 3D. Parallax from z-depth. Drag to tilt.
 // ═══════════════════════════════════════════════════════════════
 (function(){
@@ -310,6 +311,7 @@ function switchViz(name){
   else if(name === 'pendulum') initPendulum();
   else if(name === 'turing') initTuring();
   else if(name === 'creation') initCreation();
+  else if(name === 'whitehole') initWhiteHole();
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -3023,6 +3025,616 @@ function crDrawStage(idx, t, cx2, W2, H2){
 }
 
 // ═══════════════════════════════════════════════════════════════
+// 10. WHITE HOLE — time-reversal of collapse. Birth, not explosion.
+// ═══════════════════════════════════════════════════════════════
+var whN = 150;           // particle count (tuned for 60fps)
+var whParticles = [];    // {x,y,z, vx,vy,vz, phase, omega, born, coupled, coupledTo, trail}
+var whR = 0;             // global order parameter
+var whPrevR = 0;
+var whK = 1.2;           // coupling in the debris field
+var whTime = 0;
+var whCyclePhase = 0;    // 0=build, 1=erupt, 2=couple, 3=structure, 4=collapse
+var whCycleT = 0;        // fractional progress within phase
+var whSingularityR = 0;  // singularity visual radius
+var whPressure = 0;      // internal pressure buildup
+var whEruptionAge = 0;   // how long since last eruption
+var whCorrelationSeeds = []; // memory from previous cycle
+var whCycleCount = 0;
+var whShockwave = 0;    // expanding ring radius (0 = none)
+var whShockAlpha = 0;   // ring brightness
+var whFlash = 0;        // birth flash intensity
+var whPrevPhase = -1;   // for detecting phase transitions
+
+var WH_CYCLE_NAMES = ['building','erupting','coupling','crystallizing','collapsing'];
+var WH_CYCLE_DURS  = [3.0, 2.0, 5.0, 4.0, 3.0];
+
+function initWhiteHole(){
+  titleEl.textContent = 'White Hole';
+  descEl.textContent = 'Every ending carries 7 seeds into the next beginning. The singularity is where inside and outside stop existing.';
+  whParticles = [];
+  whR = 0; whPrevR = 0;
+  whK = 1.2;
+  whTime = 0;
+  whCyclePhase = 0;
+  whCycleT = 0;
+  whSingularityR = 6;
+  whPressure = 0;
+  whEruptionAge = 0;
+  whCorrelationSeeds = [];
+  whCycleCount = 0;
+  whShockwave = 0;
+  whShockAlpha = 0;
+  whFlash = 0;
+  whPrevPhase = -1;
+
+  // Seed initial correlation memory (as if a previous universe collapsed)
+  for(var i=0; i<7; i++){
+    whCorrelationSeeds.push({
+      angle: i * PI2 / 7 + Math.random()*0.3,
+      phase: i * PI2 / 7,
+      omega: 0.8 + Math.random()*0.4
+    });
+  }
+
+  // K slider
+  ctrlEl.innerHTML =
+    '<div class="slider-wrap">' +
+    '<span class="slider-label">K (debris coupling)</span>' +
+    '<input type="range" id="whKSlider" min="0" max="4" step="0.01" value="1.2">' +
+    '<span class="slider-val" id="whKVal">1.20</span>' +
+    '</div>';
+  document.getElementById('whKSlider').addEventListener('input', function(){
+    whK = parseFloat(this.value);
+    document.getElementById('whKVal').textContent = whK.toFixed(2);
+  });
+}
+
+function whSpawnParticle(fromSeed){
+  var seed = fromSeed || whCorrelationSeeds[Math.floor(Math.random()*whCorrelationSeeds.length)];
+  var spread = 0.4 + Math.random()*0.6;
+  var angle = seed.angle + (Math.random()-0.5)*spread;
+  var elev = (Math.random()-0.5)*spread*0.8;
+
+  // Velocity: outward from center, correlated with seed direction
+  var speed = 0.8 + Math.random()*2.5;
+  var cosE = Math.cos(elev), sinE = Math.sin(elev);
+
+  var p = {
+    x: 0, y: 0, z: 0,
+    vx: Math.cos(angle)*cosE*speed,
+    vy: Math.sin(angle)*cosE*speed,
+    vz: sinE*speed,
+    phase: seed.phase + (Math.random()-0.5)*0.5,
+    omega: seed.omega + (Math.random()-0.5)*0.2,
+    born: whTime,
+    life: 1.0,
+    coupled: false,
+    localSync: 0
+  };
+  return p;
+}
+
+function stepWhiteHole(){
+  var dt = 0.016;
+  whTime += dt;
+
+  // Advance cycle
+  var totalDur = 0;
+  for(var i=0; i<WH_CYCLE_DURS.length; i++) totalDur += WH_CYCLE_DURS[i];
+  var cycleTime = whTime % totalDur;
+  var acc = 0;
+  for(var i=0; i<WH_CYCLE_DURS.length; i++){
+    if(cycleTime < acc + WH_CYCLE_DURS[i]){
+      if(whCyclePhase !== i && i === 0) whCycleCount++;
+      whCyclePhase = i;
+      whCycleT = (cycleTime - acc) / WH_CYCLE_DURS[i];
+      break;
+    }
+    acc += WH_CYCLE_DURS[i];
+  }
+
+  // Detect phase transitions
+  if(whCyclePhase !== whPrevPhase){
+    // Eruption just started — trigger shockwave and flash
+    if(whCyclePhase === 1){
+      whShockwave = 1;
+      whShockAlpha = 0.8;
+      whFlash = 1.0;
+    }
+    whPrevPhase = whCyclePhase;
+  }
+
+  // Decay shockwave and flash
+  if(whShockwave > 0){
+    whShockwave += 4.0 * dt * 60; // expand fast
+    whShockAlpha *= 0.96;
+    if(whShockAlpha < 0.005){ whShockwave = 0; whShockAlpha = 0; }
+  }
+  if(whFlash > 0) whFlash *= 0.93;
+
+  // ═══ PHASE 0: BUILD PRESSURE ═══
+  if(whCyclePhase === 0){
+    whPressure = whCycleT * whCycleT; // quadratic buildup
+    whSingularityR = 3 + whPressure * 8;
+    // Attract any remaining particles inward
+    for(var i=whParticles.length-1; i>=0; i--){
+      var p = whParticles[i];
+      var dist = Math.sqrt(p.x*p.x + p.y*p.y + p.z*p.z);
+      if(dist > 0.5){
+        var pull = 3.0 * dt;
+        p.vx -= p.x/dist * pull;
+        p.vy -= p.y/dist * pull;
+        p.vz -= p.z/dist * pull;
+      }
+      p.x += p.vx*dt; p.y += p.vy*dt; p.z += p.vz*dt;
+      p.vx *= 0.95; p.vy *= 0.95; p.vz *= 0.95;
+      p.life -= dt*0.3;
+      if(p.life <= 0 || dist < 2) whParticles.splice(i,1);
+    }
+  }
+
+  // ═══ PHASE 1: ERUPTION ═══
+  else if(whCyclePhase === 1){
+    whPressure = 1 - whCycleT;
+    whSingularityR = 3 + (1-whCycleT)*12;
+    // Spawn particles in bursts, correlated by seeds
+    var spawnRate = whCycleT < 0.4 ? 8 : (whCycleT < 0.7 ? 4 : 1);
+    for(var s=0; s<spawnRate; s++){
+      if(whParticles.length < whN){
+        whParticles.push(whSpawnParticle());
+      }
+    }
+    // Move all particles outward
+    for(var i=0; i<whParticles.length; i++){
+      var p = whParticles[i];
+      p.x += p.vx*dt; p.y += p.vy*dt; p.z += p.vz*dt;
+      // Slight deceleration
+      p.vx *= 0.998; p.vy *= 0.998; p.vz *= 0.998;
+      p.phase += p.omega * dt;
+    }
+  }
+
+  // ═══ PHASE 2: COUPLING ═══
+  else if(whCyclePhase === 2){
+    whSingularityR = 3 + Math.sin(whTime*2)*1;
+    whPressure = 0;
+    // Kuramoto coupling between nearby particles
+    var effectiveK = whK * whCycleT;
+    for(var i=0; i<whParticles.length; i++){
+      var p = whParticles[i];
+      // Move (slowing down)
+      p.x += p.vx*dt; p.y += p.vy*dt; p.z += p.vz*dt;
+      p.vx *= 0.995; p.vy *= 0.995; p.vz *= 0.995;
+
+      // Phase coupling with neighbors (single pass for sync + localSync)
+      var syncSum = 0, nNeighbors = 0, localSyncSum = 0;
+      for(var j=0; j<whParticles.length; j++){
+        if(j===i) continue;
+        var q = whParticles[j];
+        var ddx=q.x-p.x, ddy=q.y-p.y, ddz=q.z-p.z;
+        var d2 = ddx*ddx+ddy*ddy+ddz*ddz;
+        if(d2 < 100){ // coupling radius
+          var phaseDiff = q.phase - p.phase;
+          syncSum += Math.sin(phaseDiff);
+          nNeighbors++;
+          // Compute localSync inline
+          var pd = Math.abs(phaseDiff) % PI2;
+          if(pd > Math.PI) pd = PI2 - pd;
+          localSyncSum += 1 - pd/Math.PI;
+          // Gentle spatial attraction between coupled particles
+          if(d2 > 4){
+            var attract = effectiveK * 0.01 * dt;
+            p.vx += ddx/Math.sqrt(d2) * attract;
+            p.vy += ddy/Math.sqrt(d2) * attract;
+            p.vz += ddz/Math.sqrt(d2) * attract;
+          }
+        }
+      }
+      if(nNeighbors > 0){
+        p.phase += dt * (p.omega + effectiveK * syncSum / nNeighbors);
+        p.localSync = localSyncSum / nNeighbors;
+      } else {
+        p.phase += dt * p.omega;
+        p.localSync = 0;
+      }
+
+      p.phase = ((p.phase % PI2) + PI2) % PI2;
+    }
+  }
+
+  // ═══ PHASE 3: CRYSTALLIZE ═══
+  else if(whCyclePhase === 3){
+    whSingularityR = 2 + Math.sin(whTime*3)*0.5;
+    // Strong coupling — structure forms
+    var effectiveK2 = whK * 1.5;
+    var nParts = whParticles.length;
+    for(var i=0; i<nParts; i++){
+      var p = whParticles[i];
+      p.x += p.vx*dt; p.y += p.vy*dt; p.z += p.vz*dt;
+      p.vx *= 0.99; p.vy *= 0.99; p.vz *= 0.99;
+
+      // Only check forward neighbors (symmetric forces)
+      var syncSum = 0, nNeighbors = 0, localSyncSum = 0;
+      for(var j=i+1; j<nParts; j++){
+        var q = whParticles[j];
+        var ddx=q.x-p.x, ddy=q.y-p.y, ddz=q.z-p.z;
+        var d2 = ddx*ddx+ddy*ddy+ddz*ddz;
+        if(d2 < 100){
+          var phaseDiff = q.phase - p.phase;
+          var sinPD = Math.sin(phaseDiff);
+          syncSum += sinPD;
+          nNeighbors++;
+          var pd = Math.abs(phaseDiff) % PI2;
+          if(pd > Math.PI) pd = PI2 - pd;
+          localSyncSum += 1 - pd/Math.PI;
+          if(d2 > 4){
+            var invD = 1/Math.sqrt(d2);
+            var attract = effectiveK2 * 0.015 * dt;
+            var fx = ddx*invD * attract;
+            var fy = ddy*invD * attract;
+            var fz = ddz*invD * attract;
+            p.vx += fx; p.vy += fy; p.vz += fz;
+            q.vx -= fx; q.vy -= fy; q.vz -= fz;
+          }
+          // Apply phase coupling to q symmetrically
+          q.phase -= dt * effectiveK2 * sinPD * 0.5;
+        }
+      }
+      if(nNeighbors > 0){
+        p.phase += dt * (p.omega + effectiveK2 * syncSum / nNeighbors);
+        p.localSync = p.localSync*0.7 + (localSyncSum / nNeighbors)*0.3;
+      } else {
+        p.phase += dt * p.omega;
+        p.localSync *= 0.9;
+      }
+      p.phase = ((p.phase % PI2) + PI2) % PI2;
+    }
+  }
+
+  // ═══ PHASE 4: COLLAPSE BACK ═══
+  else if(whCyclePhase === 4){
+    whPressure = whCycleT * 0.5;
+    whSingularityR = 2 + whCycleT * 6;
+    // Harvest correlation structure before collapse
+    if(whCycleT < 0.1 && whCorrelationSeeds.length < 20){
+      // Save current cluster phases as seeds for next cycle
+      whCorrelationSeeds = [];
+      var step = Math.max(1, Math.floor(whParticles.length/7));
+      for(var i=0; i<whParticles.length; i+=step){
+        var p = whParticles[i];
+        var angle = Math.atan2(p.y, p.x);
+        whCorrelationSeeds.push({
+          angle: angle,
+          phase: p.phase,
+          omega: p.omega
+        });
+        if(whCorrelationSeeds.length >= 7) break;
+      }
+    }
+    // Pull everything back in — SPIRAL, not straight
+    for(var i=whParticles.length-1; i>=0; i--){
+      var p = whParticles[i];
+      var dist = Math.sqrt(p.x*p.x + p.y*p.y + p.z*p.z);
+      if(dist > 0.1){
+        var pull = (1 + whCycleT * 5) * dt;
+        // Radial pull inward
+        p.vx -= p.x/dist * pull;
+        p.vy -= p.y/dist * pull;
+        p.vz -= p.z/dist * pull;
+        // Tangential spin — accretion disk
+        var spin = pull * 0.6;
+        p.vx += -p.y/dist * spin;
+        p.vy += p.x/dist * spin;
+        // Flatten to disk as it spirals
+        p.vz *= 0.97;
+      }
+      p.x += p.vx*dt; p.y += p.vy*dt; p.z += p.vz*dt;
+      p.life -= dt * 0.2 * whCycleT;
+      if(dist < 1.5 && whCycleT > 0.5){
+        whParticles.splice(i,1);
+      }
+    }
+  }
+
+  // Compute global R
+  var re=0, im=0;
+  for(var i=0; i<whParticles.length; i++){
+    re += Math.cos(whParticles[i].phase);
+    im += Math.sin(whParticles[i].phase);
+  }
+  var n = whParticles.length || 1;
+  re /= n; im /= n;
+  var rawR = Math.sqrt(re*re+im*im);
+  whR = whPrevR*0.92 + rawR*0.08;
+  whPrevR = whR;
+}
+
+function drawWhiteHole(){
+  // Clean clear — clarity over trails
+  cx.fillStyle = '#0a0706';
+  cx.fillRect(0,0,W,H);
+
+  stepWhiteHole();
+
+  var centerX = W*0.5, centerY = H*0.48;
+  var sc = Math.min(W,H)*0.018;
+
+  // 3D projection
+  var cosA = Math.cos(dragAngleX), sinA = Math.sin(dragAngleX);
+  var cosB = Math.cos(dragAngleY-0.2), sinB = Math.sin(dragAngleY-0.2);
+
+  // ═══ AMBIENT FIELD — subtle depth ═══
+  var ambGrad = cx.createRadialGradient(centerX,centerY,0,centerX,centerY,Math.max(W,H)*0.6);
+  ambGrad.addColorStop(0, 'rgba(26,17,13,0.4)');
+  ambGrad.addColorStop(0.5, 'rgba(15,10,7,0.2)');
+  ambGrad.addColorStop(1, 'rgba(10,7,6,0)');
+  cx.fillStyle = ambGrad;
+  cx.fillRect(0,0,W,H);
+
+  // ═══ SINGULARITY ═══
+  var singPulse = 0.7 + Math.sin(whTime*4)*0.3;
+  var singR = whSingularityR * singPulse;
+
+  // Layer 1: wide atmospheric glow
+  var atmo = cx.createRadialGradient(centerX,centerY,0,centerX,centerY,singR*14);
+  var atmoA = whPressure*0.15 + 0.02;
+  atmo.addColorStop(0, crRgba(255,220,160, atmoA));
+  atmo.addColorStop(0.3, crRgba(184,117,58, atmoA*0.3));
+  atmo.addColorStop(1, 'rgba(184,117,58,0)');
+  cx.fillStyle = atmo;
+  cx.beginPath(); cx.arc(centerX,centerY,singR*14,0,PI2); cx.fill();
+
+  // Layer 2: gold halo
+  var outerGlow = cx.createRadialGradient(centerX,centerY,0,centerX,centerY,singR*6);
+  var glowIntensity = whPressure*0.5 + 0.08;
+  outerGlow.addColorStop(0, crRgba(255,240,200, glowIntensity*singPulse));
+  outerGlow.addColorStop(0.2, crRgba(240,200,120, glowIntensity*0.5));
+  outerGlow.addColorStop(0.5, crRgba(210,140,60, glowIntensity*0.15));
+  outerGlow.addColorStop(1, 'rgba(184,117,58,0)');
+  cx.fillStyle = outerGlow;
+  cx.beginPath(); cx.arc(centerX,centerY,singR*6,0,PI2); cx.fill();
+
+  // Layer 3: bright corona
+  var corona = cx.createRadialGradient(centerX,centerY,singR*0.3,centerX,centerY,singR*2.5);
+  corona.addColorStop(0, crRgba(255,250,230, 0.9*singPulse));
+  corona.addColorStop(0.3, crRgba(255,235,180, 0.5*singPulse));
+  corona.addColorStop(0.7, crRgba(240,190,100, 0.15*singPulse));
+  corona.addColorStop(1, 'rgba(230,180,100,0)');
+  cx.fillStyle = corona;
+  cx.beginPath(); cx.arc(centerX,centerY,singR*2.5,0,PI2); cx.fill();
+
+  // Layer 4: white-hot core
+  var coreGrad = cx.createRadialGradient(centerX,centerY,0,centerX,centerY,singR*0.8);
+  coreGrad.addColorStop(0, crRgba(255,255,248, 0.95*singPulse));
+  coreGrad.addColorStop(0.4, crRgba(255,245,220, 0.7*singPulse));
+  coreGrad.addColorStop(0.8, crRgba(255,230,180, 0.3*singPulse));
+  coreGrad.addColorStop(1, 'rgba(255,220,160,0)');
+  cx.fillStyle = coreGrad;
+  cx.beginPath(); cx.arc(centerX,centerY,singR*0.8,0,PI2); cx.fill();
+
+  // ═══ BIRTH FLASH ═══
+  if(whFlash > 0.01){
+    var flashGrad = cx.createRadialGradient(centerX,centerY,0,centerX,centerY,Math.max(W,H)*0.4*whFlash);
+    flashGrad.addColorStop(0, crRgba(255,252,240, whFlash*0.4));
+    flashGrad.addColorStop(0.3, crRgba(255,240,200, whFlash*0.15));
+    flashGrad.addColorStop(1, 'rgba(255,230,180,0)');
+    cx.fillStyle = flashGrad;
+    cx.fillRect(0,0,W,H);
+  }
+
+  // ═══ SHOCKWAVE RING ═══
+  if(whShockwave > 0 && whShockAlpha > 0.01){
+    var ringR = whShockwave * sc * 2;
+    var ringW = 2 + whShockwave * 0.3;
+    cx.strokeStyle = 'rgba(255,240,200,'+(whShockAlpha*0.5).toFixed(4)+')';
+    cx.lineWidth = ringW;
+    cx.beginPath(); cx.arc(centerX,centerY,ringR,0,PI2); cx.stroke();
+    // Soft inner glow on ring
+    cx.strokeStyle = 'rgba(230,190,110,'+(whShockAlpha*0.15).toFixed(4)+')';
+    cx.lineWidth = ringW*3;
+    cx.beginPath(); cx.arc(centerX,centerY,ringR,0,PI2); cx.stroke();
+  }
+
+  // ═══ PROJECT PARTICLES ═══
+  var projected = [];
+  for(var i=0; i<whParticles.length; i++){
+    var p = whParticles[i];
+    var x1 = p.x*cosA - p.y*sinA;
+    var y1t = p.x*sinA + p.y*cosA;
+    var y1 = y1t*cosB - p.z*sinB;
+    var z1 = y1t*sinB + p.z*cosB;
+
+    var persp = 400/(400 + z1*sc*0.5);
+    projected.push({
+      i: i,
+      sx: centerX + x1*sc*persp,
+      sy: centerY + y1*sc*persp,
+      z: z1,
+      persp: persp
+    });
+  }
+  projected.sort(function(a,b){ return b.z - a.z; });
+
+  // ═══ COUPLING THREADS ═══
+  cx.globalCompositeOperation = 'lighter';
+  var syncCount = 0;
+  for(var k=0; k<projected.length; k++){
+    var pr = projected[k];
+    var p = whParticles[pr.i];
+    if(p.localSync < 0.35) continue;
+
+    for(var k2=k+1; k2<projected.length; k2++){
+      var pr2 = projected[k2];
+      var p2 = whParticles[pr2.i];
+
+      var ddx=p2.x-p.x, ddy=p2.y-p.y, ddz=p2.z-p.z;
+      var d2 = ddx*ddx+ddy*ddy+ddz*ddz;
+      if(d2 > 100) continue;
+
+      var pd = Math.abs(p.phase - p2.phase) % PI2;
+      if(pd > Math.PI) pd = PI2 - pd;
+      var sync = 1 - pd/Math.PI;
+      if(sync < 0.55) continue;
+
+      syncCount++;
+      var s2 = sync*sync*sync; // cubic falloff — only strong bonds visible
+      var pMin = Math.min(pr.persp, pr2.persp);
+      var dFade = 1 - Math.sqrt(d2)/10; // distance fade
+
+      var alpha = s2 * 0.3 * pMin * dFade;
+      // Single warm gold — no color tiers
+      cx.strokeStyle = 'rgba(230,190,110,'+alpha.toFixed(4)+')';
+      cx.lineWidth = (0.3+s2*1.2)*pMin;
+      cx.beginPath(); cx.moveTo(pr.sx,pr.sy); cx.lineTo(pr2.sx,pr2.sy); cx.stroke();
+    }
+  }
+  cx.globalCompositeOperation = 'source-over';
+
+  // ═══ DRAW PARTICLES ═══
+  for(var k=0; k<projected.length; k++){
+    var pr = projected[k];
+    var p = whParticles[pr.i];
+
+    var age = Math.min(1, (whTime - p.born)*0.4);
+    var dist = Math.sqrt(p.x*p.x + p.y*p.y + p.z*p.z);
+    var sync = p.localSync || 0;
+
+    // Color ramp: deep slate → warm ember → bright gold
+    var cr, cg, cb;
+    var t_sync = Math.min(1, sync);
+    if(t_sync < 0.2){
+      // Cold — dim slate, barely visible
+      var t = t_sync * 5;
+      cr = Math.round(35 + t*60);
+      cg = Math.round(40 + t*35);
+      cb = Math.round(65 - t*20);
+    } else if(t_sync < 0.5){
+      // Warming — ember territory
+      var t = (t_sync-0.2)/0.3;
+      cr = Math.round(95 + t*100);
+      cg = Math.round(75 + t*45);
+      cb = Math.round(45 + t*10);
+    } else {
+      // Coupled — bright gold
+      var t = (t_sync-0.5)/0.5;
+      cr = Math.round(195 + t*45);
+      cg = Math.round(120 + t*70);
+      cb = Math.round(55 + t*55);
+    }
+
+    // Depth + sync based brightness — uncoupled particles MUCH dimmer
+    var depthDim = 0.3 + pr.persp * 0.7;
+    var syncBright = sync < 0.2 ? 0.15 : (0.3 + sync*0.7);
+    var bright = syncBright * age * depthDim;
+    var breath = Math.sin(p.phase)*0.1 + 0.9;
+    var sz = (1.0 + sync*2.2) * pr.persp * breath;
+
+    // Glow ONLY on well-coupled, foreground particles (saves ~60% gradient calls)
+    if(sync > 0.5 && pr.persp > 0.4 && bright > 0.3){
+      var glowR2 = sz * (2 + sync*3);
+      var grad = cx.createRadialGradient(pr.sx,pr.sy,sz*0.3,pr.sx,pr.sy,glowR2);
+      grad.addColorStop(0, 'rgba('+cr+','+cg+','+cb+','+(bright*sync*0.18).toFixed(4)+')');
+      grad.addColorStop(1, 'rgba('+cr+','+cg+','+cb+',0)');
+      cx.fillStyle = grad;
+      cx.beginPath(); cx.arc(pr.sx,pr.sy,glowR2,0,PI2); cx.fill();
+    }
+
+    // Velocity streak — eruption only (skip in coupling for perf)
+    if(whCyclePhase === 1 && age < 0.5){
+      var speed = Math.sqrt(p.vx*p.vx + p.vy*p.vy + p.vz*p.vz);
+      if(speed > 0.5){
+        var tx = p.x - p.vx*2;
+        var ty = p.y - p.vy*2;
+        var tz = p.z - p.vz*2;
+        var tx1 = tx*cosA - ty*sinA;
+        var ty1t = tx*sinA + ty*cosA;
+        var ty1 = ty1t*cosB - tz*sinB;
+        var tpersp = 400/(400 + (ty1t*sinB + tz*cosB)*sc*0.5);
+        var tsx = centerX + tx1*sc*tpersp;
+        var tsy = centerY + ty1*sc*tpersp;
+
+        cx.strokeStyle = 'rgba('+cr+','+cg+','+cb+','+(bright*0.35).toFixed(4)+')';
+        cx.lineWidth = sz * 0.35;
+        cx.beginPath(); cx.moveTo(pr.sx,pr.sy); cx.lineTo(tsx,tsy); cx.stroke();
+      }
+    }
+
+    // Core dot — simple circle for dim particles, gradient for bright ones
+    if(bright < 0.25){
+      cx.fillStyle = 'rgba('+cr+','+cg+','+cb+','+bright.toFixed(4)+')';
+      cx.beginPath(); cx.arc(pr.sx,pr.sy,sz*0.7,0,PI2); cx.fill();
+    } else {
+      var coreGrad2 = cx.createRadialGradient(pr.sx,pr.sy,0,pr.sx,pr.sy,sz);
+      coreGrad2.addColorStop(0, 'rgba('+Math.min(255,cr+35)+','+Math.min(255,cg+25)+','+Math.min(255,cb+20)+','+bright.toFixed(4)+')');
+      coreGrad2.addColorStop(0.5, 'rgba('+cr+','+cg+','+cb+','+(bright*0.6).toFixed(4)+')');
+      coreGrad2.addColorStop(1, 'rgba('+cr+','+cg+','+cb+',0)');
+      cx.fillStyle = coreGrad2;
+      cx.beginPath(); cx.arc(pr.sx,pr.sy,sz,0,PI2); cx.fill();
+    }
+
+    // Hot white core on freshly erupted particles
+    if(age < 0.2 && bright > 0.2){
+      var hotAlpha = (0.2-age)/0.2 * 0.85 * depthDim;
+      cx.fillStyle = 'rgba(255,252,240,'+hotAlpha.toFixed(4)+')';
+      cx.beginPath(); cx.arc(pr.sx,pr.sy,sz*0.3,0,PI2); cx.fill();
+    }
+  }
+
+  // ═══ R BAR ═══
+  var barW3 = Math.min(W,H)*0.3;
+  var barX3 = centerX - barW3/2;
+  var barY3 = H - 50;
+  var barH3 = 3;
+
+  // Track background
+  cx.fillStyle = 'rgba(184,117,58,0.04)';
+  cx.beginPath();
+  cx.roundRect(barX3, barY3, barW3, barH3, 1.5);
+  cx.fill();
+
+  // Fill
+  var rClamped = Math.max(0.001, Math.min(1, whR));
+  var rBarGrad2 = cx.createLinearGradient(barX3, barY3, barX3+barW3*rClamped, barY3);
+  rBarGrad2.addColorStop(0, 'rgba(45,55,90,0.4)');
+  rBarGrad2.addColorStop(0.5, 'rgba(184,117,58,0.6)');
+  rBarGrad2.addColorStop(1, 'rgba(230,190,110,0.8)');
+  cx.fillStyle = rBarGrad2;
+  cx.beginPath();
+  cx.roundRect(barX3, barY3, barW3*rClamped, barH3, 1.5);
+  cx.fill();
+
+  // 1/phi marker
+  var threshX2 = barX3 + barW3 / PHI;
+  cx.strokeStyle = 'rgba(130,160,70,0.2)';
+  cx.lineWidth = 1;
+  cx.beginPath(); cx.moveTo(threshX2, barY3-3); cx.lineTo(threshX2, barY3+barH3+3); cx.stroke();
+
+  cx.font = '8px "Courier New",monospace';
+  cx.fillStyle = 'rgba(130,160,70,0.3)';
+  cx.textAlign = 'center';
+  cx.fillText('1/\u03C6', threshX2, barY3+barH3+12);
+  cx.textAlign = 'left';
+
+  // ═══ CYCLE PHASE INDICATOR ═══
+  cx.font = '9px Futura,"Century Gothic",system-ui,sans-serif';
+  cx.fillStyle = 'rgba(184,117,58,0.25)';
+  cx.textAlign = 'center';
+  cx.fillText(WH_CYCLE_NAMES[whCyclePhase], centerX, H - 26);
+  cx.textAlign = 'left';
+
+  // ═══ STATS ═══
+  var rColor2 = whR > 1/PHI ? '#7a9a6a' : '#8b4a2e';
+  statEl.innerHTML =
+    'R: <span style="color:'+rColor2+'">' + whR.toFixed(3) + '</span><br>' +
+    'K: ' + whK.toFixed(2) + '<br>' +
+    'N: ' + whParticles.length + '<br>' +
+    'phase: ' + WH_CYCLE_NAMES[whCyclePhase] + '<br>' +
+    'cycle: ' + whCycleCount + '<br>' +
+    '<span style="color:#8b4a2e">locked: ' + syncCount + '</span>';
+}
+
+
+// ═══════════════════════════════════════════════════════════════
 // MAIN LOOP
 // ═══════════════════════════════════════════════════════════════
 function loop(){
@@ -3037,6 +3649,7 @@ function loop(){
   else if(activeViz === 'pendulum') drawPendulum();
   else if(activeViz === 'turing') drawTuring();
   else if(activeViz === 'creation') drawCreation();
+  else if(activeViz === 'whitehole') drawWhiteHole();
 
   animId = requestAnimationFrame(loop);
 }
