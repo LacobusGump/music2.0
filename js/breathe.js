@@ -71,8 +71,10 @@ var fontRules=
     'tr:nth-child(even){background:rgba(184,117,58,0.02);}'+
     'th{border-bottom:1px solid rgba(184,117,58,0.1) !important;}'+
 
-    // Monospace — code green
-    'code,.eq,td{color:#7a9a6a;}'+
+    // Code blocks — subtle green. Tables stay body color.
+    'code,.eq{color:#7a9a6a;}'+
+    // Tables: warm text, not monospace green
+    'td{color:#b0a898 !important;font-family:Georgia,serif !important;}'+
 
     // Links — deep amber
     'a{color:#a0622d;transition:color 0.3s,text-shadow 0.3s;}'+
