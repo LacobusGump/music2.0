@@ -35,7 +35,10 @@ var fontRules=
   'font-family:Futura,"Century Gothic",Avenir,"Avenir Next",system-ui,sans-serif !important;}'+
 
   'h1{font-family:Futura,"Century Gothic",Avenir,"Avenir Next",system-ui,sans-serif !important;'+
-  'font-weight:400 !important;letter-spacing:0.06em !important;text-align:center !important;}'+
+  'font-weight:400 !important;letter-spacing:0.06em !important;text-align:center !important;'+
+  'width:100% !important;display:block !important;}'+
+
+  '.sub{text-align:center !important;}'+
 
   'h2{font-family:Futura,"Century Gothic",Avenir,"Avenir Next",system-ui,sans-serif !important;'+
   'font-weight:400 !important;letter-spacing:0.06em !important;}'+
