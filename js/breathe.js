@@ -26,7 +26,10 @@ var style=document.createElement('style');
 
 // --- SHARED FONT RULES (all pages) ---
 var fontRules=
-  // Brand font — Futura at real weight, tighter spacing
+  // Brand font — Futura everywhere. Not just titles. The whole voice.
+  'body,p,li,td,th,span,div,.sub,.note,.quiet,.dim{'+
+  'font-family:Futura,"Century Gothic",Avenir,"Avenir Next",system-ui,sans-serif !important;}'+
+
   'h1{font-family:Futura,"Century Gothic",Avenir,"Avenir Next",system-ui,sans-serif !important;'+
   'font-weight:400 !important;letter-spacing:0.06em !important;}'+
 
@@ -242,15 +245,22 @@ if(isDark && !isHomepage){
   }
   bgResize();addEventListener('resize',bgResize);
 
+  // 137 coupled oscillators as background — every page is alive
+  var N_BG = 33; // lighter than homepage but still coupled
   var motes=[];
-  for(var i=0;i<20;i++){
+  var bgPhases=new Float64Array(N_BG);
+  var bgOmega=new Float64Array(N_BG);
+  var GA_BG=2.39996322; // golden angle
+  for(var i=0;i<N_BG;i++){
+    bgPhases[i]=Math.random()*Math.PI*2;
+    bgOmega[i]=(0.3+Math.random()*0.7)*Math.PI*2*0.4;
     motes.push({
       x:Math.random()*2000,y:Math.random()*2000,
-      vx:(Math.random()-0.5)*0.08,vy:(Math.random()-0.5)*0.08,
-      s:Math.random()*1.5+0.4,
-      base:Math.random()*0.06+0.025,
+      vx:(Math.random()-0.5)*0.06,vy:(Math.random()-0.5)*0.06,
+      s:Math.random()*1.8+0.3,
+      base:Math.random()*0.04+0.015,
       flicker:Math.random()*0.5+0.5,
-      phase:Math.random()*100,
+      phase:bgPhases[i],
       warm:Math.random()
     });
   }
@@ -259,32 +269,64 @@ if(isDark && !isHomepage){
   function bgDraw(){
     bgT+=0.016;
     bgCx.clearRect(0,0,bW,bH);
-    for(var i=0;i<motes.length;i++){
+
+    // Kuramoto step: coupled phase update
+    var bgK=0.8;
+    var mre=0,mim=0;
+    for(var i=0;i<N_BG;i++){mre+=Math.cos(bgPhases[i]);mim+=Math.sin(bgPhases[i]);}
+    mre/=N_BG;mim/=N_BG;
+    var bgR=Math.sqrt(mre*mre+mim*mim);
+    var bgPsi=Math.atan2(mim,mre);
+    for(var i=0;i<N_BG;i++){
+      bgPhases[i]+=0.016*(bgOmega[i]+bgK*Math.sin(bgPsi-bgPhases[i]));
+    }
+
+    // Draw connections between phase-locked neighbors
+    for(var i=0;i<N_BG;i++){
+      for(var j=i+1;j<N_BG;j++){
+        var sync=Math.cos(bgPhases[j]-bgPhases[i]);
+        if(sync>0.85){
+          var dx=motes[j].x-motes[i].x,dy=motes[j].y-motes[i].y;
+          var d=Math.sqrt(dx*dx+dy*dy);
+          if(d<300){
+            var ca=(sync-0.85)*6*(1-d/300)*0.04;
+            bgCx.beginPath();
+            bgCx.moveTo(motes[i].x,motes[i].y);
+            bgCx.lineTo(motes[j].x,motes[j].y);
+            bgCx.strokeStyle='rgba(184,117,58,'+ca.toFixed(4)+')';
+            bgCx.lineWidth=0.5;
+            bgCx.stroke();
+          }
+        }
+      }
+    }
+
+    // Draw nodes
+    for(var i=0;i<N_BG;i++){
       var m=motes[i];
       m.x+=m.vx;m.y+=m.vy;
       if(m.x<0)m.x=bW;if(m.x>bW)m.x=0;
       if(m.y<0)m.y=bH;if(m.y>bH)m.y=0;
 
-      var flick=Math.sin(bgT*m.flicker+m.phase)
-               *Math.sin(bgT*m.flicker*PHI+m.phase*0.7)
-               *0.5+0.5;
-      var flare=(Math.sin(bgT*0.3+m.phase*3)>0.97)?1.8:1.0;
-      var alpha=m.base*flick*flare;
+      var breath=Math.sin(bgPhases[i]);
+      var alpha=m.base*(0.5+Math.abs(breath)*0.5);
+      // Brighter when phase-locked with the group
+      var lockBoost=Math.max(0,Math.cos(bgPsi-bgPhases[i]))*0.03;
+      alpha+=lockBoost;
 
-      // Color: shift between ember (184,117,58) and spark (232,207,160)
       var r=Math.floor(184+m.warm*16);
       var g=Math.floor(117+m.warm*30);
       var b=Math.floor(58+m.warm*20);
 
       var gl=bgCx.createRadialGradient(m.x,m.y,0,m.x,m.y,m.s*5);
-      gl.addColorStop(0,'rgba('+r+','+g+','+b+','+(alpha*0.4)+')');
-      gl.addColorStop(0.4,'rgba('+r+','+g+','+b+','+(alpha*0.1)+')');
+      gl.addColorStop(0,'rgba('+r+','+g+','+b+','+(alpha*0.4).toFixed(4)+')');
+      gl.addColorStop(0.4,'rgba('+r+','+g+','+b+','+(alpha*0.1).toFixed(4)+')');
       gl.addColorStop(1,'rgba('+r+','+g+','+b+',0)');
       bgCx.fillStyle=gl;
       bgCx.fillRect(m.x-m.s*5,m.y-m.s*5,m.s*10,m.s*10);
 
-      bgCx.beginPath();bgCx.arc(m.x,m.y,m.s*0.6,0,Math.PI*2);
-      bgCx.fillStyle='rgba('+Math.min(255,r+40)+','+Math.min(255,g+30)+','+Math.min(255,b+20)+','+(alpha*1.2)+')';
+      bgCx.beginPath();bgCx.arc(m.x,m.y,m.s*(0.5+Math.abs(breath)*0.3),0,Math.PI*2);
+      bgCx.fillStyle='rgba('+Math.min(255,r+40)+','+Math.min(255,g+30)+','+Math.min(255,b+20)+','+(alpha*1.2).toFixed(4)+')';
       bgCx.fill();
     }
     requestAnimationFrame(bgDraw);
