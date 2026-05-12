@@ -645,7 +645,8 @@ function draw() {
 
   var sepBreath = Math.sin(shapeTime * 0.105) * 0.3;
   var separationDist = 1.0 + sepBreath - Rval * 0.25;
-  var dampening = 0.92;
+  // Damping increases with evolution (gas=free, crystal=viscous)
+  var dampening = 0.92 + evoPhase * 0.012; // 0.92 → 0.968 at phase 4
 
   // Centers of mass — per flock
   var comAX = 0, comAY = 0, comBX = 0, comBY = 0;
@@ -723,13 +724,28 @@ function draw() {
         ay += ny2 * crossPull;
       }
 
-      // Separation — tighter threshold for same-group, looser for cross-group
-      var sepD = sameGroup(i,j) ? separationDist : separationDist * 1.8;
-      if(dist < sepD){
-        var repel = (sepD - dist) / sepD;
-        repel = repel * repel * (sameGroup(i,j) ? 0.015 : 0.012);
-        ax -= nx2 * repel;
-        ay -= ny2 * repel;
+      // ═══ LENNARD-JONES POTENTIAL — the shape of every bond ═══
+      // Repel close, attract medium, ignore far.
+      // At equilibrium, nodes settle into hexagonal close-packing.
+      // That IS sacred geometry. Not scripted. Computed.
+      // The equilibrium distance contracts as coupling grows (evolution).
+      var eqDist = sameGroup(i,j) ? (1.8 - evoPhase * 0.15) : (3.2 - evoPhase * 0.2);
+      var sigma = eqDist * 0.89; // LJ sigma from equilibrium
+      if (dist > 0.3 && dist < eqDist * 3) {
+        // Simplified LJ: F = epsilon * (2*(sigma/r)^7 - (sigma/r)^4)
+        // Exponents 7,4 instead of 13,7 for softer interaction
+        var sr = sigma / dist;
+        var sr4 = sr * sr * sr * sr;
+        var sr7 = sr4 * sr * sr * sr;
+        var ljForce = (2 * sr7 - sr4) * (sameGroup(i,j) ? 0.003 : 0.002);
+        // Phase-lock amplifies the bond (synchronized nodes bond tighter)
+        ljForce *= (0.5 + sync * 0.5);
+        ax += nx2 * ljForce;
+        ay += ny2 * ljForce;
+      } else if (dist < 0.3) {
+        // Hard core repulsion
+        ax -= nx2 * 0.02;
+        ay -= ny2 * 0.02;
       }
     }
 
@@ -749,11 +765,12 @@ function draw() {
       ay += (fromCY/fromCDist) * breathForce * fromCDist;
     }
 
-    // 5. WANDER — 1/f noise, not white noise. Organic, not random.
+    // 5. WANDER — 1/f noise. Decreases as system matures (like cooling).
     wanderAngle[i] += pinkN() * 0.12;
     var wanderForce = isScout[i] ? 0.003 * scoutStrength[i] : 0.0008;
-    // Pink-modulated strength so wander surges and ebbs like breath
     wanderForce *= (0.7 + pinkN() * 0.6);
+    // Cool down: less wander as evoPhase increases (gas → liquid → crystal)
+    wanderForce *= Math.max(0.15, 1.0 - evoPhase * 0.2);
     ax += Math.cos(wanderAngle[i]) * wanderForce;
     ay += Math.sin(wanderAngle[i]) * wanderForce;
 
