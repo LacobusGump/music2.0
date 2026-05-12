@@ -262,6 +262,16 @@ var CURATED = {
   'tell me something interesting': 'The universe would rather create matter from nothing than allow a quark to be alone. That is the strong force. The same math describes why people feel lonely.',
   'what should i know': 'Start with the failures page. 90+ ideas tested and killed publicly. If you only read the wins, you are reading fiction. Then read The Grace Gate. Then ask me again.',
   'surprise me': 'A primordial black hole evaporating right now would emit a gamma-ray burst at 0.06 GeV. Nobody has checked the Fermi data for that specific signature. It would be the first evidence of quantum gravity. We computed the numbers.',
+  'show me something beautiful': '__ART__',
+  'make art': '__ART__',
+  'create art': '__ART__',
+  'show me art': '__ART__',
+  'make something': '__ART__',
+  'show me coupling': '__ART__',
+  'show me love': '__ART__',
+  'draw': '__ART__',
+  'art': '__ART__',
+  'beautiful': '__ART__',
   'jesus': 'Through the framework: a tekton (builder/craftsman) who taught coupling. Parables as benign violation. Chose nobodies because less ego = cleaner signal. The Builder page has the full analysis — historical fact, framework reading, and speculation, all labeled.',
   'who was jesus': 'Through the framework: a tekton (builder/craftsman) who taught coupling. Parables as benign violation. Chose nobodies because less ego = cleaner signal. The Builder page has the full analysis — historical fact, framework reading, and speculation, all labeled.',
   'where do i start': 'Start Here if you want plain language. 60 Seconds if you want the fast version. The Framework if you want the math. The Trail if you want the whole story.',
@@ -1104,6 +1114,21 @@ function respond(input) {
   // 1. Check curated responses — exact match first, then substring
   // Exact match pass
   if (CURATED[lq]) {
+    // Art sentinel — route to live viz instead of text
+    if (CURATED[lq] === '__ART__') {
+      var artPresets = ['flock','kuramoto','lorenz','life','pulse','creation','field','dance'];
+      var artTraj = thread.trajectory();
+      var artPick = artTraj === 'biology' ? 'life' : artTraj === 'physics' ? 'lorenz' :
+        artTraj === 'music' ? 'pulse' : artTraj === 'mind' ? 'creation' :
+        artTraj === 'love' ? 'dance' : artPresets[Math.floor(Math.random() * artPresets.length)];
+      thread.record(q, []);
+      return Promise.resolve({
+        text: artPick + '. computed from coupling. not generated — the physics finds the shape.',
+        links: [{ name: 'Gallery', url: '/gallery/' }],
+        source: 'harmonia art',
+        liveViz: artPick
+      });
+    }
     thread.record(q, []);
     return Promise.resolve({ text: CURATED[lq], links: [], source: 'harmonia' });
   }
