@@ -106,7 +106,8 @@ canvas#sky{width:100%;height:100%;display:block;}
 <body>
 <div class="frame">
 
-<h1><span class="k">G</span><span class="e">rand</span><span class="w"> </span><span class="k">U</span><span class="e">nified</span><span class="w"> </span><span class="k">M</span><span class="e">usic</span><span class="w"> </span><span class="k">P</span><span class="e">roject</span></h1>
+<h1 id="gump-title" style="visibility:hidden;height:0;overflow:hidden;padding:0;margin:0;">Grand Unified Music Project</h1>
+<canvas id="title-cv" style="width:100%;height:50px;flex-shrink:0;opacity:0;animation:up 1.2s ease 0.1s forwards;"></canvas>
 
 
 <div class="orbit-wrap">
@@ -158,6 +159,111 @@ canvas#sky{width:100%;height:100%;display:block;}
 </div>
 
 <script>
+// ═══════════════════════════════════════════════════════════
+// LIVING TITLE — "Grand Unified Music Project" as coupled particles
+// ═══════════════════════════════════════════════════════════
+(function(){
+var tcv=document.getElementById('title-cv');
+if(!tcv)return;
+var tcx2=tcv.getContext('2d');
+var dpr2=Math.min(devicePixelRatio||1,2);
+var tW,tH;
+function tResize(){
+  var r=tcv.getBoundingClientRect();
+  tW=r.width;tH=r.height;
+  tcv.width=tW*dpr2;tcv.height=tH*dpr2;
+  tcx2.setTransform(dpr2,0,0,dpr2,0,0);
+}
+tResize();addEventListener('resize',tResize);
+
+// Sample text into particles
+var offC=document.createElement('canvas');
+offC.width=Math.ceil(tW);offC.height=Math.ceil(tH);
+var oCtx=offC.getContext('2d');
+
+// Two layers: big GUMP letters + smaller subtitle
+var fontSize1=Math.min(tW*0.07,32);
+var fontSize2=Math.min(tW*0.025,11);
+oCtx.font='500 '+fontSize1+'px Futura,Century Gothic,Avenir,system-ui,sans-serif';
+oCtx.fillStyle='#b8753a';
+oCtx.textAlign='center';oCtx.textBaseline='middle';
+
+// Draw GUMP with spacing
+var letters='GUMP';
+var totalW=oCtx.measureText(letters).width*1.6;
+var startX=(tW-totalW)/2;
+for(var li=0;li<letters.length;li++){
+  var charW=oCtx.measureText(letters[li]).width;
+  oCtx.fillText(letters[li],startX+charW/2,tH*0.38);
+  startX+=charW*1.6;
+}
+
+// Subtitle
+oCtx.font='400 '+fontSize2+'px Futura,Century Gothic,system-ui,sans-serif';
+oCtx.fillStyle='#9a8070';
+oCtx.fillText('Grand Unified Music Project',tW/2,tH*0.72);
+
+var imgD=oCtx.getImageData(0,0,Math.ceil(tW),Math.ceil(tH)).data;
+var tPts=[];
+var stp=2;
+for(var py=0;py<tH;py+=stp){
+  for(var px=0;px<tW;px+=stp){
+    var ii=(py*Math.ceil(tW)+px)*4;
+    if(imgD[ii+3]>60){
+      var isGold=imgD[ii]>150;
+      tPts.push({
+        hx:px,hy:py,x:px,y:py,
+        phase:Math.random()*Math.PI*2,
+        omega:(0.2+Math.random()*0.6)*Math.PI*2*0.25,
+        r:imgD[ii],g:imgD[ii+1],b:imgD[ii+2],
+        size:isGold?stp*0.8:stp*0.5,
+        isTitle:isGold
+      });
+    }
+  }
+}
+
+var tT=0,tKK=0.8;
+function drawT(){
+  tT+=0.016;
+  tcx2.clearRect(0,0,tW,tH);
+
+  // Kuramoto mean field
+  var mr=0,mi=0;
+  for(var i=0;i<tPts.length;i++){mr+=Math.cos(tPts[i].phase);mi+=Math.sin(tPts[i].phase);}
+  mr/=tPts.length;mi/=tPts.length;
+  var psi=Math.atan2(mi,mr);
+  var R=Math.sqrt(mr*mr+mi*mi);
+
+  for(var i=0;i<tPts.length;i++){
+    var p=tPts[i];
+    p.phase+=0.016*(p.omega+tKK*Math.sin(psi-p.phase));
+    var breath=Math.sin(p.phase);
+
+    // Drift: title letters drift more than subtitle
+    var drift=p.isTitle?1.2:0.4;
+    p.x=p.hx+Math.sin(tT*0.4+i*0.07)*drift;
+    p.y=p.hy+Math.cos(tT*0.35+i*0.09)*drift*0.7;
+
+    var alpha=(0.4+Math.abs(breath)*0.6);
+    // Phase-locked particles glow brighter
+    var lockGlow=Math.max(0,Math.cos(psi-p.phase))*0.3;
+    alpha+=lockGlow;
+
+    if(p.isTitle&&alpha>0.7){
+      // Gold particles get a subtle glow
+      tcx2.fillStyle='rgba(184,117,58,'+(alpha*0.08).toFixed(3)+')';
+      tcx2.beginPath();tcx2.arc(p.x,p.y,p.size*3,0,Math.PI*2);tcx2.fill();
+    }
+
+    tcx2.fillStyle='rgba('+p.r+','+p.g+','+p.b+','+alpha.toFixed(2)+')';
+    tcx2.fillRect(p.x-p.size*0.3,p.y-p.size*0.3,p.size,p.size);
+  }
+  requestAnimationFrame(drawT);
+}
+drawT();
+})();
+
 // ═══════════════════════════════════════════════════════════
 // THE MIRROR — 137 coupled oscillators in TWO FLOCKS
 // 1 + 1 = 3. The founding equation, visualized.
