@@ -1707,6 +1707,7 @@ function draw() {
     }
   }
 
+  drawPortals();
   requestAnimationFrame(draw);
 }
 
@@ -1733,11 +1734,105 @@ cv.addEventListener('touchend',function(e){
 
 var doorEls=document.querySelectorAll('.door');
 var doorRects=[];
+
+// Each portal gets a live computed background
+var portalCanvases=[];
+var portalData=[];
 for(var di=0;di<doorEls.length;di++){
   (function(idx){
     doorEls[idx].addEventListener('mouseenter',function(){hoveredDoor=idx;});
     doorEls[idx].addEventListener('mouseleave',function(){hoveredDoor=-1;});
+
+    // Create a canvas inside each portal
+    var pc=document.createElement('canvas');
+    pc.style.cssText='position:absolute;inset:0;width:100%;height:100%;border-radius:50%;pointer-events:none;z-index:0;';
+    doorEls[idx].style.position='relative';
+    doorEls[idx].insertBefore(pc,doorEls[idx].firstChild);
+
+    // Each portal has its own mini Kuramoto system
+    var np=12; // 12 oscillators per portal
+    var phases=new Float64Array(np);
+    var omega=new Float64Array(np);
+    for(var pi=0;pi<np;pi++){
+      phases[pi]=Math.random()*Math.PI*2;
+      omega[pi]=(0.5+Math.random())*Math.PI*2*(0.3+idx*0.15);
+    }
+    // Different K per portal — research is stable, harmonia breathes more, etc
+    var portalK=[1.2, 0.6, 0.9, 1.5][idx] || 1.0;
+    // Different color per portal
+    var portalCol=[[184,117,58],[140,180,220],[90,160,90],[200,160,200]][idx]||[184,117,58];
+
+    portalCanvases.push(pc);
+    portalData.push({phases:phases,omega:omega,K:portalK,col:portalCol,np:np,hovered:false});
   })(di);
+}
+
+// Draw portals in the main animation loop
+function drawPortals(){
+  for(var di=0;di<portalCanvases.length;di++){
+    var pc=portalCanvases[di];
+    var pd=portalData[di];
+    var pr=pc.getBoundingClientRect();
+    if(pr.width<10)continue;
+    var pw=pr.width,ph=pr.height;
+    if(pc.width!==pw*2||pc.height!==ph*2){
+      pc.width=pw*2;pc.height=ph*2;
+    }
+    var pcx=pc.getContext('2d');
+    pcx.setTransform(2,0,0,2,0,0);
+    pcx.clearRect(0,0,pw,ph);
+
+    // Kuramoto step
+    var mre=0,mim=0;
+    for(var i=0;i<pd.np;i++){mre+=Math.cos(pd.phases[i]);mim+=Math.sin(pd.phases[i]);}
+    mre/=pd.np;mim/=pd.np;
+    var pR=Math.sqrt(mre*mre+mim*mim);
+    var pPsi=Math.atan2(mim,mre);
+    var effK=pd.K*(hoveredDoor===di?2.5:1.0);
+    for(var i=0;i<pd.np;i++){
+      pd.phases[i]+=0.016*(pd.omega[i]+effK*Math.sin(pPsi-pd.phases[i]));
+    }
+
+    // Draw particles on a circle
+    var cx2=pw/2,cy2=ph/2,rad=Math.min(pw,ph)*0.35;
+    var c=pd.col;
+
+    // Center glow — brighter when synced
+    var cg=pcx.createRadialGradient(cx2,cy2,0,cx2,cy2,rad*1.2);
+    cg.addColorStop(0,'rgba('+c[0]+','+c[1]+','+c[2]+','+(pR*0.08).toFixed(3)+')');
+    cg.addColorStop(1,'rgba('+c[0]+','+c[1]+','+c[2]+',0)');
+    pcx.fillStyle=cg;
+    pcx.beginPath();pcx.arc(cx2,cy2,rad*1.2,0,Math.PI*2);pcx.fill();
+
+    // Particles
+    for(var i=0;i<pd.np;i++){
+      var a=pd.phases[i];
+      var br=0.3+Math.abs(Math.sin(a))*0.7;
+      var px=cx2+Math.cos(a*0.3+i*GA)*rad*(0.3+br*0.5);
+      var py=cy2+Math.sin(a*0.3+i*GA)*rad*(0.3+br*0.5);
+      var sz=1+br*1.5;
+      pcx.beginPath();pcx.arc(px,py,sz,0,Math.PI*2);
+      pcx.fillStyle='rgba('+c[0]+','+c[1]+','+c[2]+','+(br*0.25).toFixed(3)+')';
+      pcx.fill();
+    }
+
+    // Connections between phase-locked pairs
+    for(var i=0;i<pd.np;i++){
+      for(var j=i+1;j<pd.np;j++){
+        var sync=Math.cos(pd.phases[j]-pd.phases[i]);
+        if(sync>0.8){
+          var ai=pd.phases[i],aj=pd.phases[j];
+          var px1=cx2+Math.cos(ai*0.3+i*GA)*rad*0.6;
+          var py1=cy2+Math.sin(ai*0.3+i*GA)*rad*0.6;
+          var px2=cx2+Math.cos(aj*0.3+j*GA)*rad*0.6;
+          var py2=cy2+Math.sin(aj*0.3+j*GA)*rad*0.6;
+          pcx.beginPath();pcx.moveTo(px1,py1);pcx.lineTo(px2,py2);
+          pcx.strokeStyle='rgba('+c[0]+','+c[1]+','+c[2]+','+(sync*0.08).toFixed(3)+')';
+          pcx.lineWidth=0.5;pcx.stroke();
+        }
+      }
+    }
+  }
 }
 
 var scrollOffset=0;
