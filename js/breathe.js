@@ -87,6 +87,41 @@ var fontRules=
     'a{color:#a0622d;transition:color 0.3s,text-shadow 0.3s;}'+
     'a:hover{color:#e8cfa0;text-shadow:0 0 8px rgba(184,117,58,0.15);}'+
 
+    // ═══ BEAUTY LAYERS — 7 levels of grace ═══
+
+    // L1: Footer — warm, not grey. The last thing you read should feel like a goodbye.
+    '.foot{color:#8b4a2e !important;}'+
+    '.foot a{color:#8b4513 !important;}'+
+    '.foot a:hover{color:#e8cfa0 !important;}'+
+
+    // L2: Back link — an invitation to return, not a navigation element
+    '.back{color:#8b4a2e !important;transition:color 0.4s !important;}'+
+    '.back:hover{color:#e8cfa0 !important;letter-spacing:0.08em !important;}'+
+
+    // L3: Equations — discoveries, not code blocks. Subtle glow.
+    '.eq{border-color:rgba(184,117,58,0.12) !important;'+
+    'box-shadow:0 0 12px rgba(184,117,58,0.03),inset 0 0 20px rgba(0,0,0,0.3) !important;}'+
+
+    // L4: Quiet blocks — the silence after music. More space. More weight.
+    '.quiet{font-size:0.82em !important;letter-spacing:0.03em !important;'+
+    'margin:40px 0 !important;padding:20px 0 !important;'+
+    'border-top:1px solid rgba(184,117,58,0.06) !important;'+
+    'border-bottom:1px solid rgba(184,117,58,0.06) !important;}'+
+
+    // L5: Dividers — breathing ember gradients, not clinical lines
+    'hr{border:none !important;height:1px !important;'+
+    'background:linear-gradient(90deg,transparent,rgba(184,117,58,0.15),transparent) !important;'+
+    'margin:48px 0 !important;}'+
+
+    // L6: Lead/blockquote — heartbeat border
+    '.lead{border-left:2px solid rgba(184,117,58,0.2) !important;'+
+    'padding:16px 22px !important;margin:24px 0 !important;'+
+    'background:rgba(184,117,58,0.015) !important;border-radius:0 8px 8px 0 !important;}'+
+
+    // L7: Selection — ember highlight when you select text
+    '::selection{background:rgba(184,117,58,0.25);color:#e8e4dc;}'+
+    '::-moz-selection{background:rgba(184,117,58,0.25);color:#e8e4dc;}'+
+
     // Scrollbar — ember
     '::-webkit-scrollbar{width:6px;}'+
     '::-webkit-scrollbar-track{background:#1a110d;}'+
