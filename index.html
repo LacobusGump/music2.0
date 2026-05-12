@@ -281,6 +281,13 @@ function updateEvolution(dt) {
     evoK_CROSS = K_CROSS * (1 + Math.min(1, (evoTime - 30) / 180) * 0.8);
   }
 
+  // Phase 4+: cross-coupling can EXCEED internal for highly phase-locked pairs
+  // This is how the 3 is born. Some nodes love the other flock more than their own.
+  // They drift to the space between. The child emerges.
+  if (evoPhase >= 4) {
+    evoK_CROSS = K_CROSS * 2.5; // cross-coupling surpasses internal for synced pairs
+  }
+
   // Phase 2+: nodes grow/shrink based on coupling success
   if (evoPhase >= 2) {
     for (var i = 0; i < N; i++) {
@@ -750,10 +757,26 @@ function draw() {
     }
 
     // 3. COHESION — pull toward OWN center of mass
+    // In late phases, nodes with high cross-coupling feel less pull home.
+    // They're becoming the 3. Let them go.
     var toCenterX = myComX - nxA[i];
     var toCenterY = myComY - nyA[i];
-    ax += toCenterX * myCohesion;
-    ay += toCenterY * myCohesion;
+    var cohesionScale = 1.0;
+    if (evoPhase >= 3) {
+      // How much does this node couple with the OTHER flock?
+      var crossSync = 0, crossCount = 0;
+      for (var ck = 0; ck < nn.length && ck < 6; ck++) {
+        if (!sameGroup(i, nn[ck])) {
+          crossSync += Math.max(0, Math.cos(phases[nn[ck]] - phases[i]));
+          crossCount++;
+        }
+      }
+      var crossAffinity = crossCount > 0 ? crossSync / crossCount : 0;
+      // High cross-affinity = less pull home = the node is becoming the 3
+      cohesionScale = Math.max(0.1, 1.0 - crossAffinity * 0.8);
+    }
+    ax += toCenterX * myCohesion * cohesionScale;
+    ay += toCenterY * myCohesion * cohesionScale;
 
     // 4. BREATHING — radial pulse from OWN center
     var fromCX = nxA[i] - myComX;
