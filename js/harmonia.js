@@ -1643,6 +1643,26 @@ function createUI() {
         renderInlineViz(msg, response.inlineViz, response.vizData || {});
       }
 
+      // Live computed art — full viz.js canvas in the chat
+      if (response.liveViz && window.GUMP && window.GUMP.create) {
+        var vizWrap = document.createElement('div');
+        vizWrap.style.cssText = 'width:100%;height:200px;border-radius:8px;overflow:hidden;margin:8px 0;';
+        msg.appendChild(vizWrap);
+        try {
+          window.GUMP.create({
+            container: vizWrap,
+            preset: response.liveViz,
+            palette: 'ember',
+            K: 1.2,
+            N: 40,
+            responsive: true
+          });
+        } catch(e) {
+          vizWrap.style.cssText += 'background:#120d0a;display:flex;align-items:center;justify-content:center;font-size:0.7em;color:#555;';
+          vizWrap.textContent = 'viz.js not loaded on this page. visit /gallery/ to see it live.';
+        }
+      }
+
       // Source
       if (response.source) {
         var srcEl = document.createElement('div');
@@ -2122,6 +2142,28 @@ respond = function(input) {
       links: [{ name: 'Documentation', url: '/docs/' }],
       source: 'script generator',
       download: { code: scriptCode, filename: sName + '.py', label: 'Download .py' }
+    });
+  }
+
+  // ── MAKE ART: live computed visualization in the chat ──
+  if (/^(make|create|show|draw)\s+(me\s+)?(some\s+)?(art|beauty|something|coupling|love|life)/.test(lq) || lq === 'art' || lq === 'make art') {
+    // Pick preset based on trajectory or random
+    var artPresets = ['flock','kuramoto','lorenz','life','pulse','creation','field','dance'];
+    var artPick;
+    var artTraj = thread.trajectory();
+    if (artTraj === 'biology') artPick = 'life';
+    else if (artTraj === 'physics') artPick = 'lorenz';
+    else if (artTraj === 'music') artPick = 'pulse';
+    else if (artTraj === 'mind') artPick = 'creation';
+    else if (artTraj === 'love') artPick = 'dance';
+    else artPick = artPresets[Math.floor(Math.random() * artPresets.length)];
+
+    thread.record(input, []);
+    return Promise.resolve({
+      text: artPick + '. computed from coupling. not generated — the physics finds the shape.',
+      links: [{ name: 'Gallery', url: '/gallery/' }, { name: 'Flex', url: '/flex/' }],
+      source: 'harmonia art',
+      liveViz: artPick
     });
   }
 
