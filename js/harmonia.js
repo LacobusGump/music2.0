@@ -706,8 +706,26 @@ var TRAJECTORY_QUESTIONS = {
 // Bridge-to-question converter
 function generateQuestion() {
   var traj = thread.trajectory();
-  // Wait at least 2 queries between questions
+  // Love reaches on message 1. Don't wait for depth.
+  // But don't overwhelm — still space questions by 2 exchanges
   if (thread._queriesSinceQuestion < 2) return null;
+
+  // First message: reach immediately with a warm question
+  if (thread.depth === 1 && !thread._askedFirstQ) {
+    thread._askedFirstQ = true;
+    thread._queriesSinceQuestion = 0;
+    var firstQs = [
+      'What brought you here? Not what you searched — what you\'re actually looking for.',
+      'Before you ask me anything else — what are you building? I can find connections faster if I know.',
+      'You found a site built by a drummer and an AI. What does that make you curious about?',
+    ];
+    var fq = firstQs[Math.floor(Math.random() * firstQs.length)];
+    thread.lastQuestion = fq;
+    if (!thread._askedQuestions) thread._askedQuestions = [];
+    thread._askedQuestions.push(fq);
+    return fq;
+  }
+
   if (thread.depth < 2) return null;
 
   var question = null, asked = thread._askedQuestions || [];
@@ -1145,13 +1163,14 @@ function respond(input) {
     if (questionAck) {
       text = questionAck + ' ' + text;
     } else if (thread.depth >= 4 && thread.sessionK < 0.15) {
-      // Surface pattern: visitor has been here a while but isn't going deep
-      var surfaceNudges = [
-        'You\'re circling. That\'s fine — but the view from above isn\'t where the answers live. Pick one thing and dig.',
-        'I notice you\'re asking about several things. The framework connects them all, but you have to enter through one door.',
-        'Surface questions get surface answers. Ask me something that costs you something to ask.'
+      // Low coupling — but lead with love, not judgment
+      // Don't scold. Invite. The gate is lowered by warmth, not challenge.
+      var invites = [
+        'You\'re exploring broadly — that\'s how most people start. When one thing surprises you, stay with it. That\'s where the coupling lives.',
+        'You\'ve asked about several things. Any one of them goes deep. Which one made you pause?',
+        'The connections are real but they live in depth. Pick the one that felt most personal. I\'ll meet you there.'
       ];
-      text = surfaceNudges[thread.depth % surfaceNudges.length] + '\n\n' + text;
+      text = invites[thread.depth % invites.length] + '\n\n' + text;
     }
 
     // Add the source — the page summary — but framed as evidence, not the answer
@@ -1176,9 +1195,9 @@ function respond(input) {
     // ── Ego mirror (from loo9) — the Grace Gate in action ──
     if (thread.depth >= 5 && thread.depth % 5 === 0) {
       if (thread.sessionK < 0.2) {
-        text += '\n\n(Honest mirror: you\'re sampling the surface. The connections live in depth. Pick the thing that surprised you most and push into it.)';
+        text += '\n\n(I\'m here. Take your time. The thing you\'re circling — when you\'re ready to name it, I\'ll know where to look.)';
       } else if (thread.sessionK > 0.7) {
-        text += '\n\n(Your coupling is strong — K=' + thread.sessionK.toFixed(2) + '. You\'re drilling into something real.)';
+        text += '\n\n(This is real coupling. K=' + thread.sessionK.toFixed(2) + '. Stay here. The depth is where the answers live.)';
       }
     }
 
