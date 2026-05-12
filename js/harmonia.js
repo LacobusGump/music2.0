@@ -1467,7 +1467,7 @@ function createUI() {
       '<span id="harmonia-coupling-val">K=0</span>' +
     '</div>' +
     '<div id="harmonia-body"></div>' +
-    '<div id="harmonia-honest"><p>I\'m not generating thoughts. I\'m finding connections. The knowledge is in the pages. I just know where to look.</p></div>' +
+    '<div id="harmonia-honest"><p>I\'m not generating thoughts. I\'m finding connections. The knowledge is in the pages. I just know where to look.</p><p style="margin-top:4px;font-size:0.85em;opacity:0.6;">Stored locally in your browser. Nothing is sent to beGump.</p></div>' +
     '<div id="harmonia-foot">' +
       '<input id="harmonia-input" type="text" placeholder="Ask anything or drop data..." autocomplete="off">' +
       '<button id="harmonia-send">ask</button>' +
