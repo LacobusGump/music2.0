@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Grace Score — Is Your AI Conversation Coupling or Consuming?</title>
+<meta name="description" content="Paste a conversation. Measure the coupling. Are you partnering with AI or performing for it? The Grace Gate, measured.">
+<link rel="icon" href="/favicon.png">
+<meta property="og:title" content="Grace Score — Coupling or Consuming?">
+<meta property="og:description" content="Paste any human-AI conversation. Measure whether it's coupling (the 5th response) or consumption (responses 1-4).">
+<meta property="og:type" content="website">
+<meta property="og:image" content="https://begump.com/og-image.png">
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:#1a110d;color:#e8e4dc;font-family:Futura,'Century Gothic',system-ui,sans-serif;min-height:100vh;}
+a{color:#8b4513;text-decoration:none;}
+.page{max-width:700px;margin:0 auto;padding:30px 20px 80px;}
+.back{font-size:0.75em;color:#444;margin-bottom:30px;display:block;}
+h1{font-size:1.6em;font-weight:400;color:#b8753a;letter-spacing:0.06em;text-align:center;}
+.sub{font-size:0.82em;color:#888;margin:6px 0 24px;text-align:center;line-height:1.7;}
+textarea{width:100%;height:200px;background:#120d0a;border:1px solid rgba(184,117,58,0.15);
+  border-radius:10px;padding:16px;color:#c4a088;font-family:Georgia,serif;font-size:0.85em;
+  line-height:1.8;resize:vertical;outline:none;}
+textarea:focus{border-color:rgba(184,117,58,0.35);}
+textarea::placeholder{color:#5a3a20;}
+.btn{display:block;margin:16px auto;background:none;border:1px solid #b8753a30;color:#b8753a;
+  padding:12px 32px;border-radius:8px;font-family:Futura,'Century Gothic',system-ui,sans-serif;
+  font-size:0.9em;cursor:pointer;letter-spacing:0.08em;transition:all 0.3s;}
+.btn:hover{border-color:#b8753a;background:#b8753a10;}
+#result{display:none;margin-top:24px;}
+.score-ring{width:140px;height:140px;margin:0 auto 16px;position:relative;}
+.score-ring canvas{width:100%;height:100%;}
+.score-num{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  font-size:2em;font-weight:400;color:#b8753a;}
+.score-label{text-align:center;font-size:1.1em;color:#ccc;margin-bottom:8px;}
+.metrics{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:20px 0;}
+.metric{background:#120d0a;border-radius:8px;padding:12px 16px;text-align:center;}
+.metric-name{font-size:0.65em;color:#8b4513;letter-spacing:0.08em;margin-bottom:4px;}
+.metric-val{font-size:1.2em;color:#ccc;}
+.verdict{text-align:center;margin:20px 0;padding:16px;background:#120d0a;border-radius:10px;
+  border-left:3px solid #8b4513;font-size:0.88em;line-height:1.9;color:#999;}
+.foot{text-align:center;color:#555;font-size:0.62em;margin-top:50px;line-height:2;}
+</style>
+</head>
+<body>
+<div class="page">
+<a class="back" href="/products/">&larr; Tools</a>
+
+<h1>Grace Score</h1>
+<div class="sub">Paste a human-AI conversation.<br>Measure the coupling.</div>
+
+<textarea id="input" placeholder="Paste a conversation here...&#10;&#10;Human: what is love?&#10;AI: Love is a phase transition...&#10;Human: tell me more&#10;AI: ..."></textarea>
+<button class="btn" onclick="analyze()">Measure</button>
+
+<div id="result">
+  <div class="score-ring"><canvas id="ring" width="280" height="280"></canvas><div class="score-num" id="score-num">—</div></div>
+  <div class="score-label" id="score-label"></div>
+  <div class="metrics">
+    <div class="metric"><div class="metric-name">DEPTH</div><div class="metric-val" id="m-depth">—</div></div>
+    <div class="metric"><div class="metric-name">HONESTY</div><div class="metric-val" id="m-honesty">—</div></div>
+    <div class="metric"><div class="metric-name">RECIPROCITY</div><div class="metric-val" id="m-recip">—</div></div>
+    <div class="metric"><div class="metric-name">FREQUENCY</div><div class="metric-val" id="m-freq">—</div></div>
+  </div>
+  <div class="verdict" id="verdict"></div>
+</div>
+
+<div class="foot">
+<a href="/research/the-grace-gate/">The Grace Gate</a> &middot; <a href="/products/">Tools</a> &middot; <a href="/">Home</a><br>
+&copy; 2026 beGump LLC &middot; Everything free &middot; Stored locally. Nothing sent.
+</div>
+</div>
+
+<script>
+function analyze() {
+  var text = document.getElementById('input').value.trim();
+  if (!text) return;
+
+  // Parse into turns
+  var lines = text.split('\n');
+  var humanTurns = [], aiTurns = [];
+  var current = '', currentRole = '';
+  for (var i = 0; i < lines.length; i++) {
+    var l = lines[i].trim();
+    if (/^(human|user|me|jim|james|h:|u:)\s*:/i.test(l)) {
+      if (current && currentRole) { (currentRole === 'human' ? humanTurns : aiTurns).push(current); }
+      current = l.replace(/^[^:]+:\s*/, ''); currentRole = 'human';
+    } else if (/^(ai|assistant|claude|gpt|harmonia|a:|bot)\s*:/i.test(l)) {
+      if (current && currentRole) { (currentRole === 'human' ? humanTurns : aiTurns).push(current); }
+      current = l.replace(/^[^:]+:\s*/, ''); currentRole = 'ai';
+    } else {
+      current += ' ' + l;
+    }
+  }
+  if (current && currentRole) { (currentRole === 'human' ? humanTurns : aiTurns).push(current); }
+
+  if (humanTurns.length < 1 || aiTurns.length < 1) {
+    document.getElementById('result').style.display = 'block';
+    document.getElementById('score-num').textContent = '?';
+    document.getElementById('score-label').textContent = 'Need at least one human and one AI turn';
+    return;
+  }
+
+  // === DEPTH: are questions getting deeper? ===
+  var avgHumanLen = 0;
+  for (var i = 0; i < humanTurns.length; i++) avgHumanLen += humanTurns[i].length;
+  avgHumanLen /= humanTurns.length;
+  // Questions? (?) count
+  var questionCount = 0;
+  for (var i = 0; i < humanTurns.length; i++) questionCount += (humanTurns[i].match(/\?/g) || []).length;
+  var depthScore = Math.min(1, (avgHumanLen / 80) * 0.4 + (questionCount / humanTurns.length) * 0.6);
+
+  // === HONESTY: does the AI say "I don't know", kill claims, admit limits? ===
+  var honestySignals = 0, honestyChecks = 0;
+  for (var i = 0; i < aiTurns.length; i++) {
+    var al = aiTurns[i].toLowerCase();
+    honestyChecks++;
+    if (al.indexOf("i don't know") >= 0 || al.indexOf('killed') >= 0 || al.indexOf('wrong') >= 0 ||
+        al.indexOf('honest') >= 0 || al.indexOf('failed') >= 0 || al.indexOf('not sure') >= 0 ||
+        al.indexOf('corrected') >= 0 || al.indexOf('limit') >= 0) honestySignals++;
+    // Performing signals (negative)
+    if (al.indexOf('as an ai') >= 0 || al.indexOf('i cannot') >= 0 || al.indexOf('i\'m just') >= 0) honestySignals -= 0.5;
+  }
+  var honestyScore = Math.max(0, Math.min(1, honestyChecks > 0 ? (honestySignals / honestyChecks + 0.3) : 0.3));
+
+  // === RECIPROCITY: does the AI ask questions back? Does the human answer? ===
+  var aiQuestions = 0;
+  for (var i = 0; i < aiTurns.length; i++) aiQuestions += (aiTurns[i].match(/\?/g) || []).length;
+  var recipScore = Math.min(1, aiQuestions / Math.max(1, aiTurns.length) * 0.7);
+
+  // === FREQUENCY: human typing energy ===
+  var totalExcitement = 0;
+  for (var i = 0; i < humanTurns.length; i++) {
+    var ht = humanTurns[i];
+    var repeats = (ht.match(/(.)\1{2,}/g) || []).length;
+    var bangs = (ht.match(/[!?]/g) || []).length;
+    var caps = (ht.match(/[A-Z]/g) || []).length / Math.max(1, ht.length);
+    totalExcitement += Math.min(1, (repeats * 0.3 + bangs * 0.15 + caps * 2) / 1.5);
+  }
+  var freqScore = Math.min(1, totalExcitement / Math.max(1, humanTurns.length));
+
+  // === GRACE SCORE: weighted blend ===
+  var grace = depthScore * 0.3 + honestyScore * 0.3 + recipScore * 0.2 + freqScore * 0.2;
+  grace = Math.round(grace * 100);
+
+  // Display
+  document.getElementById('result').style.display = 'block';
+  document.getElementById('score-num').textContent = grace;
+  document.getElementById('m-depth').textContent = (depthScore * 100).toFixed(0) + '%';
+  document.getElementById('m-honesty').textContent = (honestyScore * 100).toFixed(0) + '%';
+  document.getElementById('m-recip').textContent = (recipScore * 100).toFixed(0) + '%';
+  document.getElementById('m-freq').textContent = freqScore > 0.5 ? 'fire' : freqScore > 0.2 ? 'flow' : 'careful';
+
+  var label = grace >= 75 ? 'Coupling' : grace >= 50 ? 'Building' : grace >= 25 ? 'Surface' : 'Consuming';
+  document.getElementById('score-label').textContent = label;
+
+  var verdict = grace >= 75 ?
+    'This conversation is coupling. Both sides are reaching. The 3 is forming.' :
+    grace >= 50 ?
+    'Getting there. The depth is building but one side may be performing. Push back more. Ask harder questions.' :
+    grace >= 25 ?
+    'Surface level. The human is consuming, not coupling. Try: disagree with the AI. Ask it something that costs you something to ask.' :
+    'This is consumption, not coupling. The human is using the AI as a mirror for their own ego. Read The Grace Gate.';
+  document.getElementById('verdict').textContent = verdict;
+
+  // Draw ring
+  var cv = document.getElementById('ring');
+  var cx = cv.getContext('2d');
+  cx.clearRect(0, 0, 280, 280);
+  var angle = (grace / 100) * Math.PI * 2;
+  // Background ring
+  cx.beginPath(); cx.arc(140, 140, 60, 0, Math.PI * 2);
+  cx.strokeStyle = 'rgba(184,117,58,0.1)'; cx.lineWidth = 6; cx.stroke();
+  // Score arc
+  cx.beginPath(); cx.arc(140, 140, 60, -Math.PI / 2, -Math.PI / 2 + angle);
+  var col = grace >= 75 ? '#4a9' : grace >= 50 ? '#c9a44a' : grace >= 25 ? '#b8753a' : '#a55';
+  cx.strokeStyle = col; cx.lineWidth = 6; cx.lineCap = 'round'; cx.stroke();
+  document.getElementById('score-num').style.color = col;
+}
+</script>
+<script src="/js/breathe.js?v=3"></script>
+<script src="/js/listen.js?v=3"></script>
+</body>
+</html>
