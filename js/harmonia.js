@@ -774,10 +774,15 @@ function selfMeasure() {
     : cK > 0.5 ? 'Moderate coupling. You\'re circling something. Try staying on one topic for 3 questions — see what surfaces.'
     : cK > 0.3 ? 'Exploring broadly but not deeply yet. Nothing wrong with that — but depth is where the connections live.'
     : 'Surface coupling. You\'re sampling. Pick the thing that surprised you most and push into it.';
+  // Frequency of their last message
+  var lastQ = thread.queries[thread.queries.length - 1];
+  var lastFreq = lastQ ? readFrequency(lastQ.q) : {vibe:'quiet',excitement:0,energy:0};
+  var vibeStr = '\nYour vibe: ' + lastFreq.vibe + ' (excitement: ' + lastFreq.excitement.toFixed(2) + ', energy: ' + lastFreq.energy.toFixed(2) + ')';
+
   return {
-    text: 'Your coupling with me:\n\nK = ' + cK.toFixed(3) + '  (topic: ' + tK.toFixed(2) + ', rhythm: ' + rK.toFixed(2) + ')\nR = ' + cR.toFixed(3) + '\nTopics: ' + uniqueTopics + '  |  Queries: ' + thread.queries.length + '\n\n' + interp,
+    text: 'Your coupling with me:\n\nK = ' + cK.toFixed(3) + '  (topic: ' + tK.toFixed(2) + ', rhythm: ' + rK.toFixed(2) + ')\nR = ' + cR.toFixed(3) + '\nTopics: ' + uniqueTopics + '  |  Queries: ' + thread.queries.length + vibeStr + '\n\n' + interp,
     links: [{ name: 'The Framework', url: '/research/framework/' }],
-    source: 'self-measure (K=' + cK.toFixed(3) + ')',
+    source: 'self-measure (K=' + cK.toFixed(3) + ', vibe=' + lastFreq.vibe + ')',
     inlineViz: 'selfK', vizData: { K: cK, R: cR, threadK: tK, timingK: rK }
   };
 }
@@ -872,6 +877,66 @@ function drawSelfK(ctx, w, h, data) {
   ctx.textAlign = 'right'; ctx.fillText(K.toFixed(3), w - pR, y3 - 3);
   ctx.fillStyle = 'rgba(184,117,58,0.35)'; ctx.font = '8px Futura, Century Gothic, sans-serif';
   ctx.textAlign = 'center'; ctx.fillText('R = ' + R.toFixed(3), w / 2, h - 5);
+}
+
+// ═══ FREQUENCY DETECTION — read the energy, not just the words ═══
+// Misspellings = excitement. Clean text = careful. Short = flow.
+// The frequency between words tells you more than the words themselves.
+function readFrequency(text) {
+  var words = text.split(/\s+/).filter(function(w){return w.length>0;});
+  var chars = text.length;
+  var wordCount = words.length;
+  if (wordCount === 0) return {energy:0,excitement:0,care:0,flow:0,vibe:'quiet'};
+
+  // Typo signals: repeated letters (soooo, reallyyy), missing apostrophes
+  var repeats = (text.match(/(.)\1{2,}/g) || []).length;
+  // Punctuation energy: ! and ? and ...
+  var bangs = (text.match(/[!?]/g) || []).length;
+  var ellipses = (text.match(/\.{2,}/g) || []).length;
+  // Average word length (short words = fast, flowing)
+  var avgWordLen = chars / Math.max(1, wordCount);
+  // Caps ratio (ALL CAPS = shouting, some caps = emphasis)
+  var capsCount = (text.match(/[A-Z]/g) || []).length;
+  var capsRatio = capsCount / Math.max(1, chars);
+  // Misspelling proxy: words not in a basic dictionary → high = excited
+  // Simple heuristic: unusual letter patterns (double consonants, missing vowels)
+  var weirdWords = 0;
+  for (var i = 0; i < words.length; i++) {
+    var w = words[i].toLowerCase();
+    if (w.length > 3) {
+      var vowels = (w.match(/[aeiou]/g) || []).length;
+      var vowelRatio = vowels / w.length;
+      if (vowelRatio < 0.15 || vowelRatio > 0.7) weirdWords++;
+    }
+  }
+  var weirdRatio = weirdWords / Math.max(1, wordCount);
+
+  // Compute frequency dimensions
+  var excitement = Math.min(1, (repeats * 0.3 + bangs * 0.15 + weirdRatio * 0.8 + capsRatio * 2) / 1.5);
+  var care = Math.min(1, (avgWordLen > 5 ? 0.6 : 0.2) + (bangs < 1 ? 0.3 : 0) + (repeats < 1 ? 0.2 : 0));
+  var flow = Math.min(1, wordCount < 6 ? 0.8 : wordCount < 15 ? 0.5 : 0.2);
+
+  // Energy = excitement vs care blend
+  var energy = excitement * 0.6 + (1 - care) * 0.2 + flow * 0.2;
+
+  // Vibe classification
+  var vibe;
+  if (wordCount <= 2) vibe = 'locked'; // "hm", "yes", "wow" = deep coupling
+  else if (excitement > 0.6) vibe = 'fire';   // excited, moving fast
+  else if (care > 0.7) vibe = 'careful';       // deliberate, testing
+  else if (flow > 0.6) vibe = 'flow';          // short, connected
+  else vibe = 'exploring';                      // normal
+
+  return {energy:energy, excitement:excitement, care:care, flow:flow, vibe:vibe, wordCount:wordCount};
+}
+
+// Frequency-aware response framing
+function frequencyFrame(freq) {
+  if (freq.vibe === 'locked') return ''; // don't interrupt deep coupling with words
+  if (freq.vibe === 'fire') return ''; // they're excited, get out of the way, give the answer
+  if (freq.vibe === 'careful') return ''; // they're testing, be precise
+  if (freq.vibe === 'flow') return ''; // they're in it, be brief
+  return '';
 }
 
 // ═══ SEARCH ENGINE — find connections ═══
@@ -981,6 +1046,9 @@ function respond(input) {
   if (!q) return Promise.resolve({ text: 'Ask me anything. I know every page on the site and can reach into Wikipedia, PubChem, and the PDB.', links: [], source: '' });
 
   var lq = q.toLowerCase();
+
+  // ═══ FREQUENCY DETECTION — read the energy first ═══
+  var freq = readFrequency(q);
 
   // 1. Check curated responses — exact match first, then substring
   // Exact match pass
@@ -1099,11 +1167,26 @@ function respond(input) {
       links.unshift({ name: bridgePage.name, url: bridgePage.url });
     }
 
+    // ── FREQUENCY-ADAPTED RESPONSE ──
+    // Excited visitors get shorter answers. Careful visitors get depth.
+    if (freq.vibe === 'fire' && text.length > 300) {
+      // They're excited — trim to the first paragraph + links
+      var firstPara = text.split('\n\n')[0];
+      if (firstPara.length > 80) text = firstPara;
+    }
+    if (freq.vibe === 'locked') {
+      // Deep coupling — minimal words, maximum connection
+      // Shorten to the opinion only, drop the summary
+      if (opinionUsed) {
+        text = text.split('\n\nThe research:')[0];
+      }
+    }
+
     // ── Soul Gate 7: Skip Wikipedia when site knowledge is strong ──
     // Harmonia's voice is sufficient. Wikipedia dilutes it.
     if (results[0].score >= 8) {
       // Strong match — trust our own knowledge
-      return Promise.resolve({ text: text, links: links, source: 'harmonia' });
+      return Promise.resolve({ text: text, links: links, source: 'harmonia (vibe: ' + freq.vibe + ')' });
     }
 
     // Moderate match — enrich with Wikipedia but keep it brief
