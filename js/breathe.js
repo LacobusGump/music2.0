@@ -26,9 +26,9 @@ var style=document.createElement('style');
 
 // --- SHARED FONT RULES (all pages) ---
 var fontRules=
-  // Custom cursor — tiny 137 in ember
-  'body{cursor:url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'24\' height=\'16\'%3E%3Ctext x=\'0\' y=\'12\' font-family=\'Futura,Century Gothic,sans-serif\' font-size=\'11\' fill=\'%23b8753a\' opacity=\'0.6\'%3E137%3C/text%3E%3C/svg%3E") 12 8, auto !important;}'+
-  'a,button,.card,.door{cursor:url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'24\' height=\'16\'%3E%3Ctext x=\'0\' y=\'12\' font-family=\'Futura,Century Gothic,sans-serif\' font-size=\'11\' fill=\'%23e8cfa0\' opacity=\'0.8\'%3E137%3C/text%3E%3C/svg%3E") 12 8, pointer !important;}'+
+  // Custom cursor — tiny atom with orbiting electron
+  'body{cursor:url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'24\' height=\'24\' viewBox=\'0 0 24 24\'%3E%3Ccircle cx=\'12\' cy=\'12\' r=\'3\' fill=\'%23b8753a\' opacity=\'0.5\'/%3E%3Ccircle cx=\'12\' cy=\'12\' r=\'8\' fill=\'none\' stroke=\'%23b8753a\' stroke-width=\'0.5\' opacity=\'0.25\'/%3E%3Ccircle cx=\'20\' cy=\'12\' r=\'1.5\' fill=\'%23e8cfa0\' opacity=\'0.6\'/%3E%3C/svg%3E") 12 12, auto !important;}'+
+  'a,button,.card,.door{cursor:url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'24\' height=\'24\' viewBox=\'0 0 24 24\'%3E%3Ccircle cx=\'12\' cy=\'12\' r=\'3\' fill=\'%23e8cfa0\' opacity=\'0.7\'/%3E%3Ccircle cx=\'12\' cy=\'12\' r=\'8\' fill=\'none\' stroke=\'%23e8cfa0\' stroke-width=\'0.7\' opacity=\'0.35\'/%3E%3Ccircle cx=\'20\' cy=\'12\' r=\'1.5\' fill=\'%23fff\' opacity=\'0.8\'/%3E%3C/svg%3E") 12 12, pointer !important;}'+
 
   // Brand font — Futura everywhere. Not just titles. The whole voice.
   'body,p,li,td,th,span,div,.sub,.note,.quiet,.dim{'+
