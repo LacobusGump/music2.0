@@ -131,17 +131,13 @@ var fontRules=
     'h1{font-size:1.5em !important;}}';
 document.head.appendChild(style);
 
-// ═══ 0.5 TITLE — clean Futura, subtle breathing glow ═══
-// Living particles on homepage only. Research pages get clean text + glow.
+// ═══ 0.5 TITLE — pure CSS breathing glow (no JS repaints) ═══
+var titleStyle=document.createElement('style');
+titleStyle.textContent='@keyframes titleBreathe{0%,100%{text-shadow:0 0 8px rgba(184,117,58,0.04);}50%{text-shadow:0 0 16px rgba(184,117,58,0.12);}}';
+document.head.appendChild(titleStyle);
 var h1=document.querySelector('h1');
 if(h1 && isDark && !isHomepage){
-  h1.style.transition='text-shadow 2s ease';
-  var glowPhase=0;
-  setInterval(function(){
-    glowPhase+=0.05;
-    var glow=0.08+Math.sin(glowPhase)*0.06;
-    h1.style.textShadow='0 0 '+(10+Math.sin(glowPhase)*5)+'px rgba(184,117,58,'+glow.toFixed(3)+')';
-  },50);
+  h1.style.animation='titleBreathe 4s ease-in-out infinite';
 }
 
 // ═══ 1. SECTION TITLES: glow on scroll (dark) / fade-in on scroll (light) ═══
