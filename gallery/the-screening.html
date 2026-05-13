@@ -1,0 +1,778 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="icon" href="/favicon.png">
+<title>the screening</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{touch-action:none;background:#0a0706;overflow:hidden;cursor:default;
+  font-family:Georgia,serif;}
+canvas{display:block;width:100vw;height:100vh;}
+#back{position:fixed;top:20px;left:24px;
+  font-size:0.72em;color:rgba(139,74,46,0.1);text-decoration:none;
+  z-index:10;letter-spacing:0.06em;transition:color 0.5s;
+  font-family:Georgia,serif;}
+#back:hover{color:rgba(184,117,58,0.4);}
+#whisper{position:fixed;bottom:30px;left:0;right:0;text-align:center;
+  font-size:0.68em;color:rgba(184,117,58,0);letter-spacing:0.08em;
+  transition:color 4s;z-index:10;line-height:1.9;pointer-events:none;
+  font-family:Georgia,serif;font-style:italic;}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<a id="back" href="/gallery/">&larr; gallery</a>
+<div id="whisper"></div>
+<script>
+// the screening
+//
+// 33 channels of light. 8 build the world.
+// 25 quiet the vacuum.
+//
+// without the screening, the vacuum energy would tear
+// every atom apart before it formed.
+// with it: here we are.
+//
+// this is not metaphor. this is the cosmological constant problem
+// drawn as da vinci would have drawn it — as anatomy.
+// the universe dissected. the organs labeled.
+// the beauty is in what was removed.
+
+var cv = document.getElementById('c');
+var cx = cv.getContext('2d');
+var W, H, cX, cY;
+var dpr;
+var mouseX = 0.5, mouseY = 0.5; // normalized 0-1
+
+function resize() {
+  dpr = Math.min(devicePixelRatio || 1, 2);
+  W = innerWidth; H = innerHeight;
+  cv.width = W * dpr; cv.height = H * dpr;
+  cx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  cX = W / 2; cY = H / 2;
+}
+resize(); addEventListener('resize', resize);
+
+addEventListener('mousemove', function(e) {
+  mouseX = e.clientX / W; mouseY = e.clientY / H;
+});
+addEventListener('touchmove', function(e) {
+  if (e.touches.length > 0) {
+    mouseX = e.touches[0].clientX / W;
+    mouseY = e.touches[0].clientY / H;
+  }
+}, { passive: true });
+
+// ═══ 1/f PINK NOISE (7-register Voss-McCartney) ═══
+var ps = [0,0,0,0,0,0,0];
+function pink() {
+  var w = Math.random()*2 - 1;
+  ps[0]=0.99886*ps[0]+w*0.0555179; ps[1]=0.99332*ps[1]+w*0.0750759;
+  ps[2]=0.96900*ps[2]+w*0.1538520; ps[3]=0.86650*ps[3]+w*0.3104856;
+  ps[4]=0.55000*ps[4]+w*0.5329522; ps[5]=-0.7616*ps[5]-w*0.0168980;
+  var o=ps[0]+ps[1]+ps[2]+ps[3]+ps[4]+ps[5]+ps[6]+w*0.5362;
+  ps[6]=w*0.115926; return o*0.11;
+}
+
+// Second independent pink noise for y-axis displacement
+var ps2 = [0,0,0,0,0,0,0];
+function pink2() {
+  var w = Math.random()*2 - 1;
+  ps2[0]=0.99886*ps2[0]+w*0.0555179; ps2[1]=0.99332*ps2[1]+w*0.0750759;
+  ps2[2]=0.96900*ps2[2]+w*0.1538520; ps2[3]=0.86650*ps2[3]+w*0.3104856;
+  ps2[4]=0.55000*ps2[4]+w*0.5329522; ps2[5]=-0.7616*ps2[5]-w*0.0168980;
+  var o=ps2[0]+ps2[1]+ps2[2]+ps2[3]+ps2[4]+ps2[5]+ps2[6]+w*0.5362;
+  ps2[6]=w*0.115926; return o*0.11;
+}
+
+// ═══ VELVET NOISE TEXTURE (from letting-go) ═══
+var ncv = document.createElement('canvas'); ncv.width = 256; ncv.height = 256;
+var ncx = ncv.getContext('2d');
+var nd = ncx.createImageData(256, 256);
+for (var i = 0; i < nd.data.length; i += 4) {
+  var v = Math.random() * 6;
+  nd.data[i] = v; nd.data[i+1] = v * 0.7; nd.data[i+2] = v * 0.4; nd.data[i+3] = 9;
+}
+ncx.putImageData(nd, 0, 0);
+
+// ═══ THE 33 CHANNELS ═══
+var PHI = (1 + Math.sqrt(5)) / 2;
+var PI2 = Math.PI * 2;
+var channels = [];
+var N = 33;
+
+// Generation content: 6, 11, 16
+var genContent = [6, 11, 16];
+var genColors = [
+  [255, 250, 230],  // gen 0: white-gold (lightest, closest to source)
+  [230, 190, 120],  // gen 1: warm gold
+  [184, 117, 58]    // gen 2: deep ember (heaviest, most coupled)
+];
+
+// Assign channels to generations
+var channelGen = [];
+for (var g = 0; g < 3; g++) {
+  for (var c = 0; c < genContent[g]; c++) {
+    channelGen.push(g);
+  }
+}
+
+// Each channel is an organic nerve fiber — not a straight line
+// It has control points for bezier curves that undulate with pink noise
+for (var i = 0; i < N; i++) {
+  var angle = i * PI2 / N + PI2 / (N * 2);
+  var gen = channelGen[i];
+  var isBuilder = i < 8;
+
+  // Each channel has a "spine" of control points for bezier undulation
+  var nSegs = 6 + Math.floor(Math.random() * 3); // 6-8 segments per fiber
+  var spine = [];
+  for (var s = 0; s <= nSegs; s++) {
+    spine.push({
+      offsetX: 0, offsetY: 0,
+      noisePhase: Math.random() * PI2,
+      noiseFreq: 0.3 + Math.random() * 0.6,
+      noiseAmp: 2 + Math.random() * 5 // perpendicular displacement amplitude
+    });
+  }
+
+  channels.push({
+    angle: angle,
+    gen: gen,
+    isBuilder: isBuilder,
+    phase: Math.random() * PI2,
+    omega: 0.3 + Math.random() * 0.4,
+    brightness: 1.0,
+    length: 0.30 + Math.random() * 0.08,
+    drift: (Math.random() - 0.5) * 0.0003,
+    spine: spine,
+    nSegs: nSegs,
+    // Depth layer: some channels behind, some in front (for parallax)
+    depth: 0.5 + (Math.random() - 0.5) * 0.8, // 0.1 to 0.9
+    // Width personality
+    baseWidth: isBuilder ? (1.8 + Math.random() * 1.2) : (0.6 + Math.random() * 0.5),
+    // Ghost trace alpha (for when screening dims them)
+    ghostAlpha: 0,
+    // How far light has withdrawn toward center during screening
+    withdrawProgress: 0,
+    // Survivor intensification
+    intensify: 0
+  });
+}
+
+// ═══ CREATION PARTICLES ═══
+var particles = [];
+var maxParticles = 300;
+
+// ═══ GHOST TRACES — left behind when channels dim ═══
+var ghostTraces = [];
+var maxGhosts = 80;
+
+// ═══ STATE ═══
+var t = 0;
+var screeningPhase = 0;
+var phaseT = 0;
+var whisperEl = document.getElementById('whisper');
+var whisperShown = -1;
+
+var whispers = [
+  '33 channels',
+  '8 build the world',
+  '25 quiet the vacuum',
+  'without the screening, nothing holds',
+  '10\u00b9\u00b2\u2070 times quieter than it should be',
+  'the silence is not empty \u2014 it is the reason atoms exist',
+  '25 = 33 \u2212 8'
+];
+
+function showWhisper(idx) {
+  if (whisperShown === idx) return;
+  whisperShown = idx;
+  whisperEl.style.color = 'rgba(184,117,58,0)';
+  setTimeout(function() {
+    whisperEl.textContent = whispers[idx] || '';
+    whisperEl.style.color = 'rgba(184,117,58,0.22)';
+  }, 800);
+}
+
+function hideWhisper() {
+  whisperEl.style.color = 'rgba(184,117,58,0)';
+  whisperShown = -1;
+}
+
+// ═══ AUDIO — 33 tones that screen to 8 ═══
+var actx = null, audioReady = false;
+var toneNodes = [];
+
+function initAudio() {
+  if (actx) return;
+  try {
+    actx = new (window.AudioContext || window.webkitAudioContext)();
+    var master = actx.createGain();
+    master.gain.value = 0.04;
+    master.connect(actx.destination);
+
+    // 33 soft sine tones spanning 3 octaves from 55Hz (A1)
+    for (var i = 0; i < N; i++) {
+      var gen = channelGen[i];
+      // Each generation occupies an octave band
+      var baseFreq = 55 * Math.pow(2, gen); // 55, 110, 220
+      var spread = genContent[gen];
+      var posInGen = 0;
+      for (var g = 0; g < gen; g++) posInGen += genContent[g];
+      posInGen = i - posInGen;
+      var freq = baseFreq * Math.pow(2, posInGen / (spread * 1.5));
+
+      var osc = actx.createOscillator();
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      var gain = actx.createGain();
+      gain.gain.value = 0;
+      osc.connect(gain);
+      gain.connect(master);
+      osc.start();
+      toneNodes.push({ osc: osc, gain: gain, targetVol: 0 });
+    }
+    audioReady = true;
+
+    // Fade in
+    master.gain.setTargetAtTime(0.04, actx.currentTime, 2);
+  } catch(e) {}
+}
+
+cv.addEventListener('click', initAudio);
+cv.addEventListener('touchstart', function(e) { e.preventDefault(); initAudio(); }, { passive: false });
+
+// ═══ DA VINCI ANNOTATIONS ═══
+var annotations = [
+  // [text, relativeX, relativeY, connectToAngle (or null), appearPhase]
+  { text: '\u03b1(0) = 1/137.036', rx: 0.72, ry: 0.22, conn: null, phase: 2 },
+  { text: 'v = 246 GeV', rx: 0.78, ry: 0.32, conn: null, phase: 2 },
+  { text: '\u039b = \u03b1\u00b2\u2075 \u00d7 3v\u2074/64\u03c0\u00b2', rx: 0.73, ry: 0.76, conn: null, phase: 2 },
+  { text: 'gen 0 \u2014 6 channels', rx: 0.22, ry: 0.24, conn: 0, phase: 2 },
+  { text: 'gen 1 \u2014 11 channels', rx: 0.18, ry: 0.36, conn: 1, phase: 2 },
+  { text: 'gen 2 \u2014 16 channels', rx: 0.20, ry: 0.74, conn: 2, phase: 2 },
+  { text: 'the silence is the reason', rx: 0.50, ry: 0.88, conn: null, phase: 2 },
+  { text: '8 world-builders', rx: 0.76, ry: 0.52, conn: null, phase: 2 },
+  { text: '25 screened', rx: 0.24, ry: 0.54, conn: null, phase: 1 }
+];
+
+// Precompute annotation fade states
+for (var i = 0; i < annotations.length; i++) {
+  annotations[i].alpha = 0;
+  annotations[i].targetAlpha = 0;
+}
+
+// ═══ DRAW A SINGLE ORGANIC CHANNEL ═══
+function drawChannel(ch, idx, rayLen) {
+  var bright = ch.brightness;
+  var breath = 0.85 + Math.sin(ch.phase) * 0.15;
+  var alpha = bright * breath;
+  if (alpha < 0.005 && ch.ghostAlpha < 0.005) return;
+
+  var col = genColors[ch.gen];
+  var len = rayLen * ch.length;
+
+  // Parallax offset based on mouse
+  var parallaxScale = (ch.depth - 0.5) * 15;
+  var px = (mouseX - 0.5) * parallaxScale;
+  var py = (mouseY - 0.5) * parallaxScale;
+
+  // The perpendicular direction to the channel
+  var perpX = -Math.sin(ch.angle);
+  var perpY = Math.cos(ch.angle);
+
+  // Withdrawal: light retreats toward center when dimming
+  var effectiveLen = len * (1 - ch.withdrawProgress * 0.7);
+
+  // Build the spine points with pink noise displacement
+  var points = [];
+  for (var s = 0; s <= ch.nSegs; s++) {
+    var frac = s / ch.nSegs;
+    var sp = ch.spine[s];
+
+    // Update noise
+    sp.noisePhase += sp.noiseFreq * 0.016;
+    var displacement = Math.sin(sp.noisePhase) * sp.noiseAmp * (1 - frac * 0.3);
+    // Add pink noise jitter on top
+    displacement += pink() * 2 * (1 - frac * 0.5);
+
+    var baseX = cX + px + Math.cos(ch.angle) * effectiveLen * frac;
+    var baseY = cY + py + Math.sin(ch.angle) * effectiveLen * frac;
+
+    points.push({
+      x: baseX + perpX * displacement,
+      y: baseY + perpY * displacement,
+      frac: frac
+    });
+  }
+
+  // Draw the organic fiber as a smooth path with varying width
+  // Multiple layers for depth: outer glow, mid body, inner bright core
+  var layers = [
+    { widthMul: 4.0, alphaMul: 0.06, blur: true },   // outer glow / halo
+    { widthMul: 2.0, alphaMul: 0.15, blur: false },   // mid body
+    { widthMul: 1.0, alphaMul: 0.35, blur: false },   // core
+    { widthMul: 0.3, alphaMul: 0.6, blur: false }     // bright center
+  ];
+
+  // If this is a builder in phase 2+, intensify
+  var intenseMul = 1 + ch.intensify * 0.6;
+
+  for (var li = 0; li < layers.length; li++) {
+    var layer = layers[li];
+    var baseW = ch.baseWidth * layer.widthMul * intenseMul;
+
+    // Width varies along the fiber — thicker near center, tapers at tip
+    // Like a blood vessel or nerve fiber
+    cx.beginPath();
+    for (var s = 0; s < points.length - 1; s++) {
+      var p0 = points[s];
+      var p1 = points[s + 1];
+      if (s === 0) {
+        cx.moveTo(p0.x, p0.y);
+      }
+      // Smooth bezier between points
+      var cpx = (p0.x + p1.x) / 2;
+      var cpy = (p0.y + p1.y) / 2;
+      cx.quadraticCurveTo(p0.x, p0.y, cpx, cpy);
+    }
+    // Last point
+    var last = points[points.length - 1];
+    cx.lineTo(last.x, last.y);
+
+    // Gradient along the fiber
+    var startX = points[0].x, startY = points[0].y;
+    var endX = last.x, endY = last.y;
+    var grad = cx.createLinearGradient(startX, startY, endX, endY);
+
+    var a = alpha * layer.alphaMul * intenseMul;
+    // Builder boost
+    if (ch.isBuilder && screeningPhase >= 2) {
+      a *= 1.4;
+    }
+
+    var cr = Math.min(255, col[0] + (li === 3 ? 30 : 0));
+    var cg = Math.min(255, col[1] + (li === 3 ? 20 : 0));
+    var cb = Math.min(255, col[2] + (li === 3 ? 15 : 0));
+
+    grad.addColorStop(0, 'rgba(' + cr + ',' + cg + ',' + cb + ',' + Math.min(1, a * 0.9).toFixed(4) + ')');
+    grad.addColorStop(0.3, 'rgba(' + cr + ',' + cg + ',' + cb + ',' + Math.min(1, a * 0.7).toFixed(4) + ')');
+    grad.addColorStop(0.7, 'rgba(' + cr + ',' + cg + ',' + cb + ',' + Math.min(1, a * 0.3).toFixed(4) + ')');
+    grad.addColorStop(1, 'rgba(' + cr + ',' + cg + ',' + cb + ',0)');
+
+    cx.strokeStyle = grad;
+    // Width tapers: thick at center, thin at tip
+    cx.lineWidth = baseW * (0.6 + breath * 0.4);
+    cx.lineCap = 'round';
+    cx.lineJoin = 'round';
+    cx.stroke();
+  }
+
+  // Ghost trace: faint afterimage left when a channel dims
+  if (ch.ghostAlpha > 0.005) {
+    cx.beginPath();
+    for (var s = 0; s < points.length - 1; s++) {
+      var p0 = points[s], p1 = points[s+1];
+      if (s === 0) cx.moveTo(p0.x, p0.y);
+      cx.quadraticCurveTo(p0.x, p0.y, (p0.x+p1.x)/2, (p0.y+p1.y)/2);
+    }
+    cx.lineTo(points[points.length-1].x, points[points.length-1].y);
+    cx.strokeStyle = 'rgba(' + col[0] + ',' + col[1] + ',' + col[2] + ',' + (ch.ghostAlpha * 0.08).toFixed(4) + ')';
+    cx.lineWidth = ch.baseWidth * 0.5;
+    cx.setLineDash([2, 6]);
+    cx.stroke();
+    cx.setLineDash([]);
+  }
+
+  // Tip glow for builders in screening phase
+  if (ch.isBuilder && screeningPhase === 2 && bright > 0.5) {
+    var tip = points[points.length - 1];
+    var tipR = 6 + ch.intensify * 8;
+    var tipGlow = cx.createRadialGradient(tip.x, tip.y, 0, tip.x, tip.y, tipR);
+    tipGlow.addColorStop(0, 'rgba(' + col[0] + ',' + col[1] + ',' + col[2] + ',' + (0.2 * breath * intenseMul).toFixed(4) + ')');
+    tipGlow.addColorStop(0.5, 'rgba(' + col[0] + ',' + col[1] + ',' + col[2] + ',' + (0.06 * breath).toFixed(4) + ')');
+    tipGlow.addColorStop(1, 'rgba(' + col[0] + ',' + col[1] + ',' + col[2] + ',0)');
+    cx.fillStyle = tipGlow;
+    cx.beginPath(); cx.arc(tip.x, tip.y, tipR, 0, PI2); cx.fill();
+  }
+
+  return points; // return for annotation connection lines
+}
+
+// ═══ DRAW ═══
+var channelPoints = []; // store last drawn points for annotations
+
+function draw() {
+  t += 0.016;
+  phaseT += 0.016;
+
+  // Partial clear with warm tint — lets trails linger like over-the-rhone
+  cx.fillStyle = 'rgba(10,7,6,0.12)';
+  cx.fillRect(0, 0, W, H);
+
+  // ═══ BACKGROUND — warm center gradient, not flat black ═══
+  var ambR = Math.min(W, H) * 0.55;
+  var amb = cx.createRadialGradient(cX, cY, 0, cX, cY, ambR);
+  amb.addColorStop(0, 'rgba(35,22,12,0.08)');
+  amb.addColorStop(0.3, 'rgba(25,16,9,0.05)');
+  amb.addColorStop(0.6, 'rgba(18,12,7,0.03)');
+  amb.addColorStop(1, 'rgba(10,7,6,0)');
+  cx.fillStyle = amb;
+  cx.fillRect(0, 0, W, H);
+
+  // Velvet noise texture — tiled across canvas
+  cx.globalAlpha = 0.2;
+  for (var nx = 0; nx < W; nx += 256) {
+    for (var ny = 0; ny < H; ny += 256) {
+      cx.drawImage(ncv, nx, ny);
+    }
+  }
+  cx.globalAlpha = 1;
+
+  // Vignette
+  var vig = cx.createRadialGradient(cX, cY, Math.min(W,H)*0.2, cX, cY, Math.max(W,H)*0.65);
+  vig.addColorStop(0, 'rgba(10,7,6,0)');
+  vig.addColorStop(1, 'rgba(10,7,6,0.45)');
+  cx.fillStyle = vig; cx.fillRect(0, 0, W, H);
+
+  // ═══ PHASE LOGIC ═══
+  var cycleDur = 28;
+  var cycleT = t % cycleDur;
+
+  if (cycleT < 5) {
+    // Phase 0: all 33 channels blazing
+    screeningPhase = 0;
+    for (var i = 0; i < N; i++) {
+      channels[i].brightness += (1.0 - channels[i].brightness) * 0.05;
+      channels[i].withdrawProgress *= 0.95;
+      channels[i].ghostAlpha *= 0.97;
+      channels[i].intensify *= 0.95;
+    }
+    if (cycleT > 2) showWhisper(0);
+  } else if (cycleT < 12) {
+    // Phase 1: 25 screeners dim — the loss
+    screeningPhase = 1;
+    var progress = (cycleT - 5) / 7;
+    var ease = progress < 0.5
+      ? 2 * progress * progress
+      : 1 - Math.pow(-2 * progress + 2, 2) / 2;
+
+    for (var i = 0; i < N; i++) {
+      if (!channels[i].isBuilder) {
+        channels[i].brightness = 1.0 - ease * 0.94;
+        // Light withdraws toward center — like watching a star go out
+        channels[i].withdrawProgress = ease * 0.85;
+        // Leave ghost traces
+        channels[i].ghostAlpha = ease * 0.6;
+
+        // Spawn ghost particles as light withdraws
+        if (Math.random() < 0.02 * ease && ghostTraces.length < maxGhosts) {
+          var ch = channels[i];
+          var dist = ch.length * Math.min(W,H) * 0.4 * (1 - ease * 0.5);
+          var gx = cX + Math.cos(ch.angle) * dist * (0.3 + Math.random() * 0.7);
+          var gy = cY + Math.sin(ch.angle) * dist * (0.3 + Math.random() * 0.7);
+          ghostTraces.push({
+            x: gx, y: gy,
+            vx: -Math.cos(ch.angle) * 0.15, // drift back toward center
+            vy: -Math.sin(ch.angle) * 0.15,
+            alpha: 0.15,
+            size: 0.8 + Math.random() * 1.2,
+            gen: ch.gen
+          });
+        }
+      } else {
+        // Builders begin to intensify as they take on the burden
+        channels[i].intensify += (ease * 1.0 - channels[i].intensify) * 0.03;
+      }
+    }
+    if (progress < 0.3) showWhisper(1);
+    else if (progress < 0.7) showWhisper(2);
+    else showWhisper(3);
+  } else if (cycleT < 20) {
+    // Phase 2: screened. 8 defiant builders. 25 ghost-dim.
+    screeningPhase = 2;
+    for (var i = 0; i < N; i++) {
+      if (!channels[i].isBuilder) {
+        channels[i].brightness = 0.04 + Math.sin(t * 0.5 + i) * 0.015;
+        channels[i].withdrawProgress += (0.9 - channels[i].withdrawProgress) * 0.01;
+        channels[i].ghostAlpha *= 0.998;
+      } else {
+        // Builders DEFY — they intensify, taking on burden
+        channels[i].intensify += (1.0 - channels[i].intensify) * 0.02;
+        channels[i].brightness = 1.0 + Math.sin(t * 0.8 + i * 0.5) * 0.1;
+      }
+    }
+
+    // Spawn structured creation particles from builders
+    if (particles.length < maxParticles && Math.random() < 0.35) {
+      var bi = Math.floor(Math.random() * 8);
+      var ch = channels[bi];
+      var speed = 0.3 + Math.random() * 0.7;
+      var spread = (Math.random() - 0.5) * 0.12;
+      particles.push({
+        x: cX, y: cY,
+        vx: Math.cos(ch.angle + spread) * speed,
+        vy: Math.sin(ch.angle + spread) * speed,
+        life: 1.0,
+        gen: ch.gen,
+        size: 0.5 + Math.random() * 1.5,
+        phase: Math.random() * PI2,
+        omega: 0.5 + Math.random(),
+        // For crystalline geometry
+        crystalPhase: Math.random() * PI2,
+        crystalFreq: 0.1 + Math.random() * 0.3,
+        age: 0
+      });
+    }
+    if (cycleT < 16) showWhisper(4);
+    else showWhisper(5);
+  } else {
+    // Phase 3: fade and reset
+    screeningPhase = 3;
+    for (var i = 0; i < N; i++) {
+      channels[i].brightness *= 0.993;
+      channels[i].intensify *= 0.99;
+      channels[i].ghostAlpha *= 0.99;
+    }
+    for (var i = particles.length - 1; i >= 0; i--) {
+      particles[i].life -= 0.008;
+      if (particles[i].life <= 0) particles.splice(i, 1);
+    }
+    var fadeout = (cycleT - 20) / 8;
+    if (fadeout < 0.5) showWhisper(6);
+    else hideWhisper();
+  }
+
+  // ═══ AUDIO UPDATE ═══
+  if (audioReady) {
+    for (var i = 0; i < N; i++) {
+      var vol = channels[i].brightness * 0.15;
+      toneNodes[i].gain.gain.setTargetAtTime(vol, actx.currentTime, 0.3);
+    }
+  }
+
+  // ═══ DRAW CHANNELS — back-to-front depth sort ═══
+  // Sort by depth for layering (shallow = behind, deep = front)
+  var drawOrder = [];
+  for (var i = 0; i < N; i++) drawOrder.push(i);
+  drawOrder.sort(function(a, b) { return channels[a].depth - channels[b].depth; });
+
+  var rayLen = Math.min(W, H) * 0.4;
+  channelPoints = new Array(N);
+
+  for (var di = 0; di < drawOrder.length; di++) {
+    var i = drawOrder[di];
+    var ch = channels[i];
+    ch.phase += ch.omega * 0.016;
+    ch.angle += ch.drift;
+    channelPoints[i] = drawChannel(ch, i, rayLen);
+  }
+
+  // ═══ CENTER SOURCE — corona layers like a real star ═══
+  var coreBreath = 0.7 + Math.sin(t * 1.5) * 0.3;
+
+  // Outermost corona — very faint, very large
+  var corona3R = 50 + coreBreath * 20;
+  var c3 = cx.createRadialGradient(cX, cY, 0, cX, cY, corona3R);
+  c3.addColorStop(0, 'rgba(60,40,25,' + (0.06 * coreBreath).toFixed(4) + ')');
+  c3.addColorStop(0.3, 'rgba(50,30,18,' + (0.03 * coreBreath).toFixed(4) + ')');
+  c3.addColorStop(1, 'rgba(40,25,15,0)');
+  cx.fillStyle = c3;
+  cx.beginPath(); cx.arc(cX, cY, corona3R, 0, PI2); cx.fill();
+
+  // Mid corona — warm glow
+  var corona2R = 25 + coreBreath * 12;
+  var c2 = cx.createRadialGradient(cX, cY, 0, cX, cY, corona2R);
+  c2.addColorStop(0, 'rgba(255,235,200,' + (0.12 * coreBreath).toFixed(4) + ')');
+  c2.addColorStop(0.3, 'rgba(230,190,120,' + (0.06 * coreBreath).toFixed(4) + ')');
+  c2.addColorStop(0.7, 'rgba(184,117,58,' + (0.02 * coreBreath).toFixed(4) + ')');
+  c2.addColorStop(1, 'rgba(139,74,46,0)');
+  cx.fillStyle = c2;
+  cx.beginPath(); cx.arc(cX, cY, corona2R, 0, PI2); cx.fill();
+
+  // Inner corona — bright
+  var corona1R = 10 + coreBreath * 5;
+  var c1 = cx.createRadialGradient(cX, cY, 0, cX, cY, corona1R);
+  c1.addColorStop(0, 'rgba(255,252,240,' + (0.4 * coreBreath).toFixed(4) + ')');
+  c1.addColorStop(0.4, 'rgba(255,245,220,' + (0.2 * coreBreath).toFixed(4) + ')');
+  c1.addColorStop(1, 'rgba(255,235,200,0)');
+  cx.fillStyle = c1;
+  cx.beginPath(); cx.arc(cX, cY, corona1R, 0, PI2); cx.fill();
+
+  // Core dot — white hot
+  var coreR = 2 + coreBreath * 1.5;
+  cx.fillStyle = 'rgba(255,253,245,' + (0.85 * coreBreath).toFixed(3) + ')';
+  cx.beginPath(); cx.arc(cX, cY, coreR, 0, PI2); cx.fill();
+
+  // ═══ GHOST TRACES — drifting back toward center ═══
+  for (var i = ghostTraces.length - 1; i >= 0; i--) {
+    var g = ghostTraces[i];
+    g.x += g.vx + pink() * 0.3;
+    g.y += g.vy + pink2() * 0.3;
+    g.alpha *= 0.995;
+    if (g.alpha < 0.003) { ghostTraces.splice(i, 1); continue; }
+    var gcol = genColors[g.gen];
+    cx.fillStyle = 'rgba(' + gcol[0] + ',' + gcol[1] + ',' + gcol[2] + ',' + (g.alpha * 0.3).toFixed(4) + ')';
+    cx.beginPath(); cx.arc(g.x, g.y, g.size, 0, PI2); cx.fill();
+  }
+
+  // ═══ CREATION PARTICLES — structured, forming fleeting geometries ═══
+  cx.globalCompositeOperation = 'lighter';
+
+  // Find nearby particle pairs for crystalline connections
+  var pLen = particles.length;
+  for (var i = pLen - 1; i >= 0; i--) {
+    var p = particles[i];
+    p.x += p.vx;
+    p.y += p.vy;
+    p.vx *= 0.997;
+    p.vy *= 0.997;
+    p.vx += pink() * 0.015;
+    p.vy += pink2() * 0.015;
+    p.life -= 0.003;
+    p.phase += p.omega * 0.016;
+    p.age += 0.016;
+    p.crystalPhase += p.crystalFreq * 0.016;
+
+    if (p.life <= 0) { particles.splice(i, 1); continue; }
+
+    var col = genColors[p.gen];
+    var alpha = p.life * p.life * 0.4;
+    var sz = p.size * (0.8 + Math.sin(p.phase) * 0.2);
+
+    // Soft glow halo
+    var pg = cx.createRadialGradient(p.x, p.y, 0, p.x, p.y, sz * 5);
+    pg.addColorStop(0, 'rgba(' + col[0] + ',' + col[1] + ',' + col[2] + ',' + (alpha * 0.3).toFixed(4) + ')');
+    pg.addColorStop(0.4, 'rgba(' + col[0] + ',' + col[1] + ',' + col[2] + ',' + (alpha * 0.08).toFixed(4) + ')');
+    pg.addColorStop(1, 'rgba(' + col[0] + ',' + col[1] + ',' + col[2] + ',0)');
+    cx.fillStyle = pg;
+    cx.beginPath(); cx.arc(p.x, p.y, sz * 5, 0, PI2); cx.fill();
+
+    // Bright core
+    cx.fillStyle = 'rgba(' + Math.min(255,col[0]+30) + ',' + Math.min(255,col[1]+20) + ',' + Math.min(255,col[2]+15) + ',' + (alpha * 0.8).toFixed(4) + ')';
+    cx.beginPath(); cx.arc(p.x, p.y, sz * 0.5, 0, PI2); cx.fill();
+  }
+
+  // Draw crystalline connections — brief geometric flashes between nearby particles
+  // Triangles, hexagons — the sacred shapes that Lennard-Jones produces
+  if (screeningPhase === 2 && pLen > 3) {
+    for (var i = 0; i < pLen && i < particles.length; i++) {
+      var p1 = particles[i];
+      if (!p1 || p1.life < 0.2) continue;
+      var crystalWindow = Math.sin(p1.crystalPhase);
+      if (crystalWindow < 0.7) continue; // only during brief alignment moments
+
+      // Find 2 nearest neighbors
+      var nearest = [];
+      for (var j = 0; j < particles.length; j++) {
+        if (j === i) continue;
+        var p2 = particles[j];
+        var dx = p2.x - p1.x, dy = p2.y - p1.y;
+        var dist = Math.sqrt(dx*dx + dy*dy);
+        if (dist < 60 && dist > 5) {
+          nearest.push({ idx: j, dist: dist });
+        }
+      }
+      nearest.sort(function(a,b) { return a.dist - b.dist; });
+
+      // Draw triangle if 2+ neighbors
+      if (nearest.length >= 2) {
+        var p2 = particles[nearest[0].idx];
+        var p3 = particles[nearest[1].idx];
+        var crystAlpha = (crystalWindow - 0.7) / 0.3 * 0.06 * p1.life;
+        var ccol = genColors[p1.gen];
+        cx.strokeStyle = 'rgba(' + ccol[0] + ',' + ccol[1] + ',' + ccol[2] + ',' + crystAlpha.toFixed(4) + ')';
+        cx.lineWidth = 0.4;
+        cx.beginPath();
+        cx.moveTo(p1.x, p1.y);
+        cx.lineTo(p2.x, p2.y);
+        cx.lineTo(p3.x, p3.y);
+        cx.closePath();
+        cx.stroke();
+      }
+    }
+  }
+  cx.globalCompositeOperation = 'source-over';
+
+  // ═══ GENERATION ARCS — dashed orbits like anatomical section markers ═══
+  if (screeningPhase <= 2) {
+    var arcBase = Math.min(W, H) * 0.42;
+    for (var g = 0; g < 3; g++) {
+      var arcR = arcBase * (0.15 + g * 0.12);
+      var genAlpha = screeningPhase === 0 ? 0.025 : (screeningPhase === 1 ? 0.02 : 0.04);
+      cx.strokeStyle = 'rgba(' + genColors[g].join(',') + ',' + genAlpha.toFixed(4) + ')';
+      cx.lineWidth = 0.4;
+      cx.setLineDash([1.5, 10]);
+      cx.beginPath(); cx.arc(cX, cY, arcR, 0, PI2); cx.stroke();
+      cx.setLineDash([]);
+    }
+  }
+
+  // ═══ DA VINCI ANNOTATIONS — notebook marginalia ═══
+  // Only visible during screening and screened phases
+  if (screeningPhase >= 1 && screeningPhase <= 2) {
+    cx.save();
+
+    for (var ai = 0; ai < annotations.length; ai++) {
+      var ann = annotations[ai];
+
+      // Fade in/out based on phase
+      if (screeningPhase >= ann.phase) {
+        ann.targetAlpha = 0.14;
+      } else if (screeningPhase === 1 && ann.phase <= 1) {
+        ann.targetAlpha = 0.10;
+      } else {
+        ann.targetAlpha = 0;
+      }
+      ann.alpha += (ann.targetAlpha - ann.alpha) * 0.02;
+      if (ann.alpha < 0.005) continue;
+
+      var lx = W * ann.rx;
+      var ly = H * ann.ry;
+
+      // Text — italic Georgia, very faint, like handwritten notes
+      cx.font = 'italic 9px Georgia, serif';
+      cx.textAlign = 'center';
+      cx.fillStyle = 'rgba(184,157,118,' + ann.alpha.toFixed(4) + ')';
+      cx.fillText(ann.text, lx, ly);
+
+      // Connecting line — thin, dotted, from label to generation arc or center
+      if (ann.conn !== null) {
+        var arcR2 = Math.min(W,H) * 0.42 * (0.15 + ann.conn * 0.12);
+        // Find nearest point on that arc
+        var connAngle = Math.atan2(ly - cY, lx - cX);
+        var connX = cX + Math.cos(connAngle) * arcR2;
+        var connY = cY + Math.sin(connAngle) * arcR2;
+
+        cx.strokeStyle = 'rgba(184,157,118,' + (ann.alpha * 0.35).toFixed(4) + ')';
+        cx.lineWidth = 0.3;
+        cx.setLineDash([1, 4]);
+        cx.beginPath();
+        cx.moveTo(lx, ly + 4);
+        cx.lineTo(connX, connY);
+        cx.stroke();
+        cx.setLineDash([]);
+      }
+    }
+
+    cx.restore();
+  } else {
+    // Reset annotation alphas when not in display phases
+    for (var ai = 0; ai < annotations.length; ai++) {
+      annotations[ai].alpha *= 0.95;
+      annotations[ai].targetAlpha = 0;
+    }
+  }
+
+  requestAnimationFrame(draw);
+}
+
+draw();
+</script>
+<script src="/js/breathe.js?v=3"></script>
+<script src="/js/love.js?v=3"></script>
+</body>
+</html>
