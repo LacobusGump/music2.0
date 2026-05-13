@@ -53,9 +53,9 @@ var cx = cv.getContext('2d');
 var infoEl = document.getElementById('info');
 var whisperEl = document.getElementById('whisper');
 
-// Simulation grid — higher res for smoother look
-var GW = 300;
-var GH = 220;
+// Simulation grid — sharp but not overcooked
+var GW = 500;
+var GH = 360;
 var W, H;
 
 var turDpr = 1;
@@ -68,7 +68,7 @@ function resize() {
   cx.setTransform(turDpr, 0, 0, turDpr, 0, 0);
   // Adjust grid to aspect ratio
   var aspect = W / H;
-  GH = 220;
+  GH = 360;
   GW = Math.floor(GH * aspect);
 }
 resize();
@@ -172,7 +172,7 @@ var journeys = [
 ];
 var journeyIdx = 0;
 var journeyT = 0;
-var journeyDuration = 1200; // frames per journey segment
+var journeyDuration = 600; // frames per journey segment
 
 function updateParams() {
   journeyT++;
@@ -263,71 +263,203 @@ offCv.width = GW;
 offCv.height = GH;
 var offCx = offCv.getContext('2d');
 
+// Film grain seed (deterministic per frame for stability)
+var grainSeed = 0;
+function cheapRand() {
+  grainSeed = (grainSeed * 1103515245 + 12345) & 0x7fffffff;
+  return (grainSeed / 0x7fffffff);
+}
+
 function renderScaled() {
   if (!imgData || imgData.width !== GW || imgData.height !== GH) {
     imgData = offCx.createImageData(GW, GH);
   }
   var d = imgData.data;
-  for (var i = 0; i < GW * GH; i++) {
-    var v = V1[i];
 
-    // richer color mapping with 5-stop gradient through ember palette
-    var pattern = v * 3.5;
-    if (pattern > 1) pattern = 1;
+  // --- Light direction from mouse ---
+  var lx = mouseX - 0.5;
+  var ly = mouseY - 0.5;
+  var lz = 0.7;
+  var lLen = Math.sqrt(lx*lx + ly*ly + lz*lz);
+  lx /= lLen; ly /= lLen; lz /= lLen;
 
-    var r, g, b;
-    if (pattern < 0.15) {
-      // void to deep ember
-      var tt = pattern / 0.15;
-      r = 10 + tt * 16;    // 10 -> 26
-      g = 7 + tt * 10;     // 7 -> 17
-      b = 6 + tt * 7;      // 6 -> 13
-    } else if (pattern < 0.35) {
-      // deep ember to warm brown
-      var tt = (pattern - 0.15) / 0.2;
-      r = 26 + tt * 113;   // 26 -> 139
-      g = 17 + tt * 57;    // 17 -> 74
-      b = 13 + tt * 33;    // 13 -> 46
-    } else if (pattern < 0.55) {
-      // warm brown to amber
-      var tt = (pattern - 0.35) / 0.2;
-      r = 139 + tt * 45;   // 139 -> 184
-      g = 74 + tt * 43;    // 74 -> 117
-      b = 46 + tt * 12;    // 46 -> 58
-    } else if (pattern < 0.75) {
-      // amber to gold
-      var tt = (pattern - 0.55) / 0.2;
-      r = 184 + tt * 17;   // 184 -> 201
-      g = 117 + tt * 49;   // 117 -> 166
-      b = 58 + tt * 42;    // 58 -> 100
-    } else {
-      // gold to bright
-      var tt = (pattern - 0.75) / 0.25;
-      r = 201 + tt * 31;   // 201 -> 232
-      g = 166 + tt * 41;   // 166 -> 207
-      b = 100 + tt * 60;   // 100 -> 160
+  // View direction (straight down into the petri dish)
+  var vx = 0, vy = 0, vz = 1;
+
+  var heightScale = 2.4;   // good relief without harshness
+  var shininess = 32;      // balanced specular
+  var specStr = 0.4;       // visible but not overpowering
+  var aoStr = 0.45;        // depth in crevices
+  var ambientBase = 0.15;  // enough shadow to see the forms
+
+  // Reset grain for this frame
+  grainSeed = frameCount * 7919;
+
+  for (var y = 0; y < GH; y++) {
+    for (var x = 0; x < GW; x++) {
+      var i = y * GW + x;
+      var v = V1[i];
+      var u = U1[i];
+
+      // --- Gradient of V (central differences, wrapped) ---
+      var xm = (x - 1 + GW) % GW;
+      var xp = (x + 1) % GW;
+      var ym = (y - 1 + GH) % GH;
+      var yp = (y + 1) % GH;
+
+      var dVdx = (V1[y * GW + xp] - V1[y * GW + xm]) * 0.5;
+      var dVdy = (V1[yp * GW + x] - V1[ym * GW + x]) * 0.5;
+
+      // --- Surface normal from height map ---
+      var nx = -dVdx * heightScale;
+      var ny = -dVdy * heightScale;
+      var nz = 1.0;
+      var nLen = Math.sqrt(nx*nx + ny*ny + nz*nz);
+      nx /= nLen; ny /= nLen; nz /= nLen;
+
+      // --- Diffuse lighting ---
+      var diffuse = nx*lx + ny*ly + nz*lz;
+      if (diffuse < 0) diffuse = 0;
+
+      // --- Specular (Blinn-Phong) ---
+      // Half vector = normalize(light + view)
+      var hx = lx + vx;
+      var hy = ly + vy;
+      var hz = lz + vz;
+      var hLen = Math.sqrt(hx*hx + hy*hy + hz*hz);
+      hx /= hLen; hy /= hLen; hz /= hLen;
+
+      var ndoth = nx*hx + ny*hy + nz*hz;
+      if (ndoth < 0) ndoth = 0;
+      var spec = Math.pow(ndoth, shininess) * specStr;
+
+      // Only show specular on pattern peaks (high V)
+      var pattern = v * 3.5;
+      if (pattern > 1) pattern = 1;
+      spec *= pattern * pattern;
+
+      // --- Ambient Occlusion from Laplacian of V ---
+      var lapV = V1[y * GW + xm] + V1[y * GW + xp] +
+                 V1[ym * GW + x] + V1[yp * GW + x] - 4 * V1[i];
+      // Negative laplacian = concave (valley) -> darken
+      // Positive laplacian = convex (ridge) -> brighten
+      var ao = 1.0 + lapV * aoStr * 12.0;
+      if (ao < 0.55) ao = 0.55;
+      if (ao > 1.25) ao = 1.25;
+
+      // --- Color palette: iridescent, all colors shimmering ---
+      // Hue shifts slowly with time + varies with gradient angle
+      var gradAngle = Math.atan2(dVdy, dVdx); // -PI to PI
+      var hueBase = frameCount * 0.0008;       // slow global hue drift
+      var hueLocal = gradAngle * 0.15;          // iridescence from surface angle
+      var hue = (hueBase + hueLocal) % 1.0;
+      if (hue < 0) hue += 1.0;
+
+      // HSL-like mapping: hue from gradient, saturation from pattern edges, lightness from V
+      var r, g, b;
+
+      // Base brightness from pattern intensity
+      var lum = pattern;
+
+      // Saturation peaks at pattern edges (mid V), low in void and peaks
+      var sat = 4.0 * pattern * (1.0 - pattern); // peaks at pattern=0.5
+      sat = sat * 0.65 + 0.1; // range 0.1 to 0.75
+
+      // Convert hue to RGB (simplified HSL->RGB)
+      var hr = Math.abs(hue * 6.0 - 3.0) - 1.0;
+      var hg = 2.0 - Math.abs(hue * 6.0 - 2.0);
+      var hb = 2.0 - Math.abs(hue * 6.0 - 4.0);
+      if (hr < 0) hr = 0; if (hr > 1) hr = 1;
+      if (hg < 0) hg = 0; if (hg > 1) hg = 1;
+      if (hb < 0) hb = 0; if (hb > 1) hb = 1;
+
+      // Warm base tones (ember foundation)
+      var baseR, baseG, baseB;
+      if (pattern < 0.2) {
+        baseR = 10; baseG = 9; baseB = 14;
+      } else if (pattern < 0.5) {
+        var tt = (pattern - 0.2) / 0.3;
+        baseR = 10 + tt * 160;  baseG = 9 + tt * 95;  baseB = 14 + tt * 40;
+      } else {
+        var tt = (pattern - 0.5) / 0.5;
+        baseR = 170 + tt * 62;  baseG = 104 + tt * 103; baseB = 54 + tt * 106;
+      }
+
+      // Blend hue with base: sat controls how much hue shows
+      r = baseR + (hr * 255 - baseR) * sat * pattern;
+      g = baseG + (hg * 255 - baseG) * sat * pattern;
+      b = baseB + (hb * 255 - baseB) * sat * pattern;
+
+      // --- Combine lighting ---
+      var light = ambientBase + diffuse * 0.82;
+      light *= ao;
+
+      r = r * light;
+      g = g * light;
+      b = b * light;
+
+      // Specular: chromatic — shifts with hue for iridescent glisten
+      var specHue = (hue + 0.1) % 1.0;
+      var sr = Math.abs(specHue * 6.0 - 3.0) - 1.0;
+      var sg = 2.0 - Math.abs(specHue * 6.0 - 2.0);
+      var sb = 2.0 - Math.abs(specHue * 6.0 - 4.0);
+      if (sr < 0) sr = 0; if (sr > 1) sr = 1;
+      if (sg < 0) sg = 0; if (sg > 1) sg = 1;
+      if (sb < 0) sb = 0; if (sb > 1) sb = 1;
+      // Mix chromatic spec with warm gold (keep it grounded)
+      r += spec * (sr * 120 + 140);
+      g += spec * (sg * 100 + 110);
+      b += spec * (sb * 80 + 50);
+
+      // --- Depth of field: desaturate + darken edges ---
+      var dx = (x / GW) - 0.5;
+      var dy = (y / GH) - 0.5;
+      var edgeDist = Math.sqrt(dx*dx + dy*dy) * 2.0; // 0 at center, ~1.0 at corners
+      var dofFade = edgeDist * edgeDist * 0.12;         // gentle vignette
+      // Desaturate toward edges
+      var gray = r * 0.299 + g * 0.587 + b * 0.114;
+      r = r + (gray - r) * dofFade * 0.6;
+      g = g + (gray - g) * dofFade * 0.6;
+      b = b + (gray - b) * dofFade * 0.6;
+      // Darken toward edges
+      var dofDarken = 1.0 - dofFade * 0.5;
+      r *= dofDarken;
+      g *= dofDarken;
+      b *= dofDarken;
+
+      // --- Film grain: subtle warm-tinted noise ---
+      var grain = (cheapRand() - 0.5) * 8;  // +/- 4 levels
+      r += grain * 1.1;   // slightly more grain in red (warm tint)
+      g += grain * 0.9;
+      b += grain * 0.7;
+
+      // Clamp
+      if (r < 0) r = 0; if (r > 255) r = 255;
+      if (g < 0) g = 0; if (g > 255) g = 255;
+      if (b < 0) b = 0; if (b > 255) b = 255;
+
+      var pi = i * 4;
+      d[pi]   = r | 0;
+      d[pi+1] = g | 0;
+      d[pi+2] = b | 0;
+      d[pi+3] = 255;
     }
-
-    var pi = i * 4;
-    d[pi]   = Math.floor(r);
-    d[pi+1] = Math.floor(g);
-    d[pi+2] = Math.floor(b);
-    d[pi+3] = 255;
   }
   offCx.putImageData(imgData, 0, 0);
 
-  // Scale up with bilinear smoothing — no hard pixels
+  // Scale up with smooth interpolation
   cx.imageSmoothingEnabled = true;
   cx.imageSmoothingQuality = 'high';
   cx.drawImage(offCv, 0, 0, GW, GH, 0, 0, W, H);
 
-  // subtle vignette for depth
+  // --- Vignette (macro lens depth) ---
   var vR = Math.max(W, H) * 0.65;
-  var vg = cx.createRadialGradient(W/2, H/2, vR*0.25, W/2, H/2, vR);
+  var vg = cx.createRadialGradient(W/2, H/2, vR*0.2, W/2, H/2, vR);
   vg.addColorStop(0, 'rgba(10,7,6,0)');
-  vg.addColorStop(0.5, 'rgba(10,7,6,0.06)');
-  vg.addColorStop(0.75, 'rgba(10,7,6,0.2)');
-  vg.addColorStop(1, 'rgba(10,7,6,0.55)');
+  vg.addColorStop(0.45, 'rgba(10,7,6,0.04)');
+  vg.addColorStop(0.7, 'rgba(10,7,6,0.18)');
+  vg.addColorStop(0.85, 'rgba(10,7,6,0.4)');
+  vg.addColorStop(1, 'rgba(10,7,6,0.65)');
   cx.fillStyle = vg;
   cx.fillRect(0, 0, W, H);
 }
@@ -337,7 +469,7 @@ var seeded = false;
 
 function loop() {
   // Run multiple simulation steps per frame for speed
-  var stepsPerFrame = 6;
+  var stepsPerFrame = 12;
   for (var s = 0; s < stepsPerFrame; s++) {
     step();
   }
@@ -381,10 +513,16 @@ cv.addEventListener('touchstart', function(e) {
   }
 });
 
-// Drag to paint seeds
+// Mouse tracking for light direction + drag-to-seed
+var mouseX = 0.5, mouseY = 0.4; // default: slightly above center
 var dragging = false;
+
+cv.addEventListener('mousemove', function(e) {
+  mouseX = e.clientX / W;
+  mouseY = e.clientY / H;
+  if (dragging) seedAt(e.clientX, e.clientY);
+});
 cv.addEventListener('mousedown', function(e) { dragging = true; seedAt(e.clientX, e.clientY); });
-cv.addEventListener('mousemove', function(e) { if (dragging) seedAt(e.clientX, e.clientY); });
 cv.addEventListener('mouseup', function() { dragging = false; });
 
 cv.addEventListener('touchmove', function(e) {
