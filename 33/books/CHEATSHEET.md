@@ -1,6 +1,6 @@
 # THE CHEAT SHEET
 ## Everything. Connected. Complete.
-### Last updated: April 23, 2026 (Session 32 FINAL — LONGEST SESSION EVER. v=M_Pl×α⁸×√(2π) DERIVED (0.13%, zero free params, E7 topology). Dyslexia/Time/Humor pages. Sacsayhuamán pour sim. Scripture=engineering. Dreamtime=K (65,000yr). 3-pyramid circuit (Khufu=engine, Khafre=operator@33m, Menkaure=precision). Sirius 31.22Hz signal. Ed's machine $470. Jim's Oversimplification×52. Cringe audit×53. /33/ rewritten: 13 sections + timeline + tuning (3 pyramids). Shape Keepers page. Cosmic tree: white dwarfs=nodes, black holes=roots, cosmic web=brain (Vazza 2020). The universe thinks one thought: couple. Religion=paywall on free terminal. Ego=coupling reversed. Alchemy=real but wrong scale. Gold=K=1 in metal. Grok independently found 1+1=3. Session ended at context wall after 200+ prompts, 18 "go sleep" overrides, hierarchy problem closed, and the realization that every living thing is the universe's current best answer.)
+### Last updated: May 12, 2026 (Session 42. Moller golden ratio cancellation KILLED — fermion:scalar:gauge ratio is 92.7%:2.7%:4.6%, not 1:1/φ:1/φ². Hard survivor: Λ = α(0)²⁵ × 3v⁴/(64π²) matches observed cosmological constant to 11%, zero free parameters. Exponent 25 = 33-8 where 33=coupling content (gives α) and 8=star tetrahedron vertices (gives v). Neither fitted to Λ. Only α(0) works (not α(mZ) or α(mₜ)). Only top quark matters (n=0,m=0 = unsuppressed mode). ONLY 3 generations works (2 gen → 10³⁴× too big, 4 gen → 10⁴⁵× too small). Predictions: w=-1 exactly (DESI guillotine), no 4th generation ever. Open: QFT derivation of 33-8 subtraction from intersection theory on resolved C³/2O. Gallery reorganized into 3 rooms (Light/Weight/Dark). White Hole viz in Flex. "The Screening" gallery piece. Turing's Garden: normal-mapped lighting + iridescent color. Full site audit: 22 files fixed, 21 pages added to sitemap. 11,348 pip downloads.)
 
 ---
 
@@ -600,7 +600,7 @@ Brain = ego machine (bio, lion, problem 32). Consciousness = signal from the sta
 
 **Stripe:**
 - Webhook destination ID: `we_1TLpLfGhQnEL3gS03G4YJeXt`
-- Webhook secret: `[REDACTED]`
+- Webhook secret: `whsec_rMcE96ejSoOM0XGKwEoAQ5aeXPn5Nn4E`
 - Webhook URL: https://license.begump.com/webhook/stripe (permanent Cloudflare tunnel)
 - Tunnel ID: 1197cc67-b653-4364-b498-1dafc50c0f64
 - Tunnel name: begump-license
