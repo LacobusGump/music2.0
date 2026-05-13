@@ -513,6 +513,272 @@ function updateSessionPersonality(dt) {
   }
 }
 
+// =====================================================================
+// SESSION EVOLUTION ENGINE — the instrument goes on a journey
+//
+// Five eras that cross-fade smoothly over the session.
+// The instrument is BORN simple and GROWS into something transcendent.
+// Nobody gets to ERA 5 by accident. You earn it.
+//
+// ERA 0: DAWN       (0-2 min)   — Newborn. Pure. Sine partials 1-4 only.
+// ERA 1: AWAKENING  (2-5 min)   — Harmonics glow. Space opens.
+// ERA 2: BLOOM      (5-12 min)  — Full series. Rich and alive.
+// ERA 3: STORM      (12-25 min) — Maximum expression. Overdrive. Growl.
+// ERA 4: CATHEDRAL  (25+ min)   — Transcendence. Shimmer. Incense.
+//
+// Energy modulates pace: high energy accelerates evolution.
+// Stillness slows it. The player's commitment shapes the timeline.
+// =====================================================================
+
+var sessionEra = 0;           // current era (0-4)
+var eraProgress = 0;          // 0-1 within current era
+var eraEffectiveTime = 0;     // energy-modulated session time for era calc
+var eraCumulativeEnergy = 0;  // accumulated energy (drives acceleration)
+
+// Era boundary times in seconds (base, before energy modulation)
+var ERA_BOUNDARIES = [120, 300, 720, 1500]; // 2min, 5min, 12min, 25min
+
+// Evolution multipliers — these are the knobs the era system turns
+var evoPartialScale = [];     // per-partial gain multiplier (0-1.3)
+var evoMasterLPFreq = 2000;   // target master LP frequency
+var evoReverbMult = 1.0;      // reverb send multiplier
+var evoDroneFilterFreq = 80;  // drone filter cutoff target
+var evoKMult = 1.0;           // Kuramoto K multiplier
+var evoDelayFeedback = 0.3;   // delay feedback target
+var evoVoidAmpMult = 1.0;     // void partial amplitude multiplier
+var evoSubMult = 0.3;         // sub bass level multiplier (0=silent, 1=full)
+
+// Initialize partial scale array
+for (var _ei = 0; _ei < 16; _ei++) evoPartialScale[_ei] = 1.0;
+
+// ERA 4 (STORM) nodes — created in begin()
+var stormDrone = null;        // square wave at fundamental/2
+var stormDroneGain = null;
+var stormWaveshaper = null;   // soft clip distortion
+var stormWetGain = null;      // waveshaper wet mix
+var stormDryGain = null;      // dry signal bypass
+
+// ERA 5 (CATHEDRAL) nodes — created in begin()
+var shimmerOscs = [];         // 4 oscillators at 2x void frequencies
+var shimmerGains = [];
+var masterPitchLFO = null;    // slow LFO for master pitch breathing
+var masterPitchLFOGain = null;
+var cathedralDrone = null;    // triangle drone blended with sine
+var cathedralDroneGain = null;
+
+// Ease function (same as harmonic journeys use)
+function eraEase(t) {
+  t = Math.max(0, Math.min(1, t));
+  return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+}
+
+function updateEvolution(dt) {
+  // Accumulate energy for timeline acceleration
+  eraCumulativeEnergy += energy * dt;
+
+  // Energy-modulated time: high sustained energy accelerates evolution
+  // Base rate = 1.0, max acceleration = 1.5x at sustained high energy
+  var energyAccel = 1.0 + Math.min(0.5, eraCumulativeEnergy / (sessionTime + 1) * 0.8);
+  eraEffectiveTime += dt * energyAccel;
+
+  // Compute era and progress from effective time
+  var prevEra = sessionEra;
+  if (eraEffectiveTime < ERA_BOUNDARIES[0]) {
+    sessionEra = 0;
+    eraProgress = eraEffectiveTime / ERA_BOUNDARIES[0];
+  } else if (eraEffectiveTime < ERA_BOUNDARIES[1]) {
+    sessionEra = 1;
+    eraProgress = (eraEffectiveTime - ERA_BOUNDARIES[0]) / (ERA_BOUNDARIES[1] - ERA_BOUNDARIES[0]);
+  } else if (eraEffectiveTime < ERA_BOUNDARIES[2]) {
+    sessionEra = 2;
+    eraProgress = (eraEffectiveTime - ERA_BOUNDARIES[1]) / (ERA_BOUNDARIES[2] - ERA_BOUNDARIES[1]);
+  } else if (eraEffectiveTime < ERA_BOUNDARIES[3]) {
+    sessionEra = 3;
+    eraProgress = (eraEffectiveTime - ERA_BOUNDARIES[2]) / (ERA_BOUNDARIES[3] - ERA_BOUNDARIES[2]);
+  } else {
+    sessionEra = 4;
+    eraProgress = Math.min(1, (eraEffectiveTime - ERA_BOUNDARIES[3]) / 600); // 10min to fully bloom
+  }
+
+  // Smooth cross-fading progress
+  var p = eraEase(eraProgress);
+  var now = actx ? actx.currentTime : 0;
+
+  // ===================================================================
+  // ERA 0: DAWN — newborn, pure, simple
+  // Only partials 1-4. Sine only. Minimal reverb. Muffled.
+  // ===================================================================
+  if (sessionEra === 0) {
+    // Partial scaling: only first 4 active, fading in gradually
+    for (var i = 0; i < 16; i++) {
+      if (i < 4) {
+        evoPartialScale[i] = 0.3 + p * 0.7; // fade in from 30% to 100%
+      } else {
+        evoPartialScale[i] = 0; // silent
+      }
+    }
+    evoMasterLPFreq = 1200 + p * 800;        // 1200 -> 2000 Hz (muffled)
+    evoReverbMult = 0.4 + p * 0.2;           // 40% -> 60% reverb
+    evoDroneFilterFreq = 40 + p * 30;        // 40 -> 70 Hz (nearly silent drone)
+    evoKMult = 0.6 + p * 0.2;               // weak coupling
+    evoDelayFeedback = 0.1 + p * 0.05;      // minimal delay
+    evoVoidAmpMult = 0;                      // void silent
+    evoSubMult = 0.1 + p * 0.2;             // sub barely present
+  }
+
+  // ===================================================================
+  // ERA 1: AWAKENING — harmonics begin to glow
+  // Partials 5-8 fade in. Drone opens. Space appears.
+  // ===================================================================
+  else if (sessionEra === 1) {
+    for (var i = 0; i < 16; i++) {
+      if (i < 4) {
+        evoPartialScale[i] = 1.0;
+      } else if (i < 8) {
+        evoPartialScale[i] = p; // fade in 5-8
+      } else {
+        evoPartialScale[i] = 0;
+      }
+    }
+    evoMasterLPFreq = 2000 + p * 1500;       // 2000 -> 3500 Hz
+    evoReverbMult = 0.6 + p * 0.2;           // 60% -> 80%
+    evoDroneFilterFreq = 70 + p * 130;        // 70 -> 200 Hz (room appears)
+    evoKMult = 0.8 + p * 0.2;               // strengthening
+    evoDelayFeedback = 0.15 + p * 0.1;      // delay emerging
+    evoVoidAmpMult = 0;                      // void still silent
+    evoSubMult = 0.3 + p * 0.7;             // sub rises to full
+
+    // Chorus effect: slight detuning shimmer on partials 5-8
+    if (actx && p > 0.3) {
+      var chorusAmount = (p - 0.3) / 0.7; // 0-1 over latter 70%
+      for (var i = 4; i < 8; i++) {
+        var chorusDetune = Math.sin(now * 0.3 + i * 1.7) * chorusAmount * 3; // +/- 3 cents
+        partials[i].detune.setTargetAtTime(chorusDetune, now, 0.5);
+      }
+    }
+  }
+
+  // ===================================================================
+  // ERA 2: BLOOM — full harmonic series, rich and alive
+  // All 16 partials. Full reverb. Full spectrum. Delay audible.
+  // ===================================================================
+  else if (sessionEra === 2) {
+    for (var i = 0; i < 16; i++) {
+      if (i < 8) {
+        evoPartialScale[i] = 1.0;
+      } else {
+        evoPartialScale[i] = p; // partials 9-16 fade in
+      }
+    }
+    evoMasterLPFreq = 3500 + p * 2000;       // 3500 -> 5500 Hz (designed value)
+    evoReverbMult = 0.8 + p * 0.2;           // 80% -> 100%
+    evoDroneFilterFreq = 200 + p * 200;       // 200 -> 400 Hz (warmth pours in)
+    evoKMult = 1.0 + p * 0.15;              // coupling strengthens
+    evoDelayFeedback = 0.25 + p * 0.05;     // 0.25 -> 0.30
+    evoVoidAmpMult = 0.5 + p * 0.5;          // void fades in
+    evoSubMult = 1.0;
+
+    // Clear any chorus detuning from ERA 1
+    if (actx && p < 0.1) {
+      for (var i = 4; i < 8; i++) {
+        partials[i].detune.setTargetAtTime(0, now, 1.0);
+      }
+    }
+  }
+
+  // ===================================================================
+  // ERA 3: STORM — maximum expression, the instrument unleashes
+  // Overdrive. Growl. Echoes build. Infrasonic presence.
+  // ===================================================================
+  else if (sessionEra === 3) {
+    for (var i = 0; i < 16; i++) {
+      evoPartialScale[i] = 1.0 + p * 0.3; // overdrive: gain * 1.3 at full
+    }
+    evoMasterLPFreq = 5500 + p * 1500;       // 5500 -> 7000 Hz (brightness, air)
+    evoReverbMult = 1.0 + p * 0.3;           // reverb send +30%
+    evoDroneFilterFreq = 400 + p * 400;       // 400 -> 800 Hz (growl)
+    evoKMult = 1.15 + p * 0.25;             // K increases 20%+ (more aggressive)
+    evoDelayFeedback = 0.30 + p * 0.15;     // 0.30 -> 0.45
+    evoVoidAmpMult = 1.0;
+    evoSubMult = 1.0;
+
+    // Storm drone: square wave at fundamental/2
+    if (stormDroneGain && actx) {
+      var stormTarget = p * 0.025; // barely audible but felt
+      stormDroneGain.gain.setTargetAtTime(stormTarget, now, 2.0);
+    }
+
+    // Waveshaper: soft distortion on impacts
+    if (stormWetGain && actx) {
+      var wetAmount = p * 0.25; // 0 -> 25% wet
+      stormWetGain.gain.setTargetAtTime(wetAmount, now, 2.0);
+      stormDryGain.gain.setTargetAtTime(1.0 - wetAmount * 0.3, now, 2.0);
+    }
+  }
+
+  // ===================================================================
+  // ERA 4: CATHEDRAL — transcendence, earned after half an hour
+  // 6s reverb. Shimmer ghosts. Organ drone. Crystal clarity.
+  // Everything breathes together. The instrument knows you.
+  // ===================================================================
+  else if (sessionEra === 4) {
+    for (var i = 0; i < 16; i++) {
+      evoPartialScale[i] = 1.0 + 0.3 - p * 0.1; // settle from 1.3 to 1.2
+    }
+    evoMasterLPFreq = 7000 + p * 3000;       // 7000 -> 10000 Hz (crystal clarity)
+    evoReverbMult = 1.3 + p * 0.4;           // massive reverb
+    evoDroneFilterFreq = 800 + p * 200;       // 800 -> 1000 Hz (organ-like)
+    evoKMult = 1.4 + p * 0.2;               // K at 2x base (sustained chords)
+    evoDelayFeedback = 0.45 - p * 0.1;      // dial back delay (reverb dominates)
+    evoVoidAmpMult = 1.0 + p * 0.5;          // void at 1.5x amplitude
+    evoSubMult = 1.0;
+
+    // Storm drone fades out, cathedral drone fades in
+    if (stormDroneGain && actx) {
+      stormDroneGain.gain.setTargetAtTime(0.025 * (1 - p), now, 3.0);
+    }
+
+    // Cathedral drone: triangle + sine blended, organ-like
+    if (cathedralDroneGain && actx) {
+      var cathedralTarget = p * 0.04;
+      cathedralDroneGain.gain.setTargetAtTime(cathedralTarget, now, 3.0);
+    }
+
+    // Shimmer oscillators: harmonic ghosts at 2x void frequencies
+    if (shimmerGains.length > 0 && actx) {
+      for (var si = 0; si < shimmerGains.length; si++) {
+        var shimmerTarget = p * 0.006; // very quiet (-25dB ish)
+        shimmerGains[si].gain.setTargetAtTime(shimmerTarget, now, 3.0);
+      }
+    }
+
+    // Master pitch LFO: everything breathes together (0.05 Hz, +/- 5 cents)
+    if (masterPitchLFOGain && actx) {
+      var lfoDepth = p * 5; // 0 to 5 cents of detune
+      masterPitchLFOGain.gain.setTargetAtTime(lfoDepth, now, 3.0);
+    }
+
+    // Waveshaper: fade out distortion (cathedral is clean)
+    if (stormWetGain && actx) {
+      stormWetGain.gain.setTargetAtTime(0.25 * (1 - p), now, 3.0);
+      stormDryGain.gain.setTargetAtTime(1.0, now, 3.0);
+    }
+  }
+
+  // Swap convolver IR when crossing era boundaries (hot-swap, no reconnection)
+  if (prevEra !== sessionEra && actx) {
+    if (sessionEra === 1) {
+      swapConvolverIR(2.5, 0.55); // AWAKENING: space opens
+    } else if (sessionEra === 2) {
+      swapConvolverIR(3.5, 0.5);  // BLOOM: the designed value
+    } else if (sessionEra === 3) {
+      swapConvolverIR(4.0, 0.45); // STORM: bigger room
+    } else if (sessionEra === 4) {
+      swapConvolverIR(6.0, 0.35); // CATHEDRAL: every note hangs like incense
+    }
+  }
+}
+
 // --- BEAT LAYER STATE (rename of existing FOR internals) ---
 var beatBright = 0.5;
 var beatDensity = 0.5;
@@ -1433,6 +1699,21 @@ function harmonicApplyCenter(centerFreq) {
         centerFreq * 4 * voidRatios[vi], now, 0.3
       );
     }
+    // Evolution engine: shimmer oscillators track the key
+    var shimmerRatios = [0.5, 1, 4/3, 2];
+    for (var si = 0; si < shimmerOscs.length; si++) {
+      shimmerOscs[si].frequency.setTargetAtTime(
+        centerFreq * 4 * shimmerRatios[si] * 2, now, 0.3
+      );
+    }
+    // Storm drone tracks fundamental/2
+    if (stormDrone) {
+      stormDrone.frequency.setTargetAtTime(centerFreq / 2, now, 0.3);
+    }
+    // Cathedral drone tracks fundamental
+    if (cathedralDrone) {
+      cathedralDrone.frequency.setTargetAtTime(centerFreq, now, 0.3);
+    }
   }
 }
 
@@ -1682,7 +1963,7 @@ function begin() {
   // masterGain -> masterComp -> masterHighShelf -> masterLP -> destination
   masterLP = actx.createBiquadFilter();
   masterLP.type = 'lowpass';
-  masterLP.frequency.value = 5500;
+  masterLP.frequency.value = 1200; // DAWN era: muffled, like hearing through water
   masterLP.Q.value = 0.3;
   masterLP.connect(actx.destination);
 
@@ -1705,7 +1986,7 @@ function begin() {
   masterGain.connect(masterComp);
 
   // === CONVOLUTION REVERB ===
-  buildConvolutionReverb(3.5, 0.5);
+  buildConvolutionReverb(1.5, 0.6); // DAWN era: short, dry reverb. Grows with eras.
 
   // === STEREO PING-PONG DELAY ===
   buildDelay();
@@ -1749,7 +2030,7 @@ function begin() {
   subOsc.type = 'sine';
   subOsc.frequency.value = FUNDAMENTAL;
   subGain = actx.createGain();
-  subGain.gain.value = 0.10;
+  subGain.gain.value = 0.02; // DAWN era: sub barely present
   subOsc.connect(subGain);
   subGain.connect(masterGain);
   subOsc.start();
@@ -1764,7 +2045,7 @@ function begin() {
 
   droneFilter = actx.createBiquadFilter();
   droneFilter.type = 'lowpass';
-  droneFilter.frequency.value = 80;
+  droneFilter.frequency.value = 40; // DAWN era: drone nearly silent
   droneFilter.Q.value = 4;
 
   droneGain = actx.createGain();
@@ -1816,6 +2097,97 @@ function begin() {
     voidGains.push(vg);
   }
 
+  // === SESSION EVOLUTION ENGINE: ERA 3 (STORM) AUDIO NODES ===
+  // Storm sub-drone: square wave at fundamental/2 (16.5 Hz) — felt not heard
+  stormDrone = actx.createOscillator();
+  stormDrone.type = 'square';
+  stormDrone.frequency.value = FUNDAMENTAL / 2;
+  stormDroneGain = actx.createGain();
+  stormDroneGain.gain.value = 0; // silent until ERA 3
+  stormDrone.connect(stormDroneGain);
+  stormDroneGain.connect(masterGain);
+  stormDrone.start();
+
+  // Waveshaper: soft-clip distortion for impact sounds
+  // Sigmoid transfer curve: y = 2/(1+e^(-5x)) - 1
+  stormWaveshaper = actx.createWaveShaper();
+  var wsSize = 4096;
+  var wsData = new Float32Array(wsSize);
+  for (var wsi = 0; wsi < wsSize; wsi++) {
+    var x = (wsi / (wsSize - 1)) * 2 - 1; // -1 to 1
+    wsData[wsi] = 2 / (1 + Math.exp(-5 * x)) - 1; // sigmoid soft clip
+  }
+  stormWaveshaper.curve = wsData;
+  stormWaveshaper.oversample = '2x';
+
+  // Insert waveshaper as parallel path: masterGain -> (dry + wet) -> masterComp
+  // Disconnect masterGain from masterComp, reconnect through mix
+  masterGain.disconnect(masterComp);
+  stormDryGain = actx.createGain();
+  stormDryGain.gain.value = 1.0;
+  stormWetGain = actx.createGain();
+  stormWetGain.gain.value = 0; // no distortion until ERA 3
+  masterGain.connect(stormDryGain);
+  masterGain.connect(stormWaveshaper);
+  stormWaveshaper.connect(stormWetGain);
+  stormDryGain.connect(masterComp);
+  stormWetGain.connect(masterComp);
+
+  // === SESSION EVOLUTION ENGINE: ERA 4 (CATHEDRAL) AUDIO NODES ===
+  // Shimmer oscillators: 4 extra oscillators at 2x void frequencies
+  // Fed ONLY through reverb (not dry). Creates harmonic ghosts above every note.
+  var shimmerRatios = [0.5, 1, 4/3, 2]; // subset of void ratios, doubled
+  for (var si = 0; si < 4; si++) {
+    var shimFreq = FUNDAMENTAL * 4 * shimmerRatios[si] * 2; // 2x the void freq
+    var shimOsc = actx.createOscillator();
+    shimOsc.type = 'sine';
+    shimOsc.frequency.value = shimFreq;
+    // Slight detune for ethereal quality
+    shimOsc.detune.value = (si - 1.5) * 2;
+
+    var shimGain = actx.createGain();
+    shimGain.gain.value = 0; // silent until ERA 4
+    shimOsc.connect(shimGain);
+    shimGain.connect(reverbSend); // only through reverb, not dry
+    shimOsc.start();
+
+    shimmerOscs.push(shimOsc);
+    shimmerGains.push(shimGain);
+  }
+
+  // Cathedral drone: triangle wave at fundamental (blends with existing sine drone)
+  cathedralDrone = actx.createOscillator();
+  cathedralDrone.type = 'triangle';
+  cathedralDrone.frequency.value = FUNDAMENTAL;
+  cathedralDroneGain = actx.createGain();
+  cathedralDroneGain.gain.value = 0; // silent until ERA 4
+  cathedralDrone.connect(cathedralDroneGain);
+  cathedralDroneGain.connect(droneFilter);
+  cathedralDrone.start();
+
+  // Master pitch LFO: 0.05 Hz breathing on all partials
+  // Connected to each partial's detune parameter
+  masterPitchLFO = actx.createOscillator();
+  masterPitchLFO.type = 'sine';
+  masterPitchLFO.frequency.value = 0.05; // one breath every 20 seconds
+  masterPitchLFOGain = actx.createGain();
+  masterPitchLFOGain.gain.value = 0; // silent until ERA 4
+  masterPitchLFO.connect(masterPitchLFOGain);
+  // Connect to all 16 partials' detune
+  for (var pi = 0; pi < 16; pi++) {
+    masterPitchLFOGain.connect(partials[pi].detune);
+  }
+  // Also connect to drone, sub, void partials, and shimmer
+  masterPitchLFOGain.connect(droneOsc.detune);
+  masterPitchLFOGain.connect(subOsc.detune);
+  for (var vi = 0; vi < voidPartials.length; vi++) {
+    masterPitchLFOGain.connect(voidPartials[vi].detune);
+  }
+  for (var si = 0; si < shimmerOscs.length; si++) {
+    masterPitchLFOGain.connect(shimmerOscs[si].detune);
+  }
+  masterPitchLFO.start();
+
   // === KURAMOTO HEART ===
   initKuramoto();
 
@@ -1865,7 +2237,7 @@ function buildConvolutionReverb(decayTime, damping) {
   convolver.buffer = buf;
 
   reverbSend = actx.createGain();
-  reverbSend.gain.value = 0.25;
+  reverbSend.gain.value = 0.10; // DAWN era: minimal reverb, intimate
 
   reverbHPF = actx.createBiquadFilter();
   reverbHPF.type = 'highpass';
@@ -1887,6 +2259,38 @@ function buildConvolutionReverb(decayTime, damping) {
   reverbGain.connect(masterGain);
 }
 
+// Hot-swap convolver impulse response without disconnecting the audio graph.
+// Called by the evolution engine when crossing era boundaries.
+function swapConvolverIR(decayTime, damping) {
+  if (!actx || !convolver) return;
+  var sr = actx.sampleRate;
+  var len = Math.floor(sr * Math.min(decayTime, 7));
+  var buf = actx.createBuffer(2, len, sr);
+  var fadeInSamples = Math.floor(0.040 * sr);
+
+  for (var ch = 0; ch < 2; ch++) {
+    var d = buf.getChannelData(ch);
+    var tapTimes = [0.011, 0.023, 0.037, 0.053, 0.067, 0.079];
+    var tapGains = [0.6, 0.45, 0.35, 0.28, 0.22, 0.18];
+    for (var ti = 0; ti < tapTimes.length; ti++) {
+      var tapSample = Math.floor(tapTimes[ti] * sr);
+      var tapWidth = Math.floor(0.002 * sr);
+      for (var j = 0; j < tapWidth && tapSample + j < len; j++) {
+        d[tapSample + j] += tapGains[ti] * (Math.random() * 2 - 1) * (1 - j/tapWidth);
+      }
+    }
+    for (var i = 0; i < len; i++) {
+      var t = i / len;
+      var fadeIn = Math.min(1, i / fadeInSamples);
+      var exponent = 1.5 + damping * 3;
+      var envelope = Math.pow(1 - t, exponent);
+      var hfDamp = 1 - damping * t;
+      d[i] += (Math.random() * 2 - 1) * envelope * Math.max(0.05, hfDamp) * fadeIn * 0.4;
+    }
+  }
+  convolver.buffer = buf; // hot-swap: just replace the buffer
+}
+
 // =====================================================================
 // STEREO DELAY
 // Ping-pong between left and right. Tempo-synced to body motion.
@@ -1906,7 +2310,7 @@ function buildDelay() {
   delayR.delayTime.value = 0.5;
 
   delayFeedback = actx.createGain();
-  delayFeedback.gain.value = 0.3;
+  delayFeedback.gain.value = 0.1; // DAWN era: minimal delay
 
   delayMix = actx.createGain();
   delayMix.gain.value = 0.22;
@@ -2307,9 +2711,9 @@ function updatePartialCoupling(dt) {
     contourKmod = 1.5 - releaseProgress * 0.5; // release: K settles from 1.5 to 1.0
   }
 
-  kPartials = K_PARTIALS_BASE * (1 + energy * 2.0 + pinkK) * phraseKmod * contourKmod;
-  // Clamp K to prevent runaway
-  kPartials = Math.max(0.02, Math.min(1.0, kPartials));
+  kPartials = K_PARTIALS_BASE * (1 + energy * 2.0 + pinkK) * phraseKmod * contourKmod * evoKMult;
+  // Clamp K to prevent runaway (raised ceiling for CATHEDRAL era)
+  kPartials = Math.max(0.02, Math.min(1.5, kPartials));
 
   // === 2. ADVANCE KURAMOTO PHASES ===
   updateKuramotoPhases(dt);
@@ -2433,6 +2837,9 @@ function update() {
   var playerStillness = 1 - energy;
   var forNow = performance.now() / 1000;
   sessionTime += dt;
+
+  // === SESSION EVOLUTION ENGINE ===
+  updateEvolution(dt);
 
   // =================================================================
   // LAYER 1: BEAT FOR (K=0.6, ~500ms)
@@ -2696,7 +3103,9 @@ function update() {
   // 1/f drift on filter (organic wobble, not robotic steps)
   filterTarget *= (1 + pinkDrift() * 0.02);
 
-  droneFilter.frequency.setTargetAtTime(filterTarget, actx.currentTime, 0.05);
+  // Drone filter is capped by the era's ceiling — tilt opens it, era controls how far
+  var droneFilterTarget = Math.min(filterTarget, evoDroneFilterFreq);
+  droneFilter.frequency.setTargetAtTime(droneFilterTarget, actx.currentTime, 0.05);
 
   // Filter Q -- resonance peak at cutoff makes the "voice"
   // Capped to prevent harsh screaming at high energy
@@ -2733,7 +3142,9 @@ function update() {
 
     // Total volume for this partial
     var vol = tiltVol * naturalAmp * energyScale + forContrib;
-    vol = Math.max(0, Math.min(0.12, vol));
+    // Session Evolution: era controls which partials are active and how loud
+    vol *= evoPartialScale[i];
+    vol = Math.max(0, Math.min(0.15, vol)); // raised cap for STORM overdrive
 
     // Set gain with smooth ramp (1/f modulated time constant)
     var rampTime = 0.06 + Math.abs(pinkSample()) * 0.04;
@@ -2757,19 +3168,20 @@ function update() {
   var droneVol = 0.04 + energy * 0.08 + forDensity * 0.02;
   droneGain.gain.setTargetAtTime(droneVol, actx.currentTime, 0.05);
 
-  // === SUB-BASS: louder in stillness, quieter when active ===
-  var subVol = 0.10 * (1 - energy * 0.4) + voidDepth * 0.05;
+  // === SUB-BASS: era controls presence, louder in stillness ===
+  var subVol = (0.10 * (1 - energy * 0.4) + voidDepth * 0.05) * evoSubMult;
   subGain.gain.setTargetAtTime(subVol, actx.currentTime, 0.1);
   // Sub detuning from FOR breath
   subOsc.frequency.setTargetAtTime(FUNDAMENTAL + forDetune * 0.3, actx.currentTime, 0.1);
 
-  // === VOID DRONE: emerges in stillness ===
-  var voidTarget = voidDepth * 0.35;
+  // === VOID DRONE: emerges in stillness, amplified by era ===
+  var voidTarget = voidDepth * 0.35 * evoVoidAmpMult;
   // Scheduled ramp instead of direct .value (prevents clicks)
   voidMasterGain.gain.setTargetAtTime(voidTarget, actx.currentTime, 0.08);
 
   // === DELAY ===
-  var fb = 0.2 + energy * 0.3 + forDelayFeedback;
+  // Era controls the base feedback level; energy and FOR modulate on top
+  var fb = evoDelayFeedback + energy * 0.15 + forDelayFeedback;
   fb = Math.min(fb, 0.65);
   delayFeedback.gain.setTargetAtTime(fb, actx.currentTime, 0.05);
 
@@ -2778,11 +3190,10 @@ function update() {
   delayL.delayTime.setTargetAtTime(delayTimeDrift, actx.currentTime, 0.2);
   delayR.delayTime.setTargetAtTime(delayTimeDrift * 1.33, actx.currentTime, 0.2);
 
-  // Reverb send scales with stillness (more space in the void)
-  // Kuramoto R adds reverb when partials are locked (the chord blooms in space)
+  // Reverb send scales with stillness, era, and Kuramoto coherence
   var rReverb = kuramotoR * 0.15;
-  var revSend = 0.2 + voidDepth * 0.25 + energy * 0.1 + rReverb;
-  revSend = Math.min(revSend, 0.7); // cap to prevent wash
+  var revSend = (0.2 + voidDepth * 0.25 + energy * 0.1 + rReverb) * evoReverbMult;
+  revSend = Math.min(revSend, 0.85); // raised cap for CATHEDRAL era
   reverbSend.gain.setTargetAtTime(revSend, actx.currentTime, 0.1);
 
   // === MUSIC EVOLUTION ENGINE ===
@@ -2796,12 +3207,14 @@ function update() {
   // === MELODIC PINGS ===
   updatePings(dt, normalBeta, normalGamma, filterTarget);
 
-  // === MASTER LP: opens with energy, tightens in stillness ===
+  // === MASTER LP: era-controlled ceiling, opens with energy ===
   // Kuramoto R modulates warmth: high R = warmer (lower cutoff), low R = brighter
   var rWarmth = kuramotoR * 600; // up to 600 Hz darker when fully locked
-  var masterLPFreq = 3000 + energy * 2000 + openness * 1500 - rWarmth;
-  masterLPFreq = Math.max(1500, masterLPFreq); // don't go too dark
-  masterLP.frequency.setTargetAtTime(masterLPFreq, actx.currentTime, 0.1);
+  // The evolution engine sets the ceiling. Energy and openness push toward it.
+  var masterLPCeiling = evoMasterLPFreq;
+  var masterLPFreq = masterLPCeiling * 0.5 + energy * masterLPCeiling * 0.3 + openness * masterLPCeiling * 0.2 - rWarmth;
+  masterLPFreq = Math.max(800, Math.min(masterLPCeiling, masterLPFreq));
+  masterLP.frequency.setTargetAtTime(masterLPFreq, actx.currentTime, 0.15);
 
   // === VISUALIZATION ===
   drawViz(normalBeta, normalGamma, energy, filterTarget,
@@ -2831,6 +3244,7 @@ function update() {
     var initLabel = forInitiative ? ' solo' : '';
     var motifLabel = melodyMotifs.length > 0 ? ' m' + melodyMotifs.length : '';
     var contourLabel = ['home','lift','peak','bloom'][miContourPhase];
+    var eraLabel = ['dawn','awakening','bloom','storm','cathedral'][sessionEra];
 
     document.getElementById('hud').innerHTML =
       'tilt ' + tiltX.toFixed(0) + '&deg; ' + tiltY.toFixed(0) + '&deg;<br>' +
@@ -2840,7 +3254,8 @@ function update() {
       'R ' + kuramotoR.toFixed(2) + ' ' + rLabel + '<br>' +
       rhythmLabel + keyLabel + motifLabel + '<br>' +
       contourLabel + ' R/K ' + miRKratio.toFixed(2) + '<br>' +
-      stateLabel;
+      stateLabel + '<br>' +
+      '<span style="color:#1a1a1a">' + eraLabel + '</span>';
   }
 }
 

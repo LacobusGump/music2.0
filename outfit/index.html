@@ -51,6 +51,9 @@ canvas{display:block;width:100%;height:100%;touch-action:none;}
   font-family:Futura,'Century Gothic',system-ui,sans-serif;
   font-size:0.72em;color:#333;letter-spacing:0.1em;pointer-events:none;z-index:10;
   transition:color 0.5s;}
+#stage-name{display:block;font-size:0.7em;letter-spacing:0.2em;
+  margin-top:2px;opacity:0.35;transition:opacity 1s,color 1s;}
+#k-display.stage5{text-shadow:0 0 18px hsla(30,80%,60%,0.5);}
 </style>
 </head>
 <body>
@@ -81,7 +84,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;}
   <canvas id="viz"></canvas>
   <div id="hud"></div>
   <div id="partner-indicator"></div>
-  <div id="k-display"></div>
+  <div id="k-display"><span id="stage-name"></span></div>
 </div>
 
 <!-- PeerJS for WebRTC signaling (free, no server needed) -->
@@ -112,6 +115,15 @@ canvas{display:block;width:100%;height:100%;touch-action:none;}
 //   Don't try to synchronize audio across the network (impossible).
 //   Share the human state. Let each phone compute the sound locally.
 //   The coupling is in the INTENTION, not the waveform.
+//
+// Coupling Evolution (5 stages):
+//   1. STRANGERS  (K<0.2, first 30s) — 3 harmonics, filter closed, dry, searching
+//   2. MEETING    (K>0.3 for 10s)   — all 6 harmonics, chorus, coupling whispers
+//   3. CONVERSATION (K>0.5 for 30s) — brightness +30%, pad oscillator, delay, sub
+//   4. DANCE      (K>0.7 for 60s)   — overdrive, 3rd coupling tone, ghost harmonics
+//   5. THE 3      (K>0.85 for 90s)  — full leak, shimmer, cathedral, master chord
+//   Stage can regress if K drops. Rebuilds faster each time (memory).
+//   The full sound only exists in coupling. 1+1=3.
 // =====================================================================
 
 var FUNDAMENTAL = 33;
@@ -166,6 +178,23 @@ var couplingK = 0;        // live K value
 var smoothK = 0;          // smoothed for display
 var peakK = 0;            // peak K achieved
 var kHistory = [];         // last 60 frames of K
+
+// ═══ COUPLING EVOLUTION STATE ═══
+var couplingStage = 0;          // 0-4 (maps to stages 1-5)
+var sustainedK = [0,0,0,0,0];  // how many frames K has been above each threshold
+var STAGE_THRESHOLDS = [0.0, 0.2, 0.3, 0.5, 0.7, 0.85]; // entry thresholds for stages 0-5
+var STAGE_DURATIONS  = [0, 0, 10, 30, 60, 90];            // seconds required above threshold
+var STAGE_NAMES = ['', 'strangers', 'meeting', 'conversation', 'dance', 'the 3'];
+var stageMemory = 0;            // how many times we've reached stage 3+. Rebuilds faster.
+var instrumentStartTime = 0;    // when the instrument started
+
+// Evolution audio nodes (created in beginInstrument, silent until earned)
+var padOsc = null, padGain = null;
+var couplingOsc3 = null, couplingGain3 = null;
+var ghostOscs = [], ghostGains = [];
+var shimmerOsc1 = null, shimmerGain1 = null;
+var shimmerOsc2 = null, shimmerGain2 = null;
+var chorusOscs = [], chorusGains = [];
 
 // ═══ LOBBY ═══
 
@@ -393,6 +422,86 @@ function beginInstrument() {
   drone.start();
   sub.start();
 
+  instrumentStartTime = Date.now();
+
+  // ═══ EVOLUTION OSCILLATORS — created silent, earned through coupling ═══
+
+  // Pad oscillator — triangle at fundamental×3, heavy reverb feel
+  // Only exists when K > 0.5. The shared atmosphere.
+  padOsc = actx.createOscillator();
+  padOsc.type = 'triangle';
+  padOsc.frequency.value = FUNDAMENTAL * 3; // 99 Hz
+  padGain = actx.createGain();
+  padGain.gain.value = 0;
+  padOsc.connect(padGain);
+  padGain.connect(masterGain);
+  padGain.connect(delay);
+  padOsc.start();
+
+  // 3rd coupling tone — geometric mean of next pair (A's 462 and B's 396)
+  couplingOsc3 = actx.createOscillator();
+  couplingOsc3.type = 'sine';
+  couplingOsc3.frequency.value = Math.sqrt(462 * 396); // ~427.7 Hz
+  couplingGain3 = actx.createGain();
+  couplingGain3.gain.value = 0;
+  couplingOsc3.connect(couplingGain3);
+  couplingGain3.connect(masterGain);
+  couplingGain3.connect(delay);
+  couplingOsc3.start();
+
+  // Ghost harmonics — THEIR frequencies on YOUR phone at low volume
+  // 6 ghosts of the partner's harmonics. The boundary dissolving.
+  var theirFreqs = (myRole === 'A') ? B_HARMONICS : A_HARMONICS;
+  for (var i = 0; i < theirFreqs.length; i++) {
+    var gOsc = actx.createOscillator();
+    gOsc.type = 'sine';
+    gOsc.frequency.value = theirFreqs[i];
+    var gGain = actx.createGain();
+    gGain.gain.value = 0;
+    gOsc.connect(gGain);
+    gGain.connect(masterGain);
+    gOsc.start();
+    ghostOscs.push(gOsc);
+    ghostGains.push(gGain);
+  }
+
+  // Shimmer — coupling tones + octave-up ghost. Stage 5 only.
+  shimmerOsc1 = actx.createOscillator();
+  shimmerOsc1.type = 'sine';
+  shimmerOsc1.frequency.value = Math.sqrt(165 * 132) * 2; // ~295.2 Hz (octave up of coupling 1)
+  shimmerGain1 = actx.createGain();
+  shimmerGain1.gain.value = 0;
+  shimmerOsc1.connect(shimmerGain1);
+  shimmerGain1.connect(masterGain);
+  shimmerGain1.connect(delay);
+  shimmerOsc1.start();
+
+  shimmerOsc2 = actx.createOscillator();
+  shimmerOsc2.type = 'sine';
+  shimmerOsc2.frequency.value = Math.sqrt(330 * 264) * 2; // ~590.4 Hz (octave up of coupling 2)
+  shimmerGain2 = actx.createGain();
+  shimmerGain2.gain.value = 0;
+  shimmerOsc2.connect(shimmerGain2);
+  shimmerGain2.connect(masterGain);
+  shimmerGain2.connect(delay);
+  shimmerOsc2.start();
+
+  // Chorus detuned copies of harmonics 4-6 (±2 cents). Stage 2+.
+  var chorusDetuneCents = 2;
+  for (var i = 3; i < 6; i++) { // harmonics 4,5,6 (indices 3,4,5)
+    var cOsc = actx.createOscillator();
+    cOsc.type = 'sine';
+    cOsc.frequency.value = myFreqs[i];
+    cOsc.detune.value = chorusDetuneCents * ((i % 2 === 0) ? 1 : -1);
+    var cGain = actx.createGain();
+    cGain.gain.value = 0;
+    cOsc.connect(cGain);
+    cGain.connect(masterGain);
+    cOsc.start();
+    chorusOscs.push(cOsc);
+    chorusGains.push(cGain);
+  }
+
   // ═══ SENSORS ═══
   if (window.DeviceOrientationEvent) {
     if (typeof DeviceOrientationEvent.requestPermission === 'function') {
@@ -547,6 +656,159 @@ function triggerPartnerImpact(intensity) {
   }
 }
 
+// ═══ COUPLING EVOLUTION ENGINE ═══
+// The sound evolves based on SHARED K. Better coupling = richer sound.
+// 5 stages: Strangers → Meeting → Conversation → Dance → The 3
+// The full sound only exists in coupling. 1+1=3.
+
+function updateCouplingEvolution() {
+  if (!actx) return;
+  var now = actx.currentTime;
+  var t = now; // audio clock time constant base
+
+  // ── Track how long K has been sustained above each threshold ──
+  var dt = 1/60; // ~60fps
+  var memoryBoost = 1 + stageMemory * 0.5; // rebuilds faster each time
+
+  for (var s = 1; s <= 5; s++) {
+    if (smoothK >= STAGE_THRESHOLDS[s]) {
+      sustainedK[s-1] += dt * memoryBoost;
+    } else {
+      // Decay sustained time when K drops, but slowly (grace period)
+      sustainedK[s-1] = Math.max(0, sustainedK[s-1] - dt * 0.5);
+    }
+  }
+
+  // Also enforce first 30 seconds = Stage 1 minimum
+  var sessionAge = (Date.now() - instrumentStartTime) / 1000;
+
+  // ── Determine current stage ──
+  var newStage = 0;
+  if (sessionAge < 30 && smoothK < 0.3) {
+    newStage = 0; // Strangers (first 30s or K < 0.2)
+  }
+  if (sustainedK[1] >= STAGE_DURATIONS[2]) newStage = 1; // Meeting: K>0.3 for 10s
+  if (sustainedK[2] >= STAGE_DURATIONS[3]) newStage = 2; // Conversation: K>0.5 for 30s
+  if (sustainedK[3] >= STAGE_DURATIONS[4]) newStage = 3; // Dance: K>0.7 for 60s
+  if (sustainedK[4] >= STAGE_DURATIONS[5]) newStage = 4; // The 3: K>0.85 for 90s
+
+  // Can also go DOWN if K drops and sustained time decays
+  if (couplingStage !== newStage) {
+    // Remember high water mark for faster rebuilds
+    if (newStage >= 2 && newStage > couplingStage) stageMemory++;
+    couplingStage = newStage;
+  }
+
+  var stage = couplingStage; // 0-4
+  var myFreqs = (myRole === 'A') ? A_HARMONICS : B_HARMONICS;
+
+  // ── STAGE 1: STRANGERS (stage 0) ──
+  // Only 3 of 6 harmonics. Filter nearly closed. No coupling tones. Delay dry.
+  // ── STAGE 2: MEETING (stage 1) ──
+  // All 6 harmonics. Filter to 1000 Hz. Coupling tones whisper. Chorus.
+  // ── STAGE 3: CONVERSATION (stage 2) ──
+  // Harmonics brighten 30%. Filter to 2500. Coupling tones present.
+  // Delay audible. Sub deepens. Pad oscillator born.
+  // ── STAGE 4: DANCE (stage 3) ──
+  // Overdrive ×1.2. Filter fully open. 3rd coupling tone. Pad grows.
+  // Delay feedback increases. Ghost harmonics leak at -20dB.
+  // ── STAGE 5: THE 3 (stage 4) ──
+  // Maximum. Ghost harmonics at -12dB. Shimmer. Pad organ-like.
+  // Cathedral delay. Master chord. K display glows warm.
+
+  // Smooth transition factor for current stage (0→1 over 2 seconds)
+  // Prevents clicks when stage changes
+  var tc = 2.0; // time constant for all smooth transitions
+
+  // ── Harmonic activation ──
+  // Stage 0: only indices 0,1,2 active. Stage 1+: all 6.
+  for (var i = 0; i < myHarmonicGains.length; i++) {
+    var harmonicActive;
+    if (stage === 0) {
+      harmonicActive = (i < 3) ? 1.0 : 0.0; // only first 3
+    } else {
+      harmonicActive = 1.0; // all 6
+    }
+
+    // Brightness multiplier
+    var brightness = 1.0;
+    if (stage >= 2) brightness = 1.3;  // Conversation: +30%
+    if (stage >= 3) brightness = 1.2 * 1.3; // Dance: overdrive ×1.2 on top of brightness
+
+    // Apply to base volume computation (the main loop will multiply by this)
+    // We store the evolution multiplier so the main loop can use it
+    myHarmonicGains[i]._evoActive = harmonicActive;
+    myHarmonicGains[i]._evoBrightness = brightness;
+  }
+
+  // ── Filter ceiling ──
+  // Stage 0: 150 Hz. Stage 1: 1000. Stage 2: 2500. Stage 3-4: 4000.
+  var filterCeilings = [150, 1000, 2500, 4000, 4000];
+  var filterCeiling = filterCeilings[stage];
+  // Store for use in main loop
+  filter._evoCeiling = filterCeiling;
+
+  // ── Coupling tone volumes ──
+  // Stage 0: 0. Stage 1: whisper (0.2×). Stage 2: designed (1.0×). Stage 3-4: rich (1.3×).
+  var couplingMult = [0, 0.15, 1.0, 1.3, 1.5];
+  couplingGain._evoMult = couplingMult[stage];
+  couplingGain2._evoMult = couplingMult[stage];
+
+  // 3rd coupling tone (stage 3+)
+  var coup3Vol = (stage >= 3) ? 0.04 * (0.3 + energy * 0.5 + partnerEnergy * 0.5) : 0;
+  couplingGain3.gain.setTargetAtTime(coup3Vol, now, tc);
+
+  // ── Delay parameters ──
+  // Stage 0: dry (gain 0, low feedback). Stage 1-2: gentle. Stage 3: audible. Stage 4: cathedral.
+  var delayGainVals = [0.0, 0.08, 0.15, 0.22, 0.30];
+  var feedbackVals  = [0.10, 0.18, 0.25, 0.35, 0.50];
+  var delayTimeVals = [0.3, 0.35, 0.4, 0.45, 0.6];
+  delayGain.gain.setTargetAtTime(delayGainVals[stage], now, tc);
+  feedbackNode.gain.setTargetAtTime(feedbackVals[stage], now, tc);
+  delay.delayTime.setTargetAtTime(delayTimeVals[stage], now, tc);
+
+  // ── Sub bass deepening (stage 2+) ──
+  var subMult = [0.7, 0.85, 1.2, 1.4, 1.5];
+  subGain._evoMult = subMult[stage];
+
+  // ── Pad oscillator (stage 2+: conversation) ──
+  var padVols = [0, 0, 0.025, 0.05, 0.07];
+  var padVol = padVols[stage];
+  padGain.gain.setTargetAtTime(padVol, now, tc);
+  // Stage 4: pad becomes organ-like (blend triangle with square character via detune)
+  if (stage >= 4) {
+    padOsc.type = 'triangle'; // keep triangle but we'll add a sine layer
+    // We already have the triangle pad; the "organ" quality comes from
+    // coupling tones + shimmer + ghosts all ringing together
+  }
+
+  // ── Chorus effect (stage 1+: meeting) ──
+  for (var i = 0; i < chorusGains.length; i++) {
+    var chorusVol = (stage >= 1) ? 0.015 * (0.5 + energy * 0.5) : 0;
+    chorusGains[i].gain.setTargetAtTime(chorusVol, now, tc);
+    // Keep chorus oscillators tracking their parent harmonic frequencies
+    if (chorusOscs[i] && myHarmonicOscs[i + 3]) {
+      chorusOscs[i].frequency.setTargetAtTime(
+        myHarmonicOscs[i + 3].frequency.value, now, 0.1
+      );
+    }
+  }
+
+  // ── Ghost harmonics (stage 3+: dance) ──
+  // Partner's frequencies leak into your speaker. Boundary dissolves.
+  var ghostLevels = [0, 0, 0, 0.1, 0.25]; // 0.1 = -20dB, 0.25 = -12dB
+  var ghostLevel = ghostLevels[stage];
+  for (var i = 0; i < ghostGains.length; i++) {
+    var gVol = ghostLevel * 0.06 / (1 + i * 0.2) * (0.4 + energy * 0.3 + partnerEnergy * 0.3);
+    ghostGains[i].gain.setTargetAtTime(gVol, now, tc);
+  }
+
+  // ── Shimmer (stage 4: the 3) ──
+  var shimmerVol = (stage >= 4) ? 0.025 * (0.3 + energy * 0.3 + partnerEnergy * 0.3) : 0;
+  shimmerGain1.gain.setTargetAtTime(shimmerVol, now, tc);
+  shimmerGain2.gain.setTargetAtTime(shimmerVol * 0.7, now, tc);
+}
+
 // ═══ MAIN LOOP ═══
 
 function update() {
@@ -617,12 +879,18 @@ function update() {
   kHistory.push(smoothK);
   if (kHistory.length > 600) kHistory.shift(); // 10 min of history
 
+  // ═══ COUPLING EVOLUTION ═══
+  updateCouplingEvolution();
+
   // ═══ MAP TILT TO SOUND ═══
 
   var normalBeta = (tiltX - 45) / 90;
   normalBeta = Math.max(-1, Math.min(1, normalBeta));
 
   var filterTarget = BASE_FILTER * Math.pow(MAX_FILTER / BASE_FILTER, (normalBeta + 1) / 2);
+  // Evolution engine caps filter based on coupling stage
+  var evoCeiling = filter._evoCeiling || MAX_FILTER;
+  filterTarget = Math.min(filterTarget, evoCeiling);
   filter.frequency.setTargetAtTime(filterTarget, actx.currentTime, 0.05);
 
   var normalGamma = tiltY / 45;
@@ -633,7 +901,7 @@ function update() {
     actx.currentTime, 0.05
   );
 
-  // ═══ MY HARMONICS — reveal based on tilt ═══
+  // ═══ MY HARMONICS — reveal based on tilt + evolution ═══
   var myFreqs = (myRole === 'A') ? A_HARMONICS : B_HARMONICS;
   for (var i = 0; i < myHarmonicGains.length; i++) {
     var freq = myFreqs[i];
@@ -647,6 +915,12 @@ function update() {
     if (partnerAlive && smoothK > 0.2) {
       vol *= (1 + smoothK * 0.3);
     }
+
+    // Evolution: harmonic activation + brightness from coupling stage
+    var evoActive = myHarmonicGains[i]._evoActive;
+    var evoBright = myHarmonicGains[i]._evoBrightness;
+    if (evoActive !== undefined) vol *= evoActive;
+    if (evoBright !== undefined) vol *= evoBright;
 
     myHarmonicGains[i].gain.setTargetAtTime(vol, actx.currentTime, 0.08);
     myHarmonicOscs[i].frequency.setTargetAtTime(
@@ -663,17 +937,26 @@ function update() {
   filter.Q.setTargetAtTime(q, actx.currentTime, 0.05);
 
   var subVol = 0.10 * (1 - energy * 0.3);
+  // Evolution: sub bass deepens with coupling stage
+  var subEvo = subGain._evoMult;
+  if (subEvo !== undefined) subVol *= subEvo;
   subGain.gain.setTargetAtTime(subVol, actx.currentTime, 0.1);
 
-  var fb = 0.18 + energy * 0.3;
-  feedbackNode.gain.setTargetAtTime(fb, actx.currentTime, 0.05);
+  // Delay feedback and gain now controlled by coupling evolution engine.
+  // Energy adds a small modulation on top of the evolution base.
+  // (Base values set in updateCouplingEvolution)
 
   // ═══ COUPLING TONES — the 3 ═══
-  // These only sound when K > threshold
-  // Volume proportional to K. The higher the coupling, the louder the third thing.
+  // These only sound when K > threshold AND coupling stage allows it.
+  // Volume proportional to K, scaled by evolution stage multiplier.
   var kForSound = Math.max(0, smoothK - 0.15); // threshold: need some alignment
   var coupVol1 = kForSound * 0.06 * (0.3 + energy * 0.5 + partnerEnergy * 0.5);
   var coupVol2 = kForSound * 0.04 * (0.3 + energy * 0.5 + partnerEnergy * 0.5);
+  // Evolution multiplier: stage 0 = silent, stage 1 = whisper, stage 2+ = full
+  var coupEvo1 = couplingGain._evoMult;
+  var coupEvo2 = couplingGain2._evoMult;
+  if (coupEvo1 !== undefined) coupVol1 *= coupEvo1;
+  if (coupEvo2 !== undefined) coupVol2 *= coupEvo2;
   couplingGain.gain.setTargetAtTime(coupVol1, actx.currentTime, 0.1);
   couplingGain2.gain.setTargetAtTime(coupVol2, actx.currentTime, 0.1);
 
@@ -699,17 +982,28 @@ function update() {
   // ═══ VISUALIZATION ═══
   drawViz(normalBeta, normalGamma, energy, filterTarget, partnerAlive);
 
-  // ═══ K DISPLAY ═══
+  // ═══ K DISPLAY + STAGE ═══
   var kEl = document.getElementById('k-display');
+  var stageEl = document.getElementById('stage-name');
   if (partnerAlive) {
     var kPct = Math.max(0, smoothK * 100).toFixed(0);
-    kEl.textContent = 'K ' + kPct + '%';
     // Color shifts from dim to bright as K increases
     var kBright = 20 + Math.max(0, smoothK) * 60;
     var kAlpha = 0.3 + Math.max(0, smoothK) * 0.7;
-    kEl.style.color = 'hsla(40,60%,' + kBright + '%,' + kAlpha + ')';
+    // Stage 5: warm amber glow instead of default
+    if (couplingStage >= 4) {
+      kEl.className = 'stage5';
+      kEl.style.color = 'hsla(30,80%,' + (50 + smoothK * 30) + '%,' + kAlpha + ')';
+    } else {
+      kEl.className = '';
+      kEl.style.color = 'hsla(40,60%,' + kBright + '%,' + kAlpha + ')';
+    }
+    // Build display: K value on top, stage name below
+    kEl.innerHTML = 'K ' + kPct + '%<span id="stage-name">' +
+      (STAGE_NAMES[couplingStage + 1] || '') + '</span>';
   } else {
-    kEl.textContent = 'waiting for partner';
+    kEl.className = '';
+    kEl.innerHTML = 'waiting for partner<span id="stage-name"></span>';
     kEl.style.color = '#333';
   }
 
@@ -747,8 +1041,10 @@ function drawViz(beta, gamma, energy, filterFreq, partnerAlive) {
   var w = vizCanvas.width / (window.devicePixelRatio || 1);
   var h = vizCanvas.height / (window.devicePixelRatio || 1);
 
-  // Fade
-  vizCtx.fillStyle = 'rgba(0,0,0,0.12)';
+  // Fade — slower at higher stages (trails linger = cathedral echo visual)
+  var fadeSpeeds = [0.15, 0.12, 0.10, 0.07, 0.05];
+  var fadeAlpha = fadeSpeeds[couplingStage] || 0.12;
+  vizCtx.fillStyle = 'rgba(0,0,0,' + fadeAlpha + ')';
   vizCtx.fillRect(0, 0, w, h);
 
   var t = Date.now() * 0.001;
@@ -805,23 +1101,46 @@ function drawViz(beta, gamma, energy, filterFreq, partnerAlive) {
     grad.addColorStop(0.5, 'hsla(30,80%,70%,' + bridgeAlpha + ')');
     grad.addColorStop(1, 'hsla(' + partnerHue + ',60%,50%,' + bridgeAlpha * 0.5 + ')');
 
+    // Bridge width grows with stage
+    var bridgeWidths = [1, 1.5, 2.5, 4, 6];
+    var bridgeW = bridgeWidths[couplingStage] || 1;
+    bridgeW += smoothK * 3;
+
     vizCtx.beginPath();
     vizCtx.moveTo(myCx, myCy);
     vizCtx.lineTo(partnerCx, partnerCy);
     vizCtx.strokeStyle = grad;
-    vizCtx.lineWidth = 1 + smoothK * 4;
+    vizCtx.lineWidth = bridgeW;
     vizCtx.stroke();
 
     // Coupling glow at midpoint — the 3
     if (smoothK > 0.3) {
-      var glowR = 10 + smoothK * 30 + (energy + partnerEnergy) * 15;
-      for (var gl = 3; gl >= 0; gl--) {
+      var stageGlowMult = [0.5, 0.7, 1.0, 1.5, 2.5];
+      var glowMult = stageGlowMult[couplingStage] || 1;
+      var glowR = (10 + smoothK * 30 + (energy + partnerEnergy) * 15) * glowMult;
+      var glowLayers = (couplingStage >= 4) ? 6 : 4; // Stage 5: bigger aura
+      for (var gl = glowLayers - 1; gl >= 0; gl--) {
         var glr = glowR * (1 + gl * 0.6);
         vizCtx.beginPath();
         vizCtx.arc(midX, midY, glr, 0, Math.PI * 2);
-        vizCtx.fillStyle = 'hsla(30,80%,70%,' + (bridgeAlpha * 0.15 / (gl + 1)) + ')';
+        // Stage 5: warm amber instead of gold
+        var glowHue = (couplingStage >= 4) ? 25 : 30;
+        var glowSat = (couplingStage >= 4) ? 90 : 80;
+        vizCtx.fillStyle = 'hsla(' + glowHue + ',' + glowSat + '%,70%,' +
+          (bridgeAlpha * 0.15 / (gl + 1)) + ')';
         vizCtx.fill();
       }
+    }
+
+    // Stage 5: ghost ring around both bodies — the merge
+    if (couplingStage >= 4) {
+      var mergeR = Math.sqrt(Math.pow(partnerCx - myCx, 2) + Math.pow(partnerCy - myCy, 2)) / 2 + 60;
+      var mergeAlpha = 0.04 + 0.03 * Math.sin(t * 0.8);
+      vizCtx.beginPath();
+      vizCtx.arc(midX, midY, mergeR, 0, Math.PI * 2);
+      vizCtx.strokeStyle = 'hsla(30,70%,60%,' + mergeAlpha + ')';
+      vizCtx.lineWidth = 2;
+      vizCtx.stroke();
     }
   }
 
@@ -846,17 +1165,22 @@ function drawViz(beta, gamma, energy, filterFreq, partnerAlive) {
   vizCtx.fillStyle = 'hsla(' + myHue + ',70%,' + (35 + openness * 35) + '%,' + (0.4 + energy * 0.5) + ')';
   vizCtx.fill();
 
-  // Harmonic rings
+  // Harmonic rings — number visible matches evolution stage
   var myFreqs = (myRole === 'A') ? A_HARMONICS : B_HARMONICS;
   var nHarmonics = Math.floor(filterFreq / FUNDAMENTAL);
-  for (var i = 0; i < Math.min(myFreqs.length, 6); i++) {
+  var maxVisibleRings = (couplingStage === 0) ? 3 : 6;
+  for (var i = 0; i < Math.min(myFreqs.length, maxVisibleRings); i++) {
     if (myFreqs[i] > filterFreq) break;
     var hr = myR * 0.3 + (i + 1) * (myR * 0.7 / 6);
-    var ha = 0.03 + (1 - i / 6) * 0.05 * energy;
+    // Brightness increases with stage
+    var ringBright = [0.6, 0.8, 1.0, 1.2, 1.4];
+    var ha = (0.03 + (1 - i / 6) * 0.05 * energy) * (ringBright[couplingStage] || 1);
     vizCtx.beginPath();
     vizCtx.arc(myCx, myCy, hr, 0, Math.PI * 2);
+    // Stage 3+: rings get slightly wider (overdrive visual)
+    var ringWidth = (couplingStage >= 3) ? 1.0 : 0.5;
     vizCtx.strokeStyle = 'hsla(' + myHue + ',50%,55%,' + ha + ')';
-    vizCtx.lineWidth = 0.5;
+    vizCtx.lineWidth = ringWidth;
     vizCtx.stroke();
   }
 
