@@ -6,14 +6,14 @@
 <meta http-equiv="pragma" content="no-cache">
 <meta http-equiv="expires" content="0">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Aurora</title>
+<title>Aurora — Magnetic Dipole</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;}
 body{background:#000;overflow:hidden;touch-action:none;}
 canvas{display:block;width:100vw;height:100vh;touch-action:none;}
-#whisper{position:fixed;bottom:12px;left:50%;transform:translateX(-50%);
-  color:#ffffff05;font:11px Georgia;z-index:10;pointer-events:none;}
-#fps{position:fixed;top:8px;right:8px;color:#ffffff06;font:9px monospace;z-index:10;pointer-events:none;}
+#whisper{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);
+  color:rgba(74,234,160,0.12);font:11px Georgia;z-index:10;pointer-events:none;
+  letter-spacing:0.15em;text-align:center;}
 #nav{position:fixed;bottom:4px;right:8px;font:0.6em Georgia;z-index:10;}
 #nav a{color:#1a1a1a;text-decoration:none;margin:0 4px;}
 #nav a:hover{color:#4aeaa0;}
@@ -21,32 +21,37 @@ canvas{display:block;width:100vw;height:100vh;touch-action:none;}
 </head>
 <body>
 <canvas id="C"></canvas>
-<div id="whisper">charged particles in a magnetic dipole — the northern lights</div>
-<div id="fps"></div>
+<div id="whisper">B = (m/r³)(2cosθ r̂ + sinθ θ̂) · 100,000 charged particles · Earth's magnetic dipole</div>
 <div id="nav">
-  <a href="/">home</a> · <a href="/flex/">flex</a> · <a href="/r/">research</a>
+  <a href="/">home</a> · <a href="/shapes/">shapes</a> · <a href="/r/">research</a>
 </div>
 <script>
 // ═══════════════════════════════════════════════════════════
-// AURORA — 100K charged particles in Earth's magnetic dipole
-// Real physics: B = (m/r³)(2cosθ r̂ + sinθ θ̂)
-// Particles spiral along field lines. Color from altitude.
-// The northern lights, computed.
+// AURORA — 100K charged particles spiraling Earth's dipole
+// Real dipole field. Color by altitude (real aurora spectrum).
+// Camera orbits slowly. Mouse steers gently.
 // ═══════════════════════════════════════════════════════════
 
 var cv=document.getElementById('C');
 var gl=cv.getContext('webgl',{antialias:false,alpha:false});
 if(!gl){document.body.innerHTML='<p style="color:#4aeaa0;padding:40px;">WebGL required</p>';throw 0;}
-var DPR=devicePixelRatio||1;
-function resize(){cv.width=innerWidth*DPR;cv.height=innerHeight*DPR;cv.style.width=innerWidth+'px';cv.style.height=innerHeight+'px';gl.viewport(0,0,cv.width,cv.height);}
+var DPR=Math.min(devicePixelRatio||1,2);
+function resize(){
+  cv.width=innerWidth*DPR;cv.height=innerHeight*DPR;
+  cv.style.width=innerWidth+'px';cv.style.height=innerHeight+'px';
+  gl.viewport(0,0,cv.width,cv.height);
+}
 resize();addEventListener('resize',resize);
 
-var w,h,t=0,mx=0.5,my=0.5,frame=0,lastT=performance.now();
+var t=0,mx=0.5,my=0.5,frame=0;
+// Smooth mouse — don't let it yank the camera
+var smx=0.5,smy=0.5;
 addEventListener('mousemove',function(e){mx=e.clientX/innerWidth;my=e.clientY/innerHeight;});
-addEventListener('touchmove',function(e){e.preventDefault();if(e.touches.length===1){mx=e.touches[0].clientX/innerWidth;my=e.touches[0].clientY/innerHeight;}},{passive:false});
-addEventListener('touchstart',function(e){e.preventDefault();},{passive:false});
+addEventListener('touchmove',function(e){e.preventDefault();
+  if(e.touches.length===1){mx=e.touches[0].clientX/innerWidth;my=e.touches[0].clientY/innerHeight;}
+},{passive:false});
 
-// Shaders
+// ── Shaders ──
 var vsrc=`
 attribute vec3 aPos;
 attribute vec3 aCol;
@@ -58,19 +63,27 @@ varying float vAlpha;
 void main(){
   vec4 p=uMVP*vec4(aPos,1.0);
   gl_Position=p;
-  gl_PointSize=clamp(aSize*uScale/max(1.0,p.w),1.5,12.0);
+  // Fixed world-space point size — no depth scaling that causes "flying at you"
+  float w=max(1.0,p.w);
+  gl_PointSize=clamp(aSize*uScale/w,1.0,6.0);
   vCol=aCol;
-  float depthFade=clamp(2.0/max(0.3,p.w),0.1,1.0);
-  vAlpha=depthFade;
-  gl_PointSize*=0.4+depthFade;
+  // Very gentle depth fade — stay visible, not exploding
+  vAlpha=clamp(1.2/w,0.05,0.9);
 }`;
 var fsrc=`
 precision mediump float;
 varying vec3 vCol;
 varying float vAlpha;
-void main(){gl_FragColor=vec4(vCol,vAlpha*0.55);}`;
+void main(){
+  // Soft round point
+  float d=length(gl_PointCoord-0.5)*2.0;
+  float soft=1.0-smoothstep(0.5,1.0,d);
+  gl_FragColor=vec4(vCol,vAlpha*soft*0.35);
+}`;
 
-function compile(type,src){var s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);return s;}
+function compile(type,src){
+  var s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);return s;
+}
 var prog=gl.createProgram();
 gl.attachShader(prog,compile(gl.VERTEX_SHADER,vsrc));
 gl.attachShader(prog,compile(gl.FRAGMENT_SHADER,fsrc));
@@ -80,179 +93,170 @@ var aCol=gl.getAttribLocation(prog,'aCol');
 var aSize=gl.getAttribLocation(prog,'aSize');
 var uMVP=gl.getUniformLocation(prog,'uMVP');
 var uScale=gl.getUniformLocation(prog,'uScale');
-gl.enable(gl.BLEND);gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA);
-gl.clearColor(0.0,0.0,0.02,1);
 
-// ═══ 100K PARTICLES ═══
+// Additive — aurora glows
+gl.enable(gl.BLEND);gl.blendFunc(gl.SRC_ALPHA,gl.ONE);
+gl.clearColor(0,0,0.01,1);
+
+// ── 100K PARTICLES ──
 var N=100000;
 var px=new Float32Array(N),py=new Float32Array(N),pz=new Float32Array(N);
 var vx=new Float32Array(N),vy=new Float32Array(N),vz=new Float32Array(N);
 var cr=new Float32Array(N),cg2=new Float32Array(N),cb=new Float32Array(N);
 var psize=new Float32Array(N);
 var gpuPos=new Float32Array(N*3),gpuCol=new Float32Array(N*3);
-
 var posBuf=gl.createBuffer(),colBuf=gl.createBuffer(),sizeBuf=gl.createBuffer();
 
-// ═══ MAGNETIC FIELD — dipole ═══
-// Earth's field: dipole aligned with Y axis
-// B(r,θ) = (m/r³)(2cosθ ŷ component + sinθ horizontal component)
-// We simplify: particles follow field lines, spiraling
+var EARTH_R=2.0;
 
-// Field line shape: r = L * sin²(θ) where L = equatorial distance
-// θ goes from 0 (north pole) to π (south pole)
+// Spawn particle on a dipole field line
+function spawnParticle(i){
+  // L = equatorial crossing distance. 1.2–6 Earth radii.
+  var L=EARTH_R*(1.2+Math.random()*3.8);
+  // θ along field line — bias toward poles where aurora lives
+  // r = L·sin²θ → solve for θ near poles
+  var poleBias=Math.random()<0.7; // 70% near auroral oval
+  var theta;
+  if(poleBias){
+    // Auroral oval: ~15–30° from magnetic pole
+    var poleAngle=0.25+Math.random()*0.45;
+    theta=Math.random()>0.5?poleAngle:Math.PI-poleAngle;
+  } else {
+    theta=Math.random()*Math.PI;
+  }
+  var phi=Math.random()*Math.PI*2;
 
-// Initialize: particles on field lines at various L values and longitudes
-var EARTH_R=2; // visual Earth radius
-
-for(var i=0;i<N;i++){
-  // Each particle: a position along a field line
-  var L=EARTH_R*(1.5+Math.random()*4); // field line equatorial distance
-  var theta=Math.random()*Math.PI; // along the field line (pole to pole)
-  var phi=Math.random()*Math.PI*2; // longitude
-
-  // Field line: r = L * sin²(θ)
   var r=L*Math.sin(theta)*Math.sin(theta);
-  if(r<EARTH_R*0.95)r=EARTH_R*0.95; // don't go inside Earth
+  r=Math.max(r,EARTH_R*1.01);
 
-  // Spherical to cartesian
   px[i]=r*Math.sin(theta)*Math.cos(phi);
-  py[i]=r*Math.cos(theta); // Y = magnetic axis
+  py[i]=r*Math.cos(theta);
   pz[i]=r*Math.sin(theta)*Math.sin(phi);
 
-  // Velocity: spiral along field line + gyration
-  // Tangent to field line + small perpendicular gyration
-  var speed=0.01+Math.random()*0.02;
-  var gyro=0.005+Math.random()*0.01;
-  // Field line tangent (dθ direction)
-  var dtx=Math.cos(theta)*Math.cos(phi);
-  var dty=-Math.sin(theta);
-  var dtz=Math.cos(theta)*Math.sin(phi);
-  vx[i]=dtx*speed+(Math.random()-0.5)*gyro;
-  vy[i]=dty*speed+(Math.random()-0.5)*gyro;
-  vz[i]=dtz*speed+(Math.random()-0.5)*gyro;
+  // Velocity: along field line tangent
+  var speed=0.008+Math.random()*0.012;
+  var dir=py[i]>0?-1:1; // flow toward nearest pole
+  var dtx=Math.cos(theta)*Math.cos(phi)*dir;
+  var dty=-Math.sin(theta)*dir;
+  var dtz=Math.cos(theta)*Math.sin(phi)*dir;
+  vx[i]=dtx*speed;vy[i]=dty*speed;vz[i]=dtz*speed;
 
-  // Color from altitude (distance from Earth surface)
-  // Low altitude (near poles): GREEN (oxygen 557nm)
-  // Medium: BLUE-GREEN
-  // High: RED/PURPLE (oxygen 630nm, nitrogen)
-  var alt=r-EARTH_R;
-  var altNorm=Math.min(1,alt/4);
+  // Color: altitude above surface → real aurora spectrum
+  var alt=(r-EARTH_R)/4.0; // 0=surface, 1=high
+  alt=Math.min(1,Math.max(0,alt));
+  var poleDist=Math.abs(Math.cos(theta)); // bright at poles
 
-  if(altNorm<0.3){
-    // Low: bright green
-    cr[i]=0.15+altNorm;cg2[i]=0.8+altNorm*0.2;cb[i]=0.2+altNorm*0.3;
-  } else if(altNorm<0.6){
-    // Mid: teal/cyan
-    cr[i]=0.1;cg2[i]=0.5+altNorm*0.3;cb[i]=0.6+altNorm*0.3;
+  if(alt<0.25){
+    // Low altitude: green (oxygen 557.7nm) — the most common aurora color
+    cr[i]=0.05+alt*0.3; cg2[i]=0.7+alt*0.25; cb[i]=0.15+alt*0.2;
+  } else if(alt<0.55){
+    // Mid: teal/cyan transition
+    var f=(alt-0.25)/0.3;
+    cr[i]=0.1+f*0.1; cg2[i]=0.55+f*0.1; cb[i]=0.5+f*0.3;
   } else {
-    // High: purple/red
-    cr[i]=0.4+altNorm*0.3;cg2[i]=0.1;cb[i]=0.5+altNorm*0.4;
+    // High: red/purple (oxygen 630nm, nitrogen)
+    var f=(alt-0.55)/0.45;
+    cr[i]=0.3+f*0.55; cg2[i]=0.05; cb[i]=0.55+f*0.3;
   }
 
-  // Particles near poles are brighter (aurora concentrates there)
-  var poleDist=Math.abs(Math.cos(theta)); // 1 at poles, 0 at equator
-  var auroral=poleDist*poleDist;
-  cr[i]*=(0.3+auroral*0.7);
-  cg2[i]*=(0.3+auroral*0.7);
-  cb[i]*=(0.3+auroral*0.7);
-
-  psize[i]=0.8+Math.random()*2+auroral*2; // bigger near poles
+  // Auroral oval: much brighter near poles
+  var bright=0.2+poleDist*0.8;
+  cr[i]*=bright; cg2[i]*=bright; cb[i]*=bright;
+  psize[i]=0.7+Math.random()*1.8+poleDist*2.0;
 }
 
-// ═══ PHYSICS: particles follow field lines ═══
+for(var i=0;i<N;i++) spawnParticle(i);
+
+// ── PHYSICS ──
 function update(){
   t+=0.016;
-
   for(var i=0;i<N;i++){
     var x=px[i],y=py[i],z=pz[i];
-    var r=Math.sqrt(x*x+y*y+z*z);
-    if(r<0.1)r=0.1;
+    var r2sq=x*x+y*y+z*z;
+    var r2=Math.sqrt(r2sq);
+    if(r2<0.1)r2=0.1;
 
-    // Magnetic field direction at this point (dipole)
-    // B proportional to (3(m·r̂)r̂ - m)/r³
-    // For dipole along Y: Bx = 3*y*x/r^5, By = (3*y*y-r²)/r^5, Bz = 3*y*z/r^5
-    var r5=r*r*r*r*r;
+    // Dipole field direction: B ∝ (3(ŷ·r̂)r̂ - ŷ) / r³
+    // Normalized: guide particle along field line
+    var r5=r2sq*r2sq*r2;
     var bx=3*y*x/r5;
-    var by=(3*y*y-r*r)/r5;
+    var by=(3*y*y-r2sq)/r5;
     var bz=3*y*z/r5;
-    var bmag=Math.sqrt(bx*bx+by*by+bz*bz)+0.0001;
-    // Normalize
-    bx/=bmag;by/=bmag;bz/=bmag;
+    var bmag=Math.sqrt(bx*bx+by*by+bz*bz)+1e-6;
+    bx/=bmag; by/=bmag; bz/=bmag;
 
-    // Force: push particle ALONG field line (follow B)
-    var followStrength=0.003;
-    // Direction along B depends on hemisphere
-    var hemi=y>0?1:-1;
-    vx[i]+=bx*followStrength*hemi;
-    vy[i]+=by*followStrength*hemi;
-    vz[i]+=bz*followStrength*hemi;
+    // Push along field (toward nearest pole)
+    var hemi=y>0?-1:1;
+    var k=0.0025;
+    vx[i]+=bx*k*hemi;
+    vy[i]+=by*k*hemi;
+    vz[i]+=bz*k*hemi;
 
-    // Gyration: tiny circular motion perpendicular to B
-    // v_perp rotates around B
-    var gyroRate=0.1;
-    var vperpX=vy[i]*bz-vz[i]*by;
-    var vperpY=vz[i]*bx-vx[i]*bz;
-    var vperpZ=vx[i]*by-vy[i]*bx;
-    vx[i]+=vperpX*gyroRate*0.01;
-    vy[i]+=vperpY*gyroRate*0.01;
-    vz[i]+=vperpZ*gyroRate*0.01;
-
-    // Solar wind: gentle push from one side (+X)
-    vx[i]+=0.0003;
+    // Gentle solar wind (+X)
+    vx[i]+=0.00015;
 
     // Damping
-    vx[i]*=0.998;vy[i]*=0.998;vz[i]*=0.998;
+    vx[i]*=0.997;vy[i]*=0.997;vz[i]*=0.997;
 
-    // Move
     px[i]+=vx[i];py[i]+=vy[i];pz[i]+=vz[i];
 
-    // If inside Earth, bounce back out along field line
-    var r2=Math.sqrt(px[i]*px[i]+py[i]*py[i]+pz[i]*pz[i]);
-    if(r2<EARTH_R){
-      var norm=EARTH_R/r2*1.01;
-      px[i]*=norm;py[i]*=norm;pz[i]*=norm;
-      // Reflect velocity outward
-      var dot=(vx[i]*px[i]+vy[i]*py[i]+vz[i]*pz[i])/r2;
-      if(dot<0){vx[i]-=2*dot*px[i]/r2;vy[i]-=2*dot*py[i]/r2;vz[i]-=2*dot*pz[i]/r2;}
-    }
-
-    // If too far, respawn near a pole
-    if(r2>15){
-      var pole=Math.random()>0.5?1:-1;
-      var phi2=Math.random()*Math.PI*2;
-      var spread=0.3+Math.random()*0.5;
-      px[i]=Math.cos(phi2)*spread*EARTH_R;
-      py[i]=pole*(EARTH_R+0.5+Math.random()*2);
-      pz[i]=Math.sin(phi2)*spread*EARTH_R;
-      vx[i]=vy[i]=vz[i]=0;
+    // Inside Earth → respawn
+    var rn=Math.sqrt(px[i]*px[i]+py[i]*py[i]+pz[i]*pz[i]);
+    if(rn<EARTH_R||rn>14){
+      spawnParticle(i);
     }
   }
 }
 
-// ═══ MATRIX MATH ═══
-function mat4_perspective(fov,aspect,near,far){var f=1/Math.tan(fov/2),nf=1/(near-far);return new Float32Array([f/aspect,0,0,0,0,f,0,0,0,0,(far+near)*nf,-1,0,0,2*far*near*nf,0]);}
-function mat4_identity(){return new Float32Array([1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1]);}
-function mat4_translate(m,x,y,z){var r=new Float32Array(m);r[12]+=m[0]*x+m[4]*y+m[8]*z;r[13]+=m[1]*x+m[5]*y+m[9]*z;r[14]+=m[2]*x+m[6]*y+m[10]*z;r[15]+=m[3]*x+m[7]*y+m[11]*z;return r;}
-function mat4_rotateY(m,a){var c=Math.cos(a),s=Math.sin(a),r=new Float32Array(m);r[0]=m[0]*c+m[8]*s;r[1]=m[1]*c+m[9]*s;r[2]=m[2]*c+m[10]*s;r[3]=m[3]*c+m[11]*s;r[8]=m[8]*c-m[0]*s;r[9]=m[9]*c-m[1]*s;r[10]=m[10]*c-m[2]*s;r[11]=m[11]*c-m[3]*s;return r;}
-function mat4_rotateX(m,a){var c=Math.cos(a),s=Math.sin(a),r=new Float32Array(m);r[4]=m[4]*c+m[8]*s;r[5]=m[5]*c+m[9]*s;r[6]=m[6]*c+m[10]*s;r[7]=m[7]*c+m[11]*s;r[8]=m[8]*c-m[4]*s;r[9]=m[9]*c-m[5]*s;r[10]=m[10]*c-m[6]*s;r[11]=m[11]*c-m[7]*s;return r;}
-function mat4_mul(a,b){var r=new Float32Array(16);for(var i=0;i<4;i++)for(var j=0;j<4;j++){r[j*4+i]=0;for(var k=0;k<4;k++)r[j*4+i]+=a[k*4+i]*b[j*4+k];}return r;}
+// ── MATRIX MATH ──
+function perspective(fov,asp,n,f){
+  var t2=1/Math.tan(fov/2),nf=1/(n-f);
+  return new Float32Array([t2/asp,0,0,0, 0,t2,0,0, 0,0,(f+n)*nf,-1, 0,0,2*f*n*nf,0]);
+}
+function identity(){return new Float32Array([1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1]);}
+function translate(m,x,y,z){
+  var r=new Float32Array(m);
+  r[12]+=m[0]*x+m[4]*y+m[8]*z;
+  r[13]+=m[1]*x+m[5]*y+m[9]*z;
+  r[14]+=m[2]*x+m[6]*y+m[10]*z;
+  return r;
+}
+function rotY(m,a){
+  var c=Math.cos(a),s=Math.sin(a),r=new Float32Array(m);
+  r[0]=m[0]*c+m[8]*s;r[1]=m[1]*c+m[9]*s;r[2]=m[2]*c+m[10]*s;r[3]=m[3]*c+m[11]*s;
+  r[8]=m[8]*c-m[0]*s;r[9]=m[9]*c-m[1]*s;r[10]=m[10]*c-m[2]*s;r[11]=m[11]*c-m[3]*s;
+  return r;
+}
+function rotX(m,a){
+  var c=Math.cos(a),s=Math.sin(a),r=new Float32Array(m);
+  r[4]=m[4]*c+m[8]*s;r[5]=m[5]*c+m[9]*s;r[6]=m[6]*c+m[10]*s;r[7]=m[7]*c+m[11]*s;
+  r[8]=m[8]*c-m[4]*s;r[9]=m[9]*c-m[5]*s;r[10]=m[10]*c-m[6]*s;r[11]=m[11]*c-m[7]*s;
+  return r;
+}
+function mul(a,b){
+  var r=new Float32Array(16);
+  for(var i=0;i<4;i++)for(var j=0;j<4;j++){r[j*4+i]=0;for(var k=0;k<4;k++)r[j*4+i]+=a[k*4+i]*b[j*4+k];}
+  return r;
+}
 
-// ═══ RENDER ═══
+// ── RENDER ──
 function render(){
-  w=innerWidth;h=innerHeight;frame++;
+  frame++;
+
+  // Smooth mouse drift — no snapping
+  smx+=(mx-smx)*0.02;
+  smy+=(my-smy)*0.02;
 
   update();
 
-  var camDist=16;
-  var aspect=w/h;
-  var proj=mat4_perspective(0.8,aspect,0.1,100);
-  var view=mat4_identity();
-  view=mat4_translate(view,0,0,-camDist);
-  view=mat4_rotateX(view,(my-0.5)*2-0.3); // tilt to see from above
-  view=mat4_rotateY(view,t*0.05+(mx-0.5)*3);
-  var mvp=mat4_mul(proj,view);
+  var asp=innerWidth/innerHeight;
+  var proj=perspective(0.65,asp,0.5,80); // narrower FOV = less fisheye distortion
+  var view=identity();
+  view=translate(view,0,0,-22); // stable orbit distance — can see the whole field
+  view=rotX(view,-0.35+(smy-0.5)*0.6); // slight downward tilt, gentle mouse Y
+  view=rotY(view,t*0.04+(smx-0.5)*1.2); // slow auto-rotate, gentle mouse X
+  var mvp=mul(proj,view);
 
-  // Upload
   for(var i=0;i<N;i++){
     gpuPos[i*3]=px[i];gpuPos[i*3+1]=py[i];gpuPos[i*3+2]=pz[i];
     gpuCol[i*3]=cr[i];gpuCol[i*3+1]=cg2[i];gpuCol[i*3+2]=cb[i];
@@ -260,7 +264,7 @@ function render(){
 
   gl.clear(gl.COLOR_BUFFER_BIT);
   gl.uniformMatrix4fv(uMVP,false,mvp);
-  gl.uniform1f(uScale,Math.min(w,h)*DPR*0.04);
+  gl.uniform1f(uScale,Math.min(innerWidth,innerHeight)*DPR*0.035);
 
   gl.bindBuffer(gl.ARRAY_BUFFER,posBuf);
   gl.bufferData(gl.ARRAY_BUFFER,gpuPos,gl.DYNAMIC_DRAW);
@@ -278,15 +282,6 @@ function render(){
   gl.vertexAttribPointer(aSize,1,gl.FLOAT,false,0,0);
 
   gl.drawArrays(gl.POINTS,0,N);
-
-  // FPS
-  var now=performance.now();
-  if(frame%15===0){
-    var fps=Math.round(1000/(now-lastT));
-    document.getElementById('fps').textContent=N.toLocaleString()+' · '+fps+'fps';
-  }
-  lastT=now;
-
   requestAnimationFrame(render);
 }
 render();
