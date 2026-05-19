@@ -7,6 +7,16 @@
   var active = false;
   var original = null;
 
+  // Homepage routing: Research opens the handrail first, atlas stays one click away.
+  function routeHomepageResearchDoor(){
+    var path = window.location.pathname || '/';
+    if (path !== '/' && path !== '/index.html') return;
+    var links = document.querySelectorAll('a.door[href="/research/"]');
+    for (var i = 0; i < links.length; i++) {
+      links[i].setAttribute('href', '/research/doors/');
+    }
+  }
+
   // Build the button — sits at bottom of page, quiet
   var btn = document.createElement('div');
   btn.id = 'love-bug';
@@ -48,6 +58,7 @@
       html = html.replace(/\buncoupled\b/g, 'unloved');
 
       page.innerHTML = html;
+      routeHomepageResearchDoor();
       active = true;
 
       // Re-insert the button (it was part of page innerHTML that got replaced)
@@ -64,6 +75,7 @@
     } else {
       // Restore original
       page.innerHTML = original;
+      routeHomepageResearchDoor();
       active = false;
 
       // Re-insert button
@@ -81,6 +93,7 @@
 
   // Only show if the page actually uses the word coupling
   function place(){
+    routeHomepageResearchDoor();
     var page = document.querySelector('.page');
     if (!page) return;
     var text = page.textContent || page.innerText || '';
