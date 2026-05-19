@@ -36,11 +36,11 @@ h1{font-family:Futura,'Century Gothic',Avenir,'Avenir Next',system-ui,sans-serif
 .whisper p{font-size:.70em;color:#8b4a2e;line-height:1.75;}
 .whisper a{display:inline-block;margin-top:8px;font-family:Futura,'Century Gothic',system-ui,sans-serif;font-size:.62em;letter-spacing:.07em;color:#b8753a;}
 .doors{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;max-width:680px;margin:0 auto;width:100%;opacity:0;animation:up .9s ease .95s forwards;}
-.door{aspect-ratio:1;border-radius:50%;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;position:relative;overflow:hidden;background:rgba(18,13,10,.30);border:1px solid rgba(184,117,58,.055);transition:transform .35s,border-color .35s,background .35s,box-shadow .35s;backdrop-filter:blur(1.5px);}
-.door:before{content:"";position:absolute;inset:20%;border-radius:50%;background:radial-gradient(circle,rgba(var(--c),.15),transparent 66%);opacity:.32;transition:opacity .35s,transform .35s;}
-.door:after{content:"";position:absolute;inset:9%;border-radius:50%;border:1px solid rgba(var(--c),.06);opacity:.45;}
-.door:hover{transform:scale(1.065);border-color:rgba(var(--c),.27);background:rgba(18,13,10,.55);box-shadow:0 0 24px rgba(var(--c),.075);}
-.door:hover:before{opacity:.7;transform:scale(1.18);}
+.door{aspect-ratio:1;border-radius:50%;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;position:relative;overflow:hidden;background:radial-gradient(circle at 50% 50%,rgba(0,0,0,.55),rgba(18,13,10,.32) 54%,rgba(18,13,10,.18));border:1px solid rgba(184,117,58,.055);transition:transform .35s,border-color .35s,background .35s,box-shadow .35s;backdrop-filter:blur(1.5px);}
+.door:before{content:"";position:absolute;inset:20%;border-radius:50%;background:radial-gradient(circle,rgba(0,0,0,.55),rgba(var(--c),.10) 58%,transparent 70%);opacity:.42;transition:opacity .35s,transform .35s;}
+.door:after{content:"";position:absolute;inset:9%;border-radius:50%;border:1px solid rgba(var(--c),.07);box-shadow:inset 0 0 18px rgba(0,0,0,.38);opacity:.52;}
+.door:hover{transform:scale(1.065);border-color:rgba(var(--c),.27);background:radial-gradient(circle at 50% 50%,rgba(0,0,0,.72),rgba(18,13,10,.50) 55%,rgba(18,13,10,.24));box-shadow:0 0 24px rgba(var(--c),.075);}
+.door:hover:before{opacity:.72;transform:scale(1.18);}
 .door-name{font-family:Futura,'Century Gothic',system-ui,sans-serif;font-size:.72em;letter-spacing:.07em;color:rgb(var(--c));z-index:1;}
 .door-sub{font-size:.50em;color:#9a8070;line-height:1.35;margin-top:4px;z-index:1;padding:0 8px;}
 .research{--c:190,140,200}.tools{--c:201,164,74}.harmonia{--c:210,150,120}.human{--c:184,117,58}.gallery{--c:126,170,238}
@@ -129,7 +129,7 @@ h1{font-family:Futura,'Century Gothic',Avenir,'Avenir Next',system-ui,sans-serif
     for(var d=0;d<100;d++) fieldDust.push({x:Math.random()*W,y:Math.random()*H,p:Math.random()*TAU,z:.2+Math.random()*.8,a:.004+Math.random()*.012});
     for(var i=0;i<N;i++){
       var flock=i<NA?0:1, p=shapePoint('seed',i,0), scout=Math.random()<.12;
-      nodes.push({i:i,flock:flock,x:W/2+p.x*scale(),y:H*.43+p.y*scale(),vx:(Math.random()-.5)*.55,vy:(Math.random()-.5)*.55,phase:Math.random()*TAU,omega:(.28+Math.random()*.62)*TAU,baseSize:.85+Math.random()*1.65,scout:scout,wander:Math.random()*TAU,col:palettes[i%palettes.length],heat:.22+Math.random()*.25,glyph:Math.random()});
+      nodes.push({i:i,flock:flock,x:W/2+p.x*scale(),y:H*.43+p.y*scale(),vx:(Math.random()-.5)*.55,vy:(Math.random()-.5)*.55,phase:Math.random()*TAU,omega:(.28+Math.random()*.62)*TAU,baseSize:.85+Math.random()*1.65,scout:scout,wander:Math.random()*TAU,col:palettes[i%palettes.length],heat:.22+Math.random()*.25,glyph:Math.random(),lock:0,lockAge:0,lockSpin:Math.random()*TAU,rock:0});
       trails.push(scout?[]:null);
     }
   }
@@ -173,6 +173,21 @@ h1{font-family:Futura,'Century Gothic',Avenir,'Avenir Next',system-ui,sans-serif
     crossR=Math.max(0,(reA*reB+imA*imB)/(Math.max(.01,RA)*Math.max(.01,RB)));
   }
 
+  function portalPull(n){
+    var total={x:0,y:0,glow:0};
+    for(var i=0;i<doorRects.length;i++){
+      var r=doorRects[i], cx0=r.left+r.width*.5, cy0=r.top+r.height*.50;
+      var dx=cx0-n.x, dy=cy0-n.y, d=Math.sqrt(dx*dx+dy*dy)||1;
+      var radius=hoveredDoor===i?310:210;
+      if(d<radius){
+        var g=(1-d/radius);
+        var pull=(hoveredDoor===i?.026:.006)*g*g;
+        total.x+=dx/d*pull; total.y+=dy/d*pull; total.glow=Math.max(total.glow,g);
+      }
+    }
+    return total;
+  }
+
   function step(){
     t+=0.016; frame++; if(frame%30===0) cacheDoors(); order();
     nextPulse-=0.016;
@@ -181,21 +196,33 @@ h1{font-family:Futura,'Century Gothic',Avenir,'Avenir Next',system-ui,sans-serif
     for(var i=0;i<N;i++){
       var n=nodes[i], target=currentTarget(i);
       n.phase+=0.013*(n.omega+1.868*Math.sin(psi-n.phase)+(.14+R*.30)*Math.sin(psi-n.phase));
-      var pull=.0032+R*.0032+(n.scout?.0012:0);
-      n.vx+=(target.x-n.x)*pull; n.vy+=(target.y-n.y)*pull;
+      var dxT=target.x-n.x, dyT=target.y-n.y, dT=Math.sqrt(dxT*dxT+dyT*dyT)||1;
+      var capture=clamp(1-dT/(n.scout?34:26),0,1);
+      var nearEnd=smooth(Math.abs(target.u-.5)*2); // stronger when each morph has mostly decided
+      var lockGoal=capture*nearEnd*(.55+.45*R);
+      if(lockGoal>.42 && n.lock<.08) n.lockAge=0;
+      n.lock+= (lockGoal-n.lock)*.055;
+      n.lockAge+=0.016*Math.max(.25,n.lock);
+      var L=smooth(n.lock);
+      var pull=.0032+R*.0032+(n.scout?.0012:0)+L*.030;
+      n.vx+=dxT*pull; n.vy+=dyT*pull;
+      if(L>.08){
+        n.vx*=1-L*.38; n.vy*=1-L*.38;
+        n.rock=Math.sin(n.lockAge*18+n.lockSpin)*Math.exp(-n.lockAge*1.15)*L*(n.scout?1.6:1.0);
+      } else n.rock*=.92;
       for(var j=(i+11)%N,c=0;c<12;c++,j=(j+19)%N){
         if(j===i) continue; var m=nodes[j], dx=m.x-n.x, dy=m.y-n.y, dist=Math.sqrt(dx*dx+dy*dy)||1;
         if(dist>135) continue; var pd=Math.abs(m.phase-n.phase)%TAU; if(pd>Math.PI) pd=TAU-pd; var sync=1-pd/Math.PI;
         if(dist<30){n.vx-=dx/dist*(30-dist)*.0010; n.vy-=dy/dist*(30-dist)*.0010;}
-        if(sync>.78 && dist>48){n.vx+=dx/dist*sync*.008; n.vy+=dy/dist*sync*.008;}
+        if(sync>.78 && dist>48){n.vx+=dx/dist*sync*.008*(1-L*.5); n.vy+=dy/dist*sync*.008*(1-L*.5);}
       }
       n.wander+=.010+Math.sin(t*.05+n.i)*.003;
-      n.vx+=Math.cos(n.wander+t*.18)*(n.scout?.034:.008); n.vy+=Math.sin(n.wander+t*.14)*(n.scout?.034:.008);
-      if(mouse.on){var mdx=mouse.x-n.x, mdy=mouse.y-n.y, md=Math.sqrt(mdx*mdx+mdy*mdy)||1; if(md<285){var mf=(1-md/285)*(n.scout?.045:.015); n.vx+=mdx/md*mf; n.vy+=mdy/md*mf;}}
-      if(hoveredDoor>=0 && doorRects[hoveredDoor]){var r=doorRects[hoveredDoor], hx=r.left+r.width*.5, hy=r.top+r.height*.25, hdx=hx-n.x, hdy=hy-n.y, hd=Math.sqrt(hdx*hdx+hdy*hdy)||1; if(hd<350){var hf=(1-hd/350)*.030; n.vx+=hdx/hd*hf; n.vy+=hdy/hd*hf; n.heat=Math.min(1,n.heat+.008);}}
-      n.vx*=.93; n.vy*=.93; var sp=Math.sqrt(n.vx*n.vx+n.vy*n.vy), max=n.scout?2.05:1.28; if(sp>max){n.vx*=max/sp; n.vy*=max/sp;}
+      n.vx+=Math.cos(n.wander+t*.18)*(n.scout?.034:.008)*(1-L*.55); n.vy+=Math.sin(n.wander+t*.14)*(n.scout?.034:.008)*(1-L*.55);
+      if(mouse.on){var mdx=mouse.x-n.x, mdy=mouse.y-n.y, md=Math.sqrt(mdx*mdx+mdy*mdy)||1; if(md<285){var mf=(1-md/285)*(n.scout?.045:.015)*(1-L*.3); n.vx+=mdx/md*mf; n.vy+=mdy/md*mf;}}
+      var pp=portalPull(n); n.vx+=pp.x; n.vy+=pp.y; n.heat=Math.min(1,n.heat+pp.glow*.004);
+      n.vx*=.93-L*.020; n.vy*=.93-L*.020; var sp=Math.sqrt(n.vx*n.vx+n.vy*n.vy), max=n.scout?2.05:1.28; if(sp>max){n.vx*=max/sp; n.vy*=max/sp;}
       n.x+=n.vx; n.y+=n.vy; if(n.x<-80)n.x=W+80; if(n.x>W+80)n.x=-80; if(n.y<-80)n.y=H+80; if(n.y>H+80)n.y=-80;
-      n.heat+=(R-n.heat)*.007;
+      n.heat+=(Math.max(R,L*.8)-n.heat)*.007;
     }
   }
 
@@ -209,14 +236,29 @@ h1{font-family:Futura,'Century Gothic',Avenir,'Avenir Next',system-ui,sans-serif
     for(var d=0;d<fieldDust.length;d++){var q=fieldDust[d]; q.p+=.006*q.z; q.x+=Math.cos(q.p)*.020*q.z; q.y+=Math.sin(q.p*.7)*.020*q.z; if(q.x<0)q.x=W;if(q.x>W)q.x=0;if(q.y<0)q.y=H;if(q.y>H)q.y=0; cx.fillStyle=color(ink,q.a*(.7+R*.8)); cx.fillRect(q.x,q.y,1,1);}
   }
 
+  function drawPortals(){
+    for(var i=0;i<doorRects.length;i++){
+      var r=doorRects[i], x=r.left+r.width*.5, y=r.top+r.height*.5, rad=Math.max(r.width,r.height)*.58;
+      var hot=hoveredDoor===i?1:0;
+      var g=cx.createRadialGradient(x,y,rad*.12,x,y,rad*(1.55+hot*.35));
+      var col=i===0?[190,140,200]:i===1?[201,164,74]:i===2?rose:i===3?gold:blue;
+      g.addColorStop(0,'rgba(0,0,0,0)');
+      g.addColorStop(.45,color(col,.010+hot*.020));
+      g.addColorStop(1,'rgba('+col[0]+','+col[1]+','+col[2]+',0)');
+      cx.fillStyle=g; cx.fillRect(x-rad*2,y-rad*2,rad*4,rad*4);
+      cx.strokeStyle=color(col,.045+hot*.070); cx.lineWidth=.7+hot*.5; cx.beginPath(); cx.arc(x,y,rad*(1.02+Math.sin(t*1.6+i)*.008),0,TAU); cx.stroke();
+    }
+  }
+
   function glyph(n,form,hit){
-    var col=n.flock?blue:gold, pulseBright=.5+.5*Math.sin(n.phase), hot=n.heat;
-    var size=n.baseSize*(.78+pulseBright*.62)*(1+hot*.22+hit*.55)*(n.scout?1.16:1);
-    var alpha=.22+pulseBright*.22+hot*.12+hit*.22;
-    var angle=n.phase+n.glyph*TAU;
+    var col=n.flock?blue:gold, pulseBright=.5+.5*Math.sin(n.phase), hot=n.heat, L=smooth(n.lock);
+    var rockX=Math.cos(n.lockSpin)*n.rock*2.2, rockY=Math.sin(n.lockSpin*.7)*n.rock*1.2;
+    var size=n.baseSize*(.78+pulseBright*.62)*(1+hot*.22+hit*.55+L*.18)*(n.scout?1.16:1);
+    var alpha=.22+pulseBright*.22+hot*.12+hit*.22+L*.10;
+    var angle=n.phase+n.glyph*TAU+L*Math.sin(n.lockAge*10+n.lockSpin)*.10;
     var mode=form.from;
-    cx.save(); cx.translate(n.x,n.y); cx.rotate(angle);
-    cx.strokeStyle=color(col,alpha*.78); cx.fillStyle=color(col,alpha); cx.lineWidth=.55+size*.18;
+    cx.save(); cx.translate(n.x+rockX,n.y+rockY); cx.rotate(angle);
+    cx.strokeStyle=color(col,alpha*.78); cx.fillStyle=color(col,alpha); cx.lineWidth=.55+size*.18+L*.12;
     if(mode==='lattice'){
       cx.beginPath(); cx.moveTo(-size*1.6,0); cx.lineTo(size*1.6,0); cx.stroke();
     } else if(mode==='river'){
@@ -225,23 +267,23 @@ h1{font-family:Futura,'Century Gothic',Avenir,'Avenir Next',system-ui,sans-serif
       cx.beginPath(); cx.moveTo(0,size*1.4); cx.lineTo(0,-size*1.1); cx.moveTo(0,-size*.2); cx.lineTo(size*.9,-size*.85); cx.stroke();
     } else if(mode==='mirror'){
       cx.beginPath(); cx.arc(0,0,size*1.25,0,TAU); cx.stroke();
-      cx.fillStyle=color(rose,alpha*.20); cx.beginPath(); cx.arc(0,0,size*.36,0,TAU); cx.fill();
+      cx.fillStyle=color(rose,alpha*.20+L*.05); cx.beginPath(); cx.arc(0,0,size*.36,0,TAU); cx.fill();
     } else if(mode==='binary'){
       cx.beginPath(); cx.arc(-size*.75,0,size*.45,0,TAU); cx.arc(size*.75,0,size*.45,0,TAU); cx.stroke();
     } else {
       cx.beginPath(); cx.arc(0,0,size,0,TAU); cx.fill();
     }
+    if(L>.55){cx.strokeStyle=color(rose,.025*L);cx.lineWidth=.45;cx.beginPath();cx.arc(0,0,size*2.15,0,TAU);cx.stroke();}
     cx.restore();
     if(hit>.02){var gr=cx.createRadialGradient(n.x,n.y,0,n.x,n.y,size*8);gr.addColorStop(0,color(rose,hit*.12));gr.addColorStop(1,'rgba(210,150,120,0)');cx.fillStyle=gr;cx.fillRect(n.x-size*8,n.y-size*8,size*16,size*16);}
   }
 
   function draw(){
     step(); cx.clearRect(0,0,W,H); cx.globalCompositeOperation='lighter';
-    drawBackground();
+    drawBackground(); drawPortals();
     var form=currentTarget(0);
 
-    // almost-hidden target memory: visible only as geometry, not as spectacle
-    cx.globalAlpha=.10+R*.05; cx.strokeStyle=color(pewter,.10); cx.lineWidth=.45; cx.beginPath();
+    cx.globalAlpha=.08+R*.045; cx.strokeStyle=color(pewter,.10); cx.lineWidth=.45; cx.beginPath();
     for(var gi=0;gi<N;gi+=4){var tp=currentTarget(gi); if(gi===0)cx.moveTo(tp.x,tp.y); else cx.lineTo(tp.x,tp.y);} cx.stroke(); cx.globalAlpha=1;
 
     for(var i=0;i<N;i++){
@@ -250,7 +292,8 @@ h1{font-family:Futura,'Century Gothic',Avenir,'Avenir Next',system-ui,sans-serif
         var b=nodes[j], dx=a.x-b.x, dy=a.y-b.y, dist=Math.sqrt(dx*dx+dy*dy); if(dist>138) continue;
         var pd=Math.abs(a.phase-b.phase)%TAU; if(pd>Math.PI) pd=TAU-pd; var sync=1-pd/Math.PI, same=a.flock===b.flock;
         if(sync<(same ? .66 : .82)) continue;
-        line(a,b,same?(a.flock?blue:gold):rose,(1-dist/138)*sync*sync*(same ? .048 : .035),same ? .42+sync*.36 : .28+sync*.28);
+        var lockAvg=(a.lock+b.lock)*.5;
+        line(a,b,same?(a.flock?blue:gold):rose,(1-dist/138)*sync*sync*(same ? .048 : .035)*(1+lockAvg*.45),same ? .42+sync*.36+lockAvg*.25 : .28+sync*.28);
       }
     }
 
