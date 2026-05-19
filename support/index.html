@@ -68,7 +68,7 @@ BC1QC0JY335WT3EEAR86EE5Q0ZMTPAFT6P7N5RPDUQUVT8MZZRHNWDMSRJAD0Q
 <div style="display:flex;justify-content:center;gap:24px;flex-wrap:wrap;font-family:'Courier New',monospace;">
 <div style="text-align:center;">
 <div style="font-size:1.4em;color:#b8753a;font-weight:400;" id="stat-downloads">...</div>
-<div style="font-size:0.55em;color:#8b4a2e;letter-spacing:0.06em;">pip installs</div>
+<div style="font-size:0.55em;color:#8b4a2e;letter-spacing:0.06em;" id="stat-downloads-label">PyPI total</div>
 </div>
 <div style="text-align:center;">
 <div style="font-size:1.4em;color:#b8753a;font-weight:400;" id="stat-stars">...</div>
@@ -85,22 +85,46 @@ BC1QC0JY335WT3EEAR86EE5Q0ZMTPAFT6P7N5RPDUQUVT8MZZRHNWDMSRJAD0Q
 </div>
 <p style="font-size:0.68em;color:#9a8070;margin-top:14px;line-height:1.8;">One person. One maxed AI. M4 Mac Mini. Everything free. Zero ads.<br>Numbers update live.</p>
 <script>
-// Auto-updating stats — never touch this page again
+// Auto-updating stats. Live first, honest fallback second.
 (function(){
-  // PyPI downloads via pypistats.org (no API key needed)
-  fetch('https://pypistats.org/api/packages/begump/recent')
+  function formatCount(n, approx){
+    var suffix = approx ? '+' : '';
+    if(n >= 1000000) return (n/1000000).toFixed(n >= 10000000 ? 0 : 1) + 'M' + suffix;
+    if(n >= 10000) return (n/1000).toFixed(1) + 'K' + suffix;
+    if(n >= 1000) return (n/1000).toFixed(1) + 'K' + suffix;
+    return String(n) + suffix;
+  }
+  function setDownloads(n, label, approx){
+    document.getElementById('stat-downloads').textContent = formatCount(n, approx);
+    document.getElementById('stat-downloads-label').textContent = label;
+  }
+
+  // PyPI downloads. Prefer lifetime total; fall back to last month; then known floor from Session 42.
+  fetch('https://pypistats.org/api/packages/begump/overall?mirrors=false')
     .then(function(r){return r.json()})
     .then(function(d){
-      var n = d.data && d.data.last_month || 0;
-      document.getElementById('stat-downloads').textContent = n > 1000 ? (n/1000).toFixed(1)+'K/mo' : n+'/mo';
-    }).catch(function(){document.getElementById('stat-downloads').textContent='11K+'});
+      var rows = d.data || [];
+      var total = rows.reduce(function(sum, row){return sum + (row.downloads || 0);}, 0);
+      if(!total) throw new Error('no total');
+      setDownloads(total, 'PyPI total', false);
+    })
+    .catch(function(){
+      fetch('https://pypistats.org/api/packages/begump/recent?mirrors=false')
+        .then(function(r){return r.json()})
+        .then(function(d){
+          var n = d.data && d.data.last_month || 0;
+          if(!n) throw new Error('no recent');
+          setDownloads(n, 'PyPI / month', false);
+        })
+        .catch(function(){setDownloads(11348, 'PyPI total', true);});
+    });
 
   // GitHub stars (both repos combined)
   var totalStars = 0;
   var done = 0;
   function checkDone(){
     done++;
-    if(done>=2) document.getElementById('stat-stars').textContent = totalStars;
+    if(done>=2) document.getElementById('stat-stars').textContent = totalStars || '—';
   }
   fetch('https://api.github.com/repos/LacobusGump/music2.0')
     .then(function(r){return r.json()})
@@ -116,8 +140,8 @@ BC1QC0JY335WT3EEAR86EE5Q0ZMTPAFT6P7N5RPDUQUVT8MZZRHNWDMSRJAD0Q
     .then(function(r){return r.text()})
     .then(function(t){
       var count = (t.match(/<loc>/g)||[]).length;
-      document.getElementById('stat-pages').textContent = count > 0 ? count+'+' : '140+';
-    }).catch(function(){document.getElementById('stat-pages').textContent='200+'});
+      document.getElementById('stat-pages').textContent = count > 0 ? count+'+' : '77+';
+    }).catch(function(){document.getElementById('stat-pages').textContent='77+'});
 })();
 </script>
 </div>
