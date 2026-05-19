@@ -344,7 +344,7 @@ const Lens = (function () {
 
   // ── THE 5 LENSES ──────────────────────────────────────────────────────
   // Each lens is a complete, playable world.
-  // Grid (index 1) is the default — strongest first impression.
+  // Journey (index 6) is the default — the full arc.
 
   var PRESETS = [
 
@@ -648,8 +648,8 @@ const Lens = (function () {
 
 
   // ── DEFAULT INDEX ──────────────────────────────────────────────────────
-  // Grid (index 1) is the default — strongest first impression.
-  var DEFAULT_INDEX = 1;
+  // Journey (index 6) is the default — the full arc.
+  var DEFAULT_INDEX = 6;
 
 
   // ── STATE ──────────────────────────────────────────────────────────────
