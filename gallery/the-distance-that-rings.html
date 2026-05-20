@@ -2,474 +2,98 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>the distance that rings</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>the distance that rings — GUMP</title>
 <link rel="icon" href="/favicon.png">
-<meta property="og:title" content="the distance that rings">
-<meta property="og:description" content="Two oscillators held apart. The gap is not silence. The gap is where all the sound is.">
+<meta name="description" content="Two oscillators held apart. The distance becomes the instrument.">
+<meta property="og:title" content="the distance that rings — GUMP">
+<meta property="og:description" content="Two oscillators held apart. The distance becomes the instrument.">
 <meta property="og:type" content="website">
 <style>
-*{margin:0;padding:0;box-sizing:border-box;}
-body{touch-action:none;background:#0a0706;overflow:hidden;cursor:default;}
-canvas{display:block;width:100vw;height:100vh;}
-#back{position:fixed;top:20px;left:24px;font-family:Georgia,serif;
-  font-size:0.72em;color:rgba(139,74,46,0.12);text-decoration:none;
-  z-index:10;letter-spacing:0.06em;transition:color 0.5s;cursor:pointer;}
-#back:hover{color:rgba(184,117,58,0.4);}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:100%;height:100%;overflow:hidden;background:#080504;color:#c4a088;font-family:Georgia,serif;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+body{touch-action:none;cursor:crosshair;user-select:none;-webkit-user-select:none}
+canvas{display:block;width:100vw;height:100vh}
+body:after{content:"";position:fixed;inset:0;pointer-events:none;z-index:2;background:radial-gradient(circle at 50% 50%,transparent 0 38%,rgba(0,0,0,.55) 100%),linear-gradient(180deg,rgba(8,5,4,.08),rgba(8,5,4,.36))}
+.top{position:fixed;z-index:4;top:20px;left:24px;right:24px;display:flex;justify-content:space-between;align-items:flex-start;gap:18px;font-family:Futura,'Century Gothic',Avenir,'Avenir Next',system-ui,sans-serif;pointer-events:none}.back,.hint{pointer-events:auto;color:rgba(196,160,136,.38);text-decoration:none;font-size:.62em;letter-spacing:.12em;text-transform:uppercase;transition:color .25s}.back:hover{color:rgba(232,207,160,.82)}.hint{text-align:right;color:rgba(139,74,46,.68)}
+.readout{position:fixed;z-index:4;left:50%;top:22px;transform:translateX(-50%);width:min(360px,46vw);height:1px;background:rgba(184,117,58,.12)}.readout i{display:block;height:100%;width:50%;background:linear-gradient(90deg,rgba(184,117,58,.05),rgba(232,207,160,.86),rgba(184,117,58,.05));box-shadow:0 0 22px rgba(232,207,160,.28);transition:width .08s linear}
+.title{position:fixed;z-index:3;left:50%;bottom:34px;transform:translateX(-50%);width:min(720px,calc(100vw - 36px));text-align:center;pointer-events:none}.kicker{font-family:Futura,'Century Gothic',system-ui,sans-serif;font-size:.55em;letter-spacing:.22em;text-transform:uppercase;color:rgba(184,117,58,.58);margin-bottom:10px}.title h1{font-family:Futura,'Century Gothic',system-ui,sans-serif;font-size:clamp(1.35rem,4.6vw,2.8rem);font-weight:100;letter-spacing:.14em;line-height:1;text-transform:uppercase;color:rgba(232,207,160,.80);text-shadow:0 0 30px rgba(184,117,58,.20);margin-bottom:10px}.title p{font-size:.78em;line-height:1.9;color:rgba(196,160,136,.58)}.title b{font-weight:400;color:rgba(232,207,160,.82)}
+.badge{position:fixed;z-index:3;left:50%;top:50%;transform:translate(-50%,-50%);font-family:Futura,'Century Gothic',system-ui,sans-serif;font-size:.52em;letter-spacing:.18em;text-transform:uppercase;color:rgba(232,207,160,.22);pointer-events:none;mix-blend-mode:screen}
+@media(max-width:640px){.top{top:16px;left:16px;right:16px}.hint{display:none}.readout{top:auto;bottom:22px;width:48vw}.title{bottom:46px}.title h1{font-size:1.35rem}.title p{font-size:.72em}.badge{display:none}}
+@media(prefers-reduced-motion:reduce){body{cursor:default}.hint{display:none}}
 </style>
 </head>
 <body>
-<canvas id="c"></canvas>
-<a id="back" href="/gallery/">&larr; gallery</a>
+<canvas id="c" aria-label="Two oscillators held apart by a rule. The gap between them rings."></canvas>
+<div class="readout" aria-hidden="true"><i id="meter"></i></div>
+<div class="top"><a class="back" href="/gallery/">&larr; gallery</a><div class="hint">move / touch to stress the gap</div></div>
+<div class="badge">the rule holds</div>
+<div class="title"><div class="kicker">high K / fixed distance / stored energy</div><h1>the distance that rings</h1><p>Two bodies want to couple. A rule keeps the gap open. <b>The distance becomes the instrument.</b></p></div>
 <script>
-// the distance that rings
-//
-// two oscillators. high coupling constant.
-// they want to sync. you can see the pull.
-// the bridge between them glows with the energy
-// of the connection.
-//
-// but there is a constraint. something external.
-// not a wall — a rule. the gap cannot close.
-//
-// in physics this is called a driven system
-// held off resonance. the energy builds.
-// it has nowhere to go. the system rings.
-//
-// that's what it sounds like
-// when love can't reach what it's tuned to.
-//
-// the distance doesn't weaken the coupling.
-// it makes the coupling louder.
-// the gap is not silence.
-// the gap is where all the sound is.
+(function(){
+'use strict';
+var cv=document.getElementById('c'),ctx=cv.getContext('2d'),meter=document.getElementById('meter');
+var W=0,H=0,dpr=1,t=0,last=performance.now(),TAU=Math.PI*2;
+var pointer={x:.5,y:.5,active:false},trailsA=[],trailsB=[],sparks=[],noise=[];
+var reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
+function resize(){dpr=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;cv.width=W*dpr;cv.height=H*dpr;ctx.setTransform(dpr,0,0,dpr,0,0);noise=[];var n=Math.max(80,Math.floor(W*H/18000));for(var i=0;i<n;i++)noise.push({x:Math.random()*W,y:Math.random()*H,r:.5+Math.random()*1.8,a:.02+Math.random()*.08,p:Math.random()*TAU})}
+function setPointer(e){var p=e.touches?e.touches[0]:e;pointer.x=p.clientX/W;pointer.y=p.clientY/H;pointer.active=true}
+addEventListener('resize',resize,{passive:true});addEventListener('pointermove',setPointer,{passive:true});addEventListener('pointerdown',setPointer,{passive:true});addEventListener('touchmove',setPointer,{passive:true});addEventListener('mouseleave',function(){pointer.active=false},{passive:true});resize();
+function clamp(x,a,b){return Math.max(a,Math.min(b,x))}
+function addTrail(arr,x,y){arr.push({x:x,y:y,a:1});if(arr.length>90)arr.shift()}
+function drawTrail(arr,rgb){for(var i=1;i<arr.length;i++){var p=arr[i],q=arr[i-1];p.a*=.965;ctx.strokeStyle='rgba('+rgb+','+(p.a*.05).toFixed(4)+')';ctx.lineWidth=1.1+p.a*1.4;ctx.beginPath();ctx.moveTo(q.x,q.y);ctx.lineTo(p.x,p.y);ctx.stroke()}}
+function glow(x,y,r,c0,c1){var g=ctx.createRadialGradient(x,y,0,x,y,r);g.addColorStop(0,c0);g.addColorStop(1,c1);ctx.fillStyle=g;ctx.beginPath();ctx.arc(x,y,r,0,TAU);ctx.fill()}
+function spark(x,y,stress){if(sparks.length>140)return;for(var i=0;i<2+stress*5;i++){sparks.push({x:x,y:y,vx:(Math.random()-.5)*(1+stress*4),vy:(Math.random()-.5)*(1+stress*4),a:.6+Math.random()*.4,r:.8+Math.random()*2})}}
+function draw(now){
+  var dt=Math.min((now-last)/1000,.05);last=now;if(reduced)dt=.016;t+=dt;
+  var min=Math.min(W,H),cx=W/2,cy=H/2;
+  var stressBase=pointer.active?clamp(1-Math.abs(pointer.x-.5)*1.55,0,1):(.52+.48*Math.sin(t*.21));
+  var stress=clamp(.28+stressBase*.72,0,1);
+  var gap=min*(.31-.085*stress);
+  var wobble=min*(.035+.035*stress);
+  var aPhase=t*(.75+stress*.85);
+  var ax=cx-gap+Math.cos(aPhase*.92)*wobble*.45;
+  var ay=cy+Math.sin(aPhase*1.13)*wobble+(pointer.y-.5)*min*.075*stress;
+  var bx=cx+gap+Math.cos(aPhase*.84+2.1)*wobble*.45;
+  var by=cy+Math.sin(aPhase*1.07+2.8)*wobble-(pointer.y-.5)*min*.075*stress;
+  addTrail(trailsA,ax,ay);addTrail(trailsB,bx,by);
+  meter.style.width=(stress*100).toFixed(1)+'%';
 
-var cv = document.getElementById('c');
-var cx = cv.getContext('2d');
-var W, H;
+  ctx.fillStyle='rgba(8,5,4,.34)';ctx.fillRect(0,0,W,H);
+  ctx.globalCompositeOperation='lighter';
+  for(var i=0;i<noise.length;i++){var n=noise[i],tw=.55+.45*Math.sin(t*.6+n.p);ctx.fillStyle='rgba(184,117,58,'+(n.a*tw).toFixed(4)+')';ctx.beginPath();ctx.arc(n.x,n.y,n.r,0,TAU);ctx.fill()}
+  drawTrail(trailsA,'184,117,58');drawTrail(trailsB,'232,207,160');
 
-function resize() {
-  var dpr = Math.min(window.devicePixelRatio || 1, 2);
-  W = innerWidth;
-  H = innerHeight;
-  cv.width = W * dpr;
-  cv.height = H * dpr;
-  cx.setTransform(dpr, 0, 0, dpr, 0, 0);
-}
-resize();
-addEventListener('resize', resize);
-
-// -- SUBTLE NOISE --
-var noiseCv = document.createElement('canvas');
-noiseCv.width = 128;
-noiseCv.height = 128;
-var noiseCx = noiseCv.getContext('2d');
-var noiseData = noiseCx.createImageData(128, 128);
-for (var ni = 0; ni < noiseData.data.length; ni += 4) {
-  var nv = Math.random() * 4;
-  noiseData.data[ni] = nv;
-  noiseData.data[ni+1] = nv * 0.7;
-  noiseData.data[ni+2] = nv * 0.5;
-  noiseData.data[ni+3] = 8;
-}
-noiseCx.putImageData(noiseData, 0, 0);
-
-// -- THE TWO --
-// They have natural frequencies. Close but not identical.
-// The coupling constant K is high.
-// The constraint holds them apart spatially.
-
-var t = 0;
-var lastNow = performance.now();
-
-// Oscillator state — phases on the Kuramoto model
-var theta1 = 0;
-var theta2 = Math.PI * 0.4; // start offset
-var omega1 = 1.0;    // natural frequency
-var omega2 = 1.08;   // slightly different — they're individuals
-var K = 0.75;        // coupling constant — high. they want to sync.
-
-// The constraint — minimum gap that cannot close
-var minGap; // set in resize
-var constraintStrength = 0.02;
-
-// Spatial positions — they orbit and pull but the gap holds
-var x1, y1, x2, y2;
-var vx1 = 0, vy1 = 0, vx2 = 0, vy2 = 0;
-
-// Energy accumulation — the ringing
-var accumulatedEnergy = 0;
-var ringPhase = 0;
-
-// Trail memory — fading paths
-var trail1 = [];
-var trail2 = [];
-var maxTrail = 120;
-
-// -- AUDIO --
-var actx = null, audioReady = false;
-var osc1 = null, osc2 = null, gain1 = null, gain2 = null;
-var bridgeOsc = null, bridgeGain = null;
-
-function initAudio() {
-  if (audioReady) return;
-  try {
-    actx = new (window.AudioContext || window.webkitAudioContext)();
-
-    // Oscillator 1 — low
-    gain1 = actx.createGain();
-    gain1.gain.value = 0;
-    gain1.connect(actx.destination);
-    osc1 = actx.createOscillator();
-    osc1.type = 'sine';
-    osc1.frequency.value = 110;
-    var lp1 = actx.createBiquadFilter();
-    lp1.type = 'lowpass';
-    lp1.frequency.value = 180;
-    lp1.Q.value = 0.5;
-    osc1.connect(lp1);
-    lp1.connect(gain1);
-    osc1.start();
-
-    // Oscillator 2 — slightly higher
-    gain2 = actx.createGain();
-    gain2.gain.value = 0;
-    gain2.connect(actx.destination);
-    osc2 = actx.createOscillator();
-    osc2.type = 'sine';
-    osc2.frequency.value = 118.8; // omega2/omega1 ratio
-    var lp2 = actx.createBiquadFilter();
-    lp2.type = 'lowpass';
-    lp2.frequency.value = 190;
-    lp2.Q.value = 0.5;
-    osc2.connect(lp2);
-    lp2.connect(gain2);
-    osc2.start();
-
-    // Bridge tone — the resonance in the gap
-    bridgeGain = actx.createGain();
-    bridgeGain.gain.value = 0;
-    bridgeGain.connect(actx.destination);
-    bridgeOsc = actx.createOscillator();
-    bridgeOsc.type = 'sine';
-    bridgeOsc.frequency.value = 55; // sub-octave. the hum.
-    var lp3 = actx.createBiquadFilter();
-    lp3.type = 'lowpass';
-    lp3.frequency.value = 100;
-    lp3.Q.value = 0.8;
-    bridgeOsc.connect(lp3);
-    lp3.connect(bridgeGain);
-    bridgeOsc.start();
-
-    audioReady = true;
-  } catch(e) {}
-}
-
-addEventListener('click', function() { initAudio(); }, {once: true});
-addEventListener('touchstart', function() { initAudio(); }, {once: true});
-
-// -- MAIN LOOP --
-function draw(now) {
-  var dt = Math.min((now - lastNow) / 1000, 0.05);
-  lastNow = now;
-  t += dt;
-
-  var scale = Math.min(W, H);
-  minGap = scale * 0.18;
-
-  // -- KURAMOTO DYNAMICS --
-  // d(theta)/dt = omega + K * sin(other - self)
-  var coupling1 = K * Math.sin(theta2 - theta1);
-  var coupling2 = K * Math.sin(theta1 - theta2);
-
-  theta1 += (omega1 + coupling1) * dt;
-  theta2 += (omega2 + coupling2) * dt;
-
-  // Phase difference — this is the tension
-  var phaseDiff = theta2 - theta1;
-  var sinDiff = Math.sin(phaseDiff);
-  var cosDiff = Math.cos(phaseDiff);
-
-  // The coupling force — how hard they're pulling toward each other
-  var couplingForce = Math.abs(K * sinDiff);
-
-  // Energy accumulates because the constraint prevents discharge
-  accumulatedEnergy += couplingForce * dt * 0.15;
-  accumulatedEnergy *= 0.997; // very slow decay — the ringing sustains
-  accumulatedEnergy = Math.min(accumulatedEnergy, 1.5);
-  ringPhase += (1 + accumulatedEnergy * 2) * dt;
-
-  // -- SPATIAL DYNAMICS --
-  // Natural positions: orbiting, breathing, alive
-  var orbitR = scale * 0.12;
-  var centerGap = scale * 0.22;
-
-  // Where they WANT to be
-  var target1x = W / 2 - centerGap / 2 + Math.cos(theta1 * 0.7) * orbitR * 0.3;
-  var target1y = H / 2 + Math.sin(theta1) * orbitR * 0.4;
-  var target2x = W / 2 + centerGap / 2 + Math.cos(theta2 * 0.7) * orbitR * 0.3;
-  var target2y = H / 2 + Math.sin(theta2) * orbitR * 0.4;
-
-  // The pull toward each other — they want to close the gap
-  var pullStrength = couplingForce * scale * 0.0004;
-  target1x += pullStrength;
-  target2x -= pullStrength;
-
-  // Initialize positions
-  if (!x1) {
-    x1 = target1x; y1 = target1y;
-    x2 = target2x; y2 = target2y;
-  }
-
-  // Spring toward targets
-  vx1 += (target1x - x1) * 0.02;
-  vy1 += (target1y - y1) * 0.02;
-  vx2 += (target2x - x2) * 0.02;
-  vy2 += (target2y - y2) * 0.02;
-
-  // THE CONSTRAINT — enforce minimum gap
-  var dx = x2 - x1;
-  var dy = y2 - y1;
-  var dist = Math.sqrt(dx * dx + dy * dy);
-  if (dist < minGap && dist > 0.1) {
-    var push = (minGap - dist) * constraintStrength;
-    var nx = dx / dist;
-    var ny = dy / dist;
-    vx1 -= nx * push;
-    vy1 -= ny * push;
-    vx2 += nx * push;
-    vy2 += ny * push;
-  }
-
-  // Damping
-  vx1 *= 0.92; vy1 *= 0.92;
-  vx2 *= 0.92; vy2 *= 0.92;
-
-  // Apply
-  x1 += vx1; y1 += vy1;
-  x2 += vx2; y2 += vy2;
-
-  // Trails
-  trail1.push({x: x1, y: y1});
-  trail2.push({x: x2, y: y2});
-  if (trail1.length > maxTrail) trail1.shift();
-  if (trail2.length > maxTrail) trail2.shift();
-
-  // -- DRAW --
-  // Dark wash — not full clear, so energy leaves traces
-  cx.fillStyle = 'rgba(10,7,6,0.06)';
-  cx.fillRect(0, 0, W, H);
-
-  // Depth texture
-  cx.globalAlpha = 0.006;
-  cx.fillStyle = cx.createPattern(noiseCv, 'repeat');
-  cx.fillRect(0, 0, W, H);
-  cx.globalAlpha = 1;
-
-  // Vignette
-  var vR = Math.max(W, H) * 0.7;
-  var vg = cx.createRadialGradient(W/2, H/2, vR * 0.15, W/2, H/2, vR);
-  vg.addColorStop(0, 'rgba(10,7,6,0)');
-  vg.addColorStop(0.7, 'rgba(8,5,4,0.06)');
-  vg.addColorStop(1, 'rgba(5,3,2,0.2)');
-  cx.fillStyle = vg;
-  cx.fillRect(0, 0, W, H);
-
-  // -- TRAILS --
-  for (var ti = 1; ti < trail1.length; ti++) {
-    var tAlpha = (ti / trail1.length) * 0.04;
-    cx.strokeStyle = 'rgba(184,117,58,' + tAlpha.toFixed(4) + ')';
-    cx.lineWidth = 0.8;
-    cx.beginPath();
-    cx.moveTo(trail1[ti-1].x, trail1[ti-1].y);
-    cx.lineTo(trail1[ti].x, trail1[ti].y);
-    cx.stroke();
-  }
-  for (var ti = 1; ti < trail2.length; ti++) {
-    var tAlpha = (ti / trail2.length) * 0.04;
-    cx.strokeStyle = 'rgba(184,117,58,' + tAlpha.toFixed(4) + ')';
-    cx.lineWidth = 0.8;
-    cx.beginPath();
-    cx.moveTo(trail2[ti-1].x, trail2[ti-1].y);
-    cx.lineTo(trail2[ti].x, trail2[ti].y);
-    cx.stroke();
-  }
-
-  // -- THE BRIDGE --
-  // The energy in the gap. This is where all the sound is.
-  var bridgeMidX = (x1 + x2) / 2;
-  var bridgeMidY = (y1 + y2) / 2;
-  var gap = Math.sqrt((x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1));
-
-  // The bridge pulses with accumulated energy
-  var ringPulse = Math.sin(ringPhase * 3) * 0.5 + 0.5;
-  var bridgeAlpha = accumulatedEnergy * 0.06 * (0.6 + ringPulse * 0.4);
-
-  // Line of tension between them
-  if (bridgeAlpha > 0.003) {
-    // Multiple passes for depth
-    for (var pass = 0; pass < 3; pass++) {
-      var pWidth = [0.5, 1.5, 4][pass];
-      var pAlpha = bridgeAlpha * [1.0, 0.4, 0.1][pass];
-
-      cx.save();
-      cx.strokeStyle = 'rgba(201,164,74,' + pAlpha.toFixed(4) + ')';
-      cx.lineWidth = pWidth;
-      cx.lineCap = 'round';
-
-      // The line isn't straight — it vibrates with the coupling
-      cx.beginPath();
-      var steps = 30;
-      for (var si = 0; si <= steps; si++) {
-        var frac = si / steps;
-        var lx = x1 + (x2 - x1) * frac;
-        var ly = y1 + (y2 - y1) * frac;
-
-        // Vibration: maximum at center, zero at endpoints
-        var envelope = Math.sin(frac * Math.PI);
-        var vibAmp = envelope * accumulatedEnergy * scale * 0.008;
-        var vibFreq = ringPhase * 5 + frac * Math.PI * 4;
-        // Perpendicular to the bridge line
-        var perpX = -(y2 - y1) / gap;
-        var perpY = (x2 - x1) / gap;
-        lx += perpX * Math.sin(vibFreq) * vibAmp;
-        ly += perpY * Math.sin(vibFreq) * vibAmp;
-
-        if (si === 0) cx.moveTo(lx, ly);
-        else cx.lineTo(lx, ly);
-      }
-      cx.stroke();
-      cx.restore();
+  var dx=bx-ax,dy=by-ay,dist=Math.sqrt(dx*dx+dy*dy),ang=Math.atan2(dy,dx),mx=(ax+bx)/2,my=(ay+by)/2;
+  ctx.save();ctx.translate(mx,my);ctx.rotate(ang);
+  var waves=9,amp=min*(.020+.045*stress),ring=t*(5+stress*7);
+  for(i=0;i<waves;i++){
+    var off=(i-(waves-1)/2)/(waves-1),alpha=(.025+stress*.13)*(1-Math.abs(off)*.86);
+    ctx.beginPath();
+    for(var s=0;s<=96;s++){
+      var f=s/96,x=-dist/2+dist*f,env=Math.sin(Math.PI*f),y=Math.sin(f*Math.PI*6+ring+i*.62)*amp*env+off*min*.07;
+      if(s===0)ctx.moveTo(x,y);else ctx.lineTo(x,y)
     }
-
-    // Glow at the center of the bridge — where the energy pools
-    var glowR = scale * 0.04 * (0.5 + accumulatedEnergy * 0.5) * (0.8 + ringPulse * 0.2);
-    cx.save();
-    cx.globalCompositeOperation = 'lighter';
-    var gBridge = cx.createRadialGradient(bridgeMidX, bridgeMidY, 0, bridgeMidX, bridgeMidY, glowR);
-    gBridge.addColorStop(0, 'rgba(232,207,160,' + (bridgeAlpha * 0.3).toFixed(4) + ')');
-    gBridge.addColorStop(0.2, 'rgba(201,164,74,' + (bridgeAlpha * 0.15).toFixed(4) + ')');
-    gBridge.addColorStop(0.5, 'rgba(184,117,58,' + (bridgeAlpha * 0.05).toFixed(4) + ')');
-    gBridge.addColorStop(1, 'rgba(184,117,58,0)');
-    cx.fillStyle = gBridge;
-    cx.beginPath();
-    cx.arc(bridgeMidX, bridgeMidY, glowR, 0, Math.PI * 2);
-    cx.fill();
-    cx.restore();
+    ctx.strokeStyle='rgba(232,207,160,'+alpha.toFixed(4)+')';ctx.lineWidth=.6+stress*1.3*(1-Math.abs(off));ctx.stroke();
   }
+  var wallA=.045+stress*.18;
+  ctx.strokeStyle='rgba(139,74,46,'+wallA.toFixed(4)+')';ctx.lineWidth=1;ctx.setLineDash([5,9]);ctx.beginPath();ctx.moveTo(0,-min*.18);ctx.lineTo(0,min*.18);ctx.stroke();ctx.setLineDash([]);
+  ctx.restore();
 
-  // -- THE TWO OSCILLATORS --
-  var breath1 = Math.sin(theta1) * 0.5 + 0.5;
-  var breath2 = Math.sin(theta2) * 0.5 + 0.5;
+  glow(mx,my,min*(.16+.12*stress),'rgba(232,207,160,'+(.055+stress*.12).toFixed(4)+')','rgba(184,117,58,0)');
+  glow(mx,my,min*(.035+.035*stress),'rgba(255,232,190,'+(.10+stress*.20).toFixed(4)+')','rgba(232,207,160,0)');
+  if(Math.random()<stress*.28)spark(mx+(Math.random()-.5)*dist*.45,my+(Math.random()-.5)*min*.08,stress);
+  for(i=sparks.length-1;i>=0;i--){var sp=sparks[i];sp.x+=sp.vx;sp.y+=sp.vy;sp.vx*=.985;sp.vy*=.985;sp.a*=.955;if(sp.a<.02){sparks.splice(i,1);continue}ctx.fillStyle='rgba(232,207,160,'+(sp.a*.34).toFixed(4)+')';ctx.beginPath();ctx.arc(sp.x,sp.y,sp.r,0,TAU);ctx.fill()}
 
-  // Oscillator 1 — the one on the left
-  var r1 = scale * 0.025 * (0.8 + breath1 * 0.2 + accumulatedEnergy * 0.15);
-  var alpha1 = 0.12 + breath1 * 0.06 + accumulatedEnergy * 0.04;
+  function body(x,y,rgb,phase){var breath=.55+.45*Math.sin(t*(2.4+stress*1.5)+phase);var r=min*(.035+.014*breath+.018*stress);glow(x,y,r*6,'rgba('+rgb+','+(.055+stress*.055).toFixed(4)+')','rgba('+rgb+',0)');glow(x,y,r*2.2,'rgba('+rgb+','+(.16+stress*.14).toFixed(4)+')','rgba('+rgb+',0)');ctx.fillStyle='rgba(255,236,198,'+(.38+stress*.34).toFixed(4)+')';ctx.beginPath();ctx.arc(x,y,r*.38,0,TAU);ctx.fill();ctx.strokeStyle='rgba(232,207,160,'+(.12+stress*.25).toFixed(4)+')';ctx.lineWidth=1.2;ctx.beginPath();ctx.arc(x,y,r*(1.45+breath*.14),0,TAU);ctx.stroke()}
+  body(ax,ay,'184,117,58',0);body(bx,by,'232,207,160',2.1);
 
-  // Outer atmosphere
-  var g1out = cx.createRadialGradient(x1, y1, 0, x1, y1, r1 * 3);
-  g1out.addColorStop(0, 'rgba(184,117,58,' + (alpha1 * 0.15).toFixed(4) + ')');
-  g1out.addColorStop(0.3, 'rgba(184,117,58,' + (alpha1 * 0.06).toFixed(4) + ')');
-  g1out.addColorStop(0.7, 'rgba(184,117,58,' + (alpha1 * 0.01).toFixed(4) + ')');
-  g1out.addColorStop(1, 'rgba(184,117,58,0)');
-  cx.fillStyle = g1out;
-  cx.beginPath();
-  cx.arc(x1, y1, r1 * 3, 0, Math.PI * 2);
-  cx.fill();
-
-  // Core
-  var g1 = cx.createRadialGradient(x1, y1, 0, x1, y1, r1);
-  g1.addColorStop(0, 'rgba(232,207,160,' + alpha1.toFixed(4) + ')');
-  g1.addColorStop(0.3, 'rgba(201,164,74,' + (alpha1 * 0.6).toFixed(4) + ')');
-  g1.addColorStop(0.7, 'rgba(184,117,58,' + (alpha1 * 0.2).toFixed(4) + ')');
-  g1.addColorStop(1, 'rgba(184,117,58,0)');
-  cx.fillStyle = g1;
-  cx.beginPath();
-  cx.arc(x1, y1, r1, 0, Math.PI * 2);
-  cx.fill();
-
-  // Oscillator 2 — the one on the right. Smaller. Brighter.
-  var r2 = scale * 0.018 * (0.8 + breath2 * 0.2 + accumulatedEnergy * 0.15);
-  var alpha2 = 0.14 + breath2 * 0.08 + accumulatedEnergy * 0.04;
-
-  // Outer atmosphere
-  var g2out = cx.createRadialGradient(x2, y2, 0, x2, y2, r2 * 3.5);
-  g2out.addColorStop(0, 'rgba(232,207,160,' + (alpha2 * 0.12).toFixed(4) + ')');
-  g2out.addColorStop(0.3, 'rgba(201,164,74,' + (alpha2 * 0.05).toFixed(4) + ')');
-  g2out.addColorStop(0.7, 'rgba(184,117,58,' + (alpha2 * 0.01).toFixed(4) + ')');
-  g2out.addColorStop(1, 'rgba(184,117,58,0)');
-  cx.fillStyle = g2out;
-  cx.beginPath();
-  cx.arc(x2, y2, r2 * 3.5, 0, Math.PI * 2);
-  cx.fill();
-
-  // Core — warmer
-  var g2 = cx.createRadialGradient(x2, y2, 0, x2, y2, r2);
-  g2.addColorStop(0, 'rgba(255,230,180,' + alpha2.toFixed(4) + ')');
-  g2.addColorStop(0.3, 'rgba(232,207,160,' + (alpha2 * 0.6).toFixed(4) + ')');
-  g2.addColorStop(0.7, 'rgba(201,164,74,' + (alpha2 * 0.15).toFixed(4) + ')');
-  g2.addColorStop(1, 'rgba(184,117,58,0)');
-  cx.fillStyle = g2;
-  cx.beginPath();
-  cx.arc(x2, y2, r2, 0, Math.PI * 2);
-  cx.fill();
-
-  // -- THE CONSTRAINT --
-  // Barely visible. Not a wall. A rule.
-  // Thin vertical lines at the boundary of the minimum gap,
-  // only visible when the oscillators press against it
-  if (gap < minGap * 1.15) {
-    var constraintAlpha = (1 - (gap - minGap) / (minGap * 0.15)) * 0.04;
-    constraintAlpha = Math.max(0, Math.min(constraintAlpha, 0.04));
-
-    if (constraintAlpha > 0.002) {
-      var cmx = (x1 + x2) / 2;
-      var cmy = (y1 + y2) / 2;
-      var cLen = scale * 0.08;
-
-      // Perpendicular to the line between them
-      var cnx = -(y2 - y1) / gap;
-      var cny = (x2 - x1) / gap;
-
-      cx.save();
-      cx.strokeStyle = 'rgba(139,74,46,' + constraintAlpha.toFixed(4) + ')';
-      cx.lineWidth = 0.5;
-      cx.setLineDash([3, 6]);
-      cx.beginPath();
-      cx.moveTo(cmx + cnx * cLen, cmy + cny * cLen);
-      cx.lineTo(cmx - cnx * cLen, cmy - cny * cLen);
-      cx.stroke();
-      cx.setLineDash([]);
-      cx.restore();
-    }
-  }
-
-  // -- AUDIO --
-  if (audioReady) {
-    // Both oscillators: quiet, present, breathing
-    var vol1 = 0.012 + breath1 * 0.006 + accumulatedEnergy * 0.008;
-    var vol2 = 0.010 + breath2 * 0.005 + accumulatedEnergy * 0.008;
-    gain1.gain.value += (vol1 - gain1.gain.value) * 0.003;
-    gain2.gain.value += (vol2 - gain2.gain.value) * 0.003;
-
-    // Pitch bends slightly toward each other — they're trying
-    var bend = couplingForce * 3;
-    osc1.frequency.value += (110 + bend - osc1.frequency.value) * 0.002;
-    osc2.frequency.value += (118.8 - bend - osc2.frequency.value) * 0.002;
-
-    // Bridge tone — the resonance in the gap
-    var bridgeVol = accumulatedEnergy * 0.015 * (0.6 + ringPulse * 0.4);
-    bridgeGain.gain.value += (bridgeVol - bridgeGain.gain.value) * 0.002;
-
-    // Bridge pitch rises with accumulated energy — the ringing builds
-    var bridgeFreq = 55 + accumulatedEnergy * 20;
-    bridgeOsc.frequency.value += (bridgeFreq - bridgeOsc.frequency.value) * 0.001;
-  }
-
-  requestAnimationFrame(draw);
+  ctx.globalCompositeOperation='source-over';
+  var v=ctx.createRadialGradient(cx,cy,min*.10,cx,cy,Math.max(W,H)*.70);v.addColorStop(0,'rgba(0,0,0,0)');v.addColorStop(.64,'rgba(0,0,0,.05)');v.addColorStop(1,'rgba(0,0,0,.58)');ctx.fillStyle=v;ctx.fillRect(0,0,W,H);
+  requestAnimationFrame(draw)
 }
-
 requestAnimationFrame(draw);
+})();
 </script>
 </body>
 </html>
