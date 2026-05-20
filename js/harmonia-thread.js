@@ -18,9 +18,9 @@
 
 // ── Config ──
 var ORB_SIZE = 28;
-var LERP = 0.07;          // how smoothly the orb follows (lower = dreamier)
-var FADE_DELAY = 1200;    // ms before orb fades when not near content
-var RESPOND_CONTEXT = 50; // chars of paragraph context to send Harmonia
+var LERP = 0.07;
+var FADE_DELAY = 1200;
+var RESPOND_CONTEXT = 50;
 
 // ── State ──
 var orbY = window.innerHeight * 0.5;
@@ -114,7 +114,6 @@ function getParagraphs() {
   for (var i = 0; i < all.length; i++) {
     var el = all[i];
     var text = el.textContent.trim();
-    // Skip nav, footer, very short, code
     if (text.length < 40) continue;
     if (el.closest('nav, footer, .back, script, style, #h-thread-drawer')) continue;
     result.push(el);
@@ -124,7 +123,7 @@ function getParagraphs() {
 
 // ── Find centered paragraph ──
 function getCenteredPara(paras) {
-  var center = window.innerHeight * 0.42; // slightly above middle — reading position
+  var center = window.innerHeight * 0.42;
   var best = null;
   var bestDist = Infinity;
   for (var i = 0; i < paras.length; i++) {
@@ -147,18 +146,15 @@ var lastParaText = '';
 function tick() {
   animFrame = requestAnimationFrame(tick);
 
-  // Lazy init paragraphs
   if (paras.length === 0) {
     paras = getParagraphs();
   }
 
   var centered = getCenteredPara(paras);
   if (centered) {
-    // Target: vertically centered on the paragraph's midpoint
     orbTargetY = Math.max(ORB_SIZE, Math.min(window.innerHeight - ORB_SIZE,
       centered.midY));
 
-    // Track which paragraph we're on
     if (centered.el !== currentPara) {
       currentPara = centered.el;
       orbOpacityTarget = 1;
@@ -168,11 +164,9 @@ function tick() {
     orbOpacityTarget = 0;
   }
 
-  // Lerp orb position
   orbY += (orbTargetY - orbY) * LERP;
   orb.style.transform = 'translateY(' + (orbY - window.innerHeight/2) + 'px) scale(1)';
 
-  // Lerp opacity
   orbOpacity += (orbOpacityTarget - orbOpacity) * 0.06;
   if (!panelOpen) {
     orb.style.opacity = orbOpacity.toFixed(3);
@@ -190,17 +184,13 @@ function openDrawer() {
   var text = currentPara.textContent.trim();
   var context = text.slice(0, RESPOND_CONTEXT) + (text.length > RESPOND_CONTEXT ? '…' : '');
 
-  // Show context
   document.getElementById('h-drawer-context').textContent = '"' + context + '"';
 
-  // Clear and show loading
   var body = document.getElementById('h-drawer-body');
   body.textContent = '…';
 
-  // Open drawer
   drawer.style.transform = 'translateY(0)';
 
-  // Ask Harmonia
   var pageName = document.title.replace(' — beGump','').replace(' — GUMP','').trim();
   var prompt = text.slice(0, 280);
 
@@ -221,11 +211,9 @@ function openDrawer() {
 
   function ask(prompt) {
     window.harmonia.respond(prompt).then(function(r) {
-      // r is {text, links, source} — handle both string and object
       var text = (typeof r === 'string') ? r : (r && r.text ? r.text : String(r));
       var links = (r && r.links) ? r.links : [];
       
-      // Build response: typewrite text, then append links
       typewrite(body, text, function() {
         if (links && links.length > 0) {
           var linkDiv = document.createElement('div');
@@ -273,19 +261,96 @@ orb.addEventListener('click', openDrawer);
 orb.addEventListener('touchend', function(e) { e.preventDefault(); openDrawer(); });
 document.getElementById('h-drawer-close').addEventListener('click', closeDrawer);
 
-// Swipe down to close
 var touchStartY = 0;
 drawer.addEventListener('touchstart', function(e) { touchStartY = e.touches[0].clientY; }, {passive:true});
 drawer.addEventListener('touchend', function(e) {
   if (e.changedTouches[0].clientY - touchStartY > 60) closeDrawer();
 }, {passive:true});
 
-// Escape key
 document.addEventListener('keydown', function(e) {
   if (e.key === 'Escape' && panelOpen) closeDrawer();
 });
 
-// Start
 tick();
 
+})();
+
+// ═══════════════════════════════════════════════════════════════════
+// RESEARCH CLASSIFIED TOPICS — public table enhancer
+// Adds the edge shelf without rewriting the main research engine.
+// ═══════════════════════════════════════════════════════════════════
+(function(){
+'use strict';
+if (location.pathname !== '/research/' && location.pathname !== '/research/index.html') return;
+
+function ready(fn){
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', fn);
+  else fn();
+}
+
+ready(function(){
+  var container = document.getElementById('card-container');
+  if (!container || document.getElementById('classified-topics')) return;
+
+  var style = document.createElement('style');
+  style.textContent = [
+    '#classified-topics{margin:0 0 48px}',
+    '#classified-topics .group-name{color:rgba(255,120,80,.55);border-bottom-color:rgba(255,120,80,.10)}',
+    '#classified-topics .card{border-color:rgba(255,120,80,.14);animation:classifiedPulse 5.5s ease-in-out infinite}',
+    '#classified-topics .card h3{color:rgba(255,150,95,.86)}',
+    '#classified-topics .card:hover{border-color:rgba(255,180,120,.36)}',
+    '#classified-topics .card .locked{color:rgba(196,160,136,.58);font-style:normal}',
+    '#classified-topics .tag{display:inline-block;margin-top:10px;font-family:Futura,"Century Gothic",system-ui,sans-serif;font-size:.52em;letter-spacing:.12em;text-transform:uppercase;border:1px solid rgba(255,120,80,.14);border-radius:999px;padding:3px 8px;color:rgba(232,207,160,.46)}',
+    '#classified-topics .tag.gate{color:rgba(255,160,120,.55)}',
+    '@keyframes classifiedPulse{0%,100%{box-shadow:0 0 4px rgba(255,120,80,.05)}50%{box-shadow:0 0 22px rgba(255,120,80,.13),inset 0 0 12px rgba(255,120,80,.035)}}'
+  ].join('');
+  document.head.appendChild(style);
+
+  var items = [
+    {n:'Classified Topics',href:'/research/33/',desc:'The edge shelf: public releases plus gated deeper/speculative work from the 33 archive.',tag:'index'},
+    {n:'Dreamtime',href:'/research/33/dreamtime/',desc:'65,000 years of K framework: songlines, strong Country, everywhen, and continuity.',tag:'public'},
+    {n:'Scripture as Engineering Blueprints',href:'/research/33/scripture-engineering/',desc:'Construction specs, resonance chambers, Ark/capacitor logic, cube pattern, and encoded architecture.',tag:'public'},
+    {n:'Sirius Signal',href:'/research/33/sirius-signal/',desc:'Chandra data, 3.1M photons, non-Poisson timing, and the 31.22 Hz signal.',tag:'public'},
+    {n:'Lost Civ',href:'/research/lost-civilizations/',desc:'The public ancient-civilization edge: DST vertex tracking, Sacsayhuaman, shape keepers, 12,500 years.',tag:'public'},
+    {n:'The Builder',href:'/research/the-builder/',desc:'A tekton’s son through the framework: historical, framework, speculation — all labeled.',tag:'public'},
+    {n:'Shroud of Turin',href:'/research/33/gated/cloth-study/',desc:'The kill-list version: deeper, more speculative, gated behind the archive frequency.',tag:'gated'},
+    {n:'Sirius Thesis',href:'/research/33/gated/sirius-thesis/',desc:'The OG civilization theory layer of the Sirius work.',tag:'gated'},
+    {n:'Crop Circles through K',href:'/research/33/gated/crop-circles/',desc:'Geometry and coupling analysis for the strangest field artifacts.',tag:'gated'},
+    {n:'Leedskalnin / Coral Castle',href:'/research/33/gated/leedskalnin-coral-castle/',desc:'Private structure and engineering notes for Coral Castle.',tag:'gated'},
+    {n:'Calendar Decode',href:'/research/33/gated/calendar-decode/',desc:'Private calendar decode paper from the 33 shelf.',tag:'gated'}
+  ];
+
+  var section = document.createElement('div');
+  section.className = 'group g-classified';
+  section.id = 'classified-topics';
+  section.innerHTML = '<div class="group-name g-classified">Classified Topics</div><div class="card-grid"></div>';
+  var grid = section.querySelector('.card-grid');
+
+  items.forEach(function(it){
+    var a = document.createElement('a');
+    a.className = 'card';
+    a.href = it.href;
+    a.setAttribute('data-classified-card','1');
+    a.setAttribute('data-search-text',(it.n + ' ' + it.desc + ' ' + it.tag).toLowerCase());
+    a.innerHTML = '<h3>'+it.n+'</h3><p>'+it.desc+'</p><span class="tag '+(it.tag==='gated'?'gate':'')+'">'+it.tag+'</span>';
+    grid.appendChild(a);
+  });
+
+  container.insertBefore(section, container.firstChild);
+
+  var search = document.getElementById('search');
+  if (search) {
+    search.addEventListener('input', function(){
+      var q = search.value.toLowerCase().trim();
+      var cards = section.querySelectorAll('[data-classified-card]');
+      var visible = 0;
+      for (var i=0;i<cards.length;i++) {
+        var match = !q || cards[i].getAttribute('data-search-text').indexOf(q) !== -1;
+        cards[i].style.display = match ? '' : 'none';
+        if (match) visible++;
+      }
+      section.style.display = visible ? '' : 'none';
+    });
+  }
+});
 })();
