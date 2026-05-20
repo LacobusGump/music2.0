@@ -59,12 +59,12 @@
     tc.fillStyle = '#0d0d14';
     tc.fillRect(0, 0, w, h);
 
-    var title = el.querySelector('.name');
-    var pitch = el.querySelector('.pitch');
-    var price = el.querySelector('.price');
+    var title = el.querySelector('.name, h3, .gold');
+    var pitch = el.querySelector('.pitch, p');
+    var price = el.querySelector('.price, .meta');
 
     if (title) { tc.fillStyle = '#c9a44a'; tc.font = '200 16px Georgia'; tc.fillText(title.textContent, 20, 24); }
-    if (price) { tc.fillStyle = '#4a9'; tc.font = '14px Georgia'; tc.fillText(price.textContent, w - tc.measureText(price.textContent).width - 20, 24); }
+    if (price) { tc.fillStyle = '#4a9'; tc.font = '14px Georgia'; tc.fillText(price.textContent, Math.max(20, w - tc.measureText(price.textContent).width - 20), 24); }
     if (pitch) {
       tc.fillStyle = '#aaa'; tc.font = '13px Georgia';
       var words = pitch.textContent.split(' '), line = '', y = 44, mw = w - 40;
@@ -161,14 +161,12 @@
       sessionStorage.removeItem('transit-to');
       sessionStorage.removeItem('transit-color');
     } catch(e) {}
-    // Parse group color or default to gold
     var pearlR=201, pearlG=164, pearlB=74;
     if (groupCol) {
       var parts = groupCol.split(',');
       if (parts.length === 3) { pearlR=+parts[0]; pearlG=+parts[1]; pearlB=+parts[2]; }
     }
 
-    // Only assemble if THIS page is the intended destination
     if (!target || location.pathname !== target) return false;
 
     init();
@@ -225,6 +223,26 @@
     return true;
   }
 
+  function connectForgettingInterlude() {
+    if (location.pathname !== '/gallery/' && location.pathname !== '/gallery/index.html') return;
+    var blocks = document.querySelectorAll('.discovery');
+    for (var i = 0; i < blocks.length; i++) {
+      var block = blocks[i];
+      if (!/what forgetting feels like/i.test(block.textContent || '')) continue;
+      if (block.getAttribute('data-piece') === 'forgetting') return;
+      block.setAttribute('data-piece', 'forgetting');
+      block.setAttribute('role', 'link');
+      block.setAttribute('tabindex', '0');
+      block.setAttribute('aria-label', 'Open what forgetting feels like');
+      block.style.cursor = 'pointer';
+      block.style.transition = 'border-color .35s, background .35s, transform .35s';
+      block.addEventListener('mouseenter', function(){ this.style.borderLeftColor = 'rgba(232,207,160,.34)'; this.style.background = 'rgba(184,117,58,.045)'; this.style.transform = 'translateY(-2px)'; });
+      block.addEventListener('mouseleave', function(){ this.style.borderLeftColor = 'rgba(184,117,58,.18)'; this.style.background = 'rgba(18,13,10,.32)'; this.style.transform = 'none'; });
+      block.addEventListener('click', function(e){ e.preventDefault(); dissolve(this, '/gallery/forgetting.html'); });
+      block.addEventListener('keydown', function(e){ if(e.key === 'Enter' || e.key === ' '){ e.preventDefault(); dissolve(this, '/gallery/forgetting.html'); } });
+    }
+  }
+
   // ═══ BACK BUTTON — clean slate ═══
   window.addEventListener('pageshow', function(e) { if (e.persisted) cleanup(); });
 
@@ -244,6 +262,7 @@
 
   // ═══ BOOT ═══
   function boot() {
+    connectForgettingInterlude();
     if (!assemble()) {
       cleanup();
     }
@@ -255,7 +274,6 @@
           var href = link.getAttribute('href');
           if (!href || href === '#' || href.indexOf('http') === 0 || href.indexOf('mailto') === 0) return;
           e.preventDefault();
-          // Pass group color if available (research cards have data-group-color)
           var gc = link.getAttribute('data-group-color') || null;
           if (gc) { try { sessionStorage.setItem('transit-color', gc); } catch(ex){} }
           dissolve(link, href);
@@ -263,7 +281,6 @@
       })(links[i]);
     }
 
-    // Prefetch adjacent pages after 2 seconds
     setTimeout(prefetch, 2000);
   }
 
