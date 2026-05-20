@@ -2,262 +2,141 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <link rel="icon" href="/favicon.png">
-<title>over the rhône</title>
+<title>over the rhône — GUMP</title>
+<meta name="description" content="A computed nocturne: stars, gas lamps, and the Rhône holding distant light.">
+<meta property="og:title" content="over the rhône — GUMP">
+<meta property="og:description" content="The light is far away, but the river keeps it.">
+<meta property="og:type" content="website">
 <style>
-*{margin:0;padding:0;box-sizing:border-box;}
-body{touch-action:none;background:#0a0c18;overflow:hidden;cursor:default;}
-canvas{display:block;width:100vw;height:100vh;}
-#back{position:fixed;top:20px;left:24px;font-family:Georgia,serif;
-  font-size:0.72em;color:rgba(100,120,180,0.15);text-decoration:none;
-  z-index:10;letter-spacing:0.06em;transition:color 0.5s;}
-#back:hover{color:rgba(180,190,220,0.4);}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:100%;height:100%;overflow:hidden;background:#060812;color:#c4a088;font-family:Georgia,serif;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+body{cursor:crosshair;user-select:none;-webkit-user-select:none}
+canvas{display:block;width:100vw;height:100vh}
+body:after{content:"";position:fixed;inset:0;z-index:2;pointer-events:none;background:radial-gradient(circle at 50% 38%,transparent 0 42%,rgba(0,0,0,.48) 100%),linear-gradient(180deg,rgba(6,8,18,.03),rgba(6,8,18,.30))}
+.top{position:fixed;z-index:4;top:20px;left:24px;right:24px;display:flex;justify-content:space-between;gap:20px;align-items:flex-start;font-family:Futura,'Century Gothic',Avenir,'Avenir Next',system-ui,sans-serif;pointer-events:none}.back,.hint{pointer-events:auto;color:rgba(150,165,210,.42);text-decoration:none;font-size:.62em;letter-spacing:.12em;text-transform:uppercase;transition:color .3s}.back:hover{color:rgba(232,207,160,.82)}.hint{color:rgba(184,117,58,.42);text-align:right;pointer-events:none}
+.title{position:fixed;z-index:3;left:50%;bottom:32px;transform:translateX(-50%);width:min(760px,calc(100vw - 36px));text-align:center;pointer-events:none}.kicker{font-family:Futura,'Century Gothic',system-ui,sans-serif;font-size:.54em;letter-spacing:.24em;text-transform:uppercase;color:rgba(184,117,58,.58);margin-bottom:10px}.title h1{font-family:Futura,'Century Gothic',Avenir,'Avenir Next',system-ui,sans-serif;font-size:clamp(1.45rem,4.8vw,3.15rem);font-weight:100;line-height:1;letter-spacing:.14em;text-transform:uppercase;color:rgba(232,207,160,.84);text-shadow:0 0 30px rgba(184,117,58,.22);margin-bottom:10px}.title p{font-size:.78em;line-height:1.9;color:rgba(196,160,136,.58)}.title b{font-weight:400;color:rgba(232,207,160,.86)}
+@media(max-width:640px){.top{top:16px;left:16px;right:16px}.hint{display:none}.title{bottom:28px}.title h1{font-size:1.45rem}.title p{font-size:.70em}}
+@media(prefers-reduced-motion:reduce){body{cursor:default}.hint{display:none}}
 </style>
 </head>
 <body>
-<canvas id="c"></canvas>
-<a id="back" href="/gallery/">&larr; gallery</a>
+<canvas id="c" aria-label="A nocturne over the Rhône: stars and gas lamps reflected in slow water."></canvas>
+<div class="top"><a class="back" href="/gallery/">&larr; gallery</a><div class="hint">move gently / disturb the river</div></div>
+<div class="title"><div class="kicker">night field / river memory</div><h1>over the rhône</h1><p>Van Gogh saw coupling before we named it. <b>The light is far away, but the river keeps it.</b></p></div>
 <script>
-// over the rhône
-//
-// van gogh saw coupling before we named it.
-// the stars don't sit still in his paintings.
-// they breathe. they pull. they reflect.
-//
-// this is starry night over the rhône (1888)
-// computed from kuramoto phase-coupling.
-// the stars are oscillators. the water is a mirror with 1/f noise.
-// the reflections are phase-shifted copies, rippled by coupling.
-//
-// not a filter on a jpeg. computed from first principles.
-// van gogh painted what coupling looks like. we computed what he saw.
-
-var cv=document.getElementById('c');
-var cx=cv.getContext('2d');
-var W,H;
+(function(){
+'use strict';
+var cv=document.getElementById('c'),cx=cv.getContext('2d');
+var W=0,H=0,dpr=1,t=0,last=performance.now(),TAU=Math.PI*2;
+var stars=[],lamps=[],waves=[],mist=[],pointer={x:.5,y:.58,a:0};
+var reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
+function rnd(seed){var x=Math.sin(seed*999.137)*43758.5453;return x-Math.floor(x)}
 function resize(){
-  var dpr=Math.min(devicePixelRatio||1,2);
-  W=innerWidth;H=innerHeight;
-  cv.width=W*dpr;cv.height=H*dpr;
-  cx.setTransform(dpr,0,0,dpr,0,0);
+  dpr=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;cv.width=W*dpr;cv.height=H*dpr;cx.setTransform(dpr,0,0,dpr,0,0);
+  build();
 }
-resize();addEventListener('resize',resize);
-
-// 1/f pink noise
-var ps=[0,0,0,0,0,0,0];
-function pink(){
-  var w=Math.random()*2-1;
-  ps[0]=0.99886*ps[0]+w*0.0555179;ps[1]=0.99332*ps[1]+w*0.0750759;
-  ps[2]=0.96900*ps[2]+w*0.1538520;ps[3]=0.86650*ps[3]+w*0.3104856;
-  ps[4]=0.55000*ps[4]+w*0.5329522;ps[5]=-0.7616*ps[5]-w*0.0168980;
-  var o=ps[0]+ps[1]+ps[2]+ps[3]+ps[4]+ps[5]+ps[6]+w*0.5362;
-  ps[6]=w*0.115926;return o*0.11;
-}
-
-var t=0;
-var horizon=0.45; // 45% from top = water line
-
-// ═══ STARS — Kuramoto-coupled oscillators ═══
-var stars=[];
-var N_STARS=50;
-for(var i=0;i<N_STARS;i++){
-  // Cluster some into the Great Bear region (upper right)
-  var isBear=i<7;
-  var x,y;
-  if(isBear){
-    x=0.55+Math.random()*0.25;
-    y=0.08+Math.random()*0.15;
-  } else {
-    x=Math.random();
-    y=Math.random()*horizon*0.9;
+function build(){
+  stars=[];lamps=[];waves=[];mist=[];
+  var bear=[[.60,.13,4.0],[.66,.10,3.1],[.72,.13,3.4],[.78,.10,2.8],[.83,.16,2.5],[.70,.19,2.4],[.57,.21,2.3]];
+  for(var i=0;i<bear.length;i++)stars.push(star(bear[i][0],bear[i][1],bear[i][2],1,i));
+  for(i=0;i<43;i++){
+    var x=rnd(i+1.1),y=.055+rnd(i+8.2)*.34;
+    if(x>.50&&x<.88&&y<.23) continue;
+    stars.push(star(x,y,1.0+rnd(i+2.7)*2.4,.35+rnd(i+4.4)*.55,i+20));
   }
-  stars.push({
-    x:x,y:y,
-    phase:Math.random()*Math.PI*2,
-    omega:(0.3+Math.random()*0.8)*Math.PI*2*0.2,
-    size:isBear?(2.5+Math.random()*2):(1+Math.random()*3),
-    // Van Gogh palette: warm yellows and cool whites
-    r:200+Math.floor(Math.random()*55),
-    g:190+Math.floor(Math.random()*50),
-    b:100+Math.floor(Math.random()*80),
-    bright:isBear?1.0:(0.3+Math.random()*0.7)
-  });
+  var xs=[.105,.17,.235,.30,.365,.43,.50,.57,.645,.72,.795,.865];
+  for(i=0;i<xs.length;i++)lamps.push({x:xs[i],y:.472+rnd(i+40)*.010,size:2.0+rnd(i+50)*1.6,phase:rnd(i+60)*TAU,warm:.82+rnd(i+70)*.18});
+  for(i=0;i<46;i++)waves.push({y:.52+rnd(i+90)*.45,phase:rnd(i+100)*TAU,f:.28+rnd(i+110)*1.2,a:3+rnd(i+120)*9,len:.10+rnd(i+130)*.36});
+  for(i=0;i<120;i++)mist.push({x:rnd(i+200),y:rnd(i+250),r:20+rnd(i+300)*90,a:.015+rnd(i+350)*.045,p:rnd(i+400)*TAU});
 }
-
-// ═══ SHORE LIGHTS — gas lamps along the far bank ═══
-var lamps=[];
-var N_LAMPS=12;
-for(var i=0;i<N_LAMPS;i++){
-  lamps.push({
-    x:0.1+i*0.07+Math.random()*0.02,
-    y:horizon-0.02+Math.random()*0.01,
-    size:2+Math.random()*1.5,
-    r:230+Math.floor(Math.random()*25),
-    g:180+Math.floor(Math.random()*40),
-    b:60+Math.floor(Math.random()*40),
-    phase:Math.random()*Math.PI*2,
-    omega:0.5+Math.random()*0.5
-  });
+function star(x,y,size,bright,seed){return{x:x,y:y,size:size,bright:bright,phase:rnd(seed+12)*TAU,omega:.16+rnd(seed+13)*.34,r:220+Math.floor(rnd(seed+14)*35),g:196+Math.floor(rnd(seed+15)*38),b:112+Math.floor(rnd(seed+16)*82)}}
+function onMove(e){var p=e.touches?e.touches[0]:e;if(!p)return;pointer.x=p.clientX/W;pointer.y=p.clientY/H;pointer.a=1}
+addEventListener('resize',resize,{passive:true});addEventListener('pointermove',onMove,{passive:true});addEventListener('pointerdown',onMove,{passive:true});addEventListener('touchmove',onMove,{passive:true});
+resize();
+function clamp(x,a,b){return Math.max(a,Math.min(b,x))}
+function glow(x,y,r,c0,c1){var g=cx.createRadialGradient(x,y,0,x,y,r);g.addColorStop(0,c0);g.addColorStop(1,c1);cx.fillStyle=g;cx.beginPath();cx.arc(x,y,r,0,TAU);cx.fill()}
+function waterOffset(y,x,stress){var off=0;for(var i=0;i<waves.length;i++){var w=waves[i],d=Math.abs(y/H-w.y);if(d>w.len)continue;off+=Math.sin(w.phase+t*w.f+x*.010+i)*w.a*(1-d/w.len)}if(stress>0){var dx=x-pointer.x*W,dy=y-pointer.y*H,dist=Math.sqrt(dx*dx+dy*dy);off+=Math.sin(dist*.035-t*5)*18*stress*Math.exp(-dist/180)}return off}
+function drawSky(horizon){
+  var g=cx.createLinearGradient(0,0,0,horizon);
+  g.addColorStop(0,'#060818');g.addColorStop(.38,'#0b1230');g.addColorStop(.72,'#11183c');g.addColorStop(1,'#19162b');cx.fillStyle=g;cx.fillRect(0,0,W,horizon);
+  glow(W*.46,H*.22,Math.min(W,H)*.56,'rgba(42,66,132,.18)','rgba(42,66,132,0)');
+  glow(W*.48,H*.36,Math.min(W,H)*.38,'rgba(184,117,58,.055)','rgba(184,117,58,0)');
 }
-
-// ═══ WATER RIPPLE FIELD ═══
-var ripplePhases=[];
-for(var i=0;i<30;i++){
-  ripplePhases.push({
-    y:horizon+Math.random()*(1-horizon),
-    phase:Math.random()*Math.PI*2,
-    freq:0.3+Math.random()*0.8,
-    amp:2+Math.random()*4
-  });
+function drawWater(horizon){
+  var g=cx.createLinearGradient(0,horizon,0,H);
+  g.addColorStop(0,'#0b1327');g.addColorStop(.34,'#07101f');g.addColorStop(1,'#030610');cx.fillStyle=g;cx.fillRect(0,horizon,W,H-horizon);
+  cx.globalCompositeOperation='lighter';
+  for(var i=0;i<waves.length;i++){
+    var w=waves[i],y=w.y*H,alpha=.018+(.52-w.y)*.010;
+    cx.strokeStyle='rgba(126,170,214,'+Math.max(.008,alpha).toFixed(3)+')';cx.lineWidth=.6;
+    cx.beginPath();
+    for(var x=-20;x<=W+20;x+=18){var yy=y+Math.sin(x*.008+t*w.f+w.phase)*w.a*.28;if(x<0)cx.moveTo(x,yy);else cx.lineTo(x,yy)}
+    cx.stroke();
+  }
+  cx.globalCompositeOperation='source-over';
 }
-
-// Kuramoto coupling
-var K_STARS=0.5;
-
+function drawBank(horizon){
+  cx.fillStyle='rgba(5,5,10,.76)';cx.beginPath();cx.moveTo(0,horizon+6);for(var x=0;x<=W;x+=W/18){var y=horizon+Math.sin(x*.012+t*.06)*4+Math.sin(x*.031)*3;cx.lineTo(x,y)}cx.lineTo(W,horizon+28);cx.lineTo(0,horizon+32);cx.closePath();cx.fill();
+  cx.fillStyle='rgba(3,4,8,.72)';
+  for(var i=0;i<16;i++){var bx=(i/16)*W, bw=18+rnd(i+700)*38,bh=8+rnd(i+710)*24;cx.fillRect(bx,horizon-bh+4,bw,bh)}
+  var hg=cx.createLinearGradient(0,horizon-12,0,horizon+18);hg.addColorStop(0,'rgba(184,117,58,0)');hg.addColorStop(.48,'rgba(184,117,58,.13)');hg.addColorStop(1,'rgba(184,117,58,0)');cx.fillStyle=hg;cx.fillRect(0,horizon-12,W,30);
+}
+function drawStarLayer(horizon,stress){
+  var re=0,im=0;for(var i=0;i<stars.length;i++){re+=Math.cos(stars[i].phase);im+=Math.sin(stars[i].phase)}var psi=Math.atan2(im,re);
+  cx.globalCompositeOperation='lighter';
+  for(i=0;i<stars.length;i++){
+    var s=stars[i];s.phase+=(reduced?.003:.010)*(s.omega+.34*Math.sin(psi-s.phase));
+    var breath=.62+.38*Math.sin(s.phase),a=s.bright*(.46+breath*.54),sx=s.x*W+Math.sin(t*.17+i)*1.4,sy=s.y*H+Math.cos(t*.13+i)*.8,sz=s.size*(.9+breath*.28);
+    glow(sx,sy,sz*11,'rgba('+s.r+','+s.g+','+s.b+','+(a*.105).toFixed(3)+')','rgba('+s.r+','+s.g+','+s.b+',0)');
+    glow(sx,sy,sz*3.6,'rgba(255,245,195,'+(a*.22).toFixed(3)+')','rgba(255,245,195,0)');
+    cx.fillStyle='rgba(255,248,212,'+(a*.85).toFixed(3)+')';cx.beginPath();cx.arc(sx,sy,sz*.72,0,TAU);cx.fill();
+    var ry=horizon+(horizon-sy)*.72;if(ry>horizon&&ry<H){drawSmallReflection(sx,ry,sz,s,a,stress)}
+  }
+  cx.globalCompositeOperation='source-over';
+}
+function drawSmallReflection(x,y,sz,s,a,stress){
+  var off=waterOffset(y,x,stress),h=18+sz*12,w=2+sz*.5;
+  var g=cx.createLinearGradient(x+off,y-4,x+off,y+h);g.addColorStop(0,'rgba('+s.r+','+s.g+','+s.b+','+(a*.10).toFixed(3)+')');g.addColorStop(1,'rgba('+s.r+','+s.g+','+s.b+',0)');cx.fillStyle=g;cx.fillRect(x+off-w/2,y,w,h);
+}
+function drawLamps(horizon,stress){
+  cx.globalCompositeOperation='lighter';
+  for(var i=0;i<lamps.length;i++){
+    var l=lamps[i];l.phase+=(reduced?.003:.012)*(0.6+l.warm*.35);var b=.78+.22*Math.sin(l.phase+t*.5),x=l.x*W,y=l.y*H;
+    glow(x,y,l.size*20,'rgba(246,183,72,'+(b*.13).toFixed(3)+')','rgba(246,183,72,0)');
+    glow(x,y,l.size*6,'rgba(255,225,142,'+(b*.28).toFixed(3)+')','rgba(255,225,142,0)');
+    cx.fillStyle='rgba(255,238,176,'+(b*.86).toFixed(3)+')';cx.beginPath();cx.arc(x,y,l.size,0,TAU);cx.fill();
+    drawLampReflection(x,horizon,l,b,stress,i);
+  }
+  cx.globalCompositeOperation='source-over';
+}
+function drawLampReflection(x,horizon,l,b,stress,idx){
+  var start=horizon+10+idx%3*2,len=H*(.26+l.warm*.28),baseW=8+l.size*5;
+  for(var j=0;j<len;j+=5){
+    var y=start+j,fade=1-j/len;if(y>H)break;
+    var off=waterOffset(y,x,stress),spread=baseW*(.18+fade*.82)*(1+.20*Math.sin(t*.9+j*.04+idx));
+    var alpha=b*(.018+.10*fade*fade);
+    var g=cx.createLinearGradient(x+off-spread,y,x+off+spread,y);
+    g.addColorStop(0,'rgba(245,150,52,0)');g.addColorStop(.43,'rgba(245,150,52,'+(alpha*.50).toFixed(4)+')');g.addColorStop(.50,'rgba(255,234,165,'+alpha.toFixed(4)+')');g.addColorStop(.57,'rgba(245,150,52,'+(alpha*.50).toFixed(4)+')');g.addColorStop(1,'rgba(245,150,52,0)');
+    cx.fillStyle=g;cx.fillRect(x+off-spread,y,spread*2,2.2+fade*2.8);
+  }
+  glow(x,horizon+len*.42,baseW*7,'rgba(184,117,58,'+(b*.035).toFixed(4)+')','rgba(184,117,58,0)');
+}
+function drawMist(){
+  cx.globalCompositeOperation='lighter';
+  for(var i=0;i<mist.length;i++){var m=mist[i],x=((m.x+t*.004*(.4+m.a*10))%1)*W,y=m.y*H,tw=.6+.4*Math.sin(t*.4+m.p);glow(x,y,m.r,'rgba(90,118,176,'+(m.a*tw).toFixed(4)+')','rgba(90,118,176,0)')}
+  cx.globalCompositeOperation='source-over';
+}
 function draw(){
-  t+=0.016;
-  cx.fillStyle='rgba(10,12,24,0.08)';
-  cx.fillRect(0,0,W,H);
-
-  // Kuramoto mean field for stars
-  var mre=0,mim=0;
-  for(var i=0;i<N_STARS;i++){mre+=Math.cos(stars[i].phase);mim+=Math.sin(stars[i].phase);}
-  mre/=N_STARS;mim/=N_STARS;
-  var psi=Math.atan2(mim,mre);
-
-  // ═══ SKY — deep blue gradient ═══
-  var skyGrad=cx.createLinearGradient(0,0,0,H*horizon);
-  skyGrad.addColorStop(0,'rgba(8,10,30,0.15)');
-  skyGrad.addColorStop(0.6,'rgba(15,20,50,0.1)');
-  skyGrad.addColorStop(1,'rgba(20,25,55,0.08)');
-  cx.fillStyle=skyGrad;
-  cx.fillRect(0,0,W,H*horizon);
-
-  // ═══ WATER — darker blue-green ═══
-  var waterGrad=cx.createLinearGradient(0,H*horizon,0,H);
-  waterGrad.addColorStop(0,'rgba(8,15,30,0.06)');
-  waterGrad.addColorStop(1,'rgba(5,8,18,0.08)');
-  cx.fillStyle=waterGrad;
-  cx.fillRect(0,H*horizon,W,H*(1-horizon));
-
-  // ═══ STARS — phase-coupled, breathing ═══
-  for(var i=0;i<N_STARS;i++){
-    var s=stars[i];
-    s.phase+=0.016*(s.omega+K_STARS*Math.sin(psi-s.phase));
-    var breath=Math.sin(s.phase);
-    var alpha=s.bright*(0.4+Math.abs(breath)*0.6);
-    var sz=s.size*(0.8+Math.abs(breath)*0.4);
-
-    var sx=s.x*W+pink()*1.5;
-    var sy=s.y*H+pink()*1;
-
-    // Star glow — Van Gogh halos
-    var haloR=sz*8;
-    var g1=cx.createRadialGradient(sx,sy,0,sx,sy,haloR);
-    g1.addColorStop(0,'rgba('+s.r+','+s.g+','+s.b+','+(alpha*0.06).toFixed(3)+')');
-    g1.addColorStop(0.3,'rgba('+s.r+','+s.g+','+s.b+','+(alpha*0.02).toFixed(3)+')');
-    g1.addColorStop(1,'rgba('+s.r+','+s.g+','+s.b+',0)');
-    cx.fillStyle=g1;
-    cx.beginPath();cx.arc(sx,sy,haloR,0,Math.PI*2);cx.fill();
-
-    // Star core
-    cx.beginPath();cx.arc(sx,sy,sz,0,Math.PI*2);
-    cx.fillStyle='rgba('+s.r+','+s.g+','+s.b+','+(alpha*0.8).toFixed(3)+')';
-    cx.fill();
-    // Bright center
-    cx.beginPath();cx.arc(sx,sy,sz*0.3,0,Math.PI*2);
-    cx.fillStyle='rgba(255,250,220,'+(alpha*0.6).toFixed(3)+')';
-    cx.fill();
-
-    // ═══ REFLECTION — mirrored in water with ripple ═══
-    var ry=H*horizon+(H*horizon-sy); // mirror y
-    if(ry>H*horizon&&ry<H){
-      // Ripple displacement
-      var rippleX=0,rippleA=0;
-      for(var ri=0;ri<ripplePhases.length;ri++){
-        var rp=ripplePhases[ri];
-        var yd=Math.abs(ry/H-rp.y);
-        if(yd<0.15){
-          rippleX+=Math.sin(rp.phase+t*rp.freq+sx*0.01)*rp.amp*(1-yd/0.15);
-        }
-      }
-
-      var rx=sx+rippleX;
-      // Reflection is dimmer, stretched vertically, phase-shifted
-      var rAlpha=alpha*0.35;
-      var rSz=sz*0.7;
-
-      // Reflection streak (Van Gogh's vertical reflections)
-      var streakH=20+sz*15;
-      var streakGrad=cx.createLinearGradient(rx,ry-5,rx,ry+streakH);
-      streakGrad.addColorStop(0,'rgba('+s.r+','+s.g+','+s.b+','+(rAlpha*0.4).toFixed(3)+')');
-      streakGrad.addColorStop(0.3,'rgba('+s.r+','+s.g+','+s.b+','+(rAlpha*0.2).toFixed(3)+')');
-      streakGrad.addColorStop(1,'rgba('+s.r+','+s.g+','+s.b+',0)');
-      cx.fillStyle=streakGrad;
-      cx.fillRect(rx-1.5,ry,3,streakH);
-
-      // Reflection dot
-      cx.beginPath();cx.arc(rx,ry,rSz,0,Math.PI*2);
-      cx.fillStyle='rgba('+s.r+','+s.g+','+s.b+','+(rAlpha*0.5).toFixed(3)+')';
-      cx.fill();
-    }
-  }
-
-  // ═══ SHORE LIGHTS + REFLECTIONS ═══
-  for(var i=0;i<N_LAMPS;i++){
-    var l=lamps[i];
-    l.phase+=0.016*l.omega;
-    var lBreath=0.7+Math.sin(l.phase)*0.3;
-    var lx=l.x*W;
-    var ly=l.y*H;
-
-    // Lamp glow
-    var lHalo=l.size*12;
-    var lg=cx.createRadialGradient(lx,ly,0,lx,ly,lHalo);
-    lg.addColorStop(0,'rgba('+l.r+','+l.g+','+l.b+','+(lBreath*0.08).toFixed(3)+')');
-    lg.addColorStop(0.4,'rgba('+l.r+','+l.g+','+l.b+','+(lBreath*0.03).toFixed(3)+')');
-    lg.addColorStop(1,'rgba('+l.r+','+l.g+','+l.b+',0)');
-    cx.fillStyle=lg;
-    cx.beginPath();cx.arc(lx,ly,lHalo,0,Math.PI*2);cx.fill();
-
-    // Lamp core
-    cx.beginPath();cx.arc(lx,ly,l.size,0,Math.PI*2);
-    cx.fillStyle='rgba('+l.r+','+l.g+','+l.b+','+(lBreath*0.7).toFixed(3)+')';
-    cx.fill();
-
-    // Lamp reflection — long golden streak on water
-    var lry=ly+(H*horizon-ly)*2;
-    var streakLen=H*(1-horizon)*0.7;
-    for(var si=0;si<streakLen;si+=3){
-      var sy2=lry+si;
-      if(sy2>H)break;
-      var ripX=0;
-      for(var ri=0;ri<5;ri++){
-        ripX+=Math.sin(t*ripplePhases[ri].freq+sy2*0.02+ri)*ripplePhases[ri].amp*0.5;
-      }
-      var sAlpha=lBreath*0.04*(1-si/streakLen);
-      cx.fillStyle='rgba('+l.r+','+l.g+','+l.b+','+sAlpha.toFixed(4)+')';
-      cx.fillRect(lx+ripX-1,sy2,2.5,2);
-    }
-  }
-
-  // ═══ HORIZON LINE — faint warm glow ═══
-  var hGrad=cx.createLinearGradient(0,H*horizon-3,0,H*horizon+3);
-  hGrad.addColorStop(0,'rgba(30,25,40,0)');
-  hGrad.addColorStop(0.5,'rgba(60,45,30,0.04)');
-  hGrad.addColorStop(1,'rgba(30,25,40,0)');
-  cx.fillStyle=hGrad;
-  cx.fillRect(0,H*horizon-3,W,6);
-
-  // Update ripple phases
-  for(var ri=0;ri<ripplePhases.length;ri++){
-    ripplePhases[ri].phase+=0.016*ripplePhases[ri].freq;
-  }
-
+  var now=performance.now(),dt=Math.min((now-last)/1000,.05);last=now;t+=reduced?.004:dt;pointer.a*=.94;
+  var horizon=H*.505,stress=pointer.a*clamp((pointer.y-.42)*1.8,0,1);
+  cx.clearRect(0,0,W,H);drawSky(horizon);drawMist();drawWater(horizon);drawBank(horizon);drawStarLayer(horizon,stress);drawLamps(horizon,stress);
+  var v=cx.createRadialGradient(W*.50,H*.46,Math.min(W,H)*.20,W*.50,H*.46,Math.max(W,H)*.75);v.addColorStop(0,'rgba(0,0,0,0)');v.addColorStop(.62,'rgba(0,0,0,.03)');v.addColorStop(1,'rgba(0,0,0,.58)');cx.fillStyle=v;cx.fillRect(0,0,W,H);
   requestAnimationFrame(draw);
 }
 draw();
+})();
 </script>
 </body>
 </html>
