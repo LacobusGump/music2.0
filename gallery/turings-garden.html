@@ -1,1 +1,540 @@
-<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>turing's garden</title><link rel="icon" href="/favicon.png"><link rel="stylesheet" href="/js/gallery/core.css?v=1"></head><body><canvas id="g-canvas"></canvas><div class="g-grain"></div><a class="g-back" href="/gallery/">← gallery</a><div class="g-title">turing's garden</div><div class="g-word">pattern is hunger with rules</div><div class="g-meter">R=0.000 · T=1.000</div><script>window.GUMP_ART={mode:'field',bg:[3,5,3],phrases:['pattern is hunger with rules','feed and kill become flowers','the math grows a skin','spots remember the equation']};</script><script src="/js/gallery/engine.js?v=1"></script></body></html>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="icon" href="/favicon.png">
+<title>turing's garden</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{touch-action:none;background:#0a0706;overflow:hidden;}
+canvas{display:block;width:100vw;height:100vh;}
+#back{position:fixed;top:20px;left:24px;font-family:Georgia,serif;
+  font-size:0.72em;color:rgba(139,74,46,0.12);text-decoration:none;
+  z-index:10;letter-spacing:0.06em;transition:color 0.5s;cursor:pointer;}
+#back:hover{color:rgba(184,117,58,0.4);}
+#whisper{position:fixed;bottom:30px;left:0;right:0;text-align:center;
+  font-family:Georgia,serif;font-size:0.6em;color:rgba(139,74,46,0.1);
+  letter-spacing:0.12em;pointer-events:none;transition:opacity 6s;}
+#info{position:fixed;top:20px;right:24px;font-family:Georgia,serif;
+  font-size:0.55em;color:rgba(139,74,46,0.08);text-align:right;
+  letter-spacing:0.06em;pointer-events:none;line-height:2;}
+</style>
+</head>
+<body data-ambient="vast">
+<canvas id="c"></canvas>
+<a id="back" href="/gallery/">&larr; gallery</a>
+<div id="whisper">touch to seed</div>
+<div id="info"></div>
+<script>
+// turing's garden
+//
+// alan turing's last paper (1952) showed that two chemicals
+// diffusing at different rates can spontaneously create pattern.
+// spots. stripes. labyrinths. the math of morphogenesis.
+//
+// this is not an illustration of turing patterns.
+// this IS turing patterns. the gray-scott model running live.
+// two concentrations, U and V, on every pixel.
+// U feeds. V kills. diffusion spreads them differently.
+//
+// the beauty is not designed. it is computed.
+// the equation produces the garden.
+//
+// what grows depends on two numbers: F (feed) and k (kill).
+// different regions of F-k space produce different organisms.
+// the simulation explores this space slowly.
+// spots become stripes become coral become mitosis.
+//
+// touch the screen to plant a seed.
+
+var cv = document.getElementById('c');
+var cx = cv.getContext('2d');
+var infoEl = document.getElementById('info');
+var whisperEl = document.getElementById('whisper');
+
+// Simulation grid — sharp but not overcooked
+var GW = 500;
+var GH = 360;
+var W, H;
+
+var turDpr = 1;
+function resize() {
+  turDpr = Math.min(window.devicePixelRatio || 1, 2);
+  W = innerWidth;
+  H = innerHeight;
+  cv.width = W * turDpr;
+  cv.height = H * turDpr;
+  cx.setTransform(turDpr, 0, 0, turDpr, 0, 0);
+  // Adjust grid to aspect ratio
+  var aspect = W / H;
+  GH = 360;
+  GW = Math.floor(GH * aspect);
+}
+resize();
+addEventListener('resize', function() {
+  resize();
+  init();
+});
+
+// Gray-Scott parameters
+// These sweep slowly through interesting regions
+var F = 0.037;  // feed rate
+var k = 0.06;   // kill rate
+var Du = 0.16;  // diffusion rate of U
+var Dv = 0.08;  // diffusion rate of V
+
+// Double-buffer grids
+var U1, V1, U2, V2;
+
+function init() {
+  var n = GW * GH;
+  offCv.width = GW;
+  offCv.height = GH;
+  U1 = new Float32Array(n);
+  V1 = new Float32Array(n);
+  U2 = new Float32Array(n);
+  V2 = new Float32Array(n);
+
+  // Fill with U=1, V=0 (empty)
+  for (var i = 0; i < n; i++) {
+    U1[i] = 1;
+    V1[i] = 0;
+  }
+
+  // Seed center
+  seed(GW / 2, GH / 2, 8);
+}
+
+function seed(cx, cy, r) {
+  for (var y = -r; y <= r; y++) {
+    for (var x = -r; x <= r; x++) {
+      if (x * x + y * y > r * r) continue;
+      var gx = Math.floor(cx + x);
+      var gy = Math.floor(cy + y);
+      if (gx < 0 || gx >= GW || gy < 0 || gy >= GH) continue;
+      var idx = gy * GW + gx;
+      U1[idx] = 0.5 + Math.random() * 0.1;
+      V1[idx] = 0.25 + Math.random() * 0.1;
+    }
+  }
+}
+
+// Laplacian with wrapping
+function lap(arr, x, y) {
+  var w = GW, h = GH;
+  var xm = (x - 1 + w) % w;
+  var xp = (x + 1) % w;
+  var ym = (y - 1 + h) % h;
+  var yp = (y + 1) % h;
+  return arr[y * w + xm] + arr[y * w + xp] +
+         arr[ym * w + x] + arr[yp * w + x] -
+         4 * arr[y * w + x];
+}
+
+function step() {
+  var dt = 1.0;
+  for (var y = 0; y < GH; y++) {
+    for (var x = 0; x < GW; x++) {
+      var idx = y * GW + x;
+      var u = U1[idx];
+      var v = V1[idx];
+      var uvv = u * v * v;
+      var lu = lap(U1, x, y);
+      var lv = lap(V1, x, y);
+
+      U2[idx] = u + dt * (Du * lu - uvv + F * (1 - u));
+      V2[idx] = v + dt * (Dv * lv + uvv - (F + k) * v);
+
+      // Clamp
+      if (U2[idx] < 0) U2[idx] = 0;
+      if (U2[idx] > 1) U2[idx] = 1;
+      if (V2[idx] < 0) V2[idx] = 0;
+      if (V2[idx] > 1) V2[idx] = 1;
+    }
+  }
+  // Swap
+  var tmp;
+  tmp = U1; U1 = U2; U2 = tmp;
+  tmp = V1; V1 = V2; V2 = tmp;
+}
+
+// Parameter journeys through interesting F-k regions
+var journeys = [
+  { F: 0.037, k: 0.06,  name: 'spots' },
+  { F: 0.03,  k: 0.062, name: 'stripes' },
+  { F: 0.025, k: 0.06,  name: 'coral' },
+  { F: 0.022, k: 0.051, name: 'mitosis' },
+  { F: 0.014, k: 0.054, name: 'worms' },
+  { F: 0.035, k: 0.065, name: 'solitons' },
+  { F: 0.04,  k: 0.06,  name: 'maze' },
+  { F: 0.042, k: 0.063, name: 'holes' },
+];
+var journeyIdx = 0;
+var journeyT = 0;
+var journeyDuration = 600; // frames per journey segment
+
+function updateParams() {
+  journeyT++;
+  if (journeyT > journeyDuration) {
+    journeyT = 0;
+    journeyIdx = (journeyIdx + 1) % journeys.length;
+    // Re-seed when changing
+    seed(GW/2, GH/2, 6);
+    seed(GW * 0.3, GH * 0.4, 4);
+    seed(GW * 0.7, GH * 0.6, 4);
+  }
+
+  var from = journeys[journeyIdx];
+  var to = journeys[(journeyIdx + 1) % journeys.length];
+  var t = journeyT / journeyDuration;
+  // Smooth interpolation
+  var s = t * t * (3 - 2 * t);
+
+  F = from.F + (to.F - from.F) * s;
+  k = from.k + (to.k - from.k) * s;
+}
+
+// Render to canvas
+var imgData;
+
+function render() {
+  if (!imgData || imgData.width !== GW || imgData.height !== GH) {
+    imgData = cx.createImageData(GW, GH);
+  }
+  var d = imgData.data;
+  for (var i = 0; i < GW * GH; i++) {
+    var v = V1[i];
+    var u = U1[i];
+
+    // Color mapping: ember palette
+    // Low V (empty): dark background #0a0706
+    // High V (pattern): warm ember tones
+    var pattern = v * 3; // amplify
+    if (pattern > 1) pattern = 1;
+
+    // Three-tone gradient:
+    // 0.0: #0a0706 (void)
+    // 0.4: #8b4a2e (dim ember)
+    // 0.7: #b8753a (warm)
+    // 1.0: #e8cfa0 (bright)
+
+    var r, g, b;
+    if (pattern < 0.3) {
+      var t = pattern / 0.3;
+      r = 10 + t * 129;  // 10 -> 139
+      g = 7 + t * 67;    // 7 -> 74
+      b = 6 + t * 40;    // 6 -> 46
+    } else if (pattern < 0.6) {
+      var t = (pattern - 0.3) / 0.3;
+      r = 139 + t * 45;  // 139 -> 184
+      g = 74 + t * 43;   // 74 -> 117
+      b = 46 + t * 12;   // 46 -> 58
+    } else {
+      var t = (pattern - 0.6) / 0.4;
+      r = 184 + t * 48;  // 184 -> 232
+      g = 117 + t * 90;  // 117 -> 207
+      b = 58 + t * 102;  // 58 -> 160
+    }
+
+    var pi = i * 4;
+    d[pi]   = Math.floor(r);
+    d[pi+1] = Math.floor(g);
+    d[pi+2] = Math.floor(b);
+    d[pi+3] = 255;
+  }
+
+  // Draw small then scale up
+  cx.putImageData(imgData, 0, 0);
+
+  // Scale to fill viewport
+  cx.save();
+  cx.imageSmoothingEnabled = false;
+  cx.drawImage(cv, 0, 0, GW, GH, 0, 0, W, H);
+  // Clear the small source area
+  cx.clearRect(0, 0, GW, GH);
+  cx.drawImage(cv, 0, 0);
+  cx.restore();
+}
+
+// Alternative render: draw to offscreen, then draw scaled
+var offCv = document.createElement('canvas');
+offCv.width = GW;
+offCv.height = GH;
+var offCx = offCv.getContext('2d');
+
+// Film grain seed (deterministic per frame for stability)
+var grainSeed = 0;
+function cheapRand() {
+  grainSeed = (grainSeed * 1103515245 + 12345) & 0x7fffffff;
+  return (grainSeed / 0x7fffffff);
+}
+
+function renderScaled() {
+  if (!imgData || imgData.width !== GW || imgData.height !== GH) {
+    imgData = offCx.createImageData(GW, GH);
+  }
+  var d = imgData.data;
+
+  // --- Light direction from mouse ---
+  var lx = mouseX - 0.5;
+  var ly = mouseY - 0.5;
+  var lz = 0.7;
+  var lLen = Math.sqrt(lx*lx + ly*ly + lz*lz);
+  lx /= lLen; ly /= lLen; lz /= lLen;
+
+  // View direction (straight down into the petri dish)
+  var vx = 0, vy = 0, vz = 1;
+
+  var heightScale = 2.4;   // good relief without harshness
+  var shininess = 32;      // balanced specular
+  var specStr = 0.4;       // visible but not overpowering
+  var aoStr = 0.45;        // depth in crevices
+  var ambientBase = 0.15;  // enough shadow to see the forms
+
+  // Reset grain for this frame
+  grainSeed = frameCount * 7919;
+
+  for (var y = 0; y < GH; y++) {
+    for (var x = 0; x < GW; x++) {
+      var i = y * GW + x;
+      var v = V1[i];
+      var u = U1[i];
+
+      // --- Gradient of V (central differences, wrapped) ---
+      var xm = (x - 1 + GW) % GW;
+      var xp = (x + 1) % GW;
+      var ym = (y - 1 + GH) % GH;
+      var yp = (y + 1) % GH;
+
+      var dVdx = (V1[y * GW + xp] - V1[y * GW + xm]) * 0.5;
+      var dVdy = (V1[yp * GW + x] - V1[ym * GW + x]) * 0.5;
+
+      // --- Surface normal from height map ---
+      var nx = -dVdx * heightScale;
+      var ny = -dVdy * heightScale;
+      var nz = 1.0;
+      var nLen = Math.sqrt(nx*nx + ny*ny + nz*nz);
+      nx /= nLen; ny /= nLen; nz /= nLen;
+
+      // --- Diffuse lighting ---
+      var diffuse = nx*lx + ny*ly + nz*lz;
+      if (diffuse < 0) diffuse = 0;
+
+      // --- Specular (Blinn-Phong) ---
+      // Half vector = normalize(light + view)
+      var hx = lx + vx;
+      var hy = ly + vy;
+      var hz = lz + vz;
+      var hLen = Math.sqrt(hx*hx + hy*hy + hz*hz);
+      hx /= hLen; hy /= hLen; hz /= hLen;
+
+      var ndoth = nx*hx + ny*hy + nz*hz;
+      if (ndoth < 0) ndoth = 0;
+      var spec = Math.pow(ndoth, shininess) * specStr;
+
+      // Only show specular on pattern peaks (high V)
+      var pattern = v * 3.5;
+      if (pattern > 1) pattern = 1;
+      spec *= pattern * pattern;
+
+      // --- Ambient Occlusion from Laplacian of V ---
+      var lapV = V1[y * GW + xm] + V1[y * GW + xp] +
+                 V1[ym * GW + x] + V1[yp * GW + x] - 4 * V1[i];
+      // Negative laplacian = concave (valley) -> darken
+      // Positive laplacian = convex (ridge) -> brighten
+      var ao = 1.0 + lapV * aoStr * 12.0;
+      if (ao < 0.55) ao = 0.55;
+      if (ao > 1.25) ao = 1.25;
+
+      // --- Color palette: iridescent, all colors shimmering ---
+      // Hue shifts slowly with time + varies with gradient angle
+      var gradAngle = Math.atan2(dVdy, dVdx); // -PI to PI
+      var hueBase = frameCount * 0.0008;       // slow global hue drift
+      var hueLocal = gradAngle * 0.15;          // iridescence from surface angle
+      var hue = (hueBase + hueLocal) % 1.0;
+      if (hue < 0) hue += 1.0;
+
+      // HSL-like mapping: hue from gradient, saturation from pattern edges, lightness from V
+      var r, g, b;
+
+      // Base brightness from pattern intensity
+      var lum = pattern;
+
+      // Saturation peaks at pattern edges (mid V), low in void and peaks
+      var sat = 4.0 * pattern * (1.0 - pattern); // peaks at pattern=0.5
+      sat = sat * 0.65 + 0.1; // range 0.1 to 0.75
+
+      // Convert hue to RGB (simplified HSL->RGB)
+      var hr = Math.abs(hue * 6.0 - 3.0) - 1.0;
+      var hg = 2.0 - Math.abs(hue * 6.0 - 2.0);
+      var hb = 2.0 - Math.abs(hue * 6.0 - 4.0);
+      if (hr < 0) hr = 0; if (hr > 1) hr = 1;
+      if (hg < 0) hg = 0; if (hg > 1) hg = 1;
+      if (hb < 0) hb = 0; if (hb > 1) hb = 1;
+
+      // Warm base tones (ember foundation)
+      var baseR, baseG, baseB;
+      if (pattern < 0.2) {
+        baseR = 10; baseG = 9; baseB = 14;
+      } else if (pattern < 0.5) {
+        var tt = (pattern - 0.2) / 0.3;
+        baseR = 10 + tt * 160;  baseG = 9 + tt * 95;  baseB = 14 + tt * 40;
+      } else {
+        var tt = (pattern - 0.5) / 0.5;
+        baseR = 170 + tt * 62;  baseG = 104 + tt * 103; baseB = 54 + tt * 106;
+      }
+
+      // Blend hue with base: sat controls how much hue shows
+      r = baseR + (hr * 255 - baseR) * sat * pattern;
+      g = baseG + (hg * 255 - baseG) * sat * pattern;
+      b = baseB + (hb * 255 - baseB) * sat * pattern;
+
+      // --- Combine lighting ---
+      var light = ambientBase + diffuse * 0.82;
+      light *= ao;
+
+      r = r * light;
+      g = g * light;
+      b = b * light;
+
+      // Specular: chromatic — shifts with hue for iridescent glisten
+      var specHue = (hue + 0.1) % 1.0;
+      var sr = Math.abs(specHue * 6.0 - 3.0) - 1.0;
+      var sg = 2.0 - Math.abs(specHue * 6.0 - 2.0);
+      var sb = 2.0 - Math.abs(specHue * 6.0 - 4.0);
+      if (sr < 0) sr = 0; if (sr > 1) sr = 1;
+      if (sg < 0) sg = 0; if (sg > 1) sg = 1;
+      if (sb < 0) sb = 0; if (sb > 1) sb = 1;
+      // Mix chromatic spec with warm gold (keep it grounded)
+      r += spec * (sr * 120 + 140);
+      g += spec * (sg * 100 + 110);
+      b += spec * (sb * 80 + 50);
+
+      // --- Depth of field: desaturate + darken edges ---
+      var dx = (x / GW) - 0.5;
+      var dy = (y / GH) - 0.5;
+      var edgeDist = Math.sqrt(dx*dx + dy*dy) * 2.0; // 0 at center, ~1.0 at corners
+      var dofFade = edgeDist * edgeDist * 0.12;         // gentle vignette
+      // Desaturate toward edges
+      var gray = r * 0.299 + g * 0.587 + b * 0.114;
+      r = r + (gray - r) * dofFade * 0.6;
+      g = g + (gray - g) * dofFade * 0.6;
+      b = b + (gray - b) * dofFade * 0.6;
+      // Darken toward edges
+      var dofDarken = 1.0 - dofFade * 0.5;
+      r *= dofDarken;
+      g *= dofDarken;
+      b *= dofDarken;
+
+      // --- Film grain: subtle warm-tinted noise ---
+      var grain = (cheapRand() - 0.5) * 8;  // +/- 4 levels
+      r += grain * 1.1;   // slightly more grain in red (warm tint)
+      g += grain * 0.9;
+      b += grain * 0.7;
+
+      // Clamp
+      if (r < 0) r = 0; if (r > 255) r = 255;
+      if (g < 0) g = 0; if (g > 255) g = 255;
+      if (b < 0) b = 0; if (b > 255) b = 255;
+
+      var pi = i * 4;
+      d[pi]   = r | 0;
+      d[pi+1] = g | 0;
+      d[pi+2] = b | 0;
+      d[pi+3] = 255;
+    }
+  }
+  offCx.putImageData(imgData, 0, 0);
+
+  // Scale up with smooth interpolation
+  cx.imageSmoothingEnabled = true;
+  cx.imageSmoothingQuality = 'high';
+  cx.drawImage(offCv, 0, 0, GW, GH, 0, 0, W, H);
+
+  // --- Vignette (macro lens depth) ---
+  var vR = Math.max(W, H) * 0.65;
+  var vg = cx.createRadialGradient(W/2, H/2, vR*0.2, W/2, H/2, vR);
+  vg.addColorStop(0, 'rgba(10,7,6,0)');
+  vg.addColorStop(0.45, 'rgba(10,7,6,0.04)');
+  vg.addColorStop(0.7, 'rgba(10,7,6,0.18)');
+  vg.addColorStop(0.85, 'rgba(10,7,6,0.4)');
+  vg.addColorStop(1, 'rgba(10,7,6,0.65)');
+  cx.fillStyle = vg;
+  cx.fillRect(0, 0, W, H);
+}
+
+var frameCount = 0;
+var seeded = false;
+
+function loop() {
+  // Run multiple simulation steps per frame for speed
+  var stepsPerFrame = 12;
+  for (var s = 0; s < stepsPerFrame; s++) {
+    step();
+  }
+
+  updateParams();
+  renderScaled();
+
+  frameCount++;
+
+  // Update info occasionally — show pattern name too
+  if (frameCount % 60 === 0) {
+    var j = journeys[journeyIdx];
+    var nameFade = journeyT < 120 ? journeyT / 120 : journeyT > journeyDuration - 120 ? (journeyDuration - journeyT) / 120 : 1;
+    infoEl.innerHTML = '<span style="opacity:' + (nameFade * 0.5).toFixed(2) + '">' + j.name + '</span><br>F = ' + F.toFixed(4) + '<br>k = ' + k.toFixed(4);
+  }
+
+  // Hide whisper after first touch
+  if (seeded && whisperEl.style.opacity !== '0') {
+    whisperEl.style.opacity = '0';
+  }
+
+  requestAnimationFrame(loop);
+}
+
+// Touch/click to seed
+function seedAt(clientX, clientY) {
+  var gx = Math.floor((clientX / W) * GW);
+  var gy = Math.floor((clientY / H) * GH);
+  seed(gx, gy, 3 + Math.floor(Math.random() * 4));
+  seeded = true;
+}
+
+cv.addEventListener('click', function(e) {
+  seedAt(e.clientX, e.clientY);
+});
+
+cv.addEventListener('touchstart', function(e) {
+  e.preventDefault();
+  for (var i = 0; i < e.touches.length; i++) {
+    seedAt(e.touches[i].clientX, e.touches[i].clientY);
+  }
+});
+
+// Mouse tracking for light direction + drag-to-seed
+var mouseX = 0.5, mouseY = 0.4; // default: slightly above center
+var dragging = false;
+
+cv.addEventListener('mousemove', function(e) {
+  mouseX = e.clientX / W;
+  mouseY = e.clientY / H;
+  if (dragging) seedAt(e.clientX, e.clientY);
+});
+cv.addEventListener('mousedown', function(e) { dragging = true; seedAt(e.clientX, e.clientY); });
+cv.addEventListener('mouseup', function() { dragging = false; });
+
+cv.addEventListener('touchmove', function(e) {
+  e.preventDefault();
+  for (var i = 0; i < e.touches.length; i++) {
+    seedAt(e.touches[i].clientX, e.touches[i].clientY);
+  }
+});
+
+init();
+loop();
+</script>
+<script src="/js/ambient.js"></script>
+</body>
+</html>

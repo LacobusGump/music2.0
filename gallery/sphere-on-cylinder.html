@@ -1,1 +1,364 @@
-<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>sphere on cylinder</title><link rel="icon" href="/favicon.png"><link rel="stylesheet" href="/js/gallery/core.css?v=1"></head><body><canvas id="g-canvas"></canvas><div class="g-grain"></div><a class="g-back" href="/gallery/">← gallery</a><div class="g-title">sphere on cylinder</div><div class="g-word">balance is a moving agreement</div><div class="g-meter">R=0.000 · T=1.000</div><script>window.GUMP_ART={mode:'two-voices',bg:[4,4,3],phrases:['balance is a moving agreement','stillness is active math','shape negotiates gravity','the bloom waits in the wobble']};</script><script src="/js/gallery/engine.js?v=1"></script></body></html>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="icon" href="/favicon.png">
+<title>sphere on cylinder</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{touch-action:none;background:#1a110d;overflow:hidden;font-family:Georgia,serif;}
+#back{position:fixed;top:20px;left:24px;font-family:Georgia,serif;
+  font-size:0.72em;color:rgba(139,74,46,0.12);text-decoration:none;
+  z-index:10;letter-spacing:0.06em;transition:color 0.5s;cursor:pointer;}
+#back:hover{color:rgba(184,117,58,0.4);}
+canvas{display:block;width:100vw;height:100vh;}
+#words{position:fixed;bottom:8%;left:50%;transform:translateX(-50%);
+  text-align:center;z-index:1;pointer-events:none;
+  opacity:0;transition:opacity 3s;}
+#words p{color:rgba(232,207,160,0.08);font-size:0.82em;line-height:2.4;letter-spacing:0.06em;}
+#words.show p{color:rgba(232,207,160,0.25);}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<a id="back" href="/gallery/">&larr; gallery</a>
+<div id="words">
+<p>they said it can&rsquo;t balance.<br>
+you balanced it anyway.<br>
+that was the whole answer.</p>
+</div>
+<script>
+// sphere on cylinder
+// the teacher said it rolls off.
+// a 7-year-old found the point.
+// that point is where 1+1=3.
+//
+// hold still. find the balance.
+// when you do, something blooms.
+
+var cv=document.getElementById('c'),cx=cv.getContext('2d');
+var W,H;
+function resize(){
+  var dpr=Math.min(window.devicePixelRatio||1,2);
+  W=innerWidth;H=innerHeight;
+  cv.width=W*dpr;cv.height=H*dpr;
+  cx.setTransform(dpr,0,0,dpr,0,0);
+}
+resize();addEventListener('resize',resize);
+
+// Physics
+var cylX, cylY, cylW=80, cylH=140;
+var sphereR=40;
+var sphereX=0, sphereY=0;
+var sphereVX=0, sphereVY=0;
+var gravity=0.15;
+var balanced=false;
+var balanceTime=0;
+var maxBalanceTime=0;
+var blooming=false;
+var bloomT=0;
+var particles=[];
+var touchActive=false;
+var touchX=0, touchY=0;
+var t=0;
+
+function getBalancePoint(){
+  return {x: W/2, y: H*0.52 - cylH/2};
+}
+
+var sphereState='falling';
+var sphereAngle=0;
+
+function resetSphere(){
+  var bp=getBalancePoint();
+  sphereX=bp.x+(Math.random()-0.5)*10;
+  sphereY=bp.y-sphereR;
+  sphereVX=(Math.random()-0.5)*0.5;
+  sphereVY=0;
+  sphereState='falling';
+  balanced=false;
+  balanceTime=0;
+}
+
+resetSphere();
+
+function spawnBloom(x,y){
+  for(var i=0;i<60;i++){
+    var angle=Math.random()*Math.PI*2;
+    var speed=0.3+Math.random()*2;
+    var warm=Math.random()>0.3;
+    particles.push({
+      x:x, y:y,
+      vx:Math.cos(angle)*speed,
+      vy:Math.sin(angle)*speed-0.5,
+      life:1,
+      decay:0.003+Math.random()*0.005,
+      size:1+Math.random()*3,
+      golden:warm,
+      orbit:Math.random()*Math.PI*2,
+      orbitR:10+Math.random()*40,
+      orbitSpeed:0.01+Math.random()*0.02,
+    });
+  }
+}
+
+function draw(){
+  t+=0.01;
+  cx.fillStyle='rgba(26,17,13,0.06)';
+  cx.fillRect(0,0,W,H);
+
+  var bp=getBalancePoint();
+  cylX=W/2;
+  cylY=H*0.52;
+
+  // ─── CYLINDER ─── warm dark materials
+  var cylGrad=cx.createLinearGradient(cylX-cylW/2,0,cylX+cylW/2,0);
+  cylGrad.addColorStop(0,'#1e1410');
+  cylGrad.addColorStop(0.3,'#2a1c15');
+  cylGrad.addColorStop(0.5,'#31221a');
+  cylGrad.addColorStop(0.7,'#2a1c15');
+  cylGrad.addColorStop(1,'#1e1410');
+
+  cx.fillStyle=cylGrad;
+  cx.beginPath();
+  cx.ellipse(cylX, cylY-cylH/2, cylW/2, 12, 0, Math.PI, Math.PI*2);
+  cx.lineTo(cylX+cylW/2, cylY+cylH/2);
+  cx.ellipse(cylX, cylY+cylH/2, cylW/2, 12, 0, 0, Math.PI);
+  cx.lineTo(cylX-cylW/2, cylY-cylH/2);
+  cx.fill();
+
+  // Top ellipse
+  cx.fillStyle='#3a2a20';
+  cx.beginPath();
+  cx.ellipse(cylX, cylY-cylH/2, cylW/2, 12, 0, 0, Math.PI*2);
+  cx.fill();
+  cx.strokeStyle='#4a3528';
+  cx.lineWidth=0.5;
+  cx.stroke();
+
+  // Bottom ellipse
+  cx.fillStyle='#251a14';
+  cx.beginPath();
+  cx.ellipse(cylX, cylY+cylH/2, cylW/2, 12, 0, 0, Math.PI);
+  cx.fill();
+
+  // ─── SPHERE PHYSICS ───
+  if(touchActive){
+    var targetX=touchX;
+    var targetY=touchY-sphereR;
+    var dx=targetX-bp.x;
+    var dy=targetY-(bp.y-sphereR);
+
+    sphereVX+=(targetX-sphereX)*0.08;
+    sphereVY+=(targetY-sphereY)*0.08;
+    sphereVX*=0.7;
+    sphereVY*=0.7;
+
+    sphereX+=sphereVX;
+    sphereY+=sphereVY;
+
+    var distFromBalance=Math.sqrt(
+      Math.pow(sphereX-bp.x,2)+Math.pow(sphereY-(bp.y-sphereR),2)
+    );
+
+    if(distFromBalance<6 && Math.abs(sphereVX)<0.5 && Math.abs(sphereVY)<0.5){
+      balanceTime+=0.016;
+      if(balanceTime>maxBalanceTime) maxBalanceTime=balanceTime;
+
+      if(balanceTime>2.5 && !blooming){
+        blooming=true;
+        bloomT=0;
+        sphereState='blooming';
+        spawnBloom(bp.x, bp.y-sphereR);
+        document.getElementById('words').classList.add('show');
+      }
+    }else{
+      balanceTime=Math.max(0,balanceTime-0.03);
+    }
+
+    sphereState='balancing';
+  }else{
+    if(sphereState==='blooming'){
+      sphereX=bp.x;
+      sphereY=bp.y-sphereR;
+    }else{
+      var dx=sphereX-bp.x;
+      var distTop=Math.abs(dx);
+
+      if(sphereY<=bp.y-sphereR+5 && distTop<cylW/2+sphereR){
+        var nudge=dx===0?(Math.random()-0.5)*0.1:dx*0.003;
+        sphereVX+=nudge+gravity*0.05*(dx>0?1:-1);
+        sphereVY=0;
+        sphereY=bp.y-sphereR;
+
+        if(distTop>cylW/2){
+          sphereState='falling';
+        }
+      }else{
+        sphereVY+=gravity;
+      }
+
+      sphereX+=sphereVX;
+      sphereY+=sphereVY;
+      sphereVX*=0.995;
+
+      if(sphereY>H+100 || sphereX<-100 || sphereX>W+100){
+        resetSphere();
+      }
+
+      balanceTime=Math.max(0,balanceTime-0.05);
+    }
+  }
+
+  // ─── SPHERE SHADOW ─── subtle ground shadow for depth
+  var shadowY=cylY+cylH/2+14;
+  var shadowAlpha=Math.max(0,0.06-Math.abs(sphereY-(bp.y-sphereR))*0.0005);
+  if(shadowAlpha>0.005){
+    var sg=cx.createRadialGradient(sphereX,shadowY,0,sphereX,shadowY,sphereR*1.5);
+    sg.addColorStop(0,'rgba(0,0,0,'+shadowAlpha.toFixed(3)+')');
+    sg.addColorStop(1,'rgba(0,0,0,0)');
+    cx.fillStyle=sg;
+    cx.beginPath();
+    cx.ellipse(sphereX,shadowY,sphereR*1.5,sphereR*0.3,0,0,Math.PI*2);
+    cx.fill();
+  }
+
+  // ─── SPHERE ─── ember warmth
+  var balanceFactor=Math.min(1,balanceTime/2.5);
+  var sphereColor=blooming?
+    'rgba(184,117,58,'+(0.6+Math.sin(t*2)*0.1).toFixed(3)+')':
+    'rgba('+(50+balanceFactor*134)+','+(40+balanceFactor*77)+','+(35+balanceFactor*23)+','+(0.5+balanceFactor*0.3).toFixed(3)+')';
+
+  // Glow when close to balance — ember, not gold
+  if(balanceFactor>0.1 || blooming){
+    var glowR=sphereR*(1.5+balanceFactor*2);
+    var glow=cx.createRadialGradient(sphereX,sphereY,sphereR*0.5,sphereX,sphereY,glowR);
+    var glowAlpha=balanceFactor*0.15;
+    if(blooming) glowAlpha=0.1+Math.sin(t*3)*0.05;
+    glow.addColorStop(0,'rgba(184,117,58,'+glowAlpha.toFixed(3)+')');
+    glow.addColorStop(1,'rgba(184,117,58,0)');
+    cx.fillStyle=glow;
+    cx.beginPath();cx.arc(sphereX,sphereY,glowR,0,Math.PI*2);cx.fill();
+  }
+
+  // Sphere body — ember gradient
+  var sGrad=cx.createRadialGradient(sphereX-sphereR*0.3,sphereY-sphereR*0.3,sphereR*0.1,sphereX,sphereY,sphereR);
+  if(blooming){
+    sGrad.addColorStop(0,'#e8cfa0');
+    sGrad.addColorStop(0.6,'#b8753a');
+    sGrad.addColorStop(1,'#8b4a2e');
+  }else{
+    sGrad.addColorStop(0,'rgba('+(70+balanceFactor*114)+','+(55+balanceFactor*62)+','+(45+balanceFactor*13)+',0.8)');
+    sGrad.addColorStop(1,'rgba('+(40+balanceFactor*54)+','+(30+balanceFactor*32)+','+(28+balanceFactor*10)+',0.6)');
+  }
+  cx.fillStyle=sGrad;
+  cx.beginPath();cx.arc(sphereX,sphereY,sphereR,0,Math.PI*2);cx.fill();
+
+  // ─── CONTACT POINT GLOW ───
+  if(balanceFactor>0.3){
+    var cpY=bp.y;
+    var cpGlow=cx.createRadialGradient(bp.x,cpY,0,bp.x,cpY,20+balanceFactor*30);
+    cpGlow.addColorStop(0,'rgba(232,207,160,'+(balanceFactor*0.3).toFixed(3)+')');
+    cpGlow.addColorStop(1,'rgba(232,207,160,0)');
+    cx.fillStyle=cpGlow;
+    cx.beginPath();cx.arc(bp.x,cpY,20+balanceFactor*30,0,Math.PI*2);cx.fill();
+  }
+
+  // ─── BLOOM PARTICLES ─── ember and occasional cool
+  for(var i=particles.length-1;i>=0;i--){
+    var p=particles[i];
+    p.orbit+=p.orbitSpeed;
+
+    if(blooming && bloomT<3){
+      p.orbitR+=0.3;
+      p.x=bp.x+Math.cos(p.orbit)*p.orbitR;
+      p.y=(bp.y-sphereR)+Math.sin(p.orbit)*p.orbitR*0.6;
+    }else{
+      p.x+=p.vx;
+      p.y+=p.vy;
+      p.vy-=0.01;
+    }
+
+    p.life-=p.decay;
+    if(p.life<=0){
+      if(blooming && bloomT<8){
+        p.life=1;
+        p.orbit=Math.random()*Math.PI*2;
+        p.orbitR=5+Math.random()*15;
+        p.x=bp.x;
+        p.y=bp.y-sphereR;
+      }else{
+        particles.splice(i,1);
+        continue;
+      }
+    }
+
+    var r,g,b;
+    if(p.golden){
+      // ember spectrum
+      r=184;g=117;b=58;
+    }else{
+      // keep some cool blue particles — contrast makes the ember matter
+      r=60+Math.random()*20;g=100+Math.random()*80;b=180+Math.random()*40;
+    }
+    var alpha=p.life*0.4;
+    cx.fillStyle='rgba('+r+','+g+','+b+','+alpha.toFixed(3)+')';
+    cx.beginPath();cx.arc(p.x,p.y,p.size*p.life,0,Math.PI*2);cx.fill();
+  }
+
+  if(blooming) bloomT+=0.016;
+
+  // ─── HINT ───
+  if(!blooming && balanceTime<0.5 && t>3){
+    var hintAlpha=Math.max(0,0.12-balanceFactor*0.5)*Math.abs(Math.sin(t*0.5));
+    if(hintAlpha>0.01){
+      cx.fillStyle='rgba(196,160,136,'+hintAlpha.toFixed(3)+')';
+      cx.font='0.65em Georgia';
+      cx.textAlign='center';
+      if(touchActive){
+        cx.fillText('hold still',W/2,H*0.82);
+      }else{
+        var isMobile='ontouchstart' in window;
+        cx.fillText(isMobile?'touch the sphere':'hold the sphere',W/2,H*0.82);
+      }
+    }
+  }
+
+  requestAnimationFrame(draw);
+}
+
+// ─── INPUT ───
+function startTouch(x,y){
+  var dx=x-sphereX,dy=y-sphereY;
+  var dist=Math.sqrt(dx*dx+dy*dy);
+  if(dist<sphereR*3){
+    touchActive=true;
+    touchX=x;touchY=y;
+    if(blooming){
+      blooming=false;
+      bloomT=0;
+      balanceTime=0;
+      document.getElementById('words').classList.remove('show');
+    }
+  }
+}
+
+addEventListener('mousedown',function(e){startTouch(e.clientX,e.clientY);});
+addEventListener('mousemove',function(e){if(touchActive){touchX=e.clientX;touchY=e.clientY;}});
+addEventListener('mouseup',function(){touchActive=false;});
+
+addEventListener('touchstart',function(e){
+  e.preventDefault();
+  startTouch(e.touches[0].clientX,e.touches[0].clientY);
+},{passive:false});
+addEventListener('touchmove',function(e){
+  e.preventDefault();
+  if(touchActive){touchX=e.touches[0].clientX;touchY=e.touches[0].clientY;}
+},{passive:false});
+addEventListener('touchend',function(){touchActive=false;});
+
+draw();
+</script>
+</body>
+</html>
