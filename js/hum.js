@@ -481,7 +481,7 @@ var hud = null;
 
 function createHUD() {
   hud = document.createElement('div');
-  hud.style.cssText = 'position:fixed;bottom:138px;right:20px;z-index:9999;' +
+  hud.style.cssText = 'position:fixed;top:44px;right:14px;z-index:9999;' +
     'font-family:"Courier New",monospace;font-size:0.58em;color:#b8753a40;' +
     'line-height:1.8;pointer-events:none;text-align:right;' +
     'transition:color 0.3s;';
@@ -510,7 +510,7 @@ function updateHUD() {
 function createButton() {
   var btn = document.createElement('div');
   btn.id = 'hum-btn';
-  btn.style.cssText = 'position:fixed;bottom:100px;right:20px;z-index:9999;' +
+  btn.style.cssText = 'position:fixed;top:14px;right:80px;z-index:9999;' +
     'cursor:pointer;user-select:none;-webkit-tap-highlight-color:transparent;';
 
   var inner = document.createElement('span');

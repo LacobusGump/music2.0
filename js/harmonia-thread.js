@@ -37,7 +37,7 @@ var orb = document.createElement('div');
 orb.id = 'h-thread-orb';
 orb.style.cssText = [
   'position:fixed',
-  'right:64px',
+  'right:18px',
   'width:' + ORB_SIZE + 'px',
   'height:' + ORB_SIZE + 'px',
   'border-radius:50%',

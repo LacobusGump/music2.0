@@ -27,7 +27,7 @@
   btn.id = 'listen-btn';
   btn.setAttribute('aria-label', 'Listen to this page');
   btn.innerHTML = '&#9654; Listen';
-  btn.style.cssText = 'position:fixed;bottom:20px;right:20px;z-index:9999;' +
+  btn.style.cssText = 'position:fixed;top:14px;right:14px;z-index:9999;' +
     'background:rgba(12,12,20,0.9);color:#b8753a;border:1px solid #b8753a30;' +
     'border-radius:20px;padding:8px 16px;font-family:Georgia,serif;' +
     'font-size:0.78em;cursor:pointer;transition:all 0.3s;' +
