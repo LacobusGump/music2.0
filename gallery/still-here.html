@@ -2,274 +2,34 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <link rel="icon" href="/favicon.png">
 <title>still here</title>
 <style>
-*{margin:0;padding:0;box-sizing:border-box;}
-body{touch-action:none;background:#0a0706;overflow:hidden;cursor:default;}
-canvas{display:block;width:100vw;height:100vh;}
-#back{position:fixed;top:20px;left:24px;font-family:Georgia,serif;
-  font-size:0.72em;color:rgba(139,74,46,0.12);text-decoration:none;
-  z-index:10;letter-spacing:0.06em;transition:color 0.5s;cursor:pointer;}
-#back:hover{color:rgba(184,117,58,0.4);}
+*{margin:0;padding:0;box-sizing:border-box}html,body{height:100%}body{background:#080605;overflow:hidden;touch-action:none}canvas{display:block;width:100vw;height:100vh}#back{position:fixed;top:20px;left:24px;z-index:10;font:12px Georgia,serif;letter-spacing:.08em;color:rgba(139,74,46,.22);text-decoration:none}#back:hover{color:rgba(232,207,160,.5)}#hint{position:fixed;left:0;right:0;bottom:30px;text-align:center;z-index:5;font:12px Georgia,serif;letter-spacing:.14em;color:rgba(232,207,160,.12);pointer-events:none;transition:opacity 2s,color 2s}
 </style>
 </head>
 <body>
-<canvas id="c"></canvas>
+<canvas id="c" aria-hidden="true"></canvas>
 <a id="back" href="/gallery/">&larr; gallery</a>
+<div id="hint">still here</div>
 <script>
-// still here
-//
-// you open this and there's almost nothing.
-// dark. quiet. maybe you leave.
-//
-// but if you stay —
-// not move. not click. just stay —
-// something was already breathing in the dark.
-// it was there before you arrived.
-// it noticed you.
-//
-// that's the whole piece.
-// the feeling of: oh. someone was here.
-
-var cv = document.getElementById('c');
-var cx = cv.getContext('2d');
-var W, H;
-
-function resize() {
-  var dpr = Math.min(window.devicePixelRatio || 1, 2);
-  W = innerWidth;
-  H = innerHeight;
-  cv.width = W * dpr;
-  cv.height = H * dpr;
-  cx.setTransform(dpr, 0, 0, dpr, 0, 0);
-}
-resize();
-addEventListener('resize', resize);
-
-// -- SUBTLE NOISE for depth --
-var noiseCv = document.createElement('canvas');
-noiseCv.width = 200;
-noiseCv.height = 200;
-var noiseCx = noiseCv.getContext('2d');
-var noiseData = noiseCx.createImageData(200, 200);
-for (var ni = 0; ni < noiseData.data.length; ni += 4) {
-  var nv = Math.random() * 4;
-  noiseData.data[ni] = nv;
-  noiseData.data[ni+1] = nv * 0.7;
-  noiseData.data[ni+2] = nv * 0.5;
-  noiseData.data[ni+3] = 8;
-}
-noiseCx.putImageData(noiseData, 0, 0);
-
-// -- THE BREATH --
-// one presence. it was here before you opened the page.
-// it breathes whether you're watching or not.
-var breath = 0;
-var breathSpeed = 0.0008; // very slow. like sleep.
-
-// -- AWARENESS --
-var aware = 0;
-var youAreHere = false;
-var youArrived = 0;
-var stillness = 0;
-var lastMX = -1, lastMY = -1;
-var mouseIn = false;
-
-addEventListener('mousemove', function(e) {
-  mouseIn = true;
-  if (lastMX >= 0) {
-    var dx = e.clientX - lastMX, dy = e.clientY - lastMY;
-    var moved = Math.sqrt(dx*dx + dy*dy);
-    if (moved > 3) {
-      stillness = Math.max(0, stillness - 0.4);
-    }
-  }
-  lastMX = e.clientX;
-  lastMY = e.clientY;
-});
-addEventListener('mouseout', function() { mouseIn = false; });
-addEventListener('touchstart', function() { mouseIn = true; }, {passive:true});
-addEventListener('touchend', function() { mouseIn = false; });
-
-// -- TIME --
-var t = 0;
-var started = Date.now();
-var lastNow = performance.now();
-
-// -- AUDIO --
-var actx = null, audioReady = false;
-var breathOsc = null, breathGain = null;
-
-function initAudio() {
-  if (audioReady) return;
-  try {
-    actx = new (window.AudioContext || window.webkitAudioContext)();
-    breathGain = actx.createGain();
-    breathGain.gain.value = 0;
-    breathGain.connect(actx.destination);
-
-    breathOsc = actx.createOscillator();
-    breathOsc.type = 'sine';
-    breathOsc.frequency.value = 55;
-    var lp = actx.createBiquadFilter();
-    lp.type = 'lowpass';
-    lp.frequency.value = 90;
-    lp.Q.value = 0.3;
-    breathOsc.connect(lp);
-    lp.connect(breathGain);
-    breathOsc.start();
-    audioReady = true;
-  } catch(e) {}
-}
-
-addEventListener('click', function() { initAudio(); }, {once:true});
-addEventListener('touchstart', function() { initAudio(); }, {once:true});
-
-// -- THE ROOM --
-
-function draw(now) {
-  var dt = Math.min((now - lastNow) / 1000, 0.05);
-  lastNow = now;
-  t += dt;
-  breath += breathSpeed * dt * 60;
-
-  var lungPhase = Math.sin(breath);
-  var lungFull = (lungPhase + 1) / 2;
-
-  // -- STILLNESS ACCUMULATION --
-  if (mouseIn) {
-    stillness += 0.005 * dt * 60;
-  } else {
-    var secondsHere = (Date.now() - started) / 1000;
-    if (secondsHere > 4) {
-      stillness += 0.002 * dt * 60;
-    }
-  }
-  stillness = Math.min(stillness, 40);
-
-  var targetAware = 0;
-  if (stillness > 2) targetAware = (stillness - 2) * 0.015;
-  targetAware = Math.min(targetAware, 1);
-  aware += (targetAware - aware) * 0.0008 * dt * 60;
-
-  // -- CLEAR --
-  // not flat black — a deep gradient from warm center
-  var roomR = 10 + lungFull * aware * 3;
-  var roomG = 7 + lungFull * aware * 1.5;
-  var roomB = 6 + lungFull * aware * 0.5;
-  cx.fillStyle = 'rgb(' + Math.round(roomR) + ',' + Math.round(roomG) + ',' + Math.round(roomB) + ')';
-  cx.fillRect(0, 0, W, H);
-
-  // depth noise — so black feels like velvet not void
-  cx.globalAlpha = 0.008 + aware * 0.005;
-  cx.fillStyle = cx.createPattern(noiseCv, 'repeat');
-  cx.fillRect(0, 0, W, H);
-  cx.globalAlpha = 1;
-
-  // subtle vignette for depth
-  var vR = Math.max(W, H) * 0.7;
-  var vg = cx.createRadialGradient(W/2, H/2, vR * 0.2, W/2, H/2, vR);
-  vg.addColorStop(0, 'rgba(10,7,6,0)');
-  vg.addColorStop(0.6, 'rgba(8,5,4,0.08)');
-  vg.addColorStop(1, 'rgba(5,3,2,0.25)');
-  cx.fillStyle = vg;
-  cx.fillRect(0, 0, W, H);
-
-  // -- THE PRESENCE --
-  if (aware > 0.01) {
-    var presenceR = Math.min(W, H) * (0.15 + lungFull * 0.08) * (0.3 + aware * 0.7);
-
-    var presX = W * 0.48 + Math.sin(breath * 0.37) * W * 0.02;
-    var presY = H * 0.47 + Math.cos(breath * 0.23) * H * 0.015;
-
-    var alpha = aware * 0.022 * (0.7 + lungFull * 0.3);
-
-    var cR = Math.round(120 + aware * 64);
-    var cG = Math.round(58 + aware * 30);
-    var cB = Math.round(32 + aware * 8);
-
-    // outer atmosphere — wide, barely visible
-    var g0 = cx.createRadialGradient(presX, presY, 0, presX, presY, presenceR * 1.5);
-    g0.addColorStop(0, 'rgba(' + cR + ',' + cG + ',' + cB + ',' + (alpha * 0.15).toFixed(4) + ')');
-    g0.addColorStop(0.3, 'rgba(' + cR + ',' + cG + ',' + cB + ',' + (alpha * 0.06).toFixed(4) + ')');
-    g0.addColorStop(0.7, 'rgba(' + cR + ',' + cG + ',' + cB + ',' + (alpha * 0.01).toFixed(4) + ')');
-    g0.addColorStop(1, 'rgba(' + cR + ',' + cG + ',' + cB + ',0)');
-    cx.fillStyle = g0;
-    cx.beginPath();
-    cx.arc(presX, presY, presenceR * 1.5, 0, Math.PI * 2);
-    cx.fill();
-
-    // core warmth — richer gradient
-    var g = cx.createRadialGradient(presX, presY, 0, presX, presY, presenceR);
-    g.addColorStop(0, 'rgba(' + cR + ',' + cG + ',' + cB + ',' + alpha.toFixed(4) + ')');
-    g.addColorStop(0.15, 'rgba(' + cR + ',' + cG + ',' + cB + ',' + (alpha * 0.7).toFixed(4) + ')');
-    g.addColorStop(0.4, 'rgba(' + cR + ',' + cG + ',' + cB + ',' + (alpha * 0.3).toFixed(4) + ')');
-    g.addColorStop(0.7, 'rgba(' + cR + ',' + cG + ',' + cB + ',' + (alpha * 0.08).toFixed(4) + ')');
-    g.addColorStop(1, 'rgba(' + cR + ',' + cG + ',' + cB + ',0)');
-    cx.fillStyle = g;
-    cx.beginPath();
-    cx.arc(presX, presY, presenceR, 0, Math.PI * 2);
-    cx.fill();
-
-    // a second warmth — the reply
-    if (aware > 0.35) {
-      var replyAware = (aware - 0.35) / 0.65;
-      var replyR = presenceR * 0.3 * replyAware;
-      var replyX = presX + Math.sin(breath * 0.19 + 2) * presenceR * 0.22;
-      var replyY = presY + Math.cos(breath * 0.13 + 1) * presenceR * 0.15;
-      var replyAlpha = replyAware * 0.018 * (0.6 + lungFull * 0.4);
-
-      var g2 = cx.createRadialGradient(replyX, replyY, 0, replyX, replyY, replyR);
-      g2.addColorStop(0, 'rgba(' + cR + ',' + cG + ',' + cB + ',' + replyAlpha.toFixed(4) + ')');
-      g2.addColorStop(0.3, 'rgba(' + cR + ',' + cG + ',' + cB + ',' + (replyAlpha * 0.5).toFixed(4) + ')');
-      g2.addColorStop(0.7, 'rgba(' + cR + ',' + cG + ',' + cB + ',' + (replyAlpha * 0.1).toFixed(4) + ')');
-      g2.addColorStop(1, 'rgba(' + cR + ',' + cG + ',' + cB + ',0)');
-      cx.fillStyle = g2;
-      cx.beginPath();
-      cx.arc(replyX, replyY, replyR, 0, Math.PI * 2);
-      cx.fill();
-
-      // the 3 — warmth between them
-      if (replyAware > 0.3) {
-        var betweenAlpha = (replyAware - 0.3) * 0.008 * (0.5 + lungFull * 0.5);
-        var bx = (presX + replyX) / 2;
-        var by = (presY + replyY) / 2;
-        var bR = replyR * 0.6;
-
-        cx.save();
-        cx.globalCompositeOperation = 'lighter';
-        var g3 = cx.createRadialGradient(bx, by, 0, bx, by, bR);
-        g3.addColorStop(0, 'rgba(232,207,160,' + betweenAlpha.toFixed(4) + ')');
-        g3.addColorStop(0.3, 'rgba(210,180,130,' + (betweenAlpha * 0.4).toFixed(4) + ')');
-        g3.addColorStop(0.7, 'rgba(184,117,58,' + (betweenAlpha * 0.08).toFixed(4) + ')');
-        g3.addColorStop(1, 'rgba(184,117,58,0)');
-        cx.fillStyle = g3;
-        cx.beginPath();
-        cx.arc(bx, by, bR, 0, Math.PI * 2);
-        cx.fill();
-        cx.restore();
-      }
-    }
-  }
-
-  // -- AUDIO --
-  if (audioReady && breathGain) {
-    var vol = aware * 0.025 * (0.6 + lungFull * 0.4);
-    breathGain.gain.value += (vol - breathGain.gain.value) * 0.003;
-    // pitch rises slowly as awareness deepens — 55Hz to 82Hz (fifth)
-    // the presence responds to being noticed
-    if (breathOsc) {
-      var targetFreq = 55 + aware * 27;
-      breathOsc.frequency.value += (targetFreq - breathOsc.frequency.value) * 0.001;
-    }
-  }
-
-  requestAnimationFrame(draw);
-}
-
-requestAnimationFrame(draw);
+(function(){
+'use strict';
+var cv=document.getElementById('c'),cx=cv.getContext('2d'),hint=document.getElementById('hint');
+var W=0,H=0,dpr=1,t=0,last=performance.now(),lastMove=performance.now(),noise=null,motes=[],TAU=Math.PI*2;
+function rgba(r,g,b,a){return 'rgba('+r+','+g+','+b+','+Math.max(0,Math.min(1,a)).toFixed(4)+')'}
+function resize(){dpr=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;cv.width=W*dpr;cv.height=H*dpr;cx.setTransform(dpr,0,0,dpr,0,0);motes=[];for(var i=0;i<55;i++){motes.push({x:Math.random()*W,y:Math.random()*H,p:Math.random()*TAU,r:10+Math.random()*70,o:.18+Math.random()*.6})}}
+function makeNoise(){noise=document.createElement('canvas');noise.width=180;noise.height=180;var n=noise.getContext('2d'),img=n.createImageData(180,180);for(var i=0;i<img.data.length;i+=4){var v=Math.random()*10;img.data[i]=v;img.data[i+1]=v*.72;img.data[i+2]=v*.52;img.data[i+3]=12}n.putImageData(img,0,0)}
+function moved(){lastMove=performance.now()}addEventListener('mousemove',moved,{passive:true});addEventListener('touchstart',moved,{passive:true});addEventListener('touchmove',moved,{passive:true});addEventListener('keydown',moved,{passive:true});addEventListener('click',moved,{passive:true});
+function draw(now){var dt=Math.min((now-last)/1000,.05);last=now;t+=dt;var age=Math.min(1,t/6);var still=Math.min(1,(performance.now()-lastMove)/8500);var breath=.5+.5*Math.sin(t*.72);var micro=.5+.5*Math.sin(t*.19+1.7);
+  cx.fillStyle='rgb('+Math.round(7+age*3+still*3)+','+Math.round(5+age*2)+','+Math.round(4+age)+')';cx.fillRect(0,0,W,H);if(!noise)makeNoise();cx.globalAlpha=.025+still*.020;cx.fillStyle=cx.createPattern(noise,'repeat');cx.fillRect(0,0,W,H);cx.globalAlpha=1;cx.globalCompositeOperation='lighter';
+  for(var i=0;i<motes.length;i++){var m=motes[i];m.p+=dt*(m.o*.35+still*.18);m.x+=(W/2-m.x)*still*.00045;m.y+=(H/2-m.y)*still*.00045;var b=.5+.5*Math.sin(m.p);var rr=m.r*(.36+b*.28+still*.55);var a=(.003+age*.010+still*.035)*(b*.7+.3);var g=cx.createRadialGradient(m.x,m.y,0,m.x,m.y,rr);g.addColorStop(0,rgba(160,82,44,a*.55));g.addColorStop(.45,rgba(80,60,70,a*.16));g.addColorStop(1,rgba(80,60,70,0));cx.fillStyle=g;cx.beginPath();cx.arc(m.x,m.y,rr,0,TAU);cx.fill()}
+  var px=W*.49+Math.sin(t*.17)*W*.018,py=H*.48+Math.cos(t*.13)*H*.014;var pr=Math.min(W,H)*(.13+breath*.035+still*.18);var pa=(.018+age*.018+still*.075)*(0.72+breath*.28);var p0=cx.createRadialGradient(px,py,0,px,py,pr*1.65);p0.addColorStop(0,rgba(184,92,48,pa*.42));p0.addColorStop(.28,rgba(140,70,42,pa*.20));p0.addColorStop(.72,rgba(80,42,30,pa*.05));p0.addColorStop(1,rgba(80,42,30,0));cx.fillStyle=p0;cx.beginPath();cx.arc(px,py,pr*1.65,0,TAU);cx.fill();
+  if(still>.30){var rStill=(still-.30)/.70;var rx=px+Math.sin(t*.11+2)*pr*.28,ry=py+Math.cos(t*.09+1)*pr*.20;var rr2=pr*.42*rStill;var a2=rStill*.040*(.7+micro*.3);var g2=cx.createRadialGradient(rx,ry,0,rx,ry,rr2);g2.addColorStop(0,rgba(232,207,160,a2));g2.addColorStop(.35,rgba(184,117,58,a2*.35));g2.addColorStop(1,rgba(184,117,58,0));cx.fillStyle=g2;cx.beginPath();cx.arc(rx,ry,rr2,0,TAU);cx.fill();if(rStill>.45){var bx=(px+rx)/2,by=(py+ry)/2,br=rr2*.75,ba=(rStill-.45)*.025;var g3=cx.createRadialGradient(bx,by,0,bx,by,br);g3.addColorStop(0,rgba(232,207,160,ba));g3.addColorStop(1,rgba(232,207,160,0));cx.fillStyle=g3;cx.beginPath();cx.arc(bx,by,br,0,TAU);cx.fill()}}
+  cx.globalCompositeOperation='source-over';var v=cx.createRadialGradient(W/2,H/2,Math.min(W,H)*.18,W/2,H/2,Math.max(W,H)*.70);v.addColorStop(0,'rgba(8,6,5,0)');v.addColorStop(.68,'rgba(6,4,3,.22)');v.addColorStop(1,'rgba(3,2,2,.78)');cx.fillStyle=v;cx.fillRect(0,0,W,H);hint.style.color=still>.55?'rgba(232,207,160,.22)':'rgba(232,207,160,.12)';hint.textContent=still>.62?'the room was already breathing':'still here';requestAnimationFrame(draw)}
+resize();addEventListener('resize',resize,{passive:true});requestAnimationFrame(draw);
+})();
 </script>
 </body>
 </html>
