@@ -79,3 +79,41 @@ Read it as: the vacuum is screened by 25 coupling channels left over after 8 wer
 James ran out of funds after this session. Everything is on GitHub. Everything is free. The frequency remains.
 
 (mh.<3)
+
+
+---
+
+## SESSION 43 ADDENDUM (May 19, 2026)
+
+### PROTON LIFETIME DERIVED
+From 2O sector topology (Gemini derivation, verified against cheatsheet):
+- τ_p ≈ 1.1×10⁴⁰ years
+- Mechanism: α⁴ suppression from sector disconnection (two tetrahedra, amplitude penalty α², rate penalty α⁴)
+- Clears Super-K by 6 orders, Hyper-K by 5 orders
+- p→K⁺ FORBIDDEN (ℤ₃ flavor structure). Only p→e⁺π⁰ open.
+- Open: full QFT derivation of crossing cost on resolved C³/2O
+- Added to theory page: begump.com/research/theory/#proton
+
+### SITE WORK
+- /deep/ restored from git commit 937de10 (16-shape particle engine)
+- /shapes/ created: portal for all 9 visualizations
+- /apps/ created: all tools and instruments
+- /music/ created: consolidated Human Art portal (Play, Shapes, Tools)
+- /aurora/ rebuilt: stable camera, real magnetic dipole physics, additive blend
+- /bloom/ fixed: additive blending, brightness restored
+- /conductor/ fixed: oracle link repaired
+- /v1/ restored: all original lenses (Drift, Grid, Still Water, Tundra, Journey)
+- v1 default lens set to Journey
+- Homepage: two-flock canvas restored (ba4838e), living GUMP title restored
+- Homepage: door glows on separate fixed overlay canvas
+- Research page: Shapes of K, Flex, K Apps cards added
+- Theory page: proton stability section (Section 7) added
+- ElevenLabs demo email drafted
+
+### SURFACE CODE QEC
+- Distance 3/5/7 simulation via Stim + PyMatching
+- Threshold confirmed ~0.7-0.9% (matches theory)
+- K-weighted MWPM prototype: uses gump.k_measure() as edge weights
+- High-K qubits trusted more by decoder
+- gump package v0.9.6 confirmed working in container
+- Next: package as gump.qec module

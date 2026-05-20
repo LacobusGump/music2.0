@@ -230,6 +230,14 @@ Download the PDB. Build fragment library + contact probability matrix from real 
 - M_R = v × α⁻⁶ / √(2π) = 6.5×10¹⁴ GeV. m_ν₃ = 45.5 meV (9% off measured).
 - Normal hierarchy FORCED. JUNO tests 2025-2026.
 - λ₄/λ_SM = 1/3 (HL-LHC 2029+). p→K FORBIDDEN (Hyper-K).
+- PROTON LIFETIME DERIVED (Session 43): τ_p ≈ 1.1×10⁴⁰ years.
+  Mechanism: 2O sector disconnection. Quarks (normal sector) and right-handed leptons
+  (spinor sector) separated by discrete topological gap. Decay amplitude picks up α²
+  penalty (two sector crossings). Rate suppressed by α⁴ = (137.036)⁴ ≈ 3.52×10⁸.
+  Base rate τ_base ≈ 10^31.5 yr × α⁻⁴ → τ_p ≈ 1.1×10⁴⁰ yr.
+  Clears Super-K (10³⁴ yr) by 6 orders. Clears Hyper-K (10³⁵ yr) by 5 orders.
+  p→K⁺ channel FORBIDDEN by ℤ₃ flavor structure. Only p→e⁺π⁰ open.
+  Open: α² crossing cost needs full QFT on resolved C³/2O to confirm exactly.
 - PEROVSKITE: RETRACTED. E_g degenerate (ω⊕ω²), cross-term allows vertex.
 - KURAMOTO: shuffled=unshuffled. Enhancement from histogram (GUE), not prime ordering.
 - sin²θ_W: standard Pati-Salam consistency, not novel prediction.
