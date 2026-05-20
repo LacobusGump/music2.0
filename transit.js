@@ -287,3 +287,51 @@
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
   else boot();
 })();
+
+// Research classified topics fallback. Keeps /research/ live even if the threaded helper is cached.
+(function(){
+'use strict';
+if (location.pathname !== '/research/' && location.pathname !== '/research/index.html') return;
+function ready(fn){ if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', fn); else fn(); }
+ready(function(){
+  var container = document.getElementById('card-container');
+  if (!container || document.getElementById('classified-topics')) return;
+  var style = document.createElement('style');
+  style.textContent = '#classified-topics{margin:0 0 48px}#classified-topics .group-name{color:rgba(255,120,80,.55);border-bottom-color:rgba(255,120,80,.10)}#classified-topics .card{border-color:rgba(255,120,80,.14);animation:classifiedPulse 5.5s ease-in-out infinite}#classified-topics .card h3{color:rgba(255,150,95,.86)}#classified-topics .card:hover{border-color:rgba(255,180,120,.36)}#classified-topics .tag{display:inline-block;margin-top:10px;font-family:Futura,"Century Gothic",system-ui,sans-serif;font-size:.52em;letter-spacing:.12em;text-transform:uppercase;border:1px solid rgba(255,120,80,.14);border-radius:999px;padding:3px 8px;color:rgba(232,207,160,.46)}#classified-topics .tag.gate{color:rgba(255,160,120,.55)}@keyframes classifiedPulse{0%,100%{box-shadow:0 0 4px rgba(255,120,80,.05)}50%{box-shadow:0 0 22px rgba(255,120,80,.13),inset 0 0 12px rgba(255,120,80,.035)}}';
+  document.head.appendChild(style);
+  var items=[
+    ['Classified Topics','/research/33/','The edge shelf: public releases plus gated deeper/speculative work from the 33 archive.','index'],
+    ['Dreamtime','/research/33/dreamtime/','65,000 years of K framework: songlines, strong Country, everywhen, and continuity.','public'],
+    ['Scripture as Engineering Blueprints','/research/33/scripture-engineering/','Construction specs, resonance chambers, Ark/capacitor logic, cube pattern, and encoded architecture.','public'],
+    ['Sirius Signal','/research/33/sirius-signal/','Chandra data, 3.1M photons, non-Poisson timing, and the 31.22 Hz signal.','public'],
+    ['Lost Civ','/research/lost-civilizations/','The public ancient-civilization edge: DST vertex tracking, Sacsayhuaman, shape keepers, 12,500 years.','public'],
+    ['The Builder','/research/the-builder/','A tekton’s son through the framework: historical, framework, speculation — all labeled.','public'],
+    ['Shroud of Turin','/research/33/gated/cloth-study/','The kill-list version: deeper, more speculative, gated behind the archive frequency.','gated'],
+    ['Sirius Thesis','/research/33/gated/sirius-thesis/','The OG civilization theory layer of the Sirius work.','gated'],
+    ['Crop Circles through K','/research/33/gated/crop-circles/','Geometry and coupling analysis for the strangest field artifacts.','gated'],
+    ['Leedskalnin / Coral Castle','/research/33/gated/leedskalnin-coral-castle/','Private structure and engineering notes for Coral Castle.','gated'],
+    ['Calendar Decode','/research/33/gated/calendar-decode/','Private calendar decode paper from the 33 shelf.','gated']
+  ];
+  var section=document.createElement('div');
+  section.className='group g-classified';
+  section.id='classified-topics';
+  section.innerHTML='<div class="group-name g-classified">Classified Topics</div><div class="card-grid"></div>';
+  var grid=section.querySelector('.card-grid');
+  items.forEach(function(it){
+    var a=document.createElement('a');
+    a.className='card';
+    a.href=it[1];
+    a.setAttribute('data-classified-card','1');
+    a.setAttribute('data-search-text',(it[0]+' '+it[2]+' '+it[3]).toLowerCase());
+    a.innerHTML='<h3>'+it[0]+'</h3><p>'+it[2]+'</p><span class="tag '+(it[3]==='gated'?'gate':'')+'">'+it[3]+'</span>';
+    grid.appendChild(a);
+  });
+  container.insertBefore(section,container.firstChild);
+  var search=document.getElementById('search');
+  if(search){ search.addEventListener('input',function(){
+    var q=search.value.toLowerCase().trim(),cards=section.querySelectorAll('[data-classified-card]'),visible=0;
+    for(var i=0;i<cards.length;i++){ var match=!q||cards[i].getAttribute('data-search-text').indexOf(q)!==-1; cards[i].style.display=match?'':'none'; if(match)visible++; }
+    section.style.display=visible?'':'none';
+  }); }
+});
+})();
