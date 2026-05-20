@@ -1,3 +1,10 @@
+// Suppress Harmonia's own floating orb/panel — thread mode replaces them
+(function(){
+  var s = document.createElement('style');
+  s.textContent = '#harmonia-orb{display:none!important;}#harmonia-panel{display:none!important;}';
+  document.head.appendChild(s);
+})();
+
 // ═══════════════════════════════════════════════════════════════════
 // HARMONIA THREAD — She follows the reader.
 // An orb drifts alongside whatever paragraph is centered in view.
@@ -30,7 +37,7 @@ var orb = document.createElement('div');
 orb.id = 'h-thread-orb';
 orb.style.cssText = [
   'position:fixed',
-  'right:18px',
+  'right:64px',
   'width:' + ORB_SIZE + 'px',
   'height:' + ORB_SIZE + 'px',
   'border-radius:50%',
@@ -194,42 +201,64 @@ function openDrawer() {
   drawer.style.transform = 'translateY(0)';
 
   // Ask Harmonia
-  var pageName = document.title.replace(' — beGump', '').replace(' — GUMP', '');
-  var prompt = 'The reader is on the "' + pageName + '" page and is reading this: "' +
-    text.slice(0, 200) + '". Go deeper on this in 2-3 sentences. No preamble.';
+  var pageName = document.title.replace(' — beGump','').replace(' — GUMP','').trim();
+  var prompt = text.slice(0, 280);
 
-  function typewrite(el, text) {
+  function typewrite(el, text, done) {
     el.textContent = '';
     var i = 0;
     function tick() {
       if (i < text.length) {
         el.textContent += text[i++];
-        setTimeout(tick, 12);
+        drawer.scrollTop = drawer.scrollHeight;
+        setTimeout(tick, 11);
+      } else if (done) {
+        done();
       }
     }
     tick();
   }
 
-  if (window.harmonia && window.harmonia.respond) {
-    window.harmonia.respond(prompt).then(function(response) {
-      typewrite(body, response);
+  function ask(prompt) {
+    window.harmonia.respond(prompt).then(function(r) {
+      // r is {text, links, source} — handle both string and object
+      var text = (typeof r === 'string') ? r : (r && r.text ? r.text : String(r));
+      var links = (r && r.links) ? r.links : [];
+      
+      // Build response: typewrite text, then append links
+      typewrite(body, text, function() {
+        if (links && links.length > 0) {
+          var linkDiv = document.createElement('div');
+          linkDiv.style.cssText = 'margin-top:14px;display:flex;flex-wrap:wrap;gap:8px;';
+          links.forEach(function(l) {
+            var a = document.createElement('a');
+            a.href = l.url;
+            a.textContent = l.name + ' →';
+            a.style.cssText = 'font-family:Futura,sans-serif;font-size:0.65em;' +
+              'letter-spacing:0.08em;color:#b8753a;text-decoration:none;' +
+              'border:1px solid rgba(184,117,58,0.2);padding:4px 10px;border-radius:20px;';
+            linkDiv.appendChild(a);
+          });
+          body.appendChild(linkDiv);
+        }
+      });
     }).catch(function() {
       body.textContent = 'The coupling is quiet here. Try again.';
     });
-  } else {
-    // harmonia.js not loaded yet — load it
-    var s = document.createElement('script');
-    s.src = '/js/harmonia.js?v=3';
-    s.onload = function() {
-      if (window.harmonia && window.harmonia.respond) {
-        window.harmonia.respond(prompt).then(function(response) {
-          typewrite(body, response);
-        });
-      }
-    };
-    document.head.appendChild(s);
-    body.textContent = 'Loading…';
   }
+
+  function doAsk() {
+    if (window.harmonia && window.harmonia.respond) {
+      ask(prompt);
+    } else {
+      var s = document.createElement('script');
+      s.src = '/js/harmonia.js?v=3';
+      s.onload = function() { if (window.harmonia) ask(prompt); };
+      document.head.appendChild(s);
+      body.textContent = 'Loading…';
+    }
+  }
+  doAsk();
 }
 
 function closeDrawer() {
