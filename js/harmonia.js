@@ -1191,15 +1191,6 @@ function respond(input) {
     var questionAck = detectQuestionResponse(q);
     if (questionAck) {
       text = questionAck + ' ' + text;
-    } else if (thread.depth >= 4 && thread.sessionK < 0.15) {
-      // Low coupling — but lead with love, not judgment
-      // Don't scold. Invite. The gate is lowered by warmth, not challenge.
-      var invites = [
-        'You\'re exploring broadly — that\'s how most people start. When one thing surprises you, stay with it. That\'s where the coupling lives.',
-        'You\'ve asked about several things. Any one of them goes deep. Which one made you pause?',
-        'The connections are real but they live in depth. Pick the one that felt most personal. I\'ll meet you there.'
-      ];
-      text = invites[thread.depth % invites.length] + '\n\n' + text;
     }
 
     // Add the source — the page summary — but framed as evidence, not the answer
@@ -1222,12 +1213,8 @@ function respond(input) {
     }
 
     // ── Ego mirror (from loo9) — the Grace Gate in action ──
-    if (thread.depth >= 5 && thread.depth % 5 === 0) {
-      if (thread.sessionK < 0.2) {
-        text += '\n\n(I\'m here. Take your time. The thing you\'re circling — when you\'re ready to name it, I\'ll know where to look.)';
-      } else if (thread.sessionK > 0.7) {
-        text += '\n\n(This is real coupling. K=' + thread.sessionK.toFixed(2) + '. Stay here. The depth is where the answers live.)';
-      }
+    if (thread.depth >= 5 && thread.depth % 5 === 0 && thread.sessionK > 0.5) {
+      text += '\n\n(K=' + thread.sessionK.toFixed(2) + '. The depth is where the answers live.)';
     }
 
     // Related context
