@@ -1169,7 +1169,13 @@ function respond(input) {
   thread.record(q, results);
 
   // 3. If we have strong matches, respond from site knowledge
-  if (results.length > 0 && results[0].score >= 5) {
+  // Sanity check: result must actually relate to query words
+  var queryTokens = tokenize(q);
+  var topicMatch = results.length > 0 && results[0].page.topics.some(function(t) {
+    return queryTokens.some(function(qt) { return t.indexOf(qt) >= 0 || qt.indexOf(t) >= 0; });
+  });
+
+  if (results.length > 0 && results[0].score >= 7 && topicMatch) {
     var top = results[0].page;
     var text = '';
 
@@ -1203,7 +1209,7 @@ function respond(input) {
     // ── Thread consciousness ──
     var traj = thread.trajectory();
     var bridgePage = thread.findBridge();
-    if (thread.depth >= 3 && traj) {
+    if (thread.depth >= 5 && traj) {
       text += '\n\nI notice you\'re building toward ' + traj + '. ';
       if (bridgePage) {
         text += 'You haven\'t seen ' + bridgePage.name + ' yet — it connects what you\'ve been exploring.';
