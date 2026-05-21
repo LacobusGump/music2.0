@@ -13,6 +13,23 @@ function ready(fn){
   else fn();
 }
 
+function installFirstTimerHome(){
+  var path = location.pathname;
+  if(path !== '/' && path !== '/index.html') return;
+  var doors = document.querySelector('.doors');
+  if(!doors || document.querySelector('.first-timer-band')) return;
+  var topStart = document.querySelector('.toplinks a[href="/start-here/"]');
+  if(topStart) topStart.textContent = 'first timer?';
+  var style = document.createElement('style');
+  style.textContent = '.first-timer-band{pointer-events:auto;display:block;max-width:680px;width:100%;margin:0 auto 14px;padding:12px 16px;border:1px solid rgba(232,207,160,.14);border-radius:999px;background:linear-gradient(90deg,rgba(18,13,10,.66),rgba(184,117,58,.055),rgba(18,13,10,.66));box-shadow:0 0 28px rgba(184,117,58,.045),inset 0 1px 0 rgba(255,255,255,.025);text-align:center;font-family:Futura,"Century Gothic",Avenir,"Avenir Next",system-ui,sans-serif;font-size:.66em;letter-spacing:.11em;color:rgba(232,207,160,.76);opacity:0;animation:up .9s ease .86s forwards}.first-timer-band span{color:#8b4a2e;margin-left:8px;letter-spacing:.05em}.first-timer-band:hover{color:#e8cfa0;border-color:rgba(232,207,160,.28);background:linear-gradient(90deg,rgba(18,13,10,.78),rgba(184,117,58,.09),rgba(18,13,10,.78))}@media(max-width:560px){.first-timer-band{border-radius:16px;font-size:.58em;line-height:1.6}.first-timer-band span{display:block;margin:2px 0 0}}';
+  document.head.appendChild(style);
+  var a = document.createElement('a');
+  a.className = 'first-timer-band';
+  a.href = '/start-here/';
+  a.innerHTML = 'First Timer? <span>fast facts · framework in motion · one tool demo</span>';
+  doors.parentNode.insertBefore(a, doors);
+}
+
 function initCanvas(){
   if(prefersReducedMotion || canvas) return;
   dpr = window.devicePixelRatio || 1;
@@ -150,6 +167,7 @@ function prefetch(){
 }
 
 function boot(){
+  installFirstTimerHome();
   connectForgettingInterlude();
   if(!assemble()) cleanup();
 
