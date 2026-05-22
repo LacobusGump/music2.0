@@ -4,7 +4,8 @@ var p=location.pathname;
 if(p!=='/research/the-grace-gate/'&&p!=='/research/the-grace-gate/index.html')return;
 function run(){
   var page=document.querySelector('.page');
-  if(!page||page.getAttribute('data-love-primed')==='true')return;
+  if(!page){document.addEventListener('DOMContentLoaded',run,{once:true});return;}
+  if(page.getAttribute('data-love-primed')==='true')return;
   function swap(s){
     return s
       .replace(/\bloved\b/g,'coupled')
@@ -28,5 +29,5 @@ function run(){
   nodes.forEach(function(n){n.nodeValue=swap(n.nodeValue)});
   page.setAttribute('data-love-primed','true');
 }
-if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',run);else run();
+run();
 })();
