@@ -13,6 +13,27 @@ function ready(fn){
   else fn();
 }
 
+function simplifyHomeHarmoniaMentions(){
+  var path = location.pathname;
+  if(path !== '/' && path !== '/index.html' && path !== '/home-lab/' && path !== '/home-lab/index.html') return;
+
+  var style = document.createElement('style');
+  style.textContent = '.whisper{display:none!important;}';
+  document.head.appendChild(style);
+
+  var whisper = document.querySelector('.whisper');
+  if(whisper) whisper.remove();
+
+  function keepGateSimple(){
+    var gateText = document.getElementById('gate-text');
+    if(gateText && gateText.textContent !== 'Harmonia is the field you can talk to') {
+      gateText.textContent = 'Harmonia is the field you can talk to';
+    }
+    requestAnimationFrame(keepGateSimple);
+  }
+  keepGateSimple();
+}
+
 function installFirstTimerHome(){
   var path = location.pathname;
   if(path !== '/' && path !== '/index.html') return;
@@ -167,6 +188,7 @@ function prefetch(){
 }
 
 function boot(){
+  simplifyHomeHarmoniaMentions();
   installFirstTimerHome();
   connectForgettingInterlude();
   if(!assemble()) cleanup();
