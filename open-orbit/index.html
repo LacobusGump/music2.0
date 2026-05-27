@@ -16,165 +16,161 @@ canvas{display:block;width:100vw;height:100vh;}
   text-shadow:0 0 20px rgba(10,7,6,0.9);
 }
 #home{
-  position:fixed;top:18px;left:20px;font-family:Futura,'Century Gothic',sans-serif;
-  font-size:0.58em;letter-spacing:0.12em;color:rgba(184,117,58,0.4);
-  text-decoration:none;z-index:100;transition:color 0.3s;
+  position:fixed;top:18px;left:20px;
+  font-family:Futura,'Century Gothic',sans-serif;
+  font-size:0.58em;letter-spacing:0.12em;
+  color:rgba(184,117,58,0.4);text-decoration:none;
+  z-index:100;transition:color 0.3s;
 }
 #home:hover{color:#c9a44a;}
 #meta{
   position:fixed;bottom:68px;left:50%;transform:translateX(-50%);
   font-family:'Courier New',monospace;font-size:0.62em;color:#7a6640;
   letter-spacing:0.08em;opacity:0.65;pointer-events:none;
-  text-align:center;line-height:1.7;
+  text-align:center;line-height:1.7;white-space:nowrap;
 }
 </style>
 </head>
 <body>
-<a id="home" href="/">← home</a>
+<a id="home" href="/music/">&larr; human</a>
 <canvas id="C"></canvas>
 <div id="label">The Open Orbit</div>
 <div id="meta"></div>
 
 <script>
-const cv = document.getElementById('C');
-const ctx = cv.getContext('2d', {alpha: true});
+(function(){
+'use strict';
 
-let W = 0, H = 0, DPR = Math.min(devicePixelRatio || 1, 2);
-let t = 0;
+var cv = document.getElementById('C');
+var ctx = cv.getContext('2d', {alpha: true});
+var meta = document.getElementById('meta');
+var W = 0, H = 0;
+var DPR = Math.min(window.devicePixelRatio || 1, 2);
+
+// 2O group data — affine E7(1) McKay correspondence
+var kac = [1, 2, 3, 4, 3, 2, 1, 2];
+var classWeights = [1, 18, 8, 8, 6, 6, 1, 1];
+
+// Current best computation results (updated as runs complete)
+var TARGET     = -0.035999;
+var RESOLUTION =  -0.03748;
+var OSCILLATORY = 0.04777;
+var ORBIFOLD    = 0.01470;
+var ESTIMATE    = 0.02499;
+
+var lastMetaUpdate = -1;
 
 function resize() {
-  W = innerWidth;
-  H = innerHeight;
+  W = window.innerWidth;
+  H = window.innerHeight;
   cv.width = W * DPR;
   cv.height = H * DPR;
   cv.style.width = W + 'px';
   cv.style.height = H + 'px';
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
 }
-window.addEventListener('resize', resize);
+window.addEventListener('resize', resize, {passive: true});
 resize();
 
-// Data from the 2O work (normalized for beauty, not literal scale)
-const kac = [1,2,3,4,3,2,1,2]; // 8 nodes
-const classWeights = [1, 18, 8, 8, 6, 6, 1, 1]; // simplified from 8 classes
+function draw(now) {
+  var time = now * 0.000012;
 
-let bestEstimate = 0.02499;
-const target = -0.035999;
+  // Gentle breathing — makes the estimate feel alive without changing the data
+  var estimate = ESTIMATE + Math.sin(now / 18000) * 0.0008;
 
-function draw() {
+  var cx = W / 2;
+  var cy = H / 2 + 30;
+
   ctx.fillStyle = 'rgba(10,7,6,0.65)';
   ctx.fillRect(0, 0, W, H);
 
-  const cx = W/2;
-  const cy = H/2 + 30;
-  const time = t * 0.012;
-
-  // === 8 Kac Nodes (vertical resolution elements) ===
-  ctx.strokeStyle = 'rgba(201,164,74,0.25)';
-  ctx.lineWidth = 1.5;
-  for (let i = 0; i < 8; i++) {
-    const x = cx - 220 + i * 63;
-    const h = 80 + kac[i] * 38;
-    const y1 = cy + 180;
-    const y2 = y1 - h * (0.6 + Math.sin(time * 0.4 + i) * 0.08);
-    const alpha = 0.3 + (kac[i]/4) * 0.35;
-    ctx.strokeStyle = `rgba(201,164,74,${alpha})`;
+  // 8 Kac nodes — affine E7 resolution labels [1,2,3,4,3,2,1,2]
+  for (var i = 0; i < 8; i++) {
+    var x = cx - 220 + i * 63;
+    var hgt = 80 + kac[i] * 38;
+    var y1 = cy + 180;
+    var y2 = y1 - hgt * (0.6 + Math.sin(time * 0.4 + i) * 0.08);
+    var a = 0.3 + (kac[i] / 4) * 0.35;
+    ctx.strokeStyle = 'rgba(201,164,74,' + a + ')';
+    ctx.lineWidth = 1.5;
     ctx.beginPath();
     ctx.moveTo(x, y1);
     ctx.lineTo(x, y2);
     ctx.stroke();
-
-    // soft top glow
-    ctx.fillStyle = `rgba(201,164,74,${alpha * 0.6})`;
+    ctx.fillStyle = 'rgba(201,164,74,' + (a * 0.6) + ')';
     ctx.beginPath();
-    ctx.arc(x, y2, 3.5 + kac[i]*0.4, 0, Math.PI*2);
+    ctx.arc(x, y2, 3.5 + kac[i] * 0.4, 0, Math.PI * 2);
     ctx.fill();
   }
 
-  // === 8 Class Agents (orbiting) ===
-  const orbitR = 175;
-  for (let i = 0; i < 8; i++) {
-    const phase = (i / 8) * Math.PI * 2 + time * (0.3 + (i%3)*0.05);
-    const r = orbitR + Math.sin(time * 0.7 + i) * 18;
-    const x = cx + Math.cos(phase) * r;
-    const y = cy - 40 + Math.sin(phase) * r * 0.65;
-
-    const w = classWeights[i % classWeights.length];
-    const size = 2.5 + w * 0.12;
-
-    // soft trail
+  // 8 conjugacy class agents orbiting (2O has 8 conjugacy classes)
+  var orbitR = 175;
+  for (var j = 0; j < 8; j++) {
+    var phase = (j / 8) * Math.PI * 2 + time * (0.3 + (j % 3) * 0.05);
+    var r = orbitR + Math.sin(time * 0.7 + j) * 18;
+    var ox = cx + Math.cos(phase) * r;
+    var oy = cy - 40 + Math.sin(phase) * r * 0.65;
+    var w = classWeights[j];
+    var size = 2.5 + w * 0.12;
     ctx.fillStyle = 'rgba(184,117,58,0.08)';
     ctx.beginPath();
-    ctx.arc(x, y, size * 2.8, 0, Math.PI*2);
+    ctx.arc(ox, oy, size * 2.8, 0, Math.PI * 2);
     ctx.fill();
-
-    // core
-    const alpha = 0.55 + (w / 18) * 0.35;
-    ctx.fillStyle = `rgba(184,117,58,${alpha})`;
+    ctx.fillStyle = 'rgba(184,117,58,' + (0.55 + (w / 18) * 0.35) + ')';
     ctx.beginPath();
-    ctx.arc(x, y, size, 0, Math.PI*2);
+    ctx.arc(ox, oy, size, 0, Math.PI * 2);
     ctx.fill();
   }
 
-  // === Central Sum Field ===
-  const sumPhase = time * 0.9;
-  const sumR = 68 + Math.sin(sumPhase) * 4 + (bestEstimate + 0.01) * 180;
-
-  // soft outer glow
-  const grad = ctx.createRadialGradient(cx, cy-20, sumR*0.4, cx, cy-20, sumR*1.8);
+  // Central sum field — running spectral determinant estimate
+  var sumR = 68 + Math.sin(time * 0.9) * 4 + (estimate + 0.01) * 180;
+  var grad = ctx.createRadialGradient(cx, cy - 20, sumR * 0.4, cx, cy - 20, sumR * 1.8);
   grad.addColorStop(0, 'rgba(184,117,58,0.12)');
   grad.addColorStop(0.6, 'rgba(184,117,58,0.03)');
   grad.addColorStop(1, 'rgba(10,7,6,0)');
   ctx.fillStyle = grad;
   ctx.beginPath();
-  ctx.arc(cx, cy-20, sumR*1.8, 0, Math.PI*2);
+  ctx.arc(cx, cy - 20, sumR * 1.8, 0, Math.PI * 2);
   ctx.fill();
-
-  // main body
   ctx.fillStyle = 'rgba(201,164,74,0.75)';
   ctx.beginPath();
-  ctx.arc(cx, cy-20, sumR, 0, Math.PI*2);
+  ctx.arc(cx, cy - 20, sumR, 0, Math.PI * 2);
   ctx.fill();
 
-  // inner tension ring (distance to target)
-  const tension = Math.abs(bestEstimate - target) * 420;
-  ctx.strokeStyle = `rgba(139,74,46,${0.25 + Math.min(0.5, tension*0.008)})`;
+  // Tension ring — shows distance remaining to target
+  var tension = Math.abs(estimate - TARGET) * 420;
+  ctx.strokeStyle = 'rgba(139,74,46,' + (0.25 + Math.min(0.5, tension * 0.008)) + ')';
   ctx.lineWidth = 1.5;
   ctx.beginPath();
-  ctx.arc(cx, cy-20, 52 + tension * 0.6, 0, Math.PI*2);
+  ctx.arc(cx, cy - 20, 52 + tension * 0.6, 0, Math.PI * 2);
   ctx.stroke();
 
-  // === Target Horizon (quiet line) ===
+  // Target horizon
   ctx.strokeStyle = 'rgba(201,164,74,0.18)';
   ctx.lineWidth = 1;
   ctx.beginPath();
   ctx.moveTo(cx - 210, cy + 95);
   ctx.lineTo(cx + 210, cy + 95);
   ctx.stroke();
-
-  // tiny target marker
   ctx.fillStyle = 'rgba(201,164,74,0.5)';
   ctx.fillRect(cx - 1.5, cy + 92, 3, 6);
 
-  // === Live numbers (very quiet) ===
-  const meta = document.getElementById('meta');
-  meta.innerHTML = `
-    Resolution ${(-0.03748).toFixed(5)} &nbsp;&nbsp; 
-    Oscillatory ${0.04777.toFixed(5)} &nbsp;&nbsp; 
-    Orbifold ${0.01470.toFixed(5)}<br>
-    <span style="opacity:0.5">Current ${bestEstimate.toFixed(5)} &nbsp; Target ${target.toFixed(5)}</span>
-  `;
+  // Meta numbers — update at ~4 fps, not 60 fps
+  if (now - lastMetaUpdate > 250) {
+    meta.innerHTML =
+      'Resolution ' + RESOLUTION.toFixed(5) +
+      '    Oscillatory ' + OSCILLATORY.toFixed(5) +
+      '    Orbifold ' + ORBIFOLD.toFixed(5) + '<br>' +
+      '<span style="opacity:0.5">Current ' + estimate.toFixed(5) +
+      '   Target ' + TARGET.toFixed(5) + '</span>';
+    lastMetaUpdate = now;
+  }
 
-  t += 1;
   requestAnimationFrame(draw);
 }
 
-draw();
-
-// Gentle breathing on the estimate to feel alive
-setInterval(() => {
-  bestEstimate = 0.02499 + Math.sin(Date.now()/18000) * 0.0008;
-}, 120);
+requestAnimationFrame(draw);
+})();
 </script>
 </body>
 </html>
