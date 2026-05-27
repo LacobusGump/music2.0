@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta name="theme-color" content="#0a0706">
+<title>The Open Orbit — beGump</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:#0a0706;overflow:hidden;touch-action:none;}
+canvas{display:block;width:100vw;height:100vh;}
+#label{
+  position:fixed;bottom:28px;left:50%;transform:translateX(-50%);
+  font:100 0.9em Georgia;color:#c9a44a;letter-spacing:0.35em;
+  text-transform:uppercase;opacity:0.55;pointer-events:none;
+  text-shadow:0 0 20px rgba(10,7,6,0.9);
+}
+#home{
+  position:fixed;top:18px;left:20px;font-family:Futura,'Century Gothic',sans-serif;
+  font-size:0.58em;letter-spacing:0.12em;color:rgba(184,117,58,0.4);
+  text-decoration:none;z-index:100;transition:color 0.3s;
+}
+#home:hover{color:#c9a44a;}
+#meta{
+  position:fixed;bottom:68px;left:50%;transform:translateX(-50%);
+  font-family:'Courier New',monospace;font-size:0.62em;color:#7a6640;
+  letter-spacing:0.08em;opacity:0.65;pointer-events:none;
+  text-align:center;line-height:1.7;
+}
+</style>
+</head>
+<body>
+<a id="home" href="/">← home</a>
+<canvas id="C"></canvas>
+<div id="label">The Open Orbit</div>
+<div id="meta"></div>
+
+<script>
+const cv = document.getElementById('C');
+const ctx = cv.getContext('2d', {alpha: true});
+
+let W = 0, H = 0, DPR = Math.min(devicePixelRatio || 1, 2);
+let t = 0;
+
+function resize() {
+  W = innerWidth;
+  H = innerHeight;
+  cv.width = W * DPR;
+  cv.height = H * DPR;
+  cv.style.width = W + 'px';
+  cv.style.height = H + 'px';
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+}
+window.addEventListener('resize', resize);
+resize();
+
+// Data from the 2O work (normalized for beauty, not literal scale)
+const kac = [1,2,3,4,3,2,1,2]; // 8 nodes
+const classWeights = [1, 18, 8, 8, 6, 6, 1, 1]; // simplified from 8 classes
+
+let bestEstimate = 0.02499;
+const target = -0.035999;
+
+function draw() {
+  ctx.fillStyle = 'rgba(10,7,6,0.65)';
+  ctx.fillRect(0, 0, W, H);
+
+  const cx = W/2;
+  const cy = H/2 + 30;
+  const time = t * 0.012;
+
+  // === 8 Kac Nodes (vertical resolution elements) ===
+  ctx.strokeStyle = 'rgba(201,164,74,0.25)';
+  ctx.lineWidth = 1.5;
+  for (let i = 0; i < 8; i++) {
+    const x = cx - 220 + i * 63;
+    const h = 80 + kac[i] * 38;
+    const y1 = cy + 180;
+    const y2 = y1 - h * (0.6 + Math.sin(time * 0.4 + i) * 0.08);
+    const alpha = 0.3 + (kac[i]/4) * 0.35;
+    ctx.strokeStyle = `rgba(201,164,74,${alpha})`;
+    ctx.beginPath();
+    ctx.moveTo(x, y1);
+    ctx.lineTo(x, y2);
+    ctx.stroke();
+
+    // soft top glow
+    ctx.fillStyle = `rgba(201,164,74,${alpha * 0.6})`;
+    ctx.beginPath();
+    ctx.arc(x, y2, 3.5 + kac[i]*0.4, 0, Math.PI*2);
+    ctx.fill();
+  }
+
+  // === 8 Class Agents (orbiting) ===
+  const orbitR = 175;
+  for (let i = 0; i < 8; i++) {
+    const phase = (i / 8) * Math.PI * 2 + time * (0.3 + (i%3)*0.05);
+    const r = orbitR + Math.sin(time * 0.7 + i) * 18;
+    const x = cx + Math.cos(phase) * r;
+    const y = cy - 40 + Math.sin(phase) * r * 0.65;
+
+    const w = classWeights[i % classWeights.length];
+    const size = 2.5 + w * 0.12;
+
+    // soft trail
+    ctx.fillStyle = 'rgba(184,117,58,0.08)';
+    ctx.beginPath();
+    ctx.arc(x, y, size * 2.8, 0, Math.PI*2);
+    ctx.fill();
+
+    // core
+    const alpha = 0.55 + (w / 18) * 0.35;
+    ctx.fillStyle = `rgba(184,117,58,${alpha})`;
+    ctx.beginPath();
+    ctx.arc(x, y, size, 0, Math.PI*2);
+    ctx.fill();
+  }
+
+  // === Central Sum Field ===
+  const sumPhase = time * 0.9;
+  const sumR = 68 + Math.sin(sumPhase) * 4 + (bestEstimate + 0.01) * 180;
+
+  // soft outer glow
+  const grad = ctx.createRadialGradient(cx, cy-20, sumR*0.4, cx, cy-20, sumR*1.8);
+  grad.addColorStop(0, 'rgba(184,117,58,0.12)');
+  grad.addColorStop(0.6, 'rgba(184,117,58,0.03)');
+  grad.addColorStop(1, 'rgba(10,7,6,0)');
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.arc(cx, cy-20, sumR*1.8, 0, Math.PI*2);
+  ctx.fill();
+
+  // main body
+  ctx.fillStyle = 'rgba(201,164,74,0.75)';
+  ctx.beginPath();
+  ctx.arc(cx, cy-20, sumR, 0, Math.PI*2);
+  ctx.fill();
+
+  // inner tension ring (distance to target)
+  const tension = Math.abs(bestEstimate - target) * 420;
+  ctx.strokeStyle = `rgba(139,74,46,${0.25 + Math.min(0.5, tension*0.008)})`;
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.arc(cx, cy-20, 52 + tension * 0.6, 0, Math.PI*2);
+  ctx.stroke();
+
+  // === Target Horizon (quiet line) ===
+  ctx.strokeStyle = 'rgba(201,164,74,0.18)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(cx - 210, cy + 95);
+  ctx.lineTo(cx + 210, cy + 95);
+  ctx.stroke();
+
+  // tiny target marker
+  ctx.fillStyle = 'rgba(201,164,74,0.5)';
+  ctx.fillRect(cx - 1.5, cy + 92, 3, 6);
+
+  // === Live numbers (very quiet) ===
+  const meta = document.getElementById('meta');
+  meta.innerHTML = `
+    Resolution ${(-0.03748).toFixed(5)} &nbsp;&nbsp; 
+    Oscillatory ${0.04777.toFixed(5)} &nbsp;&nbsp; 
+    Orbifold ${0.01470.toFixed(5)}<br>
+    <span style="opacity:0.5">Current ${bestEstimate.toFixed(5)} &nbsp; Target ${target.toFixed(5)}</span>
+  `;
+
+  t += 1;
+  requestAnimationFrame(draw);
+}
+
+draw();
+
+// Gentle breathing on the estimate to feel alive
+setInterval(() => {
+  bestEstimate = 0.02499 + Math.sin(Date.now()/18000) * 0.0008;
+}, 120);
+</script>
+</body>
+</html>
