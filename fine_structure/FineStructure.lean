@@ -84,7 +84,13 @@ import FineStructure.GraceConsciousnessGate
 -- Reversible computing & Landauer economics (grokking 224k×, lysozyme exact, 408× adiabatic, 3721× combined)
 import FineStructure.ReversibleLandauer
 
--- (End of stack. All 137 pages + private corpus claims are now importable and checkable.)
--- Next expansion targets: proton decay channels, misfolding/ALS/aging bio theorems,
--- deeper 2O character sums for open ALE det, consciousness/grace gate formalization,
--- cross-domain prediction ledger (10 testable claims from theory page).
+-- Killed claims from the Shroud research page (13 explicit energy shortfalls, 10^8× to 10^72× failures)
+import FineStructure.ShroudKilledMechanisms
+
+-- Killed claims from the Gravity page (frame-dragging-as-Kuramoto, dark matter as Landauer heat)
+import FineStructure.GravityKilledClaims
+
+-- Three-term decomposition conjecture for 2O spectral determinant (Cycle 9 — resolution + orbifold + crossterm)
+import FineStructure.ThreeTermConjecture
+
+-- (End of stack — 29 modules. All 137 pages + private corpus claims importable and checkable.)
