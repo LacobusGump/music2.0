@@ -240,6 +240,7 @@ const Band = (function () {
   // One mono bass oscillator, glides between root notes.
 
   var _bassOsc  = null;
+  var _bassSub  = null;   // sub-sine — tracked so stop() can clean it
   var _bassEnv  = null;
   var _bassGain = null;
   var _lastBassHz = 0;
@@ -266,17 +267,17 @@ const Band = (function () {
     _bassOsc.frequency.value = 55;
 
     // Sub-sine for that 808 weight
-    var sub = _ctx.createOscillator();
-    sub.type = 'sine';
-    sub.frequency.value = 55;
+    _bassSub = _ctx.createOscillator();
+    _bassSub.type = 'sine';
+    _bassSub.frequency.value = 55;
     var subG = _ctx.createGain(); subG.gain.value = 0.6;
-    sub.connect(subG); subG.connect(_bassGain);
+    _bassSub.connect(subG); subG.connect(_bassGain);
 
     _bassEnv = _ctx.createGain(); _bassEnv.gain.value = 0.5;
     _bassOsc.connect(_bassEnv); _bassEnv.connect(_bassGain);
 
     _bassOsc.start();
-    sub.start();
+    _bassSub.start();
   }
 
   function _playBass(t, midiNote, vel) {
@@ -289,9 +290,7 @@ const Band = (function () {
     var semis = Math.abs(Math.log2(hz / prevHz) * 12);
     var glide = semis < 5 ? 0.04 : 0;
     _bassOsc.frequency.setTargetAtTime(hz, t, glide || 0.001);
-
-    // Get second sub oscillator frequency in sync
-    var subOscs = _bassGain.context ? null : null; // just update main
+    if (_bassSub) _bassSub.frequency.setTargetAtTime(hz, t, glide || 0.001);
 
     // Envelope: pluck shape
     var v = Math.min(0.85, vel * 0.70 + _pink() * 0.04);
@@ -467,9 +466,8 @@ const Band = (function () {
     if (_padOscs.length > 0) {
       _padGain && _padGain.gain.setTargetAtTime(0, _ctx.currentTime, 0.5);
     }
-    if (_bassOsc) {
-      try { _bassOsc.stop(_ctx.currentTime + 1); } catch(e) {}
-    }
+    if (_bassOsc) { try { _bassOsc.stop(_ctx.currentTime + 1); } catch(e) {} }
+    if (_bassSub) { try { _bassSub.stop(_ctx.currentTime + 1); } catch(e) {} }
   }
 
   /**
