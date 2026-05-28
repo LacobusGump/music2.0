@@ -55,9 +55,13 @@ const Band = (function () {
   var _melodyVel         = 0.5;
   var _lastMelodyCtxTime = 0;
 
-  // Auto-fill
-  var _fillNotes = [0,2,4,2];
-  var _fillPos   = 0;
+  // Auto-fill — phrase holds for the whole section (repetition = recognition)
+  var _fillNotes          = [0,2,4,2];
+  var _fillPos            = 0;
+  var _lastSectionForFill = '';
+
+  // Note durations for fill positions: near-half, short, dotted-quarter, short
+  var FILL_DURS = [3.5, 1.8, 2.8, 1.5];
 
   // Reverb
   var _reverbSend = null;
@@ -267,15 +271,16 @@ const Band = (function () {
 
     var ch   = Environ.chord(0, 0);
     var fm   = _style.padFM;
-    var pans = [-0.28, 0, 0.28];
+    var pans  = [-0.35, -0.12, 0.12, 0.35];
+    var gains = [0.12, 0.10, 0.10, 0.07];  // 7th is quieter — color tone, not structure
 
-    for (var ci = 0; ci < 3; ci++) {
+    for (var ci = 0; ci < 4; ci++) {
       var hz = Environ.midiToHz(ch[ci] + 12);
 
       var carrier = _ctx.createOscillator(); carrier.type = 'sine';
       var mod     = _ctx.createOscillator(); mod.type = 'sine';
       var modGain = _ctx.createGain();
-      var g       = _ctx.createGain(); g.gain.value = 0.12;
+      var g       = _ctx.createGain(); g.gain.value = gains[ci];
 
       carrier.frequency.value = hz;
       mod.frequency.value     = hz * fm.ratio;
@@ -303,7 +308,7 @@ const Band = (function () {
     _padGain.gain.setTargetAtTime(target, _ctx.currentTime, 0.65);
     var ch = Environ.chord(bar, 0);
     var fm = _style.padFM;
-    for (var ci = 0; ci < 3; ci++) {
+    for (var ci = 0; ci < 4; ci++) {
       var v  = _padOscs[ci];
       if (!v) continue;
       var hz = Environ.midiToHz(ch[ci] + 12);
@@ -659,17 +664,33 @@ const Band = (function () {
       var timeSinceActive = _ctx.currentTime - _lastMelodyCtxTime;
       var doAutoFill      = timeSinceActive > 3.5 && sec !== 'intro' && sec !== 'build';
 
-      if (b === 0) {
-        _fillNotes = _style.fills[totalBars % _style.fills.length];
+      // Hold one motif per section — repetition creates recognition
+      if (b === 0 && sec !== _lastSectionForFill && (sec === 'verse' || sec === 'chorus' || sec === 'rebuild')) {
+        _lastSectionForFill = sec;
+        // Chorus picks a different fill than verse for contrast
+        var fillIdx = sec === 'chorus'
+          ? (_style.fills.length > 1 ? 1 : 0)
+          : 0;
+        _fillNotes = _style.fills[fillIdx];
         _fillPos   = 0;
       }
 
-      if (b % 4 === 0) {
+      // Style-specific melody rhythm — not every quarter note
+      var mRhythm = _style.melodyRhythm;
+      var melodyFires = mRhythm ? (mRhythm[b] === 1) : (b % 4 === 0);
+
+      if (melodyFires) {
         if (_melodyActive) {
           _playMelody(t, _melodyDegree, _melodyVel, beat16th * 3.5);
         } else if (doAutoFill && Math.random() < (_style.fillDensity || 0.55)) {
           var deg = _fillNotes[_fillPos % _fillNotes.length];
-          if (deg >= 0) _playMelody(t, deg, 0.33 + _pink()*0.05, beat16th * 3.5);
+          if (deg >= 0) {
+            // Velocity rises with section energy
+            var melVel = sec === 'chorus' ? 0.52 : sec === 'verse' ? 0.38 : 0.28;
+            // Note duration varies by position — phrases breathe
+            var melDur = beat16th * FILL_DURS[_fillPos % FILL_DURS.length];
+            _playMelody(t, deg, melVel + _pink()*0.05, melDur);
+          }
           _fillPos++;
         }
       }

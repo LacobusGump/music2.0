@@ -225,13 +225,15 @@ const Environ = (function () {
     return semitones.map(function (s) { return root + s; });
   }
 
-  /** Returns the chord for a given progression bar (0–3) as array of MIDI note numbers */
+  /** Returns the chord for a given progression bar (0–3) as array of MIDI note numbers.
+   *  Returns 4 notes: root, 3rd, 5th, 7th (diatonic). 7th = degrees[0]+6 in scale. */
   function chord(bar, octave) {
     var prog = (PROGRESSIONS[state.mode] || PROGRESSIONS.minor);
     var degrees = prog[bar % prog.length];
     var sc = scale(octave !== undefined ? octave : 0);
-    var extended = sc.concat(scale(1)); // two octaves to avoid out-of-range
-    return degrees.map(function (d) { return extended[d]; });
+    var extended = sc.concat(scale(1)).concat(scale(2)); // 3 octaves — 7th needs index up to 13
+    var seventh = degrees[0] + 6;
+    return [degrees[0], degrees[1], degrees[2], seventh].map(function (d) { return extended[d]; });
   }
 
   /** MIDI note number → Hz */

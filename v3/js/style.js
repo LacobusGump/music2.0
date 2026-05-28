@@ -39,7 +39,9 @@ const Styles = (function () {
       kickGrid:  [1.0,0,0,0, 0,0,0,0, 0,0,1.0,0, 0,0,0.28,0],
       snareGrid: [0,0,0,0, 1.0,0,0,0, 0,0,0,0, 1.0,0,0.38,0],
       chordRhythm: 2,     // chords change every 2 bars — lo-fi loops slow
-      fillDensity: 0.55,  // fills play on ~every other beat
+      fillDensity: 0.55,
+      // Lazy, behind the beat — steps on 1, off-beats, never mechanical
+      melodyRhythm: [1,0,0,0, 0,0,1,0, 0,1,0,0, 0,0,1,0],
       bassLP:   320,  bassSubGain: 0.72, bassDrive: 0.38,
       reverbSec: 3.4,
       vinyl:    true,
@@ -70,6 +72,8 @@ const Styles = (function () {
       snareGrid: [0,0,0,0, 1.0,0,0,0, 0,0,0,0, 1.0,0,0.45,0],
       chordRhythm: 1,     // chords move every bar — R&B harmonic motion
       fillDensity: 0.70,
+      // 8th-note groove feel — punchy, on and around the beat
+      melodyRhythm: [1,0,1,0, 0,1,0,0, 1,0,1,0, 0,0,1,0],
       bassLP:   480,  bassSubGain: 0.50, bassDrive: 0.52,
       reverbSec: 2.0,
       vinyl:    false,
@@ -102,7 +106,10 @@ const Styles = (function () {
       // Ride cymbal: strong on 1,2,3,4 — "and" of 2 lifted (the jazz pulse)
       hatVels: [0.72,0.06,0.16,0.06, 0.60,0.06,0.34,0.06, 0.68,0.06,0.16,0.06, 0.56,0.06,0.20,0.06],
       chordRhythm: 2,     // modal: 2 bars per chord — Miles Davis stayed on modes
-      fillDensity: 0.42,  // melodic phrases have space between them
+      fillDensity: 0.42,
+      // Jazz: sparse, syncopated. Never on the beat except bar 1.
+      // Lands on the "and" — the Charlie Parker approach.
+      melodyRhythm: [1,0,0,1, 0,0,1,0, 0,0,0,1, 0,1,0,0],
       bassLP:   600,  bassSubGain: 0.20, bassDrive: 0.14,
       reverbSec: 1.5,
       vinyl:    false,
@@ -110,7 +117,9 @@ const Styles = (function () {
       is808:    false,
       hasTrap:  false,
       modeHint: ['dorian', 'mixolydian', 'phrygian'],
-      fills: [ [0,2,4,6], [6,4,2,0], [1,3,5,3], [2,4,6,5] ],
+      // Jazz fills land on 7ths and 9ths — chord tones, not just scale tones
+      // Degree 6 = 7th (now a chord tone), creates jazz flavor
+      fills: [ [0,4,6,2], [6,2,4,0], [2,6,4,1], [4,6,2,4] ],
       sunoPrompt: 'jazz quartet, brushed drums, upright bass, piano, swing feel',
     },
 
@@ -132,7 +141,9 @@ const Styles = (function () {
       kickGrid:  [0.42,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
       snareGrid: [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
       chordRhythm: 4,     // drone: one chord for all 4 bars
-      fillDensity: 0.18,  // very rare melodic events — mostly silence and reverb
+      fillDensity: 0.18,
+      // Ambient: one note every other bar at most. Silence is the texture.
+      melodyRhythm: [1,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0],
       bassLP:   240,  bassSubGain: 0.42, bassDrive: 0.10,
       reverbSec: 5.5,
       vinyl:    false,
@@ -163,6 +174,8 @@ const Styles = (function () {
       snareGrid: [0,0,0,0, 1.0,0,0,0, 0,0,0,0, 1.0,0,0,0],
       chordRhythm: 2,     // 2-bar loops
       fillDensity: 0.50,
+      // Trap melody: sparse, dark. Sits between hits, doesn't crowd the 808.
+      melodyRhythm: [1,0,0,0, 0,0,0,0, 0,1,0,0, 0,0,1,0],
       bassLP:   280,  bassSubGain: 0.92, bassDrive: 0.72,
       reverbSec: 2.8,
       vinyl:    false,
