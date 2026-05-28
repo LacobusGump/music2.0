@@ -149,6 +149,22 @@ const Sound = (function () {
       reverbSend: 0.20, delaySend: 0.18,
       custom: 'epiano'
     },
+    lofiRhodes: {
+      wave: 'sine', attack: 0.006, decay: 1.6, sustain: 0.12, release: 0.8,
+      filterFreq: 2000, filterQ: 0.5,
+      // Warmer FM + tape flutter (0.28Hz pitch LFO) + vinyl noise floor
+      // Heavy LP at 2kHz is the defining cassette character
+      reverbSend: 0.35, delaySend: 0.28,
+      custom: 'lofiRhodes'
+    },
+    soulKeys: {
+      wave: 'sine', attack: 0.005, decay: 1.2, sustain: 0.18, release: 0.6,
+      filterFreq: 3200, filterQ: 0.4,
+      // Chorused FM Rhodes (2 pairs ±6 cents) — clean Fender Rhodes character
+      // Tighter tremolo than lo-fi, sub harmonic for soul warmth
+      reverbSend: 0.28, delaySend: 0.15,
+      custom: 'soulKeys'
+    },
     bell: {
       wave: 'sine', attack: 0.001, decay: 3.0, sustain: 0.0, release: 0.1,
       filterFreq: 2800, filterQ: 0.5,
@@ -878,7 +894,9 @@ const Sound = (function () {
         switch (reg.custom) {
           case 'piano':     _synthPiano(t, f, vel, dur);     break;
           case 'mono':      _synthMono(t, f, vel, dur);      break;
-          case 'epiano':    _synthEPiano(t, f, vel, dur);    break;
+          case 'epiano':      _synthEPiano(t, f, vel, dur);      break;
+          case 'lofiRhodes':  _synthLofiRhodes(t, f, vel, dur);  break;
+          case 'soulKeys':    _synthSoulKeys(t, f, vel, dur);    break;
           case 'pluck':     _synthPluck(t, f, vel, dur);     break;
           case 'stab':      _synthStab(t, f, vel);           break;
           case 'formant':   _synthFormant(t, f, vel, dur);   break;
@@ -1215,6 +1233,136 @@ const Sound = (function () {
 
     mod1.start(time); mod1.stop(end); car1.start(time); car1.stop(end);
     mod2.start(time); mod2.stop(end); car2.start(time); car2.stop(end);
+    trem.start(time); trem.stop(end);
+  }
+
+
+  // ── LOFI RHODES — cassette tape FM tine ──────────────────────────────
+  // FM Rhodes with tape flutter + heavy 2kHz LP + vinyl noise floor.
+  // Warmer modIdx (less bright), slower tremolo (more drowsy).
+  // The heavy LP ceiling IS the lo-fi sound. Don't raise it.
+
+  function _synthLofiRhodes(time, freq, vel, decay) {
+    var end = time + decay + 0.8;
+
+    // FM pair 1: fundamental — warm, low modIdx
+    var mod1 = ctx.createOscillator(); mod1.type = 'sine'; mod1.frequency.value = freq;
+    var mod1G = ctx.createGain();
+    var modIdx = 1.8 + vel * 0.9;
+    mod1G.gain.setValueAtTime(freq * modIdx, time);
+    mod1G.gain.exponentialRampToValueAtTime(freq * 0.08, time + decay * 0.45);
+    var car1 = ctx.createOscillator(); car1.type = 'sine'; car1.frequency.value = freq;
+    mod1.connect(mod1G); mod1G.connect(car1.frequency);
+
+    // FM pair 2: sub-harmonic — warmth, not brightness
+    var mod2 = ctx.createOscillator(); mod2.type = 'sine'; mod2.frequency.value = freq * 0.5;
+    var mod2G = ctx.createGain();
+    mod2G.gain.setValueAtTime(freq * 0.6, time);
+    mod2G.gain.exponentialRampToValueAtTime(freq * 0.02, time + decay * 0.3);
+    var car2 = ctx.createOscillator(); car2.type = 'sine'; car2.frequency.value = freq;
+    mod2.connect(mod2G); mod2G.connect(car2.frequency);
+    var c2gain = ctx.createGain(); c2gain.gain.value = 0.20; car2.connect(c2gain);
+
+    // Envelope — slower decay, more warmth
+    var env = ctx.createGain();
+    env.gain.setValueAtTime(0.0001, time);
+    env.gain.exponentialRampToValueAtTime(Math.min(0.62, vel * 0.55), time + 0.006);
+    env.gain.setTargetAtTime(vel * 0.38, time + 0.006, 0.12);
+    env.gain.setTargetAtTime(0.0001, time + decay * 0.55, decay * 0.42);
+
+    // AM tremolo — slower (3.2Hz) = drowsy, behind the beat
+    var tremoloGain = ctx.createGain(); tremoloGain.gain.value = 1;
+    var trem = ctx.createOscillator(); trem.type = 'sine'; trem.frequency.value = 3.2;
+    var tremDepth = ctx.createGain(); tremDepth.gain.value = 0.09 * vel;
+    trem.connect(tremDepth); tremDepth.connect(tremoloGain.gain);
+
+    // Tape flutter: pitch LFO at 0.28Hz, ±4 cents — cassette transport wow
+    var flutterLFO = ctx.createOscillator(); flutterLFO.type = 'sine';
+    flutterLFO.frequency.value = 0.28;
+    var flutterG = ctx.createGain(); flutterG.gain.value = freq * 0.0023;
+    flutterLFO.connect(flutterG);
+    flutterG.connect(car1.frequency);
+    flutterG.connect(car2.frequency);
+
+    // Heavy LP at 2kHz — this IS the lo-fi sound
+    var lp = ctx.createBiquadFilter(); lp.type = 'lowpass';
+    lp.frequency.value = 2000; lp.Q.value = 0.5;
+
+    car1.connect(env); c2gain.connect(env);
+    env.connect(tremoloGain); tremoloGain.connect(lp); lp.connect(sidechainGain);
+    var rs = ctx.createGain(); rs.gain.value = 0.35; lp.connect(rs); rs.connect(reverbSend);
+    var ds = ctx.createGain(); ds.gain.value = 0.28; lp.connect(ds); ds.connect(delaySend);
+
+    // Vinyl noise floor — very subtle, just texture
+    var noiseLen = Math.floor(ctx.sampleRate * 0.08);
+    var noiseBuf = ctx.createBuffer(1, noiseLen, ctx.sampleRate);
+    var nd = noiseBuf.getChannelData(0);
+    for (var ni = 0; ni < noiseLen; ni++) nd[ni] = (Math.random() * 2 - 1) * 0.006;
+    var noiseSrc = ctx.createBufferSource();
+    noiseSrc.buffer = noiseBuf; noiseSrc.loop = true;
+    var noiseG = ctx.createGain(); noiseG.gain.value = 0.016 * vel;
+    noiseSrc.connect(noiseG); noiseG.connect(lp);
+
+    mod1.start(time); mod1.stop(end); car1.start(time); car1.stop(end);
+    mod2.start(time); mod2.stop(end); car2.start(time); car2.stop(end);
+    trem.start(time); trem.stop(end);
+    flutterLFO.start(time); flutterLFO.stop(end);
+    noiseSrc.start(time); noiseSrc.stop(end);
+  }
+
+
+  // ── SOUL KEYS — chorused FM Rhodes for R&B ────────────────────────────
+  // Two FM pairs detuned ±6 cents = clean Fender Rhodes in a pro session.
+  // Tighter tremolo than lo-fi, brighter LP, sub harmonic for soul warmth.
+
+  function _synthSoulKeys(time, freq, vel, decay) {
+    var end = time + decay + 0.6;
+
+    var envMain = ctx.createGain();
+    envMain.gain.setValueAtTime(0.0001, time);
+    envMain.gain.exponentialRampToValueAtTime(Math.min(0.65, vel * 0.58), time + 0.005);
+    envMain.gain.setTargetAtTime(vel * 0.40, time + 0.005, 0.08);
+    envMain.gain.setTargetAtTime(0.0001, time + decay * 0.45, decay * 0.35);
+
+    // Chorus: two FM pairs ±6 cents for warmth
+    var detunes = [-6, 6];
+    var modIdx = 2.2 + vel * 1.4;
+    for (var di = 0; di < detunes.length; di++) {
+      var fq = freq * Math.pow(2, detunes[di] / 1200);
+      var mod = ctx.createOscillator(); mod.type = 'sine'; mod.frequency.value = fq;
+      var modG = ctx.createGain();
+      modG.gain.setValueAtTime(fq * modIdx, time);
+      modG.gain.exponentialRampToValueAtTime(fq * 0.10, time + decay * 0.28);
+      var car = ctx.createOscillator(); car.type = 'sine'; car.frequency.value = fq;
+      mod.connect(modG); modG.connect(car.frequency);
+      var cg = ctx.createGain(); cg.gain.value = 0.50;
+      car.connect(cg); cg.connect(envMain);
+      mod.start(time); mod.stop(end); car.start(time); car.stop(end);
+    }
+
+    // Sub harmonic — soul warmth
+    var sub = ctx.createOscillator(); sub.type = 'sine'; sub.frequency.value = freq * 0.5;
+    var subE = ctx.createGain();
+    subE.gain.setValueAtTime(0.0001, time);
+    subE.gain.exponentialRampToValueAtTime(vel * 0.14, time + 0.01);
+    subE.gain.setTargetAtTime(0.0001, time + decay * 0.3, decay * 0.3);
+    sub.connect(subE); subE.connect(envMain);
+
+    // Tighter tremolo — professional feel (5.5Hz, subtle)
+    var tremoloGain = ctx.createGain(); tremoloGain.gain.value = 1;
+    var trem = ctx.createOscillator(); trem.type = 'sine'; trem.frequency.value = 5.5;
+    var tremDepth = ctx.createGain(); tremDepth.gain.value = 0.07 * vel;
+    trem.connect(tremDepth); tremDepth.connect(tremoloGain.gain);
+
+    // Brighter LP — 3.2kHz, R&B presence
+    var lp = ctx.createBiquadFilter(); lp.type = 'lowpass';
+    lp.frequency.value = 3200; lp.Q.value = 0.4;
+
+    envMain.connect(tremoloGain); tremoloGain.connect(lp); lp.connect(sidechainGain);
+    var rs = ctx.createGain(); rs.gain.value = 0.28; lp.connect(rs); rs.connect(reverbSend);
+    var ds = ctx.createGain(); ds.gain.value = 0.15; lp.connect(ds); ds.connect(delaySend);
+
+    sub.start(time); sub.stop(end);
     trem.start(time); trem.stop(end);
   }
 

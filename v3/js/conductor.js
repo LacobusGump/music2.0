@@ -85,9 +85,9 @@ const Conductor = (function () {
     lofi: {
       pipeline: 'organic',
       palette: {
-        continuous: { voice: 'epiano', octave: 0,  decay: 1.8  },
-        harmonic:   { voice: 'epiano', octave: -1, decay: 2.2  },
-        peak:       { voice: 'piano',  octave: -1, decay: 0.7  },
+        continuous: { voice: 'lofiRhodes', octave: 0,  decay: 1.8  },
+        harmonic:   { voice: 'lofiRhodes', octave: -1, decay: 2.4  },
+        peak:       { voice: 'piano',      octave: -1, decay: 0.7  },
       },
       response: {
         tiltRange:          50,
@@ -99,16 +99,27 @@ const Conductor = (function () {
         fadeTime:           3.5,
       },
       rhythm:  { kit: 'brushes' },
-      space:   { reverbMix: 0.40 },
+      // Heavy LP ceiling, warm mid, rolled-off highs = lo-fi tape character
+      tone: {
+        ceiling:  2200,
+        bassFreq: 180, bassGain: 3,
+        midFreq:  450, midQ: 0.8, midGain: 3.5,
+        highFreq: 2200, highGain: -12,
+      },
+      space: {
+        reverbMix: 0.42,
+        reverb: { decay: 3.2, damping: 0.55, preDelay: 25 },
+        delay:  { feedback: 0.42, filter: 1800 },
+      },
       motion:  { melodic: 'beta' },
       emotion: { phraseShape: 'arch' },
     },
     rnb: {
       pipeline: 'organic',
       palette: {
-        continuous: { voice: 'mono',   octave: 0,  decay: 0.9  },
-        harmonic:   { voice: 'epiano', octave: -1, decay: 1.8  },
-        peak:       { voice: 'piano',  octave: -1, decay: 0.6  },
+        continuous: { voice: 'soulKeys', octave: 0,  decay: 1.1  },
+        harmonic:   { voice: 'soulKeys', octave: -1, decay: 1.8  },
+        peak:       { voice: 'piano',    octave: -1, decay: 0.6  },
       },
       response: {
         tiltRange:          55,
@@ -120,7 +131,18 @@ const Conductor = (function () {
         fadeTime:           2.8,
       },
       rhythm:  { kit: 'acoustic' },
-      space:   { reverbMix: 0.28 },
+      // Clean mid presence, brighter ceiling = professional R&B session
+      tone: {
+        ceiling:  3600,
+        bassFreq: 120, bassGain: 1,
+        midFreq:  850, midQ: 0.6, midGain: 1.5,
+        highFreq: 3600, highGain: -5,
+      },
+      space: {
+        reverbMix: 0.28,
+        reverb: { decay: 1.8, damping: 0.35, preDelay: 15 },
+        delay:  { feedback: 0.28, filter: 2400 },
+      },
       motion:  { melodic: 'beta' },
       emotion: { phraseShape: 'rise' },
     },
@@ -141,7 +163,18 @@ const Conductor = (function () {
         fadeTime:           2.2,
       },
       rhythm:  { kit: 'brushes' },
-      space:   { reverbMix: 0.22 },
+      // Natural, open — club acoustic, tight room, clarity without mud
+      tone: {
+        ceiling:  4500,
+        bassFreq: 200, bassGain: -2,
+        midFreq:  1000, midQ: 0.5, midGain: 1,
+        highFreq: 4500, highGain: -6,
+      },
+      space: {
+        reverbMix: 0.22,
+        reverb: { decay: 1.2, damping: 0.25, preDelay: 8 },
+        delay:  { feedback: 0.22, filter: 3000 },
+      },
       motion:  { melodic: 'beta' },
       emotion: { phraseShape: 'fall' },
     },
@@ -149,8 +182,8 @@ const Conductor = (function () {
       pipeline: 'organic',
       palette: {
         continuous: { voice: 'strings', octave: 0,  decay: 3.5, sustained: true },
-        harmonic:   { voice: 'strings', octave: -1, decay: 4.0 },
-        peak:       { voice: 'strings', octave: -1, decay: 2.5 },
+        harmonic:   { voice: 'strings', octave: -1, decay: 4.2 },
+        peak:       { voice: 'strings', octave: -1, decay: 2.8 },
       },
       response: {
         tiltRange:          70,
@@ -162,7 +195,18 @@ const Conductor = (function () {
         fadeTime:           5.0,
       },
       rhythm:  { kit: 'tribal' },
-      space:   { reverbMix: 0.65 },
+      // Low-mid warmth, long decay — infinite space, breath
+      tone: {
+        ceiling:  2800,
+        bassFreq: 100, bassGain: 2,
+        midFreq:  350, midQ: 0.7, midGain: 3,
+        highFreq: 2800, highGain: -8,
+      },
+      space: {
+        reverbMix: 0.68,
+        reverb: { decay: 6.0, damping: 0.70, preDelay: 40 },
+        delay:  { feedback: 0.55, filter: 1200 },
+      },
       motion:  { melodic: 'beta' },
       emotion: { phraseShape: 'arch' },
     },
@@ -183,7 +227,18 @@ const Conductor = (function () {
         fadeTime:           2.5,
       },
       rhythm:  { kit: '808' },
-      space:   { reverbMix: 0.35 },
+      // Heavy sub, tight mids, dark ceiling = trap
+      tone: {
+        ceiling:  3000,
+        bassFreq: 80, bassGain: 4,
+        midFreq:  600, midQ: 0.6, midGain: -1,
+        highFreq: 3000, highGain: -7,
+      },
+      space: {
+        reverbMix: 0.35,
+        reverb: { decay: 2.5, damping: 0.40, preDelay: 30 },
+        delay:  { feedback: 0.32, filter: 1600 },
+      },
       motion:  { melodic: 'beta' },
       emotion: { phraseShape: 'arch' },
     },
