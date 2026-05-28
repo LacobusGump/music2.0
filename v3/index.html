@@ -104,16 +104,16 @@ canvas{
 #corner a{color:rgba(255,255,255,0.18);text-decoration:none;}
 #corner a:hover{color:rgba(255,255,255,0.5);}
 
-/* ── MOTION HINT ── */
+/* ── MOTION HINT — small, non-blocking, auto-dismisses ── */
 #motion-hint{
-  position:fixed;bottom:100px;left:50%;transform:translateX(-50%);
+  position:fixed;bottom:72px;left:50%;transform:translateX(-50%);
   z-index:6;
-  background:rgba(139,69,19,0.85);
-  color:#e8c87a;
-  font-family:Georgia,serif;font-size:0.72em;
-  padding:12px 20px;border-radius:12px;
-  max-width:280px;text-align:center;line-height:1.7;
+  color:rgba(201,164,74,0.40);
+  font-family:Georgia,serif;font-size:0.62em;
+  text-align:center;line-height:1.8;
+  pointer-events:none;
   display:none;
+  transition:opacity 1s;
 }
 </style>
 </head>
@@ -145,11 +145,8 @@ canvas{
   <span class="hud-env" id="hud-env">—</span>
 </div>
 
-<!-- MOTION HINT (Chrome fallback) -->
-<div id="motion-hint" id="motion-hint">
-  tilt isn't available here<br>
-  <strong>swipe left/right to play melody</strong>
-</div>
+<!-- MOTION HINT -->
+<div id="motion-hint">swipe to play melody</div>
 
 <!-- ENVIRONMENT ENGINE -->
 <script src="js/environ.js"></script>
@@ -244,12 +241,16 @@ function _requestMotion() {
     return;
   }
 
+  // Only show hint on touch devices (pointless on desktop)
+  var hasTouchScreen = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+
   if (isChrome) {
-    // Chrome iOS — try listeners first, show touch fallback after 2s if no events
     _addMotionListeners();
     setTimeout(function () {
-      if (!hasMotion) {
-        document.getElementById('motion-hint').style.display = 'block';
+      if (!hasMotion && hasTouchScreen) {
+        var h = document.getElementById('motion-hint');
+        h.style.display = 'block';
+        setTimeout(function () { h.style.opacity = '0'; setTimeout(function () { h.style.display = 'none'; }, 1000); }, 4000);
       }
     }, 2000);
     return;
@@ -259,10 +260,18 @@ function _requestMotion() {
   DeviceMotionEvent.requestPermission()
     .then(function (r) {
       if (r === 'granted') { _addMotionListeners(); }
-      else { document.getElementById('motion-hint').style.display = 'block'; }
+      else if (hasTouchScreen) {
+        var h = document.getElementById('motion-hint');
+        h.style.display = 'block';
+        setTimeout(function () { h.style.opacity = '0'; setTimeout(function () { h.style.display = 'none'; }, 1000); }, 4000);
+      }
     })
     .catch(function () {
-      document.getElementById('motion-hint').style.display = 'block';
+      if (hasTouchScreen) {
+        var h = document.getElementById('motion-hint');
+        h.style.display = 'block';
+        setTimeout(function () { h.style.opacity = '0'; setTimeout(function () { h.style.display = 'none'; }, 1000); }, 4000);
+      }
     });
 
   if (typeof DeviceOrientationEvent !== 'undefined' &&
@@ -271,7 +280,7 @@ function _requestMotion() {
   }
 }
 
-// Touch fallback
+// Touch
 document.addEventListener('touchstart', function (e) {
   touchActive = true;
   touchNormX  = e.touches[0].clientX / W;
@@ -282,6 +291,20 @@ document.addEventListener('touchmove', function (e) {
 document.addEventListener('touchend', function () {
   touchActive = false;
 }, { passive: true });
+
+// Mouse (desktop melody control — click and drag left/right)
+document.addEventListener('mousedown', function (e) {
+  if (!hasMotion) {
+    touchActive = true;
+    touchNormX  = e.clientX / W;
+  }
+});
+document.addEventListener('mousemove', function (e) {
+  if (!hasMotion && touchActive) touchNormX = e.clientX / W;
+});
+document.addEventListener('mouseup', function () {
+  if (!hasMotion) touchActive = false;
+});
 
 // ── AUDIO SETUP ───────────────────────────────────────────────────────────
 
@@ -340,28 +363,32 @@ function begin() {
   started = true;
 
   _buildAudio();
-  actx.resume();
 
-  _requestMotion();
-
-  // Dismiss boot screen
+  // Dismiss boot screen immediately (visual is instant)
   var bootEl = document.getElementById('boot');
   bootEl.classList.add('hidden');
   setTimeout(function () { bootEl.style.display = 'none'; }, 900);
-
-  // Show HUD
   document.getElementById('hud').classList.add('show');
 
-  // Start the band
-  Band.init(actx, masterGain);
-
-  // Start render loop
+  // Start visual loop immediately
   animID = requestAnimationFrame(loop);
+
+  _requestMotion();
 
   // iOS background resume
   document.addEventListener('visibilitychange', function () {
     if (!document.hidden && actx && actx.state === 'suspended') actx.resume();
   });
+
+  // CRITICAL: wait for AudioContext to actually be running before scheduling any audio.
+  // Same pattern as v2 temple tones (p.then(go)). Without this, on iOS/Chrome the
+  // first beats are scheduled while the context is still suspended — they fire into
+  // silence, currentTime doesn't advance, band appears to run but makes no sound.
+  var p = actx.resume();
+  function _startBand() {
+    Band.init(actx, masterGain);
+  }
+  if (p && p.then) { p.then(_startBand).catch(_startBand); } else { _startBand(); }
 }
 
 // ── MAIN LOOP ─────────────────────────────────────────────────────────────
