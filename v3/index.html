@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="theme-color" content="#0a0806">
+<title>GUMP — Play</title>
+<meta name="description" content="Your environment makes the music. You play the melody.">
+<link rel="icon" href="/favicon.png">
+<style>
+*{margin:0;padding:0;box-sizing:border-box;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;}
+html,body{width:100%;height:100%;overflow:hidden;background:#0a0806;touch-action:none;}
+
+/* ── BOOT SCREEN ── */
+#boot{
+  position:fixed;inset:0;z-index:10;
+  display:flex;flex-direction:column;
+  align-items:center;justify-content:center;
+  background:#0a0806;
+  gap:0;
+  transition:opacity 0.8s ease;
+}
+#boot.hidden{opacity:0;pointer-events:none;}
+
+.boot-label{
+  font-family:Futura,'Century Gothic',sans-serif;
+  font-size:0.62em;letter-spacing:0.35em;
+  color:rgba(201,164,74,0.35);text-transform:uppercase;
+  margin-bottom:40px;
+}
+
+#play-btn{
+  background:none;
+  border:1px solid rgba(201,164,74,0.25);
+  border-radius:50%;
+  width:110px;height:110px;
+  color:rgba(201,164,74,0.7);
+  font-family:Futura,'Century Gothic',sans-serif;
+  font-size:0.7em;letter-spacing:0.2em;
+  text-transform:uppercase;
+  cursor:pointer;
+  transition:all 0.5s;
+}
+#play-btn:hover,#play-btn:active{
+  border-color:rgba(201,164,74,0.6);
+  background:rgba(201,164,74,0.06);
+  color:rgba(201,164,74,0.95);
+}
+
+.boot-hint{
+  margin-top:32px;
+  font-family:Georgia,serif;
+  font-size:0.68em;
+  color:rgba(201,164,74,0.22);
+  line-height:2;
+  text-align:center;
+  max-width:280px;
+}
+
+/* ── MAIN CANVAS ── */
+canvas{
+  position:fixed;inset:0;
+  width:100%;height:100%;
+  display:block;
+}
+
+/* ── HUD ── */
+#hud{
+  position:fixed;
+  bottom:env(safe-area-inset-bottom, 20px);
+  left:0;right:0;
+  padding:0 24px 24px;
+  pointer-events:none;
+  z-index:5;
+  display:none;
+}
+#hud.show{display:block;}
+
+.hud-key{
+  font-family:Futura,'Century Gothic',sans-serif;
+  font-size:0.9em;letter-spacing:0.22em;
+  color:rgba(201,164,74,0.65);
+  text-transform:uppercase;
+  display:block;margin-bottom:4px;
+}
+.hud-env{
+  font-family:Georgia,serif;
+  font-size:0.62em;
+  color:rgba(201,164,74,0.30);
+  letter-spacing:0.06em;
+  line-height:1.9;
+}
+
+/* ── TOP CORNER ── */
+#corner{
+  position:fixed;top:max(env(safe-area-inset-top,14px),14px);left:16px;
+  z-index:20;
+  font-family:Futura,'Century Gothic',sans-serif;
+  font-size:0.55em;letter-spacing:0.14em;
+  color:rgba(255,255,255,0.18);
+}
+#corner a{color:rgba(255,255,255,0.18);text-decoration:none;}
+#corner a:hover{color:rgba(255,255,255,0.5);}
+
+/* ── MOTION HINT ── */
+#motion-hint{
+  position:fixed;bottom:100px;left:50%;transform:translateX(-50%);
+  z-index:6;
+  background:rgba(139,69,19,0.85);
+  color:#e8c87a;
+  font-family:Georgia,serif;font-size:0.72em;
+  padding:12px 20px;border-radius:12px;
+  max-width:280px;text-align:center;line-height:1.7;
+  display:none;
+}
+</style>
+</head>
+<body>
+
+<div id="corner">
+  <a href="/play/">&larr; home</a>
+  &nbsp;&nbsp; v3
+  &nbsp;&middot;&nbsp; <a href="/v1/">v1</a>
+</div>
+
+<!-- BOOT SCREEN -->
+<div id="boot">
+  <div class="boot-label">GUMP</div>
+  <button id="play-btn" onclick="begin()">play</button>
+  <div class="boot-hint" id="boot-hint">
+    your environment makes the music<br>
+    tilt to shape the melody<br>
+    <span style="opacity:0.5;">reading your location now…</span>
+  </div>
+</div>
+
+<!-- CANVAS — the visual -->
+<canvas id="viz"></canvas>
+
+<!-- HUD -->
+<div id="hud">
+  <span class="hud-key" id="hud-key">—</span>
+  <span class="hud-env" id="hud-env">—</span>
+</div>
+
+<!-- MOTION HINT (Chrome fallback) -->
+<div id="motion-hint" id="motion-hint">
+  tilt isn't available here<br>
+  <strong>swipe left/right to play melody</strong>
+</div>
+
+<!-- ENVIRONMENT ENGINE -->
+<script src="js/environ.js"></script>
+
+<!-- BAND ENGINE -->
+<script src="js/band.js"></script>
+
+<!-- MAIN APP -->
+<script>
+(function () {
+'use strict';
+
+// ── GLOBALS ──────────────────────────────────────────────────────────────
+
+var actx         = null;
+var masterGain   = null;
+var masterComp   = null;
+var masterLP     = null;
+var masterLimiter = null;
+
+var started      = false;
+var animID       = null;
+
+var canvas = document.getElementById('viz');
+var ctx2d  = canvas.getContext('2d');
+var DPR    = Math.min(window.devicePixelRatio || 1, 2);
+var W = 0, H = 0;
+
+// Motion state
+var tiltGamma  = 0;  // left-right, degrees
+var tiltBeta   = 0;  // front-back
+var motionEnergy = 0;
+var hasMotion   = false;
+var touchActive = false;
+var touchNormX  = 0.5;
+var lastAccel   = { x: 0, y: 0, z: 0 };
+
+// Visual state
+var beatFlash = 0;       // 0–1 brightness on kick
+var barPhase  = 0;       // 0–1 within current bar
+var nodeAngles = [];     // 8 orbiting conjugacy class nodes (for 2O reference)
+for (var ni = 0; ni < 8; ni++) nodeAngles.push((ni / 8) * Math.PI * 2);
+
+// ── RESIZE ───────────────────────────────────────────────────────────────
+
+function resize() {
+  W = window.innerWidth;
+  H = window.innerHeight;
+  canvas.width  = W * DPR;
+  canvas.height = H * DPR;
+  canvas.style.width  = W + 'px';
+  canvas.style.height = H + 'px';
+  ctx2d.setTransform(DPR, 0, 0, DPR, 0, 0);
+}
+window.addEventListener('resize', resize, { passive: true });
+resize();
+
+// ── SENSORS ──────────────────────────────────────────────────────────────
+
+function _addMotionListeners() {
+  window.addEventListener('deviceorientation', function (e) {
+    tiltGamma = e.gamma || 0;
+    tiltBeta  = e.beta  || 0;
+    hasMotion = true;
+  }, { passive: true });
+
+  window.addEventListener('devicemotion', function (e) {
+    var a = e.acceleration || e.accelerationIncludingGravity;
+    if (a) {
+      var dx = (a.x || 0) - lastAccel.x;
+      var dy = (a.y || 0) - lastAccel.y;
+      var dz = (a.z || 0) - lastAccel.z;
+      var shake = Math.sqrt(dx*dx + dy*dy + dz*dz);
+      motionEnergy = motionEnergy * 0.85 + Math.min(1, shake * 0.12) * 0.15;
+      lastAccel = { x: a.x||0, y: a.y||0, z: a.z||0 };
+    }
+  }, { passive: true });
+}
+
+function _requestMotion() {
+  var isChrome = /CriOS/.test(navigator.userAgent || '');
+
+  if (typeof DeviceMotionEvent === 'undefined') {
+    // Desktop Chrome / Firefox — no permission, no motion, use touch fallback
+    document.getElementById('motion-hint').style.display = 'block';
+    return;
+  }
+
+  if (typeof DeviceMotionEvent.requestPermission !== 'function') {
+    // Android Chrome, Firefox — events available without permission
+    _addMotionListeners();
+    return;
+  }
+
+  if (isChrome) {
+    // Chrome iOS — try listeners first, show touch fallback after 2s if no events
+    _addMotionListeners();
+    setTimeout(function () {
+      if (!hasMotion) {
+        document.getElementById('motion-hint').style.display = 'block';
+      }
+    }, 2000);
+    return;
+  }
+
+  // Safari iOS — requestPermission works, show the dialog
+  DeviceMotionEvent.requestPermission()
+    .then(function (r) {
+      if (r === 'granted') { _addMotionListeners(); }
+      else { document.getElementById('motion-hint').style.display = 'block'; }
+    })
+    .catch(function () {
+      document.getElementById('motion-hint').style.display = 'block';
+    });
+
+  if (typeof DeviceOrientationEvent !== 'undefined' &&
+      typeof DeviceOrientationEvent.requestPermission === 'function') {
+    DeviceOrientationEvent.requestPermission().catch(function () {});
+  }
+}
+
+// Touch fallback
+document.addEventListener('touchstart', function (e) {
+  touchActive = true;
+  touchNormX  = e.touches[0].clientX / W;
+}, { passive: true });
+document.addEventListener('touchmove', function (e) {
+  touchNormX = e.touches[0].clientX / W;
+}, { passive: true });
+document.addEventListener('touchend', function () {
+  touchActive = false;
+}, { passive: true });
+
+// ── AUDIO SETUP ───────────────────────────────────────────────────────────
+
+function _buildAudio() {
+  actx = new (window.AudioContext || window.webkitAudioContext)();
+
+  // Master limiter
+  masterLimiter = actx.createDynamicsCompressor();
+  masterLimiter.threshold.value = -3;
+  masterLimiter.knee.value = 3;
+  masterLimiter.ratio.value = 12;
+  masterLimiter.attack.value = 0.002;
+  masterLimiter.release.value = 0.10;
+  masterLimiter.connect(actx.destination);
+
+  // Master LP (phone speaker ceiling)
+  masterLP = actx.createBiquadFilter();
+  masterLP.type = 'lowpass'; masterLP.frequency.value = 3400; masterLP.Q.value = 0.3;
+  masterLP.connect(masterLimiter);
+
+  // Master compressor — bus glue
+  masterComp = actx.createDynamicsCompressor();
+  masterComp.threshold.value = -16;
+  masterComp.knee.value = 10;
+  masterComp.ratio.value = 2.5;
+  masterComp.attack.value = 0.010;
+  masterComp.release.value = 0.28;
+  masterComp.connect(masterLP);
+
+  // Master gain
+  masterGain = actx.createGain();
+  masterGain.gain.value = 0.72;
+  masterGain.connect(masterComp);
+}
+
+// ── BOOT ─────────────────────────────────────────────────────────────────
+
+// Update boot hint as environment loads
+Environ.init();
+(function pollEnv() {
+  var hint = document.getElementById('boot-hint');
+  if (Environ.loaded) {
+    var desc = Environ.description();
+    var loc  = desc ? desc : 'defaults set';
+    hint.innerHTML =
+      'your environment makes the music<br>' +
+      'tilt to shape the melody<br>' +
+      '<span style="opacity:0.55">' + loc + '</span>';
+  } else {
+    setTimeout(pollEnv, 400);
+  }
+})();
+
+function begin() {
+  if (started) return;
+  started = true;
+
+  _buildAudio();
+  actx.resume();
+
+  _requestMotion();
+
+  // Dismiss boot screen
+  var bootEl = document.getElementById('boot');
+  bootEl.classList.add('hidden');
+  setTimeout(function () { bootEl.style.display = 'none'; }, 900);
+
+  // Show HUD
+  document.getElementById('hud').classList.add('show');
+
+  // Start the band
+  Band.init(actx, masterGain);
+
+  // Start render loop
+  animID = requestAnimationFrame(loop);
+
+  // iOS background resume
+  document.addEventListener('visibilitychange', function () {
+    if (!document.hidden && actx && actx.state === 'suspended') actx.resume();
+  });
+}
+
+// ── MAIN LOOP ─────────────────────────────────────────────────────────────
+
+var lastTime = 0;
+
+function loop(now) {
+  animID = requestAnimationFrame(loop);
+
+  var dt = Math.min(0.05, (now - lastTime) / 1000);
+  lastTime = now;
+
+  // Feed human data to the band
+  var moving = hasMotion
+    ? Math.abs(tiltGamma) > 8 || motionEnergy > 0.15
+    : touchActive;
+
+  if (hasMotion) {
+    Band.updateHuman(tiltGamma, tiltBeta, motionEnergy, moving);
+  } else {
+    Band.updateTouch(touchNormX, 0.5, touchActive);
+  }
+
+  // Beat flash — kick pulse
+  if (Band.beat === 0 || Band.beat === 8) {
+    beatFlash = Math.min(1, beatFlash + 0.8);
+  }
+  beatFlash *= 0.88;
+
+  // Bar progress 0–1
+  barPhase = (Band.beat % 16) / 16;
+
+  // Update HUD
+  document.getElementById('hud-key').textContent = Environ.label();
+  var envDesc = Environ.description();
+  document.getElementById('hud-env').textContent =
+    Environ.bpm + ' bpm' + (envDesc ? '  ·  ' + envDesc : '');
+
+  // Draw
+  draw(now);
+}
+
+// ── VISUAL ────────────────────────────────────────────────────────────────
+// Minimal, alive. Shows the key, the bar, the tilt, the coupling.
+
+var modeColor = '#c9a44a';
+
+function draw(now) {
+  var t = now * 0.001;
+  modeColor = Environ.modeColor();
+
+  // Trail fade
+  ctx2d.fillStyle = 'rgba(10,8,6,0.55)';
+  ctx2d.fillRect(0, 0, W, H);
+
+  var cx = W / 2;
+  var cy = H / 2 - 30;
+
+  // ── Beat pulse ring ──
+  var pulseR = 80 + beatFlash * 28;
+  var pulseA = 0.08 + beatFlash * 0.14;
+  var grad = ctx2d.createRadialGradient(cx, cy, 0, cx, cy, pulseR * 2.2);
+  grad.addColorStop(0, 'rgba(201,164,74,' + (pulseA * 1.2).toFixed(3) + ')');
+  grad.addColorStop(0.5, 'rgba(201,164,74,' + pulseA.toFixed(3) + ')');
+  grad.addColorStop(1, 'rgba(10,8,6,0)');
+  ctx2d.fillStyle = grad;
+  ctx2d.beginPath();
+  ctx2d.arc(cx, cy, pulseR * 2.2, 0, Math.PI * 2);
+  ctx2d.fill();
+
+  // ── 4-bar progress arc ──
+  var arcR  = 95;
+  var arcEnd = (Math.floor(Band.beat / 16) % 4 + barPhase) / 4;
+  ctx2d.strokeStyle = 'rgba(201,164,74,0.12)';
+  ctx2d.lineWidth   = 2;
+  ctx2d.beginPath();
+  ctx2d.arc(cx, cy, arcR, -Math.PI/2, Math.PI * 2 * arcEnd - Math.PI/2);
+  ctx2d.stroke();
+
+  // ── Tilt indicator — the human's hand in the space ──
+  var tiltNorm = hasMotion
+    ? Math.max(-1, Math.min(1, tiltGamma / 45))
+    : (touchActive ? (touchNormX - 0.5) * 2 : 0);
+  var scaleIdx  = Math.round((tiltNorm + 1) / 2 * 6);
+  var tiltX = cx + tiltNorm * arcR * 0.85;
+
+  // Tilt dot
+  ctx2d.fillStyle = 'rgba(201,164,74,' + (0.35 + Math.abs(tiltNorm) * 0.4) + ')';
+  ctx2d.beginPath();
+  ctx2d.arc(tiltX, cy, 7 + Math.abs(tiltNorm) * 4, 0, Math.PI * 2);
+  ctx2d.fill();
+
+  // Tilt line from center
+  ctx2d.strokeStyle = 'rgba(201,164,74,0.15)';
+  ctx2d.lineWidth = 1.5;
+  ctx2d.beginPath();
+  ctx2d.moveTo(cx, cy);
+  ctx2d.lineTo(tiltX, cy);
+  ctx2d.stroke();
+
+  // ── 8 Kac label bars (affine E7 reference — always present) ──
+  var kac = [1,2,3,4,3,2,1,2];
+  for (var i = 0; i < 8; i++) {
+    var kx  = cx - 220 + i * 63;
+    var hgt = 50 + kac[i] * 22;
+    var y1  = cy + 160;
+    var y2  = y1 - hgt * (0.65 + Math.sin(t * 0.5 + i) * 0.07);
+    var ka  = 0.20 + (kac[i] / 4) * 0.25;
+    // Highlight the current bar's degree
+    if (i === Band.bar % 8) ka += 0.15;
+    ctx2d.strokeStyle = 'rgba(201,164,74,' + ka + ')';
+    ctx2d.lineWidth   = 1.5;
+    ctx2d.beginPath();
+    ctx2d.moveTo(kx, y1);
+    ctx2d.lineTo(kx, y2);
+    ctx2d.stroke();
+    ctx2d.fillStyle = 'rgba(201,164,74,' + (ka * 0.7) + ')';
+    ctx2d.beginPath();
+    ctx2d.arc(kx, y2, 3 + kac[i] * 0.3, 0, Math.PI * 2);
+    ctx2d.fill();
+  }
+
+  // ── Melody scale dots — show scale degrees, tilt selects one ──
+  var sc = Environ.scale(1);
+  for (var si = 0; si < sc.length; si++) {
+    var sdx  = cx - 150 + si * 50;
+    var sdy  = cy - 50 + Math.sin(t * 0.3 + si * 0.9) * 8;
+    var isActive = (si === scaleIdx && (hasMotion ? Math.abs(tiltGamma) > 6 : touchActive));
+    var sA   = isActive ? 0.85 : 0.18;
+    var sR   = isActive ? 6 : 3.5;
+    ctx2d.fillStyle = 'rgba(201,164,74,' + sA + ')';
+    ctx2d.beginPath();
+    ctx2d.arc(sdx, sdy, sR, 0, Math.PI * 2);
+    ctx2d.fill();
+    if (isActive) {
+      ctx2d.strokeStyle = 'rgba(201,164,74,0.25)';
+      ctx2d.lineWidth = 1;
+      ctx2d.beginPath();
+      ctx2d.arc(sdx, sdy, sR + 5 + Math.sin(t * 8) * 2, 0, Math.PI * 2);
+      ctx2d.stroke();
+    }
+  }
+
+  // ── Chord label (current chord name rough) ──
+  ctx2d.fillStyle = 'rgba(201,164,74,0.20)';
+  ctx2d.font = '200 10px Futura, Century Gothic, sans-serif';
+  ctx2d.textAlign = 'center';
+  ctx2d.letterSpacing = '0.2em';
+  ctx2d.fillText('BAR ' + (Band.bar + 1) + ' / 4', cx, cy - 120);
+}
+
+// ── AUDIO CONTEXT RESUME on any touch ───────────────────────────────────
+document.addEventListener('touchstart', function () {
+  if (actx && actx.state === 'suspended') actx.resume();
+}, { passive: true });
+
+})();
+</script>
+</body>
+</html>
