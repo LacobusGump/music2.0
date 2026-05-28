@@ -241,12 +241,17 @@ const Band = (function () {
     noiseS.start(t); noiseS.stop(t + 0.12);
   }
 
-  // ── PAD LAYER ────────────────────────────────────────────────────────────
+  // ── PAD LAYER — FM synthesis ─────────────────────────────────────────────
+  // 2-operator FM: carrier at note frequency, modulator at carrier × ratio.
+  // Modulation index (= deviation ÷ carrier Hz) controls harmonic richness.
+  // Each chord voice is panned slightly: -0.28 / 0 / +0.28.
 
   function _buildPad() {
-    // Clean up any existing oscillators
     for (var i = 0; i < _padOscs.length; i++) {
-      try { _padOscs[i].osc.stop(); _padOscs[i].osc.disconnect(); _padOscs[i].g.disconnect(); } catch(e) {}
+      var v = _padOscs[i];
+      try { v.carrier.stop(); v.carrier.disconnect(); } catch(e) {}
+      try { v.mod.stop();     v.mod.disconnect();     } catch(e) {}
+      try { v.modGain.disconnect(); v.g.disconnect();  } catch(e) {}
     }
     _padOscs = [];
     if (_padGain) { try { _padGain.disconnect(); } catch(e) {} }
@@ -260,34 +265,67 @@ const Band = (function () {
       lp.connect(rs); rs.connect(_reverbSend);
     }
 
-    var ch = Environ.chord(0, 0);
+    var ch   = Environ.chord(0, 0);
+    var fm   = _style.padFM;
+    var pans = [-0.28, 0, 0.28];
+
     for (var ci = 0; ci < 3; ci++) {
       var hz = Environ.midiToHz(ch[ci] + 12);
-      for (var d = 0; d < 2; d++) {
-        var osc = _ctx.createOscillator(); osc.type = 'sawtooth';
-        osc.frequency.value = hz;
-        osc.detune.value = (d === 0) ? -_style.padDetune : _style.padDetune;
-        var g = _ctx.createGain(); g.gain.value = 0.10;
-        osc.connect(g); g.connect(_padGain); osc.start();
-        _padOscs.push({ osc: osc, g: g });
+
+      var carrier = _ctx.createOscillator(); carrier.type = 'sine';
+      var mod     = _ctx.createOscillator(); mod.type = 'sine';
+      var modGain = _ctx.createGain();
+      var g       = _ctx.createGain(); g.gain.value = 0.12;
+
+      carrier.frequency.value = hz;
+      mod.frequency.value     = hz * fm.ratio;
+      modGain.gain.value      = hz * fm.index;
+
+      mod.connect(modGain);
+      modGain.connect(carrier.frequency);
+      carrier.connect(g);
+
+      if (_ctx.createStereoPanner) {
+        var panner = _ctx.createStereoPanner();
+        panner.pan.value = pans[ci];
+        g.connect(panner); panner.connect(_padGain);
+      } else {
+        g.connect(_padGain);
       }
+
+      carrier.start(); mod.start();
+      _padOscs.push({ carrier: carrier, mod: mod, modGain: modGain, g: g, hz: hz });
     }
   }
 
   function _updatePad(bar, mult) {
     var target = Environ.energy * _style.padGain * mult;
     _padGain.gain.setTargetAtTime(target, _ctx.currentTime, 0.65);
-    var ch  = Environ.chord(bar, 0);
-    var idx = 0;
+    var ch = Environ.chord(bar, 0);
+    var fm = _style.padFM;
     for (var ci = 0; ci < 3; ci++) {
+      var v  = _padOscs[ci];
+      if (!v) continue;
       var hz = Environ.midiToHz(ch[ci] + 12);
-      if (_padOscs[idx])   _padOscs[idx].osc.frequency.setTargetAtTime(hz, _ctx.currentTime, 0.30);
-      if (_padOscs[idx+1]) _padOscs[idx+1].osc.frequency.setTargetAtTime(hz, _ctx.currentTime, 0.30);
-      idx += 2;
+      v.hz   = hz;
+      v.carrier.frequency.setTargetAtTime(hz,            _ctx.currentTime, 0.30);
+      v.mod.frequency.setTargetAtTime(hz * fm.ratio,     _ctx.currentTime, 0.30);
+      v.modGain.gain.setTargetAtTime(hz * fm.index,      _ctx.currentTime, 0.30);
     }
   }
 
   // ── BASS LAYER ───────────────────────────────────────────────────────────
+
+  // Soft saturation curve — tube-style even harmonics. drive: 0=clean, 0.9=driven.
+  function _makeSoftClip(drive) {
+    var n = 256, curve = new Float32Array(n);
+    var k = 2 * drive / (1 - drive + 0.001);
+    for (var i = 0; i < n; i++) {
+      var x = (i * 2) / n - 1;
+      curve[i] = (1 + k) * x / (1 + k * Math.abs(x));
+    }
+    return curve;
+  }
 
   function _buildBass() {
     if (_bassOsc) { try { _bassOsc.stop(); } catch(e) {} }
@@ -302,16 +340,22 @@ const Band = (function () {
       lp.connect(rs); rs.connect(_reverbSend);
     }
 
-    _bassOsc = _ctx.createOscillator();
-    _bassOsc.type = _style.is808 ? 'sine' : 'triangle';
-    _bassOsc.frequency.value = 55;
-
+    // Sub oscillator — stays clean (no waveshaper, pure sub energy)
     _bassSub = _ctx.createOscillator(); _bassSub.type = 'sine'; _bassSub.frequency.value = 55;
     var subG = _ctx.createGain(); subG.gain.value = _style.bassSubGain;
     _bassSub.connect(subG); subG.connect(_bassGain);
 
+    // Main oscillator — run through waveshaper for harmonic warmth
+    _bassOsc = _ctx.createOscillator();
+    _bassOsc.type = _style.is808 ? 'sine' : 'triangle';
+    _bassOsc.frequency.value = 55;
+
+    var ws = _ctx.createWaveShaper();
+    ws.curve      = _makeSoftClip(_style.bassDrive || 0.35);
+    ws.oversample = '4x';
+
     var envG = _ctx.createGain(); envG.gain.value = 0.50;
-    _bassOsc.connect(envG); envG.connect(_bassGain);
+    _bassOsc.connect(ws); ws.connect(envG); envG.connect(_bassGain);
 
     _bassOsc.start(); _bassSub.start();
     _lastBassHz = 0;

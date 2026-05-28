@@ -26,12 +26,13 @@ const Styles = (function () {
       sub:   'hazy · warm · vinyl',
       color: '#c8a45a',
       bpmRange: [75, 98],
-      swing:    0.18,   // delays off-beats 18% of one 16th — classic boom-bap feel
+      swing:    0.18,
       kick:  { baseHz: 55, endHz: 20, decay: 0.28, vel: 0.78 },
       snare: { vel: 0.64, toneHz: 170, toneDecay: 0.07, hasClap: false },
       hatVel:   0.40,
-      padLP:    900,  padDetune: 13, padGain: 0.26,
-      bassLP:   290,  bassSubGain: 0.72,
+      padLP:   2400, padGain: 0.28,
+      padFM:   { ratio: 1.5, index: 1.8 },   // warm FM: half-octave mod = smooth bells
+      bassLP:   320,  bassSubGain: 0.72, bassDrive: 0.38,
       reverbSec: 3.4,
       vinyl:    true,
       sparse:   false,
@@ -52,8 +53,9 @@ const Styles = (function () {
       kick:  { baseHz: 62, endHz: 22, decay: 0.30, vel: 0.88 },
       snare: { vel: 0.78, toneHz: 200, toneDecay: 0.05, hasClap: true },
       hatVel:   0.36,
-      padLP:   1600, padDetune: 7,  padGain: 0.22,
-      bassLP:   420, bassSubGain: 0.50,
+      padLP:   3200, padGain: 0.22,
+      padFM:   { ratio: 2.0, index: 0.9 },   // octave mod = smooth, warm, even harmonics
+      bassLP:   480,  bassSubGain: 0.50, bassDrive: 0.52,
       reverbSec: 2.0,
       vinyl:    false,
       sparse:   false,
@@ -70,12 +72,13 @@ const Styles = (function () {
       sub:   'swing · complex · alive',
       color: '#7ac8a0',
       bpmRange: [90, 160],
-      swing:    0.30,   // strong triplet swing
+      swing:    0.30,
       kick:  { baseHz: 58, endHz: 22, decay: 0.20, vel: 0.65 },
       snare: { vel: 0.55, toneHz: 210, toneDecay: 0.06, hasClap: false },
       hatVel:   0.38,
-      padLP:   2200, padDetune: 5,  padGain: 0.17,
-      bassLP:   540, bassSubGain: 0.20,   // less sub — upright bass feel
+      padLP:   4800, padGain: 0.18,
+      padFM:   { ratio: 1.333, index: 2.2 },  // 4:3 ratio = open, complex, jazzy
+      bassLP:   600,  bassSubGain: 0.20, bassDrive: 0.14,
       reverbSec: 1.5,
       vinyl:    false,
       sparse:   false,
@@ -96,11 +99,12 @@ const Styles = (function () {
       kick:  { baseHz: 50, endHz: 18, decay: 0.55, vel: 0.35 },
       snare: { vel: 0.0,  toneHz: 180, toneDecay: 0.10, hasClap: false },
       hatVel:   0.10,
-      padLP:   1200, padDetune: 16, padGain: 0.42,
-      bassLP:   200, bassSubGain: 0.42,
+      padLP:   2800, padGain: 0.50,
+      padFM:   { ratio: 0.5, index: 0.5 },    // sub-octave mod = pure, sine-like, vast
+      bassLP:   240,  bassSubGain: 0.42, bassDrive: 0.10,
       reverbSec: 5.5,
       vinyl:    false,
-      sparse:   true,   // very few drum hits
+      sparse:   true,
       is808:    false,
       hasTrap:  false,
       modeHint: ['lydian', 'major'],
@@ -118,13 +122,14 @@ const Styles = (function () {
       kick:  { baseHz: 60, endHz: 16, decay: 0.75, vel: 0.95 },
       snare: { vel: 0.62, toneHz: 185, toneDecay: 0.04, hasClap: true },
       hatVel:   0.28,
-      padLP:   1100, padDetune: 10, padGain: 0.20,
-      bassLP:   240, bassSubGain: 0.92,
+      padLP:   2200, padGain: 0.22,
+      padFM:   { ratio: 3.0, index: 3.5 },    // 3× mod = harsh, electronic, metallic
+      bassLP:   280,  bassSubGain: 0.92, bassDrive: 0.72,
       reverbSec: 2.8,
       vinyl:    false,
       sparse:   false,
-      is808:    true,   // 808-style pitch sweep on bass
-      hasTrap:  true,   // trap hi-hat rolls
+      is808:    true,
+      hasTrap:  true,
       modeHint: ['minor', 'phrygian'],
       fills: [ [-1,-1,0,-1], [-1,-1,-1,4], [-1,0,-1,-1], [-1,-1,0,2] ],
       sunoPrompt: 'trap music, 808 bass, dark cinematic, hi-hat rolls, moody minor',

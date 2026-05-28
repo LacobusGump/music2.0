@@ -160,6 +160,78 @@ canvas{
   display:none;
   transition:opacity 1s;
 }
+
+/* ── SAMPLE LOADER ──────────────────────────────────────────── */
+#sample-btn{
+  position:fixed;top:max(env(safe-area-inset-top,14px),14px);right:16px;
+  z-index:20;
+  background:none;border:1px solid rgba(201,164,74,0.16);border-radius:3px;
+  padding:5px 10px 4px;
+  font-family:Futura,'Century Gothic',sans-serif;
+  font-size:0.46em;letter-spacing:0.14em;
+  color:rgba(201,164,74,0.30);
+  cursor:pointer;
+  display:none;
+  transition:all 0.3s;
+}
+#sample-btn:hover{ border-color:rgba(201,164,74,0.40);color:rgba(201,164,74,0.60); }
+#sample-btn.show{ display:block; }
+
+#sample-panel{
+  position:fixed;top:50px;right:12px;
+  z-index:20;
+  background:rgba(10,8,6,0.94);
+  border:1px solid rgba(201,164,74,0.20);
+  border-radius:4px;
+  padding:14px 16px 12px;
+  display:none;
+  width:220px;
+}
+#sample-panel.show{ display:block; }
+#sample-panel .sp-title{
+  font-family:Futura,'Century Gothic',sans-serif;
+  font-size:0.46em;letter-spacing:0.22em;
+  color:rgba(201,164,74,0.45);
+  text-transform:uppercase;
+  margin-bottom:10px;
+}
+.sp-row{
+  display:flex;align-items:center;gap:8px;
+  margin-bottom:7px;
+}
+.sp-label{
+  font-family:Futura,'Century Gothic',sans-serif;
+  font-size:0.42em;letter-spacing:0.14em;
+  color:rgba(201,164,74,0.35);
+  text-transform:uppercase;
+  width:52px;flex-shrink:0;
+}
+.sp-dot{
+  width:6px;height:6px;border-radius:50%;
+  background:rgba(201,164,74,0.16);flex-shrink:0;
+}
+.sp-dot.loaded{ background:rgba(120,200,140,0.70); }
+.sp-btn{
+  flex:1;
+  background:none;border:1px solid rgba(201,164,74,0.14);border-radius:2px;
+  padding:4px 8px;
+  font-family:Georgia,serif;font-style:italic;
+  font-size:0.42em;
+  color:rgba(201,164,74,0.30);
+  cursor:pointer;text-align:left;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  transition:all 0.2s;
+}
+.sp-btn:hover{ border-color:rgba(201,164,74,0.35);color:rgba(201,164,74,0.65); }
+.sp-note{
+  font-family:Georgia,serif;font-size:0.38em;font-style:italic;
+  color:rgba(201,164,74,0.20);
+  text-align:center;
+  margin-top:8px;
+  line-height:1.6;
+}
+/* hidden file input */
+#sample-file-input{ display:none; }
 </style>
 </head>
 <body>
@@ -197,6 +269,19 @@ canvas{
 <!-- MOTION HINT -->
 <div id="motion-hint">tilt or drag to play melody</div>
 
+<!-- SAMPLE LOADER -->
+<button id="sample-btn">SAMPLES</button>
+<div id="sample-panel">
+  <div class="sp-title">Load Stems</div>
+  <div class="sp-row"><div class="sp-label">Kick</div><div class="sp-dot" id="dot-kick"></div><button class="sp-btn" data-stem="kick" id="spb-kick">load file…</button></div>
+  <div class="sp-row"><div class="sp-label">Snare</div><div class="sp-dot" id="dot-snare"></div><button class="sp-btn" data-stem="snare" id="spb-snare">load file…</button></div>
+  <div class="sp-row"><div class="sp-label">Hihat</div><div class="sp-dot" id="dot-hihat"></div><button class="sp-btn" data-stem="hihat" id="spb-hihat">load file…</button></div>
+  <div class="sp-row"><div class="sp-label">Bass</div><div class="sp-dot" id="dot-bass"></div><button class="sp-btn" data-stem="bass" id="spb-bass">load file…</button></div>
+  <div class="sp-row"><div class="sp-label">Chords</div><div class="sp-dot" id="dot-chords"></div><button class="sp-btn" data-stem="chords" id="spb-chords">load file…</button></div>
+  <div class="sp-note">wav · mp3 · aiff<br>your samples replace synthesis</div>
+</div>
+<input type="file" id="sample-file-input" accept="audio/*">
+
 <!-- ENGINES -->
 <script src="js/environ.js"></script>
 <script src="js/style.js"></script>
@@ -213,6 +298,7 @@ var actx          = null;
 var masterGain    = null;
 var masterComp    = null;
 var masterLP      = null;
+var masterSat     = null;
 var masterLimiter = null;
 
 var started       = false;
@@ -340,29 +426,43 @@ document.addEventListener('mouseup', function () { if (!hasMotion) touchActive =
 function _buildAudio() {
   actx = new (window.AudioContext || window.webkitAudioContext)();
 
+  // Final limiter — brick wall, prevents clipping
   masterLimiter = actx.createDynamicsCompressor();
-  masterLimiter.threshold.value = -3;
-  masterLimiter.knee.value = 3;
-  masterLimiter.ratio.value = 12;
-  masterLimiter.attack.value = 0.002;
-  masterLimiter.release.value = 0.10;
+  masterLimiter.threshold.value = -2;
+  masterLimiter.knee.value      = 2;
+  masterLimiter.ratio.value     = 20;
+  masterLimiter.attack.value    = 0.001;
+  masterLimiter.release.value   = 0.08;
   masterLimiter.connect(actx.destination);
 
+  // Air shelf — gentle high-frequency boost (presence, not harshness)
   masterLP = actx.createBiquadFilter();
-  masterLP.type = 'lowpass'; masterLP.frequency.value = 3600; masterLP.Q.value = 0.3;
+  masterLP.type = 'highshelf'; masterLP.frequency.value = 8000; masterLP.gain.value = 1.5;
   masterLP.connect(masterLimiter);
 
+  // Bus compressor — glue the mix together
   masterComp = actx.createDynamicsCompressor();
-  masterComp.threshold.value = -16;
-  masterComp.knee.value = 10;
-  masterComp.ratio.value = 2.5;
-  masterComp.attack.value = 0.010;
-  masterComp.release.value = 0.28;
+  masterComp.threshold.value = -14;
+  masterComp.knee.value      = 8;
+  masterComp.ratio.value     = 2.2;
+  masterComp.attack.value    = 0.012;
+  masterComp.release.value   = 0.24;
   masterComp.connect(masterLP);
 
+  // Gentle bus saturation — even harmonics warm the whole mix (like tape)
+  var n = 256, satCurve = new Float32Array(n);
+  for (var i = 0; i < n; i++) {
+    var x = (i * 2) / n - 1;
+    satCurve[i] = (1 + 3.4) * x / (1 + 3.4 * Math.abs(x));
+  }
+  masterSat = actx.createWaveShaper();
+  masterSat.curve      = satCurve;
+  masterSat.oversample = '2x';
+  masterSat.connect(masterComp);
+
   masterGain = actx.createGain();
-  masterGain.gain.value = 0.72;
-  masterGain.connect(masterComp);
+  masterGain.gain.value = 0.68;
+  masterGain.connect(masterSat);
 }
 
 // ── BOOT ──────────────────────────────────────────────────────────────────
@@ -377,6 +477,7 @@ function begin() {
   bootEl.classList.add('hidden');
   setTimeout(function () { bootEl.style.display = 'none'; }, 900);
   document.getElementById('hud').classList.add('show');
+  document.getElementById('sample-btn').classList.add('show');
 
   animID = requestAnimationFrame(loop);
   _requestMotion();
@@ -553,6 +654,52 @@ function hexToRgb(hex) {
   var b = parseInt(hex.slice(5,7),16);
   return r + ',' + g + ',' + b;
 }
+
+// ── SAMPLE LOADER ────────────────────────────────────────────────────────
+
+var _pendingStem = null;
+var sampleBtn    = document.getElementById('sample-btn');
+var samplePanel  = document.getElementById('sample-panel');
+var sampleInput  = document.getElementById('sample-file-input');
+
+sampleBtn.addEventListener('click', function (e) {
+  e.stopPropagation();
+  samplePanel.classList.toggle('show');
+});
+
+document.querySelectorAll('.sp-btn').forEach(function (btn) {
+  btn.addEventListener('click', function (e) {
+    e.stopPropagation();
+    _pendingStem = btn.dataset.stem;
+    sampleInput.click();
+  });
+});
+
+sampleInput.addEventListener('change', function () {
+  var file = sampleInput.files[0];
+  if (!file || !_pendingStem || !actx) return;
+  var stem = _pendingStem;
+  _pendingStem = null;
+  sampleInput.value = '';
+
+  var reader = new FileReader();
+  reader.onload = function (ev) {
+    actx.decodeAudioData(ev.target.result, function (buffer) {
+      Band.setStem(stem, buffer);
+      var dot = document.getElementById('dot-' + stem);
+      var lbl = document.getElementById('spb-' + stem);
+      if (dot) dot.classList.add('loaded');
+      if (lbl) lbl.textContent = file.name.replace(/\.[^.]+$/, '');
+    }, function () {
+      alert('Could not decode audio file. Try wav or mp3.');
+    });
+  };
+  reader.readAsArrayBuffer(file);
+});
+
+// Close panel on outside click
+document.addEventListener('click', function () { samplePanel.classList.remove('show'); });
+samplePanel.addEventListener('click', function (e) { e.stopPropagation(); });
 
 })();
 </script>
