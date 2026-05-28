@@ -372,11 +372,26 @@ Environ.init();
 
 // ── SENSORS ──────────────────────────────────────────────────────────────
 
+// ── MOTION PERMISSION (ported from v1 sensor.js) ─────────────────────────
+// iOS 13+ requires requestPermission() in a direct user gesture.
+// On iOS, DeviceMotionEvent.requestPermission() grants BOTH motion AND
+// orientation — do NOT call DeviceOrientationEvent.requestPermission()
+// separately or it triggers a second dialog outside the gesture context.
+// Chrome iOS: requestPermission() may return 'denied' without a dialog;
+// add listeners first and check if events actually flow.
+
+var _motionPermState   = 'unknown';
+var _motionListenersOn = false;
+var _motionEventCount  = 0;
+
 function _addMotionListeners() {
+  if (_motionListenersOn) return;
+  _motionListenersOn = true;
   window.addEventListener('deviceorientation', function (e) {
     tiltGamma = e.gamma || 0; tiltBeta = e.beta || 0; hasMotion = true;
   }, { passive: true });
   window.addEventListener('devicemotion', function (e) {
+    _motionEventCount++;
     var a = e.acceleration || e.accelerationIncludingGravity;
     if (a) {
       var dx = (a.x||0) - lastAccel.x, dy = (a.y||0) - lastAccel.y, dz = (a.z||0) - lastAccel.z;
@@ -387,20 +402,79 @@ function _addMotionListeners() {
   }, { passive: true });
 }
 
-function _requestMotion() {
+function _showMotionHelp() {
+  if (document.getElementById('motion-help')) return;
   var isCriOS = /CriOS/.test(navigator.userAgent || '');
-  if (typeof DeviceMotionEvent === 'undefined') { return; }
+  var el = document.createElement('div');
+  el.id = 'motion-help';
+  el.style.cssText =
+    'position:fixed;bottom:20px;left:8%;right:8%;' +
+    'background:rgba(180,60,40,0.94);color:#fff;' +
+    'padding:16px 20px;border-radius:10px;' +
+    'font:13px/1.5 -apple-system,sans-serif;' +
+    'text-align:center;z-index:9999;cursor:pointer;';
+  el.innerHTML = isCriOS
+    ? '<b>Tilt control needs motion access</b><br>Open in <b>Safari</b> for tilt — or drag to play melody.'
+    : '<b>Tilt control needs motion access</b><br>Tap <b>aA</b> in the address bar → Website Settings → Motion & Orientation → Allow → reload.<br><span style="opacity:0.65;font-size:11px">Or tap here to retry</span>';
+  el.addEventListener('click', function () {
+    _requestMotion();
+    el.remove();
+  });
+  document.body.appendChild(el);
+}
+
+function _requestMotion() {
+  if (_motionPermState === 'granted') return;
+  if (typeof DeviceMotionEvent === 'undefined') return;
+
+  var isCriOS = /CriOS/.test(navigator.userAgent || '');
+
+  // Non-iOS (no requestPermission API) — just add listeners
   if (typeof DeviceMotionEvent.requestPermission !== 'function') {
-    _addMotionListeners(); return;
+    _addMotionListeners();
+    _motionPermState = 'granted';
+    return;
   }
-  if (isCriOS) { _addMotionListeners(); return; }
+
+  // Chrome iOS: requestPermission often returns 'denied' without a dialog,
+  // blocking events that would otherwise flow. Add listeners FIRST, then
+  // check if events arrive; fall back to requestPermission only if not.
+  if (isCriOS) {
+    _addMotionListeners();
+    var beforeCount = _motionEventCount;
+    setTimeout(function () {
+      if (_motionEventCount > beforeCount) {
+        _motionPermState = 'granted';
+      } else {
+        DeviceMotionEvent.requestPermission()
+          .then(function (r) {
+            if (r === 'granted') { _addMotionListeners(); _motionPermState = 'granted'; }
+            else { _motionPermState = 'denied'; _showMotionHelp(); }
+          })
+          .catch(function () { _motionPermState = 'denied'; _showMotionHelp(); });
+      }
+    }, 2000);
+    return;
+  }
+
+  // Safari iOS: requestPermission shows the standard dialog
+  // NOTE: Do NOT call DeviceOrientationEvent.requestPermission() separately —
+  // motion permission grants orientation too, and a second call fires outside
+  // the gesture context causing it to fail or show a confusing second dialog.
   DeviceMotionEvent.requestPermission()
-    .then(function (r) { if (r === 'granted') _addMotionListeners(); })
-    .catch(function () {});
-  if (typeof DeviceOrientationEvent !== 'undefined' &&
-      typeof DeviceOrientationEvent.requestPermission === 'function') {
-    DeviceOrientationEvent.requestPermission().catch(function(){});
-  }
+    .then(function (r) {
+      if (r === 'granted') {
+        _addMotionListeners();
+        _motionPermState = 'granted';
+      } else {
+        _motionPermState = 'denied';
+        _showMotionHelp();
+      }
+    })
+    .catch(function () {
+      _motionPermState = 'denied';
+      _showMotionHelp();
+    });
 }
 
 // Touch
