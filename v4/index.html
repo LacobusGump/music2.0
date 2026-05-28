@@ -1,0 +1,863 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="theme-color" content="#0a0806">
+<title>GUMP v4 — Wand</title>
+<meta name="description" content="Wave the phone. Your tremors and shapes paint the music. Live environment sampling. Real songs, real-time. v4 test build.">
+<link rel="icon" href="/favicon.png">
+<style>
+*{margin:0;padding:0;box-sizing:border-box;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;}
+html,body{width:100%;height:100%;overflow:hidden;background:#0a0806;touch-action:none;}
+
+/* ── BOOT SCREEN ─────────────────────────────────────────── */
+#boot{
+  position:fixed;inset:0;z-index:10;
+  display:flex;flex-direction:column;
+  align-items:center;justify-content:center;
+  background:#0a0806;
+  padding:0 24px;
+  transition:opacity 0.8s ease;
+}
+#boot.hidden{opacity:0;pointer-events:none;}
+
+.boot-label{
+  font-family:Futura,'Century Gothic',sans-serif;
+  font-size:0.58em;letter-spacing:0.38em;
+  color:rgba(201,164,74,0.32);text-transform:uppercase;
+  margin-bottom:36px;
+}
+
+/* ── STYLE SELECTOR ─────────────────────────────────────── */
+#style-grid{
+  display:flex;
+  gap:8px;
+  justify-content:center;
+  flex-wrap:wrap;
+  margin-bottom:10px;
+  max-width:380px;
+}
+.style-btn{
+  background:none;
+  border:1px solid rgba(201,164,74,0.14);
+  border-radius:3px;
+  padding:9px 14px 8px;
+  cursor:pointer;
+  text-align:center;
+  transition:all 0.28s;
+  min-width:62px;
+}
+.style-btn:hover{
+  border-color:rgba(201,164,74,0.38);
+  background:rgba(201,164,74,0.04);
+}
+.style-btn.selected{
+  border-color:rgba(201,164,74,0.72);
+  background:rgba(201,164,74,0.09);
+}
+.style-btn .sn{
+  display:block;
+  font-family:Futura,'Century Gothic',sans-serif;
+  font-size:0.52em;letter-spacing:0.24em;
+  color:rgba(201,164,74,0.68);text-transform:uppercase;
+}
+.style-btn.selected .sn{color:rgba(201,164,74,0.92);}
+
+#style-sub{
+  font-family:Georgia,serif;font-style:italic;
+  font-size:0.58em;
+  color:rgba(201,164,74,0.28);
+  letter-spacing:0.05em;
+  text-align:center;
+  height:1.4em;
+  margin-bottom:30px;
+  transition:opacity 0.3s;
+}
+
+/* ── PLAY BUTTON ─────────────────────────────────────────── */
+#play-btn{
+  background:none;
+  border:1px solid rgba(201,164,74,0.25);
+  border-radius:50%;
+  width:108px;height:108px;
+  color:rgba(201,164,74,0.68);
+  font-family:Futura,'Century Gothic',sans-serif;
+  font-size:0.68em;letter-spacing:0.22em;
+  text-transform:uppercase;
+  cursor:pointer;
+  transition:all 0.45s;
+}
+#play-btn:hover,#play-btn:active{
+  border-color:rgba(201,164,74,0.58);
+  background:rgba(201,164,74,0.07);
+  color:rgba(201,164,74,0.95);
+}
+
+.boot-env{
+  margin-top:26px;
+  font-family:Georgia,serif;
+  font-size:0.60em;
+  color:rgba(201,164,74,0.20);
+  line-height:2;
+  text-align:center;
+  max-width:280px;
+}
+
+/* ── MAIN CANVAS ─────────────────────────────────────────── */
+canvas{
+  position:fixed;inset:0;
+  width:100%;height:100%;
+  display:block;
+}
+
+/* ── HUD ────────────────────────────────────────────────── */
+#hud{
+  position:fixed;
+  bottom:env(safe-area-inset-bottom,20px);
+  left:0;right:0;
+  padding:0 24px 22px;
+  pointer-events:none;
+  z-index:5;
+  display:none;
+}
+#hud.show{display:block;}
+.hud-key{
+  font-family:Futura,'Century Gothic',sans-serif;
+  font-size:0.88em;letter-spacing:0.22em;
+  color:rgba(201,164,74,0.65);
+  text-transform:uppercase;
+  display:block;margin-bottom:4px;
+}
+.hud-env{
+  font-family:Georgia,serif;
+  font-size:0.60em;
+  color:rgba(201,164,74,0.28);
+  letter-spacing:0.06em;line-height:2;
+}
+
+/* ── CORNER NAV ─────────────────────────────────────────── */
+#corner{
+  position:fixed;top:max(env(safe-area-inset-top,14px),14px);left:16px;
+  z-index:20;
+  font-family:Futura,'Century Gothic',sans-serif;
+  font-size:0.52em;letter-spacing:0.14em;
+  color:rgba(255,255,255,0.18);
+}
+#corner a{color:rgba(255,255,255,0.18);text-decoration:none;}
+#corner a:hover{color:rgba(255,255,255,0.45);}
+
+/* ── PHASE INDICATOR ─────────────────────────────────────── */
+#phase-hint{
+  position:fixed;bottom:72px;left:50%;transform:translateX(-50%);
+  z-index:6;
+  color:rgba(201,164,74,0.38);
+  font-family:Georgia,serif;font-size:0.60em;
+  text-align:center;line-height:1.8;
+  pointer-events:none;
+  opacity:0;
+  transition:opacity 1.5s;
+}
+
+/* ── SAMPLE LOADER ──────────────────────────────────────── */
+#sample-btn{
+  position:fixed;top:max(env(safe-area-inset-top,14px),14px);right:16px;
+  z-index:20;
+  background:none;border:1px solid rgba(201,164,74,0.16);border-radius:3px;
+  padding:5px 10px 4px;
+  font-family:Futura,'Century Gothic',sans-serif;
+  font-size:0.46em;letter-spacing:0.14em;
+  color:rgba(201,164,74,0.30);
+  cursor:pointer;
+  display:none;
+  transition:all 0.3s;
+}
+#sample-btn:hover{ border-color:rgba(201,164,74,0.40);color:rgba(201,164,74,0.60); }
+#sample-btn.show{ display:block; }
+
+#mic-btn:hover, #snapshot-btn:hover { border-color:rgba(201,164,74,0.55); color:rgba(201,164,74,0.85); }
+#mic-btn.active { border-color:#c8a45a; color:#c8a45a; background:rgba(201,164,74,0.06); }
+
+#sample-panel{
+  position:fixed;top:50px;right:12px;
+  z-index:20;
+  background:rgba(10,8,6,0.94);
+  border:1px solid rgba(201,164,74,0.20);
+  border-radius:4px;
+  padding:14px 16px 12px;
+  display:none;
+  width:220px;
+}
+#sample-panel.show{ display:block; }
+#sample-panel .sp-title{
+  font-family:Futura,'Century Gothic',sans-serif;
+  font-size:0.46em;letter-spacing:0.22em;
+  color:rgba(201,164,74,0.45);
+  text-transform:uppercase;
+  margin-bottom:10px;
+}
+.sp-row{
+  display:flex;align-items:center;gap:8px;
+  margin-bottom:7px;
+}
+.sp-label{
+  font-family:Futura,'Century Gothic',sans-serif;
+  font-size:0.42em;letter-spacing:0.14em;
+  color:rgba(201,164,74,0.35);
+  text-transform:uppercase;
+  width:52px;flex-shrink:0;
+}
+.sp-dot{
+  width:6px;height:6px;border-radius:50%;
+  background:rgba(201,164,74,0.16);flex-shrink:0;
+}
+.sp-dot.loaded{ background:rgba(120,200,140,0.70); }
+.sp-btn{
+  flex:1;
+  background:none;border:1px solid rgba(201,164,74,0.14);border-radius:2px;
+  padding:4px 8px;
+  font-family:Georgia,serif;font-style:italic;
+  font-size:0.42em;
+  color:rgba(201,164,74,0.30);
+  cursor:pointer;text-align:left;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  transition:all 0.2s;
+}
+.sp-btn:hover{ border-color:rgba(201,164,74,0.35);color:rgba(201,164,74,0.65); }
+.sp-note{
+  font-family:Georgia,serif;font-size:0.38em;font-style:italic;
+  color:rgba(201,164,74,0.20);
+  text-align:center;
+  margin-top:8px;
+  line-height:1.6;
+}
+#sample-file-input{ display:none; }
+</style>
+</head>
+<body>
+
+<div id="corner">
+  <a href="/play/">&larr; home</a>
+  &nbsp;&nbsp;<b>v4</b> (wand) &nbsp;&middot;&nbsp; <a href="/v3/">v3</a> &nbsp;&middot;&nbsp; <a href="/v1/">v1</a>
+</div>
+
+<!-- BOOT SCREEN -->
+<div id="boot">
+  <div class="boot-label">GUMP v4 — WAND</div>
+
+  <div id="style-grid"></div>
+  <div id="style-sub">&nbsp;</div>
+
+  <button id="play-btn">play</button>
+
+  <div class="boot-env" id="boot-env">
+    your world makes the music<br>
+    you play the melody<br>
+    <span style="opacity:0.55" id="boot-loc">reading your location&hellip;</span>
+  </div>
+</div>
+
+<!-- CANVAS -->
+<canvas id="viz"></canvas>
+
+<!-- HUD -->
+<div id="hud">
+  <span class="hud-key" id="hud-key">—</span>
+  <span class="hud-env"  id="hud-env">—</span>
+</div>
+
+<!-- PHASE HINT -->
+<div id="phase-hint">move to begin</div>
+
+<!-- SAMPLE LOADER -->
+<button id="sample-btn">SAMPLES</button>
+<div id="sample-panel">
+  <div class="sp-title">Load Stems</div>
+  <div class="sp-row"><div class="sp-label">Kick</div><div class="sp-dot" id="dot-kick"></div><button class="sp-btn" data-stem="kick"   id="spb-kick">load file…</button></div>
+  <div class="sp-row"><div class="sp-label">Snare</div><div class="sp-dot" id="dot-snare"></div><button class="sp-btn" data-stem="snare" id="spb-snare">load file…</button></div>
+  <div class="sp-row"><div class="sp-label">Hihat</div><div class="sp-dot" id="dot-hihat"></div><button class="sp-btn" data-stem="hihat" id="spb-hihat">load file…</button></div>
+  <div class="sp-row"><div class="sp-label">Bass</div><div class="sp-dot" id="dot-bass"></div><button class="sp-btn" data-stem="bass"   id="spb-bass">load file…</button></div>
+  <div class="sp-row"><div class="sp-label">Chords</div><div class="sp-dot" id="dot-chords"></div><button class="sp-btn" data-stem="chords" id="spb-chords">load file…</button></div>
+  <div class="sp-note">wav · mp3 · aiff<br>your samples replace synthesis</div>
+</div>
+<input type="file" id="sample-file-input" accept="audio/*">
+
+<!-- v4 WAND + LIVE ENV CONTROLS -->
+<div id="wand-readout" style="position:fixed;bottom:92px;left:50%;transform:translateX(-50%);z-index:25;font-family:Futura,'Century Gothic',sans-serif;font-size:0.58em;letter-spacing:0.08em;color:rgba(201,164,74,0.55);background:rgba(10,8,6,0.82);padding:4px 14px 3px;border-radius:3px;border:1px solid rgba(201,164,74,0.12);pointer-events:none;white-space:nowrap;display:none;">
+  <span id="wand-shape">HOLD</span> · <span id="wand-tremor">0%</span> tremor · <span id="wand-kret">K0.50 R0.50 T0.10</span>
+</div>
+
+<button id="mic-btn" style="position:fixed;bottom:18px;left:50%;transform:translateX(-50%);z-index:30;background:none;border:1px solid rgba(201,164,74,0.25);border-radius:3px;padding:6px 14px 5px;font-family:Futura,'Century Gothic',sans-serif;font-size:0.58em;letter-spacing:0.16em;color:rgba(201,164,74,0.65);cursor:pointer;display:none;">MIC + ROOM</button>
+
+<button id="snapshot-btn" style="position:fixed;bottom:18px;right:16px;z-index:30;background:none;border:1px solid rgba(201,164,74,0.18);border-radius:3px;padding:5px 10px 4px;font-family:Futura,'Century Gothic',sans-serif;font-size:0.46em;letter-spacing:0.12em;color:rgba(201,164,74,0.45);cursor:pointer;display:none;">CAPTURE WAND + ENV</button>
+
+<!-- v1 ENGINE — load order matters: sensor→body→harmony→sound→rhythm -->
+<script src="js/sensor.js"></script>
+<script src="js/wand.js"></script>
+<script src="js/body.js"></script>
+<script src="js/harmony.js"></script>
+<script src="js/sound.js"></script>
+<script src="js/rhythm.js"></script>
+<!-- ENVIRONMENT + STYLE + CONDUCTOR -->
+<script src="js/environ.js"></script>
+<script src="js/style.js"></script>
+<script src="js/conductor.js"></script>
+
+<script>
+(function () {
+'use strict';
+
+// ── STATE ─────────────────────────────────────────────────────────────────
+
+var actx          = null;
+var started       = false;
+var animID        = null;
+var selectedStyle = 'lofi';
+
+var canvas = document.getElementById('viz');
+var ctx2d  = canvas.getContext('2d');
+var DPR    = Math.min(window.devicePixelRatio || 1, 2);
+var W = 0, H = 0;
+
+// Visual
+var beatFlash      = 0;
+var energySmooth   = 0;
+var lastPhase      = -1;
+var phaseHintTimer = 0;
+
+// ── RESIZE ────────────────────────────────────────────────────────────────
+
+function resize() {
+  W = window.innerWidth; H = window.innerHeight;
+  canvas.width  = W * DPR; canvas.height = H * DPR;
+  canvas.style.width  = W + 'px'; canvas.style.height = H + 'px';
+  ctx2d.setTransform(DPR, 0, 0, DPR, 0, 0);
+}
+window.addEventListener('resize', resize, { passive: true });
+resize();
+
+// ── STYLE SELECTOR ────────────────────────────────────────────────────────
+
+var grid  = document.getElementById('style-grid');
+var subEl = document.getElementById('style-sub');
+
+Styles.all().forEach(function (s) {
+  var btn = document.createElement('button');
+  btn.className = 'style-btn' + (s.id === selectedStyle ? ' selected' : '');
+  btn.dataset.style = s.id;
+  btn.innerHTML = '<span class="sn">' + s.label + '</span>';
+  btn.addEventListener('click', function () {
+    selectedStyle = s.id;
+    document.querySelectorAll('.style-btn').forEach(function (b) {
+      b.classList.toggle('selected', b.dataset.style === s.id);
+    });
+    subEl.textContent = s.sub;
+    // Live style switch after play starts
+    if (started) Conductor.applyStyle(s.id);
+  });
+  grid.appendChild(btn);
+});
+subEl.textContent = Styles.get(selectedStyle).sub;
+
+// ── ENVIRON BOOT ──────────────────────────────────────────────────────────
+
+Environ.init();
+
+(function pollEnv() {
+  var locEl = document.getElementById('boot-loc');
+  if (Environ.loaded) {
+    locEl.textContent = Environ.description() || 'defaults ready';
+  } else {
+    setTimeout(pollEnv, 400);
+  }
+})();
+
+// When GPS/weather arrives, refresh conductor's key/mode/bpm
+var _environRefreshed = false;
+(function pollRefresh() {
+  if (_environRefreshed) return;
+  if (Environ.loaded && Environ.cityName !== null) {
+    _environRefreshed = true;
+    if (started) Conductor.refresh();
+  } else {
+    setTimeout(pollRefresh, 1500);
+  }
+})();
+
+// ── iOS AUDIO WATCHDOG ────────────────────────────────────────────────────
+
+function _iosAudioUnlock() {
+  if (!actx) return;
+  if (actx.state === 'suspended') actx.resume().catch(function () {});
+  try {
+    var buf = actx.createBuffer(1, 1, actx.sampleRate);
+    var src = actx.createBufferSource();
+    src.buffer = buf; src.connect(actx.destination); src.start(0);
+  } catch(e) {}
+}
+
+document.addEventListener('touchstart', _iosAudioUnlock, { passive: true, capture: true });
+document.addEventListener('touchend',   _iosAudioUnlock, { passive: true, capture: true });
+document.addEventListener('visibilitychange', function () {
+  if (document.visibilityState === 'visible') _iosAudioUnlock();
+});
+window.addEventListener('pageshow', function () { _iosAudioUnlock(); });
+window.addEventListener('focus',    function () { _iosAudioUnlock(); });
+
+// ── BOOT / PLAY ───────────────────────────────────────────────────────────
+
+function begin() {
+  if (started) return;
+  started = true;
+
+  // Create AudioContext inside the user gesture (iOS requirement)
+  actx = new (window.AudioContext || window.webkitAudioContext)();
+  if (actx.state === 'suspended') actx.resume();
+
+  // Silent buffer trick — real iOS unlock
+  try {
+    var silentBuf = actx.createBuffer(1, 1, actx.sampleRate);
+    var silentSrc = actx.createBufferSource();
+    silentSrc.buffer = silentBuf; silentSrc.connect(actx.destination); silentSrc.start(0);
+  } catch(e) {}
+
+  // Fade out boot screen
+  var bootEl = document.getElementById('boot');
+  bootEl.classList.add('hidden');
+  setTimeout(function () { bootEl.style.display = 'none'; }, 900);
+  document.getElementById('hud').classList.add('show');
+  document.getElementById('sample-btn').classList.add('show');
+
+  // v4 WAND UI
+  var wr = document.getElementById('wand-readout');
+  if (wr) wr.style.display = 'block';
+  var micb = document.getElementById('mic-btn');
+  if (micb) micb.style.display = 'block';
+  var snapb = document.getElementById('snapshot-btn');
+  if (snapb) snapb.style.display = 'block';
+
+  if (typeof Wand !== 'undefined' && Wand.init) Wand.init();
+
+  // Show "move to begin" hint briefly
+  var hint = document.getElementById('phase-hint');
+  hint.style.opacity = '1';
+  setTimeout(function () { hint.style.opacity = '0'; }, 3500);
+
+  // Init sensor (async — handles iOS permission request)
+  Sensor.init().then(function () {
+    Conductor.init(actx, selectedStyle);
+    animID = requestAnimationFrame(loop);
+  }).catch(function (err) {
+    console.warn('[v3] Sensor.init failed:', err);
+    // Still start — sound will work, sensors may be limited
+    Conductor.init(actx, selectedStyle);
+    animID = requestAnimationFrame(loop);
+  });
+}
+
+document.getElementById('play-btn').addEventListener('click', begin);
+document.getElementById('play-btn').addEventListener('touchend', function (e) {
+  e.preventDefault(); begin();
+}, { passive: false });
+
+// ── v4 WAND + MIC + SNAPSHOT HANDLERS ─────────────────────────────────────
+(function () {
+  var micActive = false;
+  var micStream = null;
+  var micSource = null;
+  var micGain = null;
+  var micFilter = null;
+  var roomGain = null;
+
+  // MIC — live environment sampling (room, rain, breath, voice into the music)
+  var micBtn = document.getElementById('mic-btn');
+  if (micBtn) {
+    micBtn.addEventListener('click', function () {
+      if (!actx) return;
+
+      if (!micActive) {
+        navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } })
+          .then(function (stream) {
+            micStream = stream;
+            micSource = actx.createMediaStreamSource(stream);
+
+            micGain = actx.createGain(); micGain.gain.value = 0.55;
+            micFilter = actx.createBiquadFilter(); micFilter.type = 'bandpass'; micFilter.frequency.value = 1400; micFilter.Q.value = 0.8;
+
+            // Room bus — modulated by wand tremor + overall energy
+            roomGain = actx.createGain(); roomGain.gain.value = 0.0;
+            micSource.connect(micFilter); micFilter.connect(micGain); micGain.connect(roomGain);
+
+            // Route into the existing reverb send so the room lives in the space
+            if (Sound && Sound.reverbSendNode) {
+              roomGain.connect(Sound.reverbSendNode);
+            } else {
+              roomGain.connect(actx.destination);
+            }
+
+            micActive = true;
+            micBtn.classList.add('active');
+            micBtn.textContent = 'ROOM LIVE';
+
+            // Modulate room amount from wand + body every 120ms
+            setInterval(function () {
+              if (!roomGain || !micActive) return;
+              var w = (typeof Conductor !== 'undefined' && Conductor.wand) ? Conductor.wand : null;
+              var trem = w ? (w.tremor || 0) : 0;
+              var base = (typeof Body !== 'undefined' && Body.energy) ? Math.min(0.9, Body.energy * 0.35) : 0.25;
+              roomGain.gain.value = Math.min(0.92, base + trem * 0.55);
+              if (micFilter) micFilter.frequency.value = 900 + trem * 1100;
+            }, 120);
+          })
+          .catch(function (e) {
+            console.warn('mic denied or unavailable', e);
+            micBtn.textContent = 'MIC BLOCKED';
+          });
+      } else {
+        // stop
+        if (micStream) {
+          micStream.getTracks().forEach(function (t) { t.stop(); });
+        }
+        if (roomGain) roomGain.disconnect();
+        micActive = false;
+        micBtn.classList.remove('active');
+        micBtn.textContent = 'MIC + ROOM';
+      }
+    });
+  }
+
+  // SNAPSHOT — full current env + wand + style DNA for Suno / future stem gen
+  var snapBtn = document.getElementById('snapshot-btn');
+  if (snapBtn) {
+    snapBtn.addEventListener('click', function () {
+      var sensor = (typeof Sensor !== 'undefined') ? Sensor.read() : {};
+      var wand = (typeof Conductor !== 'undefined' && Conductor.wand) ? Conductor.wand : (typeof Wand !== 'undefined' ? Wand.getState() : {});
+      var style = (typeof Styles !== 'undefined') ? Styles.get((typeof Conductor !== 'undefined' ? Conductor.styleId : 'lofi')) : {};
+      var payload = {
+        time: new Date().toISOString(),
+        style: style.id || 'lofi',
+        sunoPrompt: style.sunoPrompt || '',
+        env: {
+          gps: { lat: sensor.latitude, lon: sensor.longitude },
+          weather: sensor.weather,
+          temp: sensor.temperature,
+          humidity: sensor.humidity,
+          timeOfDay: sensor.timeOfDay
+        },
+        wand: {
+          tremor: wand.tremor,
+          shape: wand.shapeType,
+          speed: wand.speed,
+          curvature: wand.curvature,
+          kret: wand.kret
+        },
+        motionSampleRate: sensor.sampleRate
+      };
+      console.log('%c[v4 SNAPSHOT — paste into Suno or send to stem gen]', 'color:#c8a45a', payload);
+      // Also surface in alert for easy copy on phone
+      try {
+        var txt = 'WAND+ENV SNAPSHOT\n' + JSON.stringify(payload, null, 2);
+        // non-blocking toast
+        var toast = document.createElement('div');
+        toast.textContent = 'Captured — see console (and copy the object)';
+        toast.style.cssText = 'position:fixed;bottom:110px;left:50%;transform:translateX(-50%);background:#1a140f;color:#c8a45a;padding:6px 12px;font:10px/1.3 monospace;border:1px solid #c8a45a33;border-radius:2px;z-index:99;';
+        document.body.appendChild(toast);
+        setTimeout(function () { toast.style.transition = 'opacity .4s'; toast.style.opacity = '0'; setTimeout(function(){toast.remove();}, 400); }, 1400);
+      } catch(e) {}
+    });
+  }
+})();
+
+// ── MAIN LOOP ─────────────────────────────────────────────────────────────
+
+var lastFrameTime = 0;
+
+function loop(now) {
+  animID = requestAnimationFrame(loop);
+  var dt = Math.min(0.05, (now - lastFrameTime) / 1000);
+  lastFrameTime = now;
+
+  // Read sensor state (v1 sensor.js handles beta + gamma + accel + touch)
+  var sensor = Sensor.read();
+
+  // WAND v4 — trajectory shapes + hand tremors as primary musical control
+  var wand = (typeof Wand !== 'undefined' && Wand.update) ? Wand.update(sensor, dt) : null;
+
+  // Conductor update — Body.process + tilt-to-melody + drums + phrase + prodigy
+  // v4: also receives wand state (shapeType, tremor, kret) for real-time painting
+  Conductor.update(sensor, now, wand);
+
+  // Visual energy from Body
+  var energy = (typeof Body !== 'undefined') ? Body.energy : 0;
+  energySmooth += (energy - energySmooth) * 0.08;
+  if (energySmooth > 0.25) beatFlash = Math.min(1, beatFlash + energySmooth * 0.18);
+  beatFlash *= 0.88;
+
+  // Phase change hint
+  var phase = Conductor.phase;
+  if (phase !== lastPhase) {
+    lastPhase = phase;
+    if (phase === 1) _showHint('alive');
+    if (phase === 2) _showHint('full');
+  }
+
+  // HUD
+  var style  = Styles.get(Conductor.styleId || selectedStyle);
+  var keyStr = Environ.label();
+  document.getElementById('hud-key').textContent =
+    style.label + '  ·  ' + keyStr.toUpperCase() +
+    (Conductor.silent ? '  ·  listening' : '');
+  var envDesc = Environ.description();
+  var bpm = (typeof Rhythm !== 'undefined' && Rhythm.tempo > 0) ? Math.round(Rhythm.tempo) : Environ.bpm;
+  document.getElementById('hud-env').textContent =
+    bpm + ' bpm' + (envDesc ? '  ·  ' + envDesc : '');
+
+  // v4 WAND readout — live tremor + shape painting the music
+  var w = (typeof Conductor !== 'undefined' && Conductor.wand) ? Conductor.wand : (typeof Wand !== 'undefined' ? Wand.getState() : null);
+  if (w) {
+    var shapeEl = document.getElementById('wand-shape');
+    var tremEl  = document.getElementById('wand-tremor');
+    var kretEl  = document.getElementById('wand-kret');
+    if (shapeEl) shapeEl.textContent = (w.shapeType || 'HOLD').toUpperCase();
+    if (tremEl)  tremEl.textContent  = Math.round((w.tremor || 0) * 100) + '%';
+    if (kretEl && w.kret) {
+      kretEl.textContent = 'K' + (w.kret.K||0).toFixed(2) + ' R' + (w.kret.R||0).toFixed(2) + ' T' + (w.kret.T||0).toFixed(2);
+    }
+    // Push tremor into the voices for real-time humanization
+    if (typeof Sound !== 'undefined' && Sound.setWandTremor && typeof w.tremor === 'number') {
+      Sound.setWandTremor(w.tremor);
+    }
+  }
+
+  draw(now, style, sensor);
+}
+
+function _showHint(msg) {
+  var hint = document.getElementById('phase-hint');
+  hint.textContent = msg;
+  hint.style.opacity = '1';
+  setTimeout(function () { hint.style.opacity = '0'; }, 2500);
+}
+
+// ── VISUAL ────────────────────────────────────────────────────────────────
+
+function draw(now, style, sensor) {
+  var t   = now * 0.001;
+  var mc  = Environ.modeColor();
+
+  // Trail fade
+  ctx2d.fillStyle = 'rgba(10,8,6,0.54)';
+  ctx2d.fillRect(0, 0, W, H);
+
+  var cx = W / 2;
+  var cy = H / 2 - 24;
+
+  // Energy pulse ring
+  var pulseR = 82 + beatFlash * 30;
+  var pulseA = 0.07 + beatFlash * 0.15;
+  var grad = ctx2d.createRadialGradient(cx, cy, 0, cx, cy, pulseR * 2.2);
+  grad.addColorStop(0, 'rgba(201,164,74,' + Math.min(0.35, pulseA * 1.3).toFixed(3) + ')');
+  grad.addColorStop(0.5, 'rgba(201,164,74,' + pulseA.toFixed(3) + ')');
+  grad.addColorStop(1, 'rgba(10,8,6,0)');
+  ctx2d.fillStyle = grad;
+  ctx2d.beginPath(); ctx2d.arc(cx, cy, pulseR * 2.2, 0, Math.PI * 2); ctx2d.fill();
+
+  // Session phase arc (fills as you get more engaged)
+  var arcR   = 92;
+  var phaseArc = Math.min(1, (typeof Conductor !== 'undefined')
+    ? (Conductor.phase === 0 ? 0.15 : Conductor.phase === 1 ? 0.5 : 1.0) : 0);
+  var engArc = Conductor.silent ? 0 : Math.min(1, phaseArc + beatFlash * 0.05);
+  ctx2d.strokeStyle = 'rgba(201,164,74,0.11)';
+  ctx2d.lineWidth = 2;
+  ctx2d.beginPath();
+  ctx2d.arc(cx, cy, arcR, -Math.PI / 2, Math.PI * 2 * engArc - Math.PI / 2);
+  ctx2d.stroke();
+
+  // Style color accent ring
+  var styleRgb = _hexToRgb(style.color || '#c9a44a');
+  ctx2d.strokeStyle = 'rgba(' + styleRgb + ',0.07)';
+  ctx2d.lineWidth = 8;
+  ctx2d.beginPath();
+  ctx2d.arc(cx, cy, arcR + 10, 0, Math.PI * 2);
+  ctx2d.stroke();
+
+  // Beta (front-back) indicator — this is the melodic axis
+  var betaVal = sensor.beta || 62;
+  var betaNorm = Math.max(-1, Math.min(1, (betaVal - 62) / 30));
+  // Show as vertical position (beta = front-back → vertical feel)
+  var betaY = cy + betaNorm * arcR * 0.72;
+
+  // Gamma (left-right) → spatial / horizontal
+  var gammaNorm = Math.max(-1, Math.min(1, (sensor.gamma || 0) / 45));
+  var gammaX = cx + gammaNorm * arcR * 0.82;
+
+  // Dot follows both axes
+  ctx2d.fillStyle = 'rgba(201,164,74,' + (0.32 + Math.abs(betaNorm) * 0.42) + ')';
+  ctx2d.beginPath();
+  ctx2d.arc(gammaX, betaY, 6.5 + (Math.abs(betaNorm) + Math.abs(gammaNorm)) * 2, 0, Math.PI * 2);
+  ctx2d.fill();
+
+  // Crosshair lines
+  ctx2d.strokeStyle = 'rgba(201,164,74,0.10)';
+  ctx2d.lineWidth = 1.2;
+  ctx2d.beginPath(); ctx2d.moveTo(cx,      cy);  ctx2d.lineTo(cx,     betaY);  ctx2d.stroke();
+  ctx2d.beginPath(); ctx2d.moveTo(cx,      betaY); ctx2d.lineTo(gammaX, betaY); ctx2d.stroke();
+
+  // Kac label bars (affine E7 reference — 8 scale degrees)
+  var kac = [1,2,3,4,3,2,1,2];
+  var activeDeg = Conductor.degree || 0;
+  for (var i = 0; i < 8; i++) {
+    var kx  = cx - 210 + i * 60;
+    var hgt = 48 + kac[i] * 22;
+    var y1  = cy + 155;
+    var y2  = y1 - hgt * (0.65 + Math.sin(t * 0.45 + i * 0.8) * 0.08);
+    var ka  = 0.18 + (kac[i] / 4) * 0.24;
+    if (i === Math.abs(activeDeg) % 8) ka += 0.20 + beatFlash * 0.15;
+    ctx2d.strokeStyle = 'rgba(201,164,74,' + ka + ')';
+    ctx2d.lineWidth   = 1.5;
+    ctx2d.beginPath(); ctx2d.moveTo(kx, y1); ctx2d.lineTo(kx, y2); ctx2d.stroke();
+    ctx2d.fillStyle = 'rgba(201,164,74,' + (ka * 0.65) + ')';
+    ctx2d.beginPath(); ctx2d.arc(kx, y2, 2.8 + kac[i] * 0.25, 0, Math.PI * 2); ctx2d.fill();
+  }
+
+  // Scale degree dots — beta selects one
+  var scaleIdx = Math.round((betaNorm + 1) / 2 * 6);
+  var sc = Environ.scale(1);
+  for (var si = 0; si < sc.length; si++) {
+    var sdx = cx - 145 + si * 48;
+    var sdy = cy - 52 + Math.sin(t * 0.28 + si * 0.85) * 7;
+    var isAct = (si === scaleIdx && Math.abs(betaNorm) > 0.08);
+    var sA = isAct ? 0.88 : 0.16;
+    var sR = isAct ? 6 : 3;
+    ctx2d.fillStyle = 'rgba(201,164,74,' + sA + ')';
+    ctx2d.beginPath(); ctx2d.arc(sdx, sdy, sR, 0, Math.PI * 2); ctx2d.fill();
+    if (isAct) {
+      ctx2d.strokeStyle = 'rgba(201,164,74,0.22)';
+      ctx2d.lineWidth = 1;
+      ctx2d.beginPath();
+      ctx2d.arc(sdx, sdy, sR + 5 + Math.sin(t * 7.5) * 2, 0, Math.PI * 2);
+      ctx2d.stroke();
+    }
+  }
+
+  // Phase / state label
+  var phaseLabel = ['listening', 'alive', 'full'][Conductor.phase] || '';
+  ctx2d.fillStyle = 'rgba(201,164,74,0.15)';
+  ctx2d.font = '200 10px Futura, Century Gothic, sans-serif';
+  ctx2d.textAlign = 'center';
+  ctx2d.fillText(phaseLabel.toUpperCase() + '  ·  ' + Conductor.notes + ' notes', cx, cy - 118);
+}
+
+function _hexToRgb(hex) {
+  var r = parseInt(hex.slice(1,3),16);
+  var g = parseInt(hex.slice(3,5),16);
+  var b = parseInt(hex.slice(5,7),16);
+  return r + ',' + g + ',' + b;
+}
+
+// ── TOUCH NOTES ───────────────────────────────────────────────────────────
+
+var prevTouchX = 0, prevTouchY = 0, prevTouchTime = 0;
+var touchVX = 0, touchVY = 0;
+
+document.addEventListener('touchstart', function (e) {
+  if (!started) return;
+  var t = e.touches[0];
+  prevTouchX = t.clientX / W; prevTouchY = t.clientY / H;
+  prevTouchTime = performance.now();
+  touchVX = 0; touchVY = 0;
+  Conductor.touch(prevTouchX, prevTouchY, 0, 0);
+}, { passive: true });
+
+document.addEventListener('touchmove', function (e) {
+  if (!started || e.touches.length !== 1) return;
+  var t = e.touches[0];
+  var nowMs = performance.now();
+  var dtMs  = nowMs - prevTouchTime;
+  if (dtMs > 0) {
+    var curX = t.clientX / W, curY = t.clientY / H;
+    touchVX = (curX - prevTouchX) / (dtMs / 1000);
+    touchVY = (curY - prevTouchY) / (dtMs / 1000);
+    prevTouchX = curX; prevTouchY = curY; prevTouchTime = nowMs;
+    Conductor.touch(curX, curY, touchVX, touchVY);
+  }
+}, { passive: true });
+
+// Desktop mouse fallback
+document.addEventListener('mousedown', function (e) {
+  if (!started) return;
+  Conductor.touch(e.clientX / W, e.clientY / H, 0, 0);
+});
+
+// ── SAMPLE LOADER ─────────────────────────────────────────────────────────
+// Loads real audio files → Sound.loadSample(slot, buffer)
+// v1 Sound.js exposes loadSample(name, buffer) for drum replacement
+
+var _pendingStem = null;
+var sampleBtn    = document.getElementById('sample-btn');
+var samplePanel  = document.getElementById('sample-panel');
+var sampleInput  = document.getElementById('sample-file-input');
+
+sampleBtn.addEventListener('click', function (e) {
+  e.stopPropagation();
+  samplePanel.classList.toggle('show');
+});
+
+document.querySelectorAll('.sp-btn').forEach(function (btn) {
+  btn.addEventListener('click', function (e) {
+    e.stopPropagation();
+    _pendingStem = btn.dataset.stem;
+    sampleInput.click();
+  });
+});
+
+sampleInput.addEventListener('change', function () {
+  var file = sampleInput.files[0];
+  if (!file || !_pendingStem || !actx) return;
+  var stem = _pendingStem;
+  _pendingStem = null;
+  sampleInput.value = '';
+
+  var reader = new FileReader();
+  reader.onload = function (ev) {
+    actx.decodeAudioData(ev.target.result, function (buffer) {
+      // v1 Sound.js loadSample API
+      try { Sound.loadSample(stem, buffer); } catch(e) {
+        console.warn('[v3] Sound.loadSample not available:', e);
+      }
+      var dot = document.getElementById('dot-' + stem);
+      var lbl = document.getElementById('spb-' + stem);
+      if (dot) dot.classList.add('loaded');
+      if (lbl) lbl.textContent = file.name.replace(/\.[^.]+$/, '');
+    }, function () {
+      alert('Could not decode audio file. Try wav or mp3.');
+    });
+  };
+  reader.readAsArrayBuffer(file);
+});
+
+document.addEventListener('click', function () { samplePanel.classList.remove('show'); });
+samplePanel.addEventListener('click', function (e) { e.stopPropagation(); });
+
+// Global diagnostic
+window.gump = function () {
+  var s = (typeof Sensor !== 'undefined') ? Sensor.read() : {};
+  console.log('GUMP v3\n' +
+    'Style: ' + selectedStyle + '\n' +
+    'Phase: ' + Conductor.phase + '\n' +
+    'Silent: ' + Conductor.silent + '\n' +
+    'Degree: ' + Conductor.degree + '\n' +
+    'Notes: ' + Conductor.notes + '\n' +
+    'Errors: ' + Conductor.errors + '\n' +
+    'Beta: ' + (s.beta||0).toFixed(1) + ' Gamma: ' + (s.gamma||0).toFixed(1) + '\n' +
+    'Body energy: ' + ((typeof Body!=='undefined')?Body.energy.toFixed(3):'n/a') + '\n' +
+    'Environ: ' + Environ.label() + ' ' + Environ.description()
+  );
+};
+
+})();
+</script>
+</body>
+</html>
