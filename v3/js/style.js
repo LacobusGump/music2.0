@@ -31,7 +31,9 @@ const Styles = (function () {
       snare: { vel: 0.64, toneHz: 170, toneDecay: 0.07, hasClap: false },
       hatVel:   0.40,
       padLP:   2400, padGain: 0.28,
-      padFM:   { ratio: 1.5, index: 1.8 },   // warm FM: half-octave mod = smooth bells
+      padFM:   { ratio: 1.5, index: 1.8 },
+      melodyFM: { ratio: 2.0, index: 0.6 },   // warm Rhodes-like
+      bassStyle: 'bounce',                      // root + 5th, chromatic walk on bar 3
       bassLP:   320,  bassSubGain: 0.72, bassDrive: 0.38,
       reverbSec: 3.4,
       vinyl:    true,
@@ -54,7 +56,9 @@ const Styles = (function () {
       snare: { vel: 0.78, toneHz: 200, toneDecay: 0.05, hasClap: true },
       hatVel:   0.36,
       padLP:   3200, padGain: 0.22,
-      padFM:   { ratio: 2.0, index: 0.9 },   // octave mod = smooth, warm, even harmonics
+      padFM:   { ratio: 2.0, index: 0.9 },
+      melodyFM: { ratio: 1.5, index: 1.4 },   // electric piano feel
+      bassStyle: 'groove',                      // syncopated 16ths, punchy
       bassLP:   480,  bassSubGain: 0.50, bassDrive: 0.52,
       reverbSec: 2.0,
       vinyl:    false,
@@ -77,7 +81,11 @@ const Styles = (function () {
       snare: { vel: 0.55, toneHz: 210, toneDecay: 0.06, hasClap: false },
       hatVel:   0.38,
       padLP:   4800, padGain: 0.18,
-      padFM:   { ratio: 1.333, index: 2.2 },  // 4:3 ratio = open, complex, jazzy
+      padFM:   { ratio: 1.333, index: 2.2 },
+      melodyFM: { ratio: 1.333, index: 2.8 }, // reedy, sax-like
+      bassStyle: 'walk',                        // walking quarter-note bass
+      // Ride cymbal pattern: strong on 1,2,3,4 — "and" of 2 accented (the jazz lift)
+      hatVels: [0.72,0.06,0.16,0.06, 0.60,0.06,0.32,0.06, 0.68,0.06,0.16,0.06, 0.56,0.06,0.20,0.06],
       bassLP:   600,  bassSubGain: 0.20, bassDrive: 0.14,
       reverbSec: 1.5,
       vinyl:    false,
@@ -100,7 +108,9 @@ const Styles = (function () {
       snare: { vel: 0.0,  toneHz: 180, toneDecay: 0.10, hasClap: false },
       hatVel:   0.10,
       padLP:   2800, padGain: 0.50,
-      padFM:   { ratio: 0.5, index: 0.5 },    // sub-octave mod = pure, sine-like, vast
+      padFM:   { ratio: 0.5, index: 0.5 },
+      melodyFM: { ratio: 1.0, index: 0.2 },   // near-sine, pure
+      bassStyle: 'sparse',                      // root only, one note, breathe
       bassLP:   240,  bassSubGain: 0.42, bassDrive: 0.10,
       reverbSec: 5.5,
       vinyl:    false,
@@ -123,7 +133,9 @@ const Styles = (function () {
       snare: { vel: 0.62, toneHz: 185, toneDecay: 0.04, hasClap: true },
       hatVel:   0.28,
       padLP:   2200, padGain: 0.22,
-      padFM:   { ratio: 3.0, index: 3.5 },    // 3× mod = harsh, electronic, metallic
+      padFM:   { ratio: 3.0, index: 3.5 },
+      melodyFM: { ratio: 2.0, index: 0.3 },   // clean lead synth
+      bassStyle: 'hold',                        // 808 hold, occasional slide
       bassLP:   280,  bassSubGain: 0.92, bassDrive: 0.72,
       reverbSec: 2.8,
       vinyl:    false,

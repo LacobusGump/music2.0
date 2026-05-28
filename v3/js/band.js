@@ -387,58 +387,88 @@ const Band = (function () {
     _bassGain.gain.setTargetAtTime(0.04, t + 0.12, 0.22);
   }
 
-  // ── MELODY LAYER ─────────────────────────────────────────────────────────
+  // ── MELODY LAYER — FM synthesis ──────────────────────────────────────────
+  // Carrier + modulator + vibrato. Style's melodyFM { ratio, index } gives
+  // each style a different instrument character (Rhodes, sax, pure sine, etc.)
 
   function _playMelody(t, scaleIndex, vel, dur) {
     var sc  = Environ.scale(1);
     var idx = Math.max(0, Math.min(sc.length - 1, scaleIndex));
     var hz  = Environ.midiToHz(sc[idx]);
     var v   = Math.min(0.85, vel + _pink()*0.03);
+    var fm  = _style.melodyFM || { ratio: 2.0, index: 0.6 };
 
-    var osc = _ctx.createOscillator();
-    osc.type = (Environ.mode === 'major' || Environ.mode === 'lydian') ? 'triangle' : 'sawtooth';
-    osc.frequency.value = hz;
+    var carrier = _ctx.createOscillator(); carrier.type = 'sine';
+    var mod     = _ctx.createOscillator(); mod.type = 'sine';
+    var modGain = _ctx.createGain();
+    var vib     = _ctx.createOscillator(); vib.type = 'sine'; vib.frequency.value = 5.2;
+    var vibG    = _ctx.createGain();
 
-    var vib  = _ctx.createOscillator(); vib.type = 'sine'; vib.frequency.value = 5.5;
-    var vibG = _ctx.createGain(); vibG.gain.value = hz * 0.003;
-    vib.connect(vibG); vibG.connect(osc.frequency);
+    carrier.frequency.value = hz;
+    mod.frequency.value     = hz * fm.ratio;
+    modGain.gain.value      = hz * fm.index;
+    vibG.gain.value         = hz * 0.003;     // subtle natural vibrato
 
-    var lp = _ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 3200; lp.Q.value = 0.4;
+    mod.connect(modGain); modGain.connect(carrier.frequency);
+    vib.connect(vibG);    vibG.connect(carrier.frequency);
+
     var env = _ctx.createGain();
     env.gain.setValueAtTime(0.001, t);
-    env.gain.linearRampToValueAtTime(v * 0.52, t + 0.018);
-    env.gain.setTargetAtTime(v * 0.30, t + 0.05, dur * 0.4);
+    env.gain.linearRampToValueAtTime(v * 0.55, t + 0.020);
+    env.gain.setTargetAtTime(v * 0.32, t + 0.06, dur * 0.35);
     env.gain.linearRampToValueAtTime(0.001, t + dur * 0.88);
 
-    osc.connect(lp); lp.connect(env); env.connect(_master);
+    carrier.connect(env); env.connect(_master);
     if (_reverbSend) {
-      var rs = _ctx.createGain(); rs.gain.value = 0.48;
+      var rs = _ctx.createGain(); rs.gain.value = 0.44;
       env.connect(rs); rs.connect(_reverbSend);
     }
-    osc.start(t); osc.stop(t + dur + 0.1);
-    vib.start(t); vib.stop(t + dur + 0.1);
+
+    carrier.start(t); mod.start(t); vib.start(t);
+    carrier.stop(t + dur + 0.1);
+    mod.stop(t + dur + 0.1);
+    vib.stop(t + dur + 0.1);
   }
 
   // ── REVERB ───────────────────────────────────────────────────────────────
 
   function _buildReverb() {
-    var envMod  = 0.55 + Environ.reverbDepth * 0.9;   // humidity → longer reverb
-    var decSec  = Math.min(6.5, _style.reverbSec * envMod);
-    var sr      = _ctx.sampleRate;
-    var len     = Math.floor(sr * decSec);
-    var fadeIn  = Math.floor(0.03 * sr);
-    var buf     = _ctx.createBuffer(2, len, sr);
+    var envMod = 0.55 + Environ.reverbDepth * 0.9;
+    var decSec = Math.min(6.5, _style.reverbSec * envMod);
+    var sr     = _ctx.sampleRate;
+    var len    = Math.floor(sr * decSec);
+    var buf    = _ctx.createBuffer(2, len, sr);
+
+    // Early reflections: short discrete echoes in the first 80ms give the
+    // sense of room geometry. Late field: exponentially decaying colored noise.
+    var earlyMs = [7, 13, 19, 31, 43, 67];    // reflection times in ms
+
     for (var ch = 0; ch < 2; ch++) {
       var d = buf.getChannelData(ch);
+      // Late reverb — exponential decay with slight HF roll-off
       for (var j = 0; j < len; j++) {
-        d[j] = (Math.random()*2-1) * Math.pow(1 - j/len, 2.2) * Math.min(1, j/fadeIn);
+        var decay  = Math.exp(-j / (sr * decSec * 0.35));
+        var hfRoll = 1 - Math.min(1, j / (sr * decSec * 0.6));  // darken over time
+        d[j] = (Math.random()*2-1) * decay * (0.65 + hfRoll * 0.35);
+      }
+      // Early reflections — stamped on top with alternating L/R panning
+      for (var ei = 0; ei < earlyMs.length; ei++) {
+        var pos = Math.floor(earlyMs[ei] * 0.001 * sr);
+        var amp = 0.28 * Math.exp(-ei * 0.32) * (ch === ei % 2 ? 1 : 0.55);
+        if (pos < len) d[pos] += (Math.random() > 0.5 ? 1 : -1) * amp;
+      }
+      // Fade in the first 10ms to avoid click at zero
+      var fadeIn = Math.floor(0.010 * sr);
+      for (var fi = 0; fi < fadeIn && fi < len; fi++) {
+        d[fi] *= fi / fadeIn;
       }
     }
+
     var conv = _ctx.createConvolver(); conv.buffer = buf;
     _reverbSend = _ctx.createGain(); _reverbSend.gain.value = 0.28;
     _reverbGain = _ctx.createGain(); _reverbGain.gain.value = Environ.reverbDepth;
-    var rvHP = _ctx.createBiquadFilter(); rvHP.type = 'highpass'; rvHP.frequency.value = 120;
-    var rvLP = _ctx.createBiquadFilter(); rvLP.type = 'lowpass';  rvLP.frequency.value = 4200;
+    var rvHP = _ctx.createBiquadFilter(); rvHP.type = 'highpass'; rvHP.frequency.value = 100;
+    var rvLP = _ctx.createBiquadFilter(); rvLP.type = 'lowpass';  rvLP.frequency.value = 5500;
     _reverbSend.connect(conv); conv.connect(rvHP); rvHP.connect(rvLP);
     rvLP.connect(_reverbGain); _reverbGain.connect(_master);
   }
@@ -458,6 +488,73 @@ const Band = (function () {
     var g  = _ctx.createGain(); g.gain.value = 0.011;
     _vinylSrc.connect(hp); hp.connect(lp); lp.connect(g); g.connect(_master);
     _vinylSrc.start();
+  }
+
+  // ── BASS SCHEDULER — style-aware ─────────────────────────────────────────
+  // bassStyle in each style config determines the groove character:
+  //   'walk'   — jazz walking bass (quarter notes, chromatic approaches)
+  //   'groove' — R&B syncopation (punchy roots, 16th pickups, ghost notes)
+  //   'bounce' — lo-fi bounce (root + 5th, chromatic walk on bar turns)
+  //   'sparse' — ambient (root only, let it breathe)
+  //   'hold'   — trap 808 (strong hit, occasional slide)
+
+  function _scheduleBass(b, bar, sec, t) {
+    if (sec === 'intro') return;
+    var curr = Environ.chord(bar, -1);
+    var next = Environ.chord((bar + 1) % 4, -1);
+    var bs   = _style.bassStyle || 'bounce';
+
+    if (bs === 'walk') {
+      // Walking quarter notes — root, 5th, 3rd, approach to next root
+      if (b === 0)  _playBass(t, curr[0], 0.76 + _pink()*0.04);
+      if (b === 4)  _playBass(t, curr[2], 0.60 + _pink()*0.04);  // 5th
+      if (b === 8  && sec !== 'drop') _playBass(t, curr[1], 0.66 + _pink()*0.04);  // 3rd
+      if (b === 12) {
+        // Approach: alternate below/above depending on bar parity
+        var approach = (bar % 2 === 0) ? next[0] - 1 : next[0] + 1;
+        _playBass(t, approach, 0.70 + _pink()*0.04);
+      }
+
+    } else if (bs === 'groove') {
+      // R&B: punchy root hits + syncopated 16th pickups
+      if (b === 0)   _playBass(t, curr[0], 0.88 + _pink()*0.04);
+      if (b === 2  && Math.random() < 0.38) _playBass(t, curr[0], 0.36 + _pink()*0.04);
+      if (b === 4)   _playBass(t, curr[2], 0.56 + _pink()*0.04);  // 5th on 2
+      if (b === 6  && Math.random() < 0.52) _playBass(t, curr[0], 0.42 + _pink()*0.04);
+      if (b === 8  && sec !== 'drop') _playBass(t, curr[0], 0.72 + _pink()*0.04);
+      if (b === 10 && Math.random() < 0.42 && sec !== 'drop') _playBass(t, curr[1], 0.36 + _pink()*0.03);
+      if (b === 14 && Math.random() < 0.48) _playBass(t, next[0], 0.50 + _pink()*0.03);
+
+    } else if (bs === 'bounce') {
+      // Lo-fi: root + 5th, chromatic walk on bar 3 turnaround
+      if (b === 0)  _playBass(t, curr[0], 0.80 + _pink()*0.04);
+      if (b === 8  && sec !== 'drop') {
+        _playBass(t, Math.random() < 0.55 ? curr[2] : curr[0] + 12, 0.62 + _pink()*0.04);
+      }
+      if (sec === 'chorus' && bar === 3) {
+        if (b === 12) _playBass(t, next[0] + 2, 0.46 + _pink()*0.03);
+        if (b === 14) _playBass(t, next[0] + 1, 0.50 + _pink()*0.03);
+      } else if (b === 14 && Math.random() < 0.35) {
+        _playBass(t, next[0] - 1, 0.44 + _pink()*0.03);
+      }
+
+    } else if (bs === 'sparse') {
+      // Ambient: root only, one note per bar, let the reverb carry it
+      if (b === 0)  _playBass(t, curr[0], 0.52 + _pink()*0.04);
+
+    } else {
+      // 'hold' — trap 808: strong hit, long sustain, occasional slide
+      if (b === 0)  _playBass(t, curr[0], 0.92 + _pink()*0.04);
+      if (b === 8  && sec !== 'drop' && Math.random() < 0.44) {
+        _playBass(t, Math.random() < 0.6 ? curr[0] : curr[2], 0.66 + _pink()*0.04);
+      }
+      if (b === 6  && sec === 'chorus' && Math.random() < 0.32) {
+        _playBass(t, curr[0], 0.38 + _pink()*0.03);
+      }
+      if (b === 14 && bar === 3 && Math.random() < 0.42) {
+        _playBass(t, next[0], 0.54 + _pink()*0.03);
+      }
+    }
   }
 
   // ── BEAT SCHEDULER ───────────────────────────────────────────────────────
@@ -504,9 +601,10 @@ const Band = (function () {
           if (b === 14 && Math.random() < 0.32) _snare(t, sv * 0.30 + _pink()*0.04);
         }
 
-        // 16th-note hihats
-        var hv = _style.hatVel;
-        _hihat(t, Math.max(0.05, HAT_VELS[b] * hv + _pink()*0.04), b === 10);
+        // 16th-note hihats — use style's hatVels if defined (e.g. jazz ride pattern)
+        var hv    = _style.hatVel;
+        var hvMap = _style.hatVels || HAT_VELS;
+        _hihat(t, Math.max(0.05, hvMap[b] * hv + _pink()*0.04), b === 10);
 
         // Trap hat roll — builds into chorus
         if (_style.hasTrap && sec === 'chorus' && bar === 3 && b === 13) {
@@ -517,30 +615,7 @@ const Band = (function () {
       }
 
       // ── BASS ─────────────────────────────────────────────────────────
-      // Bass plays from build onward (not in pure intro silence)
-      if (sec !== 'intro') {
-        if (b === 0) {
-          var bc0 = Environ.chord(bar, -1);
-          _playBass(t, bc0[0], 0.84 + _pink()*0.04);
-        }
-        if (b === 6 && Math.random() < 0.42) {
-          var bc6 = Environ.chord(bar, -1);
-          _playBass(t, bc6[0], 0.52 + _pink()*0.04);
-        }
-        if (b === 8 && sec !== 'drop') {
-          var bc8 = Environ.chord(bar, -1);
-          _playBass(t, Math.random() < 0.55 ? bc8[0] : bc8[2], 0.64 + _pink()*0.04);
-        }
-        if (b === 10 && Math.random() < 0.30 && sec !== 'drop') {
-          var bc10 = Environ.chord(bar, -1);
-          _playBass(t, bc10[1], 0.40 + _pink()*0.03);
-        }
-        // Pickup: last 16th of last bar anticipates bar 1
-        if (b === 14 && bar === 3 && Math.random() < 0.45) {
-          var bc14 = Environ.chord(0, -1);
-          _playBass(t, bc14[0], 0.48 + _pink()*0.03);
-        }
-      }
+      _scheduleBass(b, bar, sec, t);
 
       // ── PAD ──────────────────────────────────────────────────────────
       if (b === 0) _updatePad(bar, padMult);
