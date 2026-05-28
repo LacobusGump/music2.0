@@ -500,19 +500,30 @@ const Band = (function () {
 
   function _scheduleBass(b, bar, sec, t) {
     if (sec === 'intro') return;
-    var curr = Environ.chord(bar, -1);
-    var next = Environ.chord((bar + 1) % 4, -1);
+    // Align chord selection to chordRhythm so bass and pad move together
+    var chR  = _style.chordRhythm || 1;
+    var chBar  = Math.floor(bar / chR) * chR;
+    var curr = Environ.chord(chBar % 4, -1);
+    // Next chord: the one after the current rhythm window
+    var nextChBar = (chBar + chR) % 4;
+    var next = Environ.chord(nextChBar, -1);
+    var isLastInWindow = (bar % chR === chR - 1);
     var bs   = _style.bassStyle || 'bounce';
 
     if (bs === 'walk') {
-      // Walking quarter notes — root, 5th, 3rd, approach to next root
+      // Walking quarter notes — root, 5th, 3rd, approach to next chord root
       if (b === 0)  _playBass(t, curr[0], 0.76 + _pink()*0.04);
       if (b === 4)  _playBass(t, curr[2], 0.60 + _pink()*0.04);  // 5th
       if (b === 8  && sec !== 'drop') _playBass(t, curr[1], 0.66 + _pink()*0.04);  // 3rd
       if (b === 12) {
-        // Approach: alternate below/above depending on bar parity
-        var approach = (bar % 2 === 0) ? next[0] - 1 : next[0] + 1;
-        _playBass(t, approach, 0.70 + _pink()*0.04);
+        if (isLastInWindow) {
+          // Approach note to next chord: below or above, alternating by bar
+          var approach = (bar % 2 === 0) ? next[0] - 1 : next[0] + 1;
+          _playBass(t, approach, 0.70 + _pink()*0.04);
+        } else {
+          // Still in same chord window — walk a passing tone
+          _playBass(t, curr[0] + (Math.random() < 0.5 ? 12 : 7), 0.58 + _pink()*0.04);
+        }
       }
 
     } else if (bs === 'groove') {
@@ -588,28 +599,50 @@ const Band = (function () {
 
       // ── DRUMS ────────────────────────────────────────────────────────
       if (drumVel > 0) {
-        // Kick — beats 1 and 3 (16ths 0 and 8)
-        if (b === 0) _kick(t, _style.kick.vel * drumVel + _pink()*0.05);
-        if (b === 8) _kick(t, _style.kick.vel * drumVel * 0.84 + _pink()*0.05);
+        var kg = _style.kickGrid;
+        var sg = _style.snareGrid;
+        var kv = _style.kick.vel * drumVel;
+        var sv = _style.snare.vel * drumVel;
 
-        // Snare + optional clap — beats 2 and 4
-        if (doSnare) {
-          var sv = _style.snare.vel * drumVel;
-          if (b === 4)  { _snare(t, sv + _pink()*0.05); if (_style.snare.hasClap) _clap(t, sv * 0.78); }
-          if (b === 12) { _snare(t, sv * 0.95 + _pink()*0.05); if (_style.snare.hasClap) _clap(t, sv * 0.72); }
-          // Ghost snare
-          if (b === 14 && Math.random() < 0.32) _snare(t, sv * 0.30 + _pink()*0.04);
+        // Kick — driven by per-style grid (boom-bap, sparse jazz, etc.)
+        if (kg && kg[b] > 0 && Math.random() < kg[b]) {
+          // Downbeat louder; pickup / ghost positions softer
+          var kMult = (b === 0) ? 1.0 : (b === 8) ? 0.88 : 0.72;
+          _kick(t, kv * kMult + _pink()*0.05);
         }
 
-        // 16th-note hihats — use style's hatVels if defined (e.g. jazz ride pattern)
+        // Snare + optional clap — driven by per-style grid
+        if (doSnare && sg) {
+          var sProb = sg[b] || 0;
+          if (sProb > 0 && Math.random() < sProb) {
+            var isMain = (b === 4 || b === 12);
+            var sv_hit = sv * (isMain ? 1.0 : 0.36) + _pink()*0.05;
+            _snare(t, sv_hit);
+            if (_style.snare.hasClap && isMain) {
+              _clap(t + beat16th * 0.01, sv_hit * 0.76);  // tiny offset = tighter crack
+            }
+          }
+        }
+
+        // 16th-note hihats — style's hatVels or default map
         var hv    = _style.hatVel;
         var hvMap = _style.hatVels || HAT_VELS;
         _hihat(t, Math.max(0.05, hvMap[b] * hv + _pink()*0.04), b === 10);
 
-        // Trap hat roll — builds into chorus
-        if (_style.hasTrap && sec === 'chorus' && bar === 3 && b === 13) {
-          for (var ri = 0; ri < 4; ri++) {
-            _hihat(t + ri * beat16th * 0.5, hv * 0.28 + ri * 0.04, false);
+        // Trap hat rolls — frequent in verse/chorus, random length
+        if (_style.hasTrap && b === 13 && (sec === 'chorus' || sec === 'verse')) {
+          var rollProb = sec === 'chorus' ? 0.82 : 0.40;
+          if (Math.random() < rollProb) {
+            var rollSteps = sec === 'chorus' ? 5 : 3;
+            for (var ri = 0; ri < rollSteps; ri++) {
+              _hihat(t + ri * beat16th * 0.5, hv * (0.22 + ri * 0.05), false);
+            }
+          }
+        }
+        // 32nd-note burst into final bar of chorus
+        if (_style.hasTrap && sec === 'chorus' && bar === 3 && b === 12) {
+          for (var qi = 0; qi < 6; qi++) {
+            _hihat(t + qi * beat16th * 0.25, hv * (0.18 + qi * 0.03), false);
           }
         }
       }
@@ -618,7 +651,9 @@ const Band = (function () {
       _scheduleBass(b, bar, sec, t);
 
       // ── PAD ──────────────────────────────────────────────────────────
-      if (b === 0) _updatePad(bar, padMult);
+      // chordRhythm=1 → update every bar; =2 → every 2 bars; =4 → drone
+      var chRhythm = _style.chordRhythm || 1;
+      if (b === 0 && bar % chRhythm === 0) _updatePad(bar, padMult);
 
       // ── MELODY ───────────────────────────────────────────────────────
       var timeSinceActive = _ctx.currentTime - _lastMelodyCtxTime;
@@ -632,9 +667,9 @@ const Band = (function () {
       if (b % 4 === 0) {
         if (_melodyActive) {
           _playMelody(t, _melodyDegree, _melodyVel, beat16th * 3.5);
-        } else if (doAutoFill) {
+        } else if (doAutoFill && Math.random() < (_style.fillDensity || 0.55)) {
           var deg = _fillNotes[_fillPos % _fillNotes.length];
-          if (deg >= 0) _playMelody(t, deg, 0.35 + _pink()*0.05, beat16th * 3.5);
+          if (deg >= 0) _playMelody(t, deg, 0.33 + _pink()*0.05, beat16th * 3.5);
           _fillPos++;
         }
       }
