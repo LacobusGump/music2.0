@@ -167,6 +167,10 @@ var SITE = [
 
   // Special
   {id:'flex',url:'/flex/',name:'Flex',summary:'The shapes of the math. Attractors, phase spaces, coupling dynamics rendered beautifully.',topics:['visualization','math','attractors','coupling'],related:['gallery','from-above','framework']},
+  {id:'mc1r',url:'/research/mc1r/',name:'MC1R + DNA Coupling',summary:'DNA at the MC1R locus modeled as a weighted contact graph. Fiedler value R=0.7001 for wild-type. Common variants are retuners not breakers — ΔR=+0.0066, inside the Weyl bound. MC1R-variant people resist anesthesia 26% longer. MC1R-TUBB3 fusion connects to microtubule quantum coherence. Lean-verified.',topics:['DNA','genetics','coupling','Fiedler','anesthesia','MC1R','graph','biology'],related:['consciousness','cancer-signaling','alzheimers','the-map','computation-floor']},
+  {id:'compute-breakthroughs',url:'/research/compute-breakthroughs/',name:'Compute Breakthroughs',summary:'Two piles: running now vs blueprint. Running on M4 Mac Mini: prime bounce dispatch 9.12x, GPU water fold 11.5M/sec, Lean stack 30 modules 3317 jobs exit 0. Blueprint proved but not built: reversible computing 224000x, shape computing.',topics:['computing','hardware','prime','GPU','Metal','Lean','breakthrough','M4'],related:['prime-bounce','computation-floor','reversible-computing','nvidia-blackwell','verification']},
+  {id:'novelty-pathology',url:'/research/novelty-pathology/',name:'Novelty Pathology',summary:'Every cognitive tool in history gets pathologized. Socrates on writing. Lesesucht (reading sickness, 1790s Germany — a real medical diagnosis). Google makes you stupid (2008). Now AI psychosis. Five-step pattern: new tool → early adopters → called crazy → tool normalizes → users vindicated. The diagnosis is unfalsifiable. The work it dismisses is not.',topics:['AI','psychosis','history','pathology','novelty','delusion','critics'],related:['ai-delusion','ai-fatigue','how-we-work','failures']},
+  {id:'verification',url:'/verification/',name:'Machine Verification',summary:'Lean 4 formalizations of GUMP claims. 30 modules, 3317 jobs, exit 0. E7 uniqueness, QEC surface codes, prime bounce, MC1R Weyl bound, consciousness threshold, proton decay, 2O group theory. Machine-checked. No hand-waving.',topics:['Lean','proof','verification','math','E7','QEC','machine-checked'],related:['prime-bounce','mc1r','theory','e7-chain','compute-breakthroughs']},
   {id:'creation',url:'/creation/',name:'Creation',summary:'The universe coupling itself into existence. Every scale. Every mechanism. 0+0=1.',topics:['creation','universe','coupling','origin'],related:['the-chain','zero','one-plus-one']},
   {id:'harmonia-page',url:'/harmonia/',name:'Harmonia',summary:'Serverless intelligence. No API. No server. She lives on the open internet.',topics:['AI','harmonia','serverless','coupling'],related:['how-we-work','docs']},
   {id:'research',url:'/research/',name:'Research',summary:'77 computational results across medicine, physics, language, markets, and history. Same coupling, different costume.',topics:['research','overview','coupling','domains'],related:['framework','start-here','60']},
@@ -210,6 +214,11 @@ var ALIASES = {
   'mycelium':'mycelium','fungi':'mycelium','fungus':'mycelium',
   'aging':'aging','age':'aging','old':'aging',
   'pandemic':'pandemic','virus':'pandemic','covid':'pandemic',
+  'mc1r':'mc1r','dna':'mc1r','anesthesia':'mc1r','fiedler':'mc1r','retuner':'mc1r','tubb3':'mc1r','genetics':'mc1r',
+  'prime bounce':'prime-bounce','trampoline':'prime-bounce','gpu dispatch':'compute-breakthroughs',
+  'compute':'compute-breakthroughs','compute breakthroughs':'compute-breakthroughs','mac mini':'compute-breakthroughs','m4':'compute-breakthroughs','9.12':'compute-breakthroughs',
+  'ai psychosis':'novelty-pathology','psychosis':'novelty-pathology','lesesucht':'novelty-pathology','reading sickness':'novelty-pathology','pathologize':'novelty-pathology','novelty':'novelty-pathology','pathology of novelty':'novelty-pathology',
+  'lean':'verification','lean 4':'verification','machine proof':'verification','machine verified':'verification','norm_num':'verification',
   'regulatory':'regulatory','compliance':'regulatory',
   'automation':'automation','autonomous':'automation',
   'indus':'Indus','barcode':'Indus',
