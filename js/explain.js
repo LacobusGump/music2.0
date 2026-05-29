@@ -40,8 +40,8 @@
       var rDesc;
       if (R < 0.2)            rDesc = 'no shared rhythm yet';
       else if (R < 0.5)       rDesc = 'some coherence building';
-      else if (R < 0.65)      rDesc = 'approaching the natural threshold (0.618) where living systems operate';
-      else if (R < 0.7)       rDesc = 'right at the sweet spot — this is where life operates';
+      else if (R < 0.59)      rDesc = 'approaching the sweet spot (0.618) where living systems operate';
+      else if (R < 0.67)      rDesc = 'right at the sweet spot — this is where life operates';
       else if (R < 0.85)      rDesc = 'well synchronized';
       else if (R < 0.97)      rDesc = 'tightly locked in';
       else                    rDesc = 'perfectly synchronized — either very healthy or very rigid';
@@ -149,7 +149,7 @@
 
   // ── PRIME / NUMBER ─────────────────────────────────────────────────
   function readPrime(text) {
-    var pm = text.match(/π\([\d,]+\)\s*=\s*([\d,]+)/i) ||
+    var pm = text.match(/π\([^)]+\)\s*=\s*([\d,]+)/i) ||
              text.match(/prime count[^:]*:\s*([\d,]+)/i) ||
              text.match(/(\d[\d,]+)\s*prime/i);
     if (!pm) return null;
