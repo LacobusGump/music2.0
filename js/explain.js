@@ -26,33 +26,52 @@
 
     var parts = [];
 
+    // K/R/T readings come from gump.scripts (Turbo source) when available.
+    // Falls back to inline thresholds if turbo_scripts.js didn't load.
+    // Source of truth: gump/scripts.py — these mirror the same buckets.
+    var useTurbo = (typeof k_reading === 'function');
+
     if (K !== null) {
-      if (K < 0.2)       parts.push('Barely any connection between these values');
-      else if (K < 0.5)  parts.push('Loosely coupled — the parts are aware of each other but not coordinating');
-      else if (K < 0.9)  parts.push('Moderate coupling — starting to act like a system');
-      else if (K < 1.3)  parts.push('Well coupled — organized and responsive');
-      else if (K < 1.6)  parts.push('Strongly coupled — well above the threshold where coherence kicks in');
-      else if (K < 1.87) parts.push('Near the ceiling (1.868) — high energy density, powerful');
-      else               parts.push('At the hard ceiling — maximum coupling');
+      if (useTurbo) {
+        // Turbo's k_reading returns lowercase short form; capitalize first letter
+        var s = k_reading(K);
+        parts.push(s.charAt(0).toUpperCase() + s.slice(1));
+      } else {
+        if (K < 0.2)       parts.push('Barely any connection between these values');
+        else if (K < 0.5)  parts.push('Loosely coupled — the parts are aware of each other but not coordinating');
+        else if (K < 0.9)  parts.push('Moderate coupling — starting to act like a system');
+        else if (K < 1.3)  parts.push('Well coupled — organized and responsive');
+        else if (K < 1.6)  parts.push('Strongly coupled — well above the threshold where coherence kicks in');
+        else if (K < 1.87) parts.push('Near the ceiling (1.868) — high energy density, powerful');
+        else               parts.push('At the hard ceiling — maximum coupling');
+      }
     }
 
     if (R !== null) {
       var rDesc;
-      if (R < 0.2)            rDesc = 'no shared rhythm yet';
-      else if (R < 0.5)       rDesc = 'some coherence building';
-      else if (R < 0.59)      rDesc = 'approaching the sweet spot (0.618) where living systems operate';
-      else if (R < 0.67)      rDesc = 'right at the sweet spot — this is where life operates';
-      else if (R < 0.85)      rDesc = 'well synchronized';
-      else if (R < 0.97)      rDesc = 'tightly locked in';
-      else                    rDesc = 'perfectly synchronized — either very healthy or very rigid';
+      if (useTurbo) {
+        rDesc = r_reading(R);
+      } else {
+        if (R < 0.2)            rDesc = 'no shared rhythm yet';
+        else if (R < 0.5)       rDesc = 'some coherence building';
+        else if (R < 0.59)      rDesc = 'approaching the sweet spot (0.618) where living systems operate';
+        else if (R < 0.67)      rDesc = 'right at the sweet spot — this is where life operates';
+        else if (R < 0.85)      rDesc = 'well synchronized';
+        else if (R < 0.97)      rDesc = 'tightly locked in';
+        else                    rDesc = 'perfectly synchronized — either very healthy or very rigid';
+      }
       parts.push(rDesc);
     }
 
     if (T !== null) {
-      if (T < 0.03)      parts.push('no tension (stable)');
-      else if (T < 0.15) parts.push('some healthy tension');
-      else if (T < 0.4)  parts.push('high tension — something wants to shift');
-      else               parts.push('very high tension — needs to change');
+      if (useTurbo) {
+        parts.push(t_reading(T));
+      } else {
+        if (T < 0.03)      parts.push('no tension (stable)');
+        else if (T < 0.15) parts.push('some healthy tension');
+        else if (T < 0.4)  parts.push('high tension — something wants to shift');
+        else               parts.push('very high tension — needs to change');
+      }
     }
 
     if (verdict === 'COHERENT')      parts.push('coherent');
