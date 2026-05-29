@@ -312,6 +312,7 @@ class Parser:
         if self.peek().type == 'IDENT' and self.peek(1).type == 'ASSIGN':
             name = self.advance().value
             self.advance()  # =
+            self.skip_newlines()
             value = self.parse_expr()
             return Assign(name, value)
         return self.parse_expr()
