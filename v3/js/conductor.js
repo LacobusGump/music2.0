@@ -370,6 +370,35 @@ const Conductor = (function () {
   var _errorCount = 0;
   var _touchDuck  = 1.0;
 
+  // ── 1/f PINK NOISE for motif timing (Hennig 2011) ─────────────────────
+  // Voss-McCartney algorithm. Correlated deviations, not random jitter.
+  // Same principle rhythm.js uses for drums — now applied to melody/bass.
+  // Without this: melody sounds like MIDI. With it: melody breathes.
+  var _pinkB = [0, 0, 0, 0, 0, 0, 0];
+  function _pinkNoise() {
+    var white = Math.random() * 2 - 1;
+    _pinkB[0] = 0.99886 * _pinkB[0] + white * 0.0555179;
+    _pinkB[1] = 0.99332 * _pinkB[1] + white * 0.0750759;
+    _pinkB[2] = 0.96900 * _pinkB[2] + white * 0.1538520;
+    _pinkB[3] = 0.86650 * _pinkB[3] + white * 0.3104856;
+    _pinkB[4] = 0.55000 * _pinkB[4] + white * 0.5329522;
+    _pinkB[5] = -0.7616 * _pinkB[5] + white * 0.0168980;
+    return (_pinkB[0]+_pinkB[1]+_pinkB[2]+_pinkB[3]+_pinkB[4]+_pinkB[5]+_pinkB[6]+white*0.5362) / 8;
+  }
+
+  // ── VELOCITY ACCENT PATTERN (Juslin 2003, embodiment signatures) ──────
+  // Beat 1 hits hardest. Off-beats are lighter. This is what makes a
+  // groove feel intentional. 8-step and 4-step tables (mod-matched).
+  var _ACCENT_8 = [1.00, 0.58, 0.80, 0.62, 0.90, 0.56, 0.74, 0.60];
+  var _ACCENT_4 = [1.00, 0.68, 0.88, 0.64];
+
+  // ── SYNCOPATION OFFSETS (Witek et al. 2014) ───────────────────────────
+  // Moderate syncopation = peak groove. Some steps pushed ±1 eighth note.
+  // Values in seconds of timing ADVANCE (negative = ahead of beat = syncopated).
+  // Applied as extra offset to the motif clock after the jitter.
+  var _SYNCOP_8  = [0, 0, -0.03, 0,  0.02, 0, -0.04, 0];   // anticipations on steps 2,4,6
+  var _SYNCOP_4  = [0, -0.02, 0, 0.02];
+
 
   // ── SILENCE ───────────────────────────────────────────────────────────
 
@@ -567,14 +596,29 @@ const Conductor = (function () {
 
     // ── MELODY ────────────────────────────────────────────────────────
     // The main melodic line. Voice and octave from style lens.
-    // Harmony.applySweetSpot + applyMotifGravity bend pitches toward
-    // gravitational wells — scale tones pull note into place.
+    //
+    // Three research principles applied here:
+    //  1. 1/f timing jitter (Hennig 2011): ±22ms correlated deviation.
+    //     Same principle as the drum engine. Without this = MIDI. With = alive.
+    //  2. Velocity accent pattern (Juslin 2003): beat 1 hits harder,
+    //     off-beats lighter. That's what makes groove feel intentional.
+    //  3. Syncopation (Witek 2014): steps 2,4,6 pushed slightly ahead
+    //     of the beat. Moderate anticipation = peak groove feeling.
 
     if (sec.mel.length > 0 && sec.melInterval > 0) {
       _melClock -= dt;
       if (_melClock <= 0) {
-        _melClock += sec.melInterval * sf;
-        var rawDeg = sec.mel[_melStep % sec.mel.length];
+        var melStepIdx = _melStep % sec.mel.length;
+
+        // 1/f timing: correlated jitter ±22ms (Hennig 2011)
+        var melJitter  = _pinkNoise() * 0.022;
+        // Syncopation: anticipate some beats (Witek 2014)
+        var melSyncop  = (sec.mel.length >= 8)
+          ? _SYNCOP_8[melStepIdx % 8]
+          : _SYNCOP_4[melStepIdx % 4];
+        _melClock += sec.melInterval * sf + melJitter + melSyncop;
+
+        var rawDeg = sec.mel[melStepIdx];
         _melStep++;
 
         if (rawDeg !== -1) {
@@ -582,11 +626,23 @@ const Conductor = (function () {
           try { deg = Harmony.applySweetSpot(deg); } catch(e) {}
           try { deg = Harmony.applyMotifGravity(deg); } catch(e) {}
 
+          // Occasional motif variation: every 2 loops, 18% chance of neighbor sub
+          // (Margulis 2014: repetition creates musicality, micro-variation keeps it alive)
+          if (melStepIdx === 0 && Math.random() < 0.18) {
+            deg = deg + (Math.random() < 0.5 ? 1 : -1);
+          }
+
           var freq = Harmony.freq(deg, cont.octave || 0);
-          var vel  = Math.min(0.72, sec.melVel * intensity * pf);
+
+          // Accent pattern (Juslin 2003)
+          var accent = (sec.mel.length >= 8)
+            ? _ACCENT_8[melStepIdx % 8]
+            : _ACCENT_4[melStepIdx % 4];
+          var vel  = Math.min(0.74, sec.melVel * intensity * pf * accent);
+
           if (vel > 0.03) {
             Sound.play(cont.voice, Sound.currentTime, freq, vel,
-              sec.melInterval * sf * 0.90);
+              sec.melInterval * sf * 0.88);
             try { Harmony.recordNote(deg); } catch(e) {}
             _noteCount++;
           }
@@ -596,16 +652,18 @@ const Conductor = (function () {
 
     // ── HARMONY PADS ──────────────────────────────────────────────────
     // Backing harmonic support. Enters at verse (level 1+).
-    // Plays softer than melody — creates the harmonic bed.
+    // Also gets 1/f timing so it doesn't lock against the melody grid.
 
     if (sec.harm.length > 0 && sec.harmInterval > 0 && _sectionLevel >= 1) {
       _harmClock -= dt;
       if (_harmClock <= 0) {
-        _harmClock += sec.harmInterval * sf;
-        var hdeg  = sec.harm[_harmStep % sec.harm.length];
+        var harmStepIdx = _harmStep % sec.harm.length;
+        _harmClock += sec.harmInterval * sf + _pinkNoise() * 0.018;
+        var hdeg  = sec.harm[harmStepIdx];
         _harmStep++;
+        var harmAccent = _ACCENT_4[harmStepIdx % 4];
         var hfreq = Harmony.freq(hdeg, harm.octave !== undefined ? harm.octave : -1);
-        var hvel  = Math.min(0.52, sec.harmVel * intensity);
+        var hvel  = Math.min(0.52, sec.harmVel * intensity * harmAccent);
         if (hvel > 0.03) {
           Sound.play(harm.voice, Sound.currentTime, hfreq, hvel,
             sec.harmInterval * sf * 0.82);
@@ -615,17 +673,19 @@ const Conductor = (function () {
 
     // ── BASS ──────────────────────────────────────────────────────────
     // Low-end foundation. Enters at verse (level 1+).
-    // Uses 'mono' voice at -2 octave. Style EQ shapes its character:
-    //   lofi=warm 2.2kHz ceiling, trap=heavy sub 80Hz boost, rnb=groove.
+    // Bass gets lighter 1/f jitter — it should anchor but not feel robotic.
+    // Style EQ shapes character: lofi=warm 2.2kHz, trap=sub 80Hz boost.
 
     if (sec.bass.length > 0 && sec.bassInterval > 0 && _sectionLevel >= 1) {
       _bassClock -= dt;
       if (_bassClock <= 0) {
-        _bassClock += sec.bassInterval * sf;
-        var bdeg  = sec.bass[_bassStep % sec.bass.length];
+        var bassStepIdx = _bassStep % sec.bass.length;
+        _bassClock += sec.bassInterval * sf + _pinkNoise() * 0.012;
+        var bassAccent = _ACCENT_4[bassStepIdx % 4];
+        var bdeg  = sec.bass[bassStepIdx];
         _bassStep++;
         var bfreq = Harmony.freq(bdeg, -2);
-        var bvel  = Math.min(0.62, sec.bassVel * intensity);
+        var bvel  = Math.min(0.64, sec.bassVel * intensity * bassAccent);
         if (bvel > 0.03) {
           Sound.play('mono', Sound.currentTime, bfreq, bvel,
             sec.bassInterval * sf * 0.78);
