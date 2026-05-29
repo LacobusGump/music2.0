@@ -1269,10 +1269,16 @@ const Sound = (function () {
     mod2.connect(mod2G); mod2G.connect(car2.frequency);
     var c2gain = ctx.createGain(); c2gain.gain.value = 0.20; car2.connect(c2gain);
 
-    // Envelope — slower decay, more warmth
+    // Envelope — slower decay, more warmth + better attack click for definition
     var env = ctx.createGain();
     env.gain.setValueAtTime(0.0001, time);
-    env.gain.exponentialRampToValueAtTime(Math.min(0.62, vel * 0.55), time + 0.006);
+    env.gain.exponentialRampToValueAtTime(Math.min(0.62, vel * 0.55), time + 0.004);
+    // Subtle hammer click layer for lo-fi character and note definition
+    var click = ctx.createOscillator(); click.type = 'square'; click.frequency.value = freq * 4.2;
+    var clickG = ctx.createGain(); clickG.gain.value = 0.018 * vel * (0.6 + t * 0.4);
+    var clickF = ctx.createBiquadFilter(); clickF.type = 'lowpass'; clickF.frequency.value = 1800;
+    click.connect(clickF); clickF.connect(clickG); clickG.connect(lp);
+    click.start(time); click.stop(time + 0.018);
     env.gain.setTargetAtTime(vel * 0.38, time + 0.006, 0.12);
     env.gain.setTargetAtTime(0.0001, time + decay * 0.55, decay * 0.42);
 

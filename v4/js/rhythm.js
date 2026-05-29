@@ -266,6 +266,11 @@ var Rhythm = (function () {
   // -- Groove profile (active) --
   var profile = null;
 
+  // v4: full style DNA (kickGrid, snareGrid, chordRhythm, fillDensity, etc.)
+  // When present, we drive the actual hit decisions from the defined musical DNA
+  // instead of generic Euclidean. This is what makes styles finally sound different.
+  var styleDNA = null;
+
   // -- Phrase velocity contour --
   // A great drummer plays the SONG, not the drums.
   // Research: standard drum programming wisdom, confirmed by
@@ -331,29 +336,41 @@ var Rhythm = (function () {
     var p = prof || profile || DEFAULT_PROFILE;
     var s = p.steps || 16;
 
-    // Kick: energy maps to density
-    var kickHits = Math.max(2, Math.min(7, Math.round(
-      p.density + energy * 4
-    )));
-    // Clamp to sensible range — never more hits than half the steps
-    kickHits = Math.min(kickHits, Math.floor(s / 2));
-    kickPattern = euclidean(kickHits, s);
+    // v4 priority: if the current style provided explicit grids (the real musical DNA),
+    // use them directly. This is what makes lofi boom-bap vs trap 1+3 vs sparse jazz
+    // actually sound like different styles instead of generic Euclidean.
+    if (styleDNA && styleDNA.kickGrid && styleDNA.kickGrid.length >= 16) {
+      kickPattern = styleDNA.kickGrid.slice(0, 16);
+      snarePattern = (styleDNA.snareGrid && styleDNA.snareGrid.length >= 16)
+        ? styleDNA.snareGrid.slice(0, 16)
+        : euclidean(Math.max(1, Math.round(energy * 3)), 16);
 
-    // Snare: complementary to kick — fewer hits, offset feel
-    // Snare density = roughly half of kick, minimum 1
-    var snareHits = Math.max(1, Math.round(kickHits * 0.4));
-    snarePattern = euclidean(snareHits, s);
-    // Rotate snare to land on offbeats relative to kick
-    snarePattern = rotatePattern(snarePattern, Math.floor(s / 4));
+      // Hats: prefer explicit hatVels if present, else derive
+      if (styleDNA.hatVels && styleDNA.hatVels.length >= 16) {
+        hatPattern = styleDNA.hatVels.map(function(v){ return v > 0.05 ? 1 : 0; });
+      } else {
+        var hatHits = Math.min(s, Math.round(energy * 5 + 4));
+        hatPattern = euclidean(hatHits, s);
+      }
+    } else {
+      // Fallback to old energy-driven Euclidean (generic)
+      var kickHits = Math.max(2, Math.min(7, Math.round(
+        p.density + energy * 4
+      )));
+      kickHits = Math.min(kickHits, Math.floor(s / 2));
+      kickPattern = euclidean(kickHits, s);
 
-    // Hats: denser than kick — fills the space
-    var hatHits = Math.min(s, Math.round(kickHits * 1.8 + energy * 2));
-    hatPattern = euclidean(hatHits, s);
+      var snareHits = Math.max(1, Math.round(kickHits * 0.4));
+      snarePattern = euclidean(snareHits, s);
+      snarePattern = rotatePattern(snarePattern, Math.floor(s / 4));
 
-    // Perc: sparse texture layer
+      var hatHits = Math.min(s, Math.round(kickHits * 1.8 + energy * 2));
+      hatPattern = euclidean(hatHits, s);
+    }
+
+    // Perc always energy-based for texture
     var percHits = Math.max(0, Math.round(energy * 3));
     percPattern = euclidean(percHits, s);
-    // Rotate perc for polyrhythmic offset
     percPattern = rotatePattern(percPattern, Math.floor(s / 3));
   }
 
@@ -672,10 +689,10 @@ var Rhythm = (function () {
     var stampVel = (userStampGrid && step < userStampGrid.length)
       ? userStampGrid[step] : 0;
 
-    // ── KICK ──
-    if (step < kickPattern.length && kickPattern[step]) {
+    // ── KICK ── (v4: respect probabilistic grid values from style when present)
+    var kickProb = (step < kickPattern.length) ? (kickPattern[step] || 0) : 0;
+    if (kickProb > 0 && Math.random() < kickProb) {
       var kickBase = 0.7 * dp;
-      // Blend with user stamp — user peaks make the kick louder
       kickBase = Math.max(kickBase, stampVel * dp * 0.8);
       var kickVel = phraseVelocity(step, bar, kickBase, userEnergy) * phaseMultiplier;
       kickVel = Math.min(0.92, kickVel);
@@ -685,8 +702,9 @@ var Rhythm = (function () {
       }
     }
 
-    // ── SNARE ──
-    if (step < snarePattern.length && snarePattern[step]) {
+    // ── SNARE ── (v4: respect probabilistic grid values)
+    var snareProb = (step < snarePattern.length) ? (snarePattern[step] || 0) : 0;
+    if (snareProb > 0 && Math.random() < snareProb) {
       var snareBase = 0.6 * dp;
       snareBase = Math.max(snareBase, stampVel * dp * 0.6);
       var snareVel = phraseVelocity(step, bar, snareBase, userEnergy) * phaseMultiplier;
@@ -697,8 +715,9 @@ var Rhythm = (function () {
       }
     }
 
-    // ── HATS ──
-    if (step < hatPattern.length && hatPattern[step]) {
+    // ── HATS ── (v4: respect probabilistic values)
+    var hatProb = (step < hatPattern.length) ? (hatPattern[step] || 0) : 0;
+    if (hatProb > 0 && Math.random() < hatProb) {
       var hatBase = 0.35 * dp;
       var hatVel = phraseVelocity(step, bar, hatBase, userEnergy) * phaseMultiplier;
       hatVel = Math.min(0.55, hatVel);
@@ -708,14 +727,15 @@ var Rhythm = (function () {
       }
     }
 
-    // ── GHOST NOTES ──
-    // Ghost notes fill gaps where nothing else plays.
-    // They're the connective tissue — barely audible, deeply felt.
-    // Research: brushes and jazz drumming literature — ghosts define groove.
-    if (p.ghostLevel > 0 && dp > 0.15) {
-      var hasHit = (step < kickPattern.length && kickPattern[step]) ||
-                   (step < snarePattern.length && snarePattern[step]);
-      if (!hasHit && Math.random() < p.ghostLevel * dp) {
+    // ── GHOST NOTES + WAND FILLS ──
+    // Ghost notes fill gaps. Wand forcedFill or high fillBoost creates obvious musical responses
+    // to big gestures (the "painting" control).
+    var effectiveGhost = (p.ghostLevel || 0) * dp * fillBoost;
+    if (effectiveGhost > 0 && dp > 0.12) {
+      var hasHit = (step < kickPattern.length && (kickPattern[step] || 0) > 0) ||
+                   (step < snarePattern.length && (snarePattern[step] || 0) > 0);
+      var fillChance = forcedFill ? 0.9 : effectiveGhost;
+      if (!hasHit && Math.random() < fillChance) {
         var ghostVel = 0.06 + Math.random() * 0.08;
         ghostVel *= dp * phaseMultiplier;
         if (ghostVel > 0.01) {
@@ -734,6 +754,12 @@ var Rhythm = (function () {
         var percTime = time + hitTiming('perc', step);
         onDrumHit(percTime, percVel, 'perc', kit);
       }
+    }
+
+    // v4: obvious fill response to big wand gestures (shapeType sweep/arc etc.)
+    if (forcedFill && Math.random() < (0.6 * fillBoost)) {
+      var fillTime = time + hitTiming('hat', step) * 0.25;
+      onDrumHit(fillTime, 0.42 + Math.random() * 0.25, 'hat', kit);
     }
 
     // ── USER STAMP SOLO HITS ──
@@ -785,6 +811,12 @@ var Rhythm = (function () {
 
     var energy = bodyState.energy || 0;
     var bodyTempo = bodyState.tempo || 0;
+
+    // v4 wand dynamics options
+    var forcedFill = bodyState.forcedFill || false;
+    var fillBoost = bodyState.fillBoost || 1.0;
+    var humanizeExtra = bodyState.humanize || 0;
+    var densityBoost = bodyState.densityBoost || 1.0;
     var locked = bodyState.tempoLocked || false;
     var confidence = bodyState.rhythmConfidence || 0;
     var isSilent = bodyState.isSilent !== undefined ? bodyState.isSilent : true;
@@ -934,6 +966,11 @@ var Rhythm = (function () {
       profile = GROOVE_PROFILES[config.profile];
     } else if (config.profile && typeof config.profile === 'object') {
       profile = config.profile;
+    }
+
+    // v4: store the rich style DNA (grids etc.) so execution can actually use it
+    if (config.style && typeof config.style === 'object') {
+      styleDNA = config.style;
     }
 
     // Steps

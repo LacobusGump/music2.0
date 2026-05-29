@@ -631,17 +631,32 @@ const Conductor = (function () {
     var rootHz = 261.626 * Math.pow(2, key / 12);
     try { Harmony.configure({ root: rootHz, mode: mode }); } catch(e) { _errorCount++; }
 
-    // Rhythm: style determines drum kit character
+    // Rhythm: style determines drum kit character + the actual musical DNA grids
     var profile = (_lens.rhythm && _lens.rhythm.kit) || 'acoustic';
     var bpm     = (typeof Environ !== 'undefined') ? Environ.bpm : 88;
     if (style && style.bpmRange) {
       bpm = Math.max(style.bpmRange[0], Math.min(style.bpmRange[1], bpm));
     }
+
+    // v4 fix: pass the full per-style rhythmic DNA so styles actually sound different
+    var rhythmDNA = style ? {
+      kickGrid: style.kickGrid,
+      snareGrid: style.snareGrid,
+      chordRhythm: style.chordRhythm,
+      fillDensity: style.fillDensity,
+      melodyRhythm: style.melodyRhythm,
+      bassStyle: style.bassStyle,
+      hatVels: style.hatVels,
+      swing: style.swing,
+      fills: style.fills
+    } : null;
+
     try {
       Rhythm.configure({
         mode:    'organic',
         bpm:     bpm,
         profile: profile,
+        style:   rhythmDNA   // the real grids and rules from style.js
       });
     } catch(e) { _errorCount++; }
 
@@ -775,24 +790,50 @@ const Conductor = (function () {
     _updateProdigy(dt);
 
     // 9. Harmonic rhythm + motif system
-    try { Harmony.updateHarmonicRhythm(dt, _prodigy.arc, Body.energy); } catch(e) {}
+    // v4: chordRhythm from style + wand now has real influence
+    var chordRhythm = 1;
+    if (typeof Styles !== 'undefined') {
+      var s = Styles.get(_styleId);
+      if (s && typeof s.chordRhythm === 'number') chordRhythm = s.chordRhythm;
+    }
+    var wandChordBoost = (_wandState && (_wandState.shapeType === 'sweep' || _wandState.shapeType === 'arc')) ? 0.6 : 1.0;
+    try { Harmony.updateHarmonicRhythm(dt * wandChordBoost, _prodigy.arc, Body.energy, chordRhythm); } catch(e) {}
     try { Harmony.updateHarmonicGravity(dt, Body.energy, _isSilent); } catch(e) {}
     try { Harmony.updateMotifCooldown(dt); } catch(e) {}
 
     // 10. Euclidean drums — earned over 30-90s of body rhythm
+    // v4 wand dynamics: shapeType and tremor give the user real-time arrangement control
+    var rhythmOpts = {
+      energy:           Body.energy,
+      tempo:            Body.bodyTempo || 88,
+      tempoLocked:      Body.rhythmConfidence > 0.22,
+      rhythmConfidence: Body.rhythmConfidence || 0,
+      lockStrength:     Body.rhythmConfidence || 0,
+      isSilent:         _isSilent,
+      peaked:           Body.peaked,
+      peakMag:          Body.peakMagnitude,
+      audioTime:        Sound.currentTime,
+    };
+
+    if (_wandState) {
+      // Shape gestures drive musical structure (the "painting" part)
+      if (_wandState.shapeType === 'sweep' || _wandState.shapeType === 'arc') {
+        rhythmOpts.forcedFill = true;           // big gesture = obvious fill
+        rhythmOpts.fillBoost = 1.6;
+      }
+      if (_wandState.shapeType === 'shake') {
+        rhythmOpts.densityBoost = 1.4;          // nervous energy = busier drums
+      }
+      if (_wandState.shapeType === 'circle') {
+        rhythmOpts.tighterGroove = true;
+      }
+      // Tremor adds human micro-variation to the entire rhythm
+      rhythmOpts.humanize = (_wandState.tremor || 0) * 0.8;
+    }
+
     if (!_isSilent && typeof Rhythm !== 'undefined') {
       try {
-        Rhythm.update(dt, {
-          energy:           Body.energy,
-          tempo:            Body.bodyTempo || 88,
-          tempoLocked:      Body.rhythmConfidence > 0.22,
-          rhythmConfidence: Body.rhythmConfidence || 0,
-          lockStrength:     Body.rhythmConfidence || 0,
-          isSilent:         _isSilent,
-          peaked:           Body.peaked,
-          peakMag:          Body.peakMagnitude,
-          audioTime:        Sound.currentTime,
-        });
+        Rhythm.update(dt, rhythmOpts);
       } catch(e) { _errorCount++; }
     }
 

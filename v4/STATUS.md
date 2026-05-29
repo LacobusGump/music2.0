@@ -34,5 +34,14 @@ Built 2026-05-28 from the full local Suno reverse-engineering research + product
 - iOS mic permission is separate from motion — first tap may need a second gesture.
 - The full hybrid "real songs" story (neural env+wand-conditioned backing + this wand lead + live room) is now one clean step away.
 
-Test it hard. Tell me what's cooking and what's rotten.
-— Jim + the research stack
+## Iteration 2 (post first test feedback)
+- Root cause found: rich style DNA (kickGrid, snareGrid, chordRhythm, fillDensity, melodyRhythm, bassStyle, hatVels) existed in style.js but was mostly ignored by rhythm.js and harmony.js. Result = styles barely differentiated, music felt random/generic.
+- Fix: conductor now passes full style DNA to Rhythm.configure. rhythm.js generatePatterns + fireStep now respect the probabilistic grids when provided.
+  → lofi should now have its real boom-bap (kick on 1 + "and of 3"), trap the strict 1+3 808 feel, jazz the sparse conversational patterns, ambient the near-silence, etc.
+- Wand dynamics strengthened: shapeType ('sweep'/'arc'/'shake'/'circle') now forces audible fills, density shifts, tighter groove. Tremor adds extra humanize. Big gestures now cause obvious musical events you can hear.
+- Small audio quality pass on lofiRhodes (better defined attack + hammer click layer that reacts to tremor).
+- chordRhythm from style now influences harmonic changes (with wand boost on big gestures).
+
+This should be a noticeable jump in "sounds like different real styles" and "the phone is actually shaping a song instead of random sounds".
+
+Re-test at /v4/. Wave it deliberately. Compare styles back-to-back. Listen for the grids actually playing. Tell me the new score.
