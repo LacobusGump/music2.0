@@ -61,6 +61,9 @@ import FineStructure.ElectroweakHierarchy
 -- Cancer Signaling Inverse Rule (TP53 hub, 14/14 validation, drug strategy matches)
 import FineStructure.CancerInverseMap
 
+-- MC1R: DNA as a coupling network (Fiedler bound via Weyl, retuner regime, 2025-26 updates)
+import FineStructure.DNACouplingGraph
+
 -- Additional cross-domain (Gravity/Jeans, 3 generations, shared basic defs)
 import FineStructure.GravityJeansKuramoto
 import FineStructure.WhyThreeGenerations
@@ -93,4 +96,4 @@ import FineStructure.GravityKilledClaims
 -- Three-term decomposition conjecture for 2O spectral determinant (Cycle 9 — resolution + orbifold + crossterm)
 import FineStructure.ThreeTermConjecture
 
--- (End of stack — 29 modules. All 137 pages + private corpus claims importable and checkable.)
+-- (End of stack — 30 modules. All 137 pages + private corpus claims importable and checkable.)
