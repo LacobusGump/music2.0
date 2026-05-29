@@ -97,6 +97,30 @@ TOKEN_SPEC = [
 TOKEN_RE = re.compile('|'.join('(?P<{}>{})'.format(p[0], p[1]) for p in TOKEN_SPEC))
 
 
+def _format_source_context(source, line, col, msg):
+    """Render an error with line content and caret marker."""
+    lines = source.split('\n')
+    if not (1 <= line <= len(lines)):
+        return msg
+    src_line = lines[line - 1]
+    pointer = ' ' * max(0, col - 1) + '^'
+    return '{}\n  line {}: {}\n         {}'.format(msg, line, src_line, pointer)
+
+
+class TurboSyntaxError(SyntaxError):
+    """Syntax error with source-context rendering."""
+
+    def __init__(self, message, source='', line=0, col=0):
+        self.source = source
+        self.line = line
+        self.col = col
+        if source and line:
+            full = _format_source_context(source, line, col, message)
+        else:
+            full = message
+        super().__init__(full)
+
+
 def tokenize(source):
     tokens = []
     line = 1
@@ -113,8 +137,9 @@ def tokenize(source):
         if kind in ('SKIP', 'COMMENT'):
             continue
         if kind == 'MISMATCH':
-            raise SyntaxError(
-                'Unexpected character {!r} at line {} col {}'.format(value, line, col)
+            raise TurboSyntaxError(
+                'Unexpected character {!r} at line {} col {}'.format(value, line, col),
+                source, line, col
             )
         if kind == 'NUMBER':
             value = float(value) if ('.' in value or 'e' in value or 'E' in value) else int(value)
@@ -220,9 +245,10 @@ class AnonFn(Node):
 # ============================================================
 
 class Parser:
-    def __init__(self, tokens):
+    def __init__(self, tokens, source=''):
         self.tokens = tokens
         self.pos = 0
+        self.source = source
 
     def peek(self, offset=0):
         idx = self.pos + offset
@@ -243,10 +269,11 @@ class Parser:
     def expect(self, type, msg=None):
         if self.peek().type != type:
             tok = self.peek()
-            raise SyntaxError(
+            raise TurboSyntaxError(
                 'Expected {} at line {} col {}, got {}({!r}). {}'.format(
                     type, tok.line, tok.col, tok.type, tok.value, msg or ''
-                )
+                ),
+                self.source, tok.line, tok.col
             )
         return self.advance()
 
@@ -268,10 +295,11 @@ class Parser:
                 break
             else:
                 tok = self.peek()
-                raise SyntaxError(
+                raise TurboSyntaxError(
                     'Expected newline or ; at line {} col {}, got {}'.format(
                         tok.line, tok.col, tok.type
-                    )
+                    ),
+                    self.source, tok.line, tok.col
                 )
         return Program(stmts)
 
@@ -478,10 +506,11 @@ class Parser:
             self.skip_newlines()
             self.expect('RBRACK')
             return ListLit(items)
-        raise SyntaxError(
+        raise TurboSyntaxError(
             'Unexpected token {}({!r}) at line {} col {}'.format(
                 tok.type, tok.value, tok.line, tok.col
-            )
+            ),
+            self.source, tok.line, tok.col
         )
 
 
@@ -735,6 +764,65 @@ def stdlib_fib(n):
     return a
 
 
+# ----- string operations -----
+
+def _as_str(x, op):
+    if not isinstance(x, str):
+        raise TypeError('{}: expected string, got {}'.format(op, type(x).__name__))
+    return x
+
+
+def stdlib_str_concat(*args):
+    """Concatenate strings."""
+    return ''.join(str(a) for a in args)
+
+
+def stdlib_str_contains(s, sub):
+    return _as_str(sub, 'contains') in _as_str(s, 'contains')
+
+
+def stdlib_str_split(s, sep):
+    return _as_str(s, 'split').split(_as_str(sep, 'split'))
+
+
+def stdlib_str_join(sep, lst):
+    sep = _as_str(sep, 'join')
+    return sep.join(str(x) for x in _as_list(lst, 'join'))
+
+
+def stdlib_str_upper(s):
+    return _as_str(s, 'upper').upper()
+
+
+def stdlib_str_lower(s):
+    return _as_str(s, 'lower').lower()
+
+
+def stdlib_str_trim(s):
+    return _as_str(s, 'trim').strip()
+
+
+def stdlib_str_replace(s, old, new):
+    return _as_str(s, 'replace').replace(_as_str(old, 'replace'), _as_str(new, 'replace'))
+
+
+def stdlib_str(x):
+    """Convert any value to string."""
+    if isinstance(x, float) and x.is_integer():
+        return str(int(x))
+    return str(x)
+
+
+def stdlib_num(x):
+    """Parse a string as a number."""
+    if isinstance(x, (int, float)):
+        return float(x)
+    s = _as_str(x, 'num')
+    if '.' in s or 'e' in s.lower():
+        return float(s)
+    return int(s)
+
+
 def _apply(func, args):
     if isinstance(func, Closure):
         if len(args) != len(func.params):
@@ -792,6 +880,12 @@ BUILTINS = {
     # Coupling-specific
     'kuramoto_R': stdlib_kuramoto_R, 'phase_diff': stdlib_phase_diff,
     'entropy': stdlib_entropy, 'fib': stdlib_fib,
+    # String operations
+    'concat': stdlib_str_concat, 'contains': stdlib_str_contains,
+    'split': stdlib_str_split, 'join': stdlib_str_join,
+    'upper': stdlib_str_upper, 'lower': stdlib_str_lower,
+    'trim': stdlib_str_trim, 'replace': stdlib_str_replace,
+    'str': stdlib_str, 'num': stdlib_num,
 }
 
 
@@ -910,7 +1004,7 @@ def evaluate(source, env=None):
     elif not isinstance(env, Env):
         raise TypeError('env must be Env, dict, or None')
     tokens = tokenize(source)
-    parser = Parser(tokens)
+    parser = Parser(tokens, source)
     program = parser.parse_program()
     return evaluate_program(program, env)
 
@@ -918,7 +1012,7 @@ def evaluate(source, env=None):
 def parse(source):
     """Parse a Turbo program without evaluating. Returns AST (Program node)."""
     tokens = tokenize(source)
-    return Parser(tokens).parse_program()
+    return Parser(tokens, source).parse_program()
 
 
 # ----- backward compatibility -----

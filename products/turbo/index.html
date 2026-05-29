@@ -62,10 +62,15 @@ p{line-height:1.8;margin:12px 0;color:#999;font-size:0.85em;}
   </div>
 
   <textarea id="input" spellcheck="false">K(1.868)</textarea>
-  <button class="run" id="run-btn" onclick="runProgram()" disabled>Loading Python...</button>
+  <div style="display:flex;gap:8px;">
+    <button class="run" id="run-btn" onclick="runProgram()" disabled style="flex:1;">Loading Python...</button>
+    <button class="run" id="reset-btn" onclick="resetSession()" style="flex:0 0 auto;background:#3a2a1a;color:#a08070;" title="Clear all variables and functions defined this session">RESET</button>
+  </div>
   <div id="status">Loading runtime...</div>
-  <div class="output" id="output">Press Run.</div>
+  <div class="output" id="output">Press Run.<br><span style="color:#555;font-size:0.86em;">&middot; Cmd/Ctrl+Enter to run &middot; Up/Down for history &middot; RESET clears session state</span></div>
 </div>
+
+<p style="font-size:0.78em;color:#666;margin:6px 0 20px;text-align:center;">New to Turbo? &mdash; <a href="/products/turbo/learn/" style="color:#b8753a;">Take the tutorial</a></p>
 
 <div class="support"><a href="/support/">Everything is free. If this helped &rarr; support GUMP</a></div>
 
@@ -140,6 +145,9 @@ function loadExample(name) {
 
 var pyodide = null;
 var turboLoaded = false;
+var history = [];
+var historyIdx = -1;
+var draftBuffer = '';
 
 async function init() {
   try {
@@ -149,6 +157,8 @@ async function init() {
     var resp = await fetch('/products/turbo/turbo.py');
     var source = await resp.text();
     pyodide.runPython(source);
+    // Initialize the persistent REPL environment
+    pyodide.runPython('_repl_env = _new_global_env()');
     turboLoaded = true;
     document.getElementById('status').textContent = 'Ready.';
     document.getElementById('status').style.color = '#409540';
@@ -160,30 +170,71 @@ async function init() {
 }
 
 document.addEventListener('DOMContentLoaded', function() {
-  document.getElementById('input').addEventListener('keydown', function(e) {
-    // Ctrl+Enter or Cmd+Enter to run
+  var input = document.getElementById('input');
+  input.addEventListener('keydown', function(e) {
+    // Cmd/Ctrl+Enter to run
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !document.getElementById('run-btn').disabled) {
+      e.preventDefault();
       runProgram();
+      return;
+    }
+    // Up/Down arrow at start/end of textarea for history
+    if (e.key === 'ArrowUp' && history.length > 0 && input.selectionStart === 0) {
+      e.preventDefault();
+      if (historyIdx === -1) {
+        draftBuffer = input.value;
+        historyIdx = history.length - 1;
+      } else if (historyIdx > 0) {
+        historyIdx--;
+      }
+      input.value = history[historyIdx];
+      input.setSelectionRange(0, 0);
+      return;
+    }
+    if (e.key === 'ArrowDown' && historyIdx !== -1 && input.selectionStart === input.value.length) {
+      e.preventDefault();
+      if (historyIdx < history.length - 1) {
+        historyIdx++;
+        input.value = history[historyIdx];
+      } else {
+        historyIdx = -1;
+        input.value = draftBuffer;
+      }
+      return;
     }
   });
 });
+
+function resetSession() {
+  if (!turboLoaded) return;
+  pyodide.runPython('_repl_env = _new_global_env()');
+  document.getElementById('output').textContent = '= session reset (built-ins preserved, user bindings cleared)';
+}
 
 async function runProgram() {
   if (!turboLoaded) return;
   var source = document.getElementById('input').value;
   if (!source.trim()) return;
+  // Add to history (skip dupes of last entry)
+  if (history.length === 0 || history[history.length - 1] !== source) {
+    history.push(source);
+    if (history.length > 50) history.shift();
+  }
+  historyIdx = -1;
+  draftBuffer = '';
+
   var btn = document.getElementById('run-btn');
   btn.disabled = true;
   btn.textContent = '...';
   document.getElementById('output').textContent = 'Running...';
 
   try {
-    // Capture print output + result
     pyodide.runPython('import io,sys; _out=io.StringIO(); sys.stdout=_out');
     pyodide.globals.set('_user_source', source);
+    // Use the persistent REPL env so fn defs and assigns survive across runs
     pyodide.runPython(
       'try:\n' +
-      '    _user_result = evaluate(_user_source)\n' +
+      '    _user_result = evaluate(_user_source, env=_repl_env)\n' +
       '    _user_err = None\n' +
       'except Exception as ex:\n' +
       '    _user_result = None\n' +
@@ -197,13 +248,12 @@ async function runProgram() {
     var lines = [];
     if (printed) lines.push(printed.trim());
     if (err) {
-      lines.push('Error: ' + err);
+      lines.push(err);
     } else {
-      // Format result based on type
       if (typeof result === 'number') {
         lines.push('= ' + (Number.isInteger(result) ? result : result.toFixed(6)));
       } else if (result === null || result === undefined) {
-        lines.push('= (nil)');
+        lines.push('= (no value)');
       } else if (result && typeof result.toJs === 'function') {
         var js = result.toJs();
         lines.push('= ' + JSON.stringify(js));
