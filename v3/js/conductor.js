@@ -1,17 +1,32 @@
 /**
- * CONDUCTOR — Environ + Style → v1 Engine
+ * CONDUCTOR — The Baton Paradigm (v3.1)
  *
- * Bridges GPS/weather/time (Environ) and style choice (Styles) to the
- * v1 engine (Body, Harmony, Sound, Rhythm). Replaces band.js.
+ * The phone is a conductor's baton. You shape HOW the music evolves,
+ * not what notes play. Three physical axes, three musical dimensions:
  *
- * Key principles from v1:
- * - BETA (front-back tilt) drives melodic pitch. Not gamma.
- *   Natural phone hold ≈ 62°. Center the instrument there.
- * - Water bottle physics: tilt drives "water level", water drives pitch.
- *   Momentum, overshoot, damping. Alive, not mechanical.
- * - Drums are EARNED. They emerge over 30-90s as body proves rhythm.
- * - Silence = music. Stillness = rest. The body decides everything.
- * - Euclidean rhythm (Bjorklund): mathematically perfect groove.
+ *   BETA (front-back tilt) = baton height = song section
+ *     Arms low  (β < 38°) → Intro  — space and suggestion, just breath
+ *     Arms mid  (β 38-56°)→ Verse  — head melody, groove established
+ *     Arms up   (β 56-72°)→ Build  — tension rising, pre-chorus push
+ *     Arms high (β > 72°) → Chorus — full arrangement, peak energy
+ *
+ *   ENERGY (acceleration magnitude) = expression intensity
+ *     Stillness → hold current section, music sustains
+ *     Movement  → velocity and density within section
+ *     Downbeat  → sharp snap gesture, forces immediate transition
+ *
+ *   GAMMA (left-right tilt) = stereo field / spatial position
+ *     Left/right tilt = stereo panning
+ *
+ * Music plays AUTONOMOUSLY from section motifs.
+ * The conductor picks WHICH section is alive and HOW INTENSE it is.
+ * You are not playing notes. You are conducting a song.
+ *
+ * Architecture inspired by:
+ *   - Suno song structure: [Intro][Verse][Build][Chorus] as structural tokens
+ *   - Real conducting: arms high = chorus, arms low = intro (physical logic)
+ *   - DTW gesture research: downbeat = sharp phase discontinuity (decel)
+ *   - Euclidean rhythm (Bjorklund): drums play themselves, earned over time
  */
 
 const Conductor = (function () {
@@ -19,67 +34,117 @@ const Conductor = (function () {
 
   // ── CONSTANTS ─────────────────────────────────────────────────────────
 
-  var PHASE_LISTENING = 3;   // 3s engaged → phase 1
-  var PHASE_ALIVE     = 12;  // 12s engaged → phase 2
+  var PHASE_LISTENING = 4;
+  var PHASE_ALIVE     = 14;
 
-  // ── STATE ─────────────────────────────────────────────────────────────
+  // Beta angle thresholds (degrees)
+  // Natural phone hold ≈ 62° → BUILD zone by default.
+  // Player intentionally lowers (verse/intro) or raises (chorus).
+  var BETA_INTRO  = 38;   // below = intro
+  var BETA_VERSE  = 56;   // 38-56 = verse
+  var BETA_BUILD  = 72;   // 56-72 = build, above = chorus
 
-  var _active     = false;
-  var _styleId    = 'lofi';
-  var _lens       = null;
-  var _lastT      = 0;
+  // Must hold a zone for this long before section commits (anti-jitter)
+  var HOLD_TIME   = 0.60; // seconds
 
-  // Silence / presence
-  var _isSilent       = true;
-  var _fadeGain       = 0;
-  var _stillnessTimer = 0;
+  var BAR_DEFAULT = 88;   // BPM fallback when tempo not yet locked
 
-  // Session arc
-  var _sessionPhase       = 0;  // 0=listening, 1=alive, 2=full
-  var _sessionEngagedTime = 0;
 
-  // Tilt-to-melody
-  var _currentDegree = 0;
-  var _lastNoteTime  = 0;
-  var _pitchWater    = null;   // Body.WaterDynamic for pitch
+  // ── SECTION DEFINITIONS ───────────────────────────────────────────────
+  //
+  // Four levels modeled on Suno's song structure:
+  //   Intro → Verse → Build → Chorus
+  //
+  // Music plays AUTONOMOUSLY from these patterns.
+  // These are composed scale-degree sequences — not random.
+  // Harmony.js (gravity wells + sweet spots) maps them to the right
+  // pitches for the current key and mode. The conductor just picks level.
+  //
+  // Scale degrees: 0=root, 2=M2, 4=M3, 7=P5, 9=M6, -1=rest
+  // Bass at octave -2 via Harmony.freq(deg, -2).
+  //
+  // melInterval/harmInterval/bassInterval: seconds between notes.
+  // Scaled by styleSpeedFactor so each genre feels right.
+  //
+  // Motif design rationale:
+  //   Verse:  root → second → third → second → root  (the "head" — main theme)
+  //   Build:  third → seventh (rising line through the scale — tension)
+  //   Chorus: root → third → fifth → sixth (the "big" notes — payoff)
+  //   Bass:   Verse=root+fifth pedal, Build=chromatic descent, Chorus=I-V-III-I
 
-  // Phrase
-  var _phraseActive          = false;
-  var _phrasePeakCount       = 0;
-  var _phraseStartTime       = 0;
-  var _phraseMaxMag          = 0;
-  var _phraseEnergyArc       = 0;
-  var _phraseCooldown        = 0;
-  var _phraseIntensityFactor = 1.0;
-
-  // Call & response
-  var _crCooldown    = 0;
-  var _answerPending = false;
-  var _answerTime    = 0;
-  var _answerNotes   = [];
-  var _answerIdx     = 0;
-
-  // Prodigy (mix intelligence)
-  var _prodigy = {
-    energyHistory: new Float32Array(16),
-    energyHead:    0,
-    sampleTimer:   0,
-    arc:           'neutral',
-    dynamicRange:  1.0,
-    reverbTarget:  0.30,
-  };
-
-  var _noteCount  = 0;
-  var _errorCount = 0;
-  var _touchDuck  = 1.0;
+  var SECTION_DEFS = [
+    { // ── INTRO (0) ────────────────────────────────────────────────────
+      // Breathe in. The harmonic shell arrives. No melody yet.
+      // Like bars 1-4 of a Suno track before the first verse.
+      name: 'intro',
+      mel:  [],
+      harm: [0, 0, 4, 0],
+      bass: [0],
+      melInterval:  0,
+      harmInterval: 2.00,
+      bassInterval: 3.50,
+      melVel:  0,
+      harmVel: 0.20,
+      bassVel: 0.14,
+    },
+    { // ── VERSE (1) ────────────────────────────────────────────────────
+      // The head. Main melodic idea. Groove locked in.
+      // Melody traces the tonic triad, gently.
+      name: 'verse',
+      mel:  [0, 2, 4, 2, 0, -1, 0, 2],
+      harm: [0, 2, 4, 2],
+      bass: [0, -7, 0, -7],
+      melInterval:  0.50,
+      harmInterval: 1.60,
+      bassInterval: 0.80,
+      melVel:  0.42,
+      harmVel: 0.28,
+      bassVel: 0.30,
+    },
+    { // ── BUILD (2) ────────────────────────────────────────────────────
+      // Tension. Rising line. Pre-chorus energy climb.
+      // Melody pushes upward to the 7th (scale degree 6 in 0-indexed).
+      // Bass: chromatic walk I→VII→VIm creates harmonic motion.
+      name: 'build',
+      mel:  [4, 2, 4, 6, 4, 2, 4, 2],
+      harm: [2, 4, 6, 4],
+      bass: [0, -2, -3, -2],
+      melInterval:  0.36,
+      harmInterval: 1.10,
+      bassInterval: 0.55,
+      melVel:  0.56,
+      harmVel: 0.36,
+      bassVel: 0.40,
+    },
+    { // ── CHORUS (3) ───────────────────────────────────────────────────
+      // Everything. Peak energy. The emotional payoff.
+      // Melody hits the 5th and 6th — the "big" notes people sing.
+      // Bass: I-V-III-I = strong harmonic motion, felt in the body.
+      name: 'chorus',
+      mel:  [0, 4, 7, 4, 0, 4, 7, 9],
+      harm: [0, 4, 0, 7],
+      bass: [0, -5, -3, 0],
+      melInterval:  0.27,
+      harmInterval: 0.85,
+      bassInterval: 0.42,
+      melVel:  0.70,
+      harmVel: 0.44,
+      bassVel: 0.52,
+    },
+  ];
 
 
   // ── STYLE → LENS ──────────────────────────────────────────────────────
   //
-  // Maps v3 style IDs to v1-compatible lens config objects.
-  // Sound.configure(lens) uses palette to wire voices.
-  // Rhythm.configure uses rhythm.kit for drum profile.
-  // response drives tilt sensitivity and note timing.
+  // Per-style voice selection, EQ, reverb, and rhythm kit.
+  // Sound.configure(lens) reads lens.tone for master EQ.
+  // The conductor's section system runs ON TOP of this — the lens
+  // defines the sonic character, the sections define the structure.
+  //
+  // noteInterval in response is repurposed as "style speed factor":
+  //   noteInterval / 400ms = how fast section motifs play.
+  //   lofi=1.05 (lazy), rnb=0.80 (groove), jazz=0.70 (fast),
+  //   ambient=1.50 (very slow), trap=0.90 (tight)
 
   var STYLE_LENS = {
     lofi: {
@@ -99,7 +164,6 @@ const Conductor = (function () {
         fadeTime:           3.5,
       },
       rhythm:  { kit: 'brushes' },
-      // Heavy LP ceiling, warm mid, rolled-off highs = lo-fi tape character
       tone: {
         ceiling:  2200,
         bassFreq: 180, bassGain: 3,
@@ -131,7 +195,6 @@ const Conductor = (function () {
         fadeTime:           2.8,
       },
       rhythm:  { kit: 'acoustic' },
-      // Clean mid presence, brighter ceiling = professional R&B session
       tone: {
         ceiling:  3600,
         bassFreq: 120, bassGain: 1,
@@ -163,7 +226,6 @@ const Conductor = (function () {
         fadeTime:           2.2,
       },
       rhythm:  { kit: 'brushes' },
-      // Natural, open — club acoustic, tight room, clarity without mud
       tone: {
         ceiling:  4500,
         bassFreq: 200, bassGain: -2,
@@ -195,7 +257,6 @@ const Conductor = (function () {
         fadeTime:           5.0,
       },
       rhythm:  { kit: 'tribal' },
-      // Low-mid warmth, long decay — infinite space, breath
       tone: {
         ceiling:  2800,
         bassFreq: 100, bassGain: 2,
@@ -227,7 +288,6 @@ const Conductor = (function () {
         fadeTime:           2.5,
       },
       rhythm:  { kit: '808' },
-      // Heavy sub, tight mids, dark ceiling = trap
       tone: {
         ceiling:  3000,
         bassFreq: 80, bassGain: 4,
@@ -245,6 +305,72 @@ const Conductor = (function () {
   };
 
 
+  // ── STATE ─────────────────────────────────────────────────────────────
+
+  var _active  = false;
+  var _styleId = 'lofi';
+  var _lens    = null;
+  var _lastT   = 0;
+  var _styleSpeedFactor = 1.0;
+
+  // Section state machine
+  var _sectionLevel     = 0;    // current active section (0-3)
+  var _sectionSmoothed  = 0;    // float target for display interpolation
+  var _transitionTarget = -1;   // pending transition (-1 = none)
+  var _holdTimer        = 0;    // how long we've held current zone
+  var _holdTarget       = 0;    // which zone we're currently holding
+
+  // Bar clock — transitions only happen at bar boundaries (musical)
+  var _barProgress = 0;
+  var _lastBpm     = BAR_DEFAULT;
+
+  // Motif playback clocks (three independent voices)
+  var _melStep  = 0; var _melClock  = 0;
+  var _harmStep = 0; var _harmClock = 0;
+  var _bassStep = 0; var _bassClock = 0;
+
+  // Last gesture state (for intensity scaling in motif playback)
+  var _lastGesture = null;
+
+  // Silence / presence gate
+  var _isSilent       = true;
+  var _fadeGain       = 0;
+  var _stillnessTimer = 0;
+
+  // Session arc
+  var _sessionPhase       = 0;
+  var _sessionEngagedTime = 0;
+
+  // Phrase (section-span arc)
+  var _phraseActive          = false;
+  var _phraseStartTime       = 0;
+  var _phraseMaxMag          = 0;
+  var _phraseEnergyArc       = 0;
+  var _phraseCooldown        = 0;
+  var _phraseIntensityFactor = 1.0;
+
+  // Call & response
+  var _crCooldown    = 0;
+  var _answerPending = false;
+  var _answerTime    = 0;
+  var _answerNotes   = [];
+  var _answerIdx     = 0;
+
+  // Prodigy (mix intelligence)
+  var _prodigy = {
+    energyHistory: new Float32Array(16),
+    energyHead:    0,
+    sampleTimer:   0,
+    arc:           'neutral',
+    dynamicRange:  1.0,
+    reverbTarget:  0.30,
+  };
+
+  var _noteCount  = 0;
+  var _errorCount = 0;
+  var _touchDuck  = 1.0;
+
+
   // ── SILENCE ───────────────────────────────────────────────────────────
 
   function _updateSilence(dt, now) {
@@ -255,15 +381,15 @@ const Conductor = (function () {
       _stillnessTimer += dt;
 
       if (_stillnessTimer > resp.stillnessTimeout && !_isSilent) {
-        Harmony.enterSilence(_currentDegree);
+        var lastDeg = _getLastMotifDegree();
+        try { Harmony.enterSilence(lastDeg); } catch(e) {}
         _isSilent = true;
-        if (_phraseActive) _endPhrase(now);
-        // Resolution note as music fades
+        // Play a resolution note as the music fades
         var cont = _lens.palette.continuous;
         try {
           Sound.play(cont.voice, Sound.currentTime,
-            Harmony.freq(0, cont.octave || 0), 0.25, 2.2);
-        } catch(e) { _errorCount++; }
+            Harmony.freq(0, cont.octave || 0), 0.22, 2.0);
+        } catch(e) {}
       }
 
       if (_isSilent) {
@@ -276,19 +402,10 @@ const Conductor = (function () {
         _stillnessTimer = 0;
 
         // Wake-up: silence has memory
-        var deg = Harmony.exitSilence();
-        if (deg === null || deg === undefined) deg = 0;
-
+        try { Harmony.exitSilence(); } catch(e) {}
         var h = _lens.palette.harmonic;
-        try { Sound.play(h.voice, Sound.currentTime, Harmony.freq(0, -1), 0.25, 2.0); }
+        try { Sound.play(h.voice, Sound.currentTime, Harmony.freq(0, -1), 0.20, 1.8); }
         catch(e) {}
-
-        var cont2 = _lens.palette.continuous;
-        try {
-          Sound.play(cont2.voice, Sound.currentTime + 0.06,
-            Harmony.freq(deg, cont2.octave || 0), 0.28, 1.6);
-          _currentDegree = deg;
-        } catch(e) {}
       }
       _stillnessTimer = 0;
 
@@ -305,116 +422,245 @@ const Conductor = (function () {
     }
   }
 
+  function _getLastMotifDegree() {
+    var sec = SECTION_DEFS[_sectionLevel];
+    if (!sec.mel || sec.mel.length === 0) return 0;
+    var idx = (_melStep - 1 + sec.mel.length) % sec.mel.length;
+    var d   = sec.mel[idx];
+    return (d === -1) ? 0 : (d || 0);
+  }
 
-  // ── TILT-TO-MELODY ────────────────────────────────────────────────────
+
+  // ── GESTURE INTERPRETER ───────────────────────────────────────────────
   //
-  // beta (front-back) → WaterDynamic → sweet spots → Harmony → Sound
-  // This is the heart of the instrument. Everything else is support.
+  // Sustained beta position → section level target.
+  // Must HOLD a zone for HOLD_TIME seconds before section commits.
+  // A downbeat gesture (sharp Body.peaked) can accelerate the transition.
+  //
+  // Physical logic: arms low = intro, arms high = chorus.
+  // This mirrors how a real conductor uses baton height.
+  // (Source: DTW gesture research — sustained position = section cue)
 
-  function _updateTiltPitch(sensor, now, dt) {
-    if (!Sound.ctx || _isSilent || _fadeGain < 0.08) return;
+  function _readGesture(sensor, dt) {
+    var beta = (sensor.beta !== undefined) ? sensor.beta : 62;
 
-    var tiltRange = _lens.response.tiltRange;
-    // Natural iPhone hold ≈ 62°. Center instrument there.
-    var tiltVal  = (sensor.beta || 62) - 62;
-    var tiltNorm = Math.max(-1, Math.min(1, tiltVal / (tiltRange / 2)));
+    // Map beta to zone 0-3
+    var target = beta < BETA_INTRO ? 0
+               : beta < BETA_VERSE ? 1
+               : beta < BETA_BUILD ? 2
+               : 3;
 
-    // Water bottle physics: momentum + damping = alive feel
-    if (_pitchWater) {
-      _pitchWater.update(tiltNorm, dt || 0.016);
-      tiltNorm = _pitchWater.level * 2 - 1;
+    // Smooth float for display interpolation
+    _sectionSmoothed += (target - _sectionSmoothed) * 0.025;
+
+    // Hysteresis: hold counter resets on zone change
+    if (target !== _holdTarget) {
+      _holdTarget = target;
+      _holdTimer  = 0;
+    } else if (!_isSilent) {
+      _holdTimer += dt;
     }
 
-    // Sweet spot frets: gravitational wells at each scale degree
-    var rawDegree  = tiltNorm * 7;
-    var gravitated = Harmony.applySweetSpot(rawDegree);
-    gravitated     = Harmony.gravitateDegree(gravitated);
+    // Downbeat gesture: sharp peak forces immediate transition if already holding
+    var downbeat = Body.peaked && Body.peakMagnitude > 1.8 && !_isSilent;
+    if (downbeat && target !== _sectionLevel && _holdTimer > 0.15) {
+      _transitionTarget = target;
+    }
 
-    var minDelta = _lens.response.melodicMinDelta || 1;
-    var minEnerg = _lens.response.melodicEnergy   || 0;
+    return {
+      target:    target,
+      commit:    _holdTimer >= HOLD_TIME,
+      intensity: Math.min(1, Body.energy / 2.5),
+      downbeat:  downbeat,
+      isStill:   Body.energy < 0.09,
+    };
+  }
 
-    if (gravitated !== _currentDegree
-        && Math.abs(gravitated - _currentDegree) >= minDelta
-        && Body.energy >= minEnerg
-        && !Harmony.breathing) {
 
-      // Note interval gates rate — slower when moving slowly
-      var interval = _lens.response.noteInterval;
-      var speed    = Body.energy;
-      var speedMult = 1 + (1 - Math.min(1, speed / 2.5)) * 1.2;
-      var minInterval = interval * speedMult;
+  // ── SECTION STATE MACHINE ─────────────────────────────────────────────
 
-      // Snap to tempo subdivisions when body has locked a tempo
-      if (Rhythm.tempoLocked && Rhythm.tempo > 0) {
-        var beatMs   = 60000 / Rhythm.tempo;
-        var eighthMs = beatMs / 2;
-        minInterval  = minInterval < eighthMs * 0.75 ? eighthMs
-                     : minInterval < beatMs    * 0.80 ? eighthMs * 1.5
-                     : beatMs;
-      }
+  function _updateSectionLevel(gesture) {
+    // Queue transition when conductor holds a new zone
+    if (gesture.commit && gesture.target !== _sectionLevel) {
+      _transitionTarget = gesture.target;
+    }
+  }
 
-      if ((now - _lastNoteTime) > minInterval) {
-        _currentDegree = gravitated;
 
-        // Contour blend during phrase climax
-        if (_phraseActive) {
-          var contourWeight = _phraseEnergyArc > 0.85 ? 0.70 : 0.35;
-          var contourDeg    = Harmony.getContourDegree(_phraseEnergyArc);
-          _currentDegree    = Math.round(
-            _currentDegree * (1 - contourWeight) + contourDeg * contourWeight
-          );
-        }
+  // ── BAR CLOCK ─────────────────────────────────────────────────────────
+  // Transitions only happen at bar boundaries — musical, not abrupt.
+  // Bar = 4 beats at current tempo.
 
-        Harmony.recordNote(_currentDegree);
-        var motifDeg = Harmony.applyMotifGravity(_currentDegree);
-        _lastNoteTime = now;
+  function _updateBarClock(dt) {
+    var tempo = (typeof Rhythm !== 'undefined' && Rhythm.tempoLocked && Rhythm.tempo > 0)
+      ? Rhythm.tempo : _lastBpm;
+    _lastBpm     = tempo;
+    var barDur   = (60.0 / tempo) * 4;
+    _barProgress += dt / barDur;
+    if (_barProgress >= 1.0) {
+      _barProgress -= 1.0;
+      _onBarBoundary();
+    }
+  }
 
-        var cont  = _lens.palette.continuous;
-        var freq  = Harmony.freq(motifDeg, cont.octave || 0);
-        var baseVel = 0.36 + _fadeGain * 0.42;
-        if (_prodigy.arc === 'rising')  baseVel *= 1.12;
-        if (_prodigy.arc === 'falling') baseVel *= 0.85;
-        var vel = Math.min(0.55, baseVel * _phraseIntensityFactor * (cont.velBoost || 1));
+  function _onBarBoundary() {
+    if (_transitionTarget >= 0 && _transitionTarget !== _sectionLevel) {
+      _executeTransition(_transitionTarget);
+    }
+  }
 
-        // Duration: shorter at climax (urgency), longer at opening (space)
-        var baseDec = cont.decay || 1.2;
-        var dec     = _phraseEnergyArc < 0.30 ? baseDec * 0.60
-                    : _phraseEnergyArc < 0.78 ? baseDec
-                    : baseDec * 1.45;
-        if (!cont.sustained) dec *= (1 - Math.min(1, speed / 2.5) * 0.45);
+  function _executeTransition(toLevel) {
+    _sectionLevel     = toLevel;
+    _transitionTarget = -1;
 
+    // Reset motif clocks — new section always starts at beat 1
+    _melStep  = 0; _melClock  = 0;
+    _harmStep = 0; _harmClock = 0;
+    _bassStep = 0; _bassClock = 0;
+
+    // Musical arrival: chord announces the new section
+    if (!_isSilent && _fadeGain > 0.08 && Sound.ctx) {
+      var h   = _lens.palette.harmonic;
+      var t0  = Sound.currentTime;
+      var vel = 0.24 + _fadeGain * 0.22;
+      var chord = toLevel >= 3 ? [0, 4, 7]
+                : toLevel >= 2 ? [0, 4]
+                : toLevel >= 1 ? [0]
+                : [];
+      for (var ci = 0; ci < chord.length; ci++) {
         try {
-          Sound.play(cont.voice, Sound.currentTime, freq, vel, dec);
-          _noteCount++;
+          Sound.play(h.voice, t0 + ci * 0.09,
+            Harmony.freq(chord[ci], h.octave !== undefined ? h.octave : -1),
+            vel * (1 - ci * 0.08), 1.5 + toLevel * 0.28);
         } catch(e) { _errorCount++; }
+      }
+    }
+
+    // Reverb: intro=spacious (60%), verse=open (45%), build=medium (30%), chorus=tight (18%)
+    // The music gets more "present" as it gets bigger.
+    var reverbByLevel = [0.60, 0.45, 0.30, 0.18];
+    var reverbFloor   = (_lens.space && _lens.space.reverbMix) || 0.30;
+    try { Sound.setReverbMix(Math.max(reverbFloor * 0.5, reverbByLevel[toLevel])); } catch(e) {}
+  }
+
+
+  // ── MOTIF PLAYBACK ────────────────────────────────────────────────────
+  //
+  // This is THE instrument. Music plays itself.
+  // Three autonomous voices: melody, harmony, bass.
+  // All scaled by _styleSpeedFactor so each genre feels different.
+  //
+  // The conductor doesn't trigger notes — they control WHICH section
+  // is playing and HOW INTENSE it is. The section plays its material.
+
+  function _updateMotifPlayback(now, dt) {
+    if (!Sound.ctx || _isSilent || _fadeGain < 0.04 || _sessionPhase < 1) return;
+
+    var sec       = SECTION_DEFS[_sectionLevel];
+    var gest      = _lastGesture;
+    var intensity = (gest ? Math.max(0.28, gest.intensity) : 0.40) * _fadeGain;
+    var pf        = _phraseIntensityFactor || 1.0;
+    var sf        = _styleSpeedFactor;
+
+    var cont = _lens.palette.continuous;
+    var harm = _lens.palette.harmonic;
+
+    // ── MELODY ────────────────────────────────────────────────────────
+    // The main melodic line. Voice and octave from style lens.
+    // Harmony.applySweetSpot + applyMotifGravity bend pitches toward
+    // gravitational wells — scale tones pull note into place.
+
+    if (sec.mel.length > 0 && sec.melInterval > 0) {
+      _melClock -= dt;
+      if (_melClock <= 0) {
+        _melClock += sec.melInterval * sf;
+        var rawDeg = sec.mel[_melStep % sec.mel.length];
+        _melStep++;
+
+        if (rawDeg !== -1) {
+          var deg = rawDeg;
+          try { deg = Harmony.applySweetSpot(deg); } catch(e) {}
+          try { deg = Harmony.applyMotifGravity(deg); } catch(e) {}
+
+          var freq = Harmony.freq(deg, cont.octave || 0);
+          var vel  = Math.min(0.72, sec.melVel * intensity * pf);
+          if (vel > 0.03) {
+            Sound.play(cont.voice, Sound.currentTime, freq, vel,
+              sec.melInterval * sf * 0.90);
+            try { Harmony.recordNote(deg); } catch(e) {}
+            _noteCount++;
+          }
+        }
+      }
+    }
+
+    // ── HARMONY PADS ──────────────────────────────────────────────────
+    // Backing harmonic support. Enters at verse (level 1+).
+    // Plays softer than melody — creates the harmonic bed.
+
+    if (sec.harm.length > 0 && sec.harmInterval > 0 && _sectionLevel >= 1) {
+      _harmClock -= dt;
+      if (_harmClock <= 0) {
+        _harmClock += sec.harmInterval * sf;
+        var hdeg  = sec.harm[_harmStep % sec.harm.length];
+        _harmStep++;
+        var hfreq = Harmony.freq(hdeg, harm.octave !== undefined ? harm.octave : -1);
+        var hvel  = Math.min(0.52, sec.harmVel * intensity);
+        if (hvel > 0.03) {
+          Sound.play(harm.voice, Sound.currentTime, hfreq, hvel,
+            sec.harmInterval * sf * 0.82);
+        }
+      }
+    }
+
+    // ── BASS ──────────────────────────────────────────────────────────
+    // Low-end foundation. Enters at verse (level 1+).
+    // Uses 'mono' voice at -2 octave. Style EQ shapes its character:
+    //   lofi=warm 2.2kHz ceiling, trap=heavy sub 80Hz boost, rnb=groove.
+
+    if (sec.bass.length > 0 && sec.bassInterval > 0 && _sectionLevel >= 1) {
+      _bassClock -= dt;
+      if (_bassClock <= 0) {
+        _bassClock += sec.bassInterval * sf;
+        var bdeg  = sec.bass[_bassStep % sec.bass.length];
+        _bassStep++;
+        var bfreq = Harmony.freq(bdeg, -2);
+        var bvel  = Math.min(0.62, sec.bassVel * intensity);
+        if (bvel > 0.03) {
+          Sound.play('mono', Sound.currentTime, bfreq, bvel,
+            sec.bassInterval * sf * 0.78);
+        }
       }
     }
   }
 
 
-  // ── PHRASE ────────────────────────────────────────────────────────────
+  // ── PHRASE (section-span arc) ─────────────────────────────────────────
+  // Phrases track energy arcs WITHIN sections.
+  // When energy rises above threshold, a phrase begins.
+  // phraseIntensityFactor scales velocity — louder at climax, softer at ends.
 
   function _updatePhrase(mag, now, dt) {
     if (_phraseCooldown > 0) _phraseCooldown -= dt;
 
     if (!_phraseActive) {
-      if (mag > 0.5 && _phraseCooldown <= 0) {
+      if (mag > 0.5 && _phraseCooldown <= 0 && !_isSilent) {
         _phraseActive    = true;
-        _phrasePeakCount = 0;
         _phraseStartTime = now;
         _phraseMaxMag    = mag;
         _phraseEnergyArc = 0;
-        Harmony.startPhrase();
-        Harmony.pickPhraseContour(Body.archetype,
-          (_lens.emotion && _lens.emotion.phraseShape) || null);
+        try { Harmony.startPhrase && Harmony.startPhrase(); } catch(e) {}
+        try {
+          Harmony.pickPhraseContour && Harmony.pickPhraseContour(Body.archetype,
+            (_lens.emotion && _lens.emotion.phraseShape) || null);
+        } catch(e) {}
       }
     } else {
       var dur = now - _phraseStartTime;
       if (mag > _phraseMaxMag) _phraseMaxMag = mag;
 
-      var phraseLen = Math.min(8000, Math.max(2000,
-        (Rhythm.tempoLocked && Rhythm.tempo > 0) ? Rhythm.tempo > 0 ? 60000 / Rhythm.tempo * 8 : 4000 : 4000
-      ));
+      // Phrase length grows with section level — chorus phrases are longer
+      var phraseLen = 5000 + _sectionLevel * 1500;
       _phraseEnergyArc = Math.min(1, dur / phraseLen);
 
       if (_phraseEnergyArc < 0.4) {
@@ -425,7 +671,7 @@ const Conductor = (function () {
         _phraseIntensityFactor = 1.0 - (_phraseEnergyArc - 0.8) / 0.2;
       }
 
-      if ((mag < 0.15 && dur > 1000) || dur > phraseLen) {
+      if ((mag < 0.15 && dur > 1200) || dur > phraseLen * 1.5) {
         _endPhrase(now);
       }
     }
@@ -433,28 +679,15 @@ const Conductor = (function () {
 
   function _endPhrase(now) {
     _phraseActive          = false;
-    _phraseCooldown        = 0.5;
+    _phraseCooldown        = 0.4;
     _phraseIntensityFactor = 1.0;
-    Harmony.endPhrase(_phraseMaxMag);
-
-    // Resolution chord — the musical full stop
-    if (!_isSilent && _fadeGain > 0.15 && Sound.ctx) {
-      var h      = _lens.palette.harmonic;
-      var resVel = Math.min(0.50, 0.18 + _fadeGain * 0.28);
-      var chord  = Harmony.tension > 0.6 ? [0,2,4,6] : [0,2,4];
-      var t0     = Sound.currentTime;
-      for (var ci = 0; ci < chord.length; ci++) {
-        try {
-          Sound.play(h.voice, t0 + ci * 0.12,
-            Harmony.freq(chord[ci], h.octave || 0),
-            resVel * (1 - ci * 0.10), h.decay || 1.8);
-        } catch(e) { _errorCount++; }
-      }
-    }
+    try { Harmony.endPhrase && Harmony.endPhrase(_phraseMaxMag); } catch(e) {}
   }
 
 
   // ── PEAK HANDLER ─────────────────────────────────────────────────────
+  // Peaks (sharp body accelerations) add accent notes on top of motif playback.
+  // Peak voice: chord tone appropriate to current section.
 
   function _onPeak(magnitude, now) {
     if (_sessionPhase === 0 || !Sound.ctx) return;
@@ -463,73 +696,44 @@ const Conductor = (function () {
       var vel = Math.min(1, magnitude / 4) * _phraseIntensityFactor;
       var p   = _lens.palette.peak;
 
-      // Peak voice: nearest chord tone to current melody degree
       if (p && vel > 0.08) {
-        var chordTones = [0,2,4,7];
-        var peakDeg = 0, minD = 99;
-        for (var ci = 0; ci < chordTones.length; ci++) {
-          for (var oi = -1; oi <= 1; oi++) {
-            var cand = chordTones[ci] + oi * 7;
-            var d    = Math.abs(cand - _currentDegree);
-            if (d < minD) { minD = d; peakDeg = cand; }
-          }
-        }
-        var peakVel = Math.min(0.90, vel * 0.80 * (_sessionPhase === 1 ? 0.55 : 1.0));
+        // Peak degree: root for intro/verse, 3rd for build, 5th for chorus
+        var peakDegs = [0, 0, 4, 7];
+        var peakDeg  = peakDegs[_sectionLevel] || 0;
+        var peakVel  = Math.min(0.90, vel * 0.75 * (_sessionPhase === 1 ? 0.55 : 1.0));
         Sound.play(p.voice, t, Harmony.freq(peakDeg, p.octave || -1), peakVel, p.decay || 0.8);
         _noteCount++;
       }
 
-      // Harmonic answer — slightly delayed, softer
-      var h = _lens.palette.harmonic;
-      if (h && vel > 0.38 && _sessionPhase >= 1) {
-        var answerDeg = Harmony.tension > 0.65 ? 0
-          : _phraseEnergyArc > 0.55 ? 4 : _currentDegree % 7;
-        Sound.play(h.voice, t + 0.32,
-          Harmony.freq(answerDeg, h.octave || 0), vel * 0.18, h.decay || 1.0);
-      }
-
-      // Trigger call & response after 2 peaks in a phrase
-      if (_phrasePeakCount >= 2 && _phraseEnergyArc > 0.2) {
+      // Trigger call & response after peaks in verse+ sections
+      if (vel > 0.35 && _sessionPhase >= 1 && _sectionLevel >= 1) {
         _triggerCallResponse(magnitude, now);
       }
-
-      _phrasePeakCount++;
-      if (magnitude > _phraseMaxMag) _phraseMaxMag = magnitude;
     } catch(e) { _errorCount++; }
   }
 
 
   // ── CALL & RESPONSE ───────────────────────────────────────────────────
+  // After a peak, the harmony "answers" — a delayed melodic response.
+  // Answer notes come from the current section's harmonic material.
 
   function _triggerCallResponse(mag, now) {
-    if (_sessionPhase < 1 || _crCooldown > now || _answerPending) return;
-    if (Body.energy < 0.25) return;
+    if (_crCooldown > now || _answerPending) return;
 
-    var sp = (Rhythm.tempoLocked && Rhythm.tempo > 0)
-      ? (60000 / Rhythm.tempo / 2) : 400;
+    var sp  = (_lastBpm > 0) ? (60000 / _lastBpm / 2) : 400;
+    var sec = SECTION_DEFS[_sectionLevel];
+    var hm  = sec.harm;
 
-    if (Harmony.tension > 0.62 || _phraseEnergyArc > 0.72) {
-      _answerNotes = [
-        { deg: 4, delayMs: 0,      vel: 0.30 },
-        { deg: 2, delayMs: sp,     vel: 0.24 },
-        { deg: 0, delayMs: sp * 2, vel: 0.38 },
-      ];
-    } else {
-      _answerNotes = [
-        { deg: _currentDegree + 2,              delayMs: 0,      vel: 0.26 },
-        { deg: Math.min(6, _currentDegree + 4), delayMs: sp,     vel: 0.30 },
-        { deg: 2,                               delayMs: sp * 2, vel: 0.34 },
-      ];
-    }
+    _answerNotes = [
+      { deg: hm[0] || 4,                    delayMs: 0,      vel: 0.28 },
+      { deg: hm[1] || 2,                    delayMs: sp,     vel: 0.22 },
+      { deg: hm[hm.length - 1] || 0,        delayMs: sp * 2, vel: 0.34 },
+    ];
 
-    if (Rhythm.tempoLocked && Rhythm.tempo > 0) {
-      _answerTime = now + (60000 / Rhythm.tempo) * (Math.random() < 0.5 ? 2 : 4);
-    } else {
-      _answerTime = now + 1500 + Math.random() * 2000;
-    }
+    _answerTime    = now + sp * (2 + _sectionLevel);
     _answerIdx     = 0;
     _answerPending = true;
-    _crCooldown    = now + 10000 + Math.random() * 4000;
+    _crCooldown    = now + 7000 + Math.random() * 3000;
   }
 
   function _processAnswer(now) {
@@ -544,8 +748,7 @@ const Conductor = (function () {
           Sound.play(h.voice, Sound.currentTime,
             Harmony.freq(note.deg, h.octave || 0),
             note.vel * _fadeGain, h.decay || 1.8);
-          Harmony.recordNote(note.deg);
-        } catch(e) { _errorCount++; }
+        } catch(e) {}
         _answerIdx++;
       }
     } else {
@@ -555,6 +758,7 @@ const Conductor = (function () {
 
 
   // ── PRODIGY (mix intelligence) ────────────────────────────────────────
+  // Rolling energy window → arc detection → reverb + dynamic range decisions.
 
   function _updateProdigy(dt) {
     if (_isSilent) return;
@@ -573,21 +777,10 @@ const Conductor = (function () {
       older4  += _prodigy.energyHistory[(_prodigy.energyHead - 5 - j + 16) & 15];
     }
     var diff = recent4 / 4 - older4 / 4;
-
-    if      (diff >  1.5) _prodigy.arc = 'rising';
+    if (diff > 1.5)       _prodigy.arc = 'rising';
     else if (diff < -1.5) _prodigy.arc = 'falling';
     else                  _prodigy.arc = 'neutral';
 
-    // Reverb: calm = spacious, intense = tight
-    var calmness = Math.max(0, 1.0 - energy * 0.08);
-    _prodigy.reverbTarget = 0.15 + calmness * 0.35;
-    if (_prodigy.arc === 'falling') _prodigy.reverbTarget += 0.15;
-    // Style-specific reverb floor
-    var reverbFloor = (_lens.space && _lens.space.reverbMix) || 0.25;
-    _prodigy.reverbTarget = Math.max(reverbFloor * 0.6, _prodigy.reverbTarget);
-    try { Sound.setReverbMix(_prodigy.reverbTarget); } catch(e) {}
-
-    // Volatile energy → compress dynamic range
     var volatility = 0;
     for (var m = 1; m < 8; m++) {
       var e1 = _prodigy.energyHistory[(_prodigy.energyHead - m     + 16) & 15];
@@ -609,7 +802,10 @@ const Conductor = (function () {
     _styleId = styleId || 'lofi';
     _lens    = STYLE_LENS[_styleId] || STYLE_LENS.lofi;
 
-    // Sound: configure voice routing + reverb
+    // Style speed factor: scales motif intervals so each genre feels right
+    var ni = (_lens.response && _lens.response.noteInterval) || 400;
+    _styleSpeedFactor = ni / 400;
+
     try { Sound.configure(_lens); } catch(e) { _errorCount++; }
     var reverbMix = (_lens.space && _lens.space.reverbMix) || 0.35;
     if (typeof Environ !== 'undefined' && Environ.reverbDepth) {
@@ -617,46 +813,31 @@ const Conductor = (function () {
     }
     try { Sound.setReverbMix(reverbMix); } catch(e) {}
 
-    // Harmony: Environ provides key + mode, style constrains mode choice
     var style  = typeof Styles !== 'undefined' ? Styles.get(_styleId) : null;
     var mode   = (typeof Environ !== 'undefined') ? Environ.mode : 'minor';
     if (style && style.modeHint && style.modeHint.length > 0) {
       if (style.modeHint.indexOf(mode) === -1) mode = style.modeHint[0];
     }
-    // Root: C3=261.626 Hz, shifted by Environ.key semitones
     var key    = (typeof Environ !== 'undefined') ? (Environ.key || 0) : 0;
     var rootHz = 261.626 * Math.pow(2, key / 12);
     try { Harmony.configure({ root: rootHz, mode: mode }); } catch(e) { _errorCount++; }
 
-    // Rhythm: style determines drum kit character
     var profile = (_lens.rhythm && _lens.rhythm.kit) || 'acoustic';
     var bpm     = (typeof Environ !== 'undefined') ? Environ.bpm : 88;
     if (style && style.bpmRange) {
       bpm = Math.max(style.bpmRange[0], Math.min(style.bpmRange[1], bpm));
+      _lastBpm = bpm;
     }
     try {
-      Rhythm.configure({
-        mode:    'organic',
-        bpm:     bpm,
-        profile: profile,
-      });
+      Rhythm.configure({ mode: 'organic', bpm: bpm, profile: profile });
     } catch(e) { _errorCount++; }
 
-    // Wire drum callback to Sound
     try {
       Rhythm.setCallback(function (time, velocity, instrument, kit) {
         if (_isSilent || !Sound.ctx) return;
         try { Sound.playDrum(instrument, time, velocity, kit); } catch(e) {}
       });
     } catch(e) { _errorCount++; }
-
-    // Motion profile adaptation (Body adjusts thresholds to this player's style)
-    try {
-      if (Body.motionProfile && Body.motionProfile.adapt) {
-        var adapted = Body.motionProfile.adapt(_lens.response || {});
-        _lens.response.stillnessThreshold = adapted.stillnessThreshold || _lens.response.stillnessThreshold;
-      }
-    } catch(e) {}
   }
 
 
@@ -671,49 +852,54 @@ const Conductor = (function () {
     _active  = false;
     _styleId = styleId || 'lofi';
 
-    // Water bottle physics (same params as flow.js)
-    _pitchWater = null;
-    try { _pitchWater = new Body.WaterDynamic(1.8, 0.93, 0.06); } catch(e) {}
-
     _applyLens(_styleId);
 
-    // Reset all state
-    _isSilent       = true;
-    _fadeGain       = 0;
-    _stillnessTimer = 0;
+    // Full state reset
+    _isSilent           = true;
+    _fadeGain           = 0;
+    _stillnessTimer     = 0;
     _sessionPhase       = 0;
     _sessionEngagedTime = 0;
-    _phraseActive   = false;
-    _currentDegree  = 0;
-    _lastNoteTime   = 0;
-    _noteCount      = 0;
-    _errorCount     = 0;
-    _touchDuck      = 1.0;
-    _answerPending  = false;
-    _crCooldown     = 0;
-    _lastT          = performance.now();
-    _active         = true;
+    _phraseActive       = false;
+    _phraseIntensityFactor = 1.0;
+    _sectionLevel       = 0;
+    _sectionSmoothed    = 0;
+    _transitionTarget   = -1;
+    _holdTimer          = 0;
+    _holdTarget         = 0;
+    _barProgress        = 0;
+    _melStep  = 0; _melClock  = 0;
+    _harmStep = 0; _harmClock = 0;
+    _bassStep = 0; _bassClock = 0;
+    _noteCount     = 0;
+    _errorCount    = 0;
+    _touchDuck     = 1.0;
+    _answerPending = false;
+    _crCooldown    = 0;
+    _lastT         = performance.now();
+    _active        = true;
   }
 
   function applyStyle(styleId) {
     if (!_active) return;
     _applyLens(styleId);
-    // Soft reset — keep session engaged time (evolution persists)
-    _isSilent       = true;
-    _fadeGain       = 0;
-    _stillnessTimer = 0;
-    _phraseActive   = false;
-    _currentDegree  = 0;
-    _answerPending  = false;
+    _isSilent         = true;
+    _fadeGain         = 0;
+    _stillnessTimer   = 0;
+    _phraseActive     = false;
+    _sectionLevel     = 0;
+    _sectionSmoothed  = 0;
+    _transitionTarget = -1;
+    _melStep  = 0; _melClock  = 0;
+    _harmStep = 0; _harmClock = 0;
+    _bassStep = 0; _bassClock = 0;
+    _answerPending    = false;
   }
 
-  // Called from RAF loop every frame.
-  // sensor = Sensor.read() from v1 sensor.js
-  // ts     = performance.now() timestamp
   function update(sensor, ts) {
     if (!_active || !_lens || !Sound.ctx) return;
 
-    var now = ts;  // milliseconds (for interval comparisons)
+    var now = ts;
     var dt  = Math.min(0.05, (ts - _lastT) / 1000);
     _lastT  = ts;
 
@@ -723,45 +909,55 @@ const Conductor = (function () {
     // 2. Silence / presence gate
     _updateSilence(dt, now);
 
-    // 3. Master gain — silence fades, presence grows over session
+    // 3. Master gain
     if (_isSilent && _fadeGain < 0.005) {
       try { Sound.setMasterGain(0.001); } catch(e) {}
     } else {
-      var drumFloor = (typeof Rhythm !== 'undefined' && Rhythm.drumPresence)
+      var drumFloor     = (typeof Rhythm !== 'undefined' && Rhythm.drumPresence)
         ? Rhythm.drumPresence * 0.35 : 0;
       var effectiveGain = Math.max(_fadeGain, drumFloor);
-      try { Sound.setMasterGain(0.50 * effectiveGain * _touchDuck * _prodigy.dynamicRange); } catch(e) {}
+      try { Sound.setMasterGain(0.50 * effectiveGain * _touchDuck * _prodigy.dynamicRange); }
+      catch(e) {}
     }
     _touchDuck = Math.min(1.0, _touchDuck + dt * 2.0);
 
     if (_isSilent && _fadeGain < 0.005) return;
 
-    // 4. Phrase tracking
+    // 4. Phrase arc tracking
     _updatePhrase(Body.energy, now, dt);
 
-    // 5. Peaks → musical events (accent voice + call & response trigger)
+    // 5. Peaks → accent note + call & response trigger
     if (Body.peaked) _onPeak(Body.peakMagnitude, now);
 
-    // 6. Beta-driven tilt-to-melody (THE INSTRUMENT)
-    _updateTiltPitch(sensor, now, dt);
+    // 6. Conductor gesture → section level target
+    var gesture  = _readGesture(sensor, dt);
+    _lastGesture = gesture;
+    _updateSectionLevel(gesture);
 
-    // 7. Call & response playback
+    // 7. Bar clock → musical section transitions
+    _updateBarClock(dt);
+
+    // 8. Section motif playback — THE INSTRUMENT
+    //    Music plays itself. Conductor shapes which section is alive.
+    _updateMotifPlayback(now, dt);
+
+    // 9. Call & response playback
     _processAnswer(now);
 
-    // 8. Prodigy — mix intelligence
+    // 10. Prodigy — mix intelligence
     _updateProdigy(dt);
 
-    // 9. Harmonic rhythm + motif system
+    // 11. Harmonic rhythm + gravity + motif cooldown
     try { Harmony.updateHarmonicRhythm(dt, _prodigy.arc, Body.energy); } catch(e) {}
     try { Harmony.updateHarmonicGravity(dt, Body.energy, _isSilent); } catch(e) {}
     try { Harmony.updateMotifCooldown(dt); } catch(e) {}
 
-    // 10. Euclidean drums — earned over 30-90s of body rhythm
+    // 12. Euclidean drums (earned over 30-90s as body proves rhythm lock)
     if (!_isSilent && typeof Rhythm !== 'undefined') {
       try {
         Rhythm.update(dt, {
           energy:           Body.energy,
-          tempo:            Body.bodyTempo || 88,
+          tempo:            Body.bodyTempo || _lastBpm,
           tempoLocked:      Body.rhythmConfidence > 0.22,
           rhythmConfidence: Body.rhythmConfidence || 0,
           lockStrength:     Body.rhythmConfidence || 0,
@@ -773,7 +969,7 @@ const Conductor = (function () {
       } catch(e) { _errorCount++; }
     }
 
-    // 11. Spatial — gamma drives panner, touch overrides
+    // 13. Spatial — gamma drives stereo panner, touch overrides
     try { Sound.updateSpatial(sensor.gamma || 0, _isSilent, sensor.touching || false); } catch(e) {}
     if (sensor.touching && typeof sensor.tx === 'number') {
       try { Sound.setTouchPan(sensor.tx); } catch(e) {}
@@ -781,46 +977,41 @@ const Conductor = (function () {
     }
   }
 
-  // Call after Environ loads (GPS/weather arrives asynchronously)
   function refresh() {
     if (_active && _lens) _applyLens(_styleId);
   }
 
-  // Touch note (tap the screen to play a chord tone)
+  // Touch note: plays chord tones appropriate to current section
   function touch(normX, normY, vx, vy) {
     if (!_active || !_lens || !Sound.ctx || _isSilent) return;
-    var rawDeg = Math.round((1 - normY) * 14) - 7;
-    var chordTones = [0,2,4,7,-3,-5];
-    var nearest = rawDeg, minD = 99;
-    for (var ci = 0; ci < chordTones.length; ci++) {
-      for (var oi = -1; oi <= 1; oi++) {
-        var cand = chordTones[ci] + oi * 7;
-        var d = Math.abs(rawDeg - cand);
-        if (d < minD) { minD = d; nearest = cand; }
-      }
-    }
-    var deg  = minD <= 2 ? nearest : rawDeg;
-    var spd  = Math.sqrt(vx * vx + vy * vy);
-    var vel  = Math.min(0.75, 0.28 + spd * 0.08);
-    var cont = _lens.palette.continuous;
+    var sec       = SECTION_DEFS[_sectionLevel];
+    var pool      = sec.harm.length > 0 ? sec.harm : [0, 2, 4, 7];
+    var idx       = Math.floor((1 - normY) * pool.length);
+    var deg       = pool[Math.max(0, Math.min(pool.length - 1, idx))];
+    var spd       = Math.sqrt(vx * vx + vy * vy);
+    var vel       = Math.min(0.75, 0.28 + spd * 0.08);
+    var cont      = _lens.palette.continuous;
     try {
-      Sound.play(cont.voice, Sound.currentTime, Harmony.freq(deg, cont.octave || 0), vel, 0.6);
+      Sound.play(cont.voice, Sound.currentTime,
+        Harmony.freq(deg, cont.octave || 0), vel, 0.7);
       _noteCount++;
     } catch(e) { _errorCount++; }
   }
 
   return Object.freeze({
-    init:       init,
-    applyStyle: applyStyle,
-    update:     update,
-    refresh:    refresh,
-    touch:      touch,
-    get silent()  { return _isSilent; },
-    get phase()   { return _sessionPhase; },
-    get degree()  { return _currentDegree; },
-    get errors()  { return _errorCount; },
-    get notes()   { return _noteCount; },
-    get styleId() { return _styleId; },
+    init:             init,
+    applyStyle:       applyStyle,
+    update:           update,
+    refresh:          refresh,
+    touch:            touch,
+    get silent()           { return _isSilent; },
+    get phase()            { return _sessionPhase; },
+    get section()          { return _sectionLevel; },
+    get sectionName()      { return SECTION_DEFS[_sectionLevel].name; },
+    get sectionSmoothed()  { return _sectionSmoothed; },
+    get errors()           { return _errorCount; },
+    get notes()            { return _noteCount; },
+    get styleId()          { return _styleId; },
   });
 
 })();
