@@ -208,6 +208,13 @@ class Program(Node):
         self.stmts = stmts
 
 
+class AnonFn(Node):
+    """Anonymous function expression: fn(params) = body"""
+    def __init__(self, params, body):
+        self.params = params
+        self.body = body
+
+
 # ============================================================
 # PARSER (recursive descent)
 # ============================================================
@@ -269,10 +276,11 @@ class Parser:
         return Program(stmts)
 
     def parse_stmt(self):
-        if self.peek().type == 'FN':
+        # Named fn definition: `fn name(args) = body`
+        # Anonymous fn `fn(args) = body` is an expression — falls through.
+        if self.peek().type == 'FN' and self.peek(1).type == 'IDENT':
             return self.parse_fn_def()
         # IDENT '=' expr is assign; everything else is expr.
-        # Distinguish from comparison: 'ASSIGN' is '=' (not '==')
         if self.peek().type == 'IDENT' and self.peek(1).type == 'ASSIGN':
             name = self.advance().value
             self.advance()  # =
@@ -291,8 +299,24 @@ class Parser:
                 params.append(self.expect('IDENT').value)
         self.expect('RPAREN')
         self.expect('ASSIGN')
+        self.skip_newlines()
         body = self.parse_expr()
         return FnDef(name, params, body)
+
+    def parse_anon_fn(self):
+        """Anonymous function: fn(params) = expr — usable in any expr position."""
+        self.advance()  # fn
+        self.expect('LPAREN')
+        params = []
+        if self.peek().type != 'RPAREN':
+            params.append(self.expect('IDENT').value)
+            while self.match('COMMA'):
+                params.append(self.expect('IDENT').value)
+        self.expect('RPAREN')
+        self.expect('ASSIGN')
+        self.skip_newlines()
+        body = self.parse_expr()
+        return AnonFn(params, body)
 
     # ----- expressions -----
 
@@ -412,12 +436,14 @@ class Parser:
 
     def parse_primary(self):
         tok = self.peek()
-        # let and if are expressions — usable as primaries inside larger exprs.
-        # (Right-associative; bind weakly within their bodies.)
+        # let, if, and anonymous fn are expressions — usable as primaries
+        # inside larger exprs. (Right-associative; bind weakly in their bodies.)
         if tok.type == 'LET':
             return self.parse_let()
         if tok.type == 'IF':
             return self.parse_if()
+        if tok.type == 'FN':
+            return self.parse_anon_fn()
         if tok.type == 'NUMBER':
             self.advance()
             return NumberLit(tok.value)
@@ -658,6 +684,57 @@ def stdlib_print(*args):
     return args[-1] if args else None
 
 
+# ----- coupling-specific built-ins -----
+
+def stdlib_kuramoto_R(thetas):
+    """Kuramoto order parameter: R = |⟨exp(iθ)⟩|, the sync magnitude."""
+    thetas = _as_list(thetas, 'kuramoto_R')
+    if not thetas:
+        return 0.0
+    n = len(thetas)
+    cx = sum(math.cos(_to_num(t)) for t in thetas) / n
+    sy = sum(math.sin(_to_num(t)) for t in thetas) / n
+    return math.sqrt(cx * cx + sy * sy)
+
+
+def stdlib_phase_diff(a, b):
+    """Phase difference wrapped to (-pi, pi]."""
+    d = _to_num(a) - _to_num(b)
+    d = d % (2 * math.pi)
+    if d > math.pi:
+        d -= 2 * math.pi
+    return d
+
+
+def stdlib_entropy(ps):
+    """Shannon entropy of a probability distribution (in nats).
+
+    Accepts either a list of probabilities (must sum to ~1) or a list of
+    counts (normalized internally).
+    """
+    ps = _as_list(ps, 'entropy')
+    if not ps:
+        return 0.0
+    total = sum(_to_num(p) for p in ps)
+    if total <= 0:
+        return 0.0
+    h = 0.0
+    for p in ps:
+        p = _to_num(p) / total
+        if p > 0:
+            h -= p * math.log(p)
+    return h
+
+
+def stdlib_fib(n):
+    """n-th Fibonacci number."""
+    n = int(_to_num(n))
+    a, b = 0, 1
+    for _ in range(n):
+        a, b = b, a + b
+    return a
+
+
 def _apply(func, args):
     if isinstance(func, Closure):
         if len(args) != len(func.params):
@@ -712,6 +789,9 @@ BUILTINS = {
     'append': stdlib_append, 'concat': stdlib_concat, 'range': stdlib_range,
     # IO
     'print': stdlib_print,
+    # Coupling-specific
+    'kuramoto_R': stdlib_kuramoto_R, 'phase_diff': stdlib_phase_diff,
+    'entropy': stdlib_entropy, 'fib': stdlib_fib,
 }
 
 
@@ -793,6 +873,8 @@ def evaluate_node(node, env):
         closure = Closure(node.params, node.body, env, node.name)
         env.set(node.name, closure)
         return closure
+    if isinstance(node, AnonFn):
+        return Closure(node.params, node.body, env, '<anon>')
     raise RuntimeError('Unknown node type: {}'.format(type(node).__name__))
 
 

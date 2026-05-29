@@ -151,7 +151,7 @@ var SITE = [
 
   // Products — Additional
   {id:'accord',url:'/products/accord/',name:'Accord',summary:'Regulatory gap analysis tool. Paste requirements, get gaps with priority ranking. Free, local, instant.',topics:['regulatory','compliance','tool'],related:['regulatory','threat-detection']},
-  {id:'turbo',url:'/products/turbo/',name:'Turbo',summary:'K/R/E/T expression evaluator. The K-language in your browser. Free, local.',topics:['K','evaluator','tool','coupling'],related:['framework','docs']},
+  {id:'turbo',url:'/products/turbo/',name:'Turbo',summary:'The K-coupling language. Variables, functions, control flow, recursion, lists, higher-order. K/R/E/T as primitives. The dialect from for-any-ai runs here.',topics:['K','language','dsl','coupling','dialect','programming','recursion','functions'],related:['framework','docs','for-any-ai']},
   {id:'verify',url:'/products/verify/',name:'Verify',summary:'Precision claim tester. Give it a claim and target, it tests to 50-digit precision. Anti-confirmation-bias tool.',topics:['verify','precision','testing','tool'],related:['failures','ai-delusion']},
   {id:'chipfast',url:'/products/chipfast/',name:'Chip Fast',summary:'VLSI layout optimizer. Paste gate connections, get optimized 2D placement. Force-directed in milliseconds.',topics:['VLSI','chip','layout','tool'],related:['computation-floor','nvidia-blackwell']},
   {id:'entropy',url:'/products/entropy/',name:'Entropy',summary:'12 entropy features + coupling diagnosis. Everything entropy computes, plus what it means. Free.',topics:['entropy','analysis','tool','coupling'],related:['thermodynamics','computation-floor']},
