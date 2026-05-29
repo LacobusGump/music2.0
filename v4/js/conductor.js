@@ -38,6 +38,18 @@ const Conductor = (function () {
   var _sessionPhase       = 0;  // 0=listening, 1=alive, 2=full
   var _sessionEngagedTime = 0;
 
+  // v4 Song Form — the missing piece for "sounds like a real song"
+  // Wand movement + cumulative gesture "story" is the prompt that builds the song structure.
+  // Sections evolve over time, shaped uniquely by how the user waves the phone.
+  var _songSection = 'intro';   // intro | verse | build | chorus | bridge | release
+  var _sectionStartTime = 0;
+  var _wandNarrative = {
+    totalBigGestures: 0,
+    cumulativeEnergy: 0,
+    lastBigShapeTime: 0,
+    recentTremorAvg: 0
+  };
+
   // Tilt-to-melody
   var _currentDegree = 0;
   var _lastNoteTime  = 0;
@@ -606,6 +618,141 @@ const Conductor = (function () {
   }
 
 
+  // ── SONG STRUCTURE (v4) ───────────────────────────────────────────────
+  //
+  // This is what turns "random sounds with some structure" into an actual evolving song.
+  // The wand is the composer. How you move the phone over minutes literally prompts
+  // the form (intro → verse → build → chorus/drop → bridge → release).
+  //
+  // Inspired by Suno: structure is not a separate planner — it emerges from
+  // long-term coherence + explicit structural cues. Here the structural cues
+  // come from your physical gestures + the accumulating "story" of your movement.
+
+  function _updateSongStructure(now, dt) {
+    if (!_wandState) return;
+
+    var w = _wandState;
+
+    // Track the "wand narrative" — this is the unique prompt the user is creating
+    _wandNarrative.cumulativeEnergy += (w.speed || 0) * dt * 0.6 + (w.tremor || 0) * dt * 0.4;
+
+    if (w.shapeType === 'sweep' || w.shapeType === 'arc' || w.shapeType === 'circle') {
+      if (now - _wandNarrative.lastBigShapeTime > 800) {
+        _wandNarrative.totalBigGestures++;
+        _wandNarrative.lastBigShapeTime = now;
+      }
+    }
+
+    // Simple rolling tremor average
+    _wandNarrative.recentTremorAvg = _wandNarrative.recentTremorAvg * 0.9 + (w.tremor || 0) * 0.1;
+
+    var sectionAge = (now - _sectionStartTime) / 1000;
+
+    var nextSection = _songSection;
+
+    // Progression rules — heavily influenced by wand activity
+    switch (_songSection) {
+      case 'intro':
+        // Intro ends when there's been some real movement or time passes
+        if (sectionAge > 12 || _wandNarrative.totalBigGestures >= 1 || _wandNarrative.cumulativeEnergy > 4) {
+          nextSection = 'verse';
+        }
+        break;
+
+      case 'verse':
+        // Verse lives on steady, engaged movement. Big gestures start pushing toward build.
+        if (sectionAge > 18 && (_wandNarrative.totalBigGestures >= 2 || w.speed > 1.2)) {
+          nextSection = 'build';
+        }
+        break;
+
+      case 'build':
+        // Build wants rising energy and dramatic shapes
+        if ((sectionAge > 8 && w.speed > 1.4) || _wandNarrative.recentTremorAvg > 0.45) {
+          nextSection = 'chorus';
+        }
+        break;
+
+      case 'chorus':
+        // Chorus peaks — stay here while energy is high, then look for contrast
+        if (sectionAge > 12 && (w.speed < 0.6 || _wandNarrative.recentTremorAvg < 0.2)) {
+          nextSection = (Math.random() < 0.6) ? 'bridge' : 'release';
+        }
+        break;
+
+      case 'bridge':
+        // Bridge is contrast space. Big weird gestures here feel powerful.
+        if (sectionAge > 10 && (_wandNarrative.totalBigGestures > 4 || w.speed > 1.3)) {
+          nextSection = 'chorus'; // return for a final hit
+        } else if (sectionAge > 14) {
+          nextSection = 'release';
+        }
+        break;
+
+      case 'release':
+        // Let it breathe and end
+        if (sectionAge > 18 || w.speed < 0.2) {
+          // can loop back to verse for longer performances, or just stay in release
+          nextSection = 'release';
+        }
+        break;
+    }
+
+    if (nextSection !== _songSection) {
+      _songSection = nextSection;
+      _sectionStartTime = now;
+
+      // Apply immediate musical consequences of the section change
+      _handleSectionTransition(_songSection);
+    }
+  }
+
+  function _handleSectionTransition(section) {
+    // This is where sections feel like real song moments
+    var lens = _lens || {};
+
+    switch (section) {
+      case 'intro':
+        // Very open, atmospheric
+        try { Sound.setReverbMix( (lens.space && lens.space.reverbMix || 0.4) * 1.3 ); } catch(e){}
+        break;
+
+      case 'verse':
+        // Main body — clearer, more intimate
+        try { Sound.setReverbMix( (lens.space && lens.space.reverbMix || 0.35) * 0.85 ); } catch(e){}
+        break;
+
+      case 'build':
+        // Rising tension — brighter, tighter, more urgent
+        try { Sound.setReverbMix( (lens.space && lens.space.reverbMix || 0.35) * 0.7 ); } catch(e){}
+        if (Rhythm && typeof Rhythm.setDensityBoost === 'function') Rhythm.setDensityBoost(1.25);
+        break;
+
+      case 'chorus':
+        // Peak — fullest, most dramatic
+        try { Sound.setReverbMix( (lens.space && lens.space.reverbMix || 0.35) * 0.55 ); } catch(e){}
+        if (Rhythm && typeof Rhythm.setDensityBoost === 'function') Rhythm.setDensityBoost(1.6);
+        break;
+
+      case 'bridge':
+        // Contrast — often more open or different character
+        try { Sound.setReverbMix( (lens.space && lens.space.reverbMix || 0.35) * 1.4 ); } catch(e){}
+        if (Rhythm && typeof Rhythm.setDensityBoost === 'function') Rhythm.setDensityBoost(0.7);
+        break;
+
+      case 'release':
+        // Let it go
+        try { Sound.setReverbMix( (lens.space && lens.space.reverbMix || 0.35) * 1.6 ); } catch(e){}
+        if (Rhythm && typeof Rhythm.setDensityBoost === 'function') Rhythm.setDensityBoost(0.4);
+        break;
+    }
+  }
+
+  function getSongSection() {
+    return _songSection;
+  }
+
+
   // ── APPLY LENS ────────────────────────────────────────────────────────
 
   function _applyLens(styleId) {
@@ -843,6 +990,9 @@ const Conductor = (function () {
       try { Sound.setTouchPan(sensor.tx); } catch(e) {}
       _touchDuck = Math.max(0.65, _touchDuck - dt * 3.0);
     }
+
+    // v4 Song Form — the wand is literally building the song structure over time
+    _updateSongStructure(now, dt);
   }
 
   // Call after Environ loads (GPS/weather arrives asynchronously)
@@ -886,6 +1036,7 @@ const Conductor = (function () {
     get notes()   { return _noteCount; },
     get styleId() { return _styleId; },
     get wand()    { return _wandState; },   // v4 — full wand paint state (tremor, shape, kret)
+    get songSection() { return _songSection; }, // v4 — current section (intro/verse/build/chorus/bridge/release)
   });
 
 })();

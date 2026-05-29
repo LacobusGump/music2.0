@@ -271,6 +271,9 @@ var Rhythm = (function () {
   // instead of generic Euclidean. This is what makes styles finally sound different.
   var styleDNA = null;
 
+  // v4 song section density control
+  var _densityBoost = 1.0;
+
   // -- Phrase velocity contour --
   // A great drummer plays the SONG, not the drums.
   // Research: standard drum programming wisdom, confirmed by
@@ -369,7 +372,7 @@ var Rhythm = (function () {
     }
 
     // Perc always energy-based for texture
-    var percHits = Math.max(0, Math.round(energy * 3));
+    var percHits = Math.max(0, Math.round(energy * 3 * _densityBoost));
     percPattern = euclidean(percHits, s);
     percPattern = rotatePattern(percPattern, Math.floor(s / 3));
   }
@@ -1063,6 +1066,11 @@ var Rhythm = (function () {
     }
   }
 
+  // v4 — called by conductor when song section changes (chorus gets more dense, release gets sparse)
+  function setDensityBoost(mult) {
+    _densityBoost = Math.max(0.3, Math.min(2.2, mult || 1.0));
+  }
+
 
   // ═══════════════════════════════════════════════════════════════════════
   // PUBLIC API
@@ -1074,6 +1082,7 @@ var Rhythm = (function () {
     reset: reset,
     configure: configure,
     setCallback: setCallback,
+    setDensityBoost: setDensityBoost,
 
     // Frame update
     update: update,
