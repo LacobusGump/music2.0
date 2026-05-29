@@ -105,7 +105,8 @@ var SITE = [
   {id:'earth-core',url:'/research/earth-core/',name:'Earth Core',summary:'Earth\'s core as coupled oscillator. Geomagnetic reversals.',topics:['earth','core','geomagnetic','coupling'],related:['climate','gravity','thermodynamics']},
   {id:'lost-civilizations',url:'/research/lost-civilizations/',name:'Lost Civilizations',summary:'Ancient builders through coupling analysis. The evidence.',topics:['ancient','civilization','builders','coupling'],related:['sacsayhuaman','the-builder','proto-elamite']},
   {id:'sacsayhuaman',url:'/research/sacsayhuaman/',name:'Sacsayhuaman',summary:'Sacsayhuaman pour simulation. Geopolymer hypothesis.',topics:['Sacsayhuaman','geopolymer','ancient','construction'],related:['lost-civilizations','the-builder','materials']},
-  {id:'the-builder',url:'/research/the-builder/',name:'The Builder',summary:'Who built these things? The evidence for advanced ancient engineering.',topics:['builder','ancient','engineering','evidence'],related:['lost-civilizations','sacsayhuaman']},
+  {id:'the-builder',url:'/research/the-builder/',name:'The Builder',summary:'Who built these things? The evidence for advanced ancient engineering.',topics:['builder','ancient','engineering','evidence'],related:['lost-civilizations','sacsayhuaman','rome']},
+  {id:'rome',url:'/research/rome/',name:'Rome: Kill, Build, Absorb',summary:'Rome executed Jesus for sedition. Spent 280 years persecuting Christians. Then absorbed the movement, wrote the creed, built on the holy sites, made the execution method the imperial symbol, and banned everything else. Every claim sourced.',topics:['rome','christianity','constantine','nicaea','history','religion','institutional-capture'],related:['the-builder','religion','novelty-pathology']},
   {id:'evolution',url:'/research/evolution/',name:'Evolution',summary:'Evolution as coupling selection. Fitness is coupling efficiency.',topics:['evolution','selection','fitness','coupling'],related:['ecology','the-chain']},
   {id:'emergence',url:'/research/emergence/',name:'Emergence',summary:'Emergence from coupling. Complex behavior from simple rules.',topics:['emergence','complexity','coupling','self-organization'],related:['one-plus-one','the-chain','networks']},
 
@@ -217,6 +218,7 @@ var ALIASES = {
   'mc1r':'mc1r','dna':'mc1r','anesthesia':'mc1r','fiedler':'mc1r','retuner':'mc1r','tubb3':'mc1r','genetics':'mc1r',
   'prime bounce':'prime-bounce','trampoline':'prime-bounce','gpu dispatch':'compute-breakthroughs',
   'compute':'compute-breakthroughs','compute breakthroughs':'compute-breakthroughs','mac mini':'compute-breakthroughs','m4':'compute-breakthroughs','9.12':'compute-breakthroughs',
+  'rome':'rome','constantine':'rome','nicaea':'rome','council of nicaea':'rome','edict of milan':'rome','edict of thessalonica':'rome','kill build absorb':'rome','traditor':'rome','traitor origin':'rome','roman catholic':'rome','institutional capture':'rome','absorbed christianity':'rome',
   'ai psychosis':'novelty-pathology','psychosis':'novelty-pathology','lesesucht':'novelty-pathology','reading sickness':'novelty-pathology','pathologize':'novelty-pathology','novelty':'novelty-pathology','pathology of novelty':'novelty-pathology',
   'lean':'verification','lean 4':'verification','machine proof':'verification','machine verified':'verification','norm_num':'verification',
   'regulatory':'regulatory','compliance':'regulatory',
