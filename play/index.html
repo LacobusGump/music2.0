@@ -201,20 +201,26 @@ fetchRaw(MANIFEST[0].slug);
 fetchRaw(MANIFEST[1].slug);
 
 // Audio
-var actx = null, masterGain = null;
+var actx = null, masterGain = null, masterFilter = null;
 var backingNode = null, backingGain = null;
 var vocalNode = null, vocalGain = null;
 var srcStartTime = 0;
 var playing = false, vocalsOn = false, motionOn = false;
-var currentSlug = null, currentScaleFreqs = [];
-var melodyOsc = null, melodyOscGain = null, lastNoteIdx = -1;
+var currentSlug = null;
+var targetFilterFreq = 8000, targetVocalGain = 0.72;
 
 function initAudio() {
   if (actx) return;
   actx = new (window.AudioContext || window.webkitAudioContext)();
+  // Chain: stems → masterGain → filter → destination
+  masterFilter = actx.createBiquadFilter();
+  masterFilter.type = 'lowpass';
+  masterFilter.frequency.value = 8000;
+  masterFilter.Q.value = 0.8;
+  masterFilter.connect(actx.destination);
   masterGain = actx.createGain();
   masterGain.gain.value = 0.85;
-  masterGain.connect(actx.destination);
+  masterGain.connect(masterFilter);
 }
 
 function decodeSlug(slug) {
@@ -320,34 +326,32 @@ function stopAll() {
   fadeStop(backingNode, backingGain, 400);
   fadeStop(vocalNode,   vocalGain,   400);
   backingNode=null; backingGain=null; vocalNode=null; vocalGain=null;
-  playing=false; srcStartTime=0; stopMelody();
+  playing=false; srcStartTime=0;
+  // Reset filter to open
+  if (masterFilter) masterFilter.frequency.setTargetAtTime(8000, actx.currentTime, 0.3);
   setPulse(false); setStatus('stopped'); updateUI();
 }
 
-// Tilt melody
-function startMelody(freq) {
-  stopMelody();
-  if (!actx || !motionOn || !playing) return;
-  melodyOsc = actx.createOscillator();
-  melodyOscGain = actx.createGain();
-  melodyOsc.type = 'sine';
-  melodyOsc.frequency.value = freq;
-  melodyOscGain.gain.setValueAtTime(0, actx.currentTime);
-  melodyOscGain.gain.linearRampToValueAtTime(0.13, actx.currentTime + 0.04);
-  melodyOsc.connect(melodyOscGain);
-  melodyOscGain.connect(masterGain);
-  melodyOsc.start();
-}
-function stopMelody() {
-  if (melodyOscGain) melodyOscGain.gain.linearRampToValueAtTime(0, actx.currentTime+0.08);
-  if (melodyOsc){ var o=melodyOsc; setTimeout(function(){ try{o.stop();}catch(e){} },120); }
-  melodyOsc=null; melodyOscGain=null;
-}
+// Motion → filter cutoff (beta) + vocal blend (gamma)
+var motionRafId = null;
 function onOrientation(e) {
-  if (!motionOn||!playing||!currentScaleFreqs.length) return;
-  var beta = Math.max(-90, Math.min(90, e.beta||0));
-  var idx = Math.min(Math.floor((beta+90)/180*currentScaleFreqs.length), currentScaleFreqs.length-1);
-  if (idx!==lastNoteIdx){ lastNoteIdx=idx; startMelody(currentScaleFreqs[idx]); }
+  if (!motionOn || !playing || !masterFilter) return;
+
+  // beta: -90 (flat back) → +90 (tilted forward)
+  // map to filter cutoff: 250Hz (dark) → 18000Hz (wide open)
+  var beta = Math.max(-90, Math.min(90, e.beta || 0));
+  var normB = (beta + 90) / 180; // 0→1
+  targetFilterFreq = 250 * Math.pow(18000 / 250, normB);
+  masterFilter.frequency.setTargetAtTime(targetFilterFreq, actx.currentTime, 0.08);
+
+  // gamma: -90 (tilted left) → +90 (tilted right)
+  // map to vocal gain: 0 (left) → 0.85 (right)
+  if (vocalGain) {
+    var gamma = Math.max(-90, Math.min(90, e.gamma || 0));
+    var normG = (gamma + 90) / 180; // 0→1
+    targetVocalGain = normG * 0.85;
+    vocalGain.gain.setTargetAtTime(targetVocalGain, actx.currentTime, 0.12);
+  }
 }
 
 // UI
@@ -404,11 +408,27 @@ document.getElementById('btn-vocals').addEventListener('click', function() {
 document.getElementById('btn-motion').addEventListener('click', function() {
   initAudio();
   if (motionOn) {
-    motionOn=false; stopMelody(); lastNoteIdx=-1; updateUI(); setStatus('motion off'); return;
+    motionOn=false;
+    window.removeEventListener('deviceorientation', onOrientation);
+    // Reset filter to open when motion disabled
+    if (masterFilter) masterFilter.frequency.setTargetAtTime(8000, actx.currentTime, 0.4);
+    updateUI(); setStatus('motion off'); return;
   }
   function enable() {
     window.addEventListener('deviceorientation', onOrientation);
-    motionOn=true; updateUI(); setStatus('tilt to play notes');
+    motionOn=true;
+    // Auto-load vocals so gamma has something to blend
+    if (!vocalsOn && playing && currentSlug) {
+      vocalsOn=true;
+      var buf=decoded[currentSlug];
+      if (buf && buf.melody && !vocalNode) {
+        var elapsed=actx.currentTime-srcStartTime;
+        var v=makeStem(buf.melody,actx.currentTime,0,elapsed%buf.melody.duration);
+        vocalNode=v.node; vocalGain=v.gain;
+      }
+    }
+    updateUI();
+    setStatus('fwd/back = filter · left/right = vocals');
   }
   if (typeof DeviceOrientationEvent!=='undefined' &&
       typeof DeviceOrientationEvent.requestPermission==='function') {
