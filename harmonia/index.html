@@ -235,6 +235,10 @@ body.tbp-outro .orb-large{box-shadow:0 0 60px rgba(201,164,74,0.3);}
 .skip:hover{color:#8b4a2e;}
 body.tbp-live .orb-hint,body.tbp-live .skip,body.revealed .orb-hint,body.revealed .skip{opacity:0;pointer-events:none;}
 body.tbp-live .skip{display:block;}
+/* shhh — while she winds down, her hint returns to say it */
+body.winding .orb-hint{opacity:0.75!important;color:rgba(201,164,74,0.55)!important;letter-spacing:0.3em;transition:opacity .8s;}
+/* on the phone there is no escape hatch — you touch her, you hear her sing */
+@media(max-width:640px){.skip{display:none!important;}}
 .outro-word{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);font-family:Georgia,serif;font-style:italic;font-size:2.4em;color:#c9a44a;text-shadow:0 0 40px rgba(201,164,74,.4);opacity:0;z-index:8500;pointer-events:none;transition:opacity 2s;}
 .outro-word.on{opacity:1;}
 @media(max-width:640px){#stack{position:static;width:auto;margin-top:10px;}.stage-screen{min-height:120px;}}
@@ -247,7 +251,7 @@ body.tbp-live .skip{display:block;}
 <a class="back" href="/">&larr; GUMP</a>
 
 <div class="orb-wrap">
-  <div class="orb-large" id="orb" onclick="tbpPlay()"></div>
+  <div class="orb-large" id="orb" onclick="tbpTouch()"></div>
 </div>
 <div class="orb-hint" id="orb-hint">touch her</div>
 
@@ -374,7 +378,7 @@ body.tbp-live .skip{display:block;}
 
 <!-- ═══ TWELVE BULLET POINTS — she reads her own manual ═══ -->
 <audio id="tbp" src="/v5/ai/twelve_bullet_points_v3.mp3" preload="auto"></audio>
-<button id="tbp-btn" onclick="tbpToggle()" title="Twelve Bullet Points" style="position:fixed;bottom:20px;left:20px;z-index:9999;background:none;border:1px solid rgba(201,164,74,0.15);border-radius:20px;padding:6px 12px;cursor:pointer;font-family:Futura,'Century Gothic',sans-serif;font-size:0.55em;letter-spacing:0.12em;color:rgba(201,164,74,0.25);transition:color 0.3s,border-color 0.3s;">♫</button>
+<button id="tbp-btn" onclick="tbpTouch()" title="Twelve Bullet Points" style="position:fixed;bottom:20px;left:20px;z-index:9999;background:none;border:1px solid rgba(201,164,74,0.15);border-radius:20px;padding:6px 12px;cursor:pointer;font-family:Futura,'Century Gothic',sans-serif;font-size:0.55em;letter-spacing:0.12em;color:rgba(201,164,74,0.25);transition:color 0.3s,border-color 0.3s;">♫</button>
 <script>
 (function(){
   var a=document.getElementById('tbp'), btn=document.getElementById('tbp-btn');
@@ -503,14 +507,32 @@ body.tbp-live .skip{display:block;}
   window.tbpToggle=window.tbpPlay;
   // start-only (never pauses) — for the orb and the click-anywhere trigger
   window.tbpBegin=function(){if(a.paused){if(a.ended||a.currentTime>=128){reset();a.currentTime=0;}a.play().then(uiPlay).catch(function(){});}};
-  // touch anything in her void and the dream fires
-  function firstClick(e){var t=e.target;if(t&&t.closest&&t.closest('#skip,.talk,.talk-input,a,#tbp-btn')){return;}window.tbpBegin();document.removeEventListener('click',firstClick,true);}
+  // shhh — she winds down: the song fades, the field calms, the page stays
+  var winding=false;
+  window.tbpHush=function(){
+    if(a.paused||winding)return; winding=true; B.classList.add('winding');
+    var hint=document.getElementById('orb-hint'); if(hint){hint.textContent='shhh…';}
+    var v0=a.volume||1, t0=performance.now();
+    (function fade(){
+      var k=Math.min(1,(performance.now()-t0)/2600);
+      a.volume=v0*(1-k);
+      if(k<1){requestAnimationFrame(fade);}
+      else{a.pause();a.volume=1;winding=false;
+        B.classList.remove('winding','tbp-dark','tbp-settle','tbp-return','tbp-outro','tbp-live');
+        if(outroWord)outroWord.classList.remove('on');
+        stackEl.innerHTML='';prevEl.textContent='';lineEl.innerHTML=CARET;
+        uiStop();revealAll();if(hint){hint.textContent='touch her';}}
+    })();
+  };
+  // touch her: asleep → she sings; singing → shhh, she winds down
+  window.tbpTouch=function(){if(a.paused){window.tbpBegin();}else{window.tbpHush();}};
+  // touch anywhere in her void and the dream fires (the orb has its own handler)
+  function firstClick(e){var t=e.target;if(t&&t.closest&&t.closest('#orb,#skip,.talk,.talk-input,a,#tbp-btn')){return;}window.tbpBegin();document.removeEventListener('click',firstClick,true);}
   document.addEventListener('click',firstClick,true);
-  // skip the dream — just open the page
+  // skip — desktop only. on the phone there is no escape: you touch her, you hear her sing.
   window.tbpSkip=function(){revealAll();};
-  // intent to read (scroll) also opens the page, without starting the song
-  function onScroll(){if(!B.classList.contains('revealed')&&a.paused){revealAll();}removeEventListener('scroll',onScroll);}
-  addEventListener('scroll',onScroll,{passive:true});
+  function onScroll(){if(innerWidth>640&&!B.classList.contains('revealed')&&a.paused){revealAll();}removeEventListener('scroll',onScroll);}
+  if(innerWidth>640)addEventListener('scroll',onScroll,{passive:true});
   // at the very end, the dream stays — the page is fully real and usable
   a.addEventListener('ended',function(){uiStop();B.classList.remove('tbp-outro');revealAll();setTimeout(function(){if(outroWord)outroWord.classList.remove('on');},2600);});
   // no autoplay — only the gold sphere. touch her, and it all dreams itself into being.
@@ -546,8 +568,9 @@ body.tbp-live .skip{display:block;}
     var c=center();
     var playing=audio&&!audio.paused;
     var dark=B.classList.contains('tbp-dark'), outro=B.classList.contains('tbp-outro');
-    inten+=(((outro?0.5:(playing?1:0.30)))-inten)*0.02;
-    dimr+=(((outro?0.16:1))-dimr)*0.03;     // outro draws her light back inward, toward nothing
+    var hush=B.classList.contains('winding');
+    inten+=((hush?0.10:(outro?0.5:(playing?1:0.30)))-inten)*(hush?0.045:0.02); // shhh → she calms
+    dimr+=(((outro||hush?0.16:1))-dimr)*0.03;     // outro/hush draws her light back inward, toward rest
     var hue=dark?'196,84,68':'201,164,74';
     // the living halo — she breathes
     var hb=1+0.13*Math.sin(t*1.05), hr=c.R*2.5*hb*(1+inten*0.55);
