@@ -11,6 +11,7 @@ window.RADIO=(function(){
     {t:"3x3^9",s:"the lattice",f:A+"three_by_three.mp3",page:"emergence",url:"/research/emergence/"},
     {t:"Proper Pleasantry",s:"the cost of knowing",f:A+"proper_pleasantry.mp3",page:"computation-floor",url:"/research/computation-floor/"},
     {t:"One Plus One Equals Three",s:"the founding equation",f:J+"one_plus_one_equals_three.mp3",page:"one-plus-one",url:"/research/one-plus-one/"},
+    {t:"GCD",s:"the factor every coupling shares",f:A+"gcd.mp3",page:"creation",url:"/creation/"},
     {t:"Fifteen Year Counter",s:"the discovery trail",f:A+"fifteen_year_counter.mp3",page:"science-tree",url:"/research/science-tree/"},
     {t:"Installation Hum",s:"how we work",f:A+"installation_hum.mp3",page:"how-we-work",url:"/research/how-we-work/"},
     {t:"The Weakest K",s:"what we got wrong",f:A+"the_weakest_k.mp3",page:"failures",url:"/research/failures/"},
