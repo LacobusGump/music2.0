@@ -28,7 +28,6 @@ window.RADIO=(function(){
     {t:"Executable Memory II",s:"polyrhythm",f:A+"executable_memory_v2.mp3",page:"polyrhythm",url:"/research/polyrhythm/"},
     {t:"Rent the Click",s:"the fatigue",f:A+"rent_the_click.mp3",page:"ai-fatigue",url:"/research/ai-fatigue/"},
     {t:"Cheese Receipt",s:"the makers",f:J+"cheese_receipt.mp3",page:"bach",url:"/research/bach/"},
-    {t:"The Envelope",s:"the light Monet chased",f:J+"the_envelope.mp3",page:"monet",url:"/research/monet/"},
     {t:"Radio Static",s:"can you be loved by what you don't control",f:J+"radio_static.mp3",page:"the-grace-gate",url:"/research/the-grace-gate/"},
     {t:"Nobody Asked the Dog",s:"I sound too much like I know what I mean",f:A+"nobody_asked_the_dog.mp3",page:"never-asked-the-dog",url:"/research/never-asked-the-dog/"},
     {t:"Twelve Bullet Points",s:"she sings her own manual",f:A+"twelve_bullet_points_v3.mp3",page:"harmonia",url:"/harmonia/"},
@@ -43,7 +42,7 @@ window.RADIO=(function(){
     'quantum-harmonics':15,'quantum-build':15,chemistry:16,materials:16,thermodynamics:16,ecology:17,'drug-interactions':17,'mycelium-networks':17,
     alzheimers:18,dyslexia:19,'bird-coupling':20,'defi-coupling':20,'body-music':21,consciousness:21,networks:24,'novelty-pathology':24,'true-automation':24,
     'the-drum':22,'the-line':22,'prime-bounce':22,'ale-spectral-ladder':22,'alpha-fixed-point':22,zero:22,polyrhythm:23,'the-groove':23,'music-evolution':23,
-    bach:25,rome:25,'the-lion':25,'nina-simone':25,'aaron-is-right':25,tesla:25,'van-gogh':25,monet:26,'the-grace-gate':27,'never-asked-the-dog':28,harmonia:29,mirror:30
+    bach:25,rome:25,'the-lion':25,'nina-simone':25,'aaron-is-right':25,tesla:25,'van-gogh':25,'the-grace-gate':26,'never-asked-the-dog':27,harmonia:28,mirror:29
   };
   function slug(){var p=location.pathname.replace(/\/+$/,'');return p===''?'home':(p.split('/').pop()||'home');}
   return {list:PLAYLIST, pageSong:PAGE_SONG, slug:slug, indexFor:function(sg){return (sg&&PAGE_SONG[sg]!=null)?PAGE_SONG[sg]:0;}};
