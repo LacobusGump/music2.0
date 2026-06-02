@@ -64,6 +64,8 @@
 
     // yield to any inline song the visitor starts (and they yield to the bar via pauseOthers)
     document.addEventListener('play', function(e){ if (e.target && e.target.tagName === 'AUDIO' && e.target !== a && !a.paused) a.pause(); }, true);
+    // and yield to a page reading itself aloud — never play music over the spoken word
+    try { var sp = window.speechSynthesis; if (sp && sp.speak) { var _speak = sp.speak.bind(sp); sp.speak = function(u){ if (!a.paused) a.pause(); return _speak(u); }; } } catch(e){}
 
     if (autoplay){ pauseOthers(); a.play().then(onPlay).catch(function(){ onPause(); }); } else { onPause(); }
   }
