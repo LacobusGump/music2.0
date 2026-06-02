@@ -87,21 +87,61 @@ resize();addEventListener('resize',resize);
 
 var w,h,t=0,mx=0.5,my=0.5,frame=0,lastT=performance.now(),zoom=1,lastPinch=0,forceNext=false;
 
+// ── interaction: the field follows your cursor, zooms, and clicking it starts the song ──
+addEventListener('mousemove',function(e){mx=e.clientX/innerWidth;my=e.clientY/innerHeight;});
+addEventListener('wheel',function(e){e.preventDefault();zoom*=e.deltaY>0?0.93:1.07;zoom=Math.max(0.1,Math.min(30,zoom));},{passive:false});
+addEventListener('touchstart',function(e){if(e.touches.length===2){var dx=e.touches[0].clientX-e.touches[1].clientX,dy=e.touches[0].clientY-e.touches[1].clientY;lastPinch=Math.sqrt(dx*dx+dy*dy);}},{passive:true});
+addEventListener('touchmove',function(e){
+  if(e.touches.length===1){mx=e.touches[0].clientX/innerWidth;my=e.touches[0].clientY/innerHeight;e.preventDefault();}
+  else if(e.touches.length===2){var dx=e.touches[0].clientX-e.touches[1].clientX,dy=e.touches[0].clientY-e.touches[1].clientY,d=Math.sqrt(dx*dx+dy*dy);if(lastPinch>0){zoom*=d/lastPinch;zoom=Math.max(0.1,Math.min(30,zoom));}lastPinch=d;e.preventDefault();}
+},{passive:false});
+addEventListener('touchend',function(){lastPinch=0;});
+// click the visual → the music clicks into existence and the field starts reacting
+addEventListener('click',function(){if(window._cdrStart)window._cdrStart();});
+
 // ═══ LOCKED TO COUPLED_DYNAMICS — 123 BPM beat grid + section map (librosa-analyzed) ═══
 // lyric "lock" ≈ 121s: energy collapses (the drop), detonates at 123.4s → tribal breakdown to 148s
 var BEAT_T0=0.98, BEAT_DT=60/123;
 // timing is locked to the song; the verse/transition SHAPES vary each load (the "glitch" is now variety)
 var SEED=Math.random();
-var _sp=[0,1,2,3,4,5,6,7,8,9,10],_pk=function(){return _sp[(Math.random()*_sp.length)|0];};
-// anchors fixed: 9=supernova(wobble) 36=heart 40/82=murmuration(chorus) 48/90=galaxy 106=tesseract 121=blackhole(LOCK) 148=heart(resolve)
-var SECTION=[[0,_pk()],[9,12],[13,_pk()],[17,4],[24,_pk()],[36,14],[40,13],[48,8],[55,_pk()],[63,_pk()],[73,_pk()],[82,13],[90,8],[98,_pk()],[106,11],[121,15],[148,14]];
-var LOCK_DROP=121, LOCK_HIT=123.4, LOCK_END=148;
-var songOn=false, beatPulse=0, lastBeat=-1, nuts=0, mosh=0, lockAnticip=0, detonated=false;
+var _pkOf=function(a){return a[(Math.random()*a.length)|0];}; // pick one of the on-theme shapes — varies per load, always in taste
+// MUSIC VIDEO — shapes follow the lyrics. Sections with options vary each load; the meaning stays locked to the words.
+// 0 spiral 1 helix 2 torus 3 wave 4 orbitals 5 primes 6 möbius 7 lorenz 8 galaxy 9 tree 11 tesseract 12 supernova 13 murmuration 14 heart 15 blackhole
+var SECTION=[
+  [0,    _pkOf([0,2])],   // intro — genesis, the cone
+  [16.74,3],              // "the friction starts to breathe... quantized drift" — interference
+  [22.34,_pkOf([1,9])],   // "two separate clocks, they hesitate and fight / a fractal spacing"
+  [27.44,_pkOf([2,6])],   // "we stretch the wire tight, until the microtomic feels exactly right"
+  [29.98,6],              // "right where the human coupling begins" — the bend
+  [35.80,13],             // CHORUS "a thousand systems melting into one" — the flock
+  [42.80,8],              // "it's the pull of the gravity"
+  [48.74,7],              // "the beautiful chaos of a GC phase"
+  [51.70,_pkOf([4,2])],   // "dance inside the resonance it makes"
+  [62.62,5],              // "the clean kill... bare bones of the system scale" — the skeleton
+  [67.18,11],             // "define the pockets in the cracks of time"
+  [70.96,_pkOf([3,5])],   // "it's the deviation that makes it good"
+  [74.74,_pkOf([7,8])],   // "a living engine running, hot and low"
+  [81.62,13],             // CHORUS — melting into one (matches the first)
+  [89.68,8],              // "pull of the gravity, the push of the space"
+  [94.42,4],              // "dance inside the resonance it makes"
+  [105.66,2],             // "listen to the cycle train to agree" — the cycle
+  [109.38,0],             // "no words to fill it, just a quiet strain"
+  [111.56,13],            // "as the chaos organises back again"
+  [117.12,11],            // "before the system closes down the door"
+  [121,  15],             // "three, two, one, LOCK" — the black hole
+  [148,  14]              // "system clear" — the heart, resolved
+];
+var LOCK_DROP=121.2, LOCK_HIT=123.414, LOCK_END=148;
+var songOn=false, beatPulse=0, lastBeat=-1, nuts=0, mosh=0, lockAnticip=0, detonated=false, pull=0;
 var homeFrame=document.querySelector('.frame'),fx=0,fy=0,fvx=0,fvy=0,frot=0,frv=0;
 var bendAmt=0,kickDone=[-1,-1,-1],flashMorph=false;
 var KICKS=[9,20,24]; // wide hit + big kicks that shake the page
 function dSongTime(){var e=document.getElementById('cdr');return(e&&!e.paused&&!isNaN(e.currentTime))?e.currentTime:-1;}
-function dSongShape(ct){if(ct>=120&&ct<123.4){flashMorph=true;var fc=Math.floor((ct-120)/1.1);return fc===0?12:fc===1?7:11;}flashMorph=false;var s=0;for(var i=0;i<SECTION.length;i++){if(ct>=SECTION[i][0])s=SECTION[i][1];else break;}return s;}
+function dSongShape(ct){
+  // the spoken count lands on each word: three 121.20 · two 121.90 · one 122.46 · lock 122.92 → detonate 123.414
+  if(ct>=121.20&&ct<123.414){flashMorph=true;return ct<121.90?12:ct<122.46?7:ct<122.92?11:15;}
+  flashMorph=false;var s=0;for(var i=0;i<SECTION.length;i++){if(ct>=SECTION[i][0])s=SECTION[i][1];else break;}return s;
+}
 
 // ═══ SHADERS ═══
 var vsrc=`
@@ -398,16 +438,25 @@ function simStep(){
   if(songOn&&ct>=LOCK_HIT&&ct<LOCK_END&&!detonated){detonated=true;burstT=0.6;
     for(var di=0;di<N;di++){var aa=Math.random()*6.2832,ee=Math.acos(2*Math.random()-1),sp=0.3+Math.random()*0.55;vx[di]+=Math.sin(ee)*Math.cos(aa)*sp;vy[di]+=Math.sin(ee)*Math.sin(aa)*sp;vz[di]+=Math.cos(ee)*sp;}fvx+=(Math.random()-0.5)*120;fvy+=(Math.random()-0.5)*90;frv+=(Math.random()-0.5)*14;}
   if(!songOn||ct<LOCK_HIT||ct>=LOCK_END)detonated=false;
-  // ── lyric-timed events ──
-  var bT=0;
+  // ── lyric-timed events ── the field breathes with the words
+  var bT=0, pullTgt=0;
   if(songOn){
     if(ct>=9&&ct<10.4)bT=Math.sin((ct-9)/1.4*Math.PI);        // 9s wide hit — arc/wave shake
-    else if(ct>=34&&ct<35.7)bT=Math.sin((ct-34)/1.7*Math.PI); // "beeennds"
+    else if(ct>=16.74&&ct<22)bT=Math.sin((ct-16.74)/5.26*Math.PI)*0.5; // "the friction starts to breathe"
+    else if(ct>=33&&ct<35.7)bT=Math.sin((ct-33)/2.7*Math.PI); // "the raw momentum beeennds"
+    // pull/push — the words about gravity, space, melting, closing move the whole field
+    if((ct>=39&&ct<42)||(ct>=85&&ct<89))pullTgt=0.9;          // "a thousand systems melting into one"
+    else if((ct>=44.5&&ct<48)||(ct>=89.6&&ct<92))pullTgt=0.6; // "the pull of the gravity"
+    else if((ct>=48.5&&ct<51.7)||(ct>=92&&ct<94.4))pullTgt=-0.55; // "the push of the space"
+    else if(ct>=62.5&&ct<63.2)pullTgt=-0.8;                   // "the clean kill" — a cut outward
+    else if(ct>=109.3&&ct<111.5)pullTgt=0.35;                 // "no words to fill it, just a quiet strain"
+    else if(ct>=117&&ct<120.4)pullTgt=0.5+(ct-117)/3.4*0.4;   // "before the system closes down the door" — contract to the lock
     var inJump=(ct>=40&&ct<55)||(ct>=82&&ct<98),inBounce=(ct>=98&&ct<105.6);
     // gentle physics rock ON the beat grid — bigger on choruses, soft everywhere else
     if(beatPulse>0.85){if(inJump){fvy-=15;fvx+=(Math.random()-0.5)*6;frv+=(Math.random()-0.5)*1.3;}else if(inBounce){fvy-=8;}else{fvy-=3.2;fvx+=(Math.random()-0.5)*2.2;}}
   }
   bendAmt+=(bT-bendAmt)*0.25;
+  pull+=(pullTgt-pull)*0.06; // ease the breath in and out
   // rock the homepage UI on the beat through the breakdown — spring physics
   if(nuts>0.02){if(beatPulse>0.85){fvx+=(Math.random()-0.5)*48*nuts;fvy+=(Math.random()-0.5)*36*nuts;frv+=(Math.random()-0.5)*6.5*nuts;}fvx+=(Math.random()-0.5)*5*nuts;fvy+=(Math.random()-0.5)*5*nuts;}
   // mosh — the words (UI frame) go absolutely nuts, every frame, not just on beats
@@ -455,6 +504,7 @@ function simStep(){
     var tgt=shapeTarget(i,shape);
     vx[i]+=(tgt[0]-px[i])*kk;vy[i]+=(tgt[1]-py[i])*kk;vz[i]+=(tgt[2]-pz[i])*kk;
     if(jit>0){vx[i]+=(Math.random()-0.5)*jit;vy[i]+=(Math.random()-0.5)*jit;vz[i]+=(Math.random()-0.5)*jit;}
+    if(pull!==0){var pf=pull*0.016;vx[i]-=px[i]*pf;vy[i]-=py[i]*pf;vz[i]-=pz[i]*pf;} // breathe: + contracts to one, − pushes to space
     vx[i]*=damp;vy[i]*=damp;vz[i]*=damp;
     px[i]+=vx[i];py[i]+=vy[i];pz[i]+=vz[i];
     cr[i]+=(tr[i]-cr[i])*0.03;cg2[i]+=(tg[i]-cg2[i])*0.03;cb[i]+=(tb[i]-cb[i])*0.03;
@@ -559,7 +609,7 @@ render();
 <script src="/js/breathe.js?v=3"></script>
 <script src="/transit.js"></script>
 <audio id="cdr" src="/v5/ai/coupled_dynamics_remix.mp3" preload="auto"></audio>
-<button id="cdr-btn" onclick="window._cdrTog&&window._cdrTog()" style="position:fixed;bottom:20px;left:20px;z-index:9999;background:transparent;border:1px solid rgba(201,164,74,0.15);border-radius:50%;width:32px;height:32px;color:rgba(201,164,74,0.25);font-size:0.9em;cursor:pointer;display:flex;align-items:center;justify-content:center;">♫</button>
+<button id="cdr-btn" onclick="event.stopPropagation();window._cdrTog&&window._cdrTog()" style="position:fixed;bottom:20px;left:20px;z-index:9999;background:transparent;border:1px solid rgba(201,164,74,0.15);border-radius:50%;width:32px;height:32px;color:rgba(201,164,74,0.25);font-size:0.9em;cursor:pointer;display:flex;align-items:center;justify-content:center;">♫</button>
 <script>
 (function(){
   var a=document.getElementById('cdr');if(!a)return;
@@ -567,11 +617,10 @@ render();
   function setPlay(){if(btn){btn.style.color='rgba(201,164,74,0.55)';btn.style.borderColor='rgba(201,164,74,0.28)';}}
   function setStop(){if(btn){btn.style.color='rgba(201,164,74,0.25)';btn.style.borderColor='rgba(201,164,74,0.15)';}}
   a.addEventListener('ended',setStop);
-  // no autoplay — the listener clicks it into existence via the ♫ button
-  window._cdrTog=function(){
-    if(a.paused){a.play().then(function(){setPlay();if(window._gAudio){window._gAudio(a);if(window.audioCtx&&window.audioCtx.state==='suspended')window.audioCtx.resume();}}).catch(function(){});}
-    else{a.pause();setStop();}
-  };
+  function wire(){if(window._gAudio){window._gAudio(a);if(window.audioCtx&&window.audioCtx.state==='suspended')window.audioCtx.resume();}}
+  // no autoplay — click the visual (or the ♫) to start it; the field then reacts to the song
+  window._cdrStart=function(){if(a.paused){a.play().then(function(){setPlay();wire();}).catch(function(){});}};
+  window._cdrTog=function(){if(a.paused){window._cdrStart();}else{a.pause();setStop();}};
 })();
 </script>
 </body>
