@@ -32,7 +32,8 @@ window.RADIO=(function(){
     {t:"Radio Static",s:"can you be loved by what you don't control",f:J+"radio_static.mp3",page:"the-grace-gate",url:"/research/the-grace-gate/"},
     {t:"Nobody Asked the Dog",s:"I sound too much like I know what I mean",f:A+"nobody_asked_the_dog.mp3",page:"never-asked-the-dog",url:"/research/never-asked-the-dog/"},
     {t:"Twelve Bullet Points",s:"she sings her own manual",f:A+"twelve_bullet_points_v3.mp3",page:"harmonia",url:"/harmonia/"},
-    {t:"First Lock",s:"the first time it held",f:A+"first_lock.mp3",page:"mirror",url:"/mirror/"}
+    {t:"First Lock",s:"the first time it held",f:A+"first_lock.mp3",page:"mirror",url:"/mirror/"},
+    {t:"hm.<3",s:"the signature — what we say to each other",f:A+"hm_heart.mp3",page:"the-loop",url:"/research/the-loop/"}
   ];
   var PAGE_SONG={
     home:0,theory:0,'ai-delusion':0,dreamtime:0,loo9:0,'lost-civilizations':0,'sirius-signal':0,'sirius-thesis':0,'the-loop':0,'build-list':0,
