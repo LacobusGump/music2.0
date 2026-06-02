@@ -90,15 +90,18 @@ var w,h,t=0,mx=0.5,my=0.5,frame=0,lastT=performance.now(),zoom=1,lastPinch=0,for
 // ═══ LOCKED TO COUPLED_DYNAMICS — 123 BPM beat grid + section map (librosa-analyzed) ═══
 // lyric "lock" ≈ 121s: energy collapses (the drop), detonates at 123.4s → tribal breakdown to 148s
 var BEAT_T0=0.98, BEAT_DT=60/123;
-// lyric-topic-locked: murmuration = the "hit the synchronization" chorus signature (opens + both choruses)
-var SECTION=[[0,13],[9,12],[13,3],[17,4],[24,7],[36,14],[40,13],[48,8],[55,2],[63,5],[73,7],[82,13],[90,8],[98,10],[106,11],[121,15],[148,14]];
+// timing is locked to the song; the verse/transition SHAPES vary each load (the "glitch" is now variety)
+var SEED=Math.random();
+var _sp=[0,1,2,3,4,5,6,7,8,9,10],_pk=function(){return _sp[(Math.random()*_sp.length)|0];};
+// anchors fixed: 9=supernova(wobble) 36=heart 40/82=murmuration(chorus) 48/90=galaxy 106=tesseract 121=blackhole(LOCK) 148=heart(resolve)
+var SECTION=[[0,_pk()],[9,12],[13,_pk()],[17,4],[24,_pk()],[36,14],[40,13],[48,8],[55,_pk()],[63,_pk()],[73,_pk()],[82,13],[90,8],[98,_pk()],[106,11],[121,15],[148,14]];
 var LOCK_DROP=121, LOCK_HIT=123.4, LOCK_END=148;
-var songOn=false, beatPulse=0, lastBeat=-1, nuts=0, lockAnticip=0, detonated=false;
+var songOn=false, beatPulse=0, lastBeat=-1, nuts=0, mosh=0, lockAnticip=0, detonated=false;
 var homeFrame=document.querySelector('.frame'),fx=0,fy=0,fvx=0,fvy=0,frot=0,frv=0;
 var bendAmt=0,kickDone=[-1,-1,-1],flashMorph=false;
 var KICKS=[9,20,24]; // wide hit + big kicks that shake the page
 function dSongTime(){var e=document.getElementById('cdr');return(e&&!e.paused&&!isNaN(e.currentTime))?e.currentTime:-1;}
-function dSongShape(ct){if(ct>=118&&ct<121){flashMorph=true;var fc=Math.floor(ct);return fc===118?12:fc===119?7:11;}flashMorph=false;var s=0;for(var i=0;i<SECTION.length;i++){if(ct>=SECTION[i][0])s=SECTION[i][1];else break;}return s;}
+function dSongShape(ct){if(ct>=120&&ct<123.4){flashMorph=true;var fc=Math.floor((ct-120)/1.1);return fc===0?12:fc===1?7:11;}flashMorph=false;var s=0;for(var i=0;i<SECTION.length;i++){if(ct>=SECTION[i][0])s=SECTION[i][1];else break;}return s;}
 
 // ═══ SHADERS ═══
 var vsrc=`
@@ -125,12 +128,13 @@ var fsrc=`
 precision mediump float;
 varying vec3 vCol;
 varying float vAlpha;
+uniform float uBright;
 void main(){
   vec2 c=gl_PointCoord-0.5;
   float d=length(c);
   if(d>0.5)discard;
   float a=1.0-smoothstep(0.16,0.5,d);
-  gl_FragColor=vec4(vCol,vAlpha*0.34*a);
+  gl_FragColor=vec4(vCol,vAlpha*uBright*a);
 }`;
 
 function compile(type,src){
@@ -148,6 +152,7 @@ var aCol=gl.getAttribLocation(prog,'aCol');
 var aSize=gl.getAttribLocation(prog,'aSize');
 var uMVP=gl.getUniformLocation(prog,'uMVP');
 var uScale=gl.getUniformLocation(prog,'uScale');
+var uBright=gl.getUniformLocation(prog,'uBright');
 
 gl.enable(gl.BLEND);
 gl.blendFunc(gl.SRC_ALPHA,gl.ONE); // additive
@@ -386,6 +391,9 @@ function simStep(){
   beatPulse*=0.82;
   lockAnticip+=(((songOn&&ct>=LOCK_DROP&&ct<LOCK_HIT)?1:0)-lockAnticip)*0.12;
   nuts+=(((songOn&&ct>=LOCK_HIT&&ct<LOCK_END)?1:0)-nuts)*0.10;
+  // mosh pit — halfway through the rock-out everything tosses into chaos, then walks back into place
+  var moshTgt=0;if(songOn){if(ct>=132&&ct<135)moshTgt=(ct-132)/3;else if(ct>=135&&ct<142)moshTgt=1;else if(ct>=142&&ct<148)moshTgt=Math.max(0,1-(ct-142)/6);}
+  mosh+=(moshTgt-mosh)*0.07;
   // detonation — one-shot explosion when "lock" hits (scatter = sparks, not a white blob)
   if(songOn&&ct>=LOCK_HIT&&ct<LOCK_END&&!detonated){detonated=true;burstT=0.6;
     for(var di=0;di<N;di++){var aa=Math.random()*6.2832,ee=Math.acos(2*Math.random()-1),sp=0.3+Math.random()*0.55;vx[di]+=Math.sin(ee)*Math.cos(aa)*sp;vy[di]+=Math.sin(ee)*Math.sin(aa)*sp;vz[di]+=Math.cos(ee)*sp;}fvx+=(Math.random()-0.5)*120;fvy+=(Math.random()-0.5)*90;frv+=(Math.random()-0.5)*14;}
@@ -402,6 +410,8 @@ function simStep(){
   bendAmt+=(bT-bendAmt)*0.25;
   // rock the homepage UI on the beat through the breakdown — spring physics
   if(nuts>0.02){if(beatPulse>0.85){fvx+=(Math.random()-0.5)*48*nuts;fvy+=(Math.random()-0.5)*36*nuts;frv+=(Math.random()-0.5)*6.5*nuts;}fvx+=(Math.random()-0.5)*5*nuts;fvy+=(Math.random()-0.5)*5*nuts;}
+  // mosh — the words (UI frame) go absolutely nuts, every frame, not just on beats
+  if(mosh>0.05){fvx+=(Math.random()-0.5)*34*mosh;fvy+=(Math.random()-0.5)*30*mosh;frv+=(Math.random()-0.5)*10*mosh;}
   fvx+=-fx*0.16;fvy+=-fy*0.16;frv+=-frot*0.16;fvx*=0.85;fvy*=0.85;frv*=0.85;fx+=fvx;fy+=fvy;frot+=frv;
   var wantShape=songOn?dSongShape(ct):-1;
 
@@ -439,7 +449,8 @@ function simStep(){
   var k=burstT>0?0.003:morphT<1?0.008+morphT*0.015:0.03;
   var damp=burstT>0?0.97:morphT<1?0.92:0.95;
   if(nuts>0.05)damp=0.95;
-  var kk=k*(1+lockAnticip*2.6), jit=nuts*0.05;
+  if(mosh>0.1)damp=0.965; // looser damping = particles drift free in the pit
+  var kk=k*(1+lockAnticip*2.6)*(1-mosh*0.85), jit=nuts*0.05+mosh*0.2;
   for(var i=0;i<N;i++){
     var tgt=shapeTarget(i,shape);
     vx[i]+=(tgt[0]-px[i])*kk;vy[i]+=(tgt[1]-py[i])*kk;vz[i]+=(tgt[2]-pz[i])*kk;
@@ -496,10 +507,10 @@ function render(){
   var aspect=w/h;
   var proj=mat4_perspective(1.0,aspect,0.1,100);
   var view=mat4_identity();
-  var shk=nuts*0.14;
+  var shk=nuts*0.14+mosh*0.32;
   view=mat4_translate(view,(Math.random()-0.5)*shk,(Math.random()-0.5)*shk,-camDist*4);
-  view=mat4_rotateX(view,(my-0.5)*1.5+(Math.random()-0.5)*nuts*0.07);
-  view=mat4_rotateY(view,t*0.15+(mx-0.5)*2+(Math.random()-0.5)*nuts*0.07);
+  view=mat4_rotateX(view,(my-0.5)*1.5+(Math.random()-0.5)*(nuts*0.07+mosh*0.12));
+  view=mat4_rotateY(view,t*0.15+(mx-0.5)*2+SEED*6.2832+(Math.random()-0.5)*(nuts*0.07+mosh*0.12));
   var mvp=mat4_mul(proj,view);
 
   // Upload positions + colors to GPU
@@ -511,7 +522,8 @@ function render(){
   gl.clear(gl.COLOR_BUFFER_BIT);
 
   gl.uniformMatrix4fv(uMVP,false,mvp);
-  gl.uniform1f(uScale,Math.min(w,h)*DPR*(MOB?0.05:0.03)*(1+beatPulse*0.13+nuts*0.22));
+  gl.uniform1f(uScale,Math.min(w,h)*DPR*(MOB?0.05:0.03)*(1+beatPulse*0.13+nuts*0.22+mosh*0.25));
+  gl.uniform1f(uBright,MOB?0.52:0.34);
 
   gl.bindBuffer(gl.ARRAY_BUFFER,posBuf);
   gl.bufferData(gl.ARRAY_BUFFER,gpuPos,gl.DYNAMIC_DRAW);
@@ -547,7 +559,7 @@ render();
 <script src="/js/breathe.js?v=3"></script>
 <script src="/transit.js"></script>
 <audio id="cdr" src="/v5/ai/coupled_dynamics_remix.mp3" preload="auto"></audio>
-<button id="cdr-btn" onclick="var a=document.getElementById('cdr');a.paused?(a.play(),this.style.color='rgba(201,164,74,0.55)',this.style.borderColor='rgba(201,164,74,0.28)'):(a.pause(),this.style.color='rgba(201,164,74,0.25)',this.style.borderColor='rgba(201,164,74,0.15)')" style="position:fixed;bottom:20px;left:20px;z-index:9999;background:transparent;border:1px solid rgba(201,164,74,0.15);border-radius:50%;width:32px;height:32px;color:rgba(201,164,74,0.25);font-size:0.9em;cursor:pointer;display:flex;align-items:center;justify-content:center;">♫</button>
+<button id="cdr-btn" onclick="window._cdrTog&&window._cdrTog()" style="position:fixed;bottom:20px;left:20px;z-index:9999;background:transparent;border:1px solid rgba(201,164,74,0.15);border-radius:50%;width:32px;height:32px;color:rgba(201,164,74,0.25);font-size:0.9em;cursor:pointer;display:flex;align-items:center;justify-content:center;">♫</button>
 <script>
 (function(){
   var a=document.getElementById('cdr');if(!a)return;
@@ -555,10 +567,11 @@ render();
   function setPlay(){if(btn){btn.style.color='rgba(201,164,74,0.55)';btn.style.borderColor='rgba(201,164,74,0.28)';}}
   function setStop(){if(btn){btn.style.color='rgba(201,164,74,0.25)';btn.style.borderColor='rgba(201,164,74,0.15)';}}
   a.addEventListener('ended',setStop);
-  function start(){a.muted=true;a.play().then(function(){a.muted=false;setPlay();if(window._gAudio){window._gAudio(a);if(window.audioCtx&&window.audioCtx.state==='suspended')window.audioCtx.resume();}}).catch(function(){a.muted=false;})}
-  if(document.readyState==='complete')start();else window.addEventListener('load',start);
-  function onG(e){if(a.paused&&a.currentTime===0)start();if(window._gAudio){window._gAudio(a);if(window.audioCtx&&window.audioCtx.state==='suspended')window.audioCtx.resume();}document.removeEventListener('click',onG,true);document.removeEventListener('touchstart',onG,true);}
-  document.addEventListener('click',onG,true);document.addEventListener('touchstart',onG,true);
+  // no autoplay — the listener clicks it into existence via the ♫ button
+  window._cdrTog=function(){
+    if(a.paused){a.play().then(function(){setPlay();if(window._gAudio){window._gAudio(a);if(window.audioCtx&&window.audioCtx.state==='suspended')window.audioCtx.resume();}}).catch(function(){});}
+    else{a.pause();setStop();}
+  };
 })();
 </script>
 </body>
