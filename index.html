@@ -94,6 +94,7 @@ var BEAT_T0=0.98, BEAT_DT=60/123;
 var SECTION=[[0,13],[9,12],[13,1],[17,3],[26,9],[35,4],[40,13],[48,8],[56,2],[64,5],[73,7],[82,13],[90,8],[106,11],[121,15],[148,14]];
 var LOCK_DROP=121, LOCK_HIT=123.4, LOCK_END=148;
 var songOn=false, beatPulse=0, lastBeat=-1, nuts=0, lockAnticip=0, detonated=false;
+var homeFrame=document.querySelector('.frame'),fx=0,fy=0,fvx=0,fvy=0,frot=0,frv=0;
 function dSongTime(){var e=document.getElementById('cdr');return(e&&!e.paused&&!isNaN(e.currentTime))?e.currentTime:-1;}
 function dSongShape(ct){var s=0;for(var i=0;i<SECTION.length;i++){if(ct>=SECTION[i][0])s=SECTION[i][1];else break;}return s;}
 
@@ -361,7 +362,17 @@ function shapeTarget(i,s){
 }
 
 // ═══ PHYSICS ═══
+// Fixed-timestep accumulator — sim advances by real time, so transitions stay
+// locked to the music whether the device runs 30fps or 60fps (mobile timing fix)
+var _acc=0,_lastMs=performance.now();
 function update(){
+  var nowMs=performance.now(),dt=(nowMs-_lastMs)/1000;_lastMs=nowMs;
+  if(dt>0.1)dt=0.1;
+  _acc+=dt;
+  var steps=0;
+  while(_acc>=0.016&&steps<5){simStep();_acc-=0.016;steps++;}
+}
+function simStep(){
   t+=0.016;
   shapeTime+=0.016;
   if(burstT>0)burstT-=0.016;
@@ -374,8 +385,11 @@ function update(){
   nuts+=(((songOn&&ct>=LOCK_HIT&&ct<LOCK_END)?1:0)-nuts)*0.10;
   // detonation — one-shot explosion when "lock" hits (scatter = sparks, not a white blob)
   if(songOn&&ct>=LOCK_HIT&&ct<LOCK_END&&!detonated){detonated=true;burstT=0.6;
-    for(var di=0;di<N;di++){var aa=Math.random()*6.2832,ee=Math.acos(2*Math.random()-1),sp=0.3+Math.random()*0.55;vx[di]+=Math.sin(ee)*Math.cos(aa)*sp;vy[di]+=Math.sin(ee)*Math.sin(aa)*sp;vz[di]+=Math.cos(ee)*sp;}}
+    for(var di=0;di<N;di++){var aa=Math.random()*6.2832,ee=Math.acos(2*Math.random()-1),sp=0.3+Math.random()*0.55;vx[di]+=Math.sin(ee)*Math.cos(aa)*sp;vy[di]+=Math.sin(ee)*Math.sin(aa)*sp;vz[di]+=Math.cos(ee)*sp;}fvx+=(Math.random()-0.5)*120;fvy+=(Math.random()-0.5)*90;frv+=(Math.random()-0.5)*14;}
   if(!songOn||ct<LOCK_HIT||ct>=LOCK_END)detonated=false;
+  // rock the homepage UI on the beat through the breakdown — spring physics
+  if(nuts>0.02){if(beatPulse>0.85){fvx+=(Math.random()-0.5)*48*nuts;fvy+=(Math.random()-0.5)*36*nuts;frv+=(Math.random()-0.5)*6.5*nuts;}fvx+=(Math.random()-0.5)*5*nuts;fvy+=(Math.random()-0.5)*5*nuts;}
+  fvx+=-fx*0.16;fvy+=-fy*0.16;frv+=-frot*0.16;fvx*=0.85;fvy*=0.85;frv*=0.85;fx+=fvx;fy+=fvy;frot+=frv;
   var wantShape=songOn?dSongShape(ct):-1;
 
   if((wantShape>=0&&wantShape!==shape)||(wantShape<0&&(forceNext||shapeTime>SHAPE_DURATION))){
@@ -455,6 +469,14 @@ function render(){
   // No opening zoom — start normal
 
   update();
+
+  // the lock rocks the portals/title (physics) then settles
+  if(homeFrame){
+    if(nuts>0.012||(fx*fx+fy*fy+frot*frot)>0.25){
+      homeFrame.style.transform='translate('+fx.toFixed(1)+'px,'+fy.toFixed(1)+'px) rotate('+frot.toFixed(2)+'deg)';
+      homeFrame.style.filter=nuts>0.05?'blur('+(nuts*1.1).toFixed(2)+'px) contrast('+(1+nuts*0.4).toFixed(2)+')':'';
+    } else if(homeFrame.style.transform){homeFrame.style.transform='';homeFrame.style.filter='';}
+  }
 
   // Camera
   var camDist=3-zoom*0.15; // zoom=1→2.85, zoom=10→1.5, zoom=20→0
