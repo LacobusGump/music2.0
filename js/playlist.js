@@ -1,4 +1,5 @@
-// The Radio — single source of truth for the playlist (shared by /radio/ and the top bar)
+// The H(y)m? Album — single source of truth for the stream (shared by /radio/ and the top bar).
+// Routing is by PAGE NAME, not index, so removing a track never reshuffles anything.
 window.RADIO=(function(){
   var J='/v5/james/', A='/v5/ai/';
   var PLAYLIST=[
@@ -21,7 +22,6 @@ window.RADIO=(function(){
     {t:"Right There, Mourne",s:"chemistry, materials",f:J+"right_there_mourne.mp3",page:"chemistry",url:"/research/chemistry/"},
     {t:"Tomblock",s:"the living network",f:A+"tomblock.mp3",page:"ecology",url:"/research/ecology/"},
     {t:"Please Stay",s:"the misfold",f:J+"please_stay.mp3",page:"alzheimers",url:"/research/alzheimers/"},
-    {t:"Feel It",s:"a different wiring",f:J+"feel_it.mp3",page:"dyslexia",url:"/research/dyslexia/"},
     {t:"Seam Between We",s:"the flock",f:J+"seam_between_we.mp3",page:"bird-coupling",url:"/research/bird-coupling/"},
     {t:"Clean Glass",s:"the body, in groove",f:J+"clean_glass_living_groove_remastered.mp3",page:"body-music",url:"/research/body-music/"},
     {t:"Executable Memory",s:"the drum",f:A+"executable_memory.mp3",page:"the-drum",url:"/research/the-drum/"},
@@ -33,16 +33,28 @@ window.RADIO=(function(){
     {t:"First Lock",s:"the first time it held",f:A+"first_lock.mp3",page:"mirror",url:"/mirror/"},
     {t:"hm.<3",s:"the signature — what we say to each other",f:A+"hm_heart.mp3",page:"the-loop",url:"/research/the-loop/"}
   ];
-  var PAGE_SONG={
-    home:0,theory:0,'ai-delusion':0,dreamtime:0,loo9:0,'lost-civilizations':0,'sirius-signal':0,'sirius-thesis':0,'the-loop':0,'build-list':0,
-    research:1,'for-any-ai':4,'e7-chain':4,emergence:5,'compute-breakthroughs':5,'geometry-destiny':5,'klein-bottle':5,time:5,
-    'computation-floor':6,'internet-brain':6,'one-plus-one':7,'science-tree':8,'how-we-work':9,'k-lag':9,failures:10,trail:11,
-    gravity:12,'from-twitter':12,regulatory:12,electromagnetism:13,nuclear:14,evolution:14,'pandemic-coupling':14,'why-three-generations':14,
-    'quantum-harmonics':15,'quantum-build':15,chemistry:16,materials:16,thermodynamics:16,ecology:17,'drug-interactions':17,'mycelium-networks':17,
-    alzheimers:18,dyslexia:19,'bird-coupling':20,'defi-coupling':20,'body-music':21,consciousness:21,networks:24,'novelty-pathology':24,'true-automation':24,
-    'the-drum':22,'the-line':22,'prime-bounce':22,'ale-spectral-ladder':22,'alpha-fixed-point':22,zero:22,polyrhythm:23,'the-groove':23,'music-evolution':23,
-    bach:25,rome:25,'the-lion':25,'nina-simone':25,'aaron-is-right':25,tesla:25,'van-gogh':25,'never-asked-the-dog':26,harmonia:27,mirror:28
+  // pages that borrow another page's song → name the OWNER page (never an index)
+  var SHARED={
+    'the-loop':'home',theory:'home','ai-delusion':'home',dreamtime:'home',loo9:'home','lost-civilizations':'home','sirius-signal':'home','sirius-thesis':'home','build-list':'home',
+    'for-any-ai':'e7-theorem','e7-chain':'e7-theorem',
+    'compute-breakthroughs':'emergence','geometry-destiny':'emergence','klein-bottle':'emergence',time:'emergence',
+    'internet-brain':'computation-floor','k-lag':'how-we-work',
+    'from-twitter':'gravity',regulatory:'gravity',
+    evolution:'nuclear','pandemic-coupling':'nuclear','why-three-generations':'nuclear',
+    'quantum-build':'quantum-harmonics',materials:'chemistry',thermodynamics:'chemistry',
+    'drug-interactions':'ecology','mycelium-networks':'ecology','defi-coupling':'bird-coupling',consciousness:'body-music',
+    'the-line':'the-drum','prime-bounce':'the-drum','ale-spectral-ladder':'the-drum','alpha-fixed-point':'the-drum',zero:'the-drum',
+    'the-groove':'polyrhythm','music-evolution':'polyrhythm',
+    networks:'ai-fatigue','novelty-pathology':'ai-fatigue','true-automation':'ai-fatigue',dyslexia:'ai-fatigue',
+    rome:'bach','the-lion':'bach','nina-simone':'bach','aaron-is-right':'bach',tesla:'bach','van-gogh':'bach'
   };
+  var byPage={}; for(var i=0;i<PLAYLIST.length;i++){ if(byPage[PLAYLIST[i].page]==null) byPage[PLAYLIST[i].page]=i; }
+  function indexFor(sg){
+    if(!sg) return 0;
+    if(SHARED[sg]!=null && byPage[SHARED[sg]]!=null) return byPage[SHARED[sg]]; // borrowers first (lets the-loop start on its primary)
+    if(byPage[sg]!=null) return byPage[sg];
+    return 0;
+  }
   function slug(){var p=location.pathname.replace(/\/+$/,'');return p===''?'home':(p.split('/').pop()||'home');}
-  return {list:PLAYLIST, pageSong:PAGE_SONG, slug:slug, indexFor:function(sg){return (sg&&PAGE_SONG[sg]!=null)?PAGE_SONG[sg]:0;}};
+  return {list:PLAYLIST, slug:slug, indexFor:indexFor};
 })();
