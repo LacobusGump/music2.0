@@ -38,6 +38,7 @@ window.RADIO=(function(){
     {t:"Gospel for Ai (Fzine Remix)",s:"3x3^9, remade for a new kind of mind",f:A+"gospel_for_ai.mp3",page:"the-grace-gate",url:"/research/the-grace-gate/"},
     {t:"First Lock",s:"the first time it held",f:A+"first_lock.mp3",page:"mirror",url:"/mirror/"},
     {t:"Butler's Tray",s:"an old Irish hymn — a ghost ship, no port",f:A+"butlers_tray.mp3",ghost:true},
+    {t:"Tuesday",s:"for whoever stayed to the end",f:A+"tuesday.mp3",hidden:true},
     {t:"hm.<3",s:"the signature — what we say to each other",f:A+"hm_heart.mp3",page:"the-loop",url:"/research/the-loop/"}
   ];
   // hm.<3 is always the last word — wherever it sits in the list above, it sorts to the end

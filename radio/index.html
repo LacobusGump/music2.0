@@ -117,22 +117,25 @@ body.paused .track-eq span{animation-play-state:paused;}
   var barFill=document.getElementById('bar-fill'), bar=document.getElementById('bar'), listEl=document.getElementById('list'), B=document.body;
   var idx=0, triedFb=false;
 
-  // tracklist
+  // tracklist — hidden tracks get no row (they only play if you let the album run all the way).
+  // numbering follows the true position, so the list skips the hidden one (a gap = a secret).
+  var listed=0;
   PLAY.forEach(function(p,i){
+    if(p.hidden) return;
+    listed++;
     var row=document.createElement('div'); row.className='track'; row.dataset.i=i;
     row.innerHTML='<div class="track-n">'+(i+1)+'</div><div class="track-body"><div class="track-t">'+p.t+'</div><div class="track-s">'+p.s+'</div></div><div class="track-eq"><span></span><span></span><span></span></div>';
     row.addEventListener('click',function(){ load(i,true); });
     listEl.appendChild(row);
   });
   var rows=listEl.children;
-  document.getElementById('list-head').textContent = PLAY.length + ' songs · in order, like the site';
+  document.getElementById('list-head').textContent = listed + ' songs · in order, like the site';
 
   function paint(){
     var p=PLAY[idx];
     nowTitle.textContent=p.t; nowSub.textContent=p.s;
-    nowFrom.innerHTML = p.url ? ('from <a href="'+p.url+'">'+(p.page==='home'?'the homepage':String(p.page).replace(/-/g,' '))+'</a>') : '<span style="color:#5a4a3a;font-style:italic;">a ghost ship &middot; no port</span>';
-    for(var i=0;i<rows.length;i++)rows[i].classList.toggle('on',i===idx);
-    if(rows[idx])rows[idx].scrollIntoView({block:'nearest',behavior:'smooth'});
+    nowFrom.innerHTML = p.url ? ('from <a href="'+p.url+'">'+(p.page==='home'?'the homepage':String(p.page).replace(/-/g,' '))+'</a>') : (p.ghost ? '<span style="color:#5a4a3a;font-style:italic;">a ghost ship &middot; no port</span>' : '');
+    for(var i=0;i<rows.length;i++){ var ri=+rows[i].dataset.i; rows[i].classList.toggle('on',ri===idx); if(ri===idx)rows[i].scrollIntoView({block:'nearest',behavior:'smooth'}); }
   }
   // ── the player: a state machine driven by real media events, race-guarded against rapid skips ──
   var token = 0, want = false; // `want` = the listener wants sound right now
@@ -188,7 +191,7 @@ body.paused .track-eq span{animation-play-state:paused;}
   (function(){
     var cv=document.getElementById('vinyl'); if(!cv)return; var cx=cv.getContext('2d'); var S=680;
     var seed=3197222091>>>0; function rnd(){seed^=seed<<13;seed^=seed>>>17;seed^=seed<<5;seed>>>=0;return seed/4294967296;}
-    var Rlock=0.9988; var N=PLAY.length;
+    var Rlock=0.9988; var L=[]; for(var li=0;li<PLAY.length;li++)if(!PLAY[li].hidden)L.push(li); var N=L.length; // rim marks = listed tracks only
     var jit=[]; for(var i=0;i<N;i++)jit.push((rnd()-0.5)); // quantum scatter, frozen
     var spin=0;
     function draw(ts){
@@ -206,7 +209,7 @@ body.paused .track-eq span{animation-play-state:paused;}
       for(var i=0;i<N;i++){
         var ang=i/N*6.2832 - 1.5708 + spin + jit[i]*(1-Rlock)*6.2832;
         var x=c+Math.cos(ang)*rim, y=c+Math.sin(ang)*rim;
-        var on=(i===idx);
+        var on=(L[i]===idx);
         var sz=on?5.2:2.6, al=on?1:0.34;
         if(on){ cx.beginPath(); cx.arc(x,y,11,0,6.2832); cx.fillStyle='rgba(201,164,74,0.16)'; cx.fill(); }
         cx.beginPath(); cx.arc(x,y,sz,0,6.2832);
