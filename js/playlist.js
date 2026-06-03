@@ -20,7 +20,7 @@ window.RADIO=(function(){
     {t:"Installation Hum",s:"how we work",f:A+"installation_hum.mp3",page:"how-we-work",url:"/research/how-we-work/"},
     {t:"The Weakest K",s:"what we got wrong",f:A+"the_weakest_k.mp3",page:"failures",url:"/research/failures/"},
     {t:"Gap Breath",s:"the trail",f:J+"gap_breath_prime.mp3",page:"trail",url:"/trail/"},
-    {t:"Mashed Coupling",s:"gravitational lock",f:A+"mashed_coupling.mp3",page:"gravity",url:"/research/gravity/"},
+    {t:"Muse ick",s:"gravitational lock",f:A+"mashed_coupling.mp3",page:"gravity",url:"/research/gravity/"},
     {t:"Exact Frequency",s:"Maxwell, coupled",f:A+"exact_frequency_lock.mp3",page:"electromagnetism",url:"/research/electromagnetism/"},
     {t:"Counter",s:"three generations",f:A+"counter.mp3",page:"nuclear",url:"/research/nuclear/"},
     {t:"Two-Millisecond Choir",s:"the qubits",f:A+"two_millisecond_choir.mp3",page:"quantum-harmonics",url:"/research/quantum-harmonics/"},
