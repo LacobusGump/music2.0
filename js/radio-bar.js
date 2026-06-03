@@ -13,9 +13,14 @@
     var pageIdx = R.indexFor(R.slug());
 
     var st = {}; try { st = JSON.parse(sessionStorage.getItem(KEY) || '{}'); } catch(e){}
+    var manual = !!st.manual; // did they ever take the wheel (hit skip)? then no page may interrupt their stream
     var idx, t0, wantPlay;
-    if (st.playing) { idx = (st.idx != null && st.idx < PLAY.length ? st.idx : pageIdx); t0 = st.time || 0; wantPlay = true; }
-    else { idx = pageIdx; t0 = 0; wantPlay = false; }
+    if (st.playing) {
+      wantPlay = true;
+      var carried = (st.idx != null && st.idx < PLAY.length) ? st.idx : pageIdx;
+      if (manual || PLAY[pageIdx].f === PLAY[carried].f) { idx = carried; t0 = st.time || 0; } // their stream — keep it, seamlessly
+      else { idx = pageIdx; t0 = 0; } // still page-driven: a new page brings its own song
+    } else { idx = pageIdx; t0 = 0; wantPlay = false; }
 
     var css = document.createElement('style');
     css.textContent =
@@ -60,7 +65,7 @@
     }
     function onPlay(){ wantPlay = true; playBtn.textContent = '❚❚'; bar.classList.add('on'); bar.classList.remove('cued'); save(); }
     function onPause(){ playBtn.textContent = '▶'; bar.classList.remove('on'); save(); }
-    function save(){ try { sessionStorage.setItem(KEY, JSON.stringify({ idx: idx, time: a.currentTime || 0, playing: wantPlay && !a.paused })); } catch(e){} }
+    function save(){ try { sessionStorage.setItem(KEY, JSON.stringify({ idx: idx, time: a.currentTime || 0, playing: wantPlay && !a.paused, manual: manual })); } catch(e){} }
     function pauseOthers(){ var all = document.getElementsByTagName('audio'); for (var i = 0; i < all.length; i++){ if (all[i] !== a && !all[i].paused) all[i].pause(); } }
     function play(){ pauseOthers(); var p = a.play(); if (p && p.then) p.then(onPlay).catch(armGesture); }
 
@@ -87,7 +92,7 @@
     });
 
     playBtn.onclick = function(){ if (a.paused){ play(); } else { a.pause(); wantPlay = false; onPause(); } };
-    nextBtn.onclick = function(){ setTrack(idx + 1); play(); };
+    nextBtn.onclick = function(){ manual = true; setTrack(idx + 1); play(); }; // taking the wheel — from here on, pages don't interrupt
     a.addEventListener('ended', function(){ fails = 0; setTrack(idx + 1); play(); }); // continuous
     a.addEventListener('play', onPlay); a.addEventListener('pause', onPause);
     var tick = 0;
