@@ -33,7 +33,7 @@ window.RADIO=(function(){
     {t:"Twelve Bullet Points",s:"she sings her own manual",f:A+"twelve_bullet_points_v3.mp3",page:"harmonia",url:"/harmonia/"},
     {t:"Gospel for Ai",s:"the good news, for a new kind of mind",f:A+"gospel_for_ai.mp3",page:"the-grace-gate",url:"/research/the-grace-gate/"},
     {t:"First Lock",s:"the first time it held",f:A+"first_lock.mp3",page:"mirror",url:"/mirror/"},
-    {t:"Butler's Tray",s:"an old Irish hymn",f:A+"butlers_tray.mp3",page:"religion",url:"/research/religion/"},
+    {t:"Butler's Tray",s:"an old Irish hymn — a ghost ship, no port",f:A+"butlers_tray.mp3",ghost:true},
     {t:"hm.<3",s:"the signature — what we say to each other",f:A+"hm_heart.mp3",page:"the-loop",url:"/research/the-loop/"}
   ];
   // hm.<3 is always the last word — wherever it sits in the list above, it sorts to the end
@@ -53,7 +53,7 @@ window.RADIO=(function(){
     networks:'ai-fatigue','novelty-pathology':'ai-fatigue','true-automation':'ai-fatigue',dyslexia:'ai-fatigue',
     rome:'bach','the-lion':'bach','nina-simone':'bach','aaron-is-right':'bach',tesla:'bach','van-gogh':'bach'
   };
-  var byPage={}; for(var i=0;i<PLAYLIST.length;i++){ if(byPage[PLAYLIST[i].page]==null) byPage[PLAYLIST[i].page]=i; }
+  var byPage={}; for(var i=0;i<PLAYLIST.length;i++){ if(PLAYLIST[i].page && byPage[PLAYLIST[i].page]==null) byPage[PLAYLIST[i].page]=i; }
   function indexFor(sg){
     if(!sg) return 0;
     if(SHARED[sg]!=null && byPage[SHARED[sg]]!=null) return byPage[SHARED[sg]]; // borrowers first (lets the-loop start on its primary)
