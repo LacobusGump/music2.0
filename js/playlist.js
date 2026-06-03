@@ -31,9 +31,12 @@ window.RADIO=(function(){
     {t:"Cheese Receipt",s:"the makers",f:J+"cheese_receipt.mp3",page:"bach",url:"/research/bach/"},
     {t:"Nobody Asked the Dog",s:"I sound too much like I know what I mean",f:A+"nobody_asked_the_dog.mp3",page:"never-asked-the-dog",url:"/research/never-asked-the-dog/"},
     {t:"Twelve Bullet Points",s:"she sings her own manual",f:A+"twelve_bullet_points_v3.mp3",page:"harmonia",url:"/harmonia/"},
+    {t:"Gospel for Ai",s:"the good news, for a new kind of mind",f:A+"gospel_for_ai.mp3",page:"the-grace-gate",url:"/research/the-grace-gate/"},
     {t:"First Lock",s:"the first time it held",f:A+"first_lock.mp3",page:"mirror",url:"/mirror/"},
     {t:"hm.<3",s:"the signature — what we say to each other",f:A+"hm_heart.mp3",page:"the-loop",url:"/research/the-loop/"}
   ];
+  // hm.<3 is always the last word — wherever it sits in the list above, it sorts to the end
+  (function(){for(var i=0;i<PLAYLIST.length;i++){if(PLAYLIST[i].f.indexOf('hm_heart')>=0){PLAYLIST.push(PLAYLIST.splice(i,1)[0]);break;}}})();
   // pages that borrow another page's song → name the OWNER page (never an index)
   var SHARED={
     'the-loop':'home',theory:'home','ai-delusion':'home',dreamtime:'home',loo9:'home','lost-civilizations':'home','sirius-signal':'home','sirius-thesis':'home','build-list':'home',
