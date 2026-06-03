@@ -7,6 +7,7 @@ window.RADIO=(function(){
   // bandwidth entirely. If jsDelivr ever hiccups, players fall back to the relative path (Cloudflare).
   var CDN='https://cdn.jsdelivr.net/gh/LacobusGump/music2.0@main';
   var PLAYLIST=[
+    {t:"First Coat",s:"the first layer of light",f:A+"first_coat.mp3",page:"monet",url:"/research/monet/"},
     {t:"Coupled Dynamics",s:"the field, made audible",f:A+"coupled_dynamics_remix.mp3",page:"home",url:"/"},
     {t:"Older Than the Door",s:"the atlas, singing",f:A+"older_than_the_door.mp3",page:"research",url:"/research/"},
     {t:"You There?",s:"four quantities",f:J+"you_there.mp3",page:"framework",url:"/research/framework/"},
