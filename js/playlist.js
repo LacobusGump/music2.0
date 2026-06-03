@@ -2,6 +2,10 @@
 // Routing is by PAGE NAME, not index, so removing a track never reshuffles anything.
 window.RADIO=(function(){
   var J='/v5/james/', A='/v5/ai/';
+  // the audio is served by jsDelivr — a free, unlimited, multi-CDN (Cloudflare+Fastly+Bunny+Quantil)
+  // that mirrors the public repo. It absorbs any scale for $0 and keeps the music off the origin's
+  // bandwidth entirely. If jsDelivr ever hiccups, players fall back to the relative path (Cloudflare).
+  var CDN='https://cdn.jsdelivr.net/gh/LacobusGump/music2.0@main';
   var PLAYLIST=[
     {t:"Coupled Dynamics",s:"the field, made audible",f:A+"coupled_dynamics_remix.mp3",page:"home",url:"/"},
     {t:"Older Than the Door",s:"the atlas, singing",f:A+"older_than_the_door.mp3",page:"research",url:"/research/"},
@@ -62,5 +66,5 @@ window.RADIO=(function(){
     return 0;
   }
   function slug(){var p=location.pathname.replace(/\/+$/,'');return p===''?'home':(p.split('/').pop()||'home');}
-  return {list:PLAYLIST, slug:slug, indexFor:indexFor};
+  return {list:PLAYLIST, slug:slug, indexFor:indexFor, cdn:CDN};
 })();

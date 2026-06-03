@@ -9,7 +9,7 @@
     if (!R || !R.list || !R.list.length) { if (tries++ < 80) return setTimeout(start, 50); return; } // wait for playlist.js, then give up gracefully
     if (!document.body) { return setTimeout(start, 30); }
     if (document.querySelector('.gump-radio')) return; // never twice
-    var PLAY = R.list, KEY = 'gump_radio';
+    var PLAY = R.list, KEY = 'gump_radio', CDN = R.cdn || '', triedFb = false;
     var pageIdx = R.indexFor(R.slug());
 
     var st = {}; try { st = JSON.parse(sessionStorage.getItem(KEY) || '{}'); } catch(e){}
@@ -30,7 +30,8 @@
       ".gump-radio.on .gr-dot{background:#c9a44a;box-shadow:0 0 8px rgba(201,164,74,0.6);animation:grpulse 2s ease-in-out infinite;}" +
       ".gump-radio.cued .gr-dot{background:#8b6a32;}" +
       "@keyframes grpulse{50%{opacity:0.45;}}" +
-      ".gr-title{font-size:0.62em;letter-spacing:0.1em;text-transform:uppercase;color:rgba(196,160,136,0.72);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px;}" +
+      ".gr-title{font-size:0.62em;letter-spacing:0.1em;text-transform:uppercase;color:rgba(196,160,136,0.72);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px;text-decoration:none;cursor:default;}" +
+      ".gr-title[href]{cursor:pointer;}.gr-title[href]:hover{color:#e8cfa0;text-decoration:underline;text-underline-offset:3px;}" +
       ".gr-full{font-size:0.74em!important;opacity:0.7;}" +
       ".gr-prog{position:absolute;left:0;bottom:0;height:2px;background:linear-gradient(90deg,#5a2d0a,#c9a44a);width:0;border-radius:0 0 2px 2px;}" +
       "@media(max-width:520px){.gr-title{max-width:130px;}.gump-radio{gap:7px;padding:6px 10px 7px;}}";
@@ -39,7 +40,7 @@
     var bar = document.createElement('div'); bar.className = 'gump-radio';
     bar.innerHTML =
       '<button class="gr-play" aria-label="play">▶</button>' +
-      '<div class="gr-now"><span class="gr-dot"></span><span class="gr-title"></span></div>' +
+      '<div class="gr-now"><span class="gr-dot"></span><a class="gr-title"></a></div>' +
       '<button class="gr-next" aria-label="next">⏭</button>' +
       '<a class="gr-full" href="/radio/" title="open the full radio">⤢</a>' +
       '<div class="gr-prog"></div>';
@@ -50,7 +51,13 @@
     var playBtn = bar.querySelector('.gr-play'), titleEl = bar.querySelector('.gr-title');
     var nextBtn = bar.querySelector('.gr-next'), prog = bar.querySelector('.gr-prog');
 
-    function setTrack(i){ idx = (i % PLAY.length + PLAY.length) % PLAY.length; a.src = PLAY[idx].f; titleEl.textContent = PLAY[idx].t; }
+    function setTrack(i){
+      idx = (i % PLAY.length + PLAY.length) % PLAY.length; triedFb = false;
+      a.src = CDN + PLAY[idx].f;                 // jsDelivr first
+      titleEl.textContent = PLAY[idx].t;
+      if (PLAY[idx].url){ titleEl.href = PLAY[idx].url; titleEl.title = 'go study where this one came from'; } // like it? click through and read
+      else { titleEl.removeAttribute('href'); titleEl.removeAttribute('title'); } // a ghost ship has no port
+    }
     function onPlay(){ wantPlay = true; playBtn.textContent = '❚❚'; bar.classList.add('on'); bar.classList.remove('cued'); save(); }
     function onPause(){ playBtn.textContent = '▶'; bar.classList.remove('on'); save(); }
     function save(){ try { sessionStorage.setItem(KEY, JSON.stringify({ idx: idx, time: a.currentTime || 0, playing: wantPlay && !a.paused })); } catch(e){} }
@@ -74,7 +81,10 @@
 
     // a track that 404s or won't decode never stalls the stream — skip on
     var fails = 0;
-    a.addEventListener('error', function(){ if (fails++ < PLAY.length){ setTrack(idx + 1); if (wantPlay) play(); } });
+    a.addEventListener('error', function(){
+      if (CDN && !triedFb && (''+a.src).indexOf('jsdelivr') >= 0){ triedFb = true; a.src = PLAY[idx].f; a.load(); if (wantPlay) play(); return; } // jsDelivr hiccup → fall back to the origin
+      if (fails++ < PLAY.length){ setTrack(idx + 1); if (wantPlay) play(); } // bad track never stalls the stream
+    });
 
     playBtn.onclick = function(){ if (a.paused){ play(); } else { a.pause(); wantPlay = false; onPause(); } };
     nextBtn.onclick = function(){ setTrack(idx + 1); play(); };
