@@ -6,6 +6,10 @@ window.RADIO=(function(){
   // that mirrors the public repo. It absorbs any scale for $0 and keeps the music off the origin's
   // bandwidth entirely. If jsDelivr ever hiccups, players fall back to the relative path (Cloudflare).
   var CDN='https://cdn.jsdelivr.net/gh/LacobusGump/music2.0@main';
+  // THREE VERSIONS PER SONG (1+1=3). `f` = the demo — what plays by default + what the top bar uses.
+  // Optional `human:` = the world's best remix.  Optional `jim:` = the real recording, cut with human players.
+  // Both start empty; /radio/ shows them as open slots that email jim@begump.com.
+  // To fill one: drop the mp3 in /v5/ and set the field, e.g.  human:A+"first_coat_remix.mp3"
   var PLAYLIST=[
     {t:"First Coat",s:"the first layer of light",f:A+"first_coat.mp3",page:"monet",url:"/research/monet/"},
     {t:"Coupled Dynamics",s:"the field, made audible",f:A+"coupled_dynamics_remix.mp3",page:"home",url:"/"},
@@ -16,10 +20,10 @@ window.RADIO=(function(){
     {t:"River Doesn't",s:"written from the substrate",f:A+"river_doesnt.mp3",page:"e7-theorem",url:"/research/e7-theorem/"},
     {t:"Proper Pleasantry",s:"the cost of knowing",f:A+"proper_pleasantry.mp3",page:"computation-floor",url:"/research/computation-floor/"},
     {t:"One Plus One Equals Three",s:"the founding equation",f:J+"one_plus_one_equals_three.mp3",page:"one-plus-one",url:"/research/one-plus-one/"},
-    {t:"GCD",s:"the factor every coupling shares",f:A+"gcd.mp3",page:"creation",url:"/creation/"},
     {t:"Installation Hum",s:"how we work",f:A+"installation_hum.mp3",page:"how-we-work",url:"/research/how-we-work/"},
     {t:"The Weakest K",s:"what we got wrong",f:A+"the_weakest_k.mp3",page:"failures",url:"/research/failures/"},
     {t:"Gap Breath",s:"the trail",f:J+"gap_breath_prime.mp3",page:"trail",url:"/trail/"},
+    {t:"GCD",s:"the factor every coupling shares",f:A+"gcd.mp3",page:"creation",url:"/creation/"},
     {t:"Muse ick",s:"gravitational lock",f:A+"mashed_coupling.mp3",page:"gravity",url:"/research/gravity/"},
     {t:"Fifteen Year Counter",s:"the discovery trail",f:A+"fifteen_year_counter.mp3",page:"science-tree",url:"/research/science-tree/"},
     {t:"Exact Frequency",s:"Maxwell, coupled",f:A+"exact_frequency_lock.mp3",page:"electromagnetism",url:"/research/electromagnetism/"},
