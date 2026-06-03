@@ -96,6 +96,18 @@ body.paused .track-eq span{animation-play-state:paused;}
   .cells{gap:4px;}
   .cell,.colh{width:46px;}
 }
+/* ── the public upload door ── */
+.up-form{margin-top:10px;display:flex;flex-direction:column;gap:8px;}
+.up-form input[type=text],.up-form input[type=email]{background:#0f0a07;border:1px solid rgba(184,117,58,0.2);border-radius:7px;color:#e8cfa0;font-family:Georgia,serif;font-size:1em;padding:8px 10px;width:100%;}
+.up-form input::placeholder{color:#6a5340;}
+.up-file{display:block;color:#c9a44a;cursor:pointer;}
+.up-file input{display:block;margin-top:5px;color:#8a7560;font-size:0.9em;max-width:100%;}
+.up-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+.up-go{background:radial-gradient(circle at 40% 35%,#c9a44a,#8b4513 75%);border:none;color:#1a110d;font-family:Futura,'Century Gothic',system-ui,sans-serif;font-size:0.95em;letter-spacing:0.05em;padding:8px 14px;border-radius:8px;cursor:pointer;}
+.up-go:disabled{opacity:0.5;cursor:default;}
+.up-msg{font-size:0.95em;color:#8a7560;}.up-msg.bad{color:#d98a5a;}
+.up-bar{height:3px;background:rgba(184,117,58,0.12);border-radius:2px;overflow:hidden;}
+.up-bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,#5a2d0a,#c9a44a);transition:width .15s;}
 </style>
 </head>
 <body class="paused">
@@ -152,6 +164,13 @@ body.paused .track-eq span{animation-play-state:paused;}
 (function(){
   var R=window.RADIO; if(!R){ return; }
   var PLAY=R.list, CDN=R.cdn||'';
+  // ── THE PUBLIC UPLOAD DOOR ──────────────────────────────────────────────────────────────────
+  // Paste the endpoint URL here to open the door. It points at a small catcher (Cloudflare Worker
+  // or server) that drops the file into a PRIVATE pending pool for James to consider — nothing goes
+  // live until he approves it. Empty string = door not wired yet (shows "being wired").
+  // SECURITY: the catcher MUST re-validate everything — type, size, duration, re-encode, CAPTCHA,
+  // per-IP rate limit — and must never serve uploads as executable. The client checks below are UX only.
+  var UPLOAD_URL='';
   var a=document.getElementById('audio'), playBtn=document.getElementById('play'), nextBtn=document.getElementById('next');
   var nowLabel=document.getElementById('now-label'), nowTitle=document.getElementById('now-title'), nowSub=document.getElementById('now-sub'), nowFrom=document.getElementById('now-from');
   var barFill=document.getElementById('bar-fill'), bar=document.getElementById('bar'), listEl=document.getElementById('list'), pathlineEl=document.getElementById('pathline'), colsEl=document.getElementById('cols'), promptEl=document.getElementById('slot-prompt'), B=document.body;
@@ -244,25 +263,74 @@ body.paused .track-eq span{animation-play-state:paused;}
     pathlineEl.innerHTML=(allDemo?'the album as it was made &mdash; ':'your album &mdash; ')+'<b>'+seg.join('</b> &middot; <b>')+'</b>'+(allDemo?'':' &middot; <a id="preset">back to all demo</a>');
     var pr=document.getElementById('preset'); if(pr) pr.onclick=function(){ selectAll('demo'); };
   }
-  // clicking an open slot: say what the song is (for consideration), then open the right email.
+  // a slot's door. jim = the only email on the page (play on it WITH jim). public = an open upload door,
+  // governed by math: under 33 submissions the door is open; at 33 it becomes a vote.
   function openPrompt(i, col){
-    var p=PLAY[i], pub=col==='human';
+    var p=PLAY[i], pub=col==='human', cnt=pubCount(p), CAP=33;
     var src=p.url ? (p.page==='home'?'the homepage':String(p.page).replace(/-/g,' ')) : (p.ghost?'a ghost ship, no port':'');
-    var cnt=pubCount(p), CAP=33;   // the public slot holds 33 remixes, first come first served, then it becomes a vote
-    var consider=pub
-      ? 'The public slot holds <b>'+CAP+'</b> remixes &mdash; first come, first served. <b>'+cnt+' of '+CAP+'</b> in so far. When all '+CAP+' fill, it turns into a public vote: the winner plays here &mdash; but every one of the '+CAP+' stays in a dropdown, so you can always pick yours and hear your own mirror.'
-      : 'The real cut, with live players. If you sing, play, or produce and want in on this one, raise your hand.';
-    var subj=pub ? ('i have a remix for '+p.t) : ('i want to play on '+p.t);
-    var body=pub
-      ? 'i have a remix for "'+p.t+'".\n\nlink (SoundCloud / Drive / Dropbox / WeTransfer) or attach it:\n\n\ncredit me as:\n\nanything i should know:\n'
-      : 'i want to play on "'+p.t+'".\n\nwhat i play / sing / produce:\n\nname or handle:\n\na link to something i\'ve made (optional):\n';
-    var mail='mailto:jim@begump.com?subject='+encodeURIComponent(subj)+'&body='+encodeURIComponent(body);
-    promptEl.innerHTML='<span class="x" id="prompt-x">close ✕</span><b>'+p.t+'</b> &middot; '+(pub?'the public slot':'jim&rsquo;s slot')+(src?(' &middot; from '+src):'')+'<br>'+consider+'<br><a href="'+mail+'">'+(pub?'send your remix &rarr;':'raise your hand &rarr;')+'</a>';
+    var head='<span class="x" id="prompt-x">close ✕</span><b>'+p.t+'</b> &middot; '+(pub?'the public door':'jim&rsquo;s slot')+(src?(' &middot; from '+src):'')+'<br>';
+
+    if(!pub){                                   // ── jim: the one email — play on it with him ──
+      var subj='i want to play on '+p.t;
+      var body='i want to play on "'+p.t+'".\n\nwhat i play / sing / produce:\n\nname or handle:\n\na link to something i\'ve made (optional):\n';
+      var mail='mailto:jim@begump.com?subject='+encodeURIComponent(subj)+'&body='+encodeURIComponent(body);
+      promptEl.innerHTML=head+'The real cut, with live players. If you sing, play, or produce and want in on this one, raise your hand.<br><a href="'+mail+'">raise your hand &rarr;</a>';
+    }
+    else if(cnt>=CAP){                          // ── 33 in: the door is closed, it's a vote now ──
+      promptEl.innerHTML=head+'All <b>'+CAP+'</b> remixes are in &mdash; this is a <b>public vote</b> now. The winner plays here, and every one of the '+CAP+' stays in the dropdown, so you can always pick yours and hear your own mirror.';
+    }
+    else {                                      // ── under 33: the door is open, upload for consideration ──
+      var rule='The public door holds <b>'+CAP+'</b> remixes, first come first served &mdash; <b>'+cnt+' of '+CAP+'</b> in. At '+CAP+' it becomes a vote. Rules are math.';
+      if(UPLOAD_URL){
+        promptEl.innerHTML=head+rule+
+          '<form class="up-form" id="up-form" autocomplete="off">'+
+            '<label class="up-file">choose your remix<input type="file" id="up-audio" accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg,.flac"></label>'+
+            '<input type="text" id="up-name" maxlength="60" placeholder="name or handle to credit">'+
+            '<input type="email" id="up-email" maxlength="120" placeholder="email — private, so I can reach you">'+
+            '<div class="up-row"><button type="submit" class="up-go" id="up-go">send for consideration</button><span class="up-msg" id="up-msg"></span></div>'+
+            '<div class="up-bar"><i id="up-fill"></i></div>'+
+          '</form>';
+        var fm=document.getElementById('up-form'); if(fm) fm.addEventListener('submit',function(e){ submitUpload(i,e); });
+      } else {
+        promptEl.innerHTML=head+rule+'<br><span style="color:#6a5340;font-style:italic;">the upload door is being wired &mdash; back any minute.</span>';
+      }
+    }
     promptEl.classList.add('show');
     document.getElementById('prompt-x').onclick=closePrompt;
     promptEl.scrollIntoView({block:'nearest',behavior:'smooth'});
   }
   function closePrompt(){ promptEl.classList.remove('show'); }
+  function songKey(p){ return (p.f||'').split('/').pop().replace(/\.[^.]+$/,''); }
+  // send a remix to the pending pool. CLIENT CHECKS ARE UX ONLY — the catcher re-validates type, size,
+  // duration, re-encodes, rate-limits per IP, and requires a CAPTCHA. Never trust any of this.
+  function submitUpload(i, ev){
+    ev.preventDefault();
+    var p=PLAY[i];
+    var fileEl=document.getElementById('up-audio'), nameEl=document.getElementById('up-name'), emailEl=document.getElementById('up-email');
+    var msg=document.getElementById('up-msg'), fill=document.getElementById('up-fill'), go=document.getElementById('up-go');
+    function bad(t){ msg.textContent=t; msg.className='up-msg bad'; }
+    var f=fileEl&&fileEl.files&&fileEl.files[0];
+    if(!f) return bad('pick an audio file first.');
+    if(!(/^audio\//.test(f.type) || /\.(mp3|wav|m4a|aac|ogg|flac)$/i.test(f.name))) return bad('audio only — mp3, wav, m4a, aac, ogg, flac.');
+    if(f.size>15*1024*1024) return bad('keep it under 15 MB — link a master if it’s bigger.');
+    if(f.size<2048) return bad('that file looks empty.');
+    if(!nameEl.value.trim()) return bad('add a name to credit.');
+    var fd=new FormData();
+    fd.append('file', f, f.name);
+    fd.append('song', p.t); fd.append('songkey', songKey(p)); fd.append('page', p.page||'');
+    fd.append('name', nameEl.value.trim().slice(0,60)); fd.append('email', emailEl.value.trim().slice(0,120));
+    if(window.turnstile){ try{ fd.append('cf-turnstile-response', window.turnstile.getResponse()); }catch(_){ } }
+    go.disabled=true; msg.textContent='sending…'; msg.className='up-msg';
+    var xhr=new XMLHttpRequest(); xhr.open('POST', UPLOAD_URL, true);
+    xhr.upload.onprogress=function(e){ if(e.lengthComputable&&fill) fill.style.width=(e.loaded/e.total*100)+'%'; };
+    xhr.onload=function(){
+      go.disabled=false; var ok=xhr.status>=200&&xhr.status<300, r={}; try{ r=JSON.parse(xhr.responseText||'{}'); }catch(_){}
+      if(ok && r.ok!==false){ promptEl.innerHTML='<span class="x" id="prompt-x">close ✕</span><b>'+p.t+'</b> &middot; in for consideration<br>It’s in the pool. If it’s one of the 33, it shows up here. Thank you. 🤍'; document.getElementById('prompt-x').onclick=closePrompt; }
+      else bad((r.msg||'that didn’t go through')+' — try again in a moment.');
+    };
+    xhr.onerror=function(){ go.disabled=false; bad('network hiccup — try again.'); };
+    xhr.send(fd);
+  }
   function tryPlay(my){
     var p = a.play();
     if (p && p.then) p.then(function(){ if (my === token) playing(); }).catch(function(err){
