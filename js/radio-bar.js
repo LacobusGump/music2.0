@@ -3,17 +3,19 @@
 // it carries the stream from page to page (via sessionStorage). Only one thing
 // plays at a time — it yields to any inline song you start, and they yield to it.
 (function(){
+  var tries = 0;
   function start(){
     var R = window.RADIO;
-    if (!R || !R.list) { return setTimeout(start, 60); } // wait for playlist.js
-    if (document.querySelector('.gump-radio')) return;    // never twice
+    if (!R || !R.list || !R.list.length) { if (tries++ < 80) return setTimeout(start, 50); return; } // wait for playlist.js, then give up gracefully
+    if (!document.body) { return setTimeout(start, 30); }
+    if (document.querySelector('.gump-radio')) return; // never twice
     var PLAY = R.list, KEY = 'gump_radio';
     var pageIdx = R.indexFor(R.slug());
 
     var st = {}; try { st = JSON.parse(sessionStorage.getItem(KEY) || '{}'); } catch(e){}
-    var idx, t0, autoplay;
-    if (st.playing) { idx = (st.idx != null ? st.idx : pageIdx); t0 = st.time || 0; autoplay = true; }
-    else { idx = pageIdx; t0 = 0; autoplay = false; }
+    var idx, t0, wantPlay;
+    if (st.playing) { idx = (st.idx != null && st.idx < PLAY.length ? st.idx : pageIdx); t0 = st.time || 0; wantPlay = true; }
+    else { idx = pageIdx; t0 = 0; wantPlay = false; }
 
     var css = document.createElement('style');
     css.textContent =
@@ -26,6 +28,7 @@
       ".gr-now{display:flex;align-items:center;gap:7px;min-width:0;overflow:hidden;}" +
       ".gr-dot{width:6px;height:6px;border-radius:50%;background:#5a3a20;flex-shrink:0;transition:background .3s,box-shadow .3s;}" +
       ".gump-radio.on .gr-dot{background:#c9a44a;box-shadow:0 0 8px rgba(201,164,74,0.6);animation:grpulse 2s ease-in-out infinite;}" +
+      ".gump-radio.cued .gr-dot{background:#8b6a32;}" +
       "@keyframes grpulse{50%{opacity:0.45;}}" +
       ".gr-title{font-size:0.62em;letter-spacing:0.1em;text-transform:uppercase;color:rgba(196,160,136,0.72);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px;}" +
       ".gr-full{font-size:0.74em!important;opacity:0.7;}" +
@@ -41,33 +44,55 @@
       '<a class="gr-full" href="/radio/" title="open the full radio">⤢</a>' +
       '<div class="gr-prog"></div>';
     document.body.appendChild(bar);
-    var a = document.createElement('audio'); a.preload = 'none'; document.body.appendChild(a);
+    var a = document.createElement('audio');
+    a.preload = wantPlay ? 'auto' : 'metadata'; // metadata = fast cue; auto = buffer the carried stream so it resumes instantly
+    document.body.appendChild(a);
     var playBtn = bar.querySelector('.gr-play'), titleEl = bar.querySelector('.gr-title');
     var nextBtn = bar.querySelector('.gr-next'), prog = bar.querySelector('.gr-prog');
 
-    function setTrack(i){ idx = (i + PLAY.length) % PLAY.length; a.src = PLAY[idx].f; titleEl.textContent = PLAY[idx].t; }
-    function onPlay(){ playBtn.textContent = '❚❚'; bar.classList.add('on'); save(); }
+    function setTrack(i){ idx = (i % PLAY.length + PLAY.length) % PLAY.length; a.src = PLAY[idx].f; titleEl.textContent = PLAY[idx].t; }
+    function onPlay(){ wantPlay = true; playBtn.textContent = '❚❚'; bar.classList.add('on'); bar.classList.remove('cued'); save(); }
     function onPause(){ playBtn.textContent = '▶'; bar.classList.remove('on'); save(); }
-    function save(){ try { sessionStorage.setItem(KEY, JSON.stringify({ idx: idx, time: a.currentTime || 0, playing: !a.paused })); } catch(e){} }
+    function save(){ try { sessionStorage.setItem(KEY, JSON.stringify({ idx: idx, time: a.currentTime || 0, playing: wantPlay && !a.paused })); } catch(e){} }
     function pauseOthers(){ var all = document.getElementsByTagName('audio'); for (var i = 0; i < all.length; i++){ if (all[i] !== a && !all[i].paused) all[i].pause(); } }
+    function play(){ pauseOthers(); var p = a.play(); if (p && p.then) p.then(onPlay).catch(armGesture); }
+
+    // if the browser blocks autoplay on a fresh page, resume the moment the visitor touches anything
+    var armed = false;
+    function armGesture(){
+      if (armed) return; armed = true;
+      bar.classList.add('cued'); // dim "ready" dot so it's clearly cued, not dead
+      function go(e){ armed = false; off(); if (e && e.target && e.target.closest && e.target.closest('.gump-radio')) return; pauseOthers(); var p = a.play(); if (p && p.then) p.then(onPlay).catch(function(){}); } // clicks on the bar itself are handled by its own buttons
+      function off(){ ['pointerdown','touchstart','keydown'].forEach(function(ev){ document.removeEventListener(ev, go, true); }); }
+      ['pointerdown','touchstart','keydown'].forEach(function(ev){ document.addEventListener(ev, go, true); });
+    }
 
     setTrack(idx);
-    a.addEventListener('loadedmetadata', function(){ if (t0 && Math.abs((a.currentTime||0) - t0) > 1){ try { a.currentTime = t0; } catch(e){} } t0 = 0; });
+    // seek to the carried position as soon as the track knows its own length
+    function seek(){ if (t0 && a.duration && Math.abs((a.currentTime||0) - t0) > 1){ try { a.currentTime = Math.min(t0, a.duration - 0.3); } catch(e){} } t0 = 0; }
+    a.addEventListener('loadedmetadata', seek);
 
-    playBtn.onclick = function(){ if (a.paused){ pauseOthers(); a.play().then(onPlay).catch(function(){}); } else { a.pause(); onPause(); } };
-    nextBtn.onclick = function(){ setTrack(idx + 1); pauseOthers(); a.play().then(onPlay).catch(function(){}); };
-    a.addEventListener('ended', function(){ setTrack(idx + 1); a.play().then(onPlay).catch(function(){}); }); // continuous
+    // a track that 404s or won't decode never stalls the stream — skip on
+    var fails = 0;
+    a.addEventListener('error', function(){ if (fails++ < PLAY.length){ setTrack(idx + 1); if (wantPlay) play(); } });
+
+    playBtn.onclick = function(){ if (a.paused){ play(); } else { a.pause(); wantPlay = false; onPause(); } };
+    nextBtn.onclick = function(){ setTrack(idx + 1); play(); };
+    a.addEventListener('ended', function(){ fails = 0; setTrack(idx + 1); play(); }); // continuous
     a.addEventListener('play', onPlay); a.addEventListener('pause', onPause);
     var tick = 0;
     a.addEventListener('timeupdate', function(){ if (a.duration) prog.style.width = (a.currentTime / a.duration * 100) + '%'; if (++tick % 4 === 0) save(); });
     window.addEventListener('pagehide', save); window.addEventListener('beforeunload', save);
+    document.addEventListener('visibilitychange', function(){ if (document.visibilityState === 'hidden') save(); });
 
     // yield to any inline song the visitor starts (and they yield to the bar via pauseOthers)
     document.addEventListener('play', function(e){ if (e.target && e.target.tagName === 'AUDIO' && e.target !== a && !a.paused) a.pause(); }, true);
     // and yield to a page reading itself aloud — never play music over the spoken word
     try { var sp = window.speechSynthesis; if (sp && sp.speak) { var _speak = sp.speak.bind(sp); sp.speak = function(u){ if (!a.paused) a.pause(); return _speak(u); }; } } catch(e){}
 
-    if (autoplay){ pauseOthers(); a.play().then(onPlay).catch(function(){ onPause(); }); } else { onPause(); }
+    // carry the stream across the page change — resume now if allowed, otherwise on first touch
+    if (wantPlay){ play(); } else { onPause(); }
   }
+  // fire as early as possible (deferred scripts run after parse, so the body already exists)
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
 })();
