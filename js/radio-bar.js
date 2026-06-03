@@ -67,7 +67,7 @@
     function onPause(){ playBtn.textContent = '▶'; bar.classList.remove('on'); save(); }
     function save(){ try { sessionStorage.setItem(KEY, JSON.stringify({ idx: idx, time: a.currentTime || 0, playing: wantPlay && !a.paused, manual: manual })); } catch(e){} }
     function pauseOthers(){ var all = document.getElementsByTagName('audio'); for (var i = 0; i < all.length; i++){ if (all[i] !== a && !all[i].paused) all[i].pause(); } }
-    function play(){ pauseOthers(); var p = a.play(); if (p && p.then) p.then(onPlay).catch(armGesture); }
+    function play(){ pauseOthers(); var p = a.play(); if (p && p.then) p.then(onPlay).catch(function(err){ if (err && err.name === 'AbortError') return; armGesture(); }); } // ignore benign aborts from rapid skips
 
     // if the browser blocks autoplay on a fresh page, resume the moment the visitor touches anything
     var armed = false;
@@ -87,6 +87,7 @@
     // a track that 404s or won't decode never stalls the stream — skip on
     var fails = 0;
     a.addEventListener('error', function(){
+      if (a.error && a.error.code === 1) return; // MEDIA_ERR_ABORTED from a src change (rapid skip) — not a failure, ignore
       if (CDN && !triedFb && (''+a.src).indexOf('jsdelivr') >= 0){ triedFb = true; a.src = PLAY[idx].f; a.load(); if (wantPlay) play(); return; } // jsDelivr hiccup → fall back to the origin
       if (fails++ < PLAY.length){ setTrack(idx + 1); if (wantPlay) play(); } // bad track never stalls the stream
     });

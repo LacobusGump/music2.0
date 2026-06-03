@@ -99,7 +99,7 @@ body.paused .track-eq span{animation-play-state:paused;}
   <p class="meta">cover decided by a quantum measurement &middot; seed 3197222091 &middot; coherence R = 0.9988<br>almost perfectly locked. the 0.0012 that isn&rsquo;t is the gap &mdash; and the gap is the point.</p>
 </div>
 
-<audio id="audio" preload="none"></audio>
+<audio id="audio" preload="metadata"></audio>
 
 <div class="foot">
   every song was written from a page, not about it.<br>
@@ -134,26 +134,54 @@ body.paused .track-eq span{animation-play-state:paused;}
     for(var i=0;i<rows.length;i++)rows[i].classList.toggle('on',i===idx);
     if(rows[idx])rows[idx].scrollIntoView({block:'nearest',behavior:'smooth'});
   }
-  function load(i,autoplay){
-    idx=(i+PLAY.length)%PLAY.length; triedFb=false;
-    a.src=CDN+PLAY[idx].f; paint();
-    if(autoplay){ a.play().then(playing).catch(function(){ paused(); }); }
+  // ── the player: a state machine driven by real media events, race-guarded against rapid skips ──
+  var token = 0, want = false; // `want` = the listener wants sound right now
+  function load(i, autoplay){
+    idx = (i % PLAY.length + PLAY.length) % PLAY.length;
+    triedFb = false;
+    var my = ++token;            // every load stamps a token; only the newest one's events count
+    a.src = CDN + PLAY[idx].f;
+    paint();
+    if (autoplay){ want = true; B.classList.remove('paused'); nowLabel.textContent = '— buffering —'; tryPlay(my); }
   }
-  function playing(){ playBtn.textContent='❚❚'; nowLabel.textContent='— now playing —'; B.classList.remove('paused'); }
-  function paused(){ playBtn.textContent='▶'; nowLabel.textContent='— paused —'; B.classList.add('paused'); }
+  function tryPlay(my){
+    var p = a.play();
+    if (p && p.then) p.then(function(){ if (my === token) playing(); }).catch(function(err){
+      if (my !== token) return;                         // a newer track already took over — ignore
+      if (err && err.name === 'AbortError') return;     // benign: we changed src on purpose
+      armGesture();                                     // autoplay blocked — wait for one tap, never a dead button
+    });
+  }
+  function playing(){ want = true; playBtn.textContent = '❚❚'; nowLabel.textContent = '— now playing —'; B.classList.remove('paused'); }
+  function paused(){ want = false; playBtn.textContent = '▶'; nowLabel.textContent = '— paused —'; B.classList.add('paused'); }
 
-  playBtn.addEventListener('click',function(){ if(!a.src)load(idx,true); else if(a.paused)a.play().then(playing).catch(function(){}); else {a.pause();paused();} });
-  nextBtn.addEventListener('click',function(){ load(idx+1,true); });
-  a.addEventListener('ended',function(){ load(idx+1,true); });
-  a.addEventListener('play',playing); a.addEventListener('pause',paused);
-  a.addEventListener('error',function(){ if(CDN&&!triedFb&&(''+a.src).indexOf('jsdelivr')>=0){ triedFb=true; a.src=PLAY[idx].f; a.load(); if(!a.paused||playBtn.textContent==='❚❚')a.play().then(playing).catch(function(){}); return; } load(idx+1,true); });
-  a.addEventListener('timeupdate',function(){ if(a.duration)barFill.style.width=(a.currentTime/a.duration*100)+'%'; });
-  bar.addEventListener('click',function(e){ if(a.duration){var r=bar.getBoundingClientRect(); a.currentTime=(e.clientX-r.left)/r.width*a.duration;} });
+  var armed = false;
+  function armGesture(){
+    paused();
+    if (armed) return; armed = true;
+    function go(e){ armed = false; off(); if (e && e.target && e.target.closest && e.target.closest('button,.track,a,#bar')) return; want = true; B.classList.remove('paused'); nowLabel.textContent = '— buffering —'; tryPlay(++token); }
+    function off(){ ['pointerdown','touchstart','keydown'].forEach(function(ev){ document.removeEventListener(ev, go, true); }); }
+    ['pointerdown','touchstart','keydown'].forEach(function(ev){ document.addEventListener(ev, go, true); });
+  }
+
+  playBtn.addEventListener('click', function(){
+    if (a.paused){ if (!a.src){ load(idx, true); } else { want = true; B.classList.remove('paused'); nowLabel.textContent = '— buffering —'; tryPlay(++token); } }
+    else { a.pause(); paused(); }
+  });
+  nextBtn.addEventListener('click', function(){ load(idx + 1, true); });
+  a.addEventListener('ended', function(){ load(idx + 1, true); });
+  a.addEventListener('playing', function(){ if (want) playing(); });                 // fires when audio actually starts (after any buffering)
+  a.addEventListener('waiting', function(){ if (want) nowLabel.textContent = '— buffering —'; });
+  a.addEventListener('error', function(){
+    if (a.error && a.error.code === 1) return;                                        // MEDIA_ERR_ABORTED from a src change — not a failure
+    if (CDN && !triedFb && ('' + a.src).indexOf('jsdelivr') >= 0){ triedFb = true; var my = ++token; a.src = PLAY[idx].f; paint(); if (want) tryPlay(my); return; } // jsDelivr blip → origin
+    if (want) load(idx + 1, true); else paint();                                      // genuinely bad track → skip (only if we're trying to play)
+  });
+  a.addEventListener('timeupdate', function(){ if (a.duration) barFill.style.width = (a.currentTime / a.duration * 100) + '%'; });
+  bar.addEventListener('click', function(e){ if (a.duration){ var r = bar.getBoundingClientRect(); a.currentTime = (e.clientX - r.left) / r.width * a.duration; } });
 
   // start on the song of wherever you came from
-  var start=(new URLSearchParams(location.search)).get('start');
-  load(R.indexFor(start), false); paint();
-  a.src=CDN+PLAY[idx].f; a.play().then(playing).catch(function(){ paused(); });
+  load(R.indexFor((new URLSearchParams(location.search)).get('start')), true);
 
   // ════ THE COVER ════ a spinning record; 33 rim-marks are the 33 songs; the playing one is lit.
   // form seeded + locked by the quantum measurement the album asked for (seed 3197222091, R=0.9988).
