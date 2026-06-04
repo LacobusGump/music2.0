@@ -15,7 +15,7 @@ window.RADIO=(function(){
     {t:"Coupled Dynamics",s:"the field, made audible",f:A+"coupled_dynamics_remix.mp3",page:"home",url:"/"},
     {t:"Older Than the Door",s:"the atlas, singing",f:A+"older_than_the_door.mp3",page:"research",url:"/research/"},
     {t:"You There?",s:"four quantities",f:J+"you_there.mp3",page:"framework",url:"/research/framework/"},
-    {t:"Love Forgets Best",s:"the same way, 17 times",f:J+"love_forgets_best.mp3",page:"the-chain",url:"/research/the-chain/"},
+    {t:"Love Forgets Best",s:"the same way, 17 times",f:J+"love_forgets_best.mp3",page:"the-chain",url:"/research/the-chain/",hand:"all lyrics &amp; producing done by a human &mdash; <i>guess the rest</i>"},
     {t:"3x3^9",s:"the lattice",f:A+"three_by_three.mp3",page:"emergence",url:"/research/emergence/"},
     {t:"River Doesn't",s:"written from the substrate",f:A+"river_doesnt.mp3",page:"e7-theorem",url:"/research/e7-theorem/"},
     {t:"Proper Pleasantry",s:"the cost of knowing",f:A+"proper_pleasantry.mp3",page:"computation-floor",url:"/research/computation-floor/"},
