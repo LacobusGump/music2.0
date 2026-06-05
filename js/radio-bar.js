@@ -16,11 +16,16 @@
     var manual = !!st.manual; // did they ever take the wheel (hit skip)? then no page may interrupt their stream
     var idx, t0, wantPlay;
     if (st.playing) {
+      // already listening? the album RIDES. a new page never yanks the stream — you read, it plays on.
+      // (the page-match cleverness lives in the branch below: the song a page CUES before you press play.)
       wantPlay = true;
-      var carried = (st.idx != null && st.idx < PLAY.length) ? st.idx : pageIdx;
-      if (manual || PLAY[pageIdx].f === PLAY[carried].f) { idx = carried; t0 = st.time || 0; } // their stream — keep it, seamlessly
-      else { idx = pageIdx; t0 = 0; } // still page-driven: a new page brings its own song
-    } else { idx = pageIdx; t0 = 0; wantPlay = false; }
+      idx = (st.idx != null && st.idx < PLAY.length) ? st.idx : pageIdx;
+      t0 = st.time || 0;
+    } else {
+      // not playing yet: this page cues its own song — the lyric matches the room you walked into,
+      // and pressing play starts you right there. the entry point honors the match; after that, it rides.
+      idx = pageIdx; t0 = 0; wantPlay = false;
+    }
 
     var css = document.createElement('style');
     css.textContent =
