@@ -44,9 +44,20 @@ h1 .alb{display:block;font-size:0.4em;letter-spacing:0.36em;text-transform:upper
 .skip:hover{border-color:rgba(201,164,74,0.4);color:#e8cfa0;}
 .bar{height:3px;background:rgba(184,117,58,0.1);border-radius:2px;margin:0 0 26px;overflow:hidden;cursor:pointer;}
 .bar-fill{height:100%;width:0;background:linear-gradient(90deg,#5a2d0a,#c9a44a);border-radius:2px;}
+/* ── playlists: a row of sets. each one just mutes everything it doesn't name; the rest plays in album order ── */
+.plists{display:flex;align-items:center;flex-wrap:wrap;gap:7px;margin:4px 0 18px;}
+.plists .plab{font-family:Futura,'Century Gothic',system-ui,sans-serif;font-size:0.5em;letter-spacing:0.18em;text-transform:uppercase;color:rgba(184,117,58,0.4);margin-right:2px;}
+.plist{background:rgba(184,117,58,0.04);border:1px solid rgba(184,117,58,0.16);color:rgba(196,160,136,0.7);border-radius:20px;padding:5px 13px;font-family:Georgia,serif;font-size:0.74em;cursor:pointer;transition:all .2s;white-space:nowrap;}
+.plist:hover{border-color:rgba(201,164,74,0.45);color:#e8cfa0;}
+.plist.on{background:rgba(201,164,74,0.16);border-color:rgba(201,164,74,0.55);color:#e8cfa0;box-shadow:0 0 12px rgba(201,164,74,0.14);}
+.pcount{font-size:0.66em;color:#6a5340;font-style:italic;margin-left:auto;}
 /* ── tracklist ── */
 .list-head{font-family:Futura,'Century Gothic',system-ui,sans-serif;font-size:0.54em;letter-spacing:0.18em;text-transform:uppercase;color:rgba(184,117,58,0.45);margin:0 0 10px 4px;}
-.track{display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:9px;cursor:pointer;transition:background .25s,border-color .25s;border:1px solid transparent;}
+.track{display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:9px;cursor:pointer;transition:background .25s,border-color .25s,opacity .25s;border:1px solid transparent;}
+/* muted = not in the current set. dimmed and struck, but still clickable to guest-play. */
+.track.muted{opacity:0.34;}
+.track.muted .track-t{text-decoration:line-through;text-decoration-color:rgba(184,117,58,0.45);}
+.track-n{cursor:pointer;}
 .track:hover{background:rgba(184,117,58,0.05);}
 .track.on{background:rgba(184,117,58,0.09);border-color:rgba(184,117,58,0.2);}
 .track-n{font-family:'Courier New',monospace;font-size:0.66em;color:#5a4a3a;width:24px;text-align:right;flex-shrink:0;}
@@ -137,6 +148,7 @@ body.paused .track-eq span{animation-play-state:paused;}
 </div>
 <div class="bar" id="bar"><div class="bar-fill" id="bar-fill"></div></div>
 
+<div class="plists" id="plists"></div>
 <div class="pathline" id="pathline"></div>
 <div class="cols" id="cols">
   <div class="lab">three columns &middot; pick a path down the album</div>
@@ -144,6 +156,7 @@ body.paused .track-eq span{animation-play-state:paused;}
   <button class="colh" data-c="human">public<span>all</span></button>
   <button class="colh" data-c="jim">jim<span>all</span></button>
 </div>
+<div class="list-head">tap a number to mute &middot; the stream plays only what&rsquo;s lit, in album order</div>
 <div id="list"></div>
 <div class="slot-prompt" id="slot-prompt"></div>
 
@@ -179,8 +192,12 @@ body.paused .track-eq span{animation-play-state:paused;}
   var UPLOAD_URL='https://radio.begump.com/upload';
   var a=document.getElementById('audio'), playBtn=document.getElementById('play'), nextBtn=document.getElementById('next');
   var nowLabel=document.getElementById('now-label'), nowTitle=document.getElementById('now-title'), nowSub=document.getElementById('now-sub'), nowFrom=document.getElementById('now-from'), nowHand=document.getElementById('now-hand');
-  var barFill=document.getElementById('bar-fill'), bar=document.getElementById('bar'), listEl=document.getElementById('list'), pathlineEl=document.getElementById('pathline'), colsEl=document.getElementById('cols'), promptEl=document.getElementById('slot-prompt'), B=document.body;
+  var barFill=document.getElementById('bar-fill'), bar=document.getElementById('bar'), listEl=document.getElementById('list'), pathlineEl=document.getElementById('pathline'), colsEl=document.getElementById('cols'), plistsEl=document.getElementById('plists'), promptEl=document.getElementById('slot-prompt'), B=document.body;
   var idx=0, triedFb=false, lastSrc='';
+  // ── mute: a second axis, independent of the demo/public/jim path. false = lit (plays), true = muted (skipped).
+  // a "playlist" is just a preset of this mask. starts all-lit = the whole album, as it was sequenced. ──
+  var mute=PLAY.map(function(){ return false; });
+  var PLISTS=R.playlists||[];
 
   // ── the data model: every song has three columns — demo (always there), public, jim's recording.
   // `path` holds the chosen version per song; the stream plays each song's chosen column in album order. ──
@@ -202,7 +219,7 @@ body.paused .track-eq span{animation-play-state:paused;}
       var has=!!fileFor(p,c), sel=path[i]===c;
       return '<div class="cell'+(sel?' sel':'')+(has?'':' open')+'" data-i="'+i+'" data-c="'+c+'" title="'+COLLBL[c]+(has?'':' — open slot, tap to contribute')+'">'+(has?'●':'＋')+'</div>';
     }).join('');
-    row.innerHTML='<div class="track-n">'+(i+1)+'</div><div class="track-body"><div class="track-t">'+p.t+'</div><div class="track-s">'+p.s+'</div></div><div class="cells">'+cells+'</div>';
+    row.innerHTML='<div class="track-n" title="mute / unmute">'+(i+1)+'</div><div class="track-body"><div class="track-t">'+p.t+'</div><div class="track-s">'+p.s+'</div></div><div class="cells">'+cells+'</div>';
     listEl.appendChild(row); rowByIndex[i]=row;
   });
   var rows=listEl.children;
@@ -211,9 +228,12 @@ body.paused .track-eq span{animation-play-state:paused;}
   listEl.addEventListener('click',function(e){
     var cell=e.target.closest('.cell');
     if(cell){ selectCell(+cell.dataset.i, cell.dataset.c); return; }
-    var row=e.target.closest('.track'); if(row) load(+row.dataset.i, true);
+    var num=e.target.closest('.track-n');                       // the number is the mute switch
+    if(num){ toggleMute(+num.closest('.track').dataset.i); return; }
+    var row=e.target.closest('.track'); if(row) load(+row.dataset.i, true); // body = play it (works even if muted — a guest spot)
   });
   colsEl.addEventListener('click',function(e){ var b=e.target.closest('.colh'); if(b) selectAll(b.dataset.c); });
+  plistsEl.addEventListener('click',function(e){ var b=e.target.closest('.plist'); if(!b) return; var n=+b.dataset.p; if(n<0) clearMutes(); else applyPlaylist(PLISTS[n]); });
 
   function paint(){
     var p=PLAY[idx], col=path[idx], openSlot = col!=='demo' && !fileFor(p,col);
@@ -258,6 +278,7 @@ body.paused .track-eq span{animation-play-state:paused;}
   }
   function refreshRow(i){
     var row=rowByIndex[i]; if(!row) return;
+    row.classList.toggle('muted', mute[i]);
     var cs=row.getElementsByClassName('cell');
     for(var k=0;k<cs.length;k++){ cs[k].classList.toggle('sel', cs[k].dataset.c===path[i]); }
   }
@@ -271,6 +292,49 @@ body.paused .track-eq span{animation-play-state:paused;}
     var allDemo=c.demo===listedIdx.length;
     pathlineEl.innerHTML=(allDemo?'the album as it was made &mdash; ':'your album &mdash; ')+'<b>'+seg.join('</b> &middot; <b>')+'</b>'+(allDemo?'':' &middot; <a id="preset">back to all demo</a>');
     var pr=document.getElementById('preset'); if(pr) pr.onclick=function(){ selectAll('demo'); };
+  }
+
+  // ── mute & playlists: the second axis. which songs play, vs which version of each (the path above). ──
+  function pagesToIdx(pages){                                   // resolve a playlist's page list to indices, in ALBUM order
+    var want={}; (pages||[]).forEach(function(pg){ want[pg]=1; });
+    var out=[]; PLAY.forEach(function(p,i){ if(p.page && want[p.page]) out.push(i); }); return out;
+  }
+  function firstUnmuted(){ for(var i=0;i<PLAY.length;i++) if(!mute[i]) return i; return -1; }
+  function nextUnmuted(from){                                   // next lit song after `from`, wrapping; -1 if all muted
+    for(var k=1;k<=PLAY.length;k++){ var j=(from+k)%PLAY.length; if(!mute[j]) return j; }
+    return mute[from]?-1:from;
+  }
+  function toggleMute(i){
+    mute[i]=!mute[i]; refreshRow(i); refreshPlists();
+    if(mute[i] && i===idx && want){ var j=nextUnmuted(idx); if(j>=0) load(j,true); else { a.pause(); paused(); } } // muted the song playing → move on
+  }
+  function applyPlaylist(pl){
+    var keep={}; pagesToIdx(pl.pages).forEach(function(i){ keep[i]=1; });
+    for(var i=0;i<PLAY.length;i++) mute[i]=!keep[i];
+    listedIdx.forEach(refreshRow); refreshPlists();
+    var j=firstUnmuted(); if(j>=0) load(j,true);               // a playlist starts itself, from its first song
+  }
+  function clearMutes(){                                        // the whole album — light everything, don't interrupt
+    for(var i=0;i<PLAY.length;i++) mute[i]=false;
+    listedIdx.forEach(refreshRow); refreshPlists();
+  }
+  function muteSig(){ var s=[]; for(var i=0;i<PLAY.length;i++) if(!mute[i]) s.push(i); return s.join(','); }
+  function renderPlists(){
+    var html='<span class="plab">playlists</span><button class="plist" data-p="-1">the whole album</button>';
+    PLISTS.forEach(function(pl,n){ html+='<button class="plist" data-p="'+n+'" title="'+(pl.note||'')+'">'+pl.name+'</button>'; });
+    html+='<span class="pcount" id="pcount"></span>';
+    plistsEl.innerHTML=html; refreshPlists();
+  }
+  function refreshPlists(){
+    var sig=muteSig(), btns=plistsEl.getElementsByClassName('plist');
+    var noneMuted=mute.every(function(m){return !m;});
+    for(var k=0;k<btns.length;k++){ (function(b){
+      var n=+b.dataset.p;
+      var on = n<0 ? noneMuted : (sig===pagesToIdx(PLISTS[n].pages).join(','));
+      b.classList.toggle('on', on);
+    })(btns[k]); }
+    var lit=mute.filter(function(m){return !m;}).length, tot=PLAY.length;
+    var pc=document.getElementById('pcount'); if(pc) pc.textContent = noneMuted ? (tot+' songs') : (lit+' of '+tot+' playing');
   }
   // a slot's door. jim = the only email on the page (play on it WITH jim). public = an open upload door,
   // governed by math: under 33 submissions the door is open; at 33 it becomes a vote.
@@ -364,20 +428,21 @@ body.paused .track-eq span{animation-play-state:paused;}
     if (a.paused){ if (!a.src){ load(idx, true); } else { want = true; B.classList.remove('paused'); nowLabel.textContent = '— buffering —'; tryPlay(++token); } }
     else { a.pause(); paused(); }
   });
-  nextBtn.addEventListener('click', function(){ load(idx + 1, true); });
-  a.addEventListener('ended', function(){ load(idx + 1, true); });
+  function advance(){ var j=nextUnmuted(idx); if(j>=0) load(j, true); else { a.pause(); paused(); } } // roll to the next lit song, skipping muted
+  nextBtn.addEventListener('click', advance);
+  a.addEventListener('ended', advance);
   a.addEventListener('playing', function(){ if (want) playing(); });                 // fires when audio actually starts (after any buffering)
   a.addEventListener('waiting', function(){ if (want) nowLabel.textContent = '— buffering —'; });
   a.addEventListener('error', function(){
     if (a.error && a.error.code === 1) return;                                        // MEDIA_ERR_ABORTED from a src change — not a failure
     if (CDN && !triedFb && ('' + a.src).indexOf('jsdelivr') >= 0){ triedFb = true; var my = ++token; a.src = srcFor(PLAY[idx]); paint(); if (want) tryPlay(my); return; } // jsDelivr blip → origin
-    if (want) load(idx + 1, true); else paint();                                      // genuinely bad track → skip (only if we're trying to play)
+    if (want) advance(); else paint();                                                // genuinely bad track → skip to next lit (only if we're trying to play)
   });
   a.addEventListener('timeupdate', function(){ if (a.duration) barFill.style.width = (a.currentTime / a.duration * 100) + '%'; });
   bar.addEventListener('click', function(e){ if (a.duration){ var r = bar.getBoundingClientRect(); a.currentTime = (e.clientX - r.left) / r.width * a.duration; } });
 
   // start on the song of wherever you came from
-  refreshHeaders(); updatePathline();
+  refreshHeaders(); updatePathline(); renderPlists();
   load(R.indexFor((new URLSearchParams(location.search)).get('start')), true);
 
   // ════ THE COVER ════ a spinning record; 33 rim-marks are the 33 songs; the playing one is lit.
@@ -407,6 +472,7 @@ body.paused .track-eq span{animation-play-state:paused;}
         var col=path[L[i]];                                  // the chosen version paints the mark, so the path shows on the record
         var rgb = col==='human' ? '196,160,136' : col==='jim' ? '216,120,50' : '201,164,74';
         var sz=on?5.2:(col==='demo'?2.6:3.1), al=on?1:(col==='demo'?0.34:0.6);
+        if(!on && mute[L[i]]) al*=0.28;                     // muted songs fade on the rim — the playlist shows on the record
         if(on){ cx.beginPath(); cx.arc(x,y,11,0,6.2832); cx.fillStyle='rgba('+rgb+',0.16)'; cx.fill(); }
         cx.beginPath(); cx.arc(x,y,sz,0,6.2832);
         cx.fillStyle='rgba('+(on?'240,217,168':rgb)+','+al+')'; cx.fill();

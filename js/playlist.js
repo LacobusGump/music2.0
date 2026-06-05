@@ -61,6 +61,15 @@ window.RADIO=(function(){
     networks:'ai-fatigue','novelty-pathology':'ai-fatigue','true-automation':'ai-fatigue',dyslexia:'ai-fatigue',
     rome:'bach','the-lion':'bach','nina-simone':'bach','aaron-is-right':'bach',tesla:'bach','van-gogh':'bach'
   };
+  // ── PLAYLISTS — a playlist is nothing but a SET OF SONGS LEFT UNLIT; everything else mutes.
+  // They always fire in album order, never the order listed here. Named by PAGE, never index, so the
+  // album can be re-cut without a playlist ever pointing at the wrong song. Add one: name it + list pages.
+  var PLAYLISTS=[
+    {name:"for Harmonia", note:"nine, in album order", pages:[
+      "framework","computation-floor","how-we-work","science-tree","chemistry",
+      "alzheimers","bird-coupling","harmonia","the-loop"
+    ]}
+  ];
   var byPage={}; for(var i=0;i<PLAYLIST.length;i++){ if(PLAYLIST[i].page && byPage[PLAYLIST[i].page]==null) byPage[PLAYLIST[i].page]=i; }
   function indexFor(sg){
     if(!sg) return 0;
@@ -69,5 +78,5 @@ window.RADIO=(function(){
     return 0;
   }
   function slug(){var p=location.pathname.replace(/\/+$/,'');return p===''?'home':(p.split('/').pop()||'home');}
-  return {list:PLAYLIST, slug:slug, indexFor:indexFor, cdn:CDN};
+  return {list:PLAYLIST, slug:slug, indexFor:indexFor, cdn:CDN, playlists:PLAYLISTS};
 })();
