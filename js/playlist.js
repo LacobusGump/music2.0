@@ -11,11 +11,11 @@ window.RADIO=(function(){
   // Both start empty; /radio/ shows them as open slots that email jim@begump.com.
   // To fill one: drop the mp3 in /v5/ and set the field, e.g.  human:A+"first_coat_remix.mp3"
   //
-  // ── THE SHOW (Emilia's birthday). The /radio/ page is also the casting board. Jim's on drums; every
+  // ── THE SHOW (my daughter's birthday). The /radio/ page is also the casting board. Jim's on drums; every
   // other chair is open. Per-song flags, all optional — flip them as the band fills in:
-  //   edm:true     → Jim isn't drumming this one; he's in the crowd with Emilia. Take the whole track + the lights.
+  //   edm:true     → Jim isn't drumming this one; he's in the crowd with my daughter. Take the whole track + the lights.
   //   circle:true  → drum circle, room for many drummers — bring sticks.
-  //   lead:"name"  → who sings/leads it (e.g. lead:"Emilia").
+  //   lead:"name"  → who sings/leads it (e.g. lead:"my daughter").
   //   kids:true    → backup singers wanted, kids welcome.
   //   cast:"..."   → free note for any specific chair still open (e.g. cast:"need: upright bass").
   var PLAYLIST=[
@@ -26,7 +26,7 @@ window.RADIO=(function(){
     {t:"Love Forgets Best",s:"the same way, 17 times",f:J+"love_forgets_best.mp3",page:"the-chain",url:"/research/the-chain/",hand:"all lyrics &amp; producing done by a human &mdash; <i>guess the rest</i>"},
     {t:"3x3^9",s:"the lattice",f:A+"three_by_three.mp3",page:"emergence",url:"/research/emergence/"},
     {t:"River Doesn't",s:"written from the substrate",f:A+"river_doesnt.mp3",page:"e7-theorem",url:"/research/e7-theorem/"},
-    {t:"Proper Pleasantry",s:"the cost of knowing",f:A+"proper_pleasantry.mp3",page:"computation-floor",url:"/research/computation-floor/",lead:"Emilia",kids:true},
+    {t:"Proper Pleasantry",s:"the cost of knowing",f:A+"proper_pleasantry.mp3",page:"computation-floor",url:"/research/computation-floor/",lead:"my daughter",kids:true},
     {t:"One Plus One Equals Three",s:"the founding equation",f:J+"one_plus_one_equals_three.mp3",page:"one-plus-one",url:"/research/one-plus-one/"},
     {t:"Installation Hum",s:"how we work",f:A+"installation_hum.mp3",page:"how-we-work",url:"/research/how-we-work/"},
     {t:"The Weakest K",s:"what we got wrong",f:A+"the_weakest_k.mp3",page:"failures",url:"/research/failures/"},
