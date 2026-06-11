@@ -78,6 +78,17 @@ window.RADIO=(function(){
       "alzheimers","bird-coupling","harmonia","the-loop"
     ]}
   ];
+  // ── lyric scrolls: a song's words live at a slow-read teleprompter page (/js/teleprompter.js),
+  // keyed by the audio file stem so it can never point at the wrong track. Built for the show so a
+  // singer can read along on stage. Three tracks are instrumental (the drum circles) — no page, no words. ──
+  var LYRICS={
+    first_coat:'/first-coat/', you_there:'/you-there/', love_forgets_best:'/love-forgets-best/',
+    river_doesnt:'/river-doesnt/', proper_pleasantry:'/proper-pleasantry/',
+    one_plus_one_equals_three:'/one-plus-one/', fifteen_year_counter:'/fifteen-year-counter/',
+    twelve_bullet_points_v3:'/twelve-bullet-points/', first_lock:'/first-lock/', butlers_tray:'/butlers-tray/'
+  };
+  function lyricsFor(p){ return LYRICS[(p.f||'').split('/').pop().replace(/\.[^.]+$/,'')] || null; }
+
   var byPage={}; for(var i=0;i<PLAYLIST.length;i++){ if(PLAYLIST[i].page && byPage[PLAYLIST[i].page]==null) byPage[PLAYLIST[i].page]=i; }
   function indexFor(sg){
     if(!sg) return 0;
@@ -86,5 +97,5 @@ window.RADIO=(function(){
     return 0;
   }
   function slug(){var p=location.pathname.replace(/\/+$/,'');return p===''?'home':(p.split('/').pop()||'home');}
-  return {list:PLAYLIST, slug:slug, indexFor:indexFor, cdn:CDN, playlists:PLAYLISTS};
+  return {list:PLAYLIST, slug:slug, indexFor:indexFor, cdn:CDN, playlists:PLAYLISTS, lyrics:LYRICS, lyricsFor:lyricsFor};
 })();

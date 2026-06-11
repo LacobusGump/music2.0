@@ -63,6 +63,11 @@ h1 .alb{display:block;font-size:0.4em;letter-spacing:0.36em;text-transform:upper
 .now-hand.show{display:block;}
 .now-hand b{font-family:Futura,'Century Gothic',system-ui,sans-serif;text-transform:uppercase;letter-spacing:0.13em;font-size:0.84em;font-weight:600;}
 .now-hand i{font-style:italic;opacity:0.72;}
+.now-pick{display:none;margin-top:9px;}
+.now-pick.show{display:block;}
+.now-pick label{font-size:0.6em;color:#6a5340;text-transform:uppercase;letter-spacing:0.12em;margin-right:7px;}
+.now-pick select{font-family:Georgia,serif;font-size:0.7em;color:#c4a088;background:#140f0b;border:1px solid rgba(184,117,58,0.25);border-radius:5px;padding:4px 9px;cursor:pointer;max-width:70%;}
+.now-pick select:hover{border-color:rgba(184,117,58,0.5);color:#e8cfa0;}
 .skip{flex-shrink:0;background:none;border:1px solid rgba(184,117,58,0.18);color:rgba(201,164,74,0.6);border-radius:50%;width:34px;height:34px;cursor:pointer;font-size:0.8em;transition:all .3s;}
 .skip:hover{border-color:rgba(201,164,74,0.4);color:#e8cfa0;}
 .bar{height:3px;background:rgba(184,117,58,0.1);border-radius:2px;margin:0 0 26px;overflow:hidden;cursor:pointer;}
@@ -178,6 +183,7 @@ body.paused .track-eq span{animation-play-state:paused;}
     <div class="now-sub" id="now-sub">press play, or pick a track</div>
     <div class="now-from" id="now-from"></div>
     <div class="now-hand" id="now-hand"></div>
+    <div class="now-pick" id="now-pick"></div>
   </div>
   <button class="skip" id="next" aria-label="next">⏭</button>
 </div>
@@ -234,7 +240,7 @@ body.paused .track-eq span{animation-play-state:paused;}
   // per-IP rate limit — and must never serve uploads as executable. The client checks below are UX only.
   var UPLOAD_URL='https://radio.begump.com/upload';
   var a=document.getElementById('audio'), playBtn=document.getElementById('play'), nextBtn=document.getElementById('next');
-  var nowLabel=document.getElementById('now-label'), nowTitle=document.getElementById('now-title'), nowSub=document.getElementById('now-sub'), nowFrom=document.getElementById('now-from'), nowHand=document.getElementById('now-hand');
+  var nowLabel=document.getElementById('now-label'), nowTitle=document.getElementById('now-title'), nowSub=document.getElementById('now-sub'), nowFrom=document.getElementById('now-from'), nowHand=document.getElementById('now-hand'), nowPick=document.getElementById('now-pick');
   var barFill=document.getElementById('bar-fill'), bar=document.getElementById('bar'), listEl=document.getElementById('list'), pathlineEl=document.getElementById('pathline'), colsEl=document.getElementById('cols'), plistsEl=document.getElementById('plists'), promptEl=document.getElementById('slot-prompt'), B=document.body;
   var idx=0, triedFb=false, lastSrc='';
   // ── mute: a second axis, independent of the demo/public/jim path. false = lit (plays), true = muted (skipped).
@@ -258,8 +264,9 @@ body.paused .track-eq span{animation-play-state:paused;}
   // public remixes can be many (up to 33). `human` may be a single file, or an array of {f,by}; demo/jim are single.
   function pubList(p){ var h=p.human; return !h?[] : (Array.isArray(h)?h : [{f:h}]); }
   function pubCount(p){ return pubList(p).length; }
-  function fileFor(p,col){ return col==='human' ? (pubList(p)[0]||{}).f : col==='jim'?p.jim : p.f; }
+  function fileFor(p,col,pi){ return col==='human' ? (pubList(p)[pi||0]||pubList(p)[0]||{}).f : col==='jim'?p.jim : p.f; }
   var path=PLAY.map(function(){ return 'demo'; });   // starts all-demo: the album as it was made
+  var pubPick=PLAY.map(function(){ return 0; });     // which public copy plays per song — the dropdown keeps them all, so you can always find your own
   var rowByIndex={}, listedIdx=[];
 
   // tracklist — hidden tracks get no row (they only play if you let the album run all the way).
@@ -296,9 +303,21 @@ body.paused .track-eq span{animation-play-state:paused;}
     if(openSlot){ nowSub.innerHTML = p.s + ' <span style="color:#6a5340;">&middot; the demo &mdash; the '+(col==='human'?'your-copy':'band')+' chair is open</span>'; }
     else { nowSub.textContent = p.s; }
     nowFrom.innerHTML = p.url ? ('from <a href="'+p.url+'">'+(p.page==='home'?'the homepage':String(p.page).replace(/-/g,' '))+'</a>') : (p.ghost ? '<span style="color:#5a4a3a;font-style:italic;">a ghost ship &middot; no port</span>' : '');
+    var lyr=R.lyricsFor?R.lyricsFor(p):null;                 // a slow-read scroll for this song → read along on stage
+    if(lyr){ nowFrom.innerHTML += (nowFrom.innerHTML?' &middot; ':'') + '<a href="'+lyr+'">read the words &rarr;</a>'; }
     // the human-control mark: a highlighted tell on hand-made tracks. AI can match the sound — not this.
     if(p.hand){ nowHand.innerHTML='<b>human control</b> &middot; '+p.hand; nowHand.classList.add('show'); }
     else { nowHand.classList.remove('show'); nowHand.innerHTML=''; }
+    // the dropdown: when this song's public column holds more than one copy, every one stays pickable — find your own and hear it
+    var pubs = col==='human' ? pubList(p) : [];
+    if(pubs.length>1){
+      if(pubPick[idx]>=pubs.length) pubPick[idx]=0;
+      var opts=pubs.map(function(u,n){ var lbl=u.by?String(u.by):('copy '+(n+1)); return '<option value="'+n+'"'+(n===pubPick[idx]?' selected':'')+'>'+lbl+'</option>'; }).join('');
+      nowPick.innerHTML='<label>your copy</label><select id="pub-pick">'+opts+'</select>';
+      nowPick.classList.add('show');
+      var sel=document.getElementById('pub-pick');
+      sel.onchange=function(){ pubPick[idx]=+sel.value; reloadCurrent(); };
+    } else { nowPick.classList.remove('show'); nowPick.innerHTML=''; }
     for(var i=0;i<rows.length;i++){ var ri=+rows[i].dataset.i; rows[i].classList.toggle('on',ri===idx); if(ri===idx)rows[i].scrollIntoView({block:'nearest',behavior:'smooth'}); }
   }
   // ── the player: a state machine driven by real media events, race-guarded against rapid skips ──
@@ -312,7 +331,7 @@ body.paused .track-eq span{animation-play-state:paused;}
     if (autoplay){ want = true; B.classList.remove('paused'); nowLabel.textContent = '— buffering —'; tryPlay(my); }
   }
   // the chosen column for this song — falling back to the demo so an open slot never strands the stream
-  function srcFor(p){ return fileFor(p, path[idx]) || p.f; }
+  function srcFor(p){ return fileFor(p, path[idx], pubPick[idx]) || p.f; }
 
   // ── picking a path: a cell sets one song; a column header sets all of them ──
   function reloadCurrent(){
