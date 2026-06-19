@@ -33,7 +33,7 @@
       "background:rgba(12,8,5,0.82);border:1px solid rgba(201,164,74,0.16);border-top:none;border-radius:0 0 14px 14px;" +
       "padding:7px 13px 8px;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);max-width:min(440px,92vw);" +
       "box-shadow:0 4px 22px rgba(0,0,0,0.42);font-family:Futura,'Century Gothic',system-ui,sans-serif;transition:opacity .4s;}" +
-      ".gump-radio button,.gump-radio a{background:none;border:none;cursor:pointer;color:rgba(201,164,74,0.6);font-size:0.9em;line-height:1;padding:2px 3px;text-decoration:none;transition:color .25s;flex-shrink:0;}" +
+      ".gump-radio button,.gump-radio a{background:none;border:none;cursor:pointer;color:rgba(201,164,74,0.6);font-size:0.9em;line-height:1;padding:6px 8px;text-decoration:none;transition:color .25s;flex-shrink:0;}" +
       ".gump-radio button:hover,.gump-radio a:hover{color:#e8cfa0;}" +
       ".gr-now{display:flex;align-items:center;gap:7px;min-width:0;overflow:hidden;}" +
       ".gr-dot{width:6px;height:6px;border-radius:50%;background:#5a3a20;flex-shrink:0;transition:background .3s,box-shadow .3s;}" +
@@ -42,9 +42,10 @@
       "@keyframes grpulse{50%{opacity:0.45;}}" +
       ".gr-title{font-size:0.62em;letter-spacing:0.1em;text-transform:uppercase;color:rgba(196,160,136,0.72);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px;text-decoration:none;cursor:default;}" +
       ".gr-title[href]{cursor:pointer;}.gr-title[href]:hover{color:#e8cfa0;text-decoration:underline;text-underline-offset:3px;}" +
-      ".gr-full{font-size:0.74em!important;opacity:0.7;}" +
+      ".gr-full{font-family:Futura,'Century Gothic',system-ui,sans-serif;font-size:0.52em!important;letter-spacing:0.08em;padding:5px 10px!important;border:1px solid rgba(201,164,74,0.22);border-radius:10px;opacity:1!important;background:rgba(201,164,74,0.07);white-space:nowrap;}" +
+      ".gr-full:hover{background:rgba(201,164,74,0.15)!important;border-color:rgba(201,164,74,0.45)!important;}" +
       ".gr-prog{position:absolute;left:0;bottom:0;height:2px;background:linear-gradient(90deg,#5a2d0a,#c9a44a);width:0;border-radius:0 0 2px 2px;}" +
-      "@media(max-width:520px){.gr-title{max-width:130px;}.gump-radio{gap:7px;padding:6px 10px 7px;}}";
+      "@media(max-width:520px){.gr-title{max-width:100px;}.gump-radio{gap:6px;padding:6px 10px 7px;}}";
     document.head.appendChild(css);
 
     var bar = document.createElement('div'); bar.className = 'gump-radio';
@@ -52,7 +53,7 @@
       '<button class="gr-play" aria-label="play">▶</button>' +
       '<div class="gr-now"><span class="gr-dot"></span><a class="gr-title"></a></div>' +
       '<button class="gr-next" aria-label="next">⏭</button>' +
-      '<a class="gr-full" href="/radio/" title="open the full radio">⤢</a>' +
+      '<a class="gr-full" href="/radio/" title="open the full show">the show</a>' +
       '<div class="gr-prog"></div>';
     document.body.appendChild(bar);
     var a = document.createElement('audio');
