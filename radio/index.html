@@ -14,7 +14,7 @@
 *{margin:0;padding:0;box-sizing:border-box;}
 body{background:#0a0604;color:#c4a088;font-family:Georgia,serif;min-height:100vh;min-height:100dvh;overflow-x:hidden;}
 #field{position:fixed;inset:0;width:100vw;height:100vh;z-index:0;pointer-events:none;opacity:0.6;}
-.page{position:relative;z-index:1;max-width:640px;margin:0 auto;padding:26px 22px 90px;}
+.page{position:relative;z-index:1;max-width:640px;margin:0 auto;padding:26px 22px 90px;padding-bottom:max(90px,54vh);}
 .back{font-size:0.72em;color:#5a3a20;text-decoration:none;font-family:Futura,'Century Gothic',system-ui,sans-serif;letter-spacing:0.08em;transition:color .3s;}
 .back:hover{color:#c9a44a;}
 /* ── the cover: a spinning record, 33 marks for 33 songs ── */
@@ -140,6 +140,25 @@ body.paused .track-eq span{animation-play-state:paused;}
   .cells{gap:4px;}
   .cell,.colh{width:46px;}
 }
+/* ── lyrics drawer ── */
+.lyr{position:fixed;bottom:0;left:0;right:0;z-index:9800;
+  background:rgba(8,5,3,0.97);border-top:1px solid rgba(184,117,58,0.18);
+  border-radius:16px 16px 0 0;transform:translateY(100%);
+  transition:transform .38s cubic-bezier(.4,0,.2,1);
+  backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+  max-height:52vh;display:flex;flex-direction:column;}
+.lyr.open{transform:translateY(0);}
+.lyr-bar{display:flex;align-items:center;gap:10px;padding:11px 18px 8px;cursor:pointer;flex-shrink:0;border-bottom:1px solid rgba(184,117,58,0.08);}
+.lyr-pip{width:32px;height:3px;border-radius:2px;background:rgba(184,117,58,0.25);flex-shrink:0;}
+.lyr-name{flex:1;font-family:Futura,'Century Gothic',system-ui,sans-serif;font-size:0.56em;letter-spacing:0.12em;text-transform:uppercase;color:rgba(196,160,136,0.65);}
+.lyr-full-link{font-family:Futura,'Century Gothic',system-ui,sans-serif;font-size:0.52em;letter-spacing:0.06em;color:rgba(184,117,58,0.55);text-decoration:none;border-bottom:1px solid rgba(184,117,58,0.2);white-space:nowrap;}
+.lyr-full-link:hover{color:#e8cfa0;}
+.lyr-x{background:none;border:none;color:rgba(184,117,58,0.4);font-size:0.9em;cursor:pointer;padding:2px 0 2px 8px;flex-shrink:0;}
+.lyr-x:hover{color:#e8cfa0;}
+.lyr-scroll{overflow-y:auto;padding:16px 20px 28px;-webkit-overflow-scrolling:touch;}
+.lyr-line{font-family:Georgia,serif;font-size:0.84em;line-height:1.95;color:#b8a080;display:block;min-height:0.5em;}
+.lyr-stage{color:#4a3a28;font-style:italic;font-size:0.82em;letter-spacing:0.03em;}
+.lyr-blank{display:block;height:0.7em;}
 /* ── the public upload door ── */
 .up-form{margin-top:10px;display:flex;flex-direction:column;gap:8px;}
 .up-form input[type=text],.up-form input[type=email]{background:#0f0a07;border:1px solid rgba(184,117,58,0.2);border-radius:7px;color:#e8cfa0;font-family:Georgia,serif;font-size:1em;padding:8px 10px;width:100%;}
@@ -220,6 +239,17 @@ body.paused .track-eq span{animation-play-state:paused;}
 </div>
 
 <audio id="audio" preload="metadata"></audio>
+
+<!-- ── lyrics drawer ── -->
+<div class="lyr" id="lyr-drawer">
+  <div class="lyr-bar" id="lyr-bar">
+    <div class="lyr-pip"></div>
+    <div class="lyr-name" id="lyr-name">words</div>
+    <a class="lyr-full-link" id="lyr-full-link" href="#" target="_blank">full page →</a>
+    <button class="lyr-x" id="lyr-x">✕</button>
+  </div>
+  <div class="lyr-scroll" id="lyr-scroll"></div>
+</div>
 
 <div class="foot">
   every song was written from a page, not about it.<br>
@@ -526,6 +556,51 @@ body.paused .track-eq span{animation-play-state:paused;}
   // start on the song of wherever you came from
   refreshHeaders(); updatePathline(); renderPlists();
   load(R.indexFor((new URLSearchParams(location.search)).get('start')), true);
+
+  // ════ LYRICS DRAWER ════
+  var lyrDrawer=document.getElementById('lyr-drawer'), lyrBar=document.getElementById('lyr-bar');
+  var lyrName=document.getElementById('lyr-name'), lyrScroll=document.getElementById('lyr-scroll');
+  var lyrFullLink=document.getElementById('lyr-full-link'), lyrX=document.getElementById('lyr-x');
+  var lyrCache={}, lyrOpen=false, lyrManualClose=false;
+
+  function lyrClose(){ lyrDrawer.classList.remove('open'); lyrOpen=false; }
+  function lyrShow(title, url, text){
+    lyrName.textContent=title;
+    lyrFullLink.href=url; lyrFullLink.style.display='';
+    lyrScroll.innerHTML=renderLyrics(text);
+    lyrDrawer.classList.add('open'); lyrOpen=true; lyrManualClose=false;
+  }
+  function renderLyrics(text){
+    return text.split('\n').map(function(line){
+      var t=line.trim();
+      if(!t) return '<span class="lyr-blank"></span>';
+      if(/^\[/.test(t)) return '<span class="lyr-line lyr-stage">'+esc(t)+'</span>';
+      return '<span class="lyr-line">'+esc(t)+'</span>';
+    }).join('');
+  }
+  function esc(s){ var d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
+
+  function loadLyrics(p){
+    var url=R.lyricsFor(p);
+    if(!url){ lyrClose(); return; }
+    if(lyrManualClose) return; // user dismissed — don't reopen until they change track
+    lyrName.textContent=p.t; lyrFullLink.href=url; lyrFullLink.style.display='';
+    if(lyrCache[url]){ lyrShow(p.t, url, lyrCache[url]); return; }
+    lyrScroll.innerHTML='<span class="lyr-line lyr-stage" style="color:#3a2a18;">loading…</span>';
+    lyrDrawer.classList.add('open'); lyrOpen=true;
+    fetch(url).then(function(r){ return r.text(); }).then(function(html){
+      var m=html.match(/text:\s*`([\s\S]*?)`\s*\}/);
+      if(m){ lyrCache[url]=m[1].trim(); lyrShow(p.t, url, lyrCache[url]); }
+      else lyrClose();
+    }).catch(lyrClose);
+  }
+
+  lyrX.onclick=function(e){ e.stopPropagation(); lyrManualClose=true; lyrClose(); };
+  lyrBar.onclick=function(e){ if(e.target===lyrX) return; lyrManualClose=!lyrOpen; lyrOpen?lyrClose():loadLyrics(PLAY[idx]); };
+
+  // hook into load() so drawer updates whenever the track changes
+  var _origLoad=load;
+  load=function(i,autoplay){ _origLoad(i,autoplay); lyrManualClose=false; setTimeout(function(){ loadLyrics(PLAY[idx]); },80); };
 
   // ════ THE COVER ════ a spinning record; 33 rim-marks are the 33 songs; the playing one is lit.
   // form seeded + locked by the quantum measurement the album asked for (seed 3197222091, R=0.9988).
