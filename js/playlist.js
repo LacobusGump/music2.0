@@ -83,6 +83,7 @@ window.RADIO=(function(){
   // singer can read along on stage. Three tracks are instrumental (the drum circles) — no page, no words. ──
   var LYRICS={
     coupled_dynamics_remix:'/coupled-dynamics/',
+    three_by_three:'/three-by-three/',
     first_coat:'/first-coat/', you_there:'/you-there/', love_forgets_best:'/love-forgets-best/',
     river_doesnt:'/river-doesnt/', proper_pleasantry:'/proper-pleasantry/',
     one_plus_one_equals_three:'/one-plus-one/', fifteen_year_counter:'/fifteen-year-counter/',
