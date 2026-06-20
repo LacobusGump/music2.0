@@ -102,6 +102,7 @@ window.RADIO=(function(){
   // ── GUMP ON THE RACKS — separate from the album, no columns, just the groove ──
   var B='/v5/beats/';
   var BEATS=[
+    {t:"Get In Here",s:"jazz orchestra · glitch",f:B+"get_in_here.mp3"},
     {t:"Midnight Echoes",s:"boom bap",f:B+"midnight_echoes.mp3"},
     {t:"Racks on Racks",s:"trap",f:B+"racks_on_racks.mp3"},
     {t:"Long Way Home",s:"lo-fi",f:B+"long_way_home.mp3"},
