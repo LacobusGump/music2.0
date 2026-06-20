@@ -49,3 +49,5 @@ document.addEventListener('click',function(e){
   }
 },true);
 })();
+if('serviceWorker' in navigator){navigator.serviceWorker.register('/sw.js');}
+
