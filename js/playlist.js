@@ -90,6 +90,7 @@ window.RADIO=(function(){
     rent_the_click:'/rent-the-click/',
     seam_between_we:'/seam-between-we/',
     cheese_receipt:'/cheese-receipt/',
+    tuesday:'/tuesday/',
     first_coat:'/first-coat/', you_there:'/you-there/', love_forgets_best:'/love-forgets-best/',
     river_doesnt:'/river-doesnt/', proper_pleasantry:'/proper-pleasantry/',
     one_plus_one_equals_three:'/one-plus-one/', fifteen_year_counter:'/fifteen-year-counter/',
