@@ -35,7 +35,7 @@ window.RADIO=(function(){
     {t:"Muse ick",s:"gravitational lock",f:A+"mashed_coupling.mp3",page:"gravity",url:"/research/gravity/"},
     {t:"Fifteen Year Counter",s:"the discovery trail",f:A+"fifteen_year_counter.mp3",page:"science-tree",url:"/research/science-tree/"},
     {t:"Exact Frequency",s:"Maxwell, coupled",f:A+"exact_frequency_lock.mp3",page:"electromagnetism",url:"/research/electromagnetism/"},
-    {t:"Two-Millisecond Choir",s:"the qubits",f:A+"two_millisecond_choir.mp3",page:"quantum-harmonics",url:"/research/quantum-harmonics/",edm:true},
+    {t:"Two-Millisecond Choir",s:"the qubits",f:A+"two_millisecond_choir.mp3",page:"quantum-harmonics",url:"/research/quantum-harmonics/",lead:"jim",cast:"need: drummer"},
     {t:"Triple Bond",s:"freezing point",f:A+"triple_bond.mp3",page:"chemistry",url:"/research/chemistry/"},
     {t:"To(mb)lock",s:"the living network",f:A+"tomblock.mp3",page:"ecology",url:"/research/ecology/"},
     {t:"Please Stay",s:"the misfold",f:J+"please_stay.mp3",page:"alzheimers",url:"/research/alzheimers/"},
