@@ -141,6 +141,46 @@
   window.addEventListener('resize', render);
   render(); wake();
 
+  // ── audio-locked mode — if SONG.audio + SONG.cues are present, drive from the actual track ──
+  (function(){
+    if(!SONG.audio||!SONG.cues||!SONG.cues.length) return;
+    var C=SONG.cues;
+    var aud=document.createElement('audio');
+    aud.src=SONG.audio; aud.preload='auto';
+    document.body.appendChild(aud);
+    // override start/stop to control real audio
+    start=function(){ playing=true; playBtn.innerHTML='&#10074;&#10074;'; aud.play(); };
+    stop=function(){ playing=false; playBtn.innerHTML='&#9654;'; aud.pause(); };
+    // timeupdate drives the highlight
+    aud.addEventListener('timeupdate',function(){
+      var t=aud.currentTime,np=0;
+      for(var i=0;i<C.length;i++){ if(C[i]<=t) np=i; else break; }
+      if(np!==pos){ pos=np; render(); }
+    });
+    aud.addEventListener('ended',function(){ stop(); });
+    // fwd/back/restart seek in the real audio
+    document.getElementById('fwd').onclick=function(){
+      if(pos<C.length-1){ pos++; aud.currentTime=C[pos]; render(); }
+    };
+    document.getElementById('back').onclick=function(){
+      if(pos>0){ pos--; aud.currentTime=C[pos]; render(); }
+    };
+    document.getElementById('restart').onclick=function(){
+      pos=0; aud.currentTime=0; render();
+    };
+    // clicking a line seeks audio to that cue
+    scroll.addEventListener('click',function(e){
+      var d=e.target.closest('.ln'); if(!d||d.classList.contains('blank')) return;
+      var li=lineIdx.indexOf(+d.dataset.i); if(li<0||li>=C.length) return;
+      pos=li; aud.currentTime=C[li]; render();
+    });
+    // hide speed slider (audio drives timing now)
+    var spdEl=document.querySelector('.spd'); if(spdEl) spdEl.style.display='none';
+    // update hint
+    var hintEl=document.getElementById('hint');
+    if(hintEl) hintEl.innerHTML='<a href="'+(SONG.back||'/radio/')+'">&larr; '+(SONG.backLabel||'the show')+'</a> &nbsp;&middot;&nbsp; tap ▶ to play &middot; tap a line to jump';
+  })();
+
   // ── the faint background field, same hand as the radio ──
   (function(){
     var cv=document.getElementById('field'); if(!cv)return; var cx=cv.getContext('2d'); var W,H;
