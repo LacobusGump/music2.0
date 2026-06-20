@@ -99,10 +99,11 @@ window.RADIO=(function(){
   };
   function lyricsFor(p){ return LYRICS[(p.f||'').split('/').pop().replace(/\.[^.]+$/,'')] || null; }
 
-  // ── JIMMY BEATS — separate from the album, no columns, just the groove ──
+  // ── GUMP ON THE RACKS — separate from the album, no columns, just the groove ──
   var B='/v5/beats/';
   var BEATS=[
-    {t:"Midnight Echoes",s:"boom bap",f:B+"midnight_echoes.mp3"}
+    {t:"Midnight Echoes",s:"boom bap",f:B+"midnight_echoes.mp3"},
+    {t:"Racks on Racks",s:"trap",f:B+"racks_on_racks.mp3"}
   ];
 
   var byPage={}; for(var i=0;i<PLAYLIST.length;i++){ if(PLAYLIST[i].page && byPage[PLAYLIST[i].page]==null) byPage[PLAYLIST[i].page]=i; }
