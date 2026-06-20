@@ -50,4 +50,6 @@ document.addEventListener('click',function(e){
 },true);
 })();
 if('serviceWorker' in navigator){navigator.serviceWorker.register('/sw.js');}
+// mobile tap target — bumps all audio buttons to 44px on phones (inline styles can't override this without !important)
+(function(){var s=document.createElement('style');s.textContent='@media(max-width:760px){[id$="-btn"]{min-width:44px!important;min-height:44px!important;width:44px!important;height:44px!important;}}';document.head.appendChild(s);})();
 
