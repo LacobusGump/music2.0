@@ -107,7 +107,8 @@ window.RADIO=(function(){
     {t:"Midnight Echoes",s:"boom bap",f:B+"midnight_echoes.mp3"},
     {t:"Racks on Racks",s:"trap",f:B+"racks_on_racks.mp3"},
     {t:"Long Way Home",s:"lo-fi",f:B+"long_way_home.mp3"},
-    {t:"Gentrified Anna Marcy",s:"boom bap",f:B+"gentrified_anna_marcy.mp3"}
+    {t:"Gentrified Anna Marcy",s:"boom bap",f:B+"gentrified_anna_marcy.mp3"},
+    {t:"Dank Ass Meme",s:"dark orchestral · glitch",f:B+"dank_ass_meme.mp3"}
   ];
 
   var byPage={}; for(var i=0;i<PLAYLIST.length;i++){ if(PLAYLIST[i].page && byPage[PLAYLIST[i].page]==null) byPage[PLAYLIST[i].page]=i; }
