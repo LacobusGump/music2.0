@@ -105,7 +105,8 @@ window.RADIO=(function(){
     {t:"Midnight Echoes",s:"boom bap",f:B+"midnight_echoes.mp3"},
     {t:"Racks on Racks",s:"trap",f:B+"racks_on_racks.mp3"},
     {t:"The Long Way Home",s:"lo-fi",f:B+"the_long_way_home.mp3"},
-    {t:"Being Broke in Brooklyn",s:"cinematic hip hop",f:B+"being_broke_in_brooklyn.mp3"}
+    {t:"Being Broke in Brooklyn",s:"cinematic hip hop",f:B+"being_broke_in_brooklyn.mp3"},
+    {t:"Gentrified Marcy",s:"boom bap",f:B+"gentrified_marcy.mp3"}
   ];
 
   var byPage={}; for(var i=0;i<PLAYLIST.length;i++){ if(PLAYLIST[i].page && byPage[PLAYLIST[i].page]==null) byPage[PLAYLIST[i].page]=i; }
