@@ -608,47 +608,64 @@ body.paused .track-eq span{animation-play-state:paused;}
   var _origLoad=load;
   load=function(i,autoplay){ _origLoad(i,autoplay); lyrManualClose=false; setTimeout(function(){ loadLyrics(PLAY[idx]); },80); };
 
-  // ════ THE COVER ════ a spinning record; 33 rim-marks are the 33 songs; the playing one is lit.
+  // ════ THE COVER ════ drum photo with spinning record inside the drum head circle.
   // form seeded + locked by the quantum measurement the album asked for (seed 3197222091, R=0.9988).
   (function(){
     var cv=document.getElementById('vinyl'); if(!cv)return; var cx=cv.getContext('2d'); var S=680;
     var seed=3197222091>>>0; function rnd(){seed^=seed<<13;seed^=seed>>>17;seed^=seed<<5;seed>>>=0;return seed/4294967296;}
-    var Rlock=0.9988; var L=[]; for(var li=0;li<PLAY.length;li++)if(!PLAY[li].hidden)L.push(li); var N=L.length; // rim marks = listed tracks only
-    var jit=[]; for(var i=0;i<N;i++)jit.push((rnd()-0.5)); // quantum scatter, frozen
+    var Rlock=0.9988; var L=[]; for(var li=0;li<PLAY.length;li++)if(!PLAY[li].hidden)L.push(li); var N=L.length;
+    var jit=[]; for(var i=0;i<N;i++)jit.push((rnd()-0.5));
     var spin=0;
+    // drum head circle: center and radius tuned to the photo
+    var DC={x:S*0.50, y:S*0.44, r:S*0.285};
+    var img=new Image(); img.src='/img/drum_cover.jpg'; var imgLoaded=false;
+    img.onload=function(){ imgLoaded=true; };
     function draw(ts){
       var t=ts*0.001; var playingNow=!a.paused;
-      if(playingNow)spin+=0.0016; // the record turns only while it plays
+      if(playingNow)spin+=0.0016;
       cx.clearRect(0,0,S,S); var c=S/2;
-      // the disc
-      var g=cx.createRadialGradient(c,c,40,c,c,c-8);
-      g.addColorStop(0,'#1a1209'); g.addColorStop(0.5,'#0d0805'); g.addColorStop(1,'#070403');
-      cx.fillStyle=g; cx.beginPath(); cx.arc(c,c,c-8,0,6.2832); cx.fill();
+      // drum photo — square-cropped from center
+      if(imgLoaded){
+        var iw=img.naturalWidth, ih=img.naturalHeight;
+        var side=Math.min(iw,ih);
+        var sx=(iw-side)/2, sy=(ih-side)/2;
+        cx.drawImage(img,sx,sy,side,side,0,0,S,S);
+      } else {
+        cx.fillStyle='#0a0604'; cx.fillRect(0,0,S,S);
+      }
+      // spinning vinyl record clipped inside the drum head circle
+      cx.save();
+      cx.beginPath(); cx.arc(DC.x,DC.y,DC.r,0,6.2832); cx.clip();
+      var rc=DC.r;
+      // disc
+      var g=cx.createRadialGradient(DC.x,DC.y,rc*0.2,DC.x,DC.y,rc);
+      g.addColorStop(0,'rgba(26,18,9,0.88)'); g.addColorStop(0.5,'rgba(13,8,5,0.82)'); g.addColorStop(1,'rgba(7,4,3,0.78)');
+      cx.fillStyle=g; cx.beginPath(); cx.arc(DC.x,DC.y,rc,0,6.2832); cx.fill();
       // grooves
-      for(var r=70;r<c-14;r+=11){ cx.beginPath(); cx.arc(c,c,r,0,6.2832); cx.strokeStyle='rgba(201,164,74,'+(0.018+0.014*Math.sin(r*0.3+t)).toFixed(3)+')'; cx.lineWidth=1; cx.stroke(); }
-      // 33 rim marks — the tracks. locked to R=0.9988, with the quantum 0.12% scatter.
-      var rim=c-26;
+      for(var r=rc*0.22;r<rc-4;r+=rc*0.032){ cx.beginPath(); cx.arc(DC.x,DC.y,r,0,6.2832); cx.strokeStyle='rgba(201,164,74,'+(0.022+0.016*Math.sin(r*0.3+t)).toFixed(3)+')'; cx.lineWidth=0.9; cx.stroke(); }
+      // rim marks
+      var rim=rc-rc*0.075;
       for(var i=0;i<N;i++){
         var ang=i/N*6.2832 - 1.5708 + spin + jit[i]*(1-Rlock)*6.2832;
-        var x=c+Math.cos(ang)*rim, y=c+Math.sin(ang)*rim;
+        var x=DC.x+Math.cos(ang)*rim, y=DC.y+Math.sin(ang)*rim;
         var on=(L[i]===idx);
-        var col=path[L[i]];                                  // the chosen version paints the mark, so the path shows on the record
+        var col=path[L[i]];
         var rgb = col==='human' ? '196,160,136' : col==='jim' ? '216,120,50' : '201,164,74';
-        var sz=on?5.2:(col==='demo'?2.6:3.1), al=on?1:(col==='demo'?0.34:0.6);
-        if(!on && mute[L[i]]) al*=0.28;                     // muted songs fade on the rim — the playlist shows on the record
-        if(on){ cx.beginPath(); cx.arc(x,y,11,0,6.2832); cx.fillStyle='rgba('+rgb+',0.16)'; cx.fill(); }
+        var sz=on?4.8:(col==='demo'?2.4:2.9), al=on?1:(col==='demo'?0.34:0.6);
+        if(!on && mute[L[i]]) al*=0.28;
+        if(on){ cx.beginPath(); cx.arc(x,y,10,0,6.2832); cx.fillStyle='rgba('+rgb+',0.16)'; cx.fill(); }
         cx.beginPath(); cx.arc(x,y,sz,0,6.2832);
         cx.fillStyle='rgba('+(on?'240,217,168':rgb)+','+al+')'; cx.fill();
       }
-      // center label — the gold core, the H(y)m
-      var lab=58+ (playingNow?Math.sin(t*1.4)*2:0);
-      var lg=cx.createRadialGradient(c-14,c-16,6,c,c,lab);
+      // center label
+      var lab=rc*0.175 + (playingNow?Math.sin(t*1.4)*rc*0.006:0);
+      var lg=cx.createRadialGradient(DC.x-lab*0.24,DC.y-lab*0.28,lab*0.1,DC.x,DC.y,lab);
       lg.addColorStop(0,'#e8c884'); lg.addColorStop(0.6,'#b8753a'); lg.addColorStop(1,'#6a3d18');
-      cx.fillStyle=lg; cx.beginPath(); cx.arc(c,c,lab,0,6.2832); cx.fill();
-      cx.fillStyle='rgba(10,6,4,0.92)'; cx.beginPath(); cx.arc(c,c,7,0,6.2832); cx.fill(); // spindle hole
-      // the "?" of H(y)m? on the label
-      cx.fillStyle='rgba(26,17,9,0.7)'; cx.font='italic 30px Georgia'; cx.textAlign='center'; cx.textBaseline='middle';
-      cx.fillText('h(y)m?', c, c-22);
+      cx.fillStyle=lg; cx.beginPath(); cx.arc(DC.x,DC.y,lab,0,6.2832); cx.fill();
+      cx.fillStyle='rgba(10,6,4,0.92)'; cx.beginPath(); cx.arc(DC.x,DC.y,lab*0.1,0,6.2832); cx.fill();
+      cx.fillStyle='rgba(26,17,9,0.7)'; cx.font='italic '+(lab*0.45).toFixed(0)+'px Georgia'; cx.textAlign='center'; cx.textBaseline='middle';
+      cx.fillText('h(y)m?', DC.x, DC.y-lab*0.38);
+      cx.restore();
       requestAnimationFrame(draw);
     }
     requestAnimationFrame(draw);
