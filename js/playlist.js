@@ -86,6 +86,7 @@ window.RADIO=(function(){
     three_by_three:'/three-by-three/',
     gospel_for_ai:'/gospel-for-ai/',
     hm_heart:'/the-loop/',
+    installation_hum:'/installation-hum/',
     first_coat:'/first-coat/', you_there:'/you-there/', love_forgets_best:'/love-forgets-best/',
     river_doesnt:'/river-doesnt/', proper_pleasantry:'/proper-pleasantry/',
     one_plus_one_equals_three:'/one-plus-one/', fifteen_year_counter:'/fifteen-year-counter/',
