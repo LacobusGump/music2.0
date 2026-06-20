@@ -99,6 +99,12 @@ window.RADIO=(function(){
   };
   function lyricsFor(p){ return LYRICS[(p.f||'').split('/').pop().replace(/\.[^.]+$/,'')] || null; }
 
+  // ── JIMMY BEATS — separate from the album, no columns, just the groove ──
+  var B='/v5/beats/';
+  var BEATS=[
+    {t:"Midnight Echoes",s:"boom bap",f:B+"midnight_echoes.mp3"}
+  ];
+
   var byPage={}; for(var i=0;i<PLAYLIST.length;i++){ if(PLAYLIST[i].page && byPage[PLAYLIST[i].page]==null) byPage[PLAYLIST[i].page]=i; }
   function indexFor(sg){
     if(!sg) return 0;
@@ -107,5 +113,5 @@ window.RADIO=(function(){
     return 0;
   }
   function slug(){var p=location.pathname.replace(/\/+$/,'');return p===''?'home':(p.split('/').pop()||'home');}
-  return {list:PLAYLIST, slug:slug, indexFor:indexFor, cdn:CDN, playlists:PLAYLISTS, lyrics:LYRICS, lyricsFor:lyricsFor};
+  return {list:PLAYLIST, slug:slug, indexFor:indexFor, cdn:CDN, playlists:PLAYLISTS, lyrics:LYRICS, lyricsFor:lyricsFor, beats:BEATS};
 })();
