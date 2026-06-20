@@ -106,7 +106,7 @@ window.RADIO=(function(){
     {t:"Racks on Racks",s:"trap",f:B+"racks_on_racks.mp3"},
     {t:"Long Way Home",s:"lo-fi",f:B+"long_way_home.mp3"},
     {t:"Broke in Brooklyn",s:"cinematic hip hop",f:B+"broke_in_brooklyn.mp3"},
-    {t:"Gentrified Marcy",s:"boom bap",f:B+"gentrified_marcy.mp3"}
+    {t:"Gentrified Anna Marcy",s:"boom bap",f:B+"gentrified_anna_marcy.mp3"}
   ];
 
   var byPage={}; for(var i=0;i<PLAYLIST.length;i++){ if(PLAYLIST[i].page && byPage[PLAYLIST[i].page]==null) byPage[PLAYLIST[i].page]=i; }
